@@ -8,6 +8,8 @@ import os
 from pathlib import Path
 import sqlite3
 
+from dotenv import load_dotenv
+
 
 ROOT = Path(__file__).resolve().parent
 MIGRATIONS = ROOT / "migrations"
@@ -49,6 +51,7 @@ def migrate(db_path: str) -> list[str]:
 
 
 def main() -> int:
+    load_dotenv()
     db_path = os.getenv("BOT_STATS_DB", "").strip()
     if not db_path:
         raise SystemExit("BOT_STATS_DB is required")

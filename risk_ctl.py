@@ -4,15 +4,22 @@
 import argparse
 import json
 
+from dotenv import load_dotenv
+
 from risk_manager import RiskLimits, RiskManager
+from venue_config import apply_testnet_paths
 
 
 def main() -> int:
+    load_dotenv()
     parser = argparse.ArgumentParser(description="Inspect or manually reset the trading circuit breaker")
     parser.add_argument("command", choices=("status", "reset"))
     parser.add_argument("--force", action="store_true", help="reset before cooldown expires after manual review")
+    parser.add_argument("--testnet", action="store_true", help="inspect/reset isolated Testnet circuit state")
     args = parser.parse_args()
 
+    if args.testnet:
+        apply_testnet_paths()
     limits = RiskLimits.from_env()
     manager = RiskManager(limits)
     if args.command == "status":
