@@ -16,6 +16,8 @@
 - Миграция `003` добавляет точные `price/gross_qty/net_qty`, актив и сумму комиссии, quote-оценку и Decimal-поля inventory без удаления старых REAL-колонок.
 - `/myTrades` учитывает комиссии в base/quote и оценивает BNB по исторической минутной цене; неизвестная комиссия переводит risk telemetry в fail-closed.
 - Inventory, средняя себестоимость, realized PnL, дневные risk-метрики, `pnl_24h.py` и VWAP autotune используют единую Decimal-модель.
+- Добавлен read-only `testnet_soak_monitor.py`: длительная проверка лимита BUY/exposure, OCO-защиты, circuit halt и account ↔ SQLite с атомарным JSON-отчётом.
+- Реальный Testnet restart drill подтвердил сохранение OCO без дублей; TP исполнился, base/quote комиссии и итоговый inventory совпали с account.
 
 ## [2026-07-15]
 ### Safety hardening

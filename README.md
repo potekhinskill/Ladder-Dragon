@@ -161,6 +161,18 @@ python binance_testnet_smoke.py --mode buy-oco-restart --symbol SOLUSDT
 python binance_testnet_smoke.py --mode circuit-drill --symbol SOLUSDT
 ```
 
+Для длительного Testnet soak запустите рядом с supervisor read-only монитор. Он
+останавливается с ошибкой при лишних BUY, превышении exposure, persistent halt,
+длительно незащищённой позиции или расхождении account ↔ SQLite:
+
+```bash
+python testnet_soak_monitor.py --symbol SOLUSDT --duration-sec 43200 \
+  --interval-sec 5 --max-open-buys 1 --max-exposure-usdt 25
+```
+
+Итоговый JSON сохраняется в изолированном Testnet runtime как
+`.runtime/testnet/soak_report.json`.
+
 Исполнитель сохраняет BUY/OCO-намерение в `BOT_ORDER_JOURNAL` до отправки запроса. После потерянного ACK или рестарта он сначала запрашивает Binance по прежнему `clientOrderId`; исполненный BUY остаётся незавершённым, пока OCO или fallback SELL не подтверждены. Ошибка защиты создаёт persistent circuit halt.
 
 Торговая статистика хранит исходный объём исполнения (`gross_qty`), фактическое
