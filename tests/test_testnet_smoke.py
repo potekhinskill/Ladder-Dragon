@@ -1,10 +1,12 @@
 from decimal import Decimal
 import json
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 import requests
 from order_recovery import OrderJournal
+import binance_testnet_smoke as smoke
 
 from binance_testnet_smoke import (
     build_market_buy,
@@ -278,6 +280,23 @@ def test_circuit_drill_proves_restart_persistence_and_manual_reset(tmp_path):
     assert result["halt_survived_restart"] is True
     assert result["manual_reset_verified"] is True
     assert not (tmp_path / "drill" / "circuit_halt.json").exists()
+
+
+def test_circuit_drill_run_is_fully_offline(tmp_path, monkeypatch):
+    def refuse_client(*args, **kwargs):
+        raise AssertionError("circuit drill must not construct an exchange client")
+
+    monkeypatch.setattr(smoke, "SpotTestnetClient", refuse_client)
+    result = smoke.run(
+        SimpleNamespace(
+            mode="circuit-drill",
+            symbol="SOLUSDT",
+            drill_dir=tmp_path / "offline-drill",
+        )
+    )
+
+    assert result["venue"] == "isolated-local"
+    assert result["circuit_drill"] == "passed"
 
 
 class LostCleanupAckClient(FakeTestnetClient):
