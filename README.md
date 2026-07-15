@@ -63,6 +63,16 @@ python -m pip install -e '.[test,dashboard]'
 cp .env.example .env
 ```
 
+Для локального запуска на macOS используйте доступный для записи runtime-каталог:
+
+```env
+BOT_RUN_DIR=.runtime
+BOT_STATS_DB=.runtime/bot_stats.db
+BOT_ORDER_JOURNAL=.runtime/order_intents.sqlite3
+```
+
+На сервере systemd оставьте `BOT_RUN_DIR=/run/mybot` из шаблона.
+
 Рекомендации для API-ключа:
 
 - не разрешать вывод средств;
@@ -179,7 +189,7 @@ python run_dashboard.py
 - постепенно разделить монолитный исполнитель на небольшие модули;
 - перевести оставшуюся биржевую арифметику с `float` на `Decimal`;
 - сузить оставшиеся широкие обработчики исключений;
-- выполнить authenticated Testnet `order-test`, `limit-cancel` и `buy-oco-restart` с отдельными ключами;
+- провести длительный soak-тест настоящего супервизора в Spot Testnet с контролируемыми рестартами;
 - провести walk-forward анализ на реальных исторических свечах перед изменением стратегии.
 
 ## Документация

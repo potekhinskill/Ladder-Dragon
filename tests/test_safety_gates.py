@@ -36,6 +36,30 @@ def test_worker_dry_blocks_every_mutating_signed_request():
         raise AssertionError("mutating request was not blocked")
 
 
+def test_worker_symbol_lock_respects_bot_run_dir(tmp_path, monkeypatch):
+    worker = load_worker()
+    monkeypatch.setenv("BOT_RUN_DIR", str(tmp_path))
+    lock = worker.SymbolLock("SOLUSDT")
+
+    assert lock.acquire() is True
+    assert Path(lock.path).parent == tmp_path
+    lock.release()
+    assert not Path(lock.path).exists()
+
+
+def test_supervisor_exponentially_backs_off_crashing_children(monkeypatch):
+    monkeypatch.setenv("BOT_CHILD_RESTART_BASE_SEC", "2")
+    monkeypatch.setenv("BOT_CHILD_RESTART_MAX_SEC", "10")
+    monkeypatch.setenv("BOT_CHILD_STABLE_SEC", "30")
+    ai_supervisor._CHILD_FAILURES.clear()
+    ai_supervisor._CHILD_RESTART_AFTER.clear()
+
+    assert ai_supervisor._schedule_child_restart("SOLUSDT", 1, 1, now=100) == 2
+    assert ai_supervisor._schedule_child_restart("SOLUSDT", 1, 1, now=101) == 4
+    assert ai_supervisor._schedule_child_restart("SOLUSDT", 0, 60, now=102) == 0
+    assert ai_supervisor._CHILD_FAILURES["SOLUSDT"] == 0
+
+
 def test_unknown_supervisor_flag_is_fatal():
     result = subprocess.run(
         [sys.executable, "ai_supervisor.py", "--definitely-unknown"],
@@ -45,6 +69,22 @@ def test_unknown_supervisor_flag_is_fatal():
     )
     assert result.returncode == 2
     assert "unrecognized arguments" in result.stderr
+
+
+def test_dry_supervisor_refuses_missing_worker_file():
+    result = subprocess.run(
+        [
+            sys.executable,
+            "ai_supervisor.py",
+            "--base-script",
+            "definitely-missing-worker.py",
+        ],
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+    assert result.returncode == 2
+    assert "--base-script does not exist" in result.stderr
 
 
 def test_live_requires_explicit_confirmation(monkeypatch):
