@@ -25,7 +25,8 @@
 | `tools_market.py` | Binance HTTP API, подпись запросов, цены, свечи и торговые фильтры |
 | `tools_stats.py` | Хранение сделок и агрегатов в SQLite |
 | `risk_manager.py`, `risk_ctl.py` | Постоянный circuit breaker, портфельные лимиты и ручной reset |
-| `order_identity.py` | Идемпотентные Binance `clientOrderId` для повторов и рестартов |
+| `order_identity.py`, `order_recovery.py` | Идемпотентные ID, persistent order-intents и восстановление после рестартов |
+| `binance_testnet_smoke.py` | Изолированный Spot Testnet preflight и create/query/cancel smoke |
 | `simulation.py`, `backtest.py` | Decimal-симулятор с комиссиями, проскальзыванием и walk-forward |
 | `auto_ladder_map.py` | Генерация лестницы по режиму рынка |
 | `gen_vwap_env.py` | Расчёт базовых VWAP-параметров |
@@ -101,6 +102,30 @@ BOT_LIVE_CONFIRMED=YES python ai_supervisor.py \
 
 Перед LIVE выполняется fail-closed preflight: доступность SQLite, синхронизация времени, биржевые фильтры, права API, circuit halt и корректность всех лимитов.
 
+### Spot Testnet smoke
+
+Скрипт жёстко разрешает только `https://testnet.binance.vision` и не может обратиться к Mainnet. Публичная проверка не требует ключей:
+
+```bash
+python binance_testnet_smoke.py --mode public --symbol SOLUSDT
+```
+
+Проверка подписи и прав ключа без настоящего ордера:
+
+```bash
+python binance_testnet_smoke.py --mode authenticated --symbol SOLUSDT
+python binance_testnet_smoke.py --mode order-test --symbol SOLUSDT
+```
+
+Настоящий Testnet LIMIT создаётся далеко ниже рынка, проверяется и отменяется в `finally`. Для него нужно отдельное подтверждение:
+
+```bash
+BOT_TESTNET_ORDER_CONFIRMED=YES \
+python binance_testnet_smoke.py --mode limit-cancel --symbol SOLUSDT
+```
+
+Исполнитель сохраняет BUY/OCO-намерение в `BOT_ORDER_JOURNAL` до отправки запроса. После потерянного ACK или рестарта он сначала запрашивает Binance по прежнему `clientOrderId`; исполненный BUY остаётся незавершённым, пока OCO или fallback SELL не подтверждены. Ошибка защиты создаёт persistent circuit halt.
+
 ## Circuit breaker
 
 Circuit breaker сохраняет стартовую и пиковую equity текущего UTC-дня. При достижении лимита он:
@@ -134,7 +159,7 @@ python run_dashboard.py
 - постепенно разделить монолитный исполнитель на небольшие модули;
 - перевести оставшуюся биржевую арифметику с `float` на `Decimal`;
 - сузить оставшиеся широкие обработчики исключений;
-- расширить записанные Binance fixtures и выполнить ручной Testnet smoke-run;
+- выполнить authenticated Testnet `order-test` и `limit-cancel` с отдельными ключами;
 - провести walk-forward анализ на реальных исторических свечах перед изменением стратегии.
 
 ## Документация

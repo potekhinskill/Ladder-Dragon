@@ -81,7 +81,10 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 import tools_market as TM
 from order_identity import client_order_id
+from order_recovery import OrderIntent, OrderJournal, TERMINAL_EXCHANGE_STATES
 from exchange_math import round_step
+from risk_manager import create_manual_halt
+from time_safety import assess_exchange_clock
 
 import requests
 from urllib.parse import urlencode
@@ -90,6 +93,7 @@ import fcntl  # Linux/Unix
 
 RUN = True
 LIVE_MODE = False
+_ORDER_JOURNAL: Optional[OrderJournal] = None
 
 # ------------------- ENV / config -------------------
 
@@ -111,6 +115,33 @@ SESSION = requests.Session()
 if API_KEY:
     SESSION.headers.update({"X-MBX-APIKEY": API_KEY})
 SESSION.headers.update({"User-Agent": USER_AGENT})
+
+
+def _order_journal() -> Optional[OrderJournal]:
+    """Open the durable intent journal only when exchange mutations are enabled."""
+    global _ORDER_JOURNAL
+    if not LIVE_MODE:
+        return None
+    if _ORDER_JOURNAL is None:
+        stats_db = os.getenv("BOT_STATS_DB", "").strip()
+        default_path = f"{stats_db}.orders.sqlite3" if stats_db else "/run/mybot/order_intents.sqlite3"
+        path = os.getenv("BOT_ORDER_JOURNAL", default_path)
+        venue = "testnet" if "testnet" in BINANCE_API_BASE.lower() else "mainnet"
+        _ORDER_JOURNAL = OrderJournal(path, venue=venue)
+    return _ORDER_JOURNAL
+
+
+def _trip_execution_halt(reason: str, **metadata: Any) -> None:
+    path = create_manual_halt(reason, metadata=metadata)
+    log(f"[EXECUTION-HALT] {reason}; marker={path}")
+
+
+def _http_error_code(exc: requests.HTTPError) -> Optional[int]:
+    try:
+        payload = exc.response.json()
+        return int(payload.get("code")) if isinstance(payload, dict) else None
+    except (AttributeError, TypeError, ValueError):
+        return None
 
 # ------------------- helpers: rounding & env -------------------
 
@@ -805,9 +836,125 @@ def cancel_oco(symbol: str, order_list_id: int) -> None:
     except Exception as e:
         log(f"[ERR] cancel_oco: {e}")
 
+def get_order_by_client_id(symbol: str, client_id: str) -> Dict[str, Any] | None:
+    try:
+        return _signed_request(
+            "GET",
+            "/api/v3/order",
+            {"symbol": symbol, "origClientOrderId": client_id},
+        )
+    except requests.HTTPError as exc:
+        if _http_error_code(exc) == -2013:
+            return None
+        raise
+
+
+def get_order_list_by_client_id(client_id: str) -> Dict[str, Any] | None:
+    try:
+        return _signed_request(
+            "GET",
+            "/api/v3/orderList",
+            {"origClientOrderId": client_id},
+        )
+    except requests.HTTPError as exc:
+        if _http_error_code(exc) in (-2013, -2011):
+            return None
+        raise
+
+
+def _record_order_payload(payload: Dict[str, Any] | None) -> Optional[OrderIntent]:
+    if not payload:
+        return None
+    journal = _order_journal()
+    if journal is None:
+        return None
+    client_id = str(payload.get("clientOrderId") or payload.get("origClientOrderId") or "")
+    intent = journal.get(client_id) if client_id else None
+    if intent is None and payload.get("orderId") is not None:
+        intent = journal.get_by_exchange_order_id(int(payload["orderId"]))
+    if intent is None:
+        return None
+    return journal.record_exchange_order(intent.client_order_id, payload)
+
+
+def recover_pending_buy_order_ids(symbol: str) -> List[int]:
+    """Reconcile every unfinished BUY before allowing new placement after restart."""
+    journal = _order_journal()
+    if journal is None:
+        return []
+    recovered: List[int] = []
+    for intent in journal.unresolved_buys(symbol):
+        try:
+            payload = get_order_by_client_id(symbol, intent.client_order_id)
+        except requests.RequestException as exc:
+            journal.mark_unknown(intent.client_order_id, exc)
+            reason = f"cannot reconcile BUY {intent.client_order_id} after restart: {exc}"
+            _trip_execution_halt(reason, symbol=symbol, client_order_id=intent.client_order_id)
+            raise RuntimeError(reason) from exc
+        if payload is None:
+            if intent.state not in ("PREPARED", "UNKNOWN"):
+                reason = (
+                    f"exchange lost unresolved BUY {intent.client_order_id} "
+                    f"recorded as {intent.state}"
+                )
+                _trip_execution_halt(reason, symbol=symbol, client_order_id=intent.client_order_id)
+                raise RuntimeError(reason)
+            log(f"[RECOVERY] {symbol} {intent.client_order_id} not found; safe to retry same ID")
+            continue
+        updated = journal.record_exchange_order(intent.client_order_id, payload)
+        if updated.state in ("SUBMITTED", "PARTIALLY_FILLED", "FILLED", "PROTECTION_PENDING"):
+            if updated.exchange_order_id is None:
+                reason = f"reconciled BUY {intent.client_order_id} has no exchange orderId"
+                _trip_execution_halt(reason, symbol=symbol, client_order_id=intent.client_order_id)
+                raise RuntimeError(reason)
+            recovered.append(updated.exchange_order_id)
+            log(
+                f"[RECOVERY] {symbol} client={intent.client_order_id} "
+                f"order={updated.exchange_order_id} state={updated.state}"
+            )
+    return list(dict.fromkeys(recovered))
+
+
+def recover_existing_protection(parent_client_order_id: str) -> bool:
+    """Resolve a crash after protection POST but before the local ACK was persisted."""
+    journal = _order_journal()
+    if journal is None:
+        return False
+    protection = journal.protection_for_parent(parent_client_order_id)
+    if protection is None:
+        return False
+    if protection.state == "PROTECTED":
+        return True
+    if protection.order_type == "OCO":
+        payload = get_order_list_by_client_id(protection.client_order_id)
+        if not isinstance(payload, dict) or payload.get("listStatusType") not in ("EXEC_STARTED", "ALL_DONE"):
+            return False
+        order_list_id = payload.get("orderListId")
+        journal.mark_protected(
+            parent_client_order_id=parent_client_order_id,
+            protection_client_order_id=protection.client_order_id,
+            order_list_id=int(order_list_id) if order_list_id is not None else None,
+        )
+        return True
+    payload = get_order_by_client_id(protection.symbol, protection.client_order_id)
+    if not isinstance(payload, dict):
+        return False
+    updated = journal.record_exchange_order(protection.client_order_id, payload)
+    if updated.state in ("SUBMITTED", "PARTIALLY_FILLED", "FILLED"):
+        journal.mark_protected(
+            parent_client_order_id=parent_client_order_id,
+            protection_client_order_id=protection.client_order_id,
+            exchange_order_id=updated.exchange_order_id,
+        )
+        return True
+    return False
+
+
 def get_order(symbol: str, order_id: int) -> Dict[str, Any] | None:
     try:
-        return _signed_request("GET", "/api/v3/order", {"symbol": symbol, "orderId": order_id})
+        payload = _signed_request("GET", "/api/v3/order", {"symbol": symbol, "orderId": order_id})
+        _record_order_payload(payload)
+        return payload
     except Exception as e:
         log(f"[ERR] get_order: {e}")
         return None
@@ -817,7 +964,9 @@ def place_limit_order(side: str,
                       qty: float,
                       price: float,
                       *,
-                      maker: bool = False) -> Dict[str, Any] | None:
+                      maker: bool = False,
+                      purpose: str = "ladder",
+                      parent_client_order_id: Optional[str] = None) -> Dict[str, Any] | None:
     if not LIVE_MODE:
         log(f"[DRY] skip LIMIT {symbol} {side.upper()} {qty:.8f} @ {price:.8f}")
         return None
@@ -836,26 +985,93 @@ def place_limit_order(side: str,
             return None
         qty = need
 
+    qty_s = fmt_qty_sym(symbol, qty)
+    price_s = fmt_price_sym(symbol, price)
+    journal = _order_journal()
+    active = journal.find_active(
+        symbol=symbol,
+        side=side,
+        purpose=purpose,
+        quantity=qty_s,
+        price=price_s,
+    ) if journal is not None else None
+    if active is not None:
+        try:
+            existing = get_order_by_client_id(symbol, active.client_order_id)
+        except requests.RequestException as exc:
+            journal.mark_unknown(active.client_order_id, exc)
+            raise
+        if existing is not None:
+            updated = journal.record_exchange_order(active.client_order_id, existing)
+            if updated.state not in TERMINAL_EXCHANGE_STATES:
+                log(
+                    f"[IDEMPOTENT] reuse {symbol} {side} client={active.client_order_id} "
+                    f"order={updated.exchange_order_id} state={updated.state}"
+                )
+                return existing
+            active = None
+
+    generated_id = client_order_id(symbol, side, purpose, price_s, qty_s)
+    if journal is not None and journal.get(generated_id) is not None:
+        generated_id = client_order_id(
+            symbol,
+            side,
+            f"{purpose}-{time.time_ns()}",
+            price_s,
+            qty_s,
+            bucket_seconds=1,
+        )
+    order_client_id = active.client_order_id if active is not None else generated_id
+    if journal is not None:
+        journal.prepare(
+            client_order_id=order_client_id,
+            symbol=symbol,
+            side=side,
+            purpose=purpose,
+            order_type=("LIMIT_MAKER" if maker else "LIMIT"),
+            quantity=qty_s,
+            price=price_s,
+            parent_client_order_id=parent_client_order_id,
+        )
+
     params = {
         "symbol": symbol,
         "side": side,
         "type": ("LIMIT_MAKER" if maker else "LIMIT"),
-        "quantity": fmt_qty_sym(symbol, qty),
-        "price":    fmt_price_sym(symbol, price),
+        "quantity": qty_s,
+        "price": price_s,
         "newOrderRespType": "RESULT",
-        "newClientOrderId": client_order_id(
-            symbol, side, "ladder", fmt_price_sym(symbol, price), fmt_qty_sym(symbol, qty)
-        ),
+        "newClientOrderId": order_client_id,
     }
     if not maker:
         params["timeInForce"] = "GTC"
 
     try:
         j = _signed_request("POST", "/api/v3/order", params)
+        if isinstance(j, dict):
+            j.setdefault("clientOrderId", order_client_id)
+            if journal is not None:
+                journal.record_exchange_order(order_client_id, j)
         oid = j.get("orderId")
-        log(f"[PLACE] {symbol} {side} {fmt_qty_sym(symbol, qty)} @ {fmt_price_sym(symbol, price)}")
+        log(f"[PLACE] {symbol} {side} {qty_s} @ {price_s} client={order_client_id} order={oid}")
         return j
-    except requests.HTTPError as e:
+    except requests.RequestException as e:
+        if journal is not None:
+            journal.mark_unknown(order_client_id, e)
+            try:
+                reconciled = get_order_by_client_id(symbol, order_client_id)
+            except requests.RequestException:
+                reconciled = None
+            if reconciled is not None:
+                journal.record_exchange_order(order_client_id, reconciled)
+                log(f"[IDEMPOTENT] recovered uncertain POST client={order_client_id}")
+                return reconciled
+            _trip_execution_halt(
+                f"uncertain order submission has no exchange confirmation: {order_client_id}",
+                symbol=symbol,
+                side=side,
+                client_order_id=order_client_id,
+            )
         try:
             err = e.response.json()
             log(f"[ERR] place_limit_order: HTTP {e.response.status_code} {json.dumps(err)}")
@@ -867,7 +1083,9 @@ def place_oco_sell(symbol: str,
                    qty: float,
                    tp_limit_price: float,
                    sl_stop_price: float,
-                   sl_limit_price: float) -> Dict[str, Any] | None:
+                   sl_limit_price: float,
+                   *,
+                   parent_client_order_id: Optional[str] = None) -> Dict[str, Any] | None:
     """
     Создаёт OCO SELL: LIMIT по tp_limit_price и STOP_LOSS_LIMIT по sl_stop_price/sl_limit_price.
     Все цены и qty должны быть уже округлены и проверены на minNotional.
@@ -881,21 +1099,75 @@ def place_oco_sell(symbol: str,
     sp = fmt_price_sym(symbol, round_price(symbol, sl_stop_price))
     sl = fmt_price_sym(symbol, round_price(symbol, sl_limit_price))
 
+    journal = _order_journal()
+    purpose = f"oco:{parent_client_order_id[:12]}" if parent_client_order_id else "oco"
+    active = journal.find_active(
+        symbol=symbol,
+        side="SELL",
+        purpose=purpose,
+        quantity=q,
+        price=tp,
+    ) if journal is not None else None
+    list_client_id = (
+        active.client_order_id
+        if active is not None
+        else client_order_id(symbol, "SELL", purpose, tp, q)
+    )
+    if active is not None:
+        existing = get_order_list_by_client_id(list_client_id)
+        if isinstance(existing, dict) and existing.get("listStatusType") in ("EXEC_STARTED", "ALL_DONE"):
+            order_list_id = existing.get("orderListId")
+            if journal is not None:
+                journal.record_order_list(list_client_id, existing)
+                if parent_client_order_id:
+                    journal.mark_protected(
+                        parent_client_order_id=parent_client_order_id,
+                        protection_client_order_id=list_client_id,
+                        order_list_id=int(order_list_id) if order_list_id is not None else None,
+                    )
+            log(f"[IDEMPOTENT] reuse OCO {symbol} client={list_client_id} list={order_list_id}")
+            return existing
+    if active is None and journal is not None and journal.get(list_client_id) is not None:
+        list_client_id = client_order_id(
+            symbol,
+            "SELL",
+            f"{purpose}-{time.time_ns()}",
+            tp,
+            q,
+            bucket_seconds=1,
+        )
+    if journal is not None:
+        journal.prepare(
+            client_order_id=list_client_id,
+            symbol=symbol,
+            side="SELL",
+            purpose=purpose,
+            order_type="OCO",
+            quantity=q,
+            price=tp,
+            parent_client_order_id=parent_client_order_id,
+            metadata={"stopPrice": sp, "stopLimitPrice": sl},
+        )
+        if parent_client_order_id:
+            journal.mark_protection_pending(parent_client_order_id)
+
     params = {
         "symbol": symbol,
         "side": "SELL",
         "quantity": q,
-        "price": tp,  # TP лимит
-        "stopPrice": sp,  # триггер
-        "stopLimitPrice": sl,  # лимит у стоп-ордера
-        "stopLimitTimeInForce": "GTC",
+        "aboveType": "LIMIT_MAKER",
+        "abovePrice": tp,
+        "belowType": "STOP_LOSS_LIMIT",
+        "belowStopPrice": sp,
+        "belowPrice": sl,
+        "belowTimeInForce": "GTC",
         "newOrderRespType": "RESULT",
-        "listClientOrderId": client_order_id(symbol, "SELL", "oco", tp, q),
-        "limitClientOrderId": client_order_id(symbol, "SELL", "otp", tp, q),
-        "stopClientOrderId": client_order_id(symbol, "SELL", "osl", sp, q),
+        "listClientOrderId": list_client_id,
+        "aboveClientOrderId": client_order_id(symbol, "SELL", "otp", tp, q),
+        "belowClientOrderId": client_order_id(symbol, "SELL", "osl", sp, q),
     }
     try:
-        j = _signed_request("POST", "/api/v3/order/oco", params)
+        j = _signed_request("POST", "/api/v3/orderList/oco", params)
         order_list_id = j.get("orderListId") if isinstance(j, dict) else None
         if order_list_id is None:
             raise RuntimeError("OCO response has no orderListId")
@@ -904,13 +1176,40 @@ def place_oco_sell(symbol: str,
         )
         if not isinstance(verified, dict) or verified.get("listStatusType") not in ("EXEC_STARTED", "ALL_DONE"):
             raise RuntimeError(f"OCO verification failed: {verified}")
+        if isinstance(j, dict):
+            j.setdefault("listClientOrderId", list_client_id)
+        if journal is not None:
+            journal.record_order_list(list_client_id, verified)
+            if parent_client_order_id:
+                journal.mark_protected(
+                    parent_client_order_id=parent_client_order_id,
+                    protection_client_order_id=list_client_id,
+                    order_list_id=int(order_list_id),
+                )
         log(f"[ATTACH-OCO] {symbol} SELL {q} | TP={tp} / SL stop={sp} limit={sl} verified")
         return j
-    except requests.HTTPError as e:
+    except (requests.RequestException, RuntimeError) as e:
+        if journal is not None:
+            journal.mark_unknown(list_client_id, e)
+            try:
+                reconciled = get_order_list_by_client_id(list_client_id)
+            except requests.RequestException:
+                reconciled = None
+            if isinstance(reconciled, dict) and reconciled.get("listStatusType") in ("EXEC_STARTED", "ALL_DONE"):
+                order_list_id = reconciled.get("orderListId")
+                journal.record_order_list(list_client_id, reconciled)
+                if parent_client_order_id:
+                    journal.mark_protected(
+                        parent_client_order_id=parent_client_order_id,
+                        protection_client_order_id=list_client_id,
+                        order_list_id=int(order_list_id) if order_list_id is not None else None,
+                    )
+                log(f"[IDEMPOTENT] recovered uncertain OCO POST client={list_client_id}")
+                return reconciled
         try:
             err = e.response.json()
             log(f"[ERR] place_oco_sell: HTTP {e.response.status_code} {json.dumps(err)}")
-        except Exception:
+        except (AttributeError, ValueError):
             log(f"[ERR] place_oco_sell: {e}")
         return None
 
@@ -1562,12 +1861,21 @@ def main():
         try:
             with sqlite3.connect(stats_db, timeout=5) as con:
                 con.execute("SELECT 1 FROM trades LIMIT 1").fetchall()
+            t0 = int(time.time() * 1000)
             server = _public_get("/api/v3/time")
-            offset = int(server["serverTime"]) - int(time.time() * 1000)
-            if abs(offset) > int(os.getenv("RISK_MAX_TIME_OFFSET_MS", "1000")):
-                raise RuntimeError(f"clock offset {offset} ms is unsafe")
+            t1 = int(time.time() * 1000)
+            assess_exchange_clock(
+                server_time_ms=int(server["serverTime"]),
+                request_started_ms=t0,
+                response_finished_ms=t1,
+                max_offset_ms=int(os.getenv("RISK_MAX_TIME_OFFSET_MS", "1000")),
+                max_round_trip_ms=int(os.getenv("RISK_MAX_TIME_RTT_MS", "5000")),
+            ).require_safe()
             pull_filters(args.symbol.upper())
-            _signed_request("GET", "/api/v3/account")
+            account = _signed_request("GET", "/api/v3/account")
+            if account.get("canTrade") is not True:
+                raise RuntimeError("Binance account/API key is not allowed to trade")
+            _order_journal()
         except (OSError, sqlite3.Error, requests.RequestException, RuntimeError, KeyError, ValueError) as exc:
             parser.error(f"LIVE preflight failed: {exc}")
     attach_oco = bool(args.attach_oco_on_fill)
@@ -1743,12 +2051,16 @@ def main():
                     )
 
         # BUY ниже текущей
-        placed_ids: List[int] = []
+        placed_ids: List[int] = (
+            recover_pending_buy_order_ids(symbol)
+            if LIVE_MODE and attach_oco
+            else []
+        )
         if skip_buys_reason:
             log(f"[SKIP-BUY] {symbol} reason={skip_buys_reason}; new BUY orders suppressed this cycle")
         else:
             try:
-                placed_ids = maybe_place_buys(
+                new_ids = maybe_place_buys(
                     symbol,
                     ladder_prices,
                     cap,
@@ -1759,6 +2071,7 @@ def main():
                     use_remainder_in_last=bool(args.use_remainder_in_last),
                     buy_limit_maker=args.buy_limit_maker,
                 )
+                placed_ids = list(dict.fromkeys([*placed_ids, *new_ids]))
             except Exception as e:
                 log(f"[ERR] maybe_place_buys: {e}")
 
@@ -1826,12 +2139,25 @@ def main():
                         o = get_order(symbol, oid)
                         if not o:
                             continue
-                        st = str(o.get("status", ""))
-                        if st != "FILLED":
+                        st = str(o.get("status", "")).upper()
+                        try:
+                            executed_status = float(o.get("executedQty", "0") or 0.0)
+                        except (TypeError, ValueError):
+                            executed_status = 0.0
+                        terminal_partial = st in TERMINAL_EXCHANGE_STATES and executed_status > 0
+                        if st != "FILLED" and not terminal_partial:
                             continue
 
+                        protected = False
+                        journal = _order_journal()
+                        buy_intent = journal.get_by_exchange_order_id(oid) if journal is not None else None
+                        parent_client_id = buy_intent.client_order_id if buy_intent is not None else None
                         try:
-                            executed = float(o.get("executedQty", "0") or 0.0)
+                            if parent_client_id and recover_existing_protection(parent_client_id):
+                                log(f"[RECOVERY] protection already exists for BUY order={oid}")
+                                placed_ids.remove(oid)
+                                continue
+                            executed = executed_status
                             if executed <= 0:
                                 try:
                                     placed_ids.remove(oid)
@@ -1891,11 +2217,13 @@ def main():
                             sl_val = q * sl_r
 
                             if q <= 0 or tp_val < min_tp or sl_val < min_sl:
-                                dbg(
-                                    "[OCO-SKIP] %s notional too small | q=%s sellable=%s dust=%s "
+                                reason = (
+                                    "cannot protect filled BUY: quantity/notional too small | "
+                                    "symbol=%s order=%s q=%s sellable=%s dust=%s "
                                     "TPv=%.2f<minTP=%.2f SLv=%.2f<minSL=%.2f | tp=%s sl_lim=%s"
                                     % (
                                         symbol,
+                                        oid,
                                         fmt_qty_sym(symbol, q),
                                         fmt_qty_sym(symbol, sellable),
                                         fmt_qty_sym(symbol, dust),
@@ -1904,22 +2232,54 @@ def main():
                                         fmt_price_sym(symbol, sl_r),
                                     )
                                 )
-                                try:
-                                    placed_ids.remove(oid)
-                                except ValueError:
-                                    pass
+                                _trip_execution_halt(
+                                    reason,
+                                    symbol=symbol,
+                                    order_id=oid,
+                                    client_order_id=parent_client_id,
+                                )
                                 continue
                             # -------------------------------------------------------------
 
-                            res = place_oco_sell(symbol, q, tp_r, sl_stop, sl_r)
+                            res = place_oco_sell(
+                                symbol,
+                                q,
+                                tp_r,
+                                sl_stop,
+                                sl_r,
+                                parent_client_order_id=parent_client_id,
+                            )
+                            protected = bool(res)
                             if not res and args.oco_fallback == "prefer-tp1":
                                 # guard на notional и «пыль» для одиночного TP
                                 if q * tp_r < min_notional(symbol, tp_r):
                                     dbg(f"[FALLBACK-SKIP] {symbol} TP notional too small: {q*tp_r:.2f} < {min_notional(symbol, tp_r):.2f}")
                                     raise RuntimeError("single TP notional too small")
                                 try:
-                                    place_limit_order("SELL", symbol, q, tp_r, maker=getattr(args, "sell_limit_maker", False))
-                                    log(f"[FALLBACK] {symbol} single TP placed @ {fmt_price_sym(symbol, tp_r)}")
+                                    fallback = place_limit_order(
+                                        "SELL",
+                                        symbol,
+                                        q,
+                                        tp_r,
+                                        maker=getattr(args, "sell_limit_maker", False),
+                                        purpose="fallback_tp",
+                                        parent_client_order_id=parent_client_id,
+                                    )
+                                    if fallback:
+                                        protected = True
+                                        if journal is not None and parent_client_id:
+                                            fallback_client_id = str(fallback.get("clientOrderId") or "")
+                                            if fallback_client_id:
+                                                journal.mark_protected(
+                                                    parent_client_order_id=parent_client_id,
+                                                    protection_client_order_id=fallback_client_id,
+                                                    exchange_order_id=(
+                                                        int(fallback["orderId"])
+                                                        if fallback.get("orderId") is not None
+                                                        else None
+                                                    ),
+                                                )
+                                        log(f"[FALLBACK] {symbol} single TP placed @ {fmt_price_sym(symbol, tp_r)}")
                                 except Exception as ee:
                                     log(f"[FALLBACK-ERR] {symbol} -> {ee}")
                             # ---- BE-состояние: запомним связку OCO ↔ avg_fill_price ----
@@ -1933,14 +2293,29 @@ def main():
                                         dbg(f"[BE] state add: orderListId={olid} fill={fmt_price_sym(symbol, avg_fill_price)}")
                                 except Exception as ee:
                                     dbg(f"[BE] state add err: {ee}")
+                            if not protected:
+                                reason = f"filled BUY {oid} has no confirmed OCO or fallback protection"
+                                _trip_execution_halt(
+                                    reason,
+                                    symbol=symbol,
+                                    order_id=oid,
+                                    client_order_id=parent_client_id,
+                                )
                         except Exception as e:
                             log(f"[ATTACH-OCO-ERR] {symbol} order {oid}: {e}")
+                            _trip_execution_halt(
+                                f"protection error for filled BUY {oid}: {e}",
+                                symbol=symbol,
+                                order_id=oid,
+                                client_order_id=parent_client_id,
+                            )
 
-                        # этот BUY обработан — убираем
-                        try:
-                            placed_ids.remove(oid)
-                        except ValueError:
-                            pass
+                        # BUY завершён только после подтверждённой защиты.
+                        if protected:
+                            try:
+                                placed_ids.remove(oid)
+                            except ValueError:
+                                pass
 
             # --- Breakeven поддержка OCO после частичного TP ---
             if BE_ENABLED:

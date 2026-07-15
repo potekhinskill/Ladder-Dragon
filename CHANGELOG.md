@@ -20,6 +20,13 @@
 - Добавлены unit-тесты circuit breaker, DRY gate, strict CLI, Decimal-округления, FIFO, VWAP, миграций и dashboard security.
 - Добавлен Decimal-симулятор с комиссиями, проскальзыванием, задержкой, buy-and-hold и walk-forward.
 
+### Restart recovery and Testnet
+- Добавлен durable SQLite-журнал order-intents, который записывается до Binance POST и сверяется по `clientOrderId` после неопределённой ошибки или рестарта.
+- Partial/FILLED BUY восстанавливаются в очередь контроля; BUY удаляется из неё только после подтверждённого OCO или fallback SELL.
+- Ошибка защиты позиции создаёт persistent circuit halt с точной причиной и идентификаторами ордера.
+- OCO переведён с deprecated `/api/v3/order/oco` на актуальный `/api/v3/orderList/oco` с `above*`/`below*` параметрами.
+- Добавлен fail-closed `binance_testnet_smoke.py`: public/auth/order-test и настоящий create-query-cancel Testnet LIMIT с отдельным подтверждением.
+
 ## [2025-09-26]
 ### Executor (1.8_autosize_universal.py)
 - Добавлен VWAP-guard: `--buy-vwap-premium` блокирует покупки, если цена ушла выше VWAP.

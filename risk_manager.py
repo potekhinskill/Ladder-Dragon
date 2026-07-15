@@ -147,6 +147,43 @@ def _atomic_json(path: Path, payload: dict) -> None:
             pass
 
 
+def create_manual_halt(
+    reason: str,
+    *,
+    limits: Optional[RiskLimits] = None,
+    now: Optional[float] = None,
+    metadata: Optional[dict] = None,
+) -> Path:
+    """Create a persistent halt for an execution failure outside RiskManager."""
+    limits = limits or RiskLimits.from_env()
+    now = float(now or time.time())
+    reasons = [str(reason)]
+    try:
+        current = json.loads(limits.halt_file.read_text(encoding="utf-8"))
+        reasons = list(dict.fromkeys([*(current.get("reasons") or []), *reasons]))
+    except (FileNotFoundError, json.JSONDecodeError, OSError, TypeError):
+        pass
+    payload = {
+        "halted_at": datetime.fromtimestamp(now, timezone.utc).isoformat(),
+        "reasons": reasons,
+        "manual_reset_required": True,
+        "cooldown_until": now + limits.cooldown_sec,
+    }
+    if metadata:
+        payload["metadata"] = metadata
+    _atomic_json(limits.halt_file, payload)
+    limits.alerts_file.parent.mkdir(parents=True, exist_ok=True)
+    alert = {
+        "ts": payload["halted_at"],
+        "event": "execution_safety_halt",
+        "reasons": reasons,
+        "metadata": metadata or {},
+    }
+    with limits.alerts_file.open("a", encoding="utf-8") as handle:
+        handle.write(json.dumps(alert, ensure_ascii=False, sort_keys=True) + "\n")
+    return limits.halt_file
+
+
 class RiskManager:
     def __init__(self, limits: RiskLimits):
         limits.validate()
