@@ -1,0 +1,37 @@
+from decimal import Decimal
+
+from simulation import Candle, Inventory, SimulationConfig, simulate_grid, walk_forward
+
+
+def candles():
+    return [
+        Candle(i, Decimal("100"), Decimal("103"), Decimal("97"), Decimal("100"))
+        for i in range(12)
+    ]
+
+
+def test_partial_fills_and_fees_use_decimal_inventory():
+    inv = Inventory()
+    inv.buy(Decimal("100"), Decimal("0.4"), Decimal("0.03"))
+    inv.buy(Decimal("90"), Decimal("0.6"), Decimal("0.04"))
+    inv.sell(Decimal("110"), Decimal("0.5"), Decimal("0.04"))
+    assert inv.qty == Decimal("0.5")
+    assert inv.fees == Decimal("0.11")
+    assert inv.realized > 0
+
+
+def test_backtest_includes_costs_and_buy_hold():
+    result = simulate_grid(candles(), SimulationConfig(latency_bars=1))
+    assert result.trades > 0
+    assert result.fees > 0
+    assert result.buy_hold_equity == Decimal("1000")
+
+
+def test_walk_forward_is_reproducible():
+    configs = [
+        SimulationConfig(buy_offset_pct=Decimal("0.01")),
+        SimulationConfig(buy_offset_pct=Decimal("0.02")),
+    ]
+    first = walk_forward(candles(), configs, folds=3)
+    second = walk_forward(candles(), configs, folds=3)
+    assert [row["result"].final_equity for row in first] == [row["result"].final_equity for row in second]

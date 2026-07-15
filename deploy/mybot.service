@@ -1,0 +1,31 @@
+[Unit]
+Description=Ladder Dragon Binance bot (DRY/Testnet by default)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=bot
+Group=bot
+WorkingDirectory=/home/bot/apps/binance_bot
+EnvironmentFile=/home/bot/apps/binance_bot/.env
+Environment=PYTHONUNBUFFERED=1
+RuntimeDirectory=mybot
+RuntimeDirectoryMode=0700
+ExecStartPre=/home/bot/apps/binance_bot/.venv/bin/python db_migrate.py
+ExecStart=/home/bot/apps/binance_bot/.venv/bin/python -u ai_supervisor.py --singleton --testnet --symbols SOLUSDT,ETHUSDT,TONUSDT --base-script /home/bot/apps/binance_bot/1.8_autosize_universal.py --enforce-target-buys --enforce-sell-limit
+ExecStop=/home/bot/apps/binance_bot/supervisor_ctl.sh stop-all
+Restart=on-failure
+RestartSec=10
+TimeoutStopSec=45
+KillSignal=SIGTERM
+KillMode=mixed
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectSystem=strict
+ProtectHome=read-only
+ReadWritePaths=/home/bot/apps/binance_bot/db /run/mybot
+UMask=0077
+
+[Install]
+WantedBy=multi-user.target

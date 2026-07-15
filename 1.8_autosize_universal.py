@@ -75,9 +75,13 @@ import signal
 import random
 import sqlite3
 import argparse
+import re
 from datetime import datetime
+from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 import tools_market as TM
+from order_identity import client_order_id
+from exchange_math import round_step
 
 import requests
 from urllib.parse import urlencode
@@ -85,6 +89,7 @@ from urllib.parse import urlencode
 import fcntl  # Linux/Unix
 
 RUN = True
+LIVE_MODE = False
 
 # ------------------- ENV / config -------------------
 
@@ -110,17 +115,7 @@ SESSION.headers.update({"User-Agent": USER_AGENT})
 # ------------------- helpers: rounding & env -------------------
 
 def _round(x: float, step: float, mode: str = "nearest") -> float:
-    if step <= 0:
-        return float(x)
-    n = x / step
-    if mode == "up":
-        q = math.ceil(n) * step
-    elif mode == "down":
-        q = math.floor(n) * step
-    else:
-        # "nearest"
-        q = round(n) * step
-    return float(f"{q:.12f}")
+    return float(round_step(x, step, mode))
 
 def fmt(v, n=8):
     try:
@@ -311,6 +306,8 @@ def _public_get(path: str, params: Dict[str, Any] | None = None, timeout: float 
     return _request_with_backoff("GET", url, params=params, timeout=timeout)
 
 def _signed_request(method: str, path: str, params: Dict[str, Any] | None = None, timeout: float = 15.0):
+    if method.upper() not in ("GET", "HEAD") and not LIVE_MODE:
+        raise RuntimeError(f"DRY mode blocked mutating Binance request: {method.upper()} {path}")
     if not API_SECRET or not API_KEY:
         raise RuntimeError("API key/secret are required for signed endpoints.")
     p_base = dict(params or {})
@@ -821,6 +818,9 @@ def place_limit_order(side: str,
                       price: float,
                       *,
                       maker: bool = False) -> Dict[str, Any] | None:
+    if not LIVE_MODE:
+        log(f"[DRY] skip LIMIT {symbol} {side.upper()} {qty:.8f} @ {price:.8f}")
+        return None
     # округлим к шагам
     pull_filters(symbol)
     price = round_price(symbol, price)
@@ -843,6 +843,9 @@ def place_limit_order(side: str,
         "quantity": fmt_qty_sym(symbol, qty),
         "price":    fmt_price_sym(symbol, price),
         "newOrderRespType": "RESULT",
+        "newClientOrderId": client_order_id(
+            symbol, side, "ladder", fmt_price_sym(symbol, price), fmt_qty_sym(symbol, qty)
+        ),
     }
     if not maker:
         params["timeInForce"] = "GTC"
@@ -869,6 +872,9 @@ def place_oco_sell(symbol: str,
     Создаёт OCO SELL: LIMIT по tp_limit_price и STOP_LOSS_LIMIT по sl_stop_price/sl_limit_price.
     Все цены и qty должны быть уже округлены и проверены на minNotional.
     """
+    if not LIVE_MODE:
+        log(f"[DRY] skip OCO {symbol} SELL {qty:.8f}")
+        return None
     pull_filters(symbol)
     q  = fmt_qty_sym(symbol, round_qty(symbol, qty))
     tp = fmt_price_sym(symbol, round_price(symbol, tp_limit_price))
@@ -884,10 +890,21 @@ def place_oco_sell(symbol: str,
         "stopLimitPrice": sl,  # лимит у стоп-ордера
         "stopLimitTimeInForce": "GTC",
         "newOrderRespType": "RESULT",
+        "listClientOrderId": client_order_id(symbol, "SELL", "oco", tp, q),
+        "limitClientOrderId": client_order_id(symbol, "SELL", "otp", tp, q),
+        "stopClientOrderId": client_order_id(symbol, "SELL", "osl", sp, q),
     }
     try:
         j = _signed_request("POST", "/api/v3/order/oco", params)
-        log(f"[ATTACH-OCO] {symbol} SELL {q} | TP={tp} / SL stop={sp} limit={sl}")
+        order_list_id = j.get("orderListId") if isinstance(j, dict) else None
+        if order_list_id is None:
+            raise RuntimeError("OCO response has no orderListId")
+        verified = _signed_request(
+            "GET", "/api/v3/orderList", {"orderListId": int(order_list_id)}
+        )
+        if not isinstance(verified, dict) or verified.get("listStatusType") not in ("EXEC_STARTED", "ALL_DONE"):
+            raise RuntimeError(f"OCO verification failed: {verified}")
+        log(f"[ATTACH-OCO] {symbol} SELL {q} | TP={tp} / SL stop={sp} limit={sl} verified")
         return j
     except requests.HTTPError as e:
         try:
@@ -1083,7 +1100,8 @@ def maybe_place_buys(symbol: str,
     """
     base, quote = get_symbol_assets(symbol)
     bals = get_balances()
-    usdt_free = float(bals.get("USDT", {}).get("free", 0.0))
+    reserve = max(0.0, getenv_float("RISK_RESERVE_USDT", 0.0))
+    usdt_free = max(0.0, float(bals.get("USDT", {}).get("free", 0.0)) - reserve)
 
     # Гейт по порогу свободного USDT
     if cap_floor_usdt is not None and usdt_free < float(cap_floor_usdt):
@@ -1474,7 +1492,7 @@ def main():
 
     # Паника / индикаторы
     parser.add_argument("--panic-drop-pct", type=float, default=0.02,
-                        help="Мгновенное падение от prev_close для включения паники (доля, 0.02 = -2%)")
+                        help="Мгновенное падение от prev_close для включения паники (доля, 0.02 = -2%%)")
     parser.add_argument("--panic-k-atr",   type=float, default=2.0,
                         help="Порог EMA20 - k*ATR для включения паники")
     parser.add_argument("--panic-debounce-checks", type=int, default=2,
@@ -1506,19 +1524,52 @@ def main():
     parser.add_argument("--bear-cap-scale", type=float, default=1.0,
                         help="Множитель CAP на заявку при медвежьем сигнале (1.0 = без изменений)")
     parser.add_argument("--bear-buy-shift-pct", type=float, default=0.0,
-                        help="При медвежьем сигнале смещать BUY уровни вниз на указанную долю (0.05 = -5%)")
+                        help="При медвежьем сигнале смещать BUY уровни вниз на указанную долю (0.05 = -5%%)")
     parser.add_argument("--buy-vwap-premium", type=float, default=None,
-                        help="Если цена выше VWAP на эту долю — пропустить BUY (например 0.003 = +0.3%)")
+                        help="Если цена выше VWAP на эту долю — пропустить BUY (например 0.003 = +0.3%%)")
     parser.add_argument("--buy-vwap-discount", type=float, default=None,
                         help="Если цена ниже VWAP на эту долю — усилить CAP")
     parser.add_argument("--buy-vwap-discount-scale", type=float, default=1.0,
-                        help="Множитель CAP при скидке к VWAP (например 1.4 = +40%)")
+                        help="Множитель CAP при скидке к VWAP (например 1.4 = +40%%)")
     parser.add_argument("--buy-vwap-interval", type=str, default="1m",
                         help="Интервал свечей для расчёта VWAP (по умолчанию 1m)")
     parser.add_argument("--buy-vwap-window", type=int, default=180,
                         help="Сколько закрытых свечей использовать при расчёте VWAP")
 
     args = parser.parse_args()
+    global LIVE_MODE
+    if args.live and os.getenv("BOT_LIVE_CONFIRMED", "") != "YES":
+        parser.error("--live requires BOT_LIVE_CONFIRMED=YES")
+    if not re.fullmatch(r"[A-Z0-9]{5,20}", args.symbol.strip().upper()):
+        parser.error("--symbol must be a valid uppercase Binance symbol")
+    if args.target_buy_per_symbol <= 0 or args.loop_minutes <= 0:
+        parser.error("target and loop limits must be > 0")
+    if args.cap_floor_usdt is not None and args.cap_floor_usdt < 0:
+        parser.error("--cap-floor-usdt must be >= 0")
+    if args.min_order_usdt is not None and args.min_order_usdt <= 0:
+        parser.error("--min-order-usdt must be > 0")
+    if not 0 <= args.stop_limit_offset_pct < 0.25:
+        parser.error("--stop-limit-offset-pct must be in [0, 0.25)")
+    LIVE_MODE = bool(args.live)
+
+    if LIVE_MODE:
+        halt_file = Path(os.getenv("CB_HALT_FILE", "/run/mybot/circuit_halt.json"))
+        if halt_file.exists():
+            parser.error(f"circuit halt exists: {halt_file}; reset through risk_ctl.py")
+        stats_db = os.getenv("BOT_STATS_DB", "").strip()
+        if not stats_db:
+            parser.error("BOT_STATS_DB is required for LIVE mode")
+        try:
+            with sqlite3.connect(stats_db, timeout=5) as con:
+                con.execute("SELECT 1 FROM trades LIMIT 1").fetchall()
+            server = _public_get("/api/v3/time")
+            offset = int(server["serverTime"]) - int(time.time() * 1000)
+            if abs(offset) > int(os.getenv("RISK_MAX_TIME_OFFSET_MS", "1000")):
+                raise RuntimeError(f"clock offset {offset} ms is unsafe")
+            pull_filters(args.symbol.upper())
+            _signed_request("GET", "/api/v3/account")
+        except (OSError, sqlite3.Error, requests.RequestException, RuntimeError, KeyError, ValueError) as exc:
+            parser.error(f"LIVE preflight failed: {exc}")
     attach_oco = bool(args.attach_oco_on_fill)
 
     symbol = args.symbol

@@ -1,7 +1,9 @@
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse, PlainTextResponse, StreamingResponse
 # убрали requests из общего импорта:
-import psutil, shutil, json, os, socket, asyncio, subprocess, math, time, hmac, hashlib
+import psutil, shutil, json, os, socket, asyncio, subprocess, math, time, hmac, hashlib, secrets, threading
+from collections import defaultdict, deque
+from contextlib import asynccontextmanager
 from datetime import datetime
 from zoneinfo import ZoneInfo
 from pathlib import Path
@@ -22,15 +24,61 @@ SESSION = requests.Session() if requests else None
 if SESSION:
     SESSION.headers.update({"User-Agent": "PiDashboard/1.0"})
 BINANCE_BASE = os.getenv("BINANCE_API_BASE", "https://api.binance.com").rstrip("/")
-API_KEY = os.getenv("BINANCE_API_KEY", "")
-API_SECRET = os.getenv("BINANCE_API_SECRET", "")
+DASHBOARD_AUTH_TOKEN = os.getenv("DASHBOARD_AUTH_TOKEN", "")
+DASHBOARD_TRUST_PROXY_AUTH = os.getenv("DASHBOARD_TRUST_PROXY_AUTH", "0") == "1"
+DASHBOARD_RATE_LIMIT_PER_MIN = max(1, int(os.getenv("DASHBOARD_RATE_LIMIT_PER_MIN", "120")))
+DASHBOARD_ENABLE_LOGS = os.getenv("DASHBOARD_ENABLE_LOGS", "0") == "1"
+SSE_MAX_CONNECTIONS = max(1, int(os.getenv("DASHBOARD_SSE_MAX_CONNECTIONS", "2")))
+_SSE_SLOTS = threading.BoundedSemaphore(SSE_MAX_CONNECTIONS)
+_RATE_BUCKETS: Dict[str, deque] = defaultdict(deque)
+_RATE_LOCK = threading.Lock()
 
-# Имя сервисa бота, чьё окружение используем как источник ключей (можно переопределить переменной окружения)
-BOT_SERVICE_NAME = os.getenv("BOT_SERVICE", "mybot")
+@asynccontextmanager
+async def lifespan(_app):
+    task = asyncio.create_task(collector_loop())
+    try:
+        yield
+    finally:
+        task.cancel()
 
-app = FastAPI(title="Pi Health API")
+
+app = FastAPI(
+    title="Pi Health API",
+    docs_url=None,
+    redoc_url=None,
+    openapi_url=None,
+    lifespan=lifespan,
+)
 
 GiB = 1024**3
+
+
+@app.middleware("http")
+async def authenticate_and_rate_limit(request: Request, call_next):
+    if request.url.path.startswith("/api/"):
+        proxy_user = request.headers.get("X-Authenticated-User", "")
+        bearer = request.headers.get("Authorization", "")
+        header_token = request.headers.get("X-Dashboard-Token", "")
+        supplied = bearer[7:] if bearer.startswith("Bearer ") else header_token
+        authenticated = (
+            DASHBOARD_TRUST_PROXY_AUTH and bool(proxy_user)
+        ) or (
+            bool(DASHBOARD_AUTH_TOKEN) and secrets.compare_digest(supplied, DASHBOARD_AUTH_TOKEN)
+        )
+        if not authenticated:
+            status = 503 if not DASHBOARD_AUTH_TOKEN and not DASHBOARD_TRUST_PROXY_AUTH else 401
+            return JSONResponse({"ok": False, "error": "dashboard authentication required"}, status_code=status)
+
+        client = request.client.host if request.client else "unknown"
+        now = time.monotonic()
+        with _RATE_LOCK:
+            bucket = _RATE_BUCKETS[client]
+            while bucket and bucket[0] <= now - 60:
+                bucket.popleft()
+            if len(bucket) >= DASHBOARD_RATE_LIMIT_PER_MIN:
+                return JSONResponse({"ok": False, "error": "rate limit exceeded"}, status_code=429)
+            bucket.append(now)
+    return await call_next(request)
 
 # ---- helpers for DB trades / PnL -------------------------------------------------
 
@@ -163,108 +211,17 @@ def _fifo_realized_pnl(rows: List[sqlite3.Row], cutoff_s: int, fee_pct: float) -
         realized_pnl_usdt=round(realized_pnl, 2),
     )
 
-# ---- API keys autoload (from bot service env / .env) -----------------------------
+def _api_creds() -> Tuple[str, str]:
+    """Read dedicated read-only credentials on demand; do not retain globals."""
+    return (
+        os.getenv("DASHBOARD_BINANCE_API_KEY", "").strip(),
+        os.getenv("DASHBOARD_BINANCE_API_SECRET", "").strip(),
+    )
 
-def _read_environ_of_pid(pid: int) -> Dict[str, str]:
-    try:
-        with open(f"/proc/{pid}/environ", "rb") as f:
-            raw = f.read().split(b"\x00")
-        out: Dict[str, str] = {}
-        for kv in raw:
-            if not kv:
-                continue
-            try:
-                s = kv.decode("utf-8", "ignore")
-                if "=" in s:
-                    k, v = s.split("=", 1)
-                    out[k] = v
-            except Exception:
-                continue
-        return out
-    except Exception:
-        return {}
-
-def _load_api_keys_from_systemd(service: str) -> Optional[Tuple[str, str]]:
-    # получаем MainPID сервиса и читаем его окружение
-    try:
-        rc, out = sh(f"systemctl show -p MainPID --value {service}", timeout=2)
-        if rc != 0:
-            return None
-        pid = int(out.strip() or "0")
-        if pid <= 0:
-            return None
-        envmap = _read_environ_of_pid(pid)
-        k = envmap.get("BINANCE_API_KEY", "").strip()
-        s = envmap.get("BINANCE_API_SECRET", "").strip()
-        if k and s:
-            return k, s
-    except Exception:
-        pass
-    return None
-
-def _load_api_keys_from_files() -> Optional[Tuple[str, str]]:
-    # кастомный путь через переменную окружения
-    paths = []
-    p = os.getenv("BOT_ENV_FILE", "").strip()
-    if p:
-        paths.append(Path(p))
-    # типовые пути проекта бота
-    paths += [
-        Path.home() / "apps/binance_bot/.env",
-        Path("/opt/binance_bot/.env"),
-        BASE_DIR / ".env",
-    ]
-    for path in paths:
-        try:
-            if not path.exists():
-                continue
-            k = s = ""
-            for line in path.read_text(encoding="utf-8", errors="ignore").splitlines():
-                line = line.strip()
-                if not line or line.startswith("#") or "=" not in line:
-                    continue
-                key, val = line.split("=", 1)
-                key = key.strip()
-                val = val.strip().strip('"').strip("'")
-                if key == "BINANCE_API_KEY":
-                    k = val
-                elif key == "BINANCE_API_SECRET":
-                    s = val
-            if k and s:
-                return k, s
-        except Exception:
-            continue
-    return None
 
 def ensure_api_creds() -> bool:
-    """
-    Гарантирует наличие BINANCE_API_KEY/SECRET в глобалах и окружении процесса.
-    Возвращает True, если ключи доступны.
-    """
-    global API_KEY, API_SECRET
-    if API_KEY and API_SECRET:
-        return True
-
-    # 1) пробуем забрать из окружения сервиса бота
-    ks = _load_api_keys_from_systemd(BOT_SERVICE_NAME)
-    if ks:
-        API_KEY, API_SECRET = ks
-        os.environ["BINANCE_API_KEY"] = API_KEY
-        os.environ["BINANCE_API_SECRET"] = API_SECRET
-        return True
-
-    # 2) пробуем .env
-    ks = _load_api_keys_from_files()
-    if ks:
-        API_KEY, API_SECRET = ks
-        os.environ["BINANCE_API_KEY"] = API_KEY
-        os.environ["BINANCE_API_SECRET"] = API_SECRET
-        return True
-
-    # 3) вдруг в окружении уже есть (на случай позднего экспорта)
-    API_KEY = os.getenv("BINANCE_API_KEY", API_KEY)
-    API_SECRET = os.getenv("BINANCE_API_SECRET", API_SECRET)
-    return bool(API_KEY and API_SECRET)
+    key, secret = _api_creds()
+    return bool(key and secret)
 
 # ---- Binance helpers & equity-PNL ------------------------------------------------
 
@@ -276,19 +233,22 @@ def _pub_get(path: str, params=None, timeout: float = 10.0):
 def _ts_ms() -> int:
     return int(time.time() * 1000)
 
-def _sign(qs: str) -> str:
-    return hmac.new(API_SECRET.encode(), qs.encode(), hashlib.sha256).hexdigest()
+def _sign(qs: str, secret: str) -> str:
+    return hmac.new(secret.encode(), qs.encode(), hashlib.sha256).hexdigest()
 
 def _signed(method: str, path: str, params=None, timeout: float = 10.0):
-    if not ensure_api_creds():
+    if method.upper() not in ("GET", "HEAD"):
+        raise RuntimeError("dashboard API credentials are read-only by design")
+    key, secret = _api_creds()
+    if not key or not secret:
         raise RuntimeError("No API creds")
     p = dict(params or {})
     p.setdefault("recvWindow", 5000)
     p["timestamp"] = _ts_ms()
     qs = requests.models.RequestEncodingMixin._encode_params(p)
-    sig = _sign(qs)
+    sig = _sign(qs, secret)
     url = f"{BINANCE_BASE}{path}?{qs}&signature={sig}"
-    headers = {"X-MBX-APIKEY": API_KEY}
+    headers = {"X-MBX-APIKEY": key}
     r = SESSION.request(method, url, headers=headers, timeout=timeout)
     r.raise_for_status()
     return r.json()
@@ -628,6 +588,19 @@ async def collect_once():
         "cpu_pct": round(cpu, 1),
     }
     try:
+        max_bytes = max(1024, int(os.getenv("DASHBOARD_METRICS_MAX_BYTES", "5242880")))
+        keep = max(1, int(os.getenv("DASHBOARD_METRICS_ROTATIONS", "3")))
+        if HIST_FILE.exists() and HIST_FILE.stat().st_size >= max_bytes:
+            oldest = HIST_FILE.with_suffix(HIST_FILE.suffix + f".{keep}")
+            try:
+                oldest.unlink()
+            except FileNotFoundError:
+                pass
+            for idx in range(keep - 1, 0, -1):
+                source = HIST_FILE.with_suffix(HIST_FILE.suffix + f".{idx}")
+                if source.exists():
+                    source.replace(HIST_FILE.with_suffix(HIST_FILE.suffix + f".{idx + 1}"))
+            HIST_FILE.replace(HIST_FILE.with_suffix(HIST_FILE.suffix + ".1"))
         with open(HIST_FILE, "a") as f:
             f.write(json.dumps(row, ensure_ascii=False) + "\n")
     except Exception:
@@ -641,10 +614,6 @@ async def collector_loop():
         except Exception:
             pass
         await asyncio.sleep(60)
-
-@app.on_event("startup")
-async def _on_start():
-    asyncio.create_task(collector_loop())
 
 @app.get("/api/health")
 def health():
@@ -712,12 +681,18 @@ def history(hours: int = 24, points: int = 288):
 
 @app.get("/api/bot/logs")
 def bot_logs(tail: int = 200):
+    if not DASHBOARD_ENABLE_LOGS:
+        return JSONResponse({"ok": False, "error": "log API disabled"}, status_code=404)
     tail = max(50, min(tail, 5000))
     rc, out = sh(f"journalctl -u mybot -n {tail} -o cat --no-pager", timeout=10)
     return PlainTextResponse(out)
 
 @app.get("/api/bot/logs/stream")
 def bot_logs_stream():
+    if not DASHBOARD_ENABLE_LOGS:
+        return JSONResponse({"ok": False, "error": "log stream disabled"}, status_code=404)
+    if not _SSE_SLOTS.acquire(blocking=False):
+        return JSONResponse({"ok": False, "error": "SSE connection limit reached"}, status_code=429)
     def gen():
         proc = subprocess.Popen(
             ["bash","-lc","journalctl -u mybot -f -n 0 -o cat"],
@@ -730,6 +705,7 @@ def bot_logs_stream():
         finally:
             try: proc.terminate()
             except Exception: pass
+            _SSE_SLOTS.release()
     headers = {"Cache-Control":"no-cache"}
     return StreamingResponse(gen(), media_type="text/event-stream", headers=headers)
 

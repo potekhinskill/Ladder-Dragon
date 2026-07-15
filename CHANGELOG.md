@@ -1,5 +1,25 @@
 # Changelog — Ladder Dragon (binance_bot)
 
+## [2026-07-15]
+### Safety hardening
+- Добавлен fail-closed DRY/LIVE gate в супервизор и исполнитель; LIVE требует `BOT_LIVE_CONFIRMED=YES`.
+- Spot Testnet выбран по умолчанию, Mainnet требует явного `--mainnet`.
+- Реализован постоянный circuit breaker: дневной убыток, просадки от старта/пика, halt-файл, cooldown, ручной reset и журнал точных причин.
+- Добавлены portfolio/daily/correlation/order/reserve/loss-streak лимиты, остановка воркеров и отмена BUY.
+- CLI стал строгим, добавлена валидация конфликтов и диапазонов, исправлен `--help` исполнителя.
+- Удалены placeholder-флаги, реализован `--flatten-force`, сохранены рабочие enforce-флаги.
+- Добавлены идемпотентные `clientOrderId`, проверка OCO и периодическая сверка позиций с SQLite.
+
+### Dashboard and operations
+- FastAPI закрыт token/proxy-аутентификацией и rate limit; лог API выключен по умолчанию, SSE ограничен.
+- Удалено чтение торговых секретов из `/proc`; дашборд принимает только отдельные read-only credentials.
+- Дашборд запускается только на `127.0.0.1`, добавлены ротация метрик и hardened systemd units.
+- Добавлены `.env.example`, `pyproject.toml`, версионируемые SQLite migrations и ручной `risk_ctl.py`.
+
+### Testing
+- Добавлены unit-тесты circuit breaker, DRY gate, strict CLI, Decimal-округления, FIFO, VWAP, миграций и dashboard security.
+- Добавлен Decimal-симулятор с комиссиями, проскальзыванием, задержкой, buy-and-hold и walk-forward.
+
 ## [2025-09-26]
 ### Executor (1.8_autosize_universal.py)
 - Добавлен VWAP-guard: `--buy-vwap-premium` блокирует покупки, если цена ушла выше VWAP.
