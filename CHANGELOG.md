@@ -13,6 +13,9 @@
 - Строгая сверка позиций получила ограниченный grace/retry для гонки exchange-balance ↔ SQLite и учитывает только неторгуемую пыль в пределах одного `LOT_SIZE` шага.
 - Supervisor переключает Testnet на отдельные `BOT_TESTNET_STATS_DB` и `BOT_TESTNET_ORDER_JOURNAL`, поэтому виртуальные сделки не влияют на Mainnet inventory и дневные лимиты.
 - `BOT_TESTNET_RUN_DIR` изолирует Testnet circuit halt/state/alerts и lock-файлы; `risk_ctl.py --testnet` управляет только этим контуром.
+- Миграция `003` добавляет точные `price/gross_qty/net_qty`, актив и сумму комиссии, quote-оценку и Decimal-поля inventory без удаления старых REAL-колонок.
+- `/myTrades` учитывает комиссии в base/quote и оценивает BNB по исторической минутной цене; неизвестная комиссия переводит risk telemetry в fail-closed.
+- Inventory, средняя себестоимость, realized PnL, дневные risk-метрики, `pnl_24h.py` и VWAP autotune используют единую Decimal-модель.
 
 ## [2026-07-15]
 ### Safety hardening

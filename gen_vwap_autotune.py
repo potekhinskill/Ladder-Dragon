@@ -28,6 +28,10 @@ from typing import Dict, Iterable, List, Optional, Tuple
 
 import time
 
+from trade_accounting import replay_average_cost
+from tools_stats import get_executions_between
+from db_migrate import migrate
+
 
 def clamp(value: float, lo: float, hi: float) -> float:
     return max(lo, min(hi, value))
@@ -98,23 +102,11 @@ def get_stats(symbol: str,
               conn: sqlite3.Connection,
               hours: int) -> Tuple[float, int]:
     cutoff_ms = int((time.time() - hours * 3600) * 1000)
-    try:
-        cur = conn.execute(
-            """
-            SELECT side, price, qty, fee_quote
-            FROM trades
-            WHERE symbol = ? AND ts >= ?
-            ORDER BY ts ASC
-            """,
-            (symbol, cutoff_ms),
-        )
-        rows = cur.fetchall()
-    except Exception:
-        rows = []
-
-    pnl = compute_fifo_pnl(rows)
-    trades = len(rows)
-    return pnl, trades
+    executions = get_executions_between(
+        conn, symbol, cutoff_ms, int(time.time() * 1000)
+    )
+    result = replay_average_cost(executions)
+    return float(result.realized_pnl), len(executions)
 
 
 def main() -> None:
@@ -161,6 +153,7 @@ def main() -> None:
         print("# VWAP autotune: no stats DB (set BOT_STATS_DB)", file=sys.stderr)
         sys.exit(1)
 
+    migrate(stats_db)
     conn = sqlite3.connect(stats_db)
     prev_values = load_prev_values(args.state_file)
 

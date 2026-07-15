@@ -5,15 +5,15 @@ tools_stats.py — лёгкая БД статистики (SQLite) для учё
 
 Функции:
 - init_db(db_path)
-- apply_trade(symbol, side, price, qty, fee_quote=0.0, ts=None, trade_id=None)
+- apply_trade(..., gross_qty/net_qty/commission metadata)
 - get_inventory(symbol) -> (qty, avg_cost, realized_pnl)
 - get_last_trade_id(symbol) / set_last_trade_id(symbol, last_id)
 - monthly_summary(symbol, year, month) -> dict
 - daily_summary(symbol, utc=True) -> dict
 
 Хранение:
-- table trades(symbol, side, price, qty, fee_quote, ts, trade_id)
-- table inventory(symbol PRIMARY KEY, qty, avg_cost, realized_pnl, last_trade_id)
+- trades сохраняет legacy REAL-поля и точные Decimal-строки gross/net/commission
+- inventory сохраняет совместимые REAL-поля и точные Decimal-строки
 
 Доп. устойчивость к «database is locked»:
 - Соединения открываются в режиме WAL + busy_timeout.
@@ -22,7 +22,11 @@ tools_stats.py — лёгкая БД статистики (SQLite) для учё
 """
 
 import sqlite3, os, time
+from decimal import Decimal
 from typing import Optional, Tuple, Dict, Iterable, Any
+
+from db_migrate import migrate
+from trade_accounting import TradeExecution, decimal, decimal_text, replay_average_cost
 
 # ==========================
 # Конфиг через переменные
@@ -40,7 +44,14 @@ CREATE TABLE IF NOT EXISTS trades(
   qty        REAL NOT NULL CHECK(qty > 0.0),
   fee_quote  REAL NOT NULL DEFAULT 0.0 CHECK(fee_quote >= 0.0),
   ts         INTEGER NOT NULL CHECK(ts > 0),
-  trade_id   INTEGER
+  trade_id   INTEGER,
+  price_text TEXT,
+  gross_qty TEXT,
+  net_qty TEXT,
+  commission_asset TEXT NOT NULL DEFAULT '',
+  commission_amount TEXT,
+  commission_quote TEXT,
+  commission_value_status TEXT NOT NULL DEFAULT 'legacy'
 );
 -- Базовый и покрывающий индексы под выборки по symbol+ts и отчётам
 CREATE INDEX IF NOT EXISTS trades_idx ON trades(symbol, ts);
@@ -55,7 +66,10 @@ CREATE TABLE IF NOT EXISTS inventory(
   qty           REAL NOT NULL DEFAULT 0.0,
   avg_cost      REAL NOT NULL DEFAULT 0.0,
   realized_pnl  REAL NOT NULL DEFAULT 0.0,
-  last_trade_id INTEGER
+  last_trade_id INTEGER,
+  qty_text TEXT,
+  avg_cost_text TEXT,
+  realized_pnl_text TEXT
 );
 """
 
@@ -139,8 +153,8 @@ def init_db(db_path: str) -> sqlite3.Connection:
     Включает WAL и нужные PRAGMA.
     """
     os.makedirs(os.path.dirname(db_path) or ".", exist_ok=True)
+    migrate(db_path)
     con = connect_rw(db_path)
-    con.executescript(SCHEMA)
     return con
 
 # ==========================
@@ -153,43 +167,55 @@ def _recalc_inventory(db: sqlite3.Connection, symbol: str):
     Делается быстро даже для тысяч строк, зато логика простая/надёжная.
     """
     sym = symbol.upper()
-    rows = query_with_retry(
-        db,
-        "SELECT side, price, qty, fee_quote FROM trades WHERE symbol=? ORDER BY ts ASC, id ASC",
-        (sym,)
-    )
-
-    qty = 0.0
-    avg_cost = 0.0
-    realized = 0.0
-
-    for side, price, q, fee_q in rows:
-        if side == 'BUY':
-            new_qty = qty + float(q)
-            if new_qty <= 1e-12:
-                qty, avg_cost = 0.0, 0.0
-            else:
-                # fee в котируемой валюте — прибавляем к стоимости входа
-                avg_cost = (avg_cost * qty + float(price) * float(q) + float(fee_q)) / new_qty
-                qty = new_qty
-        else:  # SELL
-            q = float(q)
-            if q > qty + 1e-12:
-                # логируем аномалию через уменьшение q (не уходим в отрицательный склад)
-                q = max(0.0, qty)
-            realized += (float(price) - avg_cost) * q - float(fee_q)
-            qty -= q
-            if qty <= 1e-12:
-                qty, avg_cost = 0.0, 0.0
+    rows = query_with_retry(db, """
+        SELECT side,
+               COALESCE(NULLIF(price_text, ''), CAST(price AS TEXT)),
+               COALESCE(NULLIF(gross_qty, ''), CAST(qty AS TEXT)),
+               COALESCE(NULLIF(net_qty, ''), CAST(qty AS TEXT)),
+               COALESCE(commission_asset, ''),
+               COALESCE(NULLIF(commission_amount, ''), '0'),
+               CASE WHEN commission_value_status = 'unpriced' THEN NULL
+                    ELSE COALESCE(commission_quote, CAST(fee_quote AS TEXT)) END,
+               COALESCE(NULLIF(commission_value_status, ''), 'legacy')
+        FROM trades WHERE symbol=? ORDER BY ts ASC, id ASC
+    """, (sym,))
+    executions = [
+        TradeExecution.create(
+            symbol=sym,
+            side=side,
+            price=price,
+            gross_qty=gross_qty,
+            net_qty=net_qty,
+            commission_asset=commission_asset,
+            commission_amount=commission_amount,
+            commission_quote=commission_quote,
+            commission_value_status=status,
+        )
+        for (
+            side, price, gross_qty, net_qty, commission_asset,
+            commission_amount, commission_quote, status,
+        ) in rows
+    ]
+    result = replay_average_cost(executions, allow_unpriced=True)
 
     exec_with_retry(db, """
-        INSERT INTO inventory(symbol, qty, avg_cost, realized_pnl)
-        VALUES(?,?,?,?)
+        INSERT INTO inventory(
+            symbol, qty, avg_cost, realized_pnl,
+            qty_text, avg_cost_text, realized_pnl_text
+        ) VALUES(?,?,?,?,?,?,?)
         ON CONFLICT(symbol)
         DO UPDATE SET qty=excluded.qty,
                       avg_cost=excluded.avg_cost,
-                      realized_pnl=excluded.realized_pnl
-    """, (sym, qty, avg_cost, realized))
+                      realized_pnl=excluded.realized_pnl,
+                      qty_text=excluded.qty_text,
+                      avg_cost_text=excluded.avg_cost_text,
+                      realized_pnl_text=excluded.realized_pnl_text
+    """, (
+        sym,
+        float(result.qty), float(result.avg_cost), float(result.realized_pnl),
+        decimal_text(result.qty), decimal_text(result.avg_cost),
+        decimal_text(result.realized_pnl),
+    ))
 
 # ==========================
 # Публичные функции
@@ -198,39 +224,86 @@ def _recalc_inventory(db: sqlite3.Connection, symbol: str):
 def apply_trade(con: sqlite3.Connection,
                 symbol: str,
                 side: str,
-                price: float,
-                qty: float,
-                fee_quote: float = 0.0,
+                price: object,
+                qty: object,
+                fee_quote: object = 0.0,
                 ts: Optional[int] = None,
-                trade_id: Optional[int] = None):
+                trade_id: Optional[int] = None,
+                *,
+                gross_qty: object | None = None,
+                net_qty: object | None = None,
+                commission_asset: str = "",
+                commission_amount: object = 0,
+                commission_quote: object | None = None,
+                commission_value_status: str | None = None):
     """
     Добавляет исполненную сделку и пересчитывает инвентарь.
     ВАЖНО: вызывать только на закрытых (filled) сделках.
     """
     sym = symbol.upper()
-    side = side.upper()
     ts = int(ts or time.time() * 1000)
-    price = float(price)
-    qty = float(qty)
-    fee_quote = float(fee_quote)
+    gross = qty if gross_qty is None else gross_qty
+    status = (commission_value_status or ("legacy" if not commission_asset else "exact")).lower()
+    quote_value = None if status == "unpriced" else (
+        fee_quote if commission_quote is None else commission_quote
+    )
+    execution = TradeExecution.create(
+        symbol=sym,
+        side=side,
+        price=price,
+        gross_qty=gross,
+        net_qty=net_qty,
+        commission_asset=commission_asset,
+        commission_amount=commission_amount,
+        commission_quote=quote_value,
+        commission_value_status=status,
+    )
+    legacy_fee = execution.commission_quote or Decimal("0")
 
     with con:  # короткая транзакция
-        exec_with_retry(con, """
-            INSERT INTO trades(symbol, side, price, qty, fee_quote, ts, trade_id)
-            VALUES(?,?,?,?,?,?,?)
-        """, (sym, side, price, qty, fee_quote, ts, trade_id))
+        inserted = exec_with_retry(con, """
+            INSERT INTO trades(
+                symbol, side, price, qty, fee_quote, ts, trade_id,
+                price_text, gross_qty, net_qty, commission_asset,
+                commission_amount, commission_quote, commission_value_status
+            ) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+            ON CONFLICT(symbol, trade_id) WHERE trade_id IS NOT NULL DO UPDATE SET
+                fee_quote=excluded.fee_quote,
+                commission_quote=excluded.commission_quote,
+                commission_value_status=excluded.commission_value_status
+            WHERE trades.commission_value_status = 'unpriced'
+              AND excluded.commission_value_status != 'unpriced'
+        """, (
+            sym, execution.side, float(execution.price), float(execution.gross_qty),
+            float(legacy_fee), ts, trade_id, decimal_text(execution.price),
+            decimal_text(execution.gross_qty), decimal_text(execution.net_qty),
+            execution.commission_asset, decimal_text(execution.commission_amount),
+            None if execution.commission_quote is None else decimal_text(execution.commission_quote),
+            execution.commission_value_status,
+        ))
         _recalc_inventory(con, sym)
+    return inserted == 1
+
+
+def get_inventory_decimal(con: sqlite3.Connection, symbol: str) -> Tuple[Decimal, Decimal, Decimal]:
+    sym = symbol.upper()
+    rows = query_with_retry(con, """
+        SELECT COALESCE(NULLIF(qty_text, ''), CAST(qty AS TEXT)),
+               COALESCE(NULLIF(avg_cost_text, ''), CAST(avg_cost AS TEXT)),
+               COALESCE(NULLIF(realized_pnl_text, ''), CAST(realized_pnl AS TEXT))
+        FROM inventory WHERE symbol=?
+    """, (sym,))
+    if not rows:
+        return (Decimal("0"), Decimal("0"), Decimal("0"))
+    q, a, r = rows[0]
+    return (decimal(q), decimal(a), decimal(r))
 
 def get_inventory(con: sqlite3.Connection, symbol: str) -> Tuple[float, float, float]:
     """
     Возвращает (qty, avg_cost, realized_pnl) для символа.
     Если записи нет — (0,0,0).
     """
-    sym = symbol.upper()
-    rows = query_with_retry(con, "SELECT qty, avg_cost, realized_pnl FROM inventory WHERE symbol=?", (sym,))
-    if not rows:
-        return (0.0, 0.0, 0.0)
-    q, a, r = rows[0]
+    q, a, r = get_inventory_decimal(con, symbol)
     return (float(q), float(a), float(r))
 
 def get_last_trade_id(con: sqlite3.Connection, symbol: str) -> Optional[int]:
@@ -250,6 +323,52 @@ def set_last_trade_id(con: sqlite3.Connection, symbol: str, last_id: int):
             DO UPDATE SET last_trade_id=excluded.last_trade_id
         """, (sym, int(last_id)))
 
+
+def get_executions_between(
+    con: sqlite3.Connection, symbol: str, start_ms: int, end_ms: int
+) -> list[TradeExecution]:
+    rows = query_with_retry(con, """
+        SELECT side,
+               COALESCE(NULLIF(price_text, ''), CAST(price AS TEXT)),
+               COALESCE(NULLIF(gross_qty, ''), CAST(qty AS TEXT)),
+               COALESCE(NULLIF(net_qty, ''), CAST(qty AS TEXT)),
+               COALESCE(commission_asset, ''),
+               COALESCE(NULLIF(commission_amount, ''), '0'),
+               CASE WHEN commission_value_status = 'unpriced' THEN NULL
+                    ELSE COALESCE(commission_quote, CAST(fee_quote AS TEXT)) END,
+               COALESCE(NULLIF(commission_value_status, ''), 'legacy')
+        FROM trades
+        WHERE symbol=? AND ts BETWEEN ? AND ?
+        ORDER BY ts ASC, id ASC
+    """, (symbol.upper(), start_ms, end_ms))
+    return [
+        TradeExecution.create(
+            symbol=symbol,
+            side=side,
+            price=price,
+            gross_qty=gross,
+            net_qty=net,
+            commission_asset=asset,
+            commission_amount=amount,
+            commission_quote=quote_value,
+            commission_value_status=status,
+        )
+        for side, price, gross, net, asset, amount, quote_value, status in rows
+    ]
+
+
+def _period_summary(executions: list[TradeExecution], realized_key: str) -> Dict:
+    result = replay_average_cost(executions)
+    buys = [trade for trade in executions if trade.side == "BUY"]
+    sells = [trade for trade in executions if trade.side == "SELL"]
+    return {
+        "buys_base": float(sum((trade.gross_qty for trade in buys), Decimal("0"))),
+        "sells_base": float(sum((trade.gross_qty for trade in sells), Decimal("0"))),
+        "spent_quote": float(sum((trade.buy_cost_quote() for trade in buys), Decimal("0"))),
+        "received_quote": float(sum((trade.sell_proceeds_quote() for trade in sells), Decimal("0"))),
+        realized_key: float(result.realized_pnl),
+    }
+
 def monthly_summary(con: sqlite3.Connection, symbol: str, year: int, month: int) -> Dict:
     import calendar
     import datetime as dt
@@ -262,41 +381,7 @@ def monthly_summary(con: sqlite3.Connection, symbol: str, year: int, month: int)
     t1 = int(first.timestamp() * 1000)
     t2 = int(last.timestamp() * 1000)
 
-    rows = query_with_retry(
-        con,
-        "SELECT side, price, qty, fee_quote FROM trades WHERE symbol=? AND ts BETWEEN ? AND ? ORDER BY ts ASC",
-        (sym, t1, t2)
-    )
-
-    vol_buy = sum(float(q) for s, _, q, _ in rows if s == 'BUY')
-    vol_sell = sum(float(q) for s, _, q, _ in rows if s == 'SELL')
-    spent = sum(float(p) * float(q) + float(fee) for s, p, q, fee in rows if s == 'BUY')
-    received = sum(float(p) * float(q) - float(fee) for s, p, q, fee in rows if s == 'SELL')
-
-    # Приблизительный realized внутри месяца по FIFO (на срезе месяца)
-    inv = 0.0
-    avg = 0.0
-    realized = 0.0
-    for s, price, q, fee in rows:
-        price = float(price); q = float(q); fee = float(fee)
-        if s == 'BUY':
-            new = inv + q
-            avg = (avg * inv + price * q + fee) / max(new, 1e-12)
-            inv = new
-        else:
-            q_eff = min(q, inv) if inv > 0 else 0.0
-            realized += (price - avg) * q_eff - fee
-            inv -= q_eff
-            if inv <= 1e-12:
-                inv = 0.0; avg = 0.0
-
-    return {
-        "buys_base": vol_buy,
-        "sells_base": vol_sell,
-        "spent_quote": spent,
-        "received_quote": received,
-        "realized_month": realized
-    }
+    return _period_summary(get_executions_between(con, sym, t1, t2), "realized_month")
 
 def daily_summary(con: sqlite3.Connection, symbol: str, utc: bool = True) -> Dict:
     """
@@ -313,38 +398,4 @@ def daily_summary(con: sqlite3.Connection, symbol: str, utc: bool = True) -> Dic
     t1 = int(start.timestamp() * 1000)
     t2 = int(end.timestamp() * 1000)
 
-    rows = query_with_retry(
-        con,
-        "SELECT side, price, qty, fee_quote FROM trades WHERE symbol=? AND ts BETWEEN ? AND ? ORDER BY ts ASC",
-        (sym, t1, t2)
-    )
-
-    vol_buy = sum(float(q) for s, _, q, _ in rows if s == 'BUY')
-    vol_sell = sum(float(q) for s, _, q, _ in rows if s == 'SELL')
-    spent = sum(float(p) * float(q) + float(fee) for s, p, q, fee in rows if s == 'BUY')
-    received = sum(float(p) * float(q) - float(fee) for s, p, q, fee in rows if s == 'SELL')
-
-    # FIFO в пределах суток
-    inv = 0.0
-    avg = 0.0
-    realized = 0.0
-    for s, price, q, fee in rows:
-        price = float(price); q = float(q); fee = float(fee)
-        if s == 'BUY':
-            new = inv + q
-            avg = (avg * inv + price * q + fee) / max(new, 1e-12)
-            inv = new
-        else:
-            q_eff = min(q, inv) if inv > 0 else 0.0
-            realized += (price - avg) * q_eff - fee
-            inv -= q_eff
-            if inv <= 1e-12:
-                inv = 0.0; avg = 0.0
-
-    return {
-        "buys_base": vol_buy,
-        "sells_base": vol_sell,
-        "spent_quote": spent,
-        "received_quote": received,
-        "realized_day": realized
-    }
+    return _period_summary(get_executions_between(con, sym, t1, t2), "realized_day")

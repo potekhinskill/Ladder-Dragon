@@ -470,6 +470,30 @@ def avg_entry_price(symbol: str, *, cache_ttl: int = 45, lookback: int = 1000) -
         _AVG_CACHE[symbol] = {"ts": now_ts, "avg": 0.0, "pos": 0.0}
         return None
 
+    stats_db = os.getenv("BOT_STATS_DB", "").strip()
+    if stats_db:
+        try:
+            with sqlite3.connect(f"file:{stats_db}?mode=ro", uri=True, timeout=3) as con:
+                columns = {str(row[1]) for row in con.execute("PRAGMA table_info(inventory)")}
+                qty_expr = (
+                    "COALESCE(NULLIF(qty_text, ''), CAST(qty AS TEXT))"
+                    if "qty_text" in columns else "CAST(qty AS TEXT)"
+                )
+                avg_expr = (
+                    "COALESCE(NULLIF(avg_cost_text, ''), CAST(avg_cost AS TEXT))"
+                    if "avg_cost_text" in columns else "CAST(avg_cost AS TEXT)"
+                )
+                row = con.execute(
+                    f"SELECT {qty_expr}, {avg_expr} FROM inventory WHERE symbol=?",
+                    (symbol.upper(),),
+                ).fetchone()
+            if row and Decimal(str(row[0])) > 0 and Decimal(str(row[1])) > 0:
+                avg_px = float(Decimal(str(row[1])))
+                _AVG_CACHE[symbol] = {"ts": now_ts, "avg": avg_px, "pos": float(row[0])}
+                return avg_px
+        except (OSError, sqlite3.Error, ArithmeticError, ValueError):
+            pass
+
     try:
         trades = TM._signed_get("/api/v3/myTrades", {"symbol": symbol, "limit": lookback}) or []
     except Exception as e:
@@ -493,16 +517,14 @@ def avg_entry_price(symbol: str, *, cache_ttl: int = 45, lookback: int = 1000) -
             p = float(t.get("price") or 0.0)
             commission = float(t.get("commission") or 0.0)
             commission_asset = str(t.get("commissionAsset", "")).upper()
-            fee_quote = 0.0
-            if commission_asset == quote.upper():
-                fee_quote = commission
-            elif commission_asset == base.upper():
-                fee_quote = commission * p
             if is_buy:
-                qty += q
-                cost += p * q + fee_quote
+                net_q = q - commission if commission_asset == base.upper() else q
+                cash_fee = commission if commission_asset == quote.upper() else 0.0
+                qty += max(0.0, net_q)
+                cost += p * q + cash_fee
             else:
-                sell = min(q, qty)
+                inventory_out = q + commission if commission_asset == base.upper() else q
+                sell = min(inventory_out, qty)
                 if sell > 0 and qty > 0:
                     avg = cost / qty if qty > 0 else 0.0
                     cost -= avg * sell
@@ -1840,9 +1862,19 @@ def _build_risk_snapshot(
         waited = False
         while True:
             with sqlite3.connect(f"file:{os.environ['BOT_STATS_DB']}?mode=ro", uri=True, timeout=5) as con:
+                inventory_columns = {
+                    str(row[1]) for row in con.execute("PRAGMA table_info(inventory)")
+                }
+                qty_expression = (
+                    "COALESCE(NULLIF(qty_text, ''), CAST(qty AS TEXT))"
+                    if "qty_text" in inventory_columns
+                    else "CAST(qty AS TEXT)"
+                )
                 inventory = {
                     str(symbol).upper(): float(qty)
-                    for symbol, qty in con.execute("SELECT symbol, qty FROM inventory").fetchall()
+                    for symbol, qty in con.execute(
+                        f"SELECT symbol, {qty_expression} FROM inventory"
+                    ).fetchall()
                 }
             mismatches = []
             for symbol in symbols:
