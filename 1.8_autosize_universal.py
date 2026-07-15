@@ -77,6 +77,7 @@ import sqlite3
 import argparse
 import re
 from datetime import datetime
+from decimal import Decimal
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 import tools_market as TM
@@ -85,6 +86,7 @@ from order_recovery import OrderIntent, OrderJournal, TERMINAL_EXCHANGE_STATES
 from exchange_math import round_step
 from risk_manager import create_manual_halt
 from time_safety import assess_exchange_clock
+from trade_accounting import TradeExecution, UnpricedCommission, replay_average_cost
 
 import requests
 from urllib.parse import urlencode
@@ -555,37 +557,39 @@ def avg_entry(symbol: str, cache_ttl: int = 30, lookback: int = 1000) -> Optiona
     except Exception:
         pass
 
-    qty = 0.0
-    cost_q = 0.0  # стоимость в котируемой валюте (quote)
+    executions: List[TradeExecution] = []
     for t in trades:
         try:
-            is_buy = bool(t.get("isBuyer"))
-            q = float(t.get("qty") or 0.0)
-            p = float(t.get("price") or 0.0)
-            fee = float(t.get("commission") or 0.0)
+            side = "BUY" if bool(t.get("isBuyer")) else "SELL"
+            q = Decimal(str(t.get("qty") or "0"))
+            p = Decimal(str(t.get("price") or "0"))
+            fee = Decimal(str(t.get("commission") or "0"))
             c_asset = str(t.get("commissionAsset", "")).upper()
-            fee_q = 0.0
-            if c_asset == quote.upper():
-                fee_q = fee
-            elif c_asset == base.upper():
-                fee_q = fee * p
-            # BNB и пр. — опустим
-            if is_buy:
-                qty += q
-                cost_q += p * q + fee_q  # комиссия на покупку добавляем в себестоимость
-            else:
-                sell = min(q, qty)
-                if qty > 0 and sell > 0:
-                    avg = cost_q / qty
-                    cost_q -= avg * sell
-                    qty -= sell
-        except Exception:
+            fee_q, fee_status = _commission_quote_value(
+                symbol, c_asset, fee, p, int(t.get("time") or 0)
+            )
+            executions.append(TradeExecution.create(
+                symbol=symbol,
+                side=side,
+                price=p,
+                gross_qty=q,
+                commission_asset=c_asset,
+                commission_amount=fee,
+                commission_quote=fee_q,
+                commission_value_status=fee_status,
+            ))
+        except (ArithmeticError, TypeError, ValueError):
             continue
 
-    if qty <= 0:
+    try:
+        result = replay_average_cost(executions)
+    except UnpricedCommission as exc:
+        log(f"[AVG] {symbol} unavailable: {exc}")
         return None
-    avg_px = cost_q / qty
-    _AVG_CACHE[symbol] = {"ts": now_ts, "avg": float(avg_px), "pos": float(qty)}
+    if result.qty <= 0:
+        return None
+    avg_px = result.avg_cost
+    _AVG_CACHE[symbol] = {"ts": now_ts, "avg": float(avg_px), "pos": float(result.qty)}
     return float(avg_px)
 
 # --- PANIC state ---
@@ -1282,6 +1286,7 @@ STATS_DB = getenv_str("BOT_STATS_DB", "")
 
 TOOLS_STATS = None
 STATS_CON: Optional[sqlite3.Connection] = None
+_COMMISSION_QUOTE_CACHE: Dict[Tuple[str, str, int], Decimal] = {}
 
 def _stats_init_if_needed():
     global TOOLS_STATS, STATS_CON
@@ -1296,14 +1301,53 @@ def _stats_init_if_needed():
     if STATS_CON is None:
         try:
             os.makedirs(os.path.dirname(STATS_DB) or ".", exist_ok=True)
-            STATS_CON = sqlite3.connect(STATS_DB, isolation_level=None, check_same_thread=False, timeout=3.0)
-            STATS_CON.execute("PRAGMA journal_mode=WAL;")
-            STATS_CON.execute("PRAGMA busy_timeout=3000;")
-            STATS_CON.execute("PRAGMA synchronous=NORMAL;")
-            TOOLS_STATS.init_db(STATS_DB)  # ensure schema exists
+            STATS_CON = TOOLS_STATS.init_db(STATS_DB)
         except Exception as e:
             log(f"[STATS] open error: {e}")
             STATS_CON = None
+
+
+def _commission_quote_value(
+    symbol: str,
+    commission_asset: str,
+    commission_amount: Decimal,
+    trade_price: Decimal,
+    trade_time_ms: int,
+) -> Tuple[Optional[Decimal], str]:
+    """Value a Binance commission in the symbol quote asset at trade time."""
+    base, quote = get_symbol_assets(symbol)
+    asset = commission_asset.strip().upper()
+    if commission_amount <= 0:
+        return Decimal("0"), "none"
+    if asset == quote.upper():
+        return commission_amount, "exact"
+    if asset == base.upper():
+        return commission_amount * trade_price, "exact"
+
+    minute_ms = int(trade_time_ms // 60_000 * 60_000)
+    key = (asset, quote.upper(), minute_ms)
+    cached = _COMMISSION_QUOTE_CACHE.get(key)
+    if cached is not None:
+        return commission_amount * cached, "converted"
+
+    pairs = ((asset + quote.upper(), False), (quote.upper() + asset, True))
+    for pair, inverse in pairs:
+        try:
+            candles = _public_get(
+                "/api/v3/klines",
+                {"symbol": pair, "interval": "1m", "startTime": minute_ms, "limit": 1},
+            )
+            if not isinstance(candles, list) or not candles:
+                continue
+            close = Decimal(str(candles[0][4]))
+            if close <= 0:
+                continue
+            conversion = Decimal("1") / close if inverse else close
+            _COMMISSION_QUOTE_CACHE[key] = conversion
+            return commission_amount * conversion, "converted"
+        except (ArithmeticError, IndexError, TypeError, ValueError, requests.RequestException):
+            continue
+    return None, "unpriced"
 
 def _stats_poll_mytrades_once(symbol: str):
     if not (STATS_ENABLE and STATS_DB):
@@ -1337,32 +1381,44 @@ def _stats_poll_mytrades_once(symbol: str):
         try:
             tid = int(t.get("id"))
             side = "BUY" if t.get("isBuyer") else "SELL"
-            price = float(t.get("price"))
-            qty = float(t.get("qty"))
+            price = Decimal(str(t.get("price")))
+            qty = Decimal(str(t.get("qty")))
             ts = int(t.get("time"))
-            # fee в quote-эквиваленте (прибл.) — если комиссия в quote; если в base — умножим на цену; иначе 0
-            fee_q = 0.0
-            try:
-                commission = float(t.get("commission", 0.0))
-                c_asset = str(t.get("commissionAsset", "")).upper()
-                base, quote = get_symbol_assets(symbol)
-                if c_asset == quote.upper():
-                    fee_q = commission
-                elif c_asset == base.upper():
-                    fee_q = commission * price
-                else:
-                    fee_q = 0.0  # BNB и пр. — опускаем
-            except Exception:
-                pass
+            commission = Decimal(str(t.get("commission", "0") or "0"))
+            c_asset = str(t.get("commissionAsset", "")).upper()
+            fee_q, fee_status = _commission_quote_value(
+                symbol, c_asset, commission, price, ts
+            )
             # применим в БД
             try:
-                TOOLS_STATS.apply_trade(STATS_CON, symbol, side, price, qty, fee_quote=fee_q, ts=ts, trade_id=tid)
+                TOOLS_STATS.apply_trade(
+                    STATS_CON,
+                    symbol,
+                    side,
+                    price,
+                    qty,
+                    fee_quote=fee_q or Decimal("0"),
+                    ts=ts,
+                    trade_id=tid,
+                    gross_qty=qty,
+                    commission_asset=c_asset,
+                    commission_amount=commission,
+                    commission_quote=fee_q,
+                    commission_value_status=fee_status,
+                )
             except sqlite3.OperationalError as dberr:
                 if "locked" in str(dberr).lower():
                     log("[STATS] skip: database is locked")
                     break
                 else:
                     log(f"[STATS] apply_trade error: {dberr}")
+                    continue
+            if fee_status == "unpriced":
+                log(
+                    f"[STATS] {symbol} trade_id={tid}: {c_asset or 'unknown'} "
+                    "commission is unpriced; importer will retry before advancing"
+                )
+                break
             # обновим max id
             if tid > (max_id or -1):
                 max_id = tid

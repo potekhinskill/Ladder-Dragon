@@ -13,7 +13,8 @@ pnl_24h.py — PnL за окно (по умолчанию 24h), НЕТТО (с �
     себестоимости. Требует полной истории до t0. Если история не полная —
     результат будет искажен. Используй только если уверен в полноте БД.
 
-Входная таблица trades: (id, symbol, side, price, qty, fee_quote, ts, trade_id)
+Новые БД используют точные gross/net quantity и метаданные комиссии. Старые
+таблицы с price/qty/fee_quote продолжают поддерживаться.
 """
 
 import os
@@ -23,6 +24,8 @@ import sqlite3
 import json
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal, getcontext
+
+from trade_accounting import TradeExecution
 
 getcontext().prec = 28
 
@@ -52,6 +55,48 @@ def parse_symbols(s: str | None):
     x = [t.strip().upper() for t in s.split(",") if t.strip()]
     return x or None
 
+
+def _accounting_columns(con: sqlite3.Connection) -> str:
+    columns = {str(row[1]) for row in con.execute("PRAGMA table_info(trades)")}
+    exact = {
+        "price_text", "gross_qty", "net_qty", "commission_asset",
+        "commission_amount", "commission_quote", "commission_value_status",
+    }.issubset(columns)
+    if exact:
+        return """
+            COALESCE(NULLIF(price_text, ''), CAST(price AS TEXT)) AS price_value,
+            COALESCE(NULLIF(gross_qty, ''), CAST(qty AS TEXT)) AS gross_value,
+            COALESCE(NULLIF(net_qty, ''), CAST(qty AS TEXT)) AS net_value,
+            COALESCE(commission_asset, '') AS commission_asset,
+            COALESCE(NULLIF(commission_amount, ''), '0') AS commission_amount,
+            CASE WHEN commission_value_status = 'unpriced' THEN NULL
+                 ELSE COALESCE(commission_quote, CAST(fee_quote AS TEXT)) END AS commission_quote,
+            COALESCE(NULLIF(commission_value_status, ''), 'legacy') AS commission_status
+        """
+    return """
+        CAST(price AS TEXT) AS price_value,
+        CAST(qty AS TEXT) AS gross_value,
+        CAST(qty AS TEXT) AS net_value,
+        '' AS commission_asset,
+        '0' AS commission_amount,
+        CAST(COALESCE(fee_quote, 0) AS TEXT) AS commission_quote,
+        'legacy' AS commission_status
+    """
+
+
+def _execution(row: sqlite3.Row) -> TradeExecution:
+    return TradeExecution.create(
+        symbol=row["symbol"],
+        side=row["side"],
+        price=row["price_value"],
+        gross_qty=row["gross_value"],
+        net_qty=row["net_value"],
+        commission_asset=row["commission_asset"],
+        commission_amount=row["commission_amount"],
+        commission_quote=row["commission_quote"],
+        commission_value_status=row["commission_status"],
+    )
+
 def fetch_trades(con: sqlite3.Connection, t0_ts: int, t1_ts: int, symbols=None):
     """Выборка сделок в окне [t0_ts, t1_ts] с дедупом (trade_id или fallback)."""
     params = [t0_ts, t1_ts]
@@ -62,8 +107,7 @@ def fetch_trades(con: sqlite3.Connection, t0_ts: int, t1_ts: int, symbols=None):
         params.extend(symbols)
 
     sql = f"""
-      SELECT id, symbol, UPPER(side) AS side, price, qty,
-             COALESCE(fee_quote,0) AS fee_quote, ts, trade_id
+      SELECT id, symbol, UPPER(side) AS side, {_accounting_columns(con)}, ts, trade_id
       FROM trades
       WHERE {' AND '.join(where)}
       ORDER BY ts ASC, id ASC
@@ -84,8 +128,8 @@ def fetch_trades(con: sqlite3.Connection, t0_ts: int, t1_ts: int, symbols=None):
                 continue
             seen_tid.add(key)
         else:
-            fb = (sym, r["side"], str(Decimal(str(r["price"]))),
-                  str(Decimal(str(r["qty"]))), int(r["ts"]))
+            fb = (sym, r["side"], str(Decimal(str(r["price_value"]))),
+                  str(Decimal(str(r["gross_value"]))), int(r["ts"]))
             if fb in seen_fallback:
                 dup += 1
                 continue
@@ -105,14 +149,12 @@ def pnl_cash(con: sqlite3.Connection, t0_sec: int, t1_sec: int, symbols=None, ts
         side = r["side"]
         if side not in ("BUY", "SELL"):
             continue
-        price = Decimal(str(r["price"]))
-        qty = Decimal(str(r["qty"]))
-        fee = Decimal(str(r["fee_quote"] or 0))
+        trade = _execution(r)
 
         if side == "SELL":
-            delta = qty * price - fee
+            delta = trade.sell_proceeds_quote()
         elif side == "BUY":
-            delta = -(qty * price) - fee
+            delta = -trade.buy_cost_quote()
         else:
             continue
         by_sym[s] = by_sym.get(s, Decimal("0")) + delta
@@ -130,8 +172,7 @@ def iter_trades_until(con: sqlite3.Connection, t_until: int, symbols=None):
         where.append(f"symbol IN ({ph})")
         params.extend(symbols)
     sql = f"""
-        SELECT id, symbol, UPPER(side) as side, price, qty,
-               COALESCE(fee_quote,0) AS fee_quote, ts, trade_id
+        SELECT id, symbol, UPPER(side) as side, {_accounting_columns(con)}, ts, trade_id
         FROM trades
         WHERE {' AND '.join(where)}
         ORDER BY ts ASC, id ASC
@@ -149,8 +190,8 @@ def iter_trades_until(con: sqlite3.Connection, t_until: int, symbols=None):
                 continue
             seen_tid.add(key)
         else:
-            fb = (sym, r["side"], str(Decimal(str(r["price"]))),
-                  str(Decimal(str(r["qty"]))), int(r["ts"]))
+            fb = (sym, r["side"], str(Decimal(str(r["price_value"]))),
+                  str(Decimal(str(r["gross_value"]))), int(r["ts"]))
             if fb in seen_fallback:
                 continue
             seen_fallback.add(fb)
@@ -160,18 +201,18 @@ def replay_until(con: sqlite3.Connection, t_until_sec: int, symbols=None, ts_div
     qty = {}; cost = {}; realized = {}
     for r in iter_trades_until(con, t_until_sec * ts_div, symbols):
         sym = r["symbol"]; side = r["side"]
-        price = Decimal(str(r["price"])); q = Decimal(str(r["qty"]))
-        fee_q = Decimal(str(r["fee_quote"] or 0))
+        trade = _execution(r)
+        q = trade.net_qty
         Q = qty.get(sym, Decimal("0")); C = cost.get(sym, Decimal("0"))
 
         if side == "BUY":
             qty[sym] = Q + q
-            cost[sym] = C + (q * price + fee_q)
+            cost[sym] = C + trade.buy_cost_quote()
 
         elif side == "SELL":
             if Q <= 0:
                 # нет истории — трактуем как продажу без склада
-                proceeds = q * price - fee_q
+                proceeds = trade.sell_proceeds_quote()
                 realized[sym] = realized.get(sym, Decimal("0")) + proceeds
                 qty[sym] = Q - q
                 if realized.get(f"__warn_{sym}") is None:
@@ -181,10 +222,11 @@ def replay_until(con: sqlite3.Connection, t_until_sec: int, symbols=None, ts_div
 
             # Обычная продажа по средней себестоимости
             avg = C / Q
-            cost_out = avg * q
-            proceeds = q * price - fee_q
+            used = min(q, Q)
+            cost_out = avg * used
+            proceeds = trade.sell_proceeds_quote() * (used / q)
             pnl = proceeds - cost_out
-            qty[sym] = Q - q
+            qty[sym] = Q - used
             cost[sym] = C - cost_out
             realized[sym] = realized.get(sym, Decimal("0")) + pnl
 

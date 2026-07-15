@@ -18,6 +18,8 @@ import tempfile
 import time
 from typing import Iterable, Optional
 
+from trade_accounting import TradeExecution
+
 
 def money(value: object) -> Decimal:
     """Convert external numeric input without inheriting binary-float noise."""
@@ -345,44 +347,89 @@ def load_daily_trade_metrics(db_path: str, symbols: Iterable[str], now: Optional
     placeholders = ",".join("?" for _ in wanted)
     if not wanted:
         raise ValueError("at least one symbol is required")
-    daily_sql = f"""
-        SELECT symbol, side, price, qty, COALESCE(fee_quote, 0),
-               CASE WHEN ts > 1000000000000 THEN CAST(ts/1000 AS INTEGER) ELSE ts END AS ts_s
-        FROM trades
-        WHERE symbol IN ({placeholders})
-          AND (CASE WHEN ts > 1000000000000 THEN CAST(ts/1000 AS INTEGER) ELSE ts END) >= ?
-        ORDER BY ts_s, id
-    """
-    history_sql = f"""
-        SELECT symbol, side, price, qty, COALESCE(fee_quote, 0),
-               CASE WHEN ts > 1000000000000 THEN CAST(ts/1000 AS INTEGER) ELSE ts END AS ts_s
-        FROM trades
-        WHERE symbol IN ({placeholders})
-        ORDER BY ts_s, id
-    """
     with sqlite3.connect(f"file:{db_path}?mode=ro", uri=True, timeout=5) as con:
+        columns = {str(row[1]) for row in con.execute("PRAGMA table_info(trades)")}
+        exact = {
+            "price_text", "gross_qty", "net_qty", "commission_asset",
+            "commission_amount", "commission_quote", "commission_value_status",
+        }.issubset(columns)
+        if exact:
+            accounting_columns = """
+                COALESCE(NULLIF(price_text, ''), CAST(price AS TEXT)),
+                COALESCE(NULLIF(gross_qty, ''), CAST(qty AS TEXT)),
+                COALESCE(NULLIF(net_qty, ''), CAST(qty AS TEXT)),
+                COALESCE(commission_asset, ''),
+                COALESCE(NULLIF(commission_amount, ''), '0'),
+                CASE WHEN commission_value_status = 'unpriced' THEN NULL
+                     ELSE COALESCE(commission_quote, CAST(fee_quote AS TEXT)) END,
+                COALESCE(NULLIF(commission_value_status, ''), 'legacy')
+            """
+        else:
+            accounting_columns = """
+                CAST(price AS TEXT), CAST(qty AS TEXT), CAST(qty AS TEXT),
+                '', '0', CAST(COALESCE(fee_quote, 0) AS TEXT), 'legacy'
+            """
+        daily_sql = f"""
+            SELECT symbol, side, {accounting_columns},
+                   CASE WHEN ts > 1000000000000 THEN CAST(ts/1000 AS INTEGER) ELSE ts END AS ts_s
+            FROM trades
+            WHERE symbol IN ({placeholders})
+              AND (CASE WHEN ts > 1000000000000 THEN CAST(ts/1000 AS INTEGER) ELSE ts END) >= ?
+            ORDER BY ts_s, id
+        """
+        history_sql = f"""
+            SELECT symbol, side, {accounting_columns},
+                   CASE WHEN ts > 1000000000000 THEN CAST(ts/1000 AS INTEGER) ELSE ts END AS ts_s
+            FROM trades
+            WHERE symbol IN ({placeholders})
+            ORDER BY ts_s, id
+        """
         rows = con.execute(daily_sql, (*wanted, start)).fetchall()
         history = con.execute(history_sql, wanted).fetchall()
-    turnover = sum(money(price) * money(qty) for _, _, price, qty, _, _ in rows)
-    buys = sum(money(price) * money(qty) for _, side, price, qty, _, _ in rows if side == "BUY")
+
+    def execution(row: tuple) -> TradeExecution:
+        symbol, side, price, gross, net, asset, amount, quote_value, status, _ = row
+        return TradeExecution.create(
+            symbol=symbol,
+            side=side,
+            price=price,
+            gross_qty=gross,
+            net_qty=net,
+            commission_asset=asset,
+            commission_amount=amount,
+            commission_quote=quote_value,
+            commission_value_status=status,
+        )
+
+    daily_executions = [execution(row) for row in rows]
+    # Force valuation now: an unpriced non-zero BNB/third-asset commission must
+    # block risk telemetry instead of silently understating exposure or losses.
+    for trade in daily_executions:
+        trade.valued_commission()
+    turnover = sum((trade.price * trade.gross_qty for trade in daily_executions), Decimal("0"))
+    buys = sum(
+        (trade.price * trade.gross_qty for trade in daily_executions if trade.side == "BUY"),
+        Decimal("0"),
+    )
 
     # Reconstruct per-symbol weighted inventory across all history for the loss streak.
     inventory: dict[str, tuple[Decimal, Decimal]] = {}
     sell_results: list[Decimal] = []
-    for symbol, side, price_raw, qty_raw, fee_raw, _ in history:
-        price, amount, fee = money(price_raw), money(qty_raw), money(fee_raw)
-        qty, avg = inventory.get(symbol, (Decimal("0"), Decimal("0")))
-        if side == "BUY":
-            new_qty = qty + amount
-            avg = ((avg * qty) + (price * amount) + fee) / new_qty if new_qty > 0 else Decimal("0")
+    for row in history:
+        trade = execution(row)
+        qty, avg = inventory.get(trade.symbol, (Decimal("0"), Decimal("0")))
+        if trade.side == "BUY":
+            new_qty = qty + trade.net_qty
+            avg = ((avg * qty) + trade.buy_cost_quote()) / new_qty if new_qty > 0 else Decimal("0")
             qty = new_qty
-        elif side == "SELL":
-            used = min(qty, amount)
-            sell_results.append((price - avg) * used - fee)
+        else:
+            used = min(qty, trade.net_qty)
+            ratio = used / trade.net_qty if trade.net_qty > 0 else Decimal("0")
+            sell_results.append(trade.sell_proceeds_quote() * ratio - avg * used)
             qty -= used
             if qty <= 0:
                 qty, avg = Decimal("0"), Decimal("0")
-        inventory[symbol] = (qty, avg)
+        inventory[trade.symbol] = (qty, avg)
     streak = 0
     for result in reversed(sell_results):
         if result < 0:
