@@ -67,11 +67,18 @@ cp .env.example .env
 
 ```env
 BOT_RUN_DIR=.runtime
+BOT_TESTNET_RUN_DIR=.runtime/testnet
 BOT_STATS_DB=.runtime/bot_stats.db
 BOT_ORDER_JOURNAL=.runtime/order_intents.sqlite3
+BOT_TESTNET_STATS_DB=.runtime/testnet_bot_stats.db
+BOT_TESTNET_ORDER_JOURNAL=.runtime/testnet_order_intents.sqlite3
 ```
 
 На сервере systemd оставьте `BOT_RUN_DIR=/run/mybot` из шаблона.
+
+Testnet использует отдельные runtime, circuit state, stats DB и order journal. Его
+состояние проверяется и сбрасывается отдельно: `python risk_ctl.py status --testnet`
+и `python risk_ctl.py reset --testnet --force`.
 
 Рекомендации для API-ключа:
 

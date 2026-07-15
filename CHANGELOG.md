@@ -6,6 +6,13 @@
 - Добавлен экспоненциальный backoff для быстро падающих дочерних процессов и обязательный terminate/wait/kill cleanup при остановке супервизора.
 - `Ctrl+C` завершает супервизор и дочерние процессы штатно, без оставшихся процессов и lock-файлов.
 - Настоящий супервизор и исполнитель проверены в DRY на Spot Testnet: фильтры и стратегия загружены, все торговые операции заблокированы DRY-gate.
+- Операторские CLI `risk_ctl.py` и `db_migrate.py` загружают локальный `.env`, поэтому используют те же runtime и SQLite пути, что супервизор.
+- LIVE всегда трактует `target-buy-per-symbol` как жёсткий максимум; risk-block включает cooldown, а сигнал остановки проверяется непосредственно перед каждым exchange POST.
+- Startup и periodic cleanup сохраняют свежие ордера в течение 15-минутного warmup даже при небольшом смещении лестницы, исключая cancel/recreate churn после рестарта.
+- После FILLED исполнитель сначала подтверждает защитный OCO, затем немедленно синхронизирует trades/inventory; terminal state BUY сохраняется в durable journal до работы с OCO.
+- Строгая сверка позиций получила ограниченный grace/retry для гонки exchange-balance ↔ SQLite и учитывает только неторгуемую пыль в пределах одного `LOT_SIZE` шага.
+- Supervisor переключает Testnet на отдельные `BOT_TESTNET_STATS_DB` и `BOT_TESTNET_ORDER_JOURNAL`, поэтому виртуальные сделки не влияют на Mainnet inventory и дневные лимиты.
+- `BOT_TESTNET_RUN_DIR` изолирует Testnet circuit halt/state/alerts и lock-файлы; `risk_ctl.py --testnet` управляет только этим контуром.
 
 ## [2026-07-15]
 ### Safety hardening

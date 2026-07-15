@@ -189,7 +189,7 @@ def price_eps_mult():
     return getenv_float("PRICE_EPS_MULT", 1.0)
 
 def cleanup_warmup_sec():
-    return getenv_int("CLEANUP_WARMUP_SEC", 0)
+    return getenv_int("CLEANUP_WARMUP_SEC", 900)
 
 def bot_run_dir() -> str:
     return getenv_str("BOT_RUN_DIR", "/run/mybot")
@@ -1523,6 +1523,9 @@ def maybe_place_buys(symbol: str,
 
     # Основной цикл по кандидатам
     for idx, p in enumerate(candidates, start=1):
+        if not RUN:
+            log(f"[STOP] {symbol} BUY placement interrupted before slot {idx}/{total_slots}")
+            break
         if usdt_free <= 0:
             break
         # Цена заявки с учётом тиковой сетки
@@ -1574,6 +1577,9 @@ def maybe_place_buys(symbol: str,
             continue
 
         try:
+            if not RUN:
+                log(f"[STOP] {symbol} BUY placement interrupted before exchange POST")
+                break
             maker_flag = (
                 buy_limit_maker or
                 os.getenv("BUY_LIMIT_MAKER", "").lower() in ("1", "true", "yes")
@@ -1912,6 +1918,9 @@ def main():
     if not 0 <= args.stop_limit_offset_pct < 0.25:
         parser.error("--stop-limit-offset-pct must be in [0, 0.25)")
     LIVE_MODE = bool(args.live)
+    if LIVE_MODE:
+        # Risk budgeting in the supervisor assumes this is a hard maximum.
+        args.enforce_target_buys = True
 
     if LIVE_MODE:
         halt_file = Path(
@@ -2220,8 +2229,14 @@ def main():
                         buy_intent = journal.get_by_exchange_order_id(oid) if journal is not None else None
                         parent_client_id = buy_intent.client_order_id if buy_intent is not None else None
                         try:
+                            # Persist the terminal BUY state before protection work.  This makes
+                            # restart recovery deterministic even if the process is interrupted
+                            # while creating the OCO.
+                            if journal is not None and parent_client_id:
+                                journal.record_exchange_order(parent_client_id, o)
                             if parent_client_id and recover_existing_protection(parent_client_id):
                                 log(f"[RECOVERY] protection already exists for BUY order={oid}")
+                                _stats_poll_mytrades_once(symbol)
                                 placed_ids.remove(oid)
                                 continue
                             executed = executed_status
@@ -2379,6 +2394,10 @@ def main():
 
                         # BUY завершён только после подтверждённой защиты.
                         if protected:
+                            # Refresh the local ledger immediately after protection is confirmed.
+                            # The supervisor reconciles exchange balances against this inventory;
+                            # waiting for the next worker restart creates a false mismatch window.
+                            _stats_poll_mytrades_once(symbol)
                             try:
                                 placed_ids.remove(oid)
                             except ValueError:

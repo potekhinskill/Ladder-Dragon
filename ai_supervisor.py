@@ -28,6 +28,7 @@ from typing import Any, Dict, List, Optional, Tuple
 from order_identity import client_order_id
 from risk_manager import RiskDecision, RiskLimits, RiskManager, RiskSnapshot, load_daily_trade_metrics, money
 from time_safety import assess_exchange_clock
+from venue_config import apply_testnet_paths
 
 try:
     import requests
@@ -54,7 +55,7 @@ USER_AGENT = os.getenv("USER_AGENT", "LadderDragon/1.8 (ai_supervisor)")
 
 # Режим округления и тёплый старт для очистки
 PRICE_ROUND_MODE = os.getenv("PRICE_ROUND_MODE", "nearest").lower()  # floor|ceil|nearest
-CLEANUP_WARMUP_SEC = int(os.getenv("CLEANUP_WARMUP_SEC", "0") or 0)
+CLEANUP_WARMUP_SEC = int(os.getenv("CLEANUP_WARMUP_SEC", "900") or 900)
 
 SESSION = requests.Session()
 if API_KEY:
@@ -760,7 +761,13 @@ def startup_cleanup_orders(symbol: str,
 
             off = pr not in allowed
             old = (grace_sec is not None and age > int(grace_sec))
-            offladder_grace = int(os.getenv("START_CLEANUP_OFFLADDER_GRACE_SEC", "0") or 0)
+            offladder_grace = int(
+                os.getenv(
+                    "START_CLEANUP_OFFLADDER_GRACE_SEC",
+                    str(grace_sec if grace_sec is not None else 900),
+                )
+                or 0
+            )
 
             do_cancel = False
             reason = None
@@ -801,7 +808,9 @@ def smart_cleanup_orders(symbol: str,
     near_lo = now_price * 0.90
     near_hi = now_price * 1.10
     allowed = {_round_to_tick(p, tick_size) for p in ladder_prices} if cancel_offladder else set()
-    offladder_grace = int(os.getenv("CLEANUP_OFFLADDER_GRACE_SEC", "180") or 0)
+    offladder_grace = int(
+        os.getenv("CLEANUP_OFFLADDER_GRACE_SEC", str(CLEANUP_WARMUP_SEC)) or 0
+    )
 
     reviewed = canceled = 0
     for o in orders:
@@ -1210,7 +1219,7 @@ def run_child(symbol: str, ladder: List[float], args: argparse.Namespace,
         cli.append("--auto-oco-holdings")
     if args.live:
         cli.append("--live")
-    if getattr(args, "enforce_target_buys", False):
+    if args.live or getattr(args, "enforce_target_buys", False):
         cli.append("--enforce-target-buys")
     if getattr(args, "enforce_sell_limit", False):
         cli.append("--enforce-sell-limit")
@@ -1674,6 +1683,7 @@ def _configure_venue(args: argparse.Namespace) -> None:
         base = os.getenv("BINANCE_TESTNET_API_BASE", "https://testnet.binance.vision").rstrip("/")
         key = os.getenv("BINANCE_TESTNET_API_KEY", "")
         secret = os.getenv("BINANCE_TESTNET_API_SECRET", "")
+        apply_testnet_paths()
         venue = "testnet"
     else:
         base = (os.getenv("BINANCE_API_BASE") or "https://api.binance.com").rstrip("/")
@@ -1821,6 +1831,45 @@ def _build_risk_snapshot(
     prices = {symbol: get_last_price(symbol) for symbol in symbols}
     orders = TM._signed_get("/api/v3/openOrders") or []
 
+    if env_flag("RISK_RECONCILE_STRICT", True):
+        tolerance = max(0.0, float(os.getenv("RISK_RECONCILE_TOLERANCE_PCT", "0.02") or 0.02))
+        grace_sec = max(0.0, float(os.getenv("RISK_RECONCILE_GRACE_SEC", "5") or 5))
+        retry_sec = max(0.05, float(os.getenv("RISK_RECONCILE_RETRY_SEC", "0.25") or 0.25))
+        dust_steps = max(0.0, float(os.getenv("RISK_RECONCILE_DUST_STEPS", "1") or 1))
+        deadline = time.monotonic() + grace_sec
+        waited = False
+        while True:
+            with sqlite3.connect(f"file:{os.environ['BOT_STATS_DB']}?mode=ro", uri=True, timeout=5) as con:
+                inventory = {
+                    str(symbol).upper(): float(qty)
+                    for symbol, qty in con.execute("SELECT symbol, qty FROM inventory").fetchall()
+                }
+            mismatches = []
+            for symbol in symbols:
+                base, _ = symbol_assets(symbol)
+                account_qty = float(balances.get(base, {}).get("free", 0)) + float(balances.get(base, {}).get("locked", 0))
+                db_qty = inventory.get(symbol)
+                step_size = max(0.0, float(get_exchange_filters_cached(symbol).get("stepSize", 0.0)))
+                allowed = max(1e-8, abs(account_qty) * tolerance, step_size * dust_steps)
+                if db_qty is None:
+                    if account_qty > allowed:
+                        mismatches.append(f"{symbol}: account={account_qty:.8f}, ledger=missing")
+                    continue
+                if abs(account_qty - db_qty) > allowed:
+                    mismatches.append(f"{symbol}: account={account_qty:.8f}, ledger={db_qty:.8f}")
+            if not mismatches:
+                break
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                raise RuntimeError("position reconciliation failed: " + "; ".join(mismatches))
+            waited = True
+            time.sleep(min(retry_sec, remaining))
+            balances = get_balances_full()
+        if waited:
+            # OCO can appear while the worker updates the ledger.  Re-read orders so
+            # exposure and open-order limits use the same post-reconciliation state.
+            orders = TM._signed_get("/api/v3/openOrders") or []
+
     tracked_assets: Dict[str, Decimal] = {}
     equity = money(balances.get("USDT", {}).get("free", 0)) + money(balances.get("USDT", {}).get("locked", 0))
     holdings_exposure = Decimal("0")
@@ -1833,28 +1882,6 @@ def _build_risk_snapshot(
         tracked_assets[base] = value
         equity += value
         holdings_exposure += value
-
-    if env_flag("RISK_RECONCILE_STRICT", True):
-        tolerance = max(0.0, float(os.getenv("RISK_RECONCILE_TOLERANCE_PCT", "0.02") or 0.02))
-        with sqlite3.connect(f"file:{os.environ['BOT_STATS_DB']}?mode=ro", uri=True, timeout=5) as con:
-            inventory = {
-                str(symbol).upper(): float(qty)
-                for symbol, qty in con.execute("SELECT symbol, qty FROM inventory").fetchall()
-            }
-        mismatches = []
-        for symbol in symbols:
-            base, _ = symbol_assets(symbol)
-            account_qty = float(balances.get(base, {}).get("free", 0)) + float(balances.get(base, {}).get("locked", 0))
-            db_qty = inventory.get(symbol)
-            if db_qty is None:
-                if account_qty > 0:
-                    mismatches.append(f"{symbol}: account={account_qty:.8f}, ledger=missing")
-                continue
-            allowed = max(1e-8, abs(account_qty) * tolerance)
-            if abs(account_qty - db_qty) > allowed:
-                mismatches.append(f"{symbol}: account={account_qty:.8f}, ledger={db_qty:.8f}")
-        if mismatches:
-            raise RuntimeError("position reconciliation failed: " + "; ".join(mismatches))
 
     open_buy = sum(
         money(order.get("price")) * money(order.get("origQty"))
@@ -2169,9 +2196,12 @@ def main():
                         risk_manager.start_cooldown(reason)
                     decision = RiskDecision(halted=False, buy_blocked=True, reasons=(reason,))
 
+                was_buy_blocked = risk_buy_blocked
                 risk_buy_blocked = decision.buy_blocked
                 if risk_buy_blocked:
                     reason = "; ".join(decision.reasons) or "risk limit"
+                    if risk_manager is not None and not decision.halted and not was_buy_blocked:
+                        risk_manager.start_cooldown(reason)
                     _stop_children(reason)
                     try:
                         _cancel_open_buy_orders(orders or None)
