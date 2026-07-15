@@ -10,7 +10,7 @@ import ai_supervisor
 
 
 def load_worker():
-    path = Path("1.8_autosize_universal.py").resolve()
+    path = Path("autosize_universal.py").resolve()
     spec = importlib.util.spec_from_file_location("ladder_worker", path)
     module = importlib.util.module_from_spec(spec)
     assert spec and spec.loader
@@ -245,7 +245,7 @@ def test_live_requires_explicit_confirmation(monkeypatch):
             "ai_supervisor.py",
             "--live",
             "--base-script",
-            "1.8_autosize_universal.py",
+            "autosize_universal.py",
         ],
         text=True,
         capture_output=True,

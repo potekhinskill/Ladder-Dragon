@@ -1,5 +1,14 @@
 # Changelog — Ladder Dragon (binance_bot)
 
+Формат версий: [Semantic Versioning](https://semver.org/).
+
+## [2.0.0] — 2026-07-16
+
+### Product versioning
+- Версия продукта вынесена в единый модуль `product_version.py` и подключена к package metadata, CLI и HTTP User-Agent.
+- Основные команды поддерживают `--version`, а supervisor и executor фиксируют версию в startup log.
+- Исполнитель переименован из legacy-имени с номером версии в `autosize_universal.py`; обновлены supervisor, runners, systemd, тесты и документация.
+
 ## [2026-07-16]
 ### Supervisor DRY/Testnet hardening
 - Исполнитель использует `BOT_RUN_DIR` для per-symbol lock, fallback order journal, circuit halt и breakeven state; локальный запуск больше не зависит от Linux-only `/run/mybot`.
@@ -49,7 +58,7 @@
 - Добавлен изолированный `circuit-drill`, проверяющий сохранение halt после restart и ручной reset без изменения production state.
 
 ## [2025-09-26]
-### Executor (1.8_autosize_universal.py)
+### Executor (autosize_universal.py)
 - Добавлен VWAP-guard: `--buy-vwap-premium` блокирует покупки, если цена ушла выше VWAP.
 - Появились адаптивные капы на скидках к VWAP (`--buy-vwap-discount`, `--buy-vwap-discount-scale`).
 - Настраиваемое окно/интервал VWAP (`--buy-vwap-interval`, `--buy-vwap-window`) работает совместно с существующими EMA/ATR, а в логи добавлен вывод ratio `now/VWAP`.
@@ -71,7 +80,7 @@
 - Исправлен расчёт тюнера: PnL считается по FIFO из таблицы `trades` (миллисекундные таймстемпы), чтобы исключить пустые выборки и кривые значения.
 
 ## [2025-09-21]
-### Executor (1.8_autosize_universal.py)
+### Executor (autosize_universal.py)
 - Добавлены тренд-фильтры для BUY: `--buy-trend-ema-gap`, `--buy-trend-interval`, `--bear-skip-buys`, `--bear-cap-scale`, `--bear-buy-shift-pct`.
 - Новый флаг `--skip-buy-while-panic` и `--panic-sell-floor-pct` для более агрессивной защиты в режиме паники.
 - Переработаны лестничные покупки: смещение уровней вниз при падении рынка и динамическое снижение CAP без изменения поведения по умолчанию.
@@ -82,7 +91,7 @@
 - Реализован кэш средней цены позиции для guard'ов flatten.
 
 ## [2025-09-07]
-### Executor (1.8_autosize_universal.py)
+### Executor (autosize_universal.py)
 - Добавлены backoff+повторы на ошибки 418/429/5xx и коды -1003/-1015.
 - Подпись приватных запросов (account/openOrders/order/myTrades).
 - Улучшен `get_price()` с fallback на альтернативные источники.
@@ -107,7 +116,7 @@
 - Онлайн-логи через SSE.
 
 ### Документация (readme.html, help.html)
-- Раздел «Что нового»: толстые ордера v1.8, Auto-CAP, Smart cleanup, режим x10, Pi Dashboard.
+- Раздел «Что нового»: толстые ордера, Auto-CAP, Smart cleanup, режим x10, Pi Dashboard.
 - Полный справочник CLI-флагов (MA/ATR/TTL/Auto-CAP/риски).
 - Добавлена шпаргалка (1 стр.) с быстрым стартом и env.
 - В help.html: описание API (summary/filled/symbols), бэкапы и восстановление.

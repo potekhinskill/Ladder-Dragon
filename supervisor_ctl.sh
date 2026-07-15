@@ -289,8 +289,8 @@ cmd_start_runner() {
   fi
   shift
   rotate_log_if_big "${LOG}"
-  echo "[start-runner] nohup ${PY} -u ${RUNNER} --base-script 1.8_autosize_universal.py -- $@ >> ${LOG} 2>&1 & disown"
-  nohup "${PY}" -u "${RUNNER}" --base-script 1.8_autosize_universal.py -- "$@" >> "${LOG}" 2>&1 & disown
+  echo "[start-runner] nohup ${PY} -u ${RUNNER} --base-script autosize_universal.py -- $@ >> ${LOG} 2>&1 & disown"
+  nohup "${PY}" -u "${RUNNER}" --base-script autosize_universal.py -- "$@" >> "${LOG}" 2>&1 & disown
 }
 
 # ---------- PnL reporter ----------
