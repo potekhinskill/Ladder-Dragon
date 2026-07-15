@@ -1,0 +1,371 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Pi Dashboard — Справка</title>
+  <style>
+    :root{
+      --bg:#0b1220; --panel:#111a2b; --card:#0f1828; --ink:#e7eefc; --muted:#9bb0d3; --accent:#5eead4; --line:#20314d; --code-bg:#0b1424;
+    }
+    @media (prefers-color-scheme: light){
+      :root{ --bg:#f6f8ff; --panel:#ffffff; --card:#ffffff; --ink:#0b1324; --muted:#54627a; --accent:#0ea5e9; --line:#e6ecfb; --code-bg:#f1f5ff; }
+    }
+    *{box-sizing:border-box}
+    html,body{margin:0;height:100%}
+    body{font:14px/1.6 system-ui,-apple-system,Segoe UI,Roboto,Ubuntu,Cantarell,Arial,"Noto Sans","Helvetica Neue",sans-serif;color:var(--ink);background:linear-gradient(180deg,var(--bg),#0b0f1a);}
+    header{position:sticky;top:0;background:rgba(17,26,43,.75);backdrop-filter:saturate(160%) blur(8px);border-bottom:1px solid var(--line);z-index:5}
+    .wrap{max-width:1100px;margin:0 auto;padding:16px}
+    .hrow{display:flex;align-items:center;gap:12px;flex-wrap:wrap}
+    .badge{padding:4px 10px;border-radius:999px;background:rgba(94,234,212,.1);color:var(--accent);border:1px solid rgba(94,234,212,.25);font-weight:600}
+    nav a{color:var(--muted);margin-right:12px;text-decoration:none}
+    nav a:hover{color:var(--accent)}
+    .grid{display:grid;grid-template-columns:repeat(12,1fr);gap:16px;margin:20px 0}
+    .card{grid-column:span 12;background:var(--card);border:1px solid var(--line);border-radius:14px;padding:16px;box-shadow:0 10px 30px rgba(0,0,0,.25)}
+    @media(min-width:900px){ .span6{grid-column:span 6} .span4{grid-column:span 4} .span8{grid-column:span 8} .span3{grid-column:span 3} .span9{grid-column:span 9} }
+    h1{font-size:22px;margin:0}
+    h2{font-size:18px;margin:0 0 10px 0}
+    h3{font-size:15px;margin:14px 0 8px; color:var(--muted)}
+    code,pre{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,"Liberation Mono",monospace}
+    pre{background:var(--code-bg);border:1px solid var(--line);border-radius:10px;padding:12px;overflow:auto;margin:10px 0}
+    .copy{float:right;margin-top:-6px}
+    .btn{cursor:pointer;border:1px solid var(--line);background:var(--panel);color:var(--ink);padding:6px 10px;border-radius:8px}
+    .btn:hover{border-color:var(--accent)}
+    .muted{color:var(--muted)}
+    .pill{display:inline-flex;gap:8px;align-items:center;padding:6px 10px;border-radius:999px;border:1px solid var(--line);background:var(--panel)}
+    .links a{color:var(--accent);text-decoration:none}
+    .links a:hover{text-decoration:underline}
+    hr{border:none;border-top:1px solid var(--line);margin:14px 0}
+    ul.clean{list-style:none;padding-left:0;margin:0}
+    ul.clean li{padding:6px 0;border-bottom:1px dashed var(--line)}
+    .small{font-size:12.5px}
+    .chip{display:inline-block;border:1px solid var(--line);border-radius:999px;padding:2px 8px;margin-right:6px;background:var(--panel)}
+    .kbd{display:inline-block;background:var(--panel);border:1px solid var(--line);border-bottom-color:#0003;padding:0 6px;border-radius:6px;font-size:12px}
+  </style>
+</head>
+<body>
+<header>
+  <div class="wrap hrow">
+    <div class="badge">Pi Dashboard</div>
+    <h1>Справка и карта проекта</h1>
+    <nav>
+      <a href="#arch">Архитектура</a>
+      <a href="#api">API</a>
+      <a href="#trade">Торговля</a>
+      <a href="#env">Окружение</a>
+      <a href="#service">Сервис</a>
+      <a href="#backup">Бэкапы</a>
+      <a href="#paths">Пути</a>
+    </nav>
+  </div>
+</header>
+
+<main class="wrap">
+  <section id="arch" class="grid">
+    <article class="card">
+      <h2>Архитектура</h2>
+      <pre class="small">браузер → https://bot.local/
+  ├─ статика (/var/www/bot/index.html)
+  └─ /api/* → nginx → 127.0.0.1:8081 → FastAPI (pi-healthd) → /opt/pi-dashboard/app.py</pre>
+      <div class="links" style="margin-top:8px">
+        <a href="https://bot.local/" target="_blank" rel="noreferrer">Открыть панель</a> ·
+        <a href="https://bot.local/api/health" target="_blank" rel="noreferrer">Проверить /api/health</a>
+      </div>
+    </article>
+
+    <article class="card span6">
+      <h2>Фронтенд (дашборд)</h2>
+      <ul>
+        <li><b>Файл:</b> <code>/var/www/bot/index.html</code></li>
+        <li><b>Использует API:</b>
+          <code>/api/health</code>,
+          <code>/api/history?hours=N</code>,
+          <code>/api/bot/logs/stream</code> (SSE),
+          <code>/api/trades/summary?hours=24[&symbols=...]</code>,
+          <code>/api/trades/filled?hours=24&amp;limit=5000[&symbols=...]</code>
+        </li>
+      </ul>
+      <h3>Проверка</h3>
+      <button class="btn copy" data-copy="curl -sk https://bot.local | head -n 5">копировать</button>
+      <pre>curl -sk https://bot.local | head -n 5</pre>
+    </article>
+
+    <article class="card span6">
+      <h2>Бэкенд (FastAPI)</h2>
+      <ul>
+        <li><b>Приложение:</b> <code>/opt/pi-dashboard/app.py</code></li>
+        <li><b>История:</b> <code>/opt/pi-dashboard/data/metrics.ndjson</code></li>
+        <li><b>Сервис:</b> <code>pi-healthd.service</code> на <code>127.0.0.1:8081</code></li>
+      </ul>
+      <h3>Проверка</h3>
+      <button class="btn copy" data-copy='curl -s http://127.0.0.1:8081/api/health | python3 -m json.tool | sed -n "1,20p"'>копировать</button>
+      <pre>curl -s http://127.0.0.1:8081/api/health | python3 -m json.tool | sed -n '1,20p'</pre>
+    </article>
+  </section>
+
+  <section id="api" class="card">
+    <h2>API эндпоинты (системные)</h2>
+    <ul class="clean">
+      <li><code>GET /api/health</code> — сводка: время, ядро, t°, память, диск, монтирования, сервисы, аптайм, сеть.</li>
+      <li><code>GET /api/history?hours=N</code> — точки для графиков из <code>metrics.ndjson</code>.</li>
+      <li><code>GET /api/bot/logs/stream</code> — Server-Sent Events с онлайн-логами <code>mybot.service</code>.</li>
+    </ul>
+  </section>
+
+  <section id="trade" class="grid">
+    <article class="card span8">
+      <h2>Торговля: сводка и PnL</h2>
+      <p>Эндпоинт возвращает агрегаты за окно и «чистый» PnL по equity (все монеты + USDT). Поддерживает фильтр по инструментам.</p>
+      <ul>
+        <li><code>GET /api/trades/summary?hours=24[&symbols=ETHUSDT,SOLUSDT]</code></li>
+        <li><b>Поля:</b> <code>total_trades</code>, <code>buy_volume_usdt</code>, <code>sell_volume_usdt</code>,
+          <code>fees_usdt</code>, <code>cashflow_pnl_usdt</code>, <code>realized_pnl_usdt</code>,
+          <code>equity_pnl_usdt</code> (= <code>net_pnl_usdt</code>), <code>equity_now_usdt</code>,
+          <code>equity_then_usdt</code>, <code>equity_pct</code>, <code>equity_method</code> (<span class="kbd">balances+klines</span> / <span class="kbd">db-holdings-minima</span>),
+          <code>equity_assets</code>.
+        </li>
+      </ul>
+      <h3>Примеры</h3>
+      <button class="btn copy" data-copy="curl -sS 'http://127.0.0.1:8081/api/trades/summary?hours=24' | python3 -m json.tool | sed -n '1,60p'">копировать</button>
+      <pre class="small">curl -sS 'http://127.0.0.1:8081/api/trades/summary?hours=24' \
+| python3 -m json.tool | sed -n '1,60p'</pre>
+
+      <button class="btn copy" data-copy="curl -sS 'http://127.0.0.1:8081/api/trades/summary?hours=24&amp;symbols=ETHUSDT,SOLUSDT' | python3 - &lt;&lt;'PY'
+import sys,json; d=json.load(sys.stdin)
+print('method=',d.get('equity_method'))
+print('equity_now_usdt=',d.get('equity_now_usdt'))
+print('equity_pnl_usdt=',d.get('equity_pnl_usdt'))
+print('assets=',d.get('equity_assets'))
+PY">копировать</button>
+      <pre class="small">curl -sS 'http://127.0.0.1:8081/api/trades/summary?hours=24&amp;symbols=ETHUSDT,SOLUSDT' | python3 - <<'PY'
+import sys,json; d=json.load(sys.stdin)
+print('method=',d.get('equity_method'))
+print('equity_now_usdt=',d.get('equity_now_usdt'))
+print('equity_pnl_usdt=',d.get('equity_pnl_usdt'))
+print('assets=',d.get('equity_assets'))
+PY</pre>
+
+      <div class="muted small">
+        Примечания: комиссия учитывается из <code>fee_quote</code> (если есть), иначе оценивается по <code>BOT_FEE_PCT</code> (оплата BNB со скидкой).
+        Проценты в дашборде показываются как <code>equity_pnl_usdt / equity_then_usdt</code>, при слишком малом базисе процент скрывается.
+      </div>
+    </article>
+
+    <article class="card span4">
+      <h2>Торговля: исполненные ордера</h2>
+      <ul>
+        <li><code>GET /api/trades/filled?hours=24&amp;limit=5000[&symbols=...]</code></li>
+        <li class="small muted">Алиасы: <code>/api/orders/filled</code>, <code>/api/fills</code></li>
+        <li><b>Поля строки:</b> <code>time</code> (ms), <code>symbol</code>, <code>side</code>, <code>price</code>, <code>qty</code>, <code>quoteQty</code>, <code>commission</code> (в USDT), <code>commissionAsset</code>=<code>USDT</code></li>
+        <li><b>Формат в UI:</b> цена — 2 знака после запятой, количество — 4 знака, суммы — 2 знака.</li>
+      </ul>
+      <button class="btn copy" data-copy="curl -sS 'http://127.0.0.1:8081/api/trades/filled?hours=24&amp;limit=5' | python3 -m json.tool">копировать</button>
+      <pre class="small">curl -sS 'http://127.0.0.1:8081/api/trades/filled?hours=24&amp;limit=5' | python3 -m json.tool</pre>
+    </article>
+
+    <article class="card span3">
+      <h2>Символы</h2>
+      <p><code>GET /api/trades/symbols?hours=168</code> — уникальные пары за период (для фильтра).</p>
+      <button class="btn copy" data-copy="curl -sS 'http://127.0.0.1:8081/api/trades/symbols?hours=168' | python3 -m json.tool">копировать</button>
+      <pre class="small">curl -sS 'http://127.0.0.1:8081/api/trades/symbols?hours=168' | python3 -m json.tool</pre>
+    </article>
+
+    <article class="card span9">
+      <h2>Почему «Прибл. общая стоимость» может отличаться</h2>
+      <ul class="small">
+        <li><b>Метод:</b> если <code>equity_method</code> = <span class="kbd">balances+klines</span>, берутся реальные балансы и свечи Binance — это точно. Если <span class="kbd">db-holdings-minima</span>, это восстановление по БД (депозиты до начала истории не учитываются, отрицательные остатки обнуляются).</li>
+        <li><b>Фильтр:</b> используйте <code>symbols=</code> чтобы считать только по монетам бота.</li>
+        <li><b>Комиссии в BNB:</b> учитываются как уменьшение BNB (если комиссия пришла в BNB).</li>
+      </ul>
+    </article>
+  </section>
+
+  <section id="env" class="card">
+    <h2>Окружение (переменные)</h2>
+    <ul class="clean">
+      <li><code>BOT_STATS_DB</code> — путь к базе с трейдами (пример: <code>/home/bot/apps/binance_bot/db/bot_stats.db</code>).</li>
+      <li><code>BOT_FEE_PCT</code> — процент комиссии для оценки, по умолчанию <code>0.00075</code> (0.075% c BNB-скидкой).</li>
+      <li><code>BOT_SERVICE</code> — имя systemd-юнита бота (по умолчанию <code>mybot</code>), из его окружения подтягиваются ключи Binance.</li>
+      <li><code>BINANCE_API_BASE</code> — хост Binance API (по умолчанию <code>https://api.binance.com</code>).</li>
+      <li><code>BINANCE_API_KEY</code>, <code>BINANCE_API_SECRET</code> — можно задать в окружении <b>или</b> положить в <code>.env</code>:
+        <code>/home/bot/apps/binance_bot/.env</code>, <code>/opt/binance_bot/.env</code> или <code>/opt/pi-dashboard/.env</code>.
+        API автоматически попытется взять ключи из: окружения <span class="kbd">pi-healthd</span> → окружения процесса <span class="kbd">BOT_SERVICE</span> → указанных <span class="kbd">.env</span>.
+      </li>
+    </ul>
+    <h3>Проверка, что ключи применились</h3>
+    <button class="btn copy" data-copy="curl -sS 'http://127.0.0.1:8081/api/trades/summary?hours=24' | python3 -c &quot;import sys,json; d=json.load(sys.stdin); print(d.get('equity_method'))&quot;">копировать</button>
+    <pre class="small">curl -sS 'http://127.0.0.1:8081/api/trades/summary?hours=24' \
+| python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('equity_method'))"
+# ожидаем: balances+klines</pre>
+  </section>
+
+  <section id="service" class="grid">
+    <article class="card span6">
+      <h2>Перезапуск API</h2>
+      <button class="btn copy" data-copy="sudo systemctl restart pi-healthd && sudo journalctl -u pi-healthd -n 80 --no-pager -o cat">копировать</button>
+      <pre class="small">sudo systemctl restart pi-healthd
+sudo journalctl -u pi-healthd -n 80 --no-pager -o cat</pre>
+
+      <h3>Проверка порта и health</h3>
+      <button class="btn copy" data-copy="ss -ltnp | grep ':8081' || sudo lsof -iTCP:8081 -sTCP:LISTEN -P">копировать</button>
+      <pre class="small">ss -ltnp | grep ':8081' || sudo lsof -iTCP:8081 -sTCP:LISTEN -P
+curl -sS http://127.0.0.1:8081/api/health | python3 -m json.tool | head</pre>
+    </article>
+
+    <article class="card span6">
+      <h2>Типичные проверки</h2>
+      <pre class="small"># Сводка за 24ч только по монетам бота:
+curl -sS 'http://127.0.0.1:8081/api/trades/summary?hours=24&amp;symbols=ETHUSDT,SOLUSDT' | python3 -m json.tool
+
+# Последние исполненные ордера (до 5000 строк):
+curl -sS 'http://127.0.0.1:8081/api/trades/filled?hours=24&amp;limit=5000' | head -n 20
+
+# Онлайн-логи бота (SSE в браузере)
+https://bot.local/api/bot/logs/stream</pre>
+      <div class="muted small">
+        Если <code>/api/health</code> работает, а сводка пустая — проверьте путь к БД (<code>BOT_STATS_DB</code>) и права доступа.
+      </div>
+    </article>
+  </section>
+
+  <section id="backup" class="grid">
+    <article class="card span8">
+      <h2>Бэкапы (скачать)</h2>
+      <p>
+        <span class="chip">SAFE (публичный)</span>
+        <a id="safe-latest" href="/backups/pi-config-safe-latest.tgz">Скачать последний SAFE</a>
+        <span class="muted small" id="safe-size"></span><br/>
+        <span class="chip">SHA256</span>
+        <a id="sha-latest" href="/backups/pi-config-latest.sha256.txt">Контрольная сумма</a>
+      </p>
+      <div class="small muted">Секреты не отдаются через веб. Путь для scp:</div>
+      <pre class="small">/home/bot/pi-config-secrets-latest.tgz</pre>
+
+      <h3>Месячные архивы (последние 6)</h3>
+      <ul id="monthly-list" class="clean small"><li class="muted">Загрузка…</li></ul>
+      <div class="small muted">Ссылки появляются только если архив за месяц реально существует.</div>
+    </article>
+
+    <article class="card span4">
+      <h2>Проверка и запуск вручную</h2>
+      <h3>Проверить сумму SHA256</h3>
+      <button class="btn copy" data-copy='TS=$(date +%F-%H%M%S); echo "см. имя файла";'>копировать</button>
+      <pre class="small"># Имена уже связаны через "latest":
+curl -sk https://bot.local/backups/pi-config-latest.sha256.txt -o /tmp/safe.sha256
+SAFE=/var/www/bot/backups/pi-config-safe-latest.tgz
+sha256sum "$SAFE" | diff - /tmp/safe.sha256 && echo "OK"</pre>
+
+      <h3>Сделать бэкап сейчас</h3>
+      <button class="btn copy" data-copy="sudo systemctl start make-pi-backup.service && journalctl -u make-pi-backup -n 50 --no-pager">копировать</button>
+      <pre class="small">sudo systemctl start make-pi-backup.service
+journalctl -u make-pi-backup -n 50 --no-pager</pre>
+    </article>
+
+    <article class="card span12">
+      <h2>Восстановление (кратко)</h2>
+      <ol class="small">
+        <li>Проверить сумму: <code>sha256sum pi-config-safe-TS.tgz | diff - pi-config-TS.sha256.txt</code></li>
+        <li>Развернуть SAFE: <code>sudo tar -xzf pi-config-safe-TS.tgz -C /</code></li>
+        <li>Развернуть SECRETS: <code>sudo tar -xzf /path/pi-config-secrets-TS.tgz -C /</code></li>
+        <li>Создать venv в <code>/home/bot/apps/binance_bot</code> и установить пакеты из <code>extras/pip-freeze-*.txt</code></li>
+        <li><code>sudo systemctl daemon-reload && sudo systemctl enable --now mybot pi-healthd nginx</code></li>
+      </ol>
+      <div class="muted small">Полная инструкция лежит внутри архива: <code>extras/RESTORE.md</code>.</div>
+    </article>
+  </section>
+
+  <section id="paths" class="card">
+    <h2>Где что лежит</h2>
+    <div class="grid">
+      <div class="span4 card" style="padding:12px">
+        <h3>Фронтенд</h3>
+        <code>/var/www/bot/index.html</code>
+      </div>
+      <div class="span4 card" style="padding:12px">
+        <h3>API</h3>
+        <code>/opt/pi-dashboard/app.py</code><br/>
+        <span class="muted small">История:</span> <code>/opt/pi-dashboard/data/metrics.ndjson</code>
+      </div>
+      <div class="span4 card" style="padding:12px">
+        <h3>Сервис</h3>
+        <code>/etc/systemd/system/pi-healthd.service</code><br/>
+        <span class="muted small">Порт:</span> <code>127.0.0.1:8081</code>
+      </div>
+      <div class="span4 card" style="padding:12px">
+        <h3>Nginx</h3>
+        <code>/etc/nginx/sites-available/bot.local</code><br/>
+        <code>/etc/nginx/snippets/pi_api.conf</code>
+      </div>
+      <div class="span4 card" style="padding:12px">
+        <h3>TLS</h3>
+        <code>/etc/nginx/certs/bot.local.pem</code><br/>
+        <code>/etc/nginx/certs/bot.local-key.pem</code>
+      </div>
+      <div class="span4 card" style="padding:12px">
+        <h3>Логи бота</h3>
+        <code>journalctl -u mybot -f</code><br/>
+        <span class="muted small">SSE:</span> <code>/api/bot/logs/stream</code>
+      </div>
+    </div>
+  </section>
+
+  <footer class="muted" style="margin:20px 0 10px">
+    © Pi Dashboard • Справка. Подходит для печати / сохранения в PDF.
+  </footer>
+</main>
+
+<script>
+  // Кнопки "копировать"
+  document.addEventListener('click', (e)=>{
+    const b = e.target.closest('.copy'); if(!b) return;
+    const txt = b.getAttribute('data-copy')||''; navigator.clipboard.writeText(txt).then(()=>{
+      const old=b.textContent; b.textContent='скопировано ✓'; setTimeout(()=>b.textContent=old,1200);
+    });
+  });
+
+  // Показ размера SAFE (HEAD → Content-Length)
+  (async function(){
+    try{
+      const r = await fetch('/backups/pi-config-safe-latest.tgz', {method:'HEAD'});
+      if(r.ok){
+        const len = r.headers.get('content-length');
+        if(len){
+          const mb = (Number(len)/1024/1024).toFixed(1);
+          document.getElementById('safe-size').textContent = `(${mb} МБ)`;
+        }
+      }
+    }catch(e){}
+  })();
+
+  // Генерация списка месячных архивов за 6 последних месяцев (показываем только существующие)
+  (async function(){
+    const ul = document.getElementById('monthly-list'); ul.innerHTML='';
+    const months = [];
+    const d = new Date();
+    for(let i=0;i<6;i++){
+      const dt = new Date(d.getFullYear(), d.getMonth()-i, 1);
+      const y = dt.getFullYear();
+      const m = String(dt.getMonth()+1).padStart(2,'0');
+      months.push(`${y}-${m}`);
+    }
+    for(const mm of months){
+      const url = `/backups/pi-config-safe-monthly-${mm}.tgz`;
+      try{
+        const r = await fetch(url, {method:'HEAD'});
+        if(r.ok){
+          const li = document.createElement('li');
+          const a = document.createElement('a');
+          a.href = url; a.textContent = `SAFE за ${mm}`;
+          li.appendChild(a);
+          ul.appendChild(li);
+        }
+      }catch(e){}
+    }
+    if(!ul.children.length){
+      const li = document.createElement('li'); li.textContent='Пока нет месячных ссылок.';
+      li.className='muted'; ul.appendChild(li);
+    }
+  })();
+</script>
+</body>
+</html>

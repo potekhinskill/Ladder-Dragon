@@ -1,0 +1,596 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>🧪 Pi Dashboard</title>
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;600;800&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --bg:#0f1218; --panel:#151a22; --stroke:#212734;
+    --text:#e7edf6; --muted:#9aa6b2; --ok:#21c07a; --warn:#f3c24d; --bad:#ff6e6e; --acc:#5b8cff;
+    --gap:14px; --pad:16px; --rad:14px;
+    --pct-size:18px;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--text);font-family:Manrope,system-ui,-apple-system,Segoe UI,Roboto,Ubuntu,Arial,sans-serif}
+  .wrap{max-width:1180px;margin:0 auto;padding:18px}
+  header{display:flex;align-items:baseline;gap:10px;margin-bottom:12px}
+  h1{margin:0;font-size:20px;font-weight:800}
+  .sub{color:var(--muted);font-size:12px}
+
+  /* Карточки KPI */
+  .grid-kpi{display:grid;grid-template-columns:repeat(3,1fr);gap:var(--gap)}
+  @media (max-width:980px){.grid-kpi{grid-template-columns:1fr}}
+  .card{background:var(--panel);border:1px solid var(--stroke);border-radius:var(--rad);padding:var(--pad)}
+  .row{display:flex;justify-content:space-between;align-items:center;gap:10px}
+  .label{color:var(--muted);font-size:12px}
+  .value{font-size:22px;font-weight:800}
+  .pct{font-size:var(--pct-size);font-weight:800;color:var(--text)}
+  .pill{font-size:12px;border-radius:999px;padding:4px 8px;border:1px solid transparent}
+  .ok{background:rgba(33,192,122,.15);border-color:rgba(33,192,122,.25);color:#7ef3b2}
+  .warn{background:rgba(243,194,77,.15);border-color:rgba(243,194,77,.25);color:#ffe08b}
+  .bad{background:rgba(255,110,110,.14);border-color:rgba(255,110,110,.25);color:#ffaaaa}
+  .mono{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:12px}
+  .dot{width:10px;height:10px;border-radius:50%;display:inline-block;margin-right:8px;flex:0 0 auto;box-shadow:0 0 0 1px var(--stroke)}
+
+  .progress{height:10px;border-radius:7px;overflow:hidden;background:#0f131b;border:1px solid var(--stroke)}
+  .bar{height:100%;width:0%;background:linear-gradient(90deg,#4cc3ff,#5b8cff);transition:width .3s ease}
+
+  /* Графики: 2 в ряд + 1 на всю ширину */
+  .grid-charts{display:grid;grid-template-columns:repeat(2,1fr);gap:var(--gap)}
+  .full{grid-column:1/-1}
+  @media (max-width:980px){.grid-charts{grid-template-columns:1fr}}
+  canvas{width:100%;height:260px}
+  .chart-title{margin:-4px 0 8px 0;color:var(--muted);font-size:12px}
+
+  /* Логи – компактнее на десктопе */
+  .logs{height:320px;overflow:auto;white-space:pre-wrap;background:#0f131b;border:1px solid var(--stroke);border-radius:var(--rad);padding:var(--pad);line-height:1.3}
+  @media (min-width:981px){.logs{font-size:12px}}
+  @media (max-width:980px){.logs{font-size:13px}}
+  .muted{color:var(--muted)}
+  .mt{margin-top:var(--gap)}
+
+  /* 24h trading summary */
+  .grid-24h{display:grid;grid-template-columns:repeat(5,1fr);gap:var(--gap)}
+  @media (max-width:1180px){.grid-24h{grid-template-columns:repeat(3,1fr)}}
+  @media (max-width:800px){.grid-24h{grid-template-columns:repeat(2,1fr)}}
+
+  /* Filled orders (24h) */
+  .orders{height:320px;overflow:auto;background:#0f131b;border:1px solid var(--stroke);border-radius:var(--rad)}
+  .tbl{width:100%;border-collapse:collapse;font-size:12px;table-layout:fixed}
+  .tbl th,.tbl td{padding:8px 10px;border-bottom:1px solid var(--stroke);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .tbl th{position:sticky;top:0;background:#111622;color:var(--muted);text-align:left;z-index:1}
+  .tbl th.right,.tbl td.right{text-align:right}
+  .col-time{width:90px}
+  .col-sym{width:110px}
+  .col-side{width:64px}
+  .col-price{width:110px}
+  .col-qty{width:110px}
+  .col-quote{width:120px}
+  .col-fee{width:120px}
+  .side-buy{color:var(--ok);font-weight:800}
+  .side-sell{color:var(--acc);font-weight:800}
+  .nowrap{white-space:nowrap}
+  .right{text-align:right}
+</style>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.3/dist/chart.umd.min.js"></script>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>🧪 Pi Dashboard</h1>
+    <span class="sub" id="subtitle">— автообновление 5 с · Asia/Almaty</span>
+  </header>
+
+  <!-- KPI (3 столбца) -->
+  <section class="grid-kpi">
+    <!-- Температура -->
+    <div class="card">
+      <div class="row"><div class="label">Температура</div><span id="temp-pill" class="pill ok">OK</span></div>
+      <div class="value" id="temp-val">— °C</div>
+    </div>
+
+    <!-- Память -->
+    <div class="card">
+      <div class="row"><div class="label">Память</div><div class="pct" id="mem-pct">—%</div></div>
+      <div class="value" id="mem-val">—/— ГиБ</div>
+      <div class="progress mt"><div class="bar" id="mem-bar"></div></div>
+    </div>
+
+    <!-- Swap -->
+    <div class="card">
+      <div class="row"><div class="label">Swap (zram)</div><div class="pct" id="swap-pct">—%</div></div>
+      <div class="value" id="swap-val">—/— ГиБ</div>
+      <div class="progress mt"><div class="bar" id="swap-bar"></div></div>
+    </div>
+
+    <!-- Диск / -->
+    <div class="card">
+      <div class="row"><div class="label">Диск /</div><div class="pct" id="disk-pct">—%</div></div>
+      <div class="value" id="disk-val">—/— ГиБ</div>
+      <div class="progress mt"><div class="bar" id="disk-bar"></div></div>
+    </div>
+
+    <!-- Сервисы -->
+    <div class="card">
+      <div class="row"><div class="label">Сервисы</div></div>
+      <div class="row">
+        <span class="dot" id="dot-bot" style="background:#888"></span>
+        <span class="mono" style="flex:1">mybot.service</span>
+        <span id="bot-status" class="muted">—</span>
+      </div>
+      <div class="row">
+        <span class="dot" style="background:#21c07a"></span>
+        <span class="mono" style="flex:1">fail2ban (sshd)</span>
+        <span id="bans" class="muted">0 bans</span>
+      </div>
+    </div>
+
+    <!-- Сеть / Монты / Системное -->
+    <div class="card">
+      <div class="row"><div class="label">Сеть / Монты</div></div>
+      <div class="row"><span class="dot" id="dot-net" style="background:#888"></span><span id="net-text" class="muted">—</span></div>
+      <div class="row mono" id="mnt-root">/ —</div>
+      <div class="row mono" id="mnt-tmp">/tmp —</div>
+      <div class="row mono" id="mnt-vtmp">/var/tmp —</div>
+      <div class="row mono" id="kernel">kernel —</div>
+      <div class="row mono" id="uptime">uptime —</div>
+    </div>
+  </section>
+
+  <!-- Графики: 2 в ряд + 1 ниже на всю ширину -->
+  <section class="grid-charts mt">
+    <div class="card">
+      <div class="chart-title">Температура (24 ч)</div>
+      <canvas id="chartTemp"></canvas>
+    </div>
+    <div class="card">
+      <div class="chart-title">CPU, % (24 ч)</div>
+      <canvas id="chartCPU"></canvas>
+    </div>
+    <div class="card full">
+      <div class="chart-title">Память, ГиБ (24 ч)</div>
+      <canvas id="chartMem"></canvas>
+    </div>
+  </section>
+
+  <!-- 24h Trading Summary -->
+  <section class="mt">
+    <div class="card">
+      <div class="row" style="margin-bottom:6px">
+        <div class="label">Торговля (24 ч)</div>
+        <span id="t24-pill" class="pill warn">загрузка…</span>
+      </div>
+      <div class="grid-24h">
+        <div>
+          <div class="label">Сделок за 24 ч</div>
+          <div class="value" id="t24-trades">—</div>
+        </div>
+        <div>
+          <div class="label">Объем продаж за 24 ч</div>
+          <div class="value" id="t24-volume">—</div>
+        </div>
+        <div>
+          <div class="label">Комиссии за 24 ч</div>
+          <div class="value" id="t24-fees">—</div>
+        </div>
+        <div>
+          <div class="label" title="Разница equity за 24 ч (USDT + все монеты), по выбранным активам">Заработок (чистый) за 24 ч</div>
+          <div class="value" id="t24-net">—</div>
+          <div class="sub" id="t24-net-sub" style="margin-top:4px"> </div>
+        </div>
+        <div>
+          <div class="label" title="Equity сейчас по выбранным активам">Прибл. общая стоимость</div>
+          <div class="value" id="t24-equity">—</div>
+        </div>
+      </div>
+      <div class="sub" id="t24-assets" style="margin-top:8px;color:#9aa6b2"></div>
+    </div>
+  </section>
+
+  <!-- Реализованные ордера (24 ч) -->
+  <section class="mt">
+    <div class="card">
+      <div class="row" style="margin-bottom:6px">
+        <div class="label">Реализованные ордера за 24 часа</div>
+        <span id="filled-pill" class="pill warn">загрузка…</span>
+      </div>
+      <div class="orders">
+        <table class="tbl">
+          <thead>
+            <tr>
+              <th class="col-time">Время</th>
+              <th class="col-sym">Пара</th>
+              <th class="col-side">Сторона</th>
+              <th class="right mono col-price">Цена</th>
+              <th class="right mono col-qty">Кол-во</th>
+              <th class="right mono col-quote">Сумма</th>
+              <th class="right mono col-fee">Комиссия</th>
+            </tr>
+          </thead>
+          <tbody id="orders-body">
+            <!-- rows go here -->
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </section>
+
+  <!-- Логи -->
+  <section class="mt">
+    <div class="card">
+      <div class="row" style="margin-bottom:6px">
+        <div class="label">Логи бота (онлайн)</div>
+        <span id="log-pill" class="pill warn">подключение…</span>
+      </div>
+      <div id="logs" class="logs"></div>
+    </div>
+  </section>
+
+  <div class="sub mt" id="footer">API: /api/health</div>
+</div>
+
+<script>
+const $ = s=>document.querySelector(s);
+const fmt = (x,d=2)=> (Number.isFinite(x)?Number(x).toFixed(d):'—');
+const NF2 = new Intl.NumberFormat('ru-RU',{minimumFractionDigits:2,maximumFractionDigits:2});
+const NF4 = new Intl.NumberFormat('ru-RU',{minimumFractionDigits:4,maximumFractionDigits:4});
+const LOG_MAX_LINES = 500; // показывать не более 500 строк лога
+
+let SYMBOLS_CACHE = null;      // строка "BTCUSDT,ETHUSDT,..."
+let SYMBOLS_TS = 0;
+
+function setPill(el, state){ el.classList.remove('ok','warn','bad'); el.classList.add(state); }
+function mountLine(mounts, mp, id){
+  const m = mounts.find(x=>x.mountpoint===mp);
+  const el = $(id);
+  if(!m){ el.textContent = mp+' — нет'; return; }
+  const flags = m.opts.split(',').filter(o=>['rw','ro','noatime'].includes(o)).join(',');
+  el.textContent = `${mp} ${flags||'rw'}`;
+}
+
+async function getJSON(url){
+  const r = await fetch(url,{cache:'no-store'}); if(!r.ok) throw new Error(r.status); return r.json();
+}
+
+let charts;
+function ensureCharts(){
+  if(charts) return;
+  const base = {
+    type:'line',
+    options:{
+      responsive:true,animation:false,
+      plugins:{legend:{display:false}},
+      scales:{x:{ticks:{color:'#9aa6b2'}},y:{ticks:{color:'#9aa6b2'}}}
+    }
+  };
+  charts = {
+    t: new Chart($('#chartTemp'), { ...base, data:{labels:[],datasets:[{data:[],borderWidth:2}]} }),
+    c: new Chart($('#chartCPU'),  { ...base, data:{labels:[],datasets:[{data:[],borderWidth:2}]} }),
+    m: new Chart($('#chartMem'),  { ...base, data:{labels:[],datasets:[{data:[],borderWidth:2}]} }),
+  };
+}
+
+function updateKpis(h){
+  // Температура
+  $('#temp-val').textContent = h.temp_c!=null ? `${h.temp_c.toFixed(1)} °C` : '— °C';
+  setPill($('#temp-pill'), h.temp_c==null ? 'warn' : (h.temp_c>=80?'bad':'ok'));
+
+  // Память
+  const mt=h.mem_gib?.total, mu=h.mem_gib?.used, mp=h.mem_gib?.percent;
+  $('#mem-val').textContent = `${fmt(mu)}/${fmt(mt)} ГиБ`;
+  $('#mem-pct').textContent = Number.isFinite(mp)?`${mp}%`:'—%';
+  $('#mem-bar').style.width = Number.isFinite(mp)?`${mp}%`:'0%';
+
+  // Swap
+  const st=h.swap_gib?.total, su=h.swap_gib?.used, sp=h.swap_gib?.percent;
+  $('#swap-val').textContent = `${fmt(su)}/${fmt(st)} ГиБ`;
+  $('#swap-pct').textContent = Number.isFinite(sp)?`${sp}%`:'—%';
+  $('#swap-bar').style.width = Number.isFinite(sp)?`${sp}%`:'0%';
+
+  // Диск
+  const dt=h.disk_gib?.total, du=h.disk_gib?.used, dp=h.disk_gib?.percent;
+  $('#disk-val').textContent = `${fmt(du)}/${fmt(dt)} ГиБ`;
+  $('#disk-pct').textContent = Number.isFinite(dp)?`${dp}%`:'—%';
+  $('#disk-bar').style.width = Number.isFinite(dp)?`${dp}%`:'0%';
+
+  // Монты
+  mountLine(h.mounts||[], '/', '#mnt-root');
+  mountLine(h.mounts||[], '/tmp', '#mnt-tmp');
+  mountLine(h.mounts||[], '/var/tmp', '#mnt-vtmp');
+
+  // Сервисы
+  const s = (h.services?.mybot||'').trim();
+  $('#bot-status').textContent = s || '—';
+  $('#dot-bot').style.background = s==='active' ? '#21c07a' : (s ? '#f3c24d' : '#ff6e6e');
+  $('#bans').textContent = `${h.services?.fail2ban_sshd_bans ?? 0} bans`;
+
+  // Сеть
+  $('#net-text').textContent = h.network_ok ? 'Интернет: Online' : 'Интернет: Offline';
+  $('#dot-net').style.background = h.network_ok ? '#21c07a' : '#ff6e6e';
+
+  // Системное
+  $('#kernel').textContent = `kernel ${h.kernel||'—'}`;
+  const up = h.uptime_sec|0; const d=Math.floor(up/86400), H=Math.floor((up%86400)/3600), M=Math.floor((up%3600)/60);
+  $('#uptime').textContent = `uptime ${d?d+'д ':''}${H}ч ${M}м`;
+
+  // футер
+  $('#footer').textContent = `API ok · ${h.time}`;
+}
+
+/* формат USDT и % */
+function fmtUSDT(x){
+  if(!Number.isFinite(x)) return '—';
+  return NF2.format(x) + ' USDT';
+}
+function fmtPct(p){
+  if(!Number.isFinite(p)) return '—';
+  const sign = p>0?'+':'';
+  return `${sign}${p.toFixed(2)}%`;
+}
+
+/* --- symbols discovery (раз в минуту) --- */
+async function getSymbols(){
+  const now = Date.now();
+  if(SYMBOLS_CACHE && (now - SYMBOLS_TS) < 60_000) return SYMBOLS_CACHE;
+  try{
+    const j = await getJSON('/api/trades/symbols?hours=168');
+    const arr = (j && j.ok && Array.isArray(j.symbols)) ? j.symbols : [];
+    SYMBOLS_CACHE = arr.join(',');
+    SYMBOLS_TS = now;
+    return SYMBOLS_CACHE;
+  }catch(e){
+    return SYMBOLS_CACHE || '';
+  }
+}
+
+/* попытка получить саммари с учётом symbols= */
+async function getTradeSummary24h(){
+  const symbols = await getSymbols();
+  const urls = [
+    `/api/trades/summary?hours=24${symbols?`&symbols=${encodeURIComponent(symbols)}`:''}`,
+    `/api/bot/trades/summary?hours=24${symbols?`&symbols=${encodeURIComponent(symbols)}`:''}`,
+    '/api/stats/24h'
+  ];
+  for(const u of urls){
+    try{
+      const j = await getJSON(u);
+      if(j) return {ok:true, data:j, url:u};
+    }catch(e){}
+  }
+  return {ok:false};
+}
+
+function updateTrade24(sum){
+  const pill = $('#t24-pill');
+  const setNA = ()=>{
+    $('#t24-trades').textContent='—';
+    $('#t24-volume').textContent='—';
+    $('#t24-fees').textContent='—';
+    $('#t24-net').textContent='—';
+    $('#t24-net-sub').textContent='';
+    $('#t24-equity').textContent='—';
+    $('#t24-assets').textContent='';
+  };
+
+  if(!sum || !sum.ok){
+    setPill(pill,'warn'); pill.textContent='нет данных';
+    setNA(); return;
+  }
+  setPill(pill,'ok'); pill.textContent='ok';
+  const d = sum.data;
+
+  const trades = d.total_trades ?? d.count ?? d.trades ?? d.num_trades ?? null;
+  const vol    = d.sell_volume_usdt ?? d.volume_sell_usdt ?? d.sell_usdt ?? d.volume_usdt ?? null;
+  const fees   = d.fees_usdt ?? d.total_fees_usdt ?? d.total_fees ?? null;
+
+  const eqNow  = (d.equity_now_usdt ?? d.equity_now_usdt_approx ?? null);
+  const eqThen = d.equity_then_usdt ?? null;
+  const pnl    = (d.equity_pnl_usdt ?? d.net_pnl_usdt ?? null);
+
+  $('#t24-trades').textContent = Number.isFinite(trades) ? trades : '—';
+  $('#t24-volume').textContent = fmtUSDT(vol);
+  $('#t24-fees').textContent   = fmtUSDT(fees);
+
+  // equity now (приближённое тоже годится)
+  $('#t24-equity').textContent = Number.isFinite(eqNow) ? fmtUSDT(eqNow) : '—';
+
+  // pnl + процент
+  const pct = Number.isFinite(d.equity_pct) ? d.equity_pct
+             : (Number.isFinite(pnl) && Number.isFinite(eqThen) && eqThen>0 ? (pnl/eqThen*100) : null);
+
+  const netEl = $('#t24-net');
+  netEl.textContent = Number.isFinite(pnl) ? fmtUSDT(pnl) : '—';
+  netEl.style.color = (Number.isFinite(pnl) && pnl < 0) ? 'var(--bad)' : 'var(--ok)';
+
+  $('#t24-net-sub').textContent = Number.isFinite(pct) ? `(${fmtPct(pct)})` : '';
+
+  // активы, по которым считали equity
+  if (Array.isArray(d.equity_assets) && d.equity_assets.length){
+    $('#t24-assets').textContent = 'Активы в расчёте: ' + d.equity_assets.join(', ');
+  }else{
+    $('#t24-assets').textContent = '';
+  }
+}
+
+function updateCharts(hist){
+  ensureCharts();
+  charts.t.data.labels = hist.labels; charts.t.data.datasets[0].data = hist.temp_c; charts.t.update();
+  charts.c.data.labels = hist.labels; charts.c.data.datasets[0].data = hist.cpu_pct; charts.c.update();
+  charts.m.data.labels = hist.labels; charts.m.data.datasets[0].data = hist.mem_used_gib; charts.m.update();
+}
+
+/* ==== Реализованные ордера за 24 часа ==== */
+async function getFilledOrders24h(){
+  const symbols = await getSymbols();
+  const urls = [
+    `/api/trades/filled?hours=24&limit=5000${symbols?`&symbols=${encodeURIComponent(symbols)}`:''}`,
+    `/api/orders/filled?hours=24&limit=5000${symbols?`&symbols=${encodeURIComponent(symbols)}`:''}`,
+    `/api/fills?hours=24&limit=5000${symbols?`&symbols=${encodeURIComponent(symbols)}`:''}`
+  ];
+  for(const u of urls){
+    try{
+      const j = await getJSON(u);
+      if(!j) continue;
+      let arr = Array.isArray(j) ? j : (j.items||j.data||j.orders||j.trades||[]);
+      if(!Array.isArray(arr)) continue;
+      return {ok:true, url:u, items:arr};
+    }catch(e){}
+  }
+  return {ok:false, items:[]};
+}
+
+function normFill(o){
+  const num = v => v==null ? null : (typeof v==='string'? parseFloat(v) : v);
+  const time = o.time ?? o.transactTime ?? o.updateTime ?? o.T ?? (o.dt?Date.parse(o.dt):null);
+  const symbol = o.symbol || o.pair || o.market || '—';
+  let side = (o.side||'').toString().toUpperCase();
+  if(!side){
+    if (o.isBuyer===true) side='BUY';
+    else if (o.isBuyer===false) side='SELL';
+    else if (o.side_int!=null) side= o.side_int>0?'BUY':'SELL';
+  }
+  const price = num(o.price ?? o.avgPrice ?? o.executedPrice ?? o.lastFillPrice);
+  const qty   = num(o.qty ?? o.executedQty ?? o.amount ?? o.baseQty);
+  let quote   = num(o.quoteQty ?? o.cummulativeQuoteQty ?? o.quote_amount ?? (price!=null&&qty!=null?price*qty:null));
+  const fee   = num(o.commission ?? o.fee_usdt ?? o.fee ?? o.fees);
+  const feeAsset = o.commissionAsset || o.fee_asset || o.feeAsset || 'USDT';
+  return {time, symbol, side, price, qty, quote, fee, feeAsset};
+}
+
+function tsShort(ms){
+  if(!Number.isFinite(ms)) return '—';
+  const d = new Date(ms), now = new Date();
+  const sameDay = d.toDateString()===now.toDateString();
+  return d.toLocaleString('ru-RU', sameDay
+    ? {hour:'2-digit',minute:'2-digit'}
+    : {day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'});
+}
+
+function updateFilled24h(resp){
+  const pill = $('#filled-pill');
+  const tbody = $('#orders-body');
+  if(!resp || !resp.ok){
+    pill.textContent = 'нет данных'; setPill(pill,'warn');
+    tbody.innerHTML = `<tr><td class="muted" colspan="7">Нет данных по исполненным ордерам за 24 часа</td></tr>`;
+    return;
+  }
+  setPill(pill,'ok'); pill.textContent='ok';
+
+  const rows = resp.items.map(normFill)
+    .filter(x=>x.time!=null)
+    .sort((a,b)=>b.time-a.time)
+    .map(x=>{
+      const sideClass = x.side==='SELL' ? 'side-sell' : 'side-buy';
+      const feeCell = Number.isFinite(x.fee)
+        ? `${NF2.format(x.fee)} ${x.feeAsset||''}`.trim()
+        : '—';
+      // строгие форматы: price — 2 знака, qty — 4, сумма — 2
+      const priceTxt = Number.isFinite(x.price) ? NF2.format(x.price) : '—';
+      const qtyTxt   = Number.isFinite(x.qty)   ? NF4.format(x.qty)   : '—';
+      const quoteTxt = Number.isFinite(x.quote) ? NF2.format(x.quote) : '—';
+      return `<tr>
+        <td class="nowrap">${tsShort(x.time)}</td>
+        <td>${x.symbol}</td>
+        <td class="${sideClass}">${x.side||'—'}</td>
+        <td class="right mono">${priceTxt}</td>
+        <td class="right mono">${qtyTxt}</td>
+        <td class="right mono">${quoteTxt}</td>
+        <td class="right mono">${feeCell}</td>
+      </tr>`;
+    });
+
+  tbody.innerHTML = rows.length
+    ? rows.join('')
+    : `<tr><td class="muted" colspan="7">За последние 24 часа исполненных ордеров нет</td></tr>`;
+}
+
+async function refresh(){
+  try{
+    const [h, hist, sum] = await Promise.all([
+      getJSON('/api/health'),
+      getJSON('/api/history?hours=24&points=288'),
+      getTradeSummary24h()
+    ]);
+    updateKpis(h);
+    updateCharts(hist);
+    updateTrade24(sum);
+  }catch(e){
+    $('#footer').textContent = 'Ошибка API: ' + e;
+  }
+}
+
+/* отдельное обновление, чтобы не править существующий refresh() */
+async function refreshOrders(){
+  try{
+    const fills = await getFilledOrders24h();
+    updateFilled24h(fills);
+  }catch(e){
+    const pill = $('#filled-pill');
+    setPill(pill,'bad'); pill.textContent='ошибка';
+    $('#orders-body').innerHTML = `<tr><td class="muted" colspan="7">Ошибка загрузки: ${e}</td></tr>`;
+  }
+}
+
+function startLogs(){
+  const box = $('#logs'), pill = $('#log-pill');
+  // Если ранее что-то писали через textContent — очистим,
+  // дальше работаем как с контейнером строк:
+  box.textContent = '';
+
+  // Храним текущее число строк по факту (по узлам):
+  let lineCount = 0;
+
+  // Утилита: добавить строки батчем и обрезать лишнее
+  function appendLines(lines){
+    if(!lines || !lines.length) return;
+    // Был ли скролл внизу до добавления
+    const atBottom = Math.abs(box.scrollHeight - box.scrollTop - box.clientHeight) < 8;
+
+    // Добавляем батчем для производительности
+    const frag = document.createDocumentFragment();
+    for(const raw of lines){
+      // защитимся от пустых хвостов после split('\n')
+      const line = (raw ?? '').toString();
+      const div = document.createElement('div');
+      div.textContent = line;
+      frag.appendChild(div);
+      lineCount++;
+    }
+    box.appendChild(frag);
+
+    // Обрезаем “голову” до лимита
+    while(lineCount > LOG_MAX_LINES && box.firstChild){
+      box.removeChild(box.firstChild);
+      lineCount--;
+    }
+
+    if(atBottom) box.scrollTop = box.scrollHeight;
+  }
+
+  const es = new EventSource('/api/bot/logs/stream');
+  es.onopen = ()=>{
+    setPill(pill,'ok'); pill.textContent='online';
+  };
+  es.onmessage = ev=>{
+    // Учтём, что сервер может прислать пачку с переводами строк
+    const chunk = (ev.data || '');
+    // Быстрый выход, если пусто
+    if(!chunk) return;
+    // Разбиваем по \n, но trailing '' от последнего \n отбрасываем
+    const lines = chunk.split('\n');
+    if(lines.length && lines[lines.length-1] === '') lines.pop();
+    appendLines(lines);
+  };
+  es.onerror = ()=>{
+    setPill(pill,'warn'); pill.textContent='reconnect…';
+  };
+}
+
+refresh(); setInterval(refresh, 5000); startLogs();
+refreshOrders(); setInterval(refreshOrders, 8000);
+</script>
+</body>
+</html>

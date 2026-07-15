@@ -1,0 +1,79 @@
+# Changelog — Ladder Dragon (binance_bot)
+
+## [2025-09-26]
+### Executor (1.8_autosize_universal.py)
+- Добавлен VWAP-guard: `--buy-vwap-premium` блокирует покупки, если цена ушла выше VWAP.
+- Появились адаптивные капы на скидках к VWAP (`--buy-vwap-discount`, `--buy-vwap-discount-scale`).
+- Настраиваемое окно/интервал VWAP (`--buy-vwap-interval`, `--buy-vwap-window`) работает совместно с существующими EMA/ATR, а в логи добавлен вывод ratio `now/VWAP`.
+
+### Supervisor (ai_supervisor.py)
+- Пробрасывает VWAP-настройки в дочерние воркеры (`--child-buy-vwap-*`).
+- Добавлен режим `--child-buy-vwap-auto` для динамического пересчёта премии/scale по направлению и ATR.
+- Реализован фоновый `--vwap-refresh-sec`: супервизор пересчитывает карты и PnL-автотюн без перезапуска сервисов.
+- Параметры VWAP-тюнера (часы, threshold, alpha) настраиваются через CLI/ENV и обновляются на лету.
+
+### Конфигурация (key_start_bot.txt)
+- Добавлены переменные окружения BUY_VWAP_* и соответствующие параметры запуска сервиса, включая коэффициенты автоподстройки.
+- Вместо прямого вызова генератора теперь используется `update_vwap_env.py`, который формирует карты и (опционально) подключает autotune.
+
+### Утилиты
+- Добавлен скрипт `gen_vwap_env.py` для генерации BUY_VWAP_* карт на основе свежих данных с биржи.
+- Добавлен тюнер `gen_vwap_autotune.py`, корректирующий премии/скидки по PnL статистике.
+- Новый комбинированный драйвер `update_vwap_env.py` собирает базовые карты и, при необходимости, подмешивает autotune.
+- Исправлен расчёт тюнера: PnL считается по FIFO из таблицы `trades` (миллисекундные таймстемпы), чтобы исключить пустые выборки и кривые значения.
+
+## [2025-09-21]
+### Executor (1.8_autosize_universal.py)
+- Добавлены тренд-фильтры для BUY: `--buy-trend-ema-gap`, `--buy-trend-interval`, `--bear-skip-buys`, `--bear-cap-scale`, `--bear-buy-shift-pct`.
+- Новый флаг `--skip-buy-while-panic` и `--panic-sell-floor-pct` для более агрессивной защиты в режиме паники.
+- Переработаны лестничные покупки: смещение уровней вниз при падении рынка и динамическое снижение CAP без изменения поведения по умолчанию.
+
+### Supervisor (ai_supervisor.py)
+- Добавлен guard против ночного flatten ниже средней (`--flatten-avoid-loss`, `--flatten-min-edge-pct`, `--flatten-avg-*`).
+- Передача новых флагов дочернему воркеру (`--child-skip-buy-while-panic`, трендовые и panic-параметры).
+- Реализован кэш средней цены позиции для guard'ов flatten.
+
+## [2025-09-07]
+### Executor (1.8_autosize_universal.py)
+- Добавлены backoff+повторы на ошибки 418/429/5xx и коды -1003/-1015.
+- Подпись приватных запросов (account/openOrders/order/myTrades).
+- Улучшен `get_price()` с fallback на альтернативные источники.
+
+### Supervisor (ai_supervisor.py / ai_plan_runner.py)
+- Реализованы `startup_cleanup_orders()` и `smart_cleanup_orders()` (TTL + off-ladder очистка).
+- Контроль нетто-позиции: reduce-only, auto-flat к 23:55, частичное сокращение.
+- Динамический CAP (floor/ceil, alloc-pct) от свободного USDT.
+- Генерация `/run/mybot/dynamic.env` через `auto_ladder_map.py`.
+
+### PnL и статистика (pnl_reporter.py, pnl_24h.py, tools_stats.py)
+- Добавлен net PnL (после комиссий), win rate, avg_sell_notional в summary.
+- Поддержка двух методов подсчёта: `cash` и `realized` (FIFO).
+- SQLite: включён WAL + busy_timeout для устойчивости.
+- Комиссии нормализованы в USDT.
+
+### Dashboard (index.html)
+- KPI (температура, память, swap, диск, сервисы, сеть, аптайм).
+- Графики CPU/температуры/памяти (24ч).
+- Сводка торговли за 24ч: сделки, объём, комиссии, net, equity, активы.
+- Таблица исполненных ордеров за 24ч (комиссии в USDT, форматирование).
+- Онлайн-логи через SSE.
+
+### Документация (readme.html, help.html)
+- Раздел «Что нового»: толстые ордера v1.8, Auto-CAP, Smart cleanup, режим x10, Pi Dashboard.
+- Полный справочник CLI-флагов (MA/ATR/TTL/Auto-CAP/риски).
+- Добавлена шпаргалка (1 стр.) с быстрым стартом и env.
+- В help.html: описание API (summary/filled/symbols), бэкапы и восстановление.
+
+### Сервис (systemd unit mybot.service)
+- SMART-режим с интервалом 150с.
+- Circuit breaker по equity (halt-файл при просадке).
+- ATR-адаптация (dev-buy, min-profit).
+- EMA-фильтры против чейзинга.
+- Позиционный guard (лимиты base/USDT per symbol).
+- Auto-ladder с JSON-preset и генерацией env.
+- Watchdog v3 для авто-перезапуска при сетевых сбоях.
+
+### Прочее
+- `migrate_indexes.py` — миграция индексов SQLite.
+- Ключи Binance подтягиваются из `.env` или окружения systemd.
+- Добавлена справка по smoke-тесту и проверкам (`bot-local-check.sh`).
