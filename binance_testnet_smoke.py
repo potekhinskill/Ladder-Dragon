@@ -612,6 +612,15 @@ def run_circuit_drill(drill_dir: str | Path) -> dict[str, Any]:
 
 
 def run(args: argparse.Namespace) -> dict[str, Any]:
+    if args.mode == "circuit-drill":
+        result: dict[str, Any] = {
+            "venue": "isolated-local",
+            "symbol": args.symbol,
+            "mode": args.mode,
+        }
+        result.update(run_circuit_drill(args.drill_dir))
+        return result
+
     base = os.getenv("BINANCE_TESTNET_API_BASE", DEFAULT_BASE)
     client = SpotTestnetClient(
         base,
@@ -645,10 +654,6 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
     }
     if args.mode == "public":
         return result
-    if args.mode == "circuit-drill":
-        result.update(run_circuit_drill(args.drill_dir))
-        return result
-
     account = client.signed("GET", "/api/v3/account")
     if account.get("canTrade") is not True:
         raise RuntimeError("Testnet account cannot trade")
