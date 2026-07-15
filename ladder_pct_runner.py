@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-ladder_pct_runner.py — адаптирован под исполнителя 1.8:
+ladder_pct_runner.py — подготовка процентной лестницы для исполнителя:
 - Геометрическая сетка по модулю процентов (устойчивое geomspace)
 - BUY округляем вниз, SELL вверх по tickSize
 - Дедуп + порядок: BUY (ближние→дальние), затем SELL (ближние→дальние)
@@ -28,6 +28,7 @@ load_dotenv()
 
 # общий модуль работы с Binance
 import tools_market as TM
+from product_version import product_label
 
 
 def die(msg, code=2):
@@ -69,11 +70,12 @@ def calc_atr(symbol: str, interval: str = "1h", window: int = 14) -> float:
 
 def parse_args():
     p = argparse.ArgumentParser()
+    p.add_argument("--version", action="version", version=product_label("ladder runner"))
     p.add_argument("--symbol", required=True)
     # Формат: -min%,-max%,[density]  (пример: -0.5,-20,20)
     p.add_argument("--ladder-pct", type=str, default="-0.5,-20,20")
     p.add_argument("--grid-density", type=int, default=20)  # запасной, если в ladder-pct нет density
-    p.add_argument("--base-script", type=str, default="1.8_autosize_universal.py")
+    p.add_argument("--base-script", type=str, default="autosize_universal.py")
     p.add_argument("--kill-if-empty", action="store_true",
                    help="Завершить с ошибкой, если после фильтрации не осталось уровней.")
 

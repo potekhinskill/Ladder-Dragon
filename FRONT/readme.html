@@ -84,13 +84,13 @@
   <div class="wrap">
     <header class="hero">
       <h1>binance_bot — Полное руководство</h1>
-      <p>Windows (PowerShell/WSL), macOS/Linux, Raspberry Pi, автозапуск и безопасность ключей. Обновлено: «толстые» ордера v1.8+, Auto-CAP, умная очистка (TTL), режим x10 (2 монеты), отчёты PnL (reports/), интеграция с Pi Dashboard.</p>
+      <p>Windows (PowerShell/WSL), macOS/Linux, Raspberry Pi, автозапуск и безопасность ключей. Версия продукта 2.0.0: «толстые» ордера, Auto-CAP, умная очистка (TTL), режим x10 (2 монеты), отчёты PnL (reports/), интеграция с Pi Dashboard.</p>
       <div class="badges">
         <span class="badge"><span class="dot"></span> DRY по умолчанию (без <code>--live</code>)</span>
         <span class="badge"><span class="dot" style="background:#22c55e"></span> Single-instance supervisor</span>
         <span class="badge"><span class="dot" style="background:#a78bfa"></span> MA/ATR адаптация</span>
         <span class="badge"><span class="dot" style="background:#ef4444"></span> PPBS guard</span>
-        <span class="badge"><span class="dot" style="background:#10b981"></span> Толстые ордера (v1.8+)</span>
+        <span class="badge"><span class="dot" style="background:#10b981"></span> Ladder Dragon 2.0.0</span>
         <span class="badge"><span class="dot" style="background:#f97316"></span> Auto-CAP (floor/ceil)</span>
         <span class="badge"><span class="dot" style="background:#eab308"></span> Smart cleanup (TTL)</span>
         <span class="badge"><span class="dot" style="background:#8b5cf6"></span> x10 фокус (2 монеты)</span>
@@ -125,7 +125,7 @@
         <section id="whatsnew">
           <h2>Что нового</h2>
           <ul>
-            <li><b>Толстые BUY (v1.8+)</b> — выбираются ближайшие уровни ниже рынка и ставятся «толстые» заявки (больше вероятность исполнения).</li>
+            <li><b>Толстые BUY</b> — выбираются ближайшие уровни ниже рынка и ставятся «толстые» заявки (больше вероятность исполнения).</li>
             <li><b>Auto-CAP</b> — динамический лимит на ордер от свободного USDT; мягкие границы <code>--cap-floor-usdt</code>, <code>--cap-ceil-usdt</code>.</li>
             <li><b>Smart cleanup (TTL)</b> — двойной TTL: «ближние» к рынку сохраняем, «далёкие/старые» отменяем.</li>
             <li><b>Режим x10</b> — фокус на 2 монетах, 4–5 одновременных BUY на символ, короткие TTL.</li>
@@ -138,7 +138,7 @@
           <h2>Как работает</h2>
           <ol>
             <li><b>ai_supervisor.py</b> (планировщик): получает рынок, считает MA/ATR, применяет PPBS, формирует план, делает умную очистку и Auto-CAP, запускает исполнителя.</li>
-            <li><b>1.8_autosize_universal.py</b> (исполнитель): нормализация <code>tickSize/stepSize</code>, «толстые» лимитные BUY, OCO по остаткам, контроль <code>minNotional</code>.</li>
+            <li><b>autosize_universal.py</b> (исполнитель): нормализация <code>tickSize/stepSize</code>, «толстые» лимитные BUY, OCO по остаткам, контроль <code>minNotional</code>.</li>
             <li>Защита от дублей: lock-файл и проверка уже запущенных процессов.</li>
           </ol>
         </section>
@@ -152,7 +152,7 @@
             <tbody>
               <tr><td><code>--symbols</code></td><td>Список пар через запятую (<code>SOLUSDT,ETHUSDT</code>).</td><td>— (обязателен)</td><td>Supervisor → Executor</td></tr>
               <tr><td><code>--live</code></td><td>Включает реальные заявки (по умолчанию DRY-run).</td><td>false</td><td>Оба</td></tr>
-              <tr><td><code>--base-script</code></td><td>Путь к исполнителю (обычно <code>1.8_autosize_universal.py</code>).</td><td>автодетект</td><td>Supervisor</td></tr>
+              <tr><td><code>--base-script</code></td><td>Путь к исполнителю (обычно <code>autosize_universal.py</code>).</td><td>автодетект</td><td>Supervisor</td></tr>
               <tr><td><code>--singleton</code></td><td>Один экземпляр (lock).</td><td>true</td><td>Supervisor</td></tr>
               <tr><td><code>--log-level</code></td><td>Уровень логов: <code>INFO</code>/<code>DEBUG</code>.</td><td>INFO</td><td>Оба</td></tr>
             </tbody>
@@ -411,7 +411,7 @@ schtasks /Create /TN "BinanceBotSupervisor" /SC ONLOGON /RL HIGHEST ^
                 <li><span class="mono">--target-buy-per-symbol=4..5</span></li>
                 <li><span class="mono">--price-eps-mult=1.0</span></li>
               </ul>
-              <div class="k">Толстые BUY в v1.8+</div>
+              <div class="k">Толстые BUY</div>
             </div>
 
             <!-- MA/ATR -->

@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-Лестница-универсал 1.8 (autosize)
+Ladder Dragon — универсальный исполнитель с автоматическим размером заявки
 
 Скрипт-воркер: по списку цен создаёт/поддерживает лимитные заявки BUY,
 и (опционально) распродаёт имеющиеся холдинги сеткой SELL/TP (auto-oco-holdings).
@@ -87,6 +87,7 @@ from exchange_math import round_step
 from risk_manager import create_manual_halt
 from time_safety import assess_exchange_clock
 from trade_accounting import TradeExecution, UnpricedCommission, replay_average_cost
+from product_version import product_label, user_agent
 
 import requests
 from urllib.parse import urlencode
@@ -102,7 +103,7 @@ _ORDER_JOURNAL: Optional[OrderJournal] = None
 BINANCE_API_BASE = (os.getenv("BINANCE_API_BASE") or os.getenv("BINANCE_BASE_URL") or "https://api.binance.com").rstrip("/")
 API_KEY = os.getenv("BINANCE_API_KEY", "")
 API_SECRET = os.getenv("BINANCE_API_SECRET", "")
-USER_AGENT = os.getenv("USER_AGENT", "LadderDragon/1.8 (worker)")
+USER_AGENT = os.getenv("USER_AGENT", user_agent("worker"))
 
 LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO").upper()
 
@@ -1871,7 +1872,8 @@ def maybe_place_sells_from_holdings(
 # ------------------- CLI / main -------------------
 
 def main():
-    parser = argparse.ArgumentParser()
+    parser = argparse.ArgumentParser(description="Ladder Dragon symbol executor")
+    parser.add_argument("--version", action="version", version=product_label("executor"))
     parser.add_argument("--symbol", required=True)
     parser.add_argument("--ladder-prices", required=True, help="comma-separated absolute prices")
     parser.add_argument("--max-oco-per-symbol", type=int, default=None)
@@ -1960,6 +1962,7 @@ def main():
                         help="Сколько закрытых свечей использовать при расчёте VWAP")
 
     args = parser.parse_args()
+    log(f"[VERSION] {product_label('executor')}")
     global LIVE_MODE
     if args.live and os.getenv("BOT_LIVE_CONFIRMED", "") != "YES":
         parser.error("--live requires BOT_LIVE_CONFIRMED=YES")

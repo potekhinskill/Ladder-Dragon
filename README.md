@@ -2,6 +2,8 @@
 
 Приватный Python-проект для управления лестничной торговлей на Binance Spot. Бот строит адаптивные сетки BUY/SELL, учитывает ATR, EMA и VWAP, управляет OCO-ордерами и сохраняет торговую статистику в SQLite.
 
+Текущая версия продукта: **2.0.0**. Ladder Dragon использует [Semantic Versioning](https://semver.org/); единственный источник версии — `product_version.py`. Проверить установленную версию можно командой `python ai_supervisor.py --version`.
+
 > [!WARNING]
 > Проект работает с реальными биржевыми ордерами. Это не инвестиционная рекомендация. DRY является режимом по умолчанию, а любые изменяющие Binance-запросы дополнительно блокируются на уровне транспорта. Тем не менее перед Mainnet LIVE обязателен отдельный прогон на Binance Spot Testnet и ручная проверка лимитов.
 
@@ -21,7 +23,7 @@
 | Компонент | Назначение |
 | --- | --- |
 | `ai_supervisor.py` | Главный цикл, построение плана, очистка ордеров, position guard и запуск воркеров |
-| `1.8_autosize_universal.py` | Исполнение BUY/SELL/OCO для отдельного символа |
+| `autosize_universal.py` | Исполнение BUY/SELL/OCO для отдельного символа |
 | `tools_market.py` | Binance HTTP API, подпись запросов, цены, свечи и торговые фильтры |
 | `tools_stats.py` | Хранение сделок и агрегатов в SQLite |
 | `risk_manager.py`, `risk_ctl.py` | Постоянный circuit breaker, портфельные лимиты и ручной reset |
@@ -105,7 +107,7 @@ python -m pytest
 python ai_supervisor.py \
   --testnet \
   --symbols SOLUSDT,ETHUSDT \
-  --base-script ./1.8_autosize_universal.py
+  --base-script ./autosize_universal.py
 ```
 
 Для отправки ордеров в Testnet одновременно нужны `--live` и точное подтверждение:
@@ -114,7 +116,7 @@ python ai_supervisor.py \
 BOT_LIVE_CONFIRMED=YES python ai_supervisor.py \
   --live --testnet \
   --symbols SOLUSDT,ETHUSDT \
-  --base-script ./1.8_autosize_universal.py
+  --base-script ./autosize_universal.py
 ```
 
 Перед LIVE выполняется fail-closed preflight: доступность SQLite, синхронизация времени, биржевые фильтры, права API, circuit halt и корректность всех лимитов.

@@ -121,7 +121,7 @@ Environment=PRICE_FROM=book
 Environment=API_ALT_BASES=https://api.binance.com,https://api1.binance.com,https://api2.binance.com,https://api3.binance.com
 Environment=API_BACKOFF_BASE_MS=500
 Environment=API_BACKOFF_MAX_S=20
-Environment="USER_AGENT=Ladder-Dragon/1.8 (X11; Linux x86_64)"
+Environment="USER_AGENT=LadderDragon/2.0.0 (supervisor)"
 Environment=PRICE_ROUND_MODE=nearest
 Environment=CLEANUP_WARMUP_SEC=600
 LimitNOFILE=65535
@@ -188,7 +188,7 @@ ExecStart=/usr/bin/env bash -lc 'set -e; \
   [ -f /run/mybot/dynamic.env ] && . /run/mybot/dynamic.env; \
   exec /home/bot/apps/binance_bot/.venv/bin/python3 -u /home/bot/apps/binance_bot/ai_supervisor.py \
     --singleton \
-    --base-script=/home/bot/apps/binance_bot/1.8_autosize_universal.py \
+    --base-script=/home/bot/apps/binance_bot/autosize_universal.py \
     --symbols SOLUSDT,ETHUSDT,TONUSDT \
     --ladder-mode=pct \
     --ladder-pct-map "${LADDER_PCT_MAP:-SOLUSDT=-0.6,-3.5,2.8;ETHUSDT=-0.5,-3.0,2.4;TONUSDT=-0.6,-3.2,2.6}" \
@@ -327,7 +327,7 @@ systemctl status mybot.service -n 40 --no-pager
 
 # Дети-процессы живут под ним
 pgrep -fl ai_supervisor.py
-pgrep -fl 1.8_autosize_universal.py
+pgrep -fl autosize_universal.py
 
 # Логи: теперь не должно быть цикла start/kill
 journalctl -u mybot -n 80 --no-pager

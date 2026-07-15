@@ -13,7 +13,7 @@ Environment=PYTHONUNBUFFERED=1
 RuntimeDirectory=mybot
 RuntimeDirectoryMode=0700
 ExecStartPre=/home/bot/apps/binance_bot/.venv/bin/python db_migrate.py
-ExecStart=/home/bot/apps/binance_bot/.venv/bin/python -u ai_supervisor.py --singleton --testnet --symbols SOLUSDT,ETHUSDT,TONUSDT --base-script /home/bot/apps/binance_bot/1.8_autosize_universal.py --enforce-target-buys --enforce-sell-limit
+ExecStart=/home/bot/apps/binance_bot/.venv/bin/python -u ai_supervisor.py --singleton --testnet --symbols SOLUSDT,ETHUSDT,TONUSDT --base-script /home/bot/apps/binance_bot/autosize_universal.py --enforce-target-buys --enforce-sell-limit
 ExecStop=/home/bot/apps/binance_bot/supervisor_ctl.sh stop-all
 Restart=on-failure
 RestartSec=10

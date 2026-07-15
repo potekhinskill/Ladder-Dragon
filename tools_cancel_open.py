@@ -6,6 +6,7 @@ import requests
 from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
 from dotenv import load_dotenv
+from product_version import user_agent
 
 DEFAULT_MAIN = "https://api.binance.com"
 DEFAULT_TEST = "https://testnet.binance.vision"
@@ -28,7 +29,7 @@ def build_session():
     )
     s.headers.update({
         "Content-Type": "application/x-www-form-urlencoded",
-        "User-Agent": "binance-bot/1.8 (+https://unikaweb.ru)"
+        "User-Agent": user_agent("cancel-open")
     })
     s.mount("https://", HTTPAdapter(max_retries=retry))
     s.mount("http://", HTTPAdapter(max_retries=retry))

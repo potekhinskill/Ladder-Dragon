@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-ai_plan_runner.py — оркестратор + генератор лесенки (pct/ATR) для 1.8_autosize_universal.py
+ai_plan_runner.py — оркестратор + генератор лесенки (pct/ATR)
 
 Задача:
 - Не создавать ордера напрямую.
 - При необходимости сгенерировать лесенку цен (вниз/вверх) из процентов (включая ATR-масштаб),
-  округлить уровни по tickSize и передать их в 1.8_autосize_universal.py.
+  округлить уровни по tickSize и передать их в autosize_universal.py.
 - Запустить по нескольким символам и аккуратно ретранслировать логи.
 
 Примеры:
@@ -31,6 +31,7 @@ import subprocess
 import threading
 import contextlib
 from typing import List, Tuple, Optional, Dict
+from product_version import product_label
 
 try:
     import requests
@@ -39,7 +40,7 @@ except Exception:
     raise
 
 # --- Настройки/ENV ---
-DEFAULT_BASE = os.getenv("PLAN_RUNNER_BASE", "1.8_autosize_universal.py")
+DEFAULT_BASE = os.getenv("PLAN_RUNNER_BASE", "autosize_universal.py")
 BINANCE_API = (os.getenv("BINANCE_BASE_URL") or os.getenv("BINANCE_API_BASE") or "https://api.binance.com").rstrip("/")
 
 
@@ -250,7 +251,8 @@ def stream_prefixed(sym: str, proc: subprocess.Popen):
 # --- CLI/MAIN ---
 
 def parse_args() -> argparse.Namespace:
-    p = argparse.ArgumentParser(description="Оркестратор/генератор лесенки для 1.8_autosize_universal.py")
+    p = argparse.ArgumentParser(description="Оркестратор/генератор лесенки Ladder Dragon")
+    p.add_argument("--version", action="version", version=product_label("plan runner"))
     p.add_argument("--symbols", type=str, required=True,
                    help="Список символов, например: SOLUSDT,ETHUSDT,BTCUSDT")
     p.add_argument("--base", type=str, default=DEFAULT_BASE,

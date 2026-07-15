@@ -29,6 +29,7 @@ from order_identity import client_order_id
 from risk_manager import RiskDecision, RiskLimits, RiskManager, RiskSnapshot, load_daily_trade_metrics, money
 from time_safety import assess_exchange_clock
 from venue_config import apply_testnet_paths
+from product_version import product_label, user_agent
 
 try:
     import requests
@@ -51,7 +52,7 @@ except Exception as e:
 BINANCE_API_BASE = (os.getenv("BINANCE_API_BASE") or os.getenv("BINANCE_BASE_URL") or "https://api.binance.com").rstrip("/")
 API_KEY = os.getenv("BINANCE_API_KEY", "")
 API_SECRET = os.getenv("BINANCE_API_SECRET", "")
-USER_AGENT = os.getenv("USER_AGENT", "LadderDragon/1.8 (ai_supervisor)")
+USER_AGENT = os.getenv("USER_AGENT", user_agent("supervisor"))
 
 # Режим округления и тёплый старт для очистки
 PRICE_ROUND_MODE = os.getenv("PRICE_ROUND_MODE", "nearest").lower()  # floor|ceil|nearest
@@ -1949,9 +1950,10 @@ def _build_risk_snapshot(
     return snap, orders, prices
 
 def main():
-    ap = argparse.ArgumentParser(description="AI Supervisor for 1.8_autosize_universal.py")
+    ap = argparse.ArgumentParser(description="Ladder Dragon trading supervisor")
+    ap.add_argument("--version", action="version", version=product_label("supervisor"))
     ap.add_argument("--singleton", action="store_true", help="разрешить только один экземпляр (lock в /tmp)")
-    ap.add_argument("--base-script", default="/home/bot/apps/binance_bot/1.8_autosize_universal.py")
+    ap.add_argument("--base-script", default="/home/bot/apps/binance_bot/autosize_universal.py")
     ap.add_argument("--symbols", default="SOLUSDT,ETHUSDT", help="через запятую")
     ap.add_argument("--ladder-mode", default="pct", choices=["pct"], help="режим построения лестницы")
     ap.add_argument("--ladder-pct", default="-0.5,-20,20", help="low,down,up в процентах")
@@ -2111,6 +2113,7 @@ def main():
     ap.add_argument("--breakeven-check-interval", type=int, default=5)
 
     args = ap.parse_args()
+    log(f"[VERSION] {product_label('supervisor')}")
     symbols = _validate_args(ap, args)
     _configure_venue(args)
     limits = RiskLimits.from_env()
