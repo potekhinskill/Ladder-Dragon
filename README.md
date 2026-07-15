@@ -124,6 +124,26 @@ BOT_TESTNET_ORDER_CONFIRMED=YES \
 python binance_testnet_smoke.py --mode limit-cancel --symbol SOLUSDT
 ```
 
+Полный Testnet lifecycle делает минимальный MARKET BUY, проверяет исполнение, создаёт и повторно запрашивает OCO, затем в `finally` отменяет OCO и продаёт только приобретённый тестом остаток. Он требует отдельного подтверждения и никогда не использует исходные холдинги:
+
+```bash
+BOT_TESTNET_BUY_OCO_CONFIRMED=YES \
+python binance_testnet_smoke.py --mode buy-oco --symbol SOLUSDT
+```
+
+Restart-вариант после BUY заново открывает SQLite journal и сверяет ордер по сохранённому `clientOrderId` до создания OCO:
+
+```bash
+BOT_TESTNET_BUY_OCO_CONFIRMED=YES \
+python binance_testnet_smoke.py --mode buy-oco-restart --symbol SOLUSDT
+```
+
+Изолированная проверка circuit breaker не использует торговые ключи и не касается production halt-файла:
+
+```bash
+python binance_testnet_smoke.py --mode circuit-drill --symbol SOLUSDT
+```
+
 Исполнитель сохраняет BUY/OCO-намерение в `BOT_ORDER_JOURNAL` до отправки запроса. После потерянного ACK или рестарта он сначала запрашивает Binance по прежнему `clientOrderId`; исполненный BUY остаётся незавершённым, пока OCO или fallback SELL не подтверждены. Ошибка защиты создаёт persistent circuit halt.
 
 ## Circuit breaker
@@ -159,7 +179,7 @@ python run_dashboard.py
 - постепенно разделить монолитный исполнитель на небольшие модули;
 - перевести оставшуюся биржевую арифметику с `float` на `Decimal`;
 - сузить оставшиеся широкие обработчики исключений;
-- выполнить authenticated Testnet `order-test` и `limit-cancel` с отдельными ключами;
+- выполнить authenticated Testnet `order-test`, `limit-cancel` и `buy-oco-restart` с отдельными ключами;
 - провести walk-forward анализ на реальных исторических свечах перед изменением стратегии.
 
 ## Документация

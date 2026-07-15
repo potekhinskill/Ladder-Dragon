@@ -862,6 +862,32 @@ def get_order_list_by_client_id(client_id: str) -> Dict[str, Any] | None:
         raise
 
 
+def verify_oco_legs(symbol: str, order_list: Dict[str, Any]) -> List[Dict[str, Any]]:
+    refs = order_list.get("orders") or []
+    if len(refs) != 2:
+        raise RuntimeError("OCO verification did not return exactly two legs")
+    legs: List[Dict[str, Any]] = []
+    for ref in refs:
+        if ref.get("orderId") is None:
+            raise RuntimeError("OCO leg has no orderId")
+        payload = _signed_request(
+            "GET",
+            "/api/v3/order",
+            {"symbol": symbol, "orderId": int(ref["orderId"])},
+        )
+        if not isinstance(payload, dict):
+            raise RuntimeError("OCO leg query returned an invalid payload")
+        legs.append(payload)
+    if any(str(leg.get("side") or "").upper() != "SELL" for leg in legs):
+        raise RuntimeError("OCO contains a non-SELL leg")
+    leg_types = {str(leg.get("type") or "").upper() for leg in legs}
+    if not ({"LIMIT_MAKER", "LIMIT"} & leg_types) or not (
+        {"STOP_LOSS_LIMIT", "STOP_LOSS"} & leg_types
+    ):
+        raise RuntimeError(f"OCO leg types are invalid: {sorted(leg_types)}")
+    return legs
+
+
 def _record_order_payload(payload: Dict[str, Any] | None) -> Optional[OrderIntent]:
     if not payload:
         return None
@@ -930,6 +956,12 @@ def recover_existing_protection(parent_client_order_id: str) -> bool:
         if not isinstance(payload, dict) or payload.get("listStatusType") not in ("EXEC_STARTED", "ALL_DONE"):
             return False
         order_list_id = payload.get("orderListId")
+        try:
+            verify_oco_legs(protection.symbol, payload)
+        except (requests.RequestException, RuntimeError):
+            if order_list_id is not None:
+                cancel_oco(protection.symbol, int(order_list_id))
+            return False
         journal.mark_protected(
             parent_client_order_id=parent_client_order_id,
             protection_client_order_id=protection.client_order_id,
@@ -1117,6 +1149,12 @@ def place_oco_sell(symbol: str,
         existing = get_order_list_by_client_id(list_client_id)
         if isinstance(existing, dict) and existing.get("listStatusType") in ("EXEC_STARTED", "ALL_DONE"):
             order_list_id = existing.get("orderListId")
+            try:
+                verify_oco_legs(symbol, existing)
+            except (requests.RequestException, RuntimeError):
+                if order_list_id is not None:
+                    cancel_oco(symbol, int(order_list_id))
+                raise
             if journal is not None:
                 journal.record_order_list(list_client_id, existing)
                 if parent_client_order_id:
@@ -1176,6 +1214,18 @@ def place_oco_sell(symbol: str,
         )
         if not isinstance(verified, dict) or verified.get("listStatusType") not in ("EXEC_STARTED", "ALL_DONE"):
             raise RuntimeError(f"OCO verification failed: {verified}")
+        try:
+            verify_oco_legs(symbol, verified)
+        except (requests.RequestException, RuntimeError):
+            try:
+                _signed_request(
+                    "DELETE",
+                    "/api/v3/orderList",
+                    {"symbol": symbol, "orderListId": int(order_list_id)},
+                )
+            except requests.RequestException:
+                pass
+            raise
         if isinstance(j, dict):
             j.setdefault("listClientOrderId", list_client_id)
         if journal is not None:
@@ -1197,6 +1247,11 @@ def place_oco_sell(symbol: str,
                 reconciled = None
             if isinstance(reconciled, dict) and reconciled.get("listStatusType") in ("EXEC_STARTED", "ALL_DONE"):
                 order_list_id = reconciled.get("orderListId")
+                try:
+                    verify_oco_legs(symbol, reconciled)
+                except (requests.RequestException, RuntimeError) as verify_exc:
+                    log(f"[ERR] recovered OCO leg verification failed: {verify_exc}")
+                    return None
                 journal.record_order_list(list_client_id, reconciled)
                 if parent_client_order_id:
                     journal.mark_protected(
