@@ -1,10 +1,17 @@
 from decimal import Decimal
 from pathlib import Path
+import json
 import sqlite3
 
 import pytest
 
-from risk_manager import RiskLimits, RiskManager, RiskSnapshot, load_daily_trade_metrics
+from risk_manager import (
+    RiskLimits,
+    RiskManager,
+    RiskSnapshot,
+    create_manual_halt,
+    load_daily_trade_metrics,
+)
 
 
 def limits(tmp_path: Path, **overrides) -> RiskLimits:
@@ -109,3 +116,17 @@ def test_daily_trade_metrics(tmp_path: Path):
     assert result["daily_turnover_usdt"] == Decimal("190.0")
     assert result["daily_buy_usdt"] == Decimal("100.0")
     assert result["consecutive_losses"] == 1
+
+
+def test_execution_failure_creates_persistent_manual_halt(tmp_path: Path):
+    configured = limits(tmp_path)
+    marker_path = create_manual_halt(
+        "BUY 123 filled without protection",
+        limits=configured,
+        now=1000,
+        metadata={"symbol": "SOLUSDT", "order_id": 123},
+    )
+    marker = json.loads(marker_path.read_text(encoding="utf-8"))
+    assert marker["manual_reset_required"] is True
+    assert marker["reasons"] == ["BUY 123 filled without protection"]
+    assert marker["metadata"]["order_id"] == 123

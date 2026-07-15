@@ -27,6 +27,7 @@ from typing import Any, Dict, List, Optional, Tuple
 
 from order_identity import client_order_id
 from risk_manager import RiskDecision, RiskLimits, RiskManager, RiskSnapshot, load_daily_trade_metrics, money
+from time_safety import assess_exchange_clock
 
 try:
     import requests
@@ -1682,10 +1683,14 @@ def _preflight_live(args: argparse.Namespace, symbols: List[str], limits: RiskLi
     t0 = int(time.time() * 1000)
     server = _public_get("/api/v3/time")
     t1 = int(time.time() * 1000)
-    offset = int(server["serverTime"]) - ((t0 + t1) // 2)
-    max_offset = int(os.getenv("RISK_MAX_TIME_OFFSET_MS", "1000"))
-    if abs(offset) > max_offset:
-        raise RuntimeError(f"Binance clock offset {offset} ms exceeds {max_offset} ms")
+    clock = assess_exchange_clock(
+        server_time_ms=int(server["serverTime"]),
+        request_started_ms=t0,
+        response_finished_ms=t1,
+        max_offset_ms=int(os.getenv("RISK_MAX_TIME_OFFSET_MS", "1000")),
+        max_round_trip_ms=int(os.getenv("RISK_MAX_TIME_RTT_MS", "5000")),
+    )
+    clock.require_safe()
 
     for symbol in symbols:
         filters = get_exchange_filters(symbol)
@@ -1695,7 +1700,7 @@ def _preflight_live(args: argparse.Namespace, symbols: List[str], limits: RiskLi
             raise RuntimeError(f"invalid exchange filters for {symbol}: {','.join(invalid)}")
 
     account = TM._signed_get("/api/v3/account")
-    if not bool(account.get("canTrade", True)):
+    if account.get("canTrade") is not True:
         raise RuntimeError("Binance account/API key is not allowed to trade")
 
     cap = float(args.cap_ceil_usdt or os.getenv("BOT_CAP_PER_ORDER", "50"))
