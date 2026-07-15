@@ -26,6 +26,8 @@
 - Ошибка защиты позиции создаёт persistent circuit halt с точной причиной и идентификаторами ордера.
 - OCO переведён с deprecated `/api/v3/order/oco` на актуальный `/api/v3/orderList/oco` с `above*`/`below*` параметрами.
 - Добавлен fail-closed `binance_testnet_smoke.py`: public/auth/order-test и настоящий create-query-cancel Testnet LIMIT с отдельным подтверждением.
+- Добавлены подтверждаемые `buy-oco` и `buy-oco-restart`: ограниченный MARKET BUY, durable intent, OCO verification, повторное открытие journal и обязательный cleanup тестовой позиции.
+- Добавлен изолированный `circuit-drill`, проверяющий сохранение halt после restart и ручной reset без изменения production state.
 
 ## [2025-09-26]
 ### Executor (1.8_autosize_universal.py)

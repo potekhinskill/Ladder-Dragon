@@ -86,11 +86,24 @@ def test_uncertain_oco_post_uses_current_endpoint_and_recovers(tmp_path, monkeyp
             observed.update(params)
             assert path == "/api/v3/orderList/oco"
             raise requests.ConnectionError("OCO ACK lost")
+        if method == "GET" and path == "/api/v3/order":
+            order_type = "LIMIT_MAKER" if params["orderId"] == 78 else "STOP_LOSS_LIMIT"
+            return {
+                "symbol": "SOLUSDT",
+                "orderId": params["orderId"],
+                "side": "SELL",
+                "type": order_type,
+                "status": "NEW",
+            }
         assert method == "GET" and path == "/api/v3/orderList"
         return {
             "orderListId": 77,
             "listClientOrderId": params["origClientOrderId"],
             "listStatusType": "EXEC_STARTED",
+            "orders": [
+                {"symbol": "SOLUSDT", "orderId": 78, "clientOrderId": "tp"},
+                {"symbol": "SOLUSDT", "orderId": 79, "clientOrderId": "sl"},
+            ],
         }
 
     monkeypatch.setattr(worker, "_signed_request", signed)
@@ -162,3 +175,58 @@ def test_uncertain_unconfirmed_post_trips_persistent_halt(tmp_path, monkeypatch)
     else:
         raise AssertionError("uncertain submission must fail closed")
     assert (tmp_path / "circuit_halt.json").exists()
+
+
+def test_invalid_oco_legs_never_mark_buy_protected(tmp_path, monkeypatch):
+    worker = load_worker()
+    journal = configure_worker(worker, tmp_path, monkeypatch)
+    parent = journal.prepare(
+        client_order_id="LDBLAD-invalid-oco",
+        symbol="SOLUSDT",
+        side="BUY",
+        purpose="ladder",
+        order_type="LIMIT",
+        quantity="0.100",
+        price="100.00",
+    )
+    journal.record_exchange_order(
+        parent.client_order_id,
+        {"orderId": 888, "status": "FILLED", "executedQty": "0.100"},
+    )
+    deletes = []
+
+    def signed(method, path, params=None, timeout=15):
+        if method == "POST":
+            return {"orderListId": 900, "listStatusType": "EXEC_STARTED"}
+        if method == "DELETE":
+            deletes.append(params["orderListId"])
+            return {"orderListId": params["orderListId"], "listStatusType": "ALL_DONE"}
+        if path == "/api/v3/orderList":
+            return {
+                "orderListId": 900,
+                "listStatusType": "EXEC_STARTED",
+                "orders": [
+                    {"symbol": "SOLUSDT", "orderId": 901},
+                    {"symbol": "SOLUSDT", "orderId": 902},
+                ],
+            }
+        return {
+            "symbol": "SOLUSDT",
+            "orderId": params["orderId"],
+            "side": "SELL",
+            "type": "LIMIT_MAKER",
+            "status": "NEW",
+        }
+
+    monkeypatch.setattr(worker, "_signed_request", signed)
+    result = worker.place_oco_sell(
+        "SOLUSDT",
+        0.1,
+        110.0,
+        95.0,
+        94.0,
+        parent_client_order_id=parent.client_order_id,
+    )
+    assert result is None
+    assert deletes == [900]
+    assert journal.get(parent.client_order_id).state == "PROTECTION_PENDING"
