@@ -3,7 +3,7 @@
 Приватный Python-проект для управления лестничной торговлей на Binance Spot. Бот строит адаптивные сетки BUY/SELL, учитывает ATR, EMA и VWAP, управляет OCO-ордерами и сохраняет торговую статистику в SQLite.
 
 > [!WARNING]
-> Проект работает с реальными биржевыми ордерами и находится на этапе технического аудита. Это не инвестиционная рекомендация. Не запускайте текущий `ai_supervisor.py` с торговым API-ключом даже без `--live`: очистка открытых ордеров пока не защищена DRY-режимом и может отправлять запросы отмены. Перед реальной торговлей необходимо завершить hardening и проверку на Binance Spot Testnet.
+> Проект работает с реальными биржевыми ордерами. Это не инвестиционная рекомендация. DRY является режимом по умолчанию, а любые изменяющие Binance-запросы дополнительно блокируются на уровне транспорта. Тем не менее перед Mainnet LIVE обязателен отдельный прогон на Binance Spot Testnet и ручная проверка лимитов.
 
 ## Возможности
 
@@ -24,6 +24,9 @@
 | `1.8_autosize_universal.py` | Исполнение BUY/SELL/OCO для отдельного символа |
 | `tools_market.py` | Binance HTTP API, подпись запросов, цены, свечи и торговые фильтры |
 | `tools_stats.py` | Хранение сделок и агрегатов в SQLite |
+| `risk_manager.py`, `risk_ctl.py` | Постоянный circuit breaker, портфельные лимиты и ручной reset |
+| `order_identity.py` | Идемпотентные Binance `clientOrderId` для повторов и рестартов |
+| `simulation.py`, `backtest.py` | Decimal-симулятор с комиссиями, проскальзыванием и walk-forward |
 | `auto_ladder_map.py` | Генерация лестницы по режиму рынка |
 | `gen_vwap_env.py` | Расчёт базовых VWAP-параметров |
 | `gen_vwap_autotune.py` | Подстройка VWAP по FIFO PnL |
@@ -46,20 +49,17 @@
 ```bash
 python3 -m venv .venv
 source .venv/bin/activate
-python -m pip install requests python-dotenv
+python -m pip install -e '.[test,dashboard]'
 ```
 
-Зависимости пока не зафиксированы в `pyproject.toml` или `requirements.txt`; это одна из ближайших задач проекта.
+Версии runtime, dashboard и test-зависимостей зафиксированы в `pyproject.toml`.
 
 ## Конфигурация
 
-Создайте локальный `.env`. Файл исключён из Git и не должен публиковаться:
+Создайте локальный `.env` из безопасного шаблона. Файл исключён из Git:
 
-```dotenv
-BINANCE_API_KEY=replace_me
-BINANCE_API_SECRET=replace_me
-BINANCE_API_BASE=https://api.binance.com
-BOT_STATS_DB=./db/bot_stats.db
+```bash
+cp .env.example .env
 ```
 
 Рекомендации для API-ключа:
@@ -78,27 +78,72 @@ BOT_STATS_DB=./db/bot_stats.db
 python -m compileall -q .
 bash -n supervisor_ctl.sh
 python ai_supervisor.py --help
+python -m pytest
 ```
 
-Обычный запуск супервизора пока нельзя считать безопасным DRY-run из-за независимой очистки открытых ордеров. Команда реального запуска намеренно не приводится до исправления защит.
+Безопасный DRY/Testnet-запуск без создания и отмены ордеров:
 
-## Критические задачи перед LIVE
+```bash
+python ai_supervisor.py \
+  --testnet \
+  --symbols SOLUSDT,ETHUSDT \
+  --base-script ./1.8_autosize_universal.py
+```
 
-1. Защитить все изменяющие Binance-запросы единым DRY/LIVE gate.
-2. Реализовать настоящий circuit breaker по дневному убытку и просадке equity.
-3. Заменить `parse_known_args()` строгим разбором CLI и проверкой конфигурации.
-4. Реализовать или удалить неработающие флаги риска.
-5. Добавить сверку локальной позиции с Binance и идемпотентные `clientOrderId`.
-6. Закрыть FastAPI авторизацией и убрать чтение торговых секретов из `/proc`.
-7. Добавить unit-тесты, интеграционные тесты и прогон на Spot Testnet.
-8. Зафиксировать зависимости и оформить воспроизводимый `systemd` deployment.
+Для отправки ордеров в Testnet одновременно нужны `--live` и точное подтверждение:
+
+```bash
+BOT_LIVE_CONFIRMED=YES python ai_supervisor.py \
+  --live --testnet \
+  --symbols SOLUSDT,ETHUSDT \
+  --base-script ./1.8_autosize_universal.py
+```
+
+Перед LIVE выполняется fail-closed preflight: доступность SQLite, синхронизация времени, биржевые фильтры, права API, circuit halt и корректность всех лимитов.
+
+## Circuit breaker
+
+Circuit breaker сохраняет стартовую и пиковую equity текущего UTC-дня. При достижении лимита он:
+
+- останавливает дочерние торговые процессы;
+- отменяет открытые BUY;
+- сохраняет точные причины в halt-файле и `risk_alerts.ndjson`;
+- включает cooldown;
+- требует ручной reset и не сбрасывается после рестарта.
+
+```bash
+python risk_ctl.py status
+python risk_ctl.py reset
+# --force разрешён только после ручной проверки аккаунта
+```
+
+Кроме аварийной остановки контролируются portfolio CAP, дневной оборот, дневной BUY-notional, количество сделок/открытых ордеров, коррелированная экспозиция, резерв USDT и серия убыточных продаж.
+
+## Дашборд
+
+Дашборд запускается только на `127.0.0.1`:
+
+```bash
+python run_dashboard.py
+```
+
+Все `/api/*` требуют `DASHBOARD_AUTH_TOKEN` или подтверждённый reverse proxy (`DASHBOARD_TRUST_PROXY_AUTH=1`). API логов и SSE выключены по умолчанию. Для equity используется только отдельный `DASHBOARD_BINANCE_API_KEY` без торговых разрешений; чтение секретов процесса бота из `/proc` удалено.
+
+## Оставшийся технический долг
+
+- постепенно разделить монолитный исполнитель на небольшие модули;
+- перевести оставшуюся биржевую арифметику с `float` на `Decimal`;
+- сузить оставшиеся широкие обработчики исключений;
+- расширить записанные Binance fixtures и выполнить ручной Testnet smoke-run;
+- провести walk-forward анализ на реальных исторических свечах перед изменением стратегии.
 
 ## Документация
 
 - [История изменений](CHANGELOG.md)
 - [Полное руководство](FRONT/readme.html)
 - [Справка по дашборду](FRONT/help.html)
-- [Историческая конфигурация systemd](key_start_bot.txt)
+- [Безопасный шаблон systemd](deploy/mybot.service)
+- [Исторические заметки systemd — не разворачивать](docs/legacy-systemd-notes.txt)
 
 ## Лицензия
 

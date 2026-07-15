@@ -27,6 +27,7 @@ import math
 import hashlib
 import requests
 from typing import Dict, Tuple, List, Optional, Any
+from exchange_math import normalized_order_values, round_step
 
 # --- .env (опционально) ---
 from pathlib import Path
@@ -330,16 +331,7 @@ def _decimals_from_float_step(step: float) -> int:
     return 0
 
 def _round_by_step(value: float, step: float, mode: str = "floor") -> float:
-    if step <= 0:
-        return value
-    q = value / step
-    if mode == "floor":
-        q = math.floor(q)
-    elif mode == "ceil":
-        q = math.ceil(q)
-    else:
-        q = round(q)
-    return q * step
+    return float(round_step(value, step, mode))
 
 def round_qty_price(symbol: str, qty: float, price: float, side: str = "BUY") -> Tuple[str, str]:
     """
@@ -350,36 +342,15 @@ def round_qty_price(symbol: str, qty: float, price: float, side: str = "BUY") ->
     """
     side = (side or "BUY").upper()
     f = get_symbol_filters(symbol)
-    step = float(f.get("stepSize", 0.0) or 0.0)
-    tick = float(f.get("tickSize", 0.0) or 0.0)
-    min_notional = float(f.get("minNotional", 0.0) or 0.0)
-
-    # qty всегда вниз по шагу
-    qty = _round_by_step(qty, step, mode="floor")
-
-    # price: BUY вниз, SELL вверх по тикам
-    price_mode = "floor" if side == "BUY" else "ceil"
-    price = _round_by_step(price, tick, mode=price_mode)
-
-    # Гарантия minNotional: если не проходит — поднимем qty до ближайшего шага
-    if min_notional > 0 and price > 0:
-        notional = qty * price
-        if notional < min_notional:
-            need = min_notional / price
-            k = math.ceil(need / step) if step > 0 else 1
-            qty = max(qty, k * step if step > 0 else need)
-
-    # Гарантия minQty: дотягиваем до минимального шага, не меньше minQty
-    min_qty = float(f.get("minQty", 0.0) or 0.0)
-    if min_qty > 0 and qty < min_qty:
-        k = math.ceil(min_qty / step) if step > 0 else 1
-        qty = max(qty, k * step if step > 0 else min_qty)
-
-    # Гард от нулевых/отрицательных после всех корректировок
-    if qty <= 0 or price <= 0:
-        raise BinanceHttpError(f"Invalid rounded qty/price: qty={qty}, price={price}")
-
-    # Форматируем под точность шага/тика
-    q_dec = _decimals_from_float_step(step)
-    p_dec = _decimals_from_float_step(tick)
-    return f"{qty:.{q_dec}f}", f"{price:.{p_dec}f}"
+    try:
+        return normalized_order_values(
+            qty,
+            price,
+            step=f.get("stepSize", 0),
+            tick=f.get("tickSize", 0),
+            min_qty=f.get("minQty", 0),
+            min_notional=f.get("minNotional", 0),
+            side=side,
+        )
+    except ValueError as exc:
+        raise BinanceHttpError(str(exc)) from exc

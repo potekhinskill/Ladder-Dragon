@@ -1,0 +1,22 @@
+[Unit]
+Description=Ladder Dragon private dashboard
+After=network-online.target
+
+[Service]
+Type=simple
+User=bot
+Group=bot
+WorkingDirectory=/home/bot/apps/binance_bot
+EnvironmentFile=/home/bot/apps/binance_bot/.env.dashboard
+ExecStart=/home/bot/apps/binance_bot/.venv/bin/python run_dashboard.py
+Restart=on-failure
+RestartSec=10
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectSystem=strict
+ProtectHome=read-only
+ReadWritePaths=/home/bot/apps/binance_bot/FastAPI/pi-dashboard/data
+UMask=0077
+
+[Install]
+WantedBy=multi-user.target

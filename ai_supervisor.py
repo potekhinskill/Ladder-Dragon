@@ -17,9 +17,16 @@ import signal
 import random
 import argparse
 import subprocess
+import json
+import re
+import sqlite3
 from datetime import datetime, timedelta
+from decimal import Decimal
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
+
+from order_identity import client_order_id
+from risk_manager import RiskDecision, RiskLimits, RiskManager, RiskSnapshot, load_daily_trade_metrics, money
 
 try:
     import requests
@@ -57,6 +64,7 @@ LOCK_FILE = "/tmp/ai_supervisor.lock"
 
 LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO").upper()
 _CHILD_PROCS: Dict[str, subprocess.Popen] = {}
+LIVE_MODE = False
 
 
 def env_flag(name: str, default: bool = False) -> bool:
@@ -511,11 +519,16 @@ def list_open_orders(symbol: str) -> List[Dict[str, Any]]:
     except Exception:
         return []
 
-def cancel_order(symbol: str, order_id: int) -> None:
+def cancel_order(symbol: str, order_id: int) -> bool:
+    if not LIVE_MODE:
+        log(f"[DRY] skip cancel {symbol} orderId={order_id}")
+        return False
     try:
         _canonical_signed_request("DELETE", "/api/v3/order", {"symbol": symbol, "orderId": order_id})
+        return True
     except Exception as e:
         log(f"[CANCEL] {symbol} orderId={order_id} -> {e}")
+        return False
 
 
 # --- ошибки фильтров (формат цены/количества) ---
@@ -588,6 +601,9 @@ def place_limit_order(symbol: str, side: str, quantity: float, price: float,
     Лимитки через централизованное округление/валидацию tools_market.round_qty_price().
     При фильтр-ошибке (-1013/-1111/-1102/-1106) один раз инвалидируем кэш фильтров и повторяем.
     """
+    if not LIVE_MODE:
+        log(f"[DRY] skip LIMIT {symbol} {side.upper()} {quantity:.8f} @ {price:.8f}")
+        return None
     try:
         qty_s, price_s = TM.round_qty_price(
             symbol=symbol,
@@ -604,6 +620,7 @@ def place_limit_order(symbol: str, side: str, quantity: float, price: float,
             "quantity": qty_s,
             "price": price_s,
             "newOrderRespType": "ACK",
+            "newClientOrderId": client_order_id(symbol, side, "limit", price_s, qty_s),
         }
         j = _canonical_signed_request("POST", "/api/v3/order", params)
         oid = j.get("orderId") if isinstance(j, dict) else None
@@ -631,6 +648,7 @@ def place_limit_order(symbol: str, side: str, quantity: float, price: float,
                     "quantity": qty_s,
                     "price": price_s,
                     "newOrderRespType": "ACK",
+                    "newClientOrderId": client_order_id(symbol, side, "limit", price_s, qty_s),
                 }
                 j2 = _canonical_signed_request("POST", "/api/v3/order", params)
                 oid2 = j2.get("orderId") if isinstance(j2, dict) else None
@@ -647,6 +665,9 @@ def place_market_order(symbol: str, side: str, quantity: float,
     Маркет-ордера унифицированы: round_qty_price() даёт корректный qty_s.
     При фильтр-ошибке инвалидируем кэш фильтров и повторяем один раз.
     """
+    if not LIVE_MODE:
+        log(f"[DRY] skip MARKET {symbol} {side.upper()} {quantity:.8f}")
+        return None
     try:
         if ref_price is None:
             ref_price = get_last_price(symbol)
@@ -664,6 +685,7 @@ def place_market_order(symbol: str, side: str, quantity: float,
             "type": "MARKET",
             "quantity": qty_s,
             "newOrderRespType": "ACK",
+            "newClientOrderId": client_order_id(symbol, side, "market", ref_price, qty_s, bucket_seconds=30),
         }
         j = _canonical_signed_request("POST", "/api/v3/order", params)
         oid = j.get("orderId") if isinstance(j, dict) else None
@@ -689,6 +711,7 @@ def place_market_order(symbol: str, side: str, quantity: float,
                     "type": "MARKET",
                     "quantity": qty_s,
                     "newOrderRespType": "ACK",
+                    "newClientOrderId": client_order_id(symbol, side, "market", ref_price, qty_s, bucket_seconds=30),
                 }
                 j2 = _canonical_signed_request("POST", "/api/v3/order", params)
                 oid2 = j2.get("orderId") if isinstance(j2, dict) else None
@@ -746,9 +769,9 @@ def startup_cleanup_orders(symbol: str,
                     reason = "off-ladder"
 
             if do_cancel:
-                cancel_order(symbol, int(o.get("orderId")))
-                canceled += 1
-                log(f"[START-CLEANUP] {symbol} canceled id={o.get('orderId')} price={pr} reason={reason}")
+                if cancel_order(symbol, int(o.get("orderId"))):
+                    canceled += 1
+                    log(f"[START-CLEANUP] {symbol} canceled id={o.get('orderId')} price={pr} reason={reason}")
         except Exception as e:
             log(f"[START-CLEANUP] {symbol} skip: {e}")
 
@@ -795,9 +818,9 @@ def smart_cleanup_orders(symbol: str,
                 reason = "off-ladder"
 
             if reason:
-                cancel_order(symbol, int(o.get("orderId")))
-                canceled += 1
-                log(f"[CLEANUP] {symbol} canceled {o.get('side')} {o.get('type')} id={o.get('orderId')} price={pr} age={age}s reason={reason}")
+                if cancel_order(symbol, int(o.get("orderId"))):
+                    canceled += 1
+                    log(f"[CLEANUP] {symbol} canceled {o.get('side')} {o.get('type')} id={o.get('orderId')} price={pr} age={age}s reason={reason}")
         except Exception as e:
             log(f"[CLEANUP] {symbol} skip: {e}")
 
@@ -1040,7 +1063,9 @@ def position_guard_and_maybe_flatten(symbol: str, now_price: float, atr_abs: flo
     now_local = datetime.now()
     in_flat = args.flatten_enable and _in_flatten_window(now_local, args.flatten_at, args.flatten_t_minus_sec)
 
-    if in_flat and not hard and bool(getattr(args, "flatten_avoid_loss", 0)):
+    if (in_flat and not hard
+            and bool(getattr(args, "flatten_avoid_loss", 0))
+            and not bool(getattr(args, "flatten_force", 0))):
         cache_ttl = int(getattr(args, "flatten_avg_cache_ttl", 45))
         lookback = int(getattr(args, "flatten_avg_lookback", 1000))
         edge_pct = max(0.0, float(getattr(args, "flatten_min_edge_pct", 0.0)))
@@ -1215,7 +1240,8 @@ def auto_cap_if_needed(args: argparse.Namespace, n_syms: int) -> None:
         return
     try:
         bals = get_balances()
-        free = float(bals.get("USDT", 0.0))
+        reserve = max(0.0, float(os.getenv("RISK_RESERVE_USDT", "0") or 0.0))
+        free = max(0.0, float(bals.get("USDT", 0.0)) - reserve)
         min_pool = float(args.cap_floor_usdt or 0.0)
         if free < max(10.0, min_pool):
             log(f"[AUTO-CAP] free≈{free:.2f} < threshold; skip CAP/BOT_CAP_PER_ORDER")
@@ -1330,9 +1356,6 @@ def run_for_symbol(symbol: str, args: argparse.Namespace) -> None:
 
     sr = smart_rolling(symbol, now_p, ladder_all, args)
     log(f"[SR-SUM] {symbol} kept={sr['kept']} cancel(ttl)={sr['cancel'].get('ttl',0)} cancel(atr)={sr['cancel'].get('atr',0)}")
-
-    if args.copy_top_bots:
-        log(f"[COPY] Copying pct from top bots for {symbol} (placeholder)")
 
     # 7) ATR-driven авто-адаптер (ENV override)
     extra_env = None
@@ -1498,6 +1521,308 @@ def refresh_vwap_runtime_maps(args: argparse.Namespace,
 def parse_ladder_pct_map(s: str) -> Dict[str, Tuple[float, float, float]]:
     return parse_pct_map(s)
 
+
+def _validate_args(parser: argparse.ArgumentParser, args: argparse.Namespace) -> List[str]:
+    symbols = [s.strip().upper() for s in args.symbols.split(",") if s.strip()]
+    if not symbols:
+        parser.error("--symbols must contain at least one symbol")
+    if len(symbols) != len(set(symbols)):
+        parser.error("--symbols contains duplicates")
+    for symbol in symbols:
+        if not re.fullmatch(r"[A-Z0-9]{5,20}", symbol):
+            parser.error(f"invalid Binance symbol: {symbol!r}")
+
+    positive_ints = {
+        "--grid-density": args.grid_density,
+        "--target-buy-per-symbol": args.target_buy_per_symbol,
+        "--max-oco-per-symbol": args.max_oco_per_symbol,
+        "--child-loop-minutes": args.child_loop_minutes,
+        "--interval-seconds": args.interval_seconds,
+        "--risk-check-sec": args.risk_check_sec,
+        "--flatten-slices": args.flatten_slices,
+    }
+    for name, value in positive_ints.items():
+        if value is None or int(value) <= 0:
+            parser.error(f"{name} must be > 0")
+
+    non_negative = {
+        "--near-ttl-sec": args.near_ttl_sec,
+        "--far-ttl-sec": args.far_ttl_sec,
+        "--price-eps-mult": args.price_eps_mult,
+        "--dir-eps": args.dir_eps,
+        "--dir-slope-min": args.dir_slope_min,
+        "--dir-adx-min": args.dir_adx_min,
+        "--flatten-min-edge-pct": args.flatten_min_edge_pct,
+        "--flatten-limit-offset-atr": args.flatten_limit_offset_atr,
+        "--vwap-refresh-sec": args.vwap_refresh_sec,
+        "--vwap-refresh-jitter-sec": args.vwap_refresh_jitter_sec,
+    }
+    for name, value in non_negative.items():
+        if float(value) < 0:
+            parser.error(f"{name} must be >= 0")
+    if args.far_ttl_sec and args.near_ttl_sec and args.far_ttl_sec < args.near_ttl_sec:
+        parser.error("--far-ttl-sec cannot be lower than --near-ttl-sec")
+
+    positive_floats = {
+        "--atr-mult-tp1": args.atr_mult_tp1,
+        "--atr-mult-tp2": args.atr_mult_tp2,
+        "--atr-mult-sl": args.atr_mult_sl,
+        "--child-buy-vwap-window": args.child_buy_vwap_window,
+        "--flatten-avg-cache-ttl": args.flatten_avg_cache_ttl,
+        "--flatten-avg-lookback": args.flatten_avg_lookback,
+    }
+    for name, value in positive_floats.items():
+        if value is not None and float(value) <= 0:
+            parser.error(f"{name} must be > 0")
+
+    if not 0 < args.alloc_pct <= 1:
+        parser.error("--alloc-pct must be in (0, 1]")
+    if not 0 < args.pos_warn_pct <= 1:
+        parser.error("--pos-warn-pct must be in (0, 1]")
+    if not 0 < args.flatten_slice_pct <= 1:
+        parser.error("--flatten-slice-pct must be in (0, 1]")
+    if not 0 <= args.stop_limit_offset_pct < 0.25:
+        parser.error("--stop-limit-offset-pct must be in [0, 0.25)")
+    if args.cap_floor_usdt is not None and args.cap_floor_usdt < 0:
+        parser.error("--cap-floor-usdt must be >= 0")
+    if args.cap_ceil_usdt is not None and args.cap_ceil_usdt <= 0:
+        parser.error("--cap-ceil-usdt must be > 0")
+    if (args.cap_floor_usdt is not None and args.cap_ceil_usdt is not None
+            and args.cap_floor_usdt > args.cap_ceil_usdt):
+        parser.error("--cap-floor-usdt cannot exceed --cap-ceil-usdt")
+    if args.tp1_min <= 0 or args.tp1_max <= 0 or args.tp1_min > args.tp1_max:
+        parser.error("TP1 bounds must be positive and --tp1-min <= --tp1-max")
+    if args.sl_max <= 0 or args.sl_max >= 1:
+        parser.error("--sl-max must be in (0, 1)")
+    if args.child_buy_vwap_premium_floor < 0:
+        parser.error("VWAP premium floor must be >= 0")
+    if args.child_buy_vwap_premium_floor > args.child_buy_vwap_premium_ceil:
+        parser.error("VWAP premium floor cannot exceed ceiling")
+    if args.child_buy_vwap_discount_scale_min > args.child_buy_vwap_discount_scale_max:
+        parser.error("VWAP discount scale min cannot exceed max")
+    if not 0 <= args.child_bear_cap_scale <= 5:
+        parser.error("--child-bear-cap-scale must be in [0, 5]")
+    if not 0 <= args.child_bear_buy_shift_pct < 1:
+        parser.error("--child-bear-buy-shift-pct must be in [0, 1)")
+    if args.breakeven_offset_pct is not None and not 0 <= args.breakeven_offset_pct < 1:
+        parser.error("--breakeven-offset-pct must be in [0, 1)")
+    if args.sl is not None and args.sl >= 0:
+        parser.error("--sl must be negative")
+    if not re.fullmatch(r"(?:[01]\d|2[0-3]):[0-5]\d", args.flatten_at):
+        parser.error("--flatten-at must use HH:MM (24-hour) format")
+    if args.flatten_force and not args.flatten_enable:
+        parser.error("--flatten-force requires --flatten-enable")
+
+    try:
+        values = [float(x.strip()) for x in args.ladder_pct.split(",")]
+    except ValueError:
+        parser.error("--ladder-pct must contain three numbers")
+    if len(values) != 3:
+        parser.error("--ladder-pct must contain exactly three numbers")
+    if not values[0] < 0 or not values[1] < 0 or not values[2] > 0:
+        parser.error("--ladder-pct expects negative low/down and positive up percentages")
+
+    if args.live and os.getenv("BOT_LIVE_CONFIRMED", "") != "YES":
+        parser.error("--live requires BOT_LIVE_CONFIRMED=YES")
+    if args.live and not Path(args.base_script).is_file():
+        parser.error(f"--base-script does not exist: {args.base_script}")
+    return symbols
+
+
+def _configure_venue(args: argparse.Namespace) -> None:
+    """Select testnet/mainnet before any authenticated preflight request."""
+    global BINANCE_API_BASE, API_KEY, API_SECRET
+    if args.testnet:
+        base = os.getenv("BINANCE_TESTNET_API_BASE", "https://testnet.binance.vision").rstrip("/")
+        key = os.getenv("BINANCE_TESTNET_API_KEY", "")
+        secret = os.getenv("BINANCE_TESTNET_API_SECRET", "")
+        venue = "testnet"
+    else:
+        base = (os.getenv("BINANCE_API_BASE") or "https://api.binance.com").rstrip("/")
+        key = os.getenv("BINANCE_API_KEY", "")
+        secret = os.getenv("BINANCE_API_SECRET", "")
+        venue = "mainnet"
+    BINANCE_API_BASE, API_KEY, API_SECRET = base, key, secret
+    TM.BASE_URL, TM.API_KEY, TM.API_SECRET = base, key, secret
+    os.environ["BINANCE_API_BASE"] = base
+    if key:
+        os.environ["BINANCE_API_KEY"] = key
+    if secret:
+        os.environ["BINANCE_API_SECRET"] = secret
+    SESSION.headers.pop("X-MBX-APIKEY", None)
+    if key:
+        SESSION.headers.update({"X-MBX-APIKEY": key})
+    log(f"[VENUE] {venue} base={base} mode={'LIVE' if args.live else 'DRY'}")
+
+
+def _preflight_live(args: argparse.Namespace, symbols: List[str], limits: RiskLimits) -> None:
+    """Refuse LIVE before every required dependency has been proven usable."""
+    if not args.live:
+        return
+    limits.validate()
+    if limits.halt_file.exists():
+        log(
+            f"[PREFLIGHT] persistent halt detected at {limits.halt_file}; "
+            "supervisor will only reconcile and cancel BUY until manual reset"
+        )
+    if not TM.API_KEY or not TM.API_SECRET:
+        prefix = "BINANCE_TESTNET" if args.testnet else "BINANCE"
+        raise RuntimeError(f"{prefix}_API_KEY/SECRET are required for LIVE mode")
+
+    stats_db = os.getenv("BOT_STATS_DB", "").strip()
+    if not stats_db:
+        raise RuntimeError("BOT_STATS_DB is required for fail-closed LIVE mode")
+    import tools_stats
+    con = tools_stats.init_db(stats_db)
+    try:
+        con.execute("SELECT 1 FROM trades LIMIT 1").fetchall()
+    finally:
+        con.close()
+
+    t0 = int(time.time() * 1000)
+    server = _public_get("/api/v3/time")
+    t1 = int(time.time() * 1000)
+    offset = int(server["serverTime"]) - ((t0 + t1) // 2)
+    max_offset = int(os.getenv("RISK_MAX_TIME_OFFSET_MS", "1000"))
+    if abs(offset) > max_offset:
+        raise RuntimeError(f"Binance clock offset {offset} ms exceeds {max_offset} ms")
+
+    for symbol in symbols:
+        filters = get_exchange_filters(symbol)
+        required = ("tickSize", "stepSize", "minQty", "minNotional")
+        invalid = [name for name in required if float(filters.get(name, 0)) <= 0]
+        if invalid:
+            raise RuntimeError(f"invalid exchange filters for {symbol}: {','.join(invalid)}")
+
+    account = TM._signed_get("/api/v3/account")
+    if not bool(account.get("canTrade", True)):
+        raise RuntimeError("Binance account/API key is not allowed to trade")
+
+    cap = float(args.cap_ceil_usdt or os.getenv("BOT_CAP_PER_ORDER", "50"))
+    theoretical = cap * args.target_buy_per_symbol * len(symbols)
+    max_exposure = min(theoretical, float(limits.portfolio_cap_usdt))
+    config = {
+        "venue": "testnet" if args.testnet else "mainnet",
+        "symbols": symbols,
+        "target_buys_per_symbol": args.target_buy_per_symbol,
+        "cap_per_order_usdt": cap,
+        "max_new_buy_exposure_usdt": round(max_exposure, 2),
+        "portfolio_cap_usdt": str(limits.portfolio_cap_usdt),
+        "reserve_usdt": str(limits.reserve_usdt),
+        "stats_db": stats_db,
+    }
+    log("[PREFLIGHT] PASS " + json.dumps(config, sort_keys=True))
+
+
+def _stop_children(reason: str) -> None:
+    for symbol, proc in list(_CHILD_PROCS.items()):
+        if proc.poll() is None:
+            log(f"[RISK] stop child {symbol} pid={proc.pid}: {reason}")
+            proc.terminate()
+        _CHILD_PROCS.pop(symbol, None)
+
+
+def _cancel_open_buy_orders(orders: Optional[List[Dict[str, Any]]] = None) -> int:
+    orders = orders if orders is not None else (TM._signed_get("/api/v3/openOrders") or [])
+    canceled = 0
+    for order in orders:
+        if str(order.get("side", "")).upper() != "BUY":
+            continue
+        if cancel_order(str(order["symbol"]), int(order["orderId"])):
+            canceled += 1
+    log(f"[RISK] canceled open BUY orders={canceled}")
+    return canceled
+
+
+def _notify_risk(decision: RiskDecision) -> None:
+    reason = "; ".join(decision.reasons) or "risk limit"
+    log(f"[RISK-ALERT] halted={decision.halted} buy_blocked={decision.buy_blocked}: {reason}")
+    webhook = os.getenv("BOT_ALERT_WEBHOOK_URL", "").strip()
+    if webhook:
+        try:
+            requests.post(webhook, json={
+                "event": "circuit_breaker" if decision.halted else "buy_blocked",
+                "reason": reason,
+            }, timeout=5).raise_for_status()
+        except requests.RequestException as exc:
+            log(f"[RISK-ALERT] webhook failed: {exc}")
+
+
+def _build_risk_snapshot(
+    symbols: List[str], limits: RiskLimits
+) -> tuple[RiskSnapshot, List[Dict[str, Any]], Dict[str, float]]:
+    balances = get_balances_full()
+    prices = {symbol: get_last_price(symbol) for symbol in symbols}
+    orders = TM._signed_get("/api/v3/openOrders") or []
+
+    tracked_assets: Dict[str, Decimal] = {}
+    equity = money(balances.get("USDT", {}).get("free", 0)) + money(balances.get("USDT", {}).get("locked", 0))
+    holdings_exposure = Decimal("0")
+    for symbol, price in prices.items():
+        base, _ = symbol_assets(symbol)
+        if base in tracked_assets:
+            continue
+        qty = money(balances.get(base, {}).get("free", 0)) + money(balances.get(base, {}).get("locked", 0))
+        value = qty * money(price)
+        tracked_assets[base] = value
+        equity += value
+        holdings_exposure += value
+
+    if env_flag("RISK_RECONCILE_STRICT", True):
+        tolerance = max(0.0, float(os.getenv("RISK_RECONCILE_TOLERANCE_PCT", "0.02") or 0.02))
+        with sqlite3.connect(f"file:{os.environ['BOT_STATS_DB']}?mode=ro", uri=True, timeout=5) as con:
+            inventory = {
+                str(symbol).upper(): float(qty)
+                for symbol, qty in con.execute("SELECT symbol, qty FROM inventory").fetchall()
+            }
+        mismatches = []
+        for symbol in symbols:
+            base, _ = symbol_assets(symbol)
+            account_qty = float(balances.get(base, {}).get("free", 0)) + float(balances.get(base, {}).get("locked", 0))
+            db_qty = inventory.get(symbol)
+            if db_qty is None:
+                if account_qty > 0:
+                    mismatches.append(f"{symbol}: account={account_qty:.8f}, ledger=missing")
+                continue
+            allowed = max(1e-8, abs(account_qty) * tolerance)
+            if abs(account_qty - db_qty) > allowed:
+                mismatches.append(f"{symbol}: account={account_qty:.8f}, ledger={db_qty:.8f}")
+        if mismatches:
+            raise RuntimeError("position reconciliation failed: " + "; ".join(mismatches))
+
+    open_buy = sum(
+        money(order.get("price")) * money(order.get("origQty"))
+        for order in orders
+        if str(order.get("side", "")).upper() == "BUY"
+        and str(order.get("symbol", "")).upper() in prices
+    )
+    exposure = holdings_exposure + open_buy
+    correlated_symbols = {
+        value.strip().upper()
+        for value in os.getenv("RISK_CORRELATED_SYMBOLS", ",".join(symbols)).split(",")
+        if value.strip()
+    }
+    correlated = sum(
+        tracked_assets.get(symbol_assets(symbol)[0], Decimal("0"))
+        for symbol in symbols if symbol in correlated_symbols
+    ) + sum(
+        money(order.get("price")) * money(order.get("origQty"))
+        for order in orders
+        if str(order.get("side", "")).upper() == "BUY"
+        and str(order.get("symbol", "")).upper() in correlated_symbols
+    )
+
+    metrics = load_daily_trade_metrics(os.environ["BOT_STATS_DB"], symbols)
+    snap = RiskSnapshot(
+        equity_usdt=equity,
+        exposure_usdt=exposure,
+        free_usdt=money(balances.get("USDT", {}).get("free", 0)),
+        open_order_count=len(orders),
+        correlated_exposure_usdt=correlated,
+        **metrics,
+    )
+    return snap, orders, prices
+
 def main():
     ap = argparse.ArgumentParser(description="AI Supervisor for 1.8_autosize_universal.py")
     ap.add_argument("--singleton", action="store_true", help="разрешить только один экземпляр (lock в /tmp)")
@@ -1577,9 +1902,6 @@ def main():
     ap.add_argument("--status-interval", type=int, default=1)
     ap.add_argument("--child-loop-minutes", type=int, default=5)
     ap.add_argument("--interval-seconds", type=int, default=60)
-    ap.add_argument("--risk-level", default="medium")
-    ap.add_argument("--use-bnb-fees", type=int, default=1)
-    ap.add_argument("--copy-top-bots", action="store_true")
     ap.add_argument("--enforce-target-buys", action="store_true")
     ap.add_argument("--enforce-sell-limit", action="store_true")
 
@@ -1619,7 +1941,8 @@ def main():
     ap.add_argument("--flatten-enable", action="store_true")
     ap.add_argument("--flatten-at", default="23:55")
     ap.add_argument("--flatten-t-minus-sec", type=int, default=900)
-    ap.add_argument("--flatten-force", type=int, default=1)
+    ap.add_argument("--flatten-force", type=int, choices=[0, 1], default=0,
+                    help="1 = разрешить flatten ниже средней после ручной проверки")
     ap.add_argument("--flatten-slices", type=int, default=3)
     ap.add_argument("--flatten-slice-pct", type=float, default=0.34)
     ap.add_argument("--flatten-limit-offset-atr", type=float, default=0.20)
@@ -1648,6 +1971,12 @@ def main():
     ap.add_argument("--vwap-autotune-state", type=str, default=os.getenv("VWAP_AUTOTUNE_STATE", "/run/mybot/vwap_state.json"))
 
     ap.add_argument("--live", action="store_true")
+    venue = ap.add_mutually_exclusive_group()
+    venue.add_argument("--testnet", dest="testnet", action="store_true", default=True,
+                       help="Binance Spot Testnet (по умолчанию)")
+    venue.add_argument("--mainnet", dest="testnet", action="store_false",
+                       help="Основной Binance Spot")
+    ap.add_argument("--risk-check-sec", type=int, default=int(os.getenv("RISK_CHECK_SEC", "15")))
     ap.add_argument("--attach-oco-on-fill", action="store_true")
     ap.add_argument("--check-fills-interval", type=int, default=5)
     ap.add_argument("--stop-limit-offset-pct", type=float, default=0.0015)
@@ -1656,9 +1985,15 @@ def main():
     ap.add_argument("--breakeven-offset-pct", type=float, default=None)
     ap.add_argument("--breakeven-check-interval", type=int, default=5)
 
-    args = ap.parse_known_args()[0]
+    args = ap.parse_args()
+    symbols = _validate_args(ap, args)
+    _configure_venue(args)
+    limits = RiskLimits.from_env()
+    _preflight_live(args, symbols, limits)
+    global LIVE_MODE
+    LIVE_MODE = bool(args.live)
+    risk_manager = RiskManager(limits) if args.live else None
 
-    symbols = [s.strip() for s in args.symbols.split(",") if s.strip()]
     log(f"[SUP] symbols={symbols} ladder_mode={args.ladder_mode} ai_model=gpt-4o-mini")
 
     lp = [x.strip() for x in args.ladder_pct.split(",")]
@@ -1691,6 +2026,7 @@ def main():
 
     get_server_time_offset_ms()
     auto_cap_if_needed(args, n_syms=len(symbols))
+    configured_order_cap = money(args.cap_ceil_usdt or os.getenv("BOT_CAP_PER_ORDER", "50"))
 
     def _next_vwap_refresh() -> float:
         base = max(0, int(getattr(args, "vwap_refresh_sec", 0)))
@@ -1716,9 +2052,75 @@ def main():
         else:
             next_vwap_refresh = _next_vwap_refresh()
 
+    next_risk_check = 0.0
+    risk_buy_blocked = False
+    last_risk_signature: tuple[bool, tuple[str, ...]] | None = None
+    previous_prices: Dict[str, float] = {}
+    consecutive_api_failures = 0
+
     try:
         while True:
             now_loop = time.time()
+            if risk_manager is not None and now_loop >= next_risk_check:
+                orders: List[Dict[str, Any]] = []
+                try:
+                    snapshot, orders, prices = _build_risk_snapshot(symbols, limits)
+                    consecutive_api_failures = 0
+                    shock_pct = float(os.getenv("RISK_SHOCK_PCT", "0.05") or 0.05)
+                    shocks = []
+                    for symbol, price in prices.items():
+                        previous = previous_prices.get(symbol)
+                        if previous and abs(price / previous - 1.0) >= shock_pct:
+                            shocks.append(f"{symbol} moved {abs(price / previous - 1.0):.2%}")
+                    previous_prices = prices
+                    if shocks:
+                        risk_manager.start_cooldown("; ".join(shocks))
+                    decision = risk_manager.evaluate(snapshot)
+                    if not decision.buy_blocked:
+                        remaining = min(
+                            limits.portfolio_cap_usdt - snapshot.exposure_usdt,
+                            limits.daily_buy_cap_usdt - snapshot.daily_buy_usdt,
+                            limits.correlated_cap_usdt - snapshot.correlated_exposure_usdt,
+                            snapshot.free_usdt - limits.reserve_usdt,
+                        )
+                        slots = max(1, args.target_buy_per_symbol * len(symbols))
+                        safe_cap = min(configured_order_cap, max(Decimal("0"), remaining) / slots)
+                        min_order = money(args.child_min_order_usdt or 0)
+                        if safe_cap <= 0 or (min_order > 0 and safe_cap < min_order):
+                            decision = RiskDecision(
+                                halted=False,
+                                buy_blocked=True,
+                                reasons=(f"remaining risk budget {remaining:.2f} USDT cannot fund a safe order",),
+                            )
+                        else:
+                            os.environ["BOT_CAP_PER_ORDER"] = str(safe_cap)
+                            dbg(f"[RISK] dynamic safe order cap={safe_cap:.2f} USDT")
+                except Exception as exc:
+                    consecutive_api_failures += 1
+                    threshold = max(1, int(os.getenv("RISK_API_FAILURE_THRESHOLD", "3")))
+                    reason = f"risk telemetry unavailable ({consecutive_api_failures}/{threshold}): {exc}"
+                    if consecutive_api_failures >= threshold:
+                        risk_manager.start_cooldown(reason)
+                    decision = RiskDecision(halted=False, buy_blocked=True, reasons=(reason,))
+
+                risk_buy_blocked = decision.buy_blocked
+                if risk_buy_blocked:
+                    reason = "; ".join(decision.reasons) or "risk limit"
+                    _stop_children(reason)
+                    try:
+                        _cancel_open_buy_orders(orders or None)
+                    except Exception as exc:
+                        log(f"[RISK] cancel BUY failed: {exc}")
+                signature = (decision.halted, decision.reasons)
+                if signature != last_risk_signature and decision.buy_blocked:
+                    _notify_risk(decision)
+                last_risk_signature = signature
+                next_risk_check = now_loop + max(1, int(args.risk_check_sec))
+
+            if risk_buy_blocked:
+                time.sleep(min(2.0, max(0.5, float(args.risk_check_sec) / 2.0)))
+                continue
+
             if now_loop >= next_vwap_refresh:
                 try:
                     refresh_vwap_runtime_maps(args, symbols, reason="periodic")
