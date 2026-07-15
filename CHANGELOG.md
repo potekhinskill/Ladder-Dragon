@@ -1,5 +1,12 @@
 # Changelog — Ladder Dragon (binance_bot)
 
+## [2026-07-16]
+### Supervisor DRY/Testnet hardening
+- Исполнитель использует `BOT_RUN_DIR` для per-symbol lock, fallback order journal, circuit halt и breakeven state; локальный запуск больше не зависит от Linux-only `/run/mybot`.
+- Добавлен экспоненциальный backoff для быстро падающих дочерних процессов и обязательный terminate/wait/kill cleanup при остановке супервизора.
+- `Ctrl+C` завершает супервизор и дочерние процессы штатно, без оставшихся процессов и lock-файлов.
+- Настоящий супервизор и исполнитель проверены в DRY на Spot Testnet: фильтры и стратегия загружены, все торговые операции заблокированы DRY-gate.
+
 ## [2026-07-15]
 ### Safety hardening
 - Добавлен fail-closed DRY/LIVE gate в супервизор и исполнитель; LIVE требует `BOT_LIVE_CONFIRMED=YES`.

@@ -65,6 +65,9 @@ LOCK_FILE = "/tmp/ai_supervisor.lock"
 
 LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO").upper()
 _CHILD_PROCS: Dict[str, subprocess.Popen] = {}
+_CHILD_STARTED_AT: Dict[str, float] = {}
+_CHILD_RESTART_AFTER: Dict[str, float] = {}
+_CHILD_FAILURES: Dict[str, int] = {}
 LIVE_MODE = False
 
 
@@ -1140,18 +1143,49 @@ def position_guard_and_maybe_flatten(symbol: str, now_price: float, atr_abs: flo
 # Запуск дочернего runner'а
 # ===========================
 
+def _schedule_child_restart(
+    symbol: str,
+    return_code: int,
+    runtime_sec: float,
+    *,
+    now: Optional[float] = None,
+) -> float:
+    now = time.time() if now is None else now
+    stable_sec = max(1, int(os.getenv("BOT_CHILD_STABLE_SEC", "30")))
+    if return_code != 0 and runtime_sec < stable_sec:
+        failures = _CHILD_FAILURES.get(symbol, 0) + 1
+        _CHILD_FAILURES[symbol] = failures
+        base = max(1, int(os.getenv("BOT_CHILD_RESTART_BASE_SEC", "2")))
+        maximum = max(base, int(os.getenv("BOT_CHILD_RESTART_MAX_SEC", "60")))
+        delay = float(min(maximum, base * (2 ** min(failures - 1, 10))))
+    else:
+        _CHILD_FAILURES[symbol] = 0
+        delay = 0.0
+    _CHILD_RESTART_AFTER[symbol] = now + delay
+    return delay
+
 def run_child(symbol: str, ladder: List[float], args: argparse.Namespace,
               extra_env: Optional[Dict[str, str]] = None,
               tp1: Optional[float] = None, tp2: Optional[float] = None) -> None:
+    now = time.time()
     _child = _CHILD_PROCS.get(symbol)
     if _child is not None:
         if _child.poll() is None:
             return
-        else:
-            try:
-                del _CHILD_PROCS[symbol]
-            except KeyError:
-                pass
+        return_code = _child.wait(timeout=0)
+        runtime = max(0.0, now - _CHILD_STARTED_AT.pop(symbol, now))
+        _CHILD_PROCS.pop(symbol, None)
+        delay = _schedule_child_restart(symbol, return_code, runtime, now=now)
+        if delay > 0:
+            log(
+                f"[CHILD-BACKOFF] {symbol} exit={return_code} runtime={runtime:.1f}s "
+                f"failures={_CHILD_FAILURES[symbol]} retry_in={delay:.1f}s"
+            )
+            return
+
+    restart_after = _CHILD_RESTART_AFTER.get(symbol, 0.0)
+    if now < restart_after:
+        return
 
     cli = [
         args.base_script,
@@ -1229,8 +1263,11 @@ def run_child(symbol: str, ladder: List[float], args: argparse.Namespace,
             env.update({k: str(v) for k, v in extra_env.items()})
         p = subprocess.Popen(cmd, stdout=sys.stdout, stderr=sys.stderr, env=env)
         _CHILD_PROCS[symbol] = p
+        _CHILD_STARTED_AT[symbol] = now
     except Exception as e:
+        delay = _schedule_child_restart(symbol, 1, 0.0, now=now)
         log(f"[LAUNCH-ERR] {symbol} -> {e}")
+        log(f"[CHILD-BACKOFF] {symbol} retry_in={delay:.1f}s")
 
 # ===========================
 # Авто-CAP на основе баланса
@@ -1625,7 +1662,7 @@ def _validate_args(parser: argparse.ArgumentParser, args: argparse.Namespace) ->
 
     if args.live and os.getenv("BOT_LIVE_CONFIRMED", "") != "YES":
         parser.error("--live requires BOT_LIVE_CONFIRMED=YES")
-    if args.live and not Path(args.base_script).is_file():
+    if not Path(args.base_script).is_file():
         parser.error(f"--base-script does not exist: {args.base_script}")
     return symbols
 
@@ -1657,10 +1694,33 @@ def _configure_venue(args: argparse.Namespace) -> None:
 
 
 def _preflight_live(args: argparse.Namespace, symbols: List[str], limits: RiskLimits) -> None:
-    """Refuse LIVE before every required dependency has been proven usable."""
+    """Print final exposure, then refuse LIVE unless dependencies are proven."""
+    limits.validate()
+    stats_db = os.getenv("BOT_STATS_DB", "").strip()
+    cap = float(args.cap_ceil_usdt or os.getenv("BOT_CAP_PER_ORDER", "50"))
+    theoretical = cap * args.target_buy_per_symbol * len(symbols)
+    max_exposure = min(
+        theoretical,
+        float(limits.portfolio_cap_usdt),
+        float(limits.daily_buy_cap_usdt),
+        float(limits.correlated_cap_usdt),
+    )
+    config = {
+        "mode": "LIVE" if args.live else "DRY",
+        "venue": "testnet" if args.testnet else "mainnet",
+        "symbols": symbols,
+        "target_buys_per_symbol": args.target_buy_per_symbol,
+        "cap_per_order_usdt": cap,
+        "max_new_buy_exposure_usdt": round(max_exposure, 2),
+        "portfolio_cap_usdt": str(limits.portfolio_cap_usdt),
+        "daily_buy_cap_usdt": str(limits.daily_buy_cap_usdt),
+        "correlated_cap_usdt": str(limits.correlated_cap_usdt),
+        "reserve_usdt": str(limits.reserve_usdt),
+        "stats_db": stats_db or None,
+    }
+    log("[CONFIG] " + json.dumps(config, sort_keys=True))
     if not args.live:
         return
-    limits.validate()
     if limits.halt_file.exists():
         log(
             f"[PREFLIGHT] persistent halt detected at {limits.halt_file}; "
@@ -1670,7 +1730,6 @@ def _preflight_live(args: argparse.Namespace, symbols: List[str], limits: RiskLi
         prefix = "BINANCE_TESTNET" if args.testnet else "BINANCE"
         raise RuntimeError(f"{prefix}_API_KEY/SECRET are required for LIVE mode")
 
-    stats_db = os.getenv("BOT_STATS_DB", "").strip()
     if not stats_db:
         raise RuntimeError("BOT_STATS_DB is required for fail-closed LIVE mode")
     import tools_stats
@@ -1703,28 +1762,30 @@ def _preflight_live(args: argparse.Namespace, symbols: List[str], limits: RiskLi
     if account.get("canTrade") is not True:
         raise RuntimeError("Binance account/API key is not allowed to trade")
 
-    cap = float(args.cap_ceil_usdt or os.getenv("BOT_CAP_PER_ORDER", "50"))
-    theoretical = cap * args.target_buy_per_symbol * len(symbols)
-    max_exposure = min(theoretical, float(limits.portfolio_cap_usdt))
-    config = {
-        "venue": "testnet" if args.testnet else "mainnet",
-        "symbols": symbols,
-        "target_buys_per_symbol": args.target_buy_per_symbol,
-        "cap_per_order_usdt": cap,
-        "max_new_buy_exposure_usdt": round(max_exposure, 2),
-        "portfolio_cap_usdt": str(limits.portfolio_cap_usdt),
-        "reserve_usdt": str(limits.reserve_usdt),
-        "stats_db": stats_db,
-    }
     log("[PREFLIGHT] PASS " + json.dumps(config, sort_keys=True))
 
 
 def _stop_children(reason: str) -> None:
     for symbol, proc in list(_CHILD_PROCS.items()):
-        if proc.poll() is None:
-            log(f"[RISK] stop child {symbol} pid={proc.pid}: {reason}")
-            proc.terminate()
-        _CHILD_PROCS.pop(symbol, None)
+        try:
+            if proc.poll() is None:
+                log(f"[RISK] stop child {symbol} pid={proc.pid}: {reason}")
+                proc.terminate()
+                try:
+                    proc.wait(timeout=5)
+                except subprocess.TimeoutExpired:
+                    log(f"[RISK] kill unresponsive child {symbol} pid={proc.pid}")
+                    proc.kill()
+                    proc.wait(timeout=2)
+            else:
+                proc.wait(timeout=0)
+        except (OSError, subprocess.SubprocessError) as exc:
+            log(f"[RISK] child cleanup failed {symbol} pid={proc.pid}: {exc}")
+        finally:
+            _CHILD_PROCS.pop(symbol, None)
+            _CHILD_STARTED_AT.pop(symbol, None)
+            _CHILD_RESTART_AFTER.pop(symbol, None)
+            _CHILD_FAILURES.pop(symbol, None)
 
 
 def _cancel_open_buy_orders(orders: Optional[List[Dict[str, Any]]] = None) -> int:
@@ -2141,7 +2202,10 @@ def main():
                     log(f"[ERR] {sym}: {e}")
                 time.sleep(0.2)
             time.sleep(0.5)
+    except KeyboardInterrupt:
+        log("[SUP] shutdown requested")
     finally:
+        _stop_children("supervisor shutdown")
         try:
             if os.path.exists(LOCK_FILE):
                 os.remove(LOCK_FILE)

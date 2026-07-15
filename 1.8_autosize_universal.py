@@ -124,7 +124,11 @@ def _order_journal() -> Optional[OrderJournal]:
         return None
     if _ORDER_JOURNAL is None:
         stats_db = os.getenv("BOT_STATS_DB", "").strip()
-        default_path = f"{stats_db}.orders.sqlite3" if stats_db else "/run/mybot/order_intents.sqlite3"
+        default_path = (
+            f"{stats_db}.orders.sqlite3"
+            if stats_db
+            else os.path.join(bot_run_dir(), "order_intents.sqlite3")
+        )
         path = os.getenv("BOT_ORDER_JOURNAL", default_path)
         venue = "testnet" if "testnet" in BINANCE_API_BASE.lower() else "mainnet"
         _ORDER_JOURNAL = OrderJournal(path, venue=venue)
@@ -187,6 +191,9 @@ def price_eps_mult():
 def cleanup_warmup_sec():
     return getenv_int("CLEANUP_WARMUP_SEC", 0)
 
+def bot_run_dir() -> str:
+    return getenv_str("BOT_RUN_DIR", "/run/mybot")
+
 def install_signal_handlers():
     def handler(sig, frame):
         global RUN
@@ -198,18 +205,18 @@ def install_signal_handlers():
 # ------------------- per-symbol single-instance lock -------------------
 class SymbolLock:
     """
-    Файловый лок на /run/mybot/lock_{SYMBOL}.pid
+    Файловый лок на BOT_RUN_DIR/lock_{SYMBOL}.pid
     - эксклюзивная блокировка через fcntl.flock(LOCK_EX|LOCK_NB)
     - при успехе пишет PID в файл (для удобной диагностики)
     - при выходе — пытается удалить файл (лочение всё равно снимется на close())
     """
     def __init__(self, symbol: str):
         self.symbol = symbol
-        self.path = f"/run/mybot/lock_{symbol}.pid"
+        self.path = os.path.join(bot_run_dir(), f"lock_{symbol}.pid")
         self.fd: Optional[int] = None
 
     def acquire(self) -> bool:
-        os.makedirs(os.path.dirname(self.path) or "/run/mybot", exist_ok=True)
+        os.makedirs(os.path.dirname(self.path) or bot_run_dir(), exist_ok=True)
         # открываем (создаём) файл и пытаемся поставить неблокирующий эксклюзивный лок
         self.fd = os.open(self.path, os.O_RDWR | os.O_CREAT, 0o644)
         try:
@@ -1907,7 +1914,12 @@ def main():
     LIVE_MODE = bool(args.live)
 
     if LIVE_MODE:
-        halt_file = Path(os.getenv("CB_HALT_FILE", "/run/mybot/circuit_halt.json"))
+        halt_file = Path(
+            os.getenv(
+                "CB_HALT_FILE",
+                os.path.join(bot_run_dir(), "circuit_halt.json"),
+            )
+        )
         if halt_file.exists():
             parser.error(f"circuit halt exists: {halt_file}; reset through risk_ctl.py")
         stats_db = os.getenv("BOT_STATS_DB", "").strip()
@@ -1959,7 +1971,7 @@ def main():
             dbg(f"[BE] {symbol} disabled")
 
         def _be_state_path(sym: str) -> str:
-            return f"/run/mybot/oco_be_state_{sym}.json"
+            return os.path.join(bot_run_dir(), f"oco_be_state_{sym}.json")
 
         def _be_state_load(sym: str) -> dict:
             try:
@@ -1974,7 +1986,7 @@ def main():
         def _be_state_save(sym: str, d: dict) -> None:
             try:
                 p = _be_state_path(sym)
-                os.makedirs(os.path.dirname(p) or "/run/mybot", exist_ok=True)
+                os.makedirs(os.path.dirname(p) or bot_run_dir(), exist_ok=True)
                 with open(p, "w", encoding="utf-8") as f:
                     json.dump(d, f)
             except Exception as e:
