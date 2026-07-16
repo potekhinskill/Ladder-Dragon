@@ -845,6 +845,25 @@ STATS_DB = getenv_str("BOT_STATS_DB", "")
 TOOLS_STATS = None
 STATS_CON: Optional[sqlite3.Connection] = None
 _COMMISSION_QUOTE_CACHE: Dict[Tuple[str, str, int], Decimal] = {}
+_ACCOUNT_FEE_CACHE: Dict[str, Tuple[float, float]] = {}
+
+
+def account_fee_pct(symbol: str) -> float:
+    """Получить maker/taker fee account snapshot с безопасным ENV fallback."""
+    now = time.time()
+    cached = _ACCOUNT_FEE_CACHE.get(symbol.upper())
+    if cached and now - cached[0] < 300:
+        return cached[1]
+    fallback = max(0.0, getenv_float("BOT_FEE_PCT", 0.001))
+    try:
+        rows = _signed_request("GET", "/sapi/v1/asset/tradeFee", {"symbol": symbol.upper()}) or []
+        row = rows[0] if isinstance(rows, list) and rows else rows
+        fee = float(row.get("takerCommission", row.get("makerCommission", fallback)))
+        fee = max(0.0, fee)
+    except (OSError, RuntimeError, ValueError, TypeError, KeyError):
+        fee = fallback
+    _ACCOUNT_FEE_CACHE[symbol.upper()] = (now, fee)
+    return fee
 
 def _stats_init_if_needed():
     """Лениво открыть статистику, чтобы DRY/help не зависели от рабочей БД."""
