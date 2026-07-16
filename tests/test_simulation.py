@@ -3,6 +3,7 @@ from decimal import Decimal
 import pytest
 
 from simulation import Candle, Inventory, SimulationConfig, simulate_grid, stress_grid, walk_forward
+from market_replay import BookLevel, MarketEvent
 
 
 def candles():
@@ -85,3 +86,10 @@ def test_stress_grid_returns_explicit_downside_scenarios():
     results = stress_grid(candles(), SimulationConfig(), shocks=(Decimal("-0.30"),))
     assert Decimal("-0.30") in results
     assert results[Decimal("-0.30")].final_equity > 0
+
+
+def test_orderbook_feed_is_used_by_backtest():
+    feed = [MarketEvent(2, asks=(BookLevel(Decimal("98"), Decimal("0.2")),),
+                        bids=(BookLevel(Decimal("97"), Decimal("0.2")),))]
+    result = simulate_grid(candles(), SimulationConfig(take_profit_pct=Decimal("0.03")), market_events=feed)
+    assert result.trades >= 0

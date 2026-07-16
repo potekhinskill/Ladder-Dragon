@@ -92,7 +92,28 @@ class Inventory:
         return max(0, current_index - int(self.lots[0]["opened_index"]))
 
 
-def simulate_grid(candles: Sequence[Candle], config: SimulationConfig) -> SimulationResult:
+def simulate_grid(candles: Sequence[Candle], config: SimulationConfig, *, market_events: Sequence[object] | None = None) -> SimulationResult:
+    """Запустить backtest на OHLC или на записанном order-book feed.
+
+    При наличии событий стакана они становятся источником bid/ask/volume для
+    каждой свечи; остальная стратегия и accounting остаются общими.
+    """
+    if market_events is not None:
+        by_ts = {int(getattr(event, "ts_ms", -1)): event for event in market_events}
+        enriched = []
+        for candle in candles:
+            event = by_ts.get(int(candle.ts)) or by_ts.get(int(candle.ts) * 1000)
+            if event is None:
+                enriched.append(candle)
+                continue
+            bids = getattr(event, "bids", ())
+            asks = getattr(event, "asks", ())
+            bid = bids[0].price if bids else candle.bid
+            ask = asks[0].price if asks else candle.ask
+            volume = sum((level.quantity for level in (*bids, *asks)), D("0"))
+            enriched.append(Candle(candle.ts, candle.open, candle.high, candle.low,
+                                   candle.close, volume=volume, bid=bid, ask=ask))
+        candles = enriched
     if len(candles) < config.latency_bars + 2:
         raise ValueError("not enough candles for configured latency")
     if config.initial_cash <= 0 or config.order_notional <= 0:
