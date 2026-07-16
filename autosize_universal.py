@@ -66,7 +66,6 @@ from __future__ import annotations
 
 import os
 import sys
-import math
 import time
 import json
 import signal
@@ -93,6 +92,9 @@ from executor_market import get_symbol_assets as market_get_symbol_assets
 from executor_orders import OrderDependencies
 from executor_orders import place_limit_order as orders_place_limit_order
 from executor_orders import place_oco_sell as orders_place_oco_sell
+from executor_planning import buy_candidates, existing_prices, guarded_sell_levels
+from executor_planning import plan_buy_order, plan_sell_order
+from executor_runtime import status_due, trading_seconds
 from executor_recovery import RecoveryDependencies
 from executor_recovery import cancel_oco as recovery_cancel_oco
 from executor_recovery import cancel_order as recovery_cancel_order
@@ -903,7 +905,7 @@ def maybe_place_buys(symbol: str,
       иначе — равномерный cap до конца без «съедания» всей кассы.
     Возвращает список orderId успешно размещённых BUY.
     """
-    base, quote = get_symbol_assets(symbol)
+    get_symbol_assets(symbol)
     bals = get_balances()
     reserve = max(0.0, getenv_float("RISK_RESERVE_USDT", 0.0))
     usdt_free = max(0.0, float(bals.get("USDT", {}).get("free", 0.0)) - reserve)
@@ -928,35 +930,25 @@ def maybe_place_buys(symbol: str,
             open_orders = list_open_orders(symbol) or []
         except Exception:
             open_orders = []
-        for o in open_orders:
-            try:
-                if str(o.get("side", "")).upper() != "BUY":
-                    continue
-                pr = float(o.get("price") or 0.0)
-                if pr <= 0 or pr >= now:
-                    continue
-                existing_buy_prices.add(round_price(symbol, pr))
-            except Exception:
-                pass
+        existing_buy_prices = existing_prices(
+            open_orders,
+            side="BUY",
+            now_price=now,
+            round_price=lambda value: round_price(symbol, value),
+        )
         existing_cnt = len(existing_buy_prices)
         allowed_new = max(0, int(target_buy_per_symbol) - existing_cnt)
         log(f"[TARGET-LIMIT] {symbol} existing_buy={existing_cnt} target={int(target_buy_per_symbol)} → allow_new={allowed_new}")
         if allowed_new <= 0:
             return []
 
-    # Сформируем список КАНДИДАТОВ: ниже рынка, без дублей по цене, ограничим по allow_new
-    candidates: List[float] = []
-    for p in ladder_prices:
-        if p <= 0 or p >= now:
-            continue
-        p_rounded = round_price(symbol, p)
-        if p_rounded in existing_buy_prices:
-            continue
-        candidates.append(p)
-
-    # Обрежем по разрешенному количеству новых
-    if enforce_limit and allowed_new is not None and len(candidates) > allowed_new:
-        candidates = candidates[:allowed_new]
+    candidates = buy_candidates(
+        ladder_prices,
+        now_price=now,
+        occupied_prices=existing_buy_prices,
+        round_price=lambda value: round_price(symbol, value),
+        limit=allowed_new if enforce_limit else None,
+    )
 
     total_slots = len(candidates)
     if total_slots <= 0:
@@ -972,49 +964,29 @@ def maybe_place_buys(symbol: str,
             break
         if usdt_free <= 0:
             break
-        # Цена заявки с учётом тиковой сетки
-        pr = round_price(symbol, p)
-
         remaining_slots = max(1, total_slots - idx + 1)
-
-        # Динамический CAP для текущего слота
         local_cap = min(cap_per_order_usdt, usdt_free / remaining_slots)
-        # Для последнего уровня — использовать весь остаток ТОЛЬКО если явно разрешено
         if use_remainder_in_last and (idx == total_slots):
             local_cap = usdt_free
 
         dbg(f"[DYN-CAP] {symbol} slot {idx}/{total_slots} p≈{fmt_price_sym(symbol, p)} "
             f"local_cap≈{local_cap:.2f} free≈{usdt_free:.2f}")
-
-        # Базовый размер от локального CAP (ВАЖНО: по округлённой цене pr)
-        qty = local_cap / pr
-        qty = round_qty(symbol, qty)
-        if qty < min_qty(symbol, 0):
-            qty = min_qty(symbol, 0)
-
-        # Доводим до биржевого minNotional (вся математика по pr)
-        if qty * pr < min_notional(symbol, pr):
-            need = min_notional(symbol, pr) / pr
-            need = round_qty(symbol, max(need, min_qty(symbol, 0)))
-
-            # Не выходим за local_cap (кроме разрешённого последнего слота)
-            cap_here = (usdt_free if (use_remainder_in_last and idx == total_slots) else local_cap)
-            if need * pr <= cap_here:
-                qty = need
-            else:
-                continue  # не набирается биржевой минимум — пропускаем уровень
-
-        # пересчёт стоимости и финальные гейты (всё по pr)
-        cost = qty * pr
-
-        # Защитимся от перерасхода из-за округления
-        if cost > usdt_free:
-            qty = round_qty(symbol, max(0.0, usdt_free / pr))
-            cost = qty * pr
-            if qty <= 0:
-                continue
-
-        # Пользовательский минимум на заявку (если задан)
+        pr = round_price(symbol, p)
+        planned = plan_buy_order(
+            p,
+            free_quote=usdt_free,
+            cap_per_order=cap_per_order_usdt,
+            remaining_slots=remaining_slots,
+            use_all_remaining=use_remainder_in_last and idx == total_slots,
+            min_order_notional=None,
+            min_quantity=min_qty(symbol, 0),
+            min_notional=min_notional(symbol, pr),
+            round_price=lambda value: round_price(symbol, value),
+            round_quantity=lambda value: round_qty(symbol, value),
+        )
+        if planned is None:
+            continue
+        pr, qty, cost = planned.price, planned.quantity, planned.notional
         if (min_order_usdt is not None) and (cost < float(min_order_usdt)):
             log(f"[MIN-ORDER] skip BUY {fmt_qty_sym(symbol, qty)} @ {fmt_price_sym(symbol, pr)} "
                 f"(≈{cost:.2f} USDT < {float(min_order_usdt):.2f})")
@@ -1034,7 +1006,7 @@ def maybe_place_buys(symbol: str,
                 oid = int(j.get("orderId"))
                 placed_ids.append(oid)
                 # вычитаем из free по pr
-                usdt_free = max(0.0, usdt_free - qty * pr)
+                usdt_free = max(0.0, usdt_free - planned.notional)
                 # антидубликат — храним уже округлённую цену
                 existing_buy_prices.add(pr)
         except Exception:
@@ -1063,7 +1035,7 @@ def maybe_place_sells_from_holdings(
     Защита: не ставить SELL ниже средней цены входа (avg_entry_px), если паника не активна.
     При панике можно ограничить скидку от средней через panic_sell_floor_pct.
     """
-    base, quote = get_symbol_assets(symbol)
+    base, _ = get_symbol_assets(symbol)
     bals = get_balances()
     base_free = float(bals.get(base, {}).get("free", 0.0))
     if base_free <= 0:
@@ -1073,8 +1045,7 @@ def maybe_place_sells_from_holdings(
     pull_filters(symbol)
 
     now = get_price(symbol)
-    upper_all = [p for p in ladder_prices if p > now]
-    if not upper_all:
+    if not any(p > now for p in ladder_prices):
         dbg(f"[HOLD-SELL] {symbol} no upper ladder above market (now≈{fmt_price_sym(symbol, now)})")
         return 0
 
@@ -1086,112 +1057,33 @@ def maybe_place_sells_from_holdings(
             oo = list_open_orders(symbol) or []
         except Exception:
             oo = []
-        for o in oo:
-            try:
-                if str(o.get("side", "")).upper() != "SELL":
-                    continue
-                typ = str(o.get("type", "")).upper()
-                if typ not in ("LIMIT", "LIMIT_MAKER", "STOP_LOSS_LIMIT", "TAKE_PROFIT_LIMIT"):
-                    continue
-                pr = float(o.get("price") or 0.0)
-                if pr <= now or pr <= 0:
-                    continue
-                existing_sell_prices.add(round_price(symbol, pr))
-            except Exception:
-                pass
+        existing_sell_prices = existing_prices(
+            oo,
+            side="SELL",
+            now_price=now,
+            round_price=lambda value: round_price(symbol, value),
+        )
         existing_cnt = len(existing_sell_prices)
         allowed_new = max(0, int(max_oco_per_symbol) - existing_cnt)
         log(f"[SELL-LIMIT] {symbol} existing_sell={existing_cnt} max_oco={int(max_oco_per_symbol)} → allow_new={allowed_new}")
         if allowed_new <= 0:
             return 0
 
-    # Уберём дубликаты цен и обрежем количество новых уровней (по существующим ордерам)
-    upper: List[float] = []
-    for p in upper_all:
-        pr = round_price(symbol, p)
-        if enforce_limit and pr in existing_sell_prices:
-            continue
-        upper.append(p)
-
-    if enforce_limit and allowed_new is not None:
-        upper = upper[:allowed_new]
-
-    if (not enforce_limit) and (max_oco_per_symbol is not None) and len(upper) > max_oco_per_symbol:
-        upper = upper[:max_oco_per_symbol]
-
-    if not upper:
-        dbg(f"[HOLD-SELL] {symbol} all candidate prices collide with existing SELLs")
-        return 0
-
-    # --- GUARD: цена SELL не ниже средней + минимальный edge (если нет паники) ---
-    steps_up = sorted({round_price(symbol, x) for x in ladder_prices})
-    upper_guarded: List[float] = []
-
-    for idx, p in enumerate(upper):
-        pp = p
-        min_sell_price: Optional[float] = None
-        if avg_entry_px is not None:
-            if panic_active:
-                if panic_sell_floor_pct is not None:
-                    min_sell_price = avg_entry_px * (1.0 - max(0.0, float(panic_sell_floor_pct)))
-            else:
-                floor_pct = _profit_floor_pct()
-                min_sell_price = avg_entry_px * (1.0 + max(0.0, floor_pct))
-
-        thr = pp
-        if (min_sell_price is not None) and (pp < min_sell_price):
-            thr = max(pp, min_sell_price)
-
-        if thr != pp:
-            cand = [s for s in steps_up if s >= thr]
-            if cand:
-                bumped = cand[min(idx, len(cand) - 1)]
-            else:
-                bumped = round_price(symbol, thr)
-            if min_sell_price is not None and bumped < min_sell_price:
-                bumped = min_sell_price
-            if round_price(symbol, pp) != round_price(symbol, bumped):
-                dbg(
-                    f"[GUARD] {symbol} bump SELL "
-                    f"{fmt_price_sym(symbol, p)} → {fmt_price_sym(symbol, bumped)}"
-                )
-            pp = bumped
-
-        if pp > now:
-            upper_guarded.append(pp)
-
+    limit = allowed_new if enforce_limit else max_oco_per_symbol
+    upper_guarded = guarded_sell_levels(
+        ladder_prices,
+        now_price=now,
+        occupied_prices=existing_sell_prices if enforce_limit else set(),
+        round_price=lambda value: round_price(symbol, value),
+        limit=limit,
+        average_entry=avg_entry_px,
+        panic_active=panic_active,
+        panic_floor_pct=panic_sell_floor_pct,
+        profit_floor_pct=_profit_floor_pct(),
+    )
     if not upper_guarded:
-        dbg(f"[HOLD-SELL] {symbol} empty after GUARD (all ≤ now)")
+        dbg(f"[HOLD-SELL] {symbol} empty after limits/GUARD")
         return 0
-
-    # Дедуп по тиковой сетке после GUARD: дубликаты проталкиваем на следующую свободную ступень вверх
-    steps_up = sorted({round_price(symbol, x) for x in ladder_prices if x > now})
-
-    fixed_levels: list[float] = []
-    seen: set[float] = set()
-
-    for p in upper_guarded:
-        pr = round_price(symbol, p)
-
-        if pr in seen:
-            # ищем ближайшую ступень ≥ pr и толкаем дальше, пока не найдём свободную
-            j = next((i for i, s in enumerate(steps_up) if s >= pr), len(steps_up))
-            while j < len(steps_up) and steps_up[j] in seen:
-                j += 1
-            if j < len(steps_up):
-                dbg(f"[GUARD] {symbol} push duplicate {fmt_price_sym(symbol, pr)} → {fmt_price_sym(symbol, steps_up[j])}")
-                pr = steps_up[j]
-            else:
-                dbg(f"[GUARD] {symbol} drop duplicate {fmt_price_sym(symbol, pr)} — no free step above")
-                continue
-
-        if pr <= now or pr in seen:
-            continue
-
-        seen.add(pr)
-        fixed_levels.append(pr)
-
-    upper_guarded = fixed_levels
 
     # dust и распределение
     dust = min_qty(symbol, 0)
@@ -1213,31 +1105,22 @@ def maybe_place_sells_from_holdings(
         if qty_left <= 0:
             break
 
-        q = min(share, qty_left)
-
-        # доводим до биржевого minNotional (но не превышая остаток)
-        need = min_notional(symbol, p) / p
-        need = round_qty(symbol, max(need, min_qty(symbol, 0)))
-        if q < need:
-            q = min(need, qty_left)
-
-        q = round_qty(symbol, q)
-
-        # последний уровень — отдать весь остаток (округлённый вниз)
-        if idx == n:
-            q = round_qty(symbol, qty_left)
-
-        if q <= 0:
-            continue
-        if q > qty_left:
-            q = round_qty(symbol, qty_left)
-            if q <= 0:
-                continue
-        if q * p < min_notional(symbol, p):
+        minimum_notional = min_notional(symbol, p)
+        planned = plan_sell_order(
+            p,
+            quantity_left=qty_left,
+            share=share,
+            is_last=idx == n,
+            min_quantity=min_qty(symbol, 0),
+            min_notional=minimum_notional,
+            round_quantity=lambda value: round_qty(symbol, value),
+        )
+        if planned is None:
             need_q = round_qty(symbol, max(min_notional(symbol, p) / p, min_qty(symbol, 0)))
-            dbg(f"[HOLD-SELL] {symbol} skip: notional {q*p:.2f} < min {min_notional(symbol, p):.2f} "
-                f"at {fmt_price_sym(symbol, p)} with q={fmt_qty_sym(symbol, q)} (need≥{fmt_qty_sym(symbol, need_q)})")
+            dbg(f"[HOLD-SELL] {symbol} skip: remaining quantity cannot reach min {minimum_notional:.2f} "
+                f"at {fmt_price_sym(symbol, p)} (need≥{fmt_qty_sym(symbol, need_q)})")
             continue
+        q = planned.quantity
 
         try:
             maker_flag = (
@@ -1248,7 +1131,7 @@ def maybe_place_sells_from_holdings(
             if j:
                 oid = j.get("orderId")
                 log(f"[HOLD-SELL] {symbol} placed {fmt_qty_sym(symbol, q)} @ {fmt_price_sym(symbol, p)} (order {oid})")
-                qty_left = max(0.0, qty_left - q)
+                qty_left = max(0.0, qty_left - planned.quantity)
                 placed += 1
         except Exception:
             # не уменьшаем qty_left при ошибке биржи
@@ -1525,14 +1408,13 @@ def main():
             log(f"[STATS] poll error: {e}")
 
         # простой «живой» цикл статуса, пока слот активен + подвес OCO после FILLED BUY
-        left = int(args.loop_minutes * 60)
         last_check = 0
 
-        while RUN and left > 0:
-            time.sleep(1)
-            left -= 1
-
-            if left % max(1, args.status_interval) == 0:
+        for left in trading_seconds(
+            int(args.loop_minutes * 60),
+            running=lambda: RUN,
+        ):
+            if status_due(left, args.status_interval):
                 log(f"[status] {symbol} pid={os.getpid()} OCO:? | started:{datetime.fromtimestamp(started_at).strftime('%Y-%m-%d %H:%M:%S')} | left:{left}s | last: idle")
 
             # периодически обновляем индикаторы/панику (лёгкий режим)
