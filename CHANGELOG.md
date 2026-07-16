@@ -2,6 +2,19 @@
 
 Формат версий: [Semantic Versioning](https://semver.org/).
 
+## [2.9.0] — 2026-07-16
+
+### Добавлено
+- Защищённые URL `/logs/`, `/logs/current.log` и `/logs/status.json` под общим Basic Auth.
+- Минутный systemd exporter из `journalctl -u mybot` с атомарной записью.
+- Дневная ротация, лимит 5 МБ на файл, TTL 7 дней и автоматическая очистка.
+- Автоматическая редакция Authorization, API keys/secrets, tokens, паролей и Binance signature.
+
+### Безопасность
+- Сырой log API остаётся выключенным; nginx выдаёт только очищенную статическую копию.
+- Каталог журналов недоступен без dashboard Basic Auth.
+- Логи предназначены для диагностики и анализа гипотез стратегии, но изменения всё равно требуют Testnet/backtest/walk-forward проверки.
+
 ## [2.8.1] — 2026-07-16
 
 ### Документация

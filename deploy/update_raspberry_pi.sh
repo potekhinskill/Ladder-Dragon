@@ -112,6 +112,16 @@ check_link() {
     http://127.0.0.1:8081/api/health)"
   [[ "${anonymous_status}" == "401" ]] \
     || fail "expected protected API HTTP 401, got ${anonymous_status}"
+  local anonymous_logs_status
+  anonymous_logs_status="$(
+    curl --insecure --silent --output /dev/null --write-out '%{http_code}' \
+      --resolve "${BOT_HOSTNAME}:443:127.0.0.1" \
+      "https://${BOT_HOSTNAME}/logs/"
+  )"
+  [[ "${anonymous_logs_status}" == "401" ]] \
+    || fail "expected protected logs HTTP 401, got ${anonymous_logs_status}"
+  test -r /var/lib/ladder-dragon/logs/current.log \
+    || fail "sanitized current.log is missing"
   echo "[OK] bot/dashboard heartbeat, permissions and protected API are ready"
   python3 -m json.tool /run/mybot/ai_status.json
 }
@@ -203,6 +213,7 @@ fi
 chmod 0600 "${DASHBOARD_ENV}"
 
 install -d -o "${BOT_USER}" -g "${BOT_USER}" -m 0700 db logs FastAPI/pi-dashboard/data
+install -d -o root -g www-data -m 0750 /var/lib/ladder-dragon/logs
 install -d -o root -g root -m 0755 "${WEB_ROOT}"
 install -m 0644 FRONT/index.html FRONT/help.html "${WEB_ROOT}/"
 rm -f "${WEB_ROOT}/readme.html"
@@ -235,6 +246,10 @@ render_unit deploy/ladder-dragon-backup.service \
   /etc/systemd/system/ladder-dragon-backup.service
 install -m 0644 deploy/ladder-dragon-backup.timer \
   /etc/systemd/system/ladder-dragon-backup.timer
+render_unit deploy/ladder-dragon-log-export.service \
+  /etc/systemd/system/ladder-dragon-log-export.service
+install -m 0644 deploy/ladder-dragon-log-export.timer \
+  /etc/systemd/system/ladder-dragon-log-export.timer
 rm -f /etc/systemd/system/mybot.service.d/dashboard-link.conf
 
 if [[ -d "${WEB_ROOT}/backups" ]]; then
@@ -251,10 +266,11 @@ nginx -t
 systemctl daemon-reload
 systemctl disable --now make-pi-backup.timer make-pi-backup.service 2>/dev/null || true
 restore_autostart
-systemctl enable ladder-dragon-backup.timer >/dev/null
+systemctl enable ladder-dragon-backup.timer ladder-dragon-log-export.timer >/dev/null
 systemctl start mybot
 systemctl start pi-healthd
 systemctl start ladder-dragon-backup.timer
+systemctl start ladder-dragon-log-export.service ladder-dragon-log-export.timer
 systemctl restart systemd-journald
 systemctl try-restart fail2ban || true
 systemctl try-restart zramswap || true
@@ -263,6 +279,7 @@ systemctl reload nginx
 wait_for_service mybot 90
 wait_for_service pi-healthd 90
 wait_for_heartbeat 120
+test -r /var/lib/ladder-dragon/logs/current.log || fail "log export failed"
 check_link
 SERVICES_STOPPED=0
 trap - ERR INT TERM

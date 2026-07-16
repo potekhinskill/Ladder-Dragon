@@ -133,6 +133,7 @@ sudo bash deploy/install_raspberry_pi.sh install
 - создаёт локальный TLS-сертификат;
 - закрывает dashboard через Basic Auth;
 - закрывает URL `/backups/`;
+- публикует только очищенные журналы по защищённому URL `/logs/`;
 - включает ежедневный приватный backup;
 - запускает `mybot` как Testnet DRY.
 
@@ -339,7 +340,43 @@ sudo ls -lh /var/lib/ladder-dragon/backups
 Архивы содержат env-файлы и являются секретными. Не публикуйте их через nginx,
 облако с открытой ссылкой или публичный Git.
 
-## 11. Миграция старой Raspberry Pi
+## 11. Защищённые ротационные логи
+
+Журналы доступны под тем же Basic Auth, что и dashboard:
+
+```text
+https://bot.local/logs/
+https://bot.local/logs/current.log
+https://bot.local/logs/status.json
+```
+
+Экспорт обновляется каждую минуту. `current.log` содержит последние строки,
+а дневные файлы имеют формат `mybot-YYYY-MM-DD.log`.
+
+По умолчанию:
+
+- срок хранения — 7 дней;
+- максимум одного файла — 5 МБ;
+- старые дневные файлы удаляются автоматически;
+- запись происходит атомарно;
+- `Authorization`, API keys, secrets, tokens и Binance `signature` заменяются
+  на `<redacted>`;
+- сырой `/api/bot/logs` остаётся выключенным.
+
+Проверка таймера:
+
+```bash
+sudo systemctl status ladder-dragon-log-export.timer --no-pager
+sudo systemctl start ladder-dragon-log-export.service
+sudo ls -lh /var/lib/ladder-dragon/logs
+```
+
+Доступ к `/logs/` без имени пользователя и пароля должен возвращать HTTP `401`.
+Журнал помогает находить ошибки, оценивать решения стратегии и формировать
+гипотезы, но сам по себе не доказывает прибыльность. Изменения стратегии нужно
+проверять Testnet, backtest/walk-forward и сравнением с buy-and-hold.
+
+## 12. Миграция старой Raspberry Pi
 
 Для старой установки используйте:
 
@@ -370,7 +407,7 @@ sudo bash deploy/install_raspberry_pi.sh migrate --preserve-live
 BOT_LIVE_CONFIRMED=YES
 ```
 
-## 12. Типовые ошибки
+## 13. Типовые ошибки
 
 ### `Permission denied (publickey)`
 

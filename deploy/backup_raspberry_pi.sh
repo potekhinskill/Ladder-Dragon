@@ -34,6 +34,8 @@ for path in \
   /etc/systemd/system/mybot.service \
   /etc/systemd/system/mybot.service.d \
   /etc/systemd/system/pi-healthd.service \
+  /etc/systemd/system/ladder-dragon-log-export.service \
+  /etc/systemd/system/ladder-dragon-log-export.timer \
   /etc/nginx/sites-available \
   /etc/nginx/snippets/pi_api.conf \
   /etc/nginx/.htpasswd-ladder-dragon \

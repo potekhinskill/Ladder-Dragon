@@ -1,0 +1,11 @@
+[Unit]
+Description=Refresh protected Ladder Dragon logs
+
+[Timer]
+OnBootSec=1m
+OnUnitActiveSec=1m
+AccuracySec=10s
+Persistent=true
+
+[Install]
+WantedBy=timers.target
