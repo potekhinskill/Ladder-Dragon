@@ -1,4 +1,4 @@
-"""Trade import and exact commission valuation for the executor."""
+"""Импорт сделок и точная оценка комиссий для исполнителя."""
 
 from __future__ import annotations
 
@@ -20,7 +20,7 @@ def commission_quote_value(
     public_get: Callable[..., Any],
     cache: MutableMapping[Tuple[str, str, int], Decimal],
 ) -> Tuple[Optional[Decimal], str]:
-    """Value a Binance commission in the symbol quote asset at trade time."""
+    """Оценить комиссию Binance в quote-активе по времени сделки."""
     base, quote = symbol_assets(symbol)
     asset = commission_asset.strip().upper()
     if commission_amount <= 0:
@@ -36,6 +36,8 @@ def commission_quote_value(
     if cached is not None:
         return commission_amount * cached, "converted"
 
+    # Для BNB и других третьих активов ищем прямую или обратную минутную пару
+    # на момент сделки. Текущая цена исказила бы исторический PnL.
     for pair, inverse in ((asset + quote.upper(), False), (quote.upper() + asset, True)):
         try:
             candles = public_get(
@@ -64,6 +66,7 @@ def poll_mytrades_once(
     commission_value: Callable[..., Tuple[Optional[Decimal], str]],
     logger: Callable[[str], None],
 ) -> None:
+    """Импортировать новую порцию /myTrades, не продвигаясь мимо неизвестной комиссии."""
     last_id = None
     try:
         last_id = stats.get_last_trade_id(connection, symbol)
@@ -81,6 +84,8 @@ def poll_mytrades_once(
     if not isinstance(trades, list) or not trades:
         return
 
+    # Курсор обновляется только после полностью оценённой сделки. Иначе запись
+    # с неизвестной комиссией была бы навсегда пропущена следующим опросом.
     max_id = last_id or -1
     for trade in trades:
         try:

@@ -1,4 +1,8 @@
-"""Strict CLI construction and validation for the symbol executor."""
+"""Построение и строгая валидация CLI символьного исполнителя.
+
+Все ошибки конфигурации должны завершать процесс до чтения баланса и тем более
+до торговых запросов. Поэтому parser и проверки отделены от runtime-цикла.
+"""
 
 from __future__ import annotations
 
@@ -10,6 +14,7 @@ from product_version import product_label
 
 
 def build_executor_parser() -> argparse.ArgumentParser:
+    """Создать единственный канонический parser исполнителя."""
     parser = argparse.ArgumentParser(description="Ladder Dragon symbol executor")
     parser.add_argument("--version", action="version", version=product_label("executor"))
     parser.add_argument("--symbol", required=True)
@@ -104,6 +109,9 @@ def validate_executor_args(
     parser: argparse.ArgumentParser,
     args: argparse.Namespace,
 ) -> argparse.Namespace:
+    """Нормализовать аргументы и fail-fast отклонить опасные сочетания."""
+    # Одного --live недостаточно: оператор обязан явно подтвердить включение
+    # мутаций через окружение конкретного процесса.
     if args.live and os.getenv("BOT_LIVE_CONFIRMED", "") != "YES":
         parser.error("--live requires BOT_LIVE_CONFIRMED=YES")
     args.symbol = args.symbol.strip().upper()

@@ -1,4 +1,4 @@
-"""Market and account reads used by the symbol executor."""
+"""Рыночные и аккаунтные чтения, используемые символьным исполнителем."""
 
 from __future__ import annotations
 
@@ -11,7 +11,7 @@ def get_price(
     public_get: Callable[..., Any],
     logger: Callable[[str], None],
 ) -> float:
-    """Read price with ticker → book midpoint → average-price fallbacks."""
+    """Получить цену через ticker → midpoint стакана → average-price fallback."""
     try:
         payload = public_get("/api/v3/ticker/price", {"symbol": symbol})
         if isinstance(payload, dict) and "price" in payload:
@@ -40,6 +40,7 @@ def get_balances(
     *,
     signed_request: Callable[..., Any],
 ) -> Dict[str, Dict[str, float]]:
+    """Вернуть свободные и заблокированные балансы по каждому активу."""
     payload = signed_request("GET", "/api/v3/account")
     balances: Dict[str, Dict[str, float]] = {}
     for row in payload.get("balances", []):
@@ -56,7 +57,7 @@ def get_symbol_assets(
     exchange_info: Callable[[str], Any],
     cache: MutableMapping[str, Tuple[str, str]],
 ) -> Tuple[str, str]:
-    """Resolve base/quote through exchangeInfo with a conservative fallback."""
+    """Определить base/quote через exchangeInfo с консервативным fallback."""
     normalized = symbol.upper()
     cached = cache.get(normalized)
     if cached is not None:

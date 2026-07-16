@@ -1,8 +1,8 @@
-"""Fail-closed portfolio risk controls for Ladder Dragon.
+"""Управление портфельным риском Ladder Dragon по принципу fail-closed.
 
-The module is intentionally independent from Binance HTTP code so the decision
-logic can be tested deterministically.  It stores daily equity baselines and a
-manual-reset halt marker on disk; restarting the supervisor never clears a halt.
+Модуль намеренно не зависит от Binance HTTP: решения можно воспроизводимо
+тестировать на готовых снимках портфеля. Дневные базы equity и halt-маркер
+хранятся на диске, поэтому перезапуск супервизора не снимает остановку.
 """
 
 from __future__ import annotations
@@ -22,12 +22,13 @@ from trade_accounting import TradeExecution
 
 
 def money(value: object) -> Decimal:
-    """Convert external numeric input without inheriting binary-float noise."""
+    """Преобразовать внешнее число в Decimal без наследования шума float."""
     return Decimal(str(value or 0))
 
 
 @dataclass(frozen=True)
 class RiskLimits:
+    """Все жёсткие лимиты и пути постоянного состояния circuit breaker."""
     max_daily_loss_usdt: Decimal
     max_start_drawdown_pct: Decimal
     max_peak_drawdown_pct: Decimal
@@ -94,6 +95,7 @@ class RiskLimits:
 
 @dataclass(frozen=True)
 class RiskSnapshot:
+    """Атомарный снимок портфеля, ордеров и дневной торговой активности."""
     equity_usdt: Decimal
     exposure_usdt: Decimal
     free_usdt: Decimal
@@ -107,6 +109,7 @@ class RiskSnapshot:
 
 @dataclass(frozen=True)
 class RiskDecision:
+    """Результат проверки: полный halt либо запрет только на новые BUY."""
     halted: bool
     buy_blocked: bool
     reasons: tuple[str, ...] = ()
@@ -133,6 +136,8 @@ def _utc_day(now: Optional[float] = None) -> str:
 
 
 def _atomic_json(path: Path, payload: dict) -> None:
+    # Состояние нельзя оставлять частично записанным: сначала fsync временного
+    # файла, затем атомарная замена целевого JSON.
     path.parent.mkdir(parents=True, exist_ok=True)
     fd, tmp_name = tempfile.mkstemp(prefix=f".{path.name}.", dir=str(path.parent))
     try:
@@ -156,7 +161,7 @@ def create_manual_halt(
     now: Optional[float] = None,
     metadata: Optional[dict] = None,
 ) -> Path:
-    """Create a persistent halt for an execution failure outside RiskManager."""
+    """Создать постоянный halt при сбое исполнения вне RiskManager."""
     limits = limits or RiskLimits.from_env()
     now = float(now or time.time())
     reasons = [str(reason)]
@@ -187,6 +192,7 @@ def create_manual_halt(
 
 
 class RiskManager:
+    """Вычисляет риски и сохраняет состояние между циклами и рестартами."""
     def __init__(self, limits: RiskLimits):
         limits.validate()
         self.limits = limits
@@ -198,7 +204,8 @@ class RiskManager:
         except (FileNotFoundError, json.JSONDecodeError, TypeError, OSError):
             state = RiskState(_utc_day(now), str(equity), str(equity), str(equity))
         if state.day != _utc_day(now):
-            # A circuit halt survives midnight and requires an explicit reset.
+            # Новый день обновляет базы equity, но не снимает circuit halt:
+            # разблокировка всегда требует осознанного ручного reset.
             state.day = _utc_day(now)
             state.start_equity_usdt = str(equity)
             state.peak_equity_usdt = str(equity)
@@ -230,6 +237,8 @@ class RiskManager:
             handle.write(json.dumps(payload, ensure_ascii=False, sort_keys=True) + "\n")
 
     def trip(self, state: RiskState, reasons: Iterable[str], snapshot: RiskSnapshot, now: float) -> None:
+        # Halt записывается раньше уведомления. Даже если webhook или лог недоступен,
+        # следующий запуск увидит маркер и не возобновит покупки.
         reasons = list(dict.fromkeys(reasons))
         state.halted = True
         state.halt_reasons = reasons
@@ -246,6 +255,7 @@ class RiskManager:
         self._alert("circuit_breaker", reasons, snapshot)
 
     def evaluate(self, snapshot: RiskSnapshot, now: Optional[float] = None) -> RiskDecision:
+        """Проверить circuit breaker и мягкие лимиты новых BUY."""
         now = float(now or time.time())
         state = self._load(snapshot.equity_usdt, now)
         start = money(state.start_equity_usdt)
@@ -262,6 +272,7 @@ class RiskManager:
         peak_loss = max(Decimal("0"), peak - snapshot.equity_usdt)
         peak_dd = (peak_loss / peak) if peak > 0 else Decimal("0")
 
+        # Нарушение equity-лимитов — необратимый автоматикой circuit halt.
         circuit_reasons: list[str] = []
         if daily_loss >= self.limits.max_daily_loss_usdt:
             circuit_reasons.append(
@@ -279,6 +290,8 @@ class RiskManager:
         if circuit_reasons and not state.halted:
             self.trip(state, circuit_reasons, snapshot, now)
 
+        # Остальные лимиты блокируют новые BUY, но не запрещают сопровождать
+        # существующие позиции и защитные SELL/OCO.
         block_reasons: list[str] = []
         if snapshot.exposure_usdt >= self.limits.portfolio_cap_usdt:
             block_reasons.append(
@@ -340,7 +353,7 @@ class RiskManager:
 
 
 def load_daily_trade_metrics(db_path: str, symbols: Iterable[str], now: Optional[float] = None) -> dict:
-    """Read fail-closed daily limits from the existing trades ledger."""
+    """Прочитать дневные метрики из ledger; при неполных данных упасть закрыто."""
     now = float(now or time.time())
     start = int(datetime.fromtimestamp(now, timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0).timestamp())
     wanted = [s.upper() for s in symbols]
@@ -402,8 +415,8 @@ def load_daily_trade_metrics(db_path: str, symbols: Iterable[str], now: Optional
         )
 
     daily_executions = [execution(row) for row in rows]
-    # Force valuation now: an unpriced non-zero BNB/third-asset commission must
-    # block risk telemetry instead of silently understating exposure or losses.
+    # Неоценённая комиссия BNB/третьего актива обязана остановить telemetry:
+    # молчаливое занижение расходов опаснее временной блокировки BUY.
     for trade in daily_executions:
         trade.valued_commission()
     turnover = sum((trade.price * trade.gross_qty for trade in daily_executions), Decimal("0"))
@@ -412,7 +425,8 @@ def load_daily_trade_metrics(db_path: str, symbols: Iterable[str], now: Optional
         Decimal("0"),
     )
 
-    # Reconstruct per-symbol weighted inventory across all history for the loss streak.
+    # Для серии убытков восстанавливаем среднюю себестоимость по всей истории,
+    # а не только по сделкам текущего дня.
     inventory: dict[str, tuple[Decimal, Decimal]] = {}
     sell_results: list[Decimal] = []
     for row in history:

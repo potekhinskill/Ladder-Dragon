@@ -1,4 +1,8 @@
-"""Fail-closed Binance HTTP transport used by trading components."""
+"""HTTP-транспорт Binance по принципу fail-closed для торговых компонентов.
+
+Здесь сосредоточены подпись запросов, DRY/LIVE-гейт и повторные попытки.
+Стратегия и управление ордерами не должны самостоятельно работать с HTTP.
+"""
 
 from __future__ import annotations
 
@@ -13,10 +17,10 @@ import requests
 
 
 class BinanceTransport:
-    """Signed transport with late-bound credentials and LIVE state.
+    """Транспорт с подписью и поздним получением ключей и LIVE-состояния.
 
-    Callbacks keep venue and DRY/LIVE changes visible without rebuilding the
-    transport.  Strategy and order modules never need to know signing details.
+    Callbacks позволяют переключить venue или DRY/LIVE без пересоздания объекта.
+    Модули стратегии и ордеров при этом не знают деталей HMAC-подписи.
     """
 
     def __init__(
@@ -64,6 +68,8 @@ class BinanceTransport:
         timeout: float = 15.0,
         max_tries: int = 8,
     ) -> Any:
+        # Повторяем только временные сетевые/биржевые сбои. Бизнес-ошибки
+        # Binance должны сразу дойти до вызывающего кода.
         tries = 0
         backoff = 0.5
         while True:
@@ -131,6 +137,8 @@ class BinanceTransport:
         timeout: float = 15.0,
     ) -> Any:
         method = method.upper()
+        # Главная граница безопасности: в DRY разрешено читать приватные данные,
+        # но любой запрос, меняющий состояние биржи, блокируется до сети.
         if method not in ("GET", "HEAD") and not self._live():
             raise RuntimeError(f"DRY mode blocked mutating Binance request: {method} {path}")
         api_key = self._api_key()

@@ -1,4 +1,4 @@
-"""Idempotent LIMIT and OCO placement for the symbol executor."""
+"""Идемпотентное размещение LIMIT и OCO для символьного исполнителя."""
 
 from __future__ import annotations
 
@@ -15,6 +15,11 @@ from order_recovery import OrderJournal, TERMINAL_EXCHANGE_STATES
 
 @dataclass(frozen=True)
 class OrderDependencies:
+    """Поздно связываемые зависимости ордерного слоя.
+
+    Такая граница не даёт модулю напрямую читать глобальные ключи и позволяет
+    тестировать размещение с полностью отключённой сетью.
+    """
     live: Callable[[], bool]
     logger: Callable[[str], None]
     pull_filters: Callable[[str], Any]
@@ -44,6 +49,9 @@ def place_limit_order(
     purpose: str = "ladder",
     parent_client_order_id: Optional[str] = None,
 ) -> Dict[str, Any] | None:
+    """Разместить LIMIT, сохранив intent до POST и восстановив неопределённый ACK."""
+    # DRY-гейт повторяется непосредственно у мутации: одной проверки на старте
+    # недостаточно, потому что режим может измениться в долгоживущем процессе.
     if not dependencies.live():
         dependencies.logger(
             f"[DRY] skip LIMIT {symbol} {side.upper()} "
@@ -68,6 +76,8 @@ def place_limit_order(
     quantity_text = dependencies.format_qty(symbol, quantity)
     price_text = dependencies.format_price(symbol, price)
     journal = dependencies.journal()
+    # Сначала ищем эквивалентный активный intent. Если ордер уже существует на
+    # Binance, возвращаем его вместо повторного POST.
     active = (
         journal.find_active(
             symbol=symbol,
@@ -116,6 +126,7 @@ def place_limit_order(
         active.client_order_id if active is not None else generated_id
     )
     if journal is not None:
+        # PREPARED коммитится до сетевого запроса — основа идемпотентности.
         journal.prepare(
             client_order_id=order_client_id,
             symbol=symbol,
@@ -154,6 +165,8 @@ def place_limit_order(
         )
         return payload
     except requests.RequestException as exc:
+        # Таймаут POST не означает, что Binance не принял заявку. Сначала
+        # сверяем clientOrderId, и только затем создаём постоянный halt.
         if journal is not None:
             journal.mark_unknown(order_client_id, exc)
             try:
@@ -197,6 +210,7 @@ def place_oco_sell(
     dependencies: OrderDependencies,
     parent_client_order_id: Optional[str] = None,
 ) -> Dict[str, Any] | None:
+    """Создать и обязательно проверить обе защитные ноги SELL OCO."""
     if not dependencies.live():
         dependencies.logger(
             f"[DRY] skip OCO {symbol} SELL {quantity:.8f}"
@@ -222,6 +236,8 @@ def place_oco_sell(
         if parent_client_order_id
         else "oco"
     )
+    # Защита привязана к родительскому BUY: после рестарта тот же OCO
+    # обнаруживается по listClientOrderId и используется повторно.
     active = (
         journal.find_active(
             symbol=symbol,
@@ -331,6 +347,7 @@ def place_oco_sell(
         )
         if order_list_id is None:
             raise RuntimeError("OCO response has no orderListId")
+        # Успешного ответа POST недостаточно: перечитываем список и каждую ногу.
         verified = dependencies.signed_request(
             "GET",
             "/api/v3/orderList",
@@ -345,6 +362,8 @@ def place_oco_sell(
         try:
             dependencies.verify_oco_legs(symbol, verified)
         except (requests.RequestException, RuntimeError):
+            # Частично или неверно созданная защита хуже отсутствующей:
+            # удаляем сомнительный OCO и передаём ошибку наверх.
             try:
                 dependencies.signed_request(
                     "DELETE",

@@ -1034,6 +1034,7 @@ def _schedule_child_restart(
     *,
     now: Optional[float] = None,
 ) -> float:
+    """Рассчитать backoff для нестабильного дочернего исполнителя."""
     now = time.time() if now is None else now
     stable_sec = max(1, int(os.getenv("BOT_CHILD_STABLE_SEC", "30")))
     if return_code != 0 and runtime_sec < stable_sec:
@@ -1051,6 +1052,9 @@ def _schedule_child_restart(
 def run_child(symbol: str, ladder: List[float], args: argparse.Namespace,
               extra_env: Optional[Dict[str, str]] = None,
               tp1: Optional[float] = None, tp2: Optional[float] = None) -> None:
+    """Запустить не более одного исполнителя на символ и учесть его прошлый exit."""
+    # Сначала обслуживаем уже известный процесс. Живой не дублируем, а быстро
+    # упавший переводим на экспоненциальную задержку перезапуска.
     now = time.time()
     _child = _CHILD_PROCS.get(symbol)
     if _child is not None:
@@ -1071,6 +1075,8 @@ def run_child(symbol: str, ladder: List[float], args: argparse.Namespace,
     if now < restart_after:
         return
 
+    # Супервизор передаёт воркеру уже вычисленный торговый план. Сам воркер
+    # повторно проверит CLI, LIVE-гейт, фильтры и лок конкретного символа.
     cli = [
         args.base_script,
         "--symbol", symbol,
@@ -1158,6 +1164,7 @@ def run_child(symbol: str, ladder: List[float], args: argparse.Namespace,
 # ===========================
 
 def auto_cap_if_needed(args: argparse.Namespace, n_syms: int) -> None:
+    """Распределить доступный после резерва USDT между символами и BUY-слотами."""
     if not args.auto_cap:
         return
     try:
@@ -1191,6 +1198,7 @@ def auto_cap_if_needed(args: argparse.Namespace, n_syms: int) -> None:
 _STARTUP_CLEAN_DONE: Dict[str, bool] = {}
 
 def run_for_symbol(symbol: str, args: argparse.Namespace) -> None:
+    """Построить план одного символа и передать его дочернему исполнителю."""
     # 1) Текущая цена + ATR
     now_p = get_last_price(symbol)
     log(f"[PLAN] {symbol} now≈{now_p:.4f}")
@@ -1445,7 +1453,7 @@ def parse_ladder_pct_map(s: str) -> Dict[str, Tuple[float, float, float]]:
 
 
 def _configure_venue(args: argparse.Namespace) -> None:
-    """Select testnet/mainnet before any authenticated preflight request."""
+    """Выбрать testnet/mainnet до первого аутентифицированного запроса."""
     global BINANCE_API_BASE, API_KEY, API_SECRET
     if args.testnet:
         base = os.getenv("BINANCE_TESTNET_API_BASE", "https://testnet.binance.vision").rstrip("/")
@@ -1472,7 +1480,7 @@ def _configure_venue(args: argparse.Namespace) -> None:
 
 
 def _preflight_live(args: argparse.Namespace, symbols: List[str], limits: RiskLimits) -> None:
-    """Print final exposure, then refuse LIVE unless dependencies are proven."""
+    """Показать экспозицию и отказать в LIVE, пока не доказана готовность систем."""
     limits.validate()
     stats_db = os.getenv("BOT_STATS_DB", "").strip()
     cap = float(args.cap_ceil_usdt or os.getenv("BOT_CAP_PER_ORDER", "50"))
@@ -1497,6 +1505,7 @@ def _preflight_live(args: argparse.Namespace, symbols: List[str], limits: RiskLi
         "stats_db": stats_db or None,
     }
     log("[CONFIG] " + json.dumps(config, sort_keys=True))
+    # DRY тоже печатает итоговую конфигурацию, но не требует торговых ключей.
     if not args.live:
         return
     if limits.halt_file.exists():
@@ -1517,6 +1526,8 @@ def _preflight_live(args: argparse.Namespace, symbols: List[str], limits: RiskLi
     finally:
         con.close()
 
+    # Проверяем не только offset часов, но и RTT: при медленной сети оценка
+    # серверного времени недостаточно надёжна для подписанных ордеров.
     t0 = int(time.time() * 1000)
     server = _public_get("/api/v3/time")
     t1 = int(time.time() * 1000)
@@ -1544,6 +1555,7 @@ def _preflight_live(args: argparse.Namespace, symbols: List[str], limits: RiskLi
 
 
 def _stop_children(reason: str) -> None:
+    """Остановить всех воркеров с terminate → wait → kill fallback."""
     for symbol, proc in list(_CHILD_PROCS.items()):
         try:
             if proc.poll() is None:
@@ -1567,6 +1579,7 @@ def _stop_children(reason: str) -> None:
 
 
 def _cancel_open_buy_orders(orders: Optional[List[Dict[str, Any]]] = None) -> int:
+    """Отменить только BUY; защитные SELL/OCO должны продолжать работать."""
     orders = orders if orders is not None else (TM._signed_get("/api/v3/openOrders") or [])
     canceled = 0
     for order in orders:
@@ -1579,6 +1592,7 @@ def _cancel_open_buy_orders(orders: Optional[List[Dict[str, Any]]] = None) -> in
 
 
 def _notify_risk(decision: RiskDecision) -> None:
+    """Зафиксировать точную причину risk-решения и опционально вызвать webhook."""
     reason = "; ".join(decision.reasons) or "risk limit"
     log(f"[RISK-ALERT] halted={decision.halted} buy_blocked={decision.buy_blocked}: {reason}")
     webhook = os.getenv("BOT_ALERT_WEBHOOK_URL", "").strip()
@@ -1595,10 +1609,13 @@ def _notify_risk(decision: RiskDecision) -> None:
 def _build_risk_snapshot(
     symbols: List[str], limits: RiskLimits
 ) -> tuple[RiskSnapshot, List[Dict[str, Any]], Dict[str, float]]:
+    """Собрать согласованный снимок account, ledger, ордеров и дневных метрик."""
     balances = get_balances_full()
     prices = {symbol: get_last_price(symbol) for symbol in symbols}
     orders = TM._signed_get("/api/v3/openOrders") or []
 
+    # Строгая сверка не позволяет строить risk snapshot на расходящихся данных
+    # Binance account и локального inventory ledger.
     if env_flag("RISK_RECONCILE_STRICT", True):
         tolerance = max(0.0, float(os.getenv("RISK_RECONCILE_TOLERANCE_PCT", "0.02") or 0.02))
         grace_sec = max(0.0, float(os.getenv("RISK_RECONCILE_GRACE_SEC", "5") or 5))
@@ -1644,8 +1661,8 @@ def _build_risk_snapshot(
             time.sleep(min(retry_sec, remaining))
             balances = get_balances_full()
         if waited:
-            # OCO can appear while the worker updates the ledger.  Re-read orders so
-            # exposure and open-order limits use the same post-reconciliation state.
+            # Пока ledger догонял account, воркер мог создать OCO. Перечитываем
+            # ордера, чтобы exposure и их количество относились к одному моменту.
             orders = TM._signed_get("/api/v3/openOrders") or []
 
     tracked_assets: Dict[str, Decimal] = {}
@@ -1695,6 +1712,7 @@ def _build_risk_snapshot(
     return snap, orders, prices
 
 def main():
+    """Главный orchestration loop: preflight → risk gate → планы → воркеры."""
     ap = build_supervisor_parser()
     args = ap.parse_args()
     log(f"[VERSION] {product_label('supervisor')}")
@@ -1704,6 +1722,8 @@ def main():
     _preflight_live(args, symbols, limits)
     global LIVE_MODE
     LIVE_MODE = bool(args.live)
+    # В DRY circuit breaker не меняет постоянное состояние. LIVE использует
+    # fail-closed менеджер и не запускает воркеры без свежего risk snapshot.
     risk_manager = RiskManager(limits) if args.live else None
 
     log(f"[SUP] symbols={symbols} ladder_mode={args.ladder_mode} ai_model=gpt-4o-mini")
@@ -1774,6 +1794,8 @@ def main():
         while True:
             now_loop = time.time()
             if risk_manager is not None and now_loop >= next_risk_check:
+                # Проверка риска выполняется раньше планирования символов. При любом
+                # запрете останавливаем воркеры и отменяем только новые BUY.
                 orders: List[Dict[str, Any]] = []
                 try:
                     snapshot, orders, prices = _build_risk_snapshot(symbols, limits)
@@ -1789,6 +1811,8 @@ def main():
                         risk_manager.start_cooldown("; ".join(shocks))
                     decision = risk_manager.evaluate(snapshot)
                     if not decision.buy_blocked:
+                        # CAP дополнительно сужается по минимальному оставшемуся
+                        # бюджету: portfolio, daily BUY, correlation и reserve.
                         remaining = min(
                             limits.portfolio_cap_usdt - snapshot.exposure_usdt,
                             limits.daily_buy_cap_usdt - snapshot.daily_buy_usdt,
@@ -1808,6 +1832,8 @@ def main():
                             os.environ["BOT_CAP_PER_ORDER"] = str(safe_cap)
                             dbg(f"[RISK] dynamic safe order cap={safe_cap:.2f} USDT")
                 except Exception as exc:
+                    # Недоступная telemetry не считается безопасным состоянием:
+                    # новые BUY блокируются, после серии ошибок включается cooldown.
                     consecutive_api_failures += 1
                     threshold = max(1, int(os.getenv("RISK_API_FAILURE_THRESHOLD", "3")))
                     reason = f"risk telemetry unavailable ({consecutive_api_failures}/{threshold}): {exc}"
@@ -1833,6 +1859,8 @@ def main():
                 next_risk_check = now_loop + max(1, int(args.risk_check_sec))
 
             if risk_buy_blocked:
+                # Во время блока супервизор только переоценивает риск; торговые
+                # планы не строятся до явного безопасного решения.
                 time.sleep(min(2.0, max(0.5, float(args.risk_check_sec) / 2.0)))
                 continue
 

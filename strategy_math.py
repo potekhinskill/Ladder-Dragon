@@ -1,8 +1,7 @@
-"""Pure, deterministic calculations shared by trading processes.
+"""Чистые детерминированные расчёты, общие для торговых процессов.
 
-This module deliberately contains no network, environment, logging, or mutable
-exchange state.  Keeping these functions pure makes strategy changes testable
-without loading either trading process.
+Здесь намеренно нет сети, окружения, логирования и изменяемого состояния биржи.
+Это позволяет тестировать изменения стратегии без запуска торговых процессов.
 """
 
 from __future__ import annotations
@@ -117,6 +116,7 @@ def panic_triggered(
     drop_pct: float,
     atr_multiplier: float,
 ) -> bool:
+    """Сработал ли хотя бы один триггер резкого движения рынка."""
     below_atr_band = (
         ema20 is not None
         and atr is not None
@@ -138,6 +138,7 @@ def geometric_ladder(
     up_pct: float,
     density: int,
 ) -> list[float]:
+    """Построить геометрические BUY/SELL-половины лестницы вокруг цены."""
     def levels(start_pct: float, end_pct: float) -> list[float]:
         if density <= 0:
             return []
@@ -153,7 +154,7 @@ def geometric_ladder(
 
 
 def split_ladder(now_price: float, ladder: Sequence[float]) -> tuple[list[float], list[float]]:
-    """Keep the legacy half split; ``now_price`` remains for API compatibility."""
+    """Сохранить историческое деление пополам; now_price оставлен для API."""
     del now_price
     midpoint = len(ladder) // 2
     return list(ladder[:midpoint]), list(ladder[midpoint:])
