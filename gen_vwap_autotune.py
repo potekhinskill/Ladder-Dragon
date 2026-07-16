@@ -28,8 +28,7 @@ from typing import Dict, Iterable, List, Optional, Tuple
 
 import time
 
-from trade_accounting import replay_average_cost
-from tools_stats import get_executions_between
+from trade_accounting import TradeExecution, replay_average_cost
 from db_migrate import migrate
 
 
@@ -101,12 +100,51 @@ def compute_fifo_pnl(rows: Iterable[Tuple[str, float, float, float]]) -> float:
 def get_stats(symbol: str,
               conn: sqlite3.Connection,
               hours: int) -> Tuple[float, int]:
+    """Calculate window PnL using cost basis from the complete history.
+
+    Replaying only the last N hours makes a position opened earlier look like
+    a zero-cost position and can invert the tuning decision.
+    """
     cutoff_ms = int((time.time() - hours * 3600) * 1000)
-    executions = get_executions_between(
-        conn, symbol, cutoff_ms, int(time.time() * 1000)
-    )
-    result = replay_average_cost(executions)
-    return float(result.realized_pnl), len(executions)
+    rows = conn.execute(
+        """
+        SELECT ts, side,
+               COALESCE(NULLIF(price_text, ''), CAST(price AS TEXT)),
+               COALESCE(NULLIF(gross_qty, ''), CAST(qty AS TEXT)),
+               COALESCE(NULLIF(net_qty, ''), CAST(qty AS TEXT)),
+               commission_asset, commission_amount,
+               CASE WHEN commission_value_status='unpriced' THEN NULL
+                    ELSE COALESCE(NULLIF(commission_quote, ''), CAST(fee_quote AS TEXT)) END,
+               COALESCE(NULLIF(commission_value_status, ''), 'legacy')
+        FROM trades WHERE symbol=? AND ts<=? ORDER BY ts, id
+        """,
+        (symbol.upper(), int(time.time() * 1000)),
+    ).fetchall()
+    executions: list[TradeExecution] = []
+    timestamps: list[int] = []
+    for row in rows:
+        try:
+            executions.append(TradeExecution.create(
+                symbol=symbol, side=row[1], price=row[2], gross_qty=row[3],
+                net_qty=row[4], commission_asset=row[5] or "",
+                commission_amount=row[6] or 0, commission_quote=row[7],
+                commission_value_status=row[8] or "legacy",
+            ))
+            timestamps.append(int(row[0]))
+        except (ArithmeticError, TypeError, ValueError):
+            continue
+    result = replay_average_cost(executions, allow_unpriced=False)
+    sell_results = iter(result.sell_results)
+    window_pnl = 0
+    recent_count = 0
+    for execution, timestamp in zip(executions, timestamps):
+        if timestamp >= cutoff_ms:
+            recent_count += 1
+        if execution.side == "SELL":
+            pnl = next(sell_results)
+            if timestamp >= cutoff_ms:
+                window_pnl += pnl
+    return float(window_pnl), recent_count
 
 
 def main() -> None:
@@ -115,6 +153,8 @@ def main() -> None:
     parser.add_argument("--hours", type=int, default=24)
     parser.add_argument("--pnl-threshold", type=float, default=25.0,
                         help="USDT PnL threshold to adjust more aggressively")
+    parser.add_argument("--min-trades", type=int, default=20,
+                        help="Minimum recent executions before tuning")
     parser.add_argument("--alpha", type=float, default=0.6,
                         help="EMA smoothing for new values")
     parser.add_argument("--precision", type=int, default=6)
@@ -172,7 +212,11 @@ def main() -> None:
         discount = base_discount
         scale = base_scale
 
-        if pnl <= -abs(args.pnl_threshold):
+        if trade_cnt < args.min_trades:
+            # No parameter change on a tiny sample: this is not evidence of
+            # strategy quality and otherwise creates feedback-loop overfitting.
+            pass
+        elif pnl <= -abs(args.pnl_threshold):
             premium *= args.premium_loss_mult
             scale *= args.scale_loss_mult
         elif pnl >= abs(args.pnl_threshold):

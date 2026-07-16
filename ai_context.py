@@ -101,7 +101,8 @@ def load_trade_features(
                        COALESCE(NULLIF(net_qty, ''), CAST(qty AS TEXT)),
                        commission_asset,
                        commission_amount,
-                       COALESCE(NULLIF(commission_quote, ''), CAST(fee_quote AS TEXT)),
+                       CASE WHEN commission_value_status='unpriced' THEN NULL
+                            ELSE COALESCE(NULLIF(commission_quote, ''), CAST(fee_quote AS TEXT)) END,
                        commission_value_status
                 FROM (
                     SELECT * FROM trades
@@ -673,7 +674,10 @@ class AdvisorDecisionStore:
 
 def directional_success(mode: str, market_return: float) -> int:
     normalized = mode.upper()
-    threshold = 0.001
+    fee = float(os.getenv("AI_SHADOW_FEE_PCT", "0.00075") or 0.00075)
+    slippage = float(os.getenv("AI_SHADOW_SLIPPAGE_PCT", "0.0005") or 0.0005)
+    spread = float(os.getenv("AI_SHADOW_SPREAD_PCT", "0.0002") or 0.0002)
+    threshold = max(0.001, 2 * (fee + slippage + spread / 2))
     if normalized == "UP":
         return int(market_return > threshold)
     if normalized == "DOWN":
@@ -711,12 +715,18 @@ def virtual_plan_result(
     slippage = float(
         os.getenv("AI_SHADOW_SLIPPAGE_PCT", "0.0005") or 0.0005
     )
+    spread = float(os.getenv("AI_SHADOW_SPREAD_PCT", "0.0002") or 0.0002)
+    net_return = (close / entry - 1) - 2 * (
+        fee + slippage + spread / 2
+    )
     return {
         "filled": True,
         "entry": entry,
-        "net_return": (
-            (close / entry - 1) - 2 * (fee + slippage)
-        ) * min(1.0, cap_scale),
+        # CAP changes absolute PnL, not percentage edge. Keep the percentage
+        # metric independent of sizing so larger recommendations do not look
+        # more profitable merely because they are larger.
+        "net_return": net_return,
+        "scaled_pnl_pct": net_return * max(0.0, cap_scale),
         "mfe": high / entry - 1,
         "mae": low / entry - 1,
     }

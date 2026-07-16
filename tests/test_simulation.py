@@ -1,5 +1,7 @@
 from decimal import Decimal
 
+import pytest
+
 from simulation import Candle, Inventory, SimulationConfig, simulate_grid, walk_forward
 
 
@@ -35,3 +37,24 @@ def test_walk_forward_is_reproducible():
     first = walk_forward(candles(), configs, folds=3)
     second = walk_forward(candles(), configs, folds=3)
     assert [row["result"].final_equity for row in first] == [row["result"].final_equity for row in second]
+
+
+def test_simulation_rejects_same_candle_latency():
+    with pytest.raises(ValueError, match="latency_bars"):
+        simulate_grid(candles(), SimulationConfig(latency_bars=0))
+
+
+def test_simulation_does_not_fill_impossible_slippage_price():
+    result = simulate_grid(
+        [
+            Candle(0, Decimal("100"), Decimal("100.1"), Decimal("99"), Decimal("100")),
+            Candle(1, Decimal("100"), Decimal("100.1"), Decimal("99"), Decimal("100")),
+            Candle(2, Decimal("100"), Decimal("100.1"), Decimal("99"), Decimal("100")),
+        ],
+        SimulationConfig(
+            buy_offset_pct=Decimal("0.01"),
+            slippage_pct=Decimal("0.02"),
+            spread_pct=Decimal("0.02"),
+        ),
+    )
+    assert result.trades == 0

@@ -18,6 +18,10 @@
 - Dashboard proxy-auth защищён отдельным shared secret; placeholder-токены генерируются установщиком.
 - Обновления принимают только указанный fast-forward commit SHA; backups шифруются через age.
 - Добавлены проверки конфигурации, secret scanning и security-регрессии в тестах.
+- Risk snapshot теперь включает все активы аккаунта в equity, но не считает USDT/stablecoin рыночной экспозицией.
+- Симулятор отклоняет same-candle lookahead и невозможные fills после spread/slippage.
+- AI shadow-метрика отделяет процентный edge от размера CAP и учитывает стоимость исполнения.
+- VWAP autotune восстанавливает cost basis по полной истории и не меняет параметры на малой выборке.
 - Логи предназначены для диагностики и анализа гипотез стратегии, но изменения всё равно требуют Testnet/backtest/walk-forward проверки.
 
 ## [2.8.1] — 2026-07-16
