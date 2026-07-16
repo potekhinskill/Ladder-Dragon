@@ -1,0 +1,17 @@
+{
+  "partial_buy_oco_failure": {
+    "order": {"orderId": 101, "status": "PARTIALLY_FILLED", "executedQty": "0.400", "cummulativeQuoteQty": "40.0"},
+    "oco_response": {"code": -2010, "msg": "OCO unavailable"}
+  },
+  "lost_response_after_fill": {
+    "submit_response": null,
+    "query_response": {"orderId": 102, "status": "FILLED", "executedQty": "1.000", "cummulativeQuoteQty": "100.0"}
+  },
+  "bnb_partial_sell_fee": {
+    "symbol": "SOLUSDT", "isBuyer": false, "price": "105", "qty": "0.400",
+    "commission": "0.0005", "commissionAsset": "BNB", "time": 1700000000000
+  },
+  "manual_other_symbol": {
+    "symbol": "BTCUSDT", "isBuyer": true, "price": "40000", "qty": "0.001", "commission": "0.000001", "commissionAsset": "BNB", "time": 1700000001000
+  }
+}

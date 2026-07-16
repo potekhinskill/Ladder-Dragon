@@ -65,6 +65,7 @@ def poll_mytrades_once(
     signed_request: Callable[..., Any],
     commission_value: Callable[..., Tuple[Optional[Decimal], str]],
     logger: Callable[[str], None],
+    on_fill: Callable[[dict], None] | None = None,
 ) -> None:
     """Импортировать новую порцию /myTrades, не продвигаясь мимо неизвестной комиссии."""
     last_id = None
@@ -128,6 +129,13 @@ def poll_mytrades_once(
                     "importer will retry before advancing"
                 )
                 break
+            if on_fill is not None:
+                on_fill({
+                    "trade_id": trade_id, "symbol": symbol, "side": side,
+                    "price": price, "qty": quantity, "fee_quote": fee_quote or Decimal("0"),
+                    "commission_asset": commission_asset, "commission_amount": commission,
+                    "ts": timestamp,
+                })
             max_id = max(max_id, trade_id)
         except Exception as exc:
             logger(f"[STATS] parse trade error: {exc}")

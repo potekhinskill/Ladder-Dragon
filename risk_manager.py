@@ -47,6 +47,7 @@ class RiskLimits:
     stress_loss_cap_usdt: Decimal = Decimal("0")
     var_cap_usdt: Decimal = Decimal("0")
     gap_risk_cap_usdt: Decimal = Decimal("0")
+    expected_shortfall_cap_usdt: Decimal = Decimal("0")
 
     @classmethod
     def from_env(cls) -> "RiskLimits":
@@ -70,6 +71,7 @@ class RiskLimits:
             stress_loss_cap_usdt=money(os.getenv("RISK_STRESS_LOSS_CAP_USDT", "0")),
             var_cap_usdt=money(os.getenv("RISK_VAR_CAP_USDT", "0")),
             gap_risk_cap_usdt=money(os.getenv("RISK_GAP_RISK_CAP_USDT", "0")),
+            expected_shortfall_cap_usdt=money(os.getenv("RISK_EXPECTED_SHORTFALL_CAP_USDT", "0")),
         )
 
     def validate(self) -> None:
@@ -101,6 +103,8 @@ class RiskLimits:
             raise ValueError("stress/VaR caps must be >= 0 (0 disables the gate)")
         if self.gap_risk_cap_usdt < 0:
             raise ValueError("gap risk cap must be >= 0")
+        if self.expected_shortfall_cap_usdt < 0:
+            raise ValueError("expected shortfall cap must be >= 0")
 
 
 @dataclass(frozen=True)
@@ -119,6 +123,7 @@ class RiskSnapshot:
     var_usdt: Decimal = Decimal("0")
     # Gap-risk учитывает overnight shock и стоимость выхода при задержке.
     gap_risk_usdt: Decimal = Decimal("0")
+    expected_shortfall_usdt: Decimal = Decimal("0")
 
 
 @dataclass(frozen=True)
@@ -331,6 +336,8 @@ class RiskManager:
             block_reasons.append(f"portfolio VaR {snapshot.var_usdt:.2f} >= cap {self.limits.var_cap_usdt:.2f} USDT")
         if self.limits.gap_risk_cap_usdt > 0 and snapshot.gap_risk_usdt >= self.limits.gap_risk_cap_usdt:
             block_reasons.append(f"gap risk {snapshot.gap_risk_usdt:.2f} >= cap {self.limits.gap_risk_cap_usdt:.2f} USDT")
+        if self.limits.expected_shortfall_cap_usdt > 0 and snapshot.expected_shortfall_usdt >= self.limits.expected_shortfall_cap_usdt:
+            block_reasons.append(f"expected shortfall {snapshot.expected_shortfall_usdt:.2f} >= cap {self.limits.expected_shortfall_cap_usdt:.2f} USDT")
         if state.cooldown_until > now:
             block_reasons.append(
                 f"cooldown active until {datetime.fromtimestamp(state.cooldown_until, timezone.utc).isoformat()}"
