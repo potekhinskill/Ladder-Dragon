@@ -127,6 +127,16 @@ check_link() {
   )"
   [[ "${anonymous_logs_status}" == "401" ]] \
     || fail "expected protected logs HTTP 401, got ${anonymous_logs_status}"
+  local anonymous_backups_status
+  anonymous_backups_status="$(
+    curl --insecure --silent --output /dev/null --write-out '%{http_code}' \
+      --resolve "${BOT_HOSTNAME}:443:127.0.0.1" \
+      "https://${BOT_HOSTNAME}/backups/"
+  )"
+  [[ "${anonymous_backups_status}" == "401" ]] \
+    || fail "expected protected backups HTTP 401, got ${anonymous_backups_status}"
+  test -r /var/lib/ladder-dragon/backups-public/index.txt \
+    || fail "public backup manifest is missing"
   test -r /var/lib/ladder-dragon/logs/current.log \
     || fail "sanitized current.log is missing"
   echo "[OK] bot/dashboard heartbeat, permissions and protected API are ready"
