@@ -7,6 +7,35 @@
 from __future__ import annotations
 
 from typing import Sequence
+import time
+
+
+class RegimeHysteresis:
+    """Debounce режимов: смена допускается только после устойчивого сигнала."""
+    def __init__(self, initial: str = "NEUTRAL", *, min_hold_sec: float = 300.0,
+                 confirmations: int = 2) -> None:
+        self.current = initial
+        self.min_hold_sec = max(0.0, float(min_hold_sec))
+        self.confirmations = max(1, int(confirmations))
+        self._candidate = initial
+        self._count = 0
+        self._changed_at = 0.0
+
+    def update(self, candidate: str, now: float | None = None) -> str:
+        now = time.time() if now is None else float(now)
+        candidate = str(candidate).upper()
+        if candidate == self.current:
+            self._candidate, self._count = candidate, 0
+            return self.current
+        if candidate != self._candidate:
+            self._candidate, self._count = candidate, 1
+        else:
+            self._count += 1
+        if self._count >= self.confirmations and now - self._changed_at >= self.min_hold_sec:
+            self.current = candidate
+            self._changed_at = now
+            self._count = 0
+        return self.current
 
 
 def clamp(value: float, lower: float, upper: float) -> float:

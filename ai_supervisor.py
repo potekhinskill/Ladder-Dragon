@@ -46,7 +46,11 @@ from ai_statistical import context_vector
 from ai_runtime_status import write_runtime_status
 from order_identity import client_order_id
 from risk_manager import RiskDecision, RiskLimits, RiskManager, RiskSnapshot, load_daily_trade_metrics, money
-from risk_statistics import correlated_symbols as derive_correlated_symbols
+from risk_statistics import (
+    correlated_symbols_multi_window as derive_correlated_symbols_multi_window,
+    covariance_var,
+    stress_loss,
+)
 from time_safety import assess_exchange_clock
 from venue_config import apply_testnet_paths
 from product_version import __version__, product_label, user_agent
@@ -2018,11 +2022,26 @@ def _build_risk_snapshot(
         if asset in stable_assets:
             value = qty
         else:
+            # Прямой USDT, затем распространённые cross-quote. Stablecoin
+            # конвертация учитывает настраиваемый haircut и комиссию выхода.
             valuation_symbol = f"{asset}USDT"
             valuation_price = prices.get(valuation_symbol)
             if valuation_price is None:
-                valuation_price = get_last_price(valuation_symbol)
-                prices[valuation_symbol] = valuation_price
+                for quote in ("USDC", "FDUSD", "BTC", "ETH"):
+                    candidate = f"{asset}{quote}"
+                    try:
+                        candidate_price = get_last_price(candidate)
+                    except (RuntimeError, ValueError, KeyError):
+                        continue
+                    if candidate_price > 0:
+                        if quote in stable_assets:
+                            candidate_price *= 1.0 - max(0.0, float(os.getenv("RISK_STABLECOIN_HAIRCUT_PCT", "0.002")))
+                        else:
+                            bridge = prices.get(f"{quote}USDT") or get_last_price(f"{quote}USDT")
+                            candidate_price *= bridge
+                        valuation_price = candidate_price
+                        prices[valuation_symbol] = valuation_price
+                        break
             if money(valuation_price) <= 0:
                 raise RuntimeError(f"cannot value account asset {asset}")
             value = qty * money(valuation_price)
@@ -2052,8 +2071,9 @@ def _build_risk_snapshot(
             closes = [float(row[4]) for row in klines if len(row) > 4 and float(row[4]) > 0]
             if len(closes) >= 4:
                 histories[symbol] = closes
-        rolling = derive_correlated_symbols(
-            histories, threshold=threshold, window=window
+        rolling = derive_correlated_symbols_multi_window(
+            histories, threshold=threshold,
+            windows=(max(3, window // 2), window, window * 2), min_windows=2,
         )
         if rolling:
             correlated_symbols = rolling
@@ -2068,12 +2088,26 @@ def _build_risk_snapshot(
     )
 
     metrics = load_daily_trade_metrics(os.environ["BOT_STATS_DB"], symbols)
+    exposure_by_symbol = {
+        symbol: float(asset_values.get(symbol_assets(symbol)[0], Decimal("0")))
+        + sum(float(money(order.get("price")) * money(order.get("origQty")))
+              for order in orders if str(order.get("symbol", "")).upper() == symbol
+              and str(order.get("side", "")).upper() == "BUY")
+        for symbol in symbols
+    }
+    stress = stress_loss(exposure_by_symbol,
+                         price_shock=float(os.getenv("RISK_STRESS_PRICE_SHOCK", "-0.05")),
+                         spread_widening=float(os.getenv("RISK_STRESS_SPREAD_PCT", "0.01")))
+    var_value = covariance_var(exposure_by_symbol, histories if 'histories' in locals() else {},
+                               confidence=float(os.getenv("RISK_VAR_CONFIDENCE", "0.99")))
     snap = RiskSnapshot(
         equity_usdt=equity,
         exposure_usdt=exposure,
         free_usdt=money(balances.get("USDT", {}).get("free", 0)),
         open_order_count=len(orders),
         correlated_exposure_usdt=correlated,
+        stress_loss_usdt=money(stress),
+        var_usdt=money(var_value),
         **metrics,
     )
     return snap, orders, prices

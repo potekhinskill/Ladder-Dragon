@@ -44,6 +44,8 @@ class RiskLimits:
     halt_file: Path
     state_file: Path
     alerts_file: Path
+    stress_loss_cap_usdt: Decimal = Decimal("0")
+    var_cap_usdt: Decimal = Decimal("0")
 
     @classmethod
     def from_env(cls) -> "RiskLimits":
@@ -64,6 +66,8 @@ class RiskLimits:
             halt_file=Path(os.getenv("CB_HALT_FILE", str(run_dir / "circuit_halt.json"))),
             state_file=Path(os.getenv("CB_STATE_FILE", str(run_dir / "risk_state.json"))),
             alerts_file=Path(os.getenv("CB_ALERTS_FILE", str(run_dir / "risk_alerts.ndjson"))),
+            stress_loss_cap_usdt=money(os.getenv("RISK_STRESS_LOSS_CAP_USDT", "0")),
+            var_cap_usdt=money(os.getenv("RISK_VAR_CAP_USDT", "0")),
         )
 
     def validate(self) -> None:
@@ -91,6 +95,8 @@ class RiskLimits:
             raise ValueError("order/trade count caps must be > 0")
         if self.max_consecutive_losses <= 0 or self.cooldown_sec < 0:
             raise ValueError("loss streak must be > 0 and cooldown must be >= 0")
+        if self.stress_loss_cap_usdt < 0 or self.var_cap_usdt < 0:
+            raise ValueError("stress/VaR caps must be >= 0 (0 disables the gate)")
 
 
 @dataclass(frozen=True)
@@ -105,6 +111,8 @@ class RiskSnapshot:
     open_order_count: int = 0
     correlated_exposure_usdt: Decimal = Decimal("0")
     consecutive_losses: int = 0
+    stress_loss_usdt: Decimal = Decimal("0")
+    var_usdt: Decimal = Decimal("0")
 
 
 @dataclass(frozen=True)
@@ -311,6 +319,10 @@ class RiskManager:
             block_reasons.append("protected USDT reserve reached")
         if snapshot.consecutive_losses >= self.limits.max_consecutive_losses:
             block_reasons.append("consecutive loss limit reached")
+        if self.limits.stress_loss_cap_usdt > 0 and snapshot.stress_loss_usdt >= self.limits.stress_loss_cap_usdt:
+            block_reasons.append(f"stress loss {snapshot.stress_loss_usdt:.2f} >= cap {self.limits.stress_loss_cap_usdt:.2f} USDT")
+        if self.limits.var_cap_usdt > 0 and snapshot.var_usdt >= self.limits.var_cap_usdt:
+            block_reasons.append(f"portfolio VaR {snapshot.var_usdt:.2f} >= cap {self.limits.var_cap_usdt:.2f} USDT")
         if state.cooldown_until > now:
             block_reasons.append(
                 f"cooldown active until {datetime.fromtimestamp(state.cooldown_until, timezone.utc).isoformat()}"

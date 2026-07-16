@@ -24,6 +24,35 @@ ZERO = Decimal("0")
 HORIZONS_SEC = (900, 3600, 14_400)
 
 
+def evaluate_realized_ai_pnl(
+    fills: Sequence[Mapping[str, Any]], *, baseline_exit_price: float | None = None,
+    baseline_entry_price: float | None = None,
+) -> dict[str, float | int | None]:
+    """Оценить рекомендацию по фактическим fills, а не по synthetic candles.
+
+    Возвращает net PnL, duration и opportunity-cost против equal-notional
+    buy-and-hold baseline. Неполные/отменённые заявки игнорируются.
+    """
+    buys = [f for f in fills if str(f.get("side", "")).upper() == "BUY" and str(f.get("status", "FILLED")).upper() == "FILLED"]
+    sells = [f for f in fills if str(f.get("side", "")).upper() == "SELL" and str(f.get("status", "FILLED")).upper() == "FILLED"]
+    bought_qty = sum(float(f.get("qty", f.get("executedQty", 0)) or 0) for f in buys)
+    sold_qty = sum(float(f.get("qty", f.get("executedQty", 0)) or 0) for f in sells)
+    buy_notional = sum(float(f.get("price", 0) or 0) * float(f.get("qty", f.get("executedQty", 0)) or 0) for f in buys)
+    sell_notional = sum(float(f.get("price", 0) or 0) * float(f.get("qty", f.get("executedQty", 0)) or 0) for f in sells)
+    fees = sum(float(f.get("fee_quote", f.get("commission_quote", 0)) or 0) for f in fills)
+    net = sell_notional - buy_notional - fees
+    entry = baseline_entry_price or (buy_notional / bought_qty if bought_qty else None)
+    exit_price = baseline_exit_price or (sell_notional / sold_qty if sold_qty else None)
+    opportunity = None
+    if entry and exit_price and bought_qty:
+        opportunity = (exit_price - entry) * bought_qty - net
+    timestamps = [float(f.get("ts", f.get("time", 0)) or 0) for f in fills if f.get("ts", f.get("time"))]
+    duration = (max(timestamps) - min(timestamps)) if len(timestamps) >= 2 else None
+    return {"net_pnl_quote": net, "buy_qty": bought_qty, "sell_qty": sold_qty,
+            "holding_duration_sec": duration, "opportunity_cost_quote": opportunity,
+            "baseline_entry_price": entry, "baseline_exit_price": exit_price}
+
+
 @dataclass(frozen=True)
 class TradeFeatures:
     trade_history_available: bool = False

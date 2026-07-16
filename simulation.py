@@ -17,6 +17,9 @@ class Candle:
     high: Decimal
     low: Decimal
     close: Decimal
+    volume: Decimal = D("0")
+    bid: Decimal = D("0")
+    ask: Decimal = D("0")
 
 
 @dataclass(frozen=True)
@@ -33,6 +36,10 @@ class SimulationConfig:
     min_net_edge_pct: Decimal = D("0.001")
     max_holding_bars: int = 0
     latency_bars: int = 1
+    queue_ahead_ratio: Decimal = D("0")
+    participation_rate: Decimal = D("1")
+    market_impact_bps: Decimal = D("0")
+    cancel_after_bars: int = 0
 
 
 @dataclass
@@ -82,6 +89,8 @@ def simulate_grid(candles: Sequence[Candle], config: SimulationConfig) -> Simula
         raise ValueError("stop_loss_pct must be in [0, 1)")
     if config.min_net_edge_pct < 0 or config.max_holding_bars < 0:
         raise ValueError("min_net_edge_pct and max_holding_bars must be non-negative")
+    if not D("0") <= config.queue_ahead_ratio < D("1") or not D("0") < config.participation_rate <= D("1"):
+        raise ValueError("queue_ahead_ratio must be in [0,1), participation_rate in (0,1]")
     round_trip_cost = D("2") * (
         config.fee_pct + config.slippage_pct + config.spread_pct / D("2")
     )
@@ -101,15 +110,20 @@ def simulate_grid(candles: Sequence[Candle], config: SimulationConfig) -> Simula
             # BUY pays half-spread plus adverse slippage. A touched limit is
             # not considered filled if that adverse execution is outside the
             # candle range; this avoids impossible OHLC fills.
-            execution = pending_buy[1] * (
-                D("1") + config.slippage_pct + config.spread_pct / D("2")
-            )
+            book_ask = candle.ask if candle.ask > 0 else pending_buy[1]
+            execution = book_ask * (D("1") + config.slippage_pct + config.spread_pct / D("2"))
+            execution *= D("1") + config.market_impact_bps / D("100000")
             if execution > candle.high:
                 continue
+            available_ratio = config.partial_fill_ratio
+            if candle.volume > 0:
+                # Объём свечи и queue-ahead заменяют искусственный full fill;
+                # participation ограничивает долю ликвидности, доступную ордеру.
+                available_ratio = min(available_ratio, max(D("0"), D("1") - config.queue_ahead_ratio) * config.participation_rate)
             qty = min(
                 pending_buy[2],
                 config.order_notional / execution,
-            ) * config.partial_fill_ratio
+            ) * available_ratio
             fee = execution * qty * config.fee_pct
             if cash >= execution * qty + fee:
                 cash -= execution * qty + fee
@@ -160,8 +174,12 @@ def simulate_grid(candles: Sequence[Candle], config: SimulationConfig) -> Simula
                 execution = trigger * (
                     D("1") - config.slippage_pct - config.spread_pct / D("2")
                 )
+                execution *= D("1") - config.market_impact_bps / D("100000")
                 if execution >= candle.low:
-                    qty = inventory.qty * config.partial_fill_ratio
+                    sell_ratio = config.partial_fill_ratio
+                    if candle.volume > 0:
+                        sell_ratio = min(sell_ratio, config.participation_rate)
+                    qty = inventory.qty * sell_ratio
                     fee = execution * qty * config.fee_pct
                     inventory.sell(execution, qty, fee)
                     cash += execution * qty - fee
@@ -185,20 +203,31 @@ def simulate_grid(candles: Sequence[Candle], config: SimulationConfig) -> Simula
     return SimulationResult(final_equity, inventory.realized, inventory.fees, trades, buy_hold)
 
 
-def walk_forward(candles: Sequence[Candle], configs: Iterable[SimulationConfig], folds: int = 3) -> list[dict]:
+def walk_forward(
+    candles: Sequence[Candle], configs: Iterable[SimulationConfig], folds: int = 3,
+    *, purge_bars: int = 1, embargo_bars: int = 1,
+) -> list[dict]:
     if folds < 2 or len(candles) < folds * 3:
         raise ValueError("insufficient data for walk-forward folds")
     configs = list(configs)
     if not configs:
         raise ValueError("at least one configuration is required")
+    if purge_bars < 0 or embargo_bars < 0:
+        raise ValueError("purge_bars and embargo_bars must be non-negative")
     size = len(candles) // folds
     results: list[dict] = []
     for fold in range(1, folds):
-        train = candles[: fold * size]
-        test = candles[fold * size: (fold + 1) * size]
+        boundary = fold * size
+        train_end = max(1, boundary - purge_bars)
+        test_start = min(len(candles), boundary + embargo_bars)
+        train = candles[:train_end]
+        test = candles[test_start: (fold + 1) * size]
+        if not train or not test:
+            continue
         best = max(configs, key=lambda cfg: simulate_grid(train, cfg).final_equity)
         score = simulate_grid(test, best)
-        results.append({"fold": fold, "config": best, "result": score})
+        results.append({"fold": fold, "config": best, "result": score,
+                        "purge_bars": purge_bars, "embargo_bars": embargo_bars})
     return results
 
 
