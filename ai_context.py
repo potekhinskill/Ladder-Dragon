@@ -372,6 +372,7 @@ class AdvisorDecisionStore:
                     policy_reasons TEXT NOT NULL DEFAULT '',
                     benchmark_mode TEXT NOT NULL DEFAULT '',
                     evaluation_json TEXT NOT NULL DEFAULT '{}',
+                    feature_json TEXT NOT NULL DEFAULT '[]',
                     return_15m REAL,
                     return_1h REAL,
                     return_4h REAL
@@ -390,6 +391,7 @@ class AdvisorDecisionStore:
                 ("policy_reasons", "TEXT NOT NULL DEFAULT ''"),
                 ("benchmark_mode", "TEXT NOT NULL DEFAULT ''"),
                 ("evaluation_json", "TEXT NOT NULL DEFAULT '{}'"),
+                ("feature_json", "TEXT NOT NULL DEFAULT '[]'"),
             ):
                 if column not in columns:
                     connection.execute(
@@ -414,6 +416,7 @@ class AdvisorDecisionStore:
         policy_status: str = "",
         policy_reasons: str = "",
         benchmark_mode: str = "",
+        feature_json: str = "[]",
         now: int | None = None,
     ) -> str:
         decision_id = uuid.uuid4().hex
@@ -424,14 +427,15 @@ class AdvisorDecisionStore:
                     decision_id, symbol, created_at, price,
                     deterministic_mode, recommended_mode, width_scale,
                     cap_scale, confidence, applied, policy_status,
-                    policy_reasons, benchmark_mode
-                ) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)
+                    policy_reasons, benchmark_mode, feature_json
+                ) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)
                 """,
                 (
                     decision_id, symbol.upper(), int(now or time.time()), price,
                     deterministic_mode, recommended_mode, width_scale,
                     cap_scale, confidence, int(applied),
                     policy_status, policy_reasons, benchmark_mode,
+                    feature_json,
                 ),
             )
         return decision_id
@@ -614,6 +618,44 @@ class AdvisorDecisionStore:
             "changed_mode_count": changed,
             "ai_vs_baseline_1h": self._edge_summary(recent),
             "calibration_1h": confidence_calibration(calibration_rows),
+        }
+
+    def statistical_prediction(
+        self,
+        context: Any,
+        *,
+        min_samples: int = 60,
+    ) -> dict[str, Any]:
+        from ai_statistical import (
+            MulticlassLogisticRegime,
+            context_vector,
+            return_label,
+        )
+
+        with self._connect() as connection:
+            rows = connection.execute(
+                """
+                SELECT feature_json,return_1h FROM ai_decisions
+                WHERE return_1h IS NOT NULL AND feature_json!='[]'
+                ORDER BY created_at DESC LIMIT 2000
+                """
+            ).fetchall()
+        examples = []
+        for feature_json, result in rows:
+            try:
+                vector = json.loads(feature_json)
+                if isinstance(vector, list) and len(vector) == 10:
+                    examples.append((vector, return_label(float(result))))
+            except (TypeError, ValueError, json.JSONDecodeError):
+                continue
+        model = MulticlassLogisticRegime()
+        model.fit(examples)
+        prediction = model.predict(context_vector(context), min_samples=min_samples)
+        return {
+            "mode": prediction.mode,
+            "confidence": prediction.confidence,
+            "samples": prediction.samples,
+            "available": prediction.available,
         }
 
     @staticmethod

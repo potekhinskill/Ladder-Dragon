@@ -42,6 +42,7 @@ from ai_policy import (
     read_usage_today,
     usage_budget_allows,
 )
+from ai_statistical import context_vector
 from order_identity import client_order_id
 from risk_manager import RiskDecision, RiskLimits, RiskManager, RiskSnapshot, load_daily_trade_metrics, money
 from time_safety import assess_exchange_clock
@@ -1471,10 +1472,23 @@ def run_for_symbol(symbol: str, args: argparse.Namespace) -> None:
             ai_context
         )
         if recommendation is not None:
+            statistical = (
+                _AI_DECISIONS.statistical_prediction(
+                    ai_context,
+                    min_samples=int(args.ai_min_accuracy_samples) * 2,
+                )
+                if _AI_DECISIONS is not None
+                else {"available": False}
+            )
+            statistical_mode = (
+                str(statistical["mode"])
+                if statistical.get("available") else None
+            )
             policy = apply_safety_policy(
                 ai_context,
                 recommendation,
                 _AI_POLICY or PolicyConfig(mode="SHADOW"),
+                benchmark_mode=statistical_mode,
             )
             if _AI_DECISIONS is not None:
                 try:
@@ -1490,6 +1504,7 @@ def run_for_symbol(symbol: str, args: argparse.Namespace) -> None:
                         policy_status=policy.status,
                         policy_reasons=",".join(policy.reasons),
                         benchmark_mode=policy.benchmark_mode,
+                        feature_json=json.dumps(context_vector(ai_context)),
                     )
                 except sqlite3.Error as exc:
                     dbg(f"[AI-DECISION] record failed: {exc}")
@@ -1504,6 +1519,7 @@ def run_for_symbol(symbol: str, args: argparse.Namespace) -> None:
                 f"model={recommendation.model} status={policy.status} "
                 f"confidence={recommendation.confidence:.2f} "
                 f"mode={policy.recommendation.mode} benchmark={policy.benchmark_mode} "
+                f"stat_samples={statistical.get('samples', 0)} "
                 f"width×{policy.recommendation.ladder_width_scale:.2f} "
                 f"cap×{policy.recommendation.cap_scale:.2f} "
                 f"guards={','.join(policy.reasons) or 'none'} "

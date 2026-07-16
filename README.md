@@ -2,7 +2,7 @@
 
 Приватный Python-проект для управления лестничной торговлей на Binance Spot. Бот строит адаптивные сетки BUY/SELL, учитывает ATR, EMA и VWAP, управляет OCO-ордерами и сохраняет торговую статистику в SQLite.
 
-Текущая версия продукта: **2.5.0**. Ladder Dragon использует [Semantic Versioning](https://semver.org/); единственный источник версии — `product_version.py`. Проверить установленную версию можно командой `python ai_supervisor.py --version`.
+Текущая версия продукта: **2.6.0**. Ladder Dragon использует [Semantic Versioning](https://semver.org/); единственный источник версии — `product_version.py`. Проверить установленную версию можно командой `python ai_supervisor.py --version`.
 
 > [!WARNING]
 > Проект работает с реальными биржевыми ордерами. Это не инвестиционная рекомендация. DRY является режимом по умолчанию, а любые изменяющие Binance-запросы дополнительно блокируются на уровне транспорта. Тем не менее перед Mainnet LIVE обязателен отдельный прогон на Binance Spot Testnet и ручная проверка лимитов.
@@ -27,6 +27,7 @@
 | `ai_advisor.py` | Изолированный LLM-рекомендатель со строгой схемой, диапазонами и fail-safe fallback |
 | `ai_context.py` | Агрегаты истории/рынка и раздельная оценка прошлых AI-рекомендаций |
 | `ai_policy.py` | Детерминированный safety-шлюз, shadow/A-B, бюджеты и числовой benchmark |
+| `ai_statistical.py` | Локальная трёхклассовая logistic regression на накопленной shadow-истории |
 | `autosize_universal.py` | Координация исполнения BUY/SELL/OCO для отдельного символа |
 | `supervisor_config.py`, `executor_config.py` | Построение строгих CLI и проверка конфигурации процессов |
 | `strategy_math.py` | Чистая математика лестниц, EMA, ATR, ADX и panic-сигналов |
@@ -198,6 +199,10 @@ Safety-policy независимо от prompt:
 Дневные лимиты `AI_DAILY_COST_LIMIT_USD`, `AI_DAILY_TOKEN_LIMIT` и
 `AI_MAX_REQUESTS_PER_DAY` переводят AI в детерминированный fallback до следующего
 UTC-дня. Рядом с DeepSeek считается независимый числовой regime benchmark.
+После накопления минимум 60 размеченных решений к нему подключается локальная
+трёхклассовая logistic regression (`UP/FLAT/DOWN`). Она обучается только на
+локальной shadow-истории и не требует внешнего ML-сервиса; до минимальной
+выборки используется прозрачный rule-based benchmark.
 
 Защищённый endpoint `/api/ai/status` и карточка дашборда показывают статус
 `ACTIVE/SHADOW/DISABLED/DEGRADED`, расходы, последние решения, calibration
