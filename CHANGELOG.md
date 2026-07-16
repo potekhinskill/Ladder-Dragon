@@ -2,19 +2,22 @@
 
 Формат версий: [Semantic Versioning](https://semver.org/).
 
-## [2.0.0] — 2026-07-16
-
-### Product versioning
-- Версия продукта вынесена в единый модуль `product_version.py` и подключена к package metadata, CLI и HTTP User-Agent.
-- Основные команды поддерживают `--version`, а supervisor и executor фиксируют версию в startup log.
-- Исполнитель переименован из legacy-имени с номером версии в `autosize_universal.py`; обновлены supervisor, runners, systemd, тесты и документация.
+## [2.0.1] — 2026-07-16
 
 ### Modular architecture
 - Строгие CLI и их валидация вынесены из торговых циклов в `supervisor_config.py` и `executor_config.py` без изменения флагов и defaults.
 - Общие детерминированные расчёты лестниц, EMA, ATR, ADX и panic-сигналов собраны в независимом `strategy_math.py`.
 - Подпись запросов, DRY transport gate и retry/backoff исполнителя перенесены в `binance_transport.py` с late-bound LIVE/venue state.
 - Импорт исполнений и точная оценка base/quote/BNB-комиссий отделены в `executor_stats.py`.
+- Market/account reads вынесены в `executor_market.py`, а query/cancel, проверка OCO и restart recovery — в `executor_recovery.py`.
 - Добавлены boundary-тесты, которые проверяют конфигурационные, стратегические, транспортные и статистические интерфейсы без запуска торгового цикла.
+
+## [2.0.0] — 2026-07-16
+
+### Product versioning
+- Версия продукта вынесена в единый модуль `product_version.py` и подключена к package metadata, CLI и HTTP User-Agent.
+- Основные команды поддерживают `--version`, а supervisor и executor фиксируют версию в startup log.
+- Исполнитель переименован из legacy-имени с номером версии в `autosize_universal.py`; обновлены supervisor, runners, systemd, тесты и документация.
 
 ## [2026-07-16]
 ### Supervisor DRY/Testnet hardening

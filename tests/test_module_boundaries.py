@@ -1,9 +1,12 @@
 import argparse
 
 import pytest
+import requests
 
 from binance_transport import BinanceTransport
 from executor_config import build_executor_parser, validate_executor_args
+from executor_market import get_balances, get_price, get_symbol_assets
+from executor_recovery import get_order_by_client_id, verify_oco_legs
 from strategy_math import (
     adx_from_klines,
     atr_from_klines,
@@ -116,3 +119,70 @@ def test_binance_transport_signs_live_request(monkeypatch):
     assert captured["method"] == "POST"
     assert "timestamp=1700000000000" in captured["url"]
     assert "signature=" in captured["url"]
+
+
+def test_executor_market_fallbacks_and_asset_cache():
+    calls = []
+
+    def public_get(path, params):
+        calls.append(path)
+        if path == "/api/v3/ticker/price":
+            raise requests.ConnectionError("ticker unavailable")
+        if path == "/api/v3/ticker/bookTicker":
+            return {"bidPrice": "99", "askPrice": "101"}
+        raise AssertionError(path)
+
+    assert get_price("SOLUSDT", public_get=public_get, logger=lambda message: None) == 100
+    assert calls == ["/api/v3/ticker/price", "/api/v3/ticker/bookTicker"]
+
+    cache = {}
+    assets = get_symbol_assets(
+        "SOLUSDT",
+        exchange_info=lambda symbol: {
+            "symbols": [{"baseAsset": "SOL", "quoteAsset": "USDT"}]
+        },
+        cache=cache,
+    )
+    assert assets == ("SOL", "USDT")
+    assert cache["SOLUSDT"] == assets
+
+    balances = get_balances(
+        signed_request=lambda *args: {
+            "balances": [{"asset": "USDT", "free": "10.5", "locked": "1.5"}]
+        }
+    )
+    assert balances["USDT"] == {"free": 10.5, "locked": 1.5}
+
+
+def test_executor_recovery_queries_and_verifies_oco():
+    class MissingResponse:
+        @staticmethod
+        def json():
+            return {"code": -2013, "msg": "Order does not exist"}
+
+    def missing_order(*args, **kwargs):
+        raise requests.HTTPError("missing", response=MissingResponse())
+
+    assert get_order_by_client_id(
+        "SOLUSDT", "client", signed_request=missing_order
+    ) is None
+
+    def signed(method, path, params):
+        order_type = (
+            "LIMIT_MAKER" if params["orderId"] == 1 else "STOP_LOSS_LIMIT"
+        )
+        return {
+            "orderId": params["orderId"],
+            "side": "SELL",
+            "type": order_type,
+        }
+
+    legs = verify_oco_legs(
+        "SOLUSDT",
+        {"orders": [{"orderId": 1}, {"orderId": 2}]},
+        signed_request=signed,
+    )
+    assert {leg["type"] for leg in legs} == {
+        "LIMIT_MAKER",
+        "STOP_LOSS_LIMIT",
+    }

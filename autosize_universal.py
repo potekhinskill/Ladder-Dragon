@@ -88,6 +88,20 @@ from strategy_math import atr_from_klines as _atr_from_klines
 from strategy_math import clamp, ema_value as _ema, panic_triggered as panic_raw
 from strategy_math import shift_buy_levels
 from binance_transport import BinanceTransport
+from executor_market import get_balances as market_get_balances
+from executor_market import get_price as market_get_price
+from executor_market import get_symbol_assets as market_get_symbol_assets
+from executor_recovery import RecoveryDependencies
+from executor_recovery import cancel_oco as recovery_cancel_oco
+from executor_recovery import cancel_order as recovery_cancel_order
+from executor_recovery import get_order as recovery_get_order
+from executor_recovery import get_order_by_client_id as recovery_get_order_by_client_id
+from executor_recovery import get_order_list_by_client_id as recovery_get_order_list_by_client_id
+from executor_recovery import list_open_orders as recovery_list_open_orders
+from executor_recovery import record_order_payload as recovery_record_order_payload
+from executor_recovery import recover_existing_protection as recovery_existing_protection
+from executor_recovery import recover_pending_buy_order_ids as recovery_pending_buy_order_ids
+from executor_recovery import verify_oco_legs as recovery_verify_oco_legs
 from executor_stats import commission_quote_value, poll_mytrades_once
 
 import requests
@@ -152,13 +166,6 @@ def _trip_execution_halt(reason: str, **metadata: Any) -> None:
     path = create_manual_halt(reason, metadata=metadata)
     log(f"[EXECUTION-HALT] {reason}; marker={path}")
 
-
-def _http_error_code(exc: requests.HTTPError) -> Optional[int]:
-    try:
-        payload = exc.response.json()
-        return int(payload.get("code")) if isinstance(payload, dict) else None
-    except (AttributeError, TypeError, ValueError):
-        return None
 
 # ------------------- helpers: rounding & env -------------------
 
@@ -599,235 +606,97 @@ def min_notional(symbol: str, p: float) -> float:
 # ------------------- Market / account -------------------
 
 def get_price(symbol: str) -> float:
-    """
-    /ticker/price → /ticker/bookTicker(mid) → /avgPrice
-    """
-    try:
-        j = _public_get("/api/v3/ticker/price", {"symbol": symbol})
-        if isinstance(j, dict) and "price" in j:
-            return float(j["price"])
-        # крайне редко приходит массив
-        return float(j[0]["price"])
-    except Exception as e1:
-        log(f"[ERR] {symbol}: {e1} at /ticker/price, trying /ticker/bookTicker")
-        try:
-            j = _public_get("/api/v3/ticker/bookTicker", {"symbol": symbol})
-            bid = float(j["bidPrice"]); ask = float(j["askPrice"])
-            return (bid + ask) / 2.0 if ask > 0 else bid
-        except Exception as e2:
-            log(f"[ERR] {symbol}: {e2} at /ticker/bookTicker, trying /avgPrice")
-            j = _public_get("/api/v3/avgPrice", {"symbol": symbol})
-            return float(j["price"])
+    return market_get_price(symbol, public_get=_public_get, logger=log)
 
 def get_balances() -> Dict[str, Dict[str, float]]:
-    j = _signed_request("GET", "/api/v3/account")
-    bals: Dict[str, Dict[str, float]] = {}
-    for b in j.get("balances", []):
-        asset = b.get("asset")
-        free = float(b.get("free", 0))
-        locked = float(b.get("locked", 0))
-        bals[asset] = {"free": free, "locked": locked}
-    return bals
+    return market_get_balances(signed_request=_signed_request)
 
 def get_symbol_assets(symbol: str) -> Tuple[str, str]:
-    """
-    Надёжно определяем base/quote из /exchangeInfo, с кэшем.
-    Фолбэк — прежняя эвристика, если биржа не ответит.
-    """
-    sym = symbol.upper()
-    if sym in _symbol_assets_cache:
-        return _symbol_assets_cache[sym]
-    try:
-        j = exchange_info(sym)
-        if isinstance(j, dict) and "symbols" in j and j["symbols"]:
-            s = j["symbols"][0]
-            base = str(s.get("baseAsset", "")).upper()
-            quote = str(s.get("quoteAsset", "")).upper()
-            if base and quote:
-                _symbol_assets_cache[sym] = (base, quote)
-                return base, quote
-    except Exception:
-        pass
-    # fallback — только если info не пришёл
-    if sym.endswith("USDT"):
-        return sym[:-4], "USDT"
-    return sym[:-4], sym[-4:]
+    return market_get_symbol_assets(
+        symbol,
+        exchange_info=exchange_info,
+        cache=_symbol_assets_cache,
+    )
 
 def list_open_orders(symbol: str) -> List[Dict[str, Any]]:
-    try:
-        return _signed_request("GET", "/api/v3/openOrders", {"symbol": symbol}) or []
-    except Exception as e:
-        log(f"[ERR] list_open_orders: {e}")
-        return []
+    return recovery_list_open_orders(
+        symbol, signed_request=_signed_request, logger=log
+    )
 
 def cancel_order(symbol: str, oid: int):
-    try:
-        _signed_request("DELETE", "/api/v3/order", {"symbol": symbol, "orderId": oid})
-        log(f"[CANCEL] {symbol} order {oid}")
-    except Exception as e:
-        log(f"[ERR] cancel_order: {e}")
+    recovery_cancel_order(
+        symbol, oid, signed_request=_signed_request, logger=log
+    )
 
 def cancel_oco(symbol: str, order_list_id: int) -> None:
-    try:
-        _signed_request("DELETE", "/api/v3/orderList", {"symbol": symbol, "orderListId": int(order_list_id)})
-        log(f"[CANCEL-OCO] {symbol} orderListId={order_list_id}")
-    except Exception as e:
-        log(f"[ERR] cancel_oco: {e}")
+    recovery_cancel_oco(
+        symbol,
+        order_list_id,
+        signed_request=_signed_request,
+        logger=log,
+    )
 
 def get_order_by_client_id(symbol: str, client_id: str) -> Dict[str, Any] | None:
-    try:
-        return _signed_request(
-            "GET",
-            "/api/v3/order",
-            {"symbol": symbol, "origClientOrderId": client_id},
-        )
-    except requests.HTTPError as exc:
-        if _http_error_code(exc) == -2013:
-            return None
-        raise
+    return recovery_get_order_by_client_id(
+        symbol, client_id, signed_request=_signed_request
+    )
 
 
 def get_order_list_by_client_id(client_id: str) -> Dict[str, Any] | None:
-    try:
-        return _signed_request(
-            "GET",
-            "/api/v3/orderList",
-            {"origClientOrderId": client_id},
-        )
-    except requests.HTTPError as exc:
-        if _http_error_code(exc) in (-2013, -2011):
-            return None
-        raise
+    return recovery_get_order_list_by_client_id(
+        client_id, signed_request=_signed_request
+    )
 
 
 def verify_oco_legs(symbol: str, order_list: Dict[str, Any]) -> List[Dict[str, Any]]:
-    refs = order_list.get("orders") or []
-    if len(refs) != 2:
-        raise RuntimeError("OCO verification did not return exactly two legs")
-    legs: List[Dict[str, Any]] = []
-    for ref in refs:
-        if ref.get("orderId") is None:
-            raise RuntimeError("OCO leg has no orderId")
-        payload = _signed_request(
-            "GET",
-            "/api/v3/order",
-            {"symbol": symbol, "orderId": int(ref["orderId"])},
-        )
-        if not isinstance(payload, dict):
-            raise RuntimeError("OCO leg query returned an invalid payload")
-        legs.append(payload)
-    if any(str(leg.get("side") or "").upper() != "SELL" for leg in legs):
-        raise RuntimeError("OCO contains a non-SELL leg")
-    leg_types = {str(leg.get("type") or "").upper() for leg in legs}
-    if not ({"LIMIT_MAKER", "LIMIT"} & leg_types) or not (
-        {"STOP_LOSS_LIMIT", "STOP_LOSS"} & leg_types
-    ):
-        raise RuntimeError(f"OCO leg types are invalid: {sorted(leg_types)}")
-    return legs
+    return recovery_verify_oco_legs(
+        symbol, order_list, signed_request=_signed_request
+    )
 
 
 def _record_order_payload(payload: Dict[str, Any] | None) -> Optional[OrderIntent]:
-    if not payload:
-        return None
-    journal = _order_journal()
-    if journal is None:
-        return None
-    client_id = str(payload.get("clientOrderId") or payload.get("origClientOrderId") or "")
-    intent = journal.get(client_id) if client_id else None
-    if intent is None and payload.get("orderId") is not None:
-        intent = journal.get_by_exchange_order_id(int(payload["orderId"]))
-    if intent is None:
-        return None
-    return journal.record_exchange_order(intent.client_order_id, payload)
+    return recovery_record_order_payload(payload, journal=_order_journal())
+
+
+def _recovery_dependencies() -> RecoveryDependencies:
+    return RecoveryDependencies(
+        journal=_order_journal,
+        get_order_by_client_id=lambda symbol, client_id: get_order_by_client_id(
+            symbol, client_id
+        ),
+        get_order_list_by_client_id=lambda client_id: get_order_list_by_client_id(
+            client_id
+        ),
+        verify_oco_legs=lambda symbol, payload: verify_oco_legs(symbol, payload),
+        cancel_oco=lambda symbol, order_list_id: cancel_oco(
+            symbol, order_list_id
+        ),
+        halt=_trip_execution_halt,
+        logger=log,
+    )
 
 
 def recover_pending_buy_order_ids(symbol: str) -> List[int]:
-    """Reconcile every unfinished BUY before allowing new placement after restart."""
-    journal = _order_journal()
-    if journal is None:
-        return []
-    recovered: List[int] = []
-    for intent in journal.unresolved_buys(symbol):
-        try:
-            payload = get_order_by_client_id(symbol, intent.client_order_id)
-        except requests.RequestException as exc:
-            journal.mark_unknown(intent.client_order_id, exc)
-            reason = f"cannot reconcile BUY {intent.client_order_id} after restart: {exc}"
-            _trip_execution_halt(reason, symbol=symbol, client_order_id=intent.client_order_id)
-            raise RuntimeError(reason) from exc
-        if payload is None:
-            if intent.state not in ("PREPARED", "UNKNOWN"):
-                reason = (
-                    f"exchange lost unresolved BUY {intent.client_order_id} "
-                    f"recorded as {intent.state}"
-                )
-                _trip_execution_halt(reason, symbol=symbol, client_order_id=intent.client_order_id)
-                raise RuntimeError(reason)
-            log(f"[RECOVERY] {symbol} {intent.client_order_id} not found; safe to retry same ID")
-            continue
-        updated = journal.record_exchange_order(intent.client_order_id, payload)
-        if updated.state in ("SUBMITTED", "PARTIALLY_FILLED", "FILLED", "PROTECTION_PENDING"):
-            if updated.exchange_order_id is None:
-                reason = f"reconciled BUY {intent.client_order_id} has no exchange orderId"
-                _trip_execution_halt(reason, symbol=symbol, client_order_id=intent.client_order_id)
-                raise RuntimeError(reason)
-            recovered.append(updated.exchange_order_id)
-            log(
-                f"[RECOVERY] {symbol} client={intent.client_order_id} "
-                f"order={updated.exchange_order_id} state={updated.state}"
-            )
-    return list(dict.fromkeys(recovered))
+    return recovery_pending_buy_order_ids(
+        symbol, dependencies=_recovery_dependencies()
+    )
 
 
 def recover_existing_protection(parent_client_order_id: str) -> bool:
-    """Resolve a crash after protection POST but before the local ACK was persisted."""
-    journal = _order_journal()
-    if journal is None:
-        return False
-    protection = journal.protection_for_parent(parent_client_order_id)
-    if protection is None:
-        return False
-    if protection.state == "PROTECTED":
-        return True
-    if protection.order_type == "OCO":
-        payload = get_order_list_by_client_id(protection.client_order_id)
-        if not isinstance(payload, dict) or payload.get("listStatusType") not in ("EXEC_STARTED", "ALL_DONE"):
-            return False
-        order_list_id = payload.get("orderListId")
-        try:
-            verify_oco_legs(protection.symbol, payload)
-        except (requests.RequestException, RuntimeError):
-            if order_list_id is not None:
-                cancel_oco(protection.symbol, int(order_list_id))
-            return False
-        journal.mark_protected(
-            parent_client_order_id=parent_client_order_id,
-            protection_client_order_id=protection.client_order_id,
-            order_list_id=int(order_list_id) if order_list_id is not None else None,
-        )
-        return True
-    payload = get_order_by_client_id(protection.symbol, protection.client_order_id)
-    if not isinstance(payload, dict):
-        return False
-    updated = journal.record_exchange_order(protection.client_order_id, payload)
-    if updated.state in ("SUBMITTED", "PARTIALLY_FILLED", "FILLED"):
-        journal.mark_protected(
-            parent_client_order_id=parent_client_order_id,
-            protection_client_order_id=protection.client_order_id,
-            exchange_order_id=updated.exchange_order_id,
-        )
-        return True
-    return False
+    return recovery_existing_protection(
+        parent_client_order_id,
+        dependencies=_recovery_dependencies(),
+    )
 
 
 def get_order(symbol: str, order_id: int) -> Dict[str, Any] | None:
-    try:
-        payload = _signed_request("GET", "/api/v3/order", {"symbol": symbol, "orderId": order_id})
-        _record_order_payload(payload)
-        return payload
-    except Exception as e:
-        log(f"[ERR] get_order: {e}")
-        return None
+    return recovery_get_order(
+        symbol,
+        order_id,
+        signed_request=_signed_request,
+        record_payload=_record_order_payload,
+        logger=log,
+    )
 
 def place_limit_order(side: str,
                       symbol: str,
