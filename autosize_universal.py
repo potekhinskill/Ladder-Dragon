@@ -114,7 +114,7 @@ from executor_recovery import recover_existing_protection as recovery_existing_p
 from executor_recovery import recover_pending_buy_order_ids as recovery_pending_buy_order_ids
 from executor_recovery import verify_oco_legs as recovery_verify_oco_legs
 from executor_stats import commission_quote_value, poll_mytrades_once
-from inventory_lots import add_lot, consume_fifo, ensure_schema as ensure_lots_schema
+from inventory_lots import add_lot, consume_fifo, ensure_schema as ensure_lots_schema, oldest_lots
 
 import requests
 # для пер-символьного лока
@@ -893,7 +893,7 @@ def _stats_poll_mytrades_once(symbol: str):
             if ai_db:
                 from ai_context import AdvisorDecisionStore
                 store = AdvisorDecisionStore(ai_db)
-                decision_id = store.latest_decision_id(symbol)
+                decision_id = os.getenv("BOT_AI_DECISION_ID", "").strip() or store.latest_decision_id(symbol)
                 if decision_id:
                     store.record_fill(decision_id, symbol=symbol, side=fill["side"],
                                       price=float(fill["price"]), qty=float(fill["qty"]),
@@ -1557,6 +1557,16 @@ def main():
                     if now_ms - opened_ms < max_hold_min * 60_000:
                         continue
                     qty_exp = float(held.get("executedQty", 0) or 0)
+                    # Если ledger знает партии, time-stop закрывает сначала
+                    # самый старый inventory, а не случайную агрегированную qty.
+                    if STATS_CON is not None:
+                        try:
+                            lots = oldest_lots(STATS_CON, symbol)
+                            lot_qty = sum((lot.qty for lot in lots), Decimal("0"))
+                            if lot_qty > 0:
+                                qty_exp = min(qty_exp, float(lot_qty))
+                        except sqlite3.Error:
+                            pass
                     if qty_exp > 0:
                         log(f"[TIME-STOP] {symbol} order={oid} age>{max_hold_min:g}m; flattening")
                         place_market_order(symbol, "SELL", qty_exp,
