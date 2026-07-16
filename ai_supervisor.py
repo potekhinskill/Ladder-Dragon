@@ -46,6 +46,7 @@ from ai_statistical import context_vector
 from ai_runtime_status import write_runtime_status
 from order_identity import client_order_id
 from risk_manager import RiskDecision, RiskLimits, RiskManager, RiskSnapshot, load_daily_trade_metrics, money
+from risk_statistics import correlated_symbols as derive_correlated_symbols
 from time_safety import assess_exchange_clock
 from venue_config import apply_testnet_paths
 from product_version import __version__, product_label, user_agent
@@ -2042,6 +2043,20 @@ def _build_risk_snapshot(
         for value in os.getenv("RISK_CORRELATED_SYMBOLS", ",".join(symbols)).split(",")
         if value.strip()
     }
+    if os.getenv("RISK_CORRELATION_MODE", "rolling").lower() == "rolling" and len(symbols) > 1:
+        histories: Dict[str, list[float]] = {}
+        window = max(3, int(os.getenv("RISK_CORRELATION_WINDOW", "48") or 48))
+        threshold = float(os.getenv("RISK_CORRELATION_THRESHOLD", "0.70") or 0.70)
+        for symbol in symbols:
+            klines = TM.get_klines(symbol, "15m", limit=window + 1)
+            closes = [float(row[4]) for row in klines if len(row) > 4 and float(row[4]) > 0]
+            if len(closes) >= 4:
+                histories[symbol] = closes
+        rolling = derive_correlated_symbols(
+            histories, threshold=threshold, window=window
+        )
+        if rolling:
+            correlated_symbols = rolling
     correlated = sum(
         asset_values.get(symbol_assets(symbol)[0], Decimal("0"))
         for symbol in symbols if symbol in correlated_symbols
