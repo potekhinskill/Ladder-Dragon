@@ -7,6 +7,7 @@ DASHBOARD_ENV="${PROJECT_DIR}/.env.dashboard"
 BOT_HOSTNAME="${BOT_HOSTNAME:-$(hostname -s).local}"
 BOT_USER="${BOT_USER:-$(stat -c '%U' "${PROJECT_DIR}" 2>/dev/null || echo bot)}"
 ACTION="${1:-update}"
+UPDATE_COMMIT="${2:-${BOT_UPDATE_COMMIT:-}}"
 MYBOT_WAS_ACTIVE=0
 DASHBOARD_WAS_ACTIVE=0
 MYBOT_WAS_ENABLED=0
@@ -112,6 +113,12 @@ check_link() {
     http://127.0.0.1:8081/api/health)"
   [[ "${anonymous_status}" == "401" ]] \
     || fail "expected protected API HTTP 401, got ${anonymous_status}"
+  local forged_proxy_status
+  forged_proxy_status="$(curl --silent --output /dev/null --write-out '%{http_code}' \
+    -H 'X-Authenticated-User: dashboard' \
+    http://127.0.0.1:8081/api/health)"
+  [[ "${forged_proxy_status}" == "401" ]] \
+    || fail "forged local proxy header was accepted: HTTP ${forged_proxy_status}"
   local anonymous_logs_status
   anonymous_logs_status="$(
     curl --insecure --silent --output /dev/null --write-out '%{http_code}' \
@@ -127,20 +134,21 @@ check_link() {
 }
 
 if [[ "${EUID}" -ne 0 ]]; then
-  exec sudo --preserve-env=PROJECT_DIR,WEB_ROOT,BOT_HOSTNAME,BOT_USER "$0" "$@"
+  exec sudo --preserve-env=PROJECT_DIR,WEB_ROOT,BOT_HOSTNAME,BOT_USER,BOT_UPDATE_COMMIT,BOT_UPDATE_REQUIRE_SIGNED_COMMIT "$0" "$@"
 fi
 
 [[ -d "${PROJECT_DIR}" ]] || fail "project directory not found: ${PROJECT_DIR}"
 cd "${PROJECT_DIR}"
 
-# `git pull` может обновить сам скрипт. Продолжаем из неизменяемой копии в /tmp,
+# Обновление может заменить сам скрипт. Продолжаем из неизменяемой копии в /tmp,
 # чтобы bash не дочитал вторую половину уже из новой версии файла.
 if [[ "${ACTION}" == "update" && "${BOT_UPDATE_RUNNER:-0}" != "1" ]]; then
   runner="$(mktemp /tmp/ladder-dragon-update.XXXXXX)"
   install -m 0700 "$0" "${runner}"
   exec env BOT_UPDATE_RUNNER=1 PROJECT_DIR="${PROJECT_DIR}" WEB_ROOT="${WEB_ROOT}" \
     BOT_HOSTNAME="${BOT_HOSTNAME}" BOT_USER="${BOT_USER}" \
-    bash "${runner}" update
+    BOT_UPDATE_REQUIRE_SIGNED_COMMIT="${BOT_UPDATE_REQUIRE_SIGNED_COMMIT:-0}" \
+    bash "${runner}" update "${UPDATE_COMMIT}"
 fi
 
 if [[ "${ACTION}" == "check" ]]; then
@@ -148,7 +156,11 @@ if [[ "${ACTION}" == "check" ]]; then
   exit 0
 fi
 [[ "${ACTION}" == "update" || "${ACTION}" == "apply" ]] \
-  || fail "usage: $0 [update|apply|check]"
+  || fail "usage: $0 [update COMMIT_SHA|apply|check]"
+if [[ "${ACTION}" == "update" ]]; then
+  [[ "${UPDATE_COMMIT}" =~ ^[0-9a-fA-F]{40}$ ]] \
+    || fail "update requires an exact 40-character commit SHA"
+fi
 
 [[ -f .env ]] || fail "configure ${PROJECT_DIR}/.env before deployment"
 [[ -f .env.service ]] \
@@ -160,6 +172,12 @@ if [[ ! -f "${DASHBOARD_ENV}" ]]; then
   fail "created ${DASHBOARD_ENV}; replace placeholder dashboard tokens/keys, then run again"
 fi
 
+[[ -r /etc/ladder-dragon/backup.env ]] \
+  || fail "/etc/ladder-dragon/backup.env is missing; run installer migrate"
+set -a
+# shellcheck disable=SC1091
+. /etc/ladder-dragon/backup.env
+set +a
 PROJECT_DIR="${PROJECT_DIR}" deploy/backup_raspberry_pi.sh
 
 # Сначала фиксируем состояние systemd. `systemctl stop` не отменяет enabled:
@@ -174,7 +192,18 @@ systemctl stop pi-healthd
 if [[ "${ACTION}" == "update" ]]; then
   [[ -z "$(runuser -u "${BOT_USER}" -- git status --porcelain --untracked-files=no)" ]] \
     || fail "tracked project files have local changes; commit or stash them first"
-  runuser -u "${BOT_USER}" -- git pull --ff-only
+  runuser -u "${BOT_USER}" -- git fetch --prune origin
+  runuser -u "${BOT_USER}" -- git cat-file -e "${UPDATE_COMMIT}^{commit}"
+  upstream="$(runuser -u "${BOT_USER}" -- git rev-parse --abbrev-ref '@{upstream}')"
+  runuser -u "${BOT_USER}" -- git merge-base --is-ancestor HEAD "${UPDATE_COMMIT}" \
+    || fail "requested commit is not a fast-forward from current HEAD"
+  runuser -u "${BOT_USER}" -- git merge-base --is-ancestor "${UPDATE_COMMIT}" "${upstream}" \
+    || fail "requested commit is not contained in ${upstream}"
+  if [[ "${BOT_UPDATE_REQUIRE_SIGNED_COMMIT:-0}" == "1" ]]; then
+    runuser -u "${BOT_USER}" -- git verify-commit "${UPDATE_COMMIT}" \
+      || fail "Git signature verification failed for ${UPDATE_COMMIT}"
+  fi
+  runuser -u "${BOT_USER}" -- git merge --ff-only "${UPDATE_COMMIT}"
   runuser -u "${BOT_USER}" -- .venv/bin/python -m pip install -e '.[dashboard]'
 fi
 
@@ -205,16 +234,42 @@ if grep -q '^DASHBOARD_TRUST_PROXY_AUTH=' "${DASHBOARD_ENV}"; then
 else
   printf 'DASHBOARD_TRUST_PROXY_AUTH=1\n' >>"${DASHBOARD_ENV}"
 fi
-if grep -q '^DASHBOARD_ENABLE_LOGS=' "${DASHBOARD_ENV}"; then
-  sed -i 's/^DASHBOARD_ENABLE_LOGS=.*/DASHBOARD_ENABLE_LOGS=0/' "${DASHBOARD_ENV}"
-else
-  printf 'DASHBOARD_ENABLE_LOGS=0\n' >>"${DASHBOARD_ENV}"
+
+set_env_value() {
+  local file="$1"
+  local name="$2"
+  local value="$3"
+  if grep -q "^${name}=" "${file}"; then
+    sed -i "s#^${name}=.*#${name}=${value}#" "${file}"
+  else
+    printf '%s=%s\n' "${name}" "${value}" >>"${file}"
+  fi
+}
+
+dashboard_token="$(
+  sed -n 's/^DASHBOARD_AUTH_TOKEN=//p' "${DASHBOARD_ENV}" | head -1
+)"
+if [[ ! "${dashboard_token}" =~ ^[0-9a-fA-F]{64,}$ ]]; then
+  set_env_value "${DASHBOARD_ENV}" DASHBOARD_AUTH_TOKEN "$(openssl rand -hex 32)"
+fi
+dashboard_proxy_secret="$(
+  sed -n 's/^DASHBOARD_PROXY_AUTH_SECRET=//p' "${DASHBOARD_ENV}" | head -1
+)"
+if [[ ! "${dashboard_proxy_secret}" =~ ^[0-9a-fA-F]{64,}$ ]]; then
+  dashboard_proxy_secret="$(openssl rand -hex 32)"
+  set_env_value "${DASHBOARD_ENV}" DASHBOARD_PROXY_AUTH_SECRET "${dashboard_proxy_secret}"
 fi
 chmod 0600 "${DASHBOARD_ENV}"
 
 install -d -o "${BOT_USER}" -g "${BOT_USER}" -m 0700 db logs FastAPI/pi-dashboard/data
 install -d -o root -g www-data -m 0750 /var/lib/ladder-dragon/logs
 install -d -o root -g root -m 0755 "${WEB_ROOT}"
+install -d -m 0755 /etc/nginx/snippets
+install -o root -g www-data -m 0640 /dev/null \
+  /etc/nginx/snippets/ladder_dragon_proxy_secret.conf
+printf 'proxy_set_header X-Dashboard-Proxy-Secret "%s";\n' \
+  "${dashboard_proxy_secret}" \
+  >/etc/nginx/snippets/ladder_dragon_proxy_secret.conf
 install -m 0644 FRONT/index.html FRONT/help.html "${WEB_ROOT}/"
 rm -f "${WEB_ROOT}/readme.html"
 [[ -f /etc/nginx/.htpasswd-ladder-dragon ]] \
@@ -260,6 +315,8 @@ fi
 
 runuser -u "${BOT_USER}" -- .venv/bin/python -m compileall -q \
   ai_supervisor.py autosize_universal.py FastAPI/pi-dashboard
+runuser -u "${BOT_USER}" -- .venv/bin/python \
+  deploy/validate_security_config.py "${PROJECT_DIR}"
 runuser -u "${BOT_USER}" -- .venv/bin/python ai_supervisor.py --version
 nginx -t
 
@@ -280,6 +337,8 @@ wait_for_service mybot 90
 wait_for_service pi-healthd 90
 wait_for_heartbeat 120
 test -r /var/lib/ladder-dragon/logs/current.log || fail "log export failed"
+grep -q '^DASHBOARD_AUTH_TOKEN=replace_' "${DASHBOARD_ENV}" \
+  && fail "placeholder dashboard token remains"
 check_link
 SERVICES_STOPPED=0
 trap - ERR INT TERM

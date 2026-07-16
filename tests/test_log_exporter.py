@@ -33,6 +33,29 @@ def test_sanitize_redacts_credentials_and_binance_signature():
     assert "SOLUSDT" in sanitized
 
 
+def test_sanitize_redacts_json_cookies_url_credentials_and_private_keys():
+    exporter = load_exporter()
+    source = (
+        '{"apiKey":"json-key","token": "json-token"}\n'
+        "Cookie: session=browser-secret\n"
+        "https://robot:url-password@example.com/path\n"
+        "-----BEGIN PRIVATE KEY-----\nprivate-material\n"
+        "-----END PRIVATE KEY-----\n"
+    )
+
+    sanitized, replacements = exporter.sanitize(source)
+
+    assert replacements >= 5
+    for secret in (
+        "json-key",
+        "json-token",
+        "browser-secret",
+        "url-password",
+        "private-material",
+    ):
+        assert secret not in sanitized
+
+
 def test_tail_bytes_keeps_recent_complete_lines(monkeypatch):
     exporter = load_exporter()
     monkeypatch.setattr(exporter, "MAX_BYTES", 64)

@@ -120,7 +120,8 @@ sudo -u bot git log -1 --oneline
 
 ```bash
 cd /home/bot/apps/binance_bot
-sudo bash deploy/install_raspberry_pi.sh install
+RELEASE_SHA="<40-символьный SHA проверенного коммита>"
+sudo bash deploy/install_raspberry_pi.sh install --commit "$RELEASE_SHA"
 ```
 
 Инсталлятор:
@@ -284,7 +285,8 @@ curl -k -u dashboard https://bot.local/api/health
 
 ```bash
 cd /home/bot/apps/binance_bot
-sudo bash deploy/update_raspberry_pi.sh update
+RELEASE_SHA="<40-символьный SHA проверенного коммита>"
+sudo bash deploy/update_raspberry_pi.sh update "$RELEASE_SHA"
 ```
 
 Updater автоматически:
@@ -292,7 +294,7 @@ Updater автоматически:
 1. создаёт закрытый backup;
 2. запоминает активность и автозапуск сервисов;
 3. останавливает `mybot` и `pi-healthd`;
-4. выполняет `git pull --ff-only`;
+4. применяет только указанный fast-forward commit SHA;
 5. обновляет Python-зависимости;
 6. обновляет nginx, frontend и systemd;
 7. проверяет Python и nginx;

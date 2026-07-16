@@ -18,6 +18,7 @@ def test_nginx_requires_auth_and_never_publishes_backups():
     backup_location = site.split("location ^~ /backups/", 1)[1].split("}", 1)[0]
     assert "autoindex on" not in backup_location
     assert "X-Authenticated-User $remote_user" in snippet
+    assert "ladder_dragon_proxy_secret.conf" in site
     assert "location /logs/" in site
     assert "alias /var/lib/ladder-dragon/logs/" in site
     assert "autoindex on" in site
@@ -46,9 +47,11 @@ def test_installer_migrates_sqlite_safely_and_closes_legacy_backups():
     assert "legacy-public-" in installer
     assert "disable --now make-pi-backup.timer" in installer
     assert "/opt/pi-dashboard" in installer
-    assert "DASHBOARD_ENABLE_LOGS=0" in installer
     assert "DASHBOARD_TRUST_PROXY_AUTH=1" in installer
+    assert "DASHBOARD_PROXY_AUTH_SECRET" in installer
+    assert "openssl rand -hex 32" in installer
     assert "--preserve-live" in installer
+    assert "--commit" in installer
     assert 'service_execution="dry"' in installer
     assert "rollback_install" in installer
 
@@ -89,3 +92,33 @@ def test_log_export_is_rotated_sanitized_and_managed_by_systemd():
     assert "Group=www-data" in service
     assert "ladder-dragon-log-export.timer" in installer
     assert "expected protected logs HTTP 401" in installer
+
+
+def test_updates_are_commit_allowlisted_and_backups_are_encrypted():
+    updater = read("deploy/update_raspberry_pi.sh")
+    installer = read("deploy/install_raspberry_pi.sh")
+    backup = read("deploy/backup_raspberry_pi.sh")
+    backup_unit = read("deploy/ladder-dragon-backup.service")
+    assert "update requires an exact 40-character commit SHA" in updater
+    assert "git pull" not in updater
+    assert "merge-base --is-ancestor" in updater
+    assert "git verify-commit" in updater
+    assert "--commit with an exact 40-character Git SHA is required" in installer
+    assert "age -r" in backup
+    assert ".tgz.age" in backup
+    assert "EnvironmentFile=/etc/ladder-dragon/backup.env" in backup_unit
+
+
+def test_systemd_units_have_extended_sandboxing():
+    for relative in (
+        "deploy/mybot.service",
+        "deploy/pi-dashboard.service",
+        "deploy/ladder-dragon-backup.service",
+        "deploy/ladder-dragon-log-export.service",
+    ):
+        unit = read(relative)
+        assert "ProtectKernelTunables=yes" in unit
+        assert "ProtectKernelModules=yes" in unit
+        assert "ProtectControlGroups=yes" in unit
+        assert "RestrictSUIDSGID=yes" in unit
+        assert "LockPersonality=yes" in unit

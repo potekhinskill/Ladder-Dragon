@@ -1,5 +1,5 @@
 from fastapi import FastAPI, Request
-from fastapi.responses import JSONResponse, PlainTextResponse, StreamingResponse
+from fastapi.responses import JSONResponse
 # убрали requests из общего импорта:
 import psutil, shutil, json, os, socket, asyncio, subprocess, math, time, hmac, hashlib, secrets, threading
 from collections import defaultdict, deque
@@ -29,10 +29,8 @@ if SESSION:
 BINANCE_BASE = os.getenv("BINANCE_API_BASE", "https://api.binance.com").rstrip("/")
 DASHBOARD_AUTH_TOKEN = os.getenv("DASHBOARD_AUTH_TOKEN", "")
 DASHBOARD_TRUST_PROXY_AUTH = os.getenv("DASHBOARD_TRUST_PROXY_AUTH", "0") == "1"
+DASHBOARD_PROXY_AUTH_SECRET = os.getenv("DASHBOARD_PROXY_AUTH_SECRET", "")
 DASHBOARD_RATE_LIMIT_PER_MIN = max(1, int(os.getenv("DASHBOARD_RATE_LIMIT_PER_MIN", "120")))
-DASHBOARD_ENABLE_LOGS = os.getenv("DASHBOARD_ENABLE_LOGS", "0") == "1"
-SSE_MAX_CONNECTIONS = max(1, int(os.getenv("DASHBOARD_SSE_MAX_CONNECTIONS", "2")))
-_SSE_SLOTS = threading.BoundedSemaphore(SSE_MAX_CONNECTIONS)
 _RATE_BUCKETS: Dict[str, deque] = defaultdict(deque)
 _RATE_LOCK = threading.Lock()
 AI_DECISIONS_DB = os.getenv("AI_DECISIONS_DB", ".runtime/ai_decisions.sqlite3")
@@ -72,16 +70,25 @@ GiB = 1024**3
 async def authenticate_and_rate_limit(request: Request, call_next):
     if request.url.path.startswith("/api/"):
         proxy_user = request.headers.get("X-Authenticated-User", "")
+        proxy_secret = request.headers.get("X-Dashboard-Proxy-Secret", "")
         bearer = request.headers.get("Authorization", "")
         header_token = request.headers.get("X-Dashboard-Token", "")
         supplied = bearer[7:] if bearer.startswith("Bearer ") else header_token
-        authenticated = (
-            DASHBOARD_TRUST_PROXY_AUTH and bool(proxy_user)
-        ) or (
+        proxy_authenticated = (
+            DASHBOARD_TRUST_PROXY_AUTH
+            and bool(proxy_user)
+            and bool(DASHBOARD_PROXY_AUTH_SECRET)
+            and secrets.compare_digest(proxy_secret, DASHBOARD_PROXY_AUTH_SECRET)
+        )
+        token_authenticated = (
             bool(DASHBOARD_AUTH_TOKEN) and secrets.compare_digest(supplied, DASHBOARD_AUTH_TOKEN)
         )
+        authenticated = proxy_authenticated or token_authenticated
         if not authenticated:
-            status = 503 if not DASHBOARD_AUTH_TOKEN and not DASHBOARD_TRUST_PROXY_AUTH else 401
+            proxy_configured = (
+                DASHBOARD_TRUST_PROXY_AUTH and bool(DASHBOARD_PROXY_AUTH_SECRET)
+            )
+            status = 503 if not DASHBOARD_AUTH_TOKEN and not proxy_configured else 401
             return JSONResponse({"ok": False, "error": "dashboard authentication required"}, status_code=status)
 
         client = request.client.host if request.client else "unknown"
@@ -525,11 +532,12 @@ def equity_pnl_usdt(cutoff_s: int, rows: List[sqlite3.Row], fee_pct: float, symb
 
 # ------------------- system helpers (original) ------------------------------------
 
-def sh(cmd: str, timeout=5):
+def run_command(*args: str, timeout=5):
+    """Запустить только явно заданную команду без shell-интерпретации."""
     try:
-        r = subprocess.run(["bash","-lc",cmd], capture_output=True, text=True, timeout=timeout)
+        r = subprocess.run(args, capture_output=True, text=True, timeout=timeout)
         return r.returncode, (r.stdout or "") + (r.stderr or "")
-    except Exception as e:
+    except (OSError, subprocess.SubprocessError) as e:
         return 1, str(e)
 
 def now_local():
@@ -539,7 +547,7 @@ def now_str():
     return now_local().strftime("%Y-%m-%d %H:%M:%S")
 
 def read_temp_c():
-    rc,out = sh("vcgencmd measure_temp 2>/dev/null")
+    rc,out = run_command("vcgencmd", "measure_temp")
     if rc==0 and "temp=" in out:
         try:
             return float(out.split("=",1)[1].split("'")[0])
@@ -556,7 +564,7 @@ def read_temp_c():
     return None
 
 def parse_throttled():
-    rc,out = sh("vcgencmd get_throttled 2>/dev/null || true")
+    rc,out = run_command("vcgencmd", "get_throttled")
     raw = out.strip() or "throttled=0x0"
     try:
         hexstr = raw.split("0x",1)[1]
@@ -598,11 +606,15 @@ def mounts_info():
     return res
 
 def service_active(name: str):
-    rc,out = sh(f"systemctl is-active {name} || true", timeout=2)
+    if name not in {"mybot", "pi-healthd"}:
+        return "invalid"
+    rc,out = run_command("systemctl", "is-active", name, timeout=2)
     return out.strip()
 
 def fail2ban_bans(jail="sshd"):
-    rc,out = sh(f"fail2ban-client status {jail} 2>/dev/null || true")
+    if jail != "sshd":
+        return 0
+    rc,out = run_command("fail2ban-client", "status", jail)
     count = 0
     try:
         for line in out.splitlines():
@@ -919,36 +931,6 @@ def ai_status(limit: int = 50):
             "edge": sum(edge_values) / len(edge_values) if edge_values else 0,
         },
     }
-
-@app.get("/api/bot/logs")
-def bot_logs(tail: int = 200):
-    if not DASHBOARD_ENABLE_LOGS:
-        return JSONResponse({"ok": False, "error": "log API disabled"}, status_code=404)
-    tail = max(50, min(tail, 5000))
-    rc, out = sh(f"journalctl -u mybot -n {tail} -o cat --no-pager", timeout=10)
-    return PlainTextResponse(out)
-
-@app.get("/api/bot/logs/stream")
-def bot_logs_stream():
-    if not DASHBOARD_ENABLE_LOGS:
-        return JSONResponse({"ok": False, "error": "log stream disabled"}, status_code=404)
-    if not _SSE_SLOTS.acquire(blocking=False):
-        return JSONResponse({"ok": False, "error": "SSE connection limit reached"}, status_code=429)
-    def gen():
-        proc = subprocess.Popen(
-            ["bash","-lc","journalctl -u mybot -f -n 0 -o cat"],
-            stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, bufsize=1
-        )
-        try:
-            yield "retry: 1500\n\n"
-            for line in iter(proc.stdout.readline, ""):
-                yield f"data: {line.rstrip()}\n\n"
-        finally:
-            try: proc.terminate()
-            except Exception: pass
-            _SSE_SLOTS.release()
-    headers = {"Cache-Control":"no-cache"}
-    return StreamingResponse(gen(), media_type="text/event-stream", headers=headers)
 
 # ---- trades symbols ---------------------------------------------------------------
 
