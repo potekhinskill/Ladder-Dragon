@@ -12,6 +12,7 @@ import sqlite3
 from typing import List, Dict, Optional, Tuple
 
 from ai_runtime_status import read_runtime_status
+from ai_control import read_ai_control, write_ai_control
 from product_version import PRODUCT_NAME, __version__
 
 try:
@@ -42,6 +43,9 @@ AI_DAILY_TOKEN_LIMIT = int(os.getenv("AI_DAILY_TOKEN_LIMIT", "100000"))
 AI_MAX_REQUESTS_PER_DAY = int(os.getenv("AI_MAX_REQUESTS_PER_DAY", "1000"))
 AI_RUNTIME_STATUS_FILE = Path(
     os.getenv("AI_RUNTIME_STATUS_FILE", "/run/mybot/ai_status.json")
+)
+AI_CONTROL_FILE = Path(
+    os.getenv("AI_CONTROL_FILE", str(BASE_DIR / "data" / "ai_control.json"))
 )
 DASHBOARD_FOLLOW_BOT_PATHS = (
     os.getenv("DASHBOARD_FOLLOW_BOT_PATHS", "0") == "1"
@@ -933,6 +937,83 @@ def ai_status(limit: int = 50):
             "samples": len(edge_values),
             "edge": sum(edge_values) / len(edge_values) if edge_values else 0,
         },
+    }
+
+
+def _ai_control_snapshot() -> Dict[str, object]:
+    """Собрать состояние переключателя без доступа к ключам или ордерам."""
+    runtime = _load_ai_runtime_status()
+    runtime_ai = runtime.get("ai", {}) if isinstance(runtime.get("ai"), dict) else {}
+    configured = bool(runtime_ai.get("enabled"))
+    configured_mode = str(runtime_ai.get("configured_mode") or AI_MODE).upper()
+    control_error = None
+    try:
+        control = read_ai_control(AI_CONTROL_FILE)
+    except (OSError, TypeError, ValueError, json.JSONDecodeError) as exc:
+        control = None
+        control_error = str(exc)
+    if control is None:
+        enabled = configured and configured_mode != "DISABLED"
+        mode = configured_mode if enabled else "DISABLED"
+    else:
+        enabled = bool(control.get("enabled")) and configured
+        mode = configured_mode if enabled else "DISABLED"
+    return {
+        "configured": configured,
+        "enabled": enabled,
+        "mode": mode,
+        "configured_mode": configured_mode,
+        "control_error": control_error,
+        "updated_at": control.get("updated_at") if control else None,
+    }
+
+
+@app.get("/api/ai/control")
+def ai_control():
+    """Вернуть состояние runtime-переключателя AI."""
+    snapshot = _ai_control_snapshot()
+    if snapshot["control_error"]:
+        return JSONResponse(
+            {"ok": False, "error": "AI control file is invalid", **snapshot},
+            status_code=503,
+        )
+    return {"ok": True, **snapshot}
+
+
+@app.post("/api/ai/control")
+async def set_ai_control(request: Request):
+    """Включить/отключить только advisory AI; торговые права не меняются."""
+    snapshot = _ai_control_snapshot()
+    if not snapshot["configured"] or snapshot["configured_mode"] == "DISABLED":
+        return JSONResponse(
+            {"ok": False, "error": "AI advisor is not configured", **snapshot},
+            status_code=409,
+        )
+    try:
+        payload = await request.json()
+    except (TypeError, ValueError):
+        return JSONResponse({"ok": False, "error": "JSON body is required"}, status_code=400)
+    if not isinstance(payload, dict) or not isinstance(payload.get("enabled"), bool):
+        return JSONResponse(
+            {"ok": False, "error": "enabled must be boolean"}, status_code=400
+        )
+    try:
+        document = write_ai_control(
+            AI_CONTROL_FILE,
+            enabled=payload["enabled"],
+            mode=str(snapshot["configured_mode"]),
+        )
+    except (OSError, TypeError, ValueError) as exc:
+        return JSONResponse(
+            {"ok": False, "error": f"AI control write failed: {exc}"},
+            status_code=503,
+        )
+    return {
+        "ok": True,
+        "configured": True,
+        "enabled": bool(document["enabled"]),
+        "mode": document["mode"],
+        "updated_at": document["updated_at"],
     }
 
 # ---- trades symbols ---------------------------------------------------------------

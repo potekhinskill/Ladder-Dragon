@@ -44,6 +44,38 @@ def test_health_exposes_product_version_and_changelog(monkeypatch):
     assert payload["changelog_url"] == "/CHANGELOG.md"
 
 
+def test_ai_control_button_changes_only_advisory_mode(tmp_path, monkeypatch):
+    status_file = tmp_path / "ai_status.json"
+    control_file = tmp_path / "ai_control.json"
+    write_runtime_status(status_file, {
+        "state": "RUNNING",
+        "ai": {
+            "enabled": True,
+            "mode": "APPLY",
+            "configured_mode": "APPLY",
+        },
+    })
+    monkeypatch.setenv("AI_RUNTIME_STATUS_FILE", str(status_file))
+    monkeypatch.setenv("AI_CONTROL_FILE", str(control_file))
+    module = load_dashboard(monkeypatch)
+    headers = {"Authorization": "Bearer test-secret-token"}
+    with TestClient(module.app) as client:
+        initial = client.get("/api/ai/control", headers=headers)
+        disabled = client.post(
+            "/api/ai/control", headers=headers, json={"enabled": False}
+        )
+        enabled = client.post(
+            "/api/ai/control", headers=headers, json={"enabled": True}
+        )
+
+    assert initial.status_code == 200
+    assert initial.json()["enabled"] is True
+    assert disabled.status_code == 200
+    assert disabled.json()["mode"] == "DISABLED"
+    assert enabled.status_code == 200
+    assert enabled.json()["mode"] == "APPLY"
+
+
 def test_log_api_is_disabled_by_default(monkeypatch):
     module = load_dashboard(monkeypatch)
     with TestClient(module.app) as client:
