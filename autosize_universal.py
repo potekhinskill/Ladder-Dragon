@@ -114,6 +114,7 @@ from executor_recovery import recover_existing_protection as recovery_existing_p
 from executor_recovery import recover_pending_buy_order_ids as recovery_pending_buy_order_ids
 from executor_recovery import verify_oco_legs as recovery_verify_oco_legs
 from executor_stats import commission_quote_value, poll_mytrades_once
+from inventory_lots import add_lot, consume_fifo, ensure_schema as ensure_lots_schema
 
 import requests
 # для пер-символьного лока
@@ -873,6 +874,33 @@ def _stats_poll_mytrades_once(symbol: str):
     _stats_init_if_needed()
     if STATS_CON is None or TOOLS_STATS is None:
         return
+    def on_fill(fill: dict) -> None:
+        """Синхронизировать фактический fill с FIFO-партиями и AI журналом."""
+        try:
+            ensure_lots_schema(STATS_CON)
+            if fill["side"] == "BUY":
+                add_lot(STATS_CON, symbol=symbol, qty=Decimal(str(fill["qty"])),
+                        price=Decimal(str(fill["price"])),
+                        source_order_id=str(fill["trade_id"]), opened_at=int(fill["ts"] / 1000))
+            else:
+                consume_fifo(STATS_CON, symbol, Decimal(str(fill["qty"])))
+            STATS_CON.commit()
+        except (sqlite3.Error, ValueError, ArithmeticError) as exc:
+            log(f"[LOTS] {symbol} fill sync failed: {exc}")
+        # AI DB подключается мягко: отсутствие AI не должно блокировать торговый ledger.
+        try:
+            ai_db = os.getenv("AI_DECISIONS_DB", "").strip()
+            if ai_db:
+                from ai_context import AdvisorDecisionStore
+                store = AdvisorDecisionStore(ai_db)
+                decision_id = store.latest_decision_id(symbol)
+                if decision_id:
+                    store.record_fill(decision_id, symbol=symbol, side=fill["side"],
+                                      price=float(fill["price"]), qty=float(fill["qty"]),
+                                      fee_quote=float(fill["fee_quote"]), ts=int(fill["ts"] / 1000))
+        except (sqlite3.Error, ValueError, OSError) as exc:
+            dbg(f"[AI-FILL] {symbol} sync skipped: {exc}")
+
     poll_mytrades_once(
         symbol,
         connection=STATS_CON,
@@ -880,6 +908,7 @@ def _stats_poll_mytrades_once(symbol: str):
         signed_request=_signed_request,
         commission_value=_commission_quote_value,
         logger=log,
+        on_fill=on_fill,
     )
 
 # ------------------- OCO price picker (ladder-aligned + TP-floor) -------------------

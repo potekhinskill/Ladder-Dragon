@@ -460,6 +460,15 @@ class AdvisorDecisionStore:
             )
         return fill_id
 
+    def latest_decision_id(self, symbol: str) -> str | None:
+        """Вернуть последнюю рекомендацию символа для связывания fills."""
+        with self._connect() as connection:
+            row = connection.execute(
+                "SELECT decision_id FROM ai_decisions WHERE symbol=? ORDER BY created_at DESC LIMIT 1",
+                (symbol.upper(),),
+            ).fetchone()
+        return str(row[0]) if row else None
+
     def evaluate_execution(self, decision_id: str, *, baseline_exit_price: float | None = None) -> dict[str, Any]:
         """Рассчитать realized net PnL и baseline equal-notional по fills."""
         with self._connect() as connection:

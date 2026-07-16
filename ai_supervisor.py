@@ -49,6 +49,7 @@ from risk_manager import RiskDecision, RiskLimits, RiskManager, RiskSnapshot, lo
 from risk_statistics import (
     correlated_symbols_multi_window as derive_correlated_symbols_multi_window,
     covariance_var,
+    expected_shortfall,
     marginal_risk_contribution,
     stress_loss,
 )
@@ -2104,6 +2105,11 @@ def _build_risk_snapshot(
     latency_bars = max(1.0, float(os.getenv("RISK_LATENCY_BARS", "1")))
     gap_value = sum(marginal_risk_contribution(exposure_by_symbol,
                                                 shock=gap_shock * latency_bars).values())
+    scenario_losses = [stress_loss(exposure_by_symbol, price_shock=shock,
+                                   spread_widening=float(os.getenv("RISK_STRESS_SPREAD_PCT", "0.01")))
+                       for shock in (-0.03, -0.05, -0.10, -0.15)]
+    es_value = expected_shortfall(scenario_losses,
+                                  confidence=float(os.getenv("RISK_ES_CONFIDENCE", "0.75")))
     snap = RiskSnapshot(
         equity_usdt=equity,
         exposure_usdt=exposure,
@@ -2113,6 +2119,7 @@ def _build_risk_snapshot(
         stress_loss_usdt=money(stress),
         var_usdt=money(var_value),
         gap_risk_usdt=money(gap_value),
+        expected_shortfall_usdt=money(es_value),
         **metrics,
     )
     return snap, orders, prices
@@ -2310,6 +2317,11 @@ def main():
                         )
                         slots = max(1, args.target_buy_per_symbol * len(symbols))
                         safe_cap = min(configured_order_cap, max(Decimal("0"), remaining) / slots)
+                        # Marginal-risk concentration: один актив не должен
+                        # получать весь оставшийся CAP при стрессовой нагрузке.
+                        if snapshot.exposure_usdt > 0 and snapshot.stress_loss_usdt > 0:
+                            stress_ratio = min(Decimal("1"), snapshot.stress_loss_usdt / snapshot.exposure_usdt)
+                            safe_cap *= max(Decimal("0"), Decimal("1") - stress_ratio)
                         min_order = money(args.child_min_order_usdt or 0)
                         if safe_cap <= 0 or (min_order > 0 and safe_cap < min_order):
                             decision = RiskDecision(
