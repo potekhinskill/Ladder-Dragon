@@ -6,6 +6,8 @@ from dataclasses import dataclass
 from decimal import Decimal
 from typing import Iterable, Sequence
 import random
+import os
+from pathlib import Path
 
 
 D = Decimal
@@ -316,12 +318,34 @@ def production_walk_forward(candles: Sequence[Candle], configs: Iterable[Simulat
     configs = list(configs)
     if len(configs) < 2:
         raise ValueError("nested walk-forward requires at least two configs")
-    outer = walk_forward(candles, configs, folds=folds, purge_bars=purge_bars, embargo_bars=embargo_bars)
+    outer = []
+    size = len(candles) // folds
+    for fold in range(1, folds):
+        boundary = fold * size
+        train_end = max(1, boundary - purge_bars)
+        test_start = min(len(candles), boundary + embargo_bars)
+        train, test = candles[:train_end], candles[test_start:(fold + 1) * size]
+        if not train or not test:
+            continue
+        # Внутренние folds выбирают конфигурацию только внутри train.
+        inner_size = max(1, len(train) // max(2, inner_folds + 1))
+        scores = []
+        for cfg in configs:
+            inner_scores = []
+            for inner in range(1, max(2, inner_folds + 1)):
+                end = min(len(train), inner * inner_size)
+                if end <= 1:
+                    continue
+                inner_scores.append(simulate_grid(train[:end], cfg).final_equity)
+            scores.append((sum(inner_scores, D("0")) / max(1, len(inner_scores)), cfg))
+        best = max(scores, key=lambda item: item[0])[1]
+        outer.append({"fold": fold, "config": best, "result": simulate_grid(test, best),
+                      "purge_bars": purge_bars, "embargo_bars": embargo_bars})
     returns = [item["result"].final_equity - item["result"].buy_hold_equity for item in outer]
     ci = bootstrap_confidence_interval(returns, confidence=confidence) if returns else (D("0"), D("0"))
     # Bonferroni-style conservative threshold for multiple configurations.
     adjusted_alpha = (D("1") - D(str(confidence))) / max(1, len(configs))
-    return {
+    report = {
         "folds": outer,
         "excess_returns": returns,
         "confidence_interval": ci,
@@ -330,6 +354,12 @@ def production_walk_forward(candles: Sequence[Candle], configs: Iterable[Simulat
         "cost_robustness": [cost_robustness(candles, item["config"]) for item in outer],
         "inner_folds": inner_folds,
     }
+    # Fail-closed marker можно использовать CI/деплоем: degraded параметры не
+    # должны автоматически попадать в LIVE-конфигурацию.
+    lock_path = os.getenv("BOT_PARAM_LOCK_FILE", "")
+    if report["degraded"] and lock_path:
+        Path(lock_path).write_text("degraded\n", encoding="utf-8")
+    return report
 
 
 def stress_grid(

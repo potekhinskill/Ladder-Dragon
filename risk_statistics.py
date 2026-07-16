@@ -123,3 +123,24 @@ def expected_shortfall(losses: Sequence[float], *, confidence: float = 0.99) -> 
 def marginal_risk_contribution(exposures: Mapping[str, float], *, shock: float = 0.05) -> dict[str, float]:
     """Консервативный marginal contribution: сколько теряет каждый актив при shock."""
     return {symbol: max(0.0, float(value)) * max(0.0, shock) for symbol, value in exposures.items()}
+
+
+def conversion_price(*, asset_qty: float, side: str, bids: Sequence[tuple[float, float]],
+                     asks: Sequence[tuple[float, float]], fee_pct: float = 0.0,
+                     min_depth_ratio: float = 1.0) -> float:
+    """Оценить cross-quote конвертацию только при достаточной глубине стакана."""
+    levels = bids if side.upper() == "SELL" else asks
+    remaining = max(0.0, float(asset_qty))
+    notional = 0.0
+    available = sum(max(0.0, float(qty)) for _, qty in levels)
+    if remaining <= 0 or available < remaining * max(1.0, min_depth_ratio):
+        raise ValueError("insufficient conversion-book depth")
+    for price, qty in levels:
+        used = min(remaining, max(0.0, float(qty)))
+        notional += used * float(price)
+        remaining -= used
+        if remaining <= 1e-18:
+            break
+    if remaining > 1e-18:
+        raise ValueError("conversion book exhausted")
+    return notional * max(0.0, 1.0 - float(fee_pct)) / float(asset_qty)

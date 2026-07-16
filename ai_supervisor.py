@@ -50,6 +50,7 @@ from risk_statistics import (
     correlated_symbols_multi_window as derive_correlated_symbols_multi_window,
     covariance_var,
     expected_shortfall,
+    conversion_price,
     marginal_risk_contribution,
     stress_loss,
 )
@@ -1478,6 +1479,7 @@ def run_for_symbol(symbol: str, args: argparse.Namespace) -> None:
     ai_width_scale = 1.0
     ai_cap_scale = 1.0
     ai_pause_buys = False
+    extra_env: Dict[str, str] = {}
     if _AI_ADVISOR is not None:
         ai_context = _build_ai_market_context(
             symbol,
@@ -1512,7 +1514,7 @@ def run_for_symbol(symbol: str, args: argparse.Namespace) -> None:
             )
             if _AI_DECISIONS is not None:
                 try:
-                    _AI_DECISIONS.record(
+                    decision_id = _AI_DECISIONS.record(
                         symbol=symbol,
                         price=now_p,
                         deterministic_mode=dir_mode,
@@ -1526,6 +1528,9 @@ def run_for_symbol(symbol: str, args: argparse.Namespace) -> None:
                         benchmark_mode=policy.benchmark_mode,
                         feature_json=json.dumps(context_vector(ai_context)),
                     )
+                    # Передаём точный ID дочернему executor, чтобы fills не
+                    # прикреплялись к последней рекомендации символа.
+                    extra_env = {"BOT_AI_DECISION_ID": decision_id}
                 except sqlite3.Error as exc:
                     dbg(f"[AI-DECISION] record failed: {exc}")
             if policy.apply:
@@ -1616,7 +1621,7 @@ def run_for_symbol(symbol: str, args: argparse.Namespace) -> None:
     log(f"[SR-SUM] {symbol} kept={sr['kept']} cancel(ttl)={sr['cancel'].get('ttl',0)} cancel(atr)={sr['cancel'].get('atr',0)}")
 
     # 7) ATR-driven авто-адаптер (ENV override)
-    extra_env = None
+    # extra_env может уже содержать точный BOT_AI_DECISION_ID.
     if os.environ.get('AUTO_ADAPT_ENABLE', '0') in ('1', 'true', 'True', 'YES', 'yes'):
         base_dev_buy = float(os.environ.get('DEV_BUY_PCT', '0.004') or 0.004)
         base_min_profit = float(os.environ.get('MIN_PROFIT_OVER_AVG', '0.002') or 0.002)
@@ -1632,9 +1637,6 @@ def run_for_symbol(symbol: str, args: argparse.Namespace) -> None:
             'MIN_PROFIT_OVER_AVG': f"{min_profit_eff:.6f}",
         }
         log(f"[ADAPT] {symbol} atr={atr_abs:.4f} atr/px={atr_pct*100:.3f}% -> DEV_BUY_PCT={dev_buy_eff:.4f} MIN_PROFIT_OVER_AVG={min_profit_eff:.4f}")
-    if extra_env is None:
-        extra_env = {}
-
     # AI может только уменьшить уже безопасный CAP. Даже если модель вернула
     # коэффициент > 1, верхней границей остаётся расчёт Risk Manager.
     risk_safe_cap = float(os.getenv("BOT_CAP_PER_ORDER", "0") or 0)
@@ -2030,6 +2032,13 @@ def _build_risk_snapshot(
                     candidate = f"{asset}{quote}"
                     try:
                         candidate_price = get_last_price(candidate)
+                        if env_flag("RISK_CONVERSION_DEPTH_REQUIRED", False):
+                            depth = TM._public_get("/api/v3/depth", {"symbol": candidate, "limit": 20}) or {}
+                            bid_levels = [(float(row[0]), float(row[1])) for row in depth.get("bids", [])]
+                            ask_levels = [(float(row[0]), float(row[1])) for row in depth.get("asks", [])]
+                            candidate_price = conversion_price(asset_qty=float(qty), side="SELL",
+                                                               bids=bid_levels, asks=ask_levels,
+                                                               fee_pct=float(os.getenv("RISK_CONVERSION_FEE_PCT", "0.001")))
                     except (RuntimeError, ValueError, KeyError):
                         continue
                     if candidate_price > 0:

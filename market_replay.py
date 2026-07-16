@@ -25,6 +25,8 @@ class MarketEvent:
     bids: tuple[BookLevel, ...] = ()
     asks: tuple[BookLevel, ...] = ()
     trades: tuple[tuple[Decimal, Decimal, str], ...] = ()
+    # Идентификаторы внешних заявок, снятых биржей/участником в этом тике.
+    cancelled_order_ids: tuple[str, ...] = ()
 
 
 @dataclass
@@ -71,6 +73,10 @@ class OrderBookReplay:
 
     def process(self, event: MarketEvent) -> list[tuple[str, Decimal, Decimal]]:
         fills: list[tuple[str, Decimal, Decimal]] = []
+        # Внешние отмены меняют очередь до matching текущего события.
+        for order in self.orders:
+            if order.order_id in event.cancelled_order_ids:
+                order.cancelled = True
         # Публичные сделки сначала съедают очередь перед нашей заявкой.
         for trade_price, trade_qty, aggressor in event.trades:
             for order in self.orders:
