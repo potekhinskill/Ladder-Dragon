@@ -182,9 +182,9 @@ else
   for path in \
     /etc/systemd/system/mybot.service \
     /etc/systemd/system/pi-healthd.service \
-  /etc/nginx/sites-available/bot.local \
-  /etc/nginx/snippets/pi_api.conf \
-  /etc/nginx/snippets/ladder_dragon_proxy_secret.conf \
+    /etc/nginx/sites-available/bot.local \
+    /etc/nginx/snippets/pi_api.conf \
+    /etc/nginx/snippets/ladder_dragon_proxy_secret.conf \
     "${PROJECT_DIR}/.env" \
     "${PROJECT_DIR}/.env.dashboard"; do
     [[ -e "${path}" ]] && cp -a --parents "${path}" "${staging}/"
