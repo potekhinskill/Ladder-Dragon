@@ -179,6 +179,18 @@ if [[ -x "${PROJECT_DIR}/deploy/backup_raspberry_pi.sh" ]]; then
 else
   stamp="$(date -u +%Y-%m-%d-%H%M%S)"
   staging="$(mktemp -d /tmp/ladder-dragon-preinstall.XXXXXX)"
+  copy_rootfs_path() {
+    local source="$1"
+    local relative="${source#/}"
+    local target="${staging}/${relative}"
+    if [[ -d "${source}" ]]; then
+      install -d "${target}"
+      cp -a "${source}/." "${target}/"
+    else
+      install -d "$(dirname "${target}")"
+      cp -a "${source}" "${target}"
+    fi
+  }
   for path in \
     /etc/systemd/system/mybot.service \
     /etc/systemd/system/pi-healthd.service \
@@ -187,7 +199,7 @@ else
     /etc/nginx/snippets/ladder_dragon_proxy_secret.conf \
     "${PROJECT_DIR}/.env" \
     "${PROJECT_DIR}/.env.dashboard"; do
-    [[ -e "${path}" ]] && cp -a --parents "${path}" "${staging}/"
+    [[ -e "${path}" ]] && copy_rootfs_path "${path}"
   done
   install -d -m 0700 "${staging}/sqlite"
   python3 - "${PROJECT_DIR}" "${staging}/sqlite" <<'PY'
