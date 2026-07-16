@@ -18,5 +18,5 @@ RestrictSUIDSGID=yes
 LockPersonality=yes
 RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
 ReadOnlyPaths=/home/bot/apps/binance_bot
-ReadWritePaths=/var/lib/ladder-dragon/backups
+ReadWritePaths=/var/lib/ladder-dragon/backups /var/lib/ladder-dragon/backups-public
 UMask=0077

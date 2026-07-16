@@ -263,6 +263,14 @@ chmod 0600 "${DASHBOARD_ENV}"
 
 install -d -o "${BOT_USER}" -g "${BOT_USER}" -m 0700 db logs FastAPI/pi-dashboard/data
 install -d -o root -g www-data -m 0750 /var/lib/ladder-dragon/logs
+install -d -o root -g www-data -m 0750 /var/lib/ladder-dragon/backups-public
+if [[ ! -e /etc/ladder-dragon/telegram.env && -f /etc/bot-alerts.env ]]; then
+  install -o root -g "${BOT_USER}" -m 0640 /etc/bot-alerts.env \
+    /etc/ladder-dragon/telegram.env
+elif [[ -e /etc/ladder-dragon/telegram.env ]]; then
+  chown root:"${BOT_USER}" /etc/ladder-dragon/telegram.env
+  chmod 0640 /etc/ladder-dragon/telegram.env
+fi
 install -d -o root -g root -m 0755 "${WEB_ROOT}"
 install -d -m 0755 /etc/nginx/snippets
 install -o root -g www-data -m 0640 /dev/null \

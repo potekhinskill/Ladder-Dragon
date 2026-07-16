@@ -85,7 +85,7 @@ audit() {
   echo "dashboard_active=$(systemctl is-active pi-healthd 2>/dev/null || true)"
   echo "dashboard_enabled=$(systemctl is-enabled pi-healthd 2>/dev/null || true)"
   echo "nginx_config=$(nginx -t >/dev/null 2>&1 && echo valid || echo unavailable)"
-  echo "public_backups=$([[ -d /var/www/bot/backups ]] && echo present || echo absent)"
+  echo "public_backups=$([[ -d /var/lib/ladder-dragon/backups-public ]] && echo present || echo absent)"
   echo "api_port_public=$(
     ss -ltn 2>/dev/null | grep -qE '(^|[[:space:]])(0\\.0\\.0\\.0|\\[::\\]):8081' \
       && echo yes || echo no
@@ -117,6 +117,7 @@ BOT_HOME="$(getent passwd "${BOT_USER}" | cut -d: -f6)"
 
 install -d -o "${BOT_USER}" -g "${BOT_USER}" -m 0750 "$(dirname "${PROJECT_DIR}")"
 install -d -m 0700 /var/lib/ladder-dragon/backups
+install -d -o root -g www-data -m 0750 /var/lib/ladder-dragon/backups-public
 install -d -o root -g www-data -m 0750 /var/lib/ladder-dragon/logs
 hostnamectl set-hostname "${BOT_HOSTNAME%.local}"
 
@@ -141,6 +142,23 @@ setup_backup_encryption() {
 }
 
 setup_backup_encryption
+
+setup_telegram_alerts() {
+  local target="/etc/ladder-dragon/telegram.env"
+  # Сохраняем старый рабочий формат без вывода токена в журнал установки.
+  if [[ ! -e "${target}" && -f /etc/bot-alerts.env ]]; then
+    install -o root -g "${BOT_USER}" -m 0640 /etc/bot-alerts.env "${target}"
+  elif [[ ! -e "${target}" ]]; then
+    install -o root -g "${BOT_USER}" -m 0640 /dev/null "${target}"
+    printf '# Telegram alerts are disabled until credentials are configured.\n' \
+      >"${target}"
+  else
+    chown root:"${BOT_USER}" "${target}"
+    chmod 0640 "${target}"
+  fi
+}
+
+setup_telegram_alerts
 
 # Временная миграционная копия переживает замену legacy-каталога на Git checkout.
 migration_staging="$(mktemp -d /tmp/ladder-dragon-migration.XXXXXX)"
@@ -553,6 +571,14 @@ anonymous_logs_status="$(
 )"
 [[ "${anonymous_logs_status}" == "401" ]] \
   || fail "expected protected logs HTTP 401, got ${anonymous_logs_status}"
+backups_status="$(
+  curl --insecure --silent --output /dev/null --write-out '%{http_code}' \
+    -u "dashboard:${dashboard_password}" \
+    --resolve "${BOT_HOSTNAME}:443:127.0.0.1" \
+    "https://${BOT_HOSTNAME}/backups/"
+)"
+[[ "${backups_status}" == "200" ]] \
+  || fail "expected authenticated backups HTTP 200, got ${backups_status}"
 
 if [[ -d /opt/pi-dashboard ]]; then
   install -d -m 0700 /var/lib/ladder-dragon/legacy

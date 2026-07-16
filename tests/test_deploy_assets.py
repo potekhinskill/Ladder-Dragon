@@ -8,15 +8,16 @@ def read(relative: str) -> str:
     return (ROOT / relative).read_text()
 
 
-def test_nginx_requires_auth_and_never_publishes_backups():
+def test_nginx_requires_auth_and_publishes_only_encrypted_backups():
     site = read("deploy/nginx/bot.local.conf")
     snippet = read("deploy/nginx/pi_api.conf")
     assert 'auth_basic "Ladder Dragon"' in site
     assert "auth_basic_user_file" in site
     assert "location ^~ /backups/" in site
-    assert "return 404;" in site
+    assert "alias /var/lib/ladder-dragon/backups-public/;" in site
     backup_location = site.split("location ^~ /backups/", 1)[1].split("}", 1)[0]
-    assert "autoindex on" not in backup_location
+    assert "autoindex on" in backup_location
+    assert "Cache-Control \"no-store\"" in backup_location
     assert "X-Authenticated-User $remote_user" in snippet
     assert "ladder_dragon_proxy_secret.conf" in site
     assert "location /logs/" in site
@@ -82,6 +83,9 @@ def test_installer_migrates_sqlite_safely_and_closes_legacy_backups():
     assert "src.backup(out)" in backup
     assert "db-wal" not in backup
     assert "legacy-public-" in installer
+    assert "backups-public" in installer
+    assert "/etc/bot-alerts.env" in backup
+    assert "pi-watchdog_v3.sh" in backup
     assert "disable --now make-pi-backup.timer" in installer
     assert "/opt/pi-dashboard" in installer
     assert "DASHBOARD_TRUST_PROXY_AUTH=1" in installer
@@ -144,6 +148,7 @@ def test_updates_are_commit_allowlisted_and_backups_are_encrypted():
     assert "age -r" in backup
     assert ".tgz.age" in backup
     assert "EnvironmentFile=/etc/ladder-dragon/backup.env" in backup_unit
+    assert "backups-public" in backup_unit
 
 
 def test_systemd_units_have_extended_sandboxing():

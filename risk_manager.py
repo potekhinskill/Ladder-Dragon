@@ -19,6 +19,7 @@ import time
 from typing import Iterable, Optional
 
 from trade_accounting import TradeExecution
+from telegram_alerts import notify as notify_telegram
 
 
 def money(value: object) -> Decimal:
@@ -214,6 +215,9 @@ def create_manual_halt(
     }
     with limits.alerts_file.open("a", encoding="utf-8") as handle:
         handle.write(json.dumps(alert, ensure_ascii=False, sort_keys=True) + "\n")
+    # Локальный halt уже записан; Telegram является дополнительным каналом и
+    # не может отменить остановку, если сеть или API уведомлений недоступны.
+    notify_telegram("execution_safety_halt", reasons, metadata)
     return limits.halt_file
 
 
@@ -251,16 +255,21 @@ class RiskManager:
         _atomic_json(self.limits.state_file, asdict(state))
 
     def _alert(self, event: str, reasons: Iterable[str], snapshot: RiskSnapshot) -> None:
+        reasons = list(reasons)
         payload = {
             "ts": datetime.now(timezone.utc).isoformat(),
             "event": event,
-            "reasons": list(reasons),
+            "reasons": reasons,
             "equity_usdt": str(snapshot.equity_usdt),
             "exposure_usdt": str(snapshot.exposure_usdt),
         }
         self.limits.alerts_file.parent.mkdir(parents=True, exist_ok=True)
         with self.limits.alerts_file.open("a", encoding="utf-8") as handle:
             handle.write(json.dumps(payload, ensure_ascii=False, sort_keys=True) + "\n")
+        notify_telegram(event, reasons, {
+            "equity_usdt": snapshot.equity_usdt,
+            "exposure_usdt": snapshot.exposure_usdt,
+        })
 
     def trip(self, state: RiskState, reasons: Iterable[str], snapshot: RiskSnapshot, now: float) -> None:
         # Halt записывается раньше уведомления. Даже если webhook или лог недоступен,

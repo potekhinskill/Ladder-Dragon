@@ -3,6 +3,7 @@ set -euo pipefail
 
 PROJECT_DIR="${PROJECT_DIR:-/home/bot/apps/binance_bot}"
 BACKUP_DIR="${BACKUP_DIR:-/var/lib/ladder-dragon/backups}"
+PUBLIC_BACKUP_DIR="${PUBLIC_BACKUP_DIR:-/var/lib/ladder-dragon/backups-public}"
 BACKUP_AGE_RECIPIENT="${BACKUP_AGE_RECIPIENT:-}"
 STAMP="$(date -u +%Y-%m-%d-%H%M%S)"
 DEST="${BACKUP_DIR}/${STAMP}"
@@ -17,6 +18,7 @@ command -v age >/dev/null || {
   exit 1
 }
 install -d -m 0700 "${DEST}"
+install -d -o root -g www-data -m 0750 "${PUBLIC_BACKUP_DIR}"
 
 # Инвентарь не содержит значений секретных переменных.
 {
@@ -67,6 +69,20 @@ for path in \
   [[ -e "${path}" ]] && copy_rootfs_path "${path}"
 done
 
+# Старый watchdog и его Telegram-конфигурация сохраняются только внутри
+# зашифрованного age-архива. Они никогда не попадают в HTTP-каталог.
+for path in \
+  /etc/bot-alerts.env \
+  /etc/ladder-dragon/telegram.env \
+  /etc/systemd/system/pi-watchdog-v3.service \
+  /etc/systemd/system/pi-watchdog-v3.timer \
+  /etc/systemd/system/pi-watchdog-v3.service.d \
+  /etc/logrotate.d/pi-watchdog \
+  /usr/local/bin/pi-watchdog_v3.sh \
+  /var/log/pi-watchdog.log; do
+  [[ -e "${path}" ]] && copy_rootfs_path "${path}"
+done
+
 for name in .env .env.service .env.dashboard; do
   [[ -f "${PROJECT_DIR}/${name}" ]] \
     && install -m 0600 "${PROJECT_DIR}/${name}" "${DEST}/project/${name}"
@@ -96,8 +112,34 @@ tar -C "${BACKUP_DIR}" -czf - "${STAMP}" \
 sha256sum "${BACKUP_DIR}/ladder-dragon-${STAMP}.tgz.age" \
   >"${BACKUP_DIR}/ladder-dragon-${STAMP}.tgz.age.sha256"
 chmod 0600 "${BACKUP_DIR}/ladder-dragon-${STAMP}.tgz.age"*
+
+# Веб-каталог содержит только зашифрованный архив, checksum и безопасный
+# inventory без env/ключей. Сырые backup-каталоги остаются root-only.
+install -o root -g www-data -m 0640 \
+  "${BACKUP_DIR}/ladder-dragon-${STAMP}.tgz.age" \
+  "${PUBLIC_BACKUP_DIR}/ladder-dragon-${STAMP}.tgz.age"
+install -o root -g www-data -m 0640 \
+  "${BACKUP_DIR}/ladder-dragon-${STAMP}.tgz.age.sha256" \
+  "${PUBLIC_BACKUP_DIR}/ladder-dragon-${STAMP}.tgz.age.sha256"
+install -o root -g www-data -m 0640 \
+  "${DEST}/inventory.txt" \
+  "${PUBLIC_BACKUP_DIR}/inventory-${STAMP}.txt"
+manifest_tmp="$(mktemp "${PUBLIC_BACKUP_DIR}/.index.XXXXXX")"
+{
+  echo "Ladder Dragon encrypted backups"
+  echo "Generated: ${STAMP} UTC"
+  echo "Archives are age-encrypted; inventory files contain no secrets."
+  find "${PUBLIC_BACKUP_DIR}" -maxdepth 1 -type f \
+    \( -name '*.tgz.age' -o -name '*.tgz.age.sha256' -o -name 'inventory-*.txt' \) \
+    -printf '%f\n' | sort
+} >"${manifest_tmp}"
+install -o root -g www-data -m 0640 "${manifest_tmp}" "${PUBLIC_BACKUP_DIR}/index.txt"
+rm -f "${manifest_tmp}"
 rm -rf "${DEST}"
 
 # 14 ежедневных архивов; месячные/внешние копии должны делаться отдельно.
 find "${BACKUP_DIR}" -maxdepth 1 -type f -name 'ladder-dragon-*.tgz.age*' -mtime +14 -delete
+find "${PUBLIC_BACKUP_DIR}" -maxdepth 1 -type f \
+  \( -name 'ladder-dragon-*.tgz.age*' -o -name 'inventory-*.txt' \) \
+  -mtime +14 -delete
 echo "${BACKUP_DIR}/ladder-dragon-${STAMP}.tgz.age"

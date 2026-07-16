@@ -133,9 +133,12 @@ sudo bash deploy/install_raspberry_pi.sh install --commit "$RELEASE_SHA"
 - включает mDNS-адрес `bot.local`;
 - создаёт локальный TLS-сертификат;
 - закрывает dashboard через Basic Auth;
-- закрывает URL `/backups/`;
+- публикует защищённый Basic Auth URL `/backups/` только с age-зашифрованными
+  архивами, checksum и inventory без секретов;
 - публикует только очищенные журналы по защищённому URL `/logs/`;
 - включает ежедневный приватный backup;
+- переносит legacy `/etc/bot-alerts.env` в Telegram-контур и сохраняет его
+  вместе с watchdog в зашифрованном backup;
 - запускает `mybot` как Testnet DRY.
 
 Пароль дашборда:
@@ -208,6 +211,35 @@ DASHBOARD_BINANCE_API_SECRET=...
 ```
 
 Не копируйте торговый Mainnet-ключ в `.env.dashboard`.
+
+### Telegram-оповещения
+
+Новый конфигурационный файл доступен только сервису и root:
+
+```bash
+sudo install -o root -g bot -m 0640 /dev/null /etc/ladder-dragon/telegram.env
+sudo nano /etc/ladder-dragon/telegram.env
+```
+
+```env
+TELEGRAM_ALERTS_ENABLED=1
+TELEGRAM_BOT_TOKEN=...
+TELEGRAM_CHAT_ID=...
+```
+
+При миграции старый `/etc/bot-alerts.env` переносится автоматически и остаётся
+совместимым. Circuit Breaker и ошибки исполнения сначала записываются локально,
+затем отправляют причину в Telegram; недоступность Telegram не снимает halt.
+
+Проверить наличие конфигурации без вывода секрета:
+
+```bash
+sudo awk -F= '/^(TELEGRAM_ALERTS_ENABLED|TELEGRAM_BOT_TOKEN|TELEGRAM_CHAT_ID|BOT_TOKEN|CHAT_ID)=/ {print $1 "=" (length($2) ? "<задан>" : "<пусто>")}' /etc/ladder-dragon/telegram.env
+```
+
+`https://bot.local/backups/` требует dashboard Basic Auth. В нём доступны только
+зашифрованные `.tgz.age`, checksum и inventory; токены и расшифрованные env туда
+не попадают.
 
 ## 6. Выбор режима запуска
 
