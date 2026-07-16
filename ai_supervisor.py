@@ -49,6 +49,7 @@ from risk_manager import RiskDecision, RiskLimits, RiskManager, RiskSnapshot, lo
 from risk_statistics import (
     correlated_symbols_multi_window as derive_correlated_symbols_multi_window,
     covariance_var,
+    marginal_risk_contribution,
     stress_loss,
 )
 from time_safety import assess_exchange_clock
@@ -58,6 +59,7 @@ from strategy_math import adx_from_klines as _adx_from_klines
 from strategy_math import clamp, ema_series as _ema_series
 from strategy_math import geometric_ladder as build_ladder_pct
 from strategy_math import split_ladder
+from strategy_math import RegimeHysteresis
 from supervisor_config import build_supervisor_parser, validate_supervisor_args
 
 try:
@@ -975,6 +977,7 @@ def _atr_pct(symbol: str, interval: str = '5m', length: int = 20) -> Tuple[float
 # ===========================
 
 _DIR_STATE: Dict[str, Dict[str, Any]] = {}
+_REGIME_HYSTERESIS: Dict[str, RegimeHysteresis] = {}
 
 def _infer_market_mode(symbol: str, *, interval: str = "30m", ema_fast_len: int = 20,
                        ema_slow_len: int = 50, eps: float = 0.0005, slope_min: float = 0.0002,
@@ -999,20 +1002,13 @@ def _infer_market_mode(symbol: str, *, interval: str = "30m", ema_fast_len: int 
     down_cond = (ef < es * (1.0 - eps)) and (slope <= -slope_min) and (adx >= adx_min)
     cand = "UP" if up_cond else ("DOWN" if down_cond else "FLAT")
 
-    st = _DIR_STATE.get(symbol, {"mode": "FLAT", "streak": 0, "last_cand": cand})
-    mode = st["mode"]; streak = st["streak"]; last_cand = st["last_cand"]
-
-    if cand == mode:
-        streak = 0
-    else:
-        if cand == last_cand:
-            streak += 1
-        else:
-            streak = 1
-        if streak >= confirm_bars:
-            mode = cand
-            streak = 0
-    _DIR_STATE[symbol] = {"mode": mode, "streak": streak, "last_cand": cand}
+    hysteresis = _REGIME_HYSTERESIS.setdefault(
+        symbol,
+        RegimeHysteresis("FLAT", min_hold_sec=float(os.getenv("BOT_REGIME_MIN_HOLD_SEC", "300")),
+                         confirmations=max(1, confirm_bars)),
+    )
+    mode = hysteresis.update(cand)
+    _DIR_STATE[symbol] = {"mode": mode, "streak": 0, "last_cand": cand}
 
     if do_log:
         log(f"[DIR] {symbol} mode={mode} cand={cand} ema{ema_fast_len}={ef:.4f} ema{ema_slow_len}={es:.4f} slope={slope:.5f} adx={adx:.2f}")
@@ -2100,6 +2096,11 @@ def _build_risk_snapshot(
                          spread_widening=float(os.getenv("RISK_STRESS_SPREAD_PCT", "0.01")))
     var_value = covariance_var(exposure_by_symbol, histories if 'histories' in locals() else {},
                                confidence=float(os.getenv("RISK_VAR_CONFIDENCE", "0.99")))
+    # Gap-risk включает overnight jump, spread widening и latency execution.
+    gap_shock = abs(float(os.getenv("RISK_GAP_SHOCK_PCT", "0.10")))
+    latency_bars = max(1.0, float(os.getenv("RISK_LATENCY_BARS", "1")))
+    gap_value = sum(marginal_risk_contribution(exposure_by_symbol,
+                                                shock=gap_shock * latency_bars).values())
     snap = RiskSnapshot(
         equity_usdt=equity,
         exposure_usdt=exposure,
@@ -2108,6 +2109,7 @@ def _build_risk_snapshot(
         correlated_exposure_usdt=correlated,
         stress_loss_usdt=money(stress),
         var_usdt=money(var_value),
+        gap_risk_usdt=money(gap_value),
         **metrics,
     )
     return snap, orders, prices

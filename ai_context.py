@@ -413,6 +413,16 @@ class AdvisorDecisionStore:
                 "CREATE INDEX IF NOT EXISTS ai_decisions_symbol_time "
                 "ON ai_decisions(symbol, created_at)"
             )
+            connection.execute(
+                """CREATE TABLE IF NOT EXISTS ai_fills(
+                    fill_id TEXT PRIMARY KEY, decision_id TEXT NOT NULL,
+                    symbol TEXT NOT NULL, side TEXT NOT NULL, price REAL NOT NULL,
+                    qty REAL NOT NULL, fee_quote REAL NOT NULL DEFAULT 0,
+                    exit_reason TEXT NOT NULL DEFAULT '', ts INTEGER NOT NULL,
+                    FOREIGN KEY(decision_id) REFERENCES ai_decisions(decision_id)
+                )"""
+            )
+            connection.execute("CREATE INDEX IF NOT EXISTS ai_fills_decision ON ai_fills(decision_id, ts)")
             columns = {
                 row[1] for row in connection.execute("PRAGMA table_info(ai_decisions)")
             }
@@ -431,6 +441,42 @@ class AdvisorDecisionStore:
                 "DELETE FROM ai_decisions WHERE created_at < ?",
                 (int(time.time()) - 365 * 86_400,),
             )
+
+    def record_fill(self, decision_id: str, *, symbol: str, side: str,
+                    price: float, qty: float, fee_quote: float = 0.0,
+                    exit_reason: str = "", ts: int | None = None) -> str:
+        """Привязать фактический Binance fill/OCO/stop к AI decision."""
+        fill_id = uuid.uuid4().hex
+        with self._connect() as connection:
+            exists = connection.execute("SELECT 1 FROM ai_decisions WHERE decision_id=?", (decision_id,)).fetchone()
+            if not exists:
+                raise ValueError(f"unknown AI decision: {decision_id}")
+            connection.execute(
+                "INSERT INTO ai_fills(fill_id,decision_id,symbol,side,price,qty,fee_quote,exit_reason,ts) VALUES(?,?,?,?,?,?,?,?,?)",
+                (fill_id, decision_id, symbol.upper(), side.upper(), float(price), float(qty),
+                 float(fee_quote), exit_reason, int(ts or time.time())),
+            )
+        return fill_id
+
+    def evaluate_execution(self, decision_id: str, *, baseline_exit_price: float | None = None) -> dict[str, Any]:
+        """Рассчитать realized net PnL и baseline equal-notional по fills."""
+        with self._connect() as connection:
+            rows = connection.execute(
+                "SELECT side,price,qty,fee_quote,exit_reason,ts FROM ai_fills WHERE decision_id=? ORDER BY ts",
+                (decision_id,),
+            ).fetchall()
+            decision = connection.execute("SELECT price FROM ai_decisions WHERE decision_id=?", (decision_id,)).fetchone()
+        if not decision:
+            raise ValueError(f"unknown AI decision: {decision_id}")
+        fills = [{"side": r[0], "price": r[1], "qty": r[2], "fee_quote": r[3], "exit_reason": r[4], "ts": r[5]} for r in rows]
+        result = evaluate_realized_ai_pnl(fills, baseline_entry_price=float(decision[0]), baseline_exit_price=baseline_exit_price)
+        result["decision_id"] = decision_id
+        with self._connect() as connection:
+            row = connection.execute("SELECT evaluation_json FROM ai_decisions WHERE decision_id=?", (decision_id,)).fetchone()
+            evaluation = json.loads((row[0] if row else "{}") or "{}")
+            evaluation["realized_execution"] = result
+            connection.execute("UPDATE ai_decisions SET evaluation_json=? WHERE decision_id=?", (json.dumps(evaluation), decision_id))
+        return result
 
     def record(
         self,

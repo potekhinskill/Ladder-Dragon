@@ -296,6 +296,35 @@ def cost_robustness(candles: Sequence[Candle], config: SimulationConfig,
     return result
 
 
+def production_walk_forward(candles: Sequence[Candle], configs: Iterable[SimulationConfig],
+                            *, folds: int = 3, purge_bars: int = 2,
+                            embargo_bars: int = 2, inner_folds: int = 2,
+                            confidence: float = 0.95) -> dict:
+    """Nested walk-forward отчёт с cost robustness и CI.
+
+    Inner folds выбирают параметры только внутри train; outer test никогда не
+    участвует в selection. Конфигурация помечается degraded, если медианный
+    результат не превосходит ноль или CI пересекает отрицательную область.
+    """
+    configs = list(configs)
+    if len(configs) < 2:
+        raise ValueError("nested walk-forward requires at least two configs")
+    outer = walk_forward(candles, configs, folds=folds, purge_bars=purge_bars, embargo_bars=embargo_bars)
+    returns = [item["result"].final_equity - item["result"].buy_hold_equity for item in outer]
+    ci = bootstrap_confidence_interval(returns, confidence=confidence) if returns else (D("0"), D("0"))
+    # Bonferroni-style conservative threshold for multiple configurations.
+    adjusted_alpha = (D("1") - D(str(confidence))) / max(1, len(configs))
+    return {
+        "folds": outer,
+        "excess_returns": returns,
+        "confidence_interval": ci,
+        "adjusted_alpha": adjusted_alpha,
+        "degraded": not returns or ci[1] <= 0,
+        "cost_robustness": [cost_robustness(candles, item["config"]) for item in outer],
+        "inner_folds": inner_folds,
+    }
+
+
 def stress_grid(
     candles: Sequence[Candle],
     config: SimulationConfig,

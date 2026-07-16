@@ -361,3 +361,14 @@
 - `migrate_indexes.py` — миграция индексов SQLite.
 - Ключи Binance подтягиваются из `.env` или окружения systemd.
 - Добавлена справка по smoke-тесту и проверкам (`bot-local-check.sh`).
+## 2026-07-16
+
+- Order-book replay теперь учитывает queue-ahead, trade prints, задержку и
+  подключается к `simulate_grid` через `market_events`.
+- Добавлены `ai_fills` и привязка фактических BUY/SELL/OCO/STOP fills к AI
+  decision с net-PnL, holding duration и equal-notional baseline.
+- Добавлены nested walk-forward report, bootstrap CI, multiple-testing threshold,
+  expected shortfall, marginal risk и gap-risk gate.
+- Добавлены SQLite FIFO inventory lots с timestamp и ladder level.
+- Направление рынка переведено на общий hysteresis/debounce state.
+- Полный набор тестов: `146 passed`.

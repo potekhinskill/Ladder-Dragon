@@ -34,6 +34,7 @@ class ReplayOrder:
     created_ts: int
     remaining: Decimal = field(init=False)
     cancelled: bool = False
+    queue_ahead: Decimal = Decimal("0")
 
     def __post_init__(self) -> None:
         self.side = self.side.upper()
@@ -47,9 +48,10 @@ class OrderBookReplay:
         self.orders: list[ReplayOrder] = []
         self._request_times: list[int] = []
 
-    def submit(self, order: ReplayOrder, now_ms: int) -> None:
+    def submit(self, order: ReplayOrder, now_ms: int, *, queue_ahead: Decimal = Decimal("0")) -> None:
         self._rate_gate(now_ms)
         order.created_ts = int(now_ms) + self.latency_ms
+        order.queue_ahead = max(Decimal("0"), queue_ahead)
         self.orders.append(order)
 
     def cancel(self, order_id: str, now_ms: int) -> bool:
@@ -62,8 +64,17 @@ class OrderBookReplay:
 
     def process(self, event: MarketEvent) -> list[tuple[str, Decimal, Decimal]]:
         fills: list[tuple[str, Decimal, Decimal]] = []
+        # Public trade prints consume queue ahead before our order can fill.
+        for trade_price, trade_qty, aggressor in event.trades:
+            for order in self.orders:
+                if order.cancelled or order.created_ts > event.ts_ms:
+                    continue
+                crosses = (order.side == "BUY" and aggressor.upper() == "SELL" and trade_price <= order.price) or \
+                          (order.side == "SELL" and aggressor.upper() == "BUY" and trade_price >= order.price)
+                if crosses and order.queue_ahead > 0:
+                    order.queue_ahead = max(Decimal("0"), order.queue_ahead - trade_qty)
         for order in sorted(self.orders, key=lambda item: (item.price, item.created_ts)):
-            if order.cancelled or order.remaining <= 0 or order.created_ts > event.ts_ms:
+            if order.cancelled or order.remaining <= 0 or order.created_ts > event.ts_ms or order.queue_ahead > 0:
                 continue
             levels = event.asks if order.side == "BUY" else event.bids
             for level in levels:
