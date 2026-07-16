@@ -38,6 +38,31 @@ class RegimeHysteresis:
         return self.current
 
 
+class NumericHysteresis:
+    """Дебаунс числовых параметров CAP/width, чтобы шум не менял план."""
+    def __init__(self, initial: float, *, max_step: float = 0.10, confirmations: int = 2) -> None:
+        self.value = float(initial)
+        self.max_step = max(0.0, float(max_step))
+        self.confirmations = max(1, int(confirmations))
+        self._candidate = self.value
+        self._count = 0
+
+    def update(self, candidate: float) -> float:
+        candidate = float(candidate)
+        if abs(candidate - self.value) <= self.max_step * max(abs(self.value), 1e-12):
+            self.value = candidate
+            self._candidate, self._count = candidate, 0
+            return self.value
+        if abs(candidate - self._candidate) <= 1e-12:
+            self._count += 1
+        else:
+            self._candidate, self._count = candidate, 1
+        if self._count >= self.confirmations:
+            self.value = candidate
+            self._count = 0
+        return self.value
+
+
 def clamp(value: float, lower: float, upper: float) -> float:
     return max(lower, min(upper, value))
 
