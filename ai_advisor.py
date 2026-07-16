@@ -89,6 +89,7 @@ class MarketContext:
     ladder_up_pct: float
     target_buys: int
     risk_safe_cap_usdt: float
+    trade_history_available: bool = False
     trade_count_30d: int = 0
     sell_count_30d: int = 0
     net_realized_pnl_30d: float = 0.0
@@ -99,6 +100,9 @@ class MarketContext:
     fees_usdt_30d: float = 0.0
     turnover_usdt_30d: float = 0.0
     position_pnl_pct: float = 0.0
+    market_data_available: bool = False
+    orderbook_available: bool = False
+    market_data_age_sec: float = 999999.0
     return_15m: float = 0.0
     return_1h: float = 0.0
     return_4h: float = 0.0
@@ -112,12 +116,16 @@ class MarketContext:
     open_buy_exposure_usdt: float = 0.0
     portfolio_cap_used_pct: float = 0.0
     free_reserve_ratio: float = 0.0
+    portfolio_data_available: bool = False
+    portfolio_data_age_sec: float = 999999.0
     ai_samples_15m: int = 0
     ai_accuracy_15m: float = 0.0
     ai_samples_1h: int = 0
     ai_accuracy_1h: float = 0.0
     ai_samples_4h: int = 0
     ai_accuracy_4h: float = 0.0
+    ai_vs_baseline_samples_1h: int = 0
+    ai_edge_vs_baseline_1h: float = 0.0
 
 
 @dataclass(frozen=True)
@@ -153,6 +161,7 @@ class AIAdvisor:
         decision_recorder: Optional[
             Callable[[MarketContext, StrategyRecommendation, bool], None]
         ] = None,
+        budget_checker: Optional[Callable[[], tuple[bool, str]]] = None,
     ) -> None:
         config.validate()
         self.config = config
@@ -160,6 +169,7 @@ class AIAdvisor:
         self.logger = logger
         self.clock = clock
         self.decision_recorder = decision_recorder
+        self.budget_checker = budget_checker
         # Кэшируем и успешный результат, и безопасный отказ. Это не позволяет
         # недоступному API или низкой confidence создавать запрос каждую секунду.
         self._cache: dict[
@@ -178,6 +188,13 @@ class AIAdvisor:
     ) -> Optional[StrategyRecommendation]:
         if not self.config.enabled:
             return None
+        if self.budget_checker is not None:
+            allowed, reason = self.budget_checker()
+            if not allowed:
+                self.logger(
+                    f"[AI-BUDGET] {context.symbol} disabled until next UTC day: {reason}"
+                )
+                return None
         now = self.clock()
         cached = self._cache.get(context.symbol)
         if cached is not None and now - cached[0] <= self.config.cache_sec:

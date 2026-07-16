@@ -9,6 +9,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from decimal import Decimal
+import json
+import os
 import sqlite3
 import time
 import uuid
@@ -24,6 +26,7 @@ HORIZONS_SEC = (900, 3600, 14_400)
 
 @dataclass(frozen=True)
 class TradeFeatures:
+    trade_history_available: bool = False
     trade_count_30d: int = 0
     sell_count_30d: int = 0
     net_realized_pnl_30d: float = 0.0
@@ -38,6 +41,9 @@ class TradeFeatures:
 
 @dataclass(frozen=True)
 class MarketFeatures:
+    market_data_available: bool = False
+    orderbook_available: bool = False
+    market_data_age_sec: float = 999999.0
     return_15m: float = 0.0
     return_1h: float = 0.0
     return_4h: float = 0.0
@@ -50,6 +56,8 @@ class MarketFeatures:
 
 @dataclass(frozen=True)
 class PortfolioFeatures:
+    portfolio_data_available: bool = False
+    portfolio_data_age_sec: float = 999999.0
     open_buy_count: int = 0
     open_sell_count: int = 0
     open_buy_exposure_usdt: float = 0.0
@@ -65,6 +73,8 @@ class AdvisorPerformance:
     ai_accuracy_1h: float = 0.0
     ai_samples_4h: int = 0
     ai_accuracy_4h: float = 0.0
+    ai_vs_baseline_samples_1h: int = 0
+    ai_edge_vs_baseline_1h: float = 0.0
 
 
 def load_trade_features(
@@ -168,6 +178,7 @@ def load_trade_features(
         except ArithmeticError:
             pass
     return TradeFeatures(
+        trade_history_available=True,
         trade_count_30d=recent_trade_count,
         sell_count_30d=len(sells),
         net_realized_pnl_30d=float(sum(sells, ZERO)),
@@ -204,6 +215,12 @@ def market_features_from_klines(
     recent_avg = sum(recent) / len(recent) if recent else 0.0
     previous_avg = sum(previous) / len(previous) if previous else 0.0
     return MarketFeatures(
+        market_data_available=True,
+        market_data_age_sec=max(
+            0.0,
+            time.time() - float(valid[-1][6]) / 1000
+            if len(valid[-1]) > 6 and float(valid[-1][6]) > 0 else 0.0,
+        ),
         return_15m=period_return(3),
         return_1h=period_return(12),
         return_4h=period_return(48),
@@ -256,6 +273,9 @@ def build_market_features(
     except Exception:
         spread, top5, top20 = 0.0, 0.0, 0.0
     return MarketFeatures(
+        market_data_available=base.market_data_available,
+        orderbook_available=bool(spread or top5 or top20),
+        market_data_age_sec=base.market_data_age_sec,
         return_15m=base.return_15m,
         return_1h=base.return_1h,
         return_4h=base.return_4h,
@@ -305,6 +325,8 @@ def build_portfolio_features(
     )
     free_usdt = float(balances.get("USDT", {}).get("free", 0) or 0)
     return PortfolioFeatures(
+        portfolio_data_available=True,
+        portfolio_data_age_sec=0.0,
         open_buy_count=len(buys),
         open_sell_count=len(sells),
         open_buy_exposure_usdt=exposure,
@@ -346,6 +368,10 @@ class AdvisorDecisionStore:
                     cap_scale REAL NOT NULL,
                     confidence REAL NOT NULL,
                     applied INTEGER NOT NULL,
+                    policy_status TEXT NOT NULL DEFAULT '',
+                    policy_reasons TEXT NOT NULL DEFAULT '',
+                    benchmark_mode TEXT NOT NULL DEFAULT '',
+                    evaluation_json TEXT NOT NULL DEFAULT '{}',
                     return_15m REAL,
                     return_1h REAL,
                     return_4h REAL
@@ -356,6 +382,19 @@ class AdvisorDecisionStore:
                 "CREATE INDEX IF NOT EXISTS ai_decisions_symbol_time "
                 "ON ai_decisions(symbol, created_at)"
             )
+            columns = {
+                row[1] for row in connection.execute("PRAGMA table_info(ai_decisions)")
+            }
+            for column, ddl in (
+                ("policy_status", "TEXT NOT NULL DEFAULT ''"),
+                ("policy_reasons", "TEXT NOT NULL DEFAULT ''"),
+                ("benchmark_mode", "TEXT NOT NULL DEFAULT ''"),
+                ("evaluation_json", "TEXT NOT NULL DEFAULT '{}'"),
+            ):
+                if column not in columns:
+                    connection.execute(
+                        f"ALTER TABLE ai_decisions ADD COLUMN {column} {ddl}"
+                    )
             connection.execute(
                 "DELETE FROM ai_decisions WHERE created_at < ?",
                 (int(time.time()) - 365 * 86_400,),
@@ -372,6 +411,9 @@ class AdvisorDecisionStore:
         cap_scale: float,
         confidence: float,
         applied: bool,
+        policy_status: str = "",
+        policy_reasons: str = "",
+        benchmark_mode: str = "",
         now: int | None = None,
     ) -> str:
         decision_id = uuid.uuid4().hex
@@ -381,13 +423,15 @@ class AdvisorDecisionStore:
                 INSERT INTO ai_decisions(
                     decision_id, symbol, created_at, price,
                     deterministic_mode, recommended_mode, width_scale,
-                    cap_scale, confidence, applied
-                ) VALUES(?,?,?,?,?,?,?,?,?,?)
+                    cap_scale, confidence, applied, policy_status,
+                    policy_reasons, benchmark_mode
+                ) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)
                 """,
                 (
                     decision_id, symbol.upper(), int(now or time.time()), price,
                     deterministic_mode, recommended_mode, width_scale,
                     cap_scale, confidence, int(applied),
+                    policy_status, policy_reasons, benchmark_mode,
                 ),
             )
         return decision_id
@@ -398,13 +442,16 @@ class AdvisorDecisionStore:
         current_price: float,
         *,
         now: int | None = None,
+        price_lookup: Callable[[str, int], float] | None = None,
+        candles_lookup: Callable[[str, int, int], Sequence[Sequence[Any]]] | None = None,
     ) -> int:
         now = int(now or time.time())
         updated = 0
         with self._connect() as connection:
             rows = connection.execute(
                 """
-                SELECT decision_id, created_at, price,
+                SELECT decision_id, created_at, price,recommended_mode,
+                       deterministic_mode,width_scale,cap_scale,evaluation_json,
                        return_15m, return_1h, return_4h
                 FROM ai_decisions
                 WHERE symbol=? AND created_at>=?
@@ -412,18 +459,54 @@ class AdvisorDecisionStore:
                 """,
                 (symbol.upper(), now - 86_400),
             ).fetchall()
-            for decision_id, created_at, price, *existing in rows:
+            for (
+                decision_id, created_at, price, recommended_mode,
+                deterministic_mode, width_scale, cap_scale, evaluation_json,
+                *existing
+            ) in rows:
                 if price <= 0:
                     continue
-                changes: dict[str, float] = {}
+                changes: dict[str, Any] = {}
+                evaluations = json.loads(evaluation_json or "{}")
                 for index, (column, horizon) in enumerate(zip(
                     ("return_15m", "return_1h", "return_4h"),
                     HORIZONS_SEC,
                 )):
                     if existing[index] is None and now - created_at >= horizon:
-                        changes[column] = current_price / price - 1
+                        horizon_price = current_price
+                        if price_lookup is not None:
+                            try:
+                                horizon_price = float(
+                                    price_lookup(symbol, (created_at + horizon) * 1000)
+                                )
+                            except Exception:
+                                horizon_price = current_price
+                        changes[column] = horizon_price / price - 1
+                        if candles_lookup is not None:
+                            try:
+                                candles = candles_lookup(
+                                    symbol,
+                                    created_at * 1000,
+                                    (created_at + horizon) * 1000,
+                                )
+                                evaluations[column.removeprefix("return_")] = {
+                                    "ai": virtual_plan_result(
+                                        price, recommended_mode, width_scale,
+                                        cap_scale, candles,
+                                    ),
+                                    "baseline": virtual_plan_result(
+                                        price, deterministic_mode, 1.0, 1.0,
+                                        candles,
+                                    ),
+                                }
+                            except Exception:
+                                pass
                 if not changes:
                     continue
+                if evaluations:
+                    changes["evaluation_json"] = json.dumps(
+                        evaluations, sort_keys=True
+                    )
                 assignments = ", ".join(f"{column}=?" for column in changes)
                 connection.execute(
                     f"UPDATE ai_decisions SET {assignments} WHERE decision_id=?",
@@ -455,7 +538,95 @@ class AdvisorDecisionStore:
         s15, a15 = score(1)
         s1h, a1h = score(2)
         s4h, a4h = score(3)
-        return AdvisorPerformance(s15, a15, s1h, a1h, s4h, a4h)
+        comparisons = [
+            directional_success(row[0], row[2])
+            - directional_success(row[4], row[2])
+            for row in self._comparison_rows(symbol, limit)
+            if row[2] is not None
+        ]
+        return AdvisorPerformance(
+            s15, a15, s1h, a1h, s4h, a4h,
+            len(comparisons),
+            sum(comparisons) / len(comparisons) if comparisons else 0.0,
+        )
+
+    def _comparison_rows(self, symbol: str, limit: int) -> list[tuple]:
+        with self._connect() as connection:
+            return connection.execute(
+                """
+                SELECT recommended_mode,return_15m,return_1h,return_4h,
+                       deterministic_mode
+                FROM ai_decisions
+                WHERE symbol=? ORDER BY created_at DESC LIMIT ?
+                """,
+                (symbol.upper(), limit),
+            ).fetchall()
+
+    def dashboard_summary(self, *, limit: int = 50) -> dict[str, Any]:
+        from ai_policy import confidence_calibration
+
+        with self._connect() as connection:
+            rows = connection.execute(
+                """
+                SELECT decision_id,symbol,created_at,deterministic_mode,
+                       recommended_mode,width_scale,cap_scale,confidence,
+                       applied,policy_status,policy_reasons,benchmark_mode,
+                       return_15m,return_1h,return_4h,evaluation_json
+                FROM ai_decisions ORDER BY created_at DESC LIMIT ?
+                """,
+                (limit,),
+            ).fetchall()
+            calibration_rows = connection.execute(
+                """
+                SELECT confidence,return_1h,recommended_mode
+                FROM ai_decisions WHERE return_1h IS NOT NULL
+                ORDER BY created_at DESC LIMIT 1000
+                """
+            ).fetchall()
+        recent = [
+            {
+                "decision_id": row[0],
+                "symbol": row[1],
+                "created_at": row[2],
+                "baseline_mode": row[3],
+                "recommended_mode": row[4],
+                "width_scale": row[5],
+                "cap_scale": row[6],
+                "confidence": row[7],
+                "applied": bool(row[8]),
+                "status": row[9],
+                "reasons": row[10].split(",") if row[10] else [],
+                "benchmark_mode": row[11],
+                "return_15m": row[12],
+                "return_1h": row[13],
+                "return_4h": row[14],
+                "evaluation": json.loads(row[15] or "{}"),
+            }
+            for row in rows
+        ]
+        changed = sum(
+            row["recommended_mode"] != row["baseline_mode"] for row in recent
+        )
+        return {
+            "recent": recent,
+            "recommendation_count": len(recent),
+            "applied_count": sum(row["applied"] for row in recent),
+            "changed_mode_count": changed,
+            "ai_vs_baseline_1h": self._edge_summary(recent),
+            "calibration_1h": confidence_calibration(calibration_rows),
+        }
+
+    @staticmethod
+    def _edge_summary(recent: list[dict[str, Any]]) -> dict[str, float | int]:
+        values = [
+            directional_success(row["recommended_mode"], row["return_1h"])
+            - directional_success(row["baseline_mode"], row["return_1h"])
+            for row in recent if row["return_1h"] is not None
+        ]
+        return {
+            "samples": len(values),
+            "edge": sum(values) / len(values) if values else 0.0,
+        }
 
 
 def directional_success(mode: str, market_return: float) -> int:
@@ -466,3 +637,44 @@ def directional_success(mode: str, market_return: float) -> int:
     if normalized == "DOWN":
         return int(market_return < -threshold)
     return int(abs(market_return) <= threshold)
+
+
+def virtual_plan_result(
+    reference_price: float,
+    mode: str,
+    width_scale: float,
+    cap_scale: float,
+    candles: Sequence[Sequence[Any]],
+) -> dict[str, float | bool]:
+    """Оценить один виртуальный BUY с комиссиями и проскальзыванием."""
+    offset = {"UP": 0.005, "FLAT": 0.010, "DOWN": 0.015}.get(
+        mode.upper(), 0.01
+    )
+    entry = reference_price * (1 - offset * max(0.5, width_scale))
+    valid = [row for row in candles if len(row) > 4]
+    if not valid:
+        return {
+            "filled": False, "entry": entry, "net_return": 0.0,
+            "mfe": 0.0, "mae": 0.0,
+        }
+    low = min(float(row[3]) for row in valid)
+    if low > entry:
+        return {
+            "filled": False, "entry": entry, "net_return": 0.0,
+            "mfe": 0.0, "mae": 0.0,
+        }
+    high = max(float(row[2]) for row in valid)
+    close = float(valid[-1][4])
+    fee = float(os.getenv("AI_SHADOW_FEE_PCT", "0.00075") or 0.00075)
+    slippage = float(
+        os.getenv("AI_SHADOW_SLIPPAGE_PCT", "0.0005") or 0.0005
+    )
+    return {
+        "filled": True,
+        "entry": entry,
+        "net_return": (
+            (close / entry - 1) - 2 * (fee + slippage)
+        ) * min(1.0, cap_scale),
+        "mfe": high / entry - 1,
+        "mae": low / entry - 1,
+    }
