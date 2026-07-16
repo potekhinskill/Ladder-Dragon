@@ -129,6 +129,7 @@ class RiskSnapshot:
     gap_risk_usdt: Decimal = Decimal("0")
     expected_shortfall_usdt: Decimal = Decimal("0")
     stale_order_count: int = 0
+    symbol_consecutive_losses: dict[str, int] = field(default_factory=dict)
 
 
 @dataclass(frozen=True)
@@ -335,6 +336,11 @@ class RiskManager:
             block_reasons.append("protected USDT reserve reached")
         if snapshot.consecutive_losses >= self.limits.max_consecutive_losses:
             block_reasons.append("consecutive loss limit reached")
+        symbol_limit = self.limits.max_consecutive_losses
+        blocked_symbols = sorted(symbol for symbol, streak in snapshot.symbol_consecutive_losses.items()
+                                 if streak >= symbol_limit)
+        if blocked_symbols:
+            block_reasons.append("symbol loss streak limit reached: " + ",".join(blocked_symbols))
         if self.limits.stress_loss_cap_usdt > 0 and snapshot.stress_loss_usdt >= self.limits.stress_loss_cap_usdt:
             block_reasons.append(f"stress loss {snapshot.stress_loss_usdt:.2f} >= cap {self.limits.stress_loss_cap_usdt:.2f} USDT")
         if self.limits.var_cap_usdt > 0 and snapshot.var_usdt >= self.limits.var_cap_usdt:
@@ -462,7 +468,7 @@ def load_daily_trade_metrics(db_path: str, symbols: Iterable[str], now: Optional
     # Для серии убытков восстанавливаем среднюю себестоимость по всей истории,
     # а не только по сделкам текущего дня.
     inventory: dict[str, tuple[Decimal, Decimal]] = {}
-    sell_results: list[Decimal] = []
+    sell_results: list[tuple[str, Decimal]] = []
     for row in history:
         trade = execution(row)
         qty, avg = inventory.get(trade.symbol, (Decimal("0"), Decimal("0")))
@@ -473,20 +479,32 @@ def load_daily_trade_metrics(db_path: str, symbols: Iterable[str], now: Optional
         else:
             used = min(qty, trade.net_qty)
             ratio = used / trade.net_qty if trade.net_qty > 0 else Decimal("0")
-            sell_results.append(trade.sell_proceeds_quote() * ratio - avg * used)
+            sell_results.append((trade.symbol, trade.sell_proceeds_quote() * ratio - avg * used))
             qty -= used
             if qty <= 0:
                 qty, avg = Decimal("0"), Decimal("0")
         inventory[trade.symbol] = (qty, avg)
     streak = 0
-    for result in reversed(sell_results):
+    for _, result in reversed(sell_results):
         if result < 0:
             streak += 1
         else:
             break
+    symbol_streaks: dict[str, int] = {}
+    for symbol in {item[0] for item in sell_results}:
+        count = 0
+        for item_symbol, result in reversed(sell_results):
+            if item_symbol != symbol:
+                continue
+            if result < 0:
+                count += 1
+            else:
+                break
+        symbol_streaks[symbol] = count
     return {
         "daily_turnover_usdt": turnover,
         "daily_buy_usdt": buys,
         "daily_trade_count": len(rows),
         "consecutive_losses": streak,
+        "symbol_consecutive_losses": symbol_streaks,
     }
