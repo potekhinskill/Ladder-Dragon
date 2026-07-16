@@ -146,6 +146,8 @@ def build_supervisor_parser() -> argparse.ArgumentParser:
     ap.add_argument("--ai-usage-log", default=os.getenv("AI_USAGE_LOG", ".runtime/ai_usage.ndjson"))
     ap.add_argument("--ai-usage-log-max-bytes", type=int,
                     default=int(os.getenv("AI_USAGE_LOG_MAX_BYTES", "5242880")))
+    ap.add_argument("--ai-decisions-db",
+                    default=os.getenv("AI_DECISIONS_DB", ".runtime/ai_decisions.sqlite3"))
 
     ap.add_argument("--pos-guard-enable", action="store_true")
     ap.add_argument("--pos-max-base-map", default="", help="SYM:base_qty,... напр. SOLUSDT:0.50,ETHUSDT:0.020")

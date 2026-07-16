@@ -101,6 +101,13 @@ def test_deepseek_advisor_uses_json_mode_and_returns_strict_recommendation():
     assert request["json"]["response_format"] == {"type": "json_object"}
     assert request["json"]["thinking"] == {"type": "disabled"}
     assert "tools" not in request["json"]
+    user_content = request["json"]["messages"][1]["content"]
+    assert '"win_rate_30d"' in user_content
+    assert '"orderbook_imbalance_top20"' in user_content
+    assert '"ai_accuracy_4h"' in user_content
+    assert "orderId" not in user_content
+    assert "clientOrderId" not in user_content
+    assert "api_key" not in user_content
 
 
 def test_invalid_or_extra_model_fields_fail_safe():
