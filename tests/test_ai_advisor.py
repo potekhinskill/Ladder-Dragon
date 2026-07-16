@@ -119,12 +119,16 @@ def test_low_confidence_is_ignored_and_valid_result_is_cached():
             "rationale": "Insufficient evidence.",
         }
     )
-    assert AIAdvisor(
+    low_advisor = AIAdvisor(
         config(min_confidence=0.65),
         session=low_session,
         logger=lambda _: None,
         clock=lambda: now[0],
-    ).recommend(context()) is None
+    )
+    assert low_advisor.recommend(context()) is None
+    now[0] += 10
+    assert low_advisor.recommend(context()) is None
+    assert len(low_session.calls) == 1
 
     session = FakeSession(
         {

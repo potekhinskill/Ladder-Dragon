@@ -135,6 +135,13 @@ OPENAI_API_KEY=ваш_ключ
 Ключ LLM не передаётся через CLI. Для совместимого API используйте
 `AI_PROVIDER=compatible`, `AI_BASE_URL`, `AI_MODEL` и `AI_API_KEY`.
 
+Проверить несколько синтетических сценариев через настроенного провайдера без
+подключения к Binance и без ордеров:
+
+```bash
+python ai_advisor_smoke.py --provider deepseek
+```
+
 ## Проверка кода
 
 Проверить синтаксис без запуска торгового цикла:
