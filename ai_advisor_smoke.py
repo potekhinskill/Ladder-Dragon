@@ -133,6 +133,12 @@ def main() -> int:
             timeout_sec=args.timeout_sec,
             cache_sec=0,
             min_confidence=0.0,
+            usage_log_path=os.getenv(
+                "AI_USAGE_LOG", ".runtime/ai_usage.ndjson"
+            ),
+            usage_log_max_bytes=int(
+                os.getenv("AI_USAGE_LOG_MAX_BYTES", "5242880")
+            ),
         ),
         session=requests.Session(),
         logger=print,
