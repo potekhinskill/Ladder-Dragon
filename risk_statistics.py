@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from math import sqrt
+from statistics import NormalDist
 from typing import Iterable, Mapping, Sequence
 
 
@@ -60,3 +61,48 @@ def correlated_symbols(
 def stress_exposure(exposure_usdt: float, shocks: Iterable[float]) -> list[float]:
     """Mark-to-market exposure after simultaneous percentage shocks."""
     return [exposure_usdt * (1.0 + float(shock)) for shock in shocks]
+
+
+def correlated_symbols_multi_window(
+    histories: Mapping[str, Sequence[float]], *, threshold: float = 0.70,
+    windows: Sequence[int] = (24, 48, 96), min_windows: int = 2,
+) -> set[str]:
+    """Корреляция считается устойчивой только если порог пройден в нескольких окнах."""
+    names = [str(name).upper() for name in histories]
+    result: set[str] = set()
+    for i, left in enumerate(names):
+        for right in names[i + 1:]:
+            hits = sum(rolling_correlation(histories[left], histories[right], window=w) >= threshold for w in windows)
+            if hits >= min_windows:
+                result.update((left, right))
+    return result
+
+
+def covariance_var(
+    exposures: Mapping[str, float], histories: Mapping[str, Sequence[float]],
+    *, confidence: float = 0.99, horizon: int = 1,
+) -> float:
+    """Нормальная covariance-VaR оценка потери портфеля в валюте котировки."""
+    names = [name for name, value in exposures.items() if value > 0 and name in histories]
+    if len(names) < 1:
+        return 0.0
+    returns = {name: log_returns(histories[name])[-96:] for name in names}
+    n = min((len(values) for values in returns.values()), default=0)
+    if n < 3:
+        return 0.0
+    aligned = {name: values[-n:] for name, values in returns.items()}
+    means = {name: sum(values) / n for name, values in aligned.items()}
+    variances = {name: sum((v - means[name]) ** 2 for v in aligned[name]) / (n - 1) for name in names}
+    sigma2 = 0.0
+    for left in names:
+        for right in names:
+            cov = sum((aligned[left][i] - means[left]) * (aligned[right][i] - means[right]) for i in range(n)) / (n - 1)
+            sigma2 += exposures[left] * exposures[right] * cov
+    sigma = sqrt(max(0.0, sigma2)) * sqrt(max(1, horizon))
+    return float(NormalDist().inv_cdf(confidence) * sigma)
+
+
+def stress_loss(exposures: Mapping[str, float], *, price_shock: float = -0.05, spread_widening: float = 0.01) -> float:
+    """Одновременное падение и расширение spread с консервативной стоимостью выхода."""
+    gross = sum(max(0.0, float(value)) for value in exposures.values())
+    return gross * (max(0.0, -price_shock) + max(0.0, spread_widening))

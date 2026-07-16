@@ -25,7 +25,9 @@ def build_executor_parser() -> argparse.ArgumentParser:
     parser.add_argument("--sl", type=float, default=-0.01)
     parser.add_argument("--status-interval", type=int, default=5)
     parser.add_argument("--loop-minutes", type=int, default=5)
-    parser.add_argument("--oco-fallback", type=str, default="prefer-tp1")
+    parser.add_argument("--oco-fallback", type=str, choices=("halt", "prefer-tp1"), default="halt")
+    parser.add_argument("--max-holding-minutes", type=int, default=0,
+                        help="LIVE time-stop; 0 disables the additional guard")
     parser.add_argument("--target-buy-per-symbol", type=int, default=10)
     parser.add_argument("--auto-oco-holdings", action="store_true")
     parser.add_argument("--live", action="store_true")
@@ -114,6 +116,10 @@ def validate_executor_args(
     # мутаций через окружение конкретного процесса.
     if args.live and os.getenv("BOT_LIVE_CONFIRMED", "") != "YES":
         parser.error("--live requires BOT_LIVE_CONFIRMED=YES")
+    if args.live and args.oco_fallback == "prefer-tp1":
+        parser.error("--oco-fallback=prefer-tp1 запрещён в LIVE: позиция останется без стопа")
+    if args.max_holding_minutes < 0:
+        parser.error("--max-holding-minutes must be >= 0")
     args.symbol = args.symbol.strip().upper()
     if not re.fullmatch(r"[A-Z0-9]{5,20}", args.symbol):
         parser.error("--symbol must be a valid uppercase Binance symbol")

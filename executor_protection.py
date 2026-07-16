@@ -80,6 +80,7 @@ class ProtectionDependencies:
     price_eps_mult: Callable[[], float]
     round_step: Callable[[float, float, str], float]
     cancel_oco: Callable[[str, int], None]
+    place_market_order: Optional[Callable[..., Dict[str, Any] | None]] = None
     sleep: Callable[[float], None] = time.sleep
     now: Callable[[], float] = time.time
 
@@ -282,6 +283,19 @@ def protect_filled_buys(
                 parent_client_order_id=parent_client_id,
             )
             protected = bool(oco)
+            if not oco and config.oco_fallback == "prefer-tp1" and os.getenv("BOT_LIVE_CONFIRMED") == "YES":
+                # В LIVE одиночный TP оставляет позицию без stop-loss. Сначала
+                # пытаемся немедленно закрыть фактически исполненный объём,
+                # затем фиксируем halt с точной причиной.
+                reason = "OCO не создан: fallback prefer-tp1 запрещён в LIVE (позиция без стопа)"
+                try:
+                    if dependencies.place_market_order is not None:
+                        dependencies.place_market_order(symbol, "SELL", quantity)
+                except (OSError, RuntimeError, ValueError, TypeError) as exc:
+                    dependencies.logger(f"[FLATTEN-ERR] {symbol}: {exc}")
+                dependencies.halt(reason, symbol=symbol, order_id=order_id,
+                                  client_order_id=parent_client_id)
+                continue
             if not oco and config.oco_fallback == "prefer-tp1":
                 try:
                     fallback = dependencies.place_limit_order(

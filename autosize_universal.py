@@ -293,10 +293,21 @@ def _fee_floor_pct() -> float:
     fee = max(0.0, getenv_float("BOT_FEE_PCT", 0.001))
     return fee * 2.0 * 1.05
 
+def _execution_cost_floor_pct() -> float:
+    """Минимальная gross-цель после комиссии и неблагоприятного исполнения."""
+    fee = max(0.0, getenv_float("BOT_FEE_PCT", 0.001))
+    spread = max(0.0, getenv_float("BOT_SPREAD_PCT", getenv_float("RISK_SPREAD_PCT", 0.0)))
+    slippage = max(0.0, getenv_float("BOT_SLIPPAGE_PCT", getenv_float("RISK_SLIPPAGE_PCT", 0.0)))
+    latency = max(0.0, getenv_float("BOT_LATENCY_COST_PCT", 0.0))
+    stop_cost = max(0.0, getenv_float("BOT_STOP_EXECUTION_COST_PCT", 0.0))
+    partial = max(0.0, getenv_float("BOT_PARTIAL_FILL_COST_PCT", 0.0))
+    min_edge = max(0.0, getenv_float("BOT_MIN_NET_EDGE_PCT", getenv_float("MIN_NET_EDGE_PCT", 0.0)))
+    return 2.0 * fee + spread + 2.0 * slippage + latency + stop_cost + partial + min_edge
+
 def _profit_floor_pct() -> float:
     # совмещённый “пол”: не ниже MIN_PROFIT_OVER_AVГ и не ниже комиссии
     min_edge = max(0.0, getenv_float("MIN_PROFIT_OVER_AVG", 0.0))
-    return max(min_edge, _fee_floor_pct())
+    return max(min_edge, _fee_floor_pct(), _execution_cost_floor_pct())
 
 # ------------------- HTTP / signed / backoff -------------------
 
@@ -768,6 +779,7 @@ def _protection_dependencies() -> ProtectionDependencies:
         price_eps_mult=price_eps_mult,
         round_step=_round,
         cancel_oco=cancel_oco,
+        place_market_order=place_market_order,
     )
 
 
@@ -1496,6 +1508,28 @@ def main():
                         state_store=be_state,
                         dependencies=_protection_dependencies(),
                     )
+
+            # LIVE time-stop: защита от бесконечно зависшей позиции. Binance
+            # не предоставляет такой политики для уже исполненного BUY, поэтому
+            # контролируем возраст позиции локально и закрываем её MARKET.
+            max_hold_min = max(0.0, getenv_float("BOT_MAX_HOLDING_MINUTES", 0.0))
+            if LIVE_MODE and max_hold_min > 0 and placed_ids:
+                now_ms = int(time.time() * 1000)
+                for oid in list(placed_ids):
+                    held = get_order(symbol, oid)
+                    if not held or str(held.get("status", "")).upper() != "FILLED":
+                        continue
+                    opened_ms = int(held.get("time") or held.get("transactTime") or now_ms)
+                    if now_ms - opened_ms < max_hold_min * 60_000:
+                        continue
+                    qty_exp = float(held.get("executedQty", 0) or 0)
+                    if qty_exp > 0:
+                        log(f"[TIME-STOP] {symbol} order={oid} age>{max_hold_min:g}m; flattening")
+                        place_market_order(symbol, "SELL", qty_exp,
+                                           ref_price=get_price(symbol),
+                                           filters=symbol_filters.get(symbol))
+                    _trip_execution_halt("max holding time exceeded", symbol=symbol, order_id=oid)
+                    placed_ids.remove(oid)
 
             # --- Breakeven поддержка OCO после частичного TP ---
             if breakeven.due():
