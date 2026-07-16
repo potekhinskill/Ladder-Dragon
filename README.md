@@ -339,7 +339,9 @@ python run_dashboard.py
 ### Обновление дашборда на Raspberry Pi
 
 Выполняйте из `/home/bot/apps/binance_bot` после получения новой версии.
-Скрипт обновляет backend, `/var/www/bot`, systemd units и перезапускает бота:
+Скрипт обновляет backend, `/var/www/bot`, dashboard unit, добавляет к текущему
+`mybot.service` только drop-in прав доступа и перезапускает процессы. Текущий
+`ExecStart`, Testnet/Mainnet и торговые CLI-флаги он не заменяет:
 
 ```bash
 sudo bash deploy/update_raspberry_pi.sh apply
@@ -372,6 +374,7 @@ sudo bash deploy/update_raspberry_pi.sh check
 - [Полное руководство](FRONT/readme.html)
 - [Справка по дашборду](FRONT/help.html)
 - [Безопасный шаблон systemd](deploy/mybot.service)
+- [Drop-in связки supervisor ↔ dashboard](deploy/mybot-dashboard-link.conf)
 - [Безопасный шаблон dashboard systemd](deploy/pi-dashboard.service)
 - [Обновление Raspberry Pi и проверка связки](deploy/update_raspberry_pi.sh)
 - [Исторические заметки systemd — не разворачивать](docs/legacy-systemd-notes.txt)
