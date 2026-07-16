@@ -17,16 +17,23 @@ import argparse
 import subprocess
 import json
 import sqlite3
+from dataclasses import asdict
 from datetime import datetime, timedelta
 from decimal import Decimal
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Mapping, Optional, Tuple
 
 from ai_advisor import (
     AIAdvisor,
     AdvisorConfig,
     MarketContext,
     limit_cap_by_recommendation,
+)
+from ai_context import (
+    AdvisorDecisionStore,
+    build_market_features,
+    build_portfolio_features,
+    load_trade_features,
 )
 from order_identity import client_order_id
 from risk_manager import RiskDecision, RiskLimits, RiskManager, RiskSnapshot, load_daily_trade_metrics, money
@@ -80,6 +87,7 @@ _CHILD_RESTART_AFTER: Dict[str, float] = {}
 _CHILD_FAILURES: Dict[str, int] = {}
 LIVE_MODE = False
 _AI_ADVISOR: Optional[AIAdvisor] = None
+_AI_DECISIONS: Optional[AdvisorDecisionStore] = None
 
 
 def env_flag(name: str, default: bool = False) -> bool:
@@ -135,10 +143,29 @@ def _build_ai_advisor(args: argparse.Namespace) -> Optional[AIAdvisor]:
         ),
         output_usd_per_mtok=getenv_float("AI_OUTPUT_USD_PER_MTOK"),
     )
+    def record_decision(
+        context: MarketContext,
+        recommendation,
+        applied: bool,
+    ) -> None:
+        if _AI_DECISIONS is None:
+            return
+        _AI_DECISIONS.record(
+            symbol=context.symbol,
+            price=context.price,
+            deterministic_mode=context.deterministic_mode,
+            recommended_mode=recommendation.mode,
+            width_scale=recommendation.ladder_width_scale,
+            cap_scale=recommendation.cap_scale,
+            confidence=recommendation.confidence,
+            applied=applied,
+        )
+
     return AIAdvisor(
         config,
         session=requests.Session(),
         logger=log,
+        decision_recorder=record_decision,
     )
 
 
@@ -1258,6 +1285,81 @@ def auto_cap_if_needed(args: argparse.Namespace, n_syms: int) -> None:
 
 _STARTUP_CLEAN_DONE: Dict[str, bool] = {}
 
+
+def _build_ai_market_context(
+    symbol: str,
+    *,
+    price: float,
+    atr_pct: float,
+    deterministic_mode: str,
+    diag: Mapping[str, Any],
+    ladder: tuple[float, float, float],
+    target_buys: int,
+) -> MarketContext:
+    """Собрать ограниченные агрегаты без сырых сделок, баланса и ордер-ID."""
+    low, down, up = ladder
+    base: Dict[str, Any] = {
+        "symbol": symbol,
+        "price": float(price),
+        "atr_pct": float(atr_pct),
+        "deterministic_mode": deterministic_mode,
+        "candidate_mode": str(diag.get("candidate", deterministic_mode)),
+        "ema_gap_pct": (
+            (float(diag.get("ema_fast", 0)) - float(diag.get("ema_slow", 0)))
+            / max(float(price), 1e-12)
+        ),
+        "ema_slope": float(diag.get("slope", 0)),
+        "adx": float(diag.get("adx", 0)),
+        "ladder_low_pct": float(low),
+        "ladder_down_pct": float(down),
+        "ladder_up_pct": float(up),
+        "target_buys": int(target_buys),
+        "risk_safe_cap_usdt": float(
+            os.getenv("BOT_CAP_PER_ORDER", "0") or 0
+        ),
+    }
+    if _AI_DECISIONS is not None:
+        try:
+            _AI_DECISIONS.settle(symbol, price)
+        except sqlite3.Error as exc:
+            dbg(f"[AI-DECISION] settle failed: {exc}")
+    if _AI_ADVISOR is None or not _AI_ADVISOR.refresh_due(symbol):
+        return MarketContext(**base)
+
+    extra: Dict[str, Any] = {}
+    trade_features = load_trade_features(
+        os.getenv("BOT_STATS_DB", ""),
+        symbol,
+        price,
+    )
+    extra.update(asdict(trade_features))
+    market_features = build_market_features(
+        symbol,
+        get_klines=TM.get_klines,
+        public_get=TM._public_get,
+    )
+    extra.update(asdict(market_features))
+    try:
+        portfolio_features = build_portfolio_features(
+            symbol,
+            open_orders=list_open_orders(symbol),
+            balances=get_balances_full(),
+            portfolio_cap_usdt=float(
+                os.getenv("RISK_PORTFOLIO_CAP_USDT", "0") or 0
+            ),
+            reserve_usdt=float(os.getenv("RISK_RESERVE_USDT", "0") or 0),
+        )
+        extra.update(asdict(portfolio_features))
+    except Exception as exc:
+        dbg(f"[AI-CONTEXT] portfolio aggregate unavailable: {exc}")
+    if _AI_DECISIONS is not None:
+        try:
+            extra.update(asdict(_AI_DECISIONS.performance(symbol)))
+        except sqlite3.Error as exc:
+            dbg(f"[AI-DECISION] performance failed: {exc}")
+    return MarketContext(**base, **extra)
+
+
 def run_for_symbol(symbol: str, args: argparse.Namespace) -> None:
     """Построить план одного символа и передать его дочернему исполнителю."""
     # 1) Текущая цена + ATR
@@ -1308,27 +1410,15 @@ def run_for_symbol(symbol: str, args: argparse.Namespace) -> None:
     ai_width_scale = 1.0
     ai_cap_scale = 1.0
     if _AI_ADVISOR is not None:
-        ema_fast = float(_diag.get("ema_fast", 0.0))
-        ema_slow = float(_diag.get("ema_slow", 0.0))
         recommendation = _AI_ADVISOR.recommend(
-            MarketContext(
-                symbol=symbol,
-                price=float(now_p),
-                atr_pct=float(atr_pct or 0.0),
+            _build_ai_market_context(
+                symbol,
+                price=now_p,
+                atr_pct=float(atr_pct or 0),
                 deterministic_mode=dir_mode,
-                candidate_mode=str(_diag.get("candidate", dir_mode)),
-                ema_gap_pct=(
-                    (ema_fast - ema_slow) / max(float(now_p), 1e-12)
-                ),
-                ema_slope=float(_diag.get("slope", 0.0)),
-                adx=float(_diag.get("adx", 0.0)),
-                ladder_low_pct=float(low),
-                ladder_down_pct=float(down),
-                ladder_up_pct=float(up),
+                diag=_diag,
+                ladder=(float(low), float(down), float(up)),
                 target_buys=target_buys_use,
-                risk_safe_cap_usdt=float(
-                    os.getenv("BOT_CAP_PER_ORDER", "0") or 0
-                ),
             )
         )
         if recommendation is not None:
@@ -1835,9 +1925,17 @@ def main():
     args = ap.parse_args()
     log(f"[VERSION] {product_label('supervisor')}")
     symbols = validate_supervisor_args(ap, args)
-    global _AI_ADVISOR
-    _AI_ADVISOR = _build_ai_advisor(args)
     _configure_venue(args)
+    global _AI_ADVISOR, _AI_DECISIONS
+    decisions_db = (
+        os.getenv("AI_TESTNET_DECISIONS_DB", "").strip()
+        if args.testnet else args.ai_decisions_db
+    ) or args.ai_decisions_db
+    _AI_DECISIONS = (
+        AdvisorDecisionStore(decisions_db)
+        if args.ai_advisor else None
+    )
+    _AI_ADVISOR = _build_ai_advisor(args)
     limits = RiskLimits.from_env()
     _preflight_live(args, symbols, limits)
     global LIVE_MODE

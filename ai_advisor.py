@@ -14,6 +14,7 @@ from decimal import Decimal
 import json
 import os
 from pathlib import Path
+import sqlite3
 import time
 from typing import Any, Callable, Mapping, Optional
 
@@ -88,6 +89,35 @@ class MarketContext:
     ladder_up_pct: float
     target_buys: int
     risk_safe_cap_usdt: float
+    trade_count_30d: int = 0
+    sell_count_30d: int = 0
+    net_realized_pnl_30d: float = 0.0
+    win_rate_30d: float = 0.0
+    avg_win_usdt_30d: float = 0.0
+    avg_loss_usdt_30d: float = 0.0
+    consecutive_losses: int = 0
+    fees_usdt_30d: float = 0.0
+    turnover_usdt_30d: float = 0.0
+    position_pnl_pct: float = 0.0
+    return_15m: float = 0.0
+    return_1h: float = 0.0
+    return_4h: float = 0.0
+    return_24h: float = 0.0
+    volume_ratio_1h: float = 1.0
+    spread_bps: float = 0.0
+    orderbook_imbalance_top5: float = 0.0
+    orderbook_imbalance_top20: float = 0.0
+    open_buy_count: int = 0
+    open_sell_count: int = 0
+    open_buy_exposure_usdt: float = 0.0
+    portfolio_cap_used_pct: float = 0.0
+    free_reserve_ratio: float = 0.0
+    ai_samples_15m: int = 0
+    ai_accuracy_15m: float = 0.0
+    ai_samples_1h: int = 0
+    ai_accuracy_1h: float = 0.0
+    ai_samples_4h: int = 0
+    ai_accuracy_4h: float = 0.0
 
 
 @dataclass(frozen=True)
@@ -120,17 +150,28 @@ class AIAdvisor:
         session: requests.Session,
         logger: Callable[[str], None],
         clock: Callable[[], float] = time.time,
+        decision_recorder: Optional[
+            Callable[[MarketContext, StrategyRecommendation, bool], None]
+        ] = None,
     ) -> None:
         config.validate()
         self.config = config
         self.session = session
         self.logger = logger
         self.clock = clock
+        self.decision_recorder = decision_recorder
         # Кэшируем и успешный результат, и безопасный отказ. Это не позволяет
         # недоступному API или низкой confidence создавать запрос каждую секунду.
         self._cache: dict[
             str, tuple[float, Optional[StrategyRecommendation]]
         ] = {}
+
+    def refresh_due(self, symbol: str) -> bool:
+        cached = self._cache.get(symbol)
+        return (
+            cached is None
+            or self.clock() - cached[0] > self.config.cache_sec
+        )
 
     def recommend(
         self, context: MarketContext
@@ -149,7 +190,13 @@ class AIAdvisor:
                 payload,
                 config=self.config,
             )
-            if recommendation.confidence < self.config.min_confidence:
+            applied = recommendation.confidence >= self.config.min_confidence
+            if self.decision_recorder is not None:
+                try:
+                    self.decision_recorder(context, recommendation, applied)
+                except (OSError, sqlite3.Error) as exc:
+                    self.logger(f"[AI-DECISION] cannot record decision: {exc}")
+            if not applied:
                 self._log_usage(
                     context,
                     usage,
@@ -200,7 +247,11 @@ class AIAdvisor:
             '"cap_scale":number,"confidence":number,"rationale":"short text"}. '
             "Prefer the deterministic mode unless the indicators provide clear "
             "evidence. cap_scale above 1 is only a preference and will still be "
-            "capped by the local Risk Manager."
+            "capped by the local Risk Manager. Treat trade statistics with fewer "
+            "than 20 sells and AI accuracy with fewer than 30 samples as weak "
+            "evidence. High fees, drawdown, losing streaks, spread, volatility, "
+            "portfolio utilization, or order-book imbalance may only justify a "
+            "more conservative recommendation, never bypassing local limits."
         )
         body: dict[str, Any] = {
             "model": self.config.model,

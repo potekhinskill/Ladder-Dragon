@@ -2,7 +2,7 @@
 
 Приватный Python-проект для управления лестничной торговлей на Binance Spot. Бот строит адаптивные сетки BUY/SELL, учитывает ATR, EMA и VWAP, управляет OCO-ордерами и сохраняет торговую статистику в SQLite.
 
-Текущая версия продукта: **2.3.0**. Ladder Dragon использует [Semantic Versioning](https://semver.org/); единственный источник версии — `product_version.py`. Проверить установленную версию можно командой `python ai_supervisor.py --version`.
+Текущая версия продукта: **2.4.0**. Ladder Dragon использует [Semantic Versioning](https://semver.org/); единственный источник версии — `product_version.py`. Проверить установленную версию можно командой `python ai_supervisor.py --version`.
 
 > [!WARNING]
 > Проект работает с реальными биржевыми ордерами. Это не инвестиционная рекомендация. DRY является режимом по умолчанию, а любые изменяющие Binance-запросы дополнительно блокируются на уровне транспорта. Тем не менее перед Mainnet LIVE обязателен отдельный прогон на Binance Spot Testnet и ручная проверка лимитов.
@@ -25,6 +25,7 @@
 | --- | --- |
 | `ai_supervisor.py` | Главный orchestration loop, очистка ордеров, position guard и запуск воркеров |
 | `ai_advisor.py` | Изолированный LLM-рекомендатель со строгой схемой, диапазонами и fail-safe fallback |
+| `ai_context.py` | Агрегаты истории/рынка и раздельная оценка прошлых AI-рекомендаций |
 | `autosize_universal.py` | Координация исполнения BUY/SELL/OCO для отдельного символа |
 | `supervisor_config.py`, `executor_config.py` | Построение строгих CLI и проверка конфигурации процессов |
 | `strategy_math.py` | Чистая математика лестниц, EMA, ATR, ADX и panic-сигналов |
@@ -123,6 +124,8 @@ AI_MODEL=deepseek-v4-flash
 AI_BASE_URL=https://api.deepseek.com
 DEEPSEEK_API_KEY=ваш_ключ
 AI_USAGE_LOG=.runtime/ai_usage.ndjson
+AI_DECISIONS_DB=.runtime/ai_decisions.sqlite3
+AI_TESTNET_DECISIONS_DB=.runtime/testnet_ai_decisions.sqlite3
 ```
 
 Для OpenAI достаточно заменить provider и ключ:
@@ -152,6 +155,21 @@ python ai_advisor_smoke.py --provider deepseek
 cache-hit input `$0.0028`, cache-miss input `$0.14`, output `$0.28`. Тарифы
 можно переопределить через `AI_INPUT_CACHE_HIT_USD_PER_MTOK`,
 `AI_INPUT_CACHE_MISS_USD_PER_MTOK` и `AI_OUTPUT_USD_PER_MTOK`.
+
+При каждом новом запросе модель получает только безопасные агрегаты:
+
+- PnL, win rate, серии убытков, комиссии и оборот за 30 дней;
+- нереализованный PnL позиции без раскрытия количества и средней цены;
+- доходности и объём за 15 минут, 1 час, 4 часа и 24 часа;
+- spread и дисбаланс верхних 5/20 уровней стакана без сырых заявок;
+- число BUY/SELL, суммарную BUY-экспозицию и долю portfolio CAP;
+- отношение свободного USDT к обязательному резерву;
+- точность прошлых AI-рекомендаций на горизонтах 15 минут, 1 час и 4 часа.
+
+Сырые сделки, полный баланс, API-ключи, `orderId`, `clientOrderId` и полный
+стакан модели не передаются. Рекомендации Testnet и Mainnet хранятся в разных
+SQLite-файлах. Результаты решения оцениваются позднее по движению цены и
+автоматически агрегируются в следующий AI-контекст.
 
 ## Проверка кода
 
