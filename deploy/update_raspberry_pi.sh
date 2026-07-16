@@ -76,8 +76,10 @@ chmod 0600 "${DASHBOARD_ENV}"
 
 install -d -o bot -g bot -m 0700 db logs FastAPI/pi-dashboard/data
 install -d -o root -g root -m 0755 "${WEB_ROOT}"
+install -d -o root -g root -m 0755 /etc/systemd/system/mybot.service.d
 install -m 0644 FRONT/index.html FRONT/help.html FRONT/readme.html "${WEB_ROOT}/"
-install -m 0644 deploy/mybot.service /etc/systemd/system/mybot.service
+install -m 0644 deploy/mybot-dashboard-link.conf \
+  /etc/systemd/system/mybot.service.d/dashboard-link.conf
 install -m 0644 deploy/pi-dashboard.service /etc/systemd/system/pi-healthd.service
 
 systemctl daemon-reload
