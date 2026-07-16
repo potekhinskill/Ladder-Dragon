@@ -2,7 +2,7 @@ from decimal import Decimal
 
 import pytest
 
-from simulation import Candle, Inventory, SimulationConfig, simulate_grid, walk_forward
+from simulation import Candle, Inventory, SimulationConfig, simulate_grid, stress_grid, walk_forward
 
 
 def candles():
@@ -58,3 +58,28 @@ def test_simulation_does_not_fill_impossible_slippage_price():
         ),
     )
     assert result.trades == 0
+
+
+def test_simulation_supports_partial_fill_and_conservative_oco_stop():
+    result = simulate_grid(
+        [
+            Candle(0, Decimal("100"), Decimal("101"), Decimal("99"), Decimal("100")),
+            Candle(1, Decimal("100"), Decimal("101"), Decimal("99"), Decimal("100")),
+            # Both TP and stop are touched; stop must win.
+            Candle(2, Decimal("100"), Decimal("102"), Decimal("95"), Decimal("100")),
+            Candle(3, Decimal("100"), Decimal("100"), Decimal("100"), Decimal("100")),
+        ],
+        SimulationConfig(
+            partial_fill_ratio=Decimal("0.5"),
+            stop_loss_pct=Decimal("0.02"),
+            take_profit_pct=Decimal("0.01"),
+        ),
+    )
+    assert result.trades >= 2
+    assert result.fees > 0
+
+
+def test_stress_grid_returns_explicit_downside_scenarios():
+    results = stress_grid(candles(), SimulationConfig(), shocks=(Decimal("-0.30"),))
+    assert Decimal("-0.30") in results
+    assert results[Decimal("-0.30")].final_equity > 0
