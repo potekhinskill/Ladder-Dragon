@@ -425,6 +425,11 @@ class AdvisorDecisionStore:
                 )"""
             )
             connection.execute("CREATE INDEX IF NOT EXISTS ai_fills_decision ON ai_fills(decision_id, ts)")
+            connection.execute("""CREATE TABLE IF NOT EXISTS ai_order_links(
+                client_order_id TEXT PRIMARY KEY, decision_id TEXT NOT NULL,
+                symbol TEXT NOT NULL, lot_id INTEGER, order_type TEXT NOT NULL DEFAULT '',
+                created_at INTEGER NOT NULL
+            )""")
             columns = {
                 row[1] for row in connection.execute("PRAGMA table_info(ai_decisions)")
             }
@@ -468,6 +473,20 @@ class AdvisorDecisionStore:
                 (symbol.upper(),),
             ).fetchone()
         return str(row[0]) if row else None
+
+    def link_client_order(self, client_order_id: str, decision_id: str, *, symbol: str,
+                          lot_id: int | None = None, order_type: str = "") -> None:
+        """Сохранить durable mapping для recovery после рестарта."""
+        with self._connect() as connection:
+            connection.execute(
+                "INSERT OR REPLACE INTO ai_order_links(client_order_id,decision_id,symbol,lot_id,order_type,created_at) VALUES(?,?,?,?,?,?)",
+                (client_order_id, decision_id, symbol.upper(), lot_id, order_type, int(time.time())),
+            )
+
+    def decision_for_client_order(self, client_order_id: str) -> tuple[str, int | None] | None:
+        with self._connect() as connection:
+            row = connection.execute("SELECT decision_id,lot_id FROM ai_order_links WHERE client_order_id=?", (client_order_id,)).fetchone()
+        return (str(row[0]), int(row[1]) if row[1] is not None else None) if row else None
 
     def evaluate_execution(self, decision_id: str, *, baseline_exit_price: float | None = None) -> dict[str, Any]:
         """Рассчитать realized net PnL и baseline equal-notional по fills."""

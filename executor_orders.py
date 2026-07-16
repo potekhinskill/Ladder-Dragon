@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import os
 import time
 from dataclasses import dataclass
 from typing import Any, Callable, Dict, Optional
@@ -11,6 +12,21 @@ import requests
 
 from order_identity import client_order_id
 from order_recovery import OrderJournal, TERMINAL_EXCHANGE_STATES
+
+
+def _link_ai_order(client_id: str, symbol: str, *, lot_id: int | None = None, order_type: str = "") -> None:
+    """Сохранить связь clientOrderId с decision до сетевого POST."""
+    decision_id = os.getenv("BOT_AI_DECISION_ID", "").strip()
+    db_path = os.getenv("AI_DECISIONS_DB", "").strip()
+    if not decision_id or not db_path:
+        return
+    try:
+        from ai_context import AdvisorDecisionStore
+        AdvisorDecisionStore(db_path).link_client_order(client_id, decision_id,
+                                                        symbol=symbol, lot_id=lot_id,
+                                                        order_type=order_type)
+    except (OSError, ValueError):
+        return
 
 
 @dataclass(frozen=True)
@@ -125,6 +141,7 @@ def place_limit_order(
     order_client_id = (
         active.client_order_id if active is not None else generated_id
     )
+    _link_ai_order(order_client_id, symbol, order_type="LIMIT")
     if journal is not None:
         # PREPARED коммитится до сетевого запроса — основа идемпотентности.
         journal.prepare(
@@ -257,6 +274,7 @@ def place_oco_sell(
             symbol, "SELL", purpose, tp_text, quantity_text
         )
     )
+    _link_ai_order(list_client_id, symbol, lot_id=lot_id, order_type="OCO")
     if active is not None:
         existing = dependencies.get_order_list_by_client_id(list_client_id)
         if (
