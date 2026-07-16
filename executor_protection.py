@@ -83,6 +83,7 @@ class ProtectionDependencies:
     place_market_order: Optional[Callable[..., Dict[str, Any] | None]] = None
     sleep: Callable[[float], None] = time.sleep
     now: Callable[[], float] = time.time
+    lot_id_for_fill: Optional[Callable[[str, float], int | None]] = None
 
 
 def emergency_gap_flatten(
@@ -318,6 +319,7 @@ def protect_filled_buys(
                 )
                 continue
 
+            lot_id = dependencies.lot_id_for_fill(symbol, average_fill_price) if dependencies.lot_id_for_fill else None
             oco = dependencies.place_oco_sell(
                 symbol,
                 quantity,
@@ -325,6 +327,7 @@ def protect_filled_buys(
                 sl_stop,
                 sl_rounded,
                 parent_client_order_id=parent_client_id,
+                lot_id=lot_id,
             )
             protected = bool(oco)
             if not oco and config.oco_fallback == "prefer-tp1" and os.getenv("BOT_LIVE_CONFIRMED") == "YES":

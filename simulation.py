@@ -362,6 +362,26 @@ def production_walk_forward(candles: Sequence[Candle], configs: Iterable[Simulat
     return report
 
 
+def multi_period_walk_forward(periods: Sequence[Sequence[Candle]], configs: Iterable[SimulationConfig], **kwargs) -> dict:
+    """Прогнать walk-forward на независимых исторических периодах/режимах."""
+    reports = [production_walk_forward(period, configs, **kwargs) for period in periods if period]
+    degraded = any(report["degraded"] for report in reports) or not reports
+    return {"periods": reports, "degraded": degraded,
+            "excess_returns": [value for report in reports for value in report["excess_returns"]]}
+
+
+def holm_bonferroni(p_values: Sequence[float], alpha: float = 0.05) -> list[bool]:
+    """Holm multiple-testing correction: отклонить ложные улучшения параметров."""
+    indexed = sorted(enumerate(float(value) for value in p_values), key=lambda item: item[1])
+    accepted = [False] * len(indexed)
+    for rank, (index, value) in enumerate(indexed):
+        if value <= alpha / max(1, len(indexed) - rank):
+            accepted[index] = True
+        else:
+            break
+    return accepted
+
+
 def stress_grid(
     candles: Sequence[Candle],
     config: SimulationConfig,

@@ -144,3 +144,12 @@ def conversion_price(*, asset_qty: float, side: str, bids: Sequence[tuple[float,
     if remaining > 1e-18:
         raise ValueError("conversion book exhausted")
     return notional * max(0.0, 1.0 - float(fee_pct)) / float(asset_qty)
+
+
+def allocate_cap_by_marginal_risk(total_cap: float, contributions: Mapping[str, float],
+                                  minimum_cap: float = 0.0) -> dict[str, float]:
+    """Распределить CAP обратно пропорционально marginal loss contribution."""
+    total = max(0.0, float(total_cap))
+    weights = {symbol: 1.0 / max(float(value), 1e-12) for symbol, value in contributions.items()}
+    denominator = sum(weights.values()) or 1.0
+    return {symbol: max(float(minimum_cap), total * weight / denominator) for symbol, weight in weights.items()}

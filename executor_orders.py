@@ -209,6 +209,7 @@ def place_oco_sell(
     *,
     dependencies: OrderDependencies,
     parent_client_order_id: Optional[str] = None,
+    lot_id: int | None = None,
 ) -> Dict[str, Any] | None:
     """Создать и обязательно проверить обе защитные ноги SELL OCO."""
     if not dependencies.live():
@@ -312,6 +313,7 @@ def place_oco_sell(
             metadata={
                 "stopPrice": stop_text,
                 "stopLimitPrice": limit_text,
+                "lot_id": lot_id,
             },
         )
         if parent_client_order_id:

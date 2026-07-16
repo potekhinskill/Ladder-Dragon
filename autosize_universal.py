@@ -752,6 +752,15 @@ def _order_dependencies() -> OrderDependencies:
 def _protection_dependencies() -> ProtectionDependencies:
     # Сопровождение позиции получает те же late-bound границы, что orders и
     # recovery: фактические HTTP, journal и halt остаются у исполнителя.
+    def lot_id_for_fill(symbol: str, fill_price: float) -> int | None:
+        if STATS_CON is None:
+            return None
+        try:
+            lots = oldest_lots(STATS_CON, symbol)
+            return lots[0].lot_id if lots else None
+        except sqlite3.Error:
+            return None
+
     return ProtectionDependencies(
         logger=log,
         debugger=dbg,
@@ -782,6 +791,7 @@ def _protection_dependencies() -> ProtectionDependencies:
         round_step=_round,
         cancel_oco=cancel_oco,
         place_market_order=place_market_order,
+        lot_id_for_fill=lot_id_for_fill,
     )
 
 
@@ -810,7 +820,8 @@ def place_oco_sell(symbol: str,
                    sl_stop_price: float,
                    sl_limit_price: float,
                    *,
-                   parent_client_order_id: Optional[str] = None) -> Dict[str, Any] | None:
+                   parent_client_order_id: Optional[str] = None,
+                   lot_id: int | None = None) -> Dict[str, Any] | None:
     return orders_place_oco_sell(
         symbol,
         qty,
@@ -819,6 +830,7 @@ def place_oco_sell(symbol: str,
         sl_limit_price,
         dependencies=_order_dependencies(),
         parent_client_order_id=parent_client_order_id,
+        lot_id=lot_id,
     )
 
 # ------------------- STATS (optional) -------------------
