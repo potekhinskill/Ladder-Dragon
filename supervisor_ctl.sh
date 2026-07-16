@@ -23,9 +23,14 @@ command -v "${PY}" >/dev/null 2>&1 || { echo "Python not found: ${PY}"; exit 127
 SUP="ai_supervisor.py"
 RUNNER="ai_plan_runner.py"
 PNL="pnl_reporter.py"
-LOG="supervisor.log"
-PNL_LOG="pnl.log"
+# systemd ProtectSystem=strict оставляет для записи только db/, logs/ и /run/mybot.
+# Поэтому служебные логи не должны лежать в корне checkout: ExecStop иначе
+# завершится с status=1 даже при успешной остановке дочерних процессов.
+LOG="${SUPERVISOR_LOG:-${SCRIPT_DIR}/logs/supervisor.log}"
+PNL_LOG="${PNL_LOG_PATH:-${SCRIPT_DIR}/logs/pnl.log}"
 LOCK="/tmp/ai_supervisor.lock"
+
+mkdir -p "$(dirname -- "${LOG}")" "$(dirname -- "${PNL_LOG}")"
 
 # -----------------------------
 # Нормализация значений .env

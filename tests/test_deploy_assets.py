@@ -38,6 +38,15 @@ def test_managed_service_uses_versionless_wrapper_and_separate_env():
     assert 'BOT_LIVE_CONFIRMED:-NO' in wrapper
 
 
+def test_supervisor_control_logs_stay_inside_writable_rotated_directory():
+    ctl = read("supervisor_ctl.sh")
+    unit = read("deploy/mybot.service")
+    assert 'SUPERVISOR_LOG:-${SCRIPT_DIR}/logs/supervisor.log' in ctl
+    assert 'PNL_LOG_PATH:-${SCRIPT_DIR}/logs/pnl.log' in ctl
+    assert "ReadWritePaths=/home/bot/apps/binance_bot/db /home/bot/apps/binance_bot/logs /run/mybot" in unit
+    assert 'LOG="supervisor.log"' not in ctl
+
+
 def test_installer_migrates_sqlite_safely_and_closes_legacy_backups():
     installer = read("deploy/install_raspberry_pi.sh")
     backup = read("deploy/backup_raspberry_pi.sh")
