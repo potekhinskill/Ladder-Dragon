@@ -66,7 +66,7 @@
       <h2>Архитектура</h2>
       <pre class="small">браузер → https://bot.local/
   ├─ статика (/var/www/bot/index.html)
-  └─ /api/* → nginx → 127.0.0.1:8081 → FastAPI (pi-healthd) → /opt/pi-dashboard/app.py</pre>
+  └─ /api/* → nginx → 127.0.0.1:8081 → FastAPI (pi-healthd) → binance_bot/FastAPI/pi-dashboard/app.py</pre>
       <div class="links" style="margin-top:8px">
         <a href="https://bot.local/" target="_blank" rel="noreferrer">Открыть панель</a> ·
         <a href="https://bot.local/api/health" target="_blank" rel="noreferrer">Проверить /api/health</a>
@@ -93,8 +93,8 @@
     <article class="card span6">
       <h2>Бэкенд (FastAPI)</h2>
       <ul>
-        <li><b>Приложение:</b> <code>/opt/pi-dashboard/app.py</code></li>
-        <li><b>История:</b> <code>/opt/pi-dashboard/data/metrics.ndjson</code></li>
+        <li><b>Приложение:</b> <code>/home/bot/apps/binance_bot/FastAPI/pi-dashboard/app.py</code></li>
+        <li><b>История:</b> <code>/home/bot/apps/binance_bot/FastAPI/pi-dashboard/data/metrics.ndjson</code></li>
         <li><b>Сервис:</b> <code>pi-healthd.service</code> на <code>127.0.0.1:8081</code></li>
       </ul>
       <h3>Проверка</h3>
@@ -185,12 +185,10 @@ PY</pre>
     <ul class="clean">
       <li><code>BOT_STATS_DB</code> — путь к базе с трейдами (пример: <code>/home/bot/apps/binance_bot/db/bot_stats.db</code>).</li>
       <li><code>BOT_FEE_PCT</code> — процент комиссии для оценки, по умолчанию <code>0.00075</code> (0.075% c BNB-скидкой).</li>
-      <li><code>BOT_SERVICE</code> — имя systemd-юнита бота (по умолчанию <code>mybot</code>), из его окружения подтягиваются ключи Binance.</li>
       <li><code>BINANCE_API_BASE</code> — хост Binance API (по умолчанию <code>https://api.binance.com</code>).</li>
-      <li><code>BINANCE_API_KEY</code>, <code>BINANCE_API_SECRET</code> — можно задать в окружении <b>или</b> положить в <code>.env</code>:
-        <code>/home/bot/apps/binance_bot/.env</code>, <code>/opt/binance_bot/.env</code> или <code>/opt/pi-dashboard/.env</code>.
-        API автоматически попытется взять ключи из: окружения <span class="kbd">pi-healthd</span> → окружения процесса <span class="kbd">BOT_SERVICE</span> → указанных <span class="kbd">.env</span>.
-      </li>
+      <li><code>DASHBOARD_BINANCE_API_KEY</code>, <code>DASHBOARD_BINANCE_API_SECRET</code> — отдельный read-only ключ только в <code>.env.dashboard</code>. Торговый <code>.env</code> и окружение процесса бота дашборд не читает.</li>
+      <li><code>AI_RUNTIME_STATUS_FILE</code> — безопасный heartbeat бота без ключей; стандартный путь <code>/run/mybot/ai_status.json</code>.</li>
+      <li><code>DASHBOARD_FOLLOW_BOT_PATHS=1</code> — читать активные Testnet/Mainnet SQLite и AI usage log из heartbeat, чтобы интерфейс всегда соответствовал реально запущенному контуру.</li>
     </ul>
     <h3>Проверка, что ключи применились</h3>
     <button class="btn copy" data-copy="curl -sS 'http://127.0.0.1:8081/api/trades/summary?hours=24' | python3 -c &quot;import sys,json; d=json.load(sys.stdin); print(d.get('equity_method'))&quot;">копировать</button>
@@ -283,8 +281,8 @@ journalctl -u make-pi-backup -n 50 --no-pager</pre>
       </div>
       <div class="span4 card" style="padding:12px">
         <h3>API</h3>
-        <code>/opt/pi-dashboard/app.py</code><br/>
-        <span class="muted small">История:</span> <code>/opt/pi-dashboard/data/metrics.ndjson</code>
+        <code>/home/bot/apps/binance_bot/FastAPI/pi-dashboard/app.py</code><br/>
+        <span class="muted small">История:</span> <code>/home/bot/apps/binance_bot/FastAPI/pi-dashboard/data/metrics.ndjson</code>
       </div>
       <div class="span4 card" style="padding:12px">
         <h3>Сервис</h3>

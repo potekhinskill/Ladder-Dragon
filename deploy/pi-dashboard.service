@@ -1,6 +1,6 @@
 [Unit]
 Description=Ladder Dragon private dashboard
-After=network-online.target
+After=network-online.target mybot.service
 
 [Service]
 Type=simple
@@ -16,6 +16,7 @@ PrivateTmp=yes
 ProtectSystem=strict
 ProtectHome=read-only
 ReadWritePaths=/home/bot/apps/binance_bot/FastAPI/pi-dashboard/data
+ReadOnlyPaths=/home/bot/apps/binance_bot/db /home/bot/apps/binance_bot/logs -/run/mybot
 UMask=0077
 
 [Install]

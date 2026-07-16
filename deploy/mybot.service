@@ -24,7 +24,7 @@ NoNewPrivileges=yes
 PrivateTmp=yes
 ProtectSystem=strict
 ProtectHome=read-only
-ReadWritePaths=/home/bot/apps/binance_bot/db /run/mybot
+ReadWritePaths=/home/bot/apps/binance_bot/db /home/bot/apps/binance_bot/logs /run/mybot
 UMask=0077
 
 [Install]
