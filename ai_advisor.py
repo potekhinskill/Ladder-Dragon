@@ -99,7 +99,11 @@ class AIAdvisor:
         self.session = session
         self.logger = logger
         self.clock = clock
-        self._cache: dict[str, tuple[float, StrategyRecommendation]] = {}
+        # Кэшируем и успешный результат, и безопасный отказ. Это не позволяет
+        # недоступному API или низкой confidence создавать запрос каждую секунду.
+        self._cache: dict[
+            str, tuple[float, Optional[StrategyRecommendation]]
+        ] = {}
 
     def recommend(
         self, context: MarketContext
@@ -122,6 +126,7 @@ class AIAdvisor:
                     f"{recommendation.confidence:.2f} < "
                     f"{self.config.min_confidence:.2f}"
                 )
+                self._cache[context.symbol] = (now, None)
                 return None
             self._cache[context.symbol] = (now, recommendation)
             return recommendation
@@ -132,6 +137,7 @@ class AIAdvisor:
                 f"[AI-ADVISOR] {context.symbol} unavailable: {exc}; "
                 "using deterministic strategy"
             )
+            self._cache[context.symbol] = (now, None)
             return None
 
     def _request(self, context: MarketContext) -> Mapping[str, object]:
