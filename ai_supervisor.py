@@ -22,6 +22,12 @@ from decimal import Decimal
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
+from ai_advisor import (
+    AIAdvisor,
+    AdvisorConfig,
+    MarketContext,
+    limit_cap_by_recommendation,
+)
 from order_identity import client_order_id
 from risk_manager import RiskDecision, RiskLimits, RiskManager, RiskSnapshot, load_daily_trade_metrics, money
 from time_safety import assess_exchange_clock
@@ -73,6 +79,7 @@ _CHILD_STARTED_AT: Dict[str, float] = {}
 _CHILD_RESTART_AFTER: Dict[str, float] = {}
 _CHILD_FAILURES: Dict[str, int] = {}
 LIVE_MODE = False
+_AI_ADVISOR: Optional[AIAdvisor] = None
 
 
 def env_flag(name: str, default: bool = False) -> bool:
@@ -80,6 +87,51 @@ def env_flag(name: str, default: bool = False) -> bool:
     if v is None:
         return default
     return str(v).strip().lower() in ("1", "true", "t", "yes", "y", "on")
+
+
+def _build_ai_advisor(args: argparse.Namespace) -> Optional[AIAdvisor]:
+    """Создать изолированный LLM-клиент без каких-либо торговых методов."""
+    if not args.ai_advisor:
+        return None
+
+    defaults = {
+        "openai": (
+            "https://api.openai.com/v1",
+            "gpt-5-mini",
+            "OPENAI_API_KEY",
+        ),
+        "deepseek": (
+            "https://api.deepseek.com",
+            "deepseek-v4-flash",
+            "DEEPSEEK_API_KEY",
+        ),
+        "compatible": (
+            args.ai_base_url,
+            args.ai_model,
+            "AI_API_KEY",
+        ),
+    }
+    default_url, default_model, key_name = defaults[args.ai_provider]
+    config = AdvisorConfig(
+        enabled=True,
+        provider=args.ai_provider,
+        model=(args.ai_model or default_model).strip(),
+        base_url=(args.ai_base_url or default_url).strip().rstrip("/"),
+        api_key=os.environ[key_name],
+        timeout_sec=float(args.ai_timeout_sec),
+        cache_sec=int(args.ai_cache_sec),
+        min_confidence=float(args.ai_min_confidence),
+        width_scale_min=float(args.ai_width_scale_min),
+        width_scale_max=float(args.ai_width_scale_max),
+        cap_scale_min=float(args.ai_cap_scale_min),
+        cap_scale_max=float(args.ai_cap_scale_max),
+    )
+    return AIAdvisor(
+        config,
+        session=requests.Session(),
+        logger=log,
+    )
+
 
 def log(msg: str) -> None:
     print(msg, flush=True)
@@ -1215,6 +1267,13 @@ def run_for_symbol(symbol: str, args: argparse.Namespace) -> None:
     # 3) Режим направления (auto/forced)
     if args.dir_mode != "auto":
         dir_mode = args.dir_mode.upper()
+        _diag = {
+            "ema_fast": 0.0,
+            "ema_slow": 0.0,
+            "slope": 0.0,
+            "adx": 0.0,
+            "candidate": dir_mode,
+        }
         log(f"[DIR] {symbol} mode={dir_mode} (forced)")
     else:
         dir_mode, _diag = _infer_market_mode(
@@ -1231,6 +1290,49 @@ def run_for_symbol(symbol: str, args: argparse.Namespace) -> None:
         )
 
     target_buys_use = int(args.target_buy_per_symbol)
+
+    # Сначала формируется полностью детерминированная база. LLM получает только
+    # агрегированные индикаторы и не видит API-ключи, балансы или методы ордеров.
+    low, down, up = args.ladder_pct
+    if args.ladder_pct_map and symbol in args.ladder_pct_map:
+        low, down, up = args.ladder_pct_map[symbol]
+    ai_width_scale = 1.0
+    ai_cap_scale = 1.0
+    if _AI_ADVISOR is not None:
+        ema_fast = float(_diag.get("ema_fast", 0.0))
+        ema_slow = float(_diag.get("ema_slow", 0.0))
+        recommendation = _AI_ADVISOR.recommend(
+            MarketContext(
+                symbol=symbol,
+                price=float(now_p),
+                atr_pct=float(atr_pct or 0.0),
+                deterministic_mode=dir_mode,
+                candidate_mode=str(_diag.get("candidate", dir_mode)),
+                ema_gap_pct=(
+                    (ema_fast - ema_slow) / max(float(now_p), 1e-12)
+                ),
+                ema_slope=float(_diag.get("slope", 0.0)),
+                adx=float(_diag.get("adx", 0.0)),
+                ladder_low_pct=float(low),
+                ladder_down_pct=float(down),
+                ladder_up_pct=float(up),
+                target_buys=target_buys_use,
+                risk_safe_cap_usdt=float(
+                    os.getenv("BOT_CAP_PER_ORDER", "0") or 0
+                ),
+            )
+        )
+        if recommendation is not None:
+            if args.dir_mode == "auto":
+                dir_mode = recommendation.mode
+            ai_width_scale = recommendation.ladder_width_scale
+            ai_cap_scale = recommendation.cap_scale
+            log(
+                f"[AI-ADVISOR] {symbol} provider={recommendation.provider} "
+                f"model={recommendation.model} confidence={recommendation.confidence:.2f} "
+                f"mode={recommendation.mode} width×{ai_width_scale:.2f} "
+                f"cap×{ai_cap_scale:.2f} reason={recommendation.rationale}"
+            )
 
     vwap_premium_final, vwap_discount_final, vwap_scale_final, vwap_interval_final, vwap_window_final = resolve_vwap_params(
         symbol,
@@ -1250,9 +1352,9 @@ def run_for_symbol(symbol: str, args: argparse.Namespace) -> None:
     tick = filters["tickSize"]
 
     # 5) Строим лестницу и делаем дедуп по тик-шагу и стороне
-    low, down, up = args.ladder_pct
-    if args.ladder_pct_map and symbol in args.ladder_pct_map:
-        low, down, up = args.ladder_pct_map[symbol]
+    low *= ai_width_scale
+    down *= ai_width_scale
+    up *= ai_width_scale
     ladder_all = build_ladder_pct(now_p, low, down, up, args.grid_density)
 
     dec = _decimals_from_step(tick)
@@ -1306,6 +1408,13 @@ def run_for_symbol(symbol: str, args: argparse.Namespace) -> None:
         log(f"[ADAPT] {symbol} atr={atr_abs:.4f} atr/px={atr_pct*100:.3f}% -> DEV_BUY_PCT={dev_buy_eff:.4f} MIN_PROFIT_OVER_AVG={min_profit_eff:.4f}")
     if extra_env is None:
         extra_env = {}
+
+    # AI может только уменьшить уже безопасный CAP. Даже если модель вернула
+    # коэффициент > 1, верхней границей остаётся расчёт Risk Manager.
+    risk_safe_cap = float(os.getenv("BOT_CAP_PER_ORDER", "0") or 0)
+    if risk_safe_cap > 0:
+        advised_cap = limit_cap_by_recommendation(risk_safe_cap, ai_cap_scale)
+        extra_env["BOT_CAP_PER_ORDER"] = f"{advised_cap:.8f}"
 
     # 8) Мягкое применение режима к DEV_BUY_PCT и TP1
     cur_dev = float(extra_env.get('DEV_BUY_PCT') or os.environ.get('DEV_BUY_PCT', '0.004') or 0.004)
@@ -1717,6 +1826,8 @@ def main():
     args = ap.parse_args()
     log(f"[VERSION] {product_label('supervisor')}")
     symbols = validate_supervisor_args(ap, args)
+    global _AI_ADVISOR
+    _AI_ADVISOR = _build_ai_advisor(args)
     _configure_venue(args)
     limits = RiskLimits.from_env()
     _preflight_live(args, symbols, limits)
@@ -1726,7 +1837,14 @@ def main():
     # fail-closed менеджер и не запускает воркеры без свежего risk snapshot.
     risk_manager = RiskManager(limits) if args.live else None
 
-    log(f"[SUP] symbols={symbols} ladder_mode={args.ladder_mode} ai_model=gpt-4o-mini")
+    ai_label = (
+        f"{_AI_ADVISOR.config.provider}/{_AI_ADVISOR.config.model}"
+        if _AI_ADVISOR is not None else "disabled"
+    )
+    log(
+        f"[SUP] symbols={symbols} ladder_mode={args.ladder_mode} "
+        f"ai_advisor={ai_label}"
+    )
 
     lp = [x.strip() for x in args.ladder_pct.split(",")]
     if len(lp) != 3:
