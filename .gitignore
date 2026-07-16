@@ -21,6 +21,7 @@ venv/
 .env.*
 !.env.example
 !.env.dashboard.example
+!.env.service.example
 *.pem
 *.key
 *.p12

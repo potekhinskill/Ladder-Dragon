@@ -4,6 +4,8 @@ set -euo pipefail
 PROJECT_DIR="${PROJECT_DIR:-/home/bot/apps/binance_bot}"
 WEB_ROOT="${WEB_ROOT:-/var/www/bot}"
 DASHBOARD_ENV="${PROJECT_DIR}/.env.dashboard"
+BOT_HOSTNAME="${BOT_HOSTNAME:-$(hostname -s).local}"
+BOT_USER="${BOT_USER:-$(stat -c '%U' "${PROJECT_DIR}" 2>/dev/null || echo bot)}"
 ACTION="${1:-update}"
 MYBOT_WAS_ACTIVE=0
 DASHBOARD_WAS_ACTIVE=0
@@ -72,7 +74,7 @@ wait_for_service() {
 wait_for_heartbeat() {
   local timeout_sec="${1:-120}"
   local deadline=$((SECONDS + timeout_sec))
-  until runuser -u bot -- python3 - /run/mybot/ai_status.json <<'PY'
+  until runuser -u "${BOT_USER}" -- python3 - /run/mybot/ai_status.json <<'PY'
 import json
 import sys
 from datetime import datetime, timezone
@@ -97,9 +99,9 @@ check_link() {
   systemctl is-active --quiet pi-healthd || fail "pi-healthd is not active"
   systemctl is-enabled --quiet mybot || fail "mybot autostart is not enabled"
   systemctl is-enabled --quiet pi-healthd || fail "pi-healthd autostart is not enabled"
-  runuser -u bot -- test -r /run/mybot/ai_status.json \
+  runuser -u "${BOT_USER}" -- test -r /run/mybot/ai_status.json \
     || fail "bot user cannot read /run/mybot/ai_status.json"
-  runuser -u bot -- test -r "${DASHBOARD_ENV}" \
+  runuser -u "${BOT_USER}" -- test -r "${DASHBOARD_ENV}" \
     || fail "bot user cannot read ${DASHBOARD_ENV}"
   grep -q '^DASHBOARD_FOLLOW_BOT_PATHS=1$' "${DASHBOARD_ENV}" \
     || fail "DASHBOARD_FOLLOW_BOT_PATHS=1 is missing"
@@ -115,7 +117,7 @@ check_link() {
 }
 
 if [[ "${EUID}" -ne 0 ]]; then
-  exec sudo --preserve-env=PROJECT_DIR,WEB_ROOT "$0" "$@"
+  exec sudo --preserve-env=PROJECT_DIR,WEB_ROOT,BOT_HOSTNAME,BOT_USER "$0" "$@"
 fi
 
 [[ -d "${PROJECT_DIR}" ]] || fail "project directory not found: ${PROJECT_DIR}"
@@ -127,6 +129,7 @@ if [[ "${ACTION}" == "update" && "${BOT_UPDATE_RUNNER:-0}" != "1" ]]; then
   runner="$(mktemp /tmp/ladder-dragon-update.XXXXXX)"
   install -m 0700 "$0" "${runner}"
   exec env BOT_UPDATE_RUNNER=1 PROJECT_DIR="${PROJECT_DIR}" WEB_ROOT="${WEB_ROOT}" \
+    BOT_HOSTNAME="${BOT_HOSTNAME}" BOT_USER="${BOT_USER}" \
     bash "${runner}" update
 fi
 
@@ -138,10 +141,16 @@ fi
   || fail "usage: $0 [update|apply|check]"
 
 [[ -f .env ]] || fail "configure ${PROJECT_DIR}/.env before deployment"
+[[ -f .env.service ]] \
+  || fail ".env.service is missing; run install_raspberry_pi.sh migrate first"
+systemctl cat mybot 2>/dev/null | grep -q 'deploy/run_bot_service.sh' \
+  || fail "legacy mybot.service detected; run install_raspberry_pi.sh migrate first"
 if [[ ! -f "${DASHBOARD_ENV}" ]]; then
   install -m 0600 .env.dashboard.example "${DASHBOARD_ENV}"
   fail "created ${DASHBOARD_ENV}; replace placeholder dashboard tokens/keys, then run again"
 fi
+
+PROJECT_DIR="${PROJECT_DIR}" deploy/backup_raspberry_pi.sh
 
 # Сначала фиксируем состояние systemd. `systemctl stop` не отменяет enabled:
 # автозапуск сохранится, но на время обновления Restart=always не смешает версии.
@@ -153,10 +162,10 @@ systemctl stop mybot
 systemctl stop pi-healthd
 
 if [[ "${ACTION}" == "update" ]]; then
-  [[ -z "$(runuser -u bot -- git status --porcelain --untracked-files=no)" ]] \
+  [[ -z "$(runuser -u "${BOT_USER}" -- git status --porcelain --untracked-files=no)" ]] \
     || fail "tracked project files have local changes; commit or stash them first"
-  runuser -u bot -- git pull --ff-only
-  runuser -u bot -- .venv/bin/python -m pip install -e '.[dashboard]'
+  runuser -u "${BOT_USER}" -- git pull --ff-only
+  runuser -u "${BOT_USER}" -- .venv/bin/python -m pip install -e '.[dashboard]'
 fi
 
 if grep -q '^BOT_TESTNET_RUN_DIR=' .env; then
@@ -181,24 +190,74 @@ if grep -q '^DASHBOARD_FOLLOW_BOT_PATHS=' "${DASHBOARD_ENV}"; then
 else
   printf 'DASHBOARD_FOLLOW_BOT_PATHS=1\n' >>"${DASHBOARD_ENV}"
 fi
+if grep -q '^DASHBOARD_TRUST_PROXY_AUTH=' "${DASHBOARD_ENV}"; then
+  sed -i 's/^DASHBOARD_TRUST_PROXY_AUTH=.*/DASHBOARD_TRUST_PROXY_AUTH=1/' "${DASHBOARD_ENV}"
+else
+  printf 'DASHBOARD_TRUST_PROXY_AUTH=1\n' >>"${DASHBOARD_ENV}"
+fi
+if grep -q '^DASHBOARD_ENABLE_LOGS=' "${DASHBOARD_ENV}"; then
+  sed -i 's/^DASHBOARD_ENABLE_LOGS=.*/DASHBOARD_ENABLE_LOGS=0/' "${DASHBOARD_ENV}"
+else
+  printf 'DASHBOARD_ENABLE_LOGS=0\n' >>"${DASHBOARD_ENV}"
+fi
 chmod 0600 "${DASHBOARD_ENV}"
 
-install -d -o bot -g bot -m 0700 db logs FastAPI/pi-dashboard/data
+install -d -o "${BOT_USER}" -g "${BOT_USER}" -m 0700 db logs FastAPI/pi-dashboard/data
 install -d -o root -g root -m 0755 "${WEB_ROOT}"
-install -d -o root -g root -m 0755 /etc/systemd/system/mybot.service.d
-install -m 0644 FRONT/index.html FRONT/help.html FRONT/readme.html "${WEB_ROOT}/"
-install -m 0644 deploy/mybot-dashboard-link.conf \
-  /etc/systemd/system/mybot.service.d/dashboard-link.conf
-install -m 0644 deploy/pi-dashboard.service /etc/systemd/system/pi-healthd.service
+install -m 0644 FRONT/index.html FRONT/help.html "${WEB_ROOT}/"
+rm -f "${WEB_ROOT}/readme.html"
+[[ -f /etc/nginx/.htpasswd-ladder-dragon ]] \
+  || fail "nginx dashboard auth is missing; run installer migrate"
+[[ -s "/etc/nginx/certs/${BOT_HOSTNAME}.pem" ]] \
+  || fail "TLS certificate for ${BOT_HOSTNAME} is missing"
+sed "s/__BOT_HOSTNAME__/${BOT_HOSTNAME}/g" deploy/nginx/bot.local.conf \
+  >/etc/nginx/sites-available/bot.local
+install -m 0644 deploy/nginx/pi_api.conf /etc/nginx/snippets/pi_api.conf
+ln -sfn /etc/nginx/sites-available/bot.local /etc/nginx/sites-enabled/bot.local
+rm -f /etc/nginx/sites-enabled/default
+install -d -m 0755 /etc/systemd/journald.conf.d /etc/fail2ban/jail.d
+install -m 0644 deploy/system/journald-ladder-dragon.conf \
+  /etc/systemd/journald.conf.d/ladder-dragon.conf
+install -m 0644 deploy/system/fail2ban-sshd.local /etc/fail2ban/jail.d/sshd.local
+[[ -d /etc/default ]] && install -m 0644 deploy/system/zramswap /etc/default/zramswap
 
-runuser -u bot -- .venv/bin/python -m compileall -q \
+render_unit() {
+  sed \
+    -e "s#/home/bot/apps/binance_bot#${PROJECT_DIR}#g" \
+    -e "s/^User=bot$/User=${BOT_USER}/" \
+    -e "s/^Group=bot$/Group=${BOT_USER}/" \
+    "$1" >"$2"
+  chmod 0644 "$2"
+}
+render_unit deploy/mybot.service /etc/systemd/system/mybot.service
+render_unit deploy/pi-dashboard.service /etc/systemd/system/pi-healthd.service
+render_unit deploy/ladder-dragon-backup.service \
+  /etc/systemd/system/ladder-dragon-backup.service
+install -m 0644 deploy/ladder-dragon-backup.timer \
+  /etc/systemd/system/ladder-dragon-backup.timer
+rm -f /etc/systemd/system/mybot.service.d/dashboard-link.conf
+
+if [[ -d "${WEB_ROOT}/backups" ]]; then
+  legacy_dest="/var/lib/ladder-dragon/backups/legacy-public-$(date -u +%Y%m%d%H%M%S)"
+  mv "${WEB_ROOT}/backups" "${legacy_dest}"
+  chmod -R go-rwx "${legacy_dest}"
+fi
+
+runuser -u "${BOT_USER}" -- .venv/bin/python -m compileall -q \
   ai_supervisor.py autosize_universal.py FastAPI/pi-dashboard
-runuser -u bot -- .venv/bin/python ai_supervisor.py --version
+runuser -u "${BOT_USER}" -- .venv/bin/python ai_supervisor.py --version
+nginx -t
 
 systemctl daemon-reload
+systemctl disable --now make-pi-backup.timer make-pi-backup.service 2>/dev/null || true
 restore_autostart
+systemctl enable ladder-dragon-backup.timer >/dev/null
 systemctl start mybot
 systemctl start pi-healthd
+systemctl start ladder-dragon-backup.timer
+systemctl restart systemd-journald
+systemctl try-restart fail2ban || true
+systemctl try-restart zramswap || true
 systemctl reload nginx
 
 wait_for_service mybot 90
