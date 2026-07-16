@@ -94,7 +94,11 @@ def build_supervisor_parser() -> argparse.ArgumentParser:
     ap.add_argument("--auto-oco-holdings", dest="auto_oco_holdings", action="store_true")
     ap.add_argument("--oco-on-holdings", action="store_true")
     ap.add_argument("--max-oco-per-symbol", type=int, default=12)
-    ap.add_argument("--oco-fallback", choices=["none", "prefer-tp1"], default="prefer-tp1")
+    # При ошибке OCO безопасное поведение — остановиться, а не оставлять
+    # позицию с одиночным TP без защитного стопа. Значение halt совпадает
+    # с каноническим parser исполнителя и не ломается при передаче дочернему
+    # процессу.
+    ap.add_argument("--oco-fallback", choices=["halt", "prefer-tp1"], default="halt")
     ap.add_argument("--status-interval", type=int, default=1)
     ap.add_argument("--child-loop-minutes", type=int, default=5)
     ap.add_argument("--interval-seconds", type=int, default=60)
