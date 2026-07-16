@@ -2,7 +2,7 @@
 
 Приватный Python-проект для управления лестничной торговлей на Binance Spot. Бот строит адаптивные сетки BUY/SELL, учитывает ATR, EMA и VWAP, управляет OCO-ордерами и сохраняет торговую статистику в SQLite.
 
-Текущая версия продукта: **2.7.0**. Ladder Dragon использует [Semantic Versioning](https://semver.org/); единственный источник версии — `product_version.py`. Проверить установленную версию можно командой `python ai_supervisor.py --version`.
+Текущая версия продукта: **2.7.1**. Ladder Dragon использует [Semantic Versioning](https://semver.org/); единственный источник версии — `product_version.py`. Проверить установленную версию можно командой `python ai_supervisor.py --version`.
 
 > [!WARNING]
 > Проект работает с реальными биржевыми ордерами. Это не инвестиционная рекомендация. DRY является режимом по умолчанию, а любые изменяющие Binance-запросы дополнительно блокируются на уровне транспорта. Тем не менее перед Mainnet LIVE обязателен отдельный прогон на Binance Spot Testnet и ручная проверка лимитов.
@@ -339,16 +339,28 @@ python run_dashboard.py
 ### Обновление дашборда на Raspberry Pi
 
 Выполняйте из `/home/bot/apps/binance_bot` после получения новой версии.
-Скрипт обновляет backend, `/var/www/bot`, dashboard unit, добавляет к текущему
-`mybot.service` только drop-in прав доступа и перезапускает процессы. Текущий
-`ExecStart`, Testnet/Mainnet и торговые CLI-флаги он не заменяет:
+Скрипт сам останавливает работающие `mybot` и `pi-healthd`, выполняет
+`git pull --ff-only`, синхронизирует зависимости, обновляет frontend и systemd,
+проверяет Python-код и запускает сервисы обратно. Статус `enabled` проверяется и
+сохраняется, поэтому автозапуск после перезагрузки Raspberry Pi не пропадёт.
+Текущий `ExecStart`, Testnet/Mainnet и торговые CLI-флаги не заменяются:
+
+```bash
+sudo bash deploy/update_raspberry_pi.sh update
+```
+
+Если `.env.dashboard` отсутствовал, скрипт создаст его и остановится: сначала
+замените placeholder auth token и read-only Binance key, затем повторите запуск.
+При ошибке после остановки скрипт пытается вернуть в работу те сервисы, которые
+были активны до обновления. Открытые Binance-ордера скрипт не отменяет.
+
+Режим `apply` выполняет ту же безопасную остановку и установку, но без Git/pip;
+он предназначен для уже обновленной рабочей копии:
 
 ```bash
 sudo bash deploy/update_raspberry_pi.sh apply
 ```
 
-Если `.env.dashboard` отсутствовал, скрипт создаст его и остановится: сначала
-замените placeholder auth token и read-only Binance key, затем повторите запуск.
 Проверка без обновления:
 
 ```bash
