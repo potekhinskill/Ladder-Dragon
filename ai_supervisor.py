@@ -1641,6 +1641,11 @@ def run_for_symbol(symbol: str, args: argparse.Namespace) -> None:
     # коэффициент > 1, верхней границей остаётся расчёт Risk Manager.
     risk_safe_cap = float(os.getenv("BOT_CAP_PER_ORDER", "0") or 0)
     if risk_safe_cap > 0:
+        # Явный per-symbol budget имеет приоритет над общим CAP и не даёт
+        # коррелированному активу занять весь оставшийся портфельный лимит.
+        symbol_cap = float(os.getenv(f"RISK_SYMBOL_CAP_{symbol.upper()}", "0") or 0)
+        if symbol_cap > 0:
+            risk_safe_cap = min(risk_safe_cap, symbol_cap)
         advised_cap = limit_cap_by_recommendation(risk_safe_cap, ai_cap_scale)
         extra_env["BOT_CAP_PER_ORDER"] = f"{advised_cap:.8f}"
 
@@ -2096,6 +2101,14 @@ def _build_risk_snapshot(
     )
 
     metrics = load_daily_trade_metrics(os.environ["BOT_STATS_DB"], symbols)
+    stale_limit = max(0, int(os.getenv("RISK_STALE_ORDER_MAX_SEC", "0") or 0))
+    stale_count = 0
+    if stale_limit > 0:
+        now_ms = int(time.time() * 1000)
+        stale_count = sum(
+            1 for order in orders
+            if now_ms - int(order.get("updateTime") or order.get("time") or now_ms) > stale_limit * 1000
+        )
     exposure_by_symbol = {
         symbol: float(asset_values.get(symbol_assets(symbol)[0], Decimal("0")))
         + sum(float(money(order.get("price")) * money(order.get("origQty")))
@@ -2129,6 +2142,7 @@ def _build_risk_snapshot(
         var_usdt=money(var_value),
         gap_risk_usdt=money(gap_value),
         expected_shortfall_usdt=money(es_value),
+        stale_order_count=stale_count,
         **metrics,
     )
     return snap, orders, prices

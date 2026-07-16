@@ -85,6 +85,50 @@ class ProtectionDependencies:
     now: Callable[[], float] = time.time
 
 
+def emergency_gap_flatten(
+    symbol: str, current_price: float, *, dependencies: ProtectionDependencies,
+    gap_tolerance_pct: float = 0.0,
+) -> bool:
+    """Закрыть свободный остаток, если STOP_LIMIT оказался ниже gap-цены.
+
+    Функция не трогает активный stop выше рынка. Она срабатывает только когда
+    найден SELL stop, рынок уже ниже stop с заданным допуском, а ордер всё ещё
+    открыт. После отмены OCO баланс перечитывается, чтобы не продублировать
+    уже исполненный stop.
+    """
+    try:
+        orders = dependencies.list_open_orders(symbol) or []
+        breached = []
+        for order in orders:
+            if str(order.get("side", "")).upper() != "SELL":
+                continue
+            stop = float(order.get("stopPrice", 0) or 0)
+            if stop > 0 and current_price < stop * (1.0 - max(0.0, gap_tolerance_pct)):
+                breached.append(order)
+        if not breached:
+            return False
+        seen_lists = {int(item["orderListId"]) for item in breached if item.get("orderListId") is not None}
+        for list_id in seen_lists:
+            dependencies.cancel_oco(symbol, list_id)
+        dependencies.sleep(0.2)
+        base, _ = dependencies.get_symbol_assets(symbol)
+        balances = dependencies.get_balances() or {}
+        free = float((balances.get(base) or {}).get("free", 0) or 0)
+        qty = dependencies.round_quantity(symbol, max(0.0, free - dependencies.min_quantity(symbol, 0)))
+        if qty <= 0:
+            dependencies.halt("gap below STOP_LIMIT: no free quantity after OCO cancel", symbol=symbol)
+            return False
+        result = dependencies.place_market_order(symbol, "SELL", qty) if dependencies.place_market_order else None
+        if not result:
+            dependencies.halt("gap below STOP_LIMIT: MARKET flatten not confirmed", symbol=symbol)
+            return False
+        dependencies.logger(f"[GAP-FLATTEN] {symbol} MARKET SELL qty={qty}")
+        return True
+    except (OSError, RuntimeError, ValueError, TypeError) as exc:
+        dependencies.halt(f"gap watchdog failed: {exc}", symbol=symbol)
+        return False
+
+
 class BreakevenStateStore:
     """JSON-хранилище связи orderListId с исходной средней ценой BUY."""
 

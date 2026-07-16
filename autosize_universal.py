@@ -100,6 +100,7 @@ from executor_protection import (
     ProtectionDependencies,
     maintain_breakeven,
     protect_filled_buys,
+    emergency_gap_flatten,
 )
 from executor_runtime import status_due, trading_seconds
 from executor_recovery import RecoveryDependencies
@@ -1532,6 +1533,13 @@ def main():
                     debounce_checks=int(args.panic_debounce_checks),
                     cooldown_sec=int(args.panic_cooldown_sec),
                 )
+                if LIVE_MODE and os.getenv("BOT_GAP_WATCHDOG", "1").lower() in ("1", "true", "yes"):
+                    emergency_gap_flatten(
+                        symbol,
+                        get_price(symbol),
+                        dependencies=_protection_dependencies(),
+                        gap_tolerance_pct=max(0.0, getenv_float("BOT_GAP_TOLERANCE_PCT", 0.001)),
+                    )
             except Exception:
                 pass
 

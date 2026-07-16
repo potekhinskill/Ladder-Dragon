@@ -7,6 +7,7 @@ from executor_protection import (
     ProtectionDependencies,
     maintain_breakeven,
     protect_filled_buys,
+    emergency_gap_flatten,
 )
 
 
@@ -218,3 +219,16 @@ def test_breakeven_runtime_respects_interval():
     assert runtime.due() is False
     assert runtime.due() is True
     assert runtime.due() is False
+
+
+def test_gap_below_stop_cancels_oco_and_confirms_market_flatten():
+    canceled, sold = [], []
+    deps = dependencies(
+        list_open_orders=lambda symbol: [{"side": "SELL", "orderListId": 77, "stopPrice": "95"}],
+        get_balances=lambda: {"SOL": {"free": 1.0, "locked": 0.0}},
+        cancel_oco=lambda symbol, oid: canceled.append(oid),
+        place_market_order=lambda *args: sold.append(args) or {"orderId": 99, "status": "FILLED"},
+    )
+    assert emergency_gap_flatten("SOLUSDT", 80.0, dependencies=deps)
+    assert canceled == [77]
+    assert sold[0][:3] == ("SOLUSDT", "SELL", 0.999)
