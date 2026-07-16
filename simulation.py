@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from decimal import Decimal
 from typing import Iterable, Sequence
+import random
 
 
 D = Decimal
@@ -246,6 +247,32 @@ def walk_forward(
         results.append({"fold": fold, "config": best, "result": score,
                         "purge_bars": purge_bars, "embargo_bars": embargo_bars})
     return results
+
+
+def bootstrap_confidence_interval(values: Sequence[Decimal], *, confidence: float = 0.95,
+                                  iterations: int = 1000, seed: int = 7) -> tuple[Decimal, Decimal]:
+    """Воспроизводимый bootstrap CI для fold returns/PnL."""
+    if not values or not 0 < confidence < 1 or iterations <= 0:
+        raise ValueError("values, confidence and iterations are invalid")
+    rng = random.Random(seed)
+    samples = []
+    for _ in range(iterations):
+        draw = [values[rng.randrange(len(values))] for _ in values]
+        samples.append(sum(draw, D("0")) / D(str(len(draw))))
+    samples.sort()
+    alpha = (1.0 - confidence) / 2.0
+    return samples[int(alpha * (len(samples) - 1))], samples[int((1.0 - alpha) * (len(samples) - 1))]
+
+
+def cost_robustness(candles: Sequence[Candle], config: SimulationConfig,
+                    *, slippage_multipliers: Sequence[Decimal] = (D("0.5"), D("1"), D("2"))) -> dict[Decimal, SimulationResult]:
+    """Проверить, что результат не зависит от одной идеальной оценки slippage."""
+    result = {}
+    for multiplier in slippage_multipliers:
+        result[multiplier] = simulate_grid(candles, SimulationConfig(**{
+            **config.__dict__, "slippage_pct": config.slippage_pct * multiplier,
+        }))
+    return result
 
 
 def stress_grid(
