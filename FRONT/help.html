@@ -228,45 +228,29 @@ https://bot.local/api/bot/logs/stream</pre>
 
   <section id="backup" class="grid">
     <article class="card span8">
-      <h2>Бэкапы (скачать)</h2>
-      <p>
-        <span class="chip">SAFE (публичный)</span>
-        <a id="safe-latest" href="/backups/pi-config-safe-latest.tgz">Скачать последний SAFE</a>
-        <span class="muted small" id="safe-size"></span><br/>
-        <span class="chip">SHA256</span>
-        <a id="sha-latest" href="/backups/pi-config-latest.sha256.txt">Контрольная сумма</a>
-      </p>
-      <div class="small muted">Секреты не отдаются через веб. Путь для scp:</div>
-      <pre class="small">/home/bot/pi-config-secrets-latest.tgz</pre>
-
-      <h3>Месячные архивы (последние 6)</h3>
-      <ul id="monthly-list" class="clean small"><li class="muted">Загрузка…</li></ul>
-      <div class="small muted">Ссылки появляются только если архив за месяц реально существует.</div>
+      <h2>Закрытые бэкапы</h2>
+      <p>Архивы больше не публикуются через nginx. Они содержат конфигурацию,
+        env-файлы и согласованные SQLite-копии и доступны только root локально
+        или через защищённый SSH/SCP.</p>
+      <pre class="small">sudo ls -lh /var/lib/ladder-dragon/backups
+sudo sha256sum -c /var/lib/ladder-dragon/backups/ladder-dragon-*.sha256</pre>
     </article>
 
     <article class="card span4">
       <h2>Проверка и запуск вручную</h2>
-      <h3>Проверить сумму SHA256</h3>
-      <button class="btn copy" data-copy='TS=$(date +%F-%H%M%S); echo "см. имя файла";'>копировать</button>
-      <pre class="small"># Имена уже связаны через "latest":
-curl -sk https://bot.local/backups/pi-config-latest.sha256.txt -o /tmp/safe.sha256
-SAFE=/var/www/bot/backups/pi-config-safe-latest.tgz
-sha256sum "$SAFE" | diff - /tmp/safe.sha256 && echo "OK"</pre>
-
       <h3>Сделать бэкап сейчас</h3>
-      <button class="btn copy" data-copy="sudo systemctl start make-pi-backup.service && journalctl -u make-pi-backup -n 50 --no-pager">копировать</button>
-      <pre class="small">sudo systemctl start make-pi-backup.service
-journalctl -u make-pi-backup -n 50 --no-pager</pre>
+      <button class="btn copy" data-copy="sudo systemctl start ladder-dragon-backup.service && journalctl -u ladder-dragon-backup -n 50 --no-pager">копировать</button>
+      <pre class="small">sudo systemctl start ladder-dragon-backup.service
+journalctl -u ladder-dragon-backup -n 50 --no-pager</pre>
     </article>
 
     <article class="card span12">
       <h2>Восстановление (кратко)</h2>
       <ol class="small">
-        <li>Проверить сумму: <code>sha256sum pi-config-safe-TS.tgz | diff - pi-config-TS.sha256.txt</code></li>
-        <li>Развернуть SAFE: <code>sudo tar -xzf pi-config-safe-TS.tgz -C /</code></li>
-        <li>Развернуть SECRETS: <code>sudo tar -xzf /path/pi-config-secrets-TS.tgz -C /</code></li>
-        <li>Создать venv в <code>/home/bot/apps/binance_bot</code> и установить пакеты из <code>extras/pip-freeze-*.txt</code></li>
-        <li><code>sudo systemctl daemon-reload && sudo systemctl enable --now mybot pi-healthd nginx</code></li>
+        <li>Проверить соседний <code>.sha256</code>.</li>
+        <li>На чистой Raspberry Pi запустить <code>install_raspberry_pi.sh install</code>.</li>
+        <li>Остановить сервисы и восстановить нужные env/SQLite из закрытого архива.</li>
+        <li>Запустить updater в режиме <code>apply</code> и проверить heartbeat.</li>
       </ol>
       <div class="muted small">Полная инструкция лежит внутри архива: <code>extras/RESTORE.md</code>.</div>
     </article>
@@ -321,49 +305,6 @@ journalctl -u make-pi-backup -n 50 --no-pager</pre>
     });
   });
 
-  // Показ размера SAFE (HEAD → Content-Length)
-  (async function(){
-    try{
-      const r = await fetch('/backups/pi-config-safe-latest.tgz', {method:'HEAD'});
-      if(r.ok){
-        const len = r.headers.get('content-length');
-        if(len){
-          const mb = (Number(len)/1024/1024).toFixed(1);
-          document.getElementById('safe-size').textContent = `(${mb} МБ)`;
-        }
-      }
-    }catch(e){}
-  })();
-
-  // Генерация списка месячных архивов за 6 последних месяцев (показываем только существующие)
-  (async function(){
-    const ul = document.getElementById('monthly-list'); ul.innerHTML='';
-    const months = [];
-    const d = new Date();
-    for(let i=0;i<6;i++){
-      const dt = new Date(d.getFullYear(), d.getMonth()-i, 1);
-      const y = dt.getFullYear();
-      const m = String(dt.getMonth()+1).padStart(2,'0');
-      months.push(`${y}-${m}`);
-    }
-    for(const mm of months){
-      const url = `/backups/pi-config-safe-monthly-${mm}.tgz`;
-      try{
-        const r = await fetch(url, {method:'HEAD'});
-        if(r.ok){
-          const li = document.createElement('li');
-          const a = document.createElement('a');
-          a.href = url; a.textContent = `SAFE за ${mm}`;
-          li.appendChild(a);
-          ul.appendChild(li);
-        }
-      }catch(e){}
-    }
-    if(!ul.children.length){
-      const li = document.createElement('li'); li.textContent='Пока нет месячных ссылок.';
-      li.className='muted'; ul.appendChild(li);
-    }
-  })();
 </script>
 </body>
 </html>

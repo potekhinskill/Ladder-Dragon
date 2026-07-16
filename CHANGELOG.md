@@ -2,6 +2,25 @@
 
 Формат версий: [Semantic Versioning](https://semver.org/).
 
+## [2.8.0] — 2026-07-16
+
+### Добавлено
+- Идемпотентный Raspberry Pi installer с режимами `install`, `migrate` и безопасным `audit`.
+- Канонический service wrapper с отдельным `.env.service`, явными Testnet/Mainnet и DRY/LIVE.
+- Миграция legacy `/opt/pi-dashboard`, номерного executor, старого systemd unit, env и SQLite.
+- Автоматический pre-migration snapshot и rollback проекта/systemd/nginx при ошибке.
+- Закрытые online SQLite backups в `/var/lib/ladder-dragon/backups` и ежедневный systemd timer.
+- Переносимые nginx-шаблоны, Basic Auth и автоматический локальный TLS-сертификат.
+
+### Безопасность
+- `/backups/` закрыт через nginx и больше не публикует конфигурационные архивы.
+- Legacy public-backup timer отключается, старый `/opt/pi-dashboard` и публичные архивы переносятся в закрытое legacy-хранилище.
+- API и статика защищены одним Basic Auth; доверенный proxy user формирует только nginx.
+- API логов принудительно выключается при установке и обновлении.
+- Чистая установка всегда Testnet DRY; legacy LIVE сохраняется только с отдельным `--preserve-live` и `BOT_LIVE_CONFIRMED=YES`.
+- SQLite переносится через backup API без копирования активных `-wal`/`-shm`.
+- Старые runtime/halt/data paths не импортируются поверх новых fail-closed путей.
+
 ## [2.7.1] — 2026-07-16
 
 ### Исправлено

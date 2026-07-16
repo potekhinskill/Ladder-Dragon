@@ -2,7 +2,7 @@
 
 Приватный Python-проект для управления лестничной торговлей на Binance Spot. Бот строит адаптивные сетки BUY/SELL, учитывает ATR, EMA и VWAP, управляет OCO-ордерами и сохраняет торговую статистику в SQLite.
 
-Текущая версия продукта: **2.7.1**. Ladder Dragon использует [Semantic Versioning](https://semver.org/); единственный источник версии — `product_version.py`. Проверить установленную версию можно командой `python ai_supervisor.py --version`.
+Текущая версия продукта: **2.8.0**. Ladder Dragon использует [Semantic Versioning](https://semver.org/); единственный источник версии — `product_version.py`. Проверить установленную версию можно командой `python ai_supervisor.py --version`.
 
 > [!WARNING]
 > Проект работает с реальными биржевыми ордерами. Это не инвестиционная рекомендация. DRY является режимом по умолчанию, а любые изменяющие Binance-запросы дополнительно блокируются на уровне транспорта. Тем не менее перед Mainnet LIVE обязателен отдельный прогон на Binance Spot Testnet и ручная проверка лимитов.
@@ -336,14 +336,55 @@ python run_dashboard.py
 
 Все `/api/*` требуют `DASHBOARD_AUTH_TOKEN` или подтверждённый reverse proxy (`DASHBOARD_TRUST_PROXY_AUTH=1`). API логов и SSE выключены по умолчанию. Для equity используется только отдельный `DASHBOARD_BINANCE_API_KEY` без торговых разрешений; чтение секретов процесса бота из `/proc` удалено.
 
-### Обновление дашборда на Raspberry Pi
+### Универсальная установка и миграция Raspberry Pi
+
+Инсталлятор поддерживает Raspberry Pi OS/Debian, создаёт пользователя и venv,
+устанавливает nginx/FastAPI/systemd, включает mDNS, закрывает API через Basic Auth,
+создаёт приватный backup timer и переносит старые env/SQLite. Чистая установка
+всегда запускается как **Testnet DRY**:
+
+```bash
+sudo bash deploy/install_raspberry_pi.sh install
+```
+
+Старую установку с `/opt/pi-dashboard`, legacy unit и номерным executor нужно
+мигрировать. Старый Mainnet определяется автоматически, но LIVE переводится в
+DRY, пока не выполнено явное подтверждение:
+
+```bash
+sudo bash deploy/install_raspberry_pi.sh migrate
+```
+
+Сохранить уже работающий LIVE разрешено только при проверенном
+`BOT_LIVE_CONFIRMED=YES`:
+
+```bash
+sudo bash deploy/install_raspberry_pi.sh migrate --preserve-live
+```
+
+До изменений можно получить безопасный аудит без значений секретов:
+
+```bash
+sudo bash deploy/install_raspberry_pi.sh audit
+```
+
+Пароль dashboard сохраняется с правами `0600` в
+`/root/ladder-dragon-dashboard-credentials.txt`. Архивы находятся только в
+`/var/lib/ladder-dragon/backups`; URL `/backups/` всегда отвечает `404`.
+SQLite копируется online backup API, а не вместе с несогласованными WAL/SHM.
+Инсталлятор применяет переносимые настройки journald, zram и fail2ban. Старые
+UFW/FTP/сторонние правила и фиксированные tmpfs-размеры намеренно не копируются:
+они зависят от локальной сети, RAM и могут заблокировать удалённый доступ.
+
+### Автоматическое обновление Raspberry Pi
 
 Выполняйте из `/home/bot/apps/binance_bot` после получения новой версии.
 Скрипт сам останавливает работающие `mybot` и `pi-healthd`, выполняет
 `git pull --ff-only`, синхронизирует зависимости, обновляет frontend и systemd,
 проверяет Python-код и запускает сервисы обратно. Статус `enabled` проверяется и
 сохраняется, поэтому автозапуск после перезагрузки Raspberry Pi не пропадёт.
-Текущий `ExecStart`, Testnet/Mainnet и торговые CLI-флаги не заменяются:
+Режим и символы хранятся отдельно в `.env.service`, поэтому updater не
+возвращает legacy CLI и не меняет выбранный Testnet/Mainnet или DRY/LIVE:
 
 ```bash
 sudo bash deploy/update_raspberry_pi.sh update
@@ -367,10 +408,9 @@ sudo bash deploy/update_raspberry_pi.sh apply
 sudo bash deploy/update_raspberry_pi.sh check
 ```
 
-Шаблон `deploy/mybot.service` использует Testnet. Перед Mainnet необходимо
-явно заменить `--testnet` на `--mainnet`, настроить production-пути в `.env`
-и сохранить подтверждение `BOT_LIVE_CONFIRMED=YES`; `.env.dashboard` при
-включённом следовании путям автоматически подхватит активный контур из heartbeat.
+Для смены контура редактируйте `BOT_SERVICE_VENUE` и
+`BOT_SERVICE_EXECUTION` в root-owned `.env.service`. LIVE дополнительно требует
+`BOT_LIVE_CONFIRMED=YES` в секретном `.env`.
 
 ## Оставшийся технический долг
 
@@ -383,12 +423,13 @@ sudo bash deploy/update_raspberry_pi.sh check
 ## Документация
 
 - [История изменений](CHANGELOG.md)
-- [Полное руководство](FRONT/readme.html)
 - [Справка по дашборду](FRONT/help.html)
 - [Безопасный шаблон systemd](deploy/mybot.service)
 - [Drop-in связки supervisor ↔ dashboard](deploy/mybot-dashboard-link.conf)
 - [Безопасный шаблон dashboard systemd](deploy/pi-dashboard.service)
+- [Установка/миграция Raspberry Pi](deploy/install_raspberry_pi.sh)
 - [Обновление Raspberry Pi и проверка связки](deploy/update_raspberry_pi.sh)
+- [Приватный backup Raspberry Pi](deploy/backup_raspberry_pi.sh)
 - [Исторические заметки systemd — не разворачивать](docs/legacy-systemd-notes.txt)
 
 ## Лицензия

@@ -1,0 +1,9 @@
+[Unit]
+Description=Ladder Dragon private configuration and SQLite backup
+
+[Service]
+Type=oneshot
+ExecStart=/home/bot/apps/binance_bot/deploy/backup_raspberry_pi.sh
+Nice=10
+IOSchedulingClass=idle
+NoNewPrivileges=yes
