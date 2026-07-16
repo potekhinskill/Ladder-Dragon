@@ -810,6 +810,7 @@ def ai_status(limit: int = 50):
     )
     effective_mode = str(runtime_ai.get("mode") or AI_MODE).upper()
     recent = []
+    knowledge_stats = {"documents": 0, "retrievals": 0}
     db_path = _runtime_data_path(runtime, "ai_decisions_db", AI_DECISIONS_DB)
     if db_path.exists():
         try:
@@ -853,6 +854,25 @@ def ai_status(limit: int = 50):
                 ]
                 for row in recent:
                     row["evaluation"] = json.loads(row.pop("evaluation_json") or "{}")
+                tables = {
+                    row["name"]
+                    for row in connection.execute(
+                        "SELECT name FROM sqlite_master WHERE type='table'"
+                    )
+                }
+                if "knowledge_documents" in tables:
+                    knowledge_stats["documents"] = int(
+                        connection.execute(
+                            "SELECT COUNT(*) FROM knowledge_documents "
+                            "WHERE status='validated'"
+                        ).fetchone()[0]
+                    )
+                if "knowledge_retrievals" in tables:
+                    knowledge_stats["retrievals"] = int(
+                        connection.execute(
+                            "SELECT COUNT(*) FROM knowledge_retrievals"
+                        ).fetchone()[0]
+                    )
         except sqlite3.Error as exc:
             return JSONResponse(
                 {"ok": False, "error": f"AI DB read failed: {exc}"},
@@ -924,6 +944,7 @@ def ai_status(limit: int = 50):
             "decisions_db": str(db_path),
             "usage_log": str(usage_path),
         },
+        "knowledge_base": knowledge_stats,
         "usage_today": usage,
         "budget_exhausted": budget_exhausted,
         "recent": recent,

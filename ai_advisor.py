@@ -127,6 +127,9 @@ class MarketContext:
     ai_accuracy_4h: float = 0.0
     ai_vs_baseline_samples_1h: int = 0
     ai_edge_vs_baseline_1h: float = 0.0
+    # Короткие проверенные исторические случаи для локального RAG. Здесь нет
+    # API-ключей, балансов или order IDs; Risk Manager этот контекст не читает.
+    rag_context: tuple[Mapping[str, Any], ...] = ()
 
 
 @dataclass(frozen=True)
