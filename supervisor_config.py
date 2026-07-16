@@ -127,6 +127,23 @@ def build_supervisor_parser() -> argparse.ArgumentParser:
     ap.add_argument("--dir-down-tp1-mult", type=float, default=float(os.getenv("DIR_DOWN_TP1_MULT", "1.15")))
     ap.add_argument("--dir-down-target-buys", type=int, default=int(os.getenv("DIR_DOWN_TARGET_BUYS", "2")))
 
+    # LLM используется только как рекомендательный слой. Ключи принимаются
+    # исключительно через окружение и никогда не попадают в argv/process list.
+    ap.add_argument("--ai-advisor", action="store_true", default=env_flag("AI_ADVISOR_ENABLE", False),
+                    help="Включить рекомендательный LLM-слой без доступа к ордерам")
+    ap.add_argument("--no-ai-advisor", action="store_false", dest="ai_advisor")
+    ap.add_argument("--ai-provider", choices=["openai", "deepseek", "compatible"],
+                    default=os.getenv("AI_PROVIDER", "deepseek"))
+    ap.add_argument("--ai-model", default=os.getenv("AI_MODEL", ""))
+    ap.add_argument("--ai-base-url", default=os.getenv("AI_BASE_URL", ""))
+    ap.add_argument("--ai-timeout-sec", type=float, default=float(os.getenv("AI_TIMEOUT_SEC", "10")))
+    ap.add_argument("--ai-cache-sec", type=int, default=int(os.getenv("AI_CACHE_SEC", "300")))
+    ap.add_argument("--ai-min-confidence", type=float, default=float(os.getenv("AI_MIN_CONFIDENCE", "0.65")))
+    ap.add_argument("--ai-width-scale-min", type=float, default=float(os.getenv("AI_WIDTH_SCALE_MIN", "0.75")))
+    ap.add_argument("--ai-width-scale-max", type=float, default=float(os.getenv("AI_WIDTH_SCALE_MAX", "1.50")))
+    ap.add_argument("--ai-cap-scale-min", type=float, default=float(os.getenv("AI_CAP_SCALE_MIN", "0.25")))
+    ap.add_argument("--ai-cap-scale-max", type=float, default=float(os.getenv("AI_CAP_SCALE_MAX", "1.25")))
+
     ap.add_argument("--pos-guard-enable", action="store_true")
     ap.add_argument("--pos-max-base-map", default="", help="SYM:base_qty,... напр. SOLUSDT:0.50,ETHUSDT:0.020")
     ap.add_argument("--pos-max-usdt-map", default="", help="SYM:usdt_equiv,... напр. SOLUSDT:500,ETHUSDT:600")
@@ -218,6 +235,7 @@ def validate_supervisor_args(parser: argparse.ArgumentParser, args: argparse.Nam
         "--flatten-limit-offset-atr": args.flatten_limit_offset_atr,
         "--vwap-refresh-sec": args.vwap_refresh_sec,
         "--vwap-refresh-jitter-sec": args.vwap_refresh_jitter_sec,
+        "--ai-cache-sec": args.ai_cache_sec,
     }
     for name, value in non_negative.items():
         if float(value) < 0:
@@ -274,6 +292,30 @@ def validate_supervisor_args(parser: argparse.ArgumentParser, args: argparse.Nam
         parser.error("--flatten-at must use HH:MM (24-hour) format")
     if args.flatten_force and not args.flatten_enable:
         parser.error("--flatten-force requires --flatten-enable")
+    if args.ai_timeout_sec <= 0:
+        parser.error("--ai-timeout-sec must be > 0")
+    if not 0 <= args.ai_min_confidence <= 1:
+        parser.error("--ai-min-confidence must be in [0, 1]")
+    if not 0 < args.ai_width_scale_min <= args.ai_width_scale_max <= 3:
+        parser.error("AI width bounds must satisfy 0 < min <= max <= 3")
+    if not 0 < args.ai_cap_scale_min <= args.ai_cap_scale_max <= 2:
+        parser.error("AI CAP bounds must satisfy 0 < min <= max <= 2")
+    if args.ai_advisor:
+        if args.ai_base_url and not args.ai_base_url.startswith("https://"):
+            parser.error("--ai-base-url must use https://")
+        key_name = {
+            "openai": "OPENAI_API_KEY",
+            "deepseek": "DEEPSEEK_API_KEY",
+            "compatible": "AI_API_KEY",
+        }[args.ai_provider]
+        if not os.getenv(key_name, ""):
+            parser.error(f"--ai-advisor requires {key_name}")
+        if args.ai_provider == "compatible" and (
+            not args.ai_base_url or not args.ai_model
+        ):
+            parser.error(
+                "compatible AI provider requires --ai-base-url and --ai-model"
+            )
 
     try:
         values = [float(x.strip()) for x in args.ladder_pct.split(",")]
