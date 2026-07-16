@@ -141,6 +141,23 @@ def test_failed_oco_uses_single_tp_fallback(tmp_path):
     assert halts == []
 
 
+def test_live_failed_oco_flattens_and_halts(tmp_path, monkeypatch):
+    monkeypatch.setenv("BOT_LIVE_CONFIRMED", "YES")
+    flattened, halts = [], []
+    deps = dependencies(
+        get_order=lambda symbol, order_id: {"orderId": order_id, "status": "FILLED",
+                                             "executedQty": "0.100", "cummulativeQuoteQty": "10.0"},
+        place_market_order=lambda *args, **kwargs: flattened.append((args, kwargs)),
+        halt=lambda reason, **metadata: halts.append(reason),
+    )
+    remaining = protect_filled_buys("SOLUSDT", [42], [90.0, 110.0], config=config(),
+                                    panic_active=False, breakeven_enabled=False,
+                                    state_store=state_store(tmp_path), dependencies=deps)
+    assert remaining == [42]
+    assert flattened[0][0][:3] == ("SOLUSDT", "SELL", 0.1)
+    assert "fallback prefer-tp1" in halts[0]
+
+
 def test_breakeven_rearms_partially_filled_oco(tmp_path):
     canceled = []
     replacements = []

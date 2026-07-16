@@ -965,6 +965,11 @@ def maybe_place_buys(symbol: str,
       иначе — равномерный cap до конца без «съедания» всей кассы.
     Возвращает список orderId успешно размещённых BUY.
     """
+    # Сигнал остановки проверяется до любых сетевых запросов: после SIGTERM
+    # функция не должна даже читать баланс или список открытых заявок.
+    if not RUN:
+        log(f"[STOP] {symbol} BUY placement skipped before exchange reads")
+        return []
     get_symbol_assets(symbol)
     bals = get_balances()
     reserve = max(0.0, getenv_float("RISK_RESERVE_USDT", 0.0))
