@@ -30,6 +30,8 @@ class SimulationConfig:
     spread_pct: Decimal = D("0.0002")
     partial_fill_ratio: Decimal = D("1")
     stop_loss_pct: Decimal = D("0")
+    min_net_edge_pct: Decimal = D("0.001")
+    max_holding_bars: int = 0
     latency_bars: int = 1
 
 
@@ -78,6 +80,13 @@ def simulate_grid(candles: Sequence[Candle], config: SimulationConfig) -> Simula
         raise ValueError("partial_fill_ratio must be in (0, 1]")
     if config.stop_loss_pct < 0 or config.stop_loss_pct >= D("1"):
         raise ValueError("stop_loss_pct must be in [0, 1)")
+    if config.min_net_edge_pct < 0 or config.max_holding_bars < 0:
+        raise ValueError("min_net_edge_pct and max_holding_bars must be non-negative")
+    round_trip_cost = D("2") * (
+        config.fee_pct + config.slippage_pct + config.spread_pct / D("2")
+    )
+    if config.take_profit_pct - round_trip_cost < config.min_net_edge_pct:
+        raise ValueError("take-profit does not clear the configured minimum net edge")
 
     cash = config.initial_cash
     inventory = Inventory()
@@ -85,6 +94,7 @@ def simulate_grid(candles: Sequence[Candle], config: SimulationConfig) -> Simula
     pending_buy: tuple[int, Decimal, Decimal] | None = None
     # (eligible bar, take-profit, stop-loss; stop=0 means disabled)
     pending_sell: tuple[int, Decimal, Decimal] | None = None
+    position_open_index: int | None = None
 
     for index, candle in enumerate(candles):
         if pending_buy and index >= pending_buy[0] and candle.low <= pending_buy[1] and cash >= config.order_notional:
@@ -105,6 +115,7 @@ def simulate_grid(candles: Sequence[Candle], config: SimulationConfig) -> Simula
                 cash -= execution * qty + fee
                 inventory.buy(execution, qty, fee)
                 trades += 1
+                position_open_index = position_open_index or index
                 target = execution * (D("1") + config.take_profit_pct)
                 stop = (
                     execution * (D("1") - config.stop_loss_pct)
@@ -117,7 +128,26 @@ def simulate_grid(candles: Sequence[Candle], config: SimulationConfig) -> Simula
                     if remaining > D("1e-18") else None
                 )
 
-        if pending_sell and index >= pending_sell[0] and inventory.qty > 0:
+        forced_exit = (
+            position_open_index is not None
+            and config.max_holding_bars > 0
+            and index - position_open_index >= config.max_holding_bars
+            and inventory.qty > 0
+        )
+        if forced_exit:
+            execution = candle.close * (
+                D("1") - config.slippage_pct - config.spread_pct / D("2")
+            )
+            if execution >= candle.low:
+                qty = inventory.qty
+                fee = execution * qty * config.fee_pct
+                inventory.sell(execution, qty, fee)
+                cash += execution * qty - fee
+                trades += 1
+                pending_sell = None
+                position_open_index = None
+
+        if pending_sell and not forced_exit and index >= pending_sell[0] and inventory.qty > 0:
             take_profit, stop_loss = pending_sell[1], pending_sell[2]
             stop_hit = stop_loss > 0 and candle.low <= stop_loss
             target_hit = candle.high >= take_profit
@@ -138,6 +168,7 @@ def simulate_grid(candles: Sequence[Candle], config: SimulationConfig) -> Simula
                     trades += 1
                     if inventory.qty <= D("1e-18"):
                         pending_sell = None
+                        position_open_index = None
 
         if pending_buy is None and inventory.qty == 0:
             pending_buy = (

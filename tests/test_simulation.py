@@ -53,8 +53,10 @@ def test_simulation_does_not_fill_impossible_slippage_price():
         ],
         SimulationConfig(
             buy_offset_pct=Decimal("0.01"),
+            take_profit_pct=Decimal("0.10"),
             slippage_pct=Decimal("0.02"),
             spread_pct=Decimal("0.02"),
+            min_net_edge_pct=Decimal("0"),
         ),
     )
     assert result.trades == 0
