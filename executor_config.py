@@ -9,6 +9,7 @@ from __future__ import annotations
 import argparse
 import os
 import re
+from pathlib import Path
 
 from product_version import product_label
 
@@ -116,6 +117,9 @@ def validate_executor_args(
     # мутаций через окружение конкретного процесса.
     if args.live and os.getenv("BOT_LIVE_CONFIRMED", "") != "YES":
         parser.error("--live requires BOT_LIVE_CONFIRMED=YES")
+    lock_file = os.getenv("BOT_PARAM_LOCK_FILE", "").strip()
+    if args.live and lock_file and Path(lock_file).exists():
+        parser.error("LIVE заблокирован: параметры помечены degraded после walk-forward")
     if args.live and args.oco_fallback == "prefer-tp1":
         parser.error("--oco-fallback=prefer-tp1 запрещён в LIVE: позиция останется без стопа")
     if args.max_holding_minutes < 0:

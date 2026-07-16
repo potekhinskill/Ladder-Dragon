@@ -1867,6 +1867,8 @@ def _preflight_live(args: argparse.Namespace, symbols: List[str], limits: RiskLi
 
     if not stats_db:
         raise RuntimeError("BOT_STATS_DB is required for fail-closed LIVE mode")
+    # LIVE cross-quote valuation обязана подтверждать глубину стакана.
+    os.environ["RISK_CONVERSION_DEPTH_REQUIRED"] = "1"
     import tools_stats
     con = tools_stats.init_db(stats_db)
     try:
