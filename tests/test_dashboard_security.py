@@ -25,6 +25,25 @@ def test_api_is_closed_without_authentication(monkeypatch):
     assert response.status_code == 401
 
 
+def test_health_exposes_product_version_and_changelog(monkeypatch):
+    module = load_dashboard(monkeypatch)
+    # macOS sandbox может запрещать чтение swap/boot_time(); для проверки
+    # контракта health подставляем безопасные значения системного снимка.
+    swap_snapshot = type("SwapSnapshot", (), {"total": 0, "used": 0, "percent": 0})()
+    monkeypatch.setattr(module.psutil, "swap_memory", lambda: swap_snapshot)
+    monkeypatch.setattr(module.psutil, "boot_time", lambda: 0)
+    with TestClient(module.app) as client:
+        response = client.get(
+            "/api/health",
+            headers={"Authorization": "Bearer test-secret-token"},
+        )
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["product"]["name"] == "Ladder Dragon"
+    assert payload["product"]["version"]
+    assert payload["changelog_url"] == "/CHANGELOG.md"
+
+
 def test_log_api_is_disabled_by_default(monkeypatch):
     module = load_dashboard(monkeypatch)
     with TestClient(module.app) as client:

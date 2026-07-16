@@ -12,6 +12,7 @@ import sqlite3
 from typing import List, Dict, Optional, Tuple
 
 from ai_runtime_status import read_runtime_status
+from product_version import PRODUCT_NAME, __version__
 
 try:
     import requests
@@ -671,6 +672,8 @@ def health():
     temp = read_temp_c()
     disk = shutil.disk_usage("/")
     return JSONResponse({
+        "product": {"name": PRODUCT_NAME, "version": __version__},
+        "changelog_url": "/CHANGELOG.md",
         "time": now_str(),
         "kernel": os.uname().release,
         "temp_c": temp,

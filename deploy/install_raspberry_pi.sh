@@ -450,7 +450,8 @@ install -o root -g www-data -m 0640 /dev/null \
 printf 'proxy_set_header X-Dashboard-Proxy-Secret "%s";\n' \
   "${dashboard_proxy_secret}" \
   >/etc/nginx/snippets/ladder_dragon_proxy_secret.conf
-install -m 0644 "${PROJECT_DIR}/FRONT/index.html" "${PROJECT_DIR}/FRONT/help.html" /var/www/bot/
+install -m 0644 "${PROJECT_DIR}/FRONT/index.html" "${PROJECT_DIR}/FRONT/help.html" \
+  "${PROJECT_DIR}/CHANGELOG.md" /var/www/bot/
 rm -f /var/www/bot/readme.html
 
 if [[ -d /var/www/bot/backups ]]; then
