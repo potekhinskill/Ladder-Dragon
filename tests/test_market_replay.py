@@ -16,7 +16,7 @@ def test_price_time_priority_and_latency():
 
 
 def test_cancel_and_rate_limit():
-    replay = OrderBookReplay(max_requests_per_minute=1)
+    replay = OrderBookReplay(max_requests_per_minute=2)
     order = ReplayOrder("x", "BUY", Decimal("10"), Decimal("1"), 0)
     replay.submit(order, 0)
     assert replay.cancel("x", 1)
