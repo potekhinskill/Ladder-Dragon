@@ -1136,6 +1136,22 @@ def maybe_place_sells_from_holdings(
         dbg(f"[HOLD-SELL] {symbol} no free base (free={fmt_qty_sym(symbol, base_free)})")
         return 0
 
+    # В panic обычные SELL-уровни могут оказаться выше рынка навсегда.
+    # Для старого inventory без OCO включаем аварийный market flatten
+    # (в LIVE по умолчанию), иначе позиция останется без защитного выхода.
+    if panic_active and os.getenv("PANIC_FLATTEN_HOLDINGS", "1").lower() in ("1", "true", "yes"):
+        dust = min_qty(symbol, 0)
+        panic_qty = max(0.0, base_free - dust)
+        if panic_qty > 0:
+            try:
+                result = place_market_order(symbol, "SELL", panic_qty,
+                                            ref_price=get_price(symbol),
+                                            filters=symbol_filters.get(symbol))
+                log(f"[PANIC-FLATTEN] {symbol} qty≈{fmt_qty_sym(symbol, panic_qty)} result={bool(result)}")
+                return 1 if result else 0
+            except (RuntimeError, ValueError, OSError) as exc:
+                log(f"[PANIC-FLATTEN-ERR] {symbol}: {exc}")
+
     pull_filters(symbol)
 
     now = get_price(symbol)
