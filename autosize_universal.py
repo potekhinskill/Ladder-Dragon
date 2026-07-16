@@ -69,13 +69,8 @@ import sys
 import math
 import time
 import json
-import hmac
-import hashlib
 import signal
-import random
 import sqlite3
-import argparse
-import re
 from datetime import datetime
 from decimal import Decimal
 from pathlib import Path
@@ -88,9 +83,14 @@ from risk_manager import create_manual_halt
 from time_safety import assess_exchange_clock
 from trade_accounting import TradeExecution, UnpricedCommission, replay_average_cost
 from product_version import product_label, user_agent
+from executor_config import build_executor_parser, validate_executor_args
+from strategy_math import atr_from_klines as _atr_from_klines
+from strategy_math import clamp, ema_value as _ema, panic_triggered as panic_raw
+from strategy_math import shift_buy_levels
+from binance_transport import BinanceTransport
+from executor_stats import commission_quote_value, poll_mytrades_once
 
 import requests
-from urllib.parse import urlencode
 # для пер-символьного лока
 import fcntl  # Linux/Unix
 
@@ -118,6 +118,16 @@ SESSION = requests.Session()
 if API_KEY:
     SESSION.headers.update({"X-MBX-APIKEY": API_KEY})
 SESSION.headers.update({"User-Agent": USER_AGENT})
+
+TRANSPORT = BinanceTransport(
+    SESSION,
+    base_url=lambda: BINANCE_API_BASE,
+    api_key=lambda: API_KEY,
+    api_secret=lambda: API_SECRET,
+    live=lambda: LIVE_MODE,
+    recv_window=lambda: getenv_int("RECV_WINDOW_MS", 15000),
+    logger=log,
+)
 
 
 def _order_journal() -> Optional[OrderJournal]:
@@ -160,9 +170,6 @@ def fmt(v, n=8):
         return f"{float(v):.{n}f}"
     except Exception:
         return str(v)
-
-def clamp(x: float, lo: float, hi: float) -> float:
-    return max(lo, min(hi, x))
 
 def parse_comma_floats(s: str) -> List[float]:
     return [float(x.strip()) for x in s.split(",") if x.strip()]
@@ -274,12 +281,6 @@ def _profit_floor_pct() -> float:
 
 # ------------------- HTTP / signed / backoff -------------------
 
-def _ts_ms() -> int:
-    return int(time.time() * 1000)
-
-def _sign(qs: str) -> str:
-    return hmac.new(API_SECRET.encode(), qs.encode(), hashlib.sha256).hexdigest()
-
 def _request_with_backoff(method: str,
                           url: str,
                           *,
@@ -287,138 +288,17 @@ def _request_with_backoff(method: str,
                           data: Dict[str, Any] | None = None,
                           timeout: float = 15.0,
                           max_tries: int = 8) -> Any:
-    tries = 0
-    backoff = 0.5
-    while True:
-        tries += 1
-        try:
-            r = SESSION.request(method, url, params=params, data=data, timeout=timeout)
-            code = None
-            j = None
-            try:
-                j = r.json()
-                if isinstance(j, dict):
-                    code = j.get("code")
-            except Exception:
-                j = None
+    return TRANSPORT.request_with_backoff(
+        method, url, params=params, data=data, timeout=timeout, max_tries=max_tries
+    )
 
-            if r.status_code >= 400:
-                if r.status_code in (418, 429) or 500 <= r.status_code < 600 or code in (1003, -1003, -1015):
-                    retry_after = r.headers.get("Retry-After")
-                    if retry_after:
-                        try:
-                            backoff = max(backoff, float(retry_after))
-                        except Exception:
-                            pass
-                    else:
-                        backoff = min(backoff * 1.8, 20.0)
-                    sleep_s = backoff + random.random() * 0.5
-                    log(f"[BACKOFF] {r.status_code} code={code} → sleep {sleep_s:.2f}s URL={url}")
-                    time.sleep(sleep_s)
-                    if tries < max_tries:
-                        continue
-                r.raise_for_status()
-
-            # 2xx но json с троттлинг-кодом
-            if isinstance(j, dict) and j.get("code") in (1003, -1003, -1015):
-                if tries >= max_tries:
-                    raise requests.HTTPError(f"Binance throttle code {j.get('code')}: {j.get('msg')}")
-                backoff = min(backoff * 1.8, 20.0)
-                sleep_s = backoff + random.random() * 0.5
-                log(f"[BACKOFF] json code={j.get('code')} → sleep {sleep_s:.2f}s URL={url}")
-                time.sleep(sleep_s)
-                continue
-
-            try:
-                return r.json()
-            except ValueError:
-                return r.text
-
-        except requests.RequestException as e:
-            if tries >= max_tries:
-                raise
-            backoff = min(backoff * 1.8, 20.0)
-            sleep_s = backoff + random.random() * 0.5
-            log(f"[RETRY] {e.__class__.__name__}: {e}; sleep {sleep_s:.2f}s URL={url}")
-            time.sleep(sleep_s)
 
 def _public_get(path: str, params: Dict[str, Any] | None = None, timeout: float = 15.0):
-    url = BINANCE_API_BASE + path
-    return _request_with_backoff("GET", url, params=params, timeout=timeout)
+    return TRANSPORT.public_get(path, params=params, timeout=timeout)
+
 
 def _signed_request(method: str, path: str, params: Dict[str, Any] | None = None, timeout: float = 15.0):
-    if method.upper() not in ("GET", "HEAD") and not LIVE_MODE:
-        raise RuntimeError(f"DRY mode blocked mutating Binance request: {method.upper()} {path}")
-    if not API_SECRET or not API_KEY:
-        raise RuntimeError("API key/secret are required for signed endpoints.")
-    p_base = dict(params or {})
-    # позволим увеличить окно через ENV, дефолт побольше
-    p_base.setdefault("recvWindow", getenv_int("RECV_WINDOW_MS", 15000))
-
-    tries = 0
-    backoff = 0.5
-    while True:
-        tries += 1
-        # каждый раз новый timestamp + подпись
-        p = dict(p_base)
-        p["timestamp"] = _ts_ms()
-        qs = urlencode(p, doseq=True)
-        sig = _sign(qs)
-        url = f"{BINANCE_API_BASE}{path}?{qs}&signature={sig}"
-
-        try:
-            r = SESSION.request(method, url, timeout=timeout)
-            j = None
-            code = None
-            try:
-                j = r.json()
-                if isinstance(j, dict):
-                    code = j.get("code")
-            except Exception:
-                j = None
-
-            # http-ошибки: троттлинг/сервер/временные — с ретраем
-            if r.status_code >= 400:
-                if r.status_code in (418, 429) or 500 <= r.status_code < 600 or code in (1003, -1003, -1015, -1021):
-                    retry_after = r.headers.get("Retry-After")
-                    if retry_after:
-                        try:
-                            backoff = max(backoff, float(retry_after))
-                        except Exception:
-                            pass
-                    else:
-                        backoff = min(backoff * 1.8, 20.0)
-                    sleep_s = backoff + random.random() * 0.5
-                    log(f"[BACKOFF] {r.status_code} code={code} → sleep {sleep_s:.2f}s URL={path}")
-                    time.sleep(sleep_s)
-                    if tries < 8:
-                        continue
-                # не ретраибл — кинем исключение как есть
-                r.raise_for_status()
-
-            # 2xx, но тело с «мягким» кодом троттлинга или -1021
-            if isinstance(j, dict) and j.get("code") in (1003, -1003, -1015, -1021):
-                if tries >= 8:
-                    raise requests.HTTPError(f"Binance code {j.get('code')}: {j.get('msg')}")
-                backoff = min(backoff * 1.8, 20.0)
-                sleep_s = backoff + random.random() * 0.5
-                log(f"[BACKOFF] json code={j.get('code')} → sleep {sleep_s:.2f}s URL={path}")
-                time.sleep(sleep_s)
-                continue
-
-            # успех
-            try:
-                return r.json()
-            except ValueError:
-                return r.text
-
-        except requests.RequestException as e:
-            if tries >= 8:
-                raise
-            backoff = min(backoff * 1.8, 20.0)
-            sleep_s = backoff + random.random() * 0.5
-            log(f"[RETRY] {e.__class__.__name__}: {e}; sleep {sleep_s:.2f}s URL={path}")
-            time.sleep(sleep_s)
+    return TRANSPORT.signed_request(method, path, params=params, timeout=timeout)
 
 # ------------------- Indicators / averages / panic -------------------
 
@@ -434,36 +314,6 @@ def _get_klines(symbol: str, interval: str = "1m", limit: int = 120):
     # теперь пользуемся единым клиентом с нормализацией алиасов и фолбэком -1120→15m
     limit = max(20, min(1000, int(limit)))
     return TM.get_klines(symbol, interval, limit=limit)
-
-def _ema(vals: List[float], period: int) -> float:
-    if not vals:
-        return 0.0
-    period = max(1, int(period))
-    k = 2.0 / (period + 1.0)
-    e = vals[0]
-    for v in vals[1:]:
-        e = v * k + e * (1.0 - k)
-    return e
-
-def _atr_from_klines(kl: List[list], period: int = 14) -> float:
-    if len(kl) < period + 2:
-        return 0.0
-    # берём закрытые свечи: исключим последнюю (возможна формирующаяся)
-    highs = [float(x[2]) for x in kl[:-1]]
-    lows  = [float(x[3]) for x in kl[:-1]]
-    closes= [float(x[4]) for x in kl[:-1]]
-    trs: List[float] = []
-    prev_close = closes[0]
-    for i in range(1, len(closes)):
-        h = highs[i]
-        l = lows[i]
-        c_prev = closes[i-1]
-        tr = max(h - l, abs(h - c_prev), abs(l - c_prev))
-        trs.append(tr)
-        prev_close = closes[i]
-    if len(trs) < period:
-        return 0.0
-    return _ema(trs[-(period*3):], period)  # сглаживание ЭМА
 
 def get_indicators_cached(symbol: str, interval: str = "1m", ttl_sec: int = 20) -> tuple[float | None, float | None, float | None]:
     key = (symbol, interval)
@@ -597,20 +447,6 @@ def avg_entry(symbol: str, cache_ttl: int = 30, lookback: int = 1000) -> Optiona
 
 _panic: Dict[str, Dict[str, float | int | bool]] = {}
 
-def panic_raw(now_px: float,
-              ema20: float | None,
-              atr: float | None,
-              prev_close: float | None,
-              panic_drop_pct: float,
-              panic_k_atr: float) -> bool:
-    cond1 = False
-    cond2 = False
-    if ema20 is not None and atr is not None and atr > 0:
-        cond1 = now_px <= (ema20 - panic_k_atr * atr)
-    if prev_close is not None and prev_close > 0:
-        cond2 = (now_px / prev_close - 1.0) <= -abs(panic_drop_pct)
-    return cond1 or cond2
-
 def update_panic_state(symbol: str,
                        now_px: float,
                        ema20: float | None,
@@ -743,18 +579,8 @@ def adjust_buy_ladder(symbol: str,
                       ladder_prices: List[float],
                       now_price: float,
                       shift_pct: float) -> List[float]:
-    if shift_pct <= 0:
-        return ladder_prices
-    adj: List[float] = []
-    shift = clamp(float(shift_pct), 0.0, 0.95)
-    factor = 1.0 - shift
-    for price in ladder_prices:
-        if price < now_price:
-            new_price = max(0.0, price * factor)
-            adj.append(new_price)
-        else:
-            adj.append(price)
-    return adj
+    del symbol
+    return shift_buy_levels(ladder_prices, now_price, shift_pct)
 
 def round_price(symbol: str, p: float) -> float:
     step = symbol_filters[symbol]["tickSize"]
@@ -1315,40 +1141,17 @@ def _commission_quote_value(
     trade_price: Decimal,
     trade_time_ms: int,
 ) -> Tuple[Optional[Decimal], str]:
-    """Value a Binance commission in the symbol quote asset at trade time."""
-    base, quote = get_symbol_assets(symbol)
-    asset = commission_asset.strip().upper()
-    if commission_amount <= 0:
-        return Decimal("0"), "none"
-    if asset == quote.upper():
-        return commission_amount, "exact"
-    if asset == base.upper():
-        return commission_amount * trade_price, "exact"
+    return commission_quote_value(
+        symbol,
+        commission_asset,
+        commission_amount,
+        trade_price,
+        trade_time_ms,
+        symbol_assets=get_symbol_assets,
+        public_get=_public_get,
+        cache=_COMMISSION_QUOTE_CACHE,
+    )
 
-    minute_ms = int(trade_time_ms // 60_000 * 60_000)
-    key = (asset, quote.upper(), minute_ms)
-    cached = _COMMISSION_QUOTE_CACHE.get(key)
-    if cached is not None:
-        return commission_amount * cached, "converted"
-
-    pairs = ((asset + quote.upper(), False), (quote.upper() + asset, True))
-    for pair, inverse in pairs:
-        try:
-            candles = _public_get(
-                "/api/v3/klines",
-                {"symbol": pair, "interval": "1m", "startTime": minute_ms, "limit": 1},
-            )
-            if not isinstance(candles, list) or not candles:
-                continue
-            close = Decimal(str(candles[0][4]))
-            if close <= 0:
-                continue
-            conversion = Decimal("1") / close if inverse else close
-            _COMMISSION_QUOTE_CACHE[key] = conversion
-            return commission_amount * conversion, "converted"
-        except (ArithmeticError, IndexError, TypeError, ValueError, requests.RequestException):
-            continue
-    return None, "unpriced"
 
 def _stats_poll_mytrades_once(symbol: str):
     if not (STATS_ENABLE and STATS_DB):
@@ -1356,82 +1159,14 @@ def _stats_poll_mytrades_once(symbol: str):
     _stats_init_if_needed()
     if STATS_CON is None or TOOLS_STATS is None:
         return
-    base, quote = get_symbol_assets(symbol)
-    last_id = None
-    try:
-        last_id = TOOLS_STATS.get_last_trade_id(STATS_CON, symbol)
-    except Exception as e:
-        log(f"[STATS] get_last_trade_id error: {e}")
-
-    # аккуратно тянем от last_id (если None — Binance вернёт последние)
-    params = {"symbol": symbol, "limit": 1000}
-    if last_id is not None:
-        params["fromId"] = int(last_id) + 1
-
-    try:
-        trades = _signed_request("GET", "/api/v3/myTrades", params) or []
-    except Exception as e:
-        log(f"[STATS] myTrades error: {e}")
-        return
-
-    if not isinstance(trades, list) or not trades:
-        return
-
-    max_id = last_id or -1
-    for t in trades:
-        try:
-            tid = int(t.get("id"))
-            side = "BUY" if t.get("isBuyer") else "SELL"
-            price = Decimal(str(t.get("price")))
-            qty = Decimal(str(t.get("qty")))
-            ts = int(t.get("time"))
-            commission = Decimal(str(t.get("commission", "0") or "0"))
-            c_asset = str(t.get("commissionAsset", "")).upper()
-            fee_q, fee_status = _commission_quote_value(
-                symbol, c_asset, commission, price, ts
-            )
-            # применим в БД
-            try:
-                TOOLS_STATS.apply_trade(
-                    STATS_CON,
-                    symbol,
-                    side,
-                    price,
-                    qty,
-                    fee_quote=fee_q or Decimal("0"),
-                    ts=ts,
-                    trade_id=tid,
-                    gross_qty=qty,
-                    commission_asset=c_asset,
-                    commission_amount=commission,
-                    commission_quote=fee_q,
-                    commission_value_status=fee_status,
-                )
-            except sqlite3.OperationalError as dberr:
-                if "locked" in str(dberr).lower():
-                    log("[STATS] skip: database is locked")
-                    break
-                else:
-                    log(f"[STATS] apply_trade error: {dberr}")
-                    continue
-            if fee_status == "unpriced":
-                log(
-                    f"[STATS] {symbol} trade_id={tid}: {c_asset or 'unknown'} "
-                    "commission is unpriced; importer will retry before advancing"
-                )
-                break
-            # обновим max id
-            if tid > (max_id or -1):
-                max_id = tid
-        except Exception as e:
-            log(f"[STATS] parse trade error: {e}")
-
-    # сохраняем новый last_id
-    if max_id is not None and max_id != (last_id or -1):
-        try:
-            TOOLS_STATS.set_last_trade_id(STATS_CON, symbol, int(max_id))
-        except Exception as e:
-            log(f"[STATS] set_last_trade_id error: {e}")
+    poll_mytrades_once(
+        symbol,
+        connection=STATS_CON,
+        stats=TOOLS_STATS,
+        signed_request=_signed_request,
+        commission_value=_commission_quote_value,
+        logger=log,
+    )
 
 # ------------------- OCO price picker (ladder-aligned + TP-floor) -------------------
 
@@ -1872,110 +1607,10 @@ def maybe_place_sells_from_holdings(
 # ------------------- CLI / main -------------------
 
 def main():
-    parser = argparse.ArgumentParser(description="Ladder Dragon symbol executor")
-    parser.add_argument("--version", action="version", version=product_label("executor"))
-    parser.add_argument("--symbol", required=True)
-    parser.add_argument("--ladder-prices", required=True, help="comma-separated absolute prices")
-    parser.add_argument("--max-oco-per-symbol", type=int, default=None)
-    parser.add_argument("--tp1", type=float, default=0.08)
-    parser.add_argument("--tp2", type=float, default=0.08)
-    parser.add_argument("--sl", type=float, default=-0.01)
-    parser.add_argument("--status-interval", type=int, default=5)
-    parser.add_argument("--loop-minutes", type=int, default=5)
-    parser.add_argument("--oco-fallback", type=str, default="prefer-tp1")
-    parser.add_argument("--target-buy-per-symbol", type=int, default=10)
-    parser.add_argument("--auto-oco-holdings", action="store_true")
-    parser.add_argument("--live", action="store_true")
-    parser.add_argument("--enforce-target-buys", action="store_true")
-    parser.add_argument("--enforce-sell-limit", action="store_true")
-
-    # Новые флаги (гейты BUY)
-    parser.add_argument("--cap-floor-usdt", type=float, default=None,
-                        help="Если свободных USDT меньше порога — не ставить BUY вовсе")
-    parser.add_argument("--min-order-usdt", type=float, default=None,
-                        help="Не ставить BUY, если нотационал заявки меньше этого порога (USDT)")
-
-    # Патч: автоподвес OCO после заливки BUY
-    parser.add_argument("--attach-oco-on-fill", action="store_true",
-                        help="После FILLED у BUY автоматически ставить OCO (TP/SL) SELL")
-    parser.add_argument("--stop-limit-offset-pct", type=float, default=0.0015,
-                        help="На сколько ниже stopPrice ставить stopLimitPrice (для SELL)")
-    parser.add_argument("--check-fills-interval", type=int, default=5,
-                        help="Период проверки статусов BUY (сек) для подвеса OCO")
-
-    # Управление динамическим CAP
-    parser.add_argument("--use-remainder-in-last", action="store_true",
-                        help="Если включено — последний BUY использует весь оставшийся USDT; без флага распределение равномерное")
-
-    # Новые флаги: Breakeven after TP1 (опционально, по символам)
-    parser.add_argument("--breakeven-on-tp1-symbols", type=str, default="",
-                        help="Включить BE-stop после частичного TP1 для перечисленных символов (через запятую)")
-    parser.add_argument("--breakeven-offset-pct", type=float, default=None,
-                        help="Сдвиг BE над средней покупкой; если не задано — возьмём 2*BOT_FEE_PCT")
-    parser.add_argument("--breakeven-check-interval", type=int, default=5,
-                        help="Как часто проверять OCO на частичный TP (в шагах 1-секундного цикла)")
-
-    # Паника / индикаторы
-    parser.add_argument("--panic-drop-pct", type=float, default=0.02,
-                        help="Мгновенное падение от prev_close для включения паники (доля, 0.02 = -2%%)")
-    parser.add_argument("--panic-k-atr",   type=float, default=2.0,
-                        help="Порог EMA20 - k*ATR для включения паники")
-    parser.add_argument("--panic-debounce-checks", type=int, default=2,
-                        help="Сколько подряд проверок требуется для включения паники")
-    parser.add_argument("--panic-cooldown-sec",    type=int, default=180,
-                        help="Время удержания режима паники перед выходом")
-    parser.add_argument("--panic-interval", type=str, default="1m",
-                        help="Таймфрейм для индикаторов паники (например, 1m/5m)")
-    parser.add_argument("--panic-sell-floor-pct", type=float, default=None,
-                        help="В панике не продавать ниже средней цены * (1 - pct). Если не задано — без ограничения")
-    parser.add_argument("--avg-lookback", type=int, default=1000,
-                        help="Сколько последних трейдов учитывать в средней (по умолчанию 1000)")
-    parser.add_argument("--avg-cache-ttl", type=int, default=30,
-                        help="TTL кэша средней цены позиции, сек (по умолчанию 30)")
-    parser.add_argument("--sell-limit-maker", action="store_true",
-                        help="Ставить SELL из холдингов как LIMIT_MAKER (maker-only)")
-    parser.add_argument("--buy-limit-maker", action="store_true",
-                        help="Ставить BUY как LIMIT_MAKER (maker-only)")
-
-    # Тренд/медвежьи фильтры
-    parser.add_argument("--skip-buy-while-panic", action="store_true",
-                        help="В режиме паники не ставить новые BUY заявки")
-    parser.add_argument("--buy-trend-ema-gap", type=float, default=None,
-                        help="Если цена ниже EMA на заданную долю — считаем рынок падающим и применяем bear-фильтры")
-    parser.add_argument("--buy-trend-interval", type=str, default=None,
-                        help="Интервал для EMA в тренд-фильтре (по умолчанию как panic-interval)")
-    parser.add_argument("--bear-skip-buys", action="store_true",
-                        help="При медвежьем сигнале (buy-trend-ema-gap) полностью пропускать новые BUY")
-    parser.add_argument("--bear-cap-scale", type=float, default=1.0,
-                        help="Множитель CAP на заявку при медвежьем сигнале (1.0 = без изменений)")
-    parser.add_argument("--bear-buy-shift-pct", type=float, default=0.0,
-                        help="При медвежьем сигнале смещать BUY уровни вниз на указанную долю (0.05 = -5%%)")
-    parser.add_argument("--buy-vwap-premium", type=float, default=None,
-                        help="Если цена выше VWAP на эту долю — пропустить BUY (например 0.003 = +0.3%%)")
-    parser.add_argument("--buy-vwap-discount", type=float, default=None,
-                        help="Если цена ниже VWAP на эту долю — усилить CAP")
-    parser.add_argument("--buy-vwap-discount-scale", type=float, default=1.0,
-                        help="Множитель CAP при скидке к VWAP (например 1.4 = +40%%)")
-    parser.add_argument("--buy-vwap-interval", type=str, default="1m",
-                        help="Интервал свечей для расчёта VWAP (по умолчанию 1m)")
-    parser.add_argument("--buy-vwap-window", type=int, default=180,
-                        help="Сколько закрытых свечей использовать при расчёте VWAP")
-
-    args = parser.parse_args()
+    parser = build_executor_parser()
+    args = validate_executor_args(parser, parser.parse_args())
     log(f"[VERSION] {product_label('executor')}")
     global LIVE_MODE
-    if args.live and os.getenv("BOT_LIVE_CONFIRMED", "") != "YES":
-        parser.error("--live requires BOT_LIVE_CONFIRMED=YES")
-    if not re.fullmatch(r"[A-Z0-9]{5,20}", args.symbol.strip().upper()):
-        parser.error("--symbol must be a valid uppercase Binance symbol")
-    if args.target_buy_per_symbol <= 0 or args.loop_minutes <= 0:
-        parser.error("target and loop limits must be > 0")
-    if args.cap_floor_usdt is not None and args.cap_floor_usdt < 0:
-        parser.error("--cap-floor-usdt must be >= 0")
-    if args.min_order_usdt is not None and args.min_order_usdt <= 0:
-        parser.error("--min-order-usdt must be > 0")
-    if not 0 <= args.stop_limit_offset_pct < 0.25:
-        parser.error("--stop-limit-offset-pct must be in [0, 0.25)")
     LIVE_MODE = bool(args.live)
     if LIVE_MODE:
         # Risk budgeting in the supervisor assumes this is a hard maximum.

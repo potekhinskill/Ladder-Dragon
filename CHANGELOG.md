@@ -9,6 +9,13 @@
 - Основные команды поддерживают `--version`, а supervisor и executor фиксируют версию в startup log.
 - Исполнитель переименован из legacy-имени с номером версии в `autosize_universal.py`; обновлены supervisor, runners, systemd, тесты и документация.
 
+### Modular architecture
+- Строгие CLI и их валидация вынесены из торговых циклов в `supervisor_config.py` и `executor_config.py` без изменения флагов и defaults.
+- Общие детерминированные расчёты лестниц, EMA, ATR, ADX и panic-сигналов собраны в независимом `strategy_math.py`.
+- Подпись запросов, DRY transport gate и retry/backoff исполнителя перенесены в `binance_transport.py` с late-bound LIVE/venue state.
+- Импорт исполнений и точная оценка base/quote/BNB-комиссий отделены в `executor_stats.py`.
+- Добавлены boundary-тесты, которые проверяют конфигурационные, стратегические, транспортные и статистические интерфейсы без запуска торгового цикла.
+
 ## [2026-07-16]
 ### Supervisor DRY/Testnet hardening
 - Исполнитель использует `BOT_RUN_DIR` для per-symbol lock, fallback order journal, circuit halt и breakeven state; локальный запуск больше не зависит от Linux-only `/run/mybot`.
