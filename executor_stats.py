@@ -132,6 +132,7 @@ def poll_mytrades_once(
             if on_fill is not None:
                 on_fill({
                     "trade_id": trade_id, "symbol": symbol, "side": side,
+                    "order_id": trade.get("orderId"),
                     "price": price, "qty": quantity, "fee_quote": fee_quote or Decimal("0"),
                     "commission_asset": commission_asset, "commission_amount": commission,
                     "ts": timestamp,

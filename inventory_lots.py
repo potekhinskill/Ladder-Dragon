@@ -51,6 +51,17 @@ def oldest_lots(connection: sqlite3.Connection, symbol: str) -> list[InventoryLo
     return [InventoryLot(int(r[0]), str(r[1]), Decimal(r[2]), Decimal(r[3]), int(r[4]), str(r[5])) for r in rows]
 
 
+def lot_for_order(connection: sqlite3.Connection, symbol: str, order_id: str | int) -> InventoryLot | None:
+    """Найти конкретную FIFO-партию по исходному exchange order/trade ID."""
+    ensure_schema(connection)
+    row = connection.execute(
+        "SELECT lot_id,symbol,qty,price,opened_at,ladder_level FROM inventory_lots "
+        "WHERE symbol=? AND source_order_id=? AND status='OPEN' ORDER BY opened_at,lot_id LIMIT 1",
+        (symbol.upper(), str(order_id)),
+    ).fetchone()
+    return InventoryLot(int(row[0]), str(row[1]), Decimal(row[2]), Decimal(row[3]), int(row[4]), str(row[5])) if row else None
+
+
 def consume_fifo(connection: sqlite3.Connection, symbol: str, qty: Decimal) -> list[InventoryLot]:
     """Списать SELL из старейших партий и вернуть использованные доли."""
     consumed: list[InventoryLot] = []

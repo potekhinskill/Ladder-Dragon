@@ -115,7 +115,7 @@ from executor_recovery import recover_existing_protection as recovery_existing_p
 from executor_recovery import recover_pending_buy_order_ids as recovery_pending_buy_order_ids
 from executor_recovery import verify_oco_legs as recovery_verify_oco_legs
 from executor_stats import commission_quote_value, poll_mytrades_once
-from inventory_lots import add_lot, consume_fifo, ensure_schema as ensure_lots_schema, oldest_lots
+from inventory_lots import add_lot, consume_fifo, ensure_schema as ensure_lots_schema, oldest_lots, lot_for_order
 
 import requests
 # для пер-символьного лока
@@ -752,10 +752,14 @@ def _order_dependencies() -> OrderDependencies:
 def _protection_dependencies() -> ProtectionDependencies:
     # Сопровождение позиции получает те же late-bound границы, что orders и
     # recovery: фактические HTTP, journal и halt остаются у исполнителя.
-    def lot_id_for_fill(symbol: str, fill_price: float) -> int | None:
+    def lot_id_for_fill(symbol: str, fill_price: float, order_id: int | None = None) -> int | None:
         if STATS_CON is None:
             return None
         try:
+            if order_id is not None:
+                exact = lot_for_order(STATS_CON, symbol, order_id)
+                if exact is not None:
+                    return exact.lot_id
             lots = oldest_lots(STATS_CON, symbol)
             return lots[0].lot_id if lots else None
         except sqlite3.Error:
@@ -894,7 +898,7 @@ def _stats_poll_mytrades_once(symbol: str):
             if fill["side"] == "BUY":
                 add_lot(STATS_CON, symbol=symbol, qty=Decimal(str(fill["qty"])),
                         price=Decimal(str(fill["price"])),
-                        source_order_id=str(fill["trade_id"]), opened_at=int(fill["ts"] / 1000))
+                        source_order_id=str(fill.get("order_id") or fill["trade_id"]), opened_at=int(fill["ts"] / 1000))
             else:
                 consume_fifo(STATS_CON, symbol, Decimal(str(fill["qty"])))
             STATS_CON.commit()
