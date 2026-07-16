@@ -67,7 +67,6 @@ from __future__ import annotations
 import os
 import sys
 import time
-import json
 import signal
 import sqlite3
 from datetime import datetime
@@ -75,7 +74,7 @@ from decimal import Decimal
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 import tools_market as TM
-from order_recovery import OrderIntent, OrderJournal, TERMINAL_EXCHANGE_STATES
+from order_recovery import OrderIntent, OrderJournal
 from exchange_math import round_step
 from risk_manager import create_manual_halt
 from time_safety import assess_exchange_clock
@@ -94,6 +93,14 @@ from executor_orders import place_limit_order as orders_place_limit_order
 from executor_orders import place_oco_sell as orders_place_oco_sell
 from executor_planning import buy_candidates, existing_prices, guarded_sell_levels
 from executor_planning import plan_buy_order, plan_sell_order
+from executor_protection import (
+    BreakevenRuntime,
+    BreakevenStateStore,
+    ProtectionConfig,
+    ProtectionDependencies,
+    maintain_breakeven,
+    protect_filled_buys,
+)
 from executor_runtime import status_due, trading_seconds
 from executor_recovery import RecoveryDependencies
 from executor_recovery import cancel_oco as recovery_cancel_oco
@@ -729,6 +736,41 @@ def _order_dependencies() -> OrderDependencies:
     )
 
 
+def _protection_dependencies() -> ProtectionDependencies:
+    # Сопровождение позиции получает те же late-bound границы, что orders и
+    # recovery: фактические HTTP, journal и halt остаются у исполнителя.
+    return ProtectionDependencies(
+        logger=log,
+        debugger=dbg,
+        journal=_order_journal,
+        get_order=get_order,
+        recover_existing_protection=recover_existing_protection,
+        poll_trades=_stats_poll_mytrades_once,
+        pick_oco_prices=_pick_ladder_aligned_oco_prices,
+        average_entry=lambda symbol, ttl, lookback: avg_entry(
+            symbol, cache_ttl=ttl, lookback=lookback
+        ),
+        profit_floor_pct=_profit_floor_pct,
+        pull_filters=pull_filters,
+        get_symbol_assets=get_symbol_assets,
+        get_balances=get_balances,
+        round_price=round_price,
+        round_quantity=round_qty,
+        min_quantity=min_qty,
+        min_notional=min_notional,
+        format_price=fmt_price_sym,
+        format_quantity=fmt_qty_sym,
+        halt=_trip_execution_halt,
+        place_oco_sell=place_oco_sell,
+        place_limit_order=place_limit_order,
+        list_open_orders=list_open_orders,
+        tick_size=lambda symbol: symbol_filters[symbol]["tickSize"],
+        price_eps_mult=price_eps_mult,
+        round_step=_round,
+        cancel_oco=cancel_oco,
+    )
+
+
 def place_limit_order(side: str,
                       symbol: str,
                       qty: float,
@@ -1211,34 +1253,17 @@ def main():
         FEE_PCT = getenv_float("BOT_FEE_PCT", 0.00075)
         BE_OFFSET = args.breakeven_offset_pct if args.breakeven_offset_pct is not None else max(0.0, 2.0 * FEE_PCT)
         BE_CHECK_N = max(1, int(args.breakeven_check_interval))
-        be_tick = 0
+        breakeven = BreakevenRuntime(
+            enabled=BE_ENABLED,
+            offset_pct=BE_OFFSET,
+            check_interval=BE_CHECK_N,
+        )
+        be_state = BreakevenStateStore(bot_run_dir, dbg)
 
         if BE_ENABLED:
             log(f"[BE] {symbol} enabled | offset={BE_OFFSET:.4%} | check={BE_CHECK_N}s")
         else:
             dbg(f"[BE] {symbol} disabled")
-
-        def _be_state_path(sym: str) -> str:
-            return os.path.join(bot_run_dir(), f"oco_be_state_{sym}.json")
-
-        def _be_state_load(sym: str) -> dict:
-            try:
-                p = _be_state_path(sym)
-                if os.path.exists(p):
-                    with open(p, "r", encoding="utf-8") as f:
-                        return json.load(f) or {}
-            except Exception as e:
-                dbg(f"[BE] state load err: {e}")
-            return {}
-
-        def _be_state_save(sym: str, d: dict) -> None:
-            try:
-                p = _be_state_path(sym)
-                os.makedirs(os.path.dirname(p) or bot_run_dir(), exist_ok=True)
-                with open(p, "w", encoding="utf-8") as f:
-                    json.dump(d, f)
-            except Exception as e:
-                dbg(f"[BE] state save err: {e}")
 
         install_signal_handlers()
         pull_filters(symbol)
@@ -1454,312 +1479,33 @@ def main():
                 last_check += 1
                 if last_check >= max(1, args.check_fills_interval):
                     last_check = 0
-                    for oid in list(placed_ids):  # идём по копии
-                        o = get_order(symbol, oid)
-                        if not o:
-                            continue
-                        st = str(o.get("status", "")).upper()
-                        try:
-                            executed_status = float(o.get("executedQty", "0") or 0.0)
-                        except (TypeError, ValueError):
-                            executed_status = 0.0
-                        terminal_partial = st in TERMINAL_EXCHANGE_STATES and executed_status > 0
-                        if st != "FILLED" and not terminal_partial:
-                            continue
-
-                        protected = False
-                        journal = _order_journal()
-                        buy_intent = journal.get_by_exchange_order_id(oid) if journal is not None else None
-                        parent_client_id = buy_intent.client_order_id if buy_intent is not None else None
-                        try:
-                            # Терминальное состояние BUY сохраняем до создания
-                            # защиты. Тогда восстановление останется однозначным,
-                            # даже если процесс прервётся посередине создания OCO.
-                            if journal is not None and parent_client_id:
-                                journal.record_exchange_order(parent_client_id, o)
-                            if parent_client_id and recover_existing_protection(parent_client_id):
-                                log(f"[RECOVERY] protection already exists for BUY order={oid}")
-                                _stats_poll_mytrades_once(symbol)
-                                placed_ids.remove(oid)
-                                continue
-                            executed = executed_status
-                            if executed <= 0:
-                                try:
-                                    placed_ids.remove(oid)
-                                except ValueError:
-                                    pass
-                                continue
-
-                            cumm_q = float(o.get("cummulativeQuoteQty", "0") or 0.0)
-                            avg_fill_price = (cumm_q / executed) if executed > 0 else float(o.get("price", "0") or 0.0)
-
-                            # Лестнично-выравненные + floor/cap TP/SL
-                            tp_lim, sl_stop, sl_lim = _pick_ladder_aligned_oco_prices(
-                                symbol, ladder_prices, avg_fill_price, args.stop_limit_offset_pct
-                            )
-
-                            # GUARD: не продавать ниже средней (кроме паники)
-                            try:
-                                avg_px = avg_entry(symbol, cache_ttl=args.avg_cache_ttl, lookback=args.avg_lookback)
-                            except Exception:
-                                avg_px = None
-                            if avg_px is not None:
-                                min_guard_price: Optional[float] = None
-                                if panic_active:
-                                    if panic_sell_floor_pct is not None:
-                                        min_guard_price = avg_px * (1.0 - max(0.0, float(panic_sell_floor_pct)))
-                                else:
-                                    min_guard_price = max(avg_px, avg_fill_price * (1.0 + _profit_floor_pct()))
-
-                                if (min_guard_price is not None) and tp_lim < min_guard_price:
-                                    guard_floor = round_price(symbol, min_guard_price)
-                                    if guard_floor > tp_lim:
-                                        dbg(
-                                            f"[GUARD] {symbol} TP поднят: {fmt_price_sym(symbol, tp_lim)} → {fmt_price_sym(symbol, guard_floor)} "
-                                            f"(avg={fmt_price_sym(symbol, avg_px)})"
-                                        )
-                                        tp_lim = guard_floor
-
-                            # Не продавать больше свободного; уважать minNotional (и на SL-тележке тоже)
-                            pull_filters(symbol)
-                            base, _ = get_symbol_assets(symbol)
-                            bals = get_balances()
-                            base_free = float(bals.get(base, {}).get("free", 0.0))
-                            dust = min_qty(symbol, 0)
-                            sellable = max(0.0, base_free - dust)
-
-                            q = min(executed, sellable)
-                            q = round_qty(symbol, q)
-
-                            # --- Проверка нотациона с подробным логом ДО place_oco_sell ---
-                            tp_r = round_price(symbol, tp_lim)
-                            sl_r = round_price(symbol, sl_lim)
-
-                            min_tp = min_notional(symbol, tp_r)
-                            min_sl = min_notional(symbol, sl_r)
-
-                            tp_val = q * tp_r
-                            sl_val = q * sl_r
-
-                            if q <= 0 or tp_val < min_tp or sl_val < min_sl:
-                                reason = (
-                                    "cannot protect filled BUY: quantity/notional too small | "
-                                    "symbol=%s order=%s q=%s sellable=%s dust=%s "
-                                    "TPv=%.2f<minTP=%.2f SLv=%.2f<minSL=%.2f | tp=%s sl_lim=%s"
-                                    % (
-                                        symbol,
-                                        oid,
-                                        fmt_qty_sym(symbol, q),
-                                        fmt_qty_sym(symbol, sellable),
-                                        fmt_qty_sym(symbol, dust),
-                                        tp_val, min_tp, sl_val, min_sl,
-                                        fmt_price_sym(symbol, tp_r),
-                                        fmt_price_sym(symbol, sl_r),
-                                    )
-                                )
-                                _trip_execution_halt(
-                                    reason,
-                                    symbol=symbol,
-                                    order_id=oid,
-                                    client_order_id=parent_client_id,
-                                )
-                                continue
-                            # -------------------------------------------------------------
-
-                            res = place_oco_sell(
-                                symbol,
-                                q,
-                                tp_r,
-                                sl_stop,
-                                sl_r,
-                                parent_client_order_id=parent_client_id,
-                            )
-                            protected = bool(res)
-                            if not res and args.oco_fallback == "prefer-tp1":
-                                # guard на notional и «пыль» для одиночного TP
-                                if q * tp_r < min_notional(symbol, tp_r):
-                                    dbg(f"[FALLBACK-SKIP] {symbol} TP notional too small: {q*tp_r:.2f} < {min_notional(symbol, tp_r):.2f}")
-                                    raise RuntimeError("single TP notional too small")
-                                try:
-                                    fallback = place_limit_order(
-                                        "SELL",
-                                        symbol,
-                                        q,
-                                        tp_r,
-                                        maker=getattr(args, "sell_limit_maker", False),
-                                        purpose="fallback_tp",
-                                        parent_client_order_id=parent_client_id,
-                                    )
-                                    if fallback:
-                                        protected = True
-                                        if journal is not None and parent_client_id:
-                                            fallback_client_id = str(fallback.get("clientOrderId") or "")
-                                            if fallback_client_id:
-                                                journal.mark_protected(
-                                                    parent_client_order_id=parent_client_id,
-                                                    protection_client_order_id=fallback_client_id,
-                                                    exchange_order_id=(
-                                                        int(fallback["orderId"])
-                                                        if fallback.get("orderId") is not None
-                                                        else None
-                                                    ),
-                                                )
-                                        log(f"[FALLBACK] {symbol} single TP placed @ {fmt_price_sym(symbol, tp_r)}")
-                                except Exception as ee:
-                                    log(f"[FALLBACK-ERR] {symbol} -> {ee}")
-                            # ---- BE-состояние: запомним связку OCO ↔ avg_fill_price ----
-                            if res and BE_ENABLED:
-                                try:
-                                    olid = int(res.get("orderListId") or 0)
-                                    if olid:
-                                        stmap = _be_state_load(symbol)
-                                        stmap[str(olid)] = {"fill_price": float(avg_fill_price), "tp_price": float(tp_r), "ts": time.time()}
-                                        _be_state_save(symbol, stmap)
-                                        dbg(f"[BE] state add: orderListId={olid} fill={fmt_price_sym(symbol, avg_fill_price)}")
-                                except Exception as ee:
-                                    dbg(f"[BE] state add err: {ee}")
-                            if not protected:
-                                reason = f"filled BUY {oid} has no confirmed OCO or fallback protection"
-                                _trip_execution_halt(
-                                    reason,
-                                    symbol=symbol,
-                                    order_id=oid,
-                                    client_order_id=parent_client_id,
-                                )
-                        except Exception as e:
-                            log(f"[ATTACH-OCO-ERR] {symbol} order {oid}: {e}")
-                            _trip_execution_halt(
-                                f"protection error for filled BUY {oid}: {e}",
-                                symbol=symbol,
-                                order_id=oid,
-                                client_order_id=parent_client_id,
-                            )
-
-                        # BUY завершён только после подтверждённой защиты.
-                        if protected:
-                            # Сразу после подтверждения защиты обновляем ledger.
-                            # Супервизор сверяет с ним баланс Binance; ожидание
-                            # следующего рестарта создало бы ложное расхождение.
-                            _stats_poll_mytrades_once(symbol)
-                            try:
-                                placed_ids.remove(oid)
-                            except ValueError:
-                                pass
+                    placed_ids = protect_filled_buys(
+                        symbol,
+                        placed_ids,
+                        ladder_prices,
+                        config=ProtectionConfig(
+                            stop_limit_offset_pct=args.stop_limit_offset_pct,
+                            oco_fallback=args.oco_fallback,
+                            sell_limit_maker=args.sell_limit_maker,
+                            avg_cache_ttl=args.avg_cache_ttl,
+                            avg_lookback=args.avg_lookback,
+                            panic_sell_floor_pct=panic_sell_floor_pct,
+                        ),
+                        panic_active=panic_active,
+                        breakeven_enabled=breakeven.enabled,
+                        state_store=be_state,
+                        dependencies=_protection_dependencies(),
+                    )
 
             # --- Breakeven поддержка OCO после частичного TP ---
-            if BE_ENABLED:
-                be_tick += 1
-                if be_tick >= BE_CHECK_N:
-                    be_tick = 0
-                    try:
-                        opens = list_open_orders(symbol)  # SELL-ордера текущего символа
-                        # сгруппируем по orderListId
-                        groups: Dict[str, List[Dict[str, Any]]] = {}
-                        for o in opens:
-                            try:
-                                if str(o.get("side", "")).upper() != "SELL":
-                                    continue
-                                olid = o.get("orderListId")
-                                if not olid:
-                                    continue
-                                groups.setdefault(str(olid), []).append(o)
-                            except Exception:
-                                continue
-                        if groups:
-                            stmap = _be_state_load(symbol)
-                        for olid, orders in groups.items():
-                            # ищем пару: LIMIT (TP) и STOP_LOSS_LIMIT (SL)
-                            lim = next((x for x in orders if "LIMIT" in str(x.get("type","")).upper() and "STOP" not in str(x.get("type","")).upper()), None)
-                            sto = next((x for x in orders if "STOP_LOSS" in str(x.get("type","")).upper()), None)
-                            if not lim or not sto:
-                                continue
-                            # частично исполненный TP?
-                            try:
-                                orig = float(lim.get("origQty","0") or 0.0)
-                                execd = float(lim.get("executedQty","0") or 0.0)
-                                remain = max(0.0, orig - execd)
-                            except Exception:
-                                continue
-                            if execd <= 0.0 or remain <= 0.0:
-                                continue  # TP не трогался или уже всё закрыто
-
-                            # целевой BE-stop
-                            fill_px = float(stmap.get(str(olid),{}).get("fill_price", 0.0))
-                            if fill_px <= 0.0:
-                                continue  # нет данных — не трогаем
-                            be_stop = round_price(symbol, fill_px * (1.0 + BE_OFFSET))
-
-                            current_stop = 0.0
-                            try:
-                                current_stop = float(sto.get("stopPrice","0") or 0.0)
-                            except Exception:
-                                current_stop = 0.0
-
-                            if current_stop + 1e-12 >= be_stop:
-                                continue  # уже не хуже BE
-
-                            # цены для нового SL (stopLimit чуть ниже stop)
-                            pull_filters(symbol)
-                            tick = symbol_filters[symbol]["tickSize"]
-                            eps = max(tick * max(1.0, price_eps_mult()), fill_px * max(0.0, float(args.stop_limit_offset_pct)))
-                            # поднимем stop к ближайшему тиковому "вверх", limit — вниз; гарантируем строгий порядок
-                            sl_stop = _round(be_stop, tick, "up")
-                            sl_lim  = _round(sl_stop - eps, tick, "down")
-                            if sl_stop <= sl_lim:
-                                sl_stop = _round(sl_lim + tick, tick, "up")
-
-                            # TP оставляем прежним
-                            try:
-                                tp_price = float(lim.get("price","0") or 0.0)
-                            except Exception:
-                                tp_price = 0.0
-                            if tp_price <= 0.0:
-                                continue
-
-                            # уважаем minQty/minNotional (и для TP, и для SL)
-                            pull_filters(symbol)
-                            remain = round_qty(symbol, remain)
-                            if remain < min_qty(symbol, 0):
-                                dbg(f"[BE] skip dust remain={fmt_qty_sym(symbol, remain)}")
-                                continue
-                            # Проверка нотациона обеих ног
-                            try:
-                                min_tp_notional = min_notional(symbol, tp_price)
-                            except Exception:
-                                min_tp_notional = 0.0
-                            try:
-                                min_sl_notional = min_notional(symbol, sl_lim)
-                            except Exception:
-                                min_sl_notional = 0.0
-                            tp_val = remain * tp_price
-                            sl_val = remain * sl_lim
-                            if tp_val < min_tp_notional:
-                                dbg(f"[BE] skip TP notional too small: {tp_val:.2f} < {min_tp_notional:.2f}")
-                                continue
-                            if sl_val < min_sl_notional:
-                                dbg(f"[BE] skip SL notional too small: {sl_val:.2f} < {min_sl_notional:.2f}")
-                                continue
-
-                            # Пересобираем OCO на остаток
-                            try:
-                                cancel_oco(symbol, int(olid))
-                                time.sleep(0.25)
-                            except Exception:
-                                pass
-                            res2 = place_oco_sell(symbol, remain, tp_price, sl_stop, sl_lim)
-                            if res2:
-                                try:
-                                    new_olid = int(res2.get("orderListId") or 0)
-                                except Exception:
-                                    new_olid = 0
-                                if new_olid:
-                                    # переносим fill_price в новый orderListId
-                                    stmap.pop(str(olid), None)
-                                    stmap[str(new_olid)] = {"fill_price": float(fill_px), "tp_price": float(tp_price), "ts": time.time()}
-                                    _be_state_save(symbol, stmap)
-                                    log(f"[BE] {symbol} OCO re-arm -> BE stop={fmt_price_sym(symbol, sl_stop)} (orderListId={new_olid})")
-                    except Exception as e:
-                        dbg(f"[BE] loop err: {e}")
+            if breakeven.due():
+                maintain_breakeven(
+                    symbol,
+                    offset_pct=breakeven.offset_pct,
+                    stop_limit_offset_pct=args.stop_limit_offset_pct,
+                    state_store=be_state,
+                    dependencies=_protection_dependencies(),
+                )
 
         return
     finally:
