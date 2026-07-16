@@ -57,21 +57,38 @@ class Inventory:
         self.avg_cost = D("0")
         self.realized = D("0")
         self.fees = D("0")
+        self.lots: list[dict[str, Decimal | int]] = []
 
-    def buy(self, price: Decimal, qty: Decimal, fee: Decimal) -> None:
+    def buy(self, price: Decimal, qty: Decimal, fee: Decimal, *, opened_index: int = 0) -> None:
         new_qty = self.qty + qty
         self.avg_cost = ((self.avg_cost * self.qty) + (price * qty) + fee) / new_qty
         self.qty = new_qty
         self.fees += fee
+        self.lots.append({"qty": qty, "price": price, "opened_index": opened_index})
 
     def sell(self, price: Decimal, qty: Decimal, fee: Decimal) -> None:
         if qty > self.qty:
             raise ValueError("cannot sell more than simulated inventory")
-        self.realized += (price - self.avg_cost) * qty - fee
+        remaining = qty
+        fifo_cost = D("0")
+        while remaining > 0 and self.lots:
+            lot = self.lots[0]
+            used = min(remaining, D(str(lot["qty"])))
+            fifo_cost += (price - D(str(lot["price"]))) * used
+            lot["qty"] = D(str(lot["qty"])) - used
+            remaining -= used
+            if D(str(lot["qty"])) <= D("1e-18"):
+                self.lots.pop(0)
+        self.realized += fifo_cost - fee
         self.qty -= qty
         self.fees += fee
         if self.qty == 0:
             self.avg_cost = D("0")
+
+    def oldest_age(self, current_index: int) -> int:
+        if not self.lots:
+            return 0
+        return max(0, current_index - int(self.lots[0]["opened_index"]))
 
 
 def simulate_grid(candles: Sequence[Candle], config: SimulationConfig) -> SimulationResult:
@@ -127,7 +144,7 @@ def simulate_grid(candles: Sequence[Candle], config: SimulationConfig) -> Simula
             fee = execution * qty * config.fee_pct
             if cash >= execution * qty + fee:
                 cash -= execution * qty + fee
-                inventory.buy(execution, qty, fee)
+                inventory.buy(execution, qty, fee, opened_index=index)
                 trades += 1
                 position_open_index = position_open_index or index
                 target = execution * (D("1") + config.take_profit_pct)
@@ -145,7 +162,7 @@ def simulate_grid(candles: Sequence[Candle], config: SimulationConfig) -> Simula
         forced_exit = (
             position_open_index is not None
             and config.max_holding_bars > 0
-            and index - position_open_index >= config.max_holding_bars
+            and inventory.oldest_age(index) >= config.max_holding_bars
             and inventory.qty > 0
         )
         if forced_exit:
