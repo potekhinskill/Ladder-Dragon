@@ -22,6 +22,7 @@ def test_nginx_requires_auth_and_never_publishes_backups():
     assert "location /logs/" in site
     assert "alias /var/lib/ladder-dragon/logs/" in site
     assert "autoindex on" in site
+    assert "charset utf-8;" in site
 
 
 def test_managed_service_uses_versionless_wrapper_and_separate_env():
