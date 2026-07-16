@@ -27,6 +27,7 @@ class SimulationConfig:
     take_profit_pct: Decimal = D("0.01")
     fee_pct: Decimal = D("0.00075")
     slippage_pct: Decimal = D("0.0005")
+    spread_pct: Decimal = D("0.0002")
     latency_bars: int = 1
 
 
@@ -67,6 +68,10 @@ def simulate_grid(candles: Sequence[Candle], config: SimulationConfig) -> Simula
         raise ValueError("not enough candles for configured latency")
     if config.initial_cash <= 0 or config.order_notional <= 0:
         raise ValueError("cash and order notional must be positive")
+    if config.latency_bars < 1:
+        raise ValueError("latency_bars must be at least 1 to avoid same-candle lookahead")
+    if config.fee_pct < 0 or config.slippage_pct < 0 or config.spread_pct < 0:
+        raise ValueError("fees, slippage and spread must be non-negative")
 
     cash = config.initial_cash
     inventory = Inventory()
@@ -76,7 +81,14 @@ def simulate_grid(candles: Sequence[Candle], config: SimulationConfig) -> Simula
 
     for index, candle in enumerate(candles):
         if pending_buy and index >= pending_buy[0] and candle.low <= pending_buy[1] and cash >= config.order_notional:
-            execution = pending_buy[1] * (D("1") + config.slippage_pct)
+            # BUY pays half-spread plus adverse slippage. A touched limit is
+            # not considered filled if that adverse execution is outside the
+            # candle range; this avoids impossible OHLC fills.
+            execution = pending_buy[1] * (
+                D("1") + config.slippage_pct + config.spread_pct / D("2")
+            )
+            if execution > candle.high:
+                continue
             qty = config.order_notional / execution
             fee = execution * qty * config.fee_pct
             if cash >= execution * qty + fee:
@@ -88,7 +100,11 @@ def simulate_grid(candles: Sequence[Candle], config: SimulationConfig) -> Simula
             pending_buy = None
 
         if pending_sell and index >= pending_sell[0] and candle.high >= pending_sell[1] and inventory.qty > 0:
-            execution = pending_sell[1] * (D("1") - config.slippage_pct)
+            execution = pending_sell[1] * (
+                D("1") - config.slippage_pct - config.spread_pct / D("2")
+            )
+            if execution < candle.low:
+                continue
             qty = inventory.qty
             fee = execution * qty * config.fee_pct
             inventory.sell(execution, qty, fee)

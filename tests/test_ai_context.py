@@ -226,8 +226,8 @@ def test_decision_store_records_virtual_ai_and_baseline_plan(tmp_path):
 
 
 def test_directional_success_has_flat_deadband():
-    assert directional_success("UP", 0.002) == 1
-    assert directional_success("DOWN", -0.002) == 1
+    assert directional_success("UP", 0.004) == 1
+    assert directional_success("DOWN", -0.004) == 1
     assert directional_success("FLAT", 0.0005) == 1
     assert directional_success("FLAT", 0.01) == 0
 
@@ -247,5 +247,6 @@ def test_virtual_shadow_plan_includes_fill_costs_mfe_and_mae(monkeypatch):
     assert result["mfe"] > 0
     assert result["mae"] < 0
     assert result["net_return"] == pytest.approx(
-        ((103 / 99.5 - 1) - .004) * .5
+        (103 / 99.5 - 1) - .0042
     )
+    assert result["scaled_pnl_pct"] == pytest.approx(result["net_return"] * .5)

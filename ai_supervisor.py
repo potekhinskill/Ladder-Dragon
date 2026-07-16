@@ -2002,24 +2002,39 @@ def _build_risk_snapshot(
             # ордера, чтобы exposure и их количество относились к одному моменту.
             orders = TM._signed_get("/api/v3/openOrders") or []
 
-    tracked_assets: Dict[str, Decimal] = {}
-    equity = money(balances.get("USDT", {}).get("free", 0)) + money(balances.get("USDT", {}).get("locked", 0))
+    # Оценка риска должна охватывать весь аккаунт, а не только символы,
+    # переданные стратегии. Иначе старые/ручные позиции в другом активе
+    # исчезают из equity, drawdown и portfolio CAP.
+    stable_assets = {"USDT", "USDC", "FDUSD", "BUSD", "TUSD", "DAI"}
+    asset_values: Dict[str, Decimal] = {}
+    equity = Decimal("0")
     holdings_exposure = Decimal("0")
-    for symbol, price in prices.items():
-        base, _ = symbol_assets(symbol)
-        if base in tracked_assets:
+    for asset, balance in balances.items():
+        asset = str(asset).upper()
+        qty = money(balance.get("free", 0)) + money(balance.get("locked", 0))
+        if qty <= 0:
             continue
-        qty = money(balances.get(base, {}).get("free", 0)) + money(balances.get(base, {}).get("locked", 0))
-        value = qty * money(price)
-        tracked_assets[base] = value
+        if asset in stable_assets:
+            value = qty
+        else:
+            valuation_symbol = f"{asset}USDT"
+            valuation_price = prices.get(valuation_symbol)
+            if valuation_price is None:
+                valuation_price = get_last_price(valuation_symbol)
+                prices[valuation_symbol] = valuation_price
+            if money(valuation_price) <= 0:
+                raise RuntimeError(f"cannot value account asset {asset}")
+            value = qty * money(valuation_price)
+        asset_values[asset] = value
         equity += value
-        holdings_exposure += value
+        if asset not in stable_assets:
+            # Cash/reserve belongs to equity, but is not market exposure.
+            holdings_exposure += value
 
     open_buy = sum(
         money(order.get("price")) * money(order.get("origQty"))
         for order in orders
         if str(order.get("side", "")).upper() == "BUY"
-        and str(order.get("symbol", "")).upper() in prices
     )
     exposure = holdings_exposure + open_buy
     correlated_symbols = {
@@ -2028,7 +2043,7 @@ def _build_risk_snapshot(
         if value.strip()
     }
     correlated = sum(
-        tracked_assets.get(symbol_assets(symbol)[0], Decimal("0"))
+        asset_values.get(symbol_assets(symbol)[0], Decimal("0"))
         for symbol in symbols if symbol in correlated_symbols
     ) + sum(
         money(order.get("price")) * money(order.get("origQty"))
