@@ -19,6 +19,8 @@
   header{display:flex;align-items:baseline;gap:10px;margin-bottom:12px}
   h1{margin:0;font-size:20px;font-weight:800}
   .sub{color:var(--muted);font-size:12px}
+  .version-link{color:var(--muted);font-size:12px;text-decoration:none}
+  .version-link:hover{text-decoration:underline;color:var(--text)}
 
   /* Карточки KPI */
   .grid-kpi{display:grid;grid-template-columns:repeat(3,1fr);gap:var(--gap)}
@@ -84,6 +86,8 @@
   <header>
     <h1>🧪 Pi Dashboard</h1>
     <span class="sub" id="subtitle">— автообновление 5 с · Asia/Almaty</span>
+    <span class="sub" id="product-version">Ladder Dragon — версия —</span>
+    <a class="version-link" id="changelog-link" href="/CHANGELOG.md" target="_blank" rel="noreferrer">Что изменено</a>
   </header>
 
   <!-- KPI (3 столбца) -->
@@ -289,6 +293,11 @@ function ensureCharts(){
 }
 
 function updateKpis(h){
+  const product = h.product || {};
+  $('#product-version').textContent = [product.name, product.version ? `версия ${product.version}` : '']
+    .filter(Boolean).join(' ') || 'Версия —';
+  $('#changelog-link').href = h.changelog_url || '/CHANGELOG.md';
+
   // Температура
   $('#temp-val').textContent = h.temp_c!=null ? `${h.temp_c.toFixed(1)} °C` : '— °C';
   setPill($('#temp-pill'), h.temp_c==null ? 'warn' : (h.temp_c>=80?'bad':'ok'));

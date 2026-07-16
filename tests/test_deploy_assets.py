@@ -25,6 +25,19 @@ def test_nginx_requires_auth_and_never_publishes_backups():
     assert "charset utf-8;" in site
 
 
+def test_dashboard_publishes_version_and_changelog():
+    index = read("FRONT/index.html")
+    app = read("FastAPI/pi-dashboard/app.py")
+    installer = read("deploy/install_raspberry_pi.sh")
+    updater = read("deploy/update_raspberry_pi.sh")
+    assert 'id="product-version"' in index
+    assert 'id="changelog-link"' in index
+    assert '"changelog_url": "/CHANGELOG.md"' in app
+    assert '"product": {"name": PRODUCT_NAME, "version": __version__}' in app
+    assert '"${PROJECT_DIR}/CHANGELOG.md" /var/www/bot/' in installer
+    assert 'FRONT/index.html FRONT/help.html CHANGELOG.md' in updater
+
+
 def test_managed_service_uses_versionless_wrapper_and_separate_env():
     unit = read("deploy/mybot.service")
     wrapper = read("deploy/run_bot_service.sh")
