@@ -143,6 +143,9 @@
     <div class="card">
       <div class="row"><div class="label">AI-рекомендатель</div><div class="pct" id="ai-state">—</div></div>
       <div class="row"><span>Режим</span><span class="mono" id="ai-mode">—</span></div>
+      <div class="row"><span>Контур</span><span class="mono" id="ai-venue">—</span></div>
+      <div class="row"><span>Модель</span><span class="mono" id="ai-model">—</span></div>
+      <div class="row"><span>Связь с ботом</span><span id="ai-runtime">—</span></div>
       <div class="row"><span>Решений применено</span><span id="ai-applied">—</span></div>
       <div class="row"><span>AI edge 1h</span><span id="ai-edge">—</span></div>
       <div class="row"><span>Токены сегодня</span><span id="ai-tokens">—</span></div>
@@ -530,6 +533,12 @@ async function refresh(){
     updateTrade24(sum);
     $('#ai-state').textContent = ai.state || '—';
     $('#ai-mode').textContent = ai.mode || '—';
+    const runtime = ai.runtime || {};
+    $('#ai-venue').textContent = [runtime.venue, runtime.execution_mode].filter(Boolean).join(' / ') || '—';
+    $('#ai-model').textContent = [runtime.provider, runtime.model].filter(Boolean).join(' / ') || '—';
+    $('#ai-runtime').textContent = runtime.connected
+      ? `${runtime.stale ? 'STALE' : (runtime.process_state || 'online')} · ${runtime.updated_at ? tsShort(Date.parse(runtime.updated_at)) : '—'}`
+      : 'нет heartbeat';
     $('#ai-applied').textContent = ai.applied_count ?? 0;
     const edge = ai.ai_vs_baseline_1h || {};
     $('#ai-edge').textContent = edge.samples

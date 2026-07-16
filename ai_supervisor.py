@@ -18,7 +18,7 @@ import subprocess
 import json
 import sqlite3
 from dataclasses import asdict
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 from pathlib import Path
 from typing import Any, Dict, List, Mapping, Optional, Tuple
@@ -43,11 +43,12 @@ from ai_policy import (
     usage_budget_allows,
 )
 from ai_statistical import context_vector
+from ai_runtime_status import write_runtime_status
 from order_identity import client_order_id
 from risk_manager import RiskDecision, RiskLimits, RiskManager, RiskSnapshot, load_daily_trade_metrics, money
 from time_safety import assess_exchange_clock
 from venue_config import apply_testnet_paths
-from product_version import product_label, user_agent
+from product_version import __version__, product_label, user_agent
 from strategy_math import adx_from_klines as _adx_from_klines
 from strategy_math import clamp, ema_series as _ema_series
 from strategy_math import geometric_ladder as build_ladder_pct
@@ -97,6 +98,8 @@ LIVE_MODE = False
 _AI_ADVISOR: Optional[AIAdvisor] = None
 _AI_DECISIONS: Optional[AdvisorDecisionStore] = None
 _AI_POLICY: Optional[PolicyConfig] = None
+_AI_RUNTIME_STATUS_PATH: Optional[Path] = None
+_AI_RUNTIME_STATUS: Dict[str, Any] = {}
 
 
 def env_flag(name: str, default: bool = False) -> bool:
@@ -195,6 +198,19 @@ def _build_ai_advisor(args: argparse.Namespace) -> Optional[AIAdvisor]:
 
 def log(msg: str) -> None:
     print(msg, flush=True)
+
+
+def _publish_ai_runtime_status(**updates: Any) -> None:
+    """Обновить read-only телеметрию для дашборда без секретов и raw-контекста."""
+    if _AI_RUNTIME_STATUS_PATH is None:
+        return
+    _AI_RUNTIME_STATUS.update(updates)
+    _AI_RUNTIME_STATUS["pid"] = os.getpid()
+    try:
+        write_runtime_status(_AI_RUNTIME_STATUS_PATH, _AI_RUNTIME_STATUS)
+    except OSError as exc:
+        dbg(f"[AI-STATUS] write failed: {exc}")
+
 
 def dbg(msg: str) -> None:
     if LOG_LEVEL in ("DEBUG", "TRACE"):
@@ -1525,6 +1541,20 @@ def run_for_symbol(symbol: str, args: argparse.Namespace) -> None:
                 f"guards={','.join(policy.reasons) or 'none'} "
                 f"reason={recommendation.rationale}"
             )
+            _publish_ai_runtime_status(
+                state="RUNNING",
+                last_decision={
+                    "symbol": symbol,
+                    "created_at": int(time.time()),
+                    "baseline_mode": ai_context.deterministic_mode,
+                    "recommended_mode": policy.recommendation.mode,
+                    "confidence": policy.recommendation.confidence,
+                    "policy_status": policy.status,
+                    "policy_reasons": list(policy.reasons),
+                    "applied": policy.apply,
+                    "pause_buys": policy.pause_buys,
+                },
+            )
 
     vwap_premium_final, vwap_discount_final, vwap_scale_final, vwap_interval_final, vwap_window_final = resolve_vwap_params(
         symbol,
@@ -2026,6 +2056,7 @@ def main():
     symbols = validate_supervisor_args(ap, args)
     _configure_venue(args)
     global _AI_ADVISOR, _AI_DECISIONS, _AI_POLICY
+    global _AI_RUNTIME_STATUS_PATH, _AI_RUNTIME_STATUS
     decisions_db = (
         os.getenv("AI_TESTNET_DECISIONS_DB", "").strip()
         if args.testnet else args.ai_decisions_db
@@ -2048,8 +2079,45 @@ def main():
         min_ai_accuracy=float(args.ai_min_accuracy),
     )
     _AI_ADVISOR = _build_ai_advisor(args)
+    run_dir = Path(os.getenv("BOT_RUN_DIR", ".runtime"))
+    _AI_RUNTIME_STATUS_PATH = Path(
+        os.getenv("AI_RUNTIME_STATUS_FILE", str(run_dir / "ai_status.json"))
+    )
+    _AI_RUNTIME_STATUS = {
+        "product": {"name": "Ladder Dragon", "version": __version__},
+        "started_at": datetime.now(timezone.utc).isoformat(),
+        "state": "STARTING",
+        "venue": "testnet" if args.testnet else "mainnet",
+        "execution_mode": "LIVE" if args.live else "DRY",
+        "symbols": symbols,
+        "ai": {
+            "enabled": _AI_ADVISOR is not None,
+            "mode": args.ai_mode if args.ai_advisor else "DISABLED",
+            "provider": (
+                _AI_ADVISOR.config.provider if _AI_ADVISOR is not None else None
+            ),
+            "model": (
+                _AI_ADVISOR.config.model if _AI_ADVISOR is not None else None
+            ),
+            "budgets": {
+                "max_requests_per_day": int(args.ai_max_requests_per_day),
+                "max_tokens_per_day": int(args.ai_daily_token_limit),
+                "max_cost_usd_per_day": str(args.ai_daily_cost_limit_usd),
+            },
+        },
+        "paths": {
+            "stats_db": os.getenv("BOT_STATS_DB", ""),
+            "ai_decisions_db": decisions_db,
+            "ai_usage_log": args.ai_usage_log,
+        },
+    }
+    _publish_ai_runtime_status()
     limits = RiskLimits.from_env()
-    _preflight_live(args, symbols, limits)
+    try:
+        _preflight_live(args, symbols, limits)
+    except Exception as exc:
+        _publish_ai_runtime_status(state="PREFLIGHT_FAILED", error=str(exc))
+        raise
     global LIVE_MODE
     LIVE_MODE = bool(args.live)
     # В DRY circuit breaker не меняет постоянное состояние. LIVE использует
@@ -2064,6 +2132,7 @@ def main():
         f"[SUP] symbols={symbols} ladder_mode={args.ladder_mode} "
         f"ai_advisor={ai_label}"
     )
+    _publish_ai_runtime_status(state="RUNNING")
 
     lp = [x.strip() for x in args.ladder_pct.split(",")]
     if len(lp) != 3:
@@ -2126,10 +2195,24 @@ def main():
     last_risk_signature: tuple[bool, tuple[str, ...]] | None = None
     previous_prices: Dict[str, float] = {}
     consecutive_api_failures = 0
+    next_runtime_heartbeat = 0.0
 
     try:
         while True:
             now_loop = time.time()
+            if now_loop >= next_runtime_heartbeat:
+                _publish_ai_runtime_status(
+                    state="RUNNING",
+                    risk={
+                        "buy_blocked": risk_buy_blocked,
+                        "halted": bool(last_risk_signature and last_risk_signature[0]),
+                        "reasons": list(last_risk_signature[1]) if last_risk_signature else [],
+                        "consecutive_api_failures": consecutive_api_failures,
+                    },
+                )
+                # Не пишем на SD-карту в каждом торговом тике: 30 секунд
+                # достаточно для индикации живого процесса в дашборде.
+                next_runtime_heartbeat = now_loop + 30.0
             if risk_manager is not None and now_loop >= next_risk_check:
                 # Проверка риска выполняется раньше планирования символов. При любом
                 # запрете останавливаем воркеры и отменяем только новые BUY.
@@ -2219,6 +2302,7 @@ def main():
     except KeyboardInterrupt:
         log("[SUP] shutdown requested")
     finally:
+        _publish_ai_runtime_status(state="STOPPING")
         _stop_children("supervisor shutdown")
         try:
             if os.path.exists(LOCK_FILE):

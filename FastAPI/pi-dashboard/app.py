@@ -11,6 +11,8 @@ from pathlib import Path
 import sqlite3
 from typing import List, Dict, Optional, Tuple
 
+from ai_runtime_status import read_runtime_status
+
 try:
     import requests
 except Exception:
@@ -39,6 +41,12 @@ AI_MODE = os.getenv("AI_MODE", "SHADOW").upper()
 AI_DAILY_COST_LIMIT_USD = Decimal(os.getenv("AI_DAILY_COST_LIMIT_USD", "0.05"))
 AI_DAILY_TOKEN_LIMIT = int(os.getenv("AI_DAILY_TOKEN_LIMIT", "100000"))
 AI_MAX_REQUESTS_PER_DAY = int(os.getenv("AI_MAX_REQUESTS_PER_DAY", "1000"))
+AI_RUNTIME_STATUS_FILE = Path(
+    os.getenv("AI_RUNTIME_STATUS_FILE", "/run/mybot/ai_status.json")
+)
+DASHBOARD_FOLLOW_BOT_PATHS = (
+    os.getenv("DASHBOARD_FOLLOW_BOT_PATHS", "0") == "1"
+)
 
 @asynccontextmanager
 async def lifespan(_app):
@@ -90,13 +98,35 @@ async def authenticate_and_rate_limit(request: Request, call_next):
 # ---- helpers for DB trades / PnL -------------------------------------------------
 
 def get_db_path() -> str:
-    # pi-healthd override via systemd drop-in:
-    # Environment=BOT_STATS_DB=/home/bot/apps/binance_bot/db/bot_stats.db
+    # При явном разрешении дашборд следует за фактическим venue торгового
+    # процесса. Status-файл не содержит ключей и доступен только локальному user.
+    runtime = _load_ai_runtime_status()
+    if DASHBOARD_FOLLOW_BOT_PATHS and runtime:
+        runtime_path = runtime.get("paths", {}).get("stats_db")
+        if isinstance(runtime_path, str) and runtime_path.strip():
+            return runtime_path.strip()
     p = os.getenv("BOT_STATS_DB", "").strip()
     if p:
         return p
     # fallback to symlink path from your systemd env
     return "/home/bot/stats/bot_stats.db"
+
+
+def _load_ai_runtime_status() -> Dict:
+    """Прочитать безопасный heartbeat бота, не обращаясь к /proc или его env."""
+    try:
+        return read_runtime_status(AI_RUNTIME_STATUS_FILE)
+    except (OSError, ValueError, json.JSONDecodeError):
+        return {}
+
+
+def _runtime_data_path(runtime: Dict, name: str, fallback: str) -> Path:
+    """Выбрать runtime-путь только когда это явно разрешено в dashboard env."""
+    if DASHBOARD_FOLLOW_BOT_PATHS:
+        value = runtime.get("paths", {}).get(name)
+        if isinstance(value, str) and value.strip():
+            return Path(value.strip())
+    return Path(fallback)
 
 def _open_db():
     path = get_db_path()
@@ -742,8 +772,26 @@ def _ai_calibration(recent: List[Dict]) -> List[Dict]:
 def ai_status(limit: int = 50):
     """Защищённый read-only статус AI, решений и дневного расхода."""
     limit = max(1, min(int(limit), 200))
+    runtime = _load_ai_runtime_status()
+    runtime_ai = runtime.get("ai", {}) if isinstance(runtime.get("ai"), dict) else {}
+    runtime_budgets = (
+        runtime_ai.get("budgets", {})
+        if isinstance(runtime_ai.get("budgets"), dict) else {}
+    )
+    runtime_age_sec = None
+    try:
+        runtime_age_sec = max(
+            0,
+            int(time.time() - datetime.fromisoformat(runtime["updated_at"]).timestamp()),
+        )
+    except (KeyError, TypeError, ValueError):
+        pass
+    runtime_stale = bool(
+        runtime and (runtime_age_sec is None or runtime_age_sec > 90)
+    )
+    effective_mode = str(runtime_ai.get("mode") or AI_MODE).upper()
     recent = []
-    db_path = Path(AI_DECISIONS_DB)
+    db_path = _runtime_data_path(runtime, "ai_decisions_db", AI_DECISIONS_DB)
     if db_path.exists():
         try:
             with sqlite3.connect(
@@ -791,17 +839,36 @@ def ai_status(limit: int = 50):
                 {"ok": False, "error": f"AI DB read failed: {exc}"},
                 status_code=500,
             )
-    usage = _ai_usage_today(Path(AI_USAGE_LOG))
-    budget_exhausted = (
-        (AI_MAX_REQUESTS_PER_DAY > 0 and usage["requests"] >= AI_MAX_REQUESTS_PER_DAY)
-        or (AI_DAILY_TOKEN_LIMIT > 0 and usage["tokens"] >= AI_DAILY_TOKEN_LIMIT)
-        or (AI_DAILY_COST_LIMIT_USD > 0 and Decimal(usage["cost_usd"]) >= AI_DAILY_COST_LIMIT_USD)
+    usage_path = _runtime_data_path(runtime, "ai_usage_log", AI_USAGE_LOG)
+    usage = _ai_usage_today(usage_path)
+    request_limit = int(
+        runtime_budgets.get("max_requests_per_day", AI_MAX_REQUESTS_PER_DAY)
     )
-    degraded = budget_exhausted or usage.get("errors", 0) >= 3
+    token_limit = int(
+        runtime_budgets.get("max_tokens_per_day", AI_DAILY_TOKEN_LIMIT)
+    )
+    cost_limit = Decimal(
+        str(runtime_budgets.get("max_cost_usd_per_day", AI_DAILY_COST_LIMIT_USD))
+    )
+    budget_exhausted = (
+        (request_limit > 0 and usage["requests"] >= request_limit)
+        or (token_limit > 0 and usage["tokens"] >= token_limit)
+        or (cost_limit > 0 and Decimal(usage["cost_usd"]) >= cost_limit)
+    )
+    runtime_unhealthy = (
+        (DASHBOARD_FOLLOW_BOT_PATHS and not runtime)
+        or runtime_stale
+        or bool(runtime and runtime.get("state") != "RUNNING")
+    )
+    degraded = (
+        budget_exhausted
+        or usage.get("errors", 0) >= 3
+        or runtime_unhealthy
+    )
     state = (
-        "DISABLED" if AI_MODE == "DISABLED"
+        "DISABLED" if effective_mode == "DISABLED"
         else "DEGRADED" if degraded
-        else "ACTIVE" if AI_MODE == "APPLY"
+        else "ACTIVE" if effective_mode == "APPLY"
         else "SHADOW"
     )
     edge_values = [
@@ -818,8 +885,26 @@ def ai_status(limit: int = 50):
     ]
     return {
         "ok": True,
-        "mode": AI_MODE,
+        "mode": effective_mode,
         "state": state,
+        "runtime": {
+            "connected": bool(runtime),
+            "stale": runtime_stale,
+            "age_sec": runtime_age_sec,
+            "process_state": runtime.get("state"),
+            "updated_at": runtime.get("updated_at"),
+            "venue": runtime.get("venue"),
+            "execution_mode": runtime.get("execution_mode"),
+            "provider": runtime_ai.get("provider"),
+            "model": runtime_ai.get("model"),
+            "product": runtime.get("product"),
+            "last_decision": runtime.get("last_decision"),
+        },
+        "data_sources": {
+            "follow_bot_paths": DASHBOARD_FOLLOW_BOT_PATHS,
+            "decisions_db": str(db_path),
+            "usage_log": str(usage_path),
+        },
         "usage_today": usage,
         "budget_exhausted": budget_exhausted,
         "recent": recent,

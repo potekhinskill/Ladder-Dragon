@@ -4,6 +4,7 @@ from pathlib import Path
 import sqlite3
 
 from fastapi.testclient import TestClient
+from ai_runtime_status import write_runtime_status
 
 
 def load_dashboard(monkeypatch):
@@ -90,3 +91,66 @@ def test_ai_status_is_authenticated_and_contains_no_secrets(tmp_path, monkeypatc
     assert payload["recent"][0]["recommended_mode"] == "UP"
     assert "api_key" not in response.text.lower()
     assert "rationale" not in response.text.lower()
+
+
+def test_dashboard_follows_active_bot_venue_and_ai_paths(tmp_path, monkeypatch):
+    stats_db = tmp_path / "testnet_stats.db"
+    decisions_db = tmp_path / "testnet_ai.db"
+    usage_log = tmp_path / "ai_usage.ndjson"
+    status_file = tmp_path / "ai_status.json"
+    with sqlite3.connect(decisions_db) as connection:
+        connection.execute(
+            """
+            CREATE TABLE ai_decisions(
+                symbol TEXT,created_at INTEGER,deterministic_mode TEXT,
+                recommended_mode TEXT,width_scale REAL,cap_scale REAL,
+                confidence REAL,applied INTEGER,policy_status TEXT,
+                policy_reasons TEXT,benchmark_mode TEXT,return_15m REAL,
+                return_1h REAL,return_4h REAL
+            )
+            """
+        )
+        connection.execute(
+            "INSERT INTO ai_decisions VALUES"
+            "('ETHUSDT',2,'FLAT','DOWN',1.1,0.6,.9,1,'APPLIED','','DOWN',-.01,-.02,-.03)"
+        )
+    write_runtime_status(status_file, {
+        "state": "RUNNING",
+        "venue": "testnet",
+        "execution_mode": "LIVE",
+        "product": {"name": "Ladder Dragon", "version": "2.7.0"},
+        "ai": {
+            "mode": "APPLY",
+            "provider": "deepseek",
+            "model": "deepseek-v4-flash",
+            "budgets": {
+                "max_requests_per_day": 10,
+                "max_tokens_per_day": 1000,
+                "max_cost_usd_per_day": "0.05",
+            },
+        },
+        "paths": {
+            "stats_db": str(stats_db),
+            "ai_decisions_db": str(decisions_db),
+            "ai_usage_log": str(usage_log),
+        },
+    })
+    monkeypatch.setenv("AI_RUNTIME_STATUS_FILE", str(status_file))
+    monkeypatch.setenv("DASHBOARD_FOLLOW_BOT_PATHS", "1")
+    module = load_dashboard(monkeypatch)
+    headers = {"Authorization": "Bearer test-secret-token"}
+
+    with TestClient(module.app) as client:
+        response = client.get("/api/ai/status", headers=headers)
+
+    payload = response.json()
+    assert response.status_code == 200
+    assert payload["mode"] == "APPLY"
+    assert payload["state"] == "ACTIVE"
+    assert payload["runtime"]["connected"] is True
+    assert payload["runtime"]["venue"] == "testnet"
+    assert payload["runtime"]["execution_mode"] == "LIVE"
+    assert payload["runtime"]["provider"] == "deepseek"
+    assert payload["recent"][0]["symbol"] == "ETHUSDT"
+    assert payload["data_sources"]["decisions_db"] == str(decisions_db)
+    assert module.get_db_path() == str(stats_db)
