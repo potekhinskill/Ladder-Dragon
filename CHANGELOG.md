@@ -2,6 +2,11 @@
 
 Формат версий: [Semantic Versioning](https://semver.org/).
 
+## [2.0.2] — 2026-07-16
+
+### Modular architecture
+- Идемпотентное размещение LIMIT/OCO отделено в `executor_orders.py`; LIVE, transport, journal, фильтры и halt передаются late-bound зависимостями.
+
 ## [2.0.1] — 2026-07-16
 
 ### Modular architecture
