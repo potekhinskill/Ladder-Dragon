@@ -7,7 +7,14 @@ from binance_transport import BinanceTransport
 from executor_config import build_executor_parser, validate_executor_args
 from executor_market import get_balances, get_price, get_symbol_assets
 from executor_orders import OrderDependencies, place_limit_order
+from executor_planning import (
+    buy_candidates,
+    guarded_sell_levels,
+    plan_buy_order,
+    plan_sell_order,
+)
 from executor_recovery import get_order_by_client_id, verify_oco_legs
+from executor_runtime import status_due, trading_seconds
 from order_recovery import OrderJournal
 from strategy_math import (
     adx_from_klines,
@@ -216,3 +223,70 @@ def test_executor_orders_uses_late_bound_dry_gate(tmp_path):
         "BUY", "SOLUSDT", 0.1, 100.0, dependencies=dependencies
     ) is None
     assert network_calls == []
+
+
+def test_executor_planning_is_deterministic_and_exchange_free():
+    rounded = lambda value: round(value, 2)
+    assert buy_candidates(
+        [90.004, 95.0, 100.0, 105.0],
+        now_price=100.0,
+        occupied_prices={90.0},
+        round_price=rounded,
+        limit=2,
+    ) == [95.0]
+
+    buy = plan_buy_order(
+        95.0,
+        free_quote=20.0,
+        cap_per_order=10.0,
+        remaining_slots=2,
+        use_all_remaining=False,
+        min_order_notional=5.0,
+        min_quantity=0.01,
+        min_notional=5.0,
+        round_price=rounded,
+        round_quantity=lambda value: round(value, 3),
+    )
+    assert buy is not None
+    assert buy.price == 95.0
+    assert buy.notional <= 10.0
+
+    levels = guarded_sell_levels(
+        [90.0, 101.0, 103.0, 105.0],
+        now_price=100.0,
+        occupied_prices=set(),
+        round_price=rounded,
+        limit=2,
+        average_entry=102.0,
+        panic_active=False,
+        panic_floor_pct=None,
+        profit_floor_pct=0.01,
+    )
+    assert levels == [105.0]
+
+    sell = plan_sell_order(
+        levels[0],
+        quantity_left=1.0,
+        share=0.5,
+        is_last=False,
+        min_quantity=0.01,
+        min_notional=5.0,
+        round_quantity=lambda value: round(value, 3),
+    )
+    assert sell is not None
+    assert sell.quantity == 0.5
+
+
+def test_executor_runtime_owns_worker_lifecycle_timing():
+    sleeps = []
+    ticks = list(
+        trading_seconds(
+            3,
+            running=lambda: True,
+            sleep=lambda seconds: sleeps.append(seconds),
+        )
+    )
+    assert ticks == [2, 1, 0]
+    assert sleeps == [1, 1, 1]
+    assert status_due(10, 5)
+    assert not status_due(9, 5)
