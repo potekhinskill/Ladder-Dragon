@@ -22,6 +22,7 @@ import requests
 
 
 ALLOWED_MODES = {"UP", "DOWN", "FLAT"}
+MAX_RATIONALE_CHARS = 160
 
 
 @dataclass(frozen=True)
@@ -261,7 +262,8 @@ class AIAdvisor:
             "prices, leverage, transfers, or bypassing risk controls. Return only "
             "one JSON object with exactly these fields: "
             '{"mode":"UP|DOWN|FLAT","ladder_width_scale":number,'
-            '"cap_scale":number,"confidence":number,"rationale":"short text"}. '
+            f'"cap_scale":number,"confidence":number,"rationale":"short text, '
+            f'maximum {MAX_RATIONALE_CHARS} characters"}}. '
             "Prefer the deterministic mode unless the indicators provide clear "
             "evidence. cap_scale above 1 is only a preference and will still be "
             "capped by the local Risk Manager. Treat trade statistics with fewer "
@@ -402,7 +404,7 @@ def validate_recommendation(
     if not isinstance(rationale, str) or not rationale.strip():
         raise ValueError("AI rationale must be a non-empty string")
     rationale = rationale.strip()
-    if len(rationale) > 240:
+    if len(rationale) > MAX_RATIONALE_CHARS:
         raise ValueError("AI rationale is too long")
     if any(ord(char) < 32 for char in rationale):
         raise ValueError("AI rationale contains control characters")
