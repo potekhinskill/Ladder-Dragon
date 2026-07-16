@@ -1002,6 +1002,8 @@ def _infer_market_mode(symbol: str, *, interval: str = "30m", ema_fast_len: int 
     down_cond = (ef < es * (1.0 - eps)) and (slope <= -slope_min) and (adx >= adx_min)
     cand = "UP" if up_cond else ("DOWN" if down_cond else "FLAT")
 
+    # Один state на символ не даёт шумным VWAP/ADX-сигналам менять режим
+    # туда-сюда между соседними итерациями супервизора.
     hysteresis = _REGIME_HYSTERESIS.setdefault(
         symbol,
         RegimeHysteresis("FLAT", min_hold_sec=float(os.getenv("BOT_REGIME_MIN_HOLD_SEC", "300")),
@@ -2097,6 +2099,7 @@ def _build_risk_snapshot(
     var_value = covariance_var(exposure_by_symbol, histories if 'histories' in locals() else {},
                                confidence=float(os.getenv("RISK_VAR_CONFIDENCE", "0.99")))
     # Gap-risk включает overnight jump, spread widening и latency execution.
+    # Gap-сценарий консервативно масштабируется на задержку исполнения.
     gap_shock = abs(float(os.getenv("RISK_GAP_SHOCK_PCT", "0.10")))
     latency_bars = max(1.0, float(os.getenv("RISK_LATENCY_BARS", "1")))
     gap_value = sum(marginal_risk_contribution(exposure_by_symbol,

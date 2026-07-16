@@ -8,6 +8,7 @@ from typing import Iterable, Mapping, Sequence
 
 
 def log_returns(prices: Sequence[float]) -> list[float]:
+    """Рассчитать простые доходности; некорректные нулевые цены пропустить."""
     result: list[float] = []
     for previous, current in zip(prices, prices[1:]):
         if previous <= 0 or current <= 0:
@@ -67,7 +68,7 @@ def correlated_symbols_multi_window(
     histories: Mapping[str, Sequence[float]], *, threshold: float = 0.70,
     windows: Sequence[int] = (24, 48, 96), min_windows: int = 2,
 ) -> set[str]:
-    """Корреляция считается устойчивой только если порог пройден в нескольких окнах."""
+    """Считать активы связанными только при подтверждении в нескольких окнах."""
     names = [str(name).upper() for name in histories]
     result: set[str] = set()
     for i, left in enumerate(names):
@@ -86,6 +87,7 @@ def covariance_var(
     names = [name for name, value in exposures.items() if value > 0 and name in histories]
     if len(names) < 1:
         return 0.0
+    # Одинаковая длина рядов нужна для корректной ковариационной матрицы.
     returns = {name: log_returns(histories[name])[-96:] for name in names}
     n = min((len(values) for values in returns.values()), default=0)
     if n < 3:
@@ -103,13 +105,13 @@ def covariance_var(
 
 
 def stress_loss(exposures: Mapping[str, float], *, price_shock: float = -0.05, spread_widening: float = 0.01) -> float:
-    """Одновременное падение и расширение spread с консервативной стоимостью выхода."""
+    """Оценить одновременное падение цены и расширение spread."""
     gross = sum(max(0.0, float(value)) for value in exposures.values())
     return gross * (max(0.0, -price_shock) + max(0.0, spread_widening))
 
 
 def expected_shortfall(losses: Sequence[float], *, confidence: float = 0.99) -> float:
-    """Historical Expected Shortfall (average tail loss), in positive currency."""
+    """Средняя потеря в хвосте распределения после VaR-квантили."""
     values = sorted(max(0.0, float(value)) for value in losses)
     if not values or not 0 < confidence < 1:
         return 0.0

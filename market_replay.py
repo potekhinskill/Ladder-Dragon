@@ -13,12 +13,14 @@ from typing import Iterable
 
 @dataclass(frozen=True)
 class BookLevel:
+    """Один уровень стакана: цена и доступный объём."""
     price: Decimal
     quantity: Decimal
 
 
 @dataclass(frozen=True)
 class MarketEvent:
+    """Снимок стакана и публичных сделок в один момент времени."""
     ts_ms: int
     bids: tuple[BookLevel, ...] = ()
     asks: tuple[BookLevel, ...] = ()
@@ -27,6 +29,7 @@ class MarketEvent:
 
 @dataclass
 class ReplayOrder:
+    """Локальная заявка, ожидающая исполнения в replay."""
     order_id: str
     side: str
     price: Decimal
@@ -37,11 +40,13 @@ class ReplayOrder:
     queue_ahead: Decimal = Decimal("0")
 
     def __post_init__(self) -> None:
+        # Все сравнения стороны ниже выполняются в верхнем регистре.
         self.side = self.side.upper()
         self.remaining = self.quantity
 
 
 class OrderBookReplay:
+    """Упрощённый, но детерминированный matching engine для backtest."""
     def __init__(self, *, latency_ms: int = 0, max_requests_per_minute: int = 1200) -> None:
         self.latency_ms = max(0, int(latency_ms))
         self.max_requests_per_minute = max(1, int(max_requests_per_minute))
@@ -49,12 +54,14 @@ class OrderBookReplay:
         self._request_times: list[int] = []
 
     def submit(self, order: ReplayOrder, now_ms: int, *, queue_ahead: Decimal = Decimal("0")) -> None:
+        # Задержка имитирует время доставки заявки до биржи.
         self._rate_gate(now_ms)
         order.created_ts = int(now_ms) + self.latency_ms
         order.queue_ahead = max(Decimal("0"), queue_ahead)
         self.orders.append(order)
 
     def cancel(self, order_id: str, now_ms: int) -> bool:
+        # Отмена также расходует API-бюджет и может быть отклонена rate limit.
         self._rate_gate(now_ms)
         for order in self.orders:
             if order.order_id == order_id and not order.cancelled and order.remaining > 0:
@@ -64,7 +71,7 @@ class OrderBookReplay:
 
     def process(self, event: MarketEvent) -> list[tuple[str, Decimal, Decimal]]:
         fills: list[tuple[str, Decimal, Decimal]] = []
-        # Public trade prints consume queue ahead before our order can fill.
+        # Публичные сделки сначала съедают очередь перед нашей заявкой.
         for trade_price, trade_qty, aggressor in event.trades:
             for order in self.orders:
                 if order.cancelled or order.created_ts > event.ts_ms:
@@ -73,6 +80,7 @@ class OrderBookReplay:
                           (order.side == "SELL" and aggressor.upper() == "BUY" and trade_price >= order.price)
                 if crosses and order.queue_ahead > 0:
                     order.queue_ahead = max(Decimal("0"), order.queue_ahead - trade_qty)
+        # Затем заявки обслуживаются по цене и времени поступления.
         for order in sorted(self.orders, key=lambda item: (item.price, item.created_ts)):
             if order.cancelled or order.remaining <= 0 or order.created_ts > event.ts_ms or order.queue_ahead > 0:
                 continue

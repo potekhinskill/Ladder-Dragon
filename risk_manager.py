@@ -117,6 +117,7 @@ class RiskSnapshot:
     consecutive_losses: int = 0
     stress_loss_usdt: Decimal = Decimal("0")
     var_usdt: Decimal = Decimal("0")
+    # Gap-risk учитывает overnight shock и стоимость выхода при задержке.
     gap_risk_usdt: Decimal = Decimal("0")
 
 
