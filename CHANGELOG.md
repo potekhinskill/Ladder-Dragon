@@ -2,6 +2,26 @@
 
 Формат версий: [Semantic Versioning](https://semver.org/).
 
+## [2.2.0] — 2026-07-16
+
+### Добавлено
+- `executor_protection.py` как отдельная граница сопровождения позиции после исполнения BUY.
+- Обработка FILLED и terminal-partial BUY: фиксация terminal state в intent-журнале, восстановление уже существующей защиты и расчёт защищаемого свободного количества.
+- Создание защитного OCO с guard средней цены, проверкой `minQty`/`minNotional` обеих ног и постоянным halt при неподтверждённой защите.
+- Резервный одиночный TP при выбранном `oco-fallback=prefer-tp1`.
+- `BreakevenStateStore` для связи OCO с исходной средней ценой BUY и `BreakevenRuntime` для периодической проверки.
+- Breakeven re-arm: после частичного TP старый OCO заменяется на новый с SL не хуже заданного BE-offset.
+- Unit-тесты успешного OCO, fallback TP, переноса breakeven-state и интервала BE-проверки.
+
+### Изменено
+- Из `autosize_universal.py` удалены встроенные реализации обработки исполненных BUY, создания защиты, JSON-state и breakeven-сопровождения.
+- Символьный исполнитель оставляет у себя orchestration, transport-фасады и panic-state, передавая сопровождению late-bound зависимости.
+- `autosize_universal.py` сокращён с 1755 до 1516 строк без изменения CLI и торговых defaults.
+
+### Проверено
+- Успешный OCO, fallback TP, breakeven re-arm, перенос state и interval scheduler покрыты изолированными тестами без Binance.
+- Полный набор автоматических тестов: **89 passed**.
+
 ## [2.1.0] — 2026-07-16
 
 ### Добавлено
