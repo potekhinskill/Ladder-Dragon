@@ -17,26 +17,58 @@ RETENTION_DAYS = max(1, int(os.getenv("BOT_LOG_RETENTION_DAYS", "7")))
 MAX_BYTES = max(64 * 1024, int(os.getenv("BOT_LOG_MAX_BYTES", "5242880")))
 CURRENT_LINES = max(100, int(os.getenv("BOT_LOG_CURRENT_LINES", "3000")))
 
+SENSITIVE_NAMES = (
+    "authorization|x-mbx-apikey|api[_-]?key|api[_-]?secret|secret|password|"
+    "token|cookie|set-cookie|webhook(?:_url)?|private[_-]?key|access[_-]?key"
+)
 REDACTIONS = (
-    re.compile(r"(?i)\b(Bearer\s+)[A-Za-z0-9._~+/=-]+"),
-    re.compile(
-        r"(?i)\b(authorization|x-mbx-apikey|api[_-]?key|api[_-]?secret|"
-        r"secret|password|token)\b(\s*[:=]\s*)([^\s,;]+)"
+    (
+        re.compile(r"(?i)\b(Bearer\s+)[A-Za-z0-9._~+/=-]+"),
+        r"\1<redacted>",
     ),
-    re.compile(r"(?i)([?&](?:signature|timestamp|recvWindow)=)[^&\s]+"),
+    (
+        # JSON-ключи с quoted value: "apiKey":"value".
+        re.compile(
+            rf"(?ix)(?P<prefix>[\"'](?:{SENSITIVE_NAMES})[\"']\s*:\s*)"
+            rf"(?P<quote>[\"'])(?P<value>[^\"']*)(?P=quote)"
+        ),
+        r"\g<prefix>\g<quote><redacted>\g<quote>",
+    ),
+    (
+        # Text key=value, HTTP headers и неquoted JSON values.
+        re.compile(
+            rf"(?ix)(?P<prefix>\b(?:{SENSITIVE_NAMES})\b\s*[:=]\s*)"
+            r"(?P<value>[^\s,;\"'}]+)"
+        ),
+        r"\g<prefix><redacted>",
+    ),
+    (
+        re.compile(
+            r"(?i)([?&](?:signature|api[_-]?key|token|secret|password|"
+            r"timestamp|recvWindow)=)[^&\s]+"
+        ),
+        r"\1<redacted>",
+    ),
+    (
+        re.compile(r"(?i)(https?://[^/\s:@]+:)[^@\s/]+@"),
+        r"\1<redacted>@",
+    ),
+    (
+        re.compile(
+            r"-----BEGIN [A-Z0-9 ]*PRIVATE KEY-----.*?"
+            r"-----END [A-Z0-9 ]*PRIVATE KEY-----",
+            re.DOTALL,
+        ),
+        "<redacted-private-key>",
+    ),
 )
 
 
 def sanitize(text: str) -> tuple[str, int]:
     """Удалить credential-like значения, сохранив диагностическую структуру."""
     replacements = 0
-    for pattern in REDACTIONS:
-        if "Bearer" in pattern.pattern:
-            text, count = pattern.subn(r"\1<redacted>", text)
-        elif "signature" in pattern.pattern:
-            text, count = pattern.subn(r"\1<redacted>", text)
-        else:
-            text, count = pattern.subn(r"\1\2<redacted>", text)
+    for pattern, replacement in REDACTIONS:
+        text, count = pattern.subn(replacement, text)
         replacements += count
     return text, replacements
 

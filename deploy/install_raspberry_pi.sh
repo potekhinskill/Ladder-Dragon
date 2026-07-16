@@ -5,6 +5,7 @@ ACTION="install"
 PROJECT_DIR="${PROJECT_DIR:-/home/bot/apps/binance_bot}"
 REPO_URL="${REPO_URL:-https://github.com/potekhinskill/binance_bot.git}"
 BRANCH="${BRANCH:-codex/safety-hardening}"
+COMMIT="${COMMIT:-}"
 BOT_HOSTNAME="${BOT_HOSTNAME:-bot.local}"
 BOT_USER="${BOT_USER:-bot}"
 PRESERVE_LIVE=0
@@ -19,6 +20,7 @@ Options:
   --project-dir PATH       Canonical checkout (default /home/bot/apps/binance_bot)
   --repo-url URL           Git repository used for a fresh checkout
   --branch NAME            Git branch (default codex/safety-hardening)
+  --commit SHA             Required exact 40-character Git commit allowlist
   --hostname NAME.local    Dashboard hostname (default bot.local)
   --preserve-live          Preserve detected Mainnet LIVE only with BOT_LIVE_CONFIRMED=YES
   --skip-apt               Do not install Debian packages
@@ -34,6 +36,7 @@ while (($#)); do
     --project-dir) PROJECT_DIR="$2"; shift 2 ;;
     --repo-url) REPO_URL="$2"; shift 2 ;;
     --branch) BRANCH="$2"; shift 2 ;;
+    --commit) COMMIT="$2"; shift 2 ;;
     --hostname) BOT_HOSTNAME="$2"; shift 2 ;;
     --preserve-live) PRESERVE_LIVE=1; shift ;;
     --skip-apt) SKIP_APT=1; shift ;;
@@ -51,6 +54,10 @@ if [[ "${EUID}" -ne 0 ]]; then
   fail "run this installer with sudo"
 fi
 [[ "${BOT_HOSTNAME}" =~ ^[a-zA-Z0-9][a-zA-Z0-9.-]*$ ]] || fail "invalid hostname"
+if [[ "${ACTION}" != "audit" ]]; then
+  [[ "${COMMIT}" =~ ^[0-9a-fA-F]{40}$ ]] \
+    || fail "--commit with an exact 40-character Git SHA is required"
+fi
 command -v systemctl >/dev/null || fail "systemd is required"
 [[ -r /etc/os-release ]] || fail "Linux distribution information is missing"
 . /etc/os-release
@@ -99,7 +106,7 @@ if [[ "${SKIP_APT}" != 1 ]]; then
   apt-get update
   apt-get install -y --no-install-recommends \
     ca-certificates curl git nginx apache2-utils avahi-daemon openssl \
-    fail2ban python3 python3-pip python3-venv sqlite3 zram-tools
+    age fail2ban python3 python3-pip python3-venv sqlite3 zram-tools
 fi
 
 if ! id "${BOT_USER}" >/dev/null 2>&1; then
@@ -112,6 +119,28 @@ install -d -o "${BOT_USER}" -g "${BOT_USER}" -m 0750 "$(dirname "${PROJECT_DIR}"
 install -d -m 0700 /var/lib/ladder-dragon/backups
 install -d -o root -g www-data -m 0750 /var/lib/ladder-dragon/logs
 hostnamectl set-hostname "${BOT_HOSTNAME%.local}"
+
+setup_backup_encryption() {
+  local config_dir="/etc/ladder-dragon"
+  local identity_dir="/root/.config/ladder-dragon"
+  local identity="${identity_dir}/backup-age.key"
+  local recipient
+  command -v age >/dev/null || fail "age is required"
+  command -v age-keygen >/dev/null || fail "age-keygen is required"
+  install -d -m 0700 "${config_dir}" "${identity_dir}"
+  if [[ ! -s "${identity}" ]]; then
+    age-keygen -o "${identity}" >/dev/null
+    chmod 0600 "${identity}"
+  fi
+  recipient="$(age-keygen -y "${identity}")"
+  [[ "${recipient}" == age1* ]] || fail "cannot derive backup age recipient"
+  install -m 0600 /dev/null "${config_dir}/backup.env"
+  printf 'BACKUP_AGE_RECIPIENT=%s\n' "${recipient}" \
+    >"${config_dir}/backup.env"
+  export BACKUP_AGE_RECIPIENT="${recipient}"
+}
+
+setup_backup_encryption
 
 # Временная миграционная копия переживает замену legacy-каталога на Git checkout.
 migration_staging="$(mktemp -d /tmp/ladder-dragon-migration.XXXXXX)"
@@ -153,8 +182,9 @@ else
   for path in \
     /etc/systemd/system/mybot.service \
     /etc/systemd/system/pi-healthd.service \
-    /etc/nginx/sites-available/bot.local \
-    /etc/nginx/snippets/pi_api.conf \
+  /etc/nginx/sites-available/bot.local \
+  /etc/nginx/snippets/pi_api.conf \
+  /etc/nginx/snippets/ladder_dragon_proxy_secret.conf \
     "${PROJECT_DIR}/.env" \
     "${PROJECT_DIR}/.env.dashboard"; do
     [[ -e "${path}" ]] && cp -a --parents "${path}" "${staging}/"
@@ -176,8 +206,9 @@ if source_dir.is_dir():
                 src.backup(out)
         os.chmod(target, 0o600)
 PY
-  emergency="/var/lib/ladder-dragon/backups/preinstall-${stamp}.tgz"
-  tar -C "${staging}" -czf "${emergency}" .
+  emergency="/var/lib/ladder-dragon/backups/preinstall-${stamp}.tgz.age"
+  tar -C "${staging}" -czf - . \
+    | age -r "${BACKUP_AGE_RECIPIENT}" -o "${emergency}"
   chmod 0600 "${emergency}"
   rm -rf "${staging}"
 fi
@@ -193,6 +224,10 @@ if [[ "${legacy_unit}" == 1 ]]; then
   rm -rf "${prepared_checkout}"
   runuser -u "${BOT_USER}" -- git clone --branch "${BRANCH}" --single-branch \
     "${REPO_URL}" "${prepared_checkout}"
+  runuser -u "${BOT_USER}" -- git -C "${prepared_checkout}" cat-file -e "${COMMIT}^{commit}"
+  runuser -u "${BOT_USER}" -- git -C "${prepared_checkout}" merge-base --is-ancestor \
+    "${COMMIT}" "origin/${BRANCH}"
+  runuser -u "${BOT_USER}" -- git -C "${prepared_checkout}" switch -C "${BRANCH}" "${COMMIT}"
 fi
 
 rollback_install() {
@@ -229,12 +264,18 @@ if [[ -n "${prepared_checkout}" ]]; then
 elif [[ ! -d "${PROJECT_DIR}/.git" ]]; then
   runuser -u "${BOT_USER}" -- git clone --branch "${BRANCH}" --single-branch \
     "${REPO_URL}" "${PROJECT_DIR}"
+  runuser -u "${BOT_USER}" -- git -C "${PROJECT_DIR}" cat-file -e "${COMMIT}^{commit}"
+  runuser -u "${BOT_USER}" -- git -C "${PROJECT_DIR}" merge-base --is-ancestor \
+    "${COMMIT}" "origin/${BRANCH}"
+  runuser -u "${BOT_USER}" -- git -C "${PROJECT_DIR}" switch -C "${BRANCH}" "${COMMIT}"
 else
   [[ -z "$(runuser -u "${BOT_USER}" -- git -C "${PROJECT_DIR}" status --porcelain --untracked-files=no)" ]] \
     || fail "tracked project files have local changes"
   runuser -u "${BOT_USER}" -- git -C "${PROJECT_DIR}" fetch origin "${BRANCH}"
-  runuser -u "${BOT_USER}" -- git -C "${PROJECT_DIR}" switch "${BRANCH}"
-  runuser -u "${BOT_USER}" -- git -C "${PROJECT_DIR}" pull --ff-only
+  runuser -u "${BOT_USER}" -- git -C "${PROJECT_DIR}" cat-file -e "${COMMIT}^{commit}"
+  runuser -u "${BOT_USER}" -- git -C "${PROJECT_DIR}" merge-base --is-ancestor \
+    HEAD "${COMMIT}"
+  runuser -u "${BOT_USER}" -- git -C "${PROJECT_DIR}" merge --ff-only "${COMMIT}"
 fi
 
 if [[ ! -x "${PROJECT_DIR}/.venv/bin/python" ]]; then
@@ -365,11 +406,26 @@ sed -i \
 # Dashboard никогда не получает торговый env. Proxy-auth включается отдельно.
 sed -i \
   -e 's/^DASHBOARD_TRUST_PROXY_AUTH=.*/DASHBOARD_TRUST_PROXY_AUTH=1/' \
-  -e 's/^DASHBOARD_ENABLE_LOGS=.*/DASHBOARD_ENABLE_LOGS=0/' \
   -e 's/^DASHBOARD_FOLLOW_BOT_PATHS=.*/DASHBOARD_FOLLOW_BOT_PATHS=1/' \
   -e 's/^DASHBOARD_BINANCE_API_KEY=.*/DASHBOARD_BINANCE_API_KEY=/' \
   -e 's/^DASHBOARD_BINANCE_API_SECRET=.*/DASHBOARD_BINANCE_API_SECRET=/' \
   "${PROJECT_DIR}/.env.dashboard"
+
+set_env_value() {
+  local file="$1"
+  local name="$2"
+  local value="$3"
+  if grep -q "^${name}=" "${file}"; then
+    sed -i "s#^${name}=.*#${name}=${value}#" "${file}"
+  else
+    printf '%s=%s\n' "${name}" "${value}" >>"${file}"
+  fi
+}
+
+dashboard_token="$(openssl rand -hex 32)"
+dashboard_proxy_secret="$(openssl rand -hex 32)"
+set_env_value "${PROJECT_DIR}/.env.dashboard" DASHBOARD_AUTH_TOKEN "${dashboard_token}"
+set_env_value "${PROJECT_DIR}/.env.dashboard" DASHBOARD_PROXY_AUTH_SECRET "${dashboard_proxy_secret}"
 chown "${BOT_USER}:${BOT_USER}" "${PROJECT_DIR}/.env" "${PROJECT_DIR}/.env.dashboard"
 chmod 0600 "${PROJECT_DIR}/.env" "${PROJECT_DIR}/.env.dashboard"
 chmod 0755 "${PROJECT_DIR}/deploy/"*.sh
@@ -377,6 +433,11 @@ chmod 0755 "${PROJECT_DIR}/deploy/"*.sh
 install -d -o "${BOT_USER}" -g "${BOT_USER}" -m 0700 \
   "${PROJECT_DIR}/db" "${PROJECT_DIR}/logs" "${PROJECT_DIR}/FastAPI/pi-dashboard/data"
 install -d -m 0755 /var/www/bot /etc/nginx/certs /etc/nginx/snippets
+install -o root -g www-data -m 0640 /dev/null \
+  /etc/nginx/snippets/ladder_dragon_proxy_secret.conf
+printf 'proxy_set_header X-Dashboard-Proxy-Secret "%s";\n' \
+  "${dashboard_proxy_secret}" \
+  >/etc/nginx/snippets/ladder_dragon_proxy_secret.conf
 install -m 0644 "${PROJECT_DIR}/FRONT/index.html" "${PROJECT_DIR}/FRONT/help.html" /var/www/bot/
 rm -f /var/www/bot/readme.html
 
@@ -448,6 +509,8 @@ install -m 0644 "${PROJECT_DIR}/deploy/ladder-dragon-log-export.timer" \
   /etc/systemd/system/ladder-dragon-log-export.timer
 
 runuser -u "${BOT_USER}" -- "${PROJECT_DIR}/.venv/bin/python" -m compileall -q "${PROJECT_DIR}"
+runuser -u "${BOT_USER}" -- "${PROJECT_DIR}/.venv/bin/python" \
+  "${PROJECT_DIR}/deploy/validate_security_config.py" "${PROJECT_DIR}"
 runuser -u "${BOT_USER}" -- "${PROJECT_DIR}/.venv/bin/python" "${PROJECT_DIR}/ai_supervisor.py" --version
 nginx -t
 
@@ -465,6 +528,8 @@ systemctl is-active --quiet nginx || fail "nginx failed"
 systemctl is-active --quiet mybot || fail "mybot failed"
 systemctl is-active --quiet pi-healthd || fail "pi-healthd failed"
 test -r /var/lib/ladder-dragon/logs/current.log || fail "log export failed"
+grep -q '^DASHBOARD_AUTH_TOKEN=replace_' "${PROJECT_DIR}/.env.dashboard" \
+  && fail "placeholder dashboard token remains"
 curl --fail --silent --show-error -u "dashboard:${dashboard_password}" \
   --resolve "${BOT_HOSTNAME}:443:127.0.0.1" --insecure \
   "https://${BOT_HOSTNAME}/api/health" >/dev/null

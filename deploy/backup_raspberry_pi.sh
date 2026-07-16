@@ -3,10 +3,19 @@ set -euo pipefail
 
 PROJECT_DIR="${PROJECT_DIR:-/home/bot/apps/binance_bot}"
 BACKUP_DIR="${BACKUP_DIR:-/var/lib/ladder-dragon/backups}"
+BACKUP_AGE_RECIPIENT="${BACKUP_AGE_RECIPIENT:-}"
 STAMP="$(date -u +%Y-%m-%d-%H%M%S)"
 DEST="${BACKUP_DIR}/${STAMP}"
 
 [[ "${EUID}" -eq 0 ]] || exec sudo "$0" "$@"
+command -v age >/dev/null || {
+  echo "[FAIL] age is required for encrypted backups" >&2
+  exit 1
+}
+[[ "${BACKUP_AGE_RECIPIENT}" == age1* ]] || {
+  echo "[FAIL] BACKUP_AGE_RECIPIENT is missing or invalid" >&2
+  exit 1
+}
 install -d -m 0700 "${DEST}"
 
 # Инвентарь не содержит значений секретных переменных.
@@ -36,8 +45,9 @@ for path in \
   /etc/systemd/system/pi-healthd.service \
   /etc/systemd/system/ladder-dragon-log-export.service \
   /etc/systemd/system/ladder-dragon-log-export.timer \
-  /etc/nginx/sites-available \
-  /etc/nginx/snippets/pi_api.conf \
+	  /etc/nginx/sites-available \
+	  /etc/nginx/snippets/pi_api.conf \
+	  /etc/nginx/snippets/ladder_dragon_proxy_secret.conf \
   /etc/nginx/.htpasswd-ladder-dragon \
   /etc/systemd/journald.conf.d/ladder-dragon.conf \
   /etc/fail2ban/jail.d/sshd.local \
@@ -67,12 +77,15 @@ for source in sorted((project / "db").glob("*.db")) + sorted((project / "db").gl
     os.chmod(target, 0o600)
 PY
 
-tar -C "${BACKUP_DIR}" -czf "${BACKUP_DIR}/ladder-dragon-${STAMP}.tgz" "${STAMP}"
-sha256sum "${BACKUP_DIR}/ladder-dragon-${STAMP}.tgz" \
-  >"${BACKUP_DIR}/ladder-dragon-${STAMP}.sha256"
-chmod 0600 "${BACKUP_DIR}/ladder-dragon-${STAMP}".*
+# Архив никогда не записывается на диск открытым: tar сразу передаётся в age.
+tar -C "${BACKUP_DIR}" -czf - "${STAMP}" \
+  | age -r "${BACKUP_AGE_RECIPIENT}" \
+      -o "${BACKUP_DIR}/ladder-dragon-${STAMP}.tgz.age"
+sha256sum "${BACKUP_DIR}/ladder-dragon-${STAMP}.tgz.age" \
+  >"${BACKUP_DIR}/ladder-dragon-${STAMP}.tgz.age.sha256"
+chmod 0600 "${BACKUP_DIR}/ladder-dragon-${STAMP}.tgz.age"*
 rm -rf "${DEST}"
 
 # 14 ежедневных архивов; месячные/внешние копии должны делаться отдельно.
-find "${BACKUP_DIR}" -maxdepth 1 -type f -name 'ladder-dragon-*' -mtime +14 -delete
-echo "${BACKUP_DIR}/ladder-dragon-${STAMP}.tgz"
+find "${BACKUP_DIR}" -maxdepth 1 -type f -name 'ladder-dragon-*.tgz.age*' -mtime +14 -delete
+echo "${BACKUP_DIR}/ladder-dragon-${STAMP}.tgz.age"

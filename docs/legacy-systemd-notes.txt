@@ -160,7 +160,8 @@ NoNewPrivileges=yes
 # Удаляем лок
 ExecStartPre=/usr/bin/rm -f /tmp/ai_supervisor.lock
 ExecStartPre=/usr/bin/env bash -lc '/home/bot/apps/binance_bot/.venv/bin/python3 /home/bot/apps/binance_bot/migrate_indexes.py'
-ExecStartPre=/usr/bin/env bash -lc '/home/bot/apps/binance_bot/.venv/bin/python3 /home/bot/apps/binance_bot/tools_cancel_open.py --live --pairs SOLUSDT ETHUSDT TONUSDT --sides BUY --types LIMIT --min-age-sec 900'
+# Legacy cancellation hook intentionally disabled. Use tools_cancel_open.py only
+# with Testnet by default and explicit BOT_LIVE_CONFIRMED confirmations.
 
 # Генерация динамической лестницы → /run/mybot/dynamic.env
 ExecStartPre=/usr/bin/env bash -lc 'set -euo pipefail; \

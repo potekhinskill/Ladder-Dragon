@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 
-import os, hmac, time, hashlib, argparse, urllib.parse, json
+import os, hmac, time, hashlib, argparse, urllib.parse, json, re
 import requests
 from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
@@ -11,12 +11,25 @@ from product_version import user_agent
 DEFAULT_MAIN = "https://api.binance.com"
 DEFAULT_TEST = "https://testnet.binance.vision"
 
-def load_keys():
+SYMBOL_RE = re.compile(r"^[A-Z0-9]{5,20}$")
+ALLOWED_BASE_URLS = {DEFAULT_MAIN, DEFAULT_TEST}
+
+
+def load_keys(testnet: bool):
     load_dotenv()
-    key = os.getenv("BINANCE_API_KEY") or os.getenv("API_KEY") or ""
-    sec = os.getenv("BINANCE_API_SECRET") or os.getenv("API_SECRET") or ""
+    if testnet:
+        key = os.getenv("BINANCE_TESTNET_API_KEY") or ""
+        sec = os.getenv("BINANCE_TESTNET_API_SECRET") or ""
+        prefix = "BINANCE_TESTNET"
+    else:
+        key = os.getenv("BINANCE_API_KEY") or os.getenv("API_KEY") or ""
+        sec = os.getenv("BINANCE_API_SECRET") or os.getenv("API_SECRET") or ""
+        prefix = "BINANCE"
     if not key or not sec:
-        raise SystemExit("[ERR] API keys not found. Put BINANCE_API_KEY / BINANCE_API_SECRET in .env")
+        raise SystemExit(
+            f"[ERR] API keys not found. Put {prefix}_API_KEY / "
+            f"{prefix}_API_SECRET in .env"
+        )
     return key, sec
 
 def build_session():
@@ -160,9 +173,46 @@ def parse_args():
                    help="Cancel only orders older than N seconds (creation/transaction time)")
     p.add_argument("--live", action="store_true", help="Execute real cancels (default: dry-run)")
     p.add_argument("--recv-window", type=int, default=int(os.getenv("BINANCE_RECV_WINDOW", "5000")))
-    p.add_argument("--base-url", default=os.getenv("BINANCE_BASE_URL") or os.getenv("BINANCE_API_BASE") or DEFAULT_MAIN)
-    p.add_argument("--testnet", action="store_true", help="Use Binance Spot Testnet")
-    return p.parse_args()
+    p.add_argument("--base-url", default=None,
+                   help="Explicit HTTPS Binance endpoint; custom hosts require BOT_ALLOW_CUSTOM_BINANCE_BASE=YES")
+    venue = p.add_mutually_exclusive_group()
+    venue.add_argument("--testnet", dest="testnet", action="store_true", default=True,
+                       help="Use Binance Spot Testnet (default)")
+    venue.add_argument("--mainnet", dest="testnet", action="store_false",
+                       help="Use Binance Mainnet")
+    args = p.parse_args()
+    if args.min_age_sec < 0:
+        p.error("--min-age-sec must be >= 0")
+    if not 1000 <= args.recv_window <= 60000:
+        p.error("--recv-window must be between 1000 and 60000")
+    normalized = []
+    for symbol in args.pairs:
+        symbol = symbol.strip().upper()
+        if not SYMBOL_RE.fullmatch(symbol):
+            p.error(f"invalid Binance symbol: {symbol!r}")
+        normalized.append(symbol)
+    args.pairs = normalized
+    default_base = DEFAULT_TEST if args.testnet else DEFAULT_MAIN
+    args.base_url = (args.base_url or default_base).rstrip("/")
+    parsed = urllib.parse.urlparse(args.base_url)
+    if parsed.scheme != "https" or not parsed.netloc or parsed.path not in ("", "/"):
+        p.error("--base-url must be an HTTPS origin without a path")
+    if (
+        args.base_url not in ALLOWED_BASE_URLS
+        and os.getenv("BOT_ALLOW_CUSTOM_BINANCE_BASE", "") != "YES"
+    ):
+        p.error("custom --base-url requires BOT_ALLOW_CUSTOM_BINANCE_BASE=YES")
+    if args.live and os.getenv("BOT_LIVE_CONFIRMED", "") != "YES":
+        p.error("--live requires BOT_LIVE_CONFIRMED=YES")
+    if (
+        args.live
+        and not args.testnet
+        and os.getenv("BOT_MAINNET_CANCEL_CONFIRMED", "") != "YES"
+    ):
+        p.error(
+            "Mainnet cancellation requires BOT_MAINNET_CANCEL_CONFIRMED=YES"
+        )
+    return args
 
 def is_unknown_2011(err: Exception) -> bool:
     s = str(err)
@@ -170,9 +220,15 @@ def is_unknown_2011(err: Exception) -> bool:
 
 def main():
     args = parse_args()
-    key, sec = load_keys()
+    key, sec = load_keys(args.testnet)
     DRY = not args.live
-    base_url = (DEFAULT_TEST if args.testnet else args.base_url).rstrip("/")
+    base_url = args.base_url
+    print(
+        "[CONFIG] "
+        f"venue={'testnet' if args.testnet else 'mainnet'} "
+        f"mode={'DRY' if DRY else 'LIVE'} pairs={','.join(args.pairs)} "
+        f"sides={args.sides} types={args.types} min_age_sec={args.min_age_sec}"
+    )
 
     session = build_session()
 
@@ -192,8 +248,6 @@ def main():
     total_errors = 0
 
     for symbol in args.pairs:
-        symbol = symbol.upper().strip()
-
         # ===== LIMIT =====
         if args.types in ("LIMIT", "BOTH"):
             try:

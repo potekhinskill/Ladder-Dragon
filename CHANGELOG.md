@@ -13,6 +13,11 @@
 ### Безопасность
 - Сырой log API остаётся выключенным; nginx выдаёт только очищенную статическую копию.
 - Каталог журналов недоступен без dashboard Basic Auth.
+- Редактор журналов дополнительно очищает JSON-ключи, cookies, credentials в URL и private keys.
+- `tools_cancel_open.py` запускается в Testnet DRY, а LIVE/Mainnet требуют двух явных подтверждений.
+- Dashboard proxy-auth защищён отдельным shared secret; placeholder-токены генерируются установщиком.
+- Обновления принимают только указанный fast-forward commit SHA; backups шифруются через age.
+- Добавлены проверки конфигурации, secret scanning и security-регрессии в тестах.
 - Логи предназначены для диагностики и анализа гипотез стратегии, но изменения всё равно требуют Testnet/backtest/walk-forward проверки.
 
 ## [2.8.1] — 2026-07-16

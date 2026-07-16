@@ -3,7 +3,20 @@ Description=Ladder Dragon private configuration and SQLite backup
 
 [Service]
 Type=oneshot
+EnvironmentFile=/etc/ladder-dragon/backup.env
 ExecStart=/home/bot/apps/binance_bot/deploy/backup_raspberry_pi.sh
 Nice=10
 IOSchedulingClass=idle
 NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectSystem=strict
+ProtectHome=read-only
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+RestrictSUIDSGID=yes
+LockPersonality=yes
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+ReadOnlyPaths=/home/bot/apps/binance_bot
+ReadWritePaths=/var/lib/ladder-dragon/backups
+UMask=0077
