@@ -51,6 +51,7 @@ from risk_statistics import (
     covariance_var,
     expected_shortfall,
     conversion_price,
+    allocate_cap_by_marginal_risk,
     marginal_risk_contribution,
     stress_loss,
 )
@@ -2145,6 +2146,7 @@ def _build_risk_snapshot(
         gap_risk_usdt=money(gap_value),
         expected_shortfall_usdt=money(es_value),
         stale_order_count=stale_count,
+        symbol_exposure_usdt={symbol: money(value) for symbol, value in exposure_by_symbol.items()},
         **metrics,
     )
     return snap, orders, prices
@@ -2347,6 +2349,13 @@ def main():
                         if snapshot.exposure_usdt > 0 and snapshot.stress_loss_usdt > 0:
                             stress_ratio = min(Decimal("1"), snapshot.stress_loss_usdt / snapshot.exposure_usdt)
                             safe_cap *= max(Decimal("0"), Decimal("1") - stress_ratio)
+                        allocations = allocate_cap_by_marginal_risk(
+                            float(safe_cap),
+                            {symbol: float(value) * float(snapshot.stress_loss_usdt / max(snapshot.exposure_usdt, Decimal("1e-18")))
+                             for symbol, value in snapshot.symbol_exposure_usdt.items()},
+                        )
+                        for symbol, allocation in allocations.items():
+                            os.environ[f"RISK_SYMBOL_CAP_{symbol.upper()}"] = f"{allocation:.8f}"
                         min_order = money(args.child_min_order_usdt or 0)
                         if safe_cap <= 0 or (min_order > 0 and safe_cap < min_order):
                             decision = RiskDecision(

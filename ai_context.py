@@ -700,6 +700,9 @@ class AdvisorDecisionStore:
         changed = sum(
             row["recommended_mode"] != row["baseline_mode"] for row in recent
         )
+        closed = [row["evaluation"].get("realized_execution") for row in recent
+                  if row["evaluation"].get("realized_execution", {}).get("sell_qty", 0) > 0]
+        actual_pnl = sum(float(item.get("net_pnl_quote", 0) or 0) for item in closed)
         return {
             "recent": recent,
             "recommendation_count": len(recent),
@@ -707,6 +710,14 @@ class AdvisorDecisionStore:
             "changed_mode_count": changed,
             "ai_vs_baseline_1h": self._edge_summary(recent),
             "calibration_1h": confidence_calibration(calibration_rows),
+            "realized_execution": {
+                "closed_decisions": len(closed),
+                "net_pnl_quote": actual_pnl,
+                "avg_holding_duration_sec": (
+                    sum(float(item.get("holding_duration_sec", 0) or 0) for item in closed) / len(closed)
+                    if closed else None
+                ),
+            },
         }
 
     def statistical_prediction(

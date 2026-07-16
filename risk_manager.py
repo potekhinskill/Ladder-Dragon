@@ -130,6 +130,7 @@ class RiskSnapshot:
     expected_shortfall_usdt: Decimal = Decimal("0")
     stale_order_count: int = 0
     symbol_consecutive_losses: dict[str, int] = field(default_factory=dict)
+    symbol_exposure_usdt: dict[str, Decimal] = field(default_factory=dict)
 
 
 @dataclass(frozen=True)
