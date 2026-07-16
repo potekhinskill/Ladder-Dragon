@@ -39,6 +39,18 @@ ss -lntup >"${DEST}/network-listeners.txt" 2>/dev/null || true
 systemctl list-unit-files --state=enabled >"${DEST}/enabled-units.txt" 2>/dev/null || true
 
 install -d -m 0700 "${DEST}/rootfs" "${DEST}/project"
+copy_rootfs_path() {
+  local source="$1"
+  local relative="${source#/}"
+  local target="${DEST}/rootfs/${relative}"
+  if [[ -d "${source}" ]]; then
+    install -d "${target}"
+    cp -a "${source}/." "${target}/"
+  else
+    install -d "$(dirname "${target}")"
+    cp -a "${source}" "${target}"
+  fi
+}
 for path in \
   /etc/systemd/system/mybot.service \
   /etc/systemd/system/mybot.service.d \
@@ -52,7 +64,7 @@ for path in \
   /etc/systemd/journald.conf.d/ladder-dragon.conf \
   /etc/fail2ban/jail.d/sshd.local \
   /etc/default/zramswap; do
-  [[ -e "${path}" ]] && cp -a --parents "${path}" "${DEST}/rootfs/"
+  [[ -e "${path}" ]] && copy_rootfs_path "${path}"
 done
 
 for name in .env .env.service .env.dashboard; do
