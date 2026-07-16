@@ -1,4 +1,4 @@
-"""Runtime scheduler for the long-lived symbol executor."""
+"""Планировщик жизненного цикла долгоживущего символьного исполнителя."""
 
 from __future__ import annotations
 
@@ -12,10 +12,10 @@ def trading_seconds(
     running: Callable[[], bool],
     sleep: Callable[[float], None] = time.sleep,
 ) -> Iterator[int]:
-    """Yield remaining seconds while the worker is active.
+    """Выдавать оставшиеся секунды, пока воркер активен.
 
-    Exchange work deliberately stays in the caller: this scheduler owns only
-    lifecycle timing, so it can be tested without credentials or network I/O.
+    Биржевые действия намеренно остаются у вызывающего кода. Здесь только
+    тайминг жизненного цикла, поэтому модуль тестируется без ключей и сети.
     """
     left = max(0, int(duration_seconds))
     while running() and left > 0:
@@ -25,5 +25,5 @@ def trading_seconds(
 
 
 def status_due(left_seconds: int, interval_seconds: int) -> bool:
-    """Return whether a periodic status line is due for this runtime tick."""
+    """Проверить, пора ли печатать периодический статус на текущем тике."""
     return left_seconds % max(1, int(interval_seconds)) == 0

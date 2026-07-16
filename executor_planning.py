@@ -1,4 +1,8 @@
-"""Pure BUY/SELL planning primitives for the symbol executor."""
+"""Чистые примитивы планирования BUY/SELL для символьного исполнителя.
+
+Модуль ничего не знает о Binance HTTP и не меняет баланс. Он только строит
+план; фактический расход средств происходит после подтверждённого размещения.
+"""
 
 from __future__ import annotations
 
@@ -11,6 +15,7 @@ RoundValue = Callable[[float], float]
 
 @dataclass(frozen=True)
 class PlannedOrder:
+    """Округлённый план одной заявки без побочных эффектов."""
     price: float
     quantity: float
 
@@ -26,6 +31,7 @@ def existing_prices(
     now_price: float,
     round_price: RoundValue,
 ) -> set[float]:
+    """Собрать занятые цены нужной стороны в биржевой тиковой сетке."""
     result: set[float] = set()
     normalized_side = side.upper()
     for order in orders:
@@ -62,6 +68,7 @@ def buy_candidates(
     round_price: RoundValue,
     limit: Optional[int],
 ) -> list[float]:
+    """Выбрать незанятые уровни BUY строго ниже текущего рынка."""
     candidates = [
         price
         for price in ladder_prices
@@ -83,9 +90,11 @@ def plan_buy_order(
     round_price: RoundValue,
     round_quantity: RoundValue,
 ) -> Optional[PlannedOrder]:
+    """Рассчитать один BUY в пределах CAP, баланса и биржевых минимумов."""
     rounded_price = round_price(price)
     if rounded_price <= 0 or free_quote <= 0:
         return None
+    # Делим остаток на оставшиеся слоты, чтобы ранние уровни не съели всю кассу.
     local_cap = min(
         cap_per_order,
         free_quote / max(1, remaining_slots),
@@ -129,6 +138,7 @@ def guarded_sell_levels(
     panic_floor_pct: Optional[float],
     profit_floor_pct: float,
 ) -> list[float]:
+    """Поднять SELL до допустимого floor и устранить дубли после округления."""
     candidates = [
         price
         for price in ladder_prices
@@ -169,6 +179,8 @@ def guarded_sell_levels(
         if target > now_price:
             guarded.append(target)
 
+    # Guard может столкнуть несколько уровней в один тик. Проталкиваем дубли
+    # на следующую свободную ступень, не создавая одинаковые SELL.
     result: list[float] = []
     seen: set[float] = set()
     for price in guarded:
@@ -240,7 +252,7 @@ def plan_sell_order(
     min_notional: float,
     round_quantity: RoundValue,
 ) -> Optional[PlannedOrder]:
-    """Plan one SELL without consuming inventory until the caller gets an ACK."""
+    """Спланировать SELL, не уменьшая inventory до получения ACK вызывающим кодом."""
     if price <= 0 or quantity_left <= 0:
         return None
     quantity = min(share, quantity_left)

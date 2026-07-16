@@ -1,4 +1,4 @@
-"""Persistent order intents and restart-safe exchange reconciliation."""
+"""Постоянный журнал намерений и безопасная сверка ордеров после рестарта."""
 
 from __future__ import annotations
 
@@ -31,6 +31,7 @@ TERMINAL_EXCHANGE_STATES = {"CANCELED", "EXPIRED", "EXPIRED_IN_MATCH", "REJECTED
 
 @dataclass(frozen=True)
 class OrderIntent:
+    """Локальное намерение, связывающее действие бота с объектом Binance."""
     client_order_id: str
     symbol: str
     side: str
@@ -49,7 +50,11 @@ class OrderIntent:
 
 
 class OrderJournal:
-    """Small SQLite journal written before every mutating exchange request."""
+    """SQLite-журнал, записываемый до каждого изменяющего запроса к бирже.
+
+    PREPARED фиксируется до POST. Поэтому после таймаута или рестарта можно
+    запросить Binance по clientOrderId и не создать дублирующий ордер.
+    """
 
     def __init__(self, path: str | Path, *, venue: str = "testnet") -> None:
         self.path = Path(path)
@@ -58,6 +63,8 @@ class OrderJournal:
         self._init_schema()
 
     def _connect(self) -> sqlite3.Connection:
+        # FULL + WAL дают устойчивость intent-журнала и допускают параллельное
+        # чтение recovery-кодом во время работы исполнителя.
         con = sqlite3.connect(self.path, timeout=10)
         con.row_factory = sqlite3.Row
         con.execute("PRAGMA busy_timeout=10000")

@@ -149,7 +149,7 @@ TRANSPORT = BinanceTransport(
 
 
 def _order_journal() -> Optional[OrderJournal]:
-    """Open the durable intent journal only when exchange mutations are enabled."""
+    """Открыть постоянный intent-журнал только при разрешённых мутациях."""
     global _ORDER_JOURNAL
     if not LIVE_MODE:
         return None
@@ -167,6 +167,7 @@ def _order_journal() -> Optional[OrderJournal]:
 
 
 def _trip_execution_halt(reason: str, **metadata: Any) -> None:
+    """Остановить дальнейшее исполнение при неподтверждённом состоянии ордера."""
     path = create_manual_halt(reason, metadata=metadata)
     log(f"[EXECUTION-HALT] {reason}; marker={path}")
 
@@ -663,6 +664,8 @@ def _record_order_payload(payload: Dict[str, Any] | None) -> Optional[OrderInten
 
 
 def _recovery_dependencies() -> RecoveryDependencies:
+    # Фасад связывает чистый recovery-модуль с transport, journal и halt
+    # текущего процесса, не раскрывая ему глобальные переменные напрямую.
     return RecoveryDependencies(
         journal=_order_journal,
         get_order_by_client_id=lambda symbol, client_id: get_order_by_client_id(
@@ -704,6 +707,8 @@ def get_order(symbol: str, order_id: int) -> Dict[str, Any] | None:
 
 
 def _order_dependencies() -> OrderDependencies:
+    # Ордерный модуль получает функции поздно: актуальный LIVE_MODE проверяется
+    # в момент POST, а не фиксируется при импорте исполнителя.
     return OrderDependencies(
         live=lambda: LIVE_MODE,
         logger=log,
@@ -770,6 +775,7 @@ STATS_CON: Optional[sqlite3.Connection] = None
 _COMMISSION_QUOTE_CACHE: Dict[Tuple[str, str, int], Decimal] = {}
 
 def _stats_init_if_needed():
+    """Лениво открыть статистику, чтобы DRY/help не зависели от рабочей БД."""
     global TOOLS_STATS, STATS_CON
     if not STATS_ENABLE or not STATS_DB:
         return
@@ -1142,16 +1148,20 @@ def maybe_place_sells_from_holdings(
 # ------------------- CLI / main -------------------
 
 def main():
+    """Один торговый сеанс символа: preflight, план, размещение и защита."""
     parser = build_executor_parser()
     args = validate_executor_args(parser, parser.parse_args())
     log(f"[VERSION] {product_label('executor')}")
     global LIVE_MODE
     LIVE_MODE = bool(args.live)
     if LIVE_MODE:
-        # Risk budgeting in the supervisor assumes this is a hard maximum.
+        # Расчёт риска в супервизоре считает target-buy жёстким максимумом.
+        # Поэтому LIVE всегда включает контроль уже существующих BUY.
         args.enforce_target_buys = True
 
     if LIVE_MODE:
+        # Повторный preflight нужен даже после проверки супервизора: воркер
+        # может быть запущен отдельно или спустя время после исходной проверки.
         halt_file = Path(
             os.getenv(
                 "CB_HALT_FILE",
@@ -1195,7 +1205,7 @@ def main():
     try:
         ladder_prices = parse_comma_floats(args.ladder_prices)
 
-        # --- Breakeven config ---
+        # --- Breakeven: постоянная связь OCO со средней ценой исходного BUY ---
         be_syms = {s.strip().upper() for s in args.breakeven_on_tp1_symbols.split(",") if s.strip()}
         BE_ENABLED = symbol.upper() in be_syms
         FEE_PCT = getenv_float("BOT_FEE_PCT", 0.00075)
@@ -1234,9 +1244,9 @@ def main():
         pull_filters(symbol)
         current_price = get_price(symbol)
 
-        # ------------------- ДЕДУП ЛЕСТНИЦЫ (belt & suspenders) -------------------
+        # Защитный дедуп выполняется и здесь: прямой запуск воркера не должен
+        # зависеть от того, нормализовал ли лестницу супервизор.
         ladder_prices = dedup_ladder(symbol, ladder_prices, current_price)
-        # -------------------------------------------------------------------------
 
         started_at = time.time()
         warmup = cleanup_warmup_sec()
@@ -1266,7 +1276,8 @@ def main():
             if vwap_value and vwap_value > 0:
                 vwap_ratio = current_price / vwap_value
 
-        # Предварительная оценка средней и паники
+        # Средняя цена и panic-state влияют одновременно на разрешение BUY
+        # и на минимально допустимую цену защитного SELL.
         try:
             ema20, atr, prev_close = get_indicators_cached(symbol, args.panic_interval, ttl_sec=20)
         except Exception:
@@ -1355,7 +1366,8 @@ def main():
                         f"ratio={vwap_ratio:.4f} > {premium_thr:.4f} → skip BUY"
                     )
 
-        # BUY ниже текущей
+        # Перед новыми BUY восстанавливаем незавершённые intent после рестарта.
+        # Так один и тот же FILLED/PARTIAL BUY снова попадёт под контроль OCO.
         placed_ids: List[int] = (
             recover_pending_buy_order_ids(symbol)
             if LIVE_MODE and attach_oco
@@ -1380,7 +1392,8 @@ def main():
             except Exception as e:
                 log(f"[ERR] maybe_place_buys: {e}")
 
-        # Если attach_oco_on_fill включён, но новых BUY в этом запуске нет — не блокируем auto_oco_holdings
+        # Свободные holdings продаём отдельно только когда они не конкурируют
+        # за один base-баланс с OCO, ожидающим исполнения нового BUY.
         if args.auto_oco_holdings and (not attach_oco or not placed_ids):
             if attach_oco and not placed_ids:
                 dbg("[AUTO-OCO] no new BUYs this run → enabling auto_oco_holdings for free base")
@@ -1407,7 +1420,8 @@ def main():
         except Exception as e:
             log(f"[STATS] poll error: {e}")
 
-        # простой «живой» цикл статуса, пока слот активен + подвес OCO после FILLED BUY
+        # Runtime-цикл не создаёт новые BUY. Он наблюдает уже поставленные,
+        # подтверждает FILLED/PARTIAL и обязательно создаёт защиту.
         last_check = 0
 
         for left in trading_seconds(
@@ -1434,7 +1448,8 @@ def main():
             except Exception:
                 pass
 
-            # подвес OCO после FILLED у новых BUY
+            # FILLED BUY удаляется из placed_ids только после подтверждённого
+            # OCO либо резервного TP. Любая неопределённость создаёт halt.
             if attach_oco and placed_ids:
                 last_check += 1
                 if last_check >= max(1, args.check_fills_interval):
@@ -1457,9 +1472,9 @@ def main():
                         buy_intent = journal.get_by_exchange_order_id(oid) if journal is not None else None
                         parent_client_id = buy_intent.client_order_id if buy_intent is not None else None
                         try:
-                            # Persist the terminal BUY state before protection work.  This makes
-                            # restart recovery deterministic even if the process is interrupted
-                            # while creating the OCO.
+                            # Терминальное состояние BUY сохраняем до создания
+                            # защиты. Тогда восстановление останется однозначным,
+                            # даже если процесс прервётся посередине создания OCO.
                             if journal is not None and parent_client_id:
                                 journal.record_exchange_order(parent_client_id, o)
                             if parent_client_id and recover_existing_protection(parent_client_id):
@@ -1622,9 +1637,9 @@ def main():
 
                         # BUY завершён только после подтверждённой защиты.
                         if protected:
-                            # Refresh the local ledger immediately after protection is confirmed.
-                            # The supervisor reconciles exchange balances against this inventory;
-                            # waiting for the next worker restart creates a false mismatch window.
+                            # Сразу после подтверждения защиты обновляем ledger.
+                            # Супервизор сверяет с ним баланс Binance; ожидание
+                            # следующего рестарта создало бы ложное расхождение.
                             _stats_poll_mytrades_once(symbol)
                             try:
                                 placed_ids.remove(oid)

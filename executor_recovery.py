@@ -1,4 +1,4 @@
-"""Order queries, cancellation, verification, and restart recovery."""
+"""Запросы, отмена, проверка ордеров и восстановление после рестарта."""
 
 from __future__ import annotations
 
@@ -104,6 +104,7 @@ def verify_oco_legs(
     *,
     signed_request: Callable[..., Any],
 ) -> List[Dict[str, Any]]:
+    """Подтвердить, что OCO содержит ровно TP- и SL-ногу стороны SELL."""
     refs = order_list.get("orders") or []
     if len(refs) != 2:
         raise RuntimeError("OCO verification did not return exactly two legs")
@@ -149,6 +150,7 @@ def record_order_payload(
 
 @dataclass(frozen=True)
 class RecoveryDependencies:
+    """Зависимости recovery-слоя без прямого доступа к глобалам исполнителя."""
     journal: Callable[[], OrderJournal | None]
     get_order_by_client_id: Callable[[str, str], Dict[str, Any] | None]
     get_order_list_by_client_id: Callable[[str], Dict[str, Any] | None]
@@ -163,10 +165,13 @@ def recover_pending_buy_order_ids(
     *,
     dependencies: RecoveryDependencies,
 ) -> List[int]:
+    """Вернуть BUY, которые после рестарта ещё требуют контроля или защиты."""
     journal = dependencies.journal()
     if journal is None:
         return []
     recovered: List[int] = []
+    # Локальный intent сам по себе не доказывает наличие заявки на бирже.
+    # Истиной считается ответ Binance по устойчивому clientOrderId.
     for intent in journal.unresolved_buys(symbol):
         try:
             payload = dependencies.get_order_by_client_id(
@@ -226,6 +231,7 @@ def recover_existing_protection(
     *,
     dependencies: RecoveryDependencies,
 ) -> bool:
+    """Проверить и восстановить связь BUY → OCO/резервный SELL."""
     journal = dependencies.journal()
     if journal is None:
         return False
