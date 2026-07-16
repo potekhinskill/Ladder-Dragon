@@ -385,6 +385,8 @@ class AdvisorDecisionStore:
 
     def _init(self) -> None:
         with self._connect() as connection:
+            # Отдельная таблица fills не смешивает прогноз модели с фактом
+            # исполнения и позволяет считать PnL конкретной рекомендации.
             connection.execute(
                 """
                 CREATE TABLE IF NOT EXISTS ai_decisions(
@@ -469,6 +471,8 @@ class AdvisorDecisionStore:
         if not decision:
             raise ValueError(f"unknown AI decision: {decision_id}")
         fills = [{"side": r[0], "price": r[1], "qty": r[2], "fee_quote": r[3], "exit_reason": r[4], "ts": r[5]} for r in rows]
+        # Baseline использует тот же entry и объём, поэтому сравнение не
+        # выигрывает искусственно за счёт другого размера позиции.
         result = evaluate_realized_ai_pnl(fills, baseline_entry_price=float(decision[0]), baseline_exit_price=baseline_exit_price)
         result["decision_id"] = decision_id
         with self._connect() as connection:

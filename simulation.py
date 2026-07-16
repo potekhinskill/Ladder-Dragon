@@ -53,6 +53,7 @@ class SimulationResult:
 
 
 class Inventory:
+    """Портфель симулятора с агрегированной стоимостью и FIFO-партиями."""
     def __init__(self) -> None:
         self.qty = D("0")
         self.avg_cost = D("0")
@@ -72,6 +73,7 @@ class Inventory:
             raise ValueError("cannot sell more than simulated inventory")
         remaining = qty
         fifo_cost = D("0")
+        # FIFO нужен для корректного time-stop и воспроизводимого PnL.
         while remaining > 0 and self.lots:
             lot = self.lots[0]
             used = min(remaining, D(str(lot["qty"])))
@@ -99,6 +101,8 @@ def simulate_grid(candles: Sequence[Candle], config: SimulationConfig, *, market
     каждой свечи; остальная стратегия и accounting остаются общими.
     """
     if market_events is not None:
+        # Стакан обогащает свечи, но не меняет саму стратегию — так результаты
+        # OHLC и order-book режима сравнимы на одном и том же коде.
         by_ts = {int(getattr(event, "ts_ms", -1)): event for event in market_events}
         enriched = []
         for candle in candles:
@@ -145,6 +149,7 @@ def simulate_grid(candles: Sequence[Candle], config: SimulationConfig, *, market
     position_open_index: int | None = None
 
     for index, candle in enumerate(candles):
+        # BUY исполняется только после latency и при касании лимитной цены.
         if pending_buy and index >= pending_buy[0] and candle.low <= pending_buy[1] and cash >= config.order_notional:
             # BUY pays half-spread plus adverse slippage. A touched limit is
             # not considered filled if that adverse execution is outside the
@@ -200,6 +205,7 @@ def simulate_grid(candles: Sequence[Candle], config: SimulationConfig, *, market
                 pending_sell = None
                 position_open_index = None
 
+        # Для OCO в одной OHLC-свече stop считается первым (консервативно).
         if pending_sell and not forced_exit and index >= pending_sell[0] and inventory.qty > 0:
             take_profit, stop_loss = pending_sell[1], pending_sell[2]
             stop_hit = stop_loss > 0 and candle.low <= stop_loss
@@ -306,6 +312,7 @@ def production_walk_forward(candles: Sequence[Candle], configs: Iterable[Simulat
     участвует в selection. Конфигурация помечается degraded, если медианный
     результат не превосходит ноль или CI пересекает отрицательную область.
     """
+    # Все параметры выбираются на train, а outer test используется ровно один раз.
     configs = list(configs)
     if len(configs) < 2:
         raise ValueError("nested walk-forward requires at least two configs")

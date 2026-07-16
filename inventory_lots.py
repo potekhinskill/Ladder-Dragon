@@ -1,4 +1,4 @@
-"""Age-aware FIFO inventory lots shared by live reconciliation and backtest."""
+"""FIFO-партии с возрастом для live-сверки и backtest."""
 from __future__ import annotations
 
 import sqlite3
@@ -9,6 +9,7 @@ from decimal import Decimal
 
 @dataclass(frozen=True)
 class InventoryLot:
+    """Неизменяемая запись партии, купленной одним уровнем лестницы."""
     lot_id: int
     symbol: str
     qty: Decimal
@@ -18,6 +19,7 @@ class InventoryLot:
 
 
 def ensure_schema(connection: sqlite3.Connection) -> None:
+    # Decimal хранится текстом, чтобы SQLite не округлял количество и цену.
     connection.execute("""CREATE TABLE IF NOT EXISTS inventory_lots(
         lot_id INTEGER PRIMARY KEY AUTOINCREMENT, symbol TEXT NOT NULL,
         qty TEXT NOT NULL, price TEXT NOT NULL, opened_at INTEGER NOT NULL,
@@ -30,6 +32,7 @@ def ensure_schema(connection: sqlite3.Connection) -> None:
 def add_lot(connection: sqlite3.Connection, *, symbol: str, qty: Decimal, price: Decimal,
             ladder_level: str = "", opened_at: int | None = None, source_order_id: str = "") -> int:
     ensure_schema(connection)
+    # Для исторического импорта можно передать исходное время BUY.
     now = int(opened_at or time.time())
     cur = connection.execute(
         "INSERT INTO inventory_lots(symbol,qty,price,opened_at,updated_at,ladder_level,source_order_id) VALUES(?,?,?,?,?,?,?)",
@@ -39,6 +42,7 @@ def add_lot(connection: sqlite3.Connection, *, symbol: str, qty: Decimal, price:
 
 
 def oldest_lots(connection: sqlite3.Connection, symbol: str) -> list[InventoryLot]:
+    # Сортировка по opened_at гарантирует FIFO и позволяет применять time-stop.
     ensure_schema(connection)
     rows = connection.execute(
         "SELECT lot_id,symbol,qty,price,opened_at,ladder_level FROM inventory_lots WHERE symbol=? AND status='OPEN' ORDER BY opened_at,lot_id",
@@ -48,7 +52,7 @@ def oldest_lots(connection: sqlite3.Connection, symbol: str) -> list[InventoryLo
 
 
 def consume_fifo(connection: sqlite3.Connection, symbol: str, qty: Decimal) -> list[InventoryLot]:
-    """Consume SELL qty from oldest lots and return consumed portions."""
+    """Списать SELL из старейших партий и вернуть использованные доли."""
     consumed: list[InventoryLot] = []
     remaining = qty
     for lot in oldest_lots(connection, symbol):
@@ -56,6 +60,7 @@ def consume_fifo(connection: sqlite3.Connection, symbol: str, qty: Decimal) -> l
             break
         used = min(remaining, lot.qty)
         consumed.append(InventoryLot(lot.lot_id, lot.symbol, used, lot.price, lot.opened_at, lot.ladder_level))
+        # Частичная продажа оставляет ту же партию открытой с уменьшенным qty.
         left = lot.qty - used
         connection.execute("UPDATE inventory_lots SET qty=?,updated_at=?,status=? WHERE lot_id=?",
                            (str(left), int(time.time()), "OPEN" if left > 0 else "CLOSED", lot.lot_id))
