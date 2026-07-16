@@ -2,7 +2,7 @@
 
 Приватный Python-проект для управления лестничной торговлей на Binance Spot. Бот строит адаптивные сетки BUY/SELL, учитывает ATR, EMA и VWAP, управляет OCO-ордерами и сохраняет торговую статистику в SQLite.
 
-Текущая версия продукта: **2.8.0**. Ladder Dragon использует [Semantic Versioning](https://semver.org/); единственный источник версии — `product_version.py`. Проверить установленную версию можно командой `python ai_supervisor.py --version`.
+Текущая версия продукта: **2.8.1**. Ladder Dragon использует [Semantic Versioning](https://semver.org/); единственный источник версии — `product_version.py`. Проверить установленную версию можно командой `python ai_supervisor.py --version`.
 
 > [!WARNING]
 > Проект работает с реальными биржевыми ордерами. Это не инвестиционная рекомендация. DRY является режимом по умолчанию, а любые изменяющие Binance-запросы дополнительно блокируются на уровне транспорта. Тем не менее перед Mainnet LIVE обязателен отдельный прогон на Binance Spot Testnet и ручная проверка лимитов.
@@ -338,6 +338,10 @@ python run_dashboard.py
 
 ### Универсальная установка и миграция Raspberry Pi
 
+Полная пошаговая инструкция для чистой системы, приватного GitHub, Testnet,
+Mainnet, обновления и восстановления:
+[Установка и обновление Raspberry Pi](docs/RASPBERRY_PI_INSTALL.md).
+
 Инсталлятор поддерживает Raspberry Pi OS/Debian, создаёт пользователя и venv,
 устанавливает nginx/FastAPI/systemd, включает mDNS, закрывает API через Basic Auth,
 создаёт приватный backup timer и переносит старые env/SQLite. Чистая установка
@@ -424,6 +428,7 @@ sudo bash deploy/update_raspberry_pi.sh check
 
 - [История изменений](CHANGELOG.md)
 - [Справка по дашборду](FRONT/help.html)
+- [Установка и обновление Raspberry Pi](docs/RASPBERRY_PI_INSTALL.md)
 - [Безопасный шаблон systemd](deploy/mybot.service)
 - [Drop-in связки supervisor ↔ dashboard](deploy/mybot-dashboard-link.conf)
 - [Безопасный шаблон dashboard systemd](deploy/pi-dashboard.service)
