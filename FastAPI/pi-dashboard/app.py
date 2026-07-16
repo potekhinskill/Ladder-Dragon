@@ -5,6 +5,7 @@ import psutil, shutil, json, os, socket, asyncio, subprocess, math, time, hmac, 
 from collections import defaultdict, deque
 from contextlib import asynccontextmanager
 from datetime import datetime
+from decimal import Decimal
 from zoneinfo import ZoneInfo
 from pathlib import Path
 import sqlite3
@@ -32,6 +33,12 @@ SSE_MAX_CONNECTIONS = max(1, int(os.getenv("DASHBOARD_SSE_MAX_CONNECTIONS", "2")
 _SSE_SLOTS = threading.BoundedSemaphore(SSE_MAX_CONNECTIONS)
 _RATE_BUCKETS: Dict[str, deque] = defaultdict(deque)
 _RATE_LOCK = threading.Lock()
+AI_DECISIONS_DB = os.getenv("AI_DECISIONS_DB", ".runtime/ai_decisions.sqlite3")
+AI_USAGE_LOG = os.getenv("AI_USAGE_LOG", ".runtime/ai_usage.ndjson")
+AI_MODE = os.getenv("AI_MODE", "SHADOW").upper()
+AI_DAILY_COST_LIMIT_USD = Decimal(os.getenv("AI_DAILY_COST_LIMIT_USD", "0.05"))
+AI_DAILY_TOKEN_LIMIT = int(os.getenv("AI_DAILY_TOKEN_LIMIT", "100000"))
+AI_MAX_REQUESTS_PER_DAY = int(os.getenv("AI_MAX_REQUESTS_PER_DAY", "1000"))
 
 @asynccontextmanager
 async def lifespan(_app):
@@ -678,6 +685,142 @@ def history(hours: int = 24, points: int = 288):
         "mem_used_gib": [r.get("mem_used_gib") for r in rows],
         "cpu_pct": [r.get("cpu_pct") for r in rows],
     })
+
+
+def _ai_usage_today(path: Path) -> Dict:
+    today = datetime.now(tz=APP_TZ).date()
+    requests_count = tokens = errors = 0
+    cost = Decimal("0")
+    if not path.exists():
+        return {"requests": 0, "tokens": 0, "cost_usd": "0"}
+    for line in path.read_text(encoding="utf-8", errors="replace").splitlines():
+        try:
+            event = json.loads(line)
+            stamp = datetime.fromisoformat(str(event["timestamp"])).astimezone(APP_TZ)
+            if stamp.date() != today:
+                continue
+            requests_count += 1
+            tokens += int(event.get("total_tokens") or 0)
+            cost += Decimal(str(event.get("estimated_cost_usd") or "0"))
+            errors += int(event.get("outcome") == "error")
+        except (KeyError, TypeError, ValueError, json.JSONDecodeError):
+            continue
+    return {
+        "requests": requests_count,
+        "tokens": tokens,
+        "cost_usd": str(cost),
+        "errors": errors,
+    }
+
+
+def _ai_calibration(recent: List[Dict]) -> List[Dict]:
+    result = []
+    for low, high in ((0, .65), (.65, .70), (.70, .80), (.80, 1.01)):
+        rows = [
+            row for row in recent
+            if low <= float(row.get("confidence") or 0) < high
+            and row.get("return_1h") is not None
+        ]
+        success = 0
+        for row in rows:
+            ret = float(row["return_1h"])
+            mode = row.get("recommended_mode")
+            success += int(
+                (mode == "UP" and ret > .001)
+                or (mode == "DOWN" and ret < -.001)
+                or (mode == "FLAT" and abs(ret) <= .001)
+            )
+        result.append({
+            "bucket": f"{low:.2f}-{min(high, 1):.2f}",
+            "samples": len(rows),
+            "accuracy": success / len(rows) if rows else 0,
+        })
+    return result
+
+
+@app.get("/api/ai/status")
+def ai_status(limit: int = 50):
+    """Защищённый read-only статус AI, решений и дневного расхода."""
+    limit = max(1, min(int(limit), 200))
+    recent = []
+    db_path = Path(AI_DECISIONS_DB)
+    if db_path.exists():
+        try:
+            with sqlite3.connect(
+                f"file:{db_path}?mode=ro", uri=True, timeout=1
+            ) as connection:
+                connection.row_factory = sqlite3.Row
+                columns = {
+                    row["name"]
+                    for row in connection.execute("PRAGMA table_info(ai_decisions)")
+                }
+                evaluation_expr = (
+                    "evaluation_json" if "evaluation_json" in columns else "'{}'"
+                )
+                recent = [
+                    dict(row)
+                    for row in connection.execute(
+                        f"""
+                        SELECT symbol,created_at,deterministic_mode AS baseline_mode,
+                               recommended_mode,width_scale,cap_scale,confidence,
+                               applied,policy_status AS status,policy_reasons,
+                               benchmark_mode,return_15m,return_1h,return_4h,
+                               {evaluation_expr} AS evaluation_json
+                        FROM ai_decisions ORDER BY created_at DESC LIMIT ?
+                        """,
+                        (limit,),
+                    ).fetchall()
+                ]
+                for row in recent:
+                    row["evaluation"] = json.loads(row.pop("evaluation_json") or "{}")
+        except sqlite3.Error as exc:
+            return JSONResponse(
+                {"ok": False, "error": f"AI DB read failed: {exc}"},
+                status_code=500,
+            )
+    usage = _ai_usage_today(Path(AI_USAGE_LOG))
+    budget_exhausted = (
+        (AI_MAX_REQUESTS_PER_DAY > 0 and usage["requests"] >= AI_MAX_REQUESTS_PER_DAY)
+        or (AI_DAILY_TOKEN_LIMIT > 0 and usage["tokens"] >= AI_DAILY_TOKEN_LIMIT)
+        or (AI_DAILY_COST_LIMIT_USD > 0 and Decimal(usage["cost_usd"]) >= AI_DAILY_COST_LIMIT_USD)
+    )
+    degraded = budget_exhausted or usage.get("errors", 0) >= 3
+    state = (
+        "DISABLED" if AI_MODE == "DISABLED"
+        else "DEGRADED" if degraded
+        else "ACTIVE" if AI_MODE == "APPLY"
+        else "SHADOW"
+    )
+    edge_values = [
+        int(
+            (row.get("recommended_mode") == "UP" and row["return_1h"] > .001)
+            or (row.get("recommended_mode") == "DOWN" and row["return_1h"] < -.001)
+            or (row.get("recommended_mode") == "FLAT" and abs(row["return_1h"]) <= .001)
+        ) - int(
+            (row.get("baseline_mode") == "UP" and row["return_1h"] > .001)
+            or (row.get("baseline_mode") == "DOWN" and row["return_1h"] < -.001)
+            or (row.get("baseline_mode") == "FLAT" and abs(row["return_1h"]) <= .001)
+        )
+        for row in recent if row.get("return_1h") is not None
+    ]
+    return {
+        "ok": True,
+        "mode": AI_MODE,
+        "state": state,
+        "usage_today": usage,
+        "budget_exhausted": budget_exhausted,
+        "recent": recent,
+        "applied_count": sum(bool(row.get("applied")) for row in recent),
+        "changed_mode_count": sum(
+            row.get("recommended_mode") != row.get("baseline_mode")
+            for row in recent
+        ),
+        "calibration_1h": _ai_calibration(recent),
+        "ai_vs_baseline_1h": {
+            "samples": len(edge_values),
+            "edge": sum(edge_values) / len(edge_values) if edge_values else 0,
+        },
+    }
 
 @app.get("/api/bot/logs")
 def bot_logs(tail: int = 200):

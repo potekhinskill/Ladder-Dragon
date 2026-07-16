@@ -138,6 +138,16 @@
       <div class="row mono" id="kernel">kernel —</div>
       <div class="row mono" id="uptime">uptime —</div>
     </div>
+
+    <!-- AI-рекомендатель -->
+    <div class="card">
+      <div class="row"><div class="label">AI-рекомендатель</div><div class="pct" id="ai-state">—</div></div>
+      <div class="row"><span>Режим</span><span class="mono" id="ai-mode">—</span></div>
+      <div class="row"><span>Решений применено</span><span id="ai-applied">—</span></div>
+      <div class="row"><span>AI edge 1h</span><span id="ai-edge">—</span></div>
+      <div class="row"><span>Токены сегодня</span><span id="ai-tokens">—</span></div>
+      <div class="row"><span>Стоимость сегодня</span><span id="ai-cost">—</span></div>
+    </div>
   </section>
 
   <!-- Графики: 2 в ряд + 1 ниже на всю ширину -->
@@ -509,14 +519,24 @@ function updateFilled24h(resp){
 
 async function refresh(){
   try{
-    const [h, hist, sum] = await Promise.all([
+    const [h, hist, sum, ai] = await Promise.all([
       getJSON('/api/health'),
       getJSON('/api/history?hours=24&points=288'),
-      getTradeSummary24h()
+      getTradeSummary24h(),
+      getJSON('/api/ai/status?limit=100')
     ]);
     updateKpis(h);
     updateCharts(hist);
     updateTrade24(sum);
+    $('#ai-state').textContent = ai.state || '—';
+    $('#ai-mode').textContent = ai.mode || '—';
+    $('#ai-applied').textContent = ai.applied_count ?? 0;
+    const edge = ai.ai_vs_baseline_1h || {};
+    $('#ai-edge').textContent = edge.samples
+      ? `${(Number(edge.edge)*100).toFixed(1)}% / ${edge.samples}`
+      : 'нет данных';
+    $('#ai-tokens').textContent = ai.usage_today?.tokens ?? 0;
+    $('#ai-cost').textContent = `$${Number(ai.usage_today?.cost_usd || 0).toFixed(6)}`;
   }catch(e){
     $('#footer').textContent = 'Ошибка API: ' + e;
   }

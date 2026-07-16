@@ -35,6 +35,13 @@ from ai_context import (
     build_portfolio_features,
     load_trade_features,
 )
+from ai_policy import (
+    PolicyConfig,
+    UsageBudget,
+    apply_safety_policy,
+    read_usage_today,
+    usage_budget_allows,
+)
 from order_identity import client_order_id
 from risk_manager import RiskDecision, RiskLimits, RiskManager, RiskSnapshot, load_daily_trade_metrics, money
 from time_safety import assess_exchange_clock
@@ -88,6 +95,7 @@ _CHILD_FAILURES: Dict[str, int] = {}
 LIVE_MODE = False
 _AI_ADVISOR: Optional[AIAdvisor] = None
 _AI_DECISIONS: Optional[AdvisorDecisionStore] = None
+_AI_POLICY: Optional[PolicyConfig] = None
 
 
 def env_flag(name: str, default: bool = False) -> bool:
@@ -99,7 +107,7 @@ def env_flag(name: str, default: bool = False) -> bool:
 
 def _build_ai_advisor(args: argparse.Namespace) -> Optional[AIAdvisor]:
     """Создать изолированный LLM-клиент без каких-либо торговых методов."""
-    if not args.ai_advisor:
+    if not args.ai_advisor or args.ai_mode == "DISABLED":
         return None
 
     defaults = {
@@ -143,12 +151,24 @@ def _build_ai_advisor(args: argparse.Namespace) -> Optional[AIAdvisor]:
         ),
         output_usd_per_mtok=getenv_float("AI_OUTPUT_USD_PER_MTOK"),
     )
-    def record_decision(
+    budget = UsageBudget(
+        max_requests=int(args.ai_max_requests_per_day),
+        max_tokens=int(args.ai_daily_token_limit),
+        max_cost_usd=Decimal(str(args.ai_daily_cost_limit_usd)),
+    )
+
+    def budget_checker() -> tuple[bool, str]:
+        return usage_budget_allows(
+            read_usage_today(args.ai_usage_log),
+            budget,
+        )
+
+    def record_low_confidence(
         context: MarketContext,
         recommendation,
-        applied: bool,
+        confidence_accepted: bool,
     ) -> None:
-        if _AI_DECISIONS is None:
+        if confidence_accepted or _AI_DECISIONS is None:
             return
         _AI_DECISIONS.record(
             symbol=context.symbol,
@@ -158,14 +178,17 @@ def _build_ai_advisor(args: argparse.Namespace) -> Optional[AIAdvisor]:
             width_scale=recommendation.ladder_width_scale,
             cap_scale=recommendation.cap_scale,
             confidence=recommendation.confidence,
-            applied=applied,
+            applied=False,
+            policy_status="LOW_CONFIDENCE",
+            policy_reasons="confidence_below_threshold",
         )
 
     return AIAdvisor(
         config,
         session=requests.Session(),
         logger=log,
-        decision_recorder=record_decision,
+        decision_recorder=record_low_confidence,
+        budget_checker=budget_checker,
     )
 
 
@@ -1320,7 +1343,31 @@ def _build_ai_market_context(
     }
     if _AI_DECISIONS is not None:
         try:
-            _AI_DECISIONS.settle(symbol, price)
+            def horizon_price(sym: str, target_ms: int) -> float:
+                candles = TM.get_klines(
+                    sym, "1m", limit=1, startTime=target_ms
+                )
+                if not candles:
+                    raise ValueError("missing horizon candle")
+                return float(candles[0][1])
+
+            def horizon_candles(
+                sym: str, start_ms: int, end_ms: int
+            ) -> List[List[Any]]:
+                return TM.get_klines(
+                    sym,
+                    "1m",
+                    limit=min(1000, max(1, (end_ms - start_ms) // 60_000 + 1)),
+                    startTime=start_ms,
+                    endTime=end_ms,
+                )
+
+            _AI_DECISIONS.settle(
+                symbol,
+                price,
+                price_lookup=horizon_price,
+                candles_lookup=horizon_candles,
+            )
         except sqlite3.Error as exc:
             dbg(f"[AI-DECISION] settle failed: {exc}")
     if _AI_ADVISOR is None or not _AI_ADVISOR.refresh_due(symbol):
@@ -1409,28 +1456,58 @@ def run_for_symbol(symbol: str, args: argparse.Namespace) -> None:
         low, down, up = args.ladder_pct_map[symbol]
     ai_width_scale = 1.0
     ai_cap_scale = 1.0
+    ai_pause_buys = False
     if _AI_ADVISOR is not None:
+        ai_context = _build_ai_market_context(
+            symbol,
+            price=now_p,
+            atr_pct=float(atr_pct or 0),
+            deterministic_mode=dir_mode,
+            diag=_diag,
+            ladder=(float(low), float(down), float(up)),
+            target_buys=target_buys_use,
+        )
         recommendation = _AI_ADVISOR.recommend(
-            _build_ai_market_context(
-                symbol,
-                price=now_p,
-                atr_pct=float(atr_pct or 0),
-                deterministic_mode=dir_mode,
-                diag=_diag,
-                ladder=(float(low), float(down), float(up)),
-                target_buys=target_buys_use,
-            )
+            ai_context
         )
         if recommendation is not None:
-            if args.dir_mode == "auto":
-                dir_mode = recommendation.mode
-            ai_width_scale = recommendation.ladder_width_scale
-            ai_cap_scale = recommendation.cap_scale
+            policy = apply_safety_policy(
+                ai_context,
+                recommendation,
+                _AI_POLICY or PolicyConfig(mode="SHADOW"),
+            )
+            if _AI_DECISIONS is not None:
+                try:
+                    _AI_DECISIONS.record(
+                        symbol=symbol,
+                        price=now_p,
+                        deterministic_mode=dir_mode,
+                        recommended_mode=policy.recommendation.mode,
+                        width_scale=policy.recommendation.ladder_width_scale,
+                        cap_scale=policy.recommendation.cap_scale,
+                        confidence=policy.recommendation.confidence,
+                        applied=policy.apply,
+                        policy_status=policy.status,
+                        policy_reasons=",".join(policy.reasons),
+                        benchmark_mode=policy.benchmark_mode,
+                    )
+                except sqlite3.Error as exc:
+                    dbg(f"[AI-DECISION] record failed: {exc}")
+            if policy.apply:
+                if args.dir_mode == "auto":
+                    dir_mode = policy.recommendation.mode
+                ai_width_scale = policy.recommendation.ladder_width_scale
+                ai_cap_scale = policy.recommendation.cap_scale
+                ai_pause_buys = policy.pause_buys
             log(
                 f"[AI-ADVISOR] {symbol} provider={recommendation.provider} "
-                f"model={recommendation.model} confidence={recommendation.confidence:.2f} "
-                f"mode={recommendation.mode} width×{ai_width_scale:.2f} "
-                f"cap×{ai_cap_scale:.2f} reason={recommendation.rationale}"
+                f"model={recommendation.model} status={policy.status} "
+                f"confidence={recommendation.confidence:.2f} "
+                f"mode={policy.recommendation.mode} benchmark={policy.benchmark_mode} "
+                f"width×{policy.recommendation.ladder_width_scale:.2f} "
+                f"cap×{policy.recommendation.cap_scale:.2f} "
+                f"guards={','.join(policy.reasons) or 'none'} "
+                f"reason={recommendation.rationale}"
             )
 
     vwap_premium_final, vwap_discount_final, vwap_scale_final, vwap_interval_final, vwap_window_final = resolve_vwap_params(
@@ -1536,7 +1613,13 @@ def run_for_symbol(symbol: str, args: argparse.Namespace) -> None:
     mode = position_guard_and_maybe_flatten(symbol, now_p, atr_abs, args, filters)
     log(f"[POS-MODE] {symbol} mode={mode}")
 
-    ladder_for_child = ladder_all if mode not in ("reduce_only", "flattening") else _prune_to_sells_only(now_p, ladder_all)
+    ladder_for_child = (
+        ladder_all
+        if mode not in ("reduce_only", "flattening") and not ai_pause_buys
+        else _prune_to_sells_only(now_p, ladder_all)
+    )
+    if ai_pause_buys:
+        log(f"[AI-POLICY] {symbol} PAUSE_BUYS: child receives SELL levels only")
 
     # 10) Запуск ребёнка с временной подменой target_buys
     orig_tb = int(args.target_buy_per_symbol)
@@ -1926,7 +2009,7 @@ def main():
     log(f"[VERSION] {product_label('supervisor')}")
     symbols = validate_supervisor_args(ap, args)
     _configure_venue(args)
-    global _AI_ADVISOR, _AI_DECISIONS
+    global _AI_ADVISOR, _AI_DECISIONS, _AI_POLICY
     decisions_db = (
         os.getenv("AI_TESTNET_DECISIONS_DB", "").strip()
         if args.testnet else args.ai_decisions_db
@@ -1934,6 +2017,19 @@ def main():
     _AI_DECISIONS = (
         AdvisorDecisionStore(decisions_db)
         if args.ai_advisor else None
+    )
+    _AI_POLICY = PolicyConfig(
+        mode=args.ai_mode if args.ai_advisor else "DISABLED",
+        max_market_age_sec=float(args.ai_max_market_age_sec),
+        max_portfolio_age_sec=float(args.ai_max_portfolio_age_sec),
+        max_spread_bps=float(args.ai_max_spread_bps),
+        high_volatility_pct=float(args.ai_high_volatility_pct),
+        max_consecutive_losses=int(
+            os.getenv("RISK_MAX_CONSECUTIVE_LOSSES", "3") or 3
+        ),
+        min_trade_sells=int(args.ai_min_trade_sells),
+        min_accuracy_samples=int(args.ai_min_accuracy_samples),
+        min_ai_accuracy=float(args.ai_min_accuracy),
     )
     _AI_ADVISOR = _build_ai_advisor(args)
     limits = RiskLimits.from_env()
@@ -1945,7 +2041,7 @@ def main():
     risk_manager = RiskManager(limits) if args.live else None
 
     ai_label = (
-        f"{_AI_ADVISOR.config.provider}/{_AI_ADVISOR.config.model}"
+        f"{args.ai_mode}:{_AI_ADVISOR.config.provider}/{_AI_ADVISOR.config.model}"
         if _AI_ADVISOR is not None else "disabled"
     )
     log(

@@ -134,6 +134,8 @@ def build_supervisor_parser() -> argparse.ArgumentParser:
     ap.add_argument("--no-ai-advisor", action="store_false", dest="ai_advisor")
     ap.add_argument("--ai-provider", choices=["openai", "deepseek", "compatible"],
                     default=os.getenv("AI_PROVIDER", "deepseek"))
+    ap.add_argument("--ai-mode", choices=["DISABLED", "SHADOW", "APPLY"],
+                    default=os.getenv("AI_MODE", "SHADOW").upper())
     ap.add_argument("--ai-model", default=os.getenv("AI_MODEL", ""))
     ap.add_argument("--ai-base-url", default=os.getenv("AI_BASE_URL", ""))
     ap.add_argument("--ai-timeout-sec", type=float, default=float(os.getenv("AI_TIMEOUT_SEC", "10")))
@@ -148,6 +150,26 @@ def build_supervisor_parser() -> argparse.ArgumentParser:
                     default=int(os.getenv("AI_USAGE_LOG_MAX_BYTES", "5242880")))
     ap.add_argument("--ai-decisions-db",
                     default=os.getenv("AI_DECISIONS_DB", ".runtime/ai_decisions.sqlite3"))
+    ap.add_argument("--ai-daily-cost-limit-usd", type=float,
+                    default=float(os.getenv("AI_DAILY_COST_LIMIT_USD", "0.05")))
+    ap.add_argument("--ai-daily-token-limit", type=int,
+                    default=int(os.getenv("AI_DAILY_TOKEN_LIMIT", "100000")))
+    ap.add_argument("--ai-max-requests-per-day", type=int,
+                    default=int(os.getenv("AI_MAX_REQUESTS_PER_DAY", "1000")))
+    ap.add_argument("--ai-max-market-age-sec", type=float,
+                    default=float(os.getenv("AI_MAX_MARKET_AGE_SEC", "30")))
+    ap.add_argument("--ai-max-portfolio-age-sec", type=float,
+                    default=float(os.getenv("AI_MAX_PORTFOLIO_AGE_SEC", "30")))
+    ap.add_argument("--ai-max-spread-bps", type=float,
+                    default=float(os.getenv("AI_MAX_SPREAD_BPS", "25")))
+    ap.add_argument("--ai-high-volatility-pct", type=float,
+                    default=float(os.getenv("AI_HIGH_VOLATILITY_PCT", "0.04")))
+    ap.add_argument("--ai-min-trade-sells", type=int,
+                    default=int(os.getenv("AI_MIN_TRADE_SELLS", "20")))
+    ap.add_argument("--ai-min-accuracy-samples", type=int,
+                    default=int(os.getenv("AI_MIN_ACCURACY_SAMPLES", "30")))
+    ap.add_argument("--ai-min-accuracy", type=float,
+                    default=float(os.getenv("AI_MIN_ACCURACY", "0.50")))
 
     ap.add_argument("--pos-guard-enable", action="store_true")
     ap.add_argument("--pos-max-base-map", default="", help="SYM:base_qty,... напр. SOLUSDT:0.50,ETHUSDT:0.020")
@@ -301,6 +323,19 @@ def validate_supervisor_args(parser: argparse.ArgumentParser, args: argparse.Nam
         parser.error("--ai-timeout-sec must be > 0")
     if args.ai_usage_log_max_bytes <= 0:
         parser.error("--ai-usage-log-max-bytes must be > 0")
+    if min(args.ai_daily_cost_limit_usd, args.ai_daily_token_limit, args.ai_max_requests_per_day) < 0:
+        parser.error("AI daily budgets must be >= 0")
+    if min(
+        args.ai_max_market_age_sec,
+        args.ai_max_portfolio_age_sec,
+        args.ai_max_spread_bps,
+        args.ai_high_volatility_pct,
+    ) <= 0:
+        parser.error("AI safety thresholds must be > 0")
+    if min(args.ai_min_trade_sells, args.ai_min_accuracy_samples) < 0:
+        parser.error("AI sample thresholds must be >= 0")
+    if not 0 <= args.ai_min_accuracy <= 1:
+        parser.error("--ai-min-accuracy must be in [0, 1]")
     if not 0 <= args.ai_min_confidence <= 1:
         parser.error("--ai-min-confidence must be in [0, 1]")
     if not 0 < args.ai_width_scale_min <= args.ai_width_scale_max <= 3:

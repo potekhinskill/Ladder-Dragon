@@ -1,0 +1,219 @@
+"""Детерминированная политика применения AI-рекомендаций."""
+
+from __future__ import annotations
+
+from dataclasses import dataclass, replace
+from datetime import datetime, timezone
+from decimal import Decimal
+import json
+from pathlib import Path
+from typing import Iterable, Optional
+
+from ai_advisor import MarketContext, StrategyRecommendation
+
+
+AI_MODES = {"DISABLED", "SHADOW", "APPLY"}
+
+
+@dataclass(frozen=True)
+class PolicyConfig:
+    mode: str = "SHADOW"
+    max_market_age_sec: float = 30.0
+    max_portfolio_age_sec: float = 30.0
+    max_spread_bps: float = 25.0
+    high_volatility_pct: float = 0.04
+    max_consecutive_losses: int = 3
+    min_trade_sells: int = 20
+    min_accuracy_samples: int = 30
+    min_ai_accuracy: float = 0.50
+
+    def validate(self) -> None:
+        if self.mode not in AI_MODES:
+            raise ValueError("AI mode must be DISABLED, SHADOW or APPLY")
+        if min(
+            self.max_market_age_sec,
+            self.max_portfolio_age_sec,
+            self.max_spread_bps,
+            self.high_volatility_pct,
+        ) <= 0:
+            raise ValueError("AI policy thresholds must be > 0")
+        if self.max_consecutive_losses < 0:
+            raise ValueError("AI max consecutive losses must be >= 0")
+        if not 0 <= self.min_ai_accuracy <= 1:
+            raise ValueError("AI minimum accuracy must be in [0, 1]")
+
+
+@dataclass(frozen=True)
+class PolicyDecision:
+    recommendation: StrategyRecommendation
+    apply: bool
+    pause_buys: bool
+    status: str
+    reasons: tuple[str, ...]
+    benchmark_mode: str
+
+
+def numeric_regime_benchmark(context: MarketContext) -> str:
+    """Простой интерпретируемый benchmark без LLM."""
+    score = 0.0
+    score += max(-2.0, min(2.0, context.return_1h / 0.01))
+    score += max(-2.0, min(2.0, context.return_4h / 0.025))
+    score += max(-1.5, min(1.5, context.ema_gap_pct / 0.005))
+    score += max(-1.5, min(1.5, context.ema_slope / 0.0005))
+    score += max(-1.0, min(1.0, context.orderbook_imbalance_top20))
+    if context.adx < 15:
+        score *= 0.5
+    if score >= 1.5:
+        return "UP"
+    if score <= -1.5:
+        return "DOWN"
+    return "FLAT"
+
+
+def apply_safety_policy(
+    context: MarketContext,
+    recommendation: StrategyRecommendation,
+    config: PolicyConfig,
+) -> PolicyDecision:
+    """Применить правила, которые нельзя оставить на усмотрение prompt."""
+    config.validate()
+    benchmark = numeric_regime_benchmark(context)
+    reasons: list[str] = []
+    result = recommendation
+    apply = config.mode == "APPLY"
+    pause = False
+
+    data_ok = (
+        context.market_data_available
+        and context.orderbook_available
+        and context.portfolio_data_available
+        and context.market_data_age_sec <= config.max_market_age_sec
+        and context.portfolio_data_age_sec <= config.max_portfolio_age_sec
+    )
+    if not data_ok:
+        apply = False
+        reasons.append("incomplete_or_stale_context")
+
+    if config.mode == "SHADOW":
+        apply = False
+        reasons.append("shadow_mode")
+    elif config.mode == "DISABLED":
+        apply = False
+        reasons.append("disabled")
+
+    # При слабой статистике запрещаем любое увеличение агрессивности.
+    if context.sell_count_30d < config.min_trade_sells:
+        result = replace(
+            result,
+            ladder_width_scale=max(1.0, result.ladder_width_scale),
+            cap_scale=min(1.0, result.cap_scale),
+        )
+        reasons.append("insufficient_trade_history")
+
+    # Высокая волатильность никогда не должна сужать лестницу.
+    if context.atr_pct >= config.high_volatility_pct:
+        result = replace(result, ladder_width_scale=max(1.0, result.ladder_width_scale))
+        reasons.append("high_volatility_no_narrowing")
+
+    # Серия убытков, высокий CAP или плохая позиция разрешают только снижение CAP.
+    if (
+        context.consecutive_losses >= config.max_consecutive_losses
+        or context.portfolio_cap_used_pct >= 0.80
+        or context.position_pnl_pct <= -0.05
+    ):
+        result = replace(result, cap_scale=min(result.cap_scale, 0.50))
+        reasons.append("risk_pressure_cap_reduced")
+
+    # Дорогой рынок или почти исчерпанный резерв — только пауза BUY.
+    if (
+        context.spread_bps >= config.max_spread_bps
+        or context.free_reserve_ratio < 1.0
+    ):
+        pause = True
+        reasons.append("pause_buys_market_or_reserve")
+
+    # Если накоплена статистически значимая плохая точность, AI остаётся shadow.
+    if (
+        context.ai_samples_1h >= config.min_accuracy_samples
+        and context.ai_accuracy_1h < config.min_ai_accuracy
+    ):
+        apply = False
+        reasons.append("ai_accuracy_below_threshold")
+
+    status = "APPLIED" if apply else ("SHADOW" if config.mode == "SHADOW" else "REJECTED")
+    if pause and apply:
+        status = "PAUSE_BUYS"
+    return PolicyDecision(result, apply, pause and apply, status, tuple(reasons), benchmark)
+
+
+@dataclass(frozen=True)
+class UsageBudget:
+    max_requests: int
+    max_tokens: int
+    max_cost_usd: Decimal
+
+
+@dataclass(frozen=True)
+class UsageToday:
+    requests: int = 0
+    tokens: int = 0
+    cost_usd: Decimal = Decimal("0")
+
+
+def read_usage_today(path: str, *, now: Optional[datetime] = None) -> UsageToday:
+    now = now or datetime.now(timezone.utc)
+    target = now.date()
+    result = UsageToday()
+    log_path = Path(path)
+    if not log_path.exists():
+        return result
+    requests = tokens = 0
+    cost = Decimal("0")
+    for line in log_path.read_text(encoding="utf-8", errors="replace").splitlines():
+        try:
+            event = json.loads(line)
+            stamp = datetime.fromisoformat(str(event["timestamp"]))
+            if stamp.astimezone(timezone.utc).date() != target:
+                continue
+            requests += 1
+            tokens += int(event.get("total_tokens") or 0)
+            cost += Decimal(str(event.get("estimated_cost_usd") or "0"))
+        except (KeyError, TypeError, ValueError, json.JSONDecodeError):
+            continue
+    return UsageToday(requests, tokens, cost)
+
+
+def usage_budget_allows(today: UsageToday, budget: UsageBudget) -> tuple[bool, str]:
+    if budget.max_requests > 0 and today.requests >= budget.max_requests:
+        return False, "daily request limit"
+    if budget.max_tokens > 0 and today.tokens >= budget.max_tokens:
+        return False, "daily token limit"
+    if budget.max_cost_usd > 0 and today.cost_usd >= budget.max_cost_usd:
+        return False, "daily cost limit"
+    return True, ""
+
+
+def confidence_calibration(
+    rows: Iterable[tuple[float, Optional[float], str]],
+) -> list[dict[str, float | int | str]]:
+    buckets = ((0.0, 0.65), (0.65, 0.70), (0.70, 0.80), (0.80, 1.01))
+    output = []
+    rows = list(rows)
+    for low, high in buckets:
+        values = [
+            int(
+                (mode == "UP" and ret > 0.001)
+                or (mode == "DOWN" and ret < -0.001)
+                or (mode == "FLAT" and abs(ret) <= 0.001)
+            )
+            for confidence, ret, mode in rows
+            if low <= confidence < high and ret is not None
+        ]
+        output.append(
+            {
+                "bucket": f"{low:.2f}-{min(high, 1.0):.2f}",
+                "samples": len(values),
+                "accuracy": sum(values) / len(values) if values else 0.0,
+            }
+        )
+    return output

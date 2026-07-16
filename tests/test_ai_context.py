@@ -9,6 +9,7 @@ from ai_context import (
     load_trade_features,
     market_features_from_klines,
     orderbook_features,
+    virtual_plan_result,
 )
 
 
@@ -192,8 +193,59 @@ def test_decision_store_settles_horizons_and_calculates_accuracy(tmp_path):
     assert performance.ai_accuracy_4h == 0
 
 
+def test_decision_store_records_virtual_ai_and_baseline_plan(tmp_path):
+    store = AdvisorDecisionStore(str(tmp_path / "decisions.db"))
+    store.record(
+        symbol="SOLUSDT",
+        price=100,
+        deterministic_mode="FLAT",
+        recommended_mode="UP",
+        width_scale=1,
+        cap_scale=.5,
+        confidence=.8,
+        applied=False,
+        policy_status="SHADOW",
+        now=1000,
+    )
+    candles = [
+        [0, 100, 102, 98, 101],
+        [1, 101, 104, 100, 103],
+    ]
+    store.settle(
+        "SOLUSDT",
+        103,
+        now=1000 + 3600,
+        candles_lookup=lambda *_: candles,
+    )
+    row = store.dashboard_summary()["recent"][0]
+    assert row["evaluation"]["1h"]["ai"]["filled"] is True
+    assert row["evaluation"]["1h"]["baseline"]["filled"] is True
+    assert "net_return" in row["evaluation"]["1h"]["ai"]
+    assert "mfe" in row["evaluation"]["1h"]["ai"]
+    assert "mae" in row["evaluation"]["1h"]["ai"]
+
+
 def test_directional_success_has_flat_deadband():
     assert directional_success("UP", 0.002) == 1
     assert directional_success("DOWN", -0.002) == 1
     assert directional_success("FLAT", 0.0005) == 1
     assert directional_success("FLAT", 0.01) == 0
+
+
+def test_virtual_shadow_plan_includes_fill_costs_mfe_and_mae(monkeypatch):
+    monkeypatch.setenv("AI_SHADOW_FEE_PCT", "0.001")
+    monkeypatch.setenv("AI_SHADOW_SLIPPAGE_PCT", "0.001")
+    result = virtual_plan_result(
+        100, "UP", 1, .5,
+        [
+            [0, 100, 102, 99, 101],
+            [1, 101, 104, 100, 103],
+        ],
+    )
+    assert result["filled"] is True
+    assert result["entry"] == 99.5
+    assert result["mfe"] > 0
+    assert result["mae"] < 0
+    assert result["net_return"] == pytest.approx(
+        ((103 / 99.5 - 1) - .004) * .5
+    )
