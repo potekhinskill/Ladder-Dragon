@@ -754,18 +754,31 @@ def ai_status(limit: int = 50):
                     row["name"]
                     for row in connection.execute("PRAGMA table_info(ai_decisions)")
                 }
-                evaluation_expr = (
-                    "evaluation_json" if "evaluation_json" in columns else "'{}'"
-                )
+                expressions = {
+                    "policy_status": (
+                        "policy_status" if "policy_status" in columns else "''"
+                    ),
+                    "policy_reasons": (
+                        "policy_reasons" if "policy_reasons" in columns else "''"
+                    ),
+                    "benchmark_mode": (
+                        "benchmark_mode" if "benchmark_mode" in columns else "''"
+                    ),
+                    "evaluation_json": (
+                        "evaluation_json" if "evaluation_json" in columns else "'{}'"
+                    ),
+                }
                 recent = [
                     dict(row)
                     for row in connection.execute(
                         f"""
                         SELECT symbol,created_at,deterministic_mode AS baseline_mode,
                                recommended_mode,width_scale,cap_scale,confidence,
-                               applied,policy_status AS status,policy_reasons,
-                               benchmark_mode,return_15m,return_1h,return_4h,
-                               {evaluation_expr} AS evaluation_json
+                               applied,{expressions['policy_status']} AS status,
+                               {expressions['policy_reasons']} AS policy_reasons,
+                               {expressions['benchmark_mode']} AS benchmark_mode,
+                               return_15m,return_1h,return_4h,
+                               {expressions['evaluation_json']} AS evaluation_json
                         FROM ai_decisions ORDER BY created_at DESC LIMIT ?
                         """,
                         (limit,),

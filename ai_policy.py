@@ -74,10 +74,12 @@ def apply_safety_policy(
     context: MarketContext,
     recommendation: StrategyRecommendation,
     config: PolicyConfig,
+    *,
+    benchmark_mode: Optional[str] = None,
 ) -> PolicyDecision:
     """Применить правила, которые нельзя оставить на усмотрение prompt."""
     config.validate()
-    benchmark = numeric_regime_benchmark(context)
+    benchmark = benchmark_mode or numeric_regime_benchmark(context)
     reasons: list[str] = []
     result = recommendation
     apply = config.mode == "APPLY"
