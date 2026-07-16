@@ -29,7 +29,7 @@ addopts = "-q"
 testpaths = ["tests"]
 
 [tool.setuptools]
-py-modules = ["binance_testnet_smoke", "exchange_math", "order_identity", "order_recovery", "product_version", "risk_manager", "simulation", "time_safety"]
+py-modules = ["binance_testnet_smoke", "binance_transport", "exchange_math", "executor_config", "executor_stats", "order_identity", "order_recovery", "product_version", "risk_manager", "simulation", "strategy_math", "supervisor_config", "time_safety"]
 
 [tool.setuptools.dynamic]
 version = {attr = "product_version.__version__"}

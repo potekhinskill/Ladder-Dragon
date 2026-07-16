@@ -22,8 +22,12 @@
 
 | Компонент | Назначение |
 | --- | --- |
-| `ai_supervisor.py` | Главный цикл, построение плана, очистка ордеров, position guard и запуск воркеров |
-| `autosize_universal.py` | Исполнение BUY/SELL/OCO для отдельного символа |
+| `ai_supervisor.py` | Главный orchestration loop, очистка ордеров, position guard и запуск воркеров |
+| `autosize_universal.py` | Координация исполнения BUY/SELL/OCO для отдельного символа |
+| `supervisor_config.py`, `executor_config.py` | Построение строгих CLI и проверка конфигурации процессов |
+| `strategy_math.py` | Чистая математика лестниц, EMA, ATR, ADX и panic-сигналов |
+| `binance_transport.py` | Fail-closed HTTP, подпись Binance, DRY-gate и retry/backoff |
+| `executor_stats.py` | Импорт `/myTrades` и точная оценка комиссий в quote-активе |
 | `tools_market.py` | Binance HTTP API, подпись запросов, цены, свечи и торговые фильтры |
 | `tools_stats.py` | Хранение сделок и агрегатов в SQLite |
 | `risk_manager.py`, `risk_ctl.py` | Постоянный circuit breaker, портфельные лимиты и ручной reset |
