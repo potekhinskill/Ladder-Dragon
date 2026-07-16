@@ -382,6 +382,16 @@ def holm_bonferroni(p_values: Sequence[float], alpha: float = 0.05) -> list[bool
     return accepted
 
 
+def approve_production_report(report: dict, *, min_folds: int = 3,
+                              min_lower_ci: Decimal = D("0")) -> dict:
+    """Fail-closed approval: degraded/неустойчивые параметры запрещаются."""
+    returns = report.get("excess_returns", [])
+    ci = report.get("confidence_interval", (D("0"), D("0")))
+    approved = bool(returns) and len(returns) >= min_folds and not report.get("degraded", True) and ci[0] >= min_lower_ci
+    return {"approved": approved, "reason": "approved" if approved else "walk-forward stability gate failed",
+            "folds": len(returns), "confidence_interval": ci}
+
+
 def stress_grid(
     candles: Sequence[Candle],
     config: SimulationConfig,

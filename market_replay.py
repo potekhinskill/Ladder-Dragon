@@ -9,6 +9,8 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from decimal import Decimal
 from typing import Iterable
+import json
+from pathlib import Path
 
 
 @dataclass(frozen=True)
@@ -27,6 +29,8 @@ class MarketEvent:
     trades: tuple[tuple[Decimal, Decimal, str], ...] = ()
     # Идентификаторы внешних заявок, снятых биржей/участником в этом тике.
     cancelled_order_ids: tuple[str, ...] = ()
+    event_type: str = "depthUpdate"
+    exchange_order_updates: tuple[dict, ...] = ()
 
 
 @dataclass
@@ -49,9 +53,14 @@ class ReplayOrder:
 
 class OrderBookReplay:
     """Упрощённый, но детерминированный matching engine для backtest."""
-    def __init__(self, *, latency_ms: int = 0, max_requests_per_minute: int = 1200) -> None:
+    def __init__(self, *, latency_ms: int = 0, max_requests_per_minute: int = 1200,
+                 maker_fee_pct: Decimal = Decimal("0.00075"), taker_fee_pct: Decimal = Decimal("0.001"),
+                 market_impact_bps: Decimal = Decimal("0")) -> None:
         self.latency_ms = max(0, int(latency_ms))
         self.max_requests_per_minute = max(1, int(max_requests_per_minute))
+        self.maker_fee_pct = Decimal(str(maker_fee_pct))
+        self.taker_fee_pct = Decimal(str(taker_fee_pct))
+        self.market_impact_bps = Decimal(str(market_impact_bps))
         self.orders: list[ReplayOrder] = []
         self._request_times: list[int] = []
 
@@ -77,6 +86,12 @@ class OrderBookReplay:
         for order in self.orders:
             if order.order_id in event.cancelled_order_ids:
                 order.cancelled = True
+        for update in event.exchange_order_updates:
+            for order in self.orders:
+                if str(update.get("orderId")) != order.order_id:
+                    continue
+                if str(update.get("status", "")).upper() in {"CANCELED", "EXPIRED", "REJECTED"}:
+                    order.cancelled = True
         # Публичные сделки сначала съедают очередь перед нашей заявкой.
         for trade_price, trade_qty, aggressor in event.trades:
             for order in self.orders:
@@ -98,7 +113,9 @@ class OrderBookReplay:
                 qty = min(order.remaining, level.quantity)
                 if qty > 0:
                     order.remaining -= qty
-                    fills.append((order.order_id, qty, level.price))
+                    impact = self.market_impact_bps / Decimal("100000")
+                    fill_price = level.price * (Decimal("1") + impact if order.side == "BUY" else Decimal("1") - impact)
+                    fills.append((order.order_id, qty, fill_price))
                 if order.remaining <= 0:
                     break
         return fills
@@ -117,5 +134,19 @@ def load_events(rows: Iterable[dict]) -> list[MarketEvent]:
     for row in rows:
         def levels(items):
             return tuple(BookLevel(Decimal(str(item[0])), Decimal(str(item[1]))) for item in items)
-        result.append(MarketEvent(int(row["ts_ms"]), levels(row.get("bids", [])), levels(row.get("asks", []))))
+        result.append(MarketEvent(
+            int(row.get("ts_ms", row.get("E", 0))), levels(row.get("bids", [])), levels(row.get("asks", [])),
+            tuple(tuple(item) for item in row.get("trades", [])), tuple(str(item) for item in row.get("cancelled_order_ids", [])),
+            str(row.get("event_type", row.get("e", "depthUpdate"))), tuple(row.get("exchange_order_updates", [])),
+        ))
     return result
+
+
+def load_jsonl_archive(path: str | Path) -> list[MarketEvent]:
+    """Загрузить сохранённый Binance depth/trade/executionReport JSONL архив."""
+    events: list[MarketEvent] = []
+    with Path(path).open(encoding="utf-8") as handle:
+        for line in handle:
+            if line.strip():
+                events.extend(load_events([json.loads(line)]))
+    return sorted(events, key=lambda event: event.ts_ms)

@@ -5,6 +5,8 @@ from __future__ import annotations
 from math import sqrt
 from statistics import NormalDist
 from typing import Iterable, Mapping, Sequence
+import json
+from pathlib import Path
 
 
 def log_returns(prices: Sequence[float]) -> list[float]:
@@ -153,3 +155,13 @@ def allocate_cap_by_marginal_risk(total_cap: float, contributions: Mapping[str, 
     weights = {symbol: 1.0 / max(float(value), 1e-12) for symbol, value in contributions.items()}
     denominator = sum(weights.values()) or 1.0
     return {symbol: max(float(minimum_cap), total * weight / denominator) for symbol, weight in weights.items()}
+
+
+def load_tail_losses(path: str | Path) -> list[float]:
+    """Загрузить исторические portfolio loss observations из JSON/JSONL."""
+    source = Path(path)
+    if source.suffix.lower() == ".jsonl":
+        return [float(json.loads(line)["loss"]) for line in source.read_text().splitlines() if line.strip()]
+    payload = json.loads(source.read_text())
+    values = payload.get("losses", payload) if isinstance(payload, (dict, list)) else []
+    return [float(value) for value in values]
