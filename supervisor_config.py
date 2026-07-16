@@ -143,6 +143,9 @@ def build_supervisor_parser() -> argparse.ArgumentParser:
     ap.add_argument("--ai-width-scale-max", type=float, default=float(os.getenv("AI_WIDTH_SCALE_MAX", "1.50")))
     ap.add_argument("--ai-cap-scale-min", type=float, default=float(os.getenv("AI_CAP_SCALE_MIN", "0.25")))
     ap.add_argument("--ai-cap-scale-max", type=float, default=float(os.getenv("AI_CAP_SCALE_MAX", "1.25")))
+    ap.add_argument("--ai-usage-log", default=os.getenv("AI_USAGE_LOG", ".runtime/ai_usage.ndjson"))
+    ap.add_argument("--ai-usage-log-max-bytes", type=int,
+                    default=int(os.getenv("AI_USAGE_LOG_MAX_BYTES", "5242880")))
 
     ap.add_argument("--pos-guard-enable", action="store_true")
     ap.add_argument("--pos-max-base-map", default="", help="SYM:base_qty,... напр. SOLUSDT:0.50,ETHUSDT:0.020")
@@ -294,6 +297,8 @@ def validate_supervisor_args(parser: argparse.ArgumentParser, args: argparse.Nam
         parser.error("--flatten-force requires --flatten-enable")
     if args.ai_timeout_sec <= 0:
         parser.error("--ai-timeout-sec must be > 0")
+    if args.ai_usage_log_max_bytes <= 0:
+        parser.error("--ai-usage-log-max-bytes must be > 0")
     if not 0 <= args.ai_min_confidence <= 1:
         parser.error("--ai-min-confidence must be in [0, 1]")
     if not 0 < args.ai_width_scale_min <= args.ai_width_scale_max <= 3:

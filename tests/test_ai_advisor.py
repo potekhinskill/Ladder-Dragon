@@ -1,4 +1,5 @@
 import json
+from decimal import Decimal
 
 import pytest
 
@@ -6,7 +7,10 @@ from ai_advisor import (
     AIAdvisor,
     AdvisorConfig,
     MarketContext,
+    TokenUsage,
+    estimate_usage_cost_usd,
     limit_cap_by_recommendation,
+    token_prices,
     validate_recommendation,
 )
 
@@ -19,7 +23,16 @@ class FakeResponse:
         return None
 
     def json(self):
-        return self.payload
+        return {
+            **self.payload,
+            "usage": {
+                "prompt_tokens": 200,
+                "prompt_cache_hit_tokens": 50,
+                "prompt_cache_miss_tokens": 150,
+                "completion_tokens": 40,
+                "total_tokens": 240,
+            },
+        }
 
 
 class FakeSession:
@@ -168,3 +181,45 @@ def test_schema_rejects_boolean_numbers_and_out_of_range_values():
 def test_ai_cap_can_reduce_but_never_expand_risk_manager_cap():
     assert limit_cap_by_recommendation(40.0, 0.5) == 20.0
     assert limit_cap_by_recommendation(40.0, 1.25) == 40.0
+
+
+def test_deepseek_usage_is_logged_without_prompt_or_response(tmp_path):
+    usage_log = tmp_path / "ai_usage.ndjson"
+    session = FakeSession(
+        {
+            "mode": "UP",
+            "ladder_width_scale": 1.0,
+            "cap_scale": 0.8,
+            "confidence": 0.9,
+            "rationale": "Trend confirmed.",
+        }
+    )
+    advisor = AIAdvisor(
+        config(usage_log_path=str(usage_log)),
+        session=session,
+        logger=lambda _: None,
+    )
+
+    assert advisor.recommend(context()) is not None
+    event = json.loads(usage_log.read_text().strip())
+
+    assert event["prompt_cache_hit_tokens"] == 50
+    assert event["prompt_cache_miss_tokens"] == 150
+    assert event["completion_tokens"] == 40
+    assert event["estimated_cost_usd"] == "0.0000323400"
+    assert "rationale" not in event
+    assert "api_key" not in event
+    assert "messages" not in event
+
+
+def test_deepseek_flash_cost_uses_cache_hit_miss_and_output_rates():
+    usage = TokenUsage(
+        prompt_tokens=1_000_000,
+        prompt_cache_hit_tokens=400_000,
+        prompt_cache_miss_tokens=600_000,
+        completion_tokens=100_000,
+        total_tokens=1_100_000,
+    )
+    assert estimate_usage_cost_usd(
+        usage, token_prices(config())
+    ) == Decimal("0.1131200000")

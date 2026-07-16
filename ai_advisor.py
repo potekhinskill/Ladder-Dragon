@@ -9,7 +9,11 @@
 from __future__ import annotations
 
 from dataclasses import asdict, dataclass, field
+from datetime import datetime, timezone
+from decimal import Decimal
 import json
+import os
+from pathlib import Path
 import time
 from typing import Any, Callable, Mapping, Optional
 
@@ -33,6 +37,11 @@ class AdvisorConfig:
     width_scale_max: float = 1.50
     cap_scale_min: float = 0.25
     cap_scale_max: float = 1.25
+    usage_log_path: str = ""
+    usage_log_max_bytes: int = 5_242_880
+    input_cache_hit_usd_per_mtok: Optional[float] = None
+    input_cache_miss_usd_per_mtok: Optional[float] = None
+    output_usd_per_mtok: Optional[float] = None
 
     def validate(self) -> None:
         if not self.enabled:
@@ -53,6 +62,15 @@ class AdvisorConfig:
             raise ValueError("AI ladder width bounds must satisfy 0 < min <= max <= 3")
         if not 0 < self.cap_scale_min <= self.cap_scale_max <= 2:
             raise ValueError("AI CAP bounds must satisfy 0 < min <= max <= 2")
+        if self.usage_log_max_bytes <= 0:
+            raise ValueError("AI usage log max bytes must be > 0")
+        for value in (
+            self.input_cache_hit_usd_per_mtok,
+            self.input_cache_miss_usd_per_mtok,
+            self.output_usd_per_mtok,
+        ):
+            if value is not None and value < 0:
+                raise ValueError("AI token prices must be >= 0")
 
 
 @dataclass(frozen=True)
@@ -81,6 +99,15 @@ class StrategyRecommendation:
     rationale: str
     provider: str
     model: str
+
+
+@dataclass(frozen=True)
+class TokenUsage:
+    prompt_tokens: int
+    prompt_cache_hit_tokens: int
+    prompt_cache_miss_tokens: int
+    completion_tokens: int
+    total_tokens: int
 
 
 class AIAdvisor:
@@ -114,13 +141,21 @@ class AIAdvisor:
         cached = self._cache.get(context.symbol)
         if cached is not None and now - cached[0] <= self.config.cache_sec:
             return cached[1]
+        started = time.monotonic()
+        usage: Optional[TokenUsage] = None
         try:
-            payload = self._request(context)
+            payload, usage = self._request(context)
             recommendation = validate_recommendation(
                 payload,
                 config=self.config,
             )
             if recommendation.confidence < self.config.min_confidence:
+                self._log_usage(
+                    context,
+                    usage,
+                    latency_ms=(time.monotonic() - started) * 1000,
+                    outcome="low_confidence",
+                )
                 self.logger(
                     f"[AI-ADVISOR] {context.symbol} ignored: confidence "
                     f"{recommendation.confidence:.2f} < "
@@ -128,11 +163,23 @@ class AIAdvisor:
                 )
                 self._cache[context.symbol] = (now, None)
                 return None
+            self._log_usage(
+                context,
+                usage,
+                latency_ms=(time.monotonic() - started) * 1000,
+                outcome="applied",
+            )
             self._cache[context.symbol] = (now, recommendation)
             return recommendation
         except (requests.RequestException, ValueError, KeyError, TypeError) as exc:
             # Рекомендательный слой fail-safe: при любой ошибке используется
             # проверенная детерминированная стратегия, торговля не зависит от LLM.
+            self._log_usage(
+                context,
+                usage,
+                latency_ms=(time.monotonic() - started) * 1000,
+                outcome="error",
+            )
             self.logger(
                 f"[AI-ADVISOR] {context.symbol} unavailable: {exc}; "
                 "using deterministic strategy"
@@ -140,7 +187,9 @@ class AIAdvisor:
             self._cache[context.symbol] = (now, None)
             return None
 
-    def _request(self, context: MarketContext) -> Mapping[str, object]:
+    def _request(
+        self, context: MarketContext
+    ) -> tuple[Mapping[str, object], TokenUsage]:
         endpoint = self.config.base_url.rstrip("/") + "/chat/completions"
         system_prompt = (
             "You are a conservative advisory component for a Binance Spot grid "
@@ -189,6 +238,7 @@ class AIAdvisor:
         )
         response.raise_for_status()
         envelope = response.json()
+        usage = parse_token_usage(envelope)
         choices = envelope.get("choices") if isinstance(envelope, dict) else None
         if not isinstance(choices, list) or not choices:
             raise ValueError("AI response has no choices")
@@ -199,7 +249,54 @@ class AIAdvisor:
         decoded = json.loads(content)
         if not isinstance(decoded, dict):
             raise ValueError("AI response must be a JSON object")
-        return decoded
+        return decoded, usage
+
+    def _log_usage(
+        self,
+        context: MarketContext,
+        usage: Optional[TokenUsage],
+        *,
+        latency_ms: float,
+        outcome: str,
+    ) -> None:
+        """Записать технический расход без промпта, ответа и торговых данных."""
+        if not self.config.usage_log_path:
+            return
+        rates = token_prices(self.config)
+        estimated_usd = (
+            estimate_usage_cost_usd(usage, rates) if usage is not None else None
+        )
+        event = {
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "provider": self.config.provider,
+            "model": self.config.model,
+            "symbol": context.symbol,
+            "outcome": outcome,
+            "latency_ms": round(latency_ms, 1),
+            "prompt_tokens": usage.prompt_tokens if usage is not None else None,
+            "prompt_cache_hit_tokens": (
+                usage.prompt_cache_hit_tokens if usage is not None else None
+            ),
+            "prompt_cache_miss_tokens": (
+                usage.prompt_cache_miss_tokens if usage is not None else None
+            ),
+            "completion_tokens": (
+                usage.completion_tokens if usage is not None else None
+            ),
+            "total_tokens": usage.total_tokens if usage is not None else None,
+            "estimated_cost_usd": (
+                str(estimated_usd) if estimated_usd is not None else None
+            ),
+        }
+        try:
+            append_usage_event(
+                Path(self.config.usage_log_path),
+                event,
+                max_bytes=self.config.usage_log_max_bytes,
+            )
+        except OSError as exc:
+            # Телеметрия стоимости не должна влиять на стратегию или торговлю.
+            self.logger(f"[AI-USAGE] cannot write usage log: {exc}")
 
 
 def validate_recommendation(
@@ -259,6 +356,82 @@ def _strict_number(value: object, name: str) -> float:
     if result != result or result in (float("inf"), float("-inf")):
         raise ValueError(f"AI {name} must be finite")
     return result
+
+
+def parse_token_usage(envelope: object) -> TokenUsage:
+    if not isinstance(envelope, dict) or not isinstance(envelope.get("usage"), dict):
+        raise ValueError("AI response has no token usage")
+    usage = envelope["usage"]
+
+    def token_count(name: str, default: int = 0) -> int:
+        value = usage.get(name, default)
+        if isinstance(value, bool) or not isinstance(value, int) or value < 0:
+            raise ValueError(f"AI usage {name} must be a non-negative integer")
+        return value
+
+    prompt = token_count("prompt_tokens")
+    hit = token_count("prompt_cache_hit_tokens")
+    miss = token_count("prompt_cache_miss_tokens", max(0, prompt - hit))
+    completion = token_count("completion_tokens")
+    total = token_count("total_tokens", prompt + completion)
+    if hit + miss != prompt or total != prompt + completion:
+        raise ValueError("AI token usage totals are inconsistent")
+    return TokenUsage(prompt, hit, miss, completion, total)
+
+
+def token_prices(
+    config: AdvisorConfig,
+) -> Optional[tuple[Decimal, Decimal, Decimal]]:
+    defaults = {
+        ("deepseek", "deepseek-v4-flash"): ("0.0028", "0.14", "0.28"),
+        ("deepseek", "deepseek-v4-pro"): ("0.003625", "0.435", "0.87"),
+    }
+    fallback = defaults.get((config.provider, config.model))
+    values = (
+        config.input_cache_hit_usd_per_mtok,
+        config.input_cache_miss_usd_per_mtok,
+        config.output_usd_per_mtok,
+    )
+    if all(value is not None for value in values):
+        return tuple(Decimal(str(value)) for value in values)  # type: ignore[return-value]
+    if fallback is None:
+        return None
+    return tuple(Decimal(value) for value in fallback)
+
+
+def estimate_usage_cost_usd(
+    usage: TokenUsage,
+    rates: Optional[tuple[Decimal, Decimal, Decimal]],
+) -> Optional[Decimal]:
+    if rates is None:
+        return None
+    hit_rate, miss_rate, output_rate = rates
+    million = Decimal("1000000")
+    cost = (
+        Decimal(usage.prompt_cache_hit_tokens) * hit_rate
+        + Decimal(usage.prompt_cache_miss_tokens) * miss_rate
+        + Decimal(usage.completion_tokens) * output_rate
+    ) / million
+    return cost.quantize(Decimal("0.0000000001"))
+
+
+def append_usage_event(
+    path: Path,
+    event: Mapping[str, object],
+    *,
+    max_bytes: int,
+) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    if path.exists() and path.stat().st_size >= max_bytes:
+        rotated = path.with_suffix(path.suffix + ".1")
+        try:
+            rotated.unlink()
+        except FileNotFoundError:
+            pass
+        os.replace(path, rotated)
+    line = json.dumps(event, ensure_ascii=False, sort_keys=True) + "\n"
+    with path.open("a", encoding="utf-8") as handle:
+        handle.write(line)
 
 
 def limit_cap_by_recommendation(risk_safe_cap: float, cap_scale: float) -> float:

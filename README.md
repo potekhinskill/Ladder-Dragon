@@ -122,6 +122,7 @@ AI_PROVIDER=deepseek
 AI_MODEL=deepseek-v4-flash
 AI_BASE_URL=https://api.deepseek.com
 DEEPSEEK_API_KEY=ваш_ключ
+AI_USAGE_LOG=.runtime/ai_usage.ndjson
 ```
 
 Для OpenAI достаточно заменить provider и ключ:
@@ -141,6 +142,16 @@ OPENAI_API_KEY=ваш_ключ
 ```bash
 python ai_advisor_smoke.py --provider deepseek
 ```
+
+Расход каждого фактического запроса пишется в `AI_USAGE_LOG` в формате NDJSON:
+модель, символ, outcome, latency, prompt/cache/completion tokens и оценка USD.
+Промпт, ответ модели, ключи и торговые данные в журнал не записываются. При
+достижении `AI_USAGE_LOG_MAX_BYTES` текущий файл переносится в `.1`.
+
+Для DeepSeek V4 Flash встроена оценка по официальным тарифам за 1 млн токенов:
+cache-hit input `$0.0028`, cache-miss input `$0.14`, output `$0.28`. Тарифы
+можно переопределить через `AI_INPUT_CACHE_HIT_USD_PER_MTOK`,
+`AI_INPUT_CACHE_MISS_USD_PER_MTOK` и `AI_OUTPUT_USD_PER_MTOK`.
 
 ## Проверка кода
 

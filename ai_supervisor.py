@@ -125,6 +125,15 @@ def _build_ai_advisor(args: argparse.Namespace) -> Optional[AIAdvisor]:
         width_scale_max=float(args.ai_width_scale_max),
         cap_scale_min=float(args.ai_cap_scale_min),
         cap_scale_max=float(args.ai_cap_scale_max),
+        usage_log_path=args.ai_usage_log,
+        usage_log_max_bytes=int(args.ai_usage_log_max_bytes),
+        input_cache_hit_usd_per_mtok=getenv_float(
+            "AI_INPUT_CACHE_HIT_USD_PER_MTOK"
+        ),
+        input_cache_miss_usd_per_mtok=getenv_float(
+            "AI_INPUT_CACHE_MISS_USD_PER_MTOK"
+        ),
+        output_usd_per_mtok=getenv_float("AI_OUTPUT_USD_PER_MTOK"),
     )
     return AIAdvisor(
         config,
