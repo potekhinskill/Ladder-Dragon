@@ -17,7 +17,7 @@ import argparse
 import subprocess
 import json
 import sqlite3
-from dataclasses import asdict
+from dataclasses import asdict, replace
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 from pathlib import Path
@@ -44,6 +44,7 @@ from ai_policy import (
 )
 from ai_statistical import context_vector
 from ai_runtime_status import write_runtime_status
+from ai_control import read_ai_control
 from order_identity import client_order_id
 from risk_manager import RiskDecision, RiskLimits, RiskManager, RiskSnapshot, load_daily_trade_metrics, money
 from risk_statistics import (
@@ -111,6 +112,7 @@ _AI_DECISIONS: Optional[AdvisorDecisionStore] = None
 _AI_POLICY: Optional[PolicyConfig] = None
 _AI_RUNTIME_STATUS_PATH: Optional[Path] = None
 _AI_RUNTIME_STATUS: Dict[str, Any] = {}
+_AI_CONTROL_PATH: Optional[Path] = None
 
 
 def env_flag(name: str, default: bool = False) -> bool:
@@ -221,6 +223,42 @@ def _publish_ai_runtime_status(**updates: Any) -> None:
         write_runtime_status(_AI_RUNTIME_STATUS_PATH, _AI_RUNTIME_STATUS)
     except OSError as exc:
         dbg(f"[AI-STATUS] write failed: {exc}")
+
+
+def _refresh_ai_control(args: argparse.Namespace) -> None:
+    """Применить переключатель дашборда; повреждённый файл отключает AI."""
+    global _AI_POLICY
+    if _AI_CONTROL_PATH is None or _AI_POLICY is None:
+        return
+    configured_mode = args.ai_mode if args.ai_advisor else "DISABLED"
+    control_error = None
+    try:
+        control = read_ai_control(_AI_CONTROL_PATH)
+    except (OSError, TypeError, ValueError, json.JSONDecodeError) as exc:
+        control = {"enabled": False, "mode": "DISABLED"}
+        control_error = str(exc)
+    if control is None:
+        effective_mode = configured_mode
+        control_enabled = configured_mode != "DISABLED"
+    else:
+        control_enabled = bool(control.get("enabled"))
+        effective_mode = configured_mode if control_enabled else "DISABLED"
+    previous_mode = _AI_POLICY.mode
+    if effective_mode != previous_mode:
+        _AI_POLICY = replace(_AI_POLICY, mode=effective_mode)
+        log(f"[AI-CONTROL] mode={effective_mode}")
+        if effective_mode == "DISABLED" and previous_mode != "DISABLED":
+            # Уже запущенные дети могли получить AI-параметры; перезапускаем
+            # их, чтобы следующий план был полностью детерминированным.
+            _stop_children("AI disabled from dashboard")
+    ai_status = _AI_RUNTIME_STATUS.setdefault("ai", {})
+    ai_status.update({
+        "mode": effective_mode,
+        "configured_mode": configured_mode,
+        "control_enabled": control_enabled,
+        "control_error": control_error,
+    })
+    _publish_ai_runtime_status()
 
 
 def dbg(msg: str) -> None:
@@ -1488,7 +1526,7 @@ def run_for_symbol(symbol: str, args: argparse.Namespace) -> None:
     ai_cap_scale = 1.0
     ai_pause_buys = False
     extra_env: Dict[str, str] = {}
-    if _AI_ADVISOR is not None:
+    if _AI_ADVISOR is not None and (_AI_POLICY is None or _AI_POLICY.mode != "DISABLED"):
         ai_context = _build_ai_market_context(
             symbol,
             price=now_p,
@@ -2169,7 +2207,7 @@ def main():
     symbols = validate_supervisor_args(ap, args)
     _configure_venue(args)
     global _AI_ADVISOR, _AI_DECISIONS, _AI_POLICY
-    global _AI_RUNTIME_STATUS_PATH, _AI_RUNTIME_STATUS
+    global _AI_RUNTIME_STATUS_PATH, _AI_RUNTIME_STATUS, _AI_CONTROL_PATH
     decisions_db = (
         os.getenv("AI_TESTNET_DECISIONS_DB", "").strip()
         if args.testnet else args.ai_decisions_db
@@ -2178,8 +2216,23 @@ def main():
         AdvisorDecisionStore(decisions_db)
         if args.ai_advisor else None
     )
+    _AI_CONTROL_PATH = Path(
+        os.getenv(
+            "AI_CONTROL_FILE",
+            str(Path(__file__).resolve().parent / "FastAPI" / "pi-dashboard" / "data" / "ai_control.json"),
+        )
+    )
+    configured_ai_mode = args.ai_mode if args.ai_advisor else "DISABLED"
+    effective_ai_mode = configured_ai_mode
+    try:
+        initial_control = read_ai_control(_AI_CONTROL_PATH)
+        if initial_control is not None and not initial_control.get("enabled", False):
+            effective_ai_mode = "DISABLED"
+    except (OSError, TypeError, ValueError, json.JSONDecodeError):
+        # Повреждённый control-файл не может включить AI.
+        effective_ai_mode = "DISABLED"
     _AI_POLICY = PolicyConfig(
-        mode=args.ai_mode if args.ai_advisor else "DISABLED",
+        mode=effective_ai_mode,
         max_market_age_sec=float(args.ai_max_market_age_sec),
         max_portfolio_age_sec=float(args.ai_max_portfolio_age_sec),
         max_spread_bps=float(args.ai_max_spread_bps),
@@ -2205,7 +2258,10 @@ def main():
         "symbols": symbols,
         "ai": {
             "enabled": _AI_ADVISOR is not None,
-            "mode": args.ai_mode if args.ai_advisor else "DISABLED",
+            "mode": effective_ai_mode,
+            "configured_mode": configured_ai_mode,
+            "control_enabled": effective_ai_mode != "DISABLED",
+            "control_file": str(_AI_CONTROL_PATH),
             "provider": (
                 _AI_ADVISOR.config.provider if _AI_ADVISOR is not None else None
             ),
@@ -2225,6 +2281,7 @@ def main():
         },
     }
     _publish_ai_runtime_status()
+    _refresh_ai_control(args)
     limits = RiskLimits.from_env()
     try:
         _preflight_live(args, symbols, limits)
@@ -2309,10 +2366,14 @@ def main():
     previous_prices: Dict[str, float] = {}
     consecutive_api_failures = 0
     next_runtime_heartbeat = 0.0
+    next_ai_control_check = 0.0
 
     try:
         while True:
             now_loop = time.time()
+            if now_loop >= next_ai_control_check:
+                _refresh_ai_control(args)
+                next_ai_control_check = now_loop + 2.0
             if now_loop >= next_runtime_heartbeat:
                 _publish_ai_runtime_status(
                     state="RUNNING",

@@ -38,6 +38,17 @@ def test_dashboard_publishes_version_and_changelog():
     assert 'FRONT/index.html FRONT/help.html CHANGELOG.md' in updater
 
 
+def test_dashboard_ai_toggle_is_advisory_only():
+    index = read("FRONT/index.html")
+    app = read("FastAPI/pi-dashboard/app.py")
+    supervisor = read("ai_supervisor.py")
+    assert 'id="ai-toggle"' in index
+    assert "POST'," in index and "/api/ai/control" in index
+    assert '@app.post("/api/ai/control")' in app
+    assert "AI advisor is not configured" in app
+    assert "_stop_children(\"AI disabled from dashboard\")" in supervisor
+
+
 def test_managed_service_uses_versionless_wrapper_and_separate_env():
     unit = read("deploy/mybot.service")
     wrapper = read("deploy/run_bot_service.sh")

@@ -21,6 +21,9 @@
   .sub{color:var(--muted);font-size:12px}
   .version-link{color:var(--muted);font-size:12px;text-decoration:none}
   .version-link:hover{text-decoration:underline;color:var(--text)}
+  .ai-toggle{border:1px solid var(--stroke);border-radius:8px;background:var(--panel);color:var(--text);padding:6px 10px;font:inherit;font-size:12px;cursor:pointer}
+  .ai-toggle:hover:not(:disabled){border-color:var(--accent)}
+  .ai-toggle:disabled{cursor:not-allowed;opacity:.55}
 
   /* Карточки KPI */
   .grid-kpi{display:grid;grid-template-columns:repeat(3,1fr);gap:var(--gap)}
@@ -147,7 +150,7 @@
 
     <!-- AI-рекомендатель -->
     <div class="card ai-card">
-      <div class="row"><div class="label">AI-рекомендатель</div><div class="pct" id="ai-state">—</div></div>
+      <div class="row"><div class="label">AI-рекомендатель</div><div class="row" style="margin:0;gap:8px"><div class="pct" id="ai-state">—</div><button class="ai-toggle" id="ai-toggle" type="button" disabled>AI —</button></div></div>
       <div class="row"><span>Режим</span><span class="mono" id="ai-mode">—</span></div>
       <div class="row"><span>Контур</span><span class="mono" id="ai-venue">—</span></div>
       <div class="row"><span>Модель</span><span class="mono" id="ai-model">—</span></div>
@@ -533,11 +536,12 @@ function updateFilled24h(resp){
 
 async function refresh(){
   try{
-    const [h, hist, sum, ai] = await Promise.all([
+    const [h, hist, sum, ai, aiControl] = await Promise.all([
       getJSON('/api/health'),
       getJSON('/api/history?hours=24&points=288'),
       getTradeSummary24h(),
-      getJSON('/api/ai/status?limit=100')
+      getJSON('/api/ai/status?limit=100'),
+      getJSON('/api/ai/control')
     ]);
     updateKpis(h);
     updateCharts(hist);
@@ -557,10 +561,40 @@ async function refresh(){
       : 'нет данных';
     $('#ai-tokens').textContent = ai.usage_today?.tokens ?? 0;
     $('#ai-cost').textContent = `$${Number(ai.usage_today?.cost_usd || 0).toFixed(6)}`;
+    const toggle = $('#ai-toggle');
+    const enabled = Boolean(aiControl.enabled);
+    toggle.disabled = !aiControl.configured;
+    toggle.dataset.enabled = enabled ? 'true' : 'false';
+    toggle.textContent = !aiControl.configured ? 'AI не настроен' : (enabled ? 'Выключить AI' : 'Включить AI');
   }catch(e){
     $('#footer').textContent = 'Ошибка API: ' + e;
   }
 }
+
+async function toggleAI(){
+  const button = $('#ai-toggle');
+  if (button.disabled) return;
+  const enabled = button.dataset.enabled === 'true';
+  const action = enabled ? 'отключить' : 'включить';
+  if (!window.confirm(`Подтвердить: ${action} AI-рекомендатель?`)) return;
+  button.disabled = true;
+  try{
+    const response = await fetch('/api/ai/control', {
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({enabled:!enabled}),
+      cache:'no-store'
+    });
+    const payload = await response.json();
+    if (!response.ok) throw new Error(payload.error || response.status);
+    await refresh();
+  }catch(e){
+    $('#footer').textContent = 'Не удалось изменить AI: ' + e;
+    button.disabled = false;
+  }
+}
+
+$('#ai-toggle').addEventListener('click', toggleAI);
 
 /* отдельное обновление, чтобы не править существующий refresh() */
 async function refreshOrders(){
