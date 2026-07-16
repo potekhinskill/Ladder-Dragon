@@ -23,6 +23,9 @@ def test_nginx_requires_auth_and_never_publishes_backups():
     assert "alias /var/lib/ladder-dragon/logs/" in site
     assert "autoindex on" in site
     assert "charset utf-8;" in site
+    assert "location = /CHANGELOG.md" in site
+    assert 'default_type text/plain;' in site
+    assert 'Content-Disposition "inline"' in site
 
 
 def test_dashboard_publishes_version_and_changelog():
