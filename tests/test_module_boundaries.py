@@ -53,6 +53,7 @@ def test_supervisor_config_owns_parser_and_validation(tmp_path):
         "--symbols", "SOLUSDT,ETHUSDT",
     ])
     assert validate_supervisor_args(parser, args) == ["SOLUSDT", "ETHUSDT"]
+    assert args.oco_fallback == "halt"
 
 
 def test_shared_strategy_math_has_no_runtime_dependencies():
