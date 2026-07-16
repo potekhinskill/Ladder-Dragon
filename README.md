@@ -2,7 +2,7 @@
 
 Приватный Python-проект для управления лестничной торговлей на Binance Spot. Бот строит адаптивные сетки BUY/SELL, учитывает ATR, EMA и VWAP, управляет OCO-ордерами и сохраняет торговую статистику в SQLite.
 
-Текущая версия продукта: **2.0.1**. Ladder Dragon использует [Semantic Versioning](https://semver.org/); единственный источник версии — `product_version.py`. Проверить установленную версию можно командой `python ai_supervisor.py --version`.
+Текущая версия продукта: **2.0.2**. Ladder Dragon использует [Semantic Versioning](https://semver.org/); единственный источник версии — `product_version.py`. Проверить установленную версию можно командой `python ai_supervisor.py --version`.
 
 > [!WARNING]
 > Проект работает с реальными биржевыми ордерами. Это не инвестиционная рекомендация. DRY является режимом по умолчанию, а любые изменяющие Binance-запросы дополнительно блокируются на уровне транспорта. Тем не менее перед Mainnet LIVE обязателен отдельный прогон на Binance Spot Testnet и ручная проверка лимитов.
@@ -28,6 +28,7 @@
 | `strategy_math.py` | Чистая математика лестниц, EMA, ATR, ADX и panic-сигналов |
 | `binance_transport.py` | Fail-closed HTTP, подпись Binance, DRY-gate и retry/backoff |
 | `executor_market.py` | Чтение цен, балансов и base/quote активов с fallback и кэшем |
+| `executor_orders.py` | Идемпотентное размещение LIMIT/OCO и fail-closed восстановление ACK |
 | `executor_recovery.py` | Query/cancel ордеров, проверка OCO и восстановление после рестарта |
 | `executor_stats.py` | Импорт `/myTrades` и точная оценка комиссий в quote-активе |
 | `tools_market.py` | Binance HTTP API, подпись запросов, цены, свечи и торговые фильтры |

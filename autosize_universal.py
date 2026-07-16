@@ -76,7 +76,6 @@ from decimal import Decimal
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 import tools_market as TM
-from order_identity import client_order_id
 from order_recovery import OrderIntent, OrderJournal, TERMINAL_EXCHANGE_STATES
 from exchange_math import round_step
 from risk_manager import create_manual_halt
@@ -91,6 +90,9 @@ from binance_transport import BinanceTransport
 from executor_market import get_balances as market_get_balances
 from executor_market import get_price as market_get_price
 from executor_market import get_symbol_assets as market_get_symbol_assets
+from executor_orders import OrderDependencies
+from executor_orders import place_limit_order as orders_place_limit_order
+from executor_orders import place_oco_sell as orders_place_oco_sell
 from executor_recovery import RecoveryDependencies
 from executor_recovery import cancel_oco as recovery_cancel_oco
 from executor_recovery import cancel_order as recovery_cancel_order
@@ -698,6 +700,28 @@ def get_order(symbol: str, order_id: int) -> Dict[str, Any] | None:
         logger=log,
     )
 
+
+def _order_dependencies() -> OrderDependencies:
+    return OrderDependencies(
+        live=lambda: LIVE_MODE,
+        logger=log,
+        pull_filters=pull_filters,
+        round_price=round_price,
+        round_qty=round_qty,
+        min_qty=min_qty,
+        min_notional=min_notional,
+        format_price=fmt_price_sym,
+        format_qty=fmt_qty_sym,
+        journal=_order_journal,
+        signed_request=_signed_request,
+        get_order_by_client_id=get_order_by_client_id,
+        get_order_list_by_client_id=get_order_list_by_client_id,
+        verify_oco_legs=verify_oco_legs,
+        cancel_oco=cancel_oco,
+        halt=_trip_execution_halt,
+    )
+
+
 def place_limit_order(side: str,
                       symbol: str,
                       qty: float,
@@ -706,117 +730,16 @@ def place_limit_order(side: str,
                       maker: bool = False,
                       purpose: str = "ladder",
                       parent_client_order_id: Optional[str] = None) -> Dict[str, Any] | None:
-    if not LIVE_MODE:
-        log(f"[DRY] skip LIMIT {symbol} {side.upper()} {qty:.8f} @ {price:.8f}")
-        return None
-    # округлим к шагам
-    pull_filters(symbol)
-    price = round_price(symbol, price)
-    qty = round_qty(symbol, qty)
-
-    # уважим minQty/minNotional
-    if qty < min_qty(symbol, 0):
-        return None
-    if qty * price < min_notional(symbol, price):
-        need = min_notional(symbol, price) / price
-        need = round_qty(symbol, max(need, min_qty(symbol, 0)))
-        if need <= 0:
-            return None
-        qty = need
-
-    qty_s = fmt_qty_sym(symbol, qty)
-    price_s = fmt_price_sym(symbol, price)
-    journal = _order_journal()
-    active = journal.find_active(
-        symbol=symbol,
-        side=side,
+    return orders_place_limit_order(
+        side,
+        symbol,
+        qty,
+        price,
+        dependencies=_order_dependencies(),
+        maker=maker,
         purpose=purpose,
-        quantity=qty_s,
-        price=price_s,
-    ) if journal is not None else None
-    if active is not None:
-        try:
-            existing = get_order_by_client_id(symbol, active.client_order_id)
-        except requests.RequestException as exc:
-            journal.mark_unknown(active.client_order_id, exc)
-            raise
-        if existing is not None:
-            updated = journal.record_exchange_order(active.client_order_id, existing)
-            if updated.state not in TERMINAL_EXCHANGE_STATES:
-                log(
-                    f"[IDEMPOTENT] reuse {symbol} {side} client={active.client_order_id} "
-                    f"order={updated.exchange_order_id} state={updated.state}"
-                )
-                return existing
-            active = None
-
-    generated_id = client_order_id(symbol, side, purpose, price_s, qty_s)
-    if journal is not None and journal.get(generated_id) is not None:
-        generated_id = client_order_id(
-            symbol,
-            side,
-            f"{purpose}-{time.time_ns()}",
-            price_s,
-            qty_s,
-            bucket_seconds=1,
-        )
-    order_client_id = active.client_order_id if active is not None else generated_id
-    if journal is not None:
-        journal.prepare(
-            client_order_id=order_client_id,
-            symbol=symbol,
-            side=side,
-            purpose=purpose,
-            order_type=("LIMIT_MAKER" if maker else "LIMIT"),
-            quantity=qty_s,
-            price=price_s,
-            parent_client_order_id=parent_client_order_id,
-        )
-
-    params = {
-        "symbol": symbol,
-        "side": side,
-        "type": ("LIMIT_MAKER" if maker else "LIMIT"),
-        "quantity": qty_s,
-        "price": price_s,
-        "newOrderRespType": "RESULT",
-        "newClientOrderId": order_client_id,
-    }
-    if not maker:
-        params["timeInForce"] = "GTC"
-
-    try:
-        j = _signed_request("POST", "/api/v3/order", params)
-        if isinstance(j, dict):
-            j.setdefault("clientOrderId", order_client_id)
-            if journal is not None:
-                journal.record_exchange_order(order_client_id, j)
-        oid = j.get("orderId")
-        log(f"[PLACE] {symbol} {side} {qty_s} @ {price_s} client={order_client_id} order={oid}")
-        return j
-    except requests.RequestException as e:
-        if journal is not None:
-            journal.mark_unknown(order_client_id, e)
-            try:
-                reconciled = get_order_by_client_id(symbol, order_client_id)
-            except requests.RequestException:
-                reconciled = None
-            if reconciled is not None:
-                journal.record_exchange_order(order_client_id, reconciled)
-                log(f"[IDEMPOTENT] recovered uncertain POST client={order_client_id}")
-                return reconciled
-            _trip_execution_halt(
-                f"uncertain order submission has no exchange confirmation: {order_client_id}",
-                symbol=symbol,
-                side=side,
-                client_order_id=order_client_id,
-            )
-        try:
-            err = e.response.json()
-            log(f"[ERR] place_limit_order: HTTP {e.response.status_code} {json.dumps(err)}")
-        except Exception:
-            log(f"[ERR] place_limit_order: {e}")
-        raise
+        parent_client_order_id=parent_client_order_id,
+    )
 
 def place_oco_sell(symbol: str,
                    qty: float,
@@ -825,155 +748,15 @@ def place_oco_sell(symbol: str,
                    sl_limit_price: float,
                    *,
                    parent_client_order_id: Optional[str] = None) -> Dict[str, Any] | None:
-    """
-    Создаёт OCO SELL: LIMIT по tp_limit_price и STOP_LOSS_LIMIT по sl_stop_price/sl_limit_price.
-    Все цены и qty должны быть уже округлены и проверены на minNotional.
-    """
-    if not LIVE_MODE:
-        log(f"[DRY] skip OCO {symbol} SELL {qty:.8f}")
-        return None
-    pull_filters(symbol)
-    q  = fmt_qty_sym(symbol, round_qty(symbol, qty))
-    tp = fmt_price_sym(symbol, round_price(symbol, tp_limit_price))
-    sp = fmt_price_sym(symbol, round_price(symbol, sl_stop_price))
-    sl = fmt_price_sym(symbol, round_price(symbol, sl_limit_price))
-
-    journal = _order_journal()
-    purpose = f"oco:{parent_client_order_id[:12]}" if parent_client_order_id else "oco"
-    active = journal.find_active(
-        symbol=symbol,
-        side="SELL",
-        purpose=purpose,
-        quantity=q,
-        price=tp,
-    ) if journal is not None else None
-    list_client_id = (
-        active.client_order_id
-        if active is not None
-        else client_order_id(symbol, "SELL", purpose, tp, q)
+    return orders_place_oco_sell(
+        symbol,
+        qty,
+        tp_limit_price,
+        sl_stop_price,
+        sl_limit_price,
+        dependencies=_order_dependencies(),
+        parent_client_order_id=parent_client_order_id,
     )
-    if active is not None:
-        existing = get_order_list_by_client_id(list_client_id)
-        if isinstance(existing, dict) and existing.get("listStatusType") in ("EXEC_STARTED", "ALL_DONE"):
-            order_list_id = existing.get("orderListId")
-            try:
-                verify_oco_legs(symbol, existing)
-            except (requests.RequestException, RuntimeError):
-                if order_list_id is not None:
-                    cancel_oco(symbol, int(order_list_id))
-                raise
-            if journal is not None:
-                journal.record_order_list(list_client_id, existing)
-                if parent_client_order_id:
-                    journal.mark_protected(
-                        parent_client_order_id=parent_client_order_id,
-                        protection_client_order_id=list_client_id,
-                        order_list_id=int(order_list_id) if order_list_id is not None else None,
-                    )
-            log(f"[IDEMPOTENT] reuse OCO {symbol} client={list_client_id} list={order_list_id}")
-            return existing
-    if active is None and journal is not None and journal.get(list_client_id) is not None:
-        list_client_id = client_order_id(
-            symbol,
-            "SELL",
-            f"{purpose}-{time.time_ns()}",
-            tp,
-            q,
-            bucket_seconds=1,
-        )
-    if journal is not None:
-        journal.prepare(
-            client_order_id=list_client_id,
-            symbol=symbol,
-            side="SELL",
-            purpose=purpose,
-            order_type="OCO",
-            quantity=q,
-            price=tp,
-            parent_client_order_id=parent_client_order_id,
-            metadata={"stopPrice": sp, "stopLimitPrice": sl},
-        )
-        if parent_client_order_id:
-            journal.mark_protection_pending(parent_client_order_id)
-
-    params = {
-        "symbol": symbol,
-        "side": "SELL",
-        "quantity": q,
-        "aboveType": "LIMIT_MAKER",
-        "abovePrice": tp,
-        "belowType": "STOP_LOSS_LIMIT",
-        "belowStopPrice": sp,
-        "belowPrice": sl,
-        "belowTimeInForce": "GTC",
-        "newOrderRespType": "RESULT",
-        "listClientOrderId": list_client_id,
-        "aboveClientOrderId": client_order_id(symbol, "SELL", "otp", tp, q),
-        "belowClientOrderId": client_order_id(symbol, "SELL", "osl", sp, q),
-    }
-    try:
-        j = _signed_request("POST", "/api/v3/orderList/oco", params)
-        order_list_id = j.get("orderListId") if isinstance(j, dict) else None
-        if order_list_id is None:
-            raise RuntimeError("OCO response has no orderListId")
-        verified = _signed_request(
-            "GET", "/api/v3/orderList", {"orderListId": int(order_list_id)}
-        )
-        if not isinstance(verified, dict) or verified.get("listStatusType") not in ("EXEC_STARTED", "ALL_DONE"):
-            raise RuntimeError(f"OCO verification failed: {verified}")
-        try:
-            verify_oco_legs(symbol, verified)
-        except (requests.RequestException, RuntimeError):
-            try:
-                _signed_request(
-                    "DELETE",
-                    "/api/v3/orderList",
-                    {"symbol": symbol, "orderListId": int(order_list_id)},
-                )
-            except requests.RequestException:
-                pass
-            raise
-        if isinstance(j, dict):
-            j.setdefault("listClientOrderId", list_client_id)
-        if journal is not None:
-            journal.record_order_list(list_client_id, verified)
-            if parent_client_order_id:
-                journal.mark_protected(
-                    parent_client_order_id=parent_client_order_id,
-                    protection_client_order_id=list_client_id,
-                    order_list_id=int(order_list_id),
-                )
-        log(f"[ATTACH-OCO] {symbol} SELL {q} | TP={tp} / SL stop={sp} limit={sl} verified")
-        return j
-    except (requests.RequestException, RuntimeError) as e:
-        if journal is not None:
-            journal.mark_unknown(list_client_id, e)
-            try:
-                reconciled = get_order_list_by_client_id(list_client_id)
-            except requests.RequestException:
-                reconciled = None
-            if isinstance(reconciled, dict) and reconciled.get("listStatusType") in ("EXEC_STARTED", "ALL_DONE"):
-                order_list_id = reconciled.get("orderListId")
-                try:
-                    verify_oco_legs(symbol, reconciled)
-                except (requests.RequestException, RuntimeError) as verify_exc:
-                    log(f"[ERR] recovered OCO leg verification failed: {verify_exc}")
-                    return None
-                journal.record_order_list(list_client_id, reconciled)
-                if parent_client_order_id:
-                    journal.mark_protected(
-                        parent_client_order_id=parent_client_order_id,
-                        protection_client_order_id=list_client_id,
-                        order_list_id=int(order_list_id) if order_list_id is not None else None,
-                    )
-                log(f"[IDEMPOTENT] recovered uncertain OCO POST client={list_client_id}")
-                return reconciled
-        try:
-            err = e.response.json()
-            log(f"[ERR] place_oco_sell: HTTP {e.response.status_code} {json.dumps(err)}")
-        except (AttributeError, ValueError):
-            log(f"[ERR] place_oco_sell: {e}")
-        return None
 
 # ------------------- STATS (optional) -------------------
 

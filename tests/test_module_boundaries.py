@@ -6,7 +6,9 @@ import requests
 from binance_transport import BinanceTransport
 from executor_config import build_executor_parser, validate_executor_args
 from executor_market import get_balances, get_price, get_symbol_assets
+from executor_orders import OrderDependencies, place_limit_order
 from executor_recovery import get_order_by_client_id, verify_oco_legs
+from order_recovery import OrderJournal
 from strategy_math import (
     adx_from_klines,
     atr_from_klines,
@@ -186,3 +188,31 @@ def test_executor_recovery_queries_and_verifies_oco():
         "LIMIT_MAKER",
         "STOP_LOSS_LIMIT",
     }
+
+
+def test_executor_orders_uses_late_bound_dry_gate(tmp_path):
+    network_calls = []
+    live = {"value": False}
+    journal = OrderJournal(tmp_path / "orders.sqlite3")
+    dependencies = OrderDependencies(
+        live=lambda: live["value"],
+        logger=lambda message: None,
+        pull_filters=lambda symbol: None,
+        round_price=lambda symbol, value: value,
+        round_qty=lambda symbol, value: value,
+        min_qty=lambda symbol, hint: 0.001,
+        min_notional=lambda symbol, price: 5.0,
+        format_price=lambda symbol, value: f"{value:.2f}",
+        format_qty=lambda symbol, value: f"{value:.3f}",
+        journal=lambda: journal,
+        signed_request=lambda *args, **kwargs: network_calls.append(args),
+        get_order_by_client_id=lambda symbol, client_id: None,
+        get_order_list_by_client_id=lambda client_id: None,
+        verify_oco_legs=lambda symbol, payload: [],
+        cancel_oco=lambda symbol, order_list_id: None,
+        halt=lambda reason, **metadata: None,
+    )
+    assert place_limit_order(
+        "BUY", "SOLUSDT", 0.1, 100.0, dependencies=dependencies
+    ) is None
+    assert network_calls == []
