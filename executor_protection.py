@@ -83,7 +83,7 @@ class ProtectionDependencies:
     place_market_order: Optional[Callable[..., Dict[str, Any] | None]] = None
     sleep: Callable[[float], None] = time.sleep
     now: Callable[[], float] = time.time
-    lot_id_for_fill: Optional[Callable[[str, float], int | None]] = None
+    lot_id_for_fill: Optional[Callable[[str, float, int | None], int | None]] = None
 
 
 def emergency_gap_flatten(
@@ -319,7 +319,7 @@ def protect_filled_buys(
                 )
                 continue
 
-            lot_id = dependencies.lot_id_for_fill(symbol, average_fill_price) if dependencies.lot_id_for_fill else None
+            lot_id = dependencies.lot_id_for_fill(symbol, average_fill_price, order_id) if dependencies.lot_id_for_fill else None
             oco = dependencies.place_oco_sell(
                 symbol,
                 quantity,
