@@ -2,7 +2,7 @@
 
 Приватный Python-проект для управления лестничной торговлей на Binance Spot. Бот строит адаптивные сетки BUY/SELL, учитывает ATR, EMA и VWAP, управляет OCO-ордерами и сохраняет торговую статистику в SQLite.
 
-Текущая версия продукта: **2.9.0**. Ladder Dragon использует [Semantic Versioning](https://semver.org/); единственный источник версии — `product_version.py`. Проверить установленную версию можно командой `python ai_supervisor.py --version`.
+Текущая версия продукта: **2.9.1**. Ladder Dragon использует [Semantic Versioning](https://semver.org/); единственный источник версии — `product_version.py`. Проверить установленную версию можно командой `python ai_supervisor.py --version`.
 
 > [!WARNING]
 > Проект работает с реальными биржевыми ордерами. Это не инвестиционная рекомендация. DRY является режимом по умолчанию, а любые изменяющие Binance-запросы дополнительно блокируются на уровне транспорта. Тем не менее перед Mainnet LIVE обязателен отдельный прогон на Binance Spot Testnet и ручная проверка лимитов.
@@ -391,7 +391,9 @@ sudo bash deploy/install_raspberry_pi.sh audit
 
 Пароль dashboard сохраняется с правами `0600` в
 `/root/ladder-dragon-dashboard-credentials.txt`. Архивы находятся только в
-`/var/lib/ladder-dragon/backups`; URL `/backups/` всегда отвечает `404`.
+`/var/lib/ladder-dragon/backups`; защищённый URL `/backups/` показывает только
+копии age-зашифрованных архивов, checksum и inventory без секретов. Открытые
+конфигурации, ключи и расшифрованные архивы через nginx не публикуются.
 SQLite копируется online backup API, а не вместе с несогласованными WAL/SHM.
 Инсталлятор применяет переносимые настройки journald, zram и fail2ban. Старые
 UFW/FTP/сторонние правила и фиксированные tmpfs-размеры намеренно не копируются:
@@ -402,6 +404,11 @@ UFW/FTP/сторонние правила и фиксированные tmpfs-р
 обновляется каждую минуту, ограничен 5 МБ на файл и хранит 7 дней. API keys,
 secrets, tokens, Authorization и Binance signature редактируются до публикации.
 Доступ к сырому journal через dashboard API остаётся выключенным.
+
+Аварийные уведомления Circuit Breaker и ошибок исполнения отправляются в
+Telegram, если на Raspberry настроен `/etc/ladder-dragon/telegram.env`.
+Старый `/etc/bot-alerts.env` автоматически поддерживается при миграции.
+Токены в Git, HTTP-каталог и журналы не попадают.
 
 ### Автоматическое обновление Raspberry Pi
 

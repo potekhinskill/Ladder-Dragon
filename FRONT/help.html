@@ -239,9 +239,9 @@ sudo bash deploy/update_raspberry_pi.sh update</pre>
   <section id="backup" class="grid">
     <article class="card span8">
       <h2>Закрытые бэкапы</h2>
-      <p>Архивы больше не публикуются через nginx. Они содержат конфигурацию,
-        env-файлы и согласованные SQLite-копии и доступны только root локально
-        или через защищённый SSH/SCP.</p>
+      <p>Список age-зашифрованных архивов и безопасного inventory доступен после
+        Basic Auth по адресу <a href="/backups/">/backups/</a>. Расшифрованные
+        env-файлы и ключи через nginx не публикуются.</p>
       <pre class="small">sudo ls -lh /var/lib/ladder-dragon/backups
 sudo sha256sum -c /var/lib/ladder-dragon/backups/ladder-dragon-*.sha256</pre>
     </article>
