@@ -106,3 +106,18 @@ def stress_loss(exposures: Mapping[str, float], *, price_shock: float = -0.05, s
     """Одновременное падение и расширение spread с консервативной стоимостью выхода."""
     gross = sum(max(0.0, float(value)) for value in exposures.values())
     return gross * (max(0.0, -price_shock) + max(0.0, spread_widening))
+
+
+def expected_shortfall(losses: Sequence[float], *, confidence: float = 0.99) -> float:
+    """Historical Expected Shortfall (average tail loss), in positive currency."""
+    values = sorted(max(0.0, float(value)) for value in losses)
+    if not values or not 0 < confidence < 1:
+        return 0.0
+    cutoff = max(0, int(len(values) * confidence))
+    tail = values[cutoff:] or values[-1:]
+    return sum(tail) / len(tail)
+
+
+def marginal_risk_contribution(exposures: Mapping[str, float], *, shock: float = 0.05) -> dict[str, float]:
+    """Консервативный marginal contribution: сколько теряет каждый актив при shock."""
+    return {symbol: max(0.0, float(value)) * max(0.0, shock) for symbol, value in exposures.items()}
