@@ -235,8 +235,8 @@
   <section class="mt">
     <div class="card">
       <div class="row" style="margin-bottom:6px">
-        <div class="label">Логи бота (онлайн)</div>
-        <span id="log-pill" class="pill warn">подключение…</span>
+        <div class="label">Очищенные логи бота · <a href="/logs/" target="_blank">архив</a></div>
+        <span id="log-pill" class="pill warn">загрузка…</span>
       </div>
       <div id="logs" class="logs"></div>
     </div>
@@ -565,57 +565,22 @@ async function refreshOrders(){
 
 function startLogs(){
   const box = $('#logs'), pill = $('#log-pill');
-  // Если ранее что-то писали через textContent — очистим,
-  // дальше работаем как с контейнером строк:
-  box.textContent = '';
-
-  // Храним текущее число строк по факту (по узлам):
-  let lineCount = 0;
-
-  // Утилита: добавить строки батчем и обрезать лишнее
-  function appendLines(lines){
-    if(!lines || !lines.length) return;
-    // Был ли скролл внизу до добавления
-    const atBottom = Math.abs(box.scrollHeight - box.scrollTop - box.clientHeight) < 8;
-
-    // Добавляем батчем для производительности
-    const frag = document.createDocumentFragment();
-    for(const raw of lines){
-      // защитимся от пустых хвостов после split('\n')
-      const line = (raw ?? '').toString();
-      const div = document.createElement('div');
-      div.textContent = line;
-      frag.appendChild(div);
-      lineCount++;
+  async function load(){
+    try{
+      const response = await fetch('/logs/current.log', {cache:'no-store'});
+      if(!response.ok) throw new Error(response.status);
+      const lines = (await response.text()).split('\n').filter(Boolean).slice(-LOG_MAX_LINES);
+      box.replaceChildren(...lines.map(line=>{
+        const div=document.createElement('div'); div.textContent=line; return div;
+      }));
+      box.scrollTop=box.scrollHeight;
+      setPill(pill,'ok'); pill.textContent='очищено';
+    }catch(e){
+      setPill(pill,'warn'); pill.textContent='нет экспорта';
     }
-    box.appendChild(frag);
-
-    // Обрезаем “голову” до лимита
-    while(lineCount > LOG_MAX_LINES && box.firstChild){
-      box.removeChild(box.firstChild);
-      lineCount--;
-    }
-
-    if(atBottom) box.scrollTop = box.scrollHeight;
   }
-
-  const es = new EventSource('/api/bot/logs/stream');
-  es.onopen = ()=>{
-    setPill(pill,'ok'); pill.textContent='online';
-  };
-  es.onmessage = ev=>{
-    // Учтём, что сервер может прислать пачку с переводами строк
-    const chunk = (ev.data || '');
-    // Быстрый выход, если пусто
-    if(!chunk) return;
-    // Разбиваем по \n, но trailing '' от последнего \n отбрасываем
-    const lines = chunk.split('\n');
-    if(lines.length && lines[lines.length-1] === '') lines.pop();
-    appendLines(lines);
-  };
-  es.onerror = ()=>{
-    setPill(pill,'warn'); pill.textContent='reconnect…';
-  };
+  load();
+  setInterval(load, 10000);
 }
 
 refresh(); setInterval(refresh, 5000); startLogs();

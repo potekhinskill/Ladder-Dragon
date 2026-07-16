@@ -110,6 +110,7 @@ BOT_HOME="$(getent passwd "${BOT_USER}" | cut -d: -f6)"
 
 install -d -o "${BOT_USER}" -g "${BOT_USER}" -m 0750 "$(dirname "${PROJECT_DIR}")"
 install -d -m 0700 /var/lib/ladder-dragon/backups
+install -d -o root -g www-data -m 0750 /var/lib/ladder-dragon/logs
 hostnamectl set-hostname "${BOT_HOSTNAME%.local}"
 
 # Временная миграционная копия переживает замену legacy-каталога на Git checkout.
@@ -441,6 +442,10 @@ render_unit "${PROJECT_DIR}/deploy/ladder-dragon-backup.service" \
   /etc/systemd/system/ladder-dragon-backup.service
 install -m 0644 "${PROJECT_DIR}/deploy/ladder-dragon-backup.timer" \
   /etc/systemd/system/ladder-dragon-backup.timer
+render_unit "${PROJECT_DIR}/deploy/ladder-dragon-log-export.service" \
+  /etc/systemd/system/ladder-dragon-log-export.service
+install -m 0644 "${PROJECT_DIR}/deploy/ladder-dragon-log-export.timer" \
+  /etc/systemd/system/ladder-dragon-log-export.timer
 
 runuser -u "${BOT_USER}" -- "${PROJECT_DIR}/.venv/bin/python" -m compileall -q "${PROJECT_DIR}"
 runuser -u "${BOT_USER}" -- "${PROJECT_DIR}/.venv/bin/python" "${PROJECT_DIR}/ai_supervisor.py" --version
@@ -448,18 +453,28 @@ nginx -t
 
 systemctl daemon-reload
 systemctl disable --now make-pi-backup.timer make-pi-backup.service 2>/dev/null || true
-systemctl enable nginx avahi-daemon fail2ban mybot pi-healthd ladder-dragon-backup.timer >/dev/null
+systemctl enable nginx avahi-daemon fail2ban mybot pi-healthd \
+  ladder-dragon-backup.timer ladder-dragon-log-export.timer >/dev/null
 systemctl restart systemd-journald nginx avahi-daemon fail2ban
 systemctl restart zramswap 2>/dev/null || true
 systemctl start mybot pi-healthd ladder-dragon-backup.timer
+systemctl start ladder-dragon-log-export.service ladder-dragon-log-export.timer
 
 sleep 3
 systemctl is-active --quiet nginx || fail "nginx failed"
 systemctl is-active --quiet mybot || fail "mybot failed"
 systemctl is-active --quiet pi-healthd || fail "pi-healthd failed"
+test -r /var/lib/ladder-dragon/logs/current.log || fail "log export failed"
 curl --fail --silent --show-error -u "dashboard:${dashboard_password}" \
   --resolve "${BOT_HOSTNAME}:443:127.0.0.1" --insecure \
   "https://${BOT_HOSTNAME}/api/health" >/dev/null
+anonymous_logs_status="$(
+  curl --insecure --silent --output /dev/null --write-out '%{http_code}' \
+    --resolve "${BOT_HOSTNAME}:443:127.0.0.1" \
+    "https://${BOT_HOSTNAME}/logs/"
+)"
+[[ "${anonymous_logs_status}" == "401" ]] \
+  || fail "expected protected logs HTTP 401, got ${anonymous_logs_status}"
 
 if [[ -d /opt/pi-dashboard ]]; then
   install -d -m 0700 /var/lib/ladder-dragon/legacy

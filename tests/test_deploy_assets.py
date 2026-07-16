@@ -15,8 +15,12 @@ def test_nginx_requires_auth_and_never_publishes_backups():
     assert "auth_basic_user_file" in site
     assert "location ^~ /backups/" in site
     assert "return 404;" in site
-    assert "autoindex on" not in site
+    backup_location = site.split("location ^~ /backups/", 1)[1].split("}", 1)[0]
+    assert "autoindex on" not in backup_location
     assert "X-Authenticated-User $remote_user" in snippet
+    assert "location /logs/" in site
+    assert "alias /var/lib/ladder-dragon/logs/" in site
+    assert "autoindex on" in site
 
 
 def test_managed_service_uses_versionless_wrapper_and_separate_env():
@@ -68,3 +72,20 @@ def test_raspberry_runbook_covers_install_update_and_private_github():
     assert "BOT_SERVICE_EXECUTION=dry" in runbook
     assert "BOT_LIVE_CONFIRMED=YES" in runbook
     assert "/var/lib/ladder-dragon/backups" in runbook
+    assert "https://bot.local/logs/current.log" in runbook
+
+
+def test_log_export_is_rotated_sanitized_and_managed_by_systemd():
+    exporter = read("deploy/export_sanitized_logs.py")
+    service = read("deploy/ladder-dragon-log-export.service")
+    timer = read("deploy/ladder-dragon-log-export.timer")
+    installer = read("deploy/install_raspberry_pi.sh")
+    assert "journalctl" in exporter
+    assert "RETENTION_DAYS" in exporter
+    assert "MAX_BYTES" in exporter
+    assert "<redacted>" in exporter
+    assert "OnUnitActiveSec=1m" in timer
+    assert "User=root" in service
+    assert "Group=www-data" in service
+    assert "ladder-dragon-log-export.timer" in installer
+    assert "expected protected logs HTTP 401" in installer
