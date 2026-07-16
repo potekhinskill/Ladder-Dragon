@@ -35,6 +35,7 @@ from ai_context import (
     build_portfolio_features,
     load_trade_features,
 )
+from ai_knowledge import KnowledgeStore
 from ai_policy import (
     PolicyConfig,
     UsageBudget,
@@ -109,6 +110,7 @@ _CHILD_FAILURES: Dict[str, int] = {}
 LIVE_MODE = False
 _AI_ADVISOR: Optional[AIAdvisor] = None
 _AI_DECISIONS: Optional[AdvisorDecisionStore] = None
+_AI_KNOWLEDGE: Optional[KnowledgeStore] = None
 _AI_POLICY: Optional[PolicyConfig] = None
 _AI_RUNTIME_STATUS_PATH: Optional[Path] = None
 _AI_RUNTIME_STATUS: Dict[str, Any] = {}
@@ -187,7 +189,7 @@ def _build_ai_advisor(args: argparse.Namespace) -> Optional[AIAdvisor]:
     ) -> None:
         if confidence_accepted or _AI_DECISIONS is None:
             return
-        _AI_DECISIONS.record(
+        decision_id = _AI_DECISIONS.record(
             symbol=context.symbol,
             price=context.price,
             deterministic_mode=context.deterministic_mode,
@@ -199,6 +201,8 @@ def _build_ai_advisor(args: argparse.Namespace) -> Optional[AIAdvisor]:
             policy_status="LOW_CONFIDENCE",
             policy_reasons="confidence_below_threshold",
         )
+        if _AI_KNOWLEDGE is not None:
+            _AI_KNOWLEDGE.link_retrieval(decision_id, context.rag_context)
 
     return AIAdvisor(
         config,
@@ -1467,7 +1471,19 @@ def _build_ai_market_context(
             extra.update(asdict(_AI_DECISIONS.performance(symbol)))
         except sqlite3.Error as exc:
             dbg(f"[AI-DECISION] performance failed: {exc}")
-    return MarketContext(**base, **extra)
+    context = MarketContext(**base, **extra)
+    if _AI_KNOWLEDGE is not None:
+        context = replace(
+            context,
+            rag_context=tuple(
+                _AI_KNOWLEDGE.retrieve(
+                    symbol,
+                    context_vector(context),
+                    limit=int(os.getenv("AI_RAG_TOP_K", "3") or 3),
+                )
+            ),
+        )
+    return context
 
 
 def run_for_symbol(symbol: str, args: argparse.Namespace) -> None:
@@ -1574,6 +1590,10 @@ def run_for_symbol(symbol: str, args: argparse.Namespace) -> None:
                         benchmark_mode=policy.benchmark_mode,
                         feature_json=json.dumps(context_vector(ai_context)),
                     )
+                    if _AI_KNOWLEDGE is not None:
+                        _AI_KNOWLEDGE.link_retrieval(
+                            decision_id, ai_context.rag_context
+                        )
                     # Передаём точный ID дочернему executor, чтобы fills не
                     # прикреплялись к последней рекомендации символа.
                     extra_env = {"BOT_AI_DECISION_ID": decision_id}
@@ -2206,7 +2226,7 @@ def main():
     log(f"[VERSION] {product_label('supervisor')}")
     symbols = validate_supervisor_args(ap, args)
     _configure_venue(args)
-    global _AI_ADVISOR, _AI_DECISIONS, _AI_POLICY
+    global _AI_ADVISOR, _AI_DECISIONS, _AI_KNOWLEDGE, _AI_POLICY
     global _AI_RUNTIME_STATUS_PATH, _AI_RUNTIME_STATUS, _AI_CONTROL_PATH
     decisions_db = (
         os.getenv("AI_TESTNET_DECISIONS_DB", "").strip()
@@ -2216,6 +2236,7 @@ def main():
         AdvisorDecisionStore(decisions_db)
         if args.ai_advisor else None
     )
+    _AI_KNOWLEDGE = KnowledgeStore(decisions_db) if args.ai_advisor else None
     _AI_CONTROL_PATH = Path(
         os.getenv(
             "AI_CONTROL_FILE",

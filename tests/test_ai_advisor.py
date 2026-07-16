@@ -110,6 +110,37 @@ def test_deepseek_advisor_uses_json_mode_and_returns_strict_recommendation():
     assert "api_key" not in user_content
 
 
+def test_rag_context_is_sent_as_historical_context_only():
+    session = FakeSession(
+        {
+            "mode": "FLAT",
+            "ladder_width_scale": 1.0,
+            "cap_scale": 1.0,
+            "confidence": 0.8,
+            "rationale": "Historical regime matched.",
+        }
+    )
+    advisor = AIAdvisor(config(), session=session, logger=lambda _: None)
+    from dataclasses import replace
+
+    advisor.recommend(
+        replace(
+            context(),
+            rag_context=(
+                {
+                    "doc_id": "historical-1",
+                    "context": "SOLUSDT historical regime: baseline=FLAT, return_1h=0.01200",
+                    "score": 0.98,
+                },
+            ),
+        )
+    )
+    user_content = session.calls[0][1]["json"]["messages"][1]["content"]
+    assert "historical-1" in user_content
+    assert "return_1h=0.01200" in user_content
+    assert "orderId" not in user_content
+
+
 def test_invalid_or_extra_model_fields_fail_safe():
     messages = []
     session = FakeSession(
