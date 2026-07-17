@@ -17,12 +17,14 @@ def test_nginx_requires_auth_and_publishes_only_encrypted_backups():
     assert "alias /var/lib/ladder-dragon/backups-public/;" in site
     backup_location = site.split("location ^~ /backups/", 1)[1].split("}", 1)[0]
     assert "autoindex on" in backup_location
+    assert "autoindex_localtime on" in backup_location
     assert "Cache-Control \"no-store\"" in backup_location
     assert "X-Authenticated-User $remote_user" in snippet
     assert "ladder_dragon_proxy_secret.conf" in site
     assert "location /logs/" in site
     assert "alias /var/lib/ladder-dragon/logs/" in site
     assert "autoindex on" in site
+    assert "autoindex_localtime on" in site
     assert "charset utf-8;" in site
     assert "location = /CHANGELOG.md" in site
     assert 'default_type text/plain;' in site
