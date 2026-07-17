@@ -157,6 +157,7 @@ def test_updates_are_commit_allowlisted_and_backups_are_encrypted():
     assert "external backup disk is not mounted" in backup
     assert "exFAT не поддерживает chmod" in backup
     assert "BindReadWritePaths" in updater
+    assert "ReadWritePaths=%s" in updater
     assert "RequiresMountsFor" in updater
     assert "external-mount.conf" in installer
 
