@@ -155,6 +155,8 @@ def test_updates_are_commit_allowlisted_and_backups_are_encrypted():
     assert "ReadWritePaths=/var/lib/ladder-dragon /mnt" not in backup_unit
     assert "BACKUP_EXTERNAL_MOUNT" in backup
     assert "external backup disk is not mounted" in backup
+    assert "mounted read-only" in backup
+    assert "trap cleanup_staging EXIT" in backup
     assert "exFAT не поддерживает chmod" in backup
     assert "ReadWritePaths=%s" in updater
     assert "BindReadWritePaths" not in installer + updater

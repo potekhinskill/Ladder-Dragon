@@ -2,6 +2,17 @@
 
 Формат версий: [Semantic Versioning](https://semver.org/).
 
+## [2.10.2] — 2026-07-17
+
+### Безопасность
+- Backup заранее проверяет, что внешний mount смонтирован с `rw`; при `ro` он завершается до создания staging-каталога и явно сообщает причину.
+- Временный каталог с env и SQLite теперь удаляется через `EXIT`-trap даже при ошибке SQLite, age или внешнего зеркала.
+
+### Проверено
+- `PYTHONPATH=. pytest -q` — все тесты проходят.
+- `python3 -m compileall -q .`.
+- `bash -n deploy/backup_raspberry_pi.sh deploy/install_raspberry_pi.sh deploy/update_raspberry_pi.sh`.
+
 ## [2.10.1] — 2026-07-17
 
 ### Исправлено
