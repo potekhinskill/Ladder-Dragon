@@ -8,6 +8,7 @@ from ai_context import (
     directional_success,
     load_trade_features,
     market_features_from_klines,
+    build_market_features,
     orderbook_features,
     virtual_plan_result,
 )
@@ -130,6 +131,20 @@ def test_market_and_orderbook_are_reduced_to_aggregates():
     assert spread == pytest.approx(20)
     assert top5 == pytest.approx(1 / 3)
     assert top20 == pytest.approx(1 / 3)
+
+
+def test_market_features_accept_a_valid_zero_imbalance_orderbook():
+    klines = [[index, 100, 100, 100, 100, 10] for index in range(289)]
+    result = build_market_features(
+        "SOLUSDT",
+        get_klines=lambda *_args, **_kwargs: klines,
+        public_get=lambda *_args, **_kwargs: {
+            "bids": [["100", "1"]] * 20,
+            "asks": [["100", "1"]] * 20,
+        },
+    )
+    assert result.market_data_available is True
+    assert result.orderbook_available is True
 
 
 def test_portfolio_features_do_not_expose_order_ids_or_full_balance():
