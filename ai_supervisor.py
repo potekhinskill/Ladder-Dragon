@@ -117,6 +117,9 @@ _AI_POLICY: Optional[PolicyConfig] = None
 _AI_RUNTIME_STATUS_PATH: Optional[Path] = None
 _AI_RUNTIME_STATUS: Dict[str, Any] = {}
 _AI_CONTROL_PATH: Optional[Path] = None
+# Один decision_id на период действия cached-рекомендации. Это не даёт
+# виртуальной статистике и RAG считать каждый цикл супервизора новой моделью.
+_AI_DECISION_IDS: Dict[str, str] = {}
 
 
 def env_flag(name: str, default: bool = False) -> bool:
@@ -1586,24 +1589,31 @@ def run_for_symbol(symbol: str, args: argparse.Namespace) -> None:
             )
             if _AI_DECISIONS is not None:
                 try:
-                    decision_id = _AI_DECISIONS.record(
-                        symbol=symbol,
-                        price=now_p,
-                        deterministic_mode=dir_mode,
-                        recommended_mode=policy.recommendation.mode,
-                        width_scale=policy.recommendation.ladder_width_scale,
-                        cap_scale=policy.recommendation.cap_scale,
-                        confidence=policy.recommendation.confidence,
-                        applied=policy.apply,
-                        policy_status=policy.status,
-                        policy_reasons=",".join(policy.reasons),
-                        benchmark_mode=policy.benchmark_mode,
-                        feature_json=json.dumps(context_vector(ai_context)),
+                    decision_id = (
+                        _AI_DECISION_IDS.get(symbol)
+                        if _AI_ADVISOR.last_was_cache_hit
+                        else None
                     )
-                    if _AI_KNOWLEDGE is not None:
-                        _AI_KNOWLEDGE.link_retrieval(
-                            decision_id, ai_context.rag_context
+                    if not decision_id:
+                        decision_id = _AI_DECISIONS.record(
+                            symbol=symbol,
+                            price=now_p,
+                            deterministic_mode=dir_mode,
+                            recommended_mode=policy.recommendation.mode,
+                            width_scale=policy.recommendation.ladder_width_scale,
+                            cap_scale=policy.recommendation.cap_scale,
+                            confidence=policy.recommendation.confidence,
+                            applied=policy.apply,
+                            policy_status=policy.status,
+                            policy_reasons=",".join(policy.reasons),
+                            benchmark_mode=policy.benchmark_mode,
+                            feature_json=json.dumps(context_vector(ai_context)),
                         )
+                        _AI_DECISION_IDS[symbol] = decision_id
+                        if _AI_KNOWLEDGE is not None:
+                            _AI_KNOWLEDGE.link_retrieval(
+                                decision_id, ai_context.rag_context
+                            )
                     # Передаём точный ID дочернему executor, чтобы fills не
                     # прикреплялись к последней рекомендации символа.
                     extra_env = {"BOT_AI_DECISION_ID": decision_id}
@@ -1710,10 +1720,10 @@ def run_for_symbol(symbol: str, args: argparse.Namespace) -> None:
         dev_buy_eff = max(base_dev_buy, coef_dev * atr_pct, floor_min)
         min_profit_eff = max(base_min_profit, coef_min * atr_pct, floor_min * 0.8)
 
-        extra_env = {
+        extra_env.update({
             'DEV_BUY_PCT': f"{dev_buy_eff:.6f}",
             'MIN_PROFIT_OVER_AVG': f"{min_profit_eff:.6f}",
-        }
+        })
         log(f"[ADAPT] {symbol} atr={atr_abs:.4f} atr/px={atr_pct*100:.3f}% -> DEV_BUY_PCT={dev_buy_eff:.4f} MIN_PROFIT_OVER_AVG={min_profit_eff:.4f}")
     # AI может только уменьшить уже безопасный CAP. Даже если модель вернула
     # коэффициент > 1, верхней границей остаётся расчёт Risk Manager.
@@ -2238,6 +2248,7 @@ def main():
     _configure_venue(args)
     global _AI_ADVISOR, _AI_DECISIONS, _AI_KNOWLEDGE, _AI_POLICY
     global _AI_RUNTIME_STATUS_PATH, _AI_RUNTIME_STATUS, _AI_CONTROL_PATH
+    _AI_DECISION_IDS.clear()
     decisions_db = (
         os.getenv("AI_TESTNET_DECISIONS_DB", "").strip()
         if args.testnet else args.ai_decisions_db

@@ -178,6 +178,9 @@ class AIAdvisor:
         self.budget_checker = budget_checker
         self._budget_blocked_day: Optional[str] = None
         self._budget_blocked_reason = ""
+        # Признак нужен исполнителю, чтобы не создавать новую запись в
+        # истории на каждом цикле при возврате той же cached-рекомендации.
+        self._last_was_cache_hit = False
         # Кэшируем и успешный результат, и безопасный отказ. Это не позволяет
         # недоступному API или низкой confidence создавать запрос каждую секунду.
         self._cache: dict[
@@ -191,9 +194,15 @@ class AIAdvisor:
             or self.clock() - cached[0] > self.config.cache_sec
         )
 
+    @property
+    def last_was_cache_hit(self) -> bool:
+        """Была ли последняя рекомендация возвращена из локального кэша."""
+        return self._last_was_cache_hit
+
     def recommend(
         self, context: MarketContext
     ) -> Optional[StrategyRecommendation]:
+        self._last_was_cache_hit = False
         if not self.config.enabled:
             return None
         now = self.clock()
@@ -215,6 +224,7 @@ class AIAdvisor:
             self._budget_blocked_reason = ""
         cached = self._cache.get(context.symbol)
         if cached is not None and now - cached[0] <= self.config.cache_sec:
+            self._last_was_cache_hit = True
             return cached[1]
         started = time.monotonic()
         usage: Optional[TokenUsage] = None
