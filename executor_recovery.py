@@ -1,3 +1,5 @@
+# Copyright (c) 2026 IURII Potekhin / Ladder Dragon. All rights reserved.
+# Назначение файла и опасные границы логики должны оставаться понятными при сопровождении.
 """Запросы, отмена, проверка ордеров и восстановление после рестарта."""
 
 from __future__ import annotations

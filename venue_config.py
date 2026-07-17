@@ -1,3 +1,5 @@
+# Copyright (c) 2026 IURII Potekhin / Ladder Dragon. All rights reserved.
+# Назначение файла и опасные границы логики должны оставаться понятными при сопровождении.
 """Venue-specific local state paths.
 
 Testnet must never share risk state, statistics, or order intents with Mainnet.

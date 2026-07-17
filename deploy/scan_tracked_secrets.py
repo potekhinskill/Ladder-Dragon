@@ -1,4 +1,6 @@
 #!/usr/bin/env python3
+# Copyright (c) 2026 IURII Potekhin / Ladder Dragon. All rights reserved.
+# Назначение файла и опасные границы логики должны оставаться понятными при сопровождении.
 """Минимальный fail-fast secret scan для tracked-файлов репозитория."""
 
 from __future__ import annotations

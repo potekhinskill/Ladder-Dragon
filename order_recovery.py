@@ -1,3 +1,5 @@
+# Copyright (c) 2026 IURII Potekhin / Ladder Dragon. All rights reserved.
+# Назначение файла и опасные границы логики должны оставаться понятными при сопровождении.
 """Постоянный журнал намерений и безопасная сверка ордеров после рестарта."""
 
 from __future__ import annotations

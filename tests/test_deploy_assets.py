@@ -8,6 +8,20 @@ def read(relative: str) -> str:
     return (ROOT / relative).read_text()
 
 
+def test_production_code_has_copyright_and_russian_maintenance_note():
+    paths = list(ROOT.glob("*.py"))
+    paths += list((ROOT / "deploy").glob("*.py"))
+    paths += list((ROOT / "deploy").glob("*.sh"))
+    paths += list((ROOT / "deploy").glob("*.service"))
+    paths += list((ROOT / "deploy").glob("*.timer"))
+    paths += list((ROOT / "FRONT").glob("*.html"))
+    paths += [ROOT / "FastAPI/pi-dashboard/app.py"]
+    for path in paths:
+        source = path.read_text()
+        assert "Copyright (c) 2026 IURII Potekhin / Ladder Dragon" in source
+        assert "Назначение" in source or "назначение" in source
+
+
 def test_nginx_requires_auth_and_publishes_only_encrypted_backups():
     site = read("deploy/nginx/bot.local.conf")
     snippet = read("deploy/nginx/pi_api.conf")

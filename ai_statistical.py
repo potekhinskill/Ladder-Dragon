@@ -1,3 +1,5 @@
+# Copyright (c) 2026 IURII Potekhin / Ladder Dragon. All rights reserved.
+# Назначение файла и опасные границы логики должны оставаться понятными при сопровождении.
 """Минимальная трёхклассовая logistic regression без внешних ML-зависимостей."""
 
 from __future__ import annotations

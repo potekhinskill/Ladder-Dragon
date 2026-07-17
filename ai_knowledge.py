@@ -1,3 +1,5 @@
+# Copyright (c) 2026 IURII Potekhin / Ladder Dragon. All rights reserved.
+# Назначение файла и опасные границы логики должны оставаться понятными при сопровождении.
 """Локальная RAG-база проверенных AI-решений.
 
 Модуль не вызывает внешние embedding API и не обучает DeepSeek. Для Raspberry
