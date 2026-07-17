@@ -11,6 +11,13 @@ BACKUP_EXTERNAL_RETENTION_DAYS="${BACKUP_EXTERNAL_RETENTION_DAYS:-90}"
 STAMP="$(date -u +%Y-%m-%d-%H%M%S)"
 DEST="${BACKUP_DIR}/${STAMP}"
 
+# В DEST временно находятся расшифрованные env/SQLite. Удаляем staging даже
+# при ошибке внешнего mirror, чтобы аварийный backup не оставил секреты на SD.
+cleanup_staging() {
+  rm -rf -- "${DEST}"
+}
+trap cleanup_staging EXIT
+
 [[ "${EUID}" -eq 0 ]] || exec sudo "$0" "$@"
 command -v age >/dev/null || {
   echo "[FAIL] age is required for encrypted backups" >&2
@@ -41,6 +48,13 @@ if [[ -n "${BACKUP_EXTERNAL_MOUNT}" || -n "${BACKUP_EXTERNAL_DIR}" ]]; then
     echo "[FAIL] external backup disk is not mounted at ${BACKUP_EXTERNAL_MOUNT}" >&2
     exit 1
   }
+  mount_options="$(findmnt -T "${BACKUP_EXTERNAL_MOUNT}" -no OPTIONS 2>/dev/null || true)"
+  case ",${mount_options}," in
+    *,ro,*)
+      echo "[FAIL] external backup disk is mounted read-only at ${BACKUP_EXTERNAL_MOUNT}" >&2
+      exit 1
+      ;;
+  esac
   # exFAT не поддерживает chmod; права внешнего каталога задаются mount-опциями.
   mkdir -p "${BACKUP_EXTERNAL_DIR}"
 fi
@@ -229,5 +243,4 @@ manifest_tmp="$(mktemp "${PUBLIC_BACKUP_DIR}/.index.XXXXXX")"
 } >"${manifest_tmp}"
 install -o root -g www-data -m 0640 "${manifest_tmp}" "${PUBLIC_BACKUP_DIR}/index.txt"
 rm -f "${manifest_tmp}"
-rm -rf "${DEST}"
 echo "${BACKUP_DIR}/ladder-dragon-${STAMP}.tgz.age"
