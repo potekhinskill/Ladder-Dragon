@@ -56,6 +56,7 @@ class KnowledgeStore:
         self.path = Path(db_path)
         self.path.parent.mkdir(parents=True, exist_ok=True)
         self._last_sync = 0.0
+        self._last_sync_virtual = False
         self._init()
 
     def _connect(self) -> sqlite3.Connection:
@@ -97,14 +98,21 @@ class KnowledgeStore:
                 "ON knowledge_documents(symbol, created_at)"
             )
 
-    def sync_from_decisions(self, *, now: int | None = None) -> int:
-        """Импортировать только решения с уже рассчитанным исходом.
+    def sync_from_decisions(
+        self, *, now: int | None = None, include_virtual: bool = False
+    ) -> int:
+        """Импортировать решения с уже рассчитанным исходом.
 
-        Новое решение не может попасть в RAG до появления горизонта return_1h
-        или фактического закрытия позиции. Это защищает от look-ahead leakage.
+        Реальные документы требуют фактического закрытия позиции. В DRY можно
+        отдельно включить ``include_virtual``: тогда в базу попадут только
+        решения с завершённым горизонтом ``return_1h`` и статусом
+        ``virtual_validated``. Виртуальные и реальные знания не смешиваются.
         """
         current = int(now or time.time())
-        if current - self._last_sync < 30:
+        if (
+            include_virtual == self._last_sync_virtual
+            and current - self._last_sync < 30
+        ):
             return 0
         inserted = 0
         with self._connect() as connection:
@@ -114,8 +122,7 @@ class KnowledgeStore:
                        recommended_mode,width_scale,cap_scale,confidence,
                        feature_json,return_1h,evaluation_json
                 FROM ai_decisions
-                WHERE feature_json!='[]'
-                  AND evaluation_json LIKE '%realized_execution%'
+                WHERE feature_json!='[]' AND return_1h IS NOT NULL
                 """
             ).fetchall()
             for row in rows:
@@ -134,18 +141,36 @@ class KnowledgeStore:
                 realized = evaluation.get("realized_execution", {})
                 if not isinstance(realized, dict):
                     realized = {}
-                # В RAG попадают только реально закрытые позиции. Виртуальная
-                # candle-оценка сама по себе не считается подтверждённым опытом.
-                if float(realized.get("sell_qty", 0) or 0) <= 0:
+                is_real = float(realized.get("sell_qty", 0) or 0) > 0
+                if is_real:
+                    status = "validated"
+                    outcome = {
+                        "source": "realized_execution",
+                        "return_1h": return_1h,
+                        "net_pnl_quote": realized.get("net_pnl_quote"),
+                        "holding_duration_sec": realized.get("holding_duration_sec"),
+                        "opportunity_cost_quote": realized.get("opportunity_cost_quote"),
+                    }
+                elif include_virtual:
+                    virtual = evaluation.get("1h", {})
+                    if not isinstance(virtual, dict):
+                        virtual = {}
+                    ai_result = virtual.get("ai", {})
+                    baseline_result = virtual.get("baseline", {})
+                    status = "virtual_validated"
+                    outcome = {
+                        "source": "virtual_shadow",
+                        "return_1h": return_1h,
+                        "ai_net_return": ai_result.get("net_return"),
+                        "baseline_net_return": baseline_result.get("net_return"),
+                    }
+                else:
+                    # Без явного DRY-флага виртуальная candle-оценка не
+                    # считается подтверждённым опытом для RAG.
                     continue
-                outcome = {
-                    "return_1h": return_1h,
-                    "net_pnl_quote": realized.get("net_pnl_quote"),
-                    "holding_duration_sec": realized.get("holding_duration_sec"),
-                    "opportunity_cost_quote": realized.get("opportunity_cost_quote"),
-                }
                 content = (
-                    f"{symbol} historical regime: baseline={baseline_mode}, "
+                    f"{symbol} {'virtual shadow' if status == 'virtual_validated' else 'historical'} regime: "
+                    f"baseline={baseline_mode}, "
                     f"recommendation={recommended_mode}, confidence={float(confidence):.2f}, "
                     f"width={float(width_scale):.2f}, cap={float(cap_scale):.2f}, "
                     f"return_1h={float(return_1h):.5f}"
@@ -169,11 +194,12 @@ class KnowledgeStore:
                     (
                         document_id, decision_id, str(symbol).upper(), int(created_at),
                         content, json.dumps(embedding), json.dumps(outcome),
-                        "validated", current,
+                        status, current,
                     ),
                 )
                 inserted += 1
         self._last_sync = float(current)
+        self._last_sync_virtual = bool(include_virtual)
         return inserted
 
     def retrieve(
@@ -183,18 +209,21 @@ class KnowledgeStore:
         *,
         now: int | None = None,
         limit: int = DEFAULT_LIMIT,
+        include_virtual: bool = False,
     ) -> list[dict[str, Any]]:
         """Вернуть похожие проверенные случаи без будущих документов."""
         current = int(now or time.time())
-        self.sync_from_decisions(now=current)
+        self.sync_from_decisions(now=current, include_virtual=include_virtual)
+        statuses = ("validated", "virtual_validated") if include_virtual else ("validated",)
         with self._connect() as connection:
             rows = connection.execute(
-                """
+                f"""
                 SELECT document_id,content,embedding_json,created_at,outcome_json
                 FROM knowledge_documents
-                WHERE symbol=? AND status='validated' AND created_at < ?
+                WHERE symbol=? AND status IN ({','.join('?' for _ in statuses)})
+                  AND created_at < ?
                 """,
-                (symbol.upper(), current),
+                (symbol.upper(), *statuses, current),
             ).fetchall()
         ranked: list[dict[str, Any]] = []
         for document_id, content, embedding_json, created_at, outcome_json in rows:
@@ -243,7 +272,14 @@ class KnowledgeStore:
             documents = connection.execute(
                 "SELECT COUNT(*) FROM knowledge_documents WHERE status='validated'"
             ).fetchone()[0]
+            virtual_documents = connection.execute(
+                "SELECT COUNT(*) FROM knowledge_documents WHERE status='virtual_validated'"
+            ).fetchone()[0]
             retrievals = connection.execute(
                 "SELECT COUNT(*) FROM knowledge_retrievals"
             ).fetchone()[0]
-        return {"documents": int(documents), "retrievals": int(retrievals)}
+        return {
+            "documents": int(documents),
+            "virtual_documents": int(virtual_documents),
+            "retrievals": int(retrievals),
+        }

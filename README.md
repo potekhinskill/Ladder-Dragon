@@ -134,6 +134,7 @@ AI_DAILY_COST_LIMIT_USD=0.50
 AI_DAILY_TOKEN_LIMIT=500000
 AI_MAX_REQUESTS_PER_DAY=400
 AI_RAG_TOP_K=3
+AI_RAG_INCLUDE_VIRTUAL=1
 ```
 
 После запуска бота AI можно включать и отключать кнопкой в карточке
@@ -218,6 +219,8 @@ Safety-policy независимо от prompt:
 `AI_DAILY_COST_LIMIT_USD`, `AI_DAILY_TOKEN_LIMIT` и
 `AI_MAX_REQUESTS_PER_DAY` переводят AI в детерминированный fallback до следующего
 UTC-дня. Рядом с DeepSeek считается независимый числовой regime benchmark.
+В `DRY` можно использовать завершённые shadow-оценки в отдельном RAG-статусе
+`virtual_validated`; в `LIVE` виртуальные документы принудительно отключены.
 После накопления минимум 60 размеченных решений к нему подключается локальная
 трёхклассовая logistic regression (`UP/FLAT/DOWN`). Она обучается только на
 локальной shadow-истории и не требует внешнего ML-сервиса; до минимальной

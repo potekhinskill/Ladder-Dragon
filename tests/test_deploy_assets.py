@@ -76,7 +76,8 @@ def test_shadow_ai_defaults_limit_cost_and_duplicate_requests():
     assert 'AI_DAILY_TOKEN_LIMIT=500000' in dashboard_env
     assert 'os.getenv("AI_DAILY_TOKEN_LIMIT", "500000")' in dashboard
     assert 'os.getenv("AI_MAX_REQUESTS_PER_DAY", "400")' in config
-    assert "## [2.10.9]" in changelog
+    assert "AI_RAG_INCLUDE_VIRTUAL=1" in example
+    assert "## [2.10.10]" in changelog
 
 
 def test_dashboard_ai_toggle_is_advisory_only():
