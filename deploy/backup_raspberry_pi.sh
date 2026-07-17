@@ -41,7 +41,8 @@ if [[ -n "${BACKUP_EXTERNAL_MOUNT}" || -n "${BACKUP_EXTERNAL_DIR}" ]]; then
     echo "[FAIL] external backup disk is not mounted at ${BACKUP_EXTERNAL_MOUNT}" >&2
     exit 1
   }
-  install -d -m 0700 "${BACKUP_EXTERNAL_DIR}"
+  # exFAT не поддерживает chmod; права внешнего каталога задаются mount-опциями.
+  mkdir -p "${BACKUP_EXTERNAL_DIR}"
 fi
 install -d -m 0700 "${DEST}"
 install -d -o root -g www-data -m 0750 "${PUBLIC_BACKUP_DIR}"
