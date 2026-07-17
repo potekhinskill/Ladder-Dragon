@@ -162,6 +162,18 @@ def test_updates_are_commit_allowlisted_and_backups_are_encrypted():
     assert "external-mount.conf" in installer
 
 
+def test_backup_reconciles_all_archives_and_verifies_destination_checksums():
+    backup = read("deploy/backup_raspberry_pi.sh")
+    assert 'shopt -s nullglob' in backup
+    assert "mirror_external_archive" in backup
+    assert "publish_public_archive" in backup
+    assert 'for source_archive in "${BACKUP_DIR}"/*.tgz.age' in backup
+    assert 'sha256sum -c "${name}.sha256"' in backup
+    assert 'cp -p "${source_archive}"' in backup
+    assert "preinstall-*.tgz.age*" in backup
+    assert "BACKUP_EXTERNAL_RETENTION_DAYS" in backup
+
+
 def test_watchdog_uses_current_heartbeat_and_not_legacy_runner_name():
     watchdog = read("deploy/pi-watchdog_v3.sh")
     service = read("deploy/pi-watchdog-v3.service")

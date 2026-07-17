@@ -136,35 +136,76 @@ PY
 tar -C "${BACKUP_DIR}" -czf - "${STAMP}" \
   | age -r "${BACKUP_AGE_RECIPIENT}" \
       -o "${BACKUP_DIR}/ladder-dragon-${STAMP}.tgz.age"
-sha256sum "${BACKUP_DIR}/ladder-dragon-${STAMP}.tgz.age" \
-  >"${BACKUP_DIR}/ladder-dragon-${STAMP}.tgz.age.sha256"
-chmod 0600 "${BACKUP_DIR}/ladder-dragon-${STAMP}.tgz.age"*
+
+# Храним checksum с относительным именем. Такой файл можно проверить и на
+# SD-карте, и на внешнем диске, и после скачивания из /backups/.
+archive_name="ladder-dragon-${STAMP}.tgz.age"
+(cd "${BACKUP_DIR}" && sha256sum "${archive_name}" >"${archive_name}.sha256")
+chmod 0600 "${BACKUP_DIR}/${archive_name}" "${BACKUP_DIR}/${archive_name}.sha256"
+
+# До публикации удаляем только просроченные локальные копии, затем
+# синхронизируем весь оставшийся набор, а не только последний архив. Это
+# автоматически восстанавливает исторические файлы после миграции.
+find "${BACKUP_DIR}" -maxdepth 1 -type f -name 'ladder-dragon-*.tgz.age*' \
+  -mtime +14 -delete
+
+mirror_external_archive() {
+  local source_archive="$1"
+  local name
+  name="$(basename "${source_archive}")"
+  cp -p "${source_archive}" "${BACKUP_EXTERNAL_DIR}/${name}"
+  # checksum пересоздаётся в каталоге назначения, поэтому путь остаётся
+  # переносимым и не содержит локальных путей Raspberry Pi.
+  (cd "${BACKUP_EXTERNAL_DIR}" && sha256sum "${name}" >"${name}.sha256")
+  (cd "${BACKUP_EXTERNAL_DIR}" && sha256sum -c "${name}.sha256" >/dev/null)
+}
+
+publish_public_archive() {
+  local source_archive="$1"
+  local name
+  name="$(basename "${source_archive}")"
+  cp -p "${source_archive}" "${PUBLIC_BACKUP_DIR}/${name}"
+  chown root:www-data "${PUBLIC_BACKUP_DIR}/${name}"
+  chmod 0640 "${PUBLIC_BACKUP_DIR}/${name}"
+  (cd "${PUBLIC_BACKUP_DIR}" && sha256sum "${name}" >"${name}.sha256")
+  chown root:www-data "${PUBLIC_BACKUP_DIR}/${name}.sha256"
+  chmod 0640 "${PUBLIC_BACKUP_DIR}/${name}.sha256"
+  (cd "${PUBLIC_BACKUP_DIR}" && sha256sum -c "${name}.sha256" >/dev/null)
+}
+
+shopt -s nullglob
+for source_archive in "${BACKUP_DIR}"/*.tgz.age; do
+  [[ -f "${source_archive}" ]] || continue
+  if [[ -n "${BACKUP_EXTERNAL_DIR}" ]]; then
+    # Внешний диск получает все age-архивы, включая preinstall-снимки.
+    mirror_external_archive "${source_archive}"
+  fi
+  # В HTTP-каталог попадают только регулярные ladder-dragon-архивы.
+  # preinstall остаётся внешней/локальной копией и не публикуется.
+  if [[ "$(basename "${source_archive}")" == ladder-dragon-*.tgz.age ]]; then
+    publish_public_archive "${source_archive}"
+  fi
+done
+shopt -u nullglob
 
 if [[ -n "${BACKUP_EXTERNAL_DIR}" ]]; then
-  # Внешний диск получает только зашифрованный архив, checksum и безопасный inventory.
-  # При отключённом mountpoint скрипт завершается выше и не пишет на SD вместо диска.
-  cp -f "${BACKUP_DIR}/ladder-dragon-${STAMP}.tgz.age" \
-    "${BACKUP_EXTERNAL_DIR}/"
-  cp -f "${BACKUP_DIR}/ladder-dragon-${STAMP}.tgz.age.sha256" \
-    "${BACKUP_EXTERNAL_DIR}/"
-  cp -f "${DEST}/inventory.txt" \
+  # Внешний диск также получает inventory без секретов. При отключённом
+  # mountpoint скрипт завершается выше и не пишет незаметно на SD-карту.
+  cp -p "${DEST}/inventory.txt" \
     "${BACKUP_EXTERNAL_DIR}/inventory-${STAMP}.txt"
   find "${BACKUP_EXTERNAL_DIR}" -maxdepth 1 -type f \
-    \( -name 'ladder-dragon-*.tgz.age*' -o -name 'inventory-*.txt' \) \
+    \( -name 'ladder-dragon-*.tgz.age*' -o -name 'preinstall-*.tgz.age*' -o -name 'inventory-*.txt' \) \
     -mtime +"${BACKUP_EXTERNAL_RETENTION_DAYS}" -delete
 fi
 
-# Веб-каталог содержит только зашифрованный архив, checksum и безопасный
-# inventory без env/ключей. Сырые backup-каталоги остаются root-only.
-install -o root -g www-data -m 0640 \
-  "${BACKUP_DIR}/ladder-dragon-${STAMP}.tgz.age" \
-  "${PUBLIC_BACKUP_DIR}/ladder-dragon-${STAMP}.tgz.age"
-install -o root -g www-data -m 0640 \
-  "${BACKUP_DIR}/ladder-dragon-${STAMP}.tgz.age.sha256" \
-  "${PUBLIC_BACKUP_DIR}/ladder-dragon-${STAMP}.tgz.age.sha256"
+# Веб-каталог содержит только зашифрованные архивы, checksum и безопасный
+# inventory без env/ключей. Старые файлы удаляются до построения индекса.
 install -o root -g www-data -m 0640 \
   "${DEST}/inventory.txt" \
   "${PUBLIC_BACKUP_DIR}/inventory-${STAMP}.txt"
+find "${PUBLIC_BACKUP_DIR}" -maxdepth 1 -type f \
+  \( -name 'ladder-dragon-*.tgz.age*' -o -name 'inventory-*.txt' \) \
+  -mtime +14 -delete
 manifest_tmp="$(mktemp "${PUBLIC_BACKUP_DIR}/.index.XXXXXX")"
 {
   echo "Ladder Dragon encrypted backups"
@@ -177,10 +218,4 @@ manifest_tmp="$(mktemp "${PUBLIC_BACKUP_DIR}/.index.XXXXXX")"
 install -o root -g www-data -m 0640 "${manifest_tmp}" "${PUBLIC_BACKUP_DIR}/index.txt"
 rm -f "${manifest_tmp}"
 rm -rf "${DEST}"
-
-# 14 ежедневных архивов; месячные/внешние копии должны делаться отдельно.
-find "${BACKUP_DIR}" -maxdepth 1 -type f -name 'ladder-dragon-*.tgz.age*' -mtime +14 -delete
-find "${PUBLIC_BACKUP_DIR}" -maxdepth 1 -type f \
-  \( -name 'ladder-dragon-*.tgz.age*' -o -name 'inventory-*.txt' \) \
-  -mtime +14 -delete
 echo "${BACKUP_DIR}/ladder-dragon-${STAMP}.tgz.age"
