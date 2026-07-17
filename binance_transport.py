@@ -16,6 +16,7 @@ from typing import Any, Callable, Mapping
 from urllib.parse import urlencode
 
 import requests
+from telegram_alerts import notify_binance_auth_error
 
 
 class BinanceTransport:
@@ -48,6 +49,10 @@ class BinanceTransport:
     def _retryable(status: int, code: Any, *, include_clock: bool = False) -> bool:
         codes = (1003, -1003, -1015, -1021) if include_clock else (1003, -1003, -1015)
         return status in (418, 429) or 500 <= status < 600 or code in codes
+
+    @staticmethod
+    def _auth_error(status: int, code: Any) -> bool:
+        return status in (401, 403) or code in (-2014, -2015, -1022)
 
     def _delay(self, backoff: float, response: requests.Response | None = None) -> tuple[float, float]:
         retry_after = response.headers.get("Retry-After") if response is not None else None
@@ -87,6 +92,13 @@ class BinanceTransport:
                 code = payload.get("code") if isinstance(payload, dict) else None
 
                 if response.status_code >= 400:
+                    if self._auth_error(response.status_code, code):
+                        notify_binance_auth_error(
+                            status=response.status_code,
+                            code=code,
+                            endpoint=url,
+                            message=(payload or {}).get("msg", "") if isinstance(payload, dict) else "",
+                        )
                     if self._retryable(response.status_code, code):
                         backoff, delay = self._delay(backoff, response)
                         self._logger(
@@ -175,6 +187,13 @@ class BinanceTransport:
                 code = payload.get("code") if isinstance(payload, dict) else None
 
                 if response.status_code >= 400:
+                    if self._auth_error(response.status_code, code):
+                        notify_binance_auth_error(
+                            status=response.status_code,
+                            code=code,
+                            endpoint=path,
+                            message=(payload or {}).get("msg", "") if isinstance(payload, dict) else "",
+                        )
                     if self._retryable(response.status_code, code, include_clock=True):
                         backoff, delay = self._delay(backoff, response)
                         self._logger(

@@ -30,6 +30,7 @@ import hashlib
 import requests
 from typing import Dict, Tuple, List, Optional, Any
 from exchange_math import normalized_order_values, round_step
+from telegram_alerts import notify_binance_auth_error
 
 # --- .env (опционально) ---
 from pathlib import Path
@@ -89,6 +90,15 @@ def _raise_for_binance(resp: requests.Response):
         data = resp.json()
     except Exception:
         data = {"msg": resp.text}
+    if not isinstance(data, dict):
+        data = {"msg": str(data)}
+    if resp.status_code in (401, 403) or data.get("code") in (-2014, -2015, -1022):
+        notify_binance_auth_error(
+            status=resp.status_code,
+            code=data.get("code"),
+            endpoint=resp.url,
+            message=data.get("msg", ""),
+        )
     raise BinanceHttpError(f"HTTP {resp.status_code}: {data}")
 
 # ---- time offset (server time skew) ----

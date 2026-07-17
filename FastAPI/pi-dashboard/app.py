@@ -23,6 +23,8 @@ try:
 except Exception:
     requests = None
 
+from telegram_alerts import notify_binance_auth_error
+
 APP_TZ = ZoneInfo("Asia/Almaty")
 BASE_DIR = Path(__file__).resolve().parent
 DATA_DIR = BASE_DIR / "data"
@@ -302,6 +304,17 @@ def _signed(method: str, path: str, params=None, timeout: float = 10.0):
     url = f"{BINANCE_BASE}{path}?{qs}&signature={sig}"
     headers = {"X-MBX-APIKEY": key}
     r = SESSION.request(method, url, headers=headers, timeout=timeout)
+    if r.status_code in (401, 403):
+        try:
+            error_payload = r.json()
+        except ValueError:
+            error_payload = {}
+        notify_binance_auth_error(
+            status=r.status_code,
+            code=error_payload.get("code") if isinstance(error_payload, dict) else None,
+            endpoint=path,
+            message=error_payload.get("msg", "") if isinstance(error_payload, dict) else "",
+        )
     r.raise_for_status()
     return r.json()
 
