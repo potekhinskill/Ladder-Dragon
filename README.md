@@ -430,6 +430,12 @@ Legacy `pi-watchdog-v3` заменяется управляемой версие
 доступ и свежий heartbeat supervisor, не ищет удалённый файл `1.8_*` и не
 перезапускает здоровый бот. Restart допускается только после трёх подряд
 неуспешных проверок; одиночный сбой лишь фиксируется и отправляет уведомление.
+Первое Telegram-сообщение содержит uptime, нагрузку, температуру и основной IP;
+одинаковые события подавляются на 30 минут и повторно отправляются при росте
+нагрузки на 0.5, температуры на 2°C или выходе за 2.0/70°C. Порогами управляют
+`WATCHDOG_ALERT_COOLDOWN_SEC`, `WATCHDOG_ALERT_LOAD_DELTA`,
+`WATCHDOG_ALERT_TEMP_DELTA_C`, `WATCHDOG_ALERT_LOAD_THRESHOLD` и
+`WATCHDOG_ALERT_TEMP_THRESHOLD_C` в `/etc/bot-alerts.env`.
 
 ### Автоматическое обновление Raspberry Pi
 

@@ -11,8 +11,15 @@ HOST_LABEL="${HOST_LABEL:-binance_bot:}"
 LOG="${WATCHDOG_LOG:-/var/log/pi-watchdog.log}"
 STATE="${WATCHDOG_STATE:-/run/pi-watchdog_v3.state}"
 STATEDIR="${WATCHDOG_STATE_DIR:-/var/lib/pi-watchdog}"
+ALERT_STATE="${WATCHDOG_ALERT_STATE:-${STATEDIR}/telegram-alert.state}"
+ALERT_COOLDOWN_SEC=${WATCHDOG_ALERT_COOLDOWN_SEC:-1800}
+ALERT_LOAD_THRESHOLD=${WATCHDOG_ALERT_LOAD_THRESHOLD:-2.0}
+ALERT_TEMP_THRESHOLD_C=${WATCHDOG_ALERT_TEMP_THRESHOLD_C:-70}
+ALERT_LOAD_DELTA=${WATCHDOG_ALERT_LOAD_DELTA:-0.5}
+ALERT_TEMP_DELTA_C=${WATCHDOG_ALERT_TEMP_DELTA_C:-2}
 REASON_FILE="${STATEDIR}/reason.txt"
 HEARTBEAT="${AI_RUNTIME_STATUS_FILE:-/run/mybot/ai_status.json}"
+UPTIME_SOURCE="${WATCHDOG_UPTIME_SOURCE:-/proc/uptime}"
 
 [ -f /etc/bot-alerts.env ] && . /etc/bot-alerts.env || true
 
@@ -20,26 +27,96 @@ mkdir -p "${STATEDIR}"
 touch "${LOG}" 2>/dev/null || true
 log() { printf '%s %s\n' "$1" "$2" >>"${LOG}"; }
 
+# Разрешаем первое уведомление, изменение показателей или повтор после cooldown.
+# Состояние хранится отдельно от heartbeat, поэтому одинаковая авария не спамит
+# Telegram каждые пять минут, но важный рост нагрузки/температуры не теряется.
+alert_gate() {
+  local key="$1" load_key="$2" temp="$3" now old_key old_sent old_repeat old_load old_temp
+  local repeat=0 should_send=0 full_snapshot=0 changed=0 high=0 state_load state_temp
+  now="$(date +%s)"
+  old_key=""; old_sent=0; old_repeat=0; old_load=""; old_temp=""
+  if [[ -r "${ALERT_STATE}" ]]; then
+    read -r old_key old_sent old_repeat old_load old_temp <"${ALERT_STATE}" || true
+    [[ "${old_sent:-}" =~ ^[0-9]+$ ]] || old_sent=0
+    [[ "${old_repeat:-}" =~ ^[0-9]+$ ]] || old_repeat=0
+  fi
+
+  if [[ "${old_key}" != "${key}" ]]; then
+    should_send=1
+    full_snapshot=1
+  else
+    repeat=$((old_repeat + 1))
+    if awk -v old="${old_load//,/ }" -v new="${load_key//,/ }" \
+      -v delta="${ALERT_LOAD_DELTA}" \
+      'BEGIN { split(old, a, " "); split(new, b, " "); exit !((b[1] - a[1] >= delta) || (a[1] - b[1] >= delta)) }' ||
+      awk -v old="${old_temp:-unknown}" -v new="${temp:-unknown}" \
+      -v delta="${ALERT_TEMP_DELTA_C}" \
+      'BEGIN { if (old == "unknown" || new == "unknown") exit 1; exit !(((new + 0) - (old + 0) >= delta) || ((old + 0) - (new + 0) >= delta)) }'; then
+      changed=1
+    fi
+    if (( now - old_sent >= ALERT_COOLDOWN_SEC )); then
+      should_send=1
+      full_snapshot=1
+    fi
+    if awk -v value="${load_key//,/ }" -v limit="${ALERT_LOAD_THRESHOLD}" \
+      'BEGIN { split(value, a, " "); exit !((a[1] + 0) >= limit) }' ||
+      awk -v value="${temp:-0}" -v limit="${ALERT_TEMP_THRESHOLD_C}" \
+      'BEGIN { exit !((value + 0) >= limit) }'; then
+      high=1
+    fi
+    if (( changed || high )); then
+      should_send=1
+      full_snapshot=1
+    fi
+  fi
+
+  state_load="${old_load}"
+  state_temp="${old_temp}"
+  if (( should_send )); then
+    old_sent="${now}"
+    state_load="${load_key}"
+    state_temp="${temp}"
+  fi
+  mkdir -p "$(dirname "${ALERT_STATE}")"
+  local tmp="${ALERT_STATE}.tmp.$$"
+  printf '%s %s %s %s %s\n' "${key}" "${old_sent}" "${repeat}" "${state_load}" "${state_temp}" >"${tmp}"
+  mv -f "${tmp}" "${ALERT_STATE}"
+  printf '%s %s %s\n' "${should_send}" "${full_snapshot}" "${repeat}"
+}
+
 send_tg() {
   local txt="${1:-}"
+  local event_key="${2:-${txt}}"
   [ -n "${TG_BOT_TOKEN:-}" ] && [ -n "${TG_CHAT_ID:-}" ] || return 0
-  local uptime_human load ip temp msg
+  local uptime_human load ip temp msg host_label load_key gate should_send full_snapshot repeat
   uptime_human="$(uptime -p 2>/dev/null || true)"
   load="$(cut -d' ' -f1-3 /proc/loadavg 2>/dev/null || true)"
-  ip="$(ip -4 -o addr show scope global 2>/dev/null | awk '{print $4}' | paste -sd',' -)"
+  # В Telegram нужен только основной адрес; Docker-сети не помогают диагностике.
+  ip="$(ip -4 -o addr show scope global 2>/dev/null | awk 'NR == 1 {print $4}')"
   temp="$([ -x /usr/bin/vcgencmd ] && /usr/bin/vcgencmd measure_temp 2>/dev/null | tr -cd 0-9. || true)"
-  msg="${HOST_LABEL} ${txt}
+  load_key="${load// /,}"
+  gate="$(alert_gate "$(printf '%s' "${event_key}" | sha256sum | awk '{print $1}')" "${load_key}" "${temp:-unknown}")"
+  read -r should_send full_snapshot repeat <<<"${gate}"
+  (( should_send )) || return 0
+  host_label="${HOST_LABEL%:}"
+  if (( full_snapshot )); then
+    msg="${host_label} ${txt}
+время: $(date '+%Y-%m-%d %H:%M:%S %Z')
 uptime: ${uptime_human}
-load: ${load}
-ip: ${ip}
-temp: ${temp}"
+load: ${load:-unknown}
+temp: ${temp:-unknown}°C
+ip: ${ip:-unknown}"
+  else
+    msg="${host_label} ${txt}
+повтор: ${repeat}; показатели без изменений"
+  fi
   curl -sS -m 5 "https://api.telegram.org/bot${TG_BOT_TOKEN}/sendMessage" \
-    -d "chat_id=${TG_CHAT_ID}" -d "parse_mode=HTML" \
+    -d "chat_id=${TG_CHAT_ID}" \
     --data-urlencode "text=${msg}" >/dev/null || true
 }
 
 echo "=== $(LC_ALL=C date) [v3] ===" >>"${LOG}"
-read -r up </proc/uptime
+read -r up <"${UPTIME_SOURCE}"
 uptime_min=$(( ${up%%.*} / 60 ))
 if (( uptime_min < MIN_UPTIME )); then
   log "[v3]" "grace: ${uptime_min}m < ${MIN_UPTIME}m"
@@ -108,22 +185,25 @@ if (( health_ok == 0 )); then
 else
   health_fails=0
   if (( prev_health > 0 )); then
-    send_tg "✅ ${HOST_LABEL} mybot heartbeat recovered"
+    send_tg "✅ mybot heartbeat recovered" "heartbeat-recovered"
   fi
 fi
 
 # Один краткий сбой не должен убивать торговый контур. Перезапуск только после
 # STRIKES последовательных плохих heartbeat-проверок.
 if (( health_fails >= STRIKES )); then
-  send_tg "⚠️ ${HOST_LABEL} mybot unhealthy: ${reason}; restarting after ${health_fails} strikes"
+  send_tg "⚠️ mybot unhealthy: ${reason}; restarting after ${health_fails} strikes" \
+    "mybot-health:${reason}"
   systemctl restart mybot.service || true
   systemctl is-active --quiet mybot.service && \
-    send_tg "🔁 ${HOST_LABEL} mybot restarted (OK)"
+    send_tg "🔁 mybot restarted (service active; heartbeat проверяется следующим циклом)" \
+      "mybot-restarted"
   health_fails=0
 fi
 
 if (( net_fails >= STRIKES )); then
-  send_tg "⚠️ ${HOST_LABEL} network failure: ${reason} (fails=${net_fails})"
+  send_tg "⚠️ network failure: ${reason} (fails=${net_fails})" \
+    "network:${reason}"
   logger "[WATCHDOG] network failure: ${reason}"
 fi
 
