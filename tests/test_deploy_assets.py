@@ -152,6 +152,9 @@ def test_updates_are_commit_allowlisted_and_backups_are_encrypted():
     assert "ReadWritePaths=/var/lib/ladder-dragon /mnt" in backup_unit
     assert "BACKUP_EXTERNAL_MOUNT" in backup
     assert "external backup disk is not mounted" in backup
+    assert "BindReadWritePaths" in updater
+    assert "RequiresMountsFor" in updater
+    assert "external-mount.conf" in installer
 
 
 def test_watchdog_uses_current_heartbeat_and_not_legacy_runner_name():
