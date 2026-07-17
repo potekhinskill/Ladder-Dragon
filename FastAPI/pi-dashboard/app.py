@@ -46,6 +46,10 @@ AI_MODE = os.getenv("AI_MODE", "SHADOW").upper()
 AI_DAILY_COST_LIMIT_USD = Decimal(os.getenv("AI_DAILY_COST_LIMIT_USD", "0.50"))
 AI_DAILY_TOKEN_LIMIT = int(os.getenv("AI_DAILY_TOKEN_LIMIT", "500000"))
 AI_MAX_REQUESTS_PER_DAY = int(os.getenv("AI_MAX_REQUESTS_PER_DAY", "1000"))
+AI_ERROR_DEGRADED_WINDOW_SEC = max(
+    60.0, float(os.getenv("AI_ERROR_DEGRADED_WINDOW_SEC", "900"))
+)
+AI_ERROR_DEGRADED_MIN = max(1, int(os.getenv("AI_ERROR_DEGRADED_MIN", "3")))
 AI_RUNTIME_STATUS_FILE = Path(
     os.getenv("AI_RUNTIME_STATUS_FILE", "/run/mybot/ai_status.json")
 )
@@ -752,14 +756,25 @@ def history(hours: int = 24, points: int = 288):
     })
 
 
-def _ai_usage_today(path: Path) -> Dict:
+def _ai_usage_today(path: Path, *, now: datetime | None = None) -> Dict:
     # Лимиты и состояние DEGRADED должны совпадать с AI policy и сбрасываться
     # по UTC. APP_TZ используется только для отображения локального времени.
-    today = datetime.now(tz=timezone.utc).date()
-    requests_count = tokens = errors = 0
+    now = now or datetime.now(tz=timezone.utc)
+    now = now.astimezone(timezone.utc)
+    today = now.date()
+    requests_count = tokens = errors = recent_errors = 0
     cost = Decimal("0")
+    last_error_at = None
     if not path.exists():
-        return {"requests": 0, "tokens": 0, "cost_usd": "0"}
+        return {
+            "requests": 0,
+            "tokens": 0,
+            "cost_usd": "0",
+            "errors": 0,
+            "recent_errors": 0,
+            "last_error_at": None,
+            "error_window_sec": AI_ERROR_DEGRADED_WINDOW_SEC,
+        }
     for line in path.read_text(encoding="utf-8", errors="replace").splitlines():
         try:
             event = json.loads(line)
@@ -769,7 +784,12 @@ def _ai_usage_today(path: Path) -> Dict:
             requests_count += 1
             tokens += int(event.get("total_tokens") or 0)
             cost += Decimal(str(event.get("estimated_cost_usd") or "0"))
-            errors += int(event.get("outcome") == "error")
+            if event.get("outcome") == "error":
+                errors += 1
+                last_error_at = max(last_error_at or stamp, stamp).isoformat()
+                age = (now - stamp).total_seconds()
+                if 0 <= age <= AI_ERROR_DEGRADED_WINDOW_SEC:
+                    recent_errors += 1
         except (KeyError, TypeError, ValueError, json.JSONDecodeError):
             continue
     return {
@@ -777,6 +797,9 @@ def _ai_usage_today(path: Path) -> Dict:
         "tokens": tokens,
         "cost_usd": str(cost),
         "errors": errors,
+        "recent_errors": recent_errors,
+        "last_error_at": last_error_at,
+        "error_window_sec": AI_ERROR_DEGRADED_WINDOW_SEC,
     }
 
 
@@ -923,11 +946,14 @@ def ai_status(limit: int = 50):
         or runtime_stale
         or bool(runtime and runtime.get("state") != "RUNNING")
     )
-    degraded = (
-        budget_exhausted
-        or usage.get("errors", 0) >= 3
-        or runtime_unhealthy
-    )
+    degraded_reasons = []
+    if budget_exhausted:
+        degraded_reasons.append("daily_budget_exhausted")
+    if usage.get("recent_errors", 0) >= AI_ERROR_DEGRADED_MIN:
+        degraded_reasons.append("recent_ai_errors")
+    if runtime_unhealthy:
+        degraded_reasons.append("runtime_unhealthy")
+    degraded = bool(degraded_reasons)
     state = (
         "DISABLED" if effective_mode == "DISABLED"
         else "DEGRADED" if degraded
@@ -971,6 +997,7 @@ def ai_status(limit: int = 50):
         "knowledge_base": knowledge_stats,
         "usage_today": usage,
         "budget_exhausted": budget_exhausted,
+        "degraded_reasons": degraded_reasons,
         "recent": recent,
         "applied_count": sum(bool(row.get("applied")) for row in recent),
         "changed_mode_count": sum(

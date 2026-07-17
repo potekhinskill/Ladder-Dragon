@@ -2,6 +2,7 @@ import importlib.util
 import json
 from pathlib import Path
 import sqlite3
+from datetime import datetime, timedelta, timezone
 
 from fastapi.testclient import TestClient
 from ai_runtime_status import write_runtime_status
@@ -239,3 +240,46 @@ def test_dashboard_follows_active_bot_venue_and_ai_paths(tmp_path, monkeypatch):
     assert payload["recent"][0]["symbol"] == "ETHUSDT"
     assert payload["data_sources"]["decisions_db"] == str(decisions_db)
     assert module.get_db_path() == str(stats_db)
+
+
+def test_old_daily_ai_errors_do_not_keep_dashboard_degraded(tmp_path, monkeypatch):
+    now = datetime.now(timezone.utc)
+    usage_log = tmp_path / "ai_usage.ndjson"
+    old_timestamp = (now - timedelta(hours=1)).isoformat()
+    usage_log.write_text(
+        "".join(
+            json.dumps(
+                {
+                    "timestamp": old_timestamp,
+                    "total_tokens": 10,
+                    "estimated_cost_usd": "0.001",
+                    "outcome": "error",
+                }
+            )
+            + "\n"
+            for _ in range(3)
+        ),
+        encoding="utf-8",
+    )
+    status_file = tmp_path / "ai_status.json"
+    write_runtime_status(
+        status_file,
+        {"state": "RUNNING", "ai": {"mode": "SHADOW", "enabled": True}},
+    )
+    monkeypatch.setenv("AI_USAGE_LOG", str(usage_log))
+    monkeypatch.setenv("AI_RUNTIME_STATUS_FILE", str(status_file))
+    monkeypatch.setenv("AI_ERROR_DEGRADED_WINDOW_SEC", "900")
+    module = load_dashboard(monkeypatch)
+
+    with TestClient(module.app) as client:
+        response = client.get(
+            "/api/ai/status",
+            headers={"Authorization": "Bearer test-secret-token"},
+        )
+
+    payload = response.json()
+    assert response.status_code == 200
+    assert payload["state"] == "SHADOW"
+    assert payload["usage_today"]["errors"] == 3
+    assert payload["usage_today"]["recent_errors"] == 0
+    assert payload["degraded_reasons"] == []
