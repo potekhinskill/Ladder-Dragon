@@ -2,6 +2,18 @@
 
 Формат версий: [Semantic Versioning](https://semver.org/).
 
+## [2.10.1] — 2026-07-17
+
+### Исправлено
+- Внешнее зеркало больше не использует `cp -p`, который на exFAT пытался изменить владельца и останавливал backup с `Operation not permitted`; сохраняются только timestamps.
+- Удалён неподдерживаемый на Raspberry ключ systemd `BindReadWritePaths`; внешний mount остаётся доступен через `RequiresMountsFor` и `ReadWritePaths` без предупреждений systemd.
+- Online SQLite backup повторяется до трёх раз при кратковременной гонке с WAL, но по-прежнему завершается fail-closed после исчерпания попыток.
+
+### Проверено
+- `PYTHONPATH=. pytest -q` — все тесты проходят.
+- `python3 -m compileall -q .`.
+- `bash -n deploy/backup_raspberry_pi.sh deploy/install_raspberry_pi.sh deploy/update_raspberry_pi.sh`.
+
 ## [2.10.0] — 2026-07-17
 
 ### Исправлено

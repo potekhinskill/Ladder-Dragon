@@ -120,15 +120,26 @@ python3 - "${PROJECT_DIR}" "${DEST}/project" <<'PY'
 import os
 import sqlite3
 import sys
+import time
 from pathlib import Path
 
 project = Path(sys.argv[1])
 dest = Path(sys.argv[2])
 for source in sorted((project / "db").glob("*.db")) + sorted((project / "db").glob("*.sqlite3")):
     target = dest / source.name
-    with sqlite3.connect(f"file:{source}?mode=ro", uri=True) as src:
-        with sqlite3.connect(target) as out:
-            src.backup(out)
+    # На активной SQLite WAL короткая гонка закрытия/записи может временно
+    # вернуть «unable to open database file». Повторяем online backup, но после
+    # исчерпания попыток завершаем backup с ошибкой, не публикуя неполный архив.
+    for attempt in range(3):
+        try:
+            with sqlite3.connect(f"file:{source}?mode=ro", uri=True, timeout=30) as src:
+                with sqlite3.connect(target, timeout=30) as out:
+                    src.backup(out, pages=100, sleep=0.2)
+            break
+        except sqlite3.OperationalError:
+            if attempt == 2:
+                raise
+            time.sleep(1)
     os.chmod(target, 0o600)
 PY
 
@@ -153,7 +164,8 @@ mirror_external_archive() {
   local source_archive="$1"
   local name
   name="$(basename "${source_archive}")"
-  cp -p "${source_archive}" "${BACKUP_EXTERNAL_DIR}/${name}"
+  # --preserve=timestamps не пытается менять владельца exFAT-файла.
+  cp --preserve=timestamps -f "${source_archive}" "${BACKUP_EXTERNAL_DIR}/${name}"
   # checksum пересоздаётся в каталоге назначения, поэтому путь остаётся
   # переносимым и не содержит локальных путей Raspberry Pi.
   (cd "${BACKUP_EXTERNAL_DIR}" && sha256sum "${name}" >"${name}.sha256")
@@ -164,7 +176,7 @@ publish_public_archive() {
   local source_archive="$1"
   local name
   name="$(basename "${source_archive}")"
-  cp -p "${source_archive}" "${PUBLIC_BACKUP_DIR}/${name}"
+  cp --preserve=timestamps -f "${source_archive}" "${PUBLIC_BACKUP_DIR}/${name}"
   chown root:www-data "${PUBLIC_BACKUP_DIR}/${name}"
   chmod 0640 "${PUBLIC_BACKUP_DIR}/${name}"
   (cd "${PUBLIC_BACKUP_DIR}" && sha256sum "${name}" >"${name}.sha256")
@@ -191,7 +203,7 @@ shopt -u nullglob
 if [[ -n "${BACKUP_EXTERNAL_DIR}" ]]; then
   # Внешний диск также получает inventory без секретов. При отключённом
   # mountpoint скрипт завершается выше и не пишет незаметно на SD-карту.
-  cp -p "${DEST}/inventory.txt" \
+  cp --preserve=timestamps -f "${DEST}/inventory.txt" \
     "${BACKUP_EXTERNAL_DIR}/inventory-${STAMP}.txt"
   find "${BACKUP_EXTERNAL_DIR}" -maxdepth 1 -type f \
     \( -name 'ladder-dragon-*.tgz.age*' -o -name 'preinstall-*.tgz.age*' -o -name 'inventory-*.txt' \) \

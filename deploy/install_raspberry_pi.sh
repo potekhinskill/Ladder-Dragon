@@ -564,8 +564,8 @@ if [[ -n "${BACKUP_EXTERNAL_MOUNT:-}" ]]; then
   [[ "${BACKUP_EXTERNAL_MOUNT}" =~ ^/[A-Za-z0-9._/@+-]+$ ]] \
     || fail "invalid BACKUP_EXTERNAL_MOUNT path"
   install -d -m 0755 "$(dirname "${backup_mount_dropin}")"
-  printf '[Unit]\nRequiresMountsFor=%s\n\n[Service]\nReadWritePaths=%s\nBindReadWritePaths=%s\n' \
-    "${BACKUP_EXTERNAL_MOUNT}" "${BACKUP_EXTERNAL_MOUNT}" "${BACKUP_EXTERNAL_MOUNT}" \
+  printf '[Unit]\nRequiresMountsFor=%s\n\n[Service]\nReadWritePaths=%s\n' \
+    "${BACKUP_EXTERNAL_MOUNT}" "${BACKUP_EXTERNAL_MOUNT}" \
     >"${backup_mount_dropin}"
   chmod 0644 "${backup_mount_dropin}"
 fi

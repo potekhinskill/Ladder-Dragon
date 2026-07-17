@@ -82,7 +82,7 @@ def test_installer_migrates_sqlite_safely_and_closes_legacy_backups():
     installer = read("deploy/install_raspberry_pi.sh")
     backup = read("deploy/backup_raspberry_pi.sh")
     assert "src.backup(out)" in installer
-    assert "src.backup(out)" in backup
+    assert "src.backup(out" in backup
     assert "db-wal" not in backup
     assert "legacy-public-" in installer
     assert "backups-public" in installer
@@ -156,8 +156,8 @@ def test_updates_are_commit_allowlisted_and_backups_are_encrypted():
     assert "BACKUP_EXTERNAL_MOUNT" in backup
     assert "external backup disk is not mounted" in backup
     assert "exFAT не поддерживает chmod" in backup
-    assert "BindReadWritePaths" in updater
     assert "ReadWritePaths=%s" in updater
+    assert "BindReadWritePaths" not in installer + updater
     assert "RequiresMountsFor" in updater
     assert "external-mount.conf" in installer
 
@@ -169,7 +169,7 @@ def test_backup_reconciles_all_archives_and_verifies_destination_checksums():
     assert "publish_public_archive" in backup
     assert 'for source_archive in "${BACKUP_DIR}"/*.tgz.age' in backup
     assert 'sha256sum -c "${name}.sha256"' in backup
-    assert 'cp -p "${source_archive}"' in backup
+    assert 'cp --preserve=timestamps -f "${source_archive}"' in backup
     assert "preinstall-*.tgz.age*" in backup
     assert "BACKUP_EXTERNAL_RETENTION_DAYS" in backup
 
