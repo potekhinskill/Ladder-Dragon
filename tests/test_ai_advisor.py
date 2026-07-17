@@ -237,18 +237,19 @@ def test_schema_rejects_boolean_numbers_and_out_of_range_values():
         )
 
 
-def test_schema_rejects_rationale_over_160_characters():
-    with pytest.raises(ValueError, match="rationale is too long"):
-        validate_recommendation(
-            {
-                "mode": "FLAT",
-                "ladder_width_scale": 1.0,
-                "cap_scale": 0.5,
-                "confidence": 0.9,
-                "rationale": "x" * 161,
-            },
-            config=config(),
-        )
+def test_schema_bounds_rationale_over_160_characters():
+    recommendation = validate_recommendation(
+        {
+            "mode": "FLAT",
+            "ladder_width_scale": 1.0,
+            "cap_scale": 0.5,
+            "confidence": 0.9,
+            "rationale": "x" * 161,
+        },
+        config=config(),
+    )
+    assert len(recommendation.rationale) == 160
+    assert recommendation.rationale.endswith("…")
 
 
 def test_ai_cap_can_reduce_but_never_expand_risk_manager_cap():

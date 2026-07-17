@@ -422,10 +422,13 @@ def validate_recommendation(
     if not isinstance(rationale, str) or not rationale.strip():
         raise ValueError("AI rationale must be a non-empty string")
     rationale = rationale.strip()
-    if len(rationale) > MAX_RATIONALE_CHARS:
-        raise ValueError("AI rationale is too long")
     if any(ord(char) < 32 for char in rationale):
         raise ValueError("AI rationale contains control characters")
+    # Пояснение не участвует в торговом решении. Безопасно ограничиваем его
+    # после строгой проверки структуры, чтобы редкое превышение лимита моделью
+    # не превращало корректные mode/CAP/confidence в ошибку всего AI-цикла.
+    if len(rationale) > MAX_RATIONALE_CHARS:
+        rationale = rationale[: MAX_RATIONALE_CHARS - 1].rstrip() + "…"
     return StrategyRecommendation(
         mode=mode,
         ladder_width_scale=width,
