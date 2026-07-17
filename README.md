@@ -218,7 +218,10 @@ Safety-policy независимо от prompt:
 на 15 минут (`AI_CACHE_SEC=900`). Дневные лимиты
 `AI_DAILY_COST_LIMIT_USD`, `AI_DAILY_TOKEN_LIMIT` и
 `AI_MAX_REQUESTS_PER_DAY` переводят AI в детерминированный fallback до следующего
-UTC-дня. Рядом с DeepSeek считается независимый числовой regime benchmark.
+UTC-дня. Dashboard считает текущий `DEGRADED` только по свежим ошибкам в окне
+`AI_ERROR_DEGRADED_WINDOW_SEC` (по умолчанию 900 секунд) с минимумом
+`AI_ERROR_DEGRADED_MIN` (по умолчанию 3); дневное число ошибок остаётся
+статистикой. Рядом с DeepSeek считается независимый числовой regime benchmark.
 В `DRY` можно использовать завершённые shadow-оценки в отдельном RAG-статусе
 `virtual_validated`; в `LIVE` виртуальные документы принудительно отключены.
 После накопления минимум 60 размеченных решений к нему подключается локальная
