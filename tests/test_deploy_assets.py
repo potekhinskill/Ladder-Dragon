@@ -184,6 +184,16 @@ def test_updates_are_commit_allowlisted_and_backups_are_encrypted():
     assert "external-mount.conf" in installer
 
 
+def test_backup_service_allows_only_sqlite_directory_for_wal_sidecars():
+    service = read("deploy/ladder-dragon-backup.service")
+    backup = read("deploy/backup_raspberry_pi.sh")
+    assert "ReadOnlyPaths=/home/bot/apps/binance_bot" not in service
+    assert "ReadWritePaths=/var/lib/ladder-dragon /home/bot/apps/binance_bot/db" in service
+    assert "temporary = target.with_name" in backup
+    assert "os.replace(temporary, target)" in backup
+    assert "SQLite online backup failed for {source.name}" in backup
+
+
 def test_backup_reconciles_all_archives_and_verifies_destination_checksums():
     backup = read("deploy/backup_raspberry_pi.sh")
     assert 'shopt -s nullglob' in backup
