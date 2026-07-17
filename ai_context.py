@@ -299,14 +299,21 @@ def build_market_features(
     except Exception:
         base = MarketFeatures()
     try:
-        spread, top5, top20 = orderbook_features(
-            public_get("/api/v3/depth", {"symbol": symbol, "limit": 20})
+        depth = public_get("/api/v3/depth", {"symbol": symbol, "limit": 20})
+        spread, top5, top20 = orderbook_features(depth)
+        orderbook_ok = (
+            isinstance(depth, Mapping)
+            and isinstance(depth.get("bids"), list)
+            and isinstance(depth.get("asks"), list)
+            and bool(depth.get("bids"))
+            and bool(depth.get("asks"))
         )
     except Exception:
         spread, top5, top20 = 0.0, 0.0, 0.0
+        orderbook_ok = False
     return MarketFeatures(
         market_data_available=base.market_data_available,
-        orderbook_available=bool(spread or top5 or top20),
+        orderbook_available=orderbook_ok,
         market_data_age_sec=base.market_data_age_sec,
         return_15m=base.return_15m,
         return_1h=base.return_1h,

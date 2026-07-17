@@ -120,6 +120,10 @@ _AI_CONTROL_PATH: Optional[Path] = None
 # Один decision_id на период действия cached-рекомендации. Это не даёт
 # виртуальной статистике и RAG считать каждый цикл супервизора новой моделью.
 _AI_DECISION_IDS: Dict[str, str] = {}
+# Кэш последнего полного контекста отделён от кэша ответа LLM. Иначе при
+# cache-hit возвращался только базовый набор индикаторов с флагами
+# ``*_available=False``, и dashboard ошибочно показывал stale/incomplete.
+_AI_CONTEXT_CACHE: Dict[str, tuple[float, MarketContext]] = {}
 
 
 def env_flag(name: str, default: bool = False) -> bool:
@@ -1442,8 +1446,25 @@ def _build_ai_market_context(
             )
         except sqlite3.Error as exc:
             dbg(f"[AI-DECISION] settle failed: {exc}")
-    if _AI_ADVISOR is None or not _AI_ADVISOR.refresh_due(symbol):
+    if _AI_ADVISOR is None:
         return MarketContext(**base)
+
+    now = time.time()
+    cached_context = _AI_CONTEXT_CACHE.get(symbol)
+    context_ttl = min(
+        max(1.0, float(os.getenv("AI_MAX_MARKET_AGE_SEC", "30") or 30)),
+        max(1.0, float(os.getenv("AI_MAX_PORTFOLIO_AGE_SEC", "30") or 30)),
+    )
+    # Контекст обновляется чаще, чем ответ LLM: это сохраняет свежесть
+    # стакана/баланса, но не увеличивает число платных запросов к DeepSeek.
+    if cached_context is not None and now - cached_context[0] <= context_ttl:
+        cached_at, previous = cached_context
+        elapsed = max(0.0, now - cached_at)
+        return replace(
+            previous,
+            market_data_age_sec=previous.market_data_age_sec + elapsed,
+            portfolio_data_age_sec=previous.portfolio_data_age_sec + elapsed,
+        )
 
     extra: Dict[str, Any] = {}
     trade_features = load_trade_features(
@@ -1496,6 +1517,7 @@ def _build_ai_market_context(
                 )
             ),
         )
+    _AI_CONTEXT_CACHE[symbol] = (now, context)
     return context
 
 
@@ -2249,6 +2271,7 @@ def main():
     global _AI_ADVISOR, _AI_DECISIONS, _AI_KNOWLEDGE, _AI_POLICY
     global _AI_RUNTIME_STATUS_PATH, _AI_RUNTIME_STATUS, _AI_CONTROL_PATH
     _AI_DECISION_IDS.clear()
+    _AI_CONTEXT_CACHE.clear()
     decisions_db = (
         os.getenv("AI_TESTNET_DECISIONS_DB", "").strip()
         if args.testnet else args.ai_decisions_db
