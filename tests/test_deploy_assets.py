@@ -173,6 +173,7 @@ def test_backup_reconciles_all_archives_and_verifies_destination_checksums():
     assert 'sha256sum -c "${name}.sha256"' in backup
     assert 'cp --preserve=timestamps -f "${source_archive}"' in backup
     assert "preinstall-*.tgz.age*" in backup
+    assert 'publish_public_archive "${source_archive}"' in backup
     assert "BACKUP_EXTERNAL_RETENTION_DAYS" in backup
 
 
