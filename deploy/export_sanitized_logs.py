@@ -23,6 +23,12 @@ SENSITIVE_NAMES = (
     "authorization|x-mbx-apikey|api[_-]?key|api[_-]?secret|secret|password|"
     "token|cookie|set-cookie|webhook(?:_url)?|private[_-]?key|access[_-]?key"
 )
+# Имена переменных окружения содержат префикс проекта перед API_KEY/SECRET;
+# обычный \b перед API не срабатывает после символа подчёркивания.
+ENV_SECRET_NAMES = (
+    r"(?:[A-Z0-9]+_)*(?:API[_-]?(?:KEY|SECRET)|SECRET|TOKEN|PASSWORD|"
+    r"PRIVATE[_-]?KEY|WEBHOOK(?:_URL)?)"
+)
 REDACTIONS = (
     (
         re.compile(r"(?i)\b(Bearer\s+)[A-Za-z0-9._~+/=-]+"),
@@ -35,6 +41,13 @@ REDACTIONS = (
             rf"(?P<quote>[\"'])(?P<value>[^\"']*)(?P=quote)"
         ),
         r"\g<prefix>\g<quote><redacted>\g<quote>",
+    ),
+    (
+        re.compile(
+            rf"(?ix)(?P<prefix>\b{ENV_SECRET_NAMES}\b\s*=\s*)"
+            r"(?P<quote>[\"']?)(?P<value>[^\s,;\"']+)(?P=quote)"
+        ),
+        r"\g<prefix><redacted>",
     ),
     (
         # Text key=value, HTTP headers и неquoted JSON values.

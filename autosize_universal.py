@@ -1339,6 +1339,18 @@ def main():
 
     symbol = args.symbol
 
+    # Статус OCO больше не маскируется знаком вопроса: до первой проверки
+    # явно показываем, что защита ещё не подтверждена. Это помогает отличать
+    # ожидающий BUY от реально подтверждённого OCO в журнале и на dashboard.
+    protection_state = "not_checked" if attach_oco else "disabled"
+
+    def status_message(left: int) -> str:
+        return (
+            f"[status] {symbol} pid={os.getpid()} OCO:{protection_state} | "
+            f"started:{datetime.fromtimestamp(started_at).strftime('%Y-%m-%d %H:%M:%S')} | "
+            f"left:{int(left)}s | last: idle"
+        )
+
     # --- пер-символьный лок: второй процесс того же символа сразу завершится ---
     _lock = SymbolLock(symbol)
     if not _lock.acquire():
@@ -1375,7 +1387,7 @@ def main():
 
         started_at = time.time()
         warmup = cleanup_warmup_sec()
-        log(f"[status] {symbol} pid={os.getpid()} OCO:? | started:{datetime.fromtimestamp(started_at).strftime('%Y-%m-%d %H:%M:%S')} | left:{int(args.loop_minutes*60)}s | last: idle")
+        log(status_message(int(args.loop_minutes * 60)))
 
         # BUY — размер из окружения (кап на заявку), если передаёт супервизор
         cap = getenv_float("BOT_CAP_PER_ORDER", 50.0)
@@ -1554,7 +1566,7 @@ def main():
             running=lambda: RUN,
         ):
             if status_due(left, args.status_interval):
-                log(f"[status] {symbol} pid={os.getpid()} OCO:? | started:{datetime.fromtimestamp(started_at).strftime('%Y-%m-%d %H:%M:%S')} | left:{left}s | last: idle")
+                log(status_message(left))
 
             # периодически обновляем индикаторы/панику (лёгкий режим)
             try:
@@ -1586,6 +1598,7 @@ def main():
                 last_check += 1
                 if last_check >= max(1, args.check_fills_interval):
                     last_check = 0
+                    pending_before = len(placed_ids)
                     placed_ids = protect_filled_buys(
                         symbol,
                         placed_ids,
@@ -1603,6 +1616,12 @@ def main():
                         state_store=be_state,
                         dependencies=_protection_dependencies(),
                     )
+                    if pending_before == 0:
+                        protection_state = "not_needed"
+                    elif len(placed_ids) < pending_before:
+                        protection_state = "confirmed"
+                    else:
+                        protection_state = "pending"
 
             # LIVE time-stop: защита от бесконечно зависшей позиции. Binance
             # не предоставляет такой политики для уже исполненного BUY, поэтому
