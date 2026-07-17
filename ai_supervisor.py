@@ -19,6 +19,7 @@ import argparse
 import subprocess
 import json
 import sqlite3
+import re
 from dataclasses import asdict, replace
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal
@@ -131,6 +132,29 @@ def env_flag(name: str, default: bool = False) -> bool:
     if v is None:
         return default
     return str(v).strip().lower() in ("1", "true", "t", "yes", "y", "on")
+
+
+def _configured_unvalued_assets() -> set[str]:
+    """Прочитать явный список непереводимой пыли, не ослабляя risk по умолчанию."""
+    raw = os.getenv("RISK_UNVALUED_ASSETS", "")
+    assets = {item.strip().upper() for item in raw.split(",") if item.strip()}
+    invalid = sorted(asset for asset in assets if not re.fullmatch(r"[A-Z0-9]{2,20}", asset))
+    if invalid:
+        raise RuntimeError(
+            "RISK_UNVALUED_ASSETS contains invalid asset name(s): " + ",".join(invalid)
+        )
+    if assets:
+        acknowledged = {
+            item.strip().upper()
+            for item in os.getenv("RISK_UNVALUED_ASSETS_ACK", "").split(",")
+            if item.strip()
+        }
+        if assets != acknowledged:
+            raise RuntimeError(
+                "RISK_UNVALUED_ASSETS requires an exact matching "
+                "RISK_UNVALUED_ASSETS_ACK"
+            )
+    return assets
 
 
 def _build_ai_advisor(args: argparse.Namespace) -> Optional[AIAdvisor]:
@@ -1967,6 +1991,15 @@ def _preflight_live(args: argparse.Namespace, symbols: List[str], limits: RiskLi
     # DRY тоже печатает итоговую конфигурацию, но не требует торговых ключей.
     if not args.live:
         return
+    # Непереводимая пыль допускается только поимённо и с отдельным ACK.
+    # Equity при этом занижается: неизвестный актив никогда не становится
+    # основанием для увеличения CAP.
+    unvalued_assets = _configured_unvalued_assets()
+    if unvalued_assets:
+        log(
+            "[PREFLIGHT] explicitly acknowledged unvalued assets excluded "
+            "from equity: " + ",".join(sorted(unvalued_assets))
+        )
     if limits.halt_file.exists():
         log(
             f"[PREFLIGHT] persistent halt detected at {limits.halt_file}; "
@@ -2130,6 +2163,7 @@ def _build_risk_snapshot(
     # переданные стратегии. Иначе старые/ручные позиции в другом активе
     # исчезают из equity, drawdown и portfolio CAP.
     stable_assets = {"USDT", "USDC", "FDUSD", "BUSD", "TUSD", "DAI"}
+    unvalued_assets = _configured_unvalued_assets()
     asset_values: Dict[str, Decimal] = {}
     equity = Decimal("0")
     holdings_exposure = Decimal("0")
@@ -2169,6 +2203,12 @@ def _build_risk_snapshot(
                         prices[valuation_symbol] = valuation_price
                         break
             if money(valuation_price) <= 0:
+                if asset in unvalued_assets:
+                    log(
+                        f"[RISK] unvalued asset {asset} explicitly allowlisted; "
+                        "excluded from equity and exposure"
+                    )
+                    continue
                 raise RuntimeError(f"cannot value account asset {asset}")
             value = qty * money(valuation_price)
         asset_values[asset] = value
