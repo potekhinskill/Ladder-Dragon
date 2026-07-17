@@ -2,6 +2,15 @@
 
 Формат версий: [Semantic Versioning](https://semver.org/).
 
+## [2.9.9] — 2026-07-17
+
+### Исправлено
+- Внешний backup mount получает явные `ReadWritePaths` и `BindReadWritePaths` в systemd drop-in; запись на подключённый exFAT больше не должна блокироваться sandbox.
+
+### Проверено
+- `PYTHONPATH=. pytest -q` — все тесты проходят.
+- `bash -n deploy/install_raspberry_pi.sh deploy/update_raspberry_pi.sh`.
+
 ## [2.9.8] — 2026-07-17
 
 ### Исправлено
