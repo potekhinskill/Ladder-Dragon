@@ -198,8 +198,10 @@ def test_low_confidence_is_ignored_and_valid_result_is_cached():
         clock=lambda: now[0],
     )
     assert advisor.recommend(context()) is not None
+    assert advisor.last_was_cache_hit is False
     now[0] += 10
     assert advisor.recommend(context()) is not None
+    assert advisor.last_was_cache_hit is True
     assert len(session.calls) == 1
 
 
