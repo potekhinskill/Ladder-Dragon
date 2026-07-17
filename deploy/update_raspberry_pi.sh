@@ -345,6 +345,7 @@ systemctl enable ladder-dragon-backup.timer ladder-dragon-log-export.timer >/dev
 systemctl start mybot
 systemctl start pi-healthd
 systemctl start ladder-dragon-backup.timer
+systemctl start ladder-dragon-backup.service
 systemctl start ladder-dragon-log-export.service ladder-dragon-log-export.timer
 systemctl restart systemd-journald
 systemctl try-restart fail2ban || true
