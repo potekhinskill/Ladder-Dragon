@@ -555,10 +555,11 @@ nginx -t
 systemctl daemon-reload
 systemctl disable --now make-pi-backup.timer make-pi-backup.service 2>/dev/null || true
 systemctl enable nginx avahi-daemon fail2ban mybot pi-healthd \
-  ladder-dragon-backup.timer ladder-dragon-log-export.timer >/dev/null
+  ladder-dragon-backup.timer ladder-dragon-log-export.timer \
+  pi-watchdog-v3.timer >/dev/null
 systemctl restart systemd-journald nginx avahi-daemon fail2ban
 systemctl restart zramswap 2>/dev/null || true
-systemctl start mybot pi-healthd ladder-dragon-backup.timer
+systemctl start mybot pi-healthd ladder-dragon-backup.timer pi-watchdog-v3.timer
 systemctl start ladder-dragon-log-export.service ladder-dragon-log-export.timer
 
 sleep 3

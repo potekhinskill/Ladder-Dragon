@@ -347,10 +347,12 @@ nginx -t
 systemctl daemon-reload
 systemctl disable --now make-pi-backup.timer make-pi-backup.service 2>/dev/null || true
 restore_autostart
-systemctl enable ladder-dragon-backup.timer ladder-dragon-log-export.timer >/dev/null
+systemctl enable ladder-dragon-backup.timer ladder-dragon-log-export.timer \
+  pi-watchdog-v3.timer >/dev/null
 systemctl start mybot
 systemctl start pi-healthd
 systemctl start ladder-dragon-backup.timer
+systemctl start pi-watchdog-v3.timer
 systemctl start ladder-dragon-backup.service
 systemctl start ladder-dragon-log-export.service ladder-dragon-log-export.timer
 systemctl restart systemd-journald
