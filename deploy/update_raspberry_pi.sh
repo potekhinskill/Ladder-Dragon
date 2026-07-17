@@ -323,6 +323,12 @@ render_unit deploy/ladder-dragon-log-export.service \
   /etc/systemd/system/ladder-dragon-log-export.service
 install -m 0644 deploy/ladder-dragon-log-export.timer \
   /etc/systemd/system/ladder-dragon-log-export.timer
+install -m 0755 deploy/pi-watchdog_v3.sh /usr/local/bin/pi-watchdog_v3.sh
+install -m 0644 deploy/pi-watchdog-v3.service \
+  /etc/systemd/system/pi-watchdog-v3.service
+install -m 0644 deploy/pi-watchdog-v3.timer \
+  /etc/systemd/system/pi-watchdog-v3.timer
+rm -f /etc/systemd/system/pi-watchdog-v3.service.d/rc-ok.conf
 rm -f /etc/systemd/system/mybot.service.d/dashboard-link.conf
 
 if [[ -d "${WEB_ROOT}/backups" ]]; then

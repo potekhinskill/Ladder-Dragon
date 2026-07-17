@@ -1,0 +1,11 @@
+[Unit]
+Description=Run Pi Watchdog v3 every 5 minutes
+
+[Timer]
+OnBootSec=2min
+OnUnitActiveSec=5min
+AccuracySec=10s
+Unit=pi-watchdog-v3.service
+
+[Install]
+WantedBy=timers.target

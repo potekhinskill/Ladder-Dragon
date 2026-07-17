@@ -151,6 +151,21 @@ def test_updates_are_commit_allowlisted_and_backups_are_encrypted():
     assert "backups-public" in backup_unit
 
 
+def test_watchdog_uses_current_heartbeat_and_not_legacy_runner_name():
+    watchdog = read("deploy/pi-watchdog_v3.sh")
+    service = read("deploy/pi-watchdog-v3.service")
+    installer = read("deploy/install_raspberry_pi.sh")
+    updater = read("deploy/update_raspberry_pi.sh")
+    assert "ai_status.json" in watchdog
+    assert "autosize_universal.py" not in watchdog
+    assert "1.8_autosize_universal.py" not in watchdog
+    assert "STRIKES" in watchdog
+    assert "systemctl restart mybot.service" in watchdog
+    assert "|| true'" not in service
+    assert "pi-watchdog_v3.sh" in installer
+    assert "pi-watchdog_v3.sh" in updater
+
+
 def test_systemd_units_have_extended_sandboxing():
     for relative in (
         "deploy/mybot.service",

@@ -1,0 +1,8 @@
+[Unit]
+Description=Pi soft watchdog v3 (network + mybot)
+
+[Service]
+Type=oneshot
+EnvironmentFile=-/etc/bot-alerts.env
+ExecStart=/usr/local/bin/pi-watchdog_v3.sh
+SuccessExitStatus=0
