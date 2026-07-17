@@ -2,6 +2,23 @@
 
 Формат версий: [Semantic Versioning](https://semver.org/).
 
+## [2.10.5] — 2026-07-17
+
+### Исправлено
+- `gen_vwap_env.py` больше не пишет traceback `BrokenPipeError`, когда systemd
+  останавливает supervisor и закрывает pipe во время штатного завершения.
+- Статус исполнителя больше не выводит неоднозначное `OCO:?`: используются
+  `not_checked`, `pending`, `confirmed`, `not_needed` и `disabled`.
+- Экспорт логов теперь redacts также prefixed-переменные вроде
+  `DEEPSEEK_API_KEY`, `DASHBOARD_BINANCE_API_SECRET` и `BOT_WEBHOOK_URL`.
+- Повторный отказ AI по исчерпанному дневному бюджету логируется один раз за
+  UTC-день; запросы к DeepSeek ограничены коротким ответом до 160 токенов.
+
+### Проверено
+- `PYTHONPATH=. pytest -q` — все тесты проходят.
+- `python3 -m compileall -q .`.
+- `git diff --check`.
+
 ## [2.10.4] — 2026-07-17
 
 ### Изменено

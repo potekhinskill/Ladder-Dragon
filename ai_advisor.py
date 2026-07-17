@@ -176,6 +176,8 @@ class AIAdvisor:
         self.clock = clock
         self.decision_recorder = decision_recorder
         self.budget_checker = budget_checker
+        self._budget_blocked_day: Optional[str] = None
+        self._budget_blocked_reason = ""
         # Кэшируем и успешный результат, и безопасный отказ. Это не позволяет
         # недоступному API или низкой confidence создавать запрос каждую секунду.
         self._cache: dict[
@@ -194,14 +196,23 @@ class AIAdvisor:
     ) -> Optional[StrategyRecommendation]:
         if not self.config.enabled:
             return None
+        now = self.clock()
+        utc_day = datetime.fromtimestamp(now, timezone.utc).date().isoformat()
         if self.budget_checker is not None:
+            # Не спамить журнал одинаковым отказом каждые несколько секунд.
+            # Блокировка автоматически снимается с наступлением нового UTC-дня.
+            if self._budget_blocked_day == utc_day:
+                return None
             allowed, reason = self.budget_checker()
             if not allowed:
+                self._budget_blocked_day = utc_day
+                self._budget_blocked_reason = reason
                 self.logger(
                     f"[AI-BUDGET] {context.symbol} disabled until next UTC day: {reason}"
                 )
                 return None
-        now = self.clock()
+            self._budget_blocked_day = None
+            self._budget_blocked_reason = ""
         cached = self._cache.get(context.symbol)
         if cached is not None and now - cached[0] <= self.config.cache_sec:
             return cached[1]
@@ -267,8 +278,8 @@ class AIAdvisor:
             "prices, leverage, transfers, or bypassing risk controls. Return only "
             "one JSON object with exactly these fields: "
             '{"mode":"UP|DOWN|FLAT","ladder_width_scale":number,'
-            f'"cap_scale":number,"confidence":number,"rationale":"short text, '
-            f'maximum {MAX_RATIONALE_CHARS} characters"}}. '
+            f'"cap_scale":number,"confidence":number,"rationale":"one short '
+            f'sentence, maximum {MAX_RATIONALE_CHARS} characters"}}. '
             "Prefer the deterministic mode unless the indicators provide clear "
             "evidence. cap_scale above 1 is only a preference and will still be "
             "capped by the local Risk Manager. Treat trade statistics with fewer "
@@ -295,7 +306,9 @@ class AIAdvisor:
             ],
             "response_format": {"type": "json_object"},
             "temperature": 0,
-            "max_tokens": 220,
+            # Ограничение ответа снижает вероятность длинного rationale и
+            # одновременно ограничивает стоимость advisory-запроса.
+            "max_tokens": 160,
             "stream": False,
         }
         if self.config.provider == "deepseek":

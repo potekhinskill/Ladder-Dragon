@@ -1,4 +1,5 @@
 import json
+from datetime import datetime, timezone
 from decimal import Decimal
 
 import pytest
@@ -200,6 +201,26 @@ def test_low_confidence_is_ignored_and_valid_result_is_cached():
     now[0] += 10
     assert advisor.recommend(context()) is not None
     assert len(session.calls) == 1
+
+
+def test_daily_budget_block_is_logged_once_until_utc_day_changes():
+    now = [datetime(2026, 7, 16, 12, tzinfo=timezone.utc).timestamp()]
+    messages = []
+    advisor = AIAdvisor(
+        config(),
+        session=FakeSession({}),
+        logger=messages.append,
+        clock=lambda: now[0],
+        budget_checker=lambda: (False, "daily token limit"),
+    )
+
+    assert advisor.recommend(context()) is None
+    assert advisor.recommend(context()) is None
+    assert len(messages) == 1
+
+    now[0] += 24 * 60 * 60
+    assert advisor.recommend(context()) is None
+    assert len(messages) == 2
 
 
 def test_schema_rejects_boolean_numbers_and_out_of_range_values():

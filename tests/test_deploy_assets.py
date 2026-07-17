@@ -83,6 +83,12 @@ def test_managed_service_uses_versionless_wrapper_and_separate_env():
     assert 'BOT_LIVE_CONFIRMED:-NO' in wrapper
 
 
+def test_executor_status_does_not_hide_oco_state_behind_question_mark():
+    executor = read("autosize_universal.py")
+    assert "OCO:?" not in executor
+    assert 'protection_state = "not_checked"' in executor
+
+
 def test_supervisor_control_logs_stay_inside_writable_rotated_directory():
     ctl = read("supervisor_ctl.sh")
     unit = read("deploy/mybot.service")

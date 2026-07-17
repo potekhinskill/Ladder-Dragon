@@ -33,6 +33,21 @@ def test_sanitize_redacts_credentials_and_binance_signature():
     assert "SOLUSDT" in sanitized
 
 
+def test_sanitize_redacts_project_prefixed_environment_secrets():
+    exporter = load_exporter()
+    source = (
+        "DEEPSEEK_API_KEY=deepseek-secret\n"
+        "DASHBOARD_BINANCE_API_SECRET='binance-secret'\n"
+        "BOT_WEBHOOK_URL=https://user:password@example.invalid/hook\n"
+    )
+
+    sanitized, replacements = exporter.sanitize(source)
+
+    assert replacements >= 3
+    for secret in ("deepseek-secret", "binance-secret", "password"):
+        assert secret not in sanitized
+
+
 def test_sanitize_redacts_json_cookies_url_credentials_and_private_keys():
     exporter = load_exporter()
     source = (

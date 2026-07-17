@@ -75,6 +75,21 @@ def fmt_pairs(pairs: Dict[str, float], precision: int = 6) -> str:
     return ",".join(f"{sym}:{val:.{precision}f}" for sym, val in pairs.items())
 
 
+def emit_lines(lines: Iterable[str]) -> bool:
+    """Напечатать результат и спокойно завершиться при закрытом stdout.
+
+    При остановке systemd родительский supervisor закрывает pipe раньше
+    генератора VWAP. Это штатная часть graceful shutdown, а не ошибка расчёта.
+    Поэтому BrokenPipeError не должен превращаться в traceback в журнале.
+    """
+    try:
+        for line in lines:
+            print(line, flush=True)
+    except BrokenPipeError:
+        return False
+    return True
+
+
 def build_maps(symbols: List[str], args: argparse.Namespace) -> Tuple[Dict[str, float], Dict[str, float], Dict[str, float]]:
     premium_map: Dict[str, float] = {}
     discount_map: Dict[str, float] = {}
@@ -148,12 +163,14 @@ def main() -> None:
 
     premium_map, discount_map, scale_map = build_maps(symbols, args)
 
+    lines = []
     if premium_map:
-        print(f"BUY_VWAP_PREMIUM_MAP={fmt_pairs(premium_map, args.precision)}")
+        lines.append(f"BUY_VWAP_PREMIUM_MAP={fmt_pairs(premium_map, args.precision)}")
     if discount_map:
-        print(f"BUY_VWAP_DISCOUNT_MAP={fmt_pairs(discount_map, args.precision)}")
+        lines.append(f"BUY_VWAP_DISCOUNT_MAP={fmt_pairs(discount_map, args.precision)}")
     if scale_map:
-        print(f"BUY_VWAP_DISCOUNT_SCALE_MAP={fmt_pairs(scale_map, args.precision)}")
+        lines.append(f"BUY_VWAP_DISCOUNT_SCALE_MAP={fmt_pairs(scale_map, args.precision)}")
+    emit_lines(lines)
 
 
 if __name__ == "__main__":
