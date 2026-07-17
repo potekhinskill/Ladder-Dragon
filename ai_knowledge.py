@@ -157,6 +157,10 @@ class KnowledgeStore:
                         virtual = {}
                     ai_result = virtual.get("ai", {})
                     baseline_result = virtual.get("baseline", {})
+                    # Одного направления цены недостаточно: virtual RAG
+                    # требует завершённой оценки и AI-плана, и baseline.
+                    if not isinstance(ai_result, dict) or not isinstance(baseline_result, dict):
+                        continue
                     status = "virtual_validated"
                     outcome = {
                         "source": "virtual_shadow",
