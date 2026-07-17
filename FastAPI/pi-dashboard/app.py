@@ -7,7 +7,7 @@ from fastapi.responses import JSONResponse
 import psutil, shutil, json, os, socket, asyncio, subprocess, math, time, hmac, hashlib, secrets, threading
 from collections import defaultdict, deque
 from contextlib import asynccontextmanager
-from datetime import datetime
+from datetime import datetime, timezone
 from decimal import Decimal
 from zoneinfo import ZoneInfo
 from pathlib import Path
@@ -740,7 +740,9 @@ def history(hours: int = 24, points: int = 288):
 
 
 def _ai_usage_today(path: Path) -> Dict:
-    today = datetime.now(tz=APP_TZ).date()
+    # Лимиты и состояние DEGRADED должны совпадать с AI policy и сбрасываться
+    # по UTC. APP_TZ используется только для отображения локального времени.
+    today = datetime.now(tz=timezone.utc).date()
     requests_count = tokens = errors = 0
     cost = Decimal("0")
     if not path.exists():
@@ -748,7 +750,7 @@ def _ai_usage_today(path: Path) -> Dict:
     for line in path.read_text(encoding="utf-8", errors="replace").splitlines():
         try:
             event = json.loads(line)
-            stamp = datetime.fromisoformat(str(event["timestamp"])).astimezone(APP_TZ)
+            stamp = datetime.fromisoformat(str(event["timestamp"])).astimezone(timezone.utc)
             if stamp.date() != today:
                 continue
             requests_count += 1
