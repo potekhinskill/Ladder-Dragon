@@ -8,6 +8,7 @@
 - Восстановлен защищённый `/backups/`: Basic Auth показывает только age-зашифрованные архивы, checksum и inventory без секретов.
 - Backup сохраняет legacy watchdog, `/etc/bot-alerts.env` и Telegram-конфигурацию внутри зашифрованного архива.
 - Circuit Breaker и execution safety halt отправляют точную причину в Telegram, если настроен `/etc/ladder-dragon/telegram.env` или legacy-файл.
+- Updater сразу создаёт публичный backup-index после обновления, поэтому `/backups/` не зависит от следующего timer.
 
 ### Безопасность
 - Расшифрованные конфигурации и ключи не копируются в HTTP-каталог; публичная копия архива имеет права только для `root:www-data`.
