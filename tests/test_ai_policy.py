@@ -85,6 +85,29 @@ def test_policy_rejects_stale_context_and_prevents_aggressive_low_sample_change(
     assert result.recommendation.cap_scale <= 1
 
 
+def test_policy_reports_each_missing_context_source_without_opening_gate():
+    result = apply_safety_policy(
+        context(
+            market_data_available=False,
+            orderbook_available=False,
+            portfolio_data_available=False,
+            market_data_age_sec=100,
+            portfolio_data_age_sec=100,
+        ),
+        recommendation(),
+        PolicyConfig(mode="APPLY"),
+    )
+    assert result.apply is False
+    assert {
+        "market_data_unavailable",
+        "orderbook_unavailable",
+        "portfolio_data_unavailable",
+        "market_data_stale",
+        "portfolio_data_stale",
+        "incomplete_or_stale_context",
+    } <= set(result.reasons)
+
+
 def test_risk_pressure_reduces_cap_and_spread_pauses_buys():
     result = apply_safety_policy(
         context(

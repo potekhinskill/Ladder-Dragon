@@ -96,6 +96,18 @@ def apply_safety_policy(
     )
     if not data_ok:
         apply = False
+        # Не скрываем, какой именно источник сделал контекст непригодным.
+        # Это диагностические метки: они не ослабляют fail-closed правило.
+        if not context.market_data_available:
+            reasons.append("market_data_unavailable")
+        if not context.orderbook_available:
+            reasons.append("orderbook_unavailable")
+        if not context.portfolio_data_available:
+            reasons.append("portfolio_data_unavailable")
+        if context.market_data_age_sec > config.max_market_age_sec:
+            reasons.append("market_data_stale")
+        if context.portfolio_data_age_sec > config.max_portfolio_age_sec:
+            reasons.append("portfolio_data_stale")
         reasons.append("incomplete_or_stale_context")
 
     if config.mode == "SHADOW":
