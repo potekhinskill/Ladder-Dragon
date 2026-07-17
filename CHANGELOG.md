@@ -2,7 +2,7 @@
 
 Формат версий: [Semantic Versioning](https://semver.org/).
 
-## [2.9.1] — 2026-07-17
+## [2.9.2] — 2026-07-17
 
 ### Добавлено
 - Восстановлен защищённый `/backups/`: Basic Auth показывает только age-зашифрованные архивы, checksum и inventory без секретов.
@@ -10,6 +10,9 @@
 - Circuit Breaker и execution safety halt отправляют точную причину в Telegram, если настроен `/etc/ladder-dragon/telegram.env` или legacy-файл.
 - Updater сразу создаёт публичный backup-index после обновления, поэтому `/backups/` не зависит от следующего timer.
 - Watchdog больше не ищет legacy `1.8_autosize_universal.py`: используется heartbeat `/run/mybot/ai_status.json`, а restart выполняется только после трёх последовательных сбоев.
+
+Предыдущий выпуск 2.9.1 содержал восстановление защищённого `/backups/` и
+Telegram-оповещений.
 
 ### Безопасность
 - Расшифрованные конфигурации и ключи не копируются в HTTP-каталог; публичная копия архива имеет права только для `root:www-data`.
