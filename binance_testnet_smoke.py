@@ -1,4 +1,6 @@
 #!/usr/bin/env python3
+# Copyright (c) 2026 IURII Potekhin / Ladder Dragon. All rights reserved.
+# Назначение файла и опасные границы логики должны оставаться понятными при сопровождении.
 """Fail-closed Binance Spot Testnet smoke checks.
 
 The client refuses every host except testnet.binance.vision.  The default mode

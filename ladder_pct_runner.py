@@ -1,5 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
+# Copyright (c) 2026 IURII Potekhin / Ladder Dragon. All rights reserved.
+# Назначение файла и опасные границы логики должны оставаться понятными при сопровождении.
 """
 ladder_pct_runner.py — подготовка процентной лестницы для исполнителя:
 - Геометрическая сетка по модулю процентов (устойчивое geomspace)

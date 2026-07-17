@@ -1,3 +1,5 @@
+# Copyright (c) 2026 IURII Potekhin / Ladder Dragon. All rights reserved.
+# Назначение файла и опасные границы логики должны оставаться понятными при сопровождении.
 """Минимальный event-driven replay для записанных стаканов и trade prints.
 
 Это отдельный слой над OHLC simulator: он не подменяет Binance, но позволяет

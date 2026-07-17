@@ -1,3 +1,6 @@
+# Copyright (c) 2026 IURII Potekhin / Ladder Dragon. All rights reserved.
+# Назначение: локальный read-only dashboard; торговые ключи и ордера сюда не передаются.
+
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 # убрали requests из общего импорта:

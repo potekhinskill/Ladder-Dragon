@@ -1,3 +1,5 @@
+# Copyright (c) 2026 IURII Potekhin / Ladder Dragon. All rights reserved.
+# Назначение файла и опасные границы логики должны оставаться понятными при сопровождении.
 """Безопасная доставка аварийных уведомлений в Telegram.
 
 Токен и chat id читаются только из root-owned файла конфигурации на Raspberry

@@ -1,4 +1,6 @@
 #!/usr/bin/env python3
+# Copyright (c) 2026 IURII Potekhin / Ladder Dragon. All rights reserved.
+# Назначение файла и опасные границы логики должны оставаться понятными при сопровождении.
 """Read-only Binance Spot Testnet safety monitor for long soak runs."""
 
 from __future__ import annotations
