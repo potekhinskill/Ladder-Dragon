@@ -157,7 +157,7 @@ def build_supervisor_parser() -> argparse.ArgumentParser:
     ap.add_argument("--ai-decisions-db",
                     default=os.getenv("AI_DECISIONS_DB", ".runtime/ai_decisions.sqlite3"))
     ap.add_argument("--ai-daily-cost-limit-usd", type=float,
-                    default=float(os.getenv("AI_DAILY_COST_LIMIT_USD", "0.10")))
+                    default=float(os.getenv("AI_DAILY_COST_LIMIT_USD", "0.50")))
     ap.add_argument("--ai-daily-token-limit", type=int,
                     default=int(os.getenv("AI_DAILY_TOKEN_LIMIT", "250000")))
     ap.add_argument("--ai-max-requests-per-day", type=int,
