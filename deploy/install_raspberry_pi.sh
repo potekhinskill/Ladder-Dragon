@@ -538,6 +538,13 @@ render_unit "${PROJECT_DIR}/deploy/ladder-dragon-log-export.service" \
   /etc/systemd/system/ladder-dragon-log-export.service
 install -m 0644 "${PROJECT_DIR}/deploy/ladder-dragon-log-export.timer" \
   /etc/systemd/system/ladder-dragon-log-export.timer
+install -m 0755 "${PROJECT_DIR}/deploy/pi-watchdog_v3.sh" \
+  /usr/local/bin/pi-watchdog_v3.sh
+install -m 0644 "${PROJECT_DIR}/deploy/pi-watchdog-v3.service" \
+  /etc/systemd/system/pi-watchdog-v3.service
+install -m 0644 "${PROJECT_DIR}/deploy/pi-watchdog-v3.timer" \
+  /etc/systemd/system/pi-watchdog-v3.timer
+rm -f /etc/systemd/system/pi-watchdog-v3.service.d/rc-ok.conf
 
 runuser -u "${BOT_USER}" -- "${PROJECT_DIR}/.venv/bin/python" -m compileall -q "${PROJECT_DIR}"
 runuser -u "${BOT_USER}" -- "${PROJECT_DIR}/.venv/bin/python" \

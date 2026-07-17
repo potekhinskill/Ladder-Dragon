@@ -9,6 +9,7 @@
 - Backup сохраняет legacy watchdog, `/etc/bot-alerts.env` и Telegram-конфигурацию внутри зашифрованного архива.
 - Circuit Breaker и execution safety halt отправляют точную причину в Telegram, если настроен `/etc/ladder-dragon/telegram.env` или legacy-файл.
 - Updater сразу создаёт публичный backup-index после обновления, поэтому `/backups/` не зависит от следующего timer.
+- Watchdog больше не ищет legacy `1.8_autosize_universal.py`: используется heartbeat `/run/mybot/ai_status.json`, а restart выполняется только после трёх последовательных сбоев.
 
 ### Безопасность
 - Расшифрованные конфигурации и ключи не копируются в HTTP-каталог; публичная копия архива имеет права только для `root:www-data`.

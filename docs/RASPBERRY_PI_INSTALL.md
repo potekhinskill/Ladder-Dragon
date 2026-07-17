@@ -241,6 +241,14 @@ sudo awk -F= '/^(TELEGRAM_ALERTS_ENABLED|TELEGRAM_BOT_TOKEN|TELEGRAM_CHAT_ID|BOT
 зашифрованные `.tgz.age`, checksum и inventory; токены и расшифрованные env туда
 не попадают.
 
+### Watchdog
+
+Установщик и updater устанавливают `/usr/local/bin/pi-watchdog_v3.sh` и
+управляемые unit/timer. Watchdog проверяет `/run/mybot/ai_status.json` и сеть;
+legacy-поиск `1.8_autosize_universal.py` удалён. Здоровый `mybot` не
+перезапускается. После трёх последовательных неуспешных heartbeat-проверок
+выполняется restart и отправляется Telegram-уведомление.
+
 ## 6. Выбор режима запуска
 
 Режим systemd хранится отдельно от секретов:
