@@ -17,6 +17,8 @@ ALERT_LOAD_THRESHOLD=${WATCHDOG_ALERT_LOAD_THRESHOLD:-2.0}
 ALERT_TEMP_THRESHOLD_C=${WATCHDOG_ALERT_TEMP_THRESHOLD_C:-70}
 ALERT_LOAD_DELTA=${WATCHDOG_ALERT_LOAD_DELTA:-0.5}
 ALERT_TEMP_DELTA_C=${WATCHDOG_ALERT_TEMP_DELTA_C:-2}
+TELEGRAM_OUTBOX="${WATCHDOG_TELEGRAM_OUTBOX:-${STATEDIR}/telegram-outbox}"
+TELEGRAM_OUTBOX_MAX_FLUSH=${WATCHDOG_TELEGRAM_OUTBOX_MAX_FLUSH:-10}
 REASON_FILE="${STATEDIR}/reason.txt"
 HEARTBEAT="${AI_RUNTIME_STATUS_FILE:-/run/mybot/ai_status.json}"
 UPTIME_SOURCE="${WATCHDOG_UPTIME_SOURCE:-/proc/uptime}"
@@ -26,6 +28,47 @@ UPTIME_SOURCE="${WATCHDOG_UPTIME_SOURCE:-/proc/uptime}"
 mkdir -p "${STATEDIR}"
 touch "${LOG}" 2>/dev/null || true
 log() { printf '%s %s\n' "$1" "$2" >>"${LOG}"; }
+
+# Отправка вынесена в отдельную функцию, чтобы при отсутствии сети сохранить
+# текст сообщения локально и не потерять причину аварии.
+telegram_post() {
+  local msg="$1"
+  curl -sS -m 5 "https://api.telegram.org/bot${TG_BOT_TOKEN}/sendMessage" \
+    -d "chat_id=${TG_CHAT_ID}" \
+    --data-urlencode "text=${msg}" >/dev/null
+}
+
+queue_telegram_message() {
+  local msg="$1" digest tmp target
+  mkdir -p "${TELEGRAM_OUTBOX}"
+  digest="$(printf '%s' "${msg}" | sha256sum | awk '{print $1}')"
+  target="${TELEGRAM_OUTBOX}/$(date +%s)-$$-${digest}.msg"
+  tmp="${target}.tmp"
+  printf '%s\n' "${msg}" >"${tmp}"
+  mv -f "${tmp}" "${target}"
+  log "[telegram]" "queued undelivered alert ${target}"
+}
+
+flush_telegram_outbox() {
+  local count path queued sent=0
+  [[ -n "${TG_BOT_TOKEN:-}" && -n "${TG_CHAT_ID:-}" ]] || return 0
+  [[ -d "${TELEGRAM_OUTBOX}" ]] || return 0
+  count="$(find "${TELEGRAM_OUTBOX}" -maxdepth 1 -type f -name '*.msg' | wc -l | tr -d ' ')"
+  (( count > 0 )) || return 0
+  telegram_post "✅ Telegram connection restored
+Отложенных уведомлений: ${count}" || return 1
+  while IFS= read -r path; do
+    queued="$(cat "${path}")"
+    telegram_post "📨 Отложенное уведомление:
+${queued}" || return 1
+    rm -f -- "${path}"
+    sent=$((sent + 1))
+    if (( sent >= TELEGRAM_OUTBOX_MAX_FLUSH )); then
+      break
+    fi
+  done < <(find "${TELEGRAM_OUTBOX}" -maxdepth 1 -type f -name '*.msg' -print | sort)
+  log "[telegram]" "flushed ${sent}/${count} queued alerts"
+}
 
 # Разрешаем первое уведомление, изменение показателей или повтор после cooldown.
 # Состояние хранится отдельно от heartbeat, поэтому одинаковая авария не спамит
@@ -110,9 +153,9 @@ ip: ${ip:-unknown}"
     msg="${host_label} ${txt}
 повтор: ${repeat}; показатели без изменений"
   fi
-  curl -sS -m 5 "https://api.telegram.org/bot${TG_BOT_TOKEN}/sendMessage" \
-    -d "chat_id=${TG_CHAT_ID}" \
-    --data-urlencode "text=${msg}" >/dev/null || true
+  if ! telegram_post "${msg}"; then
+    queue_telegram_message "${msg}"
+  fi
 }
 
 echo "=== $(LC_ALL=C date) [v3] ===" >>"${LOG}"
@@ -133,6 +176,7 @@ if [[ -f "${STATE}" ]]; then
 fi
 
 net_fails=0
+network_reason="ok"
 gw_ip="$(ip r | awk '/^default/ {print $3; exit}')"
 : "${gw_ip:=192.168.8.1}"
 gw_rc=0; ping -4 -c1 -W1 "${gw_ip}" >/dev/null 2>&1 || gw_rc=$?
@@ -142,10 +186,15 @@ api_rc=0; curl --ipv4 --connect-timeout 2 -m 3 -sS \
 reason="ok"
 if (( gw_rc != 0 || dns_rc != 0 || api_rc != 0 )); then
   net_fails=$((prev_net + 1))
-  reason="network gw=${gw_rc} dns=${dns_rc} api=${api_rc}"
-  printf '%s\n' "${reason}" >"${REASON_FILE}"
+  network_reason="network gw=${gw_rc} dns=${dns_rc} api=${api_rc}"
+  printf '%s\n' "${network_reason}" >"${REASON_FILE}"
 else
   [[ -f "${REASON_FILE}" ]] && rm -f "${REASON_FILE}"
+  if (( prev_net > 0 )); then
+    flush_telegram_outbox || true
+    send_tg "✅ network recovered; gateway, DNS and Binance API are reachable" \
+      "network-recovered"
+  fi
 fi
 
 health_ok=1
@@ -202,9 +251,9 @@ if (( health_fails >= STRIKES )); then
 fi
 
 if (( net_fails >= STRIKES )); then
-  send_tg "⚠️ network failure: ${reason} (fails=${net_fails})" \
-    "network:${reason}"
-  logger "[WATCHDOG] network failure: ${reason}"
+  send_tg "⚠️ network failure: ${network_reason} (fails=${net_fails})" \
+    "network:${network_reason}"
+  logger "[WATCHDOG] network failure: ${network_reason}"
 fi
 
 printf '%s %s\n' "${net_fails}" "${health_fails}" >"${STATE}"

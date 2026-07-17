@@ -436,6 +436,11 @@ Legacy `pi-watchdog-v3` заменяется управляемой версие
 `WATCHDOG_ALERT_COOLDOWN_SEC`, `WATCHDOG_ALERT_LOAD_DELTA`,
 `WATCHDOG_ALERT_TEMP_DELTA_C`, `WATCHDOG_ALERT_LOAD_THRESHOLD` и
 `WATCHDOG_ALERT_TEMP_THRESHOLD_C` в `/etc/bot-alerts.env`.
+Если Telegram временно недоступен, сообщения складываются в
+`/var/lib/pi-watchdog/telegram-outbox` и отправляются после восстановления
+связи. Ошибки Binance-ключа и подписи (`401/403`, `-2014`, `-2015`, `-1022`)
+также уведомляются отдельно и подавляются на 30 минут; состояние дедупликации
+хранится в `/run/mybot/binance-auth-alert.json`.
 
 ### Автоматическое обновление Raspberry Pi
 

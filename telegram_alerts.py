@@ -12,12 +12,15 @@ import argparse
 import json
 import os
 from pathlib import Path
+import re
+import time
 import urllib.error
 import urllib.request
 
 
 DEFAULT_CONFIG = Path("/etc/ladder-dragon/telegram.env")
 LEGACY_CONFIG = Path("/etc/bot-alerts.env")
+AUTH_ALERT_STATE = Path("/run/mybot/binance-auth-alert.json")
 
 
 def _parse_env(path: Path) -> dict[str, str]:
@@ -99,6 +102,59 @@ def notify(event: str, reasons: list[str] | tuple[str, ...], metadata: dict | No
         safe = {str(key): str(value) for key, value in metadata.items()}
         lines.append("Детали: " + json.dumps(safe, ensure_ascii=False, sort_keys=True))
     return send_message("\n".join(lines))
+
+
+def notify_binance_auth_error(
+    *,
+    status: int | None,
+    code: int | None,
+    endpoint: str,
+    message: str = "",
+    cooldown_sec: float = 1800.0,
+) -> bool:
+    """Сообщить о неверном ключе/подписи без утечки секрета и спама.
+
+    Binance не возвращает ключ в таких ошибках, но сообщение всё равно
+    нормализуется и обрезается. Повтор одной ошибки подавляется на cooldown.
+    """
+    status_text = str(status if status is not None else "unknown")
+    code_text = str(code if code is not None else "unknown")
+    safe_endpoint = str(endpoint).split("?", 1)[0][:120]
+    safe_message = re.sub(
+        r"(?i)(api[-_ ]?key|api[-_ ]?secret|signature|token|password)\s*[:=]?\s*\S+",
+        "<redacted>",
+        str(message),
+    )[:180]
+    key = f"{status_text}:{code_text}:{safe_endpoint}"
+    state_path = Path(os.getenv("BINANCE_AUTH_ALERT_STATE", str(AUTH_ALERT_STATE)))
+    now = time.time()
+    try:
+        previous = json.loads(state_path.read_text(encoding="utf-8"))
+    except (FileNotFoundError, PermissionError, OSError, TypeError, json.JSONDecodeError):
+        previous = {}
+    try:
+        previous_ts = float(previous.get("ts", 0))
+    except (TypeError, ValueError):
+        previous_ts = 0.0
+    if previous.get("key") == key and now - previous_ts < max(0.0, cooldown_sec):
+        return False
+    try:
+        state_path.parent.mkdir(parents=True, exist_ok=True)
+        temporary = state_path.with_name(f".{state_path.name}.{os.getpid()}.tmp")
+        temporary.write_text(json.dumps({"key": key, "ts": now}), encoding="utf-8")
+        os.replace(temporary, state_path)
+    except OSError:
+        # Уведомление всё равно важно; невозможность сохранить dedup-state не
+        # должна скрывать проблему авторизации.
+        pass
+    reason = f"Binance auth failed: HTTP {status_text}, code {code_text}"
+    if safe_message:
+        reason += f" ({safe_message})"
+    return notify(
+        "binance_auth_failed",
+        [reason],
+        {"endpoint": safe_endpoint},
+    )
 
 
 def main() -> int:

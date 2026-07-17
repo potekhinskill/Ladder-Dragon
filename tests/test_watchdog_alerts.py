@@ -34,7 +34,9 @@ def _fake_bin(tmp_path: Path) -> Path:
         "import json, os, sys\n"
         "with open(os.environ['CURL_LOG'], 'a', encoding='utf-8') as stream:\n"
         "    json.dump(sys.argv[1:], stream)\n"
-        "    stream.write('\\n')\n",
+        "    stream.write('\\n')\n"
+        "if os.environ.get('CURL_FAIL') == '1':\n"
+        "    raise SystemExit(7)\n",
         encoding="utf-8",
     )
     for command in bindir.iterdir():
@@ -42,7 +44,7 @@ def _fake_bin(tmp_path: Path) -> Path:
     return bindir
 
 
-def _run_watchdog(tmp_path: Path, bindir: Path, curl_log: Path) -> None:
+def _run_watchdog(tmp_path: Path, bindir: Path, curl_log: Path, *, curl_fail: bool = False) -> None:
     uptime_source = tmp_path / "uptime"
     uptime_source.write_text("3600.0 0.0\n", encoding="utf-8")
     env = os.environ.copy()
@@ -63,6 +65,7 @@ def _run_watchdog(tmp_path: Path, bindir: Path, curl_log: Path) -> None:
             "WATCHDOG_ALERT_TEMP_DELTA_C": "999",
             "WATCHDOG_UPTIME_SOURCE": str(uptime_source),
             "CURL_LOG": str(curl_log),
+            "CURL_FAIL": "1" if curl_fail else "0",
         }
     )
     subprocess.run(
@@ -96,3 +99,18 @@ def test_watchdog_sends_one_full_snapshot_and_suppresses_identical_repeat(tmp_pa
     assert "temp:" in texts[0]
     assert "binance_bot: ⚠️ binance_bot:" not in texts[0]
     assert "172.17." not in texts[0]
+
+
+def test_watchdog_queues_alerts_offline_and_reports_network_recovery(tmp_path):
+    bindir = _fake_bin(tmp_path)
+    curl_log = tmp_path / "curl.jsonl"
+    _run_watchdog(tmp_path, bindir, curl_log, curl_fail=True)
+    outbox = tmp_path / "state-dir" / "telegram-outbox"
+    assert list(outbox.glob("*.msg"))
+
+    _run_watchdog(tmp_path, bindir, curl_log, curl_fail=False)
+    texts = _telegram_texts(curl_log)
+    assert any("Telegram connection restored" in text for text in texts)
+    assert any("Отложенное уведомление" in text for text in texts)
+    assert any("network recovered" in text for text in texts)
+    assert not list(outbox.glob("*.msg"))
