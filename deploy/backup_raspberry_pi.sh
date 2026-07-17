@@ -5,6 +5,9 @@ PROJECT_DIR="${PROJECT_DIR:-/home/bot/apps/binance_bot}"
 BACKUP_DIR="${BACKUP_DIR:-/var/lib/ladder-dragon/backups}"
 PUBLIC_BACKUP_DIR="${PUBLIC_BACKUP_DIR:-/var/lib/ladder-dragon/backups-public}"
 BACKUP_AGE_RECIPIENT="${BACKUP_AGE_RECIPIENT:-}"
+BACKUP_EXTERNAL_MOUNT="${BACKUP_EXTERNAL_MOUNT:-}"
+BACKUP_EXTERNAL_DIR="${BACKUP_EXTERNAL_DIR:-}"
+BACKUP_EXTERNAL_RETENTION_DAYS="${BACKUP_EXTERNAL_RETENTION_DAYS:-90}"
 STAMP="$(date -u +%Y-%m-%d-%H%M%S)"
 DEST="${BACKUP_DIR}/${STAMP}"
 
@@ -17,6 +20,29 @@ command -v age >/dev/null || {
   echo "[FAIL] BACKUP_AGE_RECIPIENT is missing or invalid" >&2
   exit 1
 }
+if [[ -n "${BACKUP_EXTERNAL_MOUNT}" || -n "${BACKUP_EXTERNAL_DIR}" ]]; then
+  [[ "${BACKUP_EXTERNAL_RETENTION_DAYS}" =~ ^[0-9]+$ ]] || {
+    echo "[FAIL] BACKUP_EXTERNAL_RETENTION_DAYS must be a non-negative integer" >&2
+    exit 1
+  }
+  [[ -n "${BACKUP_EXTERNAL_MOUNT}" && -n "${BACKUP_EXTERNAL_DIR}" ]] || {
+    echo "[FAIL] BACKUP_EXTERNAL_MOUNT and BACKUP_EXTERNAL_DIR must be set together" >&2
+    exit 1
+  }
+  case "${BACKUP_EXTERNAL_DIR}" in
+    "${BACKUP_EXTERNAL_MOUNT}"/*) ;;
+    *)
+      echo "[FAIL] BACKUP_EXTERNAL_DIR must be below BACKUP_EXTERNAL_MOUNT" >&2
+      exit 1
+      ;;
+  esac
+  mounted_at="$(findmnt -T "${BACKUP_EXTERNAL_MOUNT}" -no TARGET 2>/dev/null || true)"
+  [[ "${mounted_at}" == "${BACKUP_EXTERNAL_MOUNT}" ]] || {
+    echo "[FAIL] external backup disk is not mounted at ${BACKUP_EXTERNAL_MOUNT}" >&2
+    exit 1
+  }
+  install -d -m 0700 "${BACKUP_EXTERNAL_DIR}"
+fi
 install -d -m 0700 "${DEST}"
 install -d -o root -g www-data -m 0750 "${PUBLIC_BACKUP_DIR}"
 
@@ -112,6 +138,20 @@ tar -C "${BACKUP_DIR}" -czf - "${STAMP}" \
 sha256sum "${BACKUP_DIR}/ladder-dragon-${STAMP}.tgz.age" \
   >"${BACKUP_DIR}/ladder-dragon-${STAMP}.tgz.age.sha256"
 chmod 0600 "${BACKUP_DIR}/ladder-dragon-${STAMP}.tgz.age"*
+
+if [[ -n "${BACKUP_EXTERNAL_DIR}" ]]; then
+  # Внешний диск получает только зашифрованный архив, checksum и безопасный inventory.
+  # При отключённом mountpoint скрипт завершается выше и не пишет на SD вместо диска.
+  cp -f "${BACKUP_DIR}/ladder-dragon-${STAMP}.tgz.age" \
+    "${BACKUP_EXTERNAL_DIR}/"
+  cp -f "${BACKUP_DIR}/ladder-dragon-${STAMP}.tgz.age.sha256" \
+    "${BACKUP_EXTERNAL_DIR}/"
+  cp -f "${DEST}/inventory.txt" \
+    "${BACKUP_EXTERNAL_DIR}/inventory-${STAMP}.txt"
+  find "${BACKUP_EXTERNAL_DIR}" -maxdepth 1 -type f \
+    \( -name 'ladder-dragon-*.tgz.age*' -o -name 'inventory-*.txt' \) \
+    -mtime +"${BACKUP_EXTERNAL_RETENTION_DAYS}" -delete
+fi
 
 # Веб-каталог содержит только зашифрованный архив, checksum и безопасный
 # inventory без env/ключей. Сырые backup-каталоги остаются root-only.

@@ -2,6 +2,19 @@
 
 Формат версий: [Semantic Versioning](https://semver.org/).
 
+## [2.9.4] — 2026-07-17
+
+### Исправлено
+- Исправлен systemd sandbox резервного копирования: динамические SQLite-каталоги теперь доступны службе, а ошибка `sqlite3.OperationalError: unable to open database file` не блокирует ежедневный backup.
+
+### Добавлено
+- Поддержано обязательное зеркалирование зашифрованных архивов на внешний диск через `BACKUP_EXTERNAL_MOUNT` и `BACKUP_EXTERNAL_DIR`; при отключённом mountpoint запись не переключается незаметно на SD-карту.
+- Установщик сохраняет настройки внешнего backup-диска при повторной миграции.
+
+### Проверено
+- `PYTHONPATH=. pytest -q` — все тесты проходят.
+- `bash -n deploy/backup_raspberry_pi.sh deploy/install_raspberry_pi.sh deploy/update_raspberry_pi.sh`.
+
 ## [2.9.3] — 2026-07-17
 
 ### Добавлено
