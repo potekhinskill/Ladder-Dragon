@@ -813,7 +813,7 @@ def ai_status(limit: int = 50):
     )
     effective_mode = str(runtime_ai.get("mode") or AI_MODE).upper()
     recent = []
-    knowledge_stats = {"documents": 0, "retrievals": 0}
+    knowledge_stats = {"documents": 0, "virtual_documents": 0, "retrievals": 0}
     db_path = _runtime_data_path(runtime, "ai_decisions_db", AI_DECISIONS_DB)
     if db_path.exists():
         try:
@@ -868,6 +868,12 @@ def ai_status(limit: int = 50):
                         connection.execute(
                             "SELECT COUNT(*) FROM knowledge_documents "
                             "WHERE status='validated'"
+                        ).fetchone()[0]
+                    )
+                    knowledge_stats["virtual_documents"] = int(
+                        connection.execute(
+                            "SELECT COUNT(*) FROM knowledge_documents "
+                            "WHERE status='virtual_validated'"
                         ).fetchone()[0]
                     )
                 if "knowledge_retrievals" in tables:

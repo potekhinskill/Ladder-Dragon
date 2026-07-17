@@ -1475,6 +1475,13 @@ def _build_ai_market_context(
             dbg(f"[AI-DECISION] performance failed: {exc}")
     context = MarketContext(**base, **extra)
     if _AI_KNOWLEDGE is not None:
+        # Виртуальные shadow-примеры разрешены только вне LIVE и явно
+        # отделены статусом virtual_validated от реального PnL.
+        include_virtual_rag = (
+            not LIVE_MODE
+            and os.getenv("AI_RAG_INCLUDE_VIRTUAL", "1").strip().lower()
+            in {"1", "true", "yes", "on"}
+        )
         context = replace(
             context,
             rag_context=tuple(
@@ -1482,6 +1489,7 @@ def _build_ai_market_context(
                     symbol,
                     context_vector(context),
                     limit=int(os.getenv("AI_RAG_TOP_K", "3") or 3),
+                    include_virtual=include_virtual_rag,
                 )
             ),
         )
