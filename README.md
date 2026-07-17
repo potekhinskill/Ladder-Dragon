@@ -129,9 +129,10 @@ DEEPSEEK_API_KEY=ваш_ключ
 AI_USAGE_LOG=.runtime/ai_usage.ndjson
 AI_DECISIONS_DB=.runtime/ai_decisions.sqlite3
 AI_TESTNET_DECISIONS_DB=.runtime/testnet_ai_decisions.sqlite3
-AI_DAILY_COST_LIMIT_USD=0.05
-AI_DAILY_TOKEN_LIMIT=100000
-AI_MAX_REQUESTS_PER_DAY=1000
+AI_CACHE_SEC=900
+AI_DAILY_COST_LIMIT_USD=0.10
+AI_DAILY_TOKEN_LIMIT=250000
+AI_MAX_REQUESTS_PER_DAY=400
 AI_RAG_TOP_K=3
 ```
 
@@ -212,7 +213,9 @@ Safety-policy независимо от prompt:
 - отключает влияние AI, если накопленная точность ниже порога;
 - никогда не расширяет CAP Risk Manager.
 
-Дневные лимиты `AI_DAILY_COST_LIMIT_USD`, `AI_DAILY_TOKEN_LIMIT` и
+Для безопасного накопления SHADOW-статистики запросы одного символа кэшируются
+на 15 минут (`AI_CACHE_SEC=900`). Дневные лимиты
+`AI_DAILY_COST_LIMIT_USD`, `AI_DAILY_TOKEN_LIMIT` и
 `AI_MAX_REQUESTS_PER_DAY` переводят AI в детерминированный fallback до следующего
 UTC-дня. Рядом с DeepSeek считается независимый числовой regime benchmark.
 После накопления минимум 60 размеченных решений к нему подключается локальная

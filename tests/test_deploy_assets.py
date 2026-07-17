@@ -58,6 +58,21 @@ def test_dashboard_publishes_version_and_changelog():
     assert 'FRONT/index.html FRONT/help.html CHANGELOG.md' in updater
 
 
+def test_shadow_ai_defaults_limit_cost_and_duplicate_requests():
+    example = read(".env.example")
+    config = read("supervisor_config.py")
+    changelog = read("CHANGELOG.md")
+    assert "AI_CACHE_SEC=900" in example
+    assert "AI_DAILY_COST_LIMIT_USD=0.10" in example
+    assert "AI_DAILY_TOKEN_LIMIT=250000" in example
+    assert "AI_MAX_REQUESTS_PER_DAY=400" in example
+    assert 'os.getenv("AI_CACHE_SEC", "900")' in config
+    assert 'os.getenv("AI_DAILY_COST_LIMIT_USD", "0.10")' in config
+    assert 'os.getenv("AI_DAILY_TOKEN_LIMIT", "250000")' in config
+    assert 'os.getenv("AI_MAX_REQUESTS_PER_DAY", "400")' in config
+    assert "## [2.10.7]" in changelog
+
+
 def test_dashboard_ai_toggle_is_advisory_only():
     index = read("FRONT/index.html")
     app = read("FastAPI/pi-dashboard/app.py")

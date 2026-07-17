@@ -145,7 +145,7 @@ def build_supervisor_parser() -> argparse.ArgumentParser:
     ap.add_argument("--ai-model", default=os.getenv("AI_MODEL", ""))
     ap.add_argument("--ai-base-url", default=os.getenv("AI_BASE_URL", ""))
     ap.add_argument("--ai-timeout-sec", type=float, default=float(os.getenv("AI_TIMEOUT_SEC", "10")))
-    ap.add_argument("--ai-cache-sec", type=int, default=int(os.getenv("AI_CACHE_SEC", "300")))
+    ap.add_argument("--ai-cache-sec", type=int, default=int(os.getenv("AI_CACHE_SEC", "900")))
     ap.add_argument("--ai-min-confidence", type=float, default=float(os.getenv("AI_MIN_CONFIDENCE", "0.65")))
     ap.add_argument("--ai-width-scale-min", type=float, default=float(os.getenv("AI_WIDTH_SCALE_MIN", "0.75")))
     ap.add_argument("--ai-width-scale-max", type=float, default=float(os.getenv("AI_WIDTH_SCALE_MAX", "1.50")))
@@ -157,11 +157,11 @@ def build_supervisor_parser() -> argparse.ArgumentParser:
     ap.add_argument("--ai-decisions-db",
                     default=os.getenv("AI_DECISIONS_DB", ".runtime/ai_decisions.sqlite3"))
     ap.add_argument("--ai-daily-cost-limit-usd", type=float,
-                    default=float(os.getenv("AI_DAILY_COST_LIMIT_USD", "0.05")))
+                    default=float(os.getenv("AI_DAILY_COST_LIMIT_USD", "0.10")))
     ap.add_argument("--ai-daily-token-limit", type=int,
-                    default=int(os.getenv("AI_DAILY_TOKEN_LIMIT", "100000")))
+                    default=int(os.getenv("AI_DAILY_TOKEN_LIMIT", "250000")))
     ap.add_argument("--ai-max-requests-per-day", type=int,
-                    default=int(os.getenv("AI_MAX_REQUESTS_PER_DAY", "1000")))
+                    default=int(os.getenv("AI_MAX_REQUESTS_PER_DAY", "400")))
     ap.add_argument("--ai-max-market-age-sec", type=float,
                     default=float(os.getenv("AI_MAX_MARKET_AGE_SEC", "30")))
     ap.add_argument("--ai-max-portfolio-age-sec", type=float,
