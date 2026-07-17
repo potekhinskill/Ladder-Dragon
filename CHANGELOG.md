@@ -2,6 +2,15 @@
 
 Формат версий: [Semantic Versioning](https://semver.org/).
 
+## [2.9.8] — 2026-07-17
+
+### Исправлено
+- Backup на внешнем exFAT-диске больше не вызывает `Read-only file system`: каталог создаётся без `chmod`, права контролируются mount-опциями.
+
+### Проверено
+- `PYTHONPATH=. pytest -q` — все тесты проходят.
+- `bash -n deploy/backup_raspberry_pi.sh`.
+
 ## [2.9.7] — 2026-07-17
 
 ### Исправлено
