@@ -2,6 +2,15 @@
 
 Формат версий: [Semantic Versioning](https://semver.org/).
 
+## [2.9.5] — 2026-07-17
+
+### Исправлено
+- В systemd-службу backup добавлен bind настроенного внешнего mountpoint; `/mnt/usb1` теперь виден внутри sandbox, а проверка mountpoint не даёт ложный отказ при реально подключённом диске.
+
+### Проверено
+- `PYTHONPATH=. pytest -q` — все тесты проходят.
+- `bash -n deploy/backup_raspberry_pi.sh deploy/install_raspberry_pi.sh deploy/update_raspberry_pi.sh`.
+
 ## [2.9.4] — 2026-07-17
 
 ### Исправлено

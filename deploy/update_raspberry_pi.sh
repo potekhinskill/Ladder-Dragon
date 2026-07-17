@@ -323,6 +323,18 @@ render_unit deploy/ladder-dragon-log-export.service \
   /etc/systemd/system/ladder-dragon-log-export.service
 install -m 0644 deploy/ladder-dragon-log-export.timer \
   /etc/systemd/system/ladder-dragon-log-export.timer
+
+backup_mount_dropin="/etc/systemd/system/ladder-dragon-backup.service.d/external-mount.conf"
+rm -f "${backup_mount_dropin}"
+if [[ -n "${BACKUP_EXTERNAL_MOUNT:-}" ]]; then
+  [[ "${BACKUP_EXTERNAL_MOUNT}" =~ ^/[A-Za-z0-9._/@+-]+$ ]] \
+    || fail "invalid BACKUP_EXTERNAL_MOUNT path"
+  install -d -m 0755 "$(dirname "${backup_mount_dropin}")"
+  printf '[Unit]\nRequiresMountsFor=%s\n\n[Service]\nBindReadWritePaths=%s\n' \
+    "${BACKUP_EXTERNAL_MOUNT}" "${BACKUP_EXTERNAL_MOUNT}" \
+    >"${backup_mount_dropin}"
+  chmod 0644 "${backup_mount_dropin}"
+fi
 install -m 0755 deploy/pi-watchdog_v3.sh /usr/local/bin/pi-watchdog_v3.sh
 install -m 0644 deploy/pi-watchdog-v3.service \
   /etc/systemd/system/pi-watchdog-v3.service
