@@ -401,8 +401,11 @@ BACKUP_EXTERNAL_DIR=/mnt/usb1/ladder-dragon-backups
 BACKUP_EXTERNAL_RETENTION_DAYS=90
 ```
 
-Сервис копирует на внешний диск только age-зашифрованный архив, checksum и
-безопасный inventory. Если `/mnt/usb1` не смонтирован, backup завершается с
+Сервис зеркалирует на внешний диск весь доступный набор age-зашифрованных
+архивов (включая `preinstall-*`), checksum и безопасные inventory-файлы. При
+каждом запуске исторические архивы из локального каталога также сверяются и
+докопируются, поэтому после миграции зеркало восстанавливается автоматически.
+Если `/mnt/usb1` не смонтирован, backup завершается с
 ошибкой и не записывает данные в одноимённый каталог на SD-карте. После
 изменения конфигурации:
 
@@ -411,6 +414,13 @@ sudo systemctl daemon-reload
 sudo systemctl start ladder-dragon-backup.service
 sudo systemctl status ladder-dragon-backup.service --no-pager -l
 ```
+
+Checksum формируется с относительным именем архива и проверяется командой
+`sha256sum -c` прямо на внешнем диске. Через `/backups/` публикуются только
+`ladder-dragon-*.tgz.age`, их checksum и безопасные inventory; `preinstall-*`
+остаётся закрытой recovery-копией. Локальный и публичный каталоги используют
+14-дневную ротацию, внешний диск — значение
+`BACKUP_EXTERNAL_RETENTION_DAYS` (по умолчанию 90 дней).
 
 Не используйте `/dev/sda1` напрямую в конфигурации: точка монтирования должна
 быть защищена записью в `/etc/fstab` по UUID.
