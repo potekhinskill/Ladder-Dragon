@@ -19,9 +19,11 @@ ProtectControlGroups=yes
 RestrictSUIDSGID=yes
 LockPersonality=yes
 RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
-ReadOnlyPaths=/home/bot/apps/binance_bot
 # Динамические каталоги timestamp в backups и backups-public создаются во время
 # запуска. Внешний диск подключается отдельным точечным bind в drop-in;
 # общий /mnt здесь намеренно не пробрасывается, чтобы не скрывать вложенный mount.
-ReadWritePaths=/var/lib/ladder-dragon
+# SQLite WAL может создавать рядом с БД краткоживущие -wal/-shm-файлы во время
+# online backup. Разрешаем запись только в каталог БД; исходники и env остаются
+# защищены ProtectHome=read-only.
+ReadWritePaths=/var/lib/ladder-dragon /home/bot/apps/binance_bot/db
 UMask=0077

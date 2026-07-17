@@ -141,20 +141,30 @@ from pathlib import Path
 
 project = Path(sys.argv[1])
 dest = Path(sys.argv[2])
+dest.mkdir(parents=True, exist_ok=True)
 for source in sorted((project / "db").glob("*.db")) + sorted((project / "db").glob("*.sqlite3")):
+    if not source.is_file():
+        continue
     target = dest / source.name
+    temporary = target.with_name(f".{target.name}.tmp")
     # На активной SQLite WAL короткая гонка закрытия/записи может временно
     # вернуть «unable to open database file». Повторяем online backup, но после
     # исчерпания попыток завершаем backup с ошибкой, не публикуя неполный архив.
     for attempt in range(3):
         try:
+            temporary.unlink(missing_ok=True)
             with sqlite3.connect(f"file:{source}?mode=ro", uri=True, timeout=30) as src:
-                with sqlite3.connect(target, timeout=30) as out:
+                src.execute("PRAGMA busy_timeout=30000")
+                with sqlite3.connect(temporary, timeout=30) as out:
+                    out.execute("PRAGMA busy_timeout=30000")
                     src.backup(out, pages=100, sleep=0.2)
+            os.replace(temporary, target)
             break
-        except sqlite3.OperationalError:
+        except sqlite3.OperationalError as exc:
             if attempt == 2:
-                raise
+                raise RuntimeError(
+                    f"SQLite online backup failed for {source.name}: {exc}"
+                ) from exc
             time.sleep(1)
     os.chmod(target, 0o600)
 PY
