@@ -184,6 +184,71 @@ def test_reconciliation_retries_recent_fill_and_allows_exchange_dust(tmp_path, m
     assert orders == []
 
 
+def test_unvalued_asset_requires_exact_ack_and_is_excluded_from_equity(tmp_path, monkeypatch):
+    db_path = tmp_path / "stats.db"
+    with sqlite3.connect(db_path) as con:
+        con.execute("CREATE TABLE inventory(symbol TEXT PRIMARY KEY, qty REAL NOT NULL)")
+        con.execute("INSERT INTO inventory(symbol, qty) VALUES('SOLUSDT', 0.129742)")
+
+    monkeypatch.setenv("BOT_STATS_DB", str(db_path))
+    monkeypatch.setenv("RISK_RECONCILE_STRICT", "1")
+    monkeypatch.setenv("RISK_RECONCILE_GRACE_SEC", "0")
+    monkeypatch.setenv("RISK_UNVALUED_ASSETS", "MONKY")
+    monkeypatch.setenv("RISK_UNVALUED_ASSETS_ACK", "MONKY")
+    ai_supervisor._FILTERS_CACHE["SOLUSDT"] = {
+        "tickSize": 0.01,
+        "stepSize": 0.001,
+        "minQty": 0.001,
+        "minNotional": 5.0,
+    }
+
+    monkeypatch.setattr(
+        ai_supervisor,
+        "get_balances_full",
+        lambda: {
+            "SOL": {"free": 0.129742, "locked": 0.0},
+            "USDT": {"free": 1000.0, "locked": 0.0},
+            "MONKY": {"free": 74339.03, "locked": 0.0},
+        },
+    )
+
+    def price(symbol):
+        if symbol == "SOLUSDT":
+            return 77.0
+        raise RuntimeError("missing non-tradable pair")
+
+    monkeypatch.setattr(ai_supervisor, "get_last_price", price)
+    monkeypatch.setattr(ai_supervisor.TM, "_signed_get", lambda *args, **kwargs: [])
+    monkeypatch.setattr(
+        ai_supervisor,
+        "load_daily_trade_metrics",
+        lambda *args, **kwargs: {
+            "daily_turnover_usdt": 0,
+            "daily_buy_usdt": 0,
+            "daily_trade_count": 0,
+            "consecutive_losses": 0,
+        },
+    )
+
+    limits = ai_supervisor.RiskLimits.from_env()
+    snapshot, orders, _ = ai_supervisor._build_risk_snapshot(["SOLUSDT"], limits)
+
+    assert snapshot.equity_usdt == ai_supervisor.money("1009.990134")
+    assert snapshot.exposure_usdt == ai_supervisor.money("9.990134")
+    assert orders == []
+
+
+def test_unvalued_asset_ack_must_match_exactly(monkeypatch):
+    monkeypatch.setenv("RISK_UNVALUED_ASSETS", "MONKY")
+    monkeypatch.setenv("RISK_UNVALUED_ASSETS_ACK", "OTHER")
+    try:
+        ai_supervisor._configured_unvalued_assets()
+    except RuntimeError as exc:
+        assert "exact matching" in str(exc)
+    else:
+        raise AssertionError("unvalued asset allowlist accepted without exact ACK")
+
+
 def test_testnet_uses_separate_stats_and_order_journals(tmp_path, monkeypatch):
     main_stats = tmp_path / "mainnet.db"
     test_stats = tmp_path / "testnet.db"
