@@ -2,6 +2,15 @@
 
 Формат версий: [Semantic Versioning](https://semver.org/).
 
+## [2.9.6] — 2026-07-17
+
+### Исправлено
+- Убран общий writable bind `/mnt` из backup sandbox: он мог скрывать вложенный внешний mount. Настроенный `BACKUP_EXTERNAL_MOUNT` теперь подключается только точечным systemd bind.
+
+### Проверено
+- `PYTHONPATH=. pytest -q` — все тесты проходят.
+- `bash -n deploy/backup_raspberry_pi.sh deploy/install_raspberry_pi.sh deploy/update_raspberry_pi.sh`.
+
 ## [2.9.5] — 2026-07-17
 
 ### Исправлено

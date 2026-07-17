@@ -19,7 +19,7 @@ LockPersonality=yes
 RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
 ReadOnlyPaths=/home/bot/apps/binance_bot
 # Динамические каталоги timestamp в backups и backups-public создаются во время
-# запуска. Разрешаем запись на их общий родительский каталог; /mnt нужен для
-# опционального внешнего диска.
-ReadWritePaths=/var/lib/ladder-dragon /mnt
+# запуска. Внешний диск подключается отдельным точечным bind в drop-in;
+# общий /mnt здесь намеренно не пробрасывается, чтобы не скрывать вложенный mount.
+ReadWritePaths=/var/lib/ladder-dragon
 UMask=0077

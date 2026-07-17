@@ -149,7 +149,8 @@ def test_updates_are_commit_allowlisted_and_backups_are_encrypted():
     assert ".tgz.age" in backup
     assert "EnvironmentFile=/etc/ladder-dragon/backup.env" in backup_unit
     assert "backups-public" in backup_unit
-    assert "ReadWritePaths=/var/lib/ladder-dragon /mnt" in backup_unit
+    assert "ReadWritePaths=/var/lib/ladder-dragon" in backup_unit
+    assert "ReadWritePaths=/var/lib/ladder-dragon /mnt" not in backup_unit
     assert "BACKUP_EXTERNAL_MOUNT" in backup
     assert "external backup disk is not mounted" in backup
     assert "BindReadWritePaths" in updater
