@@ -2,9 +2,10 @@
 
 Формат версий: [Semantic Versioning](https://semver.org/).
 
-## [2.9.2] — 2026-07-17
+## [2.9.3] — 2026-07-17
 
 ### Добавлено
+- Установщик и обновлятор включают и запускают `pi-watchdog-v3.timer`, чтобы безопасный watchdog автоматически работал после перезагрузки Raspberry Pi.
 - Восстановлен защищённый `/backups/`: Basic Auth показывает только age-зашифрованные архивы, checksum и inventory без секретов.
 - Backup сохраняет legacy watchdog, `/etc/bot-alerts.env` и Telegram-конфигурацию внутри зашифрованного архива.
 - Circuit Breaker и execution safety halt отправляют точную причину в Telegram, если настроен `/etc/ladder-dragon/telegram.env` или legacy-файл.
