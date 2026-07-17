@@ -126,9 +126,17 @@ setup_backup_encryption() {
   local identity_dir="/root/.config/ladder-dragon"
   local identity="${identity_dir}/backup-age.key"
   local recipient
+  local external_mount=""
+  local external_dir=""
+  local external_retention=""
   command -v age >/dev/null || fail "age is required"
   command -v age-keygen >/dev/null || fail "age-keygen is required"
   install -d -m 0700 "${config_dir}" "${identity_dir}"
+  if [[ -f "${config_dir}/backup.env" ]]; then
+    external_mount="$(sed -n 's/^BACKUP_EXTERNAL_MOUNT=//p' "${config_dir}/backup.env" | head -1)"
+    external_dir="$(sed -n 's/^BACKUP_EXTERNAL_DIR=//p' "${config_dir}/backup.env" | head -1)"
+    external_retention="$(sed -n 's/^BACKUP_EXTERNAL_RETENTION_DAYS=//p' "${config_dir}/backup.env" | head -1)"
+  fi
   if [[ ! -s "${identity}" ]]; then
     age-keygen -o "${identity}" >/dev/null
     chmod 0600 "${identity}"
@@ -138,7 +146,18 @@ setup_backup_encryption() {
   install -m 0600 /dev/null "${config_dir}/backup.env"
   printf 'BACKUP_AGE_RECIPIENT=%s\n' "${recipient}" \
     >"${config_dir}/backup.env"
+  if [[ -n "${external_mount}" && -n "${external_dir}" ]]; then
+    printf 'BACKUP_EXTERNAL_MOUNT=%s\nBACKUP_EXTERNAL_DIR=%s\n' \
+      "${external_mount}" "${external_dir}" >>"${config_dir}/backup.env"
+    if [[ -n "${external_retention}" ]]; then
+      printf 'BACKUP_EXTERNAL_RETENTION_DAYS=%s\n' "${external_retention}" \
+        >>"${config_dir}/backup.env"
+    fi
+  fi
   export BACKUP_AGE_RECIPIENT="${recipient}"
+  export BACKUP_EXTERNAL_MOUNT="${external_mount}"
+  export BACKUP_EXTERNAL_DIR="${external_dir}"
+  export BACKUP_EXTERNAL_RETENTION_DAYS="${external_retention:-90}"
 }
 
 setup_backup_encryption

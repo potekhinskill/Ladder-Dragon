@@ -388,6 +388,33 @@ sudo ls -lh /var/lib/ladder-dragon/backups
 Архивы содержат env-файлы и являются секретными. Не публикуйте их через nginx,
 облако с открытой ссылкой или публичный Git.
 
+### Внешний диск для резервных копий
+
+Основной backup по умолчанию остаётся на SD-карте в
+`/var/lib/ladder-dragon/backups`. Для подключённого диска сначала проверьте
+его постоянную точку монтирования (`lsblk -f`, `findmnt`), затем задайте в
+`/etc/ladder-dragon/backup.env`:
+
+```text
+BACKUP_EXTERNAL_MOUNT=/mnt/usb1
+BACKUP_EXTERNAL_DIR=/mnt/usb1/ladder-dragon-backups
+BACKUP_EXTERNAL_RETENTION_DAYS=90
+```
+
+Сервис копирует на внешний диск только age-зашифрованный архив, checksum и
+безопасный inventory. Если `/mnt/usb1` не смонтирован, backup завершается с
+ошибкой и не записывает данные в одноимённый каталог на SD-карте. После
+изменения конфигурации:
+
+```bash
+sudo systemctl daemon-reload
+sudo systemctl start ladder-dragon-backup.service
+sudo systemctl status ladder-dragon-backup.service --no-pager -l
+```
+
+Не используйте `/dev/sda1` напрямую в конфигурации: точка монтирования должна
+быть защищена записью в `/etc/fstab` по UUID.
+
 ## 11. Защищённые ротационные логи
 
 Журналы доступны под тем же Basic Auth, что и dashboard:
