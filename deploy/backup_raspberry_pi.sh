@@ -206,11 +206,9 @@ for source_archive in "${BACKUP_DIR}"/*.tgz.age; do
     # Внешний диск получает все age-архивы, включая preinstall-снимки.
     mirror_external_archive "${source_archive}"
   fi
-  # В HTTP-каталог попадают только регулярные ladder-dragon-архивы.
-  # preinstall остаётся внешней/локальной копией и не публикуется.
-  if [[ "$(basename "${source_archive}")" == ladder-dragon-*.tgz.age ]]; then
-    publish_public_archive "${source_archive}"
-  fi
+  # В HTTP-каталог попадают все age-зашифрованные архивы, включая
+  # preinstall-снимки. Открытые legacy-файлы сюда не попадают.
+  publish_public_archive "${source_archive}"
 done
 shopt -u nullglob
 
@@ -230,7 +228,7 @@ install -o root -g www-data -m 0640 \
   "${DEST}/inventory.txt" \
   "${PUBLIC_BACKUP_DIR}/inventory-${STAMP}.txt"
 find "${PUBLIC_BACKUP_DIR}" -maxdepth 1 -type f \
-  \( -name 'ladder-dragon-*.tgz.age*' -o -name 'inventory-*.txt' \) \
+  \( -name '*.tgz.age*' -o -name 'inventory-*.txt' \) \
   -mtime +14 -delete
 manifest_tmp="$(mktemp "${PUBLIC_BACKUP_DIR}/.index.XXXXXX")"
 {

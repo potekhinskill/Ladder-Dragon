@@ -416,9 +416,9 @@ sudo systemctl status ladder-dragon-backup.service --no-pager -l
 ```
 
 Checksum формируется с относительным именем архива и проверяется командой
-`sha256sum -c` прямо на внешнем диске. Через `/backups/` публикуются только
-`ladder-dragon-*.tgz.age`, их checksum и безопасные inventory; `preinstall-*`
-остаётся закрытой recovery-копией. Локальный и публичный каталоги используют
+`sha256sum -c` прямо на внешнем диске. Через `/backups/` публикуются все
+`*.tgz.age`, их checksum и безопасные inventory, включая `preinstall-*`.
+Незашифрованные legacy-файлы остаются закрытыми. Локальный и публичный каталоги используют
 14-дневную ротацию, внешний диск — значение
 `BACKUP_EXTERNAL_RETENTION_DAYS` (по умолчанию 90 дней).
 
