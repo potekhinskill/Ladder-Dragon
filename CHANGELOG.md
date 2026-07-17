@@ -2,13 +2,19 @@
 
 Формат версий: [Semantic Versioning](https://semver.org/).
 
-## [Unreleased]
+## [2.10.16] — 2026-07-17
 
-### Исправлено
-- Регрессионные тесты восстановления ордеров больше не наследуют пути
-  circuit breaker из systemd и не могут записать halt-файл в `/run/mybot`.
-- Все AI-лимиты, дневные ошибки и переход `DEGRADED` рассчитываются по UTC;
-  `Asia/Almaty` используется только для отображения времени в интерфейсе.
+### Изменено
+- Зафиксировано правило: `CHANGELOG.md` не содержит раздела `Unreleased`;
+  изменения записываются только в датированные секции Semantic Versioning.
+- В `AGENTS.md` добавлены обязательные проверка версии и запрет заголовка
+  `## [Unreleased]` перед commit.
+
+### Проверено
+- `! rg '^## \[Unreleased\]' CHANGELOG.md`.
+- `PYTHONPATH=. pytest -q`.
+- `python3 -m compileall -q .`.
+- `git diff --check`.
 
 ## [2.10.15] — 2026-07-17
 
