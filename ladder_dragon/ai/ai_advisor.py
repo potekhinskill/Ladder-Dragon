@@ -1,5 +1,5 @@
 # Copyright (c) 2026 IURII Potekhin / Ladder Dragon. All rights reserved.
-# Назначение файла и опасные границы логики должны оставаться понятными при сопровождении.
+# Purpose: keep the file role and safety boundaries clear during maintenance.
 """Безопасный рекомендательный слой стратегии на основе LLM.
 
 Модель не получает торговых инструментов и не создаёт ордера. Она может только
@@ -137,8 +137,8 @@ class MarketContext:
     ai_realized_edge_ci_low: float = 0.0
     ai_realized_edge_ci_high: float = 0.0
     ai_unresolved_fills: int = 0
-    # Короткие проверенные исторические случаи для локального RAG. Здесь нет
-    # API-ключей, балансов или order IDs; Risk Manager этот контекст не читает.
+    # Short, verified historical cases for local RAG. This contains no API keys,
+    # balances or order IDs; Risk Manager never reads this context.
     rag_context: tuple[Mapping[str, Any], ...] = ()
 
 
@@ -186,12 +186,12 @@ class AIAdvisor:
         self.budget_checker = budget_checker
         self._budget_blocked_day: Optional[str] = None
         self._budget_blocked_reason = ""
-        # Признак нужен исполнителю, чтобы не создавать новую запись в
-        # истории на каждом цикле при возврате той же cached-рекомендации.
+        # The marker prevents the executor from creating a new history entry
+        # on every cycle when the same cached recommendation is returned.
         self._last_was_cache_hit = False
         self._last_decision_id: Optional[str] = None
-        # Кэшируем и успешный результат, и безопасный отказ. Это не позволяет
-        # недоступному API или низкой confidence создавать запрос каждую секунду.
+        # Cache both successful results and safe failures. This prevents an
+        # unavailable API or low confidence from generating requests every second.
         self._cache: dict[
             str, tuple[float, Optional[StrategyRecommendation]]
         ] = {}
@@ -223,8 +223,8 @@ class AIAdvisor:
         now = self.clock()
         utc_day = datetime.fromtimestamp(now, timezone.utc).date().isoformat()
         if self.budget_checker is not None:
-            # Не спамить журнал одинаковым отказом каждые несколько секунд.
-            # Блокировка автоматически снимается с наступлением нового UTC-дня.
+            # Do not spam the journal with the same rejection every few seconds.
+            # The block is cleared automatically at the next UTC day.
             if self._budget_blocked_day == utc_day:
                 return None
             allowed, reason = self.budget_checker()
@@ -283,8 +283,8 @@ class AIAdvisor:
             self._cache[context.symbol] = (now, recommendation)
             return recommendation
         except (requests.RequestException, ValueError, KeyError, TypeError) as exc:
-            # Рекомендательный слой fail-safe: при любой ошибке используется
-            # проверенная детерминированная стратегия, торговля не зависит от LLM.
+            # The advisory layer is fail-safe: any error selects the verified
+            # deterministic strategy; trading never depends on the LLM.
             self._log_usage(
                 context,
                 usage,
@@ -337,14 +337,13 @@ class AIAdvisor:
             ],
             "response_format": {"type": "json_object"},
             "temperature": 0,
-            # Ограничение ответа снижает вероятность длинного rationale и
-            # одновременно ограничивает стоимость advisory-запроса.
+            # The response limit reduces long rationale and limits advisory cost.
             "max_tokens": 160,
             "stream": False,
         }
         if self.config.provider == "deepseek":
-            # Для advisory не нужен скрытый reasoning: короткий JSON дешевле,
-            # быстрее и проще проверяется.
+            # Advisory does not need hidden reasoning: short JSON is cheaper,
+            # faster and easier to validate.
             body["thinking"] = {"type": "disabled"}
         response = self.session.post(
             endpoint,
@@ -423,7 +422,7 @@ class AIAdvisor:
                 max_bytes=self.config.usage_log_max_bytes,
             )
         except OSError as exc:
-            # Телеметрия стоимости не должна влиять на стратегию или торговлю.
+            # Cost telemetry must not influence strategy or trading.
             self.logger(f"[AI-USAGE] cannot write usage log: {exc}")
 
 
@@ -464,9 +463,9 @@ def validate_recommendation(
     rationale = rationale.strip()
     if any(ord(char) < 32 for char in rationale):
         raise ValueError("AI rationale contains control characters")
-    # Пояснение не участвует в торговом решении. Безопасно ограничиваем его
-    # после строгой проверки структуры, чтобы редкое превышение лимита моделью
-    # не превращало корректные mode/CAP/confidence в ошибку всего AI-цикла.
+    # Rationale does not participate in the trading decision. Limit it safely
+    # after strict schema validation so a rare model overflow does not turn
+    # valid mode/CAP/confidence into a failure of the whole AI cycle.
     if len(rationale) > MAX_RATIONALE_CHARS:
         rationale = rationale[: MAX_RATIONALE_CHARS - 1].rstrip() + "…"
     return StrategyRecommendation(

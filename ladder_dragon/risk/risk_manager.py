@@ -1,5 +1,5 @@
 # Copyright (c) 2026 IURII Potekhin / Ladder Dragon. All rights reserved.
-# Назначение файла и опасные границы логики должны оставаться понятными при сопровождении.
+# Purpose: keep the file role and safety boundaries clear during maintenance.
 """Управление портфельным риском Ladder Dragon по принципу fail-closed.
 
 Модуль намеренно не зависит от Binance HTTP: решения можно воспроизводимо
@@ -128,7 +128,7 @@ class RiskSnapshot:
     consecutive_losses: int = 0
     stress_loss_usdt: Decimal = Decimal("0")
     var_usdt: Decimal = Decimal("0")
-    # Gap-risk учитывает overnight shock и стоимость выхода при задержке.
+    # Gap risk includes an overnight shock and exit cost under delay.
     gap_risk_usdt: Decimal = Decimal("0")
     expected_shortfall_usdt: Decimal = Decimal("0")
     stale_order_count: int = 0
@@ -165,8 +165,8 @@ def _utc_day(now: Optional[float] = None) -> str:
 
 
 def _atomic_json(path: Path, payload: dict) -> None:
-    # Состояние нельзя оставлять частично записанным: сначала fsync временного
-    # файла, затем атомарная замена целевого JSON.
+    # Never leave a partially written state: fsync the temporary file first,
+    # then atomically replace the target JSON.
     path.parent.mkdir(parents=True, exist_ok=True)
     fd, tmp_name = tempfile.mkstemp(prefix=f".{path.name}.", dir=str(path.parent))
     try:
@@ -217,8 +217,8 @@ def create_manual_halt(
     }
     with limits.alerts_file.open("a", encoding="utf-8") as handle:
         handle.write(json.dumps(alert, ensure_ascii=False, sort_keys=True) + "\n")
-    # Локальный halt уже записан; Telegram является дополнительным каналом и
-    # не может отменить остановку, если сеть или API уведомлений недоступны.
+    # The local halt is already persisted; Telegram is an extra channel and
+    # cannot clear the halt when the network or notification API is unavailable.
     notify_telegram("execution_safety_halt", reasons, metadata)
     return limits.halt_file
 
@@ -236,8 +236,8 @@ class RiskManager:
         except (FileNotFoundError, json.JSONDecodeError, TypeError, OSError):
             state = RiskState(_utc_day(now), str(equity), str(equity), str(equity))
         if state.day != _utc_day(now):
-            # Новый день обновляет базы equity, но не снимает circuit halt:
-            # разблокировка всегда требует осознанного ручного reset.
+            # A new day updates equity baselines but does not clear the circuit halt:
+            # unlocking always requires an intentional manual reset.
             state.day = _utc_day(now)
             state.start_equity_usdt = str(equity)
             state.peak_equity_usdt = str(equity)
@@ -274,8 +274,8 @@ class RiskManager:
         })
 
     def trip(self, state: RiskState, reasons: Iterable[str], snapshot: RiskSnapshot, now: float) -> None:
-        # Halt записывается раньше уведомления. Даже если webhook или лог недоступен,
-        # следующий запуск увидит маркер и не возобновит покупки.
+        # Persist the halt before notifying. Even if the webhook or log is
+        # unavailable, the next run sees the marker and will not resume BUY.
         reasons = list(dict.fromkeys(reasons))
         state.halted = True
         state.halt_reasons = reasons
@@ -309,7 +309,7 @@ class RiskManager:
         peak_loss = max(Decimal("0"), peak - snapshot.equity_usdt)
         peak_dd = (peak_loss / peak) if peak > 0 else Decimal("0")
 
-        # Нарушение equity-лимитов — необратимый автоматикой circuit halt.
+        # Equity-limit violations are an automation-irreversible circuit halt.
         circuit_reasons: list[str] = []
         if daily_loss >= self.limits.max_daily_loss_usdt:
             circuit_reasons.append(
@@ -327,8 +327,8 @@ class RiskManager:
         if circuit_reasons and not state.halted:
             self.trip(state, circuit_reasons, snapshot, now)
 
-        # Остальные лимиты блокируют новые BUY, но не запрещают сопровождать
-        # существующие позиции и защитные SELL/OCO.
+        # Other limits block new BUY orders but still allow management of
+        # existing positions and protective SELL/OCO orders.
         block_reasons: list[str] = []
         if snapshot.exposure_usdt >= self.limits.portfolio_cap_usdt:
             block_reasons.append(
@@ -467,8 +467,8 @@ def load_daily_trade_metrics(db_path: str, symbols: Iterable[str], now: Optional
         )
 
     daily_executions = [execution(row) for row in rows]
-    # Неоценённая комиссия BNB/третьего актива обязана остановить telemetry:
-    # молчаливое занижение расходов опаснее временной блокировки BUY.
+    # An unvalued BNB/third-asset fee must stop telemetry: silently understating
+    # costs is more dangerous than a temporary BUY block.
     for trade in daily_executions:
         trade.valued_commission()
     turnover = sum((trade.price * trade.gross_qty for trade in daily_executions), Decimal("0"))
@@ -477,8 +477,8 @@ def load_daily_trade_metrics(db_path: str, symbols: Iterable[str], now: Optional
         Decimal("0"),
     )
 
-    # Для серии убытков восстанавливаем среднюю себестоимость по всей истории,
-    # а не только по сделкам текущего дня.
+    # For a loss streak, restore average cost from the full history, not only
+    # from trades made today.
     inventory: dict[str, tuple[Decimal, Decimal]] = {}
     sell_results: list[tuple[str, Decimal]] = []
     for row in history:

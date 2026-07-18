@@ -1,6 +1,6 @@
 <!doctype html>
 <!-- Copyright (c) 2026 IURII Potekhin / Ladder Dragon. All rights reserved. -->
-<!-- Русские комментарии фиксируют назначение и безопасные границы этого интерфейса. -->
+<!-- Purpose: document the quick-start page role and its safe boundaries. -->
 <html lang="ru">
 <head>
   <meta charset="utf-8" />
@@ -56,7 +56,7 @@
     .pill{display:inline-block;border:1px solid var(--border);border-radius:999px;padding:2px 8px;font-size:12px}
     .ok{color:var(--ok)} .warn{color:var(--warn)} .danger{color:var(--danger)}
     .small{font-size:13px}
-    /* Шпаргалка */
+    /* Quick reference. */
     .sheet{display:grid;grid-template-columns:repeat(12,1fr);gap:14px}
     .sheet .card{background:var(--panel-2);border:1px dashed var(--border);border-radius:12px;padding:12px}
     .span12{grid-column:span 12}.span8{grid-column:span 8}.span6{grid-column:span 6}.span4{grid-column:span 4}.span3{grid-column:span 3}
@@ -69,7 +69,7 @@
     .tight li{margin:4px 0}
     .mono{font-family:var(--mono)}
     .muted{color:var(--muted)}
-    /* Печать — уместить шпаргалку на 1 страницу */
+    /* Print: fit the quick reference on one page. */
     @media print{
       body{font-size:12px}
       nav.toc, header.hero, .no-print{display:none}
@@ -267,9 +267,9 @@ chmod +x bin/supervisor_ctl.sh</code></pre>
           <h2>PnL отчёты (reports/)</h2>
           <p>Фикс лимита 24h, корректный FIFO, ИТОГО за период.</p>
 <pre><code>python3 -u bin/pnl_reporter.py --symbols SOLUSDT,ETHUSDT --days 30 --quote USDT
-# Файлы:
+# Files:
 #  reports/pnl_YYYYMMDD_HHMM.csv
-#  reports/pnl_YYYYMMDD_HHMM.txt  (ИТОГО)
+#  reports/pnl_YYYYMMDD_HHMM.txt  (TOTAL)
 #  pnl.log</code></pre>
         </section>
 
@@ -288,7 +288,7 @@ chmod +x bin/supervisor_ctl.sh</code></pre>
           <h3>Обязательные/основные</h3>
 <pre><code>BINANCE_API_KEY=...
 BINANCE_API_SECRET=...
-# Опционально:
+# Optional:
 BINANCE_API_BASE=https://api.binance.com
 LOG_LEVEL=INFO</code></pre>
 
@@ -297,7 +297,7 @@ LOG_LEVEL=INFO</code></pre>
 USE_BNB_FOR_FEES=1               # платить BNB (скидка)
 BOT_FEE_PCT=0.00075              # 0.075% — для оценок там, где биржа не вернула fee
 
-# Auto-CAP / аллокация:
+# Auto-CAP / allocation:
 BOT_CAP_PER_ORDER=40             # используется планировщиком, может изменяться динамически
 BOT_SMART_ALLOC_PCT=0.90         # доля свободного USDT под работу
 BOT_SMART_MIN_USDT=20            # минимум, при котором запускается торговля</code></pre>
@@ -365,11 +365,11 @@ schtasks /Create /TN "BinanceBotSupervisor" /SC ONLOGON /RL HIGHEST ^
           </ul>
         </section>
 
-        <!-- ШПАРГАЛКА: одна страница, нативно -->
+        <!-- QUICK REFERENCE: one native page. -->
         <section id="cheatsheet">
           <h2>Шпаргалка (1-страничная)</h2>
           <div class="sheet">
-            <!-- Быстрый старт -->
+            <!-- Quick start. -->
             <div class="card span8">
               <div class="bar">
                 <h3 style="margin:0">Быстрый старт (x10, 2 монеты)</h3>
@@ -391,7 +391,7 @@ schtasks /Create /TN "BinanceBotSupervisor" /SC ONLOGON /RL HIGHEST ^
               </ul>
             </div>
 
-            <!-- Базовые ключи -->
+            <!-- Basic keys. -->
             <div class="card span6 tight">
               <h3>Базовые ключи</h3>
               <ul>
@@ -404,7 +404,7 @@ schtasks /Create /TN "BinanceBotSupervisor" /SC ONLOGON /RL HIGHEST ^
               <div class="k">Supervisor → Executor</div>
             </div>
 
-            <!-- Лестница -->
+            <!-- Ladder. -->
             <div class="card span6 tight">
               <h3>Лестница / размеры</h3>
               <ul>
@@ -429,7 +429,7 @@ schtasks /Create /TN "BinanceBotSupervisor" /SC ONLOGON /RL HIGHEST ^
               </ul>
             </div>
 
-            <!-- OCO / Продажи -->
+            <!-- OCO / sales. -->
             <div class="card span4 tight">
               <h3>Продажи / OCO</h3>
               <ul>
@@ -440,7 +440,7 @@ schtasks /Create /TN "BinanceBotSupervisor" /SC ONLOGON /RL HIGHEST ^
               </ul>
             </div>
 
-            <!-- Защита / TTL -->
+            <!-- Protection / TTL. -->
             <div class="card span4 tight">
               <h3>Защита / TTL</h3>
               <ul>
@@ -464,7 +464,7 @@ schtasks /Create /TN "BinanceBotSupervisor" /SC ONLOGON /RL HIGHEST ^
               </ul>
             </div>
 
-            <!-- Режим x10 -->
+            <!-- x10 mode. -->
             <div class="card span6 tight">
               <h3>Режим x10 (2 монеты)</h3>
               <ul>
@@ -486,7 +486,7 @@ schtasks /Create /TN "BinanceBotSupervisor" /SC ONLOGON /RL HIGHEST ^
               </ul>
             </div>
 
-            <!-- Команды -->
+            <!-- Commands. -->
             <div class="card span6 tight">
               <h3>Команды (bin/supervisor_ctl.sh)</h3>
 <pre class="small"><code>./bin/supervisor_ctl.sh start [флаги]
@@ -504,7 +504,7 @@ schtasks /Create /TN "BinanceBotSupervisor" /SC ONLOGON /RL HIGHEST ^
   </div>
 
   <script>
-    // Нативное копирование для кнопок .copy
+    // Native clipboard handling for .copy buttons.
     document.addEventListener('click', (e)=>{
       const b = e.target.closest('.copy'); if(!b) return;
       const txt = b.getAttribute('data-copy')||'';

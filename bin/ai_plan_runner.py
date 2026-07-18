@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 # Copyright (c) 2026 IURII Potekhin / Ladder Dragon. All rights reserved.
-# Назначение файла и опасные границы логики должны оставаться понятными при сопровождении.
+# Purpose: keep the file role and safety boundaries clear during maintenance.
 """
 ai_plan_runner.py — оркестратор + генератор лесенки (pct/ATR)
 
@@ -41,12 +41,12 @@ except Exception:
     print("Please: pip install requests", file=sys.stderr)
     raise
 
-# --- Настройки/ENV ---
+# --- Settings / ENV ---
 DEFAULT_BASE = os.getenv("PLAN_RUNNER_BASE", "bin/autosize_universal.py")
 BINANCE_API = (os.getenv("BINANCE_BASE_URL") or os.getenv("BINANCE_API_BASE") or "https://api.binance.com").rstrip("/")
 
 
-# --- Утилиты публичного API (без подписи) ---
+# --- Public API helpers (unsigned) ---
 
 def _public_get(path: str, params: Dict | None = None, timeout: int = 12) -> Dict:
     url = BINANCE_API + path
@@ -55,7 +55,7 @@ def _public_get(path: str, params: Dict | None = None, timeout: int = 12) -> Dic
         try:
             r = requests.get(url, params=params or {}, timeout=timeout)
             if r.status_code in (418, 429) or 500 <= r.status_code < 600:
-                # бэкофф
+                # Backoff.
                 time.sleep(0.7 * (2 ** i))
                 last_err = RuntimeError(f"HTTP {r.status_code}: {r.text}")
                 continue
@@ -72,7 +72,7 @@ def get_now_price(symbol: str) -> float:
     return float(j["price"])
 
 def get_filters(symbol: str) -> Tuple[float, float, float]:
-    """Возвращает (tickSize, stepSize, minNotional). stepSize тут не используем — только tickSize для цен."""
+    """Return (tickSize, stepSize, minNotional); only tickSize is used for prices here."""
     info = _public_get("/api/v3/exchangeInfo", {"symbol": symbol})
     s = info["symbols"][0]
     tick = step = min_notional = 0.0
@@ -90,7 +90,7 @@ def get_filters(symbol: str) -> Tuple[float, float, float]:
     return tick, step, min_notional
 
 
-# --- Математика для лесенки ---
+# --- Ladder mathematics ---
 
 def _geomspace(a: float, b: float, n: int) -> List[float]:
     """Геометрическая прогрессия между |a| и |b|, со знаком a; n>=2."""
@@ -99,10 +99,10 @@ def _geomspace(a: float, b: float, n: int) -> List[float]:
     sign = -1.0 if a < 0 else 1.0
     A, B = abs(a), abs(b)
     if A <= 0 or B <= 0:
-        # fallback на линейную, если что-то не так
+        # Fall back to a linear sequence when inputs are invalid.
         step = (b - a) / (n - 1)
         return [a + i * step for i in range(n)]
-    # геометрическая шкала по модулю, затем восстанавливаем знак для нижних процентов
+    # Build a geometric scale by magnitude, then restore signs for lower percentages.
     out = []
     for i in range(n):
         t = i / (n - 1)
@@ -152,7 +152,7 @@ def build_ladder_pct(now_price: float,
       - Сначала BUY-уровни, отсортированные по убыванию (от ближних к дальним),
       - затем SELL-уровни, отсортированные по возрастанию (от ближних к дальним).
     """
-    # масштабируем проценты, если задан atr_scale
+    # Scale percentages when atr_scale is provided.
     if atr_scale and atr_scale > 0:
         pct_low  = pct_low  * atr_scale
         pct_high = pct_high * atr_scale
@@ -160,19 +160,19 @@ def build_ladder_pct(now_price: float,
     lows  = _geomspace(pct_low,  pct_low * 0.1, max(2, density))  # снизу
     highs = _geomspace(pct_high, pct_high * 0.1, max(2, density)) # сверху
 
-    # проценты -> цены + квантование
+    # Convert percentages to prices and quantize them.
     buy_levels_raw  = [_round_price_down(now_price * (1.0 + p / 100.0), tick) for p in lows]   # BUY
     sell_levels_raw = [_round_price_up  (now_price * (1.0 + p / 100.0), tick) for p in highs]  # SELL
 
-    # фильтруем мусор
+    # Filter invalid values.
     buy_levels  = [x for x in buy_levels_raw  if x > 0 and x <= now_price]
     sell_levels = [x for x in sell_levels_raw if x > 0 and x >= now_price]
 
-    # сортировка: BUY — по убыванию (ближе к рынку сначала), SELL — по возрастанию
+    # Sort BUY descending (nearest to market first), SELL ascending.
     buy_levels_sorted  = sorted(buy_levels, reverse=True)
     sell_levels_sorted = sorted(sell_levels)
 
-    # объединяем и дедупим, сохраняя порядок
+    # Merge and deduplicate while preserving order.
     levels = _dedup_preserve(buy_levels_sorted + sell_levels_sorted)
     return levels
 
@@ -196,7 +196,7 @@ def estimate_atr_ratio(symbol: str, interval: str = "1h", window: int = 14) -> f
     return (atr / last) if last > 0 else 0.0
 
 
-# --- Сборка и запуск детей ---
+# --- Child construction and startup ---
 
 def _bool_flag(v: bool, name: str) -> List[str]:
     return [f"--{name}"] if v else []
@@ -260,7 +260,7 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--base", type=str, default=DEFAULT_BASE,
                    help=f"Путь к базовому скрипту (default: {DEFAULT_BASE})")
 
-    # Режим лесенки
+    # Ladder mode.
     p.add_argument("--ladder-mode", choices=["pct", "manual"], default="pct",
                     help="pct — генерить лесенку из процентов, manual — принять --ladder-prices как есть")
     p.add_argument("--ladder-pct", type=str, default="-0.5,20,20",
@@ -273,11 +273,11 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--atr-scale-k", type=float, default=0.5,
                    help="Коэффициент масштабирования pct по ATR: scale = 1 + ATR_ratio * k")
 
-    # Явная лесенка (manual)
+    # Explicit manual ladder.
     p.add_argument("--ladder-prices", type=str, default="",
                    help="Список цен через запятую: '165.82,175.94,...' — используется только в режиме manual")
 
-    # Торговые параметры (пробрасываются вниз)
+    # Trading parameters passed to children.
     p.add_argument("--tp1", type=float, default=0.02)
     p.add_argument("--tp2", type=float, default=0.02)
     p.add_argument("--sl",  type=float, default=-0.01)
@@ -285,7 +285,7 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--oco-fallback", choices=["none", "prefer-tp1"], default="none")
     p.add_argument("--live", action="store_true")
 
-    # Тайминги
+    # Timing parameters.
     p.add_argument("--status-interval", type=int, default=2)
     p.add_argument("--loop-minutes", type=int, default=5)
 
@@ -300,7 +300,7 @@ def main() -> int:
 
     base_script = args.base.strip() or DEFAULT_BASE
     if not os.path.exists(base_script):
-        # пробуем рядом с текущим файлом
+                # Try next to the current file.
         here = os.path.dirname(os.path.abspath(__file__))
         cand = os.path.join(here, base_script)
         if os.path.exists(cand):
@@ -320,17 +320,17 @@ def main() -> int:
             if args.ladder_mode == "manual":
                 ladder_csv = args.ladder_prices.strip() or ""
             else:
-                # pct-генерация
+                # Percentage-based generation.
                 now = get_now_price(sym)
                 tick, step, min_notional = get_filters(sym)
 
                 if tick <= 0:
                     print(f"[WARN] {sym} tickSize=0 — квантуем как есть", file=sys.stderr)
 
-                # лог ограничений биржи — удобно для дебага
+                # Exchange-filter log for diagnostics.
                 print(f"[PLAN] {sym} filters: tick={tick:.8f} step={step:.8f} minNotional={min_notional:.4f}")
 
-                # парсим "--ladder-pct"
+                # Parse "--ladder-pct".
                 try:
                     lo_s, hi_s, den_s = [x.strip() for x in args.ladder_pct.split(",")]
                     pct_low  = -abs(float(lo_s))   # вниз гарантированно отрицательный
@@ -339,7 +339,7 @@ def main() -> int:
                 except Exception:
                     pct_low, pct_high, density = -0.5, 20.0, args.grid_density
 
-                # ATR-масштаб
+                # ATR scaling.
                 atr_ratio = estimate_atr_ratio(sym, args.atr_interval, args.atr_window)
                 scale = 1.0 + max(0.0, atr_ratio) * max(0.0, args.atr_scale_k)
 
@@ -353,23 +353,23 @@ def main() -> int:
                 )
                 ladder_csv = ",".join(f"{lv:.8f}" for lv in levels)
 
-                # разовая диагностика плана
+                # One-time plan diagnostics.
                 print(f"[PLAN] {sym} now≈{now:.4f} ATR_ratio≈{atr_ratio:.4f} scale={scale:.3f}")
                 print(f"[PLAN] {sym} ladder -> {ladder_csv}")
 
-                # счётчики уровней по сторонам (на основе итогового плоского списка)
+                # Count levels by side from the final flat list.
                 buy_cnt  = sum(1 for x in levels if x <= now)
                 sell_cnt = sum(1 for x in levels if x >  now)
                 print(f"[PLAN] {sym} levels: BUY={buy_cnt} SELL={sell_cnt}")
 
-                # массивы сторон для превью (build_ladder_pct уже отдаёт BUY↓, SELL↑)
+                # Side arrays for the preview (build_ladder_pct already returns BUY↓, SELL↑).
                 buy_side  = [x for x in levels if x <= now]
                 sell_side = [x for x in levels if x >  now]
 
                 print(f"[PLAN] {sym} BUY preview:  {_preview_levels(buy_side)}")
                 print(f"[PLAN] {sym} SELL preview: {_preview_levels(sell_side)}")
 
-            # запуск базового скрипта
+            # Start the base script.
             proc = spawn_child(
                 py=py,
                 base_script=base_script,
@@ -382,19 +382,19 @@ def main() -> int:
             )
             procs.append(proc)
 
-            # отдельный поток для стриминга логов этого подпроцесса
+            # Dedicated thread for streaming this subprocess's logs.
             t = threading.Thread(target=stream_prefixed, args=(sym, proc), daemon=True)
             t.start()
             threads.append(t)
 
-        # ждём завершения всех подпроцессов
+        # Wait for all subprocesses to finish.
         for proc in procs:
             proc.wait()
-        # даём тредам дочитать буферы
+        # Let log threads drain their buffers.
         for t in threads:
             t.join(timeout=1.0)
 
-        # коды возврата
+        # Return codes.
         rc = 0
         for sym, proc in zip(symbols, procs):
             code = proc.poll()

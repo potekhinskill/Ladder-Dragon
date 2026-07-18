@@ -8,7 +8,7 @@ def read(relative: str) -> str:
     return (ROOT / relative).read_text()
 
 
-def test_production_code_has_copyright_and_russian_maintenance_note():
+def test_production_code_has_copyright_and_english_maintenance_note():
     paths = list(ROOT.glob("*.py"))
     paths += list((ROOT / "bin").glob("*.py"))
     paths += list((ROOT / "bin").glob("*.sh"))
@@ -22,7 +22,7 @@ def test_production_code_has_copyright_and_russian_maintenance_note():
     for path in paths:
         source = path.read_text()
         assert "Copyright (c) 2026 IURII Potekhin / Ladder Dragon" in source
-        assert "Назначение" in source or "назначение" in source
+        assert "Purpose:" in source or "purpose:" in source
 
 
 def test_dashboard_launcher_uses_absolute_project_app_path():
@@ -318,7 +318,7 @@ def test_updates_are_commit_allowlisted_and_backups_are_encrypted():
     assert "external backup disk is not mounted" in backup
     assert "mounted read-only" in backup
     assert "trap on_exit EXIT" in backup
-    assert "exFAT не поддерживает chmod" in backup
+    assert "exFAT does not support chmod" in backup
     assert "ReadWritePaths=%s" in updater
     assert "BindReadWritePaths" not in installer + updater
     assert "RequiresMountsFor" in updater

@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # Copyright (c) 2026 IURII Potekhin / Ladder Dragon. All rights reserved.
-# Назначение файла и опасные границы логики должны оставаться понятными при сопровождении.
-"""Экспорт защищённых журналов mybot для read-only nginx-каталога."""
+# Purpose: keep the file role and safety boundaries clear during maintenance.
+"""Export sanitized mybot logs for the read-only nginx directory."""
 
 from __future__ import annotations
 
@@ -23,8 +23,8 @@ SENSITIVE_NAMES = (
     "authorization|x-mbx-apikey|api[_-]?key|api[_-]?secret|secret|password|"
     "token|cookie|set-cookie|webhook(?:_url)?|private[_-]?key|access[_-]?key"
 )
-# Имена переменных окружения содержат префикс проекта перед API_KEY/SECRET;
-# обычный \b перед API не срабатывает после символа подчёркивания.
+# Environment variable names contain a project prefix before API_KEY/SECRET;
+# a normal \b before API does not match after an underscore.
 ENV_SECRET_NAMES = (
     r"(?:[A-Z0-9]+_)*(?:API[_-]?(?:KEY|SECRET)|SECRET|TOKEN|PASSWORD|"
     r"PRIVATE[_-]?KEY|WEBHOOK(?:_URL)?)"
@@ -35,7 +35,7 @@ REDACTIONS = (
         r"\1<redacted>",
     ),
     (
-        # JSON-ключи с quoted value: "apiKey":"value".
+        # JSON keys with quoted values: "apiKey":"value".
         re.compile(
             rf"(?ix)(?P<prefix>[\"'](?:{SENSITIVE_NAMES})[\"']\s*:\s*)"
             rf"(?P<quote>[\"'])(?P<value>[^\"']*)(?P=quote)"
@@ -50,7 +50,7 @@ REDACTIONS = (
         r"\g<prefix><redacted>",
     ),
     (
-        # Text key=value, HTTP headers и неquoted JSON values.
+        # Text key=value, HTTP headers, and unquoted JSON values.
         re.compile(
             rf"(?ix)(?P<prefix>\b(?:{SENSITIVE_NAMES})\b\s*[:=]\s*)"
             r"(?P<value>[^\s,;\"'}]+)"

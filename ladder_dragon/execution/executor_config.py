@@ -1,5 +1,5 @@
 # Copyright (c) 2026 IURII Potekhin / Ladder Dragon. All rights reserved.
-# Назначение файла и опасные границы логики должны оставаться понятными при сопровождении.
+# Purpose: keep the file role and safety boundaries clear during maintenance.
 """Построение и строгая валидация CLI символьного исполнителя.
 
 Все ошибки конфигурации должны завершать процесс до чтения баланса и тем более
@@ -37,13 +37,13 @@ def build_executor_parser() -> argparse.ArgumentParser:
     parser.add_argument("--enforce-target-buys", action="store_true")
     parser.add_argument("--enforce-sell-limit", action="store_true")
 
-    # Новые флаги (гейты BUY)
+    # New flags (BUY gates)
     parser.add_argument("--cap-floor-usdt", type=float, default=None,
                         help="Если свободных USDT меньше порога — не ставить BUY вовсе")
     parser.add_argument("--min-order-usdt", type=float, default=None,
                         help="Не ставить BUY, если нотационал заявки меньше этого порога (USDT)")
 
-    # Патч: автоподвес OCO после заливки BUY
+    # Patch: attach OCO automatically after a BUY fill
     parser.add_argument("--attach-oco-on-fill", action="store_true",
                         help="После FILLED у BUY автоматически ставить OCO (TP/SL) SELL")
     parser.add_argument("--stop-limit-offset-pct", type=float, default=0.0015,
@@ -51,11 +51,11 @@ def build_executor_parser() -> argparse.ArgumentParser:
     parser.add_argument("--check-fills-interval", type=int, default=5,
                         help="Период проверки статусов BUY (сек) для подвеса OCO")
 
-    # Управление динамическим CAP
+    # Dynamic CAP controls
     parser.add_argument("--use-remainder-in-last", action="store_true",
                         help="Если включено — последний BUY использует весь оставшийся USDT; без флага распределение равномерное")
 
-    # Новые флаги: Breakeven after TP1 (опционально, по символам)
+    # New flags: breakeven after TP1 (optional, per symbol)
     parser.add_argument("--breakeven-on-tp1-symbols", type=str, default="",
                         help="Включить BE-stop после частичного TP1 для перечисленных символов (через запятую)")
     parser.add_argument("--breakeven-offset-pct", type=float, default=None,
@@ -63,7 +63,7 @@ def build_executor_parser() -> argparse.ArgumentParser:
     parser.add_argument("--breakeven-check-interval", type=int, default=5,
                         help="Как часто проверять OCO на частичный TP (в шагах 1-секундного цикла)")
 
-    # Паника / индикаторы
+    # Panic and indicators
     parser.add_argument("--panic-drop-pct", type=float, default=0.02,
                         help="Мгновенное падение от prev_close для включения паники (доля, 0.02 = -2%%)")
     parser.add_argument("--panic-k-atr",   type=float, default=2.0,
@@ -85,7 +85,7 @@ def build_executor_parser() -> argparse.ArgumentParser:
     parser.add_argument("--buy-limit-maker", action="store_true",
                         help="Ставить BUY как LIMIT_MAKER (maker-only)")
 
-    # Тренд/медвежьи фильтры
+    # Trend and bearish filters
     parser.add_argument("--skip-buy-while-panic", action="store_true",
                         help="В режиме паники не ставить новые BUY заявки")
     parser.add_argument("--buy-trend-ema-gap", type=float, default=None,
@@ -115,8 +115,8 @@ def validate_executor_args(
     args: argparse.Namespace,
 ) -> argparse.Namespace:
     """Нормализовать аргументы и fail-fast отклонить опасные сочетания."""
-    # Одного --live недостаточно: оператор обязан явно подтвердить включение
-    # мутаций через окружение конкретного процесса.
+    # --live alone is insufficient: the operator must explicitly confirm
+    # mutations through the environment of this process.
     if args.live and os.getenv("BOT_LIVE_CONFIRMED", "") != "YES":
         parser.error("--live requires BOT_LIVE_CONFIRMED=YES")
     lock_file = os.getenv("BOT_PARAM_LOCK_FILE", "").strip()

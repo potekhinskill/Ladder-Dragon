@@ -1,5 +1,5 @@
 # Copyright (c) 2026 IURII Potekhin / Ladder Dragon. All rights reserved.
-# Назначение файла и опасные границы логики должны оставаться понятными при сопровождении.
+# Purpose: keep the file role and safety boundaries clear during maintenance.
 """Pure portfolio statistics used by risk checks and stress tests."""
 
 from __future__ import annotations
@@ -91,7 +91,7 @@ def covariance_var(
     names = [name for name, value in exposures.items() if value > 0 and name in histories]
     if len(names) < 1:
         return 0.0
-    # Одинаковая длина рядов нужна для корректной ковариационной матрицы.
+    # Equal series lengths are required for a valid covariance matrix.
     returns = {name: log_returns(histories[name])[-96:] for name in names}
     n = min((len(values) for values in returns.values()), default=0)
     if n < 3:

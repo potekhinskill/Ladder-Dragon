@@ -1,5 +1,5 @@
 # Copyright (c) 2026 IURII Potekhin / Ladder Dragon. All rights reserved.
-# Назначение файла и опасные границы логики должны оставаться понятными при сопровождении.
+# Purpose: keep the file role and safety boundaries clear during maintenance.
 """Идемпотентное размещение LIMIT и OCO для символьного исполнителя."""
 
 from __future__ import annotations
@@ -95,8 +95,8 @@ def place_limit_order(
     parent_client_order_id: Optional[str] = None,
 ) -> Dict[str, Any] | None:
     """Разместить LIMIT, сохранив intent до POST и восстановив неопределённый ACK."""
-    # DRY-гейт повторяется непосредственно у мутации: одной проверки на старте
-    # недостаточно, потому что режим может измениться в долгоживущем процессе.
+    # Repeat the DRY gate immediately before mutation: a startup check alone
+    # is insufficient because mode can change in a long-lived process.
     if not dependencies.live():
         dependencies.logger(
             f"[DRY] skip LIMIT {symbol} {side.upper()} "
@@ -121,8 +121,8 @@ def place_limit_order(
     quantity_text = dependencies.format_qty(symbol, quantity)
     price_text = dependencies.format_price(symbol, price)
     journal = dependencies.journal()
-    # Сначала ищем эквивалентный активный intent. Если ордер уже существует на
-    # Binance, возвращаем его вместо повторного POST.
+    # First find an equivalent active intent. If the order already exists on
+    # Binance, return it instead of sending another POST.
     active = (
         journal.find_active(
             symbol=symbol,
@@ -172,7 +172,7 @@ def place_limit_order(
     )
     _link_ai_order(order_client_id, symbol, order_type="LIMIT", expected_price=price)
     if journal is not None:
-        # PREPARED коммитится до сетевого запроса — основа идемпотентности.
+        # Commit PREPARED before the network request; this is the idempotency base.
         journal.prepare(
             client_order_id=order_client_id,
             symbol=symbol,
@@ -212,8 +212,8 @@ def place_limit_order(
         )
         return payload
     except requests.RequestException as exc:
-        # Таймаут POST не означает, что Binance не принял заявку. Сначала
-        # сверяем clientOrderId, и только затем создаём постоянный halt.
+        # A POST timeout does not prove Binance rejected the order. Reconcile
+        # clientOrderId first, then create a persistent halt only if uncertain.
         if journal is not None:
             journal.mark_unknown(order_client_id, exc)
             try:
@@ -289,8 +289,8 @@ def place_oco_sell(
         if parent_client_order_id
         else "oco"
     )
-    # Защита привязана к родительскому BUY: после рестарта тот же OCO
-    # обнаруживается по listClientOrderId и используется повторно.
+    # Protection is tied to the parent BUY: after restart the same OCO is found
+    # by listClientOrderId and reused.
     active = (
         journal.find_active(
             symbol=symbol,
@@ -421,7 +421,7 @@ def place_oco_sell(
         )
         if order_list_id is None:
             raise RuntimeError("OCO response has no orderListId")
-        # Успешного ответа POST недостаточно: перечитываем список и каждую ногу.
+        # A successful POST response is insufficient: reread the list and each leg.
         verified = dependencies.signed_request(
             "GET",
             "/api/v3/orderList",
@@ -436,8 +436,8 @@ def place_oco_sell(
         try:
             dependencies.verify_oco_legs(symbol, verified)
         except (requests.RequestException, RuntimeError):
-            # Частично или неверно созданная защита хуже отсутствующей:
-            # удаляем сомнительный OCO и передаём ошибку наверх.
+            # Partial or malformed protection is worse than no protection:
+            # delete the suspect OCO and propagate the error.
             try:
                 dependencies.signed_request(
                     "DELETE",

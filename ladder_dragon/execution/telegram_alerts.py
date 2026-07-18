@@ -1,5 +1,5 @@
 # Copyright (c) 2026 IURII Potekhin / Ladder Dragon. All rights reserved.
-# Назначение файла и опасные границы логики должны оставаться понятными при сопровождении.
+# Purpose: keep the file role and safety boundaries clear during maintenance.
 """Безопасная доставка аварийных уведомлений в Telegram.
 
 Токен и chat id читаются только из root-owned файла конфигурации на Raspberry
@@ -144,8 +144,8 @@ def notify_binance_auth_error(
         temporary.write_text(json.dumps({"key": key, "ts": now}), encoding="utf-8")
         os.replace(temporary, state_path)
     except OSError:
-        # Уведомление всё равно важно; невозможность сохранить dedup-state не
-        # должна скрывать проблему авторизации.
+        # The notification still matters; failure to persist dedup state must
+        # not hide an authentication problem.
         pass
     reason = f"Binance auth failed: HTTP {status_text}, code {code_text}"
     if safe_message:

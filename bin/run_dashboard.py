@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # Copyright (c) 2026 IURII Potekhin / Ladder Dragon. All rights reserved.
-# Назначение файла и опасные границы логики должны оставаться понятными при сопровождении.
+# Purpose: keep the file role and safety boundaries clear during maintenance.
 """Run the dashboard on loopback only."""
 
 import os
@@ -11,8 +11,8 @@ import uvicorn
 
 
 def main() -> None:
-    # После переноса CLI в bin/ корень проекта находится на уровень выше.
-    # Указываем абсолютный каталог приложения, чтобы systemd не зависел от cwd.
+    # After moving the CLI into bin/, the project root is one level above.
+    # Use an absolute application directory so systemd does not depend on cwd.
     project_dir = Path(__file__).resolve().parents[1]
     app_dir = project_dir / "FastAPI" / "pi-dashboard"
     sys.path.insert(0, str(app_dir))

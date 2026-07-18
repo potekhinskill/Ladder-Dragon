@@ -1,6 +1,6 @@
 <!doctype html>
 <!-- Copyright (c) 2026 IURII Potekhin / Ladder Dragon. All rights reserved. -->
-<!-- Русские комментарии фиксируют назначение и безопасные границы этого интерфейса. -->
+<!-- Purpose: document the help page role and its safe read-only boundaries. -->
 <html lang="ru">
 <head>
   <meta charset="utf-8" />
@@ -196,7 +196,7 @@ PY</pre>
     <button class="btn copy" data-copy="curl -sS 'http://127.0.0.1:8081/api/trades/summary?hours=24' | python3 -c &quot;import sys,json; d=json.load(sys.stdin); print(d.get('equity_method'))&quot;">копировать</button>
     <pre class="small">curl -sS 'http://127.0.0.1:8081/api/trades/summary?hours=24' \
 | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('equity_method'))"
-# ожидаем: balances+klines</pre>
+# expected: balances+klines</pre>
   </section>
 
   <section id="service" class="grid">
@@ -217,10 +217,10 @@ curl -sS http://127.0.0.1:8081/api/health | python3 -m json.tool | head</pre>
       <pre class="small"># Сводка за 24ч только по монетам бота:
 curl -sS 'http://127.0.0.1:8081/api/trades/summary?hours=24&amp;symbols=ETHUSDT,SOLUSDT' | python3 -m json.tool
 
-# Последние исполненные ордера (до 5000 строк):
+# Latest realized orders (up to 5000 rows):
 curl -sS 'http://127.0.0.1:8081/api/trades/filled?hours=24&amp;limit=5000' | head -n 20
 
-# Очищенные ротационные логи в браузере
+# Sanitized rotating logs in the browser.
 https://bot.local/logs/
 https://bot.local/logs/current.log</pre>
       <div class="muted small">
@@ -309,7 +309,7 @@ journalctl -u ladder-dragon-backup -n 50 --no-pager</pre>
 </main>
 
 <script>
-  // Кнопки "копировать"
+  // "Copy" buttons.
   document.addEventListener('click', (e)=>{
     const b = e.target.closest('.copy'); if(!b) return;
     const txt = b.getAttribute('data-copy')||''; navigator.clipboard.writeText(txt).then(()=>{

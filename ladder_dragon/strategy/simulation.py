@@ -1,5 +1,5 @@
 # Copyright (c) 2026 IURII Potekhin / Ladder Dragon. All rights reserved.
-# Назначение файла и опасные границы логики должны оставаться понятными при сопровождении.
+# Purpose: keep the file role and safety boundaries clear during maintenance.
 """Deterministic, Decimal-based execution simulator for strategy tests."""
 
 from __future__ import annotations
@@ -77,7 +77,7 @@ class Inventory:
             raise ValueError("cannot sell more than simulated inventory")
         remaining = qty
         fifo_cost = D("0")
-        # FIFO нужен для корректного time-stop и воспроизводимого PnL.
+        # FIFO is required for correct time-stop behavior and reproducible PnL.
         while remaining > 0 and self.lots:
             lot = self.lots[0]
             used = min(remaining, D(str(lot["qty"])))
@@ -105,8 +105,8 @@ def simulate_grid(candles: Sequence[Candle], config: SimulationConfig, *, market
     каждой свечи; остальная стратегия и accounting остаются общими.
     """
     if market_events is not None:
-        # Стакан обогащает свечи, но не меняет саму стратегию — так результаты
-        # OHLC и order-book режима сравнимы на одном и том же коде.
+        # The order book enriches candles without changing the strategy, so
+        # OHLC and order-book results remain comparable on the same code.
         by_ts = {int(getattr(event, "ts_ms", -1)): event for event in market_events}
         enriched = []
         for candle in candles:
@@ -153,7 +153,7 @@ def simulate_grid(candles: Sequence[Candle], config: SimulationConfig, *, market
     position_open_index: int | None = None
 
     for index, candle in enumerate(candles):
-        # BUY исполняется только после latency и при касании лимитной цены.
+        # BUY executes only after latency and when the limit price is touched.
         if pending_buy and index >= pending_buy[0] and candle.low <= pending_buy[1] and cash >= config.order_notional:
             # BUY pays half-spread plus adverse slippage. A touched limit is
             # not considered filled if that adverse execution is outside the
@@ -165,8 +165,8 @@ def simulate_grid(candles: Sequence[Candle], config: SimulationConfig, *, market
                 continue
             available_ratio = config.partial_fill_ratio
             if candle.volume > 0:
-                # Объём свечи и queue-ahead заменяют искусственный full fill;
-                # participation ограничивает долю ликвидности, доступную ордеру.
+                # Candle volume and queue-ahead replace an artificial full fill;
+                # participation limits liquidity available to the order.
                 available_ratio = min(available_ratio, max(D("0"), D("1") - config.queue_ahead_ratio) * config.participation_rate)
             qty = min(
                 pending_buy[2],
@@ -209,7 +209,7 @@ def simulate_grid(candles: Sequence[Candle], config: SimulationConfig, *, market
                 pending_sell = None
                 position_open_index = None
 
-        # Для OCO в одной OHLC-свече stop считается первым (консервативно).
+        # When both OCO legs trigger in one OHLC candle, stop wins conservatively.
         if pending_sell and not forced_exit and index >= pending_sell[0] and inventory.qty > 0:
             take_profit, stop_loss = pending_sell[1], pending_sell[2]
             stop_hit = stop_loss > 0 and candle.low <= stop_loss
@@ -316,7 +316,7 @@ def production_walk_forward(candles: Sequence[Candle], configs: Iterable[Simulat
     участвует в selection. Конфигурация помечается degraded, если медианный
     результат не превосходит ноль или CI пересекает отрицательную область.
     """
-    # Все параметры выбираются на train, а outer test используется ровно один раз.
+    # Select all parameters on train; use the outer test exactly once.
     configs = list(configs)
     if len(configs) < 2:
         raise ValueError("nested walk-forward requires at least two configs")
@@ -329,7 +329,7 @@ def production_walk_forward(candles: Sequence[Candle], configs: Iterable[Simulat
         train, test = candles[:train_end], candles[test_start:(fold + 1) * size]
         if not train or not test:
             continue
-        # Внутренние folds выбирают конфигурацию только внутри train.
+        # Inner folds select a configuration only within train.
         inner_size = max(1, len(train) // max(2, inner_folds + 1))
         scores = []
         for cfg in configs:
@@ -356,8 +356,8 @@ def production_walk_forward(candles: Sequence[Candle], configs: Iterable[Simulat
         "cost_robustness": [cost_robustness(candles, item["config"]) for item in outer],
         "inner_folds": inner_folds,
     }
-    # Fail-closed marker можно использовать CI/деплоем: degraded параметры не
-    # должны автоматически попадать в LIVE-конфигурацию.
+    # CI or deployment can consume this fail-closed marker: degraded parameters
+    # must never enter LIVE configuration automatically.
     lock_path = os.getenv("BOT_PARAM_LOCK_FILE", "")
     if report["degraded"] and lock_path:
         Path(lock_path).write_text("degraded\n", encoding="utf-8")

@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Copyright (c) 2026 IURII Potekhin / Ladder Dragon. All rights reserved.
-# Назначение файла и опасные границы логики должны оставаться понятными при сопровождении.
+# Purpose: keep the file role and safety boundaries clear during maintenance.
 set -euo pipefail
 
 PROJECT_DIR="${PROJECT_DIR:-/home/bot/apps/binance_bot}"
@@ -55,7 +55,7 @@ if [[ "${EXECUTION}" == "live" ]]; then
   args+=(--live)
 fi
 
-# Дополнительные аргументы допустимы только из root-owned service env.
+# Additional arguments are allowed only from the root-owned service environment.
 # shellcheck disable=SC2206
 extra_args=(${BOT_SERVICE_EXTRA_ARGS:-})
 args+=("${extra_args[@]}")

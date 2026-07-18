@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 # Copyright (c) 2026 IURII Potekhin / Ladder Dragon. All rights reserved.
-# Назначение файла и опасные границы логики должны оставаться понятными при сопровождении.
+# Purpose: keep the file role and safety boundaries clear during maintenance.
 """
 pnl_reporter.py — отчёт по реализованному PnL (FIFO) для спот-сделок на Binance.
 
@@ -111,11 +111,11 @@ def fifo_pnl(trades: List[Dict]) -> Tuple[float, float, Dict]:
         if is_buy:
             eff_qty = qty
             if fee_asset == base:
-                # комиссия списана базовой монетой: реально получено меньше base
+                # Fee charged in the base asset: the received base quantity is smaller.
                 eff_qty = max(qty - fee, 0.0)
                 fees_quote += fee * price   # оценка комиссии в котируемой
             elif fee_asset == quote:
-                # комиссия списана котируемой: учитываем отдельно
+                # Fee charged in the quote asset: account for it separately.
                 fees_quote += fee
             else:
                 third_asset_fees += fee
@@ -132,7 +132,7 @@ def fifo_pnl(trades: List[Dict]) -> Tuple[float, float, Dict]:
             if fee_asset == quote:
                 fees_quote += fee
             elif fee_asset == base:
-                # ВАЖНО: не уменьшаем remain — продали весь qty!
+                # IMPORTANT: do not reduce remain; the full quantity was sold.
                 fees_quote += fee * price  # учёт комиссии в котируемой
             else:
                 third_asset_fees += fee
@@ -184,10 +184,10 @@ def main():
     summary_txt = os.path.join(REPORTS_DIR, f"summary_{args.days}d.txt")
     lines = [f"Summary for last {args.days} days", ""]
 
-    # Переменные для построчного отчёта
+    # Variables for the line-by-line report.
     quotes_used = set()
 
-    # Агрегаты по каждому квоуту
+    # Aggregates per quote asset.
     # totals_by_quote[quote] = {"gross": float, "net": float}
     totals_by_quote: Dict[str, Dict[str, float]] = {}
 
@@ -200,12 +200,12 @@ def main():
         base, quote = split_symbol(sym)
         quotes_used.add(quote)
 
-        # Копим агрегаты по квоуту
+        # Accumulate quote-level aggregates.
         agg = totals_by_quote.setdefault(quote, {"gross": 0.0, "net": 0.0})
         agg["gross"] += pnl_gross
         agg["net"]   += (pnl_gross - fees_quote)
 
-        # Построчный отчёт по символу
+        # Line-by-line report per symbol.
         if stats["trades"] == 0:
             lines.append(f"{sym}: no trades in period; pnl=0.000000 fees={fees_quote:.6f} net={-fees_quote:.6f}")
         else:
@@ -217,7 +217,7 @@ def main():
 
     lines.append("")
 
-    # Предупреждение о смешанных котируемых
+    # Warning for mixed quote assets.
     if len(quotes_used) > 1:
         lines.append(
             f"WARNING: mixed quotes detected: {', '.join(sorted(quotes_used))}. "
@@ -225,8 +225,8 @@ def main():
         )
         lines.append("")
 
-    # Выгрузка итогов по каждому квоуту — отдельными блоками
-    # Стабильный порядок: отсортируем квоуты
+    # Export totals per quote asset in separate blocks.
+    # Keep output stable by sorting quote assets.
     for quote in sorted(totals_by_quote):
         gross = totals_by_quote[quote]["gross"]
         net   = totals_by_quote[quote]["net"]
@@ -234,9 +234,9 @@ def main():
         lines.append(f"[{quote}] NET   pnl={net:.6f}")
         lines.append("")
 
-    # Если хочешь ещё общий сводный блок (без экономического смысла при смешанных квоутах) — можно убрать
+    # A combined block has no economic meaning for mixed quote assets, so it is omitted.
     if len(totals_by_quote) == 1:
-        # единственный квоут — общий блок эквивалентен
+        # With one quote asset, the combined block is equivalent.
         only_quote = next(iter(totals_by_quote))
         gross = totals_by_quote[only_quote]["gross"]
         net   = totals_by_quote[only_quote]["net"]
@@ -247,7 +247,7 @@ def main():
         f.write("\n".join(lines))
     print(f"[REPORT] Saved: {summary_txt}")
 
-    # Консольный вывод: если квоутов несколько — показываем по каждому
+    # Console output: show each quote asset when there are several.
     if len(totals_by_quote) == 1:
         only_quote = next(iter(totals_by_quote))
         gross = totals_by_quote[only_quote]["gross"]

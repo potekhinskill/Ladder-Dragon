@@ -1,5 +1,5 @@
 # Copyright (c) 2026 IURII Potekhin / Ladder Dragon. All rights reserved.
-# Назначение файла и опасные границы логики должны оставаться понятными при сопровождении.
+# Purpose: keep the file role and safety boundaries clear during maintenance.
 """HTTP-транспорт Binance по принципу fail-closed для торговых компонентов.
 
 Здесь сосредоточены подпись запросов, DRY/LIVE-гейт и повторные попытки.
@@ -75,8 +75,8 @@ class BinanceTransport:
         timeout: float = 15.0,
         max_tries: int = 8,
     ) -> Any:
-        # Повторяем только временные сетевые/биржевые сбои. Бизнес-ошибки
-        # Binance должны сразу дойти до вызывающего кода.
+        # Retry only transient network/exchange failures. Binance business
+        # errors must be returned to the caller immediately.
         tries = 0
         backoff = 0.5
         while True:
@@ -151,8 +151,8 @@ class BinanceTransport:
         timeout: float = 15.0,
     ) -> Any:
         method = method.upper()
-        # Главная граница безопасности: в DRY разрешено читать приватные данные,
-        # но любой запрос, меняющий состояние биржи, блокируется до сети.
+        # Main safety boundary: DRY may read private data, but every request
+        # that changes exchange state is blocked before transport.
         if method not in ("GET", "HEAD") and not self._live():
             raise RuntimeError(f"DRY mode blocked mutating Binance request: {method} {path}")
         api_key = self._api_key()

@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
 # Copyright (c) 2026 IURII Potekhin / Ladder Dragon. All rights reserved.
-# Назначение файла и опасные границы логики должны оставаться понятными при сопровождении.
+# Purpose: keep the file role and safety boundaries clear during maintenance.
 set -euo pipefail
 
-# Мягкий watchdog: проверяет сеть и heartbeat, но не трогает здоровый mybot.
+# Soft watchdog: checks network and heartbeat without touching a healthy mybot.
 STRIKES=${STRIKES:-3}
 MIN_UPTIME=${MIN_UPTIME:-10}
 HEARTBEAT_MAX_AGE_SEC=${HEARTBEAT_MAX_AGE_SEC:-420}
@@ -29,8 +29,8 @@ mkdir -p "${STATEDIR}"
 touch "${LOG}" 2>/dev/null || true
 log() { printf '%s %s\n' "$1" "$2" >>"${LOG}"; }
 
-# Отправка вынесена в отдельную функцию, чтобы при отсутствии сети сохранить
-# текст сообщения локально и не потерять причину аварии.
+# Delivery is isolated in a function so a network outage keeps the message
+# locally and does not lose the failure reason.
 telegram_post() {
   local msg="$1"
   curl -sS -m 5 "https://api.telegram.org/bot${TG_BOT_TOKEN}/sendMessage" \
@@ -70,9 +70,9 @@ ${queued}" || return 1
   log "[telegram]" "flushed ${sent}/${count} queued alerts"
 }
 
-# Разрешаем первое уведомление, изменение показателей или повтор после cooldown.
-# Состояние хранится отдельно от heartbeat, поэтому одинаковая авария не спамит
-# Telegram каждые пять минут, но важный рост нагрузки/температуры не теряется.
+# Allow the first alert, a metric change, or a retry after cooldown.
+# State is separate from the heartbeat, so one unchanged failure does not spam
+# Telegram every five minutes while an important load/temperature rise is kept.
 alert_gate() {
   local key="$1" load_key="$2" temp="$3" now old_key old_sent old_repeat old_load old_temp
   local repeat=0 should_send=0 full_snapshot=0 changed=0 high=0 state_load state_temp
@@ -134,7 +134,7 @@ send_tg() {
   local uptime_human load ip temp msg host_label load_key gate should_send full_snapshot repeat
   uptime_human="$(uptime -p 2>/dev/null || true)"
   load="$(cut -d' ' -f1-3 /proc/loadavg 2>/dev/null || true)"
-  # В Telegram нужен только основной адрес; Docker-сети не помогают диагностике.
+  # Telegram needs only the primary address; Docker networks do not aid diagnosis.
   ip="$(ip -4 -o addr show scope global 2>/dev/null | awk 'NR == 1 {print $4}')"
   temp="$([ -x /usr/bin/vcgencmd ] && /usr/bin/vcgencmd measure_temp 2>/dev/null | tr -cd 0-9. || true)"
   load_key="${load// /,}"
@@ -238,8 +238,8 @@ else
   fi
 fi
 
-# Один краткий сбой не должен убивать торговый контур. Перезапуск только после
-# STRIKES последовательных плохих heartbeat-проверок.
+# One brief failure must not kill the trading loop. Restart only after
+# STRIKES consecutive failed heartbeat checks.
 if (( health_fails >= STRIKES )); then
   send_tg "⚠️ mybot unhealthy: ${reason}; restarting after ${health_fails} strikes" \
     "mybot-health:${reason}"

@@ -16,9 +16,9 @@ def load_worker():
 
 
 def configure_worker(worker, tmp_path, monkeypatch):
-    # Тесты не должны наследовать production-пути circuit breaker из systemd.
-    # Иначе проверка неподтверждённого ордера может записать halt-маркер в
-    # /run/mybot и остановить реально запущенный экземпляр бота.
+    # Tests must not inherit the production circuit-breaker paths from systemd.
+    # Otherwise an unconfirmed-order test could write a halt marker to
+    # /run/mybot and stop the real bot instance.
     for name in ("CB_HALT_FILE", "CB_STATE_FILE", "CB_ALERTS_FILE"):
         monkeypatch.delenv(name, raising=False)
     monkeypatch.setenv("BOT_RUN_DIR", str(tmp_path))

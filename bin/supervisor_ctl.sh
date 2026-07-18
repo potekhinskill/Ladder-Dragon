@@ -1,35 +1,35 @@
 #!/usr/bin/env bash
 # Copyright (c) 2026 IURII Potekhin / Ladder Dragon. All rights reserved.
-# Назначение файла и опасные границы логики должны оставаться понятными при сопровождении.
+# Purpose: keep the file role and safety boundaries clear during maintenance.
 set -euo pipefail
 
-# Жёстко привязываемся к директории скрипта: относительные пути стабильны
+# Anchor paths to the script directory so relative paths stay stable.
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_DIR="$(cd -- "${SCRIPT_DIR}/.." && pwd)"
 cd "$PROJECT_DIR"
 export PYTHONPATH="${PROJECT_DIR}${PYTHONPATH:+:${PYTHONPATH}}"
 
 # -----------------------------
-# Выбор интерпретатора Python
+# Select the Python interpreter.
 # -----------------------------
 PY="${PYTHON:-python3}"
-# Если активирован venv — используем его python
+# Use the active venv when one is enabled.
 if [[ -n "${VIRTUAL_ENV:-}" && -x "${VIRTUAL_ENV}/bin/python3" ]]; then
   PY="${VIRTUAL_ENV}/bin/python3"
 fi
-# Если рядом с проектом есть .venv — используем его python
+# Otherwise use the project-local .venv when present.
 if [[ -x "${PROJECT_DIR}/.venv/bin/python3" ]]; then
   PY="${PROJECT_DIR}/.venv/bin/python3"
 fi
-# Проверим, что python доступен
+# Verify that Python is available.
 command -v "${PY}" >/dev/null 2>&1 || { echo "Python not found: ${PY}"; exit 127; }
 
 SUP="bin/ai_supervisor.py"
 RUNNER="bin/ai_plan_runner.py"
 PNL="bin/pnl_reporter.py"
-# systemd ProtectSystem=strict оставляет для записи только db/, logs/ и /run/mybot.
-# Поэтому служебные логи не должны лежать в корне checkout: ExecStop иначе
-# завершится с status=1 даже при успешной остановке дочерних процессов.
+# systemd ProtectSystem=strict leaves only db/, logs/, and /run/mybot writable.
+# Service logs must not live in the checkout root: otherwise ExecStop can return
+# status=1 even after children stop successfully.
 LOG="${SUPERVISOR_LOG:-${PROJECT_DIR}/logs/supervisor.log}"
 PNL_LOG="${PNL_LOG_PATH:-${PROJECT_DIR}/logs/pnl.log}"
 LOCK="/tmp/ai_supervisor.lock"
@@ -37,18 +37,18 @@ LOCK="/tmp/ai_supervisor.lock"
 mkdir -p "$(dirname -- "${LOG}")" "$(dirname -- "${PNL_LOG}")"
 
 # -----------------------------
-# Нормализация значений .env
+# Normalize .env values.
 # -----------------------------
 sanitize_env_var() {
   local name="$1"
   local val="${!name-}"
-  # убрать CR/LF
+  # Remove CR/LF.
   val="${val//$'\r'/}"
   val="${val//$'\n'/}"
-  # обрезать пробелы по краям
+  # Trim surrounding whitespace.
   val="${val#"${val%%[![:space:]]*}"}"
   val="${val%"${val##*[![:space:]]}"}"
-  # снять парные кавычки
+  # Remove matching quotes.
   [[ "${val}" == \"*\" ]] && val="${val#\"}" && val="${val%\"}"
   [[ "${val}" == \'*\' ]] && val="${val#\'}" && val="${val%\'}"
   printf -v "$name" '%s' "$val"
@@ -56,18 +56,18 @@ sanitize_env_var() {
 }
 
 # -----------------------------
-# Автоподхват из .env (если есть)
+# Auto-load values from .env when present.
 # -----------------------------
 if [[ -f ".env" ]]; then
   set -a
   # shellcheck disable=SC1091
   . ./.env
   set +a
-  # нормализуем ключевые переменные
+  # Normalize key variables.
   sanitize_env_var "BINANCE_API_KEY"
   sanitize_env_var "BINANCE_API_SECRET"
   sanitize_env_var "BINANCE_API_BASE"
-  # безопасная диагностика (без утечки секретов)
+  # Safe diagnostics without leaking secrets.
   {
     _k="${BINANCE_API_KEY-}"; _s="${BINANCE_API_SECRET-}"; _b="${BINANCE_API_BASE-}"
     echo "[env-check] key_len=${#_k} sec_len=${#_s} base=${_b:-<unset>}"
@@ -116,7 +116,7 @@ PnL reporter:
 USAGE
 }
 
-# Более точные pgrep-шаблоны, чтобы не ловить лишнее
+# More precise pgrep patterns to avoid false matches.
 pids_sup() { pgrep -fl "[/ ]${SUP}" || true; }
 pids_pnl() { pgrep -fl "[/ ]${PNL}" || true; }
 
@@ -138,12 +138,12 @@ print_lock_status() {
   fi
 }
 
-# Унифицированный лог с timestamp
+# Unified timestamped log.
 log() {
   echo "[$(date '+%Y-%m-%d %H:%M:%S')] $1" | tee -a "${LOG}"
 }
 
-# Лёгкая ротация логов (по 5 МБ)
+# Lightweight log rotation at 5 MiB.
 rotate_log_if_big() {
   local f="$1"
   [[ -f "$f" ]] || return 0
@@ -156,7 +156,8 @@ rotate_log_if_big() {
   fi
 }
 
-# Проверка BNB-баланса без зависимости от bc; учитываем BINANCE_API_BASE; не блокируем запуск при сетевой ошибке
+# Check the BNB balance without bc, honor BINANCE_API_BASE, and do not block startup
+# when the network is unavailable.
 check_bnb() {
   if [[ -n "${USE_BNB_FOR_FEES-}" && "${USE_BNB_FOR_FEES}" = "1" ]]; then
     rotate_log_if_big "${LOG}"
@@ -200,7 +201,7 @@ EOF
           log "WARN: Unexpected BNB balance '${BNB_BALANCE}', continuing."
           ;;
         *)
-          # порог 0.1 BNB
+          # 0.1 BNB threshold.
           awk -v v="${BNB_BALANCE}" 'BEGIN{ if (v+0 < 0.1) exit 1 }' \
             || { log "ERROR: Low BNB balance (${BNB_BALANCE}) for fees. Aborting start."; exit 1; }
           log "BNB balance OK: ${BNB_BALANCE}"
@@ -246,8 +247,8 @@ cmd_status() {
 }
 
 cmd_logs() {
-  # Если увидел "zsh: suspended ./bin/supervisor_ctl.sh logs" — это Ctrl+Z.
-  # Верни в передний план: 'fg', либо открой новую вкладку и сделай:
+  # If you see "zsh: suspended ./bin/supervisor_ctl.sh logs", that was Ctrl+Z.
+  # Bring it back with 'fg', or open another terminal and run:
   # tail -f supervisor.log
   tail -f "${LOG}"
 }

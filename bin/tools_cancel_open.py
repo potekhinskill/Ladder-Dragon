@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 # Copyright (c) 2026 IURII Potekhin / Ladder Dragon. All rights reserved.
-# Назначение файла и опасные границы логики должны оставаться понятными при сопровождении.
+# Purpose: keep the file role and safety boundaries clear during maintenance.
 
 import os, hmac, time, hashlib, argparse, urllib.parse, json, re
 import requests
@@ -134,7 +134,7 @@ def fetch_open_oco_lists(session, base_url, symbol, key, secret, **kw):
     for oc in lst:
         sym = oc.get("symbol") or oc.get("listSymbol")
         if not sym:
-            # подстраховка: взять из дочернего ордера
+            # Safety fallback: read from the child order.
             orders = oc.get("orders") or oc.get("orderReports") or []
             if orders:
                 sym = orders[0].get("symbol")
@@ -234,13 +234,13 @@ def main():
 
     session = build_session()
 
-    # Биржевое "сейчас" для корректного возраста ордеров
+    # Exchange "now" for correct order age.
     server_ms = exchange_time_ms(session, base_url)
     local_ms  = int(time.time() * 1000)
     ts_offset_ms = (server_ms - local_ms) if server_ms else 0
     now_ms = local_ms + ts_offset_ms
 
-    # Возрастной фильтр (сек → мс)
+    # Age filter (seconds -> milliseconds).
     min_age_sec = getattr(args, "min_age_sec", 0)
     min_age_ms = max(0, int(min_age_sec) * 1000)
 
@@ -269,7 +269,7 @@ def main():
                 if args.sides != "BOTH" and side != args.sides:
                     continue
 
-                # возраст ордера
+                # Order age.
                 created_ms = safe_int(o.get("time") or o.get("transactTime") or o.get("updateTime"))
                 age_ms = (now_ms - created_ms) if created_ms else None
                 if min_age_ms and (age_ms is None or age_ms < min_age_ms):
@@ -317,7 +317,7 @@ def main():
                 if args.sides not in ("BOTH", side):
                     continue
 
-                # возраст OCO (по transactionTime списка)
+                # OCO age based on the list transactionTime.
                 created_ms = safe_int(o.get("transactionTime"))
                 age_ms = (now_ms - created_ms) if created_ms else None
                 if min_age_ms and (age_ms is None or age_ms < min_age_ms):

@@ -1,5 +1,5 @@
 # Copyright (c) 2026 IURII Potekhin / Ladder Dragon. All rights reserved.
-# Назначение файла и опасные границы логики должны оставаться понятными при сопровождении.
+# Purpose: keep the file role and safety boundaries clear during maintenance.
 """Deterministic Binance client-order identifiers for retry idempotency."""
 
 from __future__ import annotations
@@ -20,8 +20,8 @@ def client_order_id(
     now: float | None = None,
 ) -> str:
     bucket = int((now or time.time()) // max(1, bucket_seconds))
-    # Короткий тег decision сохраняет трассировку AI в Binance clientOrderId,
-    # не раскрывая полный внутренний UUID в публичном идентификаторе.
+    # A short decision tag keeps AI traceability in Binance clientOrderId
+    # without exposing the full internal UUID in a public identifier.
     decision_tag = os.getenv("BOT_AI_DECISION_ID", "").strip()[:8]
     intent = f"{symbol.upper()}|{side.upper()}|{purpose}|{price}|{qty}|{bucket}|{decision_tag}"
     digest = hashlib.blake2s(intent.encode("utf-8"), digest_size=9).hexdigest()

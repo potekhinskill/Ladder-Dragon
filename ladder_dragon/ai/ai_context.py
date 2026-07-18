@@ -1,5 +1,5 @@
 # Copyright (c) 2026 IURII Potekhin / Ladder Dragon. All rights reserved.
-# Назначение файла и опасные границы логики должны оставаться понятными при сопровождении.
+# Purpose: keep the file role and safety boundaries clear during maintenance.
 """Безопасные агрегаты истории и рынка для AI-рекомендателя.
 
 Модуль не передаёт LLM сырые сделки, идентификаторы заявок, полный баланс или
@@ -426,8 +426,8 @@ class AdvisorDecisionStore:
                     applied_at INTEGER NOT NULL
                 )"""
             )
-            # Отдельная таблица fills не смешивает прогноз модели с фактом
-            # исполнения и позволяет считать PnL конкретной рекомендации.
+            # A separate fills table keeps the model forecast distinct from the
+            # execution fact and allows PnL attribution to one recommendation.
             connection.execute(
                 """
                 CREATE TABLE IF NOT EXISTS ai_decisions(
@@ -517,8 +517,8 @@ class AdvisorDecisionStore:
                 for column, ddl in table_columns.items():
                     if column not in existing:
                         connection.execute(f"ALTER TABLE {table} ADD COLUMN {column} {ddl}")
-            # Индексы новых колонок создаются только после ALTER TABLE: на
-            # старой Raspberry-БД эти поля отсутствуют до текущей миграции.
+            # Create indexes only after ALTER TABLE: older Raspberry databases
+            # do not have these columns until the current migration.
             connection.execute(
                 "CREATE INDEX IF NOT EXISTS ai_fills_exchange_trade "
                 "ON ai_fills(order_id, trade_id) WHERE order_id IS NOT NULL AND trade_id IS NOT NULL"
@@ -611,9 +611,9 @@ class AdvisorDecisionStore:
                 (client_order_id,),
             ).fetchone()
             if existing:
-                # После рестарта новый цикл может знать только текущий
-                # decision_id. Старую связь нельзя перезаписывать: exchange
-                # order/trade уже относится к исходной рекомендации.
+                # After restart the new cycle may know only the current
+                # decision_id. Never overwrite the old link: the exchange
+                # order/trade already belongs to the original recommendation.
                 connection.execute(
                     """UPDATE ai_order_links
                        SET symbol=?, lot_id=COALESCE(lot_id,?),
@@ -727,8 +727,8 @@ class AdvisorDecisionStore:
             "trade_id": r[7], "client_order_id": r[8], "order_list_id": r[9],
             "leg_type": r[10], "slippage_quote": r[11],
         } for r in rows]
-        # Baseline использует тот же entry и объём, поэтому сравнение не
-        # выигрывает искусственно за счёт другого размера позиции.
+        # Baseline uses the same entry and quantity, so the comparison cannot
+        # win artificially because of a different position size.
         result = evaluate_realized_ai_pnl(fills, baseline_entry_price=float(decision[0]), baseline_exit_price=baseline_exit_price)
         result["decision_id"] = decision_id
         with self._connect() as connection:

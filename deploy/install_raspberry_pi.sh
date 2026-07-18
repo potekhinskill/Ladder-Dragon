@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Copyright (c) 2026 IURII Potekhin / Ladder Dragon. All rights reserved.
-# Назначение файла и опасные границы логики должны оставаться понятными при сопровождении.
+# Purpose: keep the file role and safety boundaries clear during maintenance.
 set -euo pipefail
 
 ACTION="install"
@@ -166,7 +166,7 @@ setup_backup_encryption
 
 setup_telegram_alerts() {
   local target="/etc/ladder-dragon/telegram.env"
-  # Сохраняем старый рабочий формат без вывода токена в журнал установки.
+  # Preserve the previous working format without printing the token in install logs.
   if [[ ! -e "${target}" && -f /etc/bot-alerts.env ]]; then
     install -o root -g "${BOT_USER}" -m 0640 /etc/bot-alerts.env "${target}"
   elif [[ ! -e "${target}" ]]; then
@@ -181,7 +181,7 @@ setup_telegram_alerts() {
 
 setup_telegram_alerts
 
-# Временная миграционная копия переживает замену legacy-каталога на Git checkout.
+# The temporary migration copy survives replacement of the legacy directory by a Git checkout.
 migration_staging="$(mktemp -d /tmp/ladder-dragon-migration.XXXXXX)"
 trap 'rm -rf "${migration_staging}"' EXIT
 for name in .env .env.dashboard; do
@@ -212,7 +212,7 @@ if source_dir.is_dir():
         os.chmod(target, 0o600)
 PY
 
-# До первой мутации сохраняем systemd/nginx/env/SQLite в закрытом каталоге.
+# Before the first mutation, save systemd/nginx/env/SQLite in a restricted directory.
 if [[ -x "${PROJECT_DIR}/deploy/backup_raspberry_pi.sh" ]]; then
   PROJECT_DIR="${PROJECT_DIR}" "${PROJECT_DIR}/deploy/backup_raspberry_pi.sh"
 else
@@ -269,7 +269,7 @@ dashboard_was_active="$(systemctl is-active pi-healthd 2>/dev/null || true)"
 legacy_project=""
 prepared_checkout=""
 
-# Legacy-код заменяется только уже успешно скачанным checkout.
+# Replace legacy code only after a checkout has been downloaded successfully.
 if [[ "${legacy_unit}" == 1 ]]; then
   prepared_checkout="$(dirname "${PROJECT_DIR}")/.ladder-dragon-new-$$"
   rm -rf "${prepared_checkout}"
@@ -334,8 +334,8 @@ if [[ ! -x "${PROJECT_DIR}/.venv/bin/python" ]]; then
 fi
 runuser -u "${BOT_USER}" -- "${PROJECT_DIR}/.venv/bin/python" -m pip install -e "${PROJECT_DIR}[dashboard]"
 
-# Новый шаблон получает прежние значения env и полезные Environment= из legacy
-# unit. Значения не печатаются и не передаются через argv.
+# The new template receives the previous env values and useful Environment= entries
+# from the legacy unit. Values are never printed or passed through argv.
 python3 - "${PROJECT_DIR}" "${migration_staging}" <<'PY'
 import re
 import shlex
@@ -454,7 +454,7 @@ sed -i \
   -e "s/^BOT_SERVICE_EXECUTION=.*/BOT_SERVICE_EXECUTION=${service_execution}/" \
   "${PROJECT_DIR}/.env.service"
 
-# Dashboard никогда не получает торговый env. Proxy-auth включается отдельно.
+# The dashboard never receives the trading env. Proxy authentication is enabled separately.
 sed -i \
   -e 's/^DASHBOARD_TRUST_PROXY_AUTH=.*/DASHBOARD_TRUST_PROXY_AUTH=1/' \
   -e 's/^DASHBOARD_FOLLOW_BOT_PATHS=.*/DASHBOARD_FOLLOW_BOT_PATHS=1/' \

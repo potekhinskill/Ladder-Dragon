@@ -1,5 +1,5 @@
 # Copyright (c) 2026 IURII Potekhin / Ladder Dragon. All rights reserved.
-# Назначение файла и опасные границы логики должны оставаться понятными при сопровождении.
+# Purpose: keep the file role and safety boundaries clear during maintenance.
 """Постоянный журнал намерений и безопасная сверка ордеров после рестарта."""
 
 from __future__ import annotations
@@ -65,8 +65,8 @@ class OrderJournal:
         self._init_schema()
 
     def _connect(self) -> sqlite3.Connection:
-        # FULL + WAL дают устойчивость intent-журнала и допускают параллельное
-        # чтение recovery-кодом во время работы исполнителя.
+        # FULL + WAL make the intent journal durable and allow recovery code
+        # to read it while the executor is running.
         con = sqlite3.connect(self.path, timeout=10)
         con.row_factory = sqlite3.Row
         con.execute("PRAGMA busy_timeout=10000")

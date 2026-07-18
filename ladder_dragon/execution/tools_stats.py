@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 # Copyright (c) 2026 IURII Potekhin / Ladder Dragon. All rights reserved.
-# Назначение файла и опасные границы логики должны оставаться понятными при сопровождении.
+# Purpose: keep the file role and safety boundaries clear during maintenance.
 """
 tools_stats.py — лёгкая БД статистики (SQLite) для учёта инвентаря и трейдов.
 
@@ -31,7 +31,7 @@ from bin.db_migrate import migrate
 from ladder_dragon.execution.trade_accounting import TradeExecution, decimal, decimal_text, replay_average_cost
 
 # ==========================
-# Конфиг через переменные
+# Configuration from environment variables
 # ==========================
 DB_PATH = os.getenv("BOT_STATS_DB", "/home/bot/stats/bot_stats.db")
 BUSY_TRIES  = int(os.getenv("STATS_BUSY_TRIES", "7"))      # повторы при lock’ах
@@ -76,7 +76,7 @@ CREATE TABLE IF NOT EXISTS inventory(
 """
 
 # ==========================
-# Вспомогательные функции
+# Helper functions
 # ==========================
 
 def _apply_pragmas(con: sqlite3.Connection, read_only: bool = False) -> None:
@@ -88,7 +88,7 @@ def _apply_pragmas(con: sqlite3.Connection, read_only: bool = False) -> None:
             cur.execute("PRAGMA journal_mode=WAL;")
             cur.execute("PRAGMA wal_autocheckpoint=2000;")
     except sqlite3.OperationalError:
-        # В RO некоторые PRAGMA могут быть неразрешимы — мягко игнорируем
+        # Some PRAGMA statements may be unavailable in read-only mode; ignore them safely.
         pass
     finally:
         cur.close()
@@ -146,7 +146,7 @@ def query_with_retry(con: sqlite3.Connection, sql: str, params: Iterable[Any] = 
     return rows
 
 # ==========================
-# Инициализация БД
+# Database initialization
 # ==========================
 
 def init_db(db_path: str) -> sqlite3.Connection:
@@ -160,7 +160,7 @@ def init_db(db_path: str) -> sqlite3.Connection:
     return con
 
 # ==========================
-# Пересчёт инвентаря
+# Inventory recalculation
 # ==========================
 
 def _recalc_inventory(db: sqlite3.Connection, symbol: str):
@@ -220,7 +220,7 @@ def _recalc_inventory(db: sqlite3.Connection, symbol: str):
     ))
 
 # ==========================
-# Публичные функции
+# Public functions
 # ==========================
 
 def apply_trade(con: sqlite3.Connection,

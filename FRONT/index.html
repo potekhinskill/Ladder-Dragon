@@ -1,6 +1,6 @@
 <!doctype html>
 <!-- Copyright (c) 2026 IURII Potekhin / Ladder Dragon. All rights reserved. -->
-<!-- Русские комментарии фиксируют назначение и безопасные границы этого интерфейса. -->
+<!-- Purpose: document the dashboard role and its safe read-only boundaries. -->
 <html lang="ru">
 <head>
 <meta charset="utf-8"/>
@@ -23,7 +23,7 @@
   .sub{color:var(--muted);font-size:12px}
   .version-link{color:var(--muted);font-size:12px;text-decoration:none}
   .version-link:hover{text-decoration:underline;color:var(--text)}
-  /* Переключатели повторяют компактный Binance-style: синяя дорожка означает ON. */
+  /* Switches follow the compact Binance style: a blue track means ON. */
   .ai-toggle{display:inline-flex;align-items:center;gap:7px;border:0;background:transparent;color:var(--text);padding:0;font:inherit;font-size:12px;cursor:pointer}
   .ai-toggle:disabled{cursor:not-allowed;opacity:.55}
   .switch-visual{position:relative;display:inline-block;width:42px;height:24px;flex:0 0 auto;border:1px solid #3a4352;border-radius:999px;background:#272e39;transition:background .18s,border-color .18s}
@@ -35,20 +35,20 @@
   .switch-label input{position:absolute;width:1px;height:1px;opacity:0;pointer-events:none}
   .switch-label input:focus-visible + .switch-visual,.ai-toggle:focus-visible .switch-visual{outline:2px solid #75a0ff;outline-offset:2px}
 
-  /* Карточки KPI */
+  /* KPI cards. */
   .grid-kpi{display:grid;grid-template-columns:repeat(3,1fr);gap:var(--gap)}
   @media (max-width:980px){.grid-kpi{grid-template-columns:1fr}}
   .card{background:var(--panel);border:1px solid var(--stroke);border-radius:var(--rad);padding:var(--pad)}
-  /* AI-блок не меняет архивную сетку из шести системных KPI-карточек. */
+  /* The AI block does not alter the legacy six-card system KPI grid. */
   .ai-card{grid-column:1/-1;font-size:12px}
-  /* Метрики AI компактны и идут двумя колонками, длинные значения не раздвигают экран. */
+  /* AI metrics stay compact in two columns; long values cannot expand the viewport. */
   .ai-details{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));column-gap:24px;row-gap:4px;margin-top:8px}
   .ai-details .row{min-width:0;align-items:flex-start;gap:8px;font-size:11px;line-height:1.35;padding:2px 0}
   .ai-details .row>span:first-child{color:var(--muted);flex:0 0 auto}
   .ai-details .row>span:last-child{min-width:0;max-width:100%;text-align:right;overflow-wrap:anywhere}
   .ai-details .mono{font-size:11px}
   @media (max-width:700px){.ai-details{grid-template-columns:1fr}}
-  /* Read-only оперативный мониторинг Raspberry, торговли и качества AI. */
+  /* Read-only operational monitoring for Raspberry, trading, and AI quality. */
   .grid-monitor{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:var(--gap);min-width:0}
   .monitor-card{min-width:0;overflow:hidden}
   .monitor-card.full{grid-column:1/-1}
@@ -78,17 +78,17 @@
   .progress{height:10px;border-radius:7px;overflow:hidden;background:#0f131b;border:1px solid var(--stroke)}
   .bar{height:100%;width:0%;background:linear-gradient(90deg,#4cc3ff,#5b8cff);transition:width .3s ease}
 
-  /* Графики: 2 в ряд + 1 на всю ширину */
+  /* Charts: two in a row plus one full-width chart. */
   .grid-charts{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:var(--gap);min-width:0}
   .grid-charts>.card{min-width:0;min-height:0;overflow:hidden}
   .full{grid-column:1/-1}
   @media (max-width:980px){.grid-charts{grid-template-columns:1fr}}
-  /* Chart.js получает фиксированную область: данные не могут раздвинуть grid. */
+  /* Chart.js gets a bounded area so data cannot expand the grid. */
   .chart-frame{position:relative;width:100%;height:260px;min-width:0;max-width:100%;overflow:hidden}
   .chart-frame canvas{display:block !important;width:100% !important;height:100% !important;max-width:100%}
   .chart-title{margin:-4px 0 8px 0;color:var(--muted);font-size:12px}
 
-  /* Логи – компактнее на десктопе */
+  /* Logs stay compact on desktop. */
   .logs{height:320px;overflow:auto;white-space:pre-wrap;background:#0f131b;border:1px solid var(--stroke);border-radius:var(--rad);padding:var(--pad);line-height:1.3}
   @media (min-width:981px){.logs{font-size:12px}}
   @media (max-width:980px){.logs{font-size:13px}}
@@ -118,11 +118,11 @@
   .nowrap{white-space:nowrap}
   .right{text-align:right}
 
-  /* Балансы: таблица не должна раздвигать карточку на узком экране. */
+  /* Balances: the table must not expand the card on a narrow screen. */
   .balance-box{overflow:auto;background:#0f131b;border:1px solid var(--stroke);border-radius:var(--rad)}
   .balance-table{min-width:620px}
   .balance-unvalued{color:var(--warn)}
-  /* Открытые заявки читаются отдельно и не раздвигают dashboard на узком экране. */
+  /* Open orders stay isolated and must not expand the dashboard on narrow screens. */
   .open-orders-box{max-height:340px;overflow:auto;background:#0f131b;border:1px solid var(--stroke);border-radius:var(--rad)}
   .open-orders-table{min-width:1040px}
 </style>
@@ -137,15 +137,15 @@
     <a class="version-link" id="changelog-link" href="/CHANGELOG.md" target="_blank" rel="noreferrer">Что изменено</a>
   </header>
 
-  <!-- KPI (3 столбца) -->
+  <!-- KPI (three columns). -->
   <section class="grid-kpi">
-    <!-- Температура -->
+    <!-- Temperature. -->
     <div class="card">
       <div class="row"><div class="label">Температура</div><span id="temp-pill" class="pill ok">OK</span></div>
       <div class="value" id="temp-val">— °C</div>
     </div>
 
-    <!-- Память -->
+    <!-- Memory. -->
     <div class="card">
       <div class="row"><div class="label">Память</div><div class="pct" id="mem-pct">—%</div></div>
       <div class="value" id="mem-val">—/— ГиБ</div>
@@ -159,14 +159,14 @@
       <div class="progress mt"><div class="bar" id="swap-bar"></div></div>
     </div>
 
-    <!-- Диск / -->
+    <!-- Disk /. -->
     <div class="card">
       <div class="row"><div class="label">Диск /</div><div class="pct" id="disk-pct">—%</div></div>
       <div class="value" id="disk-val">—/— ГиБ</div>
       <div class="progress mt"><div class="bar" id="disk-bar"></div></div>
     </div>
 
-    <!-- Сервисы -->
+    <!-- Services. -->
     <div class="card">
       <div class="row"><div class="label">Сервисы</div></div>
       <div class="row">
@@ -181,7 +181,7 @@
       </div>
     </div>
 
-    <!-- Сеть / Монты / Системное -->
+    <!-- Network / mounts / system. -->
     <div class="card">
       <div class="row"><div class="label">Сеть / Монты</div></div>
       <div class="row"><span class="dot" id="dot-net" style="background:#888"></span><span id="net-text" class="muted">—</span></div>
@@ -192,7 +192,7 @@
       <div class="row mono" id="uptime">uptime —</div>
     </div>
 
-    <!-- AI-рекомендатель -->
+    <!-- AI advisor. -->
     <div class="card ai-card">
       <div class="row"><div class="label">AI-рекомендатель</div><div class="row" style="margin:0;gap:8px"><div class="pct" id="ai-state">—</div><button class="ai-toggle" id="ai-toggle" type="button" disabled aria-pressed="false" aria-label="AI выключен"><span class="switch-visual"></span><span class="switch-caption">AI</span></button></div></div>
       <div class="ai-details">
@@ -215,7 +215,7 @@
     </div>
   </section>
 
-  <!-- Оперативный read-only мониторинг Raspberry, торговли и качества данных. -->
+  <!-- Read-only operational monitoring for Raspberry, trading, and data quality. -->
   <section class="grid-monitor mt">
     <div class="card monitor-card">
       <div class="monitor-title">Raspberry / инфраструктура</div>
@@ -280,7 +280,7 @@
     </div>
   </section>
 
-  <!-- Графики: 2 в ряд + 1 ниже на всю ширину -->
+  <!-- Charts: two in a row plus one full-width chart below. -->
   <section class="grid-charts mt">
     <div class="card">
       <div class="chart-title">Температура (24 ч)</div>
@@ -330,7 +330,7 @@
     </div>
   </section>
 
-  <!-- Текущий аккаунт: read-only остатки Binance и оценка в USDT -->
+  <!-- Current account: read-only Binance balances and USDT valuation. -->
   <section class="mt">
     <div class="card">
       <div class="row" style="margin-bottom:6px">
@@ -364,7 +364,7 @@
     </div>
   </section>
 
-  <!-- Все открытые заявки Binance: только read-only снимок, без торговых действий. -->
+  <!-- All open Binance orders: read-only snapshot, with no trading actions. -->
   <section class="mt">
     <div class="card">
       <div class="row" style="margin-bottom:6px">
@@ -394,7 +394,7 @@
     </div>
   </section>
 
-  <!-- Реализованные ордера (24 ч) -->
+  <!-- Realized orders (24h). -->
   <section class="mt">
     <div class="card">
       <div class="row" style="margin-bottom:6px">
@@ -422,7 +422,7 @@
     </div>
   </section>
 
-  <!-- Логи -->
+  <!-- Logs. -->
   <section class="mt">
     <div class="card">
       <div class="row" style="margin-bottom:6px">
@@ -484,11 +484,11 @@ function updateKpis(h){
     .filter(Boolean).join(' ') || 'Версия —';
   $('#changelog-link').href = h.changelog_url || '/CHANGELOG.md';
 
-  // Температура
+  // Temperature.
   $('#temp-val').textContent = h.temp_c!=null ? `${h.temp_c.toFixed(1)} °C` : '— °C';
   setPill($('#temp-pill'), h.temp_c==null ? 'warn' : (h.temp_c>=80?'bad':'ok'));
 
-  // Память
+  // Memory.
   const mt=h.mem_gib?.total, mu=h.mem_gib?.used, mp=h.mem_gib?.percent;
   $('#mem-val').textContent = `${fmt(mu)}/${fmt(mt)} ГиБ`;
   $('#mem-pct').textContent = Number.isFinite(mp)?`${mp}%`:'—%';
@@ -500,33 +500,33 @@ function updateKpis(h){
   $('#swap-pct').textContent = Number.isFinite(sp)?`${sp}%`:'—%';
   $('#swap-bar').style.width = Number.isFinite(sp)?`${sp}%`:'0%';
 
-  // Диск
+  // Disk.
   const dt=h.disk_gib?.total, du=h.disk_gib?.used, dp=h.disk_gib?.percent;
   $('#disk-val').textContent = `${fmt(du)}/${fmt(dt)} ГиБ`;
   $('#disk-pct').textContent = Number.isFinite(dp)?`${dp}%`:'—%';
   $('#disk-bar').style.width = Number.isFinite(dp)?`${dp}%`:'0%';
 
-  // Монты
+  // Mounts.
   mountLine(h.mounts||[], '/', '#mnt-root');
   mountLine(h.mounts||[], '/tmp', '#mnt-tmp');
   mountLine(h.mounts||[], '/var/tmp', '#mnt-vtmp');
 
-  // Сервисы
+  // Services.
   const s = (h.services?.mybot||'').trim();
   $('#bot-status').textContent = s || '—';
   $('#dot-bot').style.background = s==='active' ? '#21c07a' : (s ? '#f3c24d' : '#ff6e6e');
   $('#bans').textContent = `${h.services?.fail2ban_sshd_bans ?? 0} bans`;
 
-  // Сеть
+  // Network.
   $('#net-text').textContent = h.network_ok ? 'Интернет: Online' : 'Интернет: Offline';
   $('#dot-net').style.background = h.network_ok ? '#21c07a' : '#ff6e6e';
 
-  // Системное
+  // System.
   $('#kernel').textContent = `kernel ${h.kernel||'—'}`;
   const up = h.uptime_sec|0; const d=Math.floor(up/86400), H=Math.floor((up%86400)/3600), M=Math.floor((up%3600)/60);
   $('#uptime').textContent = `uptime ${d?d+'д ':''}${H}ч ${M}м`;
 
-  // футер
+  // Footer.
   $('#footer').textContent = `API ok · ${h.time}`;
 }
 
@@ -619,7 +619,7 @@ function updateAIQuality(ai){
   $('#ai-degraded-quality').textContent=degraded.length?degraded.join(' · '):'нет';
 }
 
-/* формат USDT и % */
+/* USDT and percentage formatting. */
 function fmtUSDT(x){
   if(!Number.isFinite(x)) return '—';
   return NF2.format(x) + ' USDT';
@@ -630,7 +630,7 @@ function fmtPct(p){
   return `${sign}${p.toFixed(2)}%`;
 }
 
-/* --- symbols discovery (раз в минуту) --- */
+/* --- symbol discovery (once per minute) --- */
 async function getSymbols(){
   const now = Date.now();
   if(SYMBOLS_CACHE && (now - SYMBOLS_TS) < 60_000) return SYMBOLS_CACHE;
@@ -645,7 +645,7 @@ async function getSymbols(){
   }
 }
 
-/* попытка получить саммари с учётом symbols= */
+/* Fetch the summary with the symbols= filter when possible. */
 async function getTradeSummary24h(){
   const symbols = await getSymbols();
   const urls = [
@@ -693,10 +693,10 @@ function updateTrade24(sum){
   $('#t24-volume').textContent = fmtUSDT(vol);
   $('#t24-fees').textContent   = fmtUSDT(fees);
 
-  // equity now (приближённое тоже годится)
+  // Current equity (an approximation is acceptable here).
   $('#t24-equity').textContent = Number.isFinite(eqNow) ? fmtUSDT(eqNow) : '—';
 
-  // pnl + процент
+  // PnL and percentage.
   const pct = Number.isFinite(d.equity_pct) ? d.equity_pct
              : (Number.isFinite(pnl) && Number.isFinite(eqThen) && eqThen>0 ? (pnl/eqThen*100) : null);
 
@@ -706,7 +706,7 @@ function updateTrade24(sum){
 
   $('#t24-net-sub').textContent = Number.isFinite(pct) ? `(${fmtPct(pct)})` : '';
 
-  // активы, по которым считали equity
+  // Assets included in the equity calculation.
   if (Array.isArray(d.equity_assets) && d.equity_assets.length){
     $('#t24-assets').textContent = 'Активы в расчёте: ' + d.equity_assets.join(', ');
   }else{
@@ -809,7 +809,7 @@ function updateCharts(hist){
   charts.m.data.labels = hist.labels; charts.m.data.datasets[0].data = hist.mem_used_gib; charts.m.update();
 }
 
-/* ==== Реализованные ордера за 24 часа ==== */
+/* ==== Realized orders for the last 24 hours ==== */
 async function getFilledOrders24h(){
   const symbols = await getSymbols();
   const urls = [
@@ -874,7 +874,7 @@ function updateFilled24h(resp){
       const feeCell = Number.isFinite(x.fee)
         ? `${NF2.format(x.fee)} ${x.feeAsset||''}`.trim()
         : '—';
-      // строгие форматы: price — 2 знака, qty — 4, сумма — 2
+      // Strict formats: price 2 decimals, quantity 4, total 2.
       const priceTxt = Number.isFinite(x.price) ? NF2.format(x.price) : '—';
       const qtyTxt   = Number.isFinite(x.qty)   ? NF4.format(x.qty)   : '—';
       const quoteTxt = Number.isFinite(x.quote) ? NF2.format(x.quote) : '—';
@@ -988,7 +988,7 @@ if (balanceFilter){
   });
 }
 
-/* отдельное обновление, чтобы не править существующий refresh() */
+/* Separate refresh so the existing refresh() does not need modification. */
 async function refreshOrders(){
   try{
     const fills = await getFilledOrders24h();

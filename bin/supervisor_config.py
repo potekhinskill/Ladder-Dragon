@@ -1,5 +1,5 @@
 # Copyright (c) 2026 IURII Potekhin / Ladder Dragon. All rights reserved.
-# Назначение файла и опасные границы логики должны оставаться понятными при сопровождении.
+# Purpose: keep the file role and safety boundaries clear during maintenance.
 """CLI construction and strict validation for the trading supervisor."""
 
 from __future__ import annotations
@@ -96,10 +96,9 @@ def build_supervisor_parser() -> argparse.ArgumentParser:
     ap.add_argument("--auto-oco-holdings", dest="auto_oco_holdings", action="store_true")
     ap.add_argument("--oco-on-holdings", action="store_true")
     ap.add_argument("--max-oco-per-symbol", type=int, default=12)
-    # При ошибке OCO безопасное поведение — остановиться, а не оставлять
-    # позицию с одиночным TP без защитного стопа. Значение halt совпадает
-    # с каноническим parser исполнителя и не ломается при передаче дочернему
-    # процессу.
+    # On OCO failure, stop rather than leave a position with a lone TP and no
+    # protective stop. The halt value matches the canonical executor parser and
+    # remains stable when passed to a child process.
     ap.add_argument("--oco-fallback", choices=["halt", "prefer-tp1"], default="halt")
     ap.add_argument("--status-interval", type=int, default=1)
     ap.add_argument("--child-loop-minutes", type=int, default=5)
@@ -133,8 +132,8 @@ def build_supervisor_parser() -> argparse.ArgumentParser:
     ap.add_argument("--dir-down-tp1-mult", type=float, default=float(os.getenv("DIR_DOWN_TP1_MULT", "1.15")))
     ap.add_argument("--dir-down-target-buys", type=int, default=int(os.getenv("DIR_DOWN_TARGET_BUYS", "2")))
 
-    # LLM используется только как рекомендательный слой. Ключи принимаются
-    # исключительно через окружение и никогда не попадают в argv/process list.
+    # The LLM is advisory only. Keys are accepted exclusively from the environment
+    # and never appear in argv or the process list.
     ap.add_argument("--ai-advisor", action="store_true", default=env_flag("AI_ADVISOR_ENABLE", False),
                     help="Включить рекомендательный LLM-слой без доступа к ордерам")
     ap.add_argument("--no-ai-advisor", action="store_false", dest="ai_advisor")

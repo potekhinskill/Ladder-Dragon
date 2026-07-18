@@ -1,5 +1,5 @@
 # Copyright (c) 2026 IURII Potekhin / Ladder Dragon. All rights reserved.
-# Назначение файла и опасные границы логики должны оставаться понятными при сопровождении.
+# Purpose: keep the file role and safety boundaries clear during maintenance.
 """Сопровождение исполненных BUY, защитных OCO и breakeven.
 
 Модуль владеет жизненным циклом защиты позиции после исполнения покупки.
@@ -205,8 +205,8 @@ def protect_filled_buys(
             buy_intent.client_order_id if buy_intent is not None else None
         )
         try:
-            # Сначала фиксируем terminal BUY. При сбое посередине OCO следующий
-            # запуск увидит позицию, которая всё ещё требует защиты.
+            # First persist the terminal BUY. If OCO fails midway, the next
+            # run will see a position that still requires protection.
             if journal is not None and parent_client_id:
                 journal.record_exchange_order(parent_client_id, order)
             if (
@@ -238,8 +238,8 @@ def protect_filled_buys(
                 config.stop_limit_offset_pct,
             )
 
-            # В обычном режиме TP не опускается ниже средней позиции и
-            # комиссионного floor. В panic допускается только заданная скидка.
+            # In normal mode TP never falls below average entry and the fee
+            # floor. Panic mode allows only the configured discount.
             try:
                 average_position = dependencies.average_entry(
                     symbol,
@@ -333,9 +333,9 @@ def protect_filled_buys(
             )
             protected = bool(oco)
             if not oco and config.oco_fallback == "prefer-tp1" and os.getenv("BOT_LIVE_CONFIRMED") == "YES":
-                # В LIVE одиночный TP оставляет позицию без stop-loss. Сначала
-                # пытаемся немедленно закрыть фактически исполненный объём,
-                # затем фиксируем halt с точной причиной.
+                # A single TP in LIVE leaves the position without a stop loss.
+                # First flatten the confirmed executed quantity, then persist
+                # a halt with the exact reason.
                 reason = "OCO не создан: fallback prefer-tp1 запрещён в LIVE (позиция без стопа)"
                 try:
                     if dependencies.place_market_order is not None:
@@ -419,8 +419,8 @@ def protect_filled_buys(
             )
 
         if protected:
-            # Ledger обновляется только после подтверждённой защиты, иначе
-            # супервизор может увидеть ложное безопасное состояние позиции.
+            # Update the ledger only after protection is confirmed; otherwise
+            # the supervisor may see a falsely safe position.
             dependencies.poll_trades(symbol)
             try:
                 remaining.remove(order_id)

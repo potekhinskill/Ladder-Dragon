@@ -1,5 +1,5 @@
 # Copyright (c) 2026 IURII Potekhin / Ladder Dragon. All rights reserved.
-# Назначение файла и опасные границы логики должны оставаться понятными при сопровождении.
+# Purpose: keep the file role and safety boundaries clear during maintenance.
 """Локальная RAG-база проверенных AI-решений.
 
 Модуль не вызывает внешние embedding API и не обучает DeepSeek. Для Raspberry
@@ -157,8 +157,8 @@ class KnowledgeStore:
                         virtual = {}
                     ai_result = virtual.get("ai", {})
                     baseline_result = virtual.get("baseline", {})
-                    # Одного направления цены недостаточно: virtual RAG
-                    # требует завершённой оценки и AI-плана, и baseline.
+                    # Price direction alone is insufficient: virtual RAG requires
+                    # completed evaluations for both the AI plan and the baseline.
                     if not isinstance(ai_result, dict) or not isinstance(baseline_result, dict):
                         continue
                     status = "virtual_validated"
@@ -169,8 +169,8 @@ class KnowledgeStore:
                         "baseline_net_return": baseline_result.get("net_return"),
                     }
                 else:
-                    # Без явного DRY-флага виртуальная candle-оценка не
-                    # считается подтверждённым опытом для RAG.
+                    # Without an explicit DRY flag, a virtual candle evaluation
+                    # is not accepted as verified RAG experience.
                     continue
                 content = (
                     f"{symbol} {'virtual shadow' if status == 'virtual_validated' else 'historical'} regime: "

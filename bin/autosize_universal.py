@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 # Copyright (c) 2026 IURII Potekhin / Ladder Dragon. All rights reserved.
-# Назначение файла и опасные границы логики должны оставаться понятными при сопровождении.
+# Purpose: keep the file role and safety boundaries clear during maintenance.
 """
 Ladder Dragon — универсальный исполнитель с автоматическим размером заявки
 
@@ -120,7 +120,7 @@ from ladder_dragon.execution.executor_stats import commission_quote_value, poll_
 from ladder_dragon.execution.inventory_lots import add_lot, consume_fifo, ensure_schema as ensure_lots_schema, oldest_lots, lot_for_order
 
 import requests
-# для пер-символьного лока
+# per-symbol lock
 import fcntl  # Linux/Unix
 
 RUN = True
@@ -250,12 +250,12 @@ class SymbolLock:
 
     def acquire(self) -> bool:
         os.makedirs(os.path.dirname(self.path) or bot_run_dir(), exist_ok=True)
-        # открываем (создаём) файл и пытаемся поставить неблокирующий эксклюзивный лок
+        # Open (or create) the file and attempt a non-blocking exclusive lock.
         self.fd = os.open(self.path, os.O_RDWR | os.O_CREAT, 0o644)
         try:
             fcntl.flock(self.fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
         except BlockingIOError:
-            # уже залочено живым процессом
+            # Another live process already owns the lock.
             try:
                 with open(self.path, "r", encoding="utf-8") as f:
                     pid_txt = f.read().strip()
@@ -264,7 +264,7 @@ class SymbolLock:
             log(f"[LOCK] {self.symbol} уже запущен (pid={pid_txt}). Выход.")
             return False
 
-        # лок получен — запишем текущий PID для наглядности
+        # The lock is acquired; write the current PID for observability.
         try:
             os.ftruncate(self.fd, 0)
             os.write(self.fd, f"{os.getpid()}\n".encode("utf-8"))
@@ -273,8 +273,8 @@ class SymbolLock:
         return True
 
     def release(self) -> None:
-        # при закрытии дескриптора flock снимается автоматически;
-        # файл можно попытаться удалить «для чистоты», но это не обязательно
+        # Closing the descriptor releases flock automatically; the file may be
+        # removed for cleanliness, but it is not required.
         try:
             if self.fd is not None:
                 os.close(self.fd)
@@ -289,11 +289,11 @@ class SymbolLock:
 # --- profit floor helpers ---
 
 def _tp1_max_pct() -> float:
-    # верхняя граница ближайшей цели (если 0 — без ограничителя)
+    # Upper bound for the nearest target (zero means no cap).
     return max(0.0, getenv_float("TP1_MAX", 0.040))
 
 def _fee_floor_pct() -> float:
-    # нижний порог профита от двусторонней комиссии (с небольшим запасом)
+    # Lower profit floor implied by round-trip fees, with a small safety margin.
     fee = max(0.0, getenv_float("BOT_FEE_PCT", 0.001))
     return fee * 2.0 * 1.05
 
@@ -309,7 +309,7 @@ def _execution_cost_floor_pct() -> float:
     return 2.0 * fee + spread + 2.0 * slippage + latency + stop_cost + partial + min_edge
 
 def _profit_floor_pct() -> float:
-    # совмещённый “пол”: не ниже MIN_PROFIT_OVER_AVГ и не ниже комиссии
+    # Combined floor: never below MIN_PROFIT_OVER_AVG or the fee floor.
     min_edge = max(0.0, getenv_float("MIN_PROFIT_OVER_AVG", 0.0))
     return max(min_edge, _fee_floor_pct(), _execution_cost_floor_pct())
 
@@ -336,16 +336,16 @@ def _signed_request(method: str, path: str, params: Dict[str, Any] | None = None
 
 # ------------------- Indicators / averages / panic -------------------
 
-# Кэш индикаторов, чтобы не спамить klines
+# Indicator cache to avoid excessive klines requests.
 _IND_CACHE: Dict[tuple[str, str], Dict[str, float]] = {}
 _IND_TS: Dict[tuple[str, str], float] = {}
 
-# Кэш VWAP (похожая логика, но отдельный TTL/ключи)
+# VWAP cache (similar logic, with separate TTL and keys).
 _VWAP_CACHE: Dict[tuple[str, str, int], Dict[str, float | None]] = {}
 _VWAP_TS: Dict[tuple[str, str, int], float] = {}
 
 def _get_klines(symbol: str, interval: str = "1m", limit: int = 120):
-    # теперь пользуемся единым клиентом с нормализацией алиасов и фолбэком -1120→15m
+    # Use the shared client with alias normalization and the -1120 -> 15m fallback.
     limit = max(20, min(1000, int(limit)))
     return TM.get_klines(symbol, interval, limit=limit)
 
@@ -411,7 +411,7 @@ def get_vwap_cached(symbol: str,
     _VWAP_TS[key] = now_ts
     return vwap
 
-# Средняя цена позиции из /myTrades (кэш)
+# Average position entry from /myTrades (cached).
 _AVG_CACHE: Dict[str, Dict[str, float]] = {}
 
 def avg_entry(symbol: str, cache_ttl: int = 30, lookback: int = 1000) -> Optional[float]:
@@ -436,7 +436,7 @@ def avg_entry(symbol: str, cache_ttl: int = 30, lookback: int = 1000) -> Optiona
     if not isinstance(trades, list) or not trades:
         return None
 
-    # Сортируем по времени (возрастание)
+    # Sort by time in ascending order.
     try:
         trades.sort(key=lambda t: int(t.get("time", 0)))
     except Exception:
@@ -507,7 +507,7 @@ def update_panic_state(symbol: str,
         s["hits"] = 0
 
     if s.get("on", False):
-        # Выйти из паники — после cooldown и при восстановлении к EMA-1*ATR или к средней
+        # Leave panic after cooldown and recovery to EMA-1*ATR or the average entry.
         recovered_ema = False
         recovered_avg = False
         if ema20 is not None and atr is not None and atr > 0:
@@ -686,8 +686,8 @@ def _record_order_payload(payload: Dict[str, Any] | None) -> Optional[OrderInten
 
 
 def _recovery_dependencies() -> RecoveryDependencies:
-    # Фасад связывает чистый recovery-модуль с transport, journal и halt
-    # текущего процесса, не раскрывая ему глобальные переменные напрямую.
+    # The facade connects the pure recovery module to the process transport,
+    # journal, and halt state without exposing executor globals directly.
     return RecoveryDependencies(
         journal=_order_journal,
         get_order_by_client_id=lambda symbol, client_id: get_order_by_client_id(
@@ -729,8 +729,8 @@ def get_order(symbol: str, order_id: int) -> Dict[str, Any] | None:
 
 
 def _order_dependencies() -> OrderDependencies:
-    # Ордерный модуль получает функции поздно: актуальный LIVE_MODE проверяется
-    # в момент POST, а не фиксируется при импорте исполнителя.
+    # The order module receives late-bound functions: LIVE_MODE is checked at POST
+    # time rather than frozen when the executor is imported.
     return OrderDependencies(
         live=lambda: LIVE_MODE,
         logger=log,
@@ -752,8 +752,8 @@ def _order_dependencies() -> OrderDependencies:
 
 
 def _protection_dependencies() -> ProtectionDependencies:
-    # Сопровождение позиции получает те же late-bound границы, что orders и
-    # recovery: фактические HTTP, journal и halt остаются у исполнителя.
+    # Position protection receives the same late-bound boundaries as orders and
+    # recovery: actual HTTP, journal, and halt state remain owned by the executor.
     def lot_id_for_fill(symbol: str, fill_price: float, order_id: int | None = None) -> int | None:
         if STATS_CON is None:
             return None
@@ -925,7 +925,7 @@ def _stats_poll_mytrades_once(symbol: str):
             STATS_CON.commit()
         except (sqlite3.Error, ValueError, ArithmeticError) as exc:
             log(f"[LOTS] {symbol} fill sync failed: {exc}")
-        # AI DB подключается мягко: отсутствие AI не должно блокировать торговый ledger.
+        # AI DB is optional: missing AI must not block the trading ledger.
         try:
             ai_db = os.getenv("AI_DECISIONS_DB", "").strip()
             if ai_db:
@@ -978,10 +978,9 @@ def _stats_poll_mytrades_once(symbol: str):
                         leg_type=leg_type, exit_reason=exit_reason,
                         slippage_quote=slippage_quote + float(fill.get("slippage_quote", 0) or 0),
                     )
-                    # Обновляем realized_execution после каждого фактического
-                    # исполнения. До полного SELL запись остаётся открытой;
-                    # после последнего TP/STOP она становится источником real
-                    # PnL и только тогда допускается в RAG.
+                    # Update realized_execution after every actual fill. The record
+                    # stays open until the final SELL; only after the last TP/STOP
+                    # does it become a source of real PnL and eligible for RAG.
                     store.evaluate_execution(decision_id)
         except (sqlite3.Error, ValueError, OSError) as exc:
             dbg(f"[AI-FILL] {symbol} sync skipped: {exc}")
@@ -1015,27 +1014,27 @@ def _pick_ladder_aligned_oco_prices(symbol: str,
     tick = symbol_filters[symbol]["tickSize"]
     eps_mult = max(1.0, price_eps_mult())  # из ENV (PRICE_EPS_MULT)
 
-    # Разделяем лестницу вокруг fill
+    # Split the ladder around the fill.
     lower = [p for p in ladder_prices if p < fill_price]
     upper = [p for p in ladder_prices if p > fill_price]
 
-    # Базовые fallback'и на случай отсутствия ступеней
+    # Basic fallbacks when no ladder levels are available.
     ladder_tp = upper[0] if upper else round_price(symbol, fill_price * 1.01)
     sl_limit = lower[-1] if lower else round_price(symbol, fill_price * 0.99)
 
-    # Пол по прибыли и потолок
+    # Profit floor and cap.
     floor_pct = _profit_floor_pct()
     cap_pct = _tp1_max_pct()
 
     floor_price = round_price(symbol, fill_price * (1.0 + max(0.0, floor_pct)))
     cap_price = round_price(symbol, fill_price * (1.0 + max(0.0, cap_pct))) if cap_pct > 0 else float("inf")
 
-    # Итоговый TP: не ниже пола/лестницы, но ограничен cap
+    # Final TP: not below the floor/ladder, but limited by the cap.
     tp_limit = max(ladder_tp, floor_price)
     if tp_limit > cap_price:
         tp_limit = cap_price
 
-    # stopPrice — чуть выше, чем sl_limit (для SELL SL)
+    # stopPrice is slightly above sl_limit for a SELL stop-limit.
     sl_stop = sl_limit + max(tick * eps_mult, fill_price * max(0.0, float(stop_limit_offset_pct)))
     sl_stop = round_price(symbol, sl_stop)
 
@@ -1079,8 +1078,8 @@ def maybe_place_buys(symbol: str,
       иначе — равномерный cap до конца без «съедания» всей кассы.
     Возвращает список orderId успешно размещённых BUY.
     """
-    # Сигнал остановки проверяется до любых сетевых запросов: после SIGTERM
-    # функция не должна даже читать баланс или список открытых заявок.
+    # Check the stop signal before any network request: after SIGTERM this function
+    # must not even read balances or open orders.
     if not RUN:
         log(f"[STOP] {symbol} BUY placement skipped before exchange reads")
         return []
@@ -1089,7 +1088,7 @@ def maybe_place_buys(symbol: str,
     reserve = max(0.0, getenv_float("RISK_RESERVE_USDT", 0.0))
     usdt_free = max(0.0, float(bals.get("USDT", {}).get("free", 0.0)) - reserve)
 
-    # Гейт по порогу свободного USDT
+    # Free-USDT threshold gate.
     if cap_floor_usdt is not None and usdt_free < float(cap_floor_usdt):
         log(f"[CAP-FLOOR] free≈{usdt_free:.2f} < {float(cap_floor_usdt):.2f}; skip BUY this cycle")
         return []
@@ -1101,7 +1100,7 @@ def maybe_place_buys(symbol: str,
     placed_ids: List[int] = []
     now = get_price(symbol)
 
-    # Подготовка лимита и анти-дубликатов
+    # Prepare the limit and deduplication set.
     allowed_new: Optional[int] = None
     existing_buy_prices: set[float] = set()
     if enforce_limit and (target_buy_per_symbol is not None):
@@ -1136,7 +1135,7 @@ def maybe_place_buys(symbol: str,
             f"Проверь --ladder-prices и режим reduce-only.")
         return []
 
-    # Основной цикл по кандидатам
+    # Main candidate loop.
     for idx, p in enumerate(candidates, start=1):
         if not RUN:
             log(f"[STOP] {symbol} BUY placement interrupted before slot {idx}/{total_slots}")
@@ -1179,14 +1178,14 @@ def maybe_place_buys(symbol: str,
                 buy_limit_maker or
                 os.getenv("BUY_LIMIT_MAKER", "").lower() in ("1", "true", "yes")
             )
-            # ВАЖНО: ставим по округлённой цене pr
+            # IMPORTANT: place the order at the rounded price pr.
             j = place_limit_order("BUY", symbol, qty, pr, maker=maker_flag)
             if j:
                 oid = int(j.get("orderId"))
                 placed_ids.append(oid)
-                # вычитаем из free по pr
+                # Subtract the quote spend at pr from free.
                 usdt_free = max(0.0, usdt_free - planned.notional)
-                # антидубликат — храним уже округлённую цену
+                # Deduplicate by the already rounded price.
                 existing_buy_prices.add(pr)
         except Exception:
             pass
@@ -1221,9 +1220,9 @@ def maybe_place_sells_from_holdings(
         dbg(f"[HOLD-SELL] {symbol} no free base (free={fmt_qty_sym(symbol, base_free)})")
         return 0
 
-    # В panic обычные SELL-уровни могут оказаться выше рынка навсегда.
-    # Для старого inventory без OCO включаем аварийный market flatten
-    # (в LIVE по умолчанию), иначе позиция останется без защитного выхода.
+    # In panic, normal SELL levels can remain above the market indefinitely.
+    # For legacy inventory without OCO, enable emergency market flattening (LIVE
+    # by default), otherwise the position remains without a protective exit.
     if panic_active and os.getenv("PANIC_FLATTEN_HOLDINGS", "1").lower() in ("1", "true", "yes"):
         dust = min_qty(symbol, 0)
         panic_qty = max(0.0, base_free - dust)
@@ -1244,7 +1243,8 @@ def maybe_place_sells_from_holdings(
         dbg(f"[HOLD-SELL] {symbol} no upper ladder above market (now≈{fmt_price_sym(symbol, now)})")
         return 0
 
-    # Соберём уже стоящие SELL (выше рынка) и посчитаем разрешённое число новых
+    # Collect existing SELL orders above the market and calculate how many new ones
+    # are allowed.
     existing_sell_prices: set[float] = set()
     allowed_new: Optional[int] = None
     if enforce_limit and (max_oco_per_symbol is not None):
@@ -1280,7 +1280,7 @@ def maybe_place_sells_from_holdings(
         dbg(f"[HOLD-SELL] {symbol} empty after limits/GUARD")
         return 0
 
-    # dust и распределение
+    # Dust handling and allocation.
     dust = min_qty(symbol, 0)
     qty_left = max(0.0, base_free - dust)
     if qty_left <= 0:
@@ -1329,7 +1329,7 @@ def maybe_place_sells_from_holdings(
                 qty_left = max(0.0, qty_left - planned.quantity)
                 placed += 1
         except Exception:
-            # не уменьшаем qty_left при ошибке биржи
+            # Do not reduce qty_left when the exchange rejects the order.
             pass
 
     return placed
@@ -1344,13 +1344,13 @@ def main():
     global LIVE_MODE
     LIVE_MODE = bool(args.live)
     if LIVE_MODE:
-        # Расчёт риска в супервизоре считает target-buy жёстким максимумом.
-        # Поэтому LIVE всегда включает контроль уже существующих BUY.
+        # Supervisor risk calculation treats target-buy as a hard maximum.
+        # Therefore LIVE always checks existing BUY orders.
         args.enforce_target_buys = True
 
     if LIVE_MODE:
-        # Повторный preflight нужен даже после проверки супервизора: воркер
-        # может быть запущен отдельно или спустя время после исходной проверки.
+        # Repeat preflight even after supervisor validation: a worker can be started
+        # independently or long after the original check.
         halt_file = Path(
             os.getenv(
                 "CB_HALT_FILE",
@@ -1386,9 +1386,9 @@ def main():
 
     symbol = args.symbol
 
-    # Статус OCO больше не маскируется знаком вопроса: до первой проверки
-    # явно показываем, что защита ещё не подтверждена. Это помогает отличать
-    # ожидающий BUY от реально подтверждённого OCO в журнале и на dashboard.
+    # OCO status is no longer hidden behind a question mark: before the first check,
+    # explicitly show that protection is not confirmed. This distinguishes a
+    # pending BUY from a verified OCO in logs and the dashboard.
     protection_state = "not_checked" if attach_oco else "disabled"
 
     def status_message(left: int) -> str:
@@ -1398,7 +1398,7 @@ def main():
             f"left:{int(left)}s | last: idle"
         )
 
-    # --- пер-символьный лок: второй процесс того же символа сразу завершится ---
+    # --- per-symbol lock: a second process for the symbol exits immediately ---
     _lock = SymbolLock(symbol)
     if not _lock.acquire():
         return  # тихий выход
@@ -1406,7 +1406,7 @@ def main():
     try:
         ladder_prices = parse_comma_floats(args.ladder_prices)
 
-        # --- Breakeven: постоянная связь OCO со средней ценой исходного BUY ---
+        # --- Breakeven: keep OCO linked to the original BUY average price ---
         be_syms = {s.strip().upper() for s in args.breakeven_on_tp1_symbols.split(",") if s.strip()}
         BE_ENABLED = symbol.upper() in be_syms
         FEE_PCT = getenv_float("BOT_FEE_PCT", 0.00075)
@@ -1428,15 +1428,15 @@ def main():
         pull_filters(symbol)
         current_price = get_price(symbol)
 
-        # Защитный дедуп выполняется и здесь: прямой запуск воркера не должен
-        # зависеть от того, нормализовал ли лестницу супервизор.
+        # Protection deduplication also runs here: direct worker startup must not
+        # depend on whether the supervisor normalized the ladder.
         ladder_prices = dedup_ladder(symbol, ladder_prices, current_price)
 
         started_at = time.time()
         warmup = cleanup_warmup_sec()
         log(status_message(int(args.loop_minutes * 60)))
 
-        # BUY — размер из окружения (кап на заявку), если передаёт супервизор
+        # BUY size comes from the environment (per-order cap) when supplied by supervisor.
         cap = getenv_float("BOT_CAP_PER_ORDER", 50.0)
 
         vwap_ratio: Optional[float] = None
@@ -1460,8 +1460,8 @@ def main():
             if vwap_value and vwap_value > 0:
                 vwap_ratio = current_price / vwap_value
 
-        # Средняя цена и panic-state влияют одновременно на разрешение BUY
-        # и на минимально допустимую цену защитного SELL.
+        # Average price and panic state jointly control BUY permission and the minimum
+        # acceptable protective SELL price.
         try:
             ema20, atr, prev_close = get_indicators_cached(symbol, args.panic_interval, ttl_sec=20)
         except Exception:
@@ -1550,8 +1550,8 @@ def main():
                         f"ratio={vwap_ratio:.4f} > {premium_thr:.4f} → skip BUY"
                     )
 
-        # Перед новыми BUY восстанавливаем незавершённые intent после рестарта.
-        # Так один и тот же FILLED/PARTIAL BUY снова попадёт под контроль OCO.
+        # Before new BUY orders, recover unfinished intents after restart. This makes
+        # the same FILLED/PARTIAL BUY pass through OCO protection again.
         placed_ids: List[int] = (
             recover_pending_buy_order_ids(symbol)
             if LIVE_MODE and attach_oco
@@ -1576,8 +1576,8 @@ def main():
             except Exception as e:
                 log(f"[ERR] maybe_place_buys: {e}")
 
-        # Свободные holdings продаём отдельно только когда они не конкурируют
-        # за один base-баланс с OCO, ожидающим исполнения нового BUY.
+        # Sell free holdings separately only when they do not compete for the same
+        # base balance as an OCO waiting for a new BUY to execute.
         if args.auto_oco_holdings and (not attach_oco or not placed_ids):
             if attach_oco and not placed_ids:
                 dbg("[AUTO-OCO] no new BUYs this run → enabling auto_oco_holdings for free base")
@@ -1598,14 +1598,14 @@ def main():
             if attach_oco and placed_ids:
                 dbg("[SKIP] auto_oco_holdings: skipped because attach_oco_on_fill is enabled and new BUYs exist")
 
-        # единоразовый сбор трейдов (если включена статистика)
+        # One-time trade collection when statistics are enabled.
         try:
             _stats_poll_mytrades_once(symbol)
         except Exception as e:
             log(f"[STATS] poll error: {e}")
 
-        # Runtime-цикл не создаёт новые BUY. Он наблюдает уже поставленные,
-        # подтверждает FILLED/PARTIAL и обязательно создаёт защиту.
+        # The runtime loop does not create new BUY orders. It observes existing orders,
+        # confirms FILLED/PARTIAL states, and always creates protection.
         last_check = 0
 
         for left in trading_seconds(
@@ -1615,7 +1615,7 @@ def main():
             if status_due(left, args.status_interval):
                 log(status_message(left))
 
-            # периодически обновляем индикаторы/панику (лёгкий режим)
+            # Periodically refresh indicators/panic state in the lightweight mode.
             try:
                 ema20, atr, prev_close = get_indicators_cached(symbol, args.panic_interval, ttl_sec=20)
                 avg_px = avg_entry(symbol, cache_ttl=args.avg_cache_ttl, lookback=args.avg_lookback)  # кэш управляется CLI
@@ -1639,8 +1639,8 @@ def main():
             except Exception:
                 pass
 
-            # FILLED BUY удаляется из placed_ids только после подтверждённого
-            # OCO либо резервного TP. Любая неопределённость создаёт halt.
+            # Remove a FILLED BUY from placed_ids only after a confirmed OCO or reserve
+            # TP. Any uncertainty creates a halt.
             if attach_oco and placed_ids:
                 last_check += 1
                 if last_check >= max(1, args.check_fills_interval):
@@ -1670,9 +1670,9 @@ def main():
                     else:
                         protection_state = "pending"
 
-            # LIVE time-stop: защита от бесконечно зависшей позиции. Binance
-            # не предоставляет такой политики для уже исполненного BUY, поэтому
-            # контролируем возраст позиции локально и закрываем её MARKET.
+            # LIVE time-stop prevents a position from remaining stuck forever. Binance
+            # does not provide this policy for an already filled BUY, so track position
+            # age locally and close it with a MARKET order.
             max_hold_min = max(0.0, getenv_float("BOT_MAX_HOLDING_MINUTES", 0.0))
             if LIVE_MODE and max_hold_min > 0 and placed_ids:
                 now_ms = int(time.time() * 1000)
@@ -1684,8 +1684,8 @@ def main():
                     if now_ms - opened_ms < max_hold_min * 60_000:
                         continue
                     qty_exp = float(held.get("executedQty", 0) or 0)
-                    # Если ledger знает партии, time-stop закрывает сначала
-                    # самый старый inventory, а не случайную агрегированную qty.
+                    # When the ledger knows lots, time-stop closes the oldest inventory
+                    # first instead of an arbitrary aggregated quantity.
                     if STATS_CON is not None:
                         try:
                             lots = oldest_lots(STATS_CON, symbol)
@@ -1702,7 +1702,7 @@ def main():
                     _trip_execution_halt("max holding time exceeded", symbol=symbol, order_id=oid)
                     placed_ids.remove(oid)
 
-            # --- Breakeven поддержка OCO после частичного TP ---
+            # --- Breakeven OCO support after a partial TP fill ---
             if breakeven.due():
                 maintain_breakeven(
                     symbol,
@@ -1714,7 +1714,7 @@ def main():
 
         return
     finally:
-        # гарантированно снимем лок
+        # Always release the lock.
         _lock.release()
 
 if __name__ == "__main__":
