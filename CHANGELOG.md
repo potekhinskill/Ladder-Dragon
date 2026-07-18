@@ -2,6 +2,19 @@
 
 Формат версий: [Semantic Versioning](https://semver.org/).
 
+## [2.10.29] — 2026-07-18
+
+### Исправлено
+- Удалён fallback API на последнее решение символа: AI fills могут быть
+  связаны только через durable client/exchange order mapping.
+- В `ai_usage.ndjson` добавлено явное поле `rejection_reason` для
+  low-confidence и ошибок advisory-запроса.
+
+### Проверено
+- `PYTHONPATH=. pytest -q`.
+- `python3 -m compileall -q .`.
+- `git diff --check`.
+
 ## [2.10.28] — 2026-07-18
 
 ### Добавлено
