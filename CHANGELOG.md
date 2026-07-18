@@ -3,6 +3,21 @@
 All notable changes are documented here. Releases use Semantic Versioning; every
 section is dated and there is intentionally no `Unreleased` section.
 
+## [2.10.66] — 2026-07-19
+
+### Fixed
+- Added explicit ignore rules for SQLite `*.sqlite3-wal` and `*.sqlite3-shm`
+  runtime sidecars, keeping Raspberry databases out of Git status without
+  deleting or publishing live database state.
+
+### Verified
+- Added a regression test covering DB and SQLite3 WAL/SHM ignore patterns.
+- `PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=. .venv/bin/python -m pytest -q` — 224 tests pass.
+- `.venv/bin/python -m pip check` — no broken requirements; `pip-audit
+  --skip-editable` — no known vulnerabilities.
+- Python compilation, deployment shell syntax, tracked-secret scan, and
+  `git diff --check` pass.
+
 ## [2.10.65] — 2026-07-19
 
 ### Fixed

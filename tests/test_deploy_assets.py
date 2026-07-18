@@ -182,6 +182,12 @@ def test_publication_docs_and_local_dashboard_assets_are_present():
         assert (ROOT / document).is_file()
 
 
+def test_sqlite_runtime_sidecars_are_never_tracked():
+    ignore = read(".gitignore").splitlines()
+    for pattern in ("*.db-shm", "*.db-wal", "*.sqlite3-shm", "*.sqlite3-wal"):
+        assert pattern in ignore
+
+
 def test_dashboard_health_has_portable_host_and_optional_raspberry_telemetry():
     app = read("FastAPI/pi-dashboard/app.py")
     assert 'def _host_snapshot()' in app
