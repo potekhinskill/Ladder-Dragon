@@ -9,7 +9,7 @@ description = "Fail-closed Binance Spot grid trading bot"
 readme = "README.md"
 requires-python = ">=3.10"
 dependencies = [
-  "python-dotenv==1.1.1",
+  "python-dotenv==1.2.2",
   "requests==2.32.4",
 ]
 
