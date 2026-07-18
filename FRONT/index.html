@@ -40,7 +40,14 @@
   @media (max-width:980px){.grid-kpi{grid-template-columns:1fr}}
   .card{background:var(--panel);border:1px solid var(--stroke);border-radius:var(--rad);padding:var(--pad)}
   /* AI-блок не меняет архивную сетку из шести системных KPI-карточек. */
-  .ai-card{grid-column:1/-1}
+  .ai-card{grid-column:1/-1;font-size:12px}
+  /* Метрики AI компактны и идут двумя колонками, длинные значения не раздвигают экран. */
+  .ai-details{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));column-gap:24px;row-gap:4px;margin-top:8px}
+  .ai-details .row{min-width:0;align-items:flex-start;gap:8px;font-size:11px;line-height:1.35;padding:2px 0}
+  .ai-details .row>span:first-child{color:var(--muted);flex:0 0 auto}
+  .ai-details .row>span:last-child{min-width:0;max-width:100%;text-align:right;overflow-wrap:anywhere}
+  .ai-details .mono{font-size:11px}
+  @media (max-width:700px){.ai-details{grid-template-columns:1fr}}
   .row{display:flex;justify-content:space-between;align-items:center;gap:10px}
   .label{color:var(--muted);font-size:12px}
   .value{font-size:22px;font-weight:800}
@@ -172,6 +179,7 @@
     <!-- AI-рекомендатель -->
     <div class="card ai-card">
       <div class="row"><div class="label">AI-рекомендатель</div><div class="row" style="margin:0;gap:8px"><div class="pct" id="ai-state">—</div><button class="ai-toggle" id="ai-toggle" type="button" disabled aria-pressed="false" aria-label="AI выключен"><span class="switch-visual"></span><span class="switch-caption">AI</span></button></div></div>
+      <div class="ai-details">
       <div class="row"><span>Режим</span><span class="mono" id="ai-mode">—</span></div>
       <div class="row"><span>Контур</span><span class="mono" id="ai-venue">—</span></div>
       <div class="row"><span>Модель</span><span class="mono" id="ai-model">—</span></div>
@@ -187,6 +195,7 @@
       <div class="row"><span>Причины DEGRADED</span><span class="mono" id="ai-degraded-reasons">—</span></div>
       <div class="row"><span>Токены сегодня</span><span id="ai-tokens">—</span></div>
       <div class="row"><span>Стоимость сегодня</span><span id="ai-cost">—</span></div>
+      </div>
     </div>
   </section>
 
