@@ -291,7 +291,7 @@ install -o root -g www-data -m 0640 /dev/null \
 printf 'proxy_set_header X-Dashboard-Proxy-Secret "%s";\n' \
   "${dashboard_proxy_secret}" \
   >/etc/nginx/snippets/ladder_dragon_proxy_secret.conf
-  install -m 0644 FRONT/index.html FRONT/help.html FRONT/locales.js docs/assets/ladder-dragon-logo.svg CHANGELOG.md "${WEB_ROOT}/"
+  install -m 0644 FRONT/index.html FRONT/help.html FRONT/locales.js docs/assets/ladder-dragon-logo.svg docs/assets/ladder-dragon-dashboard-icon.svg CHANGELOG.md "${WEB_ROOT}/"
 install -m 0644 FRONT/vendor/chart.umd.min.js "${WEB_ROOT}/vendor/"
 install -m 0644 FRONT/vendor/chart.js.LICENSE.txt "${WEB_ROOT}/vendor/"
 rm -f "${WEB_ROOT}/readme.html"

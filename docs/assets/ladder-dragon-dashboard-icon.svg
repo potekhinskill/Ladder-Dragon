@@ -1,0 +1,18 @@
+<!-- Copyright (c) 2026 IURII Potekhin / Ladder Dragon. All rights reserved. -->
+<!-- Purpose: provide a transparent dashboard icon without the square backdrop. -->
+<svg xmlns="http://www.w3.org/2000/svg" width="120" height="120" viewBox="0 0 120 120" role="img" aria-labelledby="title desc">
+  <title id="title">Ladder Dragon</title>
+  <desc id="desc">Transparent Ladder Dragon dashboard icon.</desc>
+  <defs>
+    <linearGradient id="drg" x1="0" y1="1" x2="1" y2="0">
+      <stop offset="0" stop-color="#FF6B3D"/><stop offset="0.55" stop-color="#F5375A"/><stop offset="1" stop-color="#E7194B"/>
+    </linearGradient>
+    <linearGradient id="eye" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#FFE066"/><stop offset="1" stop-color="#F0B90B"/>
+    </linearGradient>
+  </defs>
+  <path d="M30 92 L30 70 L43 70 L43 50 L56 50 L56 32 L76 23 L94 33 L108 48 L93 53 L102 64 L78 68 L66 92 Z" fill="url(#drg)"/>
+  <path d="M73 24 L60 7 L86 15 Z" fill="url(#drg)"/>
+  <path d="M83 34 L89 40 L83 46 L77 40 Z" fill="url(#eye)"/>
+  <path d="M30 70 H43 M43 50 H56" stroke="#121420" stroke-width="3"/>
+</svg>

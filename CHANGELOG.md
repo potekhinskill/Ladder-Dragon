@@ -3,6 +3,30 @@
 All notable changes are documented here. Releases use Semantic Versioning; every
 section is dated and there is intentionally no `Unreleased` section.
 
+## [2.10.62] — 2026-07-19
+
+### Security
+- Updated the dashboard stack to FastAPI 0.139.2 and Starlette 1.3.1.
+- Updated packaging and test dependencies to patched releases, including
+  setuptools 83.0.0, pytest 9.0.3, httpx2 2.7.0, and urllib3 2.7.0.
+
+### Changed
+- Replaced the dashboard logo and favicon with a transparent dragon icon while
+  leaving the full documentation logo unchanged.
+
+### Fixed
+- Isolated the non-LIVE OCO fallback test from a host-level
+  `BOT_LIVE_CONFIRMED=YES` value.
+- Changed the AI dashboard security fixture to use current timestamps so it
+  tests SHADOW behavior instead of stale-data degradation.
+
+### Verified
+- `PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=. BOT_RUN_DIR=/tmp/ladder-dragon-local-tests .venv/bin/python -m pytest -q` — 222 tests pass.
+- `.venv/bin/python -m pip check` — no broken requirements.
+- `.venv/bin/python -m pip_audit --skip-editable` — no known vulnerabilities.
+- `python -m compileall`, deployment shell syntax, tracked-secret scan, and
+  `git diff --check` pass.
+
 ## [2.10.59] — 2026-07-19
 
 ### Security

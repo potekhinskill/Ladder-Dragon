@@ -107,7 +107,9 @@ def test_filled_buy_gets_verified_oco_and_leaves_watch_list(tmp_path):
     assert store.load("SOLUSDT")["77"]["fill_price"] == 100.0
 
 
-def test_failed_oco_uses_single_tp_fallback(tmp_path):
+def test_failed_oco_uses_single_tp_fallback(tmp_path, monkeypatch):
+    # Keep this non-LIVE branch independent from the host service environment.
+    monkeypatch.delenv("BOT_LIVE_CONFIRMED", raising=False)
     fallbacks = []
     halts = []
 

@@ -306,6 +306,7 @@ def test_dashboard_rate_limit_is_enforced(monkeypatch):
 def test_ai_status_is_authenticated_and_contains_no_secrets(tmp_path, monkeypatch):
     db = tmp_path / "ai.db"
     usage = tmp_path / "usage.ndjson"
+    now = datetime.now(timezone.utc)
     with sqlite3.connect(db) as connection:
         connection.execute(
             """
@@ -320,10 +321,11 @@ def test_ai_status_is_authenticated_and_contains_no_secrets(tmp_path, monkeypatc
         )
         connection.execute(
             "INSERT INTO ai_decisions VALUES"
-            "('SOLUSDT',1,'FLAT','UP',1,0.5,.8,0,'SHADOW','shadow_mode','UP',.01,.02,.03)"
+            "('SOLUSDT',?,'FLAT','UP',1,0.5,.8,0,'SHADOW','shadow_mode','UP',.01,.02,.03)",
+            (int(now.timestamp()),),
         )
     usage.write_text(json.dumps({
-        "timestamp": "2026-07-16T10:00:00+00:00",
+        "timestamp": now.isoformat(),
         "total_tokens": 100,
         "estimated_cost_usd": "0.001",
         "outcome": "applied",

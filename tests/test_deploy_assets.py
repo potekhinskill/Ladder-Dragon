@@ -72,7 +72,9 @@ def test_dashboard_uses_ladder_dragon_branding():
     index = read("FRONT/index.html")
     assert "<title>🧪 Ladder Dragon</title>" in index
     assert "<h1>Ladder Dragon</h1>" in index
-    assert 'src="/ladder-dragon-logo.svg"' in index
+    assert 'src="/ladder-dragon-dashboard-icon.svg"' in index
+    assert '<link rel="icon" type="image/svg+xml" href="/ladder-dragon-dashboard-icon.svg"/>' in index
+    assert '<rect' not in read("docs/assets/ladder-dragon-dashboard-icon.svg")
     assert "Pi Dashboard" not in index
 
 
@@ -139,10 +141,10 @@ def test_dashboard_publishes_version_and_changelog():
     assert '"changelog_url": "/CHANGELOG.md"' in app
     assert '"product": {"name": PRODUCT_NAME, "version": __version__}' in app
     assert '"${PROJECT_DIR}/CHANGELOG.md" /var/www/bot/' in installer
-    assert '"${PROJECT_DIR}/docs/assets/ladder-dragon-logo.svg"' in installer
+    assert '"${PROJECT_DIR}/docs/assets/ladder-dragon-logo.svg" "${PROJECT_DIR}/docs/assets/ladder-dragon-dashboard-icon.svg"' in installer
     assert 'FRONT/vendor/chart.umd.min.js' in installer
     assert 'FRONT/vendor/chart.js.LICENSE.txt' in installer
-    assert 'FRONT/index.html FRONT/help.html FRONT/locales.js docs/assets/ladder-dragon-logo.svg CHANGELOG.md' in updater
+    assert 'FRONT/index.html FRONT/help.html FRONT/locales.js docs/assets/ladder-dragon-logo.svg docs/assets/ladder-dragon-dashboard-icon.svg CHANGELOG.md' in updater
 
 
 def test_dashboard_localization_has_all_supported_languages_and_is_deployed():
@@ -159,10 +161,10 @@ def test_dashboard_localization_has_all_supported_languages_and_is_deployed():
     assert "LOCALES.translations[storedLocale]" in index
     assert '"${PROJECT_DIR}/FRONT/locales.js"' in installer
     assert '"${PROJECT_DIR}/docs/assets/ladder-dragon-logo.svg"' in installer
-    assert "FRONT/index.html FRONT/help.html FRONT/locales.js docs/assets/ladder-dragon-logo.svg CHANGELOG.md" in updater
+    assert "FRONT/index.html FRONT/help.html FRONT/locales.js docs/assets/ladder-dragon-logo.svg docs/assets/ladder-dragon-dashboard-icon.svg CHANGELOG.md" in updater
     assert "FRONT/vendor/chart.umd.min.js" in updater
     assert "FRONT/vendor/chart.js.LICENSE.txt" in updater
-    assert 'src="/ladder-dragon-logo.svg"' in index
+    assert 'src="/ladder-dragon-dashboard-icon.svg"' in index
     assert 'id="ops-platform"' in index
 
 
