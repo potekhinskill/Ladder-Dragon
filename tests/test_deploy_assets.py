@@ -71,10 +71,20 @@ def test_dashboard_publishes_read_only_account_balances():
 def test_dashboard_balance_filter_hides_small_assets_by_default():
     index = read("FRONT/index.html")
     assert 'id="balance-hide-small"' in index
-    assert 'checked> скрывать &lt; 1 USDT' in index
+    assert 'type="checkbox" checked' in index
+    assert 'скрывать &lt; 1 USDT' in index
     assert "localStorage.getItem('balance-hide-small')" in index
     assert "row.value_usdt == null || Number(row.value_usdt) < 1" in index
     assert 'id="balance-hidden"' in index
+
+
+def test_dashboard_switches_use_binance_style_visual_state():
+    index = read("FRONT/index.html")
+    assert index.count('class="switch-visual"') >= 2
+    assert 'aria-pressed="false"' in index
+    assert ".switch-visual.on" in index
+    assert ".switch-label input:checked + .switch-visual" in index
+    assert ".ai-toggle:focus-visible .switch-visual" in index
 
 
 def test_dashboard_charts_have_bounded_responsive_containers():
