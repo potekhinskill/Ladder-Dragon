@@ -1068,7 +1068,9 @@ def _usb_snapshot() -> Dict[str, object]:
     """Состояние внешнего диска и свободное место для backup mirror."""
     mountpoint = os.getenv("DASHBOARD_BACKUP_MOUNT", "/mnt/usb1")
     mounted = _command_value("findmnt", "-T", mountpoint, "-no", "TARGET") == mountpoint
-    payload: Dict[str, object] = {"mountpoint": mountpoint, "mounted": mounted, "free_gib": None, "used_percent": None}
+    options = _command_value("findmnt", "-T", mountpoint, "-no", "OPTIONS") if mounted else ""
+    writable = mounted and "ro" not in {item.strip() for item in options.split(",")}
+    payload: Dict[str, object] = {"mountpoint": mountpoint, "mounted": mounted, "writable": writable, "options": options, "free_gib": None, "used_percent": None}
     if mounted:
         try:
             usage = shutil.disk_usage(mountpoint)
@@ -1140,6 +1142,8 @@ def health():
             }
             _OPS_CACHE["ts"] = now_mono
             _OPS_CACHE["payload"] = ops
+    network_probe_ok = network_ok()
+    effective_network_ok = network_probe_ok or bool((ops.get("binance") or {}).get("ok"))
     return JSONResponse({
         "product": {"name": PRODUCT_NAME, "version": __version__},
         "changelog_url": "/CHANGELOG.md",
@@ -1168,8 +1172,11 @@ def health():
             "fail2ban_sshd_bans": fail2ban_bans("sshd")
         },
         "uptime_sec": int(time.time() - psutil.boot_time()),
-        "network_ok": network_ok()
-        ,"operations": ops
+        # DNS/53 может быть закрыт в локальной сети; успешный Binance probe
+        # является более релевантным признаком доступности торгового канала.
+        "network_ok": effective_network_ok,
+        "network_probe_ok": network_probe_ok,
+        "operations": ops
     })
 
 
