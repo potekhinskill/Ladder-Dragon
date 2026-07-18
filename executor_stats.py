@@ -68,6 +68,7 @@ def poll_mytrades_once(
     commission_value: Callable[..., Tuple[Optional[Decimal], str]],
     logger: Callable[[str], None],
     on_fill: Callable[[dict], None] | None = None,
+    strict: bool = False,
 ) -> None:
     """Импортировать новую порцию /myTrades, не продвигаясь мимо неизвестной комиссии."""
     last_id = None
@@ -75,6 +76,8 @@ def poll_mytrades_once(
         last_id = stats.get_last_trade_id(connection, symbol)
     except Exception as exc:
         logger(f"[STATS] get_last_trade_id error: {exc}")
+        if strict:
+            raise RuntimeError(f"get_last_trade_id failed for {symbol}: {exc}") from exc
 
     params = {"symbol": symbol, "limit": 1000}
     if last_id is not None:
@@ -83,6 +86,8 @@ def poll_mytrades_once(
         trades = signed_request("GET", "/api/v3/myTrades", params) or []
     except Exception as exc:
         logger(f"[STATS] myTrades error: {exc}")
+        if strict:
+            raise RuntimeError(f"myTrades failed for {symbol}: {exc}") from exc
         return
     if not isinstance(trades, list) or not trades:
         return
@@ -121,8 +126,12 @@ def poll_mytrades_once(
             except sqlite3.OperationalError as exc:
                 if "locked" in str(exc).lower():
                     logger("[STATS] skip: database is locked")
+                    if strict:
+                        raise RuntimeError(f"database locked while importing {symbol}") from exc
                     break
                 logger(f"[STATS] apply_trade error: {exc}")
+                if strict:
+                    raise RuntimeError(f"apply_trade failed for {symbol}: {exc}") from exc
                 continue
             if fee_status == "unpriced":
                 logger(
@@ -130,6 +139,10 @@ def poll_mytrades_once(
                     f"{commission_asset or 'unknown'} commission is unpriced; "
                     "importer will retry before advancing"
                 )
+                if strict:
+                    raise RuntimeError(
+                        f"unpriced commission for {symbol} trade_id={trade_id}"
+                    )
                 break
             if on_fill is not None:
                 on_fill({
@@ -142,9 +155,13 @@ def poll_mytrades_once(
             max_id = max(max_id, trade_id)
         except Exception as exc:
             logger(f"[STATS] parse trade error: {exc}")
+            if strict:
+                raise RuntimeError(f"trade parse failed for {symbol}: {exc}") from exc
 
     if max_id != (last_id or -1):
         try:
             stats.set_last_trade_id(connection, symbol, int(max_id))
         except Exception as exc:
             logger(f"[STATS] set_last_trade_id error: {exc}")
+            if strict:
+                raise RuntimeError(f"set_last_trade_id failed for {symbol}: {exc}") from exc
