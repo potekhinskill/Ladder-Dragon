@@ -60,6 +60,9 @@ from risk_statistics import (
     marginal_risk_contribution,
     stress_loss,
 )
+from executor_stats import commission_quote_value, poll_mytrades_once
+import tools_stats
+from inventory_lots import add_lot, consume_fifo, ensure_schema
 from time_safety import assess_exchange_clock
 from venue_config import apply_testnet_paths
 from product_version import __version__, product_label, user_agent
@@ -2100,10 +2103,88 @@ def _notify_risk(decision: RiskDecision) -> None:
             log(f"[RISK-ALERT] webhook failed: {exc}")
 
 
+def _sync_recent_account_fills(symbols: List[str]) -> None:
+    """Импортировать свежие Binance fills до строгой сверки позиций.
+
+    Ручная сделка, внешний OCO или исполнение между двумя циклами supervisor
+    сначала должны попасть в локальный ledger. Иначе risk gate сравнит свежий
+    account Binance со старым inventory и навсегда заблокирует новые BUY.
+    Ошибка импорта не скрывается: вызывающий risk gate остаётся fail-closed.
+    """
+    stats_db = os.getenv("BOT_STATS_DB", "").strip()
+    if not stats_db:
+        raise RuntimeError("BOT_STATS_DB is required for fill reconciliation")
+
+    con = tools_stats.init_db(stats_db)
+    ensure_schema(con)
+    cache: Dict[Tuple[str, str, int], Decimal] = {}
+
+    def assets(symbol: str) -> Tuple[str, str]:
+        return symbol_assets(symbol)
+
+    def fee_value(symbol: str, asset: str, amount: Decimal, price: Decimal, ts: int):
+        return commission_quote_value(
+            symbol,
+            asset,
+            amount,
+            price,
+            ts,
+            symbol_assets=assets,
+            public_get=_public_get,
+            cache=cache,
+        )
+
+    def signed_request(method: str, path: str, params: Dict[str, Any] | None = None):
+        if method.upper() != "GET":
+            raise RuntimeError("fill reconciliation only permits GET")
+        return TM._signed_get(path, params or {})
+
+    def on_fill(fill: Dict[str, Any]) -> None:
+        # Ledger уже защищён уникальным trade_id; этот callback только
+        # синхронизирует age-aware FIFO-партии для time-stop/OCO.
+        try:
+            if fill["side"] == "BUY":
+                add_lot(
+                    con,
+                    symbol=fill["symbol"],
+                    qty=Decimal(str(fill["qty"])),
+                    price=Decimal(str(fill["price"])),
+                    source_order_id=str(fill.get("order_id") or fill["trade_id"]),
+                    opened_at=int(fill["ts"] / 1000),
+                )
+            else:
+                consume_fifo(con, fill["symbol"], Decimal(str(fill["qty"])))
+        except (sqlite3.Error, ValueError, ArithmeticError) as exc:
+            # Исторически неполный FIFO не должен отменять уже записанный
+            # фактический trade; account/inventory reconciliation остаётся
+            # обязательным и блокирует BUY при реальном расхождении.
+            log(f"[LOTS] {fill['symbol']} fill sync warning: {exc}")
+
+    try:
+        for symbol in symbols:
+            poll_mytrades_once(
+                symbol,
+                connection=con,
+                stats=tools_stats,
+                signed_request=signed_request,
+                commission_value=fee_value,
+                logger=lambda message, symbol=symbol: log(f"[RECONCILE] {symbol} {message}"),
+                on_fill=on_fill,
+                strict=True,
+            )
+        con.commit()
+    except (sqlite3.Error, OSError, ValueError, ArithmeticError, RuntimeError, requests.RequestException) as exc:
+        raise RuntimeError(f"fresh fill import failed: {exc}") from exc
+    finally:
+        con.close()
+
+
 def _build_risk_snapshot(
     symbols: List[str], limits: RiskLimits
 ) -> tuple[RiskSnapshot, List[Dict[str, Any]], Dict[str, float]]:
     """Собрать согласованный снимок account, ledger, ордеров и дневных метрик."""
+    if env_flag("RISK_RECONCILE_SYNC_FILLS", True):
+        _sync_recent_account_fills(symbols)
     balances = get_balances_full()
     prices = {symbol: get_last_price(symbol) for symbol in symbols}
     orders = TM._signed_get("/api/v3/openOrders") or []

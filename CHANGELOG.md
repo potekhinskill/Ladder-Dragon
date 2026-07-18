@@ -2,6 +2,22 @@
 
 Формат версий: [Semantic Versioning](https://semver.org/).
 
+## [2.10.24] — 2026-07-18
+
+### Исправлено
+- Перед строгой risk-сверкой supervisor теперь импортирует свежие Binance
+  `/myTrades` в локальный ledger и FIFO-партии; повторный импорт идемпотентен по
+  `trade_id`.
+- Ошибка или недоступность импорта fills теперь явно блокирует risk snapshot,
+  вместо продолжения работы на устаревшем ledger.
+- Добавлен строгий режим `poll_mytrades_once(strict=True)` для fail-closed
+  сверки и регрессионные тесты свежего SELL, повторного импорта и сбоя API.
+
+### Проверено
+- `PYTHONPATH=. pytest -q`.
+- `python3 -m compileall -q .`.
+- `git diff --check`.
+
 ## [2.10.23] — 2026-07-18
 
 ### Проверено

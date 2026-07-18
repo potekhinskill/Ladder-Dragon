@@ -6,6 +6,7 @@ import time
 import sqlite3
 from types import SimpleNamespace
 
+import pytest
 import ai_supervisor
 
 
@@ -149,6 +150,7 @@ def test_reconciliation_retries_recent_fill_and_allows_exchange_dust(tmp_path, m
 
     monkeypatch.setenv("BOT_STATS_DB", str(db_path))
     monkeypatch.setenv("RISK_RECONCILE_STRICT", "1")
+    monkeypatch.setenv("RISK_RECONCILE_SYNC_FILLS", "0")
     monkeypatch.setenv("RISK_RECONCILE_GRACE_SEC", "0.2")
     monkeypatch.setenv("RISK_RECONCILE_RETRY_SEC", "0.01")
     monkeypatch.setenv("RISK_RECONCILE_DUST_STEPS", "1")
@@ -184,6 +186,90 @@ def test_reconciliation_retries_recent_fill_and_allows_exchange_dust(tmp_path, m
     assert orders == []
 
 
+def test_reconciliation_imports_new_binance_fill_before_risk_gate(tmp_path, monkeypatch):
+    db_path = tmp_path / "stats.db"
+    con = ai_supervisor.tools_stats.init_db(str(db_path))
+    ai_supervisor.tools_stats.apply_trade(
+        con, "SOLUSDT", "BUY", 70.0, 5.863,
+        ts=1_700_000_000_000, trade_id=100,
+        commission_asset="USDT", commission_amount=0,
+        commission_quote=0, commission_value_status="exact",
+    )
+    con.close()
+
+    monkeypatch.setenv("BOT_STATS_DB", str(db_path))
+    monkeypatch.setenv("RISK_RECONCILE_STRICT", "1")
+    monkeypatch.setenv("RISK_RECONCILE_SYNC_FILLS", "1")
+    monkeypatch.setenv("RISK_RECONCILE_GRACE_SEC", "0")
+    ai_supervisor._FILTERS_CACHE["SOLUSDT"] = {
+        "tickSize": 0.01,
+        "stepSize": 0.001,
+        "minQty": 0.001,
+        "minNotional": 5.0,
+    }
+    monkeypatch.setattr(
+        ai_supervisor,
+        "get_balances_full",
+        lambda: {
+            "SOL": {"free": 3.778, "locked": 0.0},
+            "USDT": {"free": 1000.0, "locked": 0.0},
+        },
+    )
+    monkeypatch.setattr(ai_supervisor, "get_last_price", lambda symbol: 75.0)
+
+    def signed(path, params=None):
+        if path == "/api/v3/myTrades":
+            return [{
+                "id": 101,
+                "orderId": 17517152455,
+                "isBuyer": False,
+                "price": "75.0",
+                "qty": "2.085",
+                "commission": "0",
+                "commissionAsset": "USDT",
+                "time": 1_700_000_010_000,
+            }]
+        return []
+
+    monkeypatch.setattr(ai_supervisor.TM, "_signed_get", signed)
+    monkeypatch.setattr(
+        ai_supervisor,
+        "load_daily_trade_metrics",
+        lambda *args, **kwargs: {
+            "daily_turnover_usdt": 0,
+            "daily_buy_usdt": 0,
+            "daily_trade_count": 0,
+            "consecutive_losses": 0,
+        },
+    )
+
+    limits = ai_supervisor.RiskLimits.from_env()
+    snapshot, orders, _ = ai_supervisor._build_risk_snapshot(["SOLUSDT"], limits)
+
+    assert snapshot.exposure_usdt == ai_supervisor.money("283.35")
+    assert orders == []
+    with sqlite3.connect(db_path) as check:
+        qty = check.execute(
+            "SELECT qty FROM inventory WHERE symbol='SOLUSDT'"
+        ).fetchone()[0]
+    assert abs(float(qty) - 3.778) < 1e-9
+
+
+def test_reconciliation_fill_import_failure_is_fail_closed(tmp_path, monkeypatch):
+    db_path = tmp_path / "stats.db"
+    con = ai_supervisor.tools_stats.init_db(str(db_path))
+    con.close()
+    monkeypatch.setenv("BOT_STATS_DB", str(db_path))
+
+    def unavailable(*args, **kwargs):
+        raise RuntimeError("Binance myTrades unavailable")
+
+    monkeypatch.setattr(ai_supervisor.TM, "_signed_get", unavailable)
+
+    with pytest.raises(RuntimeError, match="fresh fill import failed"):
+        ai_supervisor._sync_recent_account_fills(["SOLUSDT"])
+
+
 def test_unvalued_asset_requires_exact_ack_and_is_excluded_from_equity(tmp_path, monkeypatch):
     db_path = tmp_path / "stats.db"
     with sqlite3.connect(db_path) as con:
@@ -192,6 +278,7 @@ def test_unvalued_asset_requires_exact_ack_and_is_excluded_from_equity(tmp_path,
 
     monkeypatch.setenv("BOT_STATS_DB", str(db_path))
     monkeypatch.setenv("RISK_RECONCILE_STRICT", "1")
+    monkeypatch.setenv("RISK_RECONCILE_SYNC_FILLS", "0")
     monkeypatch.setenv("RISK_RECONCILE_GRACE_SEC", "0")
     monkeypatch.setenv("RISK_UNVALUED_ASSETS", "MONKY")
     monkeypatch.setenv("RISK_UNVALUED_ASSETS_ACK", "MONKY")
