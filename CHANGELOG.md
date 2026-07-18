@@ -3,6 +3,21 @@
 All notable changes are documented here. Releases use Semantic Versioning; every
 section is dated and there is intentionally no `Unreleased` section.
 
+## [2.10.68] — 2026-07-19
+
+### Fixed
+- Removed the decorative emoji from the dashboard document title so browser
+  tabs display only the product name and the configured favicon.
+
+### Verified
+- Updated the deployment asset regression test to require the plain dashboard
+  title and reject reintroduction of the emoji.
+- `PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=. .venv/bin/python -m pytest -q` — 227 tests pass.
+- `.venv/bin/python -m pip check` — no broken requirements; `pip-audit
+  --skip-editable` — no known vulnerabilities.
+- Python compilation, deployment shell syntax, tracked-secret scan, and
+  `git diff --check` pass.
+
 ## [2.10.67] — 2026-07-19
 
 ### Fixed

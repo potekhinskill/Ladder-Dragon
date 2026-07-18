@@ -70,7 +70,8 @@ def test_nginx_requires_auth_and_publishes_only_encrypted_backups():
 
 def test_dashboard_uses_ladder_dragon_branding():
     index = read("FRONT/index.html")
-    assert "<title>🧪 Ladder Dragon</title>" in index
+    assert "<title>Ladder Dragon</title>" in index
+    assert "🧪" not in index
     assert "<h1>Ladder Dragon</h1>" in index
     assert 'src="/ladder-dragon-dashboard-icon.svg"' in index
     assert '<link rel="icon" type="image/svg+xml" href="/ladder-dragon-dashboard-icon.svg"/>' in index
