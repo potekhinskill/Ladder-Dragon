@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 # Copyright (c) 2026 IURII Potekhin / Ladder Dragon. All rights reserved.
-# Purpose: keep the file role and safety boundaries clear during maintenance.
+# Purpose: build the adaptive ladder map from market data.
 """
 auto_ladder_map.py
 Генерит строку для --ladder-pct-map на основе «режима рынка» по каждому символу.

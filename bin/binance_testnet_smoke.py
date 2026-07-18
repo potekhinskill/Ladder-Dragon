@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # Copyright (c) 2026 IURII Potekhin / Ladder Dragon. All rights reserved.
-# Purpose: keep the file role and safety boundaries clear during maintenance.
+# Purpose: run authenticated Binance Spot Testnet checks.
 """Fail-closed Binance Spot Testnet smoke checks.
 
 The client refuses every host except testnet.binance.vision.  The default mode

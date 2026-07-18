@@ -1,25 +1,8 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 # Copyright (c) 2026 IURII Potekhin / Ladder Dragon. All rights reserved.
-# Purpose: keep the file role and safety boundaries clear during maintenance.
-"""
-ai_plan_runner.py — оркестратор + генератор лесенки (pct/ATR)
-
-Задача:
-- Не создавать ордера напрямую.
-- При необходимости сгенерировать лесенку цен (вниз/вверх) из процентов (включая ATR-масштаб),
-  округлить уровни по tickSize и передать их в autosize_universal.py.
-- Запустить по нескольким символам и аккуратно ретранслировать логи.
-
-Примеры:
-  python3 ai_plan_runner.py \
-    --symbols SOLUSDT,ETHUSDT \
-    --ladder-mode pct --ladder-pct "-0.5,20,20" --grid-density 20 \
-    --tp1 0.06 --tp2 0.08 --sl -0.015 \
-    --oco-on-holdings --oco-fallback prefer-tp1 \
-    --status-interval 2 --loop-minutes 5 \
-    --live
-"""
+# Purpose: run the AI planning loop under the configured safety policy.
+"""English documentation."""
 
 from __future__ import annotations
 
@@ -51,7 +34,7 @@ BINANCE_API = (os.getenv("BINANCE_BASE_URL") or os.getenv("BINANCE_API_BASE") or
 def _public_get(path: str, params: Dict | None = None, timeout: int = 12) -> Dict:
     url = BINANCE_API + path
     last_err = None
-    for i in range(3):  # до 3 попыток
+    for i in range(3):  # English maintenance note.
         try:
             r = requests.get(url, params=params or {}, timeout=timeout)
             if r.status_code in (418, 429) or 500 <= r.status_code < 600:
@@ -93,7 +76,7 @@ def get_filters(symbol: str) -> Tuple[float, float, float]:
 # --- Ladder mathematics ---
 
 def _geomspace(a: float, b: float, n: int) -> List[float]:
-    """Геометрическая прогрессия между |a| и |b|, со знаком a; n>=2."""
+    """English documentation."""
     if n <= 1:
         return [a]
     sign = -1.0 if a < 0 else 1.0
@@ -130,7 +113,7 @@ def _dedup_preserve(seq: List[float]) -> List[float]:
     return out
 
 def _preview_levels(levels: List[float], n: int = 3) -> str:
-    """Короткий превью-лог: первые и последние n уровней, с размером массива."""
+    """English documentation."""
     if not levels:
         return "[] (n=0)"
     head = ", ".join(f"{x:.8f}" for x in levels[:n])
@@ -143,22 +126,14 @@ def build_ladder_pct(now_price: float,
                      pct_low: float, pct_high: float, density: int,
                      tick: float,
                      atr_scale: float | None = None) -> List[float]:
-    """
-    Генерирует уровни вниз (buy) и вверх (sell) от текущей цены согласно процентам.
-    pct_low < 0, pct_high > 0, density — количество уровней в каждую сторону.
-    atr_scale — множитель для адаптации к волатильности (например 1 + ATR_ratio*0.5).
-
-    Порядок в результате:
-      - Сначала BUY-уровни, отсортированные по убыванию (от ближних к дальним),
-      - затем SELL-уровни, отсортированные по возрастанию (от ближних к дальним).
-    """
+    """English documentation."""
     # Scale percentages when atr_scale is provided.
     if atr_scale and atr_scale > 0:
         pct_low  = pct_low  * atr_scale
         pct_high = pct_high * atr_scale
 
-    lows  = _geomspace(pct_low,  pct_low * 0.1, max(2, density))  # снизу
-    highs = _geomspace(pct_high, pct_high * 0.1, max(2, density)) # сверху
+    lows  = _geomspace(pct_low,  pct_low * 0.1, max(2, density))  # English maintenance note.
+    highs = _geomspace(pct_high, pct_high * 0.1, max(2, density)) # English maintenance note.
 
     # Convert percentages to prices and quantize them.
     buy_levels_raw  = [_round_price_down(now_price * (1.0 + p / 100.0), tick) for p in lows]   # BUY
@@ -178,9 +153,7 @@ def build_ladder_pct(now_price: float,
 
 
 def estimate_atr_ratio(symbol: str, interval: str = "1h", window: int = 14) -> float:
-    """
-    Возвращает ATR/price (долю от цены). Упрощённая реализация по kline.
-    """
+    """English documentation."""
     k = _public_get("/api/v3/klines", {"symbol": symbol, "interval": interval, "limit": window + 2})
     if len(k) < 2:
         return 0.0
@@ -253,29 +226,29 @@ def stream_prefixed(sym: str, proc: subprocess.Popen):
 # --- CLI/MAIN ---
 
 def parse_args() -> argparse.Namespace:
-    p = argparse.ArgumentParser(description="Оркестратор/генератор лесенки Ladder Dragon")
+    p = argparse.ArgumentParser(description="English/English English Ladder Dragon")
     p.add_argument("--version", action="version", version=product_label("plan runner"))
     p.add_argument("--symbols", type=str, required=True,
-                   help="Список символов, например: SOLUSDT,ETHUSDT,BTCUSDT")
+                   help="English English, English: SOLUSDT,ETHUSDT,BTCUSDT")
     p.add_argument("--base", type=str, default=DEFAULT_BASE,
-                   help=f"Путь к базовому скрипту (default: {DEFAULT_BASE})")
+                   help=f"English English English English (default: {DEFAULT_BASE})")
 
     # Ladder mode.
     p.add_argument("--ladder-mode", choices=["pct", "manual"], default="pct",
-                    help="pct — генерить лесенку из процентов, manual — принять --ladder-prices как есть")
+                    help="pct — English English English English, manual — English --ladder-prices English English")
     p.add_argument("--ladder-pct", type=str, default="-0.5,20,20",
-                help="Параметры для pct: '<min%>,<max%>,<density>'. Пример: -0.5,20,20")
+                help="English English pct: '<min%>,<max%>,<density>'. English: -0.5,20,20")
     p.add_argument("--grid-density", type=int, default=20,
-                   help="Сколько уровней в каждую сторону в режиме pct")
+                   help="English English English English English English English pct")
     p.add_argument("--atr-interval", type=str, default="1h")
     p.add_argument("--atr-window", type=int, default=14,
-                   help="Длина окна ATR")
+                   help="English English ATR")
     p.add_argument("--atr-scale-k", type=float, default=0.5,
-                   help="Коэффициент масштабирования pct по ATR: scale = 1 + ATR_ratio * k")
+                   help="English English pct English ATR: scale = 1 + ATR_ratio * k")
 
     # Explicit manual ladder.
     p.add_argument("--ladder-prices", type=str, default="",
-                   help="Список цен через запятую: '165.82,175.94,...' — используется только в режиме manual")
+                   help="English English English English: '165.82,175.94,...' — English English English English manual")
 
     # Trading parameters passed to children.
     p.add_argument("--tp1", type=float, default=0.02)
@@ -295,7 +268,7 @@ def main() -> int:
     args = parse_args()
     symbols = [s.strip().upper() for s in args.symbols.split(",") if s.strip()]
     if not symbols:
-        print("[ERR] Пустой список символов.", file=sys.stderr)
+        print("[ERR] English English English.", file=sys.stderr)
         return 2
 
     base_script = args.base.strip() or DEFAULT_BASE
@@ -306,7 +279,7 @@ def main() -> int:
         if os.path.exists(cand):
             base_script = cand
         else:
-            print(f"[ERR] Базовый скрипт не найден: {args.base}", file=sys.stderr)
+            print(f"[ERR] English English English English: {args.base}", file=sys.stderr)
             return 3
 
     py = sys.executable or "python3"
@@ -325,7 +298,7 @@ def main() -> int:
                 tick, step, min_notional = get_filters(sym)
 
                 if tick <= 0:
-                    print(f"[WARN] {sym} tickSize=0 — квантуем как есть", file=sys.stderr)
+                    print(f"[WARN] {sym} tickSize=0 — English English English", file=sys.stderr)
 
                 # Exchange-filter log for diagnostics.
                 print(f"[PLAN] {sym} filters: tick={tick:.8f} step={step:.8f} minNotional={min_notional:.4f}")
@@ -333,8 +306,8 @@ def main() -> int:
                 # Parse "--ladder-pct".
                 try:
                     lo_s, hi_s, den_s = [x.strip() for x in args.ladder_pct.split(",")]
-                    pct_low  = -abs(float(lo_s))   # вниз гарантированно отрицательный
-                    pct_high =  abs(float(hi_s))   # вверх гарантированно положительный
+                    pct_low  = -abs(float(lo_s))   # English maintenance note.
+                    pct_high =  abs(float(hi_s))   # English maintenance note.
                     density  = int(den_s) if den_s else args.grid_density
                 except Exception:
                     pct_low, pct_high, density = -0.5, 20.0, args.grid_density
@@ -405,7 +378,7 @@ def main() -> int:
         return rc
 
     except KeyboardInterrupt:
-        print("\n[INTERRUPT] Остановка по Ctrl+C — завершаю подпроцессы…", file=sys.stderr)
+        print("\n[INTERRUPT] English English Ctrl+C — English English…", file=sys.stderr)
         for proc in procs:
             with contextlib.suppress(Exception):
                 proc.terminate()

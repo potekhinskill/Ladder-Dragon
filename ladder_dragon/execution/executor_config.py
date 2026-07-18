@@ -1,5 +1,5 @@
 # Copyright (c) 2026 IURII Potekhin / Ladder Dragon. All rights reserved.
-# Purpose: keep the file role and safety boundaries clear during maintenance.
+# Purpose: implement the executor config component of the execution layer.
 """Построение и строгая валидация CLI символьного исполнителя.
 
 Все ошибки конфигурации должны завершать процесс до чтения баланса и тем более

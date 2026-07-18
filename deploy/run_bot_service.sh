@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Copyright (c) 2026 IURII Potekhin / Ladder Dragon. All rights reserved.
-# Purpose: keep the file role and safety boundaries clear during maintenance.
+# Purpose: start the managed bot supervisor.
 set -euo pipefail
 
 PROJECT_DIR="${PROJECT_DIR:-/home/bot/apps/binance_bot}"

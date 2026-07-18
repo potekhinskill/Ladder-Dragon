@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Copyright (c) 2026 IURII Potekhin / Ladder Dragon. All rights reserved.
-# Purpose: keep the file role and safety boundaries clear during maintenance.
+# Purpose: monitor network and bot health on the host.
 set -euo pipefail
 
 # Soft watchdog: checks network and heartbeat without touching a healthy mybot.
@@ -59,7 +59,7 @@ flush_telegram_outbox() {
 Отложенных уведомлений: ${count}" || return 1
   while IFS= read -r path; do
     queued="$(cat "${path}")"
-    telegram_post "📨 Отложенное уведомление:
+    telegram_post "📨 Queued notification:
 ${queued}" || return 1
     rm -f -- "${path}"
     sent=$((sent + 1))

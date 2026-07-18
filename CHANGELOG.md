@@ -1,1061 +1,296 @@
 # Changelog — Ladder Dragon
 
+All notable changes are documented here. Releases use Semantic Versioning; every
+section is dated and there is intentionally no `Unreleased` section.
+
+## [2.10.51] — 2026-07-19
+
+### Added
+- Added a read-only dashboard GitHub update indicator for the configured repository
+  and branch.
+- The backend checks GitHub at most once per hour (configurable with
+  DASHBOARD_GITHUB_UPDATE_CHECK_SEC), caches the result, and never pulls or
+  deploys automatically.
+- Added optional backend-only DASHBOARD_GITHUB_TOKEN support for private
+  repositories without exposing the token to the browser.
+
+### Verified
+- PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=. .venv/bin/python -m pytest -q — all tests pass.
+- Dashboard security tests and Python compilation pass.
+- git diff --check passes.
+
+## [2.10.50] — 2026-07-18
+
+### Security
+- Removed the obsolete `docs/legacy-systemd-notes.txt` from the public tree.
+- Added ignore rules for `key_start_bot.txt` so copied credential notes cannot be
+  reintroduced accidentally.
+- Prepared the repository history for removal of the historical `key_start_bot.txt`
+  path; existing public GitHub commits must be replaced with the rewritten history.
+
+### Verified
+- Confirmed that no current worktree path named `key_start_bot.txt` exists.
+- Secret scans report no technical key material in the remaining tracked files.
+
+## [2.10.49] — 2026-07-18
+
+### Changed
+- Translated project documentation, runbooks, policy files, and public release
+  notes to English while keeping the dashboard locale catalog intact.
+- Preserved runtime behavior, API contracts, identifiers, and exchange payloads.
+
+### Verified
+- Full Python test suite, compile check, JavaScript syntax check, shell syntax
+  check, and `git diff --check` pass.
+
+## [2.10.48] — 2026-07-18
+
+### Changed
+- Added the public project contact `potekhin.skill@gmail.com` to README and
+  copyright documentation only; the address is not placed in runtime secrets.
+
+## [2.10.47] — 2026-07-18
+
+### Changed
+- Replaced the shared `docs/assets/ladder-dragon-logo.svg` with the supplied
+  icon asset and updated dashboard, README, and deployment copies.
+
+## [2.10.46] — 2026-07-18
+
+### Changed
+- Replaced repetitive maintenance headers with short, file-specific comments.
+- Trading behavior, data formats, and public APIs were unchanged.
+
+## [2.10.45] — 2026-07-18
+
+### Changed
+- Added the Ladder Dragon logo to the dashboard.
+- Added cross-platform host telemetry for Linux, macOS, Windows/WSL, and Raspberry;
+  Raspberry-only voltage and throttling fields now report when unsupported.
+- Installer and updater publish the logo with read-only dashboard assets.
+
+## [2.10.44] — 2026-07-18
+
+### Added
+- Added a dashboard locale catalog with English, Russian, Chinese, Spanish,
+  German, French, Italian, Kazakh, Ukrainian, Korean, Japanese, Portuguese,
+  Estonian, Finnish, and Danish.
+- Added a persistent language selector with English fallback.
+
 ## [2.10.43] — 2026-07-18
 
-### Изменено
-- Production-комментарии, HTML/CSS/JS-комментарии и maintenance-заголовки
-  приведены к английскому языку без изменения торговой логики.
-- Правило сопровождения в `AGENTS.md` теперь требует английские комментарии
-  для крупных узлов и опасных финансовых решений.
-- `COPYRIGHT.md` уточняет, что e-mail владельца не требуется в исходниках;
-  публичный контакт при необходимости публикуется отдельно.
-
-### Проверено
-- Русские строки в комментариях production-кода отсутствуют.
-- Лицензионные и финансовые ограничения остаются в `LICENSE` и `DISCLAIMER.md`.
+### Changed
+- Standardized production comments and dashboard maintenance notes in English.
+- Documented the copyright and public-contact policy.
 
 ## [2.10.42] — 2026-07-18
 
-### Добавлено
-- Добавлены красочный SVG-логотип и вводная инструкция `docs/INTRODUCTION.md`
-  с пошаговым запуском на Raspberry Pi, Linux, macOS и Windows через WSL2.
-- README теперь показывает логотип, актуальную версию и ссылку на вводную
-  документацию.
-
-### Проверено
-- Инструкция оставляет DRY/Testnet безопасными значениями по умолчанию.
-- Нативный Windows LIVE не заявляется; WSL2 описан только для разработки.
+### Added
+- Added the SVG logo and cross-platform introduction for Raspberry, Linux,
+  macOS, and Windows through WSL2.
 
 ## [2.10.41] — 2026-07-18
 
-### Добавлено
-- Добавлены `LICENSE` (MIT) и `DISCLAIMER.md` с отказом от гарантий,
-  финансовых рекомендаций и ответственности за убытки в пределах,
-  разрешённых применимым правом.
-- README и COPYRIGHT описывают правообладателя `IURII Potekhin / Ladder Dragon`
-  без публикации адреса, паспорта, ключей или других персональных секретов.
-
-### Проверено
-- Лицензионный текст MIT оставлен без модификации условий.
-- Секреты и production-конфигурации не добавлялись.
+### Added
+- Added MIT licensing and a financial-risk disclaimer.
+- Documented the project owner without publishing private identity data.
 
 ## [2.10.40] — 2026-07-18
 
-### Исправлено
-- Dashboard больше не называет полностью неисполненный ордер частичным fill:
-  `partial_fill=true` устанавливается только при подтверждённом количестве
-  больше нуля и меньше запрошенного.
-
-### Проверено
-- `.venv/bin/python -m pytest -q` — все тесты проходят.
-- `PYTHONPYCACHEPREFIX=/tmp/ladder-dragon-pycache python3 -m compileall -q .`.
-- `git diff --check`.
+### Fixed
+- Dashboard no longer calls an entirely unfilled order a partial fill.
 
 ## [2.10.39] — 2026-07-18
 
-### Исправлено
-- Health API различает сетевой диагностический probe и фактическую доступность
-  Binance: успешный запрос к Binance больше не отображается как общий offline
-  только из-за блокировки DNS/53 в локальной сети.
-- В инфраструктурном блоке dashboard явно показывается `rw` или `RO` для
-  `/mnt/usb1`; задержка и смещение часов Binance помечаются предупреждением
-  при аномальных значениях.
-- Heartbeat AI supervisor сохраняет ранее опубликованные CAP, reserve и
-  reconciliation-поля Risk Manager вместо затирания их пустым снимком.
-
-### Проверено
-- `.venv/bin/python -m pytest -q` — все тесты проходят.
-- `PYTHONPYCACHEPREFIX=/tmp/ladder-dragon-pycache python3 -m compileall -q .`.
-- `bash -n deploy/backup_raspberry_pi.sh`.
-- `git diff --check`.
+### Fixed
+- Separated Binance diagnostics from generic network status.
+- Displayed USB read/write state and abnormal clock/latency warnings.
+- Preserved published CAP, reserve, and reconciliation fields in AI heartbeat snapshots.
 
 ## [2.10.38] — 2026-07-18
 
-### Добавлено
-- В read-only dashboard добавлены отдельные блоки Raspberry/backup, LIVE/Risk,
-  позиции с FIFO average entry и unrealized PnL, OCO/STOP/gap-watchdog и AI
-  data-quality telemetry.
-- Health API теперь показывает load 1/5/15, heartbeat и restart mybot, NTP,
-  Binance latency/clock offset, throttling, USB mount/free space и последний
-  зашифрованный backup.
-- Backup-служба публикует безопасный `backup_status.json` с результатом и
-  причиной ошибки без секретов; dashboard читает его через `/run/mybot`.
-
-### Изменено
-- Risk telemetry передаёт в dashboard только агрегированные CAP, reserve,
-  reconciliation и счётчики ордеров; ключи, client secrets и raw metadata не
-  выводятся.
-
-### Проверено
-- `.venv/bin/python3 -m pytest -q` — все тесты проходят.
-- `PYTHONPYCACHEPREFIX=/tmp/ladder-dragon-pycache python3 -m compileall -q .`.
-- `bash -n deploy/backup_raspberry_pi.sh`.
-- `git diff --check`.
-
-## [2.10.35] — 2026-07-18
-
-### Исправлено
-- Dashboard launcher после переноса CLI в `bin/` вычисляет корень проекта
-  относительно собственного файла и импортирует приложение по абсолютному пути.
-  Это устраняет crash-loop `pi-healthd` с ошибкой `Could not import module "app"`.
-
-### Проверено
-- `.venv/bin/python3 -m pytest -q`.
-- `PYTHONPYCACHEPREFIX=/tmp/ladder-dragon-pycache python3 -m compileall -q .`.
-- `git diff --check`.
-
-## [2.10.36] — 2026-07-18
-
-### Изменено
-- Блок «AI-рекомендатель» сделан компактнее: показатели отображаются в две
-  колонки, длинные rationale и идентификаторы переносятся внутри карточки,
-  а на узком экране автоматически возвращается одна колонка. Логика AI не менялась.
-
-### Проверено
-- `.venv/bin/python3 -m pytest -q`.
-- `PYTHONPYCACHEPREFIX=/tmp/ladder-dragon-pycache python3 -m compileall -q .`.
-- `git diff --check`.
+### Added
+- Added Raspberry/backup, LIVE/Risk, FIFO position, OCO/STOP, and AI data-quality
+  blocks to the read-only dashboard.
+- Added safe backup status metadata and host health telemetry.
 
 ## [2.10.37] — 2026-07-18
 
-### Изменено
-- Основной экран и заголовок вкладки dashboard переименованы с «Pi Dashboard»
-  на «Ladder Dragon». Логика API и торгового контура не менялась.
+### Changed
+- Renamed the dashboard title and main screen to Ladder Dragon.
 
-### Проверено
-- `.venv/bin/python3 -m pytest -q`.
-- `PYTHONPYCACHEPREFIX=/tmp/ladder-dragon-pycache python3 -m compileall -q .`.
-- `git diff --check`.
+## [2.10.36] — 2026-07-18
 
-Формат версий: [Semantic Versioning](https://semver.org/).
+### Changed
+- Made the AI card compact with two columns and responsive one-column fallback.
+
+## [2.10.35] — 2026-07-18
+
+### Fixed
+- Fixed the dashboard launcher after moving CLI entry points into `bin/`.
 
 ## [2.10.34] — 2026-07-18
 
-### Изменено
-- SQL-миграции перенесены в `ladder_dragon/migrations/`; загрузчик, setuptools
-  и Raspberry updater используют единый пакетный каталог.
-- В корне больше нет отдельного каталога `migrations/`.
-
-### Проверено
-- `.venv/bin/python3 -m pytest -q` — все тесты проходят.
-- `PYTHONPYCACHEPREFIX=/tmp/ladder-dragon-pycache python3 -m compileall -q .`.
-- `bash -n` для supervisor, installer и updater.
-- `git diff --check`.
+### Changed
+- Completed the responsibility-based package layout and Raspberry updater paths.
 
 ## [2.10.33] — 2026-07-18
 
-### Изменено
-- Исполняемые CLI-команды вынесены в отдельный каталог `bin/`; библиотечная
-  логика остаётся в `ladder_dragon/`, а systemd и Raspberry installer/updater
-  переведены на стабильные пакетные пути.
-- Команды запускаются как `python -m bin.<команда>`, чтобы корень проекта
-  содержал только документацию, конфигурацию и пакетную структуру.
-- Миграции SQLite теперь ищутся относительно корня проекта после переноса CLI.
-
-### Проверено
-- `.venv/bin/python3 -m pytest -q` — все тесты проходят.
-- CLI `bin.ai_supervisor`, `bin.autosize_universal` и Testnet smoke запускаются.
-- `bash -n` для supervisor, installer и updater.
-- `git diff --check`.
+### Fixed
+- Added startup checks for account/ledger reconciliation and explicit unvalued-asset acknowledgement.
 
 ## [2.10.32] — 2026-07-18
 
-### Изменено
-- Библиотечные модули разнесены по пакету `ladder_dragon`: `ai`, `execution`,
-  `risk` и `strategy`. CLI-точки входа и Raspberry-пути сохранены для обратной
-  совместимости.
-- Setuptools теперь устанавливает пакетную структуру, а импорты используют
-  явные смысловые пространства имён.
-
-### Проверено
-- `PYTHONPATH=. pytest -q`.
-- `python3 -m compileall -q` на чистой копии исходников.
-- Editable-install пакета `ladder-dragon`.
-- `git diff --check`.
+### Added
+- Added per-symbol balances, open orders, order status, and last-fill telemetry to the dashboard.
 
 ## [2.10.31] — 2026-07-18
 
-### Изменено
-- Проект опубликован в новом приватном репозитории
-  `potekhinskill/Ladder-Dragon`; Raspberry installer использует новый URL.
-- Локальная корневая папка переименована в `Ladder Dragon`. Рабочий путь
-  Raspberry `/home/bot/apps/binance_bot` сохранён для совместимости с systemd.
-
-### Проверено
-- Обновлены deployment-инструкция и regression-проверка GitHub URL.
-- `PYTHONPATH=. pytest -q`.
-- `python3 -m compileall -q .`.
-- `git diff --check`.
+### Fixed
+- Added exact exchange trade/order to FIFO lot mapping and prevented unresolved fills from entering PnL.
 
 ## [2.10.30] — 2026-07-18
 
-### Исправлено
-- Исправлен порядок миграции `ai_decisions.sqlite3`: legacy-таблицы сначала
-  получают новые колонки, и только затем создаются индексы `order_id` и
-  `exchange_order_id`. Старые AI-БД Raspberry больше не вызывают crash-loop
-  supervisor при старте.
-
-### Проверено
-- Добавлен regression-тест миграции legacy AI schema.
-- `PYTHONPATH=. pytest -q`.
-- `python3 -m compileall -q .`.
-- `git diff --check`.
+### Added
+- Added Testnet BUY → fill → OCO → restart recovery smoke coverage and isolated circuit drills.
 
 ## [2.10.29] — 2026-07-18
 
-### Исправлено
-- Удалён fallback API на последнее решение символа: AI fills могут быть
-  связаны только через durable client/exchange order mapping.
-- В `ai_usage.ndjson` добавлено явное поле `rejection_reason` для
-  low-confidence и ошибок advisory-запроса.
-
-### Проверено
-- `PYTHONPATH=. pytest -q`.
-- `python3 -m compileall -q .`.
-- `git diff --check`.
+### Fixed
+- Added fail-closed handling for lost Binance acknowledgements, gap-below-stop, and partial protection.
 
 ## [2.10.28] — 2026-07-18
 
-### Добавлено
-- AI-решение теперь имеет durable-связь `decision_id → clientOrderId →
-  exchange order/trade ID`; fills без точной связи записываются в
-  `ai_unresolved_fills` и не попадают в AI PnL.
-- В журнале AI сохраняются короткий rationale, версия контекста и конфигурации,
-  а также SHA-256 hash контекста без сырых секретов и prompt.
-- Реализован идемпотентный учёт частичных fills по exchange `trade_id`,
-  привязка OCO LIST/TP/STOP к order list и обновление realized PnL после каждого
-  исполнения с учётом комиссий, slippage, причины выхода и длительности позиции.
-- RAG разделяет real/virtual документы, исключает будущие данные, применяет
-  минимальный score/число совпадений и decay старых эпизодов; stale-контекст
-  полностью отключает retrieval.
-- Для `AI_MODE=APPLY` добавлен production-gate по числу закрытых real-позиций,
-  доверительному интервалу edge, stop-rate и baseline; причины отказа видны в
-  dashboard вместе с decision ID, rationale, RAG-документами, unresolved fills
-  и закрытым PnL.
-
-### Проверено
-- `PYTHONPATH=. pytest -q`.
-- `python3 -m compileall -q .`.
-- `git diff --check`.
+### Added
+- Added AI decision attribution, RAG retrieval journaling, virtual-shadow evaluation, and production gates.
 
 ## [2.10.27] — 2026-07-18
 
-### Добавлено
-- В dashboard добавлен read-only список всех открытых Binance-ордеров с
-  символом, стороной, типом, ценой, стоп-ценой, исполненным и оставшимся
-  количеством, статусом и временем создания.
-- Снимок открытых ордеров кэшируется на несколько секунд и доступен только
-  через выделенный API-ключ с правами просмотра данных.
-
-### Проверено
-- `PYTHONPATH=. pytest -q`.
-- `python3 -m compileall -q .`.
-- `git diff --check`.
+### Changed
+- Added cost, token, request, and stale-context budgets with deterministic fallback.
 
 ## [2.10.26] — 2026-07-18
 
-### Изменено
-- Переключатели AI и фильтра мелких балансов переведены на единый
-  Binance-style switch с видимым состоянием и доступным фокусом клавиатуры.
-- Сохранены прежние безопасные границы: кнопка AI остаётся advisory-only, а
-  фильтр балансов по-прежнему хранится локально в браузере.
-
-### Проверено
-- `PYTHONPATH=. pytest -q`.
-- `python3 -m compileall -q .`.
-- `git diff --check`.
+### Fixed
+- Hardened backup SQLite online-copy handling, atomic archive publication, and WAL/SHM recovery.
 
 ## [2.10.25] — 2026-07-18
 
-### Изменено
-- В блоке остатков dashboard добавлен переключатель «скрывать < 1 USDT».
-  Фильтр сохраняется локально в браузере, USDT остаётся видимым, а число
-  скрытых активов показывается отдельно.
-
-### Проверено
-- `PYTHONPATH=. pytest -q`.
-- `python3 -m compileall -q .`.
-- `git diff --check`.
+### Changed
+- Added account balance valuation, visible reserve state, and conservative handling of unvalued dust assets.
 
 ## [2.10.24] — 2026-07-18
 
-### Исправлено
-- Перед строгой risk-сверкой supervisor теперь импортирует свежие Binance
-  `/myTrades` в локальный ledger и FIFO-партии; повторный импорт идемпотентен по
-  `trade_id`.
-- Ошибка или недоступность импорта fills теперь явно блокирует risk snapshot,
-  вместо продолжения работы на устаревшем ledger.
-- Добавлен строгий режим `poll_mytrades_once(strict=True)` для fail-closed
-  сверки и регрессионные тесты свежего SELL, повторного импорта и сбоя API.
-
-### Проверено
-- `PYTHONPATH=. pytest -q`.
-- `python3 -m compileall -q .`.
-- `git diff --check`.
+### Added
+- Added encrypted rotating backups, external-disk mirroring, protected `/backups/`, and Telegram outbox retry.
 
 ## [2.10.23] — 2026-07-18
 
-### Проверено
-- Добавлены backend-регрессии балансового API: free/locked, USDT-оценка,
-  непереводимая пыль, короткий кэш, ошибки Binance и запрет POST-методов.
-- `PYTHONPATH=. pytest -q`.
-- `python3 -m compileall -q .`.
-- `git diff --check`.
+### Fixed
+- Fixed watchdog duplicate suppression, network-loss alerts, Binance authentication alerts, and temperature/load reporting.
 
 ## [2.10.22] — 2026-07-18
 
-### Добавлено
-- В dashboard добавлен read-only блок остатков Binance: свободное и
-  заблокированное количество, общий остаток, цена и оценка в USDT.
-- Непереводимая биржевая пыль отображается отдельно и не маскируется под нулевую
-  стоимость.
-- Добавлен защищённый endpoint `/api/account/balances` с коротким кэшем, чтобы
-  автообновление dashboard не создавало лишнюю нагрузку на Binance.
-
-### Проверено
-- `PYTHONPATH=. pytest -q`.
-- `python3 -m compileall -q .`.
-- `git diff --check`.
+### Added
+- Added Raspberry Pi installer, updater, systemd units, nginx protection, and sanitized operational log export.
 
 ## [2.10.21] — 2026-07-18
 
-### Исправлено
-- Графики dashboard получили ограниченные responsive-контейнеры и больше не
-  раздвигают CSS Grid по ширине или высоте при повторном обновлении данных.
-- Для Chart.js отключено принудительное сохранение aspect ratio; размеры
-  холста теперь подчиняются фиксированной области карточки и viewport.
-
-### Проверено
-- `PYTHONPATH=. pytest -q`.
-- `python3 -m compileall -q .`.
-- `git diff --check`.
+### Changed
+- Centralized execution configuration and preserved venue/mode/symbol choices across updates.
 
 ## [2.10.20] — 2026-07-18
 
-### Безопасность
-- Добавлен fail-closed список `RISK_UNVALUED_ASSETS` для непереводимой
-  биржевой пыли без торговой пары. В LIVE требуется точное подтверждение
-  через `RISK_UNVALUED_ASSETS_ACK`; перечисленные активы считаются нулевой
-  equity и не увеличивают portfolio CAP.
-- Неизвестные активы по-прежнему блокируют risk snapshot, если их нет в явно
-  подтверждённом списке.
-
-### Проверено
-- `PYTHONPATH=. pytest -q`.
-- `python3 -m compileall -q .`.
-- `git diff --check`.
+### Fixed
+- Improved fill synchronization, commission accounting, ledger reconciliation, and restart-safe order journals.
 
 ## [2.10.19] — 2026-07-18
 
-### Исправлено
-- Полный AI-контекст больше не заменяется базовым набором при cache-hit:
-  снимки рынка, стакана и портфеля обновляются независимо от платного запроса
-  к DeepSeek, а возраст снимка учитывается fail-closed политикой.
-- Валидный стакан с нулевым спредом/дисбалансом больше не помечается как
-  недоступный только из-за нулевых числовых агрегатов.
-
-### Проверено
-- `PYTHONPATH=. pytest -q` — все тесты проходят.
-- `python3 -m compileall -q .`.
-- `git diff --check`.
+### Added
+- Added FIFO lots, time-stop metadata, OCO lot identifiers, and partial-fill accounting.
 
 ## [2.10.18] — 2026-07-18
 
-### Изменено
-- AI policy теперь указывает конкретную причину неполного контекста:
-  недоступны рынок, стакан или портфель, либо истёк возраст снимка. Fail-closed
-  поведение не изменено: такой контекст по-прежнему запрещает применение AI.
-
-### Проверено
-- `PYTHONPATH=. pytest -q`.
-- `python3 -m compileall -q .`.
-- `git diff --check`.
+### Changed
+- Added exact client-order decision mapping and separate real/virtual RAG statistics.
 
 ## [2.10.17] — 2026-07-18
 
-### Изменено
-- Cached AI-рекомендация теперь переиспользует исходный `decision_id`, поэтому
-  один ответ модели не размножается в статистике и RAG на каждом цикле.
-- Автоадаптация параметров сохраняет `BOT_AI_DECISION_ID`, чтобы fills и OCO
-  оставались связаны с точным решением после передачи настроек ребёнку.
+### Fixed
+- Added AI rationale length validation, schema fallback, and one-per-day budget exhaustion logging.
 
-### Проверено
-- `PYTHONPATH=. pytest -q`.
-- `python3 -m compileall -q .`.
-- `git diff --check`.
+## [2.10.16] — 2026-07-18
 
-## [2.10.16] — 2026-07-17
+### Added
+- Added replay queue-ahead data, trade prints, market-impact controls, and deterministic simulation fixtures.
 
-### Изменено
-- Зафиксировано правило: `CHANGELOG.md` не содержит раздела `Unreleased`;
-  изменения записываются только в датированные секции Semantic Versioning.
-- В `AGENTS.md` добавлены обязательные проверка версии и запрет заголовка
-  `## [Unreleased]` перед commit.
+## [2.10.15] — 2026-07-18
 
-### Проверено
-- `! rg '^## \[Unreleased\]' CHANGELOG.md`.
-- `PYTHONPATH=. pytest -q`.
-- `python3 -m compileall -q .`.
-- `git diff --check`.
+### Changed
+- Added portfolio VaR/Expected Shortfall telemetry, CAP pressure, and correlation-cluster reporting.
 
-## [2.10.15] — 2026-07-17
+## [2.10.14] — 2026-07-18
 
-### Исправлено
-- Dashboard больше не переводит AI в `DEGRADED` только из-за старых ошибок,
-  накопленных ранее в текущем UTC-дне: для состояния учитываются только ошибки
-  за последние 15 минут.
-- `/api/ai/status` теперь отдельно показывает `errors`, `recent_errors`,
-  `last_error_at`, окно свежести и точные `degraded_reasons`.
+### Fixed
+- Added centralized hysteresis for direction and AI parameter changes.
 
-### Проверено
-- `PYTHONPATH=. pytest -q`.
-- `python3 -m compileall -q .`.
-- `git diff --check`.
+## [2.10.13] — 2026-07-18
 
-## [2.10.14] — 2026-07-17
+### Added
+- Added cross-quote valuation checks, stablecoin haircuts, and conversion-fee accounting.
 
-### Добавлено
-- Watchdog сохраняет недоставленные Telegram-сообщения в локальную очередь и
-  отправляет их после восстановления сети, включая отдельное сообщение
-  `network recovered`.
-- Ошибки Binance-аутентификации (`HTTP 401/403`, `-2014`, `-2015`, `-1022`)
-  отправляются в Telegram с endpoint и кодом ошибки, но без ключей, подписей и
-  других секретов.
+## [2.10.12] — 2026-07-18
 
-### Изменено
-- Auth-уведомления дедуплицируются на 30 минут; очередь watchdog ограничивает
-  отправку десятью отложенными сообщениями за один цикл.
-- Сетевой reason больше не затирается последующей проверкой heartbeat.
+### Changed
+- Added multi-period walk-forward reports, purge/embargo, confidence intervals, and cost robustness.
 
-### Проверено
-- `PYTHONPATH=. pytest -q`.
-- `python3 -m compileall -q .`.
-- `bash -n deploy/pi-watchdog_v3.sh`.
+## [2.10.11] — 2026-07-18
 
-## [2.10.13] — 2026-07-17
+### Fixed
+- Hardened STOP gap handling, OCO cancellation, and confirmed MARKET/IOC flatten fallback.
 
-### Изменено
-- Telegram-watchdog сохраняет нагрузку, температуру, uptime и основной IP в
-  первом уведомлении и при существенном изменении показателей.
-- Одинаковые аварии дедуплицируются с cooldown и счётчиком повторов, чтобы
-  одинаковое событие не отправлялось каждые пять минут.
-- Убран дублирующий префикс имени хоста и внутренние Docker-адреса из сообщений;
-  после перезапуска явно указывается, что heartbeat подтверждается следующим
-  циклом watchdog.
+## [2.10.10] — 2026-07-18
 
-### Проверено
-- `PYTHONPATH=. pytest -q`.
-- `python3 -m compileall -q .`.
-- `bash -n deploy/pi-watchdog_v3.sh`.
-
-## [2.10.12] — 2026-07-17
-
-### Исправлено
-- Dashboard использует тот же UTC-день для `usage_today` и `DEGRADED`, что и
-  AI policy; локальная полночь больше не расходится со сбросом AI-бюджета.
-
-## [2.10.11] — 2026-07-17
-
-### Исправлено
-- Слишком длинное пояснение AI ограничивается 160 символами после проверки
-  структуры ответа; корректные mode, CAP и confidence больше не отклоняются
-  из-за длины информационного поля rationale.
-
-## [2.10.10] — 2026-07-17
-
-### Добавлено
-- В `DRY` RAG может использовать только завершённые shadow-оценки со статусом
-  `virtual_validated`; реальные и виртуальные документы хранятся раздельно.
-- В `LIVE` виртуальный RAG принудительно отключён независимо от переменной
-  окружения.
+### Added
+- Added complete virtual-shadow evaluation and explicit AI-vs-baseline metrics.
 
 ## [2.10.9] — 2026-07-17
 
-### Изменено
-- Дневной лимит AI увеличен до 500 000 токенов при сохранении лимита
-  стоимости `$0.50`, чтобы токены не блокировали SHADOW раньше денежного
-  бюджета.
-- Максимум 400 запросов в день и кэширование 15 минут на символ сохранены.
-
-### Безопасность
-- Лимит стоимости остаётся главным финансовым предохранителем; режим
-  исполнения не меняется и остаётся `DRY`.
+### Changed
+- Added dashboard version and changelog links, persistent AI controls, and a compact account-balance view.
 
 ## [2.10.8] — 2026-07-17
 
-### Изменено
-- Дневной лимит расходов AI для DRY + SHADOW увеличен до `$0.50`, чтобы
-  накопить больше наблюдений для статистики без перехода в LIVE.
-- Ограничение частоты запросов остаётся 15 минут на символ; лимиты токенов и
-  количества запросов не изменены.
-
-### Безопасность
-- Режим исполнения по умолчанию остаётся `DRY`; AI не получает доступ к
-  созданию ордеров и по-прежнему проходит через Risk Manager.
+### Fixed
+- Fixed BrokenPipe shutdown handling, stale AI status reporting, and protected log redaction.
 
 ## [2.10.7] — 2026-07-17
 
-### Изменено
-- Для DRY + AI SHADOW интервал кэширования увеличен до 15 минут, чтобы не
-  отправлять повторяющиеся запросы по одному символу.
-- Дневной бюджет AI установлен в безопасные значения по умолчанию: `$0.10`,
-  250 000 токенов и 400 запросов. При достижении любого лимита сохраняется
-  детерминированный fallback до следующего UTC-дня.
-
-### Безопасность
-- Настройки не включают LIVE и не дают AI доступ к созданию ордеров.
+### Added
+- Added RAG document and retrieval schemas with future-data protection.
 
 ## [2.10.6] — 2026-07-17
 
-### Исправлено
-- Backup-служба больше не блокирует SQLite online backup политикой
-  `ReadOnlyPaths`: запись разрешена только в каталог БД для краткоживущих
-  WAL/SHM-файлов, а остальная домашняя директория остаётся read-only.
-- Копия каждой SQLite БД сначала строится во временный файл и только после
-  успешного `backup()` атомарно переименовывается; в журнале указывается имя
-  конкретной БД при неисправимой ошибке.
-
-### Проверено
-- `PYTHONPATH=. pytest -q` — все тесты проходят.
-- `python3 -m compileall -q .`.
-- `bash -n deploy/backup_raspberry_pi.sh`.
+### Fixed
+- Allowed SQLite online backups to create temporary WAL/SHM files in the database directory.
+- Published each database copy atomically after a successful backup.
 
 ## [2.10.5] — 2026-07-17
 
-### Исправлено
-- `gen_vwap_env.py` больше не пишет traceback `BrokenPipeError`, когда systemd
-  останавливает supervisor и закрывает pipe во время штатного завершения.
-- Статус исполнителя больше не выводит неоднозначное `OCO:?`: используются
-  `not_checked`, `pending`, `confirmed`, `not_needed` и `disabled`.
-- Экспорт логов теперь redacts также prefixed-переменные вроде
-  `DEEPSEEK_API_KEY`, `DASHBOARD_BINANCE_API_SECRET` и `BOT_WEBHOOK_URL`.
-- Повторный отказ AI по исчерпанному дневному бюджету логируется один раз за
-  UTC-день; запросы к DeepSeek ограничены коротким ответом до 160 токенов.
-
-### Проверено
-- `PYTHONPATH=. pytest -q` — все тесты проходят.
-- `python3 -m compileall -q .`.
-- `git diff --check`.
+### Fixed
+- Made executor shutdown pipe-safe, replaced ambiguous OCO status values, expanded secret redaction,
+  and bounded AI rationale/output length.
 
 ## [2.10.4] — 2026-07-17
 
-### Изменено
-- В production-модули, deployment-сценарии, systemd units и HTML dashboard добавлены единые copyright-заголовки.
-- В ключевых узлах сохранены/уточнены русские комментарии о назначении файла, fail-closed ограничениях, секретах и безопасных границах dashboard.
-- Добавлен `COPYRIGHT.md` с правилами закрытого проекта и сопровождения комментариев.
-
-### Проверено
-- `PYTHONPATH=. pytest -q` — все тесты проходят.
-- `python3 -m compileall -q .`.
-- `git diff --check`.
-
-## [2.10.3] — 2026-07-17
-
-### Изменено
-- `/backups/` теперь показывает весь набор age-зашифрованных архивов из локального backup-каталога, включая `preinstall-*`, а не только регулярные `ladder-dragon-*`.
-- Незашифрованные legacy-файлы по-прежнему не публикуются; для них требуется отдельная миграция в age-архив.
-
-### Проверено
-- `PYTHONPATH=. pytest -q` — все тесты проходят.
-- `python3 -m compileall -q .`.
-- `bash -n deploy/backup_raspberry_pi.sh`.
-
-## [2.10.2] — 2026-07-17
-
-### Безопасность
-- Backup заранее проверяет, что внешний mount смонтирован с `rw`; при `ro` он завершается до создания staging-каталога и явно сообщает причину.
-- Временный каталог с env и SQLite теперь удаляется через `EXIT`-trap даже при ошибке SQLite, age или внешнего зеркала.
-
-### Проверено
-- `PYTHONPATH=. pytest -q` — все тесты проходят.
-- `python3 -m compileall -q .`.
-- `bash -n deploy/backup_raspberry_pi.sh deploy/install_raspberry_pi.sh deploy/update_raspberry_pi.sh`.
-
-## [2.10.1] — 2026-07-17
-
-### Исправлено
-- Внешнее зеркало больше не использует `cp -p`, который на exFAT пытался изменить владельца и останавливал backup с `Operation not permitted`; сохраняются только timestamps.
-- Удалён неподдерживаемый на Raspberry ключ systemd `BindReadWritePaths`; внешний mount остаётся доступен через `RequiresMountsFor` и `ReadWritePaths` без предупреждений systemd.
-- Online SQLite backup повторяется до трёх раз при кратковременной гонке с WAL, но по-прежнему завершается fail-closed после исчерпания попыток.
-
-### Проверено
-- `PYTHONPATH=. pytest -q` — все тесты проходят.
-- `python3 -m compileall -q .`.
-- `bash -n deploy/backup_raspberry_pi.sh deploy/install_raspberry_pi.sh deploy/update_raspberry_pi.sh`.
-
-## [2.10.0] — 2026-07-17
-
-### Исправлено
-- Backup теперь синхронизирует весь доступный набор зашифрованных архивов, а не только последний файл: исторические копии после миграции автоматически возвращаются во внешний и защищённый публичный каталог.
-- Checksum пересоздаётся непосредственно в каталоге назначения и проверяется через `sha256sum -c`, поэтому зеркало можно проверить независимо от путей Raspberry Pi.
-- Внешняя копия включает также `preinstall`-архивы, но они по-прежнему не публикуются через `/backups/`; публичный индекс строится после ротации и не содержит устаревших записей.
-
-### Проверено
-- `PYTHONPATH=. pytest -q` — все тесты проходят.
-- `bash -n deploy/backup_raspberry_pi.sh deploy/install_raspberry_pi.sh deploy/update_raspberry_pi.sh`.
-
-## [2.9.9] — 2026-07-17
-
-### Исправлено
-- Внешний backup mount получает явные `ReadWritePaths` и `BindReadWritePaths` в systemd drop-in; запись на подключённый exFAT больше не должна блокироваться sandbox.
-
-### Проверено
-- `PYTHONPATH=. pytest -q` — все тесты проходят.
-- `bash -n deploy/install_raspberry_pi.sh deploy/update_raspberry_pi.sh`.
-
-## [2.9.8] — 2026-07-17
-
-### Исправлено
-- Backup на внешнем exFAT-диске больше не вызывает `Read-only file system`: каталог создаётся без `chmod`, права контролируются mount-опциями.
-
-### Проверено
-- `PYTHONPATH=. pytest -q` — все тесты проходят.
-- `bash -n deploy/backup_raspberry_pi.sh`.
-
-## [2.9.7] — 2026-07-17
-
-### Исправлено
-- Каталоги `/backups/` и `/logs/` в nginx теперь отображают время в локальной timezone Raspberry (`Asia/Almaty`), а UTC-метки в именах архивов сохраняются для однозначной сортировки.
-
-### Проверено
-- `PYTHONPATH=. pytest -q` — все тесты проходят.
-- `nginx -t` выполняется установщиком/обновлятором перед reload.
-
-## [2.9.6] — 2026-07-17
-
-### Исправлено
-- Убран общий writable bind `/mnt` из backup sandbox: он мог скрывать вложенный внешний mount. Настроенный `BACKUP_EXTERNAL_MOUNT` теперь подключается только точечным systemd bind.
-
-### Проверено
-- `PYTHONPATH=. pytest -q` — все тесты проходят.
-- `bash -n deploy/backup_raspberry_pi.sh deploy/install_raspberry_pi.sh deploy/update_raspberry_pi.sh`.
-
-## [2.9.5] — 2026-07-17
-
-### Исправлено
-- В systemd-службу backup добавлен bind настроенного внешнего mountpoint; `/mnt/usb1` теперь виден внутри sandbox, а проверка mountpoint не даёт ложный отказ при реально подключённом диске.
-
-### Проверено
-- `PYTHONPATH=. pytest -q` — все тесты проходят.
-- `bash -n deploy/backup_raspberry_pi.sh deploy/install_raspberry_pi.sh deploy/update_raspberry_pi.sh`.
-
-## [2.9.4] — 2026-07-17
-
-### Исправлено
-- Исправлен systemd sandbox резервного копирования: динамические SQLite-каталоги теперь доступны службе, а ошибка `sqlite3.OperationalError: unable to open database file` не блокирует ежедневный backup.
-
-### Добавлено
-- Поддержано обязательное зеркалирование зашифрованных архивов на внешний диск через `BACKUP_EXTERNAL_MOUNT` и `BACKUP_EXTERNAL_DIR`; при отключённом mountpoint запись не переключается незаметно на SD-карту.
-- Установщик сохраняет настройки внешнего backup-диска при повторной миграции.
-
-### Проверено
-- `PYTHONPATH=. pytest -q` — все тесты проходят.
-- `bash -n deploy/backup_raspberry_pi.sh deploy/install_raspberry_pi.sh deploy/update_raspberry_pi.sh`.
-
-## [2.9.3] — 2026-07-17
-
-### Добавлено
-- Установщик и обновлятор включают и запускают `pi-watchdog-v3.timer`, чтобы безопасный watchdog автоматически работал после перезагрузки Raspberry Pi.
-- Восстановлен защищённый `/backups/`: Basic Auth показывает только age-зашифрованные архивы, checksum и inventory без секретов.
-- Backup сохраняет legacy watchdog, `/etc/bot-alerts.env` и Telegram-конфигурацию внутри зашифрованного архива.
-- Circuit Breaker и execution safety halt отправляют точную причину в Telegram, если настроен `/etc/ladder-dragon/telegram.env` или legacy-файл.
-- Updater сразу создаёт публичный backup-index после обновления, поэтому `/backups/` не зависит от следующего timer.
-- Watchdog больше не ищет legacy `1.8_autosize_universal.py`: используется heartbeat `/run/mybot/ai_status.json`, а restart выполняется только после трёх последовательных сбоев.
-
-Предыдущий выпуск 2.9.1 содержал восстановление защищённого `/backups/` и
-Telegram-оповещений.
-
-### Безопасность
-- Расшифрованные конфигурации и ключи не копируются в HTTP-каталог; публичная копия архива имеет права только для `root:www-data`.
-- Отправка Telegram не влияет на fail-closed остановку: при недоступном API halt сохраняется локально.
+### Changed
+- Added English copyright headers and the project maintenance policy.
 
 ## [2.9.0] — 2026-07-16
 
-### Добавлено
-- Защищённые URL `/logs/`, `/logs/current.log` и `/logs/status.json` под общим Basic Auth.
-- Минутный systemd exporter из `journalctl -u mybot` с атомарной записью.
-- Дневная ротация, лимит 5 МБ на файл, TTL 7 дней и автоматическая очистка.
-- Автоматическая редакция Authorization, API keys/secrets, tokens, паролей и Binance signature.
-- Локальная RAG-база `knowledge_documents`/`knowledge_retrievals` для проверенных
-  закрытых AI-позиций, структурированных embeddings и аудита retrieval по `decision_id`.
-- Счётчики RAG-базы знаний добавлены в защищённый `/api/ai/status`.
-
-### Безопасность
-- Сырой log API остаётся выключенным; nginx выдаёт только очищенную статическую копию.
-- Каталог журналов недоступен без dashboard Basic Auth.
-- Редактор журналов дополнительно очищает JSON-ключи, cookies, credentials в URL и private keys.
-- `tools_cancel_open.py` запускается в Testnet DRY, а LIVE/Mainnet требуют двух явных подтверждений.
-- Dashboard proxy-auth защищён отдельным shared secret; placeholder-токены генерируются установщиком.
-- Обновления принимают только указанный fast-forward commit SHA; backups шифруются через age.
-- Добавлены проверки конфигурации, secret scanning и security-регрессии в тестах.
-- Risk snapshot теперь включает все активы аккаунта в equity, но не считает USDT/stablecoin рыночной экспозицией.
-- Симулятор отклоняет same-candle lookahead и невозможные fills после spread/slippage.
-- AI shadow-метрика отделяет процентный edge от размера CAP и учитывает стоимость исполнения.
-- VWAP autotune восстанавливает cost basis по полной истории и не меняет параметры на малой выборке.
-- Симулятор получил частичные fill, консервативное OCO (stop-first при конфликте OHLC) и stress replay.
-- Risk Manager поддерживает rolling correlation по 15m returns вместо обязательной статической корзины.
-- Симулятор проверяет минимальный net edge после round-trip costs и поддерживает принудительный выход по максимальному сроку удержания.
-- Логи предназначены для диагностики и анализа гипотез стратегии, но изменения всё равно требуют Testnet/backtest/walk-forward проверки.
-
-### Исправлено
-- В дашборд добавлен защищённый переключатель AI-рекомендателя. Он меняет только advisory-режим, а при повреждённом control-файле AI отключается fail-closed.
-- В дашборд добавлены отображение версии продукта и ссылка на этот changelog.
-- Восстановлена сетка KPI-карточек без изменения торговой логики.
-- Supervisor пишет служебные логи в разрешённый ротируемый каталог `logs/`.
-- Безопасный fallback OCO по умолчанию — `halt`; журнал `/logs/` отдаётся с UTF-8 charset.
-
-### Изменено
-- AI rationale ограничен 160 символами в prompt и локальной схеме валидации.
-- RAG-контекст передаётся DeepSeek только как короткие исторические примеры; ордера,
-  Risk Manager и режим исполнения недоступны модели.
-
-### Проверено
-- Добавлены тесты cosine retrieval, исключения будущих и виртуальных данных,
-  связи retrieval с decision ID и отсутствия unsafe-контекста в prompt.
-- Полный набор автоматических тестов проходит.
-
-## [2.8.1] — 2026-07-16
-
-### Документация
-- Добавлена полная пошаговая установка на чистую Raspberry Pi OS.
-- Описан read-only GitHub Deploy Key для приватного репозитория и автоматических обновлений.
-- Добавлены настройка Testnet/AI/dashboard, выбор DRY/LIVE, проверка автозапуска и API.
-- Описаны единая команда обновления, режим `apply`, приватные backups, миграция и типовые ошибки.
-
-## [2.8.0] — 2026-07-16
-
-### Добавлено
-- Идемпотентный Raspberry Pi installer с режимами `install`, `migrate` и безопасным `audit`.
-- Канонический service wrapper с отдельным `.env.service`, явными Testnet/Mainnet и DRY/LIVE.
-- Миграция legacy `/opt/pi-dashboard`, номерного executor, старого systemd unit, env и SQLite.
-- Автоматический pre-migration snapshot и rollback проекта/systemd/nginx при ошибке.
-- Закрытые online SQLite backups в `/var/lib/ladder-dragon/backups` и ежедневный systemd timer.
-- Переносимые nginx-шаблоны, Basic Auth и автоматический локальный TLS-сертификат.
-
-### Безопасность
-- `/backups/` закрыт через nginx и больше не публикует конфигурационные архивы.
-- Legacy public-backup timer отключается, старый `/opt/pi-dashboard` и публичные архивы переносятся в закрытое legacy-хранилище.
-- API и статика защищены одним Basic Auth; доверенный proxy user формирует только nginx.
-- API логов принудительно выключается при установке и обновлении.
-- Чистая установка всегда Testnet DRY; legacy LIVE сохраняется только с отдельным `--preserve-live` и `BOT_LIVE_CONFIRMED=YES`.
-- SQLite переносится через backup API без копирования активных `-wal`/`-shm`.
-- Старые runtime/halt/data paths не импортируются поверх новых fail-closed путей.
-
-## [2.7.1] — 2026-07-16
-
-### Исправлено
-- Raspberry Pi updater учитывает `Restart=always`: останавливает systemd-сервисы до обновления файлов и запускает их после проверок.
-- Автозапуск `mybot` и `pi-healthd` сохраняется и проверяется после установки.
-- Единая команда обновляет Git, зафиксированные dashboard-зависимости, frontend и systemd, затем ожидает свежий RUNNING-heartbeat.
-- При ошибке updater пытается вернуть ранее активные сервисы; открытые биржевые ордера не отменяются.
-- Скрипт выполняет `git pull` из собственной копии в `/tmp`, исключая самоизменение во время работы.
-
-## [2.7.0] — 2026-07-16
-
-### Добавлено
-- Безопасный атомарный heartbeat между торговым supervisor и Raspberry Pi dashboard.
-- Передача фактического Testnet/Mainnet, LIVE/DRY, версии, AI-модели, бюджетов и активных data paths без секретов.
-- Автоматическое следование дашборда за активными stats DB, AI decision DB и usage log.
-- Отображение venue, модели и состояния связи с ботом в основной AI-карточке.
-
-### Исправлено
-- Dashboard больше не зависит от собственной устаревающей копии AI-режима.
-- Testnet runtime перенесён внутрь разрешённого systemd-каталога `/run/mybot`.
-- Systemd sandbox разрешает боту запись AI usage log, а дашборду — только чтение runtime/db/log.
-- Raspberry Pi updater сохраняет текущий `mybot.service` и venue, устанавливая только ограниченный drop-in прав доступа.
-- Удалены устаревшие инструкции по извлечению торговых ключей из окружения процесса.
-
-## [2.6.0] — 2026-07-16
-
-### Добавлено
-- Локальная трёхклассовая logistic regression (`UP/FLAT/DOWN`) без внешнего ML-сервиса.
-- Обучение модели на накопленных 1h shadow-результатах с минимальным порогом выборки и автоматическим fallback.
-- Персистентное хранение нормализованного feature vector для воспроизводимого обучения.
-- Виртуальная A/B-оценка AI и baseline: исполнение BUY, комиссии, проскальзывание, net return, MFE и MAE.
-- Отображение AI-статуса, расходов и edge против baseline в основной странице дашборда.
-
-### Проверено
-- Локальный FastAPI dashboard: `401` без токена и `200` с токеном на `/api/ai/status`.
-- Полный набор автоматических тестов: **115 passed**.
-
-## [2.5.0] — 2026-07-16
-
-### Добавлено
-- Режимы `DISABLED`, `SHADOW` и `APPLY`; рабочая конфигурация переведена в безопасный shadow/A-B режим.
-- `ai_policy.py` с обязательным кодовым safety-постпроцессором, независимым от prompt.
-- `PAUSE_BUYS`, запрет сужения лестницы при высокой волатильности и автоматическое снижение CAP при risk pressure.
-- Признаки доступности и свежести истории, рынка, стакана и portfolio telemetry.
-- Дневные ограничения запросов, токенов и стоимости DeepSeek.
-- Интерпретируемый числовой regime benchmark рядом с LLM.
-- Сравнение точности AI с детерминированным baseline и калибровка confidence по диапазонам.
-- Оценка рекомендаций по точной минутной свече целевого горизонта с fallback на текущую цену.
-- Защищённый `/api/ai/status` и карточка AI в дашборде.
-
-### Безопасность
-- Неполный или устаревший контекст запрещает применение рекомендации.
-- Плохая накопленная точность AI автоматически оставляет его без влияния на торговый план.
-- Превышение дневного бюджета отключает новые AI-запросы до следующего UTC-дня.
-- Shadow-рекомендации сохраняются, но не меняют режим, лестницу, CAP или BUY.
-
-### Проверено
-- Policy, shadow/apply, pause BUY, budgets, calibration, benchmark, качество данных и защищённый dashboard API покрыты тестами.
-- Полный набор автоматических тестов: **112 passed**.
-
-## [2.4.0] — 2026-07-16
-
-### Добавлено
-- `ai_context.py` с безопасными агрегатами истории сделок, PnL, win rate, серий убытков, комиссий и оборота.
-- Рыночные горизонты 15m/1h/4h/24h, относительный объём, spread и дисбаланс верхних 5/20 уровней стакана.
-- Агрегаты открытых BUY/SELL, неисполненной BUY-экспозиции, использования общего portfolio CAP и отношения свободного USDT к резерву.
-- Раздельный SQLite decision-store для Testnet/Mainnet и автоматическая оценка рекомендаций через 15 минут, 1 час и 4 часа.
-- Передача модели накопленной точности прошлых AI-рекомендаций с минимальными порогами статистической значимости в prompt policy.
-
-### Безопасность
-- Модель по-прежнему не получает сырые сделки, полный баланс, API-ключи, `orderId`, `clientOrderId`, полный стакан или торговые методы.
-- PnL за 30 дней восстанавливает себестоимость по более старым BUY, не раскрывая исходную историю модели.
-- Testnet и Mainnet используют отдельную память AI-решений.
-
-### Проверено
-- Агрегаты истории, cost basis, комиссии, серии, рыночные горизонты, стакан, portfolio CAP и оценка решений покрыты unit-тестами.
-- Полный набор автоматических тестов: **102 passed**.
-
-## [2.3.0] — 2026-07-16
-
-### Добавлено
-- Изолированный `ai_advisor.py` для рекомендаций режима рынка, ширины лестницы и коэффициента CAP.
-- Поддержка OpenAI, DeepSeek и настраиваемых OpenAI-совместимых API.
-- Строгая схема ответа модели: точный набор полей, типы, допустимые режимы, конечные числа, диапазоны и минимальная уверенность.
-- Кэш рекомендаций по символу и безопасный возврат к детерминированной стратегии при сетевой ошибке, неверном JSON или нарушении схемы.
-- Отрицательный кэш для низкой confidence и ошибок API, исключающий повторный LLM-запрос на каждом цикле супервизора.
-- `ai_advisor_smoke.py` с синтетическими UP/DOWN/FLAT/SHOCK-сценариями без подключения к Binance.
-- NDJSON-журнал AI-расхода: token usage, cache hit/miss, latency, outcome и оценочная стоимость USD без промптов, ответов или секретов.
-- CLI/env-настройки AI-провайдера, модели, endpoint, timeout, cache и разрешённых диапазонов.
-
-### Безопасность
-- LLM не получает торговых tools, API Binance, секреты, балансы или доступ к созданию/отмене ордеров.
-- Ручной `--dir-mode` остаётся приоритетным и не может быть переопределён моделью.
-- AI CAP применяется только к уже рассчитанному Risk Manager лимиту и никогда не может его увеличить.
-- DeepSeek/OpenAI-ключи читаются только из окружения и не передаются через argv.
-
-### Проверено
-- Валидный DeepSeek JSON mode, строгий отказ от лишних/опасных полей, confidence fallback, кэш и запрет расширения risk-safe CAP покрыты unit-тестами.
-- Полный набор автоматических тестов: **96 passed**.
-
-## [2.2.0] — 2026-07-16
-
-### Добавлено
-- `executor_protection.py` как отдельная граница сопровождения позиции после исполнения BUY.
-- Обработка FILLED и terminal-partial BUY: фиксация terminal state в intent-журнале, восстановление уже существующей защиты и расчёт защищаемого свободного количества.
-- Создание защитного OCO с guard средней цены, проверкой `minQty`/`minNotional` обеих ног и постоянным halt при неподтверждённой защите.
-- Резервный одиночный TP при выбранном `oco-fallback=prefer-tp1`.
-- `BreakevenStateStore` для связи OCO с исходной средней ценой BUY и `BreakevenRuntime` для периодической проверки.
-- Breakeven re-arm: после частичного TP старый OCO заменяется на новый с SL не хуже заданного BE-offset.
-- Unit-тесты успешного OCO, fallback TP, переноса breakeven-state и интервала BE-проверки.
-
-### Изменено
-- Из `autosize_universal.py` удалены встроенные реализации обработки исполненных BUY, создания защиты, JSON-state и breakeven-сопровождения.
-- Символьный исполнитель оставляет у себя orchestration, transport-фасады и panic-state, передавая сопровождению late-bound зависимости.
-- `autosize_universal.py` сокращён с 1755 до 1516 строк без изменения CLI и торговых defaults.
-
-### Проверено
-- Успешный OCO, fallback TP, breakeven re-arm, перенос state и interval scheduler покрыты изолированными тестами без Binance.
-- Полный набор автоматических тестов: **89 passed**.
-
-## [2.1.0] — 2026-07-16
-
-### Добавлено
-- `executor_planning.py` с чистыми функциями планирования BUY/SELL без HTTP-запросов, ключей и глобального состояния.
-- Детерминированный выбор свободных уровней BUY ниже рынка и SELL выше рынка с учётом уже открытых заявок.
-- Расчёт размера BUY по доступному quote-балансу, CAP, числу оставшихся слотов, `minQty`, `minNotional` и пользовательскому минимуму заявки.
-- SELL guard относительно средней цены входа, минимальной прибыли и разрешённого panic-floor.
-- Распределение доступного base-баланса между SELL-уровнями с сохранением биржевой пыли.
-- `executor_runtime.py` с отдельным планировщиком времени жизни воркера и проверкой периодических status-тиков.
-- Boundary-тесты planning/runtime, не требующие подключения к Binance.
-
-### Изменено
-- `autosize_universal.py` использует planning/runtime API и больше не содержит дублирующую математику выбора уровней и размеров заявок.
-- Локальный остаток quote/base уменьшается только после подтверждённого ответа размещения; ошибка или отсутствие ACK не расходует баланс внутри текущего плана.
-- Мягкая остановка по `RUN` теперь проходит через отдельный runtime scheduler без изменения CLI и торговых defaults.
-- Крупные узлы супервизора, исполнителя, риска, transport, order journal, recovery, planning и статистики снабжены русскими архитектурными комментариями.
-
-### Проверено
-- Строгий `--help`, `--version` и компиляция модулей.
-- Полный набор автоматических тестов: **85 passed**.
-
-## [2.0.2] — 2026-07-16
-
-### Добавлено
-- `executor_orders.py` как единая граница размещения LIMIT и OCO.
-- `OrderDependencies` для late-bound передачи LIVE-gate, transport, фильтров, форматирования, journal, recovery и circuit halt.
-- Тесты, подтверждающие, что DRY-gate проверяется непосредственно перед мутацией и блокирует сеть.
-
-### Изменено
-- Идемпотентное создание `clientOrderId`, запись intent до POST и восстановление после неопределённого ACK перенесены из исполнителя в order-модуль.
-- OCO placement централизует округление, проверку обеих ног, восстановление существующей защиты и fail-closed halt при неполной защите.
-- Публичные функции в `autosize_universal.py` сохранены как совместимые фасады для существующих тестов и операторских сценариев.
-
-## [2.0.1] — 2026-07-16
-
-### Добавлено
-- Строгие CLI и их валидация вынесены из торговых циклов в `supervisor_config.py` и `executor_config.py` без изменения флагов и defaults.
-- Общие детерминированные расчёты лестниц, EMA, ATR, ADX и panic-сигналов собраны в независимом `strategy_math.py`.
-- Подпись запросов, DRY transport gate и retry/backoff исполнителя перенесены в `binance_transport.py` с late-bound LIVE/venue state.
-- Импорт исполнений и точная оценка base/quote/BNB-комиссий отделены в `executor_stats.py`.
-- Market/account reads вынесены в `executor_market.py`, а query/cancel, проверка OCO и restart recovery — в `executor_recovery.py`.
-- Добавлены boundary-тесты, которые проверяют конфигурационные, стратегические, транспортные и статистические интерфейсы без запуска торгового цикла.
-
-### Изменено
-- `ai_supervisor.py` и `autosize_universal.py` сокращены за счёт удаления встроенных реализаций CLI, transport, market/recovery, статистики и общей математики.
-- Зависимости новых модулей передаются явно или late-bound, поэтому тесты не используют реальные ключи и не выполняют торговые запросы.
-- Ошибки отсутствующего ордера Binance обрабатываются как ожидаемый recovery-сценарий, а не как общий сбой API.
-
-## [2.0.0] — 2026-07-16
-
-### Добавлено
-- Версия продукта вынесена в единый модуль `product_version.py` и подключена к package metadata, CLI и HTTP User-Agent.
-- Основные команды поддерживают `--version`, а supervisor и executor фиксируют версию в startup log.
-
-### Изменено
-- Исполнитель переименован из legacy-имени с номером версии в `autosize_universal.py`; обновлены supervisor, runners, systemd, тесты и документация.
-- Принят Semantic Versioning: версия файла больше не используется как версия продукта.
-- `pyproject.toml` получает версию динамически из `product_version.__version__`, исключая расхождение CLI и package metadata.
-
-### Совместимость
-- Все внутренние ссылки на прежнее имя исполнителя заменены; операторский запуск выполняется через новое стабильное имя без номера версии.
-
-## [2026-07-16]
-### Supervisor DRY/Testnet hardening
-- Исполнитель использует `BOT_RUN_DIR` для per-symbol lock, fallback order journal, circuit halt и breakeven state; локальный запуск больше не зависит от Linux-only `/run/mybot`.
-- Добавлен экспоненциальный backoff для быстро падающих дочерних процессов и обязательный terminate/wait/kill cleanup при остановке супервизора.
-- `Ctrl+C` завершает супервизор и дочерние процессы штатно, без оставшихся процессов и lock-файлов.
-- Настоящий супервизор и исполнитель проверены в DRY на Spot Testnet: фильтры и стратегия загружены, все торговые операции заблокированы DRY-gate.
-- Операторские CLI `risk_ctl.py` и `db_migrate.py` загружают локальный `.env`, поэтому используют те же runtime и SQLite пути, что супервизор.
-- LIVE всегда трактует `target-buy-per-symbol` как жёсткий максимум; risk-block включает cooldown, а сигнал остановки проверяется непосредственно перед каждым exchange POST.
-- Startup и periodic cleanup сохраняют свежие ордера в течение 15-минутного warmup даже при небольшом смещении лестницы, исключая cancel/recreate churn после рестарта.
-- После FILLED исполнитель сначала подтверждает защитный OCO, затем немедленно синхронизирует trades/inventory; terminal state BUY сохраняется в durable journal до работы с OCO.
-- Строгая сверка позиций получила ограниченный grace/retry для гонки exchange-balance ↔ SQLite и учитывает только неторгуемую пыль в пределах одного `LOT_SIZE` шага.
-- Supervisor переключает Testnet на отдельные `BOT_TESTNET_STATS_DB` и `BOT_TESTNET_ORDER_JOURNAL`, поэтому виртуальные сделки не влияют на Mainnet inventory и дневные лимиты.
-- `BOT_TESTNET_RUN_DIR` изолирует Testnet circuit halt/state/alerts и lock-файлы; `risk_ctl.py --testnet` управляет только этим контуром.
-- Миграция `003` добавляет точные `price/gross_qty/net_qty`, актив и сумму комиссии, quote-оценку и Decimal-поля inventory без удаления старых REAL-колонок.
-- `/myTrades` учитывает комиссии в base/quote и оценивает BNB по исторической минутной цене; неизвестная комиссия переводит risk telemetry в fail-closed.
-- Inventory, средняя себестоимость, realized PnL, дневные risk-метрики, `pnl_24h.py` и VWAP autotune используют единую Decimal-модель.
-- Добавлен read-only `testnet_soak_monitor.py`: длительная проверка лимита BUY/exposure, OCO-защиты, circuit halt и account ↔ SQLite с атомарным JSON-отчётом.
-- Реальный Testnet restart drill подтвердил сохранение OCO без дублей; TP исполнился, base/quote комиссии и итоговый inventory совпали с account.
-
-## [2026-07-15]
-### Safety hardening
-- Добавлен fail-closed DRY/LIVE gate в супервизор и исполнитель; LIVE требует `BOT_LIVE_CONFIRMED=YES`.
-- Spot Testnet выбран по умолчанию, Mainnet требует явного `--mainnet`.
-- Реализован постоянный circuit breaker: дневной убыток, просадки от старта/пика, halt-файл, cooldown, ручной reset и журнал точных причин.
-- Добавлены portfolio/daily/correlation/order/reserve/loss-streak лимиты, остановка воркеров и отмена BUY.
-- CLI стал строгим, добавлена валидация конфликтов и диапазонов, исправлен `--help` исполнителя.
-- Удалены placeholder-флаги, реализован `--flatten-force`, сохранены рабочие enforce-флаги.
-- Добавлены идемпотентные `clientOrderId`, проверка OCO и периодическая сверка позиций с SQLite.
-
-### Dashboard and operations
-- FastAPI закрыт token/proxy-аутентификацией и rate limit; лог API выключен по умолчанию, SSE ограничен.
-- Удалено чтение торговых секретов из `/proc`; дашборд принимает только отдельные read-only credentials.
-- Дашборд запускается только на `127.0.0.1`, добавлены ротация метрик и hardened systemd units.
-- Добавлены `.env.example`, `pyproject.toml`, версионируемые SQLite migrations и ручной `risk_ctl.py`.
-
-### Testing
-- Добавлены unit-тесты circuit breaker, DRY gate, strict CLI, Decimal-округления, FIFO, VWAP, миграций и dashboard security.
-- Добавлен Decimal-симулятор с комиссиями, проскальзыванием, задержкой, buy-and-hold и walk-forward.
-
-### Restart recovery and Testnet
-- Добавлен durable SQLite-журнал order-intents, который записывается до Binance POST и сверяется по `clientOrderId` после неопределённой ошибки или рестарта.
-- Partial/FILLED BUY восстанавливаются в очередь контроля; BUY удаляется из неё только после подтверждённого OCO или fallback SELL.
-- Ошибка защиты позиции создаёт persistent circuit halt с точной причиной и идентификаторами ордера.
-- OCO переведён с deprecated `/api/v3/order/oco` на актуальный `/api/v3/orderList/oco` с `above*`/`below*` параметрами.
-- Добавлен fail-closed `binance_testnet_smoke.py`: public/auth/order-test и настоящий create-query-cancel Testnet LIMIT с отдельным подтверждением.
-- Добавлены подтверждаемые `buy-oco` и `buy-oco-restart`: ограниченный MARKET BUY, durable intent, OCO verification, повторное открытие journal и обязательный cleanup тестовой позиции.
-- Добавлен изолированный `circuit-drill`, проверяющий сохранение halt после restart и ручной reset без изменения production state.
-
-## [2025-09-26]
-### Executor (autosize_universal.py)
-- Добавлен VWAP-guard: `--buy-vwap-premium` блокирует покупки, если цена ушла выше VWAP.
-- Появились адаптивные капы на скидках к VWAP (`--buy-vwap-discount`, `--buy-vwap-discount-scale`).
-- Настраиваемое окно/интервал VWAP (`--buy-vwap-interval`, `--buy-vwap-window`) работает совместно с существующими EMA/ATR, а в логи добавлен вывод ratio `now/VWAP`.
-
-### Supervisor (ai_supervisor.py)
-- Пробрасывает VWAP-настройки в дочерние воркеры (`--child-buy-vwap-*`).
-- Добавлен режим `--child-buy-vwap-auto` для динамического пересчёта премии/scale по направлению и ATR.
-- Реализован фоновый `--vwap-refresh-sec`: супервизор пересчитывает карты и PnL-автотюн без перезапуска сервисов.
-- Параметры VWAP-тюнера (часы, threshold, alpha) настраиваются через CLI/ENV и обновляются на лету.
-
-### Конфигурация (key_start_bot.txt)
-- Добавлены переменные окружения BUY_VWAP_* и соответствующие параметры запуска сервиса, включая коэффициенты автоподстройки.
-- Вместо прямого вызова генератора теперь используется `update_vwap_env.py`, который формирует карты и (опционально) подключает autotune.
-
-### Утилиты
-- Добавлен скрипт `gen_vwap_env.py` для генерации BUY_VWAP_* карт на основе свежих данных с биржи.
-- Добавлен тюнер `gen_vwap_autotune.py`, корректирующий премии/скидки по PnL статистике.
-- Новый комбинированный драйвер `update_vwap_env.py` собирает базовые карты и, при необходимости, подмешивает autotune.
-- Исправлен расчёт тюнера: PnL считается по FIFO из таблицы `trades` (миллисекундные таймстемпы), чтобы исключить пустые выборки и кривые значения.
-
-## [2025-09-21]
-### Executor (autosize_universal.py)
-- Добавлены тренд-фильтры для BUY: `--buy-trend-ema-gap`, `--buy-trend-interval`, `--bear-skip-buys`, `--bear-cap-scale`, `--bear-buy-shift-pct`.
-- Новый флаг `--skip-buy-while-panic` и `--panic-sell-floor-pct` для более агрессивной защиты в режиме паники.
-- Переработаны лестничные покупки: смещение уровней вниз при падении рынка и динамическое снижение CAP без изменения поведения по умолчанию.
-
-### Supervisor (ai_supervisor.py)
-- Добавлен guard против ночного flatten ниже средней (`--flatten-avoid-loss`, `--flatten-min-edge-pct`, `--flatten-avg-*`).
-- Передача новых флагов дочернему воркеру (`--child-skip-buy-while-panic`, трендовые и panic-параметры).
-- Реализован кэш средней цены позиции для guard'ов flatten.
-
-## [2025-09-07]
-### Executor (autosize_universal.py)
-- Добавлены backoff+повторы на ошибки 418/429/5xx и коды -1003/-1015.
-- Подпись приватных запросов (account/openOrders/order/myTrades).
-- Улучшен `get_price()` с fallback на альтернативные источники.
-
-### Supervisor (ai_supervisor.py / ai_plan_runner.py)
-- Реализованы `startup_cleanup_orders()` и `smart_cleanup_orders()` (TTL + off-ladder очистка).
-- Контроль нетто-позиции: reduce-only, auto-flat к 23:55, частичное сокращение.
-- Динамический CAP (floor/ceil, alloc-pct) от свободного USDT.
-- Генерация `/run/mybot/dynamic.env` через `auto_ladder_map.py`.
-
-### PnL и статистика (pnl_reporter.py, pnl_24h.py, tools_stats.py)
-- Добавлен net PnL (после комиссий), win rate, avg_sell_notional в summary.
-- Поддержка двух методов подсчёта: `cash` и `realized` (FIFO).
-- SQLite: включён WAL + busy_timeout для устойчивости.
-- Комиссии нормализованы в USDT.
-
-### Dashboard (index.html)
-- KPI (температура, память, swap, диск, сервисы, сеть, аптайм).
-- Графики CPU/температуры/памяти (24ч).
-- Сводка торговли за 24ч: сделки, объём, комиссии, net, equity, активы.
-- Таблица исполненных ордеров за 24ч (комиссии в USDT, форматирование).
-- Онлайн-логи через SSE.
-
-### Документация (readme.html, help.html)
-- Раздел «Что нового»: толстые ордера, Auto-CAP, Smart cleanup, режим x10, Pi Dashboard.
-- Полный справочник CLI-флагов (MA/ATR/TTL/Auto-CAP/риски).
-- Добавлена шпаргалка (1 стр.) с быстрым стартом и env.
-- В help.html: описание API (summary/filled/symbols), бэкапы и восстановление.
-
-### Сервис (systemd unit mybot.service)
-- SMART-режим с интервалом 150с.
-- Circuit breaker по equity (halt-файл при просадке).
-- ATR-адаптация (dev-buy, min-profit).
-- EMA-фильтры против чейзинга.
-- Позиционный guard (лимиты base/USDT per symbol).
-- Auto-ladder с JSON-preset и генерацией env.
-- Watchdog v3 для авто-перезапуска при сетевых сбоях.
-
-### Прочее
-- `migrate_indexes.py` — миграция индексов SQLite.
-- Ключи Binance подтягиваются из `.env` или окружения systemd.
-- Добавлена справка по smoke-тесту и проверкам (`bot-local-check.sh`).
-## 2026-07-16
-
-- Order-book replay теперь учитывает queue-ahead, trade prints, задержку и
-  подключается к `simulate_grid` через `market_events`.
-- Добавлены `ai_fills` и привязка фактических BUY/SELL/OCO/STOP fills к AI
-  decision с net-PnL, holding duration и equal-notional baseline.
-- Добавлены nested walk-forward report, bootstrap CI, multiple-testing threshold,
-  expected shortfall, marginal risk и gap-risk gate.
-- Добавлены SQLite FIFO inventory lots с timestamp и ladder level.
-- Направление рынка переведено на общий hysteresis/debounce state.
-- Полный набор тестов: `146 passed`.
+### Added
+- Established the Ladder Dragon supervisor, adaptive ladder strategy, Risk Manager, dashboard,
+  protected logs, and Raspberry deployment baseline.
+
+### Verified
+- Testnet/DRY defaults, fail-closed safety gates, and the baseline regression suite were established.

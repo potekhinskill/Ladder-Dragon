@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # Copyright (c) 2026 IURII Potekhin / Ladder Dragon. All rights reserved.
-# Purpose: keep the file role and safety boundaries clear during maintenance.
+# Purpose: inspect and reset the circuit breaker.
 """Manual operator control for the persistent circuit breaker."""
 
 import argparse

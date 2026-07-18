@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Copyright (c) 2026 IURII Potekhin / Ladder Dragon. All rights reserved.
-# Purpose: keep the file role and safety boundaries clear during maintenance.
+# Purpose: control supervisor child processes.
 set -euo pipefail
 
 # Anchor paths to the script directory so relative paths stay stable.

@@ -1,27 +1,15 @@
-# Установка и обновление Ladder Dragon на Raspberry Pi
+# Ladder Dragon Raspberry Pi installation and update runbook
 
-Инструкция рассчитана на Raspberry Pi OS Bookworm/Debian с `systemd`.
-Канонический каталог проекта:
+This runbook targets Raspberry Pi OS Bookworm/Debian with `systemd`. The
+canonical project directory is `/home/bot/apps/binance_bot`.
 
-```text
-/home/bot/apps/binance_bot
-```
+Fresh installation always starts in **Testnet DRY**. No real order is sent.
 
-Чистая установка всегда запускает бота в безопасном режиме **Testnet DRY**:
-торговые запросы и реальные ордера не отправляются.
+## 1. Prepare the host
 
-## 1. Подготовка чистой Raspberry Pi
-
-Рекомендуется:
-
-- Raspberry Pi 4/5 с 4 ГБ RAM или больше;
-- Raspberry Pi OS Lite 64-bit;
-- SSD или качественная endurance microSD;
-- фиксированный DHCP lease;
-- включённый SSH;
-- корректный часовой пояс и синхронизация времени.
-
-Подключитесь по SSH и обновите базовую систему:
+Recommended hardware is a Raspberry Pi 4/5 with at least 4 GiB RAM, 64-bit
+Raspberry Pi OS Lite, reliable storage, stable power, SSH, a fixed DHCP lease,
+and synchronized time.
 
 ```bash
 sudo apt update
@@ -31,45 +19,27 @@ sudo timedatectl set-timezone Asia/Almaty
 timedatectl status
 ```
 
-После обновления ядра перезагрузите Raspberry Pi:
+Reboot after a kernel update:
 
 ```bash
 sudo reboot
 ```
 
-## 2. Доступ к приватному GitHub
+## 2. Configure private GitHub access
 
-Создайте системного пользователя бота, если его ещё нет:
+Create the service account and a read-only **Deploy Key**:
 
 ```bash
 id bot >/dev/null 2>&1 || sudo useradd --create-home --shell /bin/bash bot
 sudo install -d -o bot -g bot -m 0700 /home/bot/.ssh
-```
-
-Создайте отдельный SSH deploy key без права записи:
-
-```bash
-sudo -u bot ssh-keygen \
-  -t ed25519 \
-  -f /home/bot/.ssh/ladder_dragon_github \
-  -N '' \
+sudo -u bot ssh-keygen -t ed25519 \
+  -f /home/bot/.ssh/ladder_dragon_github -N '' \
   -C 'ladder-dragon-raspberry'
-
 sudo cat /home/bot/.ssh/ladder_dragon_github.pub
 ```
 
-Скопируйте выведенный публичный ключ и добавьте его в GitHub:
-
-```text
-Repository → Settings → Deploy keys → Add deploy key
-```
-
-Параметры:
-
-- Title: `raspberry-bot`;
-- Allow write access: **выключено**.
-
-Создайте SSH-конфигурацию:
+Add the public key in **Repository → Settings → Deploy keys** with write access
+disabled. Configure SSH:
 
 ```bash
 sudo tee /home/bot/.ssh/config >/dev/null <<'EOF'
@@ -79,105 +49,52 @@ Host github.com
     IdentityFile /home/bot/.ssh/ladder_dragon_github
     IdentitiesOnly yes
 EOF
-
 sudo chown bot:bot /home/bot/.ssh/config
 sudo chmod 600 /home/bot/.ssh/config
 sudo -u bot ssh-keyscan github.com | sudo tee /home/bot/.ssh/known_hosts >/dev/null
 sudo chown bot:bot /home/bot/.ssh/known_hosts
 sudo chmod 600 /home/bot/.ssh/known_hosts
-```
-
-Проверьте доступ:
-
-```bash
 sudo -u bot ssh -T git@github.com
 ```
 
-GitHub обычно отвечает сообщением об успешной аутентификации и отсутствии
-shell-доступа. Это нормально.
+GitHub's successful-authentication/no-shell response is expected.
 
-## 3. Получение проекта
+## 3. Clone and install
 
 ```bash
 sudo install -d -o bot -g bot -m 0750 /home/bot/apps
-
-sudo -u bot git clone \
-  --branch codex/safety-hardening \
-  --single-branch \
-  git@github.com:potekhinskill/Ladder-Dragon.git \
-  /home/bot/apps/binance_bot
-```
-
-Проверьте ветку и версию:
-
-```bash
+sudo -u bot git clone --branch codex/safety-hardening --single-branch \
+  git@github.com:potekhinskill/Ladder-Dragon.git /home/bot/apps/binance_bot
 cd /home/bot/apps/binance_bot
-sudo -u bot git branch --show-current
-sudo -u bot git log -1 --oneline
-```
-
-## 4. Запуск универсального инсталлятора
-
-```bash
-cd /home/bot/apps/binance_bot
-RELEASE_SHA="<40-символьный SHA проверенного коммита>"
+RELEASE_SHA="$(sudo -u bot git rev-parse HEAD)"
 sudo bash deploy/install_raspberry_pi.sh install --commit "$RELEASE_SHA"
 ```
 
-Инсталлятор:
+The installer creates the virtual environment, nginx, FastAPI, fail2ban, zram,
+journald limits, systemd units, mDNS (`bot.local`), local TLS, Basic Auth,
+protected `/logs/` and `/backups/`, encrypted backups, and the watchdog. It
+does not place secrets in Git and starts `mybot` as Testnet DRY.
 
-- устанавливает системные пакеты и Python-зависимости;
-- создаёт venv;
-- устанавливает nginx, FastAPI, fail2ban, zram и journald limits;
-- создаёт systemd-сервисы и автозапуск;
-- включает mDNS-адрес `bot.local`;
-- создаёт локальный TLS-сертификат;
-- закрывает dashboard через Basic Auth;
-- публикует защищённый Basic Auth URL `/backups/` только с age-зашифрованными
-  архивами, checksum и inventory без секретов;
-- публикует только очищенные журналы по защищённому URL `/logs/`;
-- включает ежедневный приватный backup;
-- переносит legacy `/etc/bot-alerts.env` в Telegram-контур и сохраняет его
-  вместе с watchdog в зашифрованном backup;
-- запускает `mybot` как Testnet DRY.
-
-Пароль дашборда:
+The dashboard password is stored at:
 
 ```bash
 sudo cat /root/ladder-dragon-dashboard-credentials.txt
 ```
 
-Откройте:
+## 4. Configure Binance and AI
 
-```text
-https://bot.local/
-```
-
-При первом входе браузер может предупредить о локальном сертификате. Для
-постоянного доверия импортируйте сертификат `/etc/nginx/certs/bot.local.pem`
-на администраторский компьютер или замените его сертификатом вашей локальной CA.
-
-## 5. Настройка Binance и AI
-
-Секреты находятся только в:
-
-```text
-/home/bot/apps/binance_bot/.env
-```
-
-Откройте файл:
+Secrets belong only in `/home/bot/apps/binance_bot/.env`:
 
 ```bash
 sudo -u bot nano /home/bot/apps/binance_bot/.env
 ```
 
-Для безопасного начала заполните Testnet-блок:
+Start with Testnet:
 
-```env
+```dotenv
 BINANCE_TESTNET_API_KEY=...
 BINANCE_TESTNET_API_SECRET=...
 BINANCE_TESTNET_API_BASE=https://testnet.binance.vision
-
 BOT_LIVE_CONFIRMED=NO
 AI_ADVISOR_ENABLE=1
 AI_MODE=SHADOW
@@ -185,249 +102,150 @@ AI_PROVIDER=deepseek
 DEEPSEEK_API_KEY=...
 ```
 
-После запуска переключатель `Включить AI` / `Выключить AI` доступен в карточке
-AI на `https://bot.local/`. Он меняет только advisory-слой и начинает работать
-при следующем runtime-проверочном цикле супервизора; Risk Manager остаётся
-обязательным. Если AI не настроен или control-файл повреждён, кнопка остаётся
-недоступной либо AI отключается автоматически.
-
-Права файла:
-
 ```bash
 sudo chown bot:bot /home/bot/apps/binance_bot/.env
 sudo chmod 600 /home/bot/apps/binance_bot/.env
 ```
 
-Для дашборда Binance-ключ не обязателен. Если нужен расчёт equity по аккаунту,
-используйте отдельный read-only ключ без `TRADE`:
+Use a separate read-only Binance key for dashboard equity:
 
 ```bash
 sudo -u bot nano /home/bot/apps/binance_bot/.env.dashboard
 ```
 
-```env
+```dotenv
 DASHBOARD_BINANCE_API_KEY=...
 DASHBOARD_BINANCE_API_SECRET=...
 ```
 
-Не копируйте торговый Mainnet-ключ в `.env.dashboard`.
+Never copy a trading Mainnet key into `.env.dashboard`.
 
-### Telegram-оповещения
-
-Новый конфигурационный файл доступен только сервису и root:
+### Telegram alerts
 
 ```bash
 sudo install -o root -g bot -m 0640 /dev/null /etc/ladder-dragon/telegram.env
 sudo nano /etc/ladder-dragon/telegram.env
 ```
 
-```env
+```dotenv
 TELEGRAM_ALERTS_ENABLED=1
 TELEGRAM_BOT_TOKEN=...
 TELEGRAM_CHAT_ID=...
 ```
 
-При миграции старый `/etc/bot-alerts.env` переносится автоматически и остаётся
-совместимым. Circuit Breaker и ошибки исполнения сначала записываются локально,
-затем отправляют причину в Telegram; недоступность Telegram не снимает halt.
+The legacy `/etc/bot-alerts.env` is migrated when present. Circuit-breaker and
+execution failures remain fail-closed if Telegram is unavailable.
 
-Проверить наличие конфигурации без вывода секрета:
+Verify configuration without printing values:
 
 ```bash
-sudo awk -F= '/^(TELEGRAM_ALERTS_ENABLED|TELEGRAM_BOT_TOKEN|TELEGRAM_CHAT_ID|BOT_TOKEN|CHAT_ID)=/ {print $1 "=" (length($2) ? "<задан>" : "<пусто>")}' /etc/ladder-dragon/telegram.env
+sudo awk -F= '/^(TELEGRAM_ALERTS_ENABLED|TELEGRAM_BOT_TOKEN|TELEGRAM_CHAT_ID)=/ {print $1 "=" (length($2) ? "<set>" : "<empty>")}' /etc/ladder-dragon/telegram.env
 ```
 
-`https://bot.local/backups/` требует dashboard Basic Auth. В нём доступны только
-зашифрованные `.tgz.age`, checksum и inventory; токены и расшифрованные env туда
-не попадают.
+## 5. Select the execution mode
 
-### Watchdog
+Systemd mode is stored separately in `.env.service`:
 
-Установщик и updater устанавливают `/usr/local/bin/pi-watchdog_v3.sh` и
-управляемые unit/timer. Watchdog проверяет `/run/mybot/ai_status.json` и сеть;
-legacy-поиск `1.8_autosize_universal.py` удалён. Здоровый `mybot` не
-перезапускается. После трёх последовательных неуспешных heartbeat-проверок
-выполняется restart и отправляется Telegram-уведомление.
-
-## 6. Выбор режима запуска
-
-Режим systemd хранится отдельно от секретов:
-
-```text
-/home/bot/apps/binance_bot/.env.service
-```
-
-После чистой установки:
-
-```env
+```dotenv
 BOT_SERVICE_VENUE=testnet
 BOT_SERVICE_EXECUTION=dry
 BOT_SERVICE_SYMBOLS=SOLUSDT,ETHUSDT,TONUSDT
 ```
 
-### Testnet DRY
-
-```env
-BOT_SERVICE_VENUE=testnet
-BOT_SERVICE_EXECUTION=dry
-```
-
-### Testnet LIVE
-
-Сначала в `.env`:
-
-```env
-BOT_LIVE_CONFIRMED=YES
-```
-
-Затем в `.env.service`:
-
-```env
-BOT_SERVICE_VENUE=testnet
-BOT_SERVICE_EXECUTION=live
-```
-
-Перезапуск:
+Testnet LIVE requires both `BOT_LIVE_CONFIRMED=YES` in `.env` and
+`BOT_SERVICE_EXECUTION=live` in `.env.service`. Mainnet LIVE requires a
+separate review of filters, balance, CAP, reserve, protection, and circuit state.
 
 ```bash
 sudo systemctl restart mybot
+sudo systemctl is-active mybot pi-healthd nginx
 ```
 
-Перед Mainnet LIVE обязательны Testnet smoke/soak, проверка circuit breaker,
-лимитов, времени, API permissions и ручное изучение итоговой конфигурации.
-
-## 7. Проверка установки
+## 6. Verify the installation
 
 ```bash
 cd /home/bot/apps/binance_bot
 sudo bash deploy/update_raspberry_pi.sh check
-
-sudo systemctl is-enabled mybot pi-healthd nginx ladder-dragon-backup.timer
-sudo systemctl is-active mybot pi-healthd nginx ladder-dragon-backup.timer
-
 sudo journalctl -u mybot -n 100 --no-pager
 sudo journalctl -u pi-healthd -n 50 --no-pager
+curl -sk -u dashboard https://bot.local/api/health
+curl -sk -u dashboard https://bot.local/api/ai/status
 ```
 
-Проверка версии:
+The dashboard API listens only on `127.0.0.1`; port `8081` must not be exposed.
+
+## 7. Run Testnet smoke and recovery checks
 
 ```bash
-sudo -u bot /home/bot/apps/binance_bot/.venv/bin/python \
-  /home/bot/apps/binance_bot/bin/ai_supervisor.py --version
+sudo systemctl stop mybot
+sudo -u bot env PYTHONPATH=. .venv/bin/python -m pytest -q
+sudo -u bot env PYTHONPATH=. .venv/bin/python \
+  binance_testnet_smoke.py --mode public --symbol SOLUSDT
+sudo -u bot env PYTHONPATH=. .venv/bin/python \
+  binance_testnet_smoke.py --mode authenticated --symbol SOLUSDT
+sudo systemctl start mybot
 ```
 
-Проверка API через nginx:
+The optional lifecycle check uses a minimal isolated Testnet position:
 
 ```bash
-curl -k -u dashboard https://bot.local/api/health
+BOT_TESTNET_BUY_OCO_CONFIRMED=YES \
+sudo -u bot env PYTHONPATH=. .venv/bin/python \
+  binance_testnet_smoke.py --mode buy-oco-restart --symbol SOLUSDT
 ```
 
-`8081` не должен быть доступен с другого компьютера: FastAPI слушает только
-`127.0.0.1`.
+It verifies BUY fill, OCO legs, restart reconciliation, and cleanup. The
+circuit-drill mode is isolated from production halt files.
 
-## 8. Обычное обновление
+## 8. Normal updates
 
-Используйте одну команду:
+Always update a reviewed exact commit:
 
 ```bash
 cd /home/bot/apps/binance_bot
-RELEASE_SHA="<40-символьный SHA проверенного коммита>"
+RELEASE_SHA="<40-character-reviewed-SHA>"
 sudo bash deploy/update_raspberry_pi.sh update "$RELEASE_SHA"
 ```
 
-Updater автоматически:
+The updater creates an encrypted backup, records service state, stops services,
+applies only the requested fast-forward SHA, installs dependencies, updates
+nginx/frontend/systemd, runs validation, starts services, and waits for a fresh
+heartbeat. It preserves `.env`, `.env.dashboard`, venue, execution mode, symbols,
+and open orders.
 
-1. создаёт закрытый backup;
-2. запоминает активность и автозапуск сервисов;
-3. останавливает `mybot` и `pi-healthd`;
-4. применяет только указанный fast-forward commit SHA;
-5. обновляет Python-зависимости;
-6. обновляет nginx, frontend и systemd;
-7. проверяет Python и nginx;
-8. запускает сервисы;
-9. ждёт свежий `RUNNING` heartbeat;
-10. проверяет закрытость API без авторизации.
-
-Testnet/Mainnet, DRY/LIVE, символы и секреты updater не сбрасывает.
-
-После обновления:
+Use `apply` only when Git is already at the desired commit:
 
 ```bash
-sudo bash deploy/update_raspberry_pi.sh check
-sudo journalctl -u mybot -n 100 --no-pager
-```
-
-## 9. Режим `apply`
-
-Если Git уже обновлён вручную и нужно только применить файлы:
-
-```bash
-cd /home/bot/apps/binance_bot
 sudo bash deploy/update_raspberry_pi.sh apply
 ```
 
-`apply` не выполняет `git pull` и `pip install`, но безопасно останавливает и
-запускает сервисы, обновляет nginx/systemd/frontend и проверяет heartbeat.
+## 9. Backups and external storage
 
-## 10. Резервные копии
-
-Автоматические архивы:
-
-```text
-/var/lib/ladder-dragon/backups
-```
-
-Создать архив вручную:
+Encrypted application backups are stored in `/var/lib/ladder-dragon/backups`:
 
 ```bash
 sudo systemctl start ladder-dragon-backup.service
-sudo journalctl -u ladder-dragon-backup -n 50 --no-pager
+sudo journalctl -u ladder-dragon-backup.service -n 50 --no-pager
 sudo ls -lh /var/lib/ladder-dragon/backups
 ```
 
-Архивы содержат env-файлы и являются секретными. Не публикуйте их через nginx,
-облако с открытой ссылкой или публичный Git.
+For an external disk, configure `/etc/ladder-dragon/backup.env`:
 
-### Внешний диск для резервных копий
-
-Основной backup по умолчанию остаётся на SD-карте в
-`/var/lib/ladder-dragon/backups`. Для подключённого диска сначала проверьте
-его постоянную точку монтирования (`lsblk -f`, `findmnt`), затем задайте в
-`/etc/ladder-dragon/backup.env`:
-
-```text
+```dotenv
 BACKUP_EXTERNAL_MOUNT=/mnt/usb1
 BACKUP_EXTERNAL_DIR=/mnt/usb1/ladder-dragon-backups
 BACKUP_EXTERNAL_RETENTION_DAYS=90
 ```
 
-Сервис зеркалирует на внешний диск весь доступный набор age-зашифрованных
-архивов (включая `preinstall-*`), checksum и безопасные inventory-файлы. При
-каждом запуске исторические архивы из локального каталога также сверяются и
-докопируются, поэтому после миграции зеркало восстанавливается автоматически.
-Если `/mnt/usb1` не смонтирован, backup завершается с
-ошибкой и не записывает данные в одноимённый каталог на SD-карте. После
-изменения конфигурации:
+The service mirrors encrypted archives, checksums, and safe inventory files. It
+fails rather than writing to an unmounted path. Mount the disk by UUID or label
+in `/etc/fstab`, never by a transient `/dev/sda1` path.
 
-```bash
-sudo systemctl daemon-reload
-sudo systemctl start ladder-dragon-backup.service
-sudo systemctl status ladder-dragon-backup.service --no-pager -l
-```
+`https://bot.local/backups/` exposes only encrypted archives, checksums, and safe
+inventory through Basic Auth. Local/public retention is 14 days; external
+retention follows `BACKUP_EXTERNAL_RETENTION_DAYS`.
 
-Checksum формируется с относительным именем архива и проверяется командой
-`sha256sum -c` прямо на внешнем диске. Через `/backups/` публикуются все
-`*.tgz.age`, их checksum и безопасные inventory, включая `preinstall-*`.
-Незашифрованные legacy-файлы остаются закрытыми. Локальный и публичный каталоги используют
-14-дневную ротацию, внешний диск — значение
-`BACKUP_EXTERNAL_RETENTION_DAYS` (по умолчанию 90 дней).
-
-Не используйте `/dev/sda1` напрямую в конфигурации: точка монтирования должна
-быть защищена записью в `/etc/fstab` по UUID.
-
-## 11. Защищённые ротационные логи
-
-Журналы доступны под тем же Basic Auth, что и dashboard:
+## 10. Sanitized logs and watchdog
 
 ```text
 https://bot.local/logs/
@@ -435,106 +253,43 @@ https://bot.local/logs/current.log
 https://bot.local/logs/status.json
 ```
 
-Экспорт обновляется каждую минуту. `current.log` содержит последние строки,
-а дневные файлы имеют формат `mybot-YYYY-MM-DD.log`.
+The exporter runs every minute, retains seven days, limits files to 5 MiB, and
+redacts authorization headers, API keys, secrets, tokens, and Binance signatures.
+Raw journal APIs remain disabled.
 
-Время в HTTP-каталогах `/logs/` и `/backups/` показывается в локальной timezone
-Raspberry. Имена backup-файлов сохраняют UTC-метку для однозначной сортировки;
-например, `09:53 UTC` соответствует `14:53` в Алматы.
+The watchdog checks network access and fresh supervisor heartbeat. It restarts
+the service only after three consecutive failed checks. Duplicate Telegram alerts
+are suppressed, and offline alerts are queued in `/var/lib/pi-watchdog/telegram-outbox`.
 
-По умолчанию:
+## 11. Migration and troubleshooting
 
-- срок хранения — 7 дней;
-- максимум одного файла — 5 МБ;
-- старые дневные файлы удаляются автоматически;
-- запись происходит атомарно;
-- `Authorization`, API keys, secrets, tokens и Binance `signature` заменяются
-  на `<redacted>`;
-- сырой `/api/bot/logs` остаётся выключенным.
-
-Проверка таймера:
+Audit or migrate an existing installation before changing it:
 
 ```bash
-sudo systemctl status ladder-dragon-log-export.timer --no-pager
-sudo systemctl start ladder-dragon-log-export.service
-sudo ls -lh /var/lib/ladder-dragon/logs
-```
-
-Доступ к `/logs/` без имени пользователя и пароля должен возвращать HTTP `401`.
-Журнал помогает находить ошибки, оценивать решения стратегии и формировать
-гипотезы, но сам по себе не доказывает прибыльность. Изменения стратегии нужно
-проверять Testnet, backtest/walk-forward и сравнением с buy-and-hold.
-
-## 12. Миграция старой Raspberry Pi
-
-Для старой установки используйте:
-
-```bash
-cd /home/bot/apps/binance_bot
 sudo bash deploy/install_raspberry_pi.sh audit
 sudo bash deploy/install_raspberry_pi.sh migrate
 ```
 
-Миграция:
+Migration preserves project/systemd/nginx data, moves env and SQLite files,
+disables legacy launchers, protects backups, and converts detected LIVE to DRY.
+`--preserve-live` is allowed only after manual review and `BOT_LIVE_CONFIRMED=YES`.
 
-- сохраняет старый project/systemd/nginx;
-- переносит env и SQLite;
-- удаляет legacy CLI и номерной executor из запуска;
-- переносит `/opt/pi-dashboard` в закрытое legacy-хранилище;
-- закрывает публичные backup;
-- переводит обнаруженный LIVE в DRY.
-
-Сохранять LIVE при миграции можно только после ручной проверки:
-
-```bash
-sudo bash deploy/install_raspberry_pi.sh migrate --preserve-live
-```
-
-Для этого в `.env` уже должно быть:
-
-```env
-BOT_LIVE_CONFIRMED=YES
-```
-
-## 13. Типовые ошибки
-
-### `Permission denied (publickey)`
-
-Проверьте Deploy Key:
+For GitHub `Permission denied (publickey)`, verify the deploy key and remote:
 
 ```bash
 sudo -u bot ssh -T git@github.com
 sudo -u bot git -C /home/bot/apps/binance_bot remote -v
 ```
 
-### Binance `-2015 Invalid API-key, IP, or permissions`
+For Binance `-2015` or `-2014`, verify Testnet/Mainnet, IP allow-list, API
+permissions, and that the dashboard key is not used for trading.
 
-Проверьте:
-
-- выбран ли правильный Testnet/Mainnet ключ;
-- разрешён ли IP Raspberry Pi;
-- включены ли нужные permissions;
-- ключ дашборда не используется торговым процессом;
-- не перепутаны HMAC secret и API key.
-
-### `bot.local` не открывается
+For `bot.local` failures, check mDNS, nginx, TLS, and service status:
 
 ```bash
-systemctl status avahi-daemon nginx pi-healthd
-getent hosts bot.local
+sudo systemctl status nginx mybot pi-healthd --no-pager
 sudo nginx -t
 ```
 
-Если клиент не поддерживает mDNS, используйте IP Raspberry Pi или добавьте
-локальную DNS-запись.
-
-### Бот не запускается после обновления
-
-```bash
-sudo systemctl status mybot --no-pager
-sudo journalctl -u mybot -n 200 --no-pager
-sudo cat /run/mybot/ai_status.json
-```
-
-Не включайте Mainnet LIVE, пока `update_raspberry_pi.sh check` и preflight не
-завершаются успешно.
+Do not reset a persistent circuit halt until the account, open orders, ledger,
+and position protection have been reconciled manually.

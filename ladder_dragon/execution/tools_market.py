@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 # Copyright (c) 2026 IURII Potekhin / Ladder Dragon. All rights reserved.
-# Purpose: keep the file role and safety boundaries clear during maintenance.
+# Purpose: implement the tools market component of the execution layer.
 """
 tools_market.py — утилиты для Binance Spot API (исправленная версия, 2025-08-24)
 

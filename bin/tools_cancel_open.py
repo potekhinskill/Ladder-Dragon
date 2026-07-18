@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 # Copyright (c) 2026 IURII Potekhin / Ladder Dragon. All rights reserved.
-# Purpose: keep the file role and safety boundaries clear during maintenance.
+# Purpose: cancel open orders with explicit safeguards.
 
 import os, hmac, time, hashlib, argparse, urllib.parse, json, re
 import requests

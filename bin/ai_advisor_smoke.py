@@ -1,12 +1,7 @@
 #!/usr/bin/env python3
 # Copyright (c) 2026 IURII Potekhin / Ladder Dragon. All rights reserved.
-# Purpose: keep the file role and safety boundaries clear during maintenance.
-"""Безопасный smoke-тест AI-рекомендателя без подключения к Binance.
-
-Скрипт отправляет модели несколько синтетических рыночных контекстов, прогоняет
-ответы через ту же строгую схему, что и супервизор, и проверяет, что AI не может
-увеличить CAP, разрешённый Risk Manager.
-"""
+# Purpose: exercise advisory decisions without placing orders.
+"""English documentation."""
 
 from __future__ import annotations
 
@@ -119,7 +114,7 @@ SCENARIOS = (
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        description="Smoke-тест AI-рекомендателя без Binance и ордеров"
+        description="Smoke-English AI-English English Binance English English"
     )
     parser.add_argument(
         "--provider",

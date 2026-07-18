@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # Copyright (c) 2026 IURII Potekhin / Ladder Dragon. All rights reserved.
-# Purpose: keep the file role and safety boundaries clear during maintenance.
+# Purpose: run historical strategy simulations.
 """CSV backtest with fees, slippage, latency and buy-and-hold comparison."""
 
 import argparse

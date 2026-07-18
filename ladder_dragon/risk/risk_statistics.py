@@ -1,5 +1,5 @@
 # Copyright (c) 2026 IURII Potekhin / Ladder Dragon. All rights reserved.
-# Purpose: keep the file role and safety boundaries clear during maintenance.
+# Purpose: implement the risk statistics component of the risk layer.
 """Pure portfolio statistics used by risk checks and stress tests."""
 
 from __future__ import annotations

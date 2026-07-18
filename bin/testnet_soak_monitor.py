@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # Copyright (c) 2026 IURII Potekhin / Ladder Dragon. All rights reserved.
-# Purpose: keep the file role and safety boundaries clear during maintenance.
+# Purpose: monitor a long-running Spot Testnet session.
 """Read-only Binance Spot Testnet safety monitor for long soak runs."""
 
 from __future__ import annotations

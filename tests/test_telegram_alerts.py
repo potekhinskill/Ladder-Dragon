@@ -44,7 +44,7 @@ def test_send_message_posts_json_without_logging_secret(tmp_path, monkeypatch):
     assert "secret-token" in captured["url"]
     assert captured["body"]["chat_id"] == "123"
     assert captured["body"]["text"] == (
-        "Ladder Dragon: circuit_breaker\nПричина: daily loss exceeded"
+        "Ladder Dragon: circuit_breaker\nReason: daily loss exceeded"
     )
 
 

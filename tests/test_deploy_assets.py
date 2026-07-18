@@ -18,11 +18,21 @@ def test_production_code_has_copyright_and_english_maintenance_note():
     paths += list((ROOT / "deploy").glob("*.service"))
     paths += list((ROOT / "deploy").glob("*.timer"))
     paths += list((ROOT / "FRONT").glob("*.html"))
-    paths += [ROOT / "FastAPI/pi-dashboard/app.py"]
+    paths += [ROOT / "FRONT/locales.js", ROOT / "FastAPI/pi-dashboard/app.py"]
     for path in paths:
         source = path.read_text()
         assert "Copyright (c) 2026 IURII Potekhin / Ladder Dragon" in source
         assert "Purpose:" in source or "purpose:" in source
+
+
+def test_maintenance_headers_are_specific_not_boilerplate():
+    phrase = "Purpose: keep the file role and safety boundaries clear during maintenance."
+    paths = list(ROOT.glob("*.py"))
+    paths += list((ROOT / "bin").glob("*.py")) + list((ROOT / "bin").glob("*.sh"))
+    paths += list((ROOT / "deploy").glob("*"))
+    paths += list((ROOT / "ladder_dragon").rglob("*.py"))
+    paths += [ROOT / "FRONT/index.html", ROOT / "FRONT/locales.js"]
+    assert all(phrase not in path.read_text() for path in paths if path.is_file())
 
 
 def test_dashboard_launcher_uses_absolute_project_app_path():
@@ -58,7 +68,8 @@ def test_nginx_requires_auth_and_publishes_only_encrypted_backups():
 def test_dashboard_uses_ladder_dragon_branding():
     index = read("FRONT/index.html")
     assert "<title>🧪 Ladder Dragon</title>" in index
-    assert "<h1>🧪 Ladder Dragon</h1>" in index
+    assert "<h1>Ladder Dragon</h1>" in index
+    assert 'src="/ladder-dragon-logo.svg"' in index
     assert "Pi Dashboard" not in index
 
 
@@ -68,9 +79,18 @@ def test_public_license_and_financial_disclaimer_are_explicit():
     readme = read("README.md")
     assert "MIT License" in license_text
     assert "IURII Potekhin / Ladder Dragon" in license_text
-    assert "не является финансовой" in disclaimer
-    assert "потерю денег" in disclaimer
+    assert "not financial, investment" in disclaimer
+    assert "losses, including loss of money" in disclaimer
     assert "DISCLAIMER.md" in readme
+
+
+def test_public_project_contact_is_documented_not_runtime_data():
+    readme = read("README.md")
+    copyright_text = read("COPYRIGHT.md")
+    assert "potekhin.skill@gmail.com" in readme
+    assert "potekhin.skill@gmail.com" in copyright_text
+    assert "potekhin.skill@gmail.com" not in read("FRONT/index.html")
+    assert "potekhin.skill@gmail.com" not in read(".env.example")
 
 
 def test_intro_document_and_logo_cover_supported_platforms():
@@ -83,6 +103,8 @@ def test_intro_document_and_logo_cover_supported_platforms():
     assert "WSL2" in intro
     assert "BOT_LIVE_CONFIRMED=NO" in intro
     assert "<svg" in logo and "Ladder Dragon" in logo
+    assert 'viewBox="0 0 120 120"' in logo
+    assert 'id="drg"' in logo
     assert "docs/INTRODUCTION.md" in readme
 
 
@@ -116,7 +138,35 @@ def test_dashboard_publishes_version_and_changelog():
     assert '"changelog_url": "/CHANGELOG.md"' in app
     assert '"product": {"name": PRODUCT_NAME, "version": __version__}' in app
     assert '"${PROJECT_DIR}/CHANGELOG.md" /var/www/bot/' in installer
-    assert 'FRONT/index.html FRONT/help.html CHANGELOG.md' in updater
+    assert '"${PROJECT_DIR}/docs/assets/ladder-dragon-logo.svg"' in installer
+    assert 'FRONT/index.html FRONT/help.html FRONT/locales.js docs/assets/ladder-dragon-logo.svg CHANGELOG.md' in updater
+
+
+def test_dashboard_localization_has_all_supported_languages_and_is_deployed():
+    index = read("FRONT/index.html")
+    locales = read("FRONT/locales.js")
+    installer = read("deploy/install_raspberry_pi.sh")
+    updater = read("deploy/update_raspberry_pi.sh")
+    for locale in ("en", "ru", "zh", "es", "de", "fr", "it", "kk", "uk", "ko", "ja", "pt", "et", "fi", "da"):
+        assert f'["{locale}"' in locales
+    assert '<script src="/locales.js"></script>' in index
+    assert 'id="language-select"' in index
+    assert "localStorage.getItem(LOCALE_KEY)" in index
+    assert "localStorage.setItem(LOCALE_KEY,CURRENT_LOCALE)" in index
+    assert "LOCALES.translations[storedLocale]" in index
+    assert '"${PROJECT_DIR}/FRONT/locales.js"' in installer
+    assert '"${PROJECT_DIR}/docs/assets/ladder-dragon-logo.svg"' in installer
+    assert "FRONT/index.html FRONT/help.html FRONT/locales.js docs/assets/ladder-dragon-logo.svg CHANGELOG.md" in updater
+    assert 'src="/ladder-dragon-logo.svg"' in index
+    assert 'id="ops-platform"' in index
+
+
+def test_dashboard_health_has_portable_host_and_optional_raspberry_telemetry():
+    app = read("FastAPI/pi-dashboard/app.py")
+    assert 'def _host_snapshot()' in app
+    assert '"host": _host_snapshot()' in app
+    assert '"supported": False' in app
+    assert 'platform.system()' in app
 
 
 def test_dashboard_publishes_read_only_account_balances():
@@ -272,7 +322,7 @@ def test_portable_system_tuning_avoids_copying_legacy_firewall_rules():
 
 def test_raspberry_runbook_covers_install_update_and_private_github():
     runbook = read("docs/RASPBERRY_PI_INSTALL.md")
-    assert "Deploy Key" in runbook
+    assert "deploy key" in runbook
     assert "git@github.com:potekhinskill/Ladder-Dragon.git" in runbook
     assert "install_raspberry_pi.sh install" in runbook
     assert "update_raspberry_pi.sh update" in runbook

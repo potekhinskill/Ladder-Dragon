@@ -1,0 +1,45 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="840" height="420" viewBox="0 0 840 420">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#242938"></stop><stop offset="1" stop-color="#121420"></stop>
+    </linearGradient>
+    <linearGradient id="drg" x1="0" y1="1" x2="1" y2="0">
+      <stop offset="0" stop-color="#FF6B3D"></stop><stop offset="0.55" stop-color="#F5375A"></stop><stop offset="1" stop-color="#E7194B"></stop>
+    </linearGradient>
+    <linearGradient id="eye" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#FFE066"></stop><stop offset="1" stop-color="#F0B90B"></stop>
+    </linearGradient>
+    <linearGradient id="chart" x1="0" y1="1" x2="1" y2="0">
+      <stop offset="0" stop-color="#F0B90B"></stop><stop offset="1" stop-color="#FFE066"></stop>
+    </linearGradient>
+    <radialGradient id="glow" cx="0.5" cy="0.5" r="0.5">
+      <stop offset="0" stop-color="#F5375A" stop-opacity="0.35"></stop><stop offset="1" stop-color="#F5375A" stop-opacity="0"></stop>
+    </radialGradient>
+    <linearGradient id="txt" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#FF6B3D"></stop><stop offset="1" stop-color="#E7194B"></stop>
+    </linearGradient>
+  </defs>
+  <rect width="840" height="420" rx="36" fill="url(#bg)"></rect>
+  <circle cx="160" cy="120" r="110" fill="#F0B90B" opacity="0.07"></circle>
+  <circle cx="660" cy="130" r="130" fill="url(#glow)"></circle>
+  
+  <g stroke-linecap="round" stroke-linejoin="round">
+    <path d="M70 250 H130 V200 H190 V150 H250 V100 H300" fill="none" stroke="url(#chart)" stroke-width="14"></path>
+    <path d="M300 100 L282 78 M300 100 L322 82 M300 100 L318 118" stroke="#FFE066" stroke-width="0" fill="none"></path>
+    <path d="M304 64 L336 96 L292 104 Z" fill="#FFE066"></path>
+    <circle cx="70" cy="250" r="8" fill="#F0B90B"></circle>
+    <circle cx="130" cy="225" r="0" fill="none"></circle>
+  </g>
+  
+  <path d="M70 250 H330 M70 200 H330 M70 150 H330 M70 100 H330" stroke="#FFFFFF" opacity="0.06" stroke-width="2"></path>
+  
+  <g transform="translate(480,40) scale(2.3)">
+    <path d="M30 92 L30 70 L43 70 L43 50 L56 50 L56 32 L76 23 L94 33 L108 48 L93 53 L102 64 L78 68 L66 92 Z" fill="url(#drg)"></path>
+    <path d="M73 24 L60 7 L86 15 Z" fill="url(#drg)"></path>
+    <path d="M83 34 L89 40 L83 46 L77 40 Z" fill="url(#eye)"></path>
+    <path d="M30 70 H43 M43 50 H56" stroke="#121420" stroke-width="3"></path>
+  </g>
+  
+  <text x="420" y="345" text-anchor="middle" font-family="Sora, &#39;Segoe UI&#39;, sans-serif" font-weight="800" font-size="52" letter-spacing="6" fill="#E8EAED">LADDER <tspan fill="url(#txt)">DRAGON</tspan></text>
+  <text x="420" y="384" text-anchor="middle" font-family="Sora, &#39;Segoe UI&#39;, sans-serif" font-weight="600" font-size="16" letter-spacing="7" fill="#9AA3B2">ADAPTIVE SPOT TRADING SYSTEM</text>
+</svg>

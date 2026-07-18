@@ -1,5 +1,5 @@
 # Copyright (c) 2026 IURII Potekhin / Ladder Dragon. All rights reserved.
-# Purpose: keep the file role and safety boundaries clear during maintenance.
+# Purpose: implement the executor runtime component of the execution layer.
 """Планировщик жизненного цикла долгоживущего символьного исполнителя."""
 
 from __future__ import annotations

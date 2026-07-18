@@ -1,5 +1,5 @@
 # Copyright (c) 2026 IURII Potekhin / Ladder Dragon. All rights reserved.
-# Purpose: keep the file role and safety boundaries clear during maintenance.
+# Purpose: implement the time safety component of the execution layer.
 """Network-aware exchange clock validation for LIVE preflight."""
 
 from __future__ import annotations

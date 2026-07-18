@@ -111,6 +111,6 @@ def test_watchdog_queues_alerts_offline_and_reports_network_recovery(tmp_path):
     _run_watchdog(tmp_path, bindir, curl_log, curl_fail=False)
     texts = _telegram_texts(curl_log)
     assert any("Telegram connection restored" in text for text in texts)
-    assert any("Отложенное уведомление" in text for text in texts)
+    assert any("Queued notification" in text for text in texts)
     assert any("network recovered" in text for text in texts)
     assert not list(outbox.glob("*.msg"))

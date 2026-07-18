@@ -1,26 +1,24 @@
-# Дисклеймер Ladder Dragon
+# Ladder Dragon disclaimer
 
-Ladder Dragon — программное обеспечение для исследований, симуляции и
-автоматизации взаимодействия с биржей. Проект не является финансовой,
-инвестиционной, брокерской, налоговой или юридической рекомендацией и не
-гарантирует прибыль, сохранность капитала, доступность биржи или корректность
-рыночных данных.
+Ladder Dragon is software for research, simulation, and automated exchange
+interaction. It is not financial, investment, brokerage, tax, or legal advice.
+It does not guarantee profit, capital preservation, exchange availability, or
+the accuracy of market data.
 
-Любой запуск, включая DRY, Testnet и LIVE, пользователь выполняет на свой
-риск и под свою ответственность. Пользователь самостоятельно отвечает за:
+You run every mode, including DRY, Testnet, and LIVE, at your own risk and
+responsibility. You are solely responsible for:
 
-- API-ключи, права доступа, IP-ограничения и безопасность хоста;
-- выбор режима, параметров, лимитов, символов и размера капитала;
-- проверку ордеров, fills, OCO/STOP, баланса и состояния Risk Manager;
-- соблюдение законодательства, правил биржи и налоговых обязанностей.
+- API keys, permissions, IP restrictions, and host security;
+- the selected mode, parameters, limits, symbols, and capital size;
+- checking orders, fills, OCO/STOP protection, balances, and Risk Manager state;
+- complying with applicable law, exchange rules, and tax obligations.
 
-Авторы и контрибьюторы не обещают отсутствие ошибок, задержек, проскальзывания,
-рассинхронизации, отказов API, потери связи, убытков или потери данных. В
-максимальной степени, допускаемой применимым правом, авторы и контрибьюторы не
-несут ответственности за прямые, косвенные, случайные, особые, штрафные или
-последующие убытки, включая потерю денег, прибыли, данных или доступа к счёту.
+Authors and contributors do not promise the absence of errors, delays, slippage,
+desynchronization, API failures, connection loss, losses, or data loss. To the
+maximum extent permitted by applicable law, authors and contributors are not
+liable for direct, indirect, incidental, special, punitive, or consequential
+losses, including loss of money, profit, data, or account access.
 
-Никакой текст этого документа не исключает ответственность, которую нельзя
-исключить по обязательным нормам применимого права. Перед использованием в
-LIVE или предоставлением сервиса третьим лицам получите консультацию юриста в
-соответствующей юрисдикции.
+Nothing in this document excludes liability that cannot be excluded under
+mandatory applicable law. Before using LIVE or providing the service to third
+parties, obtain legal advice in the relevant jurisdiction.

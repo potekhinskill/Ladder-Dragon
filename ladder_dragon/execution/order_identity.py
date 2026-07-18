@@ -1,5 +1,5 @@
 # Copyright (c) 2026 IURII Potekhin / Ladder Dragon. All rights reserved.
-# Purpose: keep the file role and safety boundaries clear during maintenance.
+# Purpose: implement the order identity component of the execution layer.
 """Deterministic Binance client-order identifiers for retry idempotency."""
 
 from __future__ import annotations

@@ -1,5 +1,5 @@
 # Copyright (c) 2026 IURII Potekhin / Ladder Dragon. All rights reserved.
-# Purpose: keep the file role and safety boundaries clear during maintenance.
+# Purpose: implement the ai statistical component of the ai layer.
 """Минимальная трёхклассовая logistic regression без внешних ML-зависимостей."""
 
 from __future__ import annotations

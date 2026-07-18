@@ -1,5 +1,5 @@
 # Copyright (c) 2026 IURII Potekhin / Ladder Dragon. All rights reserved.
-# Purpose: keep the file role and safety boundaries clear during maintenance.
+# Purpose: implement the market replay component of the strategy layer.
 """Минимальный event-driven replay для записанных стаканов и trade prints.
 
 Это отдельный слой над OHLC simulator: он не подменяет Binance, но позволяет
