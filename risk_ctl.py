@@ -8,8 +8,8 @@ import json
 
 from dotenv import load_dotenv
 
-from risk_manager import RiskLimits, RiskManager
-from venue_config import apply_testnet_paths
+from ladder_dragon.risk.risk_manager import RiskLimits, RiskManager
+from ladder_dragon.execution.venue_config import apply_testnet_paths
 
 
 def main() -> int:

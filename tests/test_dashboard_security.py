@@ -6,8 +6,8 @@ from datetime import datetime, timedelta, timezone
 
 import pytest
 from fastapi.testclient import TestClient
-from ai_runtime_status import write_runtime_status
-from ai_context import AdvisorDecisionStore
+from ladder_dragon.ai.ai_runtime_status import write_runtime_status
+from ladder_dragon.ai.ai_context import AdvisorDecisionStore
 
 
 def load_dashboard(monkeypatch):

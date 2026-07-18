@@ -2,7 +2,7 @@
 
 Приватный Python-проект для управления лестничной торговлей на Binance Spot. Бот строит адаптивные сетки BUY/SELL, учитывает ATR, EMA и VWAP, управляет OCO-ордерами и сохраняет торговую статистику в SQLite.
 
-Текущая версия продукта: **2.9.9**. Ladder Dragon использует [Semantic Versioning](https://semver.org/); единственный источник версии — `product_version.py`. Проверить установленную версию можно командой `python ai_supervisor.py --version`.
+Текущая версия продукта: **2.10.32**. Ladder Dragon использует [Semantic Versioning](https://semver.org/); единственный источник версии — `product_version.py`. Проверить установленную версию можно командой `python ai_supervisor.py --version`.
 
 > [!WARNING]
 > Проект работает с реальными биржевыми ордерами. Это не инвестиционная рекомендация. DRY является режимом по умолчанию, а любые изменяющие Binance-запросы дополнительно блокируются на уровне транспорта. Тем не менее перед Mainnet LIVE обязателен отдельный прогон на Binance Spot Testnet и ручная проверка лимитов.
@@ -21,36 +21,23 @@
 
 ## Архитектура
 
-| Компонент | Назначение |
+Корень содержит только CLI-точки входа, конфигурацию и документацию. Переиспользуемая
+логика находится в пакете `ladder_dragon` и разделена по ответственности:
+
+| Каталог | Назначение |
 | --- | --- |
-| `ai_supervisor.py` | Главный orchestration loop, очистка ордеров, position guard и запуск воркеров |
-| `ai_advisor.py` | Изолированный LLM-рекомендатель со строгой схемой, диапазонами и fail-safe fallback |
-| `ai_context.py` | Агрегаты истории/рынка и раздельная оценка прошлых AI-рекомендаций |
-| `ai_policy.py` | Детерминированный safety-шлюз, shadow/A-B, бюджеты и числовой benchmark |
-| `ai_statistical.py` | Локальная трёхклассовая logistic regression на накопленной shadow-истории |
-| `autosize_universal.py` | Координация исполнения BUY/SELL/OCO для отдельного символа |
-| `supervisor_config.py`, `executor_config.py` | Построение строгих CLI и проверка конфигурации процессов |
-| `strategy_math.py` | Чистая математика лестниц, EMA, ATR, ADX и panic-сигналов |
-| `binance_transport.py` | Fail-closed HTTP, подпись Binance, DRY-gate и retry/backoff |
-| `executor_market.py` | Чтение цен, балансов и base/quote активов с fallback и кэшем |
-| `executor_orders.py` | Идемпотентное размещение LIMIT/OCO и fail-closed восстановление ACK |
-| `executor_planning.py` | Чистое планирование BUY/SELL: кандидаты, лимиты, guard-цены и размеры заявок |
-| `executor_protection.py` | Сопровождение исполненных BUY, создание OCO/fallback TP и breakeven re-arm |
-| `executor_runtime.py` | Жизненный цикл торгового воркера: длительность, остановка и периодические тики |
-| `executor_recovery.py` | Query/cancel ордеров, проверка OCO и восстановление после рестарта |
-| `executor_stats.py` | Импорт `/myTrades` и точная оценка комиссий в quote-активе |
-| `tools_market.py` | Binance HTTP API, подпись запросов, цены, свечи и торговые фильтры |
-| `tools_stats.py` | Хранение сделок и агрегатов в SQLite |
-| `risk_manager.py`, `risk_ctl.py` | Постоянный circuit breaker, портфельные лимиты и ручной reset |
-| `order_identity.py`, `order_recovery.py` | Идемпотентные ID, persistent order-intents и восстановление после рестартов |
-| `binance_testnet_smoke.py` | Изолированный Spot Testnet preflight и create/query/cancel smoke |
-| `simulation.py`, `backtest.py` | Decimal-симулятор с комиссиями, проскальзыванием и walk-forward |
-| `auto_ladder_map.py` | Генерация лестницы по режиму рынка |
-| `gen_vwap_env.py` | Расчёт базовых VWAP-параметров |
-| `gen_vwap_autotune.py` | Подстройка VWAP по FIFO PnL |
-| `pnl_24h.py`, `pnl_reporter.py` | Расчёт и экспорт PnL |
-| `FastAPI/pi-dashboard/app.py` | API системного и торгового дашборда |
+| `ladder_dragon/ai/` | AI advisory, контекст, политика, RAG и runtime-статус |
+| `ladder_dragon/execution/` | Binance transport, ордера, OCO/STOP, recovery, fills, комиссии и inventory |
+| `ladder_dragon/risk/` | Circuit breaker, portfolio CAP, VaR/Expected Shortfall и risk gates |
+| `ladder_dragon/strategy/` | Лестницы, EMA/ATR/ADX, simulation и order-book replay |
+| `FastAPI/pi-dashboard/` | Read-only API и локальные данные dashboard |
 | `FRONT/` | Статический интерфейс и встроенная документация |
+| `deploy/` | Raspberry/systemd/nginx/backup/deploy-сценарии |
+| `tests/` | Unit и live-regression тесты |
+
+Главные CLI-файлы в корне (`ai_supervisor.py`, `autosize_universal.py`, smoke и
+report-команды) оставлены на прежних путях, чтобы не ломать systemd и инструкции
+обновления Raspberry.
 
 ## Требования
 

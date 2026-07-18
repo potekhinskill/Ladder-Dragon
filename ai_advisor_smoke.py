@@ -16,7 +16,7 @@ import os
 from dotenv import load_dotenv
 import requests
 
-from ai_advisor import (
+from ladder_dragon.ai.ai_advisor import (
     AIAdvisor,
     AdvisorConfig,
     MarketContext,

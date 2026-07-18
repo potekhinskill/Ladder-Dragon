@@ -5,7 +5,7 @@ import sqlite3
 
 import pytest
 
-from risk_manager import (
+from ladder_dragon.risk.risk_manager import (
     RiskLimits,
     RiskManager,
     RiskSnapshot,

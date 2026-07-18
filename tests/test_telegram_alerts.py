@@ -1,8 +1,6 @@
 import json
 
-import telegram_alerts
-
-
+from ladder_dragon.execution import telegram_alerts
 def test_legacy_config_is_supported_without_exposing_values(tmp_path, monkeypatch):
     config = tmp_path / "telegram.env"
     config.write_text(

@@ -11,7 +11,7 @@ import json
 from pathlib import Path
 from typing import Iterable, Optional
 
-from ai_advisor import MarketContext, StrategyRecommendation
+from ladder_dragon.ai.ai_advisor import MarketContext, StrategyRecommendation
 
 
 AI_MODES = {"DISABLED", "SHADOW", "APPLY"}

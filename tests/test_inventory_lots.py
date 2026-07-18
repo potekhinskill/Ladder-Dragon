@@ -1,7 +1,7 @@
 import sqlite3
 from decimal import Decimal
 
-from inventory_lots import add_lot, consume_fifo, ensure_schema, oldest_lots, lot_for_order
+from ladder_dragon.execution.inventory_lots import add_lot, consume_fifo, ensure_schema, oldest_lots, lot_for_order
 
 
 def test_fifo_lots_preserve_age_and_ladder_level():

@@ -29,8 +29,8 @@ import math
 import hashlib
 import requests
 from typing import Dict, Tuple, List, Optional, Any
-from exchange_math import normalized_order_values, round_step
-from telegram_alerts import notify_binance_auth_error
+from ladder_dragon.execution.exchange_math import normalized_order_values, round_step
+from ladder_dragon.execution.telegram_alerts import notify_binance_auth_error
 
 # --- .env (опционально) ---
 from pathlib import Path
@@ -42,7 +42,7 @@ except ModuleNotFoundError:
     pass
 else:
     # 1) сначала пробуем .env рядом с текущим файлом
-    env_path = (Path(__file__).resolve().parent / ".env")
+    env_path = (Path(__file__).resolve().parents[2] / ".env")
     if env_path.exists():
         load_dotenv(dotenv_path=env_path, override=False)
     else:

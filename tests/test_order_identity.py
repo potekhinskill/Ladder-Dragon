@@ -1,4 +1,4 @@
-from order_identity import client_order_id
+from ladder_dragon.execution.order_identity import client_order_id
 
 
 def test_client_order_id_is_stable_inside_retry_bucket():

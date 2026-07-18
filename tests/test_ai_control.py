@@ -3,7 +3,7 @@ import stat
 
 import pytest
 
-from ai_control import read_ai_control, write_ai_control
+from ladder_dragon.ai.ai_control import read_ai_control, write_ai_control
 
 
 def test_ai_control_is_atomic_versioned_and_private(tmp_path):

@@ -29,7 +29,7 @@ from dotenv import load_dotenv
 load_dotenv()
 
 # общий модуль работы с Binance
-import tools_market as TM
+from ladder_dragon.execution import tools_market as TM
 from product_version import product_label
 
 

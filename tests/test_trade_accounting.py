@@ -6,9 +6,9 @@ import sqlite3
 import pytest
 
 import pnl_24h
-import tools_stats
-from risk_manager import load_daily_trade_metrics
-from trade_accounting import TradeExecution, UnpricedCommission, replay_average_cost
+from ladder_dragon.execution import tools_stats
+from ladder_dragon.risk.risk_manager import load_daily_trade_metrics
+from ladder_dragon.execution.trade_accounting import TradeExecution, UnpricedCommission, replay_average_cost
 
 
 def load_worker():

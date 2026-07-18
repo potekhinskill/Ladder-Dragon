@@ -26,8 +26,8 @@ from binance_testnet_smoke import (
     symbol_assets,
     symbol_rules,
 )
-from exchange_math import decimal
-from venue_config import apply_testnet_paths
+from ladder_dragon.execution.exchange_math import decimal
+from ladder_dragon.execution.venue_config import apply_testnet_paths
 
 
 RUN = True

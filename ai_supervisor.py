@@ -26,33 +26,33 @@ from decimal import Decimal
 from pathlib import Path
 from typing import Any, Dict, List, Mapping, Optional, Tuple
 
-from ai_advisor import (
+from ladder_dragon.ai.ai_advisor import (
     AIAdvisor,
     AdvisorConfig,
     MarketContext,
     limit_cap_by_recommendation,
 )
-from ai_context import (
+from ladder_dragon.ai.ai_context import (
     AdvisorDecisionStore,
     build_market_features,
     build_portfolio_features,
     context_hash,
     load_trade_features,
 )
-from ai_knowledge import KnowledgeStore
-from ai_policy import (
+from ladder_dragon.ai.ai_knowledge import KnowledgeStore
+from ladder_dragon.ai.ai_policy import (
     PolicyConfig,
     UsageBudget,
     apply_safety_policy,
     read_usage_today,
     usage_budget_allows,
 )
-from ai_statistical import context_vector
-from ai_runtime_status import write_runtime_status
-from ai_control import read_ai_control
-from order_identity import client_order_id
-from risk_manager import RiskDecision, RiskLimits, RiskManager, RiskSnapshot, load_daily_trade_metrics, money
-from risk_statistics import (
+from ladder_dragon.ai.ai_statistical import context_vector
+from ladder_dragon.ai.ai_runtime_status import write_runtime_status
+from ladder_dragon.ai.ai_control import read_ai_control
+from ladder_dragon.execution.order_identity import client_order_id
+from ladder_dragon.risk.risk_manager import RiskDecision, RiskLimits, RiskManager, RiskSnapshot, load_daily_trade_metrics, money
+from ladder_dragon.risk.risk_statistics import (
     correlated_symbols_multi_window as derive_correlated_symbols_multi_window,
     covariance_var,
     expected_shortfall,
@@ -61,18 +61,18 @@ from risk_statistics import (
     marginal_risk_contribution,
     stress_loss,
 )
-from executor_stats import commission_quote_value, poll_mytrades_once
-import tools_stats
-from inventory_lots import add_lot, consume_fifo, ensure_schema
-from time_safety import assess_exchange_clock
-from venue_config import apply_testnet_paths
+from ladder_dragon.execution.executor_stats import commission_quote_value, poll_mytrades_once
+from ladder_dragon.execution import tools_stats
+from ladder_dragon.execution.inventory_lots import add_lot, consume_fifo, ensure_schema
+from ladder_dragon.execution.time_safety import assess_exchange_clock
+from ladder_dragon.execution.venue_config import apply_testnet_paths
 from product_version import __version__, product_label, user_agent
-from strategy_math import adx_from_klines as _adx_from_klines
-from strategy_math import clamp, ema_series as _ema_series
-from strategy_math import geometric_ladder as build_ladder_pct
-from strategy_math import split_ladder
-from strategy_math import RegimeHysteresis
-from strategy_math import NumericHysteresis
+from ladder_dragon.strategy.strategy_math import adx_from_klines as _adx_from_klines
+from ladder_dragon.strategy.strategy_math import clamp, ema_series as _ema_series
+from ladder_dragon.strategy.strategy_math import geometric_ladder as build_ladder_pct
+from ladder_dragon.strategy.strategy_math import split_ladder
+from ladder_dragon.strategy.strategy_math import RegimeHysteresis
+from ladder_dragon.strategy.strategy_math import NumericHysteresis
 from supervisor_config import build_supervisor_parser, validate_supervisor_args
 
 try:
@@ -83,7 +83,7 @@ except Exception:
 
 # >>> tools_market integration
 try:
-    import tools_market as TM  # важное: используем общее подписание и klines с фолбэком
+    from ladder_dragon.execution import tools_market as TM  # важное: используем общее подписание и klines с фолбэком
 except Exception as e:
     print(f"[FATAL] cannot import tools_market: {e}", flush=True)
     raise
@@ -2045,7 +2045,7 @@ def _preflight_live(args: argparse.Namespace, symbols: List[str], limits: RiskLi
         raise RuntimeError("BOT_STATS_DB is required for fail-closed LIVE mode")
     # LIVE cross-quote valuation обязана подтверждать глубину стакана.
     os.environ["RISK_CONVERSION_DEPTH_REQUIRED"] = "1"
-    import tools_stats
+    from ladder_dragon.execution import tools_stats
     con = tools_stats.init_db(stats_db)
     try:
         con.execute("SELECT 1 FROM trades LIMIT 1").fetchall()

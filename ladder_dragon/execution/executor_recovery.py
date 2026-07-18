@@ -9,7 +9,7 @@ from typing import Any, Callable, Dict, List, Optional
 
 import requests
 
-from order_recovery import OrderIntent, OrderJournal
+from ladder_dragon.execution.order_recovery import OrderIntent, OrderJournal
 
 
 def http_error_code(exc: requests.HTTPError) -> Optional[int]:

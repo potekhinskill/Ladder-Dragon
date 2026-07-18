@@ -2,8 +2,8 @@ from datetime import datetime, timezone
 from decimal import Decimal
 import json
 
-from ai_advisor import AdvisorConfig, MarketContext, StrategyRecommendation
-from ai_policy import (
+from ladder_dragon.ai.ai_advisor import AdvisorConfig, MarketContext, StrategyRecommendation
+from ladder_dragon.ai.ai_policy import (
     PolicyConfig,
     UsageBudget,
     UsageToday,

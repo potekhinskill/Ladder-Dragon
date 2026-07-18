@@ -14,8 +14,8 @@ from pathlib import Path
 import sqlite3
 from typing import List, Dict, Optional, Tuple
 
-from ai_runtime_status import read_runtime_status
-from ai_control import read_ai_control, write_ai_control
+from ladder_dragon.ai.ai_runtime_status import read_runtime_status
+from ladder_dragon.ai.ai_control import read_ai_control, write_ai_control
 from product_version import PRODUCT_NAME, __version__
 
 try:
@@ -23,7 +23,7 @@ try:
 except Exception:
     requests = None
 
-from telegram_alerts import notify_binance_auth_error
+from ladder_dragon.execution.telegram_alerts import notify_binance_auth_error
 
 APP_TZ = ZoneInfo("Asia/Almaty")
 BASE_DIR = Path(__file__).resolve().parent

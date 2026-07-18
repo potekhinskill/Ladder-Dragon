@@ -1,6 +1,6 @@
 import pytest
 
-from time_safety import assess_exchange_clock
+from ladder_dragon.execution.time_safety import assess_exchange_clock
 
 
 def test_clock_check_accounts_for_network_uncertainty():

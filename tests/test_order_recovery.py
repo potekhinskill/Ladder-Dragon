@@ -1,4 +1,4 @@
-from order_recovery import OrderJournal
+from ladder_dragon.execution.order_recovery import OrderJournal
 
 
 def test_journal_reuses_active_intent_and_records_exchange_state(tmp_path):

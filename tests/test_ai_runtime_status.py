@@ -1,7 +1,7 @@
 import json
 import stat
 
-from ai_runtime_status import read_runtime_status, write_runtime_status
+from ladder_dragon.ai.ai_runtime_status import read_runtime_status, write_runtime_status
 
 
 def test_runtime_status_is_atomic_private_and_versioned(tmp_path):

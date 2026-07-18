@@ -2,8 +2,8 @@ import json
 import sqlite3
 import time
 
-from ai_context import AdvisorDecisionStore
-from ai_knowledge import KnowledgeStore, cosine_similarity
+from ladder_dragon.ai.ai_context import AdvisorDecisionStore
+from ladder_dragon.ai.ai_knowledge import KnowledgeStore, cosine_similarity
 
 
 def test_knowledge_store_ingests_only_evaluated_decisions_and_retrieves(tmp_path):

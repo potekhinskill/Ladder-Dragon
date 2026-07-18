@@ -8,7 +8,7 @@ import csv
 from decimal import Decimal
 import json
 
-from simulation import Candle, SimulationConfig, simulate_grid
+from ladder_dragon.strategy.simulation import Candle, SimulationConfig, simulate_grid
 
 
 def main() -> int:

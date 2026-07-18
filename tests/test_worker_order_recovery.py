@@ -3,7 +3,7 @@ from pathlib import Path
 
 import requests
 
-from order_recovery import OrderJournal
+from ladder_dragon.execution.order_recovery import OrderJournal
 
 
 def load_worker():

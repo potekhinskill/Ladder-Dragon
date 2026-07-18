@@ -28,7 +28,7 @@ from decimal import Decimal
 from typing import Optional, Tuple, Dict, Iterable, Any
 
 from db_migrate import migrate
-from trade_accounting import TradeExecution, decimal, decimal_text, replay_average_cost
+from ladder_dragon.execution.trade_accounting import TradeExecution, decimal, decimal_text, replay_average_cost
 
 # ==========================
 # Конфиг через переменные
