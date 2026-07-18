@@ -264,6 +264,7 @@ class AIAdvisor:
                     latency_ms=(time.monotonic() - started) * 1000,
                     outcome="low_confidence",
                     rationale=recommendation.rationale,
+                    rejection_reason="confidence_below_threshold",
                 )
                 self.logger(
                     f"[AI-ADVISOR] {context.symbol} ignored: confidence "
@@ -289,6 +290,7 @@ class AIAdvisor:
                 usage,
                 latency_ms=(time.monotonic() - started) * 1000,
                 outcome="error",
+                rejection_reason=type(exc).__name__,
             )
             self.logger(
                 f"[AI-ADVISOR] {context.symbol} unavailable: {exc}; "
@@ -376,6 +378,7 @@ class AIAdvisor:
         latency_ms: float,
         outcome: str,
         rationale: str = "",
+        rejection_reason: str = "",
     ) -> None:
         """Записать технический расход без промпта, ответа и торговых данных."""
         if not self.config.usage_log_path:
@@ -407,6 +410,7 @@ class AIAdvisor:
             ),
             "decision_id": self._last_decision_id,
             "rationale": rationale[:MAX_RATIONALE_CHARS],
+            "rejection_reason": rejection_reason[:240],
             "context_version": "ai-context-v2",
             "context_hash": hashlib.sha256(
                 json.dumps(asdict(context), ensure_ascii=False, sort_keys=True, default=str).encode("utf-8")

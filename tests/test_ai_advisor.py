@@ -284,6 +284,7 @@ def test_deepseek_usage_is_logged_without_prompt_or_response(tmp_path):
     assert event["completion_tokens"] == 40
     assert event["estimated_cost_usd"] == "0.0000323400"
     assert event["rationale"] == "Trend confirmed."
+    assert event["rejection_reason"] == ""
     assert event["context_version"] == "ai-context-v2"
     assert len(event["context_hash"]) == 64
     assert "api_key" not in event
