@@ -16,7 +16,7 @@ dependencies = [
 [project.optional-dependencies]
 dashboard = [
   "fastapi==0.116.1",
-  "psutil==7.0.0",
+  "psutil==7.2.2",
   "uvicorn==0.35.0",
 ]
 test = [
