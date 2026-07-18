@@ -3,6 +3,23 @@
 All notable changes are documented here. Releases use Semantic Versioning; every
 section is dated and there is intentionally no `Unreleased` section.
 
+## [2.10.64] — 2026-07-19
+
+### Fixed
+- The LIVE-confirmation subprocess test now explicitly masks production `.env`
+  confirmation and runtime-path values. Raspberry test runs therefore verify
+  the intended argument-parser rejection instead of attempting to write under
+  `/run/mybot/testnet`.
+
+### Verified
+- The regression test is executed with inherited production-like
+  `BOT_LIVE_CONFIRMED=YES` and `BOT_TESTNET_RUN_DIR=/run/mybot/testnet` values.
+- `PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=. .venv/bin/python -m pytest -q` — 223 tests pass.
+- `.venv/bin/python -m pip check` — no broken requirements; `pip-audit
+  --skip-editable` — no known vulnerabilities.
+- Python compilation, deployment shell syntax, tracked-secret scan, and
+  `git diff --check` pass.
+
 ## [2.10.63] — 2026-07-19
 
 ### Fixed

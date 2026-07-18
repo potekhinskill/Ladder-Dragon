@@ -389,9 +389,15 @@ def test_dry_supervisor_refuses_missing_worker_file():
     assert "--base-script does not exist" in result.stderr
 
 
-def test_live_requires_explicit_confirmation(monkeypatch):
+def test_live_requires_explicit_confirmation(monkeypatch, tmp_path):
     env = dict(**__import__("os").environ)
-    env.pop("BOT_LIVE_CONFIRMED", None)
+    # An explicit empty value prevents python-dotenv from reloading the
+    # production confirmation from .env inside the subprocess. Keep every
+    # runtime path in the pytest sandbox as an additional fail-closed guard.
+    env["BOT_LIVE_CONFIRMED"] = ""
+    env["BOT_RUN_DIR"] = str(tmp_path)
+    env["BOT_TESTNET_RUN_DIR"] = str(tmp_path / "testnet")
+    env["AI_RUNTIME_STATUS_FILE"] = str(tmp_path / "ai_status.json")
     result = subprocess.run(
         [
             sys.executable,
@@ -408,3 +414,4 @@ def test_live_requires_explicit_confirmation(monkeypatch):
     )
     assert result.returncode == 2
     assert "BOT_LIVE_CONFIRMED=YES" in result.stderr
+    assert "Permission denied" not in result.stderr
