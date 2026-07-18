@@ -114,6 +114,7 @@ def test_dashboard_publishes_read_only_open_orders():
     assert '"client_order_id"' in app
     assert '"remaining_qty"' in app
     assert 'open orders snapshot failed' in app
+    assert 'executed_qty > 0 and requested_qty > 0 and executed_qty < requested_qty' in app
 
 
 def test_dashboard_balance_filter_hides_small_assets_by_default():
