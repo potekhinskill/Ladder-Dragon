@@ -45,6 +45,34 @@ def test_health_exposes_product_version_and_changelog(monkeypatch):
     assert payload["changelog_url"] == "/CHANGELOG.md"
 
 
+def test_account_balances_exposes_read_only_assets_without_secrets(monkeypatch):
+    monkeypatch.setenv("DASHBOARD_BINANCE_API_KEY", "read-only-key")
+    monkeypatch.setenv("DASHBOARD_BINANCE_API_SECRET", "read-only-secret")
+    module = load_dashboard(monkeypatch)
+    monkeypatch.setattr(module, "_signed", lambda method, path, params=None: {
+        "balances": [
+            {"asset": "USDT", "free": "331.09", "locked": "0"},
+            {"asset": "SOL", "free": "3.75", "locked": "0.01"},
+            {"asset": "MONKY", "free": "74339", "locked": "0"},
+        ]
+    })
+    monkeypatch.setattr(module, "_pub_get", lambda path, params=None: [
+        {"symbol": "SOLUSDT", "price": "75.0"},
+    ])
+    with TestClient(module.app) as client:
+        response = client.get(
+            "/api/account/balances",
+            headers={"Authorization": "Bearer test-secret-token"},
+        )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert abs(payload["total_value_usdt"] - (331.09 + round(3.76 * 75.0, 2))) < 1e-9
+    assert payload["assets"][0]["asset"] == "USDT"
+    assert "MONKY" in payload["unvalued_assets"]
+    assert "read-only-secret" not in response.text
+
+
 def test_ai_control_button_changes_only_advisory_mode(tmp_path, monkeypatch):
     status_file = tmp_path / "ai_status.json"
     control_file = tmp_path / "ai_control.json"

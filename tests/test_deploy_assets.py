@@ -58,6 +58,16 @@ def test_dashboard_publishes_version_and_changelog():
     assert 'FRONT/index.html FRONT/help.html CHANGELOG.md' in updater
 
 
+def test_dashboard_publishes_read_only_account_balances():
+    index = read("FRONT/index.html")
+    app = read("FastAPI/pi-dashboard/app.py")
+    assert 'id="balance-body"' in index
+    assert 'getJSON(\'/api/account/balances\')' in index
+    assert '@app.get("/api/account/balances")' in app
+    assert '"valuation_status": "priced"' in app
+    assert 'dashboard API credentials are read-only by design' in app
+
+
 def test_dashboard_charts_have_bounded_responsive_containers():
     index = read("FRONT/index.html")
     assert "grid-template-columns:repeat(2,minmax(0,1fr))" in index
