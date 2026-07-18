@@ -1,0 +1,38 @@
+<!-- Copyright (c) 2026 IURII Potekhin / Ladder Dragon. All rights reserved. -->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 960 540" role="img" aria-labelledby="title desc">
+  <title id="title">Ladder Dragon</title>
+  <desc id="desc">A colorful dragon curled around a trading ladder.</desc>
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#091329"/><stop offset=".55" stop-color="#18224a"/><stop offset="1" stop-color="#3a164b"/>
+    </linearGradient>
+    <linearGradient id="dragon" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#ffcf5a"/><stop offset=".45" stop-color="#ff7b54"/><stop offset="1" stop-color="#ed3c7c"/>
+    </linearGradient>
+    <linearGradient id="ladder" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#63e6ff"/><stop offset="1" stop-color="#4d8dff"/>
+    </linearGradient>
+    <filter id="glow" x="-30%" y="-30%" width="160%" height="160%"><feGaussianBlur stdDeviation="13" result="blur"/><feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge></filter>
+    <filter id="shadow" x="-20%" y="-20%" width="140%" height="140%"><feDropShadow dx="0" dy="12" stdDeviation="12" flood-color="#020617" flood-opacity=".55"/></filter>
+  </defs>
+  <rect width="960" height="540" rx="54" fill="url(#bg)"/>
+  <circle cx="744" cy="126" r="104" fill="#fd4f9a" opacity=".14" filter="url(#glow)"/>
+  <circle cx="176" cy="420" r="116" fill="#3ddcff" opacity=".10" filter="url(#glow)"/>
+  <g fill="none" stroke="url(#ladder)" stroke-linecap="round" filter="url(#shadow)">
+    <path d="M176 108 L132 413 M304 108 L260 413" stroke-width="20"/>
+    <path d="M160 157 L286 157 M151 215 L277 215 M143 274 L269 274 M135 333 L261 333 M127 391 L253 391" stroke-width="14"/>
+  </g>
+  <g fill="#b6f5ff"><circle cx="176" cy="108" r="11"/><circle cx="304" cy="108" r="11"/><circle cx="132" cy="413" r="11"/><circle cx="260" cy="413" r="11"/></g>
+  <g fill="none" stroke="url(#dragon)" stroke-linecap="round" stroke-linejoin="round" filter="url(#shadow)">
+    <path d="M680 134 C770 94 856 146 844 226 C833 304 716 327 644 275 C586 233 595 152 675 139 C736 129 775 170 760 213 C742 263 664 254 650 206" stroke-width="31"/>
+    <path d="M646 204 C605 190 568 166 552 132 C582 144 607 145 631 132" stroke-width="25"/>
+    <path d="M558 131 L522 104 L537 153 M595 151 L570 104 L619 133 M757 132 L808 91 L791 151" stroke-width="13"/>
+    <path d="M805 245 C851 263 879 295 861 338 C846 373 797 384 765 358" stroke-width="21"/>
+  </g>
+  <circle cx="625" cy="171" r="7" fill="#fff"/><circle cx="626" cy="171" r="3" fill="#15203e"/>
+  <g font-family="Inter,Segoe UI,Arial,sans-serif" fill="#f8fbff">
+    <text x="360" y="408" font-size="57" font-weight="800" letter-spacing="1">LADDER</text>
+    <text x="360" y="468" font-size="57" font-weight="800" letter-spacing="1" fill="#ff9a67">DRAGON</text>
+    <text x="365" y="500" font-size="15" letter-spacing="4" fill="#9bb4df">ADAPTIVE SPOT TRADING SYSTEM</text>
+  </g>
+</svg>
