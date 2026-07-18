@@ -108,6 +108,14 @@ def test_dashboard_switches_use_binance_style_visual_state():
     assert ".ai-toggle:focus-visible .switch-visual" in index
 
 
+def test_ai_recommendation_is_compact_two_column_layout():
+    index = read("FRONT/index.html")
+    assert ".ai-details{display:grid;grid-template-columns:repeat(2,minmax(0,1fr))" in index
+    assert ".ai-details .row" in index
+    assert '@media (max-width:700px){.ai-details{grid-template-columns:1fr}}' in index
+    assert '<div class="ai-details">' in index
+
+
 def test_dashboard_charts_have_bounded_responsive_containers():
     index = read("FRONT/index.html")
     assert "grid-template-columns:repeat(2,minmax(0,1fr))" in index
