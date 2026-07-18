@@ -15,6 +15,8 @@ MYBOT_WAS_ACTIVE=0
 DASHBOARD_WAS_ACTIVE=0
 MYBOT_WAS_ENABLED=0
 DASHBOARD_WAS_ENABLED=0
+WATCHDOG_WAS_ACTIVE=0
+WATCHDOG_WAS_ENABLED=0
 SERVICES_STOPPED=0
 
 fail() {
@@ -37,11 +39,25 @@ remember_service_state() {
   DASHBOARD_WAS_ACTIVE="$(service_flag is-active pi-healthd)"
   MYBOT_WAS_ENABLED="$(service_flag is-enabled mybot)"
   DASHBOARD_WAS_ENABLED="$(service_flag is-enabled pi-healthd)"
+  WATCHDOG_WAS_ACTIVE="$(service_flag is-active pi-watchdog-v3.timer)"
+  WATCHDOG_WAS_ENABLED="$(service_flag is-enabled pi-watchdog-v3.timer)"
 }
 
 restore_autostart() {
-  # Both components form one control loop and must survive a reboot.
-  systemctl enable mybot pi-healthd >/dev/null
+  # Preserve the administrator's boot policy instead of silently enabling units.
+  local unit state
+  for unit in mybot pi-healthd pi-watchdog-v3.timer; do
+    case "${unit}" in
+      mybot) state="${MYBOT_WAS_ENABLED}" ;;
+      pi-healthd) state="${DASHBOARD_WAS_ENABLED}" ;;
+      pi-watchdog-v3.timer) state="${WATCHDOG_WAS_ENABLED}" ;;
+    esac
+    if [[ "${state}" == "1" ]]; then
+      systemctl enable "${unit}" >/dev/null
+    else
+      systemctl disable "${unit}" >/dev/null
+    fi
+  done
 }
 
 start_previous_services() {
@@ -52,7 +68,29 @@ start_previous_services() {
   if [[ "${DASHBOARD_WAS_ACTIVE}" == "1" ]]; then
     systemctl start pi-healthd
   fi
-  SERVICES_STOPPED=0
+  # A watchdog must never revive a bot that was intentionally stopped.
+  if [[ "${MYBOT_WAS_ACTIVE}" == "1" && "${WATCHDOG_WAS_ACTIVE}" == "1" ]]; then
+    systemctl start pi-watchdog-v3.timer
+  fi
+}
+
+verify_previous_service_state() {
+  local unit expected
+  for unit in mybot pi-healthd; do
+    case "${unit}" in
+      mybot) expected="${MYBOT_WAS_ACTIVE}" ;;
+      pi-healthd) expected="${DASHBOARD_WAS_ACTIVE}" ;;
+    esac
+    if [[ "${expected}" == "1" ]]; then
+      wait_for_service "${unit}" 90
+    elif systemctl is-active --quiet "${unit}"; then
+      fail "${unit} was stopped before update but became active"
+    fi
+  done
+  if [[ "${MYBOT_WAS_ACTIVE}" == "0" ]] \
+    && systemctl is-active --quiet pi-watchdog-v3.timer; then
+    fail "watchdog timer is active while the previously stopped bot remains stopped"
+  fi
 }
 
 recover_after_failure() {
@@ -201,6 +239,7 @@ trap recover_after_failure ERR INT TERM
 SERVICES_STOPPED=1
 systemctl stop mybot
 systemctl stop pi-healthd
+systemctl stop pi-watchdog-v3.timer
 
 if [[ "${ACTION}" == "update" ]]; then
   [[ -z "$(runuser -u "${BOT_USER}" -- git status --porcelain --untracked-files=no)" ]] \
@@ -365,11 +404,9 @@ systemctl daemon-reload
 systemctl disable --now make-pi-backup.timer make-pi-backup.service 2>/dev/null || true
 restore_autostart
 systemctl enable ladder-dragon-backup.timer ladder-dragon-log-export.timer \
-  pi-watchdog-v3.timer >/dev/null
-systemctl start mybot
-systemctl start pi-healthd
+  >/dev/null
+start_previous_services
 systemctl start ladder-dragon-backup.timer
-systemctl start pi-watchdog-v3.timer
 systemctl start ladder-dragon-backup.service
 systemctl start ladder-dragon-log-export.service ladder-dragon-log-export.timer
 systemctl restart systemd-journald
@@ -377,12 +414,17 @@ systemctl try-restart fail2ban || true
 systemctl try-restart zramswap || true
 systemctl reload nginx
 
-wait_for_service mybot 90
-wait_for_service pi-healthd 90
-wait_for_heartbeat 120
+verify_previous_service_state
+if [[ "${MYBOT_WAS_ACTIVE}" == "1" ]]; then
+  wait_for_heartbeat 120
+fi
 test -r /var/lib/ladder-dragon/logs/current.log || fail "log export failed"
 grep -q '^DASHBOARD_AUTH_TOKEN=replace_' "${DASHBOARD_ENV}" \
   && fail "placeholder dashboard token remains"
-check_link
+if [[ "${MYBOT_WAS_ACTIVE}" == "1" && "${DASHBOARD_WAS_ACTIVE}" == "1" ]]; then
+  check_link
+else
+  echo "[OK] preserved service state: mybot_active=${MYBOT_WAS_ACTIVE} dashboard_active=${DASHBOARD_WAS_ACTIVE}"
+fi
 SERVICES_STOPPED=0
 trap - ERR INT TERM

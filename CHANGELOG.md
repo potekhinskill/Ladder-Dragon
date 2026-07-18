@@ -3,6 +3,24 @@
 All notable changes are documented here. Releases use Semantic Versioning; every
 section is dated and there is intentionally no `Unreleased` section.
 
+## [2.10.63] — 2026-07-19
+
+### Fixed
+- The Raspberry updater now restores the exact pre-update active and enabled
+  state of `mybot`, `pi-healthd`, and the watchdog timer instead of
+  unconditionally starting a stopped LIVE bot and dashboard.
+- The watchdog remains stopped when `mybot` was intentionally stopped before
+  an update, preventing it from reviving LIVE execution after deployment.
+
+### Verified
+- Added a deployment regression test that rejects unconditional service starts
+  and requires preservation of stopped services and watchdog state.
+- `PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=. BOT_RUN_DIR=/tmp/ladder-dragon-local-tests .venv/bin/python -m pytest -q` — 223 tests pass.
+- `.venv/bin/python -m pip check` — no broken requirements.
+- `.venv/bin/python -m pip_audit --skip-editable` — no known vulnerabilities.
+- Python compilation, deployment shell syntax, tracked-secret scan, and
+  `git diff --check` pass.
+
 ## [2.10.62] — 2026-07-19
 
 ### Security

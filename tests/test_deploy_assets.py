@@ -396,6 +396,18 @@ def test_updates_are_commit_allowlisted_and_backups_are_encrypted():
     assert "external-mount.conf" in installer
 
 
+def test_updater_preserves_stopped_services_and_does_not_arm_watchdog():
+    updater = read("deploy/update_raspberry_pi.sh")
+    assert 'MYBOT_WAS_ACTIVE="$(service_flag is-active mybot)"' in updater
+    assert 'DASHBOARD_WAS_ACTIVE="$(service_flag is-active pi-healthd)"' in updater
+    assert 'WATCHDOG_WAS_ACTIVE="$(service_flag is-active pi-watchdog-v3.timer)"' in updater
+    assert "systemctl stop pi-watchdog-v3.timer" in updater
+    assert 'if [[ "${MYBOT_WAS_ACTIVE}" == "1" && "${WATCHDOG_WAS_ACTIVE}" == "1" ]]' in updater
+    assert 'fail "${unit} was stopped before update but became active"' in updater
+    assert "systemctl start mybot\nsystemctl start pi-healthd" not in updater
+    assert "verify_previous_service_state" in updater
+
+
 def test_backup_service_allows_only_sqlite_directory_for_wal_sidecars():
     service = read("deploy/ladder-dragon-backup.service")
     backup = read("deploy/backup_raspberry_pi.sh")
