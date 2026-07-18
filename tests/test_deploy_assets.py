@@ -55,6 +55,13 @@ def test_nginx_requires_auth_and_publishes_only_encrypted_backups():
     assert 'Content-Disposition "inline"' in site
 
 
+def test_dashboard_uses_ladder_dragon_branding():
+    index = read("FRONT/index.html")
+    assert "<title>🧪 Ladder Dragon</title>" in index
+    assert "<h1>🧪 Ladder Dragon</h1>" in index
+    assert "Pi Dashboard" not in index
+
+
 def test_dashboard_publishes_version_and_changelog():
     index = read("FRONT/index.html")
     app = read("FastAPI/pi-dashboard/app.py")
