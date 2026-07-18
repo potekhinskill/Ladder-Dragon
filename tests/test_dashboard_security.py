@@ -7,6 +7,7 @@ from datetime import datetime, timedelta, timezone
 import pytest
 from fastapi.testclient import TestClient
 from ai_runtime_status import write_runtime_status
+from ai_context import AdvisorDecisionStore
 
 
 def load_dashboard(monkeypatch):
@@ -183,6 +184,33 @@ def test_open_orders_uses_short_cache_and_never_posts(monkeypatch):
         readonly_signed("POST", "/api/v3/order", {})
 
 
+def test_ai_status_exposes_decision_rationale_and_realized_summary(tmp_path, monkeypatch):
+    db = tmp_path / "ai.db"
+    store = AdvisorDecisionStore(str(db))
+    decision = store.record(
+        symbol="SOLUSDT", price=100, deterministic_mode="FLAT",
+        recommended_mode="UP", width_scale=1, cap_scale=1, confidence=.8,
+        applied=True, rationale="Тестовый rationale", policy_status="APPLIED",
+    )
+    store.record_fill(decision, symbol="SOLUSDT", side="BUY", price=100, qty=1, ts=10)
+    store.record_fill(decision, symbol="SOLUSDT", side="SELL", price=101, qty=1,
+                      exit_reason="TP", ts=20)
+    store.evaluate_execution(decision)
+    monkeypatch.setenv("AI_DECISIONS_DB", str(db))
+    module = load_dashboard(monkeypatch)
+    with TestClient(module.app) as client:
+        response = client.get(
+            "/api/ai/status",
+            headers={"Authorization": "Bearer test-secret-token"},
+        )
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["recent"][0]["decision_id"] == decision
+    assert payload["recent"][0]["rationale"] == "Тестовый rationale"
+    assert payload["knowledge_base"]["closed_decisions"] == 1
+    assert payload["knowledge_base"]["realized_net_pnl_quote"] > 0
+
+
 def test_ai_control_button_changes_only_advisory_mode(tmp_path, monkeypatch):
     status_file = tmp_path / "ai_status.json"
     control_file = tmp_path / "ai_control.json"
@@ -314,7 +342,8 @@ def test_ai_status_is_authenticated_and_contains_no_secrets(tmp_path, monkeypatc
     assert payload["state"] == "SHADOW"
     assert payload["recent"][0]["recommended_mode"] == "UP"
     assert "api_key" not in response.text.lower()
-    assert "rationale" not in response.text.lower()
+    assert payload["recent"][0]["rationale"] == ""
+    assert "deepseek_api_key" not in response.text.lower()
 
 
 def test_dashboard_follows_active_bot_venue_and_ai_paths(tmp_path, monkeypatch):

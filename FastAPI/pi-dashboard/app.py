@@ -999,7 +999,11 @@ def ai_status(limit: int = 50):
     )
     effective_mode = str(runtime_ai.get("mode") or AI_MODE).upper()
     recent = []
-    knowledge_stats = {"documents": 0, "virtual_documents": 0, "retrievals": 0}
+    knowledge_stats = {
+        "documents": 0, "virtual_documents": 0, "retrievals": 0,
+        "unresolved_fills": 0, "closed_decisions": 0,
+        "realized_net_pnl_quote": 0.0,
+    }
     db_path = _runtime_data_path(runtime, "ai_decisions_db", AI_DECISIONS_DB)
     if db_path.exists():
         try:
@@ -1012,6 +1016,7 @@ def ai_status(limit: int = 50):
                     for row in connection.execute("PRAGMA table_info(ai_decisions)")
                 }
                 expressions = {
+                    "decision_id": "decision_id" if "decision_id" in columns else "''",
                     "policy_status": (
                         "policy_status" if "policy_status" in columns else "''"
                     ),
@@ -1024,18 +1029,24 @@ def ai_status(limit: int = 50):
                     "evaluation_json": (
                         "evaluation_json" if "evaluation_json" in columns else "'{}'"
                     ),
+                    "rationale": "rationale" if "rationale" in columns else "''",
+                    "context_version": "context_version" if "context_version" in columns else "''",
+                    "config_version": "config_version" if "config_version" in columns else "''",
                 }
                 recent = [
                     dict(row)
                     for row in connection.execute(
                         f"""
-                        SELECT symbol,created_at,deterministic_mode AS baseline_mode,
+                        SELECT {expressions['decision_id']} AS decision_id,symbol,created_at,deterministic_mode AS baseline_mode,
                                recommended_mode,width_scale,cap_scale,confidence,
                                applied,{expressions['policy_status']} AS status,
                                {expressions['policy_reasons']} AS policy_reasons,
                                {expressions['benchmark_mode']} AS benchmark_mode,
                                return_15m,return_1h,return_4h,
-                               {expressions['evaluation_json']} AS evaluation_json
+                               {expressions['evaluation_json']} AS evaluation_json,
+                               {expressions['rationale']} AS rationale,
+                               {expressions['context_version']} AS context_version,
+                               {expressions['config_version']} AS config_version
                         FROM ai_decisions ORDER BY created_at DESC LIMIT ?
                         """,
                         (limit,),
@@ -1043,6 +1054,19 @@ def ai_status(limit: int = 50):
                 ]
                 for row in recent:
                     row["evaluation"] = json.loads(row.pop("evaluation_json") or "{}")
+                closed_rows = connection.execute(
+                    f"SELECT {expressions['evaluation_json']} AS evaluation_json FROM ai_decisions"
+                ).fetchall()
+                for closed_row in closed_rows:
+                    try:
+                        realized = json.loads(closed_row["evaluation_json"] or "{}").get("realized_execution", {})
+                    except (TypeError, ValueError, json.JSONDecodeError):
+                        realized = {}
+                    if isinstance(realized, dict) and realized.get("closed"):
+                        knowledge_stats["closed_decisions"] += 1
+                        knowledge_stats["realized_net_pnl_quote"] += float(
+                            realized.get("net_pnl_quote", 0) or 0
+                        )
                 tables = {
                     row["name"]
                     for row in connection.execute(
@@ -1067,6 +1091,23 @@ def ai_status(limit: int = 50):
                         connection.execute(
                             "SELECT COUNT(*) FROM knowledge_retrievals"
                         ).fetchone()[0]
+                    )
+                    for row in recent:
+                        decision_id = row.get("decision_id")
+                        if not decision_id:
+                            row["rag_documents"] = []
+                            continue
+                        row["rag_documents"] = [
+                            {"document_id": item[0], "rank": int(item[1]), "score": float(item[2])}
+                            for item in connection.execute(
+                                """SELECT document_id,rank,score FROM knowledge_retrievals
+                                   WHERE decision_id=? ORDER BY rank LIMIT 5""",
+                                (decision_id,),
+                            ).fetchall()
+                        ]
+                if "ai_unresolved_fills" in tables:
+                    knowledge_stats["unresolved_fills"] = int(
+                        connection.execute("SELECT COUNT(*) FROM ai_unresolved_fills").fetchone()[0]
                     )
         except sqlite3.Error as exc:
             return JSONResponse(
@@ -1099,6 +1140,17 @@ def ai_status(limit: int = 50):
         degraded_reasons.append("daily_budget_exhausted")
     if usage.get("recent_errors", 0) >= AI_ERROR_DEGRADED_MIN:
         degraded_reasons.append("recent_ai_errors")
+    if effective_mode == "APPLY":
+        # В APPLY отклонение production-gate — самостоятельная причина
+        # DEGRADED: модель может отвечать, но её статистика пока не допускает
+        # влияние на стратегию.
+        for row in recent:
+            if str(row.get("status", "")).upper() != "REJECTED":
+                continue
+            for reason in str(row.get("policy_reasons", "")).split(","):
+                reason = reason.strip()
+                if reason and f"policy:{reason}" not in degraded_reasons:
+                    degraded_reasons.append(f"policy:{reason}")
     if runtime_unhealthy:
         degraded_reasons.append("runtime_unhealthy")
     degraded = bool(degraded_reasons)

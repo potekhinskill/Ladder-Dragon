@@ -11,6 +11,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from decimal import Decimal
+import hashlib
 import json
 import os
 import sqlite3
@@ -24,6 +25,17 @@ from trade_accounting import TradeExecution, replay_average_cost
 
 ZERO = Decimal("0")
 HORIZONS_SEC = (900, 3600, 14_400)
+CONTEXT_SCHEMA_VERSION = "ai-context-v2"
+AI_SCHEMA_VERSION = "002_exact_ai_attribution"
+AI_SCHEMA_CHECKSUM = hashlib.sha256(AI_SCHEMA_VERSION.encode("utf-8")).hexdigest()
+
+
+def context_hash(context: Any) -> str:
+    """Стабильный hash контекста без сохранения сырого prompt/секретов."""
+    from dataclasses import asdict
+
+    payload = json.dumps(asdict(context), ensure_ascii=False, sort_keys=True, default=str)
+    return hashlib.sha256(payload.encode("utf-8")).hexdigest()
 
 
 def evaluate_realized_ai_pnl(
@@ -42,7 +54,8 @@ def evaluate_realized_ai_pnl(
     buy_notional = sum(float(f.get("price", 0) or 0) * float(f.get("qty", f.get("executedQty", 0)) or 0) for f in buys)
     sell_notional = sum(float(f.get("price", 0) or 0) * float(f.get("qty", f.get("executedQty", 0)) or 0) for f in sells)
     fees = sum(float(f.get("fee_quote", f.get("commission_quote", 0)) or 0) for f in fills)
-    net = sell_notional - buy_notional - fees
+    slippage = sum(float(f.get("slippage_quote", 0) or 0) for f in fills)
+    net = sell_notional - buy_notional - fees - slippage
     entry = baseline_entry_price or (buy_notional / bought_qty if bought_qty else None)
     exit_price = baseline_exit_price or (sell_notional / sold_qty if sold_qty else None)
     opportunity = None
@@ -50,9 +63,15 @@ def evaluate_realized_ai_pnl(
         opportunity = (exit_price - entry) * bought_qty - net
     timestamps = [float(f.get("ts", f.get("time", 0)) or 0) for f in fills if f.get("ts", f.get("time"))]
     duration = (max(timestamps) - min(timestamps)) if len(timestamps) >= 2 else None
+    exits = [str(f.get("exit_reason", "")).upper() for f in sells]
     return {"net_pnl_quote": net, "buy_qty": bought_qty, "sell_qty": sold_qty,
             "holding_duration_sec": duration, "opportunity_cost_quote": opportunity,
-            "baseline_entry_price": entry, "baseline_exit_price": exit_price}
+            "baseline_entry_price": entry, "baseline_exit_price": exit_price,
+            "fees_quote": fees, "slippage_quote": slippage,
+            "partial_fill": bool(bought_qty > 0 and 0 < sold_qty < bought_qty),
+            "exit_reasons": sorted(set(exits)),
+            "exit_reason": exits[-1] if exits else "",
+            "closed": bool(bought_qty > 0 and sold_qty >= bought_qty - 1e-12)}
 
 
 @dataclass(frozen=True)
@@ -106,6 +125,13 @@ class AdvisorPerformance:
     ai_accuracy_4h: float = 0.0
     ai_vs_baseline_samples_1h: int = 0
     ai_edge_vs_baseline_1h: float = 0.0
+    ai_closed_samples: int = 0
+    ai_realized_net_pnl_quote: float = 0.0
+    ai_realized_avg_pnl_quote: float = 0.0
+    ai_realized_stop_rate: float = 0.0
+    ai_realized_edge_ci_low: float = 0.0
+    ai_realized_edge_ci_high: float = 0.0
+    ai_unresolved_fills: int = 0
 
 
 def load_trade_features(
@@ -394,6 +420,12 @@ class AdvisorDecisionStore:
 
     def _init(self) -> None:
         with self._connect() as connection:
+            connection.execute(
+                """CREATE TABLE IF NOT EXISTS ai_schema_migrations(
+                    version TEXT PRIMARY KEY, checksum TEXT NOT NULL,
+                    applied_at INTEGER NOT NULL
+                )"""
+            )
             # Отдельная таблица fills не смешивает прогноз модели с фактом
             # исполнения и позволяет считать PnL конкретной рекомендации.
             connection.execute(
@@ -430,15 +462,36 @@ class AdvisorDecisionStore:
                     symbol TEXT NOT NULL, side TEXT NOT NULL, price REAL NOT NULL,
                     qty REAL NOT NULL, fee_quote REAL NOT NULL DEFAULT 0,
                     exit_reason TEXT NOT NULL DEFAULT '', ts INTEGER NOT NULL,
+                    order_id TEXT, trade_id TEXT, client_order_id TEXT, order_list_id TEXT,
+                    leg_type TEXT NOT NULL DEFAULT '', link_status TEXT NOT NULL DEFAULT 'resolved',
+                    slippage_quote REAL NOT NULL DEFAULT 0,
                     FOREIGN KEY(decision_id) REFERENCES ai_decisions(decision_id)
                 )"""
             )
             connection.execute("CREATE INDEX IF NOT EXISTS ai_fills_decision ON ai_fills(decision_id, ts)")
+            connection.execute(
+                "CREATE INDEX IF NOT EXISTS ai_fills_exchange_trade "
+                "ON ai_fills(order_id, trade_id) WHERE order_id IS NOT NULL AND trade_id IS NOT NULL"
+            )
+            connection.execute("""CREATE TABLE IF NOT EXISTS ai_unresolved_fills(
+                fill_key TEXT PRIMARY KEY, symbol TEXT NOT NULL, side TEXT NOT NULL,
+                order_id TEXT, trade_id TEXT, price REAL NOT NULL, qty REAL NOT NULL,
+                fee_quote REAL NOT NULL DEFAULT 0, ts INTEGER NOT NULL,
+                reason TEXT NOT NULL, created_at INTEGER NOT NULL
+            )""")
             connection.execute("""CREATE TABLE IF NOT EXISTS ai_order_links(
                 client_order_id TEXT PRIMARY KEY, decision_id TEXT NOT NULL,
                 symbol TEXT NOT NULL, lot_id INTEGER, order_type TEXT NOT NULL DEFAULT '',
+                exchange_order_id TEXT, exchange_order_list_id TEXT,
+                leg_type TEXT NOT NULL DEFAULT '', expected_price REAL,
                 created_at INTEGER NOT NULL
             )""")
+            connection.execute(
+                "CREATE INDEX IF NOT EXISTS ai_order_links_exchange_id ON ai_order_links(exchange_order_id)"
+            )
+            connection.execute(
+                "CREATE INDEX IF NOT EXISTS ai_order_links_list_id ON ai_order_links(exchange_order_list_id)"
+            )
             columns = {
                 row[1] for row in connection.execute("PRAGMA table_info(ai_decisions)")
             }
@@ -448,31 +501,101 @@ class AdvisorDecisionStore:
                 ("benchmark_mode", "TEXT NOT NULL DEFAULT ''"),
                 ("evaluation_json", "TEXT NOT NULL DEFAULT '{}'"),
                 ("feature_json", "TEXT NOT NULL DEFAULT '[]'"),
+                ("rationale", "TEXT NOT NULL DEFAULT ''"),
+                ("context_version", "TEXT NOT NULL DEFAULT 'ai-context-v1'"),
+                ("config_version", "TEXT NOT NULL DEFAULT ''"),
+                ("context_hash", "TEXT NOT NULL DEFAULT ''"),
             ):
                 if column not in columns:
                     connection.execute(
                         f"ALTER TABLE ai_decisions ADD COLUMN {column} {ddl}"
                     )
+            for table, table_columns in {
+                "ai_fills": {
+                    "order_id": "TEXT", "client_order_id": "TEXT",
+                    "trade_id": "TEXT",
+                    "order_list_id": "TEXT", "leg_type": "TEXT NOT NULL DEFAULT ''",
+                    "link_status": "TEXT NOT NULL DEFAULT 'resolved'",
+                    "slippage_quote": "REAL NOT NULL DEFAULT 0",
+                },
+                "ai_order_links": {
+                    "exchange_order_id": "TEXT", "exchange_order_list_id": "TEXT",
+                    "leg_type": "TEXT NOT NULL DEFAULT ''", "expected_price": "REAL",
+                },
+            }.items():
+                existing = {row[1] for row in connection.execute(f"PRAGMA table_info({table})")}
+                for column, ddl in table_columns.items():
+                    if column not in existing:
+                        connection.execute(f"ALTER TABLE {table} ADD COLUMN {column} {ddl}")
             connection.execute(
                 "DELETE FROM ai_decisions WHERE created_at < ?",
                 (int(time.time()) - 365 * 86_400,),
             )
+            connection.execute(
+                """INSERT OR IGNORE INTO ai_schema_migrations(
+                    version,checksum,applied_at
+                ) VALUES(?,?,?)""",
+                (AI_SCHEMA_VERSION, AI_SCHEMA_CHECKSUM, int(time.time())),
+            )
 
     def record_fill(self, decision_id: str, *, symbol: str, side: str,
                     price: float, qty: float, fee_quote: float = 0.0,
-                    exit_reason: str = "", ts: int | None = None) -> str:
+                    exit_reason: str = "", ts: int | None = None,
+                    order_id: str | int | None = None,
+                    trade_id: str | int | None = None,
+                    client_order_id: str | None = None,
+                    order_list_id: str | int | None = None,
+                    leg_type: str = "",
+                    slippage_quote: float = 0.0) -> str:
         """Привязать фактический Binance fill/OCO/stop к AI decision."""
         fill_id = uuid.uuid4().hex
         with self._connect() as connection:
             exists = connection.execute("SELECT 1 FROM ai_decisions WHERE decision_id=?", (decision_id,)).fetchone()
             if not exists:
                 raise ValueError(f"unknown AI decision: {decision_id}")
+            if order_id is not None and trade_id is not None:
+                duplicate = connection.execute(
+                    "SELECT fill_id FROM ai_fills WHERE order_id=? AND trade_id=?",
+                    (str(order_id), str(trade_id)),
+                ).fetchone()
+                if duplicate:
+                    return str(duplicate[0])
             connection.execute(
-                "INSERT INTO ai_fills(fill_id,decision_id,symbol,side,price,qty,fee_quote,exit_reason,ts) VALUES(?,?,?,?,?,?,?,?,?)",
+                """INSERT INTO ai_fills(
+                    fill_id,decision_id,symbol,side,price,qty,fee_quote,exit_reason,ts,
+                    order_id,trade_id,client_order_id,order_list_id,leg_type,link_status,slippage_quote
+                ) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
                 (fill_id, decision_id, symbol.upper(), side.upper(), float(price), float(qty),
-                 float(fee_quote), exit_reason, int(ts or time.time())),
+                 float(fee_quote), exit_reason, int(ts or time.time()),
+                 str(order_id) if order_id is not None else None,
+                 str(trade_id) if trade_id is not None else None,
+                 client_order_id,
+                 str(order_list_id) if order_list_id is not None else None,
+                 leg_type, "resolved", float(slippage_quote)),
             )
         return fill_id
+
+    def record_unresolved_fill(
+        self, *, symbol: str, side: str, price: float, qty: float,
+        fee_quote: float = 0.0, ts: int | None = None,
+        order_id: str | int | None = None, trade_id: str | int | None = None,
+        reason: str = "missing_decision_mapping",
+    ) -> str:
+        """Сохранить fill без decision, не допуская его в AI PnL."""
+        stamp = int(ts or time.time())
+        fill_key = f"{symbol.upper()}:{trade_id if trade_id is not None else order_id}:{stamp}"
+        with self._connect() as connection:
+            connection.execute(
+                """INSERT OR REPLACE INTO ai_unresolved_fills(
+                    fill_key,symbol,side,order_id,trade_id,price,qty,fee_quote,ts,reason,created_at
+                ) VALUES(?,?,?,?,?,?,?,?,?,?,?)""",
+                (fill_key, symbol.upper(), side.upper(),
+                 str(order_id) if order_id is not None else None,
+                 str(trade_id) if trade_id is not None else None,
+                 float(price), float(qty), float(fee_quote), stamp,
+                 reason[:240], int(time.time())),
+            )
+        return fill_key
 
     def latest_decision_id(self, symbol: str) -> str | None:
         """Вернуть последнюю рекомендацию символа для связывания fills."""
@@ -484,12 +607,66 @@ class AdvisorDecisionStore:
         return str(row[0]) if row else None
 
     def link_client_order(self, client_order_id: str, decision_id: str, *, symbol: str,
-                          lot_id: int | None = None, order_type: str = "") -> None:
+                          lot_id: int | None = None, order_type: str = "",
+                          exchange_order_id: str | int | None = None,
+                          exchange_order_list_id: str | int | None = None,
+                          leg_type: str = "", expected_price: float | None = None) -> None:
         """Сохранить durable mapping для recovery после рестарта."""
         with self._connect() as connection:
+            existing = connection.execute(
+                "SELECT decision_id FROM ai_order_links WHERE client_order_id=?",
+                (client_order_id,),
+            ).fetchone()
+            if existing:
+                # После рестарта новый цикл может знать только текущий
+                # decision_id. Старую связь нельзя перезаписывать: exchange
+                # order/trade уже относится к исходной рекомендации.
+                connection.execute(
+                    """UPDATE ai_order_links
+                       SET symbol=?, lot_id=COALESCE(lot_id,?),
+                           order_type=CASE WHEN order_type='' THEN ? ELSE order_type END,
+                           leg_type=CASE WHEN leg_type='' THEN ? ELSE leg_type END,
+                           expected_price=COALESCE(expected_price,?)
+                       WHERE client_order_id=?""",
+                    (symbol.upper(), lot_id, order_type, leg_type, expected_price, client_order_id),
+                )
+                return
             connection.execute(
-                "INSERT OR REPLACE INTO ai_order_links(client_order_id,decision_id,symbol,lot_id,order_type,created_at) VALUES(?,?,?,?,?,?)",
-                (client_order_id, decision_id, symbol.upper(), lot_id, order_type, int(time.time())),
+                """INSERT OR REPLACE INTO ai_order_links(
+                    client_order_id,decision_id,symbol,lot_id,order_type,
+                    exchange_order_id,exchange_order_list_id,leg_type,expected_price,created_at
+                ) VALUES(?,?,?,?,?,?,?,?,?,?)""",
+                (
+                    client_order_id, decision_id, symbol.upper(), lot_id, order_type,
+                    str(exchange_order_id) if exchange_order_id is not None else None,
+                    str(exchange_order_list_id) if exchange_order_list_id is not None else None,
+                    leg_type, expected_price, int(time.time()),
+                ),
+            )
+
+    def update_order_link(
+        self, client_order_id: str, *, exchange_order_id: str | int | None = None,
+        exchange_order_list_id: str | int | None = None, leg_type: str | None = None,
+    ) -> None:
+        """Дополнить durable mapping после подтверждения Binance POST."""
+        changes = []
+        values: list[Any] = []
+        if exchange_order_id is not None:
+            changes.append("exchange_order_id=?")
+            values.append(str(exchange_order_id))
+        if exchange_order_list_id is not None:
+            changes.append("exchange_order_list_id=?")
+            values.append(str(exchange_order_list_id))
+        if leg_type is not None:
+            changes.append("leg_type=?")
+            values.append(str(leg_type))
+        if not changes:
+            return
+        values.append(client_order_id)
+        with self._connect() as connection:
+            connection.execute(
+                f"UPDATE ai_order_links SET {', '.join(changes)} WHERE client_order_id=?",
+                values,
             )
 
     def decision_for_client_order(self, client_order_id: str) -> tuple[str, int | None] | None:
@@ -497,17 +674,66 @@ class AdvisorDecisionStore:
             row = connection.execute("SELECT decision_id,lot_id FROM ai_order_links WHERE client_order_id=?", (client_order_id,)).fetchone()
         return (str(row[0]), int(row[1]) if row[1] is not None else None) if row else None
 
+    def decision_for_exchange_order(self, order_id: str | int) -> tuple[str, str, str] | None:
+        """Найти decision по фактическому Binance orderId, без symbol fallback."""
+        with self._connect() as connection:
+            row = connection.execute(
+                """SELECT decision_id,client_order_id,leg_type
+                   FROM ai_order_links WHERE exchange_order_id=? LIMIT 1""",
+                (str(order_id),),
+            ).fetchone()
+        return (str(row[0]), str(row[1]), str(row[2] or "")) if row else None
+
+    def order_link_for_exchange_order(self, order_id: str | int) -> dict[str, Any] | None:
+        """Вернуть полную связь ордера, включая цену для расчёта slippage."""
+        with self._connect() as connection:
+            row = connection.execute(
+                """SELECT decision_id,client_order_id,leg_type,exchange_order_list_id,
+                          expected_price
+                   FROM ai_order_links WHERE exchange_order_id=? LIMIT 1""",
+                (str(order_id),),
+            ).fetchone()
+            if row is None:
+                return None
+            return {
+                "decision_id": str(row[0]), "client_order_id": str(row[1]),
+                "leg_type": str(row[2] or ""), "order_list_id": row[3],
+                "expected_price": float(row[4]) if row[4] is not None else None,
+            }
+
+    def unresolved_fill_count(self) -> int:
+        with self._connect() as connection:
+            return int(connection.execute("SELECT COUNT(*) FROM ai_unresolved_fills").fetchone()[0])
+
+    def update_policy(
+        self, decision_id: str, *, policy_status: str, policy_reasons: str,
+        benchmark_mode: str, applied: bool,
+    ) -> None:
+        with self._connect() as connection:
+            connection.execute(
+                """UPDATE ai_decisions SET applied=?,policy_status=?,policy_reasons=?,benchmark_mode=?
+                   WHERE decision_id=?""",
+                (int(applied), policy_status, policy_reasons, benchmark_mode, decision_id),
+            )
+
     def evaluate_execution(self, decision_id: str, *, baseline_exit_price: float | None = None) -> dict[str, Any]:
         """Рассчитать realized net PnL и baseline equal-notional по fills."""
         with self._connect() as connection:
             rows = connection.execute(
-                "SELECT side,price,qty,fee_quote,exit_reason,ts FROM ai_fills WHERE decision_id=? ORDER BY ts",
+                """SELECT side,price,qty,fee_quote,exit_reason,ts,order_id,
+                          trade_id,client_order_id,order_list_id,leg_type,slippage_quote
+                   FROM ai_fills WHERE decision_id=? ORDER BY ts""",
                 (decision_id,),
             ).fetchall()
             decision = connection.execute("SELECT price FROM ai_decisions WHERE decision_id=?", (decision_id,)).fetchone()
         if not decision:
             raise ValueError(f"unknown AI decision: {decision_id}")
-        fills = [{"side": r[0], "price": r[1], "qty": r[2], "fee_quote": r[3], "exit_reason": r[4], "ts": r[5]} for r in rows]
+        fills = [{
+            "side": r[0], "price": r[1], "qty": r[2], "fee_quote": r[3],
+            "exit_reason": r[4], "ts": r[5], "order_id": r[6],
+            "trade_id": r[7], "client_order_id": r[8], "order_list_id": r[9],
+            "leg_type": r[10], "slippage_quote": r[11],
+        } for r in rows]
         # Baseline использует тот же entry и объём, поэтому сравнение не
         # выигрывает искусственно за счёт другого размера позиции.
         result = evaluate_realized_ai_pnl(fills, baseline_entry_price=float(decision[0]), baseline_exit_price=baseline_exit_price)
@@ -534,6 +760,10 @@ class AdvisorDecisionStore:
         policy_reasons: str = "",
         benchmark_mode: str = "",
         feature_json: str = "[]",
+        rationale: str = "",
+        context_version: str = CONTEXT_SCHEMA_VERSION,
+        config_version: str = "",
+        context_hash_value: str = "",
         now: int | None = None,
     ) -> str:
         decision_id = uuid.uuid4().hex
@@ -544,15 +774,17 @@ class AdvisorDecisionStore:
                     decision_id, symbol, created_at, price,
                     deterministic_mode, recommended_mode, width_scale,
                     cap_scale, confidence, applied, policy_status,
-                    policy_reasons, benchmark_mode, feature_json
-                ) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+                    policy_reasons, benchmark_mode, feature_json, rationale,
+                    context_version, config_version, context_hash
+                ) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
                 """,
                 (
                     decision_id, symbol.upper(), int(now or time.time()), price,
                     deterministic_mode, recommended_mode, width_scale,
                     cap_scale, confidence, int(applied),
                     policy_status, policy_reasons, benchmark_mode,
-                    feature_json,
+                    feature_json, rationale[:160], context_version,
+                    config_version, context_hash_value,
                 ),
             )
         return decision_id
@@ -640,7 +872,8 @@ class AdvisorDecisionStore:
         with self._connect() as connection:
             rows = connection.execute(
                 """
-                SELECT recommended_mode, return_15m, return_1h, return_4h
+                SELECT recommended_mode, return_15m, return_1h, return_4h,
+                       evaluation_json
                 FROM ai_decisions
                 WHERE symbol=? ORDER BY created_at DESC LIMIT ?
                 """,
@@ -665,10 +898,46 @@ class AdvisorDecisionStore:
             for row in self._comparison_rows(symbol, limit)
             if row[2] is not None
         ]
+        realized = []
+        stop_exits = 0
+        for row in rows:
+            try:
+                evaluation = json.loads(row[4] or "{}")
+            except (TypeError, ValueError, json.JSONDecodeError):
+                evaluation = {}
+            item = evaluation.get("realized_execution", {})
+            if not isinstance(item, dict) or not item.get("closed"):
+                continue
+            realized.append(item)
+            reason = str(item.get("exit_reason", "")).upper()
+            stop_exits += int("STOP" in reason or reason in {"SL", "STOP_LOSS"})
+        edge_values = [
+            -float(item.get("opportunity_cost_quote", 0) or 0)
+            for item in realized
+        ]
+        edge_mean = sum(edge_values) / len(edge_values) if edge_values else 0.0
+        if len(edge_values) > 1:
+            variance = sum((value - edge_mean) ** 2 for value in edge_values) / (len(edge_values) - 1)
+            margin = 1.96 * (variance / len(edge_values)) ** 0.5
+        else:
+            margin = 0.0
+        with self._connect() as connection:
+            unresolved = int(connection.execute(
+                "SELECT COUNT(*) FROM ai_unresolved_fills WHERE symbol=?",
+                (symbol.upper(),),
+            ).fetchone()[0])
         return AdvisorPerformance(
             s15, a15, s1h, a1h, s4h, a4h,
             len(comparisons),
             sum(comparisons) / len(comparisons) if comparisons else 0.0,
+            len(realized),
+            sum(float(item.get("net_pnl_quote", 0) or 0) for item in realized),
+            sum(float(item.get("net_pnl_quote", 0) or 0) for item in realized) / len(realized)
+            if realized else 0.0,
+            stop_exits / len(realized) if realized else 0.0,
+            edge_mean - margin,
+            edge_mean + margin,
+            unresolved,
         )
 
     def _comparison_rows(self, symbol: str, limit: int) -> list[tuple]:

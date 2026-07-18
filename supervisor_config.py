@@ -176,6 +176,10 @@ def build_supervisor_parser() -> argparse.ArgumentParser:
                     default=int(os.getenv("AI_MIN_ACCURACY_SAMPLES", "30")))
     ap.add_argument("--ai-min-accuracy", type=float,
                     default=float(os.getenv("AI_MIN_ACCURACY", "0.50")))
+    ap.add_argument("--ai-min-closed-decisions", type=int,
+                    default=int(os.getenv("AI_MIN_CLOSED_DECISIONS", "5")))
+    ap.add_argument("--ai-max-realized-stop-rate", type=float,
+                    default=float(os.getenv("AI_MAX_REALIZED_STOP_RATE", "0.60")))
 
     ap.add_argument("--pos-guard-enable", action="store_true")
     ap.add_argument("--pos-max-base-map", default="", help="SYM:base_qty,... напр. SOLUSDT:0.50,ETHUSDT:0.020")
@@ -342,6 +346,26 @@ def validate_supervisor_args(parser: argparse.ArgumentParser, args: argparse.Nam
         parser.error("AI sample thresholds must be >= 0")
     if not 0 <= args.ai_min_accuracy <= 1:
         parser.error("--ai-min-accuracy must be in [0, 1]")
+    if args.ai_min_closed_decisions < 0:
+        parser.error("--ai-min-closed-decisions must be >= 0")
+    if not 0 <= args.ai_max_realized_stop_rate <= 1:
+        parser.error("--ai-max-realized-stop-rate must be in [0, 1]")
+    try:
+        rag_min_score = float(os.getenv("AI_RAG_MIN_SCORE", "0.65"))
+        rag_min_matches = int(os.getenv("AI_RAG_MIN_MATCHES", "1"))
+        rag_decay_days = int(os.getenv("AI_RAG_DECAY_DAYS", "180"))
+        rag_market_age = float(os.getenv("AI_RAG_MAX_MARKET_AGE_SEC", "30"))
+        rag_portfolio_age = float(os.getenv("AI_RAG_MAX_PORTFOLIO_AGE_SEC", "30"))
+    except ValueError as exc:
+        parser.error(f"invalid RAG configuration: {exc}")
+    if not 0 <= rag_min_score <= 1:
+        parser.error("AI_RAG_MIN_SCORE must be in [0, 1]")
+    if rag_min_matches <= 0:
+        parser.error("AI_RAG_MIN_MATCHES must be > 0")
+    if rag_decay_days < 0:
+        parser.error("AI_RAG_DECAY_DAYS must be >= 0")
+    if rag_market_age <= 0 or rag_portfolio_age <= 0:
+        parser.error("AI_RAG_MAX_*_AGE_SEC must be > 0")
     if not 0 <= args.ai_min_confidence <= 1:
         parser.error("--ai-min-confidence must be in [0, 1]")
     if not 0 < args.ai_width_scale_min <= args.ai_width_scale_max <= 3:

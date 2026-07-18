@@ -6,6 +6,7 @@ from __future__ import annotations
 
 import json
 import os
+import sqlite3
 import time
 from dataclasses import dataclass
 from typing import Any, Callable, Dict, Optional
@@ -16,7 +17,10 @@ from order_identity import client_order_id
 from order_recovery import OrderJournal, TERMINAL_EXCHANGE_STATES
 
 
-def _link_ai_order(client_id: str, symbol: str, *, lot_id: int | None = None, order_type: str = "") -> None:
+def _link_ai_order(
+    client_id: str, symbol: str, *, lot_id: int | None = None,
+    order_type: str = "", leg_type: str = "", expected_price: float | None = None,
+) -> None:
     """Сохранить связь clientOrderId с decision до сетевого POST."""
     decision_id = os.getenv("BOT_AI_DECISION_ID", "").strip()
     db_path = os.getenv("AI_DECISIONS_DB", "").strip()
@@ -26,8 +30,31 @@ def _link_ai_order(client_id: str, symbol: str, *, lot_id: int | None = None, or
         from ai_context import AdvisorDecisionStore
         AdvisorDecisionStore(db_path).link_client_order(client_id, decision_id,
                                                         symbol=symbol, lot_id=lot_id,
-                                                        order_type=order_type)
-    except (OSError, ValueError):
+                                                        order_type=order_type,
+                                                        leg_type=leg_type,
+                                                        expected_price=expected_price)
+    except (OSError, ValueError, sqlite3.Error):
+        return
+
+
+def _update_ai_order(
+    client_id: str, *, exchange_order_id: str | int | None = None,
+    exchange_order_list_id: str | int | None = None, leg_type: str | None = None,
+) -> None:
+    """Сохранить подтверждённые Binance IDs для точного fill mapping."""
+    decision_id = os.getenv("BOT_AI_DECISION_ID", "").strip()
+    db_path = os.getenv("AI_DECISIONS_DB", "").strip()
+    if not decision_id or not db_path or not client_id:
+        return
+    try:
+        from ai_context import AdvisorDecisionStore
+        AdvisorDecisionStore(db_path).update_order_link(
+            client_id,
+            exchange_order_id=exchange_order_id,
+            exchange_order_list_id=exchange_order_list_id,
+            leg_type=leg_type,
+        )
+    except (OSError, ValueError, sqlite3.Error):
         return
 
 
@@ -143,7 +170,7 @@ def place_limit_order(
     order_client_id = (
         active.client_order_id if active is not None else generated_id
     )
-    _link_ai_order(order_client_id, symbol, order_type="LIMIT")
+    _link_ai_order(order_client_id, symbol, order_type="LIMIT", expected_price=price)
     if journal is not None:
         # PREPARED коммитится до сетевого запроса — основа идемпотентности.
         journal.prepare(
@@ -178,6 +205,7 @@ def place_limit_order(
             if journal is not None:
                 journal.record_exchange_order(order_client_id, payload)
         order_id = payload.get("orderId")
+        _update_ai_order(order_client_id, exchange_order_id=order_id)
         dependencies.logger(
             f"[PLACE] {symbol} {side} {quantity_text} @ {price_text} "
             f"client={order_client_id} order={order_id}"
@@ -196,6 +224,11 @@ def place_limit_order(
                 reconciled = None
             if reconciled is not None:
                 journal.record_exchange_order(order_client_id, reconciled)
+                _update_ai_order(
+                    order_client_id,
+                    exchange_order_id=reconciled.get("orderId")
+                    if isinstance(reconciled, dict) else None,
+                )
                 dependencies.logger(
                     f"[IDEMPOTENT] recovered uncertain POST "
                     f"client={order_client_id}"
@@ -276,7 +309,8 @@ def place_oco_sell(
             symbol, "SELL", purpose, tp_text, quantity_text
         )
     )
-    _link_ai_order(list_client_id, symbol, lot_id=lot_id, order_type="OCO")
+    _link_ai_order(list_client_id, symbol, lot_id=lot_id, order_type="OCO", leg_type="LIST",
+                   expected_price=float(tp_text))
     if active is not None:
         existing = dependencies.get_order_list_by_client_id(list_client_id)
         if (
@@ -301,6 +335,24 @@ def place_oco_sell(
                             if order_list_id is not None
                             else None
                         ),
+                    )
+            _update_ai_order(
+                list_client_id,
+                exchange_order_list_id=order_list_id,
+                leg_type="LIST",
+            )
+            for leg in existing.get("orders", []) if isinstance(existing, dict) else []:
+                if isinstance(leg, dict) and leg.get("clientOrderId"):
+                    _link_ai_order(
+                        str(leg["clientOrderId"]), symbol, lot_id=lot_id,
+                        order_type="OCO_LEG", leg_type=str(leg.get("type", "")),
+                        expected_price=float(leg.get("price") or leg.get("stopPrice") or 0),
+                    )
+                    _update_ai_order(
+                        str(leg["clientOrderId"]),
+                        exchange_order_id=leg.get("orderId"),
+                        exchange_order_list_id=order_list_id,
+                        leg_type=str(leg.get("type", "")),
                     )
             dependencies.logger(
                 f"[IDEMPOTENT] reuse OCO {symbol} "
@@ -400,6 +452,27 @@ def place_oco_sell(
             raise
         if isinstance(payload, dict):
             payload.setdefault("listClientOrderId", list_client_id)
+        _update_ai_order(
+            list_client_id,
+            exchange_order_list_id=order_list_id,
+            leg_type="LIST",
+        )
+        for leg in (verified.get("orders", []) if isinstance(verified, dict) else []):
+            if not isinstance(leg, dict):
+                continue
+            leg_client_id = leg.get("clientOrderId")
+            leg_order_id = leg.get("orderId")
+            if leg_client_id:
+                _link_ai_order(
+                    str(leg_client_id), symbol, lot_id=lot_id,
+                    order_type="OCO_LEG", leg_type=str(leg.get("type", "")),
+                    expected_price=float(leg.get("price") or leg.get("stopPrice") or 0),
+                )
+                _update_ai_order(
+                    str(leg_client_id), exchange_order_id=leg_order_id,
+                    exchange_order_list_id=order_list_id,
+                    leg_type=str(leg.get("type", "")),
+                )
         if journal is not None:
             journal.record_order_list(list_client_id, verified)
             if parent_client_order_id:
@@ -438,6 +511,24 @@ def place_oco_sell(
                     )
                     return None
                 journal.record_order_list(list_client_id, reconciled)
+                _update_ai_order(
+                    list_client_id,
+                    exchange_order_list_id=order_list_id,
+                    leg_type="LIST",
+                )
+                for leg in reconciled.get("orders", []) if isinstance(reconciled, dict) else []:
+                    if isinstance(leg, dict) and leg.get("clientOrderId"):
+                        _link_ai_order(
+                            str(leg["clientOrderId"]), symbol, lot_id=lot_id,
+                            order_type="OCO_LEG", leg_type=str(leg.get("type", "")),
+                            expected_price=float(leg.get("price") or leg.get("stopPrice") or 0),
+                        )
+                        _update_ai_order(
+                            str(leg["clientOrderId"]),
+                            exchange_order_id=leg.get("orderId"),
+                            exchange_order_list_id=order_list_id,
+                            leg_type=str(leg.get("type", "")),
+                        )
                 if parent_client_order_id:
                     journal.mark_protected(
                         parent_client_order_id=parent_client_order_id,

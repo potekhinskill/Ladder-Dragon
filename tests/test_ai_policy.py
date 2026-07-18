@@ -118,10 +118,11 @@ def test_risk_pressure_reduces_cap_and_spread_pauses_buys():
         recommendation(cap_scale=1.2),
         PolicyConfig(mode="APPLY"),
     )
-    assert result.apply is True
-    assert result.pause_buys is True
-    assert result.status == "PAUSE_BUYS"
+    assert result.apply is False
+    assert result.pause_buys is False
+    assert result.status == "REJECTED"
     assert result.recommendation.cap_scale == .5
+    assert "insufficient_realized_ai_samples" in result.reasons
 
 
 def test_bad_historical_ai_accuracy_disables_application():
@@ -132,6 +133,34 @@ def test_bad_historical_ai_accuracy_disables_application():
     )
     assert result.apply is False
     assert "ai_accuracy_below_threshold" in result.reasons
+
+
+def test_apply_requires_realized_positive_edge_and_stop_rate_gate():
+    result = apply_safety_policy(
+        context(
+            ai_closed_samples=5,
+            ai_realized_edge_ci_low=-.1,
+            ai_realized_edge_ci_high=.2,
+            ai_realized_stop_rate=.2,
+        ),
+        recommendation(),
+        PolicyConfig(mode="APPLY"),
+    )
+    assert result.apply is False
+    assert "realized_edge_confidence_interval_includes_zero" in result.reasons
+
+    result = apply_safety_policy(
+        context(
+            ai_closed_samples=5,
+            ai_realized_edge_ci_low=.1,
+            ai_realized_edge_ci_high=.2,
+            ai_realized_stop_rate=.9,
+        ),
+        recommendation(),
+        PolicyConfig(mode="APPLY"),
+    )
+    assert result.apply is False
+    assert "realized_stop_rate_degraded" in result.reasons
 
 
 def test_numeric_benchmark_is_interpretable():

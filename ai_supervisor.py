@@ -36,6 +36,7 @@ from ai_context import (
     AdvisorDecisionStore,
     build_market_features,
     build_portfolio_features,
+    context_hash,
     load_trade_features,
 )
 from ai_knowledge import KnowledgeStore
@@ -222,9 +223,9 @@ def _build_ai_advisor(args: argparse.Namespace) -> Optional[AIAdvisor]:
         context: MarketContext,
         recommendation,
         confidence_accepted: bool,
-    ) -> None:
-        if confidence_accepted or _AI_DECISIONS is None:
-            return
+    ) -> str | None:
+        if _AI_DECISIONS is None:
+            return None
         decision_id = _AI_DECISIONS.record(
             symbol=context.symbol,
             price=context.price,
@@ -233,12 +234,17 @@ def _build_ai_advisor(args: argparse.Namespace) -> Optional[AIAdvisor]:
             width_scale=recommendation.ladder_width_scale,
             cap_scale=recommendation.cap_scale,
             confidence=recommendation.confidence,
-            applied=False,
-            policy_status="LOW_CONFIDENCE",
-            policy_reasons="confidence_below_threshold",
+            applied=confidence_accepted,
+            policy_status="MODEL_ACCEPTED" if confidence_accepted else "LOW_CONFIDENCE",
+            policy_reasons="" if confidence_accepted else "confidence_below_threshold",
+            rationale=recommendation.rationale,
+            config_version=__version__,
+            context_hash_value=context_hash(context),
+            feature_json=json.dumps(context_vector(context)),
         )
         if _AI_KNOWLEDGE is not None:
             _AI_KNOWLEDGE.link_retrieval(decision_id, context.rag_context)
+        return decision_id
 
     return AIAdvisor(
         config,
@@ -1533,17 +1539,29 @@ def _build_ai_market_context(
             and os.getenv("AI_RAG_INCLUDE_VIRTUAL", "1").strip().lower()
             in {"1", "true", "yes", "on"}
         )
-        context = replace(
-            context,
-            rag_context=tuple(
+        context_ready = (
+            context.market_data_available
+            and context.orderbook_available
+            and context.portfolio_data_available
+            and context.market_data_age_sec <= float(os.getenv("AI_RAG_MAX_MARKET_AGE_SEC", "30"))
+            and context.portfolio_data_age_sec <= float(os.getenv("AI_RAG_MAX_PORTFOLIO_AGE_SEC", "30"))
+        )
+        rag_documents = ()
+        if context_ready:
+            rag_documents = tuple(
                 _AI_KNOWLEDGE.retrieve(
                     symbol,
                     context_vector(context),
                     limit=int(os.getenv("AI_RAG_TOP_K", "3") or 3),
                     include_virtual=include_virtual_rag,
+                    min_score=float(os.getenv("AI_RAG_MIN_SCORE", "0.65") or 0.65),
+                    min_matches=max(1, int(os.getenv("AI_RAG_MIN_MATCHES", "1") or 1)),
+                    decay_days=max(0, int(os.getenv("AI_RAG_DECAY_DAYS", "180") or 180)),
                 )
-            ),
-        )
+            )
+        else:
+            dbg(f"[AI-RAG] {symbol} skipped: incomplete_or_stale_context")
+        context = replace(context, rag_context=rag_documents)
     _AI_CONTEXT_CACHE[symbol] = (now, context)
     return context
 
@@ -1641,7 +1659,7 @@ def run_for_symbol(symbol: str, args: argparse.Namespace) -> None:
                     decision_id = (
                         _AI_DECISION_IDS.get(symbol)
                         if _AI_ADVISOR.last_was_cache_hit
-                        else None
+                        else _AI_ADVISOR.last_decision_id
                     )
                     if not decision_id:
                         decision_id = _AI_DECISIONS.record(
@@ -1657,12 +1675,23 @@ def run_for_symbol(symbol: str, args: argparse.Namespace) -> None:
                             policy_reasons=",".join(policy.reasons),
                             benchmark_mode=policy.benchmark_mode,
                             feature_json=json.dumps(context_vector(ai_context)),
+                            rationale=policy.recommendation.rationale,
+                            config_version=__version__,
+                            context_hash_value=context_hash(ai_context),
                         )
-                        _AI_DECISION_IDS[symbol] = decision_id
                         if _AI_KNOWLEDGE is not None:
                             _AI_KNOWLEDGE.link_retrieval(
                                 decision_id, ai_context.rag_context
                             )
+                    if not _AI_ADVISOR.last_was_cache_hit:
+                        _AI_DECISIONS.update_policy(
+                            decision_id,
+                            policy_status=policy.status,
+                            policy_reasons=",".join(policy.reasons),
+                            benchmark_mode=policy.benchmark_mode,
+                            applied=policy.apply,
+                        )
+                    _AI_DECISION_IDS[symbol] = decision_id
                     # Передаём точный ID дочернему executor, чтобы fills не
                     # прикреплялись к последней рекомендации символа.
                     extra_env = {"BOT_AI_DECISION_ID": decision_id}
@@ -2429,6 +2458,8 @@ def main():
         min_trade_sells=int(args.ai_min_trade_sells),
         min_accuracy_samples=int(args.ai_min_accuracy_samples),
         min_ai_accuracy=float(args.ai_min_accuracy),
+        min_closed_decisions=int(args.ai_min_closed_decisions),
+        max_realized_stop_rate=float(args.ai_max_realized_stop_rate),
     )
     _AI_ADVISOR = _build_ai_advisor(args)
     run_dir = Path(os.getenv("BOT_RUN_DIR", ".runtime"))

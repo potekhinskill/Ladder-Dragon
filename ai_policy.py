@@ -28,6 +28,8 @@ class PolicyConfig:
     min_trade_sells: int = 20
     min_accuracy_samples: int = 30
     min_ai_accuracy: float = 0.50
+    min_closed_decisions: int = 5
+    max_realized_stop_rate: float = 0.60
 
     def validate(self) -> None:
         if self.mode not in AI_MODES:
@@ -43,6 +45,8 @@ class PolicyConfig:
             raise ValueError("AI max consecutive losses must be >= 0")
         if not 0 <= self.min_ai_accuracy <= 1:
             raise ValueError("AI minimum accuracy must be in [0, 1]")
+        if self.min_closed_decisions < 0 or not 0 <= self.max_realized_stop_rate <= 1:
+            raise ValueError("AI realized-result thresholds are invalid")
 
 
 @dataclass(frozen=True)
@@ -155,6 +159,20 @@ def apply_safety_policy(
     ):
         apply = False
         reasons.append("ai_accuracy_below_threshold")
+
+    # Production APPLY разрешается только после закрытых реальных позиций:
+    # виртуальные свечные оценки не могут пройти этот gate. Интервал edge
+    # должен быть строго выше нуля, иначе преимущество перед baseline не доказано.
+    if config.mode == "APPLY":
+        if context.ai_closed_samples < config.min_closed_decisions:
+            apply = False
+            reasons.append("insufficient_realized_ai_samples")
+        elif context.ai_realized_edge_ci_low <= 0:
+            apply = False
+            reasons.append("realized_edge_confidence_interval_includes_zero")
+        if context.ai_realized_stop_rate > config.max_realized_stop_rate:
+            apply = False
+            reasons.append("realized_stop_rate_degraded")
 
     status = "APPLIED" if apply else ("SHADOW" if config.mode == "SHADOW" else "REJECTED")
     if pause and apply:

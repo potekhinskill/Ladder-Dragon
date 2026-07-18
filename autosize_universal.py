@@ -931,11 +931,58 @@ def _stats_poll_mytrades_once(symbol: str):
             if ai_db:
                 from ai_context import AdvisorDecisionStore
                 store = AdvisorDecisionStore(ai_db)
-                decision_id = os.getenv("BOT_AI_DECISION_ID", "").strip() or store.latest_decision_id(symbol)
-                if decision_id:
-                    store.record_fill(decision_id, symbol=symbol, side=fill["side"],
-                                      price=float(fill["price"]), qty=float(fill["qty"]),
-                                      fee_quote=float(fill["fee_quote"]), ts=int(fill["ts"] / 1000))
+                order_id = fill.get("order_id")
+                mapping = (
+                    store.order_link_for_exchange_order(order_id)
+                    if order_id is not None else None
+                )
+                if mapping is None:
+                    store.record_unresolved_fill(
+                        symbol=symbol, side=fill["side"], price=float(fill["price"]),
+                        qty=float(fill["qty"]), fee_quote=float(fill["fee_quote"]),
+                        ts=int(fill["ts"] / 1000), order_id=order_id,
+                        trade_id=fill.get("trade_id"),
+                        reason="exchange_order_id_not_mapped_to_decision",
+                    )
+                    dbg(
+                        f"[AI-FILL] {symbol} unresolved order_id={order_id}; "
+                        "excluded from AI PnL"
+                    )
+                else:
+                    decision_id = mapping["decision_id"]
+                    client_order_id = mapping["client_order_id"]
+                    leg_type = mapping["leg_type"]
+                    expected_price = mapping.get("expected_price")
+                    fill_price = float(fill["price"])
+                    fill_qty = float(fill["qty"])
+                    slippage_quote = 0.0
+                    if expected_price and expected_price > 0:
+                        slippage_quote = (
+                            (fill_price - expected_price) * fill_qty
+                            if fill["side"] == "BUY"
+                            else (expected_price - fill_price) * fill_qty
+                        )
+                    normalized_leg = leg_type.upper()
+                    exit_reason = (
+                        "STOP" if "STOP" in normalized_leg
+                        else "TP" if fill["side"] == "SELL" and normalized_leg
+                        else ""
+                    )
+                    store.record_fill(
+                        decision_id, symbol=symbol, side=fill["side"],
+                        price=fill_price, qty=fill_qty,
+                        fee_quote=float(fill["fee_quote"]),
+                        ts=int(fill["ts"] / 1000), order_id=order_id,
+                        trade_id=fill.get("trade_id"),
+                        client_order_id=client_order_id,
+                        leg_type=leg_type, exit_reason=exit_reason,
+                        slippage_quote=slippage_quote + float(fill.get("slippage_quote", 0) or 0),
+                    )
+                    # Обновляем realized_execution после каждого фактического
+                    # исполнения. До полного SELL запись остаётся открытой;
+                    # после последнего TP/STOP она становится источником real
+                    # PnL и только тогда допускается в RAG.
+                    store.evaluate_execution(decision_id)
         except (sqlite3.Error, ValueError, OSError) as exc:
             dbg(f"[AI-FILL] {symbol} sync skipped: {exc}")
 

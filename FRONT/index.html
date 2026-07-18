@@ -175,9 +175,16 @@
       <div class="row"><span>Режим</span><span class="mono" id="ai-mode">—</span></div>
       <div class="row"><span>Контур</span><span class="mono" id="ai-venue">—</span></div>
       <div class="row"><span>Модель</span><span class="mono" id="ai-model">—</span></div>
+      <div class="row"><span>Decision ID</span><span class="mono" id="ai-decision-id">—</span></div>
+      <div class="row"><span>Последняя причина</span><span class="mono" id="ai-rationale">—</span></div>
       <div class="row"><span>Связь с ботом</span><span id="ai-runtime">—</span></div>
       <div class="row"><span>Решений применено</span><span id="ai-applied">—</span></div>
       <div class="row"><span>AI edge 1h</span><span id="ai-edge">—</span></div>
+      <div class="row"><span>RAG real / virtual / retrievals</span><span id="ai-rag">—</span></div>
+      <div class="row"><span>Последние RAG-документы</span><span class="mono" id="ai-rag-recent">—</span></div>
+      <div class="row"><span>Закрытый AI PnL</span><span id="ai-realized-pnl">—</span></div>
+      <div class="row"><span>Unresolved fills</span><span id="ai-unresolved">—</span></div>
+      <div class="row"><span>Причины DEGRADED</span><span class="mono" id="ai-degraded-reasons">—</span></div>
       <div class="row"><span>Токены сегодня</span><span id="ai-tokens">—</span></div>
       <div class="row"><span>Стоимость сегодня</span><span id="ai-cost">—</span></div>
     </div>
@@ -727,6 +734,9 @@ async function refresh(){
     const runtime = ai.runtime || {};
     $('#ai-venue').textContent = [runtime.venue, runtime.execution_mode].filter(Boolean).join(' / ') || '—';
     $('#ai-model').textContent = [runtime.provider, runtime.model].filter(Boolean).join(' / ') || '—';
+    const latest = Array.isArray(ai.recent) && ai.recent.length ? ai.recent[0] : {};
+    $('#ai-decision-id').textContent = latest.decision_id || runtime.last_decision || '—';
+    $('#ai-rationale').textContent = latest.rationale || (latest.policy_reasons || '—');
     $('#ai-runtime').textContent = runtime.connected
       ? `${runtime.stale ? 'STALE' : (runtime.process_state || 'online')} · ${runtime.updated_at ? tsShort(Date.parse(runtime.updated_at)) : '—'}`
       : 'нет heartbeat';
@@ -735,6 +745,17 @@ async function refresh(){
     $('#ai-edge').textContent = edge.samples
       ? `${(Number(edge.edge)*100).toFixed(1)}% / ${edge.samples}`
       : 'нет данных';
+    const knowledge = ai.knowledge_base || {};
+    $('#ai-rag').textContent = `${knowledge.documents ?? 0} / ${knowledge.virtual_documents ?? 0} / ${knowledge.retrievals ?? 0}`;
+    const ragDocuments = Array.isArray(latest.rag_documents) ? latest.rag_documents : [];
+    $('#ai-rag-recent').textContent = ragDocuments.length
+      ? ragDocuments.map(item=>`${String(item.document_id).slice(0,8)}:${Number(item.score).toFixed(3)}`).join(', ')
+      : 'нет';
+    $('#ai-realized-pnl').textContent = fmtUSDT(Number(knowledge.realized_net_pnl_quote || 0));
+    $('#ai-unresolved').textContent = knowledge.unresolved_fills ?? 0;
+    $('#ai-degraded-reasons').textContent = Array.isArray(ai.degraded_reasons) && ai.degraded_reasons.length
+      ? ai.degraded_reasons.join(', ')
+      : 'нет';
     $('#ai-tokens').textContent = ai.usage_today?.tokens ?? 0;
     $('#ai-cost').textContent = `$${Number(ai.usage_today?.cost_usd || 0).toFixed(6)}`;
     const toggle = $('#ai-toggle');
