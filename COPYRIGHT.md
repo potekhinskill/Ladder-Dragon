@@ -2,12 +2,12 @@
 
 Copyright (c) 2026 IURII Potekhin / Ladder Dragon.
 
-Project contact: potekhin.skill@gmail.com
+Project contact: https://www.linkedin.com/in/ypotekhin/
 
 The code is distributed under the MIT License. Additional warranty and
 financial-liability limitations are described in `DISCLAIMER.md`.
 
-The public contact address belongs in this document and `README.md`; it is not
+The public contact link belongs in this document and `README.md`; it is not
 copied into every source header or runtime configuration.
 
 Secrets, real backup files, production configuration, and private trading

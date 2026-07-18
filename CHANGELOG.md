@@ -3,6 +3,17 @@
 All notable changes are documented here. Releases use Semantic Versioning; every
 section is dated and there is intentionally no `Unreleased` section.
 
+## [2.10.52] — 2026-07-19
+
+### Changed
+- Replaced the public email contact in README and copyright documentation with
+  the project owner's LinkedIn profile to reduce unsolicited email exposure.
+
+### Verified
+- `PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=. .venv/bin/python -m pytest -q` — all tests pass.
+- `python3 deploy/scan_tracked_secrets.py` — no tracked high-confidence secrets.
+- `git diff --check` passes.
+
 ## [2.10.51] — 2026-07-19
 
 ### Added
@@ -46,7 +57,7 @@ section is dated and there is intentionally no `Unreleased` section.
 ## [2.10.48] — 2026-07-18
 
 ### Changed
-- Added the public project contact `potekhin.skill@gmail.com` to README and
+- Added a public project contact link to README and
   copyright documentation only; the address is not placed in runtime secrets.
 
 ## [2.10.47] — 2026-07-18

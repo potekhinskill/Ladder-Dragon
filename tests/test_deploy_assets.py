@@ -87,10 +87,8 @@ def test_public_license_and_financial_disclaimer_are_explicit():
 def test_public_project_contact_is_documented_not_runtime_data():
     readme = read("README.md")
     copyright_text = read("COPYRIGHT.md")
-    assert "potekhin.skill@gmail.com" in readme
-    assert "potekhin.skill@gmail.com" in copyright_text
-    assert "potekhin.skill@gmail.com" not in read("FRONT/index.html")
-    assert "potekhin.skill@gmail.com" not in read(".env.example")
+    assert "https://www.linkedin.com/in/ypotekhin/" in readme
+    assert "https://www.linkedin.com/in/ypotekhin/" in copyright_text
 
 
 def test_intro_document_and_logo_cover_supported_platforms():

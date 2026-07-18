@@ -13,7 +13,7 @@ real backups, and private parameters are never committed.
 
 Current product version: **2.10.51**. The single version source is
 `product_version.py`; releases follow [Semantic Versioning](https://semver.org/).
-Project contact: **potekhin.skill@gmail.com**.
+Project contact: [LinkedIn](https://www.linkedin.com/in/ypotekhin/).
 
 > [!WARNING]
 > This software can submit real exchange orders. It is not investment advice.
@@ -217,4 +217,4 @@ the services, and waits for a fresh heartbeat.
 - [Disclaimer](DISCLAIMER.md)
 
 Copyright: IURII Potekhin / Ladder Dragon. Public contact:
-`potekhin.skill@gmail.com`.
+[LinkedIn profile](https://www.linkedin.com/in/ypotekhin/).
