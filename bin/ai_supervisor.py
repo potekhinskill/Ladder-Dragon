@@ -2601,14 +2601,17 @@ def main():
                 _refresh_ai_control(args)
                 next_ai_control_check = now_loop + 2.0
             if now_loop >= next_runtime_heartbeat:
+                heartbeat_risk = dict(_AI_RUNTIME_STATUS.get("risk") or {})
+                heartbeat_risk.update({
+                    "buy_blocked": risk_buy_blocked,
+                    "halted": bool(last_risk_signature and last_risk_signature[0]),
+                    "reasons": list(last_risk_signature[1]) if last_risk_signature else [],
+                    "consecutive_api_failures": consecutive_api_failures,
+                    "current_cap_per_order_usdt": os.getenv("BOT_CAP_PER_ORDER"),
+                })
                 _publish_ai_runtime_status(
                     state="RUNNING",
-                    risk={
-                        "buy_blocked": risk_buy_blocked,
-                        "halted": bool(last_risk_signature and last_risk_signature[0]),
-                        "reasons": list(last_risk_signature[1]) if last_risk_signature else [],
-                        "consecutive_api_failures": consecutive_api_failures,
-                    },
+                    risk=heartbeat_risk,
                 )
                 # Не пишем на SD-карту в каждом торговом тике: 30 секунд
                 # достаточно для индикации живого процесса в дашборде.

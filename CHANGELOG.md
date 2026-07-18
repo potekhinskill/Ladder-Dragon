@@ -1,5 +1,23 @@
 # Changelog — Ladder Dragon
 
+## [2.10.39] — 2026-07-18
+
+### Исправлено
+- Health API различает сетевой диагностический probe и фактическую доступность
+  Binance: успешный запрос к Binance больше не отображается как общий offline
+  только из-за блокировки DNS/53 в локальной сети.
+- В инфраструктурном блоке dashboard явно показывается `rw` или `RO` для
+  `/mnt/usb1`; задержка и смещение часов Binance помечаются предупреждением
+  при аномальных значениях.
+- Heartbeat AI supervisor сохраняет ранее опубликованные CAP, reserve и
+  reconciliation-поля Risk Manager вместо затирания их пустым снимком.
+
+### Проверено
+- `.venv/bin/python -m pytest -q` — все тесты проходят.
+- `PYTHONPYCACHEPREFIX=/tmp/ladder-dragon-pycache python3 -m compileall -q .`.
+- `bash -n deploy/backup_raspberry_pi.sh`.
+- `git diff --check`.
+
 ## [2.10.38] — 2026-07-18
 
 ### Добавлено

@@ -74,6 +74,9 @@ def test_dashboard_exposes_read_only_ops_trading_and_ai_quality_blocks():
         assert marker in index
     assert '@app.get("/api/trading/overview")' in app
     assert '"operations": ops' in app
+    assert '"network_probe_ok": network_probe_ok' in app
+    assert '"writable": writable' in app
+    assert 'heartbeat_risk = dict(_AI_RUNTIME_STATUS.get("risk") or {})' in read("bin/ai_supervisor.py")
     assert 'backup_status.json' in backup
     assert 'BACKUP_RUNTIME_STATUS_FILE' in backup
     assert 'id=\"ops-backup-reason\"' in index

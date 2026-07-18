@@ -552,12 +552,15 @@ function updateOperations(h){
   $('#ops-restart').textContent=bot.started_at ? `${bot.started_at} · restarts ${bot.restart_count??0}` : '—';
   const ntp=o.ntp||{}, ping=o.binance||{};
   $('#ops-ntp').textContent=`${ntp.synchronized?'OK':'нет'} · offset ${ping.offset_ms!=null?fmt(ping.offset_ms,0)+' ms':'—'}`;
-  $('#ops-binance-latency').textContent=ping.ok ? `${fmt(ping.latency_ms,0)} ms · ${ping.checked_at||'—'}` : `ошибка: ${ping.error||'—'}`;
+  $('#ops-binance-latency').textContent=ping.ok
+    ? `${Math.abs(Number(ping.offset_ms||0))>1000||Number(ping.latency_ms)>1000?'WARNING · ':''}${fmt(ping.latency_ms,0)} ms · offset ${fmt(ping.offset_ms,0)} ms`
+    : `ошибка: ${ping.error||'—'}`;
   const throttle=h.throttled||{};
   const throttleBad=['under_voltage_now','freq_capped_now','throttled_now','temp_limit_now','under_voltage_hist','freq_capped_hist','throttled_hist','temp_limit_hist'].some(k=>throttle[k]);
   $('#ops-throttle').textContent=throttleBad ? `WARNING · ${throttle.raw||'—'}` : `OK · ${throttle.raw||'throttled=0x0'}`;
   const usb=o.usb_backup||{};
-  $('#ops-usb').textContent=usb.mounted?'mounted':'нет mount';
+  $('#ops-usb').textContent=usb.mounted?`mounted · ${usb.writable?'rw':'RO'}`:'нет mount';
+  $('#ops-usb').className=usb.mounted&&usb.writable?'risk-ok':'risk-bad';
   $('#ops-usb-free').textContent=usb.free_gib!=null?`${fmt(usb.free_gib,2)} GiB · ${fmt(usb.used_percent,1)}% used`:'—';
   const disk=h.disk_gib||{};
   $('#ops-root-free').textContent=(disk.total!=null&&disk.used!=null)?`${fmt(Number(disk.total)-Number(disk.used),2)} / ${fmt(disk.total,2)} GiB free`:'—';
