@@ -1,5 +1,5 @@
 # Copyright (c) 2026 IURII Potekhin / Ladder Dragon. All rights reserved.
-# Purpose: keep the file role and safety boundaries clear during maintenance.
+# Purpose: implement the risk manager component of the risk layer.
 """Управление портфельным риском Ladder Dragon по принципу fail-closed.
 
 Модуль намеренно не зависит от Binance HTTP: решения можно воспроизводимо

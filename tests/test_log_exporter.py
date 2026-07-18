@@ -54,8 +54,8 @@ def test_sanitize_redacts_json_cookies_url_credentials_and_private_keys():
         '{"apiKey":"json-key","token": "json-token"}\n'
         "Cookie: session=browser-secret\n"
         "https://robot:url-password@example.com/path\n"
-        "-----BEGIN PRIVATE " + "KEY-----\nprivate-material\n"
-        "-----END PRIVATE " + "KEY-----\n"
+        "-----BEGIN " + "PRIVATE " + "KEY-----\nprivate-material\n"
+        "-----END " + "PRIVATE " + "KEY-----\n"
     )
 
     sanitized, replacements = exporter.sanitize(source)

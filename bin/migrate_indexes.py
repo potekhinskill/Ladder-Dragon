@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # Copyright (c) 2026 IURII Potekhin / Ladder Dragon. All rights reserved.
-# Purpose: keep the file role and safety boundaries clear during maintenance.
+# Purpose: apply database index migrations.
 import os, sqlite3, sys
 
 DB = os.getenv('BOT_STATS_DB', '/home/bot/apps/binance_bot/db/bot_stats.db')

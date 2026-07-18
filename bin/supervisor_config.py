@@ -1,5 +1,5 @@
 # Copyright (c) 2026 IURII Potekhin / Ladder Dragon. All rights reserved.
-# Purpose: keep the file role and safety boundaries clear during maintenance.
+# Purpose: build supervisor command-line configuration.
 """CLI construction and strict validation for the trading supervisor."""
 
 from __future__ import annotations

@@ -450,3 +450,43 @@ def test_old_daily_ai_errors_do_not_keep_dashboard_degraded(tmp_path, monkeypatc
     assert payload["usage_today"]["errors"] == 3
     assert payload["usage_today"]["recent_errors"] == 0
     assert payload["degraded_reasons"] == []
+
+
+def test_github_update_check_is_cached_and_compares_commits(monkeypatch):
+    monkeypatch.setenv("DASHBOARD_GITHUB_REPOSITORY", "owner/repo")
+    monkeypatch.setenv("DASHBOARD_GITHUB_BRANCH", "main")
+    module = load_dashboard(monkeypatch)
+    local_commit = "a" * 40
+    remote_commit = "b" * 40
+    monkeypatch.setattr(module, "_git_head_commit", lambda: local_commit)
+
+    class Response:
+        status_code = 200
+
+        def json(self):
+            return {
+                "sha": remote_commit,
+                "html_url": "https://github.com/owner/repo/commit/" + remote_commit,
+            }
+
+    class Session:
+        def __init__(self):
+            self.calls = 0
+
+        def get(self, *args, **kwargs):
+            self.calls += 1
+            return Response()
+
+    session = Session()
+    monkeypatch.setattr(module, "SESSION", session)
+    with TestClient(module.app) as client:
+        headers = {"Authorization": "Bearer test-secret-token"}
+        first = client.get("/api/update/check", headers=headers)
+        second = client.get("/api/update/check", headers=headers)
+
+    assert first.status_code == 200
+    assert second.status_code == 200
+    assert first.json()["update_available"] is True
+    assert first.json()["current_commit"] == local_commit
+    assert first.json()["remote_commit"] == remote_commit
+    assert session.calls == 1

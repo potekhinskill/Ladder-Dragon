@@ -1,5 +1,5 @@
 # Copyright (c) 2026 IURII Potekhin / Ladder Dragon. All rights reserved.
-# Purpose: keep the file role and safety boundaries clear during maintenance.
+# Purpose: implement the order recovery component of the execution layer.
 """Постоянный журнал намерений и безопасная сверка ордеров после рестарта."""
 
 from __future__ import annotations

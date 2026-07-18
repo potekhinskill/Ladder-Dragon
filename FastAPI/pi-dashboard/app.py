@@ -4,7 +4,7 @@
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 # Keep requests optional instead of importing it into the shared module namespace.
-import psutil, shutil, json, os, socket, asyncio, subprocess, math, time, hmac, hashlib, secrets, threading, re
+import psutil, shutil, json, os, socket, asyncio, subprocess, math, time, hmac, hashlib, secrets, threading, re, platform
 from collections import defaultdict, deque
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
@@ -49,6 +49,13 @@ _OPEN_ORDERS_CACHE_LOCK = threading.Lock()
 _OPS_CACHE: Dict[str, object] = {"ts": 0.0, "payload": None}
 _OPS_CACHE_TTL_SEC = max(10.0, float(os.getenv("DASHBOARD_OPS_CACHE_SEC", "30")))
 _OPS_CACHE_LOCK = threading.Lock()
+PROJECT_ROOT = Path(__file__).resolve().parents[2]
+GITHUB_REPOSITORY = os.getenv("DASHBOARD_GITHUB_REPOSITORY", "potekhinskill/Ladder-Dragon")
+GITHUB_BRANCH = os.getenv("DASHBOARD_GITHUB_BRANCH", "codex/safety-hardening")
+GITHUB_TOKEN = os.getenv("DASHBOARD_GITHUB_TOKEN", "")
+GITHUB_UPDATE_CHECK_TTL_SEC = max(300.0, float(os.getenv("DASHBOARD_GITHUB_UPDATE_CHECK_SEC", "3600")))
+_GITHUB_UPDATE_CACHE: Dict[str, object] = {"ts": 0.0, "payload": None}
+_GITHUB_UPDATE_CACHE_LOCK = threading.Lock()
 AI_DECISIONS_DB = os.getenv("AI_DECISIONS_DB", ".runtime/ai_decisions.sqlite3")
 AI_USAGE_LOG = os.getenv("AI_USAGE_LOG", ".runtime/ai_usage.ndjson")
 AI_MODE = os.getenv("AI_MODE", "SHADOW").upper()
@@ -900,7 +907,20 @@ def read_temp_c():
 
 def parse_throttled():
     rc,out = run_command("vcgencmd", "get_throttled")
-    raw = out.strip() or "throttled=0x0"
+    if rc != 0 or "throttled=" not in out:
+        return {
+            "supported": False,
+            "raw": None,
+            "under_voltage_now": None,
+            "freq_capped_now": None,
+            "throttled_now": None,
+            "temp_limit_now": None,
+            "under_voltage_hist": None,
+            "freq_capped_hist": None,
+            "throttled_hist": None,
+            "temp_limit_hist": None,
+        }
+    raw = out.strip()
     try:
         hexstr = raw.split("0x",1)[1]
         val = int(hexstr,16)
@@ -908,6 +928,7 @@ def parse_throttled():
         val = 0
     def b(n): return bool((val>>n)&1)
     return {
+        "supported": True,
         "raw": raw,
         "under_voltage_now": b(0),
         "freq_capped_now": b(1),
@@ -929,13 +950,19 @@ def network_ok():
 def mounts_info():
     res = []
     try:
-        with open("/proc/mounts") as f:
-            for line in f:
-                parts = line.split()
-                if len(parts) >= 4:
-                    dev, mnt, fstype, opts = parts[:4]
-                    if mnt in ("/","/tmp","/var/tmp","/mnt/usb1"):
-                        res.append({"mountpoint": mnt, "fs": fstype, "opts": opts})
+        if os.path.exists("/proc/mounts"):
+            with open("/proc/mounts") as f:
+                rows = (line.split() for line in f)
+                for parts in rows:
+                    if len(parts) >= 4:
+                        dev, mnt, fstype, opts = parts[:4]
+                        if mnt in ("/", "/tmp", "/var/tmp", "/mnt/usb1"):
+                            res.append({"mountpoint": mnt, "fs": fstype, "opts": opts})
+        else:
+            # psutil is available on Linux, macOS, Windows and WSL.
+            for part in psutil.disk_partitions(all=False):
+                if part.mountpoint in {"/", "/tmp", "/var/tmp", "/mnt/usb1"} or part.mountpoint == os.path.abspath(os.sep):
+                    res.append({"mountpoint": part.mountpoint, "fs": part.fstype, "opts": part.opts})
     except Exception:
         pass
     return res
@@ -1008,6 +1035,8 @@ def _systemd_service_snapshot(name: str) -> Dict[str, object]:
 
 def _ntp_snapshot() -> Dict[str, object]:
     """Состояние синхронизации часов, доступное без прав администратора."""
+    if not shutil.which("timedatectl"):
+        return {"synchronized": None, "service": "unavailable"}
     synced = _command_value("timedatectl", "show", "-p", "NTPSynchronized", "--value").lower()
     service = _command_value("timedatectl", "show", "-p", "NTPService", "--value")
     return {
@@ -1073,8 +1102,9 @@ def _backup_snapshot() -> Dict[str, object]:
 def _usb_snapshot() -> Dict[str, object]:
     """Состояние внешнего диска и свободное место для backup mirror."""
     mountpoint = os.getenv("DASHBOARD_BACKUP_MOUNT", "/mnt/usb1")
-    mounted = _command_value("findmnt", "-T", mountpoint, "-no", "TARGET") == mountpoint
-    options = _command_value("findmnt", "-T", mountpoint, "-no", "OPTIONS") if mounted else ""
+    findmnt_target = _command_value("findmnt", "-T", mountpoint, "-no", "TARGET") if shutil.which("findmnt") else ""
+    mounted = findmnt_target == mountpoint or (not findmnt_target and Path(mountpoint).exists() and platform.system() != "Linux")
+    options = _command_value("findmnt", "-T", mountpoint, "-no", "OPTIONS") if findmnt_target else ("unknown" if mounted else "")
     writable = mounted and "ro" not in {item.strip() for item in options.split(",")}
     payload: Dict[str, object] = {"mountpoint": mountpoint, "mounted": mounted, "writable": writable, "options": options, "free_gib": None, "used_percent": None}
     if mounted:
@@ -1084,6 +1114,18 @@ def _usb_snapshot() -> Dict[str, object]:
         except OSError as exc:
             payload["error"] = type(exc).__name__
     return payload
+
+
+def _host_snapshot() -> Dict[str, object]:
+    """Return portable host metadata; Raspberry-only probes remain optional."""
+    return {
+        "system": platform.system() or "unknown",
+        "release": platform.release() or None,
+        "machine": platform.machine() or None,
+        "python": platform.python_version(),
+        "root_mount": os.path.abspath(os.sep),
+        "is_raspberry_pi": Path("/proc/device-tree/model").exists() or bool(shutil.which("vcgencmd")),
+    }
 
 async def collect_once():
     vm = psutil.virtual_memory()
@@ -1124,6 +1166,84 @@ async def collector_loop():
             pass
         await asyncio.sleep(60)
 
+def _git_head_commit() -> Optional[str]:
+    """Return the locally deployed commit without exposing shell output."""
+    try:
+        result = subprocess.run(
+            ["git", "rev-parse", "HEAD"],
+            cwd=PROJECT_ROOT,
+            check=True,
+            capture_output=True,
+            text=True,
+            timeout=3,
+        )
+        value = result.stdout.strip()
+        return value if re.fullmatch(r"[0-9a-f]{40}", value) else None
+    except Exception:
+        return None
+
+
+def _github_update_snapshot() -> Dict[str, object]:
+    """Check the configured GitHub branch at most once per hour."""
+    now_mono = time.monotonic()
+    with _GITHUB_UPDATE_CACHE_LOCK:
+        cached = _GITHUB_UPDATE_CACHE.get("payload")
+        cached_at = float(_GITHUB_UPDATE_CACHE.get("ts", 0.0))
+        if cached is not None and now_mono - cached_at < GITHUB_UPDATE_CHECK_TTL_SEC:
+            return dict(cached)
+
+    checked_at = now_str()
+    current_commit = _git_head_commit()
+    payload: Dict[str, object] = {
+        "ok": False,
+        "repository": GITHUB_REPOSITORY,
+        "branch": GITHUB_BRANCH,
+        "current_commit": current_commit,
+        "remote_commit": None,
+        "update_available": None,
+        "checked_at": checked_at,
+        "cache_ttl_sec": int(GITHUB_UPDATE_CHECK_TTL_SEC),
+        "error": None,
+    }
+    if SESSION is None:
+        payload["error"] = "HTTP client unavailable"
+    else:
+        try:
+            url = f"https://api.github.com/repos/{GITHUB_REPOSITORY}/commits/{GITHUB_BRANCH}"
+            response = SESSION.get(
+                url,
+                headers={
+                    "Accept": "application/vnd.github+json",
+                    **({"Authorization": f"Bearer {GITHUB_TOKEN}"} if GITHUB_TOKEN else {}),
+                },
+                timeout=10,
+            )
+            if response.status_code != 200:
+                payload["error"] = f"GitHub HTTP {response.status_code}"
+            else:
+                remote = response.json()
+                remote_commit = str(remote.get("sha") or "")
+                if not re.fullmatch(r"[0-9a-f]{40}", remote_commit):
+                    payload["error"] = "GitHub returned an invalid commit"
+                else:
+                    payload["ok"] = True
+                    payload["remote_commit"] = remote_commit
+                    payload["update_available"] = bool(current_commit and current_commit != remote_commit)
+                    payload["remote_url"] = remote.get("html_url")
+        except Exception:
+            payload["error"] = "GitHub update check failed"
+
+    with _GITHUB_UPDATE_CACHE_LOCK:
+        _GITHUB_UPDATE_CACHE["ts"] = now_mono
+        _GITHUB_UPDATE_CACHE["payload"] = payload
+    return dict(payload)
+
+
+@app.get("/api/update/check")
+def update_check():
+    return JSONResponse(_github_update_snapshot())
+
+
 @app.get("/api/health")
 def health():
     vm = psutil.virtual_memory()
@@ -1154,7 +1274,8 @@ def health():
         "product": {"name": PRODUCT_NAME, "version": __version__},
         "changelog_url": "/CHANGELOG.md",
         "time": now_str(),
-        "kernel": os.uname().release,
+        "kernel": platform.release() or None,
+        "host": _host_snapshot(),
         "temp_c": temp,
         "throttled": parse_throttled(),
         "mem_gib": {

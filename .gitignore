@@ -26,6 +26,9 @@ venv/
 *.key
 *.p12
 *.pfx
+# Never track legacy key-start notes or copied credential files.
+key_start_bot.txt
+**/key_start_bot.txt
 
 # Runtime state
 *.pid

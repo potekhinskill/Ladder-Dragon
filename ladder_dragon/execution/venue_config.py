@@ -1,5 +1,5 @@
 # Copyright (c) 2026 IURII Potekhin / Ladder Dragon. All rights reserved.
-# Purpose: keep the file role and safety boundaries clear during maintenance.
+# Purpose: implement the venue config component of the execution layer.
 """Venue-specific local state paths.
 
 Testnet must never share risk state, statistics, or order intents with Mainnet.

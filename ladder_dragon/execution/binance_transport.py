@@ -1,5 +1,5 @@
 # Copyright (c) 2026 IURII Potekhin / Ladder Dragon. All rights reserved.
-# Purpose: keep the file role and safety boundaries clear during maintenance.
+# Purpose: implement the binance transport component of the execution layer.
 """HTTP-транспорт Binance по принципу fail-closed для торговых компонентов.
 
 Здесь сосредоточены подпись запросов, DRY/LIVE-гейт и повторные попытки.

@@ -1,5 +1,5 @@
 # Copyright (c) 2026 IURII Potekhin / Ladder Dragon. All rights reserved.
-# Purpose: keep the file role and safety boundaries clear during maintenance.
+# Purpose: implement the telegram alerts component of the execution layer.
 """Безопасная доставка аварийных уведомлений в Telegram.
 
 Токен и chat id читаются только из root-owned файла конфигурации на Raspberry
@@ -97,10 +97,10 @@ def send_message(text: str, *, timeout: float = 5.0) -> bool:
 
 def notify(event: str, reasons: list[str] | tuple[str, ...], metadata: dict | None = None) -> bool:
     """Сформировать короткое уведомление с точной причиной остановки."""
-    lines = [f"Ladder Dragon: {event}", "Причина: " + "; ".join(str(item) for item in reasons)]
+    lines = [f"Ladder Dragon: {event}", "Reason: " + "; ".join(str(item) for item in reasons)]
     if metadata:
         safe = {str(key): str(value) for key, value in metadata.items()}
-        lines.append("Детали: " + json.dumps(safe, ensure_ascii=False, sort_keys=True))
+        lines.append("Details: " + json.dumps(safe, ensure_ascii=False, sort_keys=True))
     return send_message("\n".join(lines))
 
 

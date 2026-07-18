@@ -1,5 +1,5 @@
 # Copyright (c) 2026 IURII Potekhin / Ladder Dragon. All rights reserved.
-# Purpose: keep the file role and safety boundaries clear during maintenance.
+# Purpose: implement the executor protection component of the execution layer.
 """Сопровождение исполненных BUY, защитных OCO и breakeven.
 
 Модуль владеет жизненным циклом защиты позиции после исполнения покупки.

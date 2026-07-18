@@ -1,5 +1,5 @@
 # Copyright (c) 2026 IURII Potekhin / Ladder Dragon. All rights reserved.
-# Purpose: keep the file role and safety boundaries clear during maintenance.
+# Purpose: implement the ai context component of the ai layer.
 """Безопасные агрегаты истории и рынка для AI-рекомендателя.
 
 Модуль не передаёт LLM сырые сделки, идентификаторы заявок, полный баланс или

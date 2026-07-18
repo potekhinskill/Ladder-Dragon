@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Copyright (c) 2026 IURII Potekhin / Ladder Dragon. All rights reserved.
-# Purpose: keep the file role and safety boundaries clear during maintenance.
+# Purpose: update an existing Raspberry Pi deployment.
 set -euo pipefail
 
 PROJECT_DIR="${PROJECT_DIR:-/home/bot/apps/binance_bot}"
@@ -290,7 +290,7 @@ install -o root -g www-data -m 0640 /dev/null \
 printf 'proxy_set_header X-Dashboard-Proxy-Secret "%s";\n' \
   "${dashboard_proxy_secret}" \
   >/etc/nginx/snippets/ladder_dragon_proxy_secret.conf
-install -m 0644 FRONT/index.html FRONT/help.html CHANGELOG.md "${WEB_ROOT}/"
+  install -m 0644 FRONT/index.html FRONT/help.html FRONT/locales.js docs/assets/ladder-dragon-logo.svg CHANGELOG.md "${WEB_ROOT}/"
 rm -f "${WEB_ROOT}/readme.html"
 [[ -f /etc/nginx/.htpasswd-ladder-dragon ]] \
   || fail "nginx dashboard auth is missing; run installer migrate"

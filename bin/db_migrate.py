@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # Copyright (c) 2026 IURII Potekhin / Ladder Dragon. All rights reserved.
-# Purpose: keep the file role and safety boundaries clear during maintenance.
+# Purpose: apply versioned SQLite migrations.
 """Apply ordered, checksummed SQLite migrations."""
 
 from __future__ import annotations

@@ -1,5 +1,5 @@
 # Copyright (c) 2026 IURII Potekhin / Ladder Dragon. All rights reserved.
-# Purpose: keep the file role and safety boundaries clear during maintenance.
+# Purpose: implement the ai control component of the ai layer.
 """Безопасный runtime-переключатель рекомендательного AI-слоя.
 
 Файл управления намеренно отделён от telemetry status: дашборд может менять

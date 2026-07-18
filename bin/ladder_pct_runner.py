@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 # Copyright (c) 2026 IURII Potekhin / Ladder Dragon. All rights reserved.
-# Purpose: keep the file role and safety boundaries clear during maintenance.
+# Purpose: run the percentage ladder strategy.
 """
 ladder_pct_runner.py — подготовка процентной лестницы для исполнителя:
 - Геометрическая сетка по модулю процентов (устойчивое geomspace)

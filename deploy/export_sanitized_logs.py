@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # Copyright (c) 2026 IURII Potekhin / Ladder Dragon. All rights reserved.
-# Purpose: keep the file role and safety boundaries clear during maintenance.
+# Purpose: export redacted operational logs.
 """Export sanitized mybot logs for the read-only nginx directory."""
 
 from __future__ import annotations

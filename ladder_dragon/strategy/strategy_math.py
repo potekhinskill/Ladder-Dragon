@@ -1,5 +1,5 @@
 # Copyright (c) 2026 IURII Potekhin / Ladder Dragon. All rights reserved.
-# Purpose: keep the file role and safety boundaries clear during maintenance.
+# Purpose: implement the strategy math component of the strategy layer.
 """Чистые детерминированные расчёты, общие для торговых процессов.
 
 Здесь намеренно нет сети, окружения, логирования и изменяемого состояния биржи.

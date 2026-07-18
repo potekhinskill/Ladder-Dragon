@@ -1,5 +1,5 @@
 # Copyright (c) 2026 IURII Potekhin / Ladder Dragon. All rights reserved.
-# Purpose: keep the file role and safety boundaries clear during maintenance.
+# Purpose: implement the ai advisor component of the ai layer.
 """Безопасный рекомендательный слой стратегии на основе LLM.
 
 Модель не получает торговых инструментов и не создаёт ордера. Она может только

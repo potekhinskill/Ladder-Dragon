@@ -1,80 +1,73 @@
-# Правила проекта Ladder Dragon
+# Ladder Dragon project rules
 
-Эти правила обязательны для всех изменений в репозитории и для всех обновлений
-на Raspberry Pi.
+These rules apply to every repository change and every Raspberry Pi update.
 
-## Перед изменением
+## Before editing
 
-- Прочитать этот файл и ближайшие инструкции `AGENTS.md`.
-- Проверить `git status` и не затирать пользовательские изменения.
-- Найти связанные тесты, миграции, systemd-unit, `.env.example` и документацию.
-- Не читать и не выводить значения секретов из `.env`, ключей, токенов и backup.
+- Read this file and the nearest `AGENTS.md` instructions.
+- Check `git status` and preserve user changes.
+- Locate related tests, migrations, systemd units, `.env.example` files, and docs.
+- Never read or print values from `.env`, keys, tokens, or backups.
 
-## Git и changelog
+## Git and changelog
 
-- Работать в ветке `codex/*`; один логический набор изменений — один атомарный commit.
-- Не использовать destructive-команды (`reset --hard`, `checkout --`) без явного запроса.
-- Каждый функциональный, security, schema, deployment или dashboard change обязан
-  иметь запись в `CHANGELOG.md` в том же commit.
-- Запись changelog должна содержать дату, раздел (`Добавлено`, `Изменено`,
-  `Исправлено`, `Безопасность`, `Проверено`) и фактический результат тестов.
-- Нельзя считать задачу завершённой, если код изменён, а changelog не обновлён.
-- Заголовок `## [Unreleased]` запрещён: не добавлять и не оставлять такой раздел
-  в `CHANGELOG.md`. Каждое изменение сразу помещать в датированную секцию
-  `## [X.Y.Z] — YYYY-MM-DD`.
-- При каждой записи в changelog повышать `__version__` в `product_version.py`;
-  перед commit проверять отсутствие `^## [Unreleased]` в `CHANGELOG.md`.
-- Push выполнять только после тестов; в сообщении указывать commit SHA и команду
-  обновления Raspberry.
+- Work on a `codex/*` branch; keep one logical change set per atomic commit.
+- Do not use destructive commands (`reset --hard`, `checkout --`) without an explicit request.
+- Every functional, security, schema, deployment, or dashboard change must have a
+  `CHANGELOG.md` entry in the same commit.
+- A changelog entry must include the date, a category (`Added`, `Changed`, `Fixed`,
+  `Security`, or `Verified`), and the actual test result.
+- A task is not complete when code changed without a matching changelog entry.
+- `## [Unreleased]` is forbidden. Put each change immediately in a dated section
+  named `## [X.Y.Z] — YYYY-MM-DD`.
+- Bump `__version__` in `product_version.py` for every changelog entry and verify
+  that `^## [Unreleased]` is absent before committing.
+- Push only after tests; report the commit SHA and Raspberry update command.
 
-## Безопасность и торговый режим
+## Security and execution modes
 
-- DRY/Testnet — значения по умолчанию. LIVE допускается только с явным
-  `BOT_LIVE_CONFIRMED=YES`, показом итоговой конфигурации и максимальной экспозиции.
-- Dashboard использует отдельный read-only Binance API key без `TRADE` и withdrawals.
-- Секреты не попадают в Git, prompt, argv, логи, telemetry, backups в открытом виде
-  или публичные HTTP-ответы.
-- При недоступной БД, рассинхроне времени, невалидных exchange filters, stale market
-  data или нарушенной защите позиции торговля должна fail-closed.
-- Circuit breaker, halt-файл, portfolio CAP, reserve USDT, daily loss и gap-risk
-  нельзя обходить рекомендацией AI или ручным fallback.
+- DRY/Testnet are the defaults. LIVE requires explicit `BOT_LIVE_CONFIRMED=YES`,
+  a printed final configuration, and a reviewed maximum exposure.
+- The dashboard uses a separate read-only Binance API key without `TRADE` or withdrawal permissions.
+- Secrets must never appear in Git, prompts, argv, logs, telemetry, plaintext backups,
+  or public HTTP responses.
+- If the database, clock synchronization, exchange filters, market data freshness,
+  or position protection is invalid, trading must fail closed.
+- AI or a manual fallback must not bypass the circuit breaker, halt file, portfolio CAP,
+  USDT reserve, daily loss, or gap-risk controls.
 
-## AI и RAG
+## AI and RAG
 
-- AI — только advisory layer: он не получает order tools, ключи, полный баланс или
-  возможность создавать/отменять ордера.
-- Ответ AI проходит строгую JSON-схему, диапазоны, confidence threshold и Risk Manager.
-  Ошибка, низкая confidence или повреждённый control-файл возвращают детерминированную
-  стратегию.
-- `SHADOW` не меняет торговый план; `APPLY` допускается только после отдельного
-  подтверждения и статистического gate.
-- RAG использует только проверенные фактические закрытия с fills и net PnL.
-  Виртуальные оценки без закрытой позиции, будущие данные и look-ahead запрещены.
-- Для каждого retrieval сохраняется связь с `decision_id`; отсутствие контекста
-  безопасно означает пустой retrieval и deterministic fallback.
-- RAG не дообучает модель DeepSeek и не может изменять Risk Manager.
+- AI is advisory only: it receives no order tools, keys, full balances, or ability to
+  create or cancel orders.
+- Every AI response passes a strict JSON schema, range checks, confidence threshold,
+  and Risk Manager. API errors, low confidence, or a damaged control file return to
+  the deterministic strategy.
+- `SHADOW` never changes the trading plan; `APPLY` requires separate approval and a statistical gate.
+- RAG may use only verified real closures with fills and net PnL. Virtual estimates,
+  future data, and look-ahead are forbidden.
+- Every retrieval is linked to `decision_id`; missing context safely means empty retrieval
+  and deterministic fallback.
+- RAG never fine-tunes DeepSeek and cannot modify Risk Manager.
 
-## Код, данные и тесты
+## Code, data, and tests
 
-- Для денег, цен, количества, комиссий и PnL использовать `Decimal` там, где это
-  влияет на решение или исполнение; не добавлять новые финансовые расчёты на float.
-- Ошибки ловить конкретными типами и писать структурированные сообщения; не скрывать
-  причину fallback без безопасного диагностического события.
-- SQLite schema changes оформлять версионируемой миграцией; не удалять исторические
-  данные без retention-политики.
-- После изменений запускать как минимум:
-  `python3 -m compileall -q .` и `PYTHONPATH=. pytest -q`.
-- Для изменений AI/Risk/Executor обязательно запускать связанные unit и regression
-  tests, включая restart, partial fill, OCO/STOP, gap и idempotency сценарии.
-- Новая логика должна иметь тест на fail-closed путь и тест на отсутствие утечки
-  секретов/look-ahead.
-- Комментарии к крупным узлам и опасным финансовым решениям писать на английском.
+- Use `Decimal` for money, prices, quantities, fees, and PnL whenever a value affects
+  a decision or execution; do not add new financial calculations using float.
+- Catch specific exception types and emit structured messages; never hide a fallback reason
+  without a safe diagnostic event.
+- Version SQLite schema changes with migrations; do not delete historical data outside retention policy.
+- After changes run at least `python3 -m compileall -q .` and `PYTHONPATH=. pytest -q`.
+- AI/Risk/Executor changes must run related unit and regression tests, including restart,
+  partial fill, OCO/STOP, gap, and idempotency scenarios.
+- New logic needs a fail-closed test and a test proving no secret or look-ahead leakage.
+- Write comments for major nodes and dangerous financial decisions in English.
 
 ## Raspberry Pi deployment
 
-- Обновлять только через `deploy/update_raspberry_pi.sh update <40-char-SHA>`.
-- Перед обновлением сохранить состояние сервисов и зашифрованный backup; не менять
-  `.env` и `.env.dashboard` содержимым из Git.
-- После обновления проверить `mybot`, `pi-healthd`, heartbeat, `/api/health`,
-  `/api/ai/status`, защищённые logs и фактический execution mode.
-- Любое изменение deployment/systemd/nginx также фиксировать в changelog и тестах.
+- Update only with `deploy/update_raspberry_pi.sh update <40-char-SHA>`.
+- Before updating, preserve service state and an encrypted backup; never replace `.env`
+  or `.env.dashboard` with Git content.
+- After updating, check `mybot`, `pi-healthd`, heartbeat, `/api/health`, `/api/ai/status`,
+  protected logs, and the actual execution mode.
+- Any deployment/systemd/nginx change must also be recorded in the changelog and tests.

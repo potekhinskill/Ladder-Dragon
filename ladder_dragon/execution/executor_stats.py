@@ -1,5 +1,5 @@
 # Copyright (c) 2026 IURII Potekhin / Ladder Dragon. All rights reserved.
-# Purpose: keep the file role and safety boundaries clear during maintenance.
+# Purpose: implement the executor stats component of the execution layer.
 """Импорт сделок и точная оценка комиссий для исполнителя."""
 
 from __future__ import annotations

@@ -1,5 +1,5 @@
 # Copyright (c) 2026 IURII Potekhin / Ladder Dragon. All rights reserved.
-# Purpose: keep the file role and safety boundaries clear during maintenance.
+# Purpose: implement the inventory lots component of the execution layer.
 """FIFO-партии с возрастом для live-сверки и backtest."""
 from __future__ import annotations
 

@@ -1,5 +1,5 @@
 # Copyright (c) 2026 IURII Potekhin / Ladder Dragon. All rights reserved.
-# Purpose: keep the file role and safety boundaries clear during maintenance.
+# Purpose: implement the trade accounting component of the execution layer.
 """Exact trade normalization and average-cost accounting."""
 
 from __future__ import annotations

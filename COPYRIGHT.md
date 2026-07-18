@@ -2,12 +2,13 @@
 
 Copyright (c) 2026 IURII Potekhin / Ladder Dragon.
 
+Project contact: potekhin.skill@gmail.com
+
 The code is distributed under the MIT License. Additional warranty and
 financial-liability limitations are described in `DISCLAIMER.md`.
 
-No personal e-mail address is required in source headers. If a public contact
-address is desired, publish a dedicated project address in `README.md` or the
-repository metadata; never place a private address in every source file.
+The public contact address belongs in this document and `README.md`; it is not
+copied into every source header or runtime configuration.
 
 Secrets, real backup files, production configuration, and private trading
 parameters must not enter Git or public releases unless they have been

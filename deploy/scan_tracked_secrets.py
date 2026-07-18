@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # Copyright (c) 2026 IURII Potekhin / Ladder Dragon. All rights reserved.
-# Purpose: keep the file role and safety boundaries clear during maintenance.
+# Purpose: scan tracked files for credential leaks.
 """Minimal fail-fast secret scan for tracked repository files."""
 
 from __future__ import annotations
