@@ -47,6 +47,12 @@ def test_health_exposes_product_version_and_changelog(monkeypatch):
     assert payload["changelog_url"] == "/CHANGELOG.md"
 
 
+def test_legacy_dashboard_update_branch_maps_to_main(monkeypatch):
+    monkeypatch.setenv("DASHBOARD_GITHUB_BRANCH", "codex/safety-hardening")
+    module = load_dashboard(monkeypatch)
+    assert module.GITHUB_BRANCH == "main"
+
+
 def test_account_balances_exposes_read_only_assets_without_secrets(monkeypatch):
     monkeypatch.setenv("DASHBOARD_BINANCE_API_KEY", "read-only-key")
     monkeypatch.setenv("DASHBOARD_BINANCE_API_SECRET", "read-only-secret")
@@ -122,6 +128,56 @@ def test_account_balances_returns_service_unavailable_on_binance_error(monkeypat
     assert response.status_code == 503
     assert response.json()["ok"] is False
     assert "Binance unavailable" in response.json()["error"]
+
+
+def test_stopped_bot_uses_only_configured_symbols(tmp_path, monkeypatch):
+    service_env = tmp_path / ".env.service"
+    service_env.write_text(
+        "BOT_SERVICE_VENUE=mainnet\n"
+        "BOT_SERVICE_EXECUTION=live\n"
+        "BOT_SERVICE_SYMBOLS=SOLUSDT\n"
+        "BOT_SERVICE_EXTRA_ARGS=--cap-floor-usdt 10 --cap-ceil-usdt 10\n"
+        "BINANCE_API_SECRET=must-not-be-read\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("DASHBOARD_BOT_SERVICE_ENV", str(service_env))
+    module = load_dashboard(monkeypatch)
+    monkeypatch.setattr(module, "service_active", lambda name: "inactive")
+
+    context = module._bot_execution_context({})
+
+    assert context == {
+        "service_state": "inactive",
+        "execution_mode": "STOPPED",
+        "configured_execution_mode": "LIVE",
+        "venue": "mainnet",
+        "symbols": ["SOLUSDT"],
+        "cap_floor_usdt": 10.0,
+        "cap_ceil_usdt": 10.0,
+    }
+    assert "BINANCE_API_SECRET" not in module._bot_service_config()
+
+
+def test_missing_runtime_never_converts_account_dust_to_symbols(monkeypatch):
+    module = load_dashboard(monkeypatch)
+    monkeypatch.setattr(module, "_bot_service_config", lambda: {})
+    monkeypatch.setattr(module, "service_active", lambda name: "inactive")
+    monkeypatch.setattr(module, "_load_ai_runtime_status", lambda: {})
+    monkeypatch.setattr(module, "account_balances_snapshot", lambda: {
+        "assets": [
+            {"asset": "USDT", "free": 331.09, "total": 331.09},
+            {"asset": "MONKY", "free": 74339.0, "total": 74339.0},
+            {"asset": "PEPE", "free": 1000.0, "total": 1000.0},
+        ]
+    })
+    monkeypatch.setattr(module, "account_open_orders_snapshot", lambda: {"count": 0, "orders": []})
+    monkeypatch.setattr(module, "_order_journal_snapshot", lambda runtime: {"cancelled": 0, "pending": 0, "latest": None})
+
+    snapshot = module.trading_overview_snapshot()
+
+    assert snapshot["execution_mode"] == "STOPPED"
+    assert snapshot["symbols"] == []
+    assert snapshot["positions"] == []
 
 
 def test_open_orders_exposes_read_only_order_fields_without_secrets(monkeypatch):

@@ -3,6 +3,28 @@
 All notable changes are documented here. Releases use Semantic Versioning; every
 section is dated and there is intentionally no `Unreleased` section.
 
+## [2.10.67] — 2026-07-19
+
+### Fixed
+- The trading dashboard now reports `STOPPED` when `mybot` is inactive and
+  reads its configured venue, execution mode, symbols, and CAP range from the
+  non-secret `.env.service` file when the runtime heartbeat is absent.
+- Removed the unsafe display fallback that converted every non-USDT account
+  balance, including dust and unlisted assets, into a synthetic `ASSETUSDT`
+  trading symbol.
+- The dashboard GitHub update checker now defaults to the canonical `main`
+  branch, transparently migrates the former pre-release branch value, and
+  gives stopped-service banners a distinct neutral style.
+
+### Verified
+- Added dashboard regression coverage for stopped service configuration,
+  strict service-field allowlisting, and absence of balance-derived symbols.
+- `PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=. .venv/bin/python -m pytest -q` — 227 tests pass.
+- `.venv/bin/python -m pip check` — no broken requirements; `pip-audit
+  --skip-editable` — no known vulnerabilities.
+- Python compilation, deployment shell syntax, tracked-secret scan, and
+  `git diff --check` pass.
+
 ## [2.10.66] — 2026-07-19
 
 ### Fixed

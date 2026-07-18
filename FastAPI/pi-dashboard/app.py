@@ -5,7 +5,7 @@
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 # Keep requests optional instead of importing it into the shared module namespace.
-import psutil, shutil, json, os, socket, asyncio, subprocess, math, time, hmac, hashlib, secrets, threading, re, platform
+import psutil, shutil, json, os, socket, asyncio, subprocess, math, time, hmac, hashlib, secrets, threading, re, platform, shlex
 from collections import defaultdict, deque
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
@@ -52,7 +52,11 @@ _OPS_CACHE_TTL_SEC = max(10.0, float(os.getenv("DASHBOARD_OPS_CACHE_SEC", "30"))
 _OPS_CACHE_LOCK = threading.Lock()
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 GITHUB_REPOSITORY = os.getenv("DASHBOARD_GITHUB_REPOSITORY", "potekhinskill/Ladder-Dragon")
-GITHUB_BRANCH = os.getenv("DASHBOARD_GITHUB_BRANCH", "codex/safety-hardening")
+GITHUB_BRANCH = os.getenv("DASHBOARD_GITHUB_BRANCH", "main")
+# Existing installations may retain the removed pre-release branch in their
+# private dashboard environment. Keep update checks on the canonical branch.
+if GITHUB_BRANCH == "codex/safety-hardening":
+    GITHUB_BRANCH = "main"
 GITHUB_TOKEN = os.getenv("DASHBOARD_GITHUB_TOKEN", "")
 GITHUB_UPDATE_CHECK_TTL_SEC = max(300.0, float(os.getenv("DASHBOARD_GITHUB_UPDATE_CHECK_SEC", "3600")))
 _GITHUB_UPDATE_CACHE: Dict[str, object] = {"ts": 0.0, "payload": None}
@@ -75,6 +79,9 @@ AI_CONTROL_FILE = Path(
 )
 DASHBOARD_FOLLOW_BOT_PATHS = (
     os.getenv("DASHBOARD_FOLLOW_BOT_PATHS", "0") == "1"
+)
+BOT_SERVICE_ENV_FILE = Path(
+    os.getenv("DASHBOARD_BOT_SERVICE_ENV", str(PROJECT_ROOT / ".env.service"))
 )
 
 @asynccontextmanager
@@ -565,16 +572,86 @@ def _order_journal_snapshot(runtime: Dict[str, object]) -> Dict[str, object]:
         return {"available": False, "reason": type(exc).__name__}
 
 
+def _bot_service_config() -> Dict[str, object]:
+    """Read only non-secret service settings used to explain a stopped bot."""
+    allowed = {
+        "BOT_SERVICE_VENUE",
+        "BOT_SERVICE_EXECUTION",
+        "BOT_SERVICE_SYMBOLS",
+        "BOT_SERVICE_EXTRA_ARGS",
+    }
+    values: Dict[str, str] = {}
+    try:
+        for raw_line in BOT_SERVICE_ENV_FILE.read_text(encoding="utf-8").splitlines():
+            line = raw_line.strip()
+            if not line or line.startswith("#") or "=" not in line:
+                continue
+            key, value = line.split("=", 1)
+            if key.strip() not in allowed:
+                continue
+            value = value.strip()
+            if len(value) >= 2 and value[0] == value[-1] and value[0] in {"'", '"'}:
+                value = value[1:-1]
+            values[key.strip()] = value
+    except OSError:
+        return {}
+
+    symbols = [
+        symbol.strip().upper()
+        for symbol in values.get("BOT_SERVICE_SYMBOLS", "").split(",")
+        if symbol.strip()
+    ]
+    config: Dict[str, object] = {
+        "venue": values.get("BOT_SERVICE_VENUE", "").lower() or None,
+        "execution_mode": values.get("BOT_SERVICE_EXECUTION", "").upper() or None,
+        "symbols": symbols,
+    }
+    try:
+        arguments = shlex.split(values.get("BOT_SERVICE_EXTRA_ARGS", ""))
+    except ValueError:
+        arguments = []
+    for index, argument in enumerate(arguments[:-1]):
+        if argument in {"--cap-floor-usdt", "--cap-ceil-usdt"}:
+            try:
+                config[argument.removeprefix("--").replace("-", "_")] = float(arguments[index + 1])
+            except ValueError:
+                continue
+    return config
+
+
+def _bot_execution_context(runtime: Dict[str, object]) -> Dict[str, object]:
+    """Resolve service state without turning account dust into trading symbols."""
+    configured = _bot_service_config()
+    service_state = service_active("mybot") or "unknown"
+    runtime_symbols = runtime.get("symbols", []) if isinstance(runtime.get("symbols"), list) else []
+    symbols = configured.get("symbols") or [
+        str(item).upper() for item in runtime_symbols if item
+    ]
+    configured_mode = configured.get("execution_mode")
+    runtime_mode = str(runtime.get("execution_mode") or "").upper() or None
+    if service_state in {"inactive", "failed", "deactivating"}:
+        execution_mode = "STOPPED"
+    else:
+        execution_mode = runtime_mode or configured_mode or "UNKNOWN"
+    return {
+        "service_state": service_state,
+        "execution_mode": execution_mode,
+        "configured_execution_mode": configured_mode,
+        "venue": runtime.get("venue") or configured.get("venue") or BINANCE_BASE,
+        "symbols": symbols,
+        "cap_floor_usdt": configured.get("cap_floor_usdt"),
+        "cap_ceil_usdt": configured.get("cap_ceil_usdt"),
+    }
+
+
 def trading_overview_snapshot() -> Dict[str, object]:
     """Read-only объединённый снимок позиций, защиты и risk telemetry."""
     runtime = _load_ai_runtime_status()
     balances = account_balances_snapshot()
     orders = account_open_orders_snapshot()
     balance_by_asset = {str(row["asset"]).upper(): row for row in balances.get("assets", [])}
-    runtime_symbols = runtime.get("symbols", []) if isinstance(runtime.get("symbols"), list) else []
-    symbols = [str(item).upper() for item in runtime_symbols if item]
-    if not symbols:
-        symbols = [f"{asset}USDT" for asset in balance_by_asset if asset not in {"USDT", "BNB"}]
+    execution = _bot_execution_context(runtime)
+    symbols = execution["symbols"]
     order_rows = orders.get("orders", []) if isinstance(orders.get("orders"), list) else []
     positions = []
     for symbol in symbols:
@@ -636,13 +713,16 @@ def trading_overview_snapshot() -> Dict[str, object]:
     return {
         "ok": True,
         "updated_at": now_str(),
-        "venue": runtime.get("venue") or BINANCE_BASE,
-        "execution_mode": runtime.get("execution_mode") or "UNKNOWN",
+        "venue": execution["venue"],
+        "execution_mode": execution["execution_mode"],
+        "configured_execution_mode": execution["configured_execution_mode"],
+        "service_state": execution["service_state"],
         "symbols": symbols,
         "free_usdt": round(free_usdt, 2),
         "reserve_usdt": risk_limits.get("reserve_usdt"),
         "caps": {
-            "per_order_usdt": risk.get("current_cap_per_order_usdt"),
+            "per_order_usdt": risk.get("current_cap_per_order_usdt") or execution.get("cap_ceil_usdt"),
+            "configured_floor_usdt": execution.get("cap_floor_usdt"),
             "per_symbol": risk.get("symbol_caps_usdt", {}),
             "portfolio_usdt": risk_limits.get("portfolio_cap_usdt"),
         },

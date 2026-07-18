@@ -63,6 +63,7 @@
   .live-banner{display:inline-flex;align-items:center;border-radius:999px;padding:5px 10px;font-size:12px;font-weight:800;border:1px solid rgba(243,194,77,.4);background:rgba(243,194,77,.15);color:#ffe08b}
   .live-banner.live{border-color:rgba(255,110,110,.55);background:rgba(255,110,110,.18);color:#ffb0b0}
   .live-banner.dry{border-color:rgba(33,192,122,.4);background:rgba(33,192,122,.15);color:#7ef3b2}
+  .live-banner.stopped{border-color:rgba(148,163,184,.45);background:rgba(148,163,184,.14);color:#cbd5e1}
   .position-box{overflow:auto;background:#0f131b;border:1px solid var(--stroke);border-radius:var(--rad)}
   .position-table{min-width:980px}
   .risk-bad{color:#ffaaaa;font-weight:800}.risk-ok{color:#7ef3b2;font-weight:800}
@@ -609,7 +610,7 @@ function updateOperations(h){
 }
 function updateTrading(t){
   const mode=String(t.execution_mode||'UNKNOWN').toUpperCase();
-  const banner=$('#execution-banner'); banner.textContent=`${mode} · ${(t.symbols||[]).join(', ')||'—'}`; banner.className=`live-banner ${mode==='LIVE'?'live':(mode==='DRY'?'dry':'')}`;
+  const banner=$('#execution-banner'); banner.textContent=`${mode} · ${(t.symbols||[]).join(', ')||'—'}`; banner.className=`live-banner ${mode==='LIVE'?'live':(mode==='DRY'?'dry':(mode==='STOPPED'?'stopped':''))}`;
   $('#trade-free-usdt').textContent=fmtUSDT(Number(t.free_usdt));
   $('#trade-reserve').textContent=t.reserve_usdt!=null?fmtUSDT(Number(t.reserve_usdt)):'—';
   const caps=t.caps||{};
