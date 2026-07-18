@@ -62,6 +62,17 @@ def test_dashboard_uses_ladder_dragon_branding():
     assert "Pi Dashboard" not in index
 
 
+def test_public_license_and_financial_disclaimer_are_explicit():
+    license_text = read("LICENSE")
+    disclaimer = read("DISCLAIMER.md")
+    readme = read("README.md")
+    assert "MIT License" in license_text
+    assert "IURII Potekhin / Ladder Dragon" in license_text
+    assert "не является финансовой" in disclaimer
+    assert "потерю денег" in disclaimer
+    assert "DISCLAIMER.md" in readme
+
+
 def test_dashboard_exposes_read_only_ops_trading_and_ai_quality_blocks():
     index = read("FRONT/index.html")
     app = read("FastAPI/pi-dashboard/app.py")
