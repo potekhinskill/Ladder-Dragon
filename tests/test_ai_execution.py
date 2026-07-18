@@ -1,3 +1,5 @@
+import sqlite3
+
 from ai_context import AdvisorDecisionStore
 
 
@@ -90,3 +92,42 @@ def test_restart_relink_does_not_replace_original_decision(tmp_path):
     store.link_client_order("oco-client", first, symbol="SOLUSDT", order_type="OCO")
     store.link_client_order("oco-client", second, symbol="SOLUSDT", order_type="OCO")
     assert store.decision_for_client_order("oco-client")[0] == first
+
+
+def test_legacy_ai_schema_migrates_before_new_indexes(tmp_path):
+    path = tmp_path / "legacy-ai.db"
+    with sqlite3.connect(path) as connection:
+        connection.executescript(
+            """
+            CREATE TABLE ai_decisions(
+                decision_id TEXT PRIMARY KEY, symbol TEXT NOT NULL,
+                created_at INTEGER NOT NULL, price REAL NOT NULL,
+                deterministic_mode TEXT NOT NULL, recommended_mode TEXT NOT NULL,
+                width_scale REAL NOT NULL, cap_scale REAL NOT NULL,
+                confidence REAL NOT NULL, applied INTEGER NOT NULL,
+                policy_status TEXT NOT NULL DEFAULT '',
+                policy_reasons TEXT NOT NULL DEFAULT '',
+                benchmark_mode TEXT NOT NULL DEFAULT '',
+                evaluation_json TEXT NOT NULL DEFAULT '{}',
+                feature_json TEXT NOT NULL DEFAULT '[]',
+                return_15m REAL, return_1h REAL, return_4h REAL
+            );
+            CREATE TABLE ai_fills(
+                fill_id TEXT PRIMARY KEY, decision_id TEXT NOT NULL,
+                symbol TEXT NOT NULL, side TEXT NOT NULL, price REAL NOT NULL,
+                qty REAL NOT NULL, fee_quote REAL NOT NULL DEFAULT 0,
+                exit_reason TEXT NOT NULL DEFAULT '', ts INTEGER NOT NULL
+            );
+            CREATE TABLE ai_order_links(
+                client_order_id TEXT PRIMARY KEY, decision_id TEXT NOT NULL,
+                symbol TEXT NOT NULL, lot_id INTEGER,
+                order_type TEXT NOT NULL DEFAULT '', created_at INTEGER NOT NULL
+            );
+            """
+        )
+    AdvisorDecisionStore(str(path))
+    with sqlite3.connect(path) as connection:
+        fill_columns = {row[1] for row in connection.execute("PRAGMA table_info(ai_fills)")}
+        link_columns = {row[1] for row in connection.execute("PRAGMA table_info(ai_order_links)")}
+        assert {"order_id", "trade_id", "slippage_quote"} <= fill_columns
+        assert {"exchange_order_id", "expected_price"} <= link_columns

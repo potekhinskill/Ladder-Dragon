@@ -469,10 +469,6 @@ class AdvisorDecisionStore:
                 )"""
             )
             connection.execute("CREATE INDEX IF NOT EXISTS ai_fills_decision ON ai_fills(decision_id, ts)")
-            connection.execute(
-                "CREATE INDEX IF NOT EXISTS ai_fills_exchange_trade "
-                "ON ai_fills(order_id, trade_id) WHERE order_id IS NOT NULL AND trade_id IS NOT NULL"
-            )
             connection.execute("""CREATE TABLE IF NOT EXISTS ai_unresolved_fills(
                 fill_key TEXT PRIMARY KEY, symbol TEXT NOT NULL, side TEXT NOT NULL,
                 order_id TEXT, trade_id TEXT, price REAL NOT NULL, qty REAL NOT NULL,
@@ -486,12 +482,6 @@ class AdvisorDecisionStore:
                 leg_type TEXT NOT NULL DEFAULT '', expected_price REAL,
                 created_at INTEGER NOT NULL
             )""")
-            connection.execute(
-                "CREATE INDEX IF NOT EXISTS ai_order_links_exchange_id ON ai_order_links(exchange_order_id)"
-            )
-            connection.execute(
-                "CREATE INDEX IF NOT EXISTS ai_order_links_list_id ON ai_order_links(exchange_order_list_id)"
-            )
             columns = {
                 row[1] for row in connection.execute("PRAGMA table_info(ai_decisions)")
             }
@@ -527,6 +517,18 @@ class AdvisorDecisionStore:
                 for column, ddl in table_columns.items():
                     if column not in existing:
                         connection.execute(f"ALTER TABLE {table} ADD COLUMN {column} {ddl}")
+            # Индексы новых колонок создаются только после ALTER TABLE: на
+            # старой Raspberry-БД эти поля отсутствуют до текущей миграции.
+            connection.execute(
+                "CREATE INDEX IF NOT EXISTS ai_fills_exchange_trade "
+                "ON ai_fills(order_id, trade_id) WHERE order_id IS NOT NULL AND trade_id IS NOT NULL"
+            )
+            connection.execute(
+                "CREATE INDEX IF NOT EXISTS ai_order_links_exchange_id ON ai_order_links(exchange_order_id)"
+            )
+            connection.execute(
+                "CREATE INDEX IF NOT EXISTS ai_order_links_list_id ON ai_order_links(exchange_order_list_id)"
+            )
             connection.execute(
                 "DELETE FROM ai_decisions WHERE created_at < ?",
                 (int(time.time()) - 365 * 86_400,),

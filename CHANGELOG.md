@@ -2,6 +2,20 @@
 
 Формат версий: [Semantic Versioning](https://semver.org/).
 
+## [2.10.30] — 2026-07-18
+
+### Исправлено
+- Исправлен порядок миграции `ai_decisions.sqlite3`: legacy-таблицы сначала
+  получают новые колонки, и только затем создаются индексы `order_id` и
+  `exchange_order_id`. Старые AI-БД Raspberry больше не вызывают crash-loop
+  supervisor при старте.
+
+### Проверено
+- Добавлен regression-тест миграции legacy AI schema.
+- `PYTHONPATH=. pytest -q`.
+- `python3 -m compileall -q .`.
+- `git diff --check`.
+
 ## [2.10.29] — 2026-07-18
 
 ### Исправлено
