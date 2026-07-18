@@ -1,5 +1,17 @@
 # Changelog — Ladder Dragon
 
+## [2.10.40] — 2026-07-18
+
+### Исправлено
+- Dashboard больше не называет полностью неисполненный ордер частичным fill:
+  `partial_fill=true` устанавливается только при подтверждённом количестве
+  больше нуля и меньше запрошенного.
+
+### Проверено
+- `.venv/bin/python -m pytest -q` — все тесты проходят.
+- `PYTHONPYCACHEPREFIX=/tmp/ladder-dragon-pycache python3 -m compileall -q .`.
+- `git diff --check`.
+
 ## [2.10.39] — 2026-07-18
 
 ### Исправлено

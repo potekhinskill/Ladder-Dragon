@@ -8,7 +8,7 @@ import psutil, shutil, json, os, socket, asyncio, subprocess, math, time, hmac, 
 from collections import defaultdict, deque
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
-from decimal import Decimal
+from decimal import Decimal, InvalidOperation
 from zoneinfo import ZoneInfo
 from pathlib import Path
 import sqlite3
@@ -531,13 +531,19 @@ def _order_journal_snapshot(runtime: Dict[str, object]) -> Dict[str, object]:
             ).fetchone()
             item = None
             if latest:
+                try:
+                    executed_qty = Decimal(str(latest["executed_qty"] or "0"))
+                    requested_qty = Decimal(str(latest["quantity"] or "0"))
+                    partial_fill = executed_qty > 0 and requested_qty > 0 and executed_qty < requested_qty
+                except (InvalidOperation, TypeError, ValueError):
+                    # Повреждённое/неполное поле не должно превращаться в
+                    # ложный partial fill; неизвестное состояние показываем
+                    # как false до подтверждения биржей.
+                    partial_fill = False
                 item = {
                     "symbol": latest["symbol"], "side": latest["side"], "status": latest["state"],
                     "order_id": latest["exchange_order_id"], "executed_qty": latest["executed_qty"],
-                    "quantity": latest["quantity"], "partial_fill": (
-                        str(latest["executed_qty"] or "0") not in {"0", "0.0"}
-                        and str(latest["executed_qty"]) != str(latest["quantity"])
-                    ),
+                    "quantity": latest["quantity"], "partial_fill": partial_fill,
                     # Intent-журнал пока не хранит сетевую latency и комиссию
                     # конкретного fill; явно возвращаем null, а не выдумываем их.
                     "latency_ms": None,
