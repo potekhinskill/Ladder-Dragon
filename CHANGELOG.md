@@ -24,6 +24,17 @@
 - `PYTHONPYCACHEPREFIX=/tmp/ladder-dragon-pycache python3 -m compileall -q .`.
 - `git diff --check`.
 
+## [2.10.37] — 2026-07-18
+
+### Изменено
+- Основной экран и заголовок вкладки dashboard переименованы с «Pi Dashboard»
+  на «Ladder Dragon». Логика API и торгового контура не менялась.
+
+### Проверено
+- `.venv/bin/python3 -m pytest -q`.
+- `PYTHONPYCACHEPREFIX=/tmp/ladder-dragon-pycache python3 -m compileall -q .`.
+- `git diff --check`.
+
 Формат версий: [Semantic Versioning](https://semver.org/).
 
 ## [2.10.34] — 2026-07-18
