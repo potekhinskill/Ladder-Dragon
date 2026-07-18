@@ -6,8 +6,6 @@
 <meta charset="utf-8"/>
 <meta name="viewport" content="width=device-width,initial-scale=1"/>
 <title>🧪 Ladder Dragon</title>
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;600;800&display=swap" rel="stylesheet">
 <style>
   :root{
     --bg:#0f1218; --panel:#151a22; --stroke:#212734;
@@ -26,7 +24,6 @@
   .version-link:hover{text-decoration:underline;color:var(--text)}
   .language-picker{margin-left:auto;display:inline-flex;align-items:center;gap:6px;color:var(--muted);font-size:12px}
   .language-picker select{background:#111622;color:var(--text);border:1px solid var(--stroke);border-radius:8px;padding:4px 8px;font:inherit}
-  /* Switches follow the compact Binance style: a blue track means ON. */
   .ai-toggle{display:inline-flex;align-items:center;gap:7px;border:0;background:transparent;color:var(--text);padding:0;font:inherit;font-size:12px;cursor:pointer}
   .ai-toggle:disabled{cursor:not-allowed;opacity:.55}
   .switch-visual{position:relative;display:inline-block;width:42px;height:24px;flex:0 0 auto;border:1px solid #3a4352;border-radius:999px;background:#272e39;transition:background .18s,border-color .18s}
@@ -129,7 +126,7 @@
   .open-orders-box{max-height:340px;overflow:auto;background:#0f131b;border:1px solid var(--stroke);border-radius:var(--rad)}
   .open-orders-table{min-width:1040px}
 </style>
-<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.3/dist/chart.umd.min.js"></script>
+<script src="/vendor/chart.umd.min.js"></script>
 <script src="/locales.js"></script>
 </head>
 <body>

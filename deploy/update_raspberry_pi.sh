@@ -283,7 +283,7 @@ elif [[ -e /etc/ladder-dragon/telegram.env ]]; then
   chown root:"${BOT_USER}" /etc/ladder-dragon/telegram.env
   chmod 0640 /etc/ladder-dragon/telegram.env
 fi
-install -d -o root -g root -m 0755 "${WEB_ROOT}"
+install -d -o root -g root -m 0755 "${WEB_ROOT}" "${WEB_ROOT}/vendor"
 install -d -m 0755 /etc/nginx/snippets
 install -o root -g www-data -m 0640 /dev/null \
   /etc/nginx/snippets/ladder_dragon_proxy_secret.conf
@@ -291,6 +291,7 @@ printf 'proxy_set_header X-Dashboard-Proxy-Secret "%s";\n' \
   "${dashboard_proxy_secret}" \
   >/etc/nginx/snippets/ladder_dragon_proxy_secret.conf
   install -m 0644 FRONT/index.html FRONT/help.html FRONT/locales.js docs/assets/ladder-dragon-logo.svg CHANGELOG.md "${WEB_ROOT}/"
+install -m 0644 FRONT/vendor/chart.umd.min.js "${WEB_ROOT}/vendor/"
 rm -f "${WEB_ROOT}/readme.html"
 [[ -f /etc/nginx/.htpasswd-ladder-dragon ]] \
   || fail "nginx dashboard auth is missing; run installer migrate"

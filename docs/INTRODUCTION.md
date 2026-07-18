@@ -44,7 +44,7 @@ sudo timedatectl set-timezone Asia/Almaty
 timedatectl status
 ```
 
-### 2. Clone the private repository
+### 2. Clone the public repository
 
 Create a read-only GitHub deploy key and add it under **Repository → Settings →
 Deploy keys**. Then clone the approved branch:

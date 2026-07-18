@@ -137,6 +137,7 @@ def test_dashboard_publishes_version_and_changelog():
     assert '"product": {"name": PRODUCT_NAME, "version": __version__}' in app
     assert '"${PROJECT_DIR}/CHANGELOG.md" /var/www/bot/' in installer
     assert '"${PROJECT_DIR}/docs/assets/ladder-dragon-logo.svg"' in installer
+    assert 'FRONT/vendor/chart.umd.min.js' in installer
     assert 'FRONT/index.html FRONT/help.html FRONT/locales.js docs/assets/ladder-dragon-logo.svg CHANGELOG.md' in updater
 
 
@@ -155,8 +156,22 @@ def test_dashboard_localization_has_all_supported_languages_and_is_deployed():
     assert '"${PROJECT_DIR}/FRONT/locales.js"' in installer
     assert '"${PROJECT_DIR}/docs/assets/ladder-dragon-logo.svg"' in installer
     assert "FRONT/index.html FRONT/help.html FRONT/locales.js docs/assets/ladder-dragon-logo.svg CHANGELOG.md" in updater
+    assert "FRONT/vendor/chart.umd.min.js" in updater
     assert 'src="/ladder-dragon-logo.svg"' in index
     assert 'id="ops-platform"' in index
+
+
+def test_publication_docs_and_local_dashboard_assets_are_present():
+    readme = read("README.md")
+    index = read("FRONT/index.html")
+    assert "2.10.54" in readme
+    assert "not affiliated with" in readme
+    assert 'src="/vendor/chart.umd.min.js"' in index
+    assert "fonts.googleapis.com" not in index
+    assert (ROOT / "FRONT/vendor/chart.umd.min.js").read_bytes().startswith(b"/**")
+    assert "MIT License" in read("THIRD_PARTY_NOTICES.md")
+    for document in ("SECURITY.md", "CONTRIBUTING.md", "TRADEMARKS.md", "THIRD_PARTY_NOTICES.md"):
+        assert (ROOT / document).is_file()
 
 
 def test_dashboard_health_has_portable_host_and_optional_raspberry_telemetry():
