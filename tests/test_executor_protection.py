@@ -1,6 +1,6 @@
 from pathlib import Path
 
-from executor_protection import (
+from ladder_dragon.execution.executor_protection import (
     BreakevenRuntime,
     BreakevenStateStore,
     ProtectionConfig,

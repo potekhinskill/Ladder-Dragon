@@ -16,7 +16,7 @@ import os
 import time
 from typing import Any, Callable, Dict, List, Optional, Sequence
 
-from order_recovery import OrderJournal, TERMINAL_EXCHANGE_STATES
+from ladder_dragon.execution.order_recovery import OrderJournal, TERMINAL_EXCHANGE_STATES
 
 
 @dataclass(frozen=True)

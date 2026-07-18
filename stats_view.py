@@ -8,7 +8,7 @@ from typing import List
 
 # tools_stats.py — ваш модуль
 try:
-    import tools_stats as ts
+    from ladder_dragon.execution import tools_stats as ts
 except Exception:
     print("Не найден tools_stats.py рядом. Запустите из каталога бота.", file=sys.stderr)
     raise

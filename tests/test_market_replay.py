@@ -2,7 +2,7 @@ from decimal import Decimal
 
 import pytest
 
-from market_replay import BookLevel, MarketEvent, OrderBookReplay, ReplayOrder
+from ladder_dragon.strategy.market_replay import BookLevel, MarketEvent, OrderBookReplay, ReplayOrder
 
 
 def test_price_time_priority_and_latency():

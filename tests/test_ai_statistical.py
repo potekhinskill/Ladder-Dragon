@@ -1,5 +1,5 @@
-from ai_advisor import MarketContext
-from ai_statistical import (
+from ladder_dragon.ai.ai_advisor import MarketContext
+from ladder_dragon.ai.ai_statistical import (
     MulticlassLogisticRegime,
     context_vector,
     return_label,

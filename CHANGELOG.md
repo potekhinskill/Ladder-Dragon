@@ -2,6 +2,21 @@
 
 Формат версий: [Semantic Versioning](https://semver.org/).
 
+## [2.10.32] — 2026-07-18
+
+### Изменено
+- Библиотечные модули разнесены по пакету `ladder_dragon`: `ai`, `execution`,
+  `risk` и `strategy`. CLI-точки входа и Raspberry-пути сохранены для обратной
+  совместимости.
+- Setuptools теперь устанавливает пакетную структуру, а импорты используют
+  явные смысловые пространства имён.
+
+### Проверено
+- `PYTHONPATH=. pytest -q`.
+- `python3 -m compileall -q` на чистой копии исходников.
+- Editable-install пакета `ladder-dragon`.
+- `git diff --check`.
+
 ## [2.10.31] — 2026-07-18
 
 ### Изменено

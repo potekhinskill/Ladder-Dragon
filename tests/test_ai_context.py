@@ -2,7 +2,7 @@ import sqlite3
 
 import pytest
 
-from ai_context import (
+from ladder_dragon.ai.ai_context import (
     AdvisorDecisionStore,
     build_portfolio_features,
     directional_success,

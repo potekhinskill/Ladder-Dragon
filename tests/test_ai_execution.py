@@ -1,6 +1,6 @@
 import sqlite3
 
-from ai_context import AdvisorDecisionStore
+from ladder_dragon.ai.ai_context import AdvisorDecisionStore
 
 
 def test_ai_decision_fills_are_linked_and_evaluated(tmp_path):

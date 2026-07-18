@@ -8,7 +8,7 @@ from dataclasses import dataclass
 import math
 from typing import Iterable, Sequence
 
-from ai_advisor import MarketContext
+from ladder_dragon.ai.ai_advisor import MarketContext
 
 
 CLASSES = ("DOWN", "FLAT", "UP")

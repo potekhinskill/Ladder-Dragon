@@ -20,8 +20,8 @@ import tempfile
 import time
 from typing import Iterable, Optional
 
-from trade_accounting import TradeExecution
-from telegram_alerts import notify as notify_telegram
+from ladder_dragon.execution.trade_accounting import TradeExecution
+from ladder_dragon.execution.telegram_alerts import notify as notify_telegram
 
 
 def money(value: object) -> Decimal:

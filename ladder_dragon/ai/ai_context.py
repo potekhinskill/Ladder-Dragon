@@ -20,7 +20,7 @@ import uuid
 from pathlib import Path
 from typing import Any, Callable, Iterable, Mapping, Sequence
 
-from trade_accounting import TradeExecution, replay_average_cost
+from ladder_dragon.execution.trade_accounting import TradeExecution, replay_average_cost
 
 
 ZERO = Decimal("0")
@@ -946,7 +946,7 @@ class AdvisorDecisionStore:
             ).fetchall()
 
     def dashboard_summary(self, *, limit: int = 50) -> dict[str, Any]:
-        from ai_policy import confidence_calibration
+        from ladder_dragon.ai.ai_policy import confidence_calibration
 
         with self._connect() as connection:
             rows = connection.execute(
@@ -1016,7 +1016,7 @@ class AdvisorDecisionStore:
         *,
         min_samples: int = 60,
     ) -> dict[str, Any]:
-        from ai_statistical import (
+        from ladder_dragon.ai.ai_statistical import (
             MulticlassLogisticRegime,
             context_vector,
             return_label,

@@ -16,7 +16,7 @@ from typing import Any, Callable, Mapping
 from urllib.parse import urlencode
 
 import requests
-from telegram_alerts import notify_binance_auth_error
+from ladder_dragon.execution.telegram_alerts import notify_binance_auth_error
 
 
 class BinanceTransport:

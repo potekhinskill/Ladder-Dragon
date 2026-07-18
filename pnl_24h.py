@@ -27,7 +27,7 @@ import json
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal, getcontext
 
-from trade_accounting import TradeExecution
+from ladder_dragon.execution.trade_accounting import TradeExecution
 
 getcontext().prec = 28
 

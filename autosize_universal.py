@@ -75,27 +75,27 @@ from datetime import datetime
 from decimal import Decimal
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
-import tools_market as TM
-from order_recovery import OrderIntent, OrderJournal
-from exchange_math import round_step
-from risk_manager import create_manual_halt
-from time_safety import assess_exchange_clock
-from trade_accounting import TradeExecution, UnpricedCommission, replay_average_cost
+from ladder_dragon.execution import tools_market as TM
+from ladder_dragon.execution.order_recovery import OrderIntent, OrderJournal
+from ladder_dragon.execution.exchange_math import round_step
+from ladder_dragon.risk.risk_manager import create_manual_halt
+from ladder_dragon.execution.time_safety import assess_exchange_clock
+from ladder_dragon.execution.trade_accounting import TradeExecution, UnpricedCommission, replay_average_cost
 from product_version import product_label, user_agent
-from executor_config import build_executor_parser, validate_executor_args
-from strategy_math import atr_from_klines as _atr_from_klines
-from strategy_math import clamp, ema_value as _ema, panic_triggered as panic_raw
-from strategy_math import shift_buy_levels
-from binance_transport import BinanceTransport
-from executor_market import get_balances as market_get_balances
-from executor_market import get_price as market_get_price
-from executor_market import get_symbol_assets as market_get_symbol_assets
-from executor_orders import OrderDependencies
-from executor_orders import place_limit_order as orders_place_limit_order
-from executor_orders import place_oco_sell as orders_place_oco_sell
-from executor_planning import buy_candidates, existing_prices, guarded_sell_levels
-from executor_planning import plan_buy_order, plan_sell_order
-from executor_protection import (
+from ladder_dragon.execution.executor_config import build_executor_parser, validate_executor_args
+from ladder_dragon.strategy.strategy_math import atr_from_klines as _atr_from_klines
+from ladder_dragon.strategy.strategy_math import clamp, ema_value as _ema, panic_triggered as panic_raw
+from ladder_dragon.strategy.strategy_math import shift_buy_levels
+from ladder_dragon.execution.binance_transport import BinanceTransport
+from ladder_dragon.execution.executor_market import get_balances as market_get_balances
+from ladder_dragon.execution.executor_market import get_price as market_get_price
+from ladder_dragon.execution.executor_market import get_symbol_assets as market_get_symbol_assets
+from ladder_dragon.execution.executor_orders import OrderDependencies
+from ladder_dragon.execution.executor_orders import place_limit_order as orders_place_limit_order
+from ladder_dragon.execution.executor_orders import place_oco_sell as orders_place_oco_sell
+from ladder_dragon.execution.executor_planning import buy_candidates, existing_prices, guarded_sell_levels
+from ladder_dragon.execution.executor_planning import plan_buy_order, plan_sell_order
+from ladder_dragon.execution.executor_protection import (
     BreakevenRuntime,
     BreakevenStateStore,
     ProtectionConfig,
@@ -104,20 +104,20 @@ from executor_protection import (
     protect_filled_buys,
     emergency_gap_flatten,
 )
-from executor_runtime import status_due, trading_seconds
-from executor_recovery import RecoveryDependencies
-from executor_recovery import cancel_oco as recovery_cancel_oco
-from executor_recovery import cancel_order as recovery_cancel_order
-from executor_recovery import get_order as recovery_get_order
-from executor_recovery import get_order_by_client_id as recovery_get_order_by_client_id
-from executor_recovery import get_order_list_by_client_id as recovery_get_order_list_by_client_id
-from executor_recovery import list_open_orders as recovery_list_open_orders
-from executor_recovery import record_order_payload as recovery_record_order_payload
-from executor_recovery import recover_existing_protection as recovery_existing_protection
-from executor_recovery import recover_pending_buy_order_ids as recovery_pending_buy_order_ids
-from executor_recovery import verify_oco_legs as recovery_verify_oco_legs
-from executor_stats import commission_quote_value, poll_mytrades_once
-from inventory_lots import add_lot, consume_fifo, ensure_schema as ensure_lots_schema, oldest_lots, lot_for_order
+from ladder_dragon.execution.executor_runtime import status_due, trading_seconds
+from ladder_dragon.execution.executor_recovery import RecoveryDependencies
+from ladder_dragon.execution.executor_recovery import cancel_oco as recovery_cancel_oco
+from ladder_dragon.execution.executor_recovery import cancel_order as recovery_cancel_order
+from ladder_dragon.execution.executor_recovery import get_order as recovery_get_order
+from ladder_dragon.execution.executor_recovery import get_order_by_client_id as recovery_get_order_by_client_id
+from ladder_dragon.execution.executor_recovery import get_order_list_by_client_id as recovery_get_order_list_by_client_id
+from ladder_dragon.execution.executor_recovery import list_open_orders as recovery_list_open_orders
+from ladder_dragon.execution.executor_recovery import record_order_payload as recovery_record_order_payload
+from ladder_dragon.execution.executor_recovery import recover_existing_protection as recovery_existing_protection
+from ladder_dragon.execution.executor_recovery import recover_pending_buy_order_ids as recovery_pending_buy_order_ids
+from ladder_dragon.execution.executor_recovery import verify_oco_legs as recovery_verify_oco_legs
+from ladder_dragon.execution.executor_stats import commission_quote_value, poll_mytrades_once
+from ladder_dragon.execution.inventory_lots import add_lot, consume_fifo, ensure_schema as ensure_lots_schema, oldest_lots, lot_for_order
 
 import requests
 # для пер-символьного лока
@@ -874,7 +874,7 @@ def _stats_init_if_needed():
         return
     if TOOLS_STATS is None:
         try:
-            import tools_stats as TOOLS_STATS  # type: ignore
+            from ladder_dragon.execution import tools_stats as TOOLS_STATS  # type: ignore
         except Exception as e:
             log(f"[STATS] import error: {e}")
             return
@@ -929,7 +929,7 @@ def _stats_poll_mytrades_once(symbol: str):
         try:
             ai_db = os.getenv("AI_DECISIONS_DB", "").strip()
             if ai_db:
-                from ai_context import AdvisorDecisionStore
+                from ladder_dragon.ai.ai_context import AdvisorDecisionStore
                 store = AdvisorDecisionStore(ai_db)
                 order_id = fill.get("order_id")
                 mapping = (

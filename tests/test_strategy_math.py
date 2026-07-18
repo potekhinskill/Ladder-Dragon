@@ -6,9 +6,7 @@ import pytest
 import ai_plan_runner
 import gen_vwap_autotune
 import gen_vwap_env
-import tools_market
-
-
+from ladder_dragon.execution import tools_market
 def test_ladder_has_buy_and_sell_levels():
     levels = ai_plan_runner.build_ladder_pct(100, -5, 3, 12, 0.01)
     assert any(value < 100 for value in levels)

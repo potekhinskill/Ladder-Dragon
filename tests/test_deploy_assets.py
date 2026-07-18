@@ -10,6 +10,7 @@ def read(relative: str) -> str:
 
 def test_production_code_has_copyright_and_russian_maintenance_note():
     paths = list(ROOT.glob("*.py"))
+    paths += list((ROOT / "ladder_dragon").rglob("*.py"))
     paths += list((ROOT / "deploy").glob("*.py"))
     paths += list((ROOT / "deploy").glob("*.sh"))
     paths += list((ROOT / "deploy").glob("*.service"))
@@ -306,3 +307,18 @@ def test_systemd_units_have_extended_sandboxing():
         assert "ProtectControlGroups=yes" in unit
         assert "RestrictSUIDSGID=yes" in unit
         assert "LockPersonality=yes" in unit
+
+
+def test_library_modules_are_grouped_by_responsibility():
+    expected = {
+        "ladder_dragon/ai/ai_context.py",
+        "ladder_dragon/execution/executor_orders.py",
+        "ladder_dragon/risk/risk_manager.py",
+        "ladder_dragon/strategy/market_replay.py",
+    }
+    assert all((ROOT / relative).is_file() for relative in expected)
+    assert not (ROOT / "ai_context.py").exists()
+    assert not (ROOT / "executor_orders.py").exists()
+    pyproject = read("pyproject.toml")
+    assert '[tool.setuptools.packages.find]' in pyproject
+    assert 'include = ["ladder_dragon*"]' in pyproject

@@ -1,6 +1,6 @@
 import pytest
 
-from risk_statistics import correlated_symbols, rolling_correlation, stress_exposure
+from ladder_dragon.risk.risk_statistics import correlated_symbols, rolling_correlation, stress_exposure
 
 
 def test_rolling_correlation_detects_common_shock():
