@@ -1,5 +1,28 @@
 # Changelog — Ladder Dragon
 
+## [2.10.38] — 2026-07-18
+
+### Добавлено
+- В read-only dashboard добавлены отдельные блоки Raspberry/backup, LIVE/Risk,
+  позиции с FIFO average entry и unrealized PnL, OCO/STOP/gap-watchdog и AI
+  data-quality telemetry.
+- Health API теперь показывает load 1/5/15, heartbeat и restart mybot, NTP,
+  Binance latency/clock offset, throttling, USB mount/free space и последний
+  зашифрованный backup.
+- Backup-служба публикует безопасный `backup_status.json` с результатом и
+  причиной ошибки без секретов; dashboard читает его через `/run/mybot`.
+
+### Изменено
+- Risk telemetry передаёт в dashboard только агрегированные CAP, reserve,
+  reconciliation и счётчики ордеров; ключи, client secrets и raw metadata не
+  выводятся.
+
+### Проверено
+- `.venv/bin/python3 -m pytest -q` — все тесты проходят.
+- `PYTHONPYCACHEPREFIX=/tmp/ladder-dragon-pycache python3 -m compileall -q .`.
+- `bash -n deploy/backup_raspberry_pi.sh`.
+- `git diff --check`.
+
 ## [2.10.35] — 2026-07-18
 
 ### Исправлено

@@ -4,7 +4,7 @@
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 # убрали requests из общего импорта:
-import psutil, shutil, json, os, socket, asyncio, subprocess, math, time, hmac, hashlib, secrets, threading
+import psutil, shutil, json, os, socket, asyncio, subprocess, math, time, hmac, hashlib, secrets, threading, re
 from collections import defaultdict, deque
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
@@ -46,6 +46,9 @@ _BALANCE_CACHE_LOCK = threading.Lock()
 _OPEN_ORDERS_CACHE: Dict[str, object] = {"ts": 0.0, "payload": None}
 _OPEN_ORDERS_CACHE_TTL_SEC = max(3.0, float(os.getenv("DASHBOARD_OPEN_ORDERS_CACHE_SEC", "5")))
 _OPEN_ORDERS_CACHE_LOCK = threading.Lock()
+_OPS_CACHE: Dict[str, object] = {"ts": 0.0, "payload": None}
+_OPS_CACHE_TTL_SEC = max(10.0, float(os.getenv("DASHBOARD_OPS_CACHE_SEC", "30")))
+_OPS_CACHE_LOCK = threading.Lock()
 AI_DECISIONS_DB = os.getenv("AI_DECISIONS_DB", ".runtime/ai_decisions.sqlite3")
 AI_USAGE_LOG = os.getenv("AI_USAGE_LOG", ".runtime/ai_usage.ndjson")
 AI_MODE = os.getenv("AI_MODE", "SHADOW").upper()
@@ -455,6 +458,7 @@ def account_open_orders_snapshot() -> Dict:
             "status": str(row.get("status", "OPEN")).upper(),
             "created_at": _ts_to_s(row.get("time", 0)),
             "updated_at": _ts_to_s(row.get("updateTime", row.get("time", 0))),
+            "order_list_id": row.get("orderListId"),
         })
 
     orders.sort(key=lambda item: (item["symbol"], item["created_at"], str(item["order_id"])))
@@ -469,6 +473,182 @@ def account_open_orders_snapshot() -> Dict:
         _OPEN_ORDERS_CACHE["ts"] = now
         _OPEN_ORDERS_CACHE["payload"] = payload
     return payload
+
+
+def _average_entry_from_ledger(symbol: str) -> Optional[float]:
+    """Рассчитать FIFO average entry только по фактическим ledger fills."""
+    try:
+        con, _ = _open_db()
+        rows = _load_trades(con, [symbol])
+    except (OSError, sqlite3.Error, TypeError, ValueError):
+        return None
+    try:
+        lots: List[List[float]] = []
+        fee_pct = _fee_pct_default()
+        for row in rows:
+            price = float(row["price"])
+            qty = float(row["qty"])
+            fee = _estimate_fee_quote(price, qty, float(row["fee_quote"]), fee_pct)
+            if str(row["side"]).upper() == "BUY":
+                lots.append([qty, (price * qty + fee) / max(qty, 1e-12)])
+            elif str(row["side"]).upper() == "SELL":
+                remain = qty
+                while remain > 1e-12 and lots:
+                    take = min(remain, lots[0][0])
+                    lots[0][0] -= take
+                    remain -= take
+                    if lots[0][0] <= 1e-12:
+                        lots.pop(0)
+        quantity = sum(item[0] for item in lots)
+        if quantity <= 1e-12:
+            return None
+        return sum(item[0] * item[1] for item in lots) / quantity
+    finally:
+        con.close()
+
+
+def _order_journal_snapshot(runtime: Dict[str, object]) -> Dict[str, object]:
+    """Сводка intent-журнала без client secrets и без raw metadata."""
+    paths = runtime.get("paths", {}) if isinstance(runtime.get("paths"), dict) else {}
+    path = Path(str(paths.get("order_journal") or os.getenv(
+        "BOT_ORDER_JOURNAL", "/home/bot/apps/binance_bot/db/order_intents.sqlite3"
+    )))
+    if not path.exists():
+        return {"available": False, "reason": "order journal not found"}
+    try:
+        with sqlite3.connect(f"file:{path}?mode=ro", uri=True, timeout=1) as con:
+            con.row_factory = sqlite3.Row
+            columns = {str(row[1]) for row in con.execute("PRAGMA table_info(order_intents)")}
+            if not {"state", "updated_at"}.issubset(columns):
+                return {"available": False, "reason": "order journal schema unavailable"}
+            counts = {
+                str(row["state"]): int(row["count"])
+                for row in con.execute("SELECT state, COUNT(*) AS count FROM order_intents GROUP BY state")
+            }
+            latest = con.execute(
+                "SELECT symbol, side, state, exchange_order_id, executed_qty, quantity, updated_at "
+                "FROM order_intents ORDER BY updated_at DESC LIMIT 1"
+            ).fetchone()
+            item = None
+            if latest:
+                item = {
+                    "symbol": latest["symbol"], "side": latest["side"], "status": latest["state"],
+                    "order_id": latest["exchange_order_id"], "executed_qty": latest["executed_qty"],
+                    "quantity": latest["quantity"], "partial_fill": (
+                        str(latest["executed_qty"] or "0") not in {"0", "0.0"}
+                        and str(latest["executed_qty"]) != str(latest["quantity"])
+                    ),
+                    # Intent-журнал пока не хранит сетевую latency и комиссию
+                    # конкретного fill; явно возвращаем null, а не выдумываем их.
+                    "latency_ms": None,
+                    "commission_usdt": None,
+                    "updated_at": datetime.fromtimestamp(float(latest["updated_at"]), APP_TZ).strftime("%Y-%m-%d %H:%M:%S"),
+                }
+            cancelled = sum(value for key, value in counts.items() if "CANCEL" in key.upper())
+            pending = sum(value for key, value in counts.items() if key.upper() not in {"FILLED", "CLOSED", "PROTECTED"} and "CANCEL" not in key.upper())
+            return {"available": True, "counts": counts, "cancelled": cancelled, "pending": pending, "latest": item}
+    except (OSError, sqlite3.Error, ValueError, TypeError) as exc:
+        return {"available": False, "reason": type(exc).__name__}
+
+
+def trading_overview_snapshot() -> Dict[str, object]:
+    """Read-only объединённый снимок позиций, защиты и risk telemetry."""
+    runtime = _load_ai_runtime_status()
+    balances = account_balances_snapshot()
+    orders = account_open_orders_snapshot()
+    balance_by_asset = {str(row["asset"]).upper(): row for row in balances.get("assets", [])}
+    runtime_symbols = runtime.get("symbols", []) if isinstance(runtime.get("symbols"), list) else []
+    symbols = [str(item).upper() for item in runtime_symbols if item]
+    if not symbols:
+        symbols = [f"{asset}USDT" for asset in balance_by_asset if asset not in {"USDT", "BNB"}]
+    order_rows = orders.get("orders", []) if isinstance(orders.get("orders"), list) else []
+    positions = []
+    for symbol in symbols:
+        base = base_asset_of(symbol)
+        balance = balance_by_asset.get(base, {})
+        quantity = float(balance.get("total", 0.0) or 0.0)
+        current = balance.get("price_usdt")
+        if current is None:
+            try:
+                current = price_now(symbol)
+            except Exception:
+                current = None
+        average = _average_entry_from_ledger(symbol)
+        value = quantity * float(current) if current is not None else None
+        unrealized = (float(current) - average) * quantity if current is not None and average is not None else None
+        legs = [row for row in order_rows if row.get("symbol") == symbol and row.get("side") == "SELL"]
+        leg_types = {str(row.get("type", "")).upper() for row in legs}
+        if quantity <= 1e-12:
+            protection_state = "not_needed"
+        elif {"LIMIT_MAKER", "STOP_LOSS_LIMIT"}.issubset(leg_types):
+            protection_state = "confirmed"
+        elif legs:
+            protection_state = "pending"
+        else:
+            protection_state = "not_checked"
+        positions.append({
+            "symbol": symbol, "quantity": round(quantity, 8), "average_entry_usdt": round(average, 8) if average is not None else None,
+            "current_price_usdt": round(float(current), 8) if current is not None else None,
+            "value_usdt": round(value, 2) if value is not None else None,
+            "unrealized_pnl_usdt": round(unrealized, 2) if unrealized is not None else None,
+            "drawdown_pct": round((float(current) / average - 1) * 100, 2) if current is not None and average else None,
+            "protection": {
+                "state": protection_state,
+                "tp": [row.get("price") for row in legs if row.get("type") == "LIMIT_MAKER"],
+                "stop": [row.get("stop_price") for row in legs if row.get("type") == "STOP_LOSS_LIMIT"],
+                "locked_quantity": round(sum(float(row.get("remaining_qty", 0.0) or 0.0) for row in legs), 8),
+                "gap_watchdog": "armed" if protection_state == "confirmed" else "warning",
+            },
+        })
+    risk = runtime.get("risk", {}) if isinstance(runtime.get("risk"), dict) else {}
+    risk_limits = runtime.get("risk_limits", {}) if isinstance(runtime.get("risk_limits"), dict) else {}
+    risk_state_path = Path(os.getenv("CB_STATE_FILE", "/run/mybot/risk_state.json"))
+    risk_state: Dict[str, object] = {}
+    try:
+        risk_state = json.loads(risk_state_path.read_text(encoding="utf-8"))
+    except (OSError, ValueError, TypeError):
+        pass
+    free_usdt = float(balance_by_asset.get("USDT", {}).get("free", 0.0) or 0.0)
+    journal = _order_journal_snapshot(runtime)
+    reconciliation_delta = risk.get("reconciliation_delta")
+    if reconciliation_delta is None:
+        parsed = []
+        for reason in risk.get("reasons", []) if isinstance(risk.get("reasons"), list) else []:
+            match = re.search(r"(?P<symbol>[A-Z0-9]+): account=(?P<account>[0-9.]+), ledger=(?P<ledger>[0-9.]+)", str(reason))
+            if match:
+                account_qty = float(match.group("account")); ledger_qty = float(match.group("ledger"))
+                parsed.append({"symbol": match.group("symbol"), "account": account_qty, "ledger": ledger_qty, "delta": round(account_qty - ledger_qty, 8)})
+        reconciliation_delta = parsed or None
+    return {
+        "ok": True,
+        "updated_at": now_str(),
+        "venue": runtime.get("venue") or BINANCE_BASE,
+        "execution_mode": runtime.get("execution_mode") or "UNKNOWN",
+        "symbols": symbols,
+        "free_usdt": round(free_usdt, 2),
+        "reserve_usdt": risk_limits.get("reserve_usdt"),
+        "caps": {
+            "per_order_usdt": risk.get("current_cap_per_order_usdt"),
+            "per_symbol": risk.get("symbol_caps_usdt", {}),
+            "portfolio_usdt": risk_limits.get("portfolio_cap_usdt"),
+        },
+        "positions": positions,
+        "orders": {"open": orders.get("count", 0), "cancelled": journal.get("cancelled"), "pending": journal.get("pending")},
+        "last_order": journal.get("latest"),
+        "risk": {
+            "buy_blocked": bool(risk.get("buy_blocked", False)), "halted": bool(risk.get("halted", False)),
+            "reasons": risk.get("reasons", []), "cooldown_until": risk_state.get("cooldown_until"),
+            "reconciliation_delta": reconciliation_delta, "snapshot": risk.get("snapshot", {}),
+        },
+    }
+
+
+@app.get("/api/trading/overview")
+def trading_overview():
+    try:
+        return JSONResponse(trading_overview_snapshot())
+    except Exception as exc:
+        return JSONResponse({"ok": False, "error": f"trading overview failed: {type(exc).__name__}"}, status_code=503)
 
 def base_asset_of(symbol: str) -> str:
     s = symbol.upper()
@@ -748,7 +928,7 @@ def mounts_info():
                 parts = line.split()
                 if len(parts) >= 4:
                     dev, mnt, fstype, opts = parts[:4]
-                    if mnt in ("/","/tmp","/var/tmp"):
+                    if mnt in ("/","/tmp","/var/tmp","/mnt/usb1"):
                         res.append({"mountpoint": mnt, "fs": fstype, "opts": opts})
     except Exception:
         pass
@@ -773,6 +953,129 @@ def fail2ban_bans(jail="sshd"):
     except Exception:
         pass
     return count
+
+
+def _command_value(*args: str) -> str:
+    """Безопасно прочитать одну строку системной telemetry-команды."""
+    _rc, output = run_command(*args, timeout=3)
+    return output.strip().splitlines()[0].strip() if output.strip() else ""
+
+
+def _systemd_service_snapshot(name: str) -> Dict[str, object]:
+    """Статус и время запуска сервиса без чтения секретов или /proc."""
+    if name not in {"mybot", "pi-healthd"}:
+        return {"state": "invalid"}
+    _rc, output = run_command(
+        "systemctl", "show", name,
+        "-p", "ActiveState", "-p", "SubState", "-p", "ActiveEnterTimestamp",
+        "-p", "ActiveEnterTimestampMonotonic", "-p", "NRestarts",
+        timeout=3,
+    )
+    values: Dict[str, str] = {}
+    for line in output.splitlines():
+        if "=" in line:
+            key, value = line.split("=", 1)
+            values[key] = value.strip()
+    boot = psutil.boot_time()
+    started_at = None
+    age_sec = None
+    try:
+        monotonic_usec = int(values.get("ActiveEnterTimestampMonotonic", "0"))
+        if monotonic_usec > 0:
+            started_epoch = boot + monotonic_usec / 1_000_000
+            started_at = datetime.fromtimestamp(started_epoch, timezone.utc).astimezone(APP_TZ).strftime("%Y-%m-%d %H:%M:%S")
+            age_sec = max(0, int(time.time() - started_epoch))
+    except (TypeError, ValueError, OSError, OverflowError):
+        pass
+    try:
+        restarts = int(values.get("NRestarts", "0"))
+    except ValueError:
+        restarts = 0
+    return {
+        "state": values.get("ActiveState", "unknown"),
+        "substate": values.get("SubState", "unknown"),
+        "started_at": started_at,
+        "age_sec": age_sec,
+        "restart_count": restarts,
+    }
+
+
+def _ntp_snapshot() -> Dict[str, object]:
+    """Состояние синхронизации часов, доступное без прав администратора."""
+    synced = _command_value("timedatectl", "show", "-p", "NTPSynchronized", "--value").lower()
+    service = _command_value("timedatectl", "show", "-p", "NTPService", "--value")
+    return {
+        "synchronized": synced in {"yes", "true", "1"},
+        "service": service or None,
+    }
+
+
+def _binance_latency_snapshot() -> Dict[str, object]:
+    """Проверить public Binance clock с коротким кэшем, не используя торговые права."""
+    started = time.monotonic()
+    try:
+        payload = _pub_get("/api/v3/time", timeout=5.0)
+        elapsed_ms = round((time.monotonic() - started) * 1000, 1)
+        server_ms = payload.get("serverTime") if isinstance(payload, dict) else None
+        offset_ms = round(float(server_ms) - time.time() * 1000, 1) if server_ms is not None else None
+        return {"ok": True, "latency_ms": elapsed_ms, "offset_ms": offset_ms, "checked_at": now_str(), "error": None}
+    except Exception as exc:
+        return {"ok": False, "latency_ms": None, "offset_ms": None, "checked_at": now_str(), "error": type(exc).__name__}
+
+
+def _backup_snapshot() -> Dict[str, object]:
+    """Показать только метаданные последнего age-архива, без содержимого."""
+    public_dir = Path(os.getenv("DASHBOARD_BACKUP_PUBLIC_DIR", "/var/lib/ladder-dragon/backups-public"))
+    status_payload: Dict[str, object] = {}
+    for status_path in (
+        Path(os.getenv("DASHBOARD_BACKUP_STATUS_FILE", "/run/mybot/backup_status.json")),
+        public_dir / "backup_status.json",
+    ):
+        try:
+            raw_status = json.loads(status_path.read_text(encoding="utf-8"))
+            if isinstance(raw_status, dict):
+                status_payload = raw_status
+                break
+        except (OSError, ValueError, TypeError):
+            continue
+    archives = []
+    try:
+        archives = sorted(public_dir.glob("ladder-dragon-*.tgz.age"), key=lambda p: p.stat().st_mtime)
+    except (OSError, PermissionError):
+        return {"status": status_payload.get("status", "unavailable"), "reason": status_payload.get("reason", "backup directory is not readable"), "directory": str(public_dir)}
+    if not archives:
+        return {"status": status_payload.get("status", "unknown"), "reason": status_payload.get("reason", "no encrypted archive found"), "directory": str(public_dir)}
+    latest = archives[-1]
+    try:
+        stat = latest.stat()
+        return {
+            "status": status_payload.get("status", "success"),
+            "reason": status_payload.get("reason"),
+            "directory": str(public_dir),
+            "last_success": {
+                "name": latest.name,
+                "size_bytes": stat.st_size,
+                "age_sec": max(0, int(time.time() - stat.st_mtime)),
+                "updated_at": datetime.fromtimestamp(stat.st_mtime, APP_TZ).strftime("%Y-%m-%d %H:%M:%S"),
+            },
+            "archive_count": len(archives),
+        }
+    except OSError as exc:
+        return {"status": "unavailable", "reason": type(exc).__name__, "directory": str(public_dir)}
+
+
+def _usb_snapshot() -> Dict[str, object]:
+    """Состояние внешнего диска и свободное место для backup mirror."""
+    mountpoint = os.getenv("DASHBOARD_BACKUP_MOUNT", "/mnt/usb1")
+    mounted = _command_value("findmnt", "-T", mountpoint, "-no", "TARGET") == mountpoint
+    payload: Dict[str, object] = {"mountpoint": mountpoint, "mounted": mounted, "free_gib": None, "used_percent": None}
+    if mounted:
+        try:
+            usage = shutil.disk_usage(mountpoint)
+            payload.update({"free_gib": round(usage.free / GiB, 3), "used_percent": round(usage.used * 100 / usage.total, 1)})
+        except OSError as exc:
+            payload["error"] = type(exc).__name__
+    return payload
 
 async def collect_once():
     vm = psutil.virtual_memory()
@@ -819,6 +1122,24 @@ def health():
     sm = psutil.swap_memory()
     temp = read_temp_c()
     disk = shutil.disk_usage("/")
+    now_mono = time.monotonic()
+    with _OPS_CACHE_LOCK:
+        ops = _OPS_CACHE.get("payload")
+        if ops is None or now_mono - float(_OPS_CACHE.get("ts", 0.0)) >= _OPS_CACHE_TTL_SEC:
+            load = os.getloadavg() if hasattr(os, "getloadavg") else (None, None, None)
+            ops = {
+                "load_avg": {"1m": load[0], "5m": load[1], "15m": load[2]},
+                "services": {
+                    "mybot": _systemd_service_snapshot("mybot"),
+                    "pi_healthd": _systemd_service_snapshot("pi-healthd"),
+                },
+                "ntp": _ntp_snapshot(),
+                "binance": _binance_latency_snapshot(),
+                "usb_backup": _usb_snapshot(),
+                "backup": _backup_snapshot(),
+            }
+            _OPS_CACHE["ts"] = now_mono
+            _OPS_CACHE["payload"] = ops
     return JSONResponse({
         "product": {"name": PRODUCT_NAME, "version": __version__},
         "changelog_url": "/CHANGELOG.md",
@@ -848,6 +1169,7 @@ def health():
         },
         "uptime_sec": int(time.time() - psutil.boot_time()),
         "network_ok": network_ok()
+        ,"operations": ops
     })
 
 
@@ -1116,6 +1438,11 @@ def ai_status(limit: int = 50):
             )
     usage_path = _runtime_data_path(runtime, "ai_usage_log", AI_USAGE_LOG)
     usage = _ai_usage_today(usage_path)
+    def _file_age(path: Path) -> Optional[int]:
+        try:
+            return max(0, int(time.time() - path.stat().st_mtime))
+        except OSError:
+            return None
     request_limit = int(
         runtime_budgets.get("max_requests_per_day", AI_MAX_REQUESTS_PER_DAY)
     )
@@ -1193,6 +1520,9 @@ def ai_status(limit: int = 50):
             "follow_bot_paths": DASHBOARD_FOLLOW_BOT_PATHS,
             "decisions_db": str(db_path),
             "usage_log": str(usage_path),
+            "decision_db_age_sec": _file_age(db_path),
+            "usage_log_age_sec": _file_age(usage_path),
+            "context_age_sec": runtime_age_sec,
         },
         "knowledge_base": knowledge_stats,
         "usage_today": usage,

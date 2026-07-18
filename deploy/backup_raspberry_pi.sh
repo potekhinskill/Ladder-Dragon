@@ -6,6 +6,8 @@ set -euo pipefail
 PROJECT_DIR="${PROJECT_DIR:-/home/bot/apps/binance_bot}"
 BACKUP_DIR="${BACKUP_DIR:-/var/lib/ladder-dragon/backups}"
 PUBLIC_BACKUP_DIR="${PUBLIC_BACKUP_DIR:-/var/lib/ladder-dragon/backups-public}"
+BACKUP_STATUS_FILE="${PUBLIC_BACKUP_DIR}/backup_status.json"
+RUNTIME_STATUS_FILE="${BACKUP_RUNTIME_STATUS_FILE:-/run/mybot/backup_status.json}"
 BACKUP_AGE_RECIPIENT="${BACKUP_AGE_RECIPIENT:-}"
 BACKUP_EXTERNAL_MOUNT="${BACKUP_EXTERNAL_MOUNT:-}"
 BACKUP_EXTERNAL_DIR="${BACKUP_EXTERNAL_DIR:-}"
@@ -15,10 +17,33 @@ DEST="${BACKUP_DIR}/${STAMP}"
 
 # В DEST временно находятся расшифрованные env/SQLite. Удаляем staging даже
 # при ошибке внешнего mirror, чтобы аварийный backup не оставил секреты на SD.
+write_status() {
+  local status="$1"
+  local reason="${2:-}"
+  local tmp="${PUBLIC_BACKUP_DIR}/.backup_status.$$"
+  mkdir -p "${PUBLIC_BACKUP_DIR}" 2>/dev/null || return 0
+  printf '{"status":"%s","reason":"%s","updated_at":"%s UTC"}\n' \
+    "${status}" "${reason}" "$(date -u +%Y-%m-%dT%H:%M:%S)" >"${tmp}" 2>/dev/null || return 0
+  install -o root -g www-data -m 0640 "${tmp}" "${BACKUP_STATUS_FILE}" 2>/dev/null || true
+  install -d -m 0755 "$(dirname "${RUNTIME_STATUS_FILE}")" 2>/dev/null || true
+  install -m 0644 "${tmp}" "${RUNTIME_STATUS_FILE}" 2>/dev/null || true
+  rm -f "${tmp}"
+}
+
 cleanup_staging() {
   rm -rf -- "${DEST}"
 }
-trap cleanup_staging EXIT
+on_exit() {
+  local rc=$?
+  if [[ "${rc}" -eq 0 ]]; then
+    write_status success ""
+  else
+    write_status failed "backup exited with code ${rc}"
+  fi
+  cleanup_staging
+  exit "${rc}"
+}
+trap on_exit EXIT
 
 [[ "${EUID}" -eq 0 ]] || exec sudo "$0" "$@"
 command -v age >/dev/null || {

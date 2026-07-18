@@ -48,6 +48,22 @@
   .ai-details .row>span:last-child{min-width:0;max-width:100%;text-align:right;overflow-wrap:anywhere}
   .ai-details .mono{font-size:11px}
   @media (max-width:700px){.ai-details{grid-template-columns:1fr}}
+  /* Read-only оперативный мониторинг Raspberry, торговли и качества AI. */
+  .grid-monitor{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:var(--gap);min-width:0}
+  .monitor-card{min-width:0;overflow:hidden}
+  .monitor-card.full{grid-column:1/-1}
+  .monitor-title{color:var(--muted);font-size:12px;margin-bottom:8px}
+  .monitor-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:3px 18px}
+  .monitor-row{display:flex;justify-content:space-between;align-items:flex-start;gap:8px;min-width:0;font-size:11px;line-height:1.4;padding:2px 0}
+  .monitor-row>span:first-child{color:var(--muted);flex:0 0 auto}
+  .monitor-row>span:last-child{min-width:0;overflow-wrap:anywhere;text-align:right}
+  .live-banner{display:inline-flex;align-items:center;border-radius:999px;padding:5px 10px;font-size:12px;font-weight:800;border:1px solid rgba(243,194,77,.4);background:rgba(243,194,77,.15);color:#ffe08b}
+  .live-banner.live{border-color:rgba(255,110,110,.55);background:rgba(255,110,110,.18);color:#ffb0b0}
+  .live-banner.dry{border-color:rgba(33,192,122,.4);background:rgba(33,192,122,.15);color:#7ef3b2}
+  .position-box{overflow:auto;background:#0f131b;border:1px solid var(--stroke);border-radius:var(--rad)}
+  .position-table{min-width:980px}
+  .risk-bad{color:#ffaaaa;font-weight:800}.risk-ok{color:#7ef3b2;font-weight:800}
+  @media (max-width:800px){.grid-monitor{grid-template-columns:1fr}.monitor-card.full{grid-column:auto}.monitor-grid{grid-template-columns:1fr}}
   .row{display:flex;justify-content:space-between;align-items:center;gap:10px}
   .label{color:var(--muted);font-size:12px}
   .value{font-size:22px;font-weight:800}
@@ -195,6 +211,71 @@
       <div class="row"><span>Причины DEGRADED</span><span class="mono" id="ai-degraded-reasons">—</span></div>
       <div class="row"><span>Токены сегодня</span><span id="ai-tokens">—</span></div>
       <div class="row"><span>Стоимость сегодня</span><span id="ai-cost">—</span></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Оперативный read-only мониторинг Raspberry, торговли и качества данных. -->
+  <section class="grid-monitor mt">
+    <div class="card monitor-card">
+      <div class="monitor-title">Raspberry / инфраструктура</div>
+      <div class="monitor-grid">
+        <div class="monitor-row"><span>CPU load 1/5/15</span><span class="mono" id="ops-load">—</span></div>
+        <div class="monitor-row"><span>mybot heartbeat</span><span id="ops-heartbeat">—</span></div>
+        <div class="monitor-row"><span>Последний restart</span><span id="ops-restart">—</span></div>
+        <div class="monitor-row"><span>NTP / offset</span><span id="ops-ntp">—</span></div>
+        <div class="monitor-row"><span>Binance latency</span><span id="ops-binance-latency">—</span></div>
+        <div class="monitor-row"><span>Undervoltage/throttling</span><span id="ops-throttle">—</span></div>
+        <div class="monitor-row"><span>/mnt/usb1</span><span id="ops-usb">—</span></div>
+        <div class="monitor-row"><span>Свободно USB</span><span id="ops-usb-free">—</span></div>
+        <div class="monitor-row"><span>Root disk free</span><span id="ops-root-free">—</span></div>
+        <div class="monitor-row"><span>Backup result</span><span id="ops-backup">—</span></div>
+        <div class="monitor-row"><span>Последний backup</span><span id="ops-backup-age">—</span></div>
+        <div class="monitor-row"><span>Размер архива</span><span id="ops-backup-size">—</span></div>
+        <div class="monitor-row"><span>Причина ошибки backup</span><span id="ops-backup-reason">—</span></div>
+      </div>
+    </div>
+
+    <div class="card monitor-card">
+      <div class="row" style="margin-bottom:8px"><div class="monitor-title" style="margin:0">Торговый контур / Risk</div><span id="execution-banner" class="live-banner">—</span></div>
+      <div class="monitor-grid">
+        <div class="monitor-row"><span>Свободно USDT</span><span id="trade-free-usdt">—</span></div>
+        <div class="monitor-row"><span>Резерв USDT</span><span id="trade-reserve">—</span></div>
+        <div class="monitor-row"><span>CAP / ордер</span><span id="trade-cap-order">—</span></div>
+        <div class="monitor-row"><span>CAP / portfolio</span><span id="trade-cap-portfolio">—</span></div>
+        <div class="monitor-row"><span>CAP / символ</span><span id="trade-cap-symbol">—</span></div>
+        <div class="monitor-row"><span>Risk state</span><span id="trade-risk">—</span></div>
+        <div class="monitor-row"><span>Причины блокировки</span><span id="trade-risk-reasons">—</span></div>
+        <div class="monitor-row"><span>Cooldown</span><span id="trade-cooldown">—</span></div>
+        <div class="monitor-row"><span>Reconciliation delta</span><span id="trade-recon">—</span></div>
+        <div class="monitor-row"><span>Open / cancelled / pending</span><span id="trade-order-summary">—</span></div>
+        <div class="monitor-row"><span>Последний ордер</span><span class="mono" id="trade-last-order">—</span></div>
+      </div>
+    </div>
+
+    <div class="card monitor-card full">
+      <div class="monitor-title">Позиции и защита</div>
+      <div class="position-box">
+        <table class="tbl position-table">
+          <thead><tr><th>Symbol</th><th class="right">Qty</th><th class="right">Средняя</th><th class="right">Цена</th><th class="right">Стоимость</th><th class="right">Unrealized PnL</th><th class="right">Drawdown</th><th>OCO / TP / STOP / gap-watchdog</th></tr></thead>
+          <tbody id="positions-body"><tr><td class="muted" colspan="8">Загрузка…</td></tr></tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="card monitor-card full">
+      <div class="monitor-title">AI / качество данных</div>
+      <div class="monitor-grid">
+        <div class="monitor-row"><span>Возраст контекста</span><span id="ai-context-age">—</span></div>
+        <div class="monitor-row"><span>Decision DB</span><span id="ai-decision-db-age">—</span></div>
+        <div class="monitor-row"><span>Usage log</span><span id="ai-usage-age">—</span></div>
+        <div class="monitor-row"><span>Бюджет сегодня</span><span id="ai-budget">—</span></div>
+        <div class="monitor-row"><span>Последние API ошибки</span><span id="ai-errors">—</span></div>
+        <div class="monitor-row"><span>Принято / отклонено</span><span id="ai-decisions-quality">—</span></div>
+        <div class="monitor-row"><span>Unresolved fills</span><span id="ai-unresolved-quality">—</span></div>
+        <div class="monitor-row"><span>AI vs baseline</span><span id="ai-edge-quality">—</span></div>
+        <div class="monitor-row"><span>RAG real / virtual</span><span id="ai-rag-quality">—</span></div>
+        <div class="monitor-row"><span>Причины DEGRADED</span><span id="ai-degraded-quality">—</span></div>
       </div>
     </div>
   </section>
@@ -447,6 +528,92 @@ function updateKpis(h){
 
   // футер
   $('#footer').textContent = `API ok · ${h.time}`;
+}
+
+function ageText(seconds){
+  if(!Number.isFinite(Number(seconds))) return '—';
+  const s=Math.max(0,Math.floor(Number(seconds)));
+  if(s<60) return `${s}с назад`;
+  if(s<3600) return `${Math.floor(s/60)}м назад`;
+  return `${Math.floor(s/3600)}ч ${Math.floor((s%3600)/60)}м назад`;
+}
+function bytesText(bytes){
+  if(!Number.isFinite(Number(bytes))) return '—';
+  const n=Number(bytes); return n>=1024*1024 ? `${(n/1024/1024).toFixed(1)} MiB` : `${Math.round(n/1024)} KiB`;
+}
+function esc(value){
+  return String(value ?? '—').replace(/[&<>"']/g, ch=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[ch]));
+}
+function updateOperations(h){
+  const o=h.operations||{}, load=o.load_avg||{};
+  $('#ops-load').textContent=[load['1m'],load['5m'],load['15m']].map(x=>Number.isFinite(Number(x))?Number(x).toFixed(2):'—').join(' / ');
+  const bot=o.services?.mybot||{};
+  $('#ops-heartbeat').textContent=bot.state ? `${bot.state} · ${ageText(bot.age_sec)}` : '—';
+  $('#ops-restart').textContent=bot.started_at ? `${bot.started_at} · restarts ${bot.restart_count??0}` : '—';
+  const ntp=o.ntp||{}, ping=o.binance||{};
+  $('#ops-ntp').textContent=`${ntp.synchronized?'OK':'нет'} · offset ${ping.offset_ms!=null?fmt(ping.offset_ms,0)+' ms':'—'}`;
+  $('#ops-binance-latency').textContent=ping.ok ? `${fmt(ping.latency_ms,0)} ms · ${ping.checked_at||'—'}` : `ошибка: ${ping.error||'—'}`;
+  const throttle=h.throttled||{};
+  const throttleBad=['under_voltage_now','freq_capped_now','throttled_now','temp_limit_now','under_voltage_hist','freq_capped_hist','throttled_hist','temp_limit_hist'].some(k=>throttle[k]);
+  $('#ops-throttle').textContent=throttleBad ? `WARNING · ${throttle.raw||'—'}` : `OK · ${throttle.raw||'throttled=0x0'}`;
+  const usb=o.usb_backup||{};
+  $('#ops-usb').textContent=usb.mounted?'mounted':'нет mount';
+  $('#ops-usb-free').textContent=usb.free_gib!=null?`${fmt(usb.free_gib,2)} GiB · ${fmt(usb.used_percent,1)}% used`:'—';
+  const disk=h.disk_gib||{};
+  $('#ops-root-free').textContent=(disk.total!=null&&disk.used!=null)?`${fmt(Number(disk.total)-Number(disk.used),2)} / ${fmt(disk.total,2)} GiB free`:'—';
+  const backup=o.backup||{};
+  $('#ops-backup').textContent=backup.status||'—';
+  const latest=backup.last_success||{};
+  $('#ops-backup-age').textContent=latest.updated_at?`${latest.updated_at} · ${ageText(latest.age_sec)}`:'—';
+  $('#ops-backup-size').textContent=bytesText(latest.size_bytes);
+  $('#ops-backup-reason').textContent=backup.reason||'нет';
+}
+function updateTrading(t){
+  const mode=String(t.execution_mode||'UNKNOWN').toUpperCase();
+  const banner=$('#execution-banner'); banner.textContent=`${mode} · ${(t.symbols||[]).join(', ')||'—'}`; banner.className=`live-banner ${mode==='LIVE'?'live':(mode==='DRY'?'dry':'')}`;
+  $('#trade-free-usdt').textContent=fmtUSDT(Number(t.free_usdt));
+  $('#trade-reserve').textContent=t.reserve_usdt!=null?fmtUSDT(Number(t.reserve_usdt)):'—';
+  const caps=t.caps||{};
+  $('#trade-cap-order').textContent=caps.per_order_usdt!=null?fmtUSDT(Number(caps.per_order_usdt)):'—';
+  $('#trade-cap-portfolio').textContent=caps.portfolio_usdt!=null?fmtUSDT(Number(caps.portfolio_usdt)):'—';
+  const perSymbol=caps.per_symbol||{};
+  $('#trade-cap-symbol').textContent=Object.keys(perSymbol).length?Object.entries(perSymbol).map(([s,v])=>`${s} ${v}`).join(', '):'—';
+  const risk=t.risk||{}, blocked=Boolean(risk.buy_blocked||risk.halted);
+  $('#trade-risk').textContent=risk.halted?'HALTED':(risk.buy_blocked?'BUY BLOCKED':'OK');
+  $('#trade-risk').className=blocked?'risk-bad':'risk-ok';
+  $('#trade-risk-reasons').textContent=Array.isArray(risk.reasons)&&risk.reasons.length?risk.reasons.join(' · '):'нет';
+  const cooldown=Number(risk.cooldown_until||0);
+  $('#trade-cooldown').textContent=cooldown>Math.floor(Date.now()/1000)?new Date(cooldown*1000).toLocaleString('ru-RU'):'нет';
+  $('#trade-recon').textContent=risk.reconciliation_delta!=null?JSON.stringify(risk.reconciliation_delta):'нет данных';
+  const orders=t.orders||{};
+  $('#trade-order-summary').textContent=`${orders.open??0} / ${orders.cancelled??0} / ${orders.pending??0}`;
+  const last=t.last_order;
+  $('#trade-last-order').textContent=last?`${last.symbol} ${last.side} ${last.status} id=${last.order_id??'—'}${last.partial_fill?' partial':''} · latency ${last.latency_ms??'—'} ms · fee ${last.commission_usdt??'—'} · ${last.updated_at||'—'}`:'нет';
+  const rows=Array.isArray(t.positions)?t.positions:[];
+  $('#positions-body').innerHTML=rows.length?rows.map(p=>{
+    const protection=p.protection||{};
+    const state=protection.state||'not_checked';
+    const pnl=p.unrealized_pnl_usdt==null?'—':fmtUSDT(Number(p.unrealized_pnl_usdt));
+    return `<tr><td class="mono">${esc(p.symbol)}</td><td class="right mono">${fmt(p.quantity,8)}</td><td class="right mono">${p.average_entry_usdt==null?'—':fmt(p.average_entry_usdt,4)}</td><td class="right mono">${p.current_price_usdt==null?'—':fmt(p.current_price_usdt,4)}</td><td class="right mono">${p.value_usdt==null?'—':fmtUSDT(Number(p.value_usdt))}</td><td class="right mono">${pnl}</td><td class="right mono">${p.drawdown_pct==null?'—':fmtPct(Number(p.drawdown_pct))}</td><td>${esc(state)} · TP ${esc((protection.tp||[]).join(','))} · STOP ${esc((protection.stop||[]).join(','))} · gap ${esc(protection.gap_watchdog||'—')}</td></tr>`;
+  }).join(''):'<tr><td class="muted" colspan="8">Нет данных по позициям</td></tr>';
+}
+function updateAIQuality(ai){
+  const src=ai.data_sources||{}, usage=ai.usage_today||{}, kb=ai.knowledge_base||{};
+  $('#ai-context-age').textContent=ageText(src.context_age_sec);
+  $('#ai-decision-db-age').textContent=ageText(src.decision_db_age_sec);
+  $('#ai-usage-age').textContent=ageText(src.usage_log_age_sec);
+  const limits=(ai.runtime||{}).ai?.budgets||{};
+  $('#ai-budget').textContent=`${usage.requests??0}/${limits.max_requests_per_day??'—'} req · ${usage.tokens??0}/${limits.max_tokens_per_day??'—'} tok · $${usage.cost_usd??'0'}/$${limits.max_cost_usd_per_day??'—'}`;
+  $('#ai-errors').textContent=`${usage.recent_errors??0} recent · ${usage.errors??0} total`;
+  const recent=Array.isArray(ai.recent)?ai.recent:[];
+  const rejected=recent.filter(row=>String(row.status||'').toUpperCase()==='REJECTED').length;
+  $('#ai-decisions-quality').textContent=`${ai.applied_count??0} applied / ${rejected} rejected`;
+  $('#ai-unresolved-quality').textContent=String(kb.unresolved_fills??0);
+  const edge=ai.ai_vs_baseline_1h||{};
+  $('#ai-edge-quality').textContent=edge.samples?`${fmt(Number(edge.edge)*100,2)}% / ${edge.samples}`:'нет данных';
+  $('#ai-rag-quality').textContent=`${kb.documents??0} / ${kb.virtual_documents??0} / ${kb.retrievals??0}`;
+  const degraded=Array.isArray(ai.degraded_reasons)?ai.degraded_reasons:[];
+  $('#ai-degraded-quality').textContent=degraded.length?degraded.join(' · '):'нет';
 }
 
 /* формат USDT и % */
@@ -726,18 +893,22 @@ function updateFilled24h(resp){
 
 async function refresh(){
   try{
-    const [h, hist, sum, ai, aiControl, balances] = await Promise.all([
+    const [h, hist, sum, ai, aiControl, balances, trading] = await Promise.all([
       getJSON('/api/health'),
       getJSON('/api/history?hours=24&points=288'),
       getTradeSummary24h(),
       getJSON('/api/ai/status?limit=100'),
       getJSON('/api/ai/control'),
-      getJSON('/api/account/balances')
+      getJSON('/api/account/balances'),
+      getJSON('/api/trading/overview')
     ]);
     updateKpis(h);
     updateCharts(hist);
     updateTrade24(sum);
     updateBalances(balances);
+    updateOperations(h);
+    updateTrading(trading);
+    updateAIQuality(ai);
     $('#ai-state').textContent = ai.state || '—';
     $('#ai-mode').textContent = ai.mode || '—';
     const runtime = ai.runtime || {};
