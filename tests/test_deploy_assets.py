@@ -203,7 +203,7 @@ def test_portable_system_tuning_avoids_copying_legacy_firewall_rules():
 def test_raspberry_runbook_covers_install_update_and_private_github():
     runbook = read("docs/RASPBERRY_PI_INSTALL.md")
     assert "Deploy Key" in runbook
-    assert "git@github.com:potekhinskill/binance_bot.git" in runbook
+    assert "git@github.com:potekhinskill/Ladder-Dragon.git" in runbook
     assert "install_raspberry_pi.sh install" in runbook
     assert "update_raspberry_pi.sh update" in runbook
     assert "BOT_SERVICE_EXECUTION=dry" in runbook
