@@ -1,5 +1,5 @@
 # Copyright (c) 2026 IURII Potekhin / Ladder Dragon. All rights reserved.
-# Назначение файла и опасные границы логики должны оставаться понятными при сопровождении.
+# Purpose: keep the file role and safety boundaries clear during maintenance.
 """Импорт сделок и точная оценка комиссий для исполнителя."""
 
 from __future__ import annotations
@@ -38,8 +38,8 @@ def commission_quote_value(
     if cached is not None:
         return commission_amount * cached, "converted"
 
-    # Для BNB и других третьих активов ищем прямую или обратную минутную пару
-    # на момент сделки. Текущая цена исказила бы исторический PnL.
+    # For BNB and other third assets, find a direct or inverse minute pair
+    # at trade time. A current price would distort historical PnL.
     for pair, inverse in ((asset + quote.upper(), False), (quote.upper() + asset, True)):
         try:
             candles = public_get(
@@ -92,8 +92,8 @@ def poll_mytrades_once(
     if not isinstance(trades, list) or not trades:
         return
 
-    # Курсор обновляется только после полностью оценённой сделки. Иначе запись
-    # с неизвестной комиссией была бы навсегда пропущена следующим опросом.
+    # Advance the cursor only after a fully valued trade. Otherwise a row with
+    # an unknown fee could be skipped forever by the next poll.
     max_id = last_id or -1
     for trade in trades:
         try:

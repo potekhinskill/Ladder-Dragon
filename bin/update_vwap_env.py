@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 # Copyright (c) 2026 IURII Potekhin / Ladder Dragon. All rights reserved.
-# Назначение файла и опасные границы логики должны оставаться понятными при сопровождении.
+# Purpose: keep the file role and safety boundaries clear during maintenance.
 """Комбинированный генератор VWAP окружения."""
 from __future__ import annotations
 

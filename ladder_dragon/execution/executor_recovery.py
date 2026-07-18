@@ -1,5 +1,5 @@
 # Copyright (c) 2026 IURII Potekhin / Ladder Dragon. All rights reserved.
-# Назначение файла и опасные границы логики должны оставаться понятными при сопровождении.
+# Purpose: keep the file role and safety boundaries clear during maintenance.
 """Запросы, отмена, проверка ордеров и восстановление после рестарта."""
 
 from __future__ import annotations
@@ -172,8 +172,8 @@ def recover_pending_buy_order_ids(
     if journal is None:
         return []
     recovered: List[int] = []
-    # Локальный intent сам по себе не доказывает наличие заявки на бирже.
-    # Истиной считается ответ Binance по устойчивому clientOrderId.
+    # A local intent alone does not prove that an exchange order exists.
+    # The Binance response for the stable clientOrderId is authoritative.
     for intent in journal.unresolved_buys(symbol):
         try:
             payload = dependencies.get_order_by_client_id(

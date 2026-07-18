@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 # Copyright (c) 2026 IURII Potekhin / Ladder Dragon. All rights reserved.
-# Назначение файла и опасные границы логики должны оставаться понятными при сопровождении.
+# Purpose: keep the file role and safety boundaries clear during maintenance.
 """
 ladder_pct_runner.py — подготовка процентной лестницы для исполнителя:
 - Геометрическая сетка по модулю процентов (устойчивое geomspace)
@@ -28,7 +28,7 @@ getcontext().prec = 28
 from dotenv import load_dotenv
 load_dotenv()
 
-# общий модуль работы с Binance
+# Shared Binance integration module.
 from ladder_dragon.execution import tools_market as TM
 from product_version import product_label
 
@@ -74,14 +74,14 @@ def parse_args():
     p = argparse.ArgumentParser()
     p.add_argument("--version", action="version", version=product_label("ladder runner"))
     p.add_argument("--symbol", required=True)
-    # Формат: -min%,-max%,[density]  (пример: -0.5,-20,20)
+    # Format: -min%,-max%,[density] (example: -0.5,-20,20).
     p.add_argument("--ladder-pct", type=str, default="-0.5,-20,20")
     p.add_argument("--grid-density", type=int, default=20)  # запасной, если в ladder-pct нет density
     p.add_argument("--base-script", type=str, default="bin/autosize_universal.py")
     p.add_argument("--kill-if-empty", action="store_true",
                    help="Завершить с ошибкой, если после фильтрации не осталось уровней.")
 
-    # Управление стороной и расстояниями
+    # Configure side and distances.
     p.add_argument("--one-side", choices=("buys","sells","both"), default="both",
                    help="Оставить только покупки, только продажи или обе стороны.")
     p.add_argument("--min-ticks-gap", type=int, default=0,
@@ -97,13 +97,13 @@ def parse_args():
     p.add_argument("--nudge-first-buy", action="store_true",
                     help="Если первый BUY ≥ now, поджать на -1*tick.")
 
-    # Валидация против minNotional
+    # Validate against minNotional.
     p.add_argument("--min-order-usdt", type=float, default=None,
                    help="Оценочный CAP на ордер в USDT (для сравнения с minNotional).")
     p.add_argument("--strict-minnotional", action="store_true",
                    help="Если CAP < minNotional — завершить с ошибкой (не отдавать уровни).")
 
-    # passthrough к исполнителю:
+    # Passthrough to the executor.
     p.add_argument("--live", action="store_true")
     p.add_argument("--only-new-fills", action="store_true")
     p.add_argument("--max-oco-per-symbol", type=int, default=4)
@@ -170,7 +170,7 @@ def main():
     flt  = _filters_decimal(symbol)
     tick = flt["tickSize"]
 
-    # ATR-скейл (мягкий)
+    # Soft ATR scaling.
     atr_abs = calc_atr(symbol)
     atr_pct = (atr_abs / float(now)) if now > 0 else 0.0
     scale_factor = Decimal(str(1 + atr_pct * 0.5))  # 50% ATR к диапазону
@@ -178,7 +178,7 @@ def main():
     min_pct = (min_pct_in * scale_factor)  # отрицательные
     max_pct = (max_pct_in * scale_factor)
 
-    # Геометрия по модулю
+    # Geometric spacing by magnitude.
     start_mag = float(abs(min_pct))
     stop_mag  = float(abs(max_pct))
     if abs(start_mag - stop_mag) < 1e-12:
@@ -189,15 +189,15 @@ def main():
     buy_pcts  = [-Decimal(str(m)) for m in mags]   # вниз
     sell_pcts = [ Decimal(str(m)) for m in mags]   # вверх
 
-    # Уровни
+    # Levels.
     buy_levels  = [now * (Decimal(1) + p/Decimal(100)) for p in buy_pcts]
     sell_levels = [now * (Decimal(1) + p/Decimal(100)) for p in sell_pcts]
 
-    # Округление
+    # Rounding.
     buy_q  = [round_down_to_step(lv, tick) for lv in buy_levels]
     sell_q = [round_up_to_step(lv,   tick) for lv in sell_levels]
 
-    # Дедуп по строковому представлению (после округления)
+    # Deduplicate by the string representation after rounding.
     def uniq_keep(seq):
         seen, out = set(), []
         for x in seq:
@@ -209,7 +209,7 @@ def main():
     buy_q  = uniq_keep(buy_q)
     sell_q = uniq_keep(sell_q)
 
-    # Отступы от цены
+    # Price offsets.
     mb = Decimal(str(max(0.0, args.min_buy_offset_pct)))
     ms = Decimal(str(max(0.0, args.min_sell_offset_pct)))
     if mb > 0:
@@ -219,11 +219,11 @@ def main():
         sell_threshold = now * (Decimal(1) + ms/Decimal(100))
         sell_q = [lv for lv in sell_q if lv >= sell_threshold]
 
-    # Порядок для воркера
+    # Worker order.
     buy_q_sorted  = sorted(buy_q,  reverse=True)
     sell_q_sorted = sorted(sell_q, reverse=False)
 
-    # Минимальная дистанция: тиковая
+    # Minimum distance in ticks.
     def thin_ticks(seq, tick, min_ticks: int) -> list[Decimal]:
         if min_ticks <= 0 or tick <= 0 or len(seq) <= 1:
             return seq
@@ -237,7 +237,7 @@ def main():
     buy_q_sorted  = thin_ticks(buy_q_sorted,  tick, int(args.min_ticks_gap))
     sell_q_sorted = thin_ticks(sell_q_sorted, tick, int(args.min_ticks_gap))
 
-    # Минимальная дистанция: абсолютная относительная (в %)
+    # Minimum absolute relative distance in percent.
     def thin_abs_pct(seq, min_pct_gap: Decimal) -> list[Decimal]:
         if min_pct_gap <= 0 or len(seq) <= 1:
             return seq
@@ -255,7 +255,7 @@ def main():
     buy_q_sorted  = thin_abs_pct(buy_q_sorted,  gap_pct)
     sell_q_sorted = thin_abs_pct(sell_q_sorted, gap_pct)
 
-    # Валидация против minNotional
+    # Validate against minNotional.
     eff_order_usdt = None
     if args.min_order_usdt and args.min_order_usdt > 0:
         eff_order_usdt = Decimal(str(args.min_order_usdt))
@@ -275,7 +275,7 @@ def main():
             else:
                 print("[WARN]", msg, "Рассмотрите увеличение CAP.")
 
-    # --- Автоподжим ближайшего уровня(ей), если включено ---
+    # --- Nudge the nearest level(s) when enabled ---
     def reflow_side(seq, ascending: bool) -> list[Decimal]:
         """Пересобрать сторону: сортировка, dedup, тиковый и процентный GAP — в исходном порядке."""
         seq_sorted = sorted(seq, reverse=not ascending)
@@ -283,11 +283,11 @@ def main():
         seq_sorted = thin_abs_pct(seq_sorted, gap_pct)
         return seq_sorted
 
-    # SELL nudge: после nudged учесть минимальный оффсет
+    # SELL nudge: honor the minimum offset after nudging.
     if args.nudge_first_sell and sell_q_sorted:
         if tick > 0 and sell_q_sorted[0] <= now:
             nudged = round_up_to_step(now + tick, tick)
-            # соблюдение min-sell-offset-pct, если он задан
+            # Honor min-sell-offset-pct when configured.
             if ms > 0:
                 sell_threshold = now * (Decimal(1) + ms/Decimal(100))
                 if nudged < sell_threshold:
@@ -296,7 +296,7 @@ def main():
                 sell_q_sorted[0] = nudged
                 sell_q_sorted = reflow_side(sell_q_sorted, ascending=True)
 
-    # BUY nudge: после nudged учесть минимальный оффсет
+    # BUY nudge: honor the minimum offset after nudging.
     if args.nudge_first_buy and buy_q_sorted:
         if tick > 0 and buy_q_sorted[0] >= now:
             nudged = round_down_to_step(now - tick, tick)
@@ -308,7 +308,7 @@ def main():
                 buy_q_sorted[0] = nudged
                 buy_q_sorted = reflow_side(buy_q_sorted, ascending=False)
 
-    # Применить --one-side
+    # Apply --one-side.
     if args.one_side == "buys":
         levels_all = buy_q_sorted
     elif args.one_side == "sells":
@@ -316,7 +316,7 @@ def main():
     else:
         levels_all = buy_q_sorted + sell_q_sorted
 
-    # Если после фильтров не осталось уровней — действуем согласно флагу
+    # If filtering removes every level, follow the configured flag.
     if not levels_all:
         msg = f"[EMPTY] {symbol}: нет уровней после фильтрации."
         if args.kill_if_empty:
@@ -337,7 +337,7 @@ def main():
     print(f"[FILTERS] tickSize={fmt_decimal(tick)} minNotional={fmt_decimal(flt['minNotional'])}"
           + (f" stepSize={fmt_decimal(flt['stepSize'])}" if flt['stepSize'] else ""))
 
-    # Команда исполнителя
+    # Executor command.
     cmd = ["python3", "-u", args.base_script, "--symbol", symbol, "--ladder-prices", levels_str]
     if args.live: cmd.append("--live")
     if args.only_new_fills: cmd.append("--only-new-fills")

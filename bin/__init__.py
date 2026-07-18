@@ -1,3 +1,3 @@
 # Copyright (c) 2026 IURII Potekhin / Ladder Dragon. All rights reserved.
-# Назначение: CLI-обёртки и административные команды проекта; торговая логика находится в ladder_dragon.
-"""Исполняемые команды Ladder Dragon, доступные как ``python -m bin.<command>``."""
+# Purpose: CLI wrappers and administrative commands; trading logic lives in ladder_dragon.
+"""Executable Ladder Dragon commands available as ``python -m bin.<command>``."""

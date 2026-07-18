@@ -1,5 +1,5 @@
 # Copyright (c) 2026 IURII Potekhin / Ladder Dragon. All rights reserved.
-# Назначение файла и опасные границы логики должны оставаться понятными при сопровождении.
+# Purpose: keep the file role and safety boundaries clear during maintenance.
 """Чистые детерминированные расчёты, общие для торговых процессов.
 
 Здесь намеренно нет сети, окружения, логирования и изменяемого состояния биржи.

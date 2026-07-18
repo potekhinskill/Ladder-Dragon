@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 # Copyright (c) 2026 IURII Potekhin / Ladder Dragon. All rights reserved.
-# Назначение файла и опасные границы логики должны оставаться понятными при сопровождении.
+# Purpose: keep the file role and safety boundaries clear during maintenance.
 
 """
 pnl_24h.py — PnL за окно (по умолчанию 24h), НЕТТО (с вычетом fee_quote).
@@ -43,7 +43,7 @@ def detect_ts_div(con: sqlite3.Connection, ts_col: str = "ts") -> int:
     except Exception:
         return 1
 
-    # секунды ~1e9, миллисекунды ~1e12, микросекунды ~1e15
+    # Seconds are ~1e9, milliseconds ~1e12, microseconds ~1e15.
     if hi > 10_000_000_000_000:      # >1e13 → µs
         return 1_000_000
     elif hi > 10_000_000_000:        # >1e10 → ms
@@ -164,7 +164,7 @@ def pnl_cash(con: sqlite3.Connection, t0_sec: int, t1_sec: int, symbols=None, ts
     total = sum(by_sym.values(), Decimal("0"))
     return by_sym, total
 
-# === Реализованный метод (как раньше) — только для полной истории ===
+# === Realized method (legacy-compatible), for complete history only ===
 
 def iter_trades_until(con: sqlite3.Connection, t_until: int, symbols=None):
     params = [t_until]
@@ -213,7 +213,7 @@ def replay_until(con: sqlite3.Connection, t_until_sec: int, symbols=None, ts_div
 
         elif side == "SELL":
             if Q <= 0:
-                # нет истории — трактуем как продажу без склада
+                # No history: treat this as a sale without inventory.
                 proceeds = trade.sell_proceeds_quote()
                 realized[sym] = realized.get(sym, Decimal("0")) + proceeds
                 qty[sym] = Q - q
@@ -222,7 +222,7 @@ def replay_until(con: sqlite3.Connection, t_until_sec: int, symbols=None, ts_div
                     realized[f"__warn_{sym}"] = Decimal("0")
                 continue  # ← ВАЖНО: всегда выходим из SELL при Q<=0
 
-            # Обычная продажа по средней себестоимости
+            # Standard sale at average cost.
             avg = C / Q
             used = min(q, Q)
             cost_out = avg * used
@@ -233,7 +233,7 @@ def replay_until(con: sqlite3.Connection, t_until_sec: int, symbols=None, ts_div
             realized[sym] = realized.get(sym, Decimal("0")) + pnl
 
         else:
-            # неизвестный side — пропускаем строку
+            # Unknown side: skip the row.
             continue
 
     return qty, cost, realized
@@ -252,7 +252,7 @@ def pnl_realized(con: sqlite3.Connection, t0_sec: int, t1_sec: int, symbols=None
     total = sum(by_sym.values(), Decimal("0"))
     return by_sym, total
 
-# === Парсинг окон по --from/--to ===
+# === Parse --from/--to windows ===
 
 def _parse_dt_arg(s: str | None, use_utc: bool) -> datetime | None:
     """Парсит строку даты/времени. Поддержка:
@@ -261,15 +261,15 @@ def _parse_dt_arg(s: str | None, use_utc: bool) -> datetime | None:
     """
     if not s:
         return None
-    # Пробуем fromisoformat сначала
+    # Try fromisoformat first.
     try:
         dt = datetime.fromisoformat(s)
     except ValueError:
-        # fallback без секунд
+        # Fallback without seconds.
         try:
             dt = datetime.strptime(s, "%Y-%m-%d %H:%M")
         except ValueError:
-            # только дата → 00:00
+        # Date only means 00:00.
             dt = datetime.strptime(s, "%Y-%m-%d")
     tz = timezone.utc if use_utc else datetime.now().astimezone().tzinfo
     if dt.tzinfo is None:
@@ -293,7 +293,7 @@ def main():
         sys.exit(2)
 
     now = datetime.utcnow().replace(tzinfo=timezone.utc) if args.utc else datetime.now().astimezone()
-    # Определяем окно по приоритету: --from/--to → --hours
+    # Select the window in priority order: --from/--to, then --hours.
     to_dt = _parse_dt_arg(args.to_dt, args.utc) or now
     from_dt = _parse_dt_arg(args.from_dt, args.utc)
     if from_dt is None:
@@ -301,12 +301,12 @@ def main():
     else:
         t0, t1 = from_dt, to_dt
 
-    # Проверка порядка границ окна
+    # Validate window-bound ordering.
     if t1 < t0:
         print("Error: 'to' раньше, чем 'from'", file=sys.stderr)
         sys.exit(2)
 
-    # Выборка по символам
+    # Filter by symbols.
     syms = parse_symbols(args.symbols)
 
     con = sqlite3.connect(args.db)

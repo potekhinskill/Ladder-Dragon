@@ -30,8 +30,8 @@ def test_api_is_closed_without_authentication(monkeypatch):
 
 def test_health_exposes_product_version_and_changelog(monkeypatch):
     module = load_dashboard(monkeypatch)
-    # macOS sandbox может запрещать чтение swap/boot_time(); для проверки
-    # контракта health подставляем безопасные значения системного снимка.
+    # The macOS sandbox may block swap/boot_time(); use safe system-snapshot
+    # values to verify the health contract.
     swap_snapshot = type("SwapSnapshot", (), {"total": 0, "used": 0, "percent": 0})()
     monkeypatch.setattr(module.psutil, "swap_memory", lambda: swap_snapshot)
     monkeypatch.setattr(module.psutil, "boot_time", lambda: 0)

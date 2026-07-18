@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 # Copyright (c) 2026 IURII Potekhin / Ladder Dragon. All rights reserved.
-# Назначение файла и опасные границы логики должны оставаться понятными при сопровождении.
+# Purpose: keep the file role and safety boundaries clear during maintenance.
 
 import os, sys, argparse, sqlite3, time
 from typing import List
 
-# tools_stats.py — ваш модуль
+# tools_stats.py — project statistics module.
 try:
     from ladder_dragon.execution import tools_stats as ts
 except Exception:
@@ -26,7 +26,7 @@ def detect_symbols(con: sqlite3.Connection) -> List[str]:
 
 def ts_expr(utc: bool) -> str:
     tail = "'unixepoch','utc'" if utc else "'unixepoch','localtime'"
-    # >1e14 → микросекунды, >1e12 → миллисекунды, иначе секунды
+    # >1e14 means microseconds, >1e12 milliseconds, otherwise seconds.
     return (
         "datetime(CASE "
         "WHEN ts>1e14 THEN ts/1000000 "
@@ -78,7 +78,7 @@ def print_daily_monthly(con: sqlite3.Connection, symbols: List[str], utc: bool) 
     print(f"\n=== Сводки: day (сегодня) и month ({year:04d}-{month:02d}) ===")
     for s in symbols:
         try:
-            # поддержка двух сигнатур
+            # Support both signatures.
             try:
                 day = ts.daily_summary(con, s, utc=utc)
             except TypeError:
@@ -87,7 +87,7 @@ def print_daily_monthly(con: sqlite3.Connection, symbols: List[str], utc: bool) 
             day = {"error": str(e)}
 
         try:
-            # если нужна поддержка utc для monthly_summary — прокиньте в модуле
+            # Pass UTC support through the module when monthly_summary requires it.
             mon = ts.monthly_summary(con, s, year, month)
         except Exception as e:
             mon = {"error": str(e)}

@@ -1,9 +1,9 @@
 # Copyright (c) 2026 IURII Potekhin / Ladder Dragon. All rights reserved.
-# Назначение: локальный read-only dashboard; торговые ключи и ордера сюда не передаются.
+# Purpose: local read-only dashboard; trading keys and order actions never enter this layer.
 
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
-# убрали requests из общего импорта:
+# Keep requests optional instead of importing it into the shared module namespace.
 import psutil, shutil, json, os, socket, asyncio, subprocess, math, time, hmac, hashlib, secrets, threading, re
 from collections import defaultdict, deque
 from contextlib import asynccontextmanager
@@ -128,8 +128,8 @@ async def authenticate_and_rate_limit(request: Request, call_next):
 # ---- helpers for DB trades / PnL -------------------------------------------------
 
 def get_db_path() -> str:
-    # При явном разрешении дашборд следует за фактическим venue торгового
-    # процесса. Status-файл не содержит ключей и доступен только локальному user.
+    # When explicitly enabled, the dashboard follows the trading process venue.
+    # The status file contains no keys and is available only to the local user.
     runtime = _load_ai_runtime_status()
     if DASHBOARD_FOLLOW_BOT_PATHS and runtime:
         runtime_path = runtime.get("paths", {}).get("stats_db")
@@ -187,7 +187,8 @@ def _fee_pct_default() -> float:
         return 0.00075
 
 def _estimate_fee_quote(price: float, qty: float, fee_quote: float, fee_pct: float) -> float:
-    # если в БД есть fee в валюте котировки (USDT) — доверяем ему; иначе оцениваем через % (оплата BNB)
+    # Prefer a quote-currency fee from the database; otherwise estimate it by
+    # percentage when the fee was paid in BNB.
     if fee_quote and fee_quote > 0:
         return float(fee_quote)
     return float(price * qty * fee_pct)
@@ -200,7 +201,7 @@ def _load_trades(con: sqlite3.Connection, symbols: Optional[List[str]] = None) -
         sym_filter = f" AND symbol IN ({qs})"
         args.extend(symbols)
 
-    # fee_quote может отсутствовать на старых установках — COALESCE в 0
+    # Older installations may lack fee_quote; COALESCE it to zero.
     sql = f"""
     SELECT
       symbol, side, price, qty,
@@ -536,16 +537,15 @@ def _order_journal_snapshot(runtime: Dict[str, object]) -> Dict[str, object]:
                     requested_qty = Decimal(str(latest["quantity"] or "0"))
                     partial_fill = executed_qty > 0 and requested_qty > 0 and executed_qty < requested_qty
                 except (InvalidOperation, TypeError, ValueError):
-                    # Повреждённое/неполное поле не должно превращаться в
-                    # ложный partial fill; неизвестное состояние показываем
-                    # как false до подтверждения биржей.
+                    # A damaged or incomplete field must not become a false
+                    # partial fill; show false until the exchange confirms it.
                     partial_fill = False
                 item = {
                     "symbol": latest["symbol"], "side": latest["side"], "status": latest["state"],
                     "order_id": latest["exchange_order_id"], "executed_qty": latest["executed_qty"],
                     "quantity": latest["quantity"], "partial_fill": partial_fill,
-                    # Intent-журнал пока не хранит сетевую latency и комиссию
-                    # конкретного fill; явно возвращаем null, а не выдумываем их.
+                    # The intent journal does not yet store per-fill latency or
+                    # commission; return null instead of inventing values.
                     "latency_ms": None,
                     "commission_usdt": None,
                     "updated_at": datetime.fromtimestamp(float(latest["updated_at"]), APP_TZ).strftime("%Y-%m-%d %H:%M:%S"),
@@ -701,7 +701,7 @@ def _approx_equity_now_from_db(rows: List[sqlite3.Row], symbols_list: Optional[L
             else:
                 fee_bnb_usdt_total += (px * qty * _fee_pct_default())
 
-    # цены сейчас для всех активов, что фигурируют
+    # Fetch current prices for every asset that appears in the account.
     assets = {k for k,v in pos.items() if abs(v) > 0} | {"BNB"}
     prices: Dict[str, float] = {"USDT": 1.0}
     for a in list(assets):
@@ -712,12 +712,12 @@ def _approx_equity_now_from_db(rows: List[sqlite3.Row], symbols_list: Optional[L
         except Exception:
             prices[a] = 0.0
 
-    # учёт комиссий в BNB (не ниже 0)
+    # Account for commissions paid in BNB, never below zero.
     p_bnb = prices.get("BNB", 0.0)
     if p_bnb > 0 and fee_bnb_usdt_total > 0:
         pos["BNB"] = max(0.0, pos.get("BNB", 0.0) - (fee_bnb_usdt_total / p_bnb))
 
-    # Обрезаем отрицательные остатки ПО ВСЕМ активам (включая USDT/BNB)
+    # Clamp negative balances for every asset, including USDT and BNB.
     for a in list(pos.keys()):
         if pos[a] < 0:
             pos[a] = 0.0
@@ -742,7 +742,7 @@ def equity_pnl_usdt(cutoff_s: int, rows: List[sqlite3.Row], fee_pct: float, symb
       - buy/sell/fees для совместимости
     Можно ограничить активы параметром symbols_list (по базовым активам соответствующих пар).
     """
-    # Дельты и объёмы в окне, ограниченные symbols (если есть)
+    # Restrict window deltas and volumes to the requested symbols when present.
     buy_usdt = 0.0
     sell_usdt = 0.0
     dQ: Dict[str, float] = {}
@@ -771,7 +771,7 @@ def equity_pnl_usdt(cutoff_s: int, rows: List[sqlite3.Row], fee_pct: float, symb
     delta_usdt = sell_usdt - buy_usdt
     cutoff_ms = cutoff_s * 1000
 
-    # точный метод с ключами
+    # Exact method using signed account credentials.
     try:
         bals_now = account_balances_now()  # требует API ключи (ensure_api_creds внутри)
         if sym_set:
@@ -780,7 +780,7 @@ def equity_pnl_usdt(cutoff_s: int, rows: List[sqlite3.Row], fee_pct: float, symb
         else:
             assets = set(bals_now.keys()) | set(["USDT", "BNB"])
 
-        # цены сейчас
+        # Current prices.
         p_now: Dict[str, float] = {"USDT": 1.0}
         for a in list(assets):
             if a == "USDT": continue
@@ -788,7 +788,7 @@ def equity_pnl_usdt(cutoff_s: int, rows: List[sqlite3.Row], fee_pct: float, symb
             try: p_now[a] = price_now(sym)
             except Exception: p_now[a] = 0.0
 
-        # цены тогда
+        # Historical prices.
         p_then: Dict[str, float] = {"USDT": 1.0}
         for a in list(assets):
             if a == "USDT": continue
@@ -796,10 +796,10 @@ def equity_pnl_usdt(cutoff_s: int, rows: List[sqlite3.Row], fee_pct: float, symb
             try: p_then[a] = price_at(sym, cutoff_ms)
             except Exception: p_then[a] = p_now.get(a, 0.0)
 
-        # балансы «сейчас» ограничиваем
+        # Restrict current balances.
         q1 = {a: bals_now.get(a, 0.0) for a in assets}
 
-        # восстанавливаем «тогда»
+        # Reconstruct historical balances.
         q0 = dict(q1)
         q0["USDT"] = q1.get("USDT", 0.0) - delta_usdt
         for a, dq in dQ.items():
@@ -830,7 +830,7 @@ def equity_pnl_usdt(cutoff_s: int, rows: List[sqlite3.Row], fee_pct: float, symb
             "equity_assets": sorted(list(set(assets))),
         }
     except Exception:
-        # аппроксимация
+        # Fallback approximation.
         approx_now = _approx_equity_now_from_db(rows, symbols_list, fee_pct)
         p_now_local: Dict[str, float] = {}
         for a in dQ.keys():
@@ -845,7 +845,7 @@ def equity_pnl_usdt(cutoff_s: int, rows: List[sqlite3.Row], fee_pct: float, symb
         eq_then = (round(eq_now - approx_pnl, 2) if (eq_now is not None) else None)
 
         equity_pct = None
-        # чтобы не было «-218%» при крошечном eq_then
+        # Avoid misleading percentages when eq_then is tiny.
         if (eq_then not in (None, 0)) and (equity_pct is None) and (eq_now is not None) and abs(eq_then) >= 10.0:
             try:
                 equity_pct = round((eq_now - eq_then) / eq_then * 100.0, 2)
@@ -1178,8 +1178,8 @@ def health():
             "fail2ban_sshd_bans": fail2ban_bans("sshd")
         },
         "uptime_sec": int(time.time() - psutil.boot_time()),
-        # DNS/53 может быть закрыт в локальной сети; успешный Binance probe
-        # является более релевантным признаком доступности торгового канала.
+        # DNS/53 may be blocked on a local network; a successful Binance probe
+        # is the more relevant signal for the trading channel.
         "network_ok": effective_network_ok,
         "network_probe_ok": network_probe_ok,
         "operations": ops
@@ -1240,8 +1240,8 @@ def history(hours: int = 24, points: int = 288):
 
 
 def _ai_usage_today(path: Path, *, now: datetime | None = None) -> Dict:
-    # Лимиты и состояние DEGRADED должны совпадать с AI policy и сбрасываться
-    # по UTC. APP_TZ используется только для отображения локального времени.
+    # Limits and DEGRADED state must match AI policy and reset on UTC boundaries.
+    # APP_TZ is used only for local-time presentation.
     now = now or datetime.now(tz=timezone.utc)
     now = now.astimezone(timezone.utc)
     today = now.date()
@@ -1481,9 +1481,8 @@ def ai_status(limit: int = 50):
     if usage.get("recent_errors", 0) >= AI_ERROR_DEGRADED_MIN:
         degraded_reasons.append("recent_ai_errors")
     if effective_mode == "APPLY":
-        # В APPLY отклонение production-gate — самостоятельная причина
-        # DEGRADED: модель может отвечать, но её статистика пока не допускает
-        # влияние на стратегию.
+        # A production-gate rejection in APPLY is an independent DEGRADED reason:
+        # the model may respond, but its statistics do not yet permit strategy impact.
         for row in recent:
             if str(row.get("status", "")).upper() != "REJECTED":
                 continue
@@ -1804,7 +1803,7 @@ def _select_filled_orders(hours: int, syms: Optional[List[str]], limit: int) -> 
             price = float(r["price"])
             qty = float(r["qty"])
             fee_q = float(r["fee_quote"])
-            # если fee_quote==0 (BNB), считаем комиссию в USDT по проценту
+            # If fee_quote is zero (BNB), estimate the fee in USDT by percentage.
             fee_usdt = fee_q if fee_q > 0 else (price * qty * fee_pct)
             out.append({
                 "time": int(r["ts_s"]) * 1000,

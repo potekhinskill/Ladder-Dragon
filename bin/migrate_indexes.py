@@ -1,16 +1,16 @@
 #!/usr/bin/env python3
 # Copyright (c) 2026 IURII Potekhin / Ladder Dragon. All rights reserved.
-# Назначение файла и опасные границы логики должны оставаться понятными при сопровождении.
+# Purpose: keep the file role and safety boundaries clear during maintenance.
 import os, sqlite3, sys
 
 DB = os.getenv('BOT_STATS_DB', '/home/bot/apps/binance_bot/db/bot_stats.db')
 
 DDL = [
-    # покрывающий индекс под выборки по symbol+ts (месяц/сутки)
+    # Covering index for symbol+ts queries (month/day).
     "CREATE INDEX IF NOT EXISTS trades_monthly_cover "
     "ON trades(symbol, ts, side, price, qty, fee_quote);",
 
-    # защита от дублей трейдов (trade_id уникален в рамках символа)
+    # Protect against duplicate trades (trade_id is unique per symbol).
     "CREATE UNIQUE INDEX IF NOT EXISTS trades_sym_tradeid_uq "
     "ON trades(symbol, trade_id) WHERE trade_id IS NOT NULL;"
 ]
@@ -20,10 +20,10 @@ def table_exists(con: sqlite3.Connection, name: str) -> bool:
     return cur.fetchone() is not None
 
 def main() -> int:
-    # Открываем соединение и ставим таймаут на локи
+    # Open the connection and set a lock timeout.
     with sqlite3.connect(DB, timeout=15.0) as con:
         con.execute("PRAGMA busy_timeout=7000;")
-        # Если таблицы ещё нет — просто выходим «мягко»
+        # If the table is absent, exit gracefully.
         if not table_exists(con, 'trades'):
             print(f"[SKIP] no table 'trades' yet in {DB} — nothing to index")
             return 0
@@ -35,10 +35,10 @@ def main() -> int:
                 idx_name = sql.split(' IF NOT EXISTS ')[-1].split()[0]
                 print(f"[IDX] {idx_name} ok")
             except sqlite3.OperationalError as e:
-                # Например, если схема неожиданно отличается
+                # For example, if the schema differs unexpectedly.
                 print(f"[WARN] {e.__class__.__name__}: {e}", file=sys.stderr)
 
-        # Обновим статистику оптимизатора
+        # Refresh optimizer statistics.
         cur.executescript("ANALYZE; PRAGMA optimize;")
         print("[OK] migrate_indexes done on", DB)
     return 0

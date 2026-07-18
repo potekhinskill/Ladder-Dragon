@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Copyright (c) 2026 IURII Potekhin / Ladder Dragon. All rights reserved.
-# Назначение файла и опасные границы логики должны оставаться понятными при сопровождении.
+# Purpose: keep the file role and safety boundaries clear during maintenance.
 set -euo pipefail
 
 PROJECT_DIR="${PROJECT_DIR:-/home/bot/apps/binance_bot}"
@@ -15,8 +15,8 @@ BACKUP_EXTERNAL_RETENTION_DAYS="${BACKUP_EXTERNAL_RETENTION_DAYS:-90}"
 STAMP="$(date -u +%Y-%m-%d-%H%M%S)"
 DEST="${BACKUP_DIR}/${STAMP}"
 
-# В DEST временно находятся расшифрованные env/SQLite. Удаляем staging даже
-# при ошибке внешнего mirror, чтобы аварийный backup не оставил секреты на SD.
+# DEST temporarily contains decrypted env/SQLite data. Remove staging even when
+# the external mirror fails, so an emergency backup never leaves secrets on the SD card.
 write_status() {
   local status="$1"
   local reason="${2:-}"
@@ -82,13 +82,13 @@ if [[ -n "${BACKUP_EXTERNAL_MOUNT}" || -n "${BACKUP_EXTERNAL_DIR}" ]]; then
       exit 1
       ;;
   esac
-  # exFAT не поддерживает chmod; права внешнего каталога задаются mount-опциями.
+  # exFAT does not support chmod; external-directory permissions come from mount options.
   mkdir -p "${BACKUP_EXTERNAL_DIR}"
 fi
 install -d -m 0700 "${DEST}"
 install -d -o root -g www-data -m 0750 "${PUBLIC_BACKUP_DIR}"
 
-# Инвентарь не содержит значений секретных переменных.
+# The inventory contains no secret-variable values.
 {
   echo "created_at=${STAMP}"
   echo "hostname=$(hostname)"
@@ -137,8 +137,8 @@ for path in \
   [[ -e "${path}" ]] && copy_rootfs_path "${path}"
 done
 
-# Старый watchdog и его Telegram-конфигурация сохраняются только внутри
-# зашифрованного age-архива. Они никогда не попадают в HTTP-каталог.
+# The legacy watchdog and its Telegram configuration are kept only inside the
+# encrypted age archive. They never enter the HTTP directory.
 for path in \
   /etc/bot-alerts.env \
   /etc/ladder-dragon/telegram.env \
@@ -156,7 +156,7 @@ for name in .env .env.service .env.dashboard; do
     && install -m 0600 "${PROJECT_DIR}/${name}" "${DEST}/project/${name}"
 done
 
-# SQLite снимается через online backup API, без копирования несогласованных WAL/SHM.
+# SQLite is copied through the online backup API, without copying inconsistent WAL/SHM files.
 python3 - "${PROJECT_DIR}" "${DEST}/project" <<'PY'
 import os
 import sqlite3
@@ -172,9 +172,9 @@ for source in sorted((project / "db").glob("*.db")) + sorted((project / "db").gl
         continue
     target = dest / source.name
     temporary = target.with_name(f".{target.name}.tmp")
-    # На активной SQLite WAL короткая гонка закрытия/записи может временно
-    # вернуть «unable to open database file». Повторяем online backup, но после
-    # исчерпания попыток завершаем backup с ошибкой, не публикуя неполный архив.
+    # With an active SQLite WAL, a short close/write race can temporarily return
+    # "unable to open database file". Retry the online backup, but after all attempts
+    # fail, abort without publishing an incomplete archive.
     for attempt in range(3):
         try:
             temporary.unlink(missing_ok=True)
@@ -194,20 +194,20 @@ for source in sorted((project / "db").glob("*.db")) + sorted((project / "db").gl
     os.chmod(target, 0o600)
 PY
 
-# Архив никогда не записывается на диск открытым: tar сразу передаётся в age.
+# The archive is never written to disk unencrypted: tar is streamed directly into age.
 tar -C "${BACKUP_DIR}" -czf - "${STAMP}" \
   | age -r "${BACKUP_AGE_RECIPIENT}" \
       -o "${BACKUP_DIR}/ladder-dragon-${STAMP}.tgz.age"
 
-# Храним checksum с относительным именем. Такой файл можно проверить и на
-# SD-карте, и на внешнем диске, и после скачивания из /backups/.
+# Keep a checksum with a relative filename. It can be verified on the SD card,
+# the external disk, or after downloading from /backups/.
 archive_name="ladder-dragon-${STAMP}.tgz.age"
 (cd "${BACKUP_DIR}" && sha256sum "${archive_name}" >"${archive_name}.sha256")
 chmod 0600 "${BACKUP_DIR}/${archive_name}" "${BACKUP_DIR}/${archive_name}.sha256"
 
-# До публикации удаляем только просроченные локальные копии, затем
-# синхронизируем весь оставшийся набор, а не только последний архив. Это
-# автоматически восстанавливает исторические файлы после миграции.
+# Before publishing, remove only expired local copies, then synchronize the full
+# remaining set rather than only the newest archive. This restores historical files
+# after a migration automatically.
 find "${BACKUP_DIR}" -maxdepth 1 -type f -name 'ladder-dragon-*.tgz.age*' \
   -mtime +14 -delete
 
@@ -215,10 +215,10 @@ mirror_external_archive() {
   local source_archive="$1"
   local name
   name="$(basename "${source_archive}")"
-  # --preserve=timestamps не пытается менять владельца exFAT-файла.
+  # --preserve=timestamps does not attempt to change exFAT file ownership.
   cp --preserve=timestamps -f "${source_archive}" "${BACKUP_EXTERNAL_DIR}/${name}"
-  # checksum пересоздаётся в каталоге назначения, поэтому путь остаётся
-  # переносимым и не содержит локальных путей Raspberry Pi.
+  # Recreate the checksum in the destination directory so the path stays portable
+  # and contains no Raspberry Pi local paths.
   (cd "${BACKUP_EXTERNAL_DIR}" && sha256sum "${name}" >"${name}.sha256")
   (cd "${BACKUP_EXTERNAL_DIR}" && sha256sum -c "${name}.sha256" >/dev/null)
 }
@@ -240,18 +240,18 @@ shopt -s nullglob
 for source_archive in "${BACKUP_DIR}"/*.tgz.age; do
   [[ -f "${source_archive}" ]] || continue
   if [[ -n "${BACKUP_EXTERNAL_DIR}" ]]; then
-    # Внешний диск получает все age-архивы, включая preinstall-снимки.
+    # The external disk receives every age archive, including preinstall snapshots.
     mirror_external_archive "${source_archive}"
   fi
-  # В HTTP-каталог попадают все age-зашифрованные архивы, включая
-  # preinstall-снимки. Открытые legacy-файлы сюда не попадают.
+  # The HTTP directory receives all age-encrypted archives, including preinstall
+  # snapshots. Plaintext legacy files never enter it.
   publish_public_archive "${source_archive}"
 done
 shopt -u nullglob
 
 if [[ -n "${BACKUP_EXTERNAL_DIR}" ]]; then
-  # Внешний диск также получает inventory без секретов. При отключённом
-  # mountpoint скрипт завершается выше и не пишет незаметно на SD-карту.
+  # The external disk also receives the secret-free inventory. If the mountpoint is
+  # unavailable, the script exits above and never silently writes to the SD card.
   cp --preserve=timestamps -f "${DEST}/inventory.txt" \
     "${BACKUP_EXTERNAL_DIR}/inventory-${STAMP}.txt"
   find "${BACKUP_EXTERNAL_DIR}" -maxdepth 1 -type f \
@@ -259,8 +259,8 @@ if [[ -n "${BACKUP_EXTERNAL_DIR}" ]]; then
     -mtime +"${BACKUP_EXTERNAL_RETENTION_DAYS}" -delete
 fi
 
-# Веб-каталог содержит только зашифрованные архивы, checksum и безопасный
-# inventory без env/ключей. Старые файлы удаляются до построения индекса.
+# The web directory contains only encrypted archives, checksums, and a safe
+# inventory without env/keys. Old files are removed before the index is rebuilt.
 install -o root -g www-data -m 0640 \
   "${DEST}/inventory.txt" \
   "${PUBLIC_BACKUP_DIR}/inventory-${STAMP}.txt"

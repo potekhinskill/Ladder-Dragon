@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 # Copyright (c) 2026 IURII Potekhin / Ladder Dragon. All rights reserved.
-# Назначение файла и опасные границы логики должны оставаться понятными при сопровождении.
+# Purpose: keep the file role and safety boundaries clear during maintenance.
 """
 auto_ladder_map.py
 Генерит строку для --ladder-pct-map на основе «режима рынка» по каждому символу.
@@ -109,14 +109,14 @@ def interval_minutes(interval: str) -> float:
     return val if unit=='m' else val*60.0 if unit=='h' else val*1440.0 if unit=='d' else 1.0
 
 def regime_from(klines, dir_eps=0.0006, lowvol_floor=0.0035, interval="1m", ignore_last=False):
-    # опция ignore_last=True — можно исключить последний незакрытый бар
+    # ignore_last=True can exclude the latest unfinished candle.
     if ignore_last and len(klines) > 1:
         klines = klines[:-1]
     closes = [float(x[4]) for x in klines]
     if len(closes) < 60:
         print(f"[INFO] len(closes)={len(closes)} < 60 → FLAT", file=sys.stderr)
         return "FLAT"
-    # масштабируем порог наклона под интервал (эталон — 1m)
+    # Scale the slope threshold for the interval (1m is the reference).
     scale = max(1.0, interval_minutes(interval) / 1.0)
     adj_dir_eps = dir_eps * scale
 

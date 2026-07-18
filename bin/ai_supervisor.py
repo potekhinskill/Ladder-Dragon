@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 # Copyright (c) 2026 IURII Potekhin / Ladder Dragon. All rights reserved.
-# Назначение файла и опасные границы логики должны оставаться понятными при сопровождении.
+# Purpose: keep the file role and safety boundaries clear during maintenance.
 
 """
 ai_supervisor.py — «Лестница Дракона» (SMART, high-profit grid 2025)
@@ -90,7 +90,7 @@ except Exception as e:
 # <<< tools_market integration
 
 # =========================
-# Константы и окружение
+# Constants and environment
 # =========================
 
 BINANCE_API_BASE = (os.getenv("BINANCE_API_BASE") or os.getenv("BINANCE_BASE_URL") or "https://api.binance.com").rstrip("/")
@@ -98,7 +98,7 @@ API_KEY = os.getenv("BINANCE_API_KEY", "")
 API_SECRET = os.getenv("BINANCE_API_SECRET", "")
 USER_AGENT = os.getenv("USER_AGENT", user_agent("supervisor"))
 
-# Режим округления и тёплый старт для очистки
+# Rounding mode and warm start for order cleanup
 PRICE_ROUND_MODE = os.getenv("PRICE_ROUND_MODE", "nearest").lower()  # floor|ceil|nearest
 CLEANUP_WARMUP_SEC = int(os.getenv("CLEANUP_WARMUP_SEC", "900") or 900)
 
@@ -122,12 +122,12 @@ _AI_POLICY: Optional[PolicyConfig] = None
 _AI_RUNTIME_STATUS_PATH: Optional[Path] = None
 _AI_RUNTIME_STATUS: Dict[str, Any] = {}
 _AI_CONTROL_PATH: Optional[Path] = None
-# Один decision_id на период действия cached-рекомендации. Это не даёт
-# виртуальной статистике и RAG считать каждый цикл супервизора новой моделью.
+# Keep one decision_id for the lifetime of a cached recommendation. This
+# prevents virtual statistics and RAG from treating every supervisor cycle as a new model.
 _AI_DECISION_IDS: Dict[str, str] = {}
-# Кэш последнего полного контекста отделён от кэша ответа LLM. Иначе при
-# cache-hit возвращался только базовый набор индикаторов с флагами
-# ``*_available=False``, и dashboard ошибочно показывал stale/incomplete.
+# The last complete-context cache is separate from the LLM response cache.
+# Otherwise a cache hit would return only the basic indicators with
+# ``*_available=False`` and the dashboard would incorrectly show stale/incomplete.
 _AI_CONTEXT_CACHE: Dict[str, tuple[float, MarketContext]] = {}
 
 
@@ -294,8 +294,8 @@ def _refresh_ai_control(args: argparse.Namespace) -> None:
         _AI_POLICY = replace(_AI_POLICY, mode=effective_mode)
         log(f"[AI-CONTROL] mode={effective_mode}")
         if effective_mode == "DISABLED" and previous_mode != "DISABLED":
-            # Уже запущенные дети могли получить AI-параметры; перезапускаем
-            # их, чтобы следующий план был полностью детерминированным.
+            # Existing children may have received AI parameters; restart them so
+            # the next plan is fully deterministic.
             _stop_children("AI disabled from dashboard")
     ai_status = _AI_RUNTIME_STATUS.setdefault("ai", {})
     ai_status.update({
@@ -312,7 +312,7 @@ def dbg(msg: str) -> None:
         print(msg, flush=True)
 
 # =========================
-# Утилиты
+# Utilities
 # =========================
 
 def parse_pct_map(s: str) -> Dict[str, Tuple[float, float, float]]:
@@ -503,11 +503,11 @@ def symbol_assets(symbol: str) -> Tuple[str, str]:
     return symbol[:-3], symbol[-3:]
 
 # =========================
-# Устойчивый Backoff с джиттером
+# Resilient backoff with jitter
 # =========================
 
 # ================
-# Подпись запросов
+# Request signing
 # ================
 
 # ---- tools_market-based HTTP helpers ----
@@ -536,7 +536,7 @@ def _canonical_signed_request(method: str, path: str, params: Dict[str, Any] = N
         return r.text
 
 # ===========================
-# Доступ к аккаунту/рынкам
+# Account and market access
 # ===========================
 
 def get_server_time_offset_ms() -> int:
@@ -570,7 +570,7 @@ def get_exchange_filters(symbol: str) -> Dict[str, float]:
         f"minQty={minQty:.6f} minNotional={minNotional:.2f}")
     return {"tickSize": tick, "stepSize": step, "minQty": minQty, "minNotional": minNotional}
 
-# --- кэш фильтров ---
+# --- filter cache ---
 _FILTERS_CACHE: Dict[str, Dict[str, float]] = {}
 
 def get_exchange_filters_cached(symbol: str) -> Dict[str, float]:
@@ -710,7 +710,7 @@ def cancel_order(symbol: str, order_id: int) -> bool:
         return False
 
 
-# --- ошибки фильтров (формат цены/количества) ---
+# --- filter errors (price/quantity format) ---
 def _is_filter_error(e: Exception) -> bool:
     try:
         resp = getattr(e, "response", None)
@@ -718,12 +718,12 @@ def _is_filter_error(e: Exception) -> bool:
             return False
         j = resp.json()
         code = j.get("code")
-        # -1013 BAD_ARGUMENTS / INVALID_PRICE_QTY, -1111 precision, -1102, -1106 — форматные
+        # -1013 BAD_ARGUMENTS / INVALID_PRICE_QTY, -1111 precision, -1102 and -1106 are format errors.
         return code in (-1013, -1111, -1102, -1106)
     except Exception:
         return False
 
-# ======= NEW: точное форматирование qty/price под шаг =======
+# ======= precise qty/price formatting for exchange steps =======
 
 def _round_price(price: float, tick: float, mode: str) -> float:
     if tick <= 0:
@@ -808,11 +808,11 @@ def place_limit_order(symbol: str, side: str, quantity: float, price: float,
 
     except Exception as e:
         log(f"[PLACE-ERR] {symbol} {side.upper()} {quantity:.6f} @ {price:.4f} -> {e}")
-        # попытка 1: инвалидация фильтров и один повтор
+        # Attempt one filter invalidation and retry.
         if _is_filter_error(e):
             invalidate_exchange_filters_cache(symbol)
             try:
-                # переокруглим через TM ещё раз — на случай изменившихся шагов
+                # Normalize through TM again in case the exchange steps changed.
                 qty_s, price_s = TM.round_qty_price(
                     symbol=symbol,
                     qty=float(quantity),
@@ -901,7 +901,7 @@ def place_market_order(symbol: str, side: str, quantity: float,
         return None
 
 # ============================
-# «Умная» очистка ордеров
+# Smart order cleanup
 # ============================
 
 def startup_cleanup_orders(symbol: str,
@@ -1015,11 +1015,11 @@ def smart_cleanup_orders(symbol: str,
     return {"reviewed": reviewed, "canceled": canceled}
 
 # ===========================
-# Планировщик «лестницы»
+# Ladder scheduler
 # ===========================
 
 # ===========================
-# Smart Rolling (краткий)
+# Smart Rolling (brief)
 # ===========================
 
 def smart_rolling(symbol: str,
@@ -1035,7 +1035,7 @@ def smart_rolling(symbol: str,
     return {"kept": kept, "cancel": {"ttl": 0, "atr": 0}}
 
 # ===========================
-# ATR и авто-адаптер порогов
+# ATR and automatic threshold adapter
 # ===========================
 
 def _klines(symbol: str, interval: str, limit: int = 30):
@@ -1061,7 +1061,7 @@ def _atr_pct(symbol: str, interval: str = '5m', length: int = 20) -> Tuple[float
         return 0.0, 0.0
 
 # ===========================
-# Детектор направления рынка (UP/DOWN/FLAT)
+# Market direction detector (UP/DOWN/FLAT)
 # ===========================
 
 _DIR_STATE: Dict[str, Dict[str, Any]] = {}
@@ -1091,8 +1091,8 @@ def _infer_market_mode(symbol: str, *, interval: str = "30m", ema_fast_len: int 
     down_cond = (ef < es * (1.0 - eps)) and (slope <= -slope_min) and (adx >= adx_min)
     cand = "UP" if up_cond else ("DOWN" if down_cond else "FLAT")
 
-    # Один state на символ не даёт шумным VWAP/ADX-сигналам менять режим
-    # туда-сюда между соседними итерациями супервизора.
+    # One state per symbol prevents noisy VWAP/ADX signals from flipping the
+    # mode back and forth between adjacent supervisor iterations.
     hysteresis = _REGIME_HYSTERESIS.setdefault(
         symbol,
         RegimeHysteresis("FLAT", min_hold_sec=float(os.getenv("BOT_REGIME_MIN_HOLD_SEC", "300")),
@@ -1106,7 +1106,7 @@ def _infer_market_mode(symbol: str, *, interval: str = "30m", ema_fast_len: int 
     return mode, {"ema_fast": ef, "ema_slow": es, "slope": slope, "adx": adx, "candidate": cand}
 
 # ===========================
-# Позиционный страж
+# Position guardian
 # ===========================
 
 def _in_flatten_window(now_local: datetime, hhmm: str, t_minus_sec: int) -> bool:
@@ -1244,7 +1244,7 @@ def position_guard_and_maybe_flatten(symbol: str, now_price: float, atr_abs: flo
     return "normal"
 
 # ===========================
-# Запуск дочернего runner'а
+# Child runner lifecycle
 # ===========================
 
 def _schedule_child_restart(
@@ -1273,8 +1273,8 @@ def run_child(symbol: str, ladder: List[float], args: argparse.Namespace,
               extra_env: Optional[Dict[str, str]] = None,
               tp1: Optional[float] = None, tp2: Optional[float] = None) -> None:
     """Запустить не более одного исполнителя на символ и учесть его прошлый exit."""
-    # Сначала обслуживаем уже известный процесс. Живой не дублируем, а быстро
-    # упавший переводим на экспоненциальную задержку перезапуска.
+    # Reuse a known live process instead of duplicating it; restart a crashed
+    # process with exponential backoff.
     now = time.time()
     _child = _CHILD_PROCS.get(symbol)
     if _child is not None:
@@ -1295,8 +1295,8 @@ def run_child(symbol: str, ladder: List[float], args: argparse.Namespace,
     if now < restart_after:
         return
 
-    # Супервизор передаёт воркеру уже вычисленный торговый план. Сам воркер
-    # повторно проверит CLI, LIVE-гейт, фильтры и лок конкретного символа.
+    # The supervisor passes a computed trading plan to the worker. The worker
+    # rechecks CLI, the LIVE gate, filters and the symbol lock.
     cli = [
         args.base_script,
         "--symbol", symbol,
@@ -1380,7 +1380,7 @@ def run_child(symbol: str, ladder: List[float], args: argparse.Namespace,
         log(f"[CHILD-BACKOFF] {symbol} retry_in={delay:.1f}s")
 
 # ===========================
-# Авто-CAP на основе баланса
+# Balance-based automatic CAP
 # ===========================
 
 def auto_cap_if_needed(args: argparse.Namespace, n_syms: int) -> None:
@@ -1412,7 +1412,7 @@ def auto_cap_if_needed(args: argparse.Namespace, n_syms: int) -> None:
         log(f"[AUTO-CAP] failed: {e}")
 
 # ===========================
-# Логика на символ
+# Per-symbol logic
 # ===========================
 
 _STARTUP_CLEAN_DONE: Dict[str, bool] = {}
@@ -1488,8 +1488,8 @@ def _build_ai_market_context(
         max(1.0, float(os.getenv("AI_MAX_MARKET_AGE_SEC", "30") or 30)),
         max(1.0, float(os.getenv("AI_MAX_PORTFOLIO_AGE_SEC", "30") or 30)),
     )
-    # Контекст обновляется чаще, чем ответ LLM: это сохраняет свежесть
-    # стакана/баланса, но не увеличивает число платных запросов к DeepSeek.
+    # Context refreshes more often than the LLM response. This keeps the
+    # order book and balance fresh without increasing paid DeepSeek requests.
     if cached_context is not None and now - cached_context[0] <= context_ttl:
         cached_at, previous = cached_context
         elapsed = max(0.0, now - cached_at)
@@ -1532,8 +1532,8 @@ def _build_ai_market_context(
             dbg(f"[AI-DECISION] performance failed: {exc}")
     context = MarketContext(**base, **extra)
     if _AI_KNOWLEDGE is not None:
-        # Виртуальные shadow-примеры разрешены только вне LIVE и явно
-        # отделены статусом virtual_validated от реального PnL.
+        # Virtual shadow examples are allowed only outside LIVE and are explicitly
+        # separated from real PnL by the virtual_validated status.
         include_virtual_rag = (
             not LIVE_MODE
             and os.getenv("AI_RAG_INCLUDE_VIRTUAL", "1").strip().lower()
@@ -1568,20 +1568,20 @@ def _build_ai_market_context(
 
 def run_for_symbol(symbol: str, args: argparse.Namespace) -> None:
     """Построить план одного символа и передать его дочернему исполнителю."""
-    # 1) Текущая цена + ATR
+    # 1) Current price + ATR
     now_p = get_last_price(symbol)
     log(f"[PLAN] {symbol} now≈{now_p:.4f}")
 
     atr_abs, atr_pct = _atr_pct(symbol, interval=(args.atr_interval if hasattr(args, 'atr_interval') else '5m'), length=20)
 
-    # 2) Базовые TP/SL от ATR (если не заданы явно)
+    # 2) Baseline ATR-based TP/SL when not explicitly configured
     tp1_calc = clamp(atr_pct * float(args.atr_mult_tp1), float(args.tp1_min), float(args.tp1_max))
     tp2_calc = clamp(atr_pct * float(args.atr_mult_tp2), float(args.tp1_min), float(args.tp1_max * 1.8))
     tp1_use = float(args.tp1) if args.tp1 is not None else tp1_calc
     tp2_use = float(args.tp2) if args.tp2 is not None else tp2_calc
     log(f"[ATR] {symbol} ATR={atr_abs:.4f} -> tp1={tp1_use:.4f}..{args.tp1_max:.4f} with mults tp1={args.atr_mult_tp1} tp2={args.atr_mult_tp2} sl={args.atr_mult_sl}")
 
-    # 3) Режим направления (auto/forced)
+    # 3) Direction mode (auto/forced)
     if args.dir_mode != "auto":
         dir_mode = args.dir_mode.upper()
         _diag = {
@@ -1613,8 +1613,8 @@ def run_for_symbol(symbol: str, args: argparse.Namespace) -> None:
         "buys": NumericHysteresis(float(target_buys_use), max_step=0.5),
     })
 
-    # Сначала формируется полностью детерминированная база. LLM получает только
-    # агрегированные индикаторы и не видит API-ключи, балансы или методы ордеров.
+    # Build a fully deterministic baseline first. The LLM receives only
+    # aggregated indicators and never sees API keys, balances or order methods.
     low, down, up = args.ladder_pct
     if args.ladder_pct_map and symbol in args.ladder_pct_map:
         low, down, up = args.ladder_pct_map[symbol]
@@ -1692,8 +1692,8 @@ def run_for_symbol(symbol: str, args: argparse.Namespace) -> None:
                             applied=policy.apply,
                         )
                     _AI_DECISION_IDS[symbol] = decision_id
-                    # Передаём точный ID дочернему executor, чтобы fills не
-                    # прикреплялись к последней рекомендации символа.
+                    # Pass the exact ID to the child executor so fills are not
+                    # attached to the symbol's last recommendation.
                     extra_env = {"BOT_AI_DECISION_ID": decision_id}
                 except sqlite3.Error as exc:
                     dbg(f"[AI-DECISION] record failed: {exc}")
@@ -1744,11 +1744,11 @@ def run_for_symbol(symbol: str, args: argparse.Namespace) -> None:
             f"discount={vwap_discount_final if vwap_discount_final is not None else '∅'} scale={vwap_scale_final if vwap_scale_final is not None else '∅'}"
         )
 
-    # 4) Фильтры биржи: берём один раз, используем для тик-округления и guard'а
+    # 4) Exchange filters: read once for tick normalization and guards
     filters = get_exchange_filters_cached(symbol)
     tick = filters["tickSize"]
 
-    # 5) Строим лестницу и делаем дедуп по тик-шагу и стороне
+    # 5) Build the ladder and deduplicate by tick step and side
     low *= ai_width_scale
     down *= ai_width_scale
     up *= ai_width_scale
@@ -1768,7 +1768,7 @@ def run_for_symbol(symbol: str, args: argparse.Namespace) -> None:
 
     log(f"[PLAN] {symbol} ladder -> " + ", ".join(f"{p:.2f}" for p in ladder_all))
 
-    # 6) Очистки: при старте и регулярная
+    # 6) Cleanup at startup and on the regular interval
     if not _STARTUP_CLEAN_DONE.get(symbol, False):
         startup_cleanup_orders(symbol, now_p, ladder_all, tick_size=tick, grace_sec=CLEANUP_WARMUP_SEC)
         _STARTUP_CLEAN_DONE[symbol] = True
@@ -1786,8 +1786,8 @@ def run_for_symbol(symbol: str, args: argparse.Namespace) -> None:
     sr = smart_rolling(symbol, now_p, ladder_all, args)
     log(f"[SR-SUM] {symbol} kept={sr['kept']} cancel(ttl)={sr['cancel'].get('ttl',0)} cancel(atr)={sr['cancel'].get('atr',0)}")
 
-    # 7) ATR-driven авто-адаптер (ENV override)
-    # extra_env может уже содержать точный BOT_AI_DECISION_ID.
+    # 7) ATR-driven automatic adapter (environment override)
+    # extra_env may already contain the exact BOT_AI_DECISION_ID.
     if os.environ.get('AUTO_ADAPT_ENABLE', '0') in ('1', 'true', 'True', 'YES', 'yes'):
         base_dev_buy = float(os.environ.get('DEV_BUY_PCT', '0.004') or 0.004)
         base_min_profit = float(os.environ.get('MIN_PROFIT_OVER_AVG', '0.002') or 0.002)
@@ -1803,19 +1803,19 @@ def run_for_symbol(symbol: str, args: argparse.Namespace) -> None:
             'MIN_PROFIT_OVER_AVG': f"{min_profit_eff:.6f}",
         })
         log(f"[ADAPT] {symbol} atr={atr_abs:.4f} atr/px={atr_pct*100:.3f}% -> DEV_BUY_PCT={dev_buy_eff:.4f} MIN_PROFIT_OVER_AVG={min_profit_eff:.4f}")
-    # AI может только уменьшить уже безопасный CAP. Даже если модель вернула
-    # коэффициент > 1, верхней границей остаётся расчёт Risk Manager.
+    # AI may only reduce an already safe CAP. Even if the model returns a
+    # coefficient above 1, the Risk Manager calculation remains the upper bound.
     risk_safe_cap = float(os.getenv("BOT_CAP_PER_ORDER", "0") or 0)
     if risk_safe_cap > 0:
-        # Явный per-symbol budget имеет приоритет над общим CAP и не даёт
-        # коррелированному активу занять весь оставшийся портфельный лимит.
+        # An explicit per-symbol budget takes priority over the global CAP and
+        # prevents a correlated asset from consuming the remaining portfolio limit.
         symbol_cap = float(os.getenv(f"RISK_SYMBOL_CAP_{symbol.upper()}", "0") or 0)
         if symbol_cap > 0:
             risk_safe_cap = min(risk_safe_cap, symbol_cap)
         advised_cap = limit_cap_by_recommendation(risk_safe_cap, ai_cap_scale)
         extra_env["BOT_CAP_PER_ORDER"] = f"{advised_cap:.8f}"
 
-    # 8) Мягкое применение режима к DEV_BUY_PCT и TP1
+    # 8) Soft application of the mode to DEV_BUY_PCT and TP1
     cur_dev = float(extra_env.get('DEV_BUY_PCT') or os.environ.get('DEV_BUY_PCT', '0.004') or 0.004)
     before_dev = cur_dev
     before_tp1 = tp1_use
@@ -1833,7 +1833,7 @@ def run_for_symbol(symbol: str, args: argparse.Namespace) -> None:
     extra_env['DEV_BUY_PCT'] = f"{cur_dev:.6f}"
     log(f"[DIR-APPLY] {symbol} mode={dir_mode} DEV_BUY_PCT {before_dev:.4f}→{cur_dev:.4f}, TP1 {before_tp1:.4f}→{tp1_use:.4f}, target_buys={args.target_buy_per_symbol}→{target_buys_use}")
 
-    # 9) Страж позиции / flatten — используем уже полученные filters (без повторных запросов)
+    # 9) Position guardian / flatten using the filters already fetched
     mode = position_guard_and_maybe_flatten(symbol, now_p, atr_abs, args, filters)
     log(f"[POS-MODE] {symbol} mode={mode}")
 
@@ -1845,7 +1845,7 @@ def run_for_symbol(symbol: str, args: argparse.Namespace) -> None:
     if ai_pause_buys:
         log(f"[AI-POLICY] {symbol} PAUSE_BUYS: child receives SELL levels only")
 
-    # 10) Запуск ребёнка с временной подменой target_buys
+    # 10) Start the child with a temporary target_buys override
     orig_tb = int(args.target_buy_per_symbol)
     orig_vwap_premium = getattr(args, "child_buy_vwap_premium", None)
     orig_vwap_discount = getattr(args, "child_buy_vwap_discount", None)
@@ -1960,7 +1960,7 @@ def refresh_vwap_runtime_maps(args: argparse.Namespace,
     return False
 
 # ===========================
-# Аргументы CLI
+# CLI arguments
 # ===========================
 
 def parse_ladder_pct_map(s: str) -> Dict[str, Tuple[float, float, float]]:
@@ -2020,12 +2020,11 @@ def _preflight_live(args: argparse.Namespace, symbols: List[str], limits: RiskLi
         "stats_db": stats_db or None,
     }
     log("[CONFIG] " + json.dumps(config, sort_keys=True))
-    # DRY тоже печатает итоговую конфигурацию, но не требует торговых ключей.
+    # DRY also prints the final configuration but does not require trading keys.
     if not args.live:
         return
-    # Непереводимая пыль допускается только поимённо и с отдельным ACK.
-    # Equity при этом занижается: неизвестный актив никогда не становится
-    # основанием для увеличения CAP.
+    # Unvalued dust is allowed only by explicit name and acknowledgement.
+    # Equity is conservative: an unknown asset can never increase CAP.
     unvalued_assets = _configured_unvalued_assets()
     if unvalued_assets:
         log(
@@ -2043,7 +2042,7 @@ def _preflight_live(args: argparse.Namespace, symbols: List[str], limits: RiskLi
 
     if not stats_db:
         raise RuntimeError("BOT_STATS_DB is required for fail-closed LIVE mode")
-    # LIVE cross-quote valuation обязана подтверждать глубину стакана.
+    # LIVE cross-quote valuation must verify order-book depth.
     os.environ["RISK_CONVERSION_DEPTH_REQUIRED"] = "1"
     from ladder_dragon.execution import tools_stats
     con = tools_stats.init_db(stats_db)
@@ -2052,8 +2051,8 @@ def _preflight_live(args: argparse.Namespace, symbols: List[str], limits: RiskLi
     finally:
         con.close()
 
-    # Проверяем не только offset часов, но и RTT: при медленной сети оценка
-    # серверного времени недостаточно надёжна для подписанных ордеров.
+    # Check both clock offset and RTT: on a slow network, server-time estimation
+    # is not reliable enough for signed orders.
     t0 = int(time.time() * 1000)
     server = _public_get("/api/v3/time")
     t1 = int(time.time() * 1000)
@@ -2169,8 +2168,8 @@ def _sync_recent_account_fills(symbols: List[str]) -> None:
         return TM._signed_get(path, params or {})
 
     def on_fill(fill: Dict[str, Any]) -> None:
-        # Ledger уже защищён уникальным trade_id; этот callback только
-        # синхронизирует age-aware FIFO-партии для time-stop/OCO.
+        # The ledger is protected by a unique trade_id; this callback only
+        # synchronizes age-aware FIFO lots for time-stop/OCO.
         try:
             if fill["side"] == "BUY":
                 add_lot(
@@ -2184,9 +2183,9 @@ def _sync_recent_account_fills(symbols: List[str]) -> None:
             else:
                 consume_fifo(con, fill["symbol"], Decimal(str(fill["qty"])))
         except (sqlite3.Error, ValueError, ArithmeticError) as exc:
-            # Исторически неполный FIFO не должен отменять уже записанный
-            # фактический trade; account/inventory reconciliation остаётся
-            # обязательным и блокирует BUY при реальном расхождении.
+            # An historically incomplete FIFO must not discard a recorded
+            # trade; account/inventory reconciliation remains mandatory and
+            # blocks BUY on a real mismatch.
             log(f"[LOTS] {fill['symbol']} fill sync warning: {exc}")
 
     try:
@@ -2218,8 +2217,8 @@ def _build_risk_snapshot(
     prices = {symbol: get_last_price(symbol) for symbol in symbols}
     orders = TM._signed_get("/api/v3/openOrders") or []
 
-    # Строгая сверка не позволяет строить risk snapshot на расходящихся данных
-    # Binance account и локального inventory ledger.
+    # Strict reconciliation prevents a risk snapshot from mixing divergent
+    # Binance account and local inventory-ledger data.
     if env_flag("RISK_RECONCILE_STRICT", True):
         tolerance = max(0.0, float(os.getenv("RISK_RECONCILE_TOLERANCE_PCT", "0.02") or 0.02))
         grace_sec = max(0.0, float(os.getenv("RISK_RECONCILE_GRACE_SEC", "5") or 5))
@@ -2265,13 +2264,13 @@ def _build_risk_snapshot(
             time.sleep(min(retry_sec, remaining))
             balances = get_balances_full()
         if waited:
-            # Пока ledger догонял account, воркер мог создать OCO. Перечитываем
-            # ордера, чтобы exposure и их количество относились к одному моменту.
+            # While the ledger catches up, a worker may create an OCO. Reload
+            # orders so exposure and order counts refer to one point in time.
             orders = TM._signed_get("/api/v3/openOrders") or []
 
-    # Оценка риска должна охватывать весь аккаунт, а не только символы,
-    # переданные стратегии. Иначе старые/ручные позиции в другом активе
-    # исчезают из equity, drawdown и portfolio CAP.
+    # Risk valuation must cover the whole account, not only strategy symbols.
+    # Otherwise old or manual positions in another asset disappear from equity,
+    # drawdown and portfolio CAP.
     stable_assets = {"USDT", "USDC", "FDUSD", "BUSD", "TUSD", "DAI"}
     unvalued_assets = _configured_unvalued_assets()
     asset_values: Dict[str, Decimal] = {}
@@ -2285,8 +2284,8 @@ def _build_risk_snapshot(
         if asset in stable_assets:
             value = qty
         else:
-            # Прямой USDT, затем распространённые cross-quote. Stablecoin
-            # конвертация учитывает настраиваемый haircut и комиссию выхода.
+            # Try direct USDT first, then common cross-quotes. Stablecoin
+            # conversion includes the configured haircut and exit fee.
             valuation_symbol = f"{asset}USDT"
             valuation_price = prices.get(valuation_symbol)
             if valuation_price is None:
@@ -2384,8 +2383,8 @@ def _build_risk_snapshot(
                          spread_widening=float(os.getenv("RISK_STRESS_SPREAD_PCT", "0.01")))
     var_value = covariance_var(exposure_by_symbol, histories if 'histories' in locals() else {},
                                confidence=float(os.getenv("RISK_VAR_CONFIDENCE", "0.99")))
-    # Gap-risk включает overnight jump, spread widening и latency execution.
-    # Gap-сценарий консервативно масштабируется на задержку исполнения.
+    # Gap risk includes an overnight jump, spread widening and execution latency.
+    # The gap scenario is conservatively scaled by execution delay.
     gap_shock = abs(float(os.getenv("RISK_GAP_SHOCK_PCT", "0.10")))
     latency_bars = max(1.0, float(os.getenv("RISK_LATENCY_BARS", "1")))
     gap_value = sum(marginal_risk_contribution(exposure_by_symbol,
@@ -2444,7 +2443,7 @@ def main():
         if initial_control is not None and not initial_control.get("enabled", False):
             effective_ai_mode = "DISABLED"
     except (OSError, TypeError, ValueError, json.JSONDecodeError):
-        # Повреждённый control-файл не может включить AI.
+        # A corrupted control file must not enable AI.
         effective_ai_mode = "DISABLED"
     _AI_POLICY = PolicyConfig(
         mode=effective_ai_mode,
@@ -2516,8 +2515,8 @@ def main():
         raise
     global LIVE_MODE
     LIVE_MODE = bool(args.live)
-    # В DRY circuit breaker не меняет постоянное состояние. LIVE использует
-    # fail-closed менеджер и не запускает воркеры без свежего risk snapshot.
+    # In DRY the circuit breaker does not change persistent state. LIVE uses a
+    # fail-closed manager and does not start workers without a fresh risk snapshot.
     risk_manager = RiskManager(limits) if args.live else None
 
     ai_label = (
@@ -2613,12 +2612,12 @@ def main():
                     state="RUNNING",
                     risk=heartbeat_risk,
                 )
-                # Не пишем на SD-карту в каждом торговом тике: 30 секунд
-                # достаточно для индикации живого процесса в дашборде.
+                # Do not write to the SD card on every trading tick; 30 seconds
+                # is sufficient to show a live process in the dashboard.
                 next_runtime_heartbeat = now_loop + 30.0
             if risk_manager is not None and now_loop >= next_risk_check:
-                # Проверка риска выполняется раньше планирования символов. При любом
-                # запрете останавливаем воркеры и отменяем только новые BUY.
+                # Run risk checks before symbol planning. On any block, stop
+                # workers and cancel only new BUY orders.
                 orders: List[Dict[str, Any]] = []
                 try:
                     snapshot, orders, prices = _build_risk_snapshot(symbols, limits)
@@ -2634,8 +2633,8 @@ def main():
                         risk_manager.start_cooldown("; ".join(shocks))
                     decision = risk_manager.evaluate(snapshot)
                     if not decision.buy_blocked:
-                        # CAP дополнительно сужается по минимальному оставшемуся
-                        # бюджету: portfolio, daily BUY, correlation и reserve.
+                        # Narrow CAP further by the smallest remaining budget:
+                        # portfolio, daily BUY, correlation and reserve.
                         remaining = min(
                             limits.portfolio_cap_usdt - snapshot.exposure_usdt,
                             limits.daily_buy_cap_usdt - snapshot.daily_buy_usdt,
@@ -2644,8 +2643,8 @@ def main():
                         )
                         slots = max(1, args.target_buy_per_symbol * len(symbols))
                         safe_cap = min(configured_order_cap, max(Decimal("0"), remaining) / slots)
-                        # Marginal-risk concentration: один актив не должен
-                        # получать весь оставшийся CAP при стрессовой нагрузке.
+                        # Marginal-risk concentration: one asset must not receive
+                        # all remaining CAP under stress.
                         if snapshot.exposure_usdt > 0 and snapshot.stress_loss_usdt > 0:
                             stress_ratio = min(Decimal("1"), snapshot.stress_loss_usdt / snapshot.exposure_usdt)
                             safe_cap *= max(Decimal("0"), Decimal("1") - stress_ratio)
@@ -2689,8 +2688,8 @@ def main():
                         }
                     )
                 except Exception as exc:
-                    # Недоступная telemetry не считается безопасным состоянием:
-                    # новые BUY блокируются, после серии ошибок включается cooldown.
+                    # Unavailable telemetry is not a safe state: new BUY orders
+                    # are blocked and a cooldown starts after repeated errors.
                     consecutive_api_failures += 1
                     threshold = max(1, int(os.getenv("RISK_API_FAILURE_THRESHOLD", "3")))
                     reason = f"risk telemetry unavailable ({consecutive_api_failures}/{threshold}): {exc}"
@@ -2716,8 +2715,8 @@ def main():
                 next_risk_check = now_loop + max(1, int(args.risk_check_sec))
 
             if risk_buy_blocked:
-                # Во время блока супервизор только переоценивает риск; торговые
-                # планы не строятся до явного безопасного решения.
+                # During a block the supervisor only reevaluates risk; trading
+                # plans are not built until an explicit safe decision exists.
                 time.sleep(min(2.0, max(0.5, float(args.risk_check_sec) / 2.0)))
                 continue
 

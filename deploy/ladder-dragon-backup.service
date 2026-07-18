@@ -1,5 +1,5 @@
 # Copyright (c) 2026 IURII Potekhin / Ladder Dragon. All rights reserved.
-# Назначение файла и опасные границы логики должны оставаться понятными при сопровождении.
+# Purpose: keep the file role and safety boundaries clear during maintenance.
 [Unit]
 Description=Ladder Dragon private configuration and SQLite backup
 
@@ -19,11 +19,11 @@ ProtectControlGroups=yes
 RestrictSUIDSGID=yes
 LockPersonality=yes
 RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
-# Динамические каталоги timestamp в backups и backups-public создаются во время
-# запуска. Внешний диск подключается отдельным точечным bind в drop-in;
-# общий /mnt здесь намеренно не пробрасывается, чтобы не скрывать вложенный mount.
-# SQLite WAL может создавать рядом с БД краткоживущие -wal/-shm-файлы во время
-# online backup. Разрешаем запись только в каталог БД; исходники и env остаются
-# защищены ProtectHome=read-only.
+# Timestamped directories under backups and backups-public are created at runtime.
+# The external disk is mounted through a dedicated bind in the drop-in; the whole
+# /mnt tree is intentionally not exposed here, so nested mounts remain visible.
+# SQLite WAL may create short-lived -wal/-shm files next to the database during
+# online backup. Allow writes only in the database directory; source and env files
+# remain protected by ProtectHome=read-only.
 ReadWritePaths=/var/lib/ladder-dragon /home/bot/apps/binance_bot/db
 UMask=0077

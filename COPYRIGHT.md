@@ -1,15 +1,22 @@
-# Copyright и сопровождение
+# Copyright and maintenance
 
 Copyright (c) 2026 IURII Potekhin / Ladder Dragon.
 
-Код распространяется по MIT License; дополнительные ограничения гарантий и
-финансовой ответственности описаны в `DISCLAIMER.md`.
+The code is distributed under the MIT License. Additional warranty and
+financial-liability limitations are described in `DISCLAIMER.md`.
 
-До отдельного решения о публичности репозитория секреты, реальные backup-файлы,
-production-конфигурация и приватные торговые параметры не должны попадать в Git
-или публичные релизы.
+No personal e-mail address is required in source headers. If a public contact
+address is desired, publish a dedicated project address in `README.md` or the
+repository metadata; never place a private address in every source file.
 
-Комментарии в production-коде пишутся на русском языке, если они объясняют
-финансовый риск, fail-closed поведение, безопасность, backup или порядок
-развёртывания. Изменения не должны раскрывать секреты и должны сопровождаться
-записью в `CHANGELOG.md`.
+Secrets, real backup files, production configuration, and private trading
+parameters must not enter Git or public releases unless they have been
+explicitly sanitized and approved for publication.
+
+Production inline comments and maintenance headers are written in English.
+Safety notes must remain clear about financial risk, fail-closed behavior,
+secrets, backups, and deployment boundaries. Existing user-facing Russian
+docstrings are documentation text, not runtime logic, and may be translated in
+a separate documentation pass. Every material change must update
+`CHANGELOG.md` with a dated semantic-version section; do not use an
+`Unreleased` section.

@@ -1,5 +1,5 @@
 # Copyright (c) 2026 IURII Potekhin / Ladder Dragon. All rights reserved.
-# Назначение файла и опасные границы логики должны оставаться понятными при сопровождении.
+# Purpose: keep the file role and safety boundaries clear during maintenance.
 """Чистые примитивы планирования BUY/SELL для символьного исполнителя.
 
 Модуль ничего не знает о Binance HTTP и не меняет баланс. Он только строит
@@ -96,7 +96,7 @@ def plan_buy_order(
     rounded_price = round_price(price)
     if rounded_price <= 0 or free_quote <= 0:
         return None
-    # Делим остаток на оставшиеся слоты, чтобы ранние уровни не съели всю кассу.
+    # Divide the remainder across remaining slots so early levels do not consume all cash.
     local_cap = min(
         cap_per_order,
         free_quote / max(1, remaining_slots),
@@ -181,8 +181,8 @@ def guarded_sell_levels(
         if target > now_price:
             guarded.append(target)
 
-    # Guard может столкнуть несколько уровней в один тик. Проталкиваем дубли
-    # на следующую свободную ступень, не создавая одинаковые SELL.
+    # A guard can collapse several levels onto one tick. Push duplicates to
+    # the next free step instead of creating identical SELL orders.
     result: list[float] = []
     seen: set[float] = set()
     for price in guarded:

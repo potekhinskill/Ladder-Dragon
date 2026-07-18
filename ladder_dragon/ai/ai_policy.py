@@ -1,5 +1,5 @@
 # Copyright (c) 2026 IURII Potekhin / Ladder Dragon. All rights reserved.
-# Назначение файла и опасные границы логики должны оставаться понятными при сопровождении.
+# Purpose: keep the file role and safety boundaries clear during maintenance.
 """Детерминированная политика применения AI-рекомендаций."""
 
 from __future__ import annotations
@@ -100,8 +100,8 @@ def apply_safety_policy(
     )
     if not data_ok:
         apply = False
-        # Не скрываем, какой именно источник сделал контекст непригодным.
-        # Это диагностические метки: они не ослабляют fail-closed правило.
+        # Do not hide which source made the context unusable. These are
+        # diagnostic markers and do not weaken the fail-closed rule.
         if not context.market_data_available:
             reasons.append("market_data_unavailable")
         if not context.orderbook_available:
@@ -121,7 +121,7 @@ def apply_safety_policy(
         apply = False
         reasons.append("disabled")
 
-    # При слабой статистике запрещаем любое увеличение агрессивности.
+    # Weak statistics forbid any increase in aggressiveness.
     if context.sell_count_30d < config.min_trade_sells:
         result = replace(
             result,
@@ -130,12 +130,12 @@ def apply_safety_policy(
         )
         reasons.append("insufficient_trade_history")
 
-    # Высокая волатильность никогда не должна сужать лестницу.
+    # High volatility must never narrow the ladder.
     if context.atr_pct >= config.high_volatility_pct:
         result = replace(result, ladder_width_scale=max(1.0, result.ladder_width_scale))
         reasons.append("high_volatility_no_narrowing")
 
-    # Серия убытков, высокий CAP или плохая позиция разрешают только снижение CAP.
+    # Losses, a high CAP or a bad position allow only a CAP reduction.
     if (
         context.consecutive_losses >= config.max_consecutive_losses
         or context.portfolio_cap_used_pct >= 0.80
@@ -144,7 +144,7 @@ def apply_safety_policy(
         result = replace(result, cap_scale=min(result.cap_scale, 0.50))
         reasons.append("risk_pressure_cap_reduced")
 
-    # Дорогой рынок или почти исчерпанный резерв — только пауза BUY.
+    # An expensive market or nearly exhausted reserve means BUY must pause.
     if (
         context.spread_bps >= config.max_spread_bps
         or context.free_reserve_ratio < 1.0
@@ -152,7 +152,7 @@ def apply_safety_policy(
         pause = True
         reasons.append("pause_buys_market_or_reserve")
 
-    # Если накоплена статистически значимая плохая точность, AI остаётся shadow.
+    # When statistically significant poor accuracy accumulates, AI remains in shadow.
     if (
         context.ai_samples_1h >= config.min_accuracy_samples
         and context.ai_accuracy_1h < config.min_ai_accuracy
@@ -160,9 +160,9 @@ def apply_safety_policy(
         apply = False
         reasons.append("ai_accuracy_below_threshold")
 
-    # Production APPLY разрешается только после закрытых реальных позиций:
-    # виртуальные свечные оценки не могут пройти этот gate. Интервал edge
-    # должен быть строго выше нуля, иначе преимущество перед baseline не доказано.
+    # Production APPLY is allowed only after real positions close:
+    # virtual candle estimates cannot pass this gate. The edge interval must
+    # be strictly above zero, otherwise an advantage over baseline is unproven.
     if config.mode == "APPLY":
         if context.ai_closed_samples < config.min_closed_decisions:
             apply = False

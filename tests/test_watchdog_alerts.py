@@ -1,4 +1,4 @@
-"""Регрессии формата и дедупликации Telegram-уведомлений watchdog."""
+"""Regression coverage for watchdog Telegram alert format and deduplication."""
 
 import json
 import os

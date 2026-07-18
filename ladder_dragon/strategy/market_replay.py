@@ -1,5 +1,5 @@
 # Copyright (c) 2026 IURII Potekhin / Ladder Dragon. All rights reserved.
-# Назначение файла и опасные границы логики должны оставаться понятными при сопровождении.
+# Purpose: keep the file role and safety boundaries clear during maintenance.
 """Минимальный event-driven replay для записанных стаканов и trade prints.
 
 Это отдельный слой над OHLC simulator: он не подменяет Binance, но позволяет
@@ -29,7 +29,7 @@ class MarketEvent:
     bids: tuple[BookLevel, ...] = ()
     asks: tuple[BookLevel, ...] = ()
     trades: tuple[tuple[Decimal, Decimal, str], ...] = ()
-    # Идентификаторы внешних заявок, снятых биржей/участником в этом тике.
+    # External order IDs canceled by the exchange or another participant in this tick.
     cancelled_order_ids: tuple[str, ...] = ()
     event_type: str = "depthUpdate"
     exchange_order_updates: tuple[dict, ...] = ()
@@ -48,7 +48,7 @@ class ReplayOrder:
     queue_ahead: Decimal = Decimal("0")
 
     def __post_init__(self) -> None:
-        # Все сравнения стороны ниже выполняются в верхнем регистре.
+        # All side comparisons below use uppercase values.
         self.side = self.side.upper()
         self.remaining = self.quantity
 
@@ -67,14 +67,14 @@ class OrderBookReplay:
         self._request_times: list[int] = []
 
     def submit(self, order: ReplayOrder, now_ms: int, *, queue_ahead: Decimal = Decimal("0")) -> None:
-        # Задержка имитирует время доставки заявки до биржи.
+        # Delay simulates order delivery time to the exchange.
         self._rate_gate(now_ms)
         order.created_ts = int(now_ms) + self.latency_ms
         order.queue_ahead = max(Decimal("0"), queue_ahead)
         self.orders.append(order)
 
     def cancel(self, order_id: str, now_ms: int) -> bool:
-        # Отмена также расходует API-бюджет и может быть отклонена rate limit.
+        # Cancellation also consumes API budget and may be rejected by a rate limit.
         self._rate_gate(now_ms)
         for order in self.orders:
             if order.order_id == order_id and not order.cancelled and order.remaining > 0:
@@ -84,7 +84,7 @@ class OrderBookReplay:
 
     def process(self, event: MarketEvent) -> list[tuple[str, Decimal, Decimal]]:
         fills: list[tuple[str, Decimal, Decimal]] = []
-        # Внешние отмены меняют очередь до matching текущего события.
+        # External cancellations change the queue before matching the current event.
         for order in self.orders:
             if order.order_id in event.cancelled_order_ids:
                 order.cancelled = True
@@ -94,7 +94,7 @@ class OrderBookReplay:
                     continue
                 if str(update.get("status", "")).upper() in {"CANCELED", "EXPIRED", "REJECTED"}:
                     order.cancelled = True
-        # Публичные сделки сначала съедают очередь перед нашей заявкой.
+        # Public trades consume queue ahead of our order first.
         for trade_price, trade_qty, aggressor in event.trades:
             for order in self.orders:
                 if order.cancelled or order.created_ts > event.ts_ms:
@@ -103,7 +103,7 @@ class OrderBookReplay:
                           (order.side == "SELL" and aggressor.upper() == "BUY" and trade_price >= order.price)
                 if crosses and order.queue_ahead > 0:
                     order.queue_ahead = max(Decimal("0"), order.queue_ahead - trade_qty)
-        # Затем заявки обслуживаются по цене и времени поступления.
+        # Orders are then served by price and arrival time.
         for order in sorted(self.orders, key=lambda item: (item.price, item.created_ts)):
             if order.cancelled or order.remaining <= 0 or order.created_ts > event.ts_ms or order.queue_ahead > 0:
                 continue

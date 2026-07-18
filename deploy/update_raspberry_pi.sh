@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Copyright (c) 2026 IURII Potekhin / Ladder Dragon. All rights reserved.
-# Назначение файла и опасные границы логики должны оставаться понятными при сопровождении.
+# Purpose: keep the file role and safety boundaries clear during maintenance.
 set -euo pipefail
 
 PROJECT_DIR="${PROJECT_DIR:-/home/bot/apps/binance_bot}"
@@ -39,7 +39,7 @@ remember_service_state() {
 }
 
 restore_autostart() {
-  # Оба компонента составляют один контур и должны переживать reboot.
+  # Both components form one control loop and must survive a reboot.
   systemctl enable mybot pi-healthd >/dev/null
 }
 
@@ -152,8 +152,8 @@ fi
 [[ -d "${PROJECT_DIR}" ]] || fail "project directory not found: ${PROJECT_DIR}"
 cd "${PROJECT_DIR}"
 
-# Обновление может заменить сам скрипт. Продолжаем из неизменяемой копии в /tmp,
-# чтобы bash не дочитал вторую половину уже из новой версии файла.
+# The update may replace this script. Continue from an immutable copy in /tmp,
+# so bash does not read the second half from a newly installed version.
 if [[ "${ACTION}" == "update" && "${BOT_UPDATE_RUNNER:-0}" != "1" ]]; then
   runner="$(mktemp /tmp/ladder-dragon-update.XXXXXX)"
   install -m 0700 "$0" "${runner}"
@@ -192,8 +192,8 @@ set -a
 set +a
 PROJECT_DIR="${PROJECT_DIR}" deploy/backup_raspberry_pi.sh
 
-# Сначала фиксируем состояние systemd. `systemctl stop` не отменяет enabled:
-# автозапуск сохранится, но на время обновления Restart=always не смешает версии.
+# First record the systemd state. `systemctl stop` does not remove enabled:
+# autostart remains configured, while Restart=always cannot mix versions during the update.
 remember_service_state
 [[ "${MYBOT_WAS_ENABLED}" == "1" ]] || fail "mybot autostart must be enabled before update"
 trap recover_after_failure ERR INT TERM

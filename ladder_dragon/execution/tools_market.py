@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 # Copyright (c) 2026 IURII Potekhin / Ladder Dragon. All rights reserved.
-# Назначение файла и опасные границы логики должны оставаться понятными при сопровождении.
+# Purpose: keep the file role and safety boundaries clear during maintenance.
 """
 tools_market.py — утилиты для Binance Spot API (исправленная версия, 2025-08-24)
 
@@ -32,21 +32,21 @@ from typing import Dict, Tuple, List, Optional, Any
 from ladder_dragon.execution.exchange_math import normalized_order_values, round_step
 from ladder_dragon.execution.telegram_alerts import notify_binance_auth_error
 
-# --- .env (опционально) ---
+# --- optional .env ---
 from pathlib import Path
 
 try:
     from dotenv import load_dotenv, find_dotenv
 except ModuleNotFoundError:
-    # python-dotenv не установлен — просто пропускаем
+    # python-dotenv is optional; skip loading when it is not installed.
     pass
 else:
-    # 1) сначала пробуем .env рядом с текущим файлом
+    # 1) First try .env next to this file.
     env_path = (Path(__file__).resolve().parents[2] / ".env")
     if env_path.exists():
         load_dotenv(dotenv_path=env_path, override=False)
     else:
-        # 2) иначе ищем вверх от текущей рабочей директории (на случай запуска вручную)
+        # 2) Otherwise search upward from the current working directory for manual runs.
         found = find_dotenv(usecwd=True)
         if found:
             load_dotenv(found, override=False)
@@ -63,7 +63,7 @@ SESSION.headers.update({"User-Agent": "tools_market/1.4"})
 class BinanceHttpError(RuntimeError):
     pass
 
-# ---- простые ретраи ----
+# ---- simple retries ----
 def _do_request(method: str, url: str, **kw) -> requests.Response:
     attempts = 3
     delay = 0.5
@@ -126,12 +126,12 @@ def _timestamp_ms() -> int:
             _time_offset_ts = time.time()
     return int(time.time() * 1000 + (_time_offset_ms or 0))
 
-# ---- подпись: гарантируем один и тот же порядок ----
+# ---- signing: keep a stable parameter order ----
 def _sign_tuples(params: List[Tuple[str, str]], secret: str) -> str:
     query = "&".join(f"{k}={v}" for k, v in params)
     return hmac.new(secret.encode("utf-8"), query.encode("utf-8"), hashlib.sha256).hexdigest()
 
-# ---- публичные/приватные запросы ----
+# ---- public/private requests ----
 def _public_get(path: str, params: Dict | List[Tuple[str, str]] | None = None) -> Any:
     url = f"{BASE_URL}{path}"
     r = _do_request("GET", url, params=params or {})
@@ -155,29 +155,29 @@ def _signed_get(path: str, params: Dict | None = None) -> Any:
     _raise_for_binance(r)
     return r.json()
 
-# ---- нормализация интервалов для klines ----
+# ---- kline interval normalization ----
 VALID_INTERVALS: set[str] = {
     "1m","3m","5m","15m","30m",
     "1h","2h","4h","6h","8h","12h",
     "1d","3d","1w","1M",
 }
 _INTERVAL_ALIASES: Dict[str, str] = {
-    # английские варианты
+    # English aliases.
     "1min": "1m", "3min": "3m", "5min": "5m", "15min": "15m", "30min": "30m",
     "1hour": "1h", "2hour": "2h", "4hour": "4h", "6hour": "6h", "12hour": "12h",
     "1day": "1d", "3day": "3d", "1week": "1w", "1month": "1M",
-    # русские (частые) варианты
+    # Common Russian aliases kept for backward compatibility.
     "1мин": "1m", "3мин": "3m", "5мин": "5m", "15мин": "15m", "30мин": "30m",
     "1час": "1h", "2час": "2h", "4час": "4h", "6час": "6h", "12час": "12h",
     "1д": "1d", "3д": "3d", "1н": "1w", "1мес": "1M",
 }
 
-# --- ДОБАВЬ в алиасы ---
+# --- additional aliases ---
 _INTERVAL_ALIASES.update({
     "8hour": "8h", "8hours": "8h", "8час": "8h", "8часов": "8h", "8ч": "8h",
     "2hours": "2h", "4hours": "4h", "6hours": "6h", "12hours": "12h",
     "2ч": "2h", "4ч": "4h", "6ч": "6h", "12ч": "12h",
-    # иногда пишут с суффиксом s / без пробелов уже учтено
+    # Some callers add an s suffix; whitespace is already handled.
 })
 
 def norm_interval(interval: str | None, default: str = "15m") -> str:
@@ -190,18 +190,18 @@ def norm_interval(interval: str | None, default: str = "15m") -> str:
     if not s:
         return default
 
-    # 1) Месяц: точный '1M' или словесные алиасы → '1M'
+    # 1) Month: exact '1M' or a word alias -> '1M'.
     s_low = s.lower()
     if s == "1M" or s_low in {"1month", "1mon", "1mo", "1мес", "1месяц"}:
         return "1M"
 
-    # 2) Остальные алиасы/варианты (минуты/часы/дни/недели)
+    # 2) Other aliases and minute/hour/day/week variants.
     s_norm = _INTERVAL_ALIASES.get(s_low, s_low)
 
-    # 3) Финальная проверка на допустимость
+    # 3) Final validity check.
     return s_norm if s_norm in VALID_INTERVALS else default
 
-# ---- kline API с фолбэком интервала ----
+# ---- kline API with interval fallback ----
 def get_klines(symbol: str,
                interval: str,
                *,
@@ -230,7 +230,7 @@ def get_klines(symbol: str,
 
     url = f"{BASE_URL}/api/v3/klines"
 
-    # первый запрос
+    # First request.
     r = _do_request("GET", url, params=params)
     if r.status_code == 200:
         try:
@@ -238,13 +238,13 @@ def get_klines(symbol: str,
         except Exception as e:
             raise BinanceHttpError(f"Failed to parse klines JSON: {e}")
 
-    # обработка ошибок
+    # Error handling.
     try:
         err = r.json()
     except Exception:
         err = {"msg": r.text}
 
-    # фолбэк при неверном интервале
+    # Fallback for an invalid interval.
     if r.status_code == 400 and isinstance(err, dict) and err.get("code") == -1120:
         fb = norm_interval(fallback_default, default="15m")
         if fb != interval:
@@ -257,11 +257,11 @@ def get_klines(symbol: str,
             except Exception as e:
                 raise BinanceHttpError(f"Failed to parse klines JSON after fallback: {e}")
 
-    # если сюда дошли — поднимаем исключение как есть
+    # If reached, re-raise the original exception.
     _raise_for_binance(r)  # поднимет BinanceHttpError
     return []  # недостижимо
 
-# ---- кэш exchangeInfo ----
+# ---- exchangeInfo cache ----
 _exchange_cache: Dict[str, Dict[str, float | int]] = {}
 _exchange_cache_ts: Dict[str, float] = {}  # TTL
 _CACHE_TTL = 300  # 5 мин
@@ -283,11 +283,11 @@ def get_symbol_filters(symbol: str) -> Dict[str, float | int]:
     min_qty   = 0.0
     min_notional = 5.0
 
-    # новые поля (полезны супервизору/валидаторам)
+    # Additional fields used by the supervisor and validators.
     price_precision = int(info.get("pricePrecision", 0))
     qty_precision   = int(info.get("quantityPrecision", 0))
 
-    # некоторые рынки используют MARKET_LOT_SIZE для маркет-ордеров
+    # Some markets use MARKET_LOT_SIZE for market orders.
     market_step_size = 0.0
     market_min_qty   = 0.0
 
@@ -335,7 +335,7 @@ def get_free_and_balance_usdt() -> Tuple[float, float]:
             break
     return free, free + locked
 
-# ---- округление qty/price под фильтры ----
+# ---- filter-aware qty/price normalization ----
 def _decimals_from_float_step(step: float) -> int:
     s = f"{step:.16f}".rstrip("0").rstrip(".")
     if "." in s:
