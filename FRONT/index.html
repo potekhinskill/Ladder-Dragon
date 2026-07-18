@@ -86,6 +86,11 @@
   .side-sell{color:var(--acc);font-weight:800}
   .nowrap{white-space:nowrap}
   .right{text-align:right}
+
+  /* Балансы: таблица не должна раздвигать карточку на узком экране. */
+  .balance-box{overflow:auto;background:#0f131b;border:1px solid var(--stroke);border-radius:var(--rad)}
+  .balance-table{min-width:620px}
+  .balance-unvalued{color:var(--warn)}
 </style>
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.3/dist/chart.umd.min.js"></script>
 </head>
@@ -214,6 +219,36 @@
         </div>
       </div>
       <div class="sub" id="t24-assets" style="margin-top:8px;color:#9aa6b2"></div>
+    </div>
+  </section>
+
+  <!-- Текущий аккаунт: read-only остатки Binance и оценка в USDT -->
+  <section class="mt">
+    <div class="card">
+      <div class="row" style="margin-bottom:6px">
+        <div class="label">Остатки аккаунта</div>
+        <span id="balance-pill" class="pill warn">загрузка…</span>
+      </div>
+      <div class="row" style="margin-bottom:8px">
+        <div class="value" id="balance-total">—</div>
+        <div class="sub" id="balance-updated">—</div>
+      </div>
+      <div class="balance-box">
+        <table class="tbl balance-table">
+          <thead>
+            <tr>
+              <th>Актив</th>
+              <th class="right">Свободно</th>
+              <th class="right">Заблокировано</th>
+              <th class="right">Всего</th>
+              <th class="right">Цена, USDT</th>
+              <th class="right">Стоимость, USDT</th>
+            </tr>
+          </thead>
+          <tbody id="balance-body"></tbody>
+        </table>
+      </div>
+      <div class="sub" id="balance-unvalued" style="margin-top:8px"></div>
     </div>
   </section>
 
@@ -447,6 +482,42 @@ function updateTrade24(sum){
   }
 }
 
+function fmtQty(x){
+  if(!Number.isFinite(Number(x))) return '—';
+  return Number(x).toLocaleString('ru-RU',{minimumFractionDigits:0,maximumFractionDigits:8});
+}
+
+function updateBalances(snapshot){
+  const pill = $('#balance-pill');
+  const body = $('#balance-body');
+  if(!snapshot || !snapshot.ok || !Array.isArray(snapshot.assets)){
+    setPill(pill,'warn'); pill.textContent='нет данных';
+    $('#balance-total').textContent='—';
+    $('#balance-updated').textContent='—';
+    body.innerHTML = '<tr><td class="muted" colspan="6">Баланс недоступен</td></tr>';
+    $('#balance-unvalued').textContent='';
+    return;
+  }
+  setPill(pill,'ok'); pill.textContent='актуально';
+  $('#balance-total').textContent = fmtUSDT(snapshot.total_value_usdt);
+  $('#balance-updated').textContent = `обновлено ${snapshot.updated_at || '—'}`;
+  body.innerHTML = snapshot.assets.length ? snapshot.assets.map(row=>{
+    const unvalued = row.valuation_status !== 'priced';
+    return `<tr>
+      <td class="mono">${row.asset}</td>
+      <td class="right mono">${fmtQty(row.free)}</td>
+      <td class="right mono">${fmtQty(row.locked)}</td>
+      <td class="right mono">${fmtQty(row.total)}</td>
+      <td class="right mono ${unvalued?'balance-unvalued':''}">${unvalued?'не оценено':fmtUSDT(row.price_usdt)}</td>
+      <td class="right mono ${unvalued?'balance-unvalued':''}">${unvalued?'—':fmtUSDT(row.value_usdt)}</td>
+    </tr>`;
+  }).join('') : '<tr><td class="muted" colspan="6">Положительных остатков нет</td></tr>';
+  const unvalued = Array.isArray(snapshot.unvalued_assets) ? snapshot.unvalued_assets : [];
+  $('#balance-unvalued').textContent = unvalued.length
+    ? `Без USDT-оценки: ${unvalued.join(', ')}`
+    : '';
+}
+
 function updateCharts(hist){
   ensureCharts();
   charts.t.data.labels = hist.labels; charts.t.data.datasets[0].data = hist.temp_c; charts.t.update();
@@ -541,16 +612,18 @@ function updateFilled24h(resp){
 
 async function refresh(){
   try{
-    const [h, hist, sum, ai, aiControl] = await Promise.all([
+    const [h, hist, sum, ai, aiControl, balances] = await Promise.all([
       getJSON('/api/health'),
       getJSON('/api/history?hours=24&points=288'),
       getTradeSummary24h(),
       getJSON('/api/ai/status?limit=100'),
-      getJSON('/api/ai/control')
+      getJSON('/api/ai/control'),
+      getJSON('/api/account/balances')
     ]);
     updateKpis(h);
     updateCharts(hist);
     updateTrade24(sum);
+    updateBalances(balances);
     $('#ai-state').textContent = ai.state || '—';
     $('#ai-mode').textContent = ai.mode || '—';
     const runtime = ai.runtime || {};

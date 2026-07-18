@@ -40,6 +40,9 @@ DASHBOARD_PROXY_AUTH_SECRET = os.getenv("DASHBOARD_PROXY_AUTH_SECRET", "")
 DASHBOARD_RATE_LIMIT_PER_MIN = max(1, int(os.getenv("DASHBOARD_RATE_LIMIT_PER_MIN", "120")))
 _RATE_BUCKETS: Dict[str, deque] = defaultdict(deque)
 _RATE_LOCK = threading.Lock()
+_BALANCE_CACHE: Dict[str, object] = {"ts": 0.0, "payload": None}
+_BALANCE_CACHE_TTL_SEC = max(5.0, float(os.getenv("DASHBOARD_BALANCE_CACHE_SEC", "10")))
+_BALANCE_CACHE_LOCK = threading.Lock()
 AI_DECISIONS_DB = os.getenv("AI_DECISIONS_DB", ".runtime/ai_decisions.sqlite3")
 AI_USAGE_LOG = os.getenv("AI_USAGE_LOG", ".runtime/ai_usage.ndjson")
 AI_MODE = os.getenv("AI_MODE", "SHADOW").upper()
@@ -345,6 +348,69 @@ def account_balances_now() -> Dict[str, float]:
         if qty > 0:
             out[b["asset"].upper()] = qty
     return out
+
+
+def account_balances_snapshot() -> Dict:
+    """Снимок free/locked балансов и их USDT-оценки для read-only dashboard."""
+    now = time.monotonic()
+    with _BALANCE_CACHE_LOCK:
+        cached = _BALANCE_CACHE.get("payload")
+        if cached is not None and now - float(_BALANCE_CACHE.get("ts", 0.0)) < _BALANCE_CACHE_TTL_SEC:
+            return cached  # type: ignore[return-value]
+
+    if not ensure_api_creds():
+        raise RuntimeError("No API creds")
+
+    raw = _signed("GET", "/api/v3/account")
+    try:
+        ticker_rows = _pub_get("/api/v3/ticker/price")
+        ticker_map = {
+            str(row.get("symbol", "")).upper(): float(row.get("price", 0.0))
+            for row in (ticker_rows if isinstance(ticker_rows, list) else [])
+            if isinstance(row, dict) and row.get("symbol")
+        }
+    except (TypeError, ValueError, requests.RequestException):
+        ticker_map = {}
+
+    assets = []
+    total_value = 0.0
+    unvalued = []
+    for balance in raw.get("balances", []):
+        asset = str(balance.get("asset", "")).upper()
+        free = float(balance.get("free", 0.0) or 0.0)
+        locked = float(balance.get("locked", 0.0) or 0.0)
+        total = free + locked
+        if not asset or total <= 0:
+            continue
+        price = 1.0 if asset == "USDT" else ticker_map.get(asset + "USDT")
+        value = total * price if price is not None and price > 0 else None
+        if value is None:
+            unvalued.append(asset)
+        else:
+            total_value += value
+        assets.append({
+            "asset": asset,
+            "free": round(free, 8),
+            "locked": round(locked, 8),
+            "total": round(total, 8),
+            "price_usdt": round(price, 8) if price is not None and price > 0 else None,
+            "value_usdt": round(value, 2) if value is not None else None,
+            "valuation_status": "priced" if value is not None else "unvalued",
+        })
+
+    assets.sort(key=lambda row: (row["asset"] != "USDT", -(row["value_usdt"] or 0.0), row["asset"]))
+    payload = {
+        "ok": True,
+        "updated_at": now_str(),
+        "venue": BINANCE_BASE,
+        "assets": assets,
+        "total_value_usdt": round(total_value, 2),
+        "unvalued_assets": sorted(unvalued),
+    }
+    with _BALANCE_CACHE_LOCK:
+        _BALANCE_CACHE["ts"] = now
+        _BALANCE_CACHE["payload"] = payload
+    return payload
 
 def base_asset_of(symbol: str) -> str:
     s = symbol.upper()
@@ -725,6 +791,18 @@ def health():
         "uptime_sec": int(time.time() - psutil.boot_time()),
         "network_ok": network_ok()
     })
+
+
+@app.get("/api/account/balances")
+def account_balances():
+    """Показать только балансы; торговые методы dashboard намеренно запрещены."""
+    try:
+        return JSONResponse(account_balances_snapshot())
+    except Exception as exc:
+        return JSONResponse(
+            {"ok": False, "error": f"account balance snapshot failed: {exc}"},
+            status_code=503,
+        )
 
 @app.get("/api/history")
 def history(hours: int = 24, points: int = 288):
