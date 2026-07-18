@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-# Copyright (c) 2026 IURII Potekhin / Ladder Dragon. All rights reserved.
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2026 IURII Potekhin
 # Purpose: implement the tools market component of the execution layer.
 """
 tools_market.py — утилиты для Binance Spot API (исправленная версия, 2025-08-24)

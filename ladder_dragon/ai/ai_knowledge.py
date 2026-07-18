@@ -1,4 +1,5 @@
-# Copyright (c) 2026 IURII Potekhin / Ladder Dragon. All rights reserved.
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2026 IURII Potekhin
 # Purpose: implement the ai knowledge component of the ai layer.
 """Локальная RAG-база проверенных AI-решений.
 

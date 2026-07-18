@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-# Copyright (c) 2026 IURII Potekhin / Ladder Dragon. All rights reserved.
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2026 IURII Potekhin
 # Purpose: update VWAP environment values.
 """Комбинированный генератор VWAP окружения."""
 from __future__ import annotations

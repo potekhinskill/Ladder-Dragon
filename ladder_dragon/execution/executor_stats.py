@@ -1,4 +1,5 @@
-# Copyright (c) 2026 IURII Potekhin / Ladder Dragon. All rights reserved.
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2026 IURII Potekhin
 # Purpose: implement the executor stats component of the execution layer.
 """Импорт сделок и точная оценка комиссий для исполнителя."""
 

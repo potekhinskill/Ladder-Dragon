@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# Copyright (c) 2026 IURII Potekhin / Ladder Dragon. All rights reserved.
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2026 IURII Potekhin
 # Purpose: update an existing Raspberry Pi deployment.
 set -euo pipefail
 
@@ -292,6 +293,7 @@ printf 'proxy_set_header X-Dashboard-Proxy-Secret "%s";\n' \
   >/etc/nginx/snippets/ladder_dragon_proxy_secret.conf
   install -m 0644 FRONT/index.html FRONT/help.html FRONT/locales.js docs/assets/ladder-dragon-logo.svg CHANGELOG.md "${WEB_ROOT}/"
 install -m 0644 FRONT/vendor/chart.umd.min.js "${WEB_ROOT}/vendor/"
+install -m 0644 FRONT/vendor/chart.js.LICENSE.txt "${WEB_ROOT}/vendor/"
 rm -f "${WEB_ROOT}/readme.html"
 [[ -f /etc/nginx/.htpasswd-ladder-dragon ]] \
   || fail "nginx dashboard auth is missing; run installer migrate"

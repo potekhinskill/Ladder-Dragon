@@ -1,4 +1,6 @@
 # Third-party notices
+The complete Chart.js MIT text is kept in `FRONT/vendor/chart.js.LICENSE.txt` and deployed beside the vendored script.
+
 
 The MIT license in `LICENSE` applies to Ladder Dragon source code only. Runtime
 dependencies and bundled assets keep their own licenses. Versions are pinned in

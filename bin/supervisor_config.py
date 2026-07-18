@@ -1,4 +1,5 @@
-# Copyright (c) 2026 IURII Potekhin / Ladder Dragon. All rights reserved.
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2026 IURII Potekhin
 # Purpose: build supervisor command-line configuration.
 """CLI construction and strict validation for the trading supervisor."""
 

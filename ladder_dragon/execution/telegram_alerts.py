@@ -1,4 +1,5 @@
-# Copyright (c) 2026 IURII Potekhin / Ladder Dragon. All rights reserved.
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2026 IURII Potekhin
 # Purpose: implement the telegram alerts component of the execution layer.
 """Безопасная доставка аварийных уведомлений в Telegram.
 

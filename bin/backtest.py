@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
-# Copyright (c) 2026 IURII Potekhin / Ladder Dragon. All rights reserved.
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2026 IURII Potekhin
 # Purpose: run historical strategy simulations.
 """CSV backtest with fees, slippage, latency and buy-and-hold comparison."""
 

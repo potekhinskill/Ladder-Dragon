@@ -1,10 +1,11 @@
-# Copyright (c) 2026 IURII Potekhin / Ladder Dragon. All rights reserved.
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2026 IURII Potekhin
 # Purpose: define the product identity and semantic version.
 """Canonical product identity and semantic version."""
 
 PRODUCT_NAME = "Ladder Dragon"
 PRODUCT_SLUG = "LadderDragon"
-__version__ = "2.10.57"
+__version__ = "2.10.58"
 
 
 def product_label(component: str | None = None) -> str:

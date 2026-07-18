@@ -1,4 +1,5 @@
-# Copyright (c) 2026 IURII Potekhin / Ladder Dragon. All rights reserved.
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2026 IURII Potekhin
 # Purpose: implement the market replay component of the strategy layer.
 """Минимальный event-driven replay для записанных стаканов и trade prints.
 

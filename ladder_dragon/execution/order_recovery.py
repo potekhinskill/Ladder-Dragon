@@ -1,4 +1,5 @@
-# Copyright (c) 2026 IURII Potekhin / Ladder Dragon. All rights reserved.
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2026 IURII Potekhin
 # Purpose: implement the order recovery component of the execution layer.
 """Постоянный журнал намерений и безопасная сверка ордеров после рестарта."""
 

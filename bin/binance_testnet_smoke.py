@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
-# Copyright (c) 2026 IURII Potekhin / Ladder Dragon. All rights reserved.
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2026 IURII Potekhin
 # Purpose: run authenticated Binance Spot Testnet checks.
 """Fail-closed Binance Spot Testnet smoke checks.
 

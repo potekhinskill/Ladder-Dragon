@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# Copyright (c) 2026 IURII Potekhin / Ladder Dragon. All rights reserved.
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2026 IURII Potekhin
 # Purpose: start the managed bot supervisor.
 set -euo pipefail
 

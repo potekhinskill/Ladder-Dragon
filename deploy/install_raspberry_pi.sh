@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# Copyright (c) 2026 IURII Potekhin / Ladder Dragon. All rights reserved.
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2026 IURII Potekhin
 # Purpose: install or migrate a Raspberry Pi deployment.
 set -euo pipefail
 
@@ -492,6 +493,7 @@ printf 'proxy_set_header X-Dashboard-Proxy-Secret "%s";\n' \
   install -m 0644 "${PROJECT_DIR}/FRONT/index.html" "${PROJECT_DIR}/FRONT/help.html" "${PROJECT_DIR}/FRONT/locales.js" "${PROJECT_DIR}/docs/assets/ladder-dragon-logo.svg" \
   "${PROJECT_DIR}/CHANGELOG.md" /var/www/bot/
 install -m 0644 "${PROJECT_DIR}/FRONT/vendor/chart.umd.min.js" /var/www/bot/vendor/
+install -m 0644 "${PROJECT_DIR}/FRONT/vendor/chart.js.LICENSE.txt" /var/www/bot/vendor/
 rm -f /var/www/bot/readme.html
 
 if [[ -d /var/www/bot/backups ]]; then

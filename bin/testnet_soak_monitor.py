@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
-# Copyright (c) 2026 IURII Potekhin / Ladder Dragon. All rights reserved.
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2026 IURII Potekhin
 # Purpose: monitor a long-running Spot Testnet session.
 """Read-only Binance Spot Testnet safety monitor for long soak runs."""
 

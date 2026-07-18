@@ -1,4 +1,5 @@
-# Copyright (c) 2026 IURII Potekhin / Ladder Dragon. All rights reserved.
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2026 IURII Potekhin
 # Purpose: implement the inventory lots component of the execution layer.
 """FIFO-партии с возрастом для live-сверки и backtest."""
 from __future__ import annotations

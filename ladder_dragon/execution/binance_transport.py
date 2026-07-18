@@ -1,4 +1,5 @@
-# Copyright (c) 2026 IURII Potekhin / Ladder Dragon. All rights reserved.
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2026 IURII Potekhin
 # Purpose: implement the binance transport component of the execution layer.
 """HTTP-транспорт Binance по принципу fail-closed для торговых компонентов.
 

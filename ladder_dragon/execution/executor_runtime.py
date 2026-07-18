@@ -1,4 +1,5 @@
-# Copyright (c) 2026 IURII Potekhin / Ladder Dragon. All rights reserved.
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2026 IURII Potekhin
 # Purpose: implement the executor runtime component of the execution layer.
 """Планировщик жизненного цикла долгоживущего символьного исполнителя."""
 

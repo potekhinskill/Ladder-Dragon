@@ -3,6 +3,17 @@
 All notable changes are documented here. Releases use Semantic Versioning; every
 section is dated and there is intentionally no `Unreleased` section.
 
+## [2.10.58] — 2026-07-19
+
+### Security
+- Removed `key_start_bot.txt` and `docs/legacy-systemd-notes.txt` from every Git revision before publication.
+- Added SPDX MIT headers to source and dashboard assets while retaining the project copyright notice.
+- Added the complete Chart.js Contributors MIT license and deploy it with the vendored dashboard asset.
+
+### Verified
+- Secret scan over the rewritten history and tracked files — no high-confidence secrets found.
+- `PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=. .venv/bin/python -m pytest -q` — all tests pass.
+
 ## [2.10.57] — 2026-07-19
 
 ### Fixed

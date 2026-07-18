@@ -1,4 +1,5 @@
-/* Copyright (c) 2026 IURII Potekhin / Ladder Dragon. All rights reserved. */
+/* SPDX-License-Identifier: MIT */
+/* Copyright (c) 2026 IURII Potekhin */
 /* Purpose: hold the static translations used by the read-only dashboard. */
 (function () {
   const en = {
