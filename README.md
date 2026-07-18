@@ -11,7 +11,7 @@ Binance Spot. It builds BUY/SELL grids, uses ATR/EMA/VWAP/ADX regimes, manages
 OCO protection, and records trading statistics in SQLite. Production secrets,
 real backups, and private parameters are never committed.
 
-Current product version: **2.10.51**. The single version source is
+Current product version: **2.10.54**. The single version source is
 `product_version.py`; releases follow [Semantic Versioning](https://semver.org/).
 Project contact: [LinkedIn](https://www.linkedin.com/in/ypotekhin/).
 
@@ -19,6 +19,10 @@ Project contact: [LinkedIn](https://www.linkedin.com/in/ypotekhin/).
 > This software can submit real exchange orders. It is not investment advice.
 > DRY is the default and Mainnet LIVE requires a separate Testnet run, limit
 > review, protection verification, and explicit confirmation.
+
+> Ladder Dragon is an independent open-source project. It is not affiliated with,
+> endorsed by, sponsored by, or officially associated with Binance. Binance and
+> related marks belong to their respective owners.
 
 ## Features
 
@@ -213,6 +217,10 @@ the services, and waits for a fresh heartbeat.
 - [Raspberry Pi runbook](docs/RASPBERRY_PI_INSTALL.md)
 - [Dashboard help](FRONT/help.html)
 - [Changelog](CHANGELOG.md)
+- [Security policy](SECURITY.md)
+- [Contributing](CONTRIBUTING.md)
+- [Trademark policy](TRADEMARKS.md)
+- [Third-party notices](THIRD_PARTY_NOTICES.md)
 - [MIT License](LICENSE)
 - [Disclaimer](DISCLAIMER.md)
 

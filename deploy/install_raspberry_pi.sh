@@ -483,7 +483,7 @@ chmod 0755 "${PROJECT_DIR}/deploy/"*.sh
 
 install -d -o "${BOT_USER}" -g "${BOT_USER}" -m 0700 \
   "${PROJECT_DIR}/db" "${PROJECT_DIR}/logs" "${PROJECT_DIR}/FastAPI/pi-dashboard/data"
-install -d -m 0755 /var/www/bot /etc/nginx/certs /etc/nginx/snippets
+install -d -m 0755 /var/www/bot /var/www/bot/vendor /etc/nginx/certs /etc/nginx/snippets
 install -o root -g www-data -m 0640 /dev/null \
   /etc/nginx/snippets/ladder_dragon_proxy_secret.conf
 printf 'proxy_set_header X-Dashboard-Proxy-Secret "%s";\n' \
@@ -491,6 +491,7 @@ printf 'proxy_set_header X-Dashboard-Proxy-Secret "%s";\n' \
   >/etc/nginx/snippets/ladder_dragon_proxy_secret.conf
   install -m 0644 "${PROJECT_DIR}/FRONT/index.html" "${PROJECT_DIR}/FRONT/help.html" "${PROJECT_DIR}/FRONT/locales.js" "${PROJECT_DIR}/docs/assets/ladder-dragon-logo.svg" \
   "${PROJECT_DIR}/CHANGELOG.md" /var/www/bot/
+install -m 0644 "${PROJECT_DIR}/FRONT/vendor/chart.umd.min.js" /var/www/bot/vendor/
 rm -f /var/www/bot/readme.html
 
 if [[ -d /var/www/bot/backups ]]; then

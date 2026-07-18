@@ -3,10 +3,36 @@
 All notable changes are documented here. Releases use Semantic Versioning; every
 section is dated and there is intentionally no `Unreleased` section.
 
+## [2.10.54] — 2026-07-19
+
+### Changed
+- Added explicit independent-project and Binance trademark language.
+- Added `SECURITY.md`, `CONTRIBUTING.md`, `TRADEMARKS.md`, and
+  `THIRD_PARTY_NOTICES.md` for public maintenance and license clarity.
+- Vendored Chart.js and removed the Google Fonts/CDN dashboard requests; the
+  Raspberry installer and updater now deploy the local chart asset.
+- Added weekly Dependabot checks for Python dependencies and GitHub Actions.
+
+### Verified
+- `PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=. .venv/bin/python -m pytest -q` — all tests pass.
+- `python3 deploy/scan_tracked_secrets.py` — no tracked high-confidence secrets.
+- `git diff --check` passes.
+
+## [2.10.53] — 2026-07-19
+
+### Changed
+- Removed the remaining internal dashboard style wording from source comments;
+  switch behavior and visual styling are unchanged.
+
+### Verified
+- `PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=. .venv/bin/python -m pytest -q` — all tests pass.
+- `python3 deploy/scan_tracked_secrets.py` — no tracked high-confidence secrets.
+- `git diff --check` passes.
+
 ## [2.10.52] — 2026-07-19
 
 ### Changed
-- Replaced the public email contact in README and copyright documentation with
+- Replaced the public contact details in README and copyright documentation with
   the project owner's LinkedIn profile to reduce unsolicited email exposure.
 
 ### Verified
