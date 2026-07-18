@@ -1,5 +1,17 @@
 # Changelog — Ladder Dragon
 
+## [2.10.35] — 2026-07-18
+
+### Исправлено
+- Dashboard launcher после переноса CLI в `bin/` вычисляет корень проекта
+  относительно собственного файла и импортирует приложение по абсолютному пути.
+  Это устраняет crash-loop `pi-healthd` с ошибкой `Could not import module "app"`.
+
+### Проверено
+- `.venv/bin/python3 -m pytest -q`.
+- `PYTHONPYCACHEPREFIX=/tmp/ladder-dragon-pycache python3 -m compileall -q .`.
+- `git diff --check`.
+
 Формат версий: [Semantic Versioning](https://semver.org/).
 
 ## [2.10.34] — 2026-07-18
