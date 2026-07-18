@@ -2,6 +2,15 @@
 
 Формат версий: [Semantic Versioning](https://semver.org/).
 
+## [2.10.23] — 2026-07-18
+
+### Проверено
+- Добавлены backend-регрессии балансового API: free/locked, USDT-оценка,
+  непереводимая пыль, короткий кэш, ошибки Binance и запрет POST-методов.
+- `PYTHONPATH=. pytest -q`.
+- `python3 -m compileall -q .`.
+- `git diff --check`.
+
 ## [2.10.22] — 2026-07-18
 
 ### Добавлено

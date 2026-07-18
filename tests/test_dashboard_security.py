@@ -4,6 +4,7 @@ from pathlib import Path
 import sqlite3
 from datetime import datetime, timedelta, timezone
 
+import pytest
 from fastapi.testclient import TestClient
 from ai_runtime_status import write_runtime_status
 
@@ -69,8 +70,57 @@ def test_account_balances_exposes_read_only_assets_without_secrets(monkeypatch):
     payload = response.json()
     assert abs(payload["total_value_usdt"] - (331.09 + round(3.76 * 75.0, 2))) < 1e-9
     assert payload["assets"][0]["asset"] == "USDT"
+    sol = next(row for row in payload["assets"] if row["asset"] == "SOL")
+    assert sol["free"] == 3.75
+    assert sol["locked"] == 0.01
+    assert sol["valuation_status"] == "priced"
     assert "MONKY" in payload["unvalued_assets"]
     assert "read-only-secret" not in response.text
+
+
+def test_account_balances_uses_short_cache_and_never_posts(monkeypatch):
+    monkeypatch.setenv("DASHBOARD_BINANCE_API_KEY", "read-only-key")
+    monkeypatch.setenv("DASHBOARD_BINANCE_API_SECRET", "read-only-secret")
+    module = load_dashboard(monkeypatch)
+    readonly_signed = module._signed
+    calls = {"signed": 0, "public": 0}
+
+    def signed(method, path, params=None):
+        calls["signed"] += 1
+        assert method == "GET"
+        return {"balances": [{"asset": "USDT", "free": "10", "locked": "2"}]}
+
+    def public(path, params=None):
+        calls["public"] += 1
+        return []
+
+    monkeypatch.setattr(module, "_signed", signed)
+    monkeypatch.setattr(module, "_pub_get", public)
+
+    first = module.account_balances_snapshot()
+    second = module.account_balances_snapshot()
+
+    assert first == second
+    assert calls == {"signed": 1, "public": 1}
+    with pytest.raises(RuntimeError, match="read-only"):
+        readonly_signed("POST", "/api/v3/order", {})
+
+
+def test_account_balances_returns_service_unavailable_on_binance_error(monkeypatch):
+    monkeypatch.setenv("DASHBOARD_BINANCE_API_KEY", "read-only-key")
+    monkeypatch.setenv("DASHBOARD_BINANCE_API_SECRET", "read-only-secret")
+    module = load_dashboard(monkeypatch)
+    monkeypatch.setattr(module, "_signed", lambda *args, **kwargs: (_ for _ in ()).throw(RuntimeError("Binance unavailable")))
+
+    with TestClient(module.app) as client:
+        response = client.get(
+            "/api/account/balances",
+            headers={"Authorization": "Bearer test-secret-token"},
+        )
+
+    assert response.status_code == 503
+    assert response.json()["ok"] is False
+    assert "Binance unavailable" in response.json()["error"]
 
 
 def test_ai_control_button_changes_only_advisory_mode(tmp_path, monkeypatch):
