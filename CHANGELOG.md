@@ -3,6 +3,18 @@
 All notable changes are documented here. Releases use Semantic Versioning; every
 section is dated and there is intentionally no `Unreleased` section.
 
+## [2.10.57] — 2026-07-19
+
+### Fixed
+- Restored the executor MARKET-order path used by gap flattening, panic
+  exits, and time-stops. The path now uses the shared idempotent order journal,
+  reconciles uncertain acknowledgements, and fails closed when flattening is
+  not confirmed.
+
+### Verified
+- `PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=. .venv/bin/python -m pytest -q` — all tests pass.
+- `git diff --check` passes.
+
 ## [2.10.56] — 2026-07-19
 
 ### Added

@@ -34,6 +34,14 @@ def configure_worker(worker, tmp_path, monkeypatch):
     return worker._ORDER_JOURNAL
 
 
+
+def test_protection_dependencies_expose_market_flatten_after_restart(tmp_path, monkeypatch):
+    worker = load_worker()
+    configure_worker(worker, tmp_path, monkeypatch)
+    dependencies = worker._protection_dependencies()
+    assert callable(dependencies.place_market_order)
+
+
 def test_uncertain_limit_post_is_reconciled_and_not_duplicated(tmp_path, monkeypatch):
     worker = load_worker()
     journal = configure_worker(worker, tmp_path, monkeypatch)

@@ -252,6 +252,150 @@ def place_limit_order(
         raise
 
 
+
+def place_market_order(
+    symbol: str,
+    side: str,
+    quantity: float,
+    *,
+    dependencies: OrderDependencies,
+    ref_price: float | None = None,
+    filters: Dict[str, Any] | None = None,
+    parent_client_order_id: Optional[str] = None,
+) -> Dict[str, Any] | None:
+    """Place an idempotent MARKET order for emergency or time-stop flattening.
+
+    ``filters`` is accepted for compatibility with callers that already have a
+    snapshot; the dependency callbacks remain authoritative and refresh filters
+    before a live mutation. A SELL is never rounded up to satisfy minNotional:
+    flattening must not oversell the account.
+    """
+    del filters
+    side = side.upper()
+    if side not in {"BUY", "SELL"}:
+        raise ValueError(f"unsupported market side: {side}")
+    if not dependencies.live():
+        dependencies.logger(
+            f"[DRY] skip MARKET {symbol} {side} {quantity:.8f}"
+        )
+        return None
+
+    dependencies.pull_filters(symbol)
+    rounded_quantity = dependencies.round_qty(symbol, quantity)
+    if rounded_quantity <= 0 or rounded_quantity < dependencies.min_qty(symbol, 0):
+        dependencies.logger(
+            f"[SKIP] MARKET {symbol} {side}: quantity below exchange minimum"
+        )
+        return None
+    if ref_price is not None and (
+        rounded_quantity * ref_price < dependencies.min_notional(symbol, ref_price)
+    ):
+        dependencies.logger(
+            f"[SKIP] MARKET {symbol} {side}: quantity below minNotional"
+        )
+        return None
+
+    quantity_text = dependencies.format_qty(symbol, rounded_quantity)
+    purpose = "market"
+    journal = dependencies.journal()
+    active = (
+        journal.find_active(
+            symbol=symbol,
+            side=side,
+            purpose=purpose,
+            quantity=quantity_text,
+            price="MARKET",
+        )
+        if journal is not None
+        else None
+    )
+    if active is not None:
+        existing = dependencies.get_order_by_client_id(symbol, active.client_order_id)
+        if existing is not None:
+            if journal is not None:
+                journal.record_exchange_order(active.client_order_id, existing)
+            return existing
+
+    generated_id = client_order_id(
+        symbol, side, purpose, "MARKET", quantity_text, bucket_seconds=30
+    )
+    if journal is not None and journal.get(generated_id) is not None:
+        generated_id = client_order_id(
+            symbol,
+            side,
+            f"{purpose}-{time.time_ns()}",
+            "MARKET",
+            quantity_text,
+            bucket_seconds=1,
+        )
+    _link_ai_order(
+        generated_id,
+        symbol,
+        order_type="MARKET",
+        expected_price=ref_price,
+    )
+    if journal is not None:
+        journal.prepare(
+            client_order_id=generated_id,
+            symbol=symbol,
+            side=side,
+            purpose=purpose,
+            order_type="MARKET",
+            quantity=quantity_text,
+            price="MARKET",
+            parent_client_order_id=parent_client_order_id,
+        )
+
+    params = {
+        "symbol": symbol,
+        "side": side,
+        "type": "MARKET",
+        "quantity": quantity_text,
+        "newOrderRespType": "RESULT",
+        "newClientOrderId": generated_id,
+    }
+    try:
+        payload = dependencies.signed_request("POST", "/api/v3/order", params)
+        if not isinstance(payload, dict) or payload.get("orderId") is None:
+            raise RuntimeError("MARKET response has no orderId")
+        payload.setdefault("clientOrderId", generated_id)
+        if journal is not None:
+            journal.record_exchange_order(generated_id, payload)
+        _update_ai_order(generated_id, exchange_order_id=payload.get("orderId"))
+        dependencies.logger(
+            f"[PLACE] {symbol} {side} {quantity_text} @ MARKET "
+            f"client={generated_id} order={payload.get('orderId')}"
+        )
+        return payload
+    except requests.RequestException as exc:
+        if journal is not None:
+            journal.mark_unknown(generated_id, exc)
+            try:
+                reconciled = dependencies.get_order_by_client_id(symbol, generated_id)
+            except requests.RequestException:
+                reconciled = None
+            if reconciled is not None:
+                journal.record_exchange_order(generated_id, reconciled)
+                _update_ai_order(
+                    generated_id, exchange_order_id=reconciled.get("orderId")
+                )
+                dependencies.logger(
+                    f"[IDEMPOTENT] recovered uncertain MARKET "
+                    f"client={generated_id}"
+                )
+                return reconciled
+            dependencies.halt(
+                f"uncertain MARKET submission has no exchange confirmation: {generated_id}",
+                symbol=symbol,
+                side=side,
+                client_order_id=generated_id,
+            )
+        dependencies.logger(f"[ERR] MARKET {symbol} {side}: {exc}")
+        raise
+    except Exception as exc:
+        dependencies.logger(f"[ERR] MARKET {symbol} {side}: {exc}")
+        return None
+
 def place_oco_sell(
     symbol: str,
     quantity: float,

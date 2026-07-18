@@ -92,6 +92,7 @@ from ladder_dragon.execution.executor_market import get_price as market_get_pric
 from ladder_dragon.execution.executor_market import get_symbol_assets as market_get_symbol_assets
 from ladder_dragon.execution.executor_orders import OrderDependencies
 from ladder_dragon.execution.executor_orders import place_limit_order as orders_place_limit_order
+from ladder_dragon.execution.executor_orders import place_market_order as orders_place_market_order
 from ladder_dragon.execution.executor_orders import place_oco_sell as orders_place_oco_sell
 from ladder_dragon.execution.executor_planning import buy_candidates, existing_prices, guarded_sell_levels
 from ladder_dragon.execution.executor_planning import plan_buy_order, plan_sell_order
@@ -750,6 +751,27 @@ def _order_dependencies() -> OrderDependencies:
         halt=_trip_execution_halt,
     )
 
+
+
+def place_market_order(
+    symbol: str,
+    side: str,
+    quantity: float,
+    *,
+    ref_price: float | None = None,
+    filters: Dict[str, Any] | None = None,
+    parent_client_order_id: Optional[str] = None,
+) -> Dict[str, Any] | None:
+    """Place a MARKET flatten through the shared idempotent order layer."""
+    return orders_place_market_order(
+        symbol,
+        side,
+        quantity,
+        dependencies=_order_dependencies(),
+        ref_price=ref_price,
+        filters=filters,
+        parent_client_order_id=parent_client_order_id,
+    )
 
 def _protection_dependencies() -> ProtectionDependencies:
     # Position protection receives the same late-bound boundaries as orders and
