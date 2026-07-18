@@ -405,6 +405,7 @@ def test_updater_preserves_stopped_services_and_does_not_arm_watchdog():
     assert 'if [[ "${MYBOT_WAS_ACTIVE}" == "1" && "${WATCHDOG_WAS_ACTIVE}" == "1" ]]' in updater
     assert 'fail "${unit} was stopped before update but became active"' in updater
     assert "systemctl start mybot\nsystemctl start pi-healthd" not in updater
+    assert "mybot autostart must be enabled before update" not in updater
     assert "verify_previous_service_state" in updater
 
 

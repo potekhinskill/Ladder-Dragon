@@ -234,7 +234,6 @@ PROJECT_DIR="${PROJECT_DIR}" deploy/backup_raspberry_pi.sh
 # First record the systemd state. `systemctl stop` does not remove enabled:
 # autostart remains configured, while Restart=always cannot mix versions during the update.
 remember_service_state
-[[ "${MYBOT_WAS_ENABLED}" == "1" ]] || fail "mybot autostart must be enabled before update"
 trap recover_after_failure ERR INT TERM
 SERVICES_STOPPED=1
 systemctl stop mybot

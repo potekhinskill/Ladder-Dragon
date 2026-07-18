@@ -3,6 +3,22 @@
 All notable changes are documented here. Releases use Semantic Versioning; every
 section is dated and there is intentionally no `Unreleased` section.
 
+## [2.10.65] — 2026-07-19
+
+### Fixed
+- Removed the obsolete updater requirement that `mybot` must be enabled.
+  Maintenance updates now preserve an intentionally disabled LIVE service
+  without forcing operators to arm it first.
+
+### Verified
+- The deployment regression test now rejects reintroduction of the obsolete
+  autostart requirement.
+- `PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=. .venv/bin/python -m pytest -q` — 223 tests pass.
+- `.venv/bin/python -m pip check` — no broken requirements; `pip-audit
+  --skip-editable` — no known vulnerabilities.
+- Python compilation, deployment shell syntax, tracked-secret scan, and
+  `git diff --check` pass.
+
 ## [2.10.64] — 2026-07-19
 
 ### Fixed
