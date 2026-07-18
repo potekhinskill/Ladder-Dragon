@@ -1,8 +1,14 @@
 # Ladder Dragon — Binance Spot Grid Bot
 
-Приватный Python-проект для управления лестничной торговлей на Binance Spot. Бот строит адаптивные сетки BUY/SELL, учитывает ATR, EMA и VWAP, управляет OCO-ордерами и сохраняет торговую статистику в SQLite.
+<p align="center">
+  <img src="docs/assets/ladder-dragon-logo.svg" alt="Ladder Dragon" width="420">
+</p>
 
-Текущая версия продукта: **2.10.34**. Ladder Dragon использует [Semantic Versioning](https://semver.org/); единственный источник версии — `product_version.py`. Проверить установленную версию можно командой `python -m bin.ai_supervisor --version`.
+> **Новая установка:** начните с [вводной инструкции](docs/INTRODUCTION.md).
+
+Python-проект с открытой лицензией для управления лестничной торговлей на Binance Spot. Бот строит адаптивные сетки BUY/SELL, учитывает ATR, EMA и VWAP, управляет OCO-ордерами и сохраняет торговую статистику в SQLite. Production-секреты, реальные backup-файлы и приватные параметры в репозитории не публикуются.
+
+Текущая версия продукта: **2.10.42**. Ladder Dragon использует [Semantic Versioning](https://semver.org/); единственный источник версии — `product_version.py`. Проверить установленную версию можно командой `python -m bin.ai_supervisor --version`.
 
 > [!WARNING]
 > Проект работает с реальными биржевыми ордерами. Это не инвестиционная рекомендация. DRY является режимом по умолчанию, а любые изменяющие Binance-запросы дополнительно блокируются на уровне транспорта. Тем не менее перед Mainnet LIVE обязателен отдельный прогон на Binance Spot Testnet и ручная проверка лимитов.

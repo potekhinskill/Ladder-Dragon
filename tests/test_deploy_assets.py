@@ -73,6 +73,19 @@ def test_public_license_and_financial_disclaimer_are_explicit():
     assert "DISCLAIMER.md" in readme
 
 
+def test_intro_document_and_logo_cover_supported_platforms():
+    intro = read("docs/INTRODUCTION.md")
+    logo = read("docs/assets/ladder-dragon-logo.svg")
+    readme = read("README.md")
+    assert "Raspberry Pi" in intro
+    assert "macOS" in intro
+    assert "Linux" in intro
+    assert "WSL2" in intro
+    assert "BOT_LIVE_CONFIRMED=NO" in intro
+    assert "<svg" in logo and "Ladder Dragon" in logo
+    assert "docs/INTRODUCTION.md" in readme
+
+
 def test_dashboard_exposes_read_only_ops_trading_and_ai_quality_blocks():
     index = read("FRONT/index.html")
     app = read("FastAPI/pi-dashboard/app.py")
