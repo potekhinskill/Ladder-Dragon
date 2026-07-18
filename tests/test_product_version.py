@@ -31,3 +31,25 @@ def test_package_metadata_uses_canonical_version_module():
     pyproject = Path("pyproject.toml").read_text(encoding="utf-8")
     assert 'dynamic = ["version"]' in pyproject
     assert 'version = {attr = "product_version.__version__"}' in pyproject
+
+
+def test_public_version_surfaces_match_canonical_version():
+    """README and CHANGELOG must never drift from the canonical version."""
+    expected = product_version.__version__
+    readme = Path("README.md").read_text(encoding="utf-8")
+    changelog = Path("CHANGELOG.md").read_text(encoding="utf-8")
+
+    readme_match = re.search(
+        r"Current product version:\s*\*\*(\d+\.\d+\.\d+)\*\*", readme
+    )
+    changelog_match = re.search(
+        r"^## \[(\d+\.\d+\.\d+)\] — \d{4}-\d{2}-\d{2}\s*$",
+        changelog,
+        re.MULTILINE,
+    )
+
+    assert readme_match, "README must declare the current product version"
+    assert changelog_match, "CHANGELOG must start with a dated release section"
+    assert readme_match.group(1) == expected
+    assert changelog_match.group(1) == expected
+    assert not re.search(r"^## \[Unreleased\]", changelog, re.MULTILINE)

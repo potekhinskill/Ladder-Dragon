@@ -3,6 +3,16 @@
 All notable changes are documented here. Releases use Semantic Versioning; every
 section is dated and there is intentionally no `Unreleased` section.
 
+## [2.10.56] — 2026-07-19
+
+### Added
+- Added a regression test that compares the canonical product version with
+  README and the latest dated CHANGELOG heading and rejects `Unreleased`.
+
+### Verified
+- `PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=. .venv/bin/python -m pytest -q` — all tests pass.
+- `git diff --check` passes.
+
 ## [2.10.55] — 2026-07-19
 
 ### Changed

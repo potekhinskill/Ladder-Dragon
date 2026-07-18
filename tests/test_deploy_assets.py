@@ -1,5 +1,7 @@
 from pathlib import Path
 
+import product_version
+
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -164,7 +166,7 @@ def test_dashboard_localization_has_all_supported_languages_and_is_deployed():
 def test_publication_docs_and_local_dashboard_assets_are_present():
     readme = read("README.md")
     index = read("FRONT/index.html")
-    assert "2.10.55" in readme
+    assert product_version.__version__ in readme
     assert "not affiliated with" in readme
     assert 'src="/vendor/chart.umd.min.js"' in index
     assert "fonts.googleapis.com" not in index
