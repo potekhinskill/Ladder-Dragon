@@ -104,7 +104,7 @@ sudo install -d -o bot -g bot -m 0750 /home/bot/apps
 sudo -u bot git clone \
   --branch codex/safety-hardening \
   --single-branch \
-  git@github.com:potekhinskill/binance_bot.git \
+  git@github.com:potekhinskill/Ladder-Dragon.git \
   /home/bot/apps/binance_bot
 ```
 

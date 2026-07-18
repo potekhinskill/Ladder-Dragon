@@ -5,7 +5,7 @@ set -euo pipefail
 
 ACTION="install"
 PROJECT_DIR="${PROJECT_DIR:-/home/bot/apps/binance_bot}"
-REPO_URL="${REPO_URL:-https://github.com/potekhinskill/binance_bot.git}"
+REPO_URL="${REPO_URL:-https://github.com/potekhinskill/Ladder-Dragon.git}"
 BRANCH="${BRANCH:-codex/safety-hardening}"
 COMMIT="${COMMIT:-}"
 BOT_HOSTNAME="${BOT_HOSTNAME:-bot.local}"

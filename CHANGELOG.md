@@ -1,6 +1,20 @@
-# Changelog — Ladder Dragon (binance_bot)
+# Changelog — Ladder Dragon
 
 Формат версий: [Semantic Versioning](https://semver.org/).
+
+## [2.10.31] — 2026-07-18
+
+### Изменено
+- Проект опубликован в новом приватном репозитории
+  `potekhinskill/Ladder-Dragon`; Raspberry installer использует новый URL.
+- Локальная корневая папка переименована в `Ladder Dragon`. Рабочий путь
+  Raspberry `/home/bot/apps/binance_bot` сохранён для совместимости с systemd.
+
+### Проверено
+- Обновлены deployment-инструкция и regression-проверка GitHub URL.
+- `PYTHONPATH=. pytest -q`.
+- `python3 -m compileall -q .`.
+- `git diff --check`.
 
 ## [2.10.30] — 2026-07-18
 

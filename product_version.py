@@ -4,7 +4,7 @@
 
 PRODUCT_NAME = "Ladder Dragon"
 PRODUCT_SLUG = "LadderDragon"
-__version__ = "2.10.30"
+__version__ = "2.10.31"
 
 
 def product_label(component: str | None = None) -> str:
