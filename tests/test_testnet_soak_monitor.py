@@ -1,6 +1,6 @@
 from decimal import Decimal
 
-from testnet_soak_monitor import SoakSample, evaluate_sample
+from bin.testnet_soak_monitor import SoakSample, evaluate_sample
 
 
 def sample(**overrides) -> SoakSample:

@@ -10,6 +10,8 @@ def read(relative: str) -> str:
 
 def test_production_code_has_copyright_and_russian_maintenance_note():
     paths = list(ROOT.glob("*.py"))
+    paths += list((ROOT / "bin").glob("*.py"))
+    paths += list((ROOT / "bin").glob("*.sh"))
     paths += list((ROOT / "ladder_dragon").rglob("*.py"))
     paths += list((ROOT / "deploy").glob("*.py"))
     paths += list((ROOT / "deploy").glob("*.sh"))
@@ -110,7 +112,7 @@ def test_dashboard_charts_have_bounded_responsive_containers():
 
 def test_shadow_ai_defaults_limit_cost_and_duplicate_requests():
     example = read(".env.example")
-    config = read("supervisor_config.py")
+    config = read("bin/supervisor_config.py")
     dashboard = read("FastAPI/pi-dashboard/app.py")
     dashboard_env = read(".env.dashboard.example")
     changelog = read("CHANGELOG.md")
@@ -133,7 +135,7 @@ def test_shadow_ai_defaults_limit_cost_and_duplicate_requests():
 def test_dashboard_ai_toggle_is_advisory_only():
     index = read("FRONT/index.html")
     app = read("FastAPI/pi-dashboard/app.py")
-    supervisor = read("ai_supervisor.py")
+    supervisor = read("bin/ai_supervisor.py")
     assert 'id="ai-toggle"' in index
     assert "POST'," in index and "/api/ai/control" in index
     assert '@app.post("/api/ai/control")' in app
@@ -156,16 +158,16 @@ def test_managed_service_uses_versionless_wrapper_and_separate_env():
 
 
 def test_executor_status_does_not_hide_oco_state_behind_question_mark():
-    executor = read("autosize_universal.py")
+    executor = read("bin/autosize_universal.py")
     assert "OCO:?" not in executor
     assert 'protection_state = "not_checked"' in executor
 
 
 def test_supervisor_control_logs_stay_inside_writable_rotated_directory():
-    ctl = read("supervisor_ctl.sh")
+    ctl = read("bin/supervisor_ctl.sh")
     unit = read("deploy/mybot.service")
-    assert 'SUPERVISOR_LOG:-${SCRIPT_DIR}/logs/supervisor.log' in ctl
-    assert 'PNL_LOG_PATH:-${SCRIPT_DIR}/logs/pnl.log' in ctl
+    assert 'SUPERVISOR_LOG:-${PROJECT_DIR}/logs/supervisor.log' in ctl
+    assert 'PNL_LOG_PATH:-${PROJECT_DIR}/logs/pnl.log' in ctl
     assert "ReadWritePaths=/home/bot/apps/binance_bot/db /home/bot/apps/binance_bot/logs /run/mybot" in unit
     assert 'LOG="supervisor.log"' not in ctl
 
@@ -321,4 +323,4 @@ def test_library_modules_are_grouped_by_responsibility():
     assert not (ROOT / "executor_orders.py").exists()
     pyproject = read("pyproject.toml")
     assert '[tool.setuptools.packages.find]' in pyproject
-    assert 'include = ["ladder_dragon*"]' in pyproject
+    assert 'include = ["ladder_dragon*", "bin*"]' in pyproject

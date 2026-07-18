@@ -2,6 +2,22 @@
 
 Формат версий: [Semantic Versioning](https://semver.org/).
 
+## [2.10.33] — 2026-07-18
+
+### Изменено
+- Исполняемые CLI-команды вынесены в отдельный каталог `bin/`; библиотечная
+  логика остаётся в `ladder_dragon/`, а systemd и Raspberry installer/updater
+  переведены на стабильные пакетные пути.
+- Команды запускаются как `python -m bin.<команда>`, чтобы корень проекта
+  содержал только документацию, конфигурацию и пакетную структуру.
+- Миграции SQLite теперь ищутся относительно корня проекта после переноса CLI.
+
+### Проверено
+- `.venv/bin/python3 -m pytest -q` — все тесты проходят.
+- CLI `bin.ai_supervisor`, `bin.autosize_universal` и Testnet smoke запускаются.
+- `bash -n` для supervisor, installer и updater.
+- `git diff --check`.
+
 ## [2.10.32] — 2026-07-18
 
 ### Изменено

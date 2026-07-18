@@ -6,9 +6,9 @@ from types import SimpleNamespace
 import pytest
 import requests
 from ladder_dragon.execution.order_recovery import OrderJournal
-import binance_testnet_smoke as smoke
+from bin import binance_testnet_smoke as smoke
 
-from binance_testnet_smoke import (
+from bin.binance_testnet_smoke import (
     build_market_buy,
     build_non_filling_limit_buy,
     build_oco_sell,

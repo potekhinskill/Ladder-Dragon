@@ -1,7 +1,7 @@
 from pathlib import Path
 import sqlite3
 
-from db_migrate import migrate
+from bin.db_migrate import migrate
 
 
 def test_migrations_are_repeatable(tmp_path: Path):

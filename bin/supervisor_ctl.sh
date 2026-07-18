@@ -5,7 +5,9 @@ set -euo pipefail
 
 # Жёстко привязываемся к директории скрипта: относительные пути стабильны
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
-cd "$SCRIPT_DIR"
+PROJECT_DIR="$(cd -- "${SCRIPT_DIR}/.." && pwd)"
+cd "$PROJECT_DIR"
+export PYTHONPATH="${PROJECT_DIR}${PYTHONPATH:+:${PYTHONPATH}}"
 
 # -----------------------------
 # Выбор интерпретатора Python
@@ -16,20 +18,20 @@ if [[ -n "${VIRTUAL_ENV:-}" && -x "${VIRTUAL_ENV}/bin/python3" ]]; then
   PY="${VIRTUAL_ENV}/bin/python3"
 fi
 # Если рядом с проектом есть .venv — используем его python
-if [[ -x ".venv/bin/python3" ]]; then
-  PY=".venv/bin/python3"
+if [[ -x "${PROJECT_DIR}/.venv/bin/python3" ]]; then
+  PY="${PROJECT_DIR}/.venv/bin/python3"
 fi
 # Проверим, что python доступен
 command -v "${PY}" >/dev/null 2>&1 || { echo "Python not found: ${PY}"; exit 127; }
 
-SUP="ai_supervisor.py"
-RUNNER="ai_plan_runner.py"
-PNL="pnl_reporter.py"
+SUP="bin/ai_supervisor.py"
+RUNNER="bin/ai_plan_runner.py"
+PNL="bin/pnl_reporter.py"
 # systemd ProtectSystem=strict оставляет для записи только db/, logs/ и /run/mybot.
 # Поэтому служебные логи не должны лежать в корне checkout: ExecStop иначе
 # завершится с status=1 даже при успешной остановке дочерних процессов.
-LOG="${SUPERVISOR_LOG:-${SCRIPT_DIR}/logs/supervisor.log}"
-PNL_LOG="${PNL_LOG_PATH:-${SCRIPT_DIR}/logs/pnl.log}"
+LOG="${SUPERVISOR_LOG:-${PROJECT_DIR}/logs/supervisor.log}"
+PNL_LOG="${PNL_LOG_PATH:-${PROJECT_DIR}/logs/pnl.log}"
 LOCK="/tmp/ai_supervisor.lock"
 
 mkdir -p "$(dirname -- "${LOG}")" "$(dirname -- "${PNL_LOG}")"
@@ -75,7 +77,7 @@ fi
 
 usage() {
   cat <<'USAGE'
-Usage: ./supervisor_ctl.sh <command> [args...]
+Usage: ./bin/supervisor_ctl.sh <command> [args...]
 
 Commands (supervisor):
   start [args...] Запустить ai_supervisor.py (nohup, лог в supervisor.log)
@@ -91,13 +93,13 @@ Runner helper:
 PnL reporter:
   pnl -- <args>    Запустить pnl_reporter.py в фоне (лог в pnl.log)
                    Пример:
-                     ./supervisor_ctl.sh pnl -- --symbols SOLUSDT,ETHUSDT --days 30 --quote USDT
+                     ./bin/supervisor_ctl.sh pnl -- --symbols SOLUSDT,ETHUSDT --days 30 --quote USDT
   pnl-logs         tail -f pnl.log
   pnl-status       Показать активные процессы pnl_reporter.py
   pnl-stop         Остановить все pnl_reporter.py
 
 Подсказка: типовой запуск supervisor (DRY-RUN):
-  ./supervisor_ctl.sh start \
+  ./bin/supervisor_ctl.sh start \
     --singleton \
     --symbols SOLUSDT,ETHUSDT,BNBUSDT \
     --ladder-mode pct \
@@ -110,7 +112,7 @@ PnL reporter:
     --oco-fallback prefer-tp1
 
 Реальные заявки: добавь --live
-  ./supervisor_ctl.sh start ... --live
+  ./bin/supervisor_ctl.sh start ... --live
 USAGE
 }
 
@@ -212,7 +214,7 @@ cmd_start() {
   rotate_log_if_big "${LOG}"
   check_bnb
   log "Starting supervisor..."
-  echo "./supervisor_ctl.sh logs # живой хвост"
+  echo "./bin/supervisor_ctl.sh logs # живой хвост"
   echo "[start] nohup ${PY} -u ${SUP} $@ </dev/null >> ${LOG} 2>&1 & disown"
   nohup "${PY}" -u "${SUP}" "$@" </dev/null >> "${LOG}" 2>&1 & disown
   sleep 0.4
@@ -231,7 +233,7 @@ cmd_start() {
 }
 
 cmd_status() {
-  echo "./supervisor_ctl.sh logs # живой хвост"
+  echo "./bin/supervisor_ctl.sh logs # живой хвост"
   echo "[status] процессы ${SUP}:"
   if pgrep -fl "[/ ]${SUP}" >/dev/null 2>&1; then
     ps -o pid,etime,command -p $(pgrep -f "[/ ]${SUP}" | tr '\n' ' ') | sed '1 s/^/ /'
@@ -244,7 +246,7 @@ cmd_status() {
 }
 
 cmd_logs() {
-  # Если увидел "zsh: suspended ./supervisor_ctl.sh logs" — это Ctrl+Z.
+  # Если увидел "zsh: suspended ./bin/supervisor_ctl.sh logs" — это Ctrl+Z.
   # Верни в передний план: 'fg', либо открой новую вкладку и сделай:
   # tail -f supervisor.log
   tail -f "${LOG}"
@@ -291,13 +293,13 @@ cmd_stop_all() {
 
 cmd_start_runner() {
   if [[ "${1:-}" != "--" ]]; then
-    echo "[start-runner] usage: ./supervisor_ctl.sh start-runner -- <args для ai_plan_runner.py>"
+    echo "[start-runner] usage: ./bin/supervisor_ctl.sh start-runner -- <args для ai_plan_runner.py>"
     exit 2
   fi
   shift
   rotate_log_if_big "${LOG}"
-  echo "[start-runner] nohup ${PY} -u ${RUNNER} --base-script autosize_universal.py -- $@ >> ${LOG} 2>&1 & disown"
-  nohup "${PY}" -u "${RUNNER}" --base-script autosize_universal.py -- "$@" >> "${LOG}" 2>&1 & disown
+  echo "[start-runner] nohup ${PY} -u ${RUNNER} --base-script bin/autosize_universal.py -- $@ >> ${LOG} 2>&1 & disown"
+  nohup "${PY}" -u "${RUNNER}" --base-script bin/autosize_universal.py -- "$@" >> "${LOG}" 2>&1 & disown
 }
 
 # ---------- PnL reporter ----------

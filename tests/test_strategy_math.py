@@ -3,9 +3,9 @@ from pathlib import Path
 
 import pytest
 
-import ai_plan_runner
-import gen_vwap_autotune
-import gen_vwap_env
+from bin import ai_plan_runner
+from bin import gen_vwap_autotune
+from bin import gen_vwap_env
 from ladder_dragon.execution import tools_market
 def test_ladder_has_buy_and_sell_levels():
     levels = ai_plan_runner.build_ladder_pct(100, -5, 3, 12, 0.01)

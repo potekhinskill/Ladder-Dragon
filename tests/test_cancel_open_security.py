@@ -3,7 +3,7 @@ import sys
 
 import pytest
 
-import tools_cancel_open
+from bin import tools_cancel_open
 
 
 def parse(monkeypatch, *arguments):
