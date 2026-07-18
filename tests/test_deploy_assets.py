@@ -62,6 +62,23 @@ def test_dashboard_uses_ladder_dragon_branding():
     assert "Pi Dashboard" not in index
 
 
+def test_dashboard_exposes_read_only_ops_trading_and_ai_quality_blocks():
+    index = read("FRONT/index.html")
+    app = read("FastAPI/pi-dashboard/app.py")
+    backup = read("deploy/backup_raspberry_pi.sh")
+    for marker in (
+        "id=\"ops-load\"", "id=\"ops-ntp\"", "id=\"ops-backup\"",
+        "id=\"execution-banner\"", "id=\"trade-risk\"", "id=\"positions-body\"",
+        "id=\"ai-context-age\"", "id=\"ai-budget\"", "id=\"ai-degraded-quality\"",
+    ):
+        assert marker in index
+    assert '@app.get("/api/trading/overview")' in app
+    assert '"operations": ops' in app
+    assert 'backup_status.json' in backup
+    assert 'BACKUP_RUNTIME_STATUS_FILE' in backup
+    assert 'id=\"ops-backup-reason\"' in index
+
+
 def test_dashboard_publishes_version_and_changelog():
     index = read("FRONT/index.html")
     app = read("FastAPI/pi-dashboard/app.py")
@@ -272,7 +289,7 @@ def test_updates_are_commit_allowlisted_and_backups_are_encrypted():
     assert "BACKUP_EXTERNAL_MOUNT" in backup
     assert "external backup disk is not mounted" in backup
     assert "mounted read-only" in backup
-    assert "trap cleanup_staging EXIT" in backup
+    assert "trap on_exit EXIT" in backup
     assert "exFAT не поддерживает chmod" in backup
     assert "ReadWritePaths=%s" in updater
     assert "BindReadWritePaths" not in installer + updater
@@ -301,6 +318,7 @@ def test_backup_reconciles_all_archives_and_verifies_destination_checksums():
     assert "preinstall-*.tgz.age*" in backup
     assert 'publish_public_archive "${source_archive}"' in backup
     assert "BACKUP_EXTERNAL_RETENTION_DAYS" in backup
+    assert "write_status()" in backup
 
 
 def test_watchdog_uses_current_heartbeat_and_not_legacy_runner_name():

@@ -2495,11 +2495,20 @@ def main():
             "stats_db": os.getenv("BOT_STATS_DB", ""),
             "ai_decisions_db": decisions_db,
             "ai_usage_log": args.ai_usage_log,
+            "order_journal": os.getenv("BOT_ORDER_JOURNAL", ""),
         },
     }
     _publish_ai_runtime_status()
     _refresh_ai_control(args)
     limits = RiskLimits.from_env()
+    _publish_ai_runtime_status(
+        risk_limits={
+            "reserve_usdt": str(limits.reserve_usdt),
+            "portfolio_cap_usdt": str(limits.portfolio_cap_usdt),
+            "daily_buy_cap_usdt": str(limits.daily_buy_cap_usdt),
+            "open_order_count_cap": limits.open_order_count_cap,
+        }
+    )
     try:
         _preflight_live(args, symbols, limits)
     except Exception as exc:
@@ -2654,6 +2663,28 @@ def main():
                         else:
                             os.environ["BOT_CAP_PER_ORDER"] = str(safe_cap)
                             dbg(f"[RISK] dynamic safe order cap={safe_cap:.2f} USDT")
+                    _publish_ai_runtime_status(
+                        risk={
+                            "buy_blocked": decision.buy_blocked,
+                            "halted": decision.halted,
+                            "reasons": list(decision.reasons),
+                            "consecutive_api_failures": consecutive_api_failures,
+                            "current_cap_per_order_usdt": os.getenv("BOT_CAP_PER_ORDER"),
+                            "symbol_caps_usdt": {
+                                symbol: os.getenv(f"RISK_SYMBOL_CAP_{symbol.upper()}")
+                                for symbol in symbols
+                                if os.getenv(f"RISK_SYMBOL_CAP_{symbol.upper()}") is not None
+                            },
+                            "snapshot": {
+                                "equity_usdt": str(snapshot.equity_usdt),
+                                "exposure_usdt": str(snapshot.exposure_usdt),
+                                "free_usdt": str(snapshot.free_usdt),
+                                "open_order_count": snapshot.open_order_count,
+                                "daily_trade_count": snapshot.daily_trade_count,
+                                "stale_order_count": snapshot.stale_order_count,
+                            },
+                        }
+                    )
                 except Exception as exc:
                     # Недоступная telemetry не считается безопасным состоянием:
                     # новые BUY блокируются, после серии ошибок включается cooldown.
