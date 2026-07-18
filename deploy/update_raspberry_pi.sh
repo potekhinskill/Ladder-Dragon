@@ -352,7 +352,7 @@ if [[ -d "${WEB_ROOT}/backups" ]]; then
 fi
 
 runuser -u "${BOT_USER}" -- .venv/bin/python -m compileall -q \
-  bin FastAPI/pi-dashboard
+  bin ladder_dragon FastAPI/pi-dashboard
 runuser -u "${BOT_USER}" -- .venv/bin/python \
   deploy/validate_security_config.py "${PROJECT_DIR}"
 runuser -u "${BOT_USER}" -- .venv/bin/python -m bin.ai_supervisor --version

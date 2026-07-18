@@ -321,6 +321,9 @@ def test_library_modules_are_grouped_by_responsibility():
     assert all((ROOT / relative).is_file() for relative in expected)
     assert not (ROOT / "ai_context.py").exists()
     assert not (ROOT / "executor_orders.py").exists()
+    assert not (ROOT / "migrations").exists()
+    assert (ROOT / "ladder_dragon/migrations/001_initial.sql").is_file()
     pyproject = read("pyproject.toml")
     assert '[tool.setuptools.packages.find]' in pyproject
     assert 'include = ["ladder_dragon*", "bin*"]' in pyproject
+    assert 'ladder_dragon = ["migrations/*.sql"]' in pyproject

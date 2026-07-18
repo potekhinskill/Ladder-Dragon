@@ -2,6 +2,19 @@
 
 Формат версий: [Semantic Versioning](https://semver.org/).
 
+## [2.10.34] — 2026-07-18
+
+### Изменено
+- SQL-миграции перенесены в `ladder_dragon/migrations/`; загрузчик, setuptools
+  и Raspberry updater используют единый пакетный каталог.
+- В корне больше нет отдельного каталога `migrations/`.
+
+### Проверено
+- `.venv/bin/python3 -m pytest -q` — все тесты проходят.
+- `PYTHONPYCACHEPREFIX=/tmp/ladder-dragon-pycache python3 -m compileall -q .`.
+- `bash -n` для supervisor, installer и updater.
+- `git diff --check`.
+
 ## [2.10.33] — 2026-07-18
 
 ### Изменено
