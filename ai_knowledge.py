@@ -214,6 +214,9 @@ class KnowledgeStore:
         now: int | None = None,
         limit: int = DEFAULT_LIMIT,
         include_virtual: bool = False,
+        min_score: float = 0.0,
+        min_matches: int = 1,
+        decay_days: int = 0,
     ) -> list[dict[str, Any]]:
         """Вернуть похожие проверенные случаи без будущих документов."""
         current = int(now or time.time())
@@ -235,14 +238,26 @@ class KnowledgeStore:
             if candidate is None:
                 continue
             score = cosine_similarity(embedding, candidate)
+            if score < float(min_score):
+                continue
+            age_days = max(0.0, (current - int(created_at)) / 86_400)
+            decay = (
+                math.exp(-age_days / max(1.0, float(decay_days)))
+                if decay_days and decay_days > 0 else 1.0
+            )
+            effective_score = score * decay
             ranked.append({
                 "doc_id": str(document_id),
                 "context": str(content)[:MAX_CONTEXT_CHARS],
-                "score": round(score, 6),
+                "score": round(effective_score, 6),
+                "raw_score": round(score, 6),
+                "age_days": round(age_days, 3),
                 "created_at": int(created_at),
                 "outcome": json.loads(outcome_json or "{}"),
             })
         ranked.sort(key=lambda item: (item["score"], item["created_at"]), reverse=True)
+        if len(ranked) < max(1, int(min_matches)):
+            return []
         return ranked[: max(0, min(int(limit), 5))]
 
     def link_retrieval(

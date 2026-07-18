@@ -116,3 +116,30 @@ def test_cosine_similarity_is_bounded_and_zero_safe():
     assert cosine_similarity([1, 0], [1, 0]) == 1.0
     assert cosine_similarity([1, 0], [0, 1]) == 0.0
     assert cosine_similarity([0, 0], [1, 0]) == 0.0
+
+
+def test_rag_applies_similarity_decay_and_minimum_match_gate(tmp_path):
+    path = tmp_path / "ai_decisions.sqlite3"
+    decisions = AdvisorDecisionStore(str(path))
+    decision_id = decisions.record(
+        symbol="SOLUSDT", price=100, deterministic_mode="FLAT",
+        recommended_mode="UP", width_scale=1, cap_scale=1, confidence=.8,
+        applied=True, feature_json=json.dumps([1.0] + [0.0] * 9),
+        now=int(time.time()) - 86_400,
+    )
+    with sqlite3.connect(path) as connection:
+        connection.execute(
+            "UPDATE ai_decisions SET return_1h=?, evaluation_json=? WHERE decision_id=?",
+            (.01, json.dumps({"realized_execution": {"sell_qty": 1}}), decision_id),
+        )
+    knowledge = KnowledgeStore(str(path))
+    assert knowledge.retrieve(
+        "SOLUSDT", [1.0] + [0.0] * 9, min_score=.99,
+        min_matches=2, now=int(time.time()), decay_days=30,
+    ) == []
+    results = knowledge.retrieve(
+        "SOLUSDT", [1.0] + [0.0] * 9, min_score=.99,
+        min_matches=1, now=int(time.time()), decay_days=30,
+    )
+    assert results and results[0]["raw_score"] > .99
+    assert results[0]["score"] < results[0]["raw_score"]

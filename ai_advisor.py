@@ -14,6 +14,7 @@ from dataclasses import asdict, dataclass, field
 from datetime import datetime, timezone
 from decimal import Decimal
 import json
+import hashlib
 import os
 from pathlib import Path
 import sqlite3
@@ -129,6 +130,13 @@ class MarketContext:
     ai_accuracy_4h: float = 0.0
     ai_vs_baseline_samples_1h: int = 0
     ai_edge_vs_baseline_1h: float = 0.0
+    ai_closed_samples: int = 0
+    ai_realized_net_pnl_quote: float = 0.0
+    ai_realized_avg_pnl_quote: float = 0.0
+    ai_realized_stop_rate: float = 0.0
+    ai_realized_edge_ci_low: float = 0.0
+    ai_realized_edge_ci_high: float = 0.0
+    ai_unresolved_fills: int = 0
     # Короткие проверенные исторические случаи для локального RAG. Здесь нет
     # API-ключей, балансов или order IDs; Risk Manager этот контекст не читает.
     rag_context: tuple[Mapping[str, Any], ...] = ()
@@ -165,7 +173,7 @@ class AIAdvisor:
         logger: Callable[[str], None],
         clock: Callable[[], float] = time.time,
         decision_recorder: Optional[
-            Callable[[MarketContext, StrategyRecommendation, bool], None]
+            Callable[[MarketContext, StrategyRecommendation, bool], Optional[str]]
         ] = None,
         budget_checker: Optional[Callable[[], tuple[bool, str]]] = None,
     ) -> None:
@@ -181,6 +189,7 @@ class AIAdvisor:
         # Признак нужен исполнителю, чтобы не создавать новую запись в
         # истории на каждом цикле при возврате той же cached-рекомендации.
         self._last_was_cache_hit = False
+        self._last_decision_id: Optional[str] = None
         # Кэшируем и успешный результат, и безопасный отказ. Это не позволяет
         # недоступному API или низкой confidence создавать запрос каждую секунду.
         self._cache: dict[
@@ -199,10 +208,16 @@ class AIAdvisor:
         """Была ли последняя рекомендация возвращена из локального кэша."""
         return self._last_was_cache_hit
 
+    @property
+    def last_decision_id(self) -> Optional[str]:
+        """ID записи, созданной до передачи рекомендации исполнителю."""
+        return self._last_decision_id
+
     def recommend(
         self, context: MarketContext
     ) -> Optional[StrategyRecommendation]:
         self._last_was_cache_hit = False
+        self._last_decision_id = None
         if not self.config.enabled:
             return None
         now = self.clock()
@@ -237,7 +252,9 @@ class AIAdvisor:
             applied = recommendation.confidence >= self.config.min_confidence
             if self.decision_recorder is not None:
                 try:
-                    self.decision_recorder(context, recommendation, applied)
+                    self._last_decision_id = self.decision_recorder(
+                        context, recommendation, applied
+                    )
                 except (OSError, sqlite3.Error) as exc:
                     self.logger(f"[AI-DECISION] cannot record decision: {exc}")
             if not applied:
@@ -246,6 +263,7 @@ class AIAdvisor:
                     usage,
                     latency_ms=(time.monotonic() - started) * 1000,
                     outcome="low_confidence",
+                    rationale=recommendation.rationale,
                 )
                 self.logger(
                     f"[AI-ADVISOR] {context.symbol} ignored: confidence "
@@ -259,6 +277,7 @@ class AIAdvisor:
                 usage,
                 latency_ms=(time.monotonic() - started) * 1000,
                 outcome="applied",
+                rationale=recommendation.rationale,
             )
             self._cache[context.symbol] = (now, recommendation)
             return recommendation
@@ -356,6 +375,7 @@ class AIAdvisor:
         *,
         latency_ms: float,
         outcome: str,
+        rationale: str = "",
     ) -> None:
         """Записать технический расход без промпта, ответа и торговых данных."""
         if not self.config.usage_log_path:
@@ -385,6 +405,12 @@ class AIAdvisor:
             "estimated_cost_usd": (
                 str(estimated_usd) if estimated_usd is not None else None
             ),
+            "decision_id": self._last_decision_id,
+            "rationale": rationale[:MAX_RATIONALE_CHARS],
+            "context_version": "ai-context-v2",
+            "context_hash": hashlib.sha256(
+                json.dumps(asdict(context), ensure_ascii=False, sort_keys=True, default=str).encode("utf-8")
+            ).hexdigest(),
         }
         try:
             append_usage_event(

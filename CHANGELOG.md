@@ -2,6 +2,30 @@
 
 Формат версий: [Semantic Versioning](https://semver.org/).
 
+## [2.10.28] — 2026-07-18
+
+### Добавлено
+- AI-решение теперь имеет durable-связь `decision_id → clientOrderId →
+  exchange order/trade ID`; fills без точной связи записываются в
+  `ai_unresolved_fills` и не попадают в AI PnL.
+- В журнале AI сохраняются короткий rationale, версия контекста и конфигурации,
+  а также SHA-256 hash контекста без сырых секретов и prompt.
+- Реализован идемпотентный учёт частичных fills по exchange `trade_id`,
+  привязка OCO LIST/TP/STOP к order list и обновление realized PnL после каждого
+  исполнения с учётом комиссий, slippage, причины выхода и длительности позиции.
+- RAG разделяет real/virtual документы, исключает будущие данные, применяет
+  минимальный score/число совпадений и decay старых эпизодов; stale-контекст
+  полностью отключает retrieval.
+- Для `AI_MODE=APPLY` добавлен production-gate по числу закрытых real-позиций,
+  доверительному интервалу edge, stop-rate и baseline; причины отказа видны в
+  dashboard вместе с decision ID, rationale, RAG-документами, unresolved fills
+  и закрытым PnL.
+
+### Проверено
+- `PYTHONPATH=. pytest -q`.
+- `python3 -m compileall -q .`.
+- `git diff --check`.
+
 ## [2.10.27] — 2026-07-18
 
 ### Добавлено
