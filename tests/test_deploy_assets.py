@@ -25,6 +25,13 @@ def test_production_code_has_copyright_and_russian_maintenance_note():
         assert "Назначение" in source or "назначение" in source
 
 
+def test_dashboard_launcher_uses_absolute_project_app_path():
+    launcher = read("bin/run_dashboard.py")
+    assert "Path(__file__).resolve().parents[1]" in launcher
+    assert "sys.path.insert(0, str(app_dir))" in launcher
+    assert "uvicorn.run(app," in launcher
+
+
 def test_nginx_requires_auth_and_publishes_only_encrypted_backups():
     site = read("deploy/nginx/bot.local.conf")
     snippet = read("deploy/nginx/pi_api.conf")
