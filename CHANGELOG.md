@@ -3,6 +3,15 @@
 All notable changes are documented here. Releases use Semantic Versioning; every
 section is dated and there is intentionally no `Unreleased` section.
 
+## [2.10.59] — 2026-07-19
+
+### Security
+- Updated Python dependencies to patched releases for the current pip-audit advisories.
+- CI now upgrades the build toolchain and audits dependencies with `--skip-editable`, so the local project is not incorrectly treated as a missing PyPI package.
+
+### Verified
+- `PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=. .venv/bin/python -m pytest -q` — all tests pass; `pip-audit --skip-editable` reports no known vulnerabilities.
+
 ## [2.10.58] — 2026-07-19
 
 ### Security

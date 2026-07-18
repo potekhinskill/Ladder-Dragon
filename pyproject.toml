@@ -1,5 +1,5 @@
 [build-system]
-requires = ["setuptools==80.9.0"]
+requires = ["setuptools==83.0.0"]
 build-backend = "setuptools.build_meta"
 
 [project]
@@ -9,19 +9,19 @@ description = "Fail-closed Binance Spot grid trading bot"
 readme = "README.md"
 requires-python = ">=3.10"
 dependencies = [
-  "python-dotenv==1.1.1",
-  "requests==2.32.4",
+  "python-dotenv==1.2.2",
+  "requests==2.33.0",
 ]
 
 [project.optional-dependencies]
 dashboard = [
-  "fastapi==0.116.1",
+  "fastapi==0.136.3",
   "psutil==7.0.0",
   "uvicorn==0.35.0",
 ]
 test = [
   "httpx==0.28.1",
-  "pytest==8.4.1",
+  "pytest==9.0.3",
 ]
 
 [tool.pytest.ini_options]
