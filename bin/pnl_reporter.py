@@ -15,7 +15,7 @@ pnl_reporter.py — отчёт по реализованному PnL (FIFO) дл
 Улучшения: добавлен net PnL (после комиссий), win rate, avg_sell_notional в summary_txt.
 
 Пример:
-  python3 -u pnl_reporter.py --symbols SOLUSDT,ETHUSDT --days 7
+  python3 -u bin/pnl_reporter.py --symbols SOLUSDT,ETHUSDT --days 7
 """
 
 import os, time, hmac, hashlib, argparse

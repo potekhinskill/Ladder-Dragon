@@ -42,7 +42,7 @@ except Exception:
     raise
 
 # --- Настройки/ENV ---
-DEFAULT_BASE = os.getenv("PLAN_RUNNER_BASE", "autosize_universal.py")
+DEFAULT_BASE = os.getenv("PLAN_RUNNER_BASE", "bin/autosize_universal.py")
 BINANCE_API = (os.getenv("BINANCE_BASE_URL") or os.getenv("BINANCE_API_BASE") or "https://api.binance.com").rstrip("/")
 
 

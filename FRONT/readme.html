@@ -139,8 +139,8 @@
         <section id="about">
           <h2>Как работает</h2>
           <ol>
-            <li><b>ai_supervisor.py</b> (планировщик): получает рынок, считает MA/ATR, применяет PPBS, формирует план, делает умную очистку и Auto-CAP, запускает исполнителя.</li>
-            <li><b>autosize_universal.py</b> (исполнитель): нормализация <code>tickSize/stepSize</code>, «толстые» лимитные BUY, OCO по остаткам, контроль <code>minNotional</code>.</li>
+            <li><b>bin/ai_supervisor.py</b> (планировщик): получает рынок, считает MA/ATR, применяет PPBS, формирует план, делает умную очистку и Auto-CAP, запускает исполнителя.</li>
+            <li><b>bin/autosize_universal.py</b> (исполнитель): нормализация <code>tickSize/stepSize</code>, «толстые» лимитные BUY, OCO по остаткам, контроль <code>minNotional</code>.</li>
             <li>Защита от дублей: lock-файл и проверка уже запущенных процессов.</li>
           </ol>
         </section>
@@ -154,7 +154,7 @@
             <tbody>
               <tr><td><code>--symbols</code></td><td>Список пар через запятую (<code>SOLUSDT,ETHUSDT</code>).</td><td>— (обязателен)</td><td>Supervisor → Executor</td></tr>
               <tr><td><code>--live</code></td><td>Включает реальные заявки (по умолчанию DRY-run).</td><td>false</td><td>Оба</td></tr>
-              <tr><td><code>--base-script</code></td><td>Путь к исполнителю (обычно <code>autosize_universal.py</code>).</td><td>автодетект</td><td>Supervisor</td></tr>
+              <tr><td><code>--base-script</code></td><td>Путь к исполнителю (обычно <code>bin/autosize_universal.py</code>).</td><td>автодетект</td><td>Supervisor</td></tr>
               <tr><td><code>--singleton</code></td><td>Один экземпляр (lock).</td><td>true</td><td>Supervisor</td></tr>
               <tr><td><code>--log-level</code></td><td>Уровень логов: <code>INFO</code>/<code>DEBUG</code>.</td><td>INFO</td><td>Оба</td></tr>
             </tbody>
@@ -240,12 +240,12 @@
 source .venv/bin/activate
 pip install --upgrade pip
 pip install -r requirements.txt
-chmod +x supervisor_ctl.sh</code></pre>
+chmod +x bin/supervisor_ctl.sh</code></pre>
         </section>
 
         <section id="run">
           <h2>Быстрый старт (x10, 2 монеты)</h2>
-<pre><code>./supervisor_ctl.sh start \
+<pre><code>./bin/supervisor_ctl.sh start \
   --singleton \
   --symbols SOLUSDT,ETHUSDT \
   --ladder-mode pct \
@@ -266,7 +266,7 @@ chmod +x supervisor_ctl.sh</code></pre>
         <section id="reports">
           <h2>PnL отчёты (reports/)</h2>
           <p>Фикс лимита 24h, корректный FIFO, ИТОГО за период.</p>
-<pre><code>python3 -u pnl_reporter.py --symbols SOLUSDT,ETHUSDT --days 30 --quote USDT
+<pre><code>python3 -u bin/pnl_reporter.py --symbols SOLUSDT,ETHUSDT --days 30 --quote USDT
 # Файлы:
 #  reports/pnl_YYYYMMDD_HHMM.csv
 #  reports/pnl_YYYYMMDD_HHMM.txt  (ИТОГО)
@@ -323,7 +323,7 @@ Type=simple
 User=bot
 WorkingDirectory=/home/bot/apps/binance_bot
 EnvironmentFile=-/home/bot/apps/binance_bot/.env
-ExecStart=/bin/bash -lc 'source .venv/bin/activate && ./supervisor_ctl.sh start --singleton ... --live'
+ExecStart=/bin/bash -lc 'source .venv/bin/activate && ./bin/supervisor_ctl.sh start --singleton ... --live'
 Restart=always
 RestartSec=6
 StandardOutput=append:/home/bot/apps/binance_bot/supervisor.log
@@ -340,7 +340,7 @@ WantedBy=multi-user.target</code></pre>
   &lt;array&gt;
     &lt;string&gt;/bin/bash&lt;/string&gt;
     &lt;string&gt;-lc&lt;/string&gt;
-    &lt;string&gt;cd ~/binance_bot &amp;&amp; source .venv/bin/activate &amp;&amp; ./supervisor_ctl.sh start --singleton ... --live&lt;/string&gt;
+    &lt;string&gt;cd ~/binance_bot &amp;&amp; source .venv/bin/activate &amp;&amp; ./bin/supervisor_ctl.sh start --singleton ... --live&lt;/string&gt;
   &lt;/array&gt;
   &lt;key&gt;RunAtLoad&lt;/key&gt;&lt;true/&gt;
   &lt;key&gt;StandardOutPath&lt;/key&gt;&lt;string&gt;~/binance_bot/supervisor.log&lt;/string&gt;
@@ -361,7 +361,7 @@ schtasks /Create /TN "BinanceBotSupervisor" /SC ONLOGON /RL HIGHEST ^
             <li><b>Отключился интернет?</b> — ордера остаются на бирже; цикл продолжится после восстановления.</li>
             <li><b>Наткнулись на лимиты биржи?</b> — проверьте <code>minNotional</code>, увеличьте CAP или уменьшите число ступеней.</li>
             <li><b>Большие отклонения PnL?</b> — используйте <code>symbols=</code> в Dashboard, включите подписанные запросы (ключи в окружении), сверяйте остатки «на сейчас».</li>
-            <li><b>Стоп-кнопка:</b> <code>./supervisor_ctl.sh stop-all</code>. Логи: <code>supervisor.log</code>, <code>pnl.log</code>.</li>
+            <li><b>Стоп-кнопка:</b> <code>./bin/supervisor_ctl.sh stop-all</code>. Логи: <code>supervisor.log</code>, <code>pnl.log</code>.</li>
           </ul>
         </section>
 
@@ -373,7 +373,7 @@ schtasks /Create /TN "BinanceBotSupervisor" /SC ONLOGON /RL HIGHEST ^
             <div class="card span8">
               <div class="bar">
                 <h3 style="margin:0">Быстрый старт (x10, 2 монеты)</h3>
-                <button class="btn copy no-print" data-copy="./supervisor_ctl.sh start --singleton --symbols SOLUSDT,ETHUSDT --ladder-mode pct --ladder-pct &quot;SOLUSDT=-3,-6,-10,-15;ETHUSDT=-2.5,-5.5,-9&quot; --rolling-ladder --ppbs-guard --auto-oco-holdings --ma-filter 21,50 --ma-kind ema --ma-interval 1h --ma-only-uptrend --atr-window 14 --atr-interval 1h --atr-mult-tp1 2.0 --atr-mult-tp2 3.5 --atr-mult-sl 1.5 --tp1-min 0.08 --tp1-max 0.40 --sl-max 0.12 --max-oco-per-symbol 8 --only-new-fills --status-interval 1 --child-loop-minutes 5 --interval-seconds 60 --auto-cap --alloc-pct 0.90 --cap-floor-usdt 25 --cap-ceil-usdt 80 --target-buy-per-symbol 4 --use-bnb-fees 1 --live">копировать</button>
+                <button class="btn copy no-print" data-copy="./bin/supervisor_ctl.sh start --singleton --symbols SOLUSDT,ETHUSDT --ladder-mode pct --ladder-pct &quot;SOLUSDT=-3,-6,-10,-15;ETHUSDT=-2.5,-5.5,-9&quot; --rolling-ladder --ppbs-guard --auto-oco-holdings --ma-filter 21,50 --ma-kind ema --ma-interval 1h --ma-only-uptrend --atr-window 14 --atr-interval 1h --atr-mult-tp1 2.0 --atr-mult-tp2 3.5 --atr-mult-sl 1.5 --tp1-min 0.08 --tp1-max 0.40 --sl-max 0.12 --max-oco-per-symbol 8 --only-new-fills --status-interval 1 --child-loop-minutes 5 --interval-seconds 60 --auto-cap --alloc-pct 0.90 --cap-floor-usdt 25 --cap-ceil-usdt 80 --target-buy-per-symbol 4 --use-bnb-fees 1 --live">копировать</button>
               </div>
 <pre class="small"><code># Минимум для запуска
 --symbols SOLUSDT,ETHUSDT --ladder-mode pct --ladder-pct "SOLUSDT=-3,-6,-10,-15;ETHUSDT=-2.5,-5.5,-9" --live</code></pre>
@@ -488,12 +488,12 @@ schtasks /Create /TN "BinanceBotSupervisor" /SC ONLOGON /RL HIGHEST ^
 
             <!-- Команды -->
             <div class="card span6 tight">
-              <h3>Команды (supervisor_ctl.sh)</h3>
-<pre class="small"><code>./supervisor_ctl.sh start [флаги]
-./supervisor_ctl.sh status
-./supervisor_ctl.sh logs
-./supervisor_ctl.sh stop-all
-./supervisor_ctl.sh pnl -- --symbols SOLUSDT,ETHUSDT --days 30</code></pre>
+              <h3>Команды (bin/supervisor_ctl.sh)</h3>
+<pre class="small"><code>./bin/supervisor_ctl.sh start [флаги]
+./bin/supervisor_ctl.sh status
+./bin/supervisor_ctl.sh logs
+./bin/supervisor_ctl.sh stop-all
+./bin/supervisor_ctl.sh pnl -- --symbols SOLUSDT,ETHUSDT --days 30</code></pre>
             </div>
           </div>
         </section>

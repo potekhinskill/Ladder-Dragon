@@ -5,14 +5,14 @@ import sqlite3
 
 import pytest
 
-import pnl_24h
+from bin import pnl_24h
 from ladder_dragon.execution import tools_stats
 from ladder_dragon.risk.risk_manager import load_daily_trade_metrics
 from ladder_dragon.execution.trade_accounting import TradeExecution, UnpricedCommission, replay_average_cost
 
 
 def load_worker():
-    path = Path("autosize_universal.py").resolve()
+    path = Path("bin/autosize_universal.py").resolve()
     spec = importlib.util.spec_from_file_location("commission_worker", path)
     module = importlib.util.module_from_spec(spec)
     assert spec and spec.loader

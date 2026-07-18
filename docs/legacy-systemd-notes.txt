@@ -4,7 +4,7 @@ cd ~/apps/binance_bot
 # активируй окружение, если не активно
 source .venv/bin/activate
 
-./supervisor_ctl.sh stop-all
+./bin/supervisor_ctl.sh stop-all
 
 Автозапуск:
 (.venv) bot@bot:~/apps/binance_bot $ systemctl cat mybot.service
@@ -187,9 +187,9 @@ ExecStartPre=/usr/bin/env bash -lc 'set -euo pipefail; \
 # Запуск
 ExecStart=/usr/bin/env bash -lc 'set -e; \
   [ -f /run/mybot/dynamic.env ] && . /run/mybot/dynamic.env; \
-  exec /home/bot/apps/binance_bot/.venv/bin/python3 -u /home/bot/apps/binance_bot/ai_supervisor.py \
+  exec /home/bot/apps/binance_bot/.venv/bin/python3 -u /home/bot/apps/binance_bot/bin/ai_supervisor.py \
     --singleton \
-    --base-script=/home/bot/apps/binance_bot/autosize_universal.py \
+    --base-script=/home/bot/apps/binance_bot/bin/autosize_universal.py \
     --symbols SOLUSDT,ETHUSDT,TONUSDT \
     --ladder-mode=pct \
     --ladder-pct-map "${LADDER_PCT_MAP:-SOLUSDT=-0.6,-3.5,2.8;ETHUSDT=-0.5,-3.0,2.4;TONUSDT=-0.6,-3.2,2.6}" \
@@ -292,7 +292,7 @@ ExecStart=/usr/bin/env bash -lc 'set -e; \
     --enforce-sell-limit \
     --live'
 
-ExecStop=/usr/bin/env bash -lc "/home/bot/apps/binance_bot/supervisor_ctl.sh stop-all"
+ExecStop=/usr/bin/env bash -lc "/home/bot/apps/binance_bot/bin/supervisor_ctl.sh stop-all"
 Type=simple
 Restart=always
 RestartSec=6
@@ -430,13 +430,13 @@ python3 pnl_24h.py --db db/bot_stats.db --from 2025-09-01 --to 2025-09-07
 python3 pnl_24h.py --db db/bot_stats.db --symbols SOLUSDT,ETHUSDT --json
 
 # Отчёт за 7 дней по SOL и ETH
-python3 -u pnl_reporter.py --symbols SOLUSDT,ETHUSDT --days 7
+python3 -u bin/pnl_reporter.py --symbols SOLUSDT,ETHUSDT --days 7
 
 # За 30 дней по трём парам
-python3 -u pnl_reporter.py --symbols SOLUSDT,ETHUSDT,TONUSDT --days 30
+python3 -u bin/pnl_reporter.py --symbols SOLUSDT,ETHUSDT,TONUSDT --days 30
 
 # По одной паре за вчерашние 24h (эквивалент --days 1)
-python3 -u pnl_reporter.py --symbols SOLUSDT --days 1
+python3 -u bin/pnl_reporter.py --symbols SOLUSDT --days 1
 
 
 **Только локальные диски, компактный вывод**

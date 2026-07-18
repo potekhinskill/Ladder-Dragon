@@ -11,15 +11,15 @@ SEMVER = re.compile(r"^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-[0-9A-Za-z.-]
 
 def test_product_version_is_semver_and_has_no_legacy_entrypoint():
     assert SEMVER.fullmatch(product_version.__version__)
-    assert Path("autosize_universal.py").is_file()
+    assert Path("bin/autosize_universal.py").is_file()
     assert not Path("1.8_autosize_universal.py").exists()
 
 
 def test_supervisor_and_executor_report_the_same_product_version():
     expected = product_version.product_label
     commands = [
-        ([sys.executable, "ai_supervisor.py", "--version"], expected("supervisor")),
-        ([sys.executable, "autosize_universal.py", "--version"], expected("executor")),
+        ([sys.executable, "-m", "bin.ai_supervisor", "--version"], expected("supervisor")),
+        ([sys.executable, "-m", "bin.autosize_universal", "--version"], expected("executor")),
     ]
     for command, label in commands:
         result = subprocess.run(command, text=True, capture_output=True, check=False)

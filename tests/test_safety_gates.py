@@ -7,11 +7,11 @@ import sqlite3
 from types import SimpleNamespace
 
 import pytest
-import ai_supervisor
+from bin import ai_supervisor
 
 
 def load_worker():
-    path = Path("autosize_universal.py").resolve()
+    path = Path("bin/autosize_universal.py").resolve()
     spec = importlib.util.spec_from_file_location("ladder_worker", path)
     module = importlib.util.module_from_spec(spec)
     assert spec and spec.loader
@@ -363,7 +363,7 @@ def test_testnet_uses_separate_stats_and_order_journals(tmp_path, monkeypatch):
 
 def test_unknown_supervisor_flag_is_fatal():
     result = subprocess.run(
-        [sys.executable, "ai_supervisor.py", "--definitely-unknown"],
+        [sys.executable, "-m", "bin.ai_supervisor", "--definitely-unknown"],
         text=True,
         capture_output=True,
         check=False,
@@ -376,7 +376,8 @@ def test_dry_supervisor_refuses_missing_worker_file():
     result = subprocess.run(
         [
             sys.executable,
-            "ai_supervisor.py",
+            "-m",
+            "bin.ai_supervisor",
             "--base-script",
             "definitely-missing-worker.py",
         ],
@@ -394,10 +395,11 @@ def test_live_requires_explicit_confirmation(monkeypatch):
     result = subprocess.run(
         [
             sys.executable,
-            "ai_supervisor.py",
+            "-m",
+            "bin.ai_supervisor",
             "--live",
             "--base-script",
-            "autosize_universal.py",
+            "bin/autosize_universal.py",
         ],
         text=True,
         capture_output=True,

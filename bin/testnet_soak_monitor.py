@@ -20,7 +20,7 @@ from typing import Any
 
 from dotenv import load_dotenv
 
-from binance_testnet_smoke import (
+from bin.binance_testnet_smoke import (
     SpotTestnetClient,
     balance_amount,
     symbol_assets,

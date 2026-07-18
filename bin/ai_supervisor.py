@@ -73,7 +73,7 @@ from ladder_dragon.strategy.strategy_math import geometric_ladder as build_ladde
 from ladder_dragon.strategy.strategy_math import split_ladder
 from ladder_dragon.strategy.strategy_math import RegimeHysteresis
 from ladder_dragon.strategy.strategy_math import NumericHysteresis
-from supervisor_config import build_supervisor_parser, validate_supervisor_args
+from bin.supervisor_config import build_supervisor_parser, validate_supervisor_args
 
 try:
     import requests

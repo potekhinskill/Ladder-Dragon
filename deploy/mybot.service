@@ -16,7 +16,7 @@ Environment=PYTHONUNBUFFERED=1
 RuntimeDirectory=mybot
 RuntimeDirectoryMode=0700
 ExecStart=/home/bot/apps/binance_bot/deploy/run_bot_service.sh
-ExecStop=/home/bot/apps/binance_bot/supervisor_ctl.sh stop-all
+ExecStop=/home/bot/apps/binance_bot/bin/supervisor_ctl.sh stop-all
 Restart=on-failure
 RestartSec=10
 TimeoutStopSec=45

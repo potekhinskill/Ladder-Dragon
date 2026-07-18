@@ -313,7 +313,7 @@ sudo journalctl -u pi-healthd -n 50 --no-pager
 
 ```bash
 sudo -u bot /home/bot/apps/binance_bot/.venv/bin/python \
-  /home/bot/apps/binance_bot/ai_supervisor.py --version
+  /home/bot/apps/binance_bot/bin/ai_supervisor.py --version
 ```
 
 Проверка API через nginx:

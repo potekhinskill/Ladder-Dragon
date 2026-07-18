@@ -7,7 +7,7 @@ from ladder_dragon.execution.order_recovery import OrderJournal
 
 
 def load_worker():
-    path = Path("autosize_universal.py").resolve()
+    path = Path("bin/autosize_universal.py").resolve()
     spec = importlib.util.spec_from_file_location("recovery_worker", path)
     module = importlib.util.module_from_spec(spec)
     assert spec and spec.loader

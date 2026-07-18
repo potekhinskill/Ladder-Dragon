@@ -582,7 +582,7 @@ rm -f /etc/systemd/system/pi-watchdog-v3.service.d/rc-ok.conf
 runuser -u "${BOT_USER}" -- "${PROJECT_DIR}/.venv/bin/python" -m compileall -q "${PROJECT_DIR}"
 runuser -u "${BOT_USER}" -- "${PROJECT_DIR}/.venv/bin/python" \
   "${PROJECT_DIR}/deploy/validate_security_config.py" "${PROJECT_DIR}"
-runuser -u "${BOT_USER}" -- "${PROJECT_DIR}/.venv/bin/python" "${PROJECT_DIR}/ai_supervisor.py" --version
+runuser -u "${BOT_USER}" -- "${PROJECT_DIR}/.venv/bin/python" -m bin.ai_supervisor --version
 nginx -t
 
 systemctl daemon-reload

@@ -352,10 +352,10 @@ if [[ -d "${WEB_ROOT}/backups" ]]; then
 fi
 
 runuser -u "${BOT_USER}" -- .venv/bin/python -m compileall -q \
-  ai_supervisor.py autosize_universal.py FastAPI/pi-dashboard
+  bin FastAPI/pi-dashboard
 runuser -u "${BOT_USER}" -- .venv/bin/python \
   deploy/validate_security_config.py "${PROJECT_DIR}"
-runuser -u "${BOT_USER}" -- .venv/bin/python ai_supervisor.py --version
+runuser -u "${BOT_USER}" -- .venv/bin/python -m bin.ai_supervisor --version
 nginx -t
 
 systemctl daemon-reload

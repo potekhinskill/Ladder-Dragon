@@ -17,6 +17,8 @@ SYMBOLS="${BOT_SERVICE_SYMBOLS:-SOLUSDT,ETHUSDT,TONUSDT}"
   echo "BOT_SERVICE_EXECUTION must be dry or live" >&2
   exit 2
 }
+export PYTHONPATH="${PROJECT_DIR}${PYTHONPATH:+:${PYTHONPATH}}"
+
 [[ -x "${PYTHON}" ]] || {
   echo "Python virtual environment is missing: ${PYTHON}" >&2
   exit 2
@@ -28,14 +30,14 @@ if [[ "${VENUE}" == "testnet" ]]; then
   export BOT_RUN_DIR="${BOT_TESTNET_RUN_DIR:-/run/mybot/testnet}"
 fi
 
-"${PYTHON}" "${PROJECT_DIR}/db_migrate.py"
+"${PYTHON}" -m bin.db_migrate
 
 args=(
-  "${PROJECT_DIR}/ai_supervisor.py"
+  "${PROJECT_DIR}/bin/ai_supervisor.py"
   --singleton
   "--${VENUE}"
   --symbols "${SYMBOLS}"
-  --base-script "${PROJECT_DIR}/autosize_universal.py"
+  --base-script "${PROJECT_DIR}/bin/autosize_universal.py"
   --grid-density 24
   --smart-rolling
   --auto-cap

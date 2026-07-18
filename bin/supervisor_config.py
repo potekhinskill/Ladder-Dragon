@@ -24,7 +24,7 @@ def build_supervisor_parser() -> argparse.ArgumentParser:
     ap = argparse.ArgumentParser(description="Ladder Dragon trading supervisor")
     ap.add_argument("--version", action="version", version=product_label("supervisor"))
     ap.add_argument("--singleton", action="store_true", help="разрешить только один экземпляр (lock в /tmp)")
-    ap.add_argument("--base-script", default="/home/bot/apps/binance_bot/autosize_universal.py")
+    ap.add_argument("--base-script", default="/home/bot/apps/binance_bot/bin/autosize_universal.py")
     ap.add_argument("--symbols", default="SOLUSDT,ETHUSDT", help="через запятую")
     ap.add_argument("--ladder-mode", default="pct", choices=["pct"], help="режим построения лестницы")
     ap.add_argument("--ladder-pct", default="-0.5,-20,20", help="low,down,up в процентах")

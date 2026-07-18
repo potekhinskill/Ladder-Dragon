@@ -77,7 +77,7 @@ def parse_args():
     # Формат: -min%,-max%,[density]  (пример: -0.5,-20,20)
     p.add_argument("--ladder-pct", type=str, default="-0.5,-20,20")
     p.add_argument("--grid-density", type=int, default=20)  # запасной, если в ladder-pct нет density
-    p.add_argument("--base-script", type=str, default="autosize_universal.py")
+    p.add_argument("--base-script", type=str, default="bin/autosize_universal.py")
     p.add_argument("--kill-if-empty", action="store_true",
                    help="Завершить с ошибкой, если после фильтрации не осталось уровней.")
 

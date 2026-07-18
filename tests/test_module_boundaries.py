@@ -26,7 +26,7 @@ from ladder_dragon.strategy.strategy_math import (
     shift_buy_levels,
     split_ladder,
 )
-from supervisor_config import build_supervisor_parser, validate_supervisor_args
+from bin.supervisor_config import build_supervisor_parser, validate_supervisor_args
 
 
 def test_executor_config_owns_parser_and_strict_validation(monkeypatch):

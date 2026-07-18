@@ -120,9 +120,9 @@ def main():
         description="Просмотр статистики бота из SQLite",
         epilog=(
             "Примеры:\n"
-            "  python3 stats_view.py --utc --limit 5\n"
-            "  python3 stats_view.py --symbols SOLUSDT,ETHUSDT --global-limit 50\n"
-            "  BOT_STATS_DB=/path/bot_stats.db python3 stats_view.py\n"
+            "  python3 bin/stats_view.py --utc --limit 5\n"
+            "  python3 bin/stats_view.py --symbols SOLUSDT,ETHUSDT --global-limit 50\n"
+            "  BOT_STATS_DB=/path/bot_stats.db python3 bin/stats_view.py\n"
         ),
         formatter_class=argparse.RawTextHelpFormatter
     )
