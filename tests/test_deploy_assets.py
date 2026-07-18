@@ -68,6 +68,15 @@ def test_dashboard_publishes_read_only_account_balances():
     assert 'dashboard API credentials are read-only by design' in app
 
 
+def test_dashboard_balance_filter_hides_small_assets_by_default():
+    index = read("FRONT/index.html")
+    assert 'id="balance-hide-small"' in index
+    assert 'checked> скрывать &lt; 1 USDT' in index
+    assert "localStorage.getItem('balance-hide-small')" in index
+    assert "row.value_usdt == null || Number(row.value_usdt) < 1" in index
+    assert 'id="balance-hidden"' in index
+
+
 def test_dashboard_charts_have_bounded_responsive_containers():
     index = read("FRONT/index.html")
     assert "grid-template-columns:repeat(2,minmax(0,1fr))" in index
