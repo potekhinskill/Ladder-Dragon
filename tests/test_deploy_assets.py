@@ -68,6 +68,17 @@ def test_dashboard_publishes_read_only_account_balances():
     assert 'dashboard API credentials are read-only by design' in app
 
 
+def test_dashboard_publishes_read_only_open_orders():
+    index = read("FRONT/index.html")
+    app = read("FastAPI/pi-dashboard/app.py")
+    assert 'id="open-orders-body"' in index
+    assert "getJSON('/api/account/open-orders')" in index
+    assert '@app.get("/api/account/open-orders")' in app
+    assert '"client_order_id"' in app
+    assert '"remaining_qty"' in app
+    assert 'open orders snapshot failed' in app
+
+
 def test_dashboard_balance_filter_hides_small_assets_by_default():
     index = read("FRONT/index.html")
     assert 'id="balance-hide-small"' in index

@@ -99,6 +99,9 @@
   .balance-box{overflow:auto;background:#0f131b;border:1px solid var(--stroke);border-radius:var(--rad)}
   .balance-table{min-width:620px}
   .balance-unvalued{color:var(--warn)}
+  /* Открытые заявки читаются отдельно и не раздвигают dashboard на узком экране. */
+  .open-orders-box{max-height:340px;overflow:auto;background:#0f131b;border:1px solid var(--stroke);border-radius:var(--rad)}
+  .open-orders-table{min-width:1040px}
 </style>
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.3/dist/chart.umd.min.js"></script>
 </head>
@@ -261,6 +264,36 @@
       </div>
       <div class="sub" id="balance-unvalued" style="margin-top:8px"></div>
       <div class="sub" id="balance-hidden" style="margin-top:4px"></div>
+    </div>
+  </section>
+
+  <!-- Все открытые заявки Binance: только read-only снимок, без торговых действий. -->
+  <section class="mt">
+    <div class="card">
+      <div class="row" style="margin-bottom:6px">
+        <div class="label">Открытые ордера</div>
+        <span id="open-orders-pill" class="pill warn">загрузка…</span>
+      </div>
+      <div class="sub" id="open-orders-updated" style="margin-bottom:8px">—</div>
+      <div class="open-orders-box">
+        <table class="tbl open-orders-table">
+          <thead>
+            <tr>
+              <th>Пара</th>
+              <th>Сторона</th>
+              <th>Тип</th>
+              <th class="right mono">Цена</th>
+              <th class="right mono">Стоп</th>
+              <th class="right mono">Всего</th>
+              <th class="right mono">Исполнено</th>
+              <th class="right mono">Остаток</th>
+              <th>Статус</th>
+              <th>Создан</th>
+            </tr>
+          </thead>
+          <tbody id="open-orders-body"></tbody>
+        </table>
+      </div>
     </div>
   </section>
 
@@ -543,6 +576,46 @@ function updateBalances(snapshot){
     : '';
 }
 
+function escapeHtml(value){
+  return String(value ?? '—').replace(/[&<>"']/g, ch => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[ch]));
+}
+
+function updateOpenOrders(snapshot){
+  const pill = $('#open-orders-pill');
+  const body = $('#open-orders-body');
+  if(!snapshot || !snapshot.ok || !Array.isArray(snapshot.orders)){
+    setPill(pill,'warn'); pill.textContent='нет данных';
+    $('#open-orders-updated').textContent='—';
+    body.innerHTML = '<tr><td class="muted" colspan="10">Открытые ордера недоступны</td></tr>';
+    return;
+  }
+  setPill(pill, 'ok');
+  pill.textContent = `${snapshot.count ?? snapshot.orders.length} шт.`;
+  $('#open-orders-updated').textContent = `обновлено ${snapshot.updated_at || '—'}`;
+  const rows = snapshot.orders.map(row=>{
+    const side = escapeHtml(row.side || '—');
+    const sideClass = row.side === 'BUY' ? 'side-buy' : (row.side === 'SELL' ? 'side-sell' : '');
+    const price = Number(row.price);
+    const stop = Number(row.stop_price);
+    const created = Number(row.created_at);
+    return `<tr>
+      <td class="mono">${escapeHtml(row.symbol)}</td>
+      <td class="${sideClass}">${side}</td>
+      <td>${escapeHtml(row.type || '—')}</td>
+      <td class="right mono">${Number.isFinite(price) && price > 0 ? NF4.format(price) : '—'}</td>
+      <td class="right mono">${Number.isFinite(stop) && stop > 0 ? NF4.format(stop) : '—'}</td>
+      <td class="right mono">${fmtQty(row.orig_qty)}</td>
+      <td class="right mono">${fmtQty(row.executed_qty)}</td>
+      <td class="right mono">${fmtQty(row.remaining_qty)}</td>
+      <td>${escapeHtml(row.status || 'OPEN')}</td>
+      <td class="nowrap">${Number.isFinite(created) && created > 0 ? tsShort(created * 1000) : '—'}</td>
+    </tr>`;
+  });
+  body.innerHTML = rows.length
+    ? rows.join('')
+    : '<tr><td class="muted" colspan="10">Открытых ордеров нет</td></tr>';
+}
+
 function updateCharts(hist){
   ensureCharts();
   charts.t.data.labels = hist.labels; charts.t.data.datasets[0].data = hist.temp_c; charts.t.update();
@@ -723,6 +796,15 @@ async function refreshOrders(){
   }
 }
 
+async function refreshOpenOrders(){
+  try{
+    updateOpenOrders(await getJSON('/api/account/open-orders'));
+  }catch(e){
+    updateOpenOrders(null);
+    $('#open-orders-updated').textContent = `ошибка: ${e}`;
+  }
+}
+
 function startLogs(){
   const box = $('#logs'), pill = $('#log-pill');
   async function load(){
@@ -745,6 +827,7 @@ function startLogs(){
 
 refresh(); setInterval(refresh, 5000); startLogs();
 refreshOrders(); setInterval(refreshOrders, 8000);
+refreshOpenOrders(); setInterval(refreshOpenOrders, 8000);
 </script>
 </body>
 </html>

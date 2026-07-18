@@ -43,6 +43,9 @@ _RATE_LOCK = threading.Lock()
 _BALANCE_CACHE: Dict[str, object] = {"ts": 0.0, "payload": None}
 _BALANCE_CACHE_TTL_SEC = max(5.0, float(os.getenv("DASHBOARD_BALANCE_CACHE_SEC", "10")))
 _BALANCE_CACHE_LOCK = threading.Lock()
+_OPEN_ORDERS_CACHE: Dict[str, object] = {"ts": 0.0, "payload": None}
+_OPEN_ORDERS_CACHE_TTL_SEC = max(3.0, float(os.getenv("DASHBOARD_OPEN_ORDERS_CACHE_SEC", "5")))
+_OPEN_ORDERS_CACHE_LOCK = threading.Lock()
 AI_DECISIONS_DB = os.getenv("AI_DECISIONS_DB", ".runtime/ai_decisions.sqlite3")
 AI_USAGE_LOG = os.getenv("AI_USAGE_LOG", ".runtime/ai_usage.ndjson")
 AI_MODE = os.getenv("AI_MODE", "SHADOW").upper()
@@ -410,6 +413,61 @@ def account_balances_snapshot() -> Dict:
     with _BALANCE_CACHE_LOCK:
         _BALANCE_CACHE["ts"] = now
         _BALANCE_CACHE["payload"] = payload
+    return payload
+
+
+def account_open_orders_snapshot() -> Dict:
+    """Read-only снимок всех открытых Binance-ордеров с безопасными полями."""
+    now = time.monotonic()
+    with _OPEN_ORDERS_CACHE_LOCK:
+        cached = _OPEN_ORDERS_CACHE.get("payload")
+        if cached is not None and now - float(_OPEN_ORDERS_CACHE.get("ts", 0.0)) < _OPEN_ORDERS_CACHE_TTL_SEC:
+            return cached  # type: ignore[return-value]
+
+    if not ensure_api_creds():
+        raise RuntimeError("No API creds")
+
+    raw = _signed("GET", "/api/v3/openOrders")
+    if not isinstance(raw, list):
+        raise RuntimeError("Binance open orders response is not a list")
+
+    orders = []
+    for row in raw:
+        if not isinstance(row, dict):
+            continue
+        symbol = str(row.get("symbol", "")).upper()
+        if not symbol:
+            continue
+        orig_qty = float(row.get("origQty", 0.0) or 0.0)
+        executed_qty = float(row.get("executedQty", 0.0) or 0.0)
+        orders.append({
+            "order_id": row.get("orderId"),
+            "client_order_id": str(row.get("clientOrderId", "")),
+            "symbol": symbol,
+            "side": str(row.get("side", "")).upper(),
+            "type": str(row.get("type", "")).upper(),
+            "time_in_force": str(row.get("timeInForce", "")),
+            "price": float(row.get("price", 0.0) or 0.0),
+            "stop_price": float(row.get("stopPrice", 0.0) or 0.0),
+            "orig_qty": orig_qty,
+            "executed_qty": executed_qty,
+            "remaining_qty": max(0.0, orig_qty - executed_qty),
+            "status": str(row.get("status", "OPEN")).upper(),
+            "created_at": _ts_to_s(row.get("time", 0)),
+            "updated_at": _ts_to_s(row.get("updateTime", row.get("time", 0))),
+        })
+
+    orders.sort(key=lambda item: (item["symbol"], item["created_at"], str(item["order_id"])))
+    payload = {
+        "ok": True,
+        "updated_at": now_str(),
+        "venue": BINANCE_BASE,
+        "count": len(orders),
+        "orders": orders,
+    }
+    with _OPEN_ORDERS_CACHE_LOCK:
+        _OPEN_ORDERS_CACHE["ts"] = now
+        _OPEN_ORDERS_CACHE["payload"] = payload
     return payload
 
 def base_asset_of(symbol: str) -> str:
@@ -801,6 +859,18 @@ def account_balances():
     except Exception as exc:
         return JSONResponse(
             {"ok": False, "error": f"account balance snapshot failed: {exc}"},
+            status_code=503,
+        )
+
+
+@app.get("/api/account/open-orders")
+def account_open_orders():
+    """Показать все открытые ордера через выделенный read-only API-ключ."""
+    try:
+        return JSONResponse(account_open_orders_snapshot())
+    except Exception as exc:
+        return JSONResponse(
+            {"ok": False, "error": f"open orders snapshot failed: {exc}"},
             status_code=503,
         )
 

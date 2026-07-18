@@ -123,6 +123,66 @@ def test_account_balances_returns_service_unavailable_on_binance_error(monkeypat
     assert "Binance unavailable" in response.json()["error"]
 
 
+def test_open_orders_exposes_read_only_order_fields_without_secrets(monkeypatch):
+    monkeypatch.setenv("DASHBOARD_BINANCE_API_KEY", "read-only-key")
+    monkeypatch.setenv("DASHBOARD_BINANCE_API_SECRET", "read-only-secret")
+    module = load_dashboard(monkeypatch)
+    monkeypatch.setattr(module, "_signed", lambda method, path, params=None: [
+        {
+            "orderId": 123,
+            "clientOrderId": "LDBLAD-example",
+            "symbol": "SOLUSDT",
+            "side": "BUY",
+            "type": "LIMIT",
+            "timeInForce": "GTC",
+            "price": "74.60",
+            "stopPrice": "0.00",
+            "origQty": "0.133",
+            "executedQty": "0.033",
+            "status": "NEW",
+            "time": 1784319000000,
+            "updateTime": 1784319001000,
+        },
+    ])
+    with TestClient(module.app) as client:
+        response = client.get(
+            "/api/account/open-orders",
+            headers={"Authorization": "Bearer test-secret-token"},
+        )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["count"] == 1
+    order = payload["orders"][0]
+    assert order["symbol"] == "SOLUSDT"
+    assert order["remaining_qty"] == pytest.approx(0.1)
+    assert order["status"] == "NEW"
+    assert "read-only-secret" not in response.text
+
+
+def test_open_orders_uses_short_cache_and_never_posts(monkeypatch):
+    monkeypatch.setenv("DASHBOARD_BINANCE_API_KEY", "read-only-key")
+    monkeypatch.setenv("DASHBOARD_BINANCE_API_SECRET", "read-only-secret")
+    module = load_dashboard(monkeypatch)
+    readonly_signed = module._signed
+    calls = {"signed": 0}
+
+    def signed(method, path, params=None):
+        calls["signed"] += 1
+        assert method == "GET"
+        assert path == "/api/v3/openOrders"
+        return []
+
+    monkeypatch.setattr(module, "_signed", signed)
+    first = module.account_open_orders_snapshot()
+    second = module.account_open_orders_snapshot()
+
+    assert first == second
+    assert calls == {"signed": 1}
+    with pytest.raises(RuntimeError, match="read-only"):
+        readonly_signed("POST", "/api/v3/order", {})
+
+
 def test_ai_control_button_changes_only_advisory_mode(tmp_path, monkeypatch):
     status_file = tmp_path / "ai_status.json"
     control_file = tmp_path / "ai_control.json"
