@@ -31,5 +31,8 @@ testpaths = ["tests"]
 [tool.setuptools.packages.find]
 include = ["ladder_dragon*", "bin*"]
 
+[tool.setuptools.package-data]
+ladder_dragon = ["migrations/*.sql"]
+
 [tool.setuptools.dynamic]
 version = {attr = "product_version.__version__"}

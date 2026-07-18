@@ -2,7 +2,7 @@
 
 Приватный Python-проект для управления лестничной торговлей на Binance Spot. Бот строит адаптивные сетки BUY/SELL, учитывает ATR, EMA и VWAP, управляет OCO-ордерами и сохраняет торговую статистику в SQLite.
 
-Текущая версия продукта: **2.10.33**. Ladder Dragon использует [Semantic Versioning](https://semver.org/); единственный источник версии — `product_version.py`. Проверить установленную версию можно командой `python -m bin.ai_supervisor --version`.
+Текущая версия продукта: **2.10.34**. Ladder Dragon использует [Semantic Versioning](https://semver.org/); единственный источник версии — `product_version.py`. Проверить установленную версию можно командой `python -m bin.ai_supervisor --version`.
 
 > [!WARNING]
 > Проект работает с реальными биржевыми ордерами. Это не инвестиционная рекомендация. DRY является режимом по умолчанию, а любые изменяющие Binance-запросы дополнительно блокируются на уровне транспорта. Тем не менее перед Mainnet LIVE обязателен отдельный прогон на Binance Spot Testnet и ручная проверка лимитов.
@@ -30,6 +30,7 @@
 | `ladder_dragon/execution/` | Binance transport, ордера, OCO/STOP, recovery, fills, комиссии и inventory |
 | `ladder_dragon/risk/` | Circuit breaker, portfolio CAP, VaR/Expected Shortfall и risk gates |
 | `ladder_dragon/strategy/` | Лестницы, EMA/ATR/ADX, simulation и order-book replay |
+| `ladder_dragon/migrations/` | Версионируемые SQLite-миграции статистики и учёта |
 | `FastAPI/pi-dashboard/` | Read-only API и локальные данные dashboard |
 | `FRONT/` | Статический интерфейс и встроенная документация |
 | `deploy/` | Raspberry/systemd/nginx/backup/deploy-сценарии |

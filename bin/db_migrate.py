@@ -14,7 +14,7 @@ from dotenv import load_dotenv
 
 
 ROOT = Path(__file__).resolve().parent.parent
-MIGRATIONS = ROOT / "migrations"
+MIGRATIONS = ROOT / "ladder_dragon" / "migrations"
 
 
 def migrate(db_path: str) -> list[str]:
