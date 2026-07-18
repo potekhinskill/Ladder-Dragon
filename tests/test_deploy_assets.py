@@ -58,6 +58,15 @@ def test_dashboard_publishes_version_and_changelog():
     assert 'FRONT/index.html FRONT/help.html CHANGELOG.md' in updater
 
 
+def test_dashboard_charts_have_bounded_responsive_containers():
+    index = read("FRONT/index.html")
+    assert "grid-template-columns:repeat(2,minmax(0,1fr))" in index
+    assert ".grid-charts>.card{min-width:0" in index
+    assert ".chart-frame{position:relative" in index
+    assert "maintainAspectRatio:false" in index
+    assert '<div class="chart-frame"><canvas id="chartTemp"></canvas></div>' in index
+
+
 def test_shadow_ai_defaults_limit_cost_and_duplicate_requests():
     example = read(".env.example")
     config = read("supervisor_config.py")
