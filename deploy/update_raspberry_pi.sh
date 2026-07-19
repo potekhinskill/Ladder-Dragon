@@ -403,7 +403,6 @@ render_unit() {
     -e "s#/home/bot/apps/binance_bot#${PROJECT_DIR}#g" \
     -e "s/^User=bot$/User=${BOT_USER}/" \
     -e "s/^Group=bot$/Group=${BOT_USER}/" \
-    -e "s/^SupplementaryGroups=bot$/SupplementaryGroups=${BOT_USER}/" \
     "$1" >"$2"
   chmod 0644 "$2"
 }
@@ -417,6 +416,9 @@ render_unit deploy/ladder-dragon-log-export.service \
   /etc/systemd/system/ladder-dragon-log-export.service
 install -m 0644 deploy/ladder-dragon-log-export.timer \
   /etc/systemd/system/ladder-dragon-log-export.timer
+install -d -o root -g root -m 0755 /usr/local/libexec/ladder-dragon
+install -o root -g root -m 0644 deploy/export_sanitized_logs.py \
+  /usr/local/libexec/ladder-dragon/export_sanitized_logs.py
 
 backup_mount_dropin="/etc/systemd/system/ladder-dragon-backup.service.d/external-mount.conf"
 rm -f "${backup_mount_dropin}"

@@ -138,7 +138,8 @@ for path in \
   /etc/nginx/.htpasswd-ladder-dragon \
   /etc/systemd/journald.conf.d/ladder-dragon.conf \
   /etc/fail2ban/jail.d/sshd.local \
-  /etc/default/zramswap; do
+  /etc/default/zramswap \
+  /usr/local/libexec/ladder-dragon/export_sanitized_logs.py; do
   [[ -e "${path}" ]] && copy_rootfs_path "${path}"
 done
 

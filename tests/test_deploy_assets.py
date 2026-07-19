@@ -411,10 +411,12 @@ def test_log_export_is_rotated_sanitized_and_managed_by_systemd():
     assert "OnUnitActiveSec=1m" in timer
     assert "User=root" in service
     assert "Group=www-data" in service
-    assert "SupplementaryGroups=bot" in service
     assert "CapabilityBoundingSet=\n" in service
-    assert 's/^SupplementaryGroups=bot$/SupplementaryGroups=${BOT_USER}/' in installer
-    assert 's/^SupplementaryGroups=bot$/SupplementaryGroups=${BOT_USER}/' in updater
+    assert "ProtectHome=yes" in service
+    assert "ExecStart=/usr/bin/python3 /usr/local/libexec/ladder-dragon/export_sanitized_logs.py" in service
+    assert "/usr/local/libexec/ladder-dragon/export_sanitized_logs.py" in installer
+    assert "/usr/local/libexec/ladder-dragon/export_sanitized_logs.py" in updater
+    assert "/usr/local/libexec/ladder-dragon/export_sanitized_logs.py" in read("deploy/backup_raspberry_pi.sh")
     assert "ladder-dragon-log-export.timer" in installer
     assert "expected protected logs HTTP 401" in installer
 

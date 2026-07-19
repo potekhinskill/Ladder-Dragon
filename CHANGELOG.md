@@ -3,6 +3,24 @@
 All notable changes are documented here. Releases use Semantic Versioning; every
 section is dated and there is intentionally no `Unreleased` section.
 
+## [2.10.77] — 2026-07-19
+
+### Fixed
+- The sanitized log exporter is now installed as a root-owned runtime asset in
+  `/usr/local/libexec/ladder-dragon` and executed by the system Python. It no
+  longer depends on checkout file modes, virtualenv traversal, or access to the
+  bot user's home directory.
+- The log-export service now hides `/home` completely while keeping an empty
+  capability bounding set. The installed exporter is included in encrypted
+  configuration backups for disaster recovery.
+
+### Verified
+- Added deployment regression coverage for the installed exporter path,
+  capability-free service, hidden home directories, updater/installer copying,
+  and encrypted-backup inventory.
+- `PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=. .venv/bin/python -m pytest -q`.
+- Deployment shell syntax and `git diff --check`.
+
 ## [2.10.76] — 2026-07-19
 
 ### Fixed

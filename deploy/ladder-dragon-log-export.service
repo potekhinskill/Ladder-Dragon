@@ -8,15 +8,11 @@ Description=Export sanitized Ladder Dragon logs for protected dashboard
 Type=oneshot
 User=root
 Group=www-data
-# The exporter executes from a bot-owned 0750 project tree but does not need
-# filesystem-bypass capabilities. The installer replaces this template group
-# with the configured bot account.
-SupplementaryGroups=bot
 Environment=BOT_LOG_EXPORT_DIR=/var/lib/ladder-dragon/logs
 Environment=BOT_LOG_RETENTION_DAYS=7
 Environment=BOT_LOG_MAX_BYTES=5242880
 Environment=BOT_LOG_CURRENT_LINES=3000
-ExecStart=/home/bot/apps/binance_bot/.venv/bin/python /home/bot/apps/binance_bot/deploy/export_sanitized_logs.py
+ExecStart=/usr/bin/python3 /usr/local/libexec/ladder-dragon/export_sanitized_logs.py
 Nice=10
 IOSchedulingClass=idle
 NoNewPrivileges=yes
@@ -25,7 +21,7 @@ PrivateDevices=yes
 ProtectProc=invisible
 ProcSubset=pid
 ProtectSystem=strict
-ProtectHome=read-only
+ProtectHome=yes
 ProtectClock=yes
 ProtectKernelTunables=yes
 ProtectKernelModules=yes
