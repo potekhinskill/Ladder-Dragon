@@ -699,7 +699,7 @@ async function getTradeSummary24h(){
   return {ok:false};
 }
 
-function updateTrade24(sum){
+function updateTrade24(sum, balances){
   const pill = $('#t24-pill');
   const setNA = ()=>{
     $('#t24-trades').textContent='—';
@@ -722,7 +722,11 @@ function updateTrade24(sum){
   const vol    = d.sell_volume_usdt ?? d.volume_sell_usdt ?? d.sell_usdt ?? d.volume_usdt ?? null;
   const fees   = d.fees_usdt ?? d.total_fees_usdt ?? d.total_fees ?? null;
 
-  const eqNow  = (d.equity_now_usdt ?? d.equity_now_usdt_approx ?? null);
+  const summaryEqNow = (d.equity_now_usdt ?? d.equity_now_usdt_approx ?? null);
+  // The account total must use the same live Binance snapshot as the balances
+  // table. The symbol-filtered summary remains responsible only for 24h PnL.
+  const liveAccountTotal = balances?.ok ? Number(balances.total_value_usdt) : NaN;
+  const eqNow = Number.isFinite(liveAccountTotal) ? liveAccountTotal : summaryEqNow;
   const eqThen = d.equity_then_usdt ?? null;
   const pnl    = (d.equity_pnl_usdt ?? d.net_pnl_usdt ?? null);
 
@@ -944,7 +948,7 @@ async function refresh(){
     ]);
     updateKpis(h);
     updateCharts(hist);
-    updateTrade24(sum);
+    updateTrade24(sum, balances);
     updateBalances(balances);
     updateOperations(h);
     updateTrading(trading);

@@ -73,6 +73,9 @@ def test_dashboard_uses_ladder_dragon_branding():
     assert "<title>Ladder Dragon</title>" in index
     assert "🧪" not in index
     assert "<h1>Ladder Dragon</h1>" in index
+    assert "function updateTrade24(sum, balances)" in index
+    assert "balances.total_value_usdt" in index
+    assert "updateTrade24(sum, balances)" in index
     assert 'src="/ladder-dragon-dashboard-icon.svg"' in index
     assert '<link rel="icon" type="image/svg+xml" href="/ladder-dragon-dashboard-icon.svg"/>' in index
     assert '<rect' not in read("docs/assets/ladder-dragon-dashboard-icon.svg")
