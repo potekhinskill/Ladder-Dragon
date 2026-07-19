@@ -3,6 +3,22 @@
 All notable changes are documented here. Releases use Semantic Versioning; every
 section is dated and there is intentionally no `Unreleased` section.
 
+## [2.10.70] — 2026-07-19
+
+### Fixed
+- Dashboard order-intent counts now treat `FAILED`, `EXPIRED`,
+  `EXPIRED_IN_MATCH`, and `REJECTED` as terminal states instead of reporting
+  them as pending exchange work.
+
+### Verified
+- Added a regression test proving terminal failures are excluded while a
+  genuinely prepared intent remains pending.
+- `PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=. .venv/bin/python -m pytest -q` — 228 tests pass.
+- `.venv/bin/python -m pip check` — no broken requirements; `pip-audit
+  --skip-editable` — no known vulnerabilities.
+- Python compilation, deployment shell syntax, tracked-secret scan, and
+  `git diff --check` pass.
+
 ## [2.10.69] — 2026-07-19
 
 ### Fixed

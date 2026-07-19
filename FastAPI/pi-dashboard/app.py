@@ -565,8 +565,15 @@ def _order_journal_snapshot(runtime: Dict[str, object]) -> Dict[str, object]:
                     "commission_usdt": None,
                     "updated_at": datetime.fromtimestamp(float(latest["updated_at"]), APP_TZ).strftime("%Y-%m-%d %H:%M:%S"),
                 }
+            terminal_states = {
+                "FILLED", "CLOSED", "PROTECTED", "CANCELED", "CANCELLED",
+                "EXPIRED", "EXPIRED_IN_MATCH", "REJECTED", "FAILED",
+            }
             cancelled = sum(value for key, value in counts.items() if "CANCEL" in key.upper())
-            pending = sum(value for key, value in counts.items() if key.upper() not in {"FILLED", "CLOSED", "PROTECTED"} and "CANCEL" not in key.upper())
+            pending = sum(
+                value for key, value in counts.items()
+                if key.upper() not in terminal_states
+            )
             return {"available": True, "counts": counts, "cancelled": cancelled, "pending": pending, "latest": item}
     except (OSError, sqlite3.Error, ValueError, TypeError) as exc:
         return {"available": False, "reason": type(exc).__name__}

@@ -8,6 +8,7 @@ import pytest
 from fastapi.testclient import TestClient
 from ladder_dragon.ai.ai_runtime_status import write_runtime_status
 from ladder_dragon.ai.ai_context import AdvisorDecisionStore
+from ladder_dragon.execution.order_recovery import OrderJournal
 
 
 def load_dashboard(monkeypatch):
@@ -178,6 +179,39 @@ def test_missing_runtime_never_converts_account_dust_to_symbols(monkeypatch):
     assert snapshot["execution_mode"] == "STOPPED"
     assert snapshot["symbols"] == []
     assert snapshot["positions"] == []
+
+
+def test_order_journal_pending_excludes_terminal_failures(tmp_path, monkeypatch):
+    module = load_dashboard(monkeypatch)
+    journal_path = tmp_path / "order_intents.sqlite3"
+    journal = OrderJournal(journal_path, venue="mainnet")
+    failed = journal.prepare(
+        client_order_id="LDSLAD-failed",
+        symbol="SOLUSDT",
+        side="SELL",
+        purpose="ladder",
+        order_type="LIMIT",
+        quantity="1",
+        price="100",
+    )
+    journal.mark_failed(failed.client_order_id, "exchange confirmed order absent")
+    journal.prepare(
+        client_order_id="LDBLAD-pending",
+        symbol="SOLUSDT",
+        side="BUY",
+        purpose="ladder",
+        order_type="LIMIT",
+        quantity="0.1",
+        price="90",
+    )
+
+    snapshot = module._order_journal_snapshot({
+        "paths": {"order_journal": str(journal_path)}
+    })
+
+    assert snapshot["counts"] == {"FAILED": 1, "PREPARED": 1}
+    assert snapshot["cancelled"] == 0
+    assert snapshot["pending"] == 1
 
 
 def test_open_orders_exposes_read_only_order_fields_without_secrets(monkeypatch):
