@@ -3,7 +3,11 @@ import argparse
 import pytest
 import requests
 
-from ladder_dragon.execution.binance_transport import BinanceTransport
+from ladder_dragon.execution.binance_transport import (
+    BinanceNetworkError,
+    BinanceResponseError,
+    BinanceTransport,
+)
 from ladder_dragon.execution.executor_config import build_executor_parser, validate_executor_args
 from ladder_dragon.execution.executor_market import get_balances, get_price, get_symbol_assets
 from ladder_dragon.execution.executor_orders import (
@@ -131,6 +135,87 @@ def test_binance_transport_signs_live_request(monkeypatch):
     assert captured["method"] == "POST"
     assert "timestamp=1700000000000" in captured["url"]
     assert "signature=" in captured["url"]
+
+
+def test_binance_transport_does_not_retry_or_expose_signed_business_rejection():
+    calls = []
+    messages = []
+
+    class Response:
+        status_code = 400
+        headers = {}
+        text = ""
+
+        @staticmethod
+        def json():
+            return {
+                "code": -1013,
+                "msg": "Filter failure: PERCENT_PRICE_BY_SIDE",
+            }
+
+    class Session:
+        def request(self, method, url, **kwargs):
+            calls.append(url)
+            return Response()
+
+    transport = BinanceTransport(
+        Session(),
+        base_url=lambda: "https://api.binance.com",
+        api_key=lambda: "public-key",
+        api_secret=lambda: "private-secret",
+        live=lambda: True,
+        recv_window=lambda: 5000,
+        logger=messages.append,
+    )
+
+    with pytest.raises(BinanceResponseError) as caught:
+        transport.signed_request(
+            "POST", "/api/v3/order", {"symbol": "SOLUSDT"}
+        )
+
+    assert len(calls) == 1
+    assert caught.value.code == -1013
+    assert caught.value.endpoint == "/api/v3/order"
+    assert "PERCENT_PRICE_BY_SIDE" in str(caught.value)
+    assert "signature=" not in str(caught.value)
+    assert "private-secret" not in str(caught.value)
+    assert all("signature=" not in message for message in messages)
+
+
+def test_binance_transport_scrubs_signed_url_after_network_retry_exhaustion(
+    monkeypatch,
+):
+    messages = []
+
+    class Session:
+        def request(self, method, url, **kwargs):
+            raise requests.ConnectionError(
+                f"connection lost for {url}&private_marker=must-not-leak"
+            )
+
+    monkeypatch.setattr(
+        "ladder_dragon.execution.binance_transport.time.sleep", lambda _: None
+    )
+    transport = BinanceTransport(
+        Session(),
+        base_url=lambda: "https://api.binance.com",
+        api_key=lambda: "public-key",
+        api_secret=lambda: "private-secret",
+        live=lambda: True,
+        recv_window=lambda: 5000,
+        logger=messages.append,
+    )
+
+    with pytest.raises(BinanceNetworkError) as caught:
+        transport.signed_request(
+            "POST", "/api/v3/order", {"symbol": "SOLUSDT"}
+        )
+
+    combined = "\n".join([str(caught.value), *messages])
+    assert "signature=" not in combined
+    assert "private_marker" not in combined
+    assert "private-secret" not in combined
+    assert "/api/v3/order" in str(caught.value)
 
 
 def test_executor_market_fallbacks_and_asset_cache():

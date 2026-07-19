@@ -56,9 +56,14 @@ if [[ "${EXECUTION}" == "live" ]]; then
   args+=(--live)
 fi
 
-# Additional arguments are allowed only from the root-owned service environment.
-# shellcheck disable=SC2206
-extra_args=(${BOT_SERVICE_EXTRA_ARGS:-})
+# Parse only explicitly allowlisted tuning arguments. Critical venue, execution,
+# script, AI, path, and credential options can never be overridden here.
+"${PYTHON}" "${PROJECT_DIR}/deploy/parse_service_args.py" \
+  "${BOT_SERVICE_EXTRA_ARGS:-}" >/dev/null
+mapfile -d '' -t extra_args < <(
+  "${PYTHON}" "${PROJECT_DIR}/deploy/parse_service_args.py" \
+    "${BOT_SERVICE_EXTRA_ARGS:-}"
+)
 args+=("${extra_args[@]}")
 
 exec "${PYTHON}" -u "${args[@]}"

@@ -63,7 +63,7 @@ GitHub's successful-authentication/no-shell response is expected.
 
 ```bash
 sudo install -d -o bot -g bot -m 0750 /home/bot/apps
-sudo -u bot git clone --branch codex/safety-hardening --single-branch \
+sudo -u bot git clone --branch main --single-branch \
   git@github.com:potekhinskill/Ladder-Dragon.git /home/bot/apps/binance_bot
 cd /home/bot/apps/binance_bot
 RELEASE_SHA="$(sudo -u bot git rev-parse HEAD)"
@@ -206,6 +206,25 @@ cd /home/bot/apps/binance_bot
 RELEASE_SHA="<40-character-reviewed-SHA>"
 sudo bash deploy/update_raspberry_pi.sh update "$RELEASE_SHA"
 ```
+
+Updates are fail-closed and require a GPG-signed commit from the configured
+maintainer fingerprint. Export the full fingerprint (40 or 64 hexadecimal
+characters) before running the updater:
+
+```bash
+export BOT_UPDATE_TRUSTED_SIGNER='808B9F52CB6C08901703EF7C113144122F1830A0'
+sudo --preserve-env=BOT_UPDATE_TRUSTED_SIGNER \
+  bash deploy/update_raspberry_pi.sh update "$RELEASE_SHA"
+```
+
+Do not disable `BOT_UPDATE_REQUIRE_SIGNED_COMMIT` in routine operation. A fresh
+bootstrap still requires an exact commit SHA; after bootstrap, signed updates
+and the pinned fingerprint protect against a compromised branch or tag.
+
+The default local dashboard certificate is self-signed, so the nginx template
+intentionally does not send HSTS. For remote access, install a certificate from
+a trusted private CA or use a private overlay such as Tailscale before enabling
+HSTS; otherwise a certificate mistake can lock browsers out of `bot.local`.
 
 The updater creates an encrypted backup, records service state, stops services,
 applies only the requested fast-forward SHA, installs dependencies, updates

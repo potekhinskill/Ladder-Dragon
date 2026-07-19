@@ -1,3 +1,5 @@
+import sqlite3
+
 from ladder_dragon.execution.order_recovery import OrderJournal
 
 
@@ -105,6 +107,40 @@ def test_unknown_submission_is_kept_for_reconciliation(tmp_path):
     assert len(unresolved) == 1
     assert unresolved[0].state == "UNKNOWN"
     assert "connection reset" in unresolved[0].last_error
+
+
+def test_journal_scrubs_signed_urls_from_new_and_historical_errors(tmp_path):
+    path = tmp_path / "orders.sqlite3"
+    journal = OrderJournal(path)
+    intent = journal.prepare(
+        client_order_id="LDSLAD-sensitive",
+        symbol="SOLUSDT",
+        side="SELL",
+        purpose="ladder",
+        order_type="LIMIT",
+        quantity="0.100",
+        price="100.00",
+    )
+    signed_error = (
+        "400 Client Error for url: "
+        "https://api.binance.com/api/v3/order?symbol=SOLUSDT"
+        "&timestamp=123&signature=secret-signature"
+    )
+    updated = journal.mark_unknown(intent.client_order_id, signed_error)
+    assert "signature=secret-signature" not in updated.last_error
+    assert "?<redacted>" in updated.last_error
+
+    with sqlite3.connect(path) as connection:
+        connection.execute(
+            "UPDATE order_intents SET last_error = ? WHERE client_order_id = ?",
+            (signed_error, intent.client_order_id),
+        )
+
+    reopened = OrderJournal(path)
+    historical = reopened.get(intent.client_order_id)
+    assert historical is not None
+    assert "signature=secret-signature" not in historical.last_error
+    assert "?<redacted>" in historical.last_error
 
 
 def test_canceled_partial_buy_still_requires_protection(tmp_path):

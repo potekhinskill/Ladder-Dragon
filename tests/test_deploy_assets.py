@@ -1,4 +1,7 @@
+import base64
+import hashlib
 from pathlib import Path
+import re
 
 import product_version
 
@@ -66,6 +69,34 @@ def test_nginx_requires_auth_and_publishes_only_encrypted_backups():
     assert "location = /CHANGELOG.md" in site
     assert 'default_type text/plain;' in site
     assert 'Content-Disposition "inline"' in site
+    assert "Content-Security-Policy" in site
+    assert "X-Content-Type-Options" in site
+    assert "Referrer-Policy" in site
+    assert "Permissions-Policy" in site
+    assert "frame-ancestors 'none'" in site
+
+
+def test_dashboard_csp_hash_matches_the_only_inline_script():
+    index = read("FRONT/index.html")
+    site = read("deploy/nginx/bot.local.conf")
+    blocks = re.findall(r"<script>(.*?)</script>", index, flags=re.DOTALL)
+    assert len(blocks) == 1
+    digest = base64.b64encode(hashlib.sha256(blocks[0].encode()).digest()).decode()
+    assert f"'sha256-{digest}'" in site
+    assert "script-src 'self' 'unsafe-inline'" not in site
+
+
+def test_dashboard_escapes_exchange_and_database_values_before_inner_html():
+    index = read("FRONT/index.html")
+    for expression in (
+        "${escapeHtml(row.asset)}",
+        "${escapeHtml(x.symbol)}",
+        "${escapeHtml(x.side||'—')}",
+        "${escapeHtml(feeCell)}",
+    ):
+        assert expression in index
+    assert "body.replaceChildren()" in index
+    assert "cell.textContent = `${tr('api_error')}: ${e}`" in index
 
 
 def test_dashboard_uses_ladder_dragon_branding():
@@ -218,7 +249,7 @@ def test_dashboard_publishes_read_only_open_orders():
     assert '@app.get("/api/account/open-orders")' in app
     assert '"client_order_id"' in app
     assert '"remaining_qty"' in app
-    assert 'open orders snapshot failed' in app
+    assert 'OPEN_ORDERS_FAILED' in app
     assert 'executed_qty > 0 and requested_qty > 0 and executed_qty < requested_qty' in app
 
 
@@ -388,6 +419,9 @@ def test_updates_are_commit_allowlisted_and_backups_are_encrypted():
     assert "git pull" not in updater
     assert "merge-base --is-ancestor" in updater
     assert "git verify-commit" in updater
+    assert 'BOT_UPDATE_REQUIRE_SIGNED_COMMIT:-1' in updater
+    assert "BOT_UPDATE_TRUSTED_SIGNER" in updater
+    assert "VALIDSIG" in updater
     assert "--commit with an exact 40-character Git SHA is required" in installer
     assert "age -r" in backup
     assert ".tgz.age" in backup
@@ -471,6 +505,41 @@ def test_systemd_units_have_extended_sandboxing():
         assert "ProtectControlGroups=yes" in unit
         assert "RestrictSUIDSGID=yes" in unit
         assert "LockPersonality=yes" in unit
+        assert "PrivateDevices=yes" in unit
+        assert "ProtectClock=yes" in unit
+        assert "ProtectKernelLogs=yes" in unit
+        assert "ProtectHostname=yes" in unit
+        assert "RestrictNamespaces=yes" in unit
+        assert "SystemCallFilter=@system-service" in unit
+        assert "CapabilityBoundingSet=" in unit
+
+
+def test_runtime_dependencies_are_hash_locked_and_installed_without_dependency_resolution():
+    installer = read("deploy/install_raspberry_pi.sh")
+    updater = read("deploy/update_raspberry_pi.sh")
+    workflow = read(".github/workflows/security.yml")
+    for relative in (
+        "requirements/raspberry.lock", "requirements/ci.lock", "requirements/audit.lock"
+    ):
+        lock = read(relative)
+        assert "--hash=sha256:" in lock
+    assert "setuptools==83.0.0" in read("requirements/raspberry.lock")
+    assert "setuptools==83.0.0" in read("requirements/ci.lock")
+    assert "--require-hashes -r" in installer
+    assert "--no-deps --no-build-isolation -e" in installer
+    assert "--require-hashes -r requirements/raspberry.lock" in updater
+    assert "--require-hashes -r requirements/ci.lock" in workflow
+    assert "--require-hashes -r requirements/audit.lock" in workflow
+
+
+def test_ci_scans_full_history_and_pins_actions_by_commit():
+    workflow = read(".github/workflows/security.yml")
+    assert "fetch-depth: 0" in workflow
+    assert "gitleaks/gitleaks-action@ff98106e4c7b2bc287b24eaf42907196329070c7" in workflow
+    assert "trufflesecurity/trufflehog@466da5b0bb161144f6afca9afe5d57975828c410" in workflow
+    assert "--only-verified" in workflow
+    assert "actions/checkout@v" not in workflow
+    assert "actions/setup-python@v" not in workflow
 
 
 def test_library_modules_are_grouped_by_responsibility():

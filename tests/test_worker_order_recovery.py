@@ -1,8 +1,11 @@
 import importlib.util
+import sqlite3
 from pathlib import Path
 
+import pytest
 import requests
 
+from ladder_dragon.execution.binance_transport import BinanceResponseError
 from ladder_dragon.execution.order_recovery import OrderJournal
 
 
@@ -189,6 +192,36 @@ def test_uncertain_unconfirmed_post_trips_persistent_halt(tmp_path, monkeypatch)
     else:
         raise AssertionError("uncertain submission must fail closed")
     assert (tmp_path / "circuit_halt.json").exists()
+
+
+def test_definitive_binance_rejection_marks_failed_without_halt(tmp_path, monkeypatch):
+    worker = load_worker()
+    journal = configure_worker(worker, tmp_path, monkeypatch)
+    response = requests.Response()
+    response.status_code = 400
+    error = BinanceResponseError(
+        status=400,
+        code=-1013,
+        message="Filter failure: PERCENT_PRICE_BY_SIDE",
+        endpoint="/api/v3/order",
+        response=response,
+    )
+
+    def signed(method, path, params=None, timeout=15):
+        assert method == "POST"
+        raise error
+
+    monkeypatch.setattr(worker, "_signed_request", signed)
+    with pytest.raises(BinanceResponseError):
+        worker.place_limit_order("SELL", "SOLUSDT", 0.1, 232.12)
+
+    with sqlite3.connect(journal.path) as connection:
+        state, last_error = connection.execute(
+            "SELECT state, last_error FROM order_intents"
+        ).fetchone()
+    assert state == "FAILED"
+    assert "PERCENT_PRICE_BY_SIDE" in last_error
+    assert not (tmp_path / "circuit_halt.json").exists()
 
 
 def test_invalid_oco_legs_never_mark_buy_protected(tmp_path, monkeypatch):

@@ -1,0 +1,3 @@
+# Security tooling is isolated from runtime and pinned with hashes in audit.lock.
+-c ci.lock
+pip-audit==2.9.0

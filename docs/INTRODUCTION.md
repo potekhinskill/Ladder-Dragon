@@ -51,7 +51,7 @@ Deploy keys**. Then clone the approved branch:
 
 ```bash
 sudo install -d -o bot -g bot -m 0750 /home/bot/apps
-sudo -u bot git clone --branch codex/safety-hardening --single-branch \
+sudo -u bot git clone --branch main --single-branch \
   git@github.com:potekhinskill/Ladder-Dragon.git /home/bot/apps/binance_bot
 ```
 

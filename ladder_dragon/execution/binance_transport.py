@@ -20,6 +20,41 @@ import requests
 from ladder_dragon.execution.telegram_alerts import notify_binance_auth_error
 
 
+class BinanceNetworkError(requests.ConnectionError):
+    """Exhausted network retries without retaining a possibly signed URL."""
+
+    def __init__(self, *, endpoint: str, cause_type: str) -> None:
+        self.endpoint = endpoint
+        self.cause_type = cause_type
+        super().__init__(
+            f"Binance network failure after retries: "
+            f"{cause_type} endpoint={endpoint}"
+        )
+
+
+class BinanceResponseError(requests.HTTPError):
+    """Definitive HTTP response from Binance without exposing a signed URL."""
+
+    def __init__(
+        self,
+        *,
+        status: int,
+        code: Any,
+        message: str,
+        endpoint: str,
+        response: requests.Response,
+    ) -> None:
+        self.status = int(status)
+        self.code = code
+        self.binance_message = str(message)[:300]
+        self.endpoint = endpoint
+        super().__init__(
+            f"Binance HTTP {self.status} code={self.code}: "
+            f"{self.binance_message or 'request rejected'} endpoint={endpoint}",
+            response=response,
+        )
+
+
 class BinanceTransport:
     """Транспорт с подписью и поздним получением ключей и LIVE-состояния.
 
@@ -54,6 +89,22 @@ class BinanceTransport:
     @staticmethod
     def _auth_error(status: int, code: Any) -> bool:
         return status in (401, 403) or code in (-2014, -2015, -1022)
+
+    @staticmethod
+    def _response_error(
+        response: requests.Response,
+        payload: Any,
+        endpoint: str,
+    ) -> BinanceResponseError:
+        code = payload.get("code") if isinstance(payload, dict) else None
+        message = payload.get("msg", "") if isinstance(payload, dict) else ""
+        return BinanceResponseError(
+            status=response.status_code,
+            code=code,
+            message=str(message),
+            endpoint=endpoint,
+            response=response,
+        )
 
     def _delay(self, backoff: float, response: requests.Response | None = None) -> tuple[float, float]:
         retry_after = response.headers.get("Retry-After") if response is not None else None
@@ -101,15 +152,18 @@ class BinanceTransport:
                             message=(payload or {}).get("msg", "") if isinstance(payload, dict) else "",
                         )
                     if self._retryable(response.status_code, code):
+                        if tries >= max_tries:
+                            raise self._response_error(
+                                response, payload, url.split("?", 1)[0]
+                            )
                         backoff, delay = self._delay(backoff, response)
                         self._logger(
                             f"[BACKOFF] {response.status_code} code={code} "
-                            f"→ sleep {delay:.2f}s URL={url}"
+                            f"→ sleep {delay:.2f}s endpoint={url.split('?', 1)[0]}"
                         )
                         time.sleep(delay)
-                        if tries < max_tries:
-                            continue
-                    response.raise_for_status()
+                        continue
+                    raise self._response_error(response, payload, url.split("?", 1)[0])
 
                 if isinstance(payload, dict) and payload.get("code") in (1003, -1003, -1015):
                     if tries >= max_tries:
@@ -124,13 +178,20 @@ class BinanceTransport:
                     time.sleep(delay)
                     continue
                 return payload if payload is not None else response.text
+            except BinanceResponseError:
+                # A received HTTP response is definitive. Retrying a business
+                # rejection can spam Binance and must not be treated as lost ACK.
+                raise
             except requests.RequestException as exc:
                 if tries >= max_tries:
-                    raise
+                    raise BinanceNetworkError(
+                        endpoint=url.split("?", 1)[0],
+                        cause_type=exc.__class__.__name__,
+                    ) from exc
                 backoff, delay = self._delay(backoff)
                 self._logger(
-                    f"[RETRY] {exc.__class__.__name__}: {exc}; "
-                    f"sleep {delay:.2f}s URL={url}"
+                    f"[RETRY] {exc.__class__.__name__}; "
+                    f"sleep {delay:.2f}s endpoint={url.split('?', 1)[0]}"
                 )
                 time.sleep(delay)
 
@@ -196,15 +257,16 @@ class BinanceTransport:
                             message=(payload or {}).get("msg", "") if isinstance(payload, dict) else "",
                         )
                     if self._retryable(response.status_code, code, include_clock=True):
+                        if tries >= 8:
+                            raise self._response_error(response, payload, path)
                         backoff, delay = self._delay(backoff, response)
                         self._logger(
                             f"[BACKOFF] {response.status_code} code={code} "
                             f"→ sleep {delay:.2f}s URL={path}"
                         )
                         time.sleep(delay)
-                        if tries < 8:
-                            continue
-                    response.raise_for_status()
+                        continue
+                    raise self._response_error(response, payload, path)
 
                 if isinstance(payload, dict) and payload.get("code") in (1003, -1003, -1015, -1021):
                     if tries >= 8:
@@ -219,12 +281,19 @@ class BinanceTransport:
                     time.sleep(delay)
                     continue
                 return payload if payload is not None else response.text
+            except BinanceResponseError:
+                # The exchange answered. Do not retry or classify this as an
+                # uncertain submission; callers can safely mark it rejected.
+                raise
             except requests.RequestException as exc:
                 if tries >= 8:
-                    raise
+                    raise BinanceNetworkError(
+                        endpoint=path,
+                        cause_type=exc.__class__.__name__,
+                    ) from exc
                 backoff, delay = self._delay(backoff)
                 self._logger(
-                    f"[RETRY] {exc.__class__.__name__}: {exc}; "
-                    f"sleep {delay:.2f}s URL={path}"
+                    f"[RETRY] {exc.__class__.__name__}; "
+                    f"sleep {delay:.2f}s endpoint={path}"
                 )
                 time.sleep(delay)

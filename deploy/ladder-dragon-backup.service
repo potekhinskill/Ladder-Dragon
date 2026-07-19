@@ -12,13 +12,26 @@ Nice=10
 IOSchedulingClass=idle
 NoNewPrivileges=yes
 PrivateTmp=yes
+PrivateDevices=yes
+ProtectProc=invisible
+ProcSubset=pid
 ProtectSystem=strict
 ProtectHome=read-only
+ProtectClock=yes
 ProtectKernelTunables=yes
 ProtectKernelModules=yes
 ProtectControlGroups=yes
+ProtectKernelLogs=yes
+ProtectHostname=yes
 RestrictSUIDSGID=yes
+RestrictRealtime=yes
+RestrictNamespaces=yes
 LockPersonality=yes
+CapabilityBoundingSet=
+AmbientCapabilities=
+SystemCallArchitectures=native
+SystemCallFilter=@system-service
+SystemCallErrorNumber=EPERM
 RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
 # Timestamped directories under backups and backups-public are created at runtime.
 # The external disk is mounted through a dedicated bind in the drop-in; the whole

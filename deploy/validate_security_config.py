@@ -9,6 +9,7 @@ from __future__ import annotations
 import os
 import re
 import stat
+import subprocess
 import sys
 from pathlib import Path
 from urllib.parse import urlparse
@@ -46,6 +47,18 @@ def require_private(path: Path, errors: list[str]) -> None:
         errors.append(f"{path} must not be accessible by group/other (mode {mode:o})")
 
 
+def require_root_controlled(path: Path, errors: list[str]) -> None:
+    if not path.is_file() or path.is_symlink():
+        errors.append(f"missing or unsafe file: {path}")
+        return
+    info = path.stat()
+    mode = stat.S_IMODE(info.st_mode)
+    if info.st_uid != 0:
+        errors.append(f"{path} must be owned by root")
+    if mode & 0o022:
+        errors.append(f"{path} must not be writable by group/other (mode {mode:o})")
+
+
 def main() -> int:
     project = Path(sys.argv[1] if len(sys.argv) > 1 else ".").resolve()
     bot_env_path = project / ".env"
@@ -54,8 +67,7 @@ def main() -> int:
     errors: list[str] = []
     for path in (bot_env_path, dashboard_path):
         require_private(path, errors)
-    if not service_path.is_file():
-        errors.append(f"missing file: {service_path}")
+    require_root_controlled(service_path, errors)
     if errors:
         print("\n".join(f"[SECURITY] {error}" for error in errors), file=sys.stderr)
         return 2
@@ -63,6 +75,17 @@ def main() -> int:
     bot = parse_env(bot_env_path)
     dashboard = parse_env(dashboard_path)
     service = parse_env(service_path)
+
+    parser = project / "deploy" / "parse_service_args.py"
+    parsed = subprocess.run(
+        [sys.executable, str(parser), service.get("BOT_SERVICE_EXTRA_ARGS", "")],
+        check=False,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.PIPE,
+        text=True,
+    )
+    if parsed.returncode:
+        errors.append(parsed.stderr.strip() or "BOT_SERVICE_EXTRA_ARGS is invalid")
 
     for name in ("DASHBOARD_AUTH_TOKEN", "DASHBOARD_PROXY_AUTH_SECRET"):
         value = dashboard.get(name, "")

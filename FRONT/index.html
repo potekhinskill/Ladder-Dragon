@@ -786,7 +786,7 @@ function updateBalances(snapshot){
   body.innerHTML = visible.length ? visible.map(row=>{
     const unvalued = row.valuation_status !== 'priced';
     return `<tr>
-      <td class="mono">${row.asset}</td>
+      <td class="mono">${escapeHtml(row.asset)}</td>
       <td class="right mono">${fmtQty(row.free)}</td>
       <td class="right mono">${fmtQty(row.locked)}</td>
       <td class="right mono">${fmtQty(row.total)}</td>
@@ -921,12 +921,12 @@ function updateFilled24h(resp){
       const quoteTxt = Number.isFinite(x.quote) ? NF2.format(x.quote) : '—';
       return `<tr>
         <td class="nowrap">${tsShort(x.time)}</td>
-        <td>${x.symbol}</td>
-        <td class="${sideClass}">${x.side||'—'}</td>
+        <td>${escapeHtml(x.symbol)}</td>
+        <td class="${sideClass}">${escapeHtml(x.side||'—')}</td>
         <td class="right mono">${priceTxt}</td>
         <td class="right mono">${qtyTxt}</td>
         <td class="right mono">${quoteTxt}</td>
-        <td class="right mono">${feeCell}</td>
+        <td class="right mono">${escapeHtml(feeCell)}</td>
       </tr>`;
     });
 
@@ -1025,9 +1025,10 @@ async function toggleAI(){
   if (!window.confirm(tr('confirm',{action}))) return;
   button.disabled = true;
   try{
+    const csrf = await getJSON('/api/security/csrf');
     const response = await fetch('/api/ai/control', {
       method:'POST',
-      headers:{'Content-Type':'application/json'},
+      headers:{'Content-Type':'application/json','X-CSRF-Token':csrf.csrf_token},
       body:JSON.stringify({enabled:!enabled}),
       cache:'no-store'
     });
@@ -1059,7 +1060,13 @@ async function refreshOrders(){
   }catch(e){
     const pill = $('#filled-pill');
     setPill(pill,'bad'); pill.textContent=tr('error');
-    $('#orders-body').innerHTML = `<tr><td class="muted" colspan="7">${tr('api_error')}: ${e}</td></tr>`;
+    const body = $('#orders-body');
+    body.replaceChildren();
+    const row = document.createElement('tr');
+    const cell = document.createElement('td');
+    cell.className = 'muted'; cell.colSpan = 7;
+    cell.textContent = `${tr('api_error')}: ${e}`;
+    row.appendChild(cell); body.appendChild(row);
   }
 }
 

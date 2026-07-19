@@ -128,7 +128,8 @@ def test_account_balances_returns_service_unavailable_on_binance_error(monkeypat
 
     assert response.status_code == 503
     assert response.json()["ok"] is False
-    assert "Binance unavailable" in response.json()["error"]
+    assert response.json()["error"] == "ACCOUNT_BALANCE_FAILED"
+    assert "Binance unavailable" not in response.text
 
 
 def test_stopped_bot_uses_only_configured_symbols(tmp_path, monkeypatch):
@@ -318,11 +319,17 @@ def test_ai_control_button_changes_only_advisory_mode(tmp_path, monkeypatch):
     headers = {"Authorization": "Bearer test-secret-token"}
     with TestClient(module.app) as client:
         initial = client.get("/api/ai/control", headers=headers)
+        csrf = client.get("/api/security/csrf", headers=headers).json()["csrf_token"]
+        write_headers = {
+            **headers,
+            "Origin": "http://testserver",
+            "X-CSRF-Token": csrf,
+        }
         disabled = client.post(
-            "/api/ai/control", headers=headers, json={"enabled": False}
+            "/api/ai/control", headers=write_headers, json={"enabled": False}
         )
         enabled = client.post(
-            "/api/ai/control", headers=headers, json={"enabled": True}
+            "/api/ai/control", headers=write_headers, json={"enabled": True}
         )
 
     assert initial.status_code == 200
@@ -331,6 +338,22 @@ def test_ai_control_button_changes_only_advisory_mode(tmp_path, monkeypatch):
     assert disabled.json()["mode"] == "DISABLED"
     assert enabled.status_code == 200
     assert enabled.json()["mode"] == "APPLY"
+
+
+def test_ai_control_rejects_missing_csrf_and_cross_origin(tmp_path, monkeypatch):
+    monkeypatch.setenv("AI_CONTROL_FILE", str(tmp_path / "ai_control.json"))
+    module = load_dashboard(monkeypatch)
+    auth = {"Authorization": "Bearer test-secret-token"}
+    with TestClient(module.app) as client:
+        token = client.get("/api/security/csrf", headers=auth).json()["csrf_token"]
+        missing = client.post("/api/ai/control", headers=auth, json={"enabled": False})
+        cross_origin = client.post(
+            "/api/ai/control",
+            headers={**auth, "Origin": "https://evil.invalid", "X-CSRF-Token": token},
+            json={"enabled": False},
+        )
+    assert missing.status_code == 403
+    assert cross_origin.status_code == 403
 
 
 def test_log_api_is_disabled_by_default(monkeypatch):

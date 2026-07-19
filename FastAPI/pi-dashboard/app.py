@@ -5,7 +5,7 @@
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 # Keep requests optional instead of importing it into the shared module namespace.
-import psutil, shutil, json, os, socket, asyncio, subprocess, math, time, hmac, hashlib, secrets, threading, re, platform, shlex
+import psutil, shutil, json, os, socket, asyncio, subprocess, math, time, hmac, hashlib, secrets, threading, re, platform, shlex, ipaddress
 from collections import defaultdict, deque
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
@@ -41,6 +41,7 @@ DASHBOARD_PROXY_AUTH_SECRET = os.getenv("DASHBOARD_PROXY_AUTH_SECRET", "")
 DASHBOARD_RATE_LIMIT_PER_MIN = max(1, int(os.getenv("DASHBOARD_RATE_LIMIT_PER_MIN", "120")))
 _RATE_BUCKETS: Dict[str, deque] = defaultdict(deque)
 _RATE_LOCK = threading.Lock()
+DASHBOARD_CSRF_TOKEN = secrets.token_urlsafe(32)
 _BALANCE_CACHE: Dict[str, object] = {"ts": 0.0, "payload": None}
 _BALANCE_CACHE_TTL_SEC = max(5.0, float(os.getenv("DASHBOARD_BALANCE_CACHE_SEC", "10")))
 _BALANCE_CACHE_LOCK = threading.Lock()
@@ -129,7 +130,15 @@ async def authenticate_and_rate_limit(request: Request, call_next):
             status = 503 if not DASHBOARD_AUTH_TOKEN and not proxy_configured else 401
             return JSONResponse({"ok": False, "error": "dashboard authentication required"}, status_code=status)
 
-        client = request.client.host if request.client else "unknown"
+        peer = request.client.host if request.client else "unknown"
+        client = peer
+        if proxy_authenticated:
+            try:
+                if ipaddress.ip_address(peer).is_loopback:
+                    forwarded = request.headers.get("X-Real-IP", "")
+                    client = str(ipaddress.ip_address(forwarded))
+            except ValueError:
+                client = peer
         now = time.monotonic()
         with _RATE_LOCK:
             bucket = _RATE_BUCKETS[client]
@@ -138,7 +147,30 @@ async def authenticate_and_rate_limit(request: Request, call_next):
             if len(bucket) >= DASHBOARD_RATE_LIMIT_PER_MIN:
                 return JSONResponse({"ok": False, "error": "rate limit exceeded"}, status_code=429)
             bucket.append(now)
+
+        if request.method not in {"GET", "HEAD", "OPTIONS"}:
+            content_type = request.headers.get("Content-Type", "").split(";", 1)[0].strip().lower()
+            host = request.headers.get("Host", "")
+            scheme = request.headers.get("X-Forwarded-Proto", request.url.scheme)
+            expected_origin = f"{scheme}://{host}"
+            origin = request.headers.get("Origin", "")
+            fetch_site = request.headers.get("Sec-Fetch-Site", "")
+            csrf = request.headers.get("X-CSRF-Token", "")
+            if content_type != "application/json":
+                return JSONResponse({"ok": False, "error": "JSON content type required"}, status_code=415)
+            if not origin or not secrets.compare_digest(origin, expected_origin):
+                return JSONResponse({"ok": False, "error": "cross-origin request blocked"}, status_code=403)
+            if fetch_site and fetch_site not in {"same-origin", "same-site"}:
+                return JSONResponse({"ok": False, "error": "cross-site request blocked"}, status_code=403)
+            if not csrf or not secrets.compare_digest(csrf, DASHBOARD_CSRF_TOKEN):
+                return JSONResponse({"ok": False, "error": "CSRF token required"}, status_code=403)
     return await call_next(request)
+
+
+@app.get("/api/security/csrf")
+def csrf_token():
+    """Return a process-local token only to an authenticated same-origin client."""
+    return {"ok": True, "csrf_token": DASHBOARD_CSRF_TOKEN}
 
 # ---- helpers for DB trades / PnL -------------------------------------------------
 
@@ -749,7 +781,8 @@ def trading_overview():
     try:
         return JSONResponse(trading_overview_snapshot())
     except Exception as exc:
-        return JSONResponse({"ok": False, "error": f"trading overview failed: {type(exc).__name__}"}, status_code=503)
+        print(f"[DASHBOARD] TRADING_OVERVIEW_FAILED type={type(exc).__name__}", flush=True)
+        return JSONResponse({"ok": False, "error": "TRADING_OVERVIEW_FAILED"}, status_code=503)
 
 def base_asset_of(symbol: str) -> str:
     s = symbol.upper()
@@ -967,8 +1000,8 @@ def run_command(*args: str, timeout=5):
     try:
         r = subprocess.run(args, capture_output=True, text=True, timeout=timeout)
         return r.returncode, (r.stdout or "") + (r.stderr or "")
-    except (OSError, subprocess.SubprocessError) as e:
-        return 1, str(e)
+    except (OSError, subprocess.SubprocessError):
+        return 1, "COMMAND_FAILED"
 
 def now_local():
     return datetime.now(APP_TZ)
@@ -1401,10 +1434,8 @@ def account_balances():
     try:
         return JSONResponse(account_balances_snapshot())
     except Exception as exc:
-        return JSONResponse(
-            {"ok": False, "error": f"account balance snapshot failed: {exc}"},
-            status_code=503,
-        )
+        print(f"[DASHBOARD] ACCOUNT_BALANCE_FAILED type={type(exc).__name__}", flush=True)
+        return JSONResponse({"ok": False, "error": "ACCOUNT_BALANCE_FAILED"}, status_code=503)
 
 
 @app.get("/api/account/open-orders")
@@ -1413,10 +1444,8 @@ def account_open_orders():
     try:
         return JSONResponse(account_open_orders_snapshot())
     except Exception as exc:
-        return JSONResponse(
-            {"ok": False, "error": f"open orders snapshot failed: {exc}"},
-            status_code=503,
-        )
+        print(f"[DASHBOARD] OPEN_ORDERS_FAILED type={type(exc).__name__}", flush=True)
+        return JSONResponse({"ok": False, "error": "OPEN_ORDERS_FAILED"}, status_code=503)
 
 @app.get("/api/history")
 def history(hours: int = 24, points: int = 288):
@@ -1654,10 +1683,8 @@ def ai_status(limit: int = 50):
                         connection.execute("SELECT COUNT(*) FROM ai_unresolved_fills").fetchone()[0]
                     )
         except sqlite3.Error as exc:
-            return JSONResponse(
-                {"ok": False, "error": f"AI DB read failed: {exc}"},
-                status_code=500,
-            )
+            print(f"[DASHBOARD] AI_DB_READ_FAILED type={type(exc).__name__}", flush=True)
+            return JSONResponse({"ok": False, "error": "AI_DB_READ_FAILED"}, status_code=503)
     usage_path = _runtime_data_path(runtime, "ai_usage_log", AI_USAGE_LOG)
     usage = _ai_usage_today(usage_path)
     def _file_age(path: Path) -> Optional[int]:
@@ -1774,7 +1801,8 @@ def _ai_control_snapshot() -> Dict[str, object]:
         control = read_ai_control(AI_CONTROL_FILE)
     except (OSError, TypeError, ValueError, json.JSONDecodeError) as exc:
         control = None
-        control_error = str(exc)
+        print(f"[DASHBOARD] AI_CONTROL_READ_FAILED type={type(exc).__name__}", flush=True)
+        control_error = "AI_CONTROL_READ_FAILED"
     if control is None:
         enabled = configured and configured_mode != "DISABLED"
         mode = configured_mode if enabled else "DISABLED"
@@ -1827,10 +1855,8 @@ async def set_ai_control(request: Request):
             mode=str(snapshot["configured_mode"]),
         )
     except (OSError, TypeError, ValueError) as exc:
-        return JSONResponse(
-            {"ok": False, "error": f"AI control write failed: {exc}"},
-            status_code=503,
-        )
+        print(f"[DASHBOARD] AI_CONTROL_WRITE_FAILED type={type(exc).__name__}", flush=True)
+        return JSONResponse({"ok": False, "error": "AI_CONTROL_WRITE_FAILED"}, status_code=503)
     return {
         "ok": True,
         "configured": True,
@@ -1851,8 +1877,9 @@ def trades_symbols(hours: int = 168):
     cutoff = int(time.time()) - max(0, hours) * 3600 if hours > 0 else 0
     try:
         con, _ = _open_db()
-    except Exception as e:
-        return JSONResponse({"ok": False, "error": f"db open failed: {e}"}, status_code=500)
+    except Exception as exc:
+        print(f"[DASHBOARD] DB_OPEN_FAILED type={type(exc).__name__}", flush=True)
+        return JSONResponse({"ok": False, "error": "DB_OPEN_FAILED"}, status_code=503)
     try:
         if hours > 0:
             sql = """
@@ -1890,8 +1917,9 @@ def trades_summary(hours: int = 24, symbols: str = ""):
 
     try:
         con, path = _open_db()
-    except Exception as e:
-        return JSONResponse({"ok": False, "error": f"db open failed: {e}", "path": get_db_path()}, status_code=500)
+    except Exception as exc:
+        print(f"[DASHBOARD] DB_OPEN_FAILED type={type(exc).__name__}", flush=True)
+        return JSONResponse({"ok": False, "error": "DB_OPEN_FAILED"}, status_code=503)
 
     fee_pct = _fee_pct_default()
     try:
@@ -1927,7 +1955,6 @@ def trades_summary(hours: int = 24, symbols: str = ""):
             "equity_pct": equity_pct,
             "equity_method": eq.get("method"),
             "equity_assets": eq.get("equity_assets"),
-            "path": get_db_path()
         })
     finally:
         try: con.close()
@@ -1939,8 +1966,9 @@ def trades_recent(limit: int = 20, symbols: str = ""):
     syms = [s.strip().upper() for s in symbols.split(",") if s.strip()] or None
     try:
         con, path = _open_db()
-    except Exception as e:
-        return JSONResponse({"ok": False, "error": f"db open failed: {e}", "path": get_db_path()}, status_code=500)
+    except Exception as exc:
+        print(f"[DASHBOARD] DB_OPEN_FAILED type={type(exc).__name__}", flush=True)
+        return JSONResponse({"ok": False, "error": "DB_OPEN_FAILED"}, status_code=503)
     try:
         sym_filter = ""
         args: List = []
@@ -1961,7 +1989,7 @@ def trades_recent(limit: int = 20, symbols: str = ""):
         rows = [dict(r) for r in con.execute(sql, args).fetchall()]
         for r in rows:
             r["time"] = datetime.fromtimestamp(int(r["ts_s"]), APP_TZ).strftime("%Y-%m-%d %H:%M:%S")
-        return JSONResponse({"ok": True, "rows": rows, "path": get_db_path()})
+        return JSONResponse({"ok": True, "rows": rows})
     finally:
         try: con.close()
         except Exception: pass

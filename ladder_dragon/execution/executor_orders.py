@@ -14,8 +14,28 @@ from typing import Any, Callable, Dict, Optional
 
 import requests
 
+from ladder_dragon.execution.binance_transport import BinanceResponseError
 from ladder_dragon.execution.order_identity import client_order_id
 from ladder_dragon.execution.order_recovery import OrderJournal, TERMINAL_EXCHANGE_STATES
+
+
+def _record_definitive_rejection(
+    journal: OrderJournal | None,
+    client_id: str,
+    error: BaseException,
+    logger: Callable[[str], None],
+) -> bool:
+    """Record an exchange business rejection without treating it as a lost ACK."""
+    if not isinstance(error, BinanceResponseError):
+        return False
+    if journal is not None:
+        journal.mark_failed(client_id, error)
+    logger(
+        f"[REJECTED] client={client_id} status={error.status} "
+        f"code={error.code} endpoint={error.endpoint} "
+        f"message={error.binance_message or 'request rejected'}"
+    )
+    return True
 
 
 def _link_ai_order(
@@ -213,6 +233,10 @@ def place_limit_order(
         )
         return payload
     except requests.RequestException as exc:
+        if _record_definitive_rejection(
+            journal, order_client_id, exc, dependencies.logger
+        ):
+            raise
         # A POST timeout does not prove Binance rejected the order. Reconcile
         # clientOrderId first, then create a persistent halt only if uncertain.
         if journal is not None:
@@ -369,6 +393,10 @@ def place_market_order(
         )
         return payload
     except requests.RequestException as exc:
+        if _record_definitive_rejection(
+            journal, generated_id, exc, dependencies.logger
+        ):
+            raise
         if journal is not None:
             journal.mark_unknown(generated_id, exc)
             try:
@@ -633,6 +661,12 @@ def place_oco_sell(
         )
         return payload
     except (requests.RequestException, RuntimeError) as exc:
+        if _record_definitive_rejection(
+            journal, list_client_id, exc, dependencies.logger
+        ):
+            if journal is not None and parent_client_order_id:
+                journal.mark_protection_pending(parent_client_order_id)
+            return None
         if journal is not None:
             journal.mark_unknown(list_client_id, exc)
             try:

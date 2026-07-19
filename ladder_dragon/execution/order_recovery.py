@@ -9,6 +9,7 @@ from dataclasses import dataclass
 from decimal import Decimal
 from pathlib import Path
 import json
+import re
 import sqlite3
 import time
 from typing import Any, Iterable
@@ -30,6 +31,19 @@ SELL_ACTIVE_STATES = (
     "PROTECTED",
 )
 TERMINAL_EXCHANGE_STATES = {"CANCELED", "EXPIRED", "EXPIRED_IN_MATCH", "REJECTED"}
+_SIGNED_BINANCE_URL_RE = re.compile(
+    r"(https://(?:[A-Za-z0-9.-]*\.)?binance\.(?:com|vision)/[^\s?]+)\?[^\s;]+",
+    re.IGNORECASE,
+)
+_SIGNATURE_PARAM_RE = re.compile(r"(signature=)[^&\s;]+", re.IGNORECASE)
+
+
+def _safe_error_text(error: object) -> str:
+    """Remove signed Binance query data before persisting an error."""
+    text = str(error)
+    text = _SIGNED_BINANCE_URL_RE.sub(r"\1?<redacted>", text)
+    text = _SIGNATURE_PARAM_RE.sub(r"\1<redacted>", text)
+    return text[:1000]
 
 
 @dataclass(frozen=True)
@@ -107,6 +121,27 @@ class OrderJournal:
                     ON order_intents(parent_client_order_id);
                 """
             )
+            # Older transport versions persisted requests.HTTPError verbatim,
+            # including short-lived signed query strings. Scrub those rows as
+            # soon as the journal is opened after an upgrade.
+            rows = con.execute(
+                """
+                SELECT client_order_id, last_error
+                FROM order_intents
+                WHERE last_error LIKE '%signature=%'
+                """
+            ).fetchall()
+            for row in rows:
+                con.execute(
+                    """
+                    UPDATE order_intents SET last_error = ?
+                    WHERE client_order_id = ?
+                    """,
+                    (
+                        _safe_error_text(row["last_error"]),
+                        row["client_order_id"],
+                    ),
+                )
 
     @staticmethod
     def _from_row(row: sqlite3.Row | None) -> OrderIntent | None:
@@ -273,7 +308,7 @@ class OrderJournal:
         return self._update(
             client_order_id,
             state="UNKNOWN",
-            last_error=str(error)[:1000],
+            last_error=_safe_error_text(error),
         )
 
     def record_exchange_order(
@@ -347,7 +382,7 @@ class OrderJournal:
         return self._update(
             client_order_id,
             state="FAILED",
-            last_error=str(error)[:1000],
+            last_error=_safe_error_text(error),
         )
 
     def unresolved_buys(self, symbol: str | None = None) -> list[OrderIntent]:

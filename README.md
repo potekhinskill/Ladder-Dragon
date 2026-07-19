@@ -11,7 +11,7 @@ Binance Spot. It builds BUY/SELL grids, uses ATR/EMA/VWAP/ADX regimes, manages
 OCO protection, and records trading statistics in SQLite. Production secrets,
 real backups, and private parameters are never committed.
 
-Current product version: **2.10.71**. The single version source is
+Current product version: **2.10.72**. The single version source is
 `product_version.py`; releases follow [Semantic Versioning](https://semver.org/).
 Project contact: [LinkedIn](https://www.linkedin.com/in/ypotekhin/).
 
@@ -198,6 +198,10 @@ RELEASE_SHA="<40-character-reviewed-SHA>"
 sudo bash deploy/install_raspberry_pi.sh install --commit "$RELEASE_SHA"
 sudo bash deploy/update_raspberry_pi.sh update "$RELEASE_SHA"
 ```
+
+Updates require a signed commit and a pinned maintainer fingerprint. See the
+[Raspberry Pi runbook](docs/RASPBERRY_PI_INSTALL.md) before the first update.
+Maintainers must follow the [signed release procedure](docs/RELEASING.md).
 
 The updater creates an encrypted backup, preserves `.env` and `.env.dashboard`,
 updates only the requested fast-forward commit, validates Python/nginx, restarts

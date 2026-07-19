@@ -33,6 +33,7 @@ key_start_bot.txt
 # Runtime state
 *.pid
 *.lock
+!requirements/*.lock
 *.log
 *.sqlite
 *.sqlite3

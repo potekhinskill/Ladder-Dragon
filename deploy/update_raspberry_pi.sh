@@ -24,6 +24,18 @@ fail() {
   exit 1
 }
 
+verify_trusted_commit() {
+  local commit="$1"
+  local signer="${BOT_UPDATE_TRUSTED_SIGNER:-}"
+  local verification
+  [[ "${signer}" =~ ^[0-9A-Fa-f]{40,64}$ ]] \
+    || fail "BOT_UPDATE_TRUSTED_SIGNER must contain the trusted GPG fingerprint"
+  verification="$(runuser -u "${BOT_USER}" -- git verify-commit --raw "${commit}" 2>&1)" \
+    || fail "Git signature verification failed for ${commit}"
+  grep -Eiq "\[GNUPG:\] VALIDSIG [^[:cntrl:]]*${signer}([[:space:]]|$)" <<<"${verification}" \
+    || fail "commit ${commit} is not signed by trusted fingerprint ${signer}"
+}
+
 service_flag() {
   local operation="$1"
   local unit="$2"
@@ -185,7 +197,7 @@ check_link() {
 }
 
 if [[ "${EUID}" -ne 0 ]]; then
-  exec sudo --preserve-env=PROJECT_DIR,WEB_ROOT,BOT_HOSTNAME,BOT_USER,BOT_UPDATE_COMMIT,BOT_UPDATE_REQUIRE_SIGNED_COMMIT "$0" "$@"
+  exec sudo --preserve-env=PROJECT_DIR,WEB_ROOT,BOT_HOSTNAME,BOT_USER,BOT_UPDATE_COMMIT,BOT_UPDATE_REQUIRE_SIGNED_COMMIT,BOT_UPDATE_TRUSTED_SIGNER "$0" "$@"
 fi
 
 [[ -d "${PROJECT_DIR}" ]] || fail "project directory not found: ${PROJECT_DIR}"
@@ -198,7 +210,8 @@ if [[ "${ACTION}" == "update" && "${BOT_UPDATE_RUNNER:-0}" != "1" ]]; then
   install -m 0700 "$0" "${runner}"
   exec env BOT_UPDATE_RUNNER=1 PROJECT_DIR="${PROJECT_DIR}" WEB_ROOT="${WEB_ROOT}" \
     BOT_HOSTNAME="${BOT_HOSTNAME}" BOT_USER="${BOT_USER}" \
-    BOT_UPDATE_REQUIRE_SIGNED_COMMIT="${BOT_UPDATE_REQUIRE_SIGNED_COMMIT:-0}" \
+    BOT_UPDATE_REQUIRE_SIGNED_COMMIT="${BOT_UPDATE_REQUIRE_SIGNED_COMMIT:-1}" \
+    BOT_UPDATE_TRUSTED_SIGNER="${BOT_UPDATE_TRUSTED_SIGNER:-}" \
     bash "${runner}" update "${UPDATE_COMMIT}"
 fi
 
@@ -225,10 +238,15 @@ fi
 
 [[ -r /etc/ladder-dragon/backup.env ]] \
   || fail "/etc/ladder-dragon/backup.env is missing; run installer migrate"
-set -a
-# shellcheck disable=SC1091
-. /etc/ladder-dragon/backup.env
-set +a
+python3 deploy/read_backup_env.py /etc/ladder-dragon/backup.env >/dev/null
+mapfile -d '' -t backup_values < <(
+  python3 deploy/read_backup_env.py /etc/ladder-dragon/backup.env
+)
+[[ "${#backup_values[@]}" -eq 4 ]] || fail "backup.env validation failed"
+export BACKUP_AGE_RECIPIENT="${backup_values[0]}"
+export BACKUP_EXTERNAL_MOUNT="${backup_values[1]}"
+export BACKUP_EXTERNAL_DIR="${backup_values[2]}"
+export BACKUP_EXTERNAL_RETENTION_DAYS="${backup_values[3]}"
 PROJECT_DIR="${PROJECT_DIR}" deploy/backup_raspberry_pi.sh
 
 # First record the systemd state. `systemctl stop` does not remove enabled:
@@ -250,12 +268,14 @@ if [[ "${ACTION}" == "update" ]]; then
     || fail "requested commit is not a fast-forward from current HEAD"
   runuser -u "${BOT_USER}" -- git merge-base --is-ancestor "${UPDATE_COMMIT}" "${upstream}" \
     || fail "requested commit is not contained in ${upstream}"
-  if [[ "${BOT_UPDATE_REQUIRE_SIGNED_COMMIT:-0}" == "1" ]]; then
-    runuser -u "${BOT_USER}" -- git verify-commit "${UPDATE_COMMIT}" \
-      || fail "Git signature verification failed for ${UPDATE_COMMIT}"
+  if [[ "${BOT_UPDATE_REQUIRE_SIGNED_COMMIT:-1}" == "1" ]]; then
+    verify_trusted_commit "${UPDATE_COMMIT}"
   fi
   runuser -u "${BOT_USER}" -- git merge --ff-only "${UPDATE_COMMIT}"
-  runuser -u "${BOT_USER}" -- .venv/bin/python -m pip install -e '.[dashboard]'
+  runuser -u "${BOT_USER}" -- .venv/bin/python -m pip install \
+    --require-hashes -r requirements/raspberry.lock
+  runuser -u "${BOT_USER}" -- .venv/bin/python -m pip install \
+    --no-deps --no-build-isolation -e .
 fi
 
 if grep -q '^BOT_TESTNET_RUN_DIR=' .env; then

@@ -7,7 +7,7 @@ set -euo pipefail
 ACTION="install"
 PROJECT_DIR="${PROJECT_DIR:-/home/bot/apps/binance_bot}"
 REPO_URL="${REPO_URL:-https://github.com/potekhinskill/Ladder-Dragon.git}"
-BRANCH="${BRANCH:-codex/safety-hardening}"
+BRANCH="${BRANCH:-main}"
 COMMIT="${COMMIT:-}"
 BOT_HOSTNAME="${BOT_HOSTNAME:-bot.local}"
 BOT_USER="${BOT_USER:-bot}"
@@ -22,7 +22,7 @@ Usage:
 Options:
   --project-dir PATH       Canonical checkout (default /home/bot/apps/binance_bot)
   --repo-url URL           Git repository used for a fresh checkout
-  --branch NAME            Git branch (default codex/safety-hardening)
+  --branch NAME            Git branch (default main)
   --commit SHA             Required exact 40-character Git commit allowlist
   --hostname NAME.local    Dashboard hostname (default bot.local)
   --preserve-live          Preserve detected Mainnet LIVE only with BOT_LIVE_CONFIRMED=YES
@@ -136,9 +136,16 @@ setup_backup_encryption() {
   command -v age-keygen >/dev/null || fail "age-keygen is required"
   install -d -m 0700 "${config_dir}" "${identity_dir}"
   if [[ -f "${config_dir}/backup.env" ]]; then
-    external_mount="$(sed -n 's/^BACKUP_EXTERNAL_MOUNT=//p' "${config_dir}/backup.env" | head -1)"
-    external_dir="$(sed -n 's/^BACKUP_EXTERNAL_DIR=//p' "${config_dir}/backup.env" | head -1)"
-    external_retention="$(sed -n 's/^BACKUP_EXTERNAL_RETENTION_DAYS=//p' "${config_dir}/backup.env" | head -1)"
+    local -a backup_values=()
+    python3 "$(dirname "$0")/read_backup_env.py" "${config_dir}/backup.env" >/dev/null \
+      || fail "existing backup.env failed strict validation"
+    mapfile -d '' -t backup_values < <(
+      python3 "$(dirname "$0")/read_backup_env.py" "${config_dir}/backup.env"
+    )
+    [[ "${#backup_values[@]}" -eq 4 ]] || fail "existing backup.env is incomplete"
+    external_mount="${backup_values[1]}"
+    external_dir="${backup_values[2]}"
+    external_retention="${backup_values[3]}"
   fi
   if [[ ! -s "${identity}" ]]; then
     age-keygen -o "${identity}" >/dev/null
@@ -333,7 +340,10 @@ fi
 if [[ ! -x "${PROJECT_DIR}/.venv/bin/python" ]]; then
   runuser -u "${BOT_USER}" -- python3 -m venv "${PROJECT_DIR}/.venv"
 fi
-runuser -u "${BOT_USER}" -- "${PROJECT_DIR}/.venv/bin/python" -m pip install -e "${PROJECT_DIR}[dashboard]"
+runuser -u "${BOT_USER}" -- "${PROJECT_DIR}/.venv/bin/python" -m pip install \
+  --require-hashes -r "${PROJECT_DIR}/requirements/raspberry.lock"
+runuser -u "${BOT_USER}" -- "${PROJECT_DIR}/.venv/bin/python" -m pip install \
+  --no-deps --no-build-isolation -e "${PROJECT_DIR}"
 
 # The new template receives the previous env values and useful Environment= entries
 # from the legacy unit. Values are never printed or passed through argv.

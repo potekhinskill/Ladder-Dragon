@@ -3,6 +3,56 @@
 All notable changes are documented here. Releases use Semantic Versioning; every
 section is dated and there is intentionally no `Unreleased` section.
 
+## [2.10.72] — 2026-07-19
+
+### Security
+- Raspberry updates now require a valid GPG-signed commit from an explicitly
+  pinned maintainer fingerprint; runtime and CI dependencies are installed
+  from SHA-256 hash-locked requirement files.
+- The updater and installer no longer execute `backup.env`, and service tuning
+  arguments pass through a numeric allowlist that blocks execution, venue,
+  credential, path, and script overrides.
+- Dashboard state-changing requests now require same-origin JSON and a CSRF
+  token. API-derived table values are escaped, internal exceptions are replaced
+  with stable error codes, and rate limiting trusts `X-Real-IP` only from the
+  authenticated loopback nginx proxy.
+- Nginx now supplies a hash-based Content Security Policy, clickjacking,
+  MIME-sniffing, referrer, and browser-permission protections. Managed systemd
+  services received additional device, process, namespace, capability, clock,
+  and syscall restrictions.
+- GitHub Actions are pinned by commit SHA and scan the full history with
+  Gitleaks and verified TruffleHog detectors. The local scanner now covers
+  GitHub, Telegram, Slack, Google, provider-style, binary, and high-entropy
+  credential candidates.
+- The dedicated release-signing public key and its pinned full fingerprint are
+  published with the release documentation for independent update trust.
+
+### Fixed
+- Fresh installation instructions and installer defaults now use `main`.
+- Dashboard failures no longer return SQLite paths or raw exception messages.
+- Definitive Binance business rejections are no longer retried or classified as
+  lost acknowledgements. Rejected intents become `FAILED` without tripping the
+  persistent circuit breaker, while genuine connection ambiguity remains
+  fail-closed.
+- Binance transport logs no longer include signed query strings, request
+  signatures, or exception text that can contain a private request URL. The
+  order journal also scrubs both new and historical signed URLs on open.
+- Automatic holdings SELL placement stops the current ladder pass after a
+  definitive filter rejection instead of silently attempting every remaining
+  level.
+
+### Verified
+- Added regression coverage for privileged config parsing, CSRF/origin denial,
+  CSP integrity, locked dependencies, full-history scanners, pinned Actions,
+  extended systemd sandboxing, non-retried Binance business rejections, safe
+  transport logging, and rejection state recovery without a false halt.
+- `PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=. .venv/bin/python -m pytest -q` —
+  243 tests pass.
+- `.venv/bin/python -m pip check` reports no broken requirements and
+  `pip-audit --skip-editable` reports no known vulnerabilities.
+- Python compilation, deployment shell syntax, locked-dependency dry-run,
+  tracked-secret scan, and `git diff --check` pass.
+
 ## [2.10.71] — 2026-07-19
 
 ### Fixed

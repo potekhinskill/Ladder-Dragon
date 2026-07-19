@@ -87,7 +87,10 @@ from ladder_dragon.execution.executor_config import build_executor_parser, valid
 from ladder_dragon.strategy.strategy_math import atr_from_klines as _atr_from_klines
 from ladder_dragon.strategy.strategy_math import clamp, ema_value as _ema, panic_triggered as panic_raw
 from ladder_dragon.strategy.strategy_math import shift_buy_levels
-from ladder_dragon.execution.binance_transport import BinanceTransport
+from ladder_dragon.execution.binance_transport import (
+    BinanceResponseError,
+    BinanceTransport,
+)
 from ladder_dragon.execution.executor_market import get_balances as market_get_balances
 from ladder_dragon.execution.executor_market import get_price as market_get_price
 from ladder_dragon.execution.executor_market import get_symbol_assets as market_get_symbol_assets
@@ -1351,9 +1354,22 @@ def maybe_place_sells_from_holdings(
                 log(f"[HOLD-SELL] {symbol} placed {fmt_qty_sym(symbol, q)} @ {fmt_price_sym(symbol, p)} (order {oid})")
                 qty_left = max(0.0, qty_left - planned.quantity)
                 placed += 1
-        except Exception:
-            # Do not reduce qty_left when the exchange rejects the order.
-            pass
+        except BinanceResponseError as exc:
+            # A filter/business rejection is definitive. Stop this ladder pass
+            # instead of retrying every level or converting it into a lost ACK.
+            log(
+                f"[HOLD-SELL-REJECTED] {symbol} status={exc.status} "
+                f"code={exc.code} message={exc.binance_message or 'request rejected'}"
+            )
+            break
+        except requests.RequestException as exc:
+            # Network ambiguity is already recorded and halted by the order
+            # layer. Avoid additional submissions during the same pass.
+            log(f"[HOLD-SELL-ERROR] {symbol} network={exc.__class__.__name__}")
+            break
+        except (RuntimeError, ValueError, OSError) as exc:
+            log(f"[HOLD-SELL-ERROR] {symbol} error={exc.__class__.__name__}")
+            break
 
     return placed
 
