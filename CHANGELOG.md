@@ -3,6 +3,22 @@
 All notable changes are documented here. Releases use Semantic Versioning; every
 section is dated and there is intentionally no `Unreleased` section.
 
+## [2.10.71] — 2026-07-19
+
+### Fixed
+- Direction adaptation can no longer increase `target_buys` above the explicit
+  operator `--target-buy-per-symbol` limit. The operator value is now a hard
+  ceiling in every market regime, including LIVE canary operation.
+
+### Verified
+- Added fail-closed regression coverage for an UP-regime request of three buys
+  under a one-buy operator ceiling, plus normal and invalid-boundary cases.
+- `PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=. .venv/bin/python -m pytest -q` — 231 tests pass.
+- `.venv/bin/python -m pip check` — no broken requirements; `pip-audit
+  --skip-editable` — no known vulnerabilities.
+- Python compilation, deployment shell syntax, tracked-secret scan, and
+  `git diff --check` pass.
+
 ## [2.10.70] — 2026-07-19
 
 ### Fixed

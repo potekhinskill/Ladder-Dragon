@@ -10,6 +10,22 @@ import pytest
 from bin import ai_supervisor
 
 
+@pytest.mark.parametrize(
+    ("desired", "operator_limit", "expected"),
+    [
+        (3, 1, 1),
+        (2, 4, 2),
+        (0, 0, 1),
+    ],
+)
+def test_adaptive_target_buys_cannot_exceed_operator_limit(
+    desired,
+    operator_limit,
+    expected,
+):
+    assert ai_supervisor.limit_target_buys(desired, operator_limit) == expected
+
+
 def load_worker():
     path = Path("bin/autosize_universal.py").resolve()
     spec = importlib.util.spec_from_file_location("ladder_worker", path)

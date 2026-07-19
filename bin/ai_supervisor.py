@@ -1069,6 +1069,12 @@ _DIR_STATE: Dict[str, Dict[str, Any]] = {}
 _REGIME_HYSTERESIS: Dict[str, RegimeHysteresis] = {}
 _PARAM_HYSTERESIS: Dict[str, Dict[str, NumericHysteresis]] = {}
 
+
+def limit_target_buys(desired: int, operator_limit: int) -> int:
+    """Keep adaptive buy-count changes inside the operator's hard ceiling."""
+    ceiling = max(1, int(operator_limit))
+    return min(max(1, int(desired)), ceiling)
+
 def _infer_market_mode(symbol: str, *, interval: str = "30m", ema_fast_len: int = 20,
                        ema_slow_len: int = 50, eps: float = 0.0005, slope_min: float = 0.0002,
                        adx_min: float = 16.0, hyst_bars: int = 5, confirm_bars: int = 3,
@@ -1607,7 +1613,8 @@ def run_for_symbol(symbol: str, args: argparse.Namespace) -> None:
             do_log=bool(args.dir_log)
         )
 
-    target_buys_use = int(args.target_buy_per_symbol)
+    operator_target_buys_limit = max(1, int(args.target_buy_per_symbol))
+    target_buys_use = operator_target_buys_limit
     param_hyst = _PARAM_HYSTERESIS.setdefault(symbol, {
         "width": NumericHysteresis(1.0, max_step=float(os.getenv("BOT_PARAM_MAX_STEP", "0.15"))),
         "cap": NumericHysteresis(1.0, max_step=float(os.getenv("BOT_PARAM_MAX_STEP", "0.15"))),
@@ -1829,10 +1836,14 @@ def run_for_symbol(symbol: str, args: argparse.Namespace) -> None:
         cur_dev = cur_dev * float(args.dir_down_dev_mult)
         tp1_use = min(float(args.tp1_max), tp1_use * float(args.dir_down_tp1_mult))
         target_buys_use = max(1, int(args.dir_down_target_buys))
-    target_buys_use = max(1, round(param_hyst["buys"].update(float(target_buys_use))))
+    adaptive_target_buys = round(param_hyst["buys"].update(float(target_buys_use)))
+    target_buys_use = limit_target_buys(
+        adaptive_target_buys,
+        operator_target_buys_limit,
+    )
 
     extra_env['DEV_BUY_PCT'] = f"{cur_dev:.6f}"
-    log(f"[DIR-APPLY] {symbol} mode={dir_mode} DEV_BUY_PCT {before_dev:.4f}→{cur_dev:.4f}, TP1 {before_tp1:.4f}→{tp1_use:.4f}, target_buys={args.target_buy_per_symbol}→{target_buys_use}")
+    log(f"[DIR-APPLY] {symbol} mode={dir_mode} DEV_BUY_PCT {before_dev:.4f}→{cur_dev:.4f}, TP1 {before_tp1:.4f}→{tp1_use:.4f}, target_buys={args.target_buy_per_symbol}→{target_buys_use} (operator_max={operator_target_buys_limit})")
 
     # 9) Position guardian / flatten using the filters already fetched
     mode = position_guard_and_maybe_flatten(symbol, now_p, atr_abs, args, filters)
