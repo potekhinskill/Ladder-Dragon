@@ -129,6 +129,7 @@ class BinanceTransport:
     ) -> Any:
         # Retry only transient network/exchange failures. Binance business
         # errors must be returned to the caller immediately.
+        endpoint = url.split("?", 1)[0]
         tries = 0
         backoff = 0.5
         while True:
@@ -148,32 +149,36 @@ class BinanceTransport:
                         notify_binance_auth_error(
                             status=response.status_code,
                             code=code,
-                            endpoint=url,
+                            endpoint=endpoint,
                             message=(payload or {}).get("msg", "") if isinstance(payload, dict) else "",
                         )
                     if self._retryable(response.status_code, code):
                         if tries >= max_tries:
                             raise self._response_error(
-                                response, payload, url.split("?", 1)[0]
+                                response, payload, endpoint
                             )
                         backoff, delay = self._delay(backoff, response)
                         self._logger(
                             f"[BACKOFF] {response.status_code} code={code} "
-                            f"→ sleep {delay:.2f}s endpoint={url.split('?', 1)[0]}"
+                            f"→ sleep {delay:.2f}s endpoint={endpoint}"
                         )
                         time.sleep(delay)
                         continue
-                    raise self._response_error(response, payload, url.split("?", 1)[0])
+                    raise self._response_error(response, payload, endpoint)
 
                 if isinstance(payload, dict) and payload.get("code") in (1003, -1003, -1015):
                     if tries >= max_tries:
-                        raise requests.HTTPError(
-                            f"Binance throttle code {payload.get('code')}: {payload.get('msg')}"
+                        raise BinanceResponseError(
+                            status=response.status_code,
+                            code=payload.get("code"),
+                            message=str(payload.get("msg", "")),
+                            endpoint=endpoint,
+                            response=response,
                         )
                     backoff, delay = self._delay(backoff)
                     self._logger(
                         f"[BACKOFF] json code={payload.get('code')} "
-                        f"→ sleep {delay:.2f}s URL={url}"
+                        f"→ sleep {delay:.2f}s endpoint={endpoint}"
                     )
                     time.sleep(delay)
                     continue
@@ -185,13 +190,13 @@ class BinanceTransport:
             except requests.RequestException as exc:
                 if tries >= max_tries:
                     raise BinanceNetworkError(
-                        endpoint=url.split("?", 1)[0],
+                        endpoint=endpoint,
                         cause_type=exc.__class__.__name__,
                     ) from exc
                 backoff, delay = self._delay(backoff)
                 self._logger(
                     f"[RETRY] {exc.__class__.__name__}; "
-                    f"sleep {delay:.2f}s endpoint={url.split('?', 1)[0]}"
+                    f"sleep {delay:.2f}s endpoint={endpoint}"
                 )
                 time.sleep(delay)
 

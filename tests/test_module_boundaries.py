@@ -218,6 +218,47 @@ def test_binance_transport_scrubs_signed_url_after_network_retry_exhaustion(
     assert "/api/v3/order" in str(caught.value)
 
 
+def test_binance_transport_public_throttle_never_logs_query(monkeypatch):
+    messages = []
+
+    class Response:
+        status_code = 200
+        headers = {}
+        text = ""
+
+        @staticmethod
+        def json():
+            return {"code": -1003, "msg": "too many requests"}
+
+    class Session:
+        def request(self, method, url, **kwargs):
+            return Response()
+
+    monkeypatch.setattr(
+        "ladder_dragon.execution.binance_transport.time.sleep", lambda _: None
+    )
+    transport = BinanceTransport(
+        Session(),
+        base_url=lambda: "https://api.binance.com",
+        api_key=lambda: "key",
+        api_secret=lambda: "secret",
+        live=lambda: True,
+        recv_window=lambda: 5000,
+        logger=messages.append,
+    )
+
+    with pytest.raises(BinanceResponseError):
+        transport.request_with_backoff(
+            "GET",
+            "https://api.binance.com/api/v3/account?signature=secret-value",
+            max_tries=2,
+        )
+
+    combined = "\n".join(messages)
+    assert "signature=" not in combined
+    assert "secret-value" not in combined
+
+
 def test_executor_market_fallbacks_and_asset_cache():
     calls = []
 

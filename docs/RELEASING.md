@@ -20,8 +20,10 @@ maintainer GPG fingerprint. Do not publish an unsigned production release.
    git verify-tag v2.10.x
    ```
 
-5. Push the commit and tag. Raspberry hosts must set
-   `BOT_UPDATE_TRUSTED_SIGNER` to the full fingerprint and update by exact SHA.
+5. Push the commit and tag. Raspberry hosts must pin the full fingerprint in
+   root-owned `/etc/ladder-dragon/update-trust.conf` with mode `0600`, import the
+   public key into the bot user's GPG keyring, and update by exact SHA. Trust
+   policy must never be supplied through command environment variables.
 
 The public repository and tag name are discovery mechanisms, not trust roots.
 The updater accepts only a signature from the pinned fingerprint.

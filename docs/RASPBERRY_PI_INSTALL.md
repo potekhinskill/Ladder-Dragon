@@ -14,7 +14,7 @@ and synchronized time.
 ```bash
 sudo apt update
 sudo apt full-upgrade -y
-sudo apt install -y git openssh-client ca-certificates
+sudo apt install -y git openssh-client ca-certificates gnupg
 sudo timedatectl set-timezone Asia/Almaty
 timedatectl status
 ```
@@ -67,8 +67,20 @@ sudo -u bot git clone --branch main --single-branch \
   git@github.com:potekhinskill/Ladder-Dragon.git /home/bot/apps/binance_bot
 cd /home/bot/apps/binance_bot
 RELEASE_SHA="$(sudo -u bot git rev-parse HEAD)"
+RELEASE_FINGERPRINT="$(
+  gpg --show-keys --with-colons docs/release-signing-key.asc |
+  awk -F: '$1 == "fpr" {print toupper($10); exit}'
+)"
+test "$RELEASE_FINGERPRINT" = \
+  '808B9F52CB6C08901703EF7C113144122F1830A0'
+sudo -u bot gpg --batch --import docs/release-signing-key.asc
+sudo -u bot git verify-commit "$RELEASE_SHA"
 sudo bash deploy/install_raspberry_pi.sh install --commit "$RELEASE_SHA"
 ```
+
+Confirm the displayed release fingerprint through an independent channel before
+trusting the first clone. The installer repeats the exact-signature check before
+activating the project and refuses an unsigned or differently signed commit.
 
 The installer creates the virtual environment, nginx, FastAPI, fail2ban, zram,
 journald limits, systemd units, mDNS (`bot.local`), local TLS, Basic Auth,
@@ -208,18 +220,37 @@ sudo bash deploy/update_raspberry_pi.sh update "$RELEASE_SHA"
 ```
 
 Updates are fail-closed and require a GPG-signed commit from the configured
-maintainer fingerprint. Export the full fingerprint (40 or 64 hexadecimal
-characters) before running the updater:
+maintainer fingerprint. A fresh 2.10.73-or-newer installation creates the
+root-owned trust anchor automatically. On an existing host, install it once
+before the first update with the hardened updater:
 
 ```bash
-export BOT_UPDATE_TRUSTED_SIGNER='808B9F52CB6C08901703EF7C113144122F1830A0'
-sudo --preserve-env=BOT_UPDATE_TRUSTED_SIGNER \
-  bash deploy/update_raspberry_pi.sh update "$RELEASE_SHA"
+sudo install -d -o root -g root -m 0700 /etc/ladder-dragon
+printf '%s\n' \
+  'TRUSTED_GPG_FINGERPRINT=808B9F52CB6C08901703EF7C113144122F1830A0' |
+  sudo tee /etc/ladder-dragon/update-trust.conf >/dev/null
+sudo chown root:root /etc/ladder-dragon/update-trust.conf
+sudo chmod 0600 /etc/ladder-dragon/update-trust.conf
+sudo -u bot gpg --batch --import docs/release-signing-key.asc
 ```
 
-Do not disable `BOT_UPDATE_REQUIRE_SIGNED_COMMIT` in routine operation. A fresh
-bootstrap still requires an exact commit SHA; after bootstrap, signed updates
-and the pinned fingerprint protect against a compromised branch or tag.
+The fingerprint cannot be supplied or disabled through the command environment.
+The updater accepts only the root-owned configuration and verifies the exact
+commit before merging it. Confirm the public key fingerprint through an
+independent channel before the first installation. A repository clone, branch,
+tag, or SHA alone is not a cryptographic trust root.
+
+An unsigned emergency update requires a separate interactive and journaled
+one-use authorization. Use it only when loss of the signing key makes a safety
+fix impossible to deploy normally:
+
+```bash
+sudo bash deploy/update_raspberry_pi_break_glass.sh "$RELEASE_SHA"
+sudo bash deploy/update_raspberry_pi.sh update "$RELEASE_SHA"
+```
+
+The authorization is bound to one exact SHA, stored under `/run`, consumed once,
+and written to the authpriv journal. It is not a routine update switch.
 
 The default local dashboard certificate is self-signed, so the nginx template
 intentionally does not send HSTS. For remote access, install a certificate from

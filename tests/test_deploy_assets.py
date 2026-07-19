@@ -419,9 +419,16 @@ def test_updates_are_commit_allowlisted_and_backups_are_encrypted():
     assert "git pull" not in updater
     assert "merge-base --is-ancestor" in updater
     assert "git verify-commit" in updater
-    assert 'BOT_UPDATE_REQUIRE_SIGNED_COMMIT:-1' in updater
-    assert "BOT_UPDATE_TRUSTED_SIGNER" in updater
+    assert "/etc/ladder-dragon/update-trust.conf" in updater
+    assert "deploy/read_update_trust.py" in updater
+    assert "BOT_UPDATE_REQUIRE_SIGNED_COMMIT" not in updater
+    assert "BOT_UPDATE_TRUSTED_SIGNER" not in updater
     assert "VALIDSIG" in updater
+    assert "verify_release_checkout" in installer
+    assert "docs/release-signing-key.asc" in installer
+    assert "install_update_trust" in installer
+    assert (ROOT / "deploy/update_raspberry_pi_break_glass.sh").is_file()
+    assert (ROOT / "deploy/read_update_trust.py").is_file()
     assert "--commit with an exact 40-character Git SHA is required" in installer
     assert "age -r" in backup
     assert ".tgz.age" in backup

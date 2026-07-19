@@ -68,6 +68,7 @@ Ladder Dragon — универсальный исполнитель с авто�
 from __future__ import annotations
 
 import os
+import json
 import sys
 import time
 import signal
@@ -186,6 +187,85 @@ def _trip_execution_halt(reason: str, **metadata: Any) -> None:
     """Остановить дальнейшее исполнение при неподтверждённом состоянии ордера."""
     path = create_manual_halt(reason, metadata=metadata)
     log(f"[EXECUTION-HALT] {reason}; marker={path}")
+
+
+_SAFETY_CONTROL_FAILURES: Dict[tuple[str, str], int] = {}
+
+
+def _record_safety_control_failure(
+    control: str,
+    symbol: str,
+    error: BaseException,
+) -> int:
+    """Block unsafe decisions and escalate repeated control failures in LIVE."""
+    key = (control, symbol.upper())
+    count = _SAFETY_CONTROL_FAILURES.get(key, 0) + 1
+    _SAFETY_CONTROL_FAILURES[key] = count
+    threshold = max(1, getenv_int("BOT_SAFETY_FAILURE_HALT_THRESHOLD", 3))
+    log(
+        "[SAFETY-CONTROL] "
+        + json.dumps(
+            {
+                "control": control,
+                "symbol": symbol.upper(),
+                "status": "unavailable",
+                "buy_blocked": True,
+                "failure_count": count,
+                "halt_threshold": threshold,
+                "error_type": error.__class__.__name__,
+            },
+            sort_keys=True,
+        )
+    )
+    if LIVE_MODE and count >= threshold:
+        _trip_execution_halt(
+            f"{control} unavailable after {count} consecutive checks",
+            symbol=symbol.upper(),
+            control=control,
+            error_type=error.__class__.__name__,
+        )
+    return count
+
+
+def _clear_safety_control_failure(control: str, symbol: str) -> None:
+    _SAFETY_CONTROL_FAILURES.pop((control, symbol.upper()), None)
+
+
+def _panic_state_fail_closed(
+    control: str,
+    symbol: str,
+    evaluator: Callable[[], bool],
+) -> tuple[bool, Optional[str]]:
+    """Return an explicit BUY block when panic state cannot be evaluated."""
+    try:
+        active = bool(evaluator())
+        _clear_safety_control_failure(control, symbol)
+        return active, None
+    except Exception as exc:
+        _record_safety_control_failure(control, symbol, exc)
+        return True, f"{control}-unavailable"
+
+
+def _gap_watchdog_fail_closed(
+    symbol: str,
+    price: float,
+    *,
+    dependencies: ProtectionDependencies,
+    gap_tolerance_pct: float,
+) -> Optional[str]:
+    """Run the gap control and return a BUY-block reason on unsafe state."""
+    try:
+        flattened = emergency_gap_flatten(
+            symbol,
+            price,
+            dependencies=dependencies,
+            gap_tolerance_pct=gap_tolerance_pct,
+        )
+        _clear_safety_control_failure("gap-watchdog", symbol)
+        return "gap-emergency-flattened" if flattened else None
+    except Exception as exc:
+        _record_safety_control_failure("gap-watchdog", symbol, exc)
+        return "gap-watchdog-unavailable"
 
 
 # ------------------- helpers: rounding & env -------------------
@@ -1501,16 +1581,22 @@ def main():
 
         # Average price and panic state jointly control BUY permission and the minimum
         # acceptable protective SELL price.
+        safety_buy_block_reason: Optional[str] = None
         try:
             ema20, atr, prev_close = get_indicators_cached(symbol, args.panic_interval, ttl_sec=20)
-        except Exception:
+            _clear_safety_control_failure("panic-indicators", symbol)
+        except Exception as exc:
             ema20 = atr = prev_close = None
+            _record_safety_control_failure("panic-indicators", symbol, exc)
+            safety_buy_block_reason = "panic-indicators-unavailable"
         try:
             avg_px = avg_entry(symbol, cache_ttl=args.avg_cache_ttl, lookback=args.avg_lookback)
         except Exception:
             avg_px = None
-        try:
-            panic_active = update_panic_state(
+        panic_active, panic_block_reason = _panic_state_fail_closed(
+            "panic-state",
+            symbol,
+            lambda: update_panic_state(
                 symbol=symbol,
                 now_px=current_price,
                 ema20=ema20, atr=atr, prev_close=prev_close,
@@ -1519,9 +1605,10 @@ def main():
                 panic_k_atr=float(args.panic_k_atr),
                 debounce_checks=int(args.panic_debounce_checks),
                 cooldown_sec=int(args.panic_cooldown_sec),
-            )
-        except Exception:
-            panic_active = False
+            ),
+        )
+        if panic_block_reason is not None:
+            safety_buy_block_reason = panic_block_reason
 
         trend_interval = args.buy_trend_interval or args.panic_interval
         if trend_interval == args.panic_interval:
@@ -1568,13 +1655,29 @@ def main():
                         f"[VWAP] {symbol} discount ratio={vwap_ratio:.4f} <= 1-{discount_thr:.4f} → cap {old_cap:.2f}→{cap:.2f} x{scale:.2f}"
                     )
 
-        skip_buys_reason: Optional[str] = None
+        # Run the gap control before any new BUY. A failed check is a safety
+        # state, not an informational error; replacement workers may otherwise
+        # place exposure while protection telemetry is unavailable.
+        if LIVE_MODE and os.getenv("BOT_GAP_WATCHDOG", "1").lower() in ("1", "true", "yes"):
+            gap_block_reason = _gap_watchdog_fail_closed(
+                symbol,
+                current_price,
+                dependencies=_protection_dependencies(),
+                gap_tolerance_pct=max(
+                    0.0,
+                    getenv_float("BOT_GAP_TOLERANCE_PCT", 0.001),
+                ),
+            )
+            if gap_block_reason is not None:
+                safety_buy_block_reason = gap_block_reason
+
+        skip_buys_reason: Optional[str] = safety_buy_block_reason
         panic_sell_floor_pct = args.panic_sell_floor_pct
-        if panic_active and args.skip_buy_while_panic:
+        if skip_buys_reason is None and panic_active and args.skip_buy_while_panic:
             skip_buys_reason = "panic"
-        elif bear_mode and args.bear_skip_buys:
+        elif skip_buys_reason is None and bear_mode and args.bear_skip_buys:
             skip_buys_reason = "bear-trend"
-        elif cap <= 0:
+        elif skip_buys_reason is None and cap <= 0:
             skip_buys_reason = "cap<=0"
         elif (skip_buys_reason is None and vwap_ratio is not None and args.buy_vwap_premium is not None):
             try:
@@ -1658,25 +1761,39 @@ def main():
             try:
                 ema20, atr, prev_close = get_indicators_cached(symbol, args.panic_interval, ttl_sec=20)
                 avg_px = avg_entry(symbol, cache_ttl=args.avg_cache_ttl, lookback=args.avg_lookback)  # кэш управляется CLI
-                panic_active = update_panic_state(
-                    symbol=symbol,
-                    now_px=get_price(symbol),
-                    ema20=ema20, atr=atr, prev_close=prev_close,
-                    avg_entry_px=avg_px,
-                    panic_drop_pct=float(args.panic_drop_pct),
-                    panic_k_atr=float(args.panic_k_atr),
-                    debounce_checks=int(args.panic_debounce_checks),
-                    cooldown_sec=int(args.panic_cooldown_sec),
+                panic_active, _ = _panic_state_fail_closed(
+                    "panic-runtime",
+                    symbol,
+                    lambda: update_panic_state(
+                        symbol=symbol,
+                        now_px=get_price(symbol),
+                        ema20=ema20, atr=atr, prev_close=prev_close,
+                        avg_entry_px=avg_px,
+                        panic_drop_pct=float(args.panic_drop_pct),
+                        panic_k_atr=float(args.panic_k_atr),
+                        debounce_checks=int(args.panic_debounce_checks),
+                        cooldown_sec=int(args.panic_cooldown_sec),
+                    ),
                 )
-                if LIVE_MODE and os.getenv("BOT_GAP_WATCHDOG", "1").lower() in ("1", "true", "yes"):
-                    emergency_gap_flatten(
+            except Exception as exc:
+                panic_active = True
+                _record_safety_control_failure("panic-runtime", symbol, exc)
+
+            if LIVE_MODE and os.getenv("BOT_GAP_WATCHDOG", "1").lower() in ("1", "true", "yes"):
+                try:
+                    gap_price = get_price(symbol)
+                except Exception as exc:
+                    _record_safety_control_failure("gap-watchdog", symbol, exc)
+                else:
+                    _gap_watchdog_fail_closed(
                         symbol,
-                        get_price(symbol),
+                        gap_price,
                         dependencies=_protection_dependencies(),
-                        gap_tolerance_pct=max(0.0, getenv_float("BOT_GAP_TOLERANCE_PCT", 0.001)),
+                        gap_tolerance_pct=max(
+                            0.0,
+                            getenv_float("BOT_GAP_TOLERANCE_PCT", 0.001),
+                        ),
                     )
-            except Exception:
-                pass
 
             # Remove a FILLED BUY from placed_ids only after a confirmed OCO or reserve
             # TP. Any uncertainty creates a halt.

@@ -11,6 +11,7 @@ ai_supervisor.py — «Лестница Дракона» (SMART, high-profit gri
 """
 
 import os
+import fcntl
 import sys
 import time
 import math
@@ -108,7 +109,10 @@ if API_KEY:
     SESSION.headers.update({"X-MBX-APIKEY": API_KEY})
 SESSION.headers.update({"User-Agent": USER_AGENT})
 
-LOCK_FILE = "/tmp/ai_supervisor.lock"
+LOCK_FILE = os.path.join(
+    os.getenv("BOT_RUN_DIR", "/run/mybot"), "ai_supervisor.lock"
+)
+_SINGLETON_LOCK_HANDLE: Any | None = None
 
 LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO").upper()
 _CHILD_PROCS: Dict[str, subprocess.Popen] = {}
@@ -130,6 +134,44 @@ _AI_DECISION_IDS: Dict[str, str] = {}
 # Otherwise a cache hit would return only the basic indicators with
 # ``*_available=False`` and the dashboard would incorrectly show stale/incomplete.
 _AI_CONTEXT_CACHE: Dict[str, tuple[float, MarketContext]] = {}
+
+
+def _acquire_singleton_lock(path: str = LOCK_FILE) -> None:
+    """Acquire a process-lifetime flock or fail before any worker can start."""
+    global _SINGLETON_LOCK_HANDLE
+    if _SINGLETON_LOCK_HANDLE is not None:
+        raise RuntimeError("supervisor singleton lock is already held by this process")
+    lock_path = Path(path)
+    lock_path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+    flags = os.O_RDWR | os.O_CREAT
+    if hasattr(os, "O_NOFOLLOW"):
+        flags |= os.O_NOFOLLOW
+    descriptor = os.open(lock_path, flags, 0o600)
+    handle = os.fdopen(descriptor, "r+", encoding="utf-8")
+    try:
+        fcntl.flock(handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except BaseException:
+        handle.close()
+        raise
+    handle.seek(0)
+    handle.truncate()
+    handle.write(str(os.getpid()))
+    handle.flush()
+    os.fsync(handle.fileno())
+    _SINGLETON_LOCK_HANDLE = handle
+
+
+def _release_singleton_lock() -> None:
+    """Release the held flock without unlinking the shared lock inode."""
+    global _SINGLETON_LOCK_HANDLE
+    handle = _SINGLETON_LOCK_HANDLE
+    _SINGLETON_LOCK_HANDLE = None
+    if handle is None:
+        return
+    try:
+        fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
+    finally:
+        handle.close()
 
 
 def env_flag(name: str, default: bool = False) -> bool:
@@ -1390,33 +1432,48 @@ def run_child(symbol: str, ladder: List[float], args: argparse.Namespace,
 # Balance-based automatic CAP
 # ===========================
 
-def auto_cap_if_needed(args: argparse.Namespace, n_syms: int) -> None:
+def auto_cap_if_needed(args: argparse.Namespace, n_syms: int) -> Decimal | None:
     """Распределить доступный после резерва USDT между символами и BUY-слотами."""
     if not args.auto_cap:
-        return
+        return None
     try:
         bals = get_balances()
-        reserve = max(0.0, float(os.getenv("RISK_RESERVE_USDT", "0") or 0.0))
-        free = max(0.0, float(bals.get("USDT", 0.0)) - reserve)
-        min_pool = float(args.cap_floor_usdt or 0.0)
-        if free < max(10.0, min_pool):
-            log(f"[AUTO-CAP] free≈{free:.2f} < threshold; skip CAP/BOT_CAP_PER_ORDER")
-            return
+        if "USDT" not in bals:
+            raise RuntimeError("USDT balance is unavailable")
+        reserve = max(Decimal("0"), money(os.getenv("RISK_RESERVE_USDT", "0")))
+        free = max(Decimal("0"), money(bals["USDT"]) - reserve)
+        min_pool = money(args.cap_floor_usdt or 0)
+        if free < max(Decimal("10"), min_pool):
+            os.environ["BOT_CAP_PER_ORDER"] = "0"
+            log(
+                f"[AUTO-CAP] free≈{free:.2f} < threshold; "
+                "failed closed with BOT_CAP_PER_ORDER=0"
+            )
+            return Decimal("0")
         log(f"[BAL] USDT free≈{free:.2f}")
         if free <= 0:
-            return
-        pool = free * float(args.alloc_pct)
-        denom = max(1, n_syms * max(1, args.target_buy_per_symbol))
+            os.environ["BOT_CAP_PER_ORDER"] = "0"
+            return Decimal("0")
+        pool = free * money(args.alloc_pct)
+        denom = Decimal(max(1, n_syms * max(1, args.target_buy_per_symbol)))
         cap = pool / denom
         if args.cap_floor_usdt is not None:
-            cap = max(cap, float(args.cap_floor_usdt))
+            cap = max(cap, money(args.cap_floor_usdt))
         if args.cap_ceil_usdt is not None:
-            cap = min(cap, float(args.cap_ceil_usdt))
-        cap = max(5.0, cap)
-        os.environ["BOT_CAP_PER_ORDER"] = f"{cap:.2f}"
+            cap = min(cap, money(args.cap_ceil_usdt))
+        cap = max(Decimal("5"), cap)
+        os.environ["BOT_CAP_PER_ORDER"] = format(cap, ".2f")
         log(f"[AUTO-CAP] free≈{free:.2f} → BOT_CAP_PER_ORDER≈{cap:.2f} (n_syms={n_syms})")
-    except Exception as e:
-        log(f"[AUTO-CAP] failed: {e}")
+        return cap
+    except (ArithmeticError, KeyError, RuntimeError, TypeError, ValueError) as exc:
+        # Never retain a previous positive CAP when the current balance cannot
+        # be valued. Zero propagates through every worker and risk allocation.
+        os.environ["BOT_CAP_PER_ORDER"] = "0"
+        log(
+            f"[AUTO-CAP] failed closed: error_type={exc.__class__.__name__}; "
+            "BOT_CAP_PER_ORDER=0"
+        )
+        return Decimal("0")
 
 # ===========================
 # Per-symbol logic
@@ -2555,23 +2612,22 @@ def main():
 
     if args.singleton:
         try:
-            if os.path.exists(LOCK_FILE):
-                with open(LOCK_FILE, "r") as f:
-                    pid = int(f.read().strip() or "0")
-                if pid and pid != os.getpid():
-                    try:
-                        os.kill(pid, signal.SIGTERM)
-                        time.sleep(0.5)
-                    except Exception:
-                        pass
-            with open(LOCK_FILE, "w") as f:
-                f.write(str(os.getpid()))
-        except Exception as e:
-            log(f"[WARN] cannot create lock {LOCK_FILE}: {e}")
+            _acquire_singleton_lock(LOCK_FILE)
+            log(f"[SINGLETON] acquired flock {LOCK_FILE} pid={os.getpid()}")
+        except (OSError, RuntimeError, BlockingIOError) as exc:
+            log(
+                f"[FATAL] singleton lock unavailable path={LOCK_FILE} "
+                f"error_type={exc.__class__.__name__}"
+            )
+            raise SystemExit(3) from exc
 
     get_server_time_offset_ms()
-    auto_cap_if_needed(args, n_syms=len(symbols))
-    configured_order_cap = money(args.cap_ceil_usdt or os.getenv("BOT_CAP_PER_ORDER", "50"))
+    auto_cap = auto_cap_if_needed(args, n_syms=len(symbols))
+    configured_order_cap = (
+        auto_cap
+        if auto_cap is not None
+        else money(args.cap_ceil_usdt or os.getenv("BOT_CAP_PER_ORDER", "50"))
+    )
 
     def _next_vwap_refresh() -> float:
         base = max(0, int(getattr(args, "vwap_refresh_sec", 0)))
@@ -2752,12 +2808,8 @@ def main():
     finally:
         _publish_ai_runtime_status(state="STOPPING")
         _stop_children("supervisor shutdown")
-        try:
-            if os.path.exists(LOCK_FILE):
-                os.remove(LOCK_FILE)
-                log(f"[stop-all] lock удалён ({LOCK_FILE})")
-        except Exception:
-            pass
+        _release_singleton_lock()
+        log(f"[stop-all] singleton flock released ({LOCK_FILE})")
 
 if __name__ == "__main__":
     main()

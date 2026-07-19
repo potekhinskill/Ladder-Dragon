@@ -33,7 +33,7 @@ PNL="bin/pnl_reporter.py"
 # status=1 even after children stop successfully.
 LOG="${SUPERVISOR_LOG:-${PROJECT_DIR}/logs/supervisor.log}"
 PNL_LOG="${PNL_LOG_PATH:-${PROJECT_DIR}/logs/pnl.log}"
-LOCK="/tmp/ai_supervisor.lock"
+LOCK="${BOT_RUN_DIR:-/run/mybot}/ai_supervisor.lock"
 
 mkdir -p "$(dirname -- "${LOG}")" "$(dirname -- "${PNL_LOG}")"
 
@@ -264,9 +264,8 @@ cmd_stop_old() {
   echo "[stop-old] kill -TERM ${pid}"
   kill -TERM "${pid}" || true
   sleep 2
-  if [[ -f "${LOCK}" ]] && [[ "$(cat "${LOCK}" 2>/dev/null || true)" == "${pid}" ]]; then
-    rm -f "${LOCK}" && echo "[stop-old] lock очищен (${LOCK})"
-  fi
+  # Keep the flock inode in place. The supervisor releases the advisory lock
+  # when it exits; unlinking here could let a replacement lock a new inode.
 }
 
 cmd_stop_new() {
@@ -290,7 +289,7 @@ cmd_stop_all() {
     kill -TERM ${p} || true
     sleep 2
   fi
-  rm -f "${LOCK}" && echo "[stop-all] lock удалён (${LOCK})" || true
+  echo "[stop-all] flock released by supervisor (${LOCK})"
 }
 
 cmd_start_runner() {

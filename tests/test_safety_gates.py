@@ -1,9 +1,12 @@
 import importlib.util
+import fcntl
+import os
 from pathlib import Path
 import subprocess
 import sys
 import time
 import sqlite3
+from decimal import Decimal
 from types import SimpleNamespace
 
 import pytest
@@ -33,6 +36,118 @@ def load_worker():
     assert spec and spec.loader
     spec.loader.exec_module(module)
     return module
+
+
+def test_supervisor_singleton_flock_rejects_second_process(tmp_path):
+    path = tmp_path / "ai_supervisor.lock"
+    competing = path.open("w+")
+    fcntl.flock(competing.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+    ai_supervisor._SINGLETON_LOCK_HANDLE = None
+    try:
+        with pytest.raises(BlockingIOError):
+            ai_supervisor._acquire_singleton_lock(str(path))
+    finally:
+        fcntl.flock(competing.fileno(), fcntl.LOCK_UN)
+        competing.close()
+        ai_supervisor._release_singleton_lock()
+
+
+def test_supervisor_singleton_flock_is_held_for_process_lifetime(tmp_path):
+    path = tmp_path / "ai_supervisor.lock"
+    ai_supervisor._SINGLETON_LOCK_HANDLE = None
+    try:
+        ai_supervisor._acquire_singleton_lock(str(path))
+        assert path.read_text() == str(os.getpid())
+        with path.open("r+") as competing:
+            with pytest.raises(BlockingIOError):
+                fcntl.flock(competing.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+    finally:
+        ai_supervisor._release_singleton_lock()
+
+
+def test_auto_cap_uses_decimal_and_zeroes_stale_cap(monkeypatch):
+    args = SimpleNamespace(
+        auto_cap=True,
+        alloc_pct="0.50",
+        cap_floor_usdt="5",
+        cap_ceil_usdt="10",
+        target_buy_per_symbol=1,
+    )
+    monkeypatch.setenv("RISK_RESERVE_USDT", "300")
+    monkeypatch.setattr(ai_supervisor, "get_balances", lambda: {"USDT": "331.09148973"})
+
+    cap = ai_supervisor.auto_cap_if_needed(args, n_syms=1)
+
+    assert cap == Decimal("10")
+    assert os.environ["BOT_CAP_PER_ORDER"] == "10.00"
+
+    monkeypatch.setattr(
+        ai_supervisor,
+        "get_balances",
+        lambda: (_ for _ in ()).throw(RuntimeError("balance unavailable")),
+    )
+    assert ai_supervisor.auto_cap_if_needed(args, n_syms=1) == Decimal("0")
+    assert os.environ["BOT_CAP_PER_ORDER"] == "0"
+
+
+def test_panic_failure_blocks_buy_and_repeated_failure_halts(monkeypatch):
+    worker = load_worker()
+    worker.LIVE_MODE = True
+    worker._SAFETY_CONTROL_FAILURES.clear()
+    halts = []
+    monkeypatch.setenv("BOT_SAFETY_FAILURE_HALT_THRESHOLD", "2")
+    monkeypatch.setattr(
+        worker,
+        "_trip_execution_halt",
+        lambda reason, **metadata: halts.append((reason, metadata)),
+    )
+    monkeypatch.setattr(worker, "log", lambda message: None)
+
+    def unavailable():
+        raise RuntimeError("indicator failure")
+
+    assert worker._panic_state_fail_closed(
+        "panic-state", "SOLUSDT", unavailable
+    ) == (True, "panic-state-unavailable")
+    assert halts == []
+    assert worker._panic_state_fail_closed(
+        "panic-state", "SOLUSDT", unavailable
+    ) == (True, "panic-state-unavailable")
+    assert halts[0][1]["control"] == "panic-state"
+
+
+def test_gap_watchdog_failure_blocks_buy_and_escalates(monkeypatch):
+    worker = load_worker()
+    worker.LIVE_MODE = True
+    worker._SAFETY_CONTROL_FAILURES.clear()
+    halts = []
+    monkeypatch.setenv("BOT_SAFETY_FAILURE_HALT_THRESHOLD", "2")
+    monkeypatch.setattr(worker, "log", lambda message: None)
+    monkeypatch.setattr(
+        worker,
+        "_trip_execution_halt",
+        lambda reason, **metadata: halts.append((reason, metadata)),
+    )
+    monkeypatch.setattr(
+        worker,
+        "emergency_gap_flatten",
+        lambda *args, **kwargs: (_ for _ in ()).throw(
+            RuntimeError("gap state unavailable")
+        ),
+    )
+
+    kwargs = {
+        "dependencies": worker._protection_dependencies(),
+        "gap_tolerance_pct": 0.001,
+    }
+    assert worker._gap_watchdog_fail_closed(
+        "SOLUSDT", 75.0, **kwargs
+    ) == "gap-watchdog-unavailable"
+    assert halts == []
+    assert worker._gap_watchdog_fail_closed(
+        "SOLUSDT", 75.0, **kwargs
+    ) == "gap-watchdog-unavailable"
+    assert halts[0][1]["control"] == "gap-watchdog"
 
 
 def test_supervisor_dry_cancel_never_reaches_transport(monkeypatch):

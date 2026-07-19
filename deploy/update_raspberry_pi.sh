@@ -9,6 +9,8 @@ WEB_ROOT="${WEB_ROOT:-/var/www/bot}"
 DASHBOARD_ENV="${PROJECT_DIR}/.env.dashboard"
 BOT_HOSTNAME="${BOT_HOSTNAME:-$(hostname -s).local}"
 BOT_USER="${BOT_USER:-$(stat -c '%U' "${PROJECT_DIR}" 2>/dev/null || echo bot)}"
+UPDATE_TRUST_CONFIG="/etc/ladder-dragon/update-trust.conf"
+BREAK_GLASS_MARKER="/run/ladder-dragon/update-break-glass"
 ACTION="${1:-update}"
 UPDATE_COMMIT="${2:-${BOT_UPDATE_COMMIT:-}}"
 MYBOT_WAS_ACTIVE=0
@@ -26,14 +28,41 @@ fail() {
 
 verify_trusted_commit() {
   local commit="$1"
-  local signer="${BOT_UPDATE_TRUSTED_SIGNER:-}"
+  local signer="$2"
   local verification
   [[ "${signer}" =~ ^[0-9A-Fa-f]{40,64}$ ]] \
-    || fail "BOT_UPDATE_TRUSTED_SIGNER must contain the trusted GPG fingerprint"
+    || fail "root update trust config must contain a full GPG fingerprint"
   verification="$(runuser -u "${BOT_USER}" -- git verify-commit --raw "${commit}" 2>&1)" \
     || fail "Git signature verification failed for ${commit}"
   grep -Eiq "\[GNUPG:\] VALIDSIG [^[:cntrl:]]*${signer}([[:space:]]|$)" <<<"${verification}" \
     || fail "commit ${commit} is not signed by trusted fingerprint ${signer}"
+}
+
+load_trusted_signer() {
+  [[ -f "${UPDATE_TRUST_CONFIG}" ]] \
+    || fail "missing root update trust config: ${UPDATE_TRUST_CONFIG}"
+  [[ "$(stat -c '%u' "${UPDATE_TRUST_CONFIG}")" == "0" ]] \
+    || fail "update trust config must be owned by root"
+  [[ "$(stat -c '%a' "${UPDATE_TRUST_CONFIG}")" == "600" ]] \
+    || fail "update trust config must have mode 0600"
+  python3 deploy/read_update_trust.py "${UPDATE_TRUST_CONFIG}" \
+    || fail "invalid update trust config"
+}
+
+consume_break_glass() {
+  local commit="${1,,}"
+  [[ -f "${BREAK_GLASS_MARKER}" ]] || return 1
+  [[ "$(stat -c '%u' "${BREAK_GLASS_MARKER}")" == "0" ]] \
+    || fail "break-glass marker must be owned by root"
+  [[ "$(stat -c '%a' "${BREAK_GLASS_MARKER}")" == "600" ]] \
+    || fail "break-glass marker must have mode 0600"
+  [[ "$(tr -d '\r\n' <"${BREAK_GLASS_MARKER}")" == "${commit}" ]] \
+    || fail "break-glass marker does not authorize commit ${commit}"
+  rm -f "${BREAK_GLASS_MARKER}"
+  logger --priority authpriv.warning --tag ladder-dragon-update \
+    "BREAK_GLASS consumed unsigned update commit=${commit}"
+  echo "[BREAK-GLASS] consuming one-use authorization for ${commit}" >&2
+  return 0
 }
 
 service_flag() {
@@ -197,7 +226,7 @@ check_link() {
 }
 
 if [[ "${EUID}" -ne 0 ]]; then
-  exec sudo --preserve-env=PROJECT_DIR,WEB_ROOT,BOT_HOSTNAME,BOT_USER,BOT_UPDATE_COMMIT,BOT_UPDATE_REQUIRE_SIGNED_COMMIT,BOT_UPDATE_TRUSTED_SIGNER "$0" "$@"
+  exec sudo --preserve-env=PROJECT_DIR,WEB_ROOT,BOT_HOSTNAME,BOT_USER,BOT_UPDATE_COMMIT "$0" "$@"
 fi
 
 [[ -d "${PROJECT_DIR}" ]] || fail "project directory not found: ${PROJECT_DIR}"
@@ -210,8 +239,6 @@ if [[ "${ACTION}" == "update" && "${BOT_UPDATE_RUNNER:-0}" != "1" ]]; then
   install -m 0700 "$0" "${runner}"
   exec env BOT_UPDATE_RUNNER=1 PROJECT_DIR="${PROJECT_DIR}" WEB_ROOT="${WEB_ROOT}" \
     BOT_HOSTNAME="${BOT_HOSTNAME}" BOT_USER="${BOT_USER}" \
-    BOT_UPDATE_REQUIRE_SIGNED_COMMIT="${BOT_UPDATE_REQUIRE_SIGNED_COMMIT:-1}" \
-    BOT_UPDATE_TRUSTED_SIGNER="${BOT_UPDATE_TRUSTED_SIGNER:-}" \
     bash "${runner}" update "${UPDATE_COMMIT}"
 fi
 
@@ -268,8 +295,11 @@ if [[ "${ACTION}" == "update" ]]; then
     || fail "requested commit is not a fast-forward from current HEAD"
   runuser -u "${BOT_USER}" -- git merge-base --is-ancestor "${UPDATE_COMMIT}" "${upstream}" \
     || fail "requested commit is not contained in ${upstream}"
-  if [[ "${BOT_UPDATE_REQUIRE_SIGNED_COMMIT:-1}" == "1" ]]; then
-    verify_trusted_commit "${UPDATE_COMMIT}"
+  if consume_break_glass "${UPDATE_COMMIT}"; then
+    :
+  else
+    trusted_signer="$(load_trusted_signer)"
+    verify_trusted_commit "${UPDATE_COMMIT}" "${trusted_signer}"
   fi
   runuser -u "${BOT_USER}" -- git merge --ff-only "${UPDATE_COMMIT}"
   runuser -u "${BOT_USER}" -- .venv/bin/python -m pip install \

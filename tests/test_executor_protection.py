@@ -1,5 +1,7 @@
 from pathlib import Path
 
+import requests
+
 from ladder_dragon.execution.executor_protection import (
     BreakevenRuntime,
     BreakevenStateStore,
@@ -213,6 +215,97 @@ def test_breakeven_rearms_partially_filled_oco(tmp_path):
     assert "77" not in store.load("SOLUSDT")
     assert store.load("SOLUSDT")["78"]["fill_price"] == 100.0
     assert any("OCO re-arm" in line for line in logs)
+
+
+def test_breakeven_cancel_unknown_halts_without_replacement(tmp_path):
+    replacements, halts = [], []
+    store = state_store(tmp_path)
+    store.save(
+        "SOLUSDT",
+        {"77": {"fill_price": 100.0, "tp_price": 110.0, "ts": 1.0}},
+    )
+    open_orders = [
+        {
+            "side": "SELL",
+            "orderListId": 77,
+            "type": "LIMIT_MAKER",
+            "origQty": "1.0",
+            "executedQty": "0.4",
+            "price": "110.0",
+        },
+        {
+            "side": "SELL",
+            "orderListId": 77,
+            "type": "STOP_LOSS_LIMIT",
+            "stopPrice": "95.0",
+        },
+    ]
+    deps = dependencies(
+        list_open_orders=lambda symbol: open_orders,
+        cancel_oco=lambda *args: (_ for _ in ()).throw(
+            requests.ConnectionError("cancel ACK lost")
+        ),
+        place_oco_sell=lambda *args, **kwargs: replacements.append(args),
+        halt=lambda reason, **metadata: halts.append((reason, metadata)),
+    )
+
+    maintain_breakeven(
+        "SOLUSDT",
+        offset_pct=0.001,
+        stop_limit_offset_pct=0.0015,
+        state_store=store,
+        dependencies=deps,
+    )
+
+    assert replacements == []
+    assert "old list remains open" in halts[0][0]
+    assert "77" in store.load("SOLUSDT")
+
+
+def test_breakeven_cancel_error_reconciles_absent_old_oco(tmp_path):
+    replacements = []
+    store = state_store(tmp_path)
+    store.save(
+        "SOLUSDT",
+        {"77": {"fill_price": 100.0, "tp_price": 110.0, "ts": 1.0}},
+    )
+    initial = [
+        {
+            "side": "SELL",
+            "orderListId": 77,
+            "type": "LIMIT_MAKER",
+            "origQty": "1.0",
+            "executedQty": "0.4",
+            "price": "110.0",
+        },
+        {
+            "side": "SELL",
+            "orderListId": 77,
+            "type": "STOP_LOSS_LIMIT",
+            "stopPrice": "95.0",
+        },
+    ]
+    responses = iter((initial, []))
+    deps = dependencies(
+        list_open_orders=lambda symbol: next(responses),
+        cancel_oco=lambda *args: (_ for _ in ()).throw(
+            requests.ConnectionError("cancel ACK lost")
+        ),
+        place_oco_sell=lambda *args, **kwargs: (
+            replacements.append(args) or {"orderListId": 78}
+        ),
+    )
+
+    maintain_breakeven(
+        "SOLUSDT",
+        offset_pct=0.001,
+        stop_limit_offset_pct=0.0015,
+        state_store=store,
+        dependencies=deps,
+    )
+
+    assert replacements[0][0:3] == ("SOLUSDT", 0.6, 110.0)
+    assert "78" in store.load("SOLUSDT")
 
 
 def test_breakeven_runtime_respects_interval():

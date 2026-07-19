@@ -3,6 +3,42 @@
 All notable changes are documented here. Releases use Semantic Versioning; every
 section is dated and there is intentionally no `Unreleased` section.
 
+## [2.10.73] — 2026-07-19
+
+### Security
+- Panic-state, indicator, and gap-watchdog failures now block new BUY orders,
+  emit structured safety-control records, and trip the persistent circuit
+  breaker after a configurable consecutive-failure threshold in LIVE mode.
+- The supervisor singleton now uses a process-lifetime nonblocking `flock` in
+  the private runtime directory and exits before launching workers if the lock
+  cannot be acquired.
+- Fresh Raspberry installations verify the exact commit against the pinned
+  release-signing fingerprint before project activation. Normal updates read
+  trust only from root-owned `/etc/ladder-dragon/update-trust.conf`; environment
+  overrides were removed.
+- Unsigned emergency updates require a separate interactive, journaled,
+  exact-SHA, one-use break-glass authorization.
+
+### Fixed
+- A failed old-OCO cancellation is reconciled against Binance before any
+  replacement is created. Unknown or still-open state now halts execution and
+  preserves the prior protection record.
+- Automatic order CAP calculations use `Decimal` throughout. Missing or
+  invalid balance data clears any stale positive CAP and fails closed at zero.
+- Binance public transport redacts query strings from throttle and auth paths
+  as well as signed transport paths; definitive non-retryable 4xx responses are
+  never repeated.
+- Supervisor shutdown no longer unlinks a shared lock inode while another
+  process may be waiting on it.
+
+### Verified
+- Added regression coverage for panic escalation, singleton exclusion,
+  Decimal Auto-CAP failure, uncertain OCO cancellation, public transport query
+  redaction, and strict parsing of the root-owned update trust anchor.
+- `PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=. .venv/bin/python -m pytest -q` —
+  253 tests pass.
+- Python compilation, deployment shell syntax, and `git diff --check` pass.
+
 ## [2.10.72] — 2026-07-19
 
 ### Security

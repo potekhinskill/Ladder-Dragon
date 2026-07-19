@@ -548,8 +548,46 @@ def maintain_breakeven(
             try:
                 dependencies.cancel_oco(symbol, int(order_list_id))
                 dependencies.sleep(0.25)
-            except Exception:
-                pass
+            except Exception as exc:
+                # A lost cancel response is not permission to create another
+                # OCO. Query Binance and proceed only when the old list is
+                # conclusively absent.
+                try:
+                    refreshed_orders = dependencies.list_open_orders(symbol) or []
+                except Exception as verify_exc:
+                    dependencies.halt(
+                        "breakeven OCO cancel reconciliation unavailable",
+                        symbol=symbol,
+                        order_list_id=int(order_list_id),
+                        cancel_error_type=exc.__class__.__name__,
+                        verify_error_type=verify_exc.__class__.__name__,
+                    )
+                    dependencies.logger(
+                        f"[BE-CANCEL-UNKNOWN] {symbol} orderListId={order_list_id} "
+                        f"cancel_error={exc.__class__.__name__} "
+                        f"verify_error={verify_exc.__class__.__name__}"
+                    )
+                    continue
+                old_list_open = any(
+                    str(order.get("orderListId", "")) == str(order_list_id)
+                    for order in refreshed_orders
+                    if isinstance(order, dict)
+                )
+                if old_list_open:
+                    dependencies.halt(
+                        "breakeven OCO cancel not confirmed; old list remains open",
+                        symbol=symbol,
+                        order_list_id=int(order_list_id),
+                        cancel_error_type=exc.__class__.__name__,
+                    )
+                    dependencies.logger(
+                        f"[BE-CANCEL-OPEN] {symbol} orderListId={order_list_id}"
+                    )
+                    continue
+                dependencies.logger(
+                    f"[BE-CANCEL-RECOVERED] {symbol} orderListId={order_list_id} "
+                    "confirmed absent"
+                )
             replacement = dependencies.place_oco_sell(
                 symbol,
                 remaining,

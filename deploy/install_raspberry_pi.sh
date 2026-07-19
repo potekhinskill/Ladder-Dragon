@@ -13,6 +13,7 @@ BOT_HOSTNAME="${BOT_HOSTNAME:-bot.local}"
 BOT_USER="${BOT_USER:-bot}"
 PRESERVE_LIVE=0
 SKIP_APT=0
+TRUSTED_RELEASE_FINGERPRINT="808B9F52CB6C08901703EF7C113144122F1830A0"
 
 usage() {
   cat <<'EOF'
@@ -53,6 +54,32 @@ fail() {
   exit 1
 }
 
+verify_release_checkout() {
+  local checkout="$1"
+  local commit="$2"
+  local key_file="${checkout}/docs/release-signing-key.asc"
+  local actual_fingerprint verification temp_gnupg
+  command -v gpg >/dev/null \
+    || fail "gpg is required before running downloaded installation code"
+  [[ -r "${key_file}" ]] || fail "release signing public key is missing"
+  actual_fingerprint="$(
+    gpg --show-keys --with-colons "${key_file}" 2>/dev/null \
+      | awk -F: '$1 == "fpr" {print toupper($10); exit}'
+  )"
+  [[ "${actual_fingerprint}" == "${TRUSTED_RELEASE_FINGERPRINT}" ]] \
+    || fail "release signing key fingerprint mismatch"
+  temp_gnupg="$(mktemp -d /tmp/ladder-dragon-install-gnupg.XXXXXX)"
+  chmod 0700 "${temp_gnupg}"
+  GNUPGHOME="${temp_gnupg}" gpg --batch --import "${key_file}" >/dev/null 2>&1 \
+    || { rm -rf "${temp_gnupg}"; fail "cannot import release signing key"; }
+  verification="$(
+    GNUPGHOME="${temp_gnupg}" git -C "${checkout}" verify-commit --raw "${commit}" 2>&1
+  )" || { rm -rf "${temp_gnupg}"; fail "commit signature verification failed"; }
+  rm -rf "${temp_gnupg}"
+  grep -Eiq "\[GNUPG:\] VALIDSIG ${TRUSTED_RELEASE_FINGERPRINT}([[:space:]]|$)" \
+    <<<"${verification}" || fail "commit is not signed by the trusted release key"
+}
+
 if [[ "${EUID}" -ne 0 ]]; then
   fail "run this installer with sudo"
 fi
@@ -66,6 +93,14 @@ command -v systemctl >/dev/null || fail "systemd is required"
 . /etc/os-release
 [[ "${ID:-}" == "debian" || "${ID:-}" == "raspbian" ]] \
   || fail "Raspberry Pi OS/Debian is required, detected ${ID:-unknown}"
+
+# A normal fresh install is launched from the reviewed checkout. Authenticate
+# that exact commit before apt, users, hostname, services, or data are changed.
+if [[ "${ACTION}" == "install" && -d "${PROJECT_DIR}/.git" ]]; then
+  git -C "${PROJECT_DIR}" cat-file -e "${COMMIT}^{commit}" \
+    || fail "requested install commit is missing from the checkout"
+  verify_release_checkout "${PROJECT_DIR}" "${COMMIT}"
+fi
 
 legacy_unit=0
 legacy_live=0
@@ -109,7 +144,7 @@ if [[ "${SKIP_APT}" != 1 ]]; then
   apt-get update
   apt-get install -y --no-install-recommends \
     ca-certificates curl git nginx apache2-utils avahi-daemon openssl \
-    age fail2ban python3 python3-pip python3-venv sqlite3 zram-tools
+    age fail2ban gnupg python3 python3-pip python3-venv sqlite3 zram-tools
 fi
 
 if ! id "${BOT_USER}" >/dev/null 2>&1; then
@@ -117,6 +152,18 @@ if ! id "${BOT_USER}" >/dev/null 2>&1; then
 fi
 BOT_HOME="$(getent passwd "${BOT_USER}" | cut -d: -f6)"
 [[ -n "${BOT_HOME}" ]] || fail "cannot determine home for ${BOT_USER}"
+
+install_update_trust() {
+  local key_file="${PROJECT_DIR}/docs/release-signing-key.asc"
+  install -d -o root -g root -m 0700 /etc/ladder-dragon
+  printf 'TRUSTED_GPG_FINGERPRINT=%s\n' "${TRUSTED_RELEASE_FINGERPRINT}" \
+    >/etc/ladder-dragon/update-trust.conf
+  chown root:root /etc/ladder-dragon/update-trust.conf
+  chmod 0600 /etc/ladder-dragon/update-trust.conf
+  install -d -o "${BOT_USER}" -g "${BOT_USER}" -m 0700 "${BOT_HOME}/.gnupg"
+  runuser -u "${BOT_USER}" -- gpg --batch --import "${key_file}" >/dev/null 2>&1 \
+    || fail "cannot install release signing key for ${BOT_USER}"
+}
 
 install -d -o "${BOT_USER}" -g "${BOT_USER}" -m 0750 "$(dirname "${PROJECT_DIR}")"
 install -d -m 0700 /var/lib/ladder-dragon/backups
@@ -286,6 +333,7 @@ if [[ "${legacy_unit}" == 1 ]]; then
   runuser -u "${BOT_USER}" -- git -C "${prepared_checkout}" cat-file -e "${COMMIT}^{commit}"
   runuser -u "${BOT_USER}" -- git -C "${prepared_checkout}" merge-base --is-ancestor \
     "${COMMIT}" "origin/${BRANCH}"
+  verify_release_checkout "${prepared_checkout}" "${COMMIT}"
   runuser -u "${BOT_USER}" -- git -C "${prepared_checkout}" switch -C "${BRANCH}" "${COMMIT}"
 fi
 
@@ -326,6 +374,7 @@ elif [[ ! -d "${PROJECT_DIR}/.git" ]]; then
   runuser -u "${BOT_USER}" -- git -C "${PROJECT_DIR}" cat-file -e "${COMMIT}^{commit}"
   runuser -u "${BOT_USER}" -- git -C "${PROJECT_DIR}" merge-base --is-ancestor \
     "${COMMIT}" "origin/${BRANCH}"
+  verify_release_checkout "${PROJECT_DIR}" "${COMMIT}"
   runuser -u "${BOT_USER}" -- git -C "${PROJECT_DIR}" switch -C "${BRANCH}" "${COMMIT}"
 else
   [[ -z "$(runuser -u "${BOT_USER}" -- git -C "${PROJECT_DIR}" status --porcelain --untracked-files=no)" ]] \
@@ -334,8 +383,11 @@ else
   runuser -u "${BOT_USER}" -- git -C "${PROJECT_DIR}" cat-file -e "${COMMIT}^{commit}"
   runuser -u "${BOT_USER}" -- git -C "${PROJECT_DIR}" merge-base --is-ancestor \
     HEAD "${COMMIT}"
+  verify_release_checkout "${PROJECT_DIR}" "${COMMIT}"
   runuser -u "${BOT_USER}" -- git -C "${PROJECT_DIR}" merge --ff-only "${COMMIT}"
 fi
+
+install_update_trust
 
 if [[ ! -x "${PROJECT_DIR}/.venv/bin/python" ]]; then
   runuser -u "${BOT_USER}" -- python3 -m venv "${PROJECT_DIR}/.venv"
