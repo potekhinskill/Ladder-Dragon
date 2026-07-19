@@ -4,6 +4,12 @@
   <img src="docs/assets/ladder-dragon-banner-v2.svg" alt="Ladder Dragon" width="420">
 </p>
 
+<p align="center">
+  <a href="https://github.com/potekhinskill/Ladder-Dragon/releases/latest"><img src="https://img.shields.io/github/v/release/potekhinskill/Ladder-Dragon" alt="Latest release"></a>
+  <a href="https://github.com/potekhinskill/Ladder-Dragon/actions/workflows/security.yml"><img src="https://github.com/potekhinskill/Ladder-Dragon/actions/workflows/security.yml/badge.svg?branch=main" alt="Security checks"></a>
+  <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue.svg" alt="MIT License"></a>
+</p>
+
 > **New installation:** start with the [introduction](docs/INTRODUCTION.md).
 
 Ladder Dragon is an open-source Python project for adaptive ladder trading on
@@ -23,6 +29,26 @@ Project contact: [LinkedIn](https://www.linkedin.com/in/ypotekhin/).
 > Ladder Dragon is an independent open-source project. It is not affiliated with,
 > endorsed by, sponsored by, or officially associated with Binance. Binance and
 > related marks belong to their respective owners.
+
+## Project status
+
+Ladder Dragon is an actively developed, experimental trading system. Version
+**2.10.73** is the latest signed release. `main` is the only long-lived branch;
+feature branches use the `ladderdragon/*` namespace.
+
+DRY and Binance Spot Testnet are the supported starting modes. Mainnet LIVE is
+available, but it is not a general production-readiness claim: every deployment
+must pass its own account reconciliation, exchange-filter, BUY-fill,
+OCO/STOP, restart-recovery, gap-watchdog, backup, and circuit-breaker checks.
+No profitability is promised or implied.
+
+The latest limited Mainnet canary confirmed that VWAP and the persistent circuit
+breaker fail closed, but it did **not** complete a new `BUY -> fill -> OCO/STOP`
+lifecycle. The run used an older transport build and exposed an invalid legacy
+holdings SELL plan. Before the next canary, the Raspberry host must run the
+current signed release, the account ledger and average entry must be reconciled,
+and automatic handling of pre-existing holdings must remain disabled unless its
+price and Binance filters are explicitly verified.
 
 ## Features
 
@@ -114,9 +140,11 @@ without changing the plan, and `APPLY` can affect the plan only after the
 production gate. The dashboard switch changes only the advisory layer.
 
 The decision store keeps feature snapshots, confidence, outcomes, and a short
-validated rationale. After a position closes, verified episodes become local
-RAG documents. Retrievals are linked to `decision_id`, cannot use future data,
-and are disabled for incomplete or stale context. RAG never fine-tunes DeepSeek.
+validated rationale. Verified real closures and virtual SHADOW evaluations are
+stored as separate evidence classes. Virtual documents may support offline
+comparison but never count as real PnL or satisfy the APPLY production gate.
+Retrievals are linked to `decision_id`, cannot use future data, and are disabled
+for incomplete or stale context. RAG never fine-tunes DeepSeek.
 
 Daily request, token, and cost limits fail closed at the next UTC day. API keys,
 raw prompts, full balances, order IDs, and full order books are not written to
@@ -168,9 +196,11 @@ exchange order ID before creating protection. An uncertain submission trips a
 persistent circuit halt. Partial fills, gap-below-stop, and restart recovery
 are fail-closed paths.
 
-Money, quantities, fees, inventory, FIFO PnL, and risk metrics use `Decimal`.
-Realized net PnL includes commissions, slippage, partial fills, exit reason,
-duration, and exact AI attribution. Unresolved fills are excluded from AI PnL.
+Critical CAP, reserve, fees, inventory, FIFO PnL, and risk calculations use
+`Decimal`; remaining legacy float paths are tracked engineering debt and must
+not be extended. Realized net PnL includes commissions, slippage, partial fills,
+exit reason, duration, and exact AI attribution. Unresolved fills are excluded
+from AI PnL.
 
 ## Dashboard
 
@@ -203,12 +233,28 @@ Updates require a signed commit and a pinned maintainer fingerprint. See the
 [Raspberry Pi runbook](docs/RASPBERRY_PI_INSTALL.md) before the first update.
 Maintainers must follow the [signed release procedure](docs/RELEASING.md).
 
+The current release-signing fingerprint is:
+
+```text
+808B9F52CB6C08901703EF7C113144122F1830A0
+```
+
+Normal updates read this trust anchor only from root-owned
+`/etc/ladder-dragon/update-trust.conf`. Environment variables cannot disable
+signature verification. Unsigned recovery requires the separate interactive,
+journaled, one-use break-glass procedure described in the runbook.
+
 The updater creates an encrypted backup, preserves `.env` and `.env.dashboard`,
 updates only the requested fast-forward commit, validates Python/nginx, restarts
 the services, and waits for a fresh heartbeat.
 
 ## Remaining engineering work
 
+- validate `PERCENT_PRICE_BY_SIDE` before placing holdings SELL orders and reject
+  implausible prices locally;
+- reconcile legacy holdings cost basis before enabling `auto_oco_holdings`;
+- repeat the minimal Mainnet canary on the signed release through
+  `BUY -> fill -> OCO/STOP`, including restart and gap recovery;
 - extend event-driven replay with archived Binance depth/trade streams;
 - improve matching, latency, maker/taker, and market-impact models;
 - expand multi-period walk-forward and production approval statistics;
