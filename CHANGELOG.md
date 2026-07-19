@@ -3,6 +3,25 @@
 All notable changes are documented here. Releases use Semantic Versioning; every
 section is dated and there is intentionally no `Unreleased` section.
 
+## [2.10.88] — 2026-07-19
+
+### Fixed
+- Auto-CAP balance telemetry now distinguishes the exchange's total free USDT,
+  the protected reserve, and the amount spendable after that reserve. The
+  former ambiguous `[BAL] USDT free` label no longer presents post-reserve funds
+  as the full account balance.
+- Auto-CAP threshold and allocation messages consistently use
+  `spendable_after_reserve`; monetary calculations and safety limits are
+  unchanged and continue to use `Decimal`.
+
+### Verified
+- Added exact regression assertions for normal allocation and the fail-closed
+  below-threshold log message.
+- `PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=. .venv/bin/python -m pytest -q`
+  — all 289 tests pass.
+- Python compilation, deployment shell syntax, `git diff --check`, dependency
+  consistency, `pip-audit`, and the tracked-secret scan pass.
+
 ## [2.10.87] — 2026-07-19
 
 ### Fixed

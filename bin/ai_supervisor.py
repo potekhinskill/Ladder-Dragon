@@ -1442,7 +1442,7 @@ def run_child(symbol: str, ladder: List[float], args: argparse.Namespace,
 # ===========================
 
 def auto_cap_if_needed(args: argparse.Namespace, n_syms: int) -> Decimal | None:
-    """Распределить доступный после резерва USDT между символами и BUY-слотами."""
+    """Allocate USDT remaining after the protected reserve across BUY slots."""
     if not args.auto_cap:
         return None
     try:
@@ -1450,20 +1450,24 @@ def auto_cap_if_needed(args: argparse.Namespace, n_syms: int) -> Decimal | None:
         if "USDT" not in bals:
             raise RuntimeError("USDT balance is unavailable")
         reserve = max(Decimal("0"), money(os.getenv("RISK_RESERVE_USDT", "0")))
-        free = max(Decimal("0"), money(bals["USDT"]) - reserve)
+        total_free = max(Decimal("0"), money(bals["USDT"]))
+        spendable = max(Decimal("0"), total_free - reserve)
         min_pool = money(args.cap_floor_usdt or 0)
-        if free < max(Decimal("10"), min_pool):
+        if spendable < max(Decimal("10"), min_pool):
             os.environ["BOT_CAP_PER_ORDER"] = "0"
             log(
-                f"[AUTO-CAP] free≈{free:.2f} < threshold; "
+                f"[AUTO-CAP] spendable_after_reserve≈{spendable:.2f} < threshold; "
                 "failed closed with BOT_CAP_PER_ORDER=0"
             )
             return Decimal("0")
-        log(f"[BAL] USDT free≈{free:.2f}")
-        if free <= 0:
+        log(
+            f"[BAL] USDT total_free≈{total_free:.2f} reserve≈{reserve:.2f} "
+            f"spendable_after_reserve≈{spendable:.2f}"
+        )
+        if spendable <= 0:
             os.environ["BOT_CAP_PER_ORDER"] = "0"
             return Decimal("0")
-        pool = free * money(args.alloc_pct)
+        pool = spendable * money(args.alloc_pct)
         denom = Decimal(max(1, n_syms * max(1, args.target_buy_per_symbol)))
         cap = pool / denom
         if args.cap_floor_usdt is not None:
@@ -1472,7 +1476,10 @@ def auto_cap_if_needed(args: argparse.Namespace, n_syms: int) -> Decimal | None:
             cap = min(cap, money(args.cap_ceil_usdt))
         cap = max(Decimal("5"), cap)
         os.environ["BOT_CAP_PER_ORDER"] = format(cap, ".2f")
-        log(f"[AUTO-CAP] free≈{free:.2f} → BOT_CAP_PER_ORDER≈{cap:.2f} (n_syms={n_syms})")
+        log(
+            f"[AUTO-CAP] spendable_after_reserve≈{spendable:.2f} "
+            f"→ BOT_CAP_PER_ORDER≈{cap:.2f} (n_syms={n_syms})"
+        )
         return cap
     except (ArithmeticError, KeyError, RuntimeError, TypeError, ValueError) as exc:
         # Never retain a previous positive CAP when the current balance cannot

@@ -99,11 +99,19 @@ def test_auto_cap_uses_decimal_and_zeroes_stale_cap(monkeypatch):
     )
     monkeypatch.setenv("RISK_RESERVE_USDT", "300")
     monkeypatch.setattr(ai_supervisor, "get_balances", lambda: {"USDT": "331.09148973"})
+    messages = []
+    monkeypatch.setattr(ai_supervisor, "log", messages.append)
 
     cap = ai_supervisor.auto_cap_if_needed(args, n_syms=1)
 
     assert cap == Decimal("10")
     assert os.environ["BOT_CAP_PER_ORDER"] == "10.00"
+    assert messages == [
+        "[BAL] USDT total_free≈331.09 reserve≈300.00 "
+        "spendable_after_reserve≈31.09",
+        "[AUTO-CAP] spendable_after_reserve≈31.09 "
+        "→ BOT_CAP_PER_ORDER≈10.00 (n_syms=1)",
+    ]
 
     monkeypatch.setattr(
         ai_supervisor,
@@ -112,6 +120,26 @@ def test_auto_cap_uses_decimal_and_zeroes_stale_cap(monkeypatch):
     )
     assert ai_supervisor.auto_cap_if_needed(args, n_syms=1) == Decimal("0")
     assert os.environ["BOT_CAP_PER_ORDER"] == "0"
+
+
+def test_auto_cap_threshold_log_identifies_post_reserve_balance(monkeypatch):
+    args = SimpleNamespace(
+        auto_cap=True,
+        alloc_pct="0.50",
+        cap_floor_usdt="5",
+        cap_ceil_usdt="10",
+        target_buy_per_symbol=1,
+    )
+    monkeypatch.setenv("RISK_RESERVE_USDT", "300")
+    monkeypatch.setattr(ai_supervisor, "get_balances", lambda: {"USDT": "305"})
+    messages = []
+    monkeypatch.setattr(ai_supervisor, "log", messages.append)
+
+    assert ai_supervisor.auto_cap_if_needed(args, n_syms=1) == Decimal("0")
+    assert messages == [
+        "[AUTO-CAP] spendable_after_reserve≈5.00 < threshold; "
+        "failed closed with BOT_CAP_PER_ORDER=0"
+    ]
 
 
 def test_panic_failure_blocks_buy_and_repeated_failure_halts(monkeypatch):
