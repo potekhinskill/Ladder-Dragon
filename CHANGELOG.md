@@ -3,6 +3,23 @@
 All notable changes are documented here. Releases use Semantic Versioning; every
 section is dated and there is intentionally no `Unreleased` section.
 
+## [2.10.78] — 2026-07-19
+
+### Fixed
+- Signed updates now install root-owned runtime assets through a dedicated
+  release helper read from the verified target checkout after fast-forward
+  merge. This prevents the immutable previous updater from omitting files that
+  were introduced by the new release.
+- Fresh installation and update share the same runtime-assets manifest for the
+  sanitized log exporter and watchdog executable, preventing their deployment
+  paths from drifting.
+
+### Verified
+- Added regression coverage for post-verification asset installation order,
+  root ownership/modes, and shared installer/updater use of the manifest.
+- `PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=. .venv/bin/python -m pytest -q`.
+- Deployment shell syntax and `git diff --check`.
+
 ## [2.10.77] — 2026-07-19
 
 ### Fixed

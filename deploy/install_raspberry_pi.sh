@@ -624,10 +624,7 @@ render_unit "${PROJECT_DIR}/deploy/ladder-dragon-log-export.service" \
   /etc/systemd/system/ladder-dragon-log-export.service
 install -m 0644 "${PROJECT_DIR}/deploy/ladder-dragon-log-export.timer" \
   /etc/systemd/system/ladder-dragon-log-export.timer
-install -d -o root -g root -m 0755 /usr/local/libexec/ladder-dragon
-install -o root -g root -m 0644 \
-  "${PROJECT_DIR}/deploy/export_sanitized_logs.py" \
-  /usr/local/libexec/ladder-dragon/export_sanitized_logs.py
+PROJECT_DIR="${PROJECT_DIR}" "${PROJECT_DIR}/deploy/install_runtime_assets.sh"
 
 backup_mount_dropin="/etc/systemd/system/ladder-dragon-backup.service.d/external-mount.conf"
 rm -f "${backup_mount_dropin}"
@@ -640,8 +637,6 @@ if [[ -n "${BACKUP_EXTERNAL_MOUNT:-}" ]]; then
     >"${backup_mount_dropin}"
   chmod 0644 "${backup_mount_dropin}"
 fi
-install -m 0755 "${PROJECT_DIR}/deploy/pi-watchdog_v3.sh" \
-  /usr/local/bin/pi-watchdog_v3.sh
 install -m 0644 "${PROJECT_DIR}/deploy/pi-watchdog-v3.service" \
   /etc/systemd/system/pi-watchdog-v3.service
 install -m 0644 "${PROJECT_DIR}/deploy/pi-watchdog-v3.timer" \

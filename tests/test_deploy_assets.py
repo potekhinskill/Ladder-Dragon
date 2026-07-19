@@ -414,8 +414,8 @@ def test_log_export_is_rotated_sanitized_and_managed_by_systemd():
     assert "CapabilityBoundingSet=\n" in service
     assert "ProtectHome=yes" in service
     assert "ExecStart=/usr/bin/python3 /usr/local/libexec/ladder-dragon/export_sanitized_logs.py" in service
-    assert "/usr/local/libexec/ladder-dragon/export_sanitized_logs.py" in installer
-    assert "/usr/local/libexec/ladder-dragon/export_sanitized_logs.py" in updater
+    assert "install_runtime_assets.sh" in installer
+    assert "install_runtime_assets.sh" in updater
     assert "/usr/local/libexec/ladder-dragon/export_sanitized_logs.py" in read("deploy/backup_raspberry_pi.sh")
     assert "ladder-dragon-log-export.timer" in installer
     assert "expected protected logs HTTP 401" in installer
@@ -506,8 +506,24 @@ def test_watchdog_uses_current_heartbeat_and_not_legacy_runner_name():
     assert "STRIKES" in watchdog
     assert "systemctl restart mybot.service" in watchdog
     assert "|| true'" not in service
-    assert "pi-watchdog_v3.sh" in installer
-    assert "pi-watchdog_v3.sh" in updater
+    runtime_assets = read("deploy/install_runtime_assets.sh")
+    assert "pi-watchdog_v3.sh" in runtime_assets
+    assert "/usr/local/bin/pi-watchdog_v3.sh" in runtime_assets
+
+
+def test_verified_release_installs_runtime_assets_after_merge():
+    updater = read("deploy/update_raspberry_pi.sh")
+    installer = read("deploy/install_raspberry_pi.sh")
+    runtime_assets = read("deploy/install_runtime_assets.sh")
+    assert updater.index('git merge --ff-only "${UPDATE_COMMIT}"') < updater.index(
+        'PROJECT_DIR="${PROJECT_DIR}" deploy/install_runtime_assets.sh'
+    )
+    assert "verify_trusted_commit" in updater
+    assert '[[ -x deploy/install_runtime_assets.sh ]]' in updater
+    assert 'PROJECT_DIR="${PROJECT_DIR}" "${PROJECT_DIR}/deploy/install_runtime_assets.sh"' in installer
+    assert "runtime assets must be installed as root" in runtime_assets
+    assert "/usr/local/libexec/ladder-dragon/export_sanitized_logs.py" in runtime_assets
+    assert "install -o root -g root -m 0644" in runtime_assets
 
 
 def test_systemd_units_have_extended_sandboxing():
