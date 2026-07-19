@@ -214,6 +214,10 @@ circuit-drill mode is isolated from production halt files.
 Run this only after Testnet, reconciliation, backup, and risk checks pass. The
 tool is restricted to `SOLUSDT`, preserves the configured USDT reserve, refuses
 an active bot/watchdog or existing SOL orders, and cannot exceed `10 USDT`.
+It preflights the account commission schedule, defaults to a `0.02 USDT` total
+commission budget with a hard `0.03 USDT` ceiling, and permits only one
+successful drill per release. The immediate cleanup is an acceptance expense;
+do not schedule or repeat it as a trading strategy.
 
 ```bash
 (
@@ -227,7 +231,8 @@ sudo -u bot env \
   BOT_MAINNET_CANARY_CLEANUP_CONFIRMED=YES \
   PYTHONPATH=. \
   .venv/bin/python -m bin.binance_mainnet_canary \
-  --symbol SOLUSDT --notional-usdt 6
+  --symbol SOLUSDT --notional-usdt 6 \
+  --max-commission-usdt 0.02
 RC=$?
 
 if [ "$RC" -eq 0 ]; then

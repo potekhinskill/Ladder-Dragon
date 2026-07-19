@@ -43,7 +43,7 @@ from ladder_dragon.execution.order_recovery import (
 )
 from ladder_dragon.execution.time_safety import assess_exchange_clock
 from ladder_dragon.risk.risk_manager import RiskLimits, create_manual_halt
-from product_version import user_agent
+from product_version import __version__, user_agent
 
 
 MAINNET_BASE = "https://api.binance.com"
@@ -52,6 +52,9 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 ALLOWED_SYMBOL = "SOLUSDT"
 HARD_MAX_NOTIONAL_USDT = Decimal("10")
 DEFAULT_NOTIONAL_USDT = Decimal("6")
+DEFAULT_MAX_COMMISSION_USDT = Decimal("0.02")
+HARD_MAX_COMMISSION_USDT = Decimal("0.03")
+COMMISSION_NOTIONAL_BUFFER = Decimal("1.05")
 SYSTEMCTL = "/usr/bin/systemctl"
 REQUIRED_CONFIRMATIONS = {
     "BOT_LIVE_CONFIRMED": "YES",
@@ -182,6 +185,108 @@ def _append_report(path: str | Path, report: dict[str, Any]) -> None:
         os.close(fd)
 
 
+def require_release_not_already_passed(
+    path: str | Path,
+    version: str = __version__,
+) -> None:
+    """Prevent a successful acceptance drill from charging twice per release."""
+    target = resolve_project_path(path)
+    if not target.exists():
+        return
+    try:
+        with target.open("r", encoding="utf-8") as handle:
+            for line in handle:
+                if not line.strip():
+                    continue
+                row = json.loads(line)
+                if (
+                    row.get("status") == "passed"
+                    and row.get("product_version") == version
+                ):
+                    raise RuntimeError(
+                        f"Mainnet canary already passed for release {version}"
+                    )
+    except RuntimeError:
+        raise
+    except (OSError, json.JSONDecodeError, TypeError, ValueError) as exc:
+        raise RuntimeError(
+            "Mainnet canary report cannot prove one-shot status"
+        ) from exc
+
+
+def _side_commission_rate(payload: Mapping[str, Any], side: str) -> Decimal:
+    """Return the undiscounted worst account rate for a MARKET order side."""
+    side_key = "buyer" if side.upper() == "BUY" else "seller"
+    total = Decimal("0")
+    for section_name in (
+        "standardCommission",
+        "taxCommission",
+        "specialCommission",
+    ):
+        section = payload.get(section_name) or {}
+        if not isinstance(section, Mapping):
+            raise RuntimeError(f"invalid Binance {section_name} payload")
+        total += decimal(section.get("taker") or "0")
+        total += decimal(section.get(side_key) or "0")
+    if total < 0:
+        raise RuntimeError("Binance returned a negative commission rate")
+    return total
+
+
+def _commission_preflight(
+    client: Any,
+    symbol: str,
+    notional_usdt: Decimal,
+    budget_usdt: Decimal,
+) -> dict[str, str]:
+    payload = client.signed(
+        "GET",
+        "/api/v3/account/commission",
+        {"symbol": symbol},
+    )
+    buy_rate = _side_commission_rate(payload, "BUY")
+    sell_rate = _side_commission_rate(payload, "SELL")
+    estimate = (
+        notional_usdt
+        * COMMISSION_NOTIONAL_BUFFER
+        * (buy_rate + sell_rate)
+    ).quantize(Decimal("0.00000001"))
+    if estimate > budget_usdt:
+        raise RuntimeError(
+            "estimated Mainnet canary commission exceeds budget: "
+            f"estimate={estimate} USDT budget={budget_usdt} USDT"
+        )
+    return {
+        "buy_rate": str(buy_rate),
+        "sell_rate": str(sell_rate),
+        "estimated_max_commission_usdt": str(estimate),
+        "commission_budget_usdt": str(budget_usdt),
+    }
+
+
+def _commission_value_usdt(
+    client: Any,
+    fees_by_asset: Mapping[str, Any],
+) -> Decimal:
+    total = Decimal("0")
+    for raw_asset, raw_amount in fees_by_asset.items():
+        asset = str(raw_asset).strip().upper()
+        amount = decimal(raw_amount)
+        if amount < 0 or not asset:
+            raise RuntimeError("invalid canary commission payload")
+        if amount == 0:
+            continue
+        if asset == "USDT":
+            total += amount
+            continue
+        ticker = client.public_get(
+            "/api/v3/ticker/price",
+            {"symbol": f"{asset}USDT"},
+        )
+        total += amount * decimal(ticker["price"])
+    return total.quantize(Decimal("0.00000001"))
+
+
 def _configured_reserve(environ: Mapping[str, str]) -> Decimal:
     raw = environ.get("RISK_RESERVE_USDT", "")
     try:
@@ -202,6 +307,7 @@ def _preflight(
     journal_path: str | Path,
     production_journal_path: str | Path,
     limits: RiskLimits,
+    commission_budget_usdt: Decimal,
 ) -> tuple[
     dict[str, Any],
     dict[str, Any],
@@ -255,6 +361,13 @@ def _preflight(
             f"notional={notional_usdt}, reserve={reserve_usdt}"
         )
 
+    commission = _commission_preflight(
+        client,
+        symbol,
+        notional_usdt,
+        commission_budget_usdt,
+    )
+
     open_orders = client.signed("GET", "/api/v3/openOrders", {"symbol": symbol})
     if open_orders:
         raise RuntimeError(f"refusing canary with {len(open_orders)} open {symbol} orders")
@@ -285,6 +398,7 @@ def _preflight(
         "free_usdt_before": str(free_usdt),
         "open_orders_before": 0,
         "production_journal_pending": 0,
+        "commission": commission,
     }
 
 
@@ -304,10 +418,19 @@ def run_canary(
     if requested <= 0 or requested > HARD_MAX_NOTIONAL_USDT:
         raise RuntimeError("Mainnet canary notional must be in (0, 10] USDT")
     reserve = _configured_reserve(environ)
+    commission_budget = decimal(args.max_commission_usdt)
+    if (
+        commission_budget <= 0
+        or commission_budget > HARD_MAX_COMMISSION_USDT
+    ):
+        raise RuntimeError(
+            "Mainnet canary commission budget must be in (0, 0.03] USDT"
+        )
     limits = RiskLimits.from_env()
     journal_path = resolve_project_path(args.journal)
     production_journal_path = resolve_project_path(args.production_journal)
     report_path = resolve_project_path(args.report)
+    require_release_not_already_passed(report_path)
 
     if client is None:
         api_key = environ.get("BINANCE_API_KEY", "")
@@ -326,15 +449,18 @@ def run_canary(
         journal_path=journal_path,
         production_journal_path=production_journal_path,
         limits=limits,
+        commission_budget_usdt=commission_budget,
     )
     started_at = time.time()
     report: dict[str, Any] = {
         "schema_version": 1,
+        "product_version": __version__,
         "venue": "mainnet",
         "mode": "bounded-active-canary",
         "symbol": symbol,
         "notional_limit_usdt": str(requested),
         "reserve_usdt": str(reserve),
+        "commission_budget_usdt": str(commission_budget),
         "journal_path": str(journal_path),
         "preflight": preflight,
         "started_at_epoch": started_at,
@@ -368,11 +494,23 @@ def run_canary(
             account_before, "USDT"
         )
         report.update(lifecycle)
+        commission_usdt = _commission_value_usdt(
+            client,
+            lifecycle.get("fees_by_asset") or {},
+        )
+        report["commission_usdt"] = str(commission_usdt)
+        if commission_usdt > commission_budget:
+            raise RuntimeError(
+                "actual Mainnet canary commission exceeds budget: "
+                f"actual={commission_usdt} USDT "
+                f"budget={commission_budget} USDT"
+            )
         report.update(
             {
                 "canary_id": lifecycle["buy_client_order_id"],
                 "status": "passed",
                 "quote_balance_delta_usdt": str(quote_delta),
+                "commission_usdt": str(commission_usdt),
                 "open_orders_after": 0,
                 "duration_sec": str(Decimal(str(time.time() - started_at)).quantize(Decimal("0.001"))),
             }
@@ -408,6 +546,11 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--symbol", default=ALLOWED_SYMBOL)
     parser.add_argument(
         "--notional-usdt", type=Decimal, default=DEFAULT_NOTIONAL_USDT
+    )
+    parser.add_argument(
+        "--max-commission-usdt",
+        type=Decimal,
+        default=DEFAULT_MAX_COMMISSION_USDT,
     )
     parser.add_argument("--take-profit-pct", type=Decimal, default=Decimal("0.02"))
     parser.add_argument("--stop-loss-pct", type=Decimal, default=Decimal("0.02"))
@@ -453,6 +596,8 @@ def main() -> int:
                 "symbol": args.symbol.strip().upper(),
                 "notional_usdt": str(args.notional_usdt),
                 "hard_max_notional_usdt": str(HARD_MAX_NOTIONAL_USDT),
+                "max_commission_usdt": str(args.max_commission_usdt),
+                "hard_max_commission_usdt": str(HARD_MAX_COMMISSION_USDT),
                 "cleanup": "mandatory",
             },
             sort_keys=True,

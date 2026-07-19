@@ -70,6 +70,28 @@ class FakeMainnetClient:
         self.calls.append((method, path, params))
         if method == "GET" and path == "/api/v3/account":
             return self._account()
+        if method == "GET" and path == "/api/v3/account/commission":
+            return {
+                "symbol": "SOLUSDT",
+                "standardCommission": {
+                    "maker": "0.001",
+                    "taker": "0.001",
+                    "buyer": "0",
+                    "seller": "0",
+                },
+                "taxCommission": {
+                    "maker": "0",
+                    "taker": "0",
+                    "buyer": "0",
+                    "seller": "0",
+                },
+                "specialCommission": {
+                    "maker": "0",
+                    "taker": "0",
+                    "buyer": "0",
+                    "seller": "0",
+                },
+            }
         if method == "GET" and path == "/api/v3/openOrders":
             return []
         if method == "POST" and path == "/api/v3/order" and params["side"] == "BUY":
@@ -155,6 +177,7 @@ def args(tmp_path, **overrides):
         production_journal=str(tmp_path / "production.sqlite3"),
         report=str(tmp_path / "mainnet-canary.ndjson"),
         lock_file=str(tmp_path / "mainnet-canary.lock"),
+        max_commission_usdt=Decimal("0.02"),
     )
     values.update(overrides)
     return SimpleNamespace(**values)
@@ -263,6 +286,36 @@ def test_mainnet_canary_hard_caps_notional(tmp_path):
         )
 
 
+def test_mainnet_canary_refuses_commission_above_budget(tmp_path):
+    with pytest.raises(RuntimeError, match="estimated.*exceeds budget"):
+        canary.run_canary(
+            args(tmp_path, max_commission_usdt=Decimal("0.01")),
+            environ=confirmed_env(),
+            client=FakeMainnetClient(),
+            service_check=lambda: None,
+        )
+
+
+def test_mainnet_canary_is_one_success_per_release(tmp_path, monkeypatch):
+    monkeypatch.setenv("BOT_RUN_DIR", str(tmp_path / "run"))
+    monkeypatch.setenv("RISK_RESERVE_USDT", "300")
+    OrderJournal(args(tmp_path).production_journal, venue="mainnet")
+    canary.run_canary(
+        args(tmp_path),
+        environ=confirmed_env(),
+        client=FakeMainnetClient(),
+        service_check=lambda: None,
+    )
+
+    with pytest.raises(RuntimeError, match="already passed for release"):
+        canary.run_canary(
+            args(tmp_path),
+            environ=confirmed_env(),
+            client=FakeMainnetClient(),
+            service_check=lambda: None,
+        )
+
+
 def test_mainnet_canary_refuses_nonterminal_production_journal(tmp_path, monkeypatch):
     monkeypatch.setenv("BOT_RUN_DIR", str(tmp_path / "run"))
     monkeypatch.setenv("RISK_RESERVE_USDT", "300")
@@ -310,6 +363,13 @@ def test_mainnet_canary_completes_exact_lifecycle(tmp_path, monkeypatch):
     assert Decimal(result["quote_balance_delta_usdt"]) == Decimal("-0.10")
     assert Decimal(result["gross_quote_pnl_usdt"]) == Decimal("-0.10")
     assert result["fees_by_asset"] == {"BNB": "0.00002"}
+    assert Decimal(result["commission_usdt"]) == Decimal("0.00200000")
+    assert result["preflight"]["commission"] == {
+        "buy_rate": "0.001",
+        "sell_rate": "0.001",
+        "estimated_max_commission_usdt": "0.01260000",
+        "commission_budget_usdt": "0.02",
+    }
     assert Decimal(result["buy_latency_ms"]) >= 0
     assert Decimal(result["oco_latency_ms"]) >= 0
     assert client.cleaned and client.oco_canceled
@@ -337,6 +397,25 @@ class NonTerminalCancelClient(FakeMainnetClient):
         if method == "DELETE" and path == "/api/v3/orderList":
             return {"orderListId": 202, "listStatusType": "EXEC_STARTED"}
         return super().signed(method, path, params)
+
+
+class UnexpectedHighActualCommissionClient(FakeMainnetClient):
+    def signed(self, method, path, params=None):
+        payload = super().signed(method, path, params)
+        if (
+            method == "POST"
+            and path == "/api/v3/order"
+            and isinstance(payload, dict)
+            and payload.get("status") == "FILLED"
+        ):
+            payload["fills"] = [
+                {"commissionAsset": "BNB", "commission": "0.00020"}
+            ]
+            if params and params.get("side") == "BUY":
+                self.buy = payload
+            if params and params.get("side") == "SELL":
+                self.cleanup_order = payload
+        return payload
 
 
 def test_post_buy_failure_creates_persistent_halt(tmp_path, monkeypatch):
@@ -370,6 +449,26 @@ def test_oco_cancel_must_reach_all_done(tmp_path, monkeypatch):
             service_check=lambda: None,
         )
     assert (run_dir / "circuit_halt.json").exists()
+
+
+def test_actual_commission_over_budget_halts_after_cleanup(tmp_path, monkeypatch):
+    run_dir = tmp_path / "run"
+    monkeypatch.setenv("BOT_RUN_DIR", str(run_dir))
+    monkeypatch.setenv("RISK_RESERVE_USDT", "300")
+    OrderJournal(args(tmp_path).production_journal, venue="mainnet")
+
+    with pytest.raises(RuntimeError, match="actual.*exceeds budget"):
+        canary.run_canary(
+            args(tmp_path),
+            environ=confirmed_env(),
+            client=UnexpectedHighActualCommissionClient(),
+            service_check=lambda: None,
+        )
+
+    assert (run_dir / "circuit_halt.json").exists()
+    report = json.loads(Path(args(tmp_path).report).read_text(encoding="utf-8"))
+    assert report["status"] == "failed"
+    assert Decimal(report["commission_usdt"]) > Decimal("0.02")
 
 
 def test_oco_builder_still_respects_mainnet_filters():

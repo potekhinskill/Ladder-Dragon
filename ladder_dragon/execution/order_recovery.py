@@ -145,6 +145,43 @@ def read_order_journal_telemetry(path: str | Path) -> dict[str, Any]:
     }
 
 
+def read_order_observation(
+    path: str | Path,
+    exchange_order_id: int,
+) -> dict[str, Any]:
+    """Read only the allowlisted market-range diagnostics for one order."""
+    target = Path(path)
+    if not target.exists():
+        return {}
+    try:
+        with sqlite3.connect(
+            f"file:{target}?mode=ro",
+            uri=True,
+            timeout=2,
+        ) as con:
+            row = con.execute(
+                """
+                SELECT metadata_json FROM order_intents
+                WHERE exchange_order_id = ?
+                ORDER BY created_at DESC LIMIT 1
+                """,
+                (int(exchange_order_id),),
+            ).fetchone()
+        metadata = json.loads(row[0] or "{}") if row else {}
+    except (OSError, sqlite3.Error, json.JSONDecodeError, TypeError, ValueError):
+        return {}
+    allowed = {
+        "market_first_price",
+        "market_last_price",
+        "market_min_price",
+        "market_max_price",
+        "market_observation_count",
+        "market_first_observed_at",
+        "market_last_observed_at",
+    }
+    return {key: metadata[key] for key in allowed if key in metadata}
+
+
 @dataclass(frozen=True)
 class OrderIntent:
     """Локальное намерение, связывающее действие бота с объектом Binance."""
@@ -402,6 +439,41 @@ class OrderJournal:
         if intent is None:
             raise RuntimeError(f"order intent disappeared: {client_order_id}")
         return intent
+
+    def update_metadata(
+        self,
+        client_order_id: str,
+        values: dict[str, Any],
+    ) -> OrderIntent:
+        """Merge sanitized execution telemetry into an existing intent.
+
+        Metadata is reserved for non-secret lifecycle diagnostics.  Keeping the
+        observed market range beside the durable order intent lets cleanup after
+        a restart explain why a passive order never traded.
+        """
+        intent = self.get(client_order_id)
+        if intent is None:
+            raise KeyError(f"unknown order intent {client_order_id}")
+        metadata = dict(intent.metadata or {})
+        metadata.update(values)
+        with self._connect() as con:
+            cur = con.execute(
+                """
+                UPDATE order_intents
+                SET metadata_json = ?
+                WHERE client_order_id = ?
+                """,
+                (
+                    json.dumps(metadata, sort_keys=True, separators=(",", ":")),
+                    client_order_id,
+                ),
+            )
+            if cur.rowcount != 1:
+                raise KeyError(f"unknown order intent {client_order_id}")
+        updated = self.get(client_order_id)
+        if updated is None:
+            raise RuntimeError(f"order intent disappeared: {client_order_id}")
+        return updated
 
     def mark_unknown(self, client_order_id: str, error: object) -> OrderIntent:
         return self._update(

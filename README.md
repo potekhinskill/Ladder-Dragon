@@ -17,7 +17,7 @@ Binance Spot. It builds BUY/SELL grids, uses ATR/EMA/VWAP/ADX regimes, manages
 OCO protection, and records trading statistics in SQLite. Production secrets,
 real backups, and private parameters are never committed.
 
-Current product version: **2.10.91**. The single version source is
+Current product version: **2.10.92**. The single version source is
 `product_version.py`; releases follow [Semantic Versioning](https://semver.org/).
 Project contact: [LinkedIn](https://www.linkedin.com/in/ypotekhin/).
 
@@ -33,7 +33,7 @@ Project contact: [LinkedIn](https://www.linkedin.com/in/ypotekhin/).
 ## Project status
 
 Ladder Dragon is an actively developed, experimental trading system. Version
-**2.10.91** is the latest signed release. `main` is the only long-lived branch;
+**2.10.92** is the latest signed release. `main` is the only long-lived branch;
 feature branches use the `ladderdragon/*` namespace.
 
 DRY and Binance Spot Testnet are the supported starting modes. Mainnet LIVE is
@@ -56,8 +56,11 @@ larger exposure.
 - optional AI recommendations for regime, ladder width, and CAP;
 - per-order, per-symbol, portfolio, reserve, and correlation limits;
 - OCO/STOP protection, partial-fill recovery, gap handling, and FIFO inventory;
-- immediate PANIC cancellation of open BUY exposure, with partial fills retained
-  for OCO/STOP protection and uncertain cancellation results failing closed;
+- persistent PANIC state across executor restarts, immediate raw-signal BUY
+  blocking in LIVE, and reconciled cancellation of remaining exposure, with
+  partial fills retained for OCO/STOP protection;
+- durable order-lifetime diagnostics with TTL, limit distance, observed market
+  range, execution quantity, and the exact cleanup reason;
 - SQLite decision history, cash/FIFO PnL, RAG retrieval, and reports;
 - FastAPI dashboard for Raspberry health, balances, positions, orders, AI, and logs;
 - separate 24-hour portfolio value change and realized FIFO net trading PnL,
@@ -194,8 +197,18 @@ The separate Mainnet canary is an operator-only acceptance test, not a trading
 strategy. It is restricted to `SOLUSDT`, hard-capped at `10 USDT`, preserves
 `RISK_RESERVE_USDT`, refuses existing SOL orders, reloads its durable journal,
 verifies both OCO legs, cancels protection, and sells only the balance delta it
-created. A post-BUY failure creates a persistent circuit halt. It does not use
-or rewrite the cost basis of pre-existing SOL holdings.
+created. Before mutation it reads the account's Binance commission schedule and
+refuses an estimated BUY plus cleanup-SELL commission above `0.02 USDT`; the
+operator cannot raise that budget above `0.03 USDT`. Actual fees are converted
+to USDT and verified after cleanup. A successful drill cannot run twice for the
+same product release. A post-BUY failure or unexpected fee-budget breach creates
+a persistent circuit halt. It does not use or rewrite the cost basis of
+pre-existing SOL holdings.
+
+The drill is a deliberately bounded acceptance expense, not a profit test. Its
+immediate cleanup may realize spread and fees; it never waits in an exposed
+position merely to manufacture earnings. Run it only after a material executor
+change, not on a schedule.
 
 Stop the strategy and watchdog before the test. The normal service is restarted
 only after a successful result:
@@ -212,7 +225,8 @@ sudo -u bot env \
   BOT_MAINNET_CANARY_CLEANUP_CONFIRMED=YES \
   PYTHONPATH=. \
   .venv/bin/python -m bin.binance_mainnet_canary \
-  --symbol SOLUSDT --notional-usdt 6
+  --symbol SOLUSDT --notional-usdt 6 \
+  --max-commission-usdt 0.02
 RC=$?
 
 if [ "$RC" -eq 0 ]; then

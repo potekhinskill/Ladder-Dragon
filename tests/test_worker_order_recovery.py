@@ -34,6 +34,7 @@ def configure_worker(worker, tmp_path, monkeypatch):
         "minNotional": 5.0,
     }
     monkeypatch.setattr(worker, "pull_filters", lambda symbol: None)
+    monkeypatch.setattr(worker, "get_price", lambda symbol: 76.0)
     return worker._ORDER_JOURNAL
 
 
@@ -102,6 +103,27 @@ def test_panic_cancels_unfilled_buy_and_updates_journal(tmp_path, monkeypatch):
         ("DELETE", "/api/v3/order", {"symbol": "SOLUSDT", "orderId": 99})
     ]
     assert journal.get(intent.client_order_id).state == "CANCELED"
+
+
+def test_buy_market_range_is_durable_for_nonfill_diagnostics(
+    tmp_path, monkeypatch
+):
+    worker = load_worker()
+    journal = configure_worker(worker, tmp_path, monkeypatch)
+    intent = _journal_buy(journal, order_id=102)
+    worker._ORDER_OBSERVATION_LAST_WRITE.clear()
+
+    worker._observe_buy_market("SOLUSDT", [102], 76.20)
+    worker._ORDER_OBSERVATION_LAST_WRITE[102] = 0
+    worker._observe_buy_market("SOLUSDT", [102], 75.90)
+
+    observed = journal.get(intent.client_order_id)
+    assert observed is not None
+    assert observed.metadata["market_first_price"] == "76.2"
+    assert observed.metadata["market_last_price"] == "75.9"
+    assert observed.metadata["market_min_price"] == "75.9"
+    assert observed.metadata["market_max_price"] == "76.2"
+    assert observed.metadata["market_observation_count"] == 2
 
 
 def test_panic_cancels_partial_remainder_and_keeps_fill_for_protection(

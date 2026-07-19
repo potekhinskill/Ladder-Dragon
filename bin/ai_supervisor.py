@@ -53,7 +53,10 @@ from ladder_dragon.ai.ai_statistical import context_vector
 from ladder_dragon.ai.ai_runtime_status import write_runtime_status
 from ladder_dragon.ai.ai_control import read_ai_control, resolve_ai_control_path
 from ladder_dragon.execution.order_identity import client_order_id
-from ladder_dragon.execution.order_recovery import read_order_journal_telemetry
+from ladder_dragon.execution.order_recovery import (
+    read_order_journal_telemetry,
+    read_order_observation,
+)
 from ladder_dragon.risk.risk_manager import RiskDecision, RiskLimits, RiskManager, RiskSnapshot, load_daily_trade_metrics, money
 from ladder_dragon.risk.risk_statistics import (
     correlated_symbols_multi_window as derive_correlated_symbols_multi_window,
@@ -956,6 +959,55 @@ def place_market_order(symbol: str, side: str, quantity: float,
 # Smart order cleanup
 # ============================
 
+def _log_order_lifetime(
+    symbol: str,
+    order: Dict[str, Any],
+    *,
+    now_price: float,
+    age_sec: int,
+    ttl_sec: Optional[int],
+    cancel_reason: str,
+) -> None:
+    """Emit durable, secret-free evidence explaining an unfilled cancel."""
+    order_id = int(order.get("orderId") or 0)
+    observation = read_order_observation(
+        os.getenv("BOT_ORDER_JOURNAL", ""),
+        order_id,
+    )
+    limit_price = money(order.get("price") or "0")
+    market_price = money(now_price)
+    distance_pct = None
+    if market_price > 0 and limit_price > 0:
+        distance_pct = (
+            (market_price - limit_price) / market_price * Decimal("100")
+        ).quantize(Decimal("0.0001"))
+    log(
+        "[ORDER-LIFETIME] "
+        + json.dumps(
+            {
+                "symbol": symbol,
+                "order_id": order_id,
+                "cancel_reason": cancel_reason,
+                "age_sec": max(0, int(age_sec)),
+                "ttl_sec": int(ttl_sec) if ttl_sec is not None else None,
+                "limit_price": str(limit_price),
+                "market_price_at_cancel": str(market_price),
+                "limit_below_market_pct": (
+                    str(distance_pct) if distance_pct is not None else None
+                ),
+                "minimum_observed_market_price": observation.get(
+                    "market_min_price"
+                ),
+                "market_observation_count": observation.get(
+                    "market_observation_count", 0
+                ),
+                "executed_qty": str(order.get("executedQty") or "0"),
+            },
+            sort_keys=True,
+            separators=(",", ":"),
+        )
+    )
+
 def startup_cleanup_orders(symbol: str,
                            now_price: float,
                            ladder_prices: List[float],
@@ -1008,7 +1060,18 @@ def startup_cleanup_orders(symbol: str,
             if do_cancel:
                 if cancel_order(symbol, int(o.get("orderId"))):
                     canceled += 1
-                    log(f"[START-CLEANUP] {symbol} canceled id={o.get('orderId')} price={pr} reason={reason}")
+                    log(
+                        f"[START-CLEANUP] {symbol} canceled id={o.get('orderId')} "
+                        f"price={pr} age={age}s ttl={grace_sec}s reason={reason}"
+                    )
+                    _log_order_lifetime(
+                        symbol,
+                        o,
+                        now_price=now_price,
+                        age_sec=age,
+                        ttl_sec=grace_sec,
+                        cancel_reason=str(reason),
+                    )
         except Exception as e:
             log(f"[START-CLEANUP] {symbol} skip: {e}")
 
@@ -1060,6 +1123,14 @@ def smart_cleanup_orders(symbol: str,
                 if cancel_order(symbol, int(o.get("orderId"))):
                     canceled += 1
                     log(f"[CLEANUP] {symbol} canceled {o.get('side')} {o.get('type')} id={o.get('orderId')} price={pr} age={age}s reason={reason}")
+                    _log_order_lifetime(
+                        symbol,
+                        o,
+                        now_price=now_price,
+                        age_sec=age,
+                        ttl_sec=ttl,
+                        cancel_reason=str(reason),
+                    )
         except Exception as e:
             log(f"[CLEANUP] {symbol} skip: {e}")
 

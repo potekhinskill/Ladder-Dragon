@@ -570,6 +570,158 @@ def avg_entry(symbol: str, cache_ttl: int = 30, lookback: int = 1000) -> Optiona
 # --- PANIC state ---
 
 _panic: Dict[str, Dict[str, float | int | bool]] = {}
+_panic_loaded: set[str] = set()
+_PANIC_PERSISTED: Dict[str, tuple[bool, float, int]] = {}
+_ORDER_OBSERVATION_LAST_WRITE: Dict[int, float] = {}
+
+
+def _panic_state_path(symbol: str) -> Path:
+    safe_symbol = symbol.strip().upper()
+    if (
+        not safe_symbol
+        or len(safe_symbol) > 20
+        or any(
+            character not in "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
+            for character in safe_symbol
+        )
+    ):
+        raise ValueError("invalid symbol for panic state")
+    return Path(bot_run_dir()) / f"panic_state_{safe_symbol}.json"
+
+
+def _load_panic_state(symbol: str) -> Dict[str, float | int | bool]:
+    """Restore the debounce/cooldown state before evaluating a new BUY."""
+    safe_symbol = symbol.upper()
+    if safe_symbol in _panic_loaded:
+        return _panic.get(
+            safe_symbol,
+            {"on": False, "since": 0.0, "last_trig": 0.0, "hits": 0},
+        )
+    path = _panic_state_path(safe_symbol)
+    state: Dict[str, float | int | bool] = {
+        "on": False,
+        "since": 0.0,
+        "last_trig": 0.0,
+        "hits": 0,
+    }
+    if path.exists():
+        raw = json.loads(path.read_text(encoding="utf-8"))
+        if not isinstance(raw, dict) or int(raw.get("schema_version", 0)) != 1:
+            raise ValueError("unsupported panic state schema")
+        if not isinstance(raw.get("on"), bool):
+            raise ValueError("invalid panic state flag")
+        if not isinstance(raw.get("hits"), int):
+            raise ValueError("invalid panic state hit counter")
+        since = Decimal(str(raw.get("since", "0")))
+        last_trig = Decimal(str(raw.get("last_trig", "0")))
+        if not since.is_finite() or not last_trig.is_finite():
+            raise ValueError("invalid panic state timestamp")
+        state = {
+            "on": raw["on"],
+            "since": max(0.0, float(since)),
+            "last_trig": max(0.0, float(last_trig)),
+            "hits": max(0, int(raw.get("hits", 0))),
+        }
+        log(
+            f"[PANIC-STATE] {safe_symbol} restored "
+            f"on={state['on']} hits={state['hits']}"
+        )
+    _panic[safe_symbol] = state
+    _panic_loaded.add(safe_symbol)
+    if path.exists():
+        _PANIC_PERSISTED[safe_symbol] = (
+            bool(state["on"]),
+            float(state["since"]),
+            int(state["hits"]),
+        )
+    return state
+
+
+def _save_panic_state(
+    symbol: str,
+    state: Dict[str, float | int | bool],
+) -> None:
+    """Atomically persist non-secret PANIC state for the next executor."""
+    path = _panic_state_path(symbol)
+    signature = (
+        bool(state.get("on", False)),
+        float(state.get("since", 0.0)),
+        max(0, int(state.get("hits", 0))),
+    )
+    if _PANIC_PERSISTED.get(symbol.upper()) == signature and path.exists():
+        return
+    path.parent.mkdir(parents=True, exist_ok=True)
+    payload = {
+        "schema_version": 1,
+        "symbol": symbol.upper(),
+        "on": bool(state.get("on", False)),
+        "since": float(state.get("since", 0.0)),
+        "last_trig": float(state.get("last_trig", 0.0)),
+        "hits": max(0, int(state.get("hits", 0))),
+        "updated_at": time.time(),
+    }
+    temporary = path.with_name(f".{path.name}.{os.getpid()}.{time.time_ns()}.tmp")
+    descriptor = os.open(
+        temporary,
+        os.O_WRONLY | os.O_CREAT | os.O_EXCL,
+        0o600,
+    )
+    try:
+        with os.fdopen(descriptor, "w", encoding="utf-8") as handle:
+            json.dump(payload, handle, sort_keys=True, separators=(",", ":"))
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.replace(temporary, path)
+        os.chmod(path, 0o600)
+        _PANIC_PERSISTED[symbol.upper()] = signature
+    finally:
+        try:
+            temporary.unlink()
+        except FileNotFoundError:
+            pass
+
+
+def _observe_buy_market(
+    symbol: str,
+    order_ids: List[int],
+    market_price: float,
+) -> None:
+    """Persist a throttled market range for later non-fill diagnostics."""
+    journal = _order_journal()
+    if journal is None or market_price <= 0:
+        return
+    observed_at = time.time()
+    market = Decimal(str(market_price))
+    for order_id in order_ids:
+        intent = journal.get_by_exchange_order_id(int(order_id))
+        if intent is None or intent.side.upper() != "BUY":
+            continue
+        metadata = dict(intent.metadata or {})
+        previous_min = Decimal(str(metadata.get("market_min_price", market)))
+        previous_max = Decimal(str(metadata.get("market_max_price", market)))
+        new_min = min(previous_min, market)
+        new_max = max(previous_max, market)
+        last_write = _ORDER_OBSERVATION_LAST_WRITE.get(int(order_id), 0.0)
+        changed_range = new_min != previous_min or new_max != previous_max
+        if not changed_range and observed_at - last_write < 15.0:
+            continue
+        first_price = metadata.get("market_first_price", str(market))
+        first_at = metadata.get("market_first_observed_at", observed_at)
+        journal.update_metadata(
+            intent.client_order_id,
+            {
+                "market_first_price": first_price,
+                "market_last_price": str(market),
+                "market_min_price": str(new_min),
+                "market_max_price": str(new_max),
+                "market_observation_count": int(
+                    metadata.get("market_observation_count", 0)
+                ) + 1,
+                "market_first_observed_at": first_at,
+                "market_last_observed_at": observed_at,
+            },
+        )
+        _ORDER_OBSERVATION_LAST_WRITE[int(order_id)] = observed_at
 
 def update_panic_state(symbol: str,
                        now_px: float,
@@ -581,13 +733,17 @@ def update_panic_state(symbol: str,
                        panic_k_atr: float = 2.0,
                        debounce_checks: int = 2,
                        cooldown_sec: int = 180) -> bool:
-    s = _panic.get(symbol, {"on": False, "since": 0.0, "last_trig": 0.0, "hits": 0})
+    safe_symbol = symbol.upper()
+    s = _load_panic_state(safe_symbol)
     now_ts = time.time()
 
     trig = panic_raw(now_px, ema20, atr, prev_close, panic_drop_pct, panic_k_atr)
 
     if trig:
-        s["hits"] = int(s.get("hits", 0)) + 1
+        s["hits"] = min(
+            max(1, int(debounce_checks)),
+            int(s.get("hits", 0)) + 1,
+        )
         s["last_trig"] = now_ts
         if (not s.get("on", False)) and s["hits"] >= debounce_checks:
             s["on"] = True
@@ -609,8 +765,27 @@ def update_panic_state(symbol: str,
             s["hits"] = 0
             log(f"[PANIC] {symbol} OFF (recover: ema_ok={recovered_ema}, avg_ok={recovered_avg})")
 
-    _panic[symbol] = s  # persist
+    _panic[safe_symbol] = s
+    _save_panic_state(safe_symbol, s)
     return bool(s["on"])
+
+
+def _panic_buy_block_reason(
+    existing_reason: Optional[str],
+    *,
+    live_mode: bool,
+    raw_signal: bool,
+    debounced_active: bool,
+    skip_while_panic: bool,
+) -> Optional[str]:
+    """Keep the debounce window from becoming a LIVE exposure window."""
+    if existing_reason is not None:
+        return existing_reason
+    if live_mode and raw_signal:
+        return "panic-raw-signal"
+    if debounced_active and (live_mode or skip_while_panic):
+        return "panic"
+    return None
 
 # ------------------- Exchange info / filters -------------------
 
@@ -779,6 +954,11 @@ def cancel_open_buys_for_panic(symbol: str, order_ids: List[int]) -> List[int]:
     """Cancel open BUY exposure when PANIC is active and reconcile every result."""
     remaining = list(order_ids)
     open_states = {"NEW", "PARTIALLY_FILLED", "PENDING_CANCEL"}
+    try:
+        cancellation_market_price: Optional[float] = get_price(symbol)
+        _observe_buy_market(symbol, remaining, cancellation_market_price)
+    except Exception:
+        cancellation_market_price = None
 
     for order_id in list(remaining):
         order = get_order(symbol, order_id)
@@ -789,6 +969,7 @@ def cancel_open_buys_for_panic(symbol: str, order_ids: List[int]) -> List[int]:
 
         side = str(order.get("side") or "BUY").upper()
         status = str(order.get("status") or "").upper()
+        original_order = dict(order)
         if side != "BUY":
             continue
 
@@ -834,6 +1015,55 @@ def cancel_open_buys_for_panic(symbol: str, order_ids: List[int]) -> List[int]:
             log(
                 f"[PANIC-CANCEL] {symbol} BUY order={order_id} "
                 f"state={updated.state} executed={executed_qty}"
+            )
+            limit_price = Decimal(str(original_order.get("price") or "0"))
+            market_price = (
+                Decimal(str(cancellation_market_price))
+                if cancellation_market_price is not None
+                else None
+            )
+            created_ms = int(
+                original_order.get("time")
+                or original_order.get("workingTime")
+                or original_order.get("updateTime")
+                or int(time.time() * 1000)
+            )
+            distance_pct = None
+            if market_price is not None and market_price > 0 and limit_price > 0:
+                distance_pct = (
+                    (market_price - limit_price) / market_price * Decimal("100")
+                ).quantize(Decimal("0.0001"))
+            metadata = dict(updated.metadata or {})
+            log(
+                "[ORDER-LIFETIME] "
+                + json.dumps(
+                    {
+                        "symbol": symbol,
+                        "order_id": int(order_id),
+                        "cancel_reason": "panic",
+                        "age_sec": max(
+                            0,
+                            int((time.time() * 1000 - created_ms) / 1000),
+                        ),
+                        "ttl_sec": None,
+                        "limit_price": str(limit_price),
+                        "market_price_at_cancel": (
+                            str(market_price) if market_price is not None else None
+                        ),
+                        "limit_below_market_pct": (
+                            str(distance_pct) if distance_pct is not None else None
+                        ),
+                        "minimum_observed_market_price": metadata.get(
+                            "market_min_price"
+                        ),
+                        "market_observation_count": metadata.get(
+                            "market_observation_count", 0
+                        ),
+                        "executed_qty": str(executed_qty),
+                    },
+                    sort_keys=True,
+                    separators=(",", ":"),
+                )
             )
             # A cancelled partial fill remains in the protection pipeline. A
             # zero-fill cancellation is terminal and needs no OCO.
@@ -1679,8 +1909,17 @@ def main():
         try:
             ema20, atr, prev_close = get_indicators_cached(symbol, args.panic_interval, ttl_sec=20)
             _clear_safety_control_failure("panic-indicators", symbol)
+            raw_panic_active = panic_raw(
+                current_price,
+                ema20,
+                atr,
+                prev_close,
+                float(args.panic_drop_pct),
+                float(args.panic_k_atr),
+            )
         except Exception as exc:
             ema20 = atr = prev_close = None
+            raw_panic_active = True
             _record_safety_control_failure("panic-indicators", symbol, exc)
             safety_buy_block_reason = "panic-indicators-unavailable"
         try:
@@ -1765,11 +2004,18 @@ def main():
             if gap_block_reason is not None:
                 safety_buy_block_reason = gap_block_reason
 
-        skip_buys_reason: Optional[str] = safety_buy_block_reason
+        # The debounce controls escalation/flattening.  It must never create a
+        # window in which a fresh LIVE executor submits BUY exposure between the
+        # first and second confirmation of the same adverse signal.
+        skip_buys_reason = _panic_buy_block_reason(
+            safety_buy_block_reason,
+            live_mode=LIVE_MODE,
+            raw_signal=raw_panic_active,
+            debounced_active=panic_active,
+            skip_while_panic=args.skip_buy_while_panic,
+        )
         panic_sell_floor_pct = args.panic_sell_floor_pct
-        if skip_buys_reason is None and panic_active and args.skip_buy_while_panic:
-            skip_buys_reason = "panic"
-        elif skip_buys_reason is None and bear_mode and args.bear_skip_buys:
+        if skip_buys_reason is None and bear_mode and args.bear_skip_buys:
             skip_buys_reason = "bear-trend"
         elif skip_buys_reason is None and cap <= 0:
             skip_buys_reason = "cap<=0"
@@ -1811,6 +2057,12 @@ def main():
                 placed_ids = list(dict.fromkeys([*placed_ids, *new_ids]))
             except Exception as e:
                 log(f"[ERR] maybe_place_buys: {e}")
+            try:
+                _observe_buy_market(symbol, placed_ids, current_price)
+            except Exception as exc:
+                _record_safety_control_failure(
+                    "order-lifetime-observation", symbol, exc
+                )
 
         # Sell free holdings separately only when they do not compete for the same
         # base balance as an OCO waiting for a new BUY to execute.
@@ -1856,12 +2108,14 @@ def main():
             try:
                 ema20, atr, prev_close = get_indicators_cached(symbol, args.panic_interval, ttl_sec=20)
                 avg_px = avg_entry(symbol, cache_ttl=args.avg_cache_ttl, lookback=args.avg_lookback)  # кэш управляется CLI
+                runtime_price = get_price(symbol)
+                _observe_buy_market(symbol, placed_ids, runtime_price)
                 panic_active, _ = _panic_state_fail_closed(
                     "panic-runtime",
                     symbol,
                     lambda: update_panic_state(
                         symbol=symbol,
-                        now_px=get_price(symbol),
+                        now_px=runtime_price,
                         ema20=ema20, atr=atr, prev_close=prev_close,
                         avg_entry_px=avg_px,
                         panic_drop_pct=float(args.panic_drop_pct),

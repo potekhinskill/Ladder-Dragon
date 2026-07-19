@@ -3,6 +3,47 @@
 All notable changes are documented here. Releases use Semantic Versioning; every
 section is dated and there is intentionally no `Unreleased` section.
 
+## [2.10.92] — 2026-07-20
+
+### Fixed
+- PANIC debounce and cooldown state now persist in a private per-symbol runtime
+  file, so restarting an executor cannot reset the first adverse confirmation.
+- A raw PANIC signal blocks a new BUY immediately in LIVE. Debounce still
+  controls escalation and holdings actions, but no longer creates a window for
+  fresh exposure between the first and second confirmation.
+- A malformed or unwritable PANIC state fails closed through the existing
+  safety-control escalation path.
+
+### Added
+- Active BUY intents now retain a throttled, durable market-price observation
+  range. PANIC and TTL cleanup logs include order age, configured TTL, limit
+  distance from the market, minimum observed market price, execution quantity,
+  and the exact cancellation reason.
+- The bounded Mainnet canary now reads Binance account commission rates before
+  mutation, estimates both MARKET legs, and refuses an estimate above its
+  `0.02 USDT` default budget. The operator-set budget has an immutable
+  `0.03 USDT` ceiling.
+- Actual canary commissions are converted to USDT after cleanup and recorded in
+  the private report. An unexpected budget breach fails closed with a persistent
+  circuit halt.
+
+### Changed
+- The existing separately confirmed bounded Mainnet canary remains the only
+  mechanism for forcing a `BUY -> fill -> OCO/STOP -> cleanup SELL` acceptance
+  cycle. The passive production strategy is not made marketable merely to
+  manufacture a fill.
+- A successful bounded Mainnet canary is one-shot per product release, preventing
+  accidental repeated BUY/SELL fees. The drill is documented as an acceptance
+  expense rather than a profit-producing strategy.
+
+### Verified
+- Focused PANIC, recovery, cleanup, and bounded Mainnet canary regression tests
+  pass, including restart persistence, immediate LIVE raw-signal
+  blocking, corrupt-state fail-closed handling, and durable non-fill telemetry.
+- `PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=. .venv/bin/python -m pytest -q`
+  — all 302 tests pass.
+- Python compilation, dependency consistency, and `git diff --check` pass.
+
 ## [2.10.91] — 2026-07-19
 
 ### Fixed

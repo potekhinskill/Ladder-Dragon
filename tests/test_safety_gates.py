@@ -168,6 +168,85 @@ def test_panic_failure_blocks_buy_and_repeated_failure_halts(monkeypatch):
     assert halts[0][1]["control"] == "panic-state"
 
 
+def test_panic_debounce_state_survives_executor_restart(tmp_path, monkeypatch):
+    monkeypatch.setenv("BOT_RUN_DIR", str(tmp_path))
+    first = load_worker()
+    first._panic.clear()
+    first._panic_loaded.clear()
+
+    assert first.update_panic_state(
+        "SOLUSDT",
+        now_px=90.0,
+        ema20=100.0,
+        atr=1.0,
+        prev_close=100.0,
+        avg_entry_px=None,
+        debounce_checks=2,
+    ) is False
+
+    state_file = tmp_path / "panic_state_SOLUSDT.json"
+    assert state_file.exists()
+    assert state_file.stat().st_mode & 0o777 == 0o600
+
+    restarted = load_worker()
+    restarted._panic.clear()
+    restarted._panic_loaded.clear()
+    assert restarted.update_panic_state(
+        "SOLUSDT",
+        now_px=90.0,
+        ema20=100.0,
+        atr=1.0,
+        prev_close=100.0,
+        avg_entry_px=None,
+        debounce_checks=2,
+    ) is True
+
+
+def test_live_raw_panic_signal_blocks_buy_before_debounce():
+    worker = load_worker()
+
+    assert worker._panic_buy_block_reason(
+        None,
+        live_mode=True,
+        raw_signal=True,
+        debounced_active=False,
+        skip_while_panic=False,
+    ) == "panic-raw-signal"
+    assert worker._panic_buy_block_reason(
+        None,
+        live_mode=False,
+        raw_signal=True,
+        debounced_active=False,
+        skip_while_panic=False,
+    ) is None
+
+
+def test_corrupt_panic_state_fails_closed(tmp_path, monkeypatch):
+    worker = load_worker()
+    worker.LIVE_MODE = True
+    worker._panic.clear()
+    worker._panic_loaded.clear()
+    monkeypatch.setenv("BOT_RUN_DIR", str(tmp_path))
+    (tmp_path / "panic_state_SOLUSDT.json").write_text("not-json")
+    monkeypatch.setattr(worker, "log", lambda message: None)
+
+    active, reason = worker._panic_state_fail_closed(
+        "panic-state",
+        "SOLUSDT",
+        lambda: worker.update_panic_state(
+            "SOLUSDT",
+            now_px=100.0,
+            ema20=100.0,
+            atr=1.0,
+            prev_close=100.0,
+            avg_entry_px=None,
+        ),
+    )
+
+    assert active is True
+    assert reason == "panic-state-unavailable"
+
+
 def test_gap_watchdog_failure_blocks_buy_and_escalates(monkeypatch):
     worker = load_worker()
     worker.LIVE_MODE = True
@@ -323,6 +402,46 @@ def test_cleanup_layers_keep_fresh_off_ladder_order(monkeypatch):
     )
     assert periodic == {"reviewed": 1, "canceled": 0}
     assert canceled == []
+
+
+def test_startup_cleanup_reports_ttl_distance_and_observed_market(monkeypatch):
+    now_ms = int(time.time() * 1000)
+    order = {
+        "symbol": "SOLUSDT",
+        "orderId": 77,
+        "side": "BUY",
+        "type": "LIMIT",
+        "price": "75.00",
+        "executedQty": "0",
+        "updateTime": now_ms - 901_000,
+    }
+    messages = []
+    monkeypatch.setattr(ai_supervisor, "list_open_orders", lambda symbol: [order])
+    monkeypatch.setattr(ai_supervisor, "cancel_order", lambda *args: True)
+    monkeypatch.setattr(ai_supervisor, "log", messages.append)
+    monkeypatch.setattr(
+        ai_supervisor,
+        "read_order_observation",
+        lambda path, order_id: {
+            "market_min_price": "75.40",
+            "market_observation_count": 12,
+        },
+    )
+
+    result = ai_supervisor.startup_cleanup_orders(
+        "SOLUSDT",
+        now_price=76.0,
+        ladder_prices=[75.0],
+        tick_size=0.01,
+        grace_sec=900,
+    )
+
+    assert result == {"reviewed": 1, "canceled": 1}
+    lifetime = next(message for message in messages if message.startswith("[ORDER-LIFETIME]"))
+    assert '"cancel_reason":"age>900s"' in lifetime
+    assert '"ttl_sec":900' in lifetime
+    assert '"limit_below_market_pct":"1.3158"' in lifetime
+    assert '"minimum_observed_market_price":"75.40"' in lifetime
 
 
 def test_reconciliation_retries_recent_fill_and_allows_exchange_dust(tmp_path, monkeypatch):

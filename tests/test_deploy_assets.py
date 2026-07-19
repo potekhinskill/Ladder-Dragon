@@ -249,6 +249,9 @@ def test_bounded_mainnet_canary_is_documented_and_not_preconfigured():
     assert "python -m bin.binance_mainnet_canary" in readme
     assert "python -m bin.binance_mainnet_canary" in runbook
     assert "HARD_MAX_NOTIONAL_USDT = Decimal(\"10\")" in source
+    assert "HARD_MAX_COMMISSION_USDT = Decimal(\"0.03\")" in source
+    assert "--max-commission-usdt 0.02" in readme
+    assert "--max-commission-usdt 0.02" in runbook
     assert "BOT_MAINNET_CANARY_CONFIRMED" in source
     assert "BOT_MAINNET_CANARY_CLEANUP_CONFIRMED" in source
     assert "BOT_MAINNET_CANARY_CONFIRMED" not in example
