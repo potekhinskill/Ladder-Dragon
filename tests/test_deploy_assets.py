@@ -117,10 +117,13 @@ def test_dashboard_uses_ladder_dragon_branding():
     assert "setState(payload.update_available ? 'available' : 'current', payload.remote_url)" in index
     assert 'data-i18n="portfolio_change_24h"' in index
     assert 'id="t24-portfolio"' in index
-    assert 'data-i18n="net_24h"' in index
-    assert 'id="t24-net"' in index
+    assert 'data-i18n="fifo_pnl_24h"' in index
+    assert 'id="t24-fifo"' in index
+    assert 'data-i18n="cashflow_pnl_24h"' in index
+    assert 'id="t24-cashflow"' in index
     assert "d.portfolio_change_usdt ?? d.equity_pnl_usdt" in index
     assert "d.net_pnl_usdt ?? d.realized_pnl_usdt" in index
+    assert "d.cashflow_pnl_usdt ?? null" in index
 
 
 def test_public_license_and_financial_disclaimer_are_explicit():
@@ -202,6 +205,8 @@ def test_dashboard_localization_has_all_supported_languages_and_is_deployed():
     updater = read("deploy/update_raspberry_pi.sh")
     for locale in ("en", "ru", "zh", "es", "de", "fr", "it", "kk", "uk", "ko", "ja", "pt", "et", "fi", "da"):
         assert f'["{locale}"' in locales
+        assert f"Object.assign(translations.{locale}, {{fifo_pnl_24h:" in locales
+    assert locales.count("cashflow_pnl_24h:") == 15
     assert '<script src="/locales.js"></script>' in index
     assert 'id="language-select"' in index
     assert "localStorage.getItem(LOCALE_KEY)" in index

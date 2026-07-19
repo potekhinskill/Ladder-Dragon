@@ -184,6 +184,7 @@ def test_trade_summary_separates_net_earnings_from_portfolio_change(monkeypatch)
     assert payload["net_pnl_usdt"] == -12.26
     assert payload["realized_pnl_usdt"] == -12.26
     assert payload["realized_pnl_method"] == "fifo-net-fees"
+    assert payload["cashflow_pnl_usdt"] == 0.98
     assert payload["portfolio_change_usdt"] == 6.02
     assert payload["equity_pnl_usdt"] == 6.02
 

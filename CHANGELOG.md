@@ -3,6 +3,29 @@
 All notable changes are documented here. Releases use Semantic Versioning; every
 section is dated and there is intentionally no `Unreleased` section.
 
+## [2.10.91] — 2026-07-19
+
+### Fixed
+- The 24-hour dashboard no longer labels realized FIFO PnL as generic net
+  earnings. It explicitly identifies that metric as realized FIFO PnL for SELL
+  fills inside the selected window.
+- The trading summary now displays the separate 24-hour trade cash flow already
+  provided by the API: SELL proceeds minus BUY notional and fees in that window.
+
+### Changed
+- Portfolio value change, realized FIFO PnL, and trade cash flow are presented
+  as three independent values with distinct identifiers, help text, colors, and
+  localized labels.
+
+### Verified
+- Added API and dashboard regression assertions for all three accounting
+  measures and their independent data bindings.
+- `PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=. .venv/bin/python -m pytest -q`
+  — all 294 tests pass.
+- Python compilation, deployment shell syntax, CSP integrity, dependency
+  consistency, `pip-audit`, `git diff --check`, version consistency, and the
+  tracked-secret scan pass.
+
 ## [2.10.90] — 2026-07-19
 
 ### Fixed

@@ -338,8 +338,12 @@
           <div class="sub" id="t24-portfolio-sub" style="margin-top:4px"> </div>
         </div>
         <div>
-          <div class="label" data-i18n="net_24h" title="FIFO реализованный торговый PnL после комиссий BUY и SELL">Заработок (чистый) за 24 ч</div>
-          <div class="value" id="t24-net">—</div>
+          <div class="label" data-i18n="fifo_pnl_24h" title="Realized FIFO PnL for SELL fills in the selected 24-hour window">Реализованный FIFO PnL за 24 ч</div>
+          <div class="value" id="t24-fifo">—</div>
+        </div>
+        <div>
+          <div class="label" data-i18n="cashflow_pnl_24h" title="SELL proceeds minus BUY cost and fees inside the selected 24-hour window">Денежный результат сделок за 24 ч</div>
+          <div class="value" id="t24-cashflow">—</div>
         </div>
         <div>
           <div class="label" data-i18n="total_value" title="Equity сейчас по выбранным активам">Прибл. общая стоимость</div>
@@ -731,7 +735,8 @@ function updateTrade24(sum, balances){
     $('#t24-fees').textContent='—';
     $('#t24-portfolio').textContent='—';
     $('#t24-portfolio-sub').textContent='';
-    $('#t24-net').textContent='—';
+    $('#t24-fifo').textContent='—';
+    $('#t24-cashflow').textContent='—';
     $('#t24-equity').textContent='—';
     $('#t24-assets').textContent='';
   };
@@ -754,7 +759,8 @@ function updateTrade24(sum, balances){
   const eqNow = Number.isFinite(liveAccountTotal) ? liveAccountTotal : summaryEqNow;
   const eqThen = d.equity_then_usdt ?? null;
   const portfolioChange = (d.portfolio_change_usdt ?? d.equity_pnl_usdt ?? null);
-  const netPnl = (d.net_pnl_usdt ?? d.realized_pnl_usdt ?? null);
+  const fifoPnl = (d.net_pnl_usdt ?? d.realized_pnl_usdt ?? null);
+  const cashflowPnl = (d.cashflow_pnl_usdt ?? null);
 
   $('#t24-trades').textContent = Number.isFinite(trades) ? trades : '—';
   $('#t24-volume').textContent = fmtUSDT(vol);
@@ -772,10 +778,15 @@ function updateTrade24(sum, balances){
   portfolioEl.style.color = (Number.isFinite(portfolioChange) && portfolioChange < 0) ? 'var(--bad)' : 'var(--ok)';
   $('#t24-portfolio-sub').textContent = Number.isFinite(pct) ? `(${fmtPct(pct)})` : '';
 
-  // Net earnings is realized FIFO trading PnL after BUY and SELL fees.
-  const netEl = $('#t24-net');
-  netEl.textContent = Number.isFinite(netPnl) ? fmtUSDT(netPnl) : '—';
-  netEl.style.color = (Number.isFinite(netPnl) && netPnl < 0) ? 'var(--bad)' : 'var(--ok)';
+  // FIFO PnL realizes the historical lot cost only for SELL fills in the window.
+  const fifoEl = $('#t24-fifo');
+  fifoEl.textContent = Number.isFinite(fifoPnl) ? fmtUSDT(fifoPnl) : '—';
+  fifoEl.style.color = (Number.isFinite(fifoPnl) && fifoPnl < 0) ? 'var(--bad)' : 'var(--ok)';
+
+  // Cash flow uses only BUY/SELL notional and fees that occurred in the window.
+  const cashflowEl = $('#t24-cashflow');
+  cashflowEl.textContent = Number.isFinite(cashflowPnl) ? fmtUSDT(cashflowPnl) : '—';
+  cashflowEl.style.color = (Number.isFinite(cashflowPnl) && cashflowPnl < 0) ? 'var(--bad)' : 'var(--ok)';
 
   // Assets included in the equity calculation.
   if (Array.isArray(d.equity_assets) && d.equity_assets.length){

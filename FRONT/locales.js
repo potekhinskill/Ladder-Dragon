@@ -86,6 +86,21 @@
   Object.assign(translations.et, {portfolio_change_24h:"Portfelli väärtuse muutus (24 h)"});
   Object.assign(translations.fi, {portfolio_change_24h:"Salkun arvon muutos (24 h)"});
   Object.assign(translations.da, {portfolio_change_24h:"Ændring i porteføljens værdi (24 t)"});
+  Object.assign(translations.en, {fifo_pnl_24h:"Realized FIFO PnL (24h)", cashflow_pnl_24h:"Trade cash flow (24h)"});
+  Object.assign(translations.ru, {fifo_pnl_24h:"Реализованный FIFO PnL за 24 ч", cashflow_pnl_24h:"Денежный результат сделок за 24 ч"});
+  Object.assign(translations.zh, {fifo_pnl_24h:"已实现 FIFO PnL (24 小时)", cashflow_pnl_24h:"交易现金流结果 (24 小时)"});
+  Object.assign(translations.es, {fifo_pnl_24h:"PnL FIFO realizado (24 h)", cashflow_pnl_24h:"Flujo de caja de operaciones (24 h)"});
+  Object.assign(translations.de, {fifo_pnl_24h:"Realisierter FIFO-PnL (24 h)", cashflow_pnl_24h:"Trading-Cashflow (24 h)"});
+  Object.assign(translations.fr, {fifo_pnl_24h:"PnL FIFO réalisé (24 h)", cashflow_pnl_24h:"Flux de trésorerie des trades (24 h)"});
+  Object.assign(translations.it, {fifo_pnl_24h:"PnL FIFO realizzato (24 h)", cashflow_pnl_24h:"Flusso di cassa delle operazioni (24 h)"});
+  Object.assign(translations.kk, {fifo_pnl_24h:"Іске асырылған FIFO PnL (24 сағ)", cashflow_pnl_24h:"Сауда ақша ағыны (24 сағ)"});
+  Object.assign(translations.uk, {fifo_pnl_24h:"Реалізований FIFO PnL (24 год)", cashflow_pnl_24h:"Грошовий результат угод (24 год)"});
+  Object.assign(translations.ko, {fifo_pnl_24h:"실현 FIFO PnL (24시간)", cashflow_pnl_24h:"거래 현금 흐름 (24시간)"});
+  Object.assign(translations.ja, {fifo_pnl_24h:"実現 FIFO PnL (24時間)", cashflow_pnl_24h:"取引キャッシュフロー (24時間)"});
+  Object.assign(translations.pt, {fifo_pnl_24h:"PnL FIFO realizado (24 h)", cashflow_pnl_24h:"Fluxo de caixa das operações (24 h)"});
+  Object.assign(translations.et, {fifo_pnl_24h:"Realiseeritud FIFO PnL (24 h)", cashflow_pnl_24h:"Tehingute rahavoog (24 h)"});
+  Object.assign(translations.fi, {fifo_pnl_24h:"Realisoitu FIFO PnL (24 h)", cashflow_pnl_24h:"Kauppojen kassavirta (24 h)"});
+  Object.assign(translations.da, {fifo_pnl_24h:"Realiseret FIFO PnL (24 t)", cashflow_pnl_24h:"Handelscashflow (24 t)"});
 
   const labels = [
     ["en", "English"], ["ru", "Русский"], ["zh", "中文"], ["es", "Español"], ["de", "Deutsch"], ["fr", "Français"],
