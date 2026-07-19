@@ -3,6 +3,23 @@
 All notable changes are documented here. Releases use Semantic Versioning; every
 section is dated and there is intentionally no `Unreleased` section.
 
+## [2.10.79] — 2026-07-19
+
+### Security
+- Managed services no longer enable automatic OCO/SELL handling for
+  pre-existing holdings by default. Those balances may have been acquired
+  outside Ladder Dragon or may have an unreconciled cost basis.
+- Existing-holdings automation now requires the explicit service setting
+  `BOT_SERVICE_AUTO_OCO_HOLDINGS=1`; invalid values stop startup. OCO attachment
+  for new BUY fills remains enabled independently.
+
+### Verified
+- Added deployment regression coverage for the safe default, explicit opt-in,
+  strict setting validation, and the absence of an unconditional
+  `--auto-oco-holdings` argument.
+- `PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=. .venv/bin/python -m pytest -q`.
+- Deployment shell syntax and `git diff --check`.
+
 ## [2.10.78] — 2026-07-19
 
 ### Fixed

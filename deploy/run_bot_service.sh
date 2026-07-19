@@ -9,6 +9,7 @@ PYTHON="${PROJECT_DIR}/.venv/bin/python"
 VENUE="${BOT_SERVICE_VENUE:-testnet}"
 EXECUTION="${BOT_SERVICE_EXECUTION:-dry}"
 SYMBOLS="${BOT_SERVICE_SYMBOLS:-SOLUSDT,ETHUSDT,TONUSDT}"
+AUTO_OCO_HOLDINGS="${BOT_SERVICE_AUTO_OCO_HOLDINGS:-0}"
 
 [[ "${VENUE}" == "testnet" || "${VENUE}" == "mainnet" ]] || {
   echo "BOT_SERVICE_VENUE must be testnet or mainnet" >&2
@@ -16,6 +17,10 @@ SYMBOLS="${BOT_SERVICE_SYMBOLS:-SOLUSDT,ETHUSDT,TONUSDT}"
 }
 [[ "${EXECUTION}" == "dry" || "${EXECUTION}" == "live" ]] || {
   echo "BOT_SERVICE_EXECUTION must be dry or live" >&2
+  exit 2
+}
+[[ "${AUTO_OCO_HOLDINGS}" == "0" || "${AUTO_OCO_HOLDINGS}" == "1" ]] || {
+  echo "BOT_SERVICE_AUTO_OCO_HOLDINGS must be 0 or 1" >&2
   exit 2
 }
 export PYTHONPATH="${PROJECT_DIR}${PYTHONPATH:+:${PYTHONPATH}}"
@@ -43,10 +48,16 @@ args=(
   --smart-rolling
   --auto-cap
   --attach-oco-on-fill
-  --auto-oco-holdings
   --enforce-target-buys
   --enforce-sell-limit
 )
+
+# Existing holdings may have been acquired outside Ladder Dragon or may carry
+# an unreconciled cost basis. Never manage them unless the operator explicitly
+# opts in after reviewing the account ledger.
+if [[ "${AUTO_OCO_HOLDINGS}" == "1" ]]; then
+  args+=(--auto-oco-holdings)
+fi
 
 if [[ "${EXECUTION}" == "live" ]]; then
   [[ "${BOT_LIVE_CONFIRMED:-NO}" == "YES" ]] || {

@@ -338,6 +338,11 @@ def test_managed_service_uses_versionless_wrapper_and_separate_env():
     assert 'BOT_SERVICE_EXECUTION:-dry' in wrapper
     assert 'BOT_SERVICE_VENUE:-testnet' in wrapper
     assert 'BOT_LIVE_CONFIRMED:-NO' in wrapper
+    assert 'BOT_SERVICE_AUTO_OCO_HOLDINGS:-0' in wrapper
+    assert 'if [[ "${AUTO_OCO_HOLDINGS}" == "1" ]]' in wrapper
+    assert "args+=(--auto-oco-holdings)" in wrapper
+    assert "  --auto-oco-holdings\n" not in wrapper
+    assert "BOT_SERVICE_AUTO_OCO_HOLDINGS=0" in read(".env.service.example")
 
 
 def test_executor_status_does_not_hide_oco_state_behind_question_mark():
