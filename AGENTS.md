@@ -11,7 +11,7 @@ These rules apply to every repository change and every Raspberry Pi update.
 
 ## Git and changelog
 
-- Work on a `codex/*` branch; keep one logical change set per atomic commit.
+- Work on a `ladderdragon/*` branch; keep one logical change set per atomic commit.
 - Do not use destructive commands (`reset --hard`, `checkout --`) without an explicit request.
 - Every functional, security, schema, deployment, or dashboard change must have a
   `CHANGELOG.md` entry in the same commit.
