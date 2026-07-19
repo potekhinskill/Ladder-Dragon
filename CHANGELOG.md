@@ -3,6 +3,32 @@
 All notable changes are documented here. Releases use Semantic Versioning; every
 section is dated and there is intentionally no `Unreleased` section.
 
+## [2.10.87] — 2026-07-19
+
+### Fixed
+- Removed the final compatibility reference to the retired pre-release Git
+  branch from dashboard code and tests. GitHub update checks are now pinned to
+  `main` and cannot be redirected by a stale dashboard environment value.
+- The Raspberry installer now rejects every non-`main` branch locally before
+  cloning or fetching. Reusing an obsolete migration command therefore returns
+  a clear validation error instead of failing later on a missing remote ref and
+  entering rollback.
+
+### Changed
+- Updated the project status with the successful bounded Mainnet canary: real
+  BUY fill, verified OCO TP/STOP legs, journal reload reconciliation, exact
+  cleanup SELL, zero residual base quantity, no open orders, and no circuit
+  halt.
+
+### Verified
+- Added regression coverage for the canonical installer branch and for a
+  dashboard environment value being unable to redirect release checks.
+- `PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=. .venv/bin/python -m pytest -q`
+  — all 288 tests pass.
+- Python compilation, deployment shell syntax, `git diff --check`, dependency
+  consistency, `pip-audit`, the tracked-secret scan, and a full tracked/worktree
+  search for the retired branch name pass.
+
 ## [2.10.86] — 2026-07-19
 
 ### Fixed

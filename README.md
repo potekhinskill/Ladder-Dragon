@@ -17,7 +17,7 @@ Binance Spot. It builds BUY/SELL grids, uses ATR/EMA/VWAP/ADX regimes, manages
 OCO protection, and records trading statistics in SQLite. Production secrets,
 real backups, and private parameters are never committed.
 
-Current product version: **2.10.86**. The single version source is
+Current product version: **2.10.87**. The single version source is
 `product_version.py`; releases follow [Semantic Versioning](https://semver.org/).
 Project contact: [LinkedIn](https://www.linkedin.com/in/ypotekhin/).
 
@@ -33,7 +33,7 @@ Project contact: [LinkedIn](https://www.linkedin.com/in/ypotekhin/).
 ## Project status
 
 Ladder Dragon is an actively developed, experimental trading system. Version
-**2.10.86** is the latest signed release. `main` is the only long-lived branch;
+**2.10.87** is the latest signed release. `main` is the only long-lived branch;
 feature branches use the `ladderdragon/*` namespace.
 
 DRY and Binance Spot Testnet are the supported starting modes. Mainnet LIVE is
@@ -42,13 +42,12 @@ must pass its own account reconciliation, exchange-filter, BUY-fill,
 OCO/STOP, restart-recovery, gap-watchdog, backup, and circuit-breaker checks.
 No profitability is promised or implied.
 
-The latest limited Mainnet canary confirmed that VWAP and the persistent circuit
-breaker fail closed, but it did **not** complete a new `BUY -> fill -> OCO/STOP`
-lifecycle. The run used an older transport build and exposed an invalid legacy
-holdings SELL plan. Before the next canary, the Raspberry host must run the
-current signed release, the account ledger and average entry must be reconciled,
-and automatic handling of pre-existing holdings must remain disabled unless its
-price and Binance filters are explicitly verified.
+The bounded Mainnet canary completed a real `BUY -> fill -> OCO TP/STOP ->
+restart reconciliation -> cleanup SELL` lifecycle on `SOLUSDT`. Both OCO legs
+were verified, the isolated canary position was flattened exactly, no open
+orders remained, and the circuit breaker stayed clear. This validates the
+bounded acceptance path; it does not establish profitability or authorize
+larger exposure.
 
 ## Features
 

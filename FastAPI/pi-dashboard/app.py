@@ -58,11 +58,8 @@ _OPS_CACHE_TTL_SEC = max(10.0, float(os.getenv("DASHBOARD_OPS_CACHE_SEC", "30"))
 _OPS_CACHE_LOCK = threading.Lock()
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 GITHUB_REPOSITORY = os.getenv("DASHBOARD_GITHUB_REPOSITORY", "potekhinskill/Ladder-Dragon")
-GITHUB_BRANCH = os.getenv("DASHBOARD_GITHUB_BRANCH", "main")
-# Existing installations may retain the removed pre-release branch in their
-# private dashboard environment. Keep update checks on the canonical branch.
-if GITHUB_BRANCH == "codex/safety-hardening":
-    GITHUB_BRANCH = "main"
+# Release update checks are intentionally pinned to the only canonical branch.
+GITHUB_BRANCH = "main"
 GITHUB_TOKEN = os.getenv("DASHBOARD_GITHUB_TOKEN", "")
 GITHUB_UPDATE_CHECK_TTL_SEC = max(300.0, float(os.getenv("DASHBOARD_GITHUB_UPDATE_CHECK_SEC", "3600")))
 _GITHUB_UPDATE_CACHE: Dict[str, object] = {"ts": 0.0, "payload": None}

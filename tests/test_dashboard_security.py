@@ -72,8 +72,8 @@ def test_throttling_uses_fresh_sanitized_watchdog_probe(tmp_path, monkeypatch):
     assert payload["age_sec"] == 10.0
 
 
-def test_legacy_dashboard_update_branch_maps_to_main(monkeypatch):
-    monkeypatch.setenv("DASHBOARD_GITHUB_BRANCH", "codex/safety-hardening")
+def test_dashboard_update_branch_cannot_be_redirected_by_environment(monkeypatch):
+    monkeypatch.setenv("DASHBOARD_GITHUB_BRANCH", "untrusted/branch")
     module = load_dashboard(monkeypatch)
     assert module.GITHUB_BRANCH == "main"
 
@@ -722,7 +722,6 @@ def test_old_daily_ai_errors_do_not_keep_dashboard_degraded(tmp_path, monkeypatc
 
 def test_github_update_check_is_cached_and_compares_commits(monkeypatch):
     monkeypatch.setenv("DASHBOARD_GITHUB_REPOSITORY", "owner/repo")
-    monkeypatch.setenv("DASHBOARD_GITHUB_BRANCH", "main")
     module = load_dashboard(monkeypatch)
     local_commit = "a" * 40
     remote_commit = "b" * 40

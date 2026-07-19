@@ -54,6 +54,10 @@ fail() {
   exit 1
 }
 
+# Signed deployments are released only from the canonical long-lived branch.
+[[ "${BRANCH}" == "main" ]] \
+  || fail "only the canonical main branch is supported"
+
 verify_release_checkout() {
   local checkout="$1"
   local commit="$2"

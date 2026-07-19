@@ -580,6 +580,16 @@ def test_verified_release_installs_runtime_assets_after_merge():
     assert "install -o root -g root -m 0644" in runtime_assets
 
 
+def test_installer_accepts_only_the_canonical_main_branch():
+    installer = read("deploy/install_raspberry_pi.sh")
+    dashboard = read("FastAPI/pi-dashboard/app.py")
+    dashboard_example = read(".env.dashboard.example")
+    assert '[[ "${BRANCH}" == "main" ]]' in installer
+    assert 'fail "only the canonical main branch is supported"' in installer
+    assert 'GITHUB_BRANCH = "main"' in dashboard
+    assert "DASHBOARD_GITHUB_BRANCH=" not in dashboard_example
+
+
 def test_systemd_units_have_extended_sandboxing():
     for relative in (
         "deploy/mybot.service",
