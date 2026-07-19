@@ -203,6 +203,9 @@ def test_worker_marks_unknown_commission_pair_unpriced(monkeypatch):
 
 
 def test_worker_retries_unpriced_trade_before_advancing_cursor(tmp_path, monkeypatch):
+    # Never inherit an operator's production AI database while pytest uses a
+    # temporary statistics database.
+    monkeypatch.setenv("AI_DECISIONS_DB", str(tmp_path / "ai_decisions.sqlite3"))
     worker = load_worker()
     worker.STATS_ENABLE = True
     worker.STATS_DB = str(tmp_path / "stats.db")
@@ -239,6 +242,11 @@ def test_worker_retries_unpriced_trade_before_advancing_cursor(tmp_path, monkeyp
     ).fetchone()
     worker.STATS_CON.close()
     assert row == (1, "0.30", "converted")
+    with sqlite3.connect(tmp_path / "ai_decisions.sqlite3") as ai_connection:
+        unresolved = ai_connection.execute(
+            "SELECT COUNT(*) FROM ai_unresolved_fills"
+        ).fetchone()[0]
+    assert unresolved == 1
 
 
 def test_pnl_report_uses_net_quantity_and_exact_commissions(tmp_path):

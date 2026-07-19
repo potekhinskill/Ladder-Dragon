@@ -72,7 +72,7 @@
   .live-banner.stopped{border-color:rgba(148,163,184,.45);background:rgba(148,163,184,.14);color:#cbd5e1}
   .position-box{overflow:auto;background:#0f131b;border:1px solid var(--stroke);border-radius:var(--rad)}
   .position-table{min-width:980px}
-  .risk-bad{color:#ffaaaa;font-weight:800}.risk-ok{color:#7ef3b2;font-weight:800}
+  .risk-bad{color:#ffaaaa;font-weight:800}.risk-ok{color:#7ef3b2;font-weight:800}.risk-warn{color:#ffd27e;font-weight:800}
   @media (max-width:800px){.grid-monitor{grid-template-columns:1fr}.monitor-card.full{grid-column:auto}.monitor-grid{grid-template-columns:1fr}}
   .row{display:flex;justify-content:space-between;align-items:center;gap:10px}
   .label{color:var(--muted);font-size:12px}
@@ -588,8 +588,9 @@ function esc(value){
 function updateOperations(h){
   const o=h.operations||{}, load=o.load_avg||{};
   $('#ops-load').textContent=[load['1m'],load['5m'],load['15m']].map(x=>Number.isFinite(Number(x))?Number(x).toFixed(2):'—').join(' / ');
-  const bot=o.services?.mybot||{};
-  $('#ops-heartbeat').textContent=bot.state ? `${bot.state} · ${ageText(bot.age_sec)}` : '—';
+  const bot=o.services?.mybot||{}, heartbeat=o.heartbeat||{};
+  $('#ops-heartbeat').textContent=heartbeat.state ? `${heartbeat.state} · ${ageText(heartbeat.age_sec)}` : '—';
+  $('#ops-heartbeat').className=heartbeat.fresh?'risk-ok':'risk-bad';
   $('#ops-restart').textContent=bot.started_at ? `${bot.started_at} · restarts ${bot.restart_count??0}` : '—';
   const ntp=o.ntp||{}, ping=o.binance||{};
   $('#ops-ntp').textContent=`${ntp.synchronized?'OK':'нет'} · offset ${ping.offset_ms!=null?fmt(ping.offset_ms,0)+' ms':'—'}`;
@@ -602,8 +603,8 @@ function updateOperations(h){
   const throttleBad=['under_voltage_now','freq_capped_now','throttled_now','temp_limit_now','under_voltage_hist','freq_capped_hist','throttled_hist','temp_limit_hist'].some(k=>throttle[k]);
   $('#ops-throttle').textContent=throttle.supported===false ? tr('unavailable') : (throttleBad ? `WARNING · ${throttle.raw||'—'}` : `OK · ${throttle.raw||'throttled=0x0'}`);
   const usb=o.usb_backup||{};
-  $('#ops-usb').textContent=usb.mounted?`mounted · ${usb.writable?'rw':'RO'}`:'нет mount';
-  $('#ops-usb').className=usb.mounted&&usb.writable?'risk-ok':'risk-bad';
+  $('#ops-usb').textContent=usb.mounted?`mounted · ${usb.writable?'rw':'dashboard namespace RO'}`:'нет mount';
+  $('#ops-usb').className=usb.mounted?(usb.writable?'risk-ok':'risk-warn'):'risk-bad';
   $('#ops-usb-free').textContent=usb.free_gib!=null?`${fmt(usb.free_gib,2)} GiB · ${fmt(usb.used_percent,1)}% used`:'—';
   const disk=h.disk_gib||{};
   $('#ops-root-free').textContent=(disk.total!=null&&disk.used!=null)?`${fmt(Number(disk.total)-Number(disk.used),2)} / ${fmt(disk.total,2)} GiB free`:'—';

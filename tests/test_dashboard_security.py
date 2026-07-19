@@ -182,6 +182,59 @@ def test_missing_runtime_never_converts_account_dust_to_symbols(monkeypatch):
     assert snapshot["positions"] == []
 
 
+def test_runtime_heartbeat_uses_status_timestamp(monkeypatch):
+    module = load_dashboard(monkeypatch)
+    now = datetime.now(timezone.utc)
+    monkeypatch.setattr(module, "_load_ai_runtime_status", lambda: {
+        "state": "RUNNING",
+        "updated_at": (now - timedelta(seconds=25)).isoformat(),
+    })
+
+    heartbeat = module._runtime_heartbeat_snapshot()
+
+    assert heartbeat["state"] == "RUNNING"
+    assert 20 <= heartbeat["age_sec"] <= 30
+    assert heartbeat["fresh"] is True
+
+
+def test_trading_overview_prefers_current_open_order(monkeypatch):
+    module = load_dashboard(monkeypatch)
+    monkeypatch.setattr(module, "_load_ai_runtime_status", lambda: {
+        "symbols": ["SOLUSDT"],
+        "execution_mode": "LIVE",
+        "risk": {},
+    })
+    monkeypatch.setattr(module, "_bot_service_config", lambda: {
+        "symbols": ["SOLUSDT"], "execution_mode": "LIVE", "venue": "mainnet",
+    })
+    monkeypatch.setattr(module, "service_active", lambda name: "active")
+    monkeypatch.setattr(module, "account_balances_snapshot", lambda: {
+        "assets": [
+            {"asset": "USDT", "free": 321.5, "total": 321.5},
+            {"asset": "SOL", "free": 3.75, "total": 3.75, "price_usdt": 76.0},
+        ]
+    })
+    monkeypatch.setattr(module, "account_open_orders_snapshot", lambda: {
+        "count": 1,
+        "orders": [{
+            "symbol": "SOLUSDT", "side": "BUY", "status": "NEW",
+            "order_id": 123, "orig_qty": 0.126, "executed_qty": 0.0,
+            "remaining_qty": 0.126, "updated_at": 1_784_459_676,
+            "type": "LIMIT", "price": 75.93, "stop_price": 0.0,
+        }],
+    })
+    monkeypatch.setattr(module, "_average_entry_from_ledger", lambda symbol: 100.0)
+    monkeypatch.setattr(module, "_order_journal_snapshot", lambda runtime: {
+        "cancelled": 1, "pending": 1,
+        "latest": {"symbol": "SOLUSDT", "side": "SELL", "status": "UNKNOWN"},
+    })
+
+    snapshot = module.trading_overview_snapshot()
+
+    assert snapshot["last_order"]["order_id"] == 123
+    assert snapshot["last_order"]["status"] == "NEW"
+
+
 def test_order_journal_pending_excludes_terminal_failures(tmp_path, monkeypatch):
     module = load_dashboard(monkeypatch)
     journal_path = tmp_path / "order_intents.sqlite3"

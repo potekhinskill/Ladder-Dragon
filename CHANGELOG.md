@@ -3,6 +3,26 @@
 All notable changes are documented here. Releases use Semantic Versioning; every
 section is dated and there is intentionally no `Unreleased` section.
 
+## [2.10.80] — 2026-07-19
+
+### Fixed
+- Dashboard heartbeat now reports the age of `/run/mybot/ai_status.json` rather
+  than presenting systemd service uptime as heartbeat age.
+- The hardened dashboard receives the `www-data` supplementary group so it can
+  read encrypted public backup metadata without gaining write access.
+- A read-only USB view inside the dashboard systemd namespace is now labelled
+  as namespace isolation instead of falsely reporting the host disk as RO.
+- The latest live Binance order is shown as the last order while it remains
+  open, even when the local intent journal contains an older entry.
+- The trade-accounting regression test isolates `AI_DECISIONS_DB`; pytest can no
+  longer write its synthetic unresolved fill to an operator's production AI DB.
+
+### Verified
+- Added regression assertions for heartbeat telemetry, backup group access,
+  namespace-safe USB labelling, current-order display, and temporary AI DB use.
+- `PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=. .venv/bin/python -m pytest -q`.
+- Dashboard/deployment syntax and `git diff --check`.
+
 ## [2.10.79] — 2026-07-19
 
 ### Security

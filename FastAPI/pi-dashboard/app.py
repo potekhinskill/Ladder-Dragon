@@ -197,6 +197,31 @@ def _load_ai_runtime_status() -> Dict:
         return {}
 
 
+def _runtime_heartbeat_snapshot() -> Dict[str, object]:
+    """Report bot heartbeat age instead of confusing it with service uptime."""
+    runtime = _load_ai_runtime_status()
+    state = str(runtime.get("state") or "unknown")
+    updated_raw = runtime.get("updated_at")
+    if not isinstance(updated_raw, str) or not updated_raw.strip():
+        return {"state": state, "updated_at": None, "age_sec": None, "fresh": False}
+    try:
+        updated = datetime.fromisoformat(updated_raw)
+        if updated.tzinfo is None:
+            updated = updated.replace(tzinfo=timezone.utc)
+        age_sec = max(
+            0.0,
+            (datetime.now(timezone.utc) - updated.astimezone(timezone.utc)).total_seconds(),
+        )
+    except (TypeError, ValueError, OverflowError):
+        return {"state": state, "updated_at": None, "age_sec": None, "fresh": False}
+    return {
+        "state": state,
+        "updated_at": updated.astimezone(APP_TZ).strftime("%Y-%m-%d %H:%M:%S"),
+        "age_sec": round(age_sec, 1),
+        "fresh": state == "RUNNING" and age_sec <= 90,
+    }
+
+
 def _runtime_data_path(runtime: Dict, name: str, fallback: str) -> Path:
     """Выбрать runtime-путь только когда это явно разрешено в dashboard env."""
     if DASHBOARD_FOLLOW_BOT_PATHS:
@@ -740,6 +765,33 @@ def trading_overview_snapshot() -> Dict[str, object]:
         pass
     free_usdt = float(balance_by_asset.get("USDT", {}).get("free", 0.0) or 0.0)
     journal = _order_journal_snapshot(runtime)
+    latest_open = max(
+        order_rows,
+        key=lambda row: (
+            int(row.get("updated_at") or 0),
+            str(row.get("order_id") or ""),
+        ),
+        default=None,
+    )
+    if latest_open is not None:
+        requested = float(latest_open.get("orig_qty", 0.0) or 0.0)
+        executed = float(latest_open.get("executed_qty", 0.0) or 0.0)
+        last_order = {
+            "symbol": latest_open.get("symbol"),
+            "side": latest_open.get("side"),
+            "status": latest_open.get("status"),
+            "order_id": latest_open.get("order_id"),
+            "executed_qty": executed,
+            "quantity": requested,
+            "partial_fill": executed > 0 and requested > 0 and executed < requested,
+            "latency_ms": None,
+            "commission_usdt": None,
+            "updated_at": datetime.fromtimestamp(
+                int(latest_open.get("updated_at") or 0), APP_TZ
+            ).strftime("%Y-%m-%d %H:%M:%S"),
+        }
+    else:
+        last_order = journal.get("latest")
     reconciliation_delta = risk.get("reconciliation_delta")
     if reconciliation_delta is None:
         parsed = []
@@ -767,7 +819,7 @@ def trading_overview_snapshot() -> Dict[str, object]:
         },
         "positions": positions,
         "orders": {"open": orders.get("count", 0), "cancelled": journal.get("cancelled"), "pending": journal.get("pending")},
-        "last_order": journal.get("latest"),
+        "last_order": last_order,
         "risk": {
             "buy_blocked": bool(risk.get("buy_blocked", False)), "halted": bool(risk.get("halted", False)),
             "reasons": risk.get("reasons", []), "cooldown_until": risk_state.get("cooldown_until"),
@@ -1382,6 +1434,7 @@ def health():
                     "mybot": _systemd_service_snapshot("mybot"),
                     "pi_healthd": _systemd_service_snapshot("pi-healthd"),
                 },
+                "heartbeat": _runtime_heartbeat_snapshot(),
                 "ntp": _ntp_snapshot(),
                 "binance": _binance_latency_snapshot(),
                 "usb_backup": _usb_snapshot(),

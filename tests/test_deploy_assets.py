@@ -168,6 +168,9 @@ def test_dashboard_exposes_read_only_ops_trading_and_ai_quality_blocks():
     assert 'backup_status.json' in backup
     assert 'BACKUP_RUNTIME_STATUS_FILE' in backup
     assert 'id=\"ops-backup-reason\"' in index
+    assert "SupplementaryGroups=www-data" in read("deploy/pi-dashboard.service")
+    assert '\"heartbeat\": _runtime_heartbeat_snapshot()' in app
+    assert "dashboard namespace RO" in index
 
 
 def test_dashboard_publishes_version_and_changelog():

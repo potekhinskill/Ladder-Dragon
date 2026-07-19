@@ -9,6 +9,9 @@ After=network-online.target mybot.service
 Type=simple
 User=bot
 Group=bot
+# Encrypted public backup metadata is root:www-data and remains read-only in
+# this service's filesystem namespace.
+SupplementaryGroups=www-data
 WorkingDirectory=/home/bot/apps/binance_bot
 EnvironmentFile=/home/bot/apps/binance_bot/.env.dashboard
 ExecStart=/home/bot/apps/binance_bot/.venv/bin/python -m bin.run_dashboard
