@@ -25,6 +25,12 @@
   .sub{color:var(--muted);font-size:12px}
   .version-link{color:var(--muted);font-size:12px;text-decoration:none}
   .version-link:hover{text-decoration:underline;color:var(--text)}
+  .github-update{font-size:12px;text-decoration:none;border:1px solid transparent;border-radius:999px;padding:3px 8px;transition:color .18s,background .18s,border-color .18s}
+  .github-update.is-current{color:var(--ok);border-color:rgba(33,192,122,.35);background:rgba(33,192,122,.08)}
+  .github-update.is-available{color:var(--warn);border-color:rgba(243,194,77,.55);background:rgba(243,194,77,.12);font-weight:700;cursor:pointer}
+  .github-update.is-available:hover{color:#ffe39a;border-color:var(--warn);background:rgba(243,194,77,.2)}
+  .github-update.is-unavailable{color:var(--bad);border-color:rgba(255,110,110,.3);background:rgba(255,110,110,.07)}
+  .github-update:focus-visible{outline:2px solid #75a0ff;outline-offset:2px}
   .language-picker{margin-left:auto;display:inline-flex;align-items:center;gap:6px;color:var(--muted);font-size:12px}
   .language-picker select{background:#111622;color:var(--text);border:1px solid var(--stroke);border-radius:8px;padding:4px 8px;font:inherit}
   .ai-toggle{display:inline-flex;align-items:center;gap:7px;border:0;background:transparent;color:var(--text);padding:0;font:inherit;font-size:12px;cursor:pointer}
@@ -141,7 +147,7 @@
     <span class="sub" id="subtitle">— автообновление 5 с · Asia/Almaty</span>
     <span class="sub" id="product-version">Ladder Dragon — версия —</span>
     <a class="version-link" id="changelog-link" href="/CHANGELOG.md" target="_blank" rel="noreferrer" data-i18n="changelog">Что изменено</a>
-    <span class="sub" id="github-update-status" title="GitHub update check">GitHub: —</span>
+    <a class="github-update is-unavailable" id="github-update-status" title="GitHub update check" target="_blank" rel="noreferrer">GitHub: —</a>
     <label class="language-picker"><span data-i18n="language">Язык</span><select id="language-select" aria-label="Язык"></select></label>
   </header>
 
@@ -998,11 +1004,23 @@ async function refresh(){
 async function refreshGithubUpdate(){
   const status = $('#github-update-status');
   if(!status) return;
+  const setState = (state, url='') => {
+    status.classList.remove('is-current','is-available','is-unavailable');
+    status.classList.add(`is-${state}`);
+    if(state === 'available' && typeof url === 'string' && url.startsWith('https://github.com/')){
+      status.href = url;
+      status.setAttribute('aria-label', `${tr('github_update_available')}: GitHub`);
+    }else{
+      status.removeAttribute('href');
+      status.removeAttribute('aria-label');
+    }
+  };
   try{
     const payload = await getJSON('/api/update/check');
     if(!payload.ok){
       status.textContent = tr('github_update_unavailable');
       status.title = payload.error || tr('github_update_unavailable');
+      setState('unavailable');
       return;
     }
     status.textContent = payload.update_available
@@ -1011,9 +1029,11 @@ async function refreshGithubUpdate(){
     status.title = payload.remote_commit
       ? `GitHub ${payload.branch || ''}: ${payload.remote_commit.slice(0,8)}`
       : '';
+    setState(payload.update_available ? 'available' : 'current', payload.remote_url);
   }catch(e){
     status.textContent = tr('github_update_unavailable');
     status.title = String(e);
+    setState('unavailable');
   }
 }
 

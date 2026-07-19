@@ -3,6 +3,19 @@
 All notable changes are documented here. Releases use Semantic Versioning; every
 section is dated and there is intentionally no `Unreleased` section.
 
+## [2.10.74] — 2026-07-19
+
+### Changed
+- The dashboard GitHub update indicator now uses distinct current, available,
+  and unavailable colors. When an update is available, the highlighted badge
+  links to the exact commit returned by the GitHub update check.
+
+### Verified
+- Added dashboard regression coverage for the update-state styling, safe GitHub
+  link handling, and removal of stale links after an unavailable response.
+- `PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=. .venv/bin/python -m pytest -q`.
+- `git diff --check`.
+
 ## [2.10.73] — 2026-07-19
 
 ### Security

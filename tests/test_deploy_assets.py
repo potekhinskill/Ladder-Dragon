@@ -111,6 +111,10 @@ def test_dashboard_uses_ladder_dragon_branding():
     assert '<link rel="icon" type="image/svg+xml" href="/ladder-dragon-dashboard-icon.svg"/>' in index
     assert '<rect' not in read("docs/assets/ladder-dragon-dashboard-icon.svg")
     assert "Pi Dashboard" not in index
+    assert 'class="github-update is-unavailable"' in index
+    assert "status.classList.add(`is-${state}`)" in index
+    assert "url.startsWith('https://github.com/')" in index
+    assert "setState(payload.update_available ? 'available' : 'current', payload.remote_url)" in index
 
 
 def test_public_license_and_financial_disclaimer_are_explicit():

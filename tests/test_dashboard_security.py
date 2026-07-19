@@ -604,4 +604,5 @@ def test_github_update_check_is_cached_and_compares_commits(monkeypatch):
     assert first.json()["update_available"] is True
     assert first.json()["current_commit"] == local_commit
     assert first.json()["remote_commit"] == remote_commit
+    assert first.json()["remote_url"] == "https://github.com/owner/repo/commit/" + remote_commit
     assert session.calls == 1
