@@ -192,9 +192,9 @@ The dashboard API listens only on `127.0.0.1`; port `8081` must not be exposed.
 sudo systemctl stop mybot
 sudo -u bot env PYTHONPATH=. .venv/bin/python -m pytest -q
 sudo -u bot env PYTHONPATH=. .venv/bin/python \
-  binance_testnet_smoke.py --mode public --symbol SOLUSDT
+  -m bin.binance_testnet_smoke --mode public --symbol SOLUSDT
 sudo -u bot env PYTHONPATH=. .venv/bin/python \
-  binance_testnet_smoke.py --mode authenticated --symbol SOLUSDT
+  -m bin.binance_testnet_smoke --mode authenticated --symbol SOLUSDT
 sudo systemctl start mybot
 ```
 
@@ -203,11 +203,47 @@ The optional lifecycle check uses a minimal isolated Testnet position:
 ```bash
 BOT_TESTNET_BUY_OCO_CONFIRMED=YES \
 sudo -u bot env PYTHONPATH=. .venv/bin/python \
-  binance_testnet_smoke.py --mode buy-oco-restart --symbol SOLUSDT
+  -m bin.binance_testnet_smoke --mode buy-oco-restart --symbol SOLUSDT
 ```
 
 It verifies BUY fill, OCO legs, restart reconciliation, and cleanup. The
 circuit-drill mode is isolated from production halt files.
+
+### Optional bounded Mainnet acceptance canary
+
+Run this only after Testnet, reconciliation, backup, and risk checks pass. The
+tool is restricted to `SOLUSDT`, preserves the configured USDT reserve, refuses
+an active bot/watchdog or existing SOL orders, and cannot exceed `10 USDT`.
+
+```bash
+(
+cd /home/bot/apps/binance_bot
+sudo systemctl stop mybot pi-watchdog-v3.timer pi-watchdog-v3.service
+
+set +e
+sudo -u bot env \
+  BOT_LIVE_CONFIRMED=YES \
+  BOT_MAINNET_CANARY_CONFIRMED=YES \
+  BOT_MAINNET_CANARY_CLEANUP_CONFIRMED=YES \
+  PYTHONPATH=. \
+  .venv/bin/python -m bin.binance_mainnet_canary \
+  --symbol SOLUSDT --notional-usdt 6
+RC=$?
+
+if [ "$RC" -eq 0 ]; then
+  sudo systemctl start mybot
+  sudo systemctl start pi-watchdog-v3.timer
+else
+  echo "Canary failed; services remain stopped for manual review" >&2
+fi
+exit "$RC"
+)
+```
+
+The lifecycle is `MARKET BUY -> exact journal reload -> verified OCO -> OCO
+cancel -> MARKET SELL of acquired delta`. Any post-BUY uncertainty attempts
+cleanup and creates a persistent halt. Do not reset that halt or start `mybot`
+until Binance open orders and balances have been reviewed.
 
 ## 8. Normal updates
 

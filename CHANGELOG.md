@@ -3,6 +3,36 @@
 All notable changes are documented here. Releases use Semantic Versioning; every
 section is dated and there is intentionally no `Unreleased` section.
 
+## [2.10.85] — 2026-07-19
+
+### Added
+- Added a separate bounded Mainnet acceptance canary for `SOLUSDT`. It performs
+  a real `MARKET BUY -> verified OCO -> journal reload -> cleanup SELL` cycle,
+  cannot exceed `10 USDT`, preserves the configured reserve, and attributes the
+  lifecycle through isolated client IDs, a private journal, and an NDJSON report.
+
+### Security
+- The canary requires the normal LIVE confirmation plus two canary-specific
+  confirmations, refuses an active bot/watchdog, existing SOL orders, unsafe
+  clock/filter/account state, prior unresolved production or canary intents,
+  or a circuit halt. OCO prices are checked locally against Binance
+  `PERCENT_PRICE`/`PERCENT_PRICE_BY_SIDE` before submission.
+- A post-BUY failure attempts exact reconciliation and cleanup, creates a
+  persistent manual-reset halt, and never starts the normal trading service.
+  The shared OCO lifecycle now verifies `ALL_DONE` after cancellation and marks
+  an exactly flattened parent intent `CLOSED`.
+
+### Verified
+- Added offline regression coverage for strict Mainnet origin validation,
+  confirmation and service gates, the hard notional ceiling, exact BUY/OCO/
+  cleanup attribution, private reporting, and persistent halt on an
+  unrecoverable post-BUY OCO state.
+- `PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=. .venv/bin/python -m pytest -q`
+  — all 284 tests pass.
+- Python compilation, deployment shell syntax, `git diff --check`, dependency
+  consistency, tracked-secret scanning, and `pip-audit` pass with no known
+  vulnerabilities in auditable dependencies.
+
 ## [2.10.84] — 2026-07-19
 
 ### Fixed

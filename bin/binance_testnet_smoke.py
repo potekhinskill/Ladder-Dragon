@@ -92,6 +92,40 @@ def symbol_rules(exchange_info: dict[str, Any]) -> dict[str, Decimal]:
     return rules
 
 
+def validate_sell_percent_prices(
+    exchange_info: dict[str, Any],
+    *,
+    reference_price: object,
+    prices: list[object],
+) -> bool:
+    """Validate SELL prices against Binance percent-price filters when present."""
+    row = (exchange_info.get("symbols") or [{}])[0]
+    filters = {item.get("filterType"): item for item in row.get("filters") or []}
+    percent = filters.get("PERCENT_PRICE_BY_SIDE")
+    if percent:
+        lower_multiplier = decimal(percent.get("askMultiplierDown"))
+        upper_multiplier = decimal(percent.get("askMultiplierUp"))
+    else:
+        percent = filters.get("PERCENT_PRICE")
+        if not percent:
+            return False
+        lower_multiplier = decimal(percent.get("multiplierDown"))
+        upper_multiplier = decimal(percent.get("multiplierUp"))
+    reference = decimal(reference_price)
+    if reference <= 0 or lower_multiplier <= 0 or upper_multiplier <= lower_multiplier:
+        raise RuntimeError("invalid Binance percent-price filter")
+    lower = reference * lower_multiplier
+    upper = reference * upper_multiplier
+    for value in prices:
+        price = decimal(value)
+        if price < lower or price > upper:
+            raise RuntimeError(
+                f"SELL price {price} outside Binance percent-price range "
+                f"[{lower}, {upper}]"
+            )
+    return True
+
+
 def build_non_filling_limit_buy(
     *,
     symbol: str,
@@ -143,7 +177,28 @@ def balance_amount(account: dict[str, Any], asset: str, field: str = "free") -> 
     return Decimal("0")
 
 
-def build_market_buy(symbol: str, notional_usdt: object) -> dict[str, str]:
+def fill_commissions(*orders: dict[str, Any] | None) -> dict[str, str]:
+    """Aggregate commissions from FULL order responses without float loss."""
+    totals: dict[str, Decimal] = {}
+    for order in orders:
+        if not order:
+            continue
+        for fill in order.get("fills") or []:
+            asset = str(fill.get("commissionAsset") or "").upper()
+            if not asset:
+                continue
+            totals[asset] = totals.get(asset, Decimal("0")) + decimal(
+                fill.get("commission") or "0"
+            )
+    return {asset: str(amount) for asset, amount in sorted(totals.items())}
+
+
+def build_market_buy(
+    symbol: str,
+    notional_usdt: object,
+    *,
+    purpose_prefix: str = "testnet",
+) -> dict[str, str]:
     quote_qty = decimal(notional_usdt)
     if quote_qty <= 0:
         raise ValueError("market BUY notional must be > 0")
@@ -155,7 +210,12 @@ def build_market_buy(symbol: str, notional_usdt: object) -> dict[str, str]:
         "quoteOrderQty": quote_s,
         "newOrderRespType": "FULL",
         "newClientOrderId": client_order_id(
-            symbol, "BUY", "testnet_market", "MARKET", quote_s, bucket_seconds=1
+            symbol,
+            "BUY",
+            f"{purpose_prefix}_market",
+            "MARKET",
+            quote_s,
+            bucket_seconds=1,
         ),
     }
 
@@ -170,6 +230,7 @@ def build_oco_sell(
     take_profit_pct: object,
     stop_loss_pct: object,
     stop_limit_offset_pct: object,
+    purpose_prefix: str = "testnet",
 ) -> dict[str, str]:
     market = decimal(market_price)
     tp_pct = decimal(take_profit_pct)
@@ -196,7 +257,7 @@ def build_oco_sell(
     list_client_id = client_order_id(
         symbol,
         "SELL",
-        f"testnet_oco:{parent_client_order_id[:10]}",
+        f"{purpose_prefix}_oco:{parent_client_order_id[:10]}",
         tp_s,
         qty_s,
         bucket_seconds=1,
@@ -214,15 +275,15 @@ def build_oco_sell(
         "newOrderRespType": "RESULT",
         "listClientOrderId": list_client_id,
         "aboveClientOrderId": client_order_id(
-            symbol, "SELL", "testnet_tp", tp_s, qty_s, bucket_seconds=1
+            symbol, "SELL", f"{purpose_prefix}_tp", tp_s, qty_s, bucket_seconds=1
         ),
         "belowClientOrderId": client_order_id(
-            symbol, "SELL", "testnet_sl", stop_s, qty_s, bucket_seconds=1
+            symbol, "SELL", f"{purpose_prefix}_sl", stop_s, qty_s, bucket_seconds=1
         ),
     }
 
 
-def _query_order(client: SpotTestnetClient, symbol: str, client_id: str) -> dict[str, Any]:
+def _query_order(client: Any, symbol: str, client_id: str) -> dict[str, Any]:
     return client.signed(
         "GET",
         "/api/v3/order",
@@ -231,16 +292,19 @@ def _query_order(client: SpotTestnetClient, symbol: str, client_id: str) -> dict
 
 
 def _submit_market_buy(
-    client: SpotTestnetClient,
+    client: Any,
     journal: OrderJournal,
     params: dict[str, str],
+    *,
+    purpose_prefix: str = "testnet",
+    venue_label: str = "Testnet",
 ) -> dict[str, Any]:
     client_id = params["newClientOrderId"]
     journal.prepare(
         client_order_id=client_id,
         symbol=params["symbol"],
         side="BUY",
-        purpose="testnet_market",
+        purpose=f"{purpose_prefix}_market",
         order_type="MARKET",
         quantity=params["quoteOrderQty"],
         price="MARKET",
@@ -252,22 +316,25 @@ def _submit_market_buy(
         try:
             response = _query_order(client, params["symbol"], client_id)
         except requests.RequestException:
-            raise RuntimeError(f"uncertain Testnet MARKET BUY: {client_id}") from exc
+            raise RuntimeError(f"uncertain {venue_label} MARKET BUY: {client_id}") from exc
     response.setdefault("clientOrderId", client_id)
     updated = journal.record_exchange_order(client_id, response)
     if updated.state != "FILLED":
         response = _query_order(client, params["symbol"], client_id)
         updated = journal.record_exchange_order(client_id, response)
     if updated.state != "FILLED" or decimal(updated.executed_qty) <= 0:
-        raise RuntimeError(f"Testnet MARKET BUY not filled: state={updated.state}")
+        raise RuntimeError(f"{venue_label} MARKET BUY not filled: state={updated.state}")
     return response
 
 
 def _submit_oco(
-    client: SpotTestnetClient,
+    client: Any,
     journal: OrderJournal,
     params: dict[str, str],
     parent_client_order_id: str,
+    *,
+    purpose_prefix: str = "testnet",
+    venue_label: str = "Testnet",
 ) -> dict[str, Any]:
     list_client_id = params["listClientOrderId"]
     journal.prepare(
@@ -275,7 +342,7 @@ def _submit_oco(
         parent_client_order_id=parent_client_order_id,
         symbol=params["symbol"],
         side="SELL",
-        purpose=f"testnet_oco:{parent_client_order_id[:10]}",
+        purpose=f"{purpose_prefix}_oco:{parent_client_order_id[:10]}",
         order_type="OCO",
         quantity=params["quantity"],
         price=params["abovePrice"],
@@ -294,7 +361,9 @@ def _submit_oco(
                 "GET", "/api/v3/orderList", {"origClientOrderId": list_client_id}
             )
         except requests.RequestException:
-            raise RuntimeError(f"uncertain Testnet OCO submission: {list_client_id}") from exc
+            raise RuntimeError(
+                f"uncertain {venue_label} OCO submission: {list_client_id}"
+            ) from exc
     order_list_id = response.get("orderListId")
     if order_list_id is None:
         response = client.signed(
@@ -302,7 +371,7 @@ def _submit_oco(
         )
         order_list_id = response.get("orderListId")
     if order_list_id is None:
-        raise RuntimeError("Testnet OCO response has no orderListId")
+        raise RuntimeError(f"{venue_label} OCO response has no orderListId")
     try:
         verified = client.signed(
             "GET", "/api/v3/orderList", {"orderListId": order_list_id}
@@ -326,7 +395,7 @@ def _submit_oco(
             )
         except requests.RequestException:
             pass
-        raise RuntimeError(f"Testnet OCO verification failed: {verified}")
+        raise RuntimeError(f"{venue_label} OCO verification failed: {verified}")
     def cancel_unverified() -> None:
         try:
             client.signed(
@@ -340,7 +409,9 @@ def _submit_oco(
     order_refs = verified.get("orders") or []
     if len(order_refs) != 2:
         cancel_unverified()
-        raise RuntimeError("Testnet OCO verification did not return exactly two legs")
+        raise RuntimeError(
+            f"{venue_label} OCO verification did not return exactly two legs"
+        )
     try:
         leg_payloads = [
             client.signed(
@@ -352,16 +423,18 @@ def _submit_oco(
         ]
     except (KeyError, requests.RequestException) as exc:
         cancel_unverified()
-        raise RuntimeError("Testnet OCO leg query failed") from exc
+        raise RuntimeError(f"{venue_label} OCO leg query failed") from exc
     if any(str(leg.get("side") or "").upper() != "SELL" for leg in leg_payloads):
         cancel_unverified()
-        raise RuntimeError("Testnet OCO contains a non-SELL leg")
+        raise RuntimeError(f"{venue_label} OCO contains a non-SELL leg")
     leg_types = {str(leg.get("type") or "").upper() for leg in leg_payloads}
     if not ({"LIMIT_MAKER", "LIMIT"} & leg_types) or not (
         {"STOP_LOSS_LIMIT", "STOP_LOSS"} & leg_types
     ):
         cancel_unverified()
-        raise RuntimeError(f"Testnet OCO leg types are invalid: {sorted(leg_types)}")
+        raise RuntimeError(
+            f"{venue_label} OCO leg types are invalid: {sorted(leg_types)}"
+        )
     verified["verifiedLegTypes"] = sorted(leg_types)
     journal.record_order_list(list_client_id, verified)
     journal.mark_protected(
@@ -374,7 +447,7 @@ def _submit_oco(
 
 def execute_buy_oco_lifecycle(
     *,
-    client: SpotTestnetClient,
+    client: Any,
     symbol: str,
     exchange_info: dict[str, Any],
     account_before: dict[str, Any],
@@ -386,6 +459,9 @@ def execute_buy_oco_lifecycle(
     stop_limit_offset_pct: object,
     journal_path: str | Path,
     restart_drill: bool = False,
+    venue: str = "testnet",
+    purpose_prefix: str = "testnet",
+    venue_label: str = "Testnet",
 ) -> dict[str, Any]:
     rules = symbol_rules(exchange_info)
     base_asset, quote_asset = symbol_assets(exchange_info)
@@ -402,24 +478,45 @@ def execute_buy_oco_lifecycle(
     quote_free = balance_amount(account_before, quote_asset)
     if quote_free - requested < reserve:
         raise RuntimeError(
-            f"Testnet {quote_asset} reserve would be violated: free={quote_free}, reserve={reserve}"
+            f"{venue_label} {quote_asset} reserve would be violated: "
+            f"free={quote_free}, reserve={reserve}"
         )
     initial_base_free = balance_amount(account_before, base_asset)
     initial_base_locked = balance_amount(account_before, base_asset, "locked")
-    journal = OrderJournal(journal_path, venue="testnet")
-    buy_params = build_market_buy(symbol, requested)
+    journal = OrderJournal(journal_path, venue=venue)
+    buy_params = build_market_buy(
+        symbol, requested, purpose_prefix=purpose_prefix
+    )
     buy_client_id = buy_params["newClientOrderId"]
     buy: dict[str, Any] | None = None
     oco: dict[str, Any] | None = None
     cleanup_sell: dict[str, Any] | None = None
     cleanup_errors: list[str] = []
+    result: dict[str, Any] = {}
+    lifecycle_started = time.monotonic()
     try:
-        buy = _submit_market_buy(client, journal, buy_params)
+        entry_ticker = client.public_get(
+            "/api/v3/ticker/price", {"symbol": symbol}
+        )
+        entry_reference = decimal(entry_ticker["price"])
+        buy_started = time.monotonic()
+        buy = _submit_market_buy(
+            client,
+            journal,
+            buy_params,
+            purpose_prefix=purpose_prefix,
+            venue_label=venue_label,
+        )
+        buy_latency_ms = Decimal(str((time.monotonic() - buy_started) * 1000)).quantize(
+            Decimal("0.1")
+        )
         if restart_drill:
-            journal = OrderJournal(journal_path, venue="testnet")
+            journal = OrderJournal(journal_path, venue=venue)
             persisted = journal.get(buy_client_id)
             if persisted is None or persisted.state != "FILLED":
-                raise RuntimeError("restart drill could not reload FILLED BUY intent")
+                raise RuntimeError(
+                    f"{venue_label} journal reload could not recover FILLED BUY intent"
+                )
             reconciled = _query_order(client, symbol, buy_client_id)
             journal.record_exchange_order(buy_client_id, reconciled)
 
@@ -439,23 +536,63 @@ def execute_buy_oco_lifecycle(
             take_profit_pct=take_profit_pct,
             stop_loss_pct=stop_loss_pct,
             stop_limit_offset_pct=stop_limit_offset_pct,
+            purpose_prefix=purpose_prefix,
         )
-        oco = _submit_oco(client, journal, oco_params, buy_client_id)
-        return {
+        percent_filters = {
+            item.get("filterType")
+            for item in (exchange_info.get("symbols") or [{}])[0].get("filters") or []
+        }
+        if {"PERCENT_PRICE", "PERCENT_PRICE_BY_SIDE"} & percent_filters:
+            average = client.public_get("/api/v3/avgPrice", {"symbol": symbol})
+            validate_sell_percent_prices(
+                exchange_info,
+                reference_price=average["price"],
+                prices=[
+                    oco_params["abovePrice"],
+                    oco_params["belowStopPrice"],
+                    oco_params["belowPrice"],
+                ],
+            )
+        oco_started = time.monotonic()
+        oco = _submit_oco(
+            client,
+            journal,
+            oco_params,
+            buy_client_id,
+            purpose_prefix=purpose_prefix,
+            venue_label=venue_label,
+        )
+        oco_latency_ms = Decimal(str((time.monotonic() - oco_started) * 1000)).quantize(
+            Decimal("0.1")
+        )
+        buy_quote = decimal(buy.get("cummulativeQuoteQty") or "0")
+        buy_average = buy_quote / executed
+        buy_slippage_bps = (
+            (buy_average / entry_reference) - Decimal("1")
+        ) * Decimal("10000")
+        result.update({
             "market_buy": "filled",
             "buy_client_order_id": buy_client_id,
             "buy_order_id": buy.get("orderId"),
             "executed_qty": str(executed),
+            "buy_quote_qty": str(buy.get("cummulativeQuoteQty") or "0"),
+            "buy_average_price": str(buy_average),
+            "buy_reference_price": str(entry_reference),
+            "buy_slippage_bps": str(buy_slippage_bps),
+            "buy_latency_ms": str(buy_latency_ms),
             "oco": "verified",
             "oco_client_order_id": oco_params["listClientOrderId"],
             "order_list_id": oco.get("orderListId"),
             "verified_oco_leg_types": oco.get("verifiedLegTypes"),
+            "oco_latency_ms": str(oco_latency_ms),
             "restart_reconciled": restart_drill,
-        }
+        })
+        return result
     finally:
         if oco and oco.get("orderListId") is not None:
+            canceled_state: dict[str, Any] | None = None
             try:
-                client.signed(
+                canceled_state = client.signed(
                     "DELETE",
                     "/api/v3/orderList",
                     {"symbol": symbol, "orderListId": oco["orderListId"]},
@@ -473,6 +610,26 @@ def execute_buy_oco_lifecycle(
                     "listStatusType"
                 ) != "ALL_DONE":
                     cleanup_errors.append(f"OCO cancel failed: {exc}")
+            if not isinstance(canceled_state, dict) or canceled_state.get(
+                "listStatusType"
+            ) != "ALL_DONE":
+                try:
+                    canceled_state = client.signed(
+                        "GET",
+                        "/api/v3/orderList",
+                        {"orderListId": oco["orderListId"]},
+                    )
+                except requests.RequestException as exc:
+                    cleanup_errors.append(f"OCO final-state query failed: {exc}")
+                if not isinstance(canceled_state, dict) or canceled_state.get(
+                    "listStatusType"
+                ) != "ALL_DONE":
+                    cleanup_errors.append("OCO did not reach ALL_DONE during cleanup")
+            if isinstance(canceled_state, dict):
+                journal.record_order_list(oco_params["listClientOrderId"], canceled_state)
+                result["oco_final_status"] = str(
+                    canceled_state.get("listStatusType") or "UNKNOWN"
+                )
         if buy:
             try:
                 account_cleanup = client.signed("GET", "/api/v3/account")
@@ -481,10 +638,16 @@ def execute_buy_oco_lifecycle(
                 )
                 sell_qty = round_step(acquired_free, rules["step"], "floor")
                 ticker = client.public_get("/api/v3/ticker/price", {"symbol": symbol})
+                cleanup_reference = decimal(ticker["price"])
                 if sell_qty >= rules["min_qty"] and sell_qty * decimal(ticker["price"]) >= rules["min_notional"]:
                     qty_s = format_step(sell_qty, rules["step"])
                     cleanup_client_id = client_order_id(
-                        symbol, "SELL", "testnet_cleanup", "MARKET", qty_s, bucket_seconds=1
+                        symbol,
+                        "SELL",
+                        f"{purpose_prefix}_cleanup",
+                        "MARKET",
+                        qty_s,
+                        bucket_seconds=1,
                     )
                     cleanup_params = {
                         "symbol": symbol,
@@ -499,12 +662,13 @@ def execute_buy_oco_lifecycle(
                         parent_client_order_id=buy_client_id,
                         symbol=symbol,
                         side="SELL",
-                        purpose="testnet_cleanup",
+                        purpose=f"{purpose_prefix}_cleanup",
                         order_type="MARKET",
                         quantity=qty_s,
                         price="MARKET",
                     )
                     try:
+                        cleanup_started = time.monotonic()
                         cleanup_sell = client.signed(
                             "POST", "/api/v3/order", cleanup_params
                         )
@@ -531,6 +695,39 @@ def execute_buy_oco_lifecycle(
                         raise RuntimeError(
                             f"cleanup SELL not filled: {cleanup_state.state}"
                         )
+                    cleanup_latency_ms = Decimal(
+                        str((time.monotonic() - cleanup_started) * 1000)
+                    ).quantize(Decimal("0.1"))
+                    cleanup_quote = decimal(
+                        cleanup_sell.get("cummulativeQuoteQty") or "0"
+                    )
+                    cleanup_executed = decimal(
+                        cleanup_sell.get("executedQty") or "0"
+                    )
+                    cleanup_average = cleanup_quote / cleanup_executed
+                    cleanup_slippage_bps = (
+                        (cleanup_average / cleanup_reference) - Decimal("1")
+                    ) * Decimal("10000")
+                    result.update(
+                        {
+                            "cleanup_sell_client_order_id": cleanup_client_id,
+                            "cleanup_sell_order_id": cleanup_sell.get("orderId"),
+                            "cleanup_executed_qty": str(
+                                cleanup_sell.get("executedQty") or "0"
+                            ),
+                            "cleanup_quote_qty": str(
+                                cleanup_sell.get("cummulativeQuoteQty") or "0"
+                            ),
+                            "cleanup_average_price": str(cleanup_average),
+                            "cleanup_reference_price": str(cleanup_reference),
+                            "cleanup_slippage_bps": str(cleanup_slippage_bps),
+                            "cleanup_latency_ms": str(cleanup_latency_ms),
+                            "gross_quote_pnl_usdt": str(
+                                cleanup_quote
+                                - decimal(buy.get("cummulativeQuoteQty") or "0")
+                            ),
+                        }
+                    )
             except (requests.RequestException, RuntimeError, ValueError) as exc:
                 cleanup_errors.append(f"position cleanup failed: {exc}")
         if buy:
@@ -552,10 +749,20 @@ def execute_buy_oco_lifecycle(
                     cleanup_errors.append(
                         f"residual {base_asset} exposure after cleanup: {residual}"
                     )
+                result["residual_base_qty"] = str(residual)
             except requests.RequestException as exc:
                 cleanup_errors.append(f"final balance verification failed: {exc}")
         if cleanup_errors:
             raise RuntimeError("; ".join(cleanup_errors))
+        if buy:
+            journal.mark_closed(buy_client_id)
+            result["cleanup"] = "OCO canceled and canary position flattened"
+            result["fees_by_asset"] = fill_commissions(buy, cleanup_sell)
+            result["lifecycle_duration_sec"] = str(
+                Decimal(str(time.monotonic() - lifecycle_started)).quantize(
+                    Decimal("0.001")
+                )
+            )
 
 
 def run_circuit_drill(drill_dir: str | Path) -> dict[str, Any]:

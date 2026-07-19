@@ -484,6 +484,10 @@ class OrderJournal:
             last_error=_safe_error_text(error),
         )
 
+    def mark_closed(self, client_order_id: str) -> OrderIntent:
+        """Mark an exactly reconciled lifecycle as terminally closed."""
+        return self._update(client_order_id, state="CLOSED", last_error=None)
+
     def unresolved_buys(self, symbol: str | None = None) -> list[OrderIntent]:
         placeholders = ",".join("?" for _ in ACTIVE_STATES)
         params: list[Any] = [self.venue, *ACTIVE_STATES]

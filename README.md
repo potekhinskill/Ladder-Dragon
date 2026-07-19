@@ -17,7 +17,7 @@ Binance Spot. It builds BUY/SELL grids, uses ATR/EMA/VWAP/ADX regimes, manages
 OCO protection, and records trading statistics in SQLite. Production secrets,
 real backups, and private parameters are never committed.
 
-Current product version: **2.10.84**. The single version source is
+Current product version: **2.10.85**. The single version source is
 `product_version.py`; releases follow [Semantic Versioning](https://semver.org/).
 Project contact: [LinkedIn](https://www.linkedin.com/in/ypotekhin/).
 
@@ -33,7 +33,7 @@ Project contact: [LinkedIn](https://www.linkedin.com/in/ypotekhin/).
 ## Project status
 
 Ladder Dragon is an actively developed, experimental trading system. Version
-**2.10.84** is the latest signed release. `main` is the only long-lived branch;
+**2.10.85** is the latest signed release. `main` is the only long-lived branch;
 feature branches use the `ladderdragon/*` namespace.
 
 DRY and Binance Spot Testnet are the supported starting modes. Mainnet LIVE is
@@ -185,6 +185,46 @@ BOT_TESTNET_BUY_OCO_CONFIRMED=YES \
 python -m bin.binance_testnet_smoke --mode buy-oco-restart --symbol SOLUSDT
 ```
 
+### Bounded Mainnet canary
+
+The separate Mainnet canary is an operator-only acceptance test, not a trading
+strategy. It is restricted to `SOLUSDT`, hard-capped at `10 USDT`, preserves
+`RISK_RESERVE_USDT`, refuses existing SOL orders, reloads its durable journal,
+verifies both OCO legs, cancels protection, and sells only the balance delta it
+created. A post-BUY failure creates a persistent circuit halt. It does not use
+or rewrite the cost basis of pre-existing SOL holdings.
+
+Stop the strategy and watchdog before the test. The normal service is restarted
+only after a successful result:
+
+```bash
+(
+cd /home/bot/apps/binance_bot
+sudo systemctl stop mybot pi-watchdog-v3.timer pi-watchdog-v3.service
+
+set +e
+sudo -u bot env \
+  BOT_LIVE_CONFIRMED=YES \
+  BOT_MAINNET_CANARY_CONFIRMED=YES \
+  BOT_MAINNET_CANARY_CLEANUP_CONFIRMED=YES \
+  PYTHONPATH=. \
+  .venv/bin/python -m bin.binance_mainnet_canary \
+  --symbol SOLUSDT --notional-usdt 6
+RC=$?
+
+if [ "$RC" -eq 0 ]; then
+  sudo systemctl start mybot
+  sudo systemctl start pi-watchdog-v3.timer
+fi
+exit "$RC"
+)
+```
+
+The command writes a private report to `logs/mainnet_canary.ndjson` and a
+separate journal to `db/mainnet_canary_order_intents.sqlite3`. It deliberately
+leaves services stopped after failure; review the exact Binance state and the
+circuit halt before any manual reset.
+
 `testnet_soak_monitor.py` can monitor a long read-only run for excess BUYs,
 exposure, persistent halt, missing protection, and account/ledger drift.
 
@@ -253,8 +293,9 @@ the services, and waits for a fresh heartbeat.
 - validate `PERCENT_PRICE_BY_SIDE` before placing holdings SELL orders and reject
   implausible prices locally;
 - reconcile legacy holdings cost basis before enabling `auto_oco_holdings`;
-- repeat the minimal Mainnet canary on the signed release through
-  `BUY -> fill -> OCO/STOP`, including restart and gap recovery;
+- run the bounded Mainnet canary on each materially changed executor release;
+- add a separate non-destructive gap-watchdog acceptance drill; the active
+  canary does not manufacture a market gap;
 - extend event-driven replay with archived Binance depth/trade streams;
 - improve matching, latency, maker/taker, and market-impact models;
 - expand multi-period walk-forward and production approval statistics;

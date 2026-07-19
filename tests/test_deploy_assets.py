@@ -230,6 +230,20 @@ def test_sqlite_runtime_sidecars_are_never_tracked():
         assert pattern in ignore
 
 
+def test_bounded_mainnet_canary_is_documented_and_not_preconfigured():
+    readme = read("README.md")
+    runbook = read("docs/RASPBERRY_PI_INSTALL.md")
+    example = read(".env.example")
+    source = read("bin/binance_mainnet_canary.py")
+    assert "python -m bin.binance_mainnet_canary" in readme
+    assert "python -m bin.binance_mainnet_canary" in runbook
+    assert "HARD_MAX_NOTIONAL_USDT = Decimal(\"10\")" in source
+    assert "BOT_MAINNET_CANARY_CONFIRMED" in source
+    assert "BOT_MAINNET_CANARY_CLEANUP_CONFIRMED" in source
+    assert "BOT_MAINNET_CANARY_CONFIRMED" not in example
+    assert "BOT_MAINNET_CANARY_CLEANUP_CONFIRMED" not in example
+
+
 def test_dashboard_health_has_portable_host_and_optional_raspberry_telemetry():
     app = read("FastAPI/pi-dashboard/app.py")
     assert 'def _host_snapshot()' in app
