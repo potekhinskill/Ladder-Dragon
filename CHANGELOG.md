@@ -3,6 +3,24 @@
 All notable changes are documented here. Releases use Semantic Versioning; every
 section is dated and there is intentionally no `Unreleased` section.
 
+## [2.10.76] — 2026-07-19
+
+### Fixed
+- The capability-free sanitized log exporter now receives only the configured
+  bot user's supplementary group. This permits traversal of a bot-owned `0750`
+  project tree without granting `CAP_DAC_OVERRIDE` or other capabilities.
+- Raspberry installer and updater unit rendering now replace the log-export
+  supplementary-group template with the actual deployment account.
+- Backup inventory generation records memory as unavailable when the hardened
+  service intentionally hides `/proc/meminfo`, instead of emitting a misleading
+  `free` warning during a successful backup.
+
+### Verified
+- Added regression coverage for capability-free log export traversal, custom
+  bot-user rendering, and restricted-proc backup inventory.
+- `PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=. .venv/bin/python -m pytest -q`.
+- Deployment shell syntax and `git diff --check`.
+
 ## [2.10.75] — 2026-07-19
 
 ### Fixed

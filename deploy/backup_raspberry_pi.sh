@@ -102,7 +102,11 @@ install -d -o root -g www-data -m 0750 "${PUBLIC_BACKUP_DIR}"
   echo "mybot_active=$(systemctl is-active mybot 2>/dev/null || true)"
   echo "dashboard_enabled=$(systemctl is-enabled pi-healthd 2>/dev/null || true)"
   echo "dashboard_active=$(systemctl is-active pi-healthd 2>/dev/null || true)"
-  echo "memory=$(free -h | awk '/^Mem:/{print $2}')"
+  if [[ -r /proc/meminfo ]]; then
+    echo "memory=$(free -h | awk '/^Mem:/{print $2}')"
+  else
+    echo "memory=unavailable"
+  fi
   echo "root_disk=$(df -h / | awk 'NR==2 {print $2 "," $3 "," $5}')"
 } >"${DEST}/inventory.txt"
 

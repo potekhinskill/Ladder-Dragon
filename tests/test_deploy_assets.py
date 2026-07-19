@@ -403,6 +403,7 @@ def test_log_export_is_rotated_sanitized_and_managed_by_systemd():
     service = read("deploy/ladder-dragon-log-export.service")
     timer = read("deploy/ladder-dragon-log-export.timer")
     installer = read("deploy/install_raspberry_pi.sh")
+    updater = read("deploy/update_raspberry_pi.sh")
     assert "journalctl" in exporter
     assert "RETENTION_DAYS" in exporter
     assert "MAX_BYTES" in exporter
@@ -410,6 +411,10 @@ def test_log_export_is_rotated_sanitized_and_managed_by_systemd():
     assert "OnUnitActiveSec=1m" in timer
     assert "User=root" in service
     assert "Group=www-data" in service
+    assert "SupplementaryGroups=bot" in service
+    assert "CapabilityBoundingSet=\n" in service
+    assert 's/^SupplementaryGroups=bot$/SupplementaryGroups=${BOT_USER}/' in installer
+    assert 's/^SupplementaryGroups=bot$/SupplementaryGroups=${BOT_USER}/' in updater
     assert "ladder-dragon-log-export.timer" in installer
     assert "expected protected logs HTTP 401" in installer
 
@@ -531,6 +536,12 @@ def test_backup_service_retains_only_required_filesystem_capabilities():
     assert "AmbientCapabilities=" in service
     assert "CAP_SYS_ADMIN" not in service
     assert "ReadWritePaths=/var/lib/ladder-dragon /home/bot/apps/binance_bot/db" in service
+
+
+def test_backup_inventory_handles_restricted_proc_without_warning():
+    backup = read("deploy/backup_raspberry_pi.sh")
+    assert "[[ -r /proc/meminfo ]]" in backup
+    assert 'echo "memory=unavailable"' in backup
 
 
 def test_runtime_dependencies_are_hash_locked_and_installed_without_dependency_resolution():

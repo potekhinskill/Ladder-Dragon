@@ -403,6 +403,7 @@ render_unit() {
     -e "s#/home/bot/apps/binance_bot#${PROJECT_DIR}#g" \
     -e "s/^User=bot$/User=${BOT_USER}/" \
     -e "s/^Group=bot$/Group=${BOT_USER}/" \
+    -e "s/^SupplementaryGroups=bot$/SupplementaryGroups=${BOT_USER}/" \
     "$1" >"$2"
   chmod 0644 "$2"
 }
