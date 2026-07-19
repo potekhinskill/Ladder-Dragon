@@ -51,7 +51,7 @@ from ladder_dragon.ai.ai_policy import (
 )
 from ladder_dragon.ai.ai_statistical import context_vector
 from ladder_dragon.ai.ai_runtime_status import write_runtime_status
-from ladder_dragon.ai.ai_control import read_ai_control
+from ladder_dragon.ai.ai_control import read_ai_control, resolve_ai_control_path
 from ladder_dragon.execution.order_identity import client_order_id
 from ladder_dragon.execution.order_recovery import read_order_journal_telemetry
 from ladder_dragon.risk.risk_manager import RiskDecision, RiskLimits, RiskManager, RiskSnapshot, load_daily_trade_metrics, money
@@ -2508,12 +2508,7 @@ def main():
         if args.ai_advisor else None
     )
     _AI_KNOWLEDGE = KnowledgeStore(decisions_db) if args.ai_advisor else None
-    _AI_CONTROL_PATH = Path(
-        os.getenv(
-            "AI_CONTROL_FILE",
-            str(Path(__file__).resolve().parent / "FastAPI" / "pi-dashboard" / "data" / "ai_control.json"),
-        )
-    )
+    _AI_CONTROL_PATH = resolve_ai_control_path(os.getenv("AI_CONTROL_FILE"))
     configured_ai_mode = args.ai_mode if args.ai_advisor else "DISABLED"
     effective_ai_mode = configured_ai_mode
     try:

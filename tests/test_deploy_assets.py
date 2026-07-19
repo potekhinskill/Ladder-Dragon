@@ -262,6 +262,17 @@ def test_dashboard_publishes_read_only_open_orders():
     assert "executed_qty < requested_qty" in recovery
 
 
+def test_supervisor_and_dashboard_share_canonical_ai_control_path():
+    supervisor = read("bin/ai_supervisor.py")
+    dashboard = read("FastAPI/pi-dashboard/app.py")
+    control = read("ladder_dragon/ai/ai_control.py")
+
+    assert 'resolve_ai_control_path(os.getenv("AI_CONTROL_FILE"))' in supervisor
+    assert 'resolve_ai_control_path(os.getenv("AI_CONTROL_FILE"))' in dashboard
+    assert 'Path("FastAPI/pi-dashboard/data/ai_control.json")' in control
+    assert 'Path(__file__).resolve().parent / "FastAPI"' not in supervisor
+
+
 def test_dashboard_balance_filter_hides_small_assets_by_default():
     index = read("FRONT/index.html")
     assert 'id="balance-hide-small"' in index

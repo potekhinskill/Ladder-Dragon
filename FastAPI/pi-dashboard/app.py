@@ -16,7 +16,11 @@ import sqlite3
 from typing import List, Dict, Optional, Tuple
 
 from ladder_dragon.ai.ai_runtime_status import read_runtime_status
-from ladder_dragon.ai.ai_control import read_ai_control, write_ai_control
+from ladder_dragon.ai.ai_control import (
+    read_ai_control,
+    resolve_ai_control_path,
+    write_ai_control,
+)
 from ladder_dragon.execution.order_recovery import read_order_journal_telemetry
 from product_version import PRODUCT_NAME, __version__
 
@@ -76,9 +80,7 @@ AI_ERROR_DEGRADED_MIN = max(1, int(os.getenv("AI_ERROR_DEGRADED_MIN", "3")))
 AI_RUNTIME_STATUS_FILE = Path(
     os.getenv("AI_RUNTIME_STATUS_FILE", "/run/mybot/ai_status.json")
 )
-AI_CONTROL_FILE = Path(
-    os.getenv("AI_CONTROL_FILE", str(BASE_DIR / "data" / "ai_control.json"))
-)
+AI_CONTROL_FILE = resolve_ai_control_path(os.getenv("AI_CONTROL_FILE"))
 DASHBOARD_FOLLOW_BOT_PATHS = (
     os.getenv("DASHBOARD_FOLLOW_BOT_PATHS", "0") == "1"
 )

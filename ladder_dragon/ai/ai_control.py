@@ -19,6 +19,16 @@ from typing import Any
 
 SCHEMA_VERSION = 1
 AI_MODES = {"DISABLED", "SHADOW", "APPLY"}
+PROJECT_ROOT = Path(__file__).resolve().parents[2]
+DEFAULT_AI_CONTROL_FILE = Path("FastAPI/pi-dashboard/data/ai_control.json")
+
+
+def resolve_ai_control_path(value: str | Path | None = None) -> Path:
+    """Resolve one canonical control path independently of process cwd."""
+    candidate = Path(value) if value else DEFAULT_AI_CONTROL_FILE
+    if candidate.is_absolute():
+        return candidate
+    return (PROJECT_ROOT / candidate).resolve()
 
 
 def utc_now_iso() -> str:
