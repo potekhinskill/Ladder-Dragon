@@ -3,6 +3,24 @@
 All notable changes are documented here. Releases use Semantic Versioning; every
 section is dated and there is intentionally no `Unreleased` section.
 
+## [2.10.75] — 2026-07-19
+
+### Fixed
+- The hardened backup service retains only the filesystem capabilities required
+  to traverse the bot-owned project tree, read private backup sources, create
+  SQLite WAL sidecars, and publish `www-data` manifests. Removing every
+  capability in 2.10.73 caused systemd to fail before executing the backup
+  script with status 126 on Raspberry Pi installations using a `0750` bot home.
+- The existing filesystem namespace remains fail-closed: writes are still
+  limited to `/var/lib/ladder-dragon`, the SQLite directory, and the configured
+  external backup mount. `CAP_SYS_ADMIN` and ambient capabilities remain absent.
+
+### Verified
+- Added regression coverage for the backup service's exact minimal capability
+  set and retained write-path restrictions.
+- `PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=. .venv/bin/python -m pytest -q`.
+- `git diff --check`.
+
 ## [2.10.74] — 2026-07-19
 
 ### Changed

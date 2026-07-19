@@ -525,6 +525,14 @@ def test_systemd_units_have_extended_sandboxing():
         assert "CapabilityBoundingSet=" in unit
 
 
+def test_backup_service_retains_only_required_filesystem_capabilities():
+    service = read("deploy/ladder-dragon-backup.service")
+    assert "CapabilityBoundingSet=CAP_CHOWN CAP_DAC_OVERRIDE CAP_FOWNER" in service
+    assert "AmbientCapabilities=" in service
+    assert "CAP_SYS_ADMIN" not in service
+    assert "ReadWritePaths=/var/lib/ladder-dragon /home/bot/apps/binance_bot/db" in service
+
+
 def test_runtime_dependencies_are_hash_locked_and_installed_without_dependency_resolution():
     installer = read("deploy/install_raspberry_pi.sh")
     updater = read("deploy/update_raspberry_pi.sh")

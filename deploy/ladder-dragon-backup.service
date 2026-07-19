@@ -27,7 +27,10 @@ RestrictSUIDSGID=yes
 RestrictRealtime=yes
 RestrictNamespaces=yes
 LockPersonality=yes
-CapabilityBoundingSet=
+# The root backup process must traverse bot-owned 0750 directories, read private
+# source files, write SQLite WAL sidecars, and publish www-data-owned manifests.
+# Filesystem namespaces below still confine writes to the declared paths.
+CapabilityBoundingSet=CAP_CHOWN CAP_DAC_OVERRIDE CAP_FOWNER
 AmbientCapabilities=
 SystemCallArchitectures=native
 SystemCallFilter=@system-service
