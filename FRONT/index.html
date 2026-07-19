@@ -333,9 +333,13 @@
           <div class="value" id="t24-fees">—</div>
         </div>
         <div>
-          <div class="label" data-i18n="net_24h" title="Разница equity за 24 ч (USDT + все монеты), по выбранным активам">Заработок (чистый) за 24 ч</div>
+          <div class="label" data-i18n="portfolio_change_24h" title="Mark-to-market изменение стоимости USDT и всех оценённых активов">Изменение стоимости портфеля за 24 ч</div>
+          <div class="value" id="t24-portfolio">—</div>
+          <div class="sub" id="t24-portfolio-sub" style="margin-top:4px"> </div>
+        </div>
+        <div>
+          <div class="label" data-i18n="net_24h" title="FIFO реализованный торговый PnL после комиссий BUY и SELL">Заработок (чистый) за 24 ч</div>
           <div class="value" id="t24-net">—</div>
-          <div class="sub" id="t24-net-sub" style="margin-top:4px"> </div>
         </div>
         <div>
           <div class="label" data-i18n="total_value" title="Equity сейчас по выбранным активам">Прибл. общая стоимость</div>
@@ -725,8 +729,9 @@ function updateTrade24(sum, balances){
     $('#t24-trades').textContent='—';
     $('#t24-volume').textContent='—';
     $('#t24-fees').textContent='—';
+    $('#t24-portfolio').textContent='—';
+    $('#t24-portfolio-sub').textContent='';
     $('#t24-net').textContent='—';
-    $('#t24-net-sub').textContent='';
     $('#t24-equity').textContent='—';
     $('#t24-assets').textContent='';
   };
@@ -748,7 +753,8 @@ function updateTrade24(sum, balances){
   const liveAccountTotal = balances?.ok ? Number(balances.total_value_usdt) : NaN;
   const eqNow = Number.isFinite(liveAccountTotal) ? liveAccountTotal : summaryEqNow;
   const eqThen = d.equity_then_usdt ?? null;
-  const pnl    = (d.equity_pnl_usdt ?? d.net_pnl_usdt ?? null);
+  const portfolioChange = (d.portfolio_change_usdt ?? d.equity_pnl_usdt ?? null);
+  const netPnl = (d.net_pnl_usdt ?? d.realized_pnl_usdt ?? null);
 
   $('#t24-trades').textContent = Number.isFinite(trades) ? trades : '—';
   $('#t24-volume').textContent = fmtUSDT(vol);
@@ -757,19 +763,23 @@ function updateTrade24(sum, balances){
   // Current equity (an approximation is acceptable here).
   $('#t24-equity').textContent = Number.isFinite(eqNow) ? fmtUSDT(eqNow) : '—';
 
-  // PnL and percentage.
+  // Portfolio change is mark-to-market and is not bot earnings.
   const pct = Number.isFinite(d.equity_pct) ? d.equity_pct
-             : (Number.isFinite(pnl) && Number.isFinite(eqThen) && eqThen>0 ? (pnl/eqThen*100) : null);
+             : (Number.isFinite(portfolioChange) && Number.isFinite(eqThen) && eqThen>0 ? (portfolioChange/eqThen*100) : null);
 
+  const portfolioEl = $('#t24-portfolio');
+  portfolioEl.textContent = Number.isFinite(portfolioChange) ? fmtUSDT(portfolioChange) : '—';
+  portfolioEl.style.color = (Number.isFinite(portfolioChange) && portfolioChange < 0) ? 'var(--bad)' : 'var(--ok)';
+  $('#t24-portfolio-sub').textContent = Number.isFinite(pct) ? `(${fmtPct(pct)})` : '';
+
+  // Net earnings is realized FIFO trading PnL after BUY and SELL fees.
   const netEl = $('#t24-net');
-  netEl.textContent = Number.isFinite(pnl) ? fmtUSDT(pnl) : '—';
-  netEl.style.color = (Number.isFinite(pnl) && pnl < 0) ? 'var(--bad)' : 'var(--ok)';
-
-  $('#t24-net-sub').textContent = Number.isFinite(pct) ? `(${fmtPct(pct)})` : '';
+  netEl.textContent = Number.isFinite(netPnl) ? fmtUSDT(netPnl) : '—';
+  netEl.style.color = (Number.isFinite(netPnl) && netPnl < 0) ? 'var(--bad)' : 'var(--ok)';
 
   // Assets included in the equity calculation.
   if (Array.isArray(d.equity_assets) && d.equity_assets.length){
-    $('#t24-assets').textContent = 'Активы в расчёте: ' + d.equity_assets.join(', ');
+    $('#t24-assets').textContent = `${tr('assets_in_equity')}: ` + d.equity_assets.join(', ');
   }else{
     $('#t24-assets').textContent = '';
   }

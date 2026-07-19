@@ -293,8 +293,11 @@ def _load_trades(con: sqlite3.Connection, symbols: Optional[List[str]] = None) -
 
 def _fifo_realized_pnl(rows: List[sqlite3.Row], cutoff_s: int, fee_pct: float) -> Dict:
     """
-    FIFO реализованный PnL: проходим ВСЮ историю, стык BUY-LOTов учитывает комиссию BUY,
-    SELL в окне — выручка минус комиссия SELL. Реализованную прибыль считаем только для SELL в окне.
+    Calculate FIFO realized net PnL for SELL fills inside the selected window.
+
+    BUY fees are embedded in lot cost and the proportional SELL fee is deducted
+    from each matched quantity. Historical BUY fills remain available as FIFO
+    cost basis even when they predate the reporting window.
     """
     lots: Dict[str, List[Tuple[float, float]]] = {}
     realized_pnl = 0.0
@@ -336,7 +339,8 @@ def _fifo_realized_pnl(rows: List[sqlite3.Row], cutoff_s: int, fee_pct: float) -
                 lot_qty, lot_cost_unit = pool[0]
                 take = min(lot_qty, remain)
                 if ts_s >= cutoff_s:
-                    realized_pnl += (price - lot_cost_unit) * take
+                    proportional_sell_fee = sell_fee * (take / max(qty, 1e-12))
+                    realized_pnl += (price - lot_cost_unit) * take - proportional_sell_fee
                 lot_qty -= take
                 remain -= take
                 if lot_qty <= 1e-12:
@@ -1980,13 +1984,14 @@ def trades_symbols(hours: int = 168):
 @app.get("/api/trades/summary")
 def trades_summary(hours: int = 24, symbols: str = ""):
     """
-    Агрегаты + три вида PnL:
-      - cashflow_pnl_usdt: продажи − покупки − комиссии (денежный поток)
-      - realized_pnl_usdt: FIFO по SELL в окне (с учётом комиссий)
-      - equity_pnl_usdt / net_pnl_usdt: изменение капитала по выбранным активам
-    Комиссии: fee_quote из БД или оценка BOT_FEE_PCT * notional (оплата BNB).
-    Для equity используется Binance API (балансы + цены «тогда/сейчас»); при ошибке — приближение.
-    Можно ограничить активы параметром symbols=BTCUSDT,ETHUSDT,...
+    Return trading totals and three deliberately separate accounting measures.
+
+    ``cashflow_pnl_usdt`` is sells minus buys minus fees. ``net_pnl_usdt`` and
+    ``realized_pnl_usdt`` are identical FIFO realized trading PnL after BUY and
+    SELL fees. ``portfolio_change_usdt`` and ``equity_pnl_usdt`` are the
+    mark-to-market portfolio value change and must not be presented as bot
+    earnings. Equity uses Binance balances and historical/current prices, with
+    an explicit approximation fallback.
     """
     hours = max(1, min(int(hours), 168))
     cutoff_s = int(time.time()) - hours * 3600
@@ -2023,8 +2028,9 @@ def trades_summary(hours: int = 24, symbols: str = ""):
             "fees_usdt": stats["fees_usdt"],
             "cashflow_pnl_usdt": stats["cashflow_pnl_usdt"],
             "realized_pnl_usdt": stats["realized_pnl_usdt"],
-            # equity / net
-            "net_pnl_usdt": eq["equity_pnl_usdt"],
+            "net_pnl_usdt": stats["realized_pnl_usdt"],
+            "realized_pnl_method": "fifo-net-fees",
+            "portfolio_change_usdt": eq["equity_pnl_usdt"],
             "equity_pnl_usdt": eq["equity_pnl_usdt"],
             "equity_now_usdt": eq.get("equity_now_usdt"),
             "equity_now_usdt_approx": eq.get("equity_now_usdt_approx"),

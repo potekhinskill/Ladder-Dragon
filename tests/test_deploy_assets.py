@@ -115,6 +115,12 @@ def test_dashboard_uses_ladder_dragon_branding():
     assert "status.classList.add(`is-${state}`)" in index
     assert "url.startsWith('https://github.com/')" in index
     assert "setState(payload.update_available ? 'available' : 'current', payload.remote_url)" in index
+    assert 'data-i18n="portfolio_change_24h"' in index
+    assert 'id="t24-portfolio"' in index
+    assert 'data-i18n="net_24h"' in index
+    assert 'id="t24-net"' in index
+    assert "d.portfolio_change_usdt ?? d.equity_pnl_usdt" in index
+    assert "d.net_pnl_usdt ?? d.realized_pnl_usdt" in index
 
 
 def test_public_license_and_financial_disclaimer_are_explicit():

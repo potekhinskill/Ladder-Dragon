@@ -138,6 +138,56 @@ def test_account_balances_uses_short_cache_and_never_posts(monkeypatch):
         readonly_signed("POST", "/api/v3/order", {})
 
 
+def test_fifo_realized_pnl_deducts_buy_and_sell_fees(monkeypatch):
+    module = load_dashboard(monkeypatch)
+    rows = [
+        {"symbol": "SOLUSDT", "side": "BUY", "price": 100.0, "qty": 1.0,
+         "fee_quote": 1.0, "ts_s": 100},
+        {"symbol": "SOLUSDT", "side": "SELL", "price": 110.0, "qty": 0.5,
+         "fee_quote": 0.55, "ts_s": 300},
+    ]
+
+    result = module._fifo_realized_pnl(rows, cutoff_s=200, fee_pct=0.001)
+
+    assert result["fees_usdt"] == 0.55
+    assert result["realized_pnl_usdt"] == 3.95
+
+
+def test_trade_summary_separates_net_earnings_from_portfolio_change(monkeypatch):
+    module = load_dashboard(monkeypatch)
+
+    class Connection:
+        def close(self):
+            return None
+
+    monkeypatch.setattr(module, "_open_db", lambda: (Connection(), "test.db"))
+    monkeypatch.setattr(module, "_load_trades", lambda con, syms: [])
+    monkeypatch.setattr(module, "_fifo_realized_pnl", lambda rows, cutoff, fee: {
+        "total_trades": 2,
+        "buy_volume_usdt": 10.0,
+        "sell_volume_usdt": 11.0,
+        "fees_usdt": 0.02,
+        "cashflow_pnl_usdt": 0.98,
+        "realized_pnl_usdt": -12.26,
+    })
+    monkeypatch.setattr(module, "equity_pnl_usdt", lambda cutoff, rows, fee, syms: {
+        "equity_pnl_usdt": 6.02,
+        "equity_now_usdt": 794.66,
+        "equity_then_usdt": 788.64,
+        "equity_pct": 0.76,
+        "method": "balances+klines",
+        "equity_assets": ["SOL", "USDT"],
+    })
+
+    payload = json.loads(module.trades_summary().body)
+
+    assert payload["net_pnl_usdt"] == -12.26
+    assert payload["realized_pnl_usdt"] == -12.26
+    assert payload["realized_pnl_method"] == "fifo-net-fees"
+    assert payload["portfolio_change_usdt"] == 6.02
+    assert payload["equity_pnl_usdt"] == 6.02
+
+
 def test_account_balances_returns_service_unavailable_on_binance_error(monkeypatch):
     monkeypatch.setenv("DASHBOARD_BINANCE_API_KEY", "read-only-key")
     monkeypatch.setenv("DASHBOARD_BINANCE_API_SECRET", "read-only-secret")

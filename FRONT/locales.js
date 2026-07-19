@@ -9,7 +9,7 @@
     raspberry: "Raspberry / infrastructure", cpu_load: "CPU load 1/5/15", heartbeat: "mybot heartbeat", last_restart: "Last restart", ntp_offset: "NTP / offset", binance_latency: "Binance latency", throttling: "Undervoltage/throttling", usb_mount: "/mnt/usb1", usb_free: "Free USB", root_free: "Root disk free", backup_result: "Backup result", last_backup: "Last backup", archive_size: "Archive size", backup_reason: "Backup error reason",
     trading_risk: "Trading / Risk", free_usdt: "Free USDT", reserve_usdt: "USDT reserve", cap_order: "CAP / order", cap_portfolio: "CAP / portfolio", cap_symbol: "CAP / symbol", risk_state: "Risk state", block_reasons: "Block reasons", cooldown: "Cooldown", reconciliation: "Reconciliation delta", order_summary: "Open / cancelled / pending", last_order: "Last order",
     positions: "Positions and protection", symbol: "Symbol", quantity: "Qty", average: "Average", price: "Price", value: "Value", unrealized: "Unrealized PnL", drawdown: "Drawdown", protection: "OCO / TP / STOP / gap-watchdog", ai_quality: "AI / data quality", context_age: "Context age", decision_db: "Decision DB", usage_log: "Usage log", budget_today: "Budget today", api_errors: "Recent API errors", accepted_rejected: "Accepted / rejected", ai_vs_baseline: "AI vs baseline",
-    chart_temperature: "Temperature (24h)", chart_cpu: "CPU, % (24h)", chart_memory: "Memory, GiB (24h)", trading_24h: "Trading (24h)", trades_24h: "Trades (24h)", sell_volume_24h: "Sell volume (24h)", fees_24h: "Fees (24h)", net_24h: "Net earnings (24h)", total_value: "Approx. total value", balances: "Account balances", hide_small: "Hide < 1 USDT", asset: "Asset", free: "Free", locked: "Locked", total: "Total", price_usdt: "Price, USDT", value_usdt: "Value, USDT", open_orders: "Open orders", pair: "Pair", side: "Side", type: "Type", stop: "Stop", executed: "Executed", remaining: "Remaining", status: "Status", created: "Created", filled_orders: "Realized orders (24h)", time: "Time", amount: "Amount", commission: "Commission", logs: "Sanitized bot logs", archive: "archive",
+    chart_temperature: "Temperature (24h)", chart_cpu: "CPU, % (24h)", chart_memory: "Memory, GiB (24h)", trading_24h: "Trading (24h)", trades_24h: "Trades (24h)", sell_volume_24h: "Sell volume (24h)", fees_24h: "Fees (24h)", portfolio_change_24h: "Portfolio value change (24h)", net_24h: "Net earnings (24h)", total_value: "Approx. total value", balances: "Account balances", hide_small: "Hide < 1 USDT", asset: "Asset", free: "Free", locked: "Locked", total: "Total", price_usdt: "Price, USDT", value_usdt: "Value, USDT", open_orders: "Open orders", pair: "Pair", side: "Side", type: "Type", stop: "Stop", executed: "Executed", remaining: "Remaining", status: "Status", created: "Created", filled_orders: "Realized orders (24h)", time: "Time", amount: "Amount", commission: "Commission", logs: "Sanitized bot logs", archive: "archive",
     loading: "loading…", ok: "ok", no_data: "no data", unavailable: "unavailable", no: "none", no_positions: "No position data", no_open_orders: "No open orders", no_filled_orders: "No realized orders in the last 24 hours", no_export: "no export", unvalued: "unvalued", hidden_assets: "Small assets hidden", unvalued_assets: "Without USDT valuation", enabled: "enabled", disabled: "disabled", stale: "STALE", online_state: "online", error: "error", api_error: "API error", confirm: "Confirm: {action} AI advisor?", enable: "enable", disable: "disable", unable_ai: "Unable to change AI", updated: "updated", free_word: "free", used: "used", mounted: "mounted", not_mounted: "not mounted", read_only: "RO", no_mount: "no mount", warning: "WARNING", no_rag: "none", no_equity_data: "No equity data", no_balance: "Balance unavailable", positive_balances: "No positive balances", no_recent_fills: "No realized orders in the last 24 hours", version: "Version", type: "Type", created: "Created", api_ok: "API ok", current: "current", assets_in_equity: "Assets in calculation", infrastructure: "Infrastructure / host", host_platform: "Platform", github_update_current: "GitHub: current", github_update_available: "GitHub: update available", github_update_unavailable: "GitHub: unavailable"
   };
 
@@ -46,7 +46,7 @@
     }
   };
 
-  Object.assign(translations.ru, {version:"Версия", type:"Тип", created:"Создан", api_ok:"API: ok", current:"актуально", assets_in_equity:"Активы в расчёте", infrastructure:"Инфраструктура / хост", host_platform:"Платформа"});
+  Object.assign(translations.ru, {version:"Версия", type:"Тип", created:"Создан", api_ok:"API: ok", current:"актуально", assets_in_equity:"Активы в расчёте", infrastructure:"Инфраструктура / хост", host_platform:"Платформа", portfolio_change_24h:"Изменение стоимости портфеля за 24 ч"});
   Object.assign(translations.zh, {version:"版本", type:"类型", created:"创建时间", api_ok:"API 正常", current:"当前", assets_in_equity:"计算中的资产"});
   Object.assign(translations.es, {version:"Versión", type:"Tipo", created:"Creada", api_ok:"API: ok", current:"actualizado", assets_in_equity:"Activos calculados"});
   Object.assign(translations.de, {version:"Version", type:"Typ", created:"Erstellt", api_ok:"API: ok", current:"aktuell", assets_in_equity:"Einbezogene Assets"});
@@ -73,6 +73,19 @@
   Object.assign(translations.et, {infrastructure:"Taristu / host", host_platform:"Platvorm"});
   Object.assign(translations.fi, {infrastructure:"Infrastruktuuri / isäntä", host_platform:"Alusta"});
   Object.assign(translations.da, {infrastructure:"Infrastruktur / vært", host_platform:"Platform"});
+  Object.assign(translations.zh, {portfolio_change_24h:"投资组合价值变化 (24 小时)"});
+  Object.assign(translations.es, {portfolio_change_24h:"Cambio del valor de la cartera (24 h)"});
+  Object.assign(translations.de, {portfolio_change_24h:"Portfoliowertänderung (24 h)"});
+  Object.assign(translations.fr, {portfolio_change_24h:"Variation de la valeur du portefeuille (24 h)"});
+  Object.assign(translations.it, {portfolio_change_24h:"Variazione del valore del portafoglio (24 h)"});
+  Object.assign(translations.kk, {portfolio_change_24h:"Портфель құнының өзгеруі (24 сағ)"});
+  Object.assign(translations.uk, {portfolio_change_24h:"Зміна вартості портфеля (24 год)"});
+  Object.assign(translations.ko, {portfolio_change_24h:"포트폴리오 가치 변화 (24시간)"});
+  Object.assign(translations.ja, {portfolio_change_24h:"ポートフォリオ価値の変化 (24時間)"});
+  Object.assign(translations.pt, {portfolio_change_24h:"Variação do valor da carteira (24 h)"});
+  Object.assign(translations.et, {portfolio_change_24h:"Portfelli väärtuse muutus (24 h)"});
+  Object.assign(translations.fi, {portfolio_change_24h:"Salkun arvon muutos (24 h)"});
+  Object.assign(translations.da, {portfolio_change_24h:"Ændring i porteføljens værdi (24 t)"});
 
   const labels = [
     ["en", "English"], ["ru", "Русский"], ["zh", "中文"], ["es", "Español"], ["de", "Deutsch"], ["fr", "Français"],

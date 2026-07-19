@@ -3,6 +3,28 @@
 All notable changes are documented here. Releases use Semantic Versioning; every
 section is dated and there is intentionally no `Unreleased` section.
 
+## [2.10.89] — 2026-07-19
+
+### Fixed
+- The dashboard no longer labels the 24-hour mark-to-market portfolio value
+  change as net earnings. It now shows `Portfolio value change` and realized
+  `Net earnings` as independent metrics.
+- FIFO realized PnL now deducts the proportional SELL commission in addition
+  to the BUY commission embedded in lot cost. The API field `net_pnl_usdt`
+  therefore represents realized trading PnL after both sides' fees.
+
+### Added
+- The trades summary API exposes `portfolio_change_usdt` explicitly and reports
+  the realized calculation method as `fifo-net-fees`.
+- Added localized portfolio-change labels for every supported dashboard
+  language and regression coverage for the UI/API separation and fee math.
+
+### Verified
+- `PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=. .venv/bin/python -m pytest -q`
+  — all 291 tests pass.
+- Python compilation, deployment shell syntax, `git diff --check`, dependency
+  consistency, `pip-audit`, and the tracked-secret scan pass.
+
 ## [2.10.88] — 2026-07-19
 
 ### Fixed
