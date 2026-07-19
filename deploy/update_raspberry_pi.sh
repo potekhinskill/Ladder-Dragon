@@ -132,6 +132,15 @@ verify_previous_service_state() {
     && systemctl is-active --quiet pi-watchdog-v3.timer; then
     fail "watchdog timer is active while the previously stopped bot remains stopped"
   fi
+  for unit in mybot pi-healthd pi-watchdog-v3.timer; do
+    case "${unit}" in
+      mybot) expected="${MYBOT_WAS_ENABLED}" ;;
+      pi-healthd) expected="${DASHBOARD_WAS_ENABLED}" ;;
+      pi-watchdog-v3.timer) expected="${WATCHDOG_WAS_ENABLED}" ;;
+    esac
+    [[ "$(service_flag is-enabled "${unit}")" == "${expected}" ]] \
+      || fail "${unit} autostart policy changed during update"
+  done
 }
 
 recover_after_failure() {
@@ -180,8 +189,6 @@ PY
 check_link() {
   systemctl is-active --quiet mybot || fail "mybot is not active"
   systemctl is-active --quiet pi-healthd || fail "pi-healthd is not active"
-  systemctl is-enabled --quiet mybot || fail "mybot autostart is not enabled"
-  systemctl is-enabled --quiet pi-healthd || fail "pi-healthd autostart is not enabled"
   runuser -u "${BOT_USER}" -- test -r /run/mybot/ai_status.json \
     || fail "bot user cannot read /run/mybot/ai_status.json"
   runuser -u "${BOT_USER}" -- test -r "${DASHBOARD_ENV}" \

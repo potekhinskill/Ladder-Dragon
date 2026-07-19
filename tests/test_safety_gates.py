@@ -52,6 +52,30 @@ def test_supervisor_singleton_flock_rejects_second_process(tmp_path):
         ai_supervisor._release_singleton_lock()
 
 
+def test_supervisor_exports_sanitized_order_journal_runtime_snapshot(
+    tmp_path, monkeypatch
+):
+    from ladder_dragon.execution.order_recovery import OrderJournal
+
+    journal = OrderJournal(tmp_path / "order_intents.sqlite3", venue="mainnet")
+    journal.prepare(
+        client_order_id="LDBLAD-runtime-private",
+        symbol="SOLUSDT",
+        side="BUY",
+        purpose="ladder",
+        order_type="LIMIT",
+        quantity="0.127",
+        price="75.57",
+    )
+    monkeypatch.setenv("BOT_ORDER_JOURNAL", str(journal.path))
+
+    snapshot = ai_supervisor._runtime_order_journal_snapshot()
+
+    assert snapshot["available"] is True
+    assert snapshot["pending"] == 1
+    assert "LDBLAD-runtime-private" not in str(snapshot)
+
+
 def test_supervisor_singleton_flock_is_held_for_process_lifetime(tmp_path):
     path = tmp_path / "ai_supervisor.lock"
     ai_supervisor._SINGLETON_LOCK_HANDLE = None

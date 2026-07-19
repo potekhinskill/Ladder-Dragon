@@ -3,6 +3,27 @@
 All notable changes are documented here. Releases use Semantic Versioning; every
 section is dated and there is intentionally no `Unreleased` section.
 
+## [2.10.83] — 2026-07-19
+
+### Fixed
+- The updater now verifies that each service's pre-update autostart policy is
+  preserved instead of requiring `mybot` and the dashboard to be enabled.
+  An intentionally disabled but active canary no longer turns a successful
+  update into a false failure.
+- The trading process now exports sanitized order-journal counters and latest
+  safe order fields in its private runtime status. The dashboard consumes that
+  snapshot instead of requiring write-capable access to SQLite WAL/SHM files.
+- Trading overview telemetry now identifies whether journal data came from the
+  live runtime or the compatibility database reader.
+
+### Verified
+- Added regression coverage for runtime journal aggregation, safe dashboard
+  consumption, and preservation of enabled and disabled service policies.
+- `PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=. .venv/bin/python -m pytest -q`
+  — all 270 tests pass.
+- Python compilation, deployment shell syntax, `git diff --check`, dependency
+  consistency, and the tracked-secret scan pass.
+
 ## [2.10.82] — 2026-07-19
 
 ### Fixed

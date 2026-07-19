@@ -53,6 +53,7 @@ from ladder_dragon.ai.ai_statistical import context_vector
 from ladder_dragon.ai.ai_runtime_status import write_runtime_status
 from ladder_dragon.ai.ai_control import read_ai_control
 from ladder_dragon.execution.order_identity import client_order_id
+from ladder_dragon.execution.order_recovery import read_order_journal_telemetry
 from ladder_dragon.risk.risk_manager import RiskDecision, RiskLimits, RiskManager, RiskSnapshot, load_daily_trade_metrics, money
 from ladder_dragon.risk.risk_statistics import (
     correlated_symbols_multi_window as derive_correlated_symbols_multi_window,
@@ -312,6 +313,14 @@ def _publish_ai_runtime_status(**updates: Any) -> None:
         write_runtime_status(_AI_RUNTIME_STATUS_PATH, _AI_RUNTIME_STATUS)
     except OSError as exc:
         dbg(f"[AI-STATUS] write failed: {exc}")
+
+
+def _runtime_order_journal_snapshot() -> dict[str, Any]:
+    """Publish journal counters without exposing SQLite to the dashboard."""
+    path = os.getenv("BOT_ORDER_JOURNAL", "")
+    if not path:
+        return {"available": False, "reason": "order journal path missing"}
+    return read_order_journal_telemetry(path)
 
 
 def _refresh_ai_control(args: argparse.Namespace) -> None:
@@ -2565,6 +2574,7 @@ def main():
             "ai_usage_log": args.ai_usage_log,
             "order_journal": os.getenv("BOT_ORDER_JOURNAL", ""),
         },
+        "order_journal": _runtime_order_journal_snapshot(),
     }
     _publish_ai_runtime_status()
     _refresh_ai_control(args)
@@ -2679,6 +2689,7 @@ def main():
                 _publish_ai_runtime_status(
                     state="RUNNING",
                     risk=heartbeat_risk,
+                    order_journal=_runtime_order_journal_snapshot(),
                 )
                 # Do not write to the SD card on every trading tick; 30 seconds
                 # is sufficient to show a live process in the dashboard.

@@ -9,7 +9,7 @@ import psutil, shutil, json, os, socket, asyncio, subprocess, math, time, hmac, 
 from collections import defaultdict, deque
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
-from decimal import Decimal, InvalidOperation
+from decimal import Decimal
 from zoneinfo import ZoneInfo
 from pathlib import Path
 import sqlite3
@@ -17,6 +17,7 @@ from typing import List, Dict, Optional, Tuple
 
 from ladder_dragon.ai.ai_runtime_status import read_runtime_status
 from ladder_dragon.ai.ai_control import read_ai_control, write_ai_control
+from ladder_dragon.execution.order_recovery import read_order_journal_telemetry
 from product_version import PRODUCT_NAME, __version__
 
 try:
@@ -587,59 +588,42 @@ def _average_entry_from_ledger(symbol: str) -> Optional[float]:
 
 
 def _order_journal_snapshot(runtime: Dict[str, object]) -> Dict[str, object]:
-    """Сводка intent-журнала без client secrets и без raw metadata."""
+    """Return sanitized runtime telemetry without opening the live WAL DB."""
+    runtime_snapshot = runtime.get("order_journal")
+    if isinstance(runtime_snapshot, dict):
+        snapshot = dict(runtime_snapshot)
+        latest = snapshot.get("latest")
+        if isinstance(latest, dict):
+            item = dict(latest)
+            try:
+                item["updated_at"] = datetime.fromtimestamp(
+                    float(item.pop("updated_at_epoch")), APP_TZ
+                ).strftime("%Y-%m-%d %H:%M:%S")
+            except (KeyError, OSError, OverflowError, TypeError, ValueError):
+                item["updated_at"] = None
+            snapshot["latest"] = item
+        snapshot["source"] = "runtime"
+        return snapshot
+
+    # A stopped or older bot may not have exported telemetry yet. Keep this
+    # compatibility read fail-closed: the dashboard never receives DB writes.
     paths = runtime.get("paths", {}) if isinstance(runtime.get("paths"), dict) else {}
     path = Path(str(paths.get("order_journal") or os.getenv(
         "BOT_ORDER_JOURNAL", "/home/bot/apps/binance_bot/db/order_intents.sqlite3"
     )))
-    if not path.exists():
-        return {"available": False, "reason": "order journal not found"}
-    try:
-        with sqlite3.connect(f"file:{path}?mode=ro", uri=True, timeout=1) as con:
-            con.row_factory = sqlite3.Row
-            columns = {str(row[1]) for row in con.execute("PRAGMA table_info(order_intents)")}
-            if not {"state", "updated_at"}.issubset(columns):
-                return {"available": False, "reason": "order journal schema unavailable"}
-            counts = {
-                str(row["state"]): int(row["count"])
-                for row in con.execute("SELECT state, COUNT(*) AS count FROM order_intents GROUP BY state")
-            }
-            latest = con.execute(
-                "SELECT symbol, side, state, exchange_order_id, executed_qty, quantity, updated_at "
-                "FROM order_intents ORDER BY updated_at DESC LIMIT 1"
-            ).fetchone()
-            item = None
-            if latest:
-                try:
-                    executed_qty = Decimal(str(latest["executed_qty"] or "0"))
-                    requested_qty = Decimal(str(latest["quantity"] or "0"))
-                    partial_fill = executed_qty > 0 and requested_qty > 0 and executed_qty < requested_qty
-                except (InvalidOperation, TypeError, ValueError):
-                    # A damaged or incomplete field must not become a false
-                    # partial fill; show false until the exchange confirms it.
-                    partial_fill = False
-                item = {
-                    "symbol": latest["symbol"], "side": latest["side"], "status": latest["state"],
-                    "order_id": latest["exchange_order_id"], "executed_qty": latest["executed_qty"],
-                    "quantity": latest["quantity"], "partial_fill": partial_fill,
-                    # The intent journal does not yet store per-fill latency or
-                    # commission; return null instead of inventing values.
-                    "latency_ms": None,
-                    "commission_usdt": None,
-                    "updated_at": datetime.fromtimestamp(float(latest["updated_at"]), APP_TZ).strftime("%Y-%m-%d %H:%M:%S"),
-                }
-            terminal_states = {
-                "FILLED", "CLOSED", "PROTECTED", "CANCELED", "CANCELLED",
-                "EXPIRED", "EXPIRED_IN_MATCH", "REJECTED", "FAILED",
-            }
-            cancelled = sum(value for key, value in counts.items() if "CANCEL" in key.upper())
-            pending = sum(
-                value for key, value in counts.items()
-                if key.upper() not in terminal_states
-            )
-            return {"available": True, "counts": counts, "cancelled": cancelled, "pending": pending, "latest": item}
-    except (OSError, sqlite3.Error, ValueError, TypeError) as exc:
-        return {"available": False, "reason": type(exc).__name__}
+    snapshot = read_order_journal_telemetry(path)
+    snapshot["source"] = "database"
+    latest = snapshot.get("latest")
+    if isinstance(latest, dict):
+        item = dict(latest)
+        try:
+            item["updated_at"] = datetime.fromtimestamp(
+                float(item.pop("updated_at_epoch")), APP_TZ
+            ).strftime("%Y-%m-%d %H:%M:%S")
+        except (KeyError, OSError, OverflowError, TypeError, ValueError):
+            item["updated_at"] = None
+        snapshot["latest"] = item
+    return snapshot
 
 
 def _bot_service_config() -> Dict[str, object]:
@@ -832,6 +816,7 @@ def trading_overview_snapshot() -> Dict[str, object]:
             # to zero would falsely claim that reconciliation is complete.
             "journal_available": journal.get("available") is True,
             "journal_reason": journal.get("reason"),
+            "journal_source": journal.get("source"),
         },
         "last_order": last_order,
         "risk": {

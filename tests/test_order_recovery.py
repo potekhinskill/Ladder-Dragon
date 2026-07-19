@@ -2,7 +2,10 @@ import sqlite3
 
 import pytest
 
-from ladder_dragon.execution.order_recovery import OrderJournal
+from ladder_dragon.execution.order_recovery import (
+    OrderJournal,
+    read_order_journal_telemetry,
+)
 from ladder_dragon.execution.executor_recovery import (
     RecoveryDependencies,
     reconcile_nonterminal_orders,
@@ -64,6 +67,44 @@ def test_journal_reuses_active_intent_and_records_exchange_state(tmp_path):
     )
     assert partial.state == "PARTIALLY_FILLED"
     assert partial.executed_qty == "0.040"
+
+
+def test_runtime_telemetry_contains_only_sanitized_journal_summary(tmp_path):
+    journal = OrderJournal(tmp_path / "orders.sqlite3", venue="mainnet")
+    cancelled = journal.prepare(
+        client_order_id="LDBLAD-secret-cancelled",
+        symbol="SOLUSDT",
+        side="BUY",
+        purpose="ladder",
+        order_type="LIMIT",
+        quantity="0.1",
+        price="90",
+        metadata={"private": "must-not-leak"},
+    )
+    journal.record_exchange_order(
+        cancelled.client_order_id,
+        {"orderId": 101, "status": "CANCELED", "executedQty": "0"},
+    )
+    journal.prepare(
+        client_order_id="LDBLAD-secret-pending",
+        symbol="SOLUSDT",
+        side="BUY",
+        purpose="ladder",
+        order_type="LIMIT",
+        quantity="0.2",
+        price="80",
+    )
+
+    telemetry = read_order_journal_telemetry(journal.path)
+
+    assert telemetry["available"] is True
+    assert telemetry["counts"] == {"CANCELED": 1, "PREPARED": 1}
+    assert telemetry["cancelled"] == 1
+    assert telemetry["pending"] == 1
+    assert telemetry["latest"]["symbol"] == "SOLUSDT"
+    serialized = str(telemetry)
+    assert "LDBLAD-secret" not in serialized
+    assert "must-not-leak" not in serialized
 
 
 def test_filled_buy_remains_unresolved_until_protection_is_confirmed(tmp_path):

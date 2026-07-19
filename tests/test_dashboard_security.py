@@ -286,6 +286,7 @@ def test_trading_overview_preserves_unavailable_order_journal(monkeypatch):
         "pending": None,
         "journal_available": False,
         "journal_reason": "OperationalError",
+        "journal_source": None,
     }
 
 
@@ -327,6 +328,39 @@ def test_order_journal_pending_excludes_terminal_failures(tmp_path, monkeypatch)
     assert snapshot["counts"] == {"FAILED": 1, "PREPARED": 1}
     assert snapshot["cancelled"] == 0
     assert snapshot["pending"] == 1
+
+
+def test_order_journal_prefers_sanitized_runtime_snapshot(monkeypatch):
+    module = load_dashboard(monkeypatch)
+    runtime = {
+        "order_journal": {
+            "available": True,
+            "counts": {"CANCELED": 39, "FAILED": 2, "SUBMITTED": 1},
+            "cancelled": 39,
+            "pending": 1,
+            "latest": {
+                "symbol": "SOLUSDT",
+                "side": "BUY",
+                "status": "SUBMITTED",
+                "order_id": 123,
+                "executed_qty": "0",
+                "quantity": "0.127",
+                "partial_fill": False,
+                "latency_ms": None,
+                "commission_usdt": None,
+                "updated_at_epoch": 1_784_466_426,
+            },
+        },
+        "paths": {"order_journal": "/path/dashboard/must/not/open.sqlite3"},
+    }
+
+    snapshot = module._order_journal_snapshot(runtime)
+
+    assert snapshot["source"] == "runtime"
+    assert snapshot["cancelled"] == 39
+    assert snapshot["pending"] == 1
+    assert snapshot["latest"]["order_id"] == 123
+    assert snapshot["latest"]["updated_at"]
 
 
 def test_open_orders_exposes_read_only_order_fields_without_secrets(monkeypatch):

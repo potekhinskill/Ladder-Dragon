@@ -251,13 +251,15 @@ def test_dashboard_publishes_read_only_account_balances():
 def test_dashboard_publishes_read_only_open_orders():
     index = read("FRONT/index.html")
     app = read("FastAPI/pi-dashboard/app.py")
+    recovery = read("ladder_dragon/execution/order_recovery.py")
     assert 'id="open-orders-body"' in index
     assert "getJSON('/api/account/open-orders')" in index
     assert '@app.get("/api/account/open-orders")' in app
     assert '"client_order_id"' in app
     assert '"remaining_qty"' in app
     assert 'OPEN_ORDERS_FAILED' in app
-    assert 'executed_qty > 0 and requested_qty > 0 and executed_qty < requested_qty' in app
+    assert "executed_qty > 0" in recovery
+    assert "executed_qty < requested_qty" in recovery
 
 
 def test_dashboard_balance_filter_hides_small_assets_by_default():
@@ -476,6 +478,9 @@ def test_updater_preserves_stopped_services_and_does_not_arm_watchdog():
     assert 'fail "${unit} was stopped before update but became active"' in updater
     assert "systemctl start mybot\nsystemctl start pi-healthd" not in updater
     assert "mybot autostart must be enabled before update" not in updater
+    assert 'fail "${unit} autostart policy changed during update"' in updater
+    assert 'MYBOT_WAS_ENABLED="$(service_flag is-enabled mybot)"' in updater
+    assert 'DASHBOARD_WAS_ENABLED="$(service_flag is-enabled pi-healthd)"' in updater
     assert "verify_previous_service_state" in updater
 
 

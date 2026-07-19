@@ -31,6 +31,17 @@ SELL_ACTIVE_STATES = (
     "PROTECTED",
 )
 TERMINAL_EXCHANGE_STATES = {"CANCELED", "EXPIRED", "EXPIRED_IN_MATCH", "REJECTED"}
+TERMINAL_JOURNAL_STATES = {
+    "FILLED",
+    "CLOSED",
+    "PROTECTED",
+    "CANCELED",
+    "CANCELLED",
+    "EXPIRED",
+    "EXPIRED_IN_MATCH",
+    "REJECTED",
+    "FAILED",
+}
 _SIGNED_BINANCE_URL_RE = re.compile(
     r"(https://(?:[A-Za-z0-9.-]*\.)?binance\.(?:com|vision)/[^\s?]+)\?[^\s;]+",
     re.IGNORECASE,
@@ -44,6 +55,94 @@ def _safe_error_text(error: object) -> str:
     text = _SIGNED_BINANCE_URL_RE.sub(r"\1?<redacted>", text)
     text = _SIGNATURE_PARAM_RE.sub(r"\1<redacted>", text)
     return text[:1000]
+
+
+def read_order_journal_telemetry(path: str | Path) -> dict[str, Any]:
+    """Return a sanitized read-only journal summary for runtime telemetry.
+
+    The trading process performs this read because it already owns the WAL/SHM
+    files. The dashboard receives only aggregate states and the latest safe
+    order fields; it never needs filesystem write access to the live database.
+    """
+    target = Path(path)
+    if not target.exists():
+        return {"available": False, "reason": "order journal not found"}
+    try:
+        with sqlite3.connect(
+            f"file:{target}?mode=ro",
+            uri=True,
+            timeout=2,
+        ) as con:
+            con.row_factory = sqlite3.Row
+            con.execute("PRAGMA busy_timeout=2000")
+            columns = {
+                str(row[1])
+                for row in con.execute("PRAGMA table_info(order_intents)")
+            }
+            if not {"state", "updated_at"}.issubset(columns):
+                return {
+                    "available": False,
+                    "reason": "order journal schema unavailable",
+                }
+            counts = {
+                str(row["state"]): int(row["count"])
+                for row in con.execute(
+                    "SELECT state, COUNT(*) AS count "
+                    "FROM order_intents GROUP BY state"
+                )
+            }
+            latest = con.execute(
+                "SELECT symbol, side, state, exchange_order_id, "
+                "executed_qty, quantity, updated_at "
+                "FROM order_intents ORDER BY updated_at DESC LIMIT 1"
+            ).fetchone()
+    except (OSError, sqlite3.Error, TypeError, ValueError) as exc:
+        return {"available": False, "reason": type(exc).__name__}
+
+    item: dict[str, Any] | None = None
+    if latest is not None:
+        try:
+            executed_qty = Decimal(str(latest["executed_qty"] or "0"))
+            requested_qty = Decimal(str(latest["quantity"] or "0"))
+            partial_fill = (
+                executed_qty > 0
+                and requested_qty > 0
+                and executed_qty < requested_qty
+            )
+        except (ArithmeticError, TypeError, ValueError):
+            partial_fill = False
+        try:
+            updated_at_epoch: float | None = float(latest["updated_at"])
+        except (ArithmeticError, TypeError, ValueError):
+            updated_at_epoch = None
+        item = {
+            "symbol": latest["symbol"],
+            "side": latest["side"],
+            "status": latest["state"],
+            "order_id": latest["exchange_order_id"],
+            "executed_qty": latest["executed_qty"],
+            "quantity": latest["quantity"],
+            "partial_fill": partial_fill,
+            "latency_ms": None,
+            "commission_usdt": None,
+            "updated_at_epoch": updated_at_epoch,
+        }
+    cancelled = sum(
+        count for state, count in counts.items() if "CANCEL" in state.upper()
+    )
+    pending = sum(
+        count
+        for state, count in counts.items()
+        if state.upper() not in TERMINAL_JOURNAL_STATES
+    )
+    return {
+        "available": True,
+        "counts": counts,
+        "cancelled": cancelled,
+        "pending": pending,
+        "latest": item,
+        "updated_at_epoch": time.time(),
+    }
 
 
 @dataclass(frozen=True)
