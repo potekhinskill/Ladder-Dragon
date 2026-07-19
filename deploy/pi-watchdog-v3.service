@@ -12,7 +12,7 @@ Environment=WATCHDOG_STATE=/run/pi-watchdog/state
 ExecStart=/usr/local/bin/pi-watchdog_v3.sh
 SuccessExitStatus=0
 RuntimeDirectory=pi-watchdog
-RuntimeDirectoryMode=0700
+RuntimeDirectoryMode=0755
 StateDirectory=pi-watchdog
 StateDirectoryMode=0700
 LogsDirectory=pi-watchdog

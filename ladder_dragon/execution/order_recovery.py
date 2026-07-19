@@ -403,3 +403,33 @@ class OrderJournal:
                 params,
             ).fetchall()
         return [intent for row in rows if (intent := self._from_row(row)) is not None]
+
+    def nonterminal_orders(self, symbol: str | None = None) -> list[OrderIntent]:
+        """Return ordinary exchange orders whose final state needs reconciliation."""
+        # FILLED BUY protection and PROTECTED SELL/OCO recovery have dedicated
+        # paths. Re-query only states whose exchange terminal status is unknown.
+        states = (
+            "PREPARED",
+            "UNKNOWN",
+            "SUBMITTED",
+            "PARTIALLY_FILLED",
+            "PROTECTION_PENDING",
+        )
+        placeholders = ",".join("?" for _ in states)
+        params: list[Any] = [self.venue, *states]
+        where_symbol = ""
+        if symbol:
+            where_symbol = " AND symbol = ?"
+            params.append(symbol.upper())
+        with self._connect() as con:
+            rows: Iterable[sqlite3.Row] = con.execute(
+                f"""
+                SELECT * FROM order_intents
+                WHERE venue = ? AND state IN ({placeholders})
+                  AND order_type != 'OCO'
+                {where_symbol}
+                ORDER BY created_at
+                """,
+                params,
+            ).fetchall()
+        return [intent for row in rows if (intent := self._from_row(row)) is not None]

@@ -3,6 +3,36 @@
 All notable changes are documented here. Releases use Semantic Versioning; every
 section is dated and there is intentionally no `Unreleased` section.
 
+## [2.10.81] — 2026-07-19
+
+### Fixed
+- LIVE worker startup now reconciles every ordinary nonterminal BUY and SELL
+  intent against Binance before placing another order. Exchange-confirmed
+  cancellations become terminal, while an UNKNOWN/PREPARED order confirmed
+  absent by Binance becomes FAILED without manual SQLite changes.
+- A previously confirmed SUBMITTED order that disappears at Binance remains a
+  fail-closed condition and activates the execution halt.
+- The guarded cancellation tool now records Binance cancellation responses in
+  the order-intent journal, including partial fills that still require
+  protection.
+- The dashboard now publishes the supervisor's effective AI request, token,
+  and cost limits instead of showing missing limits or reading the bot's
+  private environment.
+- Raspberry throttling telemetry is exported by the root watchdog as a small
+  sanitized status file. The hardened dashboard can display `throttled=0x0`
+  without access to `/dev/vcio`, and reports whether the watchdog timer is
+  active and enabled.
+
+### Verified
+- Added regression tests for external cancellation, confirmed-absent UNKNOWN
+  SELL, lost SUBMITTED fail-closed handling, partial cancellation, AI budget
+  publication, sanitized throttling telemetry, and watchdog deployment.
+- Targeted order-recovery, cancellation, dashboard, deployment, and worker
+  recovery test suites pass.
+- `PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=. python3 -m pytest -q` — all tests pass.
+- `python3 -m compileall -q bin ladder_dragon FastAPI tests`, deployment shell
+  syntax, `git diff --check`, and the tracked-secret scan pass.
+
 ## [2.10.80] — 2026-07-19
 
 ### Fixed

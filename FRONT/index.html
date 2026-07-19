@@ -241,6 +241,7 @@
         <div class="monitor-row"><span data-i18n="ntp_offset">NTP / offset</span><span id="ops-ntp">—</span></div>
         <div class="monitor-row"><span data-i18n="binance_latency">Binance latency</span><span id="ops-binance-latency">—</span></div>
         <div class="monitor-row"><span data-i18n="throttling">Undervoltage/throttling</span><span id="ops-throttle">—</span></div>
+        <div class="monitor-row"><span>Watchdog</span><span id="ops-watchdog">—</span></div>
         <div class="monitor-row"><span data-i18n="usb_mount">/mnt/usb1</span><span id="ops-usb">—</span></div>
         <div class="monitor-row"><span data-i18n="usb_free">Свободно USB</span><span id="ops-usb-free">—</span></div>
         <div class="monitor-row"><span data-i18n="root_free">Root disk free</span><span id="ops-root-free">—</span></div>
@@ -602,6 +603,9 @@ function updateOperations(h){
   $('#ops-platform').textContent=host.system ? `${host.system} · ${host.machine||'—'}${host.is_raspberry_pi?' · Raspberry Pi':''}` : tr('unavailable');
   const throttleBad=['under_voltage_now','freq_capped_now','throttled_now','temp_limit_now','under_voltage_hist','freq_capped_hist','throttled_hist','temp_limit_hist'].some(k=>throttle[k]);
   $('#ops-throttle').textContent=throttle.supported===false ? tr('unavailable') : (throttleBad ? `WARNING · ${throttle.raw||'—'}` : `OK · ${throttle.raw||'throttled=0x0'}`);
+  const watchdog=o.services?.watchdog||{};
+  $('#ops-watchdog').textContent=`${watchdog.state||'unknown'} · ${watchdog.enabled?tr('enabled'):tr('disabled')}`;
+  $('#ops-watchdog').className=(watchdog.state==='active'&&watchdog.enabled)?'risk-ok':'risk-warn';
   const usb=o.usb_backup||{};
   $('#ops-usb').textContent=usb.mounted?`mounted · ${usb.writable?'rw':'dashboard namespace RO'}`:'нет mount';
   $('#ops-usb').className=usb.mounted?(usb.writable?'risk-ok':'risk-warn'):'risk-bad';
@@ -649,7 +653,7 @@ function updateAIQuality(ai){
   $('#ai-context-age').textContent=ageText(src.context_age_sec);
   $('#ai-decision-db-age').textContent=ageText(src.decision_db_age_sec);
   $('#ai-usage-age').textContent=ageText(src.usage_log_age_sec);
-  const limits=(ai.runtime||{}).ai?.budgets||{};
+  const limits=(ai.runtime||{}).budgets||{};
   $('#ai-budget').textContent=`${usage.requests??0}/${limits.max_requests_per_day??'—'} req · ${usage.tokens??0}/${limits.max_tokens_per_day??'—'} tok · $${usage.cost_usd??'0'}/$${limits.max_cost_usd_per_day??'—'}`;
   $('#ai-errors').textContent=`${usage.recent_errors??0} recent · ${usage.errors??0} total`;
   const recent=Array.isArray(ai.recent)?ai.recent:[];

@@ -5,11 +5,13 @@
 # Purpose: cancel open orders with explicit safeguards.
 
 import os, hmac, time, hashlib, argparse, urllib.parse, json, re
+from pathlib import Path
 import requests
 from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
 from dotenv import load_dotenv
 from product_version import user_agent
+from ladder_dragon.execution.order_recovery import OrderJournal
 
 DEFAULT_MAIN = "https://api.binance.com"
 DEFAULT_TEST = "https://testnet.binance.vision"
@@ -147,6 +149,10 @@ def cancel_order(session, base_url, symbol, order_id, key, secret, **kw):
     return b_request(session, "DELETE", base_url, "/api/v3/order",
                      {"symbol": symbol, "orderId": order_id}, key, secret, signed=True, **kw)
 
+def fetch_order(session, base_url, symbol, order_id, key, secret, **kw):
+    return b_request(session, "GET", base_url, "/api/v3/order",
+                     {"symbol": symbol, "orderId": order_id}, key, secret, signed=True, **kw)
+
 def cancel_oco(session, base_url, symbol, order_list_id, key, secret, **kw):
     return b_request(session, "DELETE", base_url, "/api/v3/orderList",
                      {"symbol": symbol, "orderListId": order_list_id}, key, secret, signed=True, **kw)
@@ -221,6 +227,39 @@ def is_unknown_2011(err: Exception) -> bool:
     s = str(err)
     return ("2011" in s) or ("Unknown order sent" in s) or ("Order does not exist" in s)
 
+def load_order_journal(testnet: bool) -> OrderJournal | None:
+    """Open an existing runtime journal without creating one for ad-hoc use."""
+    variable = "BOT_TESTNET_ORDER_JOURNAL" if testnet else "BOT_ORDER_JOURNAL"
+    default_name = "testnet_order_intents.sqlite3" if testnet else "order_intents.sqlite3"
+    path = Path(
+        os.getenv(variable)
+        or Path(__file__).resolve().parents[1] / "db" / default_name
+    )
+    if not path.is_file():
+        return None
+    return OrderJournal(path, venue="testnet" if testnet else "mainnet")
+
+def record_order_result(
+    journal: OrderJournal | None,
+    payload: object,
+    fallback: dict,
+):
+    """Persist an authoritative exchange result for a known local intent."""
+    if journal is None:
+        return None
+    merged = dict(fallback)
+    if isinstance(payload, dict):
+        merged.update(payload)
+    client_id = str(
+        merged.get("clientOrderId") or merged.get("origClientOrderId") or ""
+    )
+    intent = journal.get(client_id) if client_id else None
+    if intent is None and merged.get("orderId") is not None:
+        intent = journal.get_by_exchange_order_id(int(merged["orderId"]))
+    if intent is None:
+        return None
+    return journal.record_exchange_order(intent.client_order_id, merged)
+
 def main():
     args = parse_args()
     key, sec = load_keys(args.testnet)
@@ -234,6 +273,7 @@ def main():
     )
 
     session = build_session()
+    journal = load_order_journal(args.testnet) if args.live else None
 
     # Exchange "now" for correct order age.
     server_ms = exchange_time_ms(session, base_url)
@@ -286,16 +326,30 @@ def main():
                     print(f"[DRY] cancel {symbol} {side} LIMIT id={o['orderId']} price={price} qty={fmt_qty(qty)}")
                 else:
                     try:
-                        cancel_order(
+                        result = cancel_order(
                             session, base_url, symbol, o["orderId"], key, sec,
                             recv_window=args.recv_window, ts_offset_ms=ts_offset_ms
                         )
+                        record_order_result(journal, result, o)
                         total_live_canceled += 1
                         print(f"[OK] cancel {symbol} {side} LIMIT id={o['orderId']}")
                     except Exception as he:
                         if is_unknown_2011(he):
-                            print(f"[OK-ALREADY] {symbol} {side} LIMIT id={o['orderId']} already closed")
-                            total_already_closed += 1
+                            try:
+                                final = fetch_order(
+                                    session, base_url, symbol, o["orderId"], key, sec,
+                                    recv_window=args.recv_window,
+                                    ts_offset_ms=ts_offset_ms,
+                                )
+                                record_order_result(journal, final, o)
+                                print(f"[OK-ALREADY] {symbol} {side} LIMIT id={o['orderId']} already closed")
+                                total_already_closed += 1
+                            except Exception as verify_error:
+                                total_errors += 1
+                                print(
+                                    f"[ERR] cannot verify already-closed order "
+                                    f"{symbol} id={o['orderId']}: {type(verify_error).__name__}"
+                                )
                         else:
                             total_errors += 1
                             print(f"[ERR] cancel order {symbol} id={o['orderId']}: {he}")

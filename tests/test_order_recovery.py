@@ -1,6 +1,26 @@
 import sqlite3
 
+import pytest
+
 from ladder_dragon.execution.order_recovery import OrderJournal
+from ladder_dragon.execution.executor_recovery import (
+    RecoveryDependencies,
+    reconcile_nonterminal_orders,
+)
+
+
+def recovery_dependencies(journal, lookup, *, halts=None, logs=None):
+    return RecoveryDependencies(
+        journal=lambda: journal,
+        get_order_by_client_id=lookup,
+        get_order_list_by_client_id=lambda client_id: None,
+        verify_oco_legs=lambda symbol, payload: [],
+        cancel_oco=lambda symbol, order_list_id: None,
+        halt=lambda reason, **metadata: (halts if halts is not None else []).append(
+            (reason, metadata)
+        ),
+        logger=(logs if logs is not None else []).append,
+    )
 
 
 def test_journal_reuses_active_intent_and_records_exchange_state(tmp_path):
@@ -189,3 +209,88 @@ def test_filled_regular_sell_does_not_block_a_future_sell(tmp_path):
         quantity="0.100",
         price="110.00",
     ) is None
+
+
+def test_startup_reconciliation_records_external_cancellation(tmp_path):
+    journal = OrderJournal(tmp_path / "orders.sqlite3", venue="mainnet")
+    intent = journal.prepare(
+        client_order_id="LDBLAD-external-cancel",
+        symbol="SOLUSDT",
+        side="BUY",
+        purpose="ladder",
+        order_type="LIMIT",
+        quantity="0.126",
+        price="75.80",
+    )
+    journal.record_exchange_order(
+        intent.client_order_id,
+        {"orderId": 123, "status": "NEW", "executedQty": "0"},
+    )
+    dependencies = recovery_dependencies(
+        journal,
+        lambda symbol, client_id: {
+            "orderId": 123,
+            "clientOrderId": client_id,
+            "status": "CANCELED",
+            "executedQty": "0.00000000",
+        },
+    )
+
+    reconciled = reconcile_nonterminal_orders(
+        "SOLUSDT", dependencies=dependencies
+    )
+
+    assert [item.state for item in reconciled] == ["CANCELED"]
+    assert journal.nonterminal_orders("SOLUSDT") == []
+
+
+def test_startup_reconciliation_closes_confirmed_absent_unknown_sell(tmp_path):
+    journal = OrderJournal(tmp_path / "orders.sqlite3", venue="mainnet")
+    intent = journal.prepare(
+        client_order_id="LDSLAD-confirmed-absent",
+        symbol="SOLUSDT",
+        side="SELL",
+        purpose="ladder",
+        order_type="LIMIT",
+        quantity="3.755",
+        price="230",
+    )
+    journal.mark_unknown(intent.client_order_id, "definitive response lost")
+    logs = []
+    dependencies = recovery_dependencies(
+        journal, lambda symbol, client_id: None, logs=logs
+    )
+
+    reconciled = reconcile_nonterminal_orders(
+        "SOLUSDT", dependencies=dependencies
+    )
+
+    assert [item.state for item in reconciled] == ["FAILED"]
+    assert "exchange confirmed order absent" in reconciled[0].last_error
+    assert any("absent; state=FAILED" in line for line in logs)
+
+
+def test_startup_reconciliation_halts_if_submitted_order_disappears(tmp_path):
+    journal = OrderJournal(tmp_path / "orders.sqlite3", venue="mainnet")
+    intent = journal.prepare(
+        client_order_id="LDBLAD-lost-submitted",
+        symbol="SOLUSDT",
+        side="BUY",
+        purpose="ladder",
+        order_type="LIMIT",
+        quantity="0.126",
+        price="75.80",
+    )
+    journal.record_exchange_order(
+        intent.client_order_id,
+        {"orderId": 123, "status": "NEW", "executedQty": "0"},
+    )
+    halts = []
+    dependencies = recovery_dependencies(
+        journal, lambda symbol, client_id: None, halts=halts
+    )
+
+    with pytest.raises(RuntimeError, match="exchange lost BUY"):
+        reconcile_nonterminal_orders("SOLUSDT", dependencies=dependencies)
+
+    assert len(halts) == 1

@@ -23,6 +23,7 @@ TELEGRAM_OUTBOX_MAX_FLUSH=${WATCHDOG_TELEGRAM_OUTBOX_MAX_FLUSH:-10}
 REASON_FILE="${STATEDIR}/reason.txt"
 HEARTBEAT="${AI_RUNTIME_STATUS_FILE:-/run/mybot/ai_status.json}"
 UPTIME_SOURCE="${WATCHDOG_UPTIME_SOURCE:-/proc/uptime}"
+HOST_HEALTH_FILE="${WATCHDOG_HOST_HEALTH_FILE:-/run/pi-watchdog/host-health.json}"
 
 [ -f /etc/bot-alerts.env ] && . /etc/bot-alerts.env || true
 
@@ -160,6 +161,38 @@ ip: ${ip:-unknown}"
 }
 
 echo "=== $(LC_ALL=C date) [v3] ===" >>"${LOG}"
+
+# Publish only sanitized hardware state. The dashboard reads this file instead
+# of receiving access to /dev/vcio or additional device capabilities.
+publish_host_health() {
+  local raw="" temp="" tmp
+  if [[ -x /usr/bin/vcgencmd ]]; then
+    raw="$(/usr/bin/vcgencmd get_throttled 2>/dev/null || true)"
+    temp="$(/usr/bin/vcgencmd measure_temp 2>/dev/null | tr -cd '0-9.' || true)"
+  fi
+  tmp="${HOST_HEALTH_FILE}.tmp.$$"
+  python3 - "${tmp}" "${raw}" "${temp}" <<'PY'
+import json
+import os
+import sys
+import time
+
+path, raw, temperature = sys.argv[1:]
+payload = {
+    "schema_version": 1,
+    "updated_at_epoch": time.time(),
+    "throttled_raw": raw if raw.startswith("throttled=0x") else None,
+    "temperature_c": float(temperature) if temperature else None,
+}
+with open(path, "w", encoding="utf-8") as handle:
+    json.dump(payload, handle, sort_keys=True)
+    handle.write("\n")
+os.chmod(path, 0o644)
+PY
+  mv -f "${tmp}" "${HOST_HEALTH_FILE}"
+}
+
+publish_host_health || log "[host-health]" "sanitized hardware probe failed"
 read -r up <"${UPTIME_SOURCE}"
 uptime_min=$(( ${up%%.*} / 60 ))
 if (( uptime_min < MIN_UPTIME )); then

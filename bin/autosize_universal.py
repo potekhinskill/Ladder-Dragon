@@ -118,6 +118,7 @@ from ladder_dragon.execution.executor_recovery import get_order as recovery_get_
 from ladder_dragon.execution.executor_recovery import get_order_by_client_id as recovery_get_order_by_client_id
 from ladder_dragon.execution.executor_recovery import get_order_list_by_client_id as recovery_get_order_list_by_client_id
 from ladder_dragon.execution.executor_recovery import list_open_orders as recovery_list_open_orders
+from ladder_dragon.execution.executor_recovery import reconcile_nonterminal_orders as recovery_reconcile_nonterminal_orders
 from ladder_dragon.execution.executor_recovery import record_order_payload as recovery_record_order_payload
 from ladder_dragon.execution.executor_recovery import recover_existing_protection as recovery_existing_protection
 from ladder_dragon.execution.executor_recovery import recover_pending_buy_order_ids as recovery_pending_buy_order_ids
@@ -792,6 +793,12 @@ def _recovery_dependencies() -> RecoveryDependencies:
 
 def recover_pending_buy_order_ids(symbol: str) -> List[int]:
     return recovery_pending_buy_order_ids(
+        symbol, dependencies=_recovery_dependencies()
+    )
+
+
+def reconcile_nonterminal_orders(symbol: str) -> List[OrderIntent]:
+    return recovery_reconcile_nonterminal_orders(
         symbol, dependencies=_recovery_dependencies()
     )
 
@@ -1499,6 +1506,10 @@ def main():
             if account.get("canTrade") is not True:
                 raise RuntimeError("Binance account/API key is not allowed to trade")
             _order_journal()
+            # Reconcile every ordinary BUY/SELL intent before any new LIVE
+            # action. This closes externally cancelled orders and definitive
+            # Binance -2013 absences without manual SQLite edits.
+            reconcile_nonterminal_orders(args.symbol.upper())
         except (OSError, sqlite3.Error, requests.RequestException, RuntimeError, KeyError, ValueError) as exc:
             parser.error(f"LIVE preflight failed: {exc}")
     attach_oco = bool(args.attach_oco_on_fill)

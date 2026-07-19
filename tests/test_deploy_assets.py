@@ -479,6 +479,21 @@ def test_updater_preserves_stopped_services_and_does_not_arm_watchdog():
     assert "verify_previous_service_state" in updater
 
 
+def test_watchdog_publishes_sanitized_raspberry_health_for_dashboard():
+    watchdog = read("deploy/pi-watchdog_v3.sh")
+    watchdog_unit = read("deploy/pi-watchdog-v3.service")
+    dashboard_unit = read("deploy/pi-dashboard.service")
+    dashboard = read("FastAPI/pi-dashboard/app.py")
+    index = read("FRONT/index.html")
+    assert "HOST_HEALTH_FILE" in watchdog
+    assert "get_throttled" in watchdog
+    assert "host-health.json" in watchdog
+    assert "RuntimeDirectoryMode=0755" in watchdog_unit
+    assert "ReadOnlyPaths=-/run/pi-watchdog/host-health.json" in dashboard_unit
+    assert "sanitized_watchdog_probe" in dashboard
+    assert 'id="ops-watchdog"' in index
+
+
 def test_backup_service_allows_only_sqlite_directory_for_wal_sidecars():
     service = read("deploy/ladder-dragon-backup.service")
     backup = read("deploy/backup_raspberry_pi.sh")

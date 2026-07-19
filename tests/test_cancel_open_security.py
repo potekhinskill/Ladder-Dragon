@@ -4,6 +4,7 @@ import sys
 import pytest
 
 from bin import tools_cancel_open
+from ladder_dragon.execution.order_recovery import OrderJournal
 
 
 def parse(monkeypatch, *arguments):
@@ -49,3 +50,62 @@ def test_cancel_tool_accepts_explicitly_confirmed_mainnet(monkeypatch):
     args = parse(monkeypatch, "--mainnet", "--live")
     assert args.testnet is False
     assert args.base_url == tools_cancel_open.DEFAULT_MAIN
+
+
+def test_cancel_result_updates_matching_order_journal(tmp_path):
+    journal = OrderJournal(tmp_path / "orders.sqlite3", venue="mainnet")
+    intent = journal.prepare(
+        client_order_id="LDBLAD-cancelled",
+        symbol="SOLUSDT",
+        side="BUY",
+        purpose="ladder",
+        order_type="LIMIT",
+        quantity="0.126",
+        price="75.80",
+    )
+    journal.record_exchange_order(
+        intent.client_order_id,
+        {"orderId": 17519304665, "status": "NEW", "executedQty": "0"},
+    )
+
+    updated = tools_cancel_open.record_order_result(
+        journal,
+        {
+            "orderId": 17519304665,
+            "clientOrderId": intent.client_order_id,
+            "status": "CANCELED",
+            "executedQty": "0.00000000",
+        },
+        {},
+    )
+
+    assert updated is not None
+    assert updated.state == "CANCELED"
+    assert journal.unresolved_buys("SOLUSDT") == []
+
+
+def test_cancelled_partial_fill_still_requires_protection(tmp_path):
+    journal = OrderJournal(tmp_path / "orders.sqlite3", venue="mainnet")
+    intent = journal.prepare(
+        client_order_id="LDBLAD-partial-cancel",
+        symbol="SOLUSDT",
+        side="BUY",
+        purpose="ladder",
+        order_type="LIMIT",
+        quantity="0.126",
+        price="75.80",
+    )
+    updated = tools_cancel_open.record_order_result(
+        journal,
+        {
+            "orderId": 99,
+            "clientOrderId": intent.client_order_id,
+            "status": "CANCELED",
+            "executedQty": "0.020",
+            "cummulativeQuoteQty": "1.5",
+        },
+        {},
+    )
+
+    assert updated is not None
+    assert updated.state == "PROTECTION_PENDING"

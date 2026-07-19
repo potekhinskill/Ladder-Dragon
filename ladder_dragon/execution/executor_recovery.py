@@ -163,6 +163,69 @@ class RecoveryDependencies:
     logger: Callable[[str], None]
 
 
+def reconcile_nonterminal_orders(
+    symbol: str,
+    *,
+    dependencies: RecoveryDependencies,
+) -> List[OrderIntent]:
+    """Reconcile every ordinary intent before a LIVE worker may place orders.
+
+    Binance is authoritative. An UNKNOWN/PREPARED intent that Binance confirms
+    as absent never existed and is terminally failed. Losing an order that was
+    previously confirmed as submitted is ambiguous and therefore halts LIVE.
+    """
+    journal = dependencies.journal()
+    if journal is None:
+        return []
+    reconciled: List[OrderIntent] = []
+    for intent in journal.nonterminal_orders(symbol):
+        try:
+            payload = dependencies.get_order_by_client_id(
+                intent.symbol, intent.client_order_id
+            )
+        except requests.RequestException as exc:
+            journal.mark_unknown(intent.client_order_id, exc)
+            reason = (
+                f"cannot reconcile {intent.side} {intent.client_order_id} "
+                f"before LIVE execution: {type(exc).__name__}"
+            )
+            dependencies.halt(
+                reason,
+                symbol=intent.symbol,
+                client_order_id=intent.client_order_id,
+            )
+            raise RuntimeError(reason) from exc
+        if payload is None:
+            if intent.state in ("PREPARED", "UNKNOWN"):
+                updated = journal.mark_failed(
+                    intent.client_order_id,
+                    "exchange confirmed order absent during startup reconciliation",
+                )
+                reconciled.append(updated)
+                dependencies.logger(
+                    f"[RECOVERY] {intent.symbol} {intent.side} "
+                    f"client={intent.client_order_id} absent; state=FAILED"
+                )
+                continue
+            reason = (
+                f"exchange lost {intent.side} {intent.client_order_id} "
+                f"recorded as {intent.state}"
+            )
+            dependencies.halt(
+                reason,
+                symbol=intent.symbol,
+                client_order_id=intent.client_order_id,
+            )
+            raise RuntimeError(reason)
+        updated = journal.record_exchange_order(intent.client_order_id, payload)
+        reconciled.append(updated)
+        dependencies.logger(
+            f"[RECOVERY] {intent.symbol} {intent.side} "
+            f"client={intent.client_order_id} state={updated.state}"
+        )
+    return reconciled
+
+
 def recover_pending_buy_order_ids(
     symbol: str,
     *,

@@ -48,6 +48,30 @@ def test_health_exposes_product_version_and_changelog(monkeypatch):
     assert payload["changelog_url"] == "/CHANGELOG.md"
 
 
+def test_throttling_uses_fresh_sanitized_watchdog_probe(tmp_path, monkeypatch):
+    status = tmp_path / "host-health.json"
+    status.write_text(
+        json.dumps({
+            "schema_version": 1,
+            "updated_at_epoch": 1000,
+            "throttled_raw": "throttled=0x0",
+            "temperature_c": 54.0,
+        }),
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("DASHBOARD_HOST_HEALTH_STATUS_FILE", str(status))
+    module = load_dashboard(monkeypatch)
+    monkeypatch.setattr(module.time, "time", lambda: 1010)
+    monkeypatch.setattr(module, "run_command", lambda *args, **kwargs: (1, ""))
+
+    payload = module.parse_throttled()
+
+    assert payload["supported"] is True
+    assert payload["raw"] == "throttled=0x0"
+    assert payload["source"] == "sanitized_watchdog_probe"
+    assert payload["age_sec"] == 10.0
+
+
 def test_legacy_dashboard_update_branch_maps_to_main(monkeypatch):
     monkeypatch.setenv("DASHBOARD_GITHUB_BRANCH", "codex/safety-hardening")
     module = load_dashboard(monkeypatch)
@@ -572,6 +596,11 @@ def test_dashboard_follows_active_bot_venue_and_ai_paths(tmp_path, monkeypatch):
     assert payload["runtime"]["venue"] == "testnet"
     assert payload["runtime"]["execution_mode"] == "LIVE"
     assert payload["runtime"]["provider"] == "deepseek"
+    assert payload["runtime"]["budgets"] == {
+        "max_requests_per_day": 10,
+        "max_tokens_per_day": 1000,
+        "max_cost_usd_per_day": "0.05",
+    }
     assert payload["recent"][0]["symbol"] == "ETHUSDT"
     assert payload["data_sources"]["decisions_db"] == str(decisions_db)
     assert module.get_db_path() == str(stats_db)

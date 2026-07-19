@@ -42,6 +42,7 @@ SystemCallErrorNumber=EPERM
 RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
 ReadWritePaths=/home/bot/apps/binance_bot/FastAPI/pi-dashboard/data
 ReadOnlyPaths=/home/bot/apps/binance_bot/db /home/bot/apps/binance_bot/logs -/run/mybot
+ReadOnlyPaths=-/run/pi-watchdog/host-health.json
 UMask=0077
 
 [Install]

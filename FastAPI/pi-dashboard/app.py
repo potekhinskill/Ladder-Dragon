@@ -84,6 +84,12 @@ DASHBOARD_FOLLOW_BOT_PATHS = (
 BOT_SERVICE_ENV_FILE = Path(
     os.getenv("DASHBOARD_BOT_SERVICE_ENV", str(PROJECT_ROOT / ".env.service"))
 )
+HOST_HEALTH_STATUS_FILE = Path(
+    os.getenv(
+        "DASHBOARD_HOST_HEALTH_STATUS_FILE",
+        "/run/pi-watchdog/host-health.json",
+    )
+)
 
 @asynccontextmanager
 async def lifespan(_app):
@@ -1078,9 +1084,8 @@ def read_temp_c():
             continue
     return None
 
-def parse_throttled():
-    rc,out = run_command("vcgencmd", "get_throttled")
-    if rc != 0 or "throttled=" not in out:
+def _parse_throttled_raw(raw: str):
+    if "throttled=0x" not in raw:
         return {
             "supported": False,
             "raw": None,
@@ -1093,7 +1098,7 @@ def parse_throttled():
             "throttled_hist": None,
             "temp_limit_hist": None,
         }
-    raw = out.strip()
+    raw = raw.strip()
     try:
         hexstr = raw.split("0x",1)[1]
         val = int(hexstr,16)
@@ -1112,6 +1117,23 @@ def parse_throttled():
         "throttled_hist": b(18),
         "temp_limit_hist": b(19),
     }
+
+
+def parse_throttled():
+    rc,out = run_command("vcgencmd", "get_throttled")
+    if rc == 0 and "throttled=0x" in out:
+        return _parse_throttled_raw(out)
+    try:
+        payload = json.loads(HOST_HEALTH_STATUS_FILE.read_text(encoding="utf-8"))
+        age_sec = time.time() - float(payload["updated_at_epoch"])
+        if not 0 <= age_sec <= 900:
+            raise ValueError("stale host health status")
+        parsed = _parse_throttled_raw(str(payload.get("throttled_raw") or ""))
+        parsed["source"] = "sanitized_watchdog_probe"
+        parsed["age_sec"] = round(age_sec, 1)
+        return parsed
+    except (OSError, TypeError, ValueError, json.JSONDecodeError, KeyError):
+        return _parse_throttled_raw("")
 
 def network_ok():
     try:
@@ -1141,7 +1163,7 @@ def mounts_info():
     return res
 
 def service_active(name: str):
-    if name not in {"mybot", "pi-healthd"}:
+    if name not in {"mybot", "pi-healthd", "pi-watchdog-v3.timer"}:
         return "invalid"
     rc,out = run_command("systemctl", "is-active", name, timeout=2)
     return out.strip()
@@ -1169,12 +1191,13 @@ def _command_value(*args: str) -> str:
 
 def _systemd_service_snapshot(name: str) -> Dict[str, object]:
     """Статус и время запуска сервиса без чтения секретов или /proc."""
-    if name not in {"mybot", "pi-healthd"}:
+    if name not in {"mybot", "pi-healthd", "pi-watchdog-v3.timer"}:
         return {"state": "invalid"}
     _rc, output = run_command(
         "systemctl", "show", name,
         "-p", "ActiveState", "-p", "SubState", "-p", "ActiveEnterTimestamp",
         "-p", "ActiveEnterTimestampMonotonic", "-p", "NRestarts",
+        "-p", "UnitFileState",
         timeout=3,
     )
     values: Dict[str, str] = {}
@@ -1203,6 +1226,7 @@ def _systemd_service_snapshot(name: str) -> Dict[str, object]:
         "started_at": started_at,
         "age_sec": age_sec,
         "restart_count": restarts,
+        "enabled": values.get("UnitFileState") == "enabled",
     }
 
 
@@ -1433,6 +1457,7 @@ def health():
                 "services": {
                     "mybot": _systemd_service_snapshot("mybot"),
                     "pi_healthd": _systemd_service_snapshot("pi-healthd"),
+                    "watchdog": _systemd_service_snapshot("pi-watchdog-v3.timer"),
                 },
                 "heartbeat": _runtime_heartbeat_snapshot(),
                 "ntp": _ntp_snapshot(),
@@ -1814,6 +1839,13 @@ def ai_status(limit: int = 50):
             "execution_mode": runtime.get("execution_mode"),
             "provider": runtime_ai.get("provider"),
             "model": runtime_ai.get("model"),
+            # Publish only numeric policy limits. The dashboard must not read
+            # the bot's private .env or maintain a second configuration copy.
+            "budgets": {
+                "max_requests_per_day": request_limit,
+                "max_tokens_per_day": token_limit,
+                "max_cost_usd_per_day": str(cost_limit),
+            },
             "product": runtime.get("product"),
             "last_decision": runtime.get("last_decision"),
         },
