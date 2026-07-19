@@ -193,6 +193,36 @@ def test_relative_runtime_paths_are_project_rooted(monkeypatch, tmp_path):
     assert canary.resolve_project_path(absolute) == absolute
 
 
+def test_default_lock_is_project_private_and_not_systemd_runtime():
+    parsed = canary.build_parser().parse_args([])
+    assert parsed.lock_file == ".runtime/mainnet-canary.lock"
+    assert canary.resolve_project_path(parsed.lock_file) == (
+        canary.PROJECT_ROOT / ".runtime/mainnet-canary.lock"
+    )
+
+
+def test_exclusive_lock_creates_private_project_rooted_file(monkeypatch, tmp_path):
+    monkeypatch.setattr(canary, "PROJECT_ROOT", tmp_path)
+    monkeypatch.chdir(tmp_path.parent)
+    with canary.exclusive_lock(".runtime/canary.lock"):
+        target = tmp_path / ".runtime/canary.lock"
+        assert target.exists()
+        assert target.stat().st_mode & 0o777 == 0o600
+
+
+def test_exclusive_lock_converts_permission_failure(monkeypatch, tmp_path):
+    def denied(*_args, **_kwargs):
+        raise PermissionError("host path intentionally hidden")
+
+    monkeypatch.setattr(Path, "mkdir", denied)
+    with pytest.raises(
+        RuntimeError,
+        match="cannot create private Mainnet canary lock: PermissionError",
+    ):
+        with canary.exclusive_lock(tmp_path / "blocked" / "canary.lock"):
+            pass
+
+
 def test_mainnet_canary_requires_every_confirmation(tmp_path):
     env = confirmed_env()
     env.pop("BOT_MAINNET_CANARY_CLEANUP_CONFIRMED")

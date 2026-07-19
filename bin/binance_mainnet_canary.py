@@ -139,13 +139,32 @@ def require_services_stopped(
 
 @contextmanager
 def exclusive_lock(path: str | Path) -> Iterator[None]:
-    target = Path(path)
-    target.parent.mkdir(parents=True, exist_ok=True)
-    with target.open("a+", encoding="utf-8") as handle:
+    """Acquire a private lock without depending on a systemd RuntimeDirectory."""
+    target = resolve_project_path(path)
+    fd: int | None = None
+    try:
+        target.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+        flags = os.O_RDWR | os.O_CREAT | getattr(os, "O_CLOEXEC", 0)
+        flags |= getattr(os, "O_NOFOLLOW", 0)
+        fd = os.open(target, flags, 0o600)
+        os.fchmod(fd, 0o600)
+    except OSError as exc:
+        if fd is not None:
+            os.close(fd)
+        raise RuntimeError(
+            f"cannot create private Mainnet canary lock: {type(exc).__name__}"
+        ) from exc
+
+    assert fd is not None
+    with os.fdopen(fd, "a+", encoding="utf-8") as handle:
         try:
             fcntl.flock(handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
         except BlockingIOError as exc:
             raise RuntimeError("another Mainnet canary process owns the lock") from exc
+        except OSError as exc:
+            raise RuntimeError(
+                f"cannot acquire Mainnet canary lock: {type(exc).__name__}"
+            ) from exc
         yield
 
 
@@ -409,7 +428,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument(
         "--lock-file",
-        default="/run/mybot/mainnet-canary.lock",
+        default=".runtime/mainnet-canary.lock",
     )
     return parser
 

@@ -3,6 +3,26 @@
 All notable changes are documented here. Releases use Semantic Versioning; every
 section is dated and there is intentionally no `Unreleased` section.
 
+## [2.10.86] — 2026-07-19
+
+### Fixed
+- The bounded Mainnet canary no longer stores its singleton lock in
+  `/run/mybot`, because systemd removes that runtime directory when `mybot` is
+  stopped as required by the canary. The private `0600` lock now lives under
+  the project-owned `.runtime` directory and relative paths are rooted at the
+  project independently of the current working directory.
+- Lock creation and acquisition failures now return a structured fail-closed
+  result instead of an unhandled permission traceback. No Binance request is
+  attempted when the lock cannot be acquired.
+
+### Verified
+- Added regression coverage for the project-rooted default lock, private file
+  mode, and conversion of permission failures to a controlled runtime error.
+- `PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=. .venv/bin/python -m pytest -q`
+  — all 287 tests pass.
+- Python compilation, deployment shell syntax, `git diff --check`, dependency
+  consistency, and the tracked-secret scan pass.
+
 ## [2.10.85] — 2026-07-19
 
 ### Added
