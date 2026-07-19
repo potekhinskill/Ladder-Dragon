@@ -13,6 +13,7 @@ ExecStart=/usr/local/bin/pi-watchdog_v3.sh
 SuccessExitStatus=0
 RuntimeDirectory=pi-watchdog
 RuntimeDirectoryMode=0755
+RuntimeDirectoryPreserve=yes
 StateDirectory=pi-watchdog
 StateDirectoryMode=0700
 LogsDirectory=pi-watchdog

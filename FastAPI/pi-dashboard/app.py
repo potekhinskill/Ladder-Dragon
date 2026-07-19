@@ -824,7 +824,15 @@ def trading_overview_snapshot() -> Dict[str, object]:
             "portfolio_usdt": risk_limits.get("portfolio_cap_usdt"),
         },
         "positions": positions,
-        "orders": {"open": orders.get("count", 0), "cancelled": journal.get("cancelled"), "pending": journal.get("pending")},
+        "orders": {
+            "open": orders.get("count", 0),
+            "cancelled": journal.get("cancelled"),
+            "pending": journal.get("pending"),
+            # Unknown journal data must remain visibly unknown. Converting it
+            # to zero would falsely claim that reconciliation is complete.
+            "journal_available": journal.get("available") is True,
+            "journal_reason": journal.get("reason"),
+        },
         "last_order": last_order,
         "risk": {
             "buy_blocked": bool(risk.get("buy_blocked", False)), "halted": bool(risk.get("halted", False)),

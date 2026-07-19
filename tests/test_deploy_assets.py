@@ -489,6 +489,7 @@ def test_watchdog_publishes_sanitized_raspberry_health_for_dashboard():
     assert "get_throttled" in watchdog
     assert "host-health.json" in watchdog
     assert "RuntimeDirectoryMode=0755" in watchdog_unit
+    assert "RuntimeDirectoryPreserve=yes" in watchdog_unit
     assert "ReadOnlyPaths=-/run/pi-watchdog/host-health.json" in dashboard_unit
     assert "sanitized_watchdog_probe" in dashboard
     assert 'id="ops-watchdog"' in index

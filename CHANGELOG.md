@@ -3,6 +3,26 @@
 All notable changes are documented here. Releases use Semantic Versioning; every
 section is dated and there is intentionally no `Unreleased` section.
 
+## [2.10.82] — 2026-07-19
+
+### Fixed
+- The watchdog runtime directory is now preserved between oneshot executions,
+  so its sanitized `host-health.json` remains available to the hardened
+  dashboard and Raspberry throttling no longer appears unavailable after a
+  successful probe.
+- Trading overview responses now distinguish an unavailable order-intent
+  journal from real zero counters. The dashboard shows dashes and the safe
+  diagnostic reason instead of falsely reporting zero cancelled or pending
+  intents.
+
+### Verified
+- Added deployment coverage for persistent watchdog telemetry and dashboard
+  regression tests for available and unavailable order-journal states.
+- `PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=. .venv/bin/python -m pytest -q`
+  — all 267 tests pass.
+- Python compilation, deployment shell syntax, CSP integrity,
+  `git diff --check`, and the tracked-secret scan pass.
+
 ## [2.10.81] — 2026-07-19
 
 ### Fixed

@@ -249,6 +249,7 @@ def test_trading_overview_prefers_current_open_order(monkeypatch):
     })
     monkeypatch.setattr(module, "_average_entry_from_ledger", lambda symbol: 100.0)
     monkeypatch.setattr(module, "_order_journal_snapshot", lambda runtime: {
+        "available": True,
         "cancelled": 1, "pending": 1,
         "latest": {"symbol": "SOLUSDT", "side": "SELL", "status": "UNKNOWN"},
     })
@@ -257,6 +258,42 @@ def test_trading_overview_prefers_current_open_order(monkeypatch):
 
     assert snapshot["last_order"]["order_id"] == 123
     assert snapshot["last_order"]["status"] == "NEW"
+    assert snapshot["orders"]["journal_available"] is True
+
+
+def test_trading_overview_preserves_unavailable_order_journal(monkeypatch):
+    module = load_dashboard(monkeypatch)
+    monkeypatch.setattr(module, "_load_ai_runtime_status", lambda: {
+        "symbols": [], "execution_mode": "LIVE", "risk": {},
+    })
+    monkeypatch.setattr(module, "_bot_service_config", lambda: {
+        "symbols": [], "execution_mode": "LIVE", "venue": "mainnet",
+    })
+    monkeypatch.setattr(module, "service_active", lambda name: "active")
+    monkeypatch.setattr(module, "account_balances_snapshot", lambda: {"assets": []})
+    monkeypatch.setattr(module, "account_open_orders_snapshot", lambda: {
+        "count": 1, "orders": [],
+    })
+    monkeypatch.setattr(module, "_order_journal_snapshot", lambda runtime: {
+        "available": False, "reason": "OperationalError",
+    })
+
+    snapshot = module.trading_overview_snapshot()
+
+    assert snapshot["orders"] == {
+        "open": 1,
+        "cancelled": None,
+        "pending": None,
+        "journal_available": False,
+        "journal_reason": "OperationalError",
+    }
+
+
+def test_dashboard_does_not_render_missing_journal_counts_as_zero():
+    index = Path("FRONT/index.html").read_text(encoding="utf-8")
+
+    assert "orders.journal_available===false" in index
+    assert "`${orders.open??0} / — / — · ${tr('unavailable')}`" in index
 
 
 def test_order_journal_pending_excludes_terminal_failures(tmp_path, monkeypatch):

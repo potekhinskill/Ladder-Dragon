@@ -637,7 +637,16 @@ function updateTrading(t){
   $('#trade-cooldown').textContent=cooldown>Math.floor(Date.now()/1000)?new Date(cooldown*1000).toLocaleString('ru-RU'):'нет';
   $('#trade-recon').textContent=risk.reconciliation_delta!=null?JSON.stringify(risk.reconciliation_delta):'нет данных';
   const orders=t.orders||{};
-  $('#trade-order-summary').textContent=`${orders.open??0} / ${orders.cancelled??0} / ${orders.pending??0}`;
+  const orderSummary=$('#trade-order-summary');
+  if(orders.journal_available===false){
+    orderSummary.textContent=`${orders.open??0} / — / — · ${tr('unavailable')}`;
+    orderSummary.title=orders.journal_reason||tr('unavailable');
+    orderSummary.className='risk-warn';
+  }else{
+    orderSummary.textContent=`${orders.open??0} / ${orders.cancelled??0} / ${orders.pending??0}`;
+    orderSummary.title='';
+    orderSummary.className='';
+  }
   const last=t.last_order;
   $('#trade-last-order').textContent=last?`${last.symbol} ${last.side} ${last.status} id=${last.order_id??'—'}${last.partial_fill?' partial':''} · latency ${last.latency_ms??'—'} ms · fee ${last.commission_usdt??'—'} · ${last.updated_at||'—'}`:'нет';
   const rows=Array.isArray(t.positions)?t.positions:[];
