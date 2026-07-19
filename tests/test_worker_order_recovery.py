@@ -45,6 +45,119 @@ def test_protection_dependencies_expose_market_flatten_after_restart(tmp_path, m
     assert callable(dependencies.place_market_order)
 
 
+def _journal_buy(journal, *, order_id=99, status="NEW", executed_qty="0"):
+    intent = journal.prepare(
+        client_order_id=f"LDBLAD-panic-{order_id}",
+        symbol="SOLUSDT",
+        side="BUY",
+        purpose="ladder",
+        order_type="LIMIT",
+        quantity="0.126",
+        price="75.80",
+    )
+    journal.record_exchange_order(
+        intent.client_order_id,
+        {
+            "symbol": "SOLUSDT",
+            "side": "BUY",
+            "orderId": order_id,
+            "status": status,
+            "executedQty": executed_qty,
+            "cummulativeQuoteQty": "0",
+        },
+    )
+    return intent
+
+
+def test_panic_cancels_unfilled_buy_and_updates_journal(tmp_path, monkeypatch):
+    worker = load_worker()
+    journal = configure_worker(worker, tmp_path, monkeypatch)
+    intent = _journal_buy(journal)
+    calls = []
+
+    monkeypatch.setattr(worker, "get_order", lambda symbol, order_id: {
+        "symbol": symbol,
+        "side": "BUY",
+        "orderId": order_id,
+        "status": "NEW",
+        "executedQty": "0",
+        "cummulativeQuoteQty": "0",
+    })
+
+    def signed(method, path, params=None, timeout=15):
+        calls.append((method, path, params))
+        return {
+            "symbol": "SOLUSDT",
+            "side": "BUY",
+            "orderId": 99,
+            "status": "CANCELED",
+            "executedQty": "0",
+            "cummulativeQuoteQty": "0",
+        }
+
+    monkeypatch.setattr(worker, "_signed_request", signed)
+
+    assert worker.cancel_open_buys_for_panic("SOLUSDT", [99]) == []
+    assert calls == [
+        ("DELETE", "/api/v3/order", {"symbol": "SOLUSDT", "orderId": 99})
+    ]
+    assert journal.get(intent.client_order_id).state == "CANCELED"
+
+
+def test_panic_cancels_partial_remainder_and_keeps_fill_for_protection(
+    tmp_path, monkeypatch
+):
+    worker = load_worker()
+    journal = configure_worker(worker, tmp_path, monkeypatch)
+    intent = _journal_buy(
+        journal, order_id=100, status="PARTIALLY_FILLED", executed_qty="0.020"
+    )
+    monkeypatch.setattr(worker, "get_order", lambda symbol, order_id: {
+        "symbol": symbol,
+        "side": "BUY",
+        "orderId": order_id,
+        "status": "PARTIALLY_FILLED",
+        "executedQty": "0.020",
+        "cummulativeQuoteQty": "1.5",
+    })
+    monkeypatch.setattr(worker, "_signed_request", lambda *args, **kwargs: {
+        "symbol": "SOLUSDT",
+        "side": "BUY",
+        "orderId": 100,
+        "status": "CANCELED",
+        "executedQty": "0.020",
+        "cummulativeQuoteQty": "1.5",
+    })
+
+    assert worker.cancel_open_buys_for_panic("SOLUSDT", [100]) == [100]
+    assert journal.get(intent.client_order_id).state == "PROTECTION_PENDING"
+
+
+def test_unconfirmed_panic_cancel_trips_persistent_halt(tmp_path, monkeypatch):
+    worker = load_worker()
+    journal = configure_worker(worker, tmp_path, monkeypatch)
+    _journal_buy(journal, order_id=101)
+    monkeypatch.setattr(worker, "get_order", lambda symbol, order_id: {
+        "symbol": symbol,
+        "side": "BUY",
+        "orderId": order_id,
+        "status": "NEW",
+        "executedQty": "0",
+        "cummulativeQuoteQty": "0",
+    })
+    monkeypatch.setattr(
+        worker,
+        "_signed_request",
+        lambda *args, **kwargs: (_ for _ in ()).throw(
+            requests.ConnectionError("cancel response lost")
+        ),
+    )
+
+    with pytest.raises(RuntimeError, match="panic cancel unconfirmed"):
+        worker.cancel_open_buys_for_panic("SOLUSDT", [101])
+    assert (tmp_path / "circuit_halt.json").exists()
+
+
 def test_uncertain_limit_post_is_reconciled_and_not_duplicated(tmp_path, monkeypatch):
     worker = load_worker()
     journal = configure_worker(worker, tmp_path, monkeypatch)

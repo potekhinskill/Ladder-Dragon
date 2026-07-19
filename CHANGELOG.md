@@ -3,6 +3,23 @@
 All notable changes are documented here. Releases use Semantic Versioning; every
 section is dated and there is intentionally no `Unreleased` section.
 
+## [2.10.90] — 2026-07-19
+
+### Fixed
+- PANIC now immediately cancels every remaining open BUY created by the active
+  executor instead of waiting for the normal order TTL.
+- A lost or nonterminal Binance cancellation response now activates the
+  persistent execution halt rather than assuming that exposure disappeared.
+- A cancelled partial BUY remains `PROTECTION_PENDING` and continues through
+  the existing OCO/STOP attachment path; only zero-fill cancellations leave
+  the protection queue.
+
+### Verified
+- Added regression coverage for zero-fill cancellation, partial-fill
+  protection handoff, and fail-closed handling of an uncertain cancel result.
+- Full Raspberry-compatible regression, compilation, shell syntax, dependency,
+  audit, secret-scan, and version-consistency checks pass.
+
 ## [2.10.89] — 2026-07-19
 
 ### Fixed

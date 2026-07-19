@@ -78,7 +78,11 @@ from decimal import Decimal
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 from ladder_dragon.execution import tools_market as TM
-from ladder_dragon.execution.order_recovery import OrderIntent, OrderJournal
+from ladder_dragon.execution.order_recovery import (
+    TERMINAL_EXCHANGE_STATES,
+    OrderIntent,
+    OrderJournal,
+)
 from ladder_dragon.execution.exchange_math import round_step
 from ladder_dragon.risk.risk_manager import create_manual_halt
 from ladder_dragon.execution.time_safety import assess_exchange_clock
@@ -769,6 +773,85 @@ def verify_oco_legs(symbol: str, order_list: Dict[str, Any]) -> List[Dict[str, A
 
 def _record_order_payload(payload: Dict[str, Any] | None) -> Optional[OrderIntent]:
     return recovery_record_order_payload(payload, journal=_order_journal())
+
+
+def cancel_open_buys_for_panic(symbol: str, order_ids: List[int]) -> List[int]:
+    """Cancel open BUY exposure when PANIC is active and reconcile every result."""
+    remaining = list(order_ids)
+    open_states = {"NEW", "PARTIALLY_FILLED", "PENDING_CANCEL"}
+
+    for order_id in list(remaining):
+        order = get_order(symbol, order_id)
+        if not order:
+            reason = f"panic cancel cannot confirm BUY order {order_id}"
+            _trip_execution_halt(reason, symbol=symbol, order_id=order_id)
+            raise RuntimeError(reason)
+
+        side = str(order.get("side") or "BUY").upper()
+        status = str(order.get("status") or "").upper()
+        if side != "BUY":
+            continue
+
+        if status in open_states:
+            try:
+                cancelled = _signed_request(
+                    "DELETE",
+                    "/api/v3/order",
+                    {"symbol": symbol, "orderId": int(order_id)},
+                )
+            except Exception as exc:
+                # A lost cancellation response is uncertain until Binance is
+                # queried again. Never assume that the BUY disappeared.
+                cancelled = get_order(symbol, order_id)
+                verified_status = str(
+                    (cancelled or {}).get("status") or ""
+                ).upper()
+                if verified_status not in TERMINAL_EXCHANGE_STATES:
+                    reason = (
+                        f"panic cancel unconfirmed for BUY order {order_id}"
+                    )
+                    _trip_execution_halt(
+                        reason, symbol=symbol, order_id=order_id
+                    )
+                    raise RuntimeError(reason) from exc
+            status = str((cancelled or {}).get("status") or "").upper()
+            if status not in TERMINAL_EXCHANGE_STATES:
+                reason = (
+                    f"panic cancel returned nonterminal state {status or 'UNKNOWN'} "
+                    f"for BUY order {order_id}"
+                )
+                _trip_execution_halt(reason, symbol=symbol, order_id=order_id)
+                raise RuntimeError(reason)
+            order = cancelled
+
+        if status in TERMINAL_EXCHANGE_STATES:
+            updated = _record_order_payload(order)
+            if updated is None:
+                reason = f"panic cancel cannot update journal for BUY order {order_id}"
+                _trip_execution_halt(reason, symbol=symbol, order_id=order_id)
+                raise RuntimeError(reason)
+            executed_qty = Decimal(str(order.get("executedQty") or "0"))
+            log(
+                f"[PANIC-CANCEL] {symbol} BUY order={order_id} "
+                f"state={updated.state} executed={executed_qty}"
+            )
+            # A cancelled partial fill remains in the protection pipeline. A
+            # zero-fill cancellation is terminal and needs no OCO.
+            if executed_qty <= 0:
+                remaining.remove(order_id)
+            continue
+
+        if status == "FILLED":
+            continue
+
+        reason = (
+            f"panic cancel found unsupported state {status or 'UNKNOWN'} "
+            f"for BUY order {order_id}"
+        )
+        _trip_execution_halt(reason, symbol=symbol, order_id=order_id)
+        raise RuntimeError(reason)
+
+    return remaining
 
 
 def _recovery_dependencies() -> RecoveryDependencies:
@@ -1760,6 +1843,7 @@ def main():
         # The runtime loop does not create new BUY orders. It observes existing orders,
         # confirms FILLED/PARTIAL states, and always creates protection.
         last_check = 0
+        panic_cancel_applied = False
 
         for left in trading_seconds(
             int(args.loop_minutes * 60),
@@ -1789,6 +1873,14 @@ def main():
             except Exception as exc:
                 panic_active = True
                 _record_safety_control_failure("panic-runtime", symbol, exc)
+
+            if not panic_active:
+                panic_cancel_applied = False
+            elif LIVE_MODE and not panic_cancel_applied and placed_ids:
+                placed_ids = cancel_open_buys_for_panic(symbol, placed_ids)
+                panic_cancel_applied = True
+                if not placed_ids:
+                    protection_state = "not_needed"
 
             if LIVE_MODE and os.getenv("BOT_GAP_WATCHDOG", "1").lower() in ("1", "true", "yes"):
                 try:
