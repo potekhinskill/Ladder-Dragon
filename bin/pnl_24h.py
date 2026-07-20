@@ -46,30 +46,26 @@ def parse_symbols(s: str | None):
 
 
 def _accounting_columns(con: sqlite3.Connection) -> str:
-    columns = {str(row[1]) for row in con.execute("PRAGMA table_info(trades)")}
-    exact = {
-        "price_text", "gross_qty", "net_qty", "commission_asset",
-        "commission_amount", "commission_quote", "commission_value_status",
-    }.issubset(columns)
-    if exact:
+    exact_view = con.execute(
+        "SELECT 1 FROM sqlite_master WHERE type='view' AND name='trades_exact'"
+    ).fetchone()
+    if not exact_view:
         return """
-            COALESCE(NULLIF(price_text, ''), CAST(price AS TEXT)) AS price_value,
-            COALESCE(NULLIF(gross_qty, ''), CAST(qty AS TEXT)) AS gross_value,
-            COALESCE(NULLIF(net_qty, ''), CAST(qty AS TEXT)) AS net_value,
-            COALESCE(commission_asset, '') AS commission_asset,
-            COALESCE(NULLIF(commission_amount, ''), '0') AS commission_amount,
-            CASE WHEN commission_value_status = 'unpriced' THEN NULL
-                 ELSE COALESCE(commission_quote, CAST(fee_quote AS TEXT)) END AS commission_quote,
-            COALESCE(NULLIF(commission_value_status, ''), 'legacy') AS commission_status
+            CAST(price AS TEXT) AS price_value,
+            CAST(qty AS TEXT) AS gross_value,
+            CAST(qty AS TEXT) AS net_value,
+            '' AS commission_asset,'0' AS commission_amount,
+            CAST(COALESCE(fee_quote,0) AS TEXT) AS commission_quote,
+            'legacy' AS commission_status
         """
     return """
-        CAST(price AS TEXT) AS price_value,
-        CAST(qty AS TEXT) AS gross_value,
-        CAST(qty AS TEXT) AS net_value,
-        '' AS commission_asset,
-        '0' AS commission_amount,
-        CAST(COALESCE(fee_quote, 0) AS TEXT) AS commission_quote,
-        'legacy' AS commission_status
+        price_text AS price_value,
+        gross_qty_text AS gross_value,
+        net_qty_text AS net_value,
+        commission_asset AS commission_asset,
+        commission_amount_text AS commission_amount,
+        commission_quote_text AS commission_quote,
+        commission_value_status AS commission_status
     """
 
 
@@ -95,9 +91,12 @@ def fetch_trades(con: sqlite3.Connection, t0_ts: int, t1_ts: int, symbols=None):
         where.append(f"symbol IN ({ph})")
         params.extend(symbols)
 
+    source = "trades_exact" if con.execute(
+        "SELECT 1 FROM sqlite_master WHERE type='view' AND name='trades_exact'"
+    ).fetchone() else "trades"
     sql = f"""
       SELECT id, symbol, UPPER(side) AS side, {_accounting_columns(con)}, ts, trade_id
-      FROM trades
+      FROM {source}
       WHERE {' AND '.join(where)}
       ORDER BY ts ASC, id ASC
     """
@@ -160,9 +159,12 @@ def iter_trades_until(con: sqlite3.Connection, t_until: int, symbols=None):
         ph = ",".join(["?"] * len(symbols))
         where.append(f"symbol IN ({ph})")
         params.extend(symbols)
+    source = "trades_exact" if con.execute(
+        "SELECT 1 FROM sqlite_master WHERE type='view' AND name='trades_exact'"
+    ).fetchone() else "trades"
     sql = f"""
         SELECT id, symbol, UPPER(side) as side, {_accounting_columns(con)}, ts, trade_id
-        FROM trades
+        FROM {source}
         WHERE {' AND '.join(where)}
         ORDER BY ts ASC, id ASC
     """

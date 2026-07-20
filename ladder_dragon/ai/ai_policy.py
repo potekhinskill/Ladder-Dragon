@@ -30,6 +30,7 @@ class PolicyConfig:
     min_accuracy_samples: int = 30
     min_ai_accuracy: float = 0.50
     min_closed_decisions: int = 5
+    min_real_rag_episodes: int = 5
     max_realized_stop_rate: float = 0.60
 
     def validate(self) -> None:
@@ -46,7 +47,11 @@ class PolicyConfig:
             raise ValueError("AI max consecutive losses must be >= 0")
         if not 0 <= self.min_ai_accuracy <= 1:
             raise ValueError("AI minimum accuracy must be in [0, 1]")
-        if self.min_closed_decisions < 0 or not 0 <= self.max_realized_stop_rate <= 1:
+        if (
+            self.min_closed_decisions < 0
+            or self.min_real_rag_episodes < 0
+            or not 0 <= self.max_realized_stop_rate <= 1
+        ):
             raise ValueError("AI realized-result thresholds are invalid")
 
 
@@ -174,6 +179,9 @@ def apply_safety_policy(
         if context.ai_realized_stop_rate > config.max_realized_stop_rate:
             apply = False
             reasons.append("realized_stop_rate_degraded")
+        if context.real_rag_episode_count < config.min_real_rag_episodes:
+            apply = False
+            reasons.append("insufficient_real_rag_episodes")
 
     status = "APPLIED" if apply else ("SHADOW" if config.mode == "SHADOW" else "REJECTED")
     if pause and apply:

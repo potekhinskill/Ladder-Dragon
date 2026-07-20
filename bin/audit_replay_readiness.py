@@ -20,6 +20,7 @@ def main() -> int:
     parser.add_argument("--minimum-archives", type=int, default=3)
     parser.add_argument("--minimum-span-days", type=Decimal, default=Decimal("2"))
     parser.add_argument("--minimum-measured-latency-archives", type=int, default=1)
+    parser.add_argument("--minimum-execution-samples", type=int, default=10)
     parser.add_argument("--low-max-bps", type=Decimal, default=Decimal("0.5"))
     parser.add_argument("--high-min-bps", type=Decimal, default=Decimal("2"))
     args = parser.parse_args()
@@ -28,6 +29,7 @@ def main() -> int:
         minimum_archives=args.minimum_archives,
         minimum_span_days=args.minimum_span_days,
         minimum_measured_latency_archives=args.minimum_measured_latency_archives,
+        minimum_execution_samples=args.minimum_execution_samples,
         low_max_bps=args.low_max_bps,
         high_min_bps=args.high_min_bps,
     )

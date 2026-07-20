@@ -77,14 +77,8 @@ def evaluate_sample(
 
 def _inventory_qty(db_path: str, symbol: str) -> Decimal:
     with sqlite3.connect(f"file:{db_path}?mode=ro", uri=True, timeout=5) as con:
-        columns = {str(row[1]) for row in con.execute("PRAGMA table_info(inventory)")}
-        expression = (
-            "COALESCE(NULLIF(qty_text, ''), CAST(qty AS TEXT))"
-            if "qty_text" in columns
-            else "CAST(qty AS TEXT)"
-        )
         row = con.execute(
-            f"SELECT {expression} FROM inventory WHERE symbol=?", (symbol,)
+            "SELECT qty_text FROM inventory_exact WHERE symbol=?", (symbol,)
         ).fetchone()
     return decimal(row[0]) if row else Decimal("0")
 

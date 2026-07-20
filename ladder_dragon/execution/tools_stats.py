@@ -148,6 +148,14 @@ def query_with_retry(con: sqlite3.Connection, sql: str, params: Iterable[Any] = 
     cur.close()
     return rows
 
+
+def _table_columns(con: sqlite3.Connection, table: str) -> set[str]:
+    return {str(row[1]) for row in con.execute(f"PRAGMA table_info({table})")}
+
+
+def _uses_legacy_real_accounting(con: sqlite3.Connection) -> bool:
+    return {"price", "qty", "fee_quote"} <= _table_columns(con, "trades")
+
 # ==========================
 # Database initialization
 # ==========================
@@ -225,24 +233,34 @@ def _recalc_inventory(db: sqlite3.Connection, symbol: str):
     result = replay_average_cost(executions, allow_unpriced=True)
     realized_pnl = baseline_realized + result.realized_pnl
 
-    exec_with_retry(db, """
-        INSERT INTO inventory(
-            symbol, qty, avg_cost, realized_pnl,
-            qty_text, avg_cost_text, realized_pnl_text
-        ) VALUES(?,?,?,?,?,?,?)
-        ON CONFLICT(symbol)
-        DO UPDATE SET qty=excluded.qty,
-                      avg_cost=excluded.avg_cost,
-                      realized_pnl=excluded.realized_pnl,
-                      qty_text=excluded.qty_text,
-                      avg_cost_text=excluded.avg_cost_text,
-                      realized_pnl_text=excluded.realized_pnl_text
-    """, (
-        sym,
-        float(result.qty), float(result.avg_cost), float(realized_pnl),
-        decimal_text(result.qty), decimal_text(result.avg_cost),
-        decimal_text(realized_pnl),
-    ))
+    if {"qty", "avg_cost", "realized_pnl"} <= _table_columns(db, "inventory"):
+        exec_with_retry(db, """
+            INSERT INTO inventory(
+                symbol, qty, avg_cost, realized_pnl,
+                qty_text, avg_cost_text, realized_pnl_text
+            ) VALUES(?,?,?,?,?,?,?)
+            ON CONFLICT(symbol) DO UPDATE SET
+              qty=excluded.qty,avg_cost=excluded.avg_cost,
+              realized_pnl=excluded.realized_pnl,qty_text=excluded.qty_text,
+              avg_cost_text=excluded.avg_cost_text,
+              realized_pnl_text=excluded.realized_pnl_text
+        """, (
+            sym, float(result.qty), float(result.avg_cost), float(realized_pnl),
+            decimal_text(result.qty), decimal_text(result.avg_cost),
+            decimal_text(realized_pnl),
+        ))
+    else:
+        exec_with_retry(db, """
+            INSERT INTO inventory(
+              symbol,qty_text,avg_cost_text,realized_pnl_text
+            ) VALUES(?,?,?,?)
+            ON CONFLICT(symbol) DO UPDATE SET
+              qty_text=excluded.qty_text,avg_cost_text=excluded.avg_cost_text,
+              realized_pnl_text=excluded.realized_pnl_text
+        """, (
+            sym, decimal_text(result.qty), decimal_text(result.avg_cost),
+            decimal_text(realized_pnl),
+        ))
 
 # ==========================
 # Public functions
@@ -285,8 +303,9 @@ def apply_trade(con: sqlite3.Connection,
     legacy_fee = execution.commission_quote or Decimal("0")
 
     with con:
-        inserted = exec_with_retry(con, """
-            INSERT INTO trades(
+        if _uses_legacy_real_accounting(con):
+            inserted = exec_with_retry(con, """
+              INSERT INTO trades(
                 symbol, side, price, qty, fee_quote, ts, trade_id,
                 price_text, gross_qty, net_qty, commission_asset,
                 commission_amount, commission_quote, commission_value_status
@@ -297,14 +316,33 @@ def apply_trade(con: sqlite3.Connection,
                 commission_value_status=excluded.commission_value_status
             WHERE trades.commission_value_status = 'unpriced'
               AND excluded.commission_value_status != 'unpriced'
-        """, (
-            sym, execution.side, float(execution.price), float(execution.gross_qty),
-            float(legacy_fee), ts, trade_id, decimal_text(execution.price),
-            decimal_text(execution.gross_qty), decimal_text(execution.net_qty),
-            execution.commission_asset, decimal_text(execution.commission_amount),
-            None if execution.commission_quote is None else decimal_text(execution.commission_quote),
-            execution.commission_value_status,
-        ))
+            """, (
+                sym, execution.side, float(execution.price), float(execution.gross_qty),
+                float(legacy_fee), ts, trade_id, decimal_text(execution.price),
+                decimal_text(execution.gross_qty), decimal_text(execution.net_qty),
+                execution.commission_asset, decimal_text(execution.commission_amount),
+                None if execution.commission_quote is None else decimal_text(execution.commission_quote),
+                execution.commission_value_status,
+            ))
+        else:
+            inserted = exec_with_retry(con, """
+              INSERT INTO trades(
+                symbol,side,price_text,gross_qty,net_qty,commission_asset,
+                commission_amount,commission_quote,commission_value_status,
+                ts,trade_id
+              ) VALUES(?,?,?,?,?,?,?,?,?,?,?)
+              ON CONFLICT(symbol,trade_id) WHERE trade_id IS NOT NULL DO UPDATE SET
+                commission_quote=excluded.commission_quote,
+                commission_value_status=excluded.commission_value_status
+              WHERE trades.commission_value_status='unpriced'
+                AND excluded.commission_value_status!='unpriced'
+            """, (
+                sym, execution.side, decimal_text(execution.price),
+                decimal_text(execution.gross_qty), decimal_text(execution.net_qty),
+                execution.commission_asset, decimal_text(execution.commission_amount),
+                None if execution.commission_quote is None else decimal_text(execution.commission_quote),
+                execution.commission_value_status, ts, trade_id,
+            ))
         _recalc_inventory(con, sym)
     return inserted == 1
 

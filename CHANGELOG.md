@@ -3,6 +3,39 @@
 All notable changes are documented here. Releases use Semantic Versioning; every
 section is dated and there is intentionally no `Unreleased` section.
 
+## [2.18.0] — 2026-07-20
+
+### Added
+- Added an explicit, preview-first exact-only accounting retirement command.
+  It requires a clean compatibility audit, a stopped-service operator workflow,
+  a separate SQLite backup target and an exact confirmation phrase.
+- Added compatibility telemetry for physical REAL columns and legacy
+  synchronization triggers instead of presenting a clean exact-text audit as
+  proof that the old storage has already disappeared.
+- Added persistent User Data Stream counters proving periodic and event-woken
+  authoritative REST reconciliation.
+
+### Changed
+- Current statistics, AI context, risk, PnL, supervisor and soak readers use the
+  authoritative exact views while retaining a bounded old-schema read fallback.
+- Install/update now migrates Telegram configuration to the current root-owned
+  path and retires superseded service/nginx names after the encrypted backup and
+  replacement assets exist.
+- AI APPLY additionally requires validated real RAG episodes. User Data Stream
+  production readiness now requires reconnect, order-event and event-to-REST
+  evidence by default. Replay readiness also requires real execution samples.
+
+### Safety
+- Normal startup and 2.x updates do not drop SQLite columns. The exact-only
+  rebuild is atomic, integrity-checked and leaves a mode-0600 online backup.
+- The four intentional broad exception boundaries remain unchanged and tested;
+  REST remains authoritative and AI remains advisory/SHADOW until evidence
+  gates pass.
+
+### Verified
+- All 400 tests pass; compileall, shell syntax, dependency consistency, PyPI
+  vulnerability audit and tracked-secret scan also pass.
+
 ## [2.17.0] — 2026-07-20
 
 ### Added

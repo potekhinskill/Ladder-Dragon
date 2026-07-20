@@ -40,6 +40,7 @@ def context(**overrides):
         free_reserve_ratio=2,
         ai_samples_1h=40,
         ai_accuracy_1h=.60,
+        real_rag_episode_count=5,
         return_1h=.02,
         return_4h=.04,
     )

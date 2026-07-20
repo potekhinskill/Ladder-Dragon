@@ -143,10 +143,9 @@ for path in \
   [[ -e "${path}" ]] && copy_rootfs_path "${path}"
 done
 
-# The legacy watchdog and its Telegram configuration are kept only inside the
+# Watchdog state and the current Telegram configuration stay only inside the
 # encrypted age archive. They never enter the HTTP directory.
 for path in \
-  /etc/bot-alerts.env \
   /etc/ladder-dragon/telegram.env \
   /etc/systemd/system/pi-watchdog-v3.service \
   /etc/systemd/system/pi-watchdog-v3.timer \

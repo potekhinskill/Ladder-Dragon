@@ -449,7 +449,10 @@ def test_installer_migrates_sqlite_safely_and_closes_legacy_backups():
     assert "db-wal" not in backup
     assert "legacy-public-" in installer
     assert "backups-public" in installer
-    assert "/etc/bot-alerts.env" in backup
+    assert "/etc/bot-alerts.env" not in backup
+    assert "EnvironmentFile=-/etc/ladder-dragon/telegram.env" in read(
+        "deploy/pi-watchdog-v3.service"
+    )
     assert "pi-watchdog_v3.sh" in backup
     assert "disable --now make-pi-backup.timer" in installer
     assert "/opt/pi-dashboard" in installer

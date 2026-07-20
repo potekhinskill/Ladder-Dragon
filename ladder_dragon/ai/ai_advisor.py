@@ -132,6 +132,7 @@ class MarketContext:
     ai_realized_edge_ci_low: float = 0.0
     ai_realized_edge_ci_high: float = 0.0
     ai_unresolved_fills: int = 0
+    real_rag_episode_count: int = 0
     # Short, verified historical cases for local RAG. This contains no API keys,
     # balances or order IDs; Risk Manager never reads this context.
     rag_context: tuple[Mapping[str, Any], ...] = ()

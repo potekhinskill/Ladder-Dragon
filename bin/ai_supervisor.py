@@ -740,17 +740,8 @@ def avg_entry_price(symbol: str, *, cache_ttl: int = 45, lookback: int = 1000) -
     if stats_db:
         try:
             with sqlite3.connect(f"file:{stats_db}?mode=ro", uri=True, timeout=3) as con:
-                columns = {str(row[1]) for row in con.execute("PRAGMA table_info(inventory)")}
-                qty_expr = (
-                    "COALESCE(NULLIF(qty_text, ''), CAST(qty AS TEXT))"
-                    if "qty_text" in columns else "CAST(qty AS TEXT)"
-                )
-                avg_expr = (
-                    "COALESCE(NULLIF(avg_cost_text, ''), CAST(avg_cost AS TEXT))"
-                    if "avg_cost_text" in columns else "CAST(avg_cost AS TEXT)"
-                )
                 row = con.execute(
-                    f"SELECT {qty_expr}, {avg_expr} FROM inventory WHERE symbol=?",
+                    "SELECT qty_text,avg_cost_text FROM inventory_exact WHERE symbol=?",
                     (symbol.upper(),),
                 ).fetchone()
             if row and Decimal(str(row[0])) > 0 and Decimal(str(row[1])) > 0:
@@ -1751,6 +1742,11 @@ def _build_ai_market_context(
             dbg(f"[AI-DECISION] performance failed: {exc}")
     context = MarketContext(**base, **extra)
     if _AI_KNOWLEDGE is not None:
+        knowledge_stats = _AI_KNOWLEDGE.stats()
+        context = replace(
+            context,
+            real_rag_episode_count=int(knowledge_stats.get("documents", 0)),
+        )
         # Virtual shadow examples are allowed only outside LIVE and are explicitly
         # separated from real PnL by the virtual_validated status.
         include_virtual_rag = (
@@ -2466,19 +2462,18 @@ def _build_risk_snapshot(
         waited = False
         while True:
             with sqlite3.connect(f"file:{os.environ['BOT_STATS_DB']}?mode=ro", uri=True, timeout=5) as con:
-                inventory_columns = {
-                    str(row[1]) for row in con.execute("PRAGMA table_info(inventory)")
-                }
-                qty_expression = (
-                    "COALESCE(NULLIF(qty_text, ''), CAST(qty AS TEXT))"
-                    if "qty_text" in inventory_columns
-                    else "CAST(qty AS TEXT)"
+                exact_inventory_view = con.execute(
+                    "SELECT 1 FROM sqlite_master WHERE type='view' "
+                    "AND name='inventory_exact'"
+                ).fetchone()
+                inventory_source = (
+                    "SELECT symbol,qty_text FROM inventory_exact"
+                    if exact_inventory_view
+                    else "SELECT symbol,CAST(qty AS TEXT) FROM inventory"
                 )
                 inventory = {
                     str(symbol).upper(): _finite_decimal(qty, name="ledger quantity")
-                    for symbol, qty in con.execute(
-                        f"SELECT symbol, {qty_expression} FROM inventory"
-                    ).fetchall()
+                    for symbol, qty in con.execute(inventory_source).fetchall()
                 }
             mismatches = []
             for symbol in symbols:
@@ -2706,6 +2701,9 @@ def main():
         min_accuracy_samples=int(args.ai_min_accuracy_samples),
         min_ai_accuracy=float(args.ai_min_accuracy),
         min_closed_decisions=int(args.ai_min_closed_decisions),
+        min_real_rag_episodes=max(
+            0, int(os.getenv("AI_MIN_REAL_RAG_EPISODES", "5") or 5)
+        ),
         max_realized_stop_rate=float(args.ai_max_realized_stop_rate),
     )
     _AI_ADVISOR = _build_ai_advisor(args)

@@ -25,7 +25,11 @@ HEARTBEAT="${AI_RUNTIME_STATUS_FILE:-/run/mybot/ai_status.json}"
 UPTIME_SOURCE="${WATCHDOG_UPTIME_SOURCE:-/proc/uptime}"
 HOST_HEALTH_FILE="${WATCHDOG_HOST_HEALTH_FILE:-/run/pi-watchdog/host-health.json}"
 
-[ -f /etc/bot-alerts.env ] && . /etc/bot-alerts.env || true
+# The systemd unit loads the root-owned current configuration. Accept the old
+# variable names in memory only so migrated credentials remain usable without
+# keeping or sourcing the retired /etc/bot-alerts.env path.
+TG_BOT_TOKEN="${TG_BOT_TOKEN:-${TELEGRAM_BOT_TOKEN:-}}"
+TG_CHAT_ID="${TG_CHAT_ID:-${TELEGRAM_CHAT_ID:-}}"
 
 mkdir -p "${STATEDIR}"
 touch "${LOG}" 2>/dev/null || true

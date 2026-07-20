@@ -11,6 +11,16 @@ import sqlite3
 from typing import Iterable
 
 
+DEFAULT_LEGACY_PATHS = (
+    Path("/etc/bot-alerts.env"),
+    Path("/etc/systemd/system/ai-supervisor.service"),
+    Path("/etc/systemd/system/binance-bot.service"),
+    Path("/etc/nginx/sites-available/pi-dashboard"),
+    Path("/etc/nginx/sites-enabled/pi-dashboard"),
+    Path("/opt/pi-dashboard"),
+)
+
+
 @dataclass(frozen=True)
 class CompatibilityAudit:
     ready_for_major_removal: bool
@@ -19,6 +29,9 @@ class CompatibilityAudit:
     missing_exact_trades: int
     missing_exact_inventory: int
     legacy_commission_rows: int
+    legacy_trade_real_columns: tuple[str, ...]
+    legacy_inventory_real_columns: tuple[str, ...]
+    legacy_sync_objects: tuple[str, ...]
 
     def as_dict(self) -> dict[str, object]:
         return {
@@ -28,6 +41,14 @@ class CompatibilityAudit:
             "missing_exact_trades": self.missing_exact_trades,
             "missing_exact_inventory": self.missing_exact_inventory,
             "legacy_commission_rows": self.legacy_commission_rows,
+            "legacy_trade_real_columns": list(self.legacy_trade_real_columns),
+            "legacy_inventory_real_columns": list(self.legacy_inventory_real_columns),
+            "legacy_sync_objects": list(self.legacy_sync_objects),
+            "sqlite_retirement_required": bool(
+                self.legacy_trade_real_columns
+                or self.legacy_inventory_real_columns
+                or self.legacy_sync_objects
+            ),
         }
 
 
@@ -52,12 +73,30 @@ def audit_compatibility(
     missing_trades = 0
     missing_inventory = 0
     legacy_commissions = 0
+    trade_real_columns: tuple[str, ...] = ()
+    inventory_real_columns: tuple[str, ...] = ()
+    sync_objects: tuple[str, ...] = ()
     if not database.is_file():
         reasons.append("statistics database is unavailable")
     else:
         with sqlite3.connect(f"file:{database}?mode=ro", uri=True) as connection:
             trade_columns = _table_columns(connection, "trades")
             inventory_columns = _table_columns(connection, "inventory")
+            trade_real_columns = tuple(sorted(
+                {"price", "qty", "fee_quote"} & trade_columns
+            ))
+            inventory_real_columns = tuple(sorted(
+                {"qty", "avg_cost", "realized_pnl"} & inventory_columns
+            ))
+            sync_objects = tuple(sorted(
+                str(row[0])
+                for row in connection.execute(
+                    "SELECT name FROM sqlite_master WHERE type='trigger' "
+                    "AND name IN ('trades_exact_after_insert',"
+                    "'inventory_exact_after_insert',"
+                    "'inventory_exact_after_legacy_update')"
+                )
+            ))
             required_trade = {"price_text", "gross_qty", "net_qty"}
             required_inventory = {
                 "qty_text", "avg_cost_text", "realized_pnl_text",
@@ -103,4 +142,7 @@ def audit_compatibility(
         missing_exact_trades=missing_trades,
         missing_exact_inventory=missing_inventory,
         legacy_commission_rows=legacy_commissions,
+        legacy_trade_real_columns=trade_real_columns,
+        legacy_inventory_real_columns=inventory_real_columns,
+        legacy_sync_objects=sync_objects,
     )

@@ -215,19 +215,30 @@ def load_trade_features(
         with sqlite3.connect(
             f"file:{db_path}?mode=ro", uri=True, timeout=3
         ) as connection:
+            exact_views = {
+                str(row[0]) for row in connection.execute(
+                    "SELECT name FROM sqlite_master WHERE type='view'"
+                )
+            }
+            if "trades_exact" in exact_views:
+                trade_source = "trades_exact"
+                trade_projection = (
+                    "ts,side,price_text,gross_qty_text,net_qty_text,"
+                    "commission_asset,commission_amount_text,"
+                    "commission_quote_text,commission_value_status"
+                )
+            else:
+                trade_source = "trades"
+                trade_projection = (
+                    "ts,side,CAST(price AS TEXT),CAST(qty AS TEXT),"
+                    "CAST(qty AS TEXT),'','0',"
+                    "CAST(COALESCE(fee_quote,0) AS TEXT),'legacy'"
+                )
             rows = connection.execute(
-                """
-                SELECT ts, side,
-                       COALESCE(NULLIF(price_text, ''), CAST(price AS TEXT)),
-                       COALESCE(NULLIF(gross_qty, ''), CAST(qty AS TEXT)),
-                       COALESCE(NULLIF(net_qty, ''), CAST(qty AS TEXT)),
-                       commission_asset,
-                       commission_amount,
-                       CASE WHEN commission_value_status='unpriced' THEN NULL
-                            ELSE COALESCE(NULLIF(commission_quote, ''), CAST(fee_quote AS TEXT)) END,
-                       commission_value_status
+                f"""
+                SELECT {trade_projection}
                 FROM (
-                    SELECT * FROM trades
+                    SELECT * FROM {trade_source}
                     WHERE symbol=? AND ts<=?
                     ORDER BY ts DESC, id DESC
                     LIMIT 1000
@@ -236,14 +247,17 @@ def load_trade_features(
                 """,
                 (symbol.upper(), now_ms),
             ).fetchall()
-            inventory = connection.execute(
-                """
-                SELECT COALESCE(NULLIF(qty_text, ''), CAST(qty AS TEXT)),
-                       COALESCE(NULLIF(avg_cost_text, ''), CAST(avg_cost AS TEXT))
-                FROM inventory WHERE symbol=?
-                """,
-                (symbol.upper(),),
-            ).fetchone()
+            if "inventory_exact" in exact_views:
+                inventory = connection.execute(
+                    "SELECT qty_text,avg_cost_text FROM inventory_exact WHERE symbol=?",
+                    (symbol.upper(),),
+                ).fetchone()
+            else:
+                inventory = connection.execute(
+                    "SELECT CAST(qty AS TEXT),CAST(avg_cost AS TEXT) "
+                    "FROM inventory WHERE symbol=?",
+                    (symbol.upper(),),
+                ).fetchone()
     except sqlite3.Error:
         return TradeFeatures()
 

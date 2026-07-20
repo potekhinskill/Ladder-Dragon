@@ -2619,6 +2619,10 @@ def main():
                         dependencies=_protection_dependencies(),
                         terminal_unfilled_order_ids=terminal_unfilled,
                     )
+                    if user_stream_observer is not None:
+                        user_stream_observer.record_rest_reconciliation(
+                            event_woken=bool(stream_events)
+                        )
                     protection_state = _protection_state_after_sweep(
                         pending_before,
                         placed_ids,

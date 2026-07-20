@@ -20,6 +20,7 @@ class ReplayReadiness:
     span_days: Decimal
     regimes: tuple[str, ...]
     measured_latency_archives: int
+    execution_sample_count: int
     book_event_count: int
     trade_count: int
 
@@ -31,6 +32,7 @@ class ReplayReadiness:
             "span_days": format(self.span_days, "f"),
             "regimes": list(self.regimes),
             "measured_latency_archives": self.measured_latency_archives,
+            "execution_sample_count": self.execution_sample_count,
             "book_event_count": self.book_event_count,
             "trade_count": self.trade_count,
         }
@@ -60,6 +62,7 @@ def audit_replay_readiness(
     minimum_span_days: Decimal = Decimal("2"),
     required_regimes: tuple[str, ...] = ("low", "normal", "high"),
     minimum_measured_latency_archives: int = 1,
+    minimum_execution_samples: int = 10,
     low_max_bps: Decimal = Decimal("0.5"),
     high_min_bps: Decimal = Decimal("2"),
 ) -> ReplayReadiness:
@@ -105,6 +108,11 @@ def audit_replay_readiness(
             f"measured latency archives {measured} < "
             f"{minimum_measured_latency_archives}"
         )
+    execution_samples = sum(row.execution_sample_count for row in rows)
+    if execution_samples < minimum_execution_samples:
+        reasons.append(
+            f"execution samples {execution_samples} < {minimum_execution_samples}"
+        )
     return ReplayReadiness(
         ready=not reasons,
         reasons=tuple(reasons),
@@ -112,6 +120,7 @@ def audit_replay_readiness(
         span_days=span_days,
         regimes=regimes,
         measured_latency_archives=measured,
+        execution_sample_count=execution_samples,
         book_event_count=sum(row.book_event_count for row in rows),
         trade_count=sum(row.trade_count for row in rows),
     )

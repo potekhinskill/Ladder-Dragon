@@ -10,17 +10,9 @@ import argparse
 import json
 from pathlib import Path
 
-from ladder_dragon.execution.compatibility_audit import audit_compatibility
-
-
-DEFAULT_LEGACY_PATHS = (
-    Path("/etc/bot-alerts.env"),
-    Path("/etc/systemd/system/pi-dashboard.service"),
-    Path("/etc/systemd/system/ai-supervisor.service"),
-    Path("/etc/systemd/system/binance-bot.service"),
-    Path("/etc/nginx/sites-available/pi-dashboard"),
-    Path("/etc/nginx/sites-enabled/pi-dashboard"),
-    Path("/opt/pi-dashboard"),
+from ladder_dragon.execution.compatibility_audit import (
+    DEFAULT_LEGACY_PATHS,
+    audit_compatibility,
 )
 
 

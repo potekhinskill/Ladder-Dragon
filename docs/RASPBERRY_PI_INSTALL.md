@@ -145,8 +145,9 @@ TELEGRAM_BOT_TOKEN=...
 TELEGRAM_CHAT_ID=...
 ```
 
-The legacy `/etc/bot-alerts.env` is migrated when present. Circuit-breaker and
-execution failures remain fail-closed if Telegram is unavailable.
+The installer migrates `/etc/bot-alerts.env` when present and removes that old
+path only after the current root-owned file has been created successfully.
+Circuit-breaker and execution failures remain fail-closed if Telegram is unavailable.
 
 Verify configuration without printing values:
 
@@ -468,6 +469,14 @@ sudo bash deploy/install_raspberry_pi.sh migrate
 Migration preserves project/systemd/nginx data, moves env and SQLite files,
 disables legacy launchers, protects backups, and converts detected LIVE to DRY.
 `--preserve-live` is allowed only after manual review and `BOT_LIVE_CONFIRMED=YES`.
+After installing current replacements, migrate/update removes superseded
+`ai-supervisor.service`, `binance-bot.service`, old `pi-dashboard` nginx paths,
+and the migrated `/etc/bot-alerts.env`. `/opt/pi-dashboard` is quarantined below
+`/var/lib/ladder-dragon/legacy` rather than silently deleted.
+
+Do not remove SQLite REAL compatibility fields during an ordinary update. Run
+the fleet/host audit first; exact-only migration is an explicit stopped-service
+major-version operation documented in the README.
 
 For GitHub `Permission denied (publickey)`, verify the deploy key and remote:
 

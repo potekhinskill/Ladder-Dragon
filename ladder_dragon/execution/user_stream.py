@@ -37,6 +37,8 @@ PERSISTED_COUNTERS = (
     "order_events",
     "duplicates",
     "out_of_order_events",
+    "rest_reconciliations",
+    "event_woken_rest_reconciliations",
 )
 
 
@@ -223,6 +225,8 @@ class BinanceUserDataObserver:
             "order_events": 0,
             "duplicates": 0,
             "out_of_order_events": 0,
+            "rest_reconciliations": 0,
+            "event_woken_rest_reconciliations": 0,
             "last_exchange_event_time_ms": None,
             "last_error": None,
         }
@@ -422,3 +426,13 @@ class BinanceUserDataObserver:
 
     def state(self) -> dict[str, object]:
         return dict(self._state)
+
+    def record_rest_reconciliation(self, *, event_woken: bool) -> None:
+        """Persist proof that an authoritative REST check followed polling or WS."""
+        self._set_state(
+            rest_reconciliations=int(self._state["rest_reconciliations"]) + 1,
+            event_woken_rest_reconciliations=(
+                int(self._state["event_woken_rest_reconciliations"])
+                + int(event_woken)
+            ),
+        )

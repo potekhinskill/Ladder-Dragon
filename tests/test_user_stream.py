@@ -225,6 +225,8 @@ def test_user_stream_soak_audit_requires_duration_freshness_and_drills(
         "sessions": 3,
         "reconnects": 1,
         "order_events": 2,
+        "rest_reconciliations": 4,
+        "event_woken_rest_reconciliations": 2,
     }))
     path.touch()
 
@@ -234,6 +236,7 @@ def test_user_stream_soak_audit_requires_duration_freshness_and_drills(
         maximum_stale_sec=180,
         require_reconnect=True,
         require_order_event=True,
+        require_event_woken_rest=True,
         now=1_000 + 25 * 3600,
     )
     assert ready.ready is True
@@ -244,10 +247,32 @@ def test_user_stream_soak_audit_requires_duration_freshness_and_drills(
         minimum_hours=48,
         require_reconnect=True,
         require_order_event=True,
+        require_event_woken_rest=True,
         now=1_000 + 25 * 3600,
     )
     assert blocked.ready is False
     assert "soak duration" in " ".join(blocked.reasons)
+
+
+def test_user_stream_persists_authoritative_rest_reconciliation_evidence(
+    tmp_path,
+):
+    path = tmp_path / "stream.json"
+    observer = BinanceUserDataObserver(
+        api_key="key",
+        api_secret="secret",
+        rest_base_url="https://api.binance.com",
+        mailbox=OrderEventMailbox(),
+        logger=lambda message: None,
+        state_path=path,
+    )
+    observer.record_rest_reconciliation(event_woken=False)
+    observer.record_rest_reconciliation(event_woken=True)
+
+    payload = json.loads(path.read_text())
+    assert payload["rest_reconciliations"] == 2
+    assert payload["event_woken_rest_reconciliations"] == 1
+    assert "api_key" not in payload
 
 
 def test_out_of_order_event_only_wakes_authoritative_rest_reconciliation(tmp_path):

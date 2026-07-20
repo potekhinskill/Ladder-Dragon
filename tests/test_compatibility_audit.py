@@ -25,6 +25,11 @@ def test_compatibility_audit_accepts_exact_database_without_legacy_paths(tmp_pat
     assert report.ready_for_major_removal is True
     assert report.reasons == ()
     assert report.legacy_commission_rows == 0
+    assert report.legacy_trade_real_columns == ("fee_quote", "price", "qty")
+    assert report.legacy_inventory_real_columns == (
+        "avg_cost", "qty", "realized_pnl",
+    )
+    assert report.as_dict()["sqlite_retirement_required"] is True
 
 
 def test_compatibility_audit_blocks_legacy_commission_provenance(tmp_path):

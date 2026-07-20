@@ -34,6 +34,7 @@ def audit_user_stream_soak(
     maximum_stale_sec: float = 180.0,
     require_reconnect: bool = False,
     require_order_event: bool = False,
+    require_event_woken_rest: bool = False,
     now: float | None = None,
 ) -> UserStreamSoakAudit:
     """Validate sanitized soak duration without treating WS as authoritative."""
@@ -55,6 +56,10 @@ def audit_user_stream_soak(
             reconnects = int(payload.get("reconnects") or 0)
             order_events = int(payload.get("order_events") or 0)
             sessions = int(payload.get("sessions") or 0)
+            rest_reconciliations = int(payload.get("rest_reconciliations") or 0)
+            event_woken_rest = int(
+                payload.get("event_woken_rest_reconciliations") or 0
+            )
         except (OSError, UnicodeError, json.JSONDecodeError, TypeError, ValueError) as exc:
             reasons.append(f"{path}: unreadable snapshot ({type(exc).__name__})")
             continue
@@ -66,6 +71,8 @@ def audit_user_stream_soak(
             "sessions": sessions,
             "reconnects": reconnects,
             "order_events": order_events,
+            "rest_reconciliations": rest_reconciliations,
+            "event_woken_rest_reconciliations": event_woken_rest,
         }
         streams.append(row)
         if state != "connected":
@@ -80,6 +87,10 @@ def audit_user_stream_soak(
             reasons.append(f"{path}: reconnect has not been observed")
         if require_order_event and order_events < 1:
             reasons.append(f"{path}: no order event has been observed")
+        if require_event_woken_rest and event_woken_rest < 1:
+            reasons.append(
+                f"{path}: no event-triggered REST reconciliation was observed"
+            )
     return UserStreamSoakAudit(
         ready=not reasons,
         reasons=tuple(reasons),

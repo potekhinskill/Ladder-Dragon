@@ -526,11 +526,30 @@ def apply_cost_basis_plan(
         if existing:
             connection.commit()
             return str(existing[0])
-        inventory_row = connection.execute(
-            "SELECT COALESCE(NULLIF(realized_pnl_text,''),CAST(realized_pnl AS TEXT)) "
-            "FROM inventory WHERE symbol=?",
-            (plan.symbol,),
+        exact_inventory_view = connection.execute(
+            "SELECT 1 FROM sqlite_master WHERE type='view' "
+            "AND name='inventory_exact'"
         ).fetchone()
+        if exact_inventory_view:
+            inventory_row = connection.execute(
+                "SELECT realized_pnl_text FROM inventory_exact WHERE symbol=?",
+                (plan.symbol,),
+            ).fetchone()
+        else:
+            inventory_columns = {
+                str(row[1])
+                for row in connection.execute("PRAGMA table_info(inventory)")
+            }
+            realized_expression = (
+                "COALESCE(NULLIF(realized_pnl_text,''),"
+                "CAST(realized_pnl AS TEXT))"
+                if "realized_pnl_text" in inventory_columns
+                else "CAST(realized_pnl AS TEXT)"
+            )
+            inventory_row = connection.execute(
+                f"SELECT {realized_expression} FROM inventory WHERE symbol=?",
+                (plan.symbol,),
+            ).fetchone()
         baseline_realized = (
             _decimal(inventory_row[0], name="baseline realized PnL")
             if inventory_row
@@ -597,26 +616,40 @@ def apply_cost_basis_plan(
                 "APPLIED",
             ),
         )
-        connection.execute(
-            "INSERT INTO inventory("
-            "symbol,qty,avg_cost,realized_pnl,last_trade_id,"
-            "qty_text,avg_cost_text,realized_pnl_text"
-            ") VALUES(?,?,?,?,?,?,?,?) "
-            "ON CONFLICT(symbol) DO UPDATE SET "
-            "qty=excluded.qty,avg_cost=excluded.avg_cost,"
-            "last_trade_id=excluded.last_trade_id,"
-            "qty_text=excluded.qty_text,avg_cost_text=excluded.avg_cost_text",
-            (
-                plan.symbol,
-                float(plan.reconstructed_quantity),
-                float(plan.weighted_average),
-                float(baseline_realized),
-                plan.last_trade_id,
-                format(plan.reconstructed_quantity, "f"),
-                format(plan.weighted_average, "f"),
-                format(baseline_realized, "f"),
-            ),
-        )
+        inventory_columns = {
+            str(row[1]) for row in connection.execute("PRAGMA table_info(inventory)")
+        }
+        if {"qty", "avg_cost", "realized_pnl"} <= inventory_columns:
+            connection.execute(
+                "INSERT INTO inventory("
+                "symbol,qty,avg_cost,realized_pnl,last_trade_id,"
+                "qty_text,avg_cost_text,realized_pnl_text"
+                ") VALUES(?,?,?,?,?,?,?,?) "
+                "ON CONFLICT(symbol) DO UPDATE SET "
+                "qty=excluded.qty,avg_cost=excluded.avg_cost,"
+                "last_trade_id=excluded.last_trade_id,"
+                "qty_text=excluded.qty_text,avg_cost_text=excluded.avg_cost_text",
+                (
+                    plan.symbol, float(plan.reconstructed_quantity),
+                    float(plan.weighted_average), float(baseline_realized),
+                    plan.last_trade_id, format(plan.reconstructed_quantity, "f"),
+                    format(plan.weighted_average, "f"),
+                    format(baseline_realized, "f"),
+                ),
+            )
+        else:
+            connection.execute(
+                "INSERT INTO inventory("
+                "symbol,qty_text,avg_cost_text,realized_pnl_text,last_trade_id"
+                ") VALUES(?,?,?,?,?) ON CONFLICT(symbol) DO UPDATE SET "
+                "qty_text=excluded.qty_text,avg_cost_text=excluded.avg_cost_text,"
+                "last_trade_id=excluded.last_trade_id",
+                (
+                    plan.symbol, format(plan.reconstructed_quantity, "f"),
+                    format(plan.weighted_average, "f"),
+                    format(baseline_realized, "f"), plan.last_trade_id,
+                ),
+            )
     except (ArithmeticError, RuntimeError, sqlite3.Error, TypeError, ValueError):
         connection.rollback()
         raise

@@ -386,6 +386,9 @@ elif [[ -e /etc/ladder-dragon/telegram.env ]]; then
   chown root:"${BOT_USER}" /etc/ladder-dragon/telegram.env
   chmod 0640 /etc/ladder-dragon/telegram.env
 fi
+if [[ -s /etc/ladder-dragon/telegram.env && -f /etc/bot-alerts.env ]]; then
+  rm -f -- /etc/bot-alerts.env
+fi
 install -d -o root -g root -m 0755 "${WEB_ROOT}" "${WEB_ROOT}/vendor"
 install -d -m 0755 /etc/nginx/snippets
 install -o root -g www-data -m 0640 /dev/null \
@@ -454,6 +457,16 @@ install -m 0644 deploy/pi-watchdog-v3.timer \
   /etc/systemd/system/pi-watchdog-v3.timer
 rm -f /etc/systemd/system/pi-watchdog-v3.service.d/rc-ok.conf
 rm -f /etc/systemd/system/mybot.service.d/dashboard-link.conf
+systemctl disable --now ai-supervisor.service binance-bot.service 2>/dev/null || true
+rm -f /etc/systemd/system/ai-supervisor.service \
+  /etc/systemd/system/binance-bot.service \
+  /etc/nginx/sites-enabled/pi-dashboard \
+  /etc/nginx/sites-available/pi-dashboard
+if [[ -d /opt/pi-dashboard ]]; then
+  install -d -m 0700 /var/lib/ladder-dragon/legacy
+  mv /opt/pi-dashboard \
+    "/var/lib/ladder-dragon/legacy/pi-dashboard-$(date -u +%Y%m%d%H%M%S)"
+fi
 
 if [[ -d "${WEB_ROOT}/backups" ]]; then
   legacy_dest="/var/lib/ladder-dragon/backups/legacy-public-$(date -u +%Y%m%d%H%M%S)"

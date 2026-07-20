@@ -409,31 +409,26 @@ def load_daily_trade_metrics(db_path: str, symbols: Iterable[str], now: Optional
     if not wanted:
         raise ValueError("at least one symbol is required")
     with sqlite3.connect(f"file:{db_path}?mode=ro", uri=True, timeout=5) as con:
-        columns = {str(row[1]) for row in con.execute("PRAGMA table_info(trades)")}
-        exact = {
-            "price_text", "gross_qty", "net_qty", "commission_asset",
-            "commission_amount", "commission_quote", "commission_value_status",
-        }.issubset(columns)
-        if exact:
+        exact_view = con.execute(
+            "SELECT 1 FROM sqlite_master WHERE type='view' AND name='trades_exact'"
+        ).fetchone()
+        if exact_view:
+            trade_source = "trades_exact"
             accounting_columns = """
-                COALESCE(NULLIF(price_text, ''), CAST(price AS TEXT)),
-                COALESCE(NULLIF(gross_qty, ''), CAST(qty AS TEXT)),
-                COALESCE(NULLIF(net_qty, ''), CAST(qty AS TEXT)),
-                COALESCE(commission_asset, ''),
-                COALESCE(NULLIF(commission_amount, ''), '0'),
-                CASE WHEN commission_value_status = 'unpriced' THEN NULL
-                     ELSE COALESCE(commission_quote, CAST(fee_quote AS TEXT)) END,
-                COALESCE(NULLIF(commission_value_status, ''), 'legacy')
+                price_text, gross_qty_text, net_qty_text,
+                commission_asset, commission_amount_text,
+                commission_quote_text, commission_value_status
             """
         else:
+            trade_source = "trades"
             accounting_columns = """
-                CAST(price AS TEXT), CAST(qty AS TEXT), CAST(qty AS TEXT),
-                '', '0', CAST(COALESCE(fee_quote, 0) AS TEXT), 'legacy'
+                CAST(price AS TEXT),CAST(qty AS TEXT),CAST(qty AS TEXT),
+                '', '0',CAST(COALESCE(fee_quote,0) AS TEXT),'legacy'
             """
         daily_sql = f"""
             SELECT symbol, side, {accounting_columns},
                    CASE WHEN ts > 1000000000000 THEN CAST(ts/1000 AS INTEGER) ELSE ts END AS ts_s
-            FROM trades
+            FROM {trade_source}
             WHERE symbol IN ({placeholders})
               AND (CASE WHEN ts > 1000000000000 THEN CAST(ts/1000 AS INTEGER) ELSE ts END) >= ?
             ORDER BY ts_s, id
@@ -441,7 +436,7 @@ def load_daily_trade_metrics(db_path: str, symbols: Iterable[str], now: Optional
         history_sql = f"""
             SELECT symbol, side, {accounting_columns},
                    CASE WHEN ts > 1000000000000 THEN CAST(ts/1000 AS INTEGER) ELSE ts END AS ts_s
-            FROM trades
+            FROM {trade_source}
             WHERE symbol IN ({placeholders})
             ORDER BY ts_s, id
         """

@@ -225,7 +225,7 @@ setup_backup_encryption
 
 setup_telegram_alerts() {
   local target="/etc/ladder-dragon/telegram.env"
-  # Preserve the previous working format without printing the token in install logs.
+  # Migrate once without printing credentials, then retire the plaintext path.
   if [[ ! -e "${target}" && -f /etc/bot-alerts.env ]]; then
     install -o root -g "${BOT_USER}" -m 0640 /etc/bot-alerts.env "${target}"
   elif [[ ! -e "${target}" ]]; then
@@ -235,6 +235,9 @@ setup_telegram_alerts() {
   else
     chown root:"${BOT_USER}" "${target}"
     chmod 0640 "${target}"
+  fi
+  if [[ -s "${target}" && -f /etc/bot-alerts.env ]]; then
+    rm -f -- /etc/bot-alerts.env
   fi
 }
 
@@ -652,6 +655,14 @@ install -m 0644 "${PROJECT_DIR}/deploy/pi-watchdog-v3.service" \
 install -m 0644 "${PROJECT_DIR}/deploy/pi-watchdog-v3.timer" \
   /etc/systemd/system/pi-watchdog-v3.timer
 rm -f /etc/systemd/system/pi-watchdog-v3.service.d/rc-ok.conf
+
+# Current units are installed above. Retire superseded names only after the
+# encrypted pre-install backup and replacement assets both exist.
+systemctl disable --now ai-supervisor.service binance-bot.service 2>/dev/null || true
+rm -f /etc/systemd/system/ai-supervisor.service \
+  /etc/systemd/system/binance-bot.service \
+  /etc/nginx/sites-enabled/pi-dashboard \
+  /etc/nginx/sites-available/pi-dashboard
 
 runuser -u "${BOT_USER}" -- "${PROJECT_DIR}/.venv/bin/python" -m compileall -q "${PROJECT_DIR}"
 runuser -u "${BOT_USER}" -- "${PROJECT_DIR}/.venv/bin/python" \

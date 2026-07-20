@@ -6,7 +6,7 @@ Description=Pi soft watchdog v3 (network + mybot)
 
 [Service]
 Type=oneshot
-EnvironmentFile=-/etc/bot-alerts.env
+EnvironmentFile=-/etc/ladder-dragon/telegram.env
 Environment=WATCHDOG_LOG=/var/log/pi-watchdog/current.log
 Environment=WATCHDOG_STATE=/run/pi-watchdog/state
 ExecStart=/usr/local/bin/pi-watchdog_v3.sh

@@ -17,7 +17,7 @@ Binance Spot. It builds BUY/SELL grids, uses ATR/EMA/VWAP/ADX regimes, manages
 OCO protection, and records trading statistics in SQLite. Production secrets,
 real backups, and private parameters are never committed.
 
-Current product version: **2.17.0**. The single version source is
+Current product version: **2.18.0**. The single version source is
 `product_version.py`; releases follow [Semantic Versioning](https://semver.org/).
 Project contact: [LinkedIn](https://www.linkedin.com/in/ypotekhin/).
 
@@ -33,7 +33,7 @@ Project contact: [LinkedIn](https://www.linkedin.com/in/ypotekhin/).
 ## Project status
 
 Ladder Dragon is an actively developed, experimental trading system. Version
-**2.17.0** is the current prepared release. `main` is the only long-lived branch;
+**2.18.0** is the current prepared release. `main` is the only long-lived branch;
 feature branches use the `ladderdragon/*` namespace.
 
 DRY and Binance Spot Testnet are the supported starting modes. Mainnet LIVE is
@@ -311,7 +311,26 @@ PYTHONPATH=. .venv/bin/python -m bin.audit_legacy_compatibility \
 ```
 
 Exit status 2 means removal is unsafe. The command never edits the database or
-deletes a legacy file.
+deletes a legacy file. The JSON report separately lists physical REAL columns,
+legacy synchronization triggers and old host paths. A clean exit authorizes a
+preview, not an automatic migration. After every deployed host has passed,
+stop the bot, keep the updater's encrypted backup, and create an additional
+local SQLite backup while applying the explicit major-version migration:
+
+```bash
+sudo systemctl stop mybot pi-watchdog-v3.timer
+sudo -u bot PYTHONPATH=. .venv/bin/python -m bin.retire_legacy_accounting \
+  --stats-db /home/bot/apps/binance_bot/db/bot_stats.db
+
+sudo -u bot PYTHONPATH=. .venv/bin/python -m bin.retire_legacy_accounting \
+  --stats-db /home/bot/apps/binance_bot/db/bot_stats.db \
+  --backup /var/lib/ladder-dragon/backups/bot_stats-before-v3.sqlite3 \
+  --apply --confirm DROP-LEGACY-REAL-COLUMNS
+```
+
+The apply command refuses missing exact values, legacy/unpriced commission
+provenance, old host paths, an existing backup target, or a failed integrity
+check. Existing 2.x databases are not rewritten by normal startup or update.
 
 ### Archived order-book calibration
 
@@ -363,9 +382,9 @@ correction.
 
 The replay-readiness audit exits 2 until it sees at least three unique source
 archives spanning two calendar days, low/normal/high volatility regimes, no
-ineligible calibration, and at least one archive with measured
-intent-to-`executionReport` latency. This prevents a short smoke capture from
-being presented as production-quality calibration.
+ineligible calibration, at least ten real execution samples, and at least one
+archive with measured intent-to-`executionReport` latency. This prevents a
+short smoke capture from being presented as production-quality calibration.
 
 On Raspberry Pi, `ladder-dragon-depth-archive.timer` records a 15-minute public
 sample every hour and retains seven days by default. Optional, non-secret
@@ -397,14 +416,14 @@ restored. After a real soak, run the read-only gate:
 ```bash
 PYTHONPATH=. .venv/bin/python -m bin.audit_user_stream_soak \
   --minimum-hours 24 \
-  --require-reconnect \
-  --require-order-event \
   /run/mybot/user_stream_SOLUSDT.json
 ```
 
-Exit status 2 means that duration, freshness or the requested operational drill
-evidence is still incomplete. Passing this gate does not promote WebSocket data
-to a source of truth; authenticated REST reconciliation remains authoritative.
+The production audit requires a reconnect, an order event and proof that the
+event woke an authoritative REST reconciliation. Diagnostic-only
+`--allow-no-*` switches can explain incomplete evidence but cannot justify a
+promotion. Exit status 2 means duration, freshness or operational drill evidence
+is incomplete. Passing does not promote WebSocket data to a source of truth.
 
 Existing holdings are never assigned an invented cost basis. A position without
 provable exchange history stays `legacy_unmanaged` with
@@ -476,6 +495,8 @@ the services, and waits for a fresh heartbeat.
   canary containment;
 - run `bin.audit_legacy_compatibility` on every deployed host before proposing a
   major release that removes REAL accounting columns or legacy configuration;
+- keep AI in SHADOW until both realized lifecycle statistics and at least five
+  validated real RAG episodes pass the production policy gate;
 - run controlled long Testnet soak tests after executor or risk changes.
 
 The local gap-watchdog drill is network-free and never creates an exchange
