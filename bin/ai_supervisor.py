@@ -2452,7 +2452,7 @@ def _sync_recent_account_fills(symbols: List[str]) -> None:
 
 def _build_risk_snapshot(
     symbols: List[str], limits: RiskLimits
-) -> tuple[RiskSnapshot, List[Dict[str, Any]], Dict[str, float]]:
+) -> tuple[RiskSnapshot, List[Dict[str, Any]], Dict[str, object]]:
     """Build risk snapshot."""
     if env_flag("RISK_RECONCILE_SYNC_FILLS", True):
         _sync_recent_account_fills(symbols)
@@ -2724,6 +2724,39 @@ def _remaining_order_budget_decimal(
         money(snapshot.free_usdt) - money(limits.reserve_usdt),
     )
 
+
+def _configured_price_shocks_decimal(
+    symbols: List[str],
+    current_prices: Mapping[str, object],
+    previous_prices: Mapping[str, object],
+    threshold: object,
+) -> tuple[list[str], Dict[str, Decimal]]:
+    """Detect configured-symbol shocks without mixing valuation price types."""
+    threshold_exact = abs(
+        _finite_decimal(threshold, name="risk shock threshold")
+    )
+    normalized: Dict[str, Decimal] = {}
+    reasons: list[str] = []
+    for raw_symbol in symbols:
+        symbol = str(raw_symbol).upper()
+        if symbol not in current_prices:
+            continue
+        current = _finite_decimal(
+            current_prices[symbol], name=f"{symbol} current shock price"
+        )
+        normalized[symbol] = current
+        if symbol not in previous_prices:
+            continue
+        previous = _finite_decimal(
+            previous_prices[symbol], name=f"{symbol} previous shock price"
+        )
+        if current <= 0 or previous <= 0:
+            continue
+        change = abs(current / previous - Decimal("1"))
+        if change >= threshold_exact:
+            reasons.append(f"{symbol} moved {change:.2%}")
+    return reasons, normalized
+
 def main():
     """Handle main."""
     ap = build_supervisor_parser()
@@ -2907,7 +2940,7 @@ def main():
     next_risk_check = 0.0
     risk_buy_blocked = False
     last_risk_signature: tuple[bool, tuple[str, ...]] | None = None
-    previous_prices: Dict[str, float] = {}
+    previous_prices: Dict[str, Decimal] = {}
     consecutive_api_failures = 0
     next_runtime_heartbeat = 0.0
     next_ai_control_check = 0.0
@@ -2945,13 +2978,12 @@ def main():
                 try:
                     snapshot, orders, prices = _build_risk_snapshot(symbols, limits)
                     consecutive_api_failures = 0
-                    shock_pct = _analytics_float(os.getenv("RISK_SHOCK_PCT", "0.05") or 0.05)
-                    shocks = []
-                    for symbol, price in prices.items():
-                        previous = previous_prices.get(symbol)
-                        if previous and abs(price / previous - 1.0) >= shock_pct:
-                            shocks.append(f"{symbol} moved {abs(price / previous - 1.0):.2%}")
-                    previous_prices = prices
+                    shocks, previous_prices = _configured_price_shocks_decimal(
+                        symbols,
+                        prices,
+                        previous_prices,
+                        os.getenv("RISK_SHOCK_PCT", "0.05") or "0.05",
+                    )
                     if shocks:
                         risk_manager.start_cooldown("; ".join(shocks))
                     decision = risk_manager.evaluate(snapshot)

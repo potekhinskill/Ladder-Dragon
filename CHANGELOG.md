@@ -3,6 +3,26 @@
 All notable changes are documented here. Releases use Semantic Versioning; every
 section is dated and there is intentionally no `Unreleased` section.
 
+## [2.20.4] — 2026-07-21
+
+### Fixed
+- The repeated LIVE risk cycle now computes price-shock changes entirely with
+  finite `Decimal` values. This removes the remaining `Decimal - float`
+  regression observed after a successful first risk snapshot.
+- Shock detection now evaluates only configured trading symbols. Auxiliary
+  whole-account valuation prices such as ETH or BNB can no longer enter the
+  configured-symbol cooldown detector with mixed numeric representations.
+
+### Safety
+- Risk telemetry remains fail closed. The fix changes only numeric
+  normalization and symbol scope; shock thresholds, cooldown behavior, CAP,
+  reserve and order controls are unchanged.
+
+### Verified
+- Regression tests execute consecutive shock-detection cycles with mixed
+  float/`Decimal` valuation maps and prove that only configured symbols can
+  trigger a cooldown reason.
+
 ## [2.20.3] — 2026-07-21
 
 ### Fixed

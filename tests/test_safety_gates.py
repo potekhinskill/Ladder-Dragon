@@ -835,6 +835,52 @@ def test_remaining_order_budget_normalizes_legacy_float_telemetry(tmp_path):
     assert isinstance(remaining, Decimal)
 
 
+def test_risk_shock_detector_handles_mixed_valuation_price_types():
+    first_reasons, first = ai_supervisor._configured_price_shocks_decimal(
+        ["SOLUSDT"],
+        {
+            "SOLUSDT": 75.0,
+            "ETHUSDT": Decimal("1900.00"),
+        },
+        {},
+        "0.05",
+    )
+    second_reasons, second = ai_supervisor._configured_price_shocks_decimal(
+        ["SOLUSDT"],
+        {
+            "SOLUSDT": Decimal("75.75"),
+            "ETHUSDT": Decimal("1710.00"),
+        },
+        {
+            **first,
+            "ETHUSDT": Decimal("1900.00"),
+        },
+        Decimal("0.05"),
+    )
+
+    assert first_reasons == []
+    assert second_reasons == []
+    assert second == {"SOLUSDT": Decimal("75.75")}
+
+
+def test_risk_shock_detector_reports_configured_symbol_only():
+    reasons, normalized = ai_supervisor._configured_price_shocks_decimal(
+        ["SOLUSDT"],
+        {
+            "SOLUSDT": Decimal("70"),
+            "ETHUSDT": Decimal("1000"),
+        },
+        {
+            "SOLUSDT": 75.0,
+            "ETHUSDT": Decimal("1900"),
+        },
+        "0.05",
+    )
+
+    assert reasons == ["SOLUSDT moved 6.67%"]
+    assert normalized == {"SOLUSDT": Decimal("70")}
+
+
 def test_testnet_uses_separate_stats_and_order_journals(tmp_path, monkeypatch):
     main_stats = tmp_path / "mainnet.db"
     test_stats = tmp_path / "testnet.db"
