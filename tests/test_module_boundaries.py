@@ -297,7 +297,19 @@ def test_executor_market_fallbacks_and_asset_cache():
             "balances": [{"asset": "USDT", "free": "10.5", "locked": "1.5"}]
         }
     )
-    assert balances["USDT"] == {"free": 10.5, "locked": 1.5}
+    assert balances["USDT"] == {
+        "free": Decimal("10.5"),
+        "locked": Decimal("1.5"),
+    }
+
+    with pytest.raises(ValueError, match="invalid account balance"):
+        get_balances(
+            signed_request=lambda *args: {
+                "balances": [
+                    {"asset": "USDT", "free": "NaN", "locked": "0"}
+                ]
+            }
+        )
 
 
 def test_signed_timestamp_fails_closed_when_exchange_clock_is_unavailable(

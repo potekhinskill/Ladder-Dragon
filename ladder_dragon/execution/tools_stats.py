@@ -55,6 +55,30 @@ CREATE TABLE IF NOT EXISTS inventory(
   avg_cost_text TEXT,
   realized_pnl_text TEXT
 );
+
+CREATE VIEW IF NOT EXISTS trades_exact AS
+SELECT id, symbol, side,
+       COALESCE(NULLIF(price_text, ''), CAST(price AS TEXT)) AS price_text,
+       COALESCE(NULLIF(gross_qty, ''), CAST(qty AS TEXT)) AS gross_qty_text,
+       COALESCE(NULLIF(net_qty, ''), CAST(qty AS TEXT)) AS net_qty_text,
+       COALESCE(commission_asset, '') AS commission_asset,
+       COALESCE(NULLIF(commission_amount, ''), '0') AS commission_amount_text,
+       CASE WHEN commission_value_status = 'unpriced' THEN NULL
+            ELSE COALESCE(NULLIF(commission_quote, ''), CAST(fee_quote AS TEXT))
+       END AS commission_quote_text,
+       COALESCE(NULLIF(commission_value_status, ''), 'legacy')
+         AS commission_value_status,
+       ts, trade_id
+FROM trades;
+
+CREATE VIEW IF NOT EXISTS inventory_exact AS
+SELECT symbol,
+       COALESCE(NULLIF(qty_text, ''), CAST(qty AS TEXT)) AS qty_text,
+       COALESCE(NULLIF(avg_cost_text, ''), CAST(avg_cost AS TEXT)) AS avg_cost_text,
+       COALESCE(NULLIF(realized_pnl_text, ''), CAST(realized_pnl AS TEXT))
+         AS realized_pnl_text,
+       last_trade_id
+FROM inventory;
 """
 
 # ==========================
@@ -160,15 +184,11 @@ def _recalc_inventory(db: sqlite3.Connection, symbol: str):
         trade_params = (sym, int(imported_basis[2]))
     rows = query_with_retry(db, f"""
         SELECT side,
-               COALESCE(NULLIF(price_text, ''), CAST(price AS TEXT)),
-               COALESCE(NULLIF(gross_qty, ''), CAST(qty AS TEXT)),
-               COALESCE(NULLIF(net_qty, ''), CAST(qty AS TEXT)),
-               COALESCE(commission_asset, ''),
-               COALESCE(NULLIF(commission_amount, ''), '0'),
-               CASE WHEN commission_value_status = 'unpriced' THEN NULL
-                    ELSE COALESCE(commission_quote, CAST(fee_quote AS TEXT)) END,
-               COALESCE(NULLIF(commission_value_status, ''), 'legacy')
-        FROM trades WHERE symbol=?{trade_filter} ORDER BY ts ASC, id ASC
+               price_text, gross_qty_text, net_qty_text,
+               commission_asset, commission_amount_text,
+               commission_quote_text, commission_value_status
+        FROM trades_exact
+        WHERE symbol=?{trade_filter} ORDER BY ts ASC, id ASC
     """, trade_params)
     executions = []
     baseline_realized = Decimal("0")
@@ -292,10 +312,8 @@ def apply_trade(con: sqlite3.Connection,
 def get_inventory_decimal(con: sqlite3.Connection, symbol: str) -> Tuple[Decimal, Decimal, Decimal]:
     sym = symbol.upper()
     rows = query_with_retry(con, """
-        SELECT COALESCE(NULLIF(qty_text, ''), CAST(qty AS TEXT)),
-               COALESCE(NULLIF(avg_cost_text, ''), CAST(avg_cost AS TEXT)),
-               COALESCE(NULLIF(realized_pnl_text, ''), CAST(realized_pnl AS TEXT))
-        FROM inventory WHERE symbol=?
+        SELECT qty_text, avg_cost_text, realized_pnl_text
+        FROM inventory_exact WHERE symbol=?
     """, (sym,))
     if not rows:
         return (Decimal("0"), Decimal("0"), Decimal("0"))
@@ -330,15 +348,10 @@ def get_executions_between(
 ) -> list[TradeExecution]:
     rows = query_with_retry(con, """
         SELECT side,
-               COALESCE(NULLIF(price_text, ''), CAST(price AS TEXT)),
-               COALESCE(NULLIF(gross_qty, ''), CAST(qty AS TEXT)),
-               COALESCE(NULLIF(net_qty, ''), CAST(qty AS TEXT)),
-               COALESCE(commission_asset, ''),
-               COALESCE(NULLIF(commission_amount, ''), '0'),
-               CASE WHEN commission_value_status = 'unpriced' THEN NULL
-                    ELSE COALESCE(commission_quote, CAST(fee_quote AS TEXT)) END,
-               COALESCE(NULLIF(commission_value_status, ''), 'legacy')
-        FROM trades
+               price_text, gross_qty_text, net_qty_text,
+               commission_asset, commission_amount_text,
+               commission_quote_text, commission_value_status
+        FROM trades_exact
         WHERE symbol=? AND ts BETWEEN ? AND ?
         ORDER BY ts ASC, id ASC
     """, (symbol.upper(), start_ms, end_ms))
@@ -362,12 +375,23 @@ def _period_summary(executions: list[TradeExecution], realized_key: str) -> Dict
     result = replay_average_cost(executions)
     buys = [trade for trade in executions if trade.side == "BUY"]
     sells = [trade for trade in executions if trade.side == "SELL"]
+    buys_base = sum((trade.gross_qty for trade in buys), Decimal("0"))
+    sells_base = sum((trade.gross_qty for trade in sells), Decimal("0"))
+    spent_quote = sum((trade.buy_cost_quote() for trade in buys), Decimal("0"))
+    received_quote = sum(
+        (trade.sell_proceeds_quote() for trade in sells), Decimal("0")
+    )
     return {
-        "buys_base": float(sum((trade.gross_qty for trade in buys), Decimal("0"))),
-        "sells_base": float(sum((trade.gross_qty for trade in sells), Decimal("0"))),
-        "spent_quote": float(sum((trade.buy_cost_quote() for trade in buys), Decimal("0"))),
-        "received_quote": float(sum((trade.sell_proceeds_quote() for trade in sells), Decimal("0"))),
+        "buys_base": float(buys_base),
+        "buys_base_text": decimal_text(buys_base),
+        "sells_base": float(sells_base),
+        "sells_base_text": decimal_text(sells_base),
+        "spent_quote": float(spent_quote),
+        "spent_quote_text": decimal_text(spent_quote),
+        "received_quote": float(received_quote),
+        "received_quote_text": decimal_text(received_quote),
         realized_key: float(result.realized_pnl),
+        f"{realized_key}_text": decimal_text(result.realized_pnl),
     }
 
 def monthly_summary(con: sqlite3.Connection, symbol: str, year: int, month: int) -> Dict:

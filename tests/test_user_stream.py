@@ -4,7 +4,7 @@ import json
 from pathlib import Path
 
 import pytest
-from websocket import WebSocketTimeoutException
+from websocket import WebSocketException, WebSocketTimeoutException
 
 from ladder_dragon.execution.user_stream import (
     BinanceUserDataObserver,
@@ -83,6 +83,11 @@ def test_mailbox_deduplicates_events_and_consumes_only_requested_order():
 
     assert mailbox.put(first) is True
     assert mailbox.put(first) is False
+    replayed_with_different_envelope_time = parse_order_signal(
+        execution_report(E=first.event_time_ms + 5)
+    )
+    assert replayed_with_different_envelope_time is not None
+    assert mailbox.put(replayed_with_different_envelope_time) is False
     assert mailbox.put(second) is True
     assert mailbox.consume_for([123]) == [first]
     assert mailbox.consume_for([123]) == []
@@ -172,6 +177,69 @@ def test_observer_writes_sanitized_state_and_queues_order_event(tmp_path):
     assert "public-api-key" not in state_text
     assert "private-secret" not in state_text
     assert json.loads(state_text)["order_events"] == 1
+
+
+def test_out_of_order_event_only_wakes_authoritative_rest_reconciliation(tmp_path):
+    connection = FakeConnection([
+        {"status": 200, "result": {"subscriptionId": 0}},
+        execution_report(E=1_700_000_000_020, i=123),
+        execution_report(E=1_700_000_000_010, i=124, t=457),
+        {"event": {"e": "eventStreamTerminated", "E": 1}},
+    ])
+    mailbox = OrderEventMailbox()
+    observer = BinanceUserDataObserver(
+        api_key="key",
+        api_secret="secret",
+        rest_base_url="https://api.binance.com",
+        mailbox=mailbox,
+        logger=lambda message: None,
+        state_path=tmp_path / "stream.json",
+        connect=lambda *args, **kwargs: connection,
+    )
+
+    with pytest.raises(RuntimeError, match="ended"):
+        observer._observe_connection()
+
+    events = mailbox.consume_for([123, 124])
+    assert len(events) == 2
+    assert reconciliation_due(0, 5, events) is True
+    state = observer.state()
+    assert state["out_of_order_events"] == 1
+    assert state["last_exchange_event_time_ms"] == 1_700_000_000_020
+
+
+def test_observer_reconnects_after_transport_failure_without_disabling_rest(tmp_path):
+    attempts = []
+    mailbox = OrderEventMailbox()
+    observer = None
+
+    def connect(*args, **kwargs):
+        attempts.append(1)
+        if len(attempts) == 1:
+            raise WebSocketException("temporary disconnect")
+        assert observer is not None
+        observer._stop.set()
+        return FakeConnection([
+            {"status": 200, "result": {"subscriptionId": 0}},
+        ])
+
+    observer = BinanceUserDataObserver(
+        api_key="key",
+        api_secret="secret",
+        rest_base_url="https://api.binance.com",
+        mailbox=mailbox,
+        logger=lambda message: None,
+        state_path=tmp_path / "stream.json",
+        connect=connect,
+    )
+    observer._stop.wait = lambda delay: False
+
+    observer._run()
+
+    assert len(attempts) == 2
+    assert observer.state()["reconnects"] == 1
+    assert observer.state()["connection_attempts"] == 2
+    assert reconciliation_due(5, 5, []) is True
 
 
 def test_invalid_or_terminated_stream_cannot_authorize_an_order(tmp_path):

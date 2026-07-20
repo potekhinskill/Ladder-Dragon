@@ -3,6 +3,32 @@
 All notable changes are documented here. Releases use Semantic Versioning; every
 section is dated and there is intentionally no `Unreleased` section.
 
+## [2.16.0] — 2026-07-20
+
+### Added
+- Added migration 006 with authoritative exact-accounting views and
+  compatibility triggers that populate exact text for legacy writers.
+- Added a read-only compatibility retirement audit for old configuration paths
+  and incomplete exact-accounting rows.
+- Added User Data Stream diagnostics for connection attempts and out-of-order
+  events, including dashboard visibility.
+- Added reconnect, duplicate/out-of-order and periodic REST-fallback regression
+  coverage for the notification-only User Data Stream.
+
+### Changed
+- Binance account balances, reconstructed average entry and its worker cache now
+  remain `Decimal` through the protection boundary.
+- AI fill attribution no longer converts price, quantity, fee or slippage
+  through binary float.
+- Statistics, VWAP tuning and dashboard trade readers now select authoritative
+  exact text values; numeric conversion remains only at public compatibility
+  output boundaries.
+
+### Compatibility
+- Legacy REAL columns and old Raspberry migration paths remain available in
+  2.x. They may be removed only in a future major release after the read-only
+  compatibility audit passes on the deployed host.
+
 ## [2.15.0] — 2026-07-20
 
 ### Added

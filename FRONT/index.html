@@ -641,7 +641,7 @@ function updateOperations(h){
   $('#ops-watchdog').className=(watchdog.state==='active'&&watchdog.enabled)?'risk-ok':'risk-warn';
   const streams=o.user_stream?.streams||[];
   const streamText=streams.length
-    ? streams.map(s=>`${s.symbol} ${s.state} · age ${s.age_sec??'—'}s · events ${s.order_events||0} · reconnects ${s.reconnects||0}${s.last_error?' · '+s.last_error:''}`).join(', ')
+    ? streams.map(s=>`${s.symbol} ${s.state} · age ${s.age_sec??'—'}s · events ${s.order_events||0} · duplicates ${s.duplicates||0} · out-of-order ${s.out_of_order_events||0} · reconnects ${s.reconnects||0}/${s.connection_attempts||0}${s.last_error?' · '+s.last_error:''}`).join(', ')
     : tr('no_data');
   $('#ops-user-stream').textContent=streamText;
   $('#ops-user-stream').className=streams.length&&streams.every(s=>s.state==='connected'&&!s.stale&&!s.last_error)?'risk-ok':'risk-warn';

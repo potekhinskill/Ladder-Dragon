@@ -10,6 +10,7 @@ from fastapi.testclient import TestClient
 from ladder_dragon.ai.ai_runtime_status import write_runtime_status
 from ladder_dragon.ai.ai_context import AdvisorDecisionStore
 from ladder_dragon.execution.order_recovery import OrderJournal
+from bin.db_migrate import migrate
 
 
 def load_dashboard(monkeypatch):
@@ -58,7 +59,9 @@ def test_user_stream_health_is_sanitized_and_rest_authoritative(
         "state": "connected",
         "order_events": 3,
         "duplicates": 1,
+        "out_of_order_events": 4,
         "reconnects": 2,
+        "connection_attempts": 5,
         "last_error": None,
         "last_event_at": 100.0,
         "last_order_event_at": 99.0,
@@ -75,7 +78,9 @@ def test_user_stream_health_is_sanitized_and_rest_authoritative(
     assert row["stale"] is False
     assert row["order_events"] == 3
     assert row["duplicates"] == 1
+    assert row["out_of_order_events"] == 4
     assert row["reconnects"] == 2
+    assert row["connection_attempts"] == 5
     assert "api" not in json.dumps(payload).lower()
 
 
@@ -93,6 +98,35 @@ def test_user_stream_snapshot_becomes_stale_after_threshold(tmp_path, monkeypatc
     assert row["state"] == "stale"
     assert row["reported_state"] == "connected"
     assert row["stale"] is True
+
+
+def test_trade_api_reads_authoritative_exact_accounting_values(tmp_path, monkeypatch):
+    database = tmp_path / "stats.db"
+    migrate(str(database))
+    now_ms = int(datetime.now(timezone.utc).timestamp() * 1000)
+    with sqlite3.connect(database) as connection:
+        connection.execute(
+            "INSERT INTO trades(symbol,side,price,qty,fee_quote,ts,trade_id,"
+            "price_text,gross_qty,net_qty,commission_asset,"
+            "commission_amount,commission_quote,commission_value_status) "
+            "VALUES('SOLUSDT','BUY',1,1,1,?,1,'75.125','0.125','0.125',"
+            "'USDT','0.01','0.01','exact')",
+            (now_ms,),
+        )
+    monkeypatch.setenv("BOT_STATS_DB", str(database))
+    module = load_dashboard(monkeypatch)
+
+    with TestClient(module.app) as client:
+        response = client.get(
+            "/api/trades/recent?limit=1",
+            headers={"Authorization": "Bearer test-secret-token"},
+        )
+
+    assert response.status_code == 200
+    row = response.json()["rows"][0]
+    assert row["price"] == 75.125
+    assert row["qty"] == 0.125
+    assert row["fee_quote"] == 0.01
 
 
 def test_throttling_uses_fresh_sanitized_watchdog_probe(tmp_path, monkeypatch):

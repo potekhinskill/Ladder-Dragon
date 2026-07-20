@@ -17,7 +17,7 @@ Binance Spot. It builds BUY/SELL grids, uses ATR/EMA/VWAP/ADX regimes, manages
 OCO protection, and records trading statistics in SQLite. Production secrets,
 real backups, and private parameters are never committed.
 
-Current product version: **2.15.0**. The single version source is
+Current product version: **2.16.0**. The single version source is
 `product_version.py`; releases follow [Semantic Versioning](https://semver.org/).
 Project contact: [LinkedIn](https://www.linkedin.com/in/ypotekhin/).
 
@@ -33,7 +33,7 @@ Project contact: [LinkedIn](https://www.linkedin.com/in/ypotekhin/).
 ## Project status
 
 Ladder Dragon is an actively developed, experimental trading system. Version
-**2.15.0** is the current prepared release. `main` is the only long-lived branch;
+**2.16.0** is the current prepared release. `main` is the only long-lived branch;
 feature branches use the `ladderdragon/*` namespace.
 
 DRY and Binance Spot Testnet are the supported starting modes. Mainnet LIVE is
@@ -300,6 +300,19 @@ remainder strictly below `LOT_SIZE.stepSize` is recorded as unmanaged dust and
 is never assigned an invented price. Importing a basis does not automatically
 enable holdings SELL or OCO management.
 
+Migration 006 keeps exact text accounting authoritative while 2.x continues to
+write compatibility REAL columns for older consumers. Before a future major
+release removes those columns or old Raspberry configuration paths, run the
+read-only retirement audit on the deployed host:
+
+```bash
+PYTHONPATH=. .venv/bin/python -m bin.audit_legacy_compatibility \
+  --stats-db /home/bot/apps/binance_bot/db/bot_stats.db
+```
+
+Exit status 2 means removal is unsafe. The command never edits the database or
+deletes a legacy file.
+
 ### Archived order-book calibration
 
 Binance's [official downloadable Spot public data](https://github.com/binance/binance-public-data)
@@ -373,7 +386,8 @@ order check early, but it cannot place, cancel, protect, close, or account for a
 order. Authenticated REST reconciliation remains authoritative and continues on
 its normal interval when events are duplicated, late, missing, or the stream is
 disconnected. The dashboard shows per-symbol connection state, snapshot age,
-order-event count, duplicate count, reconnects and sanitized error class. A
+order-event count, duplicate and out-of-order counts, connection attempts,
+reconnects and sanitized error class. A
 snapshot older than `DASHBOARD_USER_STREAM_STALE_SEC` (180 seconds by default)
 is explicitly marked stale even if its last stored state said `connected`.
 
@@ -444,6 +458,8 @@ the services, and waits for a fresh heartbeat.
 - retain only the four tested broad exception boundaries: panic fail-closed,
   gap-watchdog fail-closed, filled-BUY protection, and post-mutation Mainnet
   canary containment;
+- run `bin.audit_legacy_compatibility` on every deployed host before proposing a
+  major release that removes REAL accounting columns or legacy configuration;
 - run controlled long Testnet soak tests after executor or risk changes.
 
 The local gap-watchdog drill is network-free and never creates an exchange

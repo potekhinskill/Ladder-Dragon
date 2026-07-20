@@ -527,21 +527,34 @@ def get_vwap_cached(symbol: str,
     return vwap
 
 # Average position entry from /myTrades (cached).
-_AVG_CACHE: Dict[str, Dict[str, float]] = {}
+_AVG_CACHE: Dict[str, Dict[str, object]] = {}
 
-def avg_entry(symbol: str, cache_ttl: int = 30, lookback: int = 1000) -> Optional[float]:
+def avg_entry(
+    symbol: str,
+    cache_ttl: int = 30,
+    lookback: int = 1000,
+) -> Optional[Decimal]:
     base, quote = get_symbol_assets(symbol)
     bals = get_balances()
-    pos_free = float(bals.get(base, {}).get("free", 0.0))
-    pos_locked = float(bals.get(base, {}).get("locked", 0.0))
+    pos_free = Decimal(str(bals.get(base, {}).get("free", "0") or "0"))
+    pos_locked = Decimal(str(bals.get(base, {}).get("locked", "0") or "0"))
     pos = pos_free + pos_locked
-    if pos <= 0:
+    if not pos.is_finite() or pos <= 0:
         return None
 
     ent = _AVG_CACHE.get(symbol)
-    now_ts = time.time()
-    if ent and (now_ts - ent.get("ts", 0)) < cache_ttl and ent.get("pos", 0.0) > 0:
-        return float(ent.get("avg", 0.0))
+    now_ns = time.monotonic_ns()
+    if ent:
+        cached_at_ns = int(ent.get("ts_ns", 0) or 0)
+        cached_position = Decimal(str(ent.get("pos", "0") or "0"))
+        cached_average = Decimal(str(ent.get("avg", "0") or "0"))
+        if (
+            now_ns - cached_at_ns < max(0, cache_ttl) * 1_000_000_000
+            and cached_position > 0
+            and cached_average.is_finite()
+            and cached_average > 0
+        ):
+            return cached_average
 
     try:
         trades = _signed_request("GET", "/api/v3/myTrades", {"symbol": symbol, "limit": lookback}) or []
@@ -591,8 +604,12 @@ def avg_entry(symbol: str, cache_ttl: int = 30, lookback: int = 1000) -> Optiona
     if result.qty <= 0:
         return None
     avg_px = result.avg_cost
-    _AVG_CACHE[symbol] = {"ts": now_ts, "avg": float(avg_px), "pos": float(result.qty)}
-    return float(avg_px)
+    _AVG_CACHE[symbol] = {
+        "ts_ns": now_ns,
+        "avg": str(avg_px),
+        "pos": str(result.qty),
+    }
+    return avg_px
 
 # --- PANIC state ---
 
@@ -768,7 +785,7 @@ def update_panic_state(symbol: str,
                        ema20: float | None,
                        atr: float | None,
                        prev_close: float | None,
-                       avg_entry_px: float | None,
+                       avg_entry_px: object | None,
                        panic_drop_pct: float = 0.02,
                        panic_k_atr: float = 2.0,
                        debounce_checks: int = 2,
@@ -799,7 +816,7 @@ def update_panic_state(symbol: str,
         if ema20 is not None and atr is not None and atr > 0:
             recovered_ema = now_px >= (ema20 - 1.0 * atr)
         if avg_entry_px is not None:
-            recovered_avg = now_px >= avg_entry_px
+            recovered_avg = Decimal(str(now_px)) >= Decimal(str(avg_entry_px))
         if (now_ts - float(s.get("since", 0.0)) >= cooldown_sec) and (recovered_ema or recovered_avg):
             s["on"] = False
             s["hits"] = 0
@@ -982,7 +999,7 @@ def min_notional(symbol: str, p: float) -> float:
 def get_price(symbol: str) -> float:
     return market_get_price(symbol, public_get=_public_get, logger=log)
 
-def get_balances() -> Dict[str, Dict[str, float]]:
+def get_balances() -> Dict[str, Dict[str, Decimal]]:
     return market_get_balances(signed_request=_signed_request)
 
 def get_symbol_assets(symbol: str) -> Tuple[str, str]:
@@ -1432,7 +1449,7 @@ def _commission_quote_value(
 
 def _holdings_cost_basis_covered(
     symbol: str,
-    balances: Dict[str, Dict[str, float]],
+    balances: Dict[str, Dict[str, Decimal]],
 ) -> Optional[Decimal]:
     """Require full quantity/provenance coverage before normal holdings SELL."""
     try:
@@ -1547,8 +1564,8 @@ def _stats_poll_mytrades_once(symbol: str):
                 )
                 if mapping is None:
                     store.record_unresolved_fill(
-                        symbol=symbol, side=fill["side"], price=float(fill["price"]),
-                        qty=float(fill["qty"]), fee_quote=float(fill["fee_quote"]),
+                        symbol=symbol, side=fill["side"], price=fill["price"],
+                        qty=fill["qty"], fee_quote=fill["fee_quote"],
                         ts=int(fill["ts"] / 1000), order_id=order_id,
                         trade_id=fill.get("trade_id"),
                         reason="exchange_order_id_not_mapped_to_decision",
@@ -1561,10 +1578,12 @@ def _stats_poll_mytrades_once(symbol: str):
                     decision_id = mapping["decision_id"]
                     client_order_id = mapping["client_order_id"]
                     leg_type = mapping["leg_type"]
-                    expected_price = mapping.get("expected_price")
-                    fill_price = float(fill["price"])
-                    fill_qty = float(fill["qty"])
-                    slippage_quote = 0.0
+                    expected_price = Decimal(str(
+                        mapping.get("expected_price_text") or "0"
+                    ))
+                    fill_price = Decimal(str(fill["price"]))
+                    fill_qty = Decimal(str(fill["qty"]))
+                    slippage_quote = Decimal("0")
                     if expected_price and expected_price > 0:
                         slippage_quote = (
                             (fill_price - expected_price) * fill_qty
@@ -1580,12 +1599,15 @@ def _stats_poll_mytrades_once(symbol: str):
                     store.record_fill(
                         decision_id, symbol=symbol, side=fill["side"],
                         price=fill_price, qty=fill_qty,
-                        fee_quote=float(fill["fee_quote"]),
+                        fee_quote=fill["fee_quote"],
                         ts=int(fill["ts"] / 1000), order_id=order_id,
                         trade_id=fill.get("trade_id"),
                         client_order_id=client_order_id,
                         leg_type=leg_type, exit_reason=exit_reason,
-                        slippage_quote=slippage_quote + float(fill.get("slippage_quote", 0) or 0),
+                        slippage_quote=(
+                            slippage_quote
+                            + Decimal(str(fill.get("slippage_quote", "0") or "0"))
+                        ),
                     )
                     # Update realized_execution after every actual fill. The record
                     # stays open until the final SELL; only after the last TP/STOP

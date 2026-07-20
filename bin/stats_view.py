@@ -5,6 +5,7 @@
 # Purpose: inspect stored trade statistics.
 
 import os, sys, argparse, sqlite3, time
+from decimal import Decimal
 from typing import List
 
 # tools_stats.py — project statistics module.
@@ -39,10 +40,7 @@ def print_inventory(con: sqlite3.Connection, symbols: List[str]) -> None:
     print("\n=== Inventory (qty, avg_price, realized_pnl) ===")
     for s in symbols:
         try:
-            qty, avg_price, realized = ts.get_inventory(con, s)
-            qty = 0.0 if qty is None else qty
-            avg_price = 0.0 if avg_price is None else avg_price
-            realized = 0.0 if realized is None else realized
+            qty, avg_price, realized = ts.get_inventory_decimal(con, s)
             print(f"{s:10s}  qty={qty:.10f}  avg={avg_price:.8f}  realized_pnl={realized:.2f}")
         except (sqlite3.Error, ArithmeticError, TypeError, ValueError) as e:
             print(f"{s:10s}  <no data> ({e})")
@@ -55,12 +53,10 @@ def print_last_trades(con: sqlite3.Connection, symbols: List[str], limit: int, u
         q = f"""
             SELECT {ts_expr(utc)} AS ts_str,
                 symbol, side,
-                CAST(COALESCE(qty,0.0)       AS REAL) AS qty,
-                CAST(COALESCE(price,0.0)     AS REAL) AS price,
-                CAST(COALESCE(fee_quote,0.0) AS REAL) AS fee_quote
-            FROM trades
+                gross_qty_text, price_text, commission_quote_text
+            FROM trades_exact
             WHERE symbol=?
-            ORDER BY trades.ts DESC
+            ORDER BY ts DESC
             LIMIT ?;
         """
         try:
@@ -69,7 +65,13 @@ def print_last_trades(con: sqlite3.Connection, symbols: List[str], limit: int, u
                 print("  (empty)")
                 continue
             for dt, sym, side, qty, price, fee in rows:
-                print(f"  {dt}  {str(side):<4s}  qty={qty:.10f}  price={price:.8f}  fee_q={fee:.6f}")
+                qty_d = Decimal(str(qty))
+                price_d = Decimal(str(price))
+                fee_text = "unpriced" if fee is None else f"{Decimal(str(fee)):.6f}"
+                print(
+                    f"  {dt}  {str(side):<4s}  qty={qty_d:.10f}  "
+                    f"price={price_d:.8f}  fee_q={fee_text}"
+                )
         except (sqlite3.Error, ArithmeticError, TypeError, ValueError) as e:
             print("  error:", e)
 
@@ -102,17 +104,21 @@ def print_global_last(con: sqlite3.Connection, limit: int, utc: bool) -> None:
     q = f"""
         SELECT {ts_expr(utc)} AS ts_str,
             symbol, side,
-            CAST(COALESCE(qty,0.0)       AS REAL) AS qty,
-            CAST(COALESCE(price,0.0)     AS REAL) AS price,
-            CAST(COALESCE(fee_quote,0.0) AS REAL) AS fee_quote
-        FROM trades
-        ORDER BY trades.ts DESC
+            gross_qty_text, price_text, commission_quote_text
+        FROM trades_exact
+        ORDER BY ts DESC
         LIMIT ?;
     """
     cur = con.cursor()
     try:
         for dt, sym, side, qty, price, fee in cur.execute(q, (limit,)):
-            print(f"  {dt}  {sym:10s} {str(side):<4s} qty={qty:.10f} price={price:.8f} fee_q={fee:.6f}")
+            qty_d = Decimal(str(qty))
+            price_d = Decimal(str(price))
+            fee_text = "unpriced" if fee is None else f"{Decimal(str(fee)):.6f}"
+            print(
+                f"  {dt}  {sym:10s} {str(side):<4s} qty={qty_d:.10f} "
+                f"price={price_d:.8f} fee_q={fee_text}"
+            )
     except (sqlite3.Error, ArithmeticError, TypeError, ValueError) as e:
         print("  error:", e)
 

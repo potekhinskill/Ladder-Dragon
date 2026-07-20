@@ -5,6 +5,7 @@
 
 from __future__ import annotations
 
+from decimal import Decimal
 from typing import Any, Callable, Dict, MutableMapping, Tuple
 
 import requests
@@ -55,14 +56,18 @@ def get_price(
 def get_balances(
     *,
     signed_request: Callable[..., Any],
-) -> Dict[str, Dict[str, float]]:
-    """Return balances."""
+) -> Dict[str, Dict[str, Decimal]]:
+    """Return exact account balances as decimals."""
     payload = signed_request("GET", "/api/v3/account")
-    balances: Dict[str, Dict[str, float]] = {}
+    balances: Dict[str, Dict[str, Decimal]] = {}
     for row in payload.get("balances", []):
+        free = Decimal(str(row.get("free", "0") or "0"))
+        locked = Decimal(str(row.get("locked", "0") or "0"))
+        if not free.is_finite() or not locked.is_finite() or free < 0 or locked < 0:
+            raise ValueError("Binance returned an invalid account balance")
         balances[row.get("asset")] = {
-            "free": float(row.get("free", 0)),
-            "locked": float(row.get("locked", 0)),
+            "free": free,
+            "locked": locked,
         }
     return balances
 

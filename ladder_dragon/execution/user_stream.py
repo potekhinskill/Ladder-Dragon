@@ -56,7 +56,6 @@ class OrderStreamSignal:
             self.execution_type,
             self.order_status,
             self.cumulative_quantity,
-            self.event_time_ms,
         )
 
 
@@ -207,8 +206,11 @@ class BinanceUserDataObserver:
             "last_event_at": None,
             "last_order_event_at": None,
             "reconnects": 0,
+            "connection_attempts": 0,
             "order_events": 0,
             "duplicates": 0,
+            "out_of_order_events": 0,
+            "last_exchange_event_time_ms": None,
             "last_error": None,
         }
 
@@ -274,6 +276,9 @@ class BinanceUserDataObserver:
             pass
 
     def _observe_connection(self) -> None:
+        self._set_state(
+            connection_attempts=int(self._state["connection_attempts"]) + 1,
+        )
         connection = self._connector()(self.url, timeout=10)
         self._connection = connection
         request = signed_subscription_request(
@@ -315,11 +320,23 @@ class BinanceUserDataObserver:
             )
             if signal is None:
                 continue
+            previous_event_time = self._state.get("last_exchange_event_time_ms")
+            out_of_order = (
+                previous_event_time is not None
+                and signal.event_time_ms < int(previous_event_time)
+            )
             accepted = self.mailbox.put(signal)
             self._set_state(
                 last_order_event_at=now,
                 order_events=int(self._state["order_events"]) + int(accepted),
                 duplicates=int(self._state["duplicates"]) + int(not accepted),
+                out_of_order_events=(
+                    int(self._state["out_of_order_events"])
+                    + int(out_of_order and accepted)
+                ),
+                last_exchange_event_time_ms=max(
+                    int(previous_event_time or 0), signal.event_time_ms
+                ),
             )
 
     def _set_state(self, **updates: object) -> None:

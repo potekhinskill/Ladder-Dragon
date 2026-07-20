@@ -272,7 +272,13 @@ def _user_stream_snapshot(runtime: Dict[str, object]) -> Dict[str, object]:
                 "age_sec": age_sec,
                 "order_events": int(payload.get("order_events") or 0),
                 "duplicates": int(payload.get("duplicates") or 0),
+                "out_of_order_events": int(
+                    payload.get("out_of_order_events") or 0
+                ),
                 "reconnects": int(payload.get("reconnects") or 0),
+                "connection_attempts": int(
+                    payload.get("connection_attempts") or 0
+                ),
                 "last_error": (
                     str(payload.get("last_error"))
                     if payload.get("last_error") else None
@@ -291,7 +297,9 @@ def _user_stream_snapshot(runtime: Dict[str, object]) -> Dict[str, object]:
                 "age_sec": None,
                 "order_events": 0,
                 "duplicates": 0,
+                "out_of_order_events": 0,
                 "reconnects": 0,
+                "connection_attempts": 0,
                 "last_error": None,
                 "last_event_at": None,
                 "last_order_event_at": None,
@@ -354,13 +362,14 @@ def _load_trades(con: sqlite3.Connection, symbols: Optional[List[str]] = None) -
         sym_filter = f" AND symbol IN ({qs})"
         args.extend(symbols)
 
-    # Older installations may lack fee_quote; COALESCE it to zero.
+    # Migration 006 exposes exact text as the authoritative accounting source.
+    # Numeric JSON conversion happens only after the exact value is selected.
     sql = f"""
     SELECT
-      symbol, side, price, qty,
-      COALESCE(fee_quote, 0.0) AS fee_quote,
+      symbol, side, price_text AS price, gross_qty_text AS qty,
+      COALESCE(commission_quote_text, '0') AS fee_quote,
       CASE WHEN ts>1000000000000 THEN CAST(ts/1000 AS INTEGER) ELSE CAST(ts AS INTEGER) END AS ts_s
-    FROM trades
+    FROM trades_exact
     WHERE 1=1 {sym_filter}
     ORDER BY ts_s ASC
     """
@@ -2207,10 +2216,10 @@ def trades_recent(limit: int = 20, symbols: str = ""):
             sym_filter = f" AND symbol IN ({qs})"
             args.extend(syms)
         sql = f"""
-        SELECT symbol, side, price, qty,
-               COALESCE(fee_quote, 0.0) AS fee_quote,
+        SELECT symbol, side, price_text AS price, gross_qty_text AS qty,
+               COALESCE(commission_quote_text, '0') AS fee_quote,
                CASE WHEN ts>1000000000000 THEN CAST(ts/1000 AS INTEGER) ELSE CAST(ts AS INTEGER) END AS ts_s
-        FROM trades
+        FROM trades_exact
         WHERE 1=1 {sym_filter}
         ORDER BY ts_s DESC
         LIMIT ?
@@ -2218,6 +2227,9 @@ def trades_recent(limit: int = 20, symbols: str = ""):
         args.append(limit)
         rows = [dict(r) for r in con.execute(sql, args).fetchall()]
         for r in rows:
+            r["price"] = float(Decimal(str(r["price"])))
+            r["qty"] = float(Decimal(str(r["qty"])))
+            r["fee_quote"] = float(Decimal(str(r["fee_quote"])))
             r["time"] = datetime.fromtimestamp(int(r["ts_s"]), APP_TZ).strftime("%Y-%m-%d %H:%M:%S")
         return JSONResponse({"ok": True, "rows": rows})
     finally:
@@ -2248,10 +2260,10 @@ def _select_filled_orders(hours: int, syms: Optional[List[str]], limit: int) -> 
 
         sql = f"""
         SELECT
-          symbol, side, price, qty,
-          COALESCE(fee_quote, 0.0) AS fee_quote,
+          symbol, side, price_text AS price, gross_qty_text AS qty,
+          COALESCE(commission_quote_text, '0') AS fee_quote,
           CASE WHEN ts>1000000000000 THEN CAST(ts/1000 AS INTEGER) ELSE CAST(ts AS INTEGER) END AS ts_s
-        FROM trades
+        FROM trades_exact
         WHERE 1=1 {sym_filter}
           AND (CASE WHEN ts>1000000000000 THEN CAST(ts/1000 AS INTEGER) ELSE CAST(ts AS INTEGER) END) >= ?
         ORDER BY ts_s DESC

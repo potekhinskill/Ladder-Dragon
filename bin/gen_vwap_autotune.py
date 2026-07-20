@@ -12,6 +12,7 @@ import json
 import os
 import sqlite3
 import sys
+from decimal import Decimal
 from pathlib import Path
 from typing import Dict, Iterable, List, Optional, Tuple
 
@@ -64,26 +65,30 @@ def save_values(path: Optional[str], values: Dict[str, Dict[str, float]]) -> Non
             pass
 
 
-def compute_fifo_pnl(rows: Iterable[Tuple[str, float, float, float]]) -> float:
-    inv = 0.0
-    avg = 0.0
-    realized = 0.0
+def compute_fifo_pnl(rows: Iterable[Tuple[str, object, object, object]]) -> float:
+    """Return a compatibility float after exact FIFO arithmetic."""
+    inv = Decimal("0")
+    avg = Decimal("0")
+    realized = Decimal("0")
     for side, price, qty, fee in rows:
-        price = float(price)
-        qty = float(qty)
-        fee = float(fee)
+        price = Decimal(str(price))
+        qty = Decimal(str(qty))
+        fee = Decimal(str(fee))
         if side == "BUY":
             new_inv = inv + qty
-            avg = (avg * inv + price * qty + fee) / max(new_inv, 1e-12)
+            avg = (
+                (avg * inv + price * qty + fee) / new_inv
+                if new_inv > 0 else Decimal("0")
+            )
             inv = new_inv
         else:
-            qty_eff = min(qty, inv) if inv > 0 else 0.0
+            qty_eff = min(qty, inv) if inv > 0 else Decimal("0")
             realized += (price - avg) * qty_eff - fee
             inv -= qty_eff
-            if inv <= 1e-12:
-                inv = 0.0
-                avg = 0.0
-    return realized
+            if inv <= Decimal("1e-18"):
+                inv = Decimal("0")
+                avg = Decimal("0")
+    return float(realized)
 
 
 def get_stats(symbol: str,
@@ -98,14 +103,10 @@ def get_stats(symbol: str,
     rows = conn.execute(
         """
         SELECT ts, side,
-               COALESCE(NULLIF(price_text, ''), CAST(price AS TEXT)),
-               COALESCE(NULLIF(gross_qty, ''), CAST(qty AS TEXT)),
-               COALESCE(NULLIF(net_qty, ''), CAST(qty AS TEXT)),
-               commission_asset, commission_amount,
-               CASE WHEN commission_value_status='unpriced' THEN NULL
-                    ELSE COALESCE(NULLIF(commission_quote, ''), CAST(fee_quote AS TEXT)) END,
-               COALESCE(NULLIF(commission_value_status, ''), 'legacy')
-        FROM trades WHERE symbol=? AND ts<=? ORDER BY ts, id
+               price_text, gross_qty_text, net_qty_text,
+               commission_asset, commission_amount_text,
+               commission_quote_text, commission_value_status
+        FROM trades_exact WHERE symbol=? AND ts<=? ORDER BY ts, id
         """,
         (symbol.upper(), int(time.time() * 1000)),
     ).fetchall()
