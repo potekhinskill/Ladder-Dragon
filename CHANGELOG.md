@@ -3,6 +3,40 @@
 All notable changes are documented here. Releases use Semantic Versioning; every
 section is dated and there is intentionally no `Unreleased` section.
 
+## [2.19.0] — 2026-07-20
+
+### Added
+- AI decisions now persist authoritative exact text for decision price and all
+  settled horizon returns. Existing AI databases are backfilled in place while
+  retaining REAL columns strictly as compatibility mirrors.
+- AI trade, portfolio and realized-performance models expose exact text
+  companions for all quote-currency fields used in accounting and policy
+  telemetry.
+- Exact depth-weighted conversion, stress-loss and marginal-risk helpers now
+  preserve `Decimal` values until explicit analytics or JSON boundaries.
+
+### Changed
+- Realized AI PnL, average PnL, opportunity cost and confidence intervals are
+  accumulated with exact arithmetic; public numeric fields remain compatible.
+- Worker fee, breakeven and minimum profitable-exit calculations no longer pass
+  through binary floats before LIMIT/OCO price construction.
+- Supervisor cross-asset valuation, stablecoin haircut, per-symbol exposure,
+  stress loss and gap-risk money use exact arithmetic. EMA/ATR/VWAP,
+  confidence, timing and covariance analytics intentionally remain float.
+
+### Safety
+- The migration is additive and restart-safe for deployed Raspberry databases.
+  Exact text is authoritative, and no existing AI decisions or compatibility
+  columns are removed.
+- REST reconciliation, exchange filters, hard CAP and AI SHADOW gates are
+  unchanged.
+
+### Verified
+- Exact persistence, legacy backfill, settlement return, depth conversion and
+  stress-loss tests cover values beyond binary-float precision.
+- All 406 tests pass. Compileall, shell syntax, dependency consistency, PyPI
+  vulnerability audit, tracked-secret scan and English-source checks pass.
+
 ## [2.18.1] — 2026-07-20
 
 ### Changed

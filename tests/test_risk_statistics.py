@@ -1,6 +1,14 @@
 import pytest
 
-from ladder_dragon.risk.risk_statistics import correlated_symbols, rolling_correlation, stress_exposure
+from decimal import Decimal
+
+from ladder_dragon.risk.risk_statistics import (
+    conversion_price_decimal,
+    correlated_symbols,
+    rolling_correlation,
+    stress_exposure,
+    stress_loss_decimal,
+)
 
 
 def test_rolling_correlation_detects_common_shock():
@@ -16,3 +24,16 @@ def test_stress_exposure_is_explicit_and_reproducible():
     assert stress_exposure(1000, (-0.30, -0.10, 0.10)) == pytest.approx(
         [700, 900, 1100]
     )
+
+
+def test_financial_risk_helpers_preserve_decimal_precision():
+    price = conversion_price_decimal(
+        asset_qty="0.3", side="SELL",
+        bids=[("10.000000000000000001", "0.1"), ("9.9", "0.2")],
+        asks=[], fee_pct="0.001",
+    )
+    assert price == Decimal("9.923400000000000000333")
+    assert stress_loss_decimal(
+        {"SOLUSDT": "123.456789123456789"},
+        price_shock="-0.05", spread_widening="0.01",
+    ) == Decimal("7.40740734740740734")

@@ -8,8 +8,22 @@ from __future__ import annotations
 from math import sqrt
 from statistics import NormalDist
 from typing import Iterable, Mapping, Sequence
+from decimal import Decimal, InvalidOperation
 import json
 from pathlib import Path
+
+
+ZERO = Decimal("0")
+
+
+def _decimal(value: object, *, field: str) -> Decimal:
+    try:
+        result = Decimal(str(value))
+    except (InvalidOperation, TypeError, ValueError) as exc:
+        raise ValueError(f"{field} is not a decimal") from exc
+    if not result.is_finite():
+        raise ValueError(f"{field} must be finite")
+    return result
 
 
 def log_returns(prices: Sequence[float]) -> list[float]:
@@ -111,8 +125,23 @@ def covariance_var(
 
 def stress_loss(exposures: Mapping[str, float], *, price_shock: float = -0.05, spread_widening: float = 0.01) -> float:
     """Handle stress loss."""
-    gross = sum(max(0.0, float(value)) for value in exposures.values())
-    return gross * (max(0.0, -price_shock) + max(0.0, spread_widening))
+    return float(stress_loss_decimal(
+        exposures, price_shock=price_shock, spread_widening=spread_widening
+    ))
+
+
+def stress_loss_decimal(
+    exposures: Mapping[str, object], *, price_shock: object = "-0.05",
+    spread_widening: object = "0.01",
+) -> Decimal:
+    """Return an exact quote-currency stress loss."""
+    gross = sum(
+        (max(ZERO, _decimal(value, field="exposure")) for value in exposures.values()),
+        ZERO,
+    )
+    shock = max(ZERO, -_decimal(price_shock, field="price shock"))
+    spread = max(ZERO, _decimal(spread_widening, field="spread widening"))
+    return gross * (shock + spread)
 
 
 def expected_shortfall(losses: Sequence[float], *, confidence: float = 0.99) -> float:
@@ -130,25 +159,55 @@ def marginal_risk_contribution(exposures: Mapping[str, float], *, shock: float =
     return {symbol: max(0.0, float(value)) * max(0.0, shock) for symbol, value in exposures.items()}
 
 
+def marginal_risk_contribution_decimal(
+    exposures: Mapping[str, object], *, shock: object = "0.05",
+) -> dict[str, Decimal]:
+    """Return exact quote-currency contributions for a fixed shock."""
+    shock_exact = max(ZERO, _decimal(shock, field="risk shock"))
+    return {
+        symbol: max(ZERO, _decimal(value, field="exposure")) * shock_exact
+        for symbol, value in exposures.items()
+    }
+
+
 def conversion_price(*, asset_qty: float, side: str, bids: Sequence[tuple[float, float]],
                      asks: Sequence[tuple[float, float]], fee_pct: float = 0.0,
                      min_depth_ratio: float = 1.0) -> float:
     """Handle conversion price."""
+    return float(conversion_price_decimal(
+        asset_qty=asset_qty, side=side, bids=bids, asks=asks,
+        fee_pct=fee_pct, min_depth_ratio=min_depth_ratio,
+    ))
+
+
+def conversion_price_decimal(
+    *, asset_qty: object, side: str,
+    bids: Sequence[tuple[object, object]], asks: Sequence[tuple[object, object]],
+    fee_pct: object = "0", min_depth_ratio: object = "1",
+) -> Decimal:
+    """Calculate an exact volume-weighted conversion price from book depth."""
     levels = bids if side.upper() == "SELL" else asks
-    remaining = max(0.0, float(asset_qty))
-    notional = 0.0
-    available = sum(max(0.0, float(qty)) for _, qty in levels)
-    if remaining <= 0 or available < remaining * max(1.0, min_depth_ratio):
+    total_quantity = max(ZERO, _decimal(asset_qty, field="asset quantity"))
+    remaining = total_quantity
+    notional = ZERO
+    normalized = [
+        (_decimal(price, field="book price"), max(ZERO, _decimal(qty, field="book quantity")))
+        for price, qty in levels
+    ]
+    available = sum((qty for _, qty in normalized), ZERO)
+    depth_ratio = max(Decimal("1"), _decimal(min_depth_ratio, field="minimum depth ratio"))
+    if remaining <= ZERO or available < remaining * depth_ratio:
         raise ValueError("insufficient conversion-book depth")
-    for price, qty in levels:
-        used = min(remaining, max(0.0, float(qty)))
-        notional += used * float(price)
+    for price, quantity in normalized:
+        used = min(remaining, quantity)
+        notional += used * price
         remaining -= used
-        if remaining <= 1e-18:
+        if remaining <= ZERO:
             break
-    if remaining > 1e-18:
+    if remaining > ZERO:
         raise ValueError("conversion book exhausted")
-    return notional * max(0.0, 1.0 - float(fee_pct)) / float(asset_qty)
+    fee_multiplier = max(ZERO, Decimal("1") - _decimal(fee_pct, field="conversion fee"))
+    return notional * fee_multiplier / total_quantity
 
 
 def allocate_cap_by_marginal_risk(total_cap: float, contributions: Mapping[str, float],

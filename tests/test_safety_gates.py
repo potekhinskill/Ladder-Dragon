@@ -780,6 +780,11 @@ def test_unvalued_asset_requires_exact_ack_and_is_excluded_from_equity(tmp_path,
         raise RuntimeError("missing non-tradable pair")
 
     monkeypatch.setattr(ai_supervisor, "get_last_price", price)
+    monkeypatch.setattr(
+        ai_supervisor,
+        "get_last_price_decimal",
+        lambda symbol: Decimal(str(price(symbol))),
+    )
     monkeypatch.setattr(ai_supervisor.TM, "_signed_get", lambda *args, **kwargs: [])
     monkeypatch.setattr(
         ai_supervisor,

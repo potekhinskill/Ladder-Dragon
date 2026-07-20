@@ -65,6 +65,35 @@ def test_ai_store_persists_exact_fill_and_expected_price_text(tmp_path):
     assert expected == ("0.123456789123456789",)
 
 
+def test_ai_store_persists_exact_decision_price_and_settlement_returns(tmp_path):
+    path = tmp_path / "ai.db"
+    store = AdvisorDecisionStore(str(path))
+    decision = store.record(
+        symbol="SOLUSDT", price="0.123456789123456789",
+        deterministic_mode="FLAT", recommended_mode="UP",
+        width_scale=1, cap_scale=1, confidence=.8, applied=False,
+        now=1_000,
+    )
+    assert store.settle(
+        "SOLUSDT", "0.223456789123456789", now=20_000,
+        price_lookup=lambda _symbol, _stamp: "0.223456789123456789",
+    ) == 1
+
+    with sqlite3.connect(path) as connection:
+        row = connection.execute(
+            "SELECT price_text,return_15m_text,return_1h_text,return_4h_text "
+            "FROM ai_decisions WHERE decision_id=?",
+            (decision,),
+        ).fetchone()
+    expected_return = (
+        Decimal("0.223456789123456789")
+        / Decimal("0.123456789123456789")
+        - Decimal("1")
+    )
+    assert row[0] == "0.123456789123456789"
+    assert all(Decimal(value) == expected_return for value in row[1:])
+
+
 def test_fill_mapping_uses_exchange_order_id_and_unresolved_is_excluded(tmp_path):
     store = AdvisorDecisionStore(str(tmp_path / "ai.db"))
     decision = store.record(symbol="SOLUSDT", price=100, deterministic_mode="FLAT",
@@ -171,11 +200,28 @@ def test_legacy_ai_schema_migrates_before_new_indexes(tmp_path):
                 symbol TEXT NOT NULL, lot_id INTEGER,
                 order_type TEXT NOT NULL DEFAULT '', created_at INTEGER NOT NULL
             );
+            INSERT INTO ai_decisions(
+                decision_id,symbol,created_at,price,deterministic_mode,
+                recommended_mode,width_scale,cap_scale,confidence,applied,
+                return_1h
+            ) VALUES(
+                'legacy','SOLUSDT',strftime('%s','now'),12.5,
+                'FLAT','UP',1,1,0.8,0,0.125
+            );
             """
         )
     AdvisorDecisionStore(str(path))
     with sqlite3.connect(path) as connection:
         fill_columns = {row[1] for row in connection.execute("PRAGMA table_info(ai_fills)")}
         link_columns = {row[1] for row in connection.execute("PRAGMA table_info(ai_order_links)")}
+        decision_columns = {
+            row[1] for row in connection.execute("PRAGMA table_info(ai_decisions)")
+        }
         assert {"order_id", "trade_id", "slippage_quote"} <= fill_columns
         assert {"exchange_order_id", "expected_price"} <= link_columns
+        assert {
+            "price_text", "return_15m_text", "return_1h_text", "return_4h_text"
+        } <= decision_columns
+        assert connection.execute(
+            "SELECT price_text,return_1h_text FROM ai_decisions WHERE decision_id='legacy'"
+        ).fetchone() == ("12.5", "0.125")

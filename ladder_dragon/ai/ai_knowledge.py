@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import json
 import math
+from decimal import Decimal
 import sqlite3
 import time
 import uuid
@@ -109,7 +110,9 @@ class KnowledgeStore:
                 """
                 SELECT decision_id,symbol,created_at,deterministic_mode,
                        recommended_mode,width_scale,cap_scale,confidence,
-                       feature_json,return_1h,evaluation_json
+                       feature_json,
+                       COALESCE(NULLIF(return_1h_text,''),CAST(return_1h AS TEXT)),
+                       evaluation_json
                 FROM ai_decisions
                 WHERE feature_json!='[]' AND return_1h IS NOT NULL
                 """
@@ -130,15 +133,22 @@ class KnowledgeStore:
                 realized = evaluation.get("realized_execution", {})
                 if not isinstance(realized, dict):
                     realized = {}
-                is_real = float(realized.get("sell_qty", 0) or 0) > 0
+                sell_quantity = Decimal(str(
+                    realized.get("sell_qty_text", realized.get("sell_qty", 0)) or 0
+                ))
+                is_real = sell_quantity > 0
                 if is_real:
                     status = "validated"
                     outcome = {
                         "source": "realized_execution",
                         "return_1h": return_1h,
                         "net_pnl_quote": realized.get("net_pnl_quote"),
+                        "net_pnl_quote_text": realized.get("net_pnl_quote_text"),
                         "holding_duration_sec": realized.get("holding_duration_sec"),
                         "opportunity_cost_quote": realized.get("opportunity_cost_quote"),
+                        "opportunity_cost_quote_text": realized.get(
+                            "opportunity_cost_quote_text"
+                        ),
                     }
                 elif include_virtual:
                     virtual = evaluation.get("1h", {})

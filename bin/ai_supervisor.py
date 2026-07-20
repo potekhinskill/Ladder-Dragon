@@ -59,10 +59,10 @@ from ladder_dragon.risk.risk_statistics import (
     correlated_symbols_multi_window as derive_correlated_symbols_multi_window,
     covariance_var,
     expected_shortfall,
-    conversion_price,
+    conversion_price_decimal,
     allocate_cap_by_marginal_risk,
-    marginal_risk_contribution,
-    stress_loss,
+    marginal_risk_contribution_decimal,
+    stress_loss_decimal,
 )
 from ladder_dragon.execution.executor_stats import commission_quote_value, poll_mytrades_once
 from ladder_dragon.execution import tools_stats
@@ -123,6 +123,11 @@ def _finite_decimal(value: object, *, name: str) -> Decimal:
     if not result.is_finite():
         raise ValueError(f"{name} must be finite")
     return result
+
+
+def _analytics_float(value: object) -> float:
+    """Convert an exact value only at a non-authoritative analytics boundary."""
+    return float(_finite_decimal(value, name="analytics value"))
 
 # Rounding mode and warm start for order cleanup
 PRICE_ROUND_MODE = os.getenv("PRICE_ROUND_MODE", "nearest").lower()  # floor|ceil|nearest
@@ -653,7 +658,15 @@ def get_server_time_offset_ms() -> int:
         return 0
 
 def get_last_price(symbol: str) -> float:
-    return float(TM.get_ticker_price(symbol))
+    return _analytics_float(get_last_price_decimal(symbol))
+
+
+def get_last_price_decimal(symbol: str) -> Decimal:
+    """Return an exact positive ticker price for financial valuation."""
+    price = _finite_decimal(TM.get_ticker_price(symbol), name=f"{symbol} ticker price")
+    if price <= 0:
+        raise ValueError(f"{symbol} ticker price must be positive")
+    return price
 
 def get_24h_volume_quote(symbol: str) -> float:
     j = _public_get("/api/v3/ticker/24hr", params={"symbol": symbol})
@@ -2540,22 +2553,36 @@ def _build_risk_snapshot(
                 for quote in ("USDC", "FDUSD", "BTC", "ETH"):
                     candidate = f"{asset}{quote}"
                     try:
-                        candidate_price = get_last_price(candidate)
+                        candidate_price = get_last_price_decimal(candidate)
                         if env_flag("RISK_CONVERSION_DEPTH_REQUIRED", False):
                             depth = TM._public_get("/api/v3/depth", {"symbol": candidate, "limit": 20}) or {}
-                            bid_levels = [(float(row[0]), float(row[1])) for row in depth.get("bids", [])]
-                            ask_levels = [(float(row[0]), float(row[1])) for row in depth.get("asks", [])]
-                            candidate_price = conversion_price(asset_qty=float(qty), side="SELL",
-                                                               bids=bid_levels, asks=ask_levels,
-                                                               fee_pct=float(os.getenv("RISK_CONVERSION_FEE_PCT", "0.001")))
-                    except (RuntimeError, ValueError, KeyError):
+                            bid_levels = [(row[0], row[1]) for row in depth.get("bids", [])]
+                            ask_levels = [(row[0], row[1]) for row in depth.get("asks", [])]
+                            candidate_price = conversion_price_decimal(
+                                asset_qty=qty, side="SELL",
+                                bids=bid_levels, asks=ask_levels,
+                                fee_pct=os.getenv("RISK_CONVERSION_FEE_PCT", "0.001"),
+                            )
+                    except (
+                        RuntimeError,
+                        ValueError,
+                        KeyError,
+                        requests.RequestException,
+                    ):
                         continue
                     if candidate_price > 0:
                         if quote in stable_assets:
-                            candidate_price *= 1.0 - max(0.0, float(os.getenv("RISK_STABLECOIN_HAIRCUT_PCT", "0.002")))
+                            haircut = max(
+                                Decimal("0"),
+                                money(os.getenv("RISK_STABLECOIN_HAIRCUT_PCT", "0.002")),
+                            )
+                            candidate_price *= max(Decimal("0"), Decimal("1") - haircut)
                         else:
-                            bridge = prices.get(f"{quote}USDT") or get_last_price(f"{quote}USDT")
-                            candidate_price *= bridge
+                            bridge = (
+                                prices.get(f"{quote}USDT")
+                                or get_last_price_decimal(f"{quote}USDT")
+                            )
+                            candidate_price *= money(bridge)
                         valuation_price = candidate_price
                         prices[valuation_symbol] = valuation_price
                         break
@@ -2620,26 +2647,43 @@ def _build_risk_snapshot(
             if now_ms - int(order.get("updateTime") or order.get("time") or now_ms) > stale_limit * 1000
         )
     exposure_by_symbol = {
-        symbol: float(asset_values.get(symbol_assets(symbol)[0], Decimal("0")))
-        + sum(float(money(order.get("price")) * money(order.get("origQty")))
-              for order in orders if str(order.get("symbol", "")).upper() == symbol
-              and str(order.get("side", "")).upper() == "BUY")
+        symbol: asset_values.get(symbol_assets(symbol)[0], Decimal("0"))
+        + sum(
+            (money(order.get("price")) * money(order.get("origQty"))
+             for order in orders if str(order.get("symbol", "")).upper() == symbol
+             and str(order.get("side", "")).upper() == "BUY"),
+            Decimal("0"),
+        )
         for symbol in symbols
     }
-    stress = stress_loss(exposure_by_symbol,
-                         price_shock=float(os.getenv("RISK_STRESS_PRICE_SHOCK", "-0.05")),
-                         spread_widening=float(os.getenv("RISK_STRESS_SPREAD_PCT", "0.01")))
-    var_value = covariance_var(exposure_by_symbol, histories if 'histories' in locals() else {},
+    stress = stress_loss_decimal(
+        exposure_by_symbol,
+        price_shock=os.getenv("RISK_STRESS_PRICE_SHOCK", "-0.05"),
+        spread_widening=os.getenv("RISK_STRESS_SPREAD_PCT", "0.01"),
+    )
+    analytics_exposure = {
+        symbol: _analytics_float(value) for symbol, value in exposure_by_symbol.items()
+    }
+    var_value = covariance_var(analytics_exposure, histories if 'histories' in locals() else {},
                                confidence=float(os.getenv("RISK_VAR_CONFIDENCE", "0.99")))
     # Gap risk includes an overnight jump, spread widening and execution latency.
     # The gap scenario is conservatively scaled by execution delay.
-    gap_shock = abs(float(os.getenv("RISK_GAP_SHOCK_PCT", "0.10")))
-    latency_bars = max(1.0, float(os.getenv("RISK_LATENCY_BARS", "1")))
-    gap_value = sum(marginal_risk_contribution(exposure_by_symbol,
-                                                shock=gap_shock * latency_bars).values())
-    scenario_losses = [stress_loss(exposure_by_symbol, price_shock=shock,
-                                   spread_widening=float(os.getenv("RISK_STRESS_SPREAD_PCT", "0.01")))
-                       for shock in (-0.03, -0.05, -0.10, -0.15)]
+    gap_shock = abs(money(os.getenv("RISK_GAP_SHOCK_PCT", "0.10")))
+    latency_bars = max(Decimal("1"), money(os.getenv("RISK_LATENCY_BARS", "1")))
+    gap_value = sum(
+        marginal_risk_contribution_decimal(
+            exposure_by_symbol, shock=gap_shock * latency_bars
+        ).values(),
+        Decimal("0"),
+    )
+    scenario_losses_exact = [
+        stress_loss_decimal(
+            exposure_by_symbol, price_shock=shock,
+            spread_widening=os.getenv("RISK_STRESS_SPREAD_PCT", "0.01"),
+        )
+        for shock in ("-0.03", "-0.05", "-0.10", "-0.15")
+    ]
+    scenario_losses = [_analytics_float(value) for value in scenario_losses_exact]
     es_value = expected_shortfall(scenario_losses,
                                   confidence=float(os.getenv("RISK_ES_CONFIDENCE", "0.75")))
     snap = RiskSnapshot(

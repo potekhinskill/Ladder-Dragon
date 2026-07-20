@@ -22,7 +22,7 @@ from ladder_dragon.execution.trade_accounting import TradeExecution, replay_aver
 ZERO = Decimal("0")
 HORIZONS_SEC = (900, 3600, 14_400)
 CONTEXT_SCHEMA_VERSION = "ai-context-v2"
-AI_SCHEMA_VERSION = "003_exact_ai_financials"
+AI_SCHEMA_VERSION = "004_authoritative_ai_decimal_text"
 AI_SCHEMA_CHECKSUM = hashlib.sha256(AI_SCHEMA_VERSION.encode("utf-8")).hexdigest()
 AI_CONTEXT_SOURCE_ERRORS = (
     ArithmeticError,
@@ -61,6 +61,15 @@ def _financial_result_decimal(
     if value in (None, ""):
         value = item.get(numeric_key, 0) or 0
     return _finite_decimal(value, field=numeric_key)
+
+
+def _compat_float(value: object) -> float:
+    """Return a finite numeric compatibility value at a public boundary."""
+    return float(_finite_decimal(value, field="compatibility number"))
+
+
+def _exact_text(value: object, *, field: str) -> str:
+    return format(_finite_decimal(value, field=field), "f")
 
 
 def evaluate_realized_ai_pnl(
@@ -116,23 +125,27 @@ def evaluate_realized_ai_pnl(
     opportunity = None
     if entry and exit_price and bought_qty:
         opportunity = (exit_price - entry) * bought_qty - net
-    timestamps = [float(f.get("ts", f.get("time", 0)) or 0) for f in fills if f.get("ts", f.get("time"))]
+    timestamps = [
+        int(f.get("ts", f.get("time", 0)) or 0)
+        for f in fills
+        if f.get("ts", f.get("time"))
+    ]
     duration = (max(timestamps) - min(timestamps)) if len(timestamps) >= 2 else None
     exits = [str(f.get("exit_reason", "")).upper() for f in sells]
     # JSON and existing dashboard consumers receive numeric compatibility
     # fields. Exact text companions are the durable accounting representation.
-    return {"net_pnl_quote": float(net), "net_pnl_quote_text": format(net, "f"),
-            "buy_qty": float(bought_qty), "buy_qty_text": format(bought_qty, "f"),
-            "sell_qty": float(sold_qty), "sell_qty_text": format(sold_qty, "f"),
+    return {"net_pnl_quote": _compat_float(net), "net_pnl_quote_text": format(net, "f"),
+            "buy_qty": _compat_float(bought_qty), "buy_qty_text": format(bought_qty, "f"),
+            "sell_qty": _compat_float(sold_qty), "sell_qty_text": format(sold_qty, "f"),
             "holding_duration_sec": duration,
-            "opportunity_cost_quote": float(opportunity) if opportunity is not None else None,
+            "opportunity_cost_quote": _compat_float(opportunity) if opportunity is not None else None,
             "opportunity_cost_quote_text": format(opportunity, "f") if opportunity is not None else None,
-            "baseline_entry_price": float(entry) if entry is not None else None,
+            "baseline_entry_price": _compat_float(entry) if entry is not None else None,
             "baseline_entry_price_text": format(entry, "f") if entry is not None else None,
-            "baseline_exit_price": float(exit_price) if exit_price is not None else None,
+            "baseline_exit_price": _compat_float(exit_price) if exit_price is not None else None,
             "baseline_exit_price_text": format(exit_price, "f") if exit_price is not None else None,
-            "fees_quote": float(fees), "fees_quote_text": format(fees, "f"),
-            "slippage_quote": float(slippage), "slippage_quote_text": format(slippage, "f"),
+            "fees_quote": _compat_float(fees), "fees_quote_text": format(fees, "f"),
+            "slippage_quote": _compat_float(slippage), "slippage_quote_text": format(slippage, "f"),
             "partial_fill": bool(bought_qty > 0 and 0 < sold_qty < bought_qty),
             "exit_reasons": sorted(set(exits)),
             "exit_reason": exits[-1] if exits else "",
@@ -152,6 +165,11 @@ class TradeFeatures:
     fees_usdt_30d: float = 0.0
     turnover_usdt_30d: float = 0.0
     position_pnl_pct: float = 0.0
+    net_realized_pnl_30d_text: str = "0"
+    avg_win_usdt_30d_text: str = "0"
+    avg_loss_usdt_30d_text: str = "0"
+    fees_usdt_30d_text: str = "0"
+    turnover_usdt_30d_text: str = "0"
 
 
 @dataclass(frozen=True)
@@ -178,6 +196,7 @@ class PortfolioFeatures:
     open_buy_exposure_usdt: float = 0.0
     portfolio_cap_used_pct: float = 0.0
     free_reserve_ratio: float = 0.0
+    open_buy_exposure_usdt_text: str = "0"
 
 
 @dataclass(frozen=True)
@@ -197,6 +216,8 @@ class AdvisorPerformance:
     ai_realized_edge_ci_low: float = 0.0
     ai_realized_edge_ci_high: float = 0.0
     ai_unresolved_fills: int = 0
+    ai_realized_net_pnl_quote_text: str = "0"
+    ai_realized_avg_pnl_quote_text: str = "0"
 
 
 def load_trade_features(
@@ -311,25 +332,35 @@ def load_trade_features(
         try:
             qty, avg = Decimal(str(inventory[0])), Decimal(str(inventory[1]))
             if qty > 0 and avg > 0 and current_price > 0:
-                position_pnl = float(Decimal(str(current_price)) / avg - 1)
+                position_pnl = _compat_float(
+                    _finite_decimal(current_price, field="current price") / avg - 1
+                )
         except ArithmeticError:
             pass
+    realized_total = sum(sells, ZERO)
+    average_win = sum(wins, ZERO) / len(wins) if wins else ZERO
+    average_loss = sum(losses, ZERO) / len(losses) if losses else ZERO
     return TradeFeatures(
         trade_history_available=True,
         trade_count_30d=recent_trade_count,
         sell_count_30d=len(sells),
-        net_realized_pnl_30d=float(sum(sells, ZERO)),
+        net_realized_pnl_30d=_compat_float(realized_total),
         win_rate_30d=(len(wins) / len(sells) if sells else 0.0),
         avg_win_usdt_30d=(
-            float(sum(wins, ZERO) / len(wins)) if wins else 0.0
+            _compat_float(average_win) if wins else 0.0
         ),
         avg_loss_usdt_30d=(
-            float(sum(losses, ZERO) / len(losses)) if losses else 0.0
+            _compat_float(average_loss) if losses else 0.0
         ),
         consecutive_losses=consecutive_losses,
-        fees_usdt_30d=float(fees),
-        turnover_usdt_30d=float(turnover),
+        fees_usdt_30d=_compat_float(fees),
+        turnover_usdt_30d=_compat_float(turnover),
         position_pnl_pct=position_pnl,
+        net_realized_pnl_30d_text=format(realized_total, "f"),
+        avg_win_usdt_30d_text=format(average_win, "f"),
+        avg_loss_usdt_30d_text=format(average_loss, "f"),
+        fees_usdt_30d_text=format(fees, "f"),
+        turnover_usdt_30d_text=format(turnover, "f"),
     )
 
 
@@ -487,14 +518,15 @@ def build_portfolio_features(
         portfolio_data_age_sec=0.0,
         open_buy_count=len(buys),
         open_sell_count=len(sells),
-        open_buy_exposure_usdt=float(exposure),
+        open_buy_exposure_usdt=_compat_float(exposure),
         portfolio_cap_used_pct=(
-            float(total_buy_exposure / cap_exact)
+            _compat_float(total_buy_exposure / cap_exact)
             if cap_exact > 0 else 0.0
         ),
         free_reserve_ratio=(
-            float(free_usdt / reserve_exact) if reserve_exact > 0 else 0.0
+            _compat_float(free_usdt / reserve_exact) if reserve_exact > 0 else 0.0
         ),
+        open_buy_exposure_usdt_text=format(exposure, "f"),
     )
 
 
@@ -528,6 +560,7 @@ class AdvisorDecisionStore:
                     symbol TEXT NOT NULL,
                     created_at INTEGER NOT NULL,
                     price REAL NOT NULL,
+                    price_text TEXT,
                     deterministic_mode TEXT NOT NULL,
                     recommended_mode TEXT NOT NULL,
                     width_scale REAL NOT NULL,
@@ -541,7 +574,10 @@ class AdvisorDecisionStore:
                     feature_json TEXT NOT NULL DEFAULT '[]',
                     return_15m REAL,
                     return_1h REAL,
-                    return_4h REAL
+                    return_4h REAL,
+                    return_15m_text TEXT,
+                    return_1h_text TEXT,
+                    return_4h_text TEXT
                 )
                 """
             )
@@ -592,6 +628,10 @@ class AdvisorDecisionStore:
                 ("context_version", "TEXT NOT NULL DEFAULT 'ai-context-v1'"),
                 ("config_version", "TEXT NOT NULL DEFAULT ''"),
                 ("context_hash", "TEXT NOT NULL DEFAULT ''"),
+                ("price_text", "TEXT"),
+                ("return_15m_text", "TEXT"),
+                ("return_1h_text", "TEXT"),
+                ("return_4h_text", "TEXT"),
             ):
                 if column not in columns:
                     connection.execute(
@@ -621,6 +661,35 @@ class AdvisorDecisionStore:
                 for column, ddl in table_columns.items():
                     if column not in existing:
                         connection.execute(f"ALTER TABLE {table} ADD COLUMN {column} {ddl}")
+            connection.execute(
+                "UPDATE ai_decisions SET "
+                "price_text=COALESCE(NULLIF(price_text,''),printf('%.17g',price)),"
+                "return_15m_text=CASE WHEN return_15m IS NULL THEN return_15m_text "
+                "ELSE COALESCE(NULLIF(return_15m_text,''),printf('%.17g',return_15m)) END,"
+                "return_1h_text=CASE WHEN return_1h IS NULL THEN return_1h_text "
+                "ELSE COALESCE(NULLIF(return_1h_text,''),printf('%.17g',return_1h)) END,"
+                "return_4h_text=CASE WHEN return_4h IS NULL THEN return_4h_text "
+                "ELSE COALESCE(NULLIF(return_4h_text,''),printf('%.17g',return_4h)) END"
+            )
+            connection.execute(
+                "UPDATE ai_fills SET "
+                "price_text=COALESCE(NULLIF(price_text,''),printf('%.17g',price)),"
+                "qty_text=COALESCE(NULLIF(qty_text,''),printf('%.17g',qty)),"
+                "fee_quote_text=COALESCE(NULLIF(fee_quote_text,''),printf('%.17g',fee_quote)),"
+                "slippage_quote_text=COALESCE(NULLIF(slippage_quote_text,''),"
+                "printf('%.17g',slippage_quote))"
+            )
+            connection.execute(
+                "UPDATE ai_unresolved_fills SET "
+                "price_text=COALESCE(NULLIF(price_text,''),printf('%.17g',price)),"
+                "qty_text=COALESCE(NULLIF(qty_text,''),printf('%.17g',qty)),"
+                "fee_quote_text=COALESCE(NULLIF(fee_quote_text,''),printf('%.17g',fee_quote))"
+            )
+            connection.execute(
+                "UPDATE ai_order_links SET expected_price_text="
+                "CASE WHEN expected_price IS NULL THEN expected_price_text ELSE "
+                "COALESCE(NULLIF(expected_price_text,''),printf('%.17g',expected_price)) END"
+            )
             # Create indexes only after ALTER TABLE: older Raspberry databases
             # do not have these columns until the current migration.
             connection.execute(
@@ -676,13 +745,14 @@ class AdvisorDecisionStore:
                     order_id,trade_id,client_order_id,order_list_id,leg_type,link_status,slippage_quote,
                     price_text,qty_text,fee_quote_text,slippage_quote_text
                 ) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
-                (fill_id, decision_id, symbol.upper(), side.upper(), float(price_exact), float(qty_exact),
-                 float(fee_exact), exit_reason, int(ts or time.time()),
+                (fill_id, decision_id, symbol.upper(), side.upper(), format(price_exact, "f"),
+                 format(qty_exact, "f"), format(fee_exact, "f"),
+                 exit_reason, int(ts or time.time()),
                  str(order_id) if order_id is not None else None,
                  str(trade_id) if trade_id is not None else None,
                  client_order_id,
                  str(order_list_id) if order_list_id is not None else None,
-                 leg_type, "resolved", float(slippage_exact),
+                 leg_type, "resolved", format(slippage_exact, "f"),
                  format(price_exact, "f"), format(qty_exact, "f"),
                  format(fee_exact, "f"), format(slippage_exact, "f")),
             )
@@ -709,7 +779,8 @@ class AdvisorDecisionStore:
                 (fill_key, symbol.upper(), side.upper(),
                  str(order_id) if order_id is not None else None,
                  str(trade_id) if trade_id is not None else None,
-                 float(price_exact), float(qty_exact), float(fee_exact),
+                 format(price_exact, "f"), format(qty_exact, "f"),
+                 format(fee_exact, "f"),
                  format(price_exact, "f"), format(qty_exact, "f"),
                  format(fee_exact, "f"), stamp,
                  reason[:240], int(time.time())),
@@ -726,7 +797,6 @@ class AdvisorDecisionStore:
             _finite_decimal(expected_price, field="expected order price")
             if expected_price is not None else None
         )
-        expected_float = float(expected_exact) if expected_exact is not None else None
         expected_text = format(expected_exact, "f") if expected_exact is not None else None
         with self._connect() as connection:
             existing = connection.execute(
@@ -746,7 +816,7 @@ class AdvisorDecisionStore:
                            expected_price_text=COALESCE(expected_price_text,?)
                        WHERE client_order_id=?""",
                     (symbol.upper(), lot_id, order_type, leg_type,
-                     expected_float, expected_text, client_order_id),
+                     expected_text, expected_text, client_order_id),
                 )
                 return
             connection.execute(
@@ -759,7 +829,7 @@ class AdvisorDecisionStore:
                     client_order_id, decision_id, symbol.upper(), lot_id, order_type,
                     str(exchange_order_id) if exchange_order_id is not None else None,
                     str(exchange_order_list_id) if exchange_order_list_id is not None else None,
-                    leg_type, expected_float, expected_text, int(time.time()),
+                    leg_type, expected_text, expected_text, int(time.time()),
                 ),
             )
 
@@ -817,7 +887,7 @@ class AdvisorDecisionStore:
             return {
                 "decision_id": str(row[0]), "client_order_id": str(row[1]),
                 "leg_type": str(row[2] or ""), "order_list_id": row[3],
-                "expected_price": float(row[4]) if row[4] is not None else None,
+                "expected_price": _compat_float(row[4]) if row[4] is not None else None,
                 "expected_price_text": str(row[4]) if row[4] is not None else None,
             }
 
@@ -836,7 +906,7 @@ class AdvisorDecisionStore:
                 (int(applied), policy_status, policy_reasons, benchmark_mode, decision_id),
             )
 
-    def evaluate_execution(self, decision_id: str, *, baseline_exit_price: float | None = None) -> dict[str, Any]:
+    def evaluate_execution(self, decision_id: str, *, baseline_exit_price: object | None = None) -> dict[str, Any]:
         """Evaluate execution."""
         with self._connect() as connection:
             rows = connection.execute(
@@ -850,7 +920,11 @@ class AdvisorDecisionStore:
                    FROM ai_fills WHERE decision_id=? ORDER BY ts""",
                 (decision_id,),
             ).fetchall()
-            decision = connection.execute("SELECT price FROM ai_decisions WHERE decision_id=?", (decision_id,)).fetchone()
+            decision = connection.execute(
+                "SELECT COALESCE(NULLIF(price_text,''),CAST(price AS TEXT)) "
+                "FROM ai_decisions WHERE decision_id=?",
+                (decision_id,),
+            ).fetchone()
         if not decision:
             raise ValueError(f"unknown AI decision: {decision_id}")
         fills = [{
@@ -878,7 +952,7 @@ class AdvisorDecisionStore:
         self,
         *,
         symbol: str,
-        price: float,
+        price: object,
         deterministic_mode: str,
         recommended_mode: str,
         width_scale: float,
@@ -896,19 +970,21 @@ class AdvisorDecisionStore:
         now: int | None = None,
     ) -> str:
         decision_id = uuid.uuid4().hex
+        price_text = _exact_text(price, field="decision price")
         with self._connect() as connection:
             connection.execute(
                 """
                 INSERT INTO ai_decisions(
-                    decision_id, symbol, created_at, price,
+                    decision_id, symbol, created_at, price, price_text,
                     deterministic_mode, recommended_mode, width_scale,
                     cap_scale, confidence, applied, policy_status,
                     policy_reasons, benchmark_mode, feature_json, rationale,
                     context_version, config_version, context_hash
-                ) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+                ) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
                 """,
                 (
-                    decision_id, symbol.upper(), int(now or time.time()), price,
+                    decision_id, symbol.upper(), int(now or time.time()),
+                    price_text, price_text,
                     deterministic_mode, recommended_mode, width_scale,
                     cap_scale, confidence, int(applied),
                     policy_status, policy_reasons, benchmark_mode,
@@ -921,10 +997,10 @@ class AdvisorDecisionStore:
     def settle(
         self,
         symbol: str,
-        current_price: float,
+        current_price: object,
         *,
         now: int | None = None,
-        price_lookup: Callable[[str, int], float] | None = None,
+        price_lookup: Callable[[str, int], object] | None = None,
         candles_lookup: Callable[[str, int, int], Sequence[Sequence[Any]]] | None = None,
     ) -> int:
         now = int(now or time.time())
@@ -932,9 +1008,12 @@ class AdvisorDecisionStore:
         with self._connect() as connection:
             rows = connection.execute(
                 """
-                SELECT decision_id, created_at, price,recommended_mode,
+                SELECT decision_id, created_at,
+                       COALESCE(NULLIF(price_text,''),CAST(price AS TEXT)),recommended_mode,
                        deterministic_mode,width_scale,cap_scale,evaluation_json,
-                       return_15m, return_1h, return_4h
+                       COALESCE(NULLIF(return_15m_text,''),CAST(return_15m AS TEXT)),
+                       COALESCE(NULLIF(return_1h_text,''),CAST(return_1h AS TEXT)),
+                       COALESCE(NULLIF(return_4h_text,''),CAST(return_4h AS TEXT))
                 FROM ai_decisions
                 WHERE symbol=? AND created_at>=?
                   AND (return_15m IS NULL OR return_1h IS NULL OR return_4h IS NULL)
@@ -946,7 +1025,11 @@ class AdvisorDecisionStore:
                 deterministic_mode, width_scale, cap_scale, evaluation_json,
                 *existing
             ) in rows:
-                if price <= 0:
+                price_exact = _finite_decimal(price, field="decision price")
+                current_price_exact = _finite_decimal(
+                    current_price, field="current settlement price"
+                )
+                if price_exact <= ZERO:
                     continue
                 changes: dict[str, Any] = {}
                 evaluations = json.loads(evaluation_json or "{}")
@@ -955,15 +1038,18 @@ class AdvisorDecisionStore:
                     HORIZONS_SEC,
                 )):
                     if existing[index] is None and now - created_at >= horizon:
-                        horizon_price = current_price
+                        horizon_price_exact = current_price_exact
                         if price_lookup is not None:
                             try:
-                                horizon_price = float(
-                                    price_lookup(symbol, (created_at + horizon) * 1000)
+                                horizon_price_exact = _finite_decimal(
+                                    price_lookup(symbol, (created_at + horizon) * 1000),
+                                    field="horizon settlement price",
                                 )
                             except AI_CONTEXT_SOURCE_ERRORS:
-                                horizon_price = current_price
-                        changes[column] = horizon_price / price - 1
+                                horizon_price_exact = current_price_exact
+                        return_exact = horizon_price_exact / price_exact - Decimal("1")
+                        changes[column] = format(return_exact, "f")
+                        changes[f"{column}_text"] = format(return_exact, "f")
                         if candles_lookup is not None:
                             try:
                                 candles = candles_lookup(
@@ -973,11 +1059,11 @@ class AdvisorDecisionStore:
                                 )
                                 evaluations[column.removeprefix("return_")] = {
                                     "ai": virtual_plan_result(
-                                        price, recommended_mode, width_scale,
+                                        _compat_float(price_exact), recommended_mode, width_scale,
                                         cap_scale, candles,
                                     ),
                                     "baseline": virtual_plan_result(
-                                        price, deterministic_mode, 1.0, 1.0,
+                                        _compat_float(price_exact), deterministic_mode, 1.0, 1.0,
                                         candles,
                                     ),
                                 }
@@ -1005,7 +1091,10 @@ class AdvisorDecisionStore:
         with self._connect() as connection:
             rows = connection.execute(
                 """
-                SELECT recommended_mode, return_15m, return_1h, return_4h,
+                SELECT recommended_mode,
+                       COALESCE(NULLIF(return_15m_text,''),CAST(return_15m AS TEXT)),
+                       COALESCE(NULLIF(return_1h_text,''),CAST(return_1h AS TEXT)),
+                       COALESCE(NULLIF(return_4h_text,''),CAST(return_4h AS TEXT)),
                        evaluation_json
                 FROM ai_decisions
                 WHERE symbol=? ORDER BY created_at DESC LIMIT ?
@@ -1050,43 +1139,64 @@ class AdvisorDecisionStore:
             )
             for item in realized
         ]
-        edge_values = [float(value) for value in edge_values_exact]
-        edge_mean = sum(edge_values) / len(edge_values) if edge_values else 0.0
-        if len(edge_values) > 1:
-            variance = sum((value - edge_mean) ** 2 for value in edge_values) / (len(edge_values) - 1)
-            margin = 1.96 * (variance / len(edge_values)) ** 0.5
+        edge_mean_exact = (
+            sum(edge_values_exact, ZERO) / len(edge_values_exact)
+            if edge_values_exact else ZERO
+        )
+        if len(edge_values_exact) > 1:
+            variance_exact = sum(
+                ((value - edge_mean_exact) ** 2 for value in edge_values_exact), ZERO
+            ) / (len(edge_values_exact) - 1)
+            margin_exact = Decimal("1.96") * (
+                variance_exact / len(edge_values_exact)
+            ).sqrt()
         else:
-            margin = 0.0
+            margin_exact = ZERO
+        realized_net_exact = sum(
+            (
+                _financial_result_decimal(item, "net_pnl_quote_text", "net_pnl_quote")
+                for item in realized
+            ),
+            ZERO,
+        )
+        realized_average_exact = (
+            realized_net_exact / len(realized) if realized else ZERO
+        )
         with self._connect() as connection:
             unresolved = int(connection.execute(
                 "SELECT COUNT(*) FROM ai_unresolved_fills WHERE symbol=?",
                 (symbol.upper(),),
             ).fetchone()[0])
         return AdvisorPerformance(
-            s15, a15, s1h, a1h, s4h, a4h,
-            len(comparisons),
-            sum(comparisons) / len(comparisons) if comparisons else 0.0,
-            len(realized),
-            float(sum(
-                (_financial_result_decimal(item, "net_pnl_quote_text", "net_pnl_quote") for item in realized),
-                ZERO,
-            )),
-            float(sum(
-                (_financial_result_decimal(item, "net_pnl_quote_text", "net_pnl_quote") for item in realized),
-                ZERO,
-            ) / len(realized))
-            if realized else 0.0,
-            stop_exits / len(realized) if realized else 0.0,
-            edge_mean - margin,
-            edge_mean + margin,
-            unresolved,
+            ai_samples_15m=s15,
+            ai_accuracy_15m=a15,
+            ai_samples_1h=s1h,
+            ai_accuracy_1h=a1h,
+            ai_samples_4h=s4h,
+            ai_accuracy_4h=a4h,
+            ai_vs_baseline_samples_1h=len(comparisons),
+            ai_edge_vs_baseline_1h=(
+                sum(comparisons) / len(comparisons) if comparisons else 0.0
+            ),
+            ai_closed_samples=len(realized),
+            ai_realized_net_pnl_quote=_compat_float(realized_net_exact),
+            ai_realized_avg_pnl_quote=_compat_float(realized_average_exact),
+            ai_realized_stop_rate=stop_exits / len(realized) if realized else 0.0,
+            ai_realized_edge_ci_low=_compat_float(edge_mean_exact - margin_exact),
+            ai_realized_edge_ci_high=_compat_float(edge_mean_exact + margin_exact),
+            ai_unresolved_fills=unresolved,
+            ai_realized_net_pnl_quote_text=format(realized_net_exact, "f"),
+            ai_realized_avg_pnl_quote_text=format(realized_average_exact, "f"),
         )
 
     def _comparison_rows(self, symbol: str, limit: int) -> list[tuple]:
         with self._connect() as connection:
             return connection.execute(
                 """
-                SELECT recommended_mode,return_15m,return_1h,return_4h,
+                SELECT recommended_mode,
+                       COALESCE(NULLIF(return_15m_text,''),CAST(return_15m AS TEXT)),
+                       COALESCE(NULLIF(return_1h_text,''),CAST(return_1h AS TEXT)),
+                       COALESCE(NULLIF(return_4h_text,''),CAST(return_4h AS TEXT)),
                        deterministic_mode
                 FROM ai_decisions
                 WHERE symbol=? ORDER BY created_at DESC LIMIT ?
@@ -1103,18 +1213,27 @@ class AdvisorDecisionStore:
                 SELECT decision_id,symbol,created_at,deterministic_mode,
                        recommended_mode,width_scale,cap_scale,confidence,
                        applied,policy_status,policy_reasons,benchmark_mode,
-                       return_15m,return_1h,return_4h,evaluation_json
+                       COALESCE(NULLIF(return_15m_text,''),CAST(return_15m AS TEXT)),
+                       COALESCE(NULLIF(return_1h_text,''),CAST(return_1h AS TEXT)),
+                       COALESCE(NULLIF(return_4h_text,''),CAST(return_4h AS TEXT)),
+                       evaluation_json
                 FROM ai_decisions ORDER BY created_at DESC LIMIT ?
                 """,
                 (limit,),
             ).fetchall()
-            calibration_rows = connection.execute(
+            calibration_rows_raw = connection.execute(
                 """
-                SELECT confidence,return_1h,recommended_mode
+                SELECT confidence,
+                       COALESCE(NULLIF(return_1h_text,''),CAST(return_1h AS TEXT)),
+                       recommended_mode
                 FROM ai_decisions WHERE return_1h IS NOT NULL
                 ORDER BY created_at DESC LIMIT 1000
                 """
             ).fetchall()
+        calibration_rows = [
+            (confidence, _compat_float(result), mode)
+            for confidence, result, mode in calibration_rows_raw
+        ]
         recent = [
             {
                 "decision_id": row[0],
@@ -1129,9 +1248,12 @@ class AdvisorDecisionStore:
                 "status": row[9],
                 "reasons": row[10].split(",") if row[10] else [],
                 "benchmark_mode": row[11],
-                "return_15m": row[12],
-                "return_1h": row[13],
-                "return_4h": row[14],
+                "return_15m": _compat_float(row[12]) if row[12] is not None else None,
+                "return_15m_text": str(row[12]) if row[12] is not None else None,
+                "return_1h": _compat_float(row[13]) if row[13] is not None else None,
+                "return_1h_text": str(row[13]) if row[13] is not None else None,
+                "return_4h": _compat_float(row[14]) if row[14] is not None else None,
+                "return_4h_text": str(row[14]) if row[14] is not None else None,
                 "evaluation": json.loads(row[15] or "{}"),
             }
             for row in rows
@@ -1154,7 +1276,7 @@ class AdvisorDecisionStore:
             "calibration_1h": confidence_calibration(calibration_rows),
             "realized_execution": {
                 "closed_decisions": len(closed),
-                "net_pnl_quote": float(actual_pnl_exact),
+                "net_pnl_quote": _compat_float(actual_pnl_exact),
                 "net_pnl_quote_text": format(actual_pnl_exact, "f"),
                 "avg_holding_duration_sec": (
                     sum(float(item.get("holding_duration_sec", 0) or 0) for item in closed) / len(closed)
@@ -1178,7 +1300,9 @@ class AdvisorDecisionStore:
         with self._connect() as connection:
             rows = connection.execute(
                 """
-                SELECT feature_json,return_1h FROM ai_decisions
+                SELECT feature_json,
+                       COALESCE(NULLIF(return_1h_text,''),CAST(return_1h AS TEXT))
+                FROM ai_decisions
                 WHERE return_1h IS NOT NULL AND feature_json!='[]'
                 ORDER BY created_at DESC LIMIT 2000
                 """
@@ -1188,7 +1312,7 @@ class AdvisorDecisionStore:
             try:
                 vector = json.loads(feature_json)
                 if isinstance(vector, list) and len(vector) == 10:
-                    examples.append((vector, return_label(float(result))))
+                    examples.append((vector, return_label(_compat_float(result))))
             except (TypeError, ValueError, json.JSONDecodeError):
                 continue
         model = MulticlassLogisticRegime()
@@ -1214,17 +1338,27 @@ class AdvisorDecisionStore:
         }
 
 
-def directional_success(mode: str, market_return: float) -> int:
+def directional_success(mode: str, market_return: object) -> int:
     normalized = mode.upper()
-    fee = float(os.getenv("AI_SHADOW_FEE_PCT", "0.00075") or 0.00075)
-    slippage = float(os.getenv("AI_SHADOW_SLIPPAGE_PCT", "0.0005") or 0.0005)
-    spread = float(os.getenv("AI_SHADOW_SPREAD_PCT", "0.0002") or 0.0002)
-    threshold = max(0.001, 2 * (fee + slippage + spread / 2))
+    result = _finite_decimal(market_return, field="market return")
+    fee = _finite_decimal(
+        os.getenv("AI_SHADOW_FEE_PCT", "0.00075") or "0.00075",
+        field="AI shadow fee",
+    )
+    slippage = _finite_decimal(
+        os.getenv("AI_SHADOW_SLIPPAGE_PCT", "0.0005") or "0.0005",
+        field="AI shadow slippage",
+    )
+    spread = _finite_decimal(
+        os.getenv("AI_SHADOW_SPREAD_PCT", "0.0002") or "0.0002",
+        field="AI shadow spread",
+    )
+    threshold = max(Decimal("0.001"), Decimal("2") * (fee + slippage + spread / 2))
     if normalized == "UP":
-        return int(market_return > threshold)
+        return int(result > threshold)
     if normalized == "DOWN":
-        return int(market_return < -threshold)
-    return int(abs(market_return) <= threshold)
+        return int(result < -threshold)
+    return int(abs(result) <= threshold)
 
 
 def virtual_plan_result(

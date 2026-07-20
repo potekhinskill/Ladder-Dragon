@@ -13,7 +13,7 @@ import time
 import signal
 import sqlite3
 from datetime import datetime
-from decimal import Decimal
+from decimal import Decimal, InvalidOperation
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 from ladder_dragon.execution import tools_market as TM
@@ -325,6 +325,15 @@ def getenv_float(name, default):
     except (TypeError, ValueError, OverflowError):
         return default
 
+def getenv_decimal(name: str, default: object) -> Decimal:
+    """Read a finite decimal configuration value without binary conversion."""
+    value = os.getenv(name)
+    try:
+        result = Decimal(str(default if value is None else value))
+    except (InvalidOperation, TypeError, ValueError):
+        result = Decimal(str(default))
+    return result if result.is_finite() else Decimal(str(default))
+
 def getenv_int(name, default):
     v = os.getenv(name)
     try:
@@ -404,29 +413,38 @@ class SymbolLock:
 
 # --- profit floor helpers ---
 
-def _tp1_max_pct() -> float:
+def _tp1_max_pct() -> Decimal:
     # Upper bound for the nearest target (zero means no cap).
-    return max(0.0, getenv_float("TP1_MAX", 0.040))
+    return max(Decimal("0"), getenv_decimal("TP1_MAX", "0.040"))
 
-def _fee_floor_pct() -> float:
+def _fee_floor_pct() -> Decimal:
     # Lower profit floor implied by round-trip fees, with a small safety margin.
-    fee = max(0.0, getenv_float("BOT_FEE_PCT", 0.001))
-    return fee * 2.0 * 1.05
+    fee = max(Decimal("0"), getenv_decimal("BOT_FEE_PCT", "0.001"))
+    return fee * Decimal("2") * Decimal("1.05")
 
-def _execution_cost_floor_pct() -> float:
+def _execution_cost_floor_pct() -> Decimal:
     """Handle execution cost floor pct."""
-    fee = max(0.0, getenv_float("BOT_FEE_PCT", 0.001))
-    spread = max(0.0, getenv_float("BOT_SPREAD_PCT", getenv_float("RISK_SPREAD_PCT", 0.0)))
-    slippage = max(0.0, getenv_float("BOT_SLIPPAGE_PCT", getenv_float("RISK_SLIPPAGE_PCT", 0.0)))
-    latency = max(0.0, getenv_float("BOT_LATENCY_COST_PCT", 0.0))
-    stop_cost = max(0.0, getenv_float("BOT_STOP_EXECUTION_COST_PCT", 0.0))
-    partial = max(0.0, getenv_float("BOT_PARTIAL_FILL_COST_PCT", 0.0))
-    min_edge = max(0.0, getenv_float("BOT_MIN_NET_EDGE_PCT", getenv_float("MIN_NET_EDGE_PCT", 0.0)))
-    return 2.0 * fee + spread + 2.0 * slippage + latency + stop_cost + partial + min_edge
+    fee = max(Decimal("0"), getenv_decimal("BOT_FEE_PCT", "0.001"))
+    spread = max(Decimal("0"), getenv_decimal(
+        "BOT_SPREAD_PCT", getenv_decimal("RISK_SPREAD_PCT", "0")
+    ))
+    slippage = max(Decimal("0"), getenv_decimal(
+        "BOT_SLIPPAGE_PCT", getenv_decimal("RISK_SLIPPAGE_PCT", "0")
+    ))
+    latency = max(Decimal("0"), getenv_decimal("BOT_LATENCY_COST_PCT", "0"))
+    stop_cost = max(Decimal("0"), getenv_decimal("BOT_STOP_EXECUTION_COST_PCT", "0"))
+    partial = max(Decimal("0"), getenv_decimal("BOT_PARTIAL_FILL_COST_PCT", "0"))
+    min_edge = max(Decimal("0"), getenv_decimal(
+        "BOT_MIN_NET_EDGE_PCT", getenv_decimal("MIN_NET_EDGE_PCT", "0")
+    ))
+    return (
+        Decimal("2") * fee + spread + Decimal("2") * slippage
+        + latency + stop_cost + partial + min_edge
+    )
 
-def _profit_floor_pct() -> float:
+def _profit_floor_pct() -> Decimal:
     # Combined floor: never below MIN_PROFIT_OVER_AVG or the fee floor.
-    min_edge = max(0.0, getenv_float("MIN_PROFIT_OVER_AVG", 0.0))
+    min_edge = max(Decimal("0"), getenv_decimal("MIN_PROFIT_OVER_AVG", "0"))
     return max(min_edge, _fee_floor_pct(), _execution_cost_floor_pct())
 
 # ------------------- HTTP / signed / backoff -------------------
@@ -1398,22 +1416,23 @@ STATS_DB = getenv_str("BOT_STATS_DB", "")
 TOOLS_STATS = None
 STATS_CON: Optional[sqlite3.Connection] = None
 _COMMISSION_QUOTE_CACHE: Dict[Tuple[str, str, int], Decimal] = {}
-_ACCOUNT_FEE_CACHE: Dict[str, Tuple[float, float]] = {}
+_ACCOUNT_FEE_CACHE: Dict[str, Tuple[float, Decimal]] = {}
 
 
-def account_fee_pct(symbol: str) -> float:
+def account_fee_pct(symbol: str) -> Decimal:
     """Handle account fee pct."""
     now = time.time()
     cached = _ACCOUNT_FEE_CACHE.get(symbol.upper())
     if cached and now - cached[0] < 300:
         return cached[1]
-    fallback = max(0.0, getenv_float("BOT_FEE_PCT", 0.001))
+    fallback = max(Decimal("0"), getenv_decimal("BOT_FEE_PCT", "0.001"))
     try:
         rows = _signed_request("GET", "/sapi/v1/asset/tradeFee", {"symbol": symbol.upper()}) or []
         row = rows[0] if isinstance(rows, list) and rows else rows
-        fee = float(row.get("takerCommission", row.get("makerCommission", fallback)))
-        fee = max(0.0, fee)
-    except (OSError, RuntimeError, ValueError, TypeError, KeyError):
+        fee = max(Decimal("0"), Decimal(str(
+            row.get("takerCommission", row.get("makerCommission", fallback))
+        )))
+    except (OSError, RuntimeError, ValueError, TypeError, KeyError, InvalidOperation):
         fee = fallback
     _ACCOUNT_FEE_CACHE[symbol.upper()] = (now, fee)
     return fee
@@ -1661,8 +1680,8 @@ def _pick_ladder_aligned_oco_prices(symbol: str,
     sl_limit = lower[-1] if lower else round_price_exact(fill * Decimal("0.99"))
 
     # Profit floor and cap.
-    floor_pct = max(Decimal("0"), Decimal(str(_profit_floor_pct())))
-    cap_pct = max(Decimal("0"), Decimal(str(_tp1_max_pct())))
+    floor_pct = max(Decimal("0"), _profit_floor_pct())
+    cap_pct = max(Decimal("0"), _tp1_max_pct())
 
     floor_price = round_price_exact(fill * (Decimal("1") + floor_pct))
     cap_price = (
@@ -1973,7 +1992,7 @@ def maybe_place_sells_from_holdings(
             None if panic_sell_floor_pct is None
             else Decimal(str(panic_sell_floor_pct))
         ),
-        profit_floor_pct=Decimal(str(_profit_floor_pct())),
+        profit_floor_pct=_profit_floor_pct(),
     )
     if not upper_guarded:
         dbg(f"[HOLD-SELL] {symbol} empty after limits/GUARD")
@@ -2143,8 +2162,12 @@ def main():
         # --- Breakeven: keep OCO linked to the original BUY average price ---
         be_syms = {s.strip().upper() for s in args.breakeven_on_tp1_symbols.split(",") if s.strip()}
         BE_ENABLED = symbol.upper() in be_syms
-        FEE_PCT = getenv_float("BOT_FEE_PCT", 0.00075)
-        BE_OFFSET = args.breakeven_offset_pct if args.breakeven_offset_pct is not None else max(0.0, 2.0 * FEE_PCT)
+        fee_pct = max(Decimal("0"), getenv_decimal("BOT_FEE_PCT", "0.00075"))
+        BE_OFFSET = (
+            args.breakeven_offset_pct
+            if args.breakeven_offset_pct is not None
+            else Decimal("2") * fee_pct
+        )
         BE_CHECK_N = max(1, int(args.breakeven_check_interval))
         breakeven = BreakevenRuntime(
             enabled=BE_ENABLED,
