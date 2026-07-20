@@ -31,7 +31,12 @@ from ladder_dragon.execution.exchange_filters import validate_sell_percent_price
 from ladder_dragon.execution.order_identity import client_order_id
 from ladder_dragon.execution.order_recovery import OrderJournal
 from ladder_dragon.execution.executor_protection import emergency_gap_flatten
-from ladder_dragon.risk.risk_manager import RiskLimits, RiskManager, RiskSnapshot
+from ladder_dragon.risk.risk_manager import (
+    RiskLimits,
+    RiskManager,
+    RiskSnapshot,
+    create_manual_halt,
+)
 from ladder_dragon.execution.time_safety import assess_exchange_clock
 
 
@@ -809,6 +814,27 @@ def run_circuit_drill(drill_dir: str | Path) -> dict[str, Any]:
 
 def run(args: argparse.Namespace) -> dict[str, Any]:
     if args.mode == "gap-drill":
+        root = Path(getattr(args, "drill_dir", ".runtime/testnet_gap_drill"))
+        root.mkdir(parents=True, exist_ok=True)
+        limits = RiskLimits(
+            max_daily_loss_usdt=Decimal("10"),
+            max_start_drawdown_pct=Decimal("0.10"),
+            max_peak_drawdown_pct=Decimal("0.10"),
+            portfolio_cap_usdt=Decimal("1000"),
+            daily_turnover_cap_usdt=Decimal("1000"),
+            daily_trade_count_cap=100,
+            daily_buy_cap_usdt=Decimal("1000"),
+            open_order_count_cap=100,
+            correlated_cap_usdt=Decimal("1000"),
+            reserve_usdt=Decimal("0"),
+            max_consecutive_losses=10,
+            cooldown_sec=60,
+            halt_file=root / "circuit_halt.json",
+            state_file=root / "risk_state.json",
+            alerts_file=root / "risk_alerts.ndjson",
+        )
+        for path in (limits.halt_file, limits.state_file, limits.alerts_file):
+            path.unlink(missing_ok=True)
         events: list[tuple[str, object]] = []
         dependencies = SimpleNamespace(
             list_open_orders=lambda symbol: [
@@ -849,6 +875,66 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
             raise RuntimeError("gap drill did not submit the isolated flatten")
         if any(name == "halt" for name, _ in events):
             raise RuntimeError("successful gap drill unexpectedly halted")
+
+        # A partially executed STOP can leave only the residual base free after
+        # OCO cancellation. The watchdog must flatten exactly that residual.
+        partial_events: list[tuple[str, object]] = []
+        partial_dependencies = SimpleNamespace(
+            **{
+                **vars(dependencies),
+                "get_balances": lambda: {
+                    args.symbol.removesuffix("USDT"): {
+                        "free": "0.400", "locked": "0"
+                    }
+                },
+                "cancel_oco": lambda symbol, order_list_id: partial_events.append(
+                    ("cancel_oco", order_list_id)
+                ),
+                "place_market_order": lambda symbol, side, quantity: partial_events.append(
+                    ("market_sell", str(quantity))
+                ) or {"orderId": 100, "status": "FILLED"},
+                "halt": lambda reason, **metadata: partial_events.append(("halt", reason)),
+                "logger": lambda message: partial_events.append(("log", message)),
+            }
+        )
+        if not emergency_gap_flatten(
+            args.symbol, 80.0, dependencies=partial_dependencies
+        ):
+            raise RuntimeError("gap drill did not flatten partial STOP residual")
+        if any(name == "halt" for name, _ in partial_events):
+            raise RuntimeError("partial STOP residual unexpectedly halted")
+
+        # A lost OCO-cancel ACK is uncertain and must persist a halt that a new
+        # manager instance observes after restart. It must not guess and SELL.
+        uncertain_events: list[tuple[str, object]] = []
+        uncertain_dependencies = SimpleNamespace(
+            **{
+                **vars(dependencies),
+                "cancel_oco": lambda symbol, order_list_id: (
+                    _ for _ in ()
+                ).throw(requests.ConnectionError("simulated lost cancel ACK")),
+                "place_market_order": lambda *call_args: uncertain_events.append(
+                    ("unexpected_market_sell", call_args)
+                ),
+                "halt": lambda reason, **metadata: create_manual_halt(
+                    reason, limits=limits, metadata=metadata
+                ),
+                "logger": lambda message: uncertain_events.append(("log", message)),
+            }
+        )
+        if emergency_gap_flatten(
+            args.symbol, 80.0, dependencies=uncertain_dependencies
+        ):
+            raise RuntimeError("lost cancel ACK was treated as a confirmed flatten")
+        if uncertain_events:
+            raise RuntimeError("lost cancel ACK reached a market SELL")
+        healthy = RiskSnapshot(
+            equity_usdt=Decimal("100"),
+            exposure_usdt=Decimal("0"),
+            free_usdt=Decimal("100"),
+        )
+        if not RiskManager(limits).evaluate(healthy).halted:
+            raise RuntimeError("gap uncertainty halt did not survive restart")
         return {
             "venue": "isolated-local",
             "symbol": args.symbol,
@@ -856,6 +942,9 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
             "gap_drill": "passed",
             "oco_cancel_verified": True,
             "market_flatten_verified": True,
+            "partial_stop_residual_verified": True,
+            "lost_cancel_ack_halted": True,
+            "halt_survived_restart": True,
             "network_used": False,
         }
     if args.mode == "circuit-drill":

@@ -17,7 +17,7 @@ Binance Spot. It builds BUY/SELL grids, uses ATR/EMA/VWAP/ADX regimes, manages
 OCO protection, and records trading statistics in SQLite. Production secrets,
 real backups, and private parameters are never committed.
 
-Current product version: **2.10.95**. The single version source is
+Current product version: **2.10.96**. The single version source is
 `product_version.py`; releases follow [Semantic Versioning](https://semver.org/).
 Project contact: [LinkedIn](https://www.linkedin.com/in/ypotekhin/).
 
@@ -33,7 +33,7 @@ Project contact: [LinkedIn](https://www.linkedin.com/in/ypotekhin/).
 ## Project status
 
 Ladder Dragon is an actively developed, experimental trading system. Version
-**2.10.95** is the current prepared release. `main` is the only long-lived branch;
+**2.10.96** is the current prepared release. `main` is the only long-lived branch;
 feature branches use the `ladderdragon/*` namespace.
 
 DRY and Binance Spot Testnet are the supported starting modes. Mainnet LIVE is
@@ -321,7 +321,10 @@ the services, and waits for a fresh heartbeat.
 
 ## Remaining engineering work
 
-- reconcile legacy holdings cost basis before enabling `auto_oco_holdings`;
+- provide an operator-reviewed import workflow for legacy holdings cost basis;
+  until then `auto_oco_holdings` blocks normal SELL placement unless the full
+  Binance quantity is covered by positive-price FIFO lots with exchange-order
+  provenance, and uses their weighted average rather than a caller estimate;
 - run the bounded Mainnet canary on each materially changed executor release;
 - collect at least three natural, exactly linked BUY/OCO/TP-or-STOP lifecycles
   and a clean 24–48 hour SOLUSDT soak before increasing LIVE scope;
@@ -332,7 +335,8 @@ the services, and waits for a fresh heartbeat.
 - run controlled long Testnet soak tests after executor or risk changes.
 
 The local gap-watchdog drill is network-free and never creates an exchange
-order:
+order. It covers full and partial STOP residuals, uncertain OCO-cancel
+acknowledgement, persistent halt state, and restart survival:
 
 ```bash
 PYTHONPATH=. .venv/bin/python -m bin.binance_testnet_smoke \

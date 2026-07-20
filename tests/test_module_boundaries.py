@@ -11,7 +11,7 @@ from ladder_dragon.execution.binance_transport import (
 from ladder_dragon.execution.executor_config import build_executor_parser, validate_executor_args
 from ladder_dragon.execution.executor_market import get_balances, get_price, get_symbol_assets
 from ladder_dragon.execution.executor_orders import (
-    OrderDependencies, place_limit_order, place_market_order,
+    OrderDependencies, place_limit_order, place_market_order, place_oco_sell,
 )
 from ladder_dragon.execution.executor_planning import (
     buy_candidates,
@@ -328,10 +328,54 @@ def test_executor_recovery_queries_and_verifies_oco():
 
 def test_executor_orders_uses_late_bound_dry_gate(tmp_path):
     network_calls = []
+    sell_validations = []
     live = {"value": False}
     journal = OrderJournal(tmp_path / "orders.sqlite3")
     dependencies = OrderDependencies(
         live=lambda: live["value"],
+        logger=lambda message: None,
+        pull_filters=lambda symbol: None,
+        round_price=lambda symbol, value: value,
+        round_qty=lambda symbol, value: value,
+        min_qty=lambda symbol, hint: 0.001,
+        min_notional=lambda symbol, price: 5.0,
+        format_price=lambda symbol, value: f"{value:.2f}",
+        format_qty=lambda symbol, value: f"{value:.3f}",
+        journal=lambda: journal,
+        signed_request=lambda *args, **kwargs: network_calls.append(args)
+        or {"orderId": 7, "status": "NEW", "executedQty": "0"},
+        get_order_by_client_id=lambda symbol, client_id: None,
+        get_order_list_by_client_id=lambda client_id: None,
+        verify_oco_legs=lambda symbol, payload: [],
+        cancel_oco=lambda symbol, order_list_id: None,
+        halt=lambda reason, **metadata: None,
+        validate_limit_sell_prices=lambda symbol, prices: sell_validations.append(
+            (symbol, prices)
+        ),
+    )
+    assert place_limit_order(
+        "BUY", "SOLUSDT", 0.1, 100.0, dependencies=dependencies
+    ) is None
+    assert network_calls == []
+
+    live["value"] = True
+    result = place_limit_order(
+        "SELL", "SOLUSDT", 0.1, 100.0, dependencies=dependencies
+    )
+    assert result["orderId"] == 7
+    assert sell_validations == [("SOLUSDT", ["100.00"])]
+    assert len(network_calls) == 1
+
+
+def test_executor_sell_filter_blocks_before_journal_and_network(tmp_path):
+    network_calls = []
+    journal = OrderJournal(tmp_path / "orders.sqlite3")
+
+    def reject_price(symbol, prices):
+        raise ValueError(f"{symbol} price outside exchange corridor: {prices}")
+
+    dependencies = OrderDependencies(
+        live=lambda: True,
         logger=lambda message: None,
         pull_filters=lambda symbol: None,
         round_price=lambda symbol, value: value,
@@ -347,11 +391,28 @@ def test_executor_orders_uses_late_bound_dry_gate(tmp_path):
         verify_oco_legs=lambda symbol, payload: [],
         cancel_oco=lambda symbol, order_list_id: None,
         halt=lambda reason, **metadata: None,
+        validate_limit_sell_prices=reject_price,
     )
-    assert place_limit_order(
-        "BUY", "SOLUSDT", 0.1, 100.0, dependencies=dependencies
-    ) is None
+
+    with pytest.raises(ValueError, match="outside exchange corridor"):
+        place_limit_order(
+            "SELL", "SOLUSDT", 0.1, 150.0, dependencies=dependencies
+        )
     assert network_calls == []
+    assert journal.nonterminal_orders() == []
+
+    with pytest.raises(ValueError, match="outside exchange corridor"):
+        place_oco_sell(
+            "SOLUSDT",
+            0.1,
+            110.0,
+            90.0,
+            89.0,
+            dependencies=dependencies,
+            parent_client_order_id="parent-buy",
+        )
+    assert network_calls == []
+    assert journal.nonterminal_orders() == []
 
 
 
@@ -377,6 +438,7 @@ def test_executor_market_order_has_live_gate_and_idempotent_payload(tmp_path):
         verify_oco_legs=lambda symbol, payload: [],
         cancel_oco=lambda symbol, order_list_id: None,
         halt=lambda reason, **metadata: None,
+        validate_limit_sell_prices=lambda symbol, prices: None,
     )
 
     assert place_market_order(
@@ -393,6 +455,37 @@ def test_executor_market_order_has_live_gate_and_idempotent_payload(tmp_path):
     assert calls[0][2]["type"] == "MARKET"
     assert calls[0][2]["quantity"] == "0.100"
     assert journal.get(payload["clientOrderId"]).state == "FILLED"
+
+
+def test_executor_market_order_halts_on_unconfirmed_response(tmp_path):
+    halted = []
+    journal = OrderJournal(tmp_path / "orders.sqlite3")
+    dependencies = OrderDependencies(
+        live=lambda: True,
+        logger=lambda message: None,
+        pull_filters=lambda symbol: None,
+        round_price=lambda symbol, value: value,
+        round_qty=lambda symbol, value: round(value, 3),
+        min_qty=lambda symbol, hint: 0.001,
+        min_notional=lambda symbol, price: 5.0,
+        format_price=lambda symbol, value: f"{value:.2f}",
+        format_qty=lambda symbol, value: f"{value:.3f}",
+        journal=lambda: journal,
+        signed_request=lambda method, path, params: {},
+        get_order_by_client_id=lambda symbol, client_id: None,
+        get_order_list_by_client_id=lambda client_id: None,
+        verify_oco_legs=lambda symbol, payload: [],
+        cancel_oco=lambda symbol, order_list_id: None,
+        halt=lambda reason, **metadata: halted.append((reason, metadata)),
+        validate_limit_sell_prices=lambda symbol, prices: None,
+    )
+
+    with pytest.raises(RuntimeError, match="no orderId"):
+        place_market_order(
+            "SOLUSDT", "SELL", 0.1, dependencies=dependencies, ref_price=100.0
+        )
+    assert halted
+    assert journal.nonterminal_orders()[0].state == "UNKNOWN"
 
 
 def test_executor_planning_is_deterministic_and_exchange_free():

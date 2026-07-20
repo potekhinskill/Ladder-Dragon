@@ -33,7 +33,18 @@ def configure_worker(worker, tmp_path, monkeypatch):
         "minQty": 0.001,
         "minNotional": 5.0,
     }
+    worker.symbol_exchange_info["SOLUSDT"] = {
+        "symbol": "SOLUSDT",
+        "filters": [{
+            "filterType": "PERCENT_PRICE_BY_SIDE",
+            "askMultiplierDown": "0.2",
+            "askMultiplierUp": "5",
+        }],
+    }
     monkeypatch.setattr(worker, "pull_filters", lambda symbol: None)
+    monkeypatch.setattr(
+        worker, "_public_get", lambda path, params=None: {"price": "100"}
+    )
     monkeypatch.setattr(worker, "get_price", lambda symbol: 76.0)
     return worker._ORDER_JOURNAL
 

@@ -133,7 +133,14 @@ from ladder_dragon.execution.executor_recovery import recover_existing_protectio
 from ladder_dragon.execution.executor_recovery import recover_pending_buy_order_ids as recovery_pending_buy_order_ids
 from ladder_dragon.execution.executor_recovery import verify_oco_legs as recovery_verify_oco_legs
 from ladder_dragon.execution.executor_stats import commission_quote_value, poll_mytrades_once
-from ladder_dragon.execution.inventory_lots import add_lot, consume_fifo, ensure_schema as ensure_lots_schema, oldest_lots, lot_for_order
+from ladder_dragon.execution.inventory_lots import (
+    add_lot,
+    consume_fifo,
+    cost_basis_coverage,
+    ensure_schema as ensure_lots_schema,
+    oldest_lots,
+    lot_for_order,
+)
 
 import requests
 # per-symbol lock
@@ -237,6 +244,7 @@ def _trip_execution_halt(reason: str, **metadata: Any) -> None:
 
 
 _SAFETY_CONTROL_FAILURES: Dict[tuple[str, str], int] = {}
+_SELL_PERCENT_REFERENCE_CACHE: Dict[str, Tuple[float, Decimal]] = {}
 
 
 def _record_safety_control_failure(
@@ -276,6 +284,31 @@ def _record_safety_control_failure(
 
 def _clear_safety_control_failure(control: str, symbol: str) -> None:
     _SAFETY_CONTROL_FAILURES.pop((control, symbol.upper()), None)
+
+
+def validate_limit_sell_prices(symbol: str, prices: List[object]) -> None:
+    """Validate every LIMIT/OCO SELL at the shared pre-mutation boundary."""
+    pull_filters(symbol)
+    row = symbol_exchange_info.get(symbol.upper())
+    if row is None:
+        raise RuntimeError(f"exchangeInfo snapshot unavailable for {symbol}")
+    now = time.time()
+    cache_ttl = max(1, getenv_int("BOT_PERCENT_PRICE_CACHE_SEC", 5))
+    cached = _SELL_PERCENT_REFERENCE_CACHE.get(symbol.upper())
+    if cached is not None and now - cached[0] <= cache_ttl:
+        reference_price = cached[1]
+    else:
+        payload = _public_get("/api/v3/avgPrice", {"symbol": symbol.upper()})
+        reference_price = Decimal(str(payload["price"]))
+        if not reference_price.is_finite() or reference_price <= 0:
+            raise RuntimeError(f"invalid avgPrice for {symbol}")
+        _SELL_PERCENT_REFERENCE_CACHE[symbol.upper()] = (now, reference_price)
+    validate_sell_percent_prices(
+        {"symbols": [row]},
+        symbol=symbol,
+        reference_price=reference_price,
+        prices=prices,
+    )
 
 
 def _panic_state_fail_closed(
@@ -562,8 +595,9 @@ def avg_entry(symbol: str, cache_ttl: int = 30, lookback: int = 1000) -> Optiona
 
     try:
         trades = _signed_request("GET", "/api/v3/myTrades", {"symbol": symbol, "limit": lookback}) or []
-    except Exception:
-        trades = []
+    except (requests.RequestException, RuntimeError, ValueError) as exc:
+        log(f"[AVG] {symbol} trade history unavailable: {type(exc).__name__}")
+        return None
 
     if not isinstance(trades, list) or not trades:
         return None
@@ -571,8 +605,9 @@ def avg_entry(symbol: str, cache_ttl: int = 30, lookback: int = 1000) -> Optiona
     # Sort by time in ascending order.
     try:
         trades.sort(key=lambda t: int(t.get("time", 0)))
-    except Exception:
-        pass
+    except (AttributeError, TypeError, ValueError) as exc:
+        log(f"[AVG] {symbol} invalid trade history: {type(exc).__name__}")
+        return None
 
     executions: List[TradeExecution] = []
     for t in trades:
@@ -1203,6 +1238,7 @@ def _order_dependencies() -> OrderDependencies:
         verify_oco_legs=verify_oco_legs,
         cancel_oco=cancel_oco,
         halt=_trip_execution_halt,
+        validate_limit_sell_prices=validate_limit_sell_prices,
     )
 
 
@@ -1351,14 +1387,14 @@ def _stats_init_if_needed():
     if TOOLS_STATS is None:
         try:
             from ladder_dragon.execution import tools_stats as TOOLS_STATS  # type: ignore
-        except Exception as e:
+        except ImportError as e:
             log(f"[STATS] import error: {e}")
             return
     if STATS_CON is None:
         try:
             os.makedirs(os.path.dirname(STATS_DB) or ".", exist_ok=True)
             STATS_CON = TOOLS_STATS.init_db(STATS_DB)
-        except Exception as e:
+        except (OSError, RuntimeError, ValueError, sqlite3.Error) as e:
             log(f"[STATS] open error: {e}")
             STATS_CON = None
 
@@ -1380,6 +1416,56 @@ def _commission_quote_value(
         public_get=_public_get,
         cache=_COMMISSION_QUOTE_CACHE,
     )
+
+
+def _holdings_cost_basis_covered(
+    symbol: str,
+    balances: Dict[str, Dict[str, float]],
+) -> Optional[Decimal]:
+    """Require full quantity/provenance coverage before normal holdings SELL."""
+    try:
+        _stats_init_if_needed()
+        if STATS_CON is None:
+            raise RuntimeError("stats database unavailable")
+        base, _ = get_symbol_assets(symbol)
+        row = balances.get(base) or {}
+        account_qty = Decimal(str(row.get("free", 0))) + Decimal(
+            str(row.get("locked", 0))
+        )
+        step = Decimal(str(pull_filters(symbol)["stepSize"]))
+        tolerance_pct = Decimal(
+            os.getenv("BOT_COST_BASIS_QTY_TOLERANCE_PCT", "0.002")
+        )
+        if not tolerance_pct.is_finite() or tolerance_pct < 0:
+            raise ValueError("invalid cost-basis quantity tolerance")
+        tolerance = max(step * Decimal("2"), account_qty * tolerance_pct)
+        coverage = cost_basis_coverage(
+            STATS_CON,
+            symbol,
+            account_qty,
+            tolerance_qty=tolerance,
+        )
+        if not coverage.covered:
+            raise RuntimeError(coverage.reason)
+        if coverage.average_price is None or coverage.average_price <= 0:
+            raise RuntimeError("covered lots do not provide a positive average price")
+        _clear_safety_control_failure("legacy-cost-basis", symbol)
+        return coverage.average_price
+    except (
+        KeyError,
+        TypeError,
+        ValueError,
+        ArithmeticError,
+        RuntimeError,
+        OSError,
+        sqlite3.Error,
+    ) as exc:
+        _record_safety_control_failure("legacy-cost-basis", symbol, exc)
+        log(
+            f"[HOLD-SELL-BLOCK] {symbol} cost basis unavailable: "
+            f"{type(exc).__name__}"
+        )
+        return None
 
 
 def _stats_poll_mytrades_once(symbol: str):
@@ -1623,8 +1709,12 @@ def maybe_place_buys(symbol: str,
     if enforce_limit and (target_buy_per_symbol is not None):
         try:
             open_orders = list_open_orders(symbol) or []
-        except Exception:
-            open_orders = []
+        except (requests.RequestException, RuntimeError, ValueError) as exc:
+            log(
+                f"[BUY-BLOCK] {symbol} open-order state unavailable: "
+                f"{type(exc).__name__}"
+            )
+            return []
         existing_buy_prices = existing_prices(
             open_orders,
             side="BUY",
@@ -1776,6 +1866,14 @@ def maybe_place_sells_from_holdings(
 
     pull_filters(symbol)
 
+    verified_average = _holdings_cost_basis_covered(symbol, bals)
+    if verified_average is None:
+        return 0
+    # Normal holdings management uses the average reconstructed from exact,
+    # sourced FIFO lots. A caller-provided historical average cannot authorize
+    # or price a SELL for legacy inventory.
+    avg_entry_px = float(verified_average)
+
     now = get_price(symbol)
     if not any(p > now for p in ladder_prices):
         dbg(f"[HOLD-SELL] {symbol} no upper ladder above market (now≈{fmt_price_sym(symbol, now)})")
@@ -1819,17 +1917,10 @@ def maybe_place_sells_from_holdings(
         dbg(f"[HOLD-SELL] {symbol} empty after limits/GUARD")
         return 0
 
-    # Validate every holdings SELL locally against the current Binance percent
-    # band. Missing or malformed reference data blocks the signed mutation.
+    # Validate the whole holdings plan before the first signed mutation. The
+    # shared order boundary repeats this check for each final rounded SELL.
     try:
-        avg_payload = _public_get("/api/v3/avgPrice", {"symbol": symbol})
-        reference_price = Decimal(str(avg_payload["price"]))
-        validate_sell_percent_prices(
-            {"symbols": [symbol_exchange_info[symbol]]},
-            symbol=symbol,
-            reference_price=reference_price,
-            prices=(Decimal(str(price)) for price in upper_guarded),
-        )
+        validate_limit_sell_prices(symbol, list(upper_guarded))
         _clear_safety_control_failure("holdings-sell-filter", symbol)
     except (KeyError, TypeError, ValueError, ArithmeticError, RuntimeError, requests.RequestException) as exc:
         _record_safety_control_failure("holdings-sell-filter", symbol, exc)
@@ -2180,7 +2271,7 @@ def main():
         elif (skip_buys_reason is None and vwap_ratio is not None and args.buy_vwap_premium is not None):
             try:
                 premium_thr = 1.0 + max(0.0, float(args.buy_vwap_premium))
-            except Exception:
+            except (TypeError, ValueError):
                 premium_thr = 1.0
             if premium_thr > 1.0 and vwap_ratio > premium_thr:
                 skip_buys_reason = "buy-vwap-premium"
@@ -2214,7 +2305,12 @@ def main():
                     live_mode=LIVE_MODE,
                 )
                 placed_ids = list(dict.fromkeys([*placed_ids, *new_ids]))
-            except Exception as e:
+            except (
+                requests.RequestException,
+                RuntimeError,
+                ValueError,
+                ArithmeticError,
+            ) as e:
                 log(f"[ERR] maybe_place_buys: {e}")
             try:
                 _observe_buy_market(symbol, placed_ids, current_price)
@@ -2239,7 +2335,12 @@ def main():
                     sell_limit_maker=args.sell_limit_maker,
                     panic_sell_floor_pct=panic_sell_floor_pct,
                 )
-            except Exception as e:
+            except (
+                requests.RequestException,
+                RuntimeError,
+                ValueError,
+                ArithmeticError,
+            ) as e:
                 log(f"[ERR] maybe_place_sells: {e}")
         else:
             if attach_oco and placed_ids:
@@ -2248,7 +2349,14 @@ def main():
         # One-time trade collection when statistics are enabled.
         try:
             _stats_poll_mytrades_once(symbol)
-        except Exception as e:
+        except (
+            requests.RequestException,
+            RuntimeError,
+            ValueError,
+            ArithmeticError,
+            OSError,
+            sqlite3.Error,
+        ) as e:
             log(f"[STATS] poll error: {e}")
 
         # The runtime loop does not create new BUY orders. It observes existing orders,

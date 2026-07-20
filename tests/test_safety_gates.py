@@ -10,6 +10,7 @@ from decimal import Decimal
 from types import SimpleNamespace
 
 import pytest
+import requests
 from bin import ai_supervisor
 
 
@@ -347,6 +348,7 @@ def test_worker_exchange_filters_fail_closed_on_malformed_metadata(monkeypatch):
 
 def test_holdings_sell_percent_filter_blocks_exchange_mutation(monkeypatch):
     worker = load_worker()
+    monkeypatch.setattr(worker, "get_symbol_assets", lambda symbol: ("SOL", "USDT"))
     worker.symbol_filters["SOLUSDT"] = {
         "tickSize": 0.01, "stepSize": 0.001,
         "minQty": 0.001, "minNotional": 5.0,
@@ -360,6 +362,11 @@ def test_holdings_sell_percent_filter_blocks_exchange_mutation(monkeypatch):
         }],
     }
     monkeypatch.setattr(worker, "pull_filters", lambda symbol: None)
+    monkeypatch.setattr(
+        worker,
+        "_holdings_cost_basis_covered",
+        lambda *args: Decimal("90"),
+    )
     monkeypatch.setattr(
         worker, "get_balances", lambda: {"SOL": {"free": 1, "locked": 0}}
     )
@@ -421,6 +428,45 @@ def test_worker_blocks_oversized_plan_before_exchange_mutation(monkeypatch):
         enforce_limit=False,
         use_remainder_in_last=True,
         live_mode=True,
+    ) == []
+
+
+def test_worker_blocks_buy_when_open_order_state_is_unavailable(monkeypatch):
+    worker = load_worker()
+    worker.RUN = True
+    monkeypatch.setattr(worker, "get_symbol_assets", lambda symbol: ("SOL", "USDT"))
+    worker.symbol_filters["SOLUSDT"] = {
+        "tickSize": 0.01,
+        "stepSize": 0.001,
+        "minQty": 0.001,
+        "minNotional": 5.0,
+    }
+    monkeypatch.setattr(worker, "pull_filters", lambda symbol: None)
+    monkeypatch.setattr(
+        worker,
+        "get_balances",
+        lambda: {"USDT": {"free": 100.0, "locked": 0.0}},
+    )
+    monkeypatch.setattr(worker, "get_price", lambda symbol: 100.0)
+    monkeypatch.setattr(
+        worker,
+        "list_open_orders",
+        lambda symbol: (_ for _ in ()).throw(requests.ConnectionError("offline")),
+    )
+    monkeypatch.setattr(
+        worker,
+        "place_limit_order",
+        lambda *args, **kwargs: (_ for _ in ()).throw(
+            AssertionError("BUY reached exchange mutation without order state")
+        ),
+    )
+
+    assert worker.maybe_place_buys(
+        "SOLUSDT",
+        [90.0],
+        10.0,
+        target_buy_per_symbol=1,
+        enforce_limit=True,
     ) == []
 
 

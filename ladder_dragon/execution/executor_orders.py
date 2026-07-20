@@ -119,6 +119,7 @@ class OrderDependencies:
     verify_oco_legs: Callable[[str, Dict[str, Any]], Any]
     cancel_oco: Callable[[str, int], None]
     halt: Callable[..., None]
+    validate_limit_sell_prices: Callable[[str, list[object]], None]
 
 
 def place_limit_order(
@@ -208,6 +209,11 @@ def place_limit_order(
     order_client_id = (
         active.client_order_id if active is not None else generated_id
     )
+    if side.upper() == "SELL":
+        # Defense in depth at the last shared boundary before a signed LIMIT
+        # SELL. Strategy-specific validation is not sufficient because callers
+        # and recovery paths evolve independently.
+        dependencies.validate_limit_sell_prices(symbol, [price_text])
     _link_ai_order(order_client_id, symbol, order_type="LIMIT", expected_price=price)
     if journal is not None:
         # Commit PREPARED before the network request; this is the idempotency base.
@@ -289,7 +295,7 @@ def place_limit_order(
                 f"[ERR] place_limit_order: HTTP "
                 f"{exc.response.status_code} {json.dumps(error)}"
             )
-        except Exception:
+        except (AttributeError, TypeError, ValueError):
             dependencies.logger(f"[ERR] place_limit_order: {exc}")
         raise
 
@@ -438,9 +444,22 @@ def place_market_order(
             )
         dependencies.logger(f"[ERR] MARKET {symbol} {side}: {exc}")
         raise
-    except Exception as exc:
-        dependencies.logger(f"[ERR] MARKET {symbol} {side}: {exc}")
-        return None
+    except (OSError, RuntimeError, TypeError, ValueError, sqlite3.Error) as exc:
+        # A response without a usable exchange order ID is not a confirmed
+        # rejection. Treat it like a lost acknowledgement: preserve the intent,
+        # halt further mutations, and make the caller handle the failure.
+        if journal is not None:
+            journal.mark_unknown(generated_id, exc)
+        dependencies.halt(
+            f"uncertain MARKET response has no exchange confirmation: {generated_id}",
+            symbol=symbol,
+            side=side,
+            client_order_id=generated_id,
+        )
+        dependencies.logger(
+            f"[ERR] MARKET {symbol} {side}: {type(exc).__name__}"
+        )
+        raise
 
 def place_oco_sell(
     symbol: str,
@@ -563,6 +582,10 @@ def place_oco_sell(
             quantity_text,
             bucket_seconds=1,
         )
+    dependencies.validate_limit_sell_prices(
+        symbol,
+        [tp_text, stop_text, limit_text],
+    )
     if journal is not None:
         journal.prepare(
             client_order_id=list_client_id,

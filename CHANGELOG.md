@@ -3,6 +3,43 @@
 All notable changes are documented here. Releases use Semantic Versioning; every
 section is dated and there is intentionally no `Unreleased` section.
 
+## [2.10.96] — 2026-07-20
+
+### Security
+- Every LIMIT SELL and OCO now passes the shared
+  `PERCENT_PRICE_BY_SIDE`/`PERCENT_PRICE` validator at the final order-layer
+  mutation boundary. Strategy callers can no longer bypass the corridor check.
+- Normal holdings SELL is authorized only when the complete Binance quantity is
+  covered by positive-price FIFO lots carrying exchange-order provenance. Its
+  profit guard uses the weighted verified lot average; a historical caller
+  estimate cannot authorize or price legacy inventory.
+- BUY target enforcement now fails closed when the open-order snapshot is
+  unavailable instead of assuming that no BUY exists and risking duplicates.
+- A MARKET response without a confirmed exchange order ID is now persisted as
+  `UNKNOWN`, activates the halt callback, and propagates to the caller instead
+  of being logged and converted to a false no-op success.
+- Critical BUY/SELL/statistics paths no longer suppress arbitrary programming
+  exceptions. Expected transport, input, arithmetic, filesystem and SQLite
+  failures remain explicitly handled and logged.
+
+### Added
+- The isolated gap-watchdog drill now verifies a partial STOP residual cleanup,
+  refuses a second SELL after an uncertain OCO-cancel acknowledgement, creates
+  a persistent circuit halt, and proves that the halt survives restart.
+- Cost-basis coverage reports expose the weighted lot average and reject
+  quantity-only imports without source-order provenance.
+
+### Changed
+- README now distinguishes the safe fail-closed legacy holdings gate from the
+  still-pending operator-reviewed cost-basis import workflow.
+
+### Verified
+- Added regression tests for final-boundary SELL rejection, verified weighted
+  cost basis, unavailable BUY-order state, unconfirmed MARKET responses,
+  partial gap cleanup and uncertain cancel acknowledgement.
+- Python compilation and the complete local suite pass: 326 tests. The isolated
+  gap drill reports `network_used=false` and all extended safety outcomes true.
+
 ## [2.10.95] — 2026-07-20
 
 ### Security

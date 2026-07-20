@@ -21,6 +21,20 @@ class InventoryLot:
     ladder_level: str
 
 
+@dataclass(frozen=True)
+class CostBasisCoverage:
+    """Exact quantity coverage of account inventory by priced, sourced lots."""
+
+    symbol: str
+    account_qty: Decimal
+    covered_qty: Decimal
+    average_price: Decimal | None
+    uncovered_qty: Decimal
+    tolerance_qty: Decimal
+    covered: bool
+    reason: str
+
+
 def ensure_schema(connection: sqlite3.Connection) -> None:
     # Store Decimal values as text so SQLite cannot round quantity or price.
     connection.execute("""CREATE TABLE IF NOT EXISTS inventory_lots(
@@ -63,6 +77,64 @@ def lot_for_order(connection: sqlite3.Connection, symbol: str, order_id: str | i
         (symbol.upper(), str(order_id)),
     ).fetchone()
     return InventoryLot(int(row[0]), str(row[1]), Decimal(row[2]), Decimal(row[3]), int(row[4]), str(row[5])) if row else None
+
+
+def cost_basis_coverage(
+    connection: sqlite3.Connection,
+    symbol: str,
+    account_qty: Decimal,
+    *,
+    tolerance_qty: Decimal = Decimal("0"),
+) -> CostBasisCoverage:
+    """Prove that account quantity is covered by priced, attributable lots.
+
+    Rows without a positive price or source identifier are deliberately not
+    counted. This prevents an arbitrary quantity-only import from authorizing
+    legacy holdings management.
+    """
+    ensure_schema(connection)
+    account = Decimal(account_qty)
+    tolerance = max(Decimal("0"), Decimal(tolerance_qty))
+    if not account.is_finite() or account < 0:
+        raise ValueError("account quantity must be finite and non-negative")
+    rows = connection.execute(
+        "SELECT qty,price,source_order_id FROM inventory_lots "
+        "WHERE symbol=? AND status='OPEN' ORDER BY opened_at,lot_id",
+        (symbol.upper(),),
+    ).fetchall()
+    covered_qty = Decimal("0")
+    covered_cost = Decimal("0")
+    incomplete_rows = 0
+    for qty_text, price_text, source_order_id in rows:
+        qty = Decimal(str(qty_text))
+        price = Decimal(str(price_text))
+        if qty <= 0:
+            continue
+        if price <= 0 or not str(source_order_id or "").strip():
+            incomplete_rows += 1
+            continue
+        covered_qty += qty
+        covered_cost += qty * price
+    delta = account - covered_qty
+    covered = incomplete_rows == 0 and abs(delta) <= tolerance
+    if incomplete_rows:
+        reason = "inventory lots contain missing price or provenance"
+    elif delta > tolerance:
+        reason = "account inventory contains uncovered legacy quantity"
+    elif delta < -tolerance:
+        reason = "inventory lots exceed the Binance account quantity"
+    else:
+        reason = "covered"
+    return CostBasisCoverage(
+        symbol=symbol.upper(),
+        account_qty=account,
+        covered_qty=covered_qty,
+        average_price=(covered_cost / covered_qty if covered_qty > 0 else None),
+        uncovered_qty=max(Decimal("0"), delta),
+        tolerance_qty=tolerance,
+        covered=covered,
+        reason=reason,
+    )
 
 
 def consume_fifo(connection: sqlite3.Connection, symbol: str, qty: Decimal) -> list[InventoryLot]:

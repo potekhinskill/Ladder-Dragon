@@ -299,13 +299,15 @@ def test_circuit_drill_run_is_fully_offline(tmp_path, monkeypatch):
     assert result["circuit_drill"] == "passed"
 
 
-def test_gap_drill_is_fully_offline(monkeypatch):
+def test_gap_drill_is_fully_offline(monkeypatch, tmp_path):
     def refuse_client(*args, **kwargs):
         raise AssertionError("gap drill must not construct an exchange client")
 
     monkeypatch.setattr(smoke, "SpotTestnetClient", refuse_client)
     result = smoke.run(
-        SimpleNamespace(mode="gap-drill", symbol="SOLUSDT")
+        SimpleNamespace(
+            mode="gap-drill", symbol="SOLUSDT", drill_dir=tmp_path / "gap"
+        )
     )
     assert result == {
         "venue": "isolated-local",
@@ -314,6 +316,9 @@ def test_gap_drill_is_fully_offline(monkeypatch):
         "gap_drill": "passed",
         "oco_cancel_verified": True,
         "market_flatten_verified": True,
+        "partial_stop_residual_verified": True,
+        "lost_cancel_ack_halted": True,
+        "halt_survived_restart": True,
         "network_used": False,
     }
 

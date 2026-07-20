@@ -18,6 +18,8 @@ import os
 import time
 from typing import Any, Callable, Dict, List, MutableSet, Optional, Sequence
 
+import requests
+
 from ladder_dragon.execution.order_recovery import OrderJournal, TERMINAL_EXCHANGE_STATES
 
 
@@ -129,7 +131,7 @@ def emergency_gap_flatten(
             return False
         dependencies.logger(f"[GAP-FLATTEN] {symbol} MARKET SELL qty={qty}")
         return True
-    except (OSError, RuntimeError, ValueError, TypeError) as exc:
+    except (requests.RequestException, OSError, RuntimeError, ValueError, TypeError) as exc:
         dependencies.halt(f"gap watchdog failed: {exc}", symbol=symbol)
         return False
 
