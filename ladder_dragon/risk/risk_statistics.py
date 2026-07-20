@@ -212,11 +212,38 @@ def conversion_price_decimal(
 
 def allocate_cap_by_marginal_risk(total_cap: float, contributions: Mapping[str, float],
                                   minimum_cap: float = 0.0) -> dict[str, float]:
-    """Handle allocate cap by marginal risk."""
-    total = max(0.0, float(total_cap))
-    weights = {symbol: 1.0 / max(float(value), 1e-12) for symbol, value in contributions.items()}
-    denominator = sum(weights.values()) or 1.0
-    return {symbol: max(float(minimum_cap), total * weight / denominator) for symbol, weight in weights.items()}
+    """Return a legacy numeric view of exact marginal-risk allocation."""
+    return {
+        symbol: float(value)
+        for symbol, value in allocate_cap_by_marginal_risk_decimal(
+            total_cap, contributions, minimum_cap=minimum_cap
+        ).items()
+    }
+
+
+def allocate_cap_by_marginal_risk_decimal(
+    total_cap: object,
+    contributions: Mapping[str, object],
+    *,
+    minimum_cap: object = "0",
+) -> dict[str, Decimal]:
+    """Allocate exact quote CAP inversely to marginal risk contributions."""
+    total = max(ZERO, _decimal(total_cap, field="total CAP"))
+    floor = max(ZERO, _decimal(minimum_cap, field="minimum CAP"))
+    epsilon = Decimal("0.000000000001")
+    weights = {
+        symbol: Decimal("1") / max(
+            _decimal(value, field=f"{symbol} marginal contribution"), epsilon
+        )
+        for symbol, value in contributions.items()
+    }
+    denominator = sum(weights.values(), ZERO)
+    if denominator <= ZERO:
+        return {symbol: floor for symbol in weights}
+    return {
+        symbol: max(floor, total * weight / denominator)
+        for symbol, weight in weights.items()
+    }
 
 
 def load_tail_losses(path: str | Path) -> list[float]:

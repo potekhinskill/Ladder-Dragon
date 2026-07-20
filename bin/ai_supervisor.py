@@ -60,7 +60,7 @@ from ladder_dragon.risk.risk_statistics import (
     covariance_var,
     expected_shortfall,
     conversion_price_decimal,
-    allocate_cap_by_marginal_risk,
+    allocate_cap_by_marginal_risk_decimal,
     marginal_risk_contribution_decimal,
     stress_loss_decimal,
 )
@@ -76,6 +76,7 @@ from ladder_dragon.strategy.strategy_math import geometric_ladder as build_ladde
 from ladder_dragon.strategy.strategy_math import split_ladder
 from ladder_dragon.strategy.strategy_math import RegimeHysteresis
 from ladder_dragon.strategy.strategy_math import NumericHysteresis
+from ladder_dragon.numeric_compat import compatibility_float
 from bin.supervisor_config import build_supervisor_parser, validate_supervisor_args
 
 try:
@@ -127,7 +128,7 @@ def _finite_decimal(value: object, *, name: str) -> Decimal:
 
 def _analytics_float(value: object) -> float:
     """Convert an exact value only at a non-authoritative analytics boundary."""
-    return float(_finite_decimal(value, name="analytics value"))
+    return compatibility_float(value, field="analytics value")
 
 # Rounding mode and warm start for order cleanup
 PRICE_ROUND_MODE = os.getenv("PRICE_ROUND_MODE", "nearest").lower()  # floor|ceil|nearest
@@ -262,13 +263,13 @@ def _build_ai_advisor(args: argparse.Namespace) -> Optional[AIAdvisor]:
         model=(args.ai_model or default_model).strip(),
         base_url=(args.ai_base_url or default_url).strip().rstrip("/"),
         api_key=os.environ[key_name],
-        timeout_sec=float(args.ai_timeout_sec),
+        timeout_sec=_analytics_float(args.ai_timeout_sec),
         cache_sec=int(args.ai_cache_sec),
-        min_confidence=float(args.ai_min_confidence),
-        width_scale_min=float(args.ai_width_scale_min),
-        width_scale_max=float(args.ai_width_scale_max),
-        cap_scale_min=float(args.ai_cap_scale_min),
-        cap_scale_max=float(args.ai_cap_scale_max),
+        min_confidence=_analytics_float(args.ai_min_confidence),
+        width_scale_min=_analytics_float(args.ai_width_scale_min),
+        width_scale_max=_analytics_float(args.ai_width_scale_max),
+        cap_scale_min=_analytics_float(args.ai_cap_scale_min),
+        cap_scale_max=_analytics_float(args.ai_cap_scale_max),
         usage_log_path=args.ai_usage_log,
         usage_log_max_bytes=int(args.ai_usage_log_max_bytes),
         input_cache_hit_usd_per_mtok=getenv_float(
@@ -408,7 +409,7 @@ def parse_pct_map(s: str) -> Dict[str, Tuple[float, float, float]]:
         if len(vs) != 3:
             continue
         try:
-            out[k.strip()] = (float(vs[0]), float(vs[1]), float(vs[2]))
+            out[k.strip()] = (_analytics_float(vs[0]), _analytics_float(vs[1]), _analytics_float(vs[2]))
         except (TypeError, ValueError, OverflowError):
             continue
     return out
@@ -423,7 +424,7 @@ def parse_limit_map(s: str) -> Dict[str, float]:
             continue
         k, v = part.split(":", 1)
         try:
-            out[k.strip()] = float(v.strip())
+            out[k.strip()] = _analytics_float(v.strip())
         except (TypeError, ValueError, OverflowError):
             continue
     return out
@@ -452,7 +453,7 @@ def getenv_float(name: str, default: Optional[float] = None) -> Optional[float]:
     if v is None or v == "":
         return default
     try:
-        return float(v)
+        return _analytics_float(v)
     except (TypeError, ValueError, OverflowError):
         return default
 
@@ -505,23 +506,23 @@ def resolve_vwap_params(symbol: str,
         if premium_final is not None:
             mult = 1.0
             if mode == "UP":
-                mult *= max(0.05, float(args.child_buy_vwap_premium_up_mult))
+                mult *= max(0.05, _analytics_float(args.child_buy_vwap_premium_up_mult))
             elif mode == "DOWN":
-                mult *= max(0.05, float(args.child_buy_vwap_premium_down_mult))
+                mult *= max(0.05, _analytics_float(args.child_buy_vwap_premium_down_mult))
             if atr_pct and args.child_buy_vwap_premium_atr_coef:
-                mult *= max(0.1, 1.0 - atr_pct * float(args.child_buy_vwap_premium_atr_coef))
+                mult *= max(0.1, 1.0 - atr_pct * _analytics_float(args.child_buy_vwap_premium_atr_coef))
             premium_final *= mult
 
         if scale_final is not None and atr_pct and args.child_buy_vwap_discount_scale_atr_coef:
-            scale_final *= 1.0 + max(0.0, atr_pct) * float(args.child_buy_vwap_discount_scale_atr_coef)
+            scale_final *= 1.0 + max(0.0, atr_pct) * _analytics_float(args.child_buy_vwap_discount_scale_atr_coef)
 
-    floor = max(0.0, float(args.child_buy_vwap_premium_floor))
-    ceil = max(floor, float(args.child_buy_vwap_premium_ceil))
+    floor = max(0.0, _analytics_float(args.child_buy_vwap_premium_floor))
+    ceil = max(floor, _analytics_float(args.child_buy_vwap_premium_ceil))
     if premium_final is not None:
         premium_final = max(floor, min(ceil, premium_final))
 
-    scale_min = max(0.1, float(args.child_buy_vwap_discount_scale_min))
-    scale_max = max(scale_min, float(args.child_buy_vwap_discount_scale_max))
+    scale_min = max(0.1, _analytics_float(args.child_buy_vwap_discount_scale_min))
+    scale_max = max(scale_min, _analytics_float(args.child_buy_vwap_discount_scale_max))
     if scale_final is not None:
         scale_final = max(scale_min, min(scale_max, scale_final))
         if abs(scale_final - 1.0) < 1e-4:
@@ -561,7 +562,7 @@ def _parse_vwap_line(key: str, value: str) -> Dict[str, float]:
         sym, val = part.split(":", 1)
         sym = sym.strip().upper()
         try:
-            mapping[sym] = float(val)
+            mapping[sym] = _analytics_float(val)
         except (TypeError, ValueError, OverflowError):
             continue
     return mapping
@@ -670,7 +671,7 @@ def get_last_price_decimal(symbol: str) -> Decimal:
 
 def get_24h_volume_quote(symbol: str) -> float:
     j = _public_get("/api/v3/ticker/24hr", params={"symbol": symbol})
-    return float(j.get("quoteVolume", 0.0))
+    return _analytics_float(j.get("quoteVolume", 0.0))
 
 def get_exchange_filters(symbol: str) -> Dict[str, object]:
     f = TM.get_symbol_filters(symbol)
@@ -680,10 +681,10 @@ def get_exchange_filters(symbol: str) -> Dict[str, object]:
     min_notional_exact = str(
         f.get("minNotionalExact", f.get("minNotional", "0"))
     )
-    tick = float(tick_exact)
-    step = float(step_exact)
-    min_qty = float(min_qty_exact)
-    min_notional = float(min_notional_exact)
+    tick = _analytics_float(tick_exact)
+    step = _analytics_float(step_exact)
+    min_qty = _analytics_float(min_qty_exact)
+    min_notional = _analytics_float(min_notional_exact)
     log(f"[FILTERS] {symbol} tickSize={tick:.8f} stepSize={step:.8f} "
         f"minQty={min_qty:.6f} minNotional={min_notional:.2f}")
     return {
@@ -738,7 +739,7 @@ _AVG_CACHE: Dict[str, Dict[str, object]] = {}
 def avg_entry_price(symbol: str, *, cache_ttl: int = 45, lookback: int = 1000) -> Optional[Decimal]:
     now_ts = time.time()
     ent = _AVG_CACHE.get(symbol)
-    if ent and (now_ts - float(ent.get("ts", 0.0))) < cache_ttl and money(ent.get("pos", 0)) > 0:
+    if ent and (now_ts - _analytics_float(ent.get("ts", 0.0))) < cache_ttl and money(ent.get("pos", 0)) > 0:
         return _finite_decimal(ent.get("avg", "0"), name="cached average entry")
 
     base, quote = symbol_assets(symbol)
@@ -863,7 +864,7 @@ def _is_filter_error(e: Exception) -> bool:
 
 def _round_price(price: float, tick: float, mode: str) -> float:
     if tick <= 0:
-        return float(f"{price:.8f}")
+        return _analytics_float(f"{price:.8f}")
     x = price / tick
     if mode == "ceil":
         q = math.ceil(x) * tick
@@ -871,7 +872,7 @@ def _round_price(price: float, tick: float, mode: str) -> float:
         q = math.floor(x + 0.5) * tick
     else:
         q = math.floor(x) * tick
-    return float(f"{q:.8f}")
+    return _analytics_float(f"{q:.8f}")
 
 def _round_to_tick(price: float, tick: float) -> float:
     return _round_price(price, tick, PRICE_ROUND_MODE)
@@ -1073,7 +1074,7 @@ def startup_cleanup_orders(symbol: str,
             if typ not in ("LIMIT", "LIMIT_MAKER", "STOP_LOSS_LIMIT", "TAKE_PROFIT_LIMIT"):
                 continue
 
-            price = float(o.get("price") or 0.0)
+            price = _analytics_float(o.get("price") or 0.0)
             pr = _round_to_tick(price, tick_size)
             upd = int(o.get("updateTime") or o.get("time") or now_ms)
             age = max(0, (now_ms - upd)//1000)
@@ -1146,7 +1147,7 @@ def smart_cleanup_orders(symbol: str,
     for o in orders:
         try:
             reviewed += 1
-            price = float(o.get("price") or 0.0)
+            price = _analytics_float(o.get("price") or 0.0)
             pr = _round_to_tick(price, tick_size)
             upd = int(o.get("updateTime") or o.get("time") or now_ms)
             age = max(0, (now_ms - upd)//1000)
@@ -1208,15 +1209,15 @@ def _atr_pct(symbol: str, interval: str = '5m', length: int = 20) -> Tuple[float
         kl = _klines(symbol, interval, limit=length+2)
         if not kl or len(kl) < length+1:
             return 0.0, 0.0
-        prev_close = float(kl[0][4])
+        prev_close = _analytics_float(kl[0][4])
         trs = []
         for row in kl[1:]:
-            high = float(row[2]); low = float(row[3]); close = float(row[4])
+            high = _analytics_float(row[2]); low = _analytics_float(row[3]); close = _analytics_float(row[4])
             tr = max(high-low, abs(high - prev_close), abs(low - prev_close))
             trs.append(tr)
             prev_close = close
-        atr = sum(trs[-length:]) / float(length)
-        last_close = float(kl[-1][4])
+        atr = sum(trs[-length:]) / _analytics_float(length)
+        last_close = _analytics_float(kl[-1][4])
         return atr, (atr / last_close if last_close > 0 else 0.0)
     except SUPERVISOR_OPERATION_ERRORS as e:
         log(f"[ATR] failed: {e}")
@@ -1245,11 +1246,11 @@ def _infer_market_mode(symbol: str, *, interval: str = "30m", ema_fast_len: int 
     if not kl or len(kl) < ema_slow_len + 2:
         return "FLAT", {"ema_fast": 0, "ema_slow": 0, "slope": 0, "adx": 0, "candidate": "FLAT"}
 
-    closes = [float(r[4]) for r in kl]
+    closes = [_analytics_float(r[4]) for r in kl]
     ema_fast = _ema_series(closes, ema_fast_len)
     ema_slow = _ema_series(closes, ema_slow_len)
-    ef = float(ema_fast[-1]); es = float(ema_slow[-1])
-    last_px = float(closes[-1])
+    ef = _analytics_float(ema_fast[-1]); es = _analytics_float(ema_slow[-1])
+    last_px = _analytics_float(closes[-1])
 
     step_back = min(confirm_bars, len(ema_fast) - 1)
     slope = (ema_fast[-1] - ema_fast[-1 - step_back]) / max(step_back, 1) / max(last_px, 1e-12)
@@ -1263,7 +1264,7 @@ def _infer_market_mode(symbol: str, *, interval: str = "30m", ema_fast_len: int 
     # mode back and forth between adjacent supervisor iterations.
     hysteresis = _REGIME_HYSTERESIS.setdefault(
         symbol,
-        RegimeHysteresis("FLAT", min_hold_sec=float(os.getenv("BOT_REGIME_MIN_HOLD_SEC", "300")),
+        RegimeHysteresis("FLAT", min_hold_sec=_analytics_float(os.getenv("BOT_REGIME_MIN_HOLD_SEC", "300")),
                          confirmations=max(1, confirm_bars)),
     )
     mode = hysteresis.update(cand)
@@ -1463,7 +1464,7 @@ def _schedule_child_restart(
         _CHILD_FAILURES[symbol] = failures
         base = max(1, int(os.getenv("BOT_CHILD_RESTART_BASE_SEC", "2")))
         maximum = max(base, int(os.getenv("BOT_CHILD_RESTART_MAX_SEC", "60")))
-        delay = float(min(maximum, base * (2 ** min(failures - 1, 10))))
+        delay = _analytics_float(min(maximum, base * (2 ** min(failures - 1, 10))))
     else:
         _CHILD_FAILURES[symbol] = 0
         delay = 0.0
@@ -1535,23 +1536,23 @@ def run_child(symbol: str, ladder: List[float], args: argparse.Namespace,
     if getattr(args, "child_skip_buy_while_panic", False):
         cli.append("--skip-buy-while-panic")
     if getattr(args, "child_buy_trend_ema_gap", None) is not None:
-        cli += ["--buy-trend-ema-gap", f"{float(args.child_buy_trend_ema_gap):.6f}"]
+        cli += ["--buy-trend-ema-gap", f"{_analytics_float(args.child_buy_trend_ema_gap):.6f}"]
     if getattr(args, "child_buy_trend_interval", None):
         cli += ["--buy-trend-interval", str(args.child_buy_trend_interval)]
     if getattr(args, "child_bear_skip_buys", False):
         cli.append("--bear-skip-buys")
-    if getattr(args, "child_bear_cap_scale", None) is not None and float(args.child_bear_cap_scale) != 1.0:
-        cli += ["--bear-cap-scale", f"{float(args.child_bear_cap_scale):.6f}"]
+    if getattr(args, "child_bear_cap_scale", None) is not None and _analytics_float(args.child_bear_cap_scale) != 1.0:
+        cli += ["--bear-cap-scale", f"{_analytics_float(args.child_bear_cap_scale):.6f}"]
     if getattr(args, "child_bear_buy_shift_pct", 0.0):
-        cli += ["--bear-buy-shift-pct", f"{float(args.child_bear_buy_shift_pct):.6f}"]
+        cli += ["--bear-buy-shift-pct", f"{_analytics_float(args.child_bear_buy_shift_pct):.6f}"]
     if getattr(args, "child_panic_sell_floor_pct", None) is not None:
-        cli += ["--panic-sell-floor-pct", f"{float(args.child_panic_sell_floor_pct):.6f}"]
+        cli += ["--panic-sell-floor-pct", f"{_analytics_float(args.child_panic_sell_floor_pct):.6f}"]
     if getattr(args, "child_buy_vwap_premium", None) is not None:
-        cli += ["--buy-vwap-premium", f"{float(args.child_buy_vwap_premium):.6f}"]
+        cli += ["--buy-vwap-premium", f"{_analytics_float(args.child_buy_vwap_premium):.6f}"]
     if getattr(args, "child_buy_vwap_discount", None) is not None:
-        cli += ["--buy-vwap-discount", f"{float(args.child_buy_vwap_discount):.6f}"]
-    if getattr(args, "child_buy_vwap_discount_scale", None) is not None and float(args.child_buy_vwap_discount_scale) != 1.0:
-        cli += ["--buy-vwap-discount-scale", f"{float(args.child_buy_vwap_discount_scale):.6f}"]
+        cli += ["--buy-vwap-discount", f"{_analytics_float(args.child_buy_vwap_discount):.6f}"]
+    if getattr(args, "child_buy_vwap_discount_scale", None) is not None and _analytics_float(args.child_buy_vwap_discount_scale) != 1.0:
+        cli += ["--buy-vwap-discount-scale", f"{_analytics_float(args.child_buy_vwap_discount_scale):.6f}"]
     if getattr(args, "child_buy_vwap_interval", None):
         cli += ["--buy-vwap-interval", str(args.child_buy_vwap_interval)]
     if getattr(args, "child_buy_vwap_window", None) is not None:
@@ -1561,7 +1562,7 @@ def run_child(symbol: str, ladder: List[float], args: argparse.Namespace,
         if str(args.breakeven_on_tp1_symbols).strip():
             cli += ["--breakeven-on-tp1-symbols", str(args.breakeven_on_tp1_symbols).strip()]
     if getattr(args, "breakeven_offset_pct", None) is not None:
-        cli += ["--breakeven-offset-pct", f"{float(args.breakeven_offset_pct):.6f}"]
+        cli += ["--breakeven-offset-pct", f"{_analytics_float(args.breakeven_offset_pct):.6f}"]
     if getattr(args, "breakeven_check_interval", None) is not None:
         cli += ["--breakeven-check-interval", str(int(args.breakeven_check_interval))]
 
@@ -1662,18 +1663,18 @@ def _build_ai_market_context(
         "symbol": symbol,
         "price": _analytics_float(price_exact),
         "price_text": format(price_exact, "f"),
-        "atr_pct": float(atr_pct),
+        "atr_pct": _analytics_float(atr_pct),
         "deterministic_mode": deterministic_mode,
         "candidate_mode": str(diag.get("candidate", deterministic_mode)),
         "ema_gap_pct": (
-            (float(diag.get("ema_fast", 0)) - float(diag.get("ema_slow", 0)))
-            / max(float(price), 1e-12)
+            (_analytics_float(diag.get("ema_fast", 0)) - _analytics_float(diag.get("ema_slow", 0)))
+            / max(_analytics_float(price), 1e-12)
         ),
-        "ema_slope": float(diag.get("slope", 0)),
-        "adx": float(diag.get("adx", 0)),
-        "ladder_low_pct": float(low),
-        "ladder_down_pct": float(down),
-        "ladder_up_pct": float(up),
+        "ema_slope": _analytics_float(diag.get("slope", 0)),
+        "adx": _analytics_float(diag.get("adx", 0)),
+        "ladder_low_pct": _analytics_float(low),
+        "ladder_down_pct": _analytics_float(down),
+        "ladder_up_pct": _analytics_float(up),
         "target_buys": int(target_buys),
         "risk_safe_cap_usdt": _analytics_float(risk_cap_exact),
         "risk_safe_cap_usdt_text": format(risk_cap_exact, "f"),
@@ -1715,8 +1716,8 @@ def _build_ai_market_context(
     now = time.time()
     cached_context = _AI_CONTEXT_CACHE.get(symbol)
     context_ttl = min(
-        max(1.0, float(os.getenv("AI_MAX_MARKET_AGE_SEC", "30") or 30)),
-        max(1.0, float(os.getenv("AI_MAX_PORTFOLIO_AGE_SEC", "30") or 30)),
+        max(1.0, _analytics_float(os.getenv("AI_MAX_MARKET_AGE_SEC", "30") or 30)),
+        max(1.0, _analytics_float(os.getenv("AI_MAX_PORTFOLIO_AGE_SEC", "30") or 30)),
     )
     # Context refreshes more often than the LLM response. This keeps the
     # order book and balance fresh without increasing paid DeepSeek requests.
@@ -1778,8 +1779,8 @@ def _build_ai_market_context(
             context.market_data_available
             and context.orderbook_available
             and context.portfolio_data_available
-            and context.market_data_age_sec <= float(os.getenv("AI_RAG_MAX_MARKET_AGE_SEC", "30"))
-            and context.portfolio_data_age_sec <= float(os.getenv("AI_RAG_MAX_PORTFOLIO_AGE_SEC", "30"))
+            and context.market_data_age_sec <= _analytics_float(os.getenv("AI_RAG_MAX_MARKET_AGE_SEC", "30"))
+            and context.portfolio_data_age_sec <= _analytics_float(os.getenv("AI_RAG_MAX_PORTFOLIO_AGE_SEC", "30"))
         )
         rag_documents = ()
         if context_ready:
@@ -1789,7 +1790,7 @@ def _build_ai_market_context(
                     context_vector(context),
                     limit=int(os.getenv("AI_RAG_TOP_K", "3") or 3),
                     include_virtual=include_virtual_rag,
-                    min_score=float(os.getenv("AI_RAG_MIN_SCORE", "0.65") or 0.65),
+                    min_score=_analytics_float(os.getenv("AI_RAG_MIN_SCORE", "0.65") or 0.65),
                     min_matches=max(1, int(os.getenv("AI_RAG_MIN_MATCHES", "1") or 1)),
                     decay_days=max(0, int(os.getenv("AI_RAG_DECAY_DAYS", "180") or 180)),
                 )
@@ -1810,10 +1811,10 @@ def run_for_symbol(symbol: str, args: argparse.Namespace) -> None:
     atr_abs, atr_pct = _atr_pct(symbol, interval=(args.atr_interval if hasattr(args, 'atr_interval') else '5m'), length=20)
 
     # 2) Baseline ATR-based TP/SL when not explicitly configured
-    tp1_calc = clamp(atr_pct * float(args.atr_mult_tp1), float(args.tp1_min), float(args.tp1_max))
-    tp2_calc = clamp(atr_pct * float(args.atr_mult_tp2), float(args.tp1_min), float(args.tp1_max * 1.8))
-    tp1_use = float(args.tp1) if args.tp1 is not None else tp1_calc
-    tp2_use = float(args.tp2) if args.tp2 is not None else tp2_calc
+    tp1_calc = clamp(atr_pct * _analytics_float(args.atr_mult_tp1), _analytics_float(args.tp1_min), _analytics_float(args.tp1_max))
+    tp2_calc = clamp(atr_pct * _analytics_float(args.atr_mult_tp2), _analytics_float(args.tp1_min), _analytics_float(args.tp1_max * 1.8))
+    tp1_use = _analytics_float(args.tp1) if args.tp1 is not None else tp1_calc
+    tp2_use = _analytics_float(args.tp2) if args.tp2 is not None else tp2_calc
     log(f"[ATR] {symbol} ATR={atr_abs:.4f} -> tp1={tp1_use:.4f}..{args.tp1_max:.4f} with mults tp1={args.atr_mult_tp1} tp2={args.atr_mult_tp2} sl={args.atr_mult_sl}")
 
     # 3) Direction mode (auto/forced)
@@ -1833,9 +1834,9 @@ def run_for_symbol(symbol: str, args: argparse.Namespace) -> None:
             interval=args.dir_interval,
             ema_fast_len=20,
             ema_slow_len=50,
-            eps=float(args.dir_eps),
-            slope_min=float(args.dir_slope_min),
-            adx_min=float(args.dir_adx_min),
+            eps=_analytics_float(args.dir_eps),
+            slope_min=_analytics_float(args.dir_slope_min),
+            adx_min=_analytics_float(args.dir_adx_min),
             hyst_bars=int(args.dir_hyst_bars),
             confirm_bars=int(args.dir_confirm_bars),
             do_log=bool(args.dir_log)
@@ -1844,9 +1845,9 @@ def run_for_symbol(symbol: str, args: argparse.Namespace) -> None:
     operator_target_buys_limit = max(1, int(args.target_buy_per_symbol))
     target_buys_use = operator_target_buys_limit
     param_hyst = _PARAM_HYSTERESIS.setdefault(symbol, {
-        "width": NumericHysteresis(1.0, max_step=float(os.getenv("BOT_PARAM_MAX_STEP", "0.15"))),
-        "cap": NumericHysteresis(1.0, max_step=float(os.getenv("BOT_PARAM_MAX_STEP", "0.15"))),
-        "buys": NumericHysteresis(float(target_buys_use), max_step=0.5),
+        "width": NumericHysteresis(1.0, max_step=_analytics_float(os.getenv("BOT_PARAM_MAX_STEP", "0.15"))),
+        "cap": NumericHysteresis(1.0, max_step=_analytics_float(os.getenv("BOT_PARAM_MAX_STEP", "0.15"))),
+        "buys": NumericHysteresis(_analytics_float(target_buys_use), max_step=0.5),
     })
 
     # Build a fully deterministic baseline first. The LLM receives only
@@ -1862,10 +1863,10 @@ def run_for_symbol(symbol: str, args: argparse.Namespace) -> None:
         ai_context = _build_ai_market_context(
             symbol,
             price=now_p,
-            atr_pct=float(atr_pct or 0),
+            atr_pct=_analytics_float(atr_pct or 0),
             deterministic_mode=dir_mode,
             diag=_diag,
-            ladder=(float(low), float(down), float(up)),
+            ladder=(_analytics_float(low), _analytics_float(down), _analytics_float(up)),
             target_buys=target_buys_use,
         )
         recommendation = _AI_ADVISOR.recommend(
@@ -2025,11 +2026,11 @@ def run_for_symbol(symbol: str, args: argparse.Namespace) -> None:
     # 7) ATR-driven automatic adapter (environment override)
     # extra_env may already contain the exact BOT_AI_DECISION_ID.
     if os.environ.get('AUTO_ADAPT_ENABLE', '0') in ('1', 'true', 'True', 'YES', 'yes'):
-        base_dev_buy = float(os.environ.get('DEV_BUY_PCT', '0.004') or 0.004)
-        base_min_profit = float(os.environ.get('MIN_PROFIT_OVER_AVG', '0.002') or 0.002)
-        coef_dev = float(os.environ.get('ADAPT_DEV_BUY_COEF', '0.6') or 0.6)
-        coef_min = float(os.environ.get('ADAPT_MIN_PROFIT_COEF', '0.6') or 0.6)
-        floor_min = float(os.environ.get('ADAPT_MIN_FLOOR', '0.0025') or 0.0025)
+        base_dev_buy = _analytics_float(os.environ.get('DEV_BUY_PCT', '0.004') or 0.004)
+        base_min_profit = _analytics_float(os.environ.get('MIN_PROFIT_OVER_AVG', '0.002') or 0.002)
+        coef_dev = _analytics_float(os.environ.get('ADAPT_DEV_BUY_COEF', '0.6') or 0.6)
+        coef_min = _analytics_float(os.environ.get('ADAPT_MIN_PROFIT_COEF', '0.6') or 0.6)
+        floor_min = _analytics_float(os.environ.get('ADAPT_MIN_FLOOR', '0.0025') or 0.0025)
 
         dev_buy_eff = max(base_dev_buy, coef_dev * atr_pct, floor_min)
         min_profit_eff = max(base_min_profit, coef_min * atr_pct, floor_min * 0.8)
@@ -2061,19 +2062,19 @@ def run_for_symbol(symbol: str, args: argparse.Namespace) -> None:
         extra_env["BOT_CAP_PER_ORDER"] = f"{advised_cap:.8f}"
 
     # 8) Soft application of the mode to DEV_BUY_PCT and TP1
-    cur_dev = float(extra_env.get('DEV_BUY_PCT') or os.environ.get('DEV_BUY_PCT', '0.004') or 0.004)
+    cur_dev = _analytics_float(extra_env.get('DEV_BUY_PCT') or os.environ.get('DEV_BUY_PCT', '0.004') or 0.004)
     before_dev = cur_dev
     before_tp1 = tp1_use
 
     if dir_mode == "UP":
-        cur_dev = cur_dev * float(args.dir_up_dev_mult)
-        tp1_use = max(float(args.tp1_min), tp1_use * float(args.dir_up_tp1_mult))
+        cur_dev = cur_dev * _analytics_float(args.dir_up_dev_mult)
+        tp1_use = max(_analytics_float(args.tp1_min), tp1_use * _analytics_float(args.dir_up_tp1_mult))
         target_buys_use = max(1, int(args.dir_up_target_buys))
     elif dir_mode == "DOWN":
-        cur_dev = cur_dev * float(args.dir_down_dev_mult)
-        tp1_use = min(float(args.tp1_max), tp1_use * float(args.dir_down_tp1_mult))
+        cur_dev = cur_dev * _analytics_float(args.dir_down_dev_mult)
+        tp1_use = min(_analytics_float(args.tp1_max), tp1_use * _analytics_float(args.dir_down_tp1_mult))
         target_buys_use = max(1, int(args.dir_down_target_buys))
-    adaptive_target_buys = round(param_hyst["buys"].update(float(target_buys_use)))
+    adaptive_target_buys = round(param_hyst["buys"].update(_analytics_float(target_buys_use)))
     target_buys_use = limit_target_buys(
         adaptive_target_buys,
         operator_target_buys_limit,
@@ -2267,8 +2268,8 @@ def _preflight_live(args: argparse.Namespace, symbols: List[str], limits: RiskLi
         "venue": "testnet" if args.testnet else "mainnet",
         "symbols": symbols,
         "target_buys_per_symbol": args.target_buy_per_symbol,
-        "cap_per_order_usdt": float(cap_exact),
-        "max_new_buy_exposure_usdt": float(
+        "cap_per_order_usdt": _analytics_float(cap_exact),
+        "max_new_buy_exposure_usdt": _analytics_float(
             max_exposure.quantize(Decimal("0.01"))
         ),
         "portfolio_cap_usdt": str(limits.portfolio_cap_usdt),
@@ -2326,7 +2327,7 @@ def _preflight_live(args: argparse.Namespace, symbols: List[str], limits: RiskLi
     for symbol in symbols:
         filters = get_exchange_filters(symbol)
         required = ("tickSize", "stepSize", "minQty", "minNotional")
-        invalid = [name for name in required if float(filters.get(name, 0)) <= 0]
+        invalid = [name for name in required if _analytics_float(filters.get(name, 0)) <= 0]
         if invalid:
             raise RuntimeError(f"invalid exchange filters for {symbol}: {','.join(invalid)}")
 
@@ -2469,8 +2470,8 @@ def _build_risk_snapshot(
                 name="reconciliation tolerance",
             ),
         )
-        grace_sec = max(0.0, float(os.getenv("RISK_RECONCILE_GRACE_SEC", "5") or 5))
-        retry_sec = max(0.05, float(os.getenv("RISK_RECONCILE_RETRY_SEC", "0.25") or 0.25))
+        grace_sec = max(0.0, _analytics_float(os.getenv("RISK_RECONCILE_GRACE_SEC", "5") or 5))
+        retry_sec = max(0.05, _analytics_float(os.getenv("RISK_RECONCILE_RETRY_SEC", "0.25") or 0.25))
         dust_steps = max(
             Decimal("0"),
             _finite_decimal(
@@ -2622,10 +2623,10 @@ def _build_risk_snapshot(
     if os.getenv("RISK_CORRELATION_MODE", "rolling").lower() == "rolling" and len(symbols) > 1:
         histories: Dict[str, list[float]] = {}
         window = max(3, int(os.getenv("RISK_CORRELATION_WINDOW", "48") or 48))
-        threshold = float(os.getenv("RISK_CORRELATION_THRESHOLD", "0.70") or 0.70)
+        threshold = _analytics_float(os.getenv("RISK_CORRELATION_THRESHOLD", "0.70") or 0.70)
         for symbol in symbols:
             klines = TM.get_klines(symbol, "15m", limit=window + 1)
-            closes = [float(row[4]) for row in klines if len(row) > 4 and float(row[4]) > 0]
+            closes = [_analytics_float(row[4]) for row in klines if len(row) > 4 and _analytics_float(row[4]) > 0]
             if len(closes) >= 4:
                 histories[symbol] = closes
         rolling = derive_correlated_symbols_multi_window(
@@ -2672,7 +2673,7 @@ def _build_risk_snapshot(
         symbol: _analytics_float(value) for symbol, value in exposure_by_symbol.items()
     }
     var_value = covariance_var(analytics_exposure, histories if 'histories' in locals() else {},
-                               confidence=float(os.getenv("RISK_VAR_CONFIDENCE", "0.99")))
+                               confidence=_analytics_float(os.getenv("RISK_VAR_CONFIDENCE", "0.99")))
     # Gap risk includes an overnight jump, spread widening and execution latency.
     # The gap scenario is conservatively scaled by execution delay.
     gap_shock = abs(money(os.getenv("RISK_GAP_SHOCK_PCT", "0.10")))
@@ -2692,7 +2693,7 @@ def _build_risk_snapshot(
     ]
     scenario_losses = [_analytics_float(value) for value in scenario_losses_exact]
     es_value = expected_shortfall(scenario_losses,
-                                  confidence=float(os.getenv("RISK_ES_CONFIDENCE", "0.75")))
+                                  confidence=_analytics_float(os.getenv("RISK_ES_CONFIDENCE", "0.75")))
     snap = RiskSnapshot(
         equity_usdt=equity,
         exposure_usdt=exposure,
@@ -2741,21 +2742,21 @@ def main():
         effective_ai_mode = "DISABLED"
     _AI_POLICY = PolicyConfig(
         mode=effective_ai_mode,
-        max_market_age_sec=float(args.ai_max_market_age_sec),
-        max_portfolio_age_sec=float(args.ai_max_portfolio_age_sec),
-        max_spread_bps=float(args.ai_max_spread_bps),
-        high_volatility_pct=float(args.ai_high_volatility_pct),
+        max_market_age_sec=_analytics_float(args.ai_max_market_age_sec),
+        max_portfolio_age_sec=_analytics_float(args.ai_max_portfolio_age_sec),
+        max_spread_bps=_analytics_float(args.ai_max_spread_bps),
+        high_volatility_pct=_analytics_float(args.ai_high_volatility_pct),
         max_consecutive_losses=int(
             os.getenv("RISK_MAX_CONSECUTIVE_LOSSES", "3") or 3
         ),
         min_trade_sells=int(args.ai_min_trade_sells),
         min_accuracy_samples=int(args.ai_min_accuracy_samples),
-        min_ai_accuracy=float(args.ai_min_accuracy),
+        min_ai_accuracy=_analytics_float(args.ai_min_accuracy),
         min_closed_decisions=int(args.ai_min_closed_decisions),
         min_real_rag_episodes=max(
             0, int(os.getenv("AI_MIN_REAL_RAG_EPISODES", "5") or 5)
         ),
-        max_realized_stop_rate=float(args.ai_max_realized_stop_rate),
+        max_realized_stop_rate=_analytics_float(args.ai_max_realized_stop_rate),
     )
     _AI_ADVISOR = _build_ai_advisor(args)
     run_dir = Path(os.getenv("BOT_RUN_DIR", ".runtime"))
@@ -2830,7 +2831,7 @@ def main():
     lp = [x.strip() for x in args.ladder_pct.split(",")]
     if len(lp) != 3:
         raise SystemExit("--ladder-pct expects three numbers: low,down,up")
-    args.ladder_pct = (float(lp[0]), float(lp[1]), float(lp[2]))
+    args.ladder_pct = (_analytics_float(lp[0]), _analytics_float(lp[1]), _analytics_float(lp[2]))
     args.ladder_pct_map = parse_ladder_pct_map(args.ladder_pct_map)
 
     args.pos_max_base_map = parse_decimal_limit_map(args.pos_max_base_map)
@@ -2868,14 +2869,14 @@ def main():
     def _next_vwap_refresh() -> float:
         base = max(0, int(getattr(args, "vwap_refresh_sec", 0)))
         if base <= 0:
-            return float("inf")
-        delay = float(base)
+            return math.inf
+        delay = _analytics_float(base)
         jitter = max(0, int(getattr(args, "vwap_refresh_jitter_sec", 0)))
         if jitter > 0:
             delay += random.uniform(-jitter, jitter)
         return time.time() + max(5.0, delay)
 
-    next_vwap_refresh = float("inf")
+    next_vwap_refresh = math.inf
     if getattr(args, "vwap_refresh_sec", 0) > 0:
         if getattr(args, "vwap_refresh_on_start", 1):
             try:
@@ -2930,7 +2931,7 @@ def main():
                 try:
                     snapshot, orders, prices = _build_risk_snapshot(symbols, limits)
                     consecutive_api_failures = 0
-                    shock_pct = float(os.getenv("RISK_SHOCK_PCT", "0.05") or 0.05)
+                    shock_pct = _analytics_float(os.getenv("RISK_SHOCK_PCT", "0.05") or 0.05)
                     shocks = []
                     for symbol, price in prices.items():
                         previous = previous_prices.get(symbol)
@@ -2956,10 +2957,13 @@ def main():
                         if snapshot.exposure_usdt > 0 and snapshot.stress_loss_usdt > 0:
                             stress_ratio = min(Decimal("1"), snapshot.stress_loss_usdt / snapshot.exposure_usdt)
                             safe_cap *= max(Decimal("0"), Decimal("1") - stress_ratio)
-                        allocations = allocate_cap_by_marginal_risk(
-                            float(safe_cap),
-                            {symbol: float(value) * float(snapshot.stress_loss_usdt / max(snapshot.exposure_usdt, Decimal("1e-18")))
-                             for symbol, value in snapshot.symbol_exposure_usdt.items()},
+                        allocations = allocate_cap_by_marginal_risk_decimal(
+                            safe_cap,
+                            {
+                                symbol: value * snapshot.stress_loss_usdt
+                                / max(snapshot.exposure_usdt, Decimal("1e-18"))
+                                for symbol, value in snapshot.symbol_exposure_usdt.items()
+                            },
                         )
                         for symbol, allocation in allocations.items():
                             os.environ[f"RISK_SYMBOL_CAP_{symbol.upper()}"] = f"{allocation:.8f}"
@@ -3028,7 +3032,7 @@ def main():
             if risk_buy_blocked:
                 # During a block the supervisor only reevaluates risk; trading
                 # plans are not built until an explicit safe decision exists.
-                time.sleep(min(2.0, max(0.5, float(args.risk_check_sec) / 2.0)))
+                time.sleep(min(2.0, max(0.5, _analytics_float(args.risk_check_sec) / 2.0)))
                 continue
 
             if now_loop >= next_vwap_refresh:

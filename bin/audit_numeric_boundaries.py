@@ -12,9 +12,10 @@ from pathlib import Path
 
 
 LIMITS = {
-    "bin/ai_supervisor.py": 125,
-    "bin/autosize_universal.py": 36,
-    "ladder_dragon/ai/ai_context.py": 1,
+    "bin/ai_supervisor.py": 0,
+    "bin/autosize_universal.py": 0,
+    "ladder_dragon/ai/ai_context.py": 0,
+    "ladder_dragon/numeric_compat.py": 1,
     "ladder_dragon/execution/executor_orders.py": 0,
     "ladder_dragon/execution/executor_protection.py": 0,
 }

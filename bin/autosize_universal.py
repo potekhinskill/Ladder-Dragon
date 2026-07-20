@@ -44,6 +44,7 @@ from ladder_dragon.execution.executor_config import build_executor_parser, valid
 from ladder_dragon.strategy.strategy_math import atr_from_klines as _atr_from_klines
 from ladder_dragon.strategy.strategy_math import clamp, ema_value as _ema, panic_triggered as panic_raw
 from ladder_dragon.strategy.strategy_math import shift_buy_levels
+from ladder_dragon.numeric_compat import compatibility_float as _compat_float
 from ladder_dragon.execution.binance_transport import (
     BinanceResponseError,
     BinanceTransport,
@@ -307,21 +308,21 @@ def _gap_watchdog_fail_closed(
 # ------------------- helpers: rounding & env -------------------
 
 def _round(x: float, step: float, mode: str = "nearest") -> float:
-    return float(round_step(x, step, mode))
+    return _compat_float(round_step(x, step, mode))
 
 def fmt(v, n=8):
     try:
-        return f"{float(v):.{n}f}"
+        return f"{_compat_float(v):.{n}f}"
     except (TypeError, ValueError, OverflowError):
         return str(v)
 
 def parse_comma_floats(s: str) -> List[float]:
-    return [float(x.strip()) for x in s.split(",") if x.strip()]
+    return [_compat_float(x.strip()) for x in s.split(",") if x.strip()]
 
 def getenv_float(name, default):
     v = os.getenv(name)
     try:
-        return float(v) if v is not None else default
+        return _compat_float(v) if v is not None else default
     except (TypeError, ValueError, OverflowError):
         return default
 
@@ -494,7 +495,7 @@ def get_indicators_cached(symbol: str, interval: str = "1m", ttl_sec: int = 20) 
         _IND_CACHE[key] = {"ema20": None, "atr": None, "prev_close": None}
         _IND_TS[key] = now_ts
         return None, None, None
-    closes = [float(x[4]) for x in kl[:-1]]
+    closes = [_compat_float(x[4]) for x in kl[:-1]]
     ema20 = _ema(closes[-60:], 20) if len(closes) >= 20 else None
     atr14 = _atr_from_klines(kl, 14)
     prev_close = closes[-1] if closes else None
@@ -528,10 +529,10 @@ def get_vwap_cached(symbol: str,
     weighted_sum = 0.0
     for bar in candles:
         try:
-            high = float(bar[2])
-            low = float(bar[3])
-            close = float(bar[4])
-            volume = float(bar[5])
+            high = _compat_float(bar[2])
+            low = _compat_float(bar[3])
+            close = _compat_float(bar[4])
+            volume = _compat_float(bar[5])
         except (TypeError, ValueError):
             continue
         if volume <= 0:
@@ -681,8 +682,8 @@ def _load_panic_state(symbol: str) -> Dict[str, float | int | bool]:
             raise ValueError("invalid panic state timestamp")
         state = {
             "on": raw["on"],
-            "since": max(0.0, float(since)),
-            "last_trig": max(0.0, float(last_trig)),
+            "since": max(0.0, _compat_float(since)),
+            "last_trig": max(0.0, _compat_float(last_trig)),
             "hits": max(0, int(raw.get("hits", 0))),
         }
         log(
@@ -694,7 +695,7 @@ def _load_panic_state(symbol: str) -> Dict[str, float | int | bool]:
     if path.exists():
         _PANIC_PERSISTED[safe_symbol] = (
             bool(state["on"]),
-            float(state["since"]),
+            _compat_float(state["since"]),
             int(state["hits"]),
         )
     return state
@@ -708,7 +709,7 @@ def _save_panic_state(
     path = _panic_state_path(symbol)
     signature = (
         bool(state.get("on", False)),
-        float(state.get("since", 0.0)),
+        _compat_float(state.get("since", 0.0)),
         max(0, int(state.get("hits", 0))),
     )
     if _PANIC_PERSISTED.get(symbol.upper()) == signature and path.exists():
@@ -718,8 +719,8 @@ def _save_panic_state(
         "schema_version": 1,
         "symbol": symbol.upper(),
         "on": bool(state.get("on", False)),
-        "since": float(state.get("since", 0.0)),
-        "last_trig": float(state.get("last_trig", 0.0)),
+        "since": _compat_float(state.get("since", 0.0)),
+        "last_trig": _compat_float(state.get("last_trig", 0.0)),
         "hits": max(0, int(state.get("hits", 0))),
         "updated_at": time.time(),
     }
@@ -836,7 +837,7 @@ def update_panic_state(symbol: str,
             recovered_ema = now_px >= (ema20 - 1.0 * atr)
         if avg_entry_px is not None:
             recovered_avg = Decimal(str(now_px)) >= Decimal(str(avg_entry_px))
-        if (now_ts - float(s.get("since", 0.0)) >= cooldown_sec) and (recovered_ema or recovered_avg):
+        if (now_ts - _compat_float(s.get("since", 0.0)) >= cooldown_sec) and (recovered_ema or recovered_avg):
             s["on"] = False
             s["hits"] = 0
             log(f"[PANIC] {symbol} OFF (recover: ema_ok={recovered_ema}, avg_ok={recovered_avg})")
@@ -884,10 +885,10 @@ def pull_filters(symbol: str) -> Dict[str, Any]:
         lot_filter = filters["LOT_SIZE"]
         notional_filter = filters.get("NOTIONAL") or filters["MIN_NOTIONAL"]
         flt = {
-            "tickSize": float(price_filter["tickSize"]),
-            "stepSize": float(lot_filter["stepSize"]),
-            "minQty": float(lot_filter["minQty"]),
-            "minNotional": float(notional_filter["minNotional"]),
+            "tickSize": _compat_float(price_filter["tickSize"]),
+            "stepSize": _compat_float(lot_filter["stepSize"]),
+            "minQty": _compat_float(lot_filter["minQty"]),
+            "minNotional": _compat_float(notional_filter["minNotional"]),
             "tickSizeExact": str(price_filter["tickSize"]),
             "stepSizeExact": str(lot_filter["stepSize"]),
             "minQtyExact": str(lot_filter["minQty"]),
@@ -971,7 +972,7 @@ def _minimum_notional_exact(symbol: str, _price: object = None) -> Decimal:
 
 def dedup_ladder(symbol: str, ladder_prices: List[float], now_price: float) -> List[float]:
     try:
-        tick = float(symbol_filters[symbol]["tickSize"])
+        tick = _compat_float(symbol_filters[symbol]["tickSize"])
     except (KeyError, TypeError, ValueError, ArithmeticError):
         tick = 0.0
     if tick <= 0 or not ladder_prices:
@@ -981,7 +982,7 @@ def dedup_ladder(symbol: str, ladder_prices: List[float], now_price: float) -> L
     dedup: List[float] = []
     for raw_p in ladder_prices:
         try:
-            pr = round_price(symbol, float(raw_p))
+            pr = round_price(symbol, _compat_float(raw_p))
         except (KeyError, TypeError, ValueError, ArithmeticError):
             continue
         side = "B" if pr <= now_price else "S"
@@ -2225,8 +2226,8 @@ def main():
         vwap_value: Optional[float] = None
         need_vwap = (
             args.buy_vwap_premium is not None or
-            (args.buy_vwap_discount is not None and float(args.buy_vwap_discount) > 0) or
-            (args.buy_vwap_discount_scale is not None and float(args.buy_vwap_discount_scale) != 1.0)
+            (args.buy_vwap_discount is not None and _compat_float(args.buy_vwap_discount) > 0) or
+            (args.buy_vwap_discount_scale is not None and _compat_float(args.buy_vwap_discount_scale) != 1.0)
         )
         if need_vwap:
             try:
@@ -2259,8 +2260,8 @@ def main():
                 ema20,
                 atr,
                 prev_close,
-                float(args.panic_drop_pct),
-                float(args.panic_k_atr),
+                _compat_float(args.panic_drop_pct),
+                _compat_float(args.panic_k_atr),
             )
         except (
             requests.RequestException,
@@ -2292,8 +2293,8 @@ def main():
                 now_px=current_price,
                 ema20=ema20, atr=atr, prev_close=prev_close,
                 avg_entry_px=avg_px,
-                panic_drop_pct=float(args.panic_drop_pct),
-                panic_k_atr=float(args.panic_k_atr),
+                panic_drop_pct=_compat_float(args.panic_drop_pct),
+                panic_k_atr=_compat_float(args.panic_k_atr),
                 debounce_checks=int(args.panic_debounce_checks),
                 cooldown_sec=int(args.panic_cooldown_sec),
             ),
@@ -2320,7 +2321,7 @@ def main():
         bear_mode = False
         if trend_ema and trend_ema > 0 and args.buy_trend_ema_gap is not None:
             try:
-                gap_thr = max(0.0, float(args.buy_trend_ema_gap))
+                gap_thr = max(0.0, _compat_float(args.buy_trend_ema_gap))
             except (TypeError, ValueError, OverflowError):
                 gap_thr = 0.0
             bear_gap = max(0.0, (trend_ema - current_price) / trend_ema)
@@ -2329,23 +2330,23 @@ def main():
             log(f"[BEAR] {symbol} price≈{fmt_price_sym(symbol, current_price)} EMA({trend_interval})≈{fmt_price_sym(symbol, trend_ema or 0)} gap≈{bear_gap:.4f}")
 
         if bear_mode and args.bear_buy_shift_pct > 0:
-            ladder_prices = adjust_buy_ladder(symbol, ladder_prices, current_price, float(args.bear_buy_shift_pct))
+            ladder_prices = adjust_buy_ladder(symbol, ladder_prices, current_price, _compat_float(args.bear_buy_shift_pct))
             ladder_prices = dedup_ladder(symbol, ladder_prices, current_price)
 
         if bear_mode and args.bear_cap_scale is not None:
-            scale = Decimal(str(clamp(float(args.bear_cap_scale), 0.0, 5.0)))
+            scale = Decimal(str(clamp(_compat_float(args.bear_cap_scale), 0.0, 5.0)))
             if scale != Decimal("1"):
                 cap *= scale
                 log(f"[BEAR] {symbol} cap scale {scale:.3f} → {cap:.2f} USDT")
 
         if vwap_ratio is not None and args.buy_vwap_discount is not None:
             try:
-                discount_thr = clamp(float(args.buy_vwap_discount), 0.0, 0.5)
+                discount_thr = clamp(_compat_float(args.buy_vwap_discount), 0.0, 0.5)
             except (TypeError, ValueError, OverflowError):
                 discount_thr = 0.0
             if discount_thr > 0 and vwap_ratio <= (1.0 - discount_thr):
                 scale = Decimal(
-                    str(clamp(float(args.buy_vwap_discount_scale), 0.1, 10.0))
+                    str(clamp(_compat_float(args.buy_vwap_discount_scale), 0.1, 10.0))
                 )
                 if scale != Decimal("1"):
                     old_cap = cap
@@ -2412,7 +2413,7 @@ def main():
             skip_buys_reason = "cap<=0"
         elif (skip_buys_reason is None and vwap_ratio is not None and args.buy_vwap_premium is not None):
             try:
-                premium_thr = 1.0 + max(0.0, float(args.buy_vwap_premium))
+                premium_thr = 1.0 + max(0.0, _compat_float(args.buy_vwap_premium))
             except (TypeError, ValueError):
                 premium_thr = 1.0
             if premium_thr > 1.0 and vwap_ratio > premium_thr:
@@ -2533,8 +2534,8 @@ def main():
                         now_px=runtime_price,
                         ema20=ema20, atr=atr, prev_close=prev_close,
                         avg_entry_px=avg_px,
-                        panic_drop_pct=float(args.panic_drop_pct),
-                        panic_k_atr=float(args.panic_k_atr),
+                        panic_drop_pct=_compat_float(args.panic_drop_pct),
+                        panic_k_atr=_compat_float(args.panic_k_atr),
                         debounce_checks=int(args.panic_debounce_checks),
                         cooldown_sec=int(args.panic_cooldown_sec),
                     ),

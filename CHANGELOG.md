@@ -3,6 +3,35 @@
 All notable changes are documented here. Releases use Semantic Versioning; every
 section is dated and there is intentionally no `Unreleased` section.
 
+## [2.20.1] — 2026-07-21
+
+### Changed
+- Removed all 162 direct `float()` conversion calls from the supervisor,
+  strategy worker and AI context. Indicator, timestamp and legacy JSON values
+  now cross one documented finite-only compatibility boundary.
+- The compatibility boundary rejects `NaN`, infinity and values outside the
+  binary-float range instead of allowing non-finite telemetry into policy or
+  strategy calculations.
+- Marginal-risk CAP allocation now remains `Decimal` through weighting and
+  per-symbol allocation. The previous numeric API is retained only as an
+  explicit compatibility view.
+- AST regression limits are now zero for supervisor, worker, AI context, order
+  executor and protection executor. The isolated compatibility module is
+  limited to exactly one conversion call.
+
+### Safety
+- Exact balances, CAP, exposure, filters, quantities and prices remain
+  authoritative. The compatibility function is forbidden from financial state
+  and is used only where indicator libraries or existing JSON contracts require
+  a binary float.
+- Order placement, OCO/STOP behavior, Risk Manager gates and AI SHADOW policy
+  are unchanged.
+
+### Verified
+- All 418 tests pass. Numeric-boundary tests prove zero scattered conversions,
+  finite-only compatibility behavior and exact marginal-risk CAP allocation.
+- Compileall and diff whitespace checks pass.
+
 ## [2.20.0] — 2026-07-20
 
 ### Added

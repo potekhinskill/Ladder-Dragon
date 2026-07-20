@@ -3,6 +3,7 @@ import pytest
 from decimal import Decimal
 
 from ladder_dragon.risk.risk_statistics import (
+    allocate_cap_by_marginal_risk_decimal,
     conversion_price_decimal,
     correlated_symbols,
     rolling_correlation,
@@ -37,3 +38,17 @@ def test_financial_risk_helpers_preserve_decimal_precision():
         {"SOLUSDT": "123.456789123456789"},
         price_shock="-0.05", spread_widening="0.01",
     ) == Decimal("7.40740734740740734")
+
+
+def test_marginal_risk_cap_allocation_is_exact():
+    result = allocate_cap_by_marginal_risk_decimal(
+        "10.000000000000000001",
+        {"SOLUSDT": "2", "ETHUSDT": "1"},
+    )
+
+    assert sum(result.values(), Decimal("0")) == Decimal(
+        "10.00000000000000000100000000"
+    )
+    assert abs(
+        result["ETHUSDT"] - result["SOLUSDT"] * Decimal("2")
+    ) <= Decimal("0.000000000000000000000000001")

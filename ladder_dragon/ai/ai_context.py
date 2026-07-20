@@ -17,6 +17,7 @@ from pathlib import Path
 from typing import Any, Callable, Iterable, Mapping, Sequence
 
 from ladder_dragon.execution.trade_accounting import TradeExecution, replay_average_cost
+from ladder_dragon.numeric_compat import compatibility_float
 
 
 ZERO = Decimal("0")
@@ -65,7 +66,7 @@ def _financial_result_decimal(
 
 def _compat_float(value: object) -> float:
     """Return a finite numeric compatibility value at a public boundary."""
-    return float(_finite_decimal(value, field="compatibility number"))
+    return compatibility_float(value)
 
 
 def _exact_text(value: object, *, field: str) -> str:

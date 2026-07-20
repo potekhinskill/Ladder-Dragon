@@ -17,7 +17,7 @@ Binance Spot. It builds BUY/SELL grids, uses ATR/EMA/VWAP/ADX regimes, manages
 OCO protection, and records trading statistics in SQLite. Production secrets,
 real backups, and private parameters are never committed.
 
-Current product version: **2.20.0**. The single version source is
+Current product version: **2.20.1**. The single version source is
 `product_version.py`; releases follow [Semantic Versioning](https://semver.org/).
 Project contact: [LinkedIn](https://www.linkedin.com/in/ypotekhin/).
 
@@ -33,7 +33,7 @@ Project contact: [LinkedIn](https://www.linkedin.com/in/ypotekhin/).
 ## Project status
 
 Ladder Dragon is an actively developed, experimental trading system. Version
-**2.20.0** is the current prepared release. `main` is the only long-lived branch;
+**2.20.1** is the current prepared release. `main` is the only long-lived branch;
 feature branches use the `ladderdragon/*` namespace.
 
 DRY and Binance Spot Testnet are the supported starting modes. Mainnet LIVE is
@@ -536,10 +536,10 @@ the services, and waits for a fresh heartbeat.
 - validate the existing dynamic-spread, queue-progress and volume-impact models
   against multi-regime archives and measured `executionReport` latency;
 - expand multi-period walk-forward and production approval statistics;
-- continue migrating non-critical strategy indicators and telemetry away from
-  legacy float arithmetic; exact account balances, public execution prices,
-  CAP, order, market and OCO adapters no longer convert monetary decisions
-  through `float`;
+- keep the single finite-only numeric compatibility boundary isolated from
+  financial state. Supervisor, worker, AI context, order and OCO/protection
+  modules contain no direct binary-float conversion calls; indicator and legacy
+  JSON consumers must use the audited boundary explicitly;
 - retain only the four tested broad exception boundaries: panic fail-closed,
   gap-watchdog fail-closed, filled-BUY protection, and post-mutation Mainnet
   canary containment;
