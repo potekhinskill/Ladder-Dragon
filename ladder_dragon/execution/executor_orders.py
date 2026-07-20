@@ -10,6 +10,7 @@ import os
 import sqlite3
 import time
 from dataclasses import dataclass
+from decimal import Decimal, InvalidOperation
 from typing import Any, Callable, Dict, Optional
 
 import requests
@@ -125,8 +126,8 @@ class OrderDependencies:
 def place_limit_order(
     side: str,
     symbol: str,
-    quantity: float,
-    price: float,
+    quantity: object,
+    price: object,
     *,
     dependencies: OrderDependencies,
     maker: bool = False,
@@ -134,31 +135,57 @@ def place_limit_order(
     parent_client_order_id: Optional[str] = None,
 ) -> Dict[str, Any] | None:
     """Разместить LIMIT, сохранив intent до POST и восстановив неопределённый ACK."""
+    try:
+        raw_price = Decimal(str(price))
+        raw_quantity = Decimal(str(quantity))
+    except (InvalidOperation, TypeError, ValueError) as exc:
+        raise ValueError("LIMIT price/quantity is invalid") from exc
+    if (
+        not raw_price.is_finite()
+        or not raw_quantity.is_finite()
+        or raw_price <= 0
+        or raw_quantity <= 0
+    ):
+        raise ValueError("LIMIT price/quantity must be finite and positive")
     # Repeat the DRY gate immediately before mutation: a startup check alone
     # is insufficient because mode can change in a long-lived process.
     if not dependencies.live():
         dependencies.logger(
             f"[DRY] skip LIMIT {symbol} {side.upper()} "
-            f"{quantity:.8f} @ {price:.8f}"
+            f"{raw_quantity:.8f} @ {raw_price:.8f}"
         )
         return None
     dependencies.pull_filters(symbol)
-    price = dependencies.round_price(symbol, price)
-    quantity = dependencies.round_qty(symbol, quantity)
+    price_text = dependencies.format_price(
+        symbol,
+        dependencies.round_price(symbol, float(raw_price)),
+    )
+    quantity_text = dependencies.format_qty(
+        symbol,
+        dependencies.round_qty(symbol, float(raw_quantity)),
+    )
+    price_exact = Decimal(price_text)
+    quantity_exact = Decimal(quantity_text)
+    min_qty_exact = Decimal(str(dependencies.min_qty(symbol, 0)))
+    min_notional_exact = Decimal(
+        str(dependencies.min_notional(symbol, float(price_exact)))
+    )
 
-    if quantity < dependencies.min_qty(symbol, 0):
+    if quantity_exact < min_qty_exact:
         return None
-    if quantity * price < dependencies.min_notional(symbol, price):
-        needed = dependencies.min_notional(symbol, price) / price
-        needed = dependencies.round_qty(
-            symbol, max(needed, dependencies.min_qty(symbol, 0))
+    if quantity_exact * price_exact < min_notional_exact:
+        needed = max(min_notional_exact / price_exact, min_qty_exact)
+        quantity_text = dependencies.format_qty(
+            symbol,
+            dependencies.round_qty(symbol, float(needed)),
         )
-        if needed <= 0:
+        quantity_exact = Decimal(quantity_text)
+        if (
+            quantity_exact <= 0
+            or quantity_exact < min_qty_exact
+            or quantity_exact * price_exact < min_notional_exact
+        ):
             return None
-        quantity = needed
-
-    quantity_text = dependencies.format_qty(symbol, quantity)
-    price_text = dependencies.format_price(symbol, price)
     journal = dependencies.journal()
     # First find an equivalent active intent. If the order already exists on
     # Binance, return it instead of sending another POST.
@@ -214,7 +241,12 @@ def place_limit_order(
         # SELL. Strategy-specific validation is not sufficient because callers
         # and recovery paths evolve independently.
         dependencies.validate_limit_sell_prices(symbol, [price_text])
-    _link_ai_order(order_client_id, symbol, order_type="LIMIT", expected_price=price)
+    _link_ai_order(
+        order_client_id,
+        symbol,
+        order_type="LIMIT",
+        expected_price=float(price_exact),
+    )
     if journal is not None:
         # Commit PREPARED before the network request; this is the idempotency base.
         journal.prepare(

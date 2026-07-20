@@ -10,10 +10,12 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from decimal import Decimal
 from typing import Callable, Iterable, Mapping, Optional, Sequence
 
 
 RoundValue = Callable[[float], float]
+DecimalRoundValue = Callable[[Decimal], Decimal]
 
 
 @dataclass(frozen=True)
@@ -25,6 +27,149 @@ class PlannedOrder:
     @property
     def notional(self) -> float:
         return self.price * self.quantity
+
+
+@dataclass(frozen=True)
+class DecimalPlannedOrder:
+    """Exact monetary plan used by the LIVE holdings SELL path."""
+
+    price: Decimal
+    quantity: Decimal
+
+    @property
+    def notional(self) -> Decimal:
+        return self.price * self.quantity
+
+
+def existing_prices_decimal(
+    orders: Iterable[Mapping[str, object]],
+    *,
+    side: str,
+    now_price: Decimal,
+    round_price: DecimalRoundValue,
+) -> set[Decimal]:
+    """Collect occupied prices without binary-float conversion."""
+    result: set[Decimal] = set()
+    normalized_side = side.upper()
+    for order in orders:
+        if str(order.get("side", "")).upper() != normalized_side:
+            continue
+        if normalized_side == "SELL" and str(
+            order.get("type", "")
+        ).upper() not in {
+            "LIMIT", "LIMIT_MAKER", "STOP_LOSS_LIMIT", "TAKE_PROFIT_LIMIT",
+        }:
+            continue
+        try:
+            price = Decimal(str(order.get("price") or "0"))
+        except (ArithmeticError, TypeError, ValueError):
+            continue
+        if not price.is_finite() or price <= 0:
+            continue
+        if normalized_side == "BUY" and price >= now_price:
+            continue
+        if normalized_side == "SELL" and price <= now_price:
+            continue
+        result.add(round_price(price))
+    return result
+
+
+def guarded_sell_levels_decimal(
+    ladder_prices: Sequence[Decimal],
+    *,
+    now_price: Decimal,
+    occupied_prices: set[Decimal],
+    round_price: DecimalRoundValue,
+    limit: Optional[int],
+    average_entry: Optional[Decimal],
+    panic_active: bool,
+    panic_floor_pct: Optional[Decimal],
+    profit_floor_pct: Decimal,
+) -> list[Decimal]:
+    """Apply exact price guards and tick-level deduplication to SELL levels."""
+    candidates = [
+        price for price in ladder_prices
+        if price > now_price and round_price(price) not in occupied_prices
+    ]
+    if limit is not None:
+        candidates = candidates[:limit]
+    if not candidates:
+        return []
+    all_steps = sorted({round_price(price) for price in ladder_prices})
+    upper_steps = sorted({
+        round_price(price) for price in ladder_prices if price > now_price
+    })
+    guarded: list[Decimal] = []
+    for index, price in enumerate(candidates):
+        minimum: Optional[Decimal] = None
+        if average_entry is not None:
+            if panic_active and panic_floor_pct is not None:
+                minimum = average_entry * (
+                    Decimal("1") - max(Decimal("0"), panic_floor_pct)
+                )
+            elif not panic_active:
+                minimum = average_entry * (
+                    Decimal("1") + max(Decimal("0"), profit_floor_pct)
+                )
+        target = max(price, minimum) if minimum is not None else price
+        if target != price:
+            available = [step for step in all_steps if step >= target]
+            bumped = (
+                available[min(index, len(available) - 1)]
+                if available else round_price(target)
+            )
+            if minimum is not None:
+                bumped = max(bumped, minimum)
+            target = bumped
+        if target > now_price:
+            guarded.append(target)
+    result: list[Decimal] = []
+    seen: set[Decimal] = set()
+    for price in guarded:
+        rounded = round_price(price)
+        if rounded in seen:
+            position = next(
+                (
+                    index for index, step in enumerate(upper_steps)
+                    if step >= rounded
+                ),
+                len(upper_steps),
+            )
+            while position < len(upper_steps) and upper_steps[position] in seen:
+                position += 1
+            if position >= len(upper_steps):
+                continue
+            rounded = upper_steps[position]
+        if rounded <= now_price or rounded in seen:
+            continue
+        seen.add(rounded)
+        result.append(rounded)
+    return result
+
+
+def plan_sell_order_decimal(
+    price: Decimal,
+    *,
+    quantity_left: Decimal,
+    share: Decimal,
+    is_last: bool,
+    min_quantity: Decimal,
+    min_notional: Decimal,
+    round_quantity: DecimalRoundValue,
+) -> Optional[DecimalPlannedOrder]:
+    """Plan a SELL exactly without decrementing inventory before ACK."""
+    if price <= 0 or quantity_left <= 0:
+        return None
+    quantity = min(share, quantity_left)
+    needed = round_quantity(max(min_notional / price, min_quantity))
+    if quantity < needed:
+        quantity = min(needed, quantity_left)
+    quantity = round_quantity(quantity_left if is_last else quantity)
+    if quantity > quantity_left:
+        quantity = round_quantity(quantity_left)
+    if quantity <= 0 or quantity * price < min_notional:
+        return None
+    return DecimalPlannedOrder(price=price, quantity=quantity)
 
 
 def existing_prices(

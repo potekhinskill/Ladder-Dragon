@@ -1,4 +1,5 @@
 import argparse
+from decimal import Decimal
 
 import pytest
 import requests
@@ -17,8 +18,11 @@ from ladder_dragon.execution.executor_orders import (
 )
 from ladder_dragon.execution.executor_planning import (
     buy_candidates,
+    existing_prices_decimal,
+    guarded_sell_levels_decimal,
     guarded_sell_levels,
     plan_buy_order,
+    plan_sell_order_decimal,
     plan_sell_order,
 )
 from ladder_dragon.execution.executor_recovery import get_order_by_client_id, verify_oco_legs
@@ -382,6 +386,78 @@ def test_executor_orders_uses_late_bound_dry_gate(tmp_path):
     assert len(network_calls) == 1
 
 
+def test_limit_order_preserves_exact_decimal_payload(tmp_path):
+    calls = []
+    journal = OrderJournal(tmp_path / "orders.sqlite3")
+    dependencies = OrderDependencies(
+        live=lambda: True,
+        logger=lambda message: None,
+        pull_filters=lambda symbol: None,
+        round_price=lambda symbol, value: value,
+        round_qty=lambda symbol, value: value,
+        min_qty=lambda symbol, hint: Decimal("0.000001"),
+        min_notional=lambda symbol, price: Decimal("5"),
+        format_price=lambda symbol, value: f"{value:.8f}",
+        format_qty=lambda symbol, value: f"{value:.6f}",
+        journal=lambda: journal,
+        signed_request=lambda method, path, params: calls.append(params) or {
+            "orderId": 19,
+            "status": "NEW",
+            "executedQty": "0",
+        },
+        get_order_by_client_id=lambda symbol, client_id: None,
+        get_order_list_by_client_id=lambda client_id: None,
+        verify_oco_legs=lambda symbol, payload: [],
+        cancel_oco=lambda symbol, order_list_id: None,
+        halt=lambda reason, **metadata: None,
+        validate_limit_sell_prices=lambda symbol, prices: None,
+    )
+
+    result = place_limit_order(
+        "SELL",
+        "SOLUSDT",
+        Decimal("0.123456"),
+        Decimal("75.12345678"),
+        dependencies=dependencies,
+    )
+
+    assert result["orderId"] == 19
+    assert calls[0]["quantity"] == "0.123456"
+    assert calls[0]["price"] == "75.12345678"
+
+
+def test_limit_order_rejects_rounded_value_below_minimum_notional(tmp_path):
+    calls = []
+    dependencies = OrderDependencies(
+        live=lambda: True,
+        logger=lambda message: None,
+        pull_filters=lambda symbol: None,
+        round_price=lambda symbol, value: value,
+        round_qty=lambda symbol, value: int(value * 10) / 10,
+        min_qty=lambda symbol, hint: Decimal("0.1"),
+        min_notional=lambda symbol, price: Decimal("5"),
+        format_price=lambda symbol, value: f"{value:.2f}",
+        format_qty=lambda symbol, value: f"{value:.1f}",
+        journal=lambda: None,
+        signed_request=lambda *args, **kwargs: calls.append(args),
+        get_order_by_client_id=lambda symbol, client_id: None,
+        get_order_list_by_client_id=lambda client_id: None,
+        verify_oco_legs=lambda symbol, payload: [],
+        cancel_oco=lambda symbol, order_list_id: None,
+        halt=lambda reason, **metadata: None,
+        validate_limit_sell_prices=lambda symbol, prices: None,
+    )
+
+    assert place_limit_order(
+        "BUY",
+        "SOLUSDT",
+        Decimal("0.1"),
+        Decimal("33"),
+        dependencies=dependencies,
+    ) is None
+    assert calls == []
+
+
 def test_executor_sell_filter_blocks_before_journal_and_network(tmp_path):
     network_calls = []
     journal = OrderJournal(tmp_path / "orders.sqlite3")
@@ -568,3 +644,52 @@ def test_executor_runtime_owns_worker_lifecycle_timing():
     assert sleeps == [1, 1, 1]
     assert status_due(10, 5)
     assert not status_due(9, 5)
+
+
+def test_decimal_holdings_planner_never_oversells_or_duplicates_ticks():
+    tick = Decimal("0.00000001")
+    step = Decimal("0.000001")
+    round_price = lambda value: (value // tick) * tick
+    round_quantity = lambda value: (value // step) * step
+    occupied = existing_prices_decimal(
+        [{
+            "side": "SELL",
+            "type": "LIMIT",
+            "price": "75.123456789",
+        }],
+        side="SELL",
+        now_price=Decimal("75"),
+        round_price=round_price,
+    )
+    assert occupied == {Decimal("75.12345678")}
+
+    levels = guarded_sell_levels_decimal(
+        [
+            Decimal("75.123456789"),
+            Decimal("76.000000009"),
+            Decimal("77.000000009"),
+        ],
+        now_price=Decimal("75"),
+        occupied_prices=occupied,
+        round_price=round_price,
+        limit=2,
+        average_entry=Decimal("75.5"),
+        panic_active=False,
+        panic_floor_pct=None,
+        profit_floor_pct=Decimal("0.005"),
+    )
+    assert levels == [Decimal("76.00000000"), Decimal("77.00000000")]
+
+    quantity_left = Decimal("0.123456")
+    planned = plan_sell_order_decimal(
+        levels[-1],
+        quantity_left=quantity_left,
+        share=Decimal("0.061728"),
+        is_last=True,
+        min_quantity=Decimal("0.000001"),
+        min_notional=Decimal("5"),
+        round_quantity=round_quantity,
+    )
+    assert planned is not None
+    assert planned.quantity == quantity_left
+    assert planned.notional == Decimal("9.50611200000000")

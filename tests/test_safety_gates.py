@@ -390,6 +390,7 @@ def test_holdings_sell_percent_filter_blocks_exchange_mutation(monkeypatch):
 def test_worker_blocks_oversized_plan_before_exchange_mutation(monkeypatch):
     worker = load_worker()
     worker.RUN = True
+    monkeypatch.setattr(worker, "get_symbol_assets", lambda symbol: ("SOL", "USDT"))
     worker.symbol_filters["SOLUSDT"] = {
         "tickSize": 0.01,
         "stepSize": 0.001,

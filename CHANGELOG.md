@@ -3,6 +3,21 @@
 All notable changes are documented here. Releases use Semantic Versioning; every
 section is dated and there is intentionally no `Unreleased` section.
 
+## [2.10.100] — 2026-07-20
+
+### Security
+- The holdings SELL planner now retains Binance tick, step, minimum quantity
+  and minimum notional values as exact decimals. Price guards,
+  deduplication, allocation and the inventory decrement after an acknowledged
+  order no longer depend on binary-float arithmetic.
+- LIMIT submission rejects non-finite values and rechecks both minimum
+  quantity and minimum notional after exchange-step rounding. A rounded order
+  that still fails the filter cannot reach the signed mutation boundary.
+
+### Verified
+- Added high-precision regression tests for occupied-price deduplication,
+  guarded SELL levels, final-slot inventory bounds and exact LIMIT payloads.
+
 ## [2.10.99] — 2026-07-20
 
 ### Changed

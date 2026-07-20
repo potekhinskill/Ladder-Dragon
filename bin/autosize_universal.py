@@ -108,8 +108,15 @@ from ladder_dragon.execution.executor_orders import OrderDependencies
 from ladder_dragon.execution.executor_orders import place_limit_order as orders_place_limit_order
 from ladder_dragon.execution.executor_orders import place_market_order as orders_place_market_order
 from ladder_dragon.execution.executor_orders import place_oco_sell as orders_place_oco_sell
-from ladder_dragon.execution.executor_planning import buy_candidates, existing_prices, guarded_sell_levels
-from ladder_dragon.execution.executor_planning import plan_buy_order, plan_sell_order
+from ladder_dragon.execution.executor_planning import (
+    buy_candidates,
+    existing_prices,
+    existing_prices_decimal,
+    guarded_sell_levels,
+    guarded_sell_levels_decimal,
+    plan_sell_order_decimal,
+)
+from ladder_dragon.execution.executor_planning import plan_buy_order
 from ladder_dragon.execution.executor_protection import (
     BreakevenRuntime,
     BreakevenStateStore,
@@ -878,14 +885,14 @@ def _panic_buy_block_reason(
 
 # ------------------- Exchange info / filters -------------------
 
-symbol_filters: Dict[str, Dict[str, float]] = {}
+symbol_filters: Dict[str, Dict[str, Any]] = {}
 symbol_exchange_info: Dict[str, Dict[str, Any]] = {}
 _symbol_assets_cache: Dict[str, Tuple[str, str]] = {}
 
 def exchange_info(symbol: str):
     return _public_get("/api/v3/exchangeInfo", {"symbol": symbol})
 
-def pull_filters(symbol: str) -> Dict[str, float]:
+def pull_filters(symbol: str) -> Dict[str, Any]:
     global symbol_filters, symbol_exchange_info
     if symbol in symbol_filters:
         return symbol_filters[symbol]
@@ -901,8 +908,15 @@ def pull_filters(symbol: str) -> Dict[str, float]:
             "stepSize": float(lot_filter["stepSize"]),
             "minQty": float(lot_filter["minQty"]),
             "minNotional": float(notional_filter["minNotional"]),
+            "tickSizeExact": str(price_filter["tickSize"]),
+            "stepSizeExact": str(lot_filter["stepSize"]),
+            "minQtyExact": str(lot_filter["minQty"]),
+            "minNotionalExact": str(notional_filter["minNotional"]),
         }
-        if any(value <= 0 for value in flt.values()):
+        if any(
+            flt[name] <= 0
+            for name in ("tickSize", "stepSize", "minQty", "minNotional")
+        ):
             raise RuntimeError(f"invalid non-positive exchange filters for {symbol}")
     except (KeyError, TypeError, ValueError, RuntimeError) as exc:
         raise RuntimeError(f"invalid exchange filters for {symbol}: {exc}") from exc
@@ -1837,20 +1851,26 @@ def maybe_place_sells_from_holdings(
     """
     base, _ = get_symbol_assets(symbol)
     bals = get_balances()
-    base_free = float(bals.get(base, {}).get("free", 0.0))
+    base_free = Decimal(str(bals.get(base, {}).get("free", "0")))
+    if not base_free.is_finite():
+        log(f"[HOLD-SELL-BLOCK] {symbol} non-finite free balance")
+        return 0
     if base_free <= 0:
         dbg(f"[HOLD-SELL] {symbol} no free base (free={fmt_qty_sym(symbol, base_free)})")
         return 0
+    pull_filters(symbol)
 
     # In panic, normal SELL levels can remain above the market indefinitely.
     # For legacy inventory without OCO, enable emergency market flattening (LIVE
     # by default), otherwise the position remains without a protective exit.
     if panic_active and os.getenv("PANIC_FLATTEN_HOLDINGS", "1").lower() in ("1", "true", "yes"):
-        dust = min_qty(symbol, 0)
-        panic_qty = max(0.0, base_free - dust)
+        dust = Decimal(str(symbol_filters[symbol].get(
+            "minQtyExact", symbol_filters[symbol]["minQty"]
+        )))
+        panic_qty = max(Decimal("0"), base_free - dust)
         if panic_qty > 0:
             try:
-                result = place_market_order(symbol, "SELL", panic_qty,
+                result = place_market_order(symbol, "SELL", float(panic_qty),
                                             ref_price=get_price(symbol),
                                             filters=symbol_filters.get(symbol))
                 log(f"[PANIC-FLATTEN] {symbol} qty≈{fmt_qty_sym(symbol, panic_qty)} result={bool(result)}")
@@ -1858,24 +1878,48 @@ def maybe_place_sells_from_holdings(
             except (RuntimeError, ValueError, OSError) as exc:
                 log(f"[PANIC-FLATTEN-ERR] {symbol}: {exc}")
 
-    pull_filters(symbol)
-
     verified_average = _holdings_cost_basis_covered(symbol, bals)
     if verified_average is None:
         return 0
     # Normal holdings management uses the average reconstructed from exact,
     # sourced FIFO lots. A caller-provided historical average cannot authorize
     # or price a SELL for legacy inventory.
-    avg_entry_px = float(verified_average)
+    average_entry = Decimal(str(verified_average))
 
-    now = get_price(symbol)
-    if not any(p > now for p in ladder_prices):
+    now = Decimal(str(get_price(symbol)))
+    decimal_levels = [Decimal(str(price)) for price in ladder_prices]
+    if not any(price > now for price in decimal_levels):
         dbg(f"[HOLD-SELL] {symbol} no upper ladder above market (now≈{fmt_price_sym(symbol, now)})")
         return 0
 
+    def round_price_exact(value: Decimal) -> Decimal:
+        return round_step(
+            value,
+            symbol_filters[symbol].get(
+                "tickSizeExact", str(symbol_filters[symbol]["tickSize"])
+            ),
+            price_round_mode(),
+        )
+
+    def round_quantity_exact(value: Decimal) -> Decimal:
+        return round_step(
+            value,
+            symbol_filters[symbol].get(
+                "stepSizeExact", str(symbol_filters[symbol]["stepSize"])
+            ),
+            "down",
+        )
+
+    minimum_quantity = Decimal(str(symbol_filters[symbol].get(
+        "minQtyExact", symbol_filters[symbol]["minQty"]
+    )))
+    minimum_notional_exact = Decimal(str(symbol_filters[symbol].get(
+        "minNotionalExact", symbol_filters[symbol]["minNotional"]
+    )))
+
     # Collect existing SELL orders above the market and calculate how many new ones
     # are allowed.
-    existing_sell_prices: set[float] = set()
+    existing_sell_prices: set[Decimal] = set()
     allowed_new: Optional[int] = None
     if enforce_limit and (max_oco_per_symbol is not None):
         try:
@@ -1883,11 +1927,11 @@ def maybe_place_sells_from_holdings(
         except (requests.RequestException, RuntimeError, ValueError) as exc:
             log(f"[HOLD-SELL-BLOCK] {symbol} open-order state unavailable: {type(exc).__name__}")
             return 0
-        existing_sell_prices = existing_prices(
+        existing_sell_prices = existing_prices_decimal(
             oo,
             side="SELL",
             now_price=now,
-            round_price=lambda value: round_price(symbol, value),
+            round_price=round_price_exact,
         )
         existing_cnt = len(existing_sell_prices)
         allowed_new = max(0, int(max_oco_per_symbol) - existing_cnt)
@@ -1896,16 +1940,19 @@ def maybe_place_sells_from_holdings(
             return 0
 
     limit = allowed_new if enforce_limit else max_oco_per_symbol
-    upper_guarded = guarded_sell_levels(
-        ladder_prices,
+    upper_guarded = guarded_sell_levels_decimal(
+        decimal_levels,
         now_price=now,
         occupied_prices=existing_sell_prices if enforce_limit else set(),
-        round_price=lambda value: round_price(symbol, value),
+        round_price=round_price_exact,
         limit=limit,
-        average_entry=avg_entry_px,
+        average_entry=average_entry,
         panic_active=panic_active,
-        panic_floor_pct=panic_sell_floor_pct,
-        profit_floor_pct=_profit_floor_pct(),
+        panic_floor_pct=(
+            None if panic_sell_floor_pct is None
+            else Decimal(str(panic_sell_floor_pct))
+        ),
+        profit_floor_pct=Decimal(str(_profit_floor_pct())),
     )
     if not upper_guarded:
         dbg(f"[HOLD-SELL] {symbol} empty after limits/GUARD")
@@ -1925,8 +1972,8 @@ def maybe_place_sells_from_holdings(
         return 0
 
     # Dust handling and allocation.
-    dust = min_qty(symbol, 0)
-    qty_left = max(0.0, base_free - dust)
+    dust = minimum_quantity
+    qty_left = max(Decimal("0"), base_free - dust)
     if qty_left <= 0:
         dbg(f"[HOLD-SELL] {symbol} sellable≈{fmt_qty_sym(symbol, qty_left)} "
             f"(free={fmt_qty_sym(symbol, base_free)}, dust={fmt_qty_sym(symbol, dust)})")
@@ -1938,24 +1985,27 @@ def maybe_place_sells_from_holdings(
         return 0
 
     placed = 0
-    share = qty_left / n
+    share = qty_left / Decimal(n)
 
     for idx, p in enumerate(upper_guarded, start=1):
         if qty_left <= 0:
             break
 
-        minimum_notional = min_notional(symbol, p)
-        planned = plan_sell_order(
+        minimum_notional = minimum_notional_exact
+        planned = plan_sell_order_decimal(
             p,
             quantity_left=qty_left,
             share=share,
             is_last=idx == n,
-            min_quantity=min_qty(symbol, 0),
+            min_quantity=minimum_quantity,
             min_notional=minimum_notional,
-            round_quantity=lambda value: round_qty(symbol, value),
+            round_quantity=round_quantity_exact,
         )
         if planned is None:
-            need_q = round_qty(symbol, max(min_notional(symbol, p) / p, min_qty(symbol, 0)))
+            need_q = round_quantity_exact(max(
+                minimum_notional / p,
+                minimum_quantity,
+            ))
             dbg(f"[HOLD-SELL] {symbol} skip: remaining quantity cannot reach min {minimum_notional:.2f} "
                 f"at {fmt_price_sym(symbol, p)} (need≥{fmt_qty_sym(symbol, need_q)})")
             continue
@@ -1970,7 +2020,7 @@ def maybe_place_sells_from_holdings(
             if j:
                 oid = j.get("orderId")
                 log(f"[HOLD-SELL] {symbol} placed {fmt_qty_sym(symbol, q)} @ {fmt_price_sym(symbol, p)} (order {oid})")
-                qty_left = max(0.0, qty_left - planned.quantity)
+                qty_left = max(Decimal("0"), qty_left - planned.quantity)
                 placed += 1
         except BinanceResponseError as exc:
             # A filter/business rejection is definitive. Stop this ladder pass
