@@ -456,13 +456,13 @@ def read_plan(path: str | Path) -> CostBasisImportPlan:
 
 def _ensure_import_schema(connection: sqlite3.Connection) -> None:
     ensure_schema(connection)
-    connection.execute(
-        "CREATE TABLE IF NOT EXISTS inventory("
-        "symbol TEXT PRIMARY KEY,qty REAL NOT NULL DEFAULT 0.0,"
-        "avg_cost REAL NOT NULL DEFAULT 0.0,"
-        "realized_pnl REAL NOT NULL DEFAULT 0.0,last_trade_id INTEGER,"
-        "qty_text TEXT,avg_cost_text TEXT,realized_pnl_text TEXT)"
-    )
+    inventory_columns = {
+        str(row[1]) for row in connection.execute("PRAGMA table_info(inventory)")
+    }
+    if not {"qty_text", "avg_cost_text", "realized_pnl_text"} <= inventory_columns:
+        raise RuntimeError(
+            "statistics database must be migrated before cost-basis import"
+        )
     columns = {
         str(row[1]) for row in connection.execute("PRAGMA table_info(inventory_lots)")
     }

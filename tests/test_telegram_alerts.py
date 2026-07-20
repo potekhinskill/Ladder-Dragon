@@ -1,7 +1,7 @@
 import json
 
 from ladder_dragon.execution import telegram_alerts
-def test_legacy_config_is_supported_without_exposing_values(tmp_path, monkeypatch):
+def test_migrated_variable_names_are_supported_in_current_config(tmp_path, monkeypatch):
     config = tmp_path / "telegram.env"
     config.write_text(
         "BOT_ALERTS_ENABLED=0\nBOT_TOKEN=secret-token\nCHAT_ID=123\n",
@@ -11,6 +11,21 @@ def test_legacy_config_is_supported_without_exposing_values(tmp_path, monkeypatc
     values = telegram_alerts.load_config()
     assert values["BOT_TOKEN"] == "secret-token"
     assert telegram_alerts.send_message("test") is False
+
+
+def test_retired_system_path_is_not_read(tmp_path, monkeypatch):
+    current = tmp_path / "telegram.env"
+    retired = tmp_path / "bot-alerts.env"
+    retired.write_text("BOT_TOKEN=retired-secret\nCHAT_ID=123\n", encoding="utf-8")
+    monkeypatch.setenv("TELEGRAM_ALERTS_CONFIG", str(current))
+    monkeypatch.setattr(
+        telegram_alerts,
+        "DEFAULT_CONFIG",
+        retired,
+        raising=False,
+    )
+
+    assert telegram_alerts.load_config() == {}
 
 
 def test_send_message_posts_json_without_logging_secret(tmp_path, monkeypatch):

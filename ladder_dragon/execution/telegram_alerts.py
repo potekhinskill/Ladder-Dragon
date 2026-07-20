@@ -16,7 +16,6 @@ import urllib.request
 
 
 DEFAULT_CONFIG = Path("/etc/ladder-dragon/telegram.env")
-LEGACY_CONFIG = Path("/etc/bot-alerts.env")
 AUTH_ALERT_STATE = Path("/run/mybot/binance-auth-alert.json")
 
 
@@ -45,12 +44,7 @@ def _parse_env(path: Path) -> dict[str, str]:
 def load_config() -> dict[str, str]:
     """Load config."""
     configured = Path(os.getenv("TELEGRAM_ALERTS_CONFIG", str(DEFAULT_CONFIG)))
-    values = _parse_env(configured)
-    if configured != LEGACY_CONFIG:
-        legacy = _parse_env(LEGACY_CONFIG)
-        for key, value in legacy.items():
-            values.setdefault(key, value)
-    return values
+    return _parse_env(configured)
 
 
 def _first(values: dict[str, str], *names: str) -> str:

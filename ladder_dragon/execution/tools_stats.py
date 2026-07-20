@@ -19,68 +19,6 @@ DB_PATH = os.getenv("BOT_STATS_DB", "/home/bot/stats/bot_stats.db")
 BUSY_TRIES  = int(os.getenv("STATS_BUSY_TRIES", "7"))
 BUSY_BASE_S = float(os.getenv("STATS_BUSY_BASE", "0.25"))
 
-SCHEMA = """
-CREATE TABLE IF NOT EXISTS trades(
-  id         INTEGER PRIMARY KEY AUTOINCREMENT,
-  symbol     TEXT NOT NULL,
-  side       TEXT CHECK(side IN ('BUY','SELL')) NOT NULL,
-  price      REAL NOT NULL CHECK(price > 0.0),
-  qty        REAL NOT NULL CHECK(qty > 0.0),
-  fee_quote  REAL NOT NULL DEFAULT 0.0 CHECK(fee_quote >= 0.0),
-  ts         INTEGER NOT NULL CHECK(ts > 0),
-  trade_id   INTEGER,
-  price_text TEXT,
-  gross_qty TEXT,
-  net_qty TEXT,
-  commission_asset TEXT NOT NULL DEFAULT '',
-  commission_amount TEXT,
-  commission_quote TEXT,
-  commission_value_status TEXT NOT NULL DEFAULT 'legacy'
-);
--- Base and covering indexes for symbol/time queries and reports
-CREATE INDEX IF NOT EXISTS trades_idx ON trades(symbol, ts);
-CREATE INDEX IF NOT EXISTS trades_monthly_cover
-ON trades(symbol, ts, side, price, qty, fee_quote);
--- Keep trade_id unique within each symbol when it is present
-CREATE UNIQUE INDEX IF NOT EXISTS trades_sym_tradeid_uq
-ON trades(symbol, trade_id) WHERE trade_id IS NOT NULL;
-
-CREATE TABLE IF NOT EXISTS inventory(
-  symbol        TEXT PRIMARY KEY,
-  qty           REAL NOT NULL DEFAULT 0.0,
-  avg_cost      REAL NOT NULL DEFAULT 0.0,
-  realized_pnl  REAL NOT NULL DEFAULT 0.0,
-  last_trade_id INTEGER,
-  qty_text TEXT,
-  avg_cost_text TEXT,
-  realized_pnl_text TEXT
-);
-
-CREATE VIEW IF NOT EXISTS trades_exact AS
-SELECT id, symbol, side,
-       COALESCE(NULLIF(price_text, ''), CAST(price AS TEXT)) AS price_text,
-       COALESCE(NULLIF(gross_qty, ''), CAST(qty AS TEXT)) AS gross_qty_text,
-       COALESCE(NULLIF(net_qty, ''), CAST(qty AS TEXT)) AS net_qty_text,
-       COALESCE(commission_asset, '') AS commission_asset,
-       COALESCE(NULLIF(commission_amount, ''), '0') AS commission_amount_text,
-       CASE WHEN commission_value_status = 'unpriced' THEN NULL
-            ELSE COALESCE(NULLIF(commission_quote, ''), CAST(fee_quote AS TEXT))
-       END AS commission_quote_text,
-       COALESCE(NULLIF(commission_value_status, ''), 'legacy')
-         AS commission_value_status,
-       ts, trade_id
-FROM trades;
-
-CREATE VIEW IF NOT EXISTS inventory_exact AS
-SELECT symbol,
-       COALESCE(NULLIF(qty_text, ''), CAST(qty AS TEXT)) AS qty_text,
-       COALESCE(NULLIF(avg_cost_text, ''), CAST(avg_cost AS TEXT)) AS avg_cost_text,
-       COALESCE(NULLIF(realized_pnl_text, ''), CAST(realized_pnl AS TEXT))
-         AS realized_pnl_text,
-       last_trade_id
-FROM inventory;
-"""
-
 # ==========================
 # Helper functions
 # ==========================
@@ -171,7 +109,7 @@ def init_db(db_path: str) -> sqlite3.Connection:
 # Inventory recalculation
 # ==========================
 
-def _recalc_inventory(db: sqlite3.Connection, symbol: str):
+def recalculate_inventory(db: sqlite3.Connection, symbol: str):
     """Handle recalc inventory."""
     sym = symbol.upper()
     imported_basis = None
@@ -343,7 +281,7 @@ def apply_trade(con: sqlite3.Connection,
                 None if execution.commission_quote is None else decimal_text(execution.commission_quote),
                 execution.commission_value_status, ts, trade_id,
             ))
-        _recalc_inventory(con, sym)
+        recalculate_inventory(con, sym)
     return inserted == 1
 
 

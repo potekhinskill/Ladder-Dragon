@@ -7,7 +7,7 @@ from ladder_dragon.execution.compatibility_audit import audit_compatibility
 
 def test_compatibility_audit_accepts_exact_database_without_legacy_paths(tmp_path):
     database = tmp_path / "stats.db"
-    migrate(str(database))
+    migrate(str(database), exact_new_database=False)
     with sqlite3.connect(database) as connection:
         connection.execute(
             "INSERT INTO trades(symbol,side,price,qty,fee_quote,ts,"
@@ -34,7 +34,7 @@ def test_compatibility_audit_accepts_exact_database_without_legacy_paths(tmp_pat
 
 def test_compatibility_audit_blocks_legacy_commission_provenance(tmp_path):
     database = tmp_path / "stats.db"
-    migrate(str(database))
+    migrate(str(database), exact_new_database=False)
     with sqlite3.connect(database) as connection:
         connection.execute(
             "INSERT INTO trades(symbol,side,price,qty,fee_quote,ts,"

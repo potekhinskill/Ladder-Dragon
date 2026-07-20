@@ -725,9 +725,9 @@ def test_reconciliation_imports_new_binance_fill_before_risk_gate(tmp_path, monk
     assert orders == []
     with sqlite3.connect(db_path) as check:
         qty = check.execute(
-            "SELECT qty FROM inventory WHERE symbol='SOLUSDT'"
+            "SELECT qty_text FROM inventory WHERE symbol='SOLUSDT'"
         ).fetchone()[0]
-    assert abs(float(qty) - 3.778) < 1e-9
+    assert Decimal(qty) == Decimal("3.778")
 
 
 def test_reconciliation_fill_import_failure_is_fail_closed(tmp_path, monkeypatch):

@@ -18,9 +18,24 @@ ROOT = Path(__file__).resolve().parent.parent
 MIGRATIONS = ROOT / "ladder_dragon" / "migrations"
 
 
-def migrate(db_path: str) -> list[str]:
+def _is_pristine_database(path: Path) -> bool:
+    if not path.exists() or path.stat().st_size == 0:
+        return True
+    with sqlite3.connect(path, timeout=15) as connection:
+        names = {
+            str(row[0])
+            for row in connection.execute(
+                "SELECT name FROM sqlite_master "
+                "WHERE type IN ('table','view','trigger') AND name NOT LIKE 'sqlite_%'"
+            )
+        }
+    return not names
+
+
+def migrate(db_path: str, *, exact_new_database: bool = True) -> list[str]:
     path = Path(db_path)
     path.parent.mkdir(parents=True, exist_ok=True)
+    pristine = _is_pristine_database(path)
     applied_now: list[str] = []
     with sqlite3.connect(path, timeout=15) as con:
         con.execute("PRAGMA busy_timeout=7000")
@@ -34,6 +49,15 @@ def migrate(db_path: str) -> list[str]:
             )
             """
         )
+        if pristine and exact_new_database:
+            con.execute(
+                "CREATE TABLE IF NOT EXISTS database_bootstrap("
+                "target_storage TEXT PRIMARY KEY,completed INTEGER NOT NULL DEFAULT 0)"
+            )
+            con.execute(
+                "INSERT OR IGNORE INTO database_bootstrap(target_storage,completed) "
+                "VALUES('exact-accounting',0)"
+            )
         applied = dict(con.execute("SELECT version, checksum FROM schema_migrations"))
         for migration in sorted(MIGRATIONS.glob("[0-9][0-9][0-9]_*.sql")):
             version = migration.name.split("_", 1)[0]
@@ -50,6 +74,28 @@ def migrate(db_path: str) -> list[str]:
             )
             applied_now.append(version)
         con.execute("PRAGMA optimize")
+        pending_exact = bool(
+            exact_new_database
+            and con.execute(
+                "SELECT 1 FROM sqlite_master WHERE type='table' "
+                "AND name='database_bootstrap'"
+            ).fetchone()
+            and con.execute(
+                "SELECT 1 FROM database_bootstrap "
+                "WHERE target_storage='exact-accounting' AND completed=0"
+            ).fetchone()
+        )
+    if pending_exact:
+        from ladder_dragon.execution.accounting_retirement import (
+            bootstrap_exact_accounting_schema,
+        )
+
+        bootstrap_exact_accounting_schema(path)
+        with sqlite3.connect(path, timeout=15) as con:
+            con.execute(
+                "UPDATE database_bootstrap SET completed=1 "
+                "WHERE target_storage='exact-accounting'"
+            )
     return applied_now
 
 

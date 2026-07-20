@@ -15,7 +15,7 @@ def test_exact_only_retirement_is_backed_up_and_runtime_remains_writable(
 ):
     database = tmp_path / "stats.db"
     backup = tmp_path / "stats.before-v3.db"
-    migrate(str(database))
+    migrate(str(database), exact_new_database=False)
     connection = sqlite3.connect(database)
     tools_stats.apply_trade(
         connection,

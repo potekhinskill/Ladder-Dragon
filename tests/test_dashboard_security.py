@@ -113,10 +113,10 @@ def test_trade_api_reads_authoritative_exact_accounting_values(tmp_path, monkeyp
     now_ms = int(datetime.now(timezone.utc).timestamp() * 1000)
     with sqlite3.connect(database) as connection:
         connection.execute(
-            "INSERT INTO trades(symbol,side,price,qty,fee_quote,ts,trade_id,"
+            "INSERT INTO trades(symbol,side,ts,trade_id,"
             "price_text,gross_qty,net_qty,commission_asset,"
             "commission_amount,commission_quote,commission_value_status) "
-            "VALUES('SOLUSDT','BUY',1,1,1,?,1,'75.125','0.125','0.125',"
+            "VALUES('SOLUSDT','BUY',?,1,'75.125','0.125','0.125',"
             "'USDT','0.01','0.01','exact')",
             (now_ms,),
         )

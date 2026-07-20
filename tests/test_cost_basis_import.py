@@ -181,8 +181,8 @@ def test_cost_basis_plan_rejects_unexplained_tradeable_quantity():
         )
 
 
-def test_cost_basis_apply_records_prehistory_and_dust_audit_fields():
-    connection = sqlite3.connect(":memory:")
+def test_cost_basis_apply_records_prehistory_and_dust_audit_fields(tmp_path):
+    connection = tools_stats.init_db(str(tmp_path / "prehistory.db"))
     plan = build_cost_basis_plan(
         "SOLUSDT",
         account_quantity=Decimal("2.0002"),
@@ -210,8 +210,8 @@ def test_cost_basis_apply_records_prehistory_and_dust_audit_fields():
     assert coverage.uncovered_qty == Decimal("0.0002")
 
 
-def test_cost_basis_apply_is_atomic_archival_and_idempotent():
-    connection = sqlite3.connect(":memory:")
+def test_cost_basis_apply_is_atomic_archival_and_idempotent(tmp_path):
+    connection = tools_stats.init_db(str(tmp_path / "atomic.db"))
     add_lot(
         connection,
         symbol="SOLUSDT",
@@ -246,9 +246,8 @@ def test_cost_basis_apply_is_atomic_archival_and_idempotent():
     )
 
 
-def test_stats_recalculation_uses_imported_basis_then_new_trades():
-    connection = sqlite3.connect(":memory:")
-    connection.executescript(tools_stats.SCHEMA)
+def test_stats_recalculation_uses_imported_basis_then_new_trades(tmp_path):
+    connection = tools_stats.init_db(str(tmp_path / "stats.db"))
     plan = covered_plan()
     apply_cost_basis_plan(connection, plan)
     tools_stats.apply_trade(
@@ -319,9 +318,9 @@ def test_live_plan_rejects_existing_symbol_orders(monkeypatch):
 
 
 def test_cost_basis_apply_rolls_back_when_post_import_verification_fails(
-    monkeypatch,
+    tmp_path, monkeypatch,
 ):
-    connection = sqlite3.connect(":memory:")
+    connection = tools_stats.init_db(str(tmp_path / "rollback.db"))
     add_lot(
         connection,
         symbol="SOLUSDT",

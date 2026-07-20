@@ -3,6 +3,28 @@
 All notable changes are documented here. Releases use Semantic Versioning; every
 section is dated and there is intentionally no `Unreleased` section.
 
+## [2.18.1] — 2026-07-20
+
+### Changed
+- Telegram alerts now read only the current configured file. The retired
+  `/etc/bot-alerts.env` path remains solely in installer/updater migration and
+  compatibility-audit code.
+- Fresh statistics databases automatically finish migration as exact-only
+  storage without financial REAL columns or legacy synchronization triggers.
+  A durable bootstrap marker safely resumes an interrupted empty bootstrap.
+- Added preview-first commission revaluation using exact Binance trade IDs and
+  matching side, price, quantity and timestamp. Apply requires a stopped
+  service, two explicit confirmations and a separate mode-0600 SQLite backup.
+
+### Safety
+- Existing non-empty databases are never rebuilt by normal migration. Legacy
+  or unpriced commission rows must resolve completely before any update, and
+  inventory is recalculated in the same transaction.
+
+### Verified
+- All 404 tests pass. Compileall, shell syntax, dependency consistency, PyPI
+  vulnerability audit, tracked-secret scan and English-source scan also pass.
+
 ## [2.18.0] — 2026-07-20
 
 ### Added

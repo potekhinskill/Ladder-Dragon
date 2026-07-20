@@ -17,7 +17,7 @@ Binance Spot. It builds BUY/SELL grids, uses ATR/EMA/VWAP/ADX regimes, manages
 OCO protection, and records trading statistics in SQLite. Production secrets,
 real backups, and private parameters are never committed.
 
-Current product version: **2.18.0**. The single version source is
+Current product version: **2.18.1**. The single version source is
 `product_version.py`; releases follow [Semantic Versioning](https://semver.org/).
 Project contact: [LinkedIn](https://www.linkedin.com/in/ypotekhin/).
 
@@ -33,7 +33,7 @@ Project contact: [LinkedIn](https://www.linkedin.com/in/ypotekhin/).
 ## Project status
 
 Ladder Dragon is an actively developed, experimental trading system. Version
-**2.18.0** is the current prepared release. `main` is the only long-lived branch;
+**2.18.1** is the current prepared release. `main` is the only long-lived branch;
 feature branches use the `ladderdragon/*` namespace.
 
 DRY and Binance Spot Testnet are the supported starting modes. Mainnet LIVE is
@@ -300,10 +300,38 @@ remainder strictly below `LOT_SIZE.stepSize` is recorded as unmanaged dust and
 is never assigned an invented price. Importing a basis does not automatically
 enable holdings SELL or OCO management.
 
-Migration 006 keeps exact text accounting authoritative while 2.x continues to
-write compatibility REAL columns for older consumers. Before a future major
-release removes those columns or old Raspberry configuration paths, run the
-read-only retirement audit on the deployed host:
+New statistics databases are exact-only by default and never create financial
+REAL columns or synchronization triggers. Existing databases retain their
+compatibility schema during normal startup and update; they must be repaired,
+audited, backed up and retired explicitly. First preview exact revaluation of
+every legacy or unpriced commission against the matching Binance fill:
+
+```bash
+sudo -u bot PYTHONPATH=. .venv/bin/python -m bin.revalue_legacy_commissions \
+  --stats-db /home/bot/apps/binance_bot/db/bot_stats.db
+```
+
+Exit status 2 means at least one row could not be proven and nothing was
+written. Apply only with `mybot` stopped, after reviewing the preview:
+
+```bash
+sudo systemctl stop mybot pi-watchdog-v3.timer
+sudo -u bot env \
+  BOT_COMMISSION_REVALUATION_CONFIRMED=YES \
+  BOT_SERVICE_STOPPED_CONFIRMED=YES \
+  BOT_RUN_DIR=/run/mybot \
+  PYTHONPATH=. \
+  .venv/bin/python -m bin.revalue_legacy_commissions \
+  --stats-db /home/bot/apps/binance_bot/db/bot_stats.db \
+  --backup /var/lib/ladder-dragon/backups/bot_stats-before-fee-revalue.sqlite3 \
+  --apply --confirm REVALUE-LEGACY-COMMISSIONS
+```
+
+The command requires exact `(symbol, trade_id)` evidence plus matching side,
+price, quantity and timestamp. It restores commission provenance and net
+quantity, values third-asset fees at trade time, recalculates inventory, and
+creates a mode-0600 SQLite backup before its atomic update. It never submits an
+exchange order. Then run the read-only retirement audit on the deployed host:
 
 ```bash
 PYTHONPATH=. .venv/bin/python -m bin.audit_legacy_compatibility \
@@ -328,7 +356,7 @@ sudo -u bot PYTHONPATH=. .venv/bin/python -m bin.retire_legacy_accounting \
   --apply --confirm DROP-LEGACY-REAL-COLUMNS
 ```
 
-The apply command refuses missing exact values, legacy/unpriced commission
+The retirement command refuses missing exact values, legacy/unpriced commission
 provenance, old host paths, an existing backup target, or a failed integrity
 check. Existing 2.x databases are not rewritten by normal startup or update.
 

@@ -327,6 +327,38 @@ as `SUPERSEDED`. Keep `mybot` stopped and
 inspect the database/dashboard result before deciding whether holdings
 management should be enabled.
 
+### 8.1 Existing statistics database retirement
+
+Fresh installations create exact-only accounting storage. An upgraded host
+keeps its legacy REAL columns until all historical commission rows have exact
+Binance provenance. Preview the repair first; it is read-only and exits with
+status 2 if any `(symbol, trade_id)` cannot be proven:
+
+```bash
+sudo -u bot PYTHONPATH=. .venv/bin/python -m bin.revalue_legacy_commissions \
+  --stats-db /home/bot/apps/binance_bot/db/bot_stats.db
+```
+
+Apply only with the trading service stopped. The command creates its own
+mode-0600 SQLite backup before the atomic database update:
+
+```bash
+sudo systemctl stop mybot pi-watchdog-v3.timer
+sudo -u bot env \
+  BOT_COMMISSION_REVALUATION_CONFIRMED=YES \
+  BOT_SERVICE_STOPPED_CONFIRMED=YES \
+  BOT_RUN_DIR=/run/mybot \
+  PYTHONPATH=. \
+  .venv/bin/python -m bin.revalue_legacy_commissions \
+  --stats-db /home/bot/apps/binance_bot/db/bot_stats.db \
+  --backup /var/lib/ladder-dragon/backups/bot_stats-before-fee-revalue.sqlite3 \
+  --apply --confirm REVALUE-LEGACY-COMMISSIONS
+```
+
+Then follow the preview/apply accounting-retirement commands in the
+[project README](../README.md#legacy-holdings-cost-basis). Normal updates never
+drop physical columns from an existing database.
+
 ## 9. Normal updates
 
 Always update a reviewed exact commit:
