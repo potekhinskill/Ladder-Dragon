@@ -21,5 +21,8 @@ install -o root -g root -m 0644 \
 install -o root -g root -m 0755 \
   "${PROJECT_DIR}/deploy/pi-watchdog_v3.sh" \
   /usr/local/bin/pi-watchdog_v3.sh
+install -o root -g root -m 0755 \
+  "${PROJECT_DIR}/deploy/record_depth_archive.sh" \
+  /usr/local/bin/ladder-dragon-depth-archive
 
 echo "[OK] installed release runtime assets"

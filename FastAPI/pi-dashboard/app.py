@@ -51,6 +51,10 @@ DASHBOARD_STALE_CACHE_MAX_SEC = max(
     30.0,
     float(os.getenv("DASHBOARD_STALE_CACHE_MAX_SEC", "300")),
 )
+DASHBOARD_USER_STREAM_STALE_SEC = max(
+    30.0,
+    float(os.getenv("DASHBOARD_USER_STREAM_STALE_SEC", "180")),
+)
 _OPS_CACHE: Dict[str, object] = {"ts": 0.0, "payload": None}
 _OPS_CACHE_TTL_SEC = max(10.0, float(os.getenv("DASHBOARD_OPS_CACHE_SEC", "30")))
 _OPS_CACHE_LOCK = threading.Lock()
@@ -255,11 +259,17 @@ def _user_stream_snapshot(runtime: Dict[str, object]) -> Dict[str, object]:
             if not isinstance(payload, dict):
                 raise ValueError("stream health payload is not an object")
             stat = path.stat()
+            age_sec = max(0, int(time.time() - stat.st_mtime))
+            reported_state = str(payload.get("state") or "unknown")
+            stale = age_sec > DASHBOARD_USER_STREAM_STALE_SEC
             rows.append({
                 "symbol": symbol,
                 "available": True,
-                "state": str(payload.get("state") or "unknown"),
-                "age_sec": max(0, int(time.time() - stat.st_mtime)),
+                "state": "stale" if stale else reported_state,
+                "reported_state": reported_state,
+                "stale": stale,
+                "stale_after_sec": DASHBOARD_USER_STREAM_STALE_SEC,
+                "age_sec": age_sec,
                 "order_events": int(payload.get("order_events") or 0),
                 "duplicates": int(payload.get("duplicates") or 0),
                 "reconnects": int(payload.get("reconnects") or 0),
@@ -275,6 +285,9 @@ def _user_stream_snapshot(runtime: Dict[str, object]) -> Dict[str, object]:
                 "symbol": symbol,
                 "available": False,
                 "state": "not_configured_or_not_started",
+                "reported_state": None,
+                "stale": True,
+                "stale_after_sec": DASHBOARD_USER_STREAM_STALE_SEC,
                 "age_sec": None,
                 "order_events": 0,
                 "duplicates": 0,
@@ -864,6 +877,14 @@ def trading_overview_snapshot() -> Dict[str, object]:
                 ),
                 "classification": "legacy_inventory" if legacy_unmanaged else "managed_inventory",
                 "managed_by_bot": not legacy_unmanaged,
+                "cost_basis_status": (
+                    "unverified_legacy_history"
+                    if legacy_unmanaged else "runtime_ledger"
+                ),
+                "cost_basis_action": (
+                    "preview_only_import_required"
+                    if legacy_unmanaged else None
+                ),
             },
         })
     risk = runtime.get("risk", {}) if isinstance(runtime.get("risk"), dict) else {}

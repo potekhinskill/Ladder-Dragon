@@ -17,7 +17,7 @@ Binance Spot. It builds BUY/SELL grids, uses ATR/EMA/VWAP/ADX regimes, manages
 OCO protection, and records trading statistics in SQLite. Production secrets,
 real backups, and private parameters are never committed.
 
-Current product version: **2.12.0**. The single version source is
+Current product version: **2.13.0**. The single version source is
 `product_version.py`; releases follow [Semantic Versioning](https://semver.org/).
 Project contact: [LinkedIn](https://www.linkedin.com/in/ypotekhin/).
 
@@ -33,7 +33,7 @@ Project contact: [LinkedIn](https://www.linkedin.com/in/ypotekhin/).
 ## Project status
 
 Ladder Dragon is an actively developed, experimental trading system. Version
-**2.12.0** is the current prepared release. `main` is the only long-lived branch;
+**2.13.0** is the current prepared release. `main` is the only long-lived branch;
 feature branches use the `ladderdragon/*` namespace.
 
 DRY and Binance Spot Testnet are the supported starting modes. Mainnet LIVE is
@@ -304,7 +304,10 @@ rejects every later sequence gap, writes no credentials, and publishes both the
 JSONL archive and its SHA-256 metadata atomically.
 
 `bin.calibrate_replay` consumes that archive, normalized fixtures, or archives
-that also contain execution reports. It produces source-hashed estimates for
+that also contain execution reports. The optional sanitized execution-latency
+log correlates the durable pre-POST intent timestamp with the locally received
+`NEW executionReport`; cancellations and later fills are never presented as
+order-acknowledgement latency. It produces source-hashed estimates for
 spread, slippage, participation, partial fill, latency and market impact.
 Reports label latency as either `public_event_receive` or `execution_report`:
 public event transit is a measurable proxy, not an order-acknowledgement latency
@@ -317,6 +320,7 @@ PYTHONPATH=. python -m bin.record_depth_archive \
   --output .runtime/SOLUSDT-depth.jsonl \
   --duration-sec 3600
 PYTHONPATH=. python -m bin.calibrate_replay .runtime/SOLUSDT-depth.jsonl \
+  --execution-latency-log logs/execution_latency.ndjson \
   --output .runtime/SOLUSDT-calibration.json
 PYTHONPATH=. python -m bin.backtest data/SOLUSDT-1m.csv \
   --archive .runtime/SOLUSDT-depth.jsonl \
@@ -333,9 +337,14 @@ when a legacy report used non-zero market impact and therefore must be rerun.
 Reports with zero impact are marked legacy but are unaffected by that specific
 correction.
 
-The derived spread, slippage, participation, partial-fill, latency, and impact
-parameters are empirical approximations, not a claim that candle backtests
-reproduce exchange queue position or future execution.
+On Raspberry Pi, `ladder-dragon-depth-archive.timer` records a 15-minute public
+sample every hour and retains seven days by default. Optional, non-secret
+overrides belong in `/etc/ladder-dragon/depth-archive.conf`; the wrapper removes
+all exchange and AI credentials from its environment before starting. This
+build also models the observed dynamic book spread, configurable queue progress
+from depth cancellations ahead, public trades consuming queue, and volume-scaled
+market impact. These remain empirical approximations, not a claim that replay
+can identify other participants or predict future execution.
 
 ### User Data Stream shadow observer
 
@@ -347,7 +356,14 @@ order check early, but it cannot place, cancel, protect, close, or account for a
 order. Authenticated REST reconciliation remains authoritative and continues on
 its normal interval when events are duplicated, late, missing, or the stream is
 disconnected. The dashboard shows per-symbol connection state, snapshot age,
-order-event count, duplicate count, reconnects and sanitized error class.
+order-event count, duplicate count, reconnects and sanitized error class. A
+snapshot older than `DASHBOARD_USER_STREAM_STALE_SEC` (180 seconds by default)
+is explicitly marked stale even if its last stored state said `connected`.
+
+Existing holdings are never assigned an invented cost basis. A position without
+provable exchange history stays `legacy_unmanaged` with
+`unverified_legacy_history`; enabling the archive recorder or User Data Stream
+does not authorize holdings SELL/OCO management.
 
 ## Dashboard
 

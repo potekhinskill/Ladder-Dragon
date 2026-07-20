@@ -1,5 +1,6 @@
 import importlib.util
 import json
+import os
 from pathlib import Path
 import sqlite3
 from datetime import datetime, timedelta, timezone
@@ -71,10 +72,27 @@ def test_user_stream_health_is_sanitized_and_rest_authoritative(
     assert payload["mode"] == "shadow_notification_only"
     row = payload["streams"][0]
     assert row["state"] == "connected"
+    assert row["stale"] is False
     assert row["order_events"] == 3
     assert row["duplicates"] == 1
     assert row["reconnects"] == 2
     assert "api" not in json.dumps(payload).lower()
+
+
+def test_user_stream_snapshot_becomes_stale_after_threshold(tmp_path, monkeypatch):
+    status = tmp_path / "ai_status.json"
+    stream = tmp_path / "user_stream_SOLUSDT.json"
+    stream.write_text(json.dumps({"state": "connected"}), encoding="utf-8")
+    os.utime(stream, (100.0, 100.0))
+    monkeypatch.setenv("AI_RUNTIME_STATUS_FILE", str(status))
+    monkeypatch.setenv("DASHBOARD_USER_STREAM_STALE_SEC", "30")
+    module = load_dashboard(monkeypatch)
+
+    row = module._user_stream_snapshot({"symbols": ["SOLUSDT"]})["streams"][0]
+
+    assert row["state"] == "stale"
+    assert row["reported_state"] == "connected"
+    assert row["stale"] is True
 
 
 def test_throttling_uses_fresh_sanitized_watchdog_probe(tmp_path, monkeypatch):
@@ -411,6 +429,8 @@ def test_trading_overview_classifies_preexisting_inventory_as_legacy(monkeypatch
     assert protection["classification"] == "legacy_inventory"
     assert protection["managed_by_bot"] is False
     assert protection["gap_watchdog"] == "not_applicable_legacy_inventory"
+    assert protection["cost_basis_status"] == "unverified_legacy_history"
+    assert protection["cost_basis_action"] == "preview_only_import_required"
 
 
 def test_trading_overview_preserves_unavailable_order_journal(monkeypatch):

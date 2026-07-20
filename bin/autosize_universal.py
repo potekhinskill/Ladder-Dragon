@@ -96,6 +96,9 @@ from ladder_dragon.execution.user_stream import (
     OrderEventMailbox,
     reconciliation_due,
 )
+from ladder_dragon.execution.execution_latency import (
+    append_execution_latency_sample,
+)
 from ladder_dragon.execution.trade_accounting import TradeExecution, UnpricedCommission, replay_average_cost
 from product_version import product_label, user_agent
 from ladder_dragon.execution.executor_config import build_executor_parser, validate_executor_args
@@ -1922,7 +1925,7 @@ def maybe_place_sells_from_holdings(
         panic_qty = max(Decimal("0"), base_free - dust)
         if panic_qty > 0:
             try:
-                result = place_market_order(symbol, "SELL", float(panic_qty),
+                result = place_market_order(symbol, "SELL", panic_qty,
                                             ref_price=get_price(symbol),
                                             filters=symbol_filters.get(symbol))
                 log(f"[PANIC-FLATTEN] {symbol} qty≈{fmt_qty_sym(symbol, panic_qty)} result={bool(result)}")
@@ -2593,6 +2596,30 @@ def main():
             if attach_oco and placed_ids:
                 stream_events = user_stream_mailbox.consume_for(placed_ids)
                 if stream_events:
+                    journal = _order_journal()
+                    latency_path = os.getenv(
+                        "BOT_EXECUTION_LATENCY_LOG",
+                        str(Path(__file__).resolve().parents[1]
+                            / "logs" / "execution_latency.ndjson"),
+                    )
+                    if journal is not None:
+                        for event in stream_events:
+                            created_ms = journal.created_at_ms_for_exchange_order(
+                                event.order_id
+                            )
+                            if created_ms is None:
+                                continue
+                            try:
+                                append_execution_latency_sample(
+                                    latency_path,
+                                    event,
+                                    intent_created_at_ms=created_ms,
+                                )
+                            except (OSError, TypeError, ValueError) as exc:
+                                dbg(
+                                    "[USER-STREAM] execution latency sample "
+                                    f"unavailable={type(exc).__name__}"
+                                )
                     latest = stream_events[-1]
                     log(
                         f"[USER-STREAM] {symbol} order={latest.order_id} "
@@ -2645,7 +2672,7 @@ def main():
                     opened_ms = int(held.get("time") or held.get("transactTime") or now_ms)
                     if now_ms - opened_ms < max_hold_min * 60_000:
                         continue
-                    qty_exp = float(held.get("executedQty", 0) or 0)
+                    qty_exp = Decimal(str(held.get("executedQty", 0) or 0))
                     # When the ledger knows lots, time-stop closes the oldest inventory
                     # first instead of an arbitrary aggregated quantity.
                     if STATS_CON is not None:
@@ -2653,7 +2680,7 @@ def main():
                             lots = oldest_lots(STATS_CON, symbol)
                             lot_qty = sum((lot.qty for lot in lots), Decimal("0"))
                             if lot_qty > 0:
-                                qty_exp = min(qty_exp, float(lot_qty))
+                                qty_exp = min(qty_exp, lot_qty)
                         except sqlite3.Error:
                             pass
                     if qty_exp > 0:

@@ -491,6 +491,26 @@ def test_log_export_is_rotated_sanitized_and_managed_by_systemd():
     assert "expected protected logs HTTP 401" in installer
 
 
+def test_public_depth_archive_has_timer_retention_and_no_secret_environment():
+    wrapper = read("deploy/record_depth_archive.sh")
+    service = read("deploy/ladder-dragon-depth-archive.service")
+    timer = read("deploy/ladder-dragon-depth-archive.timer")
+    installer = read("deploy/install_raspberry_pi.sh")
+    updater = read("deploy/update_raspberry_pi.sh")
+    runtime_assets = read("deploy/install_runtime_assets.sh")
+    assert "BOT_DEPTH_ARCHIVE_RETENTION_DAYS" in wrapper
+    assert "-u BINANCE_API_KEY" in wrapper
+    assert "-u BINANCE_API_SECRET" in wrapper
+    assert "flock -n" in wrapper
+    assert "OnUnitActiveSec=1h" in timer
+    assert "User=bot" in service
+    assert "EnvironmentFile=-/etc/ladder-dragon/depth-archive.conf" in service
+    assert "ReadWritePaths=/var/lib/ladder-dragon/depth-archives" in service
+    assert "ladder-dragon-depth-archive.timer" in installer
+    assert "ladder-dragon-depth-archive.timer" in updater
+    assert "/usr/local/bin/ladder-dragon-depth-archive" in runtime_assets
+
+
 def test_updates_are_commit_allowlisted_and_backups_are_encrypted():
     updater = read("deploy/update_raspberry_pi.sh")
     installer = read("deploy/install_raspberry_pi.sh")
@@ -631,6 +651,7 @@ def test_systemd_units_have_extended_sandboxing():
         "deploy/pi-dashboard.service",
         "deploy/ladder-dragon-backup.service",
         "deploy/ladder-dragon-log-export.service",
+        "deploy/ladder-dragon-depth-archive.service",
     ):
         unit = read(relative)
         assert "ProtectKernelTunables=yes" in unit

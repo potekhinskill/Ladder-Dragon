@@ -3,7 +3,38 @@
 # Purpose: implement the exchange math component of the execution layer.
 """Exact exchange-step arithmetic shared by supervisor and worker."""
 
-from decimal import Decimal, ROUND_CEILING, ROUND_FLOOR, ROUND_HALF_UP
+from dataclasses import dataclass
+from decimal import Decimal, InvalidOperation, ROUND_CEILING, ROUND_FLOOR, ROUND_HALF_UP
+from typing import Mapping
+
+
+@dataclass(frozen=True)
+class ExactSymbolFilters:
+    tick: Decimal
+    step: Decimal
+    minimum_quantity: Decimal
+    minimum_notional: Decimal
+
+
+def exact_symbol_filters(payload: object) -> ExactSymbolFilters | None:
+    """Parse the exact fields supplied by the bundled exchange adapter."""
+    if not isinstance(payload, Mapping):
+        return None
+    names = (
+        "tickSizeExact",
+        "stepSizeExact",
+        "minQtyExact",
+        "minNotionalExact",
+    )
+    if any(payload.get(name) in (None, "") for name in names):
+        return None
+    try:
+        values = tuple(Decimal(str(payload[name])) for name in names)
+    except (InvalidOperation, TypeError, ValueError) as exc:
+        raise ValueError("exchange filters are not exact decimals") from exc
+    if any(not value.is_finite() or value <= 0 for value in values):
+        raise ValueError("exchange filters must be finite and positive")
+    return ExactSymbolFilters(*values)
 
 
 def decimal(value: object) -> Decimal:

@@ -118,7 +118,40 @@ def test_replay_market_impact_uses_basis_points():
     fills = replay.process(MarketEvent(
         0, asks=(BookLevel(Decimal("10"), Decimal("1")),)
     ))
-    assert fills[0][2] == Decimal("10.010")
+    assert fills[0][2] == Decimal("10.020")
+
+
+def test_depth_cancellation_advances_only_configured_queue_fraction():
+    replay = OrderBookReplay(queue_cancellation_ahead_ratio=Decimal("0.5"))
+    replay.process(MarketEvent(
+        0, bids=(BookLevel(Decimal("10"), Decimal("10")),)
+    ))
+    order = ReplayOrder("queued", "BUY", Decimal("10"), Decimal("1"), 0)
+    replay.submit(order, 1, queue_ahead=Decimal("2"))
+
+    replay.process(MarketEvent(
+        2, bids=(BookLevel(Decimal("10"), Decimal("8")),)
+    ))
+
+    assert order.queue_ahead == Decimal("1")
+
+
+def test_measured_execution_report_latency_overrides_public_proxy(tmp_path):
+    archive = tmp_path / "measured.jsonl"
+    archive.write_text(
+        "\n".join(json.dumps(row) for row in _archive_rows()) + "\n",
+        encoding="utf-8",
+    )
+    report = calibrate_market_events(
+        load_jsonl_archive(archive),
+        source_sha256="a" * 64,
+        min_book_events=1,
+        min_trades=1,
+        measured_order_latencies_ms=[12, 20, 18],
+    )
+
+    assert report.latency_source == "intent_to_execution_report_receive"
+    assert report.latency_ms_p95 == 18
 
 
 def test_backtest_rejects_calibration_from_another_archive(tmp_path, monkeypatch):

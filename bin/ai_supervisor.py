@@ -83,14 +83,14 @@ from bin.supervisor_config import build_supervisor_parser, validate_supervisor_a
 
 try:
     import requests
-except Exception:
+except ImportError:
     print("Please install requests: pip install requests", flush=True)
     raise
 
 # >>> tools_market integration
 try:
     from ladder_dragon.execution import tools_market as TM  # важное: используем общее подписание и klines с фолбэком
-except Exception as e:
+except ImportError as e:
     print(f"[FATAL] cannot import tools_market: {e}", flush=True)
     raise
 # <<< tools_market integration
@@ -384,8 +384,8 @@ def parse_pct_map(s: str) -> Dict[str, Tuple[float, float, float]]:
             continue
         try:
             out[k.strip()] = (float(vs[0]), float(vs[1]), float(vs[2]))
-        except Exception:
-            pass
+        except (TypeError, ValueError, OverflowError):
+            continue
     return out
 
 def parse_limit_map(s: str) -> Dict[str, float]:
@@ -399,8 +399,8 @@ def parse_limit_map(s: str) -> Dict[str, float]:
         k, v = part.split(":", 1)
         try:
             out[k.strip()] = float(v.strip())
-        except Exception:
-            pass
+        except (TypeError, ValueError, OverflowError):
+            continue
     return out
 
 
@@ -410,7 +410,7 @@ def getenv_float(name: str, default: Optional[float] = None) -> Optional[float]:
         return default
     try:
         return float(v)
-    except Exception:
+    except (TypeError, ValueError, OverflowError):
         return default
 
 
@@ -499,7 +499,7 @@ def resolve_vwap_params(symbol: str,
         if env_win:
             try:
                 window_final = int(env_win)
-            except Exception:
+            except (TypeError, ValueError, OverflowError):
                 window_final = None
         else:
             window_final = None
@@ -519,7 +519,7 @@ def _parse_vwap_line(key: str, value: str) -> Dict[str, float]:
         sym = sym.strip().upper()
         try:
             mapping[sym] = float(val)
-        except Exception:
+        except (TypeError, ValueError, OverflowError):
             continue
     return mapping
 
@@ -587,7 +587,7 @@ def _canonical_signed_request(method: str, path: str, params: Dict[str, Any] = N
     TM._raise_for_binance(r)
     try:
         return r.json()
-    except Exception:
+    except ValueError:
         return r.text
 
 # ===========================
@@ -604,7 +604,13 @@ def get_server_time_offset_ms() -> int:
         offset = srv - (t0 + rtt)
         log(f"[INFO] Server time offset: {offset} ms")
         return offset
-    except Exception as e:
+    except (
+        requests.RequestException,
+        RuntimeError,
+        TypeError,
+        ValueError,
+        KeyError,
+    ) as e:
         log(f"[WARN] server time failed: {e}")
         return 0
 
@@ -703,7 +709,7 @@ def avg_entry_price(symbol: str, *, cache_ttl: int = 45, lookback: int = 1000) -
 
     try:
         trades = TM._signed_get("/api/v3/myTrades", {"symbol": symbol, "limit": lookback}) or []
-    except Exception as e:
+    except (requests.RequestException, RuntimeError, TypeError, ValueError) as e:
         dbg(f"[AVG] {symbol} myTrades error: {e}")
         return float(ent.get("avg", 0.0)) if ent and ent.get("pos", 0.0) > 0 else None
 
@@ -712,8 +718,8 @@ def avg_entry_price(symbol: str, *, cache_ttl: int = 45, lookback: int = 1000) -
 
     try:
         trades.sort(key=lambda t: int(t.get("time", 0)))
-    except Exception:
-        pass
+    except (TypeError, ValueError):
+        return float(ent.get("avg", 0.0)) if ent and ent.get("pos", 0.0) > 0 else None
 
     qty = 0.0
     cost = 0.0
@@ -736,7 +742,7 @@ def avg_entry_price(symbol: str, *, cache_ttl: int = 45, lookback: int = 1000) -
                     avg = cost / qty if qty > 0 else 0.0
                     cost -= avg * sell
                     qty -= sell
-        except Exception:
+        except (ArithmeticError, KeyError, TypeError, ValueError):
             continue
 
     if qty <= 0:
@@ -750,7 +756,7 @@ def avg_entry_price(symbol: str, *, cache_ttl: int = 45, lookback: int = 1000) -
 def list_open_orders(symbol: str) -> List[Dict[str, Any]]:
     try:
         return TM._signed_get("/api/v3/openOrders", {"symbol": symbol}) or []
-    except Exception:
+    except (AttributeError, TypeError, ValueError):
         return []
 
 def cancel_order(symbol: str, order_id: int) -> bool:
@@ -760,7 +766,13 @@ def cancel_order(symbol: str, order_id: int) -> bool:
     try:
         _canonical_signed_request("DELETE", "/api/v3/order", {"symbol": symbol, "orderId": order_id})
         return True
-    except Exception as e:
+    except (
+        requests.RequestException,
+        RuntimeError,
+        ArithmeticError,
+        TypeError,
+        ValueError,
+    ) as e:
         log(f"[CANCEL] {symbol} orderId={order_id} -> {e}")
         return False
 
@@ -775,7 +787,7 @@ def _is_filter_error(e: Exception) -> bool:
         code = j.get("code")
         # -1013 BAD_ARGUMENTS / INVALID_PRICE_QTY, -1111 precision, -1102 and -1106 are format errors.
         return code in (-1013, -1111, -1102, -1106)
-    except Exception:
+    except (TypeError, ValueError):
         return False
 
 # ======= precise qty/price formatting for exchange steps =======
@@ -861,7 +873,7 @@ def place_limit_order(symbol: str, side: str, quantity: float, price: float,
         log(f"[PLACE] {symbol} {side.upper()} {qty_s} @ {price_s} (order {oid})")
         return j if isinstance(j, dict) else None
 
-    except Exception as e:
+    except (OSError, RuntimeError, TypeError, ValueError) as e:
         log(f"[PLACE-ERR] {symbol} {side.upper()} {quantity:.6f} @ {price:.4f} -> {e}")
         # Attempt one filter invalidation and retry.
         if _is_filter_error(e):
@@ -1503,7 +1515,7 @@ def run_child(symbol: str, ladder: List[float], args: argparse.Namespace,
         p = subprocess.Popen(cmd, stdout=sys.stdout, stderr=sys.stderr, env=env)
         _CHILD_PROCS[symbol] = p
         _CHILD_STARTED_AT[symbol] = now
-    except Exception as e:
+    except (OSError, subprocess.SubprocessError, TypeError, ValueError) as e:
         delay = _schedule_child_restart(symbol, 1, 0.0, now=now)
         log(f"[LAUNCH-ERR] {symbol} -> {e}")
         log(f"[CHILD-BACKOFF] {symbol} retry_in={delay:.1f}s")
@@ -1674,7 +1686,7 @@ def _build_ai_market_context(
             reserve_usdt=float(os.getenv("RISK_RESERVE_USDT", "0") or 0),
         )
         extra.update(asdict(portfolio_features))
-    except Exception as exc:
+    except (ArithmeticError, OSError, sqlite3.Error, TypeError, ValueError) as exc:
         dbg(f"[AI-CONTEXT] portfolio aggregate unavailable: {exc}")
     if _AI_DECISIONS is not None:
         try:
@@ -2063,7 +2075,7 @@ def refresh_vwap_runtime_maps(args: argparse.Namespace,
     except subprocess.CalledProcessError as e:
         log(f"[VWAP-REFRESH] base generator failed ({reason}): {e}")
         return False
-    except Exception as e:
+    except (OSError, RuntimeError, TypeError, ValueError) as e:
         log(f"[VWAP-REFRESH] base error ({reason}): {e}")
         return False
 
@@ -2083,7 +2095,7 @@ def refresh_vwap_runtime_maps(args: argparse.Namespace,
             auto_out = subprocess.check_output(auto_cmd, text=True, env=env_vars)
         except subprocess.CalledProcessError as e:
             log(f"[VWAP-REFRESH] autotune failed ({reason}): {e}")
-        except Exception as e:
+        except (OSError, RuntimeError, TypeError, ValueError) as e:
             log(f"[VWAP-REFRESH] autotune error ({reason}): {e}")
         else:
             p2, d2, s2 = parse_vwap_output(auto_out)

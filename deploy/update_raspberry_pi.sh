@@ -430,6 +430,12 @@ render_unit deploy/ladder-dragon-log-export.service \
   /etc/systemd/system/ladder-dragon-log-export.service
 install -m 0644 deploy/ladder-dragon-log-export.timer \
   /etc/systemd/system/ladder-dragon-log-export.timer
+render_unit deploy/ladder-dragon-depth-archive.service \
+  /etc/systemd/system/ladder-dragon-depth-archive.service
+install -m 0644 deploy/ladder-dragon-depth-archive.timer \
+  /etc/systemd/system/ladder-dragon-depth-archive.timer
+install -d -o "${BOT_USER}" -g "${BOT_USER}" -m 0750 \
+  /var/lib/ladder-dragon/depth-archives
 
 backup_mount_dropin="/etc/systemd/system/ladder-dragon-backup.service.d/external-mount.conf"
 rm -f "${backup_mount_dropin}"
@@ -466,11 +472,13 @@ systemctl daemon-reload
 systemctl disable --now make-pi-backup.timer make-pi-backup.service 2>/dev/null || true
 restore_autostart
 systemctl enable ladder-dragon-backup.timer ladder-dragon-log-export.timer \
+  ladder-dragon-depth-archive.timer \
   >/dev/null
 start_previous_services
 systemctl start ladder-dragon-backup.timer
 systemctl start ladder-dragon-backup.service
 systemctl start ladder-dragon-log-export.service ladder-dragon-log-export.timer
+systemctl start ladder-dragon-depth-archive.timer
 systemctl restart systemd-journald
 systemctl try-restart fail2ban || true
 systemctl try-restart zramswap || true

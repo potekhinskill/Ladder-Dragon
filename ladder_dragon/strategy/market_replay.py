@@ -60,14 +60,26 @@ class OrderBookReplay:
     """Упрощённый, но детерминированный matching engine для backtest."""
     def __init__(self, *, latency_ms: int = 0, max_requests_per_minute: int = 1200,
                  maker_fee_pct: Decimal = Decimal("0.00075"), taker_fee_pct: Decimal = Decimal("0.001"),
-                 market_impact_bps: Decimal = Decimal("0")) -> None:
+                 market_impact_bps: Decimal = Decimal("0"),
+                 queue_cancellation_ahead_ratio: Decimal = Decimal("0.5"),
+                 volume_impact_scale: Decimal = Decimal("1")) -> None:
         self.latency_ms = max(0, int(latency_ms))
         self.max_requests_per_minute = max(1, int(max_requests_per_minute))
         self.maker_fee_pct = Decimal(str(maker_fee_pct))
         self.taker_fee_pct = Decimal(str(taker_fee_pct))
         self.market_impact_bps = Decimal(str(market_impact_bps))
+        self.queue_cancellation_ahead_ratio = Decimal(
+            str(queue_cancellation_ahead_ratio)
+        )
+        self.volume_impact_scale = Decimal(str(volume_impact_scale))
+        if not Decimal("0") <= self.queue_cancellation_ahead_ratio <= Decimal("1"):
+            raise ValueError("queue cancellation ratio must be in [0,1]")
+        if self.volume_impact_scale < 0:
+            raise ValueError("volume impact scale must be non-negative")
         self.orders: list[ReplayOrder] = []
         self._request_times: list[int] = []
+        self._previous_bids: dict[Decimal, Decimal] = {}
+        self._previous_asks: dict[Decimal, Decimal] = {}
 
     def submit(self, order: ReplayOrder, now_ms: int, *, queue_ahead: Decimal = Decimal("0")) -> None:
         # Delay simulates order delivery time to the exchange.
@@ -87,6 +99,29 @@ class OrderBookReplay:
 
     def process(self, event: MarketEvent) -> list[tuple[str, Decimal, Decimal]]:
         fills: list[tuple[str, Decimal, Decimal]] = []
+        current_bids = {level.price: level.quantity for level in event.bids}
+        current_asks = {level.price: level.quantity for level in event.asks}
+        # A depth reduction at our passive price may be a cancellation ahead
+        # of us. Only the configured conservative fraction advances our queue;
+        # public depth cannot prove whose order disappeared.
+        for order in self.orders:
+            if order.cancelled or order.queue_ahead <= 0:
+                continue
+            previous = (
+                self._previous_bids if order.side == "BUY" else self._previous_asks
+            )
+            current = current_bids if order.side == "BUY" else current_asks
+            reduced = max(
+                Decimal("0"),
+                previous.get(order.price, Decimal("0"))
+                - current.get(order.price, Decimal("0")),
+            )
+            if reduced > 0:
+                order.queue_ahead = max(
+                    Decimal("0"),
+                    order.queue_ahead
+                    - reduced * self.queue_cancellation_ahead_ratio,
+                )
         # External cancellations change the queue before matching the current event.
         for order in self.orders:
             if order.order_id in event.cancelled_order_ids:
@@ -133,11 +168,18 @@ class OrderBookReplay:
                 if qty > 0:
                     order.remaining -= qty
                     level[1] -= qty
-                    impact = self.market_impact_bps / Decimal("10000")
+                    participation = qty / max(level_quantity, qty)
+                    dynamic_impact_bps = self.market_impact_bps * (
+                        Decimal("1")
+                        + self.volume_impact_scale * participation
+                    )
+                    impact = dynamic_impact_bps / Decimal("10000")
                     fill_price = level_price * (Decimal("1") + impact if order.side == "BUY" else Decimal("1") - impact)
                     fills.append((order.order_id, qty, fill_price))
                 if order.remaining <= 0:
                     break
+        self._previous_bids = current_bids
+        self._previous_asks = current_asks
         return fills
 
     def _rate_gate(self, now_ms: int) -> None:
@@ -391,6 +433,7 @@ def calibrate_market_events(
     source_sha256: str,
     min_book_events: int = 100,
     min_trades: int = 50,
+    measured_order_latencies_ms: Iterable[int] = (),
 ) -> ReplayCalibration:
     rows = list(events)
     if not rows:
@@ -399,7 +442,10 @@ def calibrate_market_events(
     slippages: list[Decimal] = []
     participation: list[Decimal] = []
     partials: list[Decimal] = []
-    latencies: list[int] = []
+    latencies: list[int] = [int(value) for value in measured_order_latencies_ms]
+    if any(value < 0 or value > 300_000 for value in latencies):
+        raise ValueError("measured order latency is out of range")
+    has_measured_order_latency = bool(latencies)
     receive_latencies: list[int] = []
     impacts: list[Decimal] = []
     trade_count = 0
@@ -439,14 +485,21 @@ def calibrate_market_events(
                 continue
             if original > 0 and last_qty > 0:
                 partials.append(min(Decimal("1"), last_qty / original))
-            if order_ts > 0 and transaction_ts >= order_ts:
+            if (
+                not has_measured_order_latency
+                and order_ts > 0
+                and transaction_ts >= order_ts
+            ):
                 latencies.append(transaction_ts - order_ts)
     reasons = []
     if book_events < min_book_events:
         reasons.append(f"book samples {book_events} < {min_book_events}")
     if trade_count < min_trades:
         reasons.append(f"trade samples {trade_count} < {min_trades}")
-    latency_source = "execution_report"
+    latency_source = (
+        "intent_to_execution_report_receive"
+        if has_measured_order_latency else "execution_report"
+    )
     if not latencies:
         latencies = receive_latencies
         latency_source = "public_event_receive"
@@ -460,7 +513,7 @@ def calibrate_market_events(
         event_count=len(rows),
         book_event_count=book_events,
         trade_count=trade_count,
-        execution_sample_count=len(partials),
+        execution_sample_count=max(len(partials), len(latencies)),
         eligible=not reasons,
         reasons=tuple(reasons),
         spread_pct=_quantile(spreads, 1, 2),

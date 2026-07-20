@@ -22,6 +22,18 @@ from typing import Any, Callable, Dict, List, MutableSet, Optional, Sequence
 import requests
 
 from ladder_dragon.execution.order_recovery import OrderJournal, TERMINAL_EXCHANGE_STATES
+from ladder_dragon.execution.exchange_math import exact_symbol_filters, round_step
+
+
+_PROTECTION_DATA_ERRORS = (
+    ArithmeticError,
+    OSError,
+    RuntimeError,
+    sqlite3.Error,
+    TypeError,
+    ValueError,
+    requests.RequestException,
+)
 
 
 @dataclass(frozen=True)
@@ -105,13 +117,15 @@ def emergency_gap_flatten(
     уже исполненный stop.
     """
     try:
+        current = Decimal(str(current_price))
+        tolerance = max(Decimal("0"), Decimal(str(gap_tolerance_pct)))
         orders = dependencies.list_open_orders(symbol) or []
         breached = []
         for order in orders:
             if str(order.get("side", "")).upper() != "SELL":
                 continue
-            stop = float(order.get("stopPrice", 0) or 0)
-            if stop > 0 and current_price < stop * (1.0 - max(0.0, gap_tolerance_pct)):
+            stop = Decimal(str(order.get("stopPrice", 0) or 0))
+            if stop > 0 and current < stop * (Decimal("1") - tolerance):
                 breached.append(order)
         if not breached:
             return False
@@ -121,8 +135,25 @@ def emergency_gap_flatten(
         dependencies.sleep(0.2)
         base, _ = dependencies.get_symbol_assets(symbol)
         balances = dependencies.get_balances() or {}
-        free = float((balances.get(base) or {}).get("free", 0) or 0)
-        qty = dependencies.round_quantity(symbol, max(0.0, free - dependencies.min_quantity(symbol, 0)))
+        free = Decimal(str((balances.get(base) or {}).get("free", 0) or 0))
+        pull_filters = getattr(dependencies, "pull_filters", None)
+        filters = exact_symbol_filters(
+            pull_filters(symbol) if callable(pull_filters) else None
+        )
+        if filters is not None:
+            qty = round_step(
+                max(Decimal("0"), free - filters.minimum_quantity),
+                filters.step,
+                "floor",
+            )
+        else:
+            qty = Decimal(str(dependencies.round_quantity(
+                symbol,
+                max(
+                    0.0,
+                    float(free) - dependencies.min_quantity(symbol, 0),
+                ),
+            )))
         if qty <= 0:
             dependencies.halt("gap below STOP_LIMIT: no free quantity after OCO cancel", symbol=symbol)
             return False
@@ -132,7 +163,7 @@ def emergency_gap_flatten(
             return False
         dependencies.logger(f"[GAP-FLATTEN] {symbol} MARKET SELL qty={qty}")
         return True
-    except (requests.RequestException, OSError, RuntimeError, ValueError, TypeError) as exc:
+    except _PROTECTION_DATA_ERRORS as exc:
         dependencies.halt(f"gap watchdog failed: {exc}", symbol=symbol)
         return False
 
@@ -326,10 +357,17 @@ def protect_filled_buys(
                     minimum_guard is not None
                     and Decimal(str(tp_limit)) < minimum_guard
                 ):
-                    guard_floor = dependencies.round_price(
-                        symbol, float(minimum_guard)
+                    exact_filters = exact_symbol_filters(
+                        dependencies.pull_filters(symbol)
                     )
-                    if guard_floor > tp_limit:
+                    guard_floor = (
+                        round_step(minimum_guard, exact_filters.tick, "ceil")
+                        if exact_filters is not None
+                        else Decimal(str(dependencies.round_price(
+                            symbol, float(minimum_guard)
+                        )))
+                    )
+                    if guard_floor > Decimal(str(tp_limit)):
                         dependencies.debugger(
                             f"[GUARD] {symbol} TP поднят: "
                             f"{dependencies.format_price(symbol, tp_limit)} → "
@@ -338,34 +376,50 @@ def protect_filled_buys(
                         )
                         tp_limit = guard_floor
 
-            dependencies.pull_filters(symbol)
+            exact_filters = exact_symbol_filters(
+                dependencies.pull_filters(symbol)
+            )
             base, _ = dependencies.get_symbol_assets(symbol)
             balances = dependencies.get_balances()
             base_free = Decimal(
                 str(balances.get(base, {}).get("free", 0.0))
             )
-            dust = Decimal(str(dependencies.min_quantity(symbol, 0)))
+            dust = (
+                exact_filters.minimum_quantity
+                if exact_filters is not None
+                else Decimal(str(dependencies.min_quantity(symbol, 0)))
+            )
             sellable = max(Decimal("0"), base_free - dust)
-            quantity = Decimal(
-                str(
-                    dependencies.round_quantity(
-                        symbol, float(min(executed_quantity, sellable))
-                    )
+            if exact_filters is not None:
+                quantity = round_step(
+                    min(executed_quantity, sellable),
+                    exact_filters.step,
+                    "floor",
                 )
-            )
-
-            tp_rounded = Decimal(
-                str(dependencies.round_price(symbol, tp_limit))
-            )
-            sl_rounded = Decimal(
-                str(dependencies.round_price(symbol, sl_limit))
-            )
-            min_tp = Decimal(
-                str(dependencies.min_notional(symbol, float(tp_rounded)))
-            )
-            min_sl = Decimal(
-                str(dependencies.min_notional(symbol, float(sl_rounded)))
-            )
+                tp_rounded = round_step(
+                    Decimal(str(tp_limit)), exact_filters.tick, "floor"
+                )
+                sl_rounded = round_step(
+                    Decimal(str(sl_limit)), exact_filters.tick, "floor"
+                )
+                min_tp = exact_filters.minimum_notional
+                min_sl = exact_filters.minimum_notional
+            else:
+                quantity = Decimal(str(dependencies.round_quantity(
+                    symbol, float(min(executed_quantity, sellable))
+                )))
+                tp_rounded = Decimal(str(dependencies.round_price(
+                    symbol, float(tp_limit)
+                )))
+                sl_rounded = Decimal(str(dependencies.round_price(
+                    symbol, float(sl_limit)
+                )))
+                min_tp = Decimal(str(dependencies.min_notional(
+                    symbol, float(tp_rounded)
+                )))
+                min_sl = Decimal(str(dependencies.min_notional(
+                    symbol, float(sl_rounded)
+                )))
             tp_value = quantity * tp_rounded
             sl_value = quantity * sl_rounded
             if quantity <= 0 or tp_value < min_tp or sl_value < min_sl:
@@ -377,15 +431,15 @@ def protect_filled_buys(
                     % (
                         symbol,
                         order_id,
-                        dependencies.format_quantity(symbol, float(quantity)),
-                        dependencies.format_quantity(symbol, float(sellable)),
-                        dependencies.format_quantity(symbol, float(dust)),
-                        float(tp_value),
-                        float(min_tp),
-                        float(sl_value),
-                        float(min_sl),
-                        dependencies.format_price(symbol, float(tp_rounded)),
-                        dependencies.format_price(symbol, float(sl_rounded)),
+                        dependencies.format_quantity(symbol, quantity),
+                        dependencies.format_quantity(symbol, sellable),
+                        dependencies.format_quantity(symbol, dust),
+                        tp_value,
+                        min_tp,
+                        sl_value,
+                        min_sl,
+                        dependencies.format_price(symbol, tp_rounded),
+                        dependencies.format_price(symbol, sl_rounded),
                     )
                 )
                 dependencies.halt(
@@ -401,10 +455,10 @@ def protect_filled_buys(
             ) if dependencies.lot_id_for_fill else None
             oco = dependencies.place_oco_sell(
                 symbol,
-                float(quantity),
-                float(tp_rounded),
+                quantity,
+                tp_rounded,
                 sl_stop,
-                float(sl_rounded),
+                sl_rounded,
                 parent_client_order_id=parent_client_id,
                 lot_id=lot_id,
             )
@@ -417,7 +471,7 @@ def protect_filled_buys(
                 try:
                     if dependencies.place_market_order is not None:
                         dependencies.place_market_order(
-                            symbol, "SELL", float(quantity)
+                            symbol, "SELL", quantity
                         )
                 except (OSError, RuntimeError, ValueError, TypeError) as exc:
                     dependencies.logger(f"[FLATTEN-ERR] {symbol}: {exc}")
@@ -429,8 +483,8 @@ def protect_filled_buys(
                     fallback = dependencies.place_limit_order(
                         "SELL",
                         symbol,
-                        float(quantity),
-                        float(tp_rounded),
+                        quantity,
+                        tp_rounded,
                         maker=config.sell_limit_maker,
                         purpose="fallback_tp",
                         parent_client_order_id=parent_client_id,
@@ -473,8 +527,8 @@ def protect_filled_buys(
                     if order_list_id:
                         state = state_store.load(symbol)
                         state[str(order_list_id)] = {
-                            "fill_price": float(average_fill_price),
-                            "tp_price": float(tp_rounded),
+                            "fill_price": format(average_fill_decimal, "f"),
+                            "tp_price": format(tp_rounded, "f"),
                             "ts": dependencies.now(),
                         }
                         state_store.save(symbol, state)
@@ -565,63 +619,97 @@ def maintain_breakeven(
             if not take_profit or not stop_loss:
                 continue
             try:
-                original = float(take_profit.get("origQty", "0") or 0.0)
-                executed = float(
-                    take_profit.get("executedQty", "0") or 0.0
-                )
-                remaining = max(0.0, original - executed)
-            except (TypeError, ValueError):
+                original = Decimal(str(
+                    take_profit.get("origQty", "0") or "0"
+                ))
+                executed = Decimal(str(
+                    take_profit.get("executedQty", "0") or "0"
+                ))
+                remaining = max(Decimal("0"), original - executed)
+            except (InvalidOperation, TypeError, ValueError):
                 continue
             if executed <= 0 or remaining <= 0:
                 continue
 
-            fill_price = float(
-                state.get(str(order_list_id), {}).get("fill_price", 0.0)
-            )
+            fill_price = Decimal(str(
+                state.get(str(order_list_id), {}).get("fill_price", "0")
+            ))
             if fill_price <= 0:
                 continue
-            target_stop = dependencies.round_price(
-                symbol, fill_price * (1.0 + offset_pct)
+            exact_filters = exact_symbol_filters(
+                dependencies.pull_filters(symbol)
+            )
+            offset = max(Decimal("0"), Decimal(str(offset_pct)))
+            target_raw = fill_price * (Decimal("1") + offset)
+            target_stop = (
+                round_step(target_raw, exact_filters.tick, "floor")
+                if exact_filters is not None
+                else Decimal(str(dependencies.round_price(
+                    symbol, float(target_raw)
+                )))
             )
             try:
-                current_stop = float(
-                    stop_loss.get("stopPrice", "0") or 0.0
-                )
-            except (TypeError, ValueError):
-                current_stop = 0.0
-            if current_stop + 1e-12 >= target_stop:
+                current_stop = Decimal(str(
+                    stop_loss.get("stopPrice", "0") or "0"
+                ))
+            except (InvalidOperation, TypeError, ValueError):
+                current_stop = Decimal("0")
+            if current_stop >= target_stop:
                 continue
 
-            dependencies.pull_filters(symbol)
-            tick = dependencies.tick_size(symbol)
+            tick = (
+                exact_filters.tick
+                if exact_filters is not None
+                else Decimal(str(dependencies.tick_size(symbol)))
+            )
             epsilon = max(
-                tick * max(1.0, dependencies.price_eps_mult()),
-                fill_price * max(0.0, float(stop_limit_offset_pct)),
+                tick * max(
+                    Decimal("1"),
+                    Decimal(str(dependencies.price_eps_mult())),
+                ),
+                fill_price * max(
+                    Decimal("0"), Decimal(str(stop_limit_offset_pct))
+                ),
             )
-            sl_stop = dependencies.round_step(target_stop, tick, "up")
-            sl_limit = dependencies.round_step(
-                sl_stop - epsilon, tick, "down"
-            )
+            sl_stop = round_step(target_stop, tick, "up")
+            sl_limit = round_step(sl_stop - epsilon, tick, "down")
             if sl_stop <= sl_limit:
-                sl_stop = dependencies.round_step(
-                    sl_limit + tick, tick, "up"
-                )
+                sl_stop = round_step(sl_limit + tick, tick, "up")
             try:
-                tp_price = float(take_profit.get("price", "0") or 0.0)
-            except (TypeError, ValueError):
-                tp_price = 0.0
+                tp_price = Decimal(str(
+                    take_profit.get("price", "0") or "0"
+                ))
+            except (InvalidOperation, TypeError, ValueError):
+                tp_price = Decimal("0")
             if tp_price <= 0:
                 continue
 
-            remaining = dependencies.round_quantity(symbol, remaining)
-            if remaining < dependencies.min_quantity(symbol, 0):
+            if exact_filters is not None:
+                remaining = round_step(
+                    remaining, exact_filters.step, "floor"
+                )
+                minimum_quantity = exact_filters.minimum_quantity
+                min_tp = exact_filters.minimum_notional
+                min_sl = exact_filters.minimum_notional
+            else:
+                remaining = Decimal(str(dependencies.round_quantity(
+                    symbol, float(remaining)
+                )))
+                minimum_quantity = Decimal(str(
+                    dependencies.min_quantity(symbol, 0)
+                ))
+                min_tp = Decimal(str(dependencies.min_notional(
+                    symbol, float(tp_price)
+                )))
+                min_sl = Decimal(str(dependencies.min_notional(
+                    symbol, float(sl_limit)
+                )))
+            if remaining < minimum_quantity:
                 dependencies.debugger(
                     f"[BE] skip dust remain="
                     f"{dependencies.format_quantity(symbol, remaining)}"
                 )
                 continue
-            min_tp = dependencies.min_notional(symbol, tp_price)
-            min_sl = dependencies.min_notional(symbol, sl_limit)
             if remaining * tp_price < min_tp:
                 dependencies.debugger(
                     f"[BE] skip TP notional too small: "
@@ -638,13 +726,13 @@ def maintain_breakeven(
             try:
                 dependencies.cancel_oco(symbol, int(order_list_id))
                 dependencies.sleep(0.25)
-            except Exception as exc:
+            except _PROTECTION_DATA_ERRORS as exc:
                 # A lost cancel response is not permission to create another
                 # OCO. Query Binance and proceed only when the old list is
                 # conclusively absent.
                 try:
                     refreshed_orders = dependencies.list_open_orders(symbol) or []
-                except Exception as verify_exc:
+                except _PROTECTION_DATA_ERRORS as verify_exc:
                     dependencies.halt(
                         "breakeven OCO cancel reconciliation unavailable",
                         symbol=symbol,
@@ -696,8 +784,8 @@ def maintain_breakeven(
             if new_order_list_id:
                 state.pop(str(order_list_id), None)
                 state[str(new_order_list_id)] = {
-                    "fill_price": float(fill_price),
-                    "tp_price": float(tp_price),
+                    "fill_price": format(fill_price, "f"),
+                    "tp_price": format(tp_price, "f"),
                     "ts": dependencies.now(),
                 }
                 state_store.save(symbol, state)
@@ -706,5 +794,7 @@ def maintain_breakeven(
                     f"{dependencies.format_price(symbol, sl_stop)} "
                     f"(orderListId={new_order_list_id})"
                 )
-    except Exception as exc:
-        dependencies.debugger(f"[BE] loop err: {exc}")
+    except _PROTECTION_DATA_ERRORS as exc:
+        dependencies.debugger(
+            f"[BE] loop err type={type(exc).__name__}"
+        )

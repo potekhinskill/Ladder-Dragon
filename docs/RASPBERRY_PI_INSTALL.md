@@ -428,7 +428,35 @@ The watchdog checks network access and fresh supervisor heartbeat. It restarts
 the service only after three consecutive failed checks. Duplicate Telegram alerts
 are suppressed, and offline alerts are queued in `/var/lib/pi-watchdog/telegram-outbox`.
 
-## 12. Migration and troubleshooting
+## 12. Public depth archive and execution latency
+
+The installer enables `ladder-dragon-depth-archive.timer`. It records public
+SOLUSDT depth and aggregate trades for 15 minutes each hour and removes samples
+older than seven days. It never receives trading credentials.
+
+```bash
+sudo systemctl status ladder-dragon-depth-archive.timer --no-pager
+sudo systemctl start ladder-dragon-depth-archive.service
+sudo journalctl -u ladder-dragon-depth-archive.service -n 50 --no-pager
+sudo -u bot find /var/lib/ladder-dragon/depth-archives -maxdepth 1 \
+  -type f -name '*.metadata.json' -print
+```
+
+Non-secret overrides may be placed in the root-owned
+`/etc/ladder-dragon/depth-archive.conf`:
+
+```dotenv
+BOT_DEPTH_ARCHIVE_SYMBOLS=SOLUSDT
+BOT_DEPTH_ARCHIVE_DURATION_SEC=840
+BOT_DEPTH_ARCHIVE_RETENTION_DAYS=7
+```
+
+Keep the file root-owned and mode `0600`. The service still strips Binance and
+AI credential variables before starting. The bot writes sanitized
+`logs/execution_latency.ndjson` samples only for exact journal-linked order
+events; calibration uses only `NEW/NEW` reports for acknowledgement latency.
+
+## 13. Migration and troubleshooting
 
 Audit or migrate an existing installation before changing it:
 

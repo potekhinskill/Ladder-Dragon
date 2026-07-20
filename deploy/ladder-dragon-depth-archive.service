@@ -1,0 +1,48 @@
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2026 IURII Potekhin
+# Purpose: record public Binance depth for replay calibration under least privilege.
+[Unit]
+Description=Ladder Dragon public depth archive recorder
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=bot
+Group=bot
+Environment=PROJECT_DIR=/home/bot/apps/binance_bot
+Environment=BOT_DEPTH_ARCHIVE_DIR=/var/lib/ladder-dragon/depth-archives
+Environment=BOT_DEPTH_ARCHIVE_SYMBOLS=SOLUSDT
+Environment=BOT_DEPTH_ARCHIVE_DURATION_SEC=840
+Environment=BOT_DEPTH_ARCHIVE_MAX_EVENTS=250000
+Environment=BOT_DEPTH_ARCHIVE_RETENTION_DAYS=7
+EnvironmentFile=-/etc/ladder-dragon/depth-archive.conf
+ExecStart=/usr/local/bin/ladder-dragon-depth-archive
+Nice=15
+IOSchedulingClass=idle
+NoNewPrivileges=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectSystem=strict
+ProtectHome=read-only
+ProtectClock=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+ProtectKernelLogs=yes
+ProtectHostname=yes
+RestrictSUIDSGID=yes
+RestrictRealtime=yes
+RestrictNamespaces=yes
+LockPersonality=yes
+CapabilityBoundingSet=
+AmbientCapabilities=
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+SystemCallArchitectures=native
+SystemCallFilter=@system-service
+SystemCallErrorNumber=EPERM
+ReadWritePaths=/var/lib/ladder-dragon/depth-archives
+UMask=0027
+
+[Install]
+WantedBy=multi-user.target

@@ -428,6 +428,117 @@ def test_limit_order_preserves_exact_decimal_payload(tmp_path):
     assert calls[0]["price"] == "75.12345678"
 
 
+def test_limit_order_uses_exact_filters_without_legacy_float_callbacks(tmp_path):
+    calls = []
+    dependencies = OrderDependencies(
+        live=lambda: True,
+        logger=lambda message: None,
+        pull_filters=lambda symbol: {
+            "tickSizeExact": "0.01000000",
+            "stepSizeExact": "0.00100000",
+            "minQtyExact": "0.00100000",
+            "minNotionalExact": "5.00000000",
+        },
+        round_price=lambda *args: pytest.fail("legacy float price rounding"),
+        round_qty=lambda *args: pytest.fail("legacy float qty rounding"),
+        min_qty=lambda *args: pytest.fail("legacy float min qty"),
+        min_notional=lambda *args: pytest.fail("legacy float min notional"),
+        format_price=lambda *args: pytest.fail("legacy float price format"),
+        format_qty=lambda *args: pytest.fail("legacy float qty format"),
+        journal=lambda: None,
+        signed_request=lambda method, path, params: calls.append(params) or {
+            "orderId": 21, "status": "NEW", "executedQty": "0",
+        },
+        get_order_by_client_id=lambda symbol, client_id: None,
+        get_order_list_by_client_id=lambda client_id: None,
+        verify_oco_legs=lambda symbol, payload: [],
+        cancel_oco=lambda symbol, order_list_id: None,
+        halt=lambda reason, **metadata: None,
+        validate_limit_sell_prices=lambda symbol, prices: None,
+    )
+
+    result = place_limit_order(
+        "BUY", "SOLUSDT", Decimal("0.123999999999"),
+        Decimal("75.129999999999"), dependencies=dependencies,
+    )
+
+    assert result["orderId"] == 21
+    assert calls[0]["quantity"] == "0.123"
+    assert calls[0]["price"] == "75.12"
+
+
+def test_oco_exact_boundary_blocks_subminimum_without_post():
+    calls = []
+    dependencies = OrderDependencies(
+        live=lambda: True,
+        logger=lambda message: None,
+        pull_filters=lambda symbol: {
+            "tickSizeExact": "0.01",
+            "stepSizeExact": "0.001",
+            "minQtyExact": "0.001",
+            "minNotionalExact": "5",
+        },
+        round_price=lambda *args: pytest.fail("legacy float price rounding"),
+        round_qty=lambda *args: pytest.fail("legacy float qty rounding"),
+        min_qty=lambda *args: pytest.fail("legacy float min qty"),
+        min_notional=lambda *args: pytest.fail("legacy float min notional"),
+        format_price=lambda *args: pytest.fail("legacy float price format"),
+        format_qty=lambda *args: pytest.fail("legacy float qty format"),
+        journal=lambda: None,
+        signed_request=lambda *args, **kwargs: calls.append(args),
+        get_order_by_client_id=lambda symbol, client_id: None,
+        get_order_list_by_client_id=lambda client_id: None,
+        verify_oco_legs=lambda symbol, payload: [],
+        cancel_oco=lambda symbol, order_list_id: None,
+        halt=lambda reason, **metadata: None,
+        validate_limit_sell_prices=lambda symbol, prices: None,
+    )
+
+    assert place_oco_sell(
+        "SOLUSDT", Decimal("0.050"), Decimal("90"), Decimal("80"),
+        Decimal("79"), dependencies=dependencies,
+    ) is None
+    assert calls == []
+
+
+def test_market_order_uses_exact_filters_without_float_callbacks():
+    calls = []
+    dependencies = OrderDependencies(
+        live=lambda: True,
+        logger=lambda message: None,
+        pull_filters=lambda symbol: {
+            "tickSizeExact": "0.01",
+            "stepSizeExact": "0.001",
+            "minQtyExact": "0.001",
+            "minNotionalExact": "5",
+        },
+        round_price=lambda *args: pytest.fail("legacy float price rounding"),
+        round_qty=lambda *args: pytest.fail("legacy float qty rounding"),
+        min_qty=lambda *args: pytest.fail("legacy float min qty"),
+        min_notional=lambda *args: pytest.fail("legacy float min notional"),
+        format_price=lambda *args: pytest.fail("legacy float price format"),
+        format_qty=lambda *args: pytest.fail("legacy float qty format"),
+        journal=lambda: None,
+        signed_request=lambda method, path, params: calls.append(params) or {
+            "orderId": 22, "status": "FILLED", "executedQty": params["quantity"],
+        },
+        get_order_by_client_id=lambda symbol, client_id: None,
+        get_order_list_by_client_id=lambda client_id: None,
+        verify_oco_legs=lambda symbol, payload: [],
+        cancel_oco=lambda symbol, order_list_id: None,
+        halt=lambda reason, **metadata: None,
+        validate_limit_sell_prices=lambda symbol, prices: None,
+    )
+
+    result = place_market_order(
+        "SOLUSDT", "SELL", Decimal("0.123999999"),
+        dependencies=dependencies, ref_price=Decimal("75.12"),
+    )
+
+    assert result["orderId"] == 22
+    assert calls[0]["quantity"] == "0.123"
+
+
 def test_limit_order_rejects_rounded_value_below_minimum_notional(tmp_path):
     calls = []
     dependencies = OrderDependencies(

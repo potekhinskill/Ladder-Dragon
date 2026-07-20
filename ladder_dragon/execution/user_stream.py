@@ -45,6 +45,7 @@ class OrderStreamSignal:
     trade_id: int
     last_quantity: str
     cumulative_quantity: str
+    received_time_ms: int
 
     @property
     def dedupe_key(self) -> tuple[object, ...]:
@@ -59,7 +60,11 @@ class OrderStreamSignal:
         )
 
 
-def parse_order_signal(payload: Mapping[str, object]) -> Optional[OrderStreamSignal]:
+def parse_order_signal(
+    payload: Mapping[str, object],
+    *,
+    received_time_ms: int | None = None,
+) -> Optional[OrderStreamSignal]:
     """Parse one JSON event envelope; ignore balances and unknown event types."""
     event_raw = payload.get("event", payload)
     if not isinstance(event_raw, Mapping):
@@ -78,6 +83,11 @@ def parse_order_signal(payload: Mapping[str, object]) -> Optional[OrderStreamSig
             trade_id=int(event_raw.get("t", -1) or -1),
             last_quantity=str(event_raw.get("l", "0")),
             cumulative_quantity=str(event_raw.get("z", "0")),
+            received_time_ms=(
+                int(received_time_ms)
+                if received_time_ms is not None
+                else int(time.time() * 1000)
+            ),
         )
     except (TypeError, ValueError, OverflowError):
         return None
@@ -299,7 +309,10 @@ class BinanceUserDataObserver:
             self._set_state(last_event_at=now)
             if event_type in TERMINAL_EVENT_TYPES:
                 raise RuntimeError(f"User Data Stream ended: {event_type}")
-            signal = parse_order_signal(payload)
+            signal = parse_order_signal(
+                payload,
+                received_time_ms=int(now * 1000),
+            )
             if signal is None:
                 continue
             accepted = self.mailbox.put(signal)

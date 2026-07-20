@@ -641,10 +641,10 @@ function updateOperations(h){
   $('#ops-watchdog').className=(watchdog.state==='active'&&watchdog.enabled)?'risk-ok':'risk-warn';
   const streams=o.user_stream?.streams||[];
   const streamText=streams.length
-    ? streams.map(s=>`${s.symbol} ${s.state} · events ${s.order_events||0} · reconnects ${s.reconnects||0}${s.last_error?' · '+s.last_error:''}`).join(', ')
+    ? streams.map(s=>`${s.symbol} ${s.state} · age ${s.age_sec??'—'}s · events ${s.order_events||0} · reconnects ${s.reconnects||0}${s.last_error?' · '+s.last_error:''}`).join(', ')
     : tr('no_data');
   $('#ops-user-stream').textContent=streamText;
-  $('#ops-user-stream').className=streams.length&&streams.every(s=>s.state==='connected'&&!s.last_error)?'risk-ok':'risk-warn';
+  $('#ops-user-stream').className=streams.length&&streams.every(s=>s.state==='connected'&&!s.stale&&!s.last_error)?'risk-ok':'risk-warn';
   const usb=o.usb_backup||{};
   $('#ops-usb').textContent=usb.mounted?`mounted · ${usb.writable?'rw':'dashboard namespace RO'}`:'нет mount';
   $('#ops-usb').className=usb.mounted?(usb.writable?'risk-ok':'risk-warn'):'risk-bad';
@@ -700,7 +700,7 @@ function updateTrading(t){
     const protection=p.protection||{};
     const state=protection.state||'not_checked';
     const pnl=p.unrealized_pnl_usdt==null?'—':fmtUSDT(Number(p.unrealized_pnl_usdt));
-    return `<tr><td class="mono">${esc(p.symbol)}</td><td class="right mono">${fmt(p.quantity,8)}</td><td class="right mono">${p.average_entry_usdt==null?'—':fmt(p.average_entry_usdt,4)}</td><td class="right mono">${p.current_price_usdt==null?'—':fmt(p.current_price_usdt,4)}</td><td class="right mono">${p.value_usdt==null?'—':fmtUSDT(Number(p.value_usdt))}</td><td class="right mono">${pnl}</td><td class="right mono">${p.drawdown_pct==null?'—':fmtPct(Number(p.drawdown_pct))}</td><td>${esc(state)} · TP ${esc((protection.tp||[]).join(','))} · STOP ${esc((protection.stop||[]).join(','))} · gap ${esc(protection.gap_watchdog||'—')}</td></tr>`;
+    return `<tr><td class="mono">${esc(p.symbol)}</td><td class="right mono">${fmt(p.quantity,8)}</td><td class="right mono">${p.average_entry_usdt==null?'—':fmt(p.average_entry_usdt,4)}</td><td class="right mono">${p.current_price_usdt==null?'—':fmt(p.current_price_usdt,4)}</td><td class="right mono">${p.value_usdt==null?'—':fmtUSDT(Number(p.value_usdt))}</td><td class="right mono">${pnl}</td><td class="right mono">${p.drawdown_pct==null?'—':fmtPct(Number(p.drawdown_pct))}</td><td>${esc(state)} · basis ${esc(protection.cost_basis_status||'—')} · TP ${esc((protection.tp||[]).join(','))} · STOP ${esc((protection.stop||[]).join(','))} · gap ${esc(protection.gap_watchdog||'—')}</td></tr>`;
   }).join(''):'<tr><td class="muted" colspan="8">Нет данных по позициям</td></tr>';
 }
 function updateAIQuality(ai){

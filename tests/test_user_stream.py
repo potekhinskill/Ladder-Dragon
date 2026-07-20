@@ -14,6 +14,10 @@ from ladder_dragon.execution.user_stream import (
     signed_subscription_request,
     websocket_api_url,
 )
+from ladder_dragon.execution.execution_latency import (
+    append_execution_latency_sample,
+    load_execution_latencies,
+)
 
 
 def execution_report(**overrides):
@@ -35,7 +39,10 @@ def execution_report(**overrides):
 
 
 def test_execution_report_parser_preserves_partial_fill_identity():
-    signal = parse_order_signal(execution_report())
+    signal = parse_order_signal(
+        execution_report(),
+        received_time_ms=1_700_000_000_020,
+    )
 
     assert signal is not None
     assert signal.order_id == 123
@@ -44,7 +51,28 @@ def test_execution_report_parser_preserves_partial_fill_identity():
     assert signal.order_status == "PARTIALLY_FILLED"
     assert signal.last_quantity == "0.01000000"
     assert signal.cumulative_quantity == "0.01000000"
+    assert signal.received_time_ms == 1_700_000_000_020
     assert parse_order_signal({"event": {"e": "outboundAccountPosition"}}) is None
+
+
+def test_execution_latency_log_is_sanitized_and_calibratable(tmp_path):
+    signal = parse_order_signal(
+        execution_report(x="NEW", X="NEW", t=-1, l="0", z="0"),
+        received_time_ms=1_700_000_000_020,
+    )
+    assert signal is not None
+    path = tmp_path / "execution-latency.ndjson"
+
+    payload = append_execution_latency_sample(
+        path,
+        signal,
+        intent_created_at_ms=1_700_000_000_000,
+    )
+
+    text = path.read_text()
+    assert "LDBLAD-test" not in text
+    assert payload["intent_to_event_ms"] == 10
+    assert load_execution_latencies(path) == [20]
 
 
 def test_mailbox_deduplicates_events_and_consumes_only_requested_order():

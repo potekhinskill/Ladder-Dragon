@@ -16,6 +16,11 @@ from typing import Any, Callable, Dict, Optional
 import requests
 
 from ladder_dragon.execution.binance_transport import BinanceResponseError
+from ladder_dragon.execution.exchange_math import (
+    exact_symbol_filters,
+    format_step,
+    round_step,
+)
 from ladder_dragon.execution.order_identity import client_order_id
 from ladder_dragon.execution.order_recovery import OrderJournal, TERMINAL_EXCHANGE_STATES
 
@@ -155,25 +160,41 @@ def place_limit_order(
             f"{raw_quantity:.8f} @ {raw_price:.8f}"
         )
         return None
-    dependencies.pull_filters(symbol)
-    price_text = dependencies.format_price(
-        symbol,
-        dependencies.round_price(symbol, float(raw_price)),
-    )
-    quantity_text = dependencies.format_qty(
-        symbol,
-        dependencies.round_qty(symbol, float(raw_quantity)),
-    )
-    price_exact = Decimal(price_text)
-    quantity_exact = Decimal(quantity_text)
-    min_qty_exact = Decimal(str(dependencies.min_qty(symbol, 0)))
-    min_notional_exact = Decimal(
-        str(dependencies.min_notional(symbol, float(price_exact)))
-    )
+    filters = exact_symbol_filters(dependencies.pull_filters(symbol))
+    if filters is not None:
+        tick = filters.tick
+        step = filters.step
+        min_qty_exact = filters.minimum_quantity
+        min_notional_exact = filters.minimum_notional
+        price_exact = round_step(
+            raw_price,
+            tick,
+            "floor" if side.upper() == "BUY" else "ceil",
+        )
+        quantity_exact = round_step(raw_quantity, step, "floor")
+        price_text = format_step(price_exact, tick)
+        quantity_text = format_step(quantity_exact, step)
+    else:
+        # Compatibility boundary for injected tests and older adapters. The
+        # bundled production adapter always supplies the exact filter fields.
+        price_text = dependencies.format_price(
+            symbol,
+            dependencies.round_price(symbol, float(raw_price)),
+        )
+        quantity_text = dependencies.format_qty(
+            symbol,
+            dependencies.round_qty(symbol, float(raw_quantity)),
+        )
+        price_exact = Decimal(price_text)
+        quantity_exact = Decimal(quantity_text)
+        min_qty_exact = Decimal(str(dependencies.min_qty(symbol, 0)))
+        min_notional_exact = Decimal(
+            str(dependencies.min_notional(symbol, float(price_exact)))
+        )
 
     if quantity_exact < min_qty_exact:
         return None
-    if quantity_exact * price_exact < min_notional_exact:
+    if quantity_exact * price_exact < min_notional_exact and filters is None:
         needed = max(min_notional_exact / price_exact, min_qty_exact)
         quantity_text = dependencies.format_qty(
             symbol,
@@ -186,6 +207,8 @@ def place_limit_order(
             or quantity_exact * price_exact < min_notional_exact
         ):
             return None
+    if quantity_exact * price_exact < min_notional_exact:
+        return None
     journal = dependencies.journal()
     # First find an equivalent active intent. If the order already exists on
     # Binance, return it instead of sending another POST.
@@ -336,10 +359,10 @@ def place_limit_order(
 def place_market_order(
     symbol: str,
     side: str,
-    quantity: float,
+    quantity: object,
     *,
     dependencies: OrderDependencies,
-    ref_price: float | None = None,
+    ref_price: object | None = None,
     filters: Dict[str, Any] | None = None,
     parent_client_order_id: Optional[str] = None,
 ) -> Dict[str, Any] | None:
@@ -354,28 +377,53 @@ def place_market_order(
     side = side.upper()
     if side not in {"BUY", "SELL"}:
         raise ValueError(f"unsupported market side: {side}")
+    try:
+        quantity_exact = Decimal(str(quantity))
+        reference_exact = (
+            Decimal(str(ref_price)) if ref_price is not None else None
+        )
+    except (InvalidOperation, TypeError, ValueError) as exc:
+        raise ValueError("MARKET quantity/reference price is invalid") from exc
+    if not quantity_exact.is_finite() or quantity_exact <= 0:
+        raise ValueError("MARKET quantity must be finite and positive")
+    if reference_exact is not None and (
+        not reference_exact.is_finite() or reference_exact <= 0
+    ):
+        raise ValueError("MARKET reference price must be finite and positive")
     if not dependencies.live():
         dependencies.logger(
-            f"[DRY] skip MARKET {symbol} {side} {quantity:.8f}"
+            f"[DRY] skip MARKET {symbol} {side} {quantity_exact:.8f}"
         )
         return None
 
-    dependencies.pull_filters(symbol)
-    rounded_quantity = dependencies.round_qty(symbol, quantity)
-    if rounded_quantity <= 0 or rounded_quantity < dependencies.min_qty(symbol, 0):
+    exact_filters = exact_symbol_filters(dependencies.pull_filters(symbol))
+    if exact_filters is not None:
+        quantity_exact = round_step(quantity_exact, exact_filters.step, "floor")
+        quantity_text = format_step(quantity_exact, exact_filters.step)
+        minimum_quantity = exact_filters.minimum_quantity
+        minimum_notional = exact_filters.minimum_notional
+    else:
+        rounded_quantity = dependencies.round_qty(symbol, float(quantity_exact))
+        quantity_text = dependencies.format_qty(symbol, rounded_quantity)
+        quantity_exact = Decimal(quantity_text)
+        minimum_quantity = Decimal(str(dependencies.min_qty(symbol, 0)))
+        minimum_notional = (
+            Decimal(str(dependencies.min_notional(symbol, float(reference_exact))))
+            if reference_exact is not None else Decimal("0")
+        )
+    if quantity_exact <= 0 or quantity_exact < minimum_quantity:
         dependencies.logger(
             f"[SKIP] MARKET {symbol} {side}: quantity below exchange minimum"
         )
         return None
-    if ref_price is not None and (
-        rounded_quantity * ref_price < dependencies.min_notional(symbol, ref_price)
+    if reference_exact is not None and (
+        quantity_exact * reference_exact < minimum_notional
     ):
         dependencies.logger(
             f"[SKIP] MARKET {symbol} {side}: quantity below minNotional"
         )
         return None
 
-    quantity_text = dependencies.format_qty(symbol, rounded_quantity)
     purpose = "market"
     journal = dependencies.journal()
     active = (
@@ -412,7 +460,9 @@ def place_market_order(
         generated_id,
         symbol,
         order_type="MARKET",
-        expected_price=ref_price,
+        expected_price=(
+            float(reference_exact) if reference_exact is not None else None
+        ),
     )
     if journal is not None:
         journal.prepare(
@@ -495,34 +545,77 @@ def place_market_order(
 
 def place_oco_sell(
     symbol: str,
-    quantity: float,
-    tp_limit_price: float,
-    sl_stop_price: float,
-    sl_limit_price: float,
+    quantity: object,
+    tp_limit_price: object,
+    sl_stop_price: object,
+    sl_limit_price: object,
     *,
     dependencies: OrderDependencies,
     parent_client_order_id: Optional[str] = None,
     lot_id: int | None = None,
 ) -> Dict[str, Any] | None:
     """Создать и обязательно проверить обе защитные ноги SELL OCO."""
+    try:
+        quantity_exact = Decimal(str(quantity))
+        tp_exact = Decimal(str(tp_limit_price))
+        stop_exact = Decimal(str(sl_stop_price))
+        limit_exact = Decimal(str(sl_limit_price))
+    except (InvalidOperation, TypeError, ValueError) as exc:
+        raise ValueError("OCO price/quantity is invalid") from exc
+    if any(
+        not value.is_finite() or value <= 0
+        for value in (quantity_exact, tp_exact, stop_exact, limit_exact)
+    ):
+        raise ValueError("OCO price/quantity must be finite and positive")
     if not dependencies.live():
         dependencies.logger(
-            f"[DRY] skip OCO {symbol} SELL {quantity:.8f}"
+            f"[DRY] skip OCO {symbol} SELL {quantity_exact:.8f}"
         )
         return None
-    dependencies.pull_filters(symbol)
-    quantity_text = dependencies.format_qty(
-        symbol, dependencies.round_qty(symbol, quantity)
-    )
-    tp_text = dependencies.format_price(
-        symbol, dependencies.round_price(symbol, tp_limit_price)
-    )
-    stop_text = dependencies.format_price(
-        symbol, dependencies.round_price(symbol, sl_stop_price)
-    )
-    limit_text = dependencies.format_price(
-        symbol, dependencies.round_price(symbol, sl_limit_price)
-    )
+    filters = exact_symbol_filters(dependencies.pull_filters(symbol))
+    if filters is not None:
+        tick = filters.tick
+        step = filters.step
+        minimum_qty = filters.minimum_quantity
+        minimum_notional = filters.minimum_notional
+        quantity_exact = round_step(quantity_exact, step, "floor")
+        tp_exact = round_step(tp_exact, tick, "ceil")
+        stop_exact = round_step(stop_exact, tick, "ceil")
+        limit_exact = round_step(limit_exact, tick, "floor")
+        quantity_text = format_step(quantity_exact, step)
+        tp_text = format_step(tp_exact, tick)
+        stop_text = format_step(stop_exact, tick)
+        limit_text = format_step(limit_exact, tick)
+    else:
+        quantity_text = dependencies.format_qty(
+            symbol, dependencies.round_qty(symbol, float(quantity_exact))
+        )
+        tp_text = dependencies.format_price(
+            symbol, dependencies.round_price(symbol, float(tp_exact))
+        )
+        stop_text = dependencies.format_price(
+            symbol, dependencies.round_price(symbol, float(stop_exact))
+        )
+        limit_text = dependencies.format_price(
+            symbol, dependencies.round_price(symbol, float(limit_exact))
+        )
+        quantity_exact = Decimal(quantity_text)
+        tp_exact = Decimal(tp_text)
+        stop_exact = Decimal(stop_text)
+        limit_exact = Decimal(limit_text)
+        minimum_qty = Decimal(str(dependencies.min_qty(symbol, 0)))
+        minimum_notional = Decimal(
+            str(dependencies.min_notional(symbol, float(tp_exact)))
+        )
+    if (
+        quantity_exact < minimum_qty
+        or quantity_exact * tp_exact < minimum_notional
+        or quantity_exact * limit_exact < minimum_notional
+    ):
+        dependencies.logger(
+            f"[OCO-BLOCK] {symbol} rounded quantity/notional below minimum"
+        )
+        return None
 
     journal = dependencies.journal()
     purpose = (

@@ -3,6 +3,46 @@
 All notable changes are documented here. Releases use Semantic Versioning; every
 section is dated and there is intentionally no `Unreleased` section.
 
+## [2.13.0] — 2026-07-20
+
+### Added
+- Added sanitized correlation from each durable pre-POST order intent to its
+  locally received `NEW executionReport`. Replay calibration can consume these
+  samples as actual observed order acknowledgement latency while continuing to
+  label public event receive timing as a network proxy.
+- Added a least-privilege public depth recorder service and hourly systemd
+  timer. It records 15-minute SOLUSDT samples across volatility regimes,
+  retains seven days by default, uses an exclusive lock, and explicitly removes
+  Binance and AI credentials before starting.
+- Added dashboard User Data Stream freshness thresholds and explicit stale,
+  reported-state and legacy cost-basis provenance fields.
+
+### Changed
+- LIMIT, MARKET, OCO, breakeven replacement, emergency flatten and time-stop
+  quantity/price boundaries now use exact `Decimal` Binance filters in the
+  production adapter. Legacy float callbacks remain only as an injected
+  compatibility boundary.
+- Replay now uses the event book's dynamic spread, advances a configurable
+  fraction of queue position on depth cancellation, consumes queue with public
+  trades, and scales impact by executed volume at the matched level.
+- Narrowed noncritical parsing, subprocess and context-construction exception
+  handlers in the supervisor. The two executor fail-closed safety boundaries
+  remain intentional.
+
+### Security
+- OCO and MARKET mutations reject non-finite or sub-minimum Decimal values
+  after final exchange-step rounding. Archive recording is isolated from
+  trading credentials and writes only to its dedicated retained directory.
+- Legacy SOL holdings remain unmanaged and visibly unverified; this release
+  does not fabricate or automatically import their cost basis.
+
+### Verified
+- Added exact MARKET/OCO, sanitized execution-latency, stale User Data Stream,
+  queue-cancellation, dynamic-impact and hardened systemd regressions.
+- Python compilation and the complete local suite pass: 377 tests; dependency
+  auditing reports no known vulnerabilities, `pip check` reports no broken
+  requirements, and the tracked-secret scan is clean.
+
 ## [2.12.0] — 2026-07-20
 
 ### Added

@@ -628,6 +628,12 @@ render_unit "${PROJECT_DIR}/deploy/ladder-dragon-log-export.service" \
   /etc/systemd/system/ladder-dragon-log-export.service
 install -m 0644 "${PROJECT_DIR}/deploy/ladder-dragon-log-export.timer" \
   /etc/systemd/system/ladder-dragon-log-export.timer
+render_unit "${PROJECT_DIR}/deploy/ladder-dragon-depth-archive.service" \
+  /etc/systemd/system/ladder-dragon-depth-archive.service
+install -m 0644 "${PROJECT_DIR}/deploy/ladder-dragon-depth-archive.timer" \
+  /etc/systemd/system/ladder-dragon-depth-archive.timer
+install -d -o "${BOT_USER}" -g "${BOT_USER}" -m 0750 \
+  /var/lib/ladder-dragon/depth-archives
 PROJECT_DIR="${PROJECT_DIR}" "${PROJECT_DIR}/deploy/install_runtime_assets.sh"
 
 backup_mount_dropin="/etc/systemd/system/ladder-dragon-backup.service.d/external-mount.conf"
@@ -657,11 +663,12 @@ systemctl daemon-reload
 systemctl disable --now make-pi-backup.timer make-pi-backup.service 2>/dev/null || true
 systemctl enable nginx avahi-daemon fail2ban mybot pi-healthd \
   ladder-dragon-backup.timer ladder-dragon-log-export.timer \
-  pi-watchdog-v3.timer >/dev/null
+  ladder-dragon-depth-archive.timer pi-watchdog-v3.timer >/dev/null
 systemctl restart systemd-journald nginx avahi-daemon fail2ban
 systemctl restart zramswap 2>/dev/null || true
 systemctl start mybot pi-healthd ladder-dragon-backup.timer pi-watchdog-v3.timer
 systemctl start ladder-dragon-log-export.service ladder-dragon-log-export.timer
+systemctl start ladder-dragon-depth-archive.timer
 
 sleep 3
 systemctl is-active --quiet nginx || fail "nginx failed"

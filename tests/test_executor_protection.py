@@ -1,4 +1,5 @@
 from pathlib import Path
+from decimal import Decimal
 
 import requests
 
@@ -104,9 +105,15 @@ def test_filled_buy_gets_verified_oco_and_leaves_watch_list(tmp_path):
     )
 
     assert remaining == []
-    assert placed[0][0][:5] == ("SOLUSDT", 0.1, 110.0, 95.0, 94.0)
+    assert placed[0][0][:5] == (
+        "SOLUSDT",
+        Decimal("0.1"),
+        Decimal("110.0"),
+        Decimal("95.0"),
+        Decimal("94.0"),
+    )
     assert polls == ["SOLUSDT"]
-    assert store.load("SOLUSDT")["77"]["fill_price"] == 100.0
+    assert store.load("SOLUSDT")["77"]["fill_price"] == "100"
 
 
 def test_terminal_zero_fill_buy_leaves_protection_watch_list(tmp_path):
@@ -204,7 +211,9 @@ def test_failed_oco_uses_single_tp_fallback(tmp_path, monkeypatch):
     )
 
     assert remaining == []
-    assert fallbacks[0][0][:4] == ("SELL", "SOLUSDT", 0.1, 110.0)
+    assert fallbacks[0][0][:4] == (
+        "SELL", "SOLUSDT", Decimal("0.1"), Decimal("110.0")
+    )
     assert halts == []
 
 
@@ -221,7 +230,7 @@ def test_live_failed_oco_flattens_and_halts(tmp_path, monkeypatch):
                                     panic_active=False, breakeven_enabled=False,
                                     state_store=state_store(tmp_path), dependencies=deps)
     assert remaining == [42]
-    assert flattened[0][0][:3] == ("SOLUSDT", "SELL", 0.1)
+    assert flattened[0][0][:3] == ("SOLUSDT", "SELL", Decimal("0.1"))
     assert "fallback prefer-tp1" in halts[0]
 
 
@@ -273,9 +282,11 @@ def test_breakeven_rearms_partially_filled_oco(tmp_path):
     )
 
     assert canceled == [("SOLUSDT", 77)]
-    assert replacements[0][0][0:3] == ("SOLUSDT", 0.6, 110.0)
+    assert replacements[0][0][0:3] == (
+        "SOLUSDT", Decimal("0.6"), Decimal("110.0")
+    )
     assert "77" not in store.load("SOLUSDT")
-    assert store.load("SOLUSDT")["78"]["fill_price"] == 100.0
+    assert store.load("SOLUSDT")["78"]["fill_price"] == "100.0"
     assert any("OCO re-arm" in line for line in logs)
 
 
@@ -366,7 +377,9 @@ def test_breakeven_cancel_error_reconciles_absent_old_oco(tmp_path):
         dependencies=deps,
     )
 
-    assert replacements[0][0:3] == ("SOLUSDT", 0.6, 110.0)
+    assert replacements[0][0:3] == (
+        "SOLUSDT", Decimal("0.6"), Decimal("110.0")
+    )
     assert "78" in store.load("SOLUSDT")
 
 
@@ -388,4 +401,4 @@ def test_gap_below_stop_cancels_oco_and_confirms_market_flatten():
     )
     assert emergency_gap_flatten("SOLUSDT", 80.0, dependencies=deps)
     assert canceled == [77]
-    assert sold[0][:3] == ("SOLUSDT", "SELL", 0.999)
+    assert sold[0][:3] == ("SOLUSDT", "SELL", Decimal("0.999"))

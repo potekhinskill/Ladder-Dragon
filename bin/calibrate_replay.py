@@ -9,6 +9,8 @@ from __future__ import annotations
 import argparse
 import json
 
+from ladder_dragon.execution.execution_latency import load_execution_latencies
+
 from ladder_dragon.strategy.market_replay import (
     archive_sha256,
     calibrate_market_events,
@@ -23,15 +25,24 @@ def main() -> int:
     parser.add_argument("--output", required=True)
     parser.add_argument("--min-book-events", type=int, default=100)
     parser.add_argument("--min-trades", type=int, default=50)
+    parser.add_argument(
+        "--execution-latency-log",
+        help="sanitized executionReport correlation JSONL",
+    )
     args = parser.parse_args()
     if args.min_book_events < 1 or args.min_trades < 1:
         parser.error("minimum sample counts must be positive")
     events = load_jsonl_archive(args.archive)
+    measured_latencies = (
+        load_execution_latencies(args.execution_latency_log)
+        if args.execution_latency_log else []
+    )
     report = calibrate_market_events(
         events,
         source_sha256=archive_sha256(args.archive),
         min_book_events=args.min_book_events,
         min_trades=args.min_trades,
+        measured_order_latencies_ms=measured_latencies,
     )
     write_calibration(args.output, report)
     print(json.dumps(report.as_dict(), indent=2, sort_keys=True))
