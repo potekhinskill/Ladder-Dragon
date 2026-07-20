@@ -67,6 +67,10 @@ class CostBasisImportPlan:
     account_quantity: Decimal
     reconstructed_quantity: Decimal
     tolerance_quantity: Decimal
+    prehistory_quantity: Decimal
+    unmanaged_dust_quantity: Decimal
+    unmanaged_dust_limit: Decimal
+    history_reset_trade_id: int
     weighted_average: Decimal
     first_trade_id: int
     last_trade_id: int
@@ -87,6 +91,12 @@ class CostBasisImportPlan:
                 self.reconstructed_quantity, "f"
             ),
             "tolerance_quantity": format(self.tolerance_quantity, "f"),
+            "prehistory_quantity": format(self.prehistory_quantity, "f"),
+            "unmanaged_dust_quantity": format(
+                self.unmanaged_dust_quantity, "f"
+            ),
+            "unmanaged_dust_limit": format(self.unmanaged_dust_limit, "f"),
+            "history_reset_trade_id": self.history_reset_trade_id,
             "weighted_average": format(self.weighted_average, "f"),
             "first_trade_id": self.first_trade_id,
             "last_trade_id": self.last_trade_id,
@@ -101,7 +111,7 @@ class CostBasisImportPlan:
 
     @classmethod
     def from_dict(cls, payload: Mapping[str, Any]) -> "CostBasisImportPlan":
-        if int(payload.get("schema_version", 0)) != 1:
+        if int(payload.get("schema_version", 0)) != 2:
             raise ValueError("unsupported cost-basis plan schema")
         lots = tuple(
             ImportedLot(
@@ -114,7 +124,7 @@ class CostBasisImportPlan:
             for row in payload.get("lots", [])
         )
         plan = cls(
-            schema_version=1,
+            schema_version=2,
             symbol=str(payload["symbol"]).upper(),
             base_asset=str(payload["base_asset"]).upper(),
             quote_asset=str(payload["quote_asset"]).upper(),
@@ -128,6 +138,18 @@ class CostBasisImportPlan:
             tolerance_quantity=_decimal(
                 payload["tolerance_quantity"], name="tolerance quantity"
             ),
+            prehistory_quantity=_decimal(
+                payload["prehistory_quantity"], name="prehistory quantity"
+            ),
+            unmanaged_dust_quantity=_decimal(
+                payload["unmanaged_dust_quantity"],
+                name="unmanaged dust quantity",
+            ),
+            unmanaged_dust_limit=_decimal(
+                payload["unmanaged_dust_limit"],
+                name="unmanaged dust limit",
+            ),
+            history_reset_trade_id=int(payload["history_reset_trade_id"]),
             weighted_average=_decimal(
                 payload["weighted_average"], name="weighted average"
             ),
@@ -205,6 +227,7 @@ def build_cost_basis_plan(
     *,
     account_quantity: Decimal,
     tolerance_quantity: Decimal,
+    unmanaged_dust_limit: Decimal = ZERO,
     trades: Iterable[Mapping[str, Any]],
     quote_asset: str = "USDT",
     created_at: int | None = None,
@@ -217,7 +240,10 @@ def build_cost_basis_plan(
         raise ValueError("symbol does not match the requested quote asset")
     account = _decimal(account_quantity, name="account quantity")
     tolerance = _decimal(tolerance_quantity, name="tolerance quantity")
-    if account < 0 or tolerance < 0:
+    dust_limit = _decimal(
+        unmanaged_dust_limit, name="unmanaged dust limit"
+    )
+    if account < 0 or tolerance < 0 or dust_limit < 0:
         raise ValueError("account quantity and tolerance must be non-negative")
 
     normalized = [
@@ -230,7 +256,58 @@ def build_cost_basis_plan(
     if len(ids) != len(set(ids)):
         raise ValueError("duplicate Binance trade IDs")
 
+    running = ZERO
+    minimum_running = ZERO
+    reset_trade_id = 0
+    for trade in normalized:
+        gross = Decimal(str(trade["gross_qty"]))
+        commission = Decimal(str(trade["commission"]))
+        commission_asset = str(trade["commission_asset"])
+        inventory_qty = (
+            gross - commission
+            if trade["side"] == "BUY" and commission_asset == base
+            else gross + commission
+            if trade["side"] == "SELL" and commission_asset == base
+            else gross
+        )
+        running += inventory_qty if trade["side"] == "BUY" else -inventory_qty
+        if running < minimum_running:
+            minimum_running = running
+            reset_trade_id = int(trade["id"])
+
+    # A negative historical prefix proves that inventory existed before the
+    # first returned trade. Seed only that mathematically required quantity.
+    # The seed must be fully consumed at the minimum-running trade, so no
+    # unknown-price lot can survive into the imported current position.
+    prehistory = max(ZERO, -minimum_running)
+    reconstructed_target = running + prehistory
+    unmanaged_dust = account - reconstructed_target
+    if unmanaged_dust < -tolerance:
+        raise ValueError(
+            "Binance account is below reconstructed history: "
+            f"account={account} reconstructed={reconstructed_target} "
+            f"delta={unmanaged_dust} tolerance={tolerance}"
+        )
+    if unmanaged_dust < 0:
+        unmanaged_dust = ZERO
+    if unmanaged_dust > tolerance and (
+        dust_limit <= 0 or unmanaged_dust >= dust_limit
+    ):
+        raise ValueError(
+            "unexplained account quantity is not quarantinable dust: "
+            f"quantity={unmanaged_dust} limit={dust_limit}"
+        )
+
     open_lots: list[dict[str, object]] = []
+    if prehistory > 0:
+        open_lots.append({
+            "source_trade_id": 0,
+            "source_order_id": "prehistory-unpriced",
+            "quantity": prehistory,
+            "unit_cost": ZERO,
+            "opened_at_ms": int(normalized[0]["time"]) - 1,
+            "unpriced_prehistory": True,
+        })
     for trade in normalized:
         price = Decimal(str(trade["price"]))
         gross = Decimal(str(trade["gross_qty"]))
@@ -250,6 +327,7 @@ def build_cost_basis_plan(
                     "quantity": net_qty,
                     "unit_cost": unit_cost,
                     "opened_at_ms": int(trade["time"]),
+                    "unpriced_prehistory": False,
                 }
             )
             continue
@@ -269,6 +347,20 @@ def build_cost_basis_plan(
                 f"{format(remaining, 'f')} {base}"
             )
 
+    surviving_prehistory = sum(
+        (
+            Decimal(str(row["quantity"]))
+            for row in open_lots
+            if bool(row.get("unpriced_prehistory"))
+        ),
+        ZERO,
+    )
+    if surviving_prehistory > 0:
+        raise ValueError(
+            "unpriced prehistory inventory survives into the current position: "
+            f"quantity={surviving_prehistory}"
+        )
+
     lots = tuple(
         ImportedLot(
             source_trade_id=int(row["source_trade_id"]),
@@ -279,14 +371,18 @@ def build_cost_basis_plan(
         )
         for row in open_lots
         if Decimal(str(row["quantity"])) > 0
+        and not bool(row.get("unpriced_prehistory"))
     )
     reconstructed = sum((lot.quantity for lot in lots), ZERO)
+    if reconstructed <= 0 or not lots:
+        raise ValueError("no current priced FIFO lots remain after history reset")
     delta = account - reconstructed
-    if abs(delta) > tolerance:
+    allowed_delta = tolerance + unmanaged_dust
+    if abs(delta) > allowed_delta:
         raise ValueError(
             "reconstructed quantity does not match Binance account: "
             f"account={account} reconstructed={reconstructed} delta={delta} "
-            f"tolerance={tolerance}"
+            f"tolerance={allowed_delta}"
         )
     weighted_average = (
         sum((lot.quantity * lot.unit_cost for lot in lots), ZERO)
@@ -297,13 +393,17 @@ def build_cost_basis_plan(
     history_sha = _canonical_hash(normalized)
     now = int(created_at or time.time())
     provisional = CostBasisImportPlan(
-        schema_version=1,
+        schema_version=2,
         symbol=normalized_symbol,
         base_asset=base,
         quote_asset=quote,
         account_quantity=account,
         reconstructed_quantity=reconstructed,
         tolerance_quantity=tolerance,
+        prehistory_quantity=prehistory,
+        unmanaged_dust_quantity=unmanaged_dust,
+        unmanaged_dust_limit=dust_limit,
+        history_reset_trade_id=reset_trade_id,
         weighted_average=weighted_average,
         first_trade_id=min(ids),
         last_trade_id=max(ids),
@@ -381,8 +481,26 @@ def _ensure_import_schema(connection: sqlite3.Connection) -> None:
         "account_qty TEXT NOT NULL, reconstructed_qty TEXT NOT NULL, "
         "weighted_average TEXT NOT NULL, last_trade_id INTEGER NOT NULL, "
         "baseline_realized_pnl TEXT NOT NULL DEFAULT '0', "
+        "prehistory_qty TEXT NOT NULL DEFAULT '0', "
+        "unmanaged_dust_qty TEXT NOT NULL DEFAULT '0', "
+        "history_reset_trade_id INTEGER NOT NULL DEFAULT 0, "
         "status TEXT NOT NULL)"
     )
+    import_columns = {
+        str(row[1])
+        for row in connection.execute(
+            "PRAGMA table_info(inventory_lot_imports)"
+        )
+    }
+    for name, definition in (
+        ("prehistory_qty", "TEXT NOT NULL DEFAULT '0'"),
+        ("unmanaged_dust_qty", "TEXT NOT NULL DEFAULT '0'"),
+        ("history_reset_trade_id", "INTEGER NOT NULL DEFAULT 0"),
+    ):
+        if name not in import_columns:
+            connection.execute(
+                f"ALTER TABLE inventory_lot_imports ADD COLUMN {name} {definition}"
+            )
     connection.execute(
         "CREATE INDEX IF NOT EXISTS inventory_lots_import_trade "
         "ON inventory_lots(symbol,source_trade_id,import_batch_id)"
@@ -446,7 +564,9 @@ def apply_cost_basis_plan(
             connection,
             plan.symbol,
             plan.account_quantity,
-            tolerance_qty=plan.tolerance_quantity,
+            tolerance_qty=(
+                plan.tolerance_quantity + plan.unmanaged_dust_quantity
+            ),
         )
         if not verified.covered or verified.average_price is None:
             raise RuntimeError(
@@ -458,7 +578,8 @@ def apply_cost_basis_plan(
             "INSERT INTO inventory_lot_imports("
             "batch_id,symbol,created_at,plan_sha256,history_sha256,account_qty,"
             "reconstructed_qty,weighted_average,last_trade_id,"
-            "baseline_realized_pnl,status) VALUES(?,?,?,?,?,?,?,?,?,?,?)",
+            "baseline_realized_pnl,prehistory_qty,unmanaged_dust_qty,"
+            "history_reset_trade_id,status) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
             (
                 batch_id,
                 plan.symbol,
@@ -470,6 +591,9 @@ def apply_cost_basis_plan(
                 format(plan.weighted_average, "f"),
                 plan.last_trade_id,
                 format(baseline_realized, "f"),
+                format(plan.prehistory_quantity, "f"),
+                format(plan.unmanaged_dust_quantity, "f"),
+                plan.history_reset_trade_id,
                 "APPLIED",
             ),
         )

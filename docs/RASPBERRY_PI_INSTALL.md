@@ -290,9 +290,16 @@ sudo -u bot env PYTHONPATH=. .venv/bin/python \
   --stats-db /home/bot/apps/binance_bot/db/bot_stats.db
 ```
 
-Preview never writes the trading database. Review the symbol, account quantity,
-weighted average, trade count, lot count and plan SHA. The plan is mode `0600`
-and contains exchange provenance, so do not publish or commit it.
+Preview never writes the trading database. Review the symbol, account and
+managed quantities, weighted average, trade count, lot count, prehistory
+quantity, unmanaged dust, history reset trade ID and plan SHA. A negative
+historical inventory prefix may be seeded only by the exact quantity needed to
+reach zero at a later SELL. That unpriced seed must be fully consumed before
+the current FIFO position begins. Any remaining unexplained quantity is kept
+outside managed lots and is accepted only when it is strictly smaller than the
+exchange `LOT_SIZE.stepSize`; tradeable unexplained inventory fails closed.
+The plan is mode `0600` and contains exchange provenance, so do not publish or
+commit it.
 
 Apply only after reviewing the preview and confirming that the service is still
 stopped:

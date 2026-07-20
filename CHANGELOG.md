@@ -3,6 +3,29 @@
 All notable changes are documented here. Releases use Semantic Versioning; every
 section is dated and there is intentionally no `Unreleased` section.
 
+## [2.10.98] — 2026-07-20
+
+### Security
+- Legacy cost-basis reconstruction may seed only the exact prehistory quantity
+  proven necessary by a negative running inventory. The unpriced seed must be
+  fully consumed at a historical zero-inventory reset before any current FIFO
+  lot can be imported.
+- An unexplained current balance remainder is quarantined outside managed lots
+  only when it is strictly below Binance `LOT_SIZE.stepSize`. A tradeable
+  remainder, surviving unpriced lot, missing filter or changed live snapshot
+  still fails closed.
+
+### Added
+- Cost-basis plans and import audit rows now record the prehistory quantity,
+  quarantined dust and exact history-reset trade ID. Migration `005` adds the
+  durable audit columns without changing existing imported lots.
+
+### Verified
+- Added regression coverage for fully consumed prehistory, sub-step dust
+  quarantine, rejection at the tradeable step boundary and atomic persistence
+  of the new audit evidence. Python compilation and the complete local suite
+  pass: 349 tests.
+
 ## [2.10.97] — 2026-07-20
 
 ### Security

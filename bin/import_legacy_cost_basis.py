@@ -103,6 +103,26 @@ def _account_quantity(symbol: str, account: dict[str, Any]) -> Decimal:
     )
 
 
+def _unmanaged_dust_limit(symbol: str) -> Decimal:
+    row = exchange_symbol_row(
+        market._public_get("/api/v3/exchangeInfo", {"symbol": symbol}), symbol
+    )
+    lot_filter = next(
+        (
+            item
+            for item in row.get("filters", [])
+            if isinstance(item, dict) and item.get("filterType") == "LOT_SIZE"
+        ),
+        None,
+    )
+    if lot_filter is None:
+        raise RuntimeError("LOT_SIZE filter is unavailable")
+    step = Decimal(str(lot_filter.get("stepSize", "0")))
+    if not step.is_finite() or step <= 0:
+        raise RuntimeError("LOT_SIZE stepSize is invalid")
+    return step
+
+
 def _tolerance(symbol: str, account_qty: Decimal, pct: Decimal) -> Decimal:
     del symbol
     if not pct.is_finite() or pct < 0 or pct > Decimal("0.000001"):
@@ -178,6 +198,7 @@ def build_live_plan(
         symbol,
         account_quantity=account_qty,
         tolerance_quantity=_tolerance(symbol, account_qty, tolerance_pct),
+        unmanaged_dust_limit=_unmanaged_dust_limit(symbol),
         trades=trades,
         quote_asset="USDT",
         created_at=created_at,
@@ -226,6 +247,16 @@ def main() -> int:
                 "trade_count": plan.trade_count,
                 "open_lot_count": len(plan.lots),
                 "account_quantity": format(plan.account_quantity, "f"),
+                "managed_quantity": format(
+                    plan.reconstructed_quantity, "f"
+                ),
+                "prehistory_quantity": format(
+                    plan.prehistory_quantity, "f"
+                ),
+                "unmanaged_dust_quantity": format(
+                    plan.unmanaged_dust_quantity, "f"
+                ),
+                "history_reset_trade_id": plan.history_reset_trade_id,
                 "weighted_average": format(plan.weighted_average, "f"),
                 "plan_sha256": plan.plan_sha256,
                 "plan": str(plan_path),

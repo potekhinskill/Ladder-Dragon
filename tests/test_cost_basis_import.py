@@ -97,7 +97,7 @@ def test_cost_basis_plan_file_is_private_and_hash_verified(tmp_path):
 
 
 def test_cost_basis_plan_rejects_incomplete_history_and_unpriced_fee():
-    with pytest.raises(ValueError, match="SELL exceeds reconstructed history"):
+    with pytest.raises(ValueError, match="no current priced FIFO lots"):
         build_cost_basis_plan(
             "SOLUSDT",
             account_quantity=Decimal("0"),
@@ -122,6 +122,92 @@ def test_cost_basis_plan_rejects_incomplete_history_and_unpriced_fee():
             ],
             created_at=100,
         )
+
+
+def test_cost_basis_plan_quarantines_only_sub_step_unpriced_dust():
+    rows = [
+        trade(1, "SELL", "90", "1"),
+        trade(2, "BUY", "100", "2"),
+    ]
+    plan = build_cost_basis_plan(
+        "SOLUSDT",
+        account_quantity=Decimal("2.0002"),
+        tolerance_quantity=Decimal("0"),
+        unmanaged_dust_limit=Decimal("0.001"),
+        trades=rows,
+        created_at=100,
+    )
+    assert plan.schema_version == 2
+    assert plan.prehistory_quantity == Decimal("1")
+    assert plan.history_reset_trade_id == 1
+    assert plan.reconstructed_quantity == Decimal("2")
+    assert plan.unmanaged_dust_quantity == Decimal("0.0002")
+    assert plan.unmanaged_dust_limit == Decimal("0.001")
+    assert len(plan.lots) == 1
+    assert plan.lots[0].source_trade_id == 2
+    assert all(lot.unit_cost > 0 for lot in plan.lots)
+
+
+def test_sol_diagnostic_values_reset_history_and_quarantine_exact_dust():
+    plan = build_cost_basis_plan(
+        "SOLUSDT",
+        account_quantity=Decimal("3.75623130"),
+        tolerance_quantity=Decimal("0"),
+        unmanaged_dust_limit=Decimal("0.00100000"),
+        trades=[
+            trade(1487906932, "BUY", "180", "1.35649500"),
+            trade(1487906933, "SELL", "181", "1.35700000"),
+            trade(1489034452, "BUY", "182", "3.75600000"),
+        ],
+        created_at=100,
+    )
+    assert plan.prehistory_quantity == Decimal("0.00050500")
+    assert plan.history_reset_trade_id == 1487906933
+    assert plan.reconstructed_quantity == Decimal("3.75600000")
+    assert plan.unmanaged_dust_quantity == Decimal("0.00023130")
+    assert [lot.source_trade_id for lot in plan.lots] == [1489034452]
+
+
+def test_cost_basis_plan_rejects_unexplained_tradeable_quantity():
+    rows = [trade(1, "BUY", "100", "2")]
+    with pytest.raises(ValueError, match="not quarantinable dust"):
+        build_cost_basis_plan(
+            "SOLUSDT",
+            account_quantity=Decimal("2.001"),
+            tolerance_quantity=Decimal("0"),
+            unmanaged_dust_limit=Decimal("0.001"),
+            trades=rows,
+            created_at=100,
+        )
+
+
+def test_cost_basis_apply_records_prehistory_and_dust_audit_fields():
+    connection = sqlite3.connect(":memory:")
+    plan = build_cost_basis_plan(
+        "SOLUSDT",
+        account_quantity=Decimal("2.0002"),
+        tolerance_quantity=Decimal("0"),
+        unmanaged_dust_limit=Decimal("0.001"),
+        trades=[
+            trade(1, "SELL", "90", "1"),
+            trade(2, "BUY", "100", "2"),
+        ],
+        created_at=100,
+    )
+    apply_cost_basis_plan(connection, plan)
+    row = connection.execute(
+        "SELECT prehistory_qty,unmanaged_dust_qty,history_reset_trade_id "
+        "FROM inventory_lot_imports"
+    ).fetchone()
+    assert row == ("1", "0.0002", 1)
+    coverage = cost_basis_coverage(
+        connection,
+        "SOLUSDT",
+        Decimal("2.0002"),
+        tolerance_qty=Decimal("0.0002"),
+    )
+    assert coverage.covered is True
+    assert coverage.uncovered_qty == Decimal("0.0002")
 
 
 def test_cost_basis_apply_is_atomic_archival_and_idempotent():
