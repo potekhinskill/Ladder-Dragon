@@ -91,6 +91,11 @@ from ladder_dragon.execution.exchange_filters import (
 )
 from ladder_dragon.risk.risk_manager import create_manual_halt
 from ladder_dragon.execution.time_safety import assess_exchange_clock
+from ladder_dragon.execution.user_stream import (
+    BinanceUserDataObserver,
+    OrderEventMailbox,
+    reconciliation_due,
+)
 from ladder_dragon.execution.trade_accounting import TradeExecution, UnpricedCommission, replay_average_cost
 from product_version import product_label, user_agent
 from ladder_dragon.execution.executor_config import build_executor_parser, validate_executor_args
@@ -327,7 +332,7 @@ def _panic_state_fail_closed(
         active = bool(evaluator())
         _clear_safety_control_failure(control, symbol)
         return active, None
-    except Exception as exc:
+    except Exception as exc:  # deliberate fail-closed boundary for injected controls
         _record_safety_control_failure(control, symbol, exc)
         return True, f"{control}-unavailable"
 
@@ -349,7 +354,7 @@ def _gap_watchdog_fail_closed(
         )
         _clear_safety_control_failure("gap-watchdog", symbol)
         return "gap-emergency-flattened" if flattened else None
-    except Exception as exc:
+    except Exception as exc:  # deliberate fail-closed boundary for protection code
         _record_safety_control_failure("gap-watchdog", symbol, exc)
         return "gap-watchdog-unavailable"
 
@@ -362,7 +367,7 @@ def _round(x: float, step: float, mode: str = "nearest") -> float:
 def fmt(v, n=8):
     try:
         return f"{float(v):.{n}f}"
-    except Exception:
+    except (TypeError, ValueError, OverflowError):
         return str(v)
 
 def parse_comma_floats(s: str) -> List[float]:
@@ -372,14 +377,14 @@ def getenv_float(name, default):
     v = os.getenv(name)
     try:
         return float(v) if v is not None else default
-    except Exception:
+    except (TypeError, ValueError, OverflowError):
         return default
 
 def getenv_int(name, default):
     v = os.getenv(name)
     try:
         return int(v) if v is not None else default
-    except Exception:
+    except (TypeError, ValueError, OverflowError):
         return default
 
 def getenv_str(name, default):
@@ -430,7 +435,7 @@ class SymbolLock:
             try:
                 with open(self.path, "r", encoding="utf-8") as f:
                     pid_txt = f.read().strip()
-            except Exception:
+            except OSError:
                 pid_txt = "?"
             log(f"[LOCK] {self.symbol} уже запущен (pid={pid_txt}). Выход.")
             return False
@@ -439,7 +444,7 @@ class SymbolLock:
         try:
             os.ftruncate(self.fd, 0)
             os.write(self.fd, f"{os.getpid()}\n".encode("utf-8"))
-        except Exception:
+        except OSError:
             pass
         return True
 
@@ -452,9 +457,9 @@ class SymbolLock:
                 self.fd = None
                 try:
                     os.unlink(self.path)
-                except Exception:
+                except OSError:
                     pass
-        except Exception:
+        except OSError:
             pass
 
 # --- profit floor helpers ---
@@ -952,7 +957,7 @@ def fmt_qty_sym(symbol: str, q: float) -> str:
 def dedup_ladder(symbol: str, ladder_prices: List[float], now_price: float) -> List[float]:
     try:
         tick = float(symbol_filters[symbol]["tickSize"])
-    except Exception:
+    except (KeyError, TypeError, ValueError, ArithmeticError):
         tick = 0.0
     if tick <= 0 or not ladder_prices:
         return ladder_prices
@@ -962,7 +967,7 @@ def dedup_ladder(symbol: str, ladder_prices: List[float], now_price: float) -> L
     for raw_p in ladder_prices:
         try:
             pr = round_price(symbol, float(raw_p))
-        except Exception:
+        except (KeyError, TypeError, ValueError, ArithmeticError):
             continue
         side = "B" if pr <= now_price else "S"
         key = (round(pr / tick), side)
@@ -1055,7 +1060,14 @@ def cancel_open_buys_for_panic(symbol: str, order_ids: List[int]) -> List[int]:
     try:
         cancellation_market_price: Optional[float] = get_price(symbol)
         _observe_buy_market(symbol, remaining, cancellation_market_price)
-    except Exception:
+    except (
+        requests.RequestException,
+        RuntimeError,
+        ValueError,
+        ArithmeticError,
+        OSError,
+        sqlite3.Error,
+    ):
         cancellation_market_price = None
 
     for order_id in list(remaining):
@@ -1078,7 +1090,13 @@ def cancel_open_buys_for_panic(symbol: str, order_ids: List[int]) -> List[int]:
                     "/api/v3/order",
                     {"symbol": symbol, "orderId": int(order_id)},
                 )
-            except Exception as exc:
+            except (
+                requests.RequestException,
+                RuntimeError,
+                ValueError,
+                ArithmeticError,
+                OSError,
+            ) as exc:
                 # A lost cancellation response is uncertain until Binance is
                 # queried again. Never assume that the BUY disappeared.
                 cancelled = get_order(symbol, order_id)
@@ -2114,6 +2132,8 @@ def main():
     if not _lock.acquire():
         return  # тихий выход
 
+    user_stream_mailbox = OrderEventMailbox()
+    user_stream_observer: Optional[BinanceUserDataObserver] = None
     try:
         ladder_prices = parse_comma_floats(args.ladder_prices)
 
@@ -2137,6 +2157,28 @@ def main():
 
         install_signal_handlers()
         pull_filters(symbol)
+        user_stream_enabled = (
+            LIVE_MODE
+            and os.getenv("BOT_USER_STREAM_SHADOW", "0").lower()
+            in ("1", "true", "yes")
+        )
+        if user_stream_enabled:
+            if not API_KEY or not API_SECRET:
+                log(
+                    f"[USER-STREAM] {symbol} disabled: credentials unavailable; "
+                    "REST polling remains authoritative"
+                )
+            else:
+                user_stream_observer = BinanceUserDataObserver(
+                    api_key=API_KEY,
+                    api_secret=API_SECRET,
+                    rest_base_url=BINANCE_API_BASE,
+                    mailbox=user_stream_mailbox,
+                    logger=log,
+                    state_path=Path(bot_run_dir())
+                    / f"user_stream_{symbol.upper()}.json",
+                )
+                user_stream_observer.start()
         current_price = get_price(symbol)
 
         # Protection deduplication also runs here: direct worker startup must not
@@ -2165,7 +2207,13 @@ def main():
                     window=max(5, int(args.buy_vwap_window)),
                     ttl_sec=15,
                 )
-            except Exception as e:
+            except (
+                requests.RequestException,
+                RuntimeError,
+                ValueError,
+                ArithmeticError,
+                OSError,
+            ) as e:
                 dbg(f"[VWAP] {symbol} calc err: {e}")
                 vwap_value = None
             if vwap_value and vwap_value > 0:
@@ -2185,14 +2233,27 @@ def main():
                 float(args.panic_drop_pct),
                 float(args.panic_k_atr),
             )
-        except Exception as exc:
+        except (
+            requests.RequestException,
+            RuntimeError,
+            ValueError,
+            ArithmeticError,
+            OSError,
+        ) as exc:
             ema20 = atr = prev_close = None
             raw_panic_active = True
             _record_safety_control_failure("panic-indicators", symbol, exc)
             safety_buy_block_reason = "panic-indicators-unavailable"
         try:
             avg_px = avg_entry(symbol, cache_ttl=args.avg_cache_ttl, lookback=args.avg_lookback)
-        except Exception:
+        except (
+            requests.RequestException,
+            RuntimeError,
+            ValueError,
+            ArithmeticError,
+            OSError,
+            sqlite3.Error,
+        ):
             avg_px = None
         panic_active, panic_block_reason = _panic_state_fail_closed(
             "panic-state",
@@ -2217,7 +2278,13 @@ def main():
         else:
             try:
                 trend_ema, _, _ = get_indicators_cached(symbol, trend_interval, ttl_sec=20)
-            except Exception:
+            except (
+                requests.RequestException,
+                RuntimeError,
+                ValueError,
+                ArithmeticError,
+                OSError,
+            ):
                 trend_ema = None
 
         bear_gap = 0.0
@@ -2225,7 +2292,7 @@ def main():
         if trend_ema and trend_ema > 0 and args.buy_trend_ema_gap is not None:
             try:
                 gap_thr = max(0.0, float(args.buy_trend_ema_gap))
-            except Exception:
+            except (TypeError, ValueError, OverflowError):
                 gap_thr = 0.0
             bear_gap = max(0.0, (trend_ema - current_price) / trend_ema)
             bear_mode = (bear_gap > 0.0) and (bear_gap >= gap_thr)
@@ -2245,7 +2312,7 @@ def main():
         if vwap_ratio is not None and args.buy_vwap_discount is not None:
             try:
                 discount_thr = clamp(float(args.buy_vwap_discount), 0.0, 0.5)
-            except Exception:
+            except (TypeError, ValueError, OverflowError):
                 discount_thr = 0.0
             if discount_thr > 0 and vwap_ratio <= (1.0 - discount_thr):
                 scale = clamp(float(args.buy_vwap_discount_scale), 0.1, 10.0)
@@ -2358,7 +2425,13 @@ def main():
                 log(f"[ERR] maybe_place_buys: {e}")
             try:
                 _observe_buy_market(symbol, placed_ids, current_price)
-            except Exception as exc:
+            except (
+                RuntimeError,
+                ValueError,
+                ArithmeticError,
+                OSError,
+                sqlite3.Error,
+            ) as exc:
                 _record_safety_control_failure(
                     "order-lifetime-observation", symbol, exc
                 )
@@ -2435,7 +2508,14 @@ def main():
                         cooldown_sec=int(args.panic_cooldown_sec),
                     ),
                 )
-            except Exception as exc:
+            except (
+                requests.RequestException,
+                RuntimeError,
+                ValueError,
+                ArithmeticError,
+                OSError,
+                sqlite3.Error,
+            ) as exc:
                 panic_active = True
                 _record_safety_control_failure("panic-runtime", symbol, exc)
 
@@ -2450,7 +2530,13 @@ def main():
             if LIVE_MODE and os.getenv("BOT_GAP_WATCHDOG", "1").lower() in ("1", "true", "yes"):
                 try:
                     gap_price = get_price(symbol)
-                except Exception as exc:
+                except (
+                    requests.RequestException,
+                    RuntimeError,
+                    ValueError,
+                    ArithmeticError,
+                    OSError,
+                ) as exc:
                     _record_safety_control_failure("gap-watchdog", symbol, exc)
                 else:
                     _gap_watchdog_fail_closed(
@@ -2466,8 +2552,20 @@ def main():
             # Remove a FILLED BUY from placed_ids only after a confirmed OCO or reserve
             # TP. Any uncertainty creates a halt.
             if attach_oco and placed_ids:
+                stream_events = user_stream_mailbox.consume_for(placed_ids)
+                if stream_events:
+                    latest = stream_events[-1]
+                    log(
+                        f"[USER-STREAM] {symbol} order={latest.order_id} "
+                        f"event={latest.execution_type}/{latest.order_status}; "
+                        "requesting authoritative REST reconciliation"
+                    )
                 last_check += 1
-                if last_check >= max(1, args.check_fills_interval):
+                if reconciliation_due(
+                    last_check,
+                    args.check_fills_interval,
+                    stream_events,
+                ):
                     last_check = 0
                     pending_before = list(placed_ids)
                     terminal_unfilled: set[int] = set()
@@ -2539,6 +2637,8 @@ def main():
 
         return
     finally:
+        if user_stream_observer is not None:
+            user_stream_observer.stop()
         # Always release the lock.
         _lock.release()
 

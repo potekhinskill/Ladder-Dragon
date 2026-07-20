@@ -17,7 +17,7 @@ Binance Spot. It builds BUY/SELL grids, uses ATR/EMA/VWAP/ADX regimes, manages
 OCO protection, and records trading statistics in SQLite. Production secrets,
 real backups, and private parameters are never committed.
 
-Current product version: **2.10.100**. The single version source is
+Current product version: **2.11.0**. The single version source is
 `product_version.py`; releases follow [Semantic Versioning](https://semver.org/).
 Project contact: [LinkedIn](https://www.linkedin.com/in/ypotekhin/).
 
@@ -33,7 +33,7 @@ Project contact: [LinkedIn](https://www.linkedin.com/in/ypotekhin/).
 ## Project status
 
 Ladder Dragon is an actively developed, experimental trading system. Version
-**2.10.100** is the current prepared release. `main` is the only long-lived branch;
+**2.11.0** is the current prepared release. `main` is the only long-lived branch;
 feature branches use the `ladderdragon/*` namespace.
 
 DRY and Binance Spot Testnet are the supported starting modes. Mainnet LIVE is
@@ -323,6 +323,17 @@ correction.
 The derived spread, slippage, participation, partial-fill, latency, and impact
 parameters are empirical approximations, not a claim that candle backtests
 reproduce exchange queue position or future execution.
+
+### User Data Stream shadow observer
+
+Set `BOT_USER_STREAM_SHADOW=1` only after Testnet validation to add Binance Spot
+User Data Stream notifications. The observer uses the current signed
+`userDataStream.subscribe.signature` WebSocket API method and stores only a
+sanitized health snapshot under `/run/mybot/`. An `executionReport` can wake an
+order check early, but it cannot place, cancel, protect, close, or account for an
+order. Authenticated REST reconciliation remains authoritative and continues on
+its normal interval when events are duplicated, late, missing, or the stream is
+disconnected.
 
 ## Dashboard
 

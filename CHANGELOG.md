@@ -3,6 +3,27 @@
 All notable changes are documented here. Releases use Semantic Versioning; every
 section is dated and there is intentionally no `Unreleased` section.
 
+## [2.11.0] — 2026-07-20
+
+### Added
+- Added an opt-in Binance Spot User Data Stream SHADOW observer using the
+  current signed WebSocket API subscription. `executionReport` events wake an
+  authenticated REST query early; they never mutate orders, inventory, PnL or
+  the order journal directly.
+- Added bounded in-memory deduplication for partial and terminal order events,
+  reconnect backoff, a secret-free health snapshot and explicit Mainnet/Testnet
+  WebSocket endpoint selection.
+
+### Security
+- Periodic REST polling remains active when the stream is missing, duplicated,
+  late, terminated or rejected. Stream failure cannot authorize an order or
+  convert an unknown exchange state into success.
+- Added pinned `websocket-client` hashes to Raspberry and CI lock files.
+
+### Verified
+- Added parser, identity, partial-fill, duplicate, HMAC request, endpoint,
+  sanitized-state, rejection and REST-fallback regression tests.
+
 ## [2.10.100] — 2026-07-20
 
 ### Security

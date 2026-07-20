@@ -328,6 +328,10 @@ uvicorn==0.51.0 \
     --hash=sha256:5d38af6cd620f2ae3849fb44fd4879e0890aa1febe8d47eb355fb45d93fe6a5b \
     --hash=sha256:f6f4b69b657c312f516dd2d268ab9ae6f254b11e4bac504f37b2ab58b24dd0b0
     # via ladder-dragon (pyproject.toml)
+websocket-client==1.9.0 \
+    --hash=sha256:9e813624b6eb619999a97dc7958469217c3176312b3a16a4bd1bc7e08a46ec98 \
+    --hash=sha256:af248a825037ef591efbf6ed20cc5faa03d3b47b9e5a2230a529eeee1c1fc3ef
+    # via ladder-dragon (pyproject.toml)
 
 # The following packages are considered to be unsafe in a requirements file:
 setuptools==83.0.0 \
