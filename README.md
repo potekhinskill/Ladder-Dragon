@@ -17,7 +17,7 @@ Binance Spot. It builds BUY/SELL grids, uses ATR/EMA/VWAP/ADX regimes, manages
 OCO protection, and records trading statistics in SQLite. Production secrets,
 real backups, and private parameters are never committed.
 
-Current product version: **2.10.93**. The single version source is
+Current product version: **2.10.94**. The single version source is
 `product_version.py`; releases follow [Semantic Versioning](https://semver.org/).
 Project contact: [LinkedIn](https://www.linkedin.com/in/ypotekhin/).
 
@@ -33,7 +33,7 @@ Project contact: [LinkedIn](https://www.linkedin.com/in/ypotekhin/).
 ## Project status
 
 Ladder Dragon is an actively developed, experimental trading system. Version
-**2.10.93** is the latest signed release. `main` is the only long-lived branch;
+**2.10.94** is the latest signed release. `main` is the only long-lived branch;
 feature branches use the `ladderdragon/*` namespace.
 
 DRY and Binance Spot Testnet are the supported starting modes. Mainnet LIVE is
@@ -55,6 +55,9 @@ larger exposure.
 - market direction, ATR, EMA, VWAP, and ADX adaptation;
 - optional AI recommendations for regime, ladder width, and CAP;
 - per-order, per-symbol, portfolio, reserve, and correlation limits;
+- a final LIVE BUY boundary that clamps every strategy/VWAP/BEAR/AI proposal to
+  the smallest operator, Risk Manager, and per-symbol CAP; remainder allocation
+  cannot bypass that boundary;
 - OCO/STOP protection, partial-fill recovery, gap handling, and FIFO inventory;
 - persistent PANIC state across executor restarts, immediate raw-signal BUY
   blocking in LIVE, and reconciled cancellation of remaining exposure, with
@@ -210,6 +213,17 @@ immediate cleanup may realize spread and fees; it never waits in an exposed
 position merely to manufacture earnings. Run it only after a material executor
 change, not on a schedule.
 
+The drill proves one deterministic safety lifecycle; it must not be repeated to
+manufacture a performance sample. Promotion beyond the SOLUSDT canary requires
+at least three naturally completed strategy lifecycles with exact evidence for
+`BUY fill -> OCO confirmed -> TP or STOP fill`, followed by at least 24 hours
+(48 hours preferred) with zero CAP violations, unresolved fills, unprotected
+managed positions, persistent halts, or reconciliation errors. Until both gates
+pass, keep `SOLUSDT`, one target BUY, the `10 USDT` operator ceiling, and AI in
+`SHADOW`. Pre-existing SOL inventory is classified as `legacy_unmanaged` when
+automatic holdings protection is disabled; its gap-watchdog state is explicitly
+`not_applicable_legacy_inventory`, not a false protection failure.
+
 Stop the strategy and watchdog before the test. The normal service is restarted
 only after a successful result:
 
@@ -311,6 +325,8 @@ the services, and waits for a fresh heartbeat.
   implausible prices locally;
 - reconcile legacy holdings cost basis before enabling `auto_oco_holdings`;
 - run the bounded Mainnet canary on each materially changed executor release;
+- collect at least three natural, exactly linked BUY/OCO/TP-or-STOP lifecycles
+  and a clean 24–48 hour SOLUSDT soak before increasing LIVE scope;
 - add a separate non-destructive gap-watchdog acceptance drill; the active
   canary does not manufacture a market gap;
 - extend event-driven replay with archived Binance depth/trade streams;

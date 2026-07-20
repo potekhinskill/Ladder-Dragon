@@ -3,6 +3,36 @@
 All notable changes are documented here. Releases use Semantic Versioning; every
 section is dated and there is intentionally no `Unreleased` section.
 
+## [2.10.94] — 2026-07-20
+
+### Fixed
+- LIVE BUY notional now has a final fail-closed boundary immediately before the
+  Binance mutation. VWAP, BEAR, strategy and AI adjustments are clamped to the
+  smallest operator, dynamic Risk Manager, and per-symbol CAP.
+- `--use-remainder-in-last` is ignored in LIVE and can no longer spend the free
+  quote remainder above the final per-order CAP.
+- The supervisor exports its immutable operator ceiling separately from the
+  dynamically narrowed CAP, and the dashboard shows both values.
+- Pre-existing inventory is explicitly classified as `legacy_unmanaged` when
+  automatic holdings protection is disabled. Its gap-watchdog status is
+  `not_applicable_legacy_inventory` instead of a misleading warning.
+
+### Changed
+- Promotion beyond the minimal SOLUSDT canary now requires at least three
+  naturally completed, exactly linked `BUY fill -> OCO -> TP/STOP` lifecycles
+  and a clean 24-hour observation window (48 hours preferred). The bounded paid
+  acceptance drill remains one-shot per release and is not repeated to create
+  performance data.
+
+### Verified
+- Added regression coverage for the smallest-authority CAP clamp, invalid CAP
+  fail-closed handling, LIVE remainder prohibition, and legacy inventory gap
+  classification.
+- `PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=. .venv/bin/python -m pytest -q`
+  — all 313 tests pass.
+- Python compilation, dependency consistency, dependency audit, tracked-secret
+  scan, shell syntax, CSP hash validation, and `git diff --check` pass.
+
 ## [2.10.93] — 2026-07-20
 
 ### Fixed

@@ -154,6 +154,43 @@ def dbg(msg: str) -> None:
     if LOG_LEVEL in ("DEBUG", "TRACE"):
         print(msg, flush=True)
 
+
+def _cap_decimal(name: str, raw: object) -> Decimal:
+    """Parse a non-negative finite CAP or fail closed."""
+    try:
+        value = Decimal(str(raw))
+    except (ArithmeticError, TypeError, ValueError) as exc:
+        raise ValueError(f"{name} is not a valid decimal CAP") from exc
+    if not value.is_finite() or value < 0:
+        raise ValueError(f"{name} must be finite and non-negative")
+    return value
+
+
+def hard_buy_cap(symbol: str, proposed_cap: object) -> tuple[Decimal, Dict[str, Decimal]]:
+    """Clamp strategy CAP by operator, Risk Manager and symbol budgets."""
+    limits: Dict[str, Decimal] = {
+        "strategy": _cap_decimal("strategy CAP", proposed_cap),
+    }
+    environment_limits = {
+        "operator": "BOT_OPERATOR_CAP_PER_ORDER_USDT",
+        "risk": "BOT_CAP_PER_ORDER",
+        "symbol": f"RISK_SYMBOL_CAP_{symbol.upper()}",
+    }
+    for label, variable in environment_limits.items():
+        raw = os.getenv(variable)
+        if raw is None or not raw.strip():
+            continue
+        limits[label] = _cap_decimal(variable, raw)
+    # A directly launched worker may not have the new operator variable yet.
+    # BOT_CAP_PER_ORDER remains a safe fallback; supervisor launches always
+    # provide all three applicable limits.
+    return min(limits.values()), limits
+
+
+def effective_remainder_policy(*, requested: bool, live_mode: bool) -> bool:
+    """Never allow a remainder allocation to bypass per-order CAP in LIVE."""
+    return bool(requested and not live_mode)
+
 SESSION = requests.Session()
 if API_KEY:
     SESSION.headers.update({"X-MBX-APIKEY": API_KEY})
@@ -1501,7 +1538,8 @@ def maybe_place_buys(symbol: str,
                      target_buy_per_symbol: Optional[int] = None,
                      enforce_limit: bool = False,
                      use_remainder_in_last: bool = False,
-                     buy_limit_maker: bool = False) -> List[int]:
+                     buy_limit_maker: bool = False,
+                     live_mode: bool = False) -> List[int]:
     """
     Размещает BUY ниже текущей цены.
 
@@ -1513,8 +1551,8 @@ def maybe_place_buys(symbol: str,
 
     Динамическое распределение остатка:
       local_cap = min(cap_per_order_usdt, usdt_free / max(1, remaining_slots)).
-      Если use_remainder_in_last=True, то для последнего уровня local_cap = usdt_free,
-      иначе — равномерный cap до конца без «съедания» всей кассы.
+      In DRY/Testnet, use_remainder_in_last may allocate the final remainder.
+      LIVE always ignores that option and retains the per-order hard CAP.
     Возвращает список orderId успешно размещённых BUY.
     """
     # Check the stop signal before any network request: after SIGTERM this function
@@ -1583,7 +1621,11 @@ def maybe_place_buys(symbol: str,
             break
         remaining_slots = max(1, total_slots - idx + 1)
         local_cap = min(cap_per_order_usdt, usdt_free / remaining_slots)
-        if use_remainder_in_last and (idx == total_slots):
+        use_all_remaining = effective_remainder_policy(
+            requested=use_remainder_in_last and idx == total_slots,
+            live_mode=live_mode,
+        )
+        if use_all_remaining:
             local_cap = usdt_free
 
         dbg(f"[DYN-CAP] {symbol} slot {idx}/{total_slots} p≈{fmt_price_sym(symbol, p)} "
@@ -1594,7 +1636,7 @@ def maybe_place_buys(symbol: str,
             free_quote=usdt_free,
             cap_per_order=cap_per_order_usdt,
             remaining_slots=remaining_slots,
-            use_all_remaining=use_remainder_in_last and idx == total_slots,
+            use_all_remaining=use_all_remaining,
             min_order_notional=None,
             min_quantity=min_qty(symbol, 0),
             min_notional=min_notional(symbol, pr),
@@ -1604,6 +1646,20 @@ def maybe_place_buys(symbol: str,
         if planned is None:
             continue
         pr, qty, cost = planned.price, planned.quantity, planned.notional
+        # Final fail-closed boundary immediately before exchange mutation.
+        # This catches future planning regressions as well as remainder flags.
+        exchange_notional = _cap_decimal(
+            "exchange BUY notional",
+            Decimal(str(pr)) * Decimal(str(qty)),
+        )
+        if exchange_notional > _cap_decimal(
+            "per-order CAP", cap_per_order_usdt
+        ):
+            log(
+                f"[CAP-HARD-BLOCK] {symbol} exchange={exchange_notional} "
+                f"> limit={cap_per_order_usdt:.8f}"
+            )
+            continue
         if (min_order_usdt is not None) and (cost < float(min_order_usdt)):
             log(f"[MIN-ORDER] skip BUY {fmt_qty_sym(symbol, qty)} @ {fmt_price_sym(symbol, pr)} "
                 f"(≈{cost:.2f} USDT < {float(min_order_usdt):.2f})")
@@ -2001,6 +2057,31 @@ def main():
                         f"[VWAP] {symbol} discount ratio={vwap_ratio:.4f} <= 1-{discount_thr:.4f} → cap {old_cap:.2f}→{cap:.2f} x{scale:.2f}"
                     )
 
+        try:
+            clamped_cap, cap_limits = hard_buy_cap(symbol, cap)
+        except ValueError as exc:
+            clamped_cap = Decimal("0")
+            cap_limits = {}
+            log(f"[CAP-HARD-ERROR] {symbol} {exc}; BUY disabled")
+        if clamped_cap != Decimal(str(cap)):
+            rendered = ",".join(
+                f"{name}={value}" for name, value in sorted(cap_limits.items())
+            )
+            log(
+                f"[CAP-HARD] {symbol} proposed={Decimal(str(cap))} "
+                f"final={clamped_cap} limits={rendered}"
+            )
+        cap = float(clamped_cap)
+
+        use_remainder_in_last = effective_remainder_policy(
+            requested=bool(args.use_remainder_in_last),
+            live_mode=LIVE_MODE,
+        )
+        if LIVE_MODE and args.use_remainder_in_last:
+            log(
+                f"[CAP-HARD] {symbol} --use-remainder-in-last ignored in LIVE"
+            )
+
         # Run the gap control before any new BUY. A failed check is a safety
         # state, not an informational error; replacement workers may otherwise
         # place exposure while protection telemetry is unavailable.
@@ -2064,8 +2145,9 @@ def main():
                     cap_floor_usdt=args.cap_floor_usdt,
                     target_buy_per_symbol=args.target_buy_per_symbol,
                     enforce_limit=args.enforce_target_buys,
-                    use_remainder_in_last=bool(args.use_remainder_in_last),
+                    use_remainder_in_last=use_remainder_in_last,
                     buy_limit_maker=args.buy_limit_maker,
+                    live_mode=LIVE_MODE,
                 )
                 placed_ids = list(dict.fromkeys([*placed_ids, *new_ids]))
             except Exception as e:

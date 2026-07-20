@@ -665,6 +665,7 @@ def _bot_service_config() -> Dict[str, object]:
         "BOT_SERVICE_EXECUTION",
         "BOT_SERVICE_SYMBOLS",
         "BOT_SERVICE_EXTRA_ARGS",
+        "BOT_SERVICE_AUTO_OCO_HOLDINGS",
     }
     values: Dict[str, str] = {}
     try:
@@ -691,6 +692,7 @@ def _bot_service_config() -> Dict[str, object]:
         "venue": values.get("BOT_SERVICE_VENUE", "").lower() or None,
         "execution_mode": values.get("BOT_SERVICE_EXECUTION", "").upper() or None,
         "symbols": symbols,
+        "auto_oco_holdings": values.get("BOT_SERVICE_AUTO_OCO_HOLDINGS", "0") == "1",
     }
     try:
         arguments = shlex.split(values.get("BOT_SERVICE_EXTRA_ARGS", ""))
@@ -727,6 +729,7 @@ def _bot_execution_context(runtime: Dict[str, object]) -> Dict[str, object]:
         "symbols": symbols,
         "cap_floor_usdt": configured.get("cap_floor_usdt"),
         "cap_ceil_usdt": configured.get("cap_ceil_usdt"),
+        "auto_oco_holdings": bool(configured.get("auto_oco_holdings", False)),
     }
 
 
@@ -739,6 +742,8 @@ def trading_overview_snapshot() -> Dict[str, object]:
     execution = _bot_execution_context(runtime)
     symbols = execution["symbols"]
     order_rows = orders.get("orders", []) if isinstance(orders.get("orders"), list) else []
+    journal = _order_journal_snapshot(runtime)
+    journal_latest = journal.get("latest") if isinstance(journal.get("latest"), dict) else {}
     positions = []
     for symbol in symbols:
         base = base_asset_of(symbol)
@@ -755,12 +760,32 @@ def trading_overview_snapshot() -> Dict[str, object]:
         unrealized = (float(current) - average) * quantity if current is not None and average is not None else None
         legs = [row for row in order_rows if row.get("symbol") == symbol and row.get("side") == "SELL"]
         leg_types = {str(row.get("type", "")).upper() for row in legs}
+        try:
+            latest_executed_quantity = float(journal_latest.get("executed_qty") or 0)
+        except (TypeError, ValueError):
+            latest_executed_quantity = 0.0
+        latest_unprotected_fill = (
+            str(journal_latest.get("symbol") or "").upper() == symbol
+            and str(journal_latest.get("side") or "").upper() == "BUY"
+            and str(journal_latest.get("status") or "").upper()
+            in {"FILLED", "PARTIALLY_FILLED", "PROTECTION_PENDING"}
+            and latest_executed_quantity > 0
+        )
+        legacy_unmanaged = False
         if quantity <= 1e-12:
             protection_state = "not_needed"
         elif {"LIMIT_MAKER", "STOP_LOSS_LIMIT"}.issubset(leg_types):
             protection_state = "confirmed"
         elif legs:
             protection_state = "pending"
+        elif latest_unprotected_fill:
+            protection_state = "pending"
+        elif not execution.get("auto_oco_holdings"):
+            # Holdings which predate this bot lifecycle are deliberately outside
+            # attach-on-fill protection. Report that policy explicitly instead
+            # of implying that the live gap watchdog failed.
+            protection_state = "legacy_unmanaged"
+            legacy_unmanaged = True
         else:
             protection_state = "not_checked"
         positions.append({
@@ -774,7 +799,13 @@ def trading_overview_snapshot() -> Dict[str, object]:
                 "tp": [row.get("price") for row in legs if row.get("type") == "LIMIT_MAKER"],
                 "stop": [row.get("stop_price") for row in legs if row.get("type") == "STOP_LOSS_LIMIT"],
                 "locked_quantity": round(sum(float(row.get("remaining_qty", 0.0) or 0.0) for row in legs), 8),
-                "gap_watchdog": "armed" if protection_state == "confirmed" else "warning",
+                "gap_watchdog": (
+                    "armed" if protection_state == "confirmed"
+                    else "not_applicable_legacy_inventory" if legacy_unmanaged
+                    else "warning"
+                ),
+                "classification": "legacy_inventory" if legacy_unmanaged else "managed_inventory",
+                "managed_by_bot": not legacy_unmanaged,
             },
         })
     risk = runtime.get("risk", {}) if isinstance(runtime.get("risk"), dict) else {}
@@ -786,7 +817,6 @@ def trading_overview_snapshot() -> Dict[str, object]:
     except (OSError, ValueError, TypeError):
         pass
     free_usdt = float(balance_by_asset.get("USDT", {}).get("free", 0.0) or 0.0)
-    journal = _order_journal_snapshot(runtime)
     latest_open = max(
         order_rows,
         key=lambda row: (
@@ -835,6 +865,7 @@ def trading_overview_snapshot() -> Dict[str, object]:
         "reserve_usdt": risk_limits.get("reserve_usdt"),
         "caps": {
             "per_order_usdt": risk.get("current_cap_per_order_usdt") or execution.get("cap_ceil_usdt"),
+            "operator_hard_usdt": risk.get("operator_cap_per_order_usdt") or execution.get("cap_ceil_usdt"),
             "configured_floor_usdt": execution.get("cap_floor_usdt"),
             "per_symbol": risk.get("symbol_caps_usdt", {}),
             "portfolio_usdt": risk_limits.get("portfolio_cap_usdt"),

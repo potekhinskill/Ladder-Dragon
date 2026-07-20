@@ -250,6 +250,15 @@ cancel -> MARKET SELL of acquired delta`. Any post-BUY uncertainty attempts
 cleanup and creates a persistent halt. Do not reset that halt or start `mybot`
 until Binance open orders and balances have been reviewed.
 
+Do not repeat this paid acceptance drill to create an artificial sample. Before
+expanding beyond the minimal SOLUSDT canary, collect at least three naturally
+completed and exactly linked `BUY fill -> OCO confirmed -> TP or STOP fill`
+strategy lifecycles. Then keep the same one-symbol, one-BUY, `10 USDT` operator
+ceiling configuration running for at least 24 hours (48 hours preferred). The
+observation gate fails on any hard-CAP violation, unresolved fill, unprotected
+managed position, persistent circuit halt, or reconciliation error. Legacy SOL
+inventory is not part of this sample when automatic holdings protection is off.
+
 ## 8. Normal updates
 
 Always update a reviewed exact commit:

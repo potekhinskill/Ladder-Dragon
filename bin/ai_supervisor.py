@@ -2711,6 +2711,13 @@ def main():
         if auto_cap is not None
         else money(args.cap_ceil_usdt or os.getenv("BOT_CAP_PER_ORDER", "50"))
     )
+    operator_order_cap = money(args.cap_ceil_usdt or configured_order_cap)
+    if operator_order_cap <= 0:
+        raise SystemExit("operator per-order CAP must be greater than zero")
+    # This immutable child boundary is separate from BOT_CAP_PER_ORDER, which
+    # Risk Manager narrows dynamically. Strategy, VWAP and AI may never raise a
+    # worker order above the operator ceiling.
+    os.environ["BOT_OPERATOR_CAP_PER_ORDER_USDT"] = str(operator_order_cap)
 
     def _next_vwap_refresh() -> float:
         base = max(0, int(getattr(args, "vwap_refresh_sec", 0)))
@@ -2758,6 +2765,9 @@ def main():
                     "reasons": list(last_risk_signature[1]) if last_risk_signature else [],
                     "consecutive_api_failures": consecutive_api_failures,
                     "current_cap_per_order_usdt": os.getenv("BOT_CAP_PER_ORDER"),
+                    "operator_cap_per_order_usdt": os.getenv(
+                        "BOT_OPERATOR_CAP_PER_ORDER_USDT"
+                    ),
                 })
                 _publish_ai_runtime_status(
                     state="RUNNING",
@@ -2824,6 +2834,9 @@ def main():
                             "reasons": list(decision.reasons),
                             "consecutive_api_failures": consecutive_api_failures,
                             "current_cap_per_order_usdt": os.getenv("BOT_CAP_PER_ORDER"),
+                            "operator_cap_per_order_usdt": os.getenv(
+                                "BOT_OPERATOR_CAP_PER_ORDER_USDT"
+                            ),
                             "symbol_caps_usdt": {
                                 symbol: os.getenv(f"RISK_SYMBOL_CAP_{symbol.upper()}")
                                 for symbol in symbols

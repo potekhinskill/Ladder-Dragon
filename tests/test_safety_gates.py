@@ -302,6 +302,83 @@ def test_worker_dry_blocks_every_mutating_signed_request():
         raise AssertionError("mutating request was not blocked")
 
 
+def test_worker_hard_cap_uses_smallest_authority(monkeypatch):
+    worker = load_worker()
+    monkeypatch.setenv("BOT_OPERATOR_CAP_PER_ORDER_USDT", "10")
+    monkeypatch.setenv("BOT_CAP_PER_ORDER", "9.63")
+    monkeypatch.setenv("RISK_SYMBOL_CAP_SOLUSDT", "9.62")
+
+    cap, limits = worker.hard_buy_cap("SOLUSDT", "12.51")
+
+    assert cap == Decimal("9.62")
+    assert limits == {
+        "strategy": Decimal("12.51"),
+        "operator": Decimal("10"),
+        "risk": Decimal("9.63"),
+        "symbol": Decimal("9.62"),
+    }
+
+
+def test_worker_hard_cap_rejects_non_finite_value(monkeypatch):
+    worker = load_worker()
+    monkeypatch.setenv("BOT_CAP_PER_ORDER", "NaN")
+
+    with pytest.raises(ValueError, match="finite"):
+        worker.hard_buy_cap("SOLUSDT", "10")
+
+
+def test_worker_live_remainder_policy_never_bypasses_cap():
+    worker = load_worker()
+
+    assert worker.effective_remainder_policy(requested=True, live_mode=True) is False
+    assert worker.effective_remainder_policy(requested=True, live_mode=False) is True
+    assert worker.effective_remainder_policy(requested=False, live_mode=False) is False
+
+
+def test_worker_blocks_oversized_plan_before_exchange_mutation(monkeypatch):
+    worker = load_worker()
+    worker.RUN = True
+    worker.symbol_filters["SOLUSDT"] = {
+        "tickSize": 0.01,
+        "stepSize": 0.001,
+        "minQty": 0.001,
+        "minNotional": 5.0,
+    }
+    monkeypatch.setattr(worker, "pull_filters", lambda symbol: None)
+    monkeypatch.setattr(
+        worker,
+        "get_balances",
+        lambda: {"USDT": {"free": 100.0, "locked": 0.0}},
+    )
+    monkeypatch.setattr(worker, "get_price", lambda symbol: 100.0)
+    monkeypatch.setattr(
+        worker,
+        "plan_buy_order",
+        lambda *args, **kwargs: SimpleNamespace(
+            price=90.0,
+            quantity=0.2,
+            notional=18.0,
+        ),
+    )
+    monkeypatch.setattr(
+        worker,
+        "place_limit_order",
+        lambda *args, **kwargs: (_ for _ in ()).throw(
+            AssertionError("oversized BUY reached exchange mutation")
+        ),
+    )
+
+    assert worker.maybe_place_buys(
+        "SOLUSDT",
+        [90.0],
+        10.0,
+        target_buy_per_symbol=1,
+        enforce_limit=False,
+        use_remainder_in_last=True,
+        live_mode=True,
+    ) == []
+
+
 def test_worker_symbol_lock_respects_bot_run_dir(tmp_path, monkeypatch):
     worker = load_worker()
     monkeypatch.setenv("BOT_RUN_DIR", str(tmp_path))

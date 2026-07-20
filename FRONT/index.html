@@ -656,7 +656,9 @@ function updateTrading(t){
   $('#trade-free-usdt').textContent=fmtUSDT(Number(t.free_usdt));
   $('#trade-reserve').textContent=t.reserve_usdt!=null?fmtUSDT(Number(t.reserve_usdt)):'—';
   const caps=t.caps||{};
-  $('#trade-cap-order').textContent=caps.per_order_usdt!=null?fmtUSDT(Number(caps.per_order_usdt)):'—';
+  const activeCap=caps.per_order_usdt!=null?fmtUSDT(Number(caps.per_order_usdt)):'—';
+  const hardCap=caps.operator_hard_usdt!=null?fmtUSDT(Number(caps.operator_hard_usdt)):'—';
+  $('#trade-cap-order').textContent=`${activeCap} · hard ${hardCap}`;
   $('#trade-cap-portfolio').textContent=caps.portfolio_usdt!=null?fmtUSDT(Number(caps.portfolio_usdt)):'—';
   const perSymbol=caps.per_symbol||{};
   $('#trade-cap-symbol').textContent=Object.keys(perSymbol).length?Object.entries(perSymbol).map(([s,v])=>`${s} ${v}`).join(', '):'—';

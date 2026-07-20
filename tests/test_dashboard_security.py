@@ -262,6 +262,7 @@ def test_stopped_bot_uses_only_configured_symbols(tmp_path, monkeypatch):
         "symbols": ["SOLUSDT"],
         "cap_floor_usdt": 10.0,
         "cap_ceil_usdt": 10.0,
+        "auto_oco_holdings": False,
     }
     assert "BINANCE_API_SECRET" not in module._bot_service_config()
 
@@ -341,6 +342,46 @@ def test_trading_overview_prefers_current_open_order(monkeypatch):
     assert snapshot["last_order"]["order_id"] == 123
     assert snapshot["last_order"]["status"] == "NEW"
     assert snapshot["orders"]["journal_available"] is True
+
+
+def test_trading_overview_classifies_preexisting_inventory_as_legacy(monkeypatch):
+    module = load_dashboard(monkeypatch)
+    monkeypatch.setattr(module, "_load_ai_runtime_status", lambda: {
+        "symbols": ["SOLUSDT"], "execution_mode": "LIVE", "risk": {},
+    })
+    monkeypatch.setattr(module, "_bot_service_config", lambda: {
+        "symbols": ["SOLUSDT"],
+        "execution_mode": "LIVE",
+        "venue": "mainnet",
+        "auto_oco_holdings": False,
+    })
+    monkeypatch.setattr(module, "service_active", lambda name: "active")
+    monkeypatch.setattr(module, "account_balances_snapshot", lambda: {
+        "assets": [
+            {"asset": "USDT", "free": 331.0, "total": 331.0},
+            {"asset": "SOL", "free": 3.75, "total": 3.75, "price_usdt": 76.0},
+        ]
+    })
+    monkeypatch.setattr(
+        module,
+        "account_open_orders_snapshot",
+        lambda: {"count": 0, "orders": []},
+    )
+    monkeypatch.setattr(module, "_average_entry_from_ledger", lambda symbol: 100.0)
+    monkeypatch.setattr(module, "_order_journal_snapshot", lambda runtime: {
+        "available": True,
+        "cancelled": 0,
+        "pending": 0,
+        "latest": {"symbol": "SOLUSDT", "side": "BUY", "status": "CANCELED"},
+    })
+
+    snapshot = module.trading_overview_snapshot()
+    protection = snapshot["positions"][0]["protection"]
+
+    assert protection["state"] == "legacy_unmanaged"
+    assert protection["classification"] == "legacy_inventory"
+    assert protection["managed_by_bot"] is False
+    assert protection["gap_watchdog"] == "not_applicable_legacy_inventory"
 
 
 def test_trading_overview_preserves_unavailable_order_journal(monkeypatch):
