@@ -17,7 +17,7 @@ Binance Spot. It builds BUY/SELL grids, uses ATR/EMA/VWAP/ADX regimes, manages
 OCO protection, and records trading statistics in SQLite. Production secrets,
 real backups, and private parameters are never committed.
 
-Current product version: **2.14.0**. The single version source is
+Current product version: **2.15.0**. The single version source is
 `product_version.py`; releases follow [Semantic Versioning](https://semver.org/).
 Project contact: [LinkedIn](https://www.linkedin.com/in/ypotekhin/).
 
@@ -33,7 +33,7 @@ Project contact: [LinkedIn](https://www.linkedin.com/in/ypotekhin/).
 ## Project status
 
 Ladder Dragon is an actively developed, experimental trading system. Version
-**2.14.0** is the current prepared release. `main` is the only long-lived branch;
+**2.15.0** is the current prepared release. `main` is the only long-lived branch;
 feature branches use the `ladderdragon/*` namespace.
 
 DRY and Binance Spot Testnet are the supported starting modes. Mainnet LIVE is
@@ -154,6 +154,12 @@ stored as separate evidence classes. Virtual documents may support offline
 comparison but never count as real PnL or satisfy the APPLY production gate.
 Retrievals are linked to `decision_id`, cannot use future data, and are disabled
 for incomplete or stale context. RAG never fine-tunes DeepSeek.
+
+Real AI readiness is intentionally data-bound. Do not enable `APPLY` until the
+configured minimum of exactly linked LIVE decisions has closed, unresolved
+fills are zero, the edge confidence interval excludes zero, and AI is not worse
+than the baseline. Code changes and virtual documents cannot manufacture this
+evidence; it must accumulate in `SHADOW` from real closed lifecycles.
 
 Daily request, token, and cost limits fail closed at the next UTC day. API keys,
 raw prompts, full balances, order IDs, and full order books are not written to
@@ -330,6 +336,10 @@ PYTHONPATH=. python -m bin.backtest data/SOLUSDT-1m.csv \
 
 # Locate legacy reports invalidated by the corrected bps conversion.
 PYTHONPATH=. python -m bin.audit_backtest_reports .runtime
+
+# Require several days, distinct volatility regimes and measured order latency.
+PYTHONPATH=. python -m bin.audit_replay_readiness \
+  .runtime/calibrations/*.json
 ```
 
 Current reports contain the engine version, complete simulation configuration,
@@ -337,6 +347,12 @@ input hashes and `market_impact_bps_divisor=10000`. The audit command exits 2
 when a legacy report used non-zero market impact and therefore must be rerun.
 Reports with zero impact are marked legacy but are unaffected by that specific
 correction.
+
+The replay-readiness audit exits 2 until it sees at least three unique source
+archives spanning two calendar days, low/normal/high volatility regimes, no
+ineligible calibration, and at least one archive with measured
+intent-to-`executionReport` latency. This prevents a short smoke capture from
+being presented as production-quality calibration.
 
 On Raspberry Pi, `ladder-dragon-depth-archive.timer` records a 15-minute public
 sample every hour and retains seven days by default. Optional, non-secret
@@ -417,14 +433,17 @@ the services, and waits for a fresh heartbeat.
 - run the bounded Mainnet canary on each materially changed executor release;
 - collect at least three natural, exactly linked BUY/OCO/TP-or-STOP lifecycles
   and a clean 24–48 hour SOLUSDT soak before increasing LIVE scope;
-- collect longer exchange archives across volatility regimes and compare replay
-  estimates with exact live lifecycle outcomes;
-- improve queue-position and dynamic spread/impact models beyond the current
-  source-hashed empirical calibration;
+- keep collecting exchange archives until the replay-readiness audit passes,
+  then compare its estimates with exact live lifecycle outcomes;
+- validate the existing dynamic-spread, queue-progress and volume-impact models
+  against multi-regime archives and measured `executionReport` latency;
 - expand multi-period walk-forward and production approval statistics;
 - continue migrating non-critical strategy indicators and telemetry away from
-  legacy float arithmetic; the only broad exception handlers are three tested,
-  documented fail-closed execution/protection boundaries;
+  legacy float arithmetic; order, market and OCO adapters no longer convert
+  monetary values through `float`;
+- retain only the four tested broad exception boundaries: panic fail-closed,
+  gap-watchdog fail-closed, filled-BUY protection, and post-mutation Mainnet
+  canary containment;
 - run controlled long Testnet soak tests after executor or risk changes.
 
 The local gap-watchdog drill is network-free and never creates an exchange

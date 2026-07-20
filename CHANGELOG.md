@@ -3,6 +3,32 @@
 All notable changes are documented here. Releases use Semantic Versioning; every
 section is dated and there is intentionally no `Unreleased` section.
 
+## [2.15.0] — 2026-07-20
+
+### Added
+- Added exact text columns for AI fill price, quantity, fees, slippage and linked
+  expected order price while retaining numeric compatibility columns.
+- Added multi-archive replay readiness auditing for unique source hashes,
+  multi-day coverage, low/normal/high volatility regimes and measured
+  intent-to-`executionReport` latency.
+- Added exact-decimal regression coverage for AI PnL, legacy FIFO reports and
+  all executor order/OCO compatibility boundaries.
+
+### Changed
+- Converted realized AI PnL, opportunity cost, fees, slippage and the legacy
+  standalone FIFO reporter to exact `Decimal` arithmetic.
+- Removed every `float()` conversion from `executor_orders.py`,
+  `executor_protection.py` and the worker's BUY/SELL/OCO submission paths.
+- Replaced broad exception handling in statistics, cancellation, planning,
+  ladder-map, VWAP autotune, ladder-runner and PnL helper CLIs with explicit
+  operational/data error sets.
+- Replay calibration schema 3 now records observed p95 mid-price volatility for
+  auditable regime classification. Older schema 1/2 reports remain readable.
+
+### Verified
+- The remaining broad handlers are restricted by AST regression to four
+  documented post-mutation or fail-closed safety boundaries.
+
 ## [2.14.0] — 2026-07-20
 
 ### Changed

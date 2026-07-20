@@ -43,7 +43,7 @@ def load_prev_values(path: Optional[str]) -> Dict[str, Dict[str, float]]:
             data = json.load(fh)
             if isinstance(data, dict):
                 return data
-    except Exception:
+    except (OSError, json.JSONDecodeError, TypeError, ValueError):
         return {}
     return {}
 
@@ -56,11 +56,11 @@ def save_values(path: Optional[str], values: Dict[str, Dict[str, float]]) -> Non
     try:
         tmp.write_text(json.dumps(values, indent=2, sort_keys=True), encoding="utf-8")
         tmp.replace(dst)
-    except Exception:
+    except (OSError, TypeError, ValueError):
         try:
             if tmp.exists():
                 tmp.unlink()
-        except Exception:
+        except OSError:
             pass
 
 

@@ -21,9 +21,20 @@ from product_version import product_label
 
 try:
     import requests
-except Exception:
+except ImportError:
     print("Please: pip install requests", file=sys.stderr)
     raise
+
+PLAN_RUNNER_ERRORS = (
+    ArithmeticError,
+    KeyError,
+    OSError,
+    RuntimeError,
+    TypeError,
+    ValueError,
+    requests.RequestException,
+    subprocess.SubprocessError,
+)
 
 # --- Settings / ENV ---
 DEFAULT_BASE = os.getenv("PLAN_RUNNER_BASE", "bin/autosize_universal.py")
@@ -46,7 +57,7 @@ def _public_get(path: str, params: Dict | None = None, timeout: int = 12) -> Dic
             if r.status_code >= 400:
                 raise RuntimeError(f"HTTP {r.status_code}: {r.text}")
             return r.json()
-        except Exception as e:
+        except PLAN_RUNNER_ERRORS as e:
             last_err = e
             time.sleep(0.5 * (2 ** i))
     raise last_err if last_err else RuntimeError("Public GET failed without explicit error")
@@ -69,7 +80,7 @@ def get_filters(symbol: str) -> Tuple[float, float, float]:
         elif t in ("MIN_NOTIONAL", "NOTIONAL"):
             try:
                 min_notional = float(f.get("minNotional", 5.0))
-            except Exception:
+            except (TypeError, ValueError, ArithmeticError):
                 min_notional = 5.0
     return tick, step, min_notional
 
@@ -310,7 +321,7 @@ def main() -> int:
                     pct_low  = -abs(float(lo_s))   # English maintenance note.
                     pct_high =  abs(float(hi_s))   # English maintenance note.
                     density  = int(den_s) if den_s else args.grid_density
-                except Exception:
+                except (TypeError, ValueError, ArithmeticError):
                     pct_low, pct_high, density = -0.5, 20.0, args.grid_density
 
                 # ATR scaling.
@@ -379,19 +390,19 @@ def main() -> int:
         return rc
 
     except KeyboardInterrupt:
-        print("\n[INTERRUPT] English English Ctrl+C — English English…", file=sys.stderr)
+        print("\n[INTERRUPT] Ctrl+C received; stopping workers…", file=sys.stderr)
         for proc in procs:
-            with contextlib.suppress(Exception):
+            with contextlib.suppress(OSError, ProcessLookupError):
                 proc.terminate()
         for proc in procs:
-            with contextlib.suppress(Exception):
+            with contextlib.suppress(OSError, subprocess.SubprocessError):
                 proc.wait(timeout=3.0)
         return 130
 
-    except Exception as e:
+    except PLAN_RUNNER_ERRORS as e:
         print(f"[FATAL] {e}", file=sys.stderr)
         for proc in procs:
-            with contextlib.suppress(Exception):
+            with contextlib.suppress(OSError, ProcessLookupError, subprocess.SubprocessError):
                 proc.terminate()
         return 1
 

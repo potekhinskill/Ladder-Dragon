@@ -10,7 +10,7 @@ from typing import List
 # tools_stats.py — project statistics module.
 try:
     from ladder_dragon.execution import tools_stats as ts
-except Exception:
+except ImportError:
     print("tools_stats.py was not found. Run this command from the bot directory.", file=sys.stderr)
     raise
 
@@ -44,7 +44,7 @@ def print_inventory(con: sqlite3.Connection, symbols: List[str]) -> None:
             avg_price = 0.0 if avg_price is None else avg_price
             realized = 0.0 if realized is None else realized
             print(f"{s:10s}  qty={qty:.10f}  avg={avg_price:.8f}  realized_pnl={realized:.2f}")
-        except Exception as e:
+        except (sqlite3.Error, ArithmeticError, TypeError, ValueError) as e:
             print(f"{s:10s}  <no data> ({e})")
 
 def print_last_trades(con: sqlite3.Connection, symbols: List[str], limit: int, utc: bool) -> None:
@@ -70,7 +70,7 @@ def print_last_trades(con: sqlite3.Connection, symbols: List[str], limit: int, u
                 continue
             for dt, sym, side, qty, price, fee in rows:
                 print(f"  {dt}  {str(side):<4s}  qty={qty:.10f}  price={price:.8f}  fee_q={fee:.6f}")
-        except Exception as e:
+        except (sqlite3.Error, ArithmeticError, TypeError, ValueError) as e:
             print("  error:", e)
 
 def print_daily_monthly(con: sqlite3.Connection, symbols: List[str], utc: bool) -> None:
@@ -84,13 +84,13 @@ def print_daily_monthly(con: sqlite3.Connection, symbols: List[str], utc: bool) 
                 day = ts.daily_summary(con, s, utc=utc)
             except TypeError:
                 day = ts.daily_summary(con, s)
-        except Exception as e:
+        except (sqlite3.Error, ArithmeticError, TypeError, ValueError) as e:
             day = {"error": str(e)}
 
         try:
             # Pass UTC support through the module when monthly_summary requires it.
             mon = ts.monthly_summary(con, s, year, month)
-        except Exception as e:
+        except (sqlite3.Error, ArithmeticError, TypeError, ValueError) as e:
             mon = {"error": str(e)}
 
         print(f"\n-- {s} --")
@@ -113,7 +113,7 @@ def print_global_last(con: sqlite3.Connection, limit: int, utc: bool) -> None:
     try:
         for dt, sym, side, qty, price, fee in cur.execute(q, (limit,)):
             print(f"  {dt}  {sym:10s} {str(side):<4s} qty={qty:.10f} price={price:.8f} fee_q={fee:.6f}")
-    except Exception as e:
+    except (sqlite3.Error, ArithmeticError, TypeError, ValueError) as e:
         print("  error:", e)
 
 def main():

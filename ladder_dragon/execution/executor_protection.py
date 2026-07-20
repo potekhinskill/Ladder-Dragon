@@ -72,31 +72,31 @@ class ProtectionDependencies:
     recover_existing_protection: Callable[[str], bool]
     poll_trades: Callable[[str], None]
     pick_oco_prices: Callable[
-        [str, List[float], float, float], tuple[float, float, float]
+        [str, List[float], object, object], tuple[object, object, object]
     ]
-    average_entry: Callable[[str, int, int], Optional[float]]
+    average_entry: Callable[[str, int, int], Optional[object]]
     profit_floor_pct: Callable[[], float]
     pull_filters: Callable[[str], Any]
     get_symbol_assets: Callable[[str], tuple[str, str]]
-    get_balances: Callable[[], Dict[str, Dict[str, float]]]
-    round_price: Callable[[str, float], float]
-    round_quantity: Callable[[str, float], float]
-    min_quantity: Callable[[str, float], float]
-    min_notional: Callable[[str, float], float]
-    format_price: Callable[[str, float], str]
-    format_quantity: Callable[[str, float], str]
+    get_balances: Callable[[], Dict[str, Dict[str, object]]]
+    round_price: Callable[[str, object], object]
+    round_quantity: Callable[[str, object], object]
+    min_quantity: Callable[[str, object], object]
+    min_notional: Callable[[str, object], object]
+    format_price: Callable[[str, object], str]
+    format_quantity: Callable[[str, object], str]
     halt: Callable[..., None]
     place_oco_sell: Callable[..., Dict[str, Any] | None]
     place_limit_order: Callable[..., Dict[str, Any] | None]
     list_open_orders: Callable[[str], List[Dict[str, Any]]]
-    tick_size: Callable[[str], float]
+    tick_size: Callable[[str], object]
     price_eps_mult: Callable[[], float]
-    round_step: Callable[[float, float, str], float]
+    round_step: Callable[[object, object, str], object]
     cancel_oco: Callable[[str, int], None]
     place_market_order: Optional[Callable[..., Dict[str, Any] | None]] = None
     sleep: Callable[[float], None] = time.sleep
     now: Callable[[], float] = time.time
-    lot_id_for_fill: Optional[Callable[[str, float, int | None], int | None]] = None
+    lot_id_for_fill: Optional[Callable[[str, object, int | None], int | None]] = None
 
 
 def emergency_gap_flatten(
@@ -135,12 +135,9 @@ def emergency_gap_flatten(
                 "floor",
             )
         else:
+            minimum = Decimal(str(dependencies.min_quantity(symbol, Decimal("0"))))
             qty = Decimal(str(dependencies.round_quantity(
-                symbol,
-                max(
-                    0.0,
-                    float(free) - dependencies.min_quantity(symbol, 0),
-                ),
+                symbol, max(Decimal("0"), free - minimum)
             )))
         if qty <= 0:
             dependencies.halt("gap below STOP_LIMIT: no free quantity after OCO cancel", symbol=symbol)
@@ -294,12 +291,10 @@ def protect_filled_buys(
                 )
             if not average_fill_decimal.is_finite() or average_fill_decimal <= 0:
                 raise ValueError("BUY fill has no positive average price")
-            average_fill_price = float(average_fill_decimal)
-
             tp_limit, sl_stop, sl_limit = dependencies.pick_oco_prices(
                 symbol,
                 ladder_prices,
-                average_fill_price,
+                average_fill_decimal,
                 config.stop_limit_offset_pct,
             )
 
@@ -352,7 +347,7 @@ def protect_filled_buys(
                         round_step(minimum_guard, exact_filters.tick, "ceil")
                         if exact_filters is not None
                         else Decimal(str(dependencies.round_price(
-                            symbol, float(minimum_guard)
+                            symbol, minimum_guard
                         )))
                     )
                     if guard_floor > Decimal(str(tp_limit)):
@@ -394,19 +389,19 @@ def protect_filled_buys(
                 min_sl = exact_filters.minimum_notional
             else:
                 quantity = Decimal(str(dependencies.round_quantity(
-                    symbol, float(min(executed_quantity, sellable))
+                    symbol, min(executed_quantity, sellable)
                 )))
                 tp_rounded = Decimal(str(dependencies.round_price(
-                    symbol, float(tp_limit)
+                    symbol, tp_limit
                 )))
                 sl_rounded = Decimal(str(dependencies.round_price(
-                    symbol, float(sl_limit)
+                    symbol, sl_limit
                 )))
                 min_tp = Decimal(str(dependencies.min_notional(
-                    symbol, float(tp_rounded)
+                    symbol, tp_rounded
                 )))
                 min_sl = Decimal(str(dependencies.min_notional(
-                    symbol, float(sl_rounded)
+                    symbol, sl_rounded
                 )))
             tp_value = quantity * tp_rounded
             sl_value = quantity * sl_rounded
@@ -522,7 +517,7 @@ def protect_filled_buys(
                         state_store.save(symbol, state)
                         dependencies.debugger(
                             f"[BE] state add: orderListId={order_list_id} "
-                            f"fill={dependencies.format_price(symbol, average_fill_price)}"
+                            f"fill={dependencies.format_price(symbol, average_fill_decimal)}"
                         )
                 except (TypeError, ValueError) as exc:
                     dependencies.debugger(f"[BE] state add err: {exc}")
@@ -633,7 +628,7 @@ def maintain_breakeven(
                 round_step(target_raw, exact_filters.tick, "floor")
                 if exact_filters is not None
                 else Decimal(str(dependencies.round_price(
-                    symbol, float(target_raw)
+                    symbol, target_raw
                 )))
             )
             try:
@@ -681,16 +676,16 @@ def maintain_breakeven(
                 min_sl = exact_filters.minimum_notional
             else:
                 remaining = Decimal(str(dependencies.round_quantity(
-                    symbol, float(remaining)
+                    symbol, remaining
                 )))
                 minimum_quantity = Decimal(str(
                     dependencies.min_quantity(symbol, 0)
                 ))
                 min_tp = Decimal(str(dependencies.min_notional(
-                    symbol, float(tp_price)
+                    symbol, tp_price
                 )))
                 min_sl = Decimal(str(dependencies.min_notional(
-                    symbol, float(sl_limit)
+                    symbol, sl_limit
                 )))
             if remaining < minimum_quantity:
                 dependencies.debugger(

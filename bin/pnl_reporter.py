@@ -6,6 +6,7 @@
 """Ladder Dragon pnl reporter support."""
 
 import os, time, hmac, hashlib, argparse
+from decimal import Decimal, InvalidOperation
 from typing import List, Dict, Tuple, Any
 import requests
 from dotenv import load_dotenv
@@ -66,22 +67,32 @@ def fetch_trades(symbol: str, start_ts: int, end_ts: int) -> List[Dict]:
         cur = ts_to
     return out
 
-def fifo_pnl(trades: List[Dict]) -> Tuple[float, float, Dict]:
-    """Handle fifo pnl."""
-    lots: List[Tuple[float, float]] = []  # (qty_base, price_quote_per_base)
-    realized_gross = 0.0
-    fees_quote = 0.0
-    third_asset_fees = 0.0
+def _decimal(value: object, *, field: str) -> Decimal:
+    try:
+        result = Decimal(str(value))
+    except (InvalidOperation, TypeError, ValueError) as exc:
+        raise ValueError(f"{field} is not a decimal") from exc
+    if not result.is_finite():
+        raise ValueError(f"{field} must be finite")
+    return result
+
+
+def fifo_pnl(trades: List[Dict]) -> Tuple[Decimal, Decimal, Dict[str, Any]]:
+    """Calculate FIFO PnL and fees with exact quote/base arithmetic."""
+    lots: List[Tuple[Decimal, Decimal]] = []
+    realized_gross = Decimal("0")
+    fees_quote = Decimal("0")
+    third_asset_fees = Decimal("0")
     wins = 0
     sell_trades = 0
-    notional_sold = 0.0
+    notional_sold = Decimal("0")
 
     for t in trades:
         is_buy = bool(t["isBuyer"])
-        qty = float(t["qty"])
-        price = float(t["price"])
-        quote_qty = float(t["quoteQty"])
-        fee = float(t["commission"])
+        qty = _decimal(t["qty"], field="trade quantity")
+        price = _decimal(t["price"], field="trade price")
+        quote_qty = _decimal(t["quoteQty"], field="trade quote quantity")
+        fee = _decimal(t["commission"], field="trade commission")
         fee_asset = t["commissionAsset"]
         symbol = t["symbol"]
         base, quote = split_symbol(symbol)
@@ -90,7 +101,7 @@ def fifo_pnl(trades: List[Dict]) -> Tuple[float, float, Dict]:
             eff_qty = qty
             if fee_asset == base:
                 # Fee charged in the base asset: the received base quantity is smaller.
-                eff_qty = max(qty - fee, 0.0)
+                eff_qty = max(qty - fee, Decimal("0"))
                 fees_quote += fee * price
             elif fee_asset == quote:
                 # Fee charged in the quote asset: account for it separately.
@@ -104,7 +115,7 @@ def fifo_pnl(trades: List[Dict]) -> Tuple[float, float, Dict]:
         else:
             sell_trades += 1
             income_gross = quote_qty
-            cost = 0.0
+            cost = Decimal("0")
             remain = qty
 
             if fee_asset == quote:
@@ -117,13 +128,13 @@ def fifo_pnl(trades: List[Dict]) -> Tuple[float, float, Dict]:
 
             notional_sold += quote_qty
 
-            while remain > 1e-12 and lots:
+            while remain > Decimal("0.000000000001") and lots:
                 q, p = lots[0]
                 take = min(remain, q)
                 cost += take * p
                 q -= take
                 remain -= take
-                if q <= 1e-12:
+                if q <= Decimal("0.000000000001"):
                     lots.pop(0)
                 else:
                     lots[0] = (q, p)
@@ -136,9 +147,9 @@ def fifo_pnl(trades: List[Dict]) -> Tuple[float, float, Dict]:
     stats = {
         "wins": wins,
         "trades": sell_trades,
-        "avg_sell_notional": (notional_sold / sell_trades) if sell_trades else 0.0,
-        "open_lots_qty": sum(q for q, _ in lots),
-        "open_lots_cost": sum(q * p for q, p in lots),
+        "avg_sell_notional": (notional_sold / sell_trades) if sell_trades else Decimal("0"),
+        "open_lots_qty": sum((q for q, _ in lots), Decimal("0")),
+        "open_lots_cost": sum((q * p for q, p in lots), Decimal("0")),
         "third_asset_fees_units": third_asset_fees,
     }
     return realized_gross, fees_quote, stats
@@ -166,8 +177,7 @@ def main():
     quotes_used = set()
 
     # Aggregates per quote asset.
-    # totals_by_quote[quote] = {"gross": float, "net": float}
-    totals_by_quote: Dict[str, Dict[str, float]] = {}
+    totals_by_quote: Dict[str, Dict[str, Decimal]] = {}
 
     for sym in symbols:
         print(f"[FETCH] {sym} trades...")
@@ -179,7 +189,9 @@ def main():
         quotes_used.add(quote)
 
         # Accumulate quote-level aggregates.
-        agg = totals_by_quote.setdefault(quote, {"gross": 0.0, "net": 0.0})
+        agg = totals_by_quote.setdefault(
+            quote, {"gross": Decimal("0"), "net": Decimal("0")}
+        )
         agg["gross"] += pnl_gross
         agg["net"]   += (pnl_gross - fees_quote)
 

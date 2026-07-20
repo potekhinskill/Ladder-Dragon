@@ -22,7 +22,7 @@ from ladder_dragon.execution.order_recovery import (
     OrderIntent,
     OrderJournal,
 )
-from ladder_dragon.execution.exchange_math import round_step
+from ladder_dragon.execution.exchange_math import format_step, round_step
 from ladder_dragon.execution.exchange_filters import (
     filter_map as exchange_filter_map,
     symbol_row as exchange_symbol_row,
@@ -909,6 +909,30 @@ def _filter_decimal(symbol: str, exact_name: str, legacy_name: str) -> Decimal:
     filters = symbol_filters.get(symbol) or pull_filters(symbol)
     return Decimal(str(filters.get(exact_name, filters.get(legacy_name))))
 
+
+def _format_price_exact(symbol: str, value: object) -> str:
+    """Format an exchange price without converting it through binary float."""
+    return format_step(
+        value,
+        _filter_decimal(symbol, "tickSizeExact", "tickSize"),
+    )
+
+
+def _format_qty_exact(symbol: str, value: object) -> str:
+    """Format an exchange quantity without converting it through binary float."""
+    return format_step(
+        value,
+        _filter_decimal(symbol, "stepSizeExact", "stepSize"),
+    )
+
+
+def _minimum_qty_exact(symbol: str, _hint: object = None) -> Decimal:
+    return _filter_decimal(symbol, "minQtyExact", "minQty")
+
+
+def _minimum_notional_exact(symbol: str, _price: object = None) -> Decimal:
+    return _filter_decimal(symbol, "minNotionalExact", "minNotional")
+
 def dedup_ladder(symbol: str, ladder_prices: List[float], now_price: float) -> List[float]:
     try:
         tick = float(symbol_filters[symbol]["tickSize"])
@@ -1211,12 +1235,12 @@ def _order_dependencies() -> OrderDependencies:
         live=lambda: LIVE_MODE,
         logger=log,
         pull_filters=pull_filters,
-        round_price=round_price,
-        round_qty=round_qty,
-        min_qty=min_qty,
-        min_notional=min_notional,
-        format_price=fmt_price_sym,
-        format_qty=fmt_qty_sym,
+        round_price=_round_price_exact,
+        round_qty=_round_qty_exact,
+        min_qty=_minimum_qty_exact,
+        min_notional=_minimum_notional_exact,
+        format_price=_format_price_exact,
+        format_qty=_format_qty_exact,
         journal=_order_journal,
         signed_request=_signed_request,
         get_order_by_client_id=get_order_by_client_id,
@@ -1280,19 +1304,21 @@ def _protection_dependencies() -> ProtectionDependencies:
         pull_filters=pull_filters,
         get_symbol_assets=get_symbol_assets,
         get_balances=get_balances,
-        round_price=round_price,
-        round_quantity=round_qty,
-        min_quantity=min_qty,
-        min_notional=min_notional,
-        format_price=fmt_price_sym,
-        format_quantity=fmt_qty_sym,
+        round_price=_round_price_exact,
+        round_quantity=_round_qty_exact,
+        min_quantity=_minimum_qty_exact,
+        min_notional=_minimum_notional_exact,
+        format_price=_format_price_exact,
+        format_quantity=_format_qty_exact,
         halt=_trip_execution_halt,
         place_oco_sell=place_oco_sell,
         place_limit_order=place_limit_order,
         list_open_orders=list_open_orders,
-        tick_size=lambda symbol: symbol_filters[symbol]["tickSize"],
+        tick_size=lambda symbol: _filter_decimal(
+            symbol, "tickSizeExact", "tickSize"
+        ),
         price_eps_mult=price_eps_mult,
-        round_step=_round,
+        round_step=round_step,
         cancel_oco=cancel_oco,
         place_market_order=place_market_order,
         lot_id_for_fill=lot_id_for_fill,
@@ -1582,43 +1608,51 @@ def _stats_poll_mytrades_once(symbol: str):
 
 def _pick_ladder_aligned_oco_prices(symbol: str,
                                     ladder_prices: List[float],
-                                    fill_price: float,
-                                    stop_limit_offset_pct: float) -> tuple[float, float, float]:
-    """Handle pick ladder aligned oco prices."""
+                                    fill_price: object,
+                                    stop_limit_offset_pct: object) -> tuple[Decimal, Decimal, Decimal]:
+    """Select OCO prices with exact arithmetic before exchange rounding."""
     pull_filters(symbol)
-    tick = symbol_filters[symbol]["tickSize"]
-    eps_mult = max(1.0, price_eps_mult())
+    tick = _filter_decimal(symbol, "tickSizeExact", "tickSize")
+    fill = Decimal(str(fill_price))
+    levels = [Decimal(str(price)) for price in ladder_prices]
+    eps_mult = max(Decimal("1"), Decimal(str(price_eps_mult())))
+
+    def round_price_exact(value: Decimal) -> Decimal:
+        return round_step(value, tick, "nearest")
 
     # Split the ladder around the fill.
-    lower = [p for p in ladder_prices if p < fill_price]
-    upper = [p for p in ladder_prices if p > fill_price]
+    lower = [price for price in levels if price < fill]
+    upper = [price for price in levels if price > fill]
 
     # Basic fallbacks when no ladder levels are available.
-    ladder_tp = upper[0] if upper else round_price(symbol, fill_price * 1.01)
-    sl_limit = lower[-1] if lower else round_price(symbol, fill_price * 0.99)
+    ladder_tp = upper[0] if upper else round_price_exact(fill * Decimal("1.01"))
+    sl_limit = lower[-1] if lower else round_price_exact(fill * Decimal("0.99"))
 
     # Profit floor and cap.
-    floor_pct = _profit_floor_pct()
-    cap_pct = _tp1_max_pct()
+    floor_pct = max(Decimal("0"), Decimal(str(_profit_floor_pct())))
+    cap_pct = max(Decimal("0"), Decimal(str(_tp1_max_pct())))
 
-    floor_price = round_price(symbol, fill_price * (1.0 + max(0.0, floor_pct)))
-    cap_price = round_price(symbol, fill_price * (1.0 + max(0.0, cap_pct))) if cap_pct > 0 else float("inf")
+    floor_price = round_price_exact(fill * (Decimal("1") + floor_pct))
+    cap_price = (
+        round_price_exact(fill * (Decimal("1") + cap_pct))
+        if cap_pct > 0 else None
+    )
 
     # Final TP: not below the floor/ladder, but limited by the cap.
     tp_limit = max(ladder_tp, floor_price)
-    if tp_limit > cap_price:
+    if cap_price is not None and tp_limit > cap_price:
         tp_limit = cap_price
 
     # stopPrice is slightly above sl_limit for a SELL stop-limit.
-    sl_stop = sl_limit + max(tick * eps_mult, fill_price * max(0.0, float(stop_limit_offset_pct)))
-    sl_stop = round_price(symbol, sl_stop)
+    offset = max(Decimal("0"), Decimal(str(stop_limit_offset_pct)))
+    sl_stop = round_price_exact(sl_limit + max(tick * eps_mult, fill * offset))
 
     dbg("[TP-PICK] %s fill=%s ladder_tp=%s floor=%s cap=%s -> TP=%s; SLlim=%s, SLstop=%s" % (
         symbol,
-        fmt_price_sym(symbol, fill_price),
+        fmt_price_sym(symbol, fill),
         fmt_price_sym(symbol, ladder_tp),
         fmt_price_sym(symbol, floor_price),
-        ("∞" if cap_price == float("inf") else fmt_price_sym(symbol, cap_price)),
+        ("∞" if cap_price is None else fmt_price_sym(symbol, cap_price)),
         fmt_price_sym(symbol, tp_limit),
         fmt_price_sym(symbol, sl_limit),
         fmt_price_sym(symbol, sl_stop),

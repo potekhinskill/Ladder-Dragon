@@ -167,7 +167,7 @@ check_bnb() {
 import os, time, hmac, hashlib, urllib.parse
 try:
     import requests
-except Exception:
+except ImportError:
     print("NA"); raise SystemExit
 
 API_KEY = os.getenv('BINANCE_API_KEY','')
@@ -190,7 +190,7 @@ try:
     acct = signed_get('/api/v3/account')
     bnb = next((float(b['free']) for b in acct.get('balances',[]) if b.get('asset')=='BNB'), 0.0)
     print(bnb)
-except Exception:
+except (requests.RequestException, KeyError, TypeError, ValueError):
     print("NA")
 EOF
 )"

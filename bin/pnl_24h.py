@@ -27,7 +27,7 @@ def detect_ts_div(con: sqlite3.Connection, ts_col: str = "ts") -> int:
     _, hi = row
     try:
         hi = int(hi)
-    except Exception:
+    except (TypeError, ValueError, OverflowError):
         return 1
 
     # Seconds are ~1e9, milliseconds ~1e12, microseconds ~1e15.

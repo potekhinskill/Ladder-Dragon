@@ -4,7 +4,7 @@
 # Copyright (c) 2026 IURII Potekhin
 # Purpose: cancel open orders with explicit safeguards.
 
-import os, hmac, time, hashlib, argparse, urllib.parse, json, re
+import os, hmac, time, hashlib, argparse, urllib.parse, json, re, sqlite3
 from pathlib import Path
 import requests
 from requests.adapters import HTTPAdapter
@@ -18,6 +18,15 @@ DEFAULT_TEST = "https://testnet.binance.vision"
 
 SYMBOL_RE = re.compile(r"^[A-Z0-9]{5,20}$")
 ALLOWED_BASE_URLS = {DEFAULT_MAIN, DEFAULT_TEST}
+CANCEL_TOOL_ERRORS = (
+    KeyError,
+    OSError,
+    RuntimeError,
+    TypeError,
+    ValueError,
+    requests.RequestException,
+    sqlite3.Error,
+)
 
 
 def load_keys(testnet: bool):
@@ -58,7 +67,7 @@ def exchange_time_ms(session, base_url):
         r = session.get(base_url.rstrip("/") + "/api/v3/time", timeout=10)
         r.raise_for_status()
         return int(r.json().get("serverTime", 0))
-    except Exception:
+    except (requests.RequestException, TypeError, ValueError, KeyError):
         return 0
 
 def sign_params(params, secret):
@@ -298,7 +307,7 @@ def main():
                     session, base_url, symbol, key, sec,
                     recv_window=args.recv_window, ts_offset_ms=ts_offset_ms
                 )
-            except Exception as e:
+            except CANCEL_TOOL_ERRORS as e:
                 print(f"[ERR] fetch open orders {symbol}: {e}")
                 oo = []
 
@@ -333,7 +342,7 @@ def main():
                         record_order_result(journal, result, o)
                         total_live_canceled += 1
                         print(f"[OK] cancel {symbol} {side} LIMIT id={o['orderId']}")
-                    except Exception as he:
+                    except CANCEL_TOOL_ERRORS as he:
                         if is_unknown_2011(he):
                             try:
                                 final = fetch_order(
@@ -344,7 +353,7 @@ def main():
                                 record_order_result(journal, final, o)
                                 print(f"[OK-ALREADY] {symbol} {side} LIMIT id={o['orderId']} already closed")
                                 total_already_closed += 1
-                            except Exception as verify_error:
+                            except CANCEL_TOOL_ERRORS as verify_error:
                                 total_errors += 1
                                 print(
                                     f"[ERR] cannot verify already-closed order "
@@ -362,7 +371,7 @@ def main():
                     session, base_url, symbol, key, sec,
                     recv_window=args.recv_window, ts_offset_ms=ts_offset_ms
                 )
-            except Exception as e:
+            except CANCEL_TOOL_ERRORS as e:
                 print(f"[ERR] fetch open oco {symbol}: {e}")
                 oc = []
 
@@ -391,7 +400,7 @@ def main():
                         )
                         total_live_canceled += 1
                         print(f"[OK] cancel OCO {symbol} id={o_id}")
-                    except Exception as he:
+                    except CANCEL_TOOL_ERRORS as he:
                         if is_unknown_2011(he):
                             print(f"[OK-ALREADY] {symbol} OCO id={o_id} already closed")
                             total_already_closed += 1

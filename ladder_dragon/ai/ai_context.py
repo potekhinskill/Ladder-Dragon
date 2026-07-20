@@ -6,7 +6,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from decimal import Decimal
+from decimal import Decimal, InvalidOperation
 import hashlib
 import json
 import os
@@ -22,7 +22,7 @@ from ladder_dragon.execution.trade_accounting import TradeExecution, replay_aver
 ZERO = Decimal("0")
 HORIZONS_SEC = (900, 3600, 14_400)
 CONTEXT_SCHEMA_VERSION = "ai-context-v2"
-AI_SCHEMA_VERSION = "002_exact_ai_attribution"
+AI_SCHEMA_VERSION = "003_exact_ai_financials"
 AI_SCHEMA_CHECKSUM = hashlib.sha256(AI_SCHEMA_VERSION.encode("utf-8")).hexdigest()
 AI_CONTEXT_SOURCE_ERRORS = (
     ArithmeticError,
@@ -44,36 +44,99 @@ def context_hash(context: Any) -> str:
     return hashlib.sha256(payload.encode("utf-8")).hexdigest()
 
 
+def _finite_decimal(value: object, *, field: str) -> Decimal:
+    try:
+        result = Decimal(str(value))
+    except (InvalidOperation, TypeError, ValueError) as exc:
+        raise ValueError(f"{field} is not a decimal") from exc
+    if not result.is_finite():
+        raise ValueError(f"{field} must be finite")
+    return result
+
+
+def _financial_result_decimal(
+    item: Mapping[str, Any], text_key: str, numeric_key: str
+) -> Decimal:
+    value = item.get(text_key)
+    if value in (None, ""):
+        value = item.get(numeric_key, 0) or 0
+    return _finite_decimal(value, field=numeric_key)
+
+
 def evaluate_realized_ai_pnl(
-    fills: Sequence[Mapping[str, Any]], *, baseline_exit_price: float | None = None,
-    baseline_entry_price: float | None = None,
-) -> dict[str, float | int | None]:
-    """Evaluate realized ai pnl."""
+    fills: Sequence[Mapping[str, Any]], *, baseline_exit_price: object | None = None,
+    baseline_entry_price: object | None = None,
+) -> dict[str, Any]:
+    """Evaluate realized AI execution with exact financial arithmetic."""
     buys = [f for f in fills if str(f.get("side", "")).upper() == "BUY" and str(f.get("status", "FILLED")).upper() == "FILLED"]
     sells = [f for f in fills if str(f.get("side", "")).upper() == "SELL" and str(f.get("status", "FILLED")).upper() == "FILLED"]
-    bought_qty = sum(float(f.get("qty", f.get("executedQty", 0)) or 0) for f in buys)
-    sold_qty = sum(float(f.get("qty", f.get("executedQty", 0)) or 0) for f in sells)
-    buy_notional = sum(float(f.get("price", 0) or 0) * float(f.get("qty", f.get("executedQty", 0)) or 0) for f in buys)
-    sell_notional = sum(float(f.get("price", 0) or 0) * float(f.get("qty", f.get("executedQty", 0)) or 0) for f in sells)
-    fees = sum(float(f.get("fee_quote", f.get("commission_quote", 0)) or 0) for f in fills)
-    slippage = sum(float(f.get("slippage_quote", 0) or 0) for f in fills)
+    bought_qty = sum(
+        (_finite_decimal(f.get("qty", f.get("executedQty", 0)) or 0, field="buy quantity") for f in buys),
+        ZERO,
+    )
+    sold_qty = sum(
+        (_finite_decimal(f.get("qty", f.get("executedQty", 0)) or 0, field="sell quantity") for f in sells),
+        ZERO,
+    )
+    buy_notional = sum(
+        (
+            _finite_decimal(f.get("price", 0) or 0, field="buy price")
+            * _finite_decimal(f.get("qty", f.get("executedQty", 0)) or 0, field="buy quantity")
+            for f in buys
+        ),
+        ZERO,
+    )
+    sell_notional = sum(
+        (
+            _finite_decimal(f.get("price", 0) or 0, field="sell price")
+            * _finite_decimal(f.get("qty", f.get("executedQty", 0)) or 0, field="sell quantity")
+            for f in sells
+        ),
+        ZERO,
+    )
+    fees = sum(
+        (_finite_decimal(f.get("fee_quote", f.get("commission_quote", 0)) or 0, field="fee") for f in fills),
+        ZERO,
+    )
+    slippage = sum(
+        (_finite_decimal(f.get("slippage_quote", 0) or 0, field="slippage") for f in fills),
+        ZERO,
+    )
     net = sell_notional - buy_notional - fees - slippage
-    entry = baseline_entry_price or (buy_notional / bought_qty if bought_qty else None)
-    exit_price = baseline_exit_price or (sell_notional / sold_qty if sold_qty else None)
+    entry = (
+        _finite_decimal(baseline_entry_price, field="baseline entry price")
+        if baseline_entry_price is not None
+        else (buy_notional / bought_qty if bought_qty else None)
+    )
+    exit_price = (
+        _finite_decimal(baseline_exit_price, field="baseline exit price")
+        if baseline_exit_price is not None
+        else (sell_notional / sold_qty if sold_qty else None)
+    )
     opportunity = None
     if entry and exit_price and bought_qty:
         opportunity = (exit_price - entry) * bought_qty - net
     timestamps = [float(f.get("ts", f.get("time", 0)) or 0) for f in fills if f.get("ts", f.get("time"))]
     duration = (max(timestamps) - min(timestamps)) if len(timestamps) >= 2 else None
     exits = [str(f.get("exit_reason", "")).upper() for f in sells]
-    return {"net_pnl_quote": net, "buy_qty": bought_qty, "sell_qty": sold_qty,
-            "holding_duration_sec": duration, "opportunity_cost_quote": opportunity,
-            "baseline_entry_price": entry, "baseline_exit_price": exit_price,
-            "fees_quote": fees, "slippage_quote": slippage,
+    # JSON and existing dashboard consumers receive numeric compatibility
+    # fields. Exact text companions are the durable accounting representation.
+    return {"net_pnl_quote": float(net), "net_pnl_quote_text": format(net, "f"),
+            "buy_qty": float(bought_qty), "buy_qty_text": format(bought_qty, "f"),
+            "sell_qty": float(sold_qty), "sell_qty_text": format(sold_qty, "f"),
+            "holding_duration_sec": duration,
+            "opportunity_cost_quote": float(opportunity) if opportunity is not None else None,
+            "opportunity_cost_quote_text": format(opportunity, "f") if opportunity is not None else None,
+            "baseline_entry_price": float(entry) if entry is not None else None,
+            "baseline_entry_price_text": format(entry, "f") if entry is not None else None,
+            "baseline_exit_price": float(exit_price) if exit_price is not None else None,
+            "baseline_exit_price_text": format(exit_price, "f") if exit_price is not None else None,
+            "fees_quote": float(fees), "fees_quote_text": format(fees, "f"),
+            "slippage_quote": float(slippage), "slippage_quote_text": format(slippage, "f"),
             "partial_fill": bool(bought_qty > 0 and 0 < sold_qty < bought_qty),
             "exit_reasons": sorted(set(exits)),
             "exit_reason": exits[-1] if exits else "",
-            "closed": bool(bought_qty > 0 and sold_qty >= bought_qty - 1e-12)}
+            "closed": bool(bought_qty > 0 and sold_qty >= bought_qty - Decimal("0.000000000001"))}
 
 
 @dataclass(frozen=True)
@@ -463,10 +526,12 @@ class AdvisorDecisionStore:
                     fill_id TEXT PRIMARY KEY, decision_id TEXT NOT NULL,
                     symbol TEXT NOT NULL, side TEXT NOT NULL, price REAL NOT NULL,
                     qty REAL NOT NULL, fee_quote REAL NOT NULL DEFAULT 0,
+                    price_text TEXT, qty_text TEXT, fee_quote_text TEXT,
                     exit_reason TEXT NOT NULL DEFAULT '', ts INTEGER NOT NULL,
                     order_id TEXT, trade_id TEXT, client_order_id TEXT, order_list_id TEXT,
                     leg_type TEXT NOT NULL DEFAULT '', link_status TEXT NOT NULL DEFAULT 'resolved',
                     slippage_quote REAL NOT NULL DEFAULT 0,
+                    slippage_quote_text TEXT,
                     FOREIGN KEY(decision_id) REFERENCES ai_decisions(decision_id)
                 )"""
             )
@@ -474,7 +539,8 @@ class AdvisorDecisionStore:
             connection.execute("""CREATE TABLE IF NOT EXISTS ai_unresolved_fills(
                 fill_key TEXT PRIMARY KEY, symbol TEXT NOT NULL, side TEXT NOT NULL,
                 order_id TEXT, trade_id TEXT, price REAL NOT NULL, qty REAL NOT NULL,
-                fee_quote REAL NOT NULL DEFAULT 0, ts INTEGER NOT NULL,
+                fee_quote REAL NOT NULL DEFAULT 0, price_text TEXT, qty_text TEXT,
+                fee_quote_text TEXT, ts INTEGER NOT NULL,
                 reason TEXT NOT NULL, created_at INTEGER NOT NULL
             )""")
             connection.execute("""CREATE TABLE IF NOT EXISTS ai_order_links(
@@ -482,6 +548,7 @@ class AdvisorDecisionStore:
                 symbol TEXT NOT NULL, lot_id INTEGER, order_type TEXT NOT NULL DEFAULT '',
                 exchange_order_id TEXT, exchange_order_list_id TEXT,
                 leg_type TEXT NOT NULL DEFAULT '', expected_price REAL,
+                expected_price_text TEXT,
                 created_at INTEGER NOT NULL
             )""")
             columns = {
@@ -509,10 +576,17 @@ class AdvisorDecisionStore:
                     "order_list_id": "TEXT", "leg_type": "TEXT NOT NULL DEFAULT ''",
                     "link_status": "TEXT NOT NULL DEFAULT 'resolved'",
                     "slippage_quote": "REAL NOT NULL DEFAULT 0",
+                    "price_text": "TEXT", "qty_text": "TEXT",
+                    "fee_quote_text": "TEXT", "slippage_quote_text": "TEXT",
+                },
+                "ai_unresolved_fills": {
+                    "price_text": "TEXT", "qty_text": "TEXT",
+                    "fee_quote_text": "TEXT",
                 },
                 "ai_order_links": {
                     "exchange_order_id": "TEXT", "exchange_order_list_id": "TEXT",
                     "leg_type": "TEXT NOT NULL DEFAULT ''", "expected_price": "REAL",
+                    "expected_price_text": "TEXT",
                 },
             }.items():
                 existing = {row[1] for row in connection.execute(f"PRAGMA table_info({table})")}
@@ -543,14 +617,14 @@ class AdvisorDecisionStore:
             )
 
     def record_fill(self, decision_id: str, *, symbol: str, side: str,
-                    price: float, qty: float, fee_quote: float = 0.0,
+                    price: object, qty: object, fee_quote: object = 0,
                     exit_reason: str = "", ts: int | None = None,
                     order_id: str | int | None = None,
                     trade_id: str | int | None = None,
                     client_order_id: str | None = None,
                     order_list_id: str | int | None = None,
                     leg_type: str = "",
-                    slippage_quote: float = 0.0) -> str:
+                    slippage_quote: object = 0) -> str:
         """Record fill."""
         fill_id = uuid.uuid4().hex
         with self._connect() as connection:
@@ -564,24 +638,31 @@ class AdvisorDecisionStore:
                 ).fetchone()
                 if duplicate:
                     return str(duplicate[0])
+            price_exact = _finite_decimal(price, field="fill price")
+            qty_exact = _finite_decimal(qty, field="fill quantity")
+            fee_exact = _finite_decimal(fee_quote, field="fill fee")
+            slippage_exact = _finite_decimal(slippage_quote, field="fill slippage")
             connection.execute(
                 """INSERT INTO ai_fills(
                     fill_id,decision_id,symbol,side,price,qty,fee_quote,exit_reason,ts,
-                    order_id,trade_id,client_order_id,order_list_id,leg_type,link_status,slippage_quote
-                ) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
-                (fill_id, decision_id, symbol.upper(), side.upper(), float(price), float(qty),
-                 float(fee_quote), exit_reason, int(ts or time.time()),
+                    order_id,trade_id,client_order_id,order_list_id,leg_type,link_status,slippage_quote,
+                    price_text,qty_text,fee_quote_text,slippage_quote_text
+                ) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                (fill_id, decision_id, symbol.upper(), side.upper(), float(price_exact), float(qty_exact),
+                 float(fee_exact), exit_reason, int(ts or time.time()),
                  str(order_id) if order_id is not None else None,
                  str(trade_id) if trade_id is not None else None,
                  client_order_id,
                  str(order_list_id) if order_list_id is not None else None,
-                 leg_type, "resolved", float(slippage_quote)),
+                 leg_type, "resolved", float(slippage_exact),
+                 format(price_exact, "f"), format(qty_exact, "f"),
+                 format(fee_exact, "f"), format(slippage_exact, "f")),
             )
         return fill_id
 
     def record_unresolved_fill(
-        self, *, symbol: str, side: str, price: float, qty: float,
-        fee_quote: float = 0.0, ts: int | None = None,
+        self, *, symbol: str, side: str, price: object, qty: object,
+        fee_quote: object = 0, ts: int | None = None,
         order_id: str | int | None = None, trade_id: str | int | None = None,
         reason: str = "missing_decision_mapping",
     ) -> str:
@@ -589,14 +670,20 @@ class AdvisorDecisionStore:
         stamp = int(ts or time.time())
         fill_key = f"{symbol.upper()}:{trade_id if trade_id is not None else order_id}:{stamp}"
         with self._connect() as connection:
+            price_exact = _finite_decimal(price, field="unresolved fill price")
+            qty_exact = _finite_decimal(qty, field="unresolved fill quantity")
+            fee_exact = _finite_decimal(fee_quote, field="unresolved fill fee")
             connection.execute(
                 """INSERT OR REPLACE INTO ai_unresolved_fills(
-                    fill_key,symbol,side,order_id,trade_id,price,qty,fee_quote,ts,reason,created_at
-                ) VALUES(?,?,?,?,?,?,?,?,?,?,?)""",
+                    fill_key,symbol,side,order_id,trade_id,price,qty,fee_quote,
+                    price_text,qty_text,fee_quote_text,ts,reason,created_at
+                ) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
                 (fill_key, symbol.upper(), side.upper(),
                  str(order_id) if order_id is not None else None,
                  str(trade_id) if trade_id is not None else None,
-                 float(price), float(qty), float(fee_quote), stamp,
+                 float(price_exact), float(qty_exact), float(fee_exact),
+                 format(price_exact, "f"), format(qty_exact, "f"),
+                 format(fee_exact, "f"), stamp,
                  reason[:240], int(time.time())),
             )
         return fill_key
@@ -605,8 +692,14 @@ class AdvisorDecisionStore:
                           lot_id: int | None = None, order_type: str = "",
                           exchange_order_id: str | int | None = None,
                           exchange_order_list_id: str | int | None = None,
-                          leg_type: str = "", expected_price: float | None = None) -> None:
+                          leg_type: str = "", expected_price: object | None = None) -> None:
         """Handle link client order."""
+        expected_exact = (
+            _finite_decimal(expected_price, field="expected order price")
+            if expected_price is not None else None
+        )
+        expected_float = float(expected_exact) if expected_exact is not None else None
+        expected_text = format(expected_exact, "f") if expected_exact is not None else None
         with self._connect() as connection:
             existing = connection.execute(
                 "SELECT decision_id FROM ai_order_links WHERE client_order_id=?",
@@ -621,21 +714,24 @@ class AdvisorDecisionStore:
                        SET symbol=?, lot_id=COALESCE(lot_id,?),
                            order_type=CASE WHEN order_type='' THEN ? ELSE order_type END,
                            leg_type=CASE WHEN leg_type='' THEN ? ELSE leg_type END,
-                           expected_price=COALESCE(expected_price,?)
+                           expected_price=COALESCE(expected_price,?),
+                           expected_price_text=COALESCE(expected_price_text,?)
                        WHERE client_order_id=?""",
-                    (symbol.upper(), lot_id, order_type, leg_type, expected_price, client_order_id),
+                    (symbol.upper(), lot_id, order_type, leg_type,
+                     expected_float, expected_text, client_order_id),
                 )
                 return
             connection.execute(
                 """INSERT OR REPLACE INTO ai_order_links(
                     client_order_id,decision_id,symbol,lot_id,order_type,
-                    exchange_order_id,exchange_order_list_id,leg_type,expected_price,created_at
-                ) VALUES(?,?,?,?,?,?,?,?,?,?)""",
+                    exchange_order_id,exchange_order_list_id,leg_type,expected_price,
+                    expected_price_text,created_at
+                ) VALUES(?,?,?,?,?,?,?,?,?,?,?)""",
                 (
                     client_order_id, decision_id, symbol.upper(), lot_id, order_type,
                     str(exchange_order_id) if exchange_order_id is not None else None,
                     str(exchange_order_list_id) if exchange_order_list_id is not None else None,
-                    leg_type, expected_price, int(time.time()),
+                    leg_type, expected_float, expected_text, int(time.time()),
                 ),
             )
 
@@ -684,7 +780,7 @@ class AdvisorDecisionStore:
         with self._connect() as connection:
             row = connection.execute(
                 """SELECT decision_id,client_order_id,leg_type,exchange_order_list_id,
-                          expected_price
+                          COALESCE(NULLIF(expected_price_text,''),CAST(expected_price AS TEXT))
                    FROM ai_order_links WHERE exchange_order_id=? LIMIT 1""",
                 (str(order_id),),
             ).fetchone()
@@ -694,6 +790,7 @@ class AdvisorDecisionStore:
                 "decision_id": str(row[0]), "client_order_id": str(row[1]),
                 "leg_type": str(row[2] or ""), "order_list_id": row[3],
                 "expected_price": float(row[4]) if row[4] is not None else None,
+                "expected_price_text": str(row[4]) if row[4] is not None else None,
             }
 
     def unresolved_fill_count(self) -> int:
@@ -715,8 +812,13 @@ class AdvisorDecisionStore:
         """Evaluate execution."""
         with self._connect() as connection:
             rows = connection.execute(
-                """SELECT side,price,qty,fee_quote,exit_reason,ts,order_id,
-                          trade_id,client_order_id,order_list_id,leg_type,slippage_quote
+                """SELECT side,
+                          COALESCE(NULLIF(price_text,''),CAST(price AS TEXT)),
+                          COALESCE(NULLIF(qty_text,''),CAST(qty AS TEXT)),
+                          COALESCE(NULLIF(fee_quote_text,''),CAST(fee_quote AS TEXT)),
+                          exit_reason,ts,order_id,
+                          trade_id,client_order_id,order_list_id,leg_type,
+                          COALESCE(NULLIF(slippage_quote_text,''),CAST(slippage_quote AS TEXT))
                    FROM ai_fills WHERE decision_id=? ORDER BY ts""",
                 (decision_id,),
             ).fetchall()
@@ -731,7 +833,11 @@ class AdvisorDecisionStore:
         } for r in rows]
         # Baseline uses the same entry and quantity, so the comparison cannot
         # win artificially because of a different position size.
-        result = evaluate_realized_ai_pnl(fills, baseline_entry_price=float(decision[0]), baseline_exit_price=baseline_exit_price)
+        result = evaluate_realized_ai_pnl(
+            fills,
+            baseline_entry_price=decision[0],
+            baseline_exit_price=baseline_exit_price,
+        )
         result["decision_id"] = decision_id
         with self._connect() as connection:
             row = connection.execute("SELECT evaluation_json FROM ai_decisions WHERE decision_id=?", (decision_id,)).fetchone()
@@ -910,10 +1016,13 @@ class AdvisorDecisionStore:
             realized.append(item)
             reason = str(item.get("exit_reason", "")).upper()
             stop_exits += int("STOP" in reason or reason in {"SL", "STOP_LOSS"})
-        edge_values = [
-            -float(item.get("opportunity_cost_quote", 0) or 0)
+        edge_values_exact = [
+            -_financial_result_decimal(
+                item, "opportunity_cost_quote_text", "opportunity_cost_quote"
+            )
             for item in realized
         ]
+        edge_values = [float(value) for value in edge_values_exact]
         edge_mean = sum(edge_values) / len(edge_values) if edge_values else 0.0
         if len(edge_values) > 1:
             variance = sum((value - edge_mean) ** 2 for value in edge_values) / (len(edge_values) - 1)
@@ -930,8 +1039,14 @@ class AdvisorDecisionStore:
             len(comparisons),
             sum(comparisons) / len(comparisons) if comparisons else 0.0,
             len(realized),
-            sum(float(item.get("net_pnl_quote", 0) or 0) for item in realized),
-            sum(float(item.get("net_pnl_quote", 0) or 0) for item in realized) / len(realized)
+            float(sum(
+                (_financial_result_decimal(item, "net_pnl_quote_text", "net_pnl_quote") for item in realized),
+                ZERO,
+            )),
+            float(sum(
+                (_financial_result_decimal(item, "net_pnl_quote_text", "net_pnl_quote") for item in realized),
+                ZERO,
+            ) / len(realized))
             if realized else 0.0,
             stop_exits / len(realized) if realized else 0.0,
             edge_mean - margin,
@@ -998,7 +1113,10 @@ class AdvisorDecisionStore:
         )
         closed = [row["evaluation"].get("realized_execution") for row in recent
                   if row["evaluation"].get("realized_execution", {}).get("sell_qty", 0) > 0]
-        actual_pnl = sum(float(item.get("net_pnl_quote", 0) or 0) for item in closed)
+        actual_pnl_exact = sum(
+            (_financial_result_decimal(item, "net_pnl_quote_text", "net_pnl_quote") for item in closed),
+            ZERO,
+        )
         return {
             "recent": recent,
             "recommendation_count": len(recent),
@@ -1008,7 +1126,8 @@ class AdvisorDecisionStore:
             "calibration_1h": confidence_calibration(calibration_rows),
             "realized_execution": {
                 "closed_decisions": len(closed),
-                "net_pnl_quote": actual_pnl,
+                "net_pnl_quote": float(actual_pnl_exact),
+                "net_pnl_quote_text": format(actual_pnl_exact, "f"),
                 "avg_holding_duration_sec": (
                     sum(float(item.get("holding_duration_sec", 0) or 0) for item in closed) / len(closed)
                     if closed else None

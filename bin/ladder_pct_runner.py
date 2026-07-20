@@ -105,7 +105,7 @@ def _filters_decimal(symbol: str) -> dict:
         tick = D(str(f.get("tickSize") or "0.01"))
         if tick <= 0:
             die(f"Invalid tickSize for {symbol}: {tick}", code=6)
-    except Exception as e:
+    except (RuntimeError, KeyError, TypeError, ValueError, ArithmeticError) as e:
         die(f"Bad filters for {symbol}: {e}", code=6)
     out = {
         "tickSize": D(str(f.get("tickSize", "0.01") or "0.01")),
@@ -127,7 +127,7 @@ def _now_price_decimal(symbol: str) -> Decimal:
 def main():
     try:
         import numpy as np
-    except Exception as e:
+    except ImportError as e:
         die(f"NumPy is required: pip install numpy ({e})", code=5)
     args = parse_args()
     symbol = args.symbol.upper()
@@ -142,7 +142,7 @@ def main():
         density = max(2, min(density, 256))
         if not (min_pct_in < 0 and max_pct_in < 0 and abs(max_pct_in) >= abs(min_pct_in)):
             die("Both percentages must be negative and |max|>=|min| (for example -0.5,-20)")
-    except Exception:
+    except (TypeError, ValueError, ArithmeticError):
         die("bad --ladder-pct format")
 
     now  = _now_price_decimal(symbol)

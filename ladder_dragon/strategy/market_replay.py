@@ -368,6 +368,7 @@ class ReplayCalibration:
     partial_fill_ratio: Decimal
     latency_ms_p95: int
     market_impact_bps: Decimal
+    volatility_bps_p95: Decimal = Decimal("0")
     latency_source: str = "execution_report"
 
     def as_dict(self) -> dict[str, object]:
@@ -389,6 +390,7 @@ class ReplayCalibration:
                 "partial_fill_ratio": format(self.partial_fill_ratio, "f"),
                 "latency_ms_p95": self.latency_ms_p95,
                 "market_impact_bps": format(self.market_impact_bps, "f"),
+                "volatility_bps_p95": format(self.volatility_bps_p95, "f"),
                 "latency_source": self.latency_source,
             },
         }
@@ -397,7 +399,7 @@ class ReplayCalibration:
     def from_dict(cls, payload: Mapping[str, Any]) -> "ReplayCalibration":
         params = payload.get("parameters")
         schema_version = int(payload.get("schema_version", 0))
-        if schema_version not in {1, 2} or not isinstance(params, Mapping):
+        if schema_version not in {1, 2, 3} or not isinstance(params, Mapping):
             raise ValueError("unsupported replay calibration schema")
         return cls(
             schema_version=schema_version,
@@ -416,6 +418,9 @@ class ReplayCalibration:
             partial_fill_ratio=Decimal(str(params["partial_fill_ratio"])),
             latency_ms_p95=int(params["latency_ms_p95"]),
             market_impact_bps=Decimal(str(params["market_impact_bps"])),
+            volatility_bps_p95=Decimal(
+                str(params.get("volatility_bps_p95", "0"))
+            ),
             latency_source=str(
                 params.get("latency_source", "execution_report")
             ),
@@ -443,6 +448,8 @@ def calibrate_market_events(
     has_measured_order_latency = bool(latencies)
     receive_latencies: list[int] = []
     impacts: list[Decimal] = []
+    mid_moves_bps: list[Decimal] = []
+    previous_mid: Decimal | None = None
     trade_count = 0
     book_events = 0
     for event in rows:
@@ -460,6 +467,11 @@ def calibrate_market_events(
                 raise ValueError("replay contains a crossed or invalid book")
             spread = (ask.price - bid.price) / mid
             spreads.append(spread)
+            if previous_mid is not None and previous_mid > 0:
+                mid_moves_bps.append(
+                    abs(mid / previous_mid - Decimal("1")) * Decimal("10000")
+                )
+            previous_mid = mid
             book_events += 1
             for price, quantity, aggressor in event.trades:
                 if price <= 0 or quantity <= 0:
@@ -501,7 +513,7 @@ def calibrate_market_events(
     if not latencies:
         reasons.append("latency samples unavailable")
     return ReplayCalibration(
-        schema_version=2,
+        schema_version=3,
         archive_sha256=source_sha256,
         first_ts_ms=min(event.ts_ms for event in rows),
         last_ts_ms=max(event.ts_ms for event in rows),
@@ -517,6 +529,7 @@ def calibrate_market_events(
         partial_fill_ratio=_quantile(partials, 1, 4) if partials else Decimal("0"),
         latency_ms_p95=int(_quantile([Decimal(value) for value in latencies], 95, 100)),
         market_impact_bps=_quantile(impacts, 3, 4),
+        volatility_bps_p95=_quantile(mid_moves_bps, 95, 100),
         latency_source=latency_source,
     )
 

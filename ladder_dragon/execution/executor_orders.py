@@ -46,7 +46,7 @@ def _record_definitive_rejection(
 
 def _link_ai_order(
     client_id: str, symbol: str, *, lot_id: int | None = None,
-    order_type: str = "", leg_type: str = "", expected_price: float | None = None,
+    order_type: str = "", leg_type: str = "", expected_price: object | None = None,
 ) -> None:
     """Handle link ai order."""
     decision_id = os.getenv("BOT_AI_DECISION_ID", "").strip()
@@ -108,12 +108,12 @@ class OrderDependencies:
     live: Callable[[], bool]
     logger: Callable[[str], None]
     pull_filters: Callable[[str], Any]
-    round_price: Callable[[str, float], float]
-    round_qty: Callable[[str, float], float]
-    min_qty: Callable[[str, float], float]
-    min_notional: Callable[[str, float], float]
-    format_price: Callable[[str, float], str]
-    format_qty: Callable[[str, float], str]
+    round_price: Callable[[str, object], object]
+    round_qty: Callable[[str, object], object]
+    min_qty: Callable[[str, object], object]
+    min_notional: Callable[[str, object], object]
+    format_price: Callable[[str, object], str]
+    format_qty: Callable[[str, object], str]
     journal: Callable[[], OrderJournal | None]
     signed_request: Callable[..., Any]
     get_order_by_client_id: Callable[[str, str], Dict[str, Any] | None]
@@ -175,17 +175,17 @@ def place_limit_order(
         # bundled production adapter always supplies the exact filter fields.
         price_text = dependencies.format_price(
             symbol,
-            dependencies.round_price(symbol, float(raw_price)),
+            dependencies.round_price(symbol, raw_price),
         )
         quantity_text = dependencies.format_qty(
             symbol,
-            dependencies.round_qty(symbol, float(raw_quantity)),
+            dependencies.round_qty(symbol, raw_quantity),
         )
         price_exact = Decimal(price_text)
         quantity_exact = Decimal(quantity_text)
         min_qty_exact = Decimal(str(dependencies.min_qty(symbol, 0)))
         min_notional_exact = Decimal(
-            str(dependencies.min_notional(symbol, float(price_exact)))
+            str(dependencies.min_notional(symbol, price_exact))
         )
 
     if quantity_exact < min_qty_exact:
@@ -194,7 +194,7 @@ def place_limit_order(
         needed = max(min_notional_exact / price_exact, min_qty_exact)
         quantity_text = dependencies.format_qty(
             symbol,
-            dependencies.round_qty(symbol, float(needed)),
+            dependencies.round_qty(symbol, needed),
         )
         quantity_exact = Decimal(quantity_text)
         if (
@@ -264,7 +264,7 @@ def place_limit_order(
         order_client_id,
         symbol,
         order_type="LIMIT",
-        expected_price=float(price_exact),
+        expected_price=price_exact,
     )
     if journal is not None:
         # Commit PREPARED before the network request; this is the idempotency base.
@@ -399,12 +399,12 @@ def place_market_order(
         minimum_quantity = exact_filters.minimum_quantity
         minimum_notional = exact_filters.minimum_notional
     else:
-        rounded_quantity = dependencies.round_qty(symbol, float(quantity_exact))
+        rounded_quantity = dependencies.round_qty(symbol, quantity_exact)
         quantity_text = dependencies.format_qty(symbol, rounded_quantity)
         quantity_exact = Decimal(quantity_text)
         minimum_quantity = Decimal(str(dependencies.min_qty(symbol, 0)))
         minimum_notional = (
-            Decimal(str(dependencies.min_notional(symbol, float(reference_exact))))
+            Decimal(str(dependencies.min_notional(symbol, reference_exact)))
             if reference_exact is not None else Decimal("0")
         )
     if quantity_exact <= 0 or quantity_exact < minimum_quantity:
@@ -457,7 +457,7 @@ def place_market_order(
         symbol,
         order_type="MARKET",
         expected_price=(
-            float(reference_exact) if reference_exact is not None else None
+            reference_exact if reference_exact is not None else None
         ),
     )
     if journal is not None:
@@ -584,16 +584,16 @@ def place_oco_sell(
         limit_text = format_step(limit_exact, tick)
     else:
         quantity_text = dependencies.format_qty(
-            symbol, dependencies.round_qty(symbol, float(quantity_exact))
+            symbol, dependencies.round_qty(symbol, quantity_exact)
         )
         tp_text = dependencies.format_price(
-            symbol, dependencies.round_price(symbol, float(tp_exact))
+            symbol, dependencies.round_price(symbol, tp_exact)
         )
         stop_text = dependencies.format_price(
-            symbol, dependencies.round_price(symbol, float(stop_exact))
+            symbol, dependencies.round_price(symbol, stop_exact)
         )
         limit_text = dependencies.format_price(
-            symbol, dependencies.round_price(symbol, float(limit_exact))
+            symbol, dependencies.round_price(symbol, limit_exact)
         )
         quantity_exact = Decimal(quantity_text)
         tp_exact = Decimal(tp_text)
@@ -601,7 +601,7 @@ def place_oco_sell(
         limit_exact = Decimal(limit_text)
         minimum_qty = Decimal(str(dependencies.min_qty(symbol, 0)))
         minimum_notional = Decimal(
-            str(dependencies.min_notional(symbol, float(tp_exact)))
+            str(dependencies.min_notional(symbol, tp_exact))
         )
     if (
         quantity_exact < minimum_qty
@@ -640,7 +640,7 @@ def place_oco_sell(
         )
     )
     _link_ai_order(list_client_id, symbol, lot_id=lot_id, order_type="OCO", leg_type="LIST",
-                   expected_price=float(tp_text))
+                   expected_price=tp_text)
     if active is not None:
         existing = dependencies.get_order_list_by_client_id(list_client_id)
         if (
@@ -677,7 +677,7 @@ def place_oco_sell(
                     _link_ai_order(
                         str(leg["clientOrderId"]), symbol, lot_id=lot_id,
                         order_type="OCO_LEG", leg_type=str(leg.get("type", "")),
-                        expected_price=float(leg.get("price") or leg.get("stopPrice") or 0),
+                        expected_price=leg.get("price") or leg.get("stopPrice") or "0",
                     )
                     _update_ai_order(
                         str(leg["clientOrderId"]),
@@ -801,7 +801,7 @@ def place_oco_sell(
                 _link_ai_order(
                     str(leg_client_id), symbol, lot_id=lot_id,
                     order_type="OCO_LEG", leg_type=str(leg.get("type", "")),
-                    expected_price=float(leg.get("price") or leg.get("stopPrice") or 0),
+                    expected_price=leg.get("price") or leg.get("stopPrice") or "0",
                 )
                 _update_ai_order(
                     str(leg_client_id), exchange_order_id=leg_order_id,
@@ -864,7 +864,7 @@ def place_oco_sell(
                         _link_ai_order(
                             str(leg["clientOrderId"]), symbol, lot_id=lot_id,
                             order_type="OCO_LEG", leg_type=str(leg.get("type", "")),
-                            expected_price=float(leg.get("price") or leg.get("stopPrice") or 0),
+                            expected_price=leg.get("price") or leg.get("stopPrice") or "0",
                         )
                         _update_ai_order(
                             str(leg["clientOrderId"]),

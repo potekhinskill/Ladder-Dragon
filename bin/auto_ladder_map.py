@@ -80,7 +80,7 @@ def interval_minutes(interval: str) -> float:
     try:
         unit = interval[-1].lower()
         val = float(interval[:-1])
-    except Exception:
+    except (TypeError, ValueError, IndexError):
         return 1.0
     return val if unit=='m' else val*60.0 if unit=='h' else val*1440.0 if unit=='d' else 1.0
 
@@ -151,7 +151,7 @@ def main():
                     if not (isinstance(v, (list, tuple)) and len(v) == 3):
                         raise ValueError(f"bad preset for {sym}/{k}: {v}")
                     presets[sym][k.upper()] = (float(v[0]), float(v[1]), float(v[2]))
-        except Exception as e:
+        except (json.JSONDecodeError, TypeError, ValueError, KeyError) as e:
             print(f"[WARN] bad LADDER_PRESET_JSON: {e}", file=sys.stderr)
 
     session = make_session()
@@ -166,7 +166,7 @@ def main():
             seg = f"{sym}={near:.3f},{far:.3f},{tp:.3f}"
             out_parts.append(seg)
             print(f"[{sym}] regime={reg} → {seg}", file=sys.stderr)
-        except Exception as e:
+        except (requests.RequestException, ArithmeticError, TypeError, ValueError, KeyError, IndexError) as e:
             trip = presets.get(sym, presets["SOLUSDT"])["FLAT"]
             near, far, tp = trip
             seg = f"{sym}={near:.3f},{far:.3f},{tp:.3f}"

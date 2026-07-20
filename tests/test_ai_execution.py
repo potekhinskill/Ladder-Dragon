@@ -1,6 +1,7 @@
 import sqlite3
+from decimal import Decimal
 
-from ladder_dragon.ai.ai_context import AdvisorDecisionStore
+from ladder_dragon.ai.ai_context import AdvisorDecisionStore, evaluate_realized_ai_pnl
 
 
 def test_ai_decision_fills_are_linked_and_evaluated(tmp_path):
@@ -15,6 +16,53 @@ def test_ai_decision_fills_are_linked_and_evaluated(tmp_path):
     assert result["net_pnl_quote"] == 1.8
     assert result["holding_duration_sec"] == 60.0
     assert result["opportunity_cost_quote"] < 0
+
+
+def test_ai_pnl_preserves_exact_decimal_companions():
+    result = evaluate_realized_ai_pnl(
+        [
+            {"side": "BUY", "price": "0.123456789", "qty": "3.00000000", "fee_quote": "0.00000001"},
+            {"side": "SELL", "price": "0.223456789", "qty": "3.00000000", "fee_quote": "0.00000002"},
+        ]
+    )
+
+    assert Decimal(result["net_pnl_quote_text"]) == Decimal("0.29999997000000000")
+    assert result["buy_qty_text"] == "3.00000000"
+    assert result["sell_qty_text"] == "3.00000000"
+
+
+def test_ai_store_persists_exact_fill_and_expected_price_text(tmp_path):
+    path = tmp_path / "ai.db"
+    store = AdvisorDecisionStore(str(path))
+    decision = store.record(
+        symbol="SOLUSDT", price=100, deterministic_mode="FLAT",
+        recommended_mode="UP", width_scale=1, cap_scale=1,
+        confidence=.8, applied=False,
+    )
+    store.link_client_order(
+        "exact-client", decision, symbol="SOLUSDT",
+        expected_price="0.123456789123456789",
+    )
+    store.record_fill(
+        decision, symbol="SOLUSDT", side="BUY",
+        price="0.123456789123456789", qty="3.000000000000000001",
+        fee_quote="0.000000000000000003", slippage_quote="0.000000000000000004",
+    )
+
+    with sqlite3.connect(path) as connection:
+        fill = connection.execute(
+            "SELECT price_text,qty_text,fee_quote_text,slippage_quote_text FROM ai_fills"
+        ).fetchone()
+        expected = connection.execute(
+            "SELECT expected_price_text FROM ai_order_links WHERE client_order_id='exact-client'"
+        ).fetchone()
+    assert fill == (
+        "0.123456789123456789",
+        "3.000000000000000001",
+        "0.000000000000000003",
+        "0.000000000000000004",
+    )
+    assert expected == ("0.123456789123456789",)
 
 
 def test_fill_mapping_uses_exchange_order_id_and_unresolved_is_excluded(tmp_path):
