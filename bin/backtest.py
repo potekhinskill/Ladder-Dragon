@@ -7,8 +7,12 @@
 import argparse
 import csv
 from decimal import Decimal
+from dataclasses import fields
+import hashlib
 import json
 import math
+from pathlib import Path
+import time
 
 from ladder_dragon.strategy.simulation import Candle, SimulationConfig, simulate_grid
 from ladder_dragon.strategy.market_replay import (
@@ -16,6 +20,64 @@ from ladder_dragon.strategy.market_replay import (
     load_jsonl_archive,
     read_calibration,
 )
+from product_version import __version__
+
+
+REPORT_SCHEMA_VERSION = 2
+MARKET_IMPACT_BPS_DIVISOR = Decimal("10000")
+
+
+def _file_sha256(path: str | Path) -> str:
+    digest = hashlib.sha256()
+    with Path(path).open("rb") as handle:
+        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def _config_dict(config: SimulationConfig) -> dict[str, object]:
+    return {
+        field.name: (
+            format(value, "f") if isinstance(value, Decimal) else value
+        )
+        for field in fields(config)
+        for value in (getattr(config, field.name),)
+    }
+
+
+def build_report(
+    result,
+    config: SimulationConfig,
+    *,
+    csv_sha256: str,
+    archive_hash: str | None,
+    calibration_hash: str | None,
+    calibration,
+    generated_at: int | None = None,
+) -> dict[str, object]:
+    output = {key: str(value) for key, value in result.__dict__.items()}
+    output.update({
+        "report_schema_version": REPORT_SCHEMA_VERSION,
+        "engine_version": __version__,
+        "generated_at": int(generated_at or time.time()),
+        "execution_model": {
+            "market_impact_bps_divisor": format(
+                MARKET_IMPACT_BPS_DIVISOR, "f"
+            ),
+            "matching": "ohlc-conservative-v2",
+            "latency": "whole-bars-minimum-one",
+        },
+        "inputs": {
+            "candles_sha256": csv_sha256,
+            "archive_sha256": archive_hash,
+            "calibration_sha256": calibration_hash,
+        },
+        "config": _config_dict(config),
+        "calibration": (
+            calibration.as_dict() if calibration is not None else None
+        ),
+    })
+    return output
 
 
 def main() -> int:
@@ -28,6 +90,10 @@ def main() -> int:
     parser.add_argument("--latency-bars", type=int, default=1)
     parser.add_argument("--archive", help="optional Binance replay JSONL")
     parser.add_argument("--calibration", help="eligible calibration JSON")
+    parser.add_argument(
+        "--market-impact-bps", type=Decimal, default=Decimal("0")
+    )
+    parser.add_argument("--output", help="optional JSON report path")
     args = parser.parse_args()
     with open(args.csv_file, newline="", encoding="utf-8") as handle:
         candles = [
@@ -41,6 +107,7 @@ def main() -> int:
         "fee_pct": args.fee,
         "slippage_pct": args.slippage,
         "latency_bars": args.latency_bars,
+        "market_impact_bps": args.market_impact_bps,
     }
     calibration = None
     if args.calibration:
@@ -66,14 +133,22 @@ def main() -> int:
             "market_impact_bps": calibration.market_impact_bps,
             "latency_bars": max(1, math.ceil(calibration.latency_ms_p95 / bar_ms)),
         })
-    result = simulate_grid(candles, SimulationConfig(
-        **config_values,
-    ), market_events=events)
-    output = {key: str(value) for key, value in result.__dict__.items()}
-    output["calibration"] = (
-        calibration.as_dict() if calibration is not None else None
+    config = SimulationConfig(**config_values)
+    result = simulate_grid(candles, config, market_events=events)
+    output = build_report(
+        result,
+        config,
+        csv_sha256=_file_sha256(args.csv_file),
+        archive_hash=(archive_sha256(args.archive) if args.archive else None),
+        calibration_hash=(
+            _file_sha256(args.calibration) if args.calibration else None
+        ),
+        calibration=calibration,
     )
-    print(json.dumps(output, indent=2))
+    encoded = json.dumps(output, indent=2, sort_keys=True) + "\n"
+    if args.output:
+        Path(args.output).write_text(encoded, encoding="utf-8")
+    print(encoded, end="")
     return 0
 
 

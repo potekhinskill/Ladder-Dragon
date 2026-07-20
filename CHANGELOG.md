@@ -3,6 +3,28 @@
 All notable changes are documented here. Releases use Semantic Versioning; every
 section is dated and there is intentionally no `Unreleased` section.
 
+## [2.10.99] — 2026-07-20
+
+### Changed
+- GitHub CI now runs the complete test suite on every supported Python minor
+  version: 3.10, 3.11 and 3.12. Dependency and full-history secret audits run
+  once in a separate pinned job.
+- Backtest JSON now records report schema, Ladder Dragon engine version, exact
+  configuration, input/calibration SHA-256 values and the corrected
+  `market_impact_bps` divisor of 10,000. Invalid impact values fail closed.
+
+### Added
+- Added `bin.audit_backtest_reports` to classify saved reports. Legacy reports
+  with non-zero market impact return exit code 2 and must be regenerated;
+  zero-impact legacy reports are identified as old but unaffected by this fix.
+- The backtest CLI accepts explicit `--market-impact-bps` and optional
+  `--output` while preserving JSON output on stdout.
+
+### Verified
+- Added report provenance, invalidation, CLI exit-code and market-impact range
+  regression tests. Python compilation and the complete local suite pass: 354
+  tests; the tracked-secret scan reports no high-confidence secret.
+
 ## [2.10.98] — 2026-07-20
 
 ### Security

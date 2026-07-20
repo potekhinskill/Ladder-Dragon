@@ -45,6 +45,14 @@ def test_simulation_rejects_same_candle_latency():
         simulate_grid(candles(), SimulationConfig(latency_bars=0))
 
 
+def test_simulation_rejects_invalid_market_impact():
+    with pytest.raises(ValueError, match="market_impact_bps"):
+        simulate_grid(
+            candles(),
+            SimulationConfig(market_impact_bps=Decimal("10000")),
+        )
+
+
 def test_simulation_does_not_fill_impossible_slippage_price():
     result = simulate_grid(
         [

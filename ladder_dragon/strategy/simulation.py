@@ -131,6 +131,8 @@ def simulate_grid(candles: Sequence[Candle], config: SimulationConfig, *, market
         raise ValueError("latency_bars must be at least 1 to avoid same-candle lookahead")
     if config.fee_pct < 0 or config.slippage_pct < 0 or config.spread_pct < 0:
         raise ValueError("fees, slippage and spread must be non-negative")
+    if config.market_impact_bps < 0 or config.market_impact_bps >= D("10000"):
+        raise ValueError("market_impact_bps must be in [0,10000)")
     if not D("0") < config.partial_fill_ratio <= D("1"):
         raise ValueError("partial_fill_ratio must be in (0, 1]")
     if config.stop_loss_pct < 0 or config.stop_loss_pct >= D("1"):

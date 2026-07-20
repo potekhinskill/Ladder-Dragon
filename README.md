@@ -17,7 +17,7 @@ Binance Spot. It builds BUY/SELL grids, uses ATR/EMA/VWAP/ADX regimes, manages
 OCO protection, and records trading statistics in SQLite. Production secrets,
 real backups, and private parameters are never committed.
 
-Current product version: **2.10.98**. The single version source is
+Current product version: **2.10.99**. The single version source is
 `product_version.py`; releases follow [Semantic Versioning](https://semver.org/).
 Project contact: [LinkedIn](https://www.linkedin.com/in/ypotekhin/).
 
@@ -33,7 +33,7 @@ Project contact: [LinkedIn](https://www.linkedin.com/in/ypotekhin/).
 ## Project status
 
 Ladder Dragon is an actively developed, experimental trading system. Version
-**2.10.98** is the current prepared release. `main` is the only long-lived branch;
+**2.10.99** is the current prepared release. `main` is the only long-lived branch;
 feature branches use the `ladderdragon/*` namespace.
 
 DRY and Binance Spot Testnet are the supported starting modes. Mainnet LIVE is
@@ -285,11 +285,13 @@ service, a fresh full Binance re-read with the same plan hash, and an atomic
 post-write verification. Existing lots are archived as `SUPERSEDED`, never
 deleted. See the [Raspberry Pi runbook](docs/RASPBERRY_PI_INSTALL.md#8-legacy-holdings-cost-basis-import).
 
-This workflow intentionally rejects incomplete exchange history, transfers or
-deposits that cannot be explained by fills, unpriced third-asset commissions,
-open symbol orders, and any balance change during reconstruction or between
-preview and apply. Importing a basis does not automatically enable holdings
-SELL or OCO management.
+This workflow intentionally rejects incomplete exchange history, tradeable
+transfers or deposits that cannot be explained by fills, surviving unpriced
+lots, unpriced third-asset commissions, open symbol orders, and any balance
+change during reconstruction or between preview and apply. An unexplained
+remainder strictly below `LOT_SIZE.stepSize` is recorded as unmanaged dust and
+is never assigned an invented price. Importing a basis does not automatically
+enable holdings SELL or OCO management.
 
 ### Archived order-book calibration
 
@@ -305,8 +307,18 @@ PYTHONPATH=. python -m bin.calibrate_replay data/SOLUSDT-events.jsonl \
   --output .runtime/SOLUSDT-calibration.json
 PYTHONPATH=. python -m bin.backtest data/SOLUSDT-1m.csv \
   --archive data/SOLUSDT-events.jsonl \
-  --calibration .runtime/SOLUSDT-calibration.json
+  --calibration .runtime/SOLUSDT-calibration.json \
+  --output .runtime/SOLUSDT-backtest.json
+
+# Locate legacy reports invalidated by the corrected bps conversion.
+PYTHONPATH=. python -m bin.audit_backtest_reports .runtime
 ```
+
+Current reports contain the engine version, complete simulation configuration,
+input hashes and `market_impact_bps_divisor=10000`. The audit command exits 2
+when a legacy report used non-zero market impact and therefore must be rerun.
+Reports with zero impact are marked legacy but are unaffected by that specific
+correction.
 
 The derived spread, slippage, participation, partial-fill, latency, and impact
 parameters are empirical approximations, not a claim that candle backtests
