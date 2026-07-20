@@ -2204,6 +2204,13 @@ def main():
                     logger=log,
                     state_path=Path(bot_run_dir())
                     / f"user_stream_{symbol.upper()}.json",
+                    timestamp_ms=TM._timestamp_ms,
+                    state_persist_interval_sec=_compat_float(
+                        os.getenv("BOT_USER_STREAM_STATE_WRITE_SEC", "5")
+                    ),
+                    idle_timeout_sec=_compat_float(
+                        os.getenv("BOT_USER_STREAM_IDLE_TIMEOUT_SEC", "90")
+                    ),
                 )
                 user_stream_observer.start()
         current_price = get_price(symbol)

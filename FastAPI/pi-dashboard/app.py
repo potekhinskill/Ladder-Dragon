@@ -302,6 +302,7 @@ def _user_stream_snapshot(runtime: Dict[str, object]) -> Dict[str, object]:
                 "out_of_order_events": int(
                     payload.get("out_of_order_events") or 0
                 ),
+                "bad_frames": int(payload.get("bad_frames") or 0),
                 "reconnects": int(payload.get("reconnects") or 0),
                 "connection_attempts": int(
                     payload.get("connection_attempts") or 0
@@ -328,6 +329,7 @@ def _user_stream_snapshot(runtime: Dict[str, object]) -> Dict[str, object]:
                 "order_events": 0,
                 "duplicates": 0,
                 "out_of_order_events": 0,
+                "bad_frames": 0,
                 "reconnects": 0,
                 "connection_attempts": 0,
                 "sessions": 0,

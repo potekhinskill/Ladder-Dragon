@@ -17,7 +17,7 @@ Binance Spot. It builds BUY/SELL grids, uses ATR/EMA/VWAP/ADX regimes, manages
 OCO protection, and records trading statistics in SQLite. Production secrets,
 real backups, and private parameters are never committed.
 
-Current product version: **2.20.2**. The single version source is
+Current product version: **2.20.3**. The single version source is
 `product_version.py`; releases follow [Semantic Versioning](https://semver.org/).
 Project contact: [LinkedIn](https://www.linkedin.com/in/ypotekhin/).
 
@@ -33,7 +33,7 @@ Project contact: [LinkedIn](https://www.linkedin.com/in/ypotekhin/).
 ## Project status
 
 Ladder Dragon is an actively developed, experimental trading system. Version
-**2.20.2** is the current prepared release. `main` is the only long-lived branch;
+**2.20.3** is the current prepared release. `main` is the only long-lived branch;
 feature branches use the `ladderdragon/*` namespace.
 
 DRY and Binance Spot Testnet are the supported starting modes. Mainnet LIVE is
@@ -448,7 +448,17 @@ snapshot older than `DASHBOARD_USER_STREAM_STALE_SEC` (180 seconds by default)
 is explicitly marked stale even if its last stored state said `connected`.
 Sanitized counters and the first observation time survive short executor
 sessions in `/run/mybot`; credentials, payloads and order details are never
-restored. After a real soak, run the read-only gate:
+restored. The subscription timestamp reuses the REST transport's Binance
+server-time offset. Malformed frames are counted and discarded without
+reconnecting, while
+a session with no frames for `BOT_USER_STREAM_IDLE_TIMEOUT_SEC` (90 seconds by
+default) is reconnected. Health snapshots are retained in memory for every
+frame but written to disk no more frequently than
+`BOT_USER_STREAM_STATE_WRITE_SEC` (five seconds by default), except for material
+counter or connection-state changes. This avoids per-frame SD-card writes on
+Raspberry Pi without weakening REST reconciliation.
+
+After a real soak, run the read-only gate:
 
 ```bash
 PYTHONPATH=. .venv/bin/python -m bin.audit_user_stream_soak \

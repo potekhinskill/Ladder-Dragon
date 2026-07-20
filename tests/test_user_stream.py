@@ -7,6 +7,8 @@ from pathlib import Path
 import pytest
 from websocket import WebSocketException, WebSocketTimeoutException
 
+import ladder_dragon.execution.user_stream as user_stream_module
+
 from ladder_dragon.execution.user_stream import (
     BinanceUserDataObserver,
     OrderEventMailbox,
@@ -204,6 +206,12 @@ class FakeConnection:
         self.pings += 1
 
 
+class RawFrameConnection(FakeConnection):
+    def recv(self):
+        frame = next(self.frames)
+        return frame if isinstance(frame, str) else json.dumps(frame)
+
+
 def test_observer_writes_sanitized_state_and_queues_order_event(tmp_path):
     connection = FakeConnection([
         {"status": 200, "result": {"subscriptionId": 0}},
@@ -233,6 +241,131 @@ def test_observer_writes_sanitized_state_and_queues_order_event(tmp_path):
     assert "public-api-key" not in state_text
     assert "private-secret" not in state_text
     assert json.loads(state_text)["order_events"] == 1
+
+
+def test_state_file_writes_are_rate_limited_but_memory_stays_current(
+    tmp_path,
+    monkeypatch,
+):
+    monotonic_now = [100.0]
+    replacements = []
+    real_replace = user_stream_module.os.replace
+
+    def observed_replace(source, target):
+        replacements.append((source, target))
+        real_replace(source, target)
+
+    monkeypatch.setattr(user_stream_module.os, "replace", observed_replace)
+    observer = BinanceUserDataObserver(
+        api_key="key",
+        api_secret="secret",
+        rest_base_url="https://api.binance.com",
+        mailbox=OrderEventMailbox(),
+        logger=lambda message: None,
+        state_path=tmp_path / "stream.json",
+        state_persist_interval_sec=5,
+        monotonic=lambda: monotonic_now[0],
+    )
+
+    observer._set_state(last_event_at=1.0)
+    observer._set_state(last_event_at=2.0)
+    observer._set_state(last_event_at=3.0)
+
+    assert observer.state()["last_event_at"] == 3.0
+    assert len(replacements) == 1
+    assert json.loads((tmp_path / "stream.json").read_text())[
+        "last_event_at"
+    ] == 1.0
+
+    monotonic_now[0] += 5.0
+    observer._set_state(last_event_at=4.0)
+    assert len(replacements) == 2
+    assert json.loads((tmp_path / "stream.json").read_text())[
+        "last_event_at"
+    ] == 4.0
+
+
+def test_malformed_frame_is_counted_without_reconnecting_session(tmp_path):
+    messages = []
+    connection = RawFrameConnection([
+        {"status": 200, "result": {"subscriptionId": 0}},
+        "{not-json",
+        execution_report(),
+        {"event": {"e": "eventStreamTerminated", "E": 1}},
+    ])
+    mailbox = OrderEventMailbox()
+    observer = BinanceUserDataObserver(
+        api_key="key",
+        api_secret="secret",
+        rest_base_url="https://api.binance.com",
+        mailbox=mailbox,
+        logger=messages.append,
+        state_path=tmp_path / "stream.json",
+        connect=lambda *args, **kwargs: connection,
+    )
+
+    with pytest.raises(RuntimeError, match="ended"):
+        observer._observe_connection()
+
+    assert observer.state()["bad_frames"] == 1
+    assert len(mailbox.consume_for([123])) == 1
+    assert messages.count(
+        "[USER-STREAM] discarded malformed frame; "
+        "REST polling remains authoritative"
+    ) == 1
+
+
+def test_subscription_timestamp_uses_injected_server_clock(tmp_path):
+    connection = FakeConnection([
+        {"status": 200, "result": {"subscriptionId": 0}},
+        {"event": {"e": "eventStreamTerminated", "E": 1}},
+    ])
+    observer = BinanceUserDataObserver(
+        api_key="key",
+        api_secret="secret",
+        rest_base_url="https://api.binance.com",
+        mailbox=OrderEventMailbox(),
+        logger=lambda message: None,
+        state_path=tmp_path / "stream.json",
+        connect=lambda *args, **kwargs: connection,
+        timestamp_ms=lambda: 1_700_000_005_123,
+    )
+
+    with pytest.raises(RuntimeError, match="ended"):
+        observer._observe_connection()
+
+    assert connection.sent[0]["params"]["timestamp"] == 1_700_000_005_123
+
+
+def test_silent_session_reconnects_after_deadline(tmp_path):
+    class SilentConnection(FakeConnection):
+        def recv(self):
+            if not hasattr(self, "subscribed"):
+                self.subscribed = True
+                return json.dumps({
+                    "status": 200,
+                    "result": {"subscriptionId": 0},
+                })
+            raise WebSocketTimeoutException("silent")
+
+    ticks = iter((0.0, 0.0, 0.0, 0.5, 2.0))
+    connection = SilentConnection([])
+    observer = BinanceUserDataObserver(
+        api_key="key",
+        api_secret="secret",
+        rest_base_url="https://api.binance.com",
+        mailbox=OrderEventMailbox(),
+        logger=lambda message: None,
+        state_path=tmp_path / "stream.json",
+        connect=lambda *args, **kwargs: connection,
+        idle_timeout_sec=1,
+        monotonic=lambda: next(ticks),
+    )
+
+    with pytest.raises(TimeoutError, match="silent-session"):
+        observer._observe_connection()
+
+    assert connection.pings == 1
 
 
 def test_observer_restores_only_sanitized_cumulative_soak_state(tmp_path):

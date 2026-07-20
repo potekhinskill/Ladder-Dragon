@@ -61,6 +61,7 @@ def test_user_stream_health_is_sanitized_and_rest_authoritative(
         "order_events": 3,
         "duplicates": 1,
         "out_of_order_events": 4,
+        "bad_frames": 2,
         "reconnects": 2,
         "connection_attempts": 5,
         "sessions": 4,
@@ -83,6 +84,7 @@ def test_user_stream_health_is_sanitized_and_rest_authoritative(
     assert row["order_events"] == 3
     assert row["duplicates"] == 1
     assert row["out_of_order_events"] == 4
+    assert row["bad_frames"] == 2
     assert row["reconnects"] == 2
     assert row["connection_attempts"] == 5
     assert row["sessions"] == 4

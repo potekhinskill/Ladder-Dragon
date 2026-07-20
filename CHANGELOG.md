@@ -3,6 +3,34 @@
 All notable changes are documented here. Releases use Semantic Versioning; every
 section is dated and there is intentionally no `Unreleased` section.
 
+## [2.20.3] — 2026-07-21
+
+### Fixed
+- User Data Stream health snapshots are now rate-limited on disk while every
+  frame still updates the in-memory state. Material connection, order and REST
+  reconciliation counters remain immediately durable.
+- Malformed and non-object WebSocket frames are counted and discarded locally
+  instead of tearing down an otherwise healthy session.
+- Silent sessions now reconnect after a configurable deadline rather than
+  repeatedly pinging an unresponsive transport indefinitely.
+- Signed WebSocket subscriptions now reuse the REST transport's synchronized
+  Binance server timestamp instead of the raw Raspberry Pi wall clock.
+
+### Observability
+- Sanitized stream state and the dashboard expose `bad_frames` without storing
+  frame contents, credentials or order payloads.
+- Added documented controls for snapshot write frequency and silent-session
+  timeout.
+
+### Safety
+- User Data Stream remains notification-only. REST reconciliation is still the
+  sole source of truth and none of these changes can place, cancel, protect or
+  account for an order.
+
+### Verified
+- Tests cover write throttling, malformed-frame containment, silent-session
+  recovery, synchronized subscription timestamps and dashboard sanitization.
+
 ## [2.20.2] — 2026-07-21
 
 ### Fixed

@@ -456,6 +456,13 @@ def test_executor_status_does_not_hide_oco_state_behind_question_mark():
     assert 'protection_state = "not_checked"' in executor
 
 
+def test_executor_user_stream_reuses_authoritative_exchange_clock():
+    executor = read("bin/autosize_universal.py")
+    assert "timestamp_ms=TM._timestamp_ms" in executor
+    assert "BOT_USER_STREAM_STATE_WRITE_SEC" in executor
+    assert "BOT_USER_STREAM_IDLE_TIMEOUT_SEC" in executor
+
+
 def test_supervisor_control_logs_stay_inside_writable_rotated_directory():
     ctl = read("bin/supervisor_ctl.sh")
     unit = read("deploy/mybot.service")

@@ -39,6 +39,7 @@ PERSISTED_COUNTERS = (
     "out_of_order_events",
     "rest_reconciliations",
     "event_woken_rest_reconciliations",
+    "bad_frames",
 )
 
 
@@ -210,6 +211,11 @@ class BinanceUserDataObserver:
         logger: Callable[[str], None],
         state_path: Optional[Path] = None,
         connect: Optional[Callable[..., object]] = None,
+        timestamp_ms: Optional[Callable[[], int]] = None,
+        state_persist_interval_sec: float = 5.0,
+        idle_timeout_sec: float = 90.0,
+        clock: Callable[[], float] = time.time,
+        monotonic: Callable[[], float] = time.monotonic,
     ) -> None:
         self.api_key = api_key
         self.api_secret = api_secret
@@ -218,10 +224,20 @@ class BinanceUserDataObserver:
         self.logger = logger
         self.state_path = state_path
         self._connect = connect
+        self._timestamp_ms = timestamp_ms or (
+            lambda: int(time.time() * 1000)
+        )
+        self._state_persist_interval_sec = max(
+            0.1, float(state_persist_interval_sec)
+        )
+        self._idle_timeout_sec = max(1.0, float(idle_timeout_sec))
+        self._clock = clock
+        self._monotonic = monotonic
+        self._last_persist_monotonic: Optional[float] = None
         self._stop = threading.Event()
         self._thread: Optional[threading.Thread] = None
         self._connection: Optional[object] = None
-        now = time.time()
+        now = self._clock()
         self._state = {
             "state": "stopped",
             "first_observed_at": now,
@@ -237,6 +253,7 @@ class BinanceUserDataObserver:
             "out_of_order_events": 0,
             "rest_reconciliations": 0,
             "event_woken_rest_reconciliations": 0,
+            "bad_frames": 0,
             "last_exchange_event_time_ms": None,
             "last_error": None,
         }
@@ -298,7 +315,7 @@ class BinanceUserDataObserver:
         self._close_connection()
         if self._thread is not None:
             self._thread.join(timeout=max(0.0, timeout))
-        self._set_state(state="stopped")
+        self._set_state(state="stopped", force_persist=True)
 
     def _connector(self) -> Callable[..., object]:
         if self._connect is not None:
@@ -326,6 +343,7 @@ class BinanceUserDataObserver:
                     reconnects=int(self._state["reconnects"]) + 1,
                     disconnects=int(self._state["disconnects"]) + 1,
                     last_error=type(exc).__name__,
+                    force_persist=True,
                 )
                 self.logger(
                     f"[USER-STREAM] disconnected={type(exc).__name__}; "
@@ -353,7 +371,7 @@ class BinanceUserDataObserver:
         request = signed_subscription_request(
             self.api_key,
             self.api_secret,
-            timestamp_ms=int(time.time() * 1000),
+            timestamp_ms=int(self._timestamp_ms()),
         )
         connection.send(json.dumps(request, separators=(",", ":")))
         response = json.loads(connection.recv())
@@ -361,26 +379,57 @@ class BinanceUserDataObserver:
             raise RuntimeError("User Data Stream subscription rejected")
         self._set_state(
             state="connected",
-            connected_at=time.time(),
+            connected_at=self._clock(),
             sessions=int(self._state["sessions"]) + 1,
             last_error=None,
+            force_persist=True,
         )
         self.logger("[USER-STREAM] connected in SHADOW notification mode")
+        last_frame_monotonic = self._monotonic()
 
         while not self._stop.is_set():
             try:
                 raw = connection.recv()
             except WebSocketTimeoutException:
+                idle_for = self._monotonic() - last_frame_monotonic
+                if idle_for >= self._idle_timeout_sec:
+                    raise TimeoutError(
+                        "User Data Stream exceeded the silent-session deadline"
+                    )
                 connection.ping()
                 continue
-            payload = json.loads(raw)
+            last_frame_monotonic = self._monotonic()
+            now = self._clock()
+            try:
+                payload = json.loads(raw)
+            except (json.JSONDecodeError, TypeError, UnicodeError):
+                self._set_state(
+                    last_event_at=now,
+                    bad_frames=int(self._state["bad_frames"]) + 1,
+                    force_persist=True,
+                )
+                self.logger(
+                    "[USER-STREAM] discarded malformed frame; "
+                    "REST polling remains authoritative"
+                )
+                continue
+            if not isinstance(payload, Mapping):
+                self._set_state(
+                    last_event_at=now,
+                    bad_frames=int(self._state["bad_frames"]) + 1,
+                    force_persist=True,
+                )
+                self.logger(
+                    "[USER-STREAM] discarded non-object frame; "
+                    "REST polling remains authoritative"
+                )
+                continue
             event_raw = payload.get("event", payload)
             event_type = (
                 str(event_raw.get("e", ""))
                 if isinstance(event_raw, Mapping)
                 else ""
             )
-            now = time.time()
             self._set_state(last_event_at=now)
             if event_type in TERMINAL_EVENT_TYPES:
                 raise RuntimeError(f"User Data Stream ended: {event_type}")
@@ -407,12 +456,29 @@ class BinanceUserDataObserver:
                 last_exchange_event_time_ms=max(
                     int(previous_event_time or 0), signal.event_time_ms
                 ),
+                force_persist=True,
             )
 
-    def _set_state(self, **updates: object) -> None:
+    def _set_state(
+        self,
+        *,
+        force_persist: bool = False,
+        **updates: object,
+    ) -> None:
         self._state.update(updates)
         if self.state_path is None:
             return
+        persist_now = self._monotonic()
+        if (
+            not force_persist
+            and self._last_persist_monotonic is not None
+            and persist_now - self._last_persist_monotonic
+            < self._state_persist_interval_sec
+        ):
+            return
+        # Rate-limit failed writes too; a read-only filesystem must not create
+        # an error and I/O storm in the notification thread.
+        self._last_persist_monotonic = persist_now
         target = self.state_path
         temporary = target.with_name(f".{target.name}.{os.getpid()}.tmp")
         try:
@@ -445,4 +511,5 @@ class BinanceUserDataObserver:
                 int(self._state["event_woken_rest_reconciliations"])
                 + int(event_woken)
             ),
+            force_persist=True,
         )
