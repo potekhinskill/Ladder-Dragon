@@ -3,6 +3,20 @@
 All notable changes are documented here. Releases use Semantic Versioning; every
 section is dated and there is intentionally no `Unreleased` section.
 
+## [2.20.6] — 2026-07-21
+
+### Fixed
+- Supervisor ladder deduplication now formats prices with the shared exact
+  exchange-tick helper. This removes a stale `_decimals_from_step` reference
+  that caused a `NameError` and a systemd restart loop after AI context
+  construction succeeded.
+- A focused regression test executes the exact tick rounding and side-aware
+  deduplication path reached immediately before executor startup.
+
+### Safety
+- Price keys are derived from `Decimal` exchange ticks rather than reconstructed
+  float precision. Order CAP, reserve, Risk Manager and AI policy are unchanged.
+
 ## [2.20.5] — 2026-07-21
 
 ### Fixed

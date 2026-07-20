@@ -49,7 +49,7 @@ from ladder_dragon.ai.ai_statistical import context_vector
 from ladder_dragon.ai.ai_runtime_status import write_runtime_status
 from ladder_dragon.ai.ai_control import read_ai_control, resolve_ai_control_path
 from ladder_dragon.execution.order_identity import client_order_id
-from ladder_dragon.execution.exchange_math import round_step
+from ladder_dragon.execution.exchange_math import format_step, round_step
 from ladder_dragon.execution.order_recovery import (
     read_order_journal_telemetry,
     read_order_observation,
@@ -876,6 +876,24 @@ def _round_price(price: float, tick: float, mode: str) -> float:
 
 def _round_to_tick(price: float, tick: float) -> float:
     return _round_price(price, tick, PRICE_ROUND_MODE)
+
+
+def _deduplicate_ladder_prices(
+    prices: List[float], now_price: float, tick: object
+) -> List[float]:
+    """Round ladder prices and deduplicate exact exchange tick keys by side."""
+    seen: set[tuple[str, str]] = set()
+    deduplicated: List[float] = []
+    for price in prices:
+        rounded = round_step(price, tick, PRICE_ROUND_MODE)
+        rounded_float = _analytics_float(rounded)
+        side = "B" if rounded_float < now_price else "S"
+        key = (format_step(rounded, tick), side)
+        if key in seen:
+            continue
+        seen.add(key)
+        deduplicated.append(rounded_float)
+    return deduplicated
 
 def place_limit_order(symbol: str, side: str, quantity: object, price: object,
                       filters: Optional[Dict[str, object]] = None) -> Optional[Dict[str, Any]]:
@@ -1984,6 +2002,7 @@ def run_for_symbol(symbol: str, args: argparse.Namespace) -> None:
     # 4) Exchange filters: read once for tick normalization and guards
     filters = get_exchange_filters_cached(symbol)
     tick = filters["tickSize"]
+    tick_exact = filters.get("tickSizeExact", tick)
 
     # 5) Build the ladder and deduplicate by tick step and side
     low *= ai_width_scale
@@ -1991,17 +2010,7 @@ def run_for_symbol(symbol: str, args: argparse.Namespace) -> None:
     up *= ai_width_scale
     ladder_all = build_ladder_pct(now_p, low, down, up, args.grid_density)
 
-    dec = _decimals_from_step(tick)
-    seen = set(); dedup = []
-    for p in ladder_all:
-        pr = _round_to_tick(p, tick)
-        side = "B" if pr < now_p else "S"
-        key = (f"{pr:.{dec}f}", side)
-        if key in seen:
-            continue
-        seen.add(key)
-        dedup.append(pr)
-    ladder_all = dedup
+    ladder_all = _deduplicate_ladder_prices(ladder_all, now_p, tick_exact)
 
     log(f"[PLAN] {symbol} ladder -> " + ", ".join(f"{p:.2f}" for p in ladder_all))
 

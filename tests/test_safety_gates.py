@@ -577,6 +577,17 @@ def test_cleanup_layers_keep_fresh_off_ladder_order(monkeypatch):
     assert canceled == []
 
 
+def test_supervisor_deduplicates_ladder_with_exact_tick_formatting(monkeypatch):
+    monkeypatch.setattr(ai_supervisor, "PRICE_ROUND_MODE", "nearest")
+
+    prices = ai_supervisor._deduplicate_ladder_prices(
+        ["75.124", "75.125", "75.126", "76.001"],
+        76.0,
+        "0.01",
+    )
+
+    assert prices == [75.12, 75.13, 76.0]
+
 def test_startup_cleanup_reports_ttl_distance_and_observed_market(monkeypatch):
     now_ms = int(time.time() * 1000)
     order = {
