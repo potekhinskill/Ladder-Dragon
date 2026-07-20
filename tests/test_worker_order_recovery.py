@@ -46,6 +46,14 @@ def test_protection_dependencies_expose_market_flatten_after_restart(tmp_path, m
     assert callable(dependencies.place_market_order)
 
 
+def test_protection_status_marks_only_zero_fill_terminals_not_needed():
+    worker = load_worker()
+
+    assert worker._protection_state_after_sweep([42], [], {42}) == "not_needed"
+    assert worker._protection_state_after_sweep([42], [], set()) == "confirmed"
+    assert worker._protection_state_after_sweep([42], [42], set()) == "pending"
+
+
 def _journal_buy(journal, *, order_id=99, status="NEW", executed_qty="0"):
     intent = journal.prepare(
         client_order_id=f"LDBLAD-panic-{order_id}",

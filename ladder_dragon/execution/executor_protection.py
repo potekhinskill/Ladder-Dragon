@@ -12,10 +12,11 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from decimal import Decimal, InvalidOperation
 import json
 import os
 import time
-from typing import Any, Callable, Dict, List, Optional, Sequence
+from typing import Any, Callable, Dict, List, MutableSet, Optional, Sequence
 
 from ladder_dragon.execution.order_recovery import OrderJournal, TERMINAL_EXCHANGE_STATES
 
@@ -177,8 +178,9 @@ def protect_filled_buys(
     breakeven_enabled: bool,
     state_store: BreakevenStateStore,
     dependencies: ProtectionDependencies,
+    terminal_unfilled_order_ids: Optional[MutableSet[int]] = None,
 ) -> List[int]:
-    """Защитить terminal/FILLED BUY и вернуть ещё не завершённые orderId."""
+    """Protect executed BUYs and return order IDs still awaiting a terminal result."""
     remaining = list(order_ids)
     for order_id in list(remaining):
         order = dependencies.get_order(symbol, order_id)
@@ -186,9 +188,46 @@ def protect_filled_buys(
             continue
         status = str(order.get("status", "")).upper()
         try:
-            executed_status = float(order.get("executedQty", "0") or 0.0)
-        except (TypeError, ValueError):
-            executed_status = 0.0
+            executed_quantity = Decimal(
+                str(order.get("executedQty", "0") or "0")
+            )
+            if not executed_quantity.is_finite() or executed_quantity < 0:
+                raise InvalidOperation("invalid executed quantity")
+        except (InvalidOperation, TypeError, ValueError) as exc:
+            reason = (
+                f"invalid executed quantity for BUY order {order_id}: {exc}"
+            )
+            dependencies.logger(f"[PROTECTION-ERR] {symbol} {reason}")
+            dependencies.halt(reason, symbol=symbol, order_id=order_id)
+            continue
+        executed_status = float(executed_quantity)
+
+        # A terminal zero-fill BUY cannot require OCO protection. Supervisory
+        # TTL cleanup may cancel it while this worker is polling, so remove it
+        # immediately instead of reporting OCO:pending until the worker exits.
+        if status in TERMINAL_EXCHANGE_STATES and executed_quantity == 0:
+            try:
+                journal = dependencies.journal()
+                intent = (
+                    journal.get_by_exchange_order_id(order_id)
+                    if journal is not None
+                    else None
+                )
+                if journal is not None and intent is not None:
+                    journal.record_exchange_order(intent.client_order_id, order)
+            except Exception as exc:
+                dependencies.logger(
+                    f"[PROTECTION-JOURNAL] {symbol} order={order_id}: {exc}"
+                )
+            if terminal_unfilled_order_ids is not None:
+                terminal_unfilled_order_ids.add(order_id)
+            dependencies.logger(
+                f"[PROTECTION] {symbol} BUY order={order_id} "
+                f"state={status} executed=0; OCO not needed"
+            )
+            remaining.remove(order_id)
+            continue
+
         terminal_partial = (
             status in TERMINAL_EXCHANGE_STATES and executed_status > 0
         )

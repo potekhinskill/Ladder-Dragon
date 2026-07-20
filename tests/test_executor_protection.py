@@ -109,6 +109,68 @@ def test_filled_buy_gets_verified_oco_and_leaves_watch_list(tmp_path):
     assert store.load("SOLUSDT")["77"]["fill_price"] == 100.0
 
 
+def test_terminal_zero_fill_buy_leaves_protection_watch_list(tmp_path):
+    logs = []
+    terminal_unfilled = set()
+    deps = dependencies(
+        logger=logs.append,
+        get_order=lambda symbol, order_id: {
+            "orderId": order_id,
+            "status": "CANCELED",
+            "executedQty": "0.00000000",
+            "cummulativeQuoteQty": "0.00000000",
+        },
+        place_oco_sell=lambda *args, **kwargs: pytest.fail(
+            "zero-fill cancellation must not create OCO"
+        ),
+    )
+
+    remaining = protect_filled_buys(
+        "SOLUSDT",
+        [42],
+        [90.0, 110.0],
+        config=config(),
+        panic_active=False,
+        breakeven_enabled=False,
+        state_store=state_store(tmp_path),
+        dependencies=deps,
+        terminal_unfilled_order_ids=terminal_unfilled,
+    )
+
+    assert remaining == []
+    assert terminal_unfilled == {42}
+    assert any("OCO not needed" in message for message in logs)
+
+
+def test_invalid_terminal_executed_quantity_fails_closed(tmp_path):
+    halts = []
+    terminal_unfilled = set()
+    deps = dependencies(
+        get_order=lambda symbol, order_id: {
+            "orderId": order_id,
+            "status": "CANCELED",
+            "executedQty": "not-a-number",
+        },
+        halt=lambda reason, **metadata: halts.append((reason, metadata)),
+    )
+
+    remaining = protect_filled_buys(
+        "SOLUSDT",
+        [42],
+        [90.0, 110.0],
+        config=config(),
+        panic_active=False,
+        breakeven_enabled=False,
+        state_store=state_store(tmp_path),
+        dependencies=deps,
+        terminal_unfilled_order_ids=terminal_unfilled,
+    )
+
+    assert remaining == [42]
+    assert terminal_unfilled == set()
+    assert "invalid executed quantity" in halts[0][0]
+
+
 def test_failed_oco_uses_single_tp_fallback(tmp_path, monkeypatch):
     # Keep this non-LIVE branch independent from the host service environment.
     monkeypatch.delenv("BOT_LIVE_CONFIRMED", raising=False)

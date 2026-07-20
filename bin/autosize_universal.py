@@ -723,6 +723,19 @@ def _observe_buy_market(
         )
         _ORDER_OBSERVATION_LAST_WRITE[int(order_id)] = observed_at
 
+
+def _protection_state_after_sweep(
+    pending_before: List[int],
+    remaining: List[int],
+    terminal_unfilled: set[int],
+) -> str:
+    """Summarize protection without calling a zero-fill cancellation pending."""
+    if remaining:
+        return "pending"
+    if pending_before and set(pending_before).issubset(terminal_unfilled):
+        return "not_needed"
+    return "confirmed" if pending_before else "not_needed"
+
 def update_panic_state(symbol: str,
                        now_px: float,
                        ema20: float | None,
@@ -2158,7 +2171,8 @@ def main():
                 last_check += 1
                 if last_check >= max(1, args.check_fills_interval):
                     last_check = 0
-                    pending_before = len(placed_ids)
+                    pending_before = list(placed_ids)
+                    terminal_unfilled: set[int] = set()
                     placed_ids = protect_filled_buys(
                         symbol,
                         placed_ids,
@@ -2175,13 +2189,13 @@ def main():
                         breakeven_enabled=breakeven.enabled,
                         state_store=be_state,
                         dependencies=_protection_dependencies(),
+                        terminal_unfilled_order_ids=terminal_unfilled,
                     )
-                    if pending_before == 0:
-                        protection_state = "not_needed"
-                    elif len(placed_ids) < pending_before:
-                        protection_state = "confirmed"
-                    else:
-                        protection_state = "pending"
+                    protection_state = _protection_state_after_sweep(
+                        pending_before,
+                        placed_ids,
+                        terminal_unfilled,
+                    )
 
             # LIVE time-stop prevents a position from remaining stuck forever. Binance
             # does not provide this policy for an already filled BUY, so track position

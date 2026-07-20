@@ -505,8 +505,31 @@ function mountLine(mounts, mp, id){
   el.textContent = `${mp} ${flags||'rw'}`;
 }
 
+const API_RESPONSE_CACHE = new Map();
+const API_RESPONSE_CACHE_TTL_MS = 300000;
 async function getJSON(url){
-  const r = await fetch(url,{cache:'no-store'}); if(!r.ok) throw new Error(r.status); return r.json();
+  try{
+    const r = await fetch(url,{cache:'no-store'});
+    if(!r.ok) throw new Error(`HTTP ${r.status}`);
+    const payload = await r.json();
+    if(url !== '/api/security/csrf'){
+      API_RESPONSE_CACHE.set(url, {payload, cachedAt:Date.now()});
+    }
+    return payload;
+  }catch(error){
+    if(url !== '/api/security/csrf' && API_RESPONSE_CACHE.has(url)){
+      const entry = API_RESPONSE_CACHE.get(url);
+      if(entry && Date.now() - entry.cachedAt <= API_RESPONSE_CACHE_TTL_MS){
+        const cached = entry.payload;
+        if(cached && typeof cached === 'object' && !Array.isArray(cached)){
+          return {...cached, stale:true, transport_stale:true, transport_error:String(error)};
+        }
+        return cached;
+      }
+      API_RESPONSE_CACHE.delete(url);
+    }
+    throw error;
+  }
 }
 
 let charts;
@@ -814,7 +837,8 @@ function updateBalances(snapshot){
     return;
   }
   BALANCE_SNAPSHOT = snapshot;
-  setPill(pill,'ok'); pill.textContent='актуально';
+  setPill(pill,snapshot.stale?'warn':'ok');
+  pill.textContent=snapshot.stale?tr('stale'):'актуально';
   $('#balance-total').textContent = fmtUSDT(snapshot.total_value_usdt);
   $('#balance-updated').textContent = `обновлено ${snapshot.updated_at || '—'}`;
   const hideSmall = $('#balance-hide-small')?.checked ?? true;
@@ -857,8 +881,8 @@ function updateOpenOrders(snapshot){
     body.innerHTML = '<tr><td class="muted" colspan="10">Открытые ордера недоступны</td></tr>';
     return;
   }
-  setPill(pill, 'ok');
-  pill.textContent = `${snapshot.count ?? snapshot.orders.length} шт.`;
+  setPill(pill, snapshot.stale ? 'warn' : 'ok');
+  pill.textContent = `${snapshot.count ?? snapshot.orders.length} шт.${snapshot.stale ? ` · ${tr('stale')}` : ''}`;
   $('#open-orders-updated').textContent = `обновлено ${snapshot.updated_at || '—'}`;
   const rows = snapshot.orders.map(row=>{
     const side = escapeHtml(row.side || '—');
@@ -976,7 +1000,10 @@ function updateFilled24h(resp){
     : `<tr><td class="muted" colspan="7">За последние 24 часа исполненных ордеров нет</td></tr>`;
 }
 
+let REFRESH_IN_FLIGHT = false;
 async function refresh(){
+  if(REFRESH_IN_FLIGHT) return;
+  REFRESH_IN_FLIGHT = true;
   try{
     const [h, hist, sum, ai, aiControl, balances, trading] = await Promise.all([
       getJSON('/api/health'),
@@ -1031,8 +1058,13 @@ async function refresh(){
     visual?.classList.toggle('on', enabled);
     toggle.setAttribute('aria-pressed', enabled ? 'true' : 'false');
     toggle.setAttribute('aria-label', !aiControl.configured ? tr('ai_not_configured') : tr(enabled ? 'ai_on' : 'ai_off'));
+    if([h, hist, sum, ai, aiControl, balances, trading].some(item=>item?.transport_stale)){
+      $('#footer').textContent = `API: ${tr('stale')} · transport retry`;
+    }
   }catch(e){
     $('#footer').textContent = `${tr('api_error')}: ${e}`;
+  }finally{
+    REFRESH_IN_FLIGHT = false;
   }
 }
 
@@ -1108,7 +1140,10 @@ if (balanceFilter){
 }
 
 /* Separate refresh so the existing refresh() does not need modification. */
+let FILLED_ORDERS_REFRESH_IN_FLIGHT = false;
 async function refreshOrders(){
+  if(FILLED_ORDERS_REFRESH_IN_FLIGHT) return;
+  FILLED_ORDERS_REFRESH_IN_FLIGHT = true;
   try{
     const fills = await getFilledOrders24h();
     updateFilled24h(fills);
@@ -1122,15 +1157,22 @@ async function refreshOrders(){
     cell.className = 'muted'; cell.colSpan = 7;
     cell.textContent = `${tr('api_error')}: ${e}`;
     row.appendChild(cell); body.appendChild(row);
+  }finally{
+    FILLED_ORDERS_REFRESH_IN_FLIGHT = false;
   }
 }
 
+let OPEN_ORDERS_REFRESH_IN_FLIGHT = false;
 async function refreshOpenOrders(){
+  if(OPEN_ORDERS_REFRESH_IN_FLIGHT) return;
+  OPEN_ORDERS_REFRESH_IN_FLIGHT = true;
   try{
     updateOpenOrders(await getJSON('/api/account/open-orders'));
   }catch(e){
     updateOpenOrders(null);
     $('#open-orders-updated').textContent = `${tr('error')}: ${e}`;
+  }finally{
+    OPEN_ORDERS_REFRESH_IN_FLIGHT = false;
   }
 }
 

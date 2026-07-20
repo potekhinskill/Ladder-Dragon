@@ -3,6 +3,32 @@
 All notable changes are documented here. Releases use Semantic Versioning; every
 section is dated and there is intentionally no `Unreleased` section.
 
+## [2.10.93] — 2026-07-20
+
+### Fixed
+- An executor now removes a terminal zero-fill BUY from its protection watch
+  list as soon as Binance reports `CANCELED`, `EXPIRED`, or `REJECTED`.
+- Status telemetry now changes from `OCO:pending` to `OCO:not_needed` after
+  supervisory TTL cleanup cancels an unfilled BUY; a genuinely protected fill
+  continues to report `OCO:confirmed`.
+- Temporary Binance read failures now return a clearly marked, bounded stale
+  balance/open-order snapshot when one is available instead of periodically
+  blanking the dashboard with HTTP 503.
+- Browser refresh loops no longer overlap slow prior requests. A transient
+  502/503 retains the previous values and marks them `STALE` rather than
+  clearing the page.
+- The dashboard service restarts after both clean and failed exits, while nginx
+  converts upstream 502/504 failures into a stable JSON 503 response.
+
+### Verified
+- Added focused regression coverage for terminal zero-fill cleanup, prohibition
+  of unnecessary OCO creation, and the `pending`/`confirmed`/`not_needed`
+  status transitions.
+- Invalid terminal execution quantities fail closed and remain in the protection
+  watch list instead of being interpreted as a zero fill.
+- `PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=. .venv/bin/python -m pytest -q`
+  — all 308 tests pass.
+
 ## [2.10.92] — 2026-07-20
 
 ### Fixed

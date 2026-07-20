@@ -53,6 +53,10 @@ _BALANCE_CACHE_LOCK = threading.Lock()
 _OPEN_ORDERS_CACHE: Dict[str, object] = {"ts": 0.0, "payload": None}
 _OPEN_ORDERS_CACHE_TTL_SEC = max(3.0, float(os.getenv("DASHBOARD_OPEN_ORDERS_CACHE_SEC", "5")))
 _OPEN_ORDERS_CACHE_LOCK = threading.Lock()
+DASHBOARD_STALE_CACHE_MAX_SEC = max(
+    30.0,
+    float(os.getenv("DASHBOARD_STALE_CACHE_MAX_SEC", "300")),
+)
 _OPS_CACHE: Dict[str, object] = {"ts": 0.0, "payload": None}
 _OPS_CACHE_TTL_SEC = max(10.0, float(os.getenv("DASHBOARD_OPS_CACHE_SEC", "30")))
 _OPS_CACHE_LOCK = threading.Lock()
@@ -490,6 +494,7 @@ def account_balances_snapshot() -> Dict:
     assets.sort(key=lambda row: (row["asset"] != "USDT", -(row["value_usdt"] or 0.0), row["asset"]))
     payload = {
         "ok": True,
+        "stale": False,
         "updated_at": now_str(),
         "venue": BINANCE_BASE,
         "assets": assets,
@@ -547,6 +552,7 @@ def account_open_orders_snapshot() -> Dict:
     orders.sort(key=lambda item: (item["symbol"], item["created_at"], str(item["order_id"])))
     payload = {
         "ok": True,
+        "stale": False,
         "updated_at": now_str(),
         "venue": BINANCE_BASE,
         "count": len(orders),
@@ -555,6 +561,29 @@ def account_open_orders_snapshot() -> Dict:
     with _OPEN_ORDERS_CACHE_LOCK:
         _OPEN_ORDERS_CACHE["ts"] = now
         _OPEN_ORDERS_CACHE["payload"] = payload
+    return payload
+
+
+def _stale_binance_snapshot(
+    cache: Dict[str, object],
+    lock: threading.Lock,
+    warning: str,
+) -> Optional[Dict[str, object]]:
+    """Return a clearly marked recent snapshot during a transient Binance fault."""
+    now = time.monotonic()
+    with lock:
+        cached = cache.get("payload")
+        cached_at = float(cache.get("ts", 0.0))
+        age = max(0.0, now - cached_at)
+        if not isinstance(cached, dict) or age > DASHBOARD_STALE_CACHE_MAX_SEC:
+            return None
+        payload = dict(cached)
+    payload.update({
+        "ok": True,
+        "stale": True,
+        "stale_age_sec": round(age, 1),
+        "warning": warning,
+    })
     return payload
 
 
@@ -1509,6 +1538,16 @@ def account_balances():
         return JSONResponse(account_balances_snapshot())
     except Exception as exc:
         print(f"[DASHBOARD] ACCOUNT_BALANCE_FAILED type={type(exc).__name__}", flush=True)
+        fallback = _stale_binance_snapshot(
+            _BALANCE_CACHE,
+            _BALANCE_CACHE_LOCK,
+            "ACCOUNT_BALANCE_STALE",
+        )
+        if fallback is not None:
+            return JSONResponse(
+                fallback,
+                headers={"Warning": '110 - "stale Binance balance snapshot"'},
+            )
         return JSONResponse({"ok": False, "error": "ACCOUNT_BALANCE_FAILED"}, status_code=503)
 
 
@@ -1519,6 +1558,16 @@ def account_open_orders():
         return JSONResponse(account_open_orders_snapshot())
     except Exception as exc:
         print(f"[DASHBOARD] OPEN_ORDERS_FAILED type={type(exc).__name__}", flush=True)
+        fallback = _stale_binance_snapshot(
+            _OPEN_ORDERS_CACHE,
+            _OPEN_ORDERS_CACHE_LOCK,
+            "OPEN_ORDERS_STALE",
+        )
+        if fallback is not None:
+            return JSONResponse(
+                fallback,
+                headers={"Warning": '110 - "stale Binance open-orders snapshot"'},
+            )
         return JSONResponse({"ok": False, "error": "OPEN_ORDERS_FAILED"}, status_code=503)
 
 @app.get("/api/history")

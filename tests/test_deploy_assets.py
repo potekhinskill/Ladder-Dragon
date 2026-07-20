@@ -182,6 +182,27 @@ def test_dashboard_exposes_read_only_ops_trading_and_ai_quality_blocks():
     assert "dashboard namespace RO" in index
 
 
+def test_dashboard_transient_failures_are_bounded_and_visible():
+    app = read("FastAPI/pi-dashboard/app.py")
+    index = read("FRONT/index.html")
+    site = read("deploy/nginx/bot.local.conf")
+    unit = read("deploy/pi-dashboard.service")
+
+    assert "DASHBOARD_STALE_CACHE_MAX_SEC" in app
+    assert "ACCOUNT_BALANCE_STALE" in app
+    assert "OPEN_ORDERS_STALE" in app
+    assert "API_RESPONSE_CACHE" in index
+    assert "API_RESPONSE_CACHE_TTL_MS = 300000" in index
+    assert "url !== '/api/security/csrf'" in index
+    assert "transport retry" in index
+    assert "REFRESH_IN_FLIGHT" in index
+    assert "OPEN_ORDERS_REFRESH_IN_FLIGHT" in index
+    assert "error_page 502 504 = @dashboard_api_unavailable" in site
+    assert "DASHBOARD_UPSTREAM_UNAVAILABLE" in site
+    assert "Restart=always" in unit
+    assert "RestartSec=2" in unit
+
+
 def test_dashboard_publishes_version_and_changelog():
     index = read("FRONT/index.html")
     app = read("FastAPI/pi-dashboard/app.py")

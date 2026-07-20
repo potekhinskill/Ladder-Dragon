@@ -207,6 +207,37 @@ def test_account_balances_returns_service_unavailable_on_binance_error(monkeypat
     assert "Binance unavailable" not in response.text
 
 
+def test_account_balances_returns_marked_stale_snapshot_on_transient_error(monkeypatch):
+    monkeypatch.setenv("DASHBOARD_BINANCE_API_KEY", "read-only-key")
+    monkeypatch.setenv("DASHBOARD_BINANCE_API_SECRET", "read-only-secret")
+    module = load_dashboard(monkeypatch)
+    module._BALANCE_CACHE.update({
+        "ts": module.time.monotonic() - module._BALANCE_CACHE_TTL_SEC - 1,
+        "payload": {
+            "ok": True, "stale": False, "updated_at": "2026-07-20 01:00:00",
+            "assets": [], "total_value_usdt": 10.0, "unvalued_assets": [],
+        },
+    })
+    monkeypatch.setattr(
+        module, "_signed",
+        lambda *args, **kwargs: (_ for _ in ()).throw(RuntimeError("Binance unavailable")),
+    )
+
+    with TestClient(module.app) as client:
+        response = client.get(
+            "/api/account/balances",
+            headers={"Authorization": "Bearer test-secret-token"},
+        )
+
+    assert response.status_code == 200
+    assert response.headers["warning"].startswith("110 ")
+    payload = response.json()
+    assert payload["stale"] is True
+    assert payload["warning"] == "ACCOUNT_BALANCE_STALE"
+    assert payload["stale_age_sec"] > module._BALANCE_CACHE_TTL_SEC
+    assert "Binance unavailable" not in response.text
+
+
 def test_stopped_bot_uses_only_configured_symbols(tmp_path, monkeypatch):
     service_env = tmp_path / ".env.service"
     service_env.write_text(
@@ -472,6 +503,38 @@ def test_open_orders_uses_short_cache_and_never_posts(monkeypatch):
     assert calls == {"signed": 1}
     with pytest.raises(RuntimeError, match="read-only"):
         readonly_signed("POST", "/api/v3/order", {})
+
+
+def test_open_orders_returns_marked_stale_snapshot_on_transient_error(monkeypatch):
+    monkeypatch.setenv("DASHBOARD_BINANCE_API_KEY", "read-only-key")
+    monkeypatch.setenv("DASHBOARD_BINANCE_API_SECRET", "read-only-secret")
+    module = load_dashboard(monkeypatch)
+    module._OPEN_ORDERS_CACHE.update({
+        "ts": module.time.monotonic() - module._OPEN_ORDERS_CACHE_TTL_SEC - 1,
+        "payload": {
+            "ok": True, "stale": False, "updated_at": "2026-07-20 01:00:00",
+            "venue": "https://api.binance.com", "count": 1,
+            "orders": [{"order_id": 123, "status": "NEW"}],
+        },
+    })
+    monkeypatch.setattr(
+        module, "_signed",
+        lambda *args, **kwargs: (_ for _ in ()).throw(RuntimeError("Binance unavailable")),
+    )
+
+    with TestClient(module.app) as client:
+        response = client.get(
+            "/api/account/open-orders",
+            headers={"Authorization": "Bearer test-secret-token"},
+        )
+
+    assert response.status_code == 200
+    assert response.headers["warning"].startswith("110 ")
+    payload = response.json()
+    assert payload["stale"] is True
+    assert payload["warning"] == "OPEN_ORDERS_STALE"
+    assert payload["count"] == 1
+    assert "Binance unavailable" not in response.text
 
 
 def test_ai_status_exposes_decision_rationale_and_realized_summary(tmp_path, monkeypatch):
