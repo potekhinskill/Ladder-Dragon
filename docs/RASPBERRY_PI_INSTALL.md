@@ -269,7 +269,57 @@ sudo -u bot env PYTHONPATH=. .venv/bin/python \
   -m bin.binance_testnet_smoke --mode gap-drill --symbol SOLUSDT
 ```
 
-## 8. Normal updates
+## 8. Legacy holdings cost-basis import
+
+This optional operation is for holdings acquired before Ladder Dragon began
+recording exact FIFO lots. It does not place an order and does not enable
+automatic holdings management. Do not use it while `mybot` is running.
+
+Create a private directory and generate a preview plan:
+
+```bash
+cd /home/bot/apps/binance_bot
+sudo systemctl stop mybot pi-watchdog-v3.timer pi-watchdog-v3.service
+sudo install -d -o bot -g bot -m 0700 \
+  /home/bot/.local/state/ladder-dragon
+
+sudo -u bot env PYTHONPATH=. .venv/bin/python \
+  -m bin.import_legacy_cost_basis \
+  --symbol SOLUSDT \
+  --plan /home/bot/.local/state/ladder-dragon/SOLUSDT-cost-basis.json \
+  --stats-db /home/bot/apps/binance_bot/db/bot_stats.db
+```
+
+Preview never writes the trading database. Review the symbol, account quantity,
+weighted average, trade count, lot count and plan SHA. The plan is mode `0600`
+and contains exchange provenance, so do not publish or commit it.
+
+Apply only after reviewing the preview and confirming that the service is still
+stopped:
+
+```bash
+sudo -u bot env \
+  BOT_COST_BASIS_IMPORT_CONFIRMED=YES \
+  BOT_SERVICE_STOPPED_CONFIRMED=YES \
+  BOT_RUN_DIR=/run/mybot \
+  PYTHONPATH=. \
+  .venv/bin/python -m bin.import_legacy_cost_basis \
+  --symbol SOLUSDT \
+  --plan /home/bot/.local/state/ladder-dragon/SOLUSDT-cost-basis.json \
+  --stats-db /home/bot/apps/binance_bot/db/bot_stats.db \
+  --apply
+```
+
+Apply re-fetches the full account and fill history and requires the exact same
+plan hash. It fails without changing the database if history is incomplete, a
+commission cannot be valued at trade time, a transfer prevents quantity
+reconciliation, the symbol has an open order, the account changed during or
+after preview, or post-write verification fails. Existing open lots are retained
+as `SUPERSEDED`. Keep `mybot` stopped and
+inspect the database/dashboard result before deciding whether holdings
+management should be enabled.
+
+## 9. Normal updates
 
 Always update a reviewed exact commit:
 
@@ -329,7 +379,7 @@ Use `apply` only when Git is already at the desired commit:
 sudo bash deploy/update_raspberry_pi.sh apply
 ```
 
-## 9. Backups and external storage
+## 10. Backups and external storage
 
 Encrypted application backups are stored in `/var/lib/ladder-dragon/backups`:
 
@@ -355,7 +405,7 @@ in `/etc/fstab`, never by a transient `/dev/sda1` path.
 inventory through Basic Auth. Local/public retention is 14 days; external
 retention follows `BACKUP_EXTERNAL_RETENTION_DAYS`.
 
-## 10. Sanitized logs and watchdog
+## 11. Sanitized logs and watchdog
 
 ```text
 https://bot.local/logs/
@@ -371,7 +421,7 @@ The watchdog checks network access and fresh supervisor heartbeat. It restarts
 the service only after three consecutive failed checks. Duplicate Telegram alerts
 are suppressed, and offline alerts are queued in `/var/lib/pi-watchdog/telegram-outbox`.
 
-## 11. Migration and troubleshooting
+## 12. Migration and troubleshooting
 
 Audit or migrate an existing installation before changing it:
 

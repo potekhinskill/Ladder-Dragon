@@ -134,12 +134,11 @@ from ladder_dragon.execution.executor_recovery import recover_pending_buy_order_
 from ladder_dragon.execution.executor_recovery import verify_oco_legs as recovery_verify_oco_legs
 from ladder_dragon.execution.executor_stats import commission_quote_value, poll_mytrades_once
 from ladder_dragon.execution.inventory_lots import (
-    add_lot,
-    consume_fifo,
     cost_basis_coverage,
     ensure_schema as ensure_lots_schema,
     oldest_lots,
     lot_for_order,
+    sync_exchange_fill,
 )
 
 import requests
@@ -1478,12 +1477,7 @@ def _stats_poll_mytrades_once(symbol: str):
         """Синхронизировать фактический fill с FIFO-партиями и AI журналом."""
         try:
             ensure_lots_schema(STATS_CON)
-            if fill["side"] == "BUY":
-                add_lot(STATS_CON, symbol=symbol, qty=Decimal(str(fill["qty"])),
-                        price=Decimal(str(fill["price"])),
-                        source_order_id=str(fill.get("order_id") or fill["trade_id"]), opened_at=int(fill["ts"] / 1000))
-            else:
-                consume_fifo(STATS_CON, symbol, Decimal(str(fill["qty"])))
+            sync_exchange_fill(STATS_CON, fill)
             STATS_CON.commit()
         except (sqlite3.Error, ValueError, ArithmeticError) as exc:
             log(f"[LOTS] {symbol} fill sync failed: {exc}")

@@ -8,6 +8,7 @@ from ladder_dragon.execution.inventory_lots import (
     ensure_schema,
     oldest_lots,
     lot_for_order,
+    sync_exchange_fill,
 )
 
 
@@ -27,6 +28,43 @@ def test_lot_can_be_recovered_by_exchange_order_id():
     add_lot(con, symbol="SOLUSDT", qty=Decimal("1"), price=Decimal("100"),
             source_order_id="501", opened_at=10)
     assert lot_for_order(con, "SOLUSDT", 501).lot_id == 1
+
+
+def test_source_trade_id_makes_fill_lot_idempotent():
+    con = sqlite3.connect(":memory:")
+    first = add_lot(
+        con, symbol="SOLUSDT", qty=Decimal("1"), price=Decimal("100"),
+        source_order_id="10", source_trade_id="20",
+    )
+    repeated = add_lot(
+        con, symbol="SOLUSDT", qty=Decimal("1"), price=Decimal("100"),
+        source_order_id="10", source_trade_id="20",
+    )
+    assert repeated == first
+    assert con.execute("SELECT COUNT(*) FROM inventory_lots").fetchone()[0] == 1
+
+
+def test_fill_lot_sync_accounts_for_quote_and_base_commissions():
+    con = sqlite3.connect(":memory:")
+    buy = {
+        "symbol": "SOLUSDT", "side": "BUY", "price": Decimal("100"),
+        "qty": Decimal("1"), "fee_quote": Decimal("0.1"),
+        "commission_asset": "USDT", "commission_amount": Decimal("0.1"),
+        "trade_id": 20, "order_id": 10, "ts": 1_700_000_000_000,
+    }
+    sync_exchange_fill(con, buy)
+    sync_exchange_fill(con, buy)
+    lot = oldest_lots(con, "SOLUSDT")[0]
+    assert lot.qty == Decimal("1")
+    assert lot.price == Decimal("100.1")
+    sell = {
+        "symbol": "SOLUSDT", "side": "SELL", "price": Decimal("110"),
+        "qty": Decimal("0.5"), "fee_quote": Decimal("1.1"),
+        "commission_asset": "SOL", "commission_amount": Decimal("0.01"),
+        "trade_id": 21, "order_id": 11, "ts": 1_700_000_001_000,
+    }
+    sync_exchange_fill(con, sell)
+    assert oldest_lots(con, "SOLUSDT")[0].qty == Decimal("0.49")
 
 
 def test_cost_basis_coverage_requires_price_provenance_and_quantity_match():

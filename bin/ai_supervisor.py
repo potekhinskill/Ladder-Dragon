@@ -69,7 +69,7 @@ from ladder_dragon.risk.risk_statistics import (
 )
 from ladder_dragon.execution.executor_stats import commission_quote_value, poll_mytrades_once
 from ladder_dragon.execution import tools_stats
-from ladder_dragon.execution.inventory_lots import add_lot, consume_fifo, ensure_schema
+from ladder_dragon.execution.inventory_lots import ensure_schema, sync_exchange_fill
 from ladder_dragon.execution.time_safety import assess_exchange_clock
 from ladder_dragon.execution.venue_config import apply_testnet_paths
 from product_version import __version__, product_label, user_agent
@@ -2327,17 +2327,7 @@ def _sync_recent_account_fills(symbols: List[str]) -> None:
         # The ledger is protected by a unique trade_id; this callback only
         # synchronizes age-aware FIFO lots for time-stop/OCO.
         try:
-            if fill["side"] == "BUY":
-                add_lot(
-                    con,
-                    symbol=fill["symbol"],
-                    qty=Decimal(str(fill["qty"])),
-                    price=Decimal(str(fill["price"])),
-                    source_order_id=str(fill.get("order_id") or fill["trade_id"]),
-                    opened_at=int(fill["ts"] / 1000),
-                )
-            else:
-                consume_fifo(con, fill["symbol"], Decimal(str(fill["qty"])))
+            sync_exchange_fill(con, fill)
         except (sqlite3.Error, ValueError, ArithmeticError) as exc:
             # An historically incomplete FIFO must not discard a recorded
             # trade; account/inventory reconciliation remains mandatory and

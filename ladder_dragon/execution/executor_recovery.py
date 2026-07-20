@@ -27,11 +27,12 @@ def list_open_orders(
     signed_request: Callable[..., Any],
     logger: Callable[[str], None],
 ) -> List[Dict[str, Any]]:
-    try:
-        return signed_request("GET", "/api/v3/openOrders", {"symbol": symbol}) or []
-    except Exception as exc:
-        logger(f"[ERR] list_open_orders: {exc}")
+    orders = signed_request("GET", "/api/v3/openOrders", {"symbol": symbol})
+    if orders is None:
         return []
+    if not isinstance(orders, list):
+        raise RuntimeError("open-orders response is not a list")
+    return orders
 
 
 def cancel_order(
@@ -41,13 +42,10 @@ def cancel_order(
     signed_request: Callable[..., Any],
     logger: Callable[[str], None],
 ) -> None:
-    try:
-        signed_request(
-            "DELETE", "/api/v3/order", {"symbol": symbol, "orderId": order_id}
-        )
-        logger(f"[CANCEL] {symbol} order {order_id}")
-    except Exception as exc:
-        logger(f"[ERR] cancel_order: {exc}")
+    signed_request(
+        "DELETE", "/api/v3/order", {"symbol": symbol, "orderId": order_id}
+    )
+    logger(f"[CANCEL] {symbol} order {order_id}")
 
 
 def cancel_oco(
@@ -57,15 +55,12 @@ def cancel_oco(
     signed_request: Callable[..., Any],
     logger: Callable[[str], None],
 ) -> None:
-    try:
-        signed_request(
-            "DELETE",
-            "/api/v3/orderList",
-            {"symbol": symbol, "orderListId": int(order_list_id)},
-        )
-        logger(f"[CANCEL-OCO] {symbol} orderListId={order_list_id}")
-    except Exception as exc:
-        logger(f"[ERR] cancel_oco: {exc}")
+    signed_request(
+        "DELETE",
+        "/api/v3/orderList",
+        {"symbol": symbol, "orderListId": int(order_list_id)},
+    )
+    logger(f"[CANCEL-OCO] {symbol} orderListId={order_list_id}")
 
 
 def get_order_by_client_id(
@@ -354,12 +349,10 @@ def get_order(
     record_payload: Callable[[Dict[str, Any] | None], Optional[OrderIntent]],
     logger: Callable[[str], None],
 ) -> Dict[str, Any] | None:
-    try:
-        payload = signed_request(
-            "GET", "/api/v3/order", {"symbol": symbol, "orderId": order_id}
-        )
-        record_payload(payload)
-        return payload
-    except Exception as exc:
-        logger(f"[ERR] get_order: {exc}")
-        return None
+    payload = signed_request(
+        "GET", "/api/v3/order", {"symbol": symbol, "orderId": order_id}
+    )
+    if not isinstance(payload, dict):
+        raise RuntimeError("order response is not an object")
+    record_payload(payload)
+    return payload

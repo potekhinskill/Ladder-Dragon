@@ -170,7 +170,23 @@ def _recalc_inventory(db: sqlite3.Connection, symbol: str):
     Делается быстро даже для тысяч строк, зато логика простая/надёжная.
     """
     sym = symbol.upper()
-    rows = query_with_retry(db, """
+    imported_basis = None
+    try:
+        imported_basis = db.execute(
+            "SELECT reconstructed_qty,weighted_average,last_trade_id,"
+            "baseline_realized_pnl FROM inventory_lot_imports "
+            "WHERE symbol=? AND status='APPLIED' ORDER BY created_at DESC LIMIT 1",
+            (sym,),
+        ).fetchone()
+    except sqlite3.OperationalError as exc:
+        if "no such table" not in str(exc).lower():
+            raise
+    trade_filter = ""
+    trade_params: tuple[object, ...] = (sym,)
+    if imported_basis is not None:
+        trade_filter = " AND trade_id IS NOT NULL AND trade_id > ?"
+        trade_params = (sym, int(imported_basis[2]))
+    rows = query_with_retry(db, f"""
         SELECT side,
                COALESCE(NULLIF(price_text, ''), CAST(price AS TEXT)),
                COALESCE(NULLIF(gross_qty, ''), CAST(qty AS TEXT)),
@@ -180,9 +196,24 @@ def _recalc_inventory(db: sqlite3.Connection, symbol: str):
                CASE WHEN commission_value_status = 'unpriced' THEN NULL
                     ELSE COALESCE(commission_quote, CAST(fee_quote AS TEXT)) END,
                COALESCE(NULLIF(commission_value_status, ''), 'legacy')
-        FROM trades WHERE symbol=? ORDER BY ts ASC, id ASC
-    """, (sym,))
-    executions = [
+        FROM trades WHERE symbol=?{trade_filter} ORDER BY ts ASC, id ASC
+    """, trade_params)
+    executions = []
+    baseline_realized = Decimal("0")
+    if imported_basis is not None:
+        baseline_qty = decimal(imported_basis[0])
+        baseline_average = decimal(imported_basis[1])
+        baseline_realized = decimal(imported_basis[3])
+        if baseline_qty > 0 and baseline_average > 0:
+            executions.append(TradeExecution.create(
+                symbol=sym,
+                side="BUY",
+                price=baseline_average,
+                gross_qty=baseline_qty,
+                commission_quote=Decimal("0"),
+                commission_value_status="basis-import",
+            ))
+    executions.extend([
         TradeExecution.create(
             symbol=sym,
             side=side,
@@ -198,8 +229,9 @@ def _recalc_inventory(db: sqlite3.Connection, symbol: str):
             side, price, gross_qty, net_qty, commission_asset,
             commission_amount, commission_quote, status,
         ) in rows
-    ]
+    ])
     result = replay_average_cost(executions, allow_unpriced=True)
+    realized_pnl = baseline_realized + result.realized_pnl
 
     exec_with_retry(db, """
         INSERT INTO inventory(
@@ -215,9 +247,9 @@ def _recalc_inventory(db: sqlite3.Connection, symbol: str):
                       realized_pnl_text=excluded.realized_pnl_text
     """, (
         sym,
-        float(result.qty), float(result.avg_cost), float(result.realized_pnl),
+        float(result.qty), float(result.avg_cost), float(realized_pnl),
         decimal_text(result.qty), decimal_text(result.avg_cost),
-        decimal_text(result.realized_pnl),
+        decimal_text(realized_pnl),
     ))
 
 # ==========================

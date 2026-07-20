@@ -3,6 +3,8 @@ import argparse
 import pytest
 import requests
 
+from ladder_dragon.execution import tools_market
+
 from ladder_dragon.execution.binance_transport import (
     BinanceNetworkError,
     BinanceResponseError,
@@ -290,6 +292,19 @@ def test_executor_market_fallbacks_and_asset_cache():
         }
     )
     assert balances["USDT"] == {"free": 10.5, "locked": 1.5}
+
+
+def test_signed_timestamp_fails_closed_when_exchange_clock_is_unavailable(
+    monkeypatch,
+):
+    monkeypatch.setattr(tools_market, "_time_offset_ms", None)
+    monkeypatch.setattr(
+        tools_market,
+        "_refresh_time_offset",
+        lambda: (_ for _ in ()).throw(requests.ConnectionError("offline")),
+    )
+    with pytest.raises(requests.ConnectionError, match="offline"):
+        tools_market._timestamp_ms()
 
 
 def test_executor_recovery_queries_and_verifies_oco():

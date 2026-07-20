@@ -75,7 +75,7 @@ def poll_mytrades_once(
     last_id = None
     try:
         last_id = stats.get_last_trade_id(connection, symbol)
-    except Exception as exc:
+    except (sqlite3.Error, RuntimeError, TypeError, ValueError) as exc:
         logger(f"[STATS] get_last_trade_id error: {exc}")
         if strict:
             raise RuntimeError(f"get_last_trade_id failed for {symbol}: {exc}") from exc
@@ -85,7 +85,7 @@ def poll_mytrades_once(
         params["fromId"] = int(last_id) + 1
     try:
         trades = signed_request("GET", "/api/v3/myTrades", params) or []
-    except Exception as exc:
+    except (requests.RequestException, RuntimeError, TypeError, ValueError) as exc:
         logger(f"[STATS] myTrades error: {exc}")
         if strict:
             raise RuntimeError(f"myTrades failed for {symbol}: {exc}") from exc
@@ -154,7 +154,14 @@ def poll_mytrades_once(
                     "ts": timestamp,
                 })
             max_id = max(max_id, trade_id)
-        except Exception as exc:
+        except (
+            ArithmeticError,
+            KeyError,
+            RuntimeError,
+            sqlite3.Error,
+            TypeError,
+            ValueError,
+        ) as exc:
             logger(f"[STATS] parse trade error: {exc}")
             if strict:
                 raise RuntimeError(f"trade parse failed for {symbol}: {exc}") from exc
@@ -162,7 +169,7 @@ def poll_mytrades_once(
     if max_id != (last_id or -1):
         try:
             stats.set_last_trade_id(connection, symbol, int(max_id))
-        except Exception as exc:
+        except (sqlite3.Error, RuntimeError, TypeError, ValueError) as exc:
             logger(f"[STATS] set_last_trade_id error: {exc}")
             if strict:
                 raise RuntimeError(f"set_last_trade_id failed for {symbol}: {exc}") from exc

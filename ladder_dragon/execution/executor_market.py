@@ -7,6 +7,19 @@ from __future__ import annotations
 
 from typing import Any, Callable, Dict, MutableMapping, Tuple
 
+import requests
+
+
+MARKET_READ_ERRORS = (
+    ArithmeticError,
+    IndexError,
+    KeyError,
+    RuntimeError,
+    TypeError,
+    ValueError,
+    requests.RequestException,
+)
+
 
 def get_price(
     symbol: str,
@@ -20,7 +33,7 @@ def get_price(
         if isinstance(payload, dict) and "price" in payload:
             return float(payload["price"])
         return float(payload[0]["price"])
-    except Exception as ticker_error:
+    except MARKET_READ_ERRORS as ticker_error:
         logger(
             f"[ERR] {symbol}: {ticker_error} at /ticker/price, "
             "trying /ticker/bookTicker"
@@ -30,7 +43,7 @@ def get_price(
             bid = float(payload["bidPrice"])
             ask = float(payload["askPrice"])
             return (bid + ask) / 2.0 if ask > 0 else bid
-        except Exception as book_error:
+        except MARKET_READ_ERRORS as book_error:
             logger(
                 f"[ERR] {symbol}: {book_error} at /ticker/bookTicker, "
                 "trying /avgPrice"
@@ -74,7 +87,9 @@ def get_symbol_assets(
             if base and quote:
                 cache[normalized] = (base, quote)
                 return base, quote
-    except Exception:
+    except MARKET_READ_ERRORS:
+        # Symbol suffix inference is deliberately limited to a read-only
+        # fallback. Order placement still requires exchange filters.
         pass
     if normalized.endswith("USDT"):
         return normalized[:-4], "USDT"

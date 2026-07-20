@@ -11,8 +11,9 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from decimal import Decimal
-from typing import Iterable
+from typing import Any, Iterable, Mapping
 import json
+import hashlib
 from pathlib import Path
 
 
@@ -105,19 +106,34 @@ class OrderBookReplay:
                 if crosses and order.queue_ahead > 0:
                     order.queue_ahead = max(Decimal("0"), order.queue_ahead - trade_qty)
         # Orders are then served by price and arrival time.
-        for order in sorted(self.orders, key=lambda item: (item.price, item.created_ts)):
+        # Preserve exchange price/time priority independently on each side:
+        # highest BUY first, lowest SELL first, then FIFO at equal price.
+        available = {
+            "BUY": [[level.price, level.quantity] for level in event.asks],
+            "SELL": [[level.price, level.quantity] for level in event.bids],
+        }
+        for order in sorted(
+            self.orders,
+            key=lambda item: (
+                0 if item.side == "BUY" else 1,
+                -item.price if item.side == "BUY" else item.price,
+                item.created_ts,
+            ),
+        ):
             if order.cancelled or order.remaining <= 0 or order.created_ts > event.ts_ms or order.queue_ahead > 0:
                 continue
-            levels = event.asks if order.side == "BUY" else event.bids
+            levels = available[order.side]
             for level in levels:
-                crosses = level.price <= order.price if order.side == "BUY" else level.price >= order.price
+                level_price, level_quantity = level
+                crosses = level_price <= order.price if order.side == "BUY" else level_price >= order.price
                 if not crosses:
                     continue
-                qty = min(order.remaining, level.quantity)
+                qty = min(order.remaining, level_quantity)
                 if qty > 0:
                     order.remaining -= qty
-                    impact = self.market_impact_bps / Decimal("100000")
-                    fill_price = level.price * (Decimal("1") + impact if order.side == "BUY" else Decimal("1") - impact)
+                    level[1] -= qty
+                    impact = self.market_impact_bps / Decimal("10000")
+                    fill_price = level_price * (Decimal("1") + impact if order.side == "BUY" else Decimal("1") - impact)
                     fills.append((order.order_id, qty, fill_price))
                 if order.remaining <= 0:
                     break
@@ -146,10 +162,299 @@ def load_events(rows: Iterable[dict]) -> list[MarketEvent]:
 
 
 def load_jsonl_archive(path: str | Path) -> list[MarketEvent]:
-    """Загрузить сохранённый Binance depth/trade/executionReport JSONL архив."""
+    """Load normalized or raw Binance snapshot/depth/trade JSONL safely.
+
+    Raw depth diffs are accepted only after a snapshot. Sequence gaps abort the
+    load so calibration cannot silently use a corrupted order book.
+    """
+    bids: dict[Decimal, Decimal] = {}
+    asks: dict[Decimal, Decimal] = {}
+    last_update_id: int | None = None
     events: list[MarketEvent] = []
+
+    def update_side(side: dict[Decimal, Decimal], rows: object) -> None:
+        if not isinstance(rows, list):
+            raise ValueError("archive book side must be a list")
+        for item in rows:
+            if not isinstance(item, (list, tuple)) or len(item) < 2:
+                raise ValueError("archive book level is malformed")
+            price = Decimal(str(item[0]))
+            quantity = Decimal(str(item[1]))
+            if price <= 0 or quantity < 0:
+                raise ValueError("archive book level is invalid")
+            if quantity == 0:
+                side.pop(price, None)
+            else:
+                side[price] = quantity
+
+    def current_levels(side: Mapping[Decimal, Decimal], reverse: bool):
+        prices = sorted(side, reverse=reverse)[:100]
+        return tuple(BookLevel(price, side[price]) for price in prices)
+
     with Path(path).open(encoding="utf-8") as handle:
-        for line in handle:
-            if line.strip():
-                events.extend(load_events([json.loads(line)]))
+        for line_number, line in enumerate(handle, start=1):
+            if not line.strip():
+                continue
+            payload = json.loads(line)
+            if not isinstance(payload, dict):
+                raise ValueError(f"archive line {line_number} is not an object")
+            row = payload.get("data", payload)
+            if not isinstance(row, dict):
+                raise ValueError(f"archive line {line_number} data is invalid")
+            event_type = str(row.get("e", row.get("event_type", "")))
+            ts_ms = int(row.get("E", row.get("T", row.get("ts_ms", 0))))
+
+            # REST/WebSocket snapshot fixture.
+            if "lastUpdateId" in row and "bids" in row and "asks" in row:
+                bids.clear()
+                asks.clear()
+                update_side(bids, row["bids"])
+                update_side(asks, row["asks"])
+                last_update_id = int(row["lastUpdateId"])
+                events.append(MarketEvent(
+                    ts_ms,
+                    current_levels(bids, True),
+                    current_levels(asks, False),
+                    event_type="depthSnapshot",
+                ))
+                continue
+
+            if event_type == "depthUpdate" or "b" in row or "a" in row:
+                if last_update_id is None:
+                    raise ValueError(
+                        f"depth diff before snapshot at line {line_number}"
+                    )
+                first_id = int(row.get("U", row.get("u", 0)))
+                final_id = int(row.get("u", first_id))
+                previous_id = row.get("pu")
+                if final_id <= last_update_id:
+                    continue
+                contiguous = first_id <= last_update_id + 1 <= final_id
+                if previous_id is not None:
+                    contiguous = contiguous and int(previous_id) == last_update_id
+                if not contiguous:
+                    raise ValueError(
+                        f"depth sequence gap at line {line_number}: "
+                        f"last={last_update_id} U={first_id} u={final_id}"
+                    )
+                update_side(bids, row.get("b", []))
+                update_side(asks, row.get("a", []))
+                last_update_id = final_id
+                events.append(MarketEvent(
+                    ts_ms,
+                    current_levels(bids, True),
+                    current_levels(asks, False),
+                    event_type="depthUpdate",
+                ))
+                continue
+
+            trades: tuple[tuple[Decimal, Decimal, str], ...] = ()
+            updates: tuple[dict, ...] = ()
+            if event_type in {"aggTrade", "trade"}:
+                aggressor = "SELL" if bool(row.get("m")) else "BUY"
+                trades = ((
+                    Decimal(str(row["p"])),
+                    Decimal(str(row["q"])),
+                    aggressor,
+                ),)
+            elif event_type == "executionReport":
+                updates = (dict(row),)
+            elif "bids" in row or "asks" in row:
+                # Existing normalized fixtures are full snapshots.
+                update_side(bids, row.get("bids", []))
+                update_side(asks, row.get("asks", []))
+                trades = tuple(
+                    (
+                        Decimal(str(item[0])),
+                        Decimal(str(item[1])),
+                        str(item[2]),
+                    )
+                    for item in row.get("trades", [])
+                )
+                updates = tuple(row.get("exchange_order_updates", []))
+            else:
+                raise ValueError(
+                    f"unsupported archive event at line {line_number}: {event_type}"
+                )
+            events.append(MarketEvent(
+                ts_ms,
+                current_levels(bids, True),
+                current_levels(asks, False),
+                trades,
+                tuple(str(item) for item in row.get("cancelled_order_ids", [])),
+                event_type or "normalized",
+                updates,
+            ))
     return sorted(events, key=lambda event: event.ts_ms)
+
+
+def archive_sha256(path: str | Path) -> str:
+    digest = hashlib.sha256()
+    with Path(path).open("rb") as handle:
+        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def _quantile(values: list[Decimal], numerator: int, denominator: int) -> Decimal:
+    if not values:
+        return Decimal("0")
+    ordered = sorted(values)
+    index = (len(ordered) - 1) * numerator // denominator
+    return ordered[index]
+
+
+@dataclass(frozen=True)
+class ReplayCalibration:
+    schema_version: int
+    archive_sha256: str
+    first_ts_ms: int
+    last_ts_ms: int
+    event_count: int
+    book_event_count: int
+    trade_count: int
+    execution_sample_count: int
+    eligible: bool
+    reasons: tuple[str, ...]
+    spread_pct: Decimal
+    slippage_pct: Decimal
+    participation_rate: Decimal
+    partial_fill_ratio: Decimal
+    latency_ms_p95: int
+    market_impact_bps: Decimal
+
+    def as_dict(self) -> dict[str, object]:
+        return {
+            "schema_version": self.schema_version,
+            "archive_sha256": self.archive_sha256,
+            "first_ts_ms": self.first_ts_ms,
+            "last_ts_ms": self.last_ts_ms,
+            "event_count": self.event_count,
+            "book_event_count": self.book_event_count,
+            "trade_count": self.trade_count,
+            "execution_sample_count": self.execution_sample_count,
+            "eligible": self.eligible,
+            "reasons": list(self.reasons),
+            "parameters": {
+                "spread_pct": format(self.spread_pct, "f"),
+                "slippage_pct": format(self.slippage_pct, "f"),
+                "participation_rate": format(self.participation_rate, "f"),
+                "partial_fill_ratio": format(self.partial_fill_ratio, "f"),
+                "latency_ms_p95": self.latency_ms_p95,
+                "market_impact_bps": format(self.market_impact_bps, "f"),
+            },
+        }
+
+    @classmethod
+    def from_dict(cls, payload: Mapping[str, Any]) -> "ReplayCalibration":
+        params = payload.get("parameters")
+        if int(payload.get("schema_version", 0)) != 1 or not isinstance(params, Mapping):
+            raise ValueError("unsupported replay calibration schema")
+        return cls(
+            schema_version=1,
+            archive_sha256=str(payload["archive_sha256"]),
+            first_ts_ms=int(payload["first_ts_ms"]),
+            last_ts_ms=int(payload["last_ts_ms"]),
+            event_count=int(payload["event_count"]),
+            book_event_count=int(payload["book_event_count"]),
+            trade_count=int(payload["trade_count"]),
+            execution_sample_count=int(payload["execution_sample_count"]),
+            eligible=bool(payload["eligible"]),
+            reasons=tuple(str(item) for item in payload.get("reasons", [])),
+            spread_pct=Decimal(str(params["spread_pct"])),
+            slippage_pct=Decimal(str(params["slippage_pct"])),
+            participation_rate=Decimal(str(params["participation_rate"])),
+            partial_fill_ratio=Decimal(str(params["partial_fill_ratio"])),
+            latency_ms_p95=int(params["latency_ms_p95"]),
+            market_impact_bps=Decimal(str(params["market_impact_bps"])),
+        )
+
+
+def calibrate_market_events(
+    events: Iterable[MarketEvent],
+    *,
+    source_sha256: str,
+    min_book_events: int = 100,
+    min_trades: int = 50,
+) -> ReplayCalibration:
+    rows = list(events)
+    if not rows:
+        raise ValueError("cannot calibrate an empty replay")
+    spreads: list[Decimal] = []
+    slippages: list[Decimal] = []
+    participation: list[Decimal] = []
+    partials: list[Decimal] = []
+    latencies: list[int] = []
+    impacts: list[Decimal] = []
+    trade_count = 0
+    book_events = 0
+    for event in rows:
+        if event.bids and event.asks:
+            bid = event.bids[0]
+            ask = event.asks[0]
+            mid = (bid.price + ask.price) / Decimal("2")
+            if mid <= 0 or ask.price < bid.price:
+                raise ValueError("replay contains a crossed or invalid book")
+            spread = (ask.price - bid.price) / mid
+            spreads.append(spread)
+            book_events += 1
+            for price, quantity, aggressor in event.trades:
+                if price <= 0 or quantity <= 0:
+                    raise ValueError("replay contains an invalid public trade")
+                trade_count += 1
+                adverse = abs(price - mid) / mid
+                slippages.append(max(Decimal("0"), adverse - spread / Decimal("2")))
+                top = ask if aggressor.upper() == "BUY" else bid
+                participation.append(min(Decimal("1"), quantity / top.quantity))
+                impacts.append(adverse * Decimal("10000"))
+        for update in event.exchange_order_updates:
+            try:
+                original = Decimal(str(update.get("q", update.get("origQty", "0"))))
+                last_qty = Decimal(str(update.get("l", update.get("lastQty", "0"))))
+                transaction_ts = int(update.get("T", update.get("updateTime", event.ts_ms)))
+                order_ts = int(update.get("O", update.get("workingTime", 0)))
+            except (ArithmeticError, TypeError, ValueError):
+                continue
+            if original > 0 and last_qty > 0:
+                partials.append(min(Decimal("1"), last_qty / original))
+            if order_ts > 0 and transaction_ts >= order_ts:
+                latencies.append(transaction_ts - order_ts)
+    reasons = []
+    if book_events < min_book_events:
+        reasons.append(f"book samples {book_events} < {min_book_events}")
+    if trade_count < min_trades:
+        reasons.append(f"trade samples {trade_count} < {min_trades}")
+    if not partials or not latencies:
+        reasons.append("executionReport samples unavailable")
+    return ReplayCalibration(
+        schema_version=1,
+        archive_sha256=source_sha256,
+        first_ts_ms=min(event.ts_ms for event in rows),
+        last_ts_ms=max(event.ts_ms for event in rows),
+        event_count=len(rows),
+        book_event_count=book_events,
+        trade_count=trade_count,
+        execution_sample_count=len(partials),
+        eligible=not reasons,
+        reasons=tuple(reasons),
+        spread_pct=_quantile(spreads, 1, 2),
+        slippage_pct=_quantile(slippages, 3, 4),
+        participation_rate=_quantile(participation, 1, 4),
+        partial_fill_ratio=_quantile(partials, 1, 4) if partials else Decimal("0"),
+        latency_ms_p95=int(_quantile([Decimal(value) for value in latencies], 95, 100)),
+        market_impact_bps=_quantile(impacts, 3, 4),
+    )
+
+
+def write_calibration(path: str | Path, report: ReplayCalibration) -> None:
+    Path(path).write_text(
+        json.dumps(report.as_dict(), indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+
+
+def read_calibration(path: str | Path) -> ReplayCalibration:
+    payload = json.loads(Path(path).read_text(encoding="utf-8"))
+    if not isinstance(payload, dict):
+        raise ValueError("calibration must be a JSON object")
+    return ReplayCalibration.from_dict(payload)

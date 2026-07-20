@@ -1,6 +1,7 @@
 import sqlite3
 
 import pytest
+import requests
 
 from ladder_dragon.execution.order_recovery import (
     OrderJournal,
@@ -8,6 +9,9 @@ from ladder_dragon.execution.order_recovery import (
 )
 from ladder_dragon.execution.executor_recovery import (
     RecoveryDependencies,
+    cancel_order,
+    get_order,
+    list_open_orders,
     reconcile_nonterminal_orders,
 )
 
@@ -24,6 +28,35 @@ def recovery_dependencies(journal, lookup, *, halts=None, logs=None):
         ),
         logger=(logs if logs is not None else []).append,
     )
+
+
+def test_exchange_read_and_cancel_wrappers_fail_closed():
+    def unavailable(*args, **kwargs):
+        raise requests.ConnectionError("network unavailable")
+
+    with pytest.raises(requests.ConnectionError):
+        list_open_orders("SOLUSDT", signed_request=unavailable, logger=lambda _: None)
+    with pytest.raises(requests.ConnectionError):
+        get_order(
+            "SOLUSDT",
+            123,
+            signed_request=unavailable,
+            record_payload=lambda payload: None,
+            logger=lambda _: None,
+        )
+    with pytest.raises(requests.ConnectionError):
+        cancel_order(
+            "SOLUSDT", 123, signed_request=unavailable, logger=lambda _: None
+        )
+
+
+def test_open_orders_rejects_invalid_success_payload():
+    with pytest.raises(RuntimeError, match="not a list"):
+        list_open_orders(
+            "SOLUSDT",
+            signed_request=lambda *args, **kwargs: {"status": "ok"},
+            logger=lambda _: None,
+        )
 
 
 def test_journal_reuses_active_intent_and_records_exchange_state(tmp_path):

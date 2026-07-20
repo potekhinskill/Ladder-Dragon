@@ -17,7 +17,7 @@ Binance Spot. It builds BUY/SELL grids, uses ATR/EMA/VWAP/ADX regimes, manages
 OCO protection, and records trading statistics in SQLite. Production secrets,
 real backups, and private parameters are never committed.
 
-Current product version: **2.10.96**. The single version source is
+Current product version: **2.10.97**. The single version source is
 `product_version.py`; releases follow [Semantic Versioning](https://semver.org/).
 Project contact: [LinkedIn](https://www.linkedin.com/in/ypotekhin/).
 
@@ -33,7 +33,7 @@ Project contact: [LinkedIn](https://www.linkedin.com/in/ypotekhin/).
 ## Project status
 
 Ladder Dragon is an actively developed, experimental trading system. Version
-**2.10.96** is the current prepared release. `main` is the only long-lived branch;
+**2.10.97** is the current prepared release. `main` is the only long-lived branch;
 feature branches use the `ladderdragon/*` namespace.
 
 DRY and Binance Spot Testnet are the supported starting modes. Mainnet LIVE is
@@ -273,6 +273,45 @@ not be extended. Realized net PnL includes commissions, slippage, partial fills,
 exit reason, duration, and exact AI attribution. Unresolved fills are excluded
 from AI PnL.
 
+### Legacy holdings cost basis
+
+Pre-existing holdings remain unmanaged until an operator imports a basis that
+can be reconstructed from the account's complete Binance fill history. The
+importer is preview-first: it values historical commissions at their trade
+time, reconstructs remaining FIFO lots, requires the reconstructed quantity to
+match the current account, and writes a private hash-bound plan without touching
+the statistics database. Apply requires two explicit confirmations, a stopped
+service, a fresh full Binance re-read with the same plan hash, and an atomic
+post-write verification. Existing lots are archived as `SUPERSEDED`, never
+deleted. See the [Raspberry Pi runbook](docs/RASPBERRY_PI_INSTALL.md#8-legacy-holdings-cost-basis-import).
+
+This workflow intentionally rejects incomplete exchange history, transfers or
+deposits that cannot be explained by fills, unpriced third-asset commissions,
+open symbol orders, and any balance change during reconstruction or between
+preview and apply. Importing a basis does not automatically enable holdings
+SELL or OCO management.
+
+### Archived order-book calibration
+
+`bin.calibrate_replay` consumes normalized or raw Binance JSONL snapshots,
+contiguous depth diffs, public trades, and execution reports. It rejects depth
+sequence gaps and produces a source-hashed calibration report. A report is
+eligible only after its configured minimum book/trade sample counts and real
+execution-report samples are present. `bin.backtest --calibration` refuses an
+ineligible report and verifies the archive hash when `--archive` is supplied.
+
+```bash
+PYTHONPATH=. python -m bin.calibrate_replay data/SOLUSDT-events.jsonl \
+  --output .runtime/SOLUSDT-calibration.json
+PYTHONPATH=. python -m bin.backtest data/SOLUSDT-1m.csv \
+  --archive data/SOLUSDT-events.jsonl \
+  --calibration .runtime/SOLUSDT-calibration.json
+```
+
+The derived spread, slippage, participation, partial-fill, latency, and impact
+parameters are empirical approximations, not a claim that candle backtests
+reproduce exchange queue position or future execution.
+
 ## Dashboard
 
 Run locally with:
@@ -321,17 +360,16 @@ the services, and waits for a fresh heartbeat.
 
 ## Remaining engineering work
 
-- provide an operator-reviewed import workflow for legacy holdings cost basis;
-  until then `auto_oco_holdings` blocks normal SELL placement unless the full
-  Binance quantity is covered by positive-price FIFO lots with exchange-order
-  provenance, and uses their weighted average rather than a caller estimate;
 - run the bounded Mainnet canary on each materially changed executor release;
 - collect at least three natural, exactly linked BUY/OCO/TP-or-STOP lifecycles
   and a clean 24–48 hour SOLUSDT soak before increasing LIVE scope;
-- extend event-driven replay with archived Binance depth/trade streams;
-- improve matching, latency, maker/taker, and market-impact models;
+- collect longer exchange archives across volatility regimes and compare replay
+  estimates with exact live lifecycle outcomes;
+- improve queue-position and dynamic spread/impact models beyond the current
+  source-hashed empirical calibration;
 - expand multi-period walk-forward and production approval statistics;
-- continue reducing float arithmetic and broad exception handlers;
+- continue migrating non-critical strategy indicators away from legacy float
+  arithmetic and narrowing broad handlers that are not final safety barriers;
 - run controlled long Testnet soak tests after executor or risk changes.
 
 The local gap-watchdog drill is network-free and never creates an exchange

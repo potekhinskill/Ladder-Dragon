@@ -3,6 +3,59 @@
 All notable changes are documented here. Releases use Semantic Versioning; every
 section is dated and there is intentionally no `Unreleased` section.
 
+## [2.10.97] — 2026-07-20
+
+### Security
+- Added a preview-first legacy holdings cost-basis import. It reconstructs FIFO
+  lots from exact Binance trade IDs, order IDs and historical commissions,
+  requires account-quantity agreement, writes a private hash-bound plan, and
+  revalidates the complete live state before an atomic apply.
+- Applying a basis requires two explicit confirmations and a stopped service.
+  Any changed Binance state, incomplete history, unpriced commission or failed
+  post-write coverage check rolls back; prior lots are archived rather than
+  deleted.
+- Exchange open-order, order-query and cancellation wrappers no longer convert
+  transport or malformed-response failures into empty/successful results.
+  Callers now receive the failure and retain their fail-closed behavior.
+- Critical filled-BUY quantity, average price, balance, notional and guard
+  comparisons use `Decimal`; conversion to float is limited to legacy callback
+  boundaries. Protection diagnostics no longer emit raw transport exception
+  text that could contain signed query data.
+
+### Added
+- Added raw/normalized Binance JSONL replay loading with strict depth sequence
+  validation, archive SHA-256 provenance and eligibility-gated calibration for
+  spread, slippage, participation, partial fills, latency and market impact.
+- Backtests can consume eligible calibration reports and reject a mismatched
+  archive hash. Daily candle timestamp units are detected correctly.
+- Imported basis metadata persists the source history hash, plan hash, exact
+  quantities, weighted average and last trade ID. Later fills recalculate from
+  that verified baseline instead of overwriting it.
+- Live FIFO lot synchronization now records both exchange trade/order
+  provenance, includes quote-paid BUY commissions in unit cost, subtracts
+  base-paid BUY commission, and consumes base-paid SELL commission quantity.
+  Replaying a fill with the same exchange trade ID is idempotent.
+- Added migration `004` for durable cost-basis import audit records; existing
+  inventory-lot provenance columns remain upgraded idempotently by the shared
+  inventory schema helper for compatibility with pre-migration databases.
+
+### Fixed
+- Replay matching now uses BUY-descending/SELL-ascending price-time priority,
+  consumes each visible book level only once per event, and interprets market
+  impact in actual basis points.
+- Statistics and market read helpers catch explicit operational failures rather
+  than arbitrary programming exceptions on critical execution paths.
+
+### Verified
+- Added regression coverage for commission-aware FIFO reconstruction, preview
+  safeguards, stopped-service enforcement, truncation rejection, atomic
+  rollback, imported-basis continuation, depth gaps, calibration provenance,
+  price priority, one-time liquidity consumption and fail-closed recovery.
+- Python compilation, shell syntax checks and the complete local suite pass:
+  345 tests. `pip check` reports no broken project-environment requirements,
+  `pip-audit --skip-editable` reports no known dependency vulnerabilities, and
+  the tracked-secret scan reports no high-confidence secret.
+
 ## [2.10.96] — 2026-07-20
 
 ### Security

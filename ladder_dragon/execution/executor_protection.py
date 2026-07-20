@@ -15,6 +15,7 @@ from dataclasses import dataclass
 from decimal import Decimal, InvalidOperation
 import json
 import os
+import sqlite3
 import time
 from typing import Any, Callable, Dict, List, MutableSet, Optional, Sequence
 
@@ -202,8 +203,6 @@ def protect_filled_buys(
             dependencies.logger(f"[PROTECTION-ERR] {symbol} {reason}")
             dependencies.halt(reason, symbol=symbol, order_id=order_id)
             continue
-        executed_status = float(executed_quantity)
-
         # A terminal zero-fill BUY cannot require OCO protection. Supervisory
         # TTL cleanup may cancel it while this worker is polling, so remove it
         # immediately instead of reporting OCO:pending until the worker exits.
@@ -217,7 +216,7 @@ def protect_filled_buys(
                 )
                 if journal is not None and intent is not None:
                     journal.record_exchange_order(intent.client_order_id, order)
-            except Exception as exc:
+            except (sqlite3.Error, RuntimeError, TypeError, ValueError) as exc:
                 dependencies.logger(
                     f"[PROTECTION-JOURNAL] {symbol} order={order_id}: {exc}"
                 )
@@ -231,7 +230,7 @@ def protect_filled_buys(
             continue
 
         terminal_partial = (
-            status in TERMINAL_EXCHANGE_STATES and executed_status > 0
+            status in TERMINAL_EXCHANGE_STATES and executed_quantity > 0
         )
         if status != "FILLED" and not terminal_partial:
             continue
@@ -262,16 +261,21 @@ def protect_filled_buys(
                 dependencies.poll_trades(symbol)
                 remaining.remove(order_id)
                 continue
-            if executed_status <= 0:
+            if executed_quantity <= 0:
                 remaining.remove(order_id)
                 continue
 
-            cumulative_quote = float(
-                order.get("cummulativeQuoteQty", "0") or 0.0
+            cumulative_quote = Decimal(
+                str(order.get("cummulativeQuoteQty", "0") or "0")
             )
-            average_fill_price = cumulative_quote / executed_status
-            if average_fill_price <= 0:
-                average_fill_price = float(order.get("price", "0") or 0.0)
+            average_fill_decimal = cumulative_quote / executed_quantity
+            if average_fill_decimal <= 0:
+                average_fill_decimal = Decimal(
+                    str(order.get("price", "0") or "0")
+                )
+            if not average_fill_decimal.is_finite() or average_fill_decimal <= 0:
+                raise ValueError("BUY fill has no positive average price")
+            average_fill_price = float(average_fill_decimal)
 
             tp_limit, sl_stop, sl_limit = dependencies.pick_oco_prices(
                 symbol,
@@ -288,25 +292,42 @@ def protect_filled_buys(
                     config.avg_cache_ttl,
                     config.avg_lookback,
                 )
-            except Exception:
+            except (
+                ArithmeticError,
+                RuntimeError,
+                sqlite3.Error,
+                TypeError,
+                ValueError,
+                requests.RequestException,
+            ):
                 average_position = None
             if average_position is not None:
-                minimum_guard: Optional[float] = None
+                average_position_decimal = Decimal(str(average_position))
+                minimum_guard: Optional[Decimal] = None
                 if panic_active:
                     if config.panic_sell_floor_pct is not None:
-                        minimum_guard = average_position * (
-                            1.0
-                            - max(0.0, float(config.panic_sell_floor_pct))
+                        panic_floor = max(
+                            Decimal("0"),
+                            Decimal(str(config.panic_sell_floor_pct)),
+                        )
+                        minimum_guard = average_position_decimal * (
+                            Decimal("1") - panic_floor
                         )
                 else:
                     minimum_guard = max(
-                        average_position,
-                        average_fill_price
-                        * (1.0 + dependencies.profit_floor_pct()),
+                        average_position_decimal,
+                        average_fill_decimal
+                        * (
+                            Decimal("1")
+                            + Decimal(str(dependencies.profit_floor_pct()))
+                        ),
                     )
-                if minimum_guard is not None and tp_limit < minimum_guard:
+                if (
+                    minimum_guard is not None
+                    and Decimal(str(tp_limit)) < minimum_guard
+                ):
                     guard_floor = dependencies.round_price(
-                        symbol, minimum_guard
+                        symbol, float(minimum_guard)
                     )
                     if guard_floor > tp_limit:
                         dependencies.debugger(
@@ -320,19 +341,31 @@ def protect_filled_buys(
             dependencies.pull_filters(symbol)
             base, _ = dependencies.get_symbol_assets(symbol)
             balances = dependencies.get_balances()
-            base_free = float(
-                balances.get(base, {}).get("free", 0.0)
+            base_free = Decimal(
+                str(balances.get(base, {}).get("free", 0.0))
             )
-            dust = dependencies.min_quantity(symbol, 0)
-            sellable = max(0.0, base_free - dust)
-            quantity = dependencies.round_quantity(
-                symbol, min(executed_status, sellable)
+            dust = Decimal(str(dependencies.min_quantity(symbol, 0)))
+            sellable = max(Decimal("0"), base_free - dust)
+            quantity = Decimal(
+                str(
+                    dependencies.round_quantity(
+                        symbol, float(min(executed_quantity, sellable))
+                    )
+                )
             )
 
-            tp_rounded = dependencies.round_price(symbol, tp_limit)
-            sl_rounded = dependencies.round_price(symbol, sl_limit)
-            min_tp = dependencies.min_notional(symbol, tp_rounded)
-            min_sl = dependencies.min_notional(symbol, sl_rounded)
+            tp_rounded = Decimal(
+                str(dependencies.round_price(symbol, tp_limit))
+            )
+            sl_rounded = Decimal(
+                str(dependencies.round_price(symbol, sl_limit))
+            )
+            min_tp = Decimal(
+                str(dependencies.min_notional(symbol, float(tp_rounded)))
+            )
+            min_sl = Decimal(
+                str(dependencies.min_notional(symbol, float(sl_rounded)))
+            )
             tp_value = quantity * tp_rounded
             sl_value = quantity * sl_rounded
             if quantity <= 0 or tp_value < min_tp or sl_value < min_sl:
@@ -344,15 +377,15 @@ def protect_filled_buys(
                     % (
                         symbol,
                         order_id,
-                        dependencies.format_quantity(symbol, quantity),
-                        dependencies.format_quantity(symbol, sellable),
-                        dependencies.format_quantity(symbol, dust),
-                        tp_value,
-                        min_tp,
-                        sl_value,
-                        min_sl,
-                        dependencies.format_price(symbol, tp_rounded),
-                        dependencies.format_price(symbol, sl_rounded),
+                        dependencies.format_quantity(symbol, float(quantity)),
+                        dependencies.format_quantity(symbol, float(sellable)),
+                        dependencies.format_quantity(symbol, float(dust)),
+                        float(tp_value),
+                        float(min_tp),
+                        float(sl_value),
+                        float(min_sl),
+                        dependencies.format_price(symbol, float(tp_rounded)),
+                        dependencies.format_price(symbol, float(sl_rounded)),
                     )
                 )
                 dependencies.halt(
@@ -363,13 +396,15 @@ def protect_filled_buys(
                 )
                 continue
 
-            lot_id = dependencies.lot_id_for_fill(symbol, average_fill_price, order_id) if dependencies.lot_id_for_fill else None
+            lot_id = dependencies.lot_id_for_fill(
+                symbol, average_fill_price, order_id
+            ) if dependencies.lot_id_for_fill else None
             oco = dependencies.place_oco_sell(
                 symbol,
-                quantity,
-                tp_rounded,
+                float(quantity),
+                float(tp_rounded),
                 sl_stop,
-                sl_rounded,
+                float(sl_rounded),
                 parent_client_order_id=parent_client_id,
                 lot_id=lot_id,
             )
@@ -381,7 +416,9 @@ def protect_filled_buys(
                 reason = "OCO не создан: fallback prefer-tp1 запрещён в LIVE (позиция без стопа)"
                 try:
                     if dependencies.place_market_order is not None:
-                        dependencies.place_market_order(symbol, "SELL", quantity)
+                        dependencies.place_market_order(
+                            symbol, "SELL", float(quantity)
+                        )
                 except (OSError, RuntimeError, ValueError, TypeError) as exc:
                     dependencies.logger(f"[FLATTEN-ERR] {symbol}: {exc}")
                 dependencies.halt(reason, symbol=symbol, order_id=order_id,
@@ -392,8 +429,8 @@ def protect_filled_buys(
                     fallback = dependencies.place_limit_order(
                         "SELL",
                         symbol,
-                        quantity,
-                        tp_rounded,
+                        float(quantity),
+                        float(tp_rounded),
                         maker=config.sell_limit_maker,
                         purpose="fallback_tp",
                         parent_client_order_id=parent_client_id,
@@ -418,9 +455,16 @@ def protect_filled_buys(
                             f"[FALLBACK] {symbol} single TP placed @ "
                             f"{dependencies.format_price(symbol, tp_rounded)}"
                         )
-                except Exception as exc:
+                except (
+                    OSError,
+                    RuntimeError,
+                    sqlite3.Error,
+                    TypeError,
+                    ValueError,
+                    requests.RequestException,
+                ) as exc:
                     dependencies.logger(
-                        f"[FALLBACK-ERR] {symbol} -> {exc}"
+                        f"[FALLBACK-ERR] {symbol} -> {type(exc).__name__}"
                     )
 
             if oco and breakeven_enabled:
@@ -450,11 +494,16 @@ def protect_filled_buys(
                     client_order_id=parent_client_id,
                 )
         except Exception as exc:
+            # This is the final protection boundary. It deliberately catches
+            # unexpected implementation failures so a filled LIVE BUY can
+            # never continue unprotected. Only the exception type is emitted;
+            # transport exceptions can contain signed query strings.
+            error_type = type(exc).__name__
             dependencies.logger(
-                f"[ATTACH-OCO-ERR] {symbol} order {order_id}: {exc}"
+                f"[ATTACH-OCO-ERR] {symbol} order {order_id}: {error_type}"
             )
             dependencies.halt(
-                f"protection error for filled BUY {order_id}: {exc}",
+                f"protection error for filled BUY {order_id}: {error_type}",
                 symbol=symbol,
                 order_id=order_id,
                 client_order_id=parent_client_id,

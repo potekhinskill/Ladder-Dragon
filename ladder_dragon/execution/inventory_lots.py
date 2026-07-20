@@ -8,6 +8,9 @@ import sqlite3
 import time
 from dataclasses import dataclass
 from decimal import Decimal
+from typing import Any, Mapping
+
+from ladder_dragon.execution.trade_accounting import TradeExecution
 
 
 @dataclass(frozen=True)
@@ -44,16 +47,45 @@ def ensure_schema(connection: sqlite3.Connection) -> None:
         source_order_id TEXT NOT NULL DEFAULT '', status TEXT NOT NULL DEFAULT 'OPEN'
     )""")
     connection.execute("CREATE INDEX IF NOT EXISTS inventory_lots_fifo ON inventory_lots(symbol,status,opened_at)")
+    columns = {
+        str(row[1])
+        for row in connection.execute("PRAGMA table_info(inventory_lots)")
+    }
+    if "source_trade_id" not in columns:
+        connection.execute(
+            "ALTER TABLE inventory_lots ADD COLUMN source_trade_id TEXT NOT NULL DEFAULT ''"
+        )
+    if "import_batch_id" not in columns:
+        connection.execute(
+            "ALTER TABLE inventory_lots ADD COLUMN import_batch_id TEXT NOT NULL DEFAULT ''"
+        )
 
 
 def add_lot(connection: sqlite3.Connection, *, symbol: str, qty: Decimal, price: Decimal,
-            ladder_level: str = "", opened_at: int | None = None, source_order_id: str = "") -> int:
+            ladder_level: str = "", opened_at: int | None = None,
+            source_order_id: str = "", source_trade_id: str | int = "",
+            import_batch_id: str = "") -> int:
     ensure_schema(connection)
+    normalized_symbol = symbol.upper()
+    normalized_trade_id = str(source_trade_id).strip()
+    if normalized_trade_id:
+        existing = connection.execute(
+            "SELECT lot_id FROM inventory_lots "
+            "WHERE symbol=? AND source_trade_id=? ORDER BY lot_id LIMIT 1",
+            (normalized_symbol, normalized_trade_id),
+        ).fetchone()
+        if existing is not None:
+            return int(existing[0])
     # Historical imports may provide the original BUY timestamp.
     now = int(opened_at or time.time())
     cur = connection.execute(
-        "INSERT INTO inventory_lots(symbol,qty,price,opened_at,updated_at,ladder_level,source_order_id) VALUES(?,?,?,?,?,?,?)",
-        (symbol.upper(), str(qty), str(price), now, now, ladder_level, source_order_id),
+        "INSERT INTO inventory_lots("
+        "symbol,qty,price,opened_at,updated_at,ladder_level,source_order_id,"
+        "source_trade_id,import_batch_id) VALUES(?,?,?,?,?,?,?,?,?)",
+        (
+            normalized_symbol, str(qty), str(price), now, now, ladder_level,
+            source_order_id, normalized_trade_id, import_batch_id,
+        ),
     )
     return int(cur.lastrowid)
 
@@ -98,19 +130,22 @@ def cost_basis_coverage(
     if not account.is_finite() or account < 0:
         raise ValueError("account quantity must be finite and non-negative")
     rows = connection.execute(
-        "SELECT qty,price,source_order_id FROM inventory_lots "
+        "SELECT qty,price,source_order_id,source_trade_id FROM inventory_lots "
         "WHERE symbol=? AND status='OPEN' ORDER BY opened_at,lot_id",
         (symbol.upper(),),
     ).fetchall()
     covered_qty = Decimal("0")
     covered_cost = Decimal("0")
     incomplete_rows = 0
-    for qty_text, price_text, source_order_id in rows:
+    for qty_text, price_text, source_order_id, source_trade_id in rows:
         qty = Decimal(str(qty_text))
         price = Decimal(str(price_text))
         if qty <= 0:
             continue
-        if price <= 0 or not str(source_order_id or "").strip():
+        if price <= 0 or not (
+            str(source_order_id or "").strip()
+            or str(source_trade_id or "").strip()
+        ):
             incomplete_rows += 1
             continue
         covered_qty += qty
@@ -154,3 +189,32 @@ def consume_fifo(connection: sqlite3.Connection, symbol: str, qty: Decimal) -> l
     if remaining > 0:
         raise ValueError("SELL exceeds FIFO inventory lots")
     return consumed
+
+
+def sync_exchange_fill(
+    connection: sqlite3.Connection, fill: Mapping[str, Any]
+) -> int | list[InventoryLot]:
+    """Apply one exact Binance fill to age-aware FIFO lots idempotently."""
+    symbol = str(fill["symbol"]).upper()
+    execution = TradeExecution.create(
+        symbol=symbol,
+        side=str(fill["side"]),
+        price=fill["price"],
+        gross_qty=fill["qty"],
+        commission_asset=str(fill.get("commission_asset") or ""),
+        commission_amount=fill.get("commission_amount") or "0",
+        commission_quote=fill.get("fee_quote") or "0",
+        commission_value_status="exact",
+    )
+    if execution.side == "BUY":
+        unit_cost = execution.buy_cost_quote() / execution.net_qty
+        return add_lot(
+            connection,
+            symbol=symbol,
+            qty=execution.net_qty,
+            price=unit_cost,
+            source_order_id=str(fill.get("order_id") or ""),
+            source_trade_id=str(fill["trade_id"]),
+            opened_at=int(int(fill["ts"]) / 1000),
+        )
+    return consume_fifo(connection, symbol, execution.net_qty)

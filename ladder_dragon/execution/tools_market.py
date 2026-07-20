@@ -89,7 +89,7 @@ def _raise_for_binance(resp: requests.Response):
         return
     try:
         data = resp.json()
-    except Exception:
+    except (requests.JSONDecodeError, TypeError, ValueError):
         data = {"msg": resp.text}
     if not isinstance(data, dict):
         data = {"msg": str(data)}
@@ -120,11 +120,10 @@ def _refresh_time_offset():
 def _timestamp_ms() -> int:
     global _time_offset_ms, _time_offset_ts
     if _time_offset_ms is None or (time.time() - _time_offset_ts) > _OFFSET_TTL:
-        try:
-            _refresh_time_offset()
-        except Exception:
-            _time_offset_ms = 0
-            _time_offset_ts = time.time()
+        # Signed mutations must not guess the exchange clock after a failed
+        # time read. Propagating the operational failure keeps the caller
+        # fail-closed and avoids ambiguous submissions outside recvWindow.
+        _refresh_time_offset()
     return int(time.time() * 1000 + (_time_offset_ms or 0))
 
 # ---- signing: keep a stable parameter order ----
@@ -236,13 +235,13 @@ def get_klines(symbol: str,
     if r.status_code == 200:
         try:
             return r.json()  # type: ignore[return-value]
-        except Exception as e:
+        except (requests.JSONDecodeError, TypeError, ValueError) as e:
             raise BinanceHttpError(f"Failed to parse klines JSON: {e}")
 
     # Error handling.
     try:
         err = r.json()
-    except Exception:
+    except (requests.JSONDecodeError, TypeError, ValueError):
         err = {"msg": r.text}
 
     # Fallback for an invalid interval.
@@ -255,7 +254,7 @@ def get_klines(symbol: str,
             _raise_for_binance(r2)
             try:
                 return r2.json()  # type: ignore[return-value]
-            except Exception as e:
+            except (requests.JSONDecodeError, TypeError, ValueError) as e:
                 raise BinanceHttpError(f"Failed to parse klines JSON after fallback: {e}")
 
     # If reached, re-raise the original exception.

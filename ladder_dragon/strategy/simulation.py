@@ -161,7 +161,7 @@ def simulate_grid(candles: Sequence[Candle], config: SimulationConfig, *, market
             # candle range; this avoids impossible OHLC fills.
             book_ask = candle.ask if candle.ask > 0 else pending_buy[1]
             execution = book_ask * (D("1") + config.slippage_pct + config.spread_pct / D("2"))
-            execution *= D("1") + config.market_impact_bps / D("100000")
+            execution *= D("1") + config.market_impact_bps / D("10000")
             if execution > candle.high:
                 continue
             available_ratio = config.partial_fill_ratio
@@ -224,7 +224,7 @@ def simulate_grid(candles: Sequence[Candle], config: SimulationConfig, *, market
                 execution = trigger * (
                     D("1") - config.slippage_pct - config.spread_pct / D("2")
                 )
-                execution *= D("1") - config.market_impact_bps / D("100000")
+                execution *= D("1") - config.market_impact_bps / D("10000")
                 if execution >= candle.low:
                     sell_ratio = config.partial_fill_ratio
                     if candle.volume > 0:
