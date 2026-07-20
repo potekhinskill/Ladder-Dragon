@@ -1,0 +1,16 @@
+from pathlib import Path
+
+from bin.audit_numeric_boundaries import audit_numeric_boundaries
+
+
+def test_financial_module_float_calls_do_not_regress():
+    root = Path(__file__).resolve().parents[1]
+    report = audit_numeric_boundaries(root)
+
+    assert report["ready"] is True
+    assert report["counts"][
+        "ladder_dragon/execution/executor_orders.py"
+    ] == 0
+    assert report["counts"][
+        "ladder_dragon/execution/executor_protection.py"
+    ] == 0

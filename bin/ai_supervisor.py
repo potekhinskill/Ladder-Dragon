@@ -1653,9 +1653,15 @@ def _build_ai_market_context(
 ) -> MarketContext:
     """Build ai market context."""
     low, down, up = ladder
+    price_exact = _finite_decimal(price, name="AI context price")
+    risk_cap_exact = _finite_decimal(
+        os.getenv("BOT_CAP_PER_ORDER", "0") or "0",
+        name="AI context risk CAP",
+    )
     base: Dict[str, Any] = {
         "symbol": symbol,
-        "price": float(price),
+        "price": _analytics_float(price_exact),
+        "price_text": format(price_exact, "f"),
         "atr_pct": float(atr_pct),
         "deterministic_mode": deterministic_mode,
         "candidate_mode": str(diag.get("candidate", deterministic_mode)),
@@ -1669,19 +1675,20 @@ def _build_ai_market_context(
         "ladder_down_pct": float(down),
         "ladder_up_pct": float(up),
         "target_buys": int(target_buys),
-        "risk_safe_cap_usdt": float(
-            os.getenv("BOT_CAP_PER_ORDER", "0") or 0
-        ),
+        "risk_safe_cap_usdt": _analytics_float(risk_cap_exact),
+        "risk_safe_cap_usdt_text": format(risk_cap_exact, "f"),
     }
     if _AI_DECISIONS is not None:
         try:
-            def horizon_price(sym: str, target_ms: int) -> float:
+            def horizon_price(sym: str, target_ms: int) -> Decimal:
                 candles = TM.get_klines(
                     sym, "1m", limit=1, startTime=target_ms
                 )
                 if not candles:
                     raise ValueError("missing horizon candle")
-                return float(candles[0][1])
+                return _finite_decimal(
+                    candles[0][1], name="AI horizon candle price"
+                )
 
             def horizon_candles(
                 sym: str, start_ms: int, end_ms: int
@@ -1740,10 +1747,10 @@ def _build_ai_market_context(
             symbol,
             open_orders=list_open_orders(symbol),
             balances=get_balances_full(),
-            portfolio_cap_usdt=float(
-                os.getenv("RISK_PORTFOLIO_CAP_USDT", "0") or 0
+            portfolio_cap_usdt=(
+                os.getenv("RISK_PORTFOLIO_CAP_USDT", "0") or "0"
             ),
-            reserve_usdt=float(os.getenv("RISK_RESERVE_USDT", "0") or 0),
+            reserve_usdt=os.getenv("RISK_RESERVE_USDT", "0") or "0",
         )
         extra.update(asdict(portfolio_features))
     except (ArithmeticError, OSError, sqlite3.Error, TypeError, ValueError) as exc:

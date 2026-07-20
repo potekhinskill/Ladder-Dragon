@@ -1,4 +1,5 @@
 import sqlite3
+from decimal import Decimal
 
 import pytest
 
@@ -128,6 +129,8 @@ def test_market_and_orderbook_are_reduced_to_aggregates():
     assert market.return_15m > 0
     assert market.return_24h > market.return_1h
     assert market.volume_ratio_1h == 2
+    assert Decimal(market.return_1h_text) > 0
+    assert market.volume_ratio_1h_text == "2"
     assert spread == pytest.approx(20)
     assert top5 == pytest.approx(1 / 3)
     assert top20 == pytest.approx(1 / 3)
@@ -145,6 +148,8 @@ def test_market_features_accept_a_valid_zero_imbalance_orderbook():
     )
     assert result.market_data_available is True
     assert result.orderbook_available is True
+    assert result.spread_bps_text == "0"
+    assert result.orderbook_imbalance_top20_text == "0"
 
 
 def test_portfolio_features_do_not_expose_order_ids_or_full_balance():
@@ -259,9 +264,16 @@ def test_virtual_shadow_plan_includes_fill_costs_mfe_and_mae(monkeypatch):
     )
     assert result["filled"] is True
     assert result["entry"] == 99.5
+    assert result["entry_text"] == "99.500"
     assert result["mfe"] > 0
     assert result["mae"] < 0
     assert result["net_return"] == pytest.approx(
         (103 / 99.5 - 1) - .0042
     )
     assert result["scaled_pnl_pct"] == pytest.approx(result["net_return"] * .5)
+    assert Decimal(result["net_return_text"]) == (
+        Decimal("103") / Decimal("99.5") - Decimal("1") - Decimal("0.0042")
+    )
+    assert Decimal(result["scaled_pnl_pct_text"]) == Decimal(
+        result["net_return_text"]
+    ) * Decimal("0.5")

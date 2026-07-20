@@ -1,6 +1,7 @@
 import hashlib
 import hmac
 import json
+from decimal import Decimal
 from pathlib import Path
 
 import pytest
@@ -17,6 +18,7 @@ from ladder_dragon.execution.user_stream import (
 from ladder_dragon.execution.execution_latency import (
     append_execution_latency_sample,
     load_execution_latencies,
+    load_execution_outcomes,
 )
 from ladder_dragon.execution.user_stream_soak import audit_user_stream_soak
 
@@ -32,8 +34,13 @@ def execution_report(**overrides):
         "x": "TRADE",
         "X": "PARTIALLY_FILLED",
         "t": 456,
+        "S": "BUY",
+        "p": "75.50",
+        "q": "0.10000000",
+        "L": "75.50",
         "l": "0.01000000",
         "z": "0.01000000",
+        "Z": "0.75500000",
     }
     event.update(overrides)
     return {"subscriptionId": 7, "event": event}
@@ -52,6 +59,11 @@ def test_execution_report_parser_preserves_partial_fill_identity():
     assert signal.order_status == "PARTIALLY_FILLED"
     assert signal.last_quantity == "0.01000000"
     assert signal.cumulative_quantity == "0.01000000"
+    assert signal.side == "BUY"
+    assert signal.order_price == "75.50"
+    assert signal.original_quantity == "0.10000000"
+    assert signal.last_price == "75.50"
+    assert signal.cumulative_quote == "0.75500000"
     assert signal.received_time_ms == 1_700_000_000_020
     assert parse_order_signal({"event": {"e": "outboundAccountPosition"}}) is None
 
@@ -73,7 +85,50 @@ def test_execution_latency_log_is_sanitized_and_calibratable(tmp_path):
     text = path.read_text()
     assert "LDBLAD-test" not in text
     assert payload["intent_to_event_ms"] == 10
+    assert payload["schema_version"] == 2
+    assert payload["order_price"] == "75.50"
+    assert payload["original_quantity"] == "0.10000000"
     assert load_execution_latencies(path) == [20]
+
+
+def test_execution_outcomes_group_partial_and_terminal_reports(tmp_path):
+    path = tmp_path / "execution-latency.ndjson"
+    for report, received in (
+        (
+            execution_report(
+                x="NEW", X="NEW", t=-1, l="0", z="0", Z="0"
+            ),
+            1_700_000_000_020,
+        ),
+        (
+            execution_report(
+                x="TRADE", X="PARTIALLY_FILLED", l="0.04", z="0.04",
+                Z="3.02000000",
+            ),
+            1_700_000_000_050,
+        ),
+        (
+            execution_report(
+                x="TRADE", X="FILLED", l="0.06", z="0.10",
+                Z="7.55000000",
+            ),
+            1_700_000_000_080,
+        ),
+    ):
+        signal = parse_order_signal(report, received_time_ms=received)
+        assert signal is not None
+        append_execution_latency_sample(
+            path, signal, intent_created_at_ms=1_700_000_000_000
+        )
+
+    outcomes = load_execution_outcomes(path)
+
+    assert len(outcomes) == 1
+    assert outcomes[0].final_status == "FILLED"
+    assert outcomes[0].fill_ratio == Decimal("1")
+    assert outcomes[0].average_fill_price == Decimal("75.5000000")
+    assert outcomes[0].first_fill_received_at_ms == 1_700_000_000_050
+    assert outcomes[0].final_received_at_ms == 1_700_000_000_080
 
 
 def test_mailbox_deduplicates_events_and_consumes_only_requested_order():

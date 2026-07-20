@@ -2,6 +2,7 @@ from decimal import Decimal
 
 from ladder_dragon.strategy.market_replay import ReplayCalibration
 from ladder_dragon.strategy.replay_readiness import audit_replay_readiness
+from ladder_dragon.strategy.replay_validation import ReplayValidation
 
 
 def calibration(index: int, volatility: str, *, measured: bool = False) -> ReplayCalibration:
@@ -31,16 +32,36 @@ def calibration(index: int, volatility: str, *, measured: bool = False) -> Repla
     )
 
 
+def validation(row: ReplayCalibration) -> ReplayValidation:
+    return ReplayValidation(
+        ready=True,
+        reasons=(),
+        archive_sha256=row.archive_sha256,
+        covered_orders=10,
+        excluded_orders=0,
+        actual_filled_orders=5,
+        replay_filled_orders=5,
+        fill_classification_accuracy=Decimal("1"),
+        fill_ratio_mae=Decimal("0"),
+        price_error_bps_mae=Decimal("0"),
+        latency_error_ms_mae=Decimal("0"),
+    )
+
+
 def test_replay_readiness_requires_days_regimes_and_measured_latency():
-    report = audit_replay_readiness([
+    calibrations = [
         calibration(1, "0.2"),
         calibration(2, "1.0", measured=True),
         calibration(3, "3.0"),
-    ])
+    ]
+    report = audit_replay_readiness(
+        calibrations, validations=[validation(calibrations[1])]
+    )
 
     assert report.ready is True
     assert report.regimes == ("high", "low", "normal")
     assert report.span_days >= Decimal("2")
+    assert report.validated_order_count == 10
 
 
 def test_replay_readiness_fails_closed_on_short_homogeneous_data():
@@ -51,3 +72,4 @@ def test_replay_readiness_fails_closed_on_short_homogeneous_data():
     assert "archives 1 < 3" in report.reasons
     assert any("missing volatility regimes" in reason for reason in report.reasons)
     assert any("measured latency archives" in reason for reason in report.reasons)
+    assert "eligible validation reports 0 < 1" in report.reasons

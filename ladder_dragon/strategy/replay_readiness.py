@@ -10,6 +10,7 @@ from decimal import Decimal
 from typing import Iterable
 
 from ladder_dragon.strategy.market_replay import ReplayCalibration
+from ladder_dragon.strategy.replay_validation import ReplayValidation
 
 
 @dataclass(frozen=True)
@@ -23,6 +24,8 @@ class ReplayReadiness:
     execution_sample_count: int
     book_event_count: int
     trade_count: int
+    validation_report_count: int
+    validated_order_count: int
 
     def as_dict(self) -> dict[str, object]:
         return {
@@ -35,6 +38,8 @@ class ReplayReadiness:
             "execution_sample_count": self.execution_sample_count,
             "book_event_count": self.book_event_count,
             "trade_count": self.trade_count,
+            "validation_report_count": self.validation_report_count,
+            "validated_order_count": self.validated_order_count,
         }
 
 
@@ -58,6 +63,7 @@ def volatility_regime(
 def audit_replay_readiness(
     calibrations: Iterable[ReplayCalibration],
     *,
+    validations: Iterable[ReplayValidation] = (),
     minimum_archives: int = 3,
     minimum_span_days: Decimal = Decimal("2"),
     required_regimes: tuple[str, ...] = ("low", "normal", "high"),
@@ -65,8 +71,11 @@ def audit_replay_readiness(
     minimum_execution_samples: int = 10,
     low_max_bps: Decimal = Decimal("0.5"),
     high_min_bps: Decimal = Decimal("2"),
+    minimum_validation_reports: int = 1,
+    minimum_validated_orders: int = 10,
 ) -> ReplayReadiness:
     rows = list(calibrations)
+    validation_rows = list(validations)
     if minimum_archives < 1 or minimum_span_days < 0:
         raise ValueError("readiness minimums are invalid")
     reasons: list[str] = []
@@ -113,6 +122,30 @@ def audit_replay_readiness(
         reasons.append(
             f"execution samples {execution_samples} < {minimum_execution_samples}"
         )
+    calibration_hashes = {row.archive_sha256 for row in rows}
+    unknown_validation_hashes = {
+        row.archive_sha256 for row in validation_rows
+        if row.archive_sha256 not in calibration_hashes
+    }
+    if unknown_validation_hashes:
+        reasons.append("validation reports reference unknown archives")
+    eligible_validations = [
+        row for row in validation_rows
+        if row.ready and row.archive_sha256 in calibration_hashes
+    ]
+    if len(eligible_validations) < minimum_validation_reports:
+        reasons.append(
+            f"eligible validation reports {len(eligible_validations)} < "
+            f"{minimum_validation_reports}"
+        )
+    validated_orders = sum(
+        row.covered_orders for row in eligible_validations
+    )
+    if validated_orders < minimum_validated_orders:
+        reasons.append(
+            f"validated real orders {validated_orders} < "
+            f"{minimum_validated_orders}"
+        )
     return ReplayReadiness(
         ready=not reasons,
         reasons=tuple(reasons),
@@ -123,4 +156,6 @@ def audit_replay_readiness(
         execution_sample_count=execution_samples,
         book_event_count=sum(row.book_event_count for row in rows),
         trade_count=sum(row.trade_count for row in rows),
+        validation_report_count=len(validation_rows),
+        validated_order_count=validated_orders,
     )

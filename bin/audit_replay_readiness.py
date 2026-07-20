@@ -12,6 +12,7 @@ import json
 
 from ladder_dragon.strategy.market_replay import read_calibration
 from ladder_dragon.strategy.replay_readiness import audit_replay_readiness
+from ladder_dragon.strategy.replay_validation import read_replay_validation
 
 
 def main() -> int:
@@ -23,6 +24,9 @@ def main() -> int:
     parser.add_argument("--minimum-execution-samples", type=int, default=10)
     parser.add_argument("--low-max-bps", type=Decimal, default=Decimal("0.5"))
     parser.add_argument("--high-min-bps", type=Decimal, default=Decimal("2"))
+    parser.add_argument("--validation-report", action="append", default=[])
+    parser.add_argument("--minimum-validation-reports", type=int, default=1)
+    parser.add_argument("--minimum-validated-orders", type=int, default=10)
     args = parser.parse_args()
     report = audit_replay_readiness(
         [read_calibration(path) for path in args.calibrations],
@@ -32,6 +36,11 @@ def main() -> int:
         minimum_execution_samples=args.minimum_execution_samples,
         low_max_bps=args.low_max_bps,
         high_min_bps=args.high_min_bps,
+        validations=[
+            read_replay_validation(path) for path in args.validation_report
+        ],
+        minimum_validation_reports=args.minimum_validation_reports,
+        minimum_validated_orders=args.minimum_validated_orders,
     )
     print(json.dumps(report.as_dict(), indent=2, sort_keys=True))
     return 0 if report.ready else 2

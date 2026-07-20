@@ -17,7 +17,7 @@ Binance Spot. It builds BUY/SELL grids, uses ATR/EMA/VWAP/ADX regimes, manages
 OCO protection, and records trading statistics in SQLite. Production secrets,
 real backups, and private parameters are never committed.
 
-Current product version: **2.19.1**. The single version source is
+Current product version: **2.20.0**. The single version source is
 `product_version.py`; releases follow [Semantic Versioning](https://semver.org/).
 Project contact: [LinkedIn](https://www.linkedin.com/in/ypotekhin/).
 
@@ -33,7 +33,7 @@ Project contact: [LinkedIn](https://www.linkedin.com/in/ypotekhin/).
 ## Project status
 
 Ladder Dragon is an actively developed, experimental trading system. Version
-**2.19.1** is the current prepared release. `main` is the only long-lived branch;
+**2.20.0** is the current prepared release. `main` is the only long-lived branch;
 feature branches use the `ladderdragon/*` namespace.
 
 DRY and Binance Spot Testnet are the supported starting modes. Mainnet LIVE is
@@ -389,6 +389,11 @@ PYTHONPATH=. python -m bin.record_depth_archive \
 PYTHONPATH=. python -m bin.calibrate_replay .runtime/SOLUSDT-depth.jsonl \
   --execution-latency-log logs/execution_latency.ndjson \
   --output .runtime/SOLUSDT-calibration.json
+PYTHONPATH=. python -m bin.validate_replay_outcomes \
+  .runtime/SOLUSDT-depth.jsonl \
+  --execution-log logs/execution_latency.ndjson \
+  --calibration .runtime/SOLUSDT-calibration.json \
+  --output .runtime/SOLUSDT-validation.json
 PYTHONPATH=. python -m bin.backtest data/SOLUSDT-1m.csv \
   --archive .runtime/SOLUSDT-depth.jsonl \
   --calibration .runtime/SOLUSDT-calibration.json \
@@ -399,6 +404,7 @@ PYTHONPATH=. python -m bin.audit_backtest_reports .runtime
 
 # Require several days, distinct volatility regimes and measured order latency.
 PYTHONPATH=. python -m bin.audit_replay_readiness \
+  --validation-report .runtime/SOLUSDT-validation.json \
   .runtime/calibrations/*.json
 ```
 
@@ -411,8 +417,11 @@ correction.
 The replay-readiness audit exits 2 until it sees at least three unique source
 archives spanning two calendar days, low/normal/high volatility regimes, no
 ineligible calibration, at least ten real execution samples, and at least one
-archive with measured intent-to-`executionReport` latency. This prevents a
-short smoke capture from being presented as production-quality calibration.
+archive with measured intent-to-`executionReport` latency. It also requires a
+source-hash-linked validation report comparing predicted fill direction, fill
+ratio, price and latency with at least ten terminal real order outcomes. This
+prevents a short smoke capture or an unvalidated model from being presented as
+production-quality calibration.
 
 On Raspberry Pi, `ladder-dragon-depth-archive.timer` records a 15-minute public
 sample every hour and retains seven days by default. Optional, non-secret
@@ -452,6 +461,19 @@ event woke an authoritative REST reconciliation. Diagnostic-only
 `--allow-no-*` switches can explain incomplete evidence but cannot justify a
 promotion. Exit status 2 means duration, freshness or operational drill evidence
 is incomplete. Passing does not promote WebSocket data to a source of truth.
+
+AI APPLY has a separate read-only evidence audit. Exit status 2 means the
+database does not yet prove enough real closed decisions, validated real RAG
+episodes, a strictly positive edge confidence interval, an acceptable stop
+rate, and zero unresolved fills:
+
+```bash
+PYTHONPATH=. .venv/bin/python -m bin.audit_ai_readiness \
+  --db db/ai_decisions.sqlite3 \
+  --symbol SOLUSDT
+```
+
+Virtual RAG episodes remain visible for analysis but never satisfy this gate.
 
 Existing holdings are never assigned an invented cost basis. A position without
 provable exchange history stays `legacy_unmanaged` with
@@ -510,7 +532,7 @@ the services, and waits for a fresh heartbeat.
 - collect at least three natural, exactly linked BUY/OCO/TP-or-STOP lifecycles
   and a clean 24–48 hour SOLUSDT soak before increasing LIVE scope;
 - keep collecting exchange archives until the replay-readiness audit passes,
-  then compare its estimates with exact live lifecycle outcomes;
+  including source-linked validation against exact live lifecycle outcomes;
 - validate the existing dynamic-spread, queue-progress and volume-impact models
   against multi-regime archives and measured `executionReport` latency;
 - expand multi-period walk-forward and production approval statistics;

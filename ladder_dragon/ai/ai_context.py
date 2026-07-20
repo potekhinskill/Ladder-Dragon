@@ -21,7 +21,7 @@ from ladder_dragon.execution.trade_accounting import TradeExecution, replay_aver
 
 ZERO = Decimal("0")
 HORIZONS_SEC = (900, 3600, 14_400)
-CONTEXT_SCHEMA_VERSION = "ai-context-v2"
+CONTEXT_SCHEMA_VERSION = "ai-context-v3"
 AI_SCHEMA_VERSION = "004_authoritative_ai_decimal_text"
 AI_SCHEMA_CHECKSUM = hashlib.sha256(AI_SCHEMA_VERSION.encode("utf-8")).hexdigest()
 AI_CONTEXT_SOURCE_ERRORS = (
@@ -185,6 +185,14 @@ class MarketFeatures:
     spread_bps: float = 0.0
     orderbook_imbalance_top5: float = 0.0
     orderbook_imbalance_top20: float = 0.0
+    return_15m_text: str = "0"
+    return_1h_text: str = "0"
+    return_4h_text: str = "0"
+    return_24h_text: str = "0"
+    volume_ratio_1h_text: str = "1"
+    spread_bps_text: str = "0"
+    orderbook_imbalance_top5_text: str = "0"
+    orderbook_imbalance_top20_text: str = "0"
 
 
 @dataclass(frozen=True)
@@ -218,6 +226,8 @@ class AdvisorPerformance:
     ai_unresolved_fills: int = 0
     ai_realized_net_pnl_quote_text: str = "0"
     ai_realized_avg_pnl_quote_text: str = "0"
+    ai_realized_edge_ci_low_text: str = "0"
+    ai_realized_edge_ci_high_text: str = "0"
 
 
 def load_trade_features(
@@ -368,58 +378,104 @@ def market_features_from_klines(
     klines: Sequence[Sequence[Any]],
 ) -> MarketFeatures:
     """Handle market features from klines."""
-    valid = [row for row in klines if len(row) > 5 and float(row[4]) > 0]
+    valid: list[tuple[Sequence[Any], Decimal, Decimal]] = []
+    for row in klines:
+        if len(row) <= 5:
+            continue
+        try:
+            close = _finite_decimal(row[4], field="kline close")
+            volume = _finite_decimal(row[5], field="kline volume")
+        except ValueError:
+            continue
+        if close > ZERO and volume >= ZERO:
+            valid.append((row, close, volume))
     if not valid:
         return MarketFeatures()
-    current = float(valid[-1][4])
+    current = valid[-1][1]
 
-    def period_return(bars: int) -> float:
+    def period_return(bars: int) -> Decimal:
         index = max(0, len(valid) - 1 - bars)
-        previous = float(valid[index][4])
-        return current / previous - 1 if previous > 0 else 0.0
+        previous = valid[index][1]
+        return current / previous - Decimal("1") if previous > ZERO else ZERO
 
-    recent = [float(row[5]) for row in valid[-12:]]
-    previous = [float(row[5]) for row in valid[-24:-12]]
-    recent_avg = sum(recent) / len(recent) if recent else 0.0
-    previous_avg = sum(previous) / len(previous) if previous else 0.0
+    recent = [row[2] for row in valid[-12:]]
+    previous = [row[2] for row in valid[-24:-12]]
+    recent_avg = sum(recent, ZERO) / len(recent) if recent else ZERO
+    previous_avg = sum(previous, ZERO) / len(previous) if previous else ZERO
+    returns = {
+        "15m": period_return(3),
+        "1h": period_return(12),
+        "4h": period_return(48),
+        "24h": period_return(288),
+    }
+    volume_ratio = recent_avg / previous_avg if previous_avg > ZERO else Decimal("1")
+    close_time_ms = ZERO
+    if len(valid[-1][0]) > 6:
+        try:
+            close_time_ms = _finite_decimal(
+                valid[-1][0][6], field="kline close time"
+            )
+        except ValueError:
+            close_time_ms = ZERO
     return MarketFeatures(
         market_data_available=True,
         market_data_age_sec=max(
             0.0,
-            time.time() - float(valid[-1][6]) / 1000
-            if len(valid[-1]) > 6 and float(valid[-1][6]) > 0 else 0.0,
+            time.time() - _compat_float(close_time_ms / Decimal("1000"))
+            if close_time_ms > ZERO else 0.0,
         ),
-        return_15m=period_return(3),
-        return_1h=period_return(12),
-        return_4h=period_return(48),
-        return_24h=period_return(288),
-        volume_ratio_1h=(recent_avg / previous_avg if previous_avg > 0 else 1.0),
+        return_15m=_compat_float(returns["15m"]),
+        return_1h=_compat_float(returns["1h"]),
+        return_4h=_compat_float(returns["4h"]),
+        return_24h=_compat_float(returns["24h"]),
+        volume_ratio_1h=_compat_float(volume_ratio),
+        return_15m_text=format(returns["15m"], "f"),
+        return_1h_text=format(returns["1h"], "f"),
+        return_4h_text=format(returns["4h"], "f"),
+        return_24h_text=format(returns["24h"], "f"),
+        volume_ratio_1h_text=format(volume_ratio, "f"),
     )
 
 
-def orderbook_features(depth: Mapping[str, Any]) -> tuple[float, float, float]:
+def _orderbook_features_decimal(
+    depth: Mapping[str, Any],
+) -> tuple[Decimal, Decimal, Decimal]:
     bids = depth.get("bids")
     asks = depth.get("asks")
     if not isinstance(bids, list) or not isinstance(asks, list) or not bids or not asks:
-        return 0.0, 0.0, 0.0
+        return ZERO, ZERO, ZERO
     try:
-        best_bid = float(bids[0][0])
-        best_ask = float(asks[0][0])
-        midpoint = (best_bid + best_ask) / 2
-        spread_bps = (best_ask - best_bid) / midpoint * 10_000
+        best_bid = _finite_decimal(bids[0][0], field="best bid")
+        best_ask = _finite_decimal(asks[0][0], field="best ask")
+        midpoint = (best_bid + best_ask) / Decimal("2")
+        if midpoint <= ZERO or best_ask < best_bid:
+            raise ValueError("order book is crossed or invalid")
+        spread_bps = (best_ask - best_bid) / midpoint * Decimal("10000")
     except (ArithmeticError, IndexError, TypeError, ValueError):
-        return 0.0, 0.0, 0.0
+        return ZERO, ZERO, ZERO
 
-    def imbalance(levels: int) -> float:
-        bid_qty = sum(float(row[1]) for row in bids[:levels])
-        ask_qty = sum(float(row[1]) for row in asks[:levels])
+    def imbalance(levels: int) -> Decimal:
+        bid_qty = sum(
+            (_finite_decimal(row[1], field="bid quantity") for row in bids[:levels]),
+            ZERO,
+        )
+        ask_qty = sum(
+            (_finite_decimal(row[1], field="ask quantity") for row in asks[:levels]),
+            ZERO,
+        )
         total = bid_qty + ask_qty
-        return (bid_qty - ask_qty) / total if total > 0 else 0.0
+        return (bid_qty - ask_qty) / total if total > ZERO else ZERO
 
     try:
         return spread_bps, imbalance(5), imbalance(20)
     except (ArithmeticError, IndexError, TypeError, ValueError):
-        return spread_bps, 0.0, 0.0
+        return spread_bps, ZERO, ZERO
+
+
+def orderbook_features(depth: Mapping[str, Any]) -> tuple[float, float, float]:
+    """Return numeric compatibility values from exact order-book aggregates."""
+    spread, top5, top20 = _orderbook_features_decimal(depth)
+    return _compat_float(spread), _compat_float(top5), _compat_float(top20)
 
 
 def build_market_features(
@@ -436,7 +492,7 @@ def build_market_features(
         base = MarketFeatures()
     try:
         depth = public_get("/api/v3/depth", {"symbol": symbol, "limit": 20})
-        spread, top5, top20 = orderbook_features(depth)
+        spread_exact, top5_exact, top20_exact = _orderbook_features_decimal(depth)
         orderbook_ok = (
             isinstance(depth, Mapping)
             and isinstance(depth.get("bids"), list)
@@ -445,7 +501,7 @@ def build_market_features(
             and bool(depth.get("asks"))
         )
     except AI_CONTEXT_SOURCE_ERRORS:
-        spread, top5, top20 = 0.0, 0.0, 0.0
+        spread_exact, top5_exact, top20_exact = ZERO, ZERO, ZERO
         orderbook_ok = False
     return MarketFeatures(
         market_data_available=base.market_data_available,
@@ -456,9 +512,17 @@ def build_market_features(
         return_4h=base.return_4h,
         return_24h=base.return_24h,
         volume_ratio_1h=base.volume_ratio_1h,
-        spread_bps=spread,
-        orderbook_imbalance_top5=top5,
-        orderbook_imbalance_top20=top20,
+        spread_bps=_compat_float(spread_exact),
+        orderbook_imbalance_top5=_compat_float(top5_exact),
+        orderbook_imbalance_top20=_compat_float(top20_exact),
+        return_15m_text=base.return_15m_text,
+        return_1h_text=base.return_1h_text,
+        return_4h_text=base.return_4h_text,
+        return_24h_text=base.return_24h_text,
+        volume_ratio_1h_text=base.volume_ratio_1h_text,
+        spread_bps_text=format(spread_exact, "f"),
+        orderbook_imbalance_top5_text=format(top5_exact, "f"),
+        orderbook_imbalance_top20_text=format(top20_exact, "f"),
     )
 
 
@@ -1187,6 +1251,12 @@ class AdvisorDecisionStore:
             ai_unresolved_fills=unresolved,
             ai_realized_net_pnl_quote_text=format(realized_net_exact, "f"),
             ai_realized_avg_pnl_quote_text=format(realized_average_exact, "f"),
+            ai_realized_edge_ci_low_text=format(
+                edge_mean_exact - margin_exact, "f"
+            ),
+            ai_realized_edge_ci_high_text=format(
+                edge_mean_exact + margin_exact, "f"
+            ),
         )
 
     def _comparison_rows(self, symbol: str, limit: int) -> list[tuple]:
@@ -1279,7 +1349,18 @@ class AdvisorDecisionStore:
                 "net_pnl_quote": _compat_float(actual_pnl_exact),
                 "net_pnl_quote_text": format(actual_pnl_exact, "f"),
                 "avg_holding_duration_sec": (
-                    sum(float(item.get("holding_duration_sec", 0) or 0) for item in closed) / len(closed)
+                    _compat_float(
+                        sum(
+                            (
+                                _finite_decimal(
+                                    item.get("holding_duration_sec", 0) or 0,
+                                    field="holding duration",
+                                )
+                                for item in closed
+                            ),
+                            ZERO,
+                        ) / len(closed)
+                    )
                     if closed else None
                 ),
             },
@@ -1362,47 +1443,88 @@ def directional_success(mode: str, market_return: object) -> int:
 
 
 def virtual_plan_result(
-    reference_price: float,
+    reference_price: object,
     mode: str,
-    width_scale: float,
-    cap_scale: float,
+    width_scale: object,
+    cap_scale: object,
     candles: Sequence[Sequence[Any]],
-) -> dict[str, float | bool]:
-    """Handle virtual plan result."""
-    offset = {"UP": 0.005, "FLAT": 0.010, "DOWN": 0.015}.get(
-        mode.upper(), 0.01
+) -> dict[str, float | str | bool]:
+    """Evaluate a virtual plan exactly and expose numeric compatibility fields."""
+    reference = _finite_decimal(reference_price, field="virtual reference price")
+    width = max(
+        Decimal("0.5"),
+        _finite_decimal(width_scale, field="virtual width scale"),
     )
-    entry = reference_price * (1 - offset * max(0.5, width_scale))
+    cap = max(ZERO, _finite_decimal(cap_scale, field="virtual CAP scale"))
+    offset = {
+        "UP": Decimal("0.005"),
+        "FLAT": Decimal("0.010"),
+        "DOWN": Decimal("0.015"),
+    }.get(mode.upper(), Decimal("0.01"))
+    entry = reference * (Decimal("1") - offset * width)
     valid = [row for row in candles if len(row) > 4]
     if not valid:
         return {
-            "filled": False, "entry": entry, "net_return": 0.0,
-            "mfe": 0.0, "mae": 0.0,
+            "filled": False,
+            "entry": _compat_float(entry),
+            "entry_text": format(entry, "f"),
+            "net_return": 0.0,
+            "net_return_text": "0",
+            "scaled_pnl_pct": 0.0,
+            "scaled_pnl_pct_text": "0",
+            "mfe": 0.0,
+            "mfe_text": "0",
+            "mae": 0.0,
+            "mae_text": "0",
         }
-    low = min(float(row[3]) for row in valid)
+    low = min(_finite_decimal(row[3], field="virtual candle low") for row in valid)
     if low > entry:
         return {
-            "filled": False, "entry": entry, "net_return": 0.0,
-            "mfe": 0.0, "mae": 0.0,
+            "filled": False,
+            "entry": _compat_float(entry),
+            "entry_text": format(entry, "f"),
+            "net_return": 0.0,
+            "net_return_text": "0",
+            "scaled_pnl_pct": 0.0,
+            "scaled_pnl_pct_text": "0",
+            "mfe": 0.0,
+            "mfe_text": "0",
+            "mae": 0.0,
+            "mae_text": "0",
         }
-    high = max(float(row[2]) for row in valid)
-    close = float(valid[-1][4])
-    fee = float(os.getenv("AI_SHADOW_FEE_PCT", "0.00075") or 0.00075)
-    slippage = float(
-        os.getenv("AI_SHADOW_SLIPPAGE_PCT", "0.0005") or 0.0005
+    high = max(_finite_decimal(row[2], field="virtual candle high") for row in valid)
+    close = _finite_decimal(valid[-1][4], field="virtual candle close")
+    fee = _finite_decimal(
+        os.getenv("AI_SHADOW_FEE_PCT", "0.00075") or "0.00075",
+        field="virtual fee",
     )
-    spread = float(os.getenv("AI_SHADOW_SPREAD_PCT", "0.0002") or 0.0002)
-    net_return = (close / entry - 1) - 2 * (
-        fee + slippage + spread / 2
+    slippage = _finite_decimal(
+        os.getenv("AI_SHADOW_SLIPPAGE_PCT", "0.0005") or "0.0005",
+        field="virtual slippage",
     )
+    spread = _finite_decimal(
+        os.getenv("AI_SHADOW_SPREAD_PCT", "0.0002") or "0.0002",
+        field="virtual spread",
+    )
+    net_return = (close / entry - Decimal("1")) - Decimal("2") * (
+        fee + slippage + spread / Decimal("2")
+    )
+    scaled = net_return * cap
+    mfe = high / entry - Decimal("1")
+    mae = low / entry - Decimal("1")
     return {
         "filled": True,
-        "entry": entry,
+        "entry": _compat_float(entry),
+        "entry_text": format(entry, "f"),
         # CAP changes absolute PnL, not percentage edge. Keep the percentage
         # metric independent of sizing so larger recommendations do not look
         # more profitable merely because they are larger.
-        "net_return": net_return,
-        "scaled_pnl_pct": net_return * max(0.0, cap_scale),
-        "mfe": high / entry - 1,
-        "mae": low / entry - 1,
+        "net_return": _compat_float(net_return),
+        "net_return_text": format(net_return, "f"),
+        "scaled_pnl_pct": _compat_float(scaled),
+        "scaled_pnl_pct_text": format(scaled, "f"),
+        "mfe": _compat_float(mfe),
+        "mfe_text": format(mfe, "f"),
+        "mae": _compat_float(mae),
+        "mae_text": format(mae, "f"),
     }

@@ -88,6 +88,8 @@ class MarketContext:
     ladder_up_pct: float
     target_buys: int
     risk_safe_cap_usdt: float
+    price_text: str = "0"
+    risk_safe_cap_usdt_text: str = "0"
     trade_history_available: bool = False
     trade_count_30d: int = 0
     sell_count_30d: int = 0
@@ -110,6 +112,14 @@ class MarketContext:
     spread_bps: float = 0.0
     orderbook_imbalance_top5: float = 0.0
     orderbook_imbalance_top20: float = 0.0
+    return_15m_text: str = "0"
+    return_1h_text: str = "0"
+    return_4h_text: str = "0"
+    return_24h_text: str = "0"
+    volume_ratio_1h_text: str = "1"
+    spread_bps_text: str = "0"
+    orderbook_imbalance_top5_text: str = "0"
+    orderbook_imbalance_top20_text: str = "0"
     open_buy_count: int = 0
     open_sell_count: int = 0
     open_buy_exposure_usdt: float = 0.0
@@ -131,6 +141,8 @@ class MarketContext:
     ai_realized_stop_rate: float = 0.0
     ai_realized_edge_ci_low: float = 0.0
     ai_realized_edge_ci_high: float = 0.0
+    ai_realized_edge_ci_low_text: str = "0"
+    ai_realized_edge_ci_high_text: str = "0"
     ai_unresolved_fills: int = 0
     real_rag_episode_count: int = 0
     # Short, verified historical cases for local RAG. This contains no API keys,
@@ -406,7 +418,7 @@ class AIAdvisor:
             "decision_id": self._last_decision_id,
             "rationale": rationale[:MAX_RATIONALE_CHARS],
             "rejection_reason": rejection_reason[:240],
-            "context_version": "ai-context-v2",
+            "context_version": "ai-context-v3",
             "context_hash": hashlib.sha256(
                 json.dumps(asdict(context), ensure_ascii=False, sort_keys=True, default=str).encode("utf-8")
             ).hexdigest(),

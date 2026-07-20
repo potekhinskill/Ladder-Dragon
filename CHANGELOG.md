@@ -3,6 +3,47 @@
 All notable changes are documented here. Releases use Semantic Versioning; every
 section is dated and there is intentionally no `Unreleased` section.
 
+## [2.20.0] — 2026-07-20
+
+### Added
+- Sanitized User Data Stream evidence schema 2 records exact side, order price,
+  original quantity, cumulative quantity and cumulative quote for every
+  observed order report. Hashed order references retain correlation without
+  exposing exchange or client order identifiers.
+- Replay validation compares terminal real order outcomes with replayed fill
+  direction, fill ratio, price and latency. Reports are linked to their depth
+  archive by SHA-256 and fail closed when coverage or accuracy is insufficient.
+- Replay production readiness additionally requires an eligible validation
+  report covering at least ten real orders.
+- Added a read-only exact AI/RAG readiness audit covering closed real
+  decisions, validated real RAG episodes, unresolved fills, realized edge
+  confidence interval and stop rate.
+- Added an AST numeric-boundary audit that prevents direct `float()` calls from
+  returning to exact order and protection modules or exceeding the reduced
+  analytics baselines.
+
+### Changed
+- AI context schema v3 exposes exact text companions for horizon returns,
+  volume ratio, spread, order-book imbalance, decision price, risk-safe CAP and
+  realized edge confidence interval.
+- Market features, virtual-plan outcomes and realized AI aggregates use
+  `Decimal` internally; numeric JSON fields remain compatibility boundaries.
+- Direct `float()` calls are reduced from 130 to 125 in the supervisor and from
+  19 to one in AI context. Executor order and protection modules remain at zero.
+
+### Safety
+- WebSocket evidence remains advisory: REST reconciliation is authoritative.
+  Replay and AI gates return status 2 until natural production evidence is
+  sufficient; the release does not fabricate depth archives or real RAG data.
+- Existing order placement, hard CAP, OCO/STOP and AI SHADOW behavior is
+  unchanged.
+
+### Verified
+- All 416 tests pass, including exact AI context, sanitized terminal execution
+  outcomes, replay-to-real validation, AI/RAG readiness and numeric-boundary
+  regression coverage.
+- Compileall, diff whitespace and the tracked-secret scan pass.
+
 ## [2.19.1] — 2026-07-20
 
 ### Changed

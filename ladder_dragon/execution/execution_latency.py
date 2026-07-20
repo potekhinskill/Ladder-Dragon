@@ -8,10 +8,53 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+from dataclasses import dataclass
+from decimal import Decimal, InvalidOperation
 from pathlib import Path
 from typing import Mapping
 
 from ladder_dragon.execution.user_stream import OrderStreamSignal
+
+
+@dataclass(frozen=True)
+class ExecutionOutcome:
+    """Sanitized actual order outcome used to validate market replay."""
+
+    order_ref: str
+    symbol: str
+    side: str
+    intent_created_at_ms: int
+    order_price: Decimal
+    original_quantity: Decimal
+    cumulative_quantity: Decimal
+    cumulative_quote: Decimal
+    final_status: str
+    first_fill_received_at_ms: int | None
+    final_received_at_ms: int
+
+    @property
+    def fill_ratio(self) -> Decimal:
+        if self.original_quantity <= 0:
+            return Decimal("0")
+        return min(
+            Decimal("1"), self.cumulative_quantity / self.original_quantity
+        )
+
+    @property
+    def average_fill_price(self) -> Decimal | None:
+        if self.cumulative_quantity <= 0:
+            return None
+        return self.cumulative_quote / self.cumulative_quantity
+
+
+def _exact_nonnegative(value: object, *, field: str) -> str:
+    try:
+        result = Decimal(str(value))
+    except (InvalidOperation, TypeError, ValueError) as exc:
+        raise ValueError(f"{field} is not a decimal") from exc
+    if not result.is_finite() or result < 0:
+        raise ValueError(f"{field} must be finite and non-negative")
+    return format(result, "f")
 
 
 def append_execution_latency_sample(
@@ -26,7 +69,7 @@ def append_execution_latency_sample(
     if created <= 0 or received < created:
         raise ValueError("execution latency timestamps are invalid")
     payload: dict[str, object] = {
-        "schema_version": 1,
+        "schema_version": 2,
         "symbol": signal.symbol,
         "order_ref": hashlib.sha256(
             f"{signal.symbol}:{signal.order_id}:{signal.client_order_id}".encode()
@@ -37,6 +80,21 @@ def append_execution_latency_sample(
         "received_at_ms": received,
         "execution_type": signal.execution_type,
         "order_status": signal.order_status,
+        "side": signal.side,
+        "order_price": _exact_nonnegative(signal.order_price, field="order price"),
+        "original_quantity": _exact_nonnegative(
+            signal.original_quantity, field="original quantity"
+        ),
+        "last_price": _exact_nonnegative(signal.last_price, field="last price"),
+        "last_quantity": _exact_nonnegative(
+            signal.last_quantity, field="last quantity"
+        ),
+        "cumulative_quantity": _exact_nonnegative(
+            signal.cumulative_quantity, field="cumulative quantity"
+        ),
+        "cumulative_quote": _exact_nonnegative(
+            signal.cumulative_quote, field="cumulative quote"
+        ),
         "intent_to_event_ms": max(0, int(signal.event_time_ms) - created),
         "intent_to_receive_ms": received - created,
         "exchange_to_receive_ms": (
@@ -70,7 +128,7 @@ def load_execution_latencies(path: str | Path) -> list[int]:
             payload = json.loads(line)
             if not isinstance(payload, Mapping):
                 raise ValueError(f"latency line {line_number} is not an object")
-            if int(payload.get("schema_version", 0)) != 1:
+            if int(payload.get("schema_version", 0)) not in {1, 2}:
                 raise ValueError(f"latency line {line_number} has unsupported schema")
             if (
                 str(payload.get("execution_type", "")).upper() != "NEW"
@@ -82,3 +140,82 @@ def load_execution_latencies(path: str | Path) -> list[int]:
                 raise ValueError(f"latency line {line_number} is out of range")
             values.append(value)
     return values
+
+
+def load_execution_outcomes(path: str | Path) -> list[ExecutionOutcome]:
+    """Group schema-2 execution reports into exact, sanitized order outcomes."""
+    grouped: dict[str, dict[str, object]] = {}
+    with Path(path).open(encoding="utf-8") as handle:
+        for line_number, line in enumerate(handle, start=1):
+            if not line.strip():
+                continue
+            payload = json.loads(line)
+            if not isinstance(payload, Mapping):
+                raise ValueError(f"outcome line {line_number} is not an object")
+            if int(payload.get("schema_version", 0)) != 2:
+                continue
+            order_ref = str(payload.get("order_ref", ""))
+            if not order_ref:
+                raise ValueError(f"outcome line {line_number} has no order reference")
+            original = Decimal(str(payload.get("original_quantity", "0")))
+            cumulative = Decimal(str(payload.get("cumulative_quantity", "0")))
+            quote = Decimal(str(payload.get("cumulative_quote", "0")))
+            order_price = Decimal(str(payload.get("order_price", "0")))
+            if any(
+                not value.is_finite() or value < 0
+                for value in (original, cumulative, quote, order_price)
+            ):
+                raise ValueError(f"outcome line {line_number} has invalid values")
+            current = grouped.setdefault(
+                order_ref,
+                {
+                    "order_ref": order_ref,
+                    "symbol": str(payload.get("symbol", "")).upper(),
+                    "side": str(payload.get("side", "")).upper(),
+                    "intent_created_at_ms": int(
+                        payload.get("intent_created_at_ms", 0)
+                    ),
+                    "order_price": order_price,
+                    "original_quantity": original,
+                    "cumulative_quantity": Decimal("0"),
+                    "cumulative_quote": Decimal("0"),
+                    "final_status": "",
+                    "first_fill_received_at_ms": None,
+                    "final_received_at_ms": 0,
+                },
+            )
+            if (
+                current["symbol"] != str(payload.get("symbol", "")).upper()
+                or current["side"] != str(payload.get("side", "")).upper()
+                or current["order_price"] != order_price
+                or current["original_quantity"] != original
+            ):
+                raise ValueError(f"outcome line {line_number} changes order identity")
+            if cumulative >= current["cumulative_quantity"]:
+                current["cumulative_quantity"] = cumulative
+                current["cumulative_quote"] = quote
+                current["final_status"] = str(
+                    payload.get("order_status", "")
+                ).upper()
+                current["final_received_at_ms"] = int(
+                    payload.get("received_at_ms", 0)
+                )
+            if (
+                cumulative > 0
+                and current["first_fill_received_at_ms"] is None
+            ):
+                current["first_fill_received_at_ms"] = int(
+                    payload.get("received_at_ms", 0)
+                )
+    outcomes = []
+    for values in grouped.values():
+        if (
+            values["intent_created_at_ms"] <= 0
+            or values["order_price"] <= 0
+            or values["original_quantity"] <= 0
+            or values["side"] not in {"BUY", "SELL"}
+            or values["final_received_at_ms"] <= 0
+        ):
+            continue
+        outcomes.append(ExecutionOutcome(**values))
+    return sorted(outcomes, key=lambda item: item.intent_created_at_ms)

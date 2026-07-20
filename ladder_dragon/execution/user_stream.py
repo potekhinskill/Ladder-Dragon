@@ -54,8 +54,13 @@ class OrderStreamSignal:
     execution_type: str
     order_status: str
     trade_id: int
+    side: str
+    order_price: str
+    original_quantity: str
+    last_price: str
     last_quantity: str
     cumulative_quantity: str
+    cumulative_quote: str
     received_time_ms: int
 
     @property
@@ -91,8 +96,13 @@ def parse_order_signal(
             execution_type=str(event_raw.get("x", "")).upper(),
             order_status=str(event_raw.get("X", "")).upper(),
             trade_id=int(event_raw.get("t", -1) or -1),
+            side=str(event_raw.get("S", "")).upper(),
+            order_price=str(event_raw.get("p", "0")),
+            original_quantity=str(event_raw.get("q", "0")),
+            last_price=str(event_raw.get("L", "0")),
             last_quantity=str(event_raw.get("l", "0")),
             cumulative_quantity=str(event_raw.get("z", "0")),
+            cumulative_quote=str(event_raw.get("Z", "0")),
             received_time_ms=(
                 int(received_time_ms)
                 if received_time_ms is not None
