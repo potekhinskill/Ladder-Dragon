@@ -24,7 +24,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable, Iterable, Mapping, Optional
 
-from websocket import WebSocketException, WebSocketTimeoutException, create_connection
+from websocket import ABNF, WebSocketException, WebSocketTimeoutException, create_connection
 
 
 TERMINAL_EVENT_TYPES = {"eventStreamTerminated", "serverShutdown"}
@@ -389,7 +389,22 @@ class BinanceUserDataObserver:
 
         while not self._stop.is_set():
             try:
-                raw = connection.recv()
+                receive_frame = getattr(connection, "recv_data_frame", None)
+                if callable(receive_frame):
+                    opcode, frame = receive_frame(control_frame=True)
+                    last_frame_monotonic = self._monotonic()
+                    if opcode in (ABNF.OPCODE_PING, ABNF.OPCODE_PONG):
+                        # websocket-client answers server PING frames itself.
+                        # Reading control frames here proves transport activity;
+                        # otherwise a healthy quiet account looks disconnected.
+                        continue
+                    if opcode == ABNF.OPCODE_CLOSE:
+                        raise RuntimeError("User Data Stream transport closed")
+                    raw = frame.data
+                else:
+                    # Test and compatibility transports may expose only recv().
+                    raw = connection.recv()
+                    last_frame_monotonic = self._monotonic()
             except WebSocketTimeoutException:
                 idle_for = self._monotonic() - last_frame_monotonic
                 if idle_for >= self._idle_timeout_sec:
@@ -398,7 +413,6 @@ class BinanceUserDataObserver:
                     )
                 connection.ping()
                 continue
-            last_frame_monotonic = self._monotonic()
             now = self._clock()
             try:
                 payload = json.loads(raw)

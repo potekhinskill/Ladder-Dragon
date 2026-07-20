@@ -3,6 +3,21 @@
 All notable changes are documented here. Releases use Semantic Versioning; every
 section is dated and there is intentionally no `Unreleased` section.
 
+## [2.20.7] — 2026-07-21
+
+### Fixed
+- The shadow User Data Stream observer now reads WebSocket control frames and
+  treats PING/PONG as transport activity. Quiet but healthy Binance sessions no
+  longer reconnect every silent-session deadline because application `recv()`
+  hid control frames.
+- The idle deadline still forces a reconnect when neither data nor control
+  frames arrive, while socket errors continue to fail over to REST polling.
+
+### Safety
+- User Data Stream remains notification-only. Every order event still triggers
+  authoritative REST reconciliation before journal, inventory or protection
+  state can change.
+
 ## [2.20.6] — 2026-07-21
 
 ### Fixed

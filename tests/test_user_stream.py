@@ -3,9 +3,10 @@ import hmac
 import json
 from decimal import Decimal
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
-from websocket import WebSocketException, WebSocketTimeoutException
+from websocket import ABNF, WebSocketException, WebSocketTimeoutException
 
 import ladder_dragon.execution.user_stream as user_stream_module
 
@@ -366,6 +367,55 @@ def test_silent_session_reconnects_after_deadline(tmp_path):
         observer._observe_connection()
 
     assert connection.pings == 1
+
+
+def test_control_pong_keeps_quiet_live_session_connected(tmp_path):
+    now = [0.0]
+
+    class HeartbeatConnection(FakeConnection):
+        def __init__(self):
+            super().__init__([
+                {"status": 200, "result": {"subscriptionId": 0}},
+            ])
+            self.frame_calls = 0
+
+        def recv_data_frame(self, *, control_frame=False):
+            assert control_frame is True
+            self.frame_calls += 1
+            if self.frame_calls == 1:
+                now[0] = 0.5
+                raise WebSocketTimeoutException("idle")
+            if self.frame_calls == 3:
+                now[0] = 1.2
+                raise WebSocketTimeoutException("idle")
+            if self.frame_calls == 2:
+                return ABNF.OPCODE_PONG, SimpleNamespace(data=b"")
+            payload = (
+                execution_report()
+                if self.frame_calls == 4
+                else {"event": {"e": "eventStreamTerminated", "E": 1}}
+            )
+            return ABNF.OPCODE_TEXT, SimpleNamespace(data=json.dumps(payload))
+
+    connection = HeartbeatConnection()
+    mailbox = OrderEventMailbox()
+    observer = BinanceUserDataObserver(
+        api_key="key",
+        api_secret="secret",
+        rest_base_url="https://api.binance.com",
+        mailbox=mailbox,
+        logger=lambda message: None,
+        state_path=tmp_path / "stream.json",
+        connect=lambda *args, **kwargs: connection,
+        idle_timeout_sec=1,
+        monotonic=lambda: now[0],
+    )
+
+    with pytest.raises(RuntimeError, match="ended"):
+        observer._observe_connection()
+
+    assert connection.pings == 2
+    assert len(mailbox.consume_for([123])) == 1
 
 
 def test_observer_restores_only_sanitized_cumulative_soak_state(tmp_path):
