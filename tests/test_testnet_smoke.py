@@ -299,6 +299,25 @@ def test_circuit_drill_run_is_fully_offline(tmp_path, monkeypatch):
     assert result["circuit_drill"] == "passed"
 
 
+def test_gap_drill_is_fully_offline(monkeypatch):
+    def refuse_client(*args, **kwargs):
+        raise AssertionError("gap drill must not construct an exchange client")
+
+    monkeypatch.setattr(smoke, "SpotTestnetClient", refuse_client)
+    result = smoke.run(
+        SimpleNamespace(mode="gap-drill", symbol="SOLUSDT")
+    )
+    assert result == {
+        "venue": "isolated-local",
+        "symbol": "SOLUSDT",
+        "mode": "gap-drill",
+        "gap_drill": "passed",
+        "oco_cancel_verified": True,
+        "market_flatten_verified": True,
+        "network_used": False,
+    }
+
+
 class LostCleanupAckClient(FakeTestnetClient):
     def signed(self, method, path, params=None):
         if method == "DELETE" and path == "/api/v3/orderList":

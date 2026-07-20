@@ -3,6 +3,39 @@
 All notable changes are documented here. Releases use Semantic Versioning; every
 section is dated and there is intentionally no `Unreleased` section.
 
+## [2.10.95] — 2026-07-20
+
+### Security
+- Holdings SELL orders now load exact Binance symbol metadata and validate every
+  candidate against `PERCENT_PRICE_BY_SIDE` (or `PERCENT_PRICE`) using the
+  current `avgPrice` before any signed mutation. Missing, malformed, or stale
+  filter inputs block SELL placement and enter the safety-control escalation
+  path.
+- Exchange-filter loading no longer keeps plausible defaults or suppresses
+  malformed `exchangeInfo`; open-order reads required for holdings limits also
+  fail closed instead of assuming an empty order list.
+- The final BUY placement loop no longer silently suppresses arbitrary
+  exceptions; expected transport/input failures emit a structured diagnostic,
+  while unexpected programming failures propagate and stop execution.
+
+### Added
+- OCO protection records retain the two detailed exchange-verified leg IDs and
+  types. A natural canary cycle is counted only after a fully `FILLED` exact
+  TP/STOP leg closes its exact parent BUY; partial and unresolved fills cannot
+  satisfy the promotion gate.
+- Runtime telemetry, the trading API, and dashboard expose exact closed cycles,
+  TP/STOP counts, the required total of three, and promotion readiness.
+- Added a fully isolated `gap-drill` that proves OCO cancellation followed by a
+  confirmed emergency flatten without network access, API keys, exchange
+  orders, or commissions.
+
+### Verified
+- Added fail-closed filter, exact lifecycle attribution, offline gap-drill, and
+  dashboard telemetry regression coverage.
+- `python3 -m compileall -q .` and the full local test suite pass: 320 tests.
+- The isolated `gap-drill` reports verified OCO cancellation and emergency
+  flatten with `network_used=false`.
+
 ## [2.10.94] — 2026-07-20
 
 ### Fixed

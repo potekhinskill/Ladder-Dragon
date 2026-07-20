@@ -880,6 +880,7 @@ def trading_overview_snapshot() -> Dict[str, object]:
             "journal_available": journal.get("available") is True,
             "journal_reason": journal.get("reason"),
             "journal_source": journal.get("source"),
+            "lifecycle": journal.get("lifecycle", {}),
         },
         "last_order": last_order,
         "risk": {

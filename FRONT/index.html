@@ -265,6 +265,7 @@
         <div class="monitor-row"><span data-i18n="cooldown">Cooldown</span><span id="trade-cooldown">—</span></div>
         <div class="monitor-row"><span data-i18n="reconciliation">Reconciliation delta</span><span id="trade-recon">—</span></div>
         <div class="monitor-row"><span data-i18n="order_summary">Open / cancelled / pending</span><span id="trade-order-summary">—</span></div>
+        <div class="monitor-row"><span data-i18n="canary_cycles">Exact canary cycles</span><span id="trade-canary-cycles">—</span></div>
         <div class="monitor-row"><span data-i18n="last_order">Последний ордер</span><span class="mono" id="trade-last-order">—</span></div>
       </div>
     </div>
@@ -681,6 +682,11 @@ function updateTrading(t){
     orderSummary.className='';
   }
   const last=t.last_order;
+  const lifecycle=orders.lifecycle||{};
+  const exact=Number(lifecycle.closed_exact||0), required=Number(lifecycle.required||3);
+  const cycleNode=$('#trade-canary-cycles');
+  cycleNode.textContent=`${exact} / ${required} · TP ${Number(lifecycle.tp||0)} · STOP ${Number(lifecycle.stop||0)}`;
+  cycleNode.className=lifecycle.promotion_ready?'risk-ok':'risk-warn';
   $('#trade-last-order').textContent=last?`${last.symbol} ${last.side} ${last.status} id=${last.order_id??'—'}${last.partial_fill?' partial':''} · latency ${last.latency_ms??'—'} ms · fee ${last.commission_usdt??'—'} · ${last.updated_at||'—'}`:'нет';
   const rows=Array.isArray(t.positions)?t.positions:[];
   $('#positions-body').innerHTML=rows.length?rows.map(p=>{

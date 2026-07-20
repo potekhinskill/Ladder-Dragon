@@ -79,6 +79,23 @@ def _update_ai_order(
         return
 
 
+def _persist_verified_oco_legs(
+    journal: OrderJournal | None,
+    protection_client_order_id: str,
+    legs: object,
+) -> list[dict[str, Any]]:
+    """Persist only the two detailed, exchange-verified OCO leg records."""
+    detailed = [leg for leg in legs if isinstance(leg, dict)] if isinstance(legs, list) else []
+    if len(detailed) != 2:
+        raise RuntimeError("OCO verification did not return exactly two detailed legs")
+    if journal is not None:
+        journal.record_verified_protection_legs(
+            protection_client_order_id,
+            detailed,
+        )
+    return detailed
+
+
 @dataclass(frozen=True)
 class OrderDependencies:
     """Поздно связываемые зависимости ордерного слоя.
@@ -492,13 +509,14 @@ def place_oco_sell(
         ):
             order_list_id = existing.get("orderListId")
             try:
-                dependencies.verify_oco_legs(symbol, existing)
+                verified_legs = dependencies.verify_oco_legs(symbol, existing)
             except (requests.RequestException, RuntimeError):
                 if order_list_id is not None:
                     dependencies.cancel_oco(symbol, int(order_list_id))
                 raise
             if journal is not None:
                 journal.record_order_list(list_client_id, existing)
+                _persist_verified_oco_legs(journal, list_client_id, verified_legs)
                 if parent_client_order_id:
                     journal.mark_protected(
                         parent_client_order_id=parent_client_order_id,
@@ -514,7 +532,7 @@ def place_oco_sell(
                 exchange_order_list_id=order_list_id,
                 leg_type="LIST",
             )
-            for leg in existing.get("orders", []) if isinstance(existing, dict) else []:
+            for leg in verified_legs:
                 if isinstance(leg, dict) and leg.get("clientOrderId"):
                     _link_ai_order(
                         str(leg["clientOrderId"]), symbol, lot_id=lot_id,
@@ -607,7 +625,7 @@ def place_oco_sell(
         ):
             raise RuntimeError(f"OCO verification failed: {verified}")
         try:
-            dependencies.verify_oco_legs(symbol, verified)
+            verified_legs = dependencies.verify_oco_legs(symbol, verified)
         except (requests.RequestException, RuntimeError):
             # Partial or malformed protection is worse than no protection:
             # delete the suspect OCO and propagate the error.
@@ -630,7 +648,7 @@ def place_oco_sell(
             exchange_order_list_id=order_list_id,
             leg_type="LIST",
         )
-        for leg in (verified.get("orders", []) if isinstance(verified, dict) else []):
+        for leg in verified_legs:
             if not isinstance(leg, dict):
                 continue
             leg_client_id = leg.get("clientOrderId")
@@ -648,6 +666,7 @@ def place_oco_sell(
                 )
         if journal is not None:
             journal.record_order_list(list_client_id, verified)
+            _persist_verified_oco_legs(journal, list_client_id, verified_legs)
             if parent_client_order_id:
                 journal.mark_protected(
                     parent_client_order_id=parent_client_order_id,
@@ -682,7 +701,7 @@ def place_oco_sell(
             ):
                 order_list_id = reconciled.get("orderListId")
                 try:
-                    dependencies.verify_oco_legs(symbol, reconciled)
+                    verified_legs = dependencies.verify_oco_legs(symbol, reconciled)
                 except (requests.RequestException, RuntimeError) as verify_exc:
                     dependencies.logger(
                         f"[ERR] recovered OCO leg verification failed: "
@@ -690,12 +709,13 @@ def place_oco_sell(
                     )
                     return None
                 journal.record_order_list(list_client_id, reconciled)
+                _persist_verified_oco_legs(journal, list_client_id, verified_legs)
                 _update_ai_order(
                     list_client_id,
                     exchange_order_list_id=order_list_id,
                     leg_type="LIST",
                 )
-                for leg in reconciled.get("orders", []) if isinstance(reconciled, dict) else []:
+                for leg in verified_legs:
                     if isinstance(leg, dict) and leg.get("clientOrderId"):
                         _link_ai_order(
                             str(leg["clientOrderId"]), symbol, lot_id=lot_id,

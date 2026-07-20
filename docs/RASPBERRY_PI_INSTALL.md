@@ -259,6 +259,16 @@ observation gate fails on any hard-CAP violation, unresolved fill, unprotected
 managed position, persistent circuit halt, or reconciliation error. Legacy SOL
 inventory is not part of this sample when automatic holdings protection is off.
 
+The dashboard shows this gate as **Exact canary cycles**. You can also run the
+isolated gap-watchdog drill without API keys, network access, fees, or exchange
+orders:
+
+```bash
+cd /home/bot/apps/binance_bot
+sudo -u bot env PYTHONPATH=. .venv/bin/python \
+  -m bin.binance_testnet_smoke --mode gap-drill --symbol SOLUSDT
+```
+
 ## 8. Normal updates
 
 Always update a reviewed exact commit:

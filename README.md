@@ -17,7 +17,7 @@ Binance Spot. It builds BUY/SELL grids, uses ATR/EMA/VWAP/ADX regimes, manages
 OCO protection, and records trading statistics in SQLite. Production secrets,
 real backups, and private parameters are never committed.
 
-Current product version: **2.10.94**. The single version source is
+Current product version: **2.10.95**. The single version source is
 `product_version.py`; releases follow [Semantic Versioning](https://semver.org/).
 Project contact: [LinkedIn](https://www.linkedin.com/in/ypotekhin/).
 
@@ -33,7 +33,7 @@ Project contact: [LinkedIn](https://www.linkedin.com/in/ypotekhin/).
 ## Project status
 
 Ladder Dragon is an actively developed, experimental trading system. Version
-**2.10.94** is the latest signed release. `main` is the only long-lived branch;
+**2.10.95** is the current prepared release. `main` is the only long-lived branch;
 feature branches use the `ladderdragon/*` namespace.
 
 DRY and Binance Spot Testnet are the supported starting modes. Mainnet LIVE is
@@ -321,19 +321,27 @@ the services, and waits for a fresh heartbeat.
 
 ## Remaining engineering work
 
-- validate `PERCENT_PRICE_BY_SIDE` before placing holdings SELL orders and reject
-  implausible prices locally;
 - reconcile legacy holdings cost basis before enabling `auto_oco_holdings`;
 - run the bounded Mainnet canary on each materially changed executor release;
 - collect at least three natural, exactly linked BUY/OCO/TP-or-STOP lifecycles
   and a clean 24–48 hour SOLUSDT soak before increasing LIVE scope;
-- add a separate non-destructive gap-watchdog acceptance drill; the active
-  canary does not manufacture a market gap;
 - extend event-driven replay with archived Binance depth/trade streams;
 - improve matching, latency, maker/taker, and market-impact models;
 - expand multi-period walk-forward and production approval statistics;
 - continue reducing float arithmetic and broad exception handlers;
 - run controlled long Testnet soak tests after executor or risk changes.
+
+The local gap-watchdog drill is network-free and never creates an exchange
+order:
+
+```bash
+PYTHONPATH=. .venv/bin/python -m bin.binance_testnet_smoke \
+  --mode gap-drill --symbol SOLUSDT
+```
+
+The dashboard and `/api/trading/overview` expose exact natural lifecycle
+evidence as `closed_exact / required`. Only an exchange-verified OCO leg with a
+terminal `FILLED` status can increment it; partial and unresolved fills do not.
 
 ## Documentation and license
 

@@ -84,6 +84,11 @@ from ladder_dragon.execution.order_recovery import (
     OrderJournal,
 )
 from ladder_dragon.execution.exchange_math import round_step
+from ladder_dragon.execution.exchange_filters import (
+    filter_map as exchange_filter_map,
+    symbol_row as exchange_symbol_row,
+    validate_sell_percent_prices,
+)
 from ladder_dragon.risk.risk_manager import create_manual_halt
 from ladder_dragon.execution.time_safety import assess_exchange_clock
 from ladder_dragon.execution.trade_accounting import TradeExecution, UnpricedCommission, replay_average_cost
@@ -840,41 +845,36 @@ def _panic_buy_block_reason(
 # ------------------- Exchange info / filters -------------------
 
 symbol_filters: Dict[str, Dict[str, float]] = {}
+symbol_exchange_info: Dict[str, Dict[str, Any]] = {}
 _symbol_assets_cache: Dict[str, Tuple[str, str]] = {}
 
 def exchange_info(symbol: str):
     return _public_get("/api/v3/exchangeInfo", {"symbol": symbol})
 
 def pull_filters(symbol: str) -> Dict[str, float]:
-    global symbol_filters
+    global symbol_filters, symbol_exchange_info
     if symbol in symbol_filters:
         return symbol_filters[symbol]
-    flt = {
-        "tickSize": 0.01,
-        "stepSize": 0.0001,
-        "minQty": 0.0,
-        "minNotional": 5.0,
-    }
     j = exchange_info(symbol)
     try:
-        for s in j["symbols"]:
-            if s["symbol"] == symbol:
-                for f in s["filters"]:
-                    t = str(f.get("filterType", ""))
-
-                    if t == "PRICE_FILTER":
-                        flt["tickSize"] = float(f["tickSize"])
-
-                    elif t == "LOT_SIZE":  # важный блок — MARKET_LOT_SIZE игнорируем для лимиток
-                        flt["stepSize"] = float(f["stepSize"])
-                        flt["minQty"]   = float(f["minQty"])
-
-                    elif t in ("NOTIONAL", "MIN_NOTIONAL"):
-                        flt["minNotional"] = float(f.get("minNotional", 5.0))
-    except Exception:
-        pass
+        row = exchange_symbol_row(j, symbol)
+        filters = exchange_filter_map(row)
+        price_filter = filters["PRICE_FILTER"]
+        lot_filter = filters["LOT_SIZE"]
+        notional_filter = filters.get("NOTIONAL") or filters["MIN_NOTIONAL"]
+        flt = {
+            "tickSize": float(price_filter["tickSize"]),
+            "stepSize": float(lot_filter["stepSize"]),
+            "minQty": float(lot_filter["minQty"]),
+            "minNotional": float(notional_filter["minNotional"]),
+        }
+        if any(value <= 0 for value in flt.values()):
+            raise RuntimeError(f"invalid non-positive exchange filters for {symbol}")
+    except (KeyError, TypeError, ValueError, RuntimeError) as exc:
+        raise RuntimeError(f"invalid exchange filters for {symbol}: {exc}") from exc
 
     symbol_filters[symbol] = flt
+    symbol_exchange_info[symbol] = dict(row)
     log(f"[FILTERS] {symbol} tickSize={flt['tickSize']:.8f} stepSize={flt['stepSize']:.8f} "
         f"minQty={flt['minQty']:.6f} minNotional={flt['minNotional']}")
     return flt
@@ -1401,6 +1401,46 @@ def _stats_poll_mytrades_once(symbol: str):
             STATS_CON.commit()
         except (sqlite3.Error, ValueError, ArithmeticError) as exc:
             log(f"[LOTS] {symbol} fill sync failed: {exc}")
+        # Close promotion evidence only when the SELL fill maps to a persisted,
+        # exchange-verified OCO leg and Binance confirms the whole leg FILLED.
+        if fill["side"] == "SELL" and fill.get("order_id") is not None:
+            try:
+                journal = _order_journal()
+                match = (
+                    journal.protection_for_leg_order_id(int(fill["order_id"]))
+                    if journal is not None
+                    else None
+                )
+                if match is not None:
+                    protection, leg_type = match
+                    exchange_order = get_order(symbol, int(fill["order_id"]))
+                    if not isinstance(exchange_order, dict):
+                        raise RuntimeError("OCO exit state is unavailable")
+                    if str(exchange_order.get("status") or "").upper() == "FILLED":
+                        exit_reason = "STOP" if "STOP" in leg_type else "TP"
+                        journal.mark_exact_lifecycle_closed(
+                            protection_client_order_id=protection.client_order_id,
+                            exit_order_id=int(fill["order_id"]),
+                            exit_reason=exit_reason,
+                        )
+                        log(
+                            f"[LIFECYCLE-CLOSED] {symbol} parent="
+                            f"{protection.parent_client_order_id} exit={exit_reason} "
+                            f"order={int(fill['order_id'])}"
+                        )
+            except (
+                KeyError,
+                TypeError,
+                ValueError,
+                RuntimeError,
+                OSError,
+                sqlite3.Error,
+                requests.RequestException,
+            ) as exc:
+                log(
+                    f"[LIFECYCLE-PENDING] {symbol} order={fill.get('order_id')} "
+                    f"reason={type(exc).__name__}"
+                )
         # AI DB is optional: missing AI must not block the trading ledger.
         try:
             ai_db = os.getenv("AI_DECISIONS_DB", "").strip()
@@ -1682,8 +1722,11 @@ def maybe_place_buys(symbol: str,
                 usdt_free = max(0.0, usdt_free - planned.notional)
                 # Deduplicate by the already rounded price.
                 existing_buy_prices.add(pr)
-        except Exception:
-            pass
+        except (requests.RequestException, RuntimeError, ValueError, OSError) as exc:
+            log(
+                f"[BUY-PLACE-ERR] {symbol} price={fmt_price_sym(symbol, pr)} "
+                f"reason={type(exc).__name__}"
+            )
 
     return placed_ids
 
@@ -1745,8 +1788,9 @@ def maybe_place_sells_from_holdings(
     if enforce_limit and (max_oco_per_symbol is not None):
         try:
             oo = list_open_orders(symbol) or []
-        except Exception:
-            oo = []
+        except (requests.RequestException, RuntimeError, ValueError) as exc:
+            log(f"[HOLD-SELL-BLOCK] {symbol} open-order state unavailable: {type(exc).__name__}")
+            return 0
         existing_sell_prices = existing_prices(
             oo,
             side="SELL",
@@ -1773,6 +1817,26 @@ def maybe_place_sells_from_holdings(
     )
     if not upper_guarded:
         dbg(f"[HOLD-SELL] {symbol} empty after limits/GUARD")
+        return 0
+
+    # Validate every holdings SELL locally against the current Binance percent
+    # band. Missing or malformed reference data blocks the signed mutation.
+    try:
+        avg_payload = _public_get("/api/v3/avgPrice", {"symbol": symbol})
+        reference_price = Decimal(str(avg_payload["price"]))
+        validate_sell_percent_prices(
+            {"symbols": [symbol_exchange_info[symbol]]},
+            symbol=symbol,
+            reference_price=reference_price,
+            prices=(Decimal(str(price)) for price in upper_guarded),
+        )
+        _clear_safety_control_failure("holdings-sell-filter", symbol)
+    except (KeyError, TypeError, ValueError, ArithmeticError, RuntimeError, requests.RequestException) as exc:
+        _record_safety_control_failure("holdings-sell-filter", symbol, exc)
+        log(
+            f"[HOLD-SELL-FILTER-BLOCK] {symbol} SELL mutation blocked: "
+            f"{type(exc).__name__}"
+        )
         return 0
 
     # Dust handling and allocation.

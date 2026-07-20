@@ -409,8 +409,9 @@ def test_trading_overview_preserves_unavailable_order_journal(monkeypatch):
         "pending": None,
         "journal_available": False,
         "journal_reason": "OperationalError",
-        "journal_source": None,
-    }
+            "journal_source": None,
+            "lifecycle": {},
+        }
 
 
 def test_dashboard_does_not_render_missing_journal_counts_as_zero():

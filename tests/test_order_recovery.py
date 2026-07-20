@@ -107,6 +107,49 @@ def test_runtime_telemetry_contains_only_sanitized_journal_summary(tmp_path):
     assert "must-not-leak" not in serialized
 
 
+def test_exact_oco_leg_closure_is_the_only_promotion_evidence(tmp_path):
+    journal = OrderJournal(tmp_path / "orders.sqlite3", venue="mainnet")
+    journal.prepare(
+        client_order_id="BUY-1", symbol="SOLUSDT", side="BUY",
+        purpose="ladder", order_type="LIMIT", quantity="0.1", price="100",
+    )
+    journal.record_exchange_order(
+        "BUY-1", {"orderId": 10, "status": "FILLED", "executedQty": "0.1"}
+    )
+    journal.prepare(
+        client_order_id="OCO-1", symbol="SOLUSDT", side="SELL",
+        purpose="oco", order_type="OCO", quantity="0.1", price="102",
+        parent_client_order_id="BUY-1",
+    )
+    journal.record_order_list(
+        "OCO-1", {"orderListId": 20, "listStatusType": "EXEC_STARTED"}
+    )
+    journal.record_verified_protection_legs(
+        "OCO-1",
+        [
+            {"orderId": 21, "clientOrderId": "TP-1", "type": "LIMIT_MAKER"},
+            {"orderId": 22, "clientOrderId": "SL-1", "type": "STOP_LOSS_LIMIT"},
+        ],
+    )
+    journal.mark_protected(
+        parent_client_order_id="BUY-1", protection_client_order_id="OCO-1",
+        order_list_id=20,
+    )
+
+    match = journal.protection_for_leg_order_id(22)
+    assert match is not None and match[1] == "STOP_LOSS_LIMIT"
+    assert read_order_journal_telemetry(journal.path)["lifecycle"]["closed_exact"] == 0
+
+    journal.mark_exact_lifecycle_closed(
+        protection_client_order_id="OCO-1", exit_order_id=22,
+        exit_reason="STOP",
+    )
+    assert read_order_journal_telemetry(journal.path)["lifecycle"] == {
+        "closed_exact": 1, "tp": 0, "stop": 1, "required": 3,
+        "promotion_ready": False,
+    }
+
+
 def test_filled_buy_remains_unresolved_until_protection_is_confirmed(tmp_path):
     journal = OrderJournal(tmp_path / "orders.sqlite3")
     buy = journal.prepare(

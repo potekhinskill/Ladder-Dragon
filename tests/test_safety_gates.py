@@ -335,6 +335,51 @@ def test_worker_live_remainder_policy_never_bypasses_cap():
     assert worker.effective_remainder_policy(requested=False, live_mode=False) is False
 
 
+def test_worker_exchange_filters_fail_closed_on_malformed_metadata(monkeypatch):
+    worker = load_worker()
+    worker.symbol_filters.clear()
+    worker.symbol_exchange_info.clear()
+    monkeypatch.setattr(worker, "exchange_info", lambda symbol: {"symbols": []})
+
+    with pytest.raises(RuntimeError, match="invalid exchange filters"):
+        worker.pull_filters("SOLUSDT")
+
+
+def test_holdings_sell_percent_filter_blocks_exchange_mutation(monkeypatch):
+    worker = load_worker()
+    worker.symbol_filters["SOLUSDT"] = {
+        "tickSize": 0.01, "stepSize": 0.001,
+        "minQty": 0.001, "minNotional": 5.0,
+    }
+    worker.symbol_exchange_info["SOLUSDT"] = {
+        "symbol": "SOLUSDT",
+        "filters": [{
+            "filterType": "PERCENT_PRICE_BY_SIDE",
+            "askMultiplierDown": "0.8",
+            "askMultiplierUp": "1.2",
+        }],
+    }
+    monkeypatch.setattr(worker, "pull_filters", lambda symbol: None)
+    monkeypatch.setattr(
+        worker, "get_balances", lambda: {"SOL": {"free": 1, "locked": 0}}
+    )
+    monkeypatch.setattr(worker, "get_price", lambda symbol: 100.0)
+    monkeypatch.setattr(
+        worker, "_public_get", lambda path, params=None: {"price": "100"}
+    )
+    monkeypatch.setattr(worker, "_record_safety_control_failure", lambda *args: None)
+    monkeypatch.setattr(
+        worker, "place_limit_order",
+        lambda *args, **kwargs: (_ for _ in ()).throw(
+            AssertionError("out-of-band holdings SELL reached exchange mutation")
+        ),
+    )
+
+    assert worker.maybe_place_sells_from_holdings(
+        "SOLUSDT", [150.0], avg_entry_px=90.0,
+    ) == 0
+
+
 def test_worker_blocks_oversized_plan_before_exchange_mutation(monkeypatch):
     worker = load_worker()
     worker.RUN = True

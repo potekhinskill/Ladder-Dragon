@@ -19,6 +19,7 @@ import os
 from pathlib import Path
 import re
 import time
+from types import SimpleNamespace
 from typing import Any
 from urllib.parse import urlencode, urlparse
 
@@ -26,8 +27,10 @@ import requests
 from dotenv import load_dotenv
 
 from ladder_dragon.execution.exchange_math import decimal, format_step, normalized_order_values, round_step
+from ladder_dragon.execution.exchange_filters import validate_sell_percent_prices as _validate_sell_percent_prices
 from ladder_dragon.execution.order_identity import client_order_id
 from ladder_dragon.execution.order_recovery import OrderJournal
+from ladder_dragon.execution.executor_protection import emergency_gap_flatten
 from ladder_dragon.risk.risk_manager import RiskLimits, RiskManager, RiskSnapshot
 from ladder_dragon.execution.time_safety import assess_exchange_clock
 
@@ -98,32 +101,15 @@ def validate_sell_percent_prices(
     reference_price: object,
     prices: list[object],
 ) -> bool:
-    """Validate SELL prices against Binance percent-price filters when present."""
-    row = (exchange_info.get("symbols") or [{}])[0]
-    filters = {item.get("filterType"): item for item in row.get("filters") or []}
-    percent = filters.get("PERCENT_PRICE_BY_SIDE")
-    if percent:
-        lower_multiplier = decimal(percent.get("askMultiplierDown"))
-        upper_multiplier = decimal(percent.get("askMultiplierUp"))
-    else:
-        percent = filters.get("PERCENT_PRICE")
-        if not percent:
-            return False
-        lower_multiplier = decimal(percent.get("multiplierDown"))
-        upper_multiplier = decimal(percent.get("multiplierUp"))
-    reference = decimal(reference_price)
-    if reference <= 0 or lower_multiplier <= 0 or upper_multiplier <= lower_multiplier:
-        raise RuntimeError("invalid Binance percent-price filter")
-    lower = reference * lower_multiplier
-    upper = reference * upper_multiplier
-    for value in prices:
-        price = decimal(value)
-        if price < lower or price > upper:
-            raise RuntimeError(
-                f"SELL price {price} outside Binance percent-price range "
-                f"[{lower}, {upper}]"
-            )
-    return True
+    """Compatibility wrapper around the shared production validator."""
+    rows = exchange_info.get("symbols") or []
+    symbol = str(rows[0].get("symbol", "")) if len(rows) == 1 else ""
+    return _validate_sell_percent_prices(
+        exchange_info,
+        symbol=symbol,
+        reference_price=reference_price,
+        prices=prices,
+    )
 
 
 def build_non_filling_limit_buy(
@@ -822,6 +808,56 @@ def run_circuit_drill(drill_dir: str | Path) -> dict[str, Any]:
 
 
 def run(args: argparse.Namespace) -> dict[str, Any]:
+    if args.mode == "gap-drill":
+        events: list[tuple[str, object]] = []
+        dependencies = SimpleNamespace(
+            list_open_orders=lambda symbol: [
+                {
+                    "side": "SELL",
+                    "orderListId": 77,
+                    "stopPrice": "95",
+                }
+            ],
+            cancel_oco=lambda symbol, order_list_id: events.append(
+                ("cancel_oco", order_list_id)
+            ),
+            sleep=lambda seconds: None,
+            get_symbol_assets=lambda symbol: (symbol.removesuffix("USDT"), "USDT"),
+            get_balances=lambda: {
+                args.symbol.removesuffix("USDT"): {"free": "1.000", "locked": "0"}
+            },
+            round_quantity=lambda symbol, quantity: float(
+                Decimal(str(quantity)).quantize(Decimal("0.001"))
+            ),
+            min_quantity=lambda symbol, price: 0.001,
+            place_market_order=lambda symbol, side, quantity: events.append(
+                ("market_sell", str(quantity))
+            ) or {"orderId": 99, "status": "FILLED"},
+            halt=lambda reason, **metadata: events.append(("halt", reason)),
+            logger=lambda message: events.append(("log", message)),
+        )
+        flattened = emergency_gap_flatten(
+            args.symbol,
+            80.0,
+            dependencies=dependencies,
+        )
+        if not flattened:
+            raise RuntimeError("gap drill did not confirm emergency flatten")
+        if not any(name == "cancel_oco" for name, _ in events):
+            raise RuntimeError("gap drill did not cancel the breached OCO")
+        if not any(name == "market_sell" for name, _ in events):
+            raise RuntimeError("gap drill did not submit the isolated flatten")
+        if any(name == "halt" for name, _ in events):
+            raise RuntimeError("successful gap drill unexpectedly halted")
+        return {
+            "venue": "isolated-local",
+            "symbol": args.symbol,
+            "mode": args.mode,
+            "gap_drill": "passed",
+            "oco_cancel_verified": True,
+            "market_flatten_verified": True,
+            "network_used": False,
+        }
     if args.mode == "circuit-drill":
         result: dict[str, Any] = {
             "venue": "isolated-local",
@@ -966,6 +1002,7 @@ def main() -> int:
             "buy-oco",
             "buy-oco-restart",
             "circuit-drill",
+            "gap-drill",
         ),
         default="public",
     )

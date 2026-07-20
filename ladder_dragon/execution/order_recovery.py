@@ -96,6 +96,10 @@ def read_order_journal_telemetry(path: str | Path) -> dict[str, Any]:
                 "executed_qty, quantity, updated_at "
                 "FROM order_intents ORDER BY updated_at DESC LIMIT 1"
             ).fetchone()
+            lifecycle_rows = con.execute(
+                "SELECT metadata_json FROM order_intents "
+                "WHERE side = 'BUY' AND state = 'CLOSED'"
+            ).fetchall()
     except (OSError, sqlite3.Error, TypeError, ValueError) as exc:
         return {"available": False, "reason": type(exc).__name__}
 
@@ -135,12 +139,25 @@ def read_order_journal_telemetry(path: str | Path) -> dict[str, Any]:
         for state, count in counts.items()
         if state.upper() not in TERMINAL_JOURNAL_STATES
     )
+    lifecycle = {"closed_exact": 0, "tp": 0, "stop": 0, "required": 3}
+    for row in lifecycle_rows:
+        try:
+            metadata = json.loads(row["metadata_json"] or "{}")
+        except (json.JSONDecodeError, TypeError):
+            continue
+        reason = str(metadata.get("exit_reason") or "").upper()
+        if not metadata.get("exact_lifecycle") or reason not in {"TP", "STOP"}:
+            continue
+        lifecycle["closed_exact"] += 1
+        lifecycle[reason.lower()] += 1
+    lifecycle["promotion_ready"] = lifecycle["closed_exact"] >= lifecycle["required"]
     return {
         "available": True,
         "counts": counts,
         "cancelled": cancelled,
         "pending": pending,
         "latest": item,
+        "lifecycle": lifecycle,
         "updated_at_epoch": time.time(),
     }
 
@@ -381,6 +398,29 @@ class OrderJournal:
             ).fetchone()
         return self._from_row(row)
 
+    def protection_for_leg_order_id(
+        self, exchange_order_id: int
+    ) -> tuple[OrderIntent, str] | None:
+        """Resolve an OCO leg only through its exact persisted exchange ID."""
+        with self._connect() as con:
+            rows = con.execute(
+                "SELECT * FROM order_intents WHERE order_type = 'OCO' "
+                "AND side = 'SELL' ORDER BY created_at DESC"
+            ).fetchall()
+        target = int(exchange_order_id)
+        for row in rows:
+            intent = self._from_row(row)
+            if intent is None:
+                continue
+            for leg in (intent.metadata or {}).get("verified_legs", []):
+                try:
+                    leg_order_id = int(leg.get("order_id"))
+                except (AttributeError, TypeError, ValueError):
+                    continue
+                if leg_order_id == target:
+                    return intent, str(leg.get("leg_type") or "").upper()
+        return None
+
     def find_active(
         self,
         *,
@@ -559,6 +599,55 @@ class OrderJournal:
     def mark_closed(self, client_order_id: str) -> OrderIntent:
         """Mark an exactly reconciled lifecycle as terminally closed."""
         return self._update(client_order_id, state="CLOSED", last_error=None)
+
+    def record_verified_protection_legs(
+        self,
+        protection_client_order_id: str,
+        legs: Iterable[dict[str, Any]],
+    ) -> OrderIntent:
+        """Persist allowlisted OCO leg identities for exact fill attribution."""
+        sanitized: list[dict[str, Any]] = []
+        for leg in legs:
+            if not isinstance(leg, dict) or leg.get("orderId") is None:
+                continue
+            sanitized.append(
+                {
+                    "order_id": int(leg["orderId"]),
+                    "client_order_id": str(leg.get("clientOrderId") or ""),
+                    "leg_type": str(leg.get("type") or "").upper(),
+                }
+            )
+        if len(sanitized) != 2:
+            raise RuntimeError("verified OCO must contain exactly two legs")
+        return self.update_metadata(
+            protection_client_order_id,
+            {"verified_legs": sanitized},
+        )
+
+    def mark_exact_lifecycle_closed(
+        self,
+        *,
+        protection_client_order_id: str,
+        exit_order_id: int,
+        exit_reason: str,
+    ) -> None:
+        """Close a BUY/OCO lifecycle after an exact terminal TP/STOP fill."""
+        protection = self.get(protection_client_order_id)
+        if protection is None or not protection.parent_client_order_id:
+            raise RuntimeError("protection has no exact parent BUY")
+        reason = str(exit_reason).upper()
+        if reason not in {"TP", "STOP"}:
+            raise ValueError("exit reason must be TP or STOP")
+        metadata = {
+            "exact_lifecycle": True,
+            "exit_order_id": int(exit_order_id),
+            "exit_reason": reason,
+            "closed_at": time.time(),
+        }
+        self.update_metadata(protection_client_order_id, metadata)
+        self.update_metadata(protection.parent_client_order_id, metadata)
+        self.mark_closed(protection_client_order_id)
+        self.mark_closed(protection.parent_client_order_id)
 
     def unresolved_buys(self, symbol: str | None = None) -> list[OrderIntent]:
         placeholders = ",".join("?" for _ in ACTIVE_STATES)
