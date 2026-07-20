@@ -131,6 +131,34 @@ class RiskSnapshot:
     symbol_consecutive_losses: dict[str, int] = field(default_factory=dict)
     symbol_exposure_usdt: dict[str, Decimal] = field(default_factory=dict)
 
+    def __post_init__(self) -> None:
+        """Normalize all financial telemetry at the risk boundary."""
+        financial_fields = (
+            "equity_usdt",
+            "exposure_usdt",
+            "free_usdt",
+            "daily_turnover_usdt",
+            "daily_buy_usdt",
+            "correlated_exposure_usdt",
+            "stress_loss_usdt",
+            "var_usdt",
+            "gap_risk_usdt",
+            "expected_shortfall_usdt",
+        )
+        for name in financial_fields:
+            value = money(getattr(self, name))
+            if not value.is_finite():
+                raise ValueError(f"{name} must be finite")
+            object.__setattr__(self, name, value)
+
+        exact_symbol_exposure: dict[str, Decimal] = {}
+        for symbol, raw_value in self.symbol_exposure_usdt.items():
+            value = money(raw_value)
+            if not value.is_finite():
+                raise ValueError(f"symbol exposure for {symbol} must be finite")
+            exact_symbol_exposure[str(symbol).upper()] = value
+        object.__setattr__(self, "symbol_exposure_usdt", exact_symbol_exposure)
+
 
 @dataclass(frozen=True)
 class RiskDecision:

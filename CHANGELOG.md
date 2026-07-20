@@ -3,6 +3,26 @@
 All notable changes are documented here. Releases use Semantic Versioning; every
 section is dated and there is intentionally no `Unreleased` section.
 
+## [2.20.2] — 2026-07-21
+
+### Fixed
+- Risk snapshots now normalize every financial telemetry field and per-symbol
+  exposure to finite `Decimal` values at construction time.
+- Remaining BUY budget calculation now explicitly normalizes both limits and
+  snapshot values before subtraction. This fixes the 2.20.1 LIVE regression
+  where legacy float telemetry could raise `Decimal - float` and trigger the
+  fail-closed risk gate.
+
+### Safety
+- Non-finite risk values are rejected before evaluation. Risk Manager remains
+  fail closed, and the patch does not relax CAP, reserve, reconciliation or
+  circuit-breaker behavior.
+- No order-placement, OCO/STOP or AI policy behavior changes are included.
+
+### Verified
+- Regression tests cover legacy float telemetry, exact remaining-budget
+  arithmetic and rejection of non-finite financial snapshots.
+
 ## [2.20.1] — 2026-07-21
 
 ### Changed

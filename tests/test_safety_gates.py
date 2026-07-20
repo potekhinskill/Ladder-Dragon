@@ -816,6 +816,25 @@ def test_unvalued_asset_ack_must_match_exactly(monkeypatch):
         raise AssertionError("unvalued asset allowlist accepted without exact ACK")
 
 
+def test_remaining_order_budget_normalizes_legacy_float_telemetry(tmp_path):
+    configured = ai_supervisor.RiskLimits.from_env()
+    observed = ai_supervisor.RiskSnapshot(
+        equity_usdt=794.25,
+        exposure_usdt=463.15,
+        free_usdt=331.09,
+        daily_buy_usdt=0.0,
+        correlated_exposure_usdt=463.15,
+    )
+
+    remaining = ai_supervisor._remaining_order_budget_decimal(
+        configured,
+        observed,
+    )
+
+    assert remaining == Decimal("31.09")
+    assert isinstance(remaining, Decimal)
+
+
 def test_testnet_uses_separate_stats_and_order_journals(tmp_path, monkeypatch):
     main_stats = tmp_path / "mainnet.db"
     test_stats = tmp_path / "testnet.db"

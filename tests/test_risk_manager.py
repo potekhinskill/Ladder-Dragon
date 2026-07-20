@@ -80,6 +80,34 @@ def test_soft_limits_block_buys_without_permanent_halt(tmp_path: Path):
     assert not (tmp_path / "halt.json").exists()
 
 
+def test_risk_snapshot_normalizes_legacy_numeric_inputs_to_decimal():
+    observed = RiskSnapshot(
+        equity_usdt=1000.25,
+        exposure_usdt=400.5,
+        free_usdt=599.75,
+        daily_turnover_usdt=12.5,
+        daily_buy_usdt=10.25,
+        correlated_exposure_usdt=300.125,
+        symbol_exposure_usdt={"solusdt": 300.125},
+    )
+
+    assert observed.equity_usdt == Decimal("1000.25")
+    assert observed.daily_buy_usdt == Decimal("10.25")
+    assert observed.correlated_exposure_usdt == Decimal("300.125")
+    assert observed.symbol_exposure_usdt == {
+        "SOLUSDT": Decimal("300.125")
+    }
+
+
+def test_risk_snapshot_rejects_non_finite_financial_values():
+    with pytest.raises(ValueError, match="equity_usdt must be finite"):
+        RiskSnapshot(
+            equity_usdt="NaN",
+            exposure_usdt="0",
+            free_usdt="0",
+        )
+
+
 def test_reset_requires_cooldown_or_force(tmp_path: Path):
     manager = RiskManager(limits(tmp_path))
     manager.evaluate(snapshot("1000"), now=1_700_000_000)

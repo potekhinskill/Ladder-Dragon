@@ -2710,6 +2710,20 @@ def _build_risk_snapshot(
     )
     return snap, orders, prices
 
+
+def _remaining_order_budget_decimal(
+    limits: RiskLimits,
+    snapshot: RiskSnapshot,
+) -> Decimal:
+    """Return the smallest exact budget remaining across all BUY gates."""
+    return min(
+        money(limits.portfolio_cap_usdt) - money(snapshot.exposure_usdt),
+        money(limits.daily_buy_cap_usdt) - money(snapshot.daily_buy_usdt),
+        money(limits.correlated_cap_usdt)
+        - money(snapshot.correlated_exposure_usdt),
+        money(snapshot.free_usdt) - money(limits.reserve_usdt),
+    )
+
 def main():
     """Handle main."""
     ap = build_supervisor_parser()
@@ -2944,12 +2958,7 @@ def main():
                     if not decision.buy_blocked:
                         # Narrow CAP further by the smallest remaining budget:
                         # portfolio, daily BUY, correlation and reserve.
-                        remaining = min(
-                            limits.portfolio_cap_usdt - snapshot.exposure_usdt,
-                            limits.daily_buy_cap_usdt - snapshot.daily_buy_usdt,
-                            limits.correlated_cap_usdt - snapshot.correlated_exposure_usdt,
-                            snapshot.free_usdt - limits.reserve_usdt,
-                        )
+                        remaining = _remaining_order_budget_decimal(limits, snapshot)
                         slots = max(1, args.target_buy_per_symbol * len(symbols))
                         safe_cap = min(configured_order_cap, max(Decimal("0"), remaining) / slots)
                         # Marginal-risk concentration: one asset must not receive
