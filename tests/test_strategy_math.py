@@ -1,4 +1,5 @@
 import json
+from decimal import Decimal
 from pathlib import Path
 
 import pytest
@@ -44,3 +45,30 @@ def test_recorded_exchange_filters(monkeypatch):
     assert result["tickSize"] == pytest.approx(0.01)
     assert result["stepSize"] == pytest.approx(0.001)
     assert result["minNotional"] == pytest.approx(5.0)
+    assert result["tickSizeExact"] == "0.01000000"
+    assert result["stepSizeExact"] == "0.00100000"
+    assert result["minNotionalExact"] == "5.00000000"
+
+
+def test_order_normalization_uses_exact_filter_strings(monkeypatch):
+    filters = {
+        "stepSize": 1e-08,
+        "tickSize": 1e-08,
+        "minQty": 1e-08,
+        "minNotional": 0.00000001,
+        "stepSizeExact": "0.00000001",
+        "tickSizeExact": "0.00000001",
+        "minQtyExact": "0.00000001",
+        "minNotionalExact": "0.00000001",
+    }
+    monkeypatch.setattr(tools_market, "get_symbol_filters", lambda _symbol: filters)
+
+    qty, price = tools_market.round_qty_price(
+        "TINYUSDT",
+        Decimal("1.234567899"),
+        Decimal("0.123456789"),
+        side="BUY",
+    )
+
+    assert qty == "1.23456789"
+    assert price == "0.12345678"

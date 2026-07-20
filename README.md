@@ -17,7 +17,7 @@ Binance Spot. It builds BUY/SELL grids, uses ATR/EMA/VWAP/ADX regimes, manages
 OCO protection, and records trading statistics in SQLite. Production secrets,
 real backups, and private parameters are never committed.
 
-Current product version: **2.13.1**. The single version source is
+Current product version: **2.14.0**. The single version source is
 `product_version.py`; releases follow [Semantic Versioning](https://semver.org/).
 Project contact: [LinkedIn](https://www.linkedin.com/in/ypotekhin/).
 
@@ -33,7 +33,7 @@ Project contact: [LinkedIn](https://www.linkedin.com/in/ypotekhin/).
 ## Project status
 
 Ladder Dragon is an actively developed, experimental trading system. Version
-**2.13.1** is the current prepared release. `main` is the only long-lived branch;
+**2.14.0** is the current prepared release. `main` is the only long-lived branch;
 feature branches use the `ladderdragon/*` namespace.
 
 DRY and Binance Spot Testnet are the supported starting modes. Mainnet LIVE is
@@ -267,11 +267,12 @@ exchange order ID before creating protection. An uncertain submission trips a
 persistent circuit halt. Partial fills, gap-below-stop, and restart recovery
 are fail-closed paths.
 
-Critical CAP, reserve, fees, inventory, FIFO PnL, and risk calculations use
-`Decimal`; remaining legacy float paths are tracked engineering debt and must
-not be extended. Realized net PnL includes commissions, slippage, partial fills,
-exit reason, duration, and exact AI attribution. Unresolved fills are excluded
-from AI PnL.
+Critical CAP, reserve, fees, inventory, FIFO PnL, risk reconciliation, supervisor
+order adapters, and position guards use `Decimal`. Compatibility floats remain
+only at indicator and telemetry boundaries and must not feed an order without
+exact normalization. Realized net PnL includes commissions, slippage, partial
+fills, exit reason, duration, and exact AI attribution. Unresolved fills are
+excluded from AI PnL.
 
 ### Legacy holdings cost basis
 
@@ -421,8 +422,9 @@ the services, and waits for a fresh heartbeat.
 - improve queue-position and dynamic spread/impact models beyond the current
   source-hashed empirical calibration;
 - expand multi-period walk-forward and production approval statistics;
-- continue migrating non-critical strategy indicators away from legacy float
-  arithmetic and narrowing broad handlers that are not final safety barriers;
+- continue migrating non-critical strategy indicators and telemetry away from
+  legacy float arithmetic; the only broad exception handlers are three tested,
+  documented fail-closed execution/protection boundaries;
 - run controlled long Testnet soak tests after executor or risk changes.
 
 The local gap-watchdog drill is network-free and never creates an exchange

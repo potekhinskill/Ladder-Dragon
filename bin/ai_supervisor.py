@@ -20,7 +20,7 @@ import sqlite3
 import re
 from dataclasses import asdict, replace
 from datetime import datetime, timedelta, timezone
-from decimal import Decimal
+from decimal import Decimal, InvalidOperation
 from pathlib import Path
 from typing import Any, Dict, List, Mapping, Optional, Tuple
 
@@ -49,6 +49,7 @@ from ladder_dragon.ai.ai_statistical import context_vector
 from ladder_dragon.ai.ai_runtime_status import write_runtime_status
 from ladder_dragon.ai.ai_control import read_ai_control, resolve_ai_control_path
 from ladder_dragon.execution.order_identity import client_order_id
+from ladder_dragon.execution.exchange_math import round_step
 from ladder_dragon.execution.order_recovery import (
     read_order_journal_telemetry,
     read_order_observation,
@@ -99,6 +100,29 @@ BINANCE_API_BASE = (os.getenv("BINANCE_API_BASE") or os.getenv("BINANCE_BASE_URL
 API_KEY = os.getenv("BINANCE_API_KEY", "")
 API_SECRET = os.getenv("BINANCE_API_SECRET", "")
 USER_AGENT = os.getenv("USER_AGENT", user_agent("supervisor"))
+
+SUPERVISOR_OPERATION_ERRORS = (
+    ArithmeticError,
+    KeyError,
+    OSError,
+    RuntimeError,
+    TypeError,
+    ValueError,
+    requests.RequestException,
+    sqlite3.Error,
+    subprocess.SubprocessError,
+)
+
+
+def _finite_decimal(value: object, *, name: str) -> Decimal:
+    """Parse an exact finite decimal at a financial decision boundary."""
+    try:
+        result = Decimal(str(value))
+    except (InvalidOperation, TypeError, ValueError) as exc:
+        raise ValueError(f"{name} is not a decimal") from exc
+    if not result.is_finite():
+        raise ValueError(f"{name} must be finite")
+    return result
 
 # Rounding mode and warm start for order cleanup
 PRICE_ROUND_MODE = os.getenv("PRICE_ROUND_MODE", "nearest").lower()  # floor|ceil|nearest
@@ -400,6 +424,24 @@ def parse_limit_map(s: str) -> Dict[str, float]:
     return out
 
 
+def parse_decimal_limit_map(s: str) -> Dict[str, Decimal]:
+    """Parse financial limits without a binary-float compatibility hop."""
+    out: Dict[str, Decimal] = {}
+    if not s:
+        return out
+    for part in s.split(","):
+        part = part.strip()
+        if not part or ":" not in part:
+            continue
+        key, value = part.split(":", 1)
+        try:
+            parsed = _finite_decimal(value.strip(), name=f"limit for {key.strip()}")
+        except ValueError:
+            continue
+        out[key.strip()] = parsed
+    return out
+
+
 def getenv_float(name: str, default: Optional[float] = None) -> Optional[float]:
     v = os.getenv(name)
     if v is None or v == "":
@@ -617,20 +659,35 @@ def get_24h_volume_quote(symbol: str) -> float:
     j = _public_get("/api/v3/ticker/24hr", params={"symbol": symbol})
     return float(j.get("quoteVolume", 0.0))
 
-def get_exchange_filters(symbol: str) -> Dict[str, float]:
+def get_exchange_filters(symbol: str) -> Dict[str, object]:
     f = TM.get_symbol_filters(symbol)
-    tick = float(f.get("tickSize", 0.0))
-    step = float(f.get("stepSize", 0.0))
-    minQty = float(f.get("minQty", 0.0))
-    minNotional = float(f.get("minNotional", 0.0))
+    tick_exact = str(f.get("tickSizeExact", f.get("tickSize", "0")))
+    step_exact = str(f.get("stepSizeExact", f.get("stepSize", "0")))
+    min_qty_exact = str(f.get("minQtyExact", f.get("minQty", "0")))
+    min_notional_exact = str(
+        f.get("minNotionalExact", f.get("minNotional", "0"))
+    )
+    tick = float(tick_exact)
+    step = float(step_exact)
+    min_qty = float(min_qty_exact)
+    min_notional = float(min_notional_exact)
     log(f"[FILTERS] {symbol} tickSize={tick:.8f} stepSize={step:.8f} "
-        f"minQty={minQty:.6f} minNotional={minNotional:.2f}")
-    return {"tickSize": tick, "stepSize": step, "minQty": minQty, "minNotional": minNotional}
+        f"minQty={min_qty:.6f} minNotional={min_notional:.2f}")
+    return {
+        "tickSize": tick,
+        "stepSize": step,
+        "minQty": min_qty,
+        "minNotional": min_notional,
+        "tickSizeExact": tick_exact,
+        "stepSizeExact": step_exact,
+        "minQtyExact": min_qty_exact,
+        "minNotionalExact": min_notional_exact,
+    }
 
 # --- filter cache ---
-_FILTERS_CACHE: Dict[str, Dict[str, float]] = {}
+_FILTERS_CACHE: Dict[str, Dict[str, object]] = {}
 
-def get_exchange_filters_cached(symbol: str) -> Dict[str, float]:
+def get_exchange_filters_cached(symbol: str) -> Dict[str, object]:
     f = _FILTERS_CACHE.get(symbol)
     if f is None:
         f = get_exchange_filters(symbol)
@@ -643,38 +700,38 @@ def invalidate_exchange_filters_cache(symbol: Optional[str] = None) -> None:
     else:
         _FILTERS_CACHE.pop(symbol, None)
 
-def get_balances() -> Dict[str, float]:
+def get_balances() -> Dict[str, Decimal]:
     j = TM._signed_get("/api/v3/account")
-    out: Dict[str, float] = {}
+    out: Dict[str, Decimal] = {}
     for b in j.get("balances", []):
-        free = float(b.get("free", 0.0))
-        locked = float(b.get("locked", 0.0))
+        free = _finite_decimal(b.get("free", "0"), name="balance.free")
+        locked = _finite_decimal(b.get("locked", "0"), name="balance.locked")
         if free + locked > 0:
             out[b["asset"]] = free
     return out
 
-def get_balances_full() -> Dict[str, Dict[str, float]]:
+def get_balances_full() -> Dict[str, Dict[str, Decimal]]:
     j = TM._signed_get("/api/v3/account")
-    out: Dict[str, Dict[str, float]] = {}
+    out: Dict[str, Dict[str, Decimal]] = {}
     for b in j.get("balances", []):
-        free = float(b.get("free", 0.0))
-        locked = float(b.get("locked", 0.0))
+        free = _finite_decimal(b.get("free", "0"), name="balance.free")
+        locked = _finite_decimal(b.get("locked", "0"), name="balance.locked")
         if free + locked > 0:
             out[b["asset"]] = {"free": free, "locked": locked}
     return out
 
-_AVG_CACHE: Dict[str, Dict[str, float]] = {}
+_AVG_CACHE: Dict[str, Dict[str, object]] = {}
 
-def avg_entry_price(symbol: str, *, cache_ttl: int = 45, lookback: int = 1000) -> Optional[float]:
+def avg_entry_price(symbol: str, *, cache_ttl: int = 45, lookback: int = 1000) -> Optional[Decimal]:
     now_ts = time.time()
     ent = _AVG_CACHE.get(symbol)
-    if ent and (now_ts - ent.get("ts", 0.0)) < cache_ttl and ent.get("pos", 0.0) > 0:
-        return float(ent.get("avg", 0.0))
+    if ent and (now_ts - float(ent.get("ts", 0.0))) < cache_ttl and money(ent.get("pos", 0)) > 0:
+        return _finite_decimal(ent.get("avg", "0"), name="cached average entry")
 
     base, quote = symbol_assets(symbol)
     bals = get_balances_full()
-    bal = bals.get(base, {"free": 0.0, "locked": 0.0})
-    pos = float(bal.get("free", 0.0)) + float(bal.get("locked", 0.0))
+    bal = bals.get(base, {"free": Decimal("0"), "locked": Decimal("0")})
+    pos = money(bal.get("free", 0)) + money(bal.get("locked", 0))
     if pos <= 0:
         _AVG_CACHE[symbol] = {"ts": now_ts, "avg": 0.0, "pos": 0.0}
         return None
@@ -697,8 +754,12 @@ def avg_entry_price(symbol: str, *, cache_ttl: int = 45, lookback: int = 1000) -
                     (symbol.upper(),),
                 ).fetchone()
             if row and Decimal(str(row[0])) > 0 and Decimal(str(row[1])) > 0:
-                avg_px = float(Decimal(str(row[1])))
-                _AVG_CACHE[symbol] = {"ts": now_ts, "avg": avg_px, "pos": float(row[0])}
+                avg_px = _finite_decimal(row[1], name="inventory average entry")
+                _AVG_CACHE[symbol] = {
+                    "ts": now_ts,
+                    "avg": avg_px,
+                    "pos": _finite_decimal(row[0], name="inventory quantity"),
+                }
                 return avg_px
         except (OSError, sqlite3.Error, ArithmeticError, ValueError):
             pass
@@ -707,7 +768,10 @@ def avg_entry_price(symbol: str, *, cache_ttl: int = 45, lookback: int = 1000) -
         trades = TM._signed_get("/api/v3/myTrades", {"symbol": symbol, "limit": lookback}) or []
     except (requests.RequestException, RuntimeError, TypeError, ValueError) as e:
         dbg(f"[AVG] {symbol} myTrades error: {e}")
-        return float(ent.get("avg", 0.0)) if ent and ent.get("pos", 0.0) > 0 else None
+        return (
+            _finite_decimal(ent.get("avg", "0"), name="cached average entry")
+            if ent and money(ent.get("pos", 0)) > 0 else None
+        )
 
     if not isinstance(trades, list) or not trades:
         return None
@@ -715,27 +779,32 @@ def avg_entry_price(symbol: str, *, cache_ttl: int = 45, lookback: int = 1000) -
     try:
         trades.sort(key=lambda t: int(t.get("time", 0)))
     except (TypeError, ValueError):
-        return float(ent.get("avg", 0.0)) if ent and ent.get("pos", 0.0) > 0 else None
+        return (
+            _finite_decimal(ent.get("avg", "0"), name="cached average entry")
+            if ent and money(ent.get("pos", 0)) > 0 else None
+        )
 
-    qty = 0.0
-    cost = 0.0
+    qty = Decimal("0")
+    cost = Decimal("0")
     for t in trades:
         try:
             is_buy = bool(t.get("isBuyer"))
-            q = float(t.get("qty") or 0.0)
-            p = float(t.get("price") or 0.0)
-            commission = float(t.get("commission") or 0.0)
+            q = _finite_decimal(t.get("qty") or "0", name="trade quantity")
+            p = _finite_decimal(t.get("price") or "0", name="trade price")
+            commission = _finite_decimal(
+                t.get("commission") or "0", name="trade commission"
+            )
             commission_asset = str(t.get("commissionAsset", "")).upper()
             if is_buy:
                 net_q = q - commission if commission_asset == base.upper() else q
-                cash_fee = commission if commission_asset == quote.upper() else 0.0
-                qty += max(0.0, net_q)
+                cash_fee = commission if commission_asset == quote.upper() else Decimal("0")
+                qty += max(Decimal("0"), net_q)
                 cost += p * q + cash_fee
             else:
                 inventory_out = q + commission if commission_asset == base.upper() else q
                 sell = min(inventory_out, qty)
                 if sell > 0 and qty > 0:
-                    avg = cost / qty if qty > 0 else 0.0
+                    avg = cost / qty if qty > 0 else Decimal("0")
                     cost -= avg * sell
                     qty -= sell
         except (ArithmeticError, KeyError, TypeError, ValueError):
@@ -746,8 +815,8 @@ def avg_entry_price(symbol: str, *, cache_ttl: int = 45, lookback: int = 1000) -
         return None
 
     avg_px = cost / qty
-    _AVG_CACHE[symbol] = {"ts": now_ts, "avg": float(avg_px), "pos": float(qty)}
-    return float(avg_px)
+    _AVG_CACHE[symbol] = {"ts": now_ts, "avg": avg_px, "pos": qty}
+    return avg_px
 
 def list_open_orders(symbol: str) -> List[Dict[str, Any]]:
     try:
@@ -803,51 +872,17 @@ def _round_price(price: float, tick: float, mode: str) -> float:
 def _round_to_tick(price: float, tick: float) -> float:
     return _round_price(price, tick, PRICE_ROUND_MODE)
 
-def _round_qty(qty: float, step: float) -> float:
-    if step <= 0:
-        return float(f"{qty:.12f}")
-    x = math.floor(qty / step) * step
-    return float(f"{x:.12f}")
-
-def _decimals_from_step(x: float) -> int:
-    s = f"{x:.12f}".rstrip('0')
-    return len(s.split('.', 1)[1]) if '.' in s else 0
-
-def _fmt_price_side_aware(price: float, tick: float, side: str) -> str:
-    if tick is None or tick <= 0:
-        tick = 1e-8
-    mode = "floor" if side.upper() == "BUY" else "ceil"
-    dec = _decimals_from_step(tick)
-    p = _round_price(price, tick, mode)
-    return f"{p:.{dec}f}"
-
-def _fmt_qty(qty: float, step: float) -> str:
-    if step is None or step <= 0:
-        step = 1e-12
-    dec = _decimals_from_step(step)
-    q = _round_qty(qty, step)
-    return f"{q:.{dec}f}"
-
-def _fmt_price(price: float, tick: float) -> str:
-    if tick is None or tick <= 0:
-        tick = 1e-8
-    dec = _decimals_from_step(tick)
-    p = _round_to_tick(price, tick)
-    return f"{p:.{dec}f}"
-
-# ============================================================
-
-def place_limit_order(symbol: str, side: str, quantity: float, price: float,
-                      filters: Optional[Dict[str, float]] = None) -> Optional[Dict[str, Any]]:
+def place_limit_order(symbol: str, side: str, quantity: object, price: object,
+                      filters: Optional[Dict[str, object]] = None) -> Optional[Dict[str, Any]]:
     """Place limit order."""
     if not LIVE_MODE:
-        log(f"[DRY] skip LIMIT {symbol} {side.upper()} {quantity:.8f} @ {price:.8f}")
+        log(f"[DRY] skip LIMIT {symbol} {side.upper()} {quantity} @ {price}")
         return None
     try:
         qty_s, price_s = TM.round_qty_price(
             symbol=symbol,
-            qty=float(quantity),
-            price=float(price),
+            qty=_finite_decimal(quantity, name="quantity"),
+            price=_finite_decimal(price, name="price"),
             side=side.upper(),
         )
 
@@ -866,8 +901,8 @@ def place_limit_order(symbol: str, side: str, quantity: float, price: float,
         log(f"[PLACE] {symbol} {side.upper()} {qty_s} @ {price_s} (order {oid})")
         return j if isinstance(j, dict) else None
 
-    except (OSError, RuntimeError, TypeError, ValueError) as e:
-        log(f"[PLACE-ERR] {symbol} {side.upper()} {quantity:.6f} @ {price:.4f} -> {e}")
+    except SUPERVISOR_OPERATION_ERRORS as e:
+        log(f"[PLACE-ERR] {symbol} {side.upper()} {quantity} @ {price} -> {e}")
         # Attempt one filter invalidation and retry.
         if _is_filter_error(e):
             invalidate_exchange_filters_cache(symbol)
@@ -875,8 +910,8 @@ def place_limit_order(symbol: str, side: str, quantity: float, price: float,
                 # Normalize through TM again in case the exchange steps changed.
                 qty_s, price_s = TM.round_qty_price(
                     symbol=symbol,
-                    qty=float(quantity),
-                    price=float(price),
+                    qty=_finite_decimal(quantity, name="quantity"),
+                    price=_finite_decimal(price, name="price"),
                     side=side.upper(),
                 )
                 params = {
@@ -893,16 +928,16 @@ def place_limit_order(symbol: str, side: str, quantity: float, price: float,
                 oid2 = j2.get("orderId") if isinstance(j2, dict) else None
                 log(f"[PLACE-RETRY] {symbol} {side.upper()} {qty_s} @ {price_s} (order {oid2})")
                 return j2 if isinstance(j2, dict) else None
-            except Exception as e2:
+            except SUPERVISOR_OPERATION_ERRORS as e2:
                 log(f"[PLACE-RETRY-ERR] {symbol} -> {e2}")
         return None
 
-def place_market_order(symbol: str, side: str, quantity: float,
-                       ref_price: Optional[float] = None,
-                       filters: Optional[Dict[str, float]] = None) -> Optional[Dict[str, Any]]:
+def place_market_order(symbol: str, side: str, quantity: object,
+                       ref_price: Optional[object] = None,
+                       filters: Optional[Dict[str, object]] = None) -> Optional[Dict[str, Any]]:
     """Place market order."""
     if not LIVE_MODE:
-        log(f"[DRY] skip MARKET {symbol} {side.upper()} {quantity:.8f}")
+        log(f"[DRY] skip MARKET {symbol} {side.upper()} {quantity}")
         return None
     try:
         if ref_price is None:
@@ -910,8 +945,8 @@ def place_market_order(symbol: str, side: str, quantity: float,
 
         qty_s, _ = TM.round_qty_price(
             symbol=symbol,
-            qty=float(quantity),
-            price=float(ref_price),
+            qty=_finite_decimal(quantity, name="quantity"),
+            price=_finite_decimal(ref_price, name="reference price"),
             side=side.upper(),
         )
 
@@ -928,8 +963,8 @@ def place_market_order(symbol: str, side: str, quantity: float,
         log(f"[PLACE] {symbol} {side.upper()} {qty_s} @ MARKET (order {oid})")
         return j if isinstance(j, dict) else None
 
-    except Exception as e:
-        log(f"[PLACE-ERR] {symbol} {side.upper()} MARKET {quantity:.6f} -> {e}")
+    except SUPERVISOR_OPERATION_ERRORS as e:
+        log(f"[PLACE-ERR] {symbol} {side.upper()} MARKET {quantity} -> {e}")
         if _is_filter_error(e):
             invalidate_exchange_filters_cache(symbol)
             try:
@@ -937,8 +972,8 @@ def place_market_order(symbol: str, side: str, quantity: float,
                     ref_price = get_last_price(symbol)
                 qty_s, _ = TM.round_qty_price(
                     symbol=symbol,
-                    qty=float(quantity),
-                    price=float(ref_price),
+                    qty=_finite_decimal(quantity, name="quantity"),
+                    price=_finite_decimal(ref_price, name="reference price"),
                     side=side.upper(),
                 )
                 params = {
@@ -953,7 +988,7 @@ def place_market_order(symbol: str, side: str, quantity: float,
                 oid2 = j2.get("orderId") if isinstance(j2, dict) else None
                 log(f"[PLACE-RETRY] {symbol} {side.upper()} {qty_s} @ MARKET (order {oid2})")
                 return j2 if isinstance(j2, dict) else None
-            except Exception as e2:
+            except SUPERVISOR_OPERATION_ERRORS as e2:
                 log(f"[PLACE-RETRY-ERR] {symbol} -> {e2}")
         return None
 
@@ -1017,7 +1052,7 @@ def startup_cleanup_orders(symbol: str,
                            grace_sec: Optional[int]) -> Dict[str, int]:
     try:
         orders = list_open_orders(symbol)
-    except Exception as e:
+    except SUPERVISOR_OPERATION_ERRORS as e:
         log(f"[START-CLEANUP] {symbol} list_open_orders failed: {e}")
         return {"reviewed": 0, "canceled": 0}
     if not orders:
@@ -1074,7 +1109,7 @@ def startup_cleanup_orders(symbol: str,
                         ttl_sec=grace_sec,
                         cancel_reason=str(reason),
                     )
-        except Exception as e:
+        except SUPERVISOR_OPERATION_ERRORS as e:
             log(f"[START-CLEANUP] {symbol} skip: {e}")
 
     log(f"[START-CLEANUP-SUM] {symbol} reviewed={reviewed} canceled={canceled}")
@@ -1089,7 +1124,7 @@ def smart_cleanup_orders(symbol: str,
                          cancel_offladder: bool = True) -> Dict[str, int]:
     try:
         orders = list_open_orders(symbol)
-    except Exception as e:
+    except SUPERVISOR_OPERATION_ERRORS as e:
         log(f"[CLEANUP] {symbol} list_open_orders failed: {e}")
         return {"reviewed": 0, "canceled": 0}
     if not orders:
@@ -1133,7 +1168,7 @@ def smart_cleanup_orders(symbol: str,
                         ttl_sec=ttl,
                         cancel_reason=str(reason),
                     )
-        except Exception as e:
+        except SUPERVISOR_OPERATION_ERRORS as e:
             log(f"[CLEANUP] {symbol} skip: {e}")
 
     log(f"[CLEANUP-SUM] {symbol} reviewed={reviewed} canceled={canceled}")
@@ -1151,12 +1186,10 @@ def smart_rolling(symbol: str,
                   now_price: float,
                   ladder: List[float],
                   args: argparse.Namespace) -> Dict[str, Any]:
-    kept = 0
-    try:
-        open_orders = list_open_orders(symbol)
-        kept = len(open_orders)
-    except Exception:
-        kept = 0
+    # Open-order visibility is an execution prerequisite. Propagate failures
+    # instead of assuming an empty book and potentially duplicating orders.
+    open_orders = list_open_orders(symbol)
+    kept = len(open_orders)
     return {"kept": kept, "cancel": {"ttl": 0, "atr": 0}}
 
 # ===========================
@@ -1181,7 +1214,7 @@ def _atr_pct(symbol: str, interval: str = '5m', length: int = 20) -> Tuple[float
         atr = sum(trs[-length:]) / float(length)
         last_close = float(kl[-1][4])
         return atr, (atr / last_close if last_close > 0 else 0.0)
-    except Exception as e:
+    except SUPERVISOR_OPERATION_ERRORS as e:
         log(f"[ATR] failed: {e}")
         return 0.0, 0.0
 
@@ -1243,60 +1276,78 @@ def _infer_market_mode(symbol: str, *, interval: str = "30m", ema_fast_len: int 
 def _in_flatten_window(now_local: datetime, hhmm: str, t_minus_sec: int) -> bool:
     try:
         hh, mm = [int(x) for x in hhmm.split(":")]
-    except Exception:
+    except (TypeError, ValueError):
         return False
     target = now_local.replace(hour=hh, minute=mm, second=0, microsecond=0)
     if now_local > target:
         target = target + timedelta(days=1)
     return (target - now_local).total_seconds() <= max(0, int(t_minus_sec))
 
-def _net_position_base(symbol: str) -> float:
+def _net_position_base(symbol: str) -> Decimal:
     base, _ = symbol_assets(symbol)
     bals = get_balances_full()
-    b = bals.get(base, {"free": 0.0, "locked": 0.0})
-    return float(b.get("free", 0.0)) + float(b.get("locked", 0.0))
+    b = bals.get(base, {"free": Decimal("0"), "locked": Decimal("0")})
+    return _finite_decimal(b.get("free", "0"), name="free balance") + _finite_decimal(
+        b.get("locked", "0"), name="locked balance"
+    )
 
-def _pos_limits(symbol: str, args: argparse.Namespace) -> Tuple[Optional[float], Optional[float]]:
+def _pos_limits(symbol: str, args: argparse.Namespace) -> Tuple[Optional[Decimal], Optional[Decimal]]:
     mb = args.pos_max_base_map.get(symbol) if args.pos_max_base_map else None
     mu = args.pos_max_usdt_map.get(symbol) if args.pos_max_usdt_map else None
-    return mb, mu
+    return (
+        _finite_decimal(mb, name="position base limit") if mb is not None else None,
+        _finite_decimal(mu, name="position USDT limit") if mu is not None else None,
+    )
 
 def _prune_to_sells_only(now_price: float, ladder: List[float]) -> List[float]:
     _, sells = split_ladder(now_price, ladder)
     return sells
 
-def _ensure_min_notional_qty(symbol: str, qty: float, price: float, step: float, min_qty: float, min_notional: float) -> Optional[float]:
-    qty = _round_qty(qty, step)
-    if qty <= 0:
+def _ensure_min_notional_qty(
+    symbol: str,
+    qty: object,
+    price: object,
+    step: object,
+    min_qty: object,
+    min_notional: object,
+) -> Optional[Decimal]:
+    del symbol
+    qty_d = round_step(_finite_decimal(qty, name="quantity"), step, "floor")
+    price_d = _finite_decimal(price, name="price")
+    step_d = _finite_decimal(step, name="quantity step")
+    min_qty_d = _finite_decimal(min_qty, name="minimum quantity")
+    min_notional_d = _finite_decimal(min_notional, name="minimum notional")
+    if qty_d <= 0 or price_d <= 0 or step_d <= 0:
         return None
-    if qty < min_qty:
-        qty = _round_qty(min_qty, step)
-    if qty * price < min_notional:
-        need = (min_notional / price) * 1.0001
-        qty = _round_qty(max(qty, need), step)
-        if qty * price < min_notional:
+    if qty_d < min_qty_d:
+        qty_d = round_step(min_qty_d, step_d, "ceil")
+    if qty_d * price_d < min_notional_d:
+        qty_d = round_step(min_notional_d / price_d, step_d, "ceil")
+        if qty_d * price_d < min_notional_d:
             return None
-    return qty if qty > 0 else None
+    return qty_d if qty_d > 0 else None
 
 def position_guard_and_maybe_flatten(symbol: str, now_price: float, atr_abs: float,
-                                     args: argparse.Namespace, filters: Dict[str, float]) -> str:
+                                     args: argparse.Namespace, filters: Dict[str, object]) -> str:
     if not args.pos_guard_enable and not args.flatten_enable:
         return "normal"
 
     max_base, max_usdt = _pos_limits(symbol, args)
     net_base = _net_position_base(symbol)
-    net_usdt = net_base * now_price
+    now_price_d = _finite_decimal(now_price, name="market price")
+    atr_abs_d = _finite_decimal(atr_abs, name="ATR")
+    net_usdt = net_base * now_price_d
 
     hard = False; warn = False
     warn_thr_base = warn_thr_usdt = None
 
     if max_base is not None:
         hard = hard or (abs(net_base) > max_base)
-        warn_thr_base = float(args.pos_warn_pct) * max_base
+        warn_thr_base = _finite_decimal(args.pos_warn_pct, name="warning ratio") * max_base
         warn = warn or (abs(net_base) > warn_thr_base)
     if max_usdt is not None:
         hard = hard or (abs(net_usdt) > max_usdt)
-        warn_thr_usdt = float(args.pos_warn_pct) * max_usdt
+        warn_thr_usdt = _finite_decimal(args.pos_warn_pct, name="warning ratio") * max_usdt
         warn = warn or (abs(net_usdt) > warn_thr_usdt)
 
     now_local = datetime.now()
@@ -1307,47 +1358,62 @@ def position_guard_and_maybe_flatten(symbol: str, now_price: float, atr_abs: flo
             and not bool(getattr(args, "flatten_force", 0))):
         cache_ttl = int(getattr(args, "flatten_avg_cache_ttl", 45))
         lookback = int(getattr(args, "flatten_avg_lookback", 1000))
-        edge_pct = max(0.0, float(getattr(args, "flatten_min_edge_pct", 0.0)))
+        edge_pct = max(
+            Decimal("0"),
+            _finite_decimal(getattr(args, "flatten_min_edge_pct", 0), name="flatten edge"),
+        )
         avg_px = avg_entry_price(symbol, cache_ttl=cache_ttl, lookback=lookback)
         if avg_px is not None:
-            guard_price = avg_px * (1.0 + edge_pct)
-            if now_price < guard_price:
+            avg_px_d = _finite_decimal(avg_px, name="average entry price")
+            guard_price = avg_px_d * (Decimal("1") + edge_pct)
+            if now_price_d < guard_price:
                 log(
-                    f"[FLAT-GUARD] {symbol} skip flatten: avg≈{avg_px:.6f} guard≈{guard_price:.6f} now≈{now_price:.6f}"
+                    f"[FLAT-GUARD] {symbol} skip flatten: avg≈{avg_px_d:.6f} guard≈{guard_price:.6f} now≈{now_price_d:.6f}"
                 )
                 in_flat = False
 
     if hard or in_flat:
         try:
             base, _ = symbol_assets(symbol)
-            step = filters["stepSize"]; min_qty = filters["minQty"]; min_notional = filters["minNotional"]; tick = filters["tickSize"]
+            step = filters.get("stepSizeExact", filters["stepSize"])
+            min_qty = filters.get("minQtyExact", filters["minQty"])
+            min_notional = filters.get("minNotionalExact", filters["minNotional"])
+            tick = filters.get("tickSizeExact", filters["tickSize"])
 
-            target_base = 0.0 if (in_flat or args.pos_action_on_hard in ("flatten", "reduce_then_flatten"))\
-                          else (warn_thr_base or 0.0) * (1 if net_base >= 0 else -1)
-            need_total = max(0.0, abs(net_base - target_base))
+            target_base = Decimal("0") if (in_flat or args.pos_action_on_hard in ("flatten", "reduce_then_flatten"))\
+                          else (warn_thr_base or Decimal("0")) * (1 if net_base >= 0 else -1)
+            need_total = max(Decimal("0"), abs(net_base - target_base))
 
             bals_full = get_balances_full()
-            free_base = float(bals_full.get(base, {}).get("free", 0.0))
-            sellable = max(0.0, free_base)
+            free_base = _finite_decimal(
+                bals_full.get(base, {}).get("free", "0"), name="free base balance"
+            )
+            sellable = max(Decimal("0"), free_base)
 
             if net_base <= 0:
                 log(f"[POS] {symbol} net<=0 ({net_base:.6f}) -> nothing to flatten via SELL on spot")
                 return "reduce_only" if warn else "normal"
 
-            if sellable <= 0.0:
+            if sellable <= 0:
                 log(f"[POS] {symbol} nothing free to sell (free={free_base:.6f}, locked may exist) -> reduce_only")
                 return "reduce_only"
 
             left = min(need_total, sellable)
-            if left <= 0.0:
+            if left <= 0:
                 return "reduce_only" if warn else "normal"
 
             slice_cnt = max(1, int(args.flatten_slices))
-            slice_pct = clamp(float(args.flatten_slice_pct), 0.05, 1.0)
+            slice_pct = min(
+                Decimal("1"),
+                max(Decimal("0.05"), _finite_decimal(args.flatten_slice_pct, name="slice ratio")),
+            )
             per_slice = max(left * slice_pct, left / slice_cnt)
 
-            offset = clamp(float(args.flatten_limit_offset_atr), 0.0, 3.0)
-            price = float(_fmt_price_side_aware(now_price + offset * atr_abs, tick, "SELL"))
+            offset = min(
+                Decimal("3"),
+                max(Decimal("0"), _finite_decimal(args.flatten_limit_offset_atr, name="ATR offset")),
+            )
+            price = round_step(now_price_d + offset * atr_abs_d, tick, "ceil")
 
             tries = 0
             while left > 0 and tries < slice_cnt:
@@ -1360,13 +1426,13 @@ def position_guard_and_maybe_flatten(symbol: str, now_price: float, atr_abs: flo
                     qty_m = _ensure_min_notional_qty(symbol, qty, now_price, step, min_qty, min_notional)
                     if qty_m:
                         place_market_order(symbol, "SELL", qty_m, ref_price=now_price, filters=filters)
-                left -= float(qty or 0)
+                left -= qty
                 tries += 1
 
             return "flattening"
-        except Exception as e:
-            log(f"[FLAT-ERR] {symbol} -> {e}")
-            return "reduce_only" if warn else "normal"
+        except SUPERVISOR_OPERATION_ERRORS as e:
+            log(f"[FLAT-ERR] {symbol} error_type={e.__class__.__name__} detail={e}")
+            return "reduce_only"
 
     if warn:
         log(f"[POS] {symbol} net≈{net_base:.6f} base / {net_usdt:.2f} USDT -> reduce-only (warn {args.pos_warn_pct*100:.1f}%)")
@@ -2362,10 +2428,22 @@ def _build_risk_snapshot(
     # Strict reconciliation prevents a risk snapshot from mixing divergent
     # Binance account and local inventory-ledger data.
     if env_flag("RISK_RECONCILE_STRICT", True):
-        tolerance = max(0.0, float(os.getenv("RISK_RECONCILE_TOLERANCE_PCT", "0.02") or 0.02))
+        tolerance = max(
+            Decimal("0"),
+            _finite_decimal(
+                os.getenv("RISK_RECONCILE_TOLERANCE_PCT", "0.02") or "0.02",
+                name="reconciliation tolerance",
+            ),
+        )
         grace_sec = max(0.0, float(os.getenv("RISK_RECONCILE_GRACE_SEC", "5") or 5))
         retry_sec = max(0.05, float(os.getenv("RISK_RECONCILE_RETRY_SEC", "0.25") or 0.25))
-        dust_steps = max(0.0, float(os.getenv("RISK_RECONCILE_DUST_STEPS", "1") or 1))
+        dust_steps = max(
+            Decimal("0"),
+            _finite_decimal(
+                os.getenv("RISK_RECONCILE_DUST_STEPS", "1") or "1",
+                name="reconciliation dust steps",
+            ),
+        )
         deadline = time.monotonic() + grace_sec
         waited = False
         while True:
@@ -2379,7 +2457,7 @@ def _build_risk_snapshot(
                     else "CAST(qty AS TEXT)"
                 )
                 inventory = {
-                    str(symbol).upper(): float(qty)
+                    str(symbol).upper(): _finite_decimal(qty, name="ledger quantity")
                     for symbol, qty in con.execute(
                         f"SELECT symbol, {qty_expression} FROM inventory"
                     ).fetchall()
@@ -2387,10 +2465,25 @@ def _build_risk_snapshot(
             mismatches = []
             for symbol in symbols:
                 base, _ = symbol_assets(symbol)
-                account_qty = float(balances.get(base, {}).get("free", 0)) + float(balances.get(base, {}).get("locked", 0))
+                account_qty = _finite_decimal(
+                    balances.get(base, {}).get("free", "0"), name="account free quantity"
+                ) + _finite_decimal(
+                    balances.get(base, {}).get("locked", "0"), name="account locked quantity"
+                )
                 db_qty = inventory.get(symbol)
-                step_size = max(0.0, float(get_exchange_filters_cached(symbol).get("stepSize", 0.0)))
-                allowed = max(1e-8, abs(account_qty) * tolerance, step_size * dust_steps)
+                filter_values = get_exchange_filters_cached(symbol)
+                step_size = max(
+                    Decimal("0"),
+                    _finite_decimal(
+                        filter_values.get("stepSizeExact", filter_values.get("stepSize", "0")),
+                        name="symbol quantity step",
+                    ),
+                )
+                allowed = max(
+                    Decimal("0.00000001"),
+                    abs(account_qty) * tolerance,
+                    step_size * dust_steps,
+                )
                 if db_qty is None:
                     if account_qty > allowed:
                         mismatches.append(f"{symbol}: account={account_qty:.8f}, ledger=missing")
@@ -2648,7 +2741,7 @@ def main():
     )
     try:
         _preflight_live(args, symbols, limits)
-    except Exception as exc:
+    except SUPERVISOR_OPERATION_ERRORS as exc:
         _publish_ai_runtime_status(state="PREFLIGHT_FAILED", error=str(exc))
         raise
     global LIVE_MODE
@@ -2673,8 +2766,8 @@ def main():
     args.ladder_pct = (float(lp[0]), float(lp[1]), float(lp[2]))
     args.ladder_pct_map = parse_ladder_pct_map(args.ladder_pct_map)
 
-    args.pos_max_base_map = parse_limit_map(args.pos_max_base_map)
-    args.pos_max_usdt_map = parse_limit_map(args.pos_max_usdt_map)
+    args.pos_max_base_map = parse_decimal_limit_map(args.pos_max_base_map)
+    args.pos_max_usdt_map = parse_decimal_limit_map(args.pos_max_usdt_map)
     args.child_buy_vwap_premium_map = parse_limit_map(getattr(args, "child_buy_vwap_premium_map", ""))
     args.child_buy_vwap_discount_map = parse_limit_map(getattr(args, "child_buy_vwap_discount_map", ""))
     args.child_buy_vwap_discount_scale_map = parse_limit_map(getattr(args, "child_buy_vwap_discount_scale_map", ""))
@@ -2723,7 +2816,7 @@ def main():
                     next_vwap_refresh = _next_vwap_refresh()
                 else:
                     next_vwap_refresh = _next_vwap_refresh()
-            except Exception as e:
+            except SUPERVISOR_OPERATION_ERRORS as e:
                 log(f"[VWAP-REFRESH] startup error: {e}")
                 next_vwap_refresh = _next_vwap_refresh()
         else:
@@ -2838,7 +2931,7 @@ def main():
                             },
                         }
                     )
-                except Exception as exc:
+                except SUPERVISOR_OPERATION_ERRORS as exc:
                     # Unavailable telemetry is not a safe state: new BUY orders
                     # are blocked and a cooldown starts after repeated errors.
                     consecutive_api_failures += 1
@@ -2857,7 +2950,7 @@ def main():
                     _stop_children(reason)
                     try:
                         _cancel_open_buy_orders(orders or None)
-                    except Exception as exc:
+                    except SUPERVISOR_OPERATION_ERRORS as exc:
                         log(f"[RISK] cancel BUY failed: {exc}")
                 signature = (decision.halted, decision.reasons)
                 if signature != last_risk_signature and decision.buy_blocked:
@@ -2874,7 +2967,7 @@ def main():
             if now_loop >= next_vwap_refresh:
                 try:
                     refresh_vwap_runtime_maps(args, symbols, reason="periodic")
-                except Exception as e:
+                except SUPERVISOR_OPERATION_ERRORS as e:
                     log(f"[VWAP-REFRESH] periodic error: {e}")
                 finally:
                     next_vwap_refresh = _next_vwap_refresh()
@@ -2882,7 +2975,7 @@ def main():
             for sym in symbols:
                 try:
                     run_for_symbol(sym, args)
-                except Exception as e:
+                except SUPERVISOR_OPERATION_ERRORS as e:
                     log(f"[ERR] {sym}: {e}")
                 time.sleep(0.2)
             time.sleep(0.5)

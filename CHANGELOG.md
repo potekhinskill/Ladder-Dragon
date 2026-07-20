@@ -3,6 +3,25 @@
 All notable changes are documented here. Releases use Semantic Versioning; every
 section is dated and there is intentionally no `Unreleased` section.
 
+## [2.14.0] — 2026-07-20
+
+### Changed
+- Preserved Binance quantity, tick, minimum quantity and minimum notional
+  filters as exact decimal strings through order normalization.
+- Converted supervisor balances, position limits, reconciliation tolerance,
+  position flatten sizing, LIMIT/MARKET adapters and minimum-notional checks to
+  `Decimal` at every financial decision boundary.
+- Changed a position-flatten calculation failure to remain reduce-only instead
+  of resuming normal BUY planning.
+- Removed broad exception handlers from the supervisor and AI context. Open
+  order visibility failures now propagate rather than being treated as an empty
+  exchange order book.
+
+### Verified
+- Added exact-filter normalization coverage for sub-satoshi steps.
+- Added an AST regression that permits broad exception handling only in the
+  three documented fail-closed execution/protection boundaries.
+
 ## [2.13.1] — 2026-07-20
 
 ### Changed

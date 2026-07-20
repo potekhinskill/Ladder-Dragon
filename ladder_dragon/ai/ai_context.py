@@ -24,6 +24,16 @@ HORIZONS_SEC = (900, 3600, 14_400)
 CONTEXT_SCHEMA_VERSION = "ai-context-v2"
 AI_SCHEMA_VERSION = "002_exact_ai_attribution"
 AI_SCHEMA_CHECKSUM = hashlib.sha256(AI_SCHEMA_VERSION.encode("utf-8")).hexdigest()
+AI_CONTEXT_SOURCE_ERRORS = (
+    ArithmeticError,
+    IndexError,
+    KeyError,
+    OSError,
+    RuntimeError,
+    TypeError,
+    ValueError,
+    sqlite3.Error,
+)
 
 
 def context_hash(context: Any) -> str:
@@ -314,7 +324,7 @@ def build_market_features(
         base = market_features_from_klines(
             get_klines(symbol, "5m", limit=289)
         )
-    except Exception:
+    except AI_CONTEXT_SOURCE_ERRORS:
         base = MarketFeatures()
     try:
         depth = public_get("/api/v3/depth", {"symbol": symbol, "limit": 20})
@@ -326,7 +336,7 @@ def build_market_features(
             and bool(depth.get("bids"))
             and bool(depth.get("asks"))
         )
-    except Exception:
+    except AI_CONTEXT_SOURCE_ERRORS:
         spread, top5, top20 = 0.0, 0.0, 0.0
         orderbook_ok = False
     return MarketFeatures(
@@ -817,7 +827,7 @@ class AdvisorDecisionStore:
                                 horizon_price = float(
                                     price_lookup(symbol, (created_at + horizon) * 1000)
                                 )
-                            except Exception:
+                            except AI_CONTEXT_SOURCE_ERRORS:
                                 horizon_price = current_price
                         changes[column] = horizon_price / price - 1
                         if candles_lookup is not None:
@@ -837,8 +847,12 @@ class AdvisorDecisionStore:
                                         candles,
                                     ),
                                 }
-                            except Exception:
-                                pass
+                            except AI_CONTEXT_SOURCE_ERRORS:
+                                # A missing virtual evaluation must not block
+                                # settlement of the observed market return.
+                                evaluations.pop(
+                                    column.removeprefix("return_"), None
+                                )
                 if not changes:
                     continue
                 if evaluations:

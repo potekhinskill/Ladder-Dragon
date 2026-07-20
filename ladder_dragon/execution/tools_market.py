@@ -242,11 +242,11 @@ def get_klines(symbol: str,
     return []
 
 # ---- exchangeInfo cache ----
-_exchange_cache: Dict[str, Dict[str, float | int]] = {}
+_exchange_cache: Dict[str, Dict[str, object]] = {}
 _exchange_cache_ts: Dict[str, float] = {}  # TTL
 _CACHE_TTL = 300
 
-def get_symbol_filters(symbol: str) -> Dict[str, float | int]:
+def get_symbol_filters(symbol: str) -> Dict[str, object]:
     symbol = symbol.upper()
     now = time.time()
     if symbol in _exchange_cache and (now - _exchange_cache_ts.get(symbol, 0)) < _CACHE_TTL:
@@ -258,43 +258,51 @@ def get_symbol_filters(symbol: str) -> Dict[str, float | int]:
         raise BinanceHttpError(f"exchangeInfo: symbol '{symbol}' not found")
     info = symbols[0]
 
-    tick_size = 0.0
-    step_size = 0.0
-    min_qty   = 0.0
-    min_notional = 5.0
+    tick_size_exact = "0"
+    step_size_exact = "0"
+    min_qty_exact = "0"
+    min_notional_exact = "5"
 
     # Additional fields used by the supervisor and validators.
     price_precision = int(info.get("pricePrecision", 0))
     qty_precision   = int(info.get("quantityPrecision", 0))
 
     # Some markets use MARKET_LOT_SIZE for market orders.
-    market_step_size = 0.0
-    market_min_qty   = 0.0
+    market_step_size_exact = "0"
+    market_min_qty_exact = "0"
 
     for f in info.get("filters", []):
         ftype = f.get("filterType")
         if ftype == "PRICE_FILTER":
-            tick_size = float(f.get("tickSize", "0") or 0)
+            tick_size_exact = str(f.get("tickSize", "0") or "0")
         elif ftype == "LOT_SIZE":
-            step_size = float(f.get("stepSize", "0") or 0)
-            min_qty   = float(f.get("minQty", "0") or 0)
+            step_size_exact = str(f.get("stepSize", "0") or "0")
+            min_qty_exact = str(f.get("minQty", "0") or "0")
         elif ftype == "MARKET_LOT_SIZE":
-            market_step_size = float(f.get("stepSize", "0") or 0)
-            market_min_qty   = float(f.get("minQty", "0") or 0)
+            market_step_size_exact = str(f.get("stepSize", "0") or "0")
+            market_min_qty_exact = str(f.get("minQty", "0") or "0")
         elif ftype in ("MIN_NOTIONAL", "NOTIONAL"):
             mn = f.get("minNotional")
             if mn is not None:
-                min_notional = float(mn)
+                min_notional_exact = str(mn)
 
     res = {
-        "tickSize": tick_size,
-        "stepSize": step_size,
-        "minQty": min_qty,
-        "minNotional": min_notional,
+        # Compatibility floats are retained for indicator-only callers. Every
+        # order-normalization path consumes the exact strings below.
+        "tickSize": float(tick_size_exact),
+        "stepSize": float(step_size_exact),
+        "minQty": float(min_qty_exact),
+        "minNotional": float(min_notional_exact),
+        "tickSizeExact": tick_size_exact,
+        "stepSizeExact": step_size_exact,
+        "minQtyExact": min_qty_exact,
+        "minNotionalExact": min_notional_exact,
         "pricePrecision": price_precision,
         "quantityPrecision": qty_precision,
-        "marketStepSize": market_step_size,
-        "marketMinQty": market_min_qty,
+        "marketStepSize": float(market_step_size_exact),
+        "marketMinQty": float(market_min_qty_exact),
+        "marketStepSizeExact": market_step_size_exact,
+        "marketMinQtyExact": market_min_qty_exact,
     }
     _exchange_cache[symbol] = res
     _exchange_cache_ts[symbol] = now
@@ -325,7 +333,7 @@ def _decimals_from_float_step(step: float) -> int:
 def _round_by_step(value: float, step: float, mode: str = "floor") -> float:
     return float(round_step(value, step, mode))
 
-def round_qty_price(symbol: str, qty: float, price: float, side: str = "BUY") -> Tuple[str, str]:
+def round_qty_price(symbol: str, qty: object, price: object, side: str = "BUY") -> Tuple[str, str]:
     """Handle round qty price."""
     side = (side or "BUY").upper()
     f = get_symbol_filters(symbol)
@@ -333,10 +341,10 @@ def round_qty_price(symbol: str, qty: float, price: float, side: str = "BUY") ->
         return normalized_order_values(
             qty,
             price,
-            step=f.get("stepSize", 0),
-            tick=f.get("tickSize", 0),
-            min_qty=f.get("minQty", 0),
-            min_notional=f.get("minNotional", 0),
+            step=f.get("stepSizeExact", f.get("stepSize", 0)),
+            tick=f.get("tickSizeExact", f.get("tickSize", 0)),
+            min_qty=f.get("minQtyExact", f.get("minQty", 0)),
+            min_notional=f.get("minNotionalExact", f.get("minNotional", 0)),
             side=side,
         )
     except ValueError as exc:
