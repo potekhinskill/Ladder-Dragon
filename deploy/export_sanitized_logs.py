@@ -17,7 +17,7 @@ from pathlib import Path
 
 OUTPUT_DIR = Path(os.getenv("BOT_LOG_EXPORT_DIR", "/var/lib/ladder-dragon/logs"))
 RETENTION_DAYS = max(1, int(os.getenv("BOT_LOG_RETENTION_DAYS", "7")))
-MAX_BYTES = max(64 * 1024, int(os.getenv("BOT_LOG_MAX_BYTES", "5242880")))
+MAX_BYTES = max(64 * 1024, int(os.getenv("BOT_LOG_MAX_BYTES", "262144")))
 CURRENT_LINES = max(100, int(os.getenv("BOT_LOG_CURRENT_LINES", "3000")))
 
 SENSITIVE_NAMES = (

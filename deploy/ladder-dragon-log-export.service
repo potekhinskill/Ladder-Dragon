@@ -10,7 +10,7 @@ User=root
 Group=www-data
 Environment=BOT_LOG_EXPORT_DIR=/var/lib/ladder-dragon/logs
 Environment=BOT_LOG_RETENTION_DAYS=7
-Environment=BOT_LOG_MAX_BYTES=5242880
+Environment=BOT_LOG_MAX_BYTES=262144
 Environment=BOT_LOG_CURRENT_LINES=3000
 ExecStart=/usr/bin/python3 /usr/local/libexec/ladder-dragon/export_sanitized_logs.py
 Nice=10

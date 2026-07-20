@@ -209,6 +209,17 @@ def test_dashboard_transient_failures_are_bounded_and_visible():
     assert "OPEN_ORDERS_STALE" in app
     assert "API_RESPONSE_CACHE" in index
     assert "API_RESPONSE_CACHE_TTL_MS = 300000" in index
+    assert "API_RESPONSE_CACHE_MAX_KEYS = 24" in index
+    assert "API_RESPONSE_CACHE_MAX_BYTES = 512 * 1024" in index
+    assert "FETCH_TIMEOUT_MS = 8000" in index
+    assert "AbortController" in index
+    assert "visibilitychange" in index
+    assert "pagehide" in index
+    assert "chart.destroy()" in index
+    assert "FILLED_PAGE_SIZE = 300" in index
+    assert "LOG_TAIL_BYTES = 256 * 1024" in index
+    assert "POLL_JOBS" in index
+    assert "setInterval(" not in index
     assert "url !== '/api/security/csrf'" in index
     assert "transport retry" in index
     assert "REFRESH_IN_FLIGHT" in index
@@ -217,6 +228,19 @@ def test_dashboard_transient_failures_are_bounded_and_visible():
     assert "DASHBOARD_UPSTREAM_UNAVAILABLE" in site
     assert "Restart=always" in unit
     assert "RestartSec=2" in unit
+
+
+def test_dashboard_large_sources_are_bounded_server_side():
+    app = read("FastAPI/pi-dashboard/app.py")
+    exporter = read("deploy/export_sanitized_logs.py")
+    service = read("deploy/ladder-dragon-log-export.service")
+
+    assert "min(int(limit), 500)" in app
+    assert "LIMIT ? OFFSET ?" in app
+    assert "_ai_database_aggregates" in app
+    assert "SELECT {expressions['evaluation_json']} AS evaluation_json FROM ai_decisions" not in app
+    assert 'BOT_LOG_MAX_BYTES", "262144"' in exporter
+    assert "Environment=BOT_LOG_MAX_BYTES=262144" in service
 
 
 def test_dashboard_publishes_version_and_changelog():

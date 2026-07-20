@@ -3,6 +3,33 @@
 All notable changes are documented here. Releases use Semantic Versioning; every
 section is dated and there is intentionally no `Unreleased` section.
 
+## [2.19.1] — 2026-07-20
+
+### Changed
+- Dashboard polling now runs through one sequential scheduler, pauses while the
+  tab is hidden, and aborts bounded requests after eight seconds.
+- Filled-order endpoints return at most 500 rows per request and accept a
+  bounded offset. The dashboard renders pages of 300 rows instead of rebuilding
+  a 5,000-row table every eight seconds.
+- The current sanitized log is capped at 256 KiB. The browser requests only its
+  tail, displays at most 500 lines, and prevents overlapping log requests.
+- AI usage and database aggregates are cached for 30 seconds. Closed-decision
+  count and realized AI PnL are now calculated in SQLite rather than loading
+  every historical `evaluation_json` row into Python.
+
+### Fixed
+- Response caching is bounded by key count, entry size and total estimated
+  memory. Old rate-limit IP buckets are pruned instead of accumulating for the
+  lifetime of the dashboard process.
+- `pagehide` now cancels pending requests, clears timers and response cache, and
+  destroys all Chart.js instances.
+
+### Verified
+- All 410 tests pass, including pagination, cache, timeout, visibility,
+  rate-bucket pruning and log-retention coverage. Compileall, JavaScript and
+  shell syntax, dependency consistency, PyPI vulnerability audit and the
+  tracked-secret scan pass.
+
 ## [2.19.0] — 2026-07-20
 
 ### Added

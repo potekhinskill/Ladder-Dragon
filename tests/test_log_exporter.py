@@ -83,6 +83,13 @@ def test_tail_bytes_keeps_recent_complete_lines(monkeypatch):
     assert not result.startswith("-")
 
 
+def test_current_log_default_is_bounded_to_256_kib(monkeypatch):
+    monkeypatch.delenv("BOT_LOG_MAX_BYTES", raising=False)
+    exporter = load_exporter()
+
+    assert exporter.MAX_BYTES == 256 * 1024
+
+
 def test_cleanup_removes_only_expired_managed_daily_logs(tmp_path, monkeypatch):
     exporter = load_exporter()
     now = datetime(2026, 7, 16, tzinfo=timezone.utc)

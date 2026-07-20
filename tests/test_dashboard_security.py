@@ -810,6 +810,44 @@ def test_dashboard_rate_limit_is_enforced(monkeypatch):
         assert client.get("/api/bot/logs", headers=headers).status_code == 429
 
 
+def test_dashboard_rate_limit_prunes_expired_client_keys(monkeypatch):
+    module = load_dashboard(monkeypatch)
+    module._RATE_BUCKETS.clear()
+    module._RATE_PRUNE_STATE["last"] = 0.0
+    module._RATE_BUCKETS["expired"].append(1.0)
+    module._RATE_BUCKETS["active"].append(100.0)
+
+    with module._RATE_LOCK:
+        module._prune_rate_buckets(120.0)
+
+    assert "expired" not in module._RATE_BUCKETS
+    assert list(module._RATE_BUCKETS["active"]) == [100.0]
+
+
+def test_ai_usage_summary_is_cached_for_bounded_polling(tmp_path, monkeypatch):
+    usage = tmp_path / "usage.ndjson"
+    now = datetime(2026, 7, 20, 12, tzinfo=timezone.utc)
+    event = {
+        "timestamp": now.isoformat(),
+        "total_tokens": 10,
+        "estimated_cost_usd": "0.001",
+        "outcome": "applied",
+    }
+    usage.write_text(json.dumps(event) + "\n", encoding="utf-8")
+    module = load_dashboard(monkeypatch)
+
+    first = module._ai_usage_today(usage, now=now)
+    usage.write_text((json.dumps(event) + "\n") * 2, encoding="utf-8")
+    cached = module._ai_usage_today(usage, now=now)
+    key = f"usage:{usage}:{now.date().isoformat()}"
+    module._AI_SUMMARY_CACHE[key]["cached_at"] -= 31
+    refreshed = module._ai_usage_today(usage, now=now)
+
+    assert first["requests"] == 1
+    assert cached["requests"] == 1
+    assert refreshed["requests"] == 2
+
+
 def test_ai_status_is_authenticated_and_contains_no_secrets(tmp_path, monkeypatch):
     db = tmp_path / "ai.db"
     usage = tmp_path / "usage.ndjson"

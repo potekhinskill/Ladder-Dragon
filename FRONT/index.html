@@ -125,6 +125,9 @@
   .col-fee{width:120px}
   .side-buy{color:var(--ok);font-weight:800}
   .side-sell{color:var(--acc);font-weight:800}
+  .table-pagination{display:flex;justify-content:flex-end;align-items:center;gap:8px;margin-top:8px;color:var(--muted);font-size:12px}
+  .table-pagination button{min-width:32px;border:1px solid var(--stroke);border-radius:7px;background:#111622;color:var(--text);padding:4px 8px;cursor:pointer}
+  .table-pagination button:disabled{opacity:.4;cursor:not-allowed}
   .nowrap{white-space:nowrap}
   .right{text-align:right}
 
@@ -445,6 +448,11 @@
           </tbody>
         </table>
       </div>
+      <div class="table-pagination">
+        <button id="filled-prev" type="button" aria-label="Previous page">←</button>
+        <span id="filled-page">1</span>
+        <button id="filled-next" type="button" aria-label="Next page">→</button>
+      </div>
     </div>
   </section>
 
@@ -493,6 +501,8 @@ const fmt = (x,d=2)=> (Number.isFinite(x)?Number(x).toFixed(d):'—');
 const NF2 = new Intl.NumberFormat('ru-RU',{minimumFractionDigits:2,maximumFractionDigits:2});
 const NF4 = new Intl.NumberFormat('ru-RU',{minimumFractionDigits:4,maximumFractionDigits:4});
 const LOG_MAX_LINES = 500; // Keep at most 500 log lines in the dashboard.
+const LOG_TAIL_BYTES = 256 * 1024;
+const FILLED_PAGE_SIZE = 300;
 
 let SYMBOLS_CACHE = null;      // Cached comma-separated symbols.
 let SYMBOLS_TS = 0;
@@ -509,13 +519,59 @@ function mountLine(mounts, mp, id){
 
 const API_RESPONSE_CACHE = new Map();
 const API_RESPONSE_CACHE_TTL_MS = 300000;
+const API_RESPONSE_CACHE_MAX_KEYS = 24;
+const API_RESPONSE_CACHE_MAX_ENTRY_BYTES = 128 * 1024;
+const API_RESPONSE_CACHE_MAX_BYTES = 512 * 1024;
+const FETCH_TIMEOUT_MS = 8000;
+const ACTIVE_FETCH_CONTROLLERS = new Set();
+
+function payloadSize(payload){
+  try{ return JSON.stringify(payload).length * 2; }
+  catch(_error){ return API_RESPONSE_CACHE_MAX_ENTRY_BYTES + 1; }
+}
+
+function trimResponseCache(){
+  let total = [...API_RESPONSE_CACHE.values()].reduce((sum,entry)=>sum+(entry.size||0),0);
+  while(API_RESPONSE_CACHE.size > API_RESPONSE_CACHE_MAX_KEYS || total > API_RESPONSE_CACHE_MAX_BYTES){
+    const oldest = API_RESPONSE_CACHE.keys().next().value;
+    if(oldest === undefined) break;
+    total -= API_RESPONSE_CACHE.get(oldest)?.size || 0;
+    API_RESPONSE_CACHE.delete(oldest);
+  }
+}
+
+function cacheResponse(url,payload){
+  const size = payloadSize(payload);
+  if(size > API_RESPONSE_CACHE_MAX_ENTRY_BYTES) return;
+  API_RESPONSE_CACHE.delete(url);
+  API_RESPONSE_CACHE.set(url,{payload,cachedAt:Date.now(),size});
+  trimResponseCache();
+}
+
+async function fetchWithTimeout(url,options={},timeoutMs=FETCH_TIMEOUT_MS){
+  const controller = new AbortController();
+  const timer = setTimeout(()=>controller.abort('timeout'),timeoutMs);
+  ACTIVE_FETCH_CONTROLLERS.add(controller);
+  try{
+    return await fetch(url,{...options,signal:controller.signal});
+  }finally{
+    clearTimeout(timer);
+    ACTIVE_FETCH_CONTROLLERS.delete(controller);
+  }
+}
+
+function abortActiveFetches(){
+  for(const controller of ACTIVE_FETCH_CONTROLLERS) controller.abort('page inactive');
+  ACTIVE_FETCH_CONTROLLERS.clear();
+}
+
 async function getJSON(url){
   try{
-    const r = await fetch(url,{cache:'no-store'});
+    const r = await fetchWithTimeout(url,{cache:'no-store'});
     if(!r.ok) throw new Error(`HTTP ${r.status}`);
     const payload = await r.json();
     if(url !== '/api/security/csrf'){
-      API_RESPONSE_CACHE.set(url, {payload, cachedAt:Date.now()});
+      cacheResponse(url,payload);
     }
     return payload;
   }catch(error){
@@ -931,12 +987,14 @@ function updateCharts(hist){
 }
 
 /* ==== Realized orders for the last 24 hours ==== */
+let FILLED_PAGE = 0;
 async function getFilledOrders24h(){
   const symbols = await getSymbols();
+  const offset = FILLED_PAGE * FILLED_PAGE_SIZE;
   const urls = [
-    `/api/trades/filled?hours=24&limit=5000${symbols?`&symbols=${encodeURIComponent(symbols)}`:''}`,
-    `/api/orders/filled?hours=24&limit=5000${symbols?`&symbols=${encodeURIComponent(symbols)}`:''}`,
-    `/api/fills?hours=24&limit=5000${symbols?`&symbols=${encodeURIComponent(symbols)}`:''}`
+    `/api/trades/filled?hours=24&limit=${FILLED_PAGE_SIZE}&offset=${offset}${symbols?`&symbols=${encodeURIComponent(symbols)}`:''}`,
+    `/api/orders/filled?hours=24&limit=${FILLED_PAGE_SIZE}&offset=${offset}${symbols?`&symbols=${encodeURIComponent(symbols)}`:''}`,
+    `/api/fills?hours=24&limit=${FILLED_PAGE_SIZE}&offset=${offset}${symbols?`&symbols=${encodeURIComponent(symbols)}`:''}`
   ];
   for(const u of urls){
     try{
@@ -944,7 +1002,7 @@ async function getFilledOrders24h(){
       if(!j) continue;
       let arr = Array.isArray(j) ? j : (j.items||j.data||j.orders||j.trades||[]);
       if(!Array.isArray(arr)) continue;
-      return {ok:true, url:u, items:arr};
+      return {ok:true, url:u, items:arr, hasMore:arr.length===FILLED_PAGE_SIZE};
     }catch(e){}
   }
   return {ok:false, items:[]};
@@ -986,6 +1044,9 @@ function updateFilled24h(resp){
     return;
   }
   setPill(pill,'ok'); pill.textContent='ok';
+  $('#filled-page').textContent=String(FILLED_PAGE+1);
+  $('#filled-prev').disabled=FILLED_PAGE===0;
+  $('#filled-next').disabled=!resp.hasMore;
 
   const rows = resp.items.map(normFill)
     .filter(x=>x.time!=null)
@@ -1128,7 +1189,7 @@ async function toggleAI(){
   button.disabled = true;
   try{
     const csrf = await getJSON('/api/security/csrf');
-    const response = await fetch('/api/ai/control', {
+    const response = await fetchWithTimeout('/api/ai/control', {
       method:'POST',
       headers:{'Content-Type':'application/json','X-CSRF-Token':csrf.csrf_token},
       body:JSON.stringify({enabled:!enabled}),
@@ -1153,6 +1214,17 @@ if (balanceFilter){
     if (BALANCE_SNAPSHOT) updateBalances(BALANCE_SNAPSHOT);
   });
 }
+
+$('#filled-prev').addEventListener('click',()=>{
+  if(FILLED_PAGE===0 || FILLED_ORDERS_REFRESH_IN_FLIGHT) return;
+  FILLED_PAGE-=1;
+  refreshOrders();
+});
+$('#filled-next').addEventListener('click',()=>{
+  if(FILLED_ORDERS_REFRESH_IN_FLIGHT) return;
+  FILLED_PAGE+=1;
+  refreshOrders();
+});
 
 /* Separate refresh so the existing refresh() does not need modification. */
 let FILLED_ORDERS_REFRESH_IN_FLIGHT = false;
@@ -1191,30 +1263,83 @@ async function refreshOpenOrders(){
   }
 }
 
-function startLogs(){
+let LOGS_REFRESH_IN_FLIGHT = false;
+async function refreshLogs(){
+  if(LOGS_REFRESH_IN_FLIGHT) return;
+  LOGS_REFRESH_IN_FLIGHT = true;
   const box = $('#logs'), pill = $('#log-pill');
-  async function load(){
-    try{
-      const response = await fetch('/logs/current.log', {cache:'no-store'});
+  try{
+      const response = await fetchWithTimeout('/logs/current.log',{
+        cache:'no-store',headers:{Range:`bytes=-${LOG_TAIL_BYTES}`}
+      });
       if(!response.ok) throw new Error(response.status);
-      const lines = (await response.text()).split('\n').filter(Boolean).slice(-LOG_MAX_LINES);
+      const text = await response.text();
+      const tail = text.slice(-LOG_TAIL_BYTES);
+      const allLines = tail.split('\n');
+      const lines = allLines.slice(Math.max(0,allLines.length-LOG_MAX_LINES-1)).filter(Boolean);
       box.replaceChildren(...lines.map(line=>{
         const div=document.createElement('div'); div.textContent=line; return div;
       }));
       box.scrollTop=box.scrollHeight;
       setPill(pill,'ok'); pill.textContent=tr('ok');
-    }catch(e){
+  }catch(e){
       setPill(pill,'warn'); pill.textContent=tr('no_export');
-    }
+  }finally{
+    LOGS_REFRESH_IN_FLIGHT = false;
   }
-  load();
-  setInterval(load, 10000);
 }
 
-initLocalePicker(); applyLocale();
-refresh(); setInterval(refresh, 5000); refreshGithubUpdate(); setInterval(refreshGithubUpdate, 60 * 60 * 1000); startLogs();
-refreshOrders(); setInterval(refreshOrders, 8000);
-refreshOpenOrders(); setInterval(refreshOpenOrders, 8000);
+const POLL_JOBS = [
+  {interval:5000,next:0,run:refresh},
+  {interval:8000,next:0,run:refreshOrders},
+  {interval:8000,next:0,run:refreshOpenOrders},
+  {interval:10000,next:0,run:refreshLogs},
+  {interval:60*60*1000,next:0,run:refreshGithubUpdate},
+];
+let POLL_TIMER = null;
+let POLLING_STOPPED = false;
+
+function schedulePoll(delay=250){
+  if(POLLING_STOPPED || POLL_TIMER !== null) return;
+  POLL_TIMER = setTimeout(runPollScheduler,delay);
+}
+
+async function runPollScheduler(){
+  POLL_TIMER = null;
+  if(POLLING_STOPPED) return;
+  if(document.hidden) return;
+  const now = Date.now();
+  for(const job of POLL_JOBS){
+    if(job.next > now) continue;
+    job.next = now + job.interval;
+    await job.run();
+    if(POLLING_STOPPED || document.hidden) break;
+  }
+  schedulePoll(250);
+}
+
+document.addEventListener('visibilitychange',()=>{
+  if(document.hidden){
+    if(POLL_TIMER !== null) clearTimeout(POLL_TIMER);
+    POLL_TIMER = null;
+    abortActiveFetches();
+    return;
+  }
+  const now = Date.now();
+  for(const job of POLL_JOBS) job.next = Math.min(job.next,now);
+  schedulePoll(0);
+});
+
+window.addEventListener('pagehide',()=>{
+  POLLING_STOPPED = true;
+  if(POLL_TIMER !== null) clearTimeout(POLL_TIMER);
+  POLL_TIMER = null;
+  abortActiveFetches();
+  API_RESPONSE_CACHE.clear();
+  if(charts){ Object.values(charts).forEach(chart=>chart.destroy()); charts=null; }
+});
+
+initLocalePicker(); applyLocale(); schedulePoll(0);
 </script>
 </body>
 </html>

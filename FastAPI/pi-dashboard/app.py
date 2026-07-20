@@ -40,6 +40,7 @@ DASHBOARD_PROXY_AUTH_SECRET = os.getenv("DASHBOARD_PROXY_AUTH_SECRET", "")
 DASHBOARD_RATE_LIMIT_PER_MIN = max(1, int(os.getenv("DASHBOARD_RATE_LIMIT_PER_MIN", "120")))
 _RATE_BUCKETS: Dict[str, deque] = defaultdict(deque)
 _RATE_LOCK = threading.Lock()
+_RATE_PRUNE_STATE = {"last": 0.0}
 DASHBOARD_CSRF_TOKEN = secrets.token_urlsafe(32)
 _BALANCE_CACHE: Dict[str, object] = {"ts": 0.0, "payload": None}
 _BALANCE_CACHE_TTL_SEC = max(5.0, float(os.getenv("DASHBOARD_BALANCE_CACHE_SEC", "10")))
@@ -76,6 +77,11 @@ AI_ERROR_DEGRADED_WINDOW_SEC = max(
     60.0, float(os.getenv("AI_ERROR_DEGRADED_WINDOW_SEC", "900"))
 )
 AI_ERROR_DEGRADED_MIN = max(1, int(os.getenv("AI_ERROR_DEGRADED_MIN", "3")))
+DASHBOARD_AI_AGGREGATE_CACHE_SEC = max(
+    5.0, float(os.getenv("DASHBOARD_AI_AGGREGATE_CACHE_SEC", "30"))
+)
+_AI_SUMMARY_CACHE: Dict[str, Dict[str, object]] = {}
+_AI_SUMMARY_CACHE_LOCK = threading.Lock()
 AI_RUNTIME_STATUS_FILE = Path(
     os.getenv("AI_RUNTIME_STATUS_FILE", "/run/mybot/ai_status.json")
 )
@@ -105,6 +111,19 @@ _DATA_SOURCE_ERRORS = (
     KeyError,
     ArithmeticError,
 )
+
+
+def _prune_rate_buckets(now: float) -> None:
+    """Remove expired client keys while the caller holds ``_RATE_LOCK``."""
+    if now - _RATE_PRUNE_STATE["last"] < 60:
+        return
+    cutoff = now - 60
+    for stale_client, stale_bucket in list(_RATE_BUCKETS.items()):
+        while stale_bucket and stale_bucket[0] <= cutoff:
+            stale_bucket.popleft()
+        if not stale_bucket:
+            _RATE_BUCKETS.pop(stale_client, None)
+    _RATE_PRUNE_STATE["last"] = now
 
 @asynccontextmanager
 async def lifespan(_app):
@@ -162,6 +181,7 @@ async def authenticate_and_rate_limit(request: Request, call_next):
                 client = peer
         now = time.monotonic()
         with _RATE_LOCK:
+            _prune_rate_buckets(now)
             bucket = _RATE_BUCKETS[client]
             while bucket and bucket[0] <= now - 60:
                 bucket.popleft()
@@ -1723,17 +1743,48 @@ def history(hours: int = 24, points: int = 288):
     })
 
 
+def _ai_cache_get(key: str) -> Optional[Dict]:
+    now = time.monotonic()
+    with _AI_SUMMARY_CACHE_LOCK:
+        entry = _AI_SUMMARY_CACHE.get(key)
+        if not entry or now - float(entry["cached_at"]) > DASHBOARD_AI_AGGREGATE_CACHE_SEC:
+            _AI_SUMMARY_CACHE.pop(key, None)
+            return None
+        return dict(entry["payload"])
+
+
+def _ai_cache_put(key: str, payload: Dict) -> Dict:
+    with _AI_SUMMARY_CACHE_LOCK:
+        _AI_SUMMARY_CACHE[key] = {
+            "cached_at": time.monotonic(),
+            "payload": dict(payload),
+        }
+        # Runtime path changes are rare; this bound prevents abandoned paths
+        # from accumulating after repeated configuration migrations.
+        while len(_AI_SUMMARY_CACHE) > 16:
+            oldest = min(
+                _AI_SUMMARY_CACHE,
+                key=lambda item: float(_AI_SUMMARY_CACHE[item]["cached_at"]),
+            )
+            _AI_SUMMARY_CACHE.pop(oldest, None)
+    return payload
+
+
 def _ai_usage_today(path: Path, *, now: datetime | None = None) -> Dict:
     # Limits and DEGRADED state must match AI policy and reset on UTC boundaries.
     # APP_TZ is used only for local-time presentation.
     now = now or datetime.now(tz=timezone.utc)
     now = now.astimezone(timezone.utc)
     today = now.date()
+    cache_key = f"usage:{path}:{today.isoformat()}"
+    cached = _ai_cache_get(cache_key)
+    if cached is not None:
+        return cached
     requests_count = tokens = errors = recent_errors = 0
     cost = Decimal("0")
     last_error_at = None
     if not path.exists():
-        return {
+        return _ai_cache_put(cache_key, {
             "requests": 0,
             "tokens": 0,
             "cost_usd": "0",
@@ -1741,7 +1792,7 @@ def _ai_usage_today(path: Path, *, now: datetime | None = None) -> Dict:
             "recent_errors": 0,
             "last_error_at": None,
             "error_window_sec": AI_ERROR_DEGRADED_WINDOW_SEC,
-        }
+        })
     for line in path.read_text(encoding="utf-8", errors="replace").splitlines():
         try:
             event = json.loads(line)
@@ -1759,7 +1810,7 @@ def _ai_usage_today(path: Path, *, now: datetime | None = None) -> Dict:
                     recent_errors += 1
         except (KeyError, TypeError, ValueError, json.JSONDecodeError):
             continue
-    return {
+    return _ai_cache_put(cache_key, {
         "requests": requests_count,
         "tokens": tokens,
         "cost_usd": str(cost),
@@ -1767,7 +1818,75 @@ def _ai_usage_today(path: Path, *, now: datetime | None = None) -> Dict:
         "recent_errors": recent_errors,
         "last_error_at": last_error_at,
         "error_window_sec": AI_ERROR_DEGRADED_WINDOW_SEC,
+    })
+
+
+def _ai_database_aggregates(
+    connection: sqlite3.Connection,
+    *,
+    db_path: Path,
+    evaluation_expression: str,
+    tables: set[str],
+) -> Dict:
+    """Compute growing AI counters in SQL and cache the bounded result."""
+    cache_key = f"database:{db_path}"
+    cached = _ai_cache_get(cache_key)
+    if cached is not None:
+        return cached
+
+    stats = {
+        "documents": 0,
+        "virtual_documents": 0,
+        "retrievals": 0,
+        "unresolved_fills": 0,
+        "closed_decisions": 0,
+        "realized_net_pnl_quote": 0.0,
     }
+    safe_evaluation = (
+        f"CASE WHEN json_valid({evaluation_expression}) "
+        f"THEN {evaluation_expression} ELSE '{{}}' END"
+    )
+    realized = connection.execute(
+        f"""
+        SELECT
+          COALESCE(SUM(CASE
+            WHEN json_extract({safe_evaluation}, '$.realized_execution.closed') = 1
+            THEN 1 ELSE 0 END), 0) AS closed_count,
+          COALESCE(SUM(CASE
+            WHEN json_extract({safe_evaluation}, '$.realized_execution.closed') = 1
+            THEN CAST(COALESCE(
+              json_extract({safe_evaluation}, '$.realized_execution.net_pnl_quote_text'),
+              json_extract({safe_evaluation}, '$.realized_execution.net_pnl_quote'),
+              0
+            ) AS REAL)
+            ELSE 0 END), 0) AS net_pnl
+        FROM ai_decisions
+        """
+    ).fetchone()
+    stats["closed_decisions"] = int(realized["closed_count"] or 0)
+    stats["realized_net_pnl_quote"] = float(realized["net_pnl"] or 0)
+
+    if "knowledge_documents" in tables:
+        document_rows = connection.execute(
+            """
+            SELECT status, COUNT(*) AS count
+            FROM knowledge_documents
+            WHERE status IN ('validated', 'virtual_validated')
+            GROUP BY status
+            """
+        ).fetchall()
+        for row in document_rows:
+            target = "documents" if row["status"] == "validated" else "virtual_documents"
+            stats[target] = int(row["count"])
+    if "knowledge_retrievals" in tables:
+        stats["retrievals"] = int(
+            connection.execute("SELECT COUNT(*) FROM knowledge_retrievals").fetchone()[0]
+        )
+    if "ai_unresolved_fills" in tables:
+        stats["unresolved_fills"] = int(
+            connection.execute("SELECT COUNT(*) FROM ai_unresolved_fills").fetchone()[0]
+        )
+    return _ai_cache_put(cache_key, stats)
 
 
 def _ai_calibration(recent: List[Dict]) -> List[Dict]:
@@ -1873,44 +1992,21 @@ def ai_status(limit: int = 50):
                 ]
                 for row in recent:
                     row["evaluation"] = json.loads(row.pop("evaluation_json") or "{}")
-                closed_rows = connection.execute(
-                    f"SELECT {expressions['evaluation_json']} AS evaluation_json FROM ai_decisions"
-                ).fetchall()
-                for closed_row in closed_rows:
-                    try:
-                        realized = json.loads(closed_row["evaluation_json"] or "{}").get("realized_execution", {})
-                    except (TypeError, ValueError, json.JSONDecodeError):
-                        realized = {}
-                    if isinstance(realized, dict) and realized.get("closed"):
-                        knowledge_stats["closed_decisions"] += 1
-                        knowledge_stats["realized_net_pnl_quote"] += float(
-                            realized.get("net_pnl_quote", 0) or 0
-                        )
                 tables = {
                     row["name"]
                     for row in connection.execute(
                         "SELECT name FROM sqlite_master WHERE type='table'"
                     )
                 }
-                if "knowledge_documents" in tables:
-                    knowledge_stats["documents"] = int(
-                        connection.execute(
-                            "SELECT COUNT(*) FROM knowledge_documents "
-                            "WHERE status='validated'"
-                        ).fetchone()[0]
+                knowledge_stats.update(
+                    _ai_database_aggregates(
+                        connection,
+                        db_path=db_path,
+                        evaluation_expression=expressions["evaluation_json"],
+                        tables=tables,
                     )
-                    knowledge_stats["virtual_documents"] = int(
-                        connection.execute(
-                            "SELECT COUNT(*) FROM knowledge_documents "
-                            "WHERE status='virtual_validated'"
-                        ).fetchone()[0]
-                    )
+                )
                 if "knowledge_retrievals" in tables:
-                    knowledge_stats["retrievals"] = int(
-                        connection.execute(
-                            "SELECT COUNT(*) FROM knowledge_retrievals"
-                        ).fetchone()[0]
-                    )
                     for row in recent:
                         decision_id = row.get("decision_id")
                         if not decision_id:
@@ -1924,10 +2020,6 @@ def ai_status(limit: int = 50):
                                 (decision_id,),
                             ).fetchall()
                         ]
-                if "ai_unresolved_fills" in tables:
-                    knowledge_stats["unresolved_fills"] = int(
-                        connection.execute("SELECT COUNT(*) FROM ai_unresolved_fills").fetchone()[0]
-                    )
         except sqlite3.Error as exc:
             print(f"[DASHBOARD] AI_DB_READ_FAILED type={type(exc).__name__}", flush=True)
             return JSONResponse({"ok": False, "error": "AI_DB_READ_FAILED"}, status_code=503)
@@ -2251,10 +2343,16 @@ def trades_recent(limit: int = 20, symbols: str = ""):
 
 # ---- Filled orders (24h) for dashboard -------------------------------------------
 
-def _select_filled_orders(hours: int, syms: Optional[List[str]], limit: int) -> List[Dict]:
+def _select_filled_orders(
+    hours: int,
+    syms: Optional[List[str]],
+    limit: int,
+    offset: int = 0,
+) -> List[Dict]:
     """Handle select filled orders."""
     hours = max(1, min(int(hours), 168))
-    limit = max(1, min(int(limit), 5000))
+    limit = max(1, min(int(limit), 500))
+    offset = max(0, min(int(offset), 50000))
     cutoff_s = int(time.time()) - hours * 3600
 
     con = None
@@ -2280,9 +2378,9 @@ def _select_filled_orders(hours: int, syms: Optional[List[str]], limit: int) -> 
         WHERE 1=1 {sym_filter}
           AND (CASE WHEN ts>1000000000000 THEN CAST(ts/1000 AS INTEGER) ELSE CAST(ts AS INTEGER) END) >= ?
         ORDER BY ts_s DESC
-        LIMIT ?
+        LIMIT ? OFFSET ?
         """
-        args.extend([cutoff_s, limit])
+        args.extend([cutoff_s, limit, offset])
         rows = con.execute(sql, args).fetchall()
 
         fee_pct = _fee_pct_default()
@@ -2311,19 +2409,25 @@ def _select_filled_orders(hours: int, syms: Optional[List[str]], limit: int) -> 
             pass
 
 @app.get("/api/trades/filled")
-def api_trades_filled(hours: int = 24, symbols: str = "", limit: int = 5000):
+def api_trades_filled(
+    hours: int = 24, symbols: str = "", limit: int = 300, offset: int = 0
+):
     syms = [s.strip().upper() for s in symbols.split(",") if s.strip()] or None
-    items = _select_filled_orders(hours, syms, limit)
+    items = _select_filled_orders(hours, syms, limit, offset)
     return JSONResponse(items)
 
 @app.get("/api/orders/filled")
-def api_orders_filled(hours: int = 24, symbols: str = "", limit: int = 5000):
+def api_orders_filled(
+    hours: int = 24, symbols: str = "", limit: int = 300, offset: int = 0
+):
     syms = [s.strip().upper() for s in symbols.split(",") if s.strip()] or None
-    items = _select_filled_orders(hours, syms, limit)
+    items = _select_filled_orders(hours, syms, limit, offset)
     return JSONResponse(items)
 
 @app.get("/api/fills")
-def api_fills(hours: int = 24, symbols: str = "", limit: int = 5000):
+def api_fills(
+    hours: int = 24, symbols: str = "", limit: int = 300, offset: int = 0
+):
     syms = [s.strip().upper() for s in symbols.split(",") if s.strip()] or None
-    items = _select_filled_orders(hours, syms, limit)
+    items = _select_filled_orders(hours, syms, limit, offset)
     return JSONResponse(items)
