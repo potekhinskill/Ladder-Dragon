@@ -101,6 +101,11 @@ class MarketContext:
     fees_usdt_30d: float = 0.0
     turnover_usdt_30d: float = 0.0
     position_pnl_pct: float = 0.0
+    net_realized_pnl_30d_text: str = "0"
+    avg_win_usdt_30d_text: str = "0"
+    avg_loss_usdt_30d_text: str = "0"
+    fees_usdt_30d_text: str = "0"
+    turnover_usdt_30d_text: str = "0"
     market_data_available: bool = False
     orderbook_available: bool = False
     market_data_age_sec: float = 999999.0
@@ -123,6 +128,7 @@ class MarketContext:
     open_buy_count: int = 0
     open_sell_count: int = 0
     open_buy_exposure_usdt: float = 0.0
+    open_buy_exposure_usdt_text: str = "0"
     portfolio_cap_used_pct: float = 0.0
     free_reserve_ratio: float = 0.0
     portfolio_data_available: bool = False
@@ -141,6 +147,8 @@ class MarketContext:
     ai_realized_stop_rate: float = 0.0
     ai_realized_edge_ci_low: float = 0.0
     ai_realized_edge_ci_high: float = 0.0
+    ai_realized_net_pnl_quote_text: str = "0"
+    ai_realized_avg_pnl_quote_text: str = "0"
     ai_realized_edge_ci_low_text: str = "0"
     ai_realized_edge_ci_high_text: str = "0"
     ai_unresolved_fills: int = 0

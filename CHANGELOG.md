@@ -3,6 +3,22 @@
 All notable changes are documented here. Releases use Semantic Versioning; every
 section is dated and there is intentionally no `Unreleased` section.
 
+## [2.20.5] — 2026-07-21
+
+### Fixed
+- The supervisor AI context now accepts every exact financial text field
+  emitted by trade, portfolio and performance feature aggregation. This fixes
+  executor startup failing before order recovery with an unexpected
+  `net_realized_pnl_30d_text` constructor argument.
+- A schema contract test now requires every aggregated feature field to exist
+  in `MarketContext`, preventing the same class of drift from recurring.
+
+### Safety
+- The change does not enable AI order control: AI remains subject to its
+  configured SHADOW/APPLY policy and Risk Manager remains authoritative.
+- Restoring executor startup also restores authoritative REST reconciliation
+  of nonterminal order intents and notification-only User Data Stream health.
+
 ## [2.20.4] — 2026-07-21
 
 ### Fixed
