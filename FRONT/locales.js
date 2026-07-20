@@ -10,7 +10,7 @@
     trading_risk: "Trading / Risk", free_usdt: "Free USDT", reserve_usdt: "USDT reserve", cap_order: "CAP / order", cap_portfolio: "CAP / portfolio", cap_symbol: "CAP / symbol", risk_state: "Risk state", block_reasons: "Block reasons", cooldown: "Cooldown", reconciliation: "Reconciliation delta", order_summary: "Open / cancelled / pending", canary_cycles: "Exact canary cycles", last_order: "Last order",
     positions: "Positions and protection", symbol: "Symbol", quantity: "Qty", average: "Average", price: "Price", value: "Value", unrealized: "Unrealized PnL", drawdown: "Drawdown", protection: "OCO / TP / STOP / gap-watchdog", ai_quality: "AI / data quality", context_age: "Context age", decision_db: "Decision DB", usage_log: "Usage log", budget_today: "Budget today", api_errors: "Recent API errors", accepted_rejected: "Accepted / rejected", ai_vs_baseline: "AI vs baseline",
     chart_temperature: "Temperature (24h)", chart_cpu: "CPU, % (24h)", chart_memory: "Memory, GiB (24h)", trading_24h: "Trading (24h)", trades_24h: "Trades (24h)", sell_volume_24h: "Sell volume (24h)", fees_24h: "Fees (24h)", portfolio_change_24h: "Portfolio value change (24h)", net_24h: "Net earnings (24h)", total_value: "Approx. total value", balances: "Account balances", hide_small: "Hide < 1 USDT", asset: "Asset", free: "Free", locked: "Locked", total: "Total", price_usdt: "Price, USDT", value_usdt: "Value, USDT", open_orders: "Open orders", pair: "Pair", side: "Side", type: "Type", stop: "Stop", executed: "Executed", remaining: "Remaining", status: "Status", created: "Created", filled_orders: "Realized orders (24h)", time: "Time", amount: "Amount", commission: "Commission", logs: "Sanitized bot logs", archive: "archive",
-    loading: "loading…", ok: "ok", no_data: "no data", unavailable: "unavailable", no: "none", no_positions: "No position data", no_open_orders: "No open orders", no_filled_orders: "No realized orders in the last 24 hours", no_export: "no export", unvalued: "unvalued", hidden_assets: "Small assets hidden", unvalued_assets: "Without USDT valuation", enabled: "enabled", disabled: "disabled", stale: "STALE", online_state: "online", error: "error", api_error: "API error", confirm: "Confirm: {action} AI advisor?", enable: "enable", disable: "disable", unable_ai: "Unable to change AI", updated: "updated", free_word: "free", used: "used", mounted: "mounted", not_mounted: "not mounted", read_only: "RO", no_mount: "no mount", warning: "WARNING", no_rag: "none", no_equity_data: "No equity data", no_balance: "Balance unavailable", positive_balances: "No positive balances", no_recent_fills: "No realized orders in the last 24 hours", version: "Version", type: "Type", created: "Created", api_ok: "API ok", current: "current", assets_in_equity: "Assets in calculation", infrastructure: "Infrastructure / host", host_platform: "Platform", github_update_current: "GitHub: current", github_update_available: "GitHub: update available", github_update_unavailable: "GitHub: unavailable"
+    loading: "loading…", ok: "ok", no_data: "no data", unavailable: "unavailable", no: "none", no_positions: "No position data", no_open_orders: "No open orders", no_filled_orders: "No realized orders in the last 24 hours", no_export: "no export", unvalued: "unvalued", hidden_assets: "Small assets hidden", unvalued_assets: "Without USDT valuation", enabled: "enabled", disabled: "disabled", stale: "STALE", online_state: "online", error: "error", api_error: "API error", confirm: "Confirm: {action} AI advisor?", enable: "enable", disable: "disable", unable_ai: "Unable to change AI", updated: "updated", free_word: "free", used: "used", mounted: "mounted", not_mounted: "not mounted", read_only: "RO", no_mount: "no mount", warning: "WARNING", no_rag: "none", no_equity_data: "No equity data", no_balance: "Balance unavailable", positive_balances: "No positive balances", no_recent_fills: "No realized orders in the last 24 hours", version: "Version", type: "Type", created: "Created", api_ok: "API ok", current: "current", assets_in_equity: "Assets in calculation", infrastructure: "Infrastructure / host", host_platform: "Platform", user_stream: "User Data Stream", github_update_current: "GitHub: current", github_update_available: "GitHub: update available", github_update_unavailable: "GitHub: unavailable"
   };
 
   const translations = {
@@ -101,6 +101,21 @@
   Object.assign(translations.et, {fifo_pnl_24h:"Realiseeritud FIFO PnL (24 h)", cashflow_pnl_24h:"Tehingute rahavoog (24 h)"});
   Object.assign(translations.fi, {fifo_pnl_24h:"Realisoitu FIFO PnL (24 h)", cashflow_pnl_24h:"Kauppojen kassavirta (24 h)"});
   Object.assign(translations.da, {fifo_pnl_24h:"Realiseret FIFO PnL (24 t)", cashflow_pnl_24h:"Handelscashflow (24 t)"});
+  Object.assign(translations.en, {user_stream:"User Data Stream"});
+  Object.assign(translations.ru, {user_stream:"Поток событий аккаунта"});
+  Object.assign(translations.zh, {user_stream:"用户数据流"});
+  Object.assign(translations.es, {user_stream:"Flujo de datos de usuario"});
+  Object.assign(translations.de, {user_stream:"Benutzerdatenstrom"});
+  Object.assign(translations.fr, {user_stream:"Flux de données utilisateur"});
+  Object.assign(translations.it, {user_stream:"Flusso dati utente"});
+  Object.assign(translations.kk, {user_stream:"Пайдаланушы деректер ағыны"});
+  Object.assign(translations.uk, {user_stream:"Потік даних користувача"});
+  Object.assign(translations.ko, {user_stream:"사용자 데이터 스트림"});
+  Object.assign(translations.ja, {user_stream:"ユーザーデータストリーム"});
+  Object.assign(translations.pt, {user_stream:"Fluxo de dados do utilizador"});
+  Object.assign(translations.et, {user_stream:"Kasutaja andmevoog"});
+  Object.assign(translations.fi, {user_stream:"Käyttäjän tietovirta"});
+  Object.assign(translations.da, {user_stream:"Brugerdatastrøm"});
 
   const labels = [
     ["en", "English"], ["ru", "Русский"], ["zh", "中文"], ["es", "Español"], ["de", "Deutsch"], ["fr", "Français"],

@@ -120,6 +120,8 @@ from ladder_dragon.execution.executor_planning import (
     guarded_sell_levels,
     guarded_sell_levels_decimal,
     plan_sell_order_decimal,
+    buy_candidates_decimal,
+    plan_buy_order_decimal,
 )
 from ladder_dragon.execution.executor_planning import plan_buy_order
 from ladder_dragon.execution.executor_protection import (
@@ -954,6 +956,25 @@ def fmt_qty_sym(symbol: str, q: float) -> str:
     dec = _decimals_from_step(step)
     return f"{q:.{dec}f}"
 
+
+def _round_price_exact(symbol: str, value: object) -> Decimal:
+    """Round a BUY price on the exchange tick without a float conversion."""
+    filters = symbol_filters.get(symbol) or pull_filters(symbol)
+    tick = filters.get("tickSizeExact", filters.get("tickSize"))
+    return round_step(value, tick, "floor")
+
+
+def _round_qty_exact(symbol: str, value: object) -> Decimal:
+    """Round a quantity down on the exchange step without binary floats."""
+    filters = symbol_filters.get(symbol) or pull_filters(symbol)
+    step = filters.get("stepSizeExact", filters.get("stepSize"))
+    return round_step(value, step, "floor")
+
+
+def _filter_decimal(symbol: str, exact_name: str, legacy_name: str) -> Decimal:
+    filters = symbol_filters.get(symbol) or pull_filters(symbol)
+    return Decimal(str(filters.get(exact_name, filters.get(legacy_name))))
+
 def dedup_ladder(symbol: str, ladder_prices: List[float], now_price: float) -> List[float]:
     try:
         tick = float(symbol_filters[symbol]["tickSize"])
@@ -1683,7 +1704,7 @@ def _pick_ladder_aligned_oco_prices(symbol: str,
 
 def maybe_place_buys(symbol: str,
                      ladder_prices: List[float],
-                     cap_per_order_usdt: float,
+                     cap_per_order_usdt: object,
                      *,
                      min_order_usdt: Optional[float] = None,
                      cap_floor_usdt: Optional[float] = None,
@@ -1714,12 +1735,23 @@ def maybe_place_buys(symbol: str,
         return []
     get_symbol_assets(symbol)
     bals = get_balances()
-    reserve = max(0.0, getenv_float("RISK_RESERVE_USDT", 0.0))
-    usdt_free = max(0.0, float(bals.get("USDT", {}).get("free", 0.0)) - reserve)
+    reserve = max(
+        Decimal("0"),
+        _cap_decimal("RISK_RESERVE_USDT", os.getenv("RISK_RESERVE_USDT", "0")),
+    )
+    usdt_free = max(
+        Decimal("0"),
+        Decimal(str(bals.get("USDT", {}).get("free", 0))) - reserve,
+    )
+    cap_exact = _cap_decimal("per-order CAP", cap_per_order_usdt)
 
     # Free-USDT threshold gate.
-    if cap_floor_usdt is not None and usdt_free < float(cap_floor_usdt):
-        log(f"[CAP-FLOOR] free≈{usdt_free:.2f} < {float(cap_floor_usdt):.2f}; skip BUY this cycle")
+    floor_exact = (
+        _cap_decimal("CAP floor", cap_floor_usdt)
+        if cap_floor_usdt is not None else None
+    )
+    if floor_exact is not None and usdt_free < floor_exact:
+        log(f"[CAP-FLOOR] free≈{usdt_free:.2f} < {floor_exact:.2f}; skip BUY this cycle")
         return []
 
     if usdt_free <= 0:
@@ -1727,11 +1759,11 @@ def maybe_place_buys(symbol: str,
 
     pull_filters(symbol)
     placed_ids: List[int] = []
-    now = get_price(symbol)
+    now = Decimal(str(get_price(symbol)))
 
     # Prepare the limit and deduplication set.
     allowed_new: Optional[int] = None
-    existing_buy_prices: set[float] = set()
+    existing_buy_prices: set[Decimal] = set()
     if enforce_limit and (target_buy_per_symbol is not None):
         try:
             open_orders = list_open_orders(symbol) or []
@@ -1741,11 +1773,11 @@ def maybe_place_buys(symbol: str,
                 f"{type(exc).__name__}"
             )
             return []
-        existing_buy_prices = existing_prices(
+        existing_buy_prices = existing_prices_decimal(
             open_orders,
             side="BUY",
             now_price=now,
-            round_price=lambda value: round_price(symbol, value),
+            round_price=lambda value: _round_price_exact(symbol, value),
         )
         existing_cnt = len(existing_buy_prices)
         allowed_new = max(0, int(target_buy_per_symbol) - existing_cnt)
@@ -1753,17 +1785,17 @@ def maybe_place_buys(symbol: str,
         if allowed_new <= 0:
             return []
 
-    candidates = buy_candidates(
-        ladder_prices,
+    candidates = buy_candidates_decimal(
+        [Decimal(str(value)) for value in ladder_prices],
         now_price=now,
         occupied_prices=existing_buy_prices,
-        round_price=lambda value: round_price(symbol, value),
+        round_price=lambda value: _round_price_exact(symbol, value),
         limit=allowed_new if enforce_limit else None,
     )
 
     total_slots = len(candidates)
     if total_slots <= 0:
-        now = get_price(symbol)
+        now = Decimal(str(get_price(symbol)))
         log(f"[BUY-NONE] {symbol} нет уровней ниже рынка (now≈{fmt_price_sym(symbol, now)}). "
             f"Проверь --ladder-prices и режим reduce-only.")
         return []
@@ -1776,7 +1808,7 @@ def maybe_place_buys(symbol: str,
         if usdt_free <= 0:
             break
         remaining_slots = max(1, total_slots - idx + 1)
-        local_cap = min(cap_per_order_usdt, usdt_free / remaining_slots)
+        local_cap = min(cap_exact, usdt_free / Decimal(remaining_slots))
         use_all_remaining = effective_remainder_policy(
             requested=use_remainder_in_last and idx == total_slots,
             live_mode=live_mode,
@@ -1786,18 +1818,22 @@ def maybe_place_buys(symbol: str,
 
         dbg(f"[DYN-CAP] {symbol} slot {idx}/{total_slots} p≈{fmt_price_sym(symbol, p)} "
             f"local_cap≈{local_cap:.2f} free≈{usdt_free:.2f}")
-        pr = round_price(symbol, p)
-        planned = plan_buy_order(
+        planned = plan_buy_order_decimal(
             p,
             free_quote=usdt_free,
-            cap_per_order=cap_per_order_usdt,
+            cap_per_order=cap_exact,
             remaining_slots=remaining_slots,
             use_all_remaining=use_all_remaining,
-            min_order_notional=None,
-            min_quantity=min_qty(symbol, 0),
-            min_notional=min_notional(symbol, pr),
-            round_price=lambda value: round_price(symbol, value),
-            round_quantity=lambda value: round_qty(symbol, value),
+            min_order_notional=(
+                _cap_decimal("minimum order", min_order_usdt)
+                if min_order_usdt is not None else None
+            ),
+            min_quantity=_filter_decimal(symbol, "minQtyExact", "minQty"),
+            min_notional=_filter_decimal(
+                symbol, "minNotionalExact", "minNotional"
+            ),
+            round_price=lambda value: _round_price_exact(symbol, value),
+            round_quantity=lambda value: _round_qty_exact(symbol, value),
         )
         if planned is None:
             continue
@@ -1806,19 +1842,17 @@ def maybe_place_buys(symbol: str,
         # This catches future planning regressions as well as remainder flags.
         exchange_notional = _cap_decimal(
             "exchange BUY notional",
-            Decimal(str(pr)) * Decimal(str(qty)),
+            pr * qty,
         )
-        if exchange_notional > _cap_decimal(
-            "per-order CAP", cap_per_order_usdt
-        ):
+        if exchange_notional > cap_exact:
             log(
                 f"[CAP-HARD-BLOCK] {symbol} exchange={exchange_notional} "
-                f"> limit={cap_per_order_usdt:.8f}"
+                f"> limit={cap_exact:.8f}"
             )
             continue
-        if (min_order_usdt is not None) and (cost < float(min_order_usdt)):
+        if (min_order_usdt is not None) and (cost < Decimal(str(min_order_usdt))):
             log(f"[MIN-ORDER] skip BUY {fmt_qty_sym(symbol, qty)} @ {fmt_price_sym(symbol, pr)} "
-                f"(≈{cost:.2f} USDT < {float(min_order_usdt):.2f})")
+                f"(≈{cost:.2f} USDT < {Decimal(str(min_order_usdt)):.2f})")
             continue
 
         try:
@@ -1835,7 +1869,7 @@ def maybe_place_buys(symbol: str,
                 oid = int(j.get("orderId"))
                 placed_ids.append(oid)
                 # Subtract the quote spend at pr from free.
-                usdt_free = max(0.0, usdt_free - planned.notional)
+                usdt_free = max(Decimal("0"), usdt_free - planned.notional)
                 # Deduplicate by the already rounded price.
                 existing_buy_prices.add(pr)
         except (requests.RequestException, RuntimeError, ValueError, OSError) as exc:
@@ -2190,7 +2224,10 @@ def main():
         log(status_message(int(args.loop_minutes * 60)))
 
         # BUY size comes from the environment (per-order cap) when supplied by supervisor.
-        cap = getenv_float("BOT_CAP_PER_ORDER", 50.0)
+        cap = _cap_decimal(
+            "BOT_CAP_PER_ORDER",
+            os.getenv("BOT_CAP_PER_ORDER", "50"),
+        )
 
         vwap_ratio: Optional[float] = None
         vwap_value: Optional[float] = None
@@ -2304,8 +2341,8 @@ def main():
             ladder_prices = dedup_ladder(symbol, ladder_prices, current_price)
 
         if bear_mode and args.bear_cap_scale is not None:
-            scale = clamp(float(args.bear_cap_scale), 0.0, 5.0)
-            if scale != 1.0:
+            scale = Decimal(str(clamp(float(args.bear_cap_scale), 0.0, 5.0)))
+            if scale != Decimal("1"):
                 cap *= scale
                 log(f"[BEAR] {symbol} cap scale {scale:.3f} → {cap:.2f} USDT")
 
@@ -2315,8 +2352,10 @@ def main():
             except (TypeError, ValueError, OverflowError):
                 discount_thr = 0.0
             if discount_thr > 0 and vwap_ratio <= (1.0 - discount_thr):
-                scale = clamp(float(args.buy_vwap_discount_scale), 0.1, 10.0)
-                if scale != 1.0:
+                scale = Decimal(
+                    str(clamp(float(args.buy_vwap_discount_scale), 0.1, 10.0))
+                )
+                if scale != Decimal("1"):
                     old_cap = cap
                     cap *= scale
                     log(
@@ -2329,15 +2368,15 @@ def main():
             clamped_cap = Decimal("0")
             cap_limits = {}
             log(f"[CAP-HARD-ERROR] {symbol} {exc}; BUY disabled")
-        if clamped_cap != Decimal(str(cap)):
+        if clamped_cap != cap:
             rendered = ",".join(
                 f"{name}={value}" for name, value in sorted(cap_limits.items())
             )
             log(
-                f"[CAP-HARD] {symbol} proposed={Decimal(str(cap))} "
+                f"[CAP-HARD] {symbol} proposed={cap} "
                 f"final={clamped_cap} limits={rendered}"
             )
-        cap = float(clamped_cap)
+        cap = clamped_cap
 
         use_remainder_in_last = effective_remainder_policy(
             requested=bool(args.use_remainder_in_last),

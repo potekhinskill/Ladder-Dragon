@@ -4,8 +4,8 @@
 
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
-# Keep requests optional instead of importing it into the shared module namespace.
 import psutil, shutil, json, os, socket, asyncio, subprocess, math, time, hmac, hashlib, secrets, threading, re, platform, shlex, ipaddress
+import requests
 from collections import defaultdict, deque
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
@@ -24,11 +24,6 @@ from ladder_dragon.ai.ai_control import (
 from ladder_dragon.execution.order_recovery import read_order_journal_telemetry
 from product_version import PRODUCT_NAME, __version__
 
-try:
-    import requests
-except Exception:
-    requests = None
-
 from ladder_dragon.execution.telegram_alerts import notify_binance_auth_error
 
 APP_TZ = ZoneInfo("Asia/Almaty")
@@ -36,9 +31,8 @@ BASE_DIR = Path(__file__).resolve().parent
 DATA_DIR = BASE_DIR / "data"
 DATA_DIR.mkdir(parents=True, exist_ok=True)
 HIST_FILE = DATA_DIR / "metrics.ndjson"
-SESSION = requests.Session() if requests else None
-if SESSION:
-    SESSION.headers.update({"User-Agent": "PiDashboard/1.0"})
+SESSION = requests.Session()
+SESSION.headers.update({"User-Agent": "PiDashboard/1.0"})
 BINANCE_BASE = os.getenv("BINANCE_API_BASE", "https://api.binance.com").rstrip("/")
 DASHBOARD_AUTH_TOKEN = os.getenv("DASHBOARD_AUTH_TOKEN", "")
 DASHBOARD_TRUST_PROXY_AUTH = os.getenv("DASHBOARD_TRUST_PROXY_AUTH", "0") == "1"
@@ -93,6 +87,19 @@ HOST_HEALTH_STATUS_FILE = Path(
         "DASHBOARD_HOST_HEALTH_STATUS_FILE",
         "/run/pi-watchdog/host-health.json",
     )
+)
+
+# External telemetry failures may degrade a widget, but programming errors
+# must still surface during tests instead of being hidden by a broad catch.
+_DATA_SOURCE_ERRORS = (
+    OSError,
+    sqlite3.Error,
+    requests.RequestException,
+    RuntimeError,
+    ValueError,
+    TypeError,
+    KeyError,
+    ArithmeticError,
 )
 
 @asynccontextmanager
@@ -232,6 +239,57 @@ def _runtime_heartbeat_snapshot() -> Dict[str, object]:
     }
 
 
+def _user_stream_snapshot(runtime: Dict[str, object]) -> Dict[str, object]:
+    """Read only sanitized worker snapshots stored beside the heartbeat."""
+    symbols = runtime.get("symbols")
+    if not isinstance(symbols, list):
+        symbols = []
+    rows = []
+    for raw_symbol in symbols:
+        symbol = str(raw_symbol).strip().upper()
+        if not re.fullmatch(r"[A-Z0-9]{1,20}", symbol):
+            continue
+        path = AI_RUNTIME_STATUS_FILE.parent / f"user_stream_{symbol}.json"
+        try:
+            payload = json.loads(path.read_text(encoding="utf-8"))
+            if not isinstance(payload, dict):
+                raise ValueError("stream health payload is not an object")
+            stat = path.stat()
+            rows.append({
+                "symbol": symbol,
+                "available": True,
+                "state": str(payload.get("state") or "unknown"),
+                "age_sec": max(0, int(time.time() - stat.st_mtime)),
+                "order_events": int(payload.get("order_events") or 0),
+                "duplicates": int(payload.get("duplicates") or 0),
+                "reconnects": int(payload.get("reconnects") or 0),
+                "last_error": (
+                    str(payload.get("last_error"))
+                    if payload.get("last_error") else None
+                ),
+                "last_event_at": payload.get("last_event_at"),
+                "last_order_event_at": payload.get("last_order_event_at"),
+            })
+        except (OSError, ValueError, TypeError, json.JSONDecodeError):
+            rows.append({
+                "symbol": symbol,
+                "available": False,
+                "state": "not_configured_or_not_started",
+                "age_sec": None,
+                "order_events": 0,
+                "duplicates": 0,
+                "reconnects": 0,
+                "last_error": None,
+                "last_event_at": None,
+                "last_order_event_at": None,
+            })
+    return {
+        "mode": "shadow_notification_only",
+        "rest_authoritative": True,
+        "streams": rows,
+    }
+
+
 def _runtime_data_path(runtime: Dict, name: str, fallback: str) -> Path:
     """Выбрать runtime-путь только когда это явно разрешено в dashboard env."""
     if DASHBOARD_FOLLOW_BOT_PATHS:
@@ -251,7 +309,7 @@ def _has_column(con: sqlite3.Connection, table: str, col: str) -> bool:
         cur = con.execute(f"PRAGMA table_info({table});")
         cols = [r["name"] for r in cur.fetchall()]
         return col in cols
-    except Exception:
+    except sqlite3.Error:
         return False
 
 def _ts_to_s(ts_val) -> int:
@@ -259,13 +317,13 @@ def _ts_to_s(ts_val) -> int:
     try:
         ts = int(ts_val)
         return ts // 1000 if ts > 10_000_000_000 else ts
-    except Exception:
+    except (TypeError, ValueError):
         return 0
 
 def _fee_pct_default() -> float:
     try:
         return float(os.getenv("BOT_FEE_PCT", "0.00075"))  # 0.075% по умолчанию (скидка BNB)
-    except Exception:
+    except (TypeError, ValueError):
         return 0.00075
 
 def _estimate_fee_quote(price: float, qty: float, fee_quote: float, fee_pct: float) -> float:
@@ -753,7 +811,7 @@ def trading_overview_snapshot() -> Dict[str, object]:
         if current is None:
             try:
                 current = price_now(symbol)
-            except Exception:
+            except _DATA_SOURCE_ERRORS:
                 current = None
         average = _average_entry_from_ledger(symbol)
         value = quantity * float(current) if current is not None else None
@@ -895,7 +953,7 @@ def trading_overview_snapshot() -> Dict[str, object]:
 def trading_overview():
     try:
         return JSONResponse(trading_overview_snapshot())
-    except Exception as exc:
+    except _DATA_SOURCE_ERRORS as exc:
         print(f"[DASHBOARD] TRADING_OVERVIEW_FAILED type={type(exc).__name__}", flush=True)
         return JSONResponse({"ok": False, "error": "TRADING_OVERVIEW_FAILED"}, status_code=503)
 
@@ -952,7 +1010,7 @@ def _approx_equity_now_from_db(rows: List[sqlite3.Row], symbols_list: Optional[L
             continue
         try:
             prices[a] = price_now(f"{a}USDT")
-        except Exception:
+        except _DATA_SOURCE_ERRORS:
             prices[a] = 0.0
 
     # Account for commissions paid in BNB, never below zero.
@@ -1029,7 +1087,7 @@ def equity_pnl_usdt(cutoff_s: int, rows: List[sqlite3.Row], fee_pct: float, symb
             if a == "USDT": continue
             sym = f"{a}USDT"
             try: p_now[a] = price_now(sym)
-            except Exception: p_now[a] = 0.0
+            except _DATA_SOURCE_ERRORS: p_now[a] = 0.0
 
         # Historical prices.
         p_then: Dict[str, float] = {"USDT": 1.0}
@@ -1037,7 +1095,7 @@ def equity_pnl_usdt(cutoff_s: int, rows: List[sqlite3.Row], fee_pct: float, symb
             if a == "USDT": continue
             sym = f"{a}USDT"
             try: p_then[a] = price_at(sym, cutoff_ms)
-            except Exception: p_then[a] = p_now.get(a, 0.0)
+            except _DATA_SOURCE_ERRORS: p_then[a] = p_now.get(a, 0.0)
 
         # Restrict current balances.
         q1 = {a: bals_now.get(a, 0.0) for a in assets}
@@ -1072,14 +1130,14 @@ def equity_pnl_usdt(cutoff_s: int, rows: List[sqlite3.Row], fee_pct: float, symb
             "fees_usdt": round(fees_usdt, 2),
             "equity_assets": sorted(list(set(assets))),
         }
-    except Exception:
+    except _DATA_SOURCE_ERRORS:
         # Fallback approximation.
         approx_now = _approx_equity_now_from_db(rows, symbols_list, fee_pct)
         p_now_local: Dict[str, float] = {}
         for a in dQ.keys():
             try:
                 p_now_local[a] = price_now(f"{a}USDT")
-            except Exception:
+            except _DATA_SOURCE_ERRORS:
                 p_now_local[a] = 0.0
         inv_delta = sum((p_now_local.get(a, 0.0) * dq) for a, dq in dQ.items())
         approx_pnl = delta_usdt + inv_delta - fees_usdt
@@ -1092,7 +1150,7 @@ def equity_pnl_usdt(cutoff_s: int, rows: List[sqlite3.Row], fee_pct: float, symb
         if (eq_then not in (None, 0)) and (equity_pct is None) and (eq_now is not None) and abs(eq_then) >= 10.0:
             try:
                 equity_pct = round((eq_now - eq_then) / eq_then * 100.0, 2)
-            except Exception:
+            except (ArithmeticError, TypeError, ValueError):
                 equity_pct = None
 
         return {
@@ -1129,7 +1187,7 @@ def read_temp_c():
     if rc==0 and "temp=" in out:
         try:
             return float(out.split("=",1)[1].split("'")[0])
-        except Exception:
+        except (IndexError, TypeError, ValueError):
             pass
     for p in ("/sys/class/thermal/thermal_zone0/temp","/sys/devices/virtual/thermal/thermal_zone0/temp"):
         try:
@@ -1137,7 +1195,7 @@ def read_temp_c():
                 v = f.read().strip()
                 val = float(v)/1000.0 if float(v)>200 else float(v)
                 return round(val,1)
-        except Exception:
+        except (OSError, TypeError, ValueError):
             continue
     return None
 
@@ -1159,7 +1217,7 @@ def _parse_throttled_raw(raw: str):
     try:
         hexstr = raw.split("0x",1)[1]
         val = int(hexstr,16)
-    except Exception:
+    except (IndexError, TypeError, ValueError):
         val = 0
     def b(n): return bool((val>>n)&1)
     return {
@@ -1196,7 +1254,7 @@ def network_ok():
     try:
         with socket.create_connection(("1.1.1.1",53), 0.5): pass
         return True
-    except Exception:
+    except (OSError, TimeoutError):
         return False
 
 def mounts_info():
@@ -1215,7 +1273,7 @@ def mounts_info():
             for part in psutil.disk_partitions(all=False):
                 if part.mountpoint in {"/", "/tmp", "/var/tmp", "/mnt/usb1"} or part.mountpoint == os.path.abspath(os.sep):
                     res.append({"mountpoint": part.mountpoint, "fs": part.fstype, "opts": part.opts})
-    except Exception:
+    except (OSError, ValueError, TypeError):
         pass
     return res
 
@@ -1235,7 +1293,7 @@ def fail2ban_bans(jail="sshd"):
             if "Currently banned" in line:
                 count = int(line.strip().split()[-1])
                 break
-    except Exception:
+    except (IndexError, TypeError, ValueError):
         pass
     return count
 
@@ -1308,7 +1366,7 @@ def _binance_latency_snapshot() -> Dict[str, object]:
         server_ms = payload.get("serverTime") if isinstance(payload, dict) else None
         offset_ms = round(float(server_ms) - time.time() * 1000, 1) if server_ms is not None else None
         return {"ok": True, "latency_ms": elapsed_ms, "offset_ms": offset_ms, "checked_at": now_str(), "error": None}
-    except Exception as exc:
+    except _DATA_SOURCE_ERRORS as exc:
         return {"ok": False, "latency_ms": None, "offset_ms": None, "checked_at": now_str(), "error": type(exc).__name__}
 
 
@@ -1408,7 +1466,7 @@ async def collect_once():
             HIST_FILE.replace(HIST_FILE.with_suffix(HIST_FILE.suffix + ".1"))
         with open(HIST_FILE, "a") as f:
             f.write(json.dumps(row, ensure_ascii=False) + "\n")
-    except Exception:
+    except (OSError, TypeError, ValueError):
         pass
 
 async def collector_loop():
@@ -1416,7 +1474,7 @@ async def collector_loop():
     while True:
         try:
             await collect_once()
-        except Exception:
+        except (OSError, ValueError, TypeError):
             pass
         await asyncio.sleep(60)
 
@@ -1433,7 +1491,7 @@ def _git_head_commit() -> Optional[str]:
         )
         value = result.stdout.strip()
         return value if re.fullmatch(r"[0-9a-f]{40}", value) else None
-    except Exception:
+    except (OSError, subprocess.SubprocessError):
         return None
 
 
@@ -1484,7 +1542,7 @@ def _github_update_snapshot() -> Dict[str, object]:
                     payload["remote_commit"] = remote_commit
                     payload["update_available"] = bool(current_commit and current_commit != remote_commit)
                     payload["remote_url"] = remote.get("html_url")
-        except Exception:
+        except (requests.RequestException, ValueError, TypeError, KeyError):
             payload["error"] = "GitHub update check failed"
 
     with _GITHUB_UPDATE_CACHE_LOCK:
@@ -1521,6 +1579,9 @@ def health():
                 "binance": _binance_latency_snapshot(),
                 "usb_backup": _usb_snapshot(),
                 "backup": _backup_snapshot(),
+                "user_stream": _user_stream_snapshot(
+                    _load_ai_runtime_status()
+                ),
             }
             _OPS_CACHE["ts"] = now_mono
             _OPS_CACHE["payload"] = ops
@@ -1568,7 +1629,7 @@ def account_balances():
     """Показать только балансы; торговые методы dashboard намеренно запрещены."""
     try:
         return JSONResponse(account_balances_snapshot())
-    except Exception as exc:
+    except _DATA_SOURCE_ERRORS as exc:
         print(f"[DASHBOARD] ACCOUNT_BALANCE_FAILED type={type(exc).__name__}", flush=True)
         fallback = _stale_binance_snapshot(
             _BALANCE_CACHE,
@@ -1588,7 +1649,7 @@ def account_open_orders():
     """Показать все открытые ордера через выделенный read-only API-ключ."""
     try:
         return JSONResponse(account_open_orders_snapshot())
-    except Exception as exc:
+    except _DATA_SOURCE_ERRORS as exc:
         print(f"[DASHBOARD] OPEN_ORDERS_FAILED type={type(exc).__name__}", flush=True)
         fallback = _stale_binance_snapshot(
             _OPEN_ORDERS_CACHE,
@@ -1614,7 +1675,7 @@ def history(hours: int = 24, points: int = 288):
                     obj = json.loads(line)
                     if obj.get("ts",0) >= cutoff:
                         rows.append(obj)
-                except Exception:
+                except (json.JSONDecodeError, TypeError, ValueError):
                     continue
     except FileNotFoundError:
         rows = []
@@ -2039,7 +2100,7 @@ def trades_symbols(hours: int = 168):
     cutoff = int(time.time()) - max(0, hours) * 3600 if hours > 0 else 0
     try:
         con, _ = _open_db()
-    except Exception as exc:
+    except (OSError, sqlite3.Error, RuntimeError, ValueError) as exc:
         print(f"[DASHBOARD] DB_OPEN_FAILED type={type(exc).__name__}", flush=True)
         return JSONResponse({"ok": False, "error": "DB_OPEN_FAILED"}, status_code=503)
     try:
@@ -2058,7 +2119,7 @@ def trades_symbols(hours: int = 168):
         return JSONResponse({"ok": True, "symbols": syms})
     finally:
         try: con.close()
-        except Exception: pass
+        except sqlite3.Error: pass
 
 # ---- trades summary & recent ------------------------------------------------------
 
@@ -2080,7 +2141,7 @@ def trades_summary(hours: int = 24, symbols: str = ""):
 
     try:
         con, path = _open_db()
-    except Exception as exc:
+    except (OSError, sqlite3.Error, RuntimeError, ValueError) as exc:
         print(f"[DASHBOARD] DB_OPEN_FAILED type={type(exc).__name__}", flush=True)
         return JSONResponse({"ok": False, "error": "DB_OPEN_FAILED"}, status_code=503)
 
@@ -2096,7 +2157,7 @@ def trades_summary(hours: int = 24, symbols: str = ""):
         if equity_pct is None and (equity_then not in (None, 0)) and (equity_pnl is not None) and abs(equity_then) >= 10.0:
             try:
                 equity_pct = round((equity_pnl / equity_then) * 100.0, 2)
-            except Exception:
+            except (ArithmeticError, TypeError, ValueError):
                 equity_pct = None
 
         return JSONResponse({
@@ -2122,7 +2183,7 @@ def trades_summary(hours: int = 24, symbols: str = ""):
         })
     finally:
         try: con.close()
-        except Exception: pass
+        except sqlite3.Error: pass
 
 @app.get("/api/trades/recent")
 def trades_recent(limit: int = 20, symbols: str = ""):
@@ -2130,7 +2191,7 @@ def trades_recent(limit: int = 20, symbols: str = ""):
     syms = [s.strip().upper() for s in symbols.split(",") if s.strip()] or None
     try:
         con, path = _open_db()
-    except Exception as exc:
+    except (OSError, sqlite3.Error, RuntimeError, ValueError) as exc:
         print(f"[DASHBOARD] DB_OPEN_FAILED type={type(exc).__name__}", flush=True)
         return JSONResponse({"ok": False, "error": "DB_OPEN_FAILED"}, status_code=503)
     try:
@@ -2156,7 +2217,7 @@ def trades_recent(limit: int = 20, symbols: str = ""):
         return JSONResponse({"ok": True, "rows": rows})
     finally:
         try: con.close()
-        except Exception: pass
+        except sqlite3.Error: pass
 
 # ---- Filled orders (24h) for dashboard -------------------------------------------
 
@@ -2173,7 +2234,7 @@ def _select_filled_orders(hours: int, syms: Optional[List[str]], limit: int) -> 
     con = None
     try:
         con, _ = _open_db()
-    except Exception:
+    except (OSError, sqlite3.Error, RuntimeError, ValueError):
         return []
 
     try:
@@ -2220,7 +2281,7 @@ def _select_filled_orders(hours: int, syms: Optional[List[str]], limit: int) -> 
     finally:
         try:
             if con: con.close()
-        except Exception:
+        except sqlite3.Error:
             pass
 
 @app.get("/api/trades/filled")

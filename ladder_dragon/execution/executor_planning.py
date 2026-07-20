@@ -31,7 +31,7 @@ class PlannedOrder:
 
 @dataclass(frozen=True)
 class DecimalPlannedOrder:
-    """Exact monetary plan used by the LIVE holdings SELL path."""
+    """Exact monetary plan shared by LIVE BUY and holdings SELL paths."""
 
     price: Decimal
     quantity: Decimal
@@ -72,6 +72,69 @@ def existing_prices_decimal(
             continue
         result.add(round_price(price))
     return result
+
+
+def buy_candidates_decimal(
+    ladder_prices: Sequence[Decimal],
+    *,
+    now_price: Decimal,
+    occupied_prices: set[Decimal],
+    round_price: DecimalRoundValue,
+    limit: Optional[int],
+) -> list[Decimal]:
+    """Select exact BUY levels below market without binary-float keys."""
+    candidates = [
+        price
+        for price in ladder_prices
+        if price > 0
+        and price < now_price
+        and round_price(price) not in occupied_prices
+    ]
+    return candidates[:limit] if limit is not None else candidates
+
+
+def plan_buy_order_decimal(
+    price: Decimal,
+    *,
+    free_quote: Decimal,
+    cap_per_order: Decimal,
+    remaining_slots: int,
+    use_all_remaining: bool,
+    min_order_notional: Optional[Decimal],
+    min_quantity: Decimal,
+    min_notional: Decimal,
+    round_price: DecimalRoundValue,
+    round_quantity: DecimalRoundValue,
+) -> Optional[DecimalPlannedOrder]:
+    """Plan a BUY exactly and retain CAP after exchange-step rounding."""
+    rounded_price = round_price(price)
+    if rounded_price <= 0 or free_quote <= 0 or cap_per_order < 0:
+        return None
+    local_cap = min(
+        cap_per_order,
+        free_quote / Decimal(max(1, remaining_slots)),
+    )
+    if use_all_remaining:
+        local_cap = free_quote
+    quantity = round_quantity(local_cap / rounded_price)
+    if quantity < min_quantity:
+        quantity = min_quantity
+    if quantity * rounded_price < min_notional:
+        needed = round_quantity(max(min_notional / rounded_price, min_quantity))
+        available_cap = free_quote if use_all_remaining else local_cap
+        if needed * rounded_price > available_cap:
+            return None
+        quantity = needed
+    if quantity * rounded_price > free_quote:
+        quantity = round_quantity(free_quote / rounded_price)
+    if quantity <= 0:
+        return None
+    order = DecimalPlannedOrder(rounded_price, quantity)
+    if not use_all_remaining and order.notional > cap_per_order:
+        return None
+    if min_order_notional is not None and order.notional < min_order_notional:
+        return None
+    return order
 
 
 def guarded_sell_levels_decimal(

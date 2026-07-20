@@ -35,6 +35,7 @@ class MarketEvent:
     cancelled_order_ids: tuple[str, ...] = ()
     event_type: str = "depthUpdate"
     exchange_order_updates: tuple[dict, ...] = ()
+    received_ts_ms: int | None = None
 
 
 @dataclass
@@ -216,10 +217,16 @@ def load_jsonl_archive(path: str | Path) -> list[MarketEvent]:
                     current_levels(bids, True),
                     current_levels(asks, False),
                     event_type="depthSnapshot",
+                    received_ts_ms=int(row.get("_received_at_ms", 0)) or None,
                 ))
                 continue
 
-            if event_type == "depthUpdate" or "b" in row or "a" in row:
+            is_depth_diff = event_type == "depthUpdate" or (
+                "U" in row
+                and "u" in row
+                and ("b" in row or "a" in row)
+            )
+            if is_depth_diff:
                 if last_update_id is None:
                     raise ValueError(
                         f"depth diff before snapshot at line {line_number}"
@@ -245,6 +252,7 @@ def load_jsonl_archive(path: str | Path) -> list[MarketEvent]:
                     current_levels(bids, True),
                     current_levels(asks, False),
                     event_type="depthUpdate",
+                    received_ts_ms=int(row.get("_received_at_ms", 0)) or None,
                 ))
                 continue
 
@@ -284,6 +292,7 @@ def load_jsonl_archive(path: str | Path) -> list[MarketEvent]:
                 tuple(str(item) for item in row.get("cancelled_order_ids", [])),
                 event_type or "normalized",
                 updates,
+                int(row.get("_received_at_ms", 0)) or None,
             ))
     return sorted(events, key=lambda event: event.ts_ms)
 
@@ -322,6 +331,7 @@ class ReplayCalibration:
     partial_fill_ratio: Decimal
     latency_ms_p95: int
     market_impact_bps: Decimal
+    latency_source: str = "execution_report"
 
     def as_dict(self) -> dict[str, object]:
         return {
@@ -342,16 +352,18 @@ class ReplayCalibration:
                 "partial_fill_ratio": format(self.partial_fill_ratio, "f"),
                 "latency_ms_p95": self.latency_ms_p95,
                 "market_impact_bps": format(self.market_impact_bps, "f"),
+                "latency_source": self.latency_source,
             },
         }
 
     @classmethod
     def from_dict(cls, payload: Mapping[str, Any]) -> "ReplayCalibration":
         params = payload.get("parameters")
-        if int(payload.get("schema_version", 0)) != 1 or not isinstance(params, Mapping):
+        schema_version = int(payload.get("schema_version", 0))
+        if schema_version not in {1, 2} or not isinstance(params, Mapping):
             raise ValueError("unsupported replay calibration schema")
         return cls(
-            schema_version=1,
+            schema_version=schema_version,
             archive_sha256=str(payload["archive_sha256"]),
             first_ts_ms=int(payload["first_ts_ms"]),
             last_ts_ms=int(payload["last_ts_ms"]),
@@ -367,6 +379,9 @@ class ReplayCalibration:
             partial_fill_ratio=Decimal(str(params["partial_fill_ratio"])),
             latency_ms_p95=int(params["latency_ms_p95"]),
             market_impact_bps=Decimal(str(params["market_impact_bps"])),
+            latency_source=str(
+                params.get("latency_source", "execution_report")
+            ),
         )
 
 
@@ -385,10 +400,17 @@ def calibrate_market_events(
     participation: list[Decimal] = []
     partials: list[Decimal] = []
     latencies: list[int] = []
+    receive_latencies: list[int] = []
     impacts: list[Decimal] = []
     trade_count = 0
     book_events = 0
     for event in rows:
+        if (
+            event.received_ts_ms is not None
+            and event.received_ts_ms >= event.ts_ms
+            and event.ts_ms > 0
+        ):
+            receive_latencies.append(event.received_ts_ms - event.ts_ms)
         if event.bids and event.asks:
             bid = event.bids[0]
             ask = event.asks[0]
@@ -424,10 +446,14 @@ def calibrate_market_events(
         reasons.append(f"book samples {book_events} < {min_book_events}")
     if trade_count < min_trades:
         reasons.append(f"trade samples {trade_count} < {min_trades}")
-    if not partials or not latencies:
-        reasons.append("executionReport samples unavailable")
+    latency_source = "execution_report"
+    if not latencies:
+        latencies = receive_latencies
+        latency_source = "public_event_receive"
+    if not latencies:
+        reasons.append("latency samples unavailable")
     return ReplayCalibration(
-        schema_version=1,
+        schema_version=2,
         archive_sha256=source_sha256,
         first_ts_ms=min(event.ts_ms for event in rows),
         last_ts_ms=max(event.ts_ms for event in rows),
@@ -443,6 +469,7 @@ def calibrate_market_events(
         partial_fill_ratio=_quantile(partials, 1, 4) if partials else Decimal("0"),
         latency_ms_p95=int(_quantile([Decimal(value) for value in latencies], 95, 100)),
         market_impact_bps=_quantile(impacts, 3, 4),
+        latency_source=latency_source,
     )
 
 

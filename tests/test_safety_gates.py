@@ -406,11 +406,11 @@ def test_worker_blocks_oversized_plan_before_exchange_mutation(monkeypatch):
     monkeypatch.setattr(worker, "get_price", lambda symbol: 100.0)
     monkeypatch.setattr(
         worker,
-        "plan_buy_order",
+        "plan_buy_order_decimal",
         lambda *args, **kwargs: SimpleNamespace(
-            price=90.0,
-            quantity=0.2,
-            notional=18.0,
+            price=Decimal("90"),
+            quantity=Decimal("0.2"),
+            notional=Decimal("18"),
         ),
     )
     monkeypatch.setattr(

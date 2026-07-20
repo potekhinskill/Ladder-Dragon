@@ -48,6 +48,35 @@ def test_health_exposes_product_version_and_changelog(monkeypatch):
     assert payload["changelog_url"] == "/CHANGELOG.md"
 
 
+def test_user_stream_health_is_sanitized_and_rest_authoritative(
+    tmp_path, monkeypatch
+):
+    status = tmp_path / "ai_status.json"
+    stream = tmp_path / "user_stream_SOLUSDT.json"
+    stream.write_text(json.dumps({
+        "state": "connected",
+        "order_events": 3,
+        "duplicates": 1,
+        "reconnects": 2,
+        "last_error": None,
+        "last_event_at": 100.0,
+        "last_order_event_at": 99.0,
+    }), encoding="utf-8")
+    monkeypatch.setenv("AI_RUNTIME_STATUS_FILE", str(status))
+    module = load_dashboard(monkeypatch)
+
+    payload = module._user_stream_snapshot({"symbols": ["SOLUSDT"]})
+
+    assert payload["rest_authoritative"] is True
+    assert payload["mode"] == "shadow_notification_only"
+    row = payload["streams"][0]
+    assert row["state"] == "connected"
+    assert row["order_events"] == 3
+    assert row["duplicates"] == 1
+    assert row["reconnects"] == 2
+    assert "api" not in json.dumps(payload).lower()
+
+
 def test_throttling_uses_fresh_sanitized_watchdog_probe(tmp_path, monkeypatch):
     status = tmp_path / "host-health.json"
     status.write_text(

@@ -3,6 +3,42 @@
 All notable changes are documented here. Releases use Semantic Versioning; every
 section is dated and there is intentionally no `Unreleased` section.
 
+## [2.12.0] — 2026-07-20
+
+### Added
+- Added a public-only Binance Spot depth recorder that combines an official
+  REST snapshot with contiguous 100 ms diff-depth and aggregate-trade streams.
+  Archives and sanitized metadata are source-hashed and published atomically.
+- Added User Data Stream health to the dashboard for every configured symbol,
+  including connection age, event counts, reconnects and sanitized errors.
+  The UI explicitly retains authenticated REST as the authoritative source.
+
+### Changed
+- BUY ladder planning and its final CAP boundary now use exact `Decimal`
+  quantities, prices, notional values, free balance and remaining budget.
+  Exchange-step rounding cannot lift an order above the operator, risk-safe or
+  per-symbol CAP.
+- Replay calibration schema 2 records whether latency comes from execution
+  reports or public event receive timing. Public transit latency is identified
+  as a proxy rather than presented as exchange order acknowledgement latency.
+- Removed the remaining broad `except Exception` handlers from the dashboard's
+  telemetry, database and read-only Binance boundaries; programming errors now
+  remain visible while known external-data failures still degrade safely.
+
+### Security
+- Public depth recording never reads API credentials and aborts on a missing
+  snapshot bridge, an invalid book, or any subsequent update-ID gap.
+
+### Verified
+- Added exact post-rounding BUY-CAP, depth continuity, archive provenance,
+  calibration latency-source and sanitized dashboard stream-state regressions.
+- A public SOLUSDT network smoke bridged the official snapshot to contiguous
+  depth updates, retained an official aggregate trade and produced an eligible
+  schema-2 calibration with `public_event_receive` latency.
+- Python compilation and the complete local suite pass: 369 tests; dependency
+  auditing reports no known vulnerabilities and the tracked-secret scan finds
+  no high-confidence secret.
+
 ## [2.11.0] — 2026-07-20
 
 ### Added

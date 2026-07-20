@@ -18,10 +18,12 @@ from ladder_dragon.execution.executor_orders import (
 )
 from ladder_dragon.execution.executor_planning import (
     buy_candidates,
+    buy_candidates_decimal,
     existing_prices_decimal,
     guarded_sell_levels_decimal,
     guarded_sell_levels,
     plan_buy_order,
+    plan_buy_order_decimal,
     plan_sell_order_decimal,
     plan_sell_order,
 )
@@ -693,3 +695,35 @@ def test_decimal_holdings_planner_never_oversells_or_duplicates_ticks():
     assert planned is not None
     assert planned.quantity == quantity_left
     assert planned.notional == Decimal("9.50611200000000")
+
+
+def test_decimal_buy_planner_keeps_rounded_notional_under_cap():
+    tick = Decimal("0.01")
+    step = Decimal("0.001")
+    round_price = lambda value: (value // tick) * tick
+    round_quantity = lambda value: (value // step) * step
+    levels = buy_candidates_decimal(
+        [Decimal("76.519"), Decimal("77")],
+        now_price=Decimal("76.80"),
+        occupied_prices=set(),
+        round_price=round_price,
+        limit=1,
+    )
+    assert levels == [Decimal("76.519")]
+    planned = plan_buy_order_decimal(
+        levels[0],
+        free_quote=Decimal("31.09070973"),
+        cap_per_order=Decimal("9.62"),
+        remaining_slots=1,
+        use_all_remaining=False,
+        min_order_notional=Decimal("5"),
+        min_quantity=Decimal("0.001"),
+        min_notional=Decimal("5"),
+        round_price=round_price,
+        round_quantity=round_quantity,
+    )
+    assert planned is not None
+    assert planned.price == Decimal("76.51")
+    assert planned.quantity == Decimal("0.125")
+    assert planned.notional == Decimal("9.56375")
+    assert planned.notional <= Decimal("9.62")

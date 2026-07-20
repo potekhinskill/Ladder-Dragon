@@ -17,7 +17,7 @@ Binance Spot. It builds BUY/SELL grids, uses ATR/EMA/VWAP/ADX regimes, manages
 OCO protection, and records trading statistics in SQLite. Production secrets,
 real backups, and private parameters are never committed.
 
-Current product version: **2.11.0**. The single version source is
+Current product version: **2.12.0**. The single version source is
 `product_version.py`; releases follow [Semantic Versioning](https://semver.org/).
 Project contact: [LinkedIn](https://www.linkedin.com/in/ypotekhin/).
 
@@ -33,7 +33,7 @@ Project contact: [LinkedIn](https://www.linkedin.com/in/ypotekhin/).
 ## Project status
 
 Ladder Dragon is an actively developed, experimental trading system. Version
-**2.11.0** is the current prepared release. `main` is the only long-lived branch;
+**2.12.0** is the current prepared release. `main` is the only long-lived branch;
 feature branches use the `ladderdragon/*` namespace.
 
 DRY and Binance Spot Testnet are the supported starting modes. Mainnet LIVE is
@@ -295,18 +295,31 @@ enable holdings SELL or OCO management.
 
 ### Archived order-book calibration
 
-`bin.calibrate_replay` consumes normalized or raw Binance JSONL snapshots,
-contiguous depth diffs, public trades, and execution reports. It rejects depth
-sequence gaps and produces a source-hashed calibration report. A report is
-eligible only after its configured minimum book/trade sample counts and real
-execution-report samples are present. `bin.backtest --calibration` refuses an
-ineligible report and verifies the archive hash when `--archive` is supplied.
+Binance's [official downloadable Spot public data](https://github.com/binance/binance-public-data)
+contains trades and candles, but not historical Spot order-book depth.
+`bin.record_depth_archive` therefore
+captures a public REST depth snapshot followed by the official 100 ms diff-depth
+and aggregate-trade streams. It requires a bridge to the snapshot update ID,
+rejects every later sequence gap, writes no credentials, and publishes both the
+JSONL archive and its SHA-256 metadata atomically.
+
+`bin.calibrate_replay` consumes that archive, normalized fixtures, or archives
+that also contain execution reports. It produces source-hashed estimates for
+spread, slippage, participation, partial fill, latency and market impact.
+Reports label latency as either `public_event_receive` or `execution_report`:
+public event transit is a measurable proxy, not an order-acknowledgement latency
+claim. `bin.backtest --calibration` refuses an ineligible report and verifies
+the archive hash when `--archive` is supplied.
 
 ```bash
-PYTHONPATH=. python -m bin.calibrate_replay data/SOLUSDT-events.jsonl \
+PYTHONPATH=. python -m bin.record_depth_archive \
+  --symbol SOLUSDT \
+  --output .runtime/SOLUSDT-depth.jsonl \
+  --duration-sec 3600
+PYTHONPATH=. python -m bin.calibrate_replay .runtime/SOLUSDT-depth.jsonl \
   --output .runtime/SOLUSDT-calibration.json
 PYTHONPATH=. python -m bin.backtest data/SOLUSDT-1m.csv \
-  --archive data/SOLUSDT-events.jsonl \
+  --archive .runtime/SOLUSDT-depth.jsonl \
   --calibration .runtime/SOLUSDT-calibration.json \
   --output .runtime/SOLUSDT-backtest.json
 
@@ -333,7 +346,8 @@ sanitized health snapshot under `/run/mybot/`. An `executionReport` can wake an
 order check early, but it cannot place, cancel, protect, close, or account for an
 order. Authenticated REST reconciliation remains authoritative and continues on
 its normal interval when events are duplicated, late, missing, or the stream is
-disconnected.
+disconnected. The dashboard shows per-symbol connection state, snapshot age,
+order-event count, duplicate count, reconnects and sanitized error class.
 
 ## Dashboard
 
