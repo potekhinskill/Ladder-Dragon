@@ -18,6 +18,7 @@ class CompatibilityAudit:
     legacy_paths: tuple[str, ...]
     missing_exact_trades: int
     missing_exact_inventory: int
+    legacy_commission_rows: int
 
     def as_dict(self) -> dict[str, object]:
         return {
@@ -26,6 +27,7 @@ class CompatibilityAudit:
             "legacy_paths": list(self.legacy_paths),
             "missing_exact_trades": self.missing_exact_trades,
             "missing_exact_inventory": self.missing_exact_inventory,
+            "legacy_commission_rows": self.legacy_commission_rows,
         }
 
 
@@ -49,6 +51,7 @@ def audit_compatibility(
         reasons.append("legacy configuration or service paths still exist")
     missing_trades = 0
     missing_inventory = 0
+    legacy_commissions = 0
     if not database.is_file():
         reasons.append("statistics database is unavailable")
     else:
@@ -70,6 +73,18 @@ def audit_compatibility(
                 ).fetchone()[0])
                 if missing_trades:
                     reasons.append("trade rows are missing exact-text values")
+                if "commission_value_status" not in trade_columns:
+                    reasons.append("trade commission provenance is unavailable")
+                else:
+                    legacy_commissions = int(connection.execute(
+                        "SELECT COUNT(*) FROM trades WHERE "
+                        "LOWER(COALESCE(commission_value_status,'')) "
+                        "IN ('','legacy','unpriced')"
+                    ).fetchone()[0])
+                    if legacy_commissions:
+                        reasons.append(
+                            "trade rows still have legacy or unpriced commissions"
+                        )
             if not required_inventory <= inventory_columns:
                 reasons.append("inventory exact-text schema is incomplete")
             else:
@@ -87,4 +102,5 @@ def audit_compatibility(
         legacy_paths=present_paths,
         missing_exact_trades=missing_trades,
         missing_exact_inventory=missing_inventory,
+        legacy_commission_rows=legacy_commissions,
     )

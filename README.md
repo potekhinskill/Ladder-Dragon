@@ -17,7 +17,7 @@ Binance Spot. It builds BUY/SELL grids, uses ATR/EMA/VWAP/ADX regimes, manages
 OCO protection, and records trading statistics in SQLite. Production secrets,
 real backups, and private parameters are never committed.
 
-Current product version: **2.16.0**. The single version source is
+Current product version: **2.17.0**. The single version source is
 `product_version.py`; releases follow [Semantic Versioning](https://semver.org/).
 Project contact: [LinkedIn](https://www.linkedin.com/in/ypotekhin/).
 
@@ -33,7 +33,7 @@ Project contact: [LinkedIn](https://www.linkedin.com/in/ypotekhin/).
 ## Project status
 
 Ladder Dragon is an actively developed, experimental trading system. Version
-**2.16.0** is the current prepared release. `main` is the only long-lived branch;
+**2.17.0** is the current prepared release. `main` is the only long-lived branch;
 feature branches use the `ladderdragon/*` namespace.
 
 DRY and Binance Spot Testnet are the supported starting modes. Mainnet LIVE is
@@ -390,6 +390,21 @@ order-event count, duplicate and out-of-order counts, connection attempts,
 reconnects and sanitized error class. A
 snapshot older than `DASHBOARD_USER_STREAM_STALE_SEC` (180 seconds by default)
 is explicitly marked stale even if its last stored state said `connected`.
+Sanitized counters and the first observation time survive short executor
+sessions in `/run/mybot`; credentials, payloads and order details are never
+restored. After a real soak, run the read-only gate:
+
+```bash
+PYTHONPATH=. .venv/bin/python -m bin.audit_user_stream_soak \
+  --minimum-hours 24 \
+  --require-reconnect \
+  --require-order-event \
+  /run/mybot/user_stream_SOLUSDT.json
+```
+
+Exit status 2 means that duration, freshness or the requested operational drill
+evidence is still incomplete. Passing this gate does not promote WebSocket data
+to a source of truth; authenticated REST reconciliation remains authoritative.
 
 Existing holdings are never assigned an invented cost basis. A position without
 provable exchange history stays `legacy_unmanaged` with
@@ -453,8 +468,9 @@ the services, and waits for a fresh heartbeat.
   against multi-regime archives and measured `executionReport` latency;
 - expand multi-period walk-forward and production approval statistics;
 - continue migrating non-critical strategy indicators and telemetry away from
-  legacy float arithmetic; order, market and OCO adapters no longer convert
-  monetary values through `float`;
+  legacy float arithmetic; exact account balances, public execution prices,
+  CAP, order, market and OCO adapters no longer convert monetary decisions
+  through `float`;
 - retain only the four tested broad exception boundaries: panic fail-closed,
   gap-watchdog fail-closed, filled-BUY protection, and post-mutation Mainnet
   canary containment;

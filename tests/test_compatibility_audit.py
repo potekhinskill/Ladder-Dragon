@@ -11,8 +11,8 @@ def test_compatibility_audit_accepts_exact_database_without_legacy_paths(tmp_pat
     with sqlite3.connect(database) as connection:
         connection.execute(
             "INSERT INTO trades(symbol,side,price,qty,fee_quote,ts,"
-            "price_text,gross_qty,net_qty) "
-            "VALUES('SOLUSDT','BUY',75.1,0.1,0,1,'75.1','0.1','0.1')"
+            "price_text,gross_qty,net_qty,commission_value_status) "
+            "VALUES('SOLUSDT','BUY',75.1,0.1,0,1,'75.1','0.1','0.1','quote')"
         )
         connection.execute(
             "INSERT INTO inventory(symbol,qty,avg_cost,realized_pnl,"
@@ -24,6 +24,24 @@ def test_compatibility_audit_accepts_exact_database_without_legacy_paths(tmp_pat
 
     assert report.ready_for_major_removal is True
     assert report.reasons == ()
+    assert report.legacy_commission_rows == 0
+
+
+def test_compatibility_audit_blocks_legacy_commission_provenance(tmp_path):
+    database = tmp_path / "stats.db"
+    migrate(str(database))
+    with sqlite3.connect(database) as connection:
+        connection.execute(
+            "INSERT INTO trades(symbol,side,price,qty,fee_quote,ts,"
+            "price_text,gross_qty,net_qty,commission_value_status) "
+            "VALUES('SOLUSDT','BUY',75.1,0.1,0,1,'75.1','0.1','0.1','legacy')"
+        )
+
+    report = audit_compatibility(database)
+
+    assert report.ready_for_major_removal is False
+    assert report.legacy_commission_rows == 1
+    assert "legacy or unpriced commissions" in " ".join(report.reasons)
 
 
 def test_compatibility_audit_fails_closed_for_legacy_path_and_old_schema(tmp_path):

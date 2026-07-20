@@ -3,6 +3,33 @@
 All notable changes are documented here. Releases use Semantic Versioning; every
 section is dated and there is intentionally no `Unreleased` section.
 
+## [2.17.0] — 2026-07-20
+
+### Added
+- Added an exact positive `Decimal` public-price reader while retaining a float
+  compatibility view only for indicator consumers.
+- Added a read-only User Data Stream soak audit with optional reconnect and
+  order-event evidence gates.
+- Extended compatibility retirement auditing to block on legacy or unpriced
+  commission provenance and additional old Raspberry paths.
+
+### Changed
+- BUY planning, holdings management, emergency flatten and time-stop now use
+  the exact public-price reader at their financial boundaries.
+- AI portfolio exposure, reserve ratios, supervisor risk-safe CAP and LIVE
+  preflight exposure now use `Decimal` internally; numeric JSON fields remain
+  compatibility output only.
+- User Data Stream snapshots retain only sanitized cumulative counters across
+  short executor sessions. Dashboard telemetry now shows soak hours, sessions
+  and disconnects in addition to freshness and event counters.
+
+### Safety
+- SQLite REAL columns, legacy migration paths and unverified SOL cost basis are
+  deliberately not removed or fabricated. Their removal/import remains gated
+  by deployed-host audits and exact exchange evidence.
+- REST reconciliation remains authoritative regardless of User Data Stream
+  soak status.
+
 ## [2.16.0] — 2026-07-20
 
 ### Added

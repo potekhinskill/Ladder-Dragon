@@ -18,6 +18,7 @@ from ladder_dragon.execution.execution_latency import (
     append_execution_latency_sample,
     load_execution_latencies,
 )
+from ladder_dragon.execution.user_stream_soak import audit_user_stream_soak
 
 
 def execution_report(**overrides):
@@ -177,6 +178,76 @@ def test_observer_writes_sanitized_state_and_queues_order_event(tmp_path):
     assert "public-api-key" not in state_text
     assert "private-secret" not in state_text
     assert json.loads(state_text)["order_events"] == 1
+
+
+def test_observer_restores_only_sanitized_cumulative_soak_state(tmp_path):
+    path = tmp_path / "stream.json"
+    path.write_text(json.dumps({
+        "state": "connected",
+        "first_observed_at": 1000,
+        "reconnects": 2,
+        "connection_attempts": 3,
+        "sessions": 2,
+        "disconnects": 1,
+        "order_events": 4,
+        "duplicates": 1,
+        "out_of_order_events": 1,
+        "last_error": "must-not-be-restored",
+        "api_key": "must-not-be-read",
+    }))
+
+    observer = BinanceUserDataObserver(
+        api_key="key",
+        api_secret="secret",
+        rest_base_url="https://api.binance.com",
+        mailbox=OrderEventMailbox(),
+        logger=lambda message: None,
+        state_path=path,
+    )
+
+    state = observer.state()
+    assert state["state"] == "stopped"
+    assert state["first_observed_at"] == 1000
+    assert state["reconnects"] == 2
+    assert state["sessions"] == 2
+    assert state["order_events"] == 4
+    assert state["last_error"] is None
+    assert "api_key" not in state
+
+
+def test_user_stream_soak_audit_requires_duration_freshness_and_drills(
+    tmp_path,
+):
+    path = tmp_path / "stream.json"
+    path.write_text(json.dumps({
+        "state": "connected",
+        "first_observed_at": 1_000,
+        "sessions": 3,
+        "reconnects": 1,
+        "order_events": 2,
+    }))
+    path.touch()
+
+    ready = audit_user_stream_soak(
+        [path],
+        minimum_hours=24,
+        maximum_stale_sec=180,
+        require_reconnect=True,
+        require_order_event=True,
+        now=1_000 + 25 * 3600,
+    )
+    assert ready.ready is True
+    assert ready.as_dict()["rest_remains_authoritative"] is True
+
+    blocked = audit_user_stream_soak(
+        [path],
+        minimum_hours=48,
+        require_reconnect=True,
+        require_order_event=True,
+        now=1_000 + 25 * 3600,
+    )
+    assert blocked.ready is False
+    assert "soak duration" in " ".join(blocked.reasons)
 
 
 def test_out_of_order_event_only_wakes_authoritative_rest_reconciliation(tmp_path):

@@ -12,7 +12,12 @@ from ladder_dragon.execution.binance_transport import (
     BinanceTransport,
 )
 from ladder_dragon.execution.executor_config import build_executor_parser, validate_executor_args
-from ladder_dragon.execution.executor_market import get_balances, get_price, get_symbol_assets
+from ladder_dragon.execution.executor_market import (
+    get_balances,
+    get_price,
+    get_price_decimal,
+    get_symbol_assets,
+)
 from ladder_dragon.execution.executor_orders import (
     OrderDependencies, place_limit_order, place_market_order, place_oco_sell,
 )
@@ -278,8 +283,22 @@ def test_executor_market_fallbacks_and_asset_cache():
             return {"bidPrice": "99", "askPrice": "101"}
         raise AssertionError(path)
 
-    assert get_price("SOLUSDT", public_get=public_get, logger=lambda message: None) == 100
+    assert get_price_decimal(
+        "SOLUSDT", public_get=public_get, logger=lambda message: None
+    ) == Decimal("100")
+    assert get_price(
+        "SOLUSDT",
+        public_get=lambda *_args: {"price": "100.125"},
+        logger=lambda message: None,
+    ) == 100.125
     assert calls == ["/api/v3/ticker/price", "/api/v3/ticker/bookTicker"]
+
+    with pytest.raises(ValueError, match="finite and positive"):
+        get_price_decimal(
+            "SOLUSDT",
+            public_get=lambda *_args: {"price": "NaN"},
+            logger=lambda message: None,
+        )
 
     cache = {}
     assets = get_symbol_assets(

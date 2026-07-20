@@ -11,6 +11,7 @@ from ladder_dragon.ai.ai_advisor import (
     TokenUsage,
     estimate_usage_cost_usd,
     limit_cap_by_recommendation,
+    limit_cap_by_recommendation_decimal,
     token_prices,
     validate_recommendation,
 )
@@ -257,6 +258,9 @@ def test_schema_bounds_rationale_over_160_characters():
 def test_ai_cap_can_reduce_but_never_expand_risk_manager_cap():
     assert limit_cap_by_recommendation(40.0, 0.5) == 20.0
     assert limit_cap_by_recommendation(40.0, 1.25) == 40.0
+    assert limit_cap_by_recommendation_decimal(
+        "9.629230357428915089854829478", "0.33333333"
+    ) == Decimal("3.209743420378870505188559526")
 
 
 def test_deepseek_usage_is_logged_without_prompt_or_response(tmp_path):

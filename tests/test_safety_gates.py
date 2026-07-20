@@ -371,6 +371,7 @@ def test_holdings_sell_percent_filter_blocks_exchange_mutation(monkeypatch):
         worker, "get_balances", lambda: {"SOL": {"free": 1, "locked": 0}}
     )
     monkeypatch.setattr(worker, "get_price", lambda symbol: 100.0)
+    monkeypatch.setattr(worker, "get_price_exact", lambda symbol: Decimal("100"))
     monkeypatch.setattr(
         worker, "_public_get", lambda path, params=None: {"price": "100"}
     )
@@ -404,6 +405,7 @@ def test_worker_blocks_oversized_plan_before_exchange_mutation(monkeypatch):
         lambda: {"USDT": {"free": 100.0, "locked": 0.0}},
     )
     monkeypatch.setattr(worker, "get_price", lambda symbol: 100.0)
+    monkeypatch.setattr(worker, "get_price_exact", lambda symbol: Decimal("100"))
     monkeypatch.setattr(
         worker,
         "plan_buy_order_decimal",
@@ -449,6 +451,7 @@ def test_worker_blocks_buy_when_open_order_state_is_unavailable(monkeypatch):
         lambda: {"USDT": {"free": 100.0, "locked": 0.0}},
     )
     monkeypatch.setattr(worker, "get_price", lambda symbol: 100.0)
+    monkeypatch.setattr(worker, "get_price_exact", lambda symbol: Decimal("100"))
     monkeypatch.setattr(
         worker,
         "list_open_orders",
@@ -498,6 +501,7 @@ def test_worker_signal_stops_buy_loop_before_exchange_post(monkeypatch):
         lambda: {"USDT": {"free": 100.0, "locked": 0.0}},
     )
     monkeypatch.setattr(worker, "get_price", lambda symbol: 100.0)
+    monkeypatch.setattr(worker, "get_price_exact", lambda symbol: Decimal("100"))
     monkeypatch.setattr(
         worker,
         "place_limit_order",

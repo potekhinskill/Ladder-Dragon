@@ -422,8 +422,8 @@ def build_portfolio_features(
     *,
     open_orders: Iterable[Mapping[str, Any]],
     balances: Mapping[str, Mapping[str, Any]],
-    portfolio_cap_usdt: float,
-    reserve_usdt: float,
+    portfolio_cap_usdt: object,
+    reserve_usdt: object,
 ) -> PortfolioFeatures:
     orders = tuple(open_orders)
     buys = [
@@ -436,13 +436,22 @@ def build_portfolio_features(
         if str(order.get("symbol", "")).upper() == symbol.upper()
         and str(order.get("side", "")).upper() == "SELL"
     ]
-    def remaining_exposure(order: Mapping[str, Any]) -> float:
+    def remaining_exposure(order: Mapping[str, Any]) -> Decimal:
         remaining = max(
-            0.0,
-            float(order.get("origQty") or 0)
-            - float(order.get("executedQty") or 0),
+            ZERO,
+            _finite_decimal(
+                order.get("origQty") or 0,
+                field="open order quantity",
+            )
+            - _finite_decimal(
+                order.get("executedQty") or 0,
+                field="open order executed quantity",
+            ),
         )
-        return float(order.get("price") or 0) * remaining
+        return _finite_decimal(
+            order.get("price") or 0,
+            field="open order price",
+        ) * remaining
 
     exposure = sum(
         remaining_exposure(order)
@@ -453,19 +462,24 @@ def build_portfolio_features(
         for order in orders
         if str(order.get("side", "")).upper() == "BUY"
     )
-    free_usdt = float(balances.get("USDT", {}).get("free", 0) or 0)
+    cap_exact = _finite_decimal(portfolio_cap_usdt, field="portfolio CAP")
+    reserve_exact = _finite_decimal(reserve_usdt, field="reserve")
+    free_usdt = _finite_decimal(
+        balances.get("USDT", {}).get("free", 0) or 0,
+        field="free USDT",
+    )
     return PortfolioFeatures(
         portfolio_data_available=True,
         portfolio_data_age_sec=0.0,
         open_buy_count=len(buys),
         open_sell_count=len(sells),
-        open_buy_exposure_usdt=exposure,
+        open_buy_exposure_usdt=float(exposure),
         portfolio_cap_used_pct=(
-            total_buy_exposure / portfolio_cap_usdt
-            if portfolio_cap_usdt > 0 else 0.0
+            float(total_buy_exposure / cap_exact)
+            if cap_exact > 0 else 0.0
         ),
         free_reserve_ratio=(
-            free_usdt / reserve_usdt if reserve_usdt > 0 else 0.0
+            float(free_usdt / reserve_exact) if reserve_exact > 0 else 0.0
         ),
     )
 

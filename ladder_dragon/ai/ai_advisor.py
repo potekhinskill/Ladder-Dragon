@@ -483,6 +483,18 @@ def _strict_number(value: object, name: str) -> float:
     return result
 
 
+def _strict_decimal(value: object, name: str) -> Decimal:
+    if isinstance(value, bool):
+        raise ValueError(f"AI {name} must be a decimal number")
+    try:
+        result = Decimal(str(value))
+    except (ArithmeticError, TypeError, ValueError) as exc:
+        raise ValueError(f"AI {name} must be a decimal number") from exc
+    if not result.is_finite():
+        raise ValueError(f"AI {name} must be finite")
+    return result
+
+
 def parse_token_usage(envelope: object) -> TokenUsage:
     if not isinstance(envelope, dict) or not isinstance(envelope.get("usage"), dict):
         raise ValueError("AI response has no token usage")
@@ -559,10 +571,20 @@ def append_usage_event(
         handle.write(line)
 
 
-def limit_cap_by_recommendation(risk_safe_cap: float, cap_scale: float) -> float:
-    """Limit cap by recommendation."""
-    safe_cap = _strict_number(risk_safe_cap, "risk_safe_cap")
-    scale = _strict_number(cap_scale, "cap_scale")
+def limit_cap_by_recommendation_decimal(
+    risk_safe_cap: object,
+    cap_scale: object,
+) -> Decimal:
+    """Limit an exact risk-safe CAP without binary-float arithmetic."""
+    safe_cap = _strict_decimal(risk_safe_cap, "risk_safe_cap")
+    scale = _strict_decimal(cap_scale, "cap_scale")
     if safe_cap < 0 or scale <= 0:
         raise ValueError("AI CAP inputs must be non-negative and scale must be > 0")
     return min(safe_cap, safe_cap * scale)
+
+
+def limit_cap_by_recommendation(risk_safe_cap: float, cap_scale: float) -> float:
+    """Return the legacy numeric view of the exact CAP calculation."""
+    return float(
+        limit_cap_by_recommendation_decimal(risk_safe_cap, cap_scale)
+    )

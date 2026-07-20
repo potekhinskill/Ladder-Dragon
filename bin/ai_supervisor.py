@@ -28,7 +28,7 @@ from ladder_dragon.ai.ai_advisor import (
     AIAdvisor,
     AdvisorConfig,
     MarketContext,
-    limit_cap_by_recommendation,
+    limit_cap_by_recommendation_decimal,
 )
 from ladder_dragon.ai.ai_context import (
     AdvisorDecisionStore,
@@ -2025,14 +2025,23 @@ def run_for_symbol(symbol: str, args: argparse.Namespace) -> None:
         log(f"[ADAPT] {symbol} atr={atr_abs:.4f} atr/px={atr_pct*100:.3f}% -> DEV_BUY_PCT={dev_buy_eff:.4f} MIN_PROFIT_OVER_AVG={min_profit_eff:.4f}")
     # AI may only reduce an already safe CAP. Even if the model returns a
     # coefficient above 1, the Risk Manager calculation remains the upper bound.
-    risk_safe_cap = float(os.getenv("BOT_CAP_PER_ORDER", "0") or 0)
+    risk_safe_cap = _finite_decimal(
+        os.getenv("BOT_CAP_PER_ORDER", "0") or "0",
+        name="BOT_CAP_PER_ORDER",
+    )
     if risk_safe_cap > 0:
         # An explicit per-symbol budget takes priority over the global CAP and
         # prevents a correlated asset from consuming the remaining portfolio limit.
-        symbol_cap = float(os.getenv(f"RISK_SYMBOL_CAP_{symbol.upper()}", "0") or 0)
+        symbol_cap = _finite_decimal(
+            os.getenv(f"RISK_SYMBOL_CAP_{symbol.upper()}", "0") or "0",
+            name=f"RISK_SYMBOL_CAP_{symbol.upper()}",
+        )
         if symbol_cap > 0:
             risk_safe_cap = min(risk_safe_cap, symbol_cap)
-        advised_cap = limit_cap_by_recommendation(risk_safe_cap, ai_cap_scale)
+        advised_cap = limit_cap_by_recommendation_decimal(
+            risk_safe_cap,
+            ai_cap_scale,
+        )
         extra_env["BOT_CAP_PER_ORDER"] = f"{advised_cap:.8f}"
 
     # 8) Soft application of the mode to DEV_BUY_PCT and TP1
@@ -2222,21 +2231,30 @@ def _preflight_live(args: argparse.Namespace, symbols: List[str], limits: RiskLi
     """Handle preflight live."""
     limits.validate()
     stats_db = os.getenv("BOT_STATS_DB", "").strip()
-    cap = float(args.cap_ceil_usdt or os.getenv("BOT_CAP_PER_ORDER", "50"))
-    theoretical = cap * args.target_buy_per_symbol * len(symbols)
+    cap_exact = _finite_decimal(
+        args.cap_ceil_usdt or os.getenv("BOT_CAP_PER_ORDER", "50"),
+        name="preflight CAP",
+    )
+    theoretical = (
+        cap_exact
+        * Decimal(args.target_buy_per_symbol)
+        * Decimal(len(symbols))
+    )
     max_exposure = min(
         theoretical,
-        float(limits.portfolio_cap_usdt),
-        float(limits.daily_buy_cap_usdt),
-        float(limits.correlated_cap_usdt),
+        limits.portfolio_cap_usdt,
+        limits.daily_buy_cap_usdt,
+        limits.correlated_cap_usdt,
     )
     config = {
         "mode": "LIVE" if args.live else "DRY",
         "venue": "testnet" if args.testnet else "mainnet",
         "symbols": symbols,
         "target_buys_per_symbol": args.target_buy_per_symbol,
-        "cap_per_order_usdt": cap,
-        "max_new_buy_exposure_usdt": round(max_exposure, 2),
+        "cap_per_order_usdt": float(cap_exact),
+        "max_new_buy_exposure_usdt": float(
+            max_exposure.quantize(Decimal("0.01"))
+        ),
         "portfolio_cap_usdt": str(limits.portfolio_cap_usdt),
         "daily_buy_cap_usdt": str(limits.daily_buy_cap_usdt),
         "correlated_cap_usdt": str(limits.correlated_cap_usdt),

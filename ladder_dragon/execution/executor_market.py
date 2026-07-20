@@ -22,18 +22,25 @@ MARKET_READ_ERRORS = (
 )
 
 
-def get_price(
+def _price_decimal(value: object, *, field: str) -> Decimal:
+    price = Decimal(str(value))
+    if not price.is_finite() or price <= 0:
+        raise ValueError(f"{field} must be finite and positive")
+    return price
+
+
+def get_price_decimal(
     symbol: str,
     *,
     public_get: Callable[..., Any],
     logger: Callable[[str], None],
-) -> float:
-    """Return price."""
+) -> Decimal:
+    """Return an exact positive market price with conservative fallbacks."""
     try:
         payload = public_get("/api/v3/ticker/price", {"symbol": symbol})
         if isinstance(payload, dict) and "price" in payload:
-            return float(payload["price"])
-        return float(payload[0]["price"])
+            return _price_decimal(payload["price"], field="ticker price")
+        return _price_decimal(payload[0]["price"], field="ticker price")
     except MARKET_READ_ERRORS as ticker_error:
         logger(
             f"[ERR] {symbol}: {ticker_error} at /ticker/price, "
@@ -41,16 +48,30 @@ def get_price(
         )
         try:
             payload = public_get("/api/v3/ticker/bookTicker", {"symbol": symbol})
-            bid = float(payload["bidPrice"])
-            ask = float(payload["askPrice"])
-            return (bid + ask) / 2.0 if ask > 0 else bid
+            bid = _price_decimal(payload["bidPrice"], field="best bid")
+            ask = _price_decimal(payload["askPrice"], field="best ask")
+            if ask < bid:
+                raise ValueError("best ask is below best bid")
+            return (bid + ask) / Decimal("2")
         except MARKET_READ_ERRORS as book_error:
             logger(
                 f"[ERR] {symbol}: {book_error} at /ticker/bookTicker, "
                 "trying /avgPrice"
             )
             payload = public_get("/api/v3/avgPrice", {"symbol": symbol})
-            return float(payload["price"])
+            return _price_decimal(payload["price"], field="average price")
+
+
+def get_price(
+    symbol: str,
+    *,
+    public_get: Callable[..., Any],
+    logger: Callable[[str], None],
+) -> float:
+    """Return a float compatibility view for indicator-only consumers."""
+    return float(
+        get_price_decimal(symbol, public_get=public_get, logger=logger)
+    )
 
 
 def get_balances(

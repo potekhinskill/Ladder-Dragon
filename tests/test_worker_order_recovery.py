@@ -1,5 +1,6 @@
 import importlib.util
 import sqlite3
+from decimal import Decimal
 from pathlib import Path
 
 import pytest
@@ -46,6 +47,7 @@ def configure_worker(worker, tmp_path, monkeypatch):
         worker, "_public_get", lambda path, params=None: {"price": "100"}
     )
     monkeypatch.setattr(worker, "get_price", lambda symbol: 76.0)
+    monkeypatch.setattr(worker, "get_price_exact", lambda symbol: Decimal("76"))
     return worker._ORDER_JOURNAL
 
 

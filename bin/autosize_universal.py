@@ -50,6 +50,7 @@ from ladder_dragon.execution.binance_transport import (
 )
 from ladder_dragon.execution.executor_market import get_balances as market_get_balances
 from ladder_dragon.execution.executor_market import get_price as market_get_price
+from ladder_dragon.execution.executor_market import get_price_decimal as market_get_price_decimal
 from ladder_dragon.execution.executor_market import get_symbol_assets as market_get_symbol_assets
 from ladder_dragon.execution.executor_orders import OrderDependencies
 from ladder_dragon.execution.executor_orders import place_limit_order as orders_place_limit_order
@@ -999,6 +1000,15 @@ def min_notional(symbol: str, p: float) -> float:
 def get_price(symbol: str) -> float:
     return market_get_price(symbol, public_get=_public_get, logger=log)
 
+
+def get_price_exact(symbol: str) -> Decimal:
+    """Return the authoritative exact price for financial decisions."""
+    return market_get_price_decimal(
+        symbol,
+        public_get=_public_get,
+        logger=log,
+    )
+
 def get_balances() -> Dict[str, Dict[str, Decimal]]:
     return market_get_balances(signed_request=_signed_request)
 
@@ -1727,7 +1737,7 @@ def maybe_place_buys(symbol: str,
 
     pull_filters(symbol)
     placed_ids: List[int] = []
-    now = Decimal(str(get_price(symbol)))
+    now = get_price_exact(symbol)
 
     # Prepare the limit and deduplication set.
     allowed_new: Optional[int] = None
@@ -1763,7 +1773,7 @@ def maybe_place_buys(symbol: str,
 
     total_slots = len(candidates)
     if total_slots <= 0:
-        now = Decimal(str(get_price(symbol)))
+        now = get_price_exact(symbol)
         log(f"[BUY-NONE] {symbol} has no levels below market (now≈{fmt_price_sym(symbol, now)}). "
             f"Check --ladder-prices and reduce-only mode.")
         return []
@@ -1882,7 +1892,7 @@ def maybe_place_sells_from_holdings(
         if panic_qty > 0:
             try:
                 result = place_market_order(symbol, "SELL", panic_qty,
-                                            ref_price=get_price(symbol),
+                                            ref_price=get_price_exact(symbol),
                                             filters=symbol_filters.get(symbol))
                 log(f"[PANIC-FLATTEN] {symbol} qty≈{fmt_qty_sym(symbol, panic_qty)} result={bool(result)}")
                 return 1 if result else 0
@@ -1897,7 +1907,7 @@ def maybe_place_sells_from_holdings(
     # or price a SELL for legacy inventory.
     average_entry = Decimal(str(verified_average))
 
-    now = Decimal(str(get_price(symbol)))
+    now = get_price_exact(symbol)
     decimal_levels = [Decimal(str(price)) for price in ladder_prices]
     if not any(price > now for price in decimal_levels):
         dbg(f"[HOLD-SELL] {symbol} no upper ladder above market (now≈{fmt_price_sym(symbol, now)})")
@@ -2642,7 +2652,7 @@ def main():
                     if qty_exp > 0:
                         log(f"[TIME-STOP] {symbol} order={oid} age>{max_hold_min:g}m; flattening")
                         place_market_order(symbol, "SELL", qty_exp,
-                                           ref_price=get_price(symbol),
+                                           ref_price=get_price_exact(symbol),
                                            filters=symbol_filters.get(symbol))
                     _trip_execution_halt("max holding time exceeded", symbol=symbol, order_id=oid)
                     placed_ids.remove(oid)

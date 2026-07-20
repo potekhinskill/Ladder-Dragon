@@ -262,6 +262,13 @@ def _user_stream_snapshot(runtime: Dict[str, object]) -> Dict[str, object]:
             age_sec = max(0, int(time.time() - stat.st_mtime))
             reported_state = str(payload.get("state") or "unknown")
             stale = age_sec > DASHBOARD_USER_STREAM_STALE_SEC
+            first_observed_at = float(
+                payload.get("first_observed_at") or 0
+            )
+            soak_hours = (
+                max(0.0, time.time() - first_observed_at) / 3600
+                if first_observed_at > 0 else 0.0
+            )
             rows.append({
                 "symbol": symbol,
                 "available": True,
@@ -279,6 +286,9 @@ def _user_stream_snapshot(runtime: Dict[str, object]) -> Dict[str, object]:
                 "connection_attempts": int(
                     payload.get("connection_attempts") or 0
                 ),
+                "sessions": int(payload.get("sessions") or 0),
+                "disconnects": int(payload.get("disconnects") or 0),
+                "soak_hours": round(soak_hours, 2),
                 "last_error": (
                     str(payload.get("last_error"))
                     if payload.get("last_error") else None
@@ -300,6 +310,9 @@ def _user_stream_snapshot(runtime: Dict[str, object]) -> Dict[str, object]:
                 "out_of_order_events": 0,
                 "reconnects": 0,
                 "connection_attempts": 0,
+                "sessions": 0,
+                "disconnects": 0,
+                "soak_hours": 0.0,
                 "last_error": None,
                 "last_event_at": None,
                 "last_order_event_at": None,

@@ -146,3 +146,22 @@ def test_executor_balance_reader_has_no_float_calls():
         and node.func.id == "float"
     ]
     assert calls == []
+
+
+def test_executor_exact_price_reader_has_no_float_calls():
+    tree = ast.parse(Path(
+        "ladder_dragon/execution/executor_market.py"
+    ).read_text())
+    target = next(
+        node for node in tree.body
+        if isinstance(node, ast.FunctionDef)
+        and node.name == "get_price_decimal"
+    )
+    calls = [
+        node.lineno
+        for node in ast.walk(target)
+        if isinstance(node, ast.Call)
+        and isinstance(node.func, ast.Name)
+        and node.func.id == "float"
+    ]
+    assert calls == []

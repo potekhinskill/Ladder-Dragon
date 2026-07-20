@@ -29,6 +29,15 @@ from websocket import WebSocketException, WebSocketTimeoutException, create_conn
 
 TERMINAL_EVENT_TYPES = {"eventStreamTerminated", "serverShutdown"}
 ORDER_EVENT_TYPE = "executionReport"
+PERSISTED_COUNTERS = (
+    "reconnects",
+    "connection_attempts",
+    "sessions",
+    "disconnects",
+    "order_events",
+    "duplicates",
+    "out_of_order_events",
+)
 
 
 @dataclass(frozen=True)
@@ -200,19 +209,64 @@ class BinanceUserDataObserver:
         self._stop = threading.Event()
         self._thread: Optional[threading.Thread] = None
         self._connection: Optional[object] = None
+        now = time.time()
         self._state = {
             "state": "stopped",
+            "first_observed_at": now,
             "connected_at": None,
             "last_event_at": None,
             "last_order_event_at": None,
             "reconnects": 0,
             "connection_attempts": 0,
+            "sessions": 0,
+            "disconnects": 0,
             "order_events": 0,
             "duplicates": 0,
             "out_of_order_events": 0,
             "last_exchange_event_time_ms": None,
             "last_error": None,
         }
+        self._restore_sanitized_state()
+
+    def _restore_sanitized_state(self) -> None:
+        """Carry non-secret soak counters across short executor sessions."""
+        path = self.state_path
+        if path is None:
+            return
+        try:
+            if not path.is_file() or path.stat().st_size > 65_536:
+                return
+            payload = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, UnicodeError, json.JSONDecodeError):
+            return
+        if not isinstance(payload, Mapping):
+            return
+        for name in PERSISTED_COUNTERS:
+            try:
+                value = int(payload.get(name, 0) or 0)
+            except (TypeError, ValueError, OverflowError):
+                continue
+            if 0 <= value <= 2**63 - 1:
+                self._state[name] = value
+        for name in (
+            "first_observed_at",
+            "last_event_at",
+            "last_order_event_at",
+        ):
+            try:
+                value = float(payload.get(name))
+            except (TypeError, ValueError, OverflowError):
+                continue
+            if value > 0 and value == value and value != float("inf"):
+                self._state[name] = value
+        try:
+            exchange_time = int(
+                payload.get("last_exchange_event_time_ms") or 0
+            )
+        except (TypeError, ValueError, OverflowError):
+            exchange_time = 0
+        if exchange_time > 0:
+            self._state["last_exchange_event_time_ms"] = exchange_time
 
     def start(self) -> None:
         if self._thread is not None and self._thread.is_alive():
@@ -256,6 +310,7 @@ class BinanceUserDataObserver:
                 self._set_state(
                     state="reconnecting",
                     reconnects=int(self._state["reconnects"]) + 1,
+                    disconnects=int(self._state["disconnects"]) + 1,
                     last_error=type(exc).__name__,
                 )
                 self.logger(
@@ -293,6 +348,7 @@ class BinanceUserDataObserver:
         self._set_state(
             state="connected",
             connected_at=time.time(),
+            sessions=int(self._state["sessions"]) + 1,
             last_error=None,
         )
         self.logger("[USER-STREAM] connected in SHADOW notification mode")

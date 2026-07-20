@@ -3,6 +3,7 @@ import json
 import os
 from pathlib import Path
 import sqlite3
+import time
 from datetime import datetime, timedelta, timezone
 
 import pytest
@@ -62,6 +63,9 @@ def test_user_stream_health_is_sanitized_and_rest_authoritative(
         "out_of_order_events": 4,
         "reconnects": 2,
         "connection_attempts": 5,
+        "sessions": 4,
+        "disconnects": 2,
+        "first_observed_at": time.time() - 7200,
         "last_error": None,
         "last_event_at": 100.0,
         "last_order_event_at": 99.0,
@@ -81,6 +85,9 @@ def test_user_stream_health_is_sanitized_and_rest_authoritative(
     assert row["out_of_order_events"] == 4
     assert row["reconnects"] == 2
     assert row["connection_attempts"] == 5
+    assert row["sessions"] == 4
+    assert row["disconnects"] == 2
+    assert row["soak_hours"] >= 2
     assert "api" not in json.dumps(payload).lower()
 
 
