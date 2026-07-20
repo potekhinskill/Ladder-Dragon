@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: MIT
 # Copyright (c) 2026 IURII Potekhin
 # Purpose: implement the executor market component of the execution layer.
-"""Рыночные и аккаунтные чтения, используемые символьным исполнителем."""
+"""Ladder Dragon executor market support."""
 
 from __future__ import annotations
 
@@ -27,7 +27,7 @@ def get_price(
     public_get: Callable[..., Any],
     logger: Callable[[str], None],
 ) -> float:
-    """Получить цену через ticker → midpoint стакана → average-price fallback."""
+    """Return price."""
     try:
         payload = public_get("/api/v3/ticker/price", {"symbol": symbol})
         if isinstance(payload, dict) and "price" in payload:
@@ -56,7 +56,7 @@ def get_balances(
     *,
     signed_request: Callable[..., Any],
 ) -> Dict[str, Dict[str, float]]:
-    """Вернуть свободные и заблокированные балансы по каждому активу."""
+    """Return balances."""
     payload = signed_request("GET", "/api/v3/account")
     balances: Dict[str, Dict[str, float]] = {}
     for row in payload.get("balances", []):
@@ -73,7 +73,7 @@ def get_symbol_assets(
     exchange_info: Callable[[str], Any],
     cache: MutableMapping[str, Tuple[str, str]],
 ) -> Tuple[str, str]:
-    """Определить base/quote через exchangeInfo с консервативным fallback."""
+    """Return symbol assets."""
     normalized = symbol.upper()
     cached = cache.get(normalized)
     if cached is not None:

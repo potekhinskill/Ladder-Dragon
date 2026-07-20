@@ -144,45 +144,45 @@
   <header>
     <img class="brand-logo" src="/ladder-dragon-dashboard-icon.svg" alt="Ladder Dragon logo" width="34" height="34">
     <h1>Ladder Dragon</h1>
-    <span class="sub" id="subtitle">— автообновление 5 с · Asia/Almaty</span>
-    <span class="sub" id="product-version">Ladder Dragon — версия —</span>
-    <a class="version-link" id="changelog-link" href="/CHANGELOG.md" target="_blank" rel="noreferrer" data-i18n="changelog">Что изменено</a>
+    <span class="sub" id="subtitle">— refresh every 5 s · Asia/Almaty</span>
+    <span class="sub" id="product-version">Ladder Dragon — Version —</span>
+    <a class="version-link" id="changelog-link" href="/CHANGELOG.md" target="_blank" rel="noreferrer" data-i18n="changelog">What changed</a>
     <a class="github-update is-unavailable" id="github-update-status" title="GitHub update check" target="_blank" rel="noreferrer">GitHub: —</a>
-    <label class="language-picker"><span data-i18n="language">Язык</span><select id="language-select" aria-label="Язык"></select></label>
+    <label class="language-picker"><span data-i18n="language">Language</span><select id="language-select" aria-label="Language"></select></label>
   </header>
 
   <!-- KPI (three columns). -->
   <section class="grid-kpi">
     <!-- Temperature. -->
     <div class="card">
-      <div class="row"><div class="label" data-i18n="temperature">Температура</div><span id="temp-pill" class="pill ok">OK</span></div>
+      <div class="row"><div class="label" data-i18n="temperature">Temperature</div><span id="temp-pill" class="pill ok">OK</span></div>
       <div class="value" id="temp-val">— °C</div>
     </div>
 
     <!-- Memory. -->
     <div class="card">
-      <div class="row"><div class="label" data-i18n="memory">Память</div><div class="pct" id="mem-pct">—%</div></div>
-      <div class="value" id="mem-val">—/— ГиБ</div>
+      <div class="row"><div class="label" data-i18n="memory">Memory</div><div class="pct" id="mem-pct">—%</div></div>
+      <div class="value" id="mem-val">—/— GiB</div>
       <div class="progress mt"><div class="bar" id="mem-bar"></div></div>
     </div>
 
     <!-- Swap -->
     <div class="card">
       <div class="row"><div class="label" data-i18n="swap">Swap (zram)</div><div class="pct" id="swap-pct">—%</div></div>
-      <div class="value" id="swap-val">—/— ГиБ</div>
+      <div class="value" id="swap-val">—/— GiB</div>
       <div class="progress mt"><div class="bar" id="swap-bar"></div></div>
     </div>
 
     <!-- Disk /. -->
     <div class="card">
-      <div class="row"><div class="label" data-i18n="disk">Диск /</div><div class="pct" id="disk-pct">—%</div></div>
-      <div class="value" id="disk-val">—/— ГиБ</div>
+      <div class="row"><div class="label" data-i18n="disk">Disk /</div><div class="pct" id="disk-pct">—%</div></div>
+      <div class="value" id="disk-val">—/— GiB</div>
       <div class="progress mt"><div class="bar" id="disk-bar"></div></div>
     </div>
 
     <!-- Services. -->
     <div class="card">
-      <div class="row"><div class="label" data-i18n="services">Сервисы</div></div>
+      <div class="row"><div class="label" data-i18n="services">Services</div></div>
       <div class="row">
         <span class="dot" id="dot-bot" style="background:#888"></span>
         <span class="mono" style="flex:1">mybot.service</span>
@@ -197,7 +197,7 @@
 
     <!-- Network / mounts / system. -->
     <div class="card">
-      <div class="row"><div class="label" data-i18n="network_mounts">Сеть / Монты</div></div>
+      <div class="row"><div class="label" data-i18n="network_mounts">Network / mounts</div></div>
       <div class="row"><span class="dot" id="dot-net" style="background:#888"></span><span id="net-text" class="muted">—</span></div>
       <div class="row mono" id="mnt-root">/ —</div>
       <div class="row mono" id="mnt-tmp">/tmp —</div>
@@ -208,23 +208,23 @@
 
     <!-- AI advisor. -->
     <div class="card ai-card">
-      <div class="row"><div class="label" data-i18n="ai_advisor">AI-рекомендатель</div><div class="row" style="margin:0;gap:8px"><div class="pct" id="ai-state">—</div><button class="ai-toggle" id="ai-toggle" type="button" disabled aria-pressed="false" aria-label="AI выключен"><span class="switch-visual"></span><span class="switch-caption">AI</span></button></div></div>
+      <div class="row"><div class="label" data-i18n="ai_advisor">AI advisor</div><div class="row" style="margin:0;gap:8px"><div class="pct" id="ai-state">—</div><button class="ai-toggle" id="ai-toggle" type="button" disabled aria-pressed="false" aria-label="AI off"><span class="switch-visual"></span><span class="switch-caption">AI</span></button></div></div>
       <div class="ai-details">
-      <div class="row"><span data-i18n="mode">Режим</span><span class="mono" id="ai-mode">—</span></div>
-      <div class="row"><span data-i18n="venue">Контур</span><span class="mono" id="ai-venue">—</span></div>
-      <div class="row"><span data-i18n="model">Модель</span><span class="mono" id="ai-model">—</span></div>
+      <div class="row"><span data-i18n="mode">Mode</span><span class="mono" id="ai-mode">—</span></div>
+      <div class="row"><span data-i18n="venue">Venue</span><span class="mono" id="ai-venue">—</span></div>
+      <div class="row"><span data-i18n="model">Model</span><span class="mono" id="ai-model">—</span></div>
       <div class="row"><span data-i18n="decision_id">Decision ID</span><span class="mono" id="ai-decision-id">—</span></div>
-      <div class="row"><span data-i18n="latest_reason">Последняя причина</span><span class="mono" id="ai-rationale">—</span></div>
-      <div class="row"><span data-i18n="bot_connection">Связь с ботом</span><span id="ai-runtime">—</span></div>
-      <div class="row"><span data-i18n="applied">Решений применено</span><span id="ai-applied">—</span></div>
+      <div class="row"><span data-i18n="latest_reason">Latest reason</span><span class="mono" id="ai-rationale">—</span></div>
+      <div class="row"><span data-i18n="bot_connection">Bot connection</span><span id="ai-runtime">—</span></div>
+      <div class="row"><span data-i18n="applied">Decisions applied</span><span id="ai-applied">—</span></div>
       <div class="row"><span data-i18n="ai_edge">AI edge 1h</span><span id="ai-edge">—</span></div>
       <div class="row"><span data-i18n="rag_counts">RAG real / virtual / retrievals</span><span id="ai-rag">—</span></div>
-      <div class="row"><span data-i18n="recent_rag">Последние RAG-документы</span><span class="mono" id="ai-rag-recent">—</span></div>
-      <div class="row"><span data-i18n="closed_ai_pnl">Закрытый AI PnL</span><span id="ai-realized-pnl">—</span></div>
+      <div class="row"><span data-i18n="recent_rag">Recent RAG documents</span><span class="mono" id="ai-rag-recent">—</span></div>
+      <div class="row"><span data-i18n="closed_ai_pnl">Closed AI PnL</span><span id="ai-realized-pnl">—</span></div>
       <div class="row"><span data-i18n="unresolved">Unresolved fills</span><span id="ai-unresolved">—</span></div>
-      <div class="row"><span data-i18n="degraded">Причины DEGRADED</span><span class="mono" id="ai-degraded-reasons">—</span></div>
-      <div class="row"><span data-i18n="tokens_today">Токены сегодня</span><span id="ai-tokens">—</span></div>
-      <div class="row"><span data-i18n="cost_today">Стоимость сегодня</span><span id="ai-cost">—</span></div>
+      <div class="row"><span data-i18n="degraded">DEGRADED reasons</span><span class="mono" id="ai-degraded-reasons">—</span></div>
+      <div class="row"><span data-i18n="tokens_today">Tokens today</span><span id="ai-tokens">—</span></div>
+      <div class="row"><span data-i18n="cost_today">Cost today</span><span id="ai-cost">—</span></div>
       </div>
     </div>
   </section>
@@ -232,68 +232,68 @@
   <!-- Read-only operational monitoring for Raspberry, trading, and data quality. -->
   <section class="grid-monitor mt">
     <div class="card monitor-card">
-      <div class="monitor-title" data-i18n="infrastructure">Инфраструктура / host</div>
+      <div class="monitor-title" data-i18n="infrastructure">Infrastructure / host</div>
       <div class="monitor-grid">
         <div class="monitor-row"><span data-i18n="cpu_load">CPU load 1/5/15</span><span class="mono" id="ops-load">—</span></div>
         <div class="monitor-row"><span data-i18n="host_platform">Platform</span><span class="mono" id="ops-platform">—</span></div>
         <div class="monitor-row"><span data-i18n="heartbeat">mybot heartbeat</span><span id="ops-heartbeat">—</span></div>
-        <div class="monitor-row"><span data-i18n="last_restart">Последний restart</span><span id="ops-restart">—</span></div>
+        <div class="monitor-row"><span data-i18n="last_restart">Last restart</span><span id="ops-restart">—</span></div>
         <div class="monitor-row"><span data-i18n="ntp_offset">NTP / offset</span><span id="ops-ntp">—</span></div>
         <div class="monitor-row"><span data-i18n="binance_latency">Binance latency</span><span id="ops-binance-latency">—</span></div>
         <div class="monitor-row"><span data-i18n="throttling">Undervoltage/throttling</span><span id="ops-throttle">—</span></div>
         <div class="monitor-row"><span>Watchdog</span><span id="ops-watchdog">—</span></div>
         <div class="monitor-row"><span data-i18n="user_stream">User Data Stream</span><span id="ops-user-stream">—</span></div>
         <div class="monitor-row"><span data-i18n="usb_mount">/mnt/usb1</span><span id="ops-usb">—</span></div>
-        <div class="monitor-row"><span data-i18n="usb_free">Свободно USB</span><span id="ops-usb-free">—</span></div>
+        <div class="monitor-row"><span data-i18n="usb_free">Free USB</span><span id="ops-usb-free">—</span></div>
         <div class="monitor-row"><span data-i18n="root_free">Root disk free</span><span id="ops-root-free">—</span></div>
         <div class="monitor-row"><span data-i18n="backup_result">Backup result</span><span id="ops-backup">—</span></div>
-        <div class="monitor-row"><span data-i18n="last_backup">Последний backup</span><span id="ops-backup-age">—</span></div>
-        <div class="monitor-row"><span data-i18n="archive_size">Размер архива</span><span id="ops-backup-size">—</span></div>
-        <div class="monitor-row"><span data-i18n="backup_reason">Причина ошибки backup</span><span id="ops-backup-reason">—</span></div>
+        <div class="monitor-row"><span data-i18n="last_backup">Last backup</span><span id="ops-backup-age">—</span></div>
+        <div class="monitor-row"><span data-i18n="archive_size">Archive size</span><span id="ops-backup-size">—</span></div>
+        <div class="monitor-row"><span data-i18n="backup_reason">Backup error reason</span><span id="ops-backup-reason">—</span></div>
       </div>
     </div>
 
     <div class="card monitor-card">
-      <div class="row" style="margin-bottom:8px"><div class="monitor-title" style="margin:0" data-i18n="trading_risk">Торговый контур / Risk</div><span id="execution-banner" class="live-banner">—</span></div>
+      <div class="row" style="margin-bottom:8px"><div class="monitor-title" style="margin:0" data-i18n="trading_risk">Trading / Risk</div><span id="execution-banner" class="live-banner">—</span></div>
       <div class="monitor-grid">
-        <div class="monitor-row"><span data-i18n="free_usdt">Свободно USDT</span><span id="trade-free-usdt">—</span></div>
-        <div class="monitor-row"><span data-i18n="reserve_usdt">Резерв USDT</span><span id="trade-reserve">—</span></div>
-        <div class="monitor-row"><span data-i18n="cap_order">CAP / ордер</span><span id="trade-cap-order">—</span></div>
+        <div class="monitor-row"><span data-i18n="free_usdt">Free USDT</span><span id="trade-free-usdt">—</span></div>
+        <div class="monitor-row"><span data-i18n="reserve_usdt">USDT reserve</span><span id="trade-reserve">—</span></div>
+        <div class="monitor-row"><span data-i18n="cap_order">CAP / order</span><span id="trade-cap-order">—</span></div>
         <div class="monitor-row"><span data-i18n="cap_portfolio">CAP / portfolio</span><span id="trade-cap-portfolio">—</span></div>
-        <div class="monitor-row"><span data-i18n="cap_symbol">CAP / символ</span><span id="trade-cap-symbol">—</span></div>
+        <div class="monitor-row"><span data-i18n="cap_symbol">CAP / symbol</span><span id="trade-cap-symbol">—</span></div>
         <div class="monitor-row"><span data-i18n="risk_state">Risk state</span><span id="trade-risk">—</span></div>
-        <div class="monitor-row"><span data-i18n="block_reasons">Причины блокировки</span><span id="trade-risk-reasons">—</span></div>
+        <div class="monitor-row"><span data-i18n="block_reasons">Block reasons</span><span id="trade-risk-reasons">—</span></div>
         <div class="monitor-row"><span data-i18n="cooldown">Cooldown</span><span id="trade-cooldown">—</span></div>
         <div class="monitor-row"><span data-i18n="reconciliation">Reconciliation delta</span><span id="trade-recon">—</span></div>
         <div class="monitor-row"><span data-i18n="order_summary">Open / cancelled / pending</span><span id="trade-order-summary">—</span></div>
         <div class="monitor-row"><span data-i18n="canary_cycles">Exact canary cycles</span><span id="trade-canary-cycles">—</span></div>
-        <div class="monitor-row"><span data-i18n="last_order">Последний ордер</span><span class="mono" id="trade-last-order">—</span></div>
+        <div class="monitor-row"><span data-i18n="last_order">Last order</span><span class="mono" id="trade-last-order">—</span></div>
       </div>
     </div>
 
     <div class="card monitor-card full">
-      <div class="monitor-title" data-i18n="positions">Позиции и защита</div>
+      <div class="monitor-title" data-i18n="positions">Positions and protection</div>
       <div class="position-box">
         <table class="tbl position-table">
-          <thead><tr><th data-i18n="symbol">Symbol</th><th class="right" data-i18n="quantity">Qty</th><th class="right" data-i18n="average">Средняя</th><th class="right" data-i18n="price">Цена</th><th class="right" data-i18n="value">Стоимость</th><th class="right" data-i18n="unrealized">Unrealized PnL</th><th class="right" data-i18n="drawdown">Drawdown</th><th data-i18n="protection">OCO / TP / STOP / gap-watchdog</th></tr></thead>
-          <tbody id="positions-body"><tr><td class="muted" colspan="8">Загрузка…</td></tr></tbody>
+          <thead><tr><th data-i18n="symbol">Symbol</th><th class="right" data-i18n="quantity">Qty</th><th class="right" data-i18n="average">Average</th><th class="right" data-i18n="price">Price</th><th class="right" data-i18n="value">Value</th><th class="right" data-i18n="unrealized">Unrealized PnL</th><th class="right" data-i18n="drawdown">Drawdown</th><th data-i18n="protection">OCO / TP / STOP / gap-watchdog</th></tr></thead>
+          <tbody id="positions-body"><tr><td class="muted" colspan="8">Loading…</td></tr></tbody>
         </table>
       </div>
     </div>
 
     <div class="card monitor-card full">
-      <div class="monitor-title" data-i18n="ai_quality">AI / качество данных</div>
+      <div class="monitor-title" data-i18n="ai_quality">AI / data quality</div>
       <div class="monitor-grid">
-        <div class="monitor-row"><span data-i18n="context_age">Возраст контекста</span><span id="ai-context-age">—</span></div>
+        <div class="monitor-row"><span data-i18n="context_age">Context age</span><span id="ai-context-age">—</span></div>
         <div class="monitor-row"><span data-i18n="decision_db">Decision DB</span><span id="ai-decision-db-age">—</span></div>
         <div class="monitor-row"><span data-i18n="usage_log">Usage log</span><span id="ai-usage-age">—</span></div>
-        <div class="monitor-row"><span data-i18n="budget_today">Бюджет сегодня</span><span id="ai-budget">—</span></div>
-        <div class="monitor-row"><span data-i18n="api_errors">Последние API ошибки</span><span id="ai-errors">—</span></div>
-        <div class="monitor-row"><span data-i18n="accepted_rejected">Принято / отклонено</span><span id="ai-decisions-quality">—</span></div>
+        <div class="monitor-row"><span data-i18n="budget_today">Budget today</span><span id="ai-budget">—</span></div>
+        <div class="monitor-row"><span data-i18n="api_errors">Recent API errors</span><span id="ai-errors">—</span></div>
+        <div class="monitor-row"><span data-i18n="accepted_rejected">Accepted / rejected</span><span id="ai-decisions-quality">—</span></div>
         <div class="monitor-row"><span data-i18n="unresolved">Unresolved fills</span><span id="ai-unresolved-quality">—</span></div>
         <div class="monitor-row"><span data-i18n="ai_vs_baseline">AI vs baseline</span><span id="ai-edge-quality">—</span></div>
-        <div class="monitor-row"><span data-i18n="rag_counts">RAG real / virtual</span><span id="ai-rag-quality">—</span></div>
-        <div class="monitor-row"><span data-i18n="degraded">Причины DEGRADED</span><span id="ai-degraded-quality">—</span></div>
+        <div class="monitor-row"><span data-i18n="rag_counts">RAG real / virtual / retrievals</span><span id="ai-rag-quality">—</span></div>
+        <div class="monitor-row"><span data-i18n="degraded">DEGRADED reasons</span><span id="ai-degraded-quality">—</span></div>
       </div>
     </div>
   </section>
@@ -301,15 +301,15 @@
   <!-- Charts: two in a row plus one full-width chart below. -->
   <section class="grid-charts mt">
     <div class="card">
-      <div class="chart-title" data-i18n="chart_temperature">Температура (24 ч)</div>
+      <div class="chart-title" data-i18n="chart_temperature">Temperature (24h)</div>
       <div class="chart-frame"><canvas id="chartTemp"></canvas></div>
     </div>
     <div class="card">
-      <div class="chart-title" data-i18n="chart_cpu">CPU, % (24 ч)</div>
+      <div class="chart-title" data-i18n="chart_cpu">CPU, % (24h)</div>
       <div class="chart-frame"><canvas id="chartCPU"></canvas></div>
     </div>
     <div class="card full">
-      <div class="chart-title" data-i18n="chart_memory">Память, ГиБ (24 ч)</div>
+      <div class="chart-title" data-i18n="chart_memory">Memory, GiB (24h)</div>
       <div class="chart-frame"><canvas id="chartMem"></canvas></div>
     </div>
   </section>
@@ -318,37 +318,37 @@
   <section class="mt">
     <div class="card">
       <div class="row" style="margin-bottom:6px">
-        <div class="label" data-i18n="trading_24h">Торговля (24 ч)</div>
-        <span id="t24-pill" class="pill warn">загрузка…</span>
+        <div class="label" data-i18n="trading_24h">Trading (24h)</div>
+        <span id="t24-pill" class="pill warn">loading…</span>
       </div>
       <div class="grid-24h">
         <div>
-          <div class="label" data-i18n="trades_24h">Сделок за 24 ч</div>
+          <div class="label" data-i18n="trades_24h">Trades (24h)</div>
           <div class="value" id="t24-trades">—</div>
         </div>
         <div>
-          <div class="label" data-i18n="sell_volume_24h">Объем продаж за 24 ч</div>
+          <div class="label" data-i18n="sell_volume_24h">Sell volume (24h)</div>
           <div class="value" id="t24-volume">—</div>
         </div>
         <div>
-          <div class="label" data-i18n="fees_24h">Комиссии за 24 ч</div>
+          <div class="label" data-i18n="fees_24h">Fees (24h)</div>
           <div class="value" id="t24-fees">—</div>
         </div>
         <div>
-          <div class="label" data-i18n="portfolio_change_24h" title="Mark-to-market изменение стоимости USDT и всех оценённых активов">Изменение стоимости портфеля за 24 ч</div>
+          <div class="label" data-i18n="portfolio_change_24h" title="Mark-to-market change in USDT and all valued assets">Portfolio value change (24h)</div>
           <div class="value" id="t24-portfolio">—</div>
           <div class="sub" id="t24-portfolio-sub" style="margin-top:4px"> </div>
         </div>
         <div>
-          <div class="label" data-i18n="fifo_pnl_24h" title="Realized FIFO PnL for SELL fills in the selected 24-hour window">Реализованный FIFO PnL за 24 ч</div>
+          <div class="label" data-i18n="fifo_pnl_24h" title="Realized FIFO PnL for SELL fills in the selected 24-hour window">Realized FIFO PnL (24h)</div>
           <div class="value" id="t24-fifo">—</div>
         </div>
         <div>
-          <div class="label" data-i18n="cashflow_pnl_24h" title="SELL proceeds minus BUY cost and fees inside the selected 24-hour window">Денежный результат сделок за 24 ч</div>
+          <div class="label" data-i18n="cashflow_pnl_24h" title="SELL proceeds minus BUY cost and fees inside the selected 24-hour window">Trade cash flow (24h)</div>
           <div class="value" id="t24-cashflow">—</div>
         </div>
         <div>
-          <div class="label" data-i18n="total_value" title="Equity сейчас по выбранным активам">Прибл. общая стоимость</div>
+          <div class="label" data-i18n="total_value" title="Current equity for the selected assets">Approx. total value</div>
           <div class="value" id="t24-equity">—</div>
         </div>
       </div>
@@ -360,10 +360,10 @@
   <section class="mt">
     <div class="card">
       <div class="row" style="margin-bottom:6px">
-        <div class="label" data-i18n="balances">Остатки аккаунта</div>
+        <div class="label" data-i18n="balances">Account balances</div>
         <div class="row" style="margin:0;gap:10px">
-          <label class="switch-label"><span data-i18n="hide_small">скрывать &lt; 1 USDT</span><input id="balance-hide-small" type="checkbox" checked><span class="switch-visual"></span></label>
-          <span id="balance-pill" class="pill warn">загрузка…</span>
+          <label class="switch-label"><span data-i18n="hide_small">Hide &lt; 1 USDT</span><input id="balance-hide-small" type="checkbox" checked><span class="switch-visual"></span></label>
+          <span id="balance-pill" class="pill warn">loading…</span>
         </div>
       </div>
       <div class="row" style="margin-bottom:8px">
@@ -374,12 +374,12 @@
         <table class="tbl balance-table">
           <thead>
             <tr>
-              <th data-i18n="asset">Актив</th>
-              <th class="right" data-i18n="free">Свободно</th>
-              <th class="right" data-i18n="locked">Заблокировано</th>
-              <th class="right" data-i18n="total">Всего</th>
-              <th class="right" data-i18n="price_usdt">Цена, USDT</th>
-              <th class="right" data-i18n="value_usdt">Стоимость, USDT</th>
+              <th data-i18n="asset">Asset</th>
+              <th class="right" data-i18n="free">Free</th>
+              <th class="right" data-i18n="locked">Locked</th>
+              <th class="right" data-i18n="total">Total</th>
+              <th class="right" data-i18n="price_usdt">Price, USDT</th>
+              <th class="right" data-i18n="value_usdt">Value, USDT</th>
             </tr>
           </thead>
           <tbody id="balance-body"></tbody>
@@ -394,24 +394,24 @@
   <section class="mt">
     <div class="card">
       <div class="row" style="margin-bottom:6px">
-        <div class="label" data-i18n="open_orders">Открытые ордера</div>
-        <span id="open-orders-pill" class="pill warn">загрузка…</span>
+        <div class="label" data-i18n="open_orders">Open orders</div>
+        <span id="open-orders-pill" class="pill warn">loading…</span>
       </div>
       <div class="sub" id="open-orders-updated" style="margin-bottom:8px">—</div>
       <div class="open-orders-box">
         <table class="tbl open-orders-table">
           <thead>
             <tr>
-              <th data-i18n="pair">Пара</th>
-              <th data-i18n="side">Сторона</th>
-              <th data-i18n="type">Тип</th>
-              <th class="right mono" data-i18n="price">Цена</th>
-              <th class="right mono" data-i18n="stop">Стоп</th>
-              <th class="right mono" data-i18n="total">Всего</th>
-              <th class="right mono" data-i18n="executed">Исполнено</th>
-              <th class="right mono" data-i18n="remaining">Остаток</th>
-              <th data-i18n="status">Статус</th>
-              <th data-i18n="created">Создан</th>
+              <th data-i18n="pair">Pair</th>
+              <th data-i18n="side">Side</th>
+              <th data-i18n="type">Type</th>
+              <th class="right mono" data-i18n="price">Price</th>
+              <th class="right mono" data-i18n="stop">Stop</th>
+              <th class="right mono" data-i18n="total">Total</th>
+              <th class="right mono" data-i18n="executed">Executed</th>
+              <th class="right mono" data-i18n="remaining">Remaining</th>
+              <th data-i18n="status">Status</th>
+              <th data-i18n="created">Created</th>
             </tr>
           </thead>
           <tbody id="open-orders-body"></tbody>
@@ -424,20 +424,20 @@
   <section class="mt">
     <div class="card">
       <div class="row" style="margin-bottom:6px">
-        <div class="label" data-i18n="filled_orders">Реализованные ордера за 24 часа</div>
-        <span id="filled-pill" class="pill warn">загрузка…</span>
+        <div class="label" data-i18n="filled_orders">Realized orders (24h)</div>
+        <span id="filled-pill" class="pill warn">loading…</span>
       </div>
       <div class="orders">
         <table class="tbl">
           <thead>
             <tr>
-              <th class="col-time" data-i18n="time">Время</th>
-              <th class="col-sym" data-i18n="pair">Пара</th>
-              <th class="col-side" data-i18n="side">Сторона</th>
-              <th class="right mono col-price" data-i18n="price">Цена</th>
-              <th class="right mono col-qty" data-i18n="quantity">Кол-во</th>
-              <th class="right mono col-quote" data-i18n="amount">Сумма</th>
-              <th class="right mono col-fee" data-i18n="commission">Комиссия</th>
+              <th class="col-time" data-i18n="time">Time</th>
+              <th class="col-sym" data-i18n="pair">Pair</th>
+              <th class="col-side" data-i18n="side">Side</th>
+              <th class="right mono col-price" data-i18n="price">Price</th>
+              <th class="right mono col-qty" data-i18n="quantity">Qty</th>
+              <th class="right mono col-quote" data-i18n="amount">Amount</th>
+              <th class="right mono col-fee" data-i18n="commission">Commission</th>
             </tr>
           </thead>
           <tbody id="orders-body">
@@ -452,8 +452,8 @@
   <section class="mt">
     <div class="card">
       <div class="row" style="margin-bottom:6px">
-        <div class="label"><span data-i18n="logs">Очищенные логи бота</span> · <a href="/logs/" target="_blank" data-i18n="archive">архив</a></div>
-        <span id="log-pill" class="pill warn">загрузка…</span>
+        <div class="label"><span data-i18n="logs">Sanitized bot logs</span> · <a href="/logs/" target="_blank" data-i18n="archive">archive</a></div>
+        <span id="log-pill" class="pill warn">loading…</span>
       </div>
       <div id="logs" class="logs"></div>
     </div>
@@ -492,17 +492,17 @@ const $ = s=>document.querySelector(s);
 const fmt = (x,d=2)=> (Number.isFinite(x)?Number(x).toFixed(d):'—');
 const NF2 = new Intl.NumberFormat('ru-RU',{minimumFractionDigits:2,maximumFractionDigits:2});
 const NF4 = new Intl.NumberFormat('ru-RU',{minimumFractionDigits:4,maximumFractionDigits:4});
-const LOG_MAX_LINES = 500; // показывать не более 500 строк лога
+const LOG_MAX_LINES = 500; // Keep at most 500 log lines in the dashboard.
 
-let SYMBOLS_CACHE = null;      // строка "BTCUSDT,ETHUSDT,..."
+let SYMBOLS_CACHE = null;      // Cached comma-separated symbols.
 let SYMBOLS_TS = 0;
-let BALANCE_SNAPSHOT = null;   // последний read-only снимок для фильтра без нового запроса
+let BALANCE_SNAPSHOT = null;   // Last read-only snapshot used by the local filter.
 
 function setPill(el, state){ el.classList.remove('ok','warn','bad'); el.classList.add(state); }
 function mountLine(mounts, mp, id){
   const m = mounts.find(x=>x.mountpoint===mp);
   const el = $(id);
-  if(!m){ el.textContent = mp+' — нет'; return; }
+  if(!m){ el.textContent = mp+' — none'; return; }
   const flags = m.opts.split(',').filter(o=>['rw','ro','noatime'].includes(o)).join(',');
   el.textContent = `${mp} ${flags||'rw'}`;
 }
@@ -599,7 +599,7 @@ function updateKpis(h){
   // System.
   $('#kernel').textContent = `kernel ${h.kernel||'—'}`;
   const up = h.uptime_sec|0; const d=Math.floor(up/86400), H=Math.floor((up%86400)/3600), M=Math.floor((up%3600)/60);
-  $('#uptime').textContent = `uptime ${d?d+'д ':''}${H}ч ${M}м`;
+  $('#uptime').textContent = `uptime ${d?d+'d ':''}${H}h ${M}m`;
 
   // Footer.
   $('#footer').textContent = `API ok · ${h.time}`;
@@ -608,9 +608,9 @@ function updateKpis(h){
 function ageText(seconds){
   if(!Number.isFinite(Number(seconds))) return '—';
   const s=Math.max(0,Math.floor(Number(seconds)));
-  if(s<60) return `${s}с назад`;
-  if(s<3600) return `${Math.floor(s/60)}м назад`;
-  return `${Math.floor(s/3600)}ч ${Math.floor((s%3600)/60)}м назад`;
+  if(s<60) return `${s}s ago`;
+  if(s<3600) return `${Math.floor(s/60)}m ago`;
+  return `${Math.floor(s/3600)}h ${Math.floor((s%3600)/60)}m ago`;
 }
 function bytesText(bytes){
   if(!Number.isFinite(Number(bytes))) return '—';
@@ -627,10 +627,10 @@ function updateOperations(h){
   $('#ops-heartbeat').className=heartbeat.fresh?'risk-ok':'risk-bad';
   $('#ops-restart').textContent=bot.started_at ? `${bot.started_at} · restarts ${bot.restart_count??0}` : '—';
   const ntp=o.ntp||{}, ping=o.binance||{};
-  $('#ops-ntp').textContent=`${ntp.synchronized?'OK':'нет'} · offset ${ping.offset_ms!=null?fmt(ping.offset_ms,0)+' ms':'—'}`;
+  $('#ops-ntp').textContent=`${ntp.synchronized?'OK':'no'} · offset ${ping.offset_ms!=null?fmt(ping.offset_ms,0)+' ms':'—'}`;
   $('#ops-binance-latency').textContent=ping.ok
     ? `${Math.abs(Number(ping.offset_ms||0))>1000||Number(ping.latency_ms)>1000?'WARNING · ':''}${fmt(ping.latency_ms,0)} ms · offset ${fmt(ping.offset_ms,0)} ms`
-    : `ошибка: ${ping.error||'—'}`;
+    : `error: ${ping.error||'—'}`;
   const throttle=h.throttled||{};
   const host=h.host||{};
   $('#ops-platform').textContent=host.system ? `${host.system} · ${host.machine||'—'}${host.is_raspberry_pi?' · Raspberry Pi':''}` : tr('unavailable');
@@ -646,7 +646,7 @@ function updateOperations(h){
   $('#ops-user-stream').textContent=streamText;
   $('#ops-user-stream').className=streams.length&&streams.every(s=>s.state==='connected'&&!s.stale&&!s.last_error)?'risk-ok':'risk-warn';
   const usb=o.usb_backup||{};
-  $('#ops-usb').textContent=usb.mounted?`mounted · ${usb.writable?'rw':'dashboard namespace RO'}`:'нет mount';
+  $('#ops-usb').textContent=usb.mounted?`mounted · ${usb.writable?'rw':'dashboard namespace RO'}`:'not mounted';
   $('#ops-usb').className=usb.mounted?(usb.writable?'risk-ok':'risk-warn'):'risk-bad';
   $('#ops-usb-free').textContent=usb.free_gib!=null?`${fmt(usb.free_gib,2)} GiB · ${fmt(usb.used_percent,1)}% used`:'—';
   const disk=h.disk_gib||{};
@@ -656,7 +656,7 @@ function updateOperations(h){
   const latest=backup.last_success||{};
   $('#ops-backup-age').textContent=latest.updated_at?`${latest.updated_at} · ${ageText(latest.age_sec)}`:'—';
   $('#ops-backup-size').textContent=bytesText(latest.size_bytes);
-  $('#ops-backup-reason').textContent=backup.reason||'нет';
+  $('#ops-backup-reason').textContent=backup.reason||tr('no');
 }
 function updateTrading(t){
   const mode=String(t.execution_mode||'UNKNOWN').toUpperCase();
@@ -673,10 +673,10 @@ function updateTrading(t){
   const risk=t.risk||{}, blocked=Boolean(risk.buy_blocked||risk.halted);
   $('#trade-risk').textContent=risk.halted?'HALTED':(risk.buy_blocked?'BUY BLOCKED':'OK');
   $('#trade-risk').className=blocked?'risk-bad':'risk-ok';
-  $('#trade-risk-reasons').textContent=Array.isArray(risk.reasons)&&risk.reasons.length?risk.reasons.join(' · '):'нет';
+  $('#trade-risk-reasons').textContent=Array.isArray(risk.reasons)&&risk.reasons.length?risk.reasons.join(' · '):tr('no');
   const cooldown=Number(risk.cooldown_until||0);
-  $('#trade-cooldown').textContent=cooldown>Math.floor(Date.now()/1000)?new Date(cooldown*1000).toLocaleString('ru-RU'):'нет';
-  $('#trade-recon').textContent=risk.reconciliation_delta!=null?JSON.stringify(risk.reconciliation_delta):'нет данных';
+  $('#trade-cooldown').textContent=cooldown>Math.floor(Date.now()/1000)?new Date(cooldown*1000).toLocaleString(CURRENT_LOCALE):tr('no');
+  $('#trade-recon').textContent=risk.reconciliation_delta!=null?JSON.stringify(risk.reconciliation_delta):tr('no_data');
   const orders=t.orders||{};
   const orderSummary=$('#trade-order-summary');
   if(orders.journal_available===false){
@@ -694,14 +694,14 @@ function updateTrading(t){
   const cycleNode=$('#trade-canary-cycles');
   cycleNode.textContent=`${exact} / ${required} · TP ${Number(lifecycle.tp||0)} · STOP ${Number(lifecycle.stop||0)}`;
   cycleNode.className=lifecycle.promotion_ready?'risk-ok':'risk-warn';
-  $('#trade-last-order').textContent=last?`${last.symbol} ${last.side} ${last.status} id=${last.order_id??'—'}${last.partial_fill?' partial':''} · latency ${last.latency_ms??'—'} ms · fee ${last.commission_usdt??'—'} · ${last.updated_at||'—'}`:'нет';
+  $('#trade-last-order').textContent=last?`${last.symbol} ${last.side} ${last.status} id=${last.order_id??'—'}${last.partial_fill?' partial':''} · latency ${last.latency_ms??'—'} ms · fee ${last.commission_usdt??'—'} · ${last.updated_at||'—'}`:tr('no');
   const rows=Array.isArray(t.positions)?t.positions:[];
   $('#positions-body').innerHTML=rows.length?rows.map(p=>{
     const protection=p.protection||{};
     const state=protection.state||'not_checked';
     const pnl=p.unrealized_pnl_usdt==null?'—':fmtUSDT(Number(p.unrealized_pnl_usdt));
     return `<tr><td class="mono">${esc(p.symbol)}</td><td class="right mono">${fmt(p.quantity,8)}</td><td class="right mono">${p.average_entry_usdt==null?'—':fmt(p.average_entry_usdt,4)}</td><td class="right mono">${p.current_price_usdt==null?'—':fmt(p.current_price_usdt,4)}</td><td class="right mono">${p.value_usdt==null?'—':fmtUSDT(Number(p.value_usdt))}</td><td class="right mono">${pnl}</td><td class="right mono">${p.drawdown_pct==null?'—':fmtPct(Number(p.drawdown_pct))}</td><td>${esc(state)} · basis ${esc(protection.cost_basis_status||'—')} · TP ${esc((protection.tp||[]).join(','))} · STOP ${esc((protection.stop||[]).join(','))} · gap ${esc(protection.gap_watchdog||'—')}</td></tr>`;
-  }).join(''):'<tr><td class="muted" colspan="8">Нет данных по позициям</td></tr>';
+  }).join(''):`<tr><td class="muted" colspan="8">${tr('no_positions')}</td></tr>`;
 }
 function updateAIQuality(ai){
   const src=ai.data_sources||{}, usage=ai.usage_today||{}, kb=ai.knowledge_base||{};
@@ -716,10 +716,10 @@ function updateAIQuality(ai){
   $('#ai-decisions-quality').textContent=`${ai.applied_count??0} applied / ${rejected} rejected`;
   $('#ai-unresolved-quality').textContent=String(kb.unresolved_fills??0);
   const edge=ai.ai_vs_baseline_1h||{};
-  $('#ai-edge-quality').textContent=edge.samples?`${fmt(Number(edge.edge)*100,2)}% / ${edge.samples}`:'нет данных';
+  $('#ai-edge-quality').textContent=edge.samples?`${fmt(Number(edge.edge)*100,2)}% / ${edge.samples}`:tr('no_data');
   $('#ai-rag-quality').textContent=`${kb.documents??0} / ${kb.virtual_documents??0} / ${kb.retrievals??0}`;
   const degraded=Array.isArray(ai.degraded_reasons)?ai.degraded_reasons:[];
-  $('#ai-degraded-quality').textContent=degraded.length?degraded.join(' · '):'нет';
+  $('#ai-degraded-quality').textContent=degraded.length?degraded.join(' · '):tr('no');
 }
 
 /* USDT and percentage formatting. */
@@ -780,7 +780,7 @@ function updateTrade24(sum, balances){
   };
 
   if(!sum || !sum.ok){
-    setPill(pill,'warn'); pill.textContent='нет данных';
+    setPill(pill,'warn'); pill.textContent=tr('no_data');
     setNA(); return;
   }
   setPill(pill,'ok'); pill.textContent='ok';
@@ -843,19 +843,19 @@ function updateBalances(snapshot){
   const pill = $('#balance-pill');
   const body = $('#balance-body');
   if(!snapshot || !snapshot.ok || !Array.isArray(snapshot.assets)){
-    setPill(pill,'warn'); pill.textContent='нет данных';
+    setPill(pill,'warn'); pill.textContent=tr('no_data');
     $('#balance-total').textContent='—';
     $('#balance-updated').textContent='—';
-    body.innerHTML = '<tr><td class="muted" colspan="6">Баланс недоступен</td></tr>';
+    body.innerHTML = `<tr><td class="muted" colspan="6">${tr('no_balance')}</td></tr>`;
     $('#balance-unvalued').textContent='';
     $('#balance-hidden').textContent='';
     return;
   }
   BALANCE_SNAPSHOT = snapshot;
   setPill(pill,snapshot.stale?'warn':'ok');
-  pill.textContent=snapshot.stale?tr('stale'):'актуально';
+  pill.textContent=snapshot.stale?tr('stale'):tr('current');
   $('#balance-total').textContent = fmtUSDT(snapshot.total_value_usdt);
-  $('#balance-updated').textContent = `обновлено ${snapshot.updated_at || '—'}`;
+  $('#balance-updated').textContent = `${tr('updated')} ${snapshot.updated_at || '—'}`;
   const hideSmall = $('#balance-hide-small')?.checked ?? true;
   const hidden = hideSmall
     ? snapshot.assets.filter(row=>row.asset !== 'USDT' && (row.value_usdt == null || Number(row.value_usdt) < 1))
@@ -870,16 +870,16 @@ function updateBalances(snapshot){
       <td class="right mono">${fmtQty(row.free)}</td>
       <td class="right mono">${fmtQty(row.locked)}</td>
       <td class="right mono">${fmtQty(row.total)}</td>
-      <td class="right mono ${unvalued?'balance-unvalued':''}">${unvalued?'не оценено':fmtUSDT(row.price_usdt)}</td>
+      <td class="right mono ${unvalued?'balance-unvalued':''}">${unvalued?tr('unvalued'):fmtUSDT(row.price_usdt)}</td>
       <td class="right mono ${unvalued?'balance-unvalued':''}">${unvalued?'—':fmtUSDT(row.value_usdt)}</td>
     </tr>`;
-  }).join('') : '<tr><td class="muted" colspan="6">Положительных остатков нет</td></tr>';
+  }).join('') : `<tr><td class="muted" colspan="6">${tr('positive_balances')}</td></tr>`;
   const unvalued = Array.isArray(snapshot.unvalued_assets) ? snapshot.unvalued_assets : [];
   $('#balance-unvalued').textContent = unvalued.length
-    ? `Без USDT-оценки: ${unvalued.join(', ')}`
+    ? `${tr('unvalued_assets')}: ${unvalued.join(', ')}`
     : '';
   $('#balance-hidden').textContent = hidden.length
-    ? `Скрыто мелких активов: ${hidden.length}`
+    ? `${tr('hidden_assets')}: ${hidden.length}`
     : '';
 }
 
@@ -891,14 +891,14 @@ function updateOpenOrders(snapshot){
   const pill = $('#open-orders-pill');
   const body = $('#open-orders-body');
   if(!snapshot || !snapshot.ok || !Array.isArray(snapshot.orders)){
-    setPill(pill,'warn'); pill.textContent='нет данных';
+    setPill(pill,'warn'); pill.textContent=tr('no_data');
     $('#open-orders-updated').textContent='—';
-    body.innerHTML = '<tr><td class="muted" colspan="10">Открытые ордера недоступны</td></tr>';
+    body.innerHTML = `<tr><td class="muted" colspan="10">${tr('unavailable')}</td></tr>`;
     return;
   }
   setPill(pill, snapshot.stale ? 'warn' : 'ok');
-  pill.textContent = `${snapshot.count ?? snapshot.orders.length} шт.${snapshot.stale ? ` · ${tr('stale')}` : ''}`;
-  $('#open-orders-updated').textContent = `обновлено ${snapshot.updated_at || '—'}`;
+  pill.textContent = `${snapshot.count ?? snapshot.orders.length}${snapshot.stale ? ` · ${tr('stale')}` : ''}`;
+  $('#open-orders-updated').textContent = `${tr('updated')} ${snapshot.updated_at || '—'}`;
   const rows = snapshot.orders.map(row=>{
     const side = escapeHtml(row.side || '—');
     const sideClass = row.side === 'BUY' ? 'side-buy' : (row.side === 'SELL' ? 'side-sell' : '');
@@ -920,7 +920,7 @@ function updateOpenOrders(snapshot){
   });
   body.innerHTML = rows.length
     ? rows.join('')
-    : '<tr><td class="muted" colspan="10">Открытых ордеров нет</td></tr>';
+    : `<tr><td class="muted" colspan="10">${tr('no_open_orders')}</td></tr>`;
 }
 
 function updateCharts(hist){
@@ -972,7 +972,7 @@ function tsShort(ms){
   if(!Number.isFinite(ms)) return '—';
   const d = new Date(ms), now = new Date();
   const sameDay = d.toDateString()===now.toDateString();
-  return d.toLocaleString('ru-RU', sameDay
+  return d.toLocaleString(CURRENT_LOCALE, sameDay
     ? {hour:'2-digit',minute:'2-digit'}
     : {day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'});
 }
@@ -981,8 +981,8 @@ function updateFilled24h(resp){
   const pill = $('#filled-pill');
   const tbody = $('#orders-body');
   if(!resp || !resp.ok){
-    pill.textContent = 'нет данных'; setPill(pill,'warn');
-    tbody.innerHTML = `<tr><td class="muted" colspan="7">Нет данных по исполненным ордерам за 24 часа</td></tr>`;
+    pill.textContent = tr('no_data'); setPill(pill,'warn');
+    tbody.innerHTML = `<tr><td class="muted" colspan="7">${tr('no_data')}</td></tr>`;
     return;
   }
   setPill(pill,'ok'); pill.textContent='ok';
@@ -1012,7 +1012,7 @@ function updateFilled24h(resp){
 
   tbody.innerHTML = rows.length
     ? rows.join('')
-    : `<tr><td class="muted" colspan="7">За последние 24 часа исполненных ордеров нет</td></tr>`;
+    : `<tr><td class="muted" colspan="7">${tr('no_recent_fills')}</td></tr>`;
 }
 
 let REFRESH_IN_FLIGHT = false;

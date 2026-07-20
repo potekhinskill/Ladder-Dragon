@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: MIT
 # Copyright (c) 2026 IURII Potekhin
 # Purpose: implement the order recovery component of the execution layer.
-"""Постоянный журнал намерений и безопасная сверка ордеров после рестарта."""
+"""Ladder Dragon order recovery support."""
 
 from __future__ import annotations
 
@@ -201,7 +201,7 @@ def read_order_observation(
 
 @dataclass(frozen=True)
 class OrderIntent:
-    """Локальное намерение, связывающее действие бота с объектом Binance."""
+    """Represent OrderIntent."""
     client_order_id: str
     symbol: str
     side: str
@@ -220,11 +220,7 @@ class OrderIntent:
 
 
 class OrderJournal:
-    """SQLite-журнал, записываемый до каждого изменяющего запроса к бирже.
-
-    PREPARED фиксируется до POST. Поэтому после таймаута или рестарта можно
-    запросить Binance по clientOrderId и не создать дублирующий ордер.
-    """
+    """Represent OrderJournal."""
 
     def __init__(self, path: str | Path, *, venue: str = "testnet") -> None:
         self.path = Path(path)

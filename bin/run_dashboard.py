@@ -17,7 +17,7 @@ def main() -> None:
     project_dir = Path(__file__).resolve().parents[1]
     app_dir = project_dir / "FastAPI" / "pi-dashboard"
     sys.path.insert(0, str(app_dir))
-    from app import app  # noqa: PLC0415 — импорт после фиксации пути приложения
+    from app import app
 
     port = int(os.getenv("DASHBOARD_PORT", "8081"))
     uvicorn.run(app, host="127.0.0.1", port=port, proxy_headers=True)

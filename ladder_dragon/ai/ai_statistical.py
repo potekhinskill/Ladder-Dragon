@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: MIT
 # Copyright (c) 2026 IURII Potekhin
 # Purpose: implement the ai statistical component of the ai layer.
-"""Минимальная трёхклассовая logistic regression без внешних ML-зависимостей."""
+"""Ladder Dragon ai statistical support."""
 
 from __future__ import annotations
 
@@ -16,7 +16,7 @@ CLASSES = ("DOWN", "FLAT", "UP")
 
 
 def context_vector(context: MarketContext) -> tuple[float, ...]:
-    """Нормализованный фиксированный набор числовых рыночных признаков."""
+    """Handle context vector."""
     raw = (
         context.return_15m / .01,
         context.return_1h / .02,
@@ -49,7 +49,7 @@ class StatisticalPrediction:
 
 
 class MulticlassLogisticRegime:
-    """Детерминированное SGD-обучение softmax на локальной shadow-истории."""
+    """Represent MulticlassLogisticRegime."""
 
     def __init__(self, dimensions: int = 10) -> None:
         self.weights = [[0.0] * (dimensions + 1) for _ in CLASSES]

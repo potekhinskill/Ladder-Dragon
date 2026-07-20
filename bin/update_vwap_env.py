@@ -3,7 +3,7 @@
 # SPDX-License-Identifier: MIT
 # Copyright (c) 2026 IURII Potekhin
 # Purpose: update VWAP environment values.
-"""Комбинированный генератор VWAP окружения."""
+"""Ladder Dragon update vwap env support."""
 from __future__ import annotations
 
 import argparse

@@ -15,7 +15,7 @@ from pathlib import Path
 from urllib.parse import urlparse
 
 
-PLACEHOLDER_PREFIXES = ("replace_", "change_me", "your_", "ваш_")
+PLACEHOLDER_PREFIXES = ("replace_", "change_me", "your_", "\u0432\u0430\u0448_")
 OFFICIAL_BINANCE_HOSTS = {
     "api.binance.com",
     "api1.binance.com",

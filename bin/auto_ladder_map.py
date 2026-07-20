@@ -3,32 +3,7 @@
 # SPDX-License-Identifier: MIT
 # Copyright (c) 2026 IURII Potekhin
 # Purpose: build the adaptive ladder map from market data.
-"""
-auto_ladder_map.py
-Генерит строку для --ladder-pct-map на основе «режима рынка» по каждому символу.
-
-Режимы:
-- UP:    ema20>ema50 и положительный наклон ema20, atr_pct >= lowvol_floor
-- DOWN:  ema20<ema50 и отрицательный наклон ema20, atr_pct >= lowvol_floor
-- FLAT:  иначе (или низковолатильный рынок)
-
-Для каждого символа возвращает триплет: near(%), far(%), tp(%)
-(относительно текущей цены; near/far — минусовые, tp — плюсовой)
-
-По умолчанию:
-  SOLUSDT: UP    -> -0.6, -3.5, +2.8
-           FLAT  -> -0.6, -3.5, +2.8
-           DOWN  -> -0.7, -4.0, +3.0
-  ETHUSDT: UP    -> -0.5, -3.0, +2.4
-           FLAT  -> -0.6, -3.5, +2.8
-           DOWN  -> -0.7, -4.0, +3.0
-  TONUSDT: UP    -> -0.6, -3.2, +2.6
-           FLAT  -> -0.6, -3.5, +2.8
-           DOWN  -> -0.7, -4.0, +3.0
-
-Порог «низкой волатильности» (lowvol_floor) = 0.0035 (0.35%)
-dir_eps (наклон) = 0.0006 по-умолчанию, как в твоём сервисе.
-"""
+"""Ladder Dragon auto ladder map support."""
 
 import os, sys, time, math, json
 import argparse
@@ -53,7 +28,7 @@ def make_session():
         retries = Retry(
             total=5, connect=5, read=5, backoff_factor=0.6,
             status_forcelist=(418, 429, 500, 502, 503, 504),
-            method_whitelist=frozenset(["GET"]),  # старые версии
+            method_whitelist=frozenset(["GET"]),
             raise_on_status=False,
         )
     s.mount("https://", HTTPAdapter(max_retries=retries))
@@ -158,12 +133,12 @@ def main():
     ap.add_argument("--symbols", default="SOLUSDT,ETHUSDT,TONUSDT")
     ap.add_argument("--interval", default="1m")
     ap.add_argument("--limit", type=int, default=240)
-    ap.add_argument("--dir-eps", type=float, default=float(os.getenv("DIR_EPS", "0.0006")), help="базовый порог для 1m; масштабируется по интервалу внутри")
+    ap.add_argument("--dir-eps", type=float, default=float(os.getenv("DIR_EPS", "0.0006")), help="base threshold for 1m; scaled internally by interval")
     ap.add_argument("--lowvol-floor", type=float, default=0.0035)
     ap.add_argument("--preset-json", default=os.getenv("LADDER_PRESET_JSON",""))
     ap.add_argument("--format", choices=["raw","supervisor"], default="supervisor")
-    ap.add_argument("--futures", action="store_true", help="брать свечи с /fapi/v1/klines")
-    ap.add_argument("--ignore-last", action="store_true", help="не учитывать последний незакрытый бар")
+    ap.add_argument("--futures", action="store_true", help="load candles from /fapi/v1/klines")
+    ap.add_argument("--ignore-last", action="store_true", help="ignore the final open candle")
     args = ap.parse_args()
 
     presets = dict(DEFAULT_PRESETS)

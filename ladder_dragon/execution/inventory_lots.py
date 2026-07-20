@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: MIT
 # Copyright (c) 2026 IURII Potekhin
 # Purpose: implement the inventory lots component of the execution layer.
-"""FIFO-партии с возрастом для live-сверки и backtest."""
+"""Ladder Dragon inventory lots support."""
 from __future__ import annotations
 
 import sqlite3
@@ -15,7 +15,7 @@ from ladder_dragon.execution.trade_accounting import TradeExecution
 
 @dataclass(frozen=True)
 class InventoryLot:
-    """Неизменяемая запись партии, купленной одним уровнем лестницы."""
+    """Represent InventoryLot."""
     lot_id: int
     symbol: str
     qty: Decimal
@@ -101,7 +101,7 @@ def oldest_lots(connection: sqlite3.Connection, symbol: str) -> list[InventoryLo
 
 
 def lot_for_order(connection: sqlite3.Connection, symbol: str, order_id: str | int) -> InventoryLot | None:
-    """Найти конкретную FIFO-партию по исходному exchange order/trade ID."""
+    """Handle lot for order."""
     ensure_schema(connection)
     row = connection.execute(
         "SELECT lot_id,symbol,qty,price,opened_at,ladder_level FROM inventory_lots "
@@ -173,7 +173,7 @@ def cost_basis_coverage(
 
 
 def consume_fifo(connection: sqlite3.Connection, symbol: str, qty: Decimal) -> list[InventoryLot]:
-    """Списать SELL из старейших партий и вернуть использованные доли."""
+    """Consume fifo."""
     consumed: list[InventoryLot] = []
     remaining = qty
     for lot in oldest_lots(connection, symbol):

@@ -1,12 +1,7 @@
 # SPDX-License-Identifier: MIT
 # Copyright (c) 2026 IURII Potekhin
 # Purpose: implement the market replay component of the strategy layer.
-"""Минимальный event-driven replay для записанных стаканов и trade prints.
-
-Это отдельный слой над OHLC simulator: он не подменяет Binance, но позволяет
-воспроизводимо проверить price/time priority, очередь, отмены, задержку и
-rate-limit до подключения реального historical feed.
-"""
+"""Ladder Dragon market replay support."""
 from __future__ import annotations
 
 from dataclasses import dataclass, field
@@ -19,14 +14,14 @@ from pathlib import Path
 
 @dataclass(frozen=True)
 class BookLevel:
-    """Один уровень стакана: цена и доступный объём."""
+    """Represent BookLevel."""
     price: Decimal
     quantity: Decimal
 
 
 @dataclass(frozen=True)
 class MarketEvent:
-    """Снимок стакана и публичных сделок в один момент времени."""
+    """Represent MarketEvent."""
     ts_ms: int
     bids: tuple[BookLevel, ...] = ()
     asks: tuple[BookLevel, ...] = ()
@@ -40,7 +35,7 @@ class MarketEvent:
 
 @dataclass
 class ReplayOrder:
-    """Локальная заявка, ожидающая исполнения в replay."""
+    """Represent ReplayOrder."""
     order_id: str
     side: str
     price: Decimal
@@ -57,7 +52,7 @@ class ReplayOrder:
 
 
 class OrderBookReplay:
-    """Упрощённый, но детерминированный matching engine для backtest."""
+    """Represent OrderBookReplay."""
     def __init__(self, *, latency_ms: int = 0, max_requests_per_minute: int = 1200,
                  maker_fee_pct: Decimal = Decimal("0.00075"), taker_fee_pct: Decimal = Decimal("0.001"),
                  market_impact_bps: Decimal = Decimal("0"),
@@ -137,7 +132,7 @@ class OrderBookReplay:
             for order in self.orders:
                 if order.cancelled or order.created_ts > event.ts_ms:
                     continue
-                crosses = (order.side == "BUY" and aggressor.upper() == "SELL" and trade_price <= order.price) or \
+                crosses = (order.side == "BUY" and aggressor.upper() == "SELL" and trade_price <= order.price) or\
                           (order.side == "SELL" and aggressor.upper() == "BUY" and trade_price >= order.price)
                 if crosses and order.queue_ahead > 0:
                     order.queue_ahead = max(Decimal("0"), order.queue_ahead - trade_qty)
@@ -191,7 +186,7 @@ class OrderBookReplay:
 
 
 def load_events(rows: Iterable[dict]) -> list[MarketEvent]:
-    """Нормализовать JSON fixture стакана в детерминированные события."""
+    """Load events."""
     result = []
     for row in rows:
         def levels(items):

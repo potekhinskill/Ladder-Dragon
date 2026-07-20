@@ -3,6 +3,19 @@
 All notable changes are documented here. Releases use Semantic Versioning; every
 section is dated and there is intentionally no `Unreleased` section.
 
+## [2.13.1] — 2026-07-20
+
+### Changed
+- Replaced Cyrillic comments, docstrings, CLI help, diagnostic messages and
+  dashboard fallback text with English maintenance text. Translated dashboard
+  content remains available exclusively through the localization catalog.
+- Dashboard dynamic fallback messages now use localization keys where an
+  existing translation is available.
+
+### Verified
+- Added a repository regression that rejects Cyrillic text in Python, shell,
+  HTML and JavaScript source files outside the explicit localization catalog.
+
 ## [2.13.0] — 2026-07-20
 
 ### Added

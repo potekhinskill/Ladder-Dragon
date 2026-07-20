@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: MIT
 # Copyright (c) 2026 IURII Potekhin
 # Purpose: implement the ai runtime status component of the ai layer.
-"""Безопасный обмен runtime-статусом между торговым процессом и дашбордом."""
+"""Ladder Dragon ai runtime status support."""
 
 from __future__ import annotations
 
@@ -16,12 +16,12 @@ SCHEMA_VERSION = 1
 
 
 def utc_now_iso() -> str:
-    """Вернуть UTC-время в стабильном ISO-формате."""
+    """Handle utc now iso."""
     return datetime.now(timezone.utc).isoformat()
 
 
 def write_runtime_status(path: str | Path, payload: Mapping[str, Any]) -> None:
-    """Атомарно записать JSON со строгими правами без частично видимого файла."""
+    """Write runtime status."""
     target = Path(path)
     target.parent.mkdir(parents=True, exist_ok=True)
     document = {
@@ -46,7 +46,7 @@ def write_runtime_status(path: str | Path, payload: Mapping[str, Any]) -> None:
 
 
 def read_runtime_status(path: str | Path) -> dict[str, Any]:
-    """Прочитать status-файл; повреждённый или несовместимый файл отвергается."""
+    """Read runtime status."""
     with Path(path).open("r", encoding="utf-8") as stream:
         document = json.load(stream)
     if not isinstance(document, dict):

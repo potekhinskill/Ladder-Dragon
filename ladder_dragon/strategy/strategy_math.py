@@ -1,11 +1,7 @@
 # SPDX-License-Identifier: MIT
 # Copyright (c) 2026 IURII Potekhin
 # Purpose: implement the strategy math component of the strategy layer.
-"""Чистые детерминированные расчёты, общие для торговых процессов.
-
-Здесь намеренно нет сети, окружения, логирования и изменяемого состояния биржи.
-Это позволяет тестировать изменения стратегии без запуска торговых процессов.
-"""
+"""Ladder Dragon strategy math support."""
 
 from __future__ import annotations
 
@@ -14,7 +10,7 @@ import time
 
 
 class RegimeHysteresis:
-    """Debounce режимов: смена допускается только после устойчивого сигнала."""
+    """Represent RegimeHysteresis."""
     def __init__(self, initial: str = "NEUTRAL", *, min_hold_sec: float = 300.0,
                  confirmations: int = 2) -> None:
         self.current = initial
@@ -42,7 +38,7 @@ class RegimeHysteresis:
 
 
 class NumericHysteresis:
-    """Дебаунс числовых параметров CAP/width, чтобы шум не менял план."""
+    """Represent NumericHysteresis."""
     def __init__(self, initial: float, *, max_step: float = 0.10, confirmations: int = 2) -> None:
         self.value = float(initial)
         self.max_step = max(0.0, float(max_step))
@@ -173,7 +169,7 @@ def panic_triggered(
     drop_pct: float,
     atr_multiplier: float,
 ) -> bool:
-    """Сработал ли хотя бы один триггер резкого движения рынка."""
+    """Handle panic triggered."""
     below_atr_band = (
         ema20 is not None
         and atr is not None
@@ -195,7 +191,7 @@ def geometric_ladder(
     up_pct: float,
     density: int,
 ) -> list[float]:
-    """Построить геометрические BUY/SELL-половины лестницы вокруг цены."""
+    """Handle geometric ladder."""
     def levels(start_pct: float, end_pct: float) -> list[float]:
         if density <= 0:
             return []
@@ -211,7 +207,7 @@ def geometric_ladder(
 
 
 def split_ladder(now_price: float, ladder: Sequence[float]) -> tuple[list[float], list[float]]:
-    """Сохранить историческое деление пополам; now_price оставлен для API."""
+    """Split ladder."""
     del now_price
     midpoint = len(ladder) // 2
     return list(ladder[:midpoint]), list(ladder[midpoint:])

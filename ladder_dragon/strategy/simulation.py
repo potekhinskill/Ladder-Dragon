@@ -58,7 +58,7 @@ class SimulationResult:
 
 
 class Inventory:
-    """Портфель симулятора с агрегированной стоимостью и FIFO-партиями."""
+    """Represent Inventory."""
     def __init__(self) -> None:
         self.qty = D("0")
         self.avg_cost = D("0")
@@ -100,11 +100,7 @@ class Inventory:
 
 
 def simulate_grid(candles: Sequence[Candle], config: SimulationConfig, *, market_events: Sequence[object] | None = None) -> SimulationResult:
-    """Запустить backtest на OHLC или на записанном order-book feed.
-
-    При наличии событий стакана они становятся источником bid/ask/volume для
-    каждой свечи; остальная стратегия и accounting остаются общими.
-    """
+    """Simulate grid."""
     if market_events is not None:
         # The order book enriches candles without changing the strategy, so
         # OHLC and order-book results remain comparable on the same code.
@@ -285,7 +281,7 @@ def walk_forward(
 
 def bootstrap_confidence_interval(values: Sequence[Decimal], *, confidence: float = 0.95,
                                   iterations: int = 1000, seed: int = 7) -> tuple[Decimal, Decimal]:
-    """Воспроизводимый bootstrap CI для fold returns/PnL."""
+    """Handle bootstrap confidence interval."""
     if not values or not 0 < confidence < 1 or iterations <= 0:
         raise ValueError("values, confidence and iterations are invalid")
     rng = random.Random(seed)
@@ -300,7 +296,7 @@ def bootstrap_confidence_interval(values: Sequence[Decimal], *, confidence: floa
 
 def cost_robustness(candles: Sequence[Candle], config: SimulationConfig,
                     *, slippage_multipliers: Sequence[Decimal] = (D("0.5"), D("1"), D("2"))) -> dict[Decimal, SimulationResult]:
-    """Проверить, что результат не зависит от одной идеальной оценки slippage."""
+    """Handle cost robustness."""
     result = {}
     for multiplier in slippage_multipliers:
         result[multiplier] = simulate_grid(candles, SimulationConfig(**{
@@ -313,12 +309,7 @@ def production_walk_forward(candles: Sequence[Candle], configs: Iterable[Simulat
                             *, folds: int = 3, purge_bars: int = 2,
                             embargo_bars: int = 2, inner_folds: int = 2,
                             confidence: float = 0.95) -> dict:
-    """Nested walk-forward отчёт с cost robustness и CI.
-
-    Inner folds выбирают параметры только внутри train; outer test никогда не
-    участвует в selection. Конфигурация помечается degraded, если медианный
-    результат не превосходит ноль или CI пересекает отрицательную область.
-    """
+    """Handle production walk forward."""
     # Select all parameters on train; use the outer test exactly once.
     configs = list(configs)
     if len(configs) < 2:
@@ -368,7 +359,7 @@ def production_walk_forward(candles: Sequence[Candle], configs: Iterable[Simulat
 
 
 def multi_period_walk_forward(periods: Sequence[Sequence[Candle]], configs: Iterable[SimulationConfig], **kwargs) -> dict:
-    """Прогнать walk-forward на независимых исторических периодах/режимах."""
+    """Handle multi period walk forward."""
     reports = [production_walk_forward(period, configs, **kwargs) for period in periods if period]
     degraded = any(report["degraded"] for report in reports) or not reports
     return {"periods": reports, "degraded": degraded,
@@ -376,7 +367,7 @@ def multi_period_walk_forward(periods: Sequence[Sequence[Candle]], configs: Iter
 
 
 def holm_bonferroni(p_values: Sequence[float], alpha: float = 0.05) -> list[bool]:
-    """Holm multiple-testing correction: отклонить ложные улучшения параметров."""
+    """Handle holm bonferroni."""
     indexed = sorted(enumerate(float(value) for value in p_values), key=lambda item: item[1])
     accepted = [False] * len(indexed)
     for rank, (index, value) in enumerate(indexed):
@@ -389,7 +380,7 @@ def holm_bonferroni(p_values: Sequence[float], alpha: float = 0.05) -> list[bool
 
 def approve_production_report(report: dict, *, min_folds: int = 3,
                               min_lower_ci: Decimal = D("0")) -> dict:
-    """Fail-closed approval: degraded/неустойчивые параметры запрещаются."""
+    """Handle approve production report."""
     returns = report.get("excess_returns", [])
     ci = report.get("confidence_interval", (D("0"), D("0")))
     approved = bool(returns) and len(returns) >= min_folds and not report.get("degraded", True) and ci[0] >= min_lower_ci

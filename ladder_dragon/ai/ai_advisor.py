@@ -1,13 +1,7 @@
 # SPDX-License-Identifier: MIT
 # Copyright (c) 2026 IURII Potekhin
 # Purpose: implement the ai advisor component of the ai layer.
-"""Безопасный рекомендательный слой стратегии на основе LLM.
-
-Модель не получает торговых инструментов и не создаёт ордера. Она может только
-предложить режим рынка, масштаб ширины лестницы и коэффициент CAP. Ответ
-проходит строгую локальную валидацию, а итоговый CAP дополнительно ограничивает
-существующий Risk Manager.
-"""
+"""Ladder Dragon ai advisor support."""
 
 from __future__ import annotations
 
@@ -164,7 +158,7 @@ class TokenUsage:
 
 
 class AIAdvisor:
-    """Запрашивает и кэширует только рекомендации со строгой схемой."""
+    """Represent AIAdvisor."""
 
     def __init__(
         self,
@@ -206,12 +200,12 @@ class AIAdvisor:
 
     @property
     def last_was_cache_hit(self) -> bool:
-        """Была ли последняя рекомендация возвращена из локального кэша."""
+        """Handle last was cache hit."""
         return self._last_was_cache_hit
 
     @property
     def last_decision_id(self) -> Optional[str]:
-        """ID записи, созданной до передачи рекомендации исполнителю."""
+        """Handle last decision id."""
         return self._last_decision_id
 
     def recommend(
@@ -380,7 +374,7 @@ class AIAdvisor:
         rationale: str = "",
         rejection_reason: str = "",
     ) -> None:
-        """Записать технический расход без промпта, ответа и торговых данных."""
+        """Handle log usage."""
         if not self.config.usage_log_path:
             return
         rates = token_prices(self.config)
@@ -432,7 +426,7 @@ def validate_recommendation(
     *,
     config: AdvisorConfig,
 ) -> StrategyRecommendation:
-    """Строго проверить типы, поля и диапазоны ответа модели."""
+    """Validate recommendation."""
     required = {
         "mode",
         "ladder_width_scale",
@@ -566,7 +560,7 @@ def append_usage_event(
 
 
 def limit_cap_by_recommendation(risk_safe_cap: float, cap_scale: float) -> float:
-    """Не позволить рекомендации расширить CAP, одобренный Risk Manager."""
+    """Limit cap by recommendation."""
     safe_cap = _strict_number(risk_safe_cap, "risk_safe_cap")
     scale = _strict_number(cap_scale, "cap_scale")
     if safe_cap < 0 or scale <= 0:

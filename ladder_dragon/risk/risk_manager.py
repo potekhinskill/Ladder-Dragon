@@ -1,12 +1,7 @@
 # SPDX-License-Identifier: MIT
 # Copyright (c) 2026 IURII Potekhin
 # Purpose: implement the risk manager component of the risk layer.
-"""Управление портфельным риском Ladder Dragon по принципу fail-closed.
-
-Модуль намеренно не зависит от Binance HTTP: решения можно воспроизводимо
-тестировать на готовых снимках портфеля. Дневные базы equity и halt-маркер
-хранятся на диске, поэтому перезапуск супервизора не снимает остановку.
-"""
+"""Ladder Dragon risk manager support."""
 
 from __future__ import annotations
 
@@ -26,13 +21,13 @@ from ladder_dragon.execution.telegram_alerts import notify as notify_telegram
 
 
 def money(value: object) -> Decimal:
-    """Преобразовать внешнее число в Decimal без наследования шума float."""
+    """Handle money."""
     return Decimal(str(value or 0))
 
 
 @dataclass(frozen=True)
 class RiskLimits:
-    """Все жёсткие лимиты и пути постоянного состояния circuit breaker."""
+    """Represent RiskLimits."""
     max_daily_loss_usdt: Decimal
     max_start_drawdown_pct: Decimal
     max_peak_drawdown_pct: Decimal
@@ -117,7 +112,7 @@ class RiskLimits:
 
 @dataclass(frozen=True)
 class RiskSnapshot:
-    """Атомарный снимок портфеля, ордеров и дневной торговой активности."""
+    """Represent RiskSnapshot."""
     equity_usdt: Decimal
     exposure_usdt: Decimal
     free_usdt: Decimal
@@ -139,7 +134,7 @@ class RiskSnapshot:
 
 @dataclass(frozen=True)
 class RiskDecision:
-    """Результат проверки: полный halt либо запрет только на новые BUY."""
+    """Represent RiskDecision."""
     halted: bool
     buy_blocked: bool
     reasons: tuple[str, ...] = ()
@@ -191,7 +186,7 @@ def create_manual_halt(
     now: Optional[float] = None,
     metadata: Optional[dict] = None,
 ) -> Path:
-    """Создать постоянный halt при сбое исполнения вне RiskManager."""
+    """Create manual halt."""
     limits = limits or RiskLimits.from_env()
     now = float(now or time.time())
     reasons = [str(reason)]
@@ -225,7 +220,7 @@ def create_manual_halt(
 
 
 class RiskManager:
-    """Вычисляет риски и сохраняет состояние между циклами и рестартами."""
+    """Represent RiskManager."""
     def __init__(self, limits: RiskLimits):
         limits.validate()
         self.limits = limits
@@ -293,7 +288,7 @@ class RiskManager:
         self._alert("circuit_breaker", reasons, snapshot)
 
     def evaluate(self, snapshot: RiskSnapshot, now: Optional[float] = None) -> RiskDecision:
-        """Проверить circuit breaker и мягкие лимиты новых BUY."""
+        """Evaluate evaluate."""
         now = float(now or time.time())
         state = self._load(snapshot.equity_usdt, now)
         start = money(state.start_equity_usdt)
@@ -406,7 +401,7 @@ class RiskManager:
 
 
 def load_daily_trade_metrics(db_path: str, symbols: Iterable[str], now: Optional[float] = None) -> dict:
-    """Прочитать дневные метрики из ledger; при неполных данных упасть закрыто."""
+    """Load daily trade metrics."""
     now = float(now or time.time())
     start = int(datetime.fromtimestamp(now, timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0).timestamp())
     wanted = [s.upper() for s in symbols]

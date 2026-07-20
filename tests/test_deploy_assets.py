@@ -13,6 +13,22 @@ def read(relative: str) -> str:
     return (ROOT / relative).read_text()
 
 
+def test_source_code_uses_english_outside_localization_catalogs():
+    """Keep maintenance text English while allowing translated UI catalogs."""
+    extensions = {".py", ".sh", ".html", ".js"}
+    allowed = {ROOT / "FRONT/locales.js"}
+    violations = []
+    for path in ROOT.rglob("*"):
+        if not path.is_file() or path.suffix not in extensions or path in allowed:
+            continue
+        if any(part in {".git", ".venv"} for part in path.parts):
+            continue
+        for line_number, line in enumerate(path.read_text().splitlines(), start=1):
+            if re.search(r"[\u0400-\u04ff]", line):
+                violations.append(f"{path.relative_to(ROOT)}:{line_number}")
+    assert not violations, "Cyrillic source text found outside localization catalogs: " + ", ".join(violations)
+
+
 def test_production_code_has_copyright_and_english_maintenance_note():
     paths = list(ROOT.glob("*.py"))
     paths += list((ROOT / "bin").glob("*.py"))
@@ -326,7 +342,7 @@ def test_dashboard_balance_filter_hides_small_assets_by_default():
     index = read("FRONT/index.html")
     assert 'id="balance-hide-small"' in index
     assert 'type="checkbox" checked' in index
-    assert 'скрывать &lt; 1 USDT' in index
+    assert 'Hide &lt; 1 USDT' in index
     assert "localStorage.getItem('balance-hide-small')" in index
     assert "row.value_usdt == null || Number(row.value_usdt) < 1" in index
     assert 'id="balance-hidden"' in index

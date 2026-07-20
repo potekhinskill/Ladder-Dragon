@@ -1,12 +1,7 @@
 # SPDX-License-Identifier: MIT
 # Copyright (c) 2026 IURII Potekhin
 # Purpose: implement the ai control component of the ai layer.
-"""Безопасный runtime-переключатель рекомендательного AI-слоя.
-
-Файл управления намеренно отделён от telemetry status: дашборд может менять
-только флаг включения, а торговый процесс сам применяет допустимый режим,
-сохраняя все проверки Policy/Risk Manager.
-"""
+"""Ladder Dragon ai control support."""
 
 from __future__ import annotations
 
@@ -32,12 +27,12 @@ def resolve_ai_control_path(value: str | Path | None = None) -> Path:
 
 
 def utc_now_iso() -> str:
-    """Вернуть UTC-время для аудита изменения переключателя."""
+    """Handle utc now iso."""
     return datetime.now(timezone.utc).isoformat()
 
 
 def write_ai_control(path: str | Path, *, enabled: bool, mode: str) -> dict[str, Any]:
-    """Атомарно записать строгий и минимальный control-файл с правами 0600."""
+    """Write ai control."""
     if not isinstance(enabled, bool):
         raise ValueError("AI control enabled must be boolean")
     normalized_mode = str(mode).strip().upper()
@@ -72,7 +67,7 @@ def write_ai_control(path: str | Path, *, enabled: bool, mode: str) -> dict[str,
 
 
 def read_ai_control(path: str | Path) -> dict[str, Any] | None:
-    """Прочитать control-файл; отсутствие файла означает отсутствие override."""
+    """Read ai control."""
     target = Path(path)
     if not target.exists():
         return None

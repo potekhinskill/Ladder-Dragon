@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: MIT
 # Copyright (c) 2026 IURII Potekhin
 # Purpose: implement the executor stats component of the execution layer.
-"""Импорт сделок и точная оценка комиссий для исполнителя."""
+"""Ladder Dragon executor stats support."""
 
 from __future__ import annotations
 
@@ -23,7 +23,7 @@ def commission_quote_value(
     public_get: Callable[..., Any],
     cache: MutableMapping[Tuple[str, str, int], Decimal],
 ) -> Tuple[Optional[Decimal], str]:
-    """Оценить комиссию Binance в quote-активе по времени сделки."""
+    """Handle commission quote value."""
     base, quote = symbol_assets(symbol)
     asset = commission_asset.strip().upper()
     if commission_amount <= 0:
@@ -71,7 +71,7 @@ def poll_mytrades_once(
     on_fill: Callable[[dict], None] | None = None,
     strict: bool = False,
 ) -> None:
-    """Импортировать новую порцию /myTrades, не продвигаясь мимо неизвестной комиссии."""
+    """Handle poll mytrades once."""
     last_id = None
     try:
         last_id = stats.get_last_trade_id(connection, symbol)

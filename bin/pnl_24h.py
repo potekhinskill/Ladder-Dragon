@@ -4,21 +4,7 @@
 # Copyright (c) 2026 IURII Potekhin
 # Purpose: report realized 24-hour PnL.
 
-"""
-pnl_24h.py — PnL за окно (по умолчанию 24h), НЕТТО (с вычетом fee_quote).
-
-Методы:
-  - cash (по умолчанию): Денежный поток в котируемой валюте (USDT):
-        Σ(SELL qty*price) − Σ(BUY qty*price) − Σ(fee_quote)
-    Не требует полной истории и корректен при неполной БД.
-
-  - realized: Разница реализованной прибыли между t1 и t0 по средневзвешенной
-    себестоимости. Требует полной истории до t0. Если история не полная —
-    результат будет искажен. Используй только если уверен в полноте БД.
-
-Новые БД используют точные gross/net quantity и метаданные комиссии. Старые
-таблицы с price/qty/fee_quote продолжают поддерживаться.
-"""
+"""Ladder Dragon pnl 24h support."""
 
 import os
 import sys
@@ -101,7 +87,7 @@ def _execution(row: sqlite3.Row) -> TradeExecution:
     )
 
 def fetch_trades(con: sqlite3.Connection, t0_ts: int, t1_ts: int, symbols=None):
-    """Выборка сделок в окне [t0_ts, t1_ts] с дедупом (trade_id или fallback)."""
+    """Fetch trades."""
     params = [t0_ts, t1_ts]
     where = ["ts >= ? AND ts <= ?"]
     if symbols:
@@ -144,7 +130,7 @@ def fetch_trades(con: sqlite3.Connection, t0_ts: int, t1_ts: int, symbols=None):
     return rows
 
 def pnl_cash(con: sqlite3.Connection, t0_sec: int, t1_sec: int, symbols=None, ts_div: int = 1):
-    """Денежный PnL за окно: Σ(SELL) − Σ(BUY) − Σ(fee). Возвращает dict по символам и сумму."""
+    """Handle pnl cash."""
     rows = fetch_trades(con, t0_sec * ts_div, t1_sec * ts_div, symbols)
     by_sym = {}
     for r in rows:
@@ -221,7 +207,7 @@ def replay_until(con: sqlite3.Connection, t_until_sec: int, symbols=None, ts_div
                 if realized.get(f"__warn_{sym}") is None:
                     print(f"[warn] SELL with nonpositive inventory for {sym} (history incomplete?) — treating cost as 0", file=sys.stderr)
                     realized[f"__warn_{sym}"] = Decimal("0")
-                continue  # ← ВАЖНО: всегда выходим из SELL при Q<=0
+                continue
 
             # Standard sale at average cost.
             avg = C / Q
@@ -256,10 +242,7 @@ def pnl_realized(con: sqlite3.Connection, t0_sec: int, t1_sec: int, symbols=None
 # === Parse --from/--to windows ===
 
 def _parse_dt_arg(s: str | None, use_utc: bool) -> datetime | None:
-    """Парсит строку даты/времени. Поддержка:
-       - ISO: 'YYYY-MM-DD' или 'YYYY-MM-DD HH:MM[:SS]'
-       - Если без TZ — проставляется UTC при --utc или локальный tz иначе.
-    """
+    """Parse dt arg."""
     if not s:
         return None
     # Try fromisoformat first.
@@ -278,15 +261,15 @@ def _parse_dt_arg(s: str | None, use_utc: bool) -> datetime | None:
     return dt
 
 def main():
-    ap = argparse.ArgumentParser(description="PNL за окно, нетто (с вычетом fee_quote)")
+    ap = argparse.ArgumentParser(description="Net PnL for a time window, including quote fees")
     ap.add_argument("--db", default=os.getenv("BOT_STATS_DB", "/home/bot/apps/binance_bot/db/bot_stats.db"))
-    ap.add_argument("--hours", type=int, default=24, help="длительность окна, если не заданы --from/--to")
-    ap.add_argument("--from", dest="from_dt", default=None, help="начало окна: 'YYYY-MM-DD[ HH:MM[:SS]]'")
-    ap.add_argument("--to", dest="to_dt", default=None, help="конец окна: 'YYYY-MM-DD[ HH:MM[:SS]]' (по умолчанию: сейчас)")
-    ap.add_argument("--symbols", default=None, help="CSV, напр. SOLUSDT,ETHUSDT")
-    ap.add_argument("--utc", action="store_true", help="UTC вместо локального времени")
-    ap.add_argument("--method", choices=["cash","realized"], default="cash", help="способ расчёта")
-    ap.add_argument("--json", action="store_true", help="вывести результат в формате JSON")
+    ap.add_argument("--hours", type=int, default=24, help="window length when --from/--to are omitted")
+    ap.add_argument("--from", dest="from_dt", default=None, help="window start: 'YYYY-MM-DD[ HH:MM[:SS]]'")
+    ap.add_argument("--to", dest="to_dt", default=None, help="window end: 'YYYY-MM-DD[ HH:MM[:SS]]' (default: now)")
+    ap.add_argument("--symbols", default=None, help="CSV list, for example SOLUSDT,ETHUSDT")
+    ap.add_argument("--utc", action="store_true", help="use UTC instead of local time")
+    ap.add_argument("--method", choices=["cash","realized"], default="cash", help="calculation method")
+    ap.add_argument("--json", action="store_true", help="emit JSON output")
     args = ap.parse_args()
 
     if not os.path.exists(args.db):
@@ -304,7 +287,7 @@ def main():
 
     # Validate window-bound ordering.
     if t1 < t0:
-        print("Error: 'to' раньше, чем 'from'", file=sys.stderr)
+        print("Error: 'to' is earlier than 'from'", file=sys.stderr)
         sys.exit(2)
 
     # Filter by symbols.
@@ -316,10 +299,10 @@ def main():
         ts_div = detect_ts_div(con, "ts")
         if args.method == "cash":
             by_sym, total = pnl_cash(con, int(t0.timestamp()), int(t1.timestamp()), syms, ts_div)
-            header = "PNL за окно (денежный, нетто с учетом комиссий):"
+            header = "Window PnL (cash flow, net of fees):"
         else:
             by_sym, total = pnl_realized(con, int(t0.timestamp()), int(t1.timestamp()), syms, ts_div)
-            header = "PNL за окно (реализованный по себестоимости, нетто):"
+            header = "Window PnL (realized cost-basis result, net of fees):"
 
         q2 = Decimal("0.01")
 
@@ -339,7 +322,7 @@ def main():
             for s in sorted(by_sym.keys()):
                 val = by_sym[s].quantize(q2)
                 print(f"  {s:10s} : {val} USDT")
-            print(f"\nИТОГО: {total.quantize(q2)} USDT")
+            print(f"\nTOTAL: {total.quantize(q2)} USDT")
     finally:
         con.close()
 

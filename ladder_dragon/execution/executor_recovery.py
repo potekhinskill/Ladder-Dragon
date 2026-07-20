@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: MIT
 # Copyright (c) 2026 IURII Potekhin
 # Purpose: implement the executor recovery component of the execution layer.
-"""Запросы, отмена, проверка ордеров и восстановление после рестарта."""
+"""Ladder Dragon executor recovery support."""
 
 from __future__ import annotations
 
@@ -102,7 +102,7 @@ def verify_oco_legs(
     *,
     signed_request: Callable[..., Any],
 ) -> List[Dict[str, Any]]:
-    """Подтвердить, что OCO содержит ровно TP- и SL-ногу стороны SELL."""
+    """Handle verify oco legs."""
     refs = order_list.get("orders") or []
     if len(refs) != 2:
         raise RuntimeError("OCO verification did not return exactly two legs")
@@ -148,7 +148,7 @@ def record_order_payload(
 
 @dataclass(frozen=True)
 class RecoveryDependencies:
-    """Зависимости recovery-слоя без прямого доступа к глобалам исполнителя."""
+    """Represent RecoveryDependencies."""
     journal: Callable[[], OrderJournal | None]
     get_order_by_client_id: Callable[[str, str], Dict[str, Any] | None]
     get_order_list_by_client_id: Callable[[str], Dict[str, Any] | None]
@@ -226,7 +226,7 @@ def recover_pending_buy_order_ids(
     *,
     dependencies: RecoveryDependencies,
 ) -> List[int]:
-    """Вернуть BUY, которые после рестарта ещё требуют контроля или защиты."""
+    """Recover pending buy order ids."""
     journal = dependencies.journal()
     if journal is None:
         return []
@@ -292,7 +292,7 @@ def recover_existing_protection(
     *,
     dependencies: RecoveryDependencies,
 ) -> bool:
-    """Проверить и восстановить связь BUY → OCO/резервный SELL."""
+    """Recover existing protection."""
     journal = dependencies.journal()
     if journal is None:
         return False

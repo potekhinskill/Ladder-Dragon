@@ -3,68 +3,7 @@
 # SPDX-License-Identifier: MIT
 # Copyright (c) 2026 IURII Potekhin
 # Purpose: plan and execute the spot ladder for one symbol.
-"""
-Ladder Dragon — универсальный исполнитель с автоматическим размером заявки
-
-Скрипт-воркер: по списку цен создаёт/поддерживает лимитные заявки BUY,
-и (опционально) распродаёт имеющиеся холдинги сеткой SELL/TP (auto-oco-holdings).
-
-Особенности:
-- Авто-расчёт размера заявки из доступного USDT (или базовой монеты)
-- Поддержка шагов цены/количества по биржевым фильтрам (tickSize/stepSize/minQty/minNotional)
-- Управление плотностью сетки и таймаутами TTL (near/far) — делается супервизором
-- Простой статус-лог и мягкое завершение по SIGINT/SIGTERM
-
-Патчи (2025-08-18):
-- backoff+повторы на 418/429/5xx и коды 1003/-1003/-1015
-- подпись приватных запросов (account/openOrders/order/myTrades)
-- get_price(): фолбэки /ticker/bookTicker → /avgPrice
-- защита «последнего SELL» (не превышать free после округлений/minNotional)
-- аккуратный /myTrades со state в SQLite (если STATS_ENABLE=1 и задан BOT_STATS_DB)
-
-Патчи (2025-08-21):
-- Добавлены флаги --cap-floor-usdt и --min-order-usdt:
-  • если свободных USDT меньше cap-floor — BUY не ставим вовсе (гейт на уровне воркера)
-  • если нотационал заявки < min-order-usdt — пропускаем такой BUY
-- Безопасное форматирование цены/количества согласно tickSize/stepSize (динамическая точность)
-
-Патч (2025-08-24):
-- --attach-oco-on-fill: после FILLED у BUY автоматически вешать OCO (TP/SL) SELL
-- Стоп-лимит SELL выравнивается под нижнюю ступень лестницы; TP — под верхнюю ступень
-- Защита от «Insufficient balance» при подвесе OCO (учитываем только свободный base)
-- --stop-limit-offset-pct (учитывается при расчёте stopPrice), --check-fills-interval — период опроса статусов BUY
-- Фолбэк: при ошибке OCO — одиночный TP, если --oco-fallback=prefer-tp1
-
-Пояс-гарантии (дедуп лестницы в воркере, 2025-08-24):
-- После парсинга --ladder-prices выполняется дедуп по тикам отдельно для BUY/SELL,
-  чтобы исключить почти дублирующиеся уровни, если воркер запущен напрямую.
-
-Патч (динамическое распределение CAP, 2025-08-24):
-- В maybe_place_buys() CAP на заявку берётся как min(global_cap, остаток / оставшиеся_слоты)
-  с динамическим пересчётом на каждом шаге.
-- Для последнего слота возможность использовать «весь остаток» управляется флагом
-  --use-remainder-in-last (по умолчанию ВЫКЛ). Если флаг не задан — распределение равномерное.
-
-Патч (TP-floor, 2025-08-24):
-- TP не ниже “пола” по прибыли: tp_floor_pct = max(MIN_PROFIT_OVER_AVГ, 2*BOT_FEE_PCT*1.05)
-- Доп. потолок цели по ENV TP1_MAX (по умолчанию 0.040).
-- Итоговый TP = min(max(верхняя ступень, fill*(1+tp_floor_pct)), fill*(1+TP1_MAX))
-
-Патч (2025-08-25):
-- Breakeven after TP1 (опционально, по символам): при частичном исполнении TP1 подтягиваем стоп в безубыток для остатка.
-  Управляется флагами --breakeven-on-tp1-symbols / --breakeven-offset-pct / --breakeven-check-interval.
-  По умолчанию выключено — текущая логика не меняется.
-
-Патч (Средняя цена + Паника, 2025-08-25 поздно):
-- Подсчёт средней цены текущей позиции из /myTrades (кэш ~30с).
-- Запрет SELL/TP ниже средней входа, кроме режима «паника».
-- Режим «паника»: триггеры на пролив (EMA20−k*ATR, или мгновенное падение от prev_close), дебаунс/кулдаун.
-- Кэш индикаторов (EMA/ATR/prev_close) с TTL, чтобы не спамить /klines).
-
-Патч (пер-символьный лок + PID в статусах, 2025-08-26):
-- Эксклюзивный fcntl-лок /run/mybot/lock_{SYMBOL}.pid, чтобы не было двойных воркеров.
-- PID добавлен в стартовый и периодический статус-логи.
-"""
+"""Ladder Dragon autosize universal support."""
 from __future__ import annotations
 
 import os
@@ -236,7 +175,7 @@ TRANSPORT = BinanceTransport(
 
 
 def _order_journal() -> Optional[OrderJournal]:
-    """Открыть постоянный intent-журнал только при разрешённых мутациях."""
+    """Handle order journal."""
     global _ORDER_JOURNAL
     if not LIVE_MODE:
         return None
@@ -254,7 +193,7 @@ def _order_journal() -> Optional[OrderJournal]:
 
 
 def _trip_execution_halt(reason: str, **metadata: Any) -> None:
-    """Остановить дальнейшее исполнение при неподтверждённом состоянии ордера."""
+    """Handle trip execution halt."""
     path = create_manual_halt(reason, metadata=metadata)
     log(f"[EXECUTION-HALT] {reason}; marker={path}")
 
@@ -418,12 +357,7 @@ def install_signal_handlers():
 
 # ------------------- per-symbol single-instance lock -------------------
 class SymbolLock:
-    """
-    Файловый лок на BOT_RUN_DIR/lock_{SYMBOL}.pid
-    - эксклюзивная блокировка через fcntl.flock(LOCK_EX|LOCK_NB)
-    - при успехе пишет PID в файл (для удобной диагностики)
-    - при выходе — пытается удалить файл (лочение всё равно снимется на close())
-    """
+    """Represent SymbolLock."""
     def __init__(self, symbol: str):
         self.symbol = symbol
         self.path = os.path.join(bot_run_dir(), f"lock_{symbol}.pid")
@@ -442,7 +376,7 @@ class SymbolLock:
                     pid_txt = f.read().strip()
             except OSError:
                 pid_txt = "?"
-            log(f"[LOCK] {self.symbol} уже запущен (pid={pid_txt}). Выход.")
+            log(f"[LOCK] {self.symbol} is already running (pid={pid_txt}); exiting.")
             return False
 
         # The lock is acquired; write the current PID for observability.
@@ -479,7 +413,7 @@ def _fee_floor_pct() -> float:
     return fee * 2.0 * 1.05
 
 def _execution_cost_floor_pct() -> float:
-    """Минимальная gross-цель после комиссии и неблагоприятного исполнения."""
+    """Handle execution cost floor pct."""
     fee = max(0.0, getenv_float("BOT_FEE_PCT", 0.001))
     spread = max(0.0, getenv_float("BOT_SPREAD_PCT", getenv_float("RISK_SPREAD_PCT", 0.0)))
     slippage = max(0.0, getenv_float("BOT_SLIPPAGE_PCT", getenv_float("RISK_SLIPPAGE_PCT", 0.0)))
@@ -541,7 +475,7 @@ def get_indicators_cached(symbol: str, interval: str = "1m", ttl_sec: int = 20) 
         _IND_CACHE[key] = {"ema20": None, "atr": None, "prev_close": None}
         _IND_TS[key] = now_ts
         return None, None, None
-    closes = [float(x[4]) for x in kl[:-1]]  # закрытые свечи
+    closes = [float(x[4]) for x in kl[:-1]]
     ema20 = _ema(closes[-60:], 20) if len(closes) >= 20 else None
     atr14 = _atr_from_klines(kl, 14)
     prev_close = closes[-1] if closes else None
@@ -938,10 +872,7 @@ def pull_filters(symbol: str) -> Dict[str, Any]:
     return flt
 
 def _decimals_from_step(step: float) -> int:
-    """
-    Возвращает количество знаков после запятой для форматирования,
-    исходя из шага (tick/step). Работает и для 1e-8 и для 0.01000000.
-    """
+    """Handle decimals from step."""
     if step <= 0:
         return 8
     s = f"{step:.12f}".rstrip("0")
@@ -1418,7 +1349,7 @@ _ACCOUNT_FEE_CACHE: Dict[str, Tuple[float, float]] = {}
 
 
 def account_fee_pct(symbol: str) -> float:
-    """Получить maker/taker fee account snapshot с безопасным ENV fallback."""
+    """Handle account fee pct."""
     now = time.time()
     cached = _ACCOUNT_FEE_CACHE.get(symbol.upper())
     if cached and now - cached[0] < 300:
@@ -1435,7 +1366,7 @@ def account_fee_pct(symbol: str) -> float:
     return fee
 
 def _stats_init_if_needed():
-    """Лениво открыть статистику, чтобы DRY/help не зависели от рабочей БД."""
+    """Handle stats init if needed."""
     global TOOLS_STATS, STATS_CON
     if not STATS_ENABLE or not STATS_DB:
         return
@@ -1530,7 +1461,7 @@ def _stats_poll_mytrades_once(symbol: str):
     if STATS_CON is None or TOOLS_STATS is None:
         return
     def on_fill(fill: dict) -> None:
-        """Синхронизировать фактический fill с FIFO-партиями и AI журналом."""
+        """Handle on fill."""
         try:
             ensure_lots_schema(STATS_CON)
             sync_exchange_fill(STATS_CON, fill)
@@ -1653,18 +1584,10 @@ def _pick_ladder_aligned_oco_prices(symbol: str,
                                     ladder_prices: List[float],
                                     fill_price: float,
                                     stop_limit_offset_pct: float) -> tuple[float, float, float]:
-    """
-    Возвращает (tp_limit_price, sl_stop_price, sl_limit_price).
-
-    - TP: не ниже “пола” (учёт комиссии/edge) и не выше cap (TP1_MAX), при этом
-          не ниже ближайшей верхней ступени лестницы.
-          TP = min(max(верхняя ступень, fill*(1+tp_floor_pct)), fill*(1+TP1_MAX))
-    - SL limit: ближайшая нижняя ступень
-    - SL stop: тик/offset выше SL limit (для SELL SL: stopPrice > stopLimitPrice)
-    """
+    """Handle pick ladder aligned oco prices."""
     pull_filters(symbol)
     tick = symbol_filters[symbol]["tickSize"]
-    eps_mult = max(1.0, price_eps_mult())  # из ENV (PRICE_EPS_MULT)
+    eps_mult = max(1.0, price_eps_mult())
 
     # Split the ladder around the fill.
     lower = [p for p in ladder_prices if p < fill_price]
@@ -1716,21 +1639,7 @@ def maybe_place_buys(symbol: str,
                      use_remainder_in_last: bool = False,
                      buy_limit_maker: bool = False,
                      live_mode: bool = False) -> List[int]:
-    """
-    Размещает BUY ниже текущей цены.
-
-    Доп. гейты:
-      - если free USDT < cap_floor_usdt → вообще не ставим BUY
-      - если notional заявки < min-order-usdt → пропускаем уровень
-      - если enforce_limit=True → не превышаем target_buy_per_symbol активных BUY ниже рынка
-        и не дублируем уже стоящие цены (по округлению к tickSize/PRICE_ROUND_MODE).
-
-    Динамическое распределение остатка:
-      local_cap = min(cap_per_order_usdt, usdt_free / max(1, remaining_slots)).
-      In DRY/Testnet, use_remainder_in_last may allocate the final remainder.
-      LIVE always ignores that option and retains the per-order hard CAP.
-    Возвращает список orderId успешно размещённых BUY.
-    """
+    """Handle maybe place buys."""
     # Check the stop signal before any network request: after SIGTERM this function
     # must not even read balances or open orders.
     if not RUN:
@@ -1799,8 +1708,8 @@ def maybe_place_buys(symbol: str,
     total_slots = len(candidates)
     if total_slots <= 0:
         now = Decimal(str(get_price(symbol)))
-        log(f"[BUY-NONE] {symbol} нет уровней ниже рынка (now≈{fmt_price_sym(symbol, now)}). "
-            f"Проверь --ladder-prices и режим reduce-only.")
+        log(f"[BUY-NONE] {symbol} has no levels below market (now≈{fmt_price_sym(symbol, now)}). "
+            f"Check --ladder-prices and reduce-only mode.")
         return []
 
     # Main candidate loop.
@@ -1894,16 +1803,7 @@ def maybe_place_sells_from_holdings(
     sell_limit_maker: bool = False,
     panic_sell_floor_pct: Optional[float] = None,
 ) -> int:
-    """
-    Раскидывает свободный base-холдинг SELL-лимитками по верхним уровням.
-
-    Если enforce_limit=True:
-      - не дублируем цены SELL, уже стоящие в открытых ордерах (с округлением к tickSize/PRICE_ROUND_MODE)
-      - общее число новых SELL не превысит max_oco_per_symbol с учётом уже стоящих SELL
-
-    Защита: не ставить SELL ниже средней цены входа (avg_entry_px), если паника не активна.
-    При панике можно ограничить скидку от средней через panic_sell_floor_pct.
-    """
+    """Handle maybe place sells from holdings."""
     base, _ = get_symbol_assets(symbol)
     bals = get_balances()
     base_free = Decimal(str(bals.get(base, {}).get("free", "0")))
@@ -2099,7 +1999,7 @@ def maybe_place_sells_from_holdings(
 # ------------------- CLI / main -------------------
 
 def main():
-    """Один торговый сеанс символа: preflight, план, размещение и защита."""
+    """Handle main."""
     parser = build_executor_parser()
     args = validate_executor_args(parser, parser.parse_args())
     log(f"[VERSION] {product_label('executor')}")
@@ -2167,7 +2067,7 @@ def main():
     # --- per-symbol lock: a second process for the symbol exits immediately ---
     _lock = SymbolLock(symbol)
     if not _lock.acquire():
-        return  # тихий выход
+        return
 
     user_stream_mailbox = OrderEventMailbox()
     user_stream_observer: Optional[BinanceUserDataObserver] = None
@@ -2533,7 +2433,7 @@ def main():
             # Periodically refresh indicators/panic state in the lightweight mode.
             try:
                 ema20, atr, prev_close = get_indicators_cached(symbol, args.panic_interval, ttl_sec=20)
-                avg_px = avg_entry(symbol, cache_ttl=args.avg_cache_ttl, lookback=args.avg_lookback)  # кэш управляется CLI
+                avg_px = avg_entry(symbol, cache_ttl=args.avg_cache_ttl, lookback=args.avg_lookback)
                 runtime_price = get_price(symbol)
                 _observe_buy_market(symbol, placed_ids, runtime_price)
                 panic_active, _ = _panic_state_fail_closed(

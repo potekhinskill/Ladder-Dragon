@@ -3,12 +3,7 @@
 # SPDX-License-Identifier: MIT
 # Copyright (c) 2026 IURII Potekhin
 # Purpose: render the VWAP environment configuration.
-"""
-Динамический расчёт VWAP-параметров для Ladder Dragon.
-
-Использование: python gen_vwap_env.py --symbols SOLUSDT,ETHUSDT ...
-Скрипт печатает строки формата KEY=VALUE, которые можно добавлять в dynamic.env.
-"""
+"""Ladder Dragon gen vwap env support."""
 from __future__ import annotations
 
 import argparse
@@ -77,12 +72,7 @@ def fmt_pairs(pairs: Dict[str, float], precision: int = 6) -> str:
 
 
 def emit_lines(lines: Iterable[str]) -> bool:
-    """Напечатать результат и спокойно завершиться при закрытом stdout.
-
-    При остановке systemd родительский supervisor закрывает pipe раньше
-    генератора VWAP. Это штатная часть graceful shutdown, а не ошибка расчёта.
-    Поэтому BrokenPipeError не должен превращаться в traceback в журнале.
-    """
+    """Handle emit lines."""
     try:
         for line in lines:
             print(line, flush=True)

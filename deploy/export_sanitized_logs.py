@@ -81,7 +81,7 @@ REDACTIONS = (
 
 
 def sanitize(text: str) -> tuple[str, int]:
-    """Удалить credential-like значения, сохранив диагностическую структуру."""
+    """Handle sanitize."""
     replacements = 0
     for pattern, replacement in REDACTIONS:
         text, count = pattern.subn(replacement, text)
@@ -90,7 +90,7 @@ def sanitize(text: str) -> tuple[str, int]:
 
 
 def journal(*args: str) -> str:
-    """Прочитать systemd journal без shell и вернуть текст даже при пустом логе."""
+    """Handle journal."""
     result = subprocess.run(
         ["journalctl", "-u", "mybot", "--no-pager", "-o", "short-iso", *args],
         check=False,
@@ -104,7 +104,7 @@ def journal(*args: str) -> str:
 
 
 def tail_bytes(text: str) -> str:
-    """Оставить последние полные строки в пределах лимита файла."""
+    """Handle tail bytes."""
     data = text.encode("utf-8", errors="replace")
     if len(data) <= MAX_BYTES:
         return text
@@ -116,7 +116,7 @@ def tail_bytes(text: str) -> str:
 
 
 def atomic_write(path: Path, text: str, mode: int = 0o640) -> None:
-    """Не показывать nginx частично записанный файл."""
+    """Handle atomic write."""
     path.parent.mkdir(parents=True, exist_ok=True)
     descriptor, temporary_name = tempfile.mkstemp(
         prefix=f".{path.name}.", dir=path.parent
@@ -134,7 +134,7 @@ def atomic_write(path: Path, text: str, mode: int = 0o640) -> None:
 
 
 def cleanup(now: datetime) -> None:
-    """Удалить только управляемые дневные журналы старше TTL."""
+    """Handle cleanup."""
     cutoff = (now - timedelta(days=RETENTION_DAYS)).date()
     for path in OUTPUT_DIR.glob("mybot-????-??-??.log"):
         try:

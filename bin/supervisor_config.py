@@ -24,12 +24,12 @@ def env_flag(name: str, default: bool = False) -> bool:
 def build_supervisor_parser() -> argparse.ArgumentParser:
     ap = argparse.ArgumentParser(description="Ladder Dragon trading supervisor")
     ap.add_argument("--version", action="version", version=product_label("supervisor"))
-    ap.add_argument("--singleton", action="store_true", help="разрешить только один экземпляр (lock в /tmp)")
+    ap.add_argument("--singleton", action="store_true", help="Configure --singleton.")
     ap.add_argument("--base-script", default="/home/bot/apps/binance_bot/bin/autosize_universal.py")
-    ap.add_argument("--symbols", default="SOLUSDT,ETHUSDT", help="через запятую")
-    ap.add_argument("--ladder-mode", default="pct", choices=["pct"], help="режим построения лестницы")
-    ap.add_argument("--ladder-pct", default="-0.5,-20,20", help="low,down,up в процентах")
-    ap.add_argument("--ladder-pct-map", default="", help="перекрытие по символам, формат: SYM=a,b,c;SYM2=a,b,c")
+    ap.add_argument("--symbols", default="SOLUSDT,ETHUSDT", help="Configure --symbols.")
+    ap.add_argument("--ladder-mode", default="pct", choices=["pct"], help="Configure --ladder-mode.")
+    ap.add_argument("--ladder-pct", default="-0.5,-20,20", help="Configure --ladder-pct.")
+    ap.add_argument("--ladder-pct-map", default="", help="Configure --ladder-pct-map.")
     ap.add_argument("--grid-density", type=int, default=20)
     ap.add_argument("--smart-rolling", action="store_true")
     ap.add_argument("--price-eps-mult", type=float, default=1.0)
@@ -40,53 +40,53 @@ def build_supervisor_parser() -> argparse.ArgumentParser:
     ap.add_argument("--child-cap-floor-usdt", type=float, default=None)
     ap.add_argument("--child-min-order-usdt", type=float, default=None)
     ap.add_argument("--child-skip-buy-while-panic", action="store_true",
-                    help="Передавать дочернему воркеру флаг skip-buy-while-panic")
+                    help="Configure --child-skip-buy-while-panic.")
     ap.add_argument("--child-buy-trend-ema-gap", type=float, default=None,
-                    help="Порог EMA gap для медвежьего режима в дочернем воркере")
+                    help="Configure --child-buy-trend-ema-gap.")
     ap.add_argument("--child-buy-trend-interval", type=str, default=None,
-                    help="Интервал EMA для тренд-фильтра в дочернем воркере")
+                    help="Configure --child-buy-trend-interval.")
     ap.add_argument("--child-bear-skip-buys", action="store_true",
-                    help="Запретить дочернему воркере BUY при медвежьем сигнале")
+                    help="Configure --child-bear-skip-buys.")
     ap.add_argument("--child-bear-cap-scale", type=float, default=1.0,
-                    help="Множитель CAP на заявку для дочернего воркера при медвежьем сигнале")
+                    help="Configure --child-bear-cap-scale.")
     ap.add_argument("--child-bear-buy-shift-pct", type=float, default=0.0,
-                    help="Смещение BUY уровней вниз в дочернем воркере (доля)")
+                    help="Configure --child-bear-buy-shift-pct.")
     ap.add_argument("--child-panic-sell-floor-pct", type=float, default=None,
-                    help="Минимально допустимая скидка от средней при панике для дочернего воркера")
+                    help="Configure --child-panic-sell-floor-pct.")
     ap.add_argument("--child-buy-vwap-premium", type=float, default=None,
-                    help="Порог премии к VWAP, выше которого дочерний воркер пропустит BUY")
+                    help="Configure --child-buy-vwap-premium.")
     ap.add_argument("--child-buy-vwap-discount", type=float, default=None,
-                    help="Доля скидки к VWAP, при которой усиливается CAP у дочернего воркера")
+                    help="Configure --child-buy-vwap-discount.")
     ap.add_argument("--child-buy-vwap-discount-scale", type=float, default=None,
-                    help="Множитель CAP при скидке к VWAP (по умолчанию использовать логику воркера)")
+                    help="Configure --child-buy-vwap-discount-scale.")
     ap.add_argument("--child-buy-vwap-interval", type=str, default=None,
-                    help="Интервал свечей для VWAP в дочернем воркере")
+                    help="Configure --child-buy-vwap-interval.")
     ap.add_argument("--child-buy-vwap-window", type=int, default=None,
-                    help="Размер окна (кол-во свечей) для VWAP в дочернем воркере")
+                    help="Configure --child-buy-vwap-window.")
     ap.add_argument("--child-buy-vwap-premium-map", type=str, default="",
-                    help="Перечисление порогов премии к VWAP по символам (SYM:value)")
+                    help="Configure --child-buy-vwap-premium-map.")
     ap.add_argument("--child-buy-vwap-discount-map", type=str, default="",
-                    help="Перечисление скидок к VWAP по символам (SYM:value)")
+                    help="Configure --child-buy-vwap-discount-map.")
     ap.add_argument("--child-buy-vwap-discount-scale-map", type=str, default="",
-                    help="Перечисление множителей CAP при скидке по символам (SYM:value)")
+                    help="Configure --child-buy-vwap-discount-scale-map.")
     ap.add_argument("--child-buy-vwap-auto", action="store_true",
-                    help="Автоматически подстраивать VWAP-параметры по режиму и ATR")
+                    help="Configure --child-buy-vwap-auto.")
     ap.add_argument("--child-buy-vwap-premium-up-mult", type=float, default=0.75,
-                    help="Множитель премии к VWAP в восходящем режиме")
+                    help="Configure --child-buy-vwap-premium-up-mult.")
     ap.add_argument("--child-buy-vwap-premium-down-mult", type=float, default=1.20,
-                    help="Множитель премии к VWAP в нисходящем режиме")
+                    help="Configure --child-buy-vwap-premium-down-mult.")
     ap.add_argument("--child-buy-vwap-premium-atr-coef", type=float, default=0.0,
-                    help="Коэффициент уменьшения премии по ATR (premium *= 1 - atr_pct*coef)")
+                    help="Configure --child-buy-vwap-premium-atr-coef.")
     ap.add_argument("--child-buy-vwap-premium-floor", type=float, default=0.0005,
-                    help="Нижний предел премии к VWAP")
+                    help="Configure --child-buy-vwap-premium-floor.")
     ap.add_argument("--child-buy-vwap-premium-ceil", type=float, default=0.02,
-                    help="Верхний предел премии к VWAP")
+                    help="Configure --child-buy-vwap-premium-ceil.")
     ap.add_argument("--child-buy-vwap-discount-scale-atr-coef", type=float, default=0.0,
-                    help="Коэффициент увеличения CAP на скидке по ATR")
+                    help="Configure --child-buy-vwap-discount-scale-atr-coef.")
     ap.add_argument("--child-buy-vwap-discount-scale-min", type=float, default=1.0,
-                    help="Минимальный множитель CAP при скидке к VWAP")
+                    help="Configure --child-buy-vwap-discount-scale-min.")
     ap.add_argument("--child-buy-vwap-discount-scale-max", type=float, default=3.0,
-                    help="Максимальный множитель CAP при скидке к VWAP")
+                    help="Configure --child-buy-vwap-discount-scale-max.")
 
     ap.add_argument("--auto-cap", action="store_true")
     ap.add_argument("--alloc-pct", type=float, default=0.90)
@@ -136,7 +136,7 @@ def build_supervisor_parser() -> argparse.ArgumentParser:
     # The LLM is advisory only. Keys are accepted exclusively from the environment
     # and never appear in argv or the process list.
     ap.add_argument("--ai-advisor", action="store_true", default=env_flag("AI_ADVISOR_ENABLE", False),
-                    help="Включить рекомендательный LLM-слой без доступа к ордерам")
+                    help="Configure --ai-advisor.")
     ap.add_argument("--no-ai-advisor", action="store_false", dest="ai_advisor")
     ap.add_argument("--ai-provider", choices=["openai", "deepseek", "compatible"],
                     default=os.getenv("AI_PROVIDER", "deepseek"))
@@ -182,8 +182,8 @@ def build_supervisor_parser() -> argparse.ArgumentParser:
                     default=float(os.getenv("AI_MAX_REALIZED_STOP_RATE", "0.60")))
 
     ap.add_argument("--pos-guard-enable", action="store_true")
-    ap.add_argument("--pos-max-base-map", default="", help="SYM:base_qty,... напр. SOLUSDT:0.50,ETHUSDT:0.020")
-    ap.add_argument("--pos-max-usdt-map", default="", help="SYM:usdt_equiv,... напр. SOLUSDT:500,ETHUSDT:600")
+    ap.add_argument("--pos-max-base-map", default="", help="Configure --pos-max-base-map.")
+    ap.add_argument("--pos-max-usdt-map", default="", help="Configure --pos-max-usdt-map.")
     ap.add_argument("--pos-warn-pct", type=float, default=0.60)
     ap.add_argument("--pos-action-on-warn", choices=["none", "block_increasing", "reduce_only"], default="reduce_only")
     ap.add_argument("--pos-action-on-hard", choices=["reduce_only", "flatten", "reduce_then_flatten"], default="reduce_then_flatten")
@@ -192,28 +192,28 @@ def build_supervisor_parser() -> argparse.ArgumentParser:
     ap.add_argument("--flatten-at", default="23:55")
     ap.add_argument("--flatten-t-minus-sec", type=int, default=900)
     ap.add_argument("--flatten-force", type=int, choices=[0, 1], default=0,
-                    help="1 = разрешить flatten ниже средней после ручной проверки")
+                    help="Configure --flatten-force.")
     ap.add_argument("--flatten-slices", type=int, default=3)
     ap.add_argument("--flatten-slice-pct", type=float, default=0.34)
     ap.add_argument("--flatten-limit-offset-atr", type=float, default=0.20)
     ap.add_argument("--flatten-market-failover", type=int, default=1)
     ap.add_argument("--flatten-avoid-loss", type=int, choices=[0, 1], default=1,
-                    help="Если 1 — не форсировать flatten ниже средней цены (с учётом edge)")
+                    help="Configure --flatten-avoid-loss.")
     ap.add_argument("--flatten-min-edge-pct", type=float, default=0.0,
-                    help="Минимальная надбавка к средней при flatten-guard (0 = просто средняя)")
+                    help="Configure --flatten-min-edge-pct.")
     ap.add_argument("--flatten-avg-cache-ttl", type=int, default=45,
-                    help="TTL кэша средней цены для flatten-guard")
+                    help="Configure --flatten-avg-cache-ttl.")
     ap.add_argument("--flatten-avg-lookback", type=int, default=1200,
-                    help="Сколько последних трейдов учитывать при расчёте средней для flatten-guard")
+                    help="Configure --flatten-avg-lookback.")
 
     ap.add_argument("--vwap-refresh-sec", type=int, default=int(os.getenv("VWAP_REFRESH_SEC", "600")),
-                    help="Как часто обновлять VWAP-карты (0 = выключено)")
+                    help="Configure --vwap-refresh-sec.")
     ap.add_argument("--vwap-refresh-jitter-sec", type=int, default=int(os.getenv("VWAP_REFRESH_JITTER_SEC", "0")),
-                    help="Случайный разброс к интервалу VWAP (для асинхронизации)" )
+                    help="Configure --vwap-refresh-jitter-sec." )
     ap.add_argument("--vwap-refresh-on-start", type=int, choices=[0, 1], default=int(os.getenv("VWAP_REFRESH_ON_START", "1")),
-                    help="Пересчитывать VWAP перед первым запуском детей")
+                    help="Configure --vwap-refresh-on-start.")
     ap.add_argument("--vwap-autotune-enable", action="store_true", default=env_flag("VWAP_AUTOTUNE", False),
-                    help="Включить PnL-тюнер при обновлении VWAP-карт")
+                    help="Configure --vwap-autotune-enable.")
     ap.add_argument("--no-vwap-autotune", action="store_false", dest="vwap_autotune_enable")
     ap.add_argument("--vwap-autotune-hours", type=int, default=int(os.getenv("VWAP_AUTOTUNE_HOURS", "24")))
     ap.add_argument("--vwap-autotune-threshold", type=float, default=float(os.getenv("VWAP_AUTOTUNE_THRESHOLD", "25.0")))
@@ -223,9 +223,9 @@ def build_supervisor_parser() -> argparse.ArgumentParser:
     ap.add_argument("--live", action="store_true")
     venue = ap.add_mutually_exclusive_group()
     venue.add_argument("--testnet", dest="testnet", action="store_true", default=True,
-                       help="Binance Spot Testnet (по умолчанию)")
+                       help="Configure --testnet.")
     venue.add_argument("--mainnet", dest="testnet", action="store_false",
-                       help="Основной Binance Spot")
+                       help="Configure --mainnet.")
     ap.add_argument("--risk-check-sec", type=int, default=int(os.getenv("RISK_CHECK_SEC", "15")))
     ap.add_argument("--attach-oco-on-fill", action="store_true")
     ap.add_argument("--check-fills-interval", type=int, default=5)

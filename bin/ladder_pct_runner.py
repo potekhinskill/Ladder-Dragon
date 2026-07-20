@@ -3,24 +3,7 @@
 # SPDX-License-Identifier: MIT
 # Copyright (c) 2026 IURII Potekhin
 # Purpose: run the percentage ladder strategy.
-"""
-ladder_pct_runner.py — подготовка процентной лестницы для исполнителя:
-- Геометрическая сетка по модулю процентов (устойчивое geomspace)
-- BUY округляем вниз, SELL вверх по tickSize
-- Дедуп + порядок: BUY (ближние→дальние), затем SELL (ближние→дальние)
-
-Фильтрация/ограничения:
-  • --one-side buys|sells|both
-  • --min-ticks-gap K        (K*tickSize между соседними уровнями)
-  • --min-abs-gap-pct P      (минимальная относительная дистанция между соседями, %)
-  • --min-buy-offset-pct X   (отступ: не ставить BUY ближе, чем X% ниже цены)
-  • --min-sell-offset-pct Y  (отступ: не ставить SELL ближе, чем Y% выше цены)
-  • --min-order-usdt V       (оценочный CAP для проверки против minNotional)
-  • --strict-minnotional     (жёстко валидировать CAP ≥ minNotional, иначе выход с ошибкой)
-  • --kill-if-empty          (завершить с ошибкой, если уровней не осталось)
-  • --nudge-first-sell       (если первый SELL ≤ текущей цены, поджать его на +1*tick)
-  • --nudge-first-buy        (если первый BUY ≥ текущей цены, поджать его на -1*tick)
-"""
+"""Ladder Dragon ladder pct runner support."""
 
 import os, sys, argparse, subprocess
 from decimal import Decimal, getcontext
@@ -55,9 +38,7 @@ def fmt_decimal(d: Decimal) -> str:
 
 
 def calc_atr(symbol: str, interval: str = "1h", window: int = 14) -> float:
-    """
-    ATR по TM.get_klines() с авто-нормализацией интервала (алиасы типа '1hour', '8hours' и т.п.).
-    """
+    """Calculate atr."""
     k = TM.get_klines(symbol, interval, limit=max(window + 2, 16))
     if not k or len(k) < 2:
         return 0.0
@@ -77,32 +58,32 @@ def parse_args():
     p.add_argument("--symbol", required=True)
     # Format: -min%,-max%,[density] (example: -0.5,-20,20).
     p.add_argument("--ladder-pct", type=str, default="-0.5,-20,20")
-    p.add_argument("--grid-density", type=int, default=20)  # запасной, если в ladder-pct нет density
+    p.add_argument("--grid-density", type=int, default=20)
     p.add_argument("--base-script", type=str, default="bin/autosize_universal.py")
     p.add_argument("--kill-if-empty", action="store_true",
-                   help="Завершить с ошибкой, если после фильтрации не осталось уровней.")
+                   help="Exit with an error if filtering removes every level.")
 
     # Configure side and distances.
     p.add_argument("--one-side", choices=("buys","sells","both"), default="both",
-                   help="Оставить только покупки, только продажи или обе стороны.")
+                   help="Keep buy levels, sell levels, or both sides.")
     p.add_argument("--min-ticks-gap", type=int, default=0,
-                   help="Минимальная дистанция между соседними уровнями в тик-сайзах (0 = без ограничения).")
+                   help="Minimum spacing between adjacent levels in ticks (0 disables the limit).")
     p.add_argument("--min-abs-gap-pct", type=float, default=0.0,
-                   help="Минимальная относительная дистанция между соседними уровнями, в % (0 = без ограничения).")
+                   help="Minimum relative spacing between adjacent levels in percent (0 disables the limit).")
     p.add_argument("--min-buy-offset-pct", type=float, default=0.0,
-                   help="Не ставить BUY ближе, чем X%% ниже текущей цены.")
+                   help="Do not place BUY levels closer than X%% below the current price.")
     p.add_argument("--min-sell-offset-pct", type=float, default=0.0,
-                   help="Не ставить SELL ближе, чем Y%% выше текущей цены.")
+                   help="Do not place SELL levels closer than Y%% above the current price.")
     p.add_argument("--nudge-first-sell", action="store_true",
-                    help="Если первый SELL ≤ now, поджать на +1*tick.")
+                    help="Move the first SELL up by one tick when it is at or below market.")
     p.add_argument("--nudge-first-buy", action="store_true",
-                    help="Если первый BUY ≥ now, поджать на -1*tick.")
+                    help="Move the first BUY down by one tick when it is at or above market.")
 
     # Validate against minNotional.
     p.add_argument("--min-order-usdt", type=float, default=None,
-                   help="Оценочный CAP на ордер в USDT (для сравнения с minNotional).")
+                   help="Estimated per-order USDT cap used for the minNotional check.")
     p.add_argument("--strict-minnotional", action="store_true",
-                   help="Если CAP < minNotional — завершить с ошибкой (не отдавать уровни).")
+                   help="Exit without emitting levels when CAP is below minNotional.")
 
     # Passthrough to the executor.
     p.add_argument("--live", action="store_true")
@@ -117,10 +98,7 @@ def parse_args():
 
 
 def _filters_decimal(symbol: str) -> dict:
-    """
-    Берём фильтры из TM.get_symbol_filters() и конвертируем нужные поля в Decimal,
-    чтобы вся математика ниже оставалась точной.
-    """
+    """Handle filters decimal."""
     f = TM.get_symbol_filters(symbol)
     D = Decimal
     try:
@@ -158,12 +136,12 @@ def main():
     try:
         D_ = Decimal
         raw = [x.strip() for x in args.ladder_pct.split(",") if x.strip() != ""]
-        if len(raw) not in (2,3): die("ladder-pct должен быть '-min%,-max%,[density]'. Пример: -0.5,-20,20")
+        if len(raw) not in (2,3): die("ladder-pct must be '-min%,-max%,[density]'. Example: -0.5,-20,20")
         min_pct_in, max_pct_in = D_(raw[0]), D_(raw[1])
         density = int(raw[2]) if len(raw) == 3 else int(args.grid_density)
         density = max(2, min(density, 256))
         if not (min_pct_in < 0 and max_pct_in < 0 and abs(max_pct_in) >= abs(min_pct_in)):
-            die("Ожидается: оба процента отрицательные и |max|>=|min| (например -0.5,-20)")
+            die("Both percentages must be negative and |max|>=|min| (for example -0.5,-20)")
     except Exception:
         die("bad --ladder-pct format")
 
@@ -174,9 +152,9 @@ def main():
     # Soft ATR scaling.
     atr_abs = calc_atr(symbol)
     atr_pct = (atr_abs / float(now)) if now > 0 else 0.0
-    scale_factor = Decimal(str(1 + atr_pct * 0.5))  # 50% ATR к диапазону
+    scale_factor = Decimal(str(1 + atr_pct * 0.5))
 
-    min_pct = (min_pct_in * scale_factor)  # отрицательные
+    min_pct = (min_pct_in * scale_factor)
     max_pct = (max_pct_in * scale_factor)
 
     # Geometric spacing by magnitude.
@@ -187,8 +165,8 @@ def main():
     else:
         mags = np.geomspace(start_mag, stop_mag, num=density).tolist()
 
-    buy_pcts  = [-Decimal(str(m)) for m in mags]   # вниз
-    sell_pcts = [ Decimal(str(m)) for m in mags]   # вверх
+    buy_pcts  = [-Decimal(str(m)) for m in mags]
+    sell_pcts = [ Decimal(str(m)) for m in mags]
 
     # Levels.
     buy_levels  = [now * (Decimal(1) + p/Decimal(100)) for p in buy_pcts]
@@ -247,7 +225,7 @@ def main():
             if last is None:
                 out.append(x); last = x
             else:
-                rel = abs((x - last) / last) * Decimal(100)  # относит. зазор к предыдущему сохранённому
+                rel = abs((x - last) / last) * Decimal(100)
                 if rel >= min_pct_gap:
                     out.append(x); last = x
         return out
@@ -269,16 +247,16 @@ def main():
     if eff_order_usdt is not None and flt["minNotional"] is not None and flt["minNotional"] > 0:
         min_not = flt["minNotional"]
         if eff_order_usdt < min_not:
-            msg = (f"effective order USDT ({fmt_decimal(eff_order_usdt)}) ниже minNotional "
+            msg = (f"effective order USDT ({fmt_decimal(eff_order_usdt)}) is below minNotional "
                    f"({fmt_decimal(min_not)}).")
             if args.strict_minnotional:
-                die(msg + " Прекращаю работу из-за --strict-minnotional.", code=3)
+                die(msg + " Exiting because --strict-minnotional is enabled.", code=3)
             else:
-                print("[WARN]", msg, "Рассмотрите увеличение CAP.")
+                print("[WARN]", msg, "Consider increasing CAP.")
 
     # --- Nudge the nearest level(s) when enabled ---
     def reflow_side(seq, ascending: bool) -> list[Decimal]:
-        """Пересобрать сторону: сортировка, dedup, тиковый и процентный GAP — в исходном порядке."""
+        """Handle reflow side."""
         seq_sorted = sorted(seq, reverse=not ascending)
         seq_sorted = thin_ticks(seq_sorted, tick, int(args.min_ticks_gap))
         seq_sorted = thin_abs_pct(seq_sorted, gap_pct)
@@ -303,7 +281,7 @@ def main():
             nudged = round_down_to_step(now - tick, tick)
             if mb > 0:
                 buy_threshold = now * (Decimal(1) - mb/Decimal(100))
-                if nudged > buy_threshold:  # для BUY нужно быть НЕ БЛИЖЕ, т.е. ≤ порога
+                if nudged > buy_threshold:
                     nudged = round_down_to_step(buy_threshold, tick)
             if nudged < buy_q_sorted[0]:
                 buy_q_sorted[0] = nudged
@@ -319,12 +297,12 @@ def main():
 
     # If filtering removes every level, follow the configured flag.
     if not levels_all:
-        msg = f"[EMPTY] {symbol}: нет уровней после фильтрации."
+        msg = f"[EMPTY] {symbol}: no levels remain after filtering."
         if args.kill_if_empty:
-            die(msg + " Завершаю (--kill-if-empty).", code=4)
+            die(msg + " Exiting because --kill-if-empty is enabled.", code=4)
         else:
-            print("[WARN]", msg, "Пропускаю запуск исполнителя для этого символа.")
-            return 0  # мягкий выход без запуска
+            print("[WARN]", msg, "Skipping the executor for this symbol.")
+            return 0
 
     levels_str = ",".join(fmt_decimal(lv) for lv in levels_all)
 

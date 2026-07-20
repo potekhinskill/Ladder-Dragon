@@ -3,21 +3,7 @@
 # SPDX-License-Identifier: MIT
 # Copyright (c) 2026 IURII Potekhin
 # Purpose: format realized trade reports.
-"""
-pnl_reporter.py — отчёт по реализованному PnL (FIFO) для спот-сделок на Binance.
-
-Что делает:
-- Тянет сделки по /api/v3/myTrades для заданных символов и периода.
-- Умеет длинные периоды: режет запросы на окна ≤ 24 часов (требование Binance).
-- Пагинация внутри окна по времени (cursor = last_time+1).
-- Считает реализованный PnL (в котируемой валюте) по FIFO с учётом комиссий (quote/base/третья).
-- Пишет TXT-сводку в reports/ с ИТОГО за период по всем символам.
-
-Улучшения: добавлен net PnL (после комиссий), win rate, avg_sell_notional в summary_txt.
-
-Пример:
-  python3 -u bin/pnl_reporter.py --symbols SOLUSDT,ETHUSDT --days 7
-"""
+"""Ladder Dragon pnl reporter support."""
 
 import os, time, hmac, hashlib, argparse
 from typing import List, Dict, Tuple, Any
@@ -56,10 +42,7 @@ def signed_get(path: str, params: Dict) -> Any:
     return r.json()
 
 def fetch_trades(symbol: str, start_ts: int, end_ts: int) -> List[Dict]:
-    """
-    Безопасная выборка: окна ≤24h, внутри окна страничимся по time:
-    сдвигаем startTime = last_time + 1 пока не вычерпаем окно.
-    """
+    """Fetch trades."""
     out: List[Dict] = []
     step = 24*60*60*1000
     cur = start_ts
@@ -84,13 +67,7 @@ def fetch_trades(symbol: str, start_ts: int, end_ts: int) -> List[Dict]:
     return out
 
 def fifo_pnl(trades: List[Dict]) -> Tuple[float, float, Dict]:
-    """
-    Реализованный PnL (GROSS) в котируемой валюте (quote).
-    Комиссии:
-      - fee в quote -> НЕ трогаем price/income, просто копим в fees_quote (GROSS→NET в summary)
-      - fee в base  -> уменьшаем лот (BUY) или списываем сверх qty (SELL), стоимость считаем в quote
-      - fee в третьем активе -> агрегируем отдельно (оценка=0.0)
-    """
+    """Handle fifo pnl."""
     lots: List[Tuple[float, float]] = []  # (qty_base, price_quote_per_base)
     realized_gross = 0.0
     fees_quote = 0.0
@@ -114,7 +91,7 @@ def fifo_pnl(trades: List[Dict]) -> Tuple[float, float, Dict]:
             if fee_asset == base:
                 # Fee charged in the base asset: the received base quantity is smaller.
                 eff_qty = max(qty - fee, 0.0)
-                fees_quote += fee * price   # оценка комиссии в котируемой
+                fees_quote += fee * price
             elif fee_asset == quote:
                 # Fee charged in the quote asset: account for it separately.
                 fees_quote += fee
@@ -126,7 +103,7 @@ def fifo_pnl(trades: List[Dict]) -> Tuple[float, float, Dict]:
 
         else:
             sell_trades += 1
-            income_gross = quote_qty  # GROSS доход
+            income_gross = quote_qty
             cost = 0.0
             remain = qty
 
@@ -134,7 +111,7 @@ def fifo_pnl(trades: List[Dict]) -> Tuple[float, float, Dict]:
                 fees_quote += fee
             elif fee_asset == base:
                 # IMPORTANT: do not reduce remain; the full quantity was sold.
-                fees_quote += fee * price  # учёт комиссии в котируемой
+                fees_quote += fee * price
             else:
                 third_asset_fees += fee
 

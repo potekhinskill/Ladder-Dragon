@@ -634,7 +634,7 @@ def test_ai_status_exposes_decision_rationale_and_realized_summary(tmp_path, mon
     decision = store.record(
         symbol="SOLUSDT", price=100, deterministic_mode="FLAT",
         recommended_mode="UP", width_scale=1, cap_scale=1, confidence=.8,
-        applied=True, rationale="Тестовый rationale", policy_status="APPLIED",
+        applied=True, rationale="Test rationale", policy_status="APPLIED",
     )
     store.record_fill(decision, symbol="SOLUSDT", side="BUY", price=100, qty=1, ts=10)
     store.record_fill(decision, symbol="SOLUSDT", side="SELL", price=101, qty=1,
@@ -650,7 +650,7 @@ def test_ai_status_exposes_decision_rationale_and_realized_summary(tmp_path, mon
     assert response.status_code == 200
     payload = response.json()
     assert payload["recent"][0]["decision_id"] == decision
-    assert payload["recent"][0]["rationale"] == "Тестовый rationale"
+    assert payload["recent"][0]["rationale"] == "Test rationale"
     assert payload["knowledge_base"]["closed_decisions"] == 1
     assert payload["knowledge_base"]["realized_net_pnl_quote"] > 0
 

@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: MIT
 # Copyright (c) 2026 IURII Potekhin
 # Purpose: implement the executor orders component of the execution layer.
-"""Идемпотентное размещение LIMIT и OCO для символьного исполнителя."""
+"""Ladder Dragon executor orders support."""
 
 from __future__ import annotations
 
@@ -48,7 +48,7 @@ def _link_ai_order(
     client_id: str, symbol: str, *, lot_id: int | None = None,
     order_type: str = "", leg_type: str = "", expected_price: float | None = None,
 ) -> None:
-    """Сохранить связь clientOrderId с decision до сетевого POST."""
+    """Handle link ai order."""
     decision_id = os.getenv("BOT_AI_DECISION_ID", "").strip()
     db_path = os.getenv("AI_DECISIONS_DB", "").strip()
     if not decision_id or not db_path:
@@ -68,7 +68,7 @@ def _update_ai_order(
     client_id: str, *, exchange_order_id: str | int | None = None,
     exchange_order_list_id: str | int | None = None, leg_type: str | None = None,
 ) -> None:
-    """Сохранить подтверждённые Binance IDs для точного fill mapping."""
+    """Update ai order."""
     decision_id = os.getenv("BOT_AI_DECISION_ID", "").strip()
     db_path = os.getenv("AI_DECISIONS_DB", "").strip()
     if not decision_id or not db_path or not client_id:
@@ -104,11 +104,7 @@ def _persist_verified_oco_legs(
 
 @dataclass(frozen=True)
 class OrderDependencies:
-    """Поздно связываемые зависимости ордерного слоя.
-
-    Такая граница не даёт модулю напрямую читать глобальные ключи и позволяет
-    тестировать размещение с полностью отключённой сетью.
-    """
+    """Represent OrderDependencies."""
     live: Callable[[], bool]
     logger: Callable[[str], None]
     pull_filters: Callable[[str], Any]
@@ -139,7 +135,7 @@ def place_limit_order(
     purpose: str = "ladder",
     parent_client_order_id: Optional[str] = None,
 ) -> Dict[str, Any] | None:
-    """Разместить LIMIT, сохранив intent до POST и восстановив неопределённый ACK."""
+    """Place limit order."""
     try:
         raw_price = Decimal(str(price))
         raw_quantity = Decimal(str(quantity))
@@ -554,7 +550,7 @@ def place_oco_sell(
     parent_client_order_id: Optional[str] = None,
     lot_id: int | None = None,
 ) -> Dict[str, Any] | None:
-    """Создать и обязательно проверить обе защитные ноги SELL OCO."""
+    """Place oco sell."""
     try:
         quantity_exact = Decimal(str(quantity))
         tp_exact = Decimal(str(tp_limit_price))

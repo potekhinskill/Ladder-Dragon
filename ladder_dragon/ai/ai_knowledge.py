@@ -1,13 +1,7 @@
 # SPDX-License-Identifier: MIT
 # Copyright (c) 2026 IURII Potekhin
 # Purpose: implement the ai knowledge component of the ai layer.
-"""Локальная RAG-база проверенных AI-решений.
-
-Модуль не вызывает внешние embedding API и не обучает DeepSeek. Для Raspberry
-используется компактное embedding структурированных рыночных признаков
-(feature vector из decision store), а в prompt попадают только короткие
-обезличенные итоги уже оценённых исторических решений.
-"""
+"""Ladder Dragon ai knowledge support."""
 
 from __future__ import annotations
 
@@ -39,7 +33,7 @@ def _vector(value: str) -> tuple[float, ...] | None:
 
 
 def cosine_similarity(left: Sequence[float], right: Sequence[float]) -> float:
-    """Косинусная близость двух фиксированных структурированных embeddings."""
+    """Handle cosine similarity."""
     if len(left) != len(right) or not left:
         return 0.0
     dot = sum(float(a) * float(b) for a, b in zip(left, right))
@@ -51,7 +45,7 @@ def cosine_similarity(left: Sequence[float], right: Sequence[float]) -> float:
 
 
 class KnowledgeStore:
-    """Хранилище документов, embeddings и аудита retrieval в decision DB."""
+    """Represent KnowledgeStore."""
 
     def __init__(self, db_path: str) -> None:
         self.path = Path(db_path)
@@ -102,13 +96,7 @@ class KnowledgeStore:
     def sync_from_decisions(
         self, *, now: int | None = None, include_virtual: bool = False
     ) -> int:
-        """Импортировать решения с уже рассчитанным исходом.
-
-        Реальные документы требуют фактического закрытия позиции. В DRY можно
-        отдельно включить ``include_virtual``: тогда в базу попадут только
-        решения с завершённым горизонтом ``return_1h`` и статусом
-        ``virtual_validated``. Виртуальные и реальные знания не смешиваются.
-        """
+        """Synchronize from decisions."""
         current = int(now or time.time())
         if (
             include_virtual == self._last_sync_virtual
@@ -219,7 +207,7 @@ class KnowledgeStore:
         min_matches: int = 1,
         decay_days: int = 0,
     ) -> list[dict[str, Any]]:
-        """Вернуть похожие проверенные случаи без будущих документов."""
+        """Handle retrieve."""
         current = int(now or time.time())
         self.sync_from_decisions(now=current, include_virtual=include_virtual)
         statuses = ("validated", "virtual_validated") if include_virtual else ("validated",)
@@ -268,7 +256,7 @@ class KnowledgeStore:
         *,
         now: int | None = None,
     ) -> None:
-        """Сохранить, какие historical documents повлияли на prompt."""
+        """Handle link retrieval."""
         current = int(now or time.time())
         with self._connect() as connection:
             for rank, document in enumerate(documents, start=1):

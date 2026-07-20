@@ -58,7 +58,7 @@ flush_telegram_outbox() {
   count="$(find "${TELEGRAM_OUTBOX}" -maxdepth 1 -type f -name '*.msg' | wc -l | tr -d ' ')"
   (( count > 0 )) || return 0
   telegram_post "✅ Telegram connection restored
-Отложенных уведомлений: ${count}" || return 1
+Queued notifications: ${count}" || return 1
   while IFS= read -r path; do
     queued="$(cat "${path}")"
     telegram_post "📨 Queued notification:
@@ -146,14 +146,14 @@ send_tg() {
   host_label="${HOST_LABEL%:}"
   if (( full_snapshot )); then
     msg="${host_label} ${txt}
-время: $(date '+%Y-%m-%d %H:%M:%S %Z')
+time: $(date '+%Y-%m-%d %H:%M:%S %Z')
 uptime: ${uptime_human}
 load: ${load:-unknown}
 temp: ${temp:-unknown}°C
 ip: ${ip:-unknown}"
   else
     msg="${host_label} ${txt}
-повтор: ${repeat}; показатели без изменений"
+repeat: ${repeat}; metrics unchanged"
   fi
   if ! telegram_post "${msg}"; then
     queue_telegram_message "${msg}"
@@ -279,7 +279,7 @@ if (( health_fails >= STRIKES )); then
     "mybot-health:${reason}"
   systemctl restart mybot.service || true
   systemctl is-active --quiet mybot.service && \
-    send_tg "🔁 mybot restarted (service active; heartbeat проверяется следующим циклом)" \
+    send_tg "🔁 mybot restarted (service active; heartbeat will be checked on the next cycle)" \
       "mybot-restarted"
   health_fails=0
 fi

@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: MIT
 # Copyright (c) 2026 IURII Potekhin
 # Purpose: implement the ai policy component of the ai layer.
-"""Детерминированная политика применения AI-рекомендаций."""
+"""Ladder Dragon ai policy support."""
 
 from __future__ import annotations
 
@@ -61,7 +61,7 @@ class PolicyDecision:
 
 
 def numeric_regime_benchmark(context: MarketContext) -> str:
-    """Простой интерпретируемый benchmark без LLM."""
+    """Handle numeric regime benchmark."""
     score = 0.0
     score += max(-2.0, min(2.0, context.return_1h / 0.01))
     score += max(-2.0, min(2.0, context.return_4h / 0.025))
@@ -84,7 +84,7 @@ def apply_safety_policy(
     *,
     benchmark_mode: Optional[str] = None,
 ) -> PolicyDecision:
-    """Применить правила, которые нельзя оставить на усмотрение prompt."""
+    """Apply safety policy."""
     config.validate()
     benchmark = benchmark_mode or numeric_regime_benchmark(context)
     reasons: list[str] = []

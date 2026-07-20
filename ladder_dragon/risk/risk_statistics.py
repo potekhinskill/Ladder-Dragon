@@ -13,7 +13,7 @@ from pathlib import Path
 
 
 def log_returns(prices: Sequence[float]) -> list[float]:
-    """Рассчитать простые доходности; некорректные нулевые цены пропустить."""
+    """Handle log returns."""
     result: list[float] = []
     for previous, current in zip(prices, prices[1:]):
         if previous <= 0 or current <= 0:
@@ -73,7 +73,7 @@ def correlated_symbols_multi_window(
     histories: Mapping[str, Sequence[float]], *, threshold: float = 0.70,
     windows: Sequence[int] = (24, 48, 96), min_windows: int = 2,
 ) -> set[str]:
-    """Считать активы связанными только при подтверждении в нескольких окнах."""
+    """Handle correlated symbols multi window."""
     names = [str(name).upper() for name in histories]
     result: set[str] = set()
     for i, left in enumerate(names):
@@ -88,7 +88,7 @@ def covariance_var(
     exposures: Mapping[str, float], histories: Mapping[str, Sequence[float]],
     *, confidence: float = 0.99, horizon: int = 1,
 ) -> float:
-    """Нормальная covariance-VaR оценка потери портфеля в валюте котировки."""
+    """Handle covariance var."""
     names = [name for name, value in exposures.items() if value > 0 and name in histories]
     if len(names) < 1:
         return 0.0
@@ -110,13 +110,13 @@ def covariance_var(
 
 
 def stress_loss(exposures: Mapping[str, float], *, price_shock: float = -0.05, spread_widening: float = 0.01) -> float:
-    """Оценить одновременное падение цены и расширение spread."""
+    """Handle stress loss."""
     gross = sum(max(0.0, float(value)) for value in exposures.values())
     return gross * (max(0.0, -price_shock) + max(0.0, spread_widening))
 
 
 def expected_shortfall(losses: Sequence[float], *, confidence: float = 0.99) -> float:
-    """Средняя потеря в хвосте распределения после VaR-квантили."""
+    """Handle expected shortfall."""
     values = sorted(max(0.0, float(value)) for value in losses)
     if not values or not 0 < confidence < 1:
         return 0.0
@@ -126,14 +126,14 @@ def expected_shortfall(losses: Sequence[float], *, confidence: float = 0.99) -> 
 
 
 def marginal_risk_contribution(exposures: Mapping[str, float], *, shock: float = 0.05) -> dict[str, float]:
-    """Консервативный marginal contribution: сколько теряет каждый актив при shock."""
+    """Handle marginal risk contribution."""
     return {symbol: max(0.0, float(value)) * max(0.0, shock) for symbol, value in exposures.items()}
 
 
 def conversion_price(*, asset_qty: float, side: str, bids: Sequence[tuple[float, float]],
                      asks: Sequence[tuple[float, float]], fee_pct: float = 0.0,
                      min_depth_ratio: float = 1.0) -> float:
-    """Оценить cross-quote конвертацию только при достаточной глубине стакана."""
+    """Handle conversion price."""
     levels = bids if side.upper() == "SELL" else asks
     remaining = max(0.0, float(asset_qty))
     notional = 0.0
@@ -153,7 +153,7 @@ def conversion_price(*, asset_qty: float, side: str, bids: Sequence[tuple[float,
 
 def allocate_cap_by_marginal_risk(total_cap: float, contributions: Mapping[str, float],
                                   minimum_cap: float = 0.0) -> dict[str, float]:
-    """Распределить CAP обратно пропорционально marginal loss contribution."""
+    """Handle allocate cap by marginal risk."""
     total = max(0.0, float(total_cap))
     weights = {symbol: 1.0 / max(float(value), 1e-12) for symbol, value in contributions.items()}
     denominator = sum(weights.values()) or 1.0
@@ -161,7 +161,7 @@ def allocate_cap_by_marginal_risk(total_cap: float, contributions: Mapping[str, 
 
 
 def load_tail_losses(path: str | Path) -> list[float]:
-    """Загрузить исторические portfolio loss observations из JSON/JSONL."""
+    """Load tail losses."""
     source = Path(path)
     if source.suffix.lower() == ".jsonl":
         return [float(json.loads(line)["loss"]) for line in source.read_text().splitlines() if line.strip()]

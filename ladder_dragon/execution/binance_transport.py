@@ -1,11 +1,7 @@
 # SPDX-License-Identifier: MIT
 # Copyright (c) 2026 IURII Potekhin
 # Purpose: implement the binance transport component of the execution layer.
-"""HTTP-транспорт Binance по принципу fail-closed для торговых компонентов.
-
-Здесь сосредоточены подпись запросов, DRY/LIVE-гейт и повторные попытки.
-Стратегия и управление ордерами не должны самостоятельно работать с HTTP.
-"""
+"""Ladder Dragon binance transport support."""
 
 from __future__ import annotations
 
@@ -56,11 +52,7 @@ class BinanceResponseError(requests.HTTPError):
 
 
 class BinanceTransport:
-    """Транспорт с подписью и поздним получением ключей и LIVE-состояния.
-
-    Callbacks позволяют переключить venue или DRY/LIVE без пересоздания объекта.
-    Модули стратегии и ордеров при этом не знают деталей HMAC-подписи.
-    """
+    """Represent BinanceTransport."""
 
     def __init__(
         self,

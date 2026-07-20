@@ -3,21 +3,7 @@
 # SPDX-License-Identifier: MIT
 # Copyright (c) 2026 IURII Potekhin
 # Purpose: generate VWAP tuning candidates.
-"""
-Автоматический тюнер VWAP-параметров на основе статистики (tools_stats).
-
-Сценарий:
-    python gen_vwap_autotune.py --symbols SOLUSDT,ETHUSDT --hours 24 --pnl-threshold 30
-
-Выводит строки BUY_VWAP_PREMIUM_MAP, BUY_VWAP_DISCOUNT_MAP, BUY_VWAP_DISCOUNT_SCALE_MAP,
-которые можно добавить в /run/mybot/dynamic.env (перед основным запуском супервизора).
-
-Методика (упрощённо):
-    • Получаем суммарный PnL/количество сделок за последние N часов.
-    • Если PnL по символу < -threshold → расширяем премию (более консервативно) и снижаем scale.
-    • Если PnL > threshold → уменьшаем премию (агрессивнее) и увеличиваем scale.
-    • Разумные пределы задаются аргументами, результаты сглаживаются EMA-коэффициентом.
-"""
+"""Ladder Dragon gen vwap autotune support."""
 
 from __future__ import annotations
 

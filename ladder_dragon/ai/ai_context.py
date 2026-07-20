@@ -1,12 +1,7 @@
 # SPDX-License-Identifier: MIT
 # Copyright (c) 2026 IURII Potekhin
 # Purpose: implement the ai context component of the ai layer.
-"""Безопасные агрегаты истории и рынка для AI-рекомендателя.
-
-Модуль не передаёт LLM сырые сделки, идентификаторы заявок, полный баланс или
-стакан. Вместо этого рассчитываются ограниченные числовые признаки, а решения
-AI сохраняются отдельно и позднее оцениваются по движению цены.
-"""
+"""Ladder Dragon ai context support."""
 
 from __future__ import annotations
 
@@ -32,7 +27,7 @@ AI_SCHEMA_CHECKSUM = hashlib.sha256(AI_SCHEMA_VERSION.encode("utf-8")).hexdigest
 
 
 def context_hash(context: Any) -> str:
-    """Стабильный hash контекста без сохранения сырого prompt/секретов."""
+    """Handle context hash."""
     from dataclasses import asdict
 
     payload = json.dumps(asdict(context), ensure_ascii=False, sort_keys=True, default=str)
@@ -43,11 +38,7 @@ def evaluate_realized_ai_pnl(
     fills: Sequence[Mapping[str, Any]], *, baseline_exit_price: float | None = None,
     baseline_entry_price: float | None = None,
 ) -> dict[str, float | int | None]:
-    """Оценить рекомендацию по фактическим fills, а не по synthetic candles.
-
-    Возвращает net PnL, duration и opportunity-cost против equal-notional
-    buy-and-hold baseline. Неполные/отменённые заявки игнорируются.
-    """
+    """Evaluate realized ai pnl."""
     buys = [f for f in fills if str(f.get("side", "")).upper() == "BUY" and str(f.get("status", "FILLED")).upper() == "FILLED"]
     sells = [f for f in fills if str(f.get("side", "")).upper() == "SELL" and str(f.get("status", "FILLED")).upper() == "FILLED"]
     bought_qty = sum(float(f.get("qty", f.get("executedQty", 0)) or 0) for f in buys)
@@ -142,7 +133,7 @@ def load_trade_features(
     *,
     now_ms: int | None = None,
 ) -> TradeFeatures:
-    """Свести последние 30 дней сделок в PnL/fees/series-признаки."""
+    """Load trade features."""
     if not db_path or not Path(db_path).exists():
         return TradeFeatures()
     now_ms = int(time.time() * 1000) if now_ms is None else now_ms
@@ -258,7 +249,7 @@ def load_trade_features(
 def market_features_from_klines(
     klines: Sequence[Sequence[Any]],
 ) -> MarketFeatures:
-    """Сжать до 24 часов 5m-свечей в доходности и относительный объём."""
+    """Handle market features from klines."""
     valid = [row for row in klines if len(row) > 5 and float(row[4]) > 0]
     if not valid:
         return MarketFeatures()
@@ -407,7 +398,7 @@ def build_portfolio_features(
 
 
 class AdvisorDecisionStore:
-    """Хранить рекомендации и оценивать направление через 15m/1h/4h."""
+    """Represent AdvisorDecisionStore."""
 
     def __init__(self, db_path: str) -> None:
         self.path = Path(db_path)
@@ -550,7 +541,7 @@ class AdvisorDecisionStore:
                     order_list_id: str | int | None = None,
                     leg_type: str = "",
                     slippage_quote: float = 0.0) -> str:
-        """Привязать фактический Binance fill/OCO/stop к AI decision."""
+        """Record fill."""
         fill_id = uuid.uuid4().hex
         with self._connect() as connection:
             exists = connection.execute("SELECT 1 FROM ai_decisions WHERE decision_id=?", (decision_id,)).fetchone()
@@ -584,7 +575,7 @@ class AdvisorDecisionStore:
         order_id: str | int | None = None, trade_id: str | int | None = None,
         reason: str = "missing_decision_mapping",
     ) -> str:
-        """Сохранить fill без decision, не допуская его в AI PnL."""
+        """Record unresolved fill."""
         stamp = int(ts or time.time())
         fill_key = f"{symbol.upper()}:{trade_id if trade_id is not None else order_id}:{stamp}"
         with self._connect() as connection:
@@ -605,7 +596,7 @@ class AdvisorDecisionStore:
                           exchange_order_id: str | int | None = None,
                           exchange_order_list_id: str | int | None = None,
                           leg_type: str = "", expected_price: float | None = None) -> None:
-        """Сохранить durable mapping для recovery после рестарта."""
+        """Handle link client order."""
         with self._connect() as connection:
             existing = connection.execute(
                 "SELECT decision_id FROM ai_order_links WHERE client_order_id=?",
@@ -642,7 +633,7 @@ class AdvisorDecisionStore:
         self, client_order_id: str, *, exchange_order_id: str | int | None = None,
         exchange_order_list_id: str | int | None = None, leg_type: str | None = None,
     ) -> None:
-        """Дополнить durable mapping после подтверждения Binance POST."""
+        """Update order link."""
         changes = []
         values: list[Any] = []
         if exchange_order_id is not None:
@@ -669,7 +660,7 @@ class AdvisorDecisionStore:
         return (str(row[0]), int(row[1]) if row[1] is not None else None) if row else None
 
     def decision_for_exchange_order(self, order_id: str | int) -> tuple[str, str, str] | None:
-        """Найти decision по фактическому Binance orderId, без symbol fallback."""
+        """Handle decision for exchange order."""
         with self._connect() as connection:
             row = connection.execute(
                 """SELECT decision_id,client_order_id,leg_type
@@ -679,7 +670,7 @@ class AdvisorDecisionStore:
         return (str(row[0]), str(row[1]), str(row[2] or "")) if row else None
 
     def order_link_for_exchange_order(self, order_id: str | int) -> dict[str, Any] | None:
-        """Вернуть полную связь ордера, включая цену для расчёта slippage."""
+        """Handle order link for exchange order."""
         with self._connect() as connection:
             row = connection.execute(
                 """SELECT decision_id,client_order_id,leg_type,exchange_order_list_id,
@@ -711,7 +702,7 @@ class AdvisorDecisionStore:
             )
 
     def evaluate_execution(self, decision_id: str, *, baseline_exit_price: float | None = None) -> dict[str, Any]:
-        """Рассчитать realized net PnL и baseline equal-notional по fills."""
+        """Evaluate execution."""
         with self._connect() as connection:
             rows = connection.execute(
                 """SELECT side,price,qty,fee_quote,exit_reason,ts,order_id,
@@ -1082,7 +1073,7 @@ def virtual_plan_result(
     cap_scale: float,
     candles: Sequence[Sequence[Any]],
 ) -> dict[str, float | bool]:
-    """Оценить один виртуальный BUY с комиссиями и проскальзыванием."""
+    """Handle virtual plan result."""
     offset = {"UP": 0.005, "FLAT": 0.010, "DOWN": 0.015}.get(
         mode.upper(), 0.01
     )

@@ -3,24 +3,7 @@
 # SPDX-License-Identifier: MIT
 # Copyright (c) 2026 IURII Potekhin
 # Purpose: implement the tools market component of the execution layer.
-"""
-tools_market.py — утилиты для Binance Spot API (исправленная версия, 2025-08-24)
-
-Новое в этой ревизии:
-- Нормализация интервалов свечей для /api/v3/klines (alias: "15min", "15 мин" → "15m")
-- Авто-фолбэк при ошибке Binance `code=-1120 (Invalid interval)` на безопасный "15m" с единичным ретраем
-- Лёгкий лог фолбэка, чтобы было видно причину в журналах
-- Возвращаем ещё и minQty из exchangeInfo, чтобы супервизор мог брать ВСЕ фильтры из одного места
-  (tickSize, stepSize, minQty, minNotional) и не вызывать /exchangeInfo повторно.
-
-Содержимое модуля:
-- Корректная подпись: один и тот же порядок параметров при подписании и отправке (список кортежей) — избегаем -1022
-- Защита от рассинхронизации времени: кешируем offset от /api/v3/time
-- Ретраи на запросы
-- Кэш exchangeInfo для фильтров (TTL)
-- Функция round_qty_price(symbol, qty, price, side="BUY") — ОКРУГЛЯЕТ и ФОРМАТИРУЕТ qty/price под шаги.
-- Функция get_klines(symbol, interval, ...) — с нормализацией и фолбэком интервала
-"""
+"""Ladder Dragon tools market support."""
 
 from __future__ import annotations
 import os
@@ -105,7 +88,7 @@ def _raise_for_binance(resp: requests.Response):
 # ---- time offset (server time skew) ----
 _time_offset_ms: Optional[int] = None
 _time_offset_ts: float = 0.0
-_OFFSET_TTL = 60.0  # секунд
+_OFFSET_TTL = 60.0
 
 def _refresh_time_offset():
     global _time_offset_ms, _time_offset_ts
@@ -166,33 +149,35 @@ _INTERVAL_ALIASES: Dict[str, str] = {
     "1min": "1m", "3min": "3m", "5min": "5m", "15min": "15m", "30min": "30m",
     "1hour": "1h", "2hour": "2h", "4hour": "4h", "6hour": "6h", "12hour": "12h",
     "1day": "1d", "3day": "3d", "1week": "1w", "1month": "1M",
+    # Preserve legacy localized inputs without mixing localized text into source documentation.
+    "1\u043c\u0438\u043d": "1m", "3\u043c\u0438\u043d": "3m", "5\u043c\u0438\u043d": "5m",
+    "15\u043c\u0438\u043d": "15m", "30\u043c\u0438\u043d": "30m",
+    "1\u0447\u0430\u0441": "1h", "2\u0447\u0430\u0441": "2h", "4\u0447\u0430\u0441": "4h",
+    "6\u0447\u0430\u0441": "6h", "12\u0447\u0430\u0441": "12h",
+    "1\u0434": "1d", "3\u0434": "3d", "1\u043d": "1w", "1\u043c\u0435\u0441": "1M",
     # Common Russian aliases kept for backward compatibility.
-    "1мин": "1m", "3мин": "3m", "5мин": "5m", "15мин": "15m", "30мин": "30m",
-    "1час": "1h", "2час": "2h", "4час": "4h", "6час": "6h", "12час": "12h",
-    "1д": "1d", "3д": "3d", "1н": "1w", "1мес": "1M",
 }
 
 # --- additional aliases ---
 _INTERVAL_ALIASES.update({
-    "8hour": "8h", "8hours": "8h", "8час": "8h", "8часов": "8h", "8ч": "8h",
+    "8hour": "8h", "8hours": "8h", "8\u0447\u0430\u0441": "8h",
+    "8\u0447\u0430\u0441\u043e\u0432": "8h", "8\u0447": "8h",
     "2hours": "2h", "4hours": "4h", "6hours": "6h", "12hours": "12h",
-    "2ч": "2h", "4ч": "4h", "6ч": "6h", "12ч": "12h",
+    "2\u0447": "2h", "4\u0447": "4h", "6\u0447": "6h", "12\u0447": "12h",
     # Some callers add an s suffix; whitespace is already handled.
 })
 
 def norm_interval(interval: str | None, default: str = "15m") -> str:
-    """
-    Нормализует интервал для /api/v3/klines.
-    Особый случай: '1M' (месяц) должен остаться с заглавной M, в то время как '1m' — минуты.
-    Признаём алиасы типа '1month', '1mon', '1mo', '1мес', '1месяц' как '1M'.
-    """
+    """Handle norm interval."""
     s = (interval or "").strip().replace(" ", "")
     if not s:
         return default
 
     # 1) Month: exact '1M' or a word alias -> '1M'.
     s_low = s.lower()
-    if s == "1M" or s_low in {"1month", "1mon", "1mo", "1мес", "1месяц"}:
+    if s == "1M" or s_low in {
+        "1month", "1mon", "1mo", "1\u043c\u0435\u0441", "1\u043c\u0435\u0441\u044f\u0446"
+    }:
         return "1M"
 
     # 2) Other aliases and minute/hour/day/week variants.
@@ -209,12 +194,7 @@ def get_klines(symbol: str,
                startTime: Optional[int] = None,
                endTime: Optional[int] = None,
                fallback_default: str = "15m") -> List[List[Any]]:
-    """
-    Возвращает список свечей (как на /api/v3/klines), с нормализацией интервала и фолбэком.
-    При `code=-1120 (Invalid interval)` один раз ретраим с fallback_default (по умолчанию '15m').
-
-    Параметры startTime/endTime — миллисекунды epoch.
-    """
+    """Return klines."""
     symbol = symbol.upper()
     interval = norm_interval(interval, default=fallback_default)
 
@@ -258,13 +238,13 @@ def get_klines(symbol: str,
                 raise BinanceHttpError(f"Failed to parse klines JSON after fallback: {e}")
 
     # If reached, re-raise the original exception.
-    _raise_for_binance(r)  # поднимет BinanceHttpError
-    return []  # недостижимо
+    _raise_for_binance(r)
+    return []
 
 # ---- exchangeInfo cache ----
 _exchange_cache: Dict[str, Dict[str, float | int]] = {}
 _exchange_cache_ts: Dict[str, float] = {}  # TTL
-_CACHE_TTL = 300  # 5 мин
+_CACHE_TTL = 300
 
 def get_symbol_filters(symbol: str) -> Dict[str, float | int]:
     symbol = symbol.upper()
@@ -346,12 +326,7 @@ def _round_by_step(value: float, step: float, mode: str = "floor") -> float:
     return float(round_step(value, step, mode))
 
 def round_qty_price(symbol: str, qty: float, price: float, side: str = "BUY") -> Tuple[str, str]:
-    """
-    Возвращает (qty_s, price_s) — округлённые и отформатированные строки
-    под фильтры биржи. Для BUY — price вниз, для SELL — price вверх.
-    qty всегда вниз (безопасно для остатков/stepSize).
-    Также гарантирует minNotional/minQty. Бросает исключение, если после округлений qty/price невалидны.
-    """
+    """Handle round qty price."""
     side = (side or "BUY").upper()
     f = get_symbol_filters(symbol)
     try:

@@ -81,25 +81,25 @@ usage() {
 Usage: ./bin/supervisor_ctl.sh <command> [args...]
 
 Commands (supervisor):
-  start [args...] Запустить ai_supervisor.py (nohup, лог в supervisor.log)
-  status          Показать процессы, lock и хвост supervisor.log
+  start [args...] Start ai_supervisor.py with nohup and log to supervisor.log
+  status          Show processes, lock state, and the supervisor.log tail
   logs            tail -f supervisor.log
-  stop-old        Остановить САМЫЙ РАННИЙ ai_supervisor.py (+чистка lock при совпадении PID)
-  stop-new        Остановить САМЫЙ ПОЗДНИЙ ai_supervisor.py
-  stop-all        Остановить ВСЕ ai_supervisor.py и удалить lock
+  stop-old        Stop the OLDEST ai_supervisor.py and clean a matching PID lock
+  stop-new        Stop the NEWEST ai_supervisor.py
+  stop-all        Stop ALL ai_supervisor.py processes and remove the lock
 
 Runner helper:
-  start-runner -- <args> Запустить ai_plan_runner.py (после -- передаётся всё как есть)
+  start-runner -- <args> Start ai_plan_runner.py and pass through everything after --
 
 PnL reporter:
-  pnl -- <args>    Запустить pnl_reporter.py в фоне (лог в pnl.log)
-                   Пример:
+  pnl -- <args>    Start pnl_reporter.py in the background and log to pnl.log
+                   Example:
                      ./bin/supervisor_ctl.sh pnl -- --symbols SOLUSDT,ETHUSDT --days 30 --quote USDT
   pnl-logs         tail -f pnl.log
-  pnl-status       Показать активные процессы pnl_reporter.py
-  pnl-stop         Остановить все pnl_reporter.py
+  pnl-status       Show active pnl_reporter.py processes
+  pnl-stop         Stop all pnl_reporter.py processes
 
-Подсказка: типовой запуск supervisor (DRY-RUN):
+Typical supervisor launch in DRY-RUN mode:
   ./bin/supervisor_ctl.sh start \
     --singleton \
     --symbols SOLUSDT,ETHUSDT,BNBUSDT \
@@ -112,7 +112,7 @@ PnL reporter:
     --child-loop-minutes 3 --interval-seconds 60 \
     --oco-fallback prefer-tp1
 
-Реальные заявки: добавь --live
+Add --live to submit real orders
   ./bin/supervisor_ctl.sh start ... --live
 USAGE
 }
@@ -133,9 +133,9 @@ print_lock_status() {
         alive="alive"
       fi
     fi
-    echo "[status] lock найден: ${LOCK} -> ${lpid} (${alive})"
+    echo "[status] lock found: ${LOCK} -> ${lpid} (${alive})"
   else
-    echo "[status] lock ${LOCK} отсутствует"
+    echo "[status] lock ${LOCK} is absent"
   fi
 }
 
@@ -216,7 +216,7 @@ cmd_start() {
   rotate_log_if_big "${LOG}"
   check_bnb
   log "Starting supervisor..."
-  echo "./bin/supervisor_ctl.sh logs # живой хвост"
+  echo "./bin/supervisor_ctl.sh logs # follow live output"
   echo "[start] nohup ${PY} -u ${SUP} $@ </dev/null >> ${LOG} 2>&1 & disown"
   nohup "${PY}" -u "${SUP}" "$@" </dev/null >> "${LOG}" 2>&1 & disown
   sleep 0.4
@@ -230,17 +230,17 @@ cmd_start() {
     fi
     ps -o pid,etime,command -p "${npid}" | sed '1 s/^/ /'
   else
-    echo "[start] предупреждение: PID не найден (возможно, процесс сразу завершился — см. логи)"
+    echo "[start] warning: PID not found; the process may have exited immediately, so inspect the logs"
   fi
 }
 
 cmd_status() {
-  echo "./bin/supervisor_ctl.sh logs # живой хвост"
-  echo "[status] процессы ${SUP}:"
+  echo "./bin/supervisor_ctl.sh logs # follow live output"
+  echo "[status] ${SUP} processes:"
   if pgrep -fl "[/ ]${SUP}" >/dev/null 2>&1; then
     ps -o pid,etime,command -p $(pgrep -f "[/ ]${SUP}" | tr '\n' ' ') | sed '1 s/^/ /'
   else
-    echo "  нет"
+    echo "  none"
   fi
   print_lock_status
   echo "[status] tail ${LOG}:"
@@ -258,7 +258,7 @@ cmd_stop_old() {
   local pid
   pid=$(pgrep -o -f "[/ ]${SUP}" || true)
   if [[ -z "${pid}" ]]; then
-    echo "[stop-old] нет запущенных ${SUP}"
+    echo "[stop-old] no running ${SUP} process"
     return 0
   fi
   echo "[stop-old] kill -TERM ${pid}"
@@ -272,7 +272,7 @@ cmd_stop_new() {
   local pid
   pid=$(pgrep -n -f "[/ ]${SUP}" || true)
   if [[ -z "${pid}" ]]; then
-    echo "[stop-new] нет запущенных ${SUP}"
+    echo "[stop-new] no running ${SUP} process"
     return 0
   fi
   echo "[stop-new] kill -TERM ${pid}"
@@ -283,7 +283,7 @@ cmd_stop_all() {
   local p
   p=$(pgrep -f "[/ ]${SUP}" || true)
   if [[ -z "${p}" ]]; then
-    echo "[stop-all] нет запущенных ${SUP}"
+    echo "[stop-all] no running ${SUP} process"
   else
     echo "[stop-all] kill -TERM ${p}"
     kill -TERM ${p} || true
@@ -294,7 +294,7 @@ cmd_stop_all() {
 
 cmd_start_runner() {
   if [[ "${1:-}" != "--" ]]; then
-    echo "[start-runner] usage: ./bin/supervisor_ctl.sh start-runner -- <args для ai_plan_runner.py>"
+    echo "[start-runner] usage: ./bin/supervisor_ctl.sh start-runner -- <ai_plan_runner.py args>"
     exit 2
   fi
   shift
@@ -318,11 +318,11 @@ cmd_pnl_logs() {
 }
 
 cmd_pnl_status() {
-  echo "[pnl-status] процессы ${PNL}:"
+  echo "[pnl-status] ${PNL} processes:"
   if pgrep -fl "[/ ]${PNL}" >/dev/null 2>&1; then
     ps -o pid,etime,command -p $(pgrep -f "[/ ]${PNL}" | tr '\n' ' ') | sed '1 s/^/ /'
   else
-    echo "[pnl-status] ${PNL} не запущен"
+    echo "[pnl-status] ${PNL} is not running"
   fi
   echo "[pnl-status] tail ${PNL_LOG}:"
   tail -n 40 "${PNL_LOG}" || true
@@ -332,7 +332,7 @@ cmd_pnl_stop() {
   local p
   p=$(pgrep -f "[/ ]${PNL}" || true)
   if [[ -z "${p}" ]]; then
-    echo "[pnl-stop] нет запущенных ${PNL}"
+    echo "[pnl-stop] no running ${PNL} process"
     return 0
   fi
   echo "[pnl-stop] kill -TERM ${p}"

@@ -11,7 +11,7 @@ from typing import List
 try:
     from ladder_dragon.execution import tools_stats as ts
 except Exception:
-    print("Не найден tools_stats.py рядом. Запустите из каталога бота.", file=sys.stderr)
+    print("tools_stats.py was not found. Run this command from the bot directory.", file=sys.stderr)
     raise
 
 def env_default_db() -> str:
@@ -36,7 +36,7 @@ def ts_expr(utc: bool) -> str:
     )
 
 def print_inventory(con: sqlite3.Connection, symbols: List[str]) -> None:
-    print("\n=== Инвентарь (qty, avg_price, realized_pnl) ===")
+    print("\n=== Inventory (qty, avg_price, realized_pnl) ===")
     for s in symbols:
         try:
             qty, avg_price, realized = ts.get_inventory(con, s)
@@ -45,11 +45,11 @@ def print_inventory(con: sqlite3.Connection, symbols: List[str]) -> None:
             realized = 0.0 if realized is None else realized
             print(f"{s:10s}  qty={qty:.10f}  avg={avg_price:.8f}  realized_pnl={realized:.2f}")
         except Exception as e:
-            print(f"{s:10s}  <нет данных> ({e})")
+            print(f"{s:10s}  <no data> ({e})")
 
 def print_last_trades(con: sqlite3.Connection, symbols: List[str], limit: int, utc: bool) -> None:
     cur = con.cursor()
-    print(f"\n=== Последние сделки (по каждому символу, limit={limit}) ===")
+    print(f"\n=== Recent trades by symbol (limit={limit}) ===")
     for s in symbols:
         print(f"\n-- {s} --")
         q = f"""
@@ -66,17 +66,17 @@ def print_last_trades(con: sqlite3.Connection, symbols: List[str], limit: int, u
         try:
             rows = cur.execute(q, (s, limit)).fetchall()
             if not rows:
-                print("  (пусто)")
+                print("  (empty)")
                 continue
             for dt, sym, side, qty, price, fee in rows:
                 print(f"  {dt}  {str(side):<4s}  qty={qty:.10f}  price={price:.8f}  fee_q={fee:.6f}")
         except Exception as e:
-            print("  ошибка:", e)
+            print("  error:", e)
 
 def print_daily_monthly(con: sqlite3.Connection, symbols: List[str], utc: bool) -> None:
     tm = time.gmtime() if utc else time.localtime()
     year, month = tm.tm_year, tm.tm_mon
-    print(f"\n=== Сводки: day (сегодня) и month ({year:04d}-{month:02d}) ===")
+    print(f"\n=== Summaries: day (today) and month ({year:04d}-{month:02d}) ===")
     for s in symbols:
         try:
             # Support both signatures.
@@ -98,7 +98,7 @@ def print_daily_monthly(con: sqlite3.Connection, symbols: List[str], utc: bool) 
         print("monthly:", mon)
 
 def print_global_last(con: sqlite3.Connection, limit: int, utc: bool) -> None:
-    print(f"\n=== Последние {limit} сделок по всем символам ===")
+    print(f"\n=== Latest {limit} trades across all symbols ===")
     q = f"""
         SELECT {ts_expr(utc)} AS ts_str,
             symbol, side,
@@ -114,29 +114,29 @@ def print_global_last(con: sqlite3.Connection, limit: int, utc: bool) -> None:
         for dt, sym, side, qty, price, fee in cur.execute(q, (limit,)):
             print(f"  {dt}  {sym:10s} {str(side):<4s} qty={qty:.10f} price={price:.8f} fee_q={fee:.6f}")
     except Exception as e:
-        print("  ошибка:", e)
+        print("  error:", e)
 
 def main():
     ap = argparse.ArgumentParser(
-        description="Просмотр статистики бота из SQLite",
+        description="Inspect bot statistics stored in SQLite",
         epilog=(
-            "Примеры:\n"
+            "Examples:\n"
             "  python3 bin/stats_view.py --utc --limit 5\n"
             "  python3 bin/stats_view.py --symbols SOLUSDT,ETHUSDT --global-limit 50\n"
             "  BOT_STATS_DB=/path/bot_stats.db python3 bin/stats_view.py\n"
         ),
         formatter_class=argparse.RawTextHelpFormatter
     )
-    ap.add_argument("--db", default=env_default_db(), help="путь к БД (по умолчанию BOT_STATS_DB или ~/apps/binance_bot/db/bot_stats.db)")
-    ap.add_argument("--symbols", default="", help="список через запятую (если не задан — авто из trades)")
-    ap.add_argument("--limit", type=int, default=10, help="сколько последних сделок показывать по каждому символу")
-    ap.add_argument("--global-limit", type=int, default=20, help="сколько последних сделок показать общей лентой")
-    ap.add_argument("--utc", action="store_true", help="показывать время в UTC (по умолчанию — локальное)")
+    ap.add_argument("--db", default=env_default_db(), help="database path; defaults to BOT_STATS_DB or ~/apps/binance_bot/db/bot_stats.db")
+    ap.add_argument("--symbols", default="", help="comma-separated list; defaults to symbols found in trades")
+    ap.add_argument("--limit", type=int, default=10, help="number of recent trades shown per symbol")
+    ap.add_argument("--global-limit", type=int, default=20, help="number of recent trades shown in the combined feed")
+    ap.add_argument("--utc", action="store_true", help="show UTC timestamps instead of local time")
     args = ap.parse_args()
 
     db = os.path.expanduser(args.db)
     if not os.path.exists(db):
-        print("БД не найдена:", db, file=sys.stderr)
+        print("Database not found:", db, file=sys.stderr)
         sys.exit(2)
 
     con = ts.connect_ro(db)
@@ -147,7 +147,7 @@ def main():
         symbols = detect_symbols(con)
 
     if not symbols:
-        print("Символы не найдены (таблица trades пуста или отсутствует).", file=sys.stderr)
+        print("No symbols found because the trades table is empty or missing.", file=sys.stderr)
         con.close()
         sys.exit(3)
 

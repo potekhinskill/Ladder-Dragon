@@ -4,11 +4,7 @@
 # Copyright (c) 2026 IURII Potekhin
 # Purpose: supervise strategy workers and enforce execution gates.
 
-"""
-ai_supervisor.py — «Лестница Дракона» (SMART, high-profit grid 2025)
-
-(докстринг без изменений, урезан здесь для краткости)
-"""
+"""Ladder Dragon ai supervisor support."""
 
 import os
 import fcntl
@@ -89,7 +85,7 @@ except ImportError:
 
 # >>> tools_market integration
 try:
-    from ladder_dragon.execution import tools_market as TM  # важное: используем общее подписание и klines с фолбэком
+    from ladder_dragon.execution import tools_market as TM
 except ImportError as e:
     print(f"[FATAL] cannot import tools_market: {e}", flush=True)
     raise
@@ -186,7 +182,7 @@ def env_flag(name: str, default: bool = False) -> bool:
 
 
 def _configured_unvalued_assets() -> set[str]:
-    """Прочитать явный список непереводимой пыли, не ослабляя risk по умолчанию."""
+    """Handle configured unvalued assets."""
     raw = os.getenv("RISK_UNVALUED_ASSETS", "")
     assets = {item.strip().upper() for item in raw.split(",") if item.strip()}
     invalid = sorted(asset for asset in assets if not re.fullmatch(r"[A-Z0-9]{2,20}", asset))
@@ -209,7 +205,7 @@ def _configured_unvalued_assets() -> set[str]:
 
 
 def _build_ai_advisor(args: argparse.Namespace) -> Optional[AIAdvisor]:
-    """Создать изолированный LLM-клиент без каких-либо торговых методов."""
+    """Build ai advisor."""
     if not args.ai_advisor or args.ai_mode == "DISABLED":
         return None
 
@@ -307,7 +303,7 @@ def log(msg: str) -> None:
 
 
 def _publish_ai_runtime_status(**updates: Any) -> None:
-    """Обновить read-only телеметрию для дашборда без секретов и raw-контекста."""
+    """Handle publish ai runtime status."""
     if _AI_RUNTIME_STATUS_PATH is None:
         return
     _AI_RUNTIME_STATUS.update(updates)
@@ -327,7 +323,7 @@ def _runtime_order_journal_snapshot() -> dict[str, Any]:
 
 
 def _refresh_ai_control(args: argparse.Namespace) -> None:
-    """Применить переключатель дашборда; повреждённый файл отключает AI."""
+    """Handle refresh ai control."""
     global _AI_POLICY
     if _AI_CONTROL_PATH is None or _AI_POLICY is None:
         return
@@ -843,10 +839,7 @@ def _fmt_price(price: float, tick: float) -> str:
 
 def place_limit_order(symbol: str, side: str, quantity: float, price: float,
                       filters: Optional[Dict[str, float]] = None) -> Optional[Dict[str, Any]]:
-    """
-    Лимитки через централизованное округление/валидацию tools_market.round_qty_price().
-    При фильтр-ошибке (-1013/-1111/-1102/-1106) один раз инвалидируем кэш фильтров и повторяем.
-    """
+    """Place limit order."""
     if not LIVE_MODE:
         log(f"[DRY] skip LIMIT {symbol} {side.upper()} {quantity:.8f} @ {price:.8f}")
         return None
@@ -907,10 +900,7 @@ def place_limit_order(symbol: str, side: str, quantity: float, price: float,
 def place_market_order(symbol: str, side: str, quantity: float,
                        ref_price: Optional[float] = None,
                        filters: Optional[Dict[str, float]] = None) -> Optional[Dict[str, Any]]:
-    """
-    Маркет-ордера унифицированы: round_qty_price() даёт корректный qty_s.
-    При фильтр-ошибке инвалидируем кэш фильтров и повторяем один раз.
-    """
+    """Place market order."""
     if not LIVE_MODE:
         log(f"[DRY] skip MARKET {symbol} {side.upper()} {quantity:.8f}")
         return None
@@ -921,7 +911,7 @@ def place_market_order(symbol: str, side: str, quantity: float,
         qty_s, _ = TM.round_qty_price(
             symbol=symbol,
             qty=float(quantity),
-            price=float(ref_price),  # нужна для minNotional
+            price=float(ref_price),
             side=side.upper(),
         )
 
@@ -1332,7 +1322,7 @@ def position_guard_and_maybe_flatten(symbol: str, now_price: float, atr_abs: flo
             base, _ = symbol_assets(symbol)
             step = filters["stepSize"]; min_qty = filters["minQty"]; min_notional = filters["minNotional"]; tick = filters["tickSize"]
 
-            target_base = 0.0 if (in_flat or args.pos_action_on_hard in ("flatten", "reduce_then_flatten")) \
+            target_base = 0.0 if (in_flat or args.pos_action_on_hard in ("flatten", "reduce_then_flatten"))\
                           else (warn_thr_base or 0.0) * (1 if net_base >= 0 else -1)
             need_total = max(0.0, abs(net_base - target_base))
 
@@ -1395,7 +1385,7 @@ def _schedule_child_restart(
     *,
     now: Optional[float] = None,
 ) -> float:
-    """Рассчитать backoff для нестабильного дочернего исполнителя."""
+    """Handle schedule child restart."""
     now = time.time() if now is None else now
     stable_sec = max(1, int(os.getenv("BOT_CHILD_STABLE_SEC", "30")))
     if return_code != 0 and runtime_sec < stable_sec:
@@ -1413,7 +1403,7 @@ def _schedule_child_restart(
 def run_child(symbol: str, ladder: List[float], args: argparse.Namespace,
               extra_env: Optional[Dict[str, str]] = None,
               tp1: Optional[float] = None, tp2: Optional[float] = None) -> None:
-    """Запустить не более одного исполнителя на символ и учесть его прошлый exit."""
+    """Handle run child."""
     # Reuse a known live process instead of duplicating it; restart a crashed
     # process with exponential backoff.
     now = time.time()
@@ -1591,7 +1581,7 @@ def _build_ai_market_context(
     ladder: tuple[float, float, float],
     target_buys: int,
 ) -> MarketContext:
-    """Собрать ограниченные агрегаты без сырых сделок, баланса и ордер-ID."""
+    """Build ai market context."""
     low, down, up = ladder
     base: Dict[str, Any] = {
         "symbol": symbol,
@@ -1730,7 +1720,7 @@ def _build_ai_market_context(
 
 
 def run_for_symbol(symbol: str, args: argparse.Namespace) -> None:
-    """Построить план одного символа и передать его дочернему исполнителю."""
+    """Handle run for symbol."""
     # 1) Current price + ATR
     now_p = get_last_price(symbol)
     log(f"[PLAN] {symbol} now≈{now_p:.4f}")
@@ -2136,7 +2126,7 @@ def parse_ladder_pct_map(s: str) -> Dict[str, Tuple[float, float, float]]:
 
 
 def _configure_venue(args: argparse.Namespace) -> None:
-    """Выбрать testnet/mainnet до первого аутентифицированного запроса."""
+    """Handle configure venue."""
     global BINANCE_API_BASE, API_KEY, API_SECRET
     if args.testnet:
         base = os.getenv("BINANCE_TESTNET_API_BASE", "https://testnet.binance.vision").rstrip("/")
@@ -2163,7 +2153,7 @@ def _configure_venue(args: argparse.Namespace) -> None:
 
 
 def _preflight_live(args: argparse.Namespace, symbols: List[str], limits: RiskLimits) -> None:
-    """Показать экспозицию и отказать в LIVE, пока не доказана готовность систем."""
+    """Handle preflight live."""
     limits.validate()
     stats_db = os.getenv("BOT_STATS_DB", "").strip()
     cap = float(args.cap_ceil_usdt or os.getenv("BOT_CAP_PER_ORDER", "50"))
@@ -2248,7 +2238,7 @@ def _preflight_live(args: argparse.Namespace, symbols: List[str], limits: RiskLi
 
 
 def _stop_children(reason: str) -> None:
-    """Остановить всех воркеров с terminate → wait → kill fallback."""
+    """Handle stop children."""
     for symbol, proc in list(_CHILD_PROCS.items()):
         try:
             if proc.poll() is None:
@@ -2272,7 +2262,7 @@ def _stop_children(reason: str) -> None:
 
 
 def _cancel_open_buy_orders(orders: Optional[List[Dict[str, Any]]] = None) -> int:
-    """Отменить только BUY; защитные SELL/OCO должны продолжать работать."""
+    """Handle cancel open buy orders."""
     orders = orders if orders is not None else (TM._signed_get("/api/v3/openOrders") or [])
     canceled = 0
     for order in orders:
@@ -2285,7 +2275,7 @@ def _cancel_open_buy_orders(orders: Optional[List[Dict[str, Any]]] = None) -> in
 
 
 def _notify_risk(decision: RiskDecision) -> None:
-    """Зафиксировать точную причину risk-решения и опционально вызвать webhook."""
+    """Send risk."""
     reason = "; ".join(decision.reasons) or "risk limit"
     log(f"[RISK-ALERT] halted={decision.halted} buy_blocked={decision.buy_blocked}: {reason}")
     webhook = os.getenv("BOT_ALERT_WEBHOOK_URL", "").strip()
@@ -2300,13 +2290,7 @@ def _notify_risk(decision: RiskDecision) -> None:
 
 
 def _sync_recent_account_fills(symbols: List[str]) -> None:
-    """Импортировать свежие Binance fills до строгой сверки позиций.
-
-    Ручная сделка, внешний OCO или исполнение между двумя циклами supervisor
-    сначала должны попасть в локальный ledger. Иначе risk gate сравнит свежий
-    account Binance со старым inventory и навсегда заблокирует новые BUY.
-    Ошибка импорта не скрывается: вызывающий risk gate остаётся fail-closed.
-    """
+    """Synchronize recent account fills."""
     stats_db = os.getenv("BOT_STATS_DB", "").strip()
     if not stats_db:
         raise RuntimeError("BOT_STATS_DB is required for fill reconciliation")
@@ -2368,7 +2352,7 @@ def _sync_recent_account_fills(symbols: List[str]) -> None:
 def _build_risk_snapshot(
     symbols: List[str], limits: RiskLimits
 ) -> tuple[RiskSnapshot, List[Dict[str, Any]], Dict[str, float]]:
-    """Собрать согласованный снимок account, ledger, ордеров и дневных метрик."""
+    """Build risk snapshot."""
     if env_flag("RISK_RECONCILE_SYNC_FILLS", True):
         _sync_recent_account_fills(symbols)
     balances = get_balances_full()
@@ -2569,7 +2553,7 @@ def _build_risk_snapshot(
     return snap, orders, prices
 
 def main():
-    """Главный orchestration loop: preflight → risk gate → планы → воркеры."""
+    """Handle main."""
     ap = build_supervisor_parser()
     args = ap.parse_args()
     log(f"[VERSION] {product_label('supervisor')}")
@@ -2685,7 +2669,7 @@ def main():
 
     lp = [x.strip() for x in args.ladder_pct.split(",")]
     if len(lp) != 3:
-        raise SystemExit("--ladder-pct ожидает три числа: low,down,up")
+        raise SystemExit("--ladder-pct expects three numbers: low,down,up")
     args.ladder_pct = (float(lp[0]), float(lp[1]), float(lp[2]))
     args.ladder_pct_map = parse_ladder_pct_map(args.ladder_pct_map)
 

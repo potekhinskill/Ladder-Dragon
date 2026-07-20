@@ -1,11 +1,7 @@
 # SPDX-License-Identifier: MIT
 # Copyright (c) 2026 IURII Potekhin
 # Purpose: implement the telegram alerts component of the execution layer.
-"""Безопасная доставка аварийных уведомлений в Telegram.
-
-Токен и chat id читаются только из root-owned файла конфигурации на Raspberry
-Pi. В репозитории и в журнал не попадают ни секрет, ни URL с токеном.
-"""
+"""Ladder Dragon telegram alerts support."""
 
 from __future__ import annotations
 
@@ -25,7 +21,7 @@ AUTH_ALERT_STATE = Path("/run/mybot/binance-auth-alert.json")
 
 
 def _parse_env(path: Path) -> dict[str, str]:
-    """Прочитать простой KEY=VALUE-файл без shell-исполнения."""
+    """Parse env."""
     values: dict[str, str] = {}
     try:
         lines = path.read_text(encoding="utf-8").splitlines()
@@ -47,7 +43,7 @@ def _parse_env(path: Path) -> dict[str, str]:
 
 
 def load_config() -> dict[str, str]:
-    """Загрузить новый конфиг, затем совместимый legacy-файл."""
+    """Load config."""
     configured = Path(os.getenv("TELEGRAM_ALERTS_CONFIG", str(DEFAULT_CONFIG)))
     values = _parse_env(configured)
     if configured != LEGACY_CONFIG:
@@ -66,7 +62,7 @@ def _first(values: dict[str, str], *names: str) -> str:
 
 
 def send_message(text: str, *, timeout: float = 5.0) -> bool:
-    """Отправить сообщение; отсутствие Telegram не ломает торговый контур."""
+    """Send message."""
     values = load_config()
     enabled = _first(values, "TELEGRAM_ALERTS_ENABLED", "BOT_ALERTS_ENABLED")
     if enabled.lower() in {"0", "false", "no", "off"}:
@@ -97,7 +93,7 @@ def send_message(text: str, *, timeout: float = 5.0) -> bool:
 
 
 def notify(event: str, reasons: list[str] | tuple[str, ...], metadata: dict | None = None) -> bool:
-    """Сформировать короткое уведомление с точной причиной остановки."""
+    """Send notify."""
     lines = [f"Ladder Dragon: {event}", "Reason: " + "; ".join(str(item) for item in reasons)]
     if metadata:
         safe = {str(key): str(value) for key, value in metadata.items()}
@@ -113,11 +109,7 @@ def notify_binance_auth_error(
     message: str = "",
     cooldown_sec: float = 1800.0,
 ) -> bool:
-    """Сообщить о неверном ключе/подписи без утечки секрета и спама.
-
-    Binance не возвращает ключ в таких ошибках, но сообщение всё равно
-    нормализуется и обрезается. Повтор одной ошибки подавляется на cooldown.
-    """
+    """Send binance auth error."""
     status_text = str(status if status is not None else "unknown")
     code_text = str(code if code is not None else "unknown")
     safe_endpoint = str(endpoint).split("?", 1)[0][:120]

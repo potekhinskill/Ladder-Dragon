@@ -211,7 +211,7 @@ def get_db_path() -> str:
 
 
 def _load_ai_runtime_status() -> Dict:
-    """Прочитать безопасный heartbeat бота, не обращаясь к /proc или его env."""
+    """Load ai runtime status."""
     try:
         return read_runtime_status(AI_RUNTIME_STATUS_FILE)
     except (OSError, ValueError, json.JSONDecodeError):
@@ -304,7 +304,7 @@ def _user_stream_snapshot(runtime: Dict[str, object]) -> Dict[str, object]:
 
 
 def _runtime_data_path(runtime: Dict, name: str, fallback: str) -> Path:
-    """Выбрать runtime-путь только когда это явно разрешено в dashboard env."""
+    """Handle runtime data path."""
     if DASHBOARD_FOLLOW_BOT_PATHS:
         value = runtime.get("paths", {}).get(name)
         if isinstance(value, str) and value.strip():
@@ -335,7 +335,7 @@ def _ts_to_s(ts_val) -> int:
 
 def _fee_pct_default() -> float:
     try:
-        return float(os.getenv("BOT_FEE_PCT", "0.00075"))  # 0.075% по умолчанию (скидка BNB)
+        return float(os.getenv("BOT_FEE_PCT", "0.00075"))
     except (TypeError, ValueError):
         return 0.00075
 
@@ -500,9 +500,7 @@ def price_at(symbol: str, ts_ms: int) -> float:
     return float(j[0][1])  # open
 
 def account_balances_now() -> Dict[str, float]:
-    """
-    Возвращает dict asset-> qty (free+locked). Требует API ключи.
-    """
+    """Handle account balances now."""
     if not ensure_api_creds():
         raise RuntimeError("No API creds")
     j = _signed("GET", "/api/v3/account")
@@ -515,7 +513,7 @@ def account_balances_now() -> Dict[str, float]:
 
 
 def account_balances_snapshot() -> Dict:
-    """Снимок free/locked балансов и их USDT-оценки для read-only dashboard."""
+    """Handle account balances snapshot."""
     now = time.monotonic()
     with _BALANCE_CACHE_LOCK:
         cached = _BALANCE_CACHE.get("payload")
@@ -579,7 +577,7 @@ def account_balances_snapshot() -> Dict:
 
 
 def account_open_orders_snapshot() -> Dict:
-    """Read-only снимок всех открытых Binance-ордеров с безопасными полями."""
+    """Handle account open orders snapshot."""
     now = time.monotonic()
     with _OPEN_ORDERS_CACHE_LOCK:
         cached = _OPEN_ORDERS_CACHE.get("payload")
@@ -659,7 +657,7 @@ def _stale_binance_snapshot(
 
 
 def _average_entry_from_ledger(symbol: str) -> Optional[float]:
-    """Рассчитать FIFO average entry только по фактическим ledger fills."""
+    """Handle average entry from ledger."""
     try:
         con, _ = _open_db()
         rows = _load_trades(con, [symbol])
@@ -805,7 +803,7 @@ def _bot_execution_context(runtime: Dict[str, object]) -> Dict[str, object]:
 
 
 def trading_overview_snapshot() -> Dict[str, object]:
-    """Read-only объединённый снимок позиций, защиты и risk telemetry."""
+    """Handle trading overview snapshot."""
     runtime = _load_ai_runtime_status()
     balances = account_balances_snapshot()
     orders = account_open_orders_snapshot()
@@ -988,12 +986,7 @@ def base_asset_of(symbol: str) -> str:
 # ---- Approx equity from DB (no API keys) ----------------------------------------
 
 def _approx_equity_now_from_db(rows: List[sqlite3.Row], symbols_list: Optional[List[str]], fee_pct: float) -> Dict:
-    """
-    Приближённая оценка текущего equity (USDT) по указанным symbols.
-    Так как в БД может не быть начальных депозитов/входов, любые ОТРИЦАТЕЛЬНЫЕ остатки
-    (USDT, BNB и любые базовые активы) считаем нулём — это «неучтённая история».
-    Комиссии, оплаченные BNB, учитываем как уменьшение BNB (но не ниже 0).
-    """
+    """Handle approx equity now from db."""
     sym_set = set([s.strip().upper() for s in (symbols_list or []) if s.strip()])
     pos: Dict[str, float] = {"USDT": 0.0, "BNB": 0.0}
     fee_bnb_usdt_total = 0.0
@@ -1005,7 +998,7 @@ def _approx_equity_now_from_db(rows: List[sqlite3.Row], symbols_list: Optional[L
         side = str(r["side"]).upper()
         qty  = float(r["qty"])
         px   = float(r["price"])
-        fee_q = float(r["fee_quote"])  # 0 => оплачивалось BNB
+        fee_q = float(r["fee_quote"])
         a = base_asset_of(sym)
 
         if side == "BUY":
@@ -1057,13 +1050,7 @@ def _approx_equity_now_from_db(rows: List[sqlite3.Row], symbols_list: Optional[L
     }
 
 def equity_pnl_usdt(cutoff_s: int, rows: List[sqlite3.Row], fee_pct: float, symbols_list: Optional[List[str]]) -> Dict:
-    """
-    Возвращает словарь:
-      - method: 'balances+klines' или 'approx'
-      - equity_now_usdt, equity_then_usdt, equity_pnl_usdt
-      - buy/sell/fees для совместимости
-    Можно ограничить активы параметром symbols_list (по базовым активам соответствующих пар).
-    """
+    """Handle equity pnl usdt."""
     # Restrict window deltas and volumes to the requested symbols when present.
     buy_usdt = 0.0
     sell_usdt = 0.0
@@ -1095,7 +1082,7 @@ def equity_pnl_usdt(cutoff_s: int, rows: List[sqlite3.Row], fee_pct: float, symb
 
     # Exact method using signed account credentials.
     try:
-        bals_now = account_balances_now()  # требует API ключи (ensure_api_creds внутри)
+        bals_now = account_balances_now()
         if sym_set:
             allowed_bases = {base_asset_of(s) for s in sym_set}
             assets = set(["USDT", "BNB"]) | allowed_bases
@@ -1190,7 +1177,7 @@ def equity_pnl_usdt(cutoff_s: int, rows: List[sqlite3.Row], fee_pct: float, symb
 # ------------------- system helpers (original) ------------------------------------
 
 def run_command(*args: str, timeout=5):
-    """Запустить только явно заданную команду без shell-интерпретации."""
+    """Handle run command."""
     try:
         r = subprocess.run(args, capture_output=True, text=True, timeout=timeout)
         return r.returncode, (r.stdout or "") + (r.stderr or "")
@@ -1320,13 +1307,13 @@ def fail2ban_bans(jail="sshd"):
 
 
 def _command_value(*args: str) -> str:
-    """Безопасно прочитать одну строку системной telemetry-команды."""
+    """Handle command value."""
     _rc, output = run_command(*args, timeout=3)
     return output.strip().splitlines()[0].strip() if output.strip() else ""
 
 
 def _systemd_service_snapshot(name: str) -> Dict[str, object]:
-    """Статус и время запуска сервиса без чтения секретов или /proc."""
+    """Handle systemd service snapshot."""
     if name not in {"mybot", "pi-healthd", "pi-watchdog-v3.timer"}:
         return {"state": "invalid"}
     _rc, output = run_command(
@@ -1367,7 +1354,7 @@ def _systemd_service_snapshot(name: str) -> Dict[str, object]:
 
 
 def _ntp_snapshot() -> Dict[str, object]:
-    """Состояние синхронизации часов, доступное без прав администратора."""
+    """Handle ntp snapshot."""
     if not shutil.which("timedatectl"):
         return {"synchronized": None, "service": "unavailable"}
     synced = _command_value("timedatectl", "show", "-p", "NTPSynchronized", "--value").lower()
@@ -1379,7 +1366,7 @@ def _ntp_snapshot() -> Dict[str, object]:
 
 
 def _binance_latency_snapshot() -> Dict[str, object]:
-    """Проверить public Binance clock с коротким кэшем, не используя торговые права."""
+    """Handle binance latency snapshot."""
     started = time.monotonic()
     try:
         payload = _pub_get("/api/v3/time", timeout=5.0)
@@ -1392,7 +1379,7 @@ def _binance_latency_snapshot() -> Dict[str, object]:
 
 
 def _backup_snapshot() -> Dict[str, object]:
-    """Показать только метаданные последнего age-архива, без содержимого."""
+    """Handle backup snapshot."""
     public_dir = Path(os.getenv("DASHBOARD_BACKUP_PUBLIC_DIR", "/var/lib/ladder-dragon/backups-public"))
     status_payload: Dict[str, object] = {}
     for status_path in (
@@ -1433,7 +1420,7 @@ def _backup_snapshot() -> Dict[str, object]:
 
 
 def _usb_snapshot() -> Dict[str, object]:
-    """Состояние внешнего диска и свободное место для backup mirror."""
+    """Handle usb snapshot."""
     mountpoint = os.getenv("DASHBOARD_BACKUP_MOUNT", "/mnt/usb1")
     findmnt_target = _command_value("findmnt", "-T", mountpoint, "-no", "TARGET") if shutil.which("findmnt") else ""
     mounted = findmnt_target == mountpoint or (not findmnt_target and Path(mountpoint).exists() and platform.system() != "Linux")
@@ -1647,7 +1634,7 @@ def health():
 
 @app.get("/api/account/balances")
 def account_balances():
-    """Показать только балансы; торговые методы dashboard намеренно запрещены."""
+    """Handle account balances."""
     try:
         return JSONResponse(account_balances_snapshot())
     except _DATA_SOURCE_ERRORS as exc:
@@ -1667,7 +1654,7 @@ def account_balances():
 
 @app.get("/api/account/open-orders")
 def account_open_orders():
-    """Показать все открытые ордера через выделенный read-only API-ключ."""
+    """Handle account open orders."""
     try:
         return JSONResponse(account_open_orders_snapshot())
     except _DATA_SOURCE_ERRORS as exc:
@@ -1788,7 +1775,7 @@ def _ai_calibration(recent: List[Dict]) -> List[Dict]:
 
 @app.get("/api/ai/status")
 def ai_status(limit: int = 50):
-    """Защищённый read-only статус AI, решений и дневного расхода."""
+    """Handle ai status."""
     limit = max(1, min(int(limit), 200))
     runtime = _load_ai_runtime_status()
     runtime_ai = runtime.get("ai", {}) if isinstance(runtime.get("ai"), dict) else {}
@@ -2035,7 +2022,7 @@ def ai_status(limit: int = 50):
 
 
 def _ai_control_snapshot() -> Dict[str, object]:
-    """Собрать состояние переключателя без доступа к ключам или ордерам."""
+    """Handle ai control snapshot."""
     runtime = _load_ai_runtime_status()
     runtime_ai = runtime.get("ai", {}) if isinstance(runtime.get("ai"), dict) else {}
     configured = bool(runtime_ai.get("enabled"))
@@ -2065,7 +2052,7 @@ def _ai_control_snapshot() -> Dict[str, object]:
 
 @app.get("/api/ai/control")
 def ai_control():
-    """Вернуть состояние runtime-переключателя AI."""
+    """Handle ai control."""
     snapshot = _ai_control_snapshot()
     if snapshot["control_error"]:
         return JSONResponse(
@@ -2077,7 +2064,7 @@ def ai_control():
 
 @app.post("/api/ai/control")
 async def set_ai_control(request: Request):
-    """Включить/отключить только advisory AI; торговые права не меняются."""
+    """Handle set ai control."""
     snapshot = _ai_control_snapshot()
     if not snapshot["configured"] or snapshot["configured_mode"] == "DISABLED":
         return JSONResponse(
@@ -2113,10 +2100,7 @@ async def set_ai_control(request: Request):
 
 @app.get("/api/trades/symbols")
 def trades_symbols(hours: int = 168):
-    """
-    Возвращает список уникальных symbol из таблицы trades.
-    По умолчанию за последние 168 часов (7 дней). Если hours<=0 — по всей БД.
-    """
+    """Handle trades symbols."""
     hours = int(hours)
     cutoff = int(time.time()) - max(0, hours) * 3600 if hours > 0 else 0
     try:
@@ -2243,11 +2227,7 @@ def trades_recent(limit: int = 20, symbols: str = ""):
 # ---- Filled orders (24h) for dashboard -------------------------------------------
 
 def _select_filled_orders(hours: int, syms: Optional[List[str]], limit: int) -> List[Dict]:
-    """
-    Возвращает список «исполненных ордеров» (по сути trades) за окно hours, newest-first.
-    Формат полей совместим с фронтендом:
-      time(ms), symbol, side, price, qty, quoteQty, commission, commissionAsset
-    """
+    """Handle select filled orders."""
     hours = max(1, min(int(hours), 168))
     limit = max(1, min(int(limit), 5000))
     cutoff_s = int(time.time()) - hours * 3600
@@ -2296,7 +2276,7 @@ def _select_filled_orders(hours: int, syms: Optional[List[str]], limit: int) -> 
                 "qty": round(qty, 8),
                 "quoteQty": round(price * qty, 8),
                 "commission": round(fee_usdt, 8),
-                "commissionAsset": "USDT"  # всегда в USDT для единообразия отображения
+                "commissionAsset": "USDT"
             })
         return out
     finally:

@@ -3,26 +3,7 @@
 # SPDX-License-Identifier: MIT
 # Copyright (c) 2026 IURII Potekhin
 # Purpose: implement the tools stats component of the execution layer.
-"""
-tools_stats.py — лёгкая БД статистики (SQLite) для учёта инвентаря и трейдов.
-
-Функции:
-- init_db(db_path)
-- apply_trade(..., gross_qty/net_qty/commission metadata)
-- get_inventory(symbol) -> (qty, avg_cost, realized_pnl)
-- get_last_trade_id(symbol) / set_last_trade_id(symbol, last_id)
-- monthly_summary(symbol, year, month) -> dict
-- daily_summary(symbol, utc=True) -> dict
-
-Хранение:
-- trades сохраняет legacy REAL-поля и точные Decimal-строки gross/net/commission
-- inventory сохраняет совместимые REAL-поля и точные Decimal-строки
-
-Доп. устойчивость к «database is locked»:
-- Соединения открываются в режиме WAL + busy_timeout.
-- Есть раздельные коннекторы: connect_ro() для чтения (mode=ro) и connect_rw() для записи.
-- Все операции обёрнуты в retry с экспоненциальным backoff’ом.
-"""
+"""Ladder Dragon tools stats support."""
 
 import sqlite3, os, time
 from decimal import Decimal
@@ -35,8 +16,8 @@ from ladder_dragon.execution.trade_accounting import TradeExecution, decimal, de
 # Configuration from environment variables
 # ==========================
 DB_PATH = os.getenv("BOT_STATS_DB", "/home/bot/stats/bot_stats.db")
-BUSY_TRIES  = int(os.getenv("STATS_BUSY_TRIES", "7"))      # повторы при lock’ах
-BUSY_BASE_S = float(os.getenv("STATS_BUSY_BASE", "0.25"))  # базовая пауза backoff
+BUSY_TRIES  = int(os.getenv("STATS_BUSY_TRIES", "7"))
+BUSY_BASE_S = float(os.getenv("STATS_BUSY_BASE", "0.25"))
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS trades(
@@ -56,11 +37,11 @@ CREATE TABLE IF NOT EXISTS trades(
   commission_quote TEXT,
   commission_value_status TEXT NOT NULL DEFAULT 'legacy'
 );
--- Базовый и покрывающий индексы под выборки по symbol+ts и отчётам
+-- Base and covering indexes for symbol/time queries and reports
 CREATE INDEX IF NOT EXISTS trades_idx ON trades(symbol, ts);
 CREATE INDEX IF NOT EXISTS trades_monthly_cover
 ON trades(symbol, ts, side, price, qty, fee_quote);
--- Уникальность trade_id в рамках символа (когда trade_id задан)
+-- Keep trade_id unique within each symbol when it is present
 CREATE UNIQUE INDEX IF NOT EXISTS trades_sym_tradeid_uq
 ON trades(symbol, trade_id) WHERE trade_id IS NOT NULL;
 
@@ -100,7 +81,7 @@ def connect_ro(db_path: str = DB_PATH) -> sqlite3.Connection:
         uri=True,
         timeout=10.0,
         check_same_thread=False,
-        isolation_level=None  # автокоммит
+        isolation_level=None
     )
     _apply_pragmas(con, read_only=True)
     return con
@@ -110,16 +91,13 @@ def connect_rw(db_path: str = DB_PATH) -> sqlite3.Connection:
         db_path,
         timeout=15.0,
         check_same_thread=False,
-        isolation_level=None  # автокоммит
+        isolation_level=None
     )
     _apply_pragmas(con, read_only=False)
     return con
 
 def _retry_op(fn, *a, **kw):
-    """
-    Универсальная обёртка для ретраев на «database is locked».
-    Возвращает результат fn(...) или пробрасывает исключение после BUSY_TRIES попыток.
-    """
+    """Handle retry op."""
     tries = BUSY_TRIES
     delay = BUSY_BASE_S
     for i in range(tries):
@@ -151,10 +129,7 @@ def query_with_retry(con: sqlite3.Connection, sql: str, params: Iterable[Any] = 
 # ==========================
 
 def init_db(db_path: str) -> sqlite3.Connection:
-    """
-    Инициализирует БД по пути db_path и возвращает RW-соединение.
-    Включает WAL и нужные PRAGMA.
-    """
+    """Handle init db."""
     os.makedirs(os.path.dirname(db_path) or ".", exist_ok=True)
     migrate(db_path)
     con = connect_rw(db_path)
@@ -165,10 +140,7 @@ def init_db(db_path: str) -> sqlite3.Connection:
 # ==========================
 
 def _recalc_inventory(db: sqlite3.Connection, symbol: str):
-    """
-    Полный пересчёт инвентаря по символу «с нуля».
-    Делается быстро даже для тысяч строк, зато логика простая/надёжная.
-    """
+    """Handle recalc inventory."""
     sym = symbol.upper()
     imported_basis = None
     try:
@@ -271,10 +243,7 @@ def apply_trade(con: sqlite3.Connection,
                 commission_amount: object = 0,
                 commission_quote: object | None = None,
                 commission_value_status: str | None = None):
-    """
-    Добавляет исполненную сделку и пересчитывает инвентарь.
-    ВАЖНО: вызывать только на закрытых (filled) сделках.
-    """
+    """Apply trade."""
     sym = symbol.upper()
     ts = int(ts or time.time() * 1000)
     gross = qty if gross_qty is None else gross_qty
@@ -295,7 +264,7 @@ def apply_trade(con: sqlite3.Connection,
     )
     legacy_fee = execution.commission_quote or Decimal("0")
 
-    with con:  # короткая транзакция
+    with con:
         inserted = exec_with_retry(con, """
             INSERT INTO trades(
                 symbol, side, price, qty, fee_quote, ts, trade_id,
@@ -334,10 +303,7 @@ def get_inventory_decimal(con: sqlite3.Connection, symbol: str) -> Tuple[Decimal
     return (decimal(q), decimal(a), decimal(r))
 
 def get_inventory(con: sqlite3.Connection, symbol: str) -> Tuple[float, float, float]:
-    """
-    Возвращает (qty, avg_cost, realized_pnl) для символа.
-    Если записи нет — (0,0,0).
-    """
+    """Return inventory."""
     q, a, r = get_inventory_decimal(con, symbol)
     return (float(q), float(a), float(r))
 
@@ -419,10 +385,7 @@ def monthly_summary(con: sqlite3.Connection, symbol: str, year: int, month: int)
     return _period_summary(get_executions_between(con, sym, t1, t2), "realized_month")
 
 def daily_summary(con: sqlite3.Connection, symbol: str, utc: bool = True) -> Dict:
-    """
-    Суммирует сделки за текущие сутки (UTC по умолчанию).
-    Возвращает приблизительный realized по FIFO внутри дня.
-    """
+    """Handle daily summary."""
     import datetime as dt
 
     sym = symbol.upper()

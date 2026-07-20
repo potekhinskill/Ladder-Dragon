@@ -1,13 +1,7 @@
 # SPDX-License-Identifier: MIT
 # Copyright (c) 2026 IURII Potekhin
 # Purpose: implement the executor protection component of the execution layer.
-"""Сопровождение исполненных BUY, защитных OCO и breakeven.
-
-Модуль владеет жизненным циклом защиты позиции после исполнения покупки.
-Он не подписывает HTTP-запросы самостоятельно: все биржевые операции и доступ
-к журналу передаются через зависимости, поэтому сценарии можно тестировать
-без ключей и сети.
-"""
+"""Ladder Dragon executor protection support."""
 
 from __future__ import annotations
 
@@ -38,7 +32,7 @@ _PROTECTION_DATA_ERRORS = (
 
 @dataclass(frozen=True)
 class ProtectionConfig:
-    """Настройки защиты BUY и допустимого резервного SELL."""
+    """Represent ProtectionConfig."""
 
     stop_limit_offset_pct: float
     oco_fallback: str
@@ -50,7 +44,7 @@ class ProtectionConfig:
 
 @dataclass
 class BreakevenRuntime:
-    """Счётчик периодической проверки OCO после частичного TP."""
+    """Represent BreakevenRuntime."""
 
     enabled: bool
     offset_pct: float
@@ -69,7 +63,7 @@ class BreakevenRuntime:
 
 @dataclass(frozen=True)
 class ProtectionDependencies:
-    """Поздно связываемые функции исполнителя, необходимые сопровождению."""
+    """Represent ProtectionDependencies."""
 
     logger: Callable[[str], None]
     debugger: Callable[[str], None]
@@ -109,13 +103,7 @@ def emergency_gap_flatten(
     symbol: str, current_price: float, *, dependencies: ProtectionDependencies,
     gap_tolerance_pct: float = 0.0,
 ) -> bool:
-    """Закрыть свободный остаток, если STOP_LIMIT оказался ниже gap-цены.
-
-    Функция не трогает активный stop выше рынка. Она срабатывает только когда
-    найден SELL stop, рынок уже ниже stop с заданным допуском, а ордер всё ещё
-    открыт. После отмены OCO баланс перечитывается, чтобы не продублировать
-    уже исполненный stop.
-    """
+    """Handle emergency gap flatten."""
     try:
         current = Decimal(str(current_price))
         tolerance = max(Decimal("0"), Decimal(str(gap_tolerance_pct)))
@@ -169,7 +157,7 @@ def emergency_gap_flatten(
 
 
 class BreakevenStateStore:
-    """JSON-хранилище связи orderListId с исходной средней ценой BUY."""
+    """Represent BreakevenStateStore."""
 
     def __init__(
         self,
@@ -369,7 +357,7 @@ def protect_filled_buys(
                     )
                     if guard_floor > Decimal(str(tp_limit)):
                         dependencies.debugger(
-                            f"[GUARD] {symbol} TP поднят: "
+                            f"[GUARD] {symbol} TP raised: "
                             f"{dependencies.format_price(symbol, tp_limit)} → "
                             f"{dependencies.format_price(symbol, guard_floor)} "
                             f"(avg={dependencies.format_price(symbol, average_position)})"
@@ -467,7 +455,7 @@ def protect_filled_buys(
                 # A single TP in LIVE leaves the position without a stop loss.
                 # First flatten the confirmed executed quantity, then persist
                 # a halt with the exact reason.
-                reason = "OCO не создан: fallback prefer-tp1 запрещён в LIVE (позиция без стопа)"
+                reason = "OCO was not created: fallback prefer-tp1 is forbidden in LIVE because it leaves the position without a stop"
                 try:
                     if dependencies.place_market_order is not None:
                         dependencies.place_market_order(
@@ -582,7 +570,7 @@ def maintain_breakeven(
     state_store: BreakevenStateStore,
     dependencies: ProtectionDependencies,
 ) -> None:
-    """Подтянуть SL к breakeven после частичного исполнения TP."""
+    """Maintain breakeven."""
     try:
         groups: Dict[str, List[Dict[str, Any]]] = {}
         for order in dependencies.list_open_orders(symbol):
