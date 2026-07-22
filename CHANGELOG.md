@@ -3,6 +3,28 @@
 All notable changes are documented here. Releases use Semantic Versioning; every
 section is dated and there is intentionally no `Unreleased` section.
 
+## [2.20.10] — 2026-07-23
+
+### Added
+- Added an opt-in adaptive BUY re-anchor that compares existing unfilled BUYs
+  with the current ladder using exact decimals, refreshes at most the configured
+  count, and caps every upward replacement step.
+
+### Safety
+- Re-anchor remains `OFF` by default; `SHADOW` records candidates without
+  cancellation. `APPLY` never cancels partially filled BUYs, SELLs or OCO legs,
+  and never follows a falling ladder. A confirmed refresh
+  gracefully restarts only that symbol's worker so the replacement uses the new
+  immutable plan; panic, VWAP, CAP and the execution-cost profit floor remain
+  authoritative.
+
+### Verified
+- The focused re-anchor, Risk, Executor protection, and deployment suites pass
+  with the documented test risk-limit defaults isolated from the operator
+  environment.
+- Full project `pytest` passes all 446 collected tests; Python 3.10 source
+  `compileall` and source-language validation also pass.
+
 ## [2.20.9] — 2026-07-23
 
 ### Changed

@@ -76,6 +76,7 @@ from ladder_dragon.strategy.strategy_math import geometric_ladder as build_ladde
 from ladder_dragon.strategy.strategy_math import split_ladder
 from ladder_dragon.strategy.strategy_math import RegimeHysteresis
 from ladder_dragon.strategy.strategy_math import NumericHysteresis
+from ladder_dragon.strategy.reanchor import plan_buy_reanchors
 from ladder_dragon.numeric_compat import compatibility_float
 from bin.supervisor_config import build_supervisor_parser, validate_supervisor_args
 
@@ -1208,12 +1209,98 @@ def smart_cleanup_orders(symbol: str,
 def smart_rolling(symbol: str,
                   now_price: float,
                   ladder: List[float],
-                  args: argparse.Namespace) -> Dict[str, Any]:
+                  args: argparse.Namespace,
+                  *,
+                  tick_size: object) -> Dict[str, Any]:
     # Open-order visibility is an execution prerequisite. Propagate failures
     # instead of assuming an empty book and potentially duplicating orders.
     open_orders = list_open_orders(symbol)
-    kept = len(open_orders)
-    return {"kept": kept, "cancel": {"ttl": 0, "atr": 0}}
+    reanchor_mode = str(getattr(args, "reanchor_mode", "OFF")).upper()
+    if reanchor_mode == "OFF":
+        return {
+            "kept": len(open_orders),
+            "cancel": {"ttl": 0, "atr": 0, "reanchor": 0, "shadow": 0},
+            "replacement_prices": [],
+        }
+    try:
+        planned = plan_buy_reanchors(
+            open_orders,
+            ladder,
+            now_price=now_price,
+            tick_size=tick_size,
+            now_ms=int(time.time() * 1000),
+            min_age_sec=int(args.reanchor_min_age_sec),
+            trigger_pct=args.reanchor_trigger_pct,
+            max_step_pct=args.reanchor_max_step_pct,
+            max_per_cycle=int(args.reanchor_max_per_cycle),
+        )
+    except (ArithmeticError, TypeError, ValueError) as exc:
+        log(f"[REANCHOR-BLOCK] {symbol} invalid planning input: {exc}")
+        return {
+            "kept": len(open_orders),
+            "cancel": {"ttl": 0, "atr": 0, "reanchor": 0, "shadow": 0},
+            "replacement_prices": [],
+        }
+
+    if reanchor_mode == "SHADOW":
+        for candidate in planned:
+            log(
+                f"[REANCHOR-SHADOW] {symbol} BUY id={candidate.order_id} "
+                f"old={candidate.old_price} target={candidate.target_price} "
+                f"age={candidate.age_sec}s"
+            )
+        return {
+            "kept": len(open_orders),
+            "cancel": {
+                "ttl": 0,
+                "atr": 0,
+                "reanchor": 0,
+                "shadow": len(planned),
+            },
+            "replacement_prices": [],
+        }
+
+    canceled = 0
+    replacements: List[float] = []
+    by_id: Dict[int, Mapping[str, object]] = {}
+    for order in open_orders:
+        try:
+            order_id = int(order.get("orderId") or 0)
+        except (TypeError, ValueError):
+            continue
+        if order_id > 0:
+            by_id[order_id] = order
+    for candidate in planned:
+        if not cancel_order(symbol, candidate.order_id):
+            continue
+        canceled += 1
+        replacements.append(_analytics_float(candidate.target_price))
+        log(
+            f"[REANCHOR] {symbol} canceled BUY id={candidate.order_id} "
+            f"old={candidate.old_price} target={candidate.target_price} "
+            f"age={candidate.age_sec}s"
+        )
+        order = by_id.get(candidate.order_id)
+        if order is not None:
+            _log_order_lifetime(
+                symbol,
+                order,
+                now_price=now_price,
+                age_sec=candidate.age_sec,
+                ttl_sec=int(args.reanchor_min_age_sec),
+                cancel_reason="adaptive-reanchor",
+            )
+    if canceled and not _stop_child(symbol, "adaptive BUY re-anchor"):
+        replacements.clear()
+        log(
+            f"[REANCHOR-BLOCK] {symbol} worker did not stop; "
+            "replacement deferred"
+        )
+    return {
+        "kept": max(0, len(open_orders) - canceled),
+        "cancel": {"ttl": 0, "atr": 0, "reanchor": canceled, "shadow": 0},
+        "replacement_prices": replacements,
+    }
 
 # ===========================
 # ATR and automatic threshold adapter
@@ -2029,8 +2116,8 @@ def run_for_symbol(symbol: str, args: argparse.Namespace) -> None:
         cancel_offladder=True
     )
 
-    sr = smart_rolling(symbol, now_p, ladder_all, args)
-    log(f"[SR-SUM] {symbol} kept={sr['kept']} cancel(ttl)={sr['cancel'].get('ttl',0)} cancel(atr)={sr['cancel'].get('atr',0)}")
+    sr = smart_rolling(symbol, now_p, ladder_all, args, tick_size=tick_exact)
+    log(f"[SR-SUM] {symbol} kept={sr['kept']} cancel(ttl)={sr['cancel'].get('ttl',0)} cancel(atr)={sr['cancel'].get('atr',0)} cancel(reanchor)={sr['cancel'].get('reanchor',0)} shadow(reanchor)={sr['cancel'].get('shadow',0)}")
 
     # 7) ATR-driven automatic adapter (environment override)
     # extra_env may already contain the exact BOT_AI_DECISION_ID.
@@ -2096,8 +2183,13 @@ def run_for_symbol(symbol: str, args: argparse.Namespace) -> None:
     mode = position_guard_and_maybe_flatten(symbol, now_p, atr_abs, args, filters)
     log(f"[POS-MODE] {symbol} mode={mode}")
 
+    child_ladder = _deduplicate_ladder_prices(
+        [*sr.get("replacement_prices", []), *ladder_all],
+        now_p,
+        tick_exact,
+    )
     ladder_for_child = (
-        ladder_all
+        child_ladder
         if mode not in ("reduce_only", "flattening") and not ai_pause_buys
         else _prune_to_sells_only(now_p, ladder_all)
     )
@@ -2347,28 +2439,39 @@ def _preflight_live(args: argparse.Namespace, symbols: List[str], limits: RiskLi
     log("[PREFLIGHT] PASS " + json.dumps(config, sort_keys=True))
 
 
+def _stop_child(symbol: str, reason: str) -> bool:
+    """Gracefully stop one worker before replacing its immutable plan."""
+    proc = _CHILD_PROCS.get(symbol)
+    if proc is None:
+        return True
+    stopped = False
+    try:
+        if proc.poll() is None:
+            log(f"[RISK] stop child {symbol} pid={proc.pid}: {reason}")
+            proc.terminate()
+            try:
+                proc.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                log(f"[RISK] kill unresponsive child {symbol} pid={proc.pid}")
+                proc.kill()
+                proc.wait(timeout=2)
+        else:
+            proc.wait(timeout=0)
+        stopped = proc.poll() is not None
+    except (OSError, subprocess.SubprocessError) as exc:
+        log(f"[RISK] child cleanup failed {symbol} pid={proc.pid}: {exc}")
+    if stopped:
+        _CHILD_PROCS.pop(symbol, None)
+        _CHILD_STARTED_AT.pop(symbol, None)
+        _CHILD_RESTART_AFTER.pop(symbol, None)
+        _CHILD_FAILURES.pop(symbol, None)
+    return stopped
+
+
 def _stop_children(reason: str) -> None:
-    """Handle stop children."""
-    for symbol, proc in list(_CHILD_PROCS.items()):
-        try:
-            if proc.poll() is None:
-                log(f"[RISK] stop child {symbol} pid={proc.pid}: {reason}")
-                proc.terminate()
-                try:
-                    proc.wait(timeout=5)
-                except subprocess.TimeoutExpired:
-                    log(f"[RISK] kill unresponsive child {symbol} pid={proc.pid}")
-                    proc.kill()
-                    proc.wait(timeout=2)
-            else:
-                proc.wait(timeout=0)
-        except (OSError, subprocess.SubprocessError) as exc:
-            log(f"[RISK] child cleanup failed {symbol} pid={proc.pid}: {exc}")
-        finally:
-            _CHILD_PROCS.pop(symbol, None)
-            _CHILD_STARTED_AT.pop(symbol, None)
-            _CHILD_RESTART_AFTER.pop(symbol, None)
-            _CHILD_FAILURES.pop(symbol, None)
+    """Stop every managed child while retaining per-symbol cleanup semantics."""
+    for symbol in list(_CHILD_PROCS):
+        _stop_child(symbol, reason)
 
 
 def _cancel_open_buy_orders(orders: Optional[List[Dict[str, Any]]] = None) -> int:

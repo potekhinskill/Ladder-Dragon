@@ -8,6 +8,7 @@ from __future__ import annotations
 import argparse
 import os
 import re
+from decimal import Decimal, InvalidOperation
 from pathlib import Path
 from typing import List
 
@@ -32,6 +33,32 @@ def build_supervisor_parser() -> argparse.ArgumentParser:
     ap.add_argument("--ladder-pct-map", default="", help="Configure --ladder-pct-map.")
     ap.add_argument("--grid-density", type=int, default=20)
     ap.add_argument("--smart-rolling", action="store_true")
+    ap.add_argument(
+        "--reanchor-mode",
+        choices=["OFF", "SHADOW", "APPLY"],
+        default=os.getenv("ADAPTIVE_REANCHOR_MODE", "OFF").upper(),
+        help="Observe or apply bounded stale-BUY refreshes.",
+    )
+    ap.add_argument(
+        "--reanchor-min-age-sec",
+        type=int,
+        default=int(os.getenv("REANCHOR_MIN_AGE_SEC", "120")),
+    )
+    ap.add_argument(
+        "--reanchor-trigger-pct",
+        type=Decimal,
+        default=Decimal(os.getenv("REANCHOR_TRIGGER_PCT", "0.0025")),
+    )
+    ap.add_argument(
+        "--reanchor-max-step-pct",
+        type=Decimal,
+        default=Decimal(os.getenv("REANCHOR_MAX_STEP_PCT", "0.005")),
+    )
+    ap.add_argument(
+        "--reanchor-max-per-cycle",
+        type=int,
+        default=int(os.getenv("REANCHOR_MAX_PER_CYCLE", "1")),
+    )
     ap.add_argument("--price-eps-mult", type=float, default=1.0)
     ap.add_argument("--near-ttl-sec", type=int, default=900)
     ap.add_argument("--far-ttl-sec", type=int, default=7200)
@@ -277,6 +304,27 @@ def validate_supervisor_args(parser: argparse.ArgumentParser, args: argparse.Nam
     for name, value in non_negative.items():
         if float(value) < 0:
             parser.error(f"{name} must be >= 0")
+    if args.reanchor_min_age_sec < 60:
+        parser.error("--reanchor-min-age-sec must be >= 60")
+    if not 1 <= args.reanchor_max_per_cycle <= args.target_buy_per_symbol:
+        parser.error(
+            "--reanchor-max-per-cycle must be between 1 and target BUY count"
+        )
+    try:
+        reanchor_trigger = Decimal(str(args.reanchor_trigger_pct))
+        reanchor_step = Decimal(str(args.reanchor_max_step_pct))
+    except (InvalidOperation, TypeError, ValueError):
+        parser.error("re-anchor percentages must be decimals")
+    if (
+        not reanchor_trigger.is_finite()
+        or not Decimal("0") < reanchor_trigger < Decimal("0.25")
+    ):
+        parser.error("--reanchor-trigger-pct must be in (0, 0.25)")
+    if (
+        not reanchor_step.is_finite()
+        or not Decimal("0") < reanchor_step < Decimal("0.25")
+    ):
+        parser.error("--reanchor-max-step-pct must be in (0, 0.25)")
     if args.far_ttl_sec and args.near_ttl_sec and args.far_ttl_sec < args.near_ttl_sec:
         parser.error("--far-ttl-sec cannot be lower than --near-ttl-sec")
 

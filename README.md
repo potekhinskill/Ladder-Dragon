@@ -17,7 +17,7 @@ Binance Spot. It builds BUY/SELL grids, uses ATR/EMA/VWAP/ADX regimes, manages
 OCO protection, and records trading statistics in SQLite. Production secrets,
 real backups, and private parameters are never committed.
 
-Current product version: **2.20.9**. The single version source is
+Current product version: **2.20.10**. The single version source is
 `product_version.py`; releases follow [Semantic Versioning](https://semver.org/).
 Project contact: [LinkedIn](https://www.linkedin.com/in/ypotekhin/).
 
@@ -33,7 +33,7 @@ Project contact: [LinkedIn](https://www.linkedin.com/in/ypotekhin/).
 ## Project status
 
 Ladder Dragon is an actively developed, experimental trading system. Version
-**2.20.9** is the current prepared release. `main` is the only long-lived branch;
+**2.20.10** is the current prepared release. `main` is the only long-lived branch;
 feature branches use the `ladderdragon/*` namespace.
 
 DRY and Binance Spot Testnet are the supported starting modes. Mainnet LIVE is
@@ -64,6 +64,9 @@ larger exposure.
   partial fills retained for OCO/STOP protection;
 - durable order-lifetime diagnostics with TTL, limit distance, observed market
   range, execution quantity, and the exact cleanup reason;
+- opt-in bounded BUY re-anchoring that refreshes only old, completely unfilled
+  limits toward the current ladder, caps every price step and cancellation
+  count, and never changes SELL/OCO protection or chases a falling ladder;
 - SQLite decision history, cash/FIFO PnL, RAG retrieval, and reports;
 - FastAPI dashboard for Raspberry health, balances, positions, orders, AI, and logs;
 - separate 24-hour portfolio value change and realized FIFO net trading PnL,
@@ -182,6 +185,22 @@ python -m bin.ai_supervisor --testnet \
 
 Mainnet LIVE requires `BOT_LIVE_CONFIRMED=YES`, explicit `--live`, and a passed
 fail-closed preflight. Never skip the preflight or circuit breaker.
+
+Adaptive re-anchoring is `OFF` by default. Use `SHADOW` to record candidates
+without canceling an order, then test them against archived replay and real
+order-lifetime evidence before selecting `APPLY`. A refresh cancels only an old,
+completely unfilled BUY when the current ladder has moved sufficiently higher;
+the replacement remains below market and advances by a bounded step.
+Partial BUYs, SELLs, OCO legs, panic controls, VWAP filters, CAP and the exact
+fee/spread/slippage/minimum-edge sell floor remain authoritative.
+
+```dotenv
+ADAPTIVE_REANCHOR_MODE=OFF
+REANCHOR_MIN_AGE_SEC=120
+REANCHOR_TRIGGER_PCT=0.0025
+REANCHOR_MAX_STEP_PCT=0.005
+REANCHOR_MAX_PER_CYCLE=1
+```
 
 ### Binance Spot Testnet smoke
 
