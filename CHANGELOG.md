@@ -3,6 +3,20 @@
 All notable changes are documented here. Releases use Semantic Versioning; every
 section is dated and there is intentionally no `Unreleased` section.
 
+## [2.20.9] — 2026-07-23
+
+### Changed
+- Published the verified replay matching changes from 2.20.8 as a commit signed
+  by the configured Ladder Dragon release key, allowing the Raspberry Pi
+  updater to validate the exact release SHA without break-glass authorization.
+
+### Verified
+- `PYTHONPATH=. .venv/bin/python -m pytest -q` — 436 tests pass with the
+  documented test risk-limit defaults isolated from the operator environment.
+- Python 3.10 project-source `compileall` passes with an isolated bytecode cache.
+- `git verify-commit` validates the release commit against fingerprint
+  `808B9F52CB6C08901703EF7C113144122F1830A0`.
+
 ## [2.20.8] — 2026-07-23
 
 ### Fixed
