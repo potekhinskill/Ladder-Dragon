@@ -3,6 +3,35 @@
 All notable changes are documented here. Releases use Semantic Versioning; every
 section is dated and there is intentionally no `Unreleased` section.
 
+## [2.20.8] — 2026-07-23
+
+### Fixed
+- Conserved each public trade quantity across all replay orders and restricted
+  maker queue consumption to the exact reported price level.
+- Limited taker matching to venue arrival so a resting order cannot be
+  reclassified as taker by a later depth movement.
+- Shared each displayed L2 FIFO queue across same-price local orders and
+  preserved the remaining public queue when the first local order is canceled.
+
+### Changed
+- Replay fills now include exact quote fees and an explicit `MAKER` or `TAKER`
+  role. Replay validation consumes the typed fill contract.
+- Backtest reports identify the archive model as
+  `L2_PRICE_LEVEL_FIFO_ESTIMATE` with `exact_l3=false`; `--require-l3` fails
+  closed for Binance public Spot depth.
+- Ignored the local `.release-worktree` pointer so release tooling does not
+  dirty the tracked project tree.
+
+### Safety
+- Existing public snapshot/diff recording, sequence-gap checks, SHA-256
+  provenance, multi-regime readiness gates and real-outcome validation remain
+  mandatory. The release does not manufacture L3 data or readiness evidence.
+
+### Verified
+- `PYTHONPATH=. .venv/bin/python -m pytest -q` — 436 tests pass with the
+  documented test risk-limit defaults isolated from the operator environment.
+- Python 3.10 project-source `compileall` passes with an isolated bytecode cache.
+
 ## [2.20.7] — 2026-07-21
 
 ### Fixed

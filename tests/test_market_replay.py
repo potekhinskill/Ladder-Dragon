@@ -136,6 +136,127 @@ def test_depth_cancellation_advances_only_configured_queue_fraction():
     assert order.queue_ahead == Decimal("1")
 
 
+def test_public_trade_quantity_is_shared_and_fills_exact_price_as_maker():
+    replay = OrderBookReplay(maker_fee_pct=Decimal("0.001"))
+    replay.process(MarketEvent(
+        1,
+        bids=(BookLevel(Decimal("100"), Decimal("2")),),
+        asks=(BookLevel(Decimal("101"), Decimal("2")),),
+    ))
+    replay.submit(ReplayOrder("first", "BUY", Decimal("100"), Decimal("1"), 1), 1)
+    replay.submit(ReplayOrder("second", "BUY", Decimal("100"), Decimal("1"), 1), 1)
+
+    fills = replay.process(MarketEvent(
+        2,
+        bids=(BookLevel(Decimal("100"), Decimal("2")),),
+        asks=(BookLevel(Decimal("101"), Decimal("2")),),
+        trades=((Decimal("100"), Decimal("3.5"), "SELL"),),
+    ))
+
+    assert [(fill.order_id, fill.quantity) for fill in fills] == [
+        ("first", Decimal("1")),
+        ("second", Decimal("0.5")),
+    ]
+    assert all(fill.liquidity == "MAKER" for fill in fills)
+    assert sum((fill.fee_quote for fill in fills), Decimal("0")) == Decimal("0.15")
+
+
+def test_order_crosses_as_taker_only_when_it_reaches_venue():
+    replay = OrderBookReplay(taker_fee_pct=Decimal("0.002"))
+    replay.process(MarketEvent(
+        1,
+        bids=(BookLevel(Decimal("99"), Decimal("1")),),
+        asks=(BookLevel(Decimal("101"), Decimal("1")),),
+    ))
+    order = ReplayOrder("resting", "BUY", Decimal("100"), Decimal("1"), 1)
+    replay.submit(order, 1)
+    assert replay.process(MarketEvent(
+        2,
+        bids=(BookLevel(Decimal("99"), Decimal("1")),),
+        asks=(BookLevel(Decimal("101"), Decimal("1")),),
+    )) == []
+
+    assert replay.process(MarketEvent(
+        3,
+        bids=(BookLevel(Decimal("99"), Decimal("1")),),
+        asks=(BookLevel(Decimal("99"), Decimal("1")),),
+    )) == []
+    assert order.remaining == Decimal("1")
+
+    taker = ReplayOrder("taker", "BUY", Decimal("101"), Decimal("1"), 3)
+    replay.submit(taker, 3)
+    fill = replay.process(MarketEvent(
+        4,
+        bids=(BookLevel(Decimal("99"), Decimal("1")),),
+        asks=(BookLevel(Decimal("100"), Decimal("1")),),
+    ))[0]
+    assert fill.order_id == "taker"
+    assert fill.liquidity == "TAKER"
+    assert fill.fee_quote == Decimal("0.2")
+
+
+def test_public_trade_at_another_price_cannot_consume_local_fifo_queue():
+    replay = OrderBookReplay()
+    replay.process(MarketEvent(
+        1,
+        bids=(BookLevel(Decimal("100"), Decimal("2")),),
+        asks=(BookLevel(Decimal("101"), Decimal("2")),),
+    ))
+    order = ReplayOrder("resting", "BUY", Decimal("100"), Decimal("1"), 1)
+    replay.submit(order, 1)
+
+    assert replay.process(MarketEvent(
+        2,
+        bids=(BookLevel(Decimal("100"), Decimal("2")),),
+        asks=(BookLevel(Decimal("101"), Decimal("2")),),
+        trades=((Decimal("99"), Decimal("10"), "SELL"),),
+    )) == []
+    assert order.queue_ahead == Decimal("2")
+    assert order.remaining == Decimal("1")
+
+
+def test_cancelled_first_order_transfers_shared_public_queue():
+    replay = OrderBookReplay()
+    replay.process(MarketEvent(
+        1,
+        bids=(BookLevel(Decimal("100"), Decimal("2")),),
+        asks=(BookLevel(Decimal("101"), Decimal("2")),),
+    ))
+    first = ReplayOrder("first", "BUY", Decimal("100"), Decimal("1"), 1)
+    second = ReplayOrder("second", "BUY", Decimal("100"), Decimal("1"), 1)
+    replay.submit(first, 1)
+    replay.submit(second, 1)
+    replay.process(MarketEvent(
+        2,
+        bids=(BookLevel(Decimal("100"), Decimal("2")),),
+        asks=(BookLevel(Decimal("101"), Decimal("2")),),
+    ))
+
+    assert replay.cancel("first", 3) is True
+    assert second.queue_ahead == Decimal("2")
+    fills = replay.process(MarketEvent(
+        4,
+        bids=(BookLevel(Decimal("100"), Decimal("2")),),
+        asks=(BookLevel(Decimal("101"), Decimal("2")),),
+        trades=((Decimal("100"), Decimal("3"), "SELL"),),
+    ))
+    assert [(fill.order_id, fill.quantity) for fill in fills] == [
+        ("second", Decimal("1"))
+    ]
+
+
+def test_replay_fees_are_validated_and_l3_request_fails_closed(monkeypatch, capsys):
+    with pytest.raises(ValueError, match="non-negative"):
+        OrderBookReplay(maker_fee_pct=Decimal("-0.1"))
+    monkeypatch.setattr(
+        "sys.argv", ["backtest", "candles.csv", "--require-l3"]
+    )
+    with pytest.raises(SystemExit) as exc_info:
+        backtest.main()
+    assert exc_info.value.code == 2
+    assert "not L3 order IDs" in capsys.readouterr().err
+
+
 def test_measured_execution_report_latency_overrides_public_proxy(tmp_path):
     archive = tmp_path / "measured.jsonl"
     archive.write_text(

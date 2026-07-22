@@ -28,9 +28,10 @@ def test_queue_trade_print_delays_fill_until_queue_is_consumed():
     replay = OrderBookReplay()
     replay.submit(ReplayOrder("x", "BUY", Decimal("100"), Decimal("1"), 0), 0,
                   queue_ahead=Decimal("2"))
-    event = MarketEvent(1, asks=(BookLevel(Decimal("100"), Decimal("1")),),
+    event = MarketEvent(1, bids=(BookLevel(Decimal("100"), Decimal("2")),),
                         trades=((Decimal("100"), Decimal("1"), "SELL"),))
     assert replay.process(event) == []
-    event = MarketEvent(2, asks=(BookLevel(Decimal("100"), Decimal("1")),),
-                        trades=((Decimal("100"), Decimal("1"), "SELL"),))
-    assert replay.process(event)[0][0] == "x"
+    event = MarketEvent(2, trades=((Decimal("100"), Decimal("2"), "SELL"),))
+    fill = replay.process(event)[0]
+    assert fill.order_id == "x"
+    assert fill.liquidity == "MAKER"

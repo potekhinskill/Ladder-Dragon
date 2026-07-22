@@ -6,7 +6,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from decimal import Decimal
-from typing import Any, Iterable, Mapping
+from typing import Any, Iterable, Mapping, NamedTuple
 import json
 import hashlib
 from pathlib import Path
@@ -43,12 +43,27 @@ class ReplayOrder:
     created_ts: int
     remaining: Decimal = field(init=False)
     cancelled: bool = False
-    queue_ahead: Decimal = Decimal("0")
+    queue_ahead: Decimal | None = None
+    arrival_checked: bool = False
 
     def __post_init__(self) -> None:
         # All side comparisons below use uppercase values.
         self.side = self.side.upper()
+        if self.side not in {"BUY", "SELL"}:
+            raise ValueError("replay order side must be BUY or SELL")
+        if self.price <= 0 or self.quantity <= 0:
+            raise ValueError("replay order price and quantity must be positive")
         self.remaining = self.quantity
+
+
+class ReplayFill(NamedTuple):
+    """Deterministic replay fill with explicit fee and liquidity role."""
+
+    order_id: str
+    quantity: Decimal
+    price: Decimal
+    fee_quote: Decimal
+    liquidity: str
 
 
 class OrderBookReplay:
@@ -67,6 +82,8 @@ class OrderBookReplay:
             str(queue_cancellation_ahead_ratio)
         )
         self.volume_impact_scale = Decimal(str(volume_impact_scale))
+        if min(self.maker_fee_pct, self.taker_fee_pct, self.market_impact_bps) < 0:
+            raise ValueError("replay fees and market impact must be non-negative")
         if not Decimal("0") <= self.queue_cancellation_ahead_ratio <= Decimal("1"):
             raise ValueError("queue cancellation ratio must be in [0,1]")
         if self.volume_impact_scale < 0:
@@ -76,11 +93,21 @@ class OrderBookReplay:
         self._previous_bids: dict[Decimal, Decimal] = {}
         self._previous_asks: dict[Decimal, Decimal] = {}
 
-    def submit(self, order: ReplayOrder, now_ms: int, *, queue_ahead: Decimal = Decimal("0")) -> None:
+    def submit(
+        self,
+        order: ReplayOrder,
+        now_ms: int,
+        *,
+        queue_ahead: Decimal | None = None,
+    ) -> None:
         # Delay simulates order delivery time to the exchange.
         self._rate_gate(now_ms)
         order.created_ts = int(now_ms) + self.latency_ms
-        order.queue_ahead = max(Decimal("0"), queue_ahead)
+        order.queue_ahead = (
+            None
+            if queue_ahead is None
+            else max(Decimal("0"), Decimal(str(queue_ahead)))
+        )
         self.orders.append(order)
 
     def cancel(self, order_id: str, now_ms: int) -> bool:
@@ -89,18 +116,45 @@ class OrderBookReplay:
         for order in self.orders:
             if order.order_id == order_id and not order.cancelled and order.remaining > 0:
                 order.cancelled = True
+                self._transfer_public_queue(order)
                 return True
         return False
 
-    def process(self, event: MarketEvent) -> list[tuple[str, Decimal, Decimal]]:
-        fills: list[tuple[str, Decimal, Decimal]] = []
+    @staticmethod
+    def _priority(order: ReplayOrder, sequence: int) -> tuple[int, Decimal, int, int]:
+        return (
+            0 if order.side == "BUY" else 1,
+            -order.price if order.side == "BUY" else order.price,
+            order.created_ts,
+            sequence,
+        )
+
+    def _eligible(self, side: str, event: MarketEvent) -> list[ReplayOrder]:
+        indexed = [
+            (sequence, order)
+            for sequence, order in enumerate(self.orders)
+            if order.side == side
+            and not order.cancelled
+            and order.remaining > 0
+            and order.created_ts <= event.ts_ms
+        ]
+        return [
+            order
+            for sequence, order in sorted(
+                indexed, key=lambda item: self._priority(item[1], item[0])
+            )
+        ]
+
+    def process(self, event: MarketEvent) -> list[ReplayFill]:
+        fills: list[ReplayFill] = []
         current_bids = {level.price: level.quantity for level in event.bids}
         current_asks = {level.price: level.quantity for level in event.asks}
         # A depth reduction at our passive price may be a cancellation ahead
         # of us. Only the configured conservative fraction advances our queue;
         # public depth cannot prove whose order disappeared.
         for order in self.orders:
-            if order.cancelled or order.queue_ahead <= 0:
+            queue_ahead = order.queue_ahead or Decimal("0")
+            if order.cancelled or queue_ahead <= 0:
                 continue
             previous = (
                 self._previous_bids if order.side == "BUY" else self._previous_asks
@@ -114,68 +168,146 @@ class OrderBookReplay:
             if reduced > 0:
                 order.queue_ahead = max(
                     Decimal("0"),
-                    order.queue_ahead
+                    queue_ahead
                     - reduced * self.queue_cancellation_ahead_ratio,
                 )
         # External cancellations change the queue before matching the current event.
         for order in self.orders:
             if order.order_id in event.cancelled_order_ids:
                 order.cancelled = True
+                self._transfer_public_queue(order)
         for update in event.exchange_order_updates:
             for order in self.orders:
                 if str(update.get("orderId")) != order.order_id:
                     continue
                 if str(update.get("status", "")).upper() in {"CANCELED", "EXPIRED", "REJECTED"}:
                     order.cancelled = True
-        # Public trades consume queue ahead of our order first.
-        for trade_price, trade_qty, aggressor in event.trades:
-            for order in self.orders:
-                if order.cancelled or order.created_ts > event.ts_ms:
-                    continue
-                crosses = (order.side == "BUY" and aggressor.upper() == "SELL" and trade_price <= order.price) or\
-                          (order.side == "SELL" and aggressor.upper() == "BUY" and trade_price >= order.price)
-                if crosses and order.queue_ahead > 0:
-                    order.queue_ahead = max(Decimal("0"), order.queue_ahead - trade_qty)
-        # Orders are then served by price and arrival time.
-        # Preserve exchange price/time priority independently on each side:
-        # highest BUY first, lowest SELL first, then FIFO at equal price.
+                    self._transfer_public_queue(order)
+
+        # An order can consume displayed liquidity as taker only once, when it
+        # reaches the venue. A resting order is never reclassified by a later
+        # depth movement; it then needs a public trade at its exact price.
         available = {
-            "BUY": [[level.price, level.quantity] for level in event.asks],
-            "SELL": [[level.price, level.quantity] for level in event.bids],
+            "BUY": [[price, quantity] for price, quantity in sorted(current_asks.items())],
+            "SELL": [[price, quantity] for price, quantity in sorted(current_bids.items(), reverse=True)],
         }
-        for order in sorted(
-            self.orders,
-            key=lambda item: (
-                0 if item.side == "BUY" else 1,
-                -item.price if item.side == "BUY" else item.price,
-                item.created_ts,
-            ),
-        ):
-            if order.cancelled or order.remaining <= 0 or order.created_ts > event.ts_ms or order.queue_ahead > 0:
-                continue
-            levels = available[order.side]
-            for level in levels:
-                level_price, level_quantity = level
-                crosses = level_price <= order.price if order.side == "BUY" else level_price >= order.price
-                if not crosses:
+        impact_divisor = Decimal("10000")
+        for side in ("BUY", "SELL"):
+            for order in self._eligible(side, event):
+                if order.arrival_checked:
                     continue
-                qty = min(order.remaining, level_quantity)
-                if qty > 0:
-                    order.remaining -= qty
-                    level[1] -= qty
-                    participation = qty / max(level_quantity, qty)
-                    dynamic_impact_bps = self.market_impact_bps * (
-                        Decimal("1")
-                        + self.volume_impact_scale * participation
+                order.arrival_checked = True
+                for level in available[side]:
+                    level_price, level_quantity = level
+                    crosses = (
+                        level_price <= order.price
+                        if side == "BUY"
+                        else level_price >= order.price
                     )
-                    impact = dynamic_impact_bps / Decimal("10000")
-                    fill_price = level_price * (Decimal("1") + impact if order.side == "BUY" else Decimal("1") - impact)
-                    fills.append((order.order_id, qty, fill_price))
-                if order.remaining <= 0:
+                    if not crosses:
+                        break
+                    if level_quantity <= 0:
+                        continue
+                    quantity = min(order.remaining, level_quantity)
+                    level[1] -= quantity
+                    order.remaining -= quantity
+                    participation = quantity / max(level_quantity, quantity)
+                    dynamic_impact_bps = self.market_impact_bps * (
+                        Decimal("1") + self.volume_impact_scale * participation
+                    )
+                    impact = dynamic_impact_bps / impact_divisor
+                    fill_price = level_price * (
+                        Decimal("1") + impact
+                        if side == "BUY"
+                        else Decimal("1") - impact
+                    )
+                    fee = fill_price * quantity * self.taker_fee_pct
+                    fills.append(ReplayFill(
+                        order.order_id, quantity, fill_price, fee, "TAKER"
+                    ))
+                    opposite = current_asks if side == "BUY" else current_bids
+                    opposite[level_price] = max(
+                        Decimal("0"), opposite.get(level_price, Decimal("0")) - quantity
+                    )
+                    if opposite[level_price] == 0:
+                        opposite.pop(level_price)
+                    if order.remaining <= 0:
+                        break
+                if order.remaining > 0 and order.queue_ahead is None:
+                    own_side = current_bids if side == "BUY" else current_asks
+                    earlier_local = any(
+                        candidate is not order
+                        and candidate.side == order.side
+                        and candidate.price == order.price
+                        and candidate.arrival_checked
+                        and not candidate.cancelled
+                        and candidate.remaining > 0
+                        for candidate in self.orders
+                    )
+                    order.queue_ahead = (
+                        Decimal("0")
+                        if earlier_local
+                        else own_side.get(order.price, Decimal("0"))
+                    )
+
+        # A public trade has one shared quantity. It first consumes the public
+        # FIFO queue and then local orders at exactly that reported price.
+        for trade_price, trade_qty, aggressor in event.trades:
+            trade_price = Decimal(str(trade_price))
+            available_trade = Decimal(str(trade_qty))
+            aggressor = str(aggressor).upper()
+            passive_side = (
+                "BUY" if aggressor == "SELL"
+                else "SELL" if aggressor == "BUY"
+                else ""
+            )
+            if not passive_side or available_trade <= 0:
+                continue
+            for order in self._eligible(passive_side, event):
+                if not order.arrival_checked or trade_price != order.price:
+                    continue
+                queue_ahead = order.queue_ahead or Decimal("0")
+                queued = min(queue_ahead, available_trade)
+                order.queue_ahead = queue_ahead - queued
+                available_trade -= queued
+                if available_trade <= 0:
                     break
+                quantity = min(order.remaining, available_trade)
+                order.remaining -= quantity
+                available_trade -= quantity
+                fee = trade_price * quantity * self.maker_fee_pct
+                fills.append(ReplayFill(
+                    order.order_id, quantity, trade_price, fee, "MAKER"
+                ))
+                if available_trade <= 0:
+                    break
+            passive_book = current_bids if passive_side == "BUY" else current_asks
+            if trade_price in passive_book:
+                passive_book[trade_price] = max(
+                    Decimal("0"), passive_book[trade_price] - Decimal(str(trade_qty))
+                )
+                if passive_book[trade_price] == 0:
+                    passive_book.pop(trade_price)
         self._previous_bids = current_bids
         self._previous_asks = current_asks
         return fills
+
+    def _transfer_public_queue(self, cancelled: ReplayOrder) -> None:
+        queued = cancelled.queue_ahead or Decimal("0")
+        if queued <= 0:
+            return
+        cancelled.queue_ahead = Decimal("0")
+        for order in self.orders:
+            if (
+                order is not cancelled
+                and order.side == cancelled.side
+                and order.price == cancelled.price
+                and order.arrival_checked
+                and not order.cancelled
+                and order.remaining > 0
+            ):
+                order.queue_ahead = (order.queue_ahead or Decimal("0")) + queued
+                return
 
     def _rate_gate(self, now_ms: int) -> None:
         cutoff = int(now_ms) - 60_000

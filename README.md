@@ -17,7 +17,7 @@ Binance Spot. It builds BUY/SELL grids, uses ATR/EMA/VWAP/ADX regimes, manages
 OCO protection, and records trading statistics in SQLite. Production secrets,
 real backups, and private parameters are never committed.
 
-Current product version: **2.20.7**. The single version source is
+Current product version: **2.20.8**. The single version source is
 `product_version.py`; releases follow [Semantic Versioning](https://semver.org/).
 Project contact: [LinkedIn](https://www.linkedin.com/in/ypotekhin/).
 
@@ -33,7 +33,7 @@ Project contact: [LinkedIn](https://www.linkedin.com/in/ypotekhin/).
 ## Project status
 
 Ladder Dragon is an actively developed, experimental trading system. Version
-**2.20.7** is the current prepared release. `main` is the only long-lived branch;
+**2.20.8** is the current prepared release. `main` is the only long-lived branch;
 feature branches use the `ladderdragon/*` namespace.
 
 DRY and Binance Spot Testnet are the supported starting modes. Mainnet LIVE is
@@ -431,6 +431,13 @@ build also models the observed dynamic book spread, configurable queue progress
 from depth cancellations ahead, public trades consuming queue, and volume-scaled
 market impact. These remain empirical approximations, not a claim that replay
 can identify other participants or predict future execution.
+
+Replay reports identify this fidelity as `L2_PRICE_LEVEL_FIFO_ESTIMATE` with
+`exact_l3=false`. Public trades have one conserved quantity and can consume a
+resting local FIFO queue only at the reported price. A local order receives a
+taker fill only when it reaches the venue; subsequent book movement cannot
+silently reclassify it. `bin.backtest --require-l3` fails closed because public
+Binance Spot depth has price levels but no individual resting-order IDs.
 
 ### User Data Stream shadow observer
 

@@ -15,6 +15,7 @@ htmlcov/
 venv/
 .idea/
 .vscode/
+.release-worktree
 
 # Secrets and local configuration
 .env

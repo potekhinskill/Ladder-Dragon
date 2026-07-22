@@ -144,13 +144,13 @@ def _simulate_order(
     quote = Decimal("0")
     first_fill_ms: int | None = None
     for event in relevant:
-        for order_ref, fill_quantity, fill_price in replay.process(event):
-            if order_ref != outcome.order_ref:
+        for fill in replay.process(event):
+            if fill.order_id != outcome.order_ref:
                 continue
             if first_fill_ms is None:
                 first_fill_ms = event.ts_ms
-            quantity += fill_quantity
-            quote += fill_quantity * fill_price
+            quantity += fill.quantity
+            quote += fill.quantity * fill.price
     return quantity, quote, first_fill_ms
 
 

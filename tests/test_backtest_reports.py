@@ -33,6 +33,10 @@ def test_backtest_report_records_execution_model_and_provenance():
     report = current_report()
     assert report["report_schema_version"] == 2
     assert report["execution_model"]["market_impact_bps_divisor"] == "10000"
+    assert report["execution_model"]["archive_book_model"] == (
+        "L2_PRICE_LEVEL_FIFO_ESTIMATE"
+    )
+    assert report["execution_model"]["exact_l3"] is False
     assert report["config"]["market_impact_bps"] == "10"
     assert report["inputs"] == {
         "candles_sha256": "a" * 64,

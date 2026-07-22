@@ -66,6 +66,8 @@ def build_report(
             ),
             "matching": "ohlc-conservative-v2",
             "latency": "whole-bars-minimum-one",
+            "archive_book_model": "L2_PRICE_LEVEL_FIFO_ESTIMATE",
+            "exact_l3": False,
         },
         "inputs": {
             "candles_sha256": csv_sha256,
@@ -89,12 +91,17 @@ def main() -> int:
     parser.add_argument("--slippage", type=Decimal, default=Decimal("0.0005"))
     parser.add_argument("--latency-bars", type=int, default=1)
     parser.add_argument("--archive", help="optional Binance replay JSONL")
+    parser.add_argument("--require-l3", action="store_true")
     parser.add_argument("--calibration", help="eligible calibration JSON")
     parser.add_argument(
         "--market-impact-bps", type=Decimal, default=Decimal("0")
     )
     parser.add_argument("--output", help="optional JSON report path")
     args = parser.parse_args()
+    if args.require_l3:
+        parser.error(
+            "Binance Spot public depth contains L2 price levels, not L3 order IDs"
+        )
     with open(args.csv_file, newline="", encoding="utf-8") as handle:
         candles = [
             Candle(int(row["ts"]), *(Decimal(row[name]) for name in ("open", "high", "low", "close")))
