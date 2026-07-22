@@ -17,7 +17,7 @@ Binance Spot. It builds BUY/SELL grids, uses ATR/EMA/VWAP/ADX regimes, manages
 OCO protection, and records trading statistics in SQLite. Production secrets,
 real backups, and private parameters are never committed.
 
-Current product version: **2.20.11**. The single version source is
+Current product version: **2.20.12**. The single version source is
 `product_version.py`; releases follow [Semantic Versioning](https://semver.org/).
 Project contact: [LinkedIn](https://www.linkedin.com/in/ypotekhin/).
 
@@ -33,7 +33,7 @@ Project contact: [LinkedIn](https://www.linkedin.com/in/ypotekhin/).
 ## Project status
 
 Ladder Dragon is an actively developed, experimental trading system. Version
-**2.20.11** is the current prepared release. `main` is the only long-lived branch;
+**2.20.12** is the current prepared release. `main` is the only long-lived branch;
 feature branches use the `ladderdragon/*` namespace.
 
 DRY and Binance Spot Testnet are the supported starting modes. Mainnet LIVE is
@@ -61,7 +61,9 @@ larger exposure.
 - OCO/STOP protection, partial-fill recovery, gap handling, and FIFO inventory;
 - persistent PANIC state across executor restarts, immediate raw-signal BUY
   blocking in LIVE, and reconciled cancellation of remaining exposure, with
-  partial fills retained for OCO/STOP protection;
+  partial fills retained for OCO/STOP protection; after a confirmed recovery
+  with no tracked BUY, the observation-only worker exits so a fresh executor
+  immediately re-runs every safety gate before considering replacement;
 - durable order-lifetime diagnostics with TTL, limit distance, observed market
   range, execution quantity, and the exact cleanup reason;
 - opt-in bounded BUY re-anchoring that refreshes only old, completely unfilled

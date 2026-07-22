@@ -862,6 +862,22 @@ def _panic_buy_block_reason(
         return "panic"
     return None
 
+
+def _panic_recovery_restart_required(
+    *,
+    live_mode: bool,
+    was_active: bool,
+    is_active: bool,
+    tracked_buy_order_ids: List[int],
+) -> bool:
+    """Request a fresh gated worker after a confirmed LIVE panic recovery."""
+    return bool(
+        live_mode
+        and was_active
+        and not is_active
+        and not tracked_buy_order_ids
+    )
+
 # ------------------- Exchange info / filters -------------------
 
 symbol_filters: Dict[str, Dict[str, Any]] = {}
@@ -2526,6 +2542,7 @@ def main():
                 log(status_message(left))
 
             # Periodically refresh indicators/panic state in the lightweight mode.
+            previous_panic_active = panic_active
             try:
                 ema20, atr, prev_close = get_indicators_cached(symbol, args.panic_interval, ttl_sec=20)
                 avg_px = avg_entry(symbol, cache_ttl=args.avg_cache_ttl, lookback=args.avg_lookback)
@@ -2585,6 +2602,22 @@ def main():
                             getenv_float("BOT_GAP_TOLERANCE_PCT", 0.001),
                         ),
                     )
+
+            # The runtime loop deliberately cannot submit BUY orders. Once a
+            # confirmed PANIC recovery leaves no BUY to protect, return normally
+            # so the supervisor starts a fresh worker that re-runs every LIVE
+            # preflight, Risk, gap, CAP, VWAP and open-order gate before buying.
+            if _panic_recovery_restart_required(
+                live_mode=LIVE_MODE,
+                was_active=previous_panic_active,
+                is_active=panic_active,
+                tracked_buy_order_ids=placed_ids,
+            ):
+                log(
+                    f"[PANIC-RECOVERY] {symbol} no tracked BUY; "
+                    "requesting fresh gated executor cycle"
+                )
+                return
 
             # Remove a FILLED BUY from placed_ids only after a confirmed OCO or reserve
             # TP. Any uncertainty creates a halt.

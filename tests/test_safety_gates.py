@@ -1,5 +1,6 @@
 import importlib.util
 import fcntl
+import inspect
 import os
 from pathlib import Path
 import subprocess
@@ -298,6 +299,55 @@ def test_live_raw_panic_signal_blocks_buy_before_debounce():
         debounced_active=False,
         skip_while_panic=False,
     ) is None
+
+
+def test_live_panic_recovery_restarts_only_after_confirmed_empty_transition():
+    worker = load_worker()
+
+    assert worker._panic_recovery_restart_required(
+        live_mode=True,
+        was_active=True,
+        is_active=False,
+        tracked_buy_order_ids=[],
+    ) is True
+    assert worker._panic_recovery_restart_required(
+        live_mode=True,
+        was_active=True,
+        is_active=True,
+        tracked_buy_order_ids=[],
+    ) is False
+    assert worker._panic_recovery_restart_required(
+        live_mode=True,
+        was_active=False,
+        is_active=False,
+        tracked_buy_order_ids=[],
+    ) is False
+    assert worker._panic_recovery_restart_required(
+        live_mode=True,
+        was_active=True,
+        is_active=False,
+        tracked_buy_order_ids=[12345],
+    ) is False
+    assert worker._panic_recovery_restart_required(
+        live_mode=False,
+        was_active=True,
+        is_active=False,
+        tracked_buy_order_ids=[],
+    ) is False
+
+
+def test_panic_recovery_restart_uses_no_market_future_or_secret_input():
+    worker = load_worker()
+    parameters = set(
+        inspect.signature(worker._panic_recovery_restart_required).parameters
+    )
+
+    assert parameters == {
+        "live_mode",
+        "was_active",
+        "is_active",
+        "tracked_buy_order_ids",
+    }
 
 
 def test_corrupt_panic_state_fails_closed(tmp_path, monkeypatch):

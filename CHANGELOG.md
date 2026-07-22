@@ -3,6 +3,27 @@
 All notable changes are documented here. Releases use Semantic Versioning; every
 section is dated and there is intentionally no `Unreleased` section.
 
+## [2.20.12] — 2026-07-23
+
+### Fixed
+- End the observation-only executor cycle immediately after a confirmed LIVE
+  PANIC `ON` to `OFF` transition when no BUY remains to protect. The supervisor
+  can now start a fresh executor and re-evaluate a replacement BUY without
+  waiting for the old worker's full runtime window.
+
+### Safety
+- The recovery exit requires a verified transition, LIVE mode and an empty
+  tracked-BUY set. Active or unevaluable PANIC state and any retained BUY fail
+  closed; the replacement worker still re-runs preflight, Risk Manager,
+  gap-watchdog, CAP, VWAP and exchange open-order checks.
+- The restart decision consumes only current control state and tracked order
+  identifiers; it receives no future market data, credential or secret input.
+
+### Verified
+- Focused PANIC recovery, safety-gate and supervisor lifecycle tests pass.
+- Full project `pytest` passes all 452 collected tests; project-source
+  `compileall` and `git diff --check` also pass.
+
 ## [2.20.11] — 2026-07-23
 
 ### Fixed
