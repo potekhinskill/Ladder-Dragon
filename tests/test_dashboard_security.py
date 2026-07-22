@@ -400,6 +400,11 @@ def test_trading_overview_prefers_current_open_order(monkeypatch):
         "symbols": ["SOLUSDT"],
         "execution_mode": "LIVE",
         "risk": {},
+        "reanchor": {
+            "mode": "SHADOW",
+            "trigger_pct": "0.0005",
+            "totals": {"shadow_candidates": 3, "apply_cancels": 0},
+        },
     })
     monkeypatch.setattr(module, "_bot_service_config", lambda: {
         "symbols": ["SOLUSDT"], "execution_mode": "LIVE", "venue": "mainnet",
@@ -432,6 +437,8 @@ def test_trading_overview_prefers_current_open_order(monkeypatch):
     assert snapshot["last_order"]["order_id"] == 123
     assert snapshot["last_order"]["status"] == "NEW"
     assert snapshot["orders"]["journal_available"] is True
+    assert snapshot["reanchor"]["mode"] == "SHADOW"
+    assert snapshot["reanchor"]["totals"]["shadow_candidates"] == 3
 
 
 def test_trading_overview_classifies_preexisting_inventory_as_legacy(monkeypatch):
@@ -511,6 +518,15 @@ def test_dashboard_does_not_render_missing_journal_counts_as_zero():
 
     assert "orders.journal_available===false" in index
     assert "`${orders.open??0} / — / — · ${tr('unavailable')}`" in index
+
+
+def test_dashboard_renders_reanchor_mode_activity_and_proposal():
+    index = Path("FRONT/index.html").read_text(encoding="utf-8")
+
+    assert 'id="trade-reanchor"' in index
+    assert 'id="trade-reanchor-activity"' in index
+    assert "reanchorTotals.shadow_candidates??0" in index
+    assert "latestProposal.old_price" in index
 
 
 def test_order_journal_pending_excludes_terminal_failures(tmp_path, monkeypatch):

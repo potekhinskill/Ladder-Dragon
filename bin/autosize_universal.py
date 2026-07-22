@@ -38,7 +38,6 @@ from ladder_dragon.execution.user_stream import (
 from ladder_dragon.execution.execution_latency import (
     append_execution_latency_sample,
 )
-from ladder_dragon.execution.trade_accounting import TradeExecution, UnpricedCommission, replay_average_cost
 from product_version import product_label, user_agent
 from ladder_dragon.execution.executor_config import build_executor_parser, validate_executor_args
 from ladder_dragon.strategy.strategy_math import atr_from_klines as _atr_from_klines
@@ -546,7 +545,7 @@ def get_vwap_cached(symbol: str,
     _VWAP_TS[key] = now_ts
     return vwap
 
-# Average position entry from /myTrades (cached).
+# Average position entry from the verified exact-lot ledger (cached).
 _AVG_CACHE: Dict[str, Dict[str, object]] = {}
 
 def avg_entry(
@@ -554,7 +553,17 @@ def avg_entry(
     cache_ttl: int = 30,
     lookback: int = 1000,
 ) -> Optional[Decimal]:
-    base, quote = get_symbol_assets(symbol)
+    """Return only a locally verified average without blocking BUY startup.
+
+    The previous implementation replayed up to 1,000 Binance trades and could
+    issue one historical conversion request per third-asset commission.  On a
+    Raspberry Pi that delayed replacement BUYs for several minutes.  The exact
+    lot ledger is already the authorization boundary for holdings cost basis,
+    so an incomplete or legacy ledger now returns ``None`` fail-closed instead
+    of consulting slow, potentially truncated exchange history.
+    """
+    del lookback  # Retained for CLI/API compatibility.
+    base, _ = get_symbol_assets(symbol)
     bals = get_balances()
     pos_free = Decimal(str(bals.get(base, {}).get("free", "0") or "0"))
     pos_locked = Decimal(str(bals.get(base, {}).get("locked", "0") or "0"))
@@ -570,64 +579,53 @@ def avg_entry(
         cached_average = Decimal(str(ent.get("avg", "0") or "0"))
         if (
             now_ns - cached_at_ns < max(0, cache_ttl) * 1_000_000_000
-            and cached_position > 0
-            and cached_average.is_finite()
-            and cached_average > 0
+            and cached_position == pos
         ):
-            return cached_average
-
-    try:
-        trades = _signed_request("GET", "/api/v3/myTrades", {"symbol": symbol, "limit": lookback}) or []
-    except (requests.RequestException, RuntimeError, ValueError) as exc:
-        log(f"[AVG] {symbol} trade history unavailable: {type(exc).__name__}")
-        return None
-
-    if not isinstance(trades, list) or not trades:
-        return None
-
-    # Sort by time in ascending order.
-    try:
-        trades.sort(key=lambda t: int(t.get("time", 0)))
-    except (AttributeError, TypeError, ValueError) as exc:
-        log(f"[AVG] {symbol} invalid trade history: {type(exc).__name__}")
-        return None
-
-    executions: List[TradeExecution] = []
-    for t in trades:
-        try:
-            side = "BUY" if bool(t.get("isBuyer")) else "SELL"
-            q = Decimal(str(t.get("qty") or "0"))
-            p = Decimal(str(t.get("price") or "0"))
-            fee = Decimal(str(t.get("commission") or "0"))
-            c_asset = str(t.get("commissionAsset", "")).upper()
-            fee_q, fee_status = _commission_quote_value(
-                symbol, c_asset, fee, p, int(t.get("time") or 0)
+            return (
+                cached_average
+                if cached_average.is_finite() and cached_average > 0
+                else None
             )
-            executions.append(TradeExecution.create(
-                symbol=symbol,
-                side=side,
-                price=p,
-                gross_qty=q,
-                commission_asset=c_asset,
-                commission_amount=fee,
-                commission_quote=fee_q,
-                commission_value_status=fee_status,
-            ))
-        except (ArithmeticError, TypeError, ValueError):
-            continue
 
+    avg_px: Optional[Decimal] = None
     try:
-        result = replay_average_cost(executions)
-    except UnpricedCommission as exc:
-        log(f"[AVG] {symbol} unavailable: {exc}")
-        return None
-    if result.qty <= 0:
-        return None
-    avg_px = result.avg_cost
+        _stats_init_if_needed()
+        if STATS_CON is None:
+            raise RuntimeError("stats database unavailable")
+        step = Decimal(str(pull_filters(symbol)["stepSize"]))
+        tolerance_pct = Decimal(
+            os.getenv("BOT_COST_BASIS_QTY_TOLERANCE_PCT", "0.002")
+        )
+        if not tolerance_pct.is_finite() or tolerance_pct < 0:
+            raise ValueError("invalid cost-basis quantity tolerance")
+        coverage = cost_basis_coverage(
+            STATS_CON,
+            symbol,
+            pos,
+            tolerance_qty=max(step * Decimal("2"), pos * tolerance_pct),
+        )
+        if (
+            coverage.covered
+            and coverage.average_price is not None
+            and coverage.average_price.is_finite()
+            and coverage.average_price > 0
+        ):
+            avg_px = coverage.average_price
+    except (
+        KeyError,
+        TypeError,
+        ValueError,
+        ArithmeticError,
+        RuntimeError,
+        OSError,
+        sqlite3.Error,
+    ) as exc:
+        dbg(f"[AVG] {symbol} verified ledger unavailable: {type(exc).__name__}")
+
     _AVG_CACHE[symbol] = {
         "ts_ns": now_ns,
-        "avg": str(avg_px),
-        "pos": str(result.qty),
+        "avg": str(avg_px or Decimal("0")),
+        "pos": str(pos),
     }
     return avg_px
 

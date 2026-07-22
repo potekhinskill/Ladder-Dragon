@@ -1221,6 +1221,7 @@ def smart_rolling(symbol: str,
             "kept": len(open_orders),
             "cancel": {"ttl": 0, "atr": 0, "reanchor": 0, "shadow": 0},
             "replacement_prices": [],
+            "proposals": [],
         }
     try:
         planned = plan_buy_reanchors(
@@ -1240,7 +1241,18 @@ def smart_rolling(symbol: str,
             "kept": len(open_orders),
             "cancel": {"ttl": 0, "atr": 0, "reanchor": 0, "shadow": 0},
             "replacement_prices": [],
+            "proposals": [],
         }
+
+    proposals = [
+        {
+            "order_id": candidate.order_id,
+            "old_price": str(candidate.old_price),
+            "target_price": str(candidate.target_price),
+            "age_sec": candidate.age_sec,
+        }
+        for candidate in planned
+    ]
 
     if reanchor_mode == "SHADOW":
         for candidate in planned:
@@ -1258,6 +1270,7 @@ def smart_rolling(symbol: str,
                 "shadow": len(planned),
             },
             "replacement_prices": [],
+            "proposals": proposals,
         }
 
     canceled = 0
@@ -1300,7 +1313,57 @@ def smart_rolling(symbol: str,
         "kept": max(0, len(open_orders) - canceled),
         "cancel": {"ttl": 0, "atr": 0, "reanchor": canceled, "shadow": 0},
         "replacement_prices": replacements,
+        "proposals": proposals,
     }
+
+
+def _publish_reanchor_runtime(
+    symbol: str,
+    result: Mapping[str, object],
+    args: argparse.Namespace,
+) -> None:
+    """Expose non-secret adaptive-order telemetry to the dashboard."""
+    cancel = result.get("cancel")
+    cancel_counts = cancel if isinstance(cancel, Mapping) else {}
+    shadow_count = max(0, int(cancel_counts.get("shadow", 0) or 0))
+    apply_count = max(0, int(cancel_counts.get("reanchor", 0) or 0))
+    runtime = _AI_RUNTIME_STATUS.setdefault("reanchor", {})
+    if not isinstance(runtime, dict):
+        runtime = {}
+        _AI_RUNTIME_STATUS["reanchor"] = runtime
+    totals = runtime.setdefault(
+        "totals", {"shadow_candidates": 0, "apply_cancels": 0}
+    )
+    if not isinstance(totals, dict):
+        totals = {"shadow_candidates": 0, "apply_cancels": 0}
+        runtime["totals"] = totals
+    totals["shadow_candidates"] = max(
+        0, int(totals.get("shadow_candidates", 0) or 0)
+    ) + shadow_count
+    totals["apply_cancels"] = max(
+        0, int(totals.get("apply_cancels", 0) or 0)
+    ) + apply_count
+    proposals = result.get("proposals")
+    safe_proposals = proposals if isinstance(proposals, list) else []
+    symbols = runtime.setdefault("symbols", {})
+    if not isinstance(symbols, dict):
+        symbols = {}
+        runtime["symbols"] = symbols
+    symbols[symbol] = {
+        "evaluated_at": datetime.now(timezone.utc).isoformat(),
+        "kept": max(0, int(result.get("kept", 0) or 0)),
+        "shadow_candidates": shadow_count,
+        "apply_cancels": apply_count,
+        "proposals": safe_proposals,
+    }
+    runtime.update({
+        "mode": str(getattr(args, "reanchor_mode", "OFF")).upper(),
+        "min_age_sec": int(getattr(args, "reanchor_min_age_sec", 120)),
+        "trigger_pct": str(getattr(args, "reanchor_trigger_pct", "0.0025")),
+        "max_step_pct": str(getattr(args, "reanchor_max_step_pct", "0.005")),
+        "max_per_cycle": int(getattr(args, "reanchor_max_per_cycle", 1)),
+    })
+    _publish_ai_runtime_status()
 
 # ===========================
 # ATR and automatic threshold adapter
@@ -2117,6 +2180,7 @@ def run_for_symbol(symbol: str, args: argparse.Namespace) -> None:
     )
 
     sr = smart_rolling(symbol, now_p, ladder_all, args, tick_size=tick_exact)
+    _publish_reanchor_runtime(symbol, sr, args)
     log(f"[SR-SUM] {symbol} kept={sr['kept']} cancel(ttl)={sr['cancel'].get('ttl',0)} cancel(atr)={sr['cancel'].get('atr',0)} cancel(reanchor)={sr['cancel'].get('reanchor',0)} shadow(reanchor)={sr['cancel'].get('shadow',0)}")
 
     # 7) ATR-driven automatic adapter (environment override)
@@ -2954,6 +3018,15 @@ def main():
             "order_journal": os.getenv("BOT_ORDER_JOURNAL", ""),
         },
         "order_journal": _runtime_order_journal_snapshot(),
+        "reanchor": {
+            "mode": str(args.reanchor_mode).upper(),
+            "min_age_sec": int(args.reanchor_min_age_sec),
+            "trigger_pct": str(args.reanchor_trigger_pct),
+            "max_step_pct": str(args.reanchor_max_step_pct),
+            "max_per_cycle": int(args.reanchor_max_per_cycle),
+            "totals": {"shadow_candidates": 0, "apply_cancels": 0},
+            "symbols": {},
+        },
     }
     _publish_ai_runtime_status()
     _refresh_ai_control(args)

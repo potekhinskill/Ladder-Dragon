@@ -39,6 +39,84 @@ def load_worker():
     return module
 
 
+def test_worker_average_entry_uses_verified_local_lots_without_trade_history(
+    monkeypatch,
+):
+    from ladder_dragon.execution.inventory_lots import CostBasisCoverage
+
+    worker = load_worker()
+    worker._AVG_CACHE.clear()
+    worker.STATS_CON = object()
+    monkeypatch.setattr(worker, "_stats_init_if_needed", lambda: None)
+    monkeypatch.setattr(worker, "get_symbol_assets", lambda symbol: ("SOL", "USDT"))
+    monkeypatch.setattr(
+        worker,
+        "get_balances",
+        lambda: {"SOL": {"free": "1.25", "locked": "0"}},
+    )
+    monkeypatch.setattr(worker, "pull_filters", lambda symbol: {"stepSize": "0.001"})
+    monkeypatch.setattr(
+        worker,
+        "cost_basis_coverage",
+        lambda *args, **kwargs: CostBasisCoverage(
+            symbol="SOLUSDT",
+            account_qty=Decimal("1.25"),
+            covered_qty=Decimal("1.25"),
+            average_price=Decimal("77.125"),
+            uncovered_qty=Decimal("0"),
+            tolerance_qty=Decimal("0.0025"),
+            covered=True,
+            reason="covered",
+        ),
+    )
+    monkeypatch.setattr(
+        worker,
+        "_signed_request",
+        lambda *args, **kwargs: pytest.fail("exchange trade history requested"),
+    )
+
+    assert worker.avg_entry("SOLUSDT") == Decimal("77.125")
+
+
+def test_worker_average_entry_fails_closed_for_unverified_legacy_lots(
+    monkeypatch,
+):
+    from ladder_dragon.execution.inventory_lots import CostBasisCoverage
+
+    worker = load_worker()
+    worker._AVG_CACHE.clear()
+    worker.STATS_CON = object()
+    monkeypatch.setattr(worker, "_stats_init_if_needed", lambda: None)
+    monkeypatch.setattr(worker, "get_symbol_assets", lambda symbol: ("SOL", "USDT"))
+    monkeypatch.setattr(
+        worker,
+        "get_balances",
+        lambda: {"SOL": {"free": "3.75", "locked": "0"}},
+    )
+    monkeypatch.setattr(worker, "pull_filters", lambda symbol: {"stepSize": "0.001"})
+    monkeypatch.setattr(
+        worker,
+        "cost_basis_coverage",
+        lambda *args, **kwargs: CostBasisCoverage(
+            symbol="SOLUSDT",
+            account_qty=Decimal("3.75"),
+            covered_qty=Decimal("0"),
+            average_price=None,
+            uncovered_qty=Decimal("3.75"),
+            tolerance_qty=Decimal("0.0075"),
+            covered=False,
+            reason="unverified legacy inventory",
+        ),
+    )
+    monkeypatch.setattr(
+        worker,
+        "_signed_request",
+        lambda *args, **kwargs: pytest.fail("exchange trade history requested"),
+    )
+
+    assert worker.avg_entry("SOLUSDT") is None
+
+
 def test_supervisor_singleton_flock_rejects_second_process(tmp_path):
     path = tmp_path / "ai_supervisor.lock"
     competing = path.open("w+")

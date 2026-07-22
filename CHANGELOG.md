@@ -3,6 +3,32 @@
 All notable changes are documented here. Releases use Semantic Versioning; every
 section is dated and there is intentionally no `Unreleased` section.
 
+## [2.20.11] — 2026-07-23
+
+### Fixed
+- Removed the blocking `/api/v3/myTrades` replay from the executor BUY startup
+  path. Average-entry recovery now uses only locally verified exact lots, so
+  third-asset commission conversion cannot delay a replacement BUY for minutes.
+- Cached an unavailable legacy basis as an explicit fail-closed result. Legacy
+  or incomplete inventory can no longer provide an average that releases panic.
+
+### Added
+- Published adaptive re-anchor mode, thresholds, per-symbol proposals and
+  cumulative shadow/apply counters through the protected runtime status and
+  read-only trading overview.
+- Added dashboard rows for the effective re-anchor configuration, activity and
+  latest proposed price change.
+
+### Security
+- Updated the dashboard CSP hash for the only allowed inline script. No secret,
+  API credential or environment value is exposed by re-anchor telemetry.
+
+### Verified
+- Focused re-anchor, safety-gate, dashboard-security and deployment-asset tests
+  pass with the documented test risk-limit defaults.
+- Full project `pytest` passes all 450 collected tests; project-source
+  `compileall`, CSP validation and `git diff --check` also pass.
+
 ## [2.20.10] — 2026-07-23
 
 ### Added

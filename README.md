@@ -17,7 +17,7 @@ Binance Spot. It builds BUY/SELL grids, uses ATR/EMA/VWAP/ADX regimes, manages
 OCO protection, and records trading statistics in SQLite. Production secrets,
 real backups, and private parameters are never committed.
 
-Current product version: **2.20.10**. The single version source is
+Current product version: **2.20.11**. The single version source is
 `product_version.py`; releases follow [Semantic Versioning](https://semver.org/).
 Project contact: [LinkedIn](https://www.linkedin.com/in/ypotekhin/).
 
@@ -33,7 +33,7 @@ Project contact: [LinkedIn](https://www.linkedin.com/in/ypotekhin/).
 ## Project status
 
 Ladder Dragon is an actively developed, experimental trading system. Version
-**2.20.10** is the current prepared release. `main` is the only long-lived branch;
+**2.20.11** is the current prepared release. `main` is the only long-lived branch;
 feature branches use the `ladderdragon/*` namespace.
 
 DRY and Binance Spot Testnet are the supported starting modes. Mainnet LIVE is
@@ -193,6 +193,10 @@ completely unfilled BUY when the current ladder has moved sufficiently higher;
 the replacement remains below market and advances by a bounded step.
 Partial BUYs, SELLs, OCO legs, panic controls, VWAP filters, CAP and the exact
 fee/spread/slippage/minimum-edge sell floor remain authoritative.
+The worker reads average entry only from the verified exact-lot ledger; legacy
+or incomplete history cannot delay a replacement BUY or authorize panic
+recovery. The dashboard reports the effective mode, trigger, cumulative shadow
+candidates and applied cancellations, plus the latest proposed price change.
 
 ```dotenv
 ADAPTIVE_REANCHOR_MODE=OFF
@@ -201,6 +205,10 @@ REANCHOR_TRIGGER_PCT=0.0025
 REANCHOR_MAX_STEP_PCT=0.005
 REANCHOR_MAX_PER_CYCLE=1
 ```
+
+For a production observation run, the operator may lower
+`REANCHOR_TRIGGER_PCT` to `0.0005` while keeping `ADAPTIVE_REANCHOR_MODE=SHADOW`.
+Do not promote that setting to `APPLY` until its proposals have been reviewed.
 
 ### Binance Spot Testnet smoke
 

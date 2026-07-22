@@ -269,6 +269,8 @@
         <div class="monitor-row"><span data-i18n="cooldown">Cooldown</span><span id="trade-cooldown">—</span></div>
         <div class="monitor-row"><span data-i18n="reconciliation">Reconciliation delta</span><span id="trade-recon">—</span></div>
         <div class="monitor-row"><span data-i18n="order_summary">Open / cancelled / pending</span><span id="trade-order-summary">—</span></div>
+        <div class="monitor-row"><span data-i18n="adaptive_reanchor">Adaptive re-anchor</span><span id="trade-reanchor">—</span></div>
+        <div class="monitor-row"><span data-i18n="reanchor_activity">Re-anchor activity</span><span class="mono" id="trade-reanchor-activity">—</span></div>
         <div class="monitor-row"><span data-i18n="canary_cycles">Exact canary cycles</span><span id="trade-canary-cycles">—</span></div>
         <div class="monitor-row"><span data-i18n="last_order">Last order</span><span class="mono" id="trade-last-order">—</span></div>
       </div>
@@ -744,6 +746,15 @@ function updateTrading(t){
     orderSummary.title='';
     orderSummary.className='';
   }
+  const reanchor=t.reanchor||{}, reanchorTotals=reanchor.totals||{};
+  const triggerPct=Number(reanchor.trigger_pct);
+  $('#trade-reanchor').textContent=reanchor.mode
+    ? `${reanchor.mode} · trigger ${Number.isFinite(triggerPct)?fmt(triggerPct*100,3)+'%':'—'} · age ${reanchor.min_age_sec??'—'}s`
+    : '—';
+  const symbolStates=reanchor.symbols||{};
+  const latestProposal=Object.values(symbolStates).flatMap(state=>Array.isArray(state?.proposals)?state.proposals:[])[0];
+  $('#trade-reanchor-activity').textContent=`shadow ${reanchorTotals.shadow_candidates??0} · apply ${reanchorTotals.apply_cancels??0}`+
+    (latestProposal?` · ${latestProposal.old_price}→${latestProposal.target_price}`:'');
   const last=t.last_order;
   const lifecycle=orders.lifecycle||{};
   const exact=Number(lifecycle.closed_exact||0), required=Number(lifecycle.required||3);

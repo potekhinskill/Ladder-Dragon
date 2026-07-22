@@ -195,6 +195,7 @@ def test_supervisor_reanchor_cancels_once_and_returns_bounded_replacement(monkey
 
 
 def test_supervisor_reanchor_is_disabled_by_default_and_fails_closed(monkeypatch):
+    monkeypatch.delenv("ADAPTIVE_REANCHOR_MODE", raising=False)
     parser = build_supervisor_parser()
     args = parser.parse_args([])
     assert args.reanchor_mode == "OFF"
@@ -215,6 +216,47 @@ def test_supervisor_reanchor_is_disabled_by_default_and_fails_closed(monkeypatch
     )
     assert canceled == []
     assert result["replacement_prices"] == []
+
+
+def test_reanchor_runtime_telemetry_accumulates_without_order_capability(monkeypatch):
+    monkeypatch.setattr(ai_supervisor, "_AI_RUNTIME_STATUS", {})
+    monkeypatch.setattr(ai_supervisor, "_AI_RUNTIME_STATUS_PATH", None)
+    args = SimpleNamespace(
+        reanchor_mode="SHADOW",
+        reanchor_min_age_sec=120,
+        reanchor_trigger_pct=Decimal("0.0005"),
+        reanchor_max_step_pct=Decimal("0.005"),
+        reanchor_max_per_cycle=1,
+    )
+    result = {
+        "kept": 1,
+        "cancel": {"shadow": 1, "reanchor": 0},
+        "proposals": [
+            {
+                "order_id": 11,
+                "old_price": "77.48",
+                "target_price": "77.52",
+                "age_sec": 180,
+            }
+        ],
+    }
+
+    ai_supervisor._publish_reanchor_runtime("SOLUSDT", result, args)
+    ai_supervisor._publish_reanchor_runtime("SOLUSDT", result, args)
+
+    telemetry = ai_supervisor._AI_RUNTIME_STATUS["reanchor"]
+    assert telemetry["mode"] == "SHADOW"
+    assert telemetry["trigger_pct"] == "0.0005"
+    assert telemetry["totals"] == {
+        "shadow_candidates": 2,
+        "apply_cancels": 0,
+    }
+    assert telemetry["symbols"]["SOLUSDT"]["proposals"][0]["order_id"] == 11
+    assert set(telemetry["symbols"]["SOLUSDT"]["proposals"][0]) == {
+        "order_id", "old_price", "target_price", "age_sec",
+    }
+    assert "secret" not in str(telemetry).lower()
+    assert "api_key" not in str(telemetry).lower()
 
 
 def test_supervisor_reanchor_shadow_logs_without_cancel_or_restart(monkeypatch):

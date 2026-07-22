@@ -1004,6 +1004,11 @@ def trading_overview_snapshot() -> Dict[str, object]:
             "lifecycle": journal.get("lifecycle", {}),
         },
         "last_order": last_order,
+        "reanchor": (
+            runtime.get("reanchor", {})
+            if isinstance(runtime.get("reanchor"), dict)
+            else {}
+        ),
         "risk": {
             "buy_blocked": bool(risk.get("buy_blocked", False)), "halted": bool(risk.get("halted", False)),
             "reasons": risk.get("reasons", []), "cooldown_until": risk_state.get("cooldown_until"),
