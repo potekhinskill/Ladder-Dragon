@@ -17,7 +17,7 @@ Binance Spot. It builds BUY/SELL grids, uses ATR/EMA/VWAP/ADX regimes, manages
 OCO protection, and records trading statistics in SQLite. Production secrets,
 real backups, and private parameters are never committed.
 
-Current product version: **2.20.12**. The single version source is
+Current product version: **2.20.13**. The single version source is
 `product_version.py`; releases follow [Semantic Versioning](https://semver.org/).
 Project contact: [LinkedIn](https://www.linkedin.com/in/ypotekhin/).
 
@@ -33,7 +33,7 @@ Project contact: [LinkedIn](https://www.linkedin.com/in/ypotekhin/).
 ## Project status
 
 Ladder Dragon is an actively developed, experimental trading system. Version
-**2.20.12** is the current prepared release. `main` is the only long-lived branch;
+**2.20.13** is the current prepared release. `main` is the only long-lived branch;
 feature branches use the `ladderdragon/*` namespace.
 
 DRY and Binance Spot Testnet are the supported starting modes. Mainnet LIVE is
@@ -477,11 +477,13 @@ sanitized health snapshot under `/run/mybot/`. An `executionReport` can wake an
 order check early, but it cannot place, cancel, protect, close, or account for an
 order. Authenticated REST reconciliation remains authoritative and continues on
 its normal interval when events are duplicated, late, missing, or the stream is
-disconnected. The dashboard shows per-symbol connection state, snapshot age,
+disconnected. The dashboard shows per-symbol connection state, transport age,
 order-event count, duplicate and out-of-order counts, connection attempts,
-reconnects and sanitized error class. A
-snapshot older than `DASHBOARD_USER_STREAM_STALE_SEC` (180 seconds by default)
-is explicitly marked stale even if its last stored state said `connected`.
+reconnects and sanitized error class. A transport heartbeat older than
+`DASHBOARD_USER_STREAM_STALE_SEC` (180 seconds by default) is explicitly marked
+stale even if its last stored state said `connected`. PING, PONG and data frames
+update this heartbeat, so a quiet healthy account is not marked stale merely
+because no order event occurred.
 Sanitized counters and the first observation time survive short executor
 sessions in `/run/mybot`; credentials, payloads and order details are never
 restored. The subscription timestamp reuses the REST transport's Binance

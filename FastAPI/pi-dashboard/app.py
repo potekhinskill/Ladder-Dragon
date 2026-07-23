@@ -279,7 +279,15 @@ def _user_stream_snapshot(runtime: Dict[str, object]) -> Dict[str, object]:
             if not isinstance(payload, dict):
                 raise ValueError("stream health payload is not an object")
             stat = path.stat()
-            age_sec = max(0, int(time.time() - stat.st_mtime))
+            transport_activity_at = float(
+                payload.get("last_transport_activity_at") or stat.st_mtime
+            )
+            if (
+                transport_activity_at <= 0
+                or not math.isfinite(transport_activity_at)
+            ):
+                raise ValueError("invalid transport activity timestamp")
+            age_sec = max(0, int(time.time() - transport_activity_at))
             reported_state = str(payload.get("state") or "unknown")
             stale = age_sec > DASHBOARD_USER_STREAM_STALE_SEC
             first_observed_at = float(
@@ -316,6 +324,7 @@ def _user_stream_snapshot(runtime: Dict[str, object]) -> Dict[str, object]:
                 ),
                 "last_event_at": payload.get("last_event_at"),
                 "last_order_event_at": payload.get("last_order_event_at"),
+                "last_transport_activity_at": transport_activity_at,
             })
         except (OSError, ValueError, TypeError, json.JSONDecodeError):
             rows.append({
@@ -338,6 +347,7 @@ def _user_stream_snapshot(runtime: Dict[str, object]) -> Dict[str, object]:
                 "last_error": None,
                 "last_event_at": None,
                 "last_order_event_at": None,
+                "last_transport_activity_at": None,
             })
     return {
         "mode": "shadow_notification_only",

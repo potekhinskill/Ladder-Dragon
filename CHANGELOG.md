@@ -3,6 +3,18 @@
 All notable changes are documented here. Releases use Semantic Versioning; every
 section is dated and there is intentionally no `Unreleased` section.
 
+## [2.20.13] — 2026-07-23
+
+### Fixed
+- User Data Stream PING, PONG and data frames now persist a sanitized transport
+  activity timestamp. The dashboard uses it for stale detection, preventing a
+  quiet healthy connection from being marked stale solely because the JSON file
+  or last order event is old.
+
+### Verified
+- Focused User Data Stream and dashboard-security tests pass; project-wide
+  `compileall` also passes.
+
 ## [2.20.12] — 2026-07-23
 
 ### Fixed

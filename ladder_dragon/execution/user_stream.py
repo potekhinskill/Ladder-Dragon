@@ -242,6 +242,7 @@ class BinanceUserDataObserver:
             "state": "stopped",
             "first_observed_at": now,
             "connected_at": None,
+            "last_transport_activity_at": None,
             "last_event_at": None,
             "last_order_event_at": None,
             "reconnects": 0,
@@ -281,6 +282,7 @@ class BinanceUserDataObserver:
                 self._state[name] = value
         for name in (
             "first_observed_at",
+            "last_transport_activity_at",
             "last_event_at",
             "last_order_event_at",
         ):
@@ -380,6 +382,7 @@ class BinanceUserDataObserver:
         self._set_state(
             state="connected",
             connected_at=self._clock(),
+            last_transport_activity_at=self._clock(),
             sessions=int(self._state["sessions"]) + 1,
             last_error=None,
             force_persist=True,
@@ -397,6 +400,9 @@ class BinanceUserDataObserver:
                         # websocket-client answers server PING frames itself.
                         # Reading control frames here proves transport activity;
                         # otherwise a healthy quiet account looks disconnected.
+                        self._set_state(
+                            last_transport_activity_at=self._clock()
+                        )
                         continue
                     if opcode == ABNF.OPCODE_CLOSE:
                         raise RuntimeError("User Data Stream transport closed")
@@ -414,6 +420,7 @@ class BinanceUserDataObserver:
                 connection.ping()
                 continue
             now = self._clock()
+            self._set_state(last_transport_activity_at=now)
             try:
                 payload = json.loads(raw)
             except (json.JSONDecodeError, TypeError, UnicodeError):

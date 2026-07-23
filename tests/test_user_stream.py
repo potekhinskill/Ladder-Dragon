@@ -416,6 +416,9 @@ def test_control_pong_keeps_quiet_live_session_connected(tmp_path):
 
     assert connection.pings == 2
     assert len(mailbox.consume_for([123])) == 1
+    assert observer.state()["last_transport_activity_at"] is not None
+    persisted = json.loads((tmp_path / "stream.json").read_text())
+    assert persisted["last_transport_activity_at"] is not None
 
 
 def test_observer_restores_only_sanitized_cumulative_soak_state(tmp_path):

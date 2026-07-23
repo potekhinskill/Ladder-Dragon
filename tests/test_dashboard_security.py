@@ -109,6 +109,28 @@ def test_user_stream_snapshot_becomes_stale_after_threshold(tmp_path, monkeypatc
     assert row["stale"] is True
 
 
+def test_user_stream_transport_activity_overrides_old_snapshot_mtime(
+    tmp_path, monkeypatch
+):
+    status = tmp_path / "ai_status.json"
+    stream = tmp_path / "user_stream_SOLUSDT.json"
+    transport_activity = time.time()
+    stream.write_text(json.dumps({
+        "state": "connected",
+        "last_transport_activity_at": transport_activity,
+    }), encoding="utf-8")
+    os.utime(stream, (100.0, 100.0))
+    monkeypatch.setenv("AI_RUNTIME_STATUS_FILE", str(status))
+    monkeypatch.setenv("DASHBOARD_USER_STREAM_STALE_SEC", "30")
+    module = load_dashboard(monkeypatch)
+
+    row = module._user_stream_snapshot({"symbols": ["SOLUSDT"]})["streams"][0]
+
+    assert row["state"] == "connected"
+    assert row["stale"] is False
+    assert row["last_transport_activity_at"] == transport_activity
+
+
 def test_trade_api_reads_authoritative_exact_accounting_values(tmp_path, monkeypatch):
     database = tmp_path / "stats.db"
     migrate(str(database))
