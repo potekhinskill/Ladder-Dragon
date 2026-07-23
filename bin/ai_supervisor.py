@@ -52,9 +52,20 @@ from ladder_dragon.ai.ai_control import read_ai_control, resolve_ai_control_path
 from ladder_dragon.execution.order_identity import client_order_id
 from ladder_dragon.execution.exchange_math import format_step, round_step
 from ladder_dragon.execution.order_recovery import (
+    OrderJournal,
     read_order_journal_telemetry,
     read_order_observation,
 )
+from ladder_dragon.execution.auth_resilience import (
+    AuthResilienceState,
+    load_auth_state,
+    observe_public_ip_fingerprint,
+    public_ip_fingerprint,
+    register_auth_failure,
+    register_auth_success,
+    save_auth_state,
+)
+from ladder_dragon.execution.telegram_alerts import notify
 from ladder_dragon.risk.risk_manager import RiskDecision, RiskLimits, RiskManager, RiskSnapshot, load_daily_trade_metrics, money
 from ladder_dragon.risk.risk_statistics import (
     correlated_symbols_multi_window as derive_correlated_symbols_multi_window,
@@ -365,6 +376,151 @@ def _runtime_order_journal_snapshot() -> dict[str, Any]:
     if not path:
         return {"available": False, "reason": "order journal path missing"}
     return read_order_journal_telemetry(path)
+
+
+def _auth_resilience_path() -> Path:
+    """Resolve persistent auth state beside other durable runtime databases."""
+    configured = os.getenv("BINANCE_AUTH_STATE_FILE", "").strip()
+    if configured:
+        return Path(configured)
+    stats_path = os.getenv("BOT_STATS_DB", "").strip()
+    if stats_path:
+        return Path(stats_path).with_name("auth_resilience.json")
+    return Path(os.getenv("BOT_RUN_DIR", ".runtime")) / "auth_resilience.json"
+
+
+def _read_auth_resilience_state() -> AuthResilienceState:
+    """Treat damaged persisted state as a maximum-delay fail-closed state."""
+    path = _auth_resilience_path()
+    try:
+        return load_auth_state(path)
+    except (OSError, TypeError, ValueError, json.JSONDecodeError) as exc:
+        log(
+            "[AUTH-BACKOFF] persisted state is invalid; "
+            f"error_type={type(exc).__name__}"
+        )
+        now = int(time.time())
+        return AuthResilienceState(
+            attempt=1000,
+            retry_at_epoch=now + 900,
+            public_ip_changed=True,
+            updated_at_epoch=now,
+        )
+
+
+def _save_auth_resilience_state(state: AuthResilienceState) -> None:
+    save_auth_state(_auth_resilience_path(), state)
+
+
+def _observe_public_ip(state: AuthResilienceState) -> AuthResilienceState:
+    """Check egress identity without logging or persisting the public IP."""
+    endpoint = os.getenv(
+        "BINANCE_PUBLIC_IP_ENDPOINT", ""
+    ).strip()
+    if not endpoint:
+        return state
+    try:
+        response = requests.get(endpoint, timeout=5)
+        response.raise_for_status()
+        fingerprint = public_ip_fingerprint(response.text)
+    except (requests.RequestException, UnicodeError, ValueError) as exc:
+        # Binance signed preflight remains authoritative. A third-party
+        # discovery outage must not create a false identity-change event.
+        log(
+            "[IP-GUARD] public IP check unavailable; "
+            f"error_type={type(exc).__name__}"
+        )
+        return state
+    observed = observe_public_ip_fingerprint(state, fingerprint)
+    if observed != state:
+        _save_auth_resilience_state(observed)
+    if observed.public_ip_changed:
+        notify(
+            "public egress IP changed",
+            ["Binance whitelist review is required; BUY remains blocked"],
+            {"fingerprint": fingerprint[:12]},
+        )
+        raise RuntimeError(
+            "public egress IP fingerprint changed; "
+            "Binance whitelist review required"
+        )
+    return observed
+
+
+def _exchange_order_absent(exc: BaseException) -> bool:
+    text = str(exc).lower()
+    return (
+        "code=-2013" in text
+        or "'code': -2013" in text
+        or '"code": -2013' in text
+        or "order does not exist" in text
+    )
+
+
+def _pre_running_recovery_gate(
+    args: argparse.Namespace,
+    symbols: List[str],
+) -> dict[str, Any]:
+    """Reconcile every durable nonterminal intent before claiming RUNNING."""
+    if not args.live:
+        return {"checked": 0, "blocked": False}
+    path = os.getenv("BOT_ORDER_JOURNAL", "").strip()
+    if not path:
+        raise RuntimeError("LIVE order journal path is missing")
+    journal = OrderJournal(
+        path,
+        venue="testnet" if args.testnet else "mainnet",
+    )
+    checked = 0
+    for intent in journal.nonterminal_orders():
+        if intent.symbol not in symbols:
+            raise RuntimeError(
+                f"unresolved journal symbol is outside configuration: "
+                f"{intent.symbol}"
+            )
+        try:
+            payload = TM._signed_get(
+                "/api/v3/order",
+                {
+                    "symbol": intent.symbol,
+                    "origClientOrderId": intent.client_order_id,
+                },
+            )
+        except SUPERVISOR_OPERATION_ERRORS as exc:
+            if not _exchange_order_absent(exc):
+                raise RuntimeError(
+                    "authenticated order reconciliation failed"
+                ) from exc
+            if intent.state not in {"PREPARED", "UNKNOWN"}:
+                raise RuntimeError(
+                    f"exchange cannot find durable {intent.side} order "
+                    f"recorded as {intent.state}"
+                ) from exc
+            journal.mark_failed(
+                intent.client_order_id,
+                "exchange confirmed order absent during supervisor preflight",
+            )
+            checked += 1
+            continue
+        if not isinstance(payload, dict):
+            raise RuntimeError("order reconciliation response is invalid")
+        updated = journal.record_exchange_order(intent.client_order_id, payload)
+        checked += 1
+    for buy in journal.unresolved_buys():
+        executed = _finite_decimal(
+            buy.executed_qty, name="reconciled executed quantity"
+        )
+        if executed <= 0:
+            continue
+        protection = journal.protection_for_parent(buy.client_order_id)
+        if protection is None or protection.state not in {
+            "PROTECTED",
+            "CLOSED",
+        }:
+            raise RuntimeError(
+                "reconciled BUY has execution without verified protection"
+            )
+    return {"checked": checked, "blocked": False}
 
 
 def _refresh_ai_control(args: argparse.Namespace) -> None:
@@ -2971,8 +3127,45 @@ def _preflight_with_auth_backoff(
     limits: RiskLimits,
 ) -> None:
     """Retry only definitive auth failures without a systemd restart storm."""
-    attempt = 0
+    state = _read_auth_resilience_state()
+    attempt = int(state.attempt)
+    if args.live:
+        while True:
+            try:
+                state = _observe_public_ip(state)
+            except RuntimeError:
+                _publish_ai_runtime_status(
+                    state="IP_BLOCKED",
+                    error="public egress IP changed",
+                    risk={
+                        "halted": bool(limits.halt_file.exists()),
+                        "buy_blocked": True,
+                        "reasons": ["Binance whitelist review required"],
+                    },
+                    ip_guard={
+                        "changed": True,
+                        "address_exposed": False,
+                    },
+                )
+                time.sleep(300)
+                state = _read_auth_resilience_state()
+                continue
+            break
     while True:
+        now_epoch = int(time.time())
+        if state.retry_at_epoch > now_epoch:
+            _wait_for_auth_retry(
+                state.retry_at_epoch - now_epoch,
+                attempt=max(1, state.attempt),
+                persistent_halt=limits.halt_file.exists(),
+            )
+            state = AuthResilienceState(
+                attempt=state.attempt,
+                public_ip_sha256=state.public_ip_sha256,
+                public_ip_changed=state.public_ip_changed,
+                updated_at_epoch=int(time.time()),
+            )
+            _save_auth_resilience_state(state)
         try:
             _preflight_live(args, symbols, limits)
         except SUPERVISOR_OPERATION_ERRORS as exc:
@@ -2981,12 +3174,15 @@ def _preflight_with_auth_backoff(
                     state="PREFLIGHT_FAILED", error=str(exc)
                 )
                 raise
-            attempt += 1
-            delay = _auth_retry_delay(
-                attempt,
+            state = register_auth_failure(
+                state,
                 initial_sec=args.binance_auth_backoff_initial_sec,
                 max_sec=args.binance_auth_backoff_max_sec,
+                now_epoch=int(time.time()),
             )
+            _save_auth_resilience_state(state)
+            attempt = state.attempt
+            delay = max(1, state.retry_at_epoch - int(time.time()))
             log(
                 "[AUTH-BACKOFF] Binance authentication rejected; "
                 f"BUY blocked; retry={delay}s attempt={attempt}"
@@ -2996,7 +3192,17 @@ def _preflight_with_auth_backoff(
                 attempt=attempt,
                 persistent_halt=limits.halt_file.exists(),
             )
+            state = AuthResilienceState(
+                attempt=state.attempt,
+                public_ip_sha256=state.public_ip_sha256,
+                public_ip_changed=state.public_ip_changed,
+                updated_at_epoch=int(time.time()),
+            )
+            _save_auth_resilience_state(state)
+            continue
         else:
+            state = register_auth_success(state, now_epoch=int(time.time()))
+            _save_auth_resilience_state(state)
             if attempt:
                 _publish_ai_runtime_status(
                     state="STARTING",
@@ -3008,7 +3214,31 @@ def _preflight_with_auth_backoff(
                         "retry_at": None,
                     },
                 )
-            return
+        try:
+            recovery = _pre_running_recovery_gate(args, symbols)
+        except SUPERVISOR_OPERATION_ERRORS as exc:
+            log(
+                "[RECOVERY] pre-RUNNING gate blocked; "
+                f"error_type={type(exc).__name__}"
+            )
+            _publish_ai_runtime_status(
+                state="RECOVERY_BLOCKED",
+                error="pre-RUNNING recovery failed",
+                recovery={
+                    "checked": 0,
+                    "blocked": True,
+                    "error_type": type(exc).__name__,
+                },
+                risk={
+                    "halted": bool(limits.halt_file.exists()),
+                    "buy_blocked": True,
+                    "reasons": ["pre-RUNNING recovery incomplete"],
+                },
+            )
+            time.sleep(60)
+            continue
+        _publish_ai_runtime_status(recovery=recovery)
+        return
 
 
 def _stop_child(symbol: str, reason: str) -> bool:
@@ -3674,8 +3904,9 @@ def main():
     last_risk_signature: tuple[bool, tuple[str, ...]] | None = None
     previous_prices: Dict[str, Decimal] = {}
     consecutive_api_failures = 0
-    auth_failure_attempts = 0
-    auth_retry_at = 0.0
+    runtime_auth_state = _read_auth_resilience_state()
+    auth_failure_attempts = int(runtime_auth_state.attempt)
+    auth_retry_at = _analytics_float(runtime_auth_state.retry_at_epoch)
     next_runtime_heartbeat = 0.0
     next_ai_control_check = 0.0
 
@@ -3738,6 +3969,11 @@ def main():
                         log(
                             "[AUTH-BACKOFF] Binance authentication recovered"
                         )
+                        runtime_auth_state = register_auth_success(
+                            runtime_auth_state,
+                            now_epoch=int(now_loop),
+                        )
+                        _save_auth_resilience_state(runtime_auth_state)
                         auth_failure_attempts = 0
                         auth_retry_at = 0.0
                         _publish_ai_runtime_status(
@@ -3821,12 +4057,19 @@ def main():
                     threshold = max(1, int(os.getenv("RISK_API_FAILURE_THRESHOLD", "3")))
                     auth_rejected = _is_binance_auth_rejection(exc)
                     if auth_rejected:
-                        auth_failure_attempts += 1
-                        delay, auth_retry_at = _auth_retry_schedule(
-                            auth_failure_attempts,
+                        runtime_auth_state = register_auth_failure(
+                            runtime_auth_state,
                             initial_sec=args.binance_auth_backoff_initial_sec,
                             max_sec=args.binance_auth_backoff_max_sec,
-                            now=now_loop,
+                            now_epoch=int(now_loop),
+                        )
+                        _save_auth_resilience_state(runtime_auth_state)
+                        auth_failure_attempts = runtime_auth_state.attempt
+                        auth_retry_at = _analytics_float(
+                            runtime_auth_state.retry_at_epoch
+                        )
+                        delay = max(
+                            1, int(auth_retry_at - now_loop)
                         )
                         reason = (
                             "Binance authentication unavailable; "

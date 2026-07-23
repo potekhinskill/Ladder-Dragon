@@ -600,12 +600,30 @@ class PredictionShadowStore:
                     resolved_at_ms INTEGER,
                     outcome_json TEXT,
                     baseline_outcome_json TEXT,
+                    terminal_reason TEXT,
+                    expired_at_ms INTEGER,
                     PRIMARY KEY(decision_id, horizon_min),
                     FOREIGN KEY(decision_id) REFERENCES prediction_decisions(decision_id)
                 );
                 CREATE INDEX IF NOT EXISTS prediction_outcome_pending
                     ON prediction_outcomes(eligible_at_ms, resolved_at_ms);
             """)
+            columns = {
+                str(row[1])
+                for row in connection.execute(
+                    "PRAGMA table_info(prediction_outcomes)"
+                )
+            }
+            if "terminal_reason" not in columns:
+                connection.execute(
+                    "ALTER TABLE prediction_outcomes "
+                    "ADD COLUMN terminal_reason TEXT"
+                )
+            if "expired_at_ms" not in columns:
+                connection.execute(
+                    "ALTER TABLE prediction_outcomes "
+                    "ADD COLUMN expired_at_ms INTEGER"
+                )
 
     @staticmethod
     def _decision_id(
@@ -688,6 +706,10 @@ class PredictionShadowStore:
         *,
         as_of_ms: int,
     ) -> int:
+        ordered_bars = sorted(bars, key=lambda item: item.open_time_ms)
+        earliest_close_ms = (
+            int(ordered_bars[0].close_time_ms) if ordered_bars else None
+        )
         with self._connect() as connection:
             rows = connection.execute(
                 """SELECT o.decision_id,o.horizon_min,d.snapshot_ts_ms,
@@ -701,6 +723,26 @@ class PredictionShadowStore:
             ).fetchall()
             settled = 0
             for decision_id, horizon, snapshot, plan_json, baseline_json in rows:
+                required_start_close = evaluation_end_ms(int(snapshot), 1)
+                if (
+                    earliest_close_ms is not None
+                    and required_start_close < earliest_close_ms
+                ):
+                    connection.execute(
+                        """UPDATE prediction_outcomes
+                           SET resolved_at_ms=?,expired_at_ms=?,
+                               terminal_reason='INSUFFICIENT_HISTORY'
+                           WHERE decision_id=? AND horizon_min=?
+                             AND resolved_at_ms IS NULL""",
+                        (
+                            int(as_of_ms),
+                            int(as_of_ms),
+                            decision_id,
+                            int(horizon),
+                        ),
+                    )
+                    settled += 1
+                    continue
                 plan = self._plan(plan_json)
                 baseline = self._plan(baseline_json)
                 if plan is None:
@@ -724,7 +766,8 @@ class PredictionShadowStore:
                     continue
                 connection.execute(
                     """UPDATE prediction_outcomes
-                       SET resolved_at_ms=?,outcome_json=?,baseline_outcome_json=?
+                       SET resolved_at_ms=?,outcome_json=?,baseline_outcome_json=?,
+                           terminal_reason='RESOLVED'
                        WHERE decision_id=? AND horizon_min=?""",
                     (
                         int(outcome.resolved_at_ms),
@@ -739,6 +782,63 @@ class PredictionShadowStore:
                 )
                 settled += 1
         return settled
+
+    def reanchor_performance(self, symbol: str) -> dict[str, object]:
+        """Summarize counterfactual value without enabling APPLY."""
+        with self._connect() as connection:
+            rows = connection.execute(
+                """SELECT d.feature_json,d.plan_json,o.horizon_min,
+                          o.outcome_json,o.baseline_outcome_json
+                   FROM prediction_decisions d
+                   JOIN prediction_outcomes o ON o.decision_id=d.decision_id
+                   WHERE d.symbol=? AND d.kind='REANCHOR'
+                     AND o.outcome_json IS NOT NULL""",
+                (symbol.upper(),),
+            ).fetchall()
+        filled = 0
+        tp = 0
+        net = ZERO
+        baseline_net = ZERO
+        gaps: list[Decimal] = []
+        for feature_json, plan_json, _horizon, outcome_json, baseline_json in rows:
+            outcome = self._outcome(outcome_json)
+            baseline = (
+                self._outcome(baseline_json)
+                if baseline_json else outcome
+            )
+            filled += int(outcome.buy_filled)
+            tp += int(outcome.tp_before_stop is True)
+            net += outcome.net_pnl_quote
+            baseline_net += baseline.net_pnl_quote
+            try:
+                feature = json.loads(feature_json)
+                plan = json.loads(plan_json)
+                market = _decimal(
+                    feature["current_price"], field="current price"
+                )
+                entry = _decimal(plan["entry_price"], field="entry price")
+                if market > 0:
+                    gaps.append((market - entry) / market)
+            except (
+                KeyError,
+                TypeError,
+                ValueError,
+                json.JSONDecodeError,
+            ):
+                continue
+        count = len(rows)
+        mean_gap = (
+            sum(gaps, ZERO) / D(str(len(gaps))) if gaps else ZERO
+        )
+        return {
+            "resolved": count,
+            "buy_filled": filled,
+            "tp_before_stop": tp,
+            "net_pnl_quote": str(net),
+            "baseline_net_pnl_quote": str(baseline_net),
+            "net_edge_quote": str(net - baseline_net),
+            "mean_entry_gap_pct": str(mean_gap),
+        }
 
     @staticmethod
     def _outcome(payload: str) -> PredictionOutcome:
@@ -807,10 +907,26 @@ class PredictionShadowStore:
                    WHERE symbol=? AND kind='REANCHOR'""",
                 (symbol.upper(),),
             ).fetchone()[0]
+            pending = connection.execute(
+                """SELECT COUNT(*) FROM prediction_outcomes o
+                   JOIN prediction_decisions d ON d.decision_id=o.decision_id
+                   WHERE d.symbol=? AND o.resolved_at_ms IS NULL""",
+                (symbol.upper(),),
+            ).fetchone()[0]
+            expired = connection.execute(
+                """SELECT COUNT(*) FROM prediction_outcomes o
+                   JOIN prediction_decisions d ON d.decision_id=o.decision_id
+                   WHERE d.symbol=? AND
+                         o.terminal_reason='INSUFFICIENT_HISTORY'""",
+                (symbol.upper(),),
+            ).fetchone()[0]
         return {
             "decisions": int(decisions),
             "resolved_outcomes": int(resolved),
+            "pending_outcomes": int(pending),
+            "expired_outcomes": int(expired),
             "reanchor_counterfactuals": int(counterfactuals),
+            "reanchor_performance": self.reanchor_performance(symbol),
         }
 
 

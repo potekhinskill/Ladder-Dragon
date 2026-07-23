@@ -17,7 +17,7 @@ Binance Spot. It builds BUY/SELL grids, uses ATR/EMA/VWAP/ADX regimes, manages
 OCO protection, and records trading statistics in SQLite. Production secrets,
 real backups, and private parameters are never committed.
 
-Current product version: **2.20.19**. The single version source is
+Current product version: **2.20.20**. The single version source is
 `product_version.py`; releases follow [Semantic Versioning](https://semver.org/).
 Project contact: [LinkedIn](https://www.linkedin.com/in/ypotekhin/).
 
@@ -232,8 +232,12 @@ TP-before-STOP probability, expected net PnL after configured fee/slippage,
 maximum adverse movement and estimated fill time. Every adaptive re-anchor
 candidate stores both the proposed BUY and the original untouched BUY. Outcomes
 are resolved only after the horizon closes; if TP and STOP occur in one OHLC
-bar, STOP wins conservatively. Historical candidates created before 2.20.14 do
-not contain immutable old/new plans and are not reconstructed.
+bar, STOP wins conservatively. A horizon whose required first bar has already
+fallen outside retained history terminates as `INSUFFICIENT_HISTORY`; it is not
+reported as a fill failure and does not remain pending forever. Historical
+candidates created before 2.20.14 do not contain immutable old/new plans and
+are not reconstructed. Runtime telemetry includes the proposed-versus-original
+fill count, TP count, net PnL edge and mean entry gap for re-anchor candidates.
 
 The statistical gate remains reporting-only. It requires at least 120
 independent timestamps, positive lower confidence bounds for both net expectancy
@@ -621,6 +625,31 @@ intervals grow from 60 to 120, 240, 480 and at most 900 seconds; the watchdog
 recognizes the fresh fail-closed heartbeat and does not reset that delay.
 `BINANCE_AUTH_BACKOFF_INITIAL_SEC` and `BINANCE_AUTH_BACKOFF_MAX_SEC` may be
 configured within the validated 30–3600 second safety bounds.
+Retry state is stored in `BINANCE_AUTH_STATE_FILE`, so a process or host restart
+does not reset the schedule. When `BINANCE_PUBLIC_IP_ENDPOINT` is configured,
+only a SHA-256 fingerprint is retained. A changed fingerprint enters
+`IP_BLOCKED`; update the Binance whitelist first, then explicitly accept the
+current fingerprint without displaying the address:
+
+```bash
+sudo -u bot env PYTHONPATH=/home/bot/apps/binance_bot \
+  /home/bot/apps/binance_bot/.venv/bin/python \
+  /home/bot/apps/binance_bot/bin/ip_guard.py accept-current
+```
+
+LIVE also reconciles durable nonterminal order IDs before `RUNNING`. An
+executed BUY without verified SELL/OCO protection remains
+`RECOVERY_BLOCKED`.
+
+Generate a read-only soak verdict after the observation period:
+
+```bash
+PYTHONPATH=. .venv/bin/python -m bin.production_soak_report \
+  --required-hours 24 --required-lifecycles 3 --required-predictions 100 \
+  --output db/production-soak-report.json
+```
+
+The command returns exit status `2` until every requirement is genuinely met.
 
 ## Remaining engineering work
 

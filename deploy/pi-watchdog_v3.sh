@@ -254,10 +254,12 @@ try:
     payload = json.loads(open(sys.argv[1], encoding="utf-8").read())
     updated = datetime.fromisoformat(str(payload["updated_at"]))
     age = (datetime.now(timezone.utc) - updated).total_seconds()
-    # AUTH_BACKOFF is a fresh, fail-closed supervisor heartbeat. Restarting it
-    # would reset exponential delay and hammer Binance after an IP/key reject.
+    # These are fresh, fail-closed supervisor heartbeats. Restarting them would
+    # reset recovery state and hammer Binance after an IP/key/order rejection.
     ok = (
-        payload.get("state") in {"RUNNING", "AUTH_BACKOFF"}
+        payload.get("state") in {
+            "RUNNING", "AUTH_BACKOFF", "IP_BLOCKED", "RECOVERY_BLOCKED"
+        }
         and 0 <= age <= float(sys.argv[2])
     )
 except (OSError, KeyError, TypeError, ValueError, json.JSONDecodeError):
@@ -267,7 +269,7 @@ PY
 )"
   if [[ "${heartbeat_ok}" != 1 ]]; then
     health_ok=0
-    reason="heartbeat stale or not RUNNING"
+    reason="heartbeat stale or process not in an accepted state"
   fi
 fi
 

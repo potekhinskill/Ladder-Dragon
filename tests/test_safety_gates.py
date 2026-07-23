@@ -682,6 +682,15 @@ def test_supervisor_auth_backoff_is_bounded_and_keeps_heartbeat_fresh(
         clock[0] += seconds
 
     monkeypatch.setattr(ai_supervisor, "_preflight_live", preflight)
+    monkeypatch.setattr(
+        ai_supervisor,
+        "_pre_running_recovery_gate",
+        lambda *_args: {"checked": 0, "blocked": False},
+    )
+    monkeypatch.setenv(
+        "BINANCE_AUTH_STATE_FILE", str(tmp_path / "auth.json")
+    )
+    monkeypatch.setenv("BINANCE_PUBLIC_IP_ENDPOINT", "")
     monkeypatch.setattr(ai_supervisor.time, "monotonic", lambda: clock[0])
     monkeypatch.setattr(ai_supervisor.time, "sleep", sleep)
     monkeypatch.setattr(
@@ -703,14 +712,127 @@ def test_supervisor_auth_backoff_is_bounded_and_keeps_heartbeat_fresh(
 
     assert attempts[0] == 3
     assert sleeps == [30, 30, 30, 30, 30, 30]
-    assert all(
-        row["state"] == "AUTH_BACKOFF" for row in published[:-1]
-    )
-    assert all(row["risk"]["buy_blocked"] for row in published[:-1])
-    assert published[-1]["state"] == "STARTING"
-    assert published[-1]["auth_backoff"]["active"] is False
+    backoff_rows = [
+        row for row in published if row.get("state") == "AUTH_BACKOFF"
+    ]
+    assert backoff_rows
+    assert all(row["risk"]["buy_blocked"] for row in backoff_rows)
+    recovered = [
+        row for row in published if row.get("state") == "STARTING"
+    ][-1]
+    assert recovered["auth_backoff"]["active"] is False
+    assert published[-1]["recovery"]["blocked"] is False
     assert "secret-value" not in str(published)
     assert "secret-value" not in str(messages)
+
+
+def test_supervisor_reconciles_durable_order_before_running(
+    tmp_path, monkeypatch
+):
+    from ladder_dragon.execution.order_recovery import OrderJournal
+
+    journal = OrderJournal(tmp_path / "orders.sqlite3", venue="mainnet")
+    journal.prepare(
+        client_order_id="LDBLAD-recover",
+        symbol="SOLUSDT",
+        side="BUY",
+        purpose="ladder",
+        order_type="LIMIT",
+        quantity="0.1",
+        price="75",
+    )
+    monkeypatch.setenv("BOT_ORDER_JOURNAL", str(journal.path))
+    monkeypatch.setattr(
+        ai_supervisor.TM,
+        "_signed_get",
+        lambda *_args, **_kwargs: {
+            "orderId": 123,
+            "status": "NEW",
+            "executedQty": "0",
+            "cummulativeQuoteQty": "0",
+        },
+    )
+
+    result = ai_supervisor._pre_running_recovery_gate(
+        SimpleNamespace(live=True, testnet=False), ["SOLUSDT"]
+    )
+
+    assert result == {"checked": 1, "blocked": False}
+    assert journal.get("LDBLAD-recover").state == "SUBMITTED"
+
+
+def test_supervisor_blocks_executed_buy_without_protection(
+    tmp_path, monkeypatch
+):
+    from ladder_dragon.execution.order_recovery import OrderJournal
+
+    journal = OrderJournal(tmp_path / "orders.sqlite3", venue="mainnet")
+    journal.prepare(
+        client_order_id="LDBLAD-filled",
+        symbol="SOLUSDT",
+        side="BUY",
+        purpose="ladder",
+        order_type="LIMIT",
+        quantity="0.1",
+        price="75",
+    )
+    monkeypatch.setenv("BOT_ORDER_JOURNAL", str(journal.path))
+    monkeypatch.setattr(
+        ai_supervisor.TM,
+        "_signed_get",
+        lambda *_args, **_kwargs: {
+            "orderId": 124,
+            "status": "FILLED",
+            "executedQty": "0.1",
+            "cummulativeQuoteQty": "7.5",
+        },
+    )
+
+    with pytest.raises(RuntimeError, match="without verified protection"):
+        ai_supervisor._pre_running_recovery_gate(
+            SimpleNamespace(live=True, testnet=False), ["SOLUSDT"]
+        )
+
+
+def test_public_ip_guard_alert_never_exposes_address(
+    tmp_path, monkeypatch
+):
+    from ladder_dragon.execution.auth_resilience import (
+        AuthResilienceState,
+        public_ip_fingerprint,
+    )
+
+    raw_ip = "203.0.113.92"
+    baseline = AuthResilienceState(
+        public_ip_sha256=public_ip_fingerprint("203.0.113.91")
+    )
+    alerts = []
+
+    class Response:
+        text = raw_ip
+
+        @staticmethod
+        def raise_for_status():
+            return None
+
+    monkeypatch.setenv(
+        "BINANCE_AUTH_STATE_FILE", str(tmp_path / "auth.json")
+    )
+    monkeypatch.setenv(
+        "BINANCE_PUBLIC_IP_ENDPOINT", "https://ip.example.invalid"
+    )
+    monkeypatch.setattr(ai_supervisor.requests, "get", lambda *_a, **_k: Response())
+    monkeypatch.setattr(
+        ai_supervisor, "notify",
+        lambda *args, **kwargs: alerts.append((args, kwargs)),
+    )
+
+    with pytest.raises(RuntimeError, match="whitelist review"):
+        ai_supervisor._observe_public_ip(baseline)
+
+    persisted = (tmp_path / "auth.json").read_text()
+    assert raw_ip not in persisted
+    assert raw_ip not in str(alerts)
 
 
 def test_supervisor_auth_backoff_does_not_hide_other_preflight_errors():

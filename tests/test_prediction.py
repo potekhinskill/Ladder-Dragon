@@ -216,6 +216,37 @@ def test_one_minute_store_waits_for_next_complete_bar(tmp_path):
     assert sample.outcome.resolved_at_ms == 179_999
 
 
+def test_store_expires_window_missing_from_available_history(tmp_path):
+    store = PredictionShadowStore(tmp_path / "prediction.sqlite3")
+    features = _features(snapshot_ts_ms=30_000)
+    plan = _plan("99")
+    store.record(
+        kind="STRATEGY",
+        symbol="SOLUSDT",
+        features=features,
+        plan=plan,
+        predictions=predict_distribution(features, plan, []),
+        algorithm_decision="old-window",
+    )
+    bars = [
+        PredictionBar(
+            600_000,
+            659_999,
+            D("100"),
+            D("101"),
+            D("99"),
+            D("100"),
+            D("10"),
+        )
+    ]
+
+    assert store.settle("SOLUSDT", bars, as_of_ms=1_000_000) == 3
+    summary = store.summary("SOLUSDT")
+    assert summary["expired_outcomes"] == 3
+    assert summary["pending_outcomes"] == 0
+    assert summary["resolved_outcomes"] == 0
+
+
 def test_reanchor_store_resolves_proposed_and_original_buy(tmp_path):
     store = PredictionShadowStore(tmp_path / "prediction.sqlite3")
     features = _features()

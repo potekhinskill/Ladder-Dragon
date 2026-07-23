@@ -3,6 +3,37 @@
 All notable changes are documented here. Releases use Semantic Versioning; every
 section is dated and there is intentionally no `Unreleased` section.
 
+## [2.20.20] — 2026-07-23
+
+### Added
+- Added a persistent, owner-only authentication resilience state. Binance
+  retry deadlines now survive supervisor and Raspberry Pi restarts.
+- Added a public-egress guard that persists only a SHA-256 fingerprint,
+  not the address. A confirmed change enters `IP_BLOCKED`, sends an English
+  Telegram warning and requires explicit operator acceptance after the Binance
+  whitelist is updated.
+- Added a read-only production soak report that cannot approve before the
+  configured elapsed time, fresh RUNNING heartbeat, exact real lifecycles and
+  minimum resolved prediction observations are all present.
+
+### Fixed
+- LIVE now reconciles every durable nonterminal exchange order before
+  publishing `RUNNING`. Any executed BUY without verified protection remains
+  in `RECOVERY_BLOCKED`; workers cannot start behind an ambiguous order.
+- Prediction windows that are no longer reconstructable from retained bars
+  terminate as `INSUFFICIENT_HISTORY` instead of remaining pending forever or
+  being counted as `NO_FILL`. Re-anchor telemetry now reports actual proposed
+  versus baseline fills, TP outcomes, net PnL edge and entry gap.
+- Dashboard, updater and watchdog now distinguish a fresh fail-closed
+  `AUTH_BACKOFF`, `IP_BLOCKED` or `RECOVERY_BLOCKED` process from healthy
+  `RUNNING`, without creating a restart storm.
+
+### Verified
+- `112` focused authentication, recovery, prediction, dashboard, deployment
+  and soak-report tests passed.
+- The complete local suite passed with `477` tests. Numeric-boundary audit,
+  `python3 -m compileall -q .` and `git diff --check` passed.
+
 ## [2.20.19] — 2026-07-23
 
 ### Fixed

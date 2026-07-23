@@ -664,8 +664,11 @@ def test_watchdog_uses_current_heartbeat_and_not_legacy_runner_name():
     assert "1.8_autosize_universal.py" not in watchdog
     assert "STRIKES" in watchdog
     assert "systemctl restart mybot.service" in watchdog
-    assert '{"RUNNING", "AUTH_BACKOFF"}' in watchdog
-    assert '{"RUNNING", "AUTH_BACKOFF"}' in updater
+    for state in (
+        "RUNNING", "AUTH_BACKOFF", "IP_BLOCKED", "RECOVERY_BLOCKED"
+    ):
+        assert state in watchdog
+        assert state in updater
     assert "|| true'" not in service
     runtime_assets = read("deploy/install_runtime_assets.sh")
     assert "pi-watchdog_v3.sh" in runtime_assets

@@ -255,11 +255,17 @@ def _runtime_heartbeat_snapshot() -> Dict[str, object]:
         )
     except (TypeError, ValueError, OverflowError):
         return {"state": state, "updated_at": None, "age_sec": None, "fresh": False}
+    blocked_states = {"AUTH_BACKOFF", "IP_BLOCKED", "RECOVERY_BLOCKED"}
     return {
         "state": state,
         "updated_at": updated.astimezone(APP_TZ).strftime("%Y-%m-%d %H:%M:%S"),
         "age_sec": round(age_sec, 1),
         "fresh": state == "RUNNING" and age_sec <= 90,
+        "alive_fail_closed": state in blocked_states and age_sec <= 90,
+        "warning": (
+            "Trading is fail-closed pending operator attention"
+            if state in blocked_states else None
+        ),
     }
 
 
@@ -2119,6 +2125,9 @@ def ai_status(limit: int = 50):
             "updated_at": runtime.get("updated_at"),
             "venue": runtime.get("venue"),
             "execution_mode": runtime.get("execution_mode"),
+            "auth_backoff": runtime.get("auth_backoff"),
+            "ip_guard": runtime.get("ip_guard"),
+            "recovery": runtime.get("recovery"),
             "provider": runtime_ai.get("provider"),
             "model": runtime_ai.get("model"),
             # Publish only numeric policy limits. The dashboard must not read

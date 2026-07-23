@@ -176,7 +176,9 @@ try:
         status = json.load(stream)
     updated = datetime.fromisoformat(status["updated_at"])
     age = (datetime.now(timezone.utc) - updated).total_seconds()
-    ready_states = {"RUNNING", "AUTH_BACKOFF"}
+    ready_states = {
+        "RUNNING", "AUTH_BACKOFF", "IP_BLOCKED", "RECOVERY_BLOCKED"
+    }
     raise SystemExit(
         0 if status.get("state") in ready_states and 0 <= age <= 90 else 1
     )
@@ -185,7 +187,7 @@ except (OSError, KeyError, TypeError, ValueError, json.JSONDecodeError):
 PY
   do
     (( SECONDS >= deadline )) \
-      && fail "fresh RUNNING/AUTH_BACKOFF heartbeat was not received in ${timeout_sec}s"
+      && fail "fresh RUNNING/fail-closed heartbeat was not received in ${timeout_sec}s"
     sleep 2
   done
 }
@@ -201,6 +203,12 @@ check_link() {
     || fail "DASHBOARD_FOLLOW_BOT_PATHS=1 is missing"
   python3 -m json.tool /run/mybot/ai_status.json >/dev/null \
     || fail "AI runtime heartbeat is invalid"
+  local runtime_state
+  runtime_state="$(python3 -c \
+    'import json; print(json.load(open("/run/mybot/ai_status.json"))["state"])')"
+  if [[ "${runtime_state}" != "RUNNING" ]]; then
+    echo "[WARN] supervisor is alive but fail-closed: ${runtime_state}" >&2
+  fi
   local anonymous_status
   anonymous_status="$(curl --silent --output /dev/null --write-out '%{http_code}' \
     http://127.0.0.1:8081/api/health)"
@@ -335,6 +343,15 @@ if grep -q '^AI_RUNTIME_STATUS_FILE=' .env; then
   sed -i 's|^AI_RUNTIME_STATUS_FILE=.*|AI_RUNTIME_STATUS_FILE=/run/mybot/ai_status.json|' .env
 else
   printf 'AI_RUNTIME_STATUS_FILE=/run/mybot/ai_status.json\n' >>.env
+fi
+if grep -q '^BINANCE_AUTH_STATE_FILE=' .env; then
+  sed -i 's|^BINANCE_AUTH_STATE_FILE=.*|BINANCE_AUTH_STATE_FILE='"${PROJECT_DIR}"'/db/auth_resilience.json|' .env
+else
+  printf 'BINANCE_AUTH_STATE_FILE=%s/db/auth_resilience.json\n' \
+    "${PROJECT_DIR}" >>.env
+fi
+if ! grep -q '^BINANCE_PUBLIC_IP_ENDPOINT=' .env; then
+  printf 'BINANCE_PUBLIC_IP_ENDPOINT=https://api.ipify.org\n' >>.env
 fi
 chmod 0600 .env
 

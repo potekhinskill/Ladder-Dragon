@@ -416,6 +416,21 @@ def test_runtime_heartbeat_uses_status_timestamp(monkeypatch):
     assert heartbeat["fresh"] is True
 
 
+def test_runtime_heartbeat_labels_live_fail_closed_state(monkeypatch):
+    module = load_dashboard(monkeypatch)
+    now = datetime.now(timezone.utc)
+    monkeypatch.setattr(module, "_load_ai_runtime_status", lambda: {
+        "state": "IP_BLOCKED",
+        "updated_at": (now - timedelta(seconds=5)).isoformat(),
+    })
+
+    heartbeat = module._runtime_heartbeat_snapshot()
+
+    assert heartbeat["fresh"] is False
+    assert heartbeat["alive_fail_closed"] is True
+    assert "operator attention" in heartbeat["warning"]
+
+
 def test_trading_overview_prefers_current_open_order(monkeypatch):
     module = load_dashboard(monkeypatch)
     monkeypatch.setattr(module, "_load_ai_runtime_status", lambda: {
