@@ -3,6 +3,20 @@
 All notable changes are documented here. Releases use Semantic Versioning; every
 section is dated and there is intentionally no `Unreleased` section.
 
+## [2.20.16] — 2026-07-23
+
+### Security
+- Mainnet canary now builds Risk Manager paths only from its explicitly supplied
+  environment. A fake or embedded caller can no longer inherit an unrelated
+  ambient production halt, state or alerts path.
+- Mainnet canary tests isolate all persistent risk paths under `tmp_path`, even
+  when executed directly on a configured LIVE Raspberry Pi.
+
+### Verified
+- `118` focused canary isolation, Risk Manager, version and deployment tests
+  passed; the complete local suite passed with `463` tests.
+- `python3 -m compileall -q .` completed successfully.
+
 ## [2.20.15] — 2026-07-23
 
 ### Fixed

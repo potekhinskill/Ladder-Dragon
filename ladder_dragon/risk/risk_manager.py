@@ -14,7 +14,7 @@ from pathlib import Path
 import sqlite3
 import tempfile
 import time
-from typing import Iterable, Optional
+from typing import Iterable, Mapping, Optional
 
 from ladder_dragon.execution.trade_accounting import TradeExecution
 from ladder_dragon.execution.telegram_alerts import notify as notify_telegram
@@ -51,28 +51,75 @@ class RiskLimits:
 
     @classmethod
     def from_env(cls) -> "RiskLimits":
-        run_dir = Path(os.getenv("BOT_RUN_DIR", "/run/mybot"))
+        return cls.from_mapping(os.environ)
+
+    @classmethod
+    def from_mapping(cls, environ: Mapping[str, str]) -> "RiskLimits":
+        """Build limits only from the explicitly supplied environment."""
+        run_dir = Path(environ.get("BOT_RUN_DIR", "/run/mybot"))
         return cls(
-            max_daily_loss_usdt=money(os.getenv("CB_MAX_DAILY_LOSS_USDT", "100")),
-            max_start_drawdown_pct=money(os.getenv("CB_MAX_START_DRAWDOWN_PCT", "0.03")),
-            max_peak_drawdown_pct=money(os.getenv("CB_MAX_PEAK_DRAWDOWN_PCT", "0.02")),
-            portfolio_cap_usdt=money(os.getenv("RISK_PORTFOLIO_CAP_USDT", "3000")),
-            daily_turnover_cap_usdt=money(os.getenv("RISK_DAILY_TURNOVER_CAP_USDT", "5000")),
-            daily_trade_count_cap=int(os.getenv("RISK_DAILY_TRADE_COUNT_CAP", "120")),
-            daily_buy_cap_usdt=money(os.getenv("RISK_DAILY_BUY_CAP_USDT", "2500")),
-            open_order_count_cap=int(os.getenv("RISK_OPEN_ORDER_COUNT_CAP", "30")),
-            correlated_cap_usdt=money(os.getenv("RISK_CORRELATED_CAP_USDT", "2500")),
-            reserve_usdt=money(os.getenv("RISK_RESERVE_USDT", "300")),
-            max_consecutive_losses=int(os.getenv("RISK_MAX_CONSECUTIVE_LOSSES", "4")),
-            cooldown_sec=int(os.getenv("RISK_COOLDOWN_SEC", "900")),
-            halt_file=Path(os.getenv("CB_HALT_FILE", str(run_dir / "circuit_halt.json"))),
-            state_file=Path(os.getenv("CB_STATE_FILE", str(run_dir / "risk_state.json"))),
-            alerts_file=Path(os.getenv("CB_ALERTS_FILE", str(run_dir / "risk_alerts.ndjson"))),
-            stress_loss_cap_usdt=money(os.getenv("RISK_STRESS_LOSS_CAP_USDT", "0")),
-            var_cap_usdt=money(os.getenv("RISK_VAR_CAP_USDT", "0")),
-            gap_risk_cap_usdt=money(os.getenv("RISK_GAP_RISK_CAP_USDT", "0")),
-            expected_shortfall_cap_usdt=money(os.getenv("RISK_EXPECTED_SHORTFALL_CAP_USDT", "0")),
-            stale_order_count_cap=int(os.getenv("RISK_STALE_ORDER_COUNT_CAP", "0")),
+            max_daily_loss_usdt=money(
+                environ.get("CB_MAX_DAILY_LOSS_USDT", "100")
+            ),
+            max_start_drawdown_pct=money(
+                environ.get("CB_MAX_START_DRAWDOWN_PCT", "0.03")
+            ),
+            max_peak_drawdown_pct=money(
+                environ.get("CB_MAX_PEAK_DRAWDOWN_PCT", "0.02")
+            ),
+            portfolio_cap_usdt=money(
+                environ.get("RISK_PORTFOLIO_CAP_USDT", "3000")
+            ),
+            daily_turnover_cap_usdt=money(
+                environ.get("RISK_DAILY_TURNOVER_CAP_USDT", "5000")
+            ),
+            daily_trade_count_cap=int(
+                environ.get("RISK_DAILY_TRADE_COUNT_CAP", "120")
+            ),
+            daily_buy_cap_usdt=money(
+                environ.get("RISK_DAILY_BUY_CAP_USDT", "2500")
+            ),
+            open_order_count_cap=int(
+                environ.get("RISK_OPEN_ORDER_COUNT_CAP", "30")
+            ),
+            correlated_cap_usdt=money(
+                environ.get("RISK_CORRELATED_CAP_USDT", "2500")
+            ),
+            reserve_usdt=money(
+                environ.get("RISK_RESERVE_USDT", "300")
+            ),
+            max_consecutive_losses=int(
+                environ.get("RISK_MAX_CONSECUTIVE_LOSSES", "4")
+            ),
+            cooldown_sec=int(environ.get("RISK_COOLDOWN_SEC", "900")),
+            halt_file=Path(
+                environ.get(
+                    "CB_HALT_FILE", str(run_dir / "circuit_halt.json")
+                )
+            ),
+            state_file=Path(
+                environ.get(
+                    "CB_STATE_FILE", str(run_dir / "risk_state.json")
+                )
+            ),
+            alerts_file=Path(
+                environ.get(
+                    "CB_ALERTS_FILE", str(run_dir / "risk_alerts.ndjson")
+                )
+            ),
+            stress_loss_cap_usdt=money(
+                environ.get("RISK_STRESS_LOSS_CAP_USDT", "0")
+            ),
+            var_cap_usdt=money(environ.get("RISK_VAR_CAP_USDT", "0")),
+            gap_risk_cap_usdt=money(
+                environ.get("RISK_GAP_RISK_CAP_USDT", "0")
+            ),
+            expected_shortfall_cap_usdt=money(
+                environ.get("RISK_EXPECTED_SHORTFALL_CAP_USDT", "0")
+            ),
+            stale_order_count_cap=int(
+                environ.get("RISK_STALE_ORDER_COUNT_CAP", "0")
+            ),
         )
 
     def validate(self) -> None:

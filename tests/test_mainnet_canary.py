@@ -1,5 +1,6 @@
 from decimal import Decimal
 import json
+import os
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -9,6 +10,22 @@ import requests
 from bin import binance_mainnet_canary as canary
 from bin.binance_testnet_smoke import symbol_rules, validate_sell_percent_prices
 from ladder_dragon.execution.order_recovery import OrderJournal
+
+
+@pytest.fixture(autouse=True)
+def isolate_canary_control_paths(tmp_path, monkeypatch):
+    """Never allow a fake canary to inherit production control paths."""
+    run_dir = tmp_path / "run"
+    monkeypatch.setenv("BOT_RUN_DIR", str(run_dir))
+    monkeypatch.setenv(
+        "CB_HALT_FILE", str(run_dir / "circuit_halt.json")
+    )
+    monkeypatch.setenv(
+        "CB_STATE_FILE", str(run_dir / "risk_state.json")
+    )
+    monkeypatch.setenv(
+        "CB_ALERTS_FILE", str(run_dir / "risk_alerts.ndjson")
+    )
 
 
 def exchange_info():
@@ -184,12 +201,21 @@ def args(tmp_path, **overrides):
 
 
 def confirmed_env():
-    return {
+    environ = {
         "BOT_LIVE_CONFIRMED": "YES",
         "BOT_MAINNET_CANARY_CONFIRMED": "YES",
         "BOT_MAINNET_CANARY_CLEANUP_CONFIRMED": "YES",
         "RISK_RESERVE_USDT": "300",
     }
+    for name in (
+        "BOT_RUN_DIR",
+        "CB_HALT_FILE",
+        "CB_STATE_FILE",
+        "CB_ALERTS_FILE",
+    ):
+        if name in os.environ:
+            environ[name] = os.environ[name]
+    return environ
 
 
 def test_mainnet_origin_is_strict():
@@ -314,6 +340,43 @@ def test_mainnet_canary_is_one_success_per_release(tmp_path, monkeypatch):
             client=FakeMainnetClient(),
             service_check=lambda: None,
         )
+
+
+def test_explicit_canary_environment_ignores_ambient_halt(
+    tmp_path, monkeypatch
+):
+    ambient_halt = tmp_path / "production" / "circuit_halt.json"
+    ambient_halt.parent.mkdir(parents=True)
+    ambient_halt.write_text(
+        json.dumps({
+            "manual_reset_required": True,
+            "reasons": ["must remain untouched"],
+        }),
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("CB_HALT_FILE", str(ambient_halt))
+    isolated_run = tmp_path / "isolated"
+    environ = confirmed_env()
+    environ.update({
+        "BOT_RUN_DIR": str(isolated_run),
+        "CB_HALT_FILE": str(isolated_run / "circuit_halt.json"),
+        "CB_STATE_FILE": str(isolated_run / "risk_state.json"),
+        "CB_ALERTS_FILE": str(isolated_run / "risk_alerts.ndjson"),
+    })
+    OrderJournal(args(tmp_path).production_journal, venue="mainnet")
+
+    result = canary.run_canary(
+        args(tmp_path),
+        environ=environ,
+        client=FakeMainnetClient(),
+        service_check=lambda: None,
+    )
+
+    assert result["status"] == "passed"
+    assert json.loads(ambient_halt.read_text(encoding="utf-8"))[
+        "reasons"
+    ] == ["must remain untouched"]
+    assert not (isolated_run / "circuit_halt.json").exists()
 
 
 def test_mainnet_canary_refuses_nonterminal_production_journal(tmp_path, monkeypatch):

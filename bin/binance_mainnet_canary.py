@@ -426,7 +426,10 @@ def run_canary(
         raise RuntimeError(
             "Mainnet canary commission budget must be in (0, 0.03] USDT"
         )
-    limits = RiskLimits.from_env()
+    # The caller already supplies the complete canary environment. Reusing the
+    # ambient process environment here could redirect a fake/test failure into
+    # a production circuit-breaker file.
+    limits = RiskLimits.from_mapping(environ)
     journal_path = resolve_project_path(args.journal)
     production_journal_path = resolve_project_path(args.production_journal)
     report_path = resolve_project_path(args.report)
