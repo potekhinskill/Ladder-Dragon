@@ -176,12 +176,16 @@ try:
         status = json.load(stream)
     updated = datetime.fromisoformat(status["updated_at"])
     age = (datetime.now(timezone.utc) - updated).total_seconds()
-    raise SystemExit(0 if status.get("state") == "RUNNING" and 0 <= age <= 90 else 1)
+    ready_states = {"RUNNING", "AUTH_BACKOFF"}
+    raise SystemExit(
+        0 if status.get("state") in ready_states and 0 <= age <= 90 else 1
+    )
 except (OSError, KeyError, TypeError, ValueError, json.JSONDecodeError):
     raise SystemExit(1)
 PY
   do
-    (( SECONDS >= deadline )) && fail "fresh RUNNING heartbeat was not received in ${timeout_sec}s"
+    (( SECONDS >= deadline )) \
+      && fail "fresh RUNNING/AUTH_BACKOFF heartbeat was not received in ${timeout_sec}s"
     sleep 2
   done
 }

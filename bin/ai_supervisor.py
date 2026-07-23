@@ -2868,6 +2868,149 @@ def _preflight_live(args: argparse.Namespace, symbols: List[str], limits: RiskLi
     log("[PREFLIGHT] PASS " + json.dumps(config, sort_keys=True))
 
 
+def _is_binance_auth_rejection(exc: BaseException) -> bool:
+    """Recognize definitive Binance credential/IP rejections through wrappers."""
+    current: BaseException | None = exc
+    seen: set[int] = set()
+    while current is not None and id(current) not in seen:
+        seen.add(id(current))
+        status = getattr(current, "status", None)
+        code = getattr(current, "code", None)
+        if status in (401, 403) or code in (-2014, -2015, -1022):
+            return True
+        text = str(current).lower()
+        if any(marker in text for marker in (
+            "http 401",
+            "http 403",
+            "code=-2014",
+            "code=-2015",
+            "code=-1022",
+            "'code': -2014",
+            "'code': -2015",
+            "'code': -1022",
+            "invalid api-key",
+            "api_key/secret are required",
+        )):
+            return True
+        current = current.__cause__ or current.__context__
+    return False
+
+
+def _auth_retry_delay(
+    attempt: int,
+    *,
+    initial_sec: int,
+    max_sec: int,
+) -> int:
+    """Return bounded exponential delay for a one-based auth failure count."""
+    exponent = min(max(0, int(attempt) - 1), 16)
+    return min(int(max_sec), int(initial_sec) * (2 ** exponent))
+
+
+def _auth_retry_schedule(
+    attempt: int,
+    *,
+    initial_sec: int,
+    max_sec: int,
+    now: float,
+) -> tuple[int, float]:
+    """Return the delay and absolute runtime deadline for one auth retry."""
+    delay = _auth_retry_delay(
+        attempt,
+        initial_sec=initial_sec,
+        max_sec=max_sec,
+    )
+    return delay, now + delay
+
+
+def _auth_backoff_active(retry_at: float, *, now: float) -> bool:
+    """Tell runtime gates whether signed requests must remain deferred."""
+    return retry_at > now
+
+
+def _wait_for_auth_retry(
+    delay_sec: int,
+    *,
+    attempt: int,
+    persistent_halt: bool,
+) -> None:
+    """Keep fail-closed telemetry fresh while waiting for credential recovery."""
+    deadline = time.monotonic() + max(1, int(delay_sec))
+    while True:
+        remaining = max(0, math.ceil(deadline - time.monotonic()))
+        if remaining <= 0:
+            return
+        _publish_ai_runtime_status(
+            state="AUTH_BACKOFF",
+            error="Binance authentication unavailable",
+            auth_backoff={
+                "active": True,
+                "attempt": int(attempt),
+                "retry_in_sec": remaining,
+                "retry_at": (
+                    datetime.now(timezone.utc)
+                    + timedelta(seconds=remaining)
+                ).isoformat(),
+            },
+            risk={
+                "halted": bool(persistent_halt),
+                "buy_blocked": True,
+                "reasons": (
+                    ["persistent circuit halt", "Binance authentication unavailable"]
+                    if persistent_halt
+                    else ["Binance authentication unavailable"]
+                ),
+            },
+        )
+        time.sleep(min(30, remaining))
+
+
+def _preflight_with_auth_backoff(
+    args: argparse.Namespace,
+    symbols: List[str],
+    limits: RiskLimits,
+) -> None:
+    """Retry only definitive auth failures without a systemd restart storm."""
+    attempt = 0
+    while True:
+        try:
+            _preflight_live(args, symbols, limits)
+        except SUPERVISOR_OPERATION_ERRORS as exc:
+            if not args.live or not _is_binance_auth_rejection(exc):
+                _publish_ai_runtime_status(
+                    state="PREFLIGHT_FAILED", error=str(exc)
+                )
+                raise
+            attempt += 1
+            delay = _auth_retry_delay(
+                attempt,
+                initial_sec=args.binance_auth_backoff_initial_sec,
+                max_sec=args.binance_auth_backoff_max_sec,
+            )
+            log(
+                "[AUTH-BACKOFF] Binance authentication rejected; "
+                f"BUY blocked; retry={delay}s attempt={attempt}"
+            )
+            _wait_for_auth_retry(
+                delay,
+                attempt=attempt,
+                persistent_halt=limits.halt_file.exists(),
+            )
+        else:
+            if attempt:
+                _publish_ai_runtime_status(
+                    state="STARTING",
+                    error=None,
+                    auth_backoff={
+                        "active": False,
+                        "attempt": attempt,
+                        "retry_in_sec": 0,
+                        "retry_at": None,
+                    },
+                )
+            return
+
+
 def _stop_child(symbol: str, reason: str) -> bool:
     """Gracefully stop one worker before replacing its immutable plan."""
     proc = _CHILD_PROCS.get(symbol)
@@ -3409,11 +3552,20 @@ def main():
             "prediction_shadow_db": str(prediction_path),
         },
         "order_journal": _runtime_order_journal_snapshot(),
+        "auth_backoff": {
+            "active": False,
+            "attempt": 0,
+            "retry_in_sec": 0,
+            "retry_at": None,
+        },
         "reanchor": {
             "mode": str(args.reanchor_mode).upper(),
             "min_age_sec": int(args.reanchor_min_age_sec),
             "trigger_pct": str(args.reanchor_trigger_pct),
             "max_step_pct": str(args.reanchor_max_step_pct),
+            "max_market_gap_pct": str(
+                args.reanchor_max_market_gap_pct
+            ),
             "max_per_cycle": int(args.reanchor_max_per_cycle),
             "totals": {"shadow_candidates": 0, "apply_cancels": 0},
             "symbols": {},
@@ -3438,11 +3590,7 @@ def main():
             "open_order_count_cap": limits.open_order_count_cap,
         }
     )
-    try:
-        _preflight_live(args, symbols, limits)
-    except SUPERVISOR_OPERATION_ERRORS as exc:
-        _publish_ai_runtime_status(state="PREFLIGHT_FAILED", error=str(exc))
-        raise
+    _preflight_with_auth_backoff(args, symbols, limits)
     global LIVE_MODE
     LIVE_MODE = bool(args.live)
     # In DRY the circuit breaker does not change persistent state. LIVE uses a
@@ -3526,6 +3674,8 @@ def main():
     last_risk_signature: tuple[bool, tuple[str, ...]] | None = None
     previous_prices: Dict[str, Decimal] = {}
     consecutive_api_failures = 0
+    auth_failure_attempts = 0
+    auth_retry_at = 0.0
     next_runtime_heartbeat = 0.0
     next_ai_control_check = 0.0
 
@@ -3536,6 +3686,12 @@ def main():
                 _refresh_ai_control(args)
                 next_ai_control_check = now_loop + 2.0
             if now_loop >= next_runtime_heartbeat:
+                auth_remaining = max(
+                    0, math.ceil(auth_retry_at - now_loop)
+                )
+                # Remain visibly fail-closed until an authenticated risk
+                # snapshot succeeds, including the instant a retry is due.
+                auth_backoff_active = auth_failure_attempts > 0
                 heartbeat_risk = dict(_AI_RUNTIME_STATUS.get("risk") or {})
                 heartbeat_risk.update({
                     "buy_blocked": risk_buy_blocked,
@@ -3548,7 +3704,23 @@ def main():
                     ),
                 })
                 _publish_ai_runtime_status(
-                    state="RUNNING",
+                    state=(
+                        "AUTH_BACKOFF"
+                        if auth_backoff_active
+                        else "RUNNING"
+                    ),
+                    auth_backoff={
+                        "active": auth_backoff_active,
+                        "attempt": auth_failure_attempts,
+                        "retry_in_sec": auth_remaining,
+                        "retry_at": (
+                            datetime.fromtimestamp(
+                                auth_retry_at, timezone.utc
+                            ).isoformat()
+                            if auth_backoff_active
+                            else None
+                        ),
+                    },
                     risk=heartbeat_risk,
                     order_journal=_runtime_order_journal_snapshot(),
                 )
@@ -3562,6 +3734,21 @@ def main():
                 try:
                     snapshot, orders, prices = _build_risk_snapshot(symbols, limits)
                     consecutive_api_failures = 0
+                    if auth_failure_attempts:
+                        log(
+                            "[AUTH-BACKOFF] Binance authentication recovered"
+                        )
+                        auth_failure_attempts = 0
+                        auth_retry_at = 0.0
+                        _publish_ai_runtime_status(
+                            error=None,
+                            auth_backoff={
+                                "active": False,
+                                "attempt": 0,
+                                "retry_in_sec": 0,
+                                "retry_at": None,
+                            }
+                        )
                     shocks, previous_prices = _configured_price_shocks_decimal(
                         symbols,
                         prices,
@@ -3632,7 +3819,41 @@ def main():
                     # are blocked and a cooldown starts after repeated errors.
                     consecutive_api_failures += 1
                     threshold = max(1, int(os.getenv("RISK_API_FAILURE_THRESHOLD", "3")))
-                    reason = f"risk telemetry unavailable ({consecutive_api_failures}/{threshold}): {exc}"
+                    auth_rejected = _is_binance_auth_rejection(exc)
+                    if auth_rejected:
+                        auth_failure_attempts += 1
+                        delay, auth_retry_at = _auth_retry_schedule(
+                            auth_failure_attempts,
+                            initial_sec=args.binance_auth_backoff_initial_sec,
+                            max_sec=args.binance_auth_backoff_max_sec,
+                            now=now_loop,
+                        )
+                        reason = (
+                            "Binance authentication unavailable; "
+                            f"retry in {delay}s"
+                        )
+                        log(
+                            "[AUTH-BACKOFF] runtime authentication rejected; "
+                            f"BUY blocked; retry={delay}s "
+                            f"attempt={auth_failure_attempts}"
+                        )
+                        _publish_ai_runtime_status(
+                            state="AUTH_BACKOFF",
+                            error="Binance authentication unavailable",
+                            auth_backoff={
+                                "active": True,
+                                "attempt": auth_failure_attempts,
+                                "retry_in_sec": delay,
+                                "retry_at": datetime.fromtimestamp(
+                                    auth_retry_at, timezone.utc
+                                ).isoformat(),
+                            },
+                        )
+                    else:
+                        reason = (
+                            "risk telemetry unavailable "
+                            f"({consecutive_api_failures}/{threshold}): {exc}"
+                        )
                     if consecutive_api_failures >= threshold:
                         risk_manager.start_cooldown(reason)
                     decision = RiskDecision(halted=False, buy_blocked=True, reasons=(reason,))
@@ -3644,15 +3865,26 @@ def main():
                     if risk_manager is not None and not decision.halted and not was_buy_blocked:
                         risk_manager.start_cooldown(reason)
                     _stop_children(reason)
-                    try:
-                        _cancel_open_buy_orders(orders or None)
-                    except SUPERVISOR_OPERATION_ERRORS as exc:
-                        log(f"[RISK] cancel BUY failed: {exc}")
+                    if _auth_backoff_active(
+                        auth_retry_at, now=now_loop
+                    ):
+                        log(
+                            "[AUTH-BACKOFF] BUY cancellation deferred until "
+                            "authenticated reconciliation is available"
+                        )
+                    else:
+                        try:
+                            _cancel_open_buy_orders(orders or None)
+                        except SUPERVISOR_OPERATION_ERRORS as exc:
+                            log(f"[RISK] cancel BUY failed: {exc}")
                 signature = (decision.halted, decision.reasons)
                 if signature != last_risk_signature and decision.buy_blocked:
                     _notify_risk(decision)
                 last_risk_signature = signature
-                next_risk_check = now_loop + max(1, int(args.risk_check_sec))
+                next_risk_check = max(
+                    now_loop + max(1, int(args.risk_check_sec)),
+                    auth_retry_at,
+                )
 
             if risk_buy_blocked:
                 # During a block the supervisor only reevaluates risk; trading

@@ -3,6 +3,23 @@
 All notable changes are documented here. Releases use Semantic Versioning; every
 section is dated and there is intentionally no `Unreleased` section.
 
+## [2.20.19] — 2026-07-23
+
+### Fixed
+- Definitive Binance authentication/IP rejections now keep the LIVE supervisor
+  fail-closed in `AUTH_BACKOFF` instead of exiting into a ten-second systemd
+  restart loop. Retries use bounded exponential intervals of 60, 120, 240,
+  480 and at most 900 seconds.
+- Authentication backoff refreshes sanitized runtime telemetry with BUY
+  blocked. The Pi watchdog and updater accept that fresh fail-closed state
+  without resetting the delay or claiming that trading is RUNNING.
+
+### Verified
+- `118` focused auth backoff, watchdog, updater, configuration, version and
+  safety tests passed; the complete local suite passed with `468` tests.
+- Numeric-boundary audit, `python3 -m compileall -q .` and `git diff --check`
+  completed successfully.
+
 ## [2.20.18] — 2026-07-23
 
 ### Fixed

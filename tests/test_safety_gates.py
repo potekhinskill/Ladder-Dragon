@@ -660,6 +660,95 @@ def test_supervisor_exponentially_backs_off_crashing_children(monkeypatch):
     assert ai_supervisor._CHILD_FAILURES["SOLUSDT"] == 0
 
 
+def test_supervisor_auth_backoff_is_bounded_and_keeps_heartbeat_fresh(
+    tmp_path, monkeypatch
+):
+    clock = [0.0]
+    sleeps = []
+    published = []
+    messages = []
+    attempts = [0]
+
+    def preflight(*_args):
+        attempts[0] += 1
+        if attempts[0] <= 2:
+            raise ai_supervisor.TM.BinanceHttpError(
+                "HTTP 401: {'code': -2015, "
+                "'msg': 'Invalid API-key=secret-value'}"
+            )
+
+    def sleep(seconds):
+        sleeps.append(seconds)
+        clock[0] += seconds
+
+    monkeypatch.setattr(ai_supervisor, "_preflight_live", preflight)
+    monkeypatch.setattr(ai_supervisor.time, "monotonic", lambda: clock[0])
+    monkeypatch.setattr(ai_supervisor.time, "sleep", sleep)
+    monkeypatch.setattr(
+        ai_supervisor,
+        "_publish_ai_runtime_status",
+        lambda **updates: published.append(updates),
+    )
+    monkeypatch.setattr(ai_supervisor, "log", messages.append)
+    args = SimpleNamespace(
+        live=True,
+        binance_auth_backoff_initial_sec=60,
+        binance_auth_backoff_max_sec=120,
+    )
+    limits = SimpleNamespace(halt_file=tmp_path / "halt.json")
+
+    ai_supervisor._preflight_with_auth_backoff(
+        args, ["SOLUSDT"], limits
+    )
+
+    assert attempts[0] == 3
+    assert sleeps == [30, 30, 30, 30, 30, 30]
+    assert all(
+        row["state"] == "AUTH_BACKOFF" for row in published[:-1]
+    )
+    assert all(row["risk"]["buy_blocked"] for row in published[:-1])
+    assert published[-1]["state"] == "STARTING"
+    assert published[-1]["auth_backoff"]["active"] is False
+    assert "secret-value" not in str(published)
+    assert "secret-value" not in str(messages)
+
+
+def test_supervisor_auth_backoff_does_not_hide_other_preflight_errors():
+    assert ai_supervisor._is_binance_auth_rejection(
+        RuntimeError("HTTP 401: {'code': -2015}")
+    )
+    assert not ai_supervisor._is_binance_auth_rejection(
+        RuntimeError("position reconciliation failed")
+    )
+    assert [
+        ai_supervisor._auth_retry_delay(
+            attempt, initial_sec=60, max_sec=900
+        )
+        for attempt in range(1, 7)
+    ] == [60, 120, 240, 480, 900, 900]
+    delay, retry_at = ai_supervisor._auth_retry_schedule(
+        3,
+        initial_sec=60,
+        max_sec=900,
+        now=1_000.0,
+    )
+    assert (delay, retry_at) == (240, 1_240.0)
+    assert ai_supervisor._auth_backoff_active(
+        retry_at, now=1_239.0
+    )
+    assert not ai_supervisor._auth_backoff_active(
+        retry_at, now=1_240.0
+    )
+    runtime_source = inspect.getsource(ai_supervisor.main)
+    defer = runtime_source.index(
+        "BUY cancellation deferred until "
+    )
+    cancel = runtime_source.index(
+        "_cancel_open_buy_orders(orders or None)", defer
+    )
+    assert defer < cancel
+
+
 def test_cleanup_layers_keep_fresh_off_ladder_order(monkeypatch):
     now_ms = int(time.time() * 1000)
     orders = [

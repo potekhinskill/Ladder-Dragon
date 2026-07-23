@@ -441,3 +441,32 @@ def test_reanchor_configuration_rejects_unsafe_refresh_rate():
     )
     with pytest.raises(SystemExit):
         validate_supervisor_args(parser, args)
+
+
+def test_supervisor_configuration_rejects_unsafe_auth_backoff():
+    parser = build_supervisor_parser()
+    args = parser.parse_args(
+        [
+            "--base-script",
+            "bin/autosize_universal.py",
+            "--no-ai-advisor",
+            "--binance-auth-backoff-initial-sec",
+            "29",
+        ]
+    )
+    with pytest.raises(SystemExit):
+        validate_supervisor_args(parser, args)
+
+    args = parser.parse_args(
+        [
+            "--base-script",
+            "bin/autosize_universal.py",
+            "--no-ai-advisor",
+            "--binance-auth-backoff-initial-sec",
+            "60",
+            "--binance-auth-backoff-max-sec",
+            "59",
+        ]
+    )
+    with pytest.raises(SystemExit):
+        validate_supervisor_args(parser, args)

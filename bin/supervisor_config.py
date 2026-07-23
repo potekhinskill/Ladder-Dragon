@@ -26,6 +26,18 @@ def build_supervisor_parser() -> argparse.ArgumentParser:
     ap = argparse.ArgumentParser(description="Ladder Dragon trading supervisor")
     ap.add_argument("--version", action="version", version=product_label("supervisor"))
     ap.add_argument("--singleton", action="store_true", help="Configure --singleton.")
+    ap.add_argument(
+        "--binance-auth-backoff-initial-sec",
+        type=int,
+        default=int(os.getenv("BINANCE_AUTH_BACKOFF_INITIAL_SEC", "60")),
+        help="Initial fail-closed retry interval after Binance authentication rejection.",
+    )
+    ap.add_argument(
+        "--binance-auth-backoff-max-sec",
+        type=int,
+        default=int(os.getenv("BINANCE_AUTH_BACKOFF_MAX_SEC", "900")),
+        help="Maximum fail-closed Binance authentication retry interval.",
+    )
     ap.add_argument("--base-script", default="/home/bot/apps/binance_bot/bin/autosize_universal.py")
     ap.add_argument("--symbols", default="SOLUSDT,ETHUSDT", help="Configure --symbols.")
     ap.add_argument("--ladder-mode", default="pct", choices=["pct"], help="Configure --ladder-mode.")
@@ -291,10 +303,24 @@ def validate_supervisor_args(parser: argparse.ArgumentParser, args: argparse.Nam
         "--interval-seconds": args.interval_seconds,
         "--risk-check-sec": args.risk_check_sec,
         "--flatten-slices": args.flatten_slices,
+        "--binance-auth-backoff-initial-sec": args.binance_auth_backoff_initial_sec,
+        "--binance-auth-backoff-max-sec": args.binance_auth_backoff_max_sec,
     }
     for name, value in positive_ints.items():
         if value is None or int(value) <= 0:
             parser.error(f"{name} must be > 0")
+    if args.binance_auth_backoff_initial_sec < 30:
+        parser.error("--binance-auth-backoff-initial-sec must be >= 30")
+    if (
+        args.binance_auth_backoff_max_sec
+        < args.binance_auth_backoff_initial_sec
+    ):
+        parser.error(
+            "--binance-auth-backoff-max-sec must be greater than or equal "
+            "to --binance-auth-backoff-initial-sec"
+        )
+    if args.binance_auth_backoff_max_sec > 3600:
+        parser.error("--binance-auth-backoff-max-sec must be <= 3600")
 
     non_negative = {
         "--near-ttl-sec": args.near_ttl_sec,

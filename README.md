@@ -17,7 +17,7 @@ Binance Spot. It builds BUY/SELL grids, uses ATR/EMA/VWAP/ADX regimes, manages
 OCO protection, and records trading statistics in SQLite. Production secrets,
 real backups, and private parameters are never committed.
 
-Current product version: **2.20.18**. The single version source is
+Current product version: **2.20.19**. The single version source is
 `product_version.py`; releases follow [Semantic Versioning](https://semver.org/).
 Project contact: [LinkedIn](https://www.linkedin.com/in/ypotekhin/).
 
@@ -33,7 +33,7 @@ Project contact: [LinkedIn](https://www.linkedin.com/in/ypotekhin/).
 ## Project status
 
 Ladder Dragon is an actively developed, experimental trading system. Version
-**2.20.18** is the current prepared release. `main` is the only long-lived branch;
+**2.20.19** is the current prepared release. `main` is the only long-lived branch;
 feature branches use the `ladderdragon/*` namespace.
 
 DRY and Binance Spot Testnet are the supported starting modes. Mainnet LIVE is
@@ -614,6 +614,13 @@ journaled, one-use break-glass procedure described in the runbook.
 The updater creates an encrypted backup, preserves `.env` and `.env.dashboard`,
 updates only the requested fast-forward commit, validates Python/nginx, restarts
 the services, and waits for a fresh heartbeat.
+
+Definitive Binance authentication rejections (`401`, `403`, `-2014`, `-2015`
+or `-1022`) keep the supervisor alive in `AUTH_BACKOFF` with BUY blocked. Retry
+intervals grow from 60 to 120, 240, 480 and at most 900 seconds; the watchdog
+recognizes the fresh fail-closed heartbeat and does not reset that delay.
+`BINANCE_AUTH_BACKOFF_INITIAL_SEC` and `BINANCE_AUTH_BACKOFF_MAX_SEC` may be
+configured within the validated 30–3600 second safety bounds.
 
 ## Remaining engineering work
 

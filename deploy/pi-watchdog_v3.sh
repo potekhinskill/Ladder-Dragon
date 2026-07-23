@@ -254,7 +254,12 @@ try:
     payload = json.loads(open(sys.argv[1], encoding="utf-8").read())
     updated = datetime.fromisoformat(str(payload["updated_at"]))
     age = (datetime.now(timezone.utc) - updated).total_seconds()
-    ok = payload.get("state") == "RUNNING" and 0 <= age <= float(sys.argv[2])
+    # AUTH_BACKOFF is a fresh, fail-closed supervisor heartbeat. Restarting it
+    # would reset exponential delay and hammer Binance after an IP/key reject.
+    ok = (
+        payload.get("state") in {"RUNNING", "AUTH_BACKOFF"}
+        and 0 <= age <= float(sys.argv[2])
+    )
 except (OSError, KeyError, TypeError, ValueError, json.JSONDecodeError):
     ok = False
 print("1" if ok else "0")
