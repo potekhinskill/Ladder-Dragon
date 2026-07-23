@@ -224,6 +224,9 @@ def test_supervisor_shadow_records_strategy_and_hashed_reanchor(
     as_of = int(rows[-1][6]) + 1
     monkeypatch.setattr(ai_supervisor, "_PREDICTION_SHADOW", store)
     monkeypatch.setattr(ai_supervisor, "_PREDICTION_LAST_ATTEMPT", {})
+    # A fresh Linux runner may have less uptime than the throttle interval.
+    # Missing history must still permit the first SHADOW snapshot.
+    monkeypatch.setattr(ai_supervisor.time, "monotonic", lambda: 10.0)
     monkeypatch.setattr(ai_supervisor, "_AI_RUNTIME_STATUS", {})
     monkeypatch.setattr(ai_supervisor, "_AI_RUNTIME_STATUS_PATH", None)
     monkeypatch.setenv("BOT_CAP_PER_ORDER", "50")

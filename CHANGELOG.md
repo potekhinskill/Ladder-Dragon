@@ -3,6 +3,19 @@
 All notable changes are documented here. Releases use Semantic Versioning; every
 section is dated and there is intentionally no `Unreleased` section.
 
+## [2.20.15] — 2026-07-23
+
+### Fixed
+- Allow the first prediction SHADOW snapshot immediately after a fresh Linux
+  boot. An absent throttle timestamp is no longer treated as monotonic time
+  zero, which previously skipped collection while uptime was below 60 seconds.
+
+### Verified
+- The focused regression forces a ten-second monotonic uptime and records both
+  strategy and hashed re-anchor decisions.
+- Full local `pytest` passes all 462 tests with documented test risk-limit
+  defaults; project-wide `compileall` and `git diff --check` pass.
+
 ## [2.20.14] — 2026-07-23
 
 ### Added

@@ -1510,9 +1510,10 @@ def _record_prediction_shadow(
         int(os.getenv("PREDICTION_SHADOW_INTERVAL_SEC", "60") or "60"),
     )
     now_monotonic = time.monotonic()
+    last_attempt = _PREDICTION_LAST_ATTEMPT.get(symbol)
     if (
-        now_monotonic - _PREDICTION_LAST_ATTEMPT.get(symbol, 0.0)
-        < interval
+        last_attempt is not None
+        and now_monotonic - last_attempt < interval
     ):
         return
     # Rate-limit failed public reads as well as successful snapshots.
