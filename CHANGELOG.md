@@ -3,6 +3,30 @@
 All notable changes are documented here. Releases use Semantic Versioning; every
 section is dated and there is intentionally no `Unreleased` section.
 
+## [2.20.21] — 2026-07-23
+
+### Added
+- Added an explicit `INTENTIONALLY_STOPPED` maintenance state. The dashboard
+  distinguishes it from failure, the supervisor keeps LIVE inert, and the
+  watchdog suppresses restart alerts until an operator clears the marker.
+- Added a 15-minute systemd soak audit that writes a host-local Ed25519-signed
+  JSON artifact and sends English Telegram notifications only when its
+  approval/check state changes.
+
+### Fixed
+- LIVE startup now verifies the exact Binance OCO list identity and both active
+  SELL protection legs for every durably protected BUY before `RUNNING`.
+- Public-IP guarding now requires matching fingerprints from two independent
+  HTTPS hosts before accepting or blocking on a changed egress identity.
+- Production soak approval now also requires LIVE Mainnet and a passing
+  prediction statistical gate; missing runtime evidence fails closed.
+
+### Verified
+- `168` focused recovery, maintenance, IP, dashboard, deployment and soak tests
+  passed. Shell syntax, source compilation and `git diff --check` passed.
+- The complete local suite passed with `490` tests; the numeric-boundary audit
+  reported no regressions.
+
 ## [2.20.20] — 2026-07-23
 
 ### Added

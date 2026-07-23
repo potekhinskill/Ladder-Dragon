@@ -24,6 +24,7 @@ REASON_FILE="${STATEDIR}/reason.txt"
 HEARTBEAT="${AI_RUNTIME_STATUS_FILE:-/run/mybot/ai_status.json}"
 UPTIME_SOURCE="${WATCHDOG_UPTIME_SOURCE:-/proc/uptime}"
 HOST_HEALTH_FILE="${WATCHDOG_HOST_HEALTH_FILE:-/run/pi-watchdog/host-health.json}"
+MAINTENANCE_FILE="${BOT_MAINTENANCE_FILE:-/var/lib/ladder-dragon/maintenance.json}"
 
 # The systemd unit loads the root-owned current configuration. Accept the old
 # variable names in memory only so migrated credentials remain usable without
@@ -205,6 +206,26 @@ if (( uptime_min < MIN_UPTIME )); then
   exit 0
 fi
 
+if python3 - "${MAINTENANCE_FILE}" <<'PY'
+import json
+import sys
+
+try:
+    payload = json.loads(open(sys.argv[1], encoding="utf-8").read())
+    active = (
+        payload.get("schema_version") == 1
+        and payload.get("active") is True
+    )
+except (OSError, TypeError, ValueError, json.JSONDecodeError):
+    active = False
+raise SystemExit(0 if active else 1)
+PY
+then
+  log "[v3]" "maintenance active; restart and alerts suppressed"
+  printf '0 0\n' >"${STATE}"
+  exit 0
+fi
+
 prev_net=0
 prev_health=0
 if [[ -f "${STATE}" ]]; then
@@ -258,7 +279,8 @@ try:
     # reset recovery state and hammer Binance after an IP/key/order rejection.
     ok = (
         payload.get("state") in {
-            "RUNNING", "AUTH_BACKOFF", "IP_BLOCKED", "RECOVERY_BLOCKED"
+            "RUNNING", "AUTH_BACKOFF", "IP_BLOCKED", "RECOVERY_BLOCKED",
+            "INTENTIONALLY_STOPPED"
         }
         and 0 <= age <= float(sys.argv[2])
     )

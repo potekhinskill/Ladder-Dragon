@@ -431,6 +431,29 @@ def test_runtime_heartbeat_labels_live_fail_closed_state(monkeypatch):
     assert "operator attention" in heartbeat["warning"]
 
 
+def test_dashboard_distinguishes_intentional_stop(
+    tmp_path, monkeypatch
+):
+    from ladder_dragon.execution.maintenance_state import set_maintenance
+
+    maintenance = tmp_path / "maintenance.json"
+    set_maintenance(
+        maintenance,
+        "Operator intentionally stopped trading",
+        now_epoch=int(time.time()) - 5,
+    )
+    module = load_dashboard(monkeypatch)
+    monkeypatch.setattr(module, "BOT_MAINTENANCE_FILE", maintenance)
+    monkeypatch.setattr(module, "_load_ai_runtime_status", lambda: {})
+
+    heartbeat = module._runtime_heartbeat_snapshot()
+
+    assert heartbeat["state"] == "INTENTIONALLY_STOPPED"
+    assert heartbeat["fresh"] is False
+    assert heartbeat["alive_fail_closed"] is True
+    assert heartbeat["warning"] == "Operator intentionally stopped trading"
+
+
 def test_trading_overview_prefers_current_open_order(monkeypatch):
     module = load_dashboard(monkeypatch)
     monkeypatch.setattr(module, "_load_ai_runtime_status", lambda: {

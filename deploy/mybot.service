@@ -48,6 +48,7 @@ SystemCallFilter=@system-service
 SystemCallErrorNumber=EPERM
 RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
 ReadWritePaths=/home/bot/apps/binance_bot/db /home/bot/apps/binance_bot/logs /run/mybot
+ReadOnlyPaths=-/var/lib/ladder-dragon/maintenance.json
 UMask=0077
 
 [Install]

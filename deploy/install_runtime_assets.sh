@@ -24,5 +24,8 @@ install -o root -g root -m 0755 \
 install -o root -g root -m 0755 \
   "${PROJECT_DIR}/deploy/record_depth_archive.sh" \
   /usr/local/bin/ladder-dragon-depth-archive
+install -o root -g root -m 0755 \
+  "${PROJECT_DIR}/deploy/run_production_soak_audit.sh" \
+  /usr/local/bin/ladder-dragon-soak-audit
 
 echo "[OK] installed release runtime assets"

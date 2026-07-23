@@ -682,6 +682,29 @@ class OrderJournal:
             ).fetchall()
         return [intent for row in rows if (intent := self._from_row(row)) is not None]
 
+    def protected_buys(self, symbol: str | None = None) -> list[OrderIntent]:
+        """Return BUY parents whose exchange protection must still be live."""
+        params: list[Any] = [self.venue]
+        where_symbol = ""
+        if symbol:
+            where_symbol = " AND symbol = ?"
+            params.append(symbol.upper())
+        with self._connect() as con:
+            rows: Iterable[sqlite3.Row] = con.execute(
+                f"""
+                SELECT * FROM order_intents
+                WHERE venue = ? AND side = 'BUY' AND state = 'PROTECTED'
+                {where_symbol}
+                ORDER BY created_at
+                """,
+                params,
+            ).fetchall()
+        return [
+            intent
+            for row in rows
+            if (intent := self._from_row(row)) is not None
+        ]
+
     def nonterminal_orders(self, symbol: str | None = None) -> list[OrderIntent]:
         """Return ordinary exchange orders whose final state needs reconciliation."""
         # FILLED BUY protection and PROTECTED SELL/OCO recovery have dedicated

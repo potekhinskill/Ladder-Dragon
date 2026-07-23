@@ -1,0 +1,15 @@
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2026 IURII Potekhin
+# Purpose: refresh signed soak evidence without polling exchange APIs.
+[Unit]
+Description=Schedule Ladder Dragon signed production soak audit
+
+[Timer]
+OnBootSec=5m
+OnUnitActiveSec=15m
+RandomizedDelaySec=60s
+AccuracySec=30s
+Persistent=true
+
+[Install]
+WantedBy=timers.target

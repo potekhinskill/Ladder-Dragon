@@ -19,6 +19,7 @@ import json
 import sqlite3
 import re
 import hashlib
+from urllib.parse import urlparse
 from dataclasses import asdict, replace
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal, InvalidOperation
@@ -66,6 +67,10 @@ from ladder_dragon.execution.auth_resilience import (
     save_auth_state,
 )
 from ladder_dragon.execution.telegram_alerts import notify
+from ladder_dragon.execution.maintenance_state import (
+    DEFAULT_PATH as DEFAULT_MAINTENANCE_PATH,
+    load_maintenance_state,
+)
 from ladder_dragon.risk.risk_manager import RiskDecision, RiskLimits, RiskManager, RiskSnapshot, load_daily_trade_metrics, money
 from ladder_dragon.risk.risk_statistics import (
     correlated_symbols_multi_window as derive_correlated_symbols_multi_window,
@@ -389,6 +394,66 @@ def _auth_resilience_path() -> Path:
     return Path(os.getenv("BOT_RUN_DIR", ".runtime")) / "auth_resilience.json"
 
 
+def _maintenance_path() -> Path:
+    return Path(
+        os.getenv("BOT_MAINTENANCE_FILE", str(DEFAULT_MAINTENANCE_PATH))
+    )
+
+
+def _wait_for_maintenance_clear(
+    args: argparse.Namespace,
+    limits: RiskLimits,
+) -> None:
+    """Keep LIVE inert while an explicit operator maintenance marker exists."""
+    if not args.live:
+        return
+    while True:
+        try:
+            state = load_maintenance_state(_maintenance_path())
+        except (OSError, TypeError, ValueError, json.JSONDecodeError) as exc:
+            _publish_ai_runtime_status(
+                state="RECOVERY_BLOCKED",
+                error="maintenance state is invalid",
+                maintenance={
+                    "active": True,
+                    "valid": False,
+                    "error_type": type(exc).__name__,
+                },
+                risk={
+                    "halted": bool(limits.halt_file.exists()),
+                    "buy_blocked": True,
+                    "reasons": ["maintenance state is invalid"],
+                },
+            )
+            time.sleep(60)
+            continue
+        if not state.active:
+            _publish_ai_runtime_status(
+                maintenance={
+                    "active": False,
+                    "valid": True,
+                    "reason": None,
+                }
+            )
+            return
+        _publish_ai_runtime_status(
+            state="INTENTIONALLY_STOPPED",
+            error=None,
+            maintenance={
+                "active": True,
+                "valid": True,
+                "reason": state.reason,
+                "updated_at_epoch": state.updated_at_epoch,
+            },
+            risk={
+                "halted": bool(limits.halt_file.exists()),
+                "buy_blocked": True,
+                "reasons": ["operator maintenance is active"],
+            },
+        )
+        time.sleep(30)
+
+
 def _read_auth_resilience_state() -> AuthResilienceState:
     """Treat damaged persisted state as a maximum-delay fail-closed state."""
     path = _auth_resilience_path()
@@ -414,31 +479,71 @@ def _save_auth_resilience_state(state: AuthResilienceState) -> None:
 
 def _observe_public_ip(state: AuthResilienceState) -> AuthResilienceState:
     """Check egress identity without logging or persisting the public IP."""
-    endpoint = os.getenv(
-        "BINANCE_PUBLIC_IP_ENDPOINT", ""
-    ).strip()
-    if not endpoint:
+    configured = os.getenv("BINANCE_PUBLIC_IP_ENDPOINTS", "").strip()
+    if not configured:
+        configured = os.getenv("BINANCE_PUBLIC_IP_ENDPOINT", "").strip()
+    endpoints = [
+        item.strip() for item in configured.split(",") if item.strip()
+    ]
+    hosts: set[str] = set()
+    valid_endpoints: list[str] = []
+    for endpoint in endpoints[:3]:
+        parsed = urlparse(endpoint)
+        if (
+            parsed.scheme != "https"
+            or not parsed.hostname
+            or parsed.username
+            or parsed.password
+            or parsed.hostname in hosts
+        ):
+            continue
+        hosts.add(parsed.hostname)
+        valid_endpoints.append(endpoint)
+    if not valid_endpoints:
         return state
-    try:
-        response = requests.get(endpoint, timeout=5)
-        response.raise_for_status()
-        fingerprint = public_ip_fingerprint(response.text)
-    except (requests.RequestException, UnicodeError, ValueError) as exc:
-        # Binance signed preflight remains authoritative. A third-party
-        # discovery outage must not create a false identity-change event.
+    fingerprints: list[str] = []
+    for endpoint in valid_endpoints:
+        try:
+            response = requests.get(endpoint, timeout=5)
+            response.raise_for_status()
+            fingerprints.append(public_ip_fingerprint(response.text))
+        except (requests.RequestException, UnicodeError, ValueError) as exc:
+            log(
+                "[IP-GUARD] one public IP source unavailable; "
+                f"error_type={type(exc).__name__}"
+            )
+    consensus = (
+        fingerprints[0]
+        if len(fingerprints) >= 2 and len(set(fingerprints)) == 1
+        else None
+    )
+    if consensus is None:
+        _publish_ai_runtime_status(ip_guard={
+            "configured_sources": len(valid_endpoints),
+            "available_sources": len(fingerprints),
+            "consensus": False,
+            "address_exposed": False,
+        })
         log(
-            "[IP-GUARD] public IP check unavailable; "
-            f"error_type={type(exc).__name__}"
+            "[IP-GUARD] source consensus unavailable; "
+            "Binance signed authentication remains authoritative"
         )
         return state
-    observed = observe_public_ip_fingerprint(state, fingerprint)
+    observed = observe_public_ip_fingerprint(state, consensus)
     if observed != state:
         _save_auth_resilience_state(observed)
+    _publish_ai_runtime_status(ip_guard={
+        "configured_sources": len(valid_endpoints),
+        "available_sources": len(fingerprints),
+        "consensus": True,
+        "changed": observed.public_ip_changed,
+        "address_exposed": False,
+    })
     if observed.public_ip_changed:
         notify(
             "public egress IP changed",
             ["Binance whitelist review is required; BUY remains blocked"],
-            {"fingerprint": fingerprint[:12]},
+            {"fingerprint": consensus[:12], "sources": len(fingerprints)},
         )
         raise RuntimeError(
             "public egress IP fingerprint changed; "
@@ -455,6 +560,117 @@ def _exchange_order_absent(exc: BaseException) -> bool:
         or '"code": -2013' in text
         or "order does not exist" in text
     )
+
+
+def _verify_live_protection(
+    journal: OrderJournal,
+    parent_client_order_id: str,
+) -> int:
+    """Verify an exact protection order and every OCO leg at Binance."""
+    protection = journal.protection_for_parent(parent_client_order_id)
+    if protection is None:
+        raise RuntimeError("protected BUY has no linked protection intent")
+    if protection.order_type == "OCO":
+        payload = TM._signed_get(
+            "/api/v3/orderList",
+            {"origClientOrderId": protection.client_order_id},
+        )
+        if not isinstance(payload, dict):
+            raise RuntimeError("OCO reconciliation response is invalid")
+        if (
+            str(payload.get("listClientOrderId") or "")
+            != protection.client_order_id
+            or int(payload.get("orderListId", -1))
+            != int(protection.exchange_order_list_id or -2)
+            or str(payload.get("contingencyType") or "").upper() != "OCO"
+        ):
+            raise RuntimeError("OCO identity differs from durable journal")
+        if str(payload.get("listStatusType") or "").upper() != "EXEC_STARTED":
+            raise RuntimeError("OCO is not actively protecting inventory")
+        references = payload.get("orders")
+        if not isinstance(references, list) or len(references) != 2:
+            raise RuntimeError("OCO does not contain exactly two legs")
+        legs: list[dict[str, Any]] = []
+        for reference in references:
+            if not isinstance(reference, dict) or reference.get("orderId") is None:
+                raise RuntimeError("OCO leg reference is invalid")
+            if str(reference.get("symbol") or "").upper() != protection.symbol:
+                raise RuntimeError("OCO leg symbol differs from durable journal")
+            leg = TM._signed_get(
+                "/api/v3/order",
+                {
+                    "symbol": protection.symbol,
+                    "orderId": int(reference["orderId"]),
+                },
+            )
+            if not isinstance(leg, dict):
+                raise RuntimeError("OCO leg reconciliation response is invalid")
+            legs.append(leg)
+        if any(str(leg.get("side") or "").upper() != "SELL" for leg in legs):
+            raise RuntimeError("OCO contains a non-SELL leg")
+        if any(
+            str(leg.get("symbol") or "").upper() != protection.symbol
+            or int(leg.get("orderListId", -1))
+            != int(protection.exchange_order_list_id or -2)
+            for leg in legs
+        ):
+            raise RuntimeError("OCO leg identity differs from durable journal")
+        leg_types = {str(leg.get("type") or "").upper() for leg in legs}
+        if not ({"LIMIT_MAKER", "LIMIT"} & leg_types) or not (
+            {"STOP_LOSS_LIMIT", "STOP_LOSS"} & leg_types
+        ):
+            raise RuntimeError("OCO protection leg types are invalid")
+        permitted = {"NEW", "PARTIALLY_FILLED"}
+        if any(
+            str(leg.get("status") or "").upper() not in permitted
+            for leg in legs
+        ):
+            raise RuntimeError("OCO protection has a terminal or unknown leg")
+        observed_ids = {int(leg["orderId"]) for leg in legs}
+        stored_ids = {
+            int(row["order_id"])
+            for row in (protection.metadata or {}).get("verified_legs", [])
+            if isinstance(row, dict) and row.get("order_id") is not None
+        }
+        if stored_ids and stored_ids != observed_ids:
+            raise RuntimeError("OCO exchange legs differ from durable journal")
+        journal.update_metadata(
+            protection.client_order_id,
+            {
+                "verified_legs": [
+                    {
+                        "order_id": int(leg["orderId"]),
+                        "client_order_id": str(
+                            leg.get("clientOrderId") or ""
+                        ),
+                        "leg_type": str(leg.get("type") or "").upper(),
+                    }
+                    for leg in legs
+                ],
+                "startup_exchange_verified_at": int(time.time()),
+            },
+        )
+        return 3
+    payload = TM._signed_get(
+        "/api/v3/order",
+        {
+            "symbol": protection.symbol,
+            "origClientOrderId": protection.client_order_id,
+        },
+    )
+    if (
+        not isinstance(payload, dict)
+        or str(payload.get("symbol") or "").upper() != protection.symbol
+        or int(payload.get("orderId", -1))
+        != int(protection.exchange_order_id or -2)
+        or str(payload.get("side") or "").upper() != "SELL"
+        or str(payload.get("type") or "").upper()
+        != protection.order_type.upper()
+        or str(payload.get("status") or "").upper()
+        not in {"NEW", "PARTIALLY_FILLED"}
+    ):
+        raise RuntimeError("single-order protection is not active")
+    return 1
 
 
 def _pre_running_recovery_gate(
@@ -520,7 +736,20 @@ def _pre_running_recovery_gate(
             raise RuntimeError(
                 "reconciled BUY has execution without verified protection"
             )
-    return {"checked": checked, "blocked": False}
+    protection_checks = 0
+    for buy in journal.protected_buys():
+        if buy.symbol not in symbols:
+            raise RuntimeError(
+                "protected journal symbol is outside configuration"
+            )
+        protection_checks += _verify_live_protection(
+            journal, buy.client_order_id
+        )
+    return {
+        "checked": checked,
+        "protection_checks": protection_checks,
+        "blocked": False,
+    }
 
 
 def _refresh_ai_control(args: argparse.Namespace) -> None:
@@ -3820,6 +4049,7 @@ def main():
             "open_order_count_cap": limits.open_order_count_cap,
         }
     )
+    _wait_for_maintenance_clear(args, limits)
     _preflight_with_auth_backoff(args, symbols, limits)
     global LIVE_MODE
     LIVE_MODE = bool(args.live)

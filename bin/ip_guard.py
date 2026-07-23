@@ -11,6 +11,7 @@ import json
 import os
 from pathlib import Path
 import sys
+from urllib.parse import urlparse
 
 import requests
 
@@ -34,12 +35,33 @@ def _state_path() -> Path:
 
 
 def _current_fingerprint() -> str:
-    endpoint = os.getenv("BINANCE_PUBLIC_IP_ENDPOINT", "").strip()
-    if not endpoint:
-        raise RuntimeError("BINANCE_PUBLIC_IP_ENDPOINT is not configured")
-    response = requests.get(endpoint, timeout=5)
-    response.raise_for_status()
-    return public_ip_fingerprint(response.text)
+    configured = os.getenv("BINANCE_PUBLIC_IP_ENDPOINTS", "").strip()
+    if not configured:
+        configured = os.getenv("BINANCE_PUBLIC_IP_ENDPOINT", "").strip()
+    endpoints = [
+        item.strip() for item in configured.split(",") if item.strip()
+    ]
+    fingerprints = []
+    hosts = set()
+    for endpoint in endpoints[:3]:
+        parsed = urlparse(endpoint)
+        if (
+            parsed.scheme != "https"
+            or not parsed.hostname
+            or parsed.hostname in hosts
+            or parsed.username
+            or parsed.password
+        ):
+            continue
+        hosts.add(parsed.hostname)
+        response = requests.get(endpoint, timeout=5)
+        response.raise_for_status()
+        fingerprints.append(public_ip_fingerprint(response.text))
+    if len(fingerprints) < 2 or len(set(fingerprints)) != 1:
+        raise RuntimeError(
+            "two independent public IP sources did not reach consensus"
+        )
+    return fingerprints[0]
 
 
 def main(argv: list[str] | None = None) -> int:

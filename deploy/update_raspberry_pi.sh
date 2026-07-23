@@ -177,7 +177,8 @@ try:
     updated = datetime.fromisoformat(status["updated_at"])
     age = (datetime.now(timezone.utc) - updated).total_seconds()
     ready_states = {
-        "RUNNING", "AUTH_BACKOFF", "IP_BLOCKED", "RECOVERY_BLOCKED"
+        "RUNNING", "AUTH_BACKOFF", "IP_BLOCKED", "RECOVERY_BLOCKED",
+        "INTENTIONALLY_STOPPED"
     }
     raise SystemExit(
         0 if status.get("state") in ready_states and 0 <= age <= 90 else 1
@@ -350,8 +351,8 @@ else
   printf 'BINANCE_AUTH_STATE_FILE=%s/db/auth_resilience.json\n' \
     "${PROJECT_DIR}" >>.env
 fi
-if ! grep -q '^BINANCE_PUBLIC_IP_ENDPOINT=' .env; then
-  printf 'BINANCE_PUBLIC_IP_ENDPOINT=https://api.ipify.org\n' >>.env
+if ! grep -q '^BINANCE_PUBLIC_IP_ENDPOINTS=' .env; then
+  printf 'BINANCE_PUBLIC_IP_ENDPOINTS=https://api.ipify.org,https://checkip.amazonaws.com\n' >>.env
 fi
 chmod 0600 .env
 
@@ -458,8 +459,13 @@ render_unit deploy/ladder-dragon-depth-archive.service \
   /etc/systemd/system/ladder-dragon-depth-archive.service
 install -m 0644 deploy/ladder-dragon-depth-archive.timer \
   /etc/systemd/system/ladder-dragon-depth-archive.timer
+render_unit deploy/ladder-dragon-soak-audit.service \
+  /etc/systemd/system/ladder-dragon-soak-audit.service
+install -m 0644 deploy/ladder-dragon-soak-audit.timer \
+  /etc/systemd/system/ladder-dragon-soak-audit.timer
 install -d -o "${BOT_USER}" -g "${BOT_USER}" -m 0750 \
   /var/lib/ladder-dragon/depth-archives
+install -d -o root -g root -m 0750 /var/lib/ladder-dragon/soak
 
 backup_mount_dropin="/etc/systemd/system/ladder-dragon-backup.service.d/external-mount.conf"
 rm -f "${backup_mount_dropin}"
@@ -505,14 +511,22 @@ nginx -t
 systemctl daemon-reload
 systemctl disable --now make-pi-backup.timer make-pi-backup.service 2>/dev/null || true
 restore_autostart
+if [[ "${MYBOT_WAS_ACTIVE}" == "1" ]]; then
+  .venv/bin/python -m bin.maintenance_state clear >/dev/null
+else
+  .venv/bin/python -m bin.maintenance_state set \
+    --reason "Service was intentionally stopped before release update" \
+    >/dev/null || [[ "$?" == "2" ]]
+fi
 systemctl enable ladder-dragon-backup.timer ladder-dragon-log-export.timer \
-  ladder-dragon-depth-archive.timer \
+  ladder-dragon-depth-archive.timer ladder-dragon-soak-audit.timer \
   >/dev/null
 start_previous_services
 systemctl start ladder-dragon-backup.timer
 systemctl start ladder-dragon-backup.service
 systemctl start ladder-dragon-log-export.service ladder-dragon-log-export.timer
 systemctl start ladder-dragon-depth-archive.timer
+systemctl start ladder-dragon-soak-audit.service ladder-dragon-soak-audit.timer
 systemctl restart systemd-journald
 systemctl try-restart fail2ban || true
 systemctl try-restart zramswap || true

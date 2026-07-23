@@ -561,6 +561,28 @@ def test_public_depth_archive_has_timer_retention_and_no_secret_environment():
     assert "/usr/local/bin/ladder-dragon-depth-archive" in runtime_assets
 
 
+def test_soak_audit_is_periodic_signed_and_transition_notified():
+    wrapper = read("deploy/run_production_soak_audit.sh")
+    service = read("deploy/ladder-dragon-soak-audit.service")
+    timer = read("deploy/ladder-dragon-soak-audit.timer")
+    installer = read("deploy/install_raspberry_pi.sh")
+    updater = read("deploy/update_raspberry_pi.sh")
+    runtime_assets = read("deploy/install_runtime_assets.sh")
+    backup = read("deploy/backup_raspberry_pi.sh")
+    assert "openssl genpkey -algorithm ED25519" in wrapper
+    assert "openssl pkeyutl -sign -rawin" in wrapper
+    assert "--notify-on-change" in wrapper
+    assert "OnUnitActiveSec=15m" in timer
+    assert "User=root" in service
+    assert "CapabilityBoundingSet=\n" in service
+    assert "ReadWritePaths=/var/lib/ladder-dragon/soak /etc/ladder-dragon" in service
+    assert "ladder-dragon-soak-audit.timer" in installer
+    assert "ladder-dragon-soak-audit.timer" in updater
+    assert "/usr/local/bin/ladder-dragon-soak-audit" in runtime_assets
+    assert "/etc/ladder-dragon/soak-report-signing.pem" in backup
+    assert "/var/lib/ladder-dragon/soak" in backup
+
+
 def test_updates_are_commit_allowlisted_and_backups_are_encrypted():
     updater = read("deploy/update_raspberry_pi.sh")
     installer = read("deploy/install_raspberry_pi.sh")
@@ -665,7 +687,8 @@ def test_watchdog_uses_current_heartbeat_and_not_legacy_runner_name():
     assert "STRIKES" in watchdog
     assert "systemctl restart mybot.service" in watchdog
     for state in (
-        "RUNNING", "AUTH_BACKOFF", "IP_BLOCKED", "RECOVERY_BLOCKED"
+        "RUNNING", "AUTH_BACKOFF", "IP_BLOCKED", "RECOVERY_BLOCKED",
+        "INTENTIONALLY_STOPPED",
     ):
         assert state in watchdog
         assert state in updater
@@ -707,6 +730,7 @@ def test_systemd_units_have_extended_sandboxing():
         "deploy/ladder-dragon-backup.service",
         "deploy/ladder-dragon-log-export.service",
         "deploy/ladder-dragon-depth-archive.service",
+        "deploy/ladder-dragon-soak-audit.service",
     ):
         unit = read(relative)
         assert "ProtectKernelTunables=yes" in unit

@@ -132,6 +132,8 @@ for path in \
   /etc/systemd/system/pi-healthd.service \
   /etc/systemd/system/ladder-dragon-log-export.service \
   /etc/systemd/system/ladder-dragon-log-export.timer \
+  /etc/systemd/system/ladder-dragon-soak-audit.service \
+  /etc/systemd/system/ladder-dragon-soak-audit.timer \
 	  /etc/nginx/sites-available \
 	  /etc/nginx/snippets/pi_api.conf \
 	  /etc/nginx/snippets/ladder_dragon_proxy_secret.conf \
@@ -147,11 +149,15 @@ done
 # encrypted age archive. They never enter the HTTP directory.
 for path in \
   /etc/ladder-dragon/telegram.env \
+  /etc/ladder-dragon/soak-report-signing.pem \
+  /etc/ladder-dragon/soak-report-signing.pub.pem \
   /etc/systemd/system/pi-watchdog-v3.service \
   /etc/systemd/system/pi-watchdog-v3.timer \
   /etc/systemd/system/pi-watchdog-v3.service.d \
   /etc/logrotate.d/pi-watchdog \
   /usr/local/bin/pi-watchdog_v3.sh \
+  /usr/local/bin/ladder-dragon-soak-audit \
+  /var/lib/ladder-dragon/soak \
   /var/log/pi-watchdog.log; do
   [[ -e "${path}" ]] && copy_rootfs_path "${path}"
 done

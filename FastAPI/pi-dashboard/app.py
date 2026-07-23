@@ -16,6 +16,10 @@ import sqlite3
 from typing import List, Dict, Optional, Tuple
 
 from ladder_dragon.ai.ai_runtime_status import read_runtime_status
+from ladder_dragon.execution.maintenance_state import (
+    DEFAULT_PATH as DEFAULT_MAINTENANCE_PATH,
+    load_maintenance_state,
+)
 from ladder_dragon.ai.ai_control import (
     read_ai_control,
     resolve_ai_control_path,
@@ -84,6 +88,9 @@ _AI_SUMMARY_CACHE: Dict[str, Dict[str, object]] = {}
 _AI_SUMMARY_CACHE_LOCK = threading.Lock()
 AI_RUNTIME_STATUS_FILE = Path(
     os.getenv("AI_RUNTIME_STATUS_FILE", "/run/mybot/ai_status.json")
+)
+BOT_MAINTENANCE_FILE = Path(
+    os.getenv("BOT_MAINTENANCE_FILE", str(DEFAULT_MAINTENANCE_PATH))
 )
 AI_CONTROL_FILE = resolve_ai_control_path(os.getenv("AI_CONTROL_FILE"))
 DASHBOARD_FOLLOW_BOT_PATHS = (
@@ -241,6 +248,23 @@ def _load_ai_runtime_status() -> Dict:
 def _runtime_heartbeat_snapshot() -> Dict[str, object]:
     """Report bot heartbeat age instead of confusing it with service uptime."""
     runtime = _load_ai_runtime_status()
+    try:
+        maintenance = load_maintenance_state(BOT_MAINTENANCE_FILE)
+    except (OSError, TypeError, ValueError, json.JSONDecodeError):
+        maintenance = None
+    if maintenance is not None and maintenance.active:
+        return {
+            "state": "INTENTIONALLY_STOPPED",
+            "updated_at": datetime.fromtimestamp(
+                maintenance.updated_at_epoch, APP_TZ
+            ).strftime("%Y-%m-%d %H:%M:%S"),
+            "age_sec": max(
+                0.0, round(time.time() - maintenance.updated_at_epoch, 1)
+            ),
+            "fresh": False,
+            "alive_fail_closed": True,
+            "warning": maintenance.reason,
+        }
     state = str(runtime.get("state") or "unknown")
     updated_raw = runtime.get("updated_at")
     if not isinstance(updated_raw, str) or not updated_raw.strip():
@@ -255,7 +279,10 @@ def _runtime_heartbeat_snapshot() -> Dict[str, object]:
         )
     except (TypeError, ValueError, OverflowError):
         return {"state": state, "updated_at": None, "age_sec": None, "fresh": False}
-    blocked_states = {"AUTH_BACKOFF", "IP_BLOCKED", "RECOVERY_BLOCKED"}
+    blocked_states = {
+        "AUTH_BACKOFF", "IP_BLOCKED", "RECOVERY_BLOCKED",
+        "INTENTIONALLY_STOPPED",
+    }
     return {
         "state": state,
         "updated_at": updated.astimezone(APP_TZ).strftime("%Y-%m-%d %H:%M:%S"),

@@ -226,6 +226,9 @@ def test_filled_buy_remains_unresolved_until_protection_is_confirmed(tmp_path):
     assert journal.get(buy.client_order_id).state == "PROTECTED"
     assert journal.get(protection.client_order_id).exchange_order_list_id == 456
     assert journal.unresolved_buys("SOLUSDT") == []
+    assert [
+        item.client_order_id for item in journal.protected_buys("SOLUSDT")
+    ] == [buy.client_order_id]
 
 
 def test_unknown_submission_is_kept_for_reconciliation(tmp_path):

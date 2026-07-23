@@ -757,7 +757,11 @@ def test_supervisor_reconciles_durable_order_before_running(
         SimpleNamespace(live=True, testnet=False), ["SOLUSDT"]
     )
 
-    assert result == {"checked": 1, "blocked": False}
+    assert result == {
+        "checked": 1,
+        "protection_checks": 0,
+        "blocked": False,
+    }
     assert journal.get("LDBLAD-recover").state == "SUBMITTED"
 
 
@@ -819,7 +823,8 @@ def test_public_ip_guard_alert_never_exposes_address(
         "BINANCE_AUTH_STATE_FILE", str(tmp_path / "auth.json")
     )
     monkeypatch.setenv(
-        "BINANCE_PUBLIC_IP_ENDPOINT", "https://ip.example.invalid"
+        "BINANCE_PUBLIC_IP_ENDPOINTS",
+        "https://one.example.invalid,https://two.example.invalid",
     )
     monkeypatch.setattr(ai_supervisor.requests, "get", lambda *_a, **_k: Response())
     monkeypatch.setattr(
@@ -833,6 +838,166 @@ def test_public_ip_guard_alert_never_exposes_address(
     persisted = (tmp_path / "auth.json").read_text()
     assert raw_ip not in persisted
     assert raw_ip not in str(alerts)
+
+
+def test_public_ip_guard_disagreement_cannot_create_false_block(
+    monkeypatch
+):
+    from ladder_dragon.execution.auth_resilience import (
+        AuthResilienceState,
+        public_ip_fingerprint,
+    )
+
+    baseline = AuthResilienceState(
+        public_ip_sha256=public_ip_fingerprint("203.0.113.90")
+    )
+
+    class Response:
+        def __init__(self, text):
+            self.text = text
+
+        @staticmethod
+        def raise_for_status():
+            return None
+
+    monkeypatch.setenv(
+        "BINANCE_PUBLIC_IP_ENDPOINTS",
+        "https://one.example.invalid,https://two.example.invalid",
+    )
+    monkeypatch.setattr(
+        ai_supervisor.requests,
+        "get",
+        lambda url, **_kwargs: Response(
+            "203.0.113.91" if "one." in url else "203.0.113.92"
+        ),
+    )
+    monkeypatch.setattr(
+        ai_supervisor, "_save_auth_resilience_state",
+        lambda _state: pytest.fail("disagreement was persisted"),
+    )
+    monkeypatch.setattr(
+        ai_supervisor, "notify",
+        lambda *_args, **_kwargs: pytest.fail("false change alert sent"),
+    )
+
+    assert ai_supervisor._observe_public_ip(baseline) == baseline
+
+
+def _protected_oco_journal(tmp_path):
+    from ladder_dragon.execution.order_recovery import OrderJournal
+
+    journal = OrderJournal(tmp_path / "orders.sqlite3", venue="mainnet")
+    buy = journal.prepare(
+        client_order_id="LDBLAD-protected",
+        symbol="SOLUSDT",
+        side="BUY",
+        purpose="ladder",
+        order_type="LIMIT",
+        quantity="0.1",
+        price="75",
+    )
+    journal.record_exchange_order(
+        buy.client_order_id,
+        {
+            "orderId": 124,
+            "status": "FILLED",
+            "executedQty": "0.1",
+            "cummulativeQuoteQty": "7.5",
+        },
+    )
+    protection = journal.prepare(
+        client_order_id="LDSOCO-protected",
+        parent_client_order_id=buy.client_order_id,
+        symbol="SOLUSDT",
+        side="SELL",
+        purpose="oco",
+        order_type="OCO",
+        quantity="0.1",
+        price="76",
+    )
+    journal.mark_protected(
+        parent_client_order_id=buy.client_order_id,
+        protection_client_order_id=protection.client_order_id,
+        order_list_id=700,
+    )
+    return journal, buy, protection
+
+
+def test_supervisor_verifies_both_oco_legs_before_running(
+    tmp_path, monkeypatch
+):
+    journal, _buy, protection = _protected_oco_journal(tmp_path)
+    monkeypatch.setenv("BOT_ORDER_JOURNAL", str(journal.path))
+
+    def signed_get(path, params):
+        if path == "/api/v3/orderList":
+            return {
+                "orderListId": 700,
+                "listClientOrderId": protection.client_order_id,
+                "contingencyType": "OCO",
+                "listStatusType": "EXEC_STARTED",
+                "orders": [
+                    {"orderId": 701, "symbol": "SOLUSDT"},
+                    {"orderId": 702, "symbol": "SOLUSDT"},
+                ],
+            }
+        order_id = int(params["orderId"])
+        return {
+            "orderId": order_id,
+            "orderListId": 700,
+            "symbol": "SOLUSDT",
+            "side": "SELL",
+            "type": "LIMIT_MAKER" if order_id == 701 else "STOP_LOSS_LIMIT",
+            "status": "NEW",
+        }
+
+    monkeypatch.setattr(ai_supervisor.TM, "_signed_get", signed_get)
+
+    result = ai_supervisor._pre_running_recovery_gate(
+        SimpleNamespace(live=True, testnet=False), ["SOLUSDT"]
+    )
+
+    assert result["protection_checks"] == 3
+    metadata = journal.get(protection.client_order_id).metadata
+    assert {row["order_id"] for row in metadata["verified_legs"]} == {
+        701, 702
+    }
+
+
+def test_supervisor_blocks_terminal_oco_leg(
+    tmp_path, monkeypatch
+):
+    journal, _buy, _protection = _protected_oco_journal(tmp_path)
+    monkeypatch.setenv("BOT_ORDER_JOURNAL", str(journal.path))
+
+    def signed_get(path, params):
+        if path == "/api/v3/orderList":
+            return {
+                "orderListId": 700,
+                "listClientOrderId": "LDSOCO-protected",
+                "contingencyType": "OCO",
+                "listStatusType": "EXEC_STARTED",
+                "orders": [
+                    {"orderId": 701, "symbol": "SOLUSDT"},
+                    {"orderId": 702, "symbol": "SOLUSDT"},
+                ],
+            }
+        order_id = int(params["orderId"])
+        return {
+            "orderId": order_id,
+            "orderListId": 700,
+            "symbol": "SOLUSDT",
+            "side": "SELL",
+            "type": "LIMIT_MAKER" if order_id == 701 else "STOP_LOSS_LIMIT",
+            "status": "CANCELED" if order_id == 702 else "NEW",
+        }
+
+    monkeypatch.setattr(ai_supervisor.TM, "_signed_get", signed_get)
+
+    with pytest.raises(RuntimeError, match="terminal or unknown leg"):
+        ai_supervisor._pre_running_recovery_gate(
+            SimpleNamespace(live=True, testnet=False), ["SOLUSDT"]
+        )
 
 
 def test_supervisor_auth_backoff_does_not_hide_other_preflight_errors():
@@ -861,6 +1026,44 @@ def test_supervisor_auth_backoff_does_not_hide_other_preflight_errors():
     assert not ai_supervisor._auth_backoff_active(
         retry_at, now=1_240.0
     )
+
+
+def test_supervisor_live_waits_while_maintenance_is_active(
+    tmp_path, monkeypatch
+):
+    from ladder_dragon.execution.maintenance_state import MaintenanceState
+
+    states = iter((
+        MaintenanceState(
+            active=True,
+            reason="Operator intentionally stopped trading",
+            updated_at_epoch=100,
+        ),
+        MaintenanceState(),
+    ))
+    published = []
+    sleeps = []
+    monkeypatch.setattr(
+        ai_supervisor, "load_maintenance_state", lambda _path: next(states)
+    )
+    monkeypatch.setattr(
+        ai_supervisor,
+        "_publish_ai_runtime_status",
+        lambda **updates: published.append(updates),
+    )
+    monkeypatch.setattr(
+        ai_supervisor.time, "sleep", lambda seconds: sleeps.append(seconds)
+    )
+
+    ai_supervisor._wait_for_maintenance_clear(
+        SimpleNamespace(live=True),
+        SimpleNamespace(halt_file=tmp_path / "halt.json"),
+    )
+
+    assert sleeps == [30]
+    assert published[0]["state"] == "INTENTIONALLY_STOPPED"
+    assert published[0]["risk"]["buy_blocked"] is True
+    assert published[-1]["maintenance"]["active"] is False
     runtime_source = inspect.getsource(ai_supervisor.main)
     defer = runtime_source.index(
         "BUY cancellation deferred until "
@@ -1167,7 +1370,7 @@ def test_unvalued_asset_ack_must_match_exactly(monkeypatch):
 
 
 def test_remaining_order_budget_normalizes_legacy_float_telemetry(tmp_path):
-    configured = ai_supervisor.RiskLimits.from_env()
+    configured = ai_supervisor.RiskLimits.from_mapping({})
     observed = ai_supervisor.RiskSnapshot(
         equity_usdt=794.25,
         exposure_usdt=463.15,

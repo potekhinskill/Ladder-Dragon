@@ -3,7 +3,8 @@ import json
 from pathlib import Path
 import sqlite3
 
-from bin.production_soak_report import build_report
+from bin import production_soak_report
+from bin.production_soak_report import build_report, notify_on_transition
 from ladder_dragon.execution.order_recovery import OrderJournal
 
 
@@ -44,3 +45,43 @@ def test_soak_report_cannot_approve_short_or_incomplete_run(tmp_path):
     assert report["checks"]["duration_met"] is False
     assert report["checks"]["exact_lifecycles_met"] is False
     assert report["checks"]["prediction_samples_met"] is False
+    assert report["checks"]["prediction_gate_approved"] is False
+
+
+def test_soak_report_missing_runtime_fails_closed(tmp_path):
+    report = build_report(
+        runtime_path=tmp_path / "missing-runtime.json",
+        journal_path=tmp_path / "missing-journal.sqlite3",
+        prediction_path=tmp_path / "missing-prediction.sqlite3",
+        required_hours=24,
+        required_lifecycles=3,
+        required_predictions=100,
+        now_epoch=1_700_000_000,
+    )
+    assert report["approved"] is False
+    assert report["runtime"]["state"] == "UNAVAILABLE"
+    assert report["checks"]["runtime_running"] is False
+
+
+def test_soak_telegram_notifies_only_on_status_transition(
+    tmp_path, monkeypatch
+):
+    calls = []
+    monkeypatch.setattr(
+        production_soak_report,
+        "notify",
+        lambda *args, **kwargs: calls.append((args, kwargs)) or True,
+    )
+    state = tmp_path / "notification-state.json"
+    report = {
+        "approved": False,
+        "checks": {"duration_met": False, "runtime_running": True},
+        "product_version": "test",
+    }
+    assert notify_on_transition(report, state) is True
+    assert notify_on_transition(report, state) is False
+    changed = dict(report)
+    changed["approved"] = True
+    changed["checks"] = {key: True for key in report["checks"]}
+    assert notify_on_transition(changed, state) is True
+    assert len(calls) == 2
