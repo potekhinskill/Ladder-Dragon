@@ -184,7 +184,12 @@ def test_supervisor_reanchor_cancels_once_and_returns_bounded_replacement(monkey
     )
 
     result = ai_supervisor.smart_rolling(
-        "SOLUSDT", 110.0, [109.0, 105.0], args, tick_size="0.01"
+        "SOLUSDT",
+        110.0,
+        [109.0, 105.0],
+        args,
+        tick_size="0.01",
+        prediction_apply_approved=True,
     )
 
     assert canceled == [("SOLUSDT", 7)]
@@ -192,6 +197,38 @@ def test_supervisor_reanchor_cancels_once_and_returns_bounded_replacement(monkey
     assert result["replacement_prices"] == [100.5]
     assert lifetimes[0][1]["cancel_reason"] == "adaptive-reanchor"
     assert stopped == [("SOLUSDT", "adaptive BUY re-anchor")]
+    assert result["apply_gate_approved"] is True
+
+
+def test_supervisor_reanchor_apply_falls_back_to_shadow_without_gate(
+    monkeypatch,
+):
+    monkeypatch.setattr(ai_supervisor, "list_open_orders", lambda symbol: [order(7)])
+    canceled = []
+    monkeypatch.setattr(
+        ai_supervisor,
+        "cancel_order",
+        lambda symbol, order_id: canceled.append(order_id) or True,
+    )
+    monkeypatch.setattr(ai_supervisor.time, "time", lambda: 1_000)
+    messages = []
+    monkeypatch.setattr(ai_supervisor, "log", messages.append)
+    args = SimpleNamespace(
+        reanchor_mode="APPLY",
+        reanchor_min_age_sec=120,
+        reanchor_trigger_pct=Decimal("0.0025"),
+        reanchor_max_step_pct=Decimal("0.005"),
+        reanchor_max_per_cycle=1,
+    )
+
+    result = ai_supervisor.smart_rolling(
+        "SOLUSDT", 110.0, [109.0], args, tick_size="0.01"
+    )
+
+    assert canceled == []
+    assert result["effective_mode"] == "SHADOW"
+    assert result["cancel"]["shadow"] == 1
+    assert any(message.startswith("[REANCHOR-GATE]") for message in messages)
 
 
 def test_supervisor_reanchor_is_disabled_by_default_and_fails_closed(monkeypatch):

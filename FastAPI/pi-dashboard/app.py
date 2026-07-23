@@ -1019,6 +1019,11 @@ def trading_overview_snapshot() -> Dict[str, object]:
             if isinstance(runtime.get("reanchor"), dict)
             else {}
         ),
+        "prediction": (
+            runtime.get("prediction", {})
+            if isinstance(runtime.get("prediction"), dict)
+            else {}
+        ),
         "risk": {
             "buy_blocked": bool(risk.get("buy_blocked", False)), "halted": bool(risk.get("halted", False)),
             "reasons": risk.get("reasons", []), "cooldown_until": risk_state.get("cooldown_until"),

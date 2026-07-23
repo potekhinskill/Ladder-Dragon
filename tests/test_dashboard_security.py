@@ -427,6 +427,11 @@ def test_trading_overview_prefers_current_open_order(monkeypatch):
             "trigger_pct": "0.0005",
             "totals": {"shadow_candidates": 3, "apply_cancels": 0},
         },
+        "prediction": {
+            "mode": "SHADOW",
+            "can_change_orders": False,
+            "horizons_min": [1, 5, 15],
+        },
     })
     monkeypatch.setattr(module, "_bot_service_config", lambda: {
         "symbols": ["SOLUSDT"], "execution_mode": "LIVE", "venue": "mainnet",
@@ -461,6 +466,8 @@ def test_trading_overview_prefers_current_open_order(monkeypatch):
     assert snapshot["orders"]["journal_available"] is True
     assert snapshot["reanchor"]["mode"] == "SHADOW"
     assert snapshot["reanchor"]["totals"]["shadow_candidates"] == 3
+    assert snapshot["prediction"]["mode"] == "SHADOW"
+    assert snapshot["prediction"]["can_change_orders"] is False
 
 
 def test_trading_overview_classifies_preexisting_inventory_as_legacy(monkeypatch):

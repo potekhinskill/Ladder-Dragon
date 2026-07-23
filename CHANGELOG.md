@@ -3,6 +3,43 @@
 All notable changes are documented here. Releases use Semantic Versioning; every
 section is dated and there is intentionally no `Unreleased` section.
 
+## [2.20.14] — 2026-07-23
+
+### Added
+- Added a look-ahead-safe technical prediction layer for 1, 5 and 15 minute
+  horizons with trend, volatility, momentum, volume, public taker-flow, L2
+  spread/depth and market-regime features.
+- Added an immutable SQLite SHADOW journal that resolves BUY fill, TP-before-STOP,
+  exact net PnL after fee/slippage, adverse movement and fill time. Re-anchor
+  candidates retain both the proposed and original BUY plans for paired
+  counterfactual evaluation.
+- Correlated each prediction with the sanitized executor PANIC state and
+  debounce count so PANIC sensitivity can be evaluated against later outcomes
+  instead of weakened from anecdotal cancellations.
+- Added expanding walk-forward reporting and a fail-closed APPLY eligibility
+  gate covering independent sample count, lower confidence bounds, paired
+  baseline edge, Holm correction, four regimes, fill rate and drawdown.
+
+### Fixed
+- Prediction public reads run only after the deterministic worker launch and are
+  rate-limited to one attempt per symbol per minute, so SHADOW collection cannot
+  delay PANIC recovery or alter worker parameters.
+
+### Safety
+- Prediction has no order capability and always remains observation-only.
+  Re-anchor APPLY now requires both an explicit operator setting and a passing
+  statistical gate; missing or unreadable evidence falls back to SHADOW. No
+  result can bypass Risk Manager, PANIC, circuit-breaker, reserve or exposure
+  gates.
+- Only closed bars at or before each immutable decision timestamp are accepted.
+  Ambiguous same-bar TP/STOP outcomes resolve to STOP, and unavailable trade
+  flow is explicitly marked unavailable instead of synthesized.
+
+### Verified
+- Full project `pytest` passes all 462 collected tests with the documented
+  test risk-limit defaults. Project-wide `compileall`, focused prediction,
+  counterfactual, walk-forward, stream, dashboard and re-anchor checks pass.
+
 ## [2.20.13] — 2026-07-23
 
 ### Fixed

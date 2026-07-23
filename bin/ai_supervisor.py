@@ -18,6 +18,7 @@ import subprocess
 import json
 import sqlite3
 import re
+import hashlib
 from dataclasses import asdict, replace
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal, InvalidOperation
@@ -77,6 +78,14 @@ from ladder_dragon.strategy.strategy_math import split_ladder
 from ladder_dragon.strategy.strategy_math import RegimeHysteresis
 from ladder_dragon.strategy.strategy_math import NumericHysteresis
 from ladder_dragon.strategy.reanchor import plan_buy_reanchors
+from ladder_dragon.strategy.prediction import (
+    PredictionShadowStore,
+    TradePlan,
+    build_prediction_features,
+    predict_distribution,
+    trade_flow_from_agg_trades,
+    walk_forward_prediction_report,
+)
 from ladder_dragon.numeric_compat import compatibility_float
 from bin.supervisor_config import build_supervisor_parser, validate_supervisor_args
 
@@ -158,6 +167,11 @@ _AI_POLICY: Optional[PolicyConfig] = None
 _AI_RUNTIME_STATUS_PATH: Optional[Path] = None
 _AI_RUNTIME_STATUS: Dict[str, Any] = {}
 _AI_CONTROL_PATH: Optional[Path] = None
+_PREDICTION_SHADOW: Optional[PredictionShadowStore] = None
+_PREDICTION_LAST_ATTEMPT: Dict[str, float] = {}
+_PREDICTION_GATE_CACHE: Dict[
+    str, tuple[float, dict[str, object]]
+] = {}
 # Keep one decision_id for the lifetime of a cached recommendation. This
 # prevents virtual statistics and RAG from treating every supervisor cycle as a new model.
 _AI_DECISION_IDS: Dict[str, str] = {}
@@ -1211,17 +1225,27 @@ def smart_rolling(symbol: str,
                   ladder: List[float],
                   args: argparse.Namespace,
                   *,
-                  tick_size: object) -> Dict[str, Any]:
+                  tick_size: object,
+                  prediction_apply_approved: bool = False) -> Dict[str, Any]:
     # Open-order visibility is an execution prerequisite. Propagate failures
     # instead of assuming an empty book and potentially duplicating orders.
     open_orders = list_open_orders(symbol)
-    reanchor_mode = str(getattr(args, "reanchor_mode", "OFF")).upper()
+    configured_mode = str(getattr(args, "reanchor_mode", "OFF")).upper()
+    reanchor_mode = configured_mode
+    if configured_mode == "APPLY" and not prediction_apply_approved:
+        reanchor_mode = "SHADOW"
+        log(
+            f"[REANCHOR-GATE] {symbol} APPLY blocked; "
+            "prediction evidence remains SHADOW"
+        )
     if reanchor_mode == "OFF":
         return {
             "kept": len(open_orders),
             "cancel": {"ttl": 0, "atr": 0, "reanchor": 0, "shadow": 0},
             "replacement_prices": [],
             "proposals": [],
+            "effective_mode": "OFF",
+            "apply_gate_approved": False,
         }
     try:
         planned = plan_buy_reanchors(
@@ -1242,6 +1266,8 @@ def smart_rolling(symbol: str,
             "cancel": {"ttl": 0, "atr": 0, "reanchor": 0, "shadow": 0},
             "replacement_prices": [],
             "proposals": [],
+            "effective_mode": reanchor_mode,
+            "apply_gate_approved": bool(prediction_apply_approved),
         }
 
     proposals = [
@@ -1271,6 +1297,8 @@ def smart_rolling(symbol: str,
             },
             "replacement_prices": [],
             "proposals": proposals,
+            "effective_mode": "SHADOW",
+            "apply_gate_approved": bool(prediction_apply_approved),
         }
 
     canceled = 0
@@ -1314,6 +1342,8 @@ def smart_rolling(symbol: str,
         "cancel": {"ttl": 0, "atr": 0, "reanchor": canceled, "shadow": 0},
         "replacement_prices": replacements,
         "proposals": proposals,
+        "effective_mode": "APPLY",
+        "apply_gate_approved": True,
     }
 
 
@@ -1357,11 +1387,303 @@ def _publish_reanchor_runtime(
         "proposals": safe_proposals,
     }
     runtime.update({
-        "mode": str(getattr(args, "reanchor_mode", "OFF")).upper(),
+        "configured_mode": str(
+            getattr(args, "reanchor_mode", "OFF")
+        ).upper(),
+        "mode": str(
+            result.get("effective_mode")
+            or getattr(args, "reanchor_mode", "OFF")
+        ).upper(),
+        "apply_gate_approved": bool(
+            result.get("apply_gate_approved", False)
+        ),
         "min_age_sec": int(getattr(args, "reanchor_min_age_sec", 120)),
         "trigger_pct": str(getattr(args, "reanchor_trigger_pct", "0.0025")),
         "max_step_pct": str(getattr(args, "reanchor_max_step_pct", "0.005")),
         "max_per_cycle": int(getattr(args, "reanchor_max_per_cycle", 1)),
+    })
+    _publish_ai_runtime_status()
+
+
+def _prediction_reanchor_gate(symbol: str) -> dict[str, object]:
+    """Return the current immutable counterfactual approval evidence."""
+    now_monotonic = time.monotonic()
+    cached = _PREDICTION_GATE_CACHE.get(symbol)
+    if cached is not None and now_monotonic - cached[0] < 60:
+        return cached[1]
+    if _PREDICTION_SHADOW is None:
+        result = {
+            "approved": False,
+            "mode": "SHADOW",
+            "reasons": ["prediction journal is unavailable"],
+        }
+    else:
+        try:
+            samples = _PREDICTION_SHADOW.resolved_samples(
+                symbol, kind="REANCHOR"
+            )
+            result = walk_forward_prediction_report(samples)["gate"]
+        except (OSError, sqlite3.Error, TypeError, ValueError):
+            result = {
+                "approved": False,
+                "mode": "SHADOW",
+                "reasons": ["prediction gate evidence is unreadable"],
+            }
+    _PREDICTION_GATE_CACHE[symbol] = (now_monotonic, result)
+    return result
+
+
+def _prediction_plan(
+    entry_price: object,
+    *,
+    take_profit_pct: object,
+    stop_pct: object,
+    notional_quote: Decimal,
+    fee_pct: Decimal,
+    slippage_pct: Decimal,
+) -> TradePlan:
+    """Create one exact long-only counterfactual plan."""
+    entry = _finite_decimal(entry_price, name="prediction entry")
+    take_profit = _finite_decimal(
+        take_profit_pct, name="prediction take profit"
+    )
+    stop = _finite_decimal(stop_pct, name="prediction stop")
+    return TradePlan(
+        entry_price=entry,
+        take_profit_price=entry * (Decimal("1") + take_profit),
+        stop_price=entry * (Decimal("1") + stop),
+        notional_quote=notional_quote,
+        fee_pct=fee_pct,
+        slippage_pct=slippage_pct,
+    )
+
+
+def _prediction_panic_state(
+    symbol: str,
+) -> tuple[bool | None, int | None]:
+    """Read only the executor's sanitized PANIC state."""
+    safe_symbol = symbol.strip().upper()
+    if not re.fullmatch(r"[A-Z0-9]{1,20}", safe_symbol):
+        return None, None
+    path = Path(os.getenv("BOT_RUN_DIR", "/run/mybot")) / (
+        f"panic_state_{safe_symbol}.json"
+    )
+    try:
+        if not path.is_file() or path.stat().st_size > 16_384:
+            return None, None
+        payload = json.loads(path.read_text(encoding="utf-8"))
+        if (
+            not isinstance(payload, dict)
+            or int(payload.get("schema_version", 0)) != 1
+            or not isinstance(payload.get("on"), bool)
+        ):
+            return None, None
+        hits = int(payload.get("hits", 0) or 0)
+        if not 0 <= hits <= 1_000_000:
+            return None, None
+        return bool(payload["on"]), hits
+    except (
+        OSError,
+        TypeError,
+        ValueError,
+        OverflowError,
+        json.JSONDecodeError,
+    ):
+        return None, None
+
+
+def _record_prediction_shadow(
+    symbol: str,
+    *,
+    now_price: object,
+    ladder: List[float],
+    take_profit_pct: object,
+    stop_pct: object,
+    deterministic_mode: str,
+    rolling: Mapping[str, object],
+) -> None:
+    """Persist look-ahead-safe forecasts without changing an order decision."""
+    if _PREDICTION_SHADOW is None:
+        return
+    interval = max(
+        10,
+        int(os.getenv("PREDICTION_SHADOW_INTERVAL_SEC", "60") or "60"),
+    )
+    now_monotonic = time.monotonic()
+    if (
+        now_monotonic - _PREDICTION_LAST_ATTEMPT.get(symbol, 0.0)
+        < interval
+    ):
+        return
+    # Rate-limit failed public reads as well as successful snapshots.
+    _PREDICTION_LAST_ATTEMPT[symbol] = now_monotonic
+    cap = _finite_decimal(
+        os.getenv("BOT_CAP_PER_ORDER", "0") or "0",
+        name="BOT_CAP_PER_ORDER",
+    )
+    if cap <= 0:
+        return
+    fee = _finite_decimal(
+        os.getenv("PREDICTION_FEE_PCT", "0.00075") or "0.00075",
+        name="PREDICTION_FEE_PCT",
+    )
+    slippage = _finite_decimal(
+        os.getenv("PREDICTION_SLIPPAGE_PCT", "0.0005") or "0.0005",
+        name="PREDICTION_SLIPPAGE_PCT",
+    )
+    as_of_ms = int(TM._timestamp_ms())
+    klines = TM.get_klines(symbol, "1m", limit=1000)
+    preliminary, _ = build_prediction_features(klines, as_of_ms=as_of_ms)
+    snapshot_ms = preliminary.snapshot_ts_ms
+    depth_raw = TM._public_get(
+        "/api/v3/depth", {"symbol": symbol.upper(), "limit": 20}
+    )
+    depth = depth_raw if isinstance(depth_raw, Mapping) else None
+    trades_raw = TM._public_get(
+        "/api/v3/aggTrades",
+        {
+            "symbol": symbol.upper(),
+            "startTime": snapshot_ms - 60_000,
+            "endTime": snapshot_ms,
+            "limit": 1000,
+        },
+    )
+    trades = trades_raw if isinstance(trades_raw, list) else []
+    flow, flow_available = trade_flow_from_agg_trades(
+        [row for row in trades if isinstance(row, Mapping)],
+        start_ms=snapshot_ms - 60_000,
+        end_ms=snapshot_ms,
+    )
+    # A full Binance page may have truncated a high-activity minute. Keep the
+    # value for diagnostics but never claim that such trade flow is complete.
+    flow_available = flow_available and len(trades) < 1000
+    panic_active, panic_hits = _prediction_panic_state(symbol)
+    features, bars = build_prediction_features(
+        klines,
+        as_of_ms=as_of_ms,
+        depth=depth,
+        trade_flow_imbalance=flow,
+        trade_flow_available=flow_available,
+        executor_panic_active=panic_active,
+        executor_panic_hits=panic_hits,
+    )
+    settled = _PREDICTION_SHADOW.settle(
+        symbol, bars, as_of_ms=features.snapshot_ts_ms
+    )
+    history = _PREDICTION_SHADOW.resolved_samples(
+        symbol, before_ts_ms=features.snapshot_ts_ms, kind="STRATEGY"
+    )
+    market = _finite_decimal(now_price, name="prediction market price")
+    buy_levels = sorted(
+        {
+            _finite_decimal(level, name="prediction ladder level")
+            for level in ladder
+            if _finite_decimal(level, name="prediction ladder level") < market
+        },
+        reverse=True,
+    )
+    if buy_levels:
+        strategy_plan = _prediction_plan(
+            buy_levels[0],
+            take_profit_pct=take_profit_pct,
+            stop_pct=stop_pct,
+            notional_quote=cap,
+            fee_pct=fee,
+            slippage_pct=slippage,
+        )
+        predictions = predict_distribution(features, strategy_plan, history)
+        _PREDICTION_SHADOW.record(
+            kind="STRATEGY",
+            symbol=symbol,
+            features=features,
+            plan=strategy_plan,
+            predictions=predictions,
+            algorithm_decision=(
+                f"mode={deterministic_mode};buy={strategy_plan.entry_price};"
+                f"panic={panic_active};reason=current-ladder"
+            ),
+        )
+
+    proposals_raw = rolling.get("proposals")
+    proposals = proposals_raw if isinstance(proposals_raw, list) else []
+    reanchor_history = _PREDICTION_SHADOW.resolved_samples(
+        symbol, before_ts_ms=features.snapshot_ts_ms, kind="REANCHOR"
+    )
+    for proposal in proposals:
+        if not isinstance(proposal, Mapping):
+            continue
+        old_plan = _prediction_plan(
+            proposal.get("old_price"),
+            take_profit_pct=take_profit_pct,
+            stop_pct=stop_pct,
+            notional_quote=cap,
+            fee_pct=fee,
+            slippage_pct=slippage,
+        )
+        proposed_plan = _prediction_plan(
+            proposal.get("target_price"),
+            take_profit_pct=take_profit_pct,
+            stop_pct=stop_pct,
+            notional_quote=cap,
+            fee_pct=fee,
+            slippage_pct=slippage,
+        )
+        predictions = predict_distribution(
+            features, proposed_plan, reanchor_history
+        )
+        order_fingerprint = hashlib.sha256(
+            str(proposal.get("order_id") or "").encode("utf-8")
+        ).hexdigest()[:12]
+        _PREDICTION_SHADOW.record(
+            kind="REANCHOR",
+            symbol=symbol,
+            features=features,
+            plan=proposed_plan,
+            baseline_plan=old_plan,
+            predictions=predictions,
+            algorithm_decision=(
+                f"order={order_fingerprint};old={old_plan.entry_price};"
+                f"target={proposed_plan.entry_price};"
+                f"panic={panic_active};reason=adaptive-reanchor"
+            ),
+        )
+
+    reanchor_samples = _PREDICTION_SHADOW.resolved_samples(
+        symbol, before_ts_ms=features.snapshot_ts_ms, kind="REANCHOR"
+    )
+    walk_forward = walk_forward_prediction_report(reanchor_samples)
+    gate = walk_forward["gate"]
+    _PREDICTION_GATE_CACHE[symbol] = (time.monotonic(), gate)
+    summary = _PREDICTION_SHADOW.summary(symbol)
+    runtime = _AI_RUNTIME_STATUS.setdefault("prediction", {})
+    if not isinstance(runtime, dict):
+        runtime = {}
+        _AI_RUNTIME_STATUS["prediction"] = runtime
+    symbols = runtime.setdefault("symbols", {})
+    if not isinstance(symbols, dict):
+        symbols = {}
+        runtime["symbols"] = symbols
+    symbols[symbol] = {
+        **summary,
+        "snapshot_ts_ms": features.snapshot_ts_ms,
+        "regime": features.regime,
+        "executor_panic_active": features.executor_panic_active,
+        "executor_panic_hits": features.executor_panic_hits,
+        "settled_this_cycle": settled,
+        "gate": gate,
+        "walk_forward": {
+            "method": walk_forward["method"],
+            "lookahead": walk_forward["lookahead"],
+            "evaluated_samples": len(walk_forward["evaluated"]),
+        },
+    }
+    runtime.update({
+        "mode": "SHADOW",
+        "horizons_min": [1, 5, 15],
+        "can_change_orders": False,
+        "trade_flow_available": features.trade_flow_available,
+        "orderbook_available": features.orderbook_available,
+        "last_error": None,
     })
     _publish_ai_runtime_status()
 
@@ -2179,7 +2501,19 @@ def run_for_symbol(symbol: str, args: argparse.Namespace) -> None:
         cancel_offladder=True
     )
 
-    sr = smart_rolling(symbol, now_p, ladder_all, args, tick_size=tick_exact)
+    reanchor_gate = (
+        _prediction_reanchor_gate(symbol)
+        if str(args.reanchor_mode).upper() == "APPLY"
+        else {"approved": False, "mode": "SHADOW"}
+    )
+    sr = smart_rolling(
+        symbol,
+        now_p,
+        ladder_all,
+        args,
+        tick_size=tick_exact,
+        prediction_apply_approved=bool(reanchor_gate.get("approved", False)),
+    )
     _publish_reanchor_runtime(symbol, sr, args)
     log(f"[SR-SUM] {symbol} kept={sr['kept']} cancel(ttl)={sr['cancel'].get('ttl',0)} cancel(atr)={sr['cancel'].get('atr',0)} cancel(reanchor)={sr['cancel'].get('reanchor',0)} shadow(reanchor)={sr['cancel'].get('shadow',0)}")
 
@@ -2282,6 +2616,30 @@ def run_for_symbol(symbol: str, args: argparse.Namespace) -> None:
         args.child_buy_vwap_discount_scale = orig_vwap_scale
         args.child_buy_vwap_interval = orig_vwap_interval
         args.child_buy_vwap_window = orig_vwap_window
+
+    # Run SHADOW analytics only after the deterministic worker has been
+    # launched. Public-data or journal latency can therefore never delay BUY
+    # protection, and this layer has no path back into child parameters.
+    try:
+        _record_prediction_shadow(
+            symbol,
+            now_price=now_p,
+            ladder=ladder_all,
+            take_profit_pct=tp1_use,
+            stop_pct=args.sl,
+            deterministic_mode=dir_mode,
+            rolling=sr,
+        )
+    except SUPERVISOR_OPERATION_ERRORS as exc:
+        log(f"[PREDICTION-SHADOW] {symbol} unavailable={type(exc).__name__}")
+        runtime = _AI_RUNTIME_STATUS.setdefault("prediction", {})
+        if isinstance(runtime, dict):
+            runtime.update({
+                "mode": "SHADOW",
+                "can_change_orders": False,
+                "last_error": type(exc).__name__,
+            })
+        _publish_ai_runtime_status()
 
 
 def refresh_vwap_runtime_maps(args: argparse.Namespace,
@@ -2942,8 +3300,11 @@ def main():
     _configure_venue(args)
     global _AI_ADVISOR, _AI_DECISIONS, _AI_KNOWLEDGE, _AI_POLICY
     global _AI_RUNTIME_STATUS_PATH, _AI_RUNTIME_STATUS, _AI_CONTROL_PATH
+    global _PREDICTION_SHADOW
     _AI_DECISION_IDS.clear()
     _AI_CONTEXT_CACHE.clear()
+    _PREDICTION_LAST_ATTEMPT.clear()
+    _PREDICTION_GATE_CACHE.clear()
     decisions_db = (
         os.getenv("AI_TESTNET_DECISIONS_DB", "").strip()
         if args.testnet else args.ai_decisions_db
@@ -2983,6 +3344,28 @@ def main():
     )
     _AI_ADVISOR = _build_ai_advisor(args)
     run_dir = Path(os.getenv("BOT_RUN_DIR", ".runtime"))
+    prediction_enabled = os.getenv(
+        "PREDICTION_SHADOW_ENABLED", "1"
+    ).strip().lower() in {"1", "true", "yes", "on"}
+    stats_path_text = os.getenv("BOT_STATS_DB", "").strip()
+    default_prediction_path = (
+        Path(stats_path_text).with_name("prediction_shadow.sqlite3")
+        if stats_path_text else run_dir / "prediction_shadow.sqlite3"
+    )
+    prediction_path = Path(
+        os.getenv("PREDICTION_SHADOW_DB", str(default_prediction_path))
+    )
+    _PREDICTION_SHADOW = None
+    prediction_init_error = None
+    if prediction_enabled:
+        try:
+            _PREDICTION_SHADOW = PredictionShadowStore(prediction_path)
+        except (OSError, sqlite3.Error) as exc:
+            prediction_init_error = type(exc).__name__
+            log(
+                "[PREDICTION-SHADOW] journal unavailable="
+                f"{prediction_init_error}"
+            )
     _AI_RUNTIME_STATUS_PATH = Path(
         os.getenv("AI_RUNTIME_STATUS_FILE", str(run_dir / "ai_status.json"))
     )
@@ -3016,6 +3399,7 @@ def main():
             "ai_decisions_db": decisions_db,
             "ai_usage_log": args.ai_usage_log,
             "order_journal": os.getenv("BOT_ORDER_JOURNAL", ""),
+            "prediction_shadow_db": str(prediction_path),
         },
         "order_journal": _runtime_order_journal_snapshot(),
         "reanchor": {
@@ -3025,6 +3409,14 @@ def main():
             "max_step_pct": str(args.reanchor_max_step_pct),
             "max_per_cycle": int(args.reanchor_max_per_cycle),
             "totals": {"shadow_candidates": 0, "apply_cancels": 0},
+            "symbols": {},
+        },
+        "prediction": {
+            "enabled": _PREDICTION_SHADOW is not None,
+            "mode": "SHADOW",
+            "horizons_min": [1, 5, 15],
+            "can_change_orders": False,
+            "last_error": prediction_init_error,
             "symbols": {},
         },
     }

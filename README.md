@@ -17,7 +17,7 @@ Binance Spot. It builds BUY/SELL grids, uses ATR/EMA/VWAP/ADX regimes, manages
 OCO protection, and records trading statistics in SQLite. Production secrets,
 real backups, and private parameters are never committed.
 
-Current product version: **2.20.13**. The single version source is
+Current product version: **2.20.14**. The single version source is
 `product_version.py`; releases follow [Semantic Versioning](https://semver.org/).
 Project contact: [LinkedIn](https://www.linkedin.com/in/ypotekhin/).
 
@@ -33,7 +33,7 @@ Project contact: [LinkedIn](https://www.linkedin.com/in/ypotekhin/).
 ## Project status
 
 Ladder Dragon is an actively developed, experimental trading system. Version
-**2.20.13** is the current prepared release. `main` is the only long-lived branch;
+**2.20.14** is the current prepared release. `main` is the only long-lived branch;
 feature branches use the `ladderdragon/*` namespace.
 
 DRY and Binance Spot Testnet are the supported starting modes. Mainnet LIVE is
@@ -211,6 +211,44 @@ REANCHOR_MAX_PER_CYCLE=1
 For a production observation run, the operator may lower
 `REANCHOR_TRIGGER_PCT` to `0.0005` while keeping `ADAPTIVE_REANCHOR_MODE=SHADOW`.
 Do not promote that setting to `APPLY` until its proposals have been reviewed.
+
+### Technical prediction SHADOW
+
+The supervisor records a separate observation-only prediction snapshot after
+the deterministic worker has been launched. It uses only fully closed one-minute
+bars and sanitized public L2/aggregate-trade data. Features include EMA slope
+and distance, ADX/DI, ATR level and change, VWAP deviation, RSI, MACD histogram,
+volume, taker-flow and order-book imbalance, spread, depth, acceleration and the
+`TREND_UP`, `TREND_DOWN`, `RANGE` or `PANIC` regime.
+The sanitized executor PANIC state and debounce-hit count are attached to the
+same decision, allowing its later counterfactual outcome to measure whether the
+current 1-minute trigger was protective or unnecessarily early.
+
+For 1, 5 and 15 minute horizons the journal stores BUY-fill probability,
+TP-before-STOP probability, expected net PnL after configured fee/slippage,
+maximum adverse movement and estimated fill time. Every adaptive re-anchor
+candidate stores both the proposed BUY and the original untouched BUY. Outcomes
+are resolved only after the horizon closes; if TP and STOP occur in one OHLC
+bar, STOP wins conservatively. Historical candidates created before 2.20.14 do
+not contain immutable old/new plans and are not reconstructed.
+
+The statistical gate remains reporting-only. It requires at least 120
+independent timestamps, positive lower confidence bounds for both net expectancy
+and paired baseline edge, Holm-corrected horizon/regime hypotheses, coverage of
+all four regimes, acceptable drawdown and fill rate. Validation uses an
+expanding walk-forward sequence: only older resolved samples may train a later
+forecast. A passing report says `APPLY` is statistically eligible; it does not
+enable anything automatically. Re-anchor still requires an explicit configured
+`APPLY`; without a passing gate that setting is forced back to SHADOW. The
+prediction layer itself cannot change CAP, BUY distance, TTL, TP or STOP.
+
+```dotenv
+PREDICTION_SHADOW_ENABLED=1
+PREDICTION_SHADOW_INTERVAL_SEC=60
+PREDICTION_SHADOW_DB=/home/bot/stats/prediction_shadow.sqlite3
+PREDICTION_FEE_PCT=0.00075
+PREDICTION_SLIPPAGE_PCT=0.0005
+```
 
 ### Binance Spot Testnet smoke
 
