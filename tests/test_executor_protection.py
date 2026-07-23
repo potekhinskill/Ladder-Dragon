@@ -76,10 +76,15 @@ def state_store(tmp_path: Path) -> BreakevenStateStore:
 def test_filled_buy_gets_verified_oco_and_leaves_watch_list(tmp_path):
     placed = []
     polls = []
+    lot_lookups = []
 
     def place_oco(*args, **kwargs):
         placed.append((args, kwargs))
         return {"orderListId": 77}
+
+    def lot_id_for_fill(symbol, fill_price, order_id):
+        lot_lookups.append((symbol, fill_price, order_id))
+        return 91
 
     deps = dependencies(
         get_order=lambda symbol, order_id: {
@@ -90,6 +95,7 @@ def test_filled_buy_gets_verified_oco_and_leaves_watch_list(tmp_path):
         },
         poll_trades=lambda symbol: polls.append(symbol),
         place_oco_sell=place_oco,
+        lot_id_for_fill=lot_id_for_fill,
     )
     store = state_store(tmp_path)
 
@@ -113,6 +119,8 @@ def test_filled_buy_gets_verified_oco_and_leaves_watch_list(tmp_path):
         Decimal("94.0"),
     )
     assert polls == ["SOLUSDT"]
+    assert lot_lookups == [("SOLUSDT", Decimal("100"), 42)]
+    assert placed[0][1]["lot_id"] == 91
     assert store.load("SOLUSDT")["77"]["fill_price"] == "100"
 
 

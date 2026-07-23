@@ -434,7 +434,7 @@ def protect_filled_buys(
                 continue
 
             lot_id = dependencies.lot_id_for_fill(
-                symbol, average_fill_price, order_id
+                symbol, average_fill_decimal, order_id
             ) if dependencies.lot_id_for_fill else None
             oco = dependencies.place_oco_sell(
                 symbol,

@@ -3,6 +3,20 @@
 All notable changes are documented here. Releases use Semantic Versioning; every
 section is dated and there is intentionally no `Unreleased` section.
 
+## [2.20.25] — 2026-07-23
+
+### Fixed
+- Filled-BUY recovery now passes the exact Decimal average fill price to the
+  inventory-lot lookup before creating OCO protection. This removes a
+  `NameError` that could leave startup correctly blocked after an offline BUY
+  filled while the public IP was unavailable.
+
+### Verified
+- The executor-protection regression test exercises the real lot-lookup branch
+  and verifies that OCO placement receives the resolved lot ID.
+- The complete local suite passes with `490` tests; source compilation,
+  numeric-boundary audit and `git diff --check` pass.
+
 ## [2.20.24] — 2026-07-23
 
 ### Fixed
