@@ -925,6 +925,9 @@ def test_ai_status_is_authenticated_and_contains_no_secrets(tmp_path, monkeypatc
     monkeypatch.setenv("AI_DECISIONS_DB", str(db))
     monkeypatch.setenv("AI_USAGE_LOG", str(usage))
     monkeypatch.setenv("AI_MODE", "SHADOW")
+    monkeypatch.setenv(
+        "AI_RUNTIME_STATUS_FILE", str(tmp_path / "ai_status.json")
+    )
     module = load_dashboard(monkeypatch)
     headers = {"Authorization": "Bearer test-secret-token"}
 

@@ -3,6 +3,18 @@
 All notable changes are documented here. Releases use Semantic Versioning; every
 section is dated and there is intentionally no `Unreleased` section.
 
+## [2.20.18] — 2026-07-23
+
+### Fixed
+- The authenticated dashboard status test now uses a temporary AI runtime
+  status path. Running the suite on a LIVE Raspberry Pi can no longer make the
+  assertion depend on the production supervisor's current runtime state.
+
+### Verified
+- `79` focused dashboard isolation, prediction, re-anchor, version and
+  deployment tests passed; the complete local suite passed with `465` tests.
+- `python3 -m compileall -q .` and `git diff --check` completed successfully.
+
 ## [2.20.17] — 2026-07-23
 
 ### Fixed
