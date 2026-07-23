@@ -17,6 +17,11 @@ from bin.db_migrate import migrate
 def load_dashboard(monkeypatch):
     monkeypatch.setenv("DASHBOARD_AUTH_TOKEN", "test-secret-token")
     monkeypatch.setenv("DASHBOARD_ENABLE_LOGS", "0")
+    # Never let a host's real intentional-stop marker alter unit tests.
+    monkeypatch.setenv(
+        "BOT_MAINTENANCE_FILE",
+        "/nonexistent/ladder-dragon-test-maintenance.json",
+    )
     path = Path("FastAPI/pi-dashboard/app.py").resolve()
     spec = importlib.util.spec_from_file_location("secure_dashboard", path)
     module = importlib.util.module_from_spec(spec)

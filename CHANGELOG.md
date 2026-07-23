@@ -3,6 +3,18 @@
 All notable changes are documented here. Releases use Semantic Versioning; every
 section is dated and there is intentionally no `Unreleased` section.
 
+## [2.20.24] — 2026-07-23
+
+### Fixed
+- Dashboard heartbeat and watchdog alert tests now force a temporary or
+  nonexistent maintenance path. A real Raspberry Pi intentional-stop marker
+  can no longer alter test expectations or suppress fake watchdog alerts.
+
+### Verified
+- The four previously host-dependent tests pass with the real Pi maintenance
+  marker active. The complete local and Raspberry Pi suites pass with `490`
+  tests; source compilation and safety audits pass.
+
 ## [2.20.23] — 2026-07-23
 
 ### Fixed

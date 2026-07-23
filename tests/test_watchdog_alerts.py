@@ -64,6 +64,9 @@ def _run_watchdog(tmp_path: Path, bindir: Path, curl_log: Path, *, curl_fail: bo
             "WATCHDOG_ALERT_LOAD_DELTA": "999",
             "WATCHDOG_ALERT_TEMP_DELTA_C": "999",
             "WATCHDOG_UPTIME_SOURCE": str(uptime_source),
+            "BOT_MAINTENANCE_FILE": str(
+                tmp_path / "test-maintenance-does-not-exist.json"
+            ),
             "CURL_LOG": str(curl_log),
             "CURL_FAIL": "1" if curl_fail else "0",
         }
