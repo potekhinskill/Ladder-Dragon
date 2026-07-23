@@ -55,6 +55,9 @@ def outcome(
         final_status=status,
         first_fill_received_at_ms=first_fill,
         final_received_at_ms=3000,
+        commission_quote=(
+            Decimal("0.1") if Decimal(quantity) > 0 else Decimal("0")
+        ),
     )
 
 
@@ -88,6 +91,10 @@ def test_replay_validation_matches_real_fill_and_cancel(tmp_path):
     assert report.fill_ratio_mae == Decimal("0")
     assert report.price_error_bps_mae == Decimal("0")
     assert report.latency_error_ms_mae == Decimal("0")
+    assert report.fee_error_quote_mae == Decimal("0")
+    assert report.slippage_error_bps_mae == Decimal("0")
+    assert report.queue_model == "L2_PRICE_LEVEL_FIFO_PROXY"
+    assert report.exact_l3 is False
 
     path = tmp_path / "validation.json"
     write_replay_validation(path, report)

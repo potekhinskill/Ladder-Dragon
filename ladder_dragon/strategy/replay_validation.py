@@ -38,10 +38,14 @@ class ReplayValidation:
     fill_ratio_mae: Decimal
     price_error_bps_mae: Decimal | None
     latency_error_ms_mae: Decimal | None
+    fee_error_quote_mae: Decimal | None = None
+    slippage_error_bps_mae: Decimal | None = None
+    queue_model: str = "L2_PRICE_LEVEL_FIFO_PROXY"
+    exact_l3: bool = False
 
     def as_dict(self) -> dict[str, object]:
         return {
-            "schema_version": 1,
+            "schema_version": 2,
             "ready": self.ready,
             "reasons": list(self.reasons),
             "archive_sha256": self.archive_sha256,
@@ -61,11 +65,22 @@ class ReplayValidation:
                 format(self.latency_error_ms_mae, "f")
                 if self.latency_error_ms_mae is not None else None
             ),
+            "fee_error_quote_mae": (
+                format(self.fee_error_quote_mae, "f")
+                if self.fee_error_quote_mae is not None else None
+            ),
+            "slippage_error_bps_mae": (
+                format(self.slippage_error_bps_mae, "f")
+                if self.slippage_error_bps_mae is not None else None
+            ),
+            "queue_model": self.queue_model,
+            "exact_l3": self.exact_l3,
         }
 
     @classmethod
     def from_dict(cls, payload: dict[str, object]) -> "ReplayValidation":
-        if int(payload.get("schema_version", 0)) != 1:
+        schema = int(payload.get("schema_version", 0))
+        if schema not in {1, 2}:
             raise ValueError("unsupported replay validation schema")
 
         def optional_decimal(name: str) -> Decimal | None:
@@ -86,6 +101,14 @@ class ReplayValidation:
             fill_ratio_mae=Decimal(str(payload.get("fill_ratio_mae", "0"))),
             price_error_bps_mae=optional_decimal("price_error_bps_mae"),
             latency_error_ms_mae=optional_decimal("latency_error_ms_mae"),
+            fee_error_quote_mae=optional_decimal("fee_error_quote_mae"),
+            slippage_error_bps_mae=optional_decimal(
+                "slippage_error_bps_mae"
+            ),
+            queue_model=str(
+                payload.get("queue_model", "L2_PRICE_LEVEL_FIFO_PROXY")
+            ),
+            exact_l3=bool(payload.get("exact_l3", False)),
         )
 
 
@@ -116,14 +139,14 @@ def _simulate_order(
     events: list[MarketEvent],
     outcome: ExecutionOutcome,
     calibration: ReplayCalibration,
-) -> tuple[Decimal, Decimal, int | None]:
+) -> tuple[Decimal, Decimal, Decimal, int | None]:
     relevant = [
         event for event in events
         if outcome.intent_created_at_ms <= event.ts_ms
         <= outcome.final_received_at_ms
     ]
     if not relevant:
-        return Decimal("0"), Decimal("0"), None
+        return Decimal("0"), Decimal("0"), Decimal("0"), None
     replay = OrderBookReplay(
         latency_ms=calibration.latency_ms_p95,
         market_impact_bps=calibration.market_impact_bps,
@@ -142,6 +165,7 @@ def _simulate_order(
     )
     quantity = Decimal("0")
     quote = Decimal("0")
+    fee_quote = Decimal("0")
     first_fill_ms: int | None = None
     for event in relevant:
         for fill in replay.process(event):
@@ -151,7 +175,8 @@ def _simulate_order(
                 first_fill_ms = event.ts_ms
             quantity += fill.quantity
             quote += fill.quantity * fill.price
-    return quantity, quote, first_fill_ms
+            fee_quote += fill.fee_quote
+    return quantity, quote, fee_quote, first_fill_ms
 
 
 def validate_replay_outcomes(
@@ -164,6 +189,8 @@ def validate_replay_outcomes(
     maximum_fill_ratio_mae: Decimal = Decimal("0.25"),
     maximum_price_error_bps_mae: Decimal = Decimal("10"),
     maximum_latency_error_ms_mae: Decimal = Decimal("1000"),
+    maximum_fee_error_quote_mae: Decimal = Decimal("0.02"),
+    maximum_slippage_error_bps_mae: Decimal = Decimal("10"),
 ) -> ReplayValidation:
     """Replay terminal real orders and fail closed on insufficient accuracy."""
     rows = sorted(events, key=lambda event: event.ts_ms)
@@ -171,7 +198,9 @@ def validate_replay_outcomes(
         raise ValueError("replay validation requires market events")
     if minimum_orders < 1:
         raise ValueError("minimum orders must be positive")
-    covered: list[tuple[ExecutionOutcome, Decimal, Decimal, int | None]] = []
+    covered: list[
+        tuple[ExecutionOutcome, Decimal, Decimal, Decimal, int | None]
+    ] = []
     excluded = 0
     for outcome in outcomes:
         if (
@@ -181,18 +210,28 @@ def validate_replay_outcomes(
         ):
             excluded += 1
             continue
-        quantity, quote, first_fill_ms = _simulate_order(
+        quantity, quote, fee_quote, first_fill_ms = _simulate_order(
             rows, outcome, calibration
         )
-        covered.append((outcome, quantity, quote, first_fill_ms))
+        covered.append(
+            (outcome, quantity, quote, fee_quote, first_fill_ms)
+        )
 
     classification_hits = 0
     ratio_errors: list[Decimal] = []
     price_errors: list[Decimal] = []
     latency_errors: list[Decimal] = []
+    fee_errors: list[Decimal] = []
+    slippage_errors: list[Decimal] = []
     actual_filled = 0
     replay_filled = 0
-    for outcome, replay_quantity, replay_quote, replay_first_fill in covered:
+    for (
+        outcome,
+        replay_quantity,
+        replay_quote,
+        replay_fee,
+        replay_first_fill,
+    ) in covered:
         actual_has_fill = outcome.cumulative_quantity > 0
         replay_has_fill = replay_quantity > 0
         actual_filled += int(actual_has_fill)
@@ -209,6 +248,19 @@ def validate_replay_outcomes(
                 abs(replay_price / actual_price - Decimal("1"))
                 * Decimal("10000")
             )
+            actual_slippage = abs(
+                actual_price / outcome.order_price - Decimal("1")
+            ) * Decimal("10000")
+            replay_slippage = abs(
+                replay_price / outcome.order_price - Decimal("1")
+            ) * Decimal("10000")
+            slippage_errors.append(
+                abs(replay_slippage - actual_slippage)
+            )
+            if outcome.commission_quote is not None:
+                fee_errors.append(
+                    abs(replay_fee - outcome.commission_quote)
+                )
         if (
             outcome.first_fill_received_at_ms is not None
             and replay_first_fill is not None
@@ -228,6 +280,8 @@ def validate_replay_outcomes(
     ratio_mae = _mean(ratio_errors) or Decimal("0")
     price_mae = _mean(price_errors)
     latency_mae = _mean(latency_errors)
+    fee_mae = _mean(fee_errors)
+    slippage_mae = _mean(slippage_errors)
     reasons: list[str] = []
     if not calibration.eligible:
         reasons.append("calibration is not eligible")
@@ -245,6 +299,14 @@ def validate_replay_outcomes(
         reasons.append("matched fill latencies unavailable")
     elif latency_mae > maximum_latency_error_ms_mae:
         reasons.append("fill latency error above threshold")
+    if fee_mae is None:
+        reasons.append("matched exact fees unavailable")
+    elif fee_mae > maximum_fee_error_quote_mae:
+        reasons.append("fill fee error above threshold")
+    if slippage_mae is None:
+        reasons.append("matched slippage unavailable")
+    elif slippage_mae > maximum_slippage_error_bps_mae:
+        reasons.append("fill slippage error above threshold")
     return ReplayValidation(
         ready=not reasons,
         reasons=tuple(reasons),
@@ -257,6 +319,8 @@ def validate_replay_outcomes(
         fill_ratio_mae=ratio_mae,
         price_error_bps_mae=price_mae,
         latency_error_ms_mae=latency_mae,
+        fee_error_quote_mae=fee_mae,
+        slippage_error_bps_mae=slippage_mae,
     )
 
 

@@ -3,6 +3,27 @@
 All notable changes are documented here. Releases use Semantic Versioning; every
 section is dated and there is intentionally no `Unreleased` section.
 
+## [2.20.22] — 2026-07-23
+
+### Added
+- Added source-hashed archive backfill for expired prediction horizons.
+  Companion metadata and SHA-256 must match, and every required one-minute
+  aggregate-trade interval must exist before an outcome is recovered.
+- Added SHADOW-only regime analytics for PANIC state, BUY distance, fill/TP
+  rates, adverse movement and re-anchor edge across trend, range and panic.
+
+### Changed
+- Real execution telemetry now records exact quote-valued fill commissions.
+  Replay validation compares fills, price, fee, slippage and latency and labels
+  its queue model `L2_PRICE_LEVEL_FIFO_PROXY` with `exact_l3=false`.
+
+### Verified
+- Prediction, user-stream, replay and readiness regression tests passed,
+  including hash mismatch, incomplete archive and unavailable-fee fail-closed
+  cases.
+- The complete local suite passed with `490` tests. Source compilation,
+  numeric-boundary audit, shell syntax and `git diff --check` passed.
+
 ## [2.20.21] — 2026-07-23
 
 ### Added

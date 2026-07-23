@@ -31,6 +31,7 @@ class ExecutionOutcome:
     final_status: str
     first_fill_received_at_ms: int | None
     final_received_at_ms: int
+    commission_quote: Decimal | None = None
 
     @property
     def fill_ratio(self) -> Decimal:
@@ -62,6 +63,8 @@ def append_execution_latency_sample(
     signal: OrderStreamSignal,
     *,
     intent_created_at_ms: int,
+    commission_quote: Decimal | None = None,
+    commission_value_status: str = "not_applicable",
 ) -> dict[str, object]:
     """Append one non-secret timing sample with a hashed client identity."""
     created = int(intent_created_at_ms)
@@ -69,7 +72,7 @@ def append_execution_latency_sample(
     if created <= 0 or received < created:
         raise ValueError("execution latency timestamps are invalid")
     payload: dict[str, object] = {
-        "schema_version": 2,
+        "schema_version": 3,
         "symbol": signal.symbol,
         "order_ref": hashlib.sha256(
             f"{signal.symbol}:{signal.order_id}:{signal.client_order_id}".encode()
@@ -79,6 +82,7 @@ def append_execution_latency_sample(
         "transaction_time_ms": int(signal.transaction_time_ms),
         "received_at_ms": received,
         "execution_type": signal.execution_type,
+        "trade_id": signal.trade_id,
         "order_status": signal.order_status,
         "side": signal.side,
         "order_price": _exact_nonnegative(signal.order_price, field="order price"),
@@ -95,6 +99,11 @@ def append_execution_latency_sample(
         "cumulative_quote": _exact_nonnegative(
             signal.cumulative_quote, field="cumulative quote"
         ),
+        "commission_quote": (
+            _exact_nonnegative(commission_quote, field="commission quote")
+            if commission_quote is not None else None
+        ),
+        "commission_value_status": str(commission_value_status)[:32],
         "intent_to_event_ms": max(0, int(signal.event_time_ms) - created),
         "intent_to_receive_ms": received - created,
         "exchange_to_receive_ms": (
@@ -128,7 +137,7 @@ def load_execution_latencies(path: str | Path) -> list[int]:
             payload = json.loads(line)
             if not isinstance(payload, Mapping):
                 raise ValueError(f"latency line {line_number} is not an object")
-            if int(payload.get("schema_version", 0)) not in {1, 2}:
+            if int(payload.get("schema_version", 0)) not in {1, 2, 3}:
                 raise ValueError(f"latency line {line_number} has unsupported schema")
             if (
                 str(payload.get("execution_type", "")).upper() != "NEW"
@@ -143,7 +152,7 @@ def load_execution_latencies(path: str | Path) -> list[int]:
 
 
 def load_execution_outcomes(path: str | Path) -> list[ExecutionOutcome]:
-    """Group schema-2 execution reports into exact, sanitized order outcomes."""
+    """Group sanitized execution reports into exact order outcomes."""
     grouped: dict[str, dict[str, object]] = {}
     with Path(path).open(encoding="utf-8") as handle:
         for line_number, line in enumerate(handle, start=1):
@@ -152,7 +161,8 @@ def load_execution_outcomes(path: str | Path) -> list[ExecutionOutcome]:
             payload = json.loads(line)
             if not isinstance(payload, Mapping):
                 raise ValueError(f"outcome line {line_number} is not an object")
-            if int(payload.get("schema_version", 0)) != 2:
+            schema_version = int(payload.get("schema_version", 0))
+            if schema_version not in {2, 3}:
                 continue
             order_ref = str(payload.get("order_ref", ""))
             if not order_ref:
@@ -180,6 +190,10 @@ def load_execution_outcomes(path: str | Path) -> list[ExecutionOutcome]:
                     "cumulative_quantity": Decimal("0"),
                     "cumulative_quote": Decimal("0"),
                     "final_status": "",
+                    "commission_quote": (
+                        Decimal("0") if schema_version >= 3 else None
+                    ),
+                    "commission_trade_ids": set(),
                     "first_fill_received_at_ms": None,
                     "final_received_at_ms": 0,
                 },
@@ -201,6 +215,30 @@ def load_execution_outcomes(path: str | Path) -> list[ExecutionOutcome]:
                     payload.get("received_at_ms", 0)
                 )
             if (
+                schema_version >= 3
+                and str(payload.get("execution_type", "")).upper() == "TRADE"
+            ):
+                trade_id = int(payload.get("trade_id", -1))
+                status = str(
+                    payload.get("commission_value_status", "")
+                ).lower()
+                raw_fee = payload.get("commission_quote")
+                if trade_id < 0 or status not in {"exact", "converted", "quote"}:
+                    current["commission_quote"] = None
+                elif raw_fee is None:
+                    current["commission_quote"] = None
+                elif (
+                    current["commission_quote"] is not None
+                    and trade_id not in current["commission_trade_ids"]
+                ):
+                    fee = Decimal(str(raw_fee))
+                    if not fee.is_finite() or fee < 0:
+                        raise ValueError(
+                            f"outcome line {line_number} has invalid commission"
+                        )
+                    current["commission_quote"] += fee
+                    current["commission_trade_ids"].add(trade_id)
+            if (
                 cumulative > 0
                 and current["first_fill_received_at_ms"] is None
             ):
@@ -209,6 +247,7 @@ def load_execution_outcomes(path: str | Path) -> list[ExecutionOutcome]:
                 )
     outcomes = []
     for values in grouped.values():
+        values.pop("commission_trade_ids", None)
         if (
             values["intent_created_at_ms"] <= 0
             or values["order_price"] <= 0

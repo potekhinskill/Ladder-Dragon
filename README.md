@@ -17,7 +17,7 @@ Binance Spot. It builds BUY/SELL grids, uses ATR/EMA/VWAP/ADX regimes, manages
 OCO protection, and records trading statistics in SQLite. Production secrets,
 real backups, and private parameters are never committed.
 
-Current product version: **2.20.20**. The single version source is
+Current product version: **2.20.22**. The single version source is
 `product_version.py`; releases follow [Semantic Versioning](https://semver.org/).
 Project contact: [LinkedIn](https://www.linkedin.com/in/ypotekhin/).
 
@@ -234,7 +234,14 @@ candidate stores both the proposed BUY and the original untouched BUY. Outcomes
 are resolved only after the horizon closes; if TP and STOP occur in one OHLC
 bar, STOP wins conservatively. A horizon whose required first bar has already
 fallen outside retained history terminates as `INSUFFICIENT_HISTORY`; it is not
-reported as a fill failure and does not remain pending forever. Historical
+reported as a fill failure and does not remain pending forever. Public
+`aggTrade` archives may recover such rows with
+`bin.backfill_prediction_archive`, but only when companion metadata matches the
+archive SHA-256 and every required one-minute interval is present. Each
+recovered outcome retains that source hash and remains counterfactual SHADOW
+evidence. Runtime telemetry also groups PANIC state, BUY distance, fill rate,
+TP rate, net edge and adverse movement by regime and decision kind; this
+reporting path always returns `apply_allowed=false`. Historical
 candidates created before 2.20.14 do not contain immutable old/new plans and
 are not reconstructed. Runtime telemetry includes the proposed-versus-original
 fill count, TP count, net PnL edge and mean entry gap for re-anchor candidates.
@@ -493,7 +500,9 @@ archives spanning two calendar days, low/normal/high volatility regimes, no
 ineligible calibration, at least ten real execution samples, and at least one
 archive with measured intent-to-`executionReport` latency. It also requires a
 source-hash-linked validation report comparing predicted fill direction, fill
-ratio, price and latency with at least ten terminal real order outcomes. This
+ratio, price, exact quote-valued fees, slippage and latency with at least ten
+terminal real order outcomes. Queue accuracy is explicitly labelled an
+`L2_PRICE_LEVEL_FIFO_PROXY`, never exact L3. This
 prevents a short smoke capture or an unvalidated model from being presented as
 production-quality calibration.
 
@@ -626,8 +635,10 @@ recognizes the fresh fail-closed heartbeat and does not reset that delay.
 `BINANCE_AUTH_BACKOFF_INITIAL_SEC` and `BINANCE_AUTH_BACKOFF_MAX_SEC` may be
 configured within the validated 30–3600 second safety bounds.
 Retry state is stored in `BINANCE_AUTH_STATE_FILE`, so a process or host restart
-does not reset the schedule. When `BINANCE_PUBLIC_IP_ENDPOINT` is configured,
-only a SHA-256 fingerprint is retained. A changed fingerprint enters
+does not reset the schedule. `BINANCE_PUBLIC_IP_ENDPOINTS` must contain at
+least two independent HTTPS hosts; a local fingerprint is accepted only when
+two sources agree, and only a SHA-256 fingerprint is retained. A changed
+fingerprint enters
 `IP_BLOCKED`; update the Binance whitelist first, then explicitly accept the
 current fingerprint without displaying the address:
 
@@ -637,9 +648,25 @@ sudo -u bot env PYTHONPATH=/home/bot/apps/binance_bot \
   /home/bot/apps/binance_bot/bin/ip_guard.py accept-current
 ```
 
-LIVE also reconciles durable nonterminal order IDs before `RUNNING`. An
-executed BUY without verified SELL/OCO protection remains
-`RECOVERY_BLOCKED`.
+LIVE also reconciles durable nonterminal order IDs before `RUNNING`. Every
+durably protected BUY is checked against the exact Binance OCO order-list ID,
+client ID, symbol, both SELL legs, leg types and active statuses. A mismatch or
+an executed BUY without verified protection remains `RECOVERY_BLOCKED`.
+
+An operator who intentionally stops trading can publish an explicit state:
+
+```bash
+sudo env PYTHONPATH=/home/bot/apps/binance_bot \
+  /home/bot/apps/binance_bot/.venv/bin/python \
+  -m bin.maintenance_state set --reason "Scheduled maintenance"
+sudo env PYTHONPATH=/home/bot/apps/binance_bot \
+  /home/bot/apps/binance_bot/.venv/bin/python \
+  -m bin.maintenance_state clear
+```
+
+The dashboard then shows `INTENTIONALLY_STOPPED`, and the watchdog suppresses
+restart alerts. A malformed marker fails closed. Updates preserve the previous
+service state and create or clear this marker accordingly.
 
 Generate a read-only soak verdict after the observation period:
 
@@ -650,6 +677,10 @@ PYTHONPATH=. .venv/bin/python -m bin.production_soak_report \
 ```
 
 The command returns exit status `2` until every requirement is genuinely met.
+On Raspberry Pi, `ladder-dragon-soak-audit.timer` repeats the audit every 15
+minutes, creates a host-local Ed25519 detached signature and sends Telegram
+only when the approval/check state changes. Approval additionally requires LIVE
+Mainnet and the prediction statistical gate; the timer cannot enable APPLY.
 
 ## Remaining engineering work
 

@@ -46,6 +46,16 @@ def main() -> int:
         type=Decimal,
         default=Decimal("1000"),
     )
+    parser.add_argument(
+        "--maximum-fee-error-quote-mae",
+        type=Decimal,
+        default=Decimal("0.02"),
+    )
+    parser.add_argument(
+        "--maximum-slippage-error-bps-mae",
+        type=Decimal,
+        default=Decimal("10"),
+    )
     args = parser.parse_args()
     report = validate_replay_outcomes(
         load_jsonl_archive(args.archive),
@@ -58,6 +68,10 @@ def main() -> int:
         maximum_fill_ratio_mae=args.maximum_fill_ratio_mae,
         maximum_price_error_bps_mae=args.maximum_price_error_bps_mae,
         maximum_latency_error_ms_mae=args.maximum_latency_error_ms_mae,
+        maximum_fee_error_quote_mae=args.maximum_fee_error_quote_mae,
+        maximum_slippage_error_bps_mae=(
+            args.maximum_slippage_error_bps_mae
+        ),
     )
     rendered = json.dumps(report.as_dict(), indent=2, sort_keys=True) + "\n"
     if args.output:

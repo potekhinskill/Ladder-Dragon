@@ -2638,12 +2638,38 @@ def main():
                             if created_ms is None:
                                 continue
                             try:
+                                commission_quote = None
+                                commission_status = "not_applicable"
+                                if event.execution_type == "TRADE":
+                                    commission_amount = Decimal(
+                                        event.commission_amount
+                                    )
+                                    if commission_amount == 0:
+                                        commission_quote = Decimal("0")
+                                        commission_status = "exact"
+                                    else:
+                                        commission_quote, commission_status = (
+                                            _commission_quote_value(
+                                                event.symbol,
+                                                event.commission_asset,
+                                                commission_amount,
+                                                Decimal(event.last_price),
+                                                event.transaction_time_ms,
+                                            )
+                                        )
                                 append_execution_latency_sample(
                                     latency_path,
                                     event,
                                     intent_created_at_ms=created_ms,
+                                    commission_quote=commission_quote,
+                                    commission_value_status=commission_status,
                                 )
-                            except (OSError, TypeError, ValueError) as exc:
+                            except (
+                                ArithmeticError,
+                                OSError,
+                                TypeError,
+                                ValueError,
+                            ) as exc:
                                 dbg(
                                     "[USER-STREAM] execution latency sample "
                                     f"unavailable={type(exc).__name__}"

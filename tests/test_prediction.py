@@ -1,5 +1,7 @@
 from dataclasses import replace
 from decimal import Decimal
+import hashlib
+import json
 
 from ladder_dragon.strategy.prediction import (
     PredictionBar,
@@ -14,6 +16,9 @@ from ladder_dragon.strategy.prediction import (
     prediction_apply_gate,
     trade_flow_from_agg_trades,
     walk_forward_prediction_report,
+)
+from ladder_dragon.strategy.prediction_archive import (
+    load_verified_prediction_archive,
 )
 
 
@@ -247,6 +252,81 @@ def test_store_expires_window_missing_from_available_history(tmp_path):
     assert summary["resolved_outcomes"] == 0
 
 
+def test_verified_archive_backfills_only_complete_expired_windows(tmp_path):
+    database = tmp_path / "prediction.sqlite3"
+    store = PredictionShadowStore(database)
+    features = _features(snapshot_ts_ms=30_000)
+    plan = _plan("99")
+    store.record(
+        kind="STRATEGY",
+        symbol="SOLUSDT",
+        features=features,
+        plan=plan,
+        predictions=predict_distribution(features, plan, []),
+        algorithm_decision="archive-window",
+    )
+    late = [PredictionBar(
+        900_000, 959_999, D("100"), D("101"), D("99"), D("100"), D("1")
+    )]
+    assert store.settle("SOLUSDT", late, as_of_ms=1_000_000) == 3
+
+    archive = tmp_path / "SOLUSDT.jsonl"
+    lines = []
+    for minute, price in ((60_000, "98"), (120_000, "100")):
+        lines.append(json.dumps({
+            "e": "aggTrade", "s": "SOLUSDT", "T": minute + 1_000,
+            "p": price, "q": "1",
+        }, separators=(",", ":")))
+    archive.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    digest = hashlib.sha256(archive.read_bytes()).hexdigest()
+    archive.with_suffix(".jsonl.metadata.json").write_text(
+        json.dumps({
+            "schema_version": 1,
+            "symbol": "SOLUSDT",
+            "archive_sha256": digest,
+            "contains_secrets": False,
+        }),
+        encoding="utf-8",
+    )
+    verified = load_verified_prediction_archive(archive)
+
+    # One- and five-minute outcomes cannot both be fabricated from two minutes.
+    assert store.backfill_expired(
+        verified.symbol,
+        verified.bars,
+        source_sha256=verified.source_sha256,
+        as_of_ms=1_000_000,
+    ) == 1
+    summary = store.summary("SOLUSDT")
+    assert summary["resolved_outcomes"] == 1
+    assert summary["expired_outcomes"] == 2
+    with store._connect() as connection:
+        terminal, source = connection.execute(
+            "SELECT terminal_reason,source_sha256 FROM prediction_outcomes "
+            "WHERE outcome_json IS NOT NULL"
+        ).fetchone()
+    assert terminal == "BACKFILLED"
+    assert source == digest
+
+
+def test_prediction_archive_rejects_metadata_hash_mismatch(tmp_path):
+    archive = tmp_path / "SOLUSDT.jsonl"
+    archive.write_text(
+        '{"e":"aggTrade","s":"SOLUSDT","T":61000,"p":"100","q":"1"}\n'
+    )
+    archive.with_suffix(".jsonl.metadata.json").write_text(
+        json.dumps({
+            "schema_version": 1,
+            "symbol": "SOLUSDT",
+            "archive_sha256": "0" * 64,
+            "contains_secrets": False,
+        })
+    )
+    import pytest
+    with pytest.raises(ValueError, match="SHA-256"):
+        load_verified_prediction_archive(archive)
+
+
 def test_reanchor_store_resolves_proposed_and_original_buy(tmp_path):
     store = PredictionShadowStore(tmp_path / "prediction.sqlite3")
     features = _features()
@@ -275,6 +355,14 @@ def test_reanchor_store_resolves_proposed_and_original_buy(tmp_path):
     assert samples[0].outcome.buy_filled is True
     assert samples[0].baseline_net_pnl_quote == D("0")
     assert store.summary("SOLUSDT")["reanchor_counterfactuals"] == 1
+    regime = store.regime_performance(
+        "SOLUSDT", minimum_samples_per_regime=1
+    )
+    assert regime["apply_allowed"] is False
+    assert regime["groups"][0]["regime"] == "TREND_UP"
+    assert regime["groups"][0]["kind"] == "REANCHOR"
+    assert regime["groups"][0]["mean_buy_distance_pct"] == "0.01"
+    assert "TREND_DOWN" in regime["missing_or_insufficient_regimes"]
 
 
 def test_supervisor_shadow_records_strategy_and_hashed_reanchor(

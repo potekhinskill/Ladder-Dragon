@@ -62,6 +62,8 @@ class OrderStreamSignal:
     last_quantity: str
     cumulative_quantity: str
     cumulative_quote: str
+    commission_amount: str
+    commission_asset: str
     received_time_ms: int
 
     @property
@@ -104,6 +106,8 @@ def parse_order_signal(
             last_quantity=str(event_raw.get("l", "0")),
             cumulative_quantity=str(event_raw.get("z", "0")),
             cumulative_quote=str(event_raw.get("Z", "0")),
+            commission_amount=str(event_raw.get("n", "0") or "0"),
+            commission_asset=str(event_raw.get("N", "") or "").upper(),
             received_time_ms=(
                 int(received_time_ms)
                 if received_time_ms is not None

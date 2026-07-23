@@ -602,6 +602,7 @@ class PredictionShadowStore:
                     baseline_outcome_json TEXT,
                     terminal_reason TEXT,
                     expired_at_ms INTEGER,
+                    source_sha256 TEXT,
                     PRIMARY KEY(decision_id, horizon_min),
                     FOREIGN KEY(decision_id) REFERENCES prediction_decisions(decision_id)
                 );
@@ -623,6 +624,11 @@ class PredictionShadowStore:
                 connection.execute(
                     "ALTER TABLE prediction_outcomes "
                     "ADD COLUMN expired_at_ms INTEGER"
+                )
+            if "source_sha256" not in columns:
+                connection.execute(
+                    "ALTER TABLE prediction_outcomes "
+                    "ADD COLUMN source_sha256 TEXT"
                 )
 
     @staticmethod
@@ -783,6 +789,103 @@ class PredictionShadowStore:
                 settled += 1
         return settled
 
+    def backfill_expired(
+        self,
+        symbol: str,
+        bars: Sequence[PredictionBar],
+        *,
+        source_sha256: str,
+        as_of_ms: int | None = None,
+    ) -> int:
+        """Recover expired outcomes only from complete, source-hashed minutes."""
+        source = str(source_sha256).lower()
+        if len(source) != 64 or any(ch not in "0123456789abcdef" for ch in source):
+            raise ValueError("source_sha256 must be a lowercase SHA-256")
+        ordered = sorted(bars, key=lambda item: item.open_time_ms)
+        by_open = {int(item.open_time_ms): item for item in ordered}
+        cutoff = int(as_of_ms) if as_of_ms is not None else (
+            max((item.close_time_ms for item in ordered), default=-1)
+        )
+        with self._connect() as connection:
+            rows = connection.execute(
+                """SELECT o.decision_id,o.horizon_min,d.snapshot_ts_ms,
+                          d.plan_json,d.baseline_plan_json,o.eligible_at_ms
+                   FROM prediction_outcomes o
+                   JOIN prediction_decisions d ON d.decision_id=o.decision_id
+                   WHERE d.symbol=?
+                     AND o.terminal_reason='INSUFFICIENT_HISTORY'
+                     AND o.outcome_json IS NULL
+                     AND o.eligible_at_ms<=?
+                   ORDER BY o.eligible_at_ms""",
+                (symbol.upper(), cutoff),
+            ).fetchall()
+            recovered = 0
+            for decision_id, horizon, snapshot, plan_json, baseline_json, eligible in rows:
+                first_open = (int(snapshot) // 60_000 + 1) * 60_000
+                expected_opens = [
+                    first_open + offset * 60_000
+                    for offset in range(int(horizon))
+                ]
+                window = [by_open.get(open_time) for open_time in expected_opens]
+                if any(item is None for item in window):
+                    continue
+                complete = [item for item in window if item is not None]
+                if any(
+                    item.close_time_ms != item.open_time_ms + 59_999
+                    or item.close_time_ms > int(eligible)
+                    for item in complete
+                ):
+                    continue
+                plan = self._plan(plan_json)
+                baseline = self._plan(baseline_json)
+                if plan is None:
+                    continue
+                outcome = evaluate_plan(
+                    complete,
+                    snapshot_ts_ms=int(snapshot),
+                    horizon_min=int(horizon),
+                    plan=plan,
+                )
+                baseline_outcome = (
+                    evaluate_plan(
+                        complete,
+                        snapshot_ts_ms=int(snapshot),
+                        horizon_min=int(horizon),
+                        plan=baseline,
+                    )
+                    if baseline is not None else None
+                )
+                if outcome is None or (
+                    baseline is not None and baseline_outcome is None
+                ):
+                    continue
+                connection.execute(
+                    """UPDATE prediction_outcomes
+                       SET resolved_at_ms=?,outcome_json=?,
+                           baseline_outcome_json=?,
+                           terminal_reason='BACKFILLED',
+                           source_sha256=?
+                       WHERE decision_id=? AND horizon_min=?
+                         AND terminal_reason='INSUFFICIENT_HISTORY'
+                         AND outcome_json IS NULL""",
+                    (
+                        int(outcome.resolved_at_ms),
+                        json.dumps(_json_value(asdict(outcome)), sort_keys=True),
+                        (
+                            json.dumps(
+                                _json_value(asdict(baseline_outcome)),
+                                sort_keys=True,
+                            )
+                            if baseline_outcome is not None else None
+                        ),
+                        source,
+                        decision_id,
+                        int(horizon),
+                    ),
+                )
+                recovered += 1
+        return recovered
+
     def reanchor_performance(self, symbol: str) -> dict[str, object]:
         """Summarize counterfactual value without enabling APPLY."""
         with self._connect() as connection:
@@ -814,7 +917,8 @@ class PredictionShadowStore:
                 feature = json.loads(feature_json)
                 plan = json.loads(plan_json)
                 market = _decimal(
-                    feature["current_price"], field="current price"
+                    feature.get("price", feature.get("current_price")),
+                    field="current price",
                 )
                 entry = _decimal(plan["entry_price"], field="entry price")
                 if market > 0:
@@ -838,6 +942,118 @@ class PredictionShadowStore:
             "baseline_net_pnl_quote": str(baseline_net),
             "net_edge_quote": str(net - baseline_net),
             "mean_entry_gap_pct": str(mean_gap),
+        }
+
+    def regime_performance(
+        self,
+        symbol: str,
+        *,
+        minimum_samples_per_regime: int = 30,
+    ) -> dict[str, object]:
+        """Compare BUY distance, PANIC and re-anchor outcomes by market regime."""
+        minimum = max(1, int(minimum_samples_per_regime))
+        with self._connect() as connection:
+            rows = connection.execute(
+                """SELECT d.kind,d.feature_json,d.plan_json,o.outcome_json,
+                          o.baseline_outcome_json
+                   FROM prediction_decisions d
+                   JOIN prediction_outcomes o ON o.decision_id=d.decision_id
+                   WHERE d.symbol=? AND o.outcome_json IS NOT NULL
+                   ORDER BY d.snapshot_ts_ms,o.horizon_min""",
+                (symbol.upper(),),
+            ).fetchall()
+        buckets: dict[tuple[str, str, str], dict[str, object]] = {}
+        for kind, feature_json, plan_json, outcome_json, baseline_json in rows:
+            try:
+                features = json.loads(feature_json)
+                plan = json.loads(plan_json)
+                outcome = self._outcome(outcome_json)
+                baseline = (
+                    self._outcome(baseline_json)
+                    if baseline_json else outcome
+                )
+                regime = str(features.get("regime") or "UNKNOWN").upper()
+                panic = features.get("executor_panic_active")
+                panic_label = (
+                    "ACTIVE" if panic is True
+                    else "INACTIVE" if panic is False
+                    else "UNKNOWN"
+                )
+                price = _decimal(
+                    features.get("price", features.get("current_price")),
+                    field="feature price",
+                )
+                entry = _decimal(plan["entry_price"], field="entry price")
+                gap = max(ZERO, (price - entry) / price) if price > 0 else ZERO
+            except (
+                KeyError,
+                TypeError,
+                ValueError,
+                json.JSONDecodeError,
+            ):
+                continue
+            key = (regime, str(kind).upper(), panic_label)
+            bucket = buckets.setdefault(key, {
+                "samples": 0,
+                "fills": 0,
+                "tp_before_stop": 0,
+                "net": ZERO,
+                "baseline_net": ZERO,
+                "mae": ZERO,
+                "entry_gap": ZERO,
+            })
+            bucket["samples"] = int(bucket["samples"]) + 1
+            bucket["fills"] = int(bucket["fills"]) + int(outcome.buy_filled)
+            bucket["tp_before_stop"] = (
+                int(bucket["tp_before_stop"])
+                + int(outcome.tp_before_stop is True)
+            )
+            bucket["net"] = bucket["net"] + outcome.net_pnl_quote
+            bucket["baseline_net"] = (
+                bucket["baseline_net"] + baseline.net_pnl_quote
+            )
+            bucket["mae"] = bucket["mae"] + outcome.mae_pct
+            bucket["entry_gap"] = bucket["entry_gap"] + gap
+
+        groups = []
+        observed_regimes: set[str] = set()
+        sufficient_regimes: set[str] = set()
+        for (regime, kind, panic), bucket in sorted(buckets.items()):
+            samples = int(bucket["samples"])
+            observed_regimes.add(regime)
+            if samples >= minimum:
+                sufficient_regimes.add(regime)
+            divisor = D(str(samples))
+            groups.append({
+                "regime": regime,
+                "kind": kind,
+                "panic": panic,
+                "samples": samples,
+                "fill_rate": format(D(str(bucket["fills"])) / divisor, "f"),
+                "tp_rate": format(
+                    D(str(bucket["tp_before_stop"])) / divisor, "f"
+                ),
+                "mean_net_pnl_quote": format(bucket["net"] / divisor, "f"),
+                "mean_baseline_edge_quote": format(
+                    (bucket["net"] - bucket["baseline_net"]) / divisor, "f"
+                ),
+                "mean_mae_pct": format(bucket["mae"] / divisor, "f"),
+                "mean_buy_distance_pct": format(
+                    bucket["entry_gap"] / divisor, "f"
+                ),
+            })
+        required_regimes = {"TREND_UP", "TREND_DOWN", "RANGE", "PANIC"}
+        return {
+            "symbol": symbol.upper(),
+            "minimum_samples_per_regime": minimum,
+            "groups": groups,
+            "observed_regimes": sorted(observed_regimes),
+            "missing_or_insufficient_regimes": sorted(
+                required_regimes - sufficient_regimes
+            ),
+            "statistically_sufficient": required_regimes <= sufficient_regimes,
+            # Reporting code can never promote SHADOW to APPLY.
+            "apply_allowed": False,
         }
 
     @staticmethod
@@ -927,6 +1143,7 @@ class PredictionShadowStore:
             "expired_outcomes": int(expired),
             "reanchor_counterfactuals": int(counterfactuals),
             "reanchor_performance": self.reanchor_performance(symbol),
+            "regime_performance": self.regime_performance(symbol),
         }
 
 
