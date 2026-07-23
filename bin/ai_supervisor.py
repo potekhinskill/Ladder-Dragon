@@ -1258,6 +1258,9 @@ def smart_rolling(symbol: str,
             trigger_pct=args.reanchor_trigger_pct,
             max_step_pct=args.reanchor_max_step_pct,
             max_per_cycle=int(args.reanchor_max_per_cycle),
+            max_market_gap_pct=getattr(
+                args, "reanchor_max_market_gap_pct", Decimal("0.0015")
+            ),
         )
     except (ArithmeticError, TypeError, ValueError) as exc:
         log(f"[REANCHOR-BLOCK] {symbol} invalid planning input: {exc}")
@@ -1400,6 +1403,9 @@ def _publish_reanchor_runtime(
         "min_age_sec": int(getattr(args, "reanchor_min_age_sec", 120)),
         "trigger_pct": str(getattr(args, "reanchor_trigger_pct", "0.0025")),
         "max_step_pct": str(getattr(args, "reanchor_max_step_pct", "0.005")),
+        "max_market_gap_pct": str(
+            getattr(args, "reanchor_max_market_gap_pct", "0.0015")
+        ),
         "max_per_cycle": int(getattr(args, "reanchor_max_per_cycle", 1)),
     })
     _publish_ai_runtime_status()

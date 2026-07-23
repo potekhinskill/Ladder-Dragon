@@ -46,6 +46,7 @@ def plan_buy_reanchors(
     trigger_pct: object,
     max_step_pct: object,
     max_per_cycle: int,
+    max_market_gap_pct: object | None = None,
 ) -> list[BuyReanchor]:
     """Return BUY-only re-anchors ranked against the current ladder.
 
@@ -59,6 +60,11 @@ def plan_buy_reanchors(
     tick = _decimal(tick_size, field="tick_size")
     trigger = _decimal(trigger_pct, field="trigger_pct")
     max_step = _decimal(max_step_pct, field="max_step_pct")
+    max_market_gap = (
+        _decimal(max_market_gap_pct, field="max_market_gap_pct")
+        if max_market_gap_pct is not None
+        else None
+    )
     if market <= ZERO or tick <= ZERO:
         raise ValueError("now_price and tick_size must be positive")
     if min_age_sec < 0 or max_per_cycle < 0:
@@ -67,6 +73,11 @@ def plan_buy_reanchors(
         raise ValueError("trigger_pct must be in (0, 0.25)")
     if not ZERO < max_step < Decimal("0.25"):
         raise ValueError("max_step_pct must be in (0, 0.25)")
+    if (
+        max_market_gap is not None
+        and not ZERO < max_market_gap < Decimal("0.25")
+    ):
+        raise ValueError("max_market_gap_pct must be in (0, 0.25)")
 
     desired = sorted(
         {
@@ -78,6 +89,17 @@ def plan_buy_reanchors(
     )
     if not desired or max_per_cycle == 0:
         return []
+    if max_market_gap is not None:
+        near_market = round_step(
+            market * (Decimal("1") - max_market_gap),
+            tick,
+            "floor",
+        )
+        if ZERO < near_market < market:
+            # Only the best BUY is pulled toward the market. Deeper ladder
+            # levels keep their original spacing, while the per-cycle step,
+            # age and trigger limits still prevent an unbounded chase.
+            desired[0] = max(desired[0], near_market)
 
     ranked_orders: list[tuple[Decimal, int, int, Decimal]] = []
     for order in orders:

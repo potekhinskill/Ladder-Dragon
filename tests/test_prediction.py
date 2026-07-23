@@ -183,6 +183,39 @@ def test_outcome_uses_stop_first_and_exact_round_trip_costs():
     assert outcome.net_pnl_quote == D("-0.650")
 
 
+def test_one_minute_store_waits_for_next_complete_bar(tmp_path):
+    store = PredictionShadowStore(tmp_path / "prediction.sqlite3")
+    features = _features(snapshot_ts_ms=90_000)
+    plan = _plan("99")
+    store.record(
+        kind="STRATEGY",
+        symbol="SOLUSDT",
+        features=features,
+        plan=plan,
+        predictions=predict_distribution(features, plan, []),
+        algorithm_decision="current-ladder",
+    )
+    bars = [
+        PredictionBar(
+            120_000,
+            179_999,
+            D("100"),
+            D("101"),
+            D("100"),
+            D("100.5"),
+            D("10"),
+        )
+    ]
+
+    # snapshot + 60 seconds is still inside the first future OHLC bar.
+    assert store.settle("SOLUSDT", bars, as_of_ms=150_000) == 0
+    assert store.settle("SOLUSDT", bars, as_of_ms=179_999) == 1
+    sample = store.resolved_samples("SOLUSDT")[0]
+    assert sample.horizon_min == 1
+    assert sample.outcome.exit_reason == "NO_FILL"
+    assert sample.outcome.resolved_at_ms == 179_999
+
+
 def test_reanchor_store_resolves_proposed_and_original_buy(tmp_path):
     store = PredictionShadowStore(tmp_path / "prediction.sqlite3")
     features = _features()

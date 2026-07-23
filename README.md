@@ -17,7 +17,7 @@ Binance Spot. It builds BUY/SELL grids, uses ATR/EMA/VWAP/ADX regimes, manages
 OCO protection, and records trading statistics in SQLite. Production secrets,
 real backups, and private parameters are never committed.
 
-Current product version: **2.20.16**. The single version source is
+Current product version: **2.20.17**. The single version source is
 `product_version.py`; releases follow [Semantic Versioning](https://semver.org/).
 Project contact: [LinkedIn](https://www.linkedin.com/in/ypotekhin/).
 
@@ -33,7 +33,7 @@ Project contact: [LinkedIn](https://www.linkedin.com/in/ypotekhin/).
 ## Project status
 
 Ladder Dragon is an actively developed, experimental trading system. Version
-**2.20.16** is the current prepared release. `main` is the only long-lived branch;
+**2.20.17** is the current prepared release. `main` is the only long-lived branch;
 feature branches use the `ladderdragon/*` namespace.
 
 DRY and Binance Spot Testnet are the supported starting modes. Mainnet LIVE is
@@ -205,12 +205,15 @@ ADAPTIVE_REANCHOR_MODE=OFF
 REANCHOR_MIN_AGE_SEC=120
 REANCHOR_TRIGGER_PCT=0.0025
 REANCHOR_MAX_STEP_PCT=0.005
+REANCHOR_MAX_MARKET_GAP_PCT=0.0015
 REANCHOR_MAX_PER_CYCLE=1
 ```
 
 For a production observation run, the operator may lower
 `REANCHOR_TRIGGER_PCT` to `0.0005` while keeping `ADAPTIVE_REANCHOR_MODE=SHADOW`.
-Do not promote that setting to `APPLY` until its proposals have been reviewed.
+The best candidate targets a 0.15% market gap, subject to the stricter age,
+trigger, per-cycle step and count bounds. Do not promote that setting to
+`APPLY` until its net expectancy gate passes.
 
 ### Technical prediction SHADOW
 

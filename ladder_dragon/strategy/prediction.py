@@ -489,6 +489,20 @@ def predict_distribution(
     return tuple(output)
 
 
+def evaluation_end_ms(snapshot_ts_ms: int, horizon_min: int) -> int:
+    """Return the close of N complete one-minute bars after a decision.
+
+    Decisions occur at arbitrary seconds. The first observable OHLC outcome is
+    the close of the next full minute, not merely ``snapshot + 60 seconds``.
+    """
+    snapshot = int(snapshot_ts_ms)
+    horizon = int(horizon_min)
+    if snapshot < 0 or horizon <= 0:
+        raise ValueError("snapshot and horizon must be positive")
+    minute_start = snapshot - snapshot % 60_000
+    return minute_start + (horizon + 1) * 60_000 - 1
+
+
 def evaluate_plan(
     bars: Sequence[PredictionBar],
     *,
@@ -497,7 +511,7 @@ def evaluate_plan(
     plan: TradePlan,
 ) -> PredictionOutcome | None:
     """Resolve fill/TP/STOP conservatively after the immutable decision time."""
-    eligible_at = snapshot_ts_ms + horizon_min * 60_000
+    eligible_at = evaluation_end_ms(snapshot_ts_ms, horizon_min)
     future = [
         bar for bar in bars
         if snapshot_ts_ms < bar.open_time_ms and bar.close_time_ms <= eligible_at
@@ -639,6 +653,9 @@ class PredictionShadowStore:
                 ),
             )
             for horizon in HORIZONS_MIN:
+                eligible_at = evaluation_end_ms(
+                    features.snapshot_ts_ms, horizon
+                )
                 connection.execute(
                     """INSERT OR IGNORE INTO prediction_outcomes
                        (decision_id,horizon_min,eligible_at_ms)
@@ -646,7 +663,7 @@ class PredictionShadowStore:
                     (
                         decision_id,
                         horizon,
-                        features.snapshot_ts_ms + horizon * 60_000,
+                        eligible_at,
                     ),
                 )
         return decision_id

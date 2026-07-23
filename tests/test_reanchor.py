@@ -152,6 +152,31 @@ def test_reanchor_tracks_rising_ladder_in_bounded_steps_but_never_chases_down():
     ) == []
 
 
+def test_reanchor_shadow_best_buy_stays_within_market_gap():
+    planned = plan_buy_reanchors(
+        [order(1, price="99.40")],
+        ["99.50"],
+        now_price="100",
+        tick_size="0.01",
+        now_ms=1_000_000,
+        min_age_sec=120,
+        trigger_pct="0.0025",
+        max_step_pct="0.005",
+        max_per_cycle=1,
+        max_market_gap_pct="0.0015",
+    )
+
+    assert planned == [
+        BuyReanchor(
+            order_id=1,
+            old_price=Decimal("99.40"),
+            target_price=Decimal("99.85"),
+            age_sec=200,
+        )
+    ]
+    assert planned[0].target_price < Decimal("100")
+
+
 def test_supervisor_reanchor_cancels_once_and_returns_bounded_replacement(monkeypatch):
     open_orders = [order(7)]
     canceled = []
@@ -263,6 +288,7 @@ def test_reanchor_runtime_telemetry_accumulates_without_order_capability(monkeyp
         reanchor_min_age_sec=120,
         reanchor_trigger_pct=Decimal("0.0005"),
         reanchor_max_step_pct=Decimal("0.005"),
+        reanchor_max_market_gap_pct=Decimal("0.0015"),
         reanchor_max_per_cycle=1,
     )
     result = {
@@ -284,6 +310,7 @@ def test_reanchor_runtime_telemetry_accumulates_without_order_capability(monkeyp
     telemetry = ai_supervisor._AI_RUNTIME_STATUS["reanchor"]
     assert telemetry["mode"] == "SHADOW"
     assert telemetry["trigger_pct"] == "0.0005"
+    assert telemetry["max_market_gap_pct"] == "0.0015"
     assert telemetry["totals"] == {
         "shadow_candidates": 2,
         "apply_cancels": 0,
@@ -398,6 +425,18 @@ def test_reanchor_configuration_rejects_unsafe_refresh_rate():
             "--no-ai-advisor",
             "--reanchor-min-age-sec",
             "59",
+        ]
+    )
+    with pytest.raises(SystemExit):
+        validate_supervisor_args(parser, args)
+
+    args = parser.parse_args(
+        [
+            "--base-script",
+            "bin/autosize_universal.py",
+            "--no-ai-advisor",
+            "--reanchor-max-market-gap-pct",
+            "0",
         ]
     )
     with pytest.raises(SystemExit):

@@ -55,6 +55,14 @@ def build_supervisor_parser() -> argparse.ArgumentParser:
         default=Decimal(os.getenv("REANCHOR_MAX_STEP_PCT", "0.005")),
     )
     ap.add_argument(
+        "--reanchor-max-market-gap-pct",
+        type=Decimal,
+        default=Decimal(
+            os.getenv("REANCHOR_MAX_MARKET_GAP_PCT", "0.0015")
+        ),
+        help="Maximum distance of the best adaptive BUY below market.",
+    )
+    ap.add_argument(
         "--reanchor-max-per-cycle",
         type=int,
         default=int(os.getenv("REANCHOR_MAX_PER_CYCLE", "1")),
@@ -313,6 +321,9 @@ def validate_supervisor_args(parser: argparse.ArgumentParser, args: argparse.Nam
     try:
         reanchor_trigger = Decimal(str(args.reanchor_trigger_pct))
         reanchor_step = Decimal(str(args.reanchor_max_step_pct))
+        reanchor_market_gap = Decimal(
+            str(args.reanchor_max_market_gap_pct)
+        )
     except (InvalidOperation, TypeError, ValueError):
         parser.error("re-anchor percentages must be decimals")
     if (
@@ -325,6 +336,13 @@ def validate_supervisor_args(parser: argparse.ArgumentParser, args: argparse.Nam
         or not Decimal("0") < reanchor_step < Decimal("0.25")
     ):
         parser.error("--reanchor-max-step-pct must be in (0, 0.25)")
+    if (
+        not reanchor_market_gap.is_finite()
+        or not Decimal("0") < reanchor_market_gap < Decimal("0.25")
+    ):
+        parser.error(
+            "--reanchor-max-market-gap-pct must be in (0, 0.25)"
+        )
     if args.far_ttl_sec and args.near_ttl_sec and args.far_ttl_sec < args.near_ttl_sec:
         parser.error("--far-ttl-sec cannot be lower than --near-ttl-sec")
 

@@ -3,6 +3,21 @@
 All notable changes are documented here. Releases use Semantic Versioning; every
 section is dated and there is intentionally no `Unreleased` section.
 
+## [2.20.17] — 2026-07-23
+
+### Fixed
+- Prediction settlement now defines each horizon as one, five or fifteen
+  complete future one-minute bars. Decisions taken between minute boundaries
+  no longer leave every one-minute outcome permanently pending.
+- The best adaptive BUY candidate can be constrained to 0.15% below market.
+  Age, minimum movement, per-cycle step and count limits remain mandatory, and
+  LIVE order changes remain blocked until the statistical APPLY gate passes.
+
+### Verified
+- `78` focused prediction, re-anchor, supervisor configuration, version and
+  deployment tests passed; the complete local suite passed with `465` tests.
+- `python3 -m compileall -q .` and `git diff --check` completed successfully.
+
 ## [2.20.16] — 2026-07-23
 
 ### Security
