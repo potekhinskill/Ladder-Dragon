@@ -8,6 +8,7 @@ from __future__ import annotations
 import argparse
 import os
 import re
+from decimal import Decimal
 from pathlib import Path
 
 from product_version import product_label
@@ -106,6 +107,45 @@ def build_executor_parser() -> argparse.ArgumentParser:
     parser.add_argument("--buy-vwap-window", type=int, default=180,
                         help="Number of closed candles used to calculate VWAP")
 
+    # Low-latency execution is independently gated. SHADOW observes and
+    # records decisions; APPLY may block stale BUYs or change transport only
+    # after an explicit operator approval.
+    parser.add_argument(
+        "--fast-market-mode",
+        choices=("OFF", "SHADOW", "APPLY"),
+        default=os.getenv("BOT_FAST_MARKET_MODE", "OFF").strip().upper(),
+    )
+    parser.add_argument(
+        "--fast-market-max-age-ms",
+        type=int,
+        default=int(os.getenv("BOT_FAST_MARKET_MAX_AGE_MS", "500")),
+    )
+    parser.add_argument(
+        "--fast-market-max-spread-bps",
+        type=Decimal,
+        default=Decimal(os.getenv("BOT_FAST_MARKET_MAX_SPREAD_BPS", "25")),
+    )
+    parser.add_argument(
+        "--fast-market-max-move-bps",
+        type=Decimal,
+        default=Decimal(os.getenv("BOT_FAST_MARKET_MAX_MOVE_BPS", "8")),
+    )
+    parser.add_argument(
+        "--fast-market-min-net-edge-bps",
+        type=Decimal,
+        default=Decimal(os.getenv("BOT_FAST_MARKET_MIN_NET_EDGE_BPS", "2")),
+    )
+    parser.add_argument(
+        "--otoco-mode",
+        choices=("OFF", "SHADOW", "APPLY"),
+        default=os.getenv("BOT_OTOCO_MODE", "OFF").strip().upper(),
+    )
+    parser.add_argument(
+        "--ws-trading-mode",
+        choices=("OFF", "SHADOW", "APPLY"),
+        default=os.getenv("BOT_WS_TRADING_MODE", "OFF").strip().upper(),
+    )
+
     return parser
 def validate_executor_args(
     parser: argparse.ArgumentParser,
@@ -134,4 +174,30 @@ def validate_executor_args(
         parser.error("--min-order-usdt must be > 0")
     if not 0 <= args.stop_limit_offset_pct < 0.25:
         parser.error("--stop-limit-offset-pct must be in [0, 0.25)")
+    if args.fast_market_max_age_ms <= 0:
+        parser.error("--fast-market-max-age-ms must be > 0")
+    for name in (
+        "fast_market_max_spread_bps",
+        "fast_market_max_move_bps",
+        "fast_market_min_net_edge_bps",
+    ):
+        value = getattr(args, name)
+        if not value.is_finite() or value < 0:
+            parser.error(f"--{name.replace('_', '-')} must be finite and >= 0")
+    gated_modes = {
+        "fast-market": (
+            args.fast_market_mode,
+            "BOT_FAST_MARKET_APPROVED",
+        ),
+        "OTOCO": (args.otoco_mode, "BOT_OTOCO_APPROVED"),
+        "WebSocket trading": (
+            args.ws_trading_mode,
+            "BOT_WS_TRADING_APPROVED",
+        ),
+    }
+    for label, (mode, approval_variable) in gated_modes.items():
+        if args.live and mode == "APPLY" and os.getenv(approval_variable) != "YES":
+            parser.error(
+                f"{label} APPLY in LIVE requires {approval_variable}=YES"
+            )
     return args

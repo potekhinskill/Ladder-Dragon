@@ -3,6 +3,48 @@
 All notable changes are documented here. Releases use Semantic Versioning; every
 section is dated and there is intentionally no `Unreleased` section.
 
+## [2.20.26] — 2026-07-23
+
+### Added
+- Added a public-only persistent market-data actor for real-time `bookTicker`,
+  `aggTrade`, `depth20@100ms` and closed one-minute kline events. Immutable
+  Decimal snapshots include incremental EMA20, ATR14, VWAP, depth imbalance
+  and signed trade flow.
+- Added independently approved freshness, spread, market-move and net-edge
+  gates. `SHADOW` records results without changing the plan; LIVE `APPLY`
+  fails closed unless its explicit operator approval is present.
+- Added durable Binance OTOCO placement with exact working BUY, TP and STOP
+  identities, three-order exchange verification, restart recovery and a
+  fail-closed partial-fill transition to separate OCO protection.
+- Added a persistent Binance Spot WebSocket API mutation transport with HMAC
+  and owner-only Ed25519 key support. Unknown ACKs are never blindly retried
+  and continue through existing client/list reconciliation.
+- Added monotonic phase telemetry for market receipt, feature calculation,
+  risk decision, journal commit, request send, exchange ACK, fill receipt,
+  protection activation and atomic cancel-replace acknowledgement.
+
+### Changed
+- User Data Stream events now wake the tracked-order mailbox immediately and
+  run authoritative protection reconciliation before indicator work and other
+  periodic REST checks. The one-second interval remains only for housekeeping.
+- Adaptive BUY re-anchor `APPLY` now defaults to journaled Binance
+  `cancelReplace` with `STOP_ON_FAILURE` and `ONLY_NEW`. It stops the symbol
+  worker first, refuses partial fills, preserves the hard CAP and reconciles
+  every ambiguous response.
+- Added `cryptography==49.0.0` and regenerated CI/Raspberry hash-locked
+  requirements for Ed25519 request signing.
+
+### Security
+- All acceleration layers remain `OFF` by default and each LIVE `APPLY` mode
+  requires a separate exact `YES` approval. Market streams receive no
+  credentials, latency records contain no order identity or secret, and an
+  Ed25519 PEM must be an absolute owner-only file.
+
+### Verified
+- The complete local suite passes with `520` tests. Source compilation,
+  focused restart/partial-fill/OCO/STOP/idempotency tests and
+  `git diff --check` pass.
+
 ## [2.20.25] — 2026-07-23
 
 ### Fixed

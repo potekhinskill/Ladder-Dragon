@@ -168,6 +168,30 @@ def test_mailbox_deduplicates_events_and_consumes_only_requested_order():
     assert mailbox.consume_for([124]) == [second]
 
 
+def test_mailbox_wait_returns_immediately_when_event_is_pending():
+    mailbox = OrderEventMailbox(max_events=4)
+    event = parse_order_signal(execution_report())
+    assert event is not None
+
+    assert mailbox.wait(0) is False
+    assert mailbox.put(event) is True
+    assert mailbox.wait(10) is True
+    assert mailbox.consume_for([event.order_id]) == [event]
+    assert mailbox.wait(0) is False
+
+
+def test_mailbox_wait_for_ignores_unrelated_pending_events():
+    mailbox = OrderEventMailbox(max_events=4)
+    unrelated = parse_order_signal(execution_report(i=999, c="other"))
+    tracked = parse_order_signal(execution_report(i=123, c="tracked"))
+    assert unrelated is not None and tracked is not None
+
+    assert mailbox.put(unrelated) is True
+    assert mailbox.wait_for([123], 0) is False
+    assert mailbox.put(tracked) is True
+    assert mailbox.wait_for([123], 10) is True
+
+
 def test_stream_event_accelerates_but_never_replaces_rest_polling():
     event = parse_order_signal(execution_report())
     assert event is not None

@@ -38,6 +38,18 @@ from ladder_dragon.execution.user_stream import (
 from ladder_dragon.execution.execution_latency import (
     append_execution_latency_sample,
 )
+from ladder_dragon.execution.latency_trace import LatencyTrace
+from ladder_dragon.execution.market_data_stream import (
+    BinanceMarketDataObserver,
+    DecisionFreshnessPolicy,
+    MarketSnapshotStore,
+    evaluate_snapshot_gate,
+)
+from ladder_dragon.execution.websocket_trading import (
+    BinanceWebSocketTradingTransport,
+    WS_METHODS,
+    build_websocket_trading_transport,
+)
 from product_version import product_label, user_agent
 from ladder_dragon.execution.executor_config import build_executor_parser, validate_executor_args
 from ladder_dragon.strategy.strategy_math import atr_from_klines as _atr_from_klines
@@ -56,6 +68,7 @@ from ladder_dragon.execution.executor_orders import OrderDependencies
 from ladder_dragon.execution.executor_orders import place_limit_order as orders_place_limit_order
 from ladder_dragon.execution.executor_orders import place_market_order as orders_place_market_order
 from ladder_dragon.execution.executor_orders import place_oco_sell as orders_place_oco_sell
+from ladder_dragon.execution.executor_orders import place_otoco_buy as orders_place_otoco_buy
 from ladder_dragon.execution.executor_planning import (
     buy_candidates,
     existing_prices,
@@ -76,7 +89,10 @@ from ladder_dragon.execution.executor_protection import (
     protect_filled_buys,
     emergency_gap_flatten,
 )
-from ladder_dragon.execution.executor_runtime import status_due, trading_seconds
+from ladder_dragon.execution.executor_runtime import (
+    status_due,
+    trading_wakeups,
+)
 from ladder_dragon.execution.executor_recovery import RecoveryDependencies
 from ladder_dragon.execution.executor_recovery import cancel_oco as recovery_cancel_oco
 from ladder_dragon.execution.executor_recovery import cancel_order as recovery_cancel_order
@@ -105,6 +121,8 @@ import fcntl  # Linux/Unix
 RUN = True
 LIVE_MODE = False
 _ORDER_JOURNAL: Optional[OrderJournal] = None
+_WS_TRADING_TRANSPORT: BinanceWebSocketTradingTransport | None = None
+WS_TRADING_MODE = "OFF"
 
 # ------------------- ENV / config -------------------
 
@@ -442,6 +460,27 @@ def _execution_cost_floor_pct() -> Decimal:
         + latency + stop_cost + partial + min_edge
     )
 
+
+def _non_fee_execution_cost_pct() -> Decimal:
+    """Return conservative slippage/latency costs without round-trip fees."""
+    spread = max(Decimal("0"), getenv_decimal(
+        "BOT_SPREAD_PCT", getenv_decimal("RISK_SPREAD_PCT", "0")
+    ))
+    slippage = max(Decimal("0"), getenv_decimal(
+        "BOT_SLIPPAGE_PCT", getenv_decimal("RISK_SLIPPAGE_PCT", "0")
+    ))
+    latency = max(Decimal("0"), getenv_decimal("BOT_LATENCY_COST_PCT", "0"))
+    stop_cost = max(
+        Decimal("0"),
+        getenv_decimal("BOT_STOP_EXECUTION_COST_PCT", "0"),
+    )
+    partial = max(
+        Decimal("0"),
+        getenv_decimal("BOT_PARTIAL_FILL_COST_PCT", "0"),
+    )
+    return spread + Decimal("2") * slippage + latency + stop_cost + partial
+
+
 def _profit_floor_pct() -> Decimal:
     # Combined floor: never below MIN_PROFIT_OVER_AVG or the fee floor.
     min_edge = max(Decimal("0"), getenv_decimal("MIN_PROFIT_OVER_AVG", "0"))
@@ -466,6 +505,33 @@ def _public_get(path: str, params: Dict[str, Any] | None = None, timeout: float 
 
 
 def _signed_request(method: str, path: str, params: Dict[str, Any] | None = None, timeout: float = 15.0):
+    global _WS_TRADING_TRANSPORT
+    normalized_method = method.upper()
+    if (
+        WS_TRADING_MODE == "APPLY"
+        and (normalized_method, path) in WS_METHODS
+    ):
+        # Repeat the approval at the last transport boundary. This protects
+        # direct worker invocation and future callers that skip CLI validation.
+        if LIVE_MODE and os.getenv("BOT_WS_TRADING_APPROVED") != "YES":
+            raise RuntimeError(
+                "WebSocket trading APPLY requires "
+                "BOT_WS_TRADING_APPROVED=YES"
+            )
+        if _WS_TRADING_TRANSPORT is None:
+            _WS_TRADING_TRANSPORT = build_websocket_trading_transport(
+                api_key=lambda: API_KEY,
+                api_secret=lambda: API_SECRET,
+                recv_window=lambda: getenv_int("RECV_WINDOW_MS", 15000),
+                live=lambda: LIVE_MODE,
+                testnet="testnet" in BINANCE_API_BASE.lower(),
+            )
+        return _WS_TRADING_TRANSPORT.request(
+            normalized_method,
+            path,
+            params,
+            timeout=timeout,
+        )
     return TRANSPORT.signed_request(method, path, params=params, timeout=timeout)
 
 # ------------------- Indicators / averages / panic -------------------
@@ -1392,7 +1458,8 @@ def place_limit_order(side: str,
                       *,
                       maker: bool = False,
                       purpose: str = "ladder",
-                      parent_client_order_id: Optional[str] = None) -> Dict[str, Any] | None:
+                      parent_client_order_id: Optional[str] = None,
+                      latency_trace: LatencyTrace | None = None) -> Dict[str, Any] | None:
     return orders_place_limit_order(
         side,
         symbol,
@@ -1402,6 +1469,7 @@ def place_limit_order(side: str,
         maker=maker,
         purpose=purpose,
         parent_client_order_id=parent_client_order_id,
+        latency_trace=latency_trace,
     )
 
 def place_oco_sell(symbol: str,
@@ -1422,6 +1490,31 @@ def place_oco_sell(symbol: str,
         parent_client_order_id=parent_client_order_id,
         lot_id=lot_id,
     )
+
+
+def place_otoco_buy(
+    symbol: str,
+    qty: object,
+    buy_price: object,
+    tp_limit_price: object,
+    sl_stop_price: object,
+    sl_limit_price: object,
+    *,
+    maker: bool = False,
+    latency_trace: LatencyTrace | None = None,
+) -> Dict[str, Any] | None:
+    return orders_place_otoco_buy(
+        symbol,
+        qty,
+        buy_price,
+        tp_limit_price,
+        sl_stop_price,
+        sl_limit_price,
+        dependencies=_order_dependencies(),
+        maker=maker,
+        latency_trace=latency_trace,
+    )
+
 
 # ------------------- STATS (optional) -------------------
 
@@ -1738,7 +1831,12 @@ def maybe_place_buys(symbol: str,
                      enforce_limit: bool = False,
                      use_remainder_in_last: bool = False,
                      buy_limit_maker: bool = False,
-                     live_mode: bool = False) -> List[int]:
+                     live_mode: bool = False,
+                     market_store: MarketSnapshotStore | None = None,
+                     market_policy: DecisionFreshnessPolicy | None = None,
+                     market_mode: str = "OFF",
+                     otoco_mode: str = "OFF",
+                     stop_limit_offset_pct: object = Decimal("0.0015")) -> List[int]:
     """Handle maybe place buys."""
     # Check the stop signal before any network request: after SIGTERM this function
     # must not even read balances or open orders.
@@ -1812,6 +1910,34 @@ def maybe_place_buys(symbol: str,
             f"Check --ladder-prices and reduce-only mode.")
         return []
 
+    initial_market_snapshot = (
+        market_store.snapshot() if market_store is not None else None
+    )
+    decision_reference_price = (
+        initial_market_snapshot.best_bid
+        if initial_market_snapshot is not None
+        and initial_market_snapshot.best_bid > 0
+        else now
+    )
+
+    def append_trace(trace: LatencyTrace) -> None:
+        try:
+            trace.append(
+                os.getenv(
+                    "BOT_LATENCY_TRACE_LOG",
+                    str(
+                        Path(__file__).resolve().parents[1]
+                        / "logs"
+                        / "latency_trace.ndjson"
+                    ),
+                )
+            )
+        except OSError as exc:
+            dbg(
+                "[LATENCY] trace unavailable="
+                f"{type(exc).__name__}"
+            )
+
     # Main candidate loop.
     for idx, p in enumerate(candidates, start=1):
         if not RUN:
@@ -1875,8 +2001,99 @@ def maybe_place_buys(symbol: str,
                 buy_limit_maker or
                 os.getenv("BUY_LIMIT_MAKER", "").lower() in ("1", "true", "yes")
             )
+            trace = LatencyTrace(symbol, "buy-submit")
+            if market_store is not None and market_policy is not None:
+                trace.mark("market_event_received")
+                trace.mark("feature_start")
+                latest_snapshot = market_store.snapshot()
+                upper_levels = [
+                    Decimal(str(level))
+                    for level in ladder_prices
+                    if Decimal(str(level)) > pr
+                ]
+                ladder_edge_pct = (
+                    (min(upper_levels) - pr) / pr
+                    if upper_levels and pr > 0
+                    else Decimal("0")
+                )
+                expected_gross_edge = max(
+                    _profit_floor_pct(),
+                    ladder_edge_pct,
+                ) * Decimal("10000")
+                gate = evaluate_snapshot_gate(
+                    latest_snapshot,
+                    decision_reference_price=decision_reference_price,
+                    expected_edge_bps=expected_gross_edge,
+                    fee_bps=(
+                        Decimal("2")
+                        * max(
+                            Decimal("0"),
+                            getenv_decimal("BOT_FEE_PCT", "0.001"),
+                        )
+                        * Decimal("10000")
+                    ),
+                    slippage_bps=(
+                        _non_fee_execution_cost_pct()
+                        * Decimal("10000")
+                    ),
+                    policy=market_policy,
+                    now_monotonic_ns=time.monotonic_ns(),
+                )
+                trace.mark("feature_end")
+                trace.mark("risk_decision")
+                if not gate.approved:
+                    log(
+                        f"[FAST-MARKET-{market_mode}] {symbol} BUY gate="
+                        f"{','.join(gate.reasons)} age_ms="
+                        f"{gate.snapshot_age_ms:.3f} move_bps="
+                        f"{gate.price_move_bps:.3f} net_edge_bps="
+                        f"{gate.net_edge_bps:.3f}"
+                    )
+                    if market_mode == "APPLY":
+                        append_trace(trace)
+                        continue
+            otoco_prices = None
+            if otoco_mode != "OFF":
+                otoco_prices = _pick_ladder_aligned_oco_prices(
+                    symbol,
+                    ladder_prices,
+                    pr,
+                    stop_limit_offset_pct,
+                )
+                if otoco_mode == "SHADOW":
+                    log(
+                        f"[OTOCO-SHADOW] {symbol} BUY="
+                        f"{fmt_price_sym(symbol, pr)} TP="
+                        f"{fmt_price_sym(symbol, otoco_prices[0])} STOP="
+                        f"{fmt_price_sym(symbol, otoco_prices[1])}"
+                    )
             # IMPORTANT: place the order at the rounded price pr.
-            j = place_limit_order("BUY", symbol, qty, pr, maker=maker_flag)
+            if otoco_mode == "APPLY":
+                if live_mode and os.getenv("BOT_OTOCO_APPROVED") != "YES":
+                    raise RuntimeError(
+                        "OTOCO APPLY requires BOT_OTOCO_APPROVED=YES"
+                    )
+                if otoco_prices is None:
+                    raise RuntimeError("OTOCO prices are unavailable")
+                j = place_otoco_buy(
+                    symbol,
+                    qty,
+                    pr,
+                    otoco_prices[0],
+                    otoco_prices[1],
+                    otoco_prices[2],
+                    maker=maker_flag,
+                    latency_trace=trace,
+                )
+            else:
+                j = place_limit_order(
+                    "BUY",
+                    symbol,
+                    qty,
+                    pr,
+                    maker=maker_flag,
+                    latency_trace=trace,
+                )
             if j:
                 oid = int(j.get("orderId"))
                 placed_ids.append(oid)
@@ -1884,6 +2101,7 @@ def maybe_place_buys(symbol: str,
                 usdt_free = max(Decimal("0"), usdt_free - planned.notional)
                 # Deduplicate by the already rounded price.
                 existing_buy_prices.add(pr)
+            append_trace(trace)
         except (requests.RequestException, RuntimeError, ValueError, OSError) as exc:
             log(
                 f"[BUY-PLACE-ERR] {symbol} price={fmt_price_sym(symbol, pr)} "
@@ -2103,8 +2321,9 @@ def main():
     parser = build_executor_parser()
     args = validate_executor_args(parser, parser.parse_args())
     log(f"[VERSION] {product_label('executor')}")
-    global LIVE_MODE
+    global LIVE_MODE, WS_TRADING_MODE
     LIVE_MODE = bool(args.live)
+    WS_TRADING_MODE = args.ws_trading_mode
     if LIVE_MODE:
         # Supervisor risk calculation treats target-buy as a hard maximum.
         # Therefore LIVE always checks existing BUY orders.
@@ -2171,6 +2390,8 @@ def main():
 
     user_stream_mailbox = OrderEventMailbox()
     user_stream_observer: Optional[BinanceUserDataObserver] = None
+    market_store: MarketSnapshotStore | None = None
+    market_observer: BinanceMarketDataObserver | None = None
     try:
         ladder_prices = parse_comma_floats(args.ladder_prices)
 
@@ -2227,6 +2448,18 @@ def main():
                     ),
                 )
                 user_stream_observer.start()
+        if args.fast_market_mode != "OFF":
+            market_store = MarketSnapshotStore(symbol)
+            market_observer = BinanceMarketDataObserver(
+                market_store,
+                testnet="testnet" in BINANCE_API_BASE.lower(),
+                logger=log,
+            )
+            market_observer.start()
+            log(
+                f"[FAST-MARKET] {symbol} mode={args.fast_market_mode} "
+                f"max_age={args.fast_market_max_age_ms}ms"
+            )
         current_price = get_price(symbol)
 
         # Protection deduplication also runs here: direct worker startup must not
@@ -2467,6 +2700,18 @@ def main():
                     use_remainder_in_last=use_remainder_in_last,
                     buy_limit_maker=args.buy_limit_maker,
                     live_mode=LIVE_MODE,
+                    market_store=market_store,
+                    market_policy=DecisionFreshnessPolicy(
+                        max_age_ms=args.fast_market_max_age_ms,
+                        max_spread_bps=args.fast_market_max_spread_bps,
+                        max_price_move_bps=args.fast_market_max_move_bps,
+                        minimum_net_edge_bps=(
+                            args.fast_market_min_net_edge_bps
+                        ),
+                    ),
+                    market_mode=args.fast_market_mode,
+                    otoco_mode=args.otoco_mode,
+                    stop_limit_offset_pct=args.stop_limit_offset_pct,
                 )
                 placed_ids = list(dict.fromkeys([*placed_ids, *new_ids]))
             except (
@@ -2534,10 +2779,148 @@ def main():
         last_check = 0
         panic_cancel_applied = False
 
-        for left in trading_seconds(
+        def record_stream_events(stream_events) -> None:
+            """Persist sanitized event latency outside the order mutation path."""
+            journal = _order_journal()
+            latency_path = os.getenv(
+                "BOT_EXECUTION_LATENCY_LOG",
+                str(
+                    Path(__file__).resolve().parents[1]
+                    / "logs"
+                    / "execution_latency.ndjson"
+                ),
+            )
+            if journal is None:
+                return
+            for event in stream_events:
+                created_ms = journal.created_at_ms_for_exchange_order(
+                    event.order_id
+                )
+                if created_ms is None:
+                    continue
+                try:
+                    commission_quote = None
+                    commission_status = "not_applicable"
+                    if event.execution_type == "TRADE":
+                        commission_amount = Decimal(event.commission_amount)
+                        if commission_amount == 0:
+                            commission_quote = Decimal("0")
+                            commission_status = "exact"
+                        else:
+                            commission_quote, commission_status = (
+                                _commission_quote_value(
+                                    event.symbol,
+                                    event.commission_asset,
+                                    commission_amount,
+                                    Decimal(event.last_price),
+                                    event.transaction_time_ms,
+                                )
+                            )
+                    append_execution_latency_sample(
+                        latency_path,
+                        event,
+                        intent_created_at_ms=created_ms,
+                        commission_quote=commission_quote,
+                        commission_value_status=commission_status,
+                    )
+                except (
+                    ArithmeticError,
+                    OSError,
+                    TypeError,
+                    ValueError,
+                ) as exc:
+                    dbg(
+                        "[USER-STREAM] execution latency sample "
+                        f"unavailable={type(exc).__name__}"
+                    )
+
+        def reconcile_tracked_buys(
+            stream_events,
+            *,
+            event_woken: bool,
+        ) -> None:
+            """Run authoritative protection immediately after a WS wakeup."""
+            nonlocal placed_ids, protection_state
+            trace = LatencyTrace(symbol, "fill-reconcile")
+            if event_woken:
+                trace.mark("fill_received")
+            pending_before = list(placed_ids)
+            terminal_unfilled: set[int] = set()
+            placed_ids = protect_filled_buys(
+                symbol,
+                placed_ids,
+                ladder_prices,
+                config=ProtectionConfig(
+                    stop_limit_offset_pct=args.stop_limit_offset_pct,
+                    oco_fallback=args.oco_fallback,
+                    sell_limit_maker=args.sell_limit_maker,
+                    avg_cache_ttl=args.avg_cache_ttl,
+                    avg_lookback=args.avg_lookback,
+                    panic_sell_floor_pct=panic_sell_floor_pct,
+                ),
+                panic_active=panic_active,
+                breakeven_enabled=breakeven.enabled,
+                state_store=be_state,
+                dependencies=_protection_dependencies(),
+                terminal_unfilled_order_ids=terminal_unfilled,
+            )
+            if user_stream_observer is not None:
+                user_stream_observer.record_rest_reconciliation(
+                    event_woken=event_woken
+                )
+            protection_state = _protection_state_after_sweep(
+                pending_before,
+                placed_ids,
+                terminal_unfilled,
+            )
+            if event_woken and protection_state == "confirmed":
+                trace.mark("protection_active")
+            if event_woken:
+                try:
+                    trace.append(
+                        os.getenv(
+                            "BOT_LATENCY_TRACE_LOG",
+                            str(
+                                Path(__file__).resolve().parents[1]
+                                / "logs"
+                                / "latency_trace.ndjson"
+                            ),
+                        )
+                    )
+                except OSError as exc:
+                    dbg(
+                        "[LATENCY] trace unavailable="
+                        f"{type(exc).__name__}"
+                    )
+
+        for left in trading_wakeups(
             int(args.loop_minutes * 60),
             running=lambda: RUN,
+            wait=lambda timeout: (
+                user_stream_mailbox.wait_for(placed_ids, timeout)
+                if user_stream_observer is not None and placed_ids
+                else time.sleep(timeout)
+            ),
         ):
+            stream_events = (
+                user_stream_mailbox.consume_for(placed_ids)
+                if attach_oco and placed_ids
+                else []
+            )
+            if stream_events:
+                record_stream_events(stream_events)
+                latest = stream_events[-1]
+                log(
+                    f"[USER-STREAM] {symbol} order={latest.order_id} "
+                    f"event={latest.execution_type}/{latest.order_status}; "
+                    "immediate authoritative REST reconciliation"
+                )
+                reconcile_tracked_buys(
+                    stream_events,
+                    event_woken=True,
+                )
+                last_check = 0
+
             if status_due(left, args.status_interval):
                 log(status_message(left))
 
@@ -2619,102 +3002,20 @@ def main():
                 )
                 return
 
-            # Remove a FILLED BUY from placed_ids only after a confirmed OCO or reserve
-            # TP. Any uncertainty creates a halt.
-            if attach_oco and placed_ids:
-                stream_events = user_stream_mailbox.consume_for(placed_ids)
-                if stream_events:
-                    journal = _order_journal()
-                    latency_path = os.getenv(
-                        "BOT_EXECUTION_LATENCY_LOG",
-                        str(Path(__file__).resolve().parents[1]
-                            / "logs" / "execution_latency.ndjson"),
-                    )
-                    if journal is not None:
-                        for event in stream_events:
-                            created_ms = journal.created_at_ms_for_exchange_order(
-                                event.order_id
-                            )
-                            if created_ms is None:
-                                continue
-                            try:
-                                commission_quote = None
-                                commission_status = "not_applicable"
-                                if event.execution_type == "TRADE":
-                                    commission_amount = Decimal(
-                                        event.commission_amount
-                                    )
-                                    if commission_amount == 0:
-                                        commission_quote = Decimal("0")
-                                        commission_status = "exact"
-                                    else:
-                                        commission_quote, commission_status = (
-                                            _commission_quote_value(
-                                                event.symbol,
-                                                event.commission_asset,
-                                                commission_amount,
-                                                Decimal(event.last_price),
-                                                event.transaction_time_ms,
-                                            )
-                                        )
-                                append_execution_latency_sample(
-                                    latency_path,
-                                    event,
-                                    intent_created_at_ms=created_ms,
-                                    commission_quote=commission_quote,
-                                    commission_value_status=commission_status,
-                                )
-                            except (
-                                ArithmeticError,
-                                OSError,
-                                TypeError,
-                                ValueError,
-                            ) as exc:
-                                dbg(
-                                    "[USER-STREAM] execution latency sample "
-                                    f"unavailable={type(exc).__name__}"
-                                )
-                    latest = stream_events[-1]
-                    log(
-                        f"[USER-STREAM] {symbol} order={latest.order_id} "
-                        f"event={latest.execution_type}/{latest.order_status}; "
-                        "requesting authoritative REST reconciliation"
-                    )
+            # A stream event was reconciled before indicators and other REST
+            # analytics. Periodic REST remains authoritative when the stream is
+            # quiet, disconnected, duplicated or out of order.
+            if attach_oco and placed_ids and not stream_events:
                 last_check += 1
                 if reconciliation_due(
                     last_check,
                     args.check_fills_interval,
-                    stream_events,
+                    (),
                 ):
                     last_check = 0
-                    pending_before = list(placed_ids)
-                    terminal_unfilled: set[int] = set()
-                    placed_ids = protect_filled_buys(
-                        symbol,
-                        placed_ids,
-                        ladder_prices,
-                        config=ProtectionConfig(
-                            stop_limit_offset_pct=args.stop_limit_offset_pct,
-                            oco_fallback=args.oco_fallback,
-                            sell_limit_maker=args.sell_limit_maker,
-                            avg_cache_ttl=args.avg_cache_ttl,
-                            avg_lookback=args.avg_lookback,
-                            panic_sell_floor_pct=panic_sell_floor_pct,
-                        ),
-                        panic_active=panic_active,
-                        breakeven_enabled=breakeven.enabled,
-                        state_store=be_state,
-                        dependencies=_protection_dependencies(),
-                        terminal_unfilled_order_ids=terminal_unfilled,
-                    )
-                    if user_stream_observer is not None:
-                        user_stream_observer.record_rest_reconciliation(
-                            event_woken=bool(stream_events)
-                        )
-                    protection_state = _protection_state_after_sweep(
-                        pending_before,
-                        placed_ids,
-                        terminal_unfilled,
+                    reconcile_tracked_buys(
+                        (),
+                        event_woken=False,
                     )
 
             # LIVE time-stop prevents a position from remaining stuck forever. Binance
@@ -2761,6 +3062,10 @@ def main():
 
         return
     finally:
+        if _WS_TRADING_TRANSPORT is not None:
+            _WS_TRADING_TRANSPORT.close()
+        if market_observer is not None:
+            market_observer.stop()
         if user_stream_observer is not None:
             user_stream_observer.stop()
         # Always release the lock.

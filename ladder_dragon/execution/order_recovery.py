@@ -418,7 +418,8 @@ class OrderJournal:
         """Resolve an OCO leg only through its exact persisted exchange ID."""
         with self._connect() as con:
             rows = con.execute(
-                "SELECT * FROM order_intents WHERE order_type = 'OCO' "
+                "SELECT * FROM order_intents "
+                "WHERE order_type IN ('OCO', 'OTOCO') "
                 "AND side = 'SELL' ORDER BY created_at DESC"
             ).fetchall()
         target = int(exchange_order_id)
@@ -727,7 +728,7 @@ class OrderJournal:
                 f"""
                 SELECT * FROM order_intents
                 WHERE venue = ? AND state IN ({placeholders})
-                  AND order_type != 'OCO'
+                  AND order_type NOT IN ('OCO', 'OTOCO')
                 {where_symbol}
                 ORDER BY created_at
                 """,

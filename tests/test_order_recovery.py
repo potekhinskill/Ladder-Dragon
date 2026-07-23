@@ -13,6 +13,7 @@ from ladder_dragon.execution.executor_recovery import (
     get_order,
     list_open_orders,
     reconcile_nonterminal_orders,
+    recover_existing_protection,
 )
 
 
@@ -229,6 +230,173 @@ def test_filled_buy_remains_unresolved_until_protection_is_confirmed(tmp_path):
     assert [
         item.client_order_id for item in journal.protected_buys("SOLUSDT")
     ] == [buy.client_order_id]
+
+
+def test_otoco_recovery_requires_filled_working_buy_and_two_active_legs(
+    tmp_path,
+):
+    journal = OrderJournal(tmp_path / "orders.sqlite3")
+    journal.prepare(
+        client_order_id="BUY-OTOCO",
+        symbol="SOLUSDT",
+        side="BUY",
+        purpose="ladder",
+        order_type="OTOCO_WORKING",
+        quantity="0.1",
+        price="100",
+    )
+    journal.record_exchange_order(
+        "BUY-OTOCO",
+        {
+            "orderId": 10,
+            "status": "FILLED",
+            "executedQty": "0.1",
+            "cummulativeQuoteQty": "10",
+        },
+    )
+    journal.prepare(
+        client_order_id="LIST-OTOCO",
+        symbol="SOLUSDT",
+        side="SELL",
+        purpose="otoco",
+        order_type="OTOCO",
+        quantity="0.1",
+        price="105",
+        parent_client_order_id="BUY-OTOCO",
+    )
+    orders = {
+        "BUY-OTOCO": {
+            "orderId": 10,
+            "clientOrderId": "BUY-OTOCO",
+            "side": "BUY",
+            "type": "LIMIT",
+            "status": "FILLED",
+        },
+        "TP-OTOCO": {
+            "orderId": 11,
+            "clientOrderId": "TP-OTOCO",
+            "side": "SELL",
+            "type": "LIMIT_MAKER",
+            "status": "NEW",
+        },
+        "SL-OTOCO": {
+            "orderId": 12,
+            "clientOrderId": "SL-OTOCO",
+            "side": "SELL",
+            "type": "STOP_LOSS_LIMIT",
+            "status": "NEW",
+        },
+    }
+    dependencies = RecoveryDependencies(
+        journal=lambda: journal,
+        get_order_by_client_id=lambda symbol, client_id: orders.get(client_id),
+        get_order_list_by_client_id=lambda client_id: {
+            "orderListId": 99,
+            "listStatusType": "EXEC_STARTED",
+            "orders": [
+                {"clientOrderId": "BUY-OTOCO"},
+                {"clientOrderId": "TP-OTOCO"},
+                {"clientOrderId": "SL-OTOCO"},
+            ],
+        },
+        verify_oco_legs=lambda symbol, payload: [],
+        cancel_oco=lambda symbol, order_list_id: pytest.fail(
+            "valid OTOCO must not be cancelled"
+        ),
+        halt=lambda reason, **metadata: None,
+        logger=lambda message: None,
+    )
+
+    assert recover_existing_protection(
+        "BUY-OTOCO",
+        dependencies=dependencies,
+    ) is True
+    assert journal.get("BUY-OTOCO").state == "PROTECTED"
+    assert journal.protection_for_leg_order_id(12)[1] == "STOP_LOSS_LIMIT"
+    assert journal.unresolved_buys("SOLUSDT") == []
+    assert [
+        item.client_order_id for item in journal.protected_buys("SOLUSDT")
+    ] == ["BUY-OTOCO"]
+
+
+def test_cancelled_partial_otoco_must_be_all_done_before_separate_protection(
+    tmp_path,
+):
+    journal = OrderJournal(tmp_path / "orders.sqlite3")
+    journal.prepare(
+        client_order_id="BUY-PARTIAL",
+        symbol="SOLUSDT",
+        side="BUY",
+        purpose="ladder",
+        order_type="OTOCO_WORKING",
+        quantity="0.1",
+        price="100",
+    )
+    journal.record_exchange_order(
+        "BUY-PARTIAL",
+        {
+            "orderId": 20,
+            "status": "CANCELED",
+            "executedQty": "0.04",
+            "cummulativeQuoteQty": "4",
+        },
+    )
+    journal.prepare(
+        client_order_id="LIST-PARTIAL",
+        symbol="SOLUSDT",
+        side="SELL",
+        purpose="otoco",
+        order_type="OTOCO",
+        quantity="0.1",
+        price="105",
+        parent_client_order_id="BUY-PARTIAL",
+    )
+    orders = {
+        "BUY-PARTIAL": {
+            "clientOrderId": "BUY-PARTIAL",
+            "status": "CANCELED",
+            "executedQty": "0.04",
+        },
+        "TP-PARTIAL": {
+            "orderId": 21,
+            "clientOrderId": "TP-PARTIAL",
+            "side": "SELL",
+            "type": "LIMIT_MAKER",
+            "status": "CANCELED",
+        },
+        "SL-PARTIAL": {
+            "orderId": 22,
+            "clientOrderId": "SL-PARTIAL",
+            "side": "SELL",
+            "type": "STOP_LOSS_LIMIT",
+            "status": "CANCELED",
+        },
+    }
+    dependencies = RecoveryDependencies(
+        journal=lambda: journal,
+        get_order_by_client_id=lambda symbol, client_id: orders.get(client_id),
+        get_order_list_by_client_id=lambda client_id: {
+            "orderListId": 100,
+            "listStatusType": "ALL_DONE",
+            "orders": [
+                {"clientOrderId": "BUY-PARTIAL"},
+                {"clientOrderId": "TP-PARTIAL"},
+                {"clientOrderId": "SL-PARTIAL"},
+            ],
+        },
+        verify_oco_legs=lambda symbol, payload: [],
+        cancel_oco=lambda symbol, order_list_id: pytest.fail(
+            "confirmed ALL_DONE list must not be cancelled again"
+        ),
+        halt=lambda reason, **metadata: None,
+        logger=lambda message: None,
+    )
+
+    assert recover_existing_protection(
+        "BUY-PARTIAL",
+        dependencies=dependencies,
+    ) is False
+    assert journal.get("LIST-PARTIAL").state == "FILLED"
 
 
 def test_unknown_submission_is_kept_for_reconciliation(tmp_path):

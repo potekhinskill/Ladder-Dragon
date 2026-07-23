@@ -17,7 +17,7 @@ Binance Spot. It builds BUY/SELL grids, uses ATR/EMA/VWAP/ADX regimes, manages
 OCO protection, and records trading statistics in SQLite. Production secrets,
 real backups, and private parameters are never committed.
 
-Current product version: **2.20.25**. The single version source is
+Current product version: **2.20.26**. The single version source is
 `product_version.py`; releases follow [Semantic Versioning](https://semver.org/).
 Project contact: [LinkedIn](https://www.linkedin.com/in/ypotekhin/).
 
@@ -549,6 +549,38 @@ frame but written to disk no more frequently than
 `BOT_USER_STREAM_STATE_WRITE_SEC` (five seconds by default), except for material
 counter or connection-state changes. This avoids per-frame SD-card writes on
 Raspberry Pi without weakening REST reconciliation.
+
+### Low-latency execution modes
+
+The executor has three independently gated acceleration layers. All default to
+`OFF`, so upgrading cannot silently change the active canary:
+
+- `BOT_FAST_MARKET_MODE=SHADOW` starts public `bookTicker`, `aggTrade`,
+  `depth20@100ms` and closed `kline_1m` streams. It maintains an immutable
+  Decimal snapshot with incremental EMA20, ATR14, VWAP, depth imbalance and
+  signed trade flow. `APPLY` rejects a BUY when the snapshot is stale, the
+  spread or market move is excessive, depth sequence regresses, or estimated
+  net edge no longer covers fees and execution costs.
+- `BOT_OTOCO_MODE=SHADOW` records the exact BUY/TP/STOP list that would be
+  submitted. `APPLY` sends one Binance OTOCO order list, journals the working
+  BUY and both pending SELL legs before mutation, and verifies all three exact
+  exchange orders. A cancelled partial fill may receive a separate OCO only
+  after Binance confirms that the original OTOCO list is fully terminated.
+- `BOT_WS_TRADING_MODE=APPLY` routes supported submit/cancel/order-list
+  mutations through one persistent Binance WebSocket API connection. It never
+  retries an unknown mutation; the existing client/list identity recovery runs
+  before any further action. REST remains authoritative for reconciliation.
+
+LIVE `APPLY` additionally requires `BOT_FAST_MARKET_APPROVED=YES`,
+`BOT_OTOCO_APPROVED=YES`, or `BOT_WS_TRADING_APPROVED=YES` for the corresponding
+layer. HMAC remains supported. `BINANCE_KEY_TYPE=ED25519` accepts only an
+absolute owner-only PEM path in `BINANCE_ED25519_PRIVATE_KEY_FILE`.
+
+Adaptive re-anchor `APPLY` uses Binance `cancelReplace` with
+`STOP_ON_FAILURE` and `ONLY_NEW`, after stopping the symbol worker and
+committing the replacement intent. It rejects partial fills and any target
+whose notional exceeds the hard CAP. Set `BOT_REANCHOR_CANCEL_REPLACE=0` only
+as an explicit rollback to the legacy cancel/restart path.
 
 After a real soak, run the read-only gate:
 

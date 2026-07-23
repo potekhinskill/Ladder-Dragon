@@ -6,11 +6,16 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from decimal import Decimal
 from typing import Any, Callable, Dict, List, Optional
 
 import requests
 
-from ladder_dragon.execution.order_recovery import OrderIntent, OrderJournal
+from ladder_dragon.execution.order_recovery import (
+    OrderIntent,
+    OrderJournal,
+    TERMINAL_EXCHANGE_STATES,
+)
 
 
 def http_error_code(exc: requests.HTTPError) -> Optional[int]:
@@ -300,6 +305,102 @@ def recover_existing_protection(
     if protection is None:
         return False
     if protection.state == "PROTECTED":
+        return True
+    if protection.order_type == "OTOCO":
+        payload = dependencies.get_order_list_by_client_id(
+            protection.client_order_id
+        )
+        order_list_id = (
+            payload.get("orderListId")
+            if isinstance(payload, dict)
+            else None
+        )
+        try:
+            refs = payload.get("orders") if isinstance(payload, dict) else None
+            if not isinstance(refs, list) or len(refs) != 3:
+                raise RuntimeError("OTOCO recovery requires exactly three orders")
+            working = dependencies.get_order_by_client_id(
+                protection.symbol,
+                parent_client_order_id,
+            )
+            if not isinstance(working, dict):
+                raise RuntimeError("OTOCO working BUY is unavailable")
+            working_status = str(working.get("status") or "").upper()
+            pending: List[Dict[str, Any]] = []
+            for ref in refs:
+                client_id = str(
+                    ref.get("clientOrderId") or ""
+                ) if isinstance(ref, dict) else ""
+                if not client_id or client_id == parent_client_order_id:
+                    continue
+                order = dependencies.get_order_by_client_id(
+                    protection.symbol,
+                    client_id,
+                )
+                if not isinstance(order, dict):
+                    raise RuntimeError("OTOCO protection leg is unavailable")
+                pending.append(order)
+            if len(pending) != 2:
+                raise RuntimeError("OTOCO protection pair is incomplete")
+            if working_status != "FILLED":
+                executed = Decimal(str(working.get("executedQty") or "0"))
+                pending_terminal = all(
+                    str(order.get("status") or "").upper()
+                    in {"CANCELED", "EXPIRED", "EXPIRED_IN_MATCH", "REJECTED"}
+                    for order in pending
+                )
+                if (
+                    working_status in TERMINAL_EXCHANGE_STATES
+                    and executed > 0
+                    and str(payload.get("listStatusType") or "").upper()
+                    == "ALL_DONE"
+                    and pending_terminal
+                ):
+                    # The OTOCO list was atomically cancelled after a partial
+                    # fill. The caller may now attach an OCO for only the
+                    # executed quantity.
+                    journal.record_order_list(
+                        protection.client_order_id,
+                        payload,
+                    )
+                    return False
+                return False
+            if any(
+                str(order.get("side") or "").upper() != "SELL"
+                or str(order.get("status") or "").upper()
+                not in {"NEW", "PARTIALLY_FILLED", "FILLED"}
+                for order in pending
+            ):
+                raise RuntimeError("OTOCO protection legs are not active")
+            leg_types = {
+                str(order.get("type") or "").upper()
+                for order in pending
+            }
+            if "LIMIT_MAKER" not in leg_types or not any(
+                "STOP" in value for value in leg_types
+            ):
+                raise RuntimeError("OTOCO TP/STOP identities are invalid")
+        except (requests.RequestException, RuntimeError):
+            if order_list_id is not None:
+                dependencies.cancel_oco(
+                    protection.symbol,
+                    int(order_list_id),
+                )
+            raise RuntimeError(
+                "OTOCO protection verification failed; list cancellation "
+                "was requested and LIVE must halt for reconciliation"
+            )
+        journal.record_verified_protection_legs(
+            protection.client_order_id,
+            pending,
+        )
+        journal.mark_protected(
+            parent_client_order_id=parent_client_order_id,
+            protection_client_order_id=protection.client_order_id,
+            order_list_id=(
+                int(order_list_id) if order_list_id is not None else None
+            ),
+        )
         return True
     if protection.order_type == "OCO":
         payload = dependencies.get_order_list_by_client_id(

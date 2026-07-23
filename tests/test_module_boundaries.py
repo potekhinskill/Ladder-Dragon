@@ -19,7 +19,11 @@ from ladder_dragon.execution.executor_market import (
     get_symbol_assets,
 )
 from ladder_dragon.execution.executor_orders import (
-    OrderDependencies, place_limit_order, place_market_order, place_oco_sell,
+    OrderDependencies,
+    place_limit_order,
+    place_market_order,
+    place_oco_sell,
+    place_otoco_buy,
 )
 from ladder_dragon.execution.executor_planning import (
     buy_candidates,
@@ -33,7 +37,11 @@ from ladder_dragon.execution.executor_planning import (
     plan_sell_order,
 )
 from ladder_dragon.execution.executor_recovery import get_order_by_client_id, verify_oco_legs
-from ladder_dragon.execution.executor_runtime import status_due, trading_seconds
+from ladder_dragon.execution.executor_runtime import (
+    status_due,
+    trading_seconds,
+    trading_wakeups,
+)
 from ladder_dragon.execution.order_recovery import OrderJournal
 from ladder_dragon.strategy.strategy_math import (
     adx_from_klines,
@@ -60,6 +68,38 @@ def test_executor_config_owns_parser_and_strict_validation(monkeypatch):
     monkeypatch.delenv("BOT_LIVE_CONFIRMED", raising=False)
     with pytest.raises(SystemExit) as exc:
         validate_executor_args(parser, argparse.Namespace(**{**vars(args), "live": True}))
+    assert exc.value.code == 2
+
+
+@pytest.mark.parametrize(
+    ("argument", "approval"),
+    [
+        ("--fast-market-mode", "BOT_FAST_MARKET_APPROVED"),
+        ("--otoco-mode", "BOT_OTOCO_APPROVED"),
+        ("--ws-trading-mode", "BOT_WS_TRADING_APPROVED"),
+    ],
+)
+def test_live_low_latency_apply_requires_independent_approval(
+    monkeypatch,
+    argument,
+    approval,
+):
+    monkeypatch.setenv("BOT_LIVE_CONFIRMED", "YES")
+    monkeypatch.delenv(approval, raising=False)
+    parser = build_executor_parser()
+    args = parser.parse_args([
+        "--symbol",
+        "SOLUSDT",
+        "--ladder-prices",
+        "90,110",
+        "--live",
+        argument,
+        "APPLY",
+    ])
+
+    with pytest.raises(SystemExit) as exc:
+        validate_executor_args(parser, args)
+
     assert exc.value.code == 2
 
 
@@ -532,6 +572,159 @@ def test_oco_exact_boundary_blocks_subminimum_without_post():
     assert calls == []
 
 
+def test_otoco_commits_intents_before_post_and_verifies_three_orders(tmp_path):
+    journal = OrderJournal(tmp_path / "orders.sqlite3")
+    calls = []
+    submitted = {}
+
+    def signed_request(method, path, params):
+        calls.append((method, path, params))
+        if method == "POST":
+            submitted.update(params)
+            return {"orderListId": 501}
+        return {
+            "orderListId": 501,
+            "listStatusType": "EXEC_STARTED",
+            "orders": [
+                {"clientOrderId": submitted["workingClientOrderId"]},
+                {"clientOrderId": submitted["pendingAboveClientOrderId"]},
+                {"clientOrderId": submitted["pendingBelowClientOrderId"]},
+            ],
+        }
+
+    def lookup(_symbol, client_id):
+        if client_id == submitted["workingClientOrderId"]:
+            return {
+                "orderId": 10,
+                "clientOrderId": client_id,
+                "side": "BUY",
+                "type": "LIMIT",
+                "status": "NEW",
+                "executedQty": "0",
+            }
+        if client_id == submitted["pendingAboveClientOrderId"]:
+            return {
+                "orderId": 11,
+                "clientOrderId": client_id,
+                "side": "SELL",
+                "type": "LIMIT_MAKER",
+                "status": "PENDING_NEW",
+            }
+        return {
+            "orderId": 12,
+            "clientOrderId": client_id,
+            "side": "SELL",
+            "type": "STOP_LOSS_LIMIT",
+            "status": "PENDING_NEW",
+        }
+
+    dependencies = OrderDependencies(
+        live=lambda: True,
+        logger=lambda message: None,
+        pull_filters=lambda symbol: {
+            "tickSizeExact": "0.01",
+            "stepSizeExact": "0.001",
+            "minQtyExact": "0.001",
+            "minNotionalExact": "5",
+        },
+        round_price=lambda *args: pytest.fail("legacy float price rounding"),
+        round_qty=lambda *args: pytest.fail("legacy float qty rounding"),
+        min_qty=lambda *args: pytest.fail("legacy float minimum quantity"),
+        min_notional=lambda *args: pytest.fail("legacy float notional"),
+        format_price=lambda *args: pytest.fail("legacy float price format"),
+        format_qty=lambda *args: pytest.fail("legacy float quantity format"),
+        journal=lambda: journal,
+        signed_request=signed_request,
+        get_order_by_client_id=lookup,
+        get_order_list_by_client_id=lambda client_id: None,
+        verify_oco_legs=lambda symbol, payload: [],
+        cancel_oco=lambda symbol, order_list_id: None,
+        halt=lambda reason, **metadata: None,
+        validate_limit_sell_prices=lambda symbol, prices: None,
+    )
+
+    result = place_otoco_buy(
+        "SOLUSDT",
+        Decimal("0.1"),
+        Decimal("100"),
+        Decimal("105"),
+        Decimal("95"),
+        Decimal("94.9"),
+        dependencies=dependencies,
+    )
+
+    assert result["orderId"] == 10
+    assert calls[0][1] == "/api/v3/orderList/otoco"
+    assert calls[0][2]["workingSide"] == "BUY"
+    assert calls[0][2]["pendingSide"] == "SELL"
+    parent = journal.get(submitted["workingClientOrderId"])
+    protection = journal.protection_for_parent(
+        submitted["workingClientOrderId"]
+    )
+    assert parent is not None and parent.order_type == "OTOCO_WORKING"
+    assert protection is not None and protection.order_type == "OTOCO"
+    assert len(protection.metadata["verified_legs"]) == 2
+
+
+def test_otoco_malformed_exchange_list_is_cancelled_and_halts(tmp_path):
+    journal = OrderJournal(tmp_path / "orders.sqlite3")
+    cancelled = []
+    halts = []
+
+    def signed_request(method, path, params):
+        if method == "POST":
+            return {"orderListId": 601}
+        return {
+            "orderListId": 601,
+            "listStatusType": "EXEC_STARTED",
+            "orders": [{"clientOrderId": "only-one-order"}],
+        }
+
+    dependencies = OrderDependencies(
+        live=lambda: True,
+        logger=lambda message: None,
+        pull_filters=lambda symbol: {
+            "tickSizeExact": "0.01",
+            "stepSizeExact": "0.001",
+            "minQtyExact": "0.001",
+            "minNotionalExact": "5",
+        },
+        round_price=lambda symbol, value: value,
+        round_qty=lambda symbol, value: value,
+        min_qty=lambda symbol, hint: Decimal("0.001"),
+        min_notional=lambda symbol, price: Decimal("5"),
+        format_price=lambda symbol, value: format(value, "f"),
+        format_qty=lambda symbol, value: format(value, "f"),
+        journal=lambda: journal,
+        signed_request=signed_request,
+        get_order_by_client_id=lambda symbol, client_id: None,
+        get_order_list_by_client_id=lambda client_id: {
+            "orderListId": 601,
+            "orders": [{"clientOrderId": "only-one-order"}],
+        },
+        verify_oco_legs=lambda symbol, payload: [],
+        cancel_oco=lambda symbol, order_list_id: cancelled.append(
+            (symbol, order_list_id)
+        ),
+        halt=lambda reason, **metadata: halts.append(reason),
+        validate_limit_sell_prices=lambda symbol, prices: None,
+    )
+
+    with pytest.raises(RuntimeError, match="verification failed"):
+        place_otoco_buy(
+            "SOLUSDT",
+            Decimal("0.1"),
+            Decimal("100"),
+            Decimal("105"),
+            Decimal("95"),
+            Decimal("94.9"),
+            dependencies=dependencies,
+        )
+
+    assert cancelled == [("SOLUSDT", 601)]
+    assert halts == ["OTOCO verification failed after submission"]
+
+
 def test_market_order_uses_exact_filters_without_float_callbacks():
     calls = []
     dependencies = OrderDependencies(
@@ -788,6 +981,28 @@ def test_executor_runtime_owns_worker_lifecycle_timing():
     assert sleeps == [1, 1, 1]
     assert status_due(10, 5)
     assert not status_due(9, 5)
+
+
+def test_event_wakeups_preserve_monotonic_worker_deadline():
+    now = [100.0]
+    waits = []
+
+    def wait(seconds):
+        waits.append(seconds)
+        now[0] += 0.2 if len(waits) == 1 else seconds
+
+    ticks = list(
+        trading_wakeups(
+            2,
+            running=lambda: True,
+            wait=wait,
+            monotonic=lambda: now[0],
+            housekeeping_interval_sec=1,
+        )
+    )
+
+    assert ticks == [2, 1, 0]
+    assert waits == [1.0, 1.0, pytest.approx(0.8)]
 
 
 def test_decimal_holdings_planner_never_oversells_or_duplicates_ticks():

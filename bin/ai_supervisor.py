@@ -57,6 +57,11 @@ from ladder_dragon.execution.order_recovery import (
     read_order_journal_telemetry,
     read_order_observation,
 )
+from ladder_dragon.execution.cancel_replace import (
+    CancelReplaceDependencies,
+    atomic_cancel_replace_buy,
+)
+from ladder_dragon.execution.latency_trace import LatencyTrace
 from ladder_dragon.execution.auth_resilience import (
     AuthResilienceState,
     load_auth_state,
@@ -71,7 +76,15 @@ from ladder_dragon.execution.maintenance_state import (
     DEFAULT_PATH as DEFAULT_MAINTENANCE_PATH,
     load_maintenance_state,
 )
-from ladder_dragon.risk.risk_manager import RiskDecision, RiskLimits, RiskManager, RiskSnapshot, load_daily_trade_metrics, money
+from ladder_dragon.risk.risk_manager import (
+    RiskDecision,
+    RiskLimits,
+    RiskManager,
+    RiskSnapshot,
+    create_manual_halt,
+    load_daily_trade_metrics,
+    money,
+)
 from ladder_dragon.risk.risk_statistics import (
     correlated_symbols_multi_window as derive_correlated_symbols_multi_window,
     covariance_var,
@@ -570,7 +583,8 @@ def _verify_live_protection(
     protection = journal.protection_for_parent(parent_client_order_id)
     if protection is None:
         raise RuntimeError("protected BUY has no linked protection intent")
-    if protection.order_type == "OCO":
+    if protection.order_type in {"OCO", "OTOCO"}:
+        list_type = protection.order_type
         payload = TM._signed_get(
             "/api/v3/orderList",
             {"origClientOrderId": protection.client_order_id},
@@ -582,15 +596,26 @@ def _verify_live_protection(
             != protection.client_order_id
             or int(payload.get("orderListId", -1))
             != int(protection.exchange_order_list_id or -2)
-            or str(payload.get("contingencyType") or "").upper() != "OCO"
+            or str(payload.get("contingencyType") or "").upper() != list_type
         ):
-            raise RuntimeError("OCO identity differs from durable journal")
+            raise RuntimeError(
+                f"{list_type} identity differs from durable journal"
+            )
         if str(payload.get("listStatusType") or "").upper() != "EXEC_STARTED":
-            raise RuntimeError("OCO is not actively protecting inventory")
+            raise RuntimeError(
+                f"{list_type} is not actively protecting inventory"
+            )
         references = payload.get("orders")
-        if not isinstance(references, list) or len(references) != 2:
-            raise RuntimeError("OCO does not contain exactly two legs")
-        legs: list[dict[str, Any]] = []
+        expected_orders = 3 if list_type == "OTOCO" else 2
+        if (
+            not isinstance(references, list)
+            or len(references) != expected_orders
+        ):
+            raise RuntimeError(
+                f"{list_type} does not contain exactly "
+                f"{expected_orders} orders"
+            )
+        queried: list[dict[str, Any]] = []
         for reference in references:
             if not isinstance(reference, dict) or reference.get("orderId") is None:
                 raise RuntimeError("OCO leg reference is invalid")
@@ -605,27 +630,54 @@ def _verify_live_protection(
             )
             if not isinstance(leg, dict):
                 raise RuntimeError("OCO leg reconciliation response is invalid")
-            legs.append(leg)
+            queried.append(leg)
+        if list_type == "OTOCO":
+            working = [
+                order
+                for order in queried
+                if str(order.get("clientOrderId") or "")
+                == parent_client_order_id
+            ]
+            if (
+                len(working) != 1
+                or str(working[0].get("side") or "").upper() != "BUY"
+                or str(working[0].get("status") or "").upper() != "FILLED"
+            ):
+                raise RuntimeError("OTOCO working BUY is not exactly FILLED")
+            legs = [
+                order
+                for order in queried
+                if str(order.get("clientOrderId") or "")
+                != parent_client_order_id
+            ]
+        else:
+            legs = queried
         if any(str(leg.get("side") or "").upper() != "SELL" for leg in legs):
-            raise RuntimeError("OCO contains a non-SELL leg")
+            raise RuntimeError(f"{list_type} contains a non-SELL protection leg")
         if any(
             str(leg.get("symbol") or "").upper() != protection.symbol
             or int(leg.get("orderListId", -1))
             != int(protection.exchange_order_list_id or -2)
             for leg in legs
         ):
-            raise RuntimeError("OCO leg identity differs from durable journal")
+            raise RuntimeError(
+                f"{list_type} leg identity differs from durable journal"
+            )
         leg_types = {str(leg.get("type") or "").upper() for leg in legs}
         if not ({"LIMIT_MAKER", "LIMIT"} & leg_types) or not (
             {"STOP_LOSS_LIMIT", "STOP_LOSS"} & leg_types
         ):
-            raise RuntimeError("OCO protection leg types are invalid")
+            raise RuntimeError(
+                f"{list_type} protection leg types are invalid"
+            )
         permitted = {"NEW", "PARTIALLY_FILLED"}
         if any(
             str(leg.get("status") or "").upper() not in permitted
             for leg in legs
         ):
-            raise RuntimeError("OCO protection has a terminal or unknown leg")
+            raise RuntimeError(
+                f"{list_type} protection has a terminal or unknown leg"
+            )
         observed_ids = {int(leg["orderId"]) for leg in legs}
         stored_ids = {
             int(row["order_id"])
@@ -633,7 +685,9 @@ def _verify_live_protection(
             if isinstance(row, dict) and row.get("order_id") is not None
         }
         if stored_ids and stored_ids != observed_ids:
-            raise RuntimeError("OCO exchange legs differ from durable journal")
+            raise RuntimeError(
+                f"{list_type} exchange legs differ from durable journal"
+            )
         journal.update_metadata(
             protection.client_order_id,
             {
@@ -1605,6 +1659,92 @@ def smart_cleanup_orders(symbol: str,
 # Smart Rolling (brief)
 # ===========================
 
+def _atomic_reanchor_cap(symbol: str) -> Decimal:
+    values: list[Decimal] = []
+    for variable in (
+        "BOT_OPERATOR_CAP_PER_ORDER_USDT",
+        "BOT_CAP_PER_ORDER",
+        f"RISK_SYMBOL_CAP_{symbol.upper()}",
+    ):
+        raw = os.getenv(variable, "").strip()
+        if not raw:
+            continue
+        value = Decimal(raw)
+        if not value.is_finite() or value <= 0:
+            raise ValueError(f"{variable} must be finite and positive")
+        values.append(value)
+    if not values:
+        raise RuntimeError("atomic re-anchor has no hard per-order CAP")
+    return min(values)
+
+
+def _atomic_reanchor_buy(
+    symbol: str,
+    order: Mapping[str, object],
+    target_price: Decimal,
+    *,
+    testnet: bool,
+) -> Dict[str, Any] | None:
+    path = os.getenv("BOT_ORDER_JOURNAL", "").strip()
+    if not path:
+        raise RuntimeError("atomic re-anchor requires BOT_ORDER_JOURNAL")
+    journal = OrderJournal(
+        path,
+        venue="testnet" if testnet else "mainnet",
+    )
+
+    def get_by_id(query_symbol: str, order_id: int):
+        return TM._signed_get(
+            "/api/v3/order",
+            {"symbol": query_symbol, "orderId": int(order_id)},
+        )
+
+    def get_by_client(query_symbol: str, client_id: str):
+        try:
+            return TM._signed_get(
+                "/api/v3/order",
+                {
+                    "symbol": query_symbol,
+                    "origClientOrderId": client_id,
+                },
+            )
+        except SUPERVISOR_OPERATION_ERRORS as exc:
+            if _exchange_order_absent(exc):
+                return None
+            raise
+
+    trace = LatencyTrace(symbol, "cancel-replace")
+    trace.mark("risk_decision")
+    result = atomic_cancel_replace_buy(
+        symbol,
+        order,
+        target_price,
+        maximum_notional=_atomic_reanchor_cap(symbol),
+        dependencies=CancelReplaceDependencies(
+            journal=lambda: journal,
+            signed_request=_canonical_signed_request,
+            get_order_by_id=get_by_id,
+            get_order_by_client_id=get_by_client,
+            halt=lambda reason, **metadata: create_manual_halt(
+                reason,
+                metadata=metadata,
+            ),
+            logger=log,
+        ),
+        latency_trace=trace,
+    )
+    try:
+        trace.append(
+            os.getenv(
+                "BOT_LATENCY_TRACE_LOG",
+                str(Path("logs") / "latency_trace.ndjson"),
+            )
+        )
+    except OSError as exc:
+        dbg(f"[LATENCY] trace unavailable={type(exc).__name__}")
+    return result
+
+
 def smart_rolling(symbol: str,
                   now_price: float,
                   ladder: List[float],
@@ -1691,6 +1831,10 @@ def smart_rolling(symbol: str,
 
     canceled = 0
     replacements: List[float] = []
+    atomic_mode = os.getenv(
+        "BOT_REANCHOR_CANCEL_REPLACE",
+        "1",
+    ).lower() in ("1", "true", "yes")
     by_id: Dict[int, Mapping[str, object]] = {}
     for order in open_orders:
         try:
@@ -1699,17 +1843,58 @@ def smart_rolling(symbol: str,
             continue
         if order_id > 0:
             by_id[order_id] = order
+    if planned and atomic_mode and not _stop_child(
+        symbol,
+        "atomic adaptive BUY re-anchor",
+    ):
+        log(
+            f"[REANCHOR-BLOCK] {symbol} worker did not stop; "
+            "cancelReplace suppressed"
+        )
+        return {
+            "kept": len(open_orders),
+            "cancel": {
+                "ttl": 0,
+                "atr": 0,
+                "reanchor": 0,
+                "shadow": 0,
+            },
+            "replacement_prices": [],
+            "proposals": proposals,
+            "effective_mode": "APPLY",
+            "apply_gate_approved": True,
+        }
     for candidate in planned:
-        if not cancel_order(symbol, candidate.order_id):
+        order = by_id.get(candidate.order_id)
+        if atomic_mode:
+            if order is None:
+                continue
+            try:
+                replacement = _atomic_reanchor_buy(
+                    symbol,
+                    order,
+                    candidate.target_price,
+                    testnet=bool(getattr(args, "testnet", False)),
+                )
+            except SUPERVISOR_OPERATION_ERRORS as exc:
+                log(
+                    f"[REANCHOR-BLOCK] {symbol} cancelReplace "
+                    f"error={type(exc).__name__}"
+                )
+                continue
+            if not replacement:
+                continue
+        elif not cancel_order(symbol, candidate.order_id):
             continue
         canceled += 1
         replacements.append(_analytics_float(candidate.target_price))
         log(
-            f"[REANCHOR] {symbol} canceled BUY id={candidate.order_id} "
+            f"[REANCHOR] {symbol} "
+            f"{'atomically replaced' if atomic_mode else 'canceled'} "
+            f"BUY id={candidate.order_id} "
             f"old={candidate.old_price} target={candidate.target_price} "
             f"age={candidate.age_sec}s"
         )
-        order = by_id.get(candidate.order_id)
         if order is not None:
             _log_order_lifetime(
                 symbol,
@@ -1719,7 +1904,11 @@ def smart_rolling(symbol: str,
                 ttl_sec=int(args.reanchor_min_age_sec),
                 cancel_reason="adaptive-reanchor",
             )
-    if canceled and not _stop_child(symbol, "adaptive BUY re-anchor"):
+    if (
+        canceled
+        and not atomic_mode
+        and not _stop_child(symbol, "adaptive BUY re-anchor")
+    ):
         replacements.clear()
         log(
             f"[REANCHOR-BLOCK] {symbol} worker did not stop; "

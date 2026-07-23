@@ -562,6 +562,63 @@ def test_worker_blocks_oversized_plan_before_exchange_mutation(monkeypatch):
     ) == []
 
 
+def test_fast_market_apply_blocks_stale_buy_before_exchange_mutation(
+    tmp_path,
+    monkeypatch,
+):
+    from ladder_dragon.execution.market_data_stream import (
+        DecisionFreshnessPolicy,
+        MarketSnapshotStore,
+    )
+
+    worker = load_worker()
+    worker.RUN = True
+    monkeypatch.setenv("BOT_LATENCY_TRACE_LOG", str(tmp_path / "latency.ndjson"))
+    monkeypatch.setattr(worker, "get_symbol_assets", lambda symbol: ("SOL", "USDT"))
+    worker.symbol_filters["SOLUSDT"] = {
+        "tickSize": 0.01,
+        "stepSize": 0.001,
+        "minQty": 0.001,
+        "minNotional": 5.0,
+    }
+    monkeypatch.setattr(worker, "pull_filters", lambda symbol: None)
+    monkeypatch.setattr(
+        worker,
+        "get_balances",
+        lambda: {"USDT": {"free": 100.0, "locked": 0.0}},
+    )
+    monkeypatch.setattr(worker, "get_price_exact", lambda symbol: Decimal("100"))
+    monkeypatch.setattr(
+        worker,
+        "place_limit_order",
+        lambda *args, **kwargs: (_ for _ in ()).throw(
+            AssertionError("stale BUY reached exchange mutation")
+        ),
+    )
+    ticks = iter((1_000_000_000, 1_100_000_000))
+    store = MarketSnapshotStore(
+        "SOLUSDT",
+        monotonic_ns=lambda: next(ticks),
+    )
+    store.update({"b": "100", "B": "2", "a": "100.01", "A": "2"})
+    store.update({
+        "lastUpdateId": 10,
+        "bids": [["100", "2"]],
+        "asks": [["100.01", "2"]],
+    })
+    monkeypatch.setattr(worker.time, "monotonic_ns", lambda: 2_000_000_000)
+
+    assert worker.maybe_place_buys(
+        "SOLUSDT",
+        [90.0, 110.0],
+        10.0,
+        target_buy_per_symbol=1,
+        market_store=store,
+        market_policy=DecisionFreshnessPolicy(max_age_ms=100),
+        market_mode="APPLY",
+    ) == []
+
+
 def test_worker_blocks_buy_when_open_order_state_is_unavailable(monkeypatch):
     worker = load_worker()
     worker.RUN = True
@@ -962,6 +1019,103 @@ def test_supervisor_verifies_both_oco_legs_before_running(
     assert {row["order_id"] for row in metadata["verified_legs"]} == {
         701, 702
     }
+
+
+def test_supervisor_verifies_filled_otoco_and_both_active_sell_legs(
+    tmp_path,
+    monkeypatch,
+):
+    from ladder_dragon.execution.order_recovery import OrderJournal
+
+    journal = OrderJournal(tmp_path / "orders.sqlite3", venue="mainnet")
+    journal.prepare(
+        client_order_id="BUY-OTOCO",
+        symbol="SOLUSDT",
+        side="BUY",
+        purpose="ladder",
+        order_type="OTOCO_WORKING",
+        quantity="0.1",
+        price="75",
+    )
+    journal.record_exchange_order(
+        "BUY-OTOCO",
+        {
+            "orderId": 800,
+            "status": "FILLED",
+            "executedQty": "0.1",
+            "cummulativeQuoteQty": "7.5",
+        },
+    )
+    journal.prepare(
+        client_order_id="LIST-OTOCO",
+        parent_client_order_id="BUY-OTOCO",
+        symbol="SOLUSDT",
+        side="SELL",
+        purpose="otoco",
+        order_type="OTOCO",
+        quantity="0.1",
+        price="76",
+    )
+    journal.mark_protected(
+        parent_client_order_id="BUY-OTOCO",
+        protection_client_order_id="LIST-OTOCO",
+        order_list_id=900,
+    )
+    monkeypatch.setenv("BOT_ORDER_JOURNAL", str(journal.path))
+
+    def signed_get(path, params):
+        if path == "/api/v3/orderList":
+            return {
+                "orderListId": 900,
+                "listClientOrderId": "LIST-OTOCO",
+                "contingencyType": "OTOCO",
+                "listStatusType": "EXEC_STARTED",
+                "orders": [
+                    {"orderId": 800, "symbol": "SOLUSDT"},
+                    {"orderId": 801, "symbol": "SOLUSDT"},
+                    {"orderId": 802, "symbol": "SOLUSDT"},
+                ],
+            }
+        order_id = int(params["orderId"])
+        if order_id == 800:
+            return {
+                "orderId": 800,
+                "orderListId": 900,
+                "clientOrderId": "BUY-OTOCO",
+                "symbol": "SOLUSDT",
+                "side": "BUY",
+                "type": "LIMIT",
+                "status": "FILLED",
+            }
+        return {
+            "orderId": order_id,
+            "orderListId": 900,
+            "clientOrderId": (
+                "TP-OTOCO" if order_id == 801 else "SL-OTOCO"
+            ),
+            "symbol": "SOLUSDT",
+            "side": "SELL",
+            "type": (
+                "LIMIT_MAKER"
+                if order_id == 801
+                else "STOP_LOSS_LIMIT"
+            ),
+            "status": "NEW",
+        }
+
+    monkeypatch.setattr(ai_supervisor.TM, "_signed_get", signed_get)
+
+    result = ai_supervisor._pre_running_recovery_gate(
+        SimpleNamespace(live=True, testnet=False),
+        ["SOLUSDT"],
+    )
+
+    assert result["protection_checks"] == 3
+    protection = journal.get("LIST-OTOCO")
+    assert {
+        row["order_id"]
+        for row in protection.metadata["verified_legs"]
+    } == {801, 802}
 
 
 def test_supervisor_blocks_terminal_oco_leg(

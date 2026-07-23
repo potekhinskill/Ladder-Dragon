@@ -134,6 +134,7 @@ def place_limit_order(
     maker: bool = False,
     purpose: str = "ladder",
     parent_client_order_id: Optional[str] = None,
+    latency_trace: Any | None = None,
 ) -> Dict[str, Any] | None:
     """Place limit order."""
     try:
@@ -278,6 +279,8 @@ def place_limit_order(
             price=price_text,
             parent_client_order_id=parent_client_order_id,
         )
+        if latency_trace is not None:
+            latency_trace.mark("journal_commit")
 
     params = {
         "symbol": symbol,
@@ -292,9 +295,13 @@ def place_limit_order(
         params["timeInForce"] = "GTC"
 
     try:
+        if latency_trace is not None:
+            latency_trace.mark("request_sent")
         payload = dependencies.signed_request(
             "POST", "/api/v3/order", params
         )
+        if latency_trace is not None:
+            latency_trace.mark("exchange_ack")
         if isinstance(payload, dict):
             payload.setdefault("clientOrderId", order_client_id)
             if journal is not None:
@@ -896,3 +903,369 @@ def place_oco_sell(
         except (AttributeError, ValueError):
             dependencies.logger(f"[ERR] place_oco_sell: {exc}")
         return None
+
+
+def _verify_otoco_orders(
+    symbol: str,
+    order_list: Dict[str, Any],
+    *,
+    working_client_order_id: str,
+    dependencies: OrderDependencies,
+) -> tuple[Dict[str, Any], list[Dict[str, Any]]]:
+    """Verify one working BUY and both pending SELL legs by exact client ID."""
+    refs = order_list.get("orders")
+    if not isinstance(refs, list) or len(refs) != 3:
+        raise RuntimeError("OTOCO verification did not return exactly three orders")
+    queried: list[Dict[str, Any]] = []
+    for ref in refs:
+        if not isinstance(ref, dict) or not ref.get("clientOrderId"):
+            raise RuntimeError("OTOCO order reference has no clientOrderId")
+        order = dependencies.get_order_by_client_id(
+            symbol,
+            str(ref["clientOrderId"]),
+        )
+        if not isinstance(order, dict):
+            raise RuntimeError("OTOCO order query returned an invalid payload")
+        queried.append(order)
+    working = [
+        order
+        for order in queried
+        if str(order.get("clientOrderId") or "") == working_client_order_id
+    ]
+    pending = [
+        order
+        for order in queried
+        if str(order.get("clientOrderId") or "") != working_client_order_id
+    ]
+    if len(working) != 1 or len(pending) != 2:
+        raise RuntimeError("OTOCO working/pending identity mismatch")
+    if str(working[0].get("side") or "").upper() != "BUY":
+        raise RuntimeError("OTOCO working order is not BUY")
+    if any(str(order.get("side") or "").upper() != "SELL" for order in pending):
+        raise RuntimeError("OTOCO pending protection is not SELL")
+    leg_types = {str(order.get("type") or "").upper() for order in pending}
+    if "LIMIT_MAKER" not in leg_types or not any(
+        "STOP" in leg_type for leg_type in leg_types
+    ):
+        raise RuntimeError("OTOCO pending TP/STOP pair is invalid")
+    return working[0], pending
+
+
+def place_otoco_buy(
+    symbol: str,
+    quantity: object,
+    buy_price: object,
+    tp_limit_price: object,
+    sl_stop_price: object,
+    sl_limit_price: object,
+    *,
+    dependencies: OrderDependencies,
+    maker: bool = False,
+    purpose: str = "ladder",
+    latency_trace: Any | None = None,
+) -> Dict[str, Any] | None:
+    """Place a durable BUY + future TP/STOP list as one Binance OTOCO."""
+    try:
+        values = [
+            Decimal(str(value))
+            for value in (
+                quantity,
+                buy_price,
+                tp_limit_price,
+                sl_stop_price,
+                sl_limit_price,
+            )
+        ]
+    except (InvalidOperation, TypeError, ValueError) as exc:
+        raise ValueError("OTOCO price/quantity is invalid") from exc
+    if any(not value.is_finite() or value <= 0 for value in values):
+        raise ValueError("OTOCO price/quantity must be finite and positive")
+    if not dependencies.live():
+        dependencies.logger(f"[DRY] skip OTOCO {symbol} BUY")
+        return None
+
+    quantity_exact, buy_exact, tp_exact, stop_exact, limit_exact = values
+    filters = exact_symbol_filters(dependencies.pull_filters(symbol))
+    if filters is not None:
+        quantity_exact = round_step(quantity_exact, filters.step, "floor")
+        buy_exact = round_step(buy_exact, filters.tick, "floor")
+        tp_exact = round_step(tp_exact, filters.tick, "ceil")
+        stop_exact = round_step(stop_exact, filters.tick, "ceil")
+        limit_exact = round_step(limit_exact, filters.tick, "floor")
+        quantity_text = format_step(quantity_exact, filters.step)
+        buy_text = format_step(buy_exact, filters.tick)
+        tp_text = format_step(tp_exact, filters.tick)
+        stop_text = format_step(stop_exact, filters.tick)
+        limit_text = format_step(limit_exact, filters.tick)
+        minimum_quantity = filters.minimum_quantity
+        minimum_notional = filters.minimum_notional
+    else:
+        quantity_text = dependencies.format_qty(
+            symbol, dependencies.round_qty(symbol, quantity_exact)
+        )
+        buy_text = dependencies.format_price(
+            symbol, dependencies.round_price(symbol, buy_exact)
+        )
+        tp_text = dependencies.format_price(
+            symbol, dependencies.round_price(symbol, tp_exact)
+        )
+        stop_text = dependencies.format_price(
+            symbol, dependencies.round_price(symbol, stop_exact)
+        )
+        limit_text = dependencies.format_price(
+            symbol, dependencies.round_price(symbol, limit_exact)
+        )
+        quantity_exact = Decimal(quantity_text)
+        buy_exact = Decimal(buy_text)
+        tp_exact = Decimal(tp_text)
+        limit_exact = Decimal(limit_text)
+        minimum_quantity = Decimal(str(dependencies.min_qty(symbol, 0)))
+        minimum_notional = Decimal(
+            str(dependencies.min_notional(symbol, buy_exact))
+        )
+    if quantity_exact < minimum_quantity or any(
+        quantity_exact * price < minimum_notional
+        for price in (buy_exact, tp_exact, limit_exact)
+    ):
+        dependencies.logger(
+            f"[OTOCO-BLOCK] {symbol} rounded quantity/notional below minimum"
+        )
+        return None
+    dependencies.validate_limit_sell_prices(
+        symbol,
+        [tp_text, stop_text, limit_text],
+    )
+
+    journal = dependencies.journal()
+    active = (
+        journal.find_active(
+            symbol=symbol,
+            side="BUY",
+            purpose=purpose,
+            quantity=quantity_text,
+            price=buy_text,
+        )
+        if journal is not None
+        else None
+    )
+    working_client_id = (
+        active.client_order_id
+        if active is not None
+        else client_order_id(
+            symbol, "BUY", purpose, buy_text, quantity_text
+        )
+    )
+    if (
+        active is None
+        and journal is not None
+        and journal.get(working_client_id) is not None
+    ):
+        working_client_id = client_order_id(
+            symbol,
+            "BUY",
+            f"{purpose}-{time.time_ns()}",
+            buy_text,
+            quantity_text,
+            bucket_seconds=1,
+        )
+    existing_protection = (
+        journal.protection_for_parent(working_client_id)
+        if journal is not None and active is not None
+        else None
+    )
+    list_client_id = (
+        existing_protection.client_order_id
+        if existing_protection is not None
+        else client_order_id(
+            symbol,
+            "SELL",
+            f"otoco:{working_client_id[:12]}",
+            tp_text,
+            quantity_text,
+        )
+    )
+    if existing_protection is not None:
+        existing = dependencies.get_order_list_by_client_id(list_client_id)
+        if isinstance(existing, dict):
+            working, pending = _verify_otoco_orders(
+                symbol,
+                existing,
+                working_client_order_id=working_client_id,
+                dependencies=dependencies,
+            )
+            journal.record_exchange_order(working_client_id, working)
+            journal.record_order_list(list_client_id, existing)
+            journal.record_verified_protection_legs(list_client_id, pending)
+            result = dict(working)
+            result["orderListId"] = existing.get("orderListId")
+            result["listClientOrderId"] = list_client_id
+            dependencies.logger(
+                f"[IDEMPOTENT] reuse OTOCO {symbol} "
+                f"client={list_client_id}"
+            )
+            return result
+
+    above_client_id = client_order_id(
+        symbol, "SELL", "otoco-tp", tp_text, quantity_text
+    )
+    below_client_id = client_order_id(
+        symbol, "SELL", "otoco-stop", stop_text, quantity_text
+    )
+    if journal is not None:
+        journal.prepare(
+            client_order_id=working_client_id,
+            symbol=symbol,
+            side="BUY",
+            purpose=purpose,
+            order_type="OTOCO_WORKING",
+            quantity=quantity_text,
+            price=buy_text,
+        )
+        journal.prepare(
+            client_order_id=list_client_id,
+            symbol=symbol,
+            side="SELL",
+            purpose=f"otoco:{working_client_id[:12]}",
+            order_type="OTOCO",
+            quantity=quantity_text,
+            price=tp_text,
+            parent_client_order_id=working_client_id,
+            metadata={
+                "stopPrice": stop_text,
+                "stopLimitPrice": limit_text,
+                "workingClientOrderId": working_client_id,
+            },
+        )
+        if latency_trace is not None:
+            latency_trace.mark("journal_commit")
+
+    params: Dict[str, Any] = {
+        "symbol": symbol,
+        "listClientOrderId": list_client_id,
+        "workingType": "LIMIT_MAKER" if maker else "LIMIT",
+        "workingSide": "BUY",
+        "workingClientOrderId": working_client_id,
+        "workingPrice": buy_text,
+        "workingQuantity": quantity_text,
+        "pendingSide": "SELL",
+        "pendingQuantity": quantity_text,
+        "pendingAboveType": "LIMIT_MAKER",
+        "pendingAbovePrice": tp_text,
+        "pendingAboveClientOrderId": above_client_id,
+        "pendingBelowType": "STOP_LOSS_LIMIT",
+        "pendingBelowStopPrice": stop_text,
+        "pendingBelowPrice": limit_text,
+        "pendingBelowTimeInForce": "GTC",
+        "pendingBelowClientOrderId": below_client_id,
+        "newOrderRespType": "RESULT",
+    }
+    if not maker:
+        params["workingTimeInForce"] = "GTC"
+    try:
+        if latency_trace is not None:
+            latency_trace.mark("request_sent")
+        payload = dependencies.signed_request(
+            "POST",
+            "/api/v3/orderList/otoco",
+            params,
+        )
+        if latency_trace is not None:
+            latency_trace.mark("exchange_ack")
+        if not isinstance(payload, dict) or payload.get("orderListId") is None:
+            raise RuntimeError("OTOCO response has no orderListId")
+        verified = dependencies.signed_request(
+            "GET",
+            "/api/v3/orderList",
+            {"orderListId": int(payload["orderListId"])},
+        )
+        if not isinstance(verified, dict):
+            raise RuntimeError("OTOCO verification returned an invalid list")
+        working, pending = _verify_otoco_orders(
+            symbol,
+            verified,
+            working_client_order_id=working_client_id,
+            dependencies=dependencies,
+        )
+        if journal is not None:
+            journal.record_exchange_order(working_client_id, working)
+            journal.record_order_list(list_client_id, verified)
+            journal.record_verified_protection_legs(list_client_id, pending)
+            if (
+                str(working.get("status") or "").upper() == "FILLED"
+                and all(
+                    str(order.get("status") or "").upper()
+                    in {"NEW", "PARTIALLY_FILLED"}
+                    for order in pending
+                )
+            ):
+                journal.mark_protected(
+                    parent_client_order_id=working_client_id,
+                    protection_client_order_id=list_client_id,
+                    order_list_id=int(payload["orderListId"]),
+                )
+        result = dict(working)
+        result["orderListId"] = payload["orderListId"]
+        result["listClientOrderId"] = list_client_id
+        dependencies.logger(
+            f"[PLACE-OTOCO] {symbol} BUY {quantity_text} @ {buy_text} "
+            f"list={payload['orderListId']} verified"
+        )
+        return result
+    except (requests.RequestException, RuntimeError) as exc:
+        if _record_definitive_rejection(
+            journal,
+            list_client_id,
+            exc,
+            dependencies.logger,
+        ):
+            if journal is not None:
+                journal.mark_failed(working_client_id, exc)
+            raise
+        if journal is not None:
+            journal.mark_unknown(list_client_id, exc)
+            try:
+                reconciled = dependencies.get_order_list_by_client_id(
+                    list_client_id
+                )
+            except requests.RequestException:
+                reconciled = None
+            if isinstance(reconciled, dict):
+                try:
+                    working, pending = _verify_otoco_orders(
+                        symbol,
+                        reconciled,
+                        working_client_order_id=working_client_id,
+                        dependencies=dependencies,
+                    )
+                except (requests.RequestException, RuntimeError) as verify_exc:
+                    order_list_id = reconciled.get("orderListId")
+                    if order_list_id is not None:
+                        dependencies.cancel_oco(
+                            symbol,
+                            int(order_list_id),
+                        )
+                    journal.mark_unknown(list_client_id, verify_exc)
+                    dependencies.halt(
+                        "OTOCO verification failed after submission",
+                        symbol=symbol,
+                        client_order_id=list_client_id,
+                    )
+                    raise RuntimeError(
+                        "OTOCO verification failed after submission"
+                    ) from verify_exc
+                journal.record_exchange_order(working_client_id, working)
+                journal.record_order_list(list_client_id, reconciled)
+                journal.record_verified_protection_legs(
+                    list_client_id,
+                    pending,
+                )
+                result = dict(working)
+                result["orderListId"] = reconciled.get("orderListId")
+                result["listClientOrderId"] = list_client_id
+                return result
+            dependencies.halt(
+                "uncertain OTOCO submission has no exchange confirmation",
+                symbol=symbol,
+                client_order_id=list_client_id,
+            )
+        raise

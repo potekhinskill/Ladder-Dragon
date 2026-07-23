@@ -178,6 +178,7 @@ def test_reanchor_shadow_best_buy_stays_within_market_gap():
 
 
 def test_supervisor_reanchor_cancels_once_and_returns_bounded_replacement(monkeypatch):
+    monkeypatch.setenv("BOT_REANCHOR_CANCEL_REPLACE", "0")
     open_orders = [order(7)]
     canceled = []
     lifetimes = []
@@ -223,6 +224,60 @@ def test_supervisor_reanchor_cancels_once_and_returns_bounded_replacement(monkey
     assert lifetimes[0][1]["cancel_reason"] == "adaptive-reanchor"
     assert stopped == [("SOLUSDT", "adaptive BUY re-anchor")]
     assert result["apply_gate_approved"] is True
+
+
+def test_supervisor_reanchor_uses_atomic_cancel_replace_by_default(monkeypatch):
+    open_orders = [order(7)]
+    replacements = []
+    stopped = []
+    monkeypatch.delenv("BOT_REANCHOR_CANCEL_REPLACE", raising=False)
+    monkeypatch.setattr(ai_supervisor, "list_open_orders", lambda symbol: open_orders)
+    monkeypatch.setattr(
+        ai_supervisor,
+        "cancel_order",
+        lambda *args, **kwargs: pytest.fail("legacy cancel must not run"),
+    )
+    monkeypatch.setattr(
+        ai_supervisor,
+        "_atomic_reanchor_buy",
+        lambda symbol, existing, target, testnet: replacements.append(
+            (symbol, existing["orderId"], target, testnet)
+        )
+        or {"orderId": 8, "status": "NEW"},
+    )
+    monkeypatch.setattr(
+        ai_supervisor,
+        "_log_order_lifetime",
+        lambda *args, **kwargs: None,
+    )
+    monkeypatch.setattr(ai_supervisor.time, "time", lambda: 1_000)
+    monkeypatch.setattr(ai_supervisor, "log", lambda message: None)
+    monkeypatch.setattr(
+        ai_supervisor,
+        "_stop_child",
+        lambda symbol, reason: stopped.append((symbol, reason)) or True,
+    )
+    args = SimpleNamespace(
+        reanchor_mode="APPLY",
+        reanchor_min_age_sec=120,
+        reanchor_trigger_pct=Decimal("0.0025"),
+        reanchor_max_step_pct=Decimal("0.005"),
+        reanchor_max_per_cycle=1,
+        testnet=True,
+    )
+
+    result = ai_supervisor.smart_rolling(
+        "SOLUSDT",
+        110.0,
+        [109.0, 105.0],
+        args,
+        tick_size="0.01",
+        prediction_apply_approved=True,
+    )
+
+    assert replacements == [("SOLUSDT", 7, Decimal("100.50"), True)]
+    assert stopped == [("SOLUSDT", "atomic adaptive BUY re-anchor")]
+    assert result["cancel"]["reanchor"] == 1
 
 
 def test_supervisor_reanchor_apply_falls_back_to_shadow_without_gate(

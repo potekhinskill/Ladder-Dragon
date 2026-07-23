@@ -128,10 +128,10 @@ class OrderEventMailbox:
         self._events: deque[OrderStreamSignal] = deque(maxlen=max(1, max_events))
         self._seen: deque[tuple[object, ...]] = deque(maxlen=max(1, max_events * 2))
         self._seen_set: set[tuple[object, ...]] = set()
-        self._lock = threading.Lock()
+        self._condition = threading.Condition()
 
     def put(self, signal: OrderStreamSignal) -> bool:
-        with self._lock:
+        with self._condition:
             key = signal.dedupe_key
             if key in self._seen_set:
                 return False
@@ -140,13 +140,14 @@ class OrderEventMailbox:
             self._seen.append(key)
             self._seen_set.add(key)
             self._events.append(signal)
+            self._condition.notify_all()
             return True
 
     def consume_for(self, order_ids: Iterable[int]) -> list[OrderStreamSignal]:
         wanted = {int(order_id) for order_id in order_ids}
         if not wanted:
             return []
-        with self._lock:
+        with self._condition:
             matching = [event for event in self._events if event.order_id in wanted]
             if matching:
                 self._events = deque(
@@ -154,6 +155,30 @@ class OrderEventMailbox:
                     maxlen=self._events.maxlen,
                 )
             return matching
+
+    def wait(self, timeout: float) -> bool:
+        """Wait until any new order event arrives or the timeout expires."""
+        with self._condition:
+            if self._events:
+                return True
+            return bool(self._condition.wait(timeout=max(0.0, float(timeout))))
+
+    def wait_for(self, order_ids: Iterable[int], timeout: float) -> bool:
+        """Wait only for tracked orders so unrelated events cannot spin a worker."""
+        wanted = {int(order_id) for order_id in order_ids}
+        if not wanted:
+            return False
+
+        def matching_event_exists() -> bool:
+            return any(event.order_id in wanted for event in self._events)
+
+        with self._condition:
+            return bool(
+                self._condition.wait_for(
+                    matching_event_exists,
+                    timeout=max(0.0, float(timeout)),
+                )
+            )
 
 
 def reconciliation_due(
