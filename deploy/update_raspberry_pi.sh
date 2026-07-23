@@ -465,7 +465,7 @@ install -m 0644 deploy/ladder-dragon-soak-audit.timer \
   /etc/systemd/system/ladder-dragon-soak-audit.timer
 install -d -o "${BOT_USER}" -g "${BOT_USER}" -m 0750 \
   /var/lib/ladder-dragon/depth-archives
-install -d -o root -g root -m 0750 /var/lib/ladder-dragon/soak
+install -d -o root -g "${BOT_USER}" -m 0770 /var/lib/ladder-dragon/soak
 
 backup_mount_dropin="/etc/systemd/system/ladder-dragon-backup.service.d/external-mount.conf"
 rm -f "${backup_mount_dropin}"

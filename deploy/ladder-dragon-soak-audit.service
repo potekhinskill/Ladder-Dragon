@@ -7,11 +7,11 @@ After=local-fs.target
 
 [Service]
 Type=oneshot
-User=root
-Group=root
-WorkingDirectory=/home/bot/apps/binance_bot
+User=bot
+Group=bot
 Environment=PROJECT_DIR=/home/bot/apps/binance_bot
-ExecStart=/usr/local/bin/ladder-dragon-soak-audit
+ExecStart=/usr/local/bin/ladder-dragon-soak-audit generate
+ExecStartPost=+/usr/local/bin/ladder-dragon-soak-audit sign
 Nice=15
 IOSchedulingClass=idle
 NoNewPrivileges=yes
@@ -39,7 +39,7 @@ SystemCallErrorNumber=EPERM
 ReadOnlyPaths=-/run/mybot /home/bot/apps/binance_bot
 ReadOnlyPaths=-/etc/ladder-dragon/telegram.env
 ReadWritePaths=/var/lib/ladder-dragon/soak /etc/ladder-dragon
-UMask=0077
+UMask=0007
 
 [Install]
 WantedBy=multi-user.target

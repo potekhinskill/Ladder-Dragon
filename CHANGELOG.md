@@ -3,6 +3,21 @@
 All notable changes are documented here. Releases use Semantic Versioning; every
 section is dated and there is intentionally no `Unreleased` section.
 
+## [2.20.23] — 2026-07-23
+
+### Fixed
+- Split the signed soak unit into unprivileged report generation and a
+  root-only signing step. The service can traverse the owner-only bot home
+  without granting `CAP_DAC_OVERRIDE`, while the Ed25519 private key remains
+  inaccessible to the trading user.
+- The updater now creates the soak artifact directory as root with group-only
+  write access for the bot service.
+
+### Verified
+- Deployment asset and systemd sandbox tests passed. The complete local suite
+  passed with `490` tests; compilation, shell syntax, numeric-boundary,
+  dependency and tracked-secret audits passed.
+
 ## [2.20.22] — 2026-07-23
 
 ### Added

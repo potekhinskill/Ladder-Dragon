@@ -571,9 +571,11 @@ def test_soak_audit_is_periodic_signed_and_transition_notified():
     backup = read("deploy/backup_raspberry_pi.sh")
     assert "openssl genpkey -algorithm ED25519" in wrapper
     assert "openssl pkeyutl -sign -rawin" in wrapper
+    assert "report generation must use the unprivileged service user" in wrapper
     assert "--notify-on-change" in wrapper
     assert "OnUnitActiveSec=15m" in timer
-    assert "User=root" in service
+    assert "User=bot" in service
+    assert "ExecStartPost=+/usr/local/bin/ladder-dragon-soak-audit sign" in service
     assert "CapabilityBoundingSet=\n" in service
     assert "ReadWritePaths=/var/lib/ladder-dragon/soak /etc/ladder-dragon" in service
     assert "ladder-dragon-soak-audit.timer" in installer
