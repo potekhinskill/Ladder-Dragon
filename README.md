@@ -29,7 +29,7 @@ combines adaptive ladder entries, exchange-side OCO protection, exact
 fee-aware FIFO accounting, restart reconciliation, replay and walk-forward
 verification, and a private Raspberry Pi operations dashboard.
 
-Current product version: **2.20.49**. The single version source is
+Current product version: **2.20.50**. The single version source is
 `product_version.py`; releases follow [Semantic Versioning](https://semver.org/).
 Project contact: [LinkedIn](https://www.linkedin.com/in/ypotekhin/).
 
@@ -87,7 +87,7 @@ bounded, explainable, recoverable, and measurable before exposure is increased.
 ## Project status
 
 Ladder Dragon is an actively developed, experimental trading system. Version
-**2.20.49** is the current prepared release. `main` is the only long-lived branch;
+**2.20.50** is the current source release. `main` is the only long-lived branch;
 feature branches use the `ladderdragon/*` namespace.
 
 DRY and Binance Spot Testnet are the supported starting modes. Mainnet LIVE is
@@ -311,6 +311,16 @@ state or configuration. A Mainnet drill is a separate `mainnet-canary` profile
 and remains blocked without its CLI flag and all existing exact environment
 confirmations; it is never part of `local`, `release`, `testnet`, `pi` or CI.
 
+The Pi profile is a production-approval gate, not merely a deployment smoke
+test. A correctly deployed and safely running host can therefore report
+`BLOCKED` rather than `FAILED` while evidence is incomplete. In particular,
+an attribution-only unresolved fill leaves reconciled deterministic execution
+available but still blocks RAG/approval; inventory/protection uncertainty
+blocks execution as well. User-stream soak requires 24 hours plus a reconnect,
+an order event and event-triggered authoritative REST reconciliation.
+Production soak also requires three exact closed lifecycles, a fresh runtime,
+no prediction backlog and a passing statistical gate.
+
 Safe DRY/Testnet supervisor run:
 
 ```bash
@@ -443,7 +453,7 @@ Example exact regime report:
 ```bash
 python -m bin.regime_pnl_report \
   --stats-db /home/bot/apps/binance_bot/db/bot_stats.db \
-  --prediction-db /home/bot/stats/prediction_shadow.sqlite3 \
+  --prediction-db /home/bot/apps/binance_bot/db/prediction_shadow.sqlite3 \
   --start-ms 1784937600000 --end-ms 1785024000000 \
   --benchmark-exit-fee-pct 0.001
 ```
@@ -455,7 +465,7 @@ explicitly retained so missing regime coverage is visible.
 ```dotenv
 PREDICTION_SHADOW_ENABLED=1
 PREDICTION_SHADOW_INTERVAL_SEC=60
-PREDICTION_SHADOW_DB=/home/bot/stats/prediction_shadow.sqlite3
+PREDICTION_SHADOW_DB=/home/bot/apps/binance_bot/db/prediction_shadow.sqlite3
 PREDICTION_FEE_PCT=0.00075
 PREDICTION_SLIPPAGE_PCT=0.0005
 BOT_STRATEGY_CONTROLS_APPROVED=NO
@@ -479,6 +489,11 @@ entry and exit thresholds so boundary noise does not repeatedly toggle BUY.
 Authoritative `BOT_BUY_FEE_PCT` and `BOT_SELL_FEE_PCT` reach the worker in
 every mode for exact accounting; the execution-changing
 `BOT_REQUIRED_EDGE_PCT` is exported only in APPLY and never in SHADOW.
+`BOT_REGIME_MIN_HOLD_SEC` starts when each in-memory regime machine is created,
+not at host boot, so restarting the supervisor cannot bypass recovery hold.
+If inventory/regime scaling is enabled without a positive per-order CAP, the
+supervisor emits `CAP-SCALING-INACTIVE` instead of silently pretending that
+sizing controls are active.
 
 ### Binance Spot Testnet smoke
 
@@ -886,6 +901,14 @@ journaled, one-use break-glass procedure described in the runbook.
 The updater creates an encrypted backup, preserves `.env` and `.env.dashboard`,
 updates only the requested fast-forward commit, validates Python/nginx, restarts
 the services, and waits for a fresh heartbeat.
+
+Preserving `.env` is intentional: an update never imports new example values or
+changes reviewed exposure automatically. After every release, compare the
+names in `.env.example` with the installed `.env` without printing values.
+Add new non-secret controls only after review. For example, inventory skew
+requires an explicit positive
+`RISK_MANAGED_INVENTORY_HARD_CAP_<SYMBOL>`; its absence is diagnostic in
+SHADOW and fail-closed in APPLY.
 
 Definitive Binance authentication rejections (`401`, `403`, `-2014`, `-2015`
 or `-1022`) keep the supervisor alive in `AUTH_BACKOFF` with BUY blocked. Retry

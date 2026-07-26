@@ -3,6 +3,33 @@
 All notable changes are documented here. Releases use Semantic Versioning; every
 section is dated and there is intentionally no `Unreleased` section.
 
+## [2.20.50] — 2026-07-27
+
+### Changed
+- Synchronized the README, introduction, Raspberry Pi runbook, release
+  procedure and example environment with the implemented strategy-control,
+  SHADOW/APPLY, release-manifest and deployment behavior.
+- Documented that expectancy SHADOW retains authoritative fee accounting but
+  never exports the execution-changing required edge, that regime hold time
+  begins when the state machine is created, and that managed inventory requires
+  an explicit symbol/global hard CAP rather than the portfolio CAP.
+- Corrected the signed release order so the verification manifest is generated
+  from the final signed candidate commit, attached to the GitHub release and
+  copied to the Pi before the read-only post-deployment profile.
+- Clarified the difference between execution safety and the stricter production
+  approval gate: attribution-only unresolved fills do not block deterministic
+  execution after inventory and exchange protection reconcile, but they still
+  block RAG/approval and therefore the Pi approval profile.
+- Corrected Testnet smoke commands, prediction database paths and manual test
+  service handling so the watchdog cannot restart `mybot` during an isolated
+  test run. Release commands now invoke the project virtual-environment
+  interpreter explicitly instead of relying on a platform-dependent `python`
+  alias or an incomplete system Python installation.
+
+### Verified
+- Documentation and deployment regression tests, product-version consistency,
+  Python compilation and the complete project test suite pass.
+
 ## [2.20.49] — 2026-07-26
 
 ### Fixed

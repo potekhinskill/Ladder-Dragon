@@ -23,6 +23,14 @@ Ladder Dragon combines four layers:
 3. **Risk** — reserve, CAP, circuit breaker, reconciliation, and fail-closed gates.
 4. **AI advisory** — SHADOW recommendations and RAG context without order access.
 
+The deterministic strategy remains authoritative. New expectancy, maker,
+regime, inventory, statistical-regime and correlation controls start in
+`SHADOW`: they record evidence but cannot change BUY distance, CAP, TP/STOP or
+orders. `APPLY` requires both explicit operator acknowledgement and passing
+chronological evidence. STRATEGY candidates are compared with a real
+`NO_TRADE`/USDT baseline; re-anchor candidates require the original untouched
+order as their baseline.
+
 ## Supported platforms
 
 | Platform | Purpose | Recommendation |
@@ -87,7 +95,16 @@ BINANCE_TESTNET_API_BASE=https://testnet.binance.vision
 BOT_LIVE_CONFIRMED=NO
 AI_ADVISOR_ENABLE=0
 AI_MODE=SHADOW
+BOT_EXPECTANCY_MODE=SHADOW
+BOT_REGIME_GATE_MODE=SHADOW
+BOT_INVENTORY_SKEW_MODE=SHADOW
+RISK_MANAGED_INVENTORY_HARD_CAP_SOLUSDT=30
 ```
+
+The managed-inventory cap is a separate reviewed quote-value limit and never
+falls back to the portfolio CAP. Authoritative side-specific fees remain
+available in SHADOW for exact accounting, but the execution-changing
+`BOT_REQUIRED_EDGE_PCT` is passed to a worker only in approved APPLY.
 
 ```bash
 sudo chown bot:bot /home/bot/apps/binance_bot/.env
@@ -113,16 +130,24 @@ sudo cat /root/ladder-dragon-dashboard-credentials.txt
 
 ```bash
 cd /home/bot/apps/binance_bot
+sudo systemctl stop pi-watchdog-v3.timer
 sudo systemctl stop mybot
 sudo -u bot env PYTHONPATH=. .venv/bin/python -m pytest -q
 sudo -u bot env PYTHONPATH=. .venv/bin/python \
-  binance_testnet_smoke.py --mode public --symbol SOLUSDT
+  -m bin.binance_testnet_smoke --mode public --symbol SOLUSDT
 sudo systemctl start mybot
+sudo systemctl start pi-watchdog-v3.timer
 ```
 
 Mainnet LIVE is allowed only after checking balances, filters, OCO/STOP,
 gap/restart recovery, circuit breaker, and a real Testnet BUY → fill → protection
 → exit lifecycle.
+
+For releases, generate the PASS manifest from the final signed candidate SHA,
+publish that exact SHA/tag/artifact, deploy only the full 40-character SHA and
+run the read-only Pi verification profile. `BLOCKED` means required operational
+evidence is incomplete; `FAILED` means a check actually failed. See the
+release and Pi runbooks for the exact commands.
 
 ## Linux, macOS, and Windows
 

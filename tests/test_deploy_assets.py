@@ -600,6 +600,42 @@ def test_raspberry_runbook_covers_install_update_and_private_github():
     assert "https://bot.local/logs/current.log" in runbook
 
 
+def test_runtime_and_release_documentation_match_current_contracts():
+    readme = read("README.md")
+    introduction = read("docs/INTRODUCTION.md")
+    runbook = read("docs/RASPBERRY_PI_INSTALL.md")
+    releasing = read("docs/RELEASING.md")
+    example = read(".env.example")
+    prediction_path = (
+        "/home/bot/apps/binance_bot/db/prediction_shadow.sqlite3"
+    )
+
+    assert prediction_path in readme
+    assert prediction_path in runbook
+    assert f"PREDICTION_SHADOW_DB={prediction_path}" in example
+    assert "binance_testnet_smoke.py --mode" not in introduction
+    assert "-m bin.binance_testnet_smoke --mode public" in introduction
+    assert (
+        introduction.index("sudo systemctl stop pi-watchdog-v3.timer")
+        < introduction.index("sudo systemctl stop mybot")
+    )
+    assert "--expected-sha \"$RELEASE_SHA\"" in runbook
+    assert "--github-sha \"$RELEASE_SHA\"" in runbook
+    assert "--release-report /home/bot/verification/" in runbook
+    assert "Attribution-only unresolved fills" in runbook
+    assert releasing.index("git commit -S") < releasing.index(
+        "verification_harness --profile release"
+    )
+    assert ".venv/bin/python -m bin.verification_harness --profile release" in (
+        releasing
+    )
+    assert releasing.index("verification_harness --profile release") < (
+        releasing.index("git tag -s")
+    )
+    assert "gh release create" in releasing
+    assert ".runtime/verification-release.json#" in releasing
+
+
 def test_log_export_is_rotated_sanitized_and_managed_by_systemd():
     exporter = read("deploy/export_sanitized_logs.py")
     service = read("deploy/ladder-dragon-log-export.service")

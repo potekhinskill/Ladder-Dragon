@@ -112,6 +112,28 @@ AI_ADVISOR_ENABLE=1
 AI_MODE=SHADOW
 AI_PROVIDER=deepseek
 DEEPSEEK_API_KEY=...
+BOT_EXPECTANCY_MODE=SHADOW
+BOT_MAKER_POLICY_MODE=SHADOW
+BOT_REGIME_GATE_MODE=SHADOW
+BOT_INVENTORY_SKEW_MODE=SHADOW
+RISK_MANAGED_INVENTORY_HARD_CAP_SOLUSDT=30
+BUY_VWAP_HYSTERESIS_PCT=0.0002
+```
+
+All listed strategy controls are observation-only in `SHADOW`. They cannot
+change a worker plan. Authoritative BUY/SELL fee rates are still passed for
+exact accounting, while `BOT_REQUIRED_EDGE_PCT` is omitted unless expectancy
+is approved and actually in `APPLY`. The managed-inventory CAP is an explicit
+quote-value limit for the named symbol; it never inherits the larger portfolio
+CAP. Review one positive value for every traded symbol.
+
+Do not copy `.env.example` over an installed `.env`. Normal updates preserve
+the live file and do not add new variables automatically. After an update,
+check only whether required names exist, without printing their values:
+
+```bash
+grep -q '^RISK_MANAGED_INVENTORY_HARD_CAP_SOLUSDT=' .env \
+  || echo 'REVIEW REQUIRED: managed inventory CAP is missing'
 ```
 
 ```bash
@@ -190,6 +212,7 @@ The dashboard API listens only on `127.0.0.1`; port `8081` must not be exposed.
 ## 7. Run Testnet smoke and recovery checks
 
 ```bash
+sudo systemctl stop pi-watchdog-v3.timer
 sudo systemctl stop mybot
 sudo -u bot env PYTHONPATH=. .venv/bin/python -m pytest -q
 sudo -u bot env PYTHONPATH=. .venv/bin/python \
@@ -197,6 +220,7 @@ sudo -u bot env PYTHONPATH=. .venv/bin/python \
 sudo -u bot env PYTHONPATH=. .venv/bin/python \
   -m bin.binance_testnet_smoke --mode authenticated --symbol SOLUSDT
 sudo systemctl start mybot
+sudo systemctl start pi-watchdog-v3.timer
 ```
 
 The optional lifecycle check uses a minimal isolated Testnet position:
@@ -411,7 +435,48 @@ The updater creates an encrypted backup, records service state, stops services,
 applies only the requested fast-forward SHA, installs dependencies, updates
 nginx/frontend/systemd, runs validation, starts services, and waits for a fresh
 heartbeat. It preserves `.env`, `.env.dashboard`, venue, execution mode, symbols,
-and open orders.
+and open orders. Because configuration is preserved, newly documented risk
+controls must be reviewed and added explicitly; the updater never expands or
+rewrites exposure from `.env.example`.
+
+Copy the PASS release manifest generated for the same SHA to the Pi before the
+post-deployment gate. Run this on the maintainer workstation:
+
+```bash
+scp .runtime/verification-release.json \
+  bot@bot.local:/tmp/verification-release.json
+```
+
+Then install it owner-only and run the read-only Pi profile on the Pi:
+
+```bash
+sudo install -d -o bot -g bot -m 0700 /home/bot/verification
+sudo install -o bot -g bot -m 0600 \
+  /tmp/verification-release.json \
+  /home/bot/verification/verification-release.json
+rm -f /tmp/verification-release.json
+
+sudo -u bot env PYTHONPATH=. .venv/bin/python \
+  -m bin.verification_harness --profile pi \
+  --expected-sha "$RELEASE_SHA" \
+  --github-sha "$RELEASE_SHA" \
+  --release-report /home/bot/verification/verification-release.json \
+  --runtime-status /run/mybot/ai_status.json \
+  --user-stream-status /run/mybot/user_stream_SOLUSDT.json \
+  --order-journal /home/bot/apps/binance_bot/db/order_intents.sqlite3 \
+  --prediction-db /home/bot/apps/binance_bot/db/prediction_shadow.sqlite3 \
+  --ai-decisions-db /home/bot/apps/binance_bot/db/ai_decisions.sqlite3
+```
+
+Exit `0` is `PASS`, `1` is `FAILED`, and `2` is safely `BLOCKED`. A deployment
+may have matching SHA/assets, active services and healthy reconciliation while
+the overall Pi approval profile remains `BLOCKED` because production evidence
+is not mature. Attribution-only unresolved fills block RAG/approval but do not
+block reconciled deterministic execution; any inventory/protection unresolved
+fill blocks both. User-stream approval additionally requires 24 hours, a
+reconnect, an order event and event-triggered authoritative REST
+reconciliation. Production approval requires three exact closed lifecycles,
+no prediction backlog and a passing statistical gate.
 
 Use `apply` only when Git is already at the desired commit:
 

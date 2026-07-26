@@ -1,57 +1,125 @@
 # Releasing Ladder Dragon
 
-Production releases use an exact commit, a signed annotated tag, and a pinned
-maintainer GPG fingerprint. Do not publish an unsigned production release.
+Production releases use one final signed commit, a signed annotated tag, a
+PASS verification manifest and an exact 40-character deployment SHA. A branch,
+tag or GitHub release page is a discovery mechanism, not a trust root.
 
-1. Use the dedicated release key published as
-   `docs/release-signing-key.asc`. Its full fingerprint is
-   `808B9F52CB6C08901703EF7C113144122F1830A0`; verify both the file and this
-   independently displayed value before trusting a release.
-2. Set `user.signingkey`, `commit.gpgsign=true`, and `tag.gpgSign=true` in the
-   release checkout.
-3. Run the full test, compile, shell-syntax, dependency-audit, and secret-scan
-   suite through the release profile:
+## 1. Prepare the candidate
 
-   ```bash
-   RELEASE_SHA="$(git rev-parse HEAD)"
-   python -m bin.verification_harness --profile release \
-     --expected-sha "${RELEASE_SHA}" \
-     --output ".runtime/verification-release.json"
-   ```
+Use a `ladderdragon/*` branch and keep one logical change set in one commit.
+Update `product_version.py` and add the dated `CHANGELOG.md` section in that
+same change set. The version must be the direct Semantic Version successor of
+the signed baseline in `.release-lineage.json`; `## [Unreleased]` is forbidden.
 
-   `release_continuity` must be `PASS`. Starting with the signed baseline in
-   `.release-lineage.json`, the candidate must directly follow the latest tag,
-   contain exactly one version bump at the branch tip, and remain on one linear
-   tag ancestry. The check metrics are the release manifest: previous version
-   and SHA, current version and SHA, and the complete included-commit list.
-   Historical changelog entries before the baseline are retained as legacy
-   documentation and are not represented as newly backdated tags.
-4. Create a signed commit and annotated tag:
+Configure the dedicated release key published as
+`docs/release-signing-key.asc`. Its full fingerprint is:
 
-   ```bash
-   git commit -S -m "release: 2.10.x"
-   git tag -s v2.10.x -m "Ladder Dragon 2.10.x"
-   git verify-commit HEAD
-   git verify-tag v2.10.x
-   ```
+```text
+808B9F52CB6C08901703EF7C113144122F1830A0
+```
 
-5. Push the commit and tag. Confirm that GitHub `main`, the tag target and the
-   release artifact all resolve to `RELEASE_SHA`. Raspberry hosts must pin the full fingerprint in
-   root-owned `/etc/ladder-dragon/update-trust.conf` with mode `0600`, import the
-   public key into the bot user's GPG keyring, and update by exact SHA. Trust
-policy must never be supplied through command environment variables.
+Verify this value through an independent channel, then configure
+`user.signingkey`, `commit.gpgsign=true`, and `tag.gpgSign=true`.
 
-6. After deployment, rerun the Pi profile with both reviewed SHA inputs:
+Run focused tests while editing. When the candidate is complete, create the
+single signed candidate commit:
 
-   ```bash
-   python -m bin.verification_harness --profile pi \
-     --expected-sha "${RELEASE_SHA}" \
-     --github-sha "${RELEASE_SHA}" \
-     --release-report .runtime/verification-release.json
-   ```
+```bash
+git add <exact-files>
+git commit -S -m "docs: synchronize runtime and release documentation"
+git verify-commit HEAD
+```
 
-   The Pi gate blocks unless deployed HEAD, fetched upstream, the reviewed
-   GitHub SHA and the PASS release artifact are identical.
+## 2. Verify the immutable candidate SHA
 
-The public repository and tag name are discovery mechanisms, not trust roots.
-The updater accepts only a signature from the pinned fingerprint.
+The release profile must run against the final signed commit, not against an
+uncommitted tree or a predecessor. It performs compilation, the complete test
+suite, numeric/secret audits, replay, walk-forward, approval, recovery,
+migration, deployment and release-continuity checks:
+
+```bash
+RELEASE_SHA="$(git rev-parse HEAD)"
+.venv/bin/python -m bin.verification_harness --profile release \
+  --expected-sha "${RELEASE_SHA}" \
+  --output ".runtime/verification-release.json"
+```
+
+`release_continuity` and the overall report must both be `PASS`. Its metrics
+are the release manifest: previous/current version and SHA plus every included
+commit. If verification changes any tracked file or finds a defect, do not add
+a follow-up commit after the version bump. Fix the candidate, amend and re-sign
+the same commit, then rerun the entire release profile and capture the new SHA.
+Nothing may change between the PASS run and tagging.
+
+## 3. Sign, verify and publish
+
+Create and verify the signed annotated tag for the exact PASS SHA:
+
+```bash
+RELEASE_VERSION="$(.venv/bin/python -c \
+  'from product_version import __version__; print(__version__)')"
+git tag -s "v${RELEASE_VERSION}" \
+  -m "Ladder Dragon ${RELEASE_VERSION}" "${RELEASE_SHA}"
+git verify-tag "v${RELEASE_VERSION}"
+test "$(git rev-list -n 1 "v${RELEASE_VERSION}")" = "${RELEASE_SHA}"
+```
+
+Push only after verification. Keep `main` linear and publish the commit and tag
+atomically:
+
+```bash
+git push --atomic origin HEAD:main "v${RELEASE_VERSION}"
+```
+
+Wait for GitHub Actions to pass for `RELEASE_SHA`. Then create the release page
+and attach the same PASS manifest:
+
+```bash
+gh release create "v${RELEASE_VERSION}" \
+  ".runtime/verification-release.json#verification-release-${RELEASE_VERSION}.json" \
+  --verify-tag --latest \
+  --title "Ladder Dragon ${RELEASE_VERSION}" \
+  --notes-file /path/to/reviewed-release-notes.md
+```
+
+Confirm GitHub `main`, the tag target, Actions run and release artifact all
+refer to `RELEASE_SHA`. Never publish when `release_continuity` is `BLOCKED`.
+
+## 4. Deploy and verify Raspberry Pi
+
+Raspberry hosts pin the maintainer fingerprint in root-owned
+`/etc/ladder-dragon/update-trust.conf` with mode `0600` and import the public
+key into the bot user's GPG keyring. Deploy only the tested full SHA:
+
+```bash
+sudo bash deploy/update_raspberry_pi.sh update "${RELEASE_SHA}"
+```
+
+The updater creates an encrypted backup, preserves service state and live env
+files, verifies the exact signed fast-forward commit, publishes and hashes all
+dashboard assets, restores the previous service policy and waits for a fresh
+heartbeat. It does not import new `.env.example` values or alter reviewed
+exposure.
+
+Copy the exact PASS manifest to the Pi and run the read-only profile with
+`--expected-sha`, `--github-sha` and `--release-report` all referring to the
+same commit. The full command and runtime paths are maintained in
+[RASPBERRY_PI_INSTALL.md](RASPBERRY_PI_INSTALL.md#9-normal-updates).
+
+The Pi profile is stricter than a deployment smoke test:
+
+- `PASS` means deployment and all production evidence gates pass;
+- `BLOCKED` means the host may be safely running but required approval evidence
+  such as attribution, 24-hour stream soak, exact lifecycles or prediction
+  closure is incomplete;
+- `FAILED` means a required check actually failed.
+
+Never turn `BLOCKED` into `PASS` by deleting evidence, clearing HALT, inventing
+lifecycles or weakening a threshold.
+
+## 5. Trust and emergency recovery
+
+The updater accepts only a signature from the pinned fingerprint. Trust policy
+must never be supplied through environment variables. An unsigned emergency
+update requires the separate interactive, journaled, one-use break-glass
+procedure in the Raspberry Pi runbook; it is not a routine release option.
