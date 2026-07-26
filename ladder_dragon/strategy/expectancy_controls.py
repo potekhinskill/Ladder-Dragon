@@ -7,6 +7,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from decimal import Decimal, InvalidOperation
+import time
 from typing import Mapping
 
 
@@ -206,7 +207,7 @@ class RegimeExecutionStateMachine:
         self.min_hold_sec = max(0.0, float(min_hold_sec))
         self._candidate = normalized
         self._candidate_count = 0
-        self._changed_at = 0.0
+        self._changed_at = time.monotonic()
 
     def update(
         self,
@@ -250,7 +251,10 @@ class RegimeExecutionStateMachine:
             self._candidate_count = 1
         if (
             self._candidate_count >= required
-            and timestamp - self._changed_at >= self.min_hold_sec
+            and (
+                self.min_hold_sec == 0
+                or timestamp - self._changed_at >= self.min_hold_sec
+            )
         ):
             self.state = target
             self._candidate_count = 0

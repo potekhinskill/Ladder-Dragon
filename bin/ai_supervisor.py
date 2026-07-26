@@ -2713,6 +2713,77 @@ def _managed_inventory_hard_cap(symbol: str) -> Decimal:
     return cap
 
 
+def _strategy_child_env(
+    *,
+    commission_schedule: CommissionSchedule | None,
+    required_edge: Decimal | None,
+    expectancy_mode: str,
+    maker_mode: str,
+) -> Dict[str, str]:
+    """Build child controls without allowing SHADOW evidence to mutate plans."""
+    child_env: Dict[str, str] = {}
+    if commission_schedule is not None:
+        child_env.update({
+            # Authoritative rates improve exact accounting in every mode. Only
+            # BOT_REQUIRED_EDGE_PCT is an execution-changing control.
+            "BOT_BUY_FEE_PCT": format(
+                commission_schedule.maker_buy, "f"
+            ),
+            "BOT_SELL_FEE_PCT": format(
+                commission_schedule.maker_sell, "f"
+            ),
+            "BOT_FEE_PCT": format(
+                max(
+                    commission_schedule.maker_buy,
+                    commission_schedule.maker_sell,
+                ),
+                "f",
+            ),
+        })
+    if required_edge is not None and str(expectancy_mode).upper() == "APPLY":
+        child_env["BOT_REQUIRED_EDGE_PCT"] = format(required_edge, "f")
+    if str(maker_mode).upper() == "APPLY":
+        child_env.update({
+            "BUY_LIMIT_MAKER": "1",
+            "SELL_LIMIT_MAKER": "1",
+        })
+    return child_env
+
+
+def _child_process_env(
+    extra_env: Mapping[str, object] | None,
+) -> Dict[str, str]:
+    """Build a child environment without inheriting a stale execution edge."""
+    child_env = os.environ.copy()
+    child_env.pop("BOT_REQUIRED_EDGE_PCT", None)
+    if extra_env:
+        child_env.update({key: str(value) for key, value in extra_env.items()})
+    return child_env
+
+
+def _cap_scaling_inactive_reason(
+    cap: Decimal,
+    *,
+    inventory_mode: str,
+    regime_mode: str,
+) -> str | None:
+    """Explain why enabled inventory/regime CAP controls cannot scale."""
+    enabled = [
+        name
+        for name, mode in (
+            ("inventory", inventory_mode),
+            ("regime", regime_mode),
+        )
+        if str(mode).upper() != "OFF"
+    ]
+    if cap > 0 or not enabled:
+        return None
+    return (
+        "BOT_CAP_PER_ORDER is not positive; inactive_controls="
+        + ",".join(enabled)
+    )
+
+
 def limit_target_buys(desired: int, operator_limit: int) -> int:
     """Keep adaptive buy-count changes inside the operator's hard ceiling."""
     ceiling = max(1, int(operator_limit))
@@ -3051,9 +3122,7 @@ def run_child(symbol: str, ladder: List[float], args: argparse.Namespace,
     cmd = [py, "-u"] + cli
     log("[LAUNCH] " + " ".join(map(str, cmd)))
     try:
-        env = os.environ.copy()
-        if extra_env:
-            env.update({k: str(v) for k, v in extra_env.items()})
+        env = _child_process_env(extra_env)
         p = subprocess.Popen(cmd, stdout=sys.stdout, stderr=sys.stderr, env=env)
         _CHILD_PROCS[symbol] = p
         _CHILD_STARTED_AT[symbol] = now
@@ -3453,30 +3522,12 @@ def run_for_symbol(
     statistical_regime_mode = _control_mode(
         "BOT_STATISTICAL_REGIME_MODE"
     )
-    extra_env: Dict[str, str] = {}
-    if commission_schedule is not None:
-        extra_env.update({
-            "BOT_BUY_FEE_PCT": format(
-                commission_schedule.maker_buy, "f"
-            ),
-            "BOT_SELL_FEE_PCT": format(
-                commission_schedule.maker_sell, "f"
-            ),
-            "BOT_FEE_PCT": format(
-                max(
-                    commission_schedule.maker_buy,
-                    commission_schedule.maker_sell,
-                ),
-                "f",
-            ),
-        })
-    if required_edge is not None:
-        extra_env["BOT_REQUIRED_EDGE_PCT"] = format(required_edge, "f")
-    if maker_mode == "APPLY":
-        extra_env.update({
-            "BUY_LIMIT_MAKER": "1",
-            "SELL_LIMIT_MAKER": "1",
-        })
+    extra_env = _strategy_child_env(
+        commission_schedule=commission_schedule,
+        required_edge=required_edge,
+        expectancy_mode=expectancy_mode,
+        maker_mode=maker_mode,
+    )
     advisor_active = (
         _AI_ADVISOR is not None
         and (_AI_POLICY is None or _AI_POLICY.mode != "DISABLED")
@@ -3826,6 +3877,16 @@ def run_for_symbol(
             f"{managed_exposure:.8f} scale={inventory_scale:.8f} "
             f"hard_cap={hard_cap_label} error={inventory_error or 'none'}"
         )
+    else:
+        cap_scaling_reason = _cap_scaling_inactive_reason(
+            risk_safe_cap,
+            inventory_mode=inventory_mode,
+            regime_mode=regime_mode,
+        )
+        if cap_scaling_reason is not None:
+            log(
+                f"[CAP-SCALING-INACTIVE] {symbol} {cap_scaling_reason}"
+            )
 
     # 8) Directional entry and TP values are already immutable for this child.
 

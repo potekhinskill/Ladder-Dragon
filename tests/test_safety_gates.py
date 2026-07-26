@@ -98,6 +98,62 @@ def test_managed_inventory_cap_never_falls_back_to_portfolio(monkeypatch):
     ) == Decimal("30")
 
 
+def test_expectancy_shadow_never_exports_execution_edge(monkeypatch):
+    schedule = ai_supervisor.CommissionSchedule(
+        maker_buy=Decimal("0.00075"),
+        maker_sell=Decimal("0.00075"),
+        taker_buy=Decimal("0.001"),
+        taker_sell=Decimal("0.001"),
+        discount_observed=True,
+    )
+
+    shadow = ai_supervisor._strategy_child_env(
+        commission_schedule=schedule,
+        required_edge=Decimal("0.0096"),
+        expectancy_mode="SHADOW",
+        maker_mode="SHADOW",
+    )
+    apply = ai_supervisor._strategy_child_env(
+        commission_schedule=schedule,
+        required_edge=Decimal("0.0096"),
+        expectancy_mode="APPLY",
+        maker_mode="SHADOW",
+    )
+
+    assert shadow["BOT_BUY_FEE_PCT"] == "0.00075"
+    assert shadow["BOT_SELL_FEE_PCT"] == "0.00075"
+    assert "BOT_REQUIRED_EDGE_PCT" not in shadow
+    assert apply["BOT_REQUIRED_EDGE_PCT"] == "0.0096"
+    monkeypatch.setenv("BOT_REQUIRED_EDGE_PCT", "0.777-stale")
+    assert "BOT_REQUIRED_EDGE_PCT" not in (
+        ai_supervisor._child_process_env(shadow)
+    )
+    assert ai_supervisor._child_process_env(apply)[
+        "BOT_REQUIRED_EDGE_PCT"
+    ] == "0.0096"
+
+
+def test_cap_scaling_reports_enabled_controls_without_cap():
+    assert ai_supervisor._cap_scaling_inactive_reason(
+        Decimal("0"),
+        inventory_mode="APPLY",
+        regime_mode="SHADOW",
+    ) == (
+        "BOT_CAP_PER_ORDER is not positive;"
+        " inactive_controls=inventory,regime"
+    )
+    assert ai_supervisor._cap_scaling_inactive_reason(
+        Decimal("10"),
+        inventory_mode="APPLY",
+        regime_mode="APPLY",
+    ) is None
+    assert ai_supervisor._cap_scaling_inactive_reason(
+        Decimal("0"),
+        inventory_mode="OFF",
+        regime_mode="OFF",
+    ) is None
+
+
 def _entry_settings(mode: str):
     return ai_supervisor._directional_entry_settings(
         base_gap="0.004",

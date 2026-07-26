@@ -29,7 +29,7 @@ combines adaptive ladder entries, exchange-side OCO protection, exact
 fee-aware FIFO accounting, restart reconciliation, replay and walk-forward
 verification, and a private Raspberry Pi operations dashboard.
 
-Current product version: **2.20.48**. The single version source is
+Current product version: **2.20.49**. The single version source is
 `product_version.py`; releases follow [Semantic Versioning](https://semver.org/).
 Project contact: [LinkedIn](https://www.linkedin.com/in/ypotekhin/).
 
@@ -87,7 +87,7 @@ bounded, explainable, recoverable, and measurable before exposure is increased.
 ## Project status
 
 Ladder Dragon is an actively developed, experimental trading system. Version
-**2.20.48** is the current prepared release. `main` is the only long-lived branch;
+**2.20.49** is the current prepared release. `main` is the only long-lived branch;
 feature branches use the `ladderdragon/*` namespace.
 
 DRY and Binance Spot Testnet are the supported starting modes. Mainnet LIVE is
@@ -476,6 +476,9 @@ REANCHOR approval requires the actual original order as its baseline. A
 configured minimum net edge or TP below the authoritative round-trip cost
 floor blocks APPLY instead of being silently widened. VWAP uses separate
 entry and exit thresholds so boundary noise does not repeatedly toggle BUY.
+Authoritative `BOT_BUY_FEE_PCT` and `BOT_SELL_FEE_PCT` reach the worker in
+every mode for exact accounting; the execution-changing
+`BOT_REQUIRED_EDGE_PCT` is exported only in APPLY and never in SHADOW.
 
 ### Binance Spot Testnet smoke
 

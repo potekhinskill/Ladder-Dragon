@@ -2,6 +2,7 @@ from decimal import Decimal
 
 import pytest
 
+from ladder_dragon.strategy import expectancy_controls
 from ladder_dragon.strategy.expectancy_controls import (
     RegimeExecutionStateMachine,
     authoritative_commission_schedule,
@@ -110,6 +111,22 @@ def test_regime_gate_blocks_restart_downtrend_and_requires_recovery():
     assert gate.update("RANGE", now=3) == "RECOVERY"
     assert gate.update("RANGE", now=4) == "RANGE"
     assert gate.policy().buys_allowed is True
+
+
+def test_regime_initial_hold_starts_at_process_creation(monkeypatch):
+    monkeypatch.setattr(
+        expectancy_controls.time, "monotonic", lambda: 10_000.0
+    )
+    gate = RegimeExecutionStateMachine(
+        confirmations=2,
+        recovery_confirmations=2,
+        min_hold_sec=300,
+    )
+
+    assert gate.update("RANGE", now=10_001) == "RECOVERY"
+    assert gate.update("RANGE", now=10_002) == "RECOVERY"
+    assert gate.update("RANGE", now=10_299) == "RECOVERY"
+    assert gate.update("RANGE", now=10_300) == "RANGE"
 
 
 def test_panic_blocks_immediately_and_trend_up_reduces_cap():

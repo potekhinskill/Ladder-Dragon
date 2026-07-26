@@ -3,6 +3,31 @@
 All notable changes are documented here. Releases use Semantic Versioning; every
 section is dated and there is intentionally no `Unreleased` section.
 
+## [2.20.49] — 2026-07-26
+
+### Fixed
+- Expectancy SHADOW no longer exports `BOT_REQUIRED_EDGE_PCT` to the worker,
+  so observation mode cannot change guarded SELL targets or execution plans.
+  Child startup also removes any stale inherited value before APPLY may add
+  the freshly calculated authoritative edge.
+  Authoritative side-specific commission rates remain available in every mode
+  solely for exact fee accounting.
+- Regime `min_hold_sec` now starts at state-machine creation using the monotonic
+  process clock. Supervisor restarts on long-running hosts can no longer bypass
+  the initial recovery hold, while zero-duration test/rollback policies remain
+  immediate.
+- Enabled inventory/regime CAP scaling with no positive `BOT_CAP_PER_ORDER`
+  now emits an explicit `CAP-SCALING-INACTIVE` diagnostic instead of silently
+  doing nothing.
+
+### Verified
+- Regression tests prove SHADOW child environments omit the execution edge,
+  APPLY includes it, fee-rate accounting remains available, initial recovery
+  timing is independent of host uptime, and missing CAP diagnostics are exact.
+- Focused prediction, strategy controls, Risk Manager, executor,
+  restart/recovery and OCO/STOP tests pass. Python compilation, whitespace
+  checks, and the complete project test suite pass.
+
 ## [2.20.48] — 2026-07-26
 
 ### Fixed
