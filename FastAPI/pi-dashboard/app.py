@@ -900,6 +900,12 @@ def trading_overview_snapshot() -> Dict[str, object]:
     order_rows = orders.get("orders", []) if isinstance(orders.get("orders"), list) else []
     journal = _order_journal_snapshot(runtime)
     journal_latest = journal.get("latest") if isinstance(journal.get("latest"), dict) else {}
+    journal_managed = {
+        str(row.get("symbol") or "").upper(): row
+        for row in journal.get("managed_buys", [])
+        if isinstance(row, dict) and row.get("symbol")
+    }
+    journal_exchange_mismatches: list[dict[str, object]] = []
     positions = []
     for symbol in symbols:
         base = base_asset_of(symbol)
@@ -915,7 +921,50 @@ def trading_overview_snapshot() -> Dict[str, object]:
         value = quantity * float(current) if current is not None else None
         unrealized = (float(current) - average) * quantity if current is not None and average is not None else None
         legs = [row for row in order_rows if row.get("symbol") == symbol and row.get("side") == "SELL"]
-        leg_types = {str(row.get("type", "")).upper() for row in legs}
+        tp_legs = [
+            row for row in legs
+            if str(row.get("type") or "").upper() in {"LIMIT", "LIMIT_MAKER"}
+        ]
+        stop_legs = [
+            row for row in legs
+            if str(row.get("type") or "").upper()
+            in {"STOP_LOSS", "STOP_LOSS_LIMIT"}
+        ]
+        tp_quantity = sum(
+            float(row.get("remaining_qty", 0.0) or 0.0) for row in tp_legs
+        )
+        stop_quantity = sum(
+            float(row.get("remaining_qty", 0.0) or 0.0) for row in stop_legs
+        )
+        protected_quantity = min(tp_quantity, stop_quantity)
+        managed_row = journal_managed.get(symbol, {})
+        try:
+            managed_quantity = max(
+                0.0,
+                min(quantity, float(managed_row.get("quantity") or 0)),
+            )
+        except (TypeError, ValueError):
+            managed_quantity = 0.0
+        legacy_quantity = max(0.0, quantity - managed_quantity)
+        journal_protected = int(managed_row.get("protected_buys") or 0) > 0
+        exact_exchange_protection = (
+            bool(tp_legs)
+            and bool(stop_legs)
+            and protected_quantity + 1e-12 >= managed_quantity
+        )
+        journal_exchange_mismatch = (
+            managed_quantity > 1e-12
+            and journal_protected
+            and not exact_exchange_protection
+        )
+        if journal_exchange_mismatch:
+            journal_exchange_mismatches.append({
+                "symbol": symbol,
+                "journal_state": "PROTECTED",
+                "exchange_state": "MISSING_OR_INCOMPLETE_OCO",
+                "managed_quantity": round(managed_quantity, 8),
+                "protected_quantity": round(protected_quantity, 8),
+            })
         try:
             latest_executed_quantity = float(journal_latest.get("executed_qty") or 0)
         except (TypeError, ValueError):
@@ -930,8 +979,12 @@ def trading_overview_snapshot() -> Dict[str, object]:
         legacy_unmanaged = False
         if quantity <= 1e-12:
             protection_state = "not_needed"
-        elif {"LIMIT_MAKER", "STOP_LOSS_LIMIT"}.issubset(leg_types):
+        elif journal_exchange_mismatch:
+            protection_state = "journal_exchange_mismatch"
+        elif managed_quantity > 1e-12 and exact_exchange_protection:
             protection_state = "confirmed"
+        elif managed_quantity > 1e-12:
+            protection_state = "missing_protection"
         elif legs:
             protection_state = "pending"
         elif latest_unprotected_fill:
@@ -945,7 +998,10 @@ def trading_overview_snapshot() -> Dict[str, object]:
         else:
             protection_state = "not_checked"
         positions.append({
-            "symbol": symbol, "quantity": round(quantity, 8), "average_entry_usdt": round(average, 8) if average is not None else None,
+            "symbol": symbol, "quantity": round(quantity, 8),
+            "managed_quantity": round(managed_quantity, 8),
+            "legacy_quantity": round(legacy_quantity, 8),
+            "average_entry_usdt": round(average, 8) if average is not None else None,
             "current_price_usdt": round(float(current), 8) if current is not None else None,
             "value_usdt": round(value, 2) if value is not None else None,
             "unrealized_pnl_usdt": round(unrealized, 2) if unrealized is not None else None,
@@ -954,14 +1010,20 @@ def trading_overview_snapshot() -> Dict[str, object]:
                 "state": protection_state,
                 "tp": [row.get("price") for row in legs if row.get("type") == "LIMIT_MAKER"],
                 "stop": [row.get("stop_price") for row in legs if row.get("type") == "STOP_LOSS_LIMIT"],
-                "locked_quantity": round(sum(float(row.get("remaining_qty", 0.0) or 0.0) for row in legs), 8),
+                "locked_quantity": round(protected_quantity, 8),
                 "gap_watchdog": (
                     "armed" if protection_state == "confirmed"
                     else "not_applicable_legacy_inventory" if legacy_unmanaged
                     else "warning"
                 ),
-                "classification": "legacy_inventory" if legacy_unmanaged else "managed_inventory",
-                "managed_by_bot": not legacy_unmanaged,
+                "classification": (
+                    "managed_and_legacy_inventory"
+                    if managed_quantity > 1e-12 and legacy_quantity > 1e-12
+                    else "legacy_inventory" if legacy_unmanaged
+                    else "managed_inventory"
+                ),
+                "managed_by_bot": managed_quantity > 1e-12,
+                "journal_exchange_mismatch": journal_exchange_mismatch,
                 "cost_basis_status": (
                     "unverified_legacy_history"
                     if legacy_unmanaged else "runtime_ledger"
@@ -1045,6 +1107,7 @@ def trading_overview_snapshot() -> Dict[str, object]:
             "journal_reason": journal.get("reason"),
             "journal_source": journal.get("source"),
             "lifecycle": journal.get("lifecycle", {}),
+            "journal_exchange_mismatches": journal_exchange_mismatches,
         },
         "last_order": last_order,
         "reanchor": (
@@ -1892,6 +1955,8 @@ def _ai_database_aggregates(
     stats = {
         "documents": 0,
         "virtual_documents": 0,
+        "archived_virtual_documents": 0,
+        "virtual_policy": "archived_not_retrievable",
         "retrievals": 0,
         "unresolved_fills": 0,
         "closed_decisions": 0,
@@ -1931,7 +1996,11 @@ def _ai_database_aggregates(
             """
         ).fetchall()
         for row in document_rows:
-            target = "documents" if row["status"] == "validated" else "virtual_documents"
+            target = (
+                "documents"
+                if row["status"] == "validated"
+                else "archived_virtual_documents"
+            )
             stats[target] = int(row["count"])
     if "knowledge_retrievals" in tables:
         stats["retrievals"] = int(
@@ -1993,7 +2062,10 @@ def ai_status(limit: int = 50):
     effective_mode = str(runtime_ai.get("mode") or AI_MODE).upper()
     recent = []
     knowledge_stats = {
-        "documents": 0, "virtual_documents": 0, "retrievals": 0,
+        "documents": 0, "virtual_documents": 0,
+        "archived_virtual_documents": 0,
+        "virtual_policy": "archived_not_retrievable",
+        "retrievals": 0,
         "unresolved_fills": 0, "closed_decisions": 0,
         "realized_net_pnl_quote": 0.0,
     }

@@ -17,7 +17,7 @@ Binance Spot. It builds BUY/SELL grids, uses ATR/EMA/VWAP/ADX regimes, manages
 OCO protection, and records trading statistics in SQLite. Production secrets,
 real backups, and private parameters are never committed.
 
-Current product version: **2.20.27**. The single version source is
+Current product version: **2.20.28**. The single version source is
 `product_version.py`; releases follow [Semantic Versioning](https://semver.org/).
 Project contact: [LinkedIn](https://www.linkedin.com/in/ypotekhin/).
 
@@ -740,7 +740,10 @@ sudo -u bot env PYTHONPATH=/home/bot/apps/binance_bot \
 LIVE also reconciles durable nonterminal order IDs before `RUNNING`. Every
 durably protected BUY is checked against the exact Binance OCO order-list ID,
 client ID, symbol, both SELL legs, leg types and active statuses. A mismatch or
-an executed BUY without verified protection remains `RECOVERY_BLOCKED`.
+an executed BUY without verified protection creates a manual HALT and remains
+`RECOVERY_BLOCKED`. The same authoritative check runs continuously. Generic
+ladder TTL/off-ladder cleanup owns BUY orders only and can never cancel a
+protective SELL/OCO leg. Any unresolved bot fill blocks all new BUY orders.
 
 An operator who intentionally stops trading can publish an explicit state:
 
@@ -806,6 +809,9 @@ PYTHONPATH=. .venv/bin/python -m bin.binance_testnet_smoke \
 The dashboard and `/api/trading/overview` expose exact natural lifecycle
 evidence as `closed_exact / required`. Only an exchange-verified OCO leg with a
 terminal `FILLED` status can increment it; partial and unresolved fills do not.
+Open canary lots are shown separately from legacy inventory, including an
+explicit journal-versus-Binance protection mismatch. Historical virtual RAG
+documents are labeled archived and are not included in retrieval.
 
 ## Documentation and license
 

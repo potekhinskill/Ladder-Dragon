@@ -555,6 +555,55 @@ def test_trading_overview_classifies_preexisting_inventory_as_legacy(monkeypatch
     assert protection["cost_basis_action"] == "preview_only_import_required"
 
 
+def test_trading_overview_exposes_stale_protected_lot_mismatch(monkeypatch):
+    module = load_dashboard(monkeypatch)
+    monkeypatch.setattr(module, "_load_ai_runtime_status", lambda: {
+        "symbols": ["SOLUSDT"], "execution_mode": "LIVE", "risk": {},
+    })
+    monkeypatch.setattr(module, "_bot_service_config", lambda: {
+        "symbols": ["SOLUSDT"], "execution_mode": "LIVE",
+        "venue": "mainnet", "auto_oco_holdings": False,
+    })
+    monkeypatch.setattr(module, "service_active", lambda _name: "active")
+    monkeypatch.setattr(module, "account_balances_snapshot", lambda: {
+        "assets": [
+            {"asset": "USDT", "free": 320.0, "total": 320.0},
+            {"asset": "SOL", "free": 3.8802313, "total": 3.8802313,
+             "price_usdt": 77.0},
+        ]
+    })
+    monkeypatch.setattr(
+        module,
+        "account_open_orders_snapshot",
+        lambda: {"count": 0, "orders": []},
+    )
+    monkeypatch.setattr(module, "_average_entry_from_ledger", lambda _symbol: 75.0)
+    monkeypatch.setattr(module, "_order_journal_snapshot", lambda _runtime: {
+        "available": True, "cancelled": 1, "pending": 0,
+        "managed_buys": [{
+            "symbol": "SOLUSDT", "quantity": "0.124", "protected_buys": 1,
+        }],
+        "latest": {"symbol": "SOLUSDT", "side": "BUY", "status": "SUBMITTED"},
+    })
+
+    snapshot = module.trading_overview_snapshot()
+    position = snapshot["positions"][0]
+
+    assert position["managed_quantity"] == 0.124
+    assert position["legacy_quantity"] == 3.7562313
+    assert position["protection"]["state"] == "journal_exchange_mismatch"
+    assert position["protection"]["classification"] == (
+        "managed_and_legacy_inventory"
+    )
+    assert snapshot["orders"]["journal_exchange_mismatches"] == [{
+        "symbol": "SOLUSDT",
+        "journal_state": "PROTECTED",
+        "exchange_state": "MISSING_OR_INCOMPLETE_OCO",
+        "managed_quantity": 0.124,
+        "protected_quantity": 0,
+    }]
+
+
 def test_trading_overview_preserves_unavailable_order_journal(monkeypatch):
     module = load_dashboard(monkeypatch)
     monkeypatch.setattr(module, "_load_ai_runtime_status", lambda: {
@@ -582,6 +631,7 @@ def test_trading_overview_preserves_unavailable_order_journal(monkeypatch):
         "journal_reason": "OperationalError",
             "journal_source": None,
             "lifecycle": {},
+            "journal_exchange_mismatches": [],
         }
 
 
@@ -599,6 +649,15 @@ def test_dashboard_renders_reanchor_mode_activity_and_proposal():
     assert 'id="trade-reanchor-activity"' in index
     assert "reanchorTotals.shadow_candidates??0" in index
     assert "latestProposal.old_price" in index
+
+
+def test_dashboard_labels_virtual_rag_as_archived_only():
+    index = Path("FRONT/index.html").read_text(encoding="utf-8")
+    source = Path("FastAPI/pi-dashboard/app.py").read_text(encoding="utf-8")
+
+    assert "RAG real / archived virtual / retrievals" in index
+    assert "knowledge.archived_virtual_documents" in index
+    assert '"virtual_policy": "archived_not_retrievable"' in source
 
 
 def test_order_journal_pending_excludes_terminal_failures(tmp_path, monkeypatch):

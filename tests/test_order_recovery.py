@@ -184,6 +184,38 @@ def test_exact_oco_leg_closure_is_the_only_promotion_evidence(tmp_path):
     }
 
 
+def test_journal_telemetry_separates_open_managed_lot(tmp_path):
+    journal = OrderJournal(tmp_path / "orders.sqlite3", venue="mainnet")
+    journal.prepare(
+        client_order_id="BUY-1", symbol="SOLUSDT", side="BUY",
+        purpose="ladder", order_type="LIMIT", quantity="0.124", price="77.33",
+    )
+    journal.record_exchange_order(
+        "BUY-1", {"orderId": 10, "status": "FILLED", "executedQty": "0.124"}
+    )
+    journal.prepare(
+        client_order_id="OCO-1", symbol="SOLUSDT", side="SELL",
+        purpose="oco", order_type="OCO", quantity="0.124", price="78",
+        parent_client_order_id="BUY-1",
+    )
+    journal.record_order_list(
+        "OCO-1", {"orderListId": 20, "listStatusType": "EXEC_STARTED"}
+    )
+    journal.mark_protected(
+        parent_client_order_id="BUY-1",
+        protection_client_order_id="OCO-1",
+        order_list_id=20,
+    )
+
+    telemetry = read_order_journal_telemetry(journal.path)
+
+    assert telemetry["managed_buys"] == [{
+        "symbol": "SOLUSDT",
+        "quantity": "0.124",
+        "protected_buys": 1,
+    }]
+
+
 def test_filled_buy_remains_unresolved_until_protection_is_confirmed(tmp_path):
     journal = OrderJournal(tmp_path / "orders.sqlite3")
     buy = journal.prepare(

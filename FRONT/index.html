@@ -221,7 +221,7 @@
       <div class="row"><span data-i18n="bot_connection">Bot connection</span><span id="ai-runtime">—</span></div>
       <div class="row"><span data-i18n="applied">Decisions applied</span><span id="ai-applied">—</span></div>
       <div class="row"><span data-i18n="ai_edge">AI edge 1h</span><span id="ai-edge">—</span></div>
-      <div class="row"><span data-i18n="rag_counts">RAG real / virtual / retrievals</span><span id="ai-rag">—</span></div>
+      <div class="row"><span data-i18n="rag_counts">RAG real / archived virtual / retrievals</span><span id="ai-rag">—</span></div>
       <div class="row"><span data-i18n="recent_rag">Recent RAG documents</span><span class="mono" id="ai-rag-recent">—</span></div>
       <div class="row"><span data-i18n="closed_ai_pnl">Closed AI PnL</span><span id="ai-realized-pnl">—</span></div>
       <div class="row"><span data-i18n="unresolved">Unresolved fills</span><span id="ai-unresolved">—</span></div>
@@ -297,7 +297,7 @@
         <div class="monitor-row"><span data-i18n="accepted_rejected">Accepted / rejected</span><span id="ai-decisions-quality">—</span></div>
         <div class="monitor-row"><span data-i18n="unresolved">Unresolved fills</span><span id="ai-unresolved-quality">—</span></div>
         <div class="monitor-row"><span data-i18n="ai_vs_baseline">AI vs baseline</span><span id="ai-edge-quality">—</span></div>
-        <div class="monitor-row"><span data-i18n="rag_counts">RAG real / virtual / retrievals</span><span id="ai-rag-quality">—</span></div>
+        <div class="monitor-row"><span data-i18n="rag_counts">RAG real / archived virtual / retrievals</span><span id="ai-rag-quality">—</span></div>
         <div class="monitor-row"><span data-i18n="degraded">DEGRADED reasons</span><span id="ai-degraded-quality">—</span></div>
       </div>
     </div>
@@ -767,7 +767,7 @@ function updateTrading(t){
     const protection=p.protection||{};
     const state=protection.state||'not_checked';
     const pnl=p.unrealized_pnl_usdt==null?'—':fmtUSDT(Number(p.unrealized_pnl_usdt));
-    return `<tr><td class="mono">${esc(p.symbol)}</td><td class="right mono">${fmt(p.quantity,8)}</td><td class="right mono">${p.average_entry_usdt==null?'—':fmt(p.average_entry_usdt,4)}</td><td class="right mono">${p.current_price_usdt==null?'—':fmt(p.current_price_usdt,4)}</td><td class="right mono">${p.value_usdt==null?'—':fmtUSDT(Number(p.value_usdt))}</td><td class="right mono">${pnl}</td><td class="right mono">${p.drawdown_pct==null?'—':fmtPct(Number(p.drawdown_pct))}</td><td>${esc(state)} · basis ${esc(protection.cost_basis_status||'—')} · TP ${esc((protection.tp||[]).join(','))} · STOP ${esc((protection.stop||[]).join(','))} · gap ${esc(protection.gap_watchdog||'—')}</td></tr>`;
+    return `<tr><td class="mono">${esc(p.symbol)}</td><td class="right mono">${fmt(p.quantity,8)}<div class="muted">bot ${fmt(p.managed_quantity||0,8)} · legacy ${fmt(p.legacy_quantity||0,8)}</div></td><td class="right mono">${p.average_entry_usdt==null?'—':fmt(p.average_entry_usdt,4)}</td><td class="right mono">${p.current_price_usdt==null?'—':fmt(p.current_price_usdt,4)}</td><td class="right mono">${p.value_usdt==null?'—':fmtUSDT(Number(p.value_usdt))}</td><td class="right mono">${pnl}</td><td class="right mono">${p.drawdown_pct==null?'—':fmtPct(Number(p.drawdown_pct))}</td><td>${esc(state)} · basis ${esc(protection.cost_basis_status||'—')} · TP ${esc((protection.tp||[]).join(','))} · STOP ${esc((protection.stop||[]).join(','))} · gap ${esc(protection.gap_watchdog||'—')}</td></tr>`;
   }).join(''):`<tr><td class="muted" colspan="8">${tr('no_positions')}</td></tr>`;
 }
 function updateAIQuality(ai){
@@ -784,7 +784,7 @@ function updateAIQuality(ai){
   $('#ai-unresolved-quality').textContent=String(kb.unresolved_fills??0);
   const edge=ai.ai_vs_baseline_1h||{};
   $('#ai-edge-quality').textContent=edge.samples?`${fmt(Number(edge.edge)*100,2)}% / ${edge.samples}`:tr('no_data');
-  $('#ai-rag-quality').textContent=`${kb.documents??0} / ${kb.virtual_documents??0} / ${kb.retrievals??0}`;
+  $('#ai-rag-quality').textContent=`${kb.documents??0} / ${kb.archived_virtual_documents??0} / ${kb.retrievals??0}`;
   const degraded=Array.isArray(ai.degraded_reasons)?ai.degraded_reasons:[];
   $('#ai-degraded-quality').textContent=degraded.length?degraded.join(' · '):tr('no');
 }
@@ -1125,7 +1125,7 @@ async function refresh(){
       ? `${(Number(edge.edge)*100).toFixed(1)}% / ${edge.samples}`
       : tr('no_data');
     const knowledge = ai.knowledge_base || {};
-    $('#ai-rag').textContent = `${knowledge.documents ?? 0} / ${knowledge.virtual_documents ?? 0} / ${knowledge.retrievals ?? 0}`;
+    $('#ai-rag').textContent = `${knowledge.documents ?? 0} / ${knowledge.archived_virtual_documents ?? 0} / ${knowledge.retrievals ?? 0}`;
     const ragDocuments = Array.isArray(latest.rag_documents) ? latest.rag_documents : [];
     $('#ai-rag-recent').textContent = ragDocuments.length
       ? ragDocuments.map(item=>`${String(item.document_id).slice(0,8)}:${Number(item.score).toFixed(3)}`).join(', ')

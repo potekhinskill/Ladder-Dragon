@@ -777,6 +777,25 @@ class AdvisorDecisionStore:
                 ) VALUES(?,?,?)""",
                 (AI_SCHEMA_VERSION, AI_SCHEMA_CHECKSUM, int(time.time())),
             )
+            known_links = connection.execute(
+                """
+                SELECT DISTINCT l.decision_id,l.client_order_id,
+                                l.exchange_order_id,l.leg_type
+                FROM ai_order_links AS l
+                JOIN ai_decisions AS d ON d.decision_id=l.decision_id
+                JOIN ai_unresolved_fills AS u
+                  ON u.order_id=l.exchange_order_id
+                WHERE l.exchange_order_id IS NOT NULL
+                """
+            ).fetchall()
+            for decision_id, client_order_id, order_id, leg_type in known_links:
+                self._resolve_linked_fills(
+                    connection,
+                    decision_id=str(decision_id),
+                    client_order_id=str(client_order_id),
+                    exchange_order_id=str(order_id),
+                    leg_type=str(leg_type or ""),
+                )
 
     def record_fill(self, decision_id: str, *, symbol: str, side: str,
                     price: object, qty: object, fee_quote: object = 0,
@@ -877,11 +896,22 @@ class AdvisorDecisionStore:
                        SET symbol=?, lot_id=COALESCE(lot_id,?),
                            order_type=CASE WHEN order_type='' THEN ? ELSE order_type END,
                            leg_type=CASE WHEN leg_type='' THEN ? ELSE leg_type END,
+                           exchange_order_id=COALESCE(exchange_order_id,?),
+                           exchange_order_list_id=COALESCE(exchange_order_list_id,?),
                            expected_price=COALESCE(expected_price,?),
                            expected_price_text=COALESCE(expected_price_text,?)
                        WHERE client_order_id=?""",
                     (symbol.upper(), lot_id, order_type, leg_type,
+                     str(exchange_order_id) if exchange_order_id is not None else None,
+                     str(exchange_order_list_id) if exchange_order_list_id is not None else None,
                      expected_text, expected_text, client_order_id),
+                )
+                self._resolve_linked_fills(
+                    connection,
+                    decision_id=str(existing[0]),
+                    client_order_id=client_order_id,
+                    exchange_order_id=exchange_order_id,
+                    leg_type=leg_type,
                 )
                 return
             connection.execute(
@@ -897,6 +927,63 @@ class AdvisorDecisionStore:
                     leg_type, expected_text, expected_text, int(time.time()),
                 ),
             )
+            self._resolve_linked_fills(
+                connection,
+                decision_id=decision_id,
+                client_order_id=client_order_id,
+                exchange_order_id=exchange_order_id,
+                leg_type=leg_type,
+            )
+
+    @staticmethod
+    def _resolve_linked_fills(
+        connection: sqlite3.Connection,
+        *,
+        decision_id: str,
+        client_order_id: str,
+        exchange_order_id: str | int | None,
+        leg_type: str,
+    ) -> int:
+        """Atomically transfer newly linked fills out of the unresolved queue."""
+        if exchange_order_id is None:
+            return 0
+        rows = connection.execute(
+            """
+            SELECT fill_key,symbol,side,order_id,trade_id,
+                   COALESCE(NULLIF(price_text,''),CAST(price AS TEXT)),
+                   COALESCE(NULLIF(qty_text,''),CAST(qty AS TEXT)),
+                   COALESCE(NULLIF(fee_quote_text,''),CAST(fee_quote AS TEXT)),
+                   ts
+            FROM ai_unresolved_fills WHERE order_id=?
+            """,
+            (str(exchange_order_id),),
+        ).fetchall()
+        resolved = 0
+        for row in rows:
+            fill_id = f"resolved:{row[0]}"
+            connection.execute(
+                """
+                INSERT OR IGNORE INTO ai_fills(
+                    fill_id,decision_id,symbol,side,price,qty,fee_quote,
+                    exit_reason,ts,order_id,trade_id,client_order_id,
+                    order_list_id,leg_type,link_status,slippage_quote,
+                    price_text,qty_text,fee_quote_text,slippage_quote_text
+                ) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+                """,
+                (
+                    fill_id, decision_id, str(row[1]), str(row[2]),
+                    str(row[5]), str(row[6]), str(row[7]), "", int(row[8]),
+                    str(row[3]), str(row[4]) if row[4] is not None else None,
+                    client_order_id, None, leg_type, "resolved", "0",
+                    str(row[5]), str(row[6]), str(row[7]), "0",
+                ),
+            )
+            connection.execute(
+                "DELETE FROM ai_unresolved_fills WHERE fill_key=?",
+                (str(row[0]),),
+            )
+            resolved += 1
+        return resolved
 
     def update_order_link(
         self, client_order_id: str, *, exchange_order_id: str | int | None = None,
@@ -922,6 +1009,19 @@ class AdvisorDecisionStore:
                 f"UPDATE ai_order_links SET {', '.join(changes)} WHERE client_order_id=?",
                 values,
             )
+            row = connection.execute(
+                "SELECT decision_id,COALESCE(exchange_order_id,''),leg_type "
+                "FROM ai_order_links WHERE client_order_id=?",
+                (client_order_id,),
+            ).fetchone()
+            if row is not None:
+                self._resolve_linked_fills(
+                    connection,
+                    decision_id=str(row[0]),
+                    client_order_id=client_order_id,
+                    exchange_order_id=str(row[1]) or None,
+                    leg_type=str(row[2] or ""),
+                )
 
     def decision_for_client_order(self, client_order_id: str) -> tuple[str, int | None] | None:
         with self._connect() as connection:

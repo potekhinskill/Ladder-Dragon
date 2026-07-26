@@ -3,6 +3,36 @@
 All notable changes are documented here. Releases use Semantic Versioning; every
 section is dated and there is intentionally no `Unreleased` section.
 
+## [2.20.28] — 2026-07-26
+
+### Fixed
+- Restricted startup and periodic ladder cleanup to BUY orders, so TTL and
+  off-ladder cleanup can never cancel protective SELL, OCO or OTOCO legs.
+- Added startup and continuous authoritative reconciliation of every journal
+  `PROTECTED` BUY against the exact Binance order list and both active SELL
+  legs. A mismatch now creates a manual HALT and blocks new BUY orders.
+- Blocked new BUY orders while any bot fill remains unresolved. Late or
+  restart-time exchange-order mappings atomically move matching historical
+  fills into the real execution ledger before the block can clear.
+- Separated open canary quantity from legacy account inventory in dashboard
+  telemetry and exposed journal-versus-Binance protection mismatches.
+- Labeled historical virtual RAG documents as archived and non-retrievable;
+  the active virtual counter remains zero under the real-only policy.
+- Updated the dashboard inline-script CSP hash after the lifecycle telemetry
+  rendering change.
+
+### Security
+- Exact TP/STOP lifecycle evidence still advances only after a confirmed
+  terminal exchange SELL fill. Missing protection, damaged reconciliation
+  data or an unresolved bot fill fails closed and cannot be bypassed by AI.
+
+### Verified
+- `135` focused AI execution, order recovery, supervisor safety, dashboard and
+  real-only RAG tests pass; source compilation also passes.
+- The `release` harness passes all `538` project tests, numeric and secret
+  audits, plus `18` replay, `21` walk-forward/approval, `86` recovery and `58`
+  migration/deployment regression checks.
+
 ## [2.20.27] — 2026-07-26
 
 ### Added

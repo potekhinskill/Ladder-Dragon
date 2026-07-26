@@ -120,6 +120,60 @@ def test_fill_mapping_uses_exchange_order_id_and_unresolved_is_excluded(tmp_path
     assert result["closed"] is False
 
 
+def test_late_exchange_link_resolves_fill_atomically(tmp_path):
+    path = tmp_path / "ai.db"
+    store = AdvisorDecisionStore(str(path))
+    decision = store.record(
+        symbol="SOLUSDT", price=100, deterministic_mode="FLAT",
+        recommended_mode="UP", width_scale=1, cap_scale=1,
+        confidence=.8, applied=True,
+    )
+    store.link_client_order(
+        "client-buy", decision, symbol="SOLUSDT", order_type="LIMIT"
+    )
+    store.record_unresolved_fill(
+        symbol="SOLUSDT", side="BUY", price="77.33", qty="0.124",
+        fee_quote="0.001", order_id=12345, trade_id=88, ts=20,
+    )
+
+    store.update_order_link("client-buy", exchange_order_id=12345)
+
+    assert store.unresolved_fill_count() == 0
+    with sqlite3.connect(path) as connection:
+        row = connection.execute(
+            "SELECT decision_id,client_order_id,order_id,trade_id,"
+            "price_text,qty_text,fee_quote_text,link_status FROM ai_fills"
+        ).fetchone()
+    assert row == (
+        decision, "client-buy", "12345", "88",
+        "77.33", "0.124", "0.001", "resolved",
+    )
+
+
+def test_store_startup_backfills_previously_known_unresolved_fill(tmp_path):
+    path = tmp_path / "ai.db"
+    store = AdvisorDecisionStore(str(path))
+    decision = store.record(
+        symbol="SOLUSDT", price=100, deterministic_mode="FLAT",
+        recommended_mode="UP", width_scale=1, cap_scale=1,
+        confidence=.8, applied=True,
+    )
+    store.link_client_order(
+        "client-buy", decision, symbol="SOLUSDT",
+        order_type="LIMIT", exchange_order_id=12345,
+    )
+    store.record_unresolved_fill(
+        symbol="SOLUSDT", side="BUY", price="77.33", qty="0.124",
+        order_id=12345, trade_id=89, ts=21,
+    )
+    assert store.unresolved_fill_count() == 1
+
+    restarted = AdvisorDecisionStore(str(path))
+
+    assert restarted.unresolved_fill_count() == 0
+    assert restarted.evaluate_execution(decision)["buy_qty_text"] == "0.124"
+
+
 def test_realized_result_records_partial_fill_and_exit_metadata(tmp_path):
     store = AdvisorDecisionStore(str(tmp_path / "ai.db"))
     decision = store.record(symbol="SOLUSDT", price=100, deterministic_mode="FLAT",

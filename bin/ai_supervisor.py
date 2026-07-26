@@ -191,6 +191,7 @@ _CHILD_FAILURES: Dict[str, int] = {}
 LIVE_MODE = False
 _AI_ADVISOR: Optional[AIAdvisor] = None
 _AI_DECISIONS: Optional[AdvisorDecisionStore] = None
+_AI_DECISIONS_PATH: Optional[Path] = None
 _AI_KNOWLEDGE: Optional[KnowledgeStore] = None
 _AI_POLICY: Optional[PolicyConfig] = None
 _AI_RUNTIME_STATUS_PATH: Optional[Path] = None
@@ -727,6 +728,89 @@ def _verify_live_protection(
     return 1
 
 
+def _verify_all_live_protection(
+    journal: OrderJournal,
+    symbols: list[str],
+) -> int:
+    """Verify every journal-protected BUY against authoritative Binance state."""
+    checked = 0
+    configured = {str(symbol).upper() for symbol in symbols}
+    for buy in journal.protected_buys():
+        if buy.symbol not in configured:
+            raise RuntimeError("protected journal symbol is outside configuration")
+        checked += _verify_live_protection(journal, buy.client_order_id)
+    return checked
+
+
+def _create_manual_halt_once(
+    reason: str,
+    *,
+    limits: RiskLimits | None = None,
+    metadata: dict[str, object],
+) -> None:
+    """Persist and notify one safety reason without repeating every risk tick."""
+    resolved_limits = limits or RiskLimits.from_env()
+    halt_file = getattr(resolved_limits, "halt_file", None)
+    if halt_file is not None:
+        try:
+            payload = json.loads(Path(halt_file).read_text(encoding="utf-8"))
+            if reason in list(payload.get("reasons") or []):
+                return
+        except (FileNotFoundError, json.JSONDecodeError, OSError, TypeError):
+            pass
+    create_manual_halt(
+        reason,
+        limits=resolved_limits,
+        metadata=metadata,
+    )
+
+
+def _runtime_protection_gate(symbols: list[str], limits: RiskLimits) -> int:
+    """Fail closed when a journal-protected lot has no active exchange protection."""
+    path = os.getenv("BOT_ORDER_JOURNAL", "").strip()
+    if not path:
+        raise RuntimeError("LIVE order journal path is missing")
+    journal = OrderJournal(
+        path,
+        venue="testnet" if "testnet" in TM.BASE_URL.lower() else "mainnet",
+    )
+    try:
+        return _verify_all_live_protection(journal, symbols)
+    except (RuntimeError, ValueError, KeyError, TypeError, requests.RequestException) as exc:
+        reason = f"journal protected BUY differs from Binance: {exc}"
+        _create_manual_halt_once(
+            reason,
+            limits=limits,
+            metadata={"gate": "journal_exchange_protection"},
+        )
+        raise RuntimeError(reason) from exc
+
+
+def _unresolved_fill_count() -> int:
+    """Read the authoritative unresolved bot-fill count without enabling AI."""
+    if _AI_DECISIONS_PATH is None or not _AI_DECISIONS_PATH.exists():
+        return 0
+    try:
+        with sqlite3.connect(
+            f"file:{_AI_DECISIONS_PATH}?mode=ro",
+            uri=True,
+            timeout=2,
+        ) as connection:
+            table = connection.execute(
+                "SELECT 1 FROM sqlite_master WHERE type='table' "
+                "AND name='ai_unresolved_fills'"
+            ).fetchone()
+            if table is None:
+                raise RuntimeError("unresolved-fill table is missing")
+            return int(
+                connection.execute(
+                    "SELECT COUNT(*) FROM ai_unresolved_fills"
+                ).fetchone()[0]
+            )
+    except (OSError, sqlite3.Error, TypeError, ValueError) as exc:
+        raise RuntimeError("unresolved-fill reconciliation unavailable") from exc
+
+
 def _pre_running_recovery_gate(
     args: argparse.Namespace,
     symbols: List[str],
@@ -787,18 +871,32 @@ def _pre_running_recovery_gate(
             "PROTECTED",
             "CLOSED",
         }:
-            raise RuntimeError(
+            reason = (
                 "reconciled BUY has execution without verified protection"
             )
-    protection_checks = 0
-    for buy in journal.protected_buys():
-        if buy.symbol not in symbols:
-            raise RuntimeError(
-                "protected journal symbol is outside configuration"
+            _create_manual_halt_once(
+                reason,
+                metadata={
+                    "gate": "startup_unprotected_fill",
+                    "symbol": buy.symbol,
+                },
             )
-        protection_checks += _verify_live_protection(
-            journal, buy.client_order_id
+            raise RuntimeError(reason)
+    try:
+        protection_checks = _verify_all_live_protection(journal, symbols)
+    except (
+        RuntimeError,
+        ValueError,
+        KeyError,
+        TypeError,
+        requests.RequestException,
+    ) as exc:
+        reason = f"startup journal protected BUY differs from Binance: {exc}"
+        _create_manual_halt_once(
+            reason,
+            metadata={"gate": "startup_journal_exchange_protection"},
         )
+        raise RuntimeError(reason) from exc
     return {
         "checked": checked,
         "protection_checks": protection_checks,
@@ -1542,8 +1640,13 @@ def startup_cleanup_orders(symbol: str,
     for o in orders:
         try:
             reviewed += 1
+            # Generic ladder cleanup owns BUY intents only. Protective SELL,
+            # OCO and OTOCO legs are lifecycle-managed by the executor and may
+            # never be removed by age or ladder-distance policy.
+            if str(o.get("side") or "").upper() != "BUY":
+                continue
             typ = (o.get("type") or "").upper()
-            if typ not in ("LIMIT", "LIMIT_MAKER", "STOP_LOSS_LIMIT", "TAKE_PROFIT_LIMIT"):
+            if typ not in ("LIMIT", "LIMIT_MAKER"):
                 continue
 
             price = _analytics_float(o.get("price") or 0.0)
@@ -1619,6 +1722,10 @@ def smart_cleanup_orders(symbol: str,
     for o in orders:
         try:
             reviewed += 1
+            # SELL orders can be the only active protection for filled
+            # inventory. Only the executor's exact lifecycle may cancel them.
+            if str(o.get("side") or "").upper() != "BUY":
+                continue
             price = _analytics_float(o.get("price") or 0.0)
             pr = _round_to_tick(price, tick_size)
             upd = int(o.get("updateTime") or o.get("time") or now_ms)
@@ -3791,6 +3898,8 @@ def _build_risk_snapshot(
     balances = get_balances_full()
     prices = {symbol: get_last_price(symbol) for symbol in symbols}
     orders = TM._signed_get("/api/v3/openOrders") or []
+    if LIVE_MODE:
+        _runtime_protection_gate(symbols, limits)
 
     # Strict reconciliation prevents a risk snapshot from mixing divergent
     # Binance account and local inventory-ledger data.
@@ -4096,7 +4205,8 @@ def main():
     log(f"[VERSION] {product_label('supervisor')}")
     symbols = validate_supervisor_args(ap, args)
     _configure_venue(args)
-    global _AI_ADVISOR, _AI_DECISIONS, _AI_KNOWLEDGE, _AI_POLICY
+    global _AI_ADVISOR, _AI_DECISIONS, _AI_DECISIONS_PATH
+    global _AI_KNOWLEDGE, _AI_POLICY
     global _AI_RUNTIME_STATUS_PATH, _AI_RUNTIME_STATUS, _AI_CONTROL_PATH
     global _PREDICTION_SHADOW
     _AI_DECISION_IDS.clear()
@@ -4107,6 +4217,7 @@ def main():
         os.getenv("AI_TESTNET_DECISIONS_DB", "").strip()
         if args.testnet else args.ai_decisions_db
     ) or args.ai_decisions_db
+    _AI_DECISIONS_PATH = Path(decisions_db)
     _AI_DECISIONS = (
         AdvisorDecisionStore(decisions_db)
         if args.ai_advisor else None
@@ -4413,6 +4524,23 @@ def main():
                     if shocks:
                         risk_manager.start_cooldown("; ".join(shocks))
                     decision = risk_manager.evaluate(snapshot)
+                    unresolved_fills = _unresolved_fill_count()
+                    if unresolved_fills:
+                        decision = RiskDecision(
+                            halted=decision.halted,
+                            buy_blocked=True,
+                            reasons=tuple(
+                                dict.fromkeys(
+                                    [
+                                        *decision.reasons,
+                                        (
+                                            f"{unresolved_fills} unresolved bot "
+                                            "fill(s) require reconciliation"
+                                        ),
+                                    ]
+                                )
+                            ),
+                        )
                     if not decision.buy_blocked:
                         # Narrow CAP further by the smallest remaining budget:
                         # portfolio, daily BUY, correlation and reserve.

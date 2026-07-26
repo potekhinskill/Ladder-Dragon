@@ -100,6 +100,11 @@ def read_order_journal_telemetry(path: str | Path) -> dict[str, Any]:
                 "SELECT metadata_json FROM order_intents "
                 "WHERE side = 'BUY' AND state = 'CLOSED'"
             ).fetchall()
+            managed_rows = con.execute(
+                "SELECT symbol, state, executed_qty FROM order_intents "
+                "WHERE side = 'BUY' AND state IN "
+                "('PARTIALLY_FILLED','FILLED','PROTECTION_PENDING','PROTECTED')"
+            ).fetchall()
     except (OSError, sqlite3.Error, TypeError, ValueError) as exc:
         return {"available": False, "reason": type(exc).__name__}
 
@@ -151,6 +156,32 @@ def read_order_journal_telemetry(path: str | Path) -> dict[str, Any]:
         lifecycle["closed_exact"] += 1
         lifecycle[reason.lower()] += 1
     lifecycle["promotion_ready"] = lifecycle["closed_exact"] >= lifecycle["required"]
+    managed: dict[str, dict[str, Any]] = {}
+    for row in managed_rows:
+        symbol = str(row["symbol"] or "").upper()
+        if not symbol:
+            continue
+        try:
+            quantity = Decimal(str(row["executed_qty"] or "0"))
+        except (ArithmeticError, TypeError, ValueError):
+            continue
+        if quantity <= 0:
+            continue
+        entry = managed.setdefault(
+            symbol,
+            {"symbol": symbol, "quantity": Decimal("0"), "protected_buys": 0},
+        )
+        entry["quantity"] += quantity
+        if str(row["state"]).upper() == "PROTECTED":
+            entry["protected_buys"] += 1
+    managed_buys = [
+        {
+            "symbol": entry["symbol"],
+            "quantity": format(entry["quantity"], "f"),
+            "protected_buys": entry["protected_buys"],
+        }
+        for entry in managed.values()
+    ]
     return {
         "available": True,
         "counts": counts,
@@ -158,6 +189,7 @@ def read_order_journal_telemetry(path: str | Path) -> dict[str, Any]:
         "pending": pending,
         "latest": item,
         "lifecycle": lifecycle,
+        "managed_buys": managed_buys,
         "updated_at_epoch": time.time(),
     }
 

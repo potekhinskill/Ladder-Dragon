@@ -848,11 +848,21 @@ def test_supervisor_blocks_executed_buy_without_protection(
             "cummulativeQuoteQty": "7.5",
         },
     )
+    halts = []
+    monkeypatch.setattr(
+        ai_supervisor,
+        "_create_manual_halt_once",
+        lambda reason, **kwargs: halts.append((reason, kwargs)),
+    )
 
     with pytest.raises(RuntimeError, match="without verified protection"):
         ai_supervisor._pre_running_recovery_gate(
             SimpleNamespace(live=True, testnet=False), ["SOLUSDT"]
         )
+    assert halts[0][1]["metadata"] == {
+        "gate": "startup_unprotected_fill",
+        "symbol": "SOLUSDT",
+    }
 
 
 def test_public_ip_guard_alert_never_exposes_address(
@@ -1147,11 +1157,71 @@ def test_supervisor_blocks_terminal_oco_leg(
         }
 
     monkeypatch.setattr(ai_supervisor.TM, "_signed_get", signed_get)
+    halts = []
+    monkeypatch.setattr(
+        ai_supervisor,
+        "_create_manual_halt_once",
+        lambda reason, **kwargs: halts.append((reason, kwargs)),
+    )
 
-    with pytest.raises(RuntimeError, match="terminal or unknown leg"):
+    with pytest.raises(RuntimeError, match="journal protected BUY differs"):
         ai_supervisor._pre_running_recovery_gate(
             SimpleNamespace(live=True, testnet=False), ["SOLUSDT"]
         )
+    assert len(halts) == 1
+    assert halts[0][1]["metadata"]["gate"] == (
+        "startup_journal_exchange_protection"
+    )
+
+
+def test_runtime_protection_mismatch_creates_manual_halt(
+    tmp_path, monkeypatch
+):
+    from ladder_dragon.execution.order_recovery import OrderJournal
+
+    journal = OrderJournal(tmp_path / "orders.sqlite3", venue="mainnet")
+    monkeypatch.setenv("BOT_ORDER_JOURNAL", str(journal.path))
+    monkeypatch.setattr(ai_supervisor.TM, "BASE_URL", "https://api.binance.com")
+    monkeypatch.setattr(
+        ai_supervisor,
+        "_verify_all_live_protection",
+        lambda *_args: (_ for _ in ()).throw(
+            RuntimeError("OCO is not actively protecting inventory")
+        ),
+    )
+    halts = []
+    monkeypatch.setattr(
+        ai_supervisor,
+        "_create_manual_halt_once",
+        lambda reason, **kwargs: halts.append((reason, kwargs)),
+    )
+
+    with pytest.raises(RuntimeError, match="journal protected BUY differs"):
+        ai_supervisor._runtime_protection_gate(
+            ["SOLUSDT"], SimpleNamespace()
+        )
+
+    assert len(halts) == 1
+    assert halts[0][1]["metadata"]["gate"] == (
+        "journal_exchange_protection"
+    )
+
+
+def test_unresolved_bot_fill_count_is_authoritative_without_ai(
+    tmp_path, monkeypatch
+):
+    path = tmp_path / "ai.db"
+    with sqlite3.connect(path) as connection:
+        connection.execute(
+            "CREATE TABLE ai_unresolved_fills(fill_key TEXT PRIMARY KEY)"
+        )
+        connection.execute(
+            "INSERT INTO ai_unresolved_fills(fill_key) VALUES('fill-1')"
+        )
+    monkeypatch.setattr(ai_supervisor, "_AI_DECISIONS_PATH", path)
+    monkeypatch.setattr(ai_supervisor, "_AI_DECISIONS", None)
+
+    assert ai_supervisor._unresolved_fill_count() == 1
 
 
 def test_supervisor_auth_backoff_does_not_hide_other_preflight_errors():
@@ -1270,6 +1340,60 @@ def test_cleanup_layers_keep_fresh_off_ladder_order(monkeypatch):
         far_ttl_sec=7200,
     )
     assert periodic == {"reviewed": 1, "canceled": 0}
+    assert canceled == []
+
+
+def test_cleanup_layers_never_cancel_protective_sell(monkeypatch):
+    now_ms = int(time.time() * 1000)
+    protective_orders = [
+        {
+            "symbol": "SOLUSDT",
+            "orderId": 501,
+            "orderListId": 900,
+            "side": "SELL",
+            "type": "STOP_LOSS_LIMIT",
+            "price": "70.00",
+            "stopPrice": "70.10",
+            "updateTime": now_ms - 86_400_000,
+        },
+        {
+            "symbol": "SOLUSDT",
+            "orderId": 502,
+            "orderListId": 900,
+            "side": "SELL",
+            "type": "LIMIT_MAKER",
+            "price": "80.00",
+            "updateTime": now_ms - 86_400_000,
+        },
+    ]
+    canceled = []
+    monkeypatch.setattr(
+        ai_supervisor, "list_open_orders", lambda _symbol: protective_orders
+    )
+    monkeypatch.setattr(
+        ai_supervisor,
+        "cancel_order",
+        lambda _symbol, order_id: canceled.append(order_id) or True,
+    )
+
+    startup = ai_supervisor.startup_cleanup_orders(
+        "SOLUSDT",
+        now_price=76.0,
+        ladder_prices=[75.0],
+        tick_size=0.01,
+        grace_sec=1,
+    )
+    periodic = ai_supervisor.smart_cleanup_orders(
+        "SOLUSDT",
+        now_price=76.0,
+        ladder_prices=[75.0],
+        tick_size=0.01,
+        near_ttl_sec=1,
+        far_ttl_sec=1,
+    )
+
+    assert startup == {"reviewed": 2, "canceled": 0}
+    assert periodic == {"reviewed": 2, "canceled": 0}
     assert canceled == []
 
 
