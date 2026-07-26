@@ -116,6 +116,54 @@
   Object.assign(translations.et, {user_stream:"Kasutaja andmevoog"});
   Object.assign(translations.fi, {user_stream:"Käyttäjän tietovirta"});
   Object.assign(translations.da, {user_stream:"Brugerdatastrøm"});
+  Object.assign(translations.en, {
+    position_managed:"managed",
+    position_legacy:"legacy",
+    position_cost_basis:"cost basis",
+    position_covered:"covered",
+    position_total:"total",
+    position_oco_locked:"OCO locked",
+    position_gap_watchdog:"gap protection",
+    position_not_covered_by_managed_oco:"not covered by the managed OCO",
+    position_status_partial_inventory_lots:"purchase history covers only part of the position",
+    position_status_verified_full_inventory:"purchase history verified for the full position",
+    position_status_unverified_inventory_history:"purchase history is not verified",
+    position_status_unavailable:"data unavailable",
+    position_status_confirmed:"protection confirmed",
+    position_status_pending:"awaiting execution",
+    position_status_missing_or_incomplete:"protection is missing or incomplete",
+    position_status_not_applicable:"not applicable",
+    position_status_not_checked:"not checked yet",
+    position_status_managed_lot_armed_only:"armed for the managed lot only",
+    position_status_not_applicable_legacy_inventory:"not applicable to legacy inventory",
+    position_status_unmanaged_unprotected:"not managed by the bot and unprotected",
+    position_status_journal_exchange_mismatch:"journal and Binance state differ",
+    position_status_unknown:"unknown status"
+  });
+  Object.assign(translations.ru, {
+    position_managed:"управляемая часть",
+    position_legacy:"наследуемый остаток",
+    position_cost_basis:"себестоимость",
+    position_covered:"учтено",
+    position_total:"всего",
+    position_oco_locked:"зафиксировано OCO",
+    position_gap_watchdog:"защита разрыва",
+    position_not_covered_by_managed_oco:"не защищено OCO управляемой части",
+    position_status_partial_inventory_lots:"история покупок известна только для части позиции",
+    position_status_verified_full_inventory:"история покупок подтверждена для всей позиции",
+    position_status_unverified_inventory_history:"история покупок не подтверждена",
+    position_status_unavailable:"данные недоступны",
+    position_status_confirmed:"защита подтверждена",
+    position_status_pending:"ожидает исполнения",
+    position_status_missing_or_incomplete:"защита отсутствует или неполна",
+    position_status_not_applicable:"не применяется",
+    position_status_not_checked:"ещё не проверено",
+    position_status_managed_lot_armed_only:"активна только для управляемой части",
+    position_status_not_applicable_legacy_inventory:"не применяется к наследуемому остатку",
+    position_status_unmanaged_unprotected:"не управляется ботом и не защищено",
+    position_status_journal_exchange_mismatch:"журнал расходится с состоянием Binance",
+    position_status_unknown:"неизвестное состояние"
+  });
 
   const labels = [
     ["en", "English"], ["ru", "Русский"], ["zh", "中文"], ["es", "Español"], ["de", "Deutsch"], ["fr", "Français"],

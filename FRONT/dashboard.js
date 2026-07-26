@@ -11,6 +11,24 @@ function tr(key, vars={}){
   const dict = LOCALES.translations[CURRENT_LOCALE] || fallback;
   return String(dict[key] ?? fallback[key] ?? key).replace(/\{(\w+)\}/g, (_, name)=>String(vars[name] ?? `{${name}}`));
 }
+const POSITION_STATUS_KEYS = Object.freeze({
+  partial_inventory_lots: 'position_status_partial_inventory_lots',
+  verified_full_inventory: 'position_status_verified_full_inventory',
+  unverified_inventory_history: 'position_status_unverified_inventory_history',
+  unavailable: 'position_status_unavailable',
+  confirmed: 'position_status_confirmed',
+  pending: 'position_status_pending',
+  missing_or_incomplete: 'position_status_missing_or_incomplete',
+  not_applicable: 'position_status_not_applicable',
+  not_checked: 'position_status_not_checked',
+  managed_lot_armed_only: 'position_status_managed_lot_armed_only',
+  not_applicable_legacy_inventory: 'position_status_not_applicable_legacy_inventory',
+  unmanaged_unprotected: 'position_status_unmanaged_unprotected',
+  journal_exchange_mismatch: 'position_status_journal_exchange_mismatch'
+});
+function positionStatusText(code){
+  return tr(POSITION_STATUS_KEYS[String(code||'')] || 'position_status_unknown');
+}
 function applyLocale(){
   document.documentElement.lang = CURRENT_LOCALE;
   document.querySelectorAll('[data-i18n]').forEach(el=>{ el.textContent = tr(el.dataset.i18n); });
@@ -304,18 +322,19 @@ function updateTrading(t){
     const state=protection.state||'not_checked';
     const managedQty=Number(p.managed_quantity||0), legacyQty=Number(p.legacy_quantity||0);
     const basisStatus=protection.cost_basis_status||'unavailable';
-    const basisNote=`basis ${basisStatus} · covered ${protection.cost_basis_covered_quantity??'0'} / total ${p.quantity??'0'}`;
-    const unavailableBasis=`—<div class="muted">${esc(basisStatus)}</div>`;
+    const basisLabel=positionStatusText(basisStatus);
+    const basisNote=`${tr('position_cost_basis')}: ${basisLabel} · ${tr('position_covered')} ${protection.cost_basis_covered_quantity??'0'} / ${tr('position_total')} ${p.quantity??'0'}`;
+    const unavailableBasis=`—<div class="muted">${esc(basisLabel)}</div>`;
     const pnl=p.unrealized_pnl_usdt==null?unavailableBasis:fmtUSDT(Number(p.unrealized_pnl_usdt));
     const average=p.average_entry_usdt==null?unavailableBasis:fmt(p.average_entry_usdt,4);
     const drawdown=p.drawdown_pct==null?unavailableBasis:fmtPct(Number(p.drawdown_pct));
     const managedLine=managedQty>0
-      ? `<div><strong>managed ${fmt(managedQty,8)}</strong>: ${esc(protection.managed_state||state)} · OCO locked ${fmt(protection.locked_quantity||0,8)} · TP ${esc((protection.tp||[]).join(',')||'—')} · STOP ${esc((protection.stop||[]).join(',')||'—')} · gap ${esc(protection.gap_watchdog||'—')}</div>`
+      ? `<div><strong>${esc(tr('position_managed'))} ${fmt(managedQty,8)}</strong>: ${esc(positionStatusText(protection.managed_state||state))} · ${esc(tr('position_oco_locked'))} ${fmt(protection.locked_quantity||0,8)} · TP ${esc((protection.tp||[]).join(',')||'—')} · STOP ${esc((protection.stop||[]).join(',')||'—')} · ${esc(tr('position_gap_watchdog'))}: ${esc(positionStatusText(protection.gap_watchdog))}</div>`
       : '';
     const legacyLine=legacyQty>0
-      ? `<div class="muted"><strong>legacy ${fmt(legacyQty,8)}</strong>: ${esc(protection.legacy_state||'unmanaged_unprotected')} · not covered by managed OCO</div>`
+      ? `<div class="muted"><strong>${esc(tr('position_legacy'))} ${fmt(legacyQty,8)}</strong>: ${esc(positionStatusText(protection.legacy_state||'unmanaged_unprotected'))} · ${esc(tr('position_not_covered_by_managed_oco'))}</div>`
       : '';
-    return `<tr><td class="mono">${esc(p.symbol)}</td><td class="right mono">${fmt(p.quantity,8)}<div class="muted">managed ${fmt(managedQty,8)} · legacy ${fmt(legacyQty,8)}</div></td><td class="right mono">${average}</td><td class="right mono">${p.current_price_usdt==null?'—':fmt(p.current_price_usdt,4)}</td><td class="right mono">${p.value_usdt==null?'—':fmtUSDT(Number(p.value_usdt))}</td><td class="right mono">${pnl}</td><td class="right mono">${drawdown}</td><td>${managedLine}${legacyLine}<div class="muted">${esc(basisNote)}</div></td></tr>`;
+    return `<tr><td class="mono">${esc(p.symbol)}</td><td class="right mono">${fmt(p.quantity,8)}<div class="muted">${esc(tr('position_managed'))} ${fmt(managedQty,8)} · ${esc(tr('position_legacy'))} ${fmt(legacyQty,8)}</div></td><td class="right mono">${average}</td><td class="right mono">${p.current_price_usdt==null?'—':fmt(p.current_price_usdt,4)}</td><td class="right mono">${p.value_usdt==null?'—':fmtUSDT(Number(p.value_usdt))}</td><td class="right mono">${pnl}</td><td class="right mono">${drawdown}</td><td>${managedLine}${legacyLine}<div class="muted">${esc(basisNote)}</div></td></tr>`;
   }).join(''):`<tr><td class="muted" colspan="8">${tr('no_positions')}</td></tr>`;
 }
 function updateAIQuality(ai){

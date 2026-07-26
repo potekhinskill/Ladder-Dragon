@@ -3,6 +3,21 @@
 All notable changes are documented here. Releases use Semantic Versioning; every
 section is dated and there is intentionally no `Unreleased` section.
 
+## [2.20.45] — 2026-07-26
+
+### Fixed
+- The position table now translates inventory provenance, managed/legacy
+  coverage and gap-protection reason codes instead of exposing internal API
+  identifiers such as `partial_inventory_lots`.
+- Unknown future position codes use a localized safe fallback while the stable
+  machine-readable values remain unchanged in the read-only API.
+
+### Verified
+- Position-localization regressions, JavaScript syntax and dashboard asset
+  checks pass.
+- The complete suite passes all `594` project tests; Python compilation and
+  whitespace checks pass.
+
 ## [2.20.44] — 2026-07-26
 
 ### Fixed

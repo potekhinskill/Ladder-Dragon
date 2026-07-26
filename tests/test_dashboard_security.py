@@ -861,11 +861,40 @@ def test_dashboard_renders_reanchor_mode_activity_and_proposal():
 
 def test_dashboard_labels_stream_sessions_and_mixed_protection_explicitly():
     source = dashboard_source()
+    locales = Path("FRONT/locales.js").read_text(encoding="utf-8")
 
     assert "observed total" in source
     assert "current session" in source
     assert "· soak " not in source
-    assert "not covered by managed OCO" in source
+    assert "position_not_covered_by_managed_oco" in source
+    assert locales.count("position_not_covered_by_managed_oco:") == 2
+
+
+def test_dashboard_localizes_position_codes_with_safe_unknown_fallback():
+    source = dashboard_source()
+    locales = Path("FRONT/locales.js").read_text(encoding="utf-8")
+
+    for code in (
+        "partial_inventory_lots",
+        "managed_lot_armed_only",
+        "unmanaged_unprotected",
+        "journal_exchange_mismatch",
+    ):
+        assert f"{code}: 'position_status_" in source
+    assert "position_status_unknown" in source
+    assert "positionStatusText(basisStatus)" in source
+    assert "positionStatusText(protection.gap_watchdog)" in source
+    assert "esc(basisStatus)" not in source
+    assert "esc(protection.gap_watchdog" not in source
+    for key in (
+        "position_managed",
+        "position_legacy",
+        "position_status_partial_inventory_lots",
+        "position_status_managed_lot_armed_only",
+        "position_status_unmanaged_unprotected",
+        "position_status_unknown",
+    ):
+        assert locales.count(f"{key}:") == 2
 
 
 def test_dashboard_labels_virtual_rag_as_archived_only():
