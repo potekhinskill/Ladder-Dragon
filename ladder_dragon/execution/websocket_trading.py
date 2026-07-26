@@ -142,6 +142,7 @@ class BinanceWebSocketTradingTransport:
         testnet: bool,
         connect: Callable[..., object] = create_connection,
         timestamp_ms: Callable[[], int] = lambda: int(time.time() * 1000),
+        monotonic: Callable[[], float] = time.monotonic,
     ) -> None:
         self._api_key = api_key
         self._signer = signer
@@ -149,6 +150,7 @@ class BinanceWebSocketTradingTransport:
         self._live = live
         self._connect = connect
         self._timestamp_ms = timestamp_ms
+        self._monotonic = monotonic
         self._url = websocket_api_url(testnet=testnet)
         self._lock = threading.Lock()
         self._connection: object | None = None
@@ -201,10 +203,21 @@ class BinanceWebSocketTradingTransport:
         )
         with self._lock:
             try:
+                deadline = self._monotonic() + max(0.0, float(timeout))
                 connection = self._connected(timeout)
                 connection.send(frame)
                 while True:
+                    remaining = deadline - self._monotonic()
+                    if remaining <= 0:
+                        raise TimeoutError(
+                            "WebSocket response deadline exceeded"
+                        )
+                    connection.settimeout(remaining)
                     raw = connection.recv()
+                    if self._monotonic() > deadline:
+                        raise TimeoutError(
+                            "WebSocket response deadline exceeded"
+                        )
                     payload = json.loads(raw)
                     if not isinstance(payload, dict):
                         raise ValueError("WebSocket response is not an object")
@@ -219,7 +232,16 @@ class BinanceWebSocketTradingTransport:
                             code=error.get("code"),
                             message=str(error.get("msg") or ""),
                         )
-                    return payload.get("result")
+                    if status != 200:
+                        raise ValueError(
+                            "WebSocket success response status must be 200"
+                        )
+                    result = payload.get("result")
+                    if not isinstance(result, Mapping):
+                        raise ValueError(
+                            "WebSocket success response result is not an object"
+                        )
+                    return result
             except BinanceWebSocketResponseError:
                 raise
             except (
@@ -249,6 +271,7 @@ def build_websocket_trading_transport(
     api_secret: Callable[[], str],
     recv_window: Callable[[], int],
     live: Callable[[], bool],
+    timestamp_ms: Callable[[], int],
     testnet: bool,
 ) -> BinanceWebSocketTradingTransport:
     """Build the transport from non-secret configuration references."""
@@ -265,5 +288,6 @@ def build_websocket_trading_transport(
         signer=signer,
         recv_window=recv_window,
         live=live,
+        timestamp_ms=timestamp_ms,
         testnet=testnet,
     )

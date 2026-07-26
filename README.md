@@ -29,7 +29,7 @@ combines adaptive ladder entries, exchange-side OCO protection, exact
 fee-aware FIFO accounting, restart reconciliation, replay and walk-forward
 verification, and a private Raspberry Pi operations dashboard.
 
-Current product version: **2.20.43**. The single version source is
+Current product version: **2.20.44**. The single version source is
 `product_version.py`; releases follow [Semantic Versioning](https://semver.org/).
 Project contact: [LinkedIn](https://www.linkedin.com/in/ypotekhin/).
 
@@ -87,7 +87,7 @@ bounded, explainable, recoverable, and measurable before exposure is increased.
 ## Project status
 
 Ladder Dragon is an actively developed, experimental trading system. Version
-**2.20.43** is the current prepared release. `main` is the only long-lived branch;
+**2.20.44** is the current prepared release. `main` is the only long-lived branch;
 feature branches use the `ladderdragon/*` namespace.
 
 DRY and Binance Spot Testnet are the supported starting modes. Mainnet LIVE is
@@ -356,8 +356,10 @@ The deterministic ladder always receives an exact adaptive closest BUY. An
 `UP` regime narrows the configured gap while keeping the order strictly below
 market; a `DOWN` regime widens it. ATR adaptation may widen the gap and the
 minimum-profit guard, but TP must still cover that guard within the configured
-TP ceiling or the cycle fails closed. This initial placement does not depend
-on prediction APPLY or a later re-anchor.
+TP ceiling or the cycle fails closed. Eligible BUY levels are ranked from the
+highest maker price downward before the target-count limit is applied, so the
+adaptive closest BUY cannot be hidden behind deeper ladder levels. This initial
+placement does not depend on prediction APPLY or a later re-anchor.
 
 For a production observation run, the operator may lower
 `REANCHOR_TRIGGER_PCT` to `0.0005` while keeping `ADAPTIVE_REANCHOR_MODE=SHADOW`.
@@ -685,7 +687,10 @@ order. Authenticated REST reconciliation remains authoritative and continues on
 its normal interval when events are duplicated, late, missing, or the stream is
 disconnected. The dashboard shows per-symbol connection state, transport age,
 order-event count, duplicate and out-of-order counts, connection attempts,
-reconnects and sanitized error class. A transport heartbeat older than
+reconnects and sanitized error class. It labels time since the first observation
+as cumulative observation and reports the current WebSocket session duration
+separately; planned executor rotations are not presented as one continuous
+socket session. A transport heartbeat older than
 `DASHBOARD_USER_STREAM_STALE_SEC` (180 seconds by default) is explicitly marked
 stale even if its last stored state said `connected`. PING, PONG and data frames
 update this heartbeat, so a quiet healthy account is not marked stale merely
@@ -910,6 +915,10 @@ terminal `FILLED` status can increment it; partial and unresolved fills do not.
 Open canary lots are shown separately from legacy inventory, including an
 explicit journal-versus-Binance protection mismatch. Historical virtual RAG
 documents are labeled archived and are not included in retrieval.
+For mixed inventory, confirmed protection is scoped only to the managed lot;
+legacy quantity is explicitly marked unmanaged and outside that OCO. Average
+entry, unrealized PnL and drawdown remain unavailable until sourced exact lots
+cover the full Binance account quantity.
 
 ## Star history
 

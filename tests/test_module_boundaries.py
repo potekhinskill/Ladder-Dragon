@@ -1072,12 +1072,12 @@ def test_executor_market_order_halts_on_unconfirmed_response(tmp_path):
 def test_executor_planning_is_deterministic_and_exchange_free():
     rounded = lambda value: round(value, 2)
     assert buy_candidates(
-        [90.004, 95.0, 100.0, 105.0],
+        [90.004, 94.0, 95.0, 100.0, 105.0],
         now_price=100.0,
         occupied_prices={90.0},
         round_price=rounded,
         limit=2,
-    ) == [95.0]
+    ) == [95.0, 94.0]
 
     buy = plan_buy_order(
         95.0,
@@ -1237,3 +1237,26 @@ def test_decimal_buy_planner_keeps_rounded_notional_under_cap():
     assert planned.quantity == Decimal("0.125")
     assert planned.notional == Decimal("9.56375")
     assert planned.notional <= Decimal("9.62")
+
+
+def test_buy_candidates_choose_best_price_independent_of_ladder_order():
+    tick = Decimal("0.01")
+    round_price = lambda value: (value // tick) * tick
+
+    levels = buy_candidates_decimal(
+        [
+            Decimal("74.55"),
+            Decimal("73.84"),
+            Decimal("75.20"),
+            Decimal("74.70"),
+            Decimal("74.80"),
+        ],
+        now_price=Decimal("74.92"),
+        occupied_prices={Decimal("74.80")},
+        round_price=round_price,
+        limit=1,
+    )
+
+    # Selection uses only the current market and submitted levels. Input order
+    # and future observations cannot make a deeper BUY outrank a better maker.
+    assert levels == [Decimal("74.70")]

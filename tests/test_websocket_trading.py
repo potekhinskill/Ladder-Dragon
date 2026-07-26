@@ -37,7 +37,10 @@ class FakeConnection:
         self.closed = True
 
 
-def make_transport(connection, *, live=True):
+def make_transport(connection, *, live=True, monotonic=None):
+    kwargs = {}
+    if monotonic is not None:
+        kwargs["monotonic"] = monotonic
     return BinanceWebSocketTradingTransport(
         api_key=lambda: "public-key",
         signer=RequestSigner(
@@ -50,6 +53,7 @@ def make_transport(connection, *, live=True):
         testnet=True,
         connect=lambda *_args, **_kwargs: connection,
         timestamp_ms=lambda: 123456789,
+        **kwargs,
     )
 
 
@@ -113,7 +117,65 @@ def test_websocket_transport_reuses_connection_and_maps_order_method():
         {"symbol": "SOLUSDT", "side": "BUY"},
     ) == {"orderId": 7}
     assert connection.sent[0]["method"] == "order.place"
+    assert connection.sent[0]["params"]["timestamp"] == 123456789
     assert len(connection.sent) == 2
+
+
+def test_websocket_transport_deadline_is_not_extended_by_foreign_frames():
+    class ForeignFrameConnection(FakeConnection):
+        def __init__(self, clock):
+            super().__init__()
+            self.clock = clock
+            self.recv_count = 0
+
+        def recv(self):
+            self.recv_count += 1
+            self.clock[0] += 0.6
+            return json.dumps({
+                "id": "foreign-request",
+                "status": 200,
+                "result": {},
+            })
+
+    clock = [100.0]
+    connection = ForeignFrameConnection(clock)
+    transport = make_transport(connection, monotonic=lambda: clock[0])
+
+    with pytest.raises(BinanceWebSocketUnknownOutcome) as exc:
+        transport.request(
+            "POST",
+            "/api/v3/order",
+            {"symbol": "SOLUSDT"},
+            timeout=1.0,
+        )
+
+    assert exc.value.cause_type == "TimeoutError"
+    assert connection.recv_count == 2
+    assert connection.closed is True
+
+
+@pytest.mark.parametrize(
+    "response",
+    [
+        {"result": {"orderId": 7}},
+        {"status": 200},
+        {"status": 200, "result": None},
+        {"status": 200, "result": []},
+    ],
+)
+def test_websocket_transport_rejects_malformed_success(response):
+    connection = FakeConnection(response)
+    transport = make_transport(connection)
+
+    with pytest.raises(BinanceWebSocketUnknownOutcome) as exc:
+        transport.request(
+            "POST",
+            "/api/v3/order",
+            {"symbol": "SOLUSDT"},
+        )
+
+    assert exc.value.cause_type == "ValueError"
+    assert connection.closed is True
 
 
 def test_websocket_transport_never_retries_unknown_mutation():

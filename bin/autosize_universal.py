@@ -524,6 +524,7 @@ def _signed_request(method: str, path: str, params: Dict[str, Any] | None = None
                 api_secret=lambda: API_SECRET,
                 recv_window=lambda: getenv_int("RECV_WINDOW_MS", 15000),
                 live=lambda: LIVE_MODE,
+                timestamp_ms=TM._timestamp_ms,
                 testnet="testnet" in BINANCE_API_BASE.lower(),
             )
         return _WS_TRADING_TRANSPORT.request(
@@ -1909,6 +1910,15 @@ def maybe_place_buys(symbol: str,
         log(f"[BUY-NONE] {symbol} has no levels below market (now≈{fmt_price_sym(symbol, now)}). "
             f"Check --ladder-prices and reduce-only mode.")
         return []
+    selected_gap_pct = (
+        (now - candidates[0]) / now * Decimal("100")
+        if now > 0 else Decimal("0")
+    )
+    log(
+        f"[BUY-PRIORITY] {symbol} selected="
+        f"{fmt_price_sym(symbol, candidates[0])} "
+        f"gap={selected_gap_pct:.4f}% candidates={total_slots}"
+    )
 
     initial_market_snapshot = (
         market_store.snapshot() if market_store is not None else None

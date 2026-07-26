@@ -3,6 +3,39 @@
 All notable changes are documented here. Releases use Semantic Versioning; every
 section is dated and there is intentionally no `Unreleased` section.
 
+## [2.20.44] — 2026-07-26
+
+### Fixed
+- Mixed SOL inventory now reports managed OCO coverage and legacy unmanaged
+  quantity separately. A managed `confirmed` state no longer implies that the
+  full account position is protected.
+- Dashboard average entry, unrealized PnL and drawdown now require sourced
+  inventory lots to cover the full Binance account quantity. Partial legacy
+  history is reported explicitly instead of producing a misleading combined
+  loss estimate.
+- User Data Stream telemetry now distinguishes cumulative observation time
+  from the duration of the current WebSocket session.
+- BUY candidates are ranked by descending price before the target-count limit
+  is applied, so the exact adaptive closest maker level is selected instead of
+  a deeper ladder level that happened to appear first.
+- WebSocket trading requests now use the same Binance-server-adjusted clock as
+  REST requests, preventing local NTP drift from splitting transport behavior.
+- WebSocket response waits now have one monotonic request deadline that cannot
+  be extended by unrelated frames. A matching success frame must contain
+  status `200` and an object result or it fails closed as an unknown outcome.
+
+### Changed
+- BUY placement emits a sanitized `BUY-PRIORITY` event with the selected price,
+  current-market gap and candidate count. Re-anchor remains SHADOW and all CAP,
+  reserve, market-freshness, fee/slippage, OCO and statistical gates remain
+  authoritative.
+
+### Verified
+- All `11` WebSocket trading regressions pass, including server-clock wiring,
+  unrelated-frame deadline exhaustion and malformed success responses. Python
+  compilation, JavaScript syntax and whitespace checks pass.
+- The complete suite passes all `593` project tests.
+
 ## [2.20.43] — 2026-07-26
 
 ### Security

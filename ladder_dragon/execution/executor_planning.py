@@ -78,14 +78,14 @@ def buy_candidates_decimal(
     round_price: DecimalRoundValue,
     limit: Optional[int],
 ) -> list[Decimal]:
-    """Select exact BUY levels below market without binary-float keys."""
-    candidates = [
+    """Select the most competitive exact BUY levels below the current market."""
+    candidates = sorted([
         price
         for price in ladder_prices
         if price > 0
         and price < now_price
         and round_price(price) not in occupied_prices
-    ]
+    ], reverse=True)
     return candidates[:limit] if limit is not None else candidates
 
 
@@ -275,12 +275,12 @@ def buy_candidates(
     round_price: RoundValue,
     limit: Optional[int],
 ) -> list[float]:
-    """Handle buy candidates."""
-    candidates = [
+    """Select the highest eligible BUY levels first."""
+    candidates = sorted([
         price
         for price in ladder_prices
         if 0 < price < now_price and round_price(price) not in occupied_prices
-    ]
+    ], reverse=True)
     return candidates[:limit] if limit is not None else candidates
 
 

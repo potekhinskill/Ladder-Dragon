@@ -5,6 +5,7 @@ from pathlib import Path
 import sqlite3
 import time
 from datetime import datetime, timedelta, timezone
+from decimal import Decimal
 
 import pytest
 from fastapi.testclient import TestClient
@@ -101,6 +102,7 @@ def test_user_stream_health_is_sanitized_and_rest_authoritative(
         "sessions": 4,
         "disconnects": 2,
         "first_observed_at": time.time() - 7200,
+        "connected_at": time.time() - 900,
         "last_error": None,
         "last_event_at": 100.0,
         "last_order_event_at": 99.0,
@@ -124,6 +126,8 @@ def test_user_stream_health_is_sanitized_and_rest_authoritative(
     assert row["sessions"] == 4
     assert row["disconnects"] == 2
     assert row["soak_hours"] >= 2
+    assert row["cumulative_observation_hours"] >= 2
+    assert 0.24 <= row["current_session_hours"] <= 0.26
     assert "api" not in json.dumps(payload).lower()
 
 
@@ -524,7 +528,18 @@ def test_trading_overview_prefers_current_open_order(monkeypatch):
             "type": "LIMIT", "price": 75.93, "stop_price": 0.0,
         }],
     })
-    monkeypatch.setattr(module, "_average_entry_from_ledger", lambda symbol: 100.0)
+    monkeypatch.setattr(
+        module,
+        "_verified_cost_basis_from_lots",
+        lambda _symbol, _quantity: {
+            "covered": True,
+            "average_price": Decimal("100"),
+            "covered_quantity": "3.75",
+            "uncovered_quantity": "0",
+            "status": "verified_full_inventory",
+            "reason": "covered",
+        },
+    )
     monkeypatch.setattr(module, "_order_journal_snapshot", lambda runtime: {
         "available": True,
         "cancelled": 1, "pending": 1,
@@ -565,7 +580,18 @@ def test_trading_overview_classifies_preexisting_inventory_as_legacy(monkeypatch
         "account_open_orders_snapshot",
         lambda: {"count": 0, "orders": []},
     )
-    monkeypatch.setattr(module, "_average_entry_from_ledger", lambda symbol: 100.0)
+    monkeypatch.setattr(
+        module,
+        "_verified_cost_basis_from_lots",
+        lambda _symbol, _quantity: {
+            "covered": False,
+            "average_price": None,
+            "covered_quantity": "0",
+            "uncovered_quantity": "3.75",
+            "status": "unverified_inventory_history",
+            "reason": "account quantity exceeds sourced lots",
+        },
+    )
     monkeypatch.setattr(module, "_order_journal_snapshot", lambda runtime: {
         "available": True,
         "cancelled": 0,
@@ -580,8 +606,146 @@ def test_trading_overview_classifies_preexisting_inventory_as_legacy(monkeypatch
     assert protection["classification"] == "legacy_inventory"
     assert protection["managed_by_bot"] is False
     assert protection["gap_watchdog"] == "not_applicable_legacy_inventory"
-    assert protection["cost_basis_status"] == "unverified_legacy_history"
+    assert protection["cost_basis_status"] == "unverified_inventory_history"
     assert protection["cost_basis_action"] == "preview_only_import_required"
+
+
+def test_dashboard_cost_basis_requires_sourced_lots_for_full_account_quantity(
+    tmp_path,
+    monkeypatch,
+):
+    database = tmp_path / "stats.db"
+    with sqlite3.connect(database) as connection:
+        connection.execute(
+            "CREATE TABLE inventory_lots("
+            "lot_id INTEGER PRIMARY KEY, symbol TEXT, qty TEXT, price TEXT,"
+            "opened_at INTEGER, source_order_id TEXT, source_trade_id TEXT,"
+            "status TEXT)"
+        )
+        connection.execute(
+            "INSERT INTO inventory_lots VALUES("
+            "1,'SOLUSDT','0.124','77.33',1,'501','601','OPEN')"
+        )
+    module = load_dashboard(monkeypatch)
+    monkeypatch.setattr(module, "get_db_path", lambda: str(database))
+
+    partial = module._verified_cost_basis_from_lots(
+        "SOLUSDT",
+        Decimal("3.8802313"),
+    )
+    covered = module._verified_cost_basis_from_lots(
+        "SOLUSDT",
+        Decimal("0.124"),
+    )
+
+    assert partial["covered"] is False
+    assert partial["status"] == "partial_inventory_lots"
+    assert partial["covered_quantity"] == "0.124"
+    assert partial["uncovered_quantity"] == "3.7562313"
+    assert covered["covered"] is True
+    assert covered["average_price"] == Decimal("77.33")
+    assert "501" not in json.dumps(partial)
+    assert "601" not in json.dumps(partial)
+
+
+def test_dashboard_cost_basis_fails_closed_without_lot_provenance(
+    tmp_path,
+    monkeypatch,
+):
+    database = tmp_path / "stats.db"
+    with sqlite3.connect(database) as connection:
+        connection.execute(
+            "CREATE TABLE inventory_lots("
+            "lot_id INTEGER PRIMARY KEY, symbol TEXT, qty TEXT, price TEXT,"
+            "opened_at INTEGER, source_order_id TEXT, source_trade_id TEXT,"
+            "status TEXT)"
+        )
+        connection.execute(
+            "INSERT INTO inventory_lots VALUES("
+            "1,'SOLUSDT','0.124','77.33',1,'','','OPEN')"
+        )
+    module = load_dashboard(monkeypatch)
+    monkeypatch.setattr(module, "get_db_path", lambda: str(database))
+
+    result = module._verified_cost_basis_from_lots(
+        "SOLUSDT",
+        Decimal("0.124"),
+    )
+
+    assert result["covered"] is False
+    assert result["average_price"] is None
+    assert result["reason"] == "inventory lots contain invalid provenance"
+
+
+def test_mixed_position_scopes_oco_to_managed_lot_and_hides_unverified_pnl(
+    monkeypatch,
+):
+    module = load_dashboard(monkeypatch)
+    monkeypatch.setattr(module, "_load_ai_runtime_status", lambda: {
+        "symbols": ["SOLUSDT"], "execution_mode": "LIVE", "risk": {},
+    })
+    monkeypatch.setattr(module, "_bot_service_config", lambda: {
+        "symbols": ["SOLUSDT"], "execution_mode": "LIVE",
+        "venue": "mainnet", "auto_oco_holdings": False,
+    })
+    monkeypatch.setattr(module, "service_active", lambda _name: "active")
+    monkeypatch.setattr(module, "account_balances_snapshot", lambda: {
+        "assets": [
+            {"asset": "USDT", "free": 320, "total": 320},
+            {
+                "asset": "SOL",
+                "free": 3.7562313,
+                "total": 3.8802313,
+                "price_usdt": 74.92,
+            },
+        ]
+    })
+    monkeypatch.setattr(module, "account_open_orders_snapshot", lambda: {
+        "count": 2,
+        "orders": [
+            {
+                "symbol": "SOLUSDT", "side": "SELL",
+                "type": "LIMIT_MAKER", "remaining_qty": 0.124,
+                "price": 77.91, "stop_price": 0,
+            },
+            {
+                "symbol": "SOLUSDT", "side": "SELL",
+                "type": "STOP_LOSS_LIMIT", "remaining_qty": 0.124,
+                "price": 74.32, "stop_price": 74.4,
+            },
+        ],
+    })
+    monkeypatch.setattr(
+        module,
+        "_verified_cost_basis_from_lots",
+        lambda _symbol, _quantity: {
+            "covered": False,
+            "average_price": None,
+            "covered_quantity": "0.124",
+            "uncovered_quantity": "3.7562313",
+            "status": "partial_inventory_lots",
+            "reason": "account quantity exceeds sourced lots",
+        },
+    )
+    monkeypatch.setattr(module, "_order_journal_snapshot", lambda _runtime: {
+        "available": True, "cancelled": 1, "pending": 0,
+        "managed_buys": [{
+            "symbol": "SOLUSDT", "quantity": "0.124",
+            "protected_buys": 1,
+        }],
+        "latest": {"symbol": "SOLUSDT", "side": "BUY", "status": "SUBMITTED"},
+    })
+
+    position = module.trading_overview_snapshot()["positions"][0]
+    protection = position["protection"]
+
+    assert protection["state"] == "managed_confirmed_legacy_unmanaged"
+    assert protection["managed_state"] == "confirmed"
+    assert protection["legacy_state"] == "unmanaged_unprotected"
+    assert protection["locked_quantity"] == 0.124
+    assert protection["gap_watchdog"] == "managed_lot_armed_only"
+    assert position["unrealized_pnl_usdt"] is None
+    assert position["drawdown_pct"] is None
 
 
 def test_trading_overview_exposes_stale_protected_lot_mismatch(monkeypatch):
@@ -606,7 +770,18 @@ def test_trading_overview_exposes_stale_protected_lot_mismatch(monkeypatch):
         "account_open_orders_snapshot",
         lambda: {"count": 0, "orders": []},
     )
-    monkeypatch.setattr(module, "_average_entry_from_ledger", lambda _symbol: 75.0)
+    monkeypatch.setattr(
+        module,
+        "_verified_cost_basis_from_lots",
+        lambda _symbol, _quantity: {
+            "covered": False,
+            "average_price": None,
+            "covered_quantity": "0.124",
+            "uncovered_quantity": "3.7562313",
+            "status": "partial_inventory_lots",
+            "reason": "account quantity exceeds sourced lots",
+        },
+    )
     monkeypatch.setattr(module, "_order_journal_snapshot", lambda _runtime: {
         "available": True, "cancelled": 1, "pending": 0,
         "managed_buys": [{
@@ -620,6 +795,10 @@ def test_trading_overview_exposes_stale_protected_lot_mismatch(monkeypatch):
 
     assert position["managed_quantity"] == 0.124
     assert position["legacy_quantity"] == 3.7562313
+    assert position["average_entry_usdt"] is None
+    assert position["unrealized_pnl_usdt"] is None
+    assert position["drawdown_pct"] is None
+    assert position["pnl_scope"] == "unavailable"
     assert position["protection"]["state"] == "journal_exchange_mismatch"
     assert position["protection"]["classification"] == (
         "managed_and_legacy_inventory"
@@ -678,6 +857,15 @@ def test_dashboard_renders_reanchor_mode_activity_and_proposal():
     assert 'id="trade-reanchor-activity"' in index
     assert "reanchorTotals.shadow_candidates??0" in index
     assert "latestProposal.old_price" in index
+
+
+def test_dashboard_labels_stream_sessions_and_mixed_protection_explicitly():
+    source = dashboard_source()
+
+    assert "observed total" in source
+    assert "current session" in source
+    assert "· soak " not in source
+    assert "not covered by managed OCO" in source
 
 
 def test_dashboard_labels_virtual_rag_as_archived_only():

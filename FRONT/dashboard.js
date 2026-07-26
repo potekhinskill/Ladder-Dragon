@@ -235,7 +235,7 @@ function updateOperations(h){
   $('#ops-watchdog').className=(watchdog.state==='active'&&watchdog.enabled)?'risk-ok':'risk-warn';
   const streams=o.user_stream?.streams||[];
   const streamText=streams.length
-    ? streams.map(s=>`${s.symbol} ${s.state} · soak ${s.soak_hours??0}h · sessions ${s.sessions||0} · age ${s.age_sec??'—'}s · events ${s.order_events||0} · bad frames ${s.bad_frames||0} · duplicates ${s.duplicates||0} · out-of-order ${s.out_of_order_events||0} · reconnects ${s.reconnects||0}/${s.connection_attempts||0} · disconnects ${s.disconnects||0}${s.last_error?' · '+s.last_error:''}`).join(', ')
+    ? streams.map(s=>`${s.symbol} ${s.state} · observed total ${s.cumulative_observation_hours??s.soak_hours??0}h · current session ${s.current_session_hours??0}h · sessions ${s.sessions||0} · age ${s.age_sec??'—'}s · events ${s.order_events||0} · bad frames ${s.bad_frames||0} · duplicates ${s.duplicates||0} · out-of-order ${s.out_of_order_events||0} · reconnects ${s.reconnects||0}/${s.connection_attempts||0} · disconnects ${s.disconnects||0}${s.last_error?' · '+s.last_error:''}`).join(', ')
     : tr('no_data');
   $('#ops-user-stream').textContent=streamText;
   $('#ops-user-stream').className=streams.length&&streams.every(s=>s.state==='connected'&&!s.stale&&!s.last_error)?'risk-ok':'risk-warn';
@@ -302,8 +302,20 @@ function updateTrading(t){
   $('#positions-body').innerHTML=rows.length?rows.map(p=>{
     const protection=p.protection||{};
     const state=protection.state||'not_checked';
-    const pnl=p.unrealized_pnl_usdt==null?'—':fmtUSDT(Number(p.unrealized_pnl_usdt));
-    return `<tr><td class="mono">${esc(p.symbol)}</td><td class="right mono">${fmt(p.quantity,8)}<div class="muted">bot ${fmt(p.managed_quantity||0,8)} · legacy ${fmt(p.legacy_quantity||0,8)}</div></td><td class="right mono">${p.average_entry_usdt==null?'—':fmt(p.average_entry_usdt,4)}</td><td class="right mono">${p.current_price_usdt==null?'—':fmt(p.current_price_usdt,4)}</td><td class="right mono">${p.value_usdt==null?'—':fmtUSDT(Number(p.value_usdt))}</td><td class="right mono">${pnl}</td><td class="right mono">${p.drawdown_pct==null?'—':fmtPct(Number(p.drawdown_pct))}</td><td>${esc(state)} · basis ${esc(protection.cost_basis_status||'—')} · TP ${esc((protection.tp||[]).join(','))} · STOP ${esc((protection.stop||[]).join(','))} · gap ${esc(protection.gap_watchdog||'—')}</td></tr>`;
+    const managedQty=Number(p.managed_quantity||0), legacyQty=Number(p.legacy_quantity||0);
+    const basisStatus=protection.cost_basis_status||'unavailable';
+    const basisNote=`basis ${basisStatus} · covered ${protection.cost_basis_covered_quantity??'0'} / total ${p.quantity??'0'}`;
+    const unavailableBasis=`—<div class="muted">${esc(basisStatus)}</div>`;
+    const pnl=p.unrealized_pnl_usdt==null?unavailableBasis:fmtUSDT(Number(p.unrealized_pnl_usdt));
+    const average=p.average_entry_usdt==null?unavailableBasis:fmt(p.average_entry_usdt,4);
+    const drawdown=p.drawdown_pct==null?unavailableBasis:fmtPct(Number(p.drawdown_pct));
+    const managedLine=managedQty>0
+      ? `<div><strong>managed ${fmt(managedQty,8)}</strong>: ${esc(protection.managed_state||state)} · OCO locked ${fmt(protection.locked_quantity||0,8)} · TP ${esc((protection.tp||[]).join(',')||'—')} · STOP ${esc((protection.stop||[]).join(',')||'—')} · gap ${esc(protection.gap_watchdog||'—')}</div>`
+      : '';
+    const legacyLine=legacyQty>0
+      ? `<div class="muted"><strong>legacy ${fmt(legacyQty,8)}</strong>: ${esc(protection.legacy_state||'unmanaged_unprotected')} · not covered by managed OCO</div>`
+      : '';
+    return `<tr><td class="mono">${esc(p.symbol)}</td><td class="right mono">${fmt(p.quantity,8)}<div class="muted">managed ${fmt(managedQty,8)} · legacy ${fmt(legacyQty,8)}</div></td><td class="right mono">${average}</td><td class="right mono">${p.current_price_usdt==null?'—':fmt(p.current_price_usdt,4)}</td><td class="right mono">${p.value_usdt==null?'—':fmtUSDT(Number(p.value_usdt))}</td><td class="right mono">${pnl}</td><td class="right mono">${drawdown}</td><td>${managedLine}${legacyLine}<div class="muted">${esc(basisNote)}</div></td></tr>`;
   }).join(''):`<tr><td class="muted" colspan="8">${tr('no_positions')}</td></tr>`;
 }
 function updateAIQuality(ai){

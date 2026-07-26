@@ -9,7 +9,7 @@ import requests
 from collections import defaultdict, deque
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
-from decimal import Decimal
+from decimal import Decimal, InvalidOperation
 from zoneinfo import ZoneInfo
 from pathlib import Path
 import sqlite3
@@ -335,9 +335,19 @@ def _user_stream_snapshot(runtime: Dict[str, object]) -> Dict[str, object]:
             first_observed_at = float(
                 payload.get("first_observed_at") or 0
             )
-            soak_hours = (
+            if not math.isfinite(first_observed_at) or first_observed_at < 0:
+                first_observed_at = 0.0
+            cumulative_observation_hours = (
                 max(0.0, time.time() - first_observed_at) / 3600
                 if first_observed_at > 0 else 0.0
+            )
+            connected_at = float(payload.get("connected_at") or 0)
+            if not math.isfinite(connected_at) or connected_at < 0:
+                connected_at = 0.0
+            current_session_hours = (
+                max(0.0, time.time() - connected_at) / 3600
+                if reported_state == "connected" and connected_at > 0
+                else 0.0
             )
             rows.append({
                 "symbol": symbol,
@@ -359,7 +369,13 @@ def _user_stream_snapshot(runtime: Dict[str, object]) -> Dict[str, object]:
                 ),
                 "sessions": int(payload.get("sessions") or 0),
                 "disconnects": int(payload.get("disconnects") or 0),
-                "soak_hours": round(soak_hours, 2),
+                # Keep the old field for API compatibility, but name the two
+                # distinct clocks explicitly for the dashboard.
+                "soak_hours": round(cumulative_observation_hours, 2),
+                "cumulative_observation_hours": round(
+                    cumulative_observation_hours, 2
+                ),
+                "current_session_hours": round(current_session_hours, 2),
                 "last_error": (
                     str(payload.get("last_error"))
                     if payload.get("last_error") else None
@@ -386,6 +402,8 @@ def _user_stream_snapshot(runtime: Dict[str, object]) -> Dict[str, object]:
                 "sessions": 0,
                 "disconnects": 0,
                 "soak_hours": 0.0,
+                "cumulative_observation_hours": 0.0,
+                "current_session_hours": 0.0,
                 "last_error": None,
                 "last_event_at": None,
                 "last_order_event_at": None,
@@ -753,34 +771,118 @@ def _stale_binance_snapshot(
     return payload
 
 
-def _average_entry_from_ledger(symbol: str) -> Optional[float]:
-    """Handle average entry from ledger."""
+def _verified_cost_basis_from_lots(
+    symbol: str,
+    account_quantity: Decimal,
+) -> Dict[str, object]:
+    """Return read-only cost basis only when sourced lots cover the account."""
+    unavailable: Dict[str, object] = {
+        "covered": False,
+        "average_price": None,
+        "covered_quantity": "0",
+        "uncovered_quantity": format(max(Decimal("0"), account_quantity), "f"),
+        "status": "unverified_inventory_history",
+        "reason": "verified inventory lots are unavailable",
+    }
     try:
         con, _ = _open_db()
-        rows = _load_trades(con, [symbol])
     except (OSError, sqlite3.Error, TypeError, ValueError):
-        return None
+        return unavailable
     try:
-        lots: List[List[float]] = []
-        fee_pct = _fee_pct_default()
-        for row in rows:
-            price = float(row["price"])
-            qty = float(row["qty"])
-            fee = _estimate_fee_quote(price, qty, float(row["fee_quote"]), fee_pct)
-            if str(row["side"]).upper() == "BUY":
-                lots.append([qty, (price * qty + fee) / max(qty, 1e-12)])
-            elif str(row["side"]).upper() == "SELL":
-                remain = qty
-                while remain > 1e-12 and lots:
-                    take = min(remain, lots[0][0])
-                    lots[0][0] -= take
-                    remain -= take
-                    if lots[0][0] <= 1e-12:
-                        lots.pop(0)
-        quantity = sum(item[0] for item in lots)
-        if quantity <= 1e-12:
-            return None
-        return sum(item[0] * item[1] for item in lots) / quantity
+        exists = con.execute(
+            "SELECT 1 FROM sqlite_master "
+            "WHERE type='table' AND name='inventory_lots'"
+        ).fetchone()
+        if not exists:
+            return unavailable
+        columns = {
+            str(row[1])
+            for row in con.execute('PRAGMA table_info("inventory_lots")')
+        }
+        required = {
+            "lot_id",
+            "qty",
+            "price",
+            "opened_at",
+            "source_order_id",
+            "status",
+        }
+        if not required.issubset(columns):
+            return unavailable
+        trade_source = (
+            quote_sqlite_identifier("source_trade_id")
+            if "source_trade_id" in columns else "''"
+        )
+        rows = con.execute(
+            "SELECT qty,price,source_order_id,"
+            f"{trade_source} AS source_trade_id "
+            "FROM inventory_lots WHERE symbol=? AND status='OPEN' "
+            "ORDER BY opened_at,lot_id",
+            (symbol.upper(),),
+        ).fetchall()
+        covered_quantity = Decimal("0")
+        covered_cost = Decimal("0")
+        invalid_rows = 0
+        for qty_text, price_text, source_order_id, source_trade_id in rows:
+            quantity = Decimal(str(qty_text))
+            price = Decimal(str(price_text))
+            sourced = bool(
+                str(source_order_id or "").strip()
+                or str(source_trade_id or "").strip()
+            )
+            if (
+                not quantity.is_finite()
+                or not price.is_finite()
+                or quantity <= 0
+                or price <= 0
+                or not sourced
+            ):
+                invalid_rows += 1
+                continue
+            covered_quantity += quantity
+            covered_cost += quantity * price
+        tolerance_pct = Decimal(
+            os.getenv("BOT_COST_BASIS_QTY_TOLERANCE_PCT", "0.002")
+        )
+        if not tolerance_pct.is_finite() or tolerance_pct < 0:
+            return unavailable
+        tolerance = max(
+            Decimal("0.00000001"),
+            account_quantity * tolerance_pct,
+        )
+        delta = account_quantity - covered_quantity
+        covered = (
+            invalid_rows == 0
+            and covered_quantity > 0
+            and abs(delta) <= tolerance
+        )
+        return {
+            "covered": covered,
+            "average_price": (
+                covered_cost / covered_quantity if covered else None
+            ),
+            "covered_quantity": format(covered_quantity, "f"),
+            "uncovered_quantity": format(max(Decimal("0"), delta), "f"),
+            "status": (
+                "verified_full_inventory"
+                if covered else "partial_inventory_lots"
+                if covered_quantity > 0 else "unverified_inventory_history"
+            ),
+            "reason": (
+                "covered"
+                if covered else "inventory lots contain invalid provenance"
+                if invalid_rows else "account quantity exceeds sourced lots"
+            ),
+        }
+    except (
+        ArithmeticError,
+        InvalidOperation,
+        OSError,
+        sqlite3.Error,
+        TypeError,
+        ValueError,
+    ):
+        return unavailable
     finally:
         con.close()
 
@@ -920,16 +1022,55 @@ def trading_overview_snapshot() -> Dict[str, object]:
     for symbol in symbols:
         base = base_asset_of(symbol)
         balance = balance_by_asset.get(base, {})
-        quantity = float(balance.get("total", 0.0) or 0.0)
+        try:
+            quantity_exact = Decimal(str(balance.get("total", "0") or "0"))
+        except (ArithmeticError, InvalidOperation, TypeError, ValueError):
+            quantity_exact = Decimal("0")
+        if not quantity_exact.is_finite() or quantity_exact < 0:
+            quantity_exact = Decimal("0")
+        quantity = float(quantity_exact)
         current = balance.get("price_usdt")
         if current is None:
             try:
                 current = price_now(symbol)
             except _DATA_SOURCE_ERRORS:
                 current = None
-        average = _average_entry_from_ledger(symbol)
-        value = quantity * float(current) if current is not None else None
-        unrealized = (float(current) - average) * quantity if current is not None and average is not None else None
+        try:
+            current_exact = (
+                Decimal(str(current))
+                if current is not None else None
+            )
+            if current_exact is not None and (
+                not current_exact.is_finite() or current_exact <= 0
+            ):
+                current_exact = None
+        except (ArithmeticError, InvalidOperation, TypeError, ValueError):
+            current_exact = None
+        cost_basis = _verified_cost_basis_from_lots(
+            symbol,
+            quantity_exact,
+        )
+        average_exact = (
+            cost_basis.get("average_price")
+            if cost_basis.get("covered") else None
+        )
+        value_exact = (
+            quantity_exact * current_exact
+            if current_exact is not None else None
+        )
+        unrealized_exact = (
+            (current_exact - average_exact) * quantity_exact
+            if current_exact is not None
+            and isinstance(average_exact, Decimal)
+            else None
+        )
+        drawdown_exact = (
+            (current_exact / average_exact - Decimal("1")) * Decimal("100")
+            if current_exact is not None
+            and isinstance(average_exact, Decimal)
+            and average_exact > 0
+            else None
+        )
         legs = [row for row in order_rows if row.get("symbol") == symbol and row.get("side") == "SELL"]
         tp_legs = [
             row for row in legs
@@ -956,6 +1097,7 @@ def trading_overview_snapshot() -> Dict[str, object]:
         except (TypeError, ValueError):
             managed_quantity = 0.0
         legacy_quantity = max(0.0, quantity - managed_quantity)
+        has_legacy_inventory = legacy_quantity > 1e-12
         journal_protected = int(managed_row.get("protected_buys") or 0) > 0
         exact_exchange_protection = (
             bool(tp_legs)
@@ -992,7 +1134,10 @@ def trading_overview_snapshot() -> Dict[str, object]:
         elif journal_exchange_mismatch:
             protection_state = "journal_exchange_mismatch"
         elif managed_quantity > 1e-12 and exact_exchange_protection:
-            protection_state = "confirmed"
+            protection_state = (
+                "managed_confirmed_legacy_unmanaged"
+                if has_legacy_inventory else "confirmed"
+            )
         elif managed_quantity > 1e-12:
             protection_state = "missing_protection"
         elif legs:
@@ -1011,18 +1156,39 @@ def trading_overview_snapshot() -> Dict[str, object]:
             "symbol": symbol, "quantity": round(quantity, 8),
             "managed_quantity": round(managed_quantity, 8),
             "legacy_quantity": round(legacy_quantity, 8),
-            "average_entry_usdt": round(average, 8) if average is not None else None,
-            "current_price_usdt": round(float(current), 8) if current is not None else None,
-            "value_usdt": round(value, 2) if value is not None else None,
-            "unrealized_pnl_usdt": round(unrealized, 2) if unrealized is not None else None,
-            "drawdown_pct": round((float(current) / average - 1) * 100, 2) if current is not None and average else None,
+            "average_entry_usdt": (
+                round(float(average_exact), 8)
+                if isinstance(average_exact, Decimal) else None
+            ),
+            "current_price_usdt": (
+                round(float(current_exact), 8)
+                if current_exact is not None else None
+            ),
+            "value_usdt": (
+                round(float(value_exact), 2)
+                if value_exact is not None else None
+            ),
+            "unrealized_pnl_usdt": (
+                round(float(unrealized_exact), 2)
+                if unrealized_exact is not None else None
+            ),
+            "drawdown_pct": (
+                round(float(drawdown_exact), 2)
+                if drawdown_exact is not None else None
+            ),
+            "pnl_scope": (
+                "full_account_inventory"
+                if cost_basis.get("covered") else "unavailable"
+            ),
             "protection": {
                 "state": protection_state,
                 "tp": [row.get("price") for row in legs if row.get("type") == "LIMIT_MAKER"],
                 "stop": [row.get("stop_price") for row in legs if row.get("type") == "STOP_LOSS_LIMIT"],
                 "locked_quantity": round(protected_quantity, 8),
                 "gap_watchdog": (
-                    "armed" if protection_state == "confirmed"
+                    "managed_lot_armed_only"
+                    if protection_state == "managed_confirmed_legacy_unmanaged"
+                    else "armed" if protection_state == "confirmed"
                     else "not_applicable_legacy_inventory" if legacy_unmanaged
                     else "warning"
                 ),
@@ -1033,14 +1199,30 @@ def trading_overview_snapshot() -> Dict[str, object]:
                     else "managed_inventory"
                 ),
                 "managed_by_bot": managed_quantity > 1e-12,
-                "journal_exchange_mismatch": journal_exchange_mismatch,
-                "cost_basis_status": (
-                    "unverified_legacy_history"
-                    if legacy_unmanaged else "runtime_ledger"
+                "managed_state": (
+                    "confirmed"
+                    if managed_quantity > 1e-12
+                    and exact_exchange_protection
+                    else "missing_or_incomplete"
+                    if managed_quantity > 1e-12
+                    else "not_applicable"
                 ),
+                "legacy_state": (
+                    "unmanaged_unprotected"
+                    if has_legacy_inventory else "not_applicable"
+                ),
+                "journal_exchange_mismatch": journal_exchange_mismatch,
+                "cost_basis_status": cost_basis.get("status"),
+                "cost_basis_covered_quantity": (
+                    cost_basis.get("covered_quantity")
+                ),
+                "cost_basis_uncovered_quantity": (
+                    cost_basis.get("uncovered_quantity")
+                ),
+                "cost_basis_reason": cost_basis.get("reason"),
                 "cost_basis_action": (
                     "preview_only_import_required"
-                    if legacy_unmanaged else None
+                    if not cost_basis.get("covered") else None
                 ),
             },
         })
