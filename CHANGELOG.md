@@ -3,6 +3,20 @@
 All notable changes are documented here. Releases use Semantic Versioning; every
 section is dated and there is intentionally no `Unreleased` section.
 
+## [2.20.38] — 2026-07-26
+
+### Fixed
+- Tag-triggered GitHub jobs now force-refresh the event tag from the canonical
+  remote tag namespace after checkout. This replaces GitHub's synthesized
+  lightweight event ref with the signed annotated object before continuity
+  verification.
+
+### Verified
+- Workflow regression assertions require both test and audit jobs to restore
+  the exact canonical tag ref on tag events.
+- The complete suite passes all `571` project tests; Python compilation and
+  whitespace checks pass.
+
 ## [2.20.37] — 2026-07-26
 
 ### Fixed

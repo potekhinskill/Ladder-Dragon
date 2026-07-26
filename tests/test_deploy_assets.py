@@ -858,6 +858,10 @@ def test_ci_scans_full_history_and_pins_actions_by_commit():
     workflow = read(".github/workflows/security.yml")
     assert "fetch-depth: 0" in workflow
     assert workflow.count("fetch-tags: true") == 2
+    assert workflow.count("Restore annotated tag object") == 2
+    assert workflow.count(
+        '"refs/tags/${GITHUB_REF_NAME}:refs/tags/${GITHUB_REF_NAME}"'
+    ) == 2
     assert "gitleaks/gitleaks-action@ff98106e4c7b2bc287b24eaf42907196329070c7" in workflow
     assert "trufflesecurity/trufflehog@466da5b0bb161144f6afca9afe5d57975828c410" in workflow
     assert "--only-verified" in workflow
