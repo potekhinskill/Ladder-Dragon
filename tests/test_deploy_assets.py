@@ -173,6 +173,17 @@ def test_public_project_contact_is_documented_not_runtime_data():
     assert "https://www.linkedin.com/in/ypotekhin/" in copyright_text
 
 
+def test_readme_star_history_has_repository_owned_fallback():
+    readme = read("README.md")
+    chart = read("docs/assets/ladder-dragon-star-history.svg")
+    assert "docs/assets/ladder-dragon-star-history.svg" in readme
+    assert "img.shields.io/github/stars/potekhinskill/Ladder-Dragon" in readme
+    assert "api.star-history.com/svg" not in readme
+    assert "<svg" in chart
+    assert "GitHub Star History" in chart
+    assert "current stars" in chart
+
+
 def test_intro_document_and_logo_cover_supported_platforms():
     intro = read("docs/INTRODUCTION.md")
     logo = read("docs/assets/ladder-dragon-logo.svg")

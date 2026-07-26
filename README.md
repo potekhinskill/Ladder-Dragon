@@ -11,6 +11,7 @@
   <a href="https://github.com/potekhinskill/Ladder-Dragon/actions/workflows/security.yml"><img src="https://github.com/potekhinskill/Ladder-Dragon/actions/workflows/security.yml/badge.svg?branch=main" alt="Security checks"></a>
   <img src="https://img.shields.io/badge/Python-3.10%2B-3776AB?logo=python&logoColor=white" alt="Python 3.10+">
   <img src="https://img.shields.io/badge/Raspberry%20Pi-ready-C51A4A?logo=raspberrypi&logoColor=white" alt="Raspberry Pi ready">
+  <a href="https://github.com/potekhinskill/Ladder-Dragon/stargazers"><img src="https://img.shields.io/github/stars/potekhinskill/Ladder-Dragon?style=flat&logo=github&label=stars" alt="GitHub stars"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue.svg" alt="MIT License"></a>
 </p>
 
@@ -23,12 +24,26 @@
   <a href="docs/RASPBERRY_PI_INSTALL.md">Raspberry Pi</a>
 </p>
 
+## Star history
+
+<p align="center">
+  <a href="https://github.com/potekhinskill/Ladder-Dragon/stargazers">
+    <img src="docs/assets/ladder-dragon-star-history.svg" alt="Ladder Dragon GitHub star history" width="960">
+  </a>
+</p>
+
+The bundled chart remains visible when the third-party Star History API is
+unavailable or the repository has not received its first star. The badge above
+always shows GitHub's current public count. Open the
+[interactive Star History page](https://star-history.com/#potekhinskill/Ladder-Dragon&Date)
+after history becomes available.
+
 Ladder Dragon is an open-source Python trading system for Binance Spot. It
 combines adaptive ladder entries, exchange-side OCO protection, exact
 fee-aware FIFO accounting, restart reconciliation, replay and walk-forward
 verification, and a private Raspberry Pi operations dashboard.
 
-Current product version: **2.20.33**. The single version source is
+Current product version: **2.20.34**. The single version source is
 `product_version.py`; releases follow [Semantic Versioning](https://semver.org/).
 Project contact: [LinkedIn](https://www.linkedin.com/in/ypotekhin/).
 
@@ -86,7 +101,7 @@ bounded, explainable, recoverable, and measurable before exposure is increased.
 ## Project status
 
 Ladder Dragon is an actively developed, experimental trading system. Version
-**2.20.33** is the current prepared release. `main` is the only long-lived branch;
+**2.20.34** is the current prepared release. `main` is the only long-lived branch;
 feature branches use the `ladderdragon/*` namespace.
 
 DRY and Binance Spot Testnet are the supported starting modes. Mainnet LIVE is
@@ -901,13 +916,6 @@ terminal `FILLED` status can increment it; partial and unresolved fills do not.
 Open canary lots are shown separately from legacy inventory, including an
 explicit journal-versus-Binance protection mismatch. Historical virtual RAG
 documents are labeled archived and are not included in retrieval.
-
-## Star history
-
-[![Ladder Dragon Star History Chart](https://api.star-history.com/svg?repos=potekhinskill/Ladder-Dragon&type=Date)](https://star-history.com/#potekhinskill/Ladder-Dragon&Date)
-
-The chart is provided by [Star History](https://star-history.com/) and tracks
-the public GitHub star count over time.
 
 ## Documentation and license
 

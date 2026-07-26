@@ -3,6 +3,23 @@
 All notable changes are documented here. Releases use Semantic Versioning; every
 section is dated and there is intentionally no `Unreleased` section.
 
+## [2.20.34] — 2026-07-26
+
+### Fixed
+- Replaced the failing third-party Star History SVG, which returned HTTP 500
+  for a repository with no stars, with a repository-owned chart that GitHub can
+  render reliably. The chart is now visible near the top of the README.
+
+### Added
+- Added a live GitHub stars badge and retained a link to the interactive Star
+  History page for use once public history exists.
+
+### Verified
+- The README regression test confirms the bundled chart and live badge are
+  present and the failing external SVG endpoint is absent.
+- The SVG passes XML validation and renders at its declared `960 × 300`
+  dimensions. The complete suite passes all `567` project tests.
+
 ## [2.20.33] — 2026-07-26
 
 ### Fixed
