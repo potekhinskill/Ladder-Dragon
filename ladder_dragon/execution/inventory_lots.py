@@ -59,6 +59,18 @@ def ensure_schema(connection: sqlite3.Connection) -> None:
         connection.execute(
             "ALTER TABLE inventory_lots ADD COLUMN import_batch_id TEXT NOT NULL DEFAULT ''"
         )
+    # SELL fills need the same durable exchange-trade idempotency as BUY lots.
+    # One Binance trade ID may consume multiple FIFO lots, so this header stores
+    # the exact normalized fill once while inventory_lots retains the allocation.
+    connection.execute(
+        """CREATE TABLE IF NOT EXISTS inventory_lot_consumptions(
+            symbol TEXT NOT NULL, source_trade_id TEXT NOT NULL,
+            source_order_id TEXT NOT NULL DEFAULT '', qty TEXT NOT NULL,
+            price TEXT NOT NULL, executed_at INTEGER NOT NULL,
+            recorded_at INTEGER NOT NULL,
+            PRIMARY KEY(symbol,source_trade_id)
+        )"""
+    )
 
 
 def add_lot(connection: sqlite3.Connection, *, symbol: str, qty: Decimal, price: Decimal,
@@ -68,13 +80,33 @@ def add_lot(connection: sqlite3.Connection, *, symbol: str, qty: Decimal, price:
     ensure_schema(connection)
     normalized_symbol = symbol.upper()
     normalized_trade_id = str(source_trade_id).strip()
+    normalized_order_id = str(source_order_id).strip()
+    normalized_qty = Decimal(qty)
+    normalized_price = Decimal(price)
+    if (
+        not normalized_qty.is_finite()
+        or normalized_qty <= 0
+        or not normalized_price.is_finite()
+        or normalized_price <= 0
+    ):
+        raise ValueError("inventory lot quantity and price must be positive")
     if normalized_trade_id:
         existing = connection.execute(
-            "SELECT lot_id FROM inventory_lots "
+            "SELECT lot_id,qty,price,source_order_id,import_batch_id "
+            "FROM inventory_lots "
             "WHERE symbol=? AND source_trade_id=? ORDER BY lot_id LIMIT 1",
             (normalized_symbol, normalized_trade_id),
         ).fetchone()
         if existing is not None:
+            if (
+                Decimal(str(existing[1])) != normalized_qty
+                or Decimal(str(existing[2])) != normalized_price
+                or str(existing[3] or "").strip() != normalized_order_id
+                or str(existing[4] or "").strip() != import_batch_id.strip()
+            ):
+                raise ValueError(
+                    "inventory BUY source trade payload mismatch"
+                )
             return int(existing[0])
     # Historical imports may provide the original BUY timestamp.
     now = int(opened_at or time.time())
@@ -83,8 +115,9 @@ def add_lot(connection: sqlite3.Connection, *, symbol: str, qty: Decimal, price:
         "symbol,qty,price,opened_at,updated_at,ladder_level,source_order_id,"
         "source_trade_id,import_batch_id) VALUES(?,?,?,?,?,?,?,?,?)",
         (
-            normalized_symbol, str(qty), str(price), now, now, ladder_level,
-            source_order_id, normalized_trade_id, import_batch_id,
+            normalized_symbol, str(normalized_qty), str(normalized_price),
+            now, now, ladder_level, normalized_order_id,
+            normalized_trade_id, import_batch_id,
         ),
     )
     return int(cur.lastrowid)
@@ -97,7 +130,25 @@ def oldest_lots(connection: sqlite3.Connection, symbol: str) -> list[InventoryLo
         "SELECT lot_id,symbol,qty,price,opened_at,ladder_level FROM inventory_lots WHERE symbol=? AND status='OPEN' ORDER BY opened_at,lot_id",
         (symbol.upper(),),
     ).fetchall()
-    return [InventoryLot(int(r[0]), str(r[1]), Decimal(r[2]), Decimal(r[3]), int(r[4]), str(r[5])) for r in rows]
+    lots: list[InventoryLot] = []
+    for row in rows:
+        quantity = Decimal(str(row[2]))
+        # Zero, negative and non-finite OPEN rows are damaged state, not FIFO
+        # allocations. Ignoring them prevents zero-quantity consumption records;
+        # the final sufficiency check still fails closed if valid lots are short.
+        if not quantity.is_finite() or quantity <= 0:
+            continue
+        lots.append(
+            InventoryLot(
+                int(row[0]),
+                str(row[1]),
+                quantity,
+                Decimal(str(row[3])),
+                int(row[4]),
+                str(row[5]),
+            )
+        )
+    return lots
 
 
 def lot_for_order(connection: sqlite3.Connection, symbol: str, order_id: str | int) -> InventoryLot | None:
@@ -173,21 +224,75 @@ def cost_basis_coverage(
 
 
 def consume_fifo(connection: sqlite3.Connection, symbol: str, qty: Decimal) -> list[InventoryLot]:
-    """Consume fifo."""
+    """Plan and atomically consume positive FIFO lots."""
+    requested = Decimal(qty)
+    if not requested.is_finite() or requested <= 0:
+        raise ValueError("FIFO consumption quantity must be positive")
+
+    # First pass is read-only. Never mutate a prefix of inventory before proving
+    # that the complete SELL quantity is covered.
     consumed: list[InventoryLot] = []
-    remaining = qty
+    remaining = requested
     for lot in oldest_lots(connection, symbol):
         if remaining <= 0:
             break
         used = min(remaining, lot.qty)
-        consumed.append(InventoryLot(lot.lot_id, lot.symbol, used, lot.price, lot.opened_at, lot.ladder_level))
-        # A partial sale leaves the same lot open with a reduced quantity.
-        left = lot.qty - used
-        connection.execute("UPDATE inventory_lots SET qty=?,updated_at=?,status=? WHERE lot_id=?",
-                           (str(left), int(time.time()), "OPEN" if left > 0 else "CLOSED", lot.lot_id))
+        consumed.append(
+            InventoryLot(
+                lot.lot_id,
+                lot.symbol,
+                used,
+                lot.price,
+                lot.opened_at,
+                lot.ladder_level,
+            )
+        )
         remaining -= used
     if remaining > 0:
         raise ValueError("SELL exceeds FIFO inventory lots")
+
+    # Second pass applies the complete plan under a savepoint. This remains
+    # atomic even on the autocommit statistics connection or a mid-loop SQLite
+    # failure; callers also rollback before continuing.
+    connection.execute("SAVEPOINT inventory_fifo_consume")
+    try:
+        updated_at = int(time.time())
+        current_lots = oldest_lots(connection, symbol)
+        planned_ids = [allocation.lot_id for allocation in consumed]
+        if [lot.lot_id for lot in current_lots[:len(planned_ids)]] != planned_ids:
+            raise RuntimeError("FIFO inventory order changed during consumption")
+        lots_by_id = {lot.lot_id: lot for lot in current_lots}
+        for allocation in consumed:
+            current = lots_by_id.get(allocation.lot_id)
+            if current is None or current.qty < allocation.qty:
+                raise RuntimeError("FIFO inventory changed during consumption")
+            left = current.qty - allocation.qty
+            cursor = connection.execute(
+                "UPDATE inventory_lots SET qty=?,updated_at=?,status=? "
+                "WHERE lot_id=? AND status='OPEN' AND qty=?",
+                (
+                    str(left),
+                    updated_at,
+                    "OPEN" if left > 0 else "CLOSED",
+                    allocation.lot_id,
+                    str(current.qty),
+                ),
+            )
+            if cursor.rowcount != 1:
+                raise RuntimeError(
+                    "FIFO inventory changed during consumption"
+                )
+        connection.execute("RELEASE SAVEPOINT inventory_fifo_consume")
+    except (
+        ArithmeticError,
+        RuntimeError,
+        TypeError,
+        ValueError,
+        sqlite3.Error,
+    ):
+        connection.execute("ROLLBACK TO SAVEPOINT inventory_fifo_consume")
+        connection.execute("RELEASE SAVEPOINT inventory_fifo_consume")
+        raise
     return consumed
 
 
@@ -206,6 +311,10 @@ def sync_exchange_fill(
         commission_quote=fill.get("fee_quote") or "0",
         commission_value_status="exact",
     )
+    source_trade_id = str(fill["trade_id"]).strip()
+    if not source_trade_id:
+        raise ValueError("exchange fill trade_id is required")
+    source_order_id = str(fill.get("order_id") or "").strip()
     if execution.side == "BUY":
         unit_cost = execution.buy_cost_quote() / execution.net_qty
         return add_lot(
@@ -213,8 +322,58 @@ def sync_exchange_fill(
             symbol=symbol,
             qty=execution.net_qty,
             price=unit_cost,
-            source_order_id=str(fill.get("order_id") or ""),
-            source_trade_id=str(fill["trade_id"]),
+            source_order_id=source_order_id,
+            source_trade_id=source_trade_id,
             opened_at=int(int(fill["ts"]) / 1000),
         )
-    return consume_fifo(connection, symbol, execution.net_qty)
+
+    ensure_schema(connection)
+    connection.execute("SAVEPOINT inventory_sell_fill")
+    try:
+        existing = connection.execute(
+            "SELECT source_order_id,qty,price FROM "
+            "inventory_lot_consumptions "
+            "WHERE symbol=? AND source_trade_id=?",
+            (symbol, source_trade_id),
+        ).fetchone()
+        if existing is not None:
+            recorded_order_id = str(existing[0] or "").strip()
+            if (
+                (recorded_order_id and recorded_order_id != source_order_id)
+                or Decimal(str(existing[1])) != execution.net_qty
+                or Decimal(str(existing[2])) != execution.price
+            ):
+                raise ValueError(
+                    "inventory SELL source trade payload mismatch"
+                )
+            if not recorded_order_id and source_order_id:
+                connection.execute(
+                    "UPDATE inventory_lot_consumptions "
+                    "SET source_order_id=? "
+                    "WHERE symbol=? AND source_trade_id=?",
+                    (source_order_id, symbol, source_trade_id),
+                )
+            connection.execute("RELEASE SAVEPOINT inventory_sell_fill")
+            return []
+
+        consumed = consume_fifo(connection, symbol, execution.net_qty)
+        connection.execute(
+            "INSERT INTO inventory_lot_consumptions("
+            "symbol,source_trade_id,source_order_id,qty,price,executed_at,"
+            "recorded_at) VALUES(?,?,?,?,?,?,?)",
+            (
+                symbol,
+                source_trade_id,
+                source_order_id,
+                str(execution.net_qty),
+                str(execution.price),
+                int(fill["ts"]),
+                int(time.time()),
+            ),
+        )
+        connection.execute("RELEASE SAVEPOINT inventory_sell_fill")
+        return consumed
+    except (ArithmeticError, RuntimeError, TypeError, ValueError, sqlite3.Error):
+        connection.execute("ROLLBACK TO SAVEPOINT inventory_sell_fill")
+        connection.execute("RELEASE SAVEPOINT inventory_sell_fill")
+        raise

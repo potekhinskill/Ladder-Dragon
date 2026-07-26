@@ -249,6 +249,69 @@ def test_worker_retries_unpriced_trade_before_advancing_cursor(tmp_path, monkeyp
     assert unresolved == 1
 
 
+def test_worker_restart_replay_does_not_consume_sell_fifo_twice(
+    tmp_path, monkeypatch
+):
+    monkeypatch.setenv("AI_DECISIONS_DB", "")
+    worker = load_worker()
+    worker.STATS_ENABLE = True
+    worker.STATS_DB = str(tmp_path / "stats.db")
+    worker.STATS_CON = None
+    worker.TOOLS_STATS = None
+    trades = [
+        {
+            "id": 1,
+            "isBuyer": True,
+            "price": "100",
+            "qty": "1",
+            "time": 1_700_000_000_000,
+            "commission": "0",
+            "commissionAsset": "USDT",
+        },
+        {
+            "id": 2,
+            "isBuyer": False,
+            "price": "110",
+            "qty": "0.5",
+            "time": 1_700_000_001_000,
+            "commission": "0.05",
+            "commissionAsset": "USDT",
+        },
+    ]
+    monkeypatch.setattr(worker, "get_symbol_assets", lambda symbol: ("SOL", "USDT"))
+    monkeypatch.setattr(worker, "_signed_request", lambda *args, **kwargs: trades)
+    monkeypatch.setattr(
+        worker,
+        "_commission_quote_value",
+        lambda symbol, asset, amount, price, timestamp: (amount, "exact"),
+    )
+
+    worker._stats_poll_mytrades_once("SOLUSDT")
+    first_qty = worker.STATS_CON.execute(
+        "SELECT qty FROM inventory_lots WHERE symbol='SOLUSDT' "
+        "AND status='OPEN'"
+    ).fetchone()[0]
+    # Simulate a process crash after fill/FIFO commit but before the durable
+    # myTrades cursor advanced. Binance returns the same fills after restart.
+    worker.STATS_CON.execute(
+        "UPDATE inventory SET last_trade_id=0 WHERE symbol='SOLUSDT'"
+    )
+    worker._stats_poll_mytrades_once("SOLUSDT")
+
+    second_qty = worker.STATS_CON.execute(
+        "SELECT qty FROM inventory_lots WHERE symbol='SOLUSDT' "
+        "AND status='OPEN'"
+    ).fetchone()[0]
+    consumption_count = worker.STATS_CON.execute(
+        "SELECT COUNT(*) FROM inventory_lot_consumptions"
+    ).fetchone()[0]
+    worker.STATS_CON.close()
+
+    assert first_qty == "0.5"
+    assert second_qty == first_qty
+    assert consumption_count == 1
+
+
 def test_pnl_report_uses_net_quantity_and_exact_commissions(tmp_path):
     db = tmp_path / "stats.db"
     con = tools_stats.init_db(str(db))

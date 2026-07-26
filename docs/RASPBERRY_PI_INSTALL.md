@@ -439,6 +439,12 @@ and open orders. Because configuration is preserved, newly documented risk
 controls must be reviewed and added explicitly; the updater never expands or
 rewrites exposure from `.env.example`.
 
+Database migration `007` adds the durable SELL FIFO-consumption journal before
+services restart. It is idempotent and does not rewrite historical lots.
+Repeated Binance SELL trade IDs are ignored only when their normalized
+symbol/order/quantity/price payload matches exactly; a conflict or insufficient
+FIFO inventory fails closed without partially changing any lot.
+
 Copy the PASS release manifest generated for the same SHA to the Pi before the
 post-deployment gate. Run this on the maintainer workstation:
 

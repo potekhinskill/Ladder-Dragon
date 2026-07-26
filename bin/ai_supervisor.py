@@ -4615,7 +4615,18 @@ def _sync_recent_account_fills(symbols: List[str]) -> None:
         # synchronizes age-aware FIFO lots for time-stop/OCO.
         try:
             sync_exchange_fill(con, fill)
-        except (sqlite3.Error, ValueError, ArithmeticError) as exc:
+        except (
+            sqlite3.Error,
+            ValueError,
+            ArithmeticError,
+            RuntimeError,
+        ) as exc:
+            try:
+                con.rollback()
+            except sqlite3.Error as rollback_exc:
+                raise RuntimeError(
+                    "FIFO rollback failed during fill reconciliation"
+                ) from rollback_exc
             # An historically incomplete FIFO must not discard a recorded
             # trade; account/inventory reconciliation remains mandatory and
             # blocks BUY on a real mismatch.

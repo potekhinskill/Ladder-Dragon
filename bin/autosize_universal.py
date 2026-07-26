@@ -1674,7 +1674,20 @@ def _stats_poll_mytrades_once(symbol: str):
             ensure_lots_schema(STATS_CON)
             sync_exchange_fill(STATS_CON, fill)
             STATS_CON.commit()
-        except (sqlite3.Error, ValueError, ArithmeticError) as exc:
+        except (
+            sqlite3.Error,
+            ValueError,
+            ArithmeticError,
+            RuntimeError,
+        ) as exc:
+            try:
+                STATS_CON.rollback()
+            except sqlite3.Error as rollback_exc:
+                log(
+                    f"[LOTS] {symbol} rollback failed: "
+                    f"{type(rollback_exc).__name__}"
+                )
+                raise
             log(f"[LOTS] {symbol} fill sync failed: {exc}")
         # Close promotion evidence only when the SELL fill maps to a persisted,
         # exchange-verified OCO leg and Binance confirms the whole leg FILLED.

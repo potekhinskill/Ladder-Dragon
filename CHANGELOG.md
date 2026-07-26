@@ -3,6 +3,34 @@
 All notable changes are documented here. Releases use Semantic Versioning; every
 section is dated and there is intentionally no `Unreleased` section.
 
+## [2.20.51] — 2026-07-27
+
+### Fixed
+- SELL fill synchronization now persists one exact FIFO-consumption record per
+  Binance `(symbol, trade_id)`. Re-reading `myTrades` after a restart between
+  fill commit and cursor persistence cannot consume inventory lots twice.
+- A repeated BUY or SELL trade ID with different quantity, price or order
+  provenance now fails closed as a payload conflict instead of silently
+  accepting divergent accounting data.
+- FIFO consumption now plans the complete allocation before mutation and
+  applies it under a SQLite savepoint. Insufficient inventory and mid-update
+  database failures leave every lot unchanged, including on the autocommit
+  statistics connection.
+- Both worker and supervisor fill-reconciliation callers explicitly rollback
+  failed lot synchronization before continuing. Non-positive or non-finite
+  damaged OPEN rows are excluded from FIFO allocation.
+- Added checksummed migration `007` for the durable
+  `inventory_lot_consumptions` idempotency table.
+
+### Verified
+- Regression tests cover BUY payload conflicts, duplicate and conflicting SELL
+  fills, the exact cursor-crash/restart replay window, insufficient inventory,
+  a forced second-lot SQLite failure, damaged zero-quantity rows and repeatable
+  migration from existing databases.
+- FIFO, trade accounting, cost-basis import, migration, restart/recovery,
+  partial-fill, OCO/STOP, safety and idempotency tests pass. Python compilation,
+  whitespace checks and the complete project suite pass.
+
 ## [2.20.50] — 2026-07-27
 
 ### Changed
