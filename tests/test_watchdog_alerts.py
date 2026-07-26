@@ -3,6 +3,7 @@
 import json
 import os
 import subprocess
+from datetime import datetime, timezone
 from pathlib import Path
 
 
@@ -15,7 +16,7 @@ def _fake_bin(tmp_path: Path) -> Path:
     (bindir / "systemctl").write_text(
         "#!/bin/sh\n"
         "case \"$1\" in\n"
-        "  is-active) exit 1 ;;\n"
+        "  is-active) [ \"${MYBOT_ACTIVE:-0}\" = 1 ] ;;\n"
         "  restart) exit 0 ;;\n"
         "  *) exit 0 ;;\n"
         "esac\n",
@@ -35,7 +36,10 @@ def _fake_bin(tmp_path: Path) -> Path:
         "with open(os.environ['CURL_LOG'], 'a', encoding='utf-8') as stream:\n"
         "    json.dump(sys.argv[1:], stream)\n"
         "    stream.write('\\n')\n"
-        "if os.environ.get('CURL_FAIL') == '1':\n"
+        "is_api = any('api.binance.com' in arg for arg in sys.argv[1:])\n"
+        "is_telegram = any('api.telegram.org' in arg for arg in sys.argv[1:])\n"
+        "if ((is_api and os.environ.get('API_CURL_FAIL') == '1') or\n"
+        "        (is_telegram and os.environ.get('TELEGRAM_CURL_FAIL') == '1')):\n"
         "    raise SystemExit(7)\n",
         encoding="utf-8",
     )
@@ -44,16 +48,36 @@ def _fake_bin(tmp_path: Path) -> Path:
     return bindir
 
 
-def _run_watchdog(tmp_path: Path, bindir: Path, curl_log: Path, *, curl_fail: bool = False) -> None:
+def _run_watchdog(
+    tmp_path: Path,
+    bindir: Path,
+    curl_log: Path,
+    *,
+    api_fail: bool = False,
+    telegram_fail: bool = False,
+    mybot_active: bool = False,
+    strikes: int = 1,
+) -> None:
     uptime_source = tmp_path / "uptime"
     uptime_source.write_text("3600.0 0.0\n", encoding="utf-8")
+    heartbeat = tmp_path / "ai_status.json"
+    heartbeat.write_text(
+        json.dumps(
+            {
+                "state": "RUNNING",
+                "updated_at": datetime.now(timezone.utc).isoformat(),
+            }
+        ),
+        encoding="utf-8",
+    )
     env = os.environ.copy()
     env.update(
         {
             "PATH": f"{bindir}:{env['PATH']}",
             "TG_BOT_TOKEN": "test-token",
             "TG_CHAT_ID": "123",
-            "STRIKES": "1",
+            "STRIKES": str(strikes),
+            "WATCHDOG_RECOVERY_SUCCESSES": "2",
             "MIN_UPTIME": "0",
             "WATCHDOG_LOG": str(tmp_path / "watchdog.log"),
             "WATCHDOG_STATE": str(tmp_path / "state"),
@@ -64,11 +88,14 @@ def _run_watchdog(tmp_path: Path, bindir: Path, curl_log: Path, *, curl_fail: bo
             "WATCHDOG_ALERT_LOAD_DELTA": "999",
             "WATCHDOG_ALERT_TEMP_DELTA_C": "999",
             "WATCHDOG_UPTIME_SOURCE": str(uptime_source),
+            "AI_RUNTIME_STATUS_FILE": str(heartbeat),
             "BOT_MAINTENANCE_FILE": str(
                 tmp_path / "test-maintenance-does-not-exist.json"
             ),
             "CURL_LOG": str(curl_log),
-            "CURL_FAIL": "1" if curl_fail else "0",
+            "API_CURL_FAIL": "1" if api_fail else "0",
+            "TELEGRAM_CURL_FAIL": "1" if telegram_fail else "0",
+            "MYBOT_ACTIVE": "1" if mybot_active else "0",
         }
     )
     subprocess.run(
@@ -107,13 +134,69 @@ def test_watchdog_sends_one_full_snapshot_and_suppresses_identical_repeat(tmp_pa
 def test_watchdog_queues_alerts_offline_and_reports_network_recovery(tmp_path):
     bindir = _fake_bin(tmp_path)
     curl_log = tmp_path / "curl.jsonl"
-    _run_watchdog(tmp_path, bindir, curl_log, curl_fail=True)
+    _run_watchdog(
+        tmp_path,
+        bindir,
+        curl_log,
+        api_fail=True,
+        telegram_fail=True,
+    )
     outbox = tmp_path / "state-dir" / "telegram-outbox"
     assert list(outbox.glob("*.msg"))
 
-    _run_watchdog(tmp_path, bindir, curl_log, curl_fail=False)
+    _run_watchdog(tmp_path, bindir, curl_log)
+    assert not any(
+        "network recovered" in text for text in _telegram_texts(curl_log)
+    )
+    _run_watchdog(tmp_path, bindir, curl_log)
     texts = _telegram_texts(curl_log)
     assert any("Telegram connection restored" in text for text in texts)
     assert any("Queued notification" in text for text in texts)
     assert any("network recovered" in text for text in texts)
     assert not list(outbox.glob("*.msg"))
+
+
+def test_transient_probe_failures_do_not_emit_recovery_noise(tmp_path):
+    bindir = _fake_bin(tmp_path)
+    curl_log = tmp_path / "curl.jsonl"
+
+    _run_watchdog(
+        tmp_path,
+        bindir,
+        curl_log,
+        api_fail=True,
+        mybot_active=True,
+        strikes=3,
+    )
+    _run_watchdog(tmp_path, bindir, curl_log, mybot_active=True, strikes=3)
+    _run_watchdog(tmp_path, bindir, curl_log, mybot_active=True, strikes=3)
+
+    assert _telegram_texts(curl_log) == []
+
+
+def test_confirmed_incident_needs_two_successes_before_recovery(tmp_path):
+    bindir = _fake_bin(tmp_path)
+    curl_log = tmp_path / "curl.jsonl"
+
+    for _ in range(3):
+        _run_watchdog(
+            tmp_path,
+            bindir,
+            curl_log,
+            api_fail=True,
+            mybot_active=True,
+            strikes=3,
+        )
+    assert sum(
+        "network failure" in text for text in _telegram_texts(curl_log)
+    ) == 1
+
+    _run_watchdog(tmp_path, bindir, curl_log, mybot_active=True, strikes=3)
+    assert not any(
+        "network recovered" in text for text in _telegram_texts(curl_log)
+    )
+    _run_watchdog(tmp_path, bindir, curl_log, mybot_active=True, strikes=3)
+
+    texts = _telegram_texts(curl_log)
+    assert sum("network failure" in text for text in texts) == 1
+    assert sum("network recovered" in text for text in texts) == 1

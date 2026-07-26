@@ -6,6 +6,7 @@ set -euo pipefail
 
 # Soft watchdog: checks network and heartbeat without touching a healthy mybot.
 STRIKES=${STRIKES:-3}
+RECOVERY_SUCCESSES=${WATCHDOG_RECOVERY_SUCCESSES:-2}
 MIN_UPTIME=${MIN_UPTIME:-10}
 HEARTBEAT_MAX_AGE_SEC=${HEARTBEAT_MAX_AGE_SEC:-420}
 HOST_LABEL="${HOST_LABEL:-binance_bot:}"
@@ -82,11 +83,14 @@ ${queued}" || return 1
 # Telegram every five minutes while an important load/temperature rise is kept.
 alert_gate() {
   local key="$1" load_key="$2" temp="$3" now old_key old_sent old_repeat old_load old_temp
-  local repeat=0 should_send=0 full_snapshot=0 changed=0 high=0 state_load state_temp
+  local repeat=0 should_send=0 full_snapshot=0 changed=0 high=0 state_load state_temp alert_path
   now="$(date +%s)"
+  # Keep independent deduplication histories for network, heartbeat and other
+  # incidents. Alternating event types must not reset each other's cooldown.
+  alert_path="${ALERT_STATE}.${key}"
   old_key=""; old_sent=0; old_repeat=0; old_load=""; old_temp=""
-  if [[ -r "${ALERT_STATE}" ]]; then
-    read -r old_key old_sent old_repeat old_load old_temp <"${ALERT_STATE}" || true
+  if [[ -r "${alert_path}" ]]; then
+    read -r old_key old_sent old_repeat old_load old_temp <"${alert_path}" || true
     [[ "${old_sent:-}" =~ ^[0-9]+$ ]] || old_sent=0
     [[ "${old_repeat:-}" =~ ^[0-9]+$ ]] || old_repeat=0
   fi
@@ -127,10 +131,10 @@ alert_gate() {
     state_load="${load_key}"
     state_temp="${temp}"
   fi
-  mkdir -p "$(dirname "${ALERT_STATE}")"
-  local tmp="${ALERT_STATE}.tmp.$$"
+  mkdir -p "$(dirname "${alert_path}")"
+  local tmp="${alert_path}.tmp.$$"
   printf '%s %s %s %s %s\n' "${key}" "${old_sent}" "${repeat}" "${state_load}" "${state_temp}" >"${tmp}"
-  mv -f "${tmp}" "${ALERT_STATE}"
+  mv -f "${tmp}" "${alert_path}"
   printf '%s %s %s\n' "${should_send}" "${full_snapshot}" "${repeat}"
 }
 
@@ -202,7 +206,7 @@ read -r up <"${UPTIME_SOURCE}"
 uptime_min=$(( ${up%%.*} / 60 ))
 if (( uptime_min < MIN_UPTIME )); then
   log "[v3]" "grace: ${uptime_min}m < ${MIN_UPTIME}m"
-  printf '0 0\n' >"${STATE}"
+  printf '0 0 0 0 0 0\n' >"${STATE}"
   exit 0
 fi
 
@@ -222,19 +226,29 @@ raise SystemExit(0 if active else 1)
 PY
 then
   log "[v3]" "maintenance active; restart and alerts suppressed"
-  printf '0 0\n' >"${STATE}"
+  printf '0 0 0 0 0 0\n' >"${STATE}"
   exit 0
 fi
 
 prev_net=0
 prev_health=0
+net_alerted=0
+health_alerted=0
+prev_net_success=0
+prev_health_success=0
 if [[ -f "${STATE}" ]]; then
-  read -r prev_net prev_health <"${STATE}" || true
+  read -r prev_net prev_health net_alerted health_alerted \
+    prev_net_success prev_health_success <"${STATE}" || true
   [[ "${prev_net:-}" =~ ^[0-9]+$ ]] || prev_net=0
   [[ "${prev_health:-}" =~ ^[0-9]+$ ]] || prev_health=0
+  [[ "${net_alerted:-}" =~ ^[01]$ ]] || net_alerted=0
+  [[ "${health_alerted:-}" =~ ^[01]$ ]] || health_alerted=0
+  [[ "${prev_net_success:-}" =~ ^[0-9]+$ ]] || prev_net_success=0
+  [[ "${prev_health_success:-}" =~ ^[0-9]+$ ]] || prev_health_success=0
 fi
 
 net_fails=0
+net_success=0
 network_reason="ok"
 gw_ip="$(ip r | awk '/^default/ {print $3; exit}')"
 : "${gw_ip:=192.168.8.1}"
@@ -245,14 +259,20 @@ api_rc=0; curl --ipv4 --connect-timeout 2 -m 3 -sS \
 reason="ok"
 if (( gw_rc != 0 || dns_rc != 0 || api_rc != 0 )); then
   net_fails=$((prev_net + 1))
+  net_success=0
   network_reason="network gw=${gw_rc} dns=${dns_rc} api=${api_rc}"
   printf '%s\n' "${network_reason}" >"${REASON_FILE}"
 else
   [[ -f "${REASON_FILE}" ]] && rm -f "${REASON_FILE}"
-  if (( prev_net > 0 )); then
+  if (( net_alerted == 1 )); then
+    net_success=$((prev_net_success + 1))
+  fi
+  if (( net_alerted == 1 && net_success >= RECOVERY_SUCCESSES )); then
     flush_telegram_outbox || true
     send_tg "✅ network recovered; gateway, DNS and Binance API are reachable" \
       "network-recovered"
+    net_alerted=0
+    net_success=0
   fi
 fi
 
@@ -297,19 +317,29 @@ fi
 
 if (( health_ok == 0 )); then
   health_fails=$((prev_health + 1))
+  health_success=0
   log "[v3]" "health fail #${health_fails}: ${reason}"
 else
   health_fails=0
-  if (( prev_health > 0 )); then
+  health_success=0
+  if (( health_alerted == 1 )); then
+    health_success=$((prev_health_success + 1))
+  fi
+  if (( health_alerted == 1 && health_success >= RECOVERY_SUCCESSES )); then
     send_tg "✅ mybot heartbeat recovered" "heartbeat-recovered"
+    health_alerted=0
+    health_success=0
   fi
 fi
 
 # One brief failure must not kill the trading loop. Restart only after
 # STRIKES consecutive failed heartbeat checks.
 if (( health_fails >= STRIKES )); then
-  send_tg "⚠️ mybot unhealthy: ${reason}; restarting after ${health_fails} strikes" \
-    "mybot-health:${reason}"
+  if (( health_alerted == 0 )); then
+    send_tg "⚠️ mybot unhealthy: ${reason}; restarting after ${health_fails} strikes" \
+      "mybot-health:${reason}"
+    health_alerted=1
+  fi
   systemctl restart mybot.service || true
   systemctl is-active --quiet mybot.service && \
     send_tg "🔁 mybot restarted (service active; heartbeat will be checked on the next cycle)" \
@@ -318,10 +348,15 @@ if (( health_fails >= STRIKES )); then
 fi
 
 if (( net_fails >= STRIKES )); then
-  send_tg "⚠️ network failure: ${network_reason} (fails=${net_fails})" \
-    "network:${network_reason}"
+  if (( net_alerted == 0 )); then
+    send_tg "⚠️ network failure: ${network_reason} (fails=${net_fails})" \
+      "network:${network_reason}"
+    net_alerted=1
+  fi
   logger "[WATCHDOG] network failure: ${network_reason}"
 fi
 
-printf '%s %s\n' "${net_fails}" "${health_fails}" >"${STATE}"
+printf '%s %s %s %s %s %s\n' \
+  "${net_fails}" "${health_fails}" "${net_alerted}" "${health_alerted}" \
+  "${net_success}" "${health_success}" >"${STATE}"
 exit 0

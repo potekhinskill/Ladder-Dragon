@@ -528,9 +528,13 @@ The exporter runs every minute, retains seven days, limits files to 5 MiB, and
 redacts authorization headers, API keys, secrets, tokens, and Binance signatures.
 Raw journal APIs remain disabled.
 
-The watchdog checks network access and fresh supervisor heartbeat. It restarts
-the service only after three consecutive failed checks. Duplicate Telegram alerts
-are suppressed, and offline alerts are queued in `/var/lib/pi-watchdog/telegram-outbox`.
+The watchdog checks network access and fresh supervisor heartbeat. A first
+failed probe is only an internal suspect state. It announces an incident and,
+for heartbeat failures, restarts the service only after three consecutive
+failed checks. A recovery message is sent only for an announced incident and
+only after two consecutive successful checks. Network and heartbeat
+notifications have independent deduplication state. Offline alerts are queued
+in `/var/lib/pi-watchdog/telegram-outbox`.
 
 ## 12. Public depth archive and execution latency
 

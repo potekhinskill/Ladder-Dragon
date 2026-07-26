@@ -3,6 +3,25 @@
 All notable changes are documented here. Releases use Semantic Versioning; every
 section is dated and there is intentionally no `Unreleased` section.
 
+## [2.20.52] — 2026-07-27
+
+### Fixed
+- Raspberry Pi watchdog recovery notifications now require a previously
+  announced incident and two consecutive successful checks. A single transient
+  heartbeat, DNS, TLS or Binance API probe failure remains an internal suspect
+  state and no longer produces a misleading Telegram recovery message.
+- Network and heartbeat incidents now retain independent deduplication state,
+  so alternating event types cannot reset each other's notification cooldown.
+- Confirmed failures emit one incident notification after the configured strike
+  threshold; recovery state survives a service restart without repeating the
+  same failure alert.
+
+### Verified
+- Watchdog regressions cover transient probe suppression, three-strike incident
+  confirmation, two-success recovery hysteresis, offline outbox delivery and
+  duplicate-alert suppression. Python compilation and the complete 629-test
+  project suite pass.
+
 ## [2.20.51] — 2026-07-27
 
 ### Fixed
