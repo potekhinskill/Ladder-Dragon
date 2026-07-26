@@ -61,6 +61,7 @@ from ladder_dragon.execution.cancel_replace import (
     CancelReplaceDependencies,
     atomic_cancel_replace_buy,
 )
+from ladder_dragon.execution.executor_recovery import classify_oco_legs
 from ladder_dragon.execution.latency_trace import LatencyTrace
 from ladder_dragon.execution.auth_resilience import (
     AuthResilienceState,
@@ -672,6 +673,24 @@ def _exchange_order_absent(exc: BaseException) -> bool:
     )
 
 
+def _runtime_recovery_reason(exc: BaseException) -> str:
+    """Return one bounded recovery reason without signed URL material."""
+    text = str(exc).strip() or type(exc).__name__
+    text = re.sub(
+        r"(signature=)[^&\s;]+",
+        r"\1<redacted>",
+        text,
+        flags=re.IGNORECASE,
+    )
+    text = re.sub(
+        r"https://(?:api|testnet)\.binance\.[^\s?]+\?[^\s]+",
+        "https://<redacted>",
+        text,
+        flags=re.IGNORECASE,
+    )
+    return text[:240]
+
+
 def _verify_live_protection(
     journal: OrderJournal,
     parent_client_order_id: str,
@@ -698,9 +717,12 @@ def _verify_live_protection(
             raise RuntimeError(
                 f"{list_type} identity differs from durable journal"
             )
-        if str(payload.get("listStatusType") or "").upper() != "EXEC_STARTED":
+        list_status = str(
+            payload.get("listStatusType") or ""
+        ).upper()
+        if list_status not in {"EXEC_STARTED", "ALL_DONE"}:
             raise RuntimeError(
-                f"{list_type} is not actively protecting inventory"
+                f"{list_type} has an unknown exchange status"
             )
         references = payload.get("orders")
         expected_orders = 3 if list_type == "OTOCO" else 2
@@ -767,13 +789,29 @@ def _verify_live_protection(
             raise RuntimeError(
                 f"{list_type} protection leg types are invalid"
             )
-        permitted = {"NEW", "PARTIALLY_FILLED"}
-        if any(
-            str(leg.get("status") or "").upper() not in permitted
-            for leg in legs
-        ):
+        outcome, filled_leg, exit_reason = classify_oco_legs(legs)
+        if list_status == "ALL_DONE" and outcome == "CLOSED":
+            if (
+                filled_leg is None
+                or exit_reason is None
+                or filled_leg.get("orderId") is None
+            ):
+                raise RuntimeError(
+                    f"{list_type} closed without an exact SELL fill"
+                )
+            journal.record_verified_protection_legs(
+                protection.client_order_id,
+                legs,
+            )
+            journal.mark_exact_lifecycle_closed(
+                protection_client_order_id=protection.client_order_id,
+                exit_order_id=int(filled_leg["orderId"]),
+                exit_reason=exit_reason,
+            )
+            return 0
+        if list_status != "EXEC_STARTED" or outcome != "ACTIVE":
             raise RuntimeError(
-                f"{list_type} protection has a terminal or unknown leg"
+                f"{list_type} is not actively protecting inventory"
             )
         observed_ids = {int(leg["orderId"]) for leg in legs}
         stored_ids = {
@@ -3855,22 +3893,24 @@ def _preflight_with_auth_backoff(
         try:
             recovery = _pre_running_recovery_gate(args, symbols)
         except SUPERVISOR_OPERATION_ERRORS as exc:
+            recovery_reason = _runtime_recovery_reason(exc)
             log(
                 "[RECOVERY] pre-RUNNING gate blocked; "
-                f"error_type={type(exc).__name__}"
+                f"reason={recovery_reason}"
             )
             _publish_ai_runtime_status(
                 state="RECOVERY_BLOCKED",
-                error="pre-RUNNING recovery failed",
+                error=recovery_reason,
                 recovery={
                     "checked": 0,
                     "blocked": True,
                     "error_type": type(exc).__name__,
+                    "reason": recovery_reason,
                 },
                 risk={
                     "halted": bool(limits.halt_file.exists()),
                     "buy_blocked": True,
-                    "reasons": ["pre-RUNNING recovery incomplete"],
+                    "reasons": [recovery_reason],
                 },
             )
             time.sleep(60)

@@ -3,6 +3,39 @@
 All notable changes are documented here. Releases use Semantic Versioning; every
 section is dated and there is intentionally no `Unreleased` section.
 
+## [2.20.30] — 2026-07-26
+
+### Fixed
+- Stopped treating a terminal Binance OCO (`ALL_DONE`) as reusable protection.
+  Both exchange legs must now be active before an existing or newly submitted
+  OCO can return to journal state `PROTECTED`.
+- Added exact terminal OCO classification. One authoritative filled SELL leg
+  closes the BUY lifecycle as TP or STOP; two canceled zero-fill legs demote
+  the stale protection and allow only the normal protected-recovery path to
+  create a new, uniquely identified OCO.
+- Removed the journal-only shortcut from restart recovery. A locally
+  `PROTECTED` OCO is now queried and its two exact exchange legs are verified
+  before the executor accepts it.
+- Published the bounded, signature-redacted recovery reason in runtime and
+  dashboard risk telemetry instead of the generic
+  `pre-RUNNING recovery incomplete` message.
+
+### Security
+- Ambiguous, partially terminal or malformed OCO state remains fail-closed.
+  The fix never converts canceled legs into evidence of protection and never
+  closes a lifecycle without one exact filled Binance SELL leg.
+
+### Verified
+- All `141` focused OCO, restart, worker protection, supervisor safety and
+  fail-closed regression tests pass; source compilation also passes.
+- The complete local suite passes all `552` project tests.
+- The pre-commit `release` harness passes numeric and tracked-secret audits,
+  plus `18` replay, `21` walk-forward, `98` recovery and `58`
+  migration/deployment regression checks.
+- Authenticated read-only Pi evidence reproduced the defect safely: the
+  historical OCO was `ALL_DONE`, both SELL legs were `CANCELED`, and both had
+  exactly zero executed quantity.
+
 ## [2.20.29] — 2026-07-26
 
 ### Fixed

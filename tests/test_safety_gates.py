@@ -97,6 +97,18 @@ def test_adaptive_best_buy_rejects_unsafe_inputs(market, gap):
         ai_supervisor._adaptive_best_buy_price(market, gap)
 
 
+def test_runtime_recovery_reason_redacts_signed_url_material():
+    reason = ai_supervisor._runtime_recovery_reason(
+        RuntimeError(
+            "failed https://api.binance.com/api/v3/order?"
+            "symbol=SOLUSDT&signature=private-signature"
+        )
+    )
+
+    assert "private-signature" not in reason
+    assert "<redacted>" in reason
+
+
 def load_worker():
     path = Path("bin/autosize_universal.py").resolve()
     spec = importlib.util.spec_from_file_location("ladder_worker", path)
@@ -1238,6 +1250,51 @@ def test_supervisor_blocks_terminal_oco_leg(
     assert halts[0][1]["metadata"]["gate"] == (
         "startup_journal_exchange_protection"
     )
+
+
+def test_supervisor_closes_offline_filled_oco_before_running(
+    tmp_path,
+    monkeypatch,
+):
+    journal, buy, protection = _protected_oco_journal(tmp_path)
+    monkeypatch.setenv("BOT_ORDER_JOURNAL", str(journal.path))
+
+    def signed_get(path, params):
+        if path == "/api/v3/orderList":
+            return {
+                "orderListId": 700,
+                "listClientOrderId": protection.client_order_id,
+                "contingencyType": "OCO",
+                "listStatusType": "ALL_DONE",
+                "orders": [
+                    {"orderId": 701, "symbol": "SOLUSDT"},
+                    {"orderId": 702, "symbol": "SOLUSDT"},
+                ],
+            }
+        order_id = int(params["orderId"])
+        return {
+            "orderId": order_id,
+            "orderListId": 700,
+            "symbol": "SOLUSDT",
+            "side": "SELL",
+            "type": "LIMIT_MAKER" if order_id == 701 else "STOP_LOSS_LIMIT",
+            "status": "FILLED" if order_id == 701 else "CANCELED",
+            "executedQty": "0.1" if order_id == 701 else "0",
+        }
+
+    monkeypatch.setattr(ai_supervisor.TM, "_signed_get", signed_get)
+
+    result = ai_supervisor._pre_running_recovery_gate(
+        SimpleNamespace(live=True, testnet=False),
+        ["SOLUSDT"],
+    )
+
+    assert result["protection_checks"] == 0
+    assert journal.get(buy.client_order_id).state == "CLOSED"
+    assert journal.get(protection.client_order_id).state == "CLOSED"
+    assert journal.get(protection.client_order_id).metadata[
+        "exit_reason"
+    ] == "TP"
 
 
 def test_runtime_protection_mismatch_creates_manual_halt(

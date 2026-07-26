@@ -598,6 +598,133 @@ def test_oco_exact_boundary_blocks_subminimum_without_post():
     assert calls == []
 
 
+def test_oco_replacement_never_reuses_all_done_canceled_protection(tmp_path):
+    journal = OrderJournal(tmp_path / "orders.sqlite3")
+    parent = journal.prepare(
+        client_order_id="BUY-OLD",
+        symbol="SOLUSDT",
+        side="BUY",
+        purpose="ladder",
+        order_type="LIMIT",
+        quantity="0.124",
+        price="77.33",
+    )
+    journal.record_exchange_order(
+        parent.client_order_id,
+        {"orderId": 10, "status": "FILLED", "executedQty": "0.124"},
+    )
+    journal.prepare(
+        client_order_id="OCO-OLD",
+        symbol="SOLUSDT",
+        side="SELL",
+        purpose="oco:BUY-OLD",
+        order_type="OCO",
+        quantity="0.124",
+        price="78.00",
+        parent_client_order_id=parent.client_order_id,
+    )
+    journal.record_order_list(
+        "OCO-OLD",
+        {"orderListId": 20, "listStatusType": "EXEC_STARTED"},
+    )
+    journal.mark_protected(
+        parent_client_order_id=parent.client_order_id,
+        protection_client_order_id="OCO-OLD",
+        order_list_id=20,
+    )
+    posts = []
+    canceled_legs = [
+        {
+            "orderId": 21,
+            "side": "SELL",
+            "type": "STOP_LOSS_LIMIT",
+            "status": "CANCELED",
+            "executedQty": "0",
+        },
+        {
+            "orderId": 22,
+            "side": "SELL",
+            "type": "LIMIT_MAKER",
+            "status": "CANCELED",
+            "executedQty": "0",
+        },
+    ]
+    active_legs = [
+        {
+            "orderId": 31,
+            "clientOrderId": "STOP-NEW",
+            "side": "SELL",
+            "type": "STOP_LOSS_LIMIT",
+            "status": "NEW",
+            "executedQty": "0",
+        },
+        {
+            "orderId": 32,
+            "clientOrderId": "TP-NEW",
+            "side": "SELL",
+            "type": "LIMIT_MAKER",
+            "status": "NEW",
+            "executedQty": "0",
+        },
+    ]
+
+    def signed_request(method, path, params):
+        if method == "POST":
+            posts.append(dict(params))
+            return {"orderListId": 30}
+        assert method == "GET" and path == "/api/v3/orderList"
+        return {"orderListId": 30, "listStatusType": "EXEC_STARTED"}
+
+    dependencies = OrderDependencies(
+        live=lambda: True,
+        logger=lambda message: None,
+        pull_filters=lambda symbol: None,
+        round_price=lambda symbol, value: value,
+        round_qty=lambda symbol, value: value,
+        min_qty=lambda symbol, hint: Decimal("0.001"),
+        min_notional=lambda symbol, price: Decimal("5"),
+        format_price=lambda symbol, value: f"{value:.2f}",
+        format_qty=lambda symbol, value: f"{value:.3f}",
+        journal=lambda: journal,
+        signed_request=signed_request,
+        get_order_by_client_id=lambda symbol, client_id: None,
+        get_order_list_by_client_id=lambda client_id: (
+            {
+                "orderListId": 20,
+                "listStatusType": "ALL_DONE",
+            }
+            if client_id == "OCO-OLD"
+            else None
+        ),
+        verify_oco_legs=lambda symbol, payload: (
+            canceled_legs
+            if payload.get("listStatusType") == "ALL_DONE"
+            else active_legs
+        ),
+        cancel_oco=lambda symbol, order_list_id: pytest.fail(
+            "terminal canceled OCO must not be cancelled again"
+        ),
+        halt=lambda reason, **metadata: None,
+        validate_limit_sell_prices=lambda symbol, prices: None,
+    )
+
+    placed = place_oco_sell(
+        "SOLUSDT",
+        Decimal("0.124"),
+        Decimal("78"),
+        Decimal("74"),
+        Decimal("73.90"),
+        dependencies=dependencies,
+        parent_client_order_id=parent.client_order_id,
+    )
+
+    assert placed["orderListId"] == 30
+    assert len(posts) == 1
+    assert posts[0]["listClientOrderId"] != "OCO-OLD"
+    assert journal.get("OCO-OLD").state == "FAILED"
+    assert journal.protection_for_parent(parent.client_order_id).state == "PROTECTED"
+
+
 def test_otoco_commits_intents_before_post_and_verifies_three_orders(tmp_path):
     journal = OrderJournal(tmp_path / "orders.sqlite3")
     calls = []

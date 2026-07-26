@@ -17,6 +17,60 @@ from ladder_dragon.execution.order_recovery import (
     TERMINAL_EXCHANGE_STATES,
 )
 
+ACTIVE_PROTECTION_STATES = {"NEW", "PARTIALLY_FILLED"}
+TERMINAL_PROTECTION_STATES = {
+    "CANCELED",
+    "EXPIRED",
+    "EXPIRED_IN_MATCH",
+    "FILLED",
+    "REJECTED",
+}
+
+
+def classify_oco_legs(
+    legs: List[Dict[str, Any]],
+) -> tuple[str, Dict[str, Any] | None, str | None]:
+    """Classify an exact two-leg SELL OCO without treating canceled legs as live."""
+    if len(legs) != 2 or any(not isinstance(leg, dict) for leg in legs):
+        raise RuntimeError("OCO classification requires exactly two legs")
+    if any(str(leg.get("side") or "").upper() != "SELL" for leg in legs):
+        raise RuntimeError("OCO classification requires SELL legs")
+    leg_types = {str(leg.get("type") or "").upper() for leg in legs}
+    if not ({"LIMIT_MAKER", "LIMIT"} & leg_types) or not any(
+        "STOP" in value for value in leg_types
+    ):
+        raise RuntimeError("OCO TP/STOP identities are invalid")
+    statuses = [str(leg.get("status") or "").upper() for leg in legs]
+    quantities: list[Decimal] = []
+    for leg in legs:
+        try:
+            quantity = Decimal(str(leg.get("executedQty") or "0"))
+        except (ArithmeticError, TypeError, ValueError) as exc:
+            raise RuntimeError("OCO executed quantity is invalid") from exc
+        if not quantity.is_finite() or quantity < 0:
+            raise RuntimeError("OCO executed quantity is invalid")
+        quantities.append(quantity)
+    if all(status in ACTIVE_PROTECTION_STATES for status in statuses):
+        return "ACTIVE", None, None
+    filled = [
+        leg
+        for leg, status, quantity in zip(legs, statuses, quantities)
+        if status == "FILLED" and quantity > 0
+    ]
+    if (
+        len(filled) == 1
+        and all(status in TERMINAL_PROTECTION_STATES for status in statuses)
+    ):
+        filled_type = str(filled[0].get("type") or "").upper()
+        reason = "STOP" if "STOP" in filled_type else "TP"
+        return "CLOSED", filled[0], reason
+    if (
+        not any(quantity > 0 for quantity in quantities)
+        and all(status in TERMINAL_PROTECTION_STATES for status in statuses)
+    ):
+        return "CANCELED", None, None
+    raise RuntimeError("OCO terminal state is ambiguous")
+
 
 def http_error_code(exc: requests.HTTPError) -> Optional[int]:
     try:
@@ -304,8 +358,6 @@ def recover_existing_protection(
     protection = journal.protection_for_parent(parent_client_order_id)
     if protection is None:
         return False
-    if protection.state == "PROTECTED":
-        return True
     if protection.order_type == "OTOCO":
         payload = dependencies.get_order_list_by_client_id(
             protection.client_order_id
@@ -406,18 +458,50 @@ def recover_existing_protection(
         payload = dependencies.get_order_list_by_client_id(
             protection.client_order_id
         )
-        if (
-            not isinstance(payload, dict)
-            or payload.get("listStatusType") not in ("EXEC_STARTED", "ALL_DONE")
-        ):
+        if not isinstance(payload, dict):
             return False
         order_list_id = payload.get("orderListId")
         try:
-            dependencies.verify_oco_legs(protection.symbol, payload)
+            legs = dependencies.verify_oco_legs(protection.symbol, payload)
+            outcome, filled_leg, exit_reason = classify_oco_legs(legs)
         except (requests.RequestException, RuntimeError):
-            if order_list_id is not None:
+            if (
+                payload.get("listStatusType") == "EXEC_STARTED"
+                and order_list_id is not None
+            ):
                 dependencies.cancel_oco(protection.symbol, int(order_list_id))
             return False
+        list_status = str(payload.get("listStatusType") or "").upper()
+        if list_status == "ALL_DONE" and outcome == "CLOSED":
+            if (
+                filled_leg is None
+                or exit_reason is None
+                or filled_leg.get("orderId") is None
+            ):
+                raise RuntimeError("closed OCO lacks an exact filled SELL leg")
+            journal.record_verified_protection_legs(
+                protection.client_order_id,
+                legs,
+            )
+            journal.mark_exact_lifecycle_closed(
+                protection_client_order_id=protection.client_order_id,
+                exit_order_id=int(filled_leg["orderId"]),
+                exit_reason=exit_reason,
+            )
+            return True
+        if list_status == "ALL_DONE" and outcome == "CANCELED":
+            journal.mark_failed(
+                protection.client_order_id,
+                "exchange OCO ended without a SELL fill",
+            )
+            journal.mark_protection_pending(parent_client_order_id)
+            return False
+        if list_status != "EXEC_STARTED" or outcome != "ACTIVE":
+            return False
+        journal.record_verified_protection_legs(
+            protection.client_order_id,
+            legs,
+        )
         journal.mark_protected(
             parent_client_order_id=parent_client_order_id,
             protection_client_order_id=protection.client_order_id,

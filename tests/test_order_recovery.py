@@ -10,11 +10,177 @@ from ladder_dragon.execution.order_recovery import (
 from ladder_dragon.execution.executor_recovery import (
     RecoveryDependencies,
     cancel_order,
+    classify_oco_legs,
     get_order,
     list_open_orders,
     reconcile_nonterminal_orders,
     recover_existing_protection,
 )
+
+
+def test_classify_oco_legs_never_treats_canceled_pair_as_active():
+    legs = [
+        {
+            "orderId": 21,
+            "side": "SELL",
+            "type": "STOP_LOSS_LIMIT",
+            "status": "CANCELED",
+            "executedQty": "0.00000000",
+        },
+        {
+            "orderId": 22,
+            "side": "SELL",
+            "type": "LIMIT_MAKER",
+            "status": "CANCELED",
+            "executedQty": "0.00000000",
+        },
+    ]
+
+    assert classify_oco_legs(legs) == ("CANCELED", None, None)
+
+
+def test_classify_oco_legs_identifies_exact_terminal_sell():
+    stop = {
+        "orderId": 21,
+        "side": "SELL",
+        "type": "STOP_LOSS_LIMIT",
+        "status": "FILLED",
+        "executedQty": "0.124",
+    }
+    tp = {
+        "orderId": 22,
+        "side": "SELL",
+        "type": "LIMIT_MAKER",
+        "status": "CANCELED",
+        "executedQty": "0",
+    }
+
+    assert classify_oco_legs([stop, tp]) == ("CLOSED", stop, "STOP")
+
+
+def _protected_oco(journal: OrderJournal) -> None:
+    journal.prepare(
+        client_order_id="BUY-OLD",
+        symbol="SOLUSDT",
+        side="BUY",
+        purpose="ladder",
+        order_type="LIMIT",
+        quantity="0.124",
+        price="77.33",
+    )
+    journal.record_exchange_order(
+        "BUY-OLD",
+        {"orderId": 10, "status": "FILLED", "executedQty": "0.124"},
+    )
+    journal.prepare(
+        client_order_id="OCO-OLD",
+        symbol="SOLUSDT",
+        side="SELL",
+        purpose="oco:BUY-OLD",
+        order_type="OCO",
+        quantity="0.124",
+        price="78",
+        parent_client_order_id="BUY-OLD",
+    )
+    journal.record_order_list(
+        "OCO-OLD",
+        {"orderListId": 20, "listStatusType": "EXEC_STARTED"},
+    )
+    journal.mark_protected(
+        parent_client_order_id="BUY-OLD",
+        protection_client_order_id="OCO-OLD",
+        order_list_id=20,
+    )
+
+
+def test_recovery_demotes_all_done_oco_without_sell_fill(tmp_path):
+    journal = OrderJournal(tmp_path / "orders.sqlite3", venue="mainnet")
+    _protected_oco(journal)
+    legs = [
+        {
+            "orderId": 21,
+            "clientOrderId": "STOP-OLD",
+            "side": "SELL",
+            "type": "STOP_LOSS_LIMIT",
+            "status": "CANCELED",
+            "executedQty": "0",
+        },
+        {
+            "orderId": 22,
+            "clientOrderId": "TP-OLD",
+            "side": "SELL",
+            "type": "LIMIT_MAKER",
+            "status": "CANCELED",
+            "executedQty": "0",
+        },
+    ]
+    dependencies = RecoveryDependencies(
+        journal=lambda: journal,
+        get_order_by_client_id=lambda symbol, client_id: None,
+        get_order_list_by_client_id=lambda client_id: {
+            "orderListId": 20,
+            "listStatusType": "ALL_DONE",
+        },
+        verify_oco_legs=lambda symbol, payload: legs,
+        cancel_oco=lambda symbol, order_list_id: pytest.fail(
+            "terminal OCO must not be cancelled again"
+        ),
+        halt=lambda reason, **metadata: None,
+        logger=lambda message: None,
+    )
+
+    assert recover_existing_protection(
+        "BUY-OLD",
+        dependencies=dependencies,
+    ) is False
+    assert journal.get("OCO-OLD").state == "FAILED"
+    assert journal.get("BUY-OLD").state == "PROTECTION_PENDING"
+
+
+def test_recovery_closes_all_done_oco_with_exact_sell_fill(tmp_path):
+    journal = OrderJournal(tmp_path / "orders.sqlite3", venue="mainnet")
+    _protected_oco(journal)
+    tp = {
+        "orderId": 22,
+        "clientOrderId": "TP-OLD",
+        "side": "SELL",
+        "type": "LIMIT_MAKER",
+        "status": "FILLED",
+        "executedQty": "0.124",
+    }
+    legs = [
+        {
+            "orderId": 21,
+            "clientOrderId": "STOP-OLD",
+            "side": "SELL",
+            "type": "STOP_LOSS_LIMIT",
+            "status": "CANCELED",
+            "executedQty": "0",
+        },
+        tp,
+    ]
+    dependencies = RecoveryDependencies(
+        journal=lambda: journal,
+        get_order_by_client_id=lambda symbol, client_id: None,
+        get_order_list_by_client_id=lambda client_id: {
+            "orderListId": 20,
+            "listStatusType": "ALL_DONE",
+        },
+        verify_oco_legs=lambda symbol, payload: legs,
+        cancel_oco=lambda symbol, order_list_id: pytest.fail(
+            "closed OCO must not be cancelled again"
+        ),
+        halt=lambda reason, **metadata: None,
+        logger=lambda message: None,
+    )
+
+    assert recover_existing_protection(
+        "BUY-OLD",
+        dependencies=dependencies,
+    ) is True
+    assert journal.get("OCO-OLD").state == "CLOSED"
+    assert journal.get("BUY-OLD").state == "CLOSED"
+    assert journal.get("OCO-OLD").metadata["exit_reason"] == "TP"
 
 
 def recovery_dependencies(journal, lookup, *, halts=None, logs=None):

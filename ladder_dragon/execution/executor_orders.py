@@ -23,6 +23,7 @@ from ladder_dragon.execution.exchange_math import (
 )
 from ladder_dragon.execution.order_identity import client_order_id
 from ladder_dragon.execution.order_recovery import OrderJournal, TERMINAL_EXCHANGE_STATES
+from ladder_dragon.execution.executor_recovery import classify_oco_legs
 
 
 def _record_definitive_rejection(
@@ -650,53 +651,98 @@ def place_oco_sell(
                    expected_price=tp_text)
     if active is not None:
         existing = dependencies.get_order_list_by_client_id(list_client_id)
-        if (
-            isinstance(existing, dict)
-            and existing.get("listStatusType") in ("EXEC_STARTED", "ALL_DONE")
-        ):
+        if isinstance(existing, dict):
             order_list_id = existing.get("orderListId")
             try:
                 verified_legs = dependencies.verify_oco_legs(symbol, existing)
+                outcome, filled_leg, exit_reason = classify_oco_legs(
+                    verified_legs
+                )
             except (requests.RequestException, RuntimeError):
-                if order_list_id is not None:
+                if (
+                    existing.get("listStatusType") == "EXEC_STARTED"
+                    and order_list_id is not None
+                ):
                     dependencies.cancel_oco(symbol, int(order_list_id))
                 raise
-            if journal is not None:
-                journal.record_order_list(list_client_id, existing)
-                _persist_verified_oco_legs(journal, list_client_id, verified_legs)
-                if parent_client_order_id:
-                    journal.mark_protected(
-                        parent_client_order_id=parent_client_order_id,
-                        protection_client_order_id=list_client_id,
-                        order_list_id=(
-                            int(order_list_id)
-                            if order_list_id is not None
-                            else None
-                        ),
+            list_status = str(
+                existing.get("listStatusType") or ""
+            ).upper()
+            if list_status == "ALL_DONE" and outcome == "CLOSED":
+                if (
+                    journal is None
+                    or filled_leg is None
+                    or exit_reason is None
+                    or filled_leg.get("orderId") is None
+                ):
+                    raise RuntimeError(
+                        "closed OCO lacks an exact durable SELL fill"
                     )
-            _update_ai_order(
-                list_client_id,
-                exchange_order_list_id=order_list_id,
-                leg_type="LIST",
-            )
-            for leg in verified_legs:
-                if isinstance(leg, dict) and leg.get("clientOrderId"):
-                    _link_ai_order(
-                        str(leg["clientOrderId"]), symbol, lot_id=lot_id,
-                        order_type="OCO_LEG", leg_type=str(leg.get("type", "")),
-                        expected_price=leg.get("price") or leg.get("stopPrice") or "0",
+                _persist_verified_oco_legs(
+                    journal,
+                    list_client_id,
+                    verified_legs,
+                )
+                journal.mark_exact_lifecycle_closed(
+                    protection_client_order_id=list_client_id,
+                    exit_order_id=int(filled_leg["orderId"]),
+                    exit_reason=exit_reason,
+                )
+                dependencies.logger(
+                    f"[IDEMPOTENT] terminal OCO {symbol} "
+                    f"closed by {exit_reason}"
+                )
+                return existing
+            if list_status == "ALL_DONE" and outcome == "CANCELED":
+                if journal is not None:
+                    journal.mark_failed(
+                        list_client_id,
+                        "exchange OCO ended without a SELL fill",
                     )
-                    _update_ai_order(
-                        str(leg["clientOrderId"]),
-                        exchange_order_id=leg.get("orderId"),
-                        exchange_order_list_id=order_list_id,
-                        leg_type=str(leg.get("type", "")),
-                    )
-            dependencies.logger(
-                f"[IDEMPOTENT] reuse OCO {symbol} "
-                f"client={list_client_id} list={order_list_id}"
-            )
-            return existing
+                    if parent_client_order_id:
+                        journal.mark_protection_pending(
+                            parent_client_order_id
+                        )
+                active = None
+            elif list_status != "EXEC_STARTED" or outcome != "ACTIVE":
+                raise RuntimeError("existing OCO state is not safely reusable")
+            else:
+                if journal is not None:
+                    journal.record_order_list(list_client_id, existing)
+                    _persist_verified_oco_legs(journal, list_client_id, verified_legs)
+                    if parent_client_order_id:
+                        journal.mark_protected(
+                            parent_client_order_id=parent_client_order_id,
+                            protection_client_order_id=list_client_id,
+                            order_list_id=(
+                                int(order_list_id)
+                                if order_list_id is not None
+                                else None
+                            ),
+                        )
+                _update_ai_order(
+                    list_client_id,
+                    exchange_order_list_id=order_list_id,
+                    leg_type="LIST",
+                )
+                for leg in verified_legs:
+                    if isinstance(leg, dict) and leg.get("clientOrderId"):
+                        _link_ai_order(
+                            str(leg["clientOrderId"]), symbol, lot_id=lot_id,
+                            order_type="OCO_LEG", leg_type=str(leg.get("type", "")),
+                            expected_price=leg.get("price") or leg.get("stopPrice") or "0",
+                        )
+                        _update_ai_order(
+                            str(leg["clientOrderId"]),
+                            exchange_order_id=leg.get("orderId"),
+                            exchange_order_list_id=order_list_id,
+                            leg_type=str(leg.get("type", "")),
+                        )
+                dependencies.logger(
+                    f"[IDEMPOTENT] reuse OCO {symbol} "
+                    f"client={list_client_id} list={order_list_id}"
+                )
+                return existing
     if (
         active is None
         and journal is not None
@@ -771,12 +817,16 @@ def place_oco_sell(
         )
         if (
             not isinstance(verified, dict)
-            or verified.get("listStatusType")
-            not in ("EXEC_STARTED", "ALL_DONE")
+            or verified.get("listStatusType") != "EXEC_STARTED"
         ):
             raise RuntimeError(f"OCO verification failed: {verified}")
         try:
             verified_legs = dependencies.verify_oco_legs(symbol, verified)
+            outcome, _, _ = classify_oco_legs(verified_legs)
+            if outcome != "ACTIVE":
+                raise RuntimeError(
+                    "new OCO does not have two active protection legs"
+                )
         except (requests.RequestException, RuntimeError):
             # Partial or malformed protection is worse than no protection:
             # delete the suspect OCO and propagate the error.
@@ -847,12 +897,16 @@ def place_oco_sell(
                 reconciled = None
             if (
                 isinstance(reconciled, dict)
-                and reconciled.get("listStatusType")
-                in ("EXEC_STARTED", "ALL_DONE")
+                and reconciled.get("listStatusType") == "EXEC_STARTED"
             ):
                 order_list_id = reconciled.get("orderListId")
                 try:
                     verified_legs = dependencies.verify_oco_legs(symbol, reconciled)
+                    outcome, _, _ = classify_oco_legs(verified_legs)
+                    if outcome != "ACTIVE":
+                        raise RuntimeError(
+                            "recovered OCO protection legs are not active"
+                        )
                 except (requests.RequestException, RuntimeError) as verify_exc:
                     dependencies.logger(
                         f"[ERR] recovered OCO leg verification failed: "
