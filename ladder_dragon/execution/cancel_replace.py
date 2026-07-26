@@ -18,6 +18,14 @@ from ladder_dragon.execution.order_recovery import (
     TERMINAL_EXCHANGE_STATES,
 )
 
+_RECONCILIATION_QUERY_ERRORS = (
+    OSError,
+    RuntimeError,
+    TypeError,
+    ValueError,
+    requests.RequestException,
+)
+
 
 @dataclass(frozen=True)
 class CancelReplaceDependencies:
@@ -27,12 +35,17 @@ class CancelReplaceDependencies:
     get_order_by_client_id: Callable[[str, str], Dict[str, Any] | None]
     halt: Callable[..., None]
     logger: Callable[[str], None]
+    sleep: Callable[[float], None] = time.sleep
+    reconcile_attempts: int = 4
+    reconcile_delay_sec: float = 0.25
 
 
-def _active(payload: Mapping[str, object] | None) -> bool:
+def _replacement_was_placed(
+    payload: Mapping[str, object] | None,
+) -> bool:
     return isinstance(payload, Mapping) and str(
         payload.get("status") or ""
-    ).upper() in {"NEW", "PARTIALLY_FILLED"}
+    ).upper() in {"NEW", "PARTIALLY_FILLED", "FILLED"}
 
 
 def atomic_cancel_replace_buy(
@@ -120,32 +133,62 @@ def atomic_cancel_replace_buy(
             original_order.get("timeInForce") or "GTC"
         )
 
-    def reconcile() -> Dict[str, Any] | None:
-        old = dependencies.get_order_by_id(symbol, order_id)
-        new = dependencies.get_order_by_client_id(
-            symbol,
-            replacement_client_id,
+    def reconcile() -> Dict[str, Any]:
+        attempts = max(1, int(dependencies.reconcile_attempts))
+        delay = max(0.0, float(dependencies.reconcile_delay_sec))
+        last_old_status = "UNKNOWN"
+        last_new_status = "ABSENT"
+        last_error = ""
+        for attempt in range(attempts):
+            try:
+                old = dependencies.get_order_by_id(symbol, order_id)
+                new = dependencies.get_order_by_client_id(
+                    symbol,
+                    replacement_client_id,
+                )
+                last_old_status = str(
+                    (old or {}).get("status") or "ABSENT"
+                ).upper()
+                last_new_status = str(
+                    (new or {}).get("status") or "ABSENT"
+                ).upper()
+                if (
+                    last_old_status in TERMINAL_EXCHANGE_STATES
+                    and _replacement_was_placed(new)
+                ):
+                    journal.record_exchange_order(
+                        original_intent.client_order_id,
+                        dict(old),
+                    )
+                    journal.record_exchange_order(
+                        replacement_client_id,
+                        dict(new),
+                    )
+                    dependencies.logger(
+                        f"[CANCEL-REPLACE-RECOVERED] {symbol} "
+                        f"old={order_id}:{last_old_status} "
+                        f"new={new.get('orderId')}:{last_new_status} "
+                        f"attempt={attempt + 1}"
+                    )
+                    return dict(new)
+            except _RECONCILIATION_QUERY_ERRORS as exc:
+                last_error = type(exc).__name__
+            if attempt + 1 < attempts and delay > 0:
+                dependencies.sleep(delay)
+
+        # An old NEW order and an absent replacement are only one bounded
+        # observation, not proof that a timed-out mutation never reached
+        # Binance. Preserve the intent for startup recovery and stop mutations.
+        diagnostic = (
+            "cancelReplace reconciliation remained ambiguous "
+            f"after {attempts} attempts; old={last_old_status}; "
+            f"new={last_new_status}"
         )
-        old_status = str((old or {}).get("status") or "").upper()
-        if old_status in TERMINAL_EXCHANGE_STATES and _active(new):
-            journal.record_exchange_order(
-                original_intent.client_order_id,
-                dict(old),
-            )
-            journal.record_exchange_order(
-                replacement_client_id,
-                dict(new),
-            )
-            return dict(new)
-        if old_status == "NEW" and new is None:
-            journal.mark_failed(
-                replacement_client_id,
-                "exchange confirmed cancelReplace was not applied",
-            )
-            return None
+        if last_error:
+            diagnostic += f"; query_error={last_error}"
         journal.mark_unknown(
             replacement_client_id,
-            "cancelReplace reconciliation is ambiguous",
+            diagnostic,
         )
         dependencies.halt(
             "cancelReplace outcome is ambiguous",
@@ -167,6 +210,26 @@ def atomic_cancel_replace_buy(
             latency_trace.mark("exchange_ack")
     except (requests.RequestException, RuntimeError):
         return reconcile()
+    if isinstance(payload, Mapping):
+        cancel_result = str(
+            payload.get("cancelResult") or ""
+        ).upper()
+        new_order_result = str(
+            payload.get("newOrderResult") or ""
+        ).upper()
+        if (
+            cancel_result == "FAILURE"
+            and new_order_result == "NOT_ATTEMPTED"
+        ):
+            journal.mark_failed(
+                replacement_client_id,
+                "exchange rejected cancellation; replacement was not attempted",
+            )
+            dependencies.logger(
+                f"[CANCEL-REPLACE-NOOP] {symbol} old={order_id} "
+                "cancel=FAILURE new=NOT_ATTEMPTED"
+            )
+            return None
     if (
         not isinstance(payload, dict)
         or payload.get("cancelResult") != "SUCCESS"

@@ -3,6 +3,31 @@
 All notable changes are documented here. Releases use Semantic Versioning; every
 section is dated and there is intentionally no `Unreleased` section.
 
+## [2.20.53] — 2026-07-27
+
+### Fixed
+- A lost `cancelReplace` acknowledgement now runs four bounded authoritative
+  exchange reconciliations instead of treating one immediate
+  `old=NEW/replacement=absent` snapshot as proof of failure. An unresolved
+  outcome remains `UNKNOWN` and halts further mutations; it is never
+  misreported as `FAILED`.
+- Binance `cancelResult=FAILURE` with
+  `newOrderResult=NOT_ATTEMPTED` is now classified as an exact no-op. Routine
+  partial-fill versus re-anchor races no longer create a false symbol HALT.
+- Reconciliation now accepts a replacement already reported as `FILLED`, as
+  well as `NEW` and `PARTIALLY_FILLED`, and records both sides of the atomic
+  exchange transition in the durable journal.
+
+### Verified
+- Cancel-replace regressions cover delayed exchange visibility, exhausted
+  ambiguity with persistent HALT, transient reconciliation-query failure,
+  structured no-op classification, immediate replacement fill, secret-free
+  diagnostics, no mutation resubmission, hard CAP rejection and partial-fill
+  rejection.
+- Re-anchor, restart/recovery, idempotency, partial-fill and OCO/STOP regression
+  suites pass. Python compilation, whitespace checks and the complete 634-test
+  project suite pass.
+
 ## [2.20.52] — 2026-07-27
 
 ### Fixed

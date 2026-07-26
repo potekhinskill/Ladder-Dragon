@@ -29,7 +29,7 @@ combines adaptive ladder entries, exchange-side OCO protection, exact
 fee-aware FIFO accounting, restart reconciliation, replay and walk-forward
 verification, and a private Raspberry Pi operations dashboard.
 
-Current product version: **2.20.52**. The single version source is
+Current product version: **2.20.53**. The single version source is
 `product_version.py`; releases follow [Semantic Versioning](https://semver.org/).
 Project contact: [LinkedIn](https://www.linkedin.com/in/ypotekhin/).
 
@@ -87,7 +87,7 @@ bounded, explainable, recoverable, and measurable before exposure is increased.
 ## Project status
 
 Ladder Dragon is an actively developed, experimental trading system. Version
-**2.20.52** is the current source release. `main` is the only long-lived branch;
+**2.20.53** is the current source release. `main` is the only long-lived branch;
 feature branches use the `ladderdragon/*` namespace.
 
 DRY and Binance Spot Testnet are the supported starting modes. Mainnet LIVE is
@@ -818,8 +818,13 @@ absolute owner-only PEM path in `BINANCE_ED25519_PRIVATE_KEY_FILE`.
 Adaptive re-anchor `APPLY` uses Binance `cancelReplace` with
 `STOP_ON_FAILURE` and `ONLY_NEW`, after stopping the symbol worker and
 committing the replacement intent. It rejects partial fills and any target
-whose notional exceeds the hard CAP. Set `BOT_REANCHOR_CANCEL_REPLACE=0` only
-as an explicit rollback to the legacy cancel/restart path.
+whose notional exceeds the hard CAP. A structured Binance
+`FAILURE/NOT_ATTEMPTED` response is recorded as an exact no-op without a
+symbol HALT. A lost acknowledgement runs bounded authoritative reconciliation;
+the replacement is accepted in `NEW`, `PARTIALLY_FILLED`, or `FILLED` state.
+If the exchange outcome remains uncertain, the intent stays `UNKNOWN` and
+further mutations halt. Set `BOT_REANCHOR_CANCEL_REPLACE=0` only as an explicit
+rollback to the legacy cancel/restart path.
 
 After a real soak, run the read-only gate:
 
