@@ -29,7 +29,7 @@ combines adaptive ladder entries, exchange-side OCO protection, exact
 fee-aware FIFO accounting, restart reconciliation, replay and walk-forward
 verification, and a private Raspberry Pi operations dashboard.
 
-Current product version: **2.20.46**. The single version source is
+Current product version: **2.20.47**. The single version source is
 `product_version.py`; releases follow [Semantic Versioning](https://semver.org/).
 Project contact: [LinkedIn](https://www.linkedin.com/in/ypotekhin/).
 
@@ -87,7 +87,7 @@ bounded, explainable, recoverable, and measurable before exposure is increased.
 ## Project status
 
 Ladder Dragon is an actively developed, experimental trading system. Version
-**2.20.46** is the current prepared release. `main` is the only long-lived branch;
+**2.20.47** is the current prepared release. `main` is the only long-lived branch;
 feature branches use the `ladderdragon/*` namespace.
 
 DRY and Binance Spot Testnet are the supported starting modes. Mainnet LIVE is
@@ -823,6 +823,12 @@ provable exchange history stays `legacy_unmanaged` with
 does not authorize holdings SELL/OCO management.
 
 ## Dashboard
+
+<p align="center">
+  <img src="docs/assets/dashboard-overview-sanitized.png" alt="Sanitized Ladder Dragon operations dashboard" width="1100">
+</p>
+
+<p align="center"><sub>Sanitized demonstration data. The image contains no live balances, account identifiers, orders, process identifiers, credentials, or operational timestamps.</sub></p>
 
 Run locally with:
 

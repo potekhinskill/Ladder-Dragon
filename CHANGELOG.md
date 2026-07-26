@@ -3,6 +3,21 @@
 All notable changes are documented here. Releases use Semantic Versioning; every
 section is dated and there is intentionally no `Unreleased` section.
 
+## [2.20.47] — 2026-07-26
+
+### Added
+- Added a full-page, publication-safe dashboard preview to the README and
+  introduction. All account-specific balances, quantities, prices, order and
+  decision identifiers, process data, log timestamps, and infrastructure
+  fingerprints were replaced with explicit synthetic demonstration values.
+- Marked the preview `DEMO · SANITIZED` so documentation readers cannot
+  mistake it for live trading evidence. All visible interface text is English.
+
+### Verified
+- Documentation asset references, release version consistency, PNG metadata,
+  source-image exclusion, Python compilation, and the complete project test
+  suite pass.
+
 ## [2.20.46] — 2026-07-26
 
 ### Added

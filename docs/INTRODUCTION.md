@@ -6,6 +6,12 @@
 
 <p align="center">Adaptive Binance Spot ladder trading with Risk Manager, OCO protection, backtest/replay, and a read-only dashboard.</p>
 
+<p align="center">
+  <img src="assets/dashboard-overview-sanitized.png" alt="Sanitized Ladder Dragon operations dashboard" width="1100">
+</p>
+
+<p align="center"><sub>Publication-safe demonstration data; no live balances, identifiers, orders, credentials, or operational timestamps.</sub></p>
+
 > Important: the project defaults to `DRY`/`Testnet`. LIVE requires a separate approval, protection checks, and manual supervision.
 
 ## What it is
