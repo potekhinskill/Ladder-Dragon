@@ -24,26 +24,12 @@
   <a href="docs/RASPBERRY_PI_INSTALL.md">Raspberry Pi</a>
 </p>
 
-## Star history
-
-<p align="center">
-  <a href="https://github.com/potekhinskill/Ladder-Dragon/stargazers">
-    <img src="docs/assets/ladder-dragon-star-history.svg" alt="Ladder Dragon GitHub star history" width="960">
-  </a>
-</p>
-
-The bundled chart remains visible when the third-party Star History API is
-unavailable or the repository has not received its first star. The badge above
-always shows GitHub's current public count. Open the
-[interactive Star History page](https://star-history.com/#potekhinskill/Ladder-Dragon&Date)
-after history becomes available.
-
 Ladder Dragon is an open-source Python trading system for Binance Spot. It
 combines adaptive ladder entries, exchange-side OCO protection, exact
 fee-aware FIFO accounting, restart reconciliation, replay and walk-forward
 verification, and a private Raspberry Pi operations dashboard.
 
-Current product version: **2.20.34**. The single version source is
+Current product version: **2.20.35**. The single version source is
 `product_version.py`; releases follow [Semantic Versioning](https://semver.org/).
 Project contact: [LinkedIn](https://www.linkedin.com/in/ypotekhin/).
 
@@ -101,7 +87,7 @@ bounded, explainable, recoverable, and measurable before exposure is increased.
 ## Project status
 
 Ladder Dragon is an actively developed, experimental trading system. Version
-**2.20.34** is the current prepared release. `main` is the only long-lived branch;
+**2.20.35** is the current prepared release. `main` is the only long-lived branch;
 feature branches use the `ladderdragon/*` namespace.
 
 DRY and Binance Spot Testnet are the supported starting modes. Mainnet LIVE is
@@ -916,6 +902,20 @@ terminal `FILLED` status can increment it; partial and unresolved fills do not.
 Open canary lots are shown separately from legacy inventory, including an
 explicit journal-versus-Binance protection mismatch. Historical virtual RAG
 documents are labeled archived and are not included in retrieval.
+
+## Star history
+
+<p align="center">
+  <a href="https://github.com/potekhinskill/Ladder-Dragon/stargazers">
+    <img src="docs/assets/ladder-dragon-star-history.svg" alt="Ladder Dragon GitHub star history" width="960">
+  </a>
+</p>
+
+The bundled chart remains visible when the third-party Star History API is
+unavailable or the repository has not received its first star. The badge above
+always shows GitHub's current public count. Open the
+[interactive Star History page](https://star-history.com/#potekhinskill/Ladder-Dragon&Date)
+after history becomes available.
 
 ## Documentation and license
 

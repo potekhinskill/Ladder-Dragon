@@ -3,6 +3,18 @@
 All notable changes are documented here. Releases use Semantic Versioning; every
 section is dated and there is intentionally no `Unreleased` section.
 
+## [2.20.35] — 2026-07-26
+
+### Changed
+- Moved the Star history chart from the README opening to the final content
+  section immediately before documentation and license links.
+
+### Verified
+- The README regression test now fixes the Star history section below the
+  engineering content and above the final documentation section.
+- The complete suite passes all `567` project tests; Python compilation, SVG
+  validation, and whitespace checks pass.
+
 ## [2.20.34] — 2026-07-26
 
 ### Fixed

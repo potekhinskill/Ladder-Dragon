@@ -179,6 +179,12 @@ def test_readme_star_history_has_repository_owned_fallback():
     assert "docs/assets/ladder-dragon-star-history.svg" in readme
     assert "img.shields.io/github/stars/potekhinskill/Ladder-Dragon" in readme
     assert "api.star-history.com/svg" not in readme
+    assert readme.index("## Star history") > readme.index(
+        "## Remaining engineering work"
+    )
+    assert readme.index("## Star history") < readme.index(
+        "## Documentation and license"
+    )
     assert "<svg" in chart
     assert "GitHub Star History" in chart
     assert "current stars" in chart
