@@ -3,6 +3,20 @@
 All notable changes are documented here. Releases use Semantic Versioning; every
 section is dated and there is intentionally no `Unreleased` section.
 
+## [2.20.42] — 2026-07-26
+
+### Fixed
+- Star History now reads the paginated official GitHub GraphQL stargazer
+  connection, which is compatible with the workflow installation token.
+- Generation fails closed when pagination is incomplete or the returned
+  history count differs from GitHub's authoritative `stargazerCount`.
+
+### Verified
+- Added a two-page GraphQL regression fixture covering cursor propagation,
+  exact-count reconciliation, and token isolation.
+- The complete suite passes all `575` project tests; Python compilation and
+  whitespace checks pass.
+
 ## [2.20.41] — 2026-07-26
 
 ### Fixed

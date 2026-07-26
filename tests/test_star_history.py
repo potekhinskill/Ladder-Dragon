@@ -8,7 +8,8 @@ from __future__ import annotations
 from datetime import date
 import json
 
-from bin.generate_star_history import main, render_svg
+from bin import generate_star_history
+from bin.generate_star_history import fetch_history, main, render_svg
 
 
 def _history() -> dict[str, object]:
@@ -55,3 +56,53 @@ def test_star_history_cli_fails_closed_on_malformed_input(tmp_path):
     )
     assert result == 1
     assert not output.exists()
+
+
+def test_star_history_graphql_paginates_and_requires_exact_count(monkeypatch):
+    responses = [
+        {
+            "data": {
+                "repository": {
+                    "createdAt": "2026-07-18T08:00:00Z",
+                    "stargazerCount": 2,
+                    "stargazers": {
+                        "edges": [{"starredAt": "2026-07-20T12:00:00Z"}],
+                        "pageInfo": {
+                            "hasNextPage": True,
+                            "endCursor": "cursor-1",
+                        },
+                    },
+                }
+            }
+        },
+        {
+            "data": {
+                "repository": {
+                    "createdAt": "2026-07-18T08:00:00Z",
+                    "stargazerCount": 2,
+                    "stargazers": {
+                        "edges": [{"starredAt": "2026-07-25T13:00:00Z"}],
+                        "pageInfo": {
+                            "hasNextPage": False,
+                            "endCursor": None,
+                        },
+                    },
+                }
+            }
+        },
+    ]
+    cursors: list[object] = []
+
+    def fake_graphql(query, variables, token):
+        assert "stargazers" in query
+        assert token == "workflow-token"
+        cursors.append(variables["cursor"])
+        return responses.pop(0)
+
+    monkeypatch.setattr(generate_star_history, "_graphql_json", fake_graphql)
+    history = fetch_history(
+        "potekhinskill/Ladder-Dragon",
+        "workflow-token",
+    )
+    assert cursors == [None, "cursor-1"]
+    assert len(history["stargazers"]) == 2

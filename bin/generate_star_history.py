@@ -20,54 +20,99 @@ from urllib.request import Request, urlopen
 
 
 REPOSITORY_RE = re.compile(r"^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$")
-API_ROOT = "https://api.github.com"
+GRAPHQL_URL = "https://api.github.com/graphql"
+STARGAZERS_QUERY = """
+query StarHistory(
+  $owner: String!
+  $name: String!
+  $cursor: String
+) {
+  repository(owner: $owner, name: $name) {
+    createdAt
+    stargazerCount
+    stargazers(
+      first: 100
+      after: $cursor
+      orderBy: {field: STARRED_AT, direction: ASC}
+    ) {
+      edges { starredAt }
+      pageInfo { hasNextPage endCursor }
+    }
+  }
+}
+"""
 
 
-def _request_json(url: str, token: str) -> tuple[Any, str]:
+def _graphql_json(
+    query: str,
+    variables: dict[str, object],
+    token: str,
+) -> dict[str, object]:
+    if not token:
+        raise ValueError("GitHub token is required for GraphQL")
     headers = {
-        "Accept": "application/vnd.github.star+json",
+        "Accept": "application/vnd.github+json",
+        "Content-Type": "application/json",
         "User-Agent": "Ladder-Dragon-Star-History",
         "X-GitHub-Api-Version": "2022-11-28",
+        "Authorization": f"Bearer {token}",
     }
-    if token:
-        headers["Authorization"] = f"Bearer {token}"
-    request = Request(url, headers=headers)
+    body = json.dumps(
+        {"query": query, "variables": variables},
+        separators=(",", ":"),
+    ).encode("utf-8")
+    request = Request(GRAPHQL_URL, data=body, headers=headers, method="POST")
     with urlopen(request, timeout=20) as response:
         payload = json.loads(response.read().decode("utf-8"))
-        return payload, str(response.headers.get("Link") or "")
-
-
-def _next_link(header: str) -> str | None:
-    for item in header.split(","):
-        segments = [part.strip() for part in item.split(";")]
-        if len(segments) >= 2 and 'rel="next"' in segments[1:]:
-            return segments[0].strip("<>")
-    return None
+    if not isinstance(payload, dict) or payload.get("errors"):
+        raise ValueError("GitHub GraphQL response contains errors")
+    return payload
 
 
 def fetch_history(repository: str, token: str) -> dict[str, object]:
     if not REPOSITORY_RE.fullmatch(repository):
         raise ValueError("repository must use the owner/name format")
-    metadata, _ = _request_json(f"{API_ROOT}/repos/{repository}", token)
-    if not isinstance(metadata, dict) or not metadata.get("created_at"):
-        raise ValueError("GitHub repository metadata is invalid")
+    owner, name = repository.split("/", 1)
     stargazers: list[dict[str, str]] = []
-    url: str | None = (
-        f"{API_ROOT}/repos/{repository}/stargazers?per_page=100"
-    )
-    while url:
-        page, links = _request_json(url, token)
-        if not isinstance(page, list):
-            raise ValueError("GitHub stargazer response is invalid")
-        for item in page:
-            if isinstance(item, dict) and isinstance(
-                item.get("starred_at"), str
-            ):
-                stargazers.append({"starred_at": item["starred_at"]})
-        url = _next_link(links)
+    cursor: str | None = None
+    created_at: str | None = None
+    expected_count: int | None = None
+    while True:
+        payload = _graphql_json(
+            STARGAZERS_QUERY,
+            {"owner": owner, "name": name, "cursor": cursor},
+            token,
+        )
+        data = payload.get("data")
+        repo = data.get("repository") if isinstance(data, dict) else None
+        if not isinstance(repo, dict) or not isinstance(
+            repo.get("createdAt"), str
+        ):
+            raise ValueError("GitHub repository metadata is invalid")
+        created_at = repo["createdAt"]
+        expected_count = int(repo.get("stargazerCount", -1))
+        connection = repo.get("stargazers")
+        if not isinstance(connection, dict):
+            raise ValueError("GitHub stargazer connection is invalid")
+        edges = connection.get("edges")
+        page_info = connection.get("pageInfo")
+        if not isinstance(edges, list) or not isinstance(page_info, dict):
+            raise ValueError("GitHub stargazer page is invalid")
+        for edge in edges:
+            starred_at = edge.get("starredAt") if isinstance(edge, dict) else None
+            if not isinstance(starred_at, str):
+                raise ValueError("GitHub stargazer timestamp is invalid")
+            stargazers.append({"starred_at": starred_at})
+        if page_info.get("hasNextPage") is not True:
+            break
+        cursor = page_info.get("endCursor")
+        if not isinstance(cursor, str) or not cursor:
+            raise ValueError("GitHub stargazer cursor is invalid")
+    if expected_count != len(stargazers):
+        raise ValueError("GitHub stargazer count differs from history")
     return {
         "repository": repository,
-        "created_at": metadata["created_at"],
+        "created_at": created_at,
         "stargazers": stargazers,
     }
 
