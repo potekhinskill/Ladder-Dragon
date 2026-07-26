@@ -23,7 +23,7 @@ PATTERNS = {
     "Google API key": re.compile(r"\bAIza[0-9A-Za-z_-]{30,}\b"),
 }
 SECRET_ASSIGNMENT = re.compile(
-    r"(?im)\b([A-Z][A-Z0-9_]*(?:KEY|SECRET|TOKEN|PASSWORD))\s*=\s*[\"']?"
+    r"(?m)\b([A-Z][A-Z0-9_]*(?:KEY|SECRET|TOKEN|PASSWORD))\s*=\s*[\"']?"
     r"([A-Za-z0-9_./+=:-]{20,})"
 )
 PLACEHOLDER_WORDS = {"example", "placeholder", "replace", "changeme", "dummy", "test"}

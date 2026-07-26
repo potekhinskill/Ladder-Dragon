@@ -3,6 +3,36 @@
 All notable changes are documented here. Releases use Semantic Versioning; every
 section is dated and there is intentionally no `Unreleased` section.
 
+## [2.20.27] — 2026-07-26
+
+### Added
+- Added one fail-closed verification harness with `local`, `release`,
+  `testnet`, `pi` and separately confirmed `mainnet-canary` profiles.
+- Added an owner-only, versioned JSON artifact containing commit and product
+  identity, allowlisted check metrics, source hashes, replay errors, execution
+  latency percentiles, unresolved fills and exact lifecycle evidence.
+- Added JSON Schema v1 for verification reports and regression coverage for
+  unknown profiles, missing checks, venue confirmations and output secrecy.
+
+### Changed
+- GitHub's Python 3.10/3.11/3.12 matrix now invokes the same `local` harness
+  used by developers instead of calling pytest directly.
+
+### Security
+- Child command output and environment values are never persisted in harness
+  artifacts. Testnet authentication, Testnet mutation and Mainnet mutation
+  retain separate explicit confirmations; the Pi profile is read-only.
+- Corrected the tracked-secret scanner so ordinary lowercase code identifiers
+  ending in `private_key` cannot be mistaken for uppercase credential
+  assignments; real uppercase credential assignments remain covered.
+
+### Verified
+- The `local` harness passes source compilation, all `530` project tests, the
+  numeric-boundary audit and tracked-secret scan.
+- The `release` harness also passes `18` replay, `21` walk-forward/approval,
+  `82` recovery and `58` migration/deployment regression checks. Both
+  owner-only artifacts satisfy the report's structural schema regression.
+
 ## [2.20.26] — 2026-07-23
 
 ### Added

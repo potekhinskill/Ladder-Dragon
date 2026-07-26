@@ -1,0 +1,302 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:ladder-dragon:schema:verification-report:1",
+  "title": "Ladder Dragon verification report",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "product_version",
+    "commit_sha",
+    "generated_at",
+    "profile",
+    "status",
+    "checks",
+    "input_hashes",
+    "tests",
+    "replay",
+    "latency_ms",
+    "unresolved_fills",
+    "exact_lifecycles",
+    "block_reasons"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": 1
+    },
+    "product_version": {
+      "type": "string",
+      "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$"
+    },
+    "commit_sha": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{40}$"
+    },
+    "generated_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "profile": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 64
+    },
+    "status": {
+      "enum": [
+        "PASS",
+        "BLOCKED",
+        "FAILED"
+      ]
+    },
+    "checks": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "$ref": "#/$defs/check"
+      }
+    },
+    "input_hashes": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "string",
+        "pattern": "^[0-9a-f]{64}$"
+      }
+    },
+    "tests": {
+      "$ref": "#/$defs/testTotals"
+    },
+    "replay": {
+      "$ref": "#/$defs/replay"
+    },
+    "latency_ms": {
+      "oneOf": [
+        {
+          "type": "null"
+        },
+        {
+          "$ref": "#/$defs/latency"
+        }
+      ]
+    },
+    "unresolved_fills": {
+      "type": [
+        "integer",
+        "null"
+      ],
+      "minimum": 0
+    },
+    "exact_lifecycles": {
+      "$ref": "#/$defs/lifecycles"
+    },
+    "block_reasons": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 500
+      }
+    }
+  },
+  "$defs": {
+    "check": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "name",
+        "status",
+        "required",
+        "duration_ms",
+        "exit_code",
+        "summary",
+        "metrics"
+      ],
+      "properties": {
+        "name": {
+          "type": "string",
+          "pattern": "^[a-z0-9_]+$"
+        },
+        "status": {
+          "enum": [
+            "PASS",
+            "BLOCKED",
+            "FAILED"
+          ]
+        },
+        "required": {
+          "type": "boolean"
+        },
+        "duration_ms": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "exit_code": {
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "summary": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 500
+        },
+        "metrics": {
+          "type": "object"
+        }
+      }
+    },
+    "testTotals": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "passed",
+        "failed",
+        "skipped"
+      ],
+      "properties": {
+        "passed": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "failed": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "skipped": {
+          "type": "integer",
+          "minimum": 0
+        }
+      }
+    },
+    "replay": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "available",
+        "ready",
+        "accuracy",
+        "errors",
+        "covered_orders",
+        "reasons"
+      ],
+      "properties": {
+        "available": {
+          "type": "boolean"
+        },
+        "ready": {
+          "type": "boolean"
+        },
+        "accuracy": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "errors": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "fill_ratio_mae",
+            "price_bps_mae",
+            "latency_ms_mae",
+            "fee_quote_mae",
+            "slippage_bps_mae"
+          ],
+          "properties": {
+            "fill_ratio_mae": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "price_bps_mae": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "latency_ms_mae": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "fee_quote_mae": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "slippage_bps_mae": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          }
+        },
+        "covered_orders": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "reasons": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "latency": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "samples",
+        "p50",
+        "p95"
+      ],
+      "properties": {
+        "samples": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "p50": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "p95": {
+          "type": "integer",
+          "minimum": 0
+        }
+      }
+    },
+    "lifecycles": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "closed",
+        "tp",
+        "stop",
+        "required"
+      ],
+      "properties": {
+        "closed": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "tp": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "stop": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "required": {
+          "type": "integer",
+          "minimum": 1
+        }
+      }
+    }
+  }
+}

@@ -28,8 +28,11 @@ jobs:
         run: |
           python -m pip install --require-hashes -r requirements/ci.lock
           python -m pip install --no-deps --no-build-isolation -e .
-      - name: Tests
-        run: python -m pytest
+      - name: Unified local verification harness
+        run: >-
+          python -m bin.verification_harness
+          --profile local
+          --output .runtime/verification-local-${{ matrix.python-version }}.json
 
   audit:
     name: dependency and secret audit

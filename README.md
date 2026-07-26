@@ -17,7 +17,7 @@ Binance Spot. It builds BUY/SELL grids, uses ATR/EMA/VWAP/ADX regimes, manages
 OCO protection, and records trading statistics in SQLite. Production secrets,
 real backups, and private parameters are never committed.
 
-Current product version: **2.20.26**. The single version source is
+Current product version: **2.20.27**. The single version source is
 `product_version.py`; releases follow [Semantic Versioning](https://semver.org/).
 Project contact: [LinkedIn](https://www.linkedin.com/in/ypotekhin/).
 
@@ -172,11 +172,68 @@ the usage log.
 
 ## Verification
 
+The unified verification harness runs the same fail-closed profiles locally, in
+GitHub Actions and on a deployed Raspberry Pi. It composes the existing tools;
+it does not duplicate trading or risk logic.
+
 ```bash
-python3 -m compileall -q .
-bash -n bin/supervisor_ctl.sh
-PYTHONPATH=. pytest -q
+python -m bin.verification_harness --profile local
+python -m bin.verification_harness --profile release \
+  --replay-validation .runtime/SOLUSDT-validation.json \
+  --latency-log logs/execution_latency.ndjson
 ```
+
+`local` runs source compilation, the complete pytest suite, the exact-numeric
+boundary audit and the tracked-secret scan. `release` adds replay,
+walk-forward/approval, recovery, migration and deployment regressions.
+Every run writes an owner-only JSON artifact under `.runtime` by default. The
+versioned schema is `schemas/verification-report-v1.json`. Reports contain the
+commit SHA, product version, checks, source hashes, allowlisted test totals,
+replay errors, latency p50/p95, unresolved-fill count and exact lifecycle
+evidence. Child stdout/stderr, environment variables, signed URLs and `.env`
+contents are never copied into the artifact.
+
+Exit status is `0` for `PASS`, `2` for a safely `BLOCKED` gate and `1` for
+`FAILED`. An unknown profile or a missing mandatory executable is `BLOCKED`.
+
+Testnet authenticated reads and mutations are separate approvals:
+
+```bash
+python -m bin.verification_harness --profile testnet \
+  --confirm-authenticated-testnet
+
+BOT_TESTNET_BUY_OCO_CONFIRMED=YES \
+python -m bin.verification_harness --profile testnet \
+  --confirm-authenticated-testnet \
+  --confirm-testnet-mutation
+```
+
+The `testnet` profile always runs the public smoke, offline safety regressions
+and network-free gap drill. The authenticated smoke remains blocked without
+`--confirm-authenticated-testnet`; BUY/OCO/restart remains blocked unless both
+the mutation flag and its existing exact environment confirmation are present.
+
+After deploying an already tested 40-character commit, run the read-only Pi
+profile on that host:
+
+```bash
+python -m bin.verification_harness --profile pi \
+  --expected-sha 0123456789abcdef0123456789abcdef01234567 \
+  --release-report /home/bot/verification/verification-release.json \
+  --runtime-status /run/mybot/ai_status.json \
+  --user-stream-status /run/mybot/user_stream_SOLUSDT.json \
+  --order-journal /home/bot/apps/binance_bot/db/order_intents.sqlite3 \
+  --prediction-db /home/bot/apps/binance_bot/db/prediction_shadow.sqlite3 \
+  --ai-decisions-db /home/bot/apps/binance_bot/db/ai_decisions.sqlite3
+```
+
+It requires an owner-provided `PASS` release artifact whose 40-character commit
+matches both `--expected-sha` and the deployed HEAD. It then verifies services,
+heartbeat, authenticated recovery, risk/journal reconciliation, user-stream
+soak and the production-soak gate without changing orders, services, HALT
+state or configuration. A Mainnet drill is a separate `mainnet-canary` profile
+and remains blocked without its CLI flag and all existing exact environment
+confirmations; it is never part of `local`, `release`, `testnet`, `pi` or CI.
 
 Safe DRY/Testnet supervisor run:
 
