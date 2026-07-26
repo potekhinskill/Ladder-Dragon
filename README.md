@@ -29,7 +29,7 @@ combines adaptive ladder entries, exchange-side OCO protection, exact
 fee-aware FIFO accounting, restart reconciliation, replay and walk-forward
 verification, and a private Raspberry Pi operations dashboard.
 
-Current product version: **2.20.35**. The single version source is
+Current product version: **2.20.36**. The single version source is
 `product_version.py`; releases follow [Semantic Versioning](https://semver.org/).
 Project contact: [LinkedIn](https://www.linkedin.com/in/ypotekhin/).
 
@@ -87,7 +87,7 @@ bounded, explainable, recoverable, and measurable before exposure is increased.
 ## Project status
 
 Ladder Dragon is an actively developed, experimental trading system. Version
-**2.20.35** is the current prepared release. `main` is the only long-lived branch;
+**2.20.36** is the current prepared release. `main` is the only long-lived branch;
 feature branches use the `ladderdragon/*` namespace.
 
 DRY and Binance Spot Testnet are the supported starting modes. Mainnet LIVE is
@@ -251,8 +251,8 @@ python -m bin.verification_harness --profile release \
   --latency-log logs/execution_latency.ndjson
 ```
 
-`local` runs source compilation, the complete pytest suite, the exact-numeric
-boundary audit and the tracked-secret scan. `release` adds replay,
+`local` runs release continuity, source compilation, the complete pytest suite,
+the exact-numeric boundary audit and the tracked-secret scan. `release` adds replay,
 walk-forward/approval, recovery, migration and deployment regressions.
 Every run writes an owner-only JSON artifact under `.runtime` by default. The
 versioned schema is `schemas/verification-report-v1.json`. Reports contain the
@@ -260,6 +260,12 @@ commit SHA, product version, checks, source hashes, allowlisted test totals,
 replay errors, latency p50/p95, unresolved-fill count and exact lifecycle
 evidence. Child stdout/stderr, environment variables, signed URLs and `.env`
 contents are never copied into the artifact.
+
+The mandatory `release_continuity` check uses the signed baseline in
+`.release-lineage.json`. It rejects a skipped next version, multiple version
+bumps before a tag, commits after a release tag without a new version,
+non-annotated tags and nonlinear tag ancestry. Its allowlisted metrics form the
+release manifest: previous/current version and SHA plus every included commit.
 
 Exit status is `0` for `PASS`, `2` for a safely `BLOCKED` gate and `1` for
 `FAILED`. An unknown profile or a missing mandatory executable is `BLOCKED`.
@@ -287,6 +293,7 @@ profile on that host:
 ```bash
 python -m bin.verification_harness --profile pi \
   --expected-sha 0123456789abcdef0123456789abcdef01234567 \
+  --github-sha 0123456789abcdef0123456789abcdef01234567 \
   --release-report /home/bot/verification/verification-release.json \
   --runtime-status /run/mybot/ai_status.json \
   --user-stream-status /run/mybot/user_stream_SOLUSDT.json \
@@ -296,7 +303,8 @@ python -m bin.verification_harness --profile pi \
 ```
 
 It requires an owner-provided `PASS` release artifact whose 40-character commit
-matches both `--expected-sha` and the deployed HEAD. It then verifies services,
+matches `--expected-sha`, `--github-sha`, fetched upstream and deployed HEAD.
+It then verifies services,
 heartbeat, authenticated recovery, risk/journal reconciliation, user-stream
 soak and the production-soak gate without changing orders, services, HALT
 state or configuration. A Mainnet drill is a separate `mainnet-canary` profile

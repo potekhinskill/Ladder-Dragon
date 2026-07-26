@@ -22,6 +22,13 @@ These rules apply to every repository change and every Raspberry Pi update.
   named `## [X.Y.Z] — YYYY-MM-DD`.
 - Bump `__version__` in `product_version.py` for every changelog entry and verify
   that `^## [Unreleased]` is absent before committing.
+- The release continuity gate is mandatory. From the signed baseline recorded
+  in `.release-lineage.json`, a candidate must be the direct next Semantic
+  Version, may bump the version only once at the branch tip, and every published
+  release must have one annotated tag on a linear ancestor of `main`.
+- Do not push a release when `release_continuity` is `BLOCKED`. Its verification
+  artifact is the release manifest and must list the previous SHA, current SHA,
+  and every included commit.
 - Push only after tests; report the commit SHA and Raspberry update command.
 
 ## Security and execution modes
@@ -66,6 +73,8 @@ These rules apply to every repository change and every Raspberry Pi update.
 ## Raspberry Pi deployment
 
 - Update only with `deploy/update_raspberry_pi.sh update <40-char-SHA>`.
+- The Pi verification profile must compare deployed HEAD, the PASS release
+  artifact, the reviewed GitHub SHA, and the fetched upstream SHA exactly.
 - Before updating, preserve service state and an encrypted backup; never replace `.env`
   or `.env.dashboard` with Git content.
 - After updating, check `mybot`, `pi-healthd`, heartbeat, `/api/health`, `/api/ai/status`,

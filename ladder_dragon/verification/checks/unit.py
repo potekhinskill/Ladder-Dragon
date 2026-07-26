@@ -5,12 +5,15 @@
 
 from __future__ import annotations
 
+from ladder_dragon.verification.checks.release_continuity import (
+    release_continuity_checks,
+)
 from ladder_dragon.verification.models import CheckSpec, HarnessContext
 
 
 def local_checks(context: HarnessContext) -> list[CheckSpec]:
     python = context.python
-    return [
+    return release_continuity_checks(context) + [
         CheckSpec(
             name="source_compile",
             argv=(python, "-m", "compileall", "-q", "."),

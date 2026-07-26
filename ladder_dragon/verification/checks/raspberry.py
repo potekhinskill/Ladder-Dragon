@@ -156,10 +156,17 @@ def _runtime_check(context: HarnessContext) -> CheckResult:
 def _deployed_sha_check(context: HarnessContext) -> CheckResult:
     started = time.monotonic()
     expected = (context.options.expected_sha or "").lower()
+    github_sha = (context.options.github_sha or "").lower()
     release_verified = False
-    if not FULL_SHA.fullmatch(expected):
+    upstream = None
+    if not FULL_SHA.fullmatch(expected) or not FULL_SHA.fullmatch(
+        github_sha
+    ):
         status = Status.BLOCKED
-        summary = "Pi profile requires --expected-sha with 40 hexadecimal characters"
+        summary = (
+            "Pi profile requires --expected-sha and --github-sha "
+            "with 40 hexadecimal characters"
+        )
         actual = None
     else:
         try:
@@ -185,11 +192,26 @@ def _deployed_sha_check(context: HarnessContext) -> CheckResult:
                 text=True,
                 timeout=10,
             ).stdout.strip().lower()
+            upstream = subprocess.run(
+                ["git", "rev-parse", "@{upstream}"],
+                cwd=context.root,
+                check=True,
+                capture_output=True,
+                text=True,
+                timeout=10,
+            ).stdout.strip().lower()
         except (OSError, subprocess.SubprocessError):
             actual = None
+            upstream = None
         if not release_verified:
             status = Status.BLOCKED
             summary = "a PASS release artifact for the expected SHA is required"
+        elif github_sha != expected:
+            status = Status.BLOCKED
+            summary = "release SHA differs from the reviewed GitHub SHA"
+        elif upstream != github_sha:
+            status = Status.BLOCKED
+            summary = "local GitHub tracking SHA differs from the reviewed SHA"
         else:
             status = Status.PASS if actual == expected else Status.BLOCKED
             summary = (
@@ -206,6 +228,9 @@ def _deployed_sha_check(context: HarnessContext) -> CheckResult:
         metrics={
             "matched": status is Status.PASS,
             "release_artifact_verified": release_verified,
+            "github_sha_matched": (
+                github_sha == expected == upstream
+            ),
         },
     )
 

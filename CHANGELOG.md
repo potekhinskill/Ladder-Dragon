@@ -3,6 +3,34 @@
 All notable changes are documented here. Releases use Semantic Versioning; every
 section is dated and there is intentionally no `Unreleased` section.
 
+## [2.20.36] — 2026-07-26
+
+### Added
+- Added a mandatory release continuity check to the shared local/release
+  verification harness and GitHub Actions. It emits the previous/current
+  release identities and complete included-commit list as a release manifest.
+- Added a versioned strict-lineage baseline and schema. Historical changelog
+  gaps remain explicitly legacy; every release after `v2.20.35` must be the
+  direct Semantic Version successor on annotated linear tags.
+
+### Changed
+- Pi verification now requires an explicit reviewed GitHub SHA and compares it
+  with deployed HEAD, fetched upstream and the SHA-linked PASS release artifact.
+- Extended project and release rules so a skipped version, repeated version
+  bump, unversioned post-tag commit or nonlinear release cannot be published.
+
+### Security
+- Release continuity and Pi SHA mismatches fail closed with exit status `2`.
+  The manifest contains commit identifiers only and cannot include child output,
+  environment values, signed URLs or secrets.
+
+### Verified
+- Added regression coverage for a valid next release manifest, skipped version,
+  late unversioned commit, synthetic pull-request merge and missing Pi GitHub
+  SHA.
+- The complete suite passes all `571` project tests; Python compilation, shell
+  and JavaScript syntax, SVG validation and whitespace checks pass.
+
 ## [2.20.35] — 2026-07-26
 
 ### Changed

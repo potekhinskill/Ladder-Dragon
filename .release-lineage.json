@@ -1,0 +1,7 @@
+{
+  "schema_version": 1,
+  "baseline_version": "2.20.35",
+  "baseline_tag": "v2.20.35",
+  "baseline_commit": "b3b6b2f591247bb71e8732022b18719f5165e84b",
+  "policy": "strict_linear_releases_after_baseline"
+}

@@ -21,6 +21,9 @@ from ladder_dragon.verification.models import (
     Status,
 )
 from ladder_dragon.verification.checks.raspberry import raspberry_checks
+from ladder_dragon.verification.checks.release_continuity import (
+    check_release_continuity,
+)
 from ladder_dragon.verification.profiles import (
     KNOWN_PROFILES,
     checks_for_profile,
@@ -61,6 +64,7 @@ def test_profile_registry_contains_the_documented_interfaces(tmp_path):
         "source_compile",
         "pytest",
         "numeric_boundary_audit",
+        "release_continuity",
         "tracked_secret_scan",
         "replay_regression",
         "walk_forward_approval",
@@ -122,6 +126,7 @@ def test_pi_accepts_only_sha_linked_to_passed_release_artifact(
         profile="pi",
         output=tmp_path / "pi.json",
         expected_sha=expected,
+        github_sha=expected,
         release_report=release,
         order_journal=tmp_path / "orders.sqlite3",
         prediction_db=tmp_path / "prediction.sqlite3",
@@ -141,6 +146,7 @@ def test_pi_accepts_only_sha_linked_to_passed_release_artifact(
     passed = HarnessRunner(context)._run_spec(spec)
     assert passed.status is Status.PASS
     assert passed.metrics["release_artifact_verified"] is True
+    assert passed.metrics["github_sha_matched"] is True
 
     release.write_text(
         json.dumps(
@@ -155,6 +161,179 @@ def test_pi_accepts_only_sha_linked_to_passed_release_artifact(
     )
     blocked = HarnessRunner(context)._run_spec(spec)
     assert blocked.status is Status.BLOCKED
+
+    missing_github = replace(options, github_sha=None)
+    missing_context = replace(context, options=missing_github)
+    missing_spec = next(
+        row
+        for row in raspberry_checks(missing_context)
+        if row.name == "pi_deployed_sha"
+    )
+    assert (
+        HarnessRunner(missing_context)._run_spec(missing_spec).status
+        is Status.BLOCKED
+    )
+    wrong_github = replace(options, github_sha="b" * 40)
+    wrong_context = replace(context, options=wrong_github)
+    wrong_spec = next(
+        row
+        for row in raspberry_checks(wrong_context)
+        if row.name == "pi_deployed_sha"
+    )
+    assert (
+        HarnessRunner(wrong_context)._run_spec(wrong_spec).status
+        is Status.BLOCKED
+    )
+
+
+def _git(root: Path, *args: str) -> str:
+    return subprocess.run(
+        ("git", *args),
+        cwd=root,
+        check=True,
+        capture_output=True,
+        text=True,
+    ).stdout.strip()
+
+
+def _write_release_surfaces(root: Path, version: str) -> None:
+    (root / "product_version.py").write_text(
+        f'__version__ = "{version}"\n',
+        encoding="utf-8",
+    )
+    (root / "README.md").write_text(
+        f"Current product version: **{version}**.\n",
+        encoding="utf-8",
+    )
+    changelog = f"## [{version}] — 2026-07-26\n"
+    if version != "1.0.0":
+        changelog += "\n## [1.0.0] — 2026-07-25\n"
+    (root / "CHANGELOG.md").write_text(changelog, encoding="utf-8")
+
+
+def _release_repository(
+    tmp_path: Path,
+    *,
+    candidate_version: str = "1.0.1",
+    trailing_commit: bool = False,
+) -> tuple[HarnessContext, str]:
+    root = tmp_path / "repo"
+    root.mkdir(parents=True)
+    _git(root, "init")
+    _git(root, "config", "user.name", "Release Test")
+    _git(root, "config", "user.email", "release@example.invalid")
+    _write_release_surfaces(root, "1.0.0")
+    _git(root, "add", "product_version.py", "README.md", "CHANGELOG.md")
+    _git(root, "commit", "-m", "release baseline")
+    baseline = _git(root, "rev-parse", "HEAD")
+    _git(root, "tag", "-a", "v1.0.0", "-m", "release 1.0.0")
+    (root / ".release-lineage.json").write_text(
+        json.dumps(
+            {
+                "schema_version": 1,
+                "baseline_version": "1.0.0",
+                "baseline_tag": "v1.0.0",
+                "baseline_commit": baseline,
+                "policy": "strict_linear_releases_after_baseline",
+            }
+        ),
+        encoding="utf-8",
+    )
+    _write_release_surfaces(root, candidate_version)
+    _git(root, "add", ".")
+    _git(root, "commit", "-m", f"release {candidate_version}")
+    candidate = _git(root, "rev-parse", "HEAD")
+    if trailing_commit:
+        (root / "extra.txt").write_text("late change\n", encoding="utf-8")
+        _git(root, "add", "extra.txt")
+        _git(root, "commit", "-m", "late unversioned change")
+    return _context(root), candidate
+
+
+def test_release_continuity_emits_included_commit_manifest(tmp_path):
+    context, candidate = _release_repository(tmp_path)
+
+    result = check_release_continuity(context)
+
+    assert result.status is Status.PASS
+    assert result.metrics["previous_version"] == "1.0.0"
+    assert result.metrics["current_version"] == "1.0.1"
+    assert result.metrics["candidate"] is True
+    assert result.metrics["included_commits"] == [candidate]
+
+
+def test_release_continuity_blocks_skips_and_late_unversioned_commits(
+    tmp_path,
+):
+    skipped, _ = _release_repository(
+        tmp_path / "skipped",
+        candidate_version="1.0.2",
+    )
+    late, _ = _release_repository(
+        tmp_path / "late",
+        trailing_commit=True,
+    )
+
+    skipped_result = check_release_continuity(skipped)
+    late_result = check_release_continuity(late)
+
+    assert skipped_result.status is Status.BLOCKED
+    assert "directly follow" in skipped_result.summary
+    assert late_result.status is Status.BLOCKED
+    assert "branch tip" in late_result.summary
+
+
+def test_release_continuity_accepts_ci_merge_with_candidate_tip(tmp_path):
+    context, candidate = _release_repository(tmp_path)
+    lineage = json.loads(
+        (context.root / ".release-lineage.json").read_text(encoding="utf-8")
+    )
+    _git(context.root, "branch", "candidate", candidate)
+    _git(
+        context.root,
+        "switch",
+        "-c",
+        "integration",
+        lineage["baseline_commit"],
+    )
+    (context.root / "ci.txt").write_text("integration\n", encoding="utf-8")
+    _git(context.root, "add", "ci.txt")
+    _git(context.root, "commit", "-m", "integration branch")
+    _git(
+        context.root,
+        "merge",
+        "--no-ff",
+        "candidate",
+        "-m",
+        "synthetic pull request merge",
+    )
+
+    result = check_release_continuity(context)
+
+    assert result.status is Status.PASS
+    assert result.metrics["current_version"] == "1.0.1"
+
+
+def test_release_lineage_baseline_matches_versioned_schema():
+    root = Path(__file__).resolve().parents[1]
+    baseline = json.loads(
+        (root / ".release-lineage.json").read_text(encoding="utf-8")
+    )
+    schema = json.loads(
+        (root / "schemas/release-lineage-v1.json").read_text(
+            encoding="utf-8"
+        )
+    )
+
+    assert set(baseline) == set(schema["required"])
+    assert baseline["schema_version"] == 1
+    assert baseline["baseline_tag"] == (
+        "v" + baseline["baseline_version"]
+    )
+    assert len(baseline["baseline_commit"]) == 40
+    assert baseline["policy"] == (
+        "strict_linear_releases_after_baseline"
+    )
 
 
 def test_child_output_cannot_leak_secrets_into_result(tmp_path, monkeypatch):

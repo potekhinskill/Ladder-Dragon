@@ -64,6 +64,7 @@ class HarnessOptions:
     profile: str
     output: Path
     expected_sha: str | None = None
+    github_sha: str | None = None
     symbol: str = "SOLUSDT"
     confirm_authenticated_testnet: bool = False
     confirm_testnet_mutation: bool = False

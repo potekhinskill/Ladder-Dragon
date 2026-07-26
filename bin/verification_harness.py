@@ -47,6 +47,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--profile", required=True)
     parser.add_argument("--output", type=Path)
     parser.add_argument("--expected-sha")
+    parser.add_argument("--github-sha")
     parser.add_argument("--symbol", default="SOLUSDT")
     parser.add_argument("--confirm-authenticated-testnet", action="store_true")
     parser.add_argument("--confirm-testnet-mutation", action="store_true")
@@ -106,6 +107,7 @@ def main(argv: list[str] | None = None) -> int:
         profile=profile,
         output=output,
         expected_sha=args.expected_sha,
+        github_sha=args.github_sha,
         symbol=symbol,
         confirm_authenticated_testnet=args.confirm_authenticated_testnet,
         confirm_testnet_mutation=args.confirm_testnet_mutation,
