@@ -869,8 +869,20 @@ def test_ci_scans_full_history_and_pins_actions_by_commit():
     assert workflow.count(
         '"refs/tags/${GITHUB_REF_NAME}:refs/tags/${GITHUB_REF_NAME}"'
     ) == 2
-    assert "gitleaks/gitleaks-action@ff98106e4c7b2bc287b24eaf42907196329070c7" in workflow
-    assert "trufflesecurity/trufflehog@466da5b0bb161144f6afca9afe5d57975828c410" in workflow
+    assert workflow.count(
+        "actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1"
+    ) == 2
+    assert workflow.count(
+        "actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97"
+    ) == 2
+    assert (
+        "gitleaks/gitleaks-action@e0c47f4f8be36e29cdc102c57e68cb5cbf0e8d1e"
+        in workflow
+    )
+    assert (
+        "trufflesecurity/trufflehog@6f3c981e7b77f235fd2702dd74af25fc4b72bf11"
+        in workflow
+    )
     assert "--only-verified" in workflow
     assert "actions/checkout@v" not in workflow
     assert "actions/setup-python@v" not in workflow

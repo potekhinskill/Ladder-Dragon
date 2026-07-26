@@ -3,6 +3,21 @@
 All notable changes are documented here. Releases use Semantic Versioning; every
 section is dated and there is intentionally no `Unreleased` section.
 
+## [2.20.40] — 2026-07-26
+
+### Changed
+- Consolidated the four outstanding GitHub Actions dependency branches into
+  one release: `actions/checkout` 7.0.1, `actions/setup-python` 7.0.0,
+  `gitleaks-action` 3.0.0, and TruffleHog 3.96.0.
+- All workflow dependencies remain pinned to immutable commit SHAs while the
+  cumulative `main` branch remains the single source for deployable code.
+
+### Verified
+- Workflow regression tests require the exact reviewed commit SHA for every
+  consolidated action in both applicable jobs.
+- The complete suite passes all `572` project tests; Python compilation and
+  whitespace checks pass.
+
 ## [2.20.39] — 2026-07-26
 
 ### Fixed
