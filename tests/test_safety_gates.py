@@ -31,6 +31,72 @@ def test_adaptive_target_buys_cannot_exceed_operator_limit(
     assert ai_supervisor.limit_target_buys(desired, operator_limit) == expected
 
 
+def _entry_settings(mode: str):
+    return ai_supervisor._directional_entry_settings(
+        base_gap="0.004",
+        atr_pct="0.001",
+        base_min_profit="0.002",
+        auto_adapt=True,
+        gap_atr_coefficient="0.6",
+        profit_atr_coefficient="0.6",
+        gap_floor="0.0025",
+        gap_ceiling="0.02",
+        mode=mode,
+        up_gap_multiplier="0.80",
+        down_gap_multiplier="1.50",
+        take_profit_pct="0.006",
+        up_tp_multiplier="1.00",
+        down_tp_multiplier="1.00",
+        tp_floor="0.003",
+        tp_ceiling="0.009",
+    )
+
+
+def test_directional_entry_follows_rising_market_without_crossing_it():
+    up_gap, up_min_profit, up_tp = _entry_settings("UP")
+    flat_gap, _, _ = _entry_settings("FLAT")
+    down_gap, _, _ = _entry_settings("DOWN")
+    market = Decimal("75.11")
+    buy = ai_supervisor._adaptive_best_buy_price(market, up_gap)
+
+    assert up_gap < flat_gap < down_gap
+    assert Decimal("0") < buy < market
+    assert buy > market * Decimal("0.995")
+    assert (market - buy) / market == up_gap
+    assert up_tp >= up_min_profit
+
+
+def test_directional_entry_fails_closed_when_profit_floor_exceeds_tp_cap():
+    with pytest.raises(ValueError, match="minimum profitable TP"):
+        ai_supervisor._directional_entry_settings(
+            base_gap="0.004",
+            atr_pct="0.02",
+            base_min_profit="0.002",
+            auto_adapt=True,
+            gap_atr_coefficient="0.6",
+            profit_atr_coefficient="0.6",
+            gap_floor="0.0025",
+            gap_ceiling="0.02",
+            mode="UP",
+            up_gap_multiplier="0.80",
+            down_gap_multiplier="1.50",
+            take_profit_pct="0.006",
+            up_tp_multiplier="1.00",
+            down_tp_multiplier="1.00",
+            tp_floor="0.003",
+            tp_ceiling="0.009",
+        )
+
+
+@pytest.mark.parametrize(
+    ("market", "gap"),
+    [("0", "0.004"), ("75", "0"), ("75", "1"), ("75", "-0.1")],
+)
+def test_adaptive_best_buy_rejects_unsafe_inputs(market, gap):
+    with pytest.raises(ValueError, match="adaptive BUY"):
+        ai_supervisor._adaptive_best_buy_price(market, gap)
+
+
 def load_worker():
     path = Path("bin/autosize_universal.py").resolve()
     spec = importlib.util.spec_from_file_location("ladder_worker", path)

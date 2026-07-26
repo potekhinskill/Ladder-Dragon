@@ -173,11 +173,11 @@ def build_supervisor_parser() -> argparse.ArgumentParser:
     ap.add_argument("--dir-hyst-bars", type=int, default=int(os.getenv("DIR_HYST_BARS", "5")))
     ap.add_argument("--dir-confirm-bars", type=int, default=int(os.getenv("DIR_CONFIRM_BARS", "3")))
     ap.add_argument("--dir-log", type=int, default=int(os.getenv("DIR_LOG", "1")))
-    ap.add_argument("--dir-up-dev-mult", type=float, default=float(os.getenv("DIR_UP_DEV_MULT", "1.30")))
-    ap.add_argument("--dir-up-tp1-mult", type=float, default=float(os.getenv("DIR_UP_TP1_MULT", "0.90")))
+    ap.add_argument("--dir-up-dev-mult", type=float, default=float(os.getenv("DIR_UP_DEV_MULT", "0.80")))
+    ap.add_argument("--dir-up-tp1-mult", type=float, default=float(os.getenv("DIR_UP_TP1_MULT", "1.00")))
     ap.add_argument("--dir-up-target-buys", type=int, default=int(os.getenv("DIR_UP_TARGET_BUYS", "3")))
-    ap.add_argument("--dir-down-dev-mult", type=float, default=float(os.getenv("DIR_DOWN_DEV_MULT", "0.80")))
-    ap.add_argument("--dir-down-tp1-mult", type=float, default=float(os.getenv("DIR_DOWN_TP1_MULT", "1.15")))
+    ap.add_argument("--dir-down-dev-mult", type=float, default=float(os.getenv("DIR_DOWN_DEV_MULT", "1.50")))
+    ap.add_argument("--dir-down-tp1-mult", type=float, default=float(os.getenv("DIR_DOWN_TP1_MULT", "1.00")))
     ap.add_argument("--dir-down-target-buys", type=int, default=int(os.getenv("DIR_DOWN_TARGET_BUYS", "2")))
 
     # The LLM is advisory only. Keys are accepted exclusively from the environment
@@ -489,6 +489,13 @@ def validate_supervisor_args(parser: argparse.ArgumentParser, args: argparse.Nam
         parser.error("--ladder-pct must contain exactly three numbers")
     if not values[0] < 0 or not values[1] < 0 or not values[2] > 0:
         parser.error("--ladder-pct expects negative low/down and positive up percentages")
+    if min(
+        args.dir_up_dev_mult,
+        args.dir_up_tp1_mult,
+        args.dir_down_dev_mult,
+        args.dir_down_tp1_mult,
+    ) <= 0:
+        parser.error("directional entry and TP multipliers must be > 0")
 
     if args.live and os.getenv("BOT_LIVE_CONFIRMED", "") != "YES":
         parser.error("--live requires BOT_LIVE_CONFIRMED=YES")

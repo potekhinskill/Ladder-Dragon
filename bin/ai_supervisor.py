@@ -169,6 +169,102 @@ def _analytics_float(value: object) -> float:
     """Convert an exact value only at a non-authoritative analytics boundary."""
     return compatibility_float(value, field="analytics value")
 
+
+def _directional_entry_settings(
+    *,
+    base_gap: object,
+    atr_pct: object,
+    base_min_profit: object,
+    auto_adapt: bool,
+    gap_atr_coefficient: object,
+    profit_atr_coefficient: object,
+    gap_floor: object,
+    gap_ceiling: object,
+    mode: str,
+    up_gap_multiplier: object,
+    down_gap_multiplier: object,
+    take_profit_pct: object,
+    up_tp_multiplier: object,
+    down_tp_multiplier: object,
+    tp_floor: object,
+    tp_ceiling: object,
+) -> tuple[Decimal, Decimal, Decimal]:
+    """Return exact entry gap, profit floor and TP for one market regime."""
+    gap = _finite_decimal(base_gap, name="base BUY gap")
+    volatility = _finite_decimal(atr_pct, name="ATR percentage")
+    minimum_profit = _finite_decimal(
+        base_min_profit, name="minimum profit"
+    )
+    floor = _finite_decimal(gap_floor, name="BUY gap floor")
+    ceiling = _finite_decimal(gap_ceiling, name="BUY gap ceiling")
+    tp = _finite_decimal(take_profit_pct, name="take profit")
+    tp_minimum = _finite_decimal(tp_floor, name="take profit floor")
+    tp_maximum = _finite_decimal(tp_ceiling, name="take profit ceiling")
+    gap_atr = _finite_decimal(
+        gap_atr_coefficient, name="BUY ATR coefficient"
+    )
+    profit_atr = _finite_decimal(
+        profit_atr_coefficient, name="profit ATR coefficient"
+    )
+    up_gap = _finite_decimal(
+        up_gap_multiplier, name="UP BUY gap multiplier"
+    )
+    down_gap = _finite_decimal(
+        down_gap_multiplier, name="DOWN BUY gap multiplier"
+    )
+    up_tp = _finite_decimal(up_tp_multiplier, name="UP TP multiplier")
+    down_tp = _finite_decimal(
+        down_tp_multiplier, name="DOWN TP multiplier"
+    )
+    if (
+        min(gap, minimum_profit, floor, volatility) < 0
+        or ceiling <= 0
+        or floor > ceiling
+        or tp_minimum <= 0
+        or tp_minimum > tp_maximum
+        or min(gap_atr, profit_atr, up_gap, down_gap, up_tp, down_tp) <= 0
+    ):
+        raise ValueError("directional entry bounds are invalid")
+    if auto_adapt:
+        gap = max(
+            gap,
+            gap_atr * volatility,
+            floor,
+        )
+        minimum_profit = max(
+            minimum_profit,
+            profit_atr * volatility,
+            floor * Decimal("0.8"),
+        )
+    normalized_mode = str(mode).upper()
+    if normalized_mode == "UP":
+        gap *= up_gap
+        tp *= up_tp
+    elif normalized_mode == "DOWN":
+        gap *= down_gap
+        tp *= down_tp
+    gap = min(ceiling, max(floor, gap))
+    required_tp = max(tp_minimum, tp, minimum_profit)
+    if required_tp > tp_maximum:
+        raise ValueError("minimum profitable TP exceeds the configured ceiling")
+    tp = required_tp
+    return gap, minimum_profit, tp
+
+
+def _adaptive_best_buy_price(
+    market_price: object,
+    entry_gap: object,
+) -> Decimal:
+    """Return a strictly positive, below-market adaptive BUY price."""
+    market = _finite_decimal(market_price, name="current entry price")
+    gap = _finite_decimal(entry_gap, name="adaptive BUY gap")
+    if market <= 0 or gap <= 0 or gap >= 1:
+        raise ValueError("adaptive BUY inputs are invalid")
+    price = market * (Decimal("1") - gap)
+    if price <= 0 or price >= market:
+        raise ValueError("adaptive BUY must remain strictly below market")
+    return price
+
 # Rounding mode and warm start for order cleanup
 PRICE_ROUND_MODE = os.getenv("PRICE_ROUND_MODE", "nearest").lower()  # floor|ceil|nearest
 CLEANUP_WARMUP_SEC = int(os.getenv("CLEANUP_WARMUP_SEC", "900") or 900)
@@ -2946,13 +3042,6 @@ def _build_ai_market_context(
             context,
             real_rag_episode_count=int(knowledge_stats.get("documents", 0)),
         )
-        # Virtual shadow examples are allowed only outside LIVE and are explicitly
-        # separated from real PnL by the virtual_validated status.
-        include_virtual_rag = (
-            not LIVE_MODE
-            and os.getenv("AI_RAG_INCLUDE_VIRTUAL", "1").strip().lower()
-            in {"1", "true", "yes", "on"}
-        )
         context_ready = (
             context.market_data_available
             and context.orderbook_available
@@ -2967,7 +3056,7 @@ def _build_ai_market_context(
                     symbol,
                     context_vector(context),
                     limit=int(os.getenv("AI_RAG_TOP_K", "3") or 3),
-                    include_virtual=include_virtual_rag,
+                    include_virtual=False,
                     min_score=_analytics_float(os.getenv("AI_RAG_MIN_SCORE", "0.65") or 0.65),
                     min_matches=max(1, int(os.getenv("AI_RAG_MIN_MATCHES", "1") or 1)),
                     decay_days=max(0, int(os.getenv("AI_RAG_DECAY_DAYS", "180") or 180)),
@@ -3146,6 +3235,61 @@ def run_for_symbol(symbol: str, args: argparse.Namespace) -> None:
                 },
             )
 
+    auto_adapt = os.environ.get(
+        "AUTO_ADAPT_ENABLE", "0"
+    ) in ("1", "true", "True", "YES", "yes")
+    entry_gap, minimum_profit, tp1_exact = _directional_entry_settings(
+        base_gap=os.environ.get("DEV_BUY_PCT", "0.004") or "0.004",
+        atr_pct=atr_pct or 0,
+        base_min_profit=(
+            os.environ.get("MIN_PROFIT_OVER_AVG", "0.002") or "0.002"
+        ),
+        auto_adapt=auto_adapt,
+        gap_atr_coefficient=(
+            os.environ.get("ADAPT_DEV_BUY_COEF", "0.6") or "0.6"
+        ),
+        profit_atr_coefficient=(
+            os.environ.get("ADAPT_MIN_PROFIT_COEF", "0.6") or "0.6"
+        ),
+        gap_floor=(
+            os.environ.get("ADAPT_MIN_FLOOR", "0.0025") or "0.0025"
+        ),
+        gap_ceiling=(
+            os.environ.get("ADAPT_MAX_ENTRY_GAP_PCT", "0.02") or "0.02"
+        ),
+        mode=dir_mode,
+        up_gap_multiplier=args.dir_up_dev_mult,
+        down_gap_multiplier=args.dir_down_dev_mult,
+        take_profit_pct=tp1_use,
+        up_tp_multiplier=args.dir_up_tp1_mult,
+        down_tp_multiplier=args.dir_down_tp1_mult,
+        tp_floor=args.tp1_min,
+        tp_ceiling=args.tp1_max,
+    )
+    before_tp1 = tp1_use
+    tp1_use = _analytics_float(tp1_exact)
+    extra_env.update({
+        "DEV_BUY_PCT": format(entry_gap, "f"),
+        "MIN_PROFIT_OVER_AVG": format(minimum_profit, "f"),
+    })
+    if dir_mode == "UP":
+        target_buys_use = max(1, int(args.dir_up_target_buys))
+    elif dir_mode == "DOWN":
+        target_buys_use = max(1, int(args.dir_down_target_buys))
+    adaptive_target_buys = round(
+        param_hyst["buys"].update(_analytics_float(target_buys_use))
+    )
+    target_buys_use = limit_target_buys(
+        adaptive_target_buys,
+        operator_target_buys_limit,
+    )
+    log(
+        f"[ENTRY-ADAPT] {symbol} mode={dir_mode} "
+        f"BUY gap={entry_gap:.4f} TP1 {before_tp1:.4f}→{tp1_use:.4f} "
+        f"min_net={minimum_profit:.4f} "
+        f"target_buys={args.target_buy_per_symbol}→{target_buys_use}"
+    )
+
     vwap_premium_final, vwap_discount_final, vwap_scale_final, vwap_interval_final, vwap_window_final = resolve_vwap_params(
         symbol,
         dir_mode,
@@ -3169,6 +3313,11 @@ def run_for_symbol(symbol: str, args: argparse.Namespace) -> None:
     down *= ai_width_scale
     up *= ai_width_scale
     ladder_all = build_ladder_pct(now_p, low, down, up, args.grid_density)
+    # DEV_BUY_PCT used to be a dead child environment value. Add the exact
+    # adaptive best BUY to the actual ladder so an UP market starts closer
+    # without crossing the market or enabling re-anchor APPLY.
+    adaptive_best_buy = _adaptive_best_buy_price(now_p, entry_gap)
+    ladder_all.append(adaptive_best_buy)
 
     ladder_all = _deduplicate_ladder_prices(ladder_all, now_p, tick_exact)
 
@@ -3205,23 +3354,7 @@ def run_for_symbol(symbol: str, args: argparse.Namespace) -> None:
     _publish_reanchor_runtime(symbol, sr, args)
     log(f"[SR-SUM] {symbol} kept={sr['kept']} cancel(ttl)={sr['cancel'].get('ttl',0)} cancel(atr)={sr['cancel'].get('atr',0)} cancel(reanchor)={sr['cancel'].get('reanchor',0)} shadow(reanchor)={sr['cancel'].get('shadow',0)}")
 
-    # 7) ATR-driven automatic adapter (environment override)
-    # extra_env may already contain the exact BOT_AI_DECISION_ID.
-    if os.environ.get('AUTO_ADAPT_ENABLE', '0') in ('1', 'true', 'True', 'YES', 'yes'):
-        base_dev_buy = _analytics_float(os.environ.get('DEV_BUY_PCT', '0.004') or 0.004)
-        base_min_profit = _analytics_float(os.environ.get('MIN_PROFIT_OVER_AVG', '0.002') or 0.002)
-        coef_dev = _analytics_float(os.environ.get('ADAPT_DEV_BUY_COEF', '0.6') or 0.6)
-        coef_min = _analytics_float(os.environ.get('ADAPT_MIN_PROFIT_COEF', '0.6') or 0.6)
-        floor_min = _analytics_float(os.environ.get('ADAPT_MIN_FLOOR', '0.0025') or 0.0025)
-
-        dev_buy_eff = max(base_dev_buy, coef_dev * atr_pct, floor_min)
-        min_profit_eff = max(base_min_profit, coef_min * atr_pct, floor_min * 0.8)
-
-        extra_env.update({
-            'DEV_BUY_PCT': f"{dev_buy_eff:.6f}",
-            'MIN_PROFIT_OVER_AVG': f"{min_profit_eff:.6f}",
-        })
-        log(f"[ADAPT] {symbol} atr={atr_abs:.4f} atr/px={atr_pct*100:.3f}% -> DEV_BUY_PCT={dev_buy_eff:.4f} MIN_PROFIT_OVER_AVG={min_profit_eff:.4f}")
+    # 7) The exact entry adapter was applied to the ladder before cleanup.
     # AI may only reduce an already safe CAP. Even if the model returns a
     # coefficient above 1, the Risk Manager calculation remains the upper bound.
     risk_safe_cap = _finite_decimal(
@@ -3243,27 +3376,7 @@ def run_for_symbol(symbol: str, args: argparse.Namespace) -> None:
         )
         extra_env["BOT_CAP_PER_ORDER"] = f"{advised_cap:.8f}"
 
-    # 8) Soft application of the mode to DEV_BUY_PCT and TP1
-    cur_dev = _analytics_float(extra_env.get('DEV_BUY_PCT') or os.environ.get('DEV_BUY_PCT', '0.004') or 0.004)
-    before_dev = cur_dev
-    before_tp1 = tp1_use
-
-    if dir_mode == "UP":
-        cur_dev = cur_dev * _analytics_float(args.dir_up_dev_mult)
-        tp1_use = max(_analytics_float(args.tp1_min), tp1_use * _analytics_float(args.dir_up_tp1_mult))
-        target_buys_use = max(1, int(args.dir_up_target_buys))
-    elif dir_mode == "DOWN":
-        cur_dev = cur_dev * _analytics_float(args.dir_down_dev_mult)
-        tp1_use = min(_analytics_float(args.tp1_max), tp1_use * _analytics_float(args.dir_down_tp1_mult))
-        target_buys_use = max(1, int(args.dir_down_target_buys))
-    adaptive_target_buys = round(param_hyst["buys"].update(_analytics_float(target_buys_use)))
-    target_buys_use = limit_target_buys(
-        adaptive_target_buys,
-        operator_target_buys_limit,
-    )
-
-    extra_env['DEV_BUY_PCT'] = f"{cur_dev:.6f}"
-    log(f"[DIR-APPLY] {symbol} mode={dir_mode} DEV_BUY_PCT {before_dev:.4f}→{cur_dev:.4f}, TP1 {before_tp1:.4f}→{tp1_use:.4f}, target_buys={args.target_buy_per_symbol}→{target_buys_use} (operator_max={operator_target_buys_limit})")
+    # 8) Directional entry and TP values are already immutable for this child.
 
     # 9) Position guardian / flatten using the filters already fetched
     mode = position_guard_and_maybe_flatten(symbol, now_p, atr_abs, args, filters)

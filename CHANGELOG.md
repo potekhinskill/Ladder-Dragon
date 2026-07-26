@@ -3,6 +3,35 @@
 All notable changes are documented here. Releases use Semantic Versioning; every
 section is dated and there is intentionally no `Unreleased` section.
 
+## [2.20.29] — 2026-07-26
+
+### Fixed
+- Connected the exact ATR/regime-adjusted `DEV_BUY_PCT` to the actual initial
+  ladder. The previous child environment value did not affect placement, so
+  the nearest BUY remained about 0.5% below a rising market until TTL or PANIC.
+- Reversed the directional entry defaults: `UP` now places the nearest BUY
+  closer while remaining strictly below market, and `DOWN` widens the gap.
+  TP is not narrowed and must cover the exact minimum-profit guard within its
+  configured ceiling or the cycle fails closed.
+- Added a relative Decimal floor to the ATR PANIC band so a tiny one-minute ATR
+  cannot classify ordinary sub-0.1% movement as PANIC. The separate abrupt-drop
+  trigger and meaningful downside protection remain active.
+- Enforced real-only RAG retrieval in every mode and synchronized the example
+  configuration and documentation.
+
+### Security
+- Re-anchor remains SHADOW: Raspberry evidence has a negative lower confidence
+  bound and fails the production gate, so this release does not allow it to
+  chase price or bypass the existing approval.
+
+### Verified
+- All `181` focused supervisor, prediction, re-anchor, PANIC, RAG, deployment
+  and fail-closed safety tests pass; source compilation also passes.
+- The complete local suite passes all `545` project tests.
+- The pre-commit `release` harness passes compilation, all project tests,
+  numeric and tracked-secret audits, plus `18` replay, `21` walk-forward,
+  `92` recovery and `58` migration/deployment regression checks.
+
 ## [2.20.28] — 2026-07-26
 
 ### Fixed

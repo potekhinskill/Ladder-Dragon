@@ -17,7 +17,7 @@ Binance Spot. It builds BUY/SELL grids, uses ATR/EMA/VWAP/ADX regimes, manages
 OCO protection, and records trading statistics in SQLite. Production secrets,
 real backups, and private parameters are never committed.
 
-Current product version: **2.20.28**. The single version source is
+Current product version: **2.20.29**. The single version source is
 `product_version.py`; releases follow [Semantic Versioning](https://semver.org/).
 Project contact: [LinkedIn](https://www.linkedin.com/in/ypotekhin/).
 
@@ -146,7 +146,7 @@ AI_DAILY_COST_LIMIT_USD=0.50
 AI_DAILY_TOKEN_LIMIT=500000
 AI_MAX_REQUESTS_PER_DAY=400
 AI_RAG_TOP_K=3
-AI_RAG_INCLUDE_VIRTUAL=1
+AI_RAG_INCLUDE_VIRTUAL=0
 ```
 
 `DISABLED` sends no requests, `SHADOW` records and evaluates recommendations
@@ -155,10 +155,11 @@ production gate. The dashboard switch changes only the advisory layer.
 
 The decision store keeps feature snapshots, confidence, outcomes, and a short
 validated rationale. Verified real closures and virtual SHADOW evaluations are
-stored as separate evidence classes. Virtual documents may support offline
-comparison but never count as real PnL or satisfy the APPLY production gate.
-Retrievals are linked to `decision_id`, cannot use future data, and are disabled
-for incomplete or stale context. RAG never fine-tunes DeepSeek.
+stored as separate evidence classes. Virtual documents are archived for
+offline comparison and never enter retrieval, count as real PnL, or satisfy
+the APPLY production gate. Retrievals are linked to `decision_id`, cannot use
+future data, and are disabled for incomplete or stale context. RAG never
+fine-tunes DeepSeek.
 
 Real AI readiness is intentionally data-bound. Do not enable `APPLY` until the
 configured minimum of exactly linked LIVE decisions has closed, unresolved
@@ -264,7 +265,24 @@ REANCHOR_TRIGGER_PCT=0.0025
 REANCHOR_MAX_STEP_PCT=0.005
 REANCHOR_MAX_MARKET_GAP_PCT=0.0015
 REANCHOR_MAX_PER_CYCLE=1
+DEV_BUY_PCT=0.004
+AUTO_ADAPT_ENABLE=1
+ADAPT_DEV_BUY_COEF=0.6
+ADAPT_MIN_PROFIT_COEF=0.6
+ADAPT_MIN_FLOOR=0.0025
+ADAPT_MAX_ENTRY_GAP_PCT=0.02
+DIR_UP_DEV_MULT=0.80
+DIR_DOWN_DEV_MULT=1.50
+DIR_UP_TP1_MULT=1.00
+DIR_DOWN_TP1_MULT=1.00
 ```
+
+The deterministic ladder always receives an exact adaptive closest BUY. An
+`UP` regime narrows the configured gap while keeping the order strictly below
+market; a `DOWN` regime widens it. ATR adaptation may widen the gap and the
+minimum-profit guard, but TP must still cover that guard within the configured
+TP ceiling or the cycle fails closed. This initial placement does not depend
+on prediction APPLY or a later re-anchor.
 
 For a production observation run, the operator may lower
 `REANCHOR_TRIGGER_PCT` to `0.0005` while keeping `ADAPTIVE_REANCHOR_MODE=SHADOW`.

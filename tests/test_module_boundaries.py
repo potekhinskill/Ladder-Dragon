@@ -113,6 +113,13 @@ def test_supervisor_config_owns_parser_and_validation(tmp_path):
     ])
     assert validate_supervisor_args(parser, args) == ["SOLUSDT", "ETHUSDT"]
     assert args.oco_fallback == "halt"
+    assert args.dir_up_dev_mult < 1
+    assert args.dir_down_dev_mult > 1
+
+    invalid = argparse.Namespace(**{**vars(args), "dir_up_dev_mult": 0})
+    with pytest.raises(SystemExit) as exc:
+        validate_supervisor_args(parser, invalid)
+    assert exc.value.code == 2
 
 
 def test_shared_strategy_math_has_no_runtime_dependencies():
@@ -128,6 +135,25 @@ def test_shared_strategy_math_has_no_runtime_dependencies():
     assert ema_value([1.0, 2.0, 3.0], 2) == pytest.approx(2.5555555556)
     assert len(ema_series([1.0, 2.0, 3.0], 2)) == 3
     assert panic_triggered(90.0, 100.0, 2.0, 100.0, 0.05, 2.0)
+
+
+def test_panic_ignores_tiny_atr_noise_but_keeps_real_downside_guard():
+    assert not panic_triggered(
+        99.92,
+        100.0,
+        0.02,
+        100.0,
+        0.02,
+        2.0,
+    )
+    assert panic_triggered(
+        99.40,
+        100.0,
+        0.02,
+        100.0,
+        0.02,
+        2.0,
+    )
 
 
 def test_indicator_math_handles_recorded_candle_shape():

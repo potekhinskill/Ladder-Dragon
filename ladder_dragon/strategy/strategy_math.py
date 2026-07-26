@@ -5,6 +5,7 @@
 
 from __future__ import annotations
 
+from decimal import Decimal, InvalidOperation
 from typing import Sequence
 import time
 
@@ -170,16 +171,47 @@ def panic_triggered(
     atr_multiplier: float,
 ) -> bool:
     """Handle panic triggered."""
+    def exact(value: object) -> Decimal | None:
+        if value is None:
+            return None
+        try:
+            converted = Decimal(str(value))
+        except (InvalidOperation, TypeError, ValueError):
+            return None
+        return converted if converted.is_finite() else None
+
+    now_exact = exact(now_price)
+    ema_exact = exact(ema20)
+    atr_exact = exact(atr)
+    close_exact = exact(previous_close)
+    drop_exact = exact(drop_pct)
+    multiplier_exact = exact(atr_multiplier)
+    if now_exact is None:
+        return False
+    # A very small one-minute ATR must not turn ordinary spread noise into a
+    # liquidation signal. The ATR band therefore has a relative floor equal
+    # to one quarter of the separately configured abrupt-drop threshold.
+    atr_floor = (
+        abs(drop_exact) * abs(ema_exact) / Decimal("4")
+        if drop_exact is not None
+        and ema_exact is not None
+        and ema_exact > 0
+        else Decimal("0")
+    )
     below_atr_band = (
-        ema20 is not None
-        and atr is not None
-        and atr > 0
-        and now_price <= ema20 - atr_multiplier * atr
+        ema_exact is not None
+        and atr_exact is not None
+        and multiplier_exact is not None
+        and atr_exact > 0
+        and now_exact
+        <= ema_exact - max(abs(multiplier_exact) * atr_exact, atr_floor)
     )
     abrupt_drop = (
-        previous_close is not None
-        and previous_close > 0
-        and now_price / previous_close - 1.0 <= -abs(drop_pct)
+        close_exact is not None
+        and drop_exact is not None
+        and close_exact > 0
+        and now_exact
+        <= close_exact * (Decimal("1") - abs(drop_exact))
     )
     return below_atr_band or abrupt_drop
 
