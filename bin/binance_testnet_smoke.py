@@ -836,21 +836,33 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
         for path in (limits.halt_file, limits.state_file, limits.alerts_file):
             path.unlink(missing_ok=True)
         events: list[tuple[str, object]] = []
+        gap_state = {"open": True}
+
+        def gap_orders(symbol: str) -> list[dict[str, object]]:
+            if not gap_state["open"]:
+                return []
+            return [{
+                "side": "SELL",
+                "orderListId": 77,
+                "stopPrice": "95",
+                "origQty": "1.000",
+                "executedQty": "0",
+            }]
+
+        def cancel_gap_oco(symbol: str, order_list_id: int) -> None:
+            events.append(("cancel_oco", order_list_id))
+            gap_state["open"] = False
+
         dependencies = SimpleNamespace(
-            list_open_orders=lambda symbol: [
-                {
-                    "side": "SELL",
-                    "orderListId": 77,
-                    "stopPrice": "95",
-                }
-            ],
-            cancel_oco=lambda symbol, order_list_id: events.append(
-                ("cancel_oco", order_list_id)
-            ),
+            list_open_orders=gap_orders,
+            cancel_oco=cancel_gap_oco,
             sleep=lambda seconds: None,
             get_symbol_assets=lambda symbol: (symbol.removesuffix("USDT"), "USDT"),
             get_balances=lambda: {
-                args.symbol.removesuffix("USDT"): {"free": "1.000", "locked": "0"}
+                args.symbol.removesuffix("USDT"): {
+                    "free": "0" if gap_state["open"] else "1.000",
+                    "locked": "1.000" if gap_state["open"] else "0",
+                }
             },
             round_quantity=lambda symbol, quantity: float(
                 Decimal(str(quantity)).quantize(Decimal("0.001"))
@@ -858,9 +870,14 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
             min_quantity=lambda symbol, price: 0.001,
             place_market_order=lambda symbol, side, quantity: events.append(
                 ("market_sell", str(quantity))
-            ) or {"orderId": 99, "status": "FILLED"},
+            ) or {
+                "orderId": 99,
+                "status": "FILLED",
+                "executedQty": str(quantity),
+            },
             halt=lambda reason, **metadata: events.append(("halt", reason)),
             logger=lambda message: events.append(("log", message)),
+            now=time.time,
         )
         flattened = emergency_gap_flatten(
             args.symbol,
@@ -879,20 +896,43 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
         # A partially executed STOP can leave only the residual base free after
         # OCO cancellation. The watchdog must flatten exactly that residual.
         partial_events: list[tuple[str, object]] = []
+        partial_state = {"open": True}
+
+        def partial_orders(symbol: str) -> list[dict[str, object]]:
+            if not partial_state["open"]:
+                return []
+            return [{
+                "side": "SELL",
+                "orderListId": 78,
+                "stopPrice": "95",
+                "origQty": "1.000",
+                "executedQty": "0",
+            }]
+
+        def cancel_partial_oco(symbol: str, order_list_id: int) -> None:
+            partial_events.append(("cancel_oco", order_list_id))
+            partial_state["open"] = False
+
         partial_dependencies = SimpleNamespace(
             **{
                 **vars(dependencies),
+                "list_open_orders": partial_orders,
                 "get_balances": lambda: {
                     args.symbol.removesuffix("USDT"): {
-                        "free": "0.400", "locked": "0"
+                        "free": "0" if partial_state["open"] else "0.400",
+                        "locked": (
+                            "1.000" if partial_state["open"] else "0"
+                        ),
                     }
                 },
-                "cancel_oco": lambda symbol, order_list_id: partial_events.append(
-                    ("cancel_oco", order_list_id)
-                ),
+                "cancel_oco": cancel_partial_oco,
                 "place_market_order": lambda symbol, side, quantity: partial_events.append(
                     ("market_sell", str(quantity))
-                ) or {"orderId": 100, "status": "FILLED"},
+                ) or {
+                    "orderId": 100,
+                    "status": "FILLED",
+                    "executedQty": str(quantity),
+                },
                 "halt": lambda reason, **metadata: partial_events.append(("halt", reason)),
                 "logger": lambda message: partial_events.append(("log", message)),
             }
@@ -907,9 +947,23 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
         # A lost OCO-cancel ACK is uncertain and must persist a halt that a new
         # manager instance observes after restart. It must not guess and SELL.
         uncertain_events: list[tuple[str, object]] = []
+        uncertain_order = {
+            "side": "SELL",
+            "orderListId": 79,
+            "stopPrice": "95",
+            "origQty": "1.000",
+            "executedQty": "0",
+        }
         uncertain_dependencies = SimpleNamespace(
             **{
                 **vars(dependencies),
+                "list_open_orders": lambda symbol: [uncertain_order],
+                "get_balances": lambda: {
+                    args.symbol.removesuffix("USDT"): {
+                        "free": "0",
+                        "locked": "1.000",
+                    }
+                },
                 "cancel_oco": lambda symbol, order_list_id: (
                     _ for _ in ()
                 ).throw(requests.ConnectionError("simulated lost cancel ACK")),

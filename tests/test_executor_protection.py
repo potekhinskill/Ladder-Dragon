@@ -231,7 +231,10 @@ def test_live_failed_oco_flattens_and_halts(tmp_path, monkeypatch):
     deps = dependencies(
         get_order=lambda symbol, order_id: {"orderId": order_id, "status": "FILLED",
                                              "executedQty": "0.100", "cummulativeQuoteQty": "10.0"},
-        place_market_order=lambda *args, **kwargs: flattened.append((args, kwargs)),
+        place_market_order=lambda *args, **kwargs: (
+            flattened.append((args, kwargs))
+            or {"orderId": 90, "status": "FILLED", "executedQty": "0.100"}
+        ),
         halt=lambda reason, **metadata: halts.append(reason),
     )
     remaining = protect_filled_buys("SOLUSDT", [42], [90.0, 110.0], config=config(),
@@ -239,7 +242,122 @@ def test_live_failed_oco_flattens_and_halts(tmp_path, monkeypatch):
                                     state_store=state_store(tmp_path), dependencies=deps)
     assert remaining == [42]
     assert flattened[0][0][:3] == ("SOLUSDT", "SELL", Decimal("0.1"))
-    assert "fallback prefer-tp1" in halts[0]
+    assert "emergency MARKET flatten confirmed" in halts[0]
+
+
+def test_live_failed_oco_reports_incomplete_market_flatten(
+    tmp_path,
+    monkeypatch,
+):
+    monkeypatch.setenv("BOT_LIVE_CONFIRMED", "YES")
+    halts = []
+    deps = dependencies(
+        get_order=lambda symbol, order_id: {
+            "orderId": order_id,
+            "status": "FILLED",
+            "executedQty": "0.100",
+            "cummulativeQuoteQty": "10.0",
+        },
+        place_market_order=lambda *args, **kwargs: {
+            "orderId": 90,
+            "status": "PARTIALLY_FILLED",
+            "executedQty": "0.040",
+        },
+        halt=lambda reason, **metadata: halts.append(reason),
+    )
+
+    protect_filled_buys(
+        "SOLUSDT",
+        [42],
+        [90.0, 110.0],
+        config=config(),
+        panic_active=False,
+        breakeven_enabled=False,
+        state_store=state_store(tmp_path),
+        dependencies=deps,
+    )
+
+    assert "position may be unprotected" in halts[0]
+    assert "expected=0.100 executed=0.040" in halts[0]
+
+
+def test_live_failed_oco_catches_market_transport_error(
+    tmp_path,
+    monkeypatch,
+):
+    monkeypatch.setenv("BOT_LIVE_CONFIRMED", "YES")
+    halts = []
+    deps = dependencies(
+        get_order=lambda symbol, order_id: {
+            "orderId": order_id,
+            "status": "FILLED",
+            "executedQty": "0.100",
+            "cummulativeQuoteQty": "10.0",
+        },
+        place_market_order=lambda *args, **kwargs: (
+            _ for _ in ()
+        ).throw(requests.ConnectionError("network unavailable")),
+        halt=lambda reason, **metadata: halts.append(reason),
+    )
+
+    protect_filled_buys(
+        "SOLUSDT",
+        [42],
+        [90.0, 110.0],
+        config=config(),
+        panic_active=False,
+        breakeven_enabled=False,
+        state_store=state_store(tmp_path),
+        dependencies=deps,
+    )
+
+    assert "position may be unprotected" in halts[0]
+    assert "error=ConnectionError" in halts[0]
+
+
+def test_protection_uses_full_step_aligned_fill_and_tp_ceil(tmp_path):
+    placed = []
+    deps = dependencies(
+        get_order=lambda symbol, order_id: {
+            "orderId": order_id,
+            "status": "FILLED",
+            "executedQty": "0.100",
+            "cummulativeQuoteQty": "10.0",
+        },
+        pick_oco_prices=lambda *args: ("110.09", "95.04", "94.94"),
+        pull_filters=lambda symbol: {
+            "tickSizeExact": "0.1",
+            "stepSizeExact": "0.001",
+            "minQtyExact": "0.001",
+            "minNotionalExact": "5",
+        },
+        get_balances=lambda: {
+            "SOL": {"free": "0.100", "locked": "0"}
+        },
+        place_oco_sell=lambda *args, **kwargs: (
+            placed.append((args, kwargs)) or {"orderListId": 77}
+        ),
+    )
+
+    remaining = protect_filled_buys(
+        "SOLUSDT",
+        [42],
+        [90.0, 110.09],
+        config=config(),
+        panic_active=False,
+        breakeven_enabled=False,
+        state_store=state_store(tmp_path),
+        dependencies=deps,
+    )
+
+    assert remaining == []
+    assert placed[0][0][:5] == (
+        "SOLUSDT",
+        Decimal("0.100"),
+        Decimal("110.1"),
+        "95.04",
+        Decimal("94.9"),
+    )
 
 
 def test_breakeven_rearms_partially_filled_oco(tmp_path):
@@ -401,12 +519,202 @@ def test_breakeven_runtime_respects_interval():
 
 def test_gap_below_stop_cancels_oco_and_confirms_market_flatten():
     canceled, sold = [], []
+    state = {"open": True}
+
+    def open_orders(symbol):
+        if not state["open"]:
+            return []
+        return [{
+            "side": "SELL",
+            "orderListId": 77,
+            "stopPrice": "95",
+            "origQty": "0.124",
+            "executedQty": "0",
+        }]
+
+    def cancel(symbol, order_list_id):
+        canceled.append(order_list_id)
+        state["open"] = False
+
     deps = dependencies(
-        list_open_orders=lambda symbol: [{"side": "SELL", "orderListId": 77, "stopPrice": "95"}],
-        get_balances=lambda: {"SOL": {"free": 1.0, "locked": 0.0}},
-        cancel_oco=lambda symbol, oid: canceled.append(oid),
-        place_market_order=lambda *args: sold.append(args) or {"orderId": 99, "status": "FILLED"},
+        list_open_orders=open_orders,
+        get_balances=lambda: {
+            "SOL": {
+                "free": "3.756" if state["open"] else "3.880",
+                "locked": "0.124" if state["open"] else "0",
+            }
+        },
+        cancel_oco=cancel,
+        place_market_order=lambda *args: (
+            sold.append(args)
+            or {"orderId": 99, "status": "FILLED", "executedQty": "0.124"}
+        ),
     )
     assert emergency_gap_flatten("SOLUSDT", 80.0, dependencies=deps)
     assert canceled == [77]
-    assert sold[0][:3] == ("SOLUSDT", "SELL", Decimal("0.999"))
+    assert sold[0][:3] == ("SOLUSDT", "SELL", Decimal("0.124"))
+
+
+def test_gap_flatten_waits_for_oco_release_before_market_sell():
+    calls = {"orders": 0, "balances": 0}
+    sleeps = []
+    sold = []
+
+    def open_orders(symbol):
+        calls["orders"] += 1
+        if calls["orders"] <= 3:
+            return [{
+                "side": "SELL",
+                "orderListId": 77,
+                "stopPrice": "95",
+                "origQty": "1.000",
+                "executedQty": "0",
+            }]
+        return []
+
+    def balances():
+        calls["balances"] += 1
+        released = calls["balances"] >= 4
+        return {
+            "SOL": {
+                "free": "1.000" if released else "0",
+                "locked": "0" if released else "1.000",
+            }
+        }
+
+    deps = dependencies(
+        list_open_orders=open_orders,
+        get_balances=balances,
+        place_market_order=lambda *args: (
+            sold.append(args)
+            or {"orderId": 99, "status": "FILLED", "executedQty": "1.000"}
+        ),
+        sleep=sleeps.append,
+    )
+
+    assert emergency_gap_flatten(
+        "SOLUSDT",
+        80.0,
+        dependencies=deps,
+        cancel_release_timeout_sec=0.1,
+        cancel_release_poll_sec=0.01,
+    )
+    assert len(sleeps) == 2
+    assert sold[0][:3] == ("SOLUSDT", "SELL", Decimal("1.0"))
+
+
+def test_gap_flatten_uses_smaller_residual_from_partially_filled_oco_leg():
+    state = {"open": True}
+    sold = []
+    orders = [
+        {
+            "side": "SELL",
+            "orderListId": 77,
+            "type": "STOP_LOSS_LIMIT",
+            "stopPrice": "95",
+            "origQty": "1.000",
+            "executedQty": "0",
+        },
+        {
+            "side": "SELL",
+            "orderListId": 77,
+            "type": "LIMIT_MAKER",
+            "stopPrice": "0",
+            "origQty": "1.000",
+            "executedQty": "0.600",
+        },
+    ]
+
+    deps = dependencies(
+        list_open_orders=lambda symbol: orders if state["open"] else [],
+        cancel_oco=lambda symbol, order_list_id: state.update(open=False),
+        get_balances=lambda: {
+            "SOL": {
+                "free": "3.756" if state["open"] else "4.156",
+                "locked": "0.400" if state["open"] else "0",
+            }
+        },
+        place_market_order=lambda *args: (
+            sold.append(args)
+            or {"orderId": 99, "status": "FILLED", "executedQty": "0.400"}
+        ),
+    )
+
+    assert emergency_gap_flatten(
+        "SOLUSDT",
+        80.0,
+        dependencies=deps,
+    )
+    assert sold[0][:3] == ("SOLUSDT", "SELL", Decimal("0.4"))
+
+
+def test_gap_flatten_halts_when_oco_release_never_confirms():
+    halts = []
+    market_orders = []
+    order = {
+        "side": "SELL",
+        "orderListId": 77,
+        "stopPrice": "95",
+        "origQty": "1.000",
+        "executedQty": "0",
+    }
+    deps = dependencies(
+        list_open_orders=lambda symbol: [order],
+        get_balances=lambda: {
+            "SOL": {"free": "0", "locked": "1.000"}
+        },
+        place_market_order=lambda *args: market_orders.append(args),
+        halt=lambda reason, **metadata: halts.append(reason),
+    )
+
+    assert not emergency_gap_flatten(
+        "SOLUSDT",
+        80.0,
+        dependencies=deps,
+        cancel_release_timeout_sec=0.02,
+        cancel_release_poll_sec=0.01,
+    )
+    assert market_orders == []
+    assert "release not confirmed" in halts[0]
+
+
+def test_gap_flatten_halts_on_partial_market_execution():
+    state = {"open": True}
+    halts = []
+
+    def open_orders(symbol):
+        return [{
+            "side": "SELL",
+            "orderListId": 77,
+            "stopPrice": "95",
+            "origQty": "1.000",
+            "executedQty": "0",
+        }] if state["open"] else []
+
+    def cancel(symbol, order_list_id):
+        state["open"] = False
+
+    deps = dependencies(
+        list_open_orders=open_orders,
+        cancel_oco=cancel,
+        get_balances=lambda: {
+            "SOL": {
+                "free": "0" if state["open"] else "1.000",
+                "locked": "1.000" if state["open"] else "0",
+            }
+        },
+        place_market_order=lambda *args: {
+            "orderId": 99,
+            "status": "PARTIALLY_FILLED",
+            "executedQty": "0.400",
+        },
+        halt=lambda reason, **metadata: halts.append(reason),
+    )
+
+    assert not emergency_gap_flatten(
+        "SOLUSDT",
+        80.0,
+        dependencies=deps,
+    )
+    assert "MARKET flatten incomplete" in halts[0]
+    assert "expected=1.000 executed=0.400" in halts[0]

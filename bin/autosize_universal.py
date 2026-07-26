@@ -2198,10 +2198,13 @@ def maybe_place_sells_from_holdings(
     # For legacy inventory without OCO, enable emergency market flattening (LIVE
     # by default), otherwise the position remains without a protective exit.
     if panic_active and os.getenv("PANIC_FLATTEN_HOLDINGS", "1").lower() in ("1", "true", "yes"):
-        dust = Decimal(str(symbol_filters[symbol].get(
-            "minQtyExact", symbol_filters[symbol]["minQty"]
-        )))
-        panic_qty = max(Decimal("0"), base_free - dust)
+        panic_qty = round_step(
+            base_free,
+            symbol_filters[symbol].get(
+                "stepSizeExact", str(symbol_filters[symbol]["stepSize"])
+            ),
+            "floor",
+        )
         if panic_qty > 0:
             try:
                 result = place_market_order(symbol, "SELL", panic_qty,
@@ -2305,12 +2308,11 @@ def maybe_place_sells_from_holdings(
         )
         return 0
 
-    # Dust handling and allocation.
-    dust = minimum_quantity
-    qty_left = max(Decimal("0"), base_free - dust)
+    # Floor-to-step at each placement leaves only unavoidable sub-step dust.
+    qty_left = max(Decimal("0"), base_free)
     if qty_left <= 0:
         dbg(f"[HOLD-SELL] {symbol} sellable≈{fmt_qty_sym(symbol, qty_left)} "
-            f"(free={fmt_qty_sym(symbol, base_free)}, dust={fmt_qty_sym(symbol, dust)})")
+            f"(free={fmt_qty_sym(symbol, base_free)})")
         return 0
 
     n = len(upper_guarded)

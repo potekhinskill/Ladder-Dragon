@@ -717,6 +717,108 @@ def test_holdings_sell_percent_filter_blocks_exchange_mutation(monkeypatch):
     ) == 0
 
 
+def test_panic_flatten_uses_full_step_aligned_free_balance(monkeypatch):
+    worker = load_worker()
+    worker.symbol_filters["SOLUSDT"] = {
+        "tickSize": 0.01,
+        "tickSizeExact": "0.01",
+        "stepSize": 0.001,
+        "stepSizeExact": "0.001",
+        "minQty": 0.001,
+        "minQtyExact": "0.001",
+        "minNotional": 5.0,
+        "minNotionalExact": "5",
+    }
+    sold = []
+    monkeypatch.setenv("PANIC_FLATTEN_HOLDINGS", "1")
+    monkeypatch.setattr(
+        worker,
+        "get_symbol_assets",
+        lambda symbol: ("SOL", "USDT"),
+    )
+    monkeypatch.setattr(
+        worker,
+        "get_balances",
+        lambda: {"SOL": {"free": "1.000", "locked": "0"}},
+    )
+    monkeypatch.setattr(worker, "pull_filters", lambda symbol: None)
+    monkeypatch.setattr(
+        worker,
+        "get_price_exact",
+        lambda symbol: Decimal("100"),
+    )
+    monkeypatch.setattr(
+        worker,
+        "place_market_order",
+        lambda *args, **kwargs: (
+            sold.append((args, kwargs))
+            or {"orderId": 99, "status": "FILLED", "executedQty": "1.000"}
+        ),
+    )
+
+    assert worker.maybe_place_sells_from_holdings(
+        "SOLUSDT",
+        [110.0],
+        panic_active=True,
+    ) == 1
+    assert sold[0][0][:3] == ("SOLUSDT", "SELL", Decimal("1.000"))
+
+
+def test_holdings_sell_leaves_only_sub_step_exchange_dust(monkeypatch):
+    worker = load_worker()
+    worker.symbol_filters["SOLUSDT"] = {
+        "tickSize": 0.01,
+        "tickSizeExact": "0.01",
+        "stepSize": 0.001,
+        "stepSizeExact": "0.001",
+        "minQty": 0.001,
+        "minQtyExact": "0.001",
+        "minNotional": 5.0,
+        "minNotionalExact": "5",
+    }
+    placed = []
+    monkeypatch.setattr(
+        worker,
+        "get_symbol_assets",
+        lambda symbol: ("SOL", "USDT"),
+    )
+    monkeypatch.setattr(
+        worker,
+        "get_balances",
+        lambda: {"SOL": {"free": "1.0004", "locked": "0"}},
+    )
+    monkeypatch.setattr(worker, "pull_filters", lambda symbol: None)
+    monkeypatch.setattr(
+        worker,
+        "_holdings_cost_basis_covered",
+        lambda *args: Decimal("90"),
+    )
+    monkeypatch.setattr(
+        worker,
+        "get_price_exact",
+        lambda symbol: Decimal("100"),
+    )
+    monkeypatch.setattr(
+        worker,
+        "validate_limit_sell_prices",
+        lambda symbol, prices: None,
+    )
+    monkeypatch.setattr(
+        worker,
+        "place_limit_order",
+        lambda *args, **kwargs: (
+            placed.append((args, kwargs))
+            or {"orderId": 100, "status": "NEW"}
+        ),
+    )
+
+    assert worker.maybe_place_sells_from_holdings(
+        "SOLUSDT",
+        [110.0],
+    ) == 1
+    assert placed[0][0][2] == Decimal("1.000")
+
+
 def test_worker_blocks_oversized_plan_before_exchange_mutation(monkeypatch):
     worker = load_worker()
     worker.RUN = True

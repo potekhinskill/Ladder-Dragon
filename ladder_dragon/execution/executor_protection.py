@@ -6,7 +6,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from decimal import Decimal, InvalidOperation
+from decimal import Decimal, InvalidOperation, ROUND_CEILING
 import json
 import os
 import sqlite3
@@ -99,16 +99,63 @@ class ProtectionDependencies:
     lot_id_for_fill: Optional[Callable[[str, object, int | None], int | None]] = None
 
 
+def _exact_balance_quantity(
+    balances: Dict[str, Dict[str, object]],
+    asset: str,
+    field: str,
+) -> Decimal:
+    value = Decimal(str((balances.get(asset) or {}).get(field, 0) or 0))
+    if not value.is_finite() or value < 0:
+        raise ValueError(f"invalid {asset} {field} balance")
+    return value
+
+
+def _remaining_oco_quantity(order: Dict[str, Any]) -> Decimal:
+    original = Decimal(str(order.get("origQty", 0) or 0))
+    executed = Decimal(str(order.get("executedQty", 0) or 0))
+    if (
+        not original.is_finite()
+        or not executed.is_finite()
+        or original <= 0
+        or executed < 0
+        or executed > original
+    ):
+        raise ValueError("breached OCO has invalid quantity state")
+    return original - executed
+
+
+def _confirmed_market_fill(
+    result: Dict[str, Any] | None,
+    expected_quantity: Decimal,
+) -> tuple[bool, Decimal, str]:
+    if not isinstance(result, dict):
+        return False, Decimal("0"), "MISSING"
+    status = str(result.get("status") or "UNKNOWN").upper()
+    try:
+        executed = Decimal(str(result.get("executedQty", 0) or 0))
+    except (InvalidOperation, TypeError, ValueError):
+        return False, Decimal("0"), status
+    if not executed.is_finite() or executed < 0:
+        return False, Decimal("0"), status
+    return (
+        status == "FILLED" and executed >= expected_quantity,
+        executed,
+        status,
+    )
+
+
 def emergency_gap_flatten(
     symbol: str, current_price: float, *, dependencies: ProtectionDependencies,
     gap_tolerance_pct: float = 0.0,
+    cancel_release_timeout_sec: float = 5.0,
+    cancel_release_poll_sec: float = 0.1,
 ) -> bool:
-    """Handle emergency gap flatten."""
+    """Cancel breached OCO lists and confirm the complete residual flatten."""
     try:
         current = Decimal(str(current_price))
         tolerance = max(Decimal("0"), Decimal(str(gap_tolerance_pct)))
         orders = dependencies.list_open_orders(symbol) or []
-        breached = []
+        breached: list[Dict[str, Any]] = []
         for order in orders:
             if str(order.get("side", "")).upper() != "SELL":
                 continue
@@ -117,36 +164,172 @@ def emergency_gap_flatten(
                 breached.append(order)
         if not breached:
             return False
-        seen_lists = {int(item["orderListId"]) for item in breached if item.get("orderListId") is not None}
+
+        seen_lists: set[int] = set()
+        for item in breached:
+            if item.get("orderListId") is None:
+                raise ValueError("breached protection has no OCO list id")
+            seen_lists.add(int(item["orderListId"]))
+
+        # Use both legs when available. A partially filled TP can reduce the
+        # protected residual while the STOP leg still reports its original
+        # quantity; the smaller remaining leg is the authoritative exposure.
+        quantities_by_list: dict[int, list[Decimal]] = {}
+        for item in orders:
+            if (
+                str(item.get("side", "")).upper() != "SELL"
+                or item.get("orderListId") is None
+            ):
+                continue
+            list_id = int(item["orderListId"])
+            if list_id not in seen_lists:
+                continue
+            quantities_by_list.setdefault(list_id, []).append(
+                _remaining_oco_quantity(item)
+            )
+        if set(quantities_by_list) != seen_lists:
+            raise ValueError("breached OCO quantity state is incomplete")
+        expected_quantity = sum(
+            (
+                min(quantities)
+                for quantities in quantities_by_list.values()
+                if quantities
+            ),
+            Decimal("0"),
+        )
+        if expected_quantity <= 0:
+            raise ValueError("breached OCO has no positive residual quantity")
+
+        base, _ = dependencies.get_symbol_assets(symbol)
+        initial_balances = dependencies.get_balances() or {}
+        initial_free = _exact_balance_quantity(initial_balances, base, "free")
+        initial_locked = _exact_balance_quantity(
+            initial_balances, base, "locked"
+        )
+        initial_total = initial_free + initial_locked
+        if initial_total < expected_quantity:
+            raise ValueError(
+                "account base balance is below breached OCO residual"
+            )
+
         for list_id in seen_lists:
             dependencies.cancel_oco(symbol, list_id)
-        dependencies.sleep(0.2)
-        base, _ = dependencies.get_symbol_assets(symbol)
-        balances = dependencies.get_balances() or {}
-        free = Decimal(str((balances.get(base) or {}).get("free", 0) or 0))
+
         pull_filters = getattr(dependencies, "pull_filters", None)
         filters = exact_symbol_filters(
             pull_filters(symbol) if callable(pull_filters) else None
         )
-        if filters is not None:
-            qty = round_step(
-                max(Decimal("0"), free - filters.minimum_quantity),
-                filters.step,
-                "floor",
+
+        raw_timeout = Decimal(str(cancel_release_timeout_sec))
+        raw_poll_interval = Decimal(str(cancel_release_poll_sec))
+        if (
+            not raw_timeout.is_finite()
+            or not raw_poll_interval.is_finite()
+        ):
+            raise ValueError("gap cancel-release timing must be finite")
+        timeout = max(Decimal("0.1"), raw_timeout)
+        poll_interval = max(Decimal("0.01"), raw_poll_interval)
+        sleep_seconds = (
+            cancel_release_poll_sec
+            if raw_poll_interval >= Decimal("0.01")
+            else 0.01
+        )
+        maximum_attempts = max(
+            1,
+            int(
+                (timeout / poll_interval).to_integral_value(
+                    rounding=ROUND_CEILING
+                )
             )
-        else:
-            minimum = Decimal(str(dependencies.min_quantity(symbol, Decimal("0"))))
-            qty = Decimal(str(dependencies.round_quantity(
-                symbol, max(Decimal("0"), free - minimum)
-            )))
-        if qty <= 0:
-            dependencies.halt("gap below STOP_LIMIT: no free quantity after OCO cancel", symbol=symbol)
+            + 1,
+        )
+        started_at = dependencies.now()
+        quantity = Decimal("0")
+        free = initial_free
+        locked = initial_locked
+        remaining_expected = expected_quantity
+        for attempt in range(maximum_attempts):
+            current_orders = dependencies.list_open_orders(symbol) or []
+            still_open = {
+                int(item["orderListId"])
+                for item in current_orders
+                if item.get("orderListId") is not None
+                and int(item["orderListId"]) in seen_lists
+            }
+            balances = dependencies.get_balances() or {}
+            free = _exact_balance_quantity(balances, base, "free")
+            locked = _exact_balance_quantity(balances, base, "locked")
+            sold_during_cancel = max(
+                Decimal("0"),
+                initial_total - (free + locked),
+            )
+            remaining_expected = max(
+                Decimal("0"),
+                expected_quantity - sold_during_cancel,
+            )
+            if filters is not None:
+                quantity = round_step(
+                    remaining_expected,
+                    filters.step,
+                    "floor",
+                )
+                minimum_quantity = filters.minimum_quantity
+            else:
+                quantity = Decimal(str(dependencies.round_quantity(
+                    symbol,
+                    remaining_expected,
+                )))
+                minimum_quantity = Decimal(str(
+                    dependencies.min_quantity(symbol, Decimal("0"))
+                ))
+
+            if not still_open:
+                if remaining_expected == 0:
+                    dependencies.logger(
+                        f"[GAP-FLATTEN] {symbol} breached OCO filled during "
+                        f"cancel qty={expected_quantity}"
+                    )
+                    return True
+                if quantity <= 0 or quantity < minimum_quantity:
+                    dependencies.halt(
+                        "gap below STOP_LIMIT: residual quantity is below "
+                        "exchange minimum after OCO cancel",
+                        symbol=symbol,
+                    )
+                    return False
+                if free >= quantity:
+                    break
+
+            elapsed = Decimal(str(dependencies.now() - started_at))
+            if attempt + 1 >= maximum_attempts or elapsed >= timeout:
+                dependencies.halt(
+                    "gap below STOP_LIMIT: OCO cancel/free-balance release "
+                    f"not confirmed expected={expected_quantity} "
+                    f"free={free} locked={locked}",
+                    symbol=symbol,
+                )
+                return False
+            dependencies.sleep(sleep_seconds)
+
+        result = (
+            dependencies.place_market_order(symbol, "SELL", quantity)
+            if dependencies.place_market_order else None
+        )
+        confirmed, executed, status = _confirmed_market_fill(
+            result,
+            quantity,
+        )
+        if not confirmed:
+            dependencies.halt(
+                "gap below STOP_LIMIT: MARKET flatten incomplete "
+                f"expected={quantity} executed={executed} status={status}",
+                symbol=symbol,
+            )
             return False
-        result = dependencies.place_market_order(symbol, "SELL", qty) if dependencies.place_market_order else None
-        if not result:
-            dependencies.halt("gap below STOP_LIMIT: MARKET flatten not confirmed", symbol=symbol)
-            return False
-        dependencies.logger(f"[GAP-FLATTEN] {symbol} MARKET SELL qty={qty}")
+        dependencies.logger(
+            f"[GAP-FLATTEN] {symbol} MARKET SELL "
+            f"expected={quantity} executed={executed}"
+        )
         return True
     except _PROTECTION_DATA_ERRORS as exc:
         dependencies.halt(f"gap watchdog failed: {exc}", symbol=symbol)
@@ -367,12 +550,7 @@ def protect_filled_buys(
             base_free = Decimal(
                 str(balances.get(base, {}).get("free", 0.0))
             )
-            dust = (
-                exact_filters.minimum_quantity
-                if exact_filters is not None
-                else Decimal(str(dependencies.min_quantity(symbol, 0)))
-            )
-            sellable = max(Decimal("0"), base_free - dust)
+            sellable = max(Decimal("0"), base_free)
             if exact_filters is not None:
                 quantity = round_step(
                     min(executed_quantity, sellable),
@@ -380,7 +558,7 @@ def protect_filled_buys(
                     "floor",
                 )
                 tp_rounded = round_step(
-                    Decimal(str(tp_limit)), exact_filters.tick, "floor"
+                    Decimal(str(tp_limit)), exact_filters.tick, "ceil"
                 )
                 sl_rounded = round_step(
                     Decimal(str(sl_limit)), exact_filters.tick, "floor"
@@ -408,7 +586,7 @@ def protect_filled_buys(
             if quantity <= 0 or tp_value < min_tp or sl_value < min_sl:
                 reason = (
                     "cannot protect filled BUY: quantity/notional too small | "
-                    "symbol=%s order=%s q=%s sellable=%s dust=%s "
+                    "symbol=%s order=%s q=%s sellable=%s "
                     "TPv=%.2f<minTP=%.2f SLv=%.2f<minSL=%.2f | "
                     "tp=%s sl_lim=%s"
                     % (
@@ -416,7 +594,6 @@ def protect_filled_buys(
                         order_id,
                         dependencies.format_quantity(symbol, quantity),
                         dependencies.format_quantity(symbol, sellable),
-                        dependencies.format_quantity(symbol, dust),
                         tp_value,
                         min_tp,
                         sl_value,
@@ -448,16 +625,36 @@ def protect_filled_buys(
             protected = bool(oco)
             if not oco and config.oco_fallback == "prefer-tp1" and os.getenv("BOT_LIVE_CONFIRMED") == "YES":
                 # A single TP in LIVE leaves the position without a stop loss.
-                # First flatten the confirmed executed quantity, then persist
-                # a halt with the exact reason.
-                reason = "OCO was not created: fallback prefer-tp1 is forbidden in LIVE because it leaves the position without a stop"
+                # Confirm the complete emergency flatten, then persist a halt
+                # with an exact operator-facing outcome.
+                flatten_result = None
+                flatten_error = None
                 try:
                     if dependencies.place_market_order is not None:
-                        dependencies.place_market_order(
+                        flatten_result = dependencies.place_market_order(
                             symbol, "SELL", quantity
                         )
-                except (OSError, RuntimeError, ValueError, TypeError) as exc:
+                except _PROTECTION_DATA_ERRORS as exc:
+                    flatten_error = type(exc).__name__
                     dependencies.logger(f"[FLATTEN-ERR] {symbol}: {exc}")
+                confirmed, flattened_quantity, flatten_status = (
+                    _confirmed_market_fill(flatten_result, quantity)
+                )
+                if confirmed:
+                    reason = (
+                        "OCO was not created: LIVE single-TP fallback is "
+                        "forbidden; emergency MARKET flatten confirmed "
+                        f"expected={quantity} executed={flattened_quantity}"
+                    )
+                else:
+                    reason = (
+                        "OCO was not created and emergency MARKET flatten "
+                        "was not fully confirmed; position may be unprotected "
+                        f"expected={quantity} executed={flattened_quantity} "
+                        f"status={flatten_status}"
+                    )
+                    if flatten_error:
+                        reason += f" error={flatten_error}"
                 dependencies.halt(reason, symbol=symbol, order_id=order_id,
                                   client_order_id=parent_client_id)
                 continue

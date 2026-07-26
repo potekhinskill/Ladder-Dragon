@@ -294,6 +294,13 @@ sudo -u bot env PYTHONPATH=. .venv/bin/python \
   -m bin.binance_testnet_smoke --mode gap-drill --symbol SOLUSDT
 ```
 
+The drill proves that a breached OCO is not considered flattened after the
+cancel request alone. The watchdog waits for the exact order-list IDs to
+disappear and for their residual quantity to become free, then requires a
+`FILLED` MARKET result covering that quantity. A timeout, partial result or
+lost acknowledgement leaves a persistent HALT. The executor floors once to
+`LOT_SIZE.stepSize`; it does not reserve an additional `minQty`.
+
 ## 8. Legacy holdings cost-basis import
 
 This optional operation is for holdings acquired before Ladder Dragon began

@@ -3,6 +3,36 @@
 All notable changes are documented here. Releases use Semantic Versioning; every
 section is dated and there is intentionally no `Unreleased` section.
 
+## [2.20.56] — 2026-07-27
+
+### Fixed
+- Emergency gap flatten now derives the residual protected quantity from both
+  OCO legs, cancels the breached list IDs and performs bounded authoritative
+  polling until those lists disappear and the required balance is free.
+- Gap flatten reports success only when a `FILLED` MARKET response confirms
+  the complete expected quantity. Cancel-release timeout, partial execution,
+  missing execution quantity and unknown outcomes persist a HALT with an exact
+  operator-facing reason.
+- Protection, panic flatten and managed holdings SELL no longer subtract one
+  extra `minQty` after step-size rounding. A full step-aligned fill is
+  protected or sold; only unavoidable sub-step exchange dust remains.
+- LIVE `prefer-tp1` rejection now distinguishes a confirmed emergency flatten
+  from an unconfirmed or partial one and catches transport failures locally
+  before recording the persistent halt.
+- Protection TP normalization now uses the same tick-direction as the
+  authoritative OCO placement boundary (`ceil`) instead of lowering the target
+  by one tick through an earlier `floor`.
+
+### Verified
+- Regressions cover delayed and never-completed OCO release, managed quantity
+  mixed with legacy balance, partial TP residual selection, partial MARKET
+  execution, transport failure, full step-aligned OCO/holdings quantities and
+  TP tick direction.
+- The isolated gap drill confirms full and partial STOP residuals, lost cancel
+  acknowledgement, persistent halt and restart survival without network
+  access. Executor/recovery/safety regression suites, Python compilation,
+  whitespace checks and the complete 663-test project suite pass.
+
 ## [2.20.55] — 2026-07-27
 
 ### Fixed

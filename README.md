@@ -29,7 +29,7 @@ combines adaptive ladder entries, exchange-side OCO protection, exact
 fee-aware FIFO accounting, restart reconciliation, replay and walk-forward
 verification, and a private Raspberry Pi operations dashboard.
 
-Current product version: **2.20.55**. The single version source is
+Current product version: **2.20.56**. The single version source is
 `product_version.py`; releases follow [Semantic Versioning](https://semver.org/).
 Project contact: [LinkedIn](https://www.linkedin.com/in/ypotekhin/).
 
@@ -87,7 +87,7 @@ bounded, explainable, recoverable, and measurable before exposure is increased.
 ## Project status
 
 Ladder Dragon is an actively developed, experimental trading system. Version
-**2.20.55** is the current source release. `main` is the only long-lived branch;
+**2.20.56** is the current source release. `main` is the only long-lived branch;
 feature branches use the `ladderdragon/*` namespace.
 
 DRY and Binance Spot Testnet are the supported starting modes. Mainnet LIVE is
@@ -594,6 +594,14 @@ exchange order ID before creating protection. An uncertain submission trips a
 persistent circuit halt. Partial fills, gap-below-stop, and restart recovery
 are fail-closed paths.
 
+Gap flatten first derives the exact residual from both OCO legs, cancels every
+breached list, and polls Binance until those lists disappear and the required
+base quantity is free. It reports success only after a `FILLED` MARKET response
+covers that complete residual; timeout, partial execution or an unknown result
+creates a persistent halt. Quantity is floored once to `stepSize` without
+subtracting an extra `minQty`, so protection and emergency exits leave only
+unavoidable sub-step exchange dust.
+
 Critical CAP, reserve, fees, inventory, FIFO PnL, risk reconciliation, supervisor
 order adapters, and position guards use `Decimal`. Compatibility floats remain
 only at indicator and telemetry boundaries and must not feed an order without
@@ -1008,8 +1016,9 @@ Mainnet and the prediction statistical gate; the timer cannot enable APPLY.
 - run controlled long Testnet soak tests after executor or risk changes.
 
 The local gap-watchdog drill is network-free and never creates an exchange
-order. It covers full and partial STOP residuals, uncertain OCO-cancel
-acknowledgement, persistent halt state, and restart survival:
+order. It covers full and partial STOP residuals, bounded OCO release polling,
+confirmed complete MARKET quantity, uncertain OCO-cancel acknowledgement,
+persistent halt state, and restart survival:
 
 ```bash
 PYTHONPATH=. .venv/bin/python -m bin.binance_testnet_smoke \
