@@ -21,6 +21,39 @@ import requests
 
 ALLOWED_MODES = {"UP", "DOWN", "FLAT"}
 MAX_RATIONALE_CHARS = 160
+MAX_AI_RESPONSE_BYTES = 65_536
+AI_RESPONSE_CHUNK_BYTES = 8_192
+
+
+def _bounded_json_response(response: requests.Response) -> object:
+    """Decode one untrusted response without buffering an unbounded body."""
+    content_length = response.headers.get("Content-Length")
+    if content_length not in (None, ""):
+        try:
+            declared_bytes = int(content_length)
+        except (TypeError, ValueError, OverflowError) as exc:
+            raise ValueError("AI response Content-Length is invalid") from exc
+        if declared_bytes < 0 or declared_bytes > MAX_AI_RESPONSE_BYTES:
+            raise ValueError("AI response exceeds the byte limit")
+    chunks: list[bytes] = []
+    received_bytes = 0
+    for chunk in response.iter_content(
+        chunk_size=AI_RESPONSE_CHUNK_BYTES,
+        decode_unicode=False,
+    ):
+        if not chunk:
+            continue
+        if not isinstance(chunk, bytes):
+            raise ValueError("AI response yielded a non-byte chunk")
+        received_bytes += len(chunk)
+        if received_bytes > MAX_AI_RESPONSE_BYTES:
+            raise ValueError("AI response exceeds the byte limit")
+        chunks.append(chunk)
+    try:
+        text = b"".join(chunks).decode("utf-8")
+    except UnicodeDecodeError as exc:
+        raise ValueError("AI response is not valid UTF-8") from exc
+    return json.loads(text)
 
 
 @dataclass(frozen=True)
@@ -369,9 +402,13 @@ class AIAdvisor:
             },
             json=body,
             timeout=self.config.timeout_sec,
+            stream=True,
         )
-        response.raise_for_status()
-        envelope = response.json()
+        try:
+            response.raise_for_status()
+            envelope = _bounded_json_response(response)
+        finally:
+            response.close()
         usage = parse_token_usage(envelope)
         choices = envelope.get("choices") if isinstance(envelope, dict) else None
         if not isinstance(choices, list) or not choices:

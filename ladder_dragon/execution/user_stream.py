@@ -266,6 +266,7 @@ class BinanceUserDataObserver:
         self._stop = threading.Event()
         self._thread: Optional[threading.Thread] = None
         self._connection: Optional[object] = None
+        self._state_lock = threading.RLock()
         now = self._clock()
         self._state = {
             "state": "stopped",
@@ -371,8 +372,8 @@ class BinanceUserDataObserver:
                     break
                 self._set_state(
                     state="reconnecting",
-                    reconnects=int(self._state["reconnects"]) + 1,
-                    disconnects=int(self._state["disconnects"]) + 1,
+                    reconnects=int(self._state_value("reconnects")) + 1,
+                    disconnects=int(self._state_value("disconnects")) + 1,
                     last_error=type(exc).__name__,
                     force_persist=True,
                 )
@@ -395,7 +396,9 @@ class BinanceUserDataObserver:
 
     def _observe_connection(self) -> None:
         self._set_state(
-            connection_attempts=int(self._state["connection_attempts"]) + 1,
+            connection_attempts=(
+                int(self._state_value("connection_attempts")) + 1
+            ),
         )
         connection = self._connector()(self.url, timeout=10)
         self._connection = connection
@@ -412,7 +415,7 @@ class BinanceUserDataObserver:
             state="connected",
             connected_at=self._clock(),
             last_transport_activity_at=self._clock(),
-            sessions=int(self._state["sessions"]) + 1,
+            sessions=int(self._state_value("sessions")) + 1,
             last_error=None,
             force_persist=True,
         )
@@ -455,7 +458,7 @@ class BinanceUserDataObserver:
             except (json.JSONDecodeError, TypeError, UnicodeError):
                 self._set_state(
                     last_event_at=now,
-                    bad_frames=int(self._state["bad_frames"]) + 1,
+                    bad_frames=int(self._state_value("bad_frames")) + 1,
                     force_persist=True,
                 )
                 self.logger(
@@ -466,7 +469,7 @@ class BinanceUserDataObserver:
             if not isinstance(payload, Mapping):
                 self._set_state(
                     last_event_at=now,
-                    bad_frames=int(self._state["bad_frames"]) + 1,
+                    bad_frames=int(self._state_value("bad_frames")) + 1,
                     force_persist=True,
                 )
                 self.logger(
@@ -489,7 +492,9 @@ class BinanceUserDataObserver:
             )
             if signal is None:
                 continue
-            previous_event_time = self._state.get("last_exchange_event_time_ms")
+            previous_event_time = self._state_value(
+                "last_exchange_event_time_ms"
+            )
             out_of_order = (
                 previous_event_time is not None
                 and signal.event_time_ms < int(previous_event_time)
@@ -497,10 +502,14 @@ class BinanceUserDataObserver:
             accepted = self.mailbox.put(signal)
             self._set_state(
                 last_order_event_at=now,
-                order_events=int(self._state["order_events"]) + int(accepted),
-                duplicates=int(self._state["duplicates"]) + int(not accepted),
+                order_events=(
+                    int(self._state_value("order_events")) + int(accepted)
+                ),
+                duplicates=(
+                    int(self._state_value("duplicates")) + int(not accepted)
+                ),
                 out_of_order_events=(
-                    int(self._state["out_of_order_events"])
+                    int(self._state_value("out_of_order_events"))
                     + int(out_of_order and accepted)
                 ),
                 last_exchange_event_time_ms=max(
@@ -515,50 +524,59 @@ class BinanceUserDataObserver:
         force_persist: bool = False,
         **updates: object,
     ) -> None:
-        self._state.update(updates)
-        if self.state_path is None:
-            return
-        persist_now = self._monotonic()
-        if (
-            not force_persist
-            and self._last_persist_monotonic is not None
-            and persist_now - self._last_persist_monotonic
-            < self._state_persist_interval_sec
-        ):
-            return
-        # Rate-limit failed writes too; a read-only filesystem must not create
-        # an error and I/O storm in the notification thread.
-        self._last_persist_monotonic = persist_now
-        target = self.state_path
-        temporary = target.with_name(f".{target.name}.{os.getpid()}.tmp")
-        try:
-            target.parent.mkdir(parents=True, exist_ok=True)
-            temporary.write_text(
-                json.dumps(self._state, sort_keys=True) + "\n",
-                encoding="utf-8",
-            )
-            os.chmod(temporary, 0o600)
-            os.replace(temporary, target)
-        except OSError as exc:
-            # The diagnostic file is optional. Losing it must not tear down a
-            # healthy notification stream or affect authoritative REST polls.
-            self.logger(
-                f"[USER-STREAM] health snapshot unavailable={type(exc).__name__}"
-            )
+        with self._state_lock:
+            self._state.update(updates)
+            if self.state_path is None:
+                return
+            persist_now = self._monotonic()
+            if (
+                not force_persist
+                and self._last_persist_monotonic is not None
+                and persist_now - self._last_persist_monotonic
+                < self._state_persist_interval_sec
+            ):
+                return
+            # Rate-limit failed writes too; a read-only filesystem must not
+            # create an error and I/O storm in the notification thread.
+            self._last_persist_monotonic = persist_now
+            target = self.state_path
+            temporary = target.with_name(f".{target.name}.{os.getpid()}.tmp")
             try:
-                temporary.unlink(missing_ok=True)
-            except OSError:
-                pass
+                target.parent.mkdir(parents=True, exist_ok=True)
+                temporary.write_text(
+                    json.dumps(self._state, sort_keys=True) + "\n",
+                    encoding="utf-8",
+                )
+                os.chmod(temporary, 0o600)
+                os.replace(temporary, target)
+            except OSError as exc:
+                # The diagnostic file is optional. Losing it must not tear
+                # down a healthy stream or affect authoritative REST polls.
+                self.logger(
+                    "[USER-STREAM] health snapshot unavailable="
+                    f"{type(exc).__name__}"
+                )
+                try:
+                    temporary.unlink(missing_ok=True)
+                except OSError:
+                    pass
+
+    def _state_value(self, name: str) -> object:
+        with self._state_lock:
+            return self._state[name]
 
     def state(self) -> dict[str, object]:
-        return dict(self._state)
+        with self._state_lock:
+            return dict(self._state)
 
     def record_rest_reconciliation(self, *, event_woken: bool) -> None:
         """Persist proof that an authoritative REST check followed polling or WS."""
         self._set_state(
-            rest_reconciliations=int(self._state["rest_reconciliations"]) + 1,
+            rest_reconciliations=(
+                int(self._state_value("rest_reconciliations")) + 1
+            ),
             event_woken_rest_reconciliations=(
-                int(self._state["event_woken_rest_reconciliations"])
+                int(self._state_value("event_woken_rest_reconciliations"))
                 + int(event_woken)
             ),
             force_persist=True,

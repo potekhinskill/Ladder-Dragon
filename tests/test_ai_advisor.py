@@ -20,12 +20,15 @@ from ladder_dragon.ai.ai_advisor import (
 class FakeResponse:
     def __init__(self, payload):
         self.payload = payload
+        self.headers = {}
+        self.closed = False
 
     def raise_for_status(self):
         return None
 
-    def json(self):
-        return {
+    def iter_content(self, chunk_size, decode_unicode=False):
+        assert decode_unicode is False
+        body = json.dumps({
             **self.payload,
             "usage": {
                 "prompt_tokens": 200,
@@ -34,7 +37,12 @@ class FakeResponse:
                 "completion_tokens": 40,
                 "total_tokens": 240,
             },
-        }
+        }).encode("utf-8")
+        for index in range(0, len(body), chunk_size):
+            yield body[index:index + chunk_size]
+
+    def close(self):
+        self.closed = True
 
 
 class FakeSession:
@@ -102,6 +110,7 @@ def test_deepseek_advisor_uses_json_mode_and_returns_strict_recommendation():
     assert request["headers"]["Authorization"] == "Bearer test-key"
     assert request["json"]["response_format"] == {"type": "json_object"}
     assert request["json"]["thinking"] == {"type": "disabled"}
+    assert request["stream"] is True
     assert "tools" not in request["json"]
     user_content = request["json"]["messages"][1]["content"]
     assert '"win_rate_30d"' in user_content
@@ -110,6 +119,79 @@ def test_deepseek_advisor_uses_json_mode_and_returns_strict_recommendation():
     assert "orderId" not in user_content
     assert "clientOrderId" not in user_content
     assert "api_key" not in user_content
+
+
+def test_ai_response_body_is_streamed_and_bounded_before_json_parsing():
+    messages = []
+
+    class OversizedResponse:
+        headers = {}
+
+        def __init__(self):
+            self.closed = False
+
+        def raise_for_status(self):
+            return None
+
+        def iter_content(self, chunk_size, decode_unicode=False):
+            assert decode_unicode is False
+            yield b"{" + (b"x" * 65_536)
+
+        def close(self):
+            self.closed = True
+
+    response = OversizedResponse()
+
+    class OversizedSession:
+        def post(self, endpoint, **kwargs):
+            assert kwargs["stream"] is True
+            return response
+
+    advisor = AIAdvisor(
+        config(),
+        session=OversizedSession(),
+        logger=messages.append,
+    )
+
+    assert advisor.recommend(context()) is None
+    assert response.closed is True
+    assert "exceeds the byte limit" in messages[0]
+    assert "using deterministic strategy" in messages[0]
+
+
+def test_ai_response_rejects_oversized_content_length_before_reading():
+    messages = []
+
+    class DeclaredOversizedResponse:
+        headers = {"Content-Length": "65537"}
+
+        def __init__(self):
+            self.closed = False
+
+        def raise_for_status(self):
+            return None
+
+        def iter_content(self, *args, **kwargs):
+            raise AssertionError("oversized body must not be read")
+
+        def close(self):
+            self.closed = True
+
+    response = DeclaredOversizedResponse()
+
+    class DeclaredOversizedSession:
+        def post(self, endpoint, **kwargs):
+            return response
+
+    advisor = AIAdvisor(
+        config(),
+        session=DeclaredOversizedSession(),
+        logger=messages.append,
+    )
+
+    assert advisor.recommend(context()) is None
+    assert response.closed is True
+    assert "exceeds the byte limit" in messages[0]
 
 
 def test_rag_context_is_sent_as_historical_context_only():

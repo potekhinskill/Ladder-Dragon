@@ -3,6 +3,36 @@
 All notable changes are documented here. Releases use Semantic Versioning; every
 section is dated and there is intentionally no `Unreleased` section.
 
+## [2.20.43] — 2026-07-26
+
+### Security
+- AI provider responses are now streamed with a 64 KiB decoded-body ceiling,
+  an early `Content-Length` rejection, strict UTF-8 decoding, and guaranteed
+  connection closure. Oversized or malformed responses fail closed to the
+  deterministic strategy without logging response content.
+- All dynamic SQLite table, view, and column identifiers now pass one strict
+  validator and are quoted before interpolation. Migration column declarations
+  use a narrow allowlisted grammar.
+- AI plan-runner symbols are validated as Binance identifiers before any
+  network request or child-process launch.
+
+### Fixed
+- User Data Stream observer state updates, persistence, and snapshots now use
+  an observer-owned reentrant lock, preventing mixed-session telemetry reads.
+- Dashboard SQLite reads now wait up to five seconds for short WAL checkpoint
+  or writer contention instead of failing after one second.
+
+### Changed
+- Project rules now require bounded untrusted HTTP parsing and validated
+  SQLite identifier interpolation.
+
+### Verified
+- Added fail-closed tests for concurrent stream snapshots, compressed/body
+  size overflow, hostile SQL identifiers and declarations, dashboard busy
+  timeout, and invalid CLI symbols.
+- The complete suite passes all `583` project tests; Python compilation and
+  whitespace checks pass.
+
 ## [2.20.42] — 2026-07-26
 
 ### Fixed

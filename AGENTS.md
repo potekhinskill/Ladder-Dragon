@@ -63,6 +63,10 @@ These rules apply to every repository change and every Raspberry Pi update.
   a decision or execution; do not add new financial calculations using float.
 - Catch specific exception types and emit structured messages; never hide a fallback reason
   without a safe diagnostic event.
+- Untrusted HTTP response bodies must be streamed with a strict decoded-byte
+  ceiling before JSON parsing; never rely only on provider token limits.
+- Validate and quote every SQLite identifier before interpolation. Dynamic
+  migration declarations must use an explicit narrow grammar.
 - Version SQLite schema changes with migrations; do not delete historical data outside retention policy.
 - After changes run at least `python3 -m compileall -q .` and `PYTHONPATH=. pytest -q`.
 - AI/Risk/Executor changes must run related unit and regression tests, including restart,

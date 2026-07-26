@@ -14,6 +14,17 @@ def test_ladder_has_buy_and_sell_levels():
     assert any(value > 100 for value in levels)
 
 
+def test_plan_runner_validates_symbols_before_network_or_child_processes():
+    args = ai_plan_runner.parse_args(
+        ["--symbols", "solusdt,ETHUSDT"]
+    )
+    assert args.symbols == ["SOLUSDT", "ETHUSDT"]
+
+    for invalid in ("-SOLUSDT", "SOL/USDT", "A", "SOLUSDT;echo"):
+        with pytest.raises(SystemExit):
+            ai_plan_runner.parse_args(["--symbols", invalid])
+
+
 def test_fifo_pnl_handles_partial_sell_and_fee():
     rows = [
         ("BUY", 100.0, 1.0, 0.1),

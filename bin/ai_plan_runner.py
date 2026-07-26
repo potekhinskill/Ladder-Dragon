@@ -13,6 +13,7 @@ import math
 import time
 import shlex
 import argparse
+import re
 import subprocess
 import threading
 import contextlib
@@ -39,6 +40,7 @@ PLAN_RUNNER_ERRORS = (
 # --- Settings / ENV ---
 DEFAULT_BASE = os.getenv("PLAN_RUNNER_BASE", "bin/autosize_universal.py")
 BINANCE_API = (os.getenv("BINANCE_BASE_URL") or os.getenv("BINANCE_API_BASE") or "https://api.binance.com").rstrip("/")
+SYMBOL_RE = re.compile(r"^[A-Z0-9]{5,20}$")
 
 
 # --- Public API helpers (unsigned) ---
@@ -237,10 +239,26 @@ def stream_prefixed(sym: str, proc: subprocess.Popen):
 
 # --- CLI/MAIN ---
 
-def parse_args() -> argparse.Namespace:
+def _parse_symbol_list(value: str) -> list[str]:
+    symbols = [
+        item.strip().upper()
+        for item in value.split(",")
+        if item.strip()
+    ]
+    if not symbols or any(
+        SYMBOL_RE.fullmatch(symbol) is None for symbol in symbols
+    ):
+        raise argparse.ArgumentTypeError(
+            "--symbols must contain comma-separated Binance symbols "
+            "matching [A-Z0-9]{5,20}"
+        )
+    return symbols
+
+
+def parse_args(argv: Optional[list[str]] = None) -> argparse.Namespace:
     p = argparse.ArgumentParser(description="English/English English Ladder Dragon")
     p.add_argument("--version", action="version", version=product_label("plan runner"))
-    p.add_argument("--symbols", type=str, required=True,
+    p.add_argument("--symbols", type=_parse_symbol_list, required=True,
                    help="English English, English: SOLUSDT,ETHUSDT,BTCUSDT")
     p.add_argument("--base", type=str, default=DEFAULT_BASE,
                    help=f"English English English English (default: {DEFAULT_BASE})")
@@ -274,14 +292,11 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--status-interval", type=int, default=2)
     p.add_argument("--loop-minutes", type=int, default=5)
 
-    return p.parse_args()
+    return p.parse_args(argv)
 
 def main() -> int:
     args = parse_args()
-    symbols = [s.strip().upper() for s in args.symbols.split(",") if s.strip()]
-    if not symbols:
-        print("[ERR] English English English.", file=sys.stderr)
-        return 2
+    symbols = args.symbols
 
     base_script = args.base.strip() or DEFAULT_BASE
     if not os.path.exists(base_script):

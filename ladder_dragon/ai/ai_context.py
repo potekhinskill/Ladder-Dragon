@@ -18,6 +18,10 @@ from typing import Any, Callable, Iterable, Mapping, Sequence
 
 from ladder_dragon.execution.trade_accounting import TradeExecution, replay_average_cost
 from ladder_dragon.numeric_compat import compatibility_float
+from ladder_dragon.sqlite_safety import (
+    quote_sqlite_identifier,
+    validate_sqlite_column_ddl,
+)
 
 
 ZERO = Decimal("0")
@@ -702,8 +706,11 @@ class AdvisorDecisionStore:
                 ("return_4h_text", "TEXT"),
             ):
                 if column not in columns:
+                    safe_column = quote_sqlite_identifier(column)
+                    safe_ddl = validate_sqlite_column_ddl(ddl)
                     connection.execute(
-                        f"ALTER TABLE ai_decisions ADD COLUMN {column} {ddl}"
+                        "ALTER TABLE \"ai_decisions\" ADD COLUMN "
+                        f"{safe_column} {safe_ddl}"
                     )
             for table, table_columns in {
                 "ai_fills": {
@@ -728,10 +735,21 @@ class AdvisorDecisionStore:
                     "expected_price_text": "TEXT",
                 },
             }.items():
-                existing = {row[1] for row in connection.execute(f"PRAGMA table_info({table})")}
+                safe_table = quote_sqlite_identifier(table)
+                existing = {
+                    row[1]
+                    for row in connection.execute(
+                        f"PRAGMA table_info({safe_table})"
+                    )
+                }
                 for column, ddl in table_columns.items():
                     if column not in existing:
-                        connection.execute(f"ALTER TABLE {table} ADD COLUMN {column} {ddl}")
+                        safe_column = quote_sqlite_identifier(column)
+                        safe_ddl = validate_sqlite_column_ddl(ddl)
+                        connection.execute(
+                            f"ALTER TABLE {safe_table} ADD COLUMN "
+                            f"{safe_column} {safe_ddl}"
+                        )
             connection.execute(
                 "UPDATE ai_decisions SET "
                 "price_text=COALESCE(NULLIF(price_text,''),printf('%.17g',price)),"

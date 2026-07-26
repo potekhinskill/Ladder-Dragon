@@ -64,6 +64,27 @@ def test_health_exposes_product_version_and_changelog(monkeypatch):
     assert payload["changelog_url"] == "/CHANGELOG.md"
 
 
+def test_dashboard_read_only_database_waits_for_short_wal_contention(
+    tmp_path,
+    monkeypatch,
+):
+    database = tmp_path / "stats.db"
+    sqlite3.connect(database).close()
+    monkeypatch.setenv("BOT_STATS_DB", str(database))
+    module = load_dashboard(monkeypatch)
+
+    connection, resolved_path = module._open_db()
+    try:
+        busy_timeout_ms = connection.execute(
+            "PRAGMA busy_timeout"
+        ).fetchone()[0]
+    finally:
+        connection.close()
+
+    assert resolved_path == str(database)
+    assert busy_timeout_ms == 5000
+
+
 def test_user_stream_health_is_sanitized_and_rest_authoritative(
     tmp_path, monkeypatch
 ):

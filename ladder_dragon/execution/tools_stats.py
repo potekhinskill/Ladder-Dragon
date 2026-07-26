@@ -11,6 +11,7 @@ from typing import Optional, Tuple, Dict, Iterable, Any
 
 from bin.db_migrate import migrate
 from ladder_dragon.execution.trade_accounting import TradeExecution, decimal, decimal_text, replay_average_cost
+from ladder_dragon.sqlite_safety import quote_sqlite_identifier
 
 # ==========================
 # Configuration from environment variables
@@ -88,7 +89,11 @@ def query_with_retry(con: sqlite3.Connection, sql: str, params: Iterable[Any] = 
 
 
 def _table_columns(con: sqlite3.Connection, table: str) -> set[str]:
-    return {str(row[1]) for row in con.execute(f"PRAGMA table_info({table})")}
+    safe_table = quote_sqlite_identifier(table)
+    return {
+        str(row[1])
+        for row in con.execute(f"PRAGMA table_info({safe_table})")
+    }
 
 
 def _uses_legacy_real_accounting(con: sqlite3.Connection) -> bool:

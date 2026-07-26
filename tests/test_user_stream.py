@@ -3,6 +3,7 @@ import hmac
 import json
 from decimal import Decimal
 from pathlib import Path
+import threading
 from types import SimpleNamespace
 
 import pytest
@@ -323,6 +324,43 @@ def test_state_file_writes_are_rate_limited_but_memory_stays_current(
     assert json.loads((tmp_path / "stream.json").read_text())[
         "last_event_at"
     ] == 4.0
+
+
+def test_observer_state_snapshot_is_serialized_by_observer_lock(tmp_path):
+    observer = BinanceUserDataObserver(
+        api_key="key",
+        api_secret="secret",
+        rest_base_url="https://api.binance.com",
+        mailbox=OrderEventMailbox(),
+        logger=lambda message: None,
+        state_path=tmp_path / "stream.json",
+    )
+    started = threading.Event()
+    completed = threading.Event()
+    captured = []
+
+    def read_snapshot():
+        started.set()
+        captured.append(observer.state())
+        completed.set()
+
+    with observer._state_lock:
+        observer._state.update(
+            {"state": "connected", "sessions": 1}
+        )
+        reader = threading.Thread(target=read_snapshot)
+        reader.start()
+        assert started.wait(1)
+        assert completed.wait(0.05) is False
+        observer._state.update(
+            {"state": "reconnecting", "sessions": 2}
+        )
+
+    reader.join(timeout=1)
+    assert completed.is_set()
+    assert len(captured) == 1
+    assert captured[0]["state"] == "reconnecting"
+    assert captured[0]["sessions"] == 2
 
 
 def test_malformed_frame_is_counted_without_reconnecting_session(tmp_path):

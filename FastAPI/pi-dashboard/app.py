@@ -26,6 +26,7 @@ from ladder_dragon.ai.ai_control import (
     write_ai_control,
 )
 from ladder_dragon.execution.order_recovery import read_order_journal_telemetry
+from ladder_dragon.sqlite_safety import quote_sqlite_identifier
 from product_version import PRODUCT_NAME, __version__
 
 from ladder_dragon.execution.telegram_alerts import notify_binance_auth_error
@@ -407,13 +408,14 @@ def _runtime_data_path(runtime: Dict, name: str, fallback: str) -> Path:
 
 def _open_db():
     path = get_db_path()
-    con = sqlite3.connect(path, timeout=1.0)
+    con = sqlite3.connect(path, timeout=5.0)
     con.row_factory = sqlite3.Row
     return con, path
 
 def _has_column(con: sqlite3.Connection, table: str, col: str) -> bool:
     try:
-        cur = con.execute(f"PRAGMA table_info({table});")
+        safe_table = quote_sqlite_identifier(table)
+        cur = con.execute(f"PRAGMA table_info({safe_table});")
         cols = [r["name"] for r in cur.fetchall()]
         return col in cols
     except sqlite3.Error:

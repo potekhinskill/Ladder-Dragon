@@ -15,12 +15,16 @@ from datetime import datetime, timedelta, timezone
 from decimal import Decimal, getcontext
 
 from ladder_dragon.execution.trade_accounting import TradeExecution
+from ladder_dragon.sqlite_safety import quote_sqlite_identifier
 
 getcontext().prec = 28
 
 def detect_ts_div(con: sqlite3.Connection, ts_col: str = "ts") -> int:
     cur = con.cursor()
-    cur.execute(f"SELECT MIN({ts_col}), MAX({ts_col}) FROM trades")
+    safe_ts = quote_sqlite_identifier(ts_col)
+    cur.execute(
+        f"SELECT MIN({safe_ts}), MAX({safe_ts}) FROM \"trades\""
+    )
     row = cur.fetchone()
     if not row or row[1] is None:
         return 1
@@ -94,9 +98,10 @@ def fetch_trades(con: sqlite3.Connection, t0_ts: int, t1_ts: int, symbols=None):
     source = "trades_exact" if con.execute(
         "SELECT 1 FROM sqlite_master WHERE type='view' AND name='trades_exact'"
     ).fetchone() else "trades"
+    safe_source = quote_sqlite_identifier(source)
     sql = f"""
       SELECT id, symbol, UPPER(side) AS side, {_accounting_columns(con)}, ts, trade_id
-      FROM {source}
+      FROM {safe_source}
       WHERE {' AND '.join(where)}
       ORDER BY ts ASC, id ASC
     """
