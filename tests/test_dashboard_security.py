@@ -14,6 +14,14 @@ from ladder_dragon.execution.order_recovery import OrderJournal
 from bin.db_migrate import migrate
 
 
+def dashboard_source() -> str:
+    return (
+        Path("FRONT/index.html").read_text(encoding="utf-8")
+        + "\n"
+        + Path("FRONT/dashboard.js").read_text(encoding="utf-8")
+    )
+
+
 def load_dashboard(monkeypatch):
     monkeypatch.setenv("DASHBOARD_AUTH_TOKEN", "test-secret-token")
     monkeypatch.setenv("DASHBOARD_ENABLE_LOGS", "0")
@@ -636,14 +644,14 @@ def test_trading_overview_preserves_unavailable_order_journal(monkeypatch):
 
 
 def test_dashboard_does_not_render_missing_journal_counts_as_zero():
-    index = Path("FRONT/index.html").read_text(encoding="utf-8")
+    index = dashboard_source()
 
     assert "orders.journal_available===false" in index
     assert "`${orders.open??0} / — / — · ${tr('unavailable')}`" in index
 
 
 def test_dashboard_renders_reanchor_mode_activity_and_proposal():
-    index = Path("FRONT/index.html").read_text(encoding="utf-8")
+    index = dashboard_source()
 
     assert 'id="trade-reanchor"' in index
     assert 'id="trade-reanchor-activity"' in index
@@ -652,7 +660,7 @@ def test_dashboard_renders_reanchor_mode_activity_and_proposal():
 
 
 def test_dashboard_labels_virtual_rag_as_archived_only():
-    index = Path("FRONT/index.html").read_text(encoding="utf-8")
+    index = dashboard_source()
     source = Path("FastAPI/pi-dashboard/app.py").read_text(encoding="utf-8")
 
     assert "RAG real / archived virtual / retrievals" in index

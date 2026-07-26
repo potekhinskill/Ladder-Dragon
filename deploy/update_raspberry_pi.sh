@@ -418,7 +418,10 @@ install -o root -g www-data -m 0640 /dev/null \
 printf 'proxy_set_header X-Dashboard-Proxy-Secret "%s";\n' \
   "${dashboard_proxy_secret}" \
   >/etc/nginx/snippets/ladder_dragon_proxy_secret.conf
-  install -m 0644 FRONT/index.html FRONT/help.html FRONT/locales.js docs/assets/ladder-dragon-logo.svg docs/assets/ladder-dragon-dashboard-icon.svg CHANGELOG.md "${WEB_ROOT}/"
+  install -m 0644 FRONT/index.html FRONT/help.html FRONT/readme.html \
+    FRONT/dashboard.css FRONT/dashboard.js FRONT/help.css FRONT/readme.css \
+    FRONT/locales.js docs/assets/ladder-dragon-logo.svg \
+    docs/assets/ladder-dragon-dashboard-icon.svg CHANGELOG.md "${WEB_ROOT}/"
 install -m 0644 FRONT/vendor/chart.umd.min.js "${WEB_ROOT}/vendor/"
 install -m 0644 FRONT/vendor/chart.js.LICENSE.txt "${WEB_ROOT}/vendor/"
 rm -f "${WEB_ROOT}/readme.html"
@@ -463,6 +466,10 @@ render_unit deploy/ladder-dragon-soak-audit.service \
   /etc/systemd/system/ladder-dragon-soak-audit.service
 install -m 0644 deploy/ladder-dragon-soak-audit.timer \
   /etc/systemd/system/ladder-dragon-soak-audit.timer
+render_unit deploy/ladder-dragon-daily-digest.service \
+  /etc/systemd/system/ladder-dragon-daily-digest.service
+install -m 0644 deploy/ladder-dragon-daily-digest.timer \
+  /etc/systemd/system/ladder-dragon-daily-digest.timer
 install -d -o "${BOT_USER}" -g "${BOT_USER}" -m 0750 \
   /var/lib/ladder-dragon/depth-archives
 install -d -o root -g "${BOT_USER}" -m 0770 /var/lib/ladder-dragon/soak
@@ -520,6 +527,7 @@ else
 fi
 systemctl enable ladder-dragon-backup.timer ladder-dragon-log-export.timer \
   ladder-dragon-depth-archive.timer ladder-dragon-soak-audit.timer \
+  ladder-dragon-daily-digest.timer \
   >/dev/null
 start_previous_services
 systemctl start ladder-dragon-backup.timer
@@ -527,6 +535,7 @@ systemctl start ladder-dragon-backup.service
 systemctl start ladder-dragon-log-export.service ladder-dragon-log-export.timer
 systemctl start ladder-dragon-depth-archive.timer
 systemctl start ladder-dragon-soak-audit.service ladder-dragon-soak-audit.timer
+systemctl start ladder-dragon-daily-digest.timer
 systemctl restart systemd-journald
 systemctl try-restart fail2ban || true
 systemctl try-restart zramswap || true

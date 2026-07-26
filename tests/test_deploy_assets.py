@@ -1,5 +1,3 @@
-import base64
-import hashlib
 from pathlib import Path
 import re
 
@@ -11,6 +9,16 @@ ROOT = Path(__file__).resolve().parents[1]
 
 def read(relative: str) -> str:
     return (ROOT / relative).read_text()
+
+
+def dashboard_source() -> str:
+    return (
+        read("FRONT/index.html")
+        + "\n"
+        + read("FRONT/dashboard.css")
+        + "\n"
+        + read("FRONT/dashboard.js")
+    )
 
 
 def test_source_code_uses_english_outside_localization_catalogs():
@@ -92,18 +100,23 @@ def test_nginx_requires_auth_and_publishes_only_encrypted_backups():
     assert "frame-ancestors 'none'" in site
 
 
-def test_dashboard_csp_hash_matches_the_only_inline_script():
-    index = read("FRONT/index.html")
+def test_dashboard_uses_only_external_script_and_style_assets():
+    index = dashboard_source()
     site = read("deploy/nginx/bot.local.conf")
-    blocks = re.findall(r"<script>(.*?)</script>", index, flags=re.DOTALL)
-    assert len(blocks) == 1
-    digest = base64.b64encode(hashlib.sha256(blocks[0].encode()).digest()).decode()
-    assert f"'sha256-{digest}'" in site
+    for page in ("FRONT/index.html", "FRONT/help.html", "FRONT/readme.html"):
+        source = read(page)
+        assert "<style" not in source
+        assert not re.search(r"<script(?:\s[^>]*)?>\s*[^<]", source)
+        assert " style=" not in source
+    assert '<link rel="stylesheet" href="/dashboard.css">' in index
+    assert '<script src="/dashboard.js"></script>' in index
+    assert "script-src 'self';" in site
+    assert "sha256-" not in site
     assert "script-src 'self' 'unsafe-inline'" not in site
 
 
 def test_dashboard_escapes_exchange_and_database_values_before_inner_html():
-    index = read("FRONT/index.html")
+    index = dashboard_source()
     for expression in (
         "${escapeHtml(row.asset)}",
         "${escapeHtml(x.symbol)}",
@@ -116,7 +129,7 @@ def test_dashboard_escapes_exchange_and_database_values_before_inner_html():
 
 
 def test_dashboard_uses_ladder_dragon_branding():
-    index = read("FRONT/index.html")
+    index = dashboard_source()
     assert "<title>Ladder Dragon</title>" in index
     assert "🧪" not in index
     assert "<h1>Ladder Dragon</h1>" in index
@@ -176,7 +189,7 @@ def test_intro_document_and_logo_cover_supported_platforms():
 
 
 def test_dashboard_exposes_read_only_ops_trading_and_ai_quality_blocks():
-    index = read("FRONT/index.html")
+    index = dashboard_source()
     app = read("FastAPI/pi-dashboard/app.py")
     backup = read("deploy/backup_raspberry_pi.sh")
     for marker in (
@@ -200,7 +213,7 @@ def test_dashboard_exposes_read_only_ops_trading_and_ai_quality_blocks():
 
 def test_dashboard_transient_failures_are_bounded_and_visible():
     app = read("FastAPI/pi-dashboard/app.py")
-    index = read("FRONT/index.html")
+    index = dashboard_source()
     site = read("deploy/nginx/bot.local.conf")
     unit = read("deploy/pi-dashboard.service")
 
@@ -244,7 +257,7 @@ def test_dashboard_large_sources_are_bounded_server_side():
 
 
 def test_dashboard_publishes_version_and_changelog():
-    index = read("FRONT/index.html")
+    index = dashboard_source()
     app = read("FastAPI/pi-dashboard/app.py")
     installer = read("deploy/install_raspberry_pi.sh")
     updater = read("deploy/update_raspberry_pi.sh")
@@ -256,11 +269,16 @@ def test_dashboard_publishes_version_and_changelog():
     assert '"${PROJECT_DIR}/docs/assets/ladder-dragon-logo.svg" "${PROJECT_DIR}/docs/assets/ladder-dragon-dashboard-icon.svg"' in installer
     assert 'FRONT/vendor/chart.umd.min.js' in installer
     assert 'FRONT/vendor/chart.js.LICENSE.txt' in installer
-    assert 'FRONT/index.html FRONT/help.html FRONT/locales.js docs/assets/ladder-dragon-logo.svg docs/assets/ladder-dragon-dashboard-icon.svg CHANGELOG.md' in updater
+    for asset in (
+        "FRONT/index.html", "FRONT/help.html", "FRONT/readme.html",
+        "FRONT/dashboard.css", "FRONT/dashboard.js", "FRONT/help.css",
+        "FRONT/readme.css", "FRONT/locales.js",
+    ):
+        assert asset in updater
 
 
 def test_dashboard_localization_has_all_supported_languages_and_is_deployed():
-    index = read("FRONT/index.html")
+    index = dashboard_source()
     locales = read("FRONT/locales.js")
     installer = read("deploy/install_raspberry_pi.sh")
     updater = read("deploy/update_raspberry_pi.sh")
@@ -275,7 +293,7 @@ def test_dashboard_localization_has_all_supported_languages_and_is_deployed():
     assert "LOCALES.translations[storedLocale]" in index
     assert '"${PROJECT_DIR}/FRONT/locales.js"' in installer
     assert '"${PROJECT_DIR}/docs/assets/ladder-dragon-logo.svg"' in installer
-    assert "FRONT/index.html FRONT/help.html FRONT/locales.js docs/assets/ladder-dragon-logo.svg docs/assets/ladder-dragon-dashboard-icon.svg CHANGELOG.md" in updater
+    assert "FRONT/dashboard.css FRONT/dashboard.js FRONT/help.css FRONT/readme.css" in updater
     assert "FRONT/vendor/chart.umd.min.js" in updater
     assert "FRONT/vendor/chart.js.LICENSE.txt" in updater
     assert 'src="/ladder-dragon-dashboard-icon.svg"' in index
@@ -284,7 +302,7 @@ def test_dashboard_localization_has_all_supported_languages_and_is_deployed():
 
 def test_publication_docs_and_local_dashboard_assets_are_present():
     readme = read("README.md")
-    index = read("FRONT/index.html")
+    index = dashboard_source()
     assert product_version.__version__ in readme
     assert "not affiliated with" in readme
     assert 'src="/vendor/chart.umd.min.js"' in index
@@ -328,7 +346,7 @@ def test_dashboard_health_has_portable_host_and_optional_raspberry_telemetry():
 
 
 def test_dashboard_publishes_read_only_account_balances():
-    index = read("FRONT/index.html")
+    index = dashboard_source()
     app = read("FastAPI/pi-dashboard/app.py")
     assert 'id="balance-body"' in index
     assert 'getJSON(\'/api/account/balances\')' in index
@@ -338,7 +356,7 @@ def test_dashboard_publishes_read_only_account_balances():
 
 
 def test_dashboard_publishes_read_only_open_orders():
-    index = read("FRONT/index.html")
+    index = dashboard_source()
     app = read("FastAPI/pi-dashboard/app.py")
     recovery = read("ladder_dragon/execution/order_recovery.py")
     assert 'id="open-orders-body"' in index
@@ -363,7 +381,7 @@ def test_supervisor_and_dashboard_share_canonical_ai_control_path():
 
 
 def test_dashboard_balance_filter_hides_small_assets_by_default():
-    index = read("FRONT/index.html")
+    index = dashboard_source()
     assert 'id="balance-hide-small"' in index
     assert 'type="checkbox" checked' in index
     assert 'Hide &lt; 1 USDT' in index
@@ -373,7 +391,7 @@ def test_dashboard_balance_filter_hides_small_assets_by_default():
 
 
 def test_dashboard_switches_use_binance_style_visual_state():
-    index = read("FRONT/index.html")
+    index = dashboard_source()
     assert index.count('class="switch-visual"') >= 2
     assert 'aria-pressed="false"' in index
     assert ".switch-visual.on" in index
@@ -382,7 +400,7 @@ def test_dashboard_switches_use_binance_style_visual_state():
 
 
 def test_ai_recommendation_is_compact_two_column_layout():
-    index = read("FRONT/index.html")
+    index = dashboard_source()
     assert ".ai-details{display:grid;grid-template-columns:repeat(2,minmax(0,1fr))" in index
     assert ".ai-details .row" in index
     assert '@media (max-width:700px){.ai-details{grid-template-columns:1fr}}' in index
@@ -390,7 +408,7 @@ def test_ai_recommendation_is_compact_two_column_layout():
 
 
 def test_dashboard_charts_have_bounded_responsive_containers():
-    index = read("FRONT/index.html")
+    index = dashboard_source()
     assert "grid-template-columns:repeat(2,minmax(0,1fr))" in index
     assert ".grid-charts>.card{min-width:0" in index
     assert ".chart-frame{position:relative" in index
@@ -422,7 +440,7 @@ def test_shadow_ai_defaults_limit_cost_and_duplicate_requests():
 
 
 def test_dashboard_ai_toggle_is_advisory_only():
-    index = read("FRONT/index.html")
+    index = dashboard_source()
     app = read("FastAPI/pi-dashboard/app.py")
     supervisor = read("bin/ai_supervisor.py")
     assert 'id="ai-toggle"' in index
@@ -586,6 +604,27 @@ def test_soak_audit_is_periodic_signed_and_transition_notified():
     assert "/var/lib/ladder-dragon/soak" in backup
 
 
+def test_daily_digest_is_exact_idempotent_and_scheduled_for_almaty_morning():
+    source = read("bin/daily_trading_digest.py")
+    service = read("deploy/ladder-dragon-daily-digest.service")
+    timer = read("deploy/ladder-dragon-daily-digest.timer")
+    installer = read("deploy/install_raspberry_pi.sh")
+    updater = read("deploy/update_raspberry_pi.sh")
+    runtime_assets = read("deploy/install_runtime_assets.sh")
+    assert "Realized FIFO net PnL" in source
+    assert "Cash flow is not profit" in source
+    assert "mode=ro" in source
+    assert "_last_sent(args.state) == report_date" in source
+    assert "User=bot" in service
+    assert "ReadOnlyPaths=/home/bot/apps/binance_bot/db" in service
+    assert "ReadWritePaths=/var/lib/ladder-dragon/digests" in service
+    assert "OnCalendar=*-*-* 08:00:00 Asia/Almaty" in timer
+    assert "Persistent=true" in timer
+    assert "ladder-dragon-daily-digest.timer" in installer
+    assert "ladder-dragon-daily-digest.timer" in updater
+    assert "/var/lib/ladder-dragon/digests" in runtime_assets
+
+
 def test_updates_are_commit_allowlisted_and_backups_are_encrypted():
     updater = read("deploy/update_raspberry_pi.sh")
     installer = read("deploy/install_raspberry_pi.sh")
@@ -644,7 +683,7 @@ def test_watchdog_publishes_sanitized_raspberry_health_for_dashboard():
     watchdog_unit = read("deploy/pi-watchdog-v3.service")
     dashboard_unit = read("deploy/pi-dashboard.service")
     dashboard = read("FastAPI/pi-dashboard/app.py")
-    index = read("FRONT/index.html")
+    index = dashboard_source()
     assert "HOST_HEALTH_FILE" in watchdog
     assert "get_throttled" in watchdog
     assert "host-health.json" in watchdog

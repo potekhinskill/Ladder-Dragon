@@ -1,4 +1,6 @@
-<h1 align="center">Ladder Dragon — Binance Spot Grid Bot</h1>
+<h1 align="center">Ladder Dragon</h1>
+
+<p align="center"><strong>Adaptive Binance Spot execution with exchange-side protection, exact accounting, and fail-closed operations.</strong></p>
 
 <p align="center">
   <img src="docs/assets/ladder-dragon-banner-v2.svg" alt="Ladder Dragon" width="420">
@@ -7,17 +9,25 @@
 <p align="center">
   <a href="https://github.com/potekhinskill/Ladder-Dragon/releases/latest"><img src="https://img.shields.io/github/v/release/potekhinskill/Ladder-Dragon" alt="Latest release"></a>
   <a href="https://github.com/potekhinskill/Ladder-Dragon/actions/workflows/security.yml"><img src="https://github.com/potekhinskill/Ladder-Dragon/actions/workflows/security.yml/badge.svg?branch=main" alt="Security checks"></a>
+  <img src="https://img.shields.io/badge/Python-3.10%2B-3776AB?logo=python&logoColor=white" alt="Python 3.10+">
+  <img src="https://img.shields.io/badge/Raspberry%20Pi-ready-C51A4A?logo=raspberrypi&logoColor=white" alt="Raspberry Pi ready">
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue.svg" alt="MIT License"></a>
 </p>
 
-> **New installation:** start with the [introduction](docs/INTRODUCTION.md).
+<p align="center">
+  <a href="#quick-start">Quick start</a> ·
+  <a href="#why-ladder-dragon">Why Ladder Dragon</a> ·
+  <a href="#verification">Verification</a> ·
+  <a href="#dashboard">Dashboard</a> ·
+  <a href="docs/RASPBERRY_PI_INSTALL.md">Raspberry Pi</a>
+</p>
 
-Ladder Dragon is an open-source Python project for adaptive ladder trading on
-Binance Spot. It builds BUY/SELL grids, uses ATR/EMA/VWAP/ADX regimes, manages
-OCO protection, and records trading statistics in SQLite. Production secrets,
-real backups, and private parameters are never committed.
+Ladder Dragon is an open-source Python trading system for Binance Spot. It
+combines adaptive ladder entries, exchange-side OCO protection, exact
+fee-aware FIFO accounting, restart reconciliation, replay and walk-forward
+verification, and a private Raspberry Pi operations dashboard.
 
-Current product version: **2.20.30**. The single version source is
+Current product version: **2.20.31**. The single version source is
 `product_version.py`; releases follow [Semantic Versioning](https://semver.org/).
 Project contact: [LinkedIn](https://www.linkedin.com/in/ypotekhin/).
 
@@ -30,10 +40,52 @@ Project contact: [LinkedIn](https://www.linkedin.com/in/ypotekhin/).
 > endorsed by, sponsored by, or officially associated with Binance. Binance and
 > related marks belong to their respective owners.
 
+## Why Ladder Dragon
+
+| Problem | Ladder Dragon response |
+| --- | --- |
+| A fill can arrive while the process restarts | Durable intent journal and authoritative Binance reconciliation |
+| A BUY without protection creates open-ended risk | Exchange OCO/STOP verification and fail-closed recovery |
+| Cash spent can look like a trading loss | Separate cash flow, portfolio movement, and realized FIFO net PnL |
+| A backtest can accidentally use future information | Sequential replay, walk-forward validation, and approval gates |
+| AI can overstep deterministic limits | Advisory-only SHADOW/APPLY policy behind the same Risk Manager |
+| A small server is hard to supervise | Read-only dashboard, encrypted backups, health checks, and Telegram summaries |
+
+The objective is not to predict every tick. It is to make every decision
+bounded, explainable, recoverable, and measurable before exposure is increased.
+
+## How it works
+
+1. Real-time market data updates deterministic indicators and the current
+   trend/range/panic regime.
+2. The strategy proposes a ladder; Risk Manager applies reserve, exposure,
+   loss, freshness, spread, and gap constraints.
+3. An order intent is persisted before submission. Exchange acknowledgements,
+   fills, partial fills, and restarts reconcile against Binance.
+4. Filled BUY quantity must receive verified exchange-side protection or the
+   system halts new entries.
+5. Exact fills, commissions, slippage, lifecycle outcomes, latency, and SHADOW
+   predictions feed reports, replay validation, and production approval.
+
+## Built for observable operations
+
+- **Start safely:** DRY and Testnet are the default path; LIVE needs explicit
+  confirmation and reviewed exposure.
+- **Know what happened:** the ledger keeps exact quantities, fees, realized PnL,
+  open inventory, and unresolved evidence separate.
+- **Recover deliberately:** restart, partial-fill, lost-ACK, OCO/STOP, and gap
+  paths have fail-closed regression tests.
+- **See the whole system:** the private dashboard combines host health, account
+  state, orders, positions, risk, AI quality, logs, backups, and version drift.
+- **Receive useful summaries:** an English Telegram digest reports yesterday,
+  the last 7 complete days, and the last 30 complete days every morning.
+- **Promote evidence, not optimism:** replay, walk-forward, Holm correction,
+  release artifacts, and Pi verification gate deployment decisions.
+
 ## Project status
 
 Ladder Dragon is an actively developed, experimental trading system. Version
-**2.20.19** is the current prepared release. `main` is the only long-lived branch;
+**2.20.31** is the current prepared release. `main` is the only long-lived branch;
 feature branches use the `ladderdragon/*` namespace.
 
 DRY and Binance Spot Testnet are the supported starting modes. Mainnet LIVE is
@@ -94,7 +146,10 @@ Reusable code lives in `ladder_dragon` and is grouped by responsibility:
 
 CLI entry points are in `bin/` and run as `python -m bin.<command>`.
 
-## Requirements and local setup
+## Quick start
+
+> **New installation:** read the [introduction](docs/INTRODUCTION.md) before
+> configuring exchange access.
 
 Linux or Raspberry Pi OS is the production target. Python 3.10+ is required;
 the dashboard additionally uses FastAPI, Uvicorn, and psutil.

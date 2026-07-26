@@ -559,8 +559,11 @@ install -o root -g www-data -m 0640 /dev/null \
 printf 'proxy_set_header X-Dashboard-Proxy-Secret "%s";\n' \
   "${dashboard_proxy_secret}" \
   >/etc/nginx/snippets/ladder_dragon_proxy_secret.conf
-  install -m 0644 "${PROJECT_DIR}/FRONT/index.html" "${PROJECT_DIR}/FRONT/help.html" "${PROJECT_DIR}/FRONT/locales.js" "${PROJECT_DIR}/docs/assets/ladder-dragon-logo.svg" "${PROJECT_DIR}/docs/assets/ladder-dragon-dashboard-icon.svg" \
-  "${PROJECT_DIR}/CHANGELOG.md" /var/www/bot/
+  install -m 0644 "${PROJECT_DIR}/FRONT/index.html" "${PROJECT_DIR}/FRONT/help.html" "${PROJECT_DIR}/FRONT/readme.html" \
+    "${PROJECT_DIR}/FRONT/dashboard.css" "${PROJECT_DIR}/FRONT/dashboard.js" \
+    "${PROJECT_DIR}/FRONT/help.css" "${PROJECT_DIR}/FRONT/readme.css" \
+    "${PROJECT_DIR}/FRONT/locales.js" "${PROJECT_DIR}/docs/assets/ladder-dragon-logo.svg" "${PROJECT_DIR}/docs/assets/ladder-dragon-dashboard-icon.svg" \
+    "${PROJECT_DIR}/CHANGELOG.md" /var/www/bot/
 install -m 0644 "${PROJECT_DIR}/FRONT/vendor/chart.umd.min.js" /var/www/bot/vendor/
 install -m 0644 "${PROJECT_DIR}/FRONT/vendor/chart.js.LICENSE.txt" /var/www/bot/vendor/
 rm -f /var/www/bot/readme.html
@@ -639,6 +642,10 @@ render_unit "${PROJECT_DIR}/deploy/ladder-dragon-soak-audit.service" \
   /etc/systemd/system/ladder-dragon-soak-audit.service
 install -m 0644 "${PROJECT_DIR}/deploy/ladder-dragon-soak-audit.timer" \
   /etc/systemd/system/ladder-dragon-soak-audit.timer
+render_unit "${PROJECT_DIR}/deploy/ladder-dragon-daily-digest.service" \
+  /etc/systemd/system/ladder-dragon-daily-digest.service
+install -m 0644 "${PROJECT_DIR}/deploy/ladder-dragon-daily-digest.timer" \
+  /etc/systemd/system/ladder-dragon-daily-digest.timer
 install -d -o "${BOT_USER}" -g "${BOT_USER}" -m 0750 \
   /var/lib/ladder-dragon/depth-archives
 install -d -o root -g "${BOT_USER}" -m 0770 /var/lib/ladder-dragon/soak
@@ -681,6 +688,7 @@ systemctl disable --now make-pi-backup.timer make-pi-backup.service 2>/dev/null 
 systemctl enable nginx avahi-daemon fail2ban mybot pi-healthd \
   ladder-dragon-backup.timer ladder-dragon-log-export.timer \
   ladder-dragon-depth-archive.timer ladder-dragon-soak-audit.timer \
+  ladder-dragon-daily-digest.timer \
   pi-watchdog-v3.timer >/dev/null
 systemctl restart systemd-journald nginx avahi-daemon fail2ban
 systemctl restart zramswap 2>/dev/null || true
@@ -688,6 +696,7 @@ systemctl start mybot pi-healthd ladder-dragon-backup.timer pi-watchdog-v3.timer
 systemctl start ladder-dragon-log-export.service ladder-dragon-log-export.timer
 systemctl start ladder-dragon-depth-archive.timer
 systemctl start ladder-dragon-soak-audit.service ladder-dragon-soak-audit.timer
+systemctl start ladder-dragon-daily-digest.timer
 
 sleep 3
 systemctl is-active --quiet nginx || fail "nginx failed"

@@ -1,0 +1,46 @@
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2026 IURII Potekhin
+# Purpose: send the read-only daily trading digest under systemd isolation.
+[Unit]
+Description=Ladder Dragon daily Telegram trading digest
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=bot
+Group=bot
+WorkingDirectory=/home/bot/apps/binance_bot
+Environment=PYTHONPATH=/home/bot/apps/binance_bot
+Environment=BOT_STATS_DB=/home/bot/apps/binance_bot/db/bot_stats.db
+EnvironmentFile=-/etc/ladder-dragon/telegram.env
+ExecStart=/home/bot/apps/binance_bot/.venv/bin/python -m bin.daily_trading_digest
+NoNewPrivileges=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectSystem=strict
+ProtectHome=read-only
+ProtectClock=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+ProtectKernelLogs=yes
+ProtectHostname=yes
+RestrictSUIDSGID=yes
+RestrictRealtime=yes
+RestrictNamespaces=yes
+LockPersonality=yes
+MemoryDenyWriteExecute=yes
+CapabilityBoundingSet=
+AmbientCapabilities=
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+SystemCallArchitectures=native
+SystemCallFilter=@system-service
+SystemCallErrorNumber=EPERM
+ReadOnlyPaths=/home/bot/apps/binance_bot/db
+ReadOnlyPaths=-/etc/ladder-dragon/telegram.env
+ReadWritePaths=/var/lib/ladder-dragon/digests
+UMask=0077
+
+[Install]
+WantedBy=multi-user.target

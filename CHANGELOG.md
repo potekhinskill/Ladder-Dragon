@@ -3,6 +3,42 @@
 All notable changes are documented here. Releases use Semantic Versioning; every
 section is dated and there is intentionally no `Unreleased` section.
 
+## [2.20.31] — 2026-07-26
+
+### Added
+- Added one idempotent English Telegram trading digest at 08:00
+  `Asia/Almaty`. A single message reports yesterday, the last 7 complete days,
+  and the last 30 complete days with exact fill counts, valued fees, cash flow,
+  and realized FIFO net PnL.
+- Added a hardened systemd oneshot and persistent timer. The report reads the
+  trade database in SQLite read-only mode, stores only its last successful
+  report date, and never changes orders, HALT state, configuration, or Binance.
+
+### Changed
+- Reworked the README opening into a product-oriented overview with a concise
+  value proposition, verified capability badges, problem/response mapping,
+  operating flow, trust boundaries, navigation, and a clearer quick start.
+- Moved the dashboard, help, and browser quick-start CSS plus dashboard
+  JavaScript into dedicated static files. Deployment now installs those assets,
+  and the script CSP no longer depends on a fragile inline SHA-256 hash.
+
+### Security
+- The digest blocks instead of publishing misleading PnL when FIFO history is
+  incomplete, a commission lacks an exact quote value, the database is
+  unavailable, or quote assets cannot be combined safely. Cash flow is
+  explicitly labeled as not profit.
+- HTML pages contain no inline style blocks, inline script bodies, or static
+  `style` attributes. Dashboard scripts remain same-origin under CSP.
+
+### Verified
+- All `107` focused digest, dashboard, deployment, CSP, and Telegram regression
+  tests pass.
+- The new Python source compiles and `node --check FRONT/dashboard.js` passes.
+- The complete local suite passes all `557` project tests.
+- The pre-commit `release` harness passes numeric and tracked-secret audits,
+  plus `18` replay, `21` walk-forward, `98` recovery and `59`
+  migration/deployment regression checks (`753` total test executions).
+
 ## [2.20.30] — 2026-07-26
 
 ### Fixed

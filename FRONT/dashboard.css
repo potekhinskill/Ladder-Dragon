@@ -1,0 +1,143 @@
+/* SPDX-License-Identifier: MIT */
+/* Copyright (c) 2026 IURII Potekhin */
+/* Purpose: style the read-only Ladder Dragon dashboard without inline CSS. */
+:root{
+  --bg:#0f1218; --panel:#151a22; --stroke:#212734;
+  --text:#e7edf6; --muted:#9aa6b2; --ok:#21c07a; --warn:#f3c24d; --bad:#ff6e6e; --acc:#5b8cff;
+  --gap:14px; --pad:16px; --rad:14px;
+  --pct-size:18px;
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--text);font-family:Manrope,system-ui,-apple-system,Segoe UI,Roboto,Ubuntu,Arial,sans-serif;overflow-x:hidden}
+.wrap{width:100%;max-width:1180px;min-width:0;margin:0 auto;padding:18px}
+header{display:flex;align-items:center;gap:10px;margin-bottom:12px;flex-wrap:wrap}
+h1{margin:0;font-size:20px;font-weight:800;line-height:1.15}
+.brand-logo{width:34px;height:34px;object-fit:cover;border-radius:9px;box-shadow:0 0 0 1px var(--stroke);flex:0 0 auto}
+.sub{color:var(--muted);font-size:12px}
+.version-link{color:var(--muted);font-size:12px;text-decoration:none}
+.version-link:hover{text-decoration:underline;color:var(--text)}
+.github-update{font-size:12px;text-decoration:none;border:1px solid transparent;border-radius:999px;padding:3px 8px;transition:color .18s,background .18s,border-color .18s}
+.github-update.is-current{color:var(--ok);border-color:rgba(33,192,122,.35);background:rgba(33,192,122,.08)}
+.github-update.is-available{color:var(--warn);border-color:rgba(243,194,77,.55);background:rgba(243,194,77,.12);font-weight:700;cursor:pointer}
+.github-update.is-available:hover{color:#ffe39a;border-color:var(--warn);background:rgba(243,194,77,.2)}
+.github-update.is-unavailable{color:var(--bad);border-color:rgba(255,110,110,.3);background:rgba(255,110,110,.07)}
+.github-update:focus-visible{outline:2px solid #75a0ff;outline-offset:2px}
+.language-picker{margin-left:auto;display:inline-flex;align-items:center;gap:6px;color:var(--muted);font-size:12px}
+.language-picker select{background:#111622;color:var(--text);border:1px solid var(--stroke);border-radius:8px;padding:4px 8px;font:inherit}
+.ai-toggle{display:inline-flex;align-items:center;gap:7px;border:0;background:transparent;color:var(--text);padding:0;font:inherit;font-size:12px;cursor:pointer}
+.ai-toggle:disabled{cursor:not-allowed;opacity:.55}
+.switch-visual{position:relative;display:inline-block;width:42px;height:24px;flex:0 0 auto;border:1px solid #3a4352;border-radius:999px;background:#272e39;transition:background .18s,border-color .18s}
+.switch-visual::after{content:"";position:absolute;top:3px;left:3px;width:16px;height:16px;border-radius:50%;background:#8e99a8;box-shadow:0 1px 3px rgba(0,0,0,.35);transition:transform .18s,background .18s}
+.switch-visual.on,.switch-label input:checked + .switch-visual{border-color:#386dff;background:#2959d8}
+.switch-visual.on::after,.switch-label input:checked + .switch-visual::after{transform:translateX(18px);background:#fff}
+.switch-caption{font-weight:600;color:var(--muted)}
+.switch-label{display:inline-flex;align-items:center;gap:7px;color:var(--muted);font-size:12px;cursor:pointer;user-select:none}
+.switch-label input{position:absolute;width:1px;height:1px;opacity:0;pointer-events:none}
+.switch-label input:focus-visible + .switch-visual,.ai-toggle:focus-visible .switch-visual{outline:2px solid #75a0ff;outline-offset:2px}
+
+/* KPI cards. */
+.grid-kpi{display:grid;grid-template-columns:repeat(3,1fr);gap:var(--gap)}
+@media (max-width:980px){.grid-kpi{grid-template-columns:1fr}}
+.card{background:var(--panel);border:1px solid var(--stroke);border-radius:var(--rad);padding:var(--pad)}
+/* The AI block does not alter the legacy six-card system KPI grid. */
+.ai-card{grid-column:1/-1;font-size:12px}
+/* AI metrics stay compact in two columns; long values cannot expand the viewport. */
+.ai-details{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));column-gap:24px;row-gap:4px;margin-top:8px}
+.ai-details .row{min-width:0;align-items:flex-start;gap:8px;font-size:11px;line-height:1.35;padding:2px 0}
+.ai-details .row>span:first-child{color:var(--muted);flex:0 0 auto}
+.ai-details .row>span:last-child{min-width:0;max-width:100%;text-align:right;overflow-wrap:anywhere}
+.ai-details .mono{font-size:11px}
+@media (max-width:700px){.ai-details{grid-template-columns:1fr}}
+/* Read-only operational monitoring for Raspberry, trading, and AI quality. */
+.grid-monitor{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:var(--gap);min-width:0}
+.monitor-card{min-width:0;overflow:hidden}
+.monitor-card.full{grid-column:1/-1}
+.monitor-title{color:var(--muted);font-size:12px;margin-bottom:8px}
+.monitor-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:3px 18px}
+.monitor-row{display:flex;justify-content:space-between;align-items:flex-start;gap:8px;min-width:0;font-size:11px;line-height:1.4;padding:2px 0}
+.monitor-row>span:first-child{color:var(--muted);flex:0 0 auto}
+.monitor-row>span:last-child{min-width:0;overflow-wrap:anywhere;text-align:right}
+.live-banner{display:inline-flex;align-items:center;border-radius:999px;padding:5px 10px;font-size:12px;font-weight:800;border:1px solid rgba(243,194,77,.4);background:rgba(243,194,77,.15);color:#ffe08b}
+.live-banner.live{border-color:rgba(255,110,110,.55);background:rgba(255,110,110,.18);color:#ffb0b0}
+.live-banner.dry{border-color:rgba(33,192,122,.4);background:rgba(33,192,122,.15);color:#7ef3b2}
+.live-banner.stopped{border-color:rgba(148,163,184,.45);background:rgba(148,163,184,.14);color:#cbd5e1}
+.position-box{overflow:auto;background:#0f131b;border:1px solid var(--stroke);border-radius:var(--rad)}
+.position-table{min-width:980px}
+.risk-bad{color:#ffaaaa;font-weight:800}.risk-ok{color:#7ef3b2;font-weight:800}.risk-warn{color:#ffd27e;font-weight:800}
+@media (max-width:800px){.grid-monitor{grid-template-columns:1fr}.monitor-card.full{grid-column:auto}.monitor-grid{grid-template-columns:1fr}}
+.row{display:flex;justify-content:space-between;align-items:center;gap:10px}
+.label{color:var(--muted);font-size:12px}
+.value{font-size:22px;font-weight:800}
+.pct{font-size:var(--pct-size);font-weight:800;color:var(--text)}
+.pill{font-size:12px;border-radius:999px;padding:4px 8px;border:1px solid transparent}
+.ok{background:rgba(33,192,122,.15);border-color:rgba(33,192,122,.25);color:#7ef3b2}
+.warn{background:rgba(243,194,77,.15);border-color:rgba(243,194,77,.25);color:#ffe08b}
+.bad{background:rgba(255,110,110,.14);border-color:rgba(255,110,110,.25);color:#ffaaaa}
+.mono{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:12px}
+.dot{width:10px;height:10px;border-radius:50%;display:inline-block;margin-right:8px;flex:0 0 auto;box-shadow:0 0 0 1px var(--stroke)}
+
+.progress{height:10px;border-radius:7px;overflow:hidden;background:#0f131b;border:1px solid var(--stroke)}
+.bar{height:100%;width:0%;background:linear-gradient(90deg,#4cc3ff,#5b8cff);transition:width .3s ease}
+
+/* Charts: two in a row plus one full-width chart. */
+.grid-charts{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:var(--gap);min-width:0}
+.grid-charts>.card{min-width:0;min-height:0;overflow:hidden}
+.full{grid-column:1/-1}
+@media (max-width:980px){.grid-charts{grid-template-columns:1fr}}
+/* Chart.js gets a bounded area so data cannot expand the grid. */
+.chart-frame{position:relative;width:100%;height:260px;min-width:0;max-width:100%;overflow:hidden}
+.chart-frame canvas{display:block !important;width:100% !important;height:100% !important;max-width:100%}
+.chart-title{margin:-4px 0 8px 0;color:var(--muted);font-size:12px}
+
+/* Logs stay compact on desktop. */
+.logs{height:320px;overflow:auto;white-space:pre-wrap;background:#0f131b;border:1px solid var(--stroke);border-radius:var(--rad);padding:var(--pad);line-height:1.3}
+@media (min-width:981px){.logs{font-size:12px}}
+@media (max-width:980px){.logs{font-size:13px}}
+.muted{color:var(--muted)}
+.mt{margin-top:var(--gap)}
+.dot-idle{background:#888}
+.dot-ok-static{background:#21c07a}
+.flex-fill{flex:1}
+.row-compact{margin:0;gap:8px}
+.row-heading{margin-bottom:6px}
+.row-heading-wide{margin-bottom:8px}
+.heading-flush{margin:0}
+.sub-mt4{margin-top:4px}
+.sub-mt8{margin-top:8px}
+.sub-mb8{margin-bottom:8px}
+.muted-static{color:#9aa6b2}
+.row-actions{margin:0;gap:10px}
+
+/* 24h trading summary */
+.grid-24h{display:grid;grid-template-columns:repeat(5,1fr);gap:var(--gap)}
+@media (max-width:1180px){.grid-24h{grid-template-columns:repeat(3,1fr)}}
+@media (max-width:800px){.grid-24h{grid-template-columns:repeat(2,1fr)}}
+
+/* Filled orders (24h) */
+.orders{height:320px;overflow:auto;background:#0f131b;border:1px solid var(--stroke);border-radius:var(--rad)}
+.tbl{width:100%;border-collapse:collapse;font-size:12px;table-layout:fixed}
+.tbl th,.tbl td{padding:8px 10px;border-bottom:1px solid var(--stroke);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.tbl th{position:sticky;top:0;background:#111622;color:var(--muted);text-align:left;z-index:1}
+.tbl th.right,.tbl td.right{text-align:right}
+.col-time{width:90px}
+.col-sym{width:110px}
+.col-side{width:64px}
+.col-price{width:110px}
+.col-qty{width:110px}
+.col-quote{width:120px}
+.col-fee{width:120px}
+.side-buy{color:var(--ok);font-weight:800}
+.side-sell{color:var(--acc);font-weight:800}
+.table-pagination{display:flex;justify-content:flex-end;align-items:center;gap:8px;margin-top:8px;color:var(--muted);font-size:12px}
+.table-pagination button{min-width:32px;border:1px solid var(--stroke);border-radius:7px;background:#111622;color:var(--text);padding:4px 8px;cursor:pointer}
+.table-pagination button:disabled{opacity:.4;cursor:not-allowed}
+.nowrap{white-space:nowrap}
+.right{text-align:right}
+
+/* Balances: the table must not expand the card on a narrow screen. */
+.balance-box{overflow:auto;background:#0f131b;border:1px solid var(--stroke);border-radius:var(--rad)}
+.balance-table{min-width:620px}
+.balance-unvalued{color:var(--warn)}
+/* Open orders stay isolated and must not expand the dashboard on narrow screens. */
+.open-orders-box{max-height:340px;overflow:auto;background:#0f131b;border:1px solid var(--stroke);border-radius:var(--rad)}
+.open-orders-table{min-width:1040px}

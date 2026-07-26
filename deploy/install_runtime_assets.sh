@@ -15,6 +15,7 @@ fail() {
 [[ -d "${PROJECT_DIR}/deploy" ]] || fail "release deploy directory is missing"
 
 install -d -o root -g root -m 0755 /usr/local/libexec/ladder-dragon
+install -d -o bot -g bot -m 0700 /var/lib/ladder-dragon/digests
 install -o root -g root -m 0644 \
   "${PROJECT_DIR}/deploy/export_sanitized_logs.py" \
   /usr/local/libexec/ladder-dragon/export_sanitized_logs.py
