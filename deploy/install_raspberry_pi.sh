@@ -567,6 +567,10 @@ printf 'proxy_set_header X-Dashboard-Proxy-Secret "%s";\n' \
 install -m 0644 "${PROJECT_DIR}/FRONT/vendor/chart.umd.min.js" /var/www/bot/vendor/
 install -m 0644 "${PROJECT_DIR}/FRONT/vendor/chart.js.LICENSE.txt" /var/www/bot/vendor/
 rm -f /var/www/bot/readme.html
+"${PROJECT_DIR}/.venv/bin/python" -m \
+  ladder_dragon.verification.dashboard_assets \
+  --source-root "${PROJECT_DIR}" --web-root /var/www/bot \
+  || fail "published dashboard assets do not match the verified release"
 
 if [[ -d /var/www/bot/backups ]]; then
   legacy_dest="/var/lib/ladder-dragon/backups/legacy-public-$(date -u +%Y%m%d%H%M%S)"

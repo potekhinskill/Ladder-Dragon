@@ -79,4 +79,7 @@ These rules apply to every repository change and every Raspberry Pi update.
   or `.env.dashboard` with Git content.
 - After updating, check `mybot`, `pi-healthd`, heartbeat, `/api/health`, `/api/ai/status`,
   protected logs, and the actual execution mode.
+- Dashboard deployment must verify every published HTML/CSS/JavaScript/vendor
+  asset against the exact release checkout. A missing or hash-mismatched asset
+  blocks deployment and the Pi verification profile.
 - Any deployment/systemd/nginx change must also be recorded in the changelog and tests.

@@ -425,6 +425,9 @@ printf 'proxy_set_header X-Dashboard-Proxy-Secret "%s";\n' \
 install -m 0644 FRONT/vendor/chart.umd.min.js "${WEB_ROOT}/vendor/"
 install -m 0644 FRONT/vendor/chart.js.LICENSE.txt "${WEB_ROOT}/vendor/"
 rm -f "${WEB_ROOT}/readme.html"
+.venv/bin/python -m ladder_dragon.verification.dashboard_assets \
+  --source-root "${PROJECT_DIR}" --web-root "${WEB_ROOT}" \
+  || fail "published dashboard assets do not match the verified release"
 [[ -f /etc/nginx/.htpasswd-ladder-dragon ]] \
   || fail "nginx dashboard auth is missing; run installer migrate"
 [[ -s "/etc/nginx/certs/${BOT_HOSTNAME}.pem" ]] \

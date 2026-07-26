@@ -292,6 +292,13 @@ def test_dashboard_publishes_version_and_changelog():
         "FRONT/readme.css", "FRONT/locales.js",
     ):
         assert asset in updater
+    verification_command = (
+        "ladder_dragon.verification.dashboard_assets"
+    )
+    assert verification_command in installer
+    assert verification_command in updater
+    assert 'fail "published dashboard assets do not match' in installer
+    assert 'fail "published dashboard assets do not match' in updater
 
 
 def test_dashboard_localization_has_all_supported_languages_and_is_deployed():

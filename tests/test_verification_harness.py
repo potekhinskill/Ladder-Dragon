@@ -9,10 +9,15 @@ from dataclasses import replace
 import json
 import os
 from pathlib import Path
+import shutil
 import subprocess
 
 from bin import verification_harness
 from deploy import scan_tracked_secrets
+from ladder_dragon.verification.dashboard_assets import (
+    DASHBOARD_ASSETS,
+    dashboard_asset_failures,
+)
 from ladder_dragon.verification.models import (
     CheckResult,
     CheckSpec,
@@ -71,6 +76,36 @@ def test_profile_registry_contains_the_documented_interfaces(tmp_path):
         "recovery_regression",
         "migration_deployment",
     } <= release_names
+    pi_names = {
+        check.name for check in checks_for_profile(_context(tmp_path, "pi"))
+    }
+    assert "pi_dashboard_assets" in pi_names
+
+
+def test_dashboard_asset_audit_fails_closed_on_missing_or_changed_asset(
+    tmp_path,
+):
+    web_root = tmp_path / "web"
+    for source_name, published_name in DASHBOARD_ASSETS:
+        destination = web_root / published_name
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(Path(source_name), destination)
+
+    assert dashboard_asset_failures(Path.cwd(), web_root) == ()
+
+    (web_root / "dashboard.css").unlink()
+    assert dashboard_asset_failures(Path.cwd(), web_root) == (
+        "published_missing:dashboard.css",
+    )
+
+    shutil.copy2("FRONT/dashboard.css", web_root / "dashboard.css")
+    (web_root / "dashboard.js").write_text(
+        "console.error('damaged');\n",
+        encoding="utf-8",
+    )
+    assert dashboard_asset_failures(Path.cwd(), web_root) == (
+        "content_mismatch:dashboard.js",
+    )
 
 
 def test_unknown_profile_and_missing_check_fail_closed(tmp_path):

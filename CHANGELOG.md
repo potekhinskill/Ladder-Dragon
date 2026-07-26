@@ -3,6 +3,28 @@
 All notable changes are documented here. Releases use Semantic Versioning; every
 section is dated and there is intentionally no `Unreleased` section.
 
+## [2.20.39] — 2026-07-26
+
+### Fixed
+- Restored the missing Raspberry Pi `dashboard.css` and `dashboard.js`
+  publication that caused the dashboard to render as unstyled HTML with empty
+  runtime values.
+- Raspberry install and update now compare every published dashboard asset
+  with the exact verified release checkout and fail closed on a missing or
+  hash-mismatched file.
+
+### Changed
+- The Pi verification profile now audits HTML, CSS, JavaScript, localization,
+  icons, Chart.js vendor files, and the changelog as one immutable dashboard
+  asset set.
+- Project rules now require exact post-deployment dashboard asset integrity.
+
+### Verified
+- Dashboard asset regression tests cover both a missing CSS file and modified
+  JavaScript content.
+- The complete suite passes all `572` project tests; Python compilation and
+  whitespace checks pass.
+
 ## [2.20.38] — 2026-07-26
 
 ### Fixed

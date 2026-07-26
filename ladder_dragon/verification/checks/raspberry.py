@@ -12,6 +12,10 @@ import sqlite3
 import subprocess
 import time
 
+from ladder_dragon.verification.dashboard_assets import (
+    DASHBOARD_ASSETS,
+    dashboard_asset_failures,
+)
 from ladder_dragon.verification.models import (
     CheckResult,
     CheckSpec,
@@ -21,6 +25,34 @@ from ladder_dragon.verification.models import (
 
 
 FULL_SHA = re.compile(r"^[0-9a-f]{40}$")
+
+
+def _dashboard_assets_check(context: HarnessContext) -> CheckResult:
+    started = time.monotonic()
+    try:
+        failures = dashboard_asset_failures(
+            context.root,
+            context.options.web_root,
+        )
+    except OSError:
+        failures = ("asset_audit_unavailable",)
+    status = Status.PASS if not failures else Status.BLOCKED
+    return CheckResult(
+        name="pi_dashboard_assets",
+        status=status,
+        required=True,
+        duration_ms=int((time.monotonic() - started) * 1000),
+        summary=(
+            "published dashboard assets match the deployed release"
+            if status is Status.PASS
+            else "dashboard assets are missing or differ from the release"
+        ),
+        exit_code=0 if status is Status.PASS else 2,
+        metrics={
+            "assets_checked": len(DASHBOARD_ASSETS),
+            "failures": list(failures),
+        },
+    )
 
 
 def _risk_check(context: HarnessContext) -> CheckResult:
@@ -240,6 +272,7 @@ def raspberry_checks(context: HarnessContext) -> list[CheckSpec]:
     options = context.options
     return [
         CheckSpec(name="pi_deployed_sha", check=_deployed_sha_check),
+        CheckSpec(name="pi_dashboard_assets", check=_dashboard_assets_check),
         CheckSpec(
             name="pi_mybot_service",
             argv=("systemctl", "is-active", "--quiet", "mybot"),

@@ -86,6 +86,11 @@ def build_parser() -> argparse.ArgumentParser:
         type=Path,
         default=Path("db/ai_decisions.sqlite3"),
     )
+    parser.add_argument(
+        "--web-root",
+        type=Path,
+        default=Path("/var/www/bot"),
+    )
     return parser
 
 
@@ -122,6 +127,7 @@ def main(argv: list[str] | None = None) -> int:
         order_journal=args.order_journal,
         prediction_db=args.prediction_db,
         ai_decisions_db=args.ai_decisions_db,
+        web_root=args.web_root,
     )
     context = HarnessContext(
         root=PROJECT_ROOT,

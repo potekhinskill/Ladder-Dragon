@@ -79,6 +79,7 @@ class HarnessOptions:
     order_journal: Path = Path("db/order_intents.sqlite3")
     prediction_db: Path = Path("db/prediction_shadow.sqlite3")
     ai_decisions_db: Path = Path("db/ai_decisions.sqlite3")
+    web_root: Path = Path("/var/www/bot")
 
 
 @dataclass(frozen=True)
