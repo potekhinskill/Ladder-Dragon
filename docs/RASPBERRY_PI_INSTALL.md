@@ -434,10 +434,13 @@ HSTS; otherwise a certificate mistake can lock browsers out of `bot.local`.
 The updater creates an encrypted backup, records service state, stops services,
 applies only the requested fast-forward SHA, installs dependencies, updates
 nginx/frontend/systemd, runs validation, starts services, and waits for a fresh
-heartbeat. It preserves `.env`, `.env.dashboard`, venue, execution mode, symbols,
-and open orders. Because configuration is preserved, newly documented risk
-controls must be reviewed and added explicitly; the updater never expands or
-rewrites exposure from `.env.example`.
+heartbeat plus an authenticated database-backed dashboard request. A transient
+SQLite startup/schema race is reported as retryable HTTP 503, never HTTP 500,
+and deployment is not declared ready until that request succeeds. It preserves
+`.env`, `.env.dashboard`, venue, execution mode, symbols, and open orders.
+Because configuration is preserved, newly documented risk controls must be
+reviewed and added explicitly; the updater never expands or rewrites exposure
+from `.env.example`.
 
 Database migration `007` adds the durable SELL FIFO-consumption journal before
 services restart. It is idempotent and does not rewrite historical lots.

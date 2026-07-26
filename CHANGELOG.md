@@ -3,6 +3,35 @@
 All notable changes are documented here. Releases use Semantic Versioning; every
 section is dated and there is intentionally no `Unreleased` section.
 
+## [2.20.55] — 2026-07-27
+
+### Fixed
+- SQLite schema/opening races during dashboard restart now return a sanitized,
+  retryable HTTP 503 with `Retry-After: 2`; database exceptions can no longer
+  escape read-only endpoints as HTTP 500 responses.
+- Dashboard SQLite connections now enforce URI read-only and `query_only`
+  modes, so an early dashboard request cannot create an empty statistics
+  database before the trading process initializes it.
+- Filled-order compatibility endpoints no longer turn an unavailable database
+  into a misleading empty result.
+- Raspberry deployment readiness now waits up to 30 seconds for an
+  authenticated database-backed dashboard request. The updater does not
+  declare the dashboard ready merely because the process and non-database
+  health endpoint are running.
+
+### Security
+- Deployment passes the dashboard readiness credential to `curl` over stdin,
+  never through argv, logs or a temporary file. Error responses expose only a
+  stable error code and exception class is limited to the protected service
+  journal.
+
+### Verified
+- Dashboard regressions cover every trades/filled compatibility endpoint
+  against an opened but not-yet-migrated SQLite database and prove HTTP 503,
+  retry metadata and absence of SQLite details.
+- Dashboard/deployment tests and shell syntax validation pass. Python
+  compilation, whitespace checks and the complete 654-test project suite pass.
+
 ## [2.20.54] — 2026-07-27
 
 ### Fixed

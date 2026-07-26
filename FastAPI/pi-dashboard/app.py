@@ -161,6 +161,33 @@ app = FastAPI(
 GiB = 1024**3
 
 
+def _database_unavailable_response() -> JSONResponse:
+    """Return one sanitized retry contract for the dashboard read model."""
+    return JSONResponse(
+        {
+            "ok": False,
+            "error": "DATABASE_TEMPORARILY_UNAVAILABLE",
+            "retryable": True,
+        },
+        status_code=503,
+        headers={"Retry-After": "2"},
+    )
+
+
+@app.exception_handler(sqlite3.Error)
+async def sqlite_temporarily_unavailable(
+    _request: Request,
+    exc: sqlite3.Error,
+):
+    """Expose transient read-model startup as retryable, never HTTP 500."""
+    print(
+        f"[DASHBOARD] DATABASE_TEMPORARILY_UNAVAILABLE "
+        f"type={type(exc).__name__}",
+        flush=True,
+    )
+    return _database_unavailable_response()
+
+
 @app.middleware("http")
 async def authenticate_and_rate_limit(request: Request, call_next):
     if request.url.path.startswith("/api/"):
@@ -426,8 +453,16 @@ def _runtime_data_path(runtime: Dict, name: str, fallback: str) -> Path:
 
 def _open_db():
     path = get_db_path()
-    con = sqlite3.connect(path, timeout=5.0)
+    # The dashboard is a read model. URI read-only mode prevents a restart race
+    # from creating an empty database before the trading process initializes it.
+    database_uri = Path(path).expanduser().resolve().as_uri() + "?mode=ro"
+    con = sqlite3.connect(
+        database_uri,
+        timeout=5.0,
+        uri=True,
+    )
     con.row_factory = sqlite3.Row
+    con.execute("PRAGMA query_only=ON")
     return con, path
 
 def _has_column(con: sqlite3.Connection, table: str, col: str) -> bool:
@@ -2607,7 +2642,7 @@ def trades_symbols(hours: int = 168):
         con, _ = _open_db()
     except (OSError, sqlite3.Error, RuntimeError, ValueError) as exc:
         print(f"[DASHBOARD] DB_OPEN_FAILED type={type(exc).__name__}", flush=True)
-        return JSONResponse({"ok": False, "error": "DB_OPEN_FAILED"}, status_code=503)
+        return _database_unavailable_response()
     try:
         if hours > 0:
             sql = """
@@ -2648,7 +2683,7 @@ def trades_summary(hours: int = 24, symbols: str = ""):
         con, path = _open_db()
     except (OSError, sqlite3.Error, RuntimeError, ValueError) as exc:
         print(f"[DASHBOARD] DB_OPEN_FAILED type={type(exc).__name__}", flush=True)
-        return JSONResponse({"ok": False, "error": "DB_OPEN_FAILED"}, status_code=503)
+        return _database_unavailable_response()
 
     fee_pct = _fee_pct_default()
     try:
@@ -2698,7 +2733,7 @@ def trades_recent(limit: int = 20, symbols: str = ""):
         con, path = _open_db()
     except (OSError, sqlite3.Error, RuntimeError, ValueError) as exc:
         print(f"[DASHBOARD] DB_OPEN_FAILED type={type(exc).__name__}", flush=True)
-        return JSONResponse({"ok": False, "error": "DB_OPEN_FAILED"}, status_code=503)
+        return _database_unavailable_response()
     try:
         sym_filter = ""
         args: List = []
@@ -2741,11 +2776,7 @@ def _select_filled_orders(
     offset = max(0, min(int(offset), 50000))
     cutoff_s = int(time.time()) - hours * 3600
 
-    con = None
-    try:
-        con, _ = _open_db()
-    except (OSError, sqlite3.Error, RuntimeError, ValueError):
-        return []
+    con, _ = _open_db()
 
     try:
         sym_filter = ""

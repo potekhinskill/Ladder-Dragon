@@ -79,11 +79,70 @@ def test_dashboard_read_only_database_waits_for_short_wal_contention(
         busy_timeout_ms = connection.execute(
             "PRAGMA busy_timeout"
         ).fetchone()[0]
+        query_only = connection.execute("PRAGMA query_only").fetchone()[0]
     finally:
         connection.close()
 
     assert resolved_path == str(database)
     assert busy_timeout_ms == 5000
+    assert query_only == 1
+
+
+def test_dashboard_read_only_open_never_creates_missing_stats_database(
+    tmp_path,
+    monkeypatch,
+):
+    database = tmp_path / "stats-not-created-yet.db"
+    monkeypatch.setenv("BOT_STATS_DB", str(database))
+    module = load_dashboard(monkeypatch)
+
+    with TestClient(module.app, raise_server_exceptions=False) as client:
+        response = client.get(
+            "/api/trades/symbols",
+            headers={"Authorization": "Bearer test-secret-token"},
+        )
+
+    assert response.status_code == 503
+    assert response.json()["error"] == "DATABASE_TEMPORARILY_UNAVAILABLE"
+    assert response.headers["Retry-After"] == "2"
+    assert database.exists() is False
+
+
+@pytest.mark.parametrize(
+    "endpoint",
+    (
+        "/api/trades/symbols",
+        "/api/trades/summary",
+        "/api/trades/recent",
+        "/api/trades/filled",
+        "/api/orders/filled",
+        "/api/fills",
+    ),
+)
+def test_dashboard_sqlite_startup_race_is_retryable_not_500(
+    tmp_path,
+    monkeypatch,
+    endpoint,
+):
+    database = tmp_path / "not-yet-migrated.db"
+    sqlite3.connect(database).close()
+    monkeypatch.setenv("BOT_STATS_DB", str(database))
+    module = load_dashboard(monkeypatch)
+
+    with TestClient(module.app, raise_server_exceptions=False) as client:
+        response = client.get(
+            endpoint,
+            headers={"Authorization": "Bearer test-secret-token"},
+        )
+
+    assert response.status_code == 503
+    assert response.headers["Retry-After"] == "2"
+    assert response.json() == {
+        "ok": False,
+        "error": "DATABASE_TEMPORARILY_UNAVAILABLE",
+        "retryable": True,
+    }
+    assert "sqlite" not in response.text.lower()
 
 
 def test_user_stream_health_is_sanitized_and_rest_authoritative(

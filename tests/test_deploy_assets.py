@@ -281,6 +281,12 @@ def test_dashboard_transient_failures_are_bounded_and_visible():
     assert "DASHBOARD_UPSTREAM_UNAVAILABLE" in site
     assert "Restart=always" in unit
     assert "RestartSec=2" in unit
+    updater = read("deploy/update_raspberry_pi.sh")
+    assert "wait_for_dashboard_database 30" in updater
+    assert "/api/trades/symbols?hours=1" in updater
+    assert "| curl --config -" in updater
+    assert "Authorization: Bearer ${dashboard_token}" in updater
+    assert 'curl -H "Authorization:' not in updater
 
 
 def test_dashboard_large_sources_are_bounded_server_side():

@@ -193,6 +193,41 @@ PY
   done
 }
 
+dashboard_database_status() {
+  local dashboard_token
+  dashboard_token="$(
+    sed -n 's/^DASHBOARD_AUTH_TOKEN=//p' "${DASHBOARD_ENV}" | head -1
+  )"
+  [[ "${dashboard_token}" =~ ^[0-9a-fA-F]{64,}$ ]] || {
+    echo 000
+    return
+  }
+  # Pass the credential over stdin, never argv, logs or a temporary file.
+  printf '%s\n' \
+    'silent' \
+    'output = "/dev/null"' \
+    'write-out = "%{http_code}"' \
+    "header = \"Authorization: Bearer ${dashboard_token}\"" \
+    'url = "http://127.0.0.1:8081/api/trades/symbols?hours=1"' \
+    | curl --config - 2>/dev/null || true
+}
+
+wait_for_dashboard_database() {
+  local timeout_sec="${1:-30}"
+  local deadline=$((SECONDS + timeout_sec))
+  local status=""
+  while true; do
+    status="$(dashboard_database_status)"
+    [[ "${status}" == "200" ]] && return 0
+    if [[ "${status}" == "401" || "${status}" == "403" ]]; then
+      fail "authenticated dashboard database readiness was rejected: HTTP ${status}"
+    fi
+    (( SECONDS >= deadline )) \
+      && fail "dashboard database did not become ready in ${timeout_sec}s (HTTP ${status:-000})"
+    sleep 2
+  done
+}
+
 check_link() {
   systemctl is-active --quiet mybot || fail "mybot is not active"
   systemctl is-active --quiet pi-healthd || fail "pi-healthd is not active"
@@ -210,6 +245,7 @@ check_link() {
   if [[ "${runtime_state}" != "RUNNING" ]]; then
     echo "[WARN] supervisor is alive but fail-closed: ${runtime_state}" >&2
   fi
+  wait_for_dashboard_database 30
   local anonymous_status
   anonymous_status="$(curl --silent --output /dev/null --write-out '%{http_code}' \
     http://127.0.0.1:8081/api/health)"
