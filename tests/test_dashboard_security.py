@@ -837,6 +837,13 @@ def test_ai_status_exposes_decision_rationale_and_realized_summary(tmp_path, mon
     store.record_fill(decision, symbol="SOLUSDT", side="BUY", price=100, qty=1, ts=10)
     store.record_fill(decision, symbol="SOLUSDT", side="SELL", price=101, qty=1,
                       exit_reason="TP", ts=20)
+    store.record_unresolved_fill(
+        symbol="SOLUSDT", side="BUY", price=99, qty=.1, order_id=101
+    )
+    store.record_unresolved_fill(
+        symbol="SOLUSDT", side="BUY", price=98, qty=.1, order_id=102,
+        ts=21, resolution_scope="INVENTORY",
+    )
     store.evaluate_execution(decision)
     monkeypatch.setenv("AI_DECISIONS_DB", str(db))
     module = load_dashboard(monkeypatch)
@@ -851,6 +858,9 @@ def test_ai_status_exposes_decision_rationale_and_realized_summary(tmp_path, mon
     assert payload["recent"][0]["rationale"] == "Test rationale"
     assert payload["knowledge_base"]["closed_decisions"] == 1
     assert payload["knowledge_base"]["realized_net_pnl_quote"] > 0
+    assert payload["knowledge_base"]["unresolved_fills"] == 2
+    assert payload["knowledge_base"]["unresolved_attribution_fills"] == 1
+    assert payload["knowledge_base"]["unresolved_inventory_fills"] == 1
 
 
 def test_ai_control_button_changes_only_advisory_mode(tmp_path, monkeypatch):
@@ -1201,4 +1211,56 @@ def test_github_update_check_is_cached_and_compares_commits(monkeypatch):
     assert first.json()["current_commit"] == local_commit
     assert first.json()["remote_commit"] == remote_commit
     assert first.json()["remote_url"] == "https://github.com/owner/repo/commit/" + remote_commit
+    assert first.json()["stale"] is False
+    assert second.json()["cache_age_sec"] >= 0
     assert session.calls == 1
+
+
+def test_github_update_check_marks_expired_fallback_stale(monkeypatch):
+    monkeypatch.setenv("DASHBOARD_GITHUB_REPOSITORY", "owner/repo")
+    monkeypatch.setenv("DASHBOARD_GITHUB_UPDATE_CHECK_SEC", "60")
+    module = load_dashboard(monkeypatch)
+    monkeypatch.setattr(module, "_git_head_commit", lambda: "a" * 40)
+
+    class Response:
+        def __init__(self, status_code):
+            self.status_code = status_code
+
+        def json(self):
+            return {
+                "sha": "b" * 40,
+                "html_url": "https://github.com/owner/repo/commit/" + "b" * 40,
+            }
+
+    class Session:
+        fail = False
+
+        def __init__(self):
+            self.calls = 0
+
+        def get(self, *args, **kwargs):
+            self.calls += 1
+            return Response(503 if self.fail else 200)
+
+    session = Session()
+    monkeypatch.setattr(module, "SESSION", session)
+    headers = {"Authorization": "Bearer test-secret-token"}
+    with TestClient(module.app) as client:
+        fresh = client.get("/api/update/check", headers=headers)
+        module._GITHUB_UPDATE_CACHE["ts"] -= (
+            module.GITHUB_UPDATE_CHECK_TTL_SEC + 1
+        )
+        module._GITHUB_UPDATE_CACHE["attempt_ts"] -= (
+            module.GITHUB_UPDATE_CHECK_TTL_SEC + 1
+        )
+        session.fail = True
+        stale = client.get("/api/update/check", headers=headers)
+        stale_cached = client.get("/api/update/check", headers=headers)
+
+    assert fresh.json()["stale"] is False
+    assert stale.json()["ok"] is True
+    assert stale.json()["stale"] is True
+    assert stale.json()["cache_age_sec"] >= 61
+    assert stale_cached.json()["stale"] is True
+    assert session.calls == 2
+    assert stale.json()["error"] == "GitHub HTTP 503"

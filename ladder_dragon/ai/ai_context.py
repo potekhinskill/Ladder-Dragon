@@ -23,8 +23,9 @@ from ladder_dragon.numeric_compat import compatibility_float
 ZERO = Decimal("0")
 HORIZONS_SEC = (900, 3600, 14_400)
 CONTEXT_SCHEMA_VERSION = "ai-context-v3"
-AI_SCHEMA_VERSION = "004_authoritative_ai_decimal_text"
+AI_SCHEMA_VERSION = "005_unresolved_fill_resolution_scope"
 AI_SCHEMA_CHECKSUM = hashlib.sha256(AI_SCHEMA_VERSION.encode("utf-8")).hexdigest()
+UNRESOLVED_FILL_SCOPES = frozenset({"ATTRIBUTION", "INVENTORY"})
 AI_CONTEXT_SOURCE_ERRORS = (
     ArithmeticError,
     IndexError,
@@ -670,7 +671,9 @@ class AdvisorDecisionStore:
                 order_id TEXT, trade_id TEXT, price REAL NOT NULL, qty REAL NOT NULL,
                 fee_quote REAL NOT NULL DEFAULT 0, price_text TEXT, qty_text TEXT,
                 fee_quote_text TEXT, ts INTEGER NOT NULL,
-                reason TEXT NOT NULL, created_at INTEGER NOT NULL
+                reason TEXT NOT NULL,
+                resolution_scope TEXT NOT NULL DEFAULT 'ATTRIBUTION',
+                created_at INTEGER NOT NULL
             )""")
             connection.execute("""CREATE TABLE IF NOT EXISTS ai_order_links(
                 client_order_id TEXT PRIMARY KEY, decision_id TEXT NOT NULL,
@@ -715,6 +718,9 @@ class AdvisorDecisionStore:
                 "ai_unresolved_fills": {
                     "price_text": "TEXT", "qty_text": "TEXT",
                     "fee_quote_text": "TEXT",
+                    "resolution_scope": (
+                        "TEXT NOT NULL DEFAULT 'ATTRIBUTION'"
+                    ),
                 },
                 "ai_order_links": {
                     "exchange_order_id": "TEXT", "exchange_order_list_id": "TEXT",
@@ -847,10 +853,14 @@ class AdvisorDecisionStore:
         fee_quote: object = 0, ts: int | None = None,
         order_id: str | int | None = None, trade_id: str | int | None = None,
         reason: str = "missing_decision_mapping",
+        resolution_scope: str = "ATTRIBUTION",
     ) -> str:
-        """Record unresolved fill."""
+        """Record an unresolved fill without conflating attribution and inventory."""
         stamp = int(ts or time.time())
         fill_key = f"{symbol.upper()}:{trade_id if trade_id is not None else order_id}:{stamp}"
+        scope = str(resolution_scope).strip().upper()
+        if scope not in UNRESOLVED_FILL_SCOPES:
+            raise ValueError("invalid unresolved fill resolution scope")
         with self._connect() as connection:
             price_exact = _finite_decimal(price, field="unresolved fill price")
             qty_exact = _finite_decimal(qty, field="unresolved fill quantity")
@@ -858,8 +868,9 @@ class AdvisorDecisionStore:
             connection.execute(
                 """INSERT OR REPLACE INTO ai_unresolved_fills(
                     fill_key,symbol,side,order_id,trade_id,price,qty,fee_quote,
-                    price_text,qty_text,fee_quote_text,ts,reason,created_at
-                ) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                    price_text,qty_text,fee_quote_text,ts,reason,
+                    resolution_scope,created_at
+                ) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
                 (fill_key, symbol.upper(), side.upper(),
                  str(order_id) if order_id is not None else None,
                  str(trade_id) if trade_id is not None else None,
@@ -867,7 +878,7 @@ class AdvisorDecisionStore:
                  format(fee_exact, "f"),
                  format(price_exact, "f"), format(qty_exact, "f"),
                  format(fee_exact, "f"), stamp,
-                 reason[:240], int(time.time())),
+                 reason[:240], scope, int(time.time())),
             )
         return fill_key
 
@@ -1059,6 +1070,20 @@ class AdvisorDecisionStore:
     def unresolved_fill_count(self) -> int:
         with self._connect() as connection:
             return int(connection.execute("SELECT COUNT(*) FROM ai_unresolved_fills").fetchone()[0])
+
+    def unresolved_fill_count_by_scope(self, resolution_scope: str) -> int:
+        """Count one explicit unresolved category without relaxing AI gates."""
+        scope = str(resolution_scope).strip().upper()
+        if scope not in UNRESOLVED_FILL_SCOPES:
+            raise ValueError("invalid unresolved fill resolution scope")
+        with self._connect() as connection:
+            return int(
+                connection.execute(
+                    "SELECT COUNT(*) FROM ai_unresolved_fills "
+                    "WHERE resolution_scope=?",
+                    (scope,),
+                ).fetchone()[0]
+            )
 
     def update_policy(
         self, decision_id: str, *, policy_status: str, policy_reasons: str,

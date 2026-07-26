@@ -28,7 +28,7 @@ combines adaptive ladder entries, exchange-side OCO protection, exact
 fee-aware FIFO accounting, restart reconciliation, replay and walk-forward
 verification, and a private Raspberry Pi operations dashboard.
 
-Current product version: **2.20.32**. The single version source is
+Current product version: **2.20.33**. The single version source is
 `product_version.py`; releases follow [Semantic Versioning](https://semver.org/).
 Project contact: [LinkedIn](https://www.linkedin.com/in/ypotekhin/).
 
@@ -86,7 +86,7 @@ bounded, explainable, recoverable, and measurable before exposure is increased.
 ## Project status
 
 Ladder Dragon is an actively developed, experimental trading system. Version
-**2.20.32** is the current prepared release. `main` is the only long-lived branch;
+**2.20.33** is the current prepared release. `main` is the only long-lived branch;
 feature branches use the `ladderdragon/*` namespace.
 
 DRY and Binance Spot Testnet are the supported starting modes. Mainnet LIVE is
@@ -198,6 +198,7 @@ DEEPSEEK_API_KEY=your_key
 AI_USAGE_LOG=.runtime/ai_usage.ndjson
 AI_DECISIONS_DB=.runtime/ai_decisions.sqlite3
 AI_CACHE_SEC=900
+AI_BLOCKED_SHADOW_INTERVAL_SEC=60
 AI_DAILY_COST_LIMIT_USD=0.50
 AI_DAILY_TOKEN_LIMIT=500000
 AI_MAX_REQUESTS_PER_DAY=400
@@ -208,6 +209,11 @@ AI_RAG_INCLUDE_VIRTUAL=0
 `DISABLED` sends no requests, `SHADOW` records and evaluates recommendations
 without changing the plan, and `APPLY` can affect the plan only after the
 production gate. The dashboard switch changes only the advisory layer.
+When Risk Manager blocks BUY but the authenticated snapshot remains healthy,
+the supervisor stops every execution worker and continues a rate-limited,
+read-only SHADOW plan. This preserves feature, forecast, usage, and
+counterfactual evidence without starting a worker or placing, replacing,
+cancelling, protecting, or flattening an order.
 
 The decision store keeps feature snapshots, confidence, outcomes, and a short
 validated rationale. Verified real closures and virtual SHADOW evaluations are
@@ -222,6 +228,10 @@ configured minimum of exactly linked LIVE decisions has closed, unresolved
 fills are zero, the edge confidence interval excludes zero, and AI is not worse
 than the baseline. Code changes and virtual documents cannot manufacture this
 evidence; it must accumulate in `SHADOW` from real closed lifecycles.
+An unresolved AI attribution remains excluded from RAG and blocks readiness,
+but it is distinct from unresolved inventory. Only an inventory/protection
+uncertainty blocks execution after authoritative journal-to-Binance
+reconciliation; unknown or legacy scope is treated as inventory fail-closed.
 
 Daily request, token, and cost limits fail closed at the next UTC day. API keys,
 raw prompts, full balances, order IDs, and full order books are not written to
@@ -655,8 +665,10 @@ Binance Spot depth has price levels but no individual resting-order IDs.
 
 ### User Data Stream shadow observer
 
-Set `BOT_USER_STREAM_SHADOW=1` only after Testnet validation to add Binance Spot
-User Data Stream notifications. The observer uses the current signed
+The notification-only Binance Spot User Data Stream observer is enabled by
+default in LIVE after the same authenticated preflight; set
+`BOT_USER_STREAM_SHADOW=0` for an explicit operational opt-out. Validate it on
+Testnet before the first LIVE deployment. The observer uses the current signed
 `userDataStream.subscribe.signature` WebSocket API method and stores only a
 sanitized health snapshot under `/run/mybot/`. An `executionReport` can wake an
 order check early, but it cannot place, cancel, protect, close, or account for an
@@ -817,7 +829,10 @@ client ID, symbol, both SELL legs, leg types and active statuses. A mismatch or
 an executed BUY without verified protection creates a manual HALT and remains
 `RECOVERY_BLOCKED`. The same authoritative check runs continuously. Generic
 ladder TTL/off-ladder cleanup owns BUY orders only and can never cancel a
-protective SELL/OCO leg. Any unresolved bot fill blocks all new BUY orders.
+protective SELL/OCO leg. An unresolved inventory/protection fill blocks new BUY
+orders; a verified protected lot with missing `decision_id` blocks AI
+attribution, RAG, and approval without indefinitely blocking deterministic
+execution. The dashboard reports both categories separately.
 
 An operator who intentionally stops trading can publish an explicit state:
 

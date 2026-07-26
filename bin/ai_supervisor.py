@@ -299,6 +299,7 @@ _PREDICTION_LAST_ATTEMPT: Dict[str, float] = {}
 _PREDICTION_GATE_CACHE: Dict[
     str, tuple[float, dict[str, object]]
 ] = {}
+_BLOCKED_SHADOW_LAST_ATTEMPT: Dict[str, float] = {}
 # Keep one decision_id for the lifetime of a cached recommendation. This
 # prevents virtual statistics and RAG from treating every supervisor cycle as a new model.
 _AI_DECISION_IDS: Dict[str, str] = {}
@@ -920,10 +921,10 @@ def _runtime_protection_gate(symbols: list[str], limits: RiskLimits) -> int:
         raise RuntimeError(reason) from exc
 
 
-def _unresolved_fill_count() -> int:
-    """Read the authoritative unresolved bot-fill count without enabling AI."""
+def _unresolved_fill_counts() -> Dict[str, int]:
+    """Separate execution inventory risk from advisory attribution gaps."""
     if _AI_DECISIONS_PATH is None or not _AI_DECISIONS_PATH.exists():
-        return 0
+        return {"total": 0, "attribution": 0, "inventory": 0}
     try:
         with sqlite3.connect(
             f"file:{_AI_DECISIONS_PATH}?mode=ro",
@@ -936,11 +937,44 @@ def _unresolved_fill_count() -> int:
             ).fetchone()
             if table is None:
                 raise RuntimeError("unresolved-fill table is missing")
-            return int(
+            total = int(
                 connection.execute(
                     "SELECT COUNT(*) FROM ai_unresolved_fills"
                 ).fetchone()[0]
             )
+            columns = {
+                str(row[1])
+                for row in connection.execute(
+                    "PRAGMA table_info(ai_unresolved_fills)"
+                )
+            }
+            if "resolution_scope" not in columns:
+                # A legacy or damaged schema has not proven that its rows are
+                # attribution-only. Preserve the historical fail-closed rule.
+                return {
+                    "total": total,
+                    "attribution": 0,
+                    "inventory": total,
+                }
+            attribution = int(
+                connection.execute(
+                    "SELECT COUNT(*) FROM ai_unresolved_fills "
+                    "WHERE resolution_scope='ATTRIBUTION'"
+                ).fetchone()[0]
+            )
+            inventory = int(
+                connection.execute(
+                    "SELECT COUNT(*) FROM ai_unresolved_fills "
+                    "WHERE resolution_scope='INVENTORY' "
+                    "OR resolution_scope IS NULL "
+                    "OR resolution_scope NOT IN ('ATTRIBUTION','INVENTORY')"
+                ).fetchone()[0]
+            )
+            return {
+                "total": total,
+                "attribution": attribution,
+                "inventory": inventory,
+            }
     except (OSError, sqlite3.Error, TypeError, ValueError) as exc:
         raise RuntimeError("unresolved-fill reconciliation unavailable") from exc
 
@@ -3107,8 +3141,13 @@ def _build_ai_market_context(
     return context
 
 
-def run_for_symbol(symbol: str, args: argparse.Namespace) -> None:
-    """Handle run for symbol."""
+def run_for_symbol(
+    symbol: str,
+    args: argparse.Namespace,
+    *,
+    execution_allowed: bool = True,
+) -> None:
+    """Build one plan; optionally retain only read-only SHADOW telemetry."""
     # 1) Current price + ATR
     now_p = get_last_price(symbol)
     log(f"[PLAN] {symbol} now≈{now_p:.4f}")
@@ -3361,36 +3400,69 @@ def run_for_symbol(symbol: str, args: argparse.Namespace) -> None:
 
     log(f"[PLAN] {symbol} ladder -> " + ", ".join(f"{p:.2f}" for p in ladder_all))
 
-    # 6) Cleanup at startup and on the regular interval
-    if not _STARTUP_CLEAN_DONE.get(symbol, False):
-        startup_cleanup_orders(symbol, now_p, ladder_all, tick_size=tick, grace_sec=CLEANUP_WARMUP_SEC)
-        _STARTUP_CLEAN_DONE[symbol] = True
+    if execution_allowed:
+        # 6) Cleanup at startup and on the regular interval.
+        if not _STARTUP_CLEAN_DONE.get(symbol, False):
+            startup_cleanup_orders(
+                symbol,
+                now_p,
+                ladder_all,
+                tick_size=tick,
+                grace_sec=CLEANUP_WARMUP_SEC,
+            )
+            _STARTUP_CLEAN_DONE[symbol] = True
 
-    smart_cleanup_orders(
-        symbol,
-        now_price=now_p,
-        ladder_prices=ladder_all,
-        tick_size=tick,
-        near_ttl_sec=args.near_ttl_sec,
-        far_ttl_sec=args.far_ttl_sec,
-        cancel_offladder=True
-    )
+        smart_cleanup_orders(
+            symbol,
+            now_price=now_p,
+            ladder_prices=ladder_all,
+            tick_size=tick,
+            near_ttl_sec=args.near_ttl_sec,
+            far_ttl_sec=args.far_ttl_sec,
+            cancel_offladder=True,
+        )
 
-    reanchor_gate = (
-        _prediction_reanchor_gate(symbol)
-        if str(args.reanchor_mode).upper() == "APPLY"
-        else {"approved": False, "mode": "SHADOW"}
-    )
-    sr = smart_rolling(
-        symbol,
-        now_p,
-        ladder_all,
-        args,
-        tick_size=tick_exact,
-        prediction_apply_approved=bool(reanchor_gate.get("approved", False)),
-    )
-    _publish_reanchor_runtime(symbol, sr, args)
-    log(f"[SR-SUM] {symbol} kept={sr['kept']} cancel(ttl)={sr['cancel'].get('ttl',0)} cancel(atr)={sr['cancel'].get('atr',0)} cancel(reanchor)={sr['cancel'].get('reanchor',0)} shadow(reanchor)={sr['cancel'].get('shadow',0)}")
+        reanchor_gate = (
+            _prediction_reanchor_gate(symbol)
+            if str(args.reanchor_mode).upper() == "APPLY"
+            else {"approved": False, "mode": "SHADOW"}
+        )
+        sr = smart_rolling(
+            symbol,
+            now_p,
+            ladder_all,
+            args,
+            tick_size=tick_exact,
+            prediction_apply_approved=bool(
+                reanchor_gate.get("approved", False)
+            ),
+        )
+        _publish_reanchor_runtime(symbol, sr, args)
+        log(
+            f"[SR-SUM] {symbol} kept={sr['kept']} "
+            f"cancel(ttl)={sr['cancel'].get('ttl',0)} "
+            f"cancel(atr)={sr['cancel'].get('atr',0)} "
+            f"cancel(reanchor)={sr['cancel'].get('reanchor',0)} "
+            f"shadow(reanchor)={sr['cancel'].get('shadow',0)}"
+        )
+    else:
+        # A Risk block must stop execution but not blind SHADOW analytics.
+        # This synthetic rolling result cannot cancel, replace or submit.
+        sr = {
+            "kept": 0,
+            "cancel": {
+                "ttl": 0,
+                "atr": 0,
+                "reanchor": 0,
+                "shadow": 0,
+            },
+            "proposals": [],
+            "replacement_prices": [],
+        }
+        log(
+            f"[BLOCKED-SHADOW] {symbol} advisory snapshot only; "
+            "order mutation disabled"
+        )
 
     # 7) The exact entry adapter was applied to the ladder before cleanup.
     # AI may only reduce an already safe CAP. Even if the model returns a
@@ -3416,8 +3488,15 @@ def run_for_symbol(symbol: str, args: argparse.Namespace) -> None:
 
     # 8) Directional entry and TP values are already immutable for this child.
 
-    # 9) Position guardian / flatten using the filters already fetched
-    mode = position_guard_and_maybe_flatten(symbol, now_p, atr_abs, args, filters)
+    # 9) Position guardian is an execution path and is never entered by the
+    # blocked SHADOW collector.
+    mode = (
+        position_guard_and_maybe_flatten(
+            symbol, now_p, atr_abs, args, filters
+        )
+        if execution_allowed
+        else "blocked_shadow"
+    )
     log(f"[POS-MODE] {symbol} mode={mode}")
 
     child_ladder = _deduplicate_ladder_prices(
@@ -3440,25 +3519,33 @@ def run_for_symbol(symbol: str, args: argparse.Namespace) -> None:
     orig_vwap_scale = getattr(args, "child_buy_vwap_discount_scale", None)
     orig_vwap_interval = getattr(args, "child_buy_vwap_interval", None)
     orig_vwap_window = getattr(args, "child_buy_vwap_window", None)
-    try:
-        args.target_buy_per_symbol = int(target_buys_use)
-        args.child_buy_vwap_premium = vwap_premium_final
-        args.child_buy_vwap_discount = vwap_discount_final
-        args.child_buy_vwap_discount_scale = vwap_scale_final
-        args.child_buy_vwap_interval = vwap_interval_final
-        args.child_buy_vwap_window = vwap_window_final
-        run_child(symbol, ladder_for_child, args, extra_env=extra_env, tp1=tp1_use, tp2=tp2_use)
-    finally:
-        args.target_buy_per_symbol = orig_tb
-        args.child_buy_vwap_premium = orig_vwap_premium
-        args.child_buy_vwap_discount = orig_vwap_discount
-        args.child_buy_vwap_discount_scale = orig_vwap_scale
-        args.child_buy_vwap_interval = orig_vwap_interval
-        args.child_buy_vwap_window = orig_vwap_window
+    if execution_allowed:
+        try:
+            args.target_buy_per_symbol = int(target_buys_use)
+            args.child_buy_vwap_premium = vwap_premium_final
+            args.child_buy_vwap_discount = vwap_discount_final
+            args.child_buy_vwap_discount_scale = vwap_scale_final
+            args.child_buy_vwap_interval = vwap_interval_final
+            args.child_buy_vwap_window = vwap_window_final
+            run_child(
+                symbol,
+                ladder_for_child,
+                args,
+                extra_env=extra_env,
+                tp1=tp1_use,
+                tp2=tp2_use,
+            )
+        finally:
+            args.target_buy_per_symbol = orig_tb
+            args.child_buy_vwap_premium = orig_vwap_premium
+            args.child_buy_vwap_discount = orig_vwap_discount
+            args.child_buy_vwap_discount_scale = orig_vwap_scale
+            args.child_buy_vwap_interval = orig_vwap_interval
+            args.child_buy_vwap_window = orig_vwap_window
 
-    # Run SHADOW analytics only after the deterministic worker has been
-    # launched. Public-data or journal latency can therefore never delay BUY
-    # protection, and this layer has no path back into child parameters.
+    # In execution mode SHADOW analytics runs only after the deterministic
+    # worker launch. In blocked mode no worker or mutation path exists, so the
+    # same evidence can be collected without delaying BUY protection.
     try:
         _record_prediction_shadow(
             symbol,
@@ -3954,6 +4041,41 @@ def _stop_children(reason: str) -> None:
         _stop_child(symbol, reason)
 
 
+def _collect_blocked_shadow(
+    symbols: List[str],
+    args: argparse.Namespace,
+    *,
+    now_monotonic: float,
+) -> None:
+    """Keep advisory evidence fresh without entering any execution path."""
+    if (
+        _AI_ADVISOR is None
+        or _AI_POLICY is None
+        or str(_AI_POLICY.mode).upper() != "SHADOW"
+    ):
+        return
+    interval = max(
+        30,
+        int(os.getenv("AI_BLOCKED_SHADOW_INTERVAL_SEC", "60") or "60"),
+    )
+    for symbol in symbols:
+        last_attempt = _BLOCKED_SHADOW_LAST_ATTEMPT.get(symbol)
+        if (
+            last_attempt is not None
+            and now_monotonic - last_attempt < interval
+        ):
+            continue
+        # Rate-limit failures as well as successful observations.
+        _BLOCKED_SHADOW_LAST_ATTEMPT[symbol] = now_monotonic
+        try:
+            run_for_symbol(symbol, args, execution_allowed=False)
+        except SUPERVISOR_OPERATION_ERRORS as exc:
+            log(
+                f"[BLOCKED-SHADOW] {symbol} unavailable="
+                f"{type(exc).__name__}"
+            )
+
+
 def _cancel_open_buy_orders(orders: Optional[List[Dict[str, Any]]] = None) -> int:
     """Handle cancel open buy orders."""
     orders = orders if orders is not None else (TM._signed_get("/api/v3/openOrders") or [])
@@ -4366,6 +4488,7 @@ def main():
     _AI_CONTEXT_CACHE.clear()
     _PREDICTION_LAST_ATTEMPT.clear()
     _PREDICTION_GATE_CACHE.clear()
+    _BLOCKED_SHADOW_LAST_ATTEMPT.clear()
     decisions_db = (
         os.getenv("AI_TESTNET_DECISIONS_DB", "").strip()
         if args.testnet else args.ai_decisions_db
@@ -4592,6 +4715,7 @@ def main():
     auth_retry_at = _analytics_float(runtime_auth_state.retry_at_epoch)
     next_runtime_heartbeat = 0.0
     next_ai_control_check = 0.0
+    risk_snapshot_available = False
 
     try:
         while True:
@@ -4647,6 +4771,7 @@ def main():
                 orders: List[Dict[str, Any]] = []
                 try:
                     snapshot, orders, prices = _build_risk_snapshot(symbols, limits)
+                    risk_snapshot_available = True
                     consecutive_api_failures = 0
                     if auth_failure_attempts:
                         log(
@@ -4677,8 +4802,9 @@ def main():
                     if shocks:
                         risk_manager.start_cooldown("; ".join(shocks))
                     decision = risk_manager.evaluate(snapshot)
-                    unresolved_fills = _unresolved_fill_count()
-                    if unresolved_fills:
+                    unresolved_fills = _unresolved_fill_counts()
+                    inventory_unresolved = unresolved_fills["inventory"]
+                    if inventory_unresolved:
                         decision = RiskDecision(
                             halted=decision.halted,
                             buy_blocked=True,
@@ -4687,8 +4813,9 @@ def main():
                                     [
                                         *decision.reasons,
                                         (
-                                            f"{unresolved_fills} unresolved bot "
-                                            "fill(s) require reconciliation"
+                                            f"{inventory_unresolved} unresolved "
+                                            "inventory fill(s) require "
+                                            "reconciliation"
                                         ),
                                     ]
                                 )
@@ -4740,6 +4867,7 @@ def main():
                                 for symbol in symbols
                                 if os.getenv(f"RISK_SYMBOL_CAP_{symbol.upper()}") is not None
                             },
+                            "unresolved_fills": unresolved_fills,
                             "snapshot": {
                                 "equity_usdt": str(snapshot.equity_usdt),
                                 "exposure_usdt": str(snapshot.exposure_usdt),
@@ -4753,6 +4881,7 @@ def main():
                 except SUPERVISOR_OPERATION_ERRORS as exc:
                     # Unavailable telemetry is not a safe state: new BUY orders
                     # are blocked and a cooldown starts after repeated errors.
+                    risk_snapshot_available = False
                     consecutive_api_failures += 1
                     threshold = max(1, int(os.getenv("RISK_API_FAILURE_THRESHOLD", "3")))
                     auth_rejected = _is_binance_auth_rejection(exc)
@@ -4817,7 +4946,11 @@ def main():
                         )
                     else:
                         try:
-                            _cancel_open_buy_orders(orders or None)
+                            _cancel_open_buy_orders(
+                                orders
+                                if risk_snapshot_available
+                                else None
+                            )
                         except SUPERVISOR_OPERATION_ERRORS as exc:
                             log(f"[RISK] cancel BUY failed: {exc}")
                 signature = (decision.halted, decision.reasons)
@@ -4830,8 +4963,23 @@ def main():
                 )
 
             if risk_buy_blocked:
-                # During a block the supervisor only reevaluates risk; trading
-                # plans are not built until an explicit safe decision exists.
+                # Execution remains stopped, but an authenticated healthy
+                # snapshot may still feed advisory-only SHADOW evidence.
+                if (
+                    risk_snapshot_available
+                    and not bool(
+                        last_risk_signature
+                        and last_risk_signature[0]
+                    )
+                    and not _auth_backoff_active(
+                        auth_retry_at, now=now_loop
+                    )
+                ):
+                    _collect_blocked_shadow(
+                        symbols,
+                        args,
+                        now_monotonic=time.monotonic(),
+                    )
                 time.sleep(min(2.0, max(0.5, _analytics_float(args.risk_check_sec) / 2.0)))
                 continue
 

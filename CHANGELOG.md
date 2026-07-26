@@ -3,6 +3,50 @@
 All notable changes are documented here. Releases use Semantic Versioning; every
 section is dated and there is intentionally no `Unreleased` section.
 
+## [2.20.33] — 2026-07-26
+
+### Fixed
+- Risk-blocked LIVE operation now stops every execution worker while continuing
+  rate-limited read-only AI and prediction SHADOW collection from a healthy,
+  authenticated snapshot. The collector cannot clean up, roll, re-anchor,
+  flatten, start a worker, or submit/cancel an order.
+- Split unresolved fills into `ATTRIBUTION` and `INVENTORY` scopes. Attribution
+  gaps remain excluded from RAG and block AI readiness, while only unresolved
+  inventory/protection blocks deterministic BUY execution after authoritative
+  reconciliation. Unknown and legacy schemas remain inventory fail-closed.
+- Reused a known empty Binance open-order snapshot during BUY blocking instead
+  of converting it to an extra authenticated `/openOrders` request.
+- Supervisor shutdown now waits up to a bounded configurable timeout for every
+  supervisor process to exit after `SIGTERM`, allowing its existing child
+  cleanup to finish before systemd's outer timeout.
+- Dashboard GitHub status now refreshes every five minutes by default, includes
+  its check age, and explicitly reports a stale last-known result when refresh
+  fails instead of claiming that an old commit is current.
+
+### Changed
+- Enabled the notification-only Binance User Data Stream observer by default in
+  LIVE after authenticated preflight. It remains non-authoritative, cannot
+  mutate trading state, and can be explicitly disabled operationally.
+- Dashboard AI evidence now shows unresolved attribution and inventory counts
+  separately.
+
+### Security
+- Blocked SHADOW collection requires a healthy authenticated risk snapshot and
+  remains disabled during HALT or authentication backoff. Damaged unresolved
+  scope values and old schemas are classified as inventory risk.
+- Added fail-closed regression coverage proving blocked SHADOW cannot reach
+  order mutation and that a known empty order snapshot cannot trigger another
+  signed REST read.
+
+### Verified
+- All `185` focused AI, safety-gate, dashboard, deployment, schema, no-mutation,
+  and no-extra-REST regression tests pass.
+- All `144` recovery, partial-fill, OCO/STOP, gap, restart, idempotency,
+  User Data Stream, Risk Manager, prediction, and verification-harness tests
+  pass.
+- The complete suite passes all `566` project tests; Python compilation, shell
+  syntax, dashboard JavaScript syntax, and whitespace checks pass.
+
 ## [2.20.32] — 2026-07-26
 
 ### Added

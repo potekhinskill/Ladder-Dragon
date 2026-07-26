@@ -28,6 +28,14 @@ function initLocalePicker(){
 }
 const $ = s=>document.querySelector(s);
 const fmt = (x,d=2)=> (Number.isFinite(x)?Number(x).toFixed(d):'—');
+const unresolvedFillText = knowledge => {
+  const total = Number(knowledge?.unresolved_fills || 0);
+  const attribution = Number(
+    knowledge?.unresolved_attribution_fills || 0
+  );
+  const inventory = Number(knowledge?.unresolved_inventory_fills || 0);
+  return `${total} · attribution ${attribution} / inventory ${inventory}`;
+};
 const NF2 = new Intl.NumberFormat('ru-RU',{minimumFractionDigits:2,maximumFractionDigits:2});
 const NF4 = new Intl.NumberFormat('ru-RU',{minimumFractionDigits:4,maximumFractionDigits:4});
 const LOG_MAX_LINES = 500; // Keep at most 500 log lines in the dashboard.
@@ -309,7 +317,7 @@ function updateAIQuality(ai){
   const recent=Array.isArray(ai.recent)?ai.recent:[];
   const rejected=recent.filter(row=>String(row.status||'').toUpperCase()==='REJECTED').length;
   $('#ai-decisions-quality').textContent=`${ai.applied_count??0} applied / ${rejected} rejected`;
-  $('#ai-unresolved-quality').textContent=String(kb.unresolved_fills??0);
+  $('#ai-unresolved-quality').textContent=unresolvedFillText(kb);
   const edge=ai.ai_vs_baseline_1h||{};
   $('#ai-edge-quality').textContent=edge.samples?`${fmt(Number(edge.edge)*100,2)}% / ${edge.samples}`:tr('no_data');
   $('#ai-rag-quality').textContent=`${kb.documents??0} / ${kb.archived_virtual_documents??0} / ${kb.retrievals??0}`;
@@ -659,7 +667,7 @@ async function refresh(){
       ? ragDocuments.map(item=>`${String(item.document_id).slice(0,8)}:${Number(item.score).toFixed(3)}`).join(', ')
       : tr('no');
     $('#ai-realized-pnl').textContent = fmtUSDT(Number(knowledge.realized_net_pnl_quote || 0));
-    $('#ai-unresolved').textContent = knowledge.unresolved_fills ?? 0;
+    $('#ai-unresolved').textContent = unresolvedFillText(knowledge);
     $('#ai-degraded-reasons').textContent = Array.isArray(ai.degraded_reasons) && ai.degraded_reasons.length
       ? ai.degraded_reasons.join(', ')
       : tr('no');
@@ -705,12 +713,21 @@ async function refreshGithubUpdate(){
       setState('unavailable');
       return;
     }
+    const checked = payload.checked_at
+      ? `${payload.checked_at} · ${ageText(payload.cache_age_sec)}`
+      : ageText(payload.cache_age_sec);
+    if(payload.stale){
+      status.textContent = `GitHub: ${tr('stale')}`;
+      status.title = `${payload.error || tr('stale')} · checked ${checked}`;
+      setState('unavailable');
+      return;
+    }
     status.textContent = payload.update_available
       ? tr('github_update_available')
       : tr('github_update_current');
     status.title = payload.remote_commit
-      ? `GitHub ${payload.branch || ''}: ${payload.remote_commit.slice(0,8)}`
-      : '';
+      ? `GitHub ${payload.branch || ''}: ${payload.remote_commit.slice(0,8)} · checked ${checked}`
+      : `checked ${checked}`;
     setState(payload.update_available ? 'available' : 'current', payload.remote_url);
   }catch(e){
     status.textContent = tr('github_update_unavailable');

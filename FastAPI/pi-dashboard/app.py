@@ -68,8 +68,16 @@ GITHUB_REPOSITORY = os.getenv("DASHBOARD_GITHUB_REPOSITORY", "potekhinskill/Ladd
 # Release update checks are intentionally pinned to the only canonical branch.
 GITHUB_BRANCH = "main"
 GITHUB_TOKEN = os.getenv("DASHBOARD_GITHUB_TOKEN", "")
-GITHUB_UPDATE_CHECK_TTL_SEC = max(300.0, float(os.getenv("DASHBOARD_GITHUB_UPDATE_CHECK_SEC", "3600")))
-_GITHUB_UPDATE_CACHE: Dict[str, object] = {"ts": 0.0, "payload": None}
+GITHUB_UPDATE_CHECK_TTL_SEC = max(
+    60.0,
+    float(os.getenv("DASHBOARD_GITHUB_UPDATE_CHECK_SEC", "300")),
+)
+_GITHUB_UPDATE_CACHE: Dict[str, object] = {
+    "ts": 0.0,
+    "attempt_ts": 0.0,
+    "last_error": None,
+    "payload": None,
+}
 _GITHUB_UPDATE_CACHE_LOCK = threading.Lock()
 AI_DECISIONS_DB = os.getenv("AI_DECISIONS_DB", ".runtime/ai_decisions.sqlite3")
 AI_USAGE_LOG = os.getenv("AI_USAGE_LOG", ".runtime/ai_usage.ndjson")
@@ -1664,13 +1672,26 @@ def _git_head_commit() -> Optional[str]:
 
 
 def _github_update_snapshot() -> Dict[str, object]:
-    """Check the configured GitHub branch at most once per hour."""
+    """Check GitHub at the configured cadence and label old evidence stale."""
     now_mono = time.monotonic()
     with _GITHUB_UPDATE_CACHE_LOCK:
         cached = _GITHUB_UPDATE_CACHE.get("payload")
         cached_at = float(_GITHUB_UPDATE_CACHE.get("ts", 0.0))
-        if cached is not None and now_mono - cached_at < GITHUB_UPDATE_CHECK_TTL_SEC:
-            return dict(cached)
+        attempt_at = float(
+            _GITHUB_UPDATE_CACHE.get("attempt_ts", cached_at)
+        )
+        last_error = _GITHUB_UPDATE_CACHE.get("last_error")
+        if (
+            cached is not None
+            and now_mono - attempt_at < GITHUB_UPDATE_CHECK_TTL_SEC
+        ):
+            result = dict(cached)
+            result["cache_age_sec"] = max(
+                0, int(now_mono - cached_at)
+            )
+            result["stale"] = bool(last_error and result.get("ok"))
+            result["error"] = last_error or result.get("error")
+            return result
 
     checked_at = now_str()
     current_commit = _git_head_commit()
@@ -1683,6 +1704,8 @@ def _github_update_snapshot() -> Dict[str, object]:
         "update_available": None,
         "checked_at": checked_at,
         "cache_ttl_sec": int(GITHUB_UPDATE_CHECK_TTL_SEC),
+        "cache_age_sec": 0,
+        "stale": False,
         "error": None,
     }
     if SESSION is None:
@@ -1713,8 +1736,26 @@ def _github_update_snapshot() -> Dict[str, object]:
         except (requests.RequestException, ValueError, TypeError, KeyError):
             payload["error"] = "GitHub update check failed"
 
+    if (
+        not payload["ok"]
+        and isinstance(cached, dict)
+        and cached.get("ok")
+    ):
+        stale_payload = dict(cached)
+        stale_payload["cache_age_sec"] = max(
+            0, int(now_mono - cached_at)
+        )
+        stale_payload["stale"] = True
+        stale_payload["error"] = payload["error"]
+        with _GITHUB_UPDATE_CACHE_LOCK:
+            _GITHUB_UPDATE_CACHE["attempt_ts"] = now_mono
+            _GITHUB_UPDATE_CACHE["last_error"] = payload["error"]
+        return stale_payload
+
     with _GITHUB_UPDATE_CACHE_LOCK:
         _GITHUB_UPDATE_CACHE["ts"] = now_mono
+        _GITHUB_UPDATE_CACHE["attempt_ts"] = now_mono
+        _GITHUB_UPDATE_CACHE["last_error"] = payload["error"]
         _GITHUB_UPDATE_CACHE["payload"] = payload
     return dict(payload)
 
@@ -1959,6 +2000,8 @@ def _ai_database_aggregates(
         "virtual_policy": "archived_not_retrievable",
         "retrievals": 0,
         "unresolved_fills": 0,
+        "unresolved_attribution_fills": 0,
+        "unresolved_inventory_fills": 0,
         "closed_decisions": 0,
         "realized_net_pnl_quote": 0.0,
     }
@@ -2007,9 +2050,35 @@ def _ai_database_aggregates(
             connection.execute("SELECT COUNT(*) FROM knowledge_retrievals").fetchone()[0]
         )
     if "ai_unresolved_fills" in tables:
-        stats["unresolved_fills"] = int(
+        unresolved_total = int(
             connection.execute("SELECT COUNT(*) FROM ai_unresolved_fills").fetchone()[0]
         )
+        stats["unresolved_fills"] = unresolved_total
+        unresolved_columns = {
+            str(row["name"])
+            for row in connection.execute(
+                "PRAGMA table_info(ai_unresolved_fills)"
+            )
+        }
+        if "resolution_scope" in unresolved_columns:
+            stats["unresolved_attribution_fills"] = int(
+                connection.execute(
+                    "SELECT COUNT(*) FROM ai_unresolved_fills "
+                    "WHERE resolution_scope='ATTRIBUTION'"
+                ).fetchone()[0]
+            )
+            stats["unresolved_inventory_fills"] = int(
+                connection.execute(
+                    "SELECT COUNT(*) FROM ai_unresolved_fills "
+                    "WHERE resolution_scope='INVENTORY' "
+                    "OR resolution_scope IS NULL "
+                    "OR resolution_scope NOT IN "
+                    "('ATTRIBUTION','INVENTORY')"
+                ).fetchone()[0]
+            )
+        else:
+            # Unknown legacy rows remain an execution-risk category.
+            stats["unresolved_inventory_fills"] = unresolved_total
     return _ai_cache_put(cache_key, stats)
 
 
@@ -2066,7 +2135,10 @@ def ai_status(limit: int = 50):
         "archived_virtual_documents": 0,
         "virtual_policy": "archived_not_retrievable",
         "retrievals": 0,
-        "unresolved_fills": 0, "closed_decisions": 0,
+        "unresolved_fills": 0,
+        "unresolved_attribution_fills": 0,
+        "unresolved_inventory_fills": 0,
+        "closed_decisions": 0,
         "realized_net_pnl_quote": 0.0,
     }
     db_path = _runtime_data_path(runtime, "ai_decisions_db", AI_DECISIONS_DB)

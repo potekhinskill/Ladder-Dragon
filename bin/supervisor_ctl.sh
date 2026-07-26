@@ -279,15 +279,41 @@ cmd_stop_new() {
   kill -TERM "${pid}" || true
 }
 
+wait_for_pids_exit() {
+  local timeout="${SUPERVISOR_STOP_TIMEOUT_SEC:-30}"
+  [[ "${timeout}" =~ ^[0-9]+$ ]] && (( timeout >= 1 && timeout <= 44 )) || {
+    echo "[stop-all] invalid SUPERVISOR_STOP_TIMEOUT_SEC=${timeout}" >&2
+    return 2
+  }
+  local deadline=$((SECONDS + timeout))
+  local pid
+  while (( SECONDS < deadline )); do
+    local alive=0
+    for pid in "$@"; do
+      if kill -0 "${pid}" 2>/dev/null; then
+        alive=1
+      fi
+    done
+    if (( alive == 0 )); then
+      return 0
+    fi
+    sleep 0.2
+  done
+  echo "[stop-all] supervisor did not exit within ${timeout}s" >&2
+  return 1
+}
+
 cmd_stop_all() {
-  local p
-  p=$(pgrep -f "[/ ]${SUP}" || true)
-  if [[ -z "${p}" ]]; then
+  local -a pids=()
+  while IFS= read -r pid; do
+    [[ -n "${pid}" ]] && pids+=("${pid}")
+  done < <(pgrep -f "[/ ]${SUP}" || true)
+  if (( ${#pids[@]} == 0 )); then
     echo "[stop-all] no running ${SUP} process"
   else
-    echo "[stop-all] kill -TERM ${p}"
-    kill -TERM ${p} || true
-    sleep 2
+    echo "[stop-all] kill -TERM ${pids[*]}"
+    kill -TERM "${pids[@]}" || true
+    wait_for_pids_exit "${pids[@]}"
   fi
   echo "[stop-all] flock released by supervisor (${LOCK})"
 }

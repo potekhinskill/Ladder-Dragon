@@ -2421,7 +2421,7 @@ def main():
         pull_filters(symbol)
         user_stream_enabled = (
             LIVE_MODE
-            and os.getenv("BOT_USER_STREAM_SHADOW", "0").lower()
+            and os.getenv("BOT_USER_STREAM_SHADOW", "1").lower()
             in ("1", "true", "yes")
         )
         if user_stream_enabled:

@@ -1330,7 +1330,7 @@ def test_runtime_protection_mismatch_creates_manual_halt(
     )
 
 
-def test_unresolved_bot_fill_count_is_authoritative_without_ai(
+def test_legacy_unresolved_fill_schema_remains_execution_blocking(
     tmp_path, monkeypatch
 ):
     path = tmp_path / "ai.db"
@@ -1344,7 +1344,160 @@ def test_unresolved_bot_fill_count_is_authoritative_without_ai(
     monkeypatch.setattr(ai_supervisor, "_AI_DECISIONS_PATH", path)
     monkeypatch.setattr(ai_supervisor, "_AI_DECISIONS", None)
 
-    assert ai_supervisor._unresolved_fill_count() == 1
+    assert ai_supervisor._unresolved_fill_counts() == {
+        "total": 1,
+        "attribution": 0,
+        "inventory": 1,
+    }
+
+
+def test_unresolved_fill_scopes_separate_ai_attribution_from_inventory(
+    tmp_path, monkeypatch
+):
+    path = tmp_path / "ai.db"
+    with sqlite3.connect(path) as connection:
+        connection.execute(
+            "CREATE TABLE ai_unresolved_fills("
+            "fill_key TEXT PRIMARY KEY,resolution_scope TEXT)"
+        )
+        connection.executemany(
+            "INSERT INTO ai_unresolved_fills VALUES(?,?)",
+            (
+                ("attr", "ATTRIBUTION"),
+                ("inventory", "INVENTORY"),
+                ("damaged", "UNKNOWN"),
+            ),
+        )
+    monkeypatch.setattr(ai_supervisor, "_AI_DECISIONS_PATH", path)
+
+    assert ai_supervisor._unresolved_fill_counts() == {
+        "total": 3,
+        "attribution": 1,
+        "inventory": 2,
+    }
+
+
+def test_blocked_shadow_is_rate_limited_and_never_enables_execution(
+    monkeypatch,
+):
+    calls = []
+    monkeypatch.setattr(ai_supervisor, "_AI_ADVISOR", object())
+    monkeypatch.setattr(
+        ai_supervisor, "_AI_POLICY", SimpleNamespace(mode="SHADOW")
+    )
+    monkeypatch.setattr(
+        ai_supervisor,
+        "run_for_symbol",
+        lambda symbol, args, *, execution_allowed: calls.append(
+            (symbol, execution_allowed)
+        ),
+    )
+    monkeypatch.setattr(
+        ai_supervisor, "_BLOCKED_SHADOW_LAST_ATTEMPT", {}
+    )
+    monkeypatch.setenv("AI_BLOCKED_SHADOW_INTERVAL_SEC", "60")
+
+    ai_supervisor._collect_blocked_shadow(
+        ["SOLUSDT"], SimpleNamespace(), now_monotonic=100
+    )
+    ai_supervisor._collect_blocked_shadow(
+        ["SOLUSDT"], SimpleNamespace(), now_monotonic=120
+    )
+    ai_supervisor._collect_blocked_shadow(
+        ["SOLUSDT"], SimpleNamespace(), now_monotonic=161
+    )
+
+    assert calls == [("SOLUSDT", False), ("SOLUSDT", False)]
+
+
+def test_blocked_shadow_plan_skips_every_order_mutation(monkeypatch):
+    parser = ai_supervisor.build_supervisor_parser()
+    args = parser.parse_args(
+        [
+            "--base-script",
+            str(Path("bin/autosize_universal.py").resolve()),
+            "--symbols",
+            "SOLUSDT",
+        ]
+    )
+    ai_supervisor.validate_supervisor_args(parser, args)
+    ladder_pct = [item.strip() for item in args.ladder_pct.split(",")]
+    args.ladder_pct = tuple(float(item) for item in ladder_pct)
+    args.ladder_pct_map = ai_supervisor.parse_ladder_pct_map(
+        args.ladder_pct_map
+    )
+    monkeypatch.setattr(ai_supervisor, "_AI_ADVISOR", None)
+    monkeypatch.setattr(ai_supervisor, "_AI_POLICY", None)
+    monkeypatch.setattr(ai_supervisor, "get_last_price", lambda _symbol: 100.0)
+    monkeypatch.setattr(
+        ai_supervisor, "_atr_pct", lambda *_args, **_kwargs: (0.2, 0.002)
+    )
+    monkeypatch.setattr(
+        ai_supervisor,
+        "_infer_market_mode",
+        lambda *_args, **_kwargs: (
+            "UP",
+            {
+                "ema_fast": 101,
+                "ema_slow": 100,
+                "slope": 0.001,
+                "adx": 30,
+                "candidate": "UP",
+            },
+        ),
+    )
+    monkeypatch.setattr(
+        ai_supervisor,
+        "get_exchange_filters_cached",
+        lambda _symbol: {
+            "tickSize": 0.01,
+            "tickSizeExact": "0.01",
+        },
+    )
+    monkeypatch.setattr(
+        ai_supervisor,
+        "resolve_vwap_params",
+        lambda *_args, **_kwargs: (None, None, None, None, None),
+    )
+    mutations = (
+        "startup_cleanup_orders",
+        "smart_cleanup_orders",
+        "smart_rolling",
+        "position_guard_and_maybe_flatten",
+        "run_child",
+    )
+    for name in mutations:
+        monkeypatch.setattr(
+            ai_supervisor,
+            name,
+            lambda *_args, _name=name, **_kwargs: pytest.fail(
+                f"blocked SHADOW entered {_name}"
+            ),
+        )
+    recorded = []
+    monkeypatch.setattr(
+        ai_supervisor,
+        "_record_prediction_shadow",
+        lambda symbol, **kwargs: recorded.append(
+            (symbol, kwargs["deterministic_mode"])
+        ),
+    )
+
+    ai_supervisor.run_for_symbol(
+        "SOLUSDT", args, execution_allowed=False
+    )
+
+    assert recorded == [("SOLUSDT", "UP")]
+
+
+def test_known_empty_order_snapshot_does_not_repeat_rest_query(monkeypatch):
+    monkeypatch.setattr(
+        ai_supervisor.TM,
+        "_signed_get",
+        lambda *_args, **_kwargs: pytest.fail("unexpected REST query"),
+    )
+
+    assert ai_supervisor._cancel_open_buy_orders([]) == 0
 
 
 def test_supervisor_auth_backoff_does_not_hide_other_preflight_errors():
@@ -1416,9 +1569,10 @@ def test_supervisor_live_waits_while_maintenance_is_active(
         "BUY cancellation deferred until "
     )
     cancel = runtime_source.index(
-        "_cancel_open_buy_orders(orders or None)", defer
+        "_cancel_open_buy_orders(", defer
     )
     assert defer < cancel
+    assert "orders or None" not in runtime_source
 
 
 def test_cleanup_layers_keep_fresh_off_ladder_order(monkeypatch):

@@ -477,7 +477,10 @@ def test_executor_status_does_not_hide_oco_state_behind_question_mark():
 
 def test_executor_user_stream_reuses_authoritative_exchange_clock():
     executor = read("bin/autosize_universal.py")
+    example = read(".env.example")
     assert "timestamp_ms=TM._timestamp_ms" in executor
+    assert 'os.getenv("BOT_USER_STREAM_SHADOW", "1")' in executor
+    assert "BOT_USER_STREAM_SHADOW=1" in example
     assert "BOT_USER_STREAM_STATE_WRITE_SEC" in executor
     assert "BOT_USER_STREAM_IDLE_TIMEOUT_SEC" in executor
 
@@ -489,6 +492,19 @@ def test_supervisor_control_logs_stay_inside_writable_rotated_directory():
     assert 'PNL_LOG_PATH:-${PROJECT_DIR}/logs/pnl.log' in ctl
     assert "ReadWritePaths=/home/bot/apps/binance_bot/db /home/bot/apps/binance_bot/logs /run/mybot" in unit
     assert 'LOG="supervisor.log"' not in ctl
+
+
+def test_supervisor_stop_waits_for_managed_children_before_systemd_kill():
+    ctl = read("bin/supervisor_ctl.sh")
+    stop_all = ctl.split("cmd_stop_all() {", 1)[1].split(
+        "cmd_start_runner()", 1
+    )[0]
+
+    assert "wait_for_pids_exit" in ctl
+    assert 'SUPERVISOR_STOP_TIMEOUT_SEC:-30' in ctl
+    assert 'kill -TERM "${pids[@]}"' in stop_all
+    assert 'wait_for_pids_exit "${pids[@]}"' in stop_all
+    assert "sleep 2" not in stop_all
 
 
 def test_installer_migrates_sqlite_safely_and_closes_legacy_backups():

@@ -1,6 +1,8 @@
 import sqlite3
 from decimal import Decimal
 
+import pytest
+
 from ladder_dragon.ai.ai_context import AdvisorDecisionStore, evaluate_realized_ai_pnl
 
 
@@ -172,6 +174,69 @@ def test_store_startup_backfills_previously_known_unresolved_fill(tmp_path):
 
     assert restarted.unresolved_fill_count() == 0
     assert restarted.evaluate_execution(decision)["buy_qty_text"] == "0.124"
+
+
+def test_unresolved_fill_scope_keeps_attribution_out_of_inventory_gate(
+    tmp_path,
+):
+    store = AdvisorDecisionStore(str(tmp_path / "ai.db"))
+    store.record_unresolved_fill(
+        symbol="SOLUSDT",
+        side="BUY",
+        price="77.33",
+        qty="0.124",
+        order_id=12345,
+    )
+    store.record_unresolved_fill(
+        symbol="SOLUSDT",
+        side="BUY",
+        price="76.00",
+        qty="0.100",
+        order_id=67890,
+        ts=21,
+        resolution_scope="INVENTORY",
+    )
+
+    assert store.unresolved_fill_count() == 2
+    assert store.unresolved_fill_count_by_scope("ATTRIBUTION") == 1
+    assert store.unresolved_fill_count_by_scope("INVENTORY") == 1
+
+
+def test_unresolved_fill_scope_rejects_unknown_classification(tmp_path):
+    store = AdvisorDecisionStore(str(tmp_path / "ai.db"))
+
+    with pytest.raises(ValueError, match="resolution scope"):
+        store.record_unresolved_fill(
+            symbol="SOLUSDT",
+            side="BUY",
+            price="77.33",
+            qty="0.124",
+            resolution_scope="UNKNOWN",
+        )
+
+
+def test_legacy_unresolved_mapping_migrates_to_attribution_scope(tmp_path):
+    path = tmp_path / "ai.db"
+    with sqlite3.connect(path) as connection:
+        connection.execute(
+            """CREATE TABLE ai_unresolved_fills(
+                fill_key TEXT PRIMARY KEY, symbol TEXT NOT NULL,
+                side TEXT NOT NULL, order_id TEXT, trade_id TEXT,
+                price REAL NOT NULL, qty REAL NOT NULL,
+                fee_quote REAL NOT NULL DEFAULT 0, ts INTEGER NOT NULL,
+                reason TEXT NOT NULL, created_at INTEGER NOT NULL
+            )"""
+        )
+        connection.execute(
+            "INSERT INTO ai_unresolved_fills VALUES("
+            "'legacy','SOLUSDT','BUY','123',NULL,77.33,0.124,0,"
+            "20,'exchange_order_id_not_mapped_to_decision',20)"
+        )
+
+    store = AdvisorDecisionStore(str(path))
+
+    assert store.unresolved_fill_count_by_scope("ATTRIBUTION") == 1
+    assert store.unresolved_fill_count_by_scope("INVENTORY") == 0
 
 
 def test_realized_result_records_partial_fill_and_exit_metadata(tmp_path):
