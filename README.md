@@ -18,6 +18,7 @@
   <a href="#quick-start">Quick start</a> ·
   <a href="#why-ladder-dragon">Why Ladder Dragon</a> ·
   <a href="#verification">Verification</a> ·
+  <a href="#star-history">Star history</a> ·
   <a href="#dashboard">Dashboard</a> ·
   <a href="docs/RASPBERRY_PI_INSTALL.md">Raspberry Pi</a>
 </p>
@@ -27,7 +28,7 @@ combines adaptive ladder entries, exchange-side OCO protection, exact
 fee-aware FIFO accounting, restart reconciliation, replay and walk-forward
 verification, and a private Raspberry Pi operations dashboard.
 
-Current product version: **2.20.31**. The single version source is
+Current product version: **2.20.32**. The single version source is
 `product_version.py`; releases follow [Semantic Versioning](https://semver.org/).
 Project contact: [LinkedIn](https://www.linkedin.com/in/ypotekhin/).
 
@@ -85,7 +86,7 @@ bounded, explainable, recoverable, and measurable before exposure is increased.
 ## Project status
 
 Ladder Dragon is an actively developed, experimental trading system. Version
-**2.20.31** is the current prepared release. `main` is the only long-lived branch;
+**2.20.32** is the current prepared release. `main` is the only long-lived branch;
 feature branches use the `ladderdragon/*` namespace.
 
 DRY and Binance Spot Testnet are the supported starting modes. Mainnet LIVE is
@@ -885,6 +886,13 @@ terminal `FILLED` status can increment it; partial and unresolved fills do not.
 Open canary lots are shown separately from legacy inventory, including an
 explicit journal-versus-Binance protection mismatch. Historical virtual RAG
 documents are labeled archived and are not included in retrieval.
+
+## Star history
+
+[![Ladder Dragon Star History Chart](https://api.star-history.com/svg?repos=potekhinskill/Ladder-Dragon&type=Date)](https://star-history.com/#potekhinskill/Ladder-Dragon&Date)
+
+The chart is provided by [Star History](https://star-history.com/) and tracks
+the public GitHub star count over time.
 
 ## Documentation and license
 

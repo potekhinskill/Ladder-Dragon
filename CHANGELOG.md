@@ -3,6 +3,17 @@
 All notable changes are documented here. Releases use Semantic Versioning; every
 section is dated and there is intentionally no `Unreleased` section.
 
+## [2.20.32] — 2026-07-26
+
+### Added
+- Added a README Star History chart with a link to the interactive public
+  GitHub star timeline.
+
+### Verified
+- All `58` README, version, and deployment-asset regression tests pass.
+- The complete suite passes all `557` project tests, and the complete Python
+  source tree compiles successfully.
+
 ## [2.20.31] — 2026-07-26
 
 ### Added
