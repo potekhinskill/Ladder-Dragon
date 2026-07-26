@@ -4818,20 +4818,70 @@ def _build_risk_snapshot(
         if str(order.get("side", "")).upper() == "BUY"
     )
     exposure = holdings_exposure + open_buy
+    exposure_by_symbol = {
+        symbol: asset_values.get(symbol_assets(symbol)[0], Decimal("0"))
+        + sum(
+            (
+                money(order.get("price")) * money(order.get("origQty"))
+                for order in orders
+                if str(order.get("symbol", "")).upper() == symbol
+                and str(order.get("side", "")).upper() == "BUY"
+            ),
+            Decimal("0"),
+        )
+        for symbol in symbols
+    }
     correlated_symbols = {
         value.strip().upper()
         for value in os.getenv("RISK_CORRELATED_SYMBOLS", ",".join(symbols)).split(",")
         if value.strip()
     }
-    histories: Dict[str, list[float]] = {}
-    if os.getenv("RISK_CORRELATION_MODE", "rolling").lower() == "rolling" and len(symbols) > 1:
-        window = max(3, int(os.getenv("RISK_CORRELATION_WINDOW", "48") or 48))
-        threshold = _analytics_float(os.getenv("RISK_CORRELATION_THRESHOLD", "0.70") or 0.70)
+    histories: Dict[str, list[tuple[int, float]]] = {}
+    correlation_mode = os.getenv(
+        "RISK_CORRELATION_MODE",
+        "rolling",
+    ).lower()
+    window = max(
+        3,
+        int(os.getenv("RISK_CORRELATION_WINDOW", "48") or 48),
+    )
+    var_enabled = money(limits.var_cap_usdt) > 0
+    if (
+        (correlation_mode == "rolling" and len(symbols) > 1)
+        or var_enabled
+    ):
         for symbol in symbols:
-            klines = TM.get_klines(symbol, "15m", limit=window + 1)
-            closes = [_analytics_float(row[4]) for row in klines if len(row) > 4 and _analytics_float(row[4]) > 0]
+            klines = TM.get_klines(
+                symbol,
+                "15m",
+                limit=min(1000, window * 2 + 1),
+            )
+            closes = [
+                (int(row[0]), _analytics_float(row[4]))
+                for row in klines
+                if (
+                    len(row) > 4
+                    and _analytics_float(row[4]) > 0
+                )
+            ]
             if len(closes) >= 4:
                 histories[symbol] = closes
+        if var_enabled:
+            missing_var_history = sorted(
+                symbol
+                for symbol in symbols
+                if exposure_by_symbol.get(symbol, Decimal("0")) > 0
+                and symbol not in histories
+            )
+            if missing_var_history:
+                raise RuntimeError(
+                    "VaR history unavailable for configured exposure: "
+                    + ",".join(missing_var_history)
+                )
+    if correlation_mode == "rolling" and len(symbols) > 1:
+        threshold = _analytics_float(
+            os.getenv("RISK_CORRELATION_THRESHOLD", "0.70") or 0.70
+        )
         rolling = derive_correlated_symbols_multi_window(
             histories, threshold=threshold,
             windows=(max(3, window // 2), window, window * 2), min_windows=2,
@@ -4874,16 +4924,6 @@ def _build_risk_snapshot(
             1 for order in orders
             if now_ms - int(order.get("updateTime") or order.get("time") or now_ms) > stale_limit * 1000
         )
-    exposure_by_symbol = {
-        symbol: asset_values.get(symbol_assets(symbol)[0], Decimal("0"))
-        + sum(
-            (money(order.get("price")) * money(order.get("origQty"))
-             for order in orders if str(order.get("symbol", "")).upper() == symbol
-             and str(order.get("side", "")).upper() == "BUY"),
-            Decimal("0"),
-        )
-        for symbol in symbols
-    }
     cluster_exposure = {
         ",".join(cluster): sum(
             (exposure_by_symbol.get(symbol, Decimal("0")) for symbol in cluster),

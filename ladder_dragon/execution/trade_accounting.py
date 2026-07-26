@@ -11,7 +11,23 @@ from typing import Iterable
 
 
 ZERO = Decimal("0")
-KNOWN_QUOTES = ("USDT", "USDC", "FDUSD", "BUSD", "BTC", "ETH", "BNB", "EUR", "TRY")
+KNOWN_QUOTES = (
+    "FDUSD",
+    "USDT",
+    "USDC",
+    "TUSD",
+    "BUSD",
+    "BTC",
+    "ETH",
+    "BNB",
+    "EUR",
+    "GBP",
+    "AUD",
+    "BRL",
+    "JPY",
+    "DAI",
+    "TRY",
+)
 
 
 def decimal(value: object) -> Decimal:
@@ -39,6 +55,10 @@ class UnpricedCommission(RuntimeError):
     pass
 
 
+class InventoryShortfall(RuntimeError):
+    pass
+
+
 @dataclass(frozen=True)
 class TradeExecution:
     symbol: str
@@ -62,7 +82,7 @@ class TradeExecution:
         net_qty: object | None = None,
         commission_asset: str = "",
         commission_amount: object = 0,
-        commission_quote: object | None = 0,
+        commission_quote: object | None = None,
         commission_value_status: str = "exact",
     ) -> "TradeExecution":
         normalized_side = side.strip().upper()
@@ -87,6 +107,8 @@ class TradeExecution:
         if quote_value is not None and quote_value < ZERO:
             raise ValueError("commission quote value must be non-negative")
         status = commission_value_status.strip().lower() or "unpriced"
+        if amount > ZERO and quote_value is None:
+            status = "unpriced"
         return cls(
             symbol=normalized_symbol,
             side=normalized_side,
@@ -135,8 +157,12 @@ class InventoryResult:
 
 
 def replay_average_cost(
-    trades: Iterable[TradeExecution], *, allow_unpriced: bool = False
+    trades: Iterable[TradeExecution],
+    *,
+    allow_unpriced: bool = False,
+    strict_inventory: bool = True,
 ) -> InventoryResult:
+    """Replay average cost, rejecting SELL inventory gaps by default."""
     qty = ZERO
     avg = ZERO
     realized = ZERO
@@ -149,6 +175,10 @@ def replay_average_cost(
             avg = total_cost / new_qty
             continue
 
+        if strict_inventory and trade.net_qty > qty:
+            raise InventoryShortfall(
+                f"SELL quantity exceeds replay inventory for {trade.symbol}"
+            )
         used = min(qty, trade.net_qty)
         if used <= ZERO:
             sell_results.append(ZERO)

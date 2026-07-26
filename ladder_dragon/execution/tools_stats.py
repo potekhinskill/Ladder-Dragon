@@ -173,7 +173,14 @@ def recalculate_inventory(db: sqlite3.Connection, symbol: str):
             commission_amount, commission_quote, status,
         ) in rows
     ])
-    result = replay_average_cost(executions, allow_unpriced=True)
+    # A legacy database can begin after inventory was acquired. Preserve its
+    # partial operational snapshot here; exact reports replay independently in
+    # strict mode and block when the missing opening inventory matters.
+    result = replay_average_cost(
+        executions,
+        allow_unpriced=True,
+        strict_inventory=False,
+    )
     realized_pnl = baseline_realized + result.realized_pnl
 
     if {"qty", "avg_cost", "realized_pnl"} <= _table_columns(db, "inventory"):

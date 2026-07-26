@@ -12,6 +12,7 @@ from ladder_dragon.execution.inventory_lots import (
     lot_for_order,
     sync_exchange_fill,
 )
+from ladder_dragon.execution.trade_accounting import UnpricedCommission
 
 
 def test_fifo_lots_preserve_age_and_ladder_level():
@@ -30,6 +31,30 @@ def test_lot_can_be_recovered_by_exchange_order_id():
     add_lot(con, symbol="SOLUSDT", qty=Decimal("1"), price=Decimal("100"),
             source_order_id="501", opened_at=10)
     assert lot_for_order(con, "SOLUSDT", 501).lot_id == 1
+
+
+def test_fill_without_commission_quote_cannot_create_inventory_lot():
+    con = sqlite3.connect(":memory:")
+    ensure_schema(con)
+
+    with pytest.raises(UnpricedCommission):
+        sync_exchange_fill(
+            con,
+            {
+                "symbol": "SOLUSDT",
+                "side": "BUY",
+                "price": "100",
+                "qty": "1",
+                "commission_asset": "BNB",
+                "commission_amount": "0.001",
+                "trade_id": "missing-fee-value",
+                "order_id": "501",
+            },
+        )
+
+    assert con.execute(
+        "SELECT COUNT(*) FROM inventory_lots"
+    ).fetchone()[0] == 0
 
 
 def test_source_trade_id_makes_fill_lot_idempotent():

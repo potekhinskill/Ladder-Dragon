@@ -324,7 +324,13 @@ def load_trade_features(
                 turnover += execution.price * execution.gross_qty
         except (ArithmeticError, TypeError, ValueError):
             continue
-    replay = replay_average_cost(executions, allow_unpriced=True)
+    # Advisory history may begin after legacy inventory. Preserve the explicit
+    # partial-history behavior here; exact accounting callers remain strict.
+    replay = replay_average_cost(
+        executions,
+        allow_unpriced=True,
+        strict_inventory=False,
+    )
     sell_times = [
         timestamp
         for execution, timestamp in zip(executions, execution_times)

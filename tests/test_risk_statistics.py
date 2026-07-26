@@ -7,11 +7,70 @@ from ladder_dragon.risk.risk_statistics import (
     conversion_price_decimal,
     correlated_symbols,
     correlation_clusters_multi_window,
+    covariance_var,
+    expected_shortfall,
     liquidity_is_sufficient_decimal,
+    log_returns,
     rolling_correlation,
     stress_exposure,
     stress_loss_decimal,
 )
+
+
+def test_log_returns_are_natural_logs_not_simple_returns():
+    assert log_returns([100.0, 110.0]) == pytest.approx(
+        [0.09531017980432493]
+    )
+
+
+def test_covariance_var_uses_only_matching_timestamp_intervals():
+    left = [(0, 100.0), (1, 110.0), (2, 100.0), (3, 110.0), (4, 100.0)]
+    misaligned = [
+        (0, 50.0),
+        (1, 55.0),
+        (3, 50.0),
+        (4, 55.0),
+        (5, 50.0),
+    ]
+    aligned = [
+        (0, 50.0),
+        (1, 55.0),
+        (2, 50.0),
+        (3, 55.0),
+        (4, 50.0),
+    ]
+
+    assert covariance_var(
+        {"LEFT": 100.0, "RIGHT": 100.0},
+        {"LEFT": left, "RIGHT": misaligned},
+    ) == 0.0
+    one_bar = covariance_var(
+        {"LEFT": 100.0, "RIGHT": 100.0},
+        {"LEFT": left, "RIGHT": aligned},
+        horizon=1,
+    )
+    four_bars = covariance_var(
+        {"LEFT": 100.0, "RIGHT": 100.0},
+        {"LEFT": left, "RIGHT": aligned},
+        horizon=4,
+    )
+    assert one_bar > 0
+    assert four_bars == pytest.approx(one_bar * 2)
+
+
+def test_timestamped_returns_reject_ambiguous_ordering():
+    with pytest.raises(ValueError, match="strictly increasing"):
+        log_returns([(2, 100.0), (1, 101.0)])
+    with pytest.raises(ValueError, match="finite"):
+        log_returns([(float("nan"), 100.0), (1, 101.0)])
+
+
+def test_expected_shortfall_requires_non_negative_loss_magnitudes():
+    assert expected_shortfall([1.0, 2.0, 10.0], confidence=0.75) == 10.0
+    with pytest.raises(ValueError, match="non-negative"):
+        expected_shortfall([-1.0, 2.0], confidence=0.75)
+    with pytest.raises(ValueError, match="confidence"):
+        expected_shortfall([1.0], confidence=1.0)
 
 
 def test_rolling_correlation_detects_common_shock():

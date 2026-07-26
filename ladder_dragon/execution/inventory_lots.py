@@ -308,8 +308,15 @@ def sync_exchange_fill(
         gross_qty=fill["qty"],
         commission_asset=str(fill.get("commission_asset") or ""),
         commission_amount=fill.get("commission_amount") or "0",
-        commission_quote=fill.get("fee_quote") or "0",
-        commission_value_status="exact",
+        commission_quote=fill.get("fee_quote"),
+        commission_value_status=str(
+            fill.get("fee_status")
+            or (
+                "exact"
+                if fill.get("fee_quote") is not None
+                else "unpriced"
+            )
+        ),
     )
     source_trade_id = str(fill["trade_id"]).strip()
     if not source_trade_id:

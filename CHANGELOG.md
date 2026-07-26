@@ -3,6 +3,40 @@
 All notable changes are documented here. Releases use Semantic Versioning; every
 section is dated and there is intentionally no `Unreleased` section.
 
+## [2.20.54] — 2026-07-27
+
+### Fixed
+- `TradeExecution.create()` now treats an omitted quote valuation for a
+  non-zero commission as unpriced. Exact PnL, FIFO and inventory consumers
+  fail closed instead of silently pricing an unknown fee at zero.
+- Binance base-asset normalization now recognizes TUSD, GBP, AUD, BRL, JPY
+  and DAI quote pairs in addition to the existing quote assets.
+- Average-cost replay now rejects a SELL beyond known inventory by default.
+  The two intentionally partial-history consumers opt into relaxed replay
+  explicitly; exact daily reporting remains strict and blocks incomplete FIFO
+  history.
+- Portfolio returns are now true additive natural-log returns. Correlation and
+  covariance VaR align symbols by exact candle intervals instead of trimming
+  unrelated series to a common length, and configured VaR fails closed when
+  an exposed symbol lacks sufficient history.
+- Expected Shortfall now accepts only finite, non-negative loss magnitudes and
+  validates its confidence range instead of silently converting profits to
+  zero-valued losses.
+
+### Changed
+- Raspberry risk snapshots now retain Binance kline timestamps and only fetch
+  VaR history when the configured VaR gate is active (or multi-symbol rolling
+  correlation needs it). Example configuration and README risk semantics are
+  synchronized with the implementation.
+
+### Verified
+- Regressions cover omitted commission valuation, newly supported quote
+  assets, strict and advisory inventory replay, FIFO refusal of unpriced fees,
+  natural-log returns, timestamp alignment and ordering, VaR horizon scaling,
+  and Expected Shortfall input validation.
+- Python compilation, whitespace checks and the complete 647-test project
+  suite pass.
+
 ## [2.20.53] — 2026-07-27
 
 ### Fixed

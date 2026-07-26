@@ -8,7 +8,13 @@ import pytest
 from bin import pnl_24h
 from ladder_dragon.execution import tools_stats
 from ladder_dragon.risk.risk_manager import load_daily_trade_metrics
-from ladder_dragon.execution.trade_accounting import TradeExecution, UnpricedCommission, replay_average_cost
+from ladder_dragon.execution.trade_accounting import (
+    InventoryShortfall,
+    TradeExecution,
+    UnpricedCommission,
+    base_asset,
+    replay_average_cost,
+)
 
 
 def load_worker():
@@ -18,6 +24,63 @@ def load_worker():
     assert spec and spec.loader
     spec.loader.exec_module(module)
     return module
+
+
+def test_omitted_commission_quote_fails_closed_when_fee_is_nonzero():
+    trade = TradeExecution.create(
+        symbol="SOLUSDT",
+        side="BUY",
+        price="100",
+        gross_qty="1",
+        commission_asset="BNB",
+        commission_amount="0.001",
+    )
+
+    assert trade.commission_quote is None
+    assert trade.commission_value_status == "unpriced"
+    with pytest.raises(UnpricedCommission):
+        replay_average_cost([trade])
+
+
+@pytest.mark.parametrize(
+    ("symbol", "expected"),
+    (
+        ("BTCTUSD", "BTC"),
+        ("ETHGBP", "ETH"),
+        ("SOLAUD", "SOL"),
+        ("XRPBRL", "XRP"),
+        ("BTCJPY", "BTC"),
+        ("ETHDAI", "ETH"),
+    ),
+)
+def test_base_asset_supports_binance_quote_assets(symbol, expected):
+    assert base_asset(symbol) == expected
+
+
+def test_average_cost_replay_rejects_inventory_shortfall_by_default():
+    buy = TradeExecution.create(
+        symbol="SOLUSDT",
+        side="BUY",
+        price="100",
+        gross_qty="1",
+        commission_quote="0",
+    )
+    sell = TradeExecution.create(
+        symbol="SOLUSDT",
+        side="SELL",
+        price="110",
+        gross_qty="1.5",
+        commission_quote="0",
+    )
+
+    with pytest.raises(InventoryShortfall):
+        replay_average_cost([buy, sell])
+    advisory = replay_average_cost(
+        [buy, sell],
+        strict_inventory=False,
+    )
+    assert advisory.qty == Decimal("0")
+    assert advisory.realized_pnl == Decimal("10")
 
 
 def test_base_commission_reduces_buy_inventory_without_double_counting_cost():

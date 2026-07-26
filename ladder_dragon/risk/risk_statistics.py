@@ -5,7 +5,7 @@
 
 from __future__ import annotations
 
-from math import sqrt
+from math import isfinite, log, sqrt
 from statistics import NormalDist
 from typing import Iterable, Mapping, Sequence
 from decimal import Decimal, InvalidOperation
@@ -14,6 +14,7 @@ from pathlib import Path
 
 
 ZERO = Decimal("0")
+PriceHistory = Sequence[float] | Sequence[tuple[int | float, float]]
 
 
 def _decimal(value: object, *, field: str) -> Decimal:
@@ -26,27 +27,86 @@ def _decimal(value: object, *, field: str) -> Decimal:
     return result
 
 
-def log_returns(prices: Sequence[float]) -> list[float]:
-    """Handle log returns."""
-    result: list[float] = []
-    for previous, current in zip(prices, prices[1:]):
-        if previous <= 0 or current <= 0:
+def _log_returns_by_time(
+    prices: PriceHistory,
+) -> dict[tuple[int | float, int | float], float]:
+    """Return log returns keyed by their exact observation interval."""
+    timestamped = bool(
+        prices
+        and isinstance(prices[0], (list, tuple))
+        and len(prices[0]) >= 2
+    )
+    normalized: list[tuple[int | float, float]] = []
+    seen: set[int | float] = set()
+    for index, item in enumerate(prices):
+        if timestamped:
+            if not isinstance(item, (list, tuple)) or len(item) < 2:
+                raise ValueError(
+                    "price history mixes timestamped and plain values"
+                )
+            raw_key = item[0]
+            if (
+                isinstance(raw_key, bool)
+                or not isinstance(raw_key, (int, float))
+                or not isfinite(float(raw_key))
+            ):
+                raise ValueError("price history timestamp must be finite")
+            key = raw_key
+            value = float(item[1])
+        else:
+            key = index - (len(prices) - 1)
+            value = float(item)
+        if key in seen:
+            raise ValueError("price history contains duplicate timestamps")
+        seen.add(key)
+        normalized.append((key, value))
+    if any(
+        current_key <= previous_key
+        for (previous_key, _), (current_key, _) in zip(
+            normalized,
+            normalized[1:],
+        )
+    ):
+        raise ValueError("price history timestamps must be strictly increasing")
+    result: dict[tuple[int | float, int | float], float] = {}
+    for (previous_key, previous), (current_key, current) in zip(
+        normalized,
+        normalized[1:],
+    ):
+        if (
+            not isfinite(previous)
+            or not isfinite(current)
+            or previous <= 0
+            or current <= 0
+        ):
             continue
-        result.append(current / previous - 1.0)
+        result[(previous_key, current_key)] = log(current / previous)
     return result
 
 
+def log_returns(prices: PriceHistory) -> list[float]:
+    """Return additive natural-log returns in observation order."""
+    return list(_log_returns_by_time(prices).values())
+
+
 def rolling_correlation(
-    left: Sequence[float], right: Sequence[float], *, window: int = 48
+    left: PriceHistory,
+    right: PriceHistory,
+    *,
+    window: int = 48,
 ) -> float:
     """Pearson correlation of recent returns; 0 means insufficient evidence."""
-    values_left = log_returns(left)[-window:]
-    values_right = log_returns(right)[-window:]
-    size = min(len(values_left), len(values_right))
+    left_by_time = _log_returns_by_time(left)
+    right_by_time = _log_returns_by_time(right)
+    common_times = [
+        key for key in left_by_time
+        if key in right_by_time
+    ][-window:]
+    size = len(common_times)
     if size < 3:
         return 0.0
-    values_left = values_left[-size:]
-    values_right = values_right[-size:]
+    values_left = [left_by_time[key] for key in common_times]
+    values_right = [right_by_time[key] for key in common_times]
     mean_left = sum(values_left) / size
     mean_right = sum(values_right) / size
     covariance = sum(
@@ -60,7 +120,7 @@ def rolling_correlation(
 
 
 def correlated_symbols(
-    histories: Mapping[str, Sequence[float]],
+    histories: Mapping[str, PriceHistory],
     *,
     threshold: float = 0.70,
     window: int = 48,
@@ -84,7 +144,7 @@ def stress_exposure(exposure_usdt: float, shocks: Iterable[float]) -> list[float
 
 
 def correlated_symbols_multi_window(
-    histories: Mapping[str, Sequence[float]], *, threshold: float = 0.70,
+    histories: Mapping[str, PriceHistory], *, threshold: float = 0.70,
     windows: Sequence[int] = (24, 48, 96), min_windows: int = 2,
 ) -> set[str]:
     """Handle correlated symbols multi window."""
@@ -99,7 +159,7 @@ def correlated_symbols_multi_window(
 
 
 def correlation_clusters_multi_window(
-    histories: Mapping[str, Sequence[float]],
+    histories: Mapping[str, PriceHistory],
     *,
     threshold: float = 0.70,
     windows: Sequence[int] = (24, 48, 96),
@@ -171,21 +231,34 @@ def liquidity_is_sufficient_decimal(
 
 
 def covariance_var(
-    exposures: Mapping[str, float], histories: Mapping[str, Sequence[float]],
+    exposures: Mapping[str, float],
+    histories: Mapping[str, PriceHistory],
     *, confidence: float = 0.99, horizon: int = 1,
 ) -> float:
-    """Handle covariance var."""
+    """Return covariance VaR from time-aligned additive log returns.
+
+    Zero means fewer than three common return timestamps were available, or no
+    positive exposure had matching history.
+    """
     names = [name for name, value in exposures.items() if value > 0 and name in histories]
     if len(names) < 1:
         return 0.0
-    # Equal series lengths are required for a valid covariance matrix.
-    returns = {name: log_returns(histories[name])[-96:] for name in names}
-    n = min((len(values) for values in returns.values()), default=0)
+    returns = {
+        name: _log_returns_by_time(histories[name])
+        for name in names
+    }
+    common_times = [
+        key for key in returns[names[0]]
+        if all(key in returns[name] for name in names[1:])
+    ][-96:]
+    n = len(common_times)
     if n < 3:
         return 0.0
-    aligned = {name: values[-n:] for name, values in returns.items()}
+    aligned = {
+        name: [returns[name][key] for key in common_times]
+        for name in names
+    }
     means = {name: sum(values) / n for name, values in aligned.items()}
-    variances = {name: sum((v - means[name]) ** 2 for v in aligned[name]) / (n - 1) for name in names}
     sigma2 = 0.0
     for left in names:
         for right in names:
@@ -217,9 +290,16 @@ def stress_loss_decimal(
 
 
 def expected_shortfall(losses: Sequence[float], *, confidence: float = 0.99) -> float:
-    """Handle expected shortfall."""
-    values = sorted(max(0.0, float(value)) for value in losses)
-    if not values or not 0 < confidence < 1:
+    """Return mean tail loss for finite, non-negative loss magnitudes."""
+    if not 0 < confidence < 1:
+        raise ValueError("expected shortfall confidence must be in (0, 1)")
+    values = [float(value) for value in losses]
+    if any(not isfinite(value) or value < 0 for value in values):
+        raise ValueError(
+            "expected shortfall losses must be finite and non-negative"
+        )
+    values.sort()
+    if not values:
         return 0.0
     cutoff = max(0, int(len(values) * confidence))
     tail = values[cutoff:] or values[-1:]
