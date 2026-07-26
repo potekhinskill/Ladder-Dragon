@@ -3,6 +3,19 @@
 All notable changes are documented here. Releases use Semantic Versioning; every
 section is dated and there is intentionally no `Unreleased` section.
 
+## [2.20.37] — 2026-07-26
+
+### Fixed
+- GitHub Actions now fetches complete tag objects in both jobs. Tag-triggered
+  continuity checks therefore inspect the signed annotated tag instead of the
+  lightweight checkout ref synthesized for the event.
+
+### Verified
+- Added a workflow regression assertion requiring `fetch-tags: true` on both
+  full-history checkouts.
+- The complete suite passes all `571` project tests and Python compilation and
+  whitespace checks pass.
+
 ## [2.20.36] — 2026-07-26
 
 ### Added
