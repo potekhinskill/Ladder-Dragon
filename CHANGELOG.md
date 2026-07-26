@@ -3,6 +3,25 @@
 All notable changes are documented here. Releases use Semantic Versioning; every
 section is dated and there is intentionally no `Unreleased` section.
 
+## [2.20.41] — 2026-07-26
+
+### Fixed
+- Replaced the frozen zero-star README snapshot and failing third-party Star
+  History endpoint with a chart generated from the official GitHub Stargazers
+  API.
+
+### Added
+- A daily GitHub Pages workflow publishes the live Star History SVG without
+  creating or updating a metrics branch.
+- The generator publishes only dates and cumulative counts; GitHub account
+  names and API credentials are excluded from the SVG and workflow logs.
+
+### Verified
+- Generator tests cover cumulative history, privacy, malformed input, and
+  exact immutable GitHub Pages Action pins.
+- The complete suite passes all `574` project tests; Python compilation and
+  whitespace checks pass.
+
 ## [2.20.40] — 2026-07-26
 
 ### Changed

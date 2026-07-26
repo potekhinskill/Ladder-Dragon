@@ -29,7 +29,7 @@ combines adaptive ladder entries, exchange-side OCO protection, exact
 fee-aware FIFO accounting, restart reconciliation, replay and walk-forward
 verification, and a private Raspberry Pi operations dashboard.
 
-Current product version: **2.20.40**. The single version source is
+Current product version: **2.20.41**. The single version source is
 `product_version.py`; releases follow [Semantic Versioning](https://semver.org/).
 Project contact: [LinkedIn](https://www.linkedin.com/in/ypotekhin/).
 
@@ -87,7 +87,7 @@ bounded, explainable, recoverable, and measurable before exposure is increased.
 ## Project status
 
 Ladder Dragon is an actively developed, experimental trading system. Version
-**2.20.40** is the current prepared release. `main` is the only long-lived branch;
+**2.20.41** is the current prepared release. `main` is the only long-lived branch;
 feature branches use the `ladderdragon/*` namespace.
 
 DRY and Binance Spot Testnet are the supported starting modes. Mainnet LIVE is
@@ -915,15 +915,14 @@ documents are labeled archived and are not included in retrieval.
 
 <p align="center">
   <a href="https://github.com/potekhinskill/Ladder-Dragon/stargazers">
-    <img src="docs/assets/ladder-dragon-star-history.svg" alt="Ladder Dragon GitHub star history" width="960">
+    <img src="https://potekhinskill.github.io/Ladder-Dragon/star-history.svg" alt="Ladder Dragon GitHub star history" width="960">
   </a>
 </p>
 
-The bundled chart remains visible when the third-party Star History API is
-unavailable or the repository has not received its first star. The badge above
-always shows GitHub's current public count. Open the
-[interactive Star History page](https://star-history.com/#potekhinskill/Ladder-Dragon&Date)
-after history becomes available.
+The chart is rebuilt daily from the official GitHub Stargazers API and
+published through GitHub Pages without creating a metrics branch. It contains
+only dates and cumulative counts; account names are never published. The stars
+badge at the top remains the live count between chart updates.
 
 ## Documentation and license
 

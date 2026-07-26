@@ -173,10 +173,13 @@ def test_public_project_contact_is_documented_not_runtime_data():
     assert "https://www.linkedin.com/in/ypotekhin/" in copyright_text
 
 
-def test_readme_star_history_has_repository_owned_fallback():
+def test_readme_star_history_uses_daily_github_pages_chart():
     readme = read("README.md")
-    chart = read("docs/assets/ladder-dragon-star-history.svg")
-    assert "docs/assets/ladder-dragon-star-history.svg" in readme
+    workflow = read(".github/workflows/star-history.yml")
+    assert (
+        "https://potekhinskill.github.io/Ladder-Dragon/star-history.svg"
+        in readme
+    )
     assert "img.shields.io/github/stars/potekhinskill/Ladder-Dragon" in readme
     assert "api.star-history.com/svg" not in readme
     assert readme.index("## Star history") > readme.index(
@@ -185,9 +188,29 @@ def test_readme_star_history_has_repository_owned_fallback():
     assert readme.index("## Star history") < readme.index(
         "## Documentation and license"
     )
-    assert "<svg" in chart
-    assert "GitHub Star History" in chart
-    assert "current stars" in chart
+    assert "cron:" in workflow
+    assert "contents: read" in workflow
+    assert "pages: write" in workflow
+    assert "id-token: write" in workflow
+    assert "contents: write" not in workflow
+    assert "bin/generate_star_history.py" in workflow
+    assert "GITHUB_TOKEN: ${{ github.token }}" in workflow
+    assert "echo ${GITHUB_TOKEN}" not in workflow
+    assert (
+        "actions/configure-pages@"
+        "45bfe0192ca1faeb007ade9deae92b16b8254a0d"
+        in workflow
+    )
+    assert (
+        "actions/upload-pages-artifact@"
+        "fc324d3547104276b827a68afc52ff2a11cc49c9"
+        in workflow
+    )
+    assert (
+        "actions/deploy-pages@"
+        "cd2ce8fcbc39b97be8ca5fce6e763baed58fa128"
+        in workflow
+    )
 
 
 def test_intro_document_and_logo_cover_supported_platforms():
