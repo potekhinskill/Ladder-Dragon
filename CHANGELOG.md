@@ -3,6 +3,29 @@
 All notable changes are documented here. Releases use Semantic Versioning; every
 section is dated and there is intentionally no `Unreleased` section.
 
+## [2.20.48] — 2026-07-26
+
+### Fixed
+- STRATEGY prediction evidence now uses an explicit zero-PnL
+  `NO_TRADE`/USDT baseline. Missing REANCHOR baselines fail closed instead of
+  substituting the candidate outcome, so a genuinely positive baseline edge
+  can be measured without look-ahead.
+- Inventory skew requires a dedicated managed-inventory hard CAP for each
+  symbol (or the explicit managed global limit). It no longer inherits the
+  portfolio CAP, and missing evidence reduces APPLY sizing to zero.
+- Expectancy telemetry now reports whether both configured minimum net edge
+  and TP satisfy the authoritative two-sided fee/slippage floor. APPLY keeps
+  BUY disabled when the configuration is below that floor.
+- The BUY VWAP premium gate now uses exact Decimal Schmitt hysteresis. Boundary
+  noise such as `1.0031` around a `1.0030` limit no longer toggles BUY.
+
+### Verified
+- Focused prediction, no-look-ahead, strategy approval, inventory, expectancy,
+  VWAP, Risk Manager, executor, recovery, OCO/STOP and fail-closed regressions
+  pass.
+- Python compilation, whitespace checks, and the complete project test suite
+  pass.
+
 ## [2.20.47] — 2026-07-26
 
 ### Added

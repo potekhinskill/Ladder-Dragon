@@ -649,8 +649,16 @@ class PredictionShadowStore:
         algorithm_decision: str,
         baseline_plan: TradePlan | None = None,
     ) -> str:
+        normalized_kind = kind.upper()
+        if normalized_kind not in {"STRATEGY", "REANCHOR"}:
+            raise ValueError("prediction kind must be STRATEGY or REANCHOR")
+        if normalized_kind == "REANCHOR" and baseline_plan is None:
+            raise ValueError("REANCHOR requires the original order baseline")
         decision_id = self._decision_id(
-            kind.upper(), symbol.upper(), features.snapshot_ts_ms, algorithm_decision
+            normalized_kind,
+            symbol.upper(),
+            features.snapshot_ts_ms,
+            algorithm_decision,
         )
         feature_json = json.dumps(_json_value(asdict(features)), sort_keys=True)
         plan_json = json.dumps(_json_value(asdict(plan)), sort_keys=True)
@@ -670,7 +678,7 @@ class PredictionShadowStore:
                     algorithm_decision,created_at_ms)
                    VALUES (?,?,?,?,?,?,?,?,?,?,?)""",
                 (
-                    decision_id, PREDICTION_SCHEMA_VERSION, kind.upper(),
+                    decision_id, PREDICTION_SCHEMA_VERSION, normalized_kind,
                     symbol.upper(), features.snapshot_ts_ms, feature_json,
                     plan_json, baseline_json, prediction_json,
                     algorithm_decision[:160], now_ms,
@@ -718,7 +726,7 @@ class PredictionShadowStore:
         )
         with self._connect() as connection:
             rows = connection.execute(
-                """SELECT o.decision_id,o.horizon_min,d.snapshot_ts_ms,
+                """SELECT o.decision_id,o.horizon_min,d.snapshot_ts_ms,d.kind,
                           d.plan_json,d.baseline_plan_json
                    FROM prediction_outcomes o
                    JOIN prediction_decisions d ON d.decision_id=o.decision_id
@@ -728,7 +736,14 @@ class PredictionShadowStore:
                 (symbol.upper(), as_of_ms),
             ).fetchall()
             settled = 0
-            for decision_id, horizon, snapshot, plan_json, baseline_json in rows:
+            for (
+                decision_id,
+                horizon,
+                snapshot,
+                kind,
+                plan_json,
+                baseline_json,
+            ) in rows:
                 required_start_close = evaluation_end_ms(int(snapshot), 1)
                 if (
                     earliest_close_ms is not None
@@ -770,6 +785,8 @@ class PredictionShadowStore:
                 )
                 if outcome is None or (baseline is not None and baseline_outcome is None):
                     continue
+                if baseline_outcome is None and str(kind).upper() == "STRATEGY":
+                    baseline_outcome = self._no_trade_outcome(outcome)
                 connection.execute(
                     """UPDATE prediction_outcomes
                        SET resolved_at_ms=?,outcome_json=?,baseline_outcome_json=?,
@@ -808,7 +825,7 @@ class PredictionShadowStore:
         )
         with self._connect() as connection:
             rows = connection.execute(
-                """SELECT o.decision_id,o.horizon_min,d.snapshot_ts_ms,
+                """SELECT o.decision_id,o.horizon_min,d.snapshot_ts_ms,d.kind,
                           d.plan_json,d.baseline_plan_json,o.eligible_at_ms
                    FROM prediction_outcomes o
                    JOIN prediction_decisions d ON d.decision_id=o.decision_id
@@ -820,7 +837,15 @@ class PredictionShadowStore:
                 (symbol.upper(), cutoff),
             ).fetchall()
             recovered = 0
-            for decision_id, horizon, snapshot, plan_json, baseline_json, eligible in rows:
+            for (
+                decision_id,
+                horizon,
+                snapshot,
+                kind,
+                plan_json,
+                baseline_json,
+                eligible,
+            ) in rows:
                 first_open = (int(snapshot) // 60_000 + 1) * 60_000
                 expected_opens = [
                     first_open + offset * 60_000
@@ -859,6 +884,8 @@ class PredictionShadowStore:
                     baseline is not None and baseline_outcome is None
                 ):
                     continue
+                if baseline_outcome is None and str(kind).upper() == "STRATEGY":
+                    baseline_outcome = self._no_trade_outcome(outcome)
                 connection.execute(
                     """UPDATE prediction_outcomes
                        SET resolved_at_ms=?,outcome_json=?,
@@ -903,12 +930,13 @@ class PredictionShadowStore:
         net = ZERO
         baseline_net = ZERO
         gaps: list[Decimal] = []
+        missing_baselines = 0
         for feature_json, plan_json, _horizon, outcome_json, baseline_json in rows:
             outcome = self._outcome(outcome_json)
-            baseline = (
-                self._outcome(baseline_json)
-                if baseline_json else outcome
-            )
+            if not baseline_json:
+                missing_baselines += 1
+                continue
+            baseline = self._outcome(baseline_json)
             filled += int(outcome.buy_filled)
             tp += int(outcome.tp_before_stop is True)
             net += outcome.net_pnl_quote
@@ -930,12 +958,13 @@ class PredictionShadowStore:
                 json.JSONDecodeError,
             ):
                 continue
-        count = len(rows)
+        count = len(rows) - missing_baselines
         mean_gap = (
             sum(gaps, ZERO) / D(str(len(gaps))) if gaps else ZERO
         )
         return {
             "resolved": count,
+            "missing_baselines": missing_baselines,
             "buy_filled": filled,
             "tp_before_stop": tp,
             "net_pnl_quote": str(net),
@@ -968,9 +997,8 @@ class PredictionShadowStore:
                 features = json.loads(feature_json)
                 plan = json.loads(plan_json)
                 outcome = self._outcome(outcome_json)
-                baseline = (
-                    self._outcome(baseline_json)
-                    if baseline_json else outcome
+                baseline = self._baseline_outcome(
+                    str(kind), baseline_json, outcome
                 )
                 regime = str(features.get("regime") or "UNKNOWN").upper()
                 panic = features.get("executor_panic_active")
@@ -1073,6 +1101,33 @@ class PredictionShadowStore:
             resolved_at_ms=int(raw["resolved_at_ms"]),
         )
 
+    @staticmethod
+    def _no_trade_outcome(outcome: PredictionOutcome) -> PredictionOutcome:
+        """Return the explicit USDT/no-entry baseline for STRATEGY evidence."""
+        return PredictionOutcome(
+            horizon_min=outcome.horizon_min,
+            buy_filled=False,
+            tp_before_stop=None,
+            net_pnl_quote=ZERO,
+            mae_pct=ZERO,
+            time_to_fill_sec=None,
+            exit_reason="NO_TRADE",
+            resolved_at_ms=outcome.resolved_at_ms,
+        )
+
+    @classmethod
+    def _baseline_outcome(
+        cls,
+        kind: str,
+        payload: str | None,
+        outcome: PredictionOutcome,
+    ) -> PredictionOutcome:
+        if payload:
+            return cls._outcome(payload)
+        if str(kind).upper() == "STRATEGY":
+            return cls._no_trade_outcome(outcome)
+        raise ValueError("counterfactual baseline outcome is missing")
+
     def resolved_samples(
         self,
         symbol: str,
@@ -1085,7 +1140,8 @@ class PredictionShadowStore:
                    FROM prediction_decisions d
                    JOIN prediction_outcomes o ON o.decision_id=d.decision_id
                    WHERE d.symbol=? AND d.kind=? AND o.outcome_json IS NOT NULL"""
-        params: list[object] = [symbol.upper(), kind.upper()]
+        normalized_kind = kind.upper()
+        params: list[object] = [symbol.upper(), normalized_kind]
         if before_ts_ms is not None:
             query += " AND o.resolved_at_ms<=?"
             params.append(int(before_ts_ms))
@@ -1096,7 +1152,9 @@ class PredictionShadowStore:
         for snapshot, feature_json, horizon, outcome_json, baseline_json in rows:
             features = json.loads(feature_json)
             outcome = self._outcome(outcome_json)
-            baseline = self._outcome(baseline_json) if baseline_json else outcome
+            baseline = self._baseline_outcome(
+                normalized_kind, baseline_json, outcome
+            )
             output.append(ResolvedSample(
                 snapshot_ts_ms=int(snapshot),
                 regime=str(features.get("regime", "UNKNOWN")),

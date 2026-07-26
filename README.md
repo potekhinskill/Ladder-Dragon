@@ -29,7 +29,7 @@ combines adaptive ladder entries, exchange-side OCO protection, exact
 fee-aware FIFO accounting, restart reconciliation, replay and walk-forward
 verification, and a private Raspberry Pi operations dashboard.
 
-Current product version: **2.20.47**. The single version source is
+Current product version: **2.20.48**. The single version source is
 `product_version.py`; releases follow [Semantic Versioning](https://semver.org/).
 Project contact: [LinkedIn](https://www.linkedin.com/in/ypotekhin/).
 
@@ -87,7 +87,7 @@ bounded, explainable, recoverable, and measurable before exposure is increased.
 ## Project status
 
 Ladder Dragon is an actively developed, experimental trading system. Version
-**2.20.47** is the current prepared release. `main` is the only long-lived branch;
+**2.20.48** is the current prepared release. `main` is the only long-lived branch;
 feature branches use the `ladderdragon/*` namespace.
 
 DRY and Binance Spot Testnet are the supported starting modes. Mainnet LIVE is
@@ -463,9 +463,19 @@ BOT_EXPECTANCY_MODE=SHADOW
 BOT_MAKER_POLICY_MODE=SHADOW
 BOT_REGIME_GATE_MODE=SHADOW
 BOT_INVENTORY_SKEW_MODE=SHADOW
+RISK_MANAGED_INVENTORY_HARD_CAP_SOLUSDT=30
+BUY_VWAP_HYSTERESIS_PCT=0.0002
 BOT_STATISTICAL_REGIME_MODE=SHADOW
 RISK_CLUSTER_GATE_MODE=SHADOW
 ```
+
+`RISK_MANAGED_INVENTORY_HARD_CAP_<SYMBOL>` is mandatory before inventory
+skew can enter APPLY; it never inherits the portfolio CAP. STRATEGY approval
+compares the candidate with an explicit `NO_TRADE`/USDT baseline, while
+REANCHOR approval requires the actual original order as its baseline. A
+configured minimum net edge or TP below the authoritative round-trip cost
+floor blocks APPLY instead of being silently widened. VWAP uses separate
+entry and exit thresholds so boundary noise does not repeatedly toggle BUY.
 
 ### Binance Spot Testnet smoke
 

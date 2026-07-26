@@ -55,6 +55,10 @@ from ladder_dragon.execution.executor_config import build_executor_parser, valid
 from ladder_dragon.strategy.strategy_math import atr_from_klines as _atr_from_klines
 from ladder_dragon.strategy.strategy_math import clamp, ema_value as _ema, panic_triggered as panic_raw
 from ladder_dragon.strategy.strategy_math import shift_buy_levels
+from ladder_dragon.strategy.expectancy_controls import (
+    exact_decimal,
+    vwap_premium_blocked,
+)
 from ladder_dragon.numeric_compat import compatibility_float as _compat_float
 from ladder_dragon.execution.binance_transport import (
     BinanceResponseError,
@@ -566,6 +570,7 @@ _IND_TS: Dict[tuple[str, str], float] = {}
 # VWAP cache (similar logic, with separate TTL and keys).
 _VWAP_CACHE: Dict[tuple[str, str, int], Dict[str, float | None]] = {}
 _VWAP_TS: Dict[tuple[str, str, int], float] = {}
+_VWAP_PREMIUM_BLOCKED: Dict[str, bool] = {}
 
 def _get_klines(symbol: str, interval: str = "1m", limit: int = 120):
     # Use the shared client with alias normalization and the -1120 -> 15m fallback.
@@ -2708,17 +2713,50 @@ def main():
             skip_buys_reason = "bear-trend"
         elif skip_buys_reason is None and cap <= 0:
             skip_buys_reason = "cap<=0"
-        elif (skip_buys_reason is None and vwap_ratio is not None and args.buy_vwap_premium is not None):
+        elif (
+            skip_buys_reason is None
+            and vwap_ratio is not None
+            and args.buy_vwap_premium is not None
+        ):
             try:
-                premium_thr = 1.0 + max(0.0, _compat_float(args.buy_vwap_premium))
-            except (TypeError, ValueError):
-                premium_thr = 1.0
-            if premium_thr > 1.0 and vwap_ratio > premium_thr:
+                premium = max(
+                    Decimal("0"),
+                    exact_decimal(
+                        args.buy_vwap_premium,
+                        field="BUY VWAP premium",
+                    ),
+                )
+                hysteresis = max(
+                    Decimal("0"),
+                    getenv_decimal("BUY_VWAP_HYSTERESIS_PCT", "0.0002"),
+                )
+                previous_vwap_block = _VWAP_PREMIUM_BLOCKED.get(
+                    symbol.upper(), False
+                )
+                current_vwap_block = (
+                    vwap_premium_blocked(
+                        previously_blocked=previous_vwap_block,
+                        price_to_vwap_ratio=str(vwap_ratio),
+                        premium=premium,
+                        hysteresis=hysteresis,
+                    )
+                    if premium > 0
+                    else False
+                )
+                _VWAP_PREMIUM_BLOCKED[symbol.upper()] = current_vwap_block
+            except (ArithmeticError, TypeError, ValueError):
+                current_vwap_block = True
+                premium = Decimal("0")
+                hysteresis = Decimal("0")
+                _VWAP_PREMIUM_BLOCKED[symbol.upper()] = True
+            if current_vwap_block:
                 skip_buys_reason = "buy-vwap-premium"
                 if vwap_value:
                     log(
                         f"[VWAP] {symbol} now≈{fmt_price_sym(symbol, current_price)} vwap≈{fmt_price_sym(symbol, vwap_value)} "
-                        f"ratio={vwap_ratio:.4f} > {premium_thr:.4f} → skip BUY"
+                        f"ratio={vwap_ratio:.6f} premium={premium} "
+                        f"hysteresis={hysteresis} blocked={current_vwap_block} "
+                        "→ skip BUY"
                     )
 
         # Before new BUY orders, recover unfinished intents after restart. This makes

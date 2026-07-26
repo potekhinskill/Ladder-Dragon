@@ -7,6 +7,7 @@ from ladder_dragon.strategy.expectancy_controls import (
     authoritative_commission_schedule,
     inventory_skew_scale,
     required_round_trip_edge,
+    vwap_premium_blocked,
 )
 
 
@@ -66,6 +67,33 @@ def test_inventory_skew_is_exact_and_never_raises_the_hard_cap():
     assert inventory_skew_scale("50", "100", gamma="2") == Decimal("0.75")
     assert inventory_skew_scale("100", "100", gamma="2") == Decimal("0")
     assert inventory_skew_scale("150", "100", gamma="2") == Decimal("0")
+
+
+def test_vwap_premium_hysteresis_ignores_boundary_noise():
+    assert vwap_premium_blocked(
+        previously_blocked=False,
+        price_to_vwap_ratio="1.0031",
+        premium="0.0030",
+        hysteresis="0.0002",
+    ) is False
+    assert vwap_premium_blocked(
+        previously_blocked=False,
+        price_to_vwap_ratio="1.0033",
+        premium="0.0030",
+        hysteresis="0.0002",
+    ) is True
+    assert vwap_premium_blocked(
+        previously_blocked=True,
+        price_to_vwap_ratio="1.0029",
+        premium="0.0030",
+        hysteresis="0.0002",
+    ) is True
+    assert vwap_premium_blocked(
+        previously_blocked=True,
+        price_to_vwap_ratio="1.0028",
+        premium="0.0030",
+        hysteresis="0.0002",
+    ) is False
 
 
 def test_regime_gate_blocks_restart_downtrend_and_requires_recovery():

@@ -153,6 +153,27 @@ def inventory_skew_scale(
     return max(ZERO, ONE - utilization**exponent)
 
 
+def vwap_premium_blocked(
+    *,
+    previously_blocked: bool,
+    price_to_vwap_ratio: object,
+    premium: object,
+    hysteresis: object,
+) -> bool:
+    """Apply an exact Schmitt gate around the maximum BUY VWAP premium."""
+    ratio = exact_decimal(price_to_vwap_ratio, field="price/VWAP ratio")
+    allowed_premium = exact_decimal(premium, field="VWAP premium")
+    band = exact_decimal(hysteresis, field="VWAP hysteresis")
+    if ratio <= ZERO or allowed_premium < ZERO or band < ZERO:
+        raise ValueError("VWAP ratio must be positive and bounds non-negative")
+    threshold = ONE + allowed_premium
+    enter_threshold = threshold + band
+    exit_threshold = max(ONE, threshold - band)
+    if previously_blocked:
+        return ratio > exit_threshold
+    return ratio > enter_threshold
+
+
 @dataclass(frozen=True)
 class RegimePolicy:
     """The only execution permissions derived from a confirmed regime."""

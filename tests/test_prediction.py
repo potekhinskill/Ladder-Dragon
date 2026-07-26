@@ -3,6 +3,8 @@ from decimal import Decimal
 import hashlib
 import json
 
+import pytest
+
 from ladder_dragon.strategy.prediction import (
     PredictionBar,
     PredictionFeatures,
@@ -219,6 +221,59 @@ def test_one_minute_store_waits_for_next_complete_bar(tmp_path):
     assert sample.horizon_min == 1
     assert sample.outcome.exit_reason == "NO_FILL"
     assert sample.outcome.resolved_at_ms == 179_999
+
+
+def test_strategy_uses_explicit_no_trade_baseline(tmp_path):
+    store = PredictionShadowStore(tmp_path / "prediction.sqlite3")
+    features = _features()
+    plan = _plan("99")
+    store.record(
+        kind="STRATEGY",
+        symbol="SOLUSDT",
+        features=features,
+        plan=plan,
+        predictions=predict_distribution(features, plan, []),
+        algorithm_decision="current-ladder",
+    )
+    bars = [
+        PredictionBar(
+            60_000,
+            119_999,
+            D("100"),
+            D("101"),
+            D("98.5"),
+            D("100"),
+            D("10"),
+        )
+    ]
+
+    assert store.settle("SOLUSDT", bars, as_of_ms=119_999) == 1
+    sample = store.resolved_samples("SOLUSDT", kind="STRATEGY")[0]
+    assert sample.outcome.net_pnl_quote > 0
+    assert sample.baseline_net_pnl_quote == D("0")
+    with store._connect() as connection:
+        baseline = json.loads(connection.execute(
+            "SELECT baseline_outcome_json FROM prediction_outcomes "
+            "WHERE horizon_min=1"
+        ).fetchone()[0])
+    assert baseline["exit_reason"] == "NO_TRADE"
+    assert baseline["buy_filled"] is False
+
+
+def test_reanchor_requires_independent_original_order_baseline(tmp_path):
+    store = PredictionShadowStore(tmp_path / "prediction.sqlite3")
+    features = _features()
+    plan = _plan("99")
+
+    with pytest.raises(ValueError, match="original order baseline"):
+        store.record(
+            kind="REANCHOR",
+            symbol="SOLUSDT",
+            features=features,
+            plan=plan,
+            predictions=predict_distribution(features, plan, []),
+            algorithm_decision="missing-baseline",
+        )
 
 
 def test_store_expires_window_missing_from_available_history(tmp_path):

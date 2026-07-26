@@ -2692,6 +2692,27 @@ def _managed_inventory_exposure(
     return quantity * _finite_decimal(price, name="managed inventory price")
 
 
+def _managed_inventory_hard_cap(symbol: str) -> Decimal:
+    """Require a dedicated managed-inventory limit, never portfolio fallback."""
+    safe_symbol = symbol.strip().upper()
+    if not re.fullmatch(r"[A-Z0-9]{5,20}", safe_symbol):
+        raise ValueError("managed inventory symbol is invalid")
+    symbol_name = f"RISK_MANAGED_INVENTORY_HARD_CAP_{safe_symbol}"
+    raw = os.getenv(symbol_name)
+    source = symbol_name
+    if raw is None or not raw.strip():
+        source = "RISK_MANAGED_INVENTORY_HARD_CAP_USDT"
+        raw = os.getenv(source)
+    if raw is None or not raw.strip():
+        raise ValueError(
+            f"{symbol_name} or {source} must be explicitly configured"
+        )
+    cap = _finite_decimal(raw, name=source)
+    if cap <= 0:
+        raise ValueError(f"{source} must be positive")
+    return cap
+
+
 def limit_target_buys(desired: int, operator_limit: int) -> int:
     """Keep adaptive buy-count changes inside the operator's hard ceiling."""
     ceiling = max(1, int(operator_limit))
@@ -3591,16 +3612,10 @@ def run_for_symbol(
         os.environ.get("MIN_PROFIT_OVER_AVG", "0.002") or "0.002",
         name="configured minimum profit",
     )
-    effective_minimum_profit = configured_minimum_profit
-    if expectancy_mode == "APPLY" and required_edge is not None:
-        effective_minimum_profit = max(
-            configured_minimum_profit,
-            required_edge,
-        )
     entry_gap, minimum_profit, tp1_exact = _directional_entry_settings(
         base_gap=os.environ.get("DEV_BUY_PCT", "0.004") or "0.004",
         atr_pct=atr_pct or 0,
-        base_min_profit=effective_minimum_profit,
+        base_min_profit=configured_minimum_profit,
         auto_adapt=auto_adapt,
         gap_atr_coefficient=(
             os.environ.get("ADAPT_DEV_BUY_COEF", "0.6") or "0.6"
@@ -3623,6 +3638,19 @@ def run_for_symbol(
         tp_floor=args.tp1_min,
         tp_ceiling=args.tp1_max,
     )
+    expectancy_configuration_passes = bool(
+        required_edge is not None
+        and minimum_profit >= required_edge
+        and tp1_exact >= required_edge
+    )
+    if required_edge is not None:
+        log(
+            f"[EXPECTANCY-CONFIG] {symbol} required={required_edge:.8f} "
+            f"minimum_net={minimum_profit:.8f} tp={tp1_exact:.8f} "
+            f"passes={expectancy_configuration_passes}"
+        )
+    if expectancy_mode == "APPLY" and not expectancy_configuration_passes:
+        expectancy_pause_buys = True
     before_tp1 = tp1_use
     tp1_use = _analytics_float(tp1_exact)
     extra_env.update({
@@ -3753,6 +3781,7 @@ def run_for_symbol(
     )
     inventory_scale = Decimal("1")
     managed_exposure = Decimal("0")
+    hard_inventory_cap: Decimal | None = None
     inventory_error: str | None = None
     if risk_safe_cap > 0:
         # An explicit per-symbol budget takes priority over the global CAP and
@@ -3766,23 +3795,8 @@ def run_for_symbol(
                 risk_safe_cap,
                 max(Decimal("0"), symbol_cap),
             )
-        hard_inventory_cap = _finite_decimal(
-            os.getenv(
-                f"RISK_SYMBOL_HARD_CAP_{symbol.upper()}",
-                os.getenv(
-                    "RISK_PORTFOLIO_CAP_USDT",
-                    os.getenv(
-                        "BOT_OPERATOR_CAP_PER_ORDER_USDT",
-                        str(risk_safe_cap),
-                    ),
-                ),
-            )
-            or str(risk_safe_cap),
-            name=f"{symbol} inventory hard CAP",
-        )
-        if hard_inventory_cap <= 0:
-            raise ValueError("inventory hard CAP must be positive")
         try:
+            hard_inventory_cap = _managed_inventory_hard_cap(symbol)
             managed_exposure = _managed_inventory_exposure(symbol, now_p)
             inventory_scale = inventory_skew_scale(
                 managed_exposure,
@@ -3802,10 +3816,15 @@ def run_for_symbol(
             ai_cap_scale,
         )
         extra_env["BOT_CAP_PER_ORDER"] = f"{advised_cap:.8f}"
+        hard_cap_label = (
+            f"{hard_inventory_cap:.8f}"
+            if hard_inventory_cap is not None
+            else "unavailable"
+        )
         log(
             f"[INVENTORY-SKEW-{inventory_mode}] {symbol} managed="
             f"{managed_exposure:.8f} scale={inventory_scale:.8f} "
-            f"hard_cap={hard_inventory_cap:.8f}"
+            f"hard_cap={hard_cap_label} error={inventory_error or 'none'}"
         )
 
     # 8) Directional entry and TP values are already immutable for this child.
@@ -3874,10 +3893,18 @@ def run_for_symbol(
                 ),
                 "commission_error": commission_error,
                 "maker_policy_mode": maker_mode,
+                "configuration_passes": expectancy_configuration_passes,
+                "configured_minimum_net_pct": str(minimum_profit),
+                "configured_take_profit_pct": str(tp1_exact),
             },
             "inventory_skew": {
                 "mode": inventory_mode,
                 "managed_exposure_usdt": str(managed_exposure),
+                "hard_cap_usdt": (
+                    str(hard_inventory_cap)
+                    if hard_inventory_cap is not None
+                    else None
+                ),
                 "scale": str(inventory_scale),
                 "error": inventory_error,
             },

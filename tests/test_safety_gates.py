@@ -80,6 +80,24 @@ def test_strategy_apply_blocks_when_evidence_is_unavailable(monkeypatch):
     ai_supervisor._STRATEGY_CONTROL_GATE_CACHE.clear()
 
 
+def test_managed_inventory_cap_never_falls_back_to_portfolio(monkeypatch):
+    monkeypatch.delenv(
+        "RISK_MANAGED_INVENTORY_HARD_CAP_SOLUSDT", raising=False
+    )
+    monkeypatch.delenv(
+        "RISK_MANAGED_INVENTORY_HARD_CAP_USDT", raising=False
+    )
+    monkeypatch.setenv("RISK_PORTFOLIO_CAP_USDT", "3000")
+
+    with pytest.raises(ValueError, match="explicitly configured"):
+        ai_supervisor._managed_inventory_hard_cap("SOLUSDT")
+
+    monkeypatch.setenv("RISK_MANAGED_INVENTORY_HARD_CAP_SOLUSDT", "30")
+    assert ai_supervisor._managed_inventory_hard_cap(
+        "SOLUSDT"
+    ) == Decimal("30")
+
+
 def _entry_settings(mode: str):
     return ai_supervisor._directional_entry_settings(
         base_gap="0.004",
