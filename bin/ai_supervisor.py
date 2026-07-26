@@ -94,6 +94,8 @@ from ladder_dragon.risk.risk_statistics import (
     allocate_cap_by_marginal_risk_decimal,
     marginal_risk_contribution_decimal,
     stress_loss_decimal,
+    correlation_clusters_multi_window,
+    liquidity_is_sufficient_decimal,
 )
 from ladder_dragon.execution.executor_stats import commission_quote_value, poll_mytrades_once
 from ladder_dragon.execution import tools_stats
@@ -107,6 +109,13 @@ from ladder_dragon.strategy.strategy_math import geometric_ladder as build_ladde
 from ladder_dragon.strategy.strategy_math import split_ladder
 from ladder_dragon.strategy.strategy_math import RegimeHysteresis
 from ladder_dragon.strategy.strategy_math import NumericHysteresis
+from ladder_dragon.strategy.expectancy_controls import (
+    CommissionSchedule,
+    RegimeExecutionStateMachine,
+    authoritative_commission_schedule,
+    inventory_skew_scale,
+    required_round_trip_edge,
+)
 from ladder_dragon.strategy.reanchor import plan_buy_reanchors
 from ladder_dragon.strategy.prediction import (
     PredictionShadowStore,
@@ -297,6 +306,9 @@ _AI_CONTROL_PATH: Optional[Path] = None
 _PREDICTION_SHADOW: Optional[PredictionShadowStore] = None
 _PREDICTION_LAST_ATTEMPT: Dict[str, float] = {}
 _PREDICTION_GATE_CACHE: Dict[
+    str, tuple[float, dict[str, object]]
+] = {}
+_STRATEGY_CONTROL_GATE_CACHE: Dict[
     str, tuple[float, dict[str, object]]
 ] = {}
 _BLOCKED_SHADOW_LAST_ATTEMPT: Dict[str, float] = {}
@@ -2288,6 +2300,46 @@ def _prediction_reanchor_gate(symbol: str) -> dict[str, object]:
     return result
 
 
+def _strategy_control_gate(symbol: str) -> dict[str, object]:
+    """Return look-ahead-safe approval evidence for strategy controls."""
+    now_monotonic = time.monotonic()
+    cached = _STRATEGY_CONTROL_GATE_CACHE.get(symbol)
+    if cached is not None and now_monotonic - cached[0] < 60:
+        return cached[1]
+    if _PREDICTION_SHADOW is None:
+        result = {
+            "approved": False,
+            "mode": "SHADOW",
+            "reasons": ["prediction journal is unavailable"],
+        }
+    else:
+        try:
+            samples = _PREDICTION_SHADOW.resolved_samples(
+                symbol, kind="STRATEGY"
+            )
+            result = walk_forward_prediction_report(samples)["gate"]
+        except (OSError, sqlite3.Error, TypeError, ValueError):
+            result = {
+                "approved": False,
+                "mode": "SHADOW",
+                "reasons": ["strategy gate evidence is unreadable"],
+            }
+    _STRATEGY_CONTROL_GATE_CACHE[symbol] = (now_monotonic, result)
+    return result
+
+
+def _strategy_controls_apply_allowed(
+    symbol: str,
+) -> tuple[bool, dict[str, object]]:
+    """Require operator approval and statistical evidence for APPLY."""
+    gate = _strategy_control_gate(symbol)
+    operator_approved = (
+        os.getenv("BOT_STRATEGY_CONTROLS_APPROVED", "").strip().upper()
+        == "YES"
+    )
+    return operator_approved and bool(gate.get("approved")), gate
+
+
 def _prediction_plan(
     entry_price: object,
     *,
@@ -2510,6 +2562,15 @@ def _record_prediction_shadow(
     walk_forward = walk_forward_prediction_report(reanchor_samples)
     gate = walk_forward["gate"]
     _PREDICTION_GATE_CACHE[symbol] = (time.monotonic(), gate)
+    strategy_samples = _PREDICTION_SHADOW.resolved_samples(
+        symbol, before_ts_ms=features.snapshot_ts_ms, kind="STRATEGY"
+    )
+    strategy_walk_forward = walk_forward_prediction_report(strategy_samples)
+    strategy_gate = strategy_walk_forward["gate"]
+    _STRATEGY_CONTROL_GATE_CACHE[symbol] = (
+        time.monotonic(),
+        strategy_gate,
+    )
     summary = _PREDICTION_SHADOW.summary(symbol)
     runtime = _AI_RUNTIME_STATUS.setdefault("prediction", {})
     if not isinstance(runtime, dict):
@@ -2527,6 +2588,7 @@ def _record_prediction_shadow(
         "executor_panic_hits": features.executor_panic_hits,
         "settled_this_cycle": settled,
         "gate": gate,
+        "strategy_control_gate": strategy_gate,
         "walk_forward": {
             "method": walk_forward["method"],
             "lookahead": walk_forward["lookahead"],
@@ -2576,6 +2638,58 @@ def _atr_pct(symbol: str, interval: str = '5m', length: int = 20) -> Tuple[float
 _DIR_STATE: Dict[str, Dict[str, Any]] = {}
 _REGIME_HYSTERESIS: Dict[str, RegimeHysteresis] = {}
 _PARAM_HYSTERESIS: Dict[str, Dict[str, NumericHysteresis]] = {}
+_EXECUTION_REGIMES: Dict[str, RegimeExecutionStateMachine] = {}
+_COMMISSION_CACHE: Dict[str, tuple[float, CommissionSchedule]] = {}
+
+
+def _control_mode(name: str, default: str = "SHADOW") -> str:
+    """Return OFF/SHADOW/APPLY and fail closed on a damaged setting."""
+    value = str(os.getenv(name, default) or default).strip().upper()
+    if value not in {"OFF", "SHADOW", "APPLY"}:
+        raise ValueError(f"{name} must be OFF, SHADOW or APPLY")
+    return value
+
+
+def _commission_schedule(symbol: str) -> CommissionSchedule:
+    """Read and briefly cache authoritative per-symbol account commissions."""
+    ttl = max(
+        1,
+        int(os.getenv("BOT_COMMISSION_CACHE_SEC", "300") or "300"),
+    )
+    now = time.monotonic()
+    cached = _COMMISSION_CACHE.get(symbol)
+    if cached is not None and now - cached[0] <= ttl:
+        return cached[1]
+    payload = TM._signed_get(
+        "/api/v3/account/commission",
+        {"symbol": symbol.upper()},
+    )
+    if not isinstance(payload, Mapping):
+        raise RuntimeError("Binance commission schedule is unavailable")
+    schedule = authoritative_commission_schedule(payload)
+    _COMMISSION_CACHE[symbol] = (now, schedule)
+    return schedule
+
+
+def _managed_inventory_exposure(
+    symbol: str,
+    price: object,
+) -> Decimal:
+    """Value only journal-attributed bot inventory, excluding legacy SOL."""
+    snapshot = _runtime_order_journal_snapshot()
+    if snapshot.get("available") is not True:
+        raise RuntimeError("managed inventory journal is unavailable")
+    quantity = Decimal("0")
+    for item in snapshot.get("managed_buys", []):
+        if (
+            isinstance(item, Mapping)
+            and str(item.get("symbol") or "").upper() == symbol.upper()
+        ):
+            quantity += _finite_decimal(
+                item.get("quantity", "0"),
+                name="managed inventory quantity",
+            )
+    return quantity * _finite_decimal(price, name="managed inventory price")
 
 
 def limit_target_buys(desired: int, operator_limit: int) -> int:
@@ -3186,6 +3300,118 @@ def run_for_symbol(
             do_log=bool(args.dir_log)
         )
 
+    raw_regime = {
+        "UP": "TREND_UP",
+        "DOWN": "TREND_DOWN",
+        "FLAT": "RANGE",
+    }.get(dir_mode, "RANGE")
+    executor_panic, _panic_hits = _prediction_panic_state(symbol)
+    regime_machine = _EXECUTION_REGIMES.setdefault(
+        symbol,
+        RegimeExecutionStateMachine(
+            confirmations=max(
+                1,
+                int(os.getenv("BOT_REGIME_CONFIRMATIONS", "3") or "3"),
+            ),
+            recovery_confirmations=max(
+                1,
+                int(
+                    os.getenv(
+                        "BOT_REGIME_RECOVERY_CONFIRMATIONS", "3"
+                    )
+                    or "3"
+                ),
+            ),
+            min_hold_sec=max(
+                0.0,
+                _analytics_float(
+                    os.getenv("BOT_REGIME_MIN_HOLD_SEC", "300") or "300"
+                ),
+            ),
+        ),
+    )
+    confirmed_regime = regime_machine.update(
+        raw_regime,
+        now=time.monotonic(),
+        panic=executor_panic is True,
+    )
+    regime_policy = regime_machine.policy(
+        trend_up_cap_scale=os.getenv(
+            "BOT_REGIME_TREND_UP_CAP_SCALE", "0.75"
+        )
+        or "0.75",
+    )
+    regime_mode = _control_mode("BOT_REGIME_GATE_MODE")
+    expectancy_mode = _control_mode("BOT_EXPECTANCY_MODE")
+    inventory_mode = _control_mode("BOT_INVENTORY_SKEW_MODE")
+    maker_mode = _control_mode("BOT_MAKER_POLICY_MODE")
+    requested_apply = any(
+        mode == "APPLY"
+        for mode in (
+            regime_mode,
+            expectancy_mode,
+            inventory_mode,
+            maker_mode,
+        )
+    )
+    controls_apply_allowed, controls_gate = (
+        _strategy_controls_apply_allowed(symbol)
+        if requested_apply
+        else (False, _strategy_control_gate(symbol))
+    )
+    controls_gate_blocked = requested_apply and not controls_apply_allowed
+    commission_schedule: CommissionSchedule | None = None
+    required_edge: Decimal | None = None
+    commission_error: str | None = None
+    try:
+        commission_schedule = _commission_schedule(symbol)
+        required_edge = required_round_trip_edge(
+            buy_fee=commission_schedule.maker_buy,
+            sell_fee=commission_schedule.maker_sell,
+            buy_slippage=os.getenv("BOT_BUY_SLIPPAGE_PCT", "0.0005")
+            or "0.0005",
+            sell_slippage=os.getenv("BOT_SELL_SLIPPAGE_PCT", "0.0005")
+            or "0.0005",
+            safety_margin=os.getenv(
+                "BOT_EDGE_SAFETY_MARGIN_PCT", "0.0002"
+            )
+            or "0.0002",
+            multiplier=os.getenv("BOT_EDGE_COST_MULTIPLIER", "3") or "3",
+        )
+    except (
+        ArithmeticError,
+        KeyError,
+        RuntimeError,
+        TypeError,
+        ValueError,
+        requests.RequestException,
+    ) as exc:
+        commission_error = type(exc).__name__
+        if expectancy_mode == "APPLY":
+            log(
+                f"[EXPECTANCY-BLOCK] {symbol} authoritative commission "
+                f"unavailable={commission_error}"
+            )
+    log(
+        f"[REGIME-{regime_mode}] {symbol} raw={raw_regime} "
+        f"confirmed={confirmed_regime} buys={regime_policy.buys_allowed} "
+        f"cap_scale={regime_policy.cap_scale}"
+    )
+    if required_edge is not None:
+        log(
+            f"[EXPECTANCY-{expectancy_mode}] {symbol} required_edge="
+            f"{required_edge:.8f} discount_not_relied_upon="
+            f"{commission_schedule.discount_observed}"
+        )
+    expectancy_pause_buys = (
+        expectancy_mode == "APPLY" and required_edge is None
+    )
+    if controls_gate_blocked:
+        log(
+            f"[STRATEGY-CONTROLS-BLOCK] {symbol} APPLY lacks approved "
+            "walk-forward evidence or explicit operator approval"
+        )
+
     operator_target_buys_limit = max(1, int(args.target_buy_per_symbol))
     target_buys_use = operator_target_buys_limit
     param_hyst = _PARAM_HYSTERESIS.setdefault(symbol, {
@@ -3202,8 +3428,41 @@ def run_for_symbol(
     ai_width_scale = 1.0
     ai_cap_scale = 1.0
     ai_pause_buys = False
+    statistical = {"available": False, "samples": 0}
+    statistical_regime_mode = _control_mode(
+        "BOT_STATISTICAL_REGIME_MODE"
+    )
     extra_env: Dict[str, str] = {}
-    if _AI_ADVISOR is not None and (_AI_POLICY is None or _AI_POLICY.mode != "DISABLED"):
+    if commission_schedule is not None:
+        extra_env.update({
+            "BOT_BUY_FEE_PCT": format(
+                commission_schedule.maker_buy, "f"
+            ),
+            "BOT_SELL_FEE_PCT": format(
+                commission_schedule.maker_sell, "f"
+            ),
+            "BOT_FEE_PCT": format(
+                max(
+                    commission_schedule.maker_buy,
+                    commission_schedule.maker_sell,
+                ),
+                "f",
+            ),
+        })
+    if required_edge is not None:
+        extra_env["BOT_REQUIRED_EDGE_PCT"] = format(required_edge, "f")
+    if maker_mode == "APPLY":
+        extra_env.update({
+            "BUY_LIMIT_MAKER": "1",
+            "SELL_LIMIT_MAKER": "1",
+        })
+    advisor_active = (
+        _AI_ADVISOR is not None
+        and (_AI_POLICY is None or _AI_POLICY.mode != "DISABLED")
+    )
+    if advisor_active or (
+        statistical_regime_mode != "OFF" and _AI_DECISIONS is not None
+    ):
         ai_context = _build_ai_market_context(
             symbol,
             price=now_p,
@@ -3213,18 +3472,30 @@ def run_for_symbol(
             ladder=(_analytics_float(low), _analytics_float(down), _analytics_float(up)),
             target_buys=target_buys_use,
         )
-        recommendation = _AI_ADVISOR.recommend(
-            ai_context
+        statistical = (
+            _AI_DECISIONS.statistical_prediction(
+                ai_context,
+                min_samples=int(args.ai_min_accuracy_samples) * 2,
+            )
+            if (
+                statistical_regime_mode != "OFF"
+                and _AI_DECISIONS is not None
+            )
+            else {"available": False, "samples": 0}
+        )
+        if statistical_regime_mode != "OFF":
+            log(
+                f"[STATISTICAL-{statistical_regime_mode}] {symbol} "
+                f"available={statistical.get('available', False)} "
+                f"mode={statistical.get('mode', 'FLAT')} "
+                f"samples={statistical.get('samples', 0)}"
+            )
+        recommendation = (
+            _AI_ADVISOR.recommend(ai_context)
+            if advisor_active and _AI_ADVISOR is not None
+            else None
         )
         if recommendation is not None:
-            statistical = (
-                _AI_DECISIONS.statistical_prediction(
-                    ai_context,
-                    min_samples=int(args.ai_min_accuracy_samples) * 2,
-                )
-                if _AI_DECISIONS is not None
-                else {"available": False}
-            )
             statistical_mode = (
                 str(statistical["mode"])
                 if statistical.get("available") else None
@@ -3275,7 +3546,7 @@ def run_for_symbol(
                     _AI_DECISION_IDS[symbol] = decision_id
                     # Pass the exact ID to the child executor so fills are not
                     # attached to the symbol's last recommendation.
-                    extra_env = {"BOT_AI_DECISION_ID": decision_id}
+                    extra_env["BOT_AI_DECISION_ID"] = decision_id
                 except sqlite3.Error as exc:
                     dbg(f"[AI-DECISION] record failed: {exc}")
             if policy.apply:
@@ -3309,18 +3580,27 @@ def run_for_symbol(
                     "policy_reasons": list(policy.reasons),
                     "applied": policy.apply,
                     "pause_buys": policy.pause_buys,
+                    "statistical_challenger": statistical,
                 },
             )
 
     auto_adapt = os.environ.get(
         "AUTO_ADAPT_ENABLE", "0"
     ) in ("1", "true", "True", "YES", "yes")
+    configured_minimum_profit = _finite_decimal(
+        os.environ.get("MIN_PROFIT_OVER_AVG", "0.002") or "0.002",
+        name="configured minimum profit",
+    )
+    effective_minimum_profit = configured_minimum_profit
+    if expectancy_mode == "APPLY" and required_edge is not None:
+        effective_minimum_profit = max(
+            configured_minimum_profit,
+            required_edge,
+        )
     entry_gap, minimum_profit, tp1_exact = _directional_entry_settings(
         base_gap=os.environ.get("DEV_BUY_PCT", "0.004") or "0.004",
         atr_pct=atr_pct or 0,
-        base_min_profit=(
-            os.environ.get("MIN_PROFIT_OVER_AVG", "0.002") or "0.002"
-        ),
+        base_min_profit=effective_minimum_profit,
         auto_adapt=auto_adapt,
         gap_atr_coefficient=(
             os.environ.get("ADAPT_DEV_BUY_COEF", "0.6") or "0.6"
@@ -3471,6 +3751,9 @@ def run_for_symbol(
         os.getenv("BOT_CAP_PER_ORDER", "0") or "0",
         name="BOT_CAP_PER_ORDER",
     )
+    inventory_scale = Decimal("1")
+    managed_exposure = Decimal("0")
+    inventory_error: str | None = None
     if risk_safe_cap > 0:
         # An explicit per-symbol budget takes priority over the global CAP and
         # prevents a correlated asset from consuming the remaining portfolio limit.
@@ -3478,13 +3761,52 @@ def run_for_symbol(
             os.getenv(f"RISK_SYMBOL_CAP_{symbol.upper()}", "0") or "0",
             name=f"RISK_SYMBOL_CAP_{symbol.upper()}",
         )
-        if symbol_cap > 0:
-            risk_safe_cap = min(risk_safe_cap, symbol_cap)
+        if os.getenv(f"RISK_SYMBOL_CAP_{symbol.upper()}") is not None:
+            risk_safe_cap = min(
+                risk_safe_cap,
+                max(Decimal("0"), symbol_cap),
+            )
+        hard_inventory_cap = _finite_decimal(
+            os.getenv(
+                f"RISK_SYMBOL_HARD_CAP_{symbol.upper()}",
+                os.getenv(
+                    "RISK_PORTFOLIO_CAP_USDT",
+                    os.getenv(
+                        "BOT_OPERATOR_CAP_PER_ORDER_USDT",
+                        str(risk_safe_cap),
+                    ),
+                ),
+            )
+            or str(risk_safe_cap),
+            name=f"{symbol} inventory hard CAP",
+        )
+        if hard_inventory_cap <= 0:
+            raise ValueError("inventory hard CAP must be positive")
+        try:
+            managed_exposure = _managed_inventory_exposure(symbol, now_p)
+            inventory_scale = inventory_skew_scale(
+                managed_exposure,
+                hard_inventory_cap,
+                gamma=os.getenv("BOT_INVENTORY_SKEW_GAMMA", "2") or "2",
+            )
+        except (ArithmeticError, RuntimeError, TypeError, ValueError) as exc:
+            inventory_error = type(exc).__name__
+            if inventory_mode == "APPLY":
+                inventory_scale = Decimal("0")
+        if inventory_mode == "APPLY":
+            risk_safe_cap *= inventory_scale
+        if regime_mode == "APPLY":
+            risk_safe_cap *= regime_policy.cap_scale
         advised_cap = limit_cap_by_recommendation_decimal(
             risk_safe_cap,
             ai_cap_scale,
         )
         extra_env["BOT_CAP_PER_ORDER"] = f"{advised_cap:.8f}"
+        log(
+            f"[INVENTORY-SKEW-{inventory_mode}] {symbol} managed="
+            f"{managed_exposure:.8f} scale={inventory_scale:.8f} "
+            f"hard_cap={hard_inventory_cap:.8f}"
+        )
 
     # 8) Directional entry and TP values are already immutable for this child.
 
@@ -3504,13 +3826,79 @@ def run_for_symbol(
         now_p,
         tick_exact,
     )
+    controls_pause_buys = (
+        controls_gate_blocked
+        or expectancy_pause_buys
+        or (
+            regime_mode == "APPLY"
+            and not regime_policy.buys_allowed
+        )
+        or (
+            inventory_mode == "APPLY"
+            and inventory_scale <= 0
+        )
+    )
     ladder_for_child = (
         child_ladder
-        if mode not in ("reduce_only", "flattening") and not ai_pause_buys
+        if mode not in ("reduce_only", "flattening")
+        and not ai_pause_buys
+        and not controls_pause_buys
         else _prune_to_sells_only(now_p, ladder_all)
     )
     if ai_pause_buys:
         log(f"[AI-POLICY] {symbol} PAUSE_BUYS: child receives SELL levels only")
+    if controls_pause_buys:
+        log(
+            f"[NO-TRADE] {symbol} BUY disabled expectancy="
+            f"{expectancy_pause_buys} regime={confirmed_regime} "
+            f"inventory_scale={inventory_scale:.8f}; protection remains active"
+        )
+    controls_runtime = _AI_RUNTIME_STATUS.setdefault(
+        "strategy_controls", {}
+    )
+    if isinstance(controls_runtime, dict):
+        controls_runtime[symbol] = {
+            "regime": {
+                "mode": regime_mode,
+                "raw": raw_regime,
+                "confirmed": confirmed_regime,
+                "buys_allowed": regime_policy.buys_allowed,
+                "cap_scale": str(regime_policy.cap_scale),
+            },
+            "expectancy": {
+                "mode": expectancy_mode,
+                "required_edge_pct": (
+                    str(required_edge)
+                    if required_edge is not None
+                    else None
+                ),
+                "commission_error": commission_error,
+                "maker_policy_mode": maker_mode,
+            },
+            "inventory_skew": {
+                "mode": inventory_mode,
+                "managed_exposure_usdt": str(managed_exposure),
+                "scale": str(inventory_scale),
+                "error": inventory_error,
+            },
+            "apply_gate": {
+                "approved": controls_apply_allowed,
+                "operator_approved": (
+                    os.getenv(
+                        "BOT_STRATEGY_CONTROLS_APPROVED", ""
+                    ).strip().upper() == "YES"
+                ),
+                "evidence": controls_gate,
+                "blocked": controls_gate_blocked,
+            },
+            "statistical_challenger": (
+                statistical
+                if "statistical" in locals()
+                else {"available": False, "samples": 0}
+            ),
+            "buy_disabled": controls_pause_buys,
+        }
+        _publish_ai_runtime_status()
 
     # 10) Start the child with a temporary target_buys override
     orig_tb = int(args.target_buy_per_symbol)
@@ -4336,8 +4724,8 @@ def _build_risk_snapshot(
         for value in os.getenv("RISK_CORRELATED_SYMBOLS", ",".join(symbols)).split(",")
         if value.strip()
     }
+    histories: Dict[str, list[float]] = {}
     if os.getenv("RISK_CORRELATION_MODE", "rolling").lower() == "rolling" and len(symbols) > 1:
-        histories: Dict[str, list[float]] = {}
         window = max(3, int(os.getenv("RISK_CORRELATION_WINDOW", "48") or 48))
         threshold = _analytics_float(os.getenv("RISK_CORRELATION_THRESHOLD", "0.70") or 0.70)
         for symbol in symbols:
@@ -4351,6 +4739,23 @@ def _build_risk_snapshot(
         )
         if rolling:
             correlated_symbols = rolling
+    correlation_clusters = correlation_clusters_multi_window(
+        histories,
+        threshold=_analytics_float(
+            os.getenv("RISK_CORRELATION_THRESHOLD", "0.70") or "0.70"
+        ),
+        windows=(
+            max(
+                3,
+                int(os.getenv("RISK_CORRELATION_WINDOW", "48") or "48")
+                // 2,
+            ),
+            max(3, int(os.getenv("RISK_CORRELATION_WINDOW", "48") or "48")),
+            max(3, int(os.getenv("RISK_CORRELATION_WINDOW", "48") or "48"))
+            * 2,
+        ),
+        min_windows=2,
+    )
     correlated = sum(
         asset_values.get(symbol_assets(symbol)[0], Decimal("0"))
         for symbol in symbols if symbol in correlated_symbols
@@ -4380,6 +4785,72 @@ def _build_risk_snapshot(
         )
         for symbol in symbols
     }
+    cluster_exposure = {
+        ",".join(cluster): sum(
+            (exposure_by_symbol.get(symbol, Decimal("0")) for symbol in cluster),
+            Decimal("0"),
+        )
+        for cluster in correlation_clusters
+    }
+    liquidity_blocked: list[str] = []
+    if _control_mode("RISK_CLUSTER_GATE_MODE") != "OFF":
+        max_spread_bps = os.getenv(
+            "RISK_MAX_SYMBOL_SPREAD_BPS", "20"
+        ) or "20"
+        min_depth_quote = os.getenv(
+            "RISK_MIN_SYMBOL_DEPTH_QUOTE", "5000"
+        ) or "5000"
+        for symbol in symbols:
+            try:
+                depth = TM._public_get(
+                    "/api/v3/depth",
+                    {"symbol": symbol, "limit": 20},
+                )
+                bids = depth.get("bids") if isinstance(depth, Mapping) else None
+                asks = depth.get("asks") if isinstance(depth, Mapping) else None
+                if (
+                    not isinstance(bids, list)
+                    or not isinstance(asks, list)
+                    or not bids
+                    or not asks
+                ):
+                    raise ValueError("depth is incomplete")
+                bid_depth = sum(
+                    (
+                        _finite_decimal(row[0], name="bid price")
+                        * _finite_decimal(row[1], name="bid quantity")
+                        for row in bids
+                        if isinstance(row, (list, tuple)) and len(row) >= 2
+                    ),
+                    Decimal("0"),
+                )
+                ask_depth = sum(
+                    (
+                        _finite_decimal(row[0], name="ask price")
+                        * _finite_decimal(row[1], name="ask quantity")
+                        for row in asks
+                        if isinstance(row, (list, tuple)) and len(row) >= 2
+                    ),
+                    Decimal("0"),
+                )
+                if not liquidity_is_sufficient_decimal(
+                    best_bid=bids[0][0],
+                    best_ask=asks[0][0],
+                    bid_depth_quote=bid_depth,
+                    ask_depth_quote=ask_depth,
+                    max_spread_bps=max_spread_bps,
+                    min_depth_quote=min_depth_quote,
+                ):
+                    liquidity_blocked.append(symbol)
+            except (
+                ArithmeticError,
+                KeyError,
+                RuntimeError,
+                TypeError,
+                ValueError,
+                requests.RequestException,
+            ):
+                liquidity_blocked.append(symbol)
     stress = stress_loss_decimal(
         exposure_by_symbol,
         price_shock=os.getenv("RISK_STRESS_PRICE_SHOCK", "-0.05"),
@@ -4388,7 +4859,7 @@ def _build_risk_snapshot(
     analytics_exposure = {
         symbol: _analytics_float(value) for symbol, value in exposure_by_symbol.items()
     }
-    var_value = covariance_var(analytics_exposure, histories if 'histories' in locals() else {},
+    var_value = covariance_var(analytics_exposure, histories,
                                confidence=_analytics_float(os.getenv("RISK_VAR_CONFIDENCE", "0.99")))
     # Gap risk includes an overnight jump, spread widening and execution latency.
     # The gap scenario is conservatively scaled by execution delay.
@@ -4422,6 +4893,9 @@ def _build_risk_snapshot(
         expected_shortfall_usdt=money(es_value),
         stale_order_count=stale_count,
         symbol_exposure_usdt={symbol: money(value) for symbol, value in exposure_by_symbol.items()},
+        correlation_clusters=correlation_clusters,
+        cluster_exposure_usdt=cluster_exposure,
+        liquidity_blocked_symbols=tuple(sorted(set(liquidity_blocked))),
         **metrics,
     )
     return snap, orders, prices
@@ -4488,15 +4962,20 @@ def main():
     _AI_CONTEXT_CACHE.clear()
     _PREDICTION_LAST_ATTEMPT.clear()
     _PREDICTION_GATE_CACHE.clear()
+    _STRATEGY_CONTROL_GATE_CACHE.clear()
     _BLOCKED_SHADOW_LAST_ATTEMPT.clear()
     decisions_db = (
         os.getenv("AI_TESTNET_DECISIONS_DB", "").strip()
         if args.testnet else args.ai_decisions_db
     ) or args.ai_decisions_db
     _AI_DECISIONS_PATH = Path(decisions_db)
+    statistical_regime_enabled = (
+        _control_mode("BOT_STATISTICAL_REGIME_MODE") != "OFF"
+    )
     _AI_DECISIONS = (
         AdvisorDecisionStore(decisions_db)
-        if args.ai_advisor else None
+        if args.ai_advisor or statistical_regime_enabled
+        else None
     )
     _AI_KNOWLEDGE = KnowledgeStore(decisions_db) if args.ai_advisor else None
     _AI_CONTROL_PATH = resolve_ai_control_path(os.getenv("AI_CONTROL_FILE"))
@@ -4840,8 +5319,52 @@ def main():
                                 for symbol, value in snapshot.symbol_exposure_usdt.items()
                             },
                         )
-                        for symbol, allocation in allocations.items():
-                            os.environ[f"RISK_SYMBOL_CAP_{symbol.upper()}"] = f"{allocation:.8f}"
+                        cluster_mode = _control_mode(
+                            "RISK_CLUSTER_GATE_MODE"
+                        )
+                        symbol_caps = {
+                            symbol: min(
+                                safe_cap,
+                                allocations.get(symbol, safe_cap),
+                            )
+                            for symbol in symbols
+                        }
+                        if cluster_mode == "APPLY":
+                            cluster_apply_allowed = all(
+                                _strategy_controls_apply_allowed(symbol)[0]
+                                for symbol in symbols
+                            )
+                            if not cluster_apply_allowed:
+                                for symbol in symbols:
+                                    symbol_caps[symbol] = Decimal("0")
+                            else:
+                                for cluster in snapshot.correlation_clusters:
+                                    cluster_key = ",".join(cluster)
+                                    cluster_remaining = max(
+                                        Decimal("0"),
+                                        limits.correlated_cap_usdt
+                                        - snapshot.cluster_exposure_usdt.get(
+                                            cluster_key, Decimal("0")
+                                        ),
+                                    )
+                                    per_symbol = cluster_remaining / Decimal(
+                                        max(1, len(cluster))
+                                    )
+                                    for symbol in cluster:
+                                        symbol_caps[symbol] = min(
+                                            symbol_caps.get(
+                                                symbol, safe_cap
+                                            ),
+                                            per_symbol,
+                                        )
+                            for symbol in (
+                                snapshot.liquidity_blocked_symbols
+                            ):
+                                symbol_caps[symbol] = Decimal("0")
+                        for symbol in symbols:
+                            os.environ[
+                                f"RISK_SYMBOL_CAP_{symbol.upper()}"
+                            ] = f"{symbol_caps.get(symbol, Decimal('0')):.8f}"
                         min_order = money(args.child_min_order_usdt or 0)
                         if safe_cap <= 0 or (min_order > 0 and safe_cap < min_order):
                             decision = RiskDecision(
@@ -4875,6 +5398,22 @@ def main():
                                 "open_order_count": snapshot.open_order_count,
                                 "daily_trade_count": snapshot.daily_trade_count,
                                 "stale_order_count": snapshot.stale_order_count,
+                                "correlation_clusters": [
+                                    list(cluster)
+                                    for cluster in snapshot.correlation_clusters
+                                ],
+                                "cluster_exposure_usdt": {
+                                    key: str(value)
+                                    for key, value in (
+                                        snapshot.cluster_exposure_usdt.items()
+                                    )
+                                },
+                                "liquidity_blocked_symbols": list(
+                                    snapshot.liquidity_blocked_symbols
+                                ),
+                                "cluster_gate_mode": _control_mode(
+                                    "RISK_CLUSTER_GATE_MODE"
+                                ),
                             },
                         }
                     )

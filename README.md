@@ -29,7 +29,7 @@ combines adaptive ladder entries, exchange-side OCO protection, exact
 fee-aware FIFO accounting, restart reconciliation, replay and walk-forward
 verification, and a private Raspberry Pi operations dashboard.
 
-Current product version: **2.20.45**. The single version source is
+Current product version: **2.20.46**. The single version source is
 `product_version.py`; releases follow [Semantic Versioning](https://semver.org/).
 Project contact: [LinkedIn](https://www.linkedin.com/in/ypotekhin/).
 
@@ -87,7 +87,7 @@ bounded, explainable, recoverable, and measurable before exposure is increased.
 ## Project status
 
 Ladder Dragon is an actively developed, experimental trading system. Version
-**2.20.45** is the current prepared release. `main` is the only long-lived branch;
+**2.20.46** is the current prepared release. `main` is the only long-lived branch;
 feature branches use the `ladderdragon/*` namespace.
 
 DRY and Binance Spot Testnet are the supported starting modes. Mainnet LIVE is
@@ -408,12 +408,63 @@ enable anything automatically. Re-anchor still requires an explicit configured
 `APPLY`; without a passing gate that setting is forced back to SHADOW. The
 prediction layer itself cannot change CAP, BUY distance, TTL, TP or STOP.
 
+### Net-expectancy strategy controls
+
+The next-generation controls are implemented as independent `SHADOW` layers.
+They cannot submit, cancel or resize an order until the same chronological
+`STRATEGY` evidence passes the positive lower-CI, baseline, Holm, regime,
+drawdown and fill-rate gate and the operator separately sets
+`BOT_STRATEGY_CONTROLS_APPROVED=YES`.
+
+- `bin.regime_pnl_report` attributes exact realized FIFO PnL to the regime
+  known at BUY time and compares it with buy-and-hold and unchanged USDT.
+  Missing lots, future/stale regime context or a missing end price block the
+  report instead of inventing a result.
+- The expectancy floor reads the authenticated Binance symbol commission
+  schedule and covers BUY fee, SELL fee, both slippage estimates and a safety
+  margin. It does not rely on a BNB discount remaining available at fill time.
+- The execution state machine uses confirmed `RANGE`, `TREND_UP`,
+  `TREND_DOWN`, `PANIC` and `RECOVERY` states. Hysteresis prevents threshold
+  chatter; downtrend, panic and recovery preserve SELL/OCO protection while
+  disabling new BUYs in `APPLY`.
+- Inventory skew reduces only new managed BUY size as
+  `1 - utilization^gamma`. The hard portfolio/symbol CAP, exchange filters,
+  reserve and complete future OCO exposure remain absolute checks.
+- The transparent logistic regime model remains a SHADOW challenger to the
+  deterministic baseline and DeepSeek. Training rows are historical only;
+  DeepSeek is never placed in the low-latency execution path.
+- Dynamic multi-window correlation clusters and L2 spread/depth checks cap
+  correlated symbols together. Adding symbols is an operator decision and
+  does not happen automatically; a panic correlation cluster is treated as
+  one exposure.
+
+Example exact regime report:
+
+```bash
+python -m bin.regime_pnl_report \
+  --stats-db /home/bot/apps/binance_bot/db/bot_stats.db \
+  --prediction-db /home/bot/stats/prediction_shadow.sqlite3 \
+  --start-ms 1784937600000 --end-ms 1785024000000 \
+  --benchmark-exit-fee-pct 0.001
+```
+
+The JSON output provides, for every regime, strategy net PnL, buy-and-hold,
+USDT, realized drawdown, fill rate and sample counts. A zero-sample row is
+explicitly retained so missing regime coverage is visible.
+
 ```dotenv
 PREDICTION_SHADOW_ENABLED=1
 PREDICTION_SHADOW_INTERVAL_SEC=60
 PREDICTION_SHADOW_DB=/home/bot/stats/prediction_shadow.sqlite3
 PREDICTION_FEE_PCT=0.00075
 PREDICTION_SLIPPAGE_PCT=0.0005
+BOT_STRATEGY_CONTROLS_APPROVED=NO
+BOT_EXPECTANCY_MODE=SHADOW
+BOT_MAKER_POLICY_MODE=SHADOW
+BOT_REGIME_GATE_MODE=SHADOW
+BOT_INVENTORY_SKEW_MODE=SHADOW
+BOT_STATISTICAL_REGIME_MODE=SHADOW
+RISK_CLUSTER_GATE_MODE=SHADOW
 ```
 
 ### Binance Spot Testnet smoke

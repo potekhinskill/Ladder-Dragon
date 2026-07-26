@@ -31,6 +31,55 @@ def test_adaptive_target_buys_cannot_exceed_operator_limit(
     assert ai_supervisor.limit_target_buys(desired, operator_limit) == expected
 
 
+def test_strategy_apply_requires_explicit_approval_and_statistical_gate(
+    monkeypatch,
+):
+    class Store:
+        def resolved_samples(self, symbol, *, kind):
+            assert symbol == "SOLUSDT"
+            assert kind == "STRATEGY"
+            return ["historical-only"]
+
+    monkeypatch.setattr(ai_supervisor, "_PREDICTION_SHADOW", Store())
+    monkeypatch.setattr(
+        ai_supervisor,
+        "walk_forward_prediction_report",
+        lambda samples: {
+            "gate": {
+                "approved": True,
+                "mode": "APPLY",
+                "reasons": [],
+            }
+        },
+    )
+    ai_supervisor._STRATEGY_CONTROL_GATE_CACHE.clear()
+    monkeypatch.setenv("BOT_STRATEGY_CONTROLS_APPROVED", "NO")
+    allowed, _ = ai_supervisor._strategy_controls_apply_allowed("SOLUSDT")
+    assert allowed is False
+
+    monkeypatch.setenv("BOT_STRATEGY_CONTROLS_APPROVED", "YES")
+    allowed, evidence = ai_supervisor._strategy_controls_apply_allowed(
+        "SOLUSDT"
+    )
+    assert allowed is True
+    assert evidence["approved"] is True
+    ai_supervisor._STRATEGY_CONTROL_GATE_CACHE.clear()
+
+
+def test_strategy_apply_blocks_when_evidence_is_unavailable(monkeypatch):
+    monkeypatch.setattr(ai_supervisor, "_PREDICTION_SHADOW", None)
+    monkeypatch.setenv("BOT_STRATEGY_CONTROLS_APPROVED", "YES")
+    ai_supervisor._STRATEGY_CONTROL_GATE_CACHE.clear()
+
+    allowed, evidence = ai_supervisor._strategy_controls_apply_allowed(
+        "SOLUSDT"
+    )
+
+    assert allowed is False
+    assert evidence["approved"] is False
+    ai_supervisor._STRATEGY_CONTROL_GATE_CACHE.clear()
+
+
 def _entry_settings(mode: str):
     return ai_supervisor._directional_entry_settings(
         base_gap="0.004",

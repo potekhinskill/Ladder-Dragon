@@ -6,6 +6,8 @@ from ladder_dragon.risk.risk_statistics import (
     allocate_cap_by_marginal_risk_decimal,
     conversion_price_decimal,
     correlated_symbols,
+    correlation_clusters_multi_window,
+    liquidity_is_sufficient_decimal,
     rolling_correlation,
     stress_exposure,
     stress_loss_decimal,
@@ -19,6 +21,37 @@ def test_rolling_correlation_detects_common_shock():
     assert correlated_symbols({"BTCUSDT": left, "ETHUSDT": right}) == {
         "BTCUSDT", "ETHUSDT"
     }
+
+
+def test_correlation_clusters_keep_independent_assets_separate():
+    common = [100, 101, 99, 102, 103, 101, 104]
+    matching = [50, 50.5, 49.5, 51, 51.5, 50.5, 52]
+    independent = [10, 9, 10, 9, 10, 9, 10]
+
+    assert correlation_clusters_multi_window(
+        {
+            "BTCUSDT": common,
+            "ETHUSDT": matching,
+            "XRPUSDT": independent,
+        },
+        windows=(3, 4, 6),
+        min_windows=2,
+    ) == (("BTCUSDT", "ETHUSDT"),)
+
+
+def test_liquidity_gate_checks_both_spread_and_two_sided_depth():
+    values = {
+        "best_bid": "99.95",
+        "best_ask": "100.05",
+        "bid_depth_quote": "10000",
+        "ask_depth_quote": "9000",
+        "max_spread_bps": "20",
+        "min_depth_quote": "5000",
+    }
+    assert liquidity_is_sufficient_decimal(**values) is True
+    assert liquidity_is_sufficient_decimal(
+        **{**values, "ask_depth_quote": "100"}
+    ) is False
 
 
 def test_stress_exposure_is_explicit_and_reproducible():

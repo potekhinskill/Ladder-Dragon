@@ -98,6 +98,78 @@ def correlated_symbols_multi_window(
     return result
 
 
+def correlation_clusters_multi_window(
+    histories: Mapping[str, Sequence[float]],
+    *,
+    threshold: float = 0.70,
+    windows: Sequence[int] = (24, 48, 96),
+    min_windows: int = 2,
+) -> tuple[tuple[str, ...], ...]:
+    """Return connected stressed-correlation clusters deterministically."""
+    names = sorted(str(name).upper() for name in histories)
+    adjacency = {name: set() for name in names}
+    for index, left in enumerate(names):
+        for right in names[index + 1 :]:
+            hits = sum(
+                rolling_correlation(
+                    histories[left],
+                    histories[right],
+                    window=window,
+                )
+                >= threshold
+                for window in windows
+            )
+            if hits >= min_windows:
+                adjacency[left].add(right)
+                adjacency[right].add(left)
+    visited: set[str] = set()
+    clusters: list[tuple[str, ...]] = []
+    for name in names:
+        if name in visited or not adjacency[name]:
+            continue
+        pending = [name]
+        component: set[str] = set()
+        while pending:
+            current = pending.pop()
+            if current in component:
+                continue
+            component.add(current)
+            pending.extend(adjacency[current] - component)
+        visited.update(component)
+        clusters.append(tuple(sorted(component)))
+    return tuple(sorted(clusters))
+
+
+def liquidity_is_sufficient_decimal(
+    *,
+    best_bid: object,
+    best_ask: object,
+    bid_depth_quote: object,
+    ask_depth_quote: object,
+    max_spread_bps: object,
+    min_depth_quote: object,
+) -> bool:
+    """Fail closed when spread/depth cannot support a configured symbol."""
+    bid = _decimal(best_bid, field="best bid")
+    ask = _decimal(best_ask, field="best ask")
+    bid_depth = _decimal(bid_depth_quote, field="bid depth")
+    ask_depth = _decimal(ask_depth_quote, field="ask depth")
+    maximum_spread = _decimal(max_spread_bps, field="maximum spread")
+    minimum_depth = _decimal(min_depth_quote, field="minimum depth")
+    if (
+        bid <= ZERO
+        or ask <= bid
+        or min(bid_depth, ask_depth, maximum_spread, minimum_depth) < ZERO
+    ):
+        return False
+    midpoint = (bid + ask) / Decimal("2")
+    spread_bps = (ask - bid) / midpoint * Decimal("10000")
+    return (
+        spread_bps <= maximum_spread
+        and min(bid_depth, ask_depth) >= minimum_depth
+    )
+
+
 def covariance_var(
     exposures: Mapping[str, float], histories: Mapping[str, Sequence[float]],
     *, confidence: float = 0.99, horizon: int = 1,

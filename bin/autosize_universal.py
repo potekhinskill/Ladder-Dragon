@@ -436,9 +436,22 @@ def _tp1_max_pct() -> Decimal:
     return max(Decimal("0"), getenv_decimal("TP1_MAX", "0.040"))
 
 def _fee_floor_pct() -> Decimal:
-    # Lower profit floor implied by round-trip fees, with a small safety margin.
-    fee = max(Decimal("0"), getenv_decimal("BOT_FEE_PCT", "0.001"))
-    return fee * Decimal("2") * Decimal("1.05")
+    # The supervisor supplies side-specific authoritative account rates.
+    buy_fee = max(
+        Decimal("0"),
+        getenv_decimal(
+            "BOT_BUY_FEE_PCT",
+            getenv_decimal("BOT_FEE_PCT", "0.001"),
+        ),
+    )
+    sell_fee = max(
+        Decimal("0"),
+        getenv_decimal(
+            "BOT_SELL_FEE_PCT",
+            getenv_decimal("BOT_FEE_PCT", "0.001"),
+        ),
+    )
+    return (buy_fee + sell_fee) * Decimal("1.05")
 
 def _execution_cost_floor_pct() -> Decimal:
     """Handle execution cost floor pct."""
@@ -484,7 +497,16 @@ def _non_fee_execution_cost_pct() -> Decimal:
 def _profit_floor_pct() -> Decimal:
     # Combined floor: never below MIN_PROFIT_OVER_AVG or the fee floor.
     min_edge = max(Decimal("0"), getenv_decimal("MIN_PROFIT_OVER_AVG", "0"))
-    return max(min_edge, _fee_floor_pct(), _execution_cost_floor_pct())
+    authoritative = max(
+        Decimal("0"),
+        getenv_decimal("BOT_REQUIRED_EDGE_PCT", "0"),
+    )
+    return max(
+        min_edge,
+        authoritative,
+        _fee_floor_pct(),
+        _execution_cost_floor_pct(),
+    )
 
 # ------------------- HTTP / signed / backoff -------------------
 
@@ -2035,10 +2057,21 @@ def maybe_place_buys(symbol: str,
                     decision_reference_price=decision_reference_price,
                     expected_edge_bps=expected_gross_edge,
                     fee_bps=(
-                        Decimal("2")
-                        * max(
-                            Decimal("0"),
-                            getenv_decimal("BOT_FEE_PCT", "0.001"),
+                        (
+                            max(
+                                Decimal("0"),
+                                getenv_decimal(
+                                    "BOT_BUY_FEE_PCT",
+                                    getenv_decimal("BOT_FEE_PCT", "0.001"),
+                                ),
+                            )
+                            + max(
+                                Decimal("0"),
+                                getenv_decimal(
+                                    "BOT_SELL_FEE_PCT",
+                                    getenv_decimal("BOT_FEE_PCT", "0.001"),
+                                ),
+                            )
                         )
                         * Decimal("10000")
                     ),

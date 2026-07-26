@@ -3,6 +3,40 @@
 All notable changes are documented here. Releases use Semantic Versioning; every
 section is dated and there is intentionally no `Unreleased` section.
 
+## [2.20.46] — 2026-07-26
+
+### Added
+- Added a fail-closed FIFO regime report that compares exact strategy net PnL
+  with buy-and-hold and USDT, including realized drawdown, fill rate and sample
+  coverage without using future or stale regime snapshots.
+- Added an authenticated Binance commission schedule and an exact two-sided
+  edge floor covering BUY/SELL fees, BUY/SELL slippage and a configurable
+  safety multiplier. Ordinary entries and exits can be observed as
+  `LIMIT_MAKER` candidates while emergency flattening remains unchanged.
+- Added a hysteretic `RANGE`, `TREND_UP`, `TREND_DOWN`, `PANIC`, `RECOVERY`
+  execution state machine and exact managed-inventory skew beneath the
+  immutable hard CAP.
+- Added multi-window correlation clusters and fail-closed per-symbol L2
+  spread/depth eligibility for controlled multi-symbol diversification.
+
+### Changed
+- The transparent logistic regime model is published as a SHADOW challenger
+  beside the deterministic baseline and DeepSeek recommendation.
+- Every new expectancy, regime, inventory, maker and cluster control defaults
+  to `SHADOW`. `APPLY` also requires the exact
+  `BOT_STRATEGY_CONTROLS_APPROVED=YES` acknowledgement and a passing
+  chronological lower-CI/Holm/regime/drawdown/fill-rate gate; otherwise new
+  BUYs are blocked while existing protection and SHADOW collection continue.
+
+### Verified
+- Exact Decimal unit tests cover the two-sided fee floor, inventory skew,
+  regime hysteresis, FIFO attribution, no-look-ahead behavior, dynamic
+  correlation clusters and liquidity rejection.
+- Prediction, AI statistical challenger, Risk Manager, executor protection,
+  restart/recovery, OCO/STOP, WebSocket trading, safety and module-boundary
+  regressions pass. Python compilation and whitespace checks pass.
+- The complete suite passes all `605` project tests.
+
 ## [2.20.45] — 2026-07-26
 
 ### Fixed

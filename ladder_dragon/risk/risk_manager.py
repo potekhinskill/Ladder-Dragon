@@ -177,6 +177,9 @@ class RiskSnapshot:
     stale_order_count: int = 0
     symbol_consecutive_losses: dict[str, int] = field(default_factory=dict)
     symbol_exposure_usdt: dict[str, Decimal] = field(default_factory=dict)
+    correlation_clusters: tuple[tuple[str, ...], ...] = ()
+    cluster_exposure_usdt: dict[str, Decimal] = field(default_factory=dict)
+    liquidity_blocked_symbols: tuple[str, ...] = ()
 
     def __post_init__(self) -> None:
         """Normalize all financial telemetry at the risk boundary."""
