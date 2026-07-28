@@ -7,6 +7,7 @@ FILES = (
     Path("ladder_dragon/ai/context/runtime.py"),
     Path("ladder_dragon/execution/worker/runtime.py"),
     Path("ladder_dragon/execution/worker/buy_service.py"),
+    Path("ladder_dragon/execution/worker/holdings_service.py"),
     Path("ladder_dragon/verification/live/mainnet_canary.py"),
     Path("bin/stats_view.py"),
     Path("ladder_dragon/execution/operator/cancel_open.py"),
@@ -115,7 +116,7 @@ def test_worker_financial_order_paths_have_no_float_calls():
         "avg_entry",
         "_pick_ladder_aligned_oco_prices",
         "place_buys",
-        "maybe_place_sells_from_holdings",
+        "place_sells_from_holdings",
     }
     violations: list[str] = []
     for node in ast.walk(tree):

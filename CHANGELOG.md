@@ -3,6 +3,17 @@
 All notable changes are documented here. Releases use Semantic Versioning; every
 section is dated and there is intentionally no `Unreleased` section.
 
+## [2.20.68] — 2026-07-28
+
+### Changed
+- Holdings SELL placement moved from the worker coordinator into
+  `execution.worker.holdings_service`; production and tests call the owning
+  package service directly through explicit adapters.
+- The worker runtime shrank from 2800 to 2597 lines.
+
+### Verified
+- Worker safety, financial exception-boundary and architecture regressions pass.
+
 ## [2.20.67] — 2026-07-28
 
 ### Changed

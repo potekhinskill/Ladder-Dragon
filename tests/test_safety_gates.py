@@ -15,12 +15,20 @@ from ladder_dragon.supervision import runtime as ai_supervisor
 from ladder_dragon.execution.worker.buy_service import (
     place_buys as place_buys_service,
 )
+from ladder_dragon.execution.worker.holdings_service import (
+    place_sells_from_holdings as place_holdings_service,
+)
 from tests.support.module_loaders import load_worker
 
 
 def place_buys(worker, *args, **kwargs):
     """Exercise the package BUY service with explicit test adapters."""
     return place_buys_service(*args, runtime=vars(worker), **kwargs)
+
+
+def place_holdings(worker, *args, **kwargs):
+    """Exercise the package holdings service with explicit test adapters."""
+    return place_holdings_service(*args, runtime=vars(worker), **kwargs)
 
 
 @pytest.mark.parametrize(
@@ -711,7 +719,7 @@ def test_holdings_sell_percent_filter_blocks_exchange_mutation(monkeypatch):
         ),
     )
 
-    assert worker.maybe_place_sells_from_holdings(
+    assert place_holdings(worker,
         "SOLUSDT", [150.0], avg_entry_px=90.0,
     ) == 0
 
@@ -755,7 +763,7 @@ def test_panic_flatten_uses_full_step_aligned_free_balance(monkeypatch):
         ),
     )
 
-    assert worker.maybe_place_sells_from_holdings(
+    assert place_holdings(worker,
         "SOLUSDT",
         [110.0],
         panic_active=True,
@@ -811,7 +819,7 @@ def test_holdings_sell_leaves_only_sub_step_exchange_dust(monkeypatch):
         ),
     )
 
-    assert worker.maybe_place_sells_from_holdings(
+    assert place_holdings(worker,
         "SOLUSDT",
         [110.0],
     ) == 1

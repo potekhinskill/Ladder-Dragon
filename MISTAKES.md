@@ -17,6 +17,17 @@ private infrastructure details.
 
 ## Mistakes
 
+### 2026-07-28 — Audited only the outer extracted function scope
+
+- **Impact:** two holdings safety tests failed because a nested rounding helper
+  could not resolve `price_round_mode`.
+- **Root cause:** dependency discovery inspected the outer function symbol table
+  but did not recursively include its nested function scopes.
+- **Correction:** inject the missing rounding policy and rerun worker safety
+  tests.
+- **Prevention:** dependency audits for extracted functions must recurse through
+  every child symbol table before the first behavior run.
+
 ### 2026-07-28 — Searched package imports but missed a bin-to-bin dependency
 
 - **Impact:** the first complete no-facade suite stopped during Testnet soak
