@@ -709,11 +709,11 @@ def place_oco_sell(
             else:
                 if journal is not None:
                     journal.record_order_list(list_client_id, existing)
-                    _persist_verified_oco_legs(journal, list_client_id, verified_legs)
                     if parent_client_order_id:
-                        journal.mark_protected(
+                        journal.mark_verified_protected(
                             parent_client_order_id=parent_client_order_id,
                             protection_client_order_id=list_client_id,
+                            legs=verified_legs,
                             order_list_id=(
                                 int(order_list_id)
                                 if order_list_id is not None
@@ -1243,20 +1243,23 @@ def place_otoco_buy(
         if journal is not None:
             journal.record_exchange_order(working_client_id, working)
             journal.record_order_list(list_client_id, verified)
-            journal.record_verified_protection_legs(list_client_id, pending)
-            if (
+            protection_active = (
                 str(working.get("status") or "").upper() == "FILLED"
                 and all(
                     str(order.get("status") or "").upper()
                     in {"NEW", "PARTIALLY_FILLED"}
                     for order in pending
                 )
-            ):
-                journal.mark_protected(
+            )
+            if protection_active:
+                journal.mark_verified_protected(
                     parent_client_order_id=working_client_id,
                     protection_client_order_id=list_client_id,
+                    legs=pending,
                     order_list_id=int(payload["orderListId"]),
                 )
+            else:
+                journal.record_verified_protection_legs(list_client_id, pending)
         result = dict(working)
         result["orderListId"] = payload["orderListId"]
         result["listClientOrderId"] = list_client_id

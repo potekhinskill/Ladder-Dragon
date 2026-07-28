@@ -17,6 +17,40 @@ private infrastructure details.
 
 ## Mistakes
 
+### 2026-07-28 — Backfill parsed exchange payload keys instead of stored keys
+
+- **Impact:** the first schema-v2 migration regression failed because historical
+  `verified_legs` metadata uses normalized snake-case keys, while the migration
+  accepted only Binance camel-case payload keys.
+- **Root cause:** the new backfill reused an input sanitizer without checking
+  the actual persisted representation produced by that sanitizer.
+- **Correction:** accept both the exchange input shape and the normalized
+  historical shape, then persist one canonical representation.
+- **Prevention:** migration tests must start from the previous on-disk
+  representation, not only from current API-shaped fixtures.
+
+### 2026-07-28 — Treated the MARKET journal sentinel as a numeric price
+
+- **Impact:** two MARKET-order safety regressions failed before submission
+  because journal deduplication tried to parse the `MARKET` marker as Decimal.
+- **Root cause:** numeric canonicalization was applied to every `price` field
+  without first checking the established contract for price-less market orders.
+- **Correction:** preserve `MARKET` as a strict non-financial sentinel and use
+  Decimal comparison for every actual price.
+- **Prevention:** inspect all callers and include LIMIT plus MARKET contract
+  tests whenever a shared order-field invariant changes.
+
+### 2026-07-28 — Assumed a recovery test filename instead of discovering it
+
+- **Impact:** the first targeted verification command stopped before running
+  tests because `tests/test_executor_recovery.py` does not exist.
+- **Root cause:** the command inferred a filename from the module name instead
+  of selecting it from `rg --files tests`.
+- **Correction:** use the existing `tests/test_worker_order_recovery.py` and
+  rerun the complete targeted set.
+- **Prevention:** discover test paths with `rg --files` before composing a
+  multi-file pytest command.
+
 ### 2026-07-28 — Bumped the canonical version without updating README
 
 - **Impact:** targeted version and deployment-documentation tests failed because

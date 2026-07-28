@@ -5,14 +5,17 @@
 
 from __future__ import annotations
 
+from contextlib import contextmanager
 from dataclasses import dataclass
 from decimal import Decimal
 from pathlib import Path
 import json
+import os
 import re
 import sqlite3
+import threading
 import time
-from typing import Any, Iterable
+from typing import Any, Iterable, Iterator
 
 
 ACTIVE_STATES = (
@@ -47,6 +50,25 @@ _SIGNED_BINANCE_URL_RE = re.compile(
     re.IGNORECASE,
 )
 _SIGNATURE_PARAM_RE = re.compile(r"(signature=)[^&\s;]+", re.IGNORECASE)
+ORDER_JOURNAL_SCHEMA_VERSION = 2
+
+
+def _decimal_text(value: object, *, field: str) -> str:
+    """Return an exact, finite, non-negative canonical decimal string."""
+    try:
+        number = Decimal(str(value))
+    except (ArithmeticError, TypeError, ValueError) as exc:
+        raise ValueError(f"{field} must be a decimal") from exc
+    if not number.is_finite() or number < 0:
+        raise ValueError(f"{field} must be finite and non-negative")
+    return format(number, "f")
+
+
+def _price_text(value: object) -> str:
+    """Canonicalize a limit price or the non-financial MARKET sentinel."""
+    if str(value).upper() == "MARKET":
+        return "MARKET"
+    return _decimal_text(value, field="price")
 
 
 def _safe_error_text(error: object) -> str:
@@ -96,10 +118,18 @@ def read_order_journal_telemetry(path: str | Path) -> dict[str, Any]:
                 "executed_qty, quantity, updated_at "
                 "FROM order_intents ORDER BY updated_at DESC LIMIT 1"
             ).fetchone()
-            lifecycle_rows = con.execute(
-                "SELECT metadata_json FROM order_intents "
-                "WHERE side = 'BUY' AND state = 'CLOSED'"
-            ).fetchall()
+            lifecycle_table = con.execute(
+                "SELECT 1 FROM sqlite_master "
+                "WHERE type = 'table' AND name = 'order_lifecycle_closures'"
+            ).fetchone()
+            lifecycle_counts = None
+            if lifecycle_table is not None:
+                lifecycle_counts = con.execute(
+                    "SELECT COUNT(*) AS closed_exact, "
+                    "SUM(CASE WHEN exit_reason = 'TP' THEN 1 ELSE 0 END) AS tp, "
+                    "SUM(CASE WHEN exit_reason = 'STOP' THEN 1 ELSE 0 END) AS stop "
+                    "FROM order_lifecycle_closures"
+                ).fetchone()
             managed_rows = con.execute(
                 "SELECT symbol, state, executed_qty FROM order_intents "
                 "WHERE side = 'BUY' AND state IN "
@@ -145,16 +175,10 @@ def read_order_journal_telemetry(path: str | Path) -> dict[str, Any]:
         if state.upper() not in TERMINAL_JOURNAL_STATES
     )
     lifecycle = {"closed_exact": 0, "tp": 0, "stop": 0, "required": 3}
-    for row in lifecycle_rows:
-        try:
-            metadata = json.loads(row["metadata_json"] or "{}")
-        except (json.JSONDecodeError, TypeError):
-            continue
-        reason = str(metadata.get("exit_reason") or "").upper()
-        if not metadata.get("exact_lifecycle") or reason not in {"TP", "STOP"}:
-            continue
-        lifecycle["closed_exact"] += 1
-        lifecycle[reason.lower()] += 1
+    if lifecycle_counts is not None:
+        lifecycle["closed_exact"] = int(lifecycle_counts["closed_exact"] or 0)
+        lifecycle["tp"] = int(lifecycle_counts["tp"] or 0)
+        lifecycle["stop"] = int(lifecycle_counts["stop"] or 0)
     lifecycle["promotion_ready"] = lifecycle["closed_exact"] >= lifecycle["required"]
     managed: dict[str, dict[str, Any]] = {}
     for row in managed_rows:
@@ -258,20 +282,61 @@ class OrderJournal:
         self.path = Path(path)
         self.venue = venue
         self.path.parent.mkdir(parents=True, exist_ok=True)
+        self._lock = threading.RLock()
+        self._connection: sqlite3.Connection | None = None
+        self._connection_pid: int | None = None
         self._init_schema()
 
     def _connect(self) -> sqlite3.Connection:
-        # FULL + WAL make the intent journal durable and allow recovery code
-        # to read it while the executor is running.
-        con = sqlite3.connect(self.path, timeout=10)
+        """Return one process-local connection instead of reopening per event."""
+        pid = os.getpid()
+        if self._connection is not None and self._connection_pid == pid:
+            return self._connection
+        if self._connection is not None:
+            self._connection.close()
+        con = sqlite3.connect(
+            self.path,
+            timeout=10,
+            check_same_thread=False,
+            isolation_level=None,
+        )
         con.row_factory = sqlite3.Row
         con.execute("PRAGMA busy_timeout=10000")
+        # FULL + WAL make the journal durable. WAL is selected once per
+        # process connection, not on every read and update.
         con.execute("PRAGMA journal_mode=WAL")
         con.execute("PRAGMA synchronous=FULL")
+        con.execute("PRAGMA foreign_keys=ON")
+        self._connection = con
+        self._connection_pid = pid
         return con
 
+    @contextmanager
+    def _session(self, *, write: bool = False) -> Iterator[sqlite3.Connection]:
+        with self._lock:
+            con = self._connect()
+            if write:
+                con.execute("BEGIN IMMEDIATE")
+            try:
+                yield con
+            except BaseException:
+                if write and con.in_transaction:
+                    con.rollback()
+                raise
+            else:
+                if write and con.in_transaction:
+                    con.commit()
+
+    def close(self) -> None:
+        """Close the process-local journal connection."""
+        with self._lock:
+            if self._connection is not None:
+                self._connection.close()
+                self._connection = None
+                self._connection_pid = None
+
     def _init_schema(self) -> None:
-        with self._connect() as con:
+        with self._session(write=True) as con:
             con.executescript(
                 """
                 CREATE TABLE IF NOT EXISTS order_intents (
@@ -300,6 +365,39 @@ class OrderJournal:
                     ON order_intents(exchange_order_id);
                 CREATE INDEX IF NOT EXISTS idx_order_intents_parent
                     ON order_intents(parent_client_order_id);
+                CREATE TABLE IF NOT EXISTS order_intent_legs (
+                    venue TEXT NOT NULL,
+                    symbol TEXT NOT NULL,
+                    order_id INTEGER NOT NULL,
+                    protection_client_order_id TEXT NOT NULL,
+                    client_order_id TEXT NOT NULL,
+                    leg_type TEXT NOT NULL,
+                    created_at REAL NOT NULL,
+                    PRIMARY KEY (venue, symbol, order_id),
+                    FOREIGN KEY (protection_client_order_id)
+                        REFERENCES order_intents(client_order_id)
+                );
+                CREATE INDEX IF NOT EXISTS idx_order_intent_legs_protection
+                    ON order_intent_legs(protection_client_order_id);
+                CREATE TABLE IF NOT EXISTS order_lifecycle_closures (
+                    protection_client_order_id TEXT PRIMARY KEY,
+                    venue TEXT NOT NULL,
+                    symbol TEXT NOT NULL,
+                    parent_client_order_id TEXT NOT NULL,
+                    exit_order_id INTEGER NOT NULL,
+                    exit_reason TEXT NOT NULL CHECK(exit_reason IN ('TP', 'STOP')),
+                    closed_at REAL NOT NULL,
+                    FOREIGN KEY (protection_client_order_id)
+                        REFERENCES order_intents(client_order_id),
+                    FOREIGN KEY (parent_client_order_id)
+                        REFERENCES order_intents(client_order_id)
+                );
+                CREATE INDEX IF NOT EXISTS idx_order_lifecycle_reason
+                    ON order_lifecycle_closures(venue, symbol, exit_reason, closed_at);
+                CREATE TABLE IF NOT EXISTS order_journal_meta (
+                    key TEXT PRIMARY KEY,
+                    value TEXT NOT NULL
+                );
                 """
             )
             # Older transport versions persisted requests.HTTPError verbatim,
@@ -321,6 +419,57 @@ class OrderJournal:
                     (
                         _safe_error_text(row["last_error"]),
                         row["client_order_id"],
+                    ),
+                )
+            version_row = con.execute(
+                "SELECT value FROM order_journal_meta WHERE key = 'schema_version'"
+            ).fetchone()
+            version = int(version_row["value"]) if version_row is not None else 1
+            if version < ORDER_JOURNAL_SCHEMA_VERSION:
+                self._backfill_normalized_evidence(con)
+                con.execute(
+                    "INSERT INTO order_journal_meta(key, value) VALUES"
+                    "('schema_version', ?) "
+                    "ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+                    (str(ORDER_JOURNAL_SCHEMA_VERSION),),
+                )
+
+    def _backfill_normalized_evidence(self, con: sqlite3.Connection) -> None:
+        """Migrate legacy JSON evidence once, preserving exact history."""
+        rows = con.execute(
+            "SELECT * FROM order_intents "
+            "WHERE order_type IN ('OCO', 'OTOCO') AND side = 'SELL'"
+        ).fetchall()
+        for row in rows:
+            intent = self._from_row(row)
+            if intent is None:
+                continue
+            legs = (intent.metadata or {}).get("verified_legs", [])
+            if isinstance(legs, list) and len(legs) == 2:
+                self._store_legs(con, intent, legs)
+            metadata = intent.metadata or {}
+            reason = str(metadata.get("exit_reason") or "").upper()
+            exit_order_id = metadata.get("exit_order_id")
+            if (
+                intent.state == "CLOSED"
+                and intent.parent_client_order_id
+                and metadata.get("exact_lifecycle")
+                and reason in {"TP", "STOP"}
+                and exit_order_id is not None
+            ):
+                con.execute(
+                    "INSERT OR IGNORE INTO order_lifecycle_closures "
+                    "(protection_client_order_id, venue, symbol, "
+                    "parent_client_order_id, exit_order_id, exit_reason, closed_at) "
+                    "VALUES (?, ?, ?, ?, ?, ?, ?)",
+                    (
+                        intent.client_order_id,
+                        self.venue,
+                        intent.symbol,
+                        intent.parent_client_order_id,
+                        int(exit_order_id),
+                        reason,
+                        float(metadata.get("closed_at") or time.time()),
                     ),
                 )
 
@@ -365,8 +514,21 @@ class OrderJournal:
         metadata: dict[str, Any] | None = None,
     ) -> OrderIntent:
         now = time.time()
-        with self._connect() as con:
-            con.execute(
+        normalized = {
+            "venue": self.venue,
+            "symbol": symbol.upper(),
+            "side": side.upper(),
+            "purpose": purpose,
+            "order_type": order_type.upper(),
+            "quantity": _decimal_text(quantity, field="quantity"),
+            "price": _price_text(price),
+            "parent_client_order_id": parent_client_order_id,
+            "metadata_json": json.dumps(
+                metadata or {}, sort_keys=True, separators=(",", ":")
+            ),
+        }
+        with self._session(write=True) as con:
+            inserted = con.execute(
                 """
                 INSERT OR IGNORE INTO order_intents (
                     client_order_id, venue, symbol, side, purpose, order_type,
@@ -376,30 +538,67 @@ class OrderJournal:
                 """,
                 (
                     client_order_id,
-                    self.venue,
-                    symbol.upper(),
-                    side.upper(),
-                    purpose,
-                    order_type.upper(),
-                    str(quantity),
-                    str(price),
-                    parent_client_order_id,
-                    json.dumps(metadata or {}, sort_keys=True),
+                    normalized["venue"],
+                    normalized["symbol"],
+                    normalized["side"],
+                    normalized["purpose"],
+                    normalized["order_type"],
+                    normalized["quantity"],
+                    normalized["price"],
+                    normalized["parent_client_order_id"],
+                    normalized["metadata_json"],
                     now,
                     now,
                 ),
-            )
+            ).rowcount
             row = con.execute(
                 "SELECT * FROM order_intents WHERE client_order_id = ?",
                 (client_order_id,),
             ).fetchone()
+            if inserted == 0 and row is not None:
+                mismatches: list[str] = []
+                for field in (
+                    "venue",
+                    "symbol",
+                    "side",
+                    "purpose",
+                    "order_type",
+                    "parent_client_order_id",
+                ):
+                    if row[field] != normalized[field]:
+                        mismatches.append(field)
+                try:
+                    existing_metadata = json.loads(row["metadata_json"] or "{}")
+                except (json.JSONDecodeError, TypeError):
+                    existing_metadata = object()
+                if existing_metadata != (metadata or {}):
+                    mismatches.append("metadata")
+                for field in ("quantity", "price"):
+                    try:
+                        equal = (
+                            str(row[field]).upper() == "MARKET"
+                            and normalized[field] == "MARKET"
+                        ) or (
+                            Decimal(str(row[field])) == Decimal(normalized[field])
+                        )
+                    except (ArithmeticError, TypeError, ValueError):
+                        equal = False
+                    if not equal:
+                        mismatches.append(field)
+                if mismatches:
+                    # Report only field names: metadata may contain private
+                    # diagnostics and must never enter logs through exceptions.
+                    raise ValueError(
+                        "client_order_id conflicts with immutable fields: "
+                        + ", ".join(sorted(mismatches))
+                    )
         intent = self._from_row(row)
         if intent is None:
             raise RuntimeError(f"failed to persist order intent {client_order_id}")
         return intent
 
     def get(self, client_order_id: str) -> OrderIntent | None:
-        with self._connect() as con:
+        with self._session() as con:
             row = con.execute(
                 "SELECT * FROM order_intents WHERE client_order_id = ?",
                 (client_order_id,),
@@ -407,7 +606,7 @@ class OrderJournal:
         return self._from_row(row)
 
     def get_by_exchange_order_id(self, exchange_order_id: int) -> OrderIntent | None:
-        with self._connect() as con:
+        with self._session() as con:
             row = con.execute(
                 "SELECT * FROM order_intents WHERE exchange_order_id = ?",
                 (int(exchange_order_id),),
@@ -416,7 +615,7 @@ class OrderJournal:
 
     def created_at_ms_for_exchange_order(self, exchange_order_id: int) -> int | None:
         """Return the durable pre-POST wall-clock timestamp for one exact order."""
-        with self._connect() as con:
+        with self._session() as con:
             row = con.execute(
                 "SELECT created_at FROM order_intents "
                 "WHERE exchange_order_id = ? ORDER BY created_at DESC LIMIT 1",
@@ -433,7 +632,7 @@ class OrderJournal:
         return int(created_at * Decimal("1000"))
 
     def protection_for_parent(self, parent_client_order_id: str) -> OrderIntent | None:
-        with self._connect() as con:
+        with self._session() as con:
             row = con.execute(
                 """
                 SELECT * FROM order_intents
@@ -445,28 +644,32 @@ class OrderJournal:
         return self._from_row(row)
 
     def protection_for_leg_order_id(
-        self, exchange_order_id: int
+        self,
+        exchange_order_id: int,
+        *,
+        symbol: str | None = None,
     ) -> tuple[OrderIntent, str] | None:
-        """Resolve an OCO leg only through its exact persisted exchange ID."""
-        with self._connect() as con:
+        """Resolve an exact OCO leg through the indexed normalized table."""
+        params: list[Any] = [self.venue, int(exchange_order_id)]
+        symbol_clause = ""
+        if symbol:
+            symbol_clause = " AND legs.symbol = ?"
+            params.append(symbol.upper())
+        with self._session() as con:
             rows = con.execute(
-                "SELECT * FROM order_intents "
-                "WHERE order_type IN ('OCO', 'OTOCO') "
-                "AND side = 'SELL' ORDER BY created_at DESC"
+                "SELECT intents.*, legs.leg_type AS normalized_leg_type "
+                "FROM order_intent_legs AS legs "
+                "JOIN order_intents AS intents "
+                "ON intents.client_order_id = legs.protection_client_order_id "
+                "WHERE legs.venue = ? AND legs.order_id = ?"
+                + symbol_clause,
+                params,
             ).fetchall()
-        target = int(exchange_order_id)
-        for row in rows:
-            intent = self._from_row(row)
-            if intent is None:
-                continue
-            for leg in (intent.metadata or {}).get("verified_legs", []):
-                try:
-                    leg_order_id = int(leg.get("order_id"))
-                except (AttributeError, TypeError, ValueError):
-                    continue
-                if leg_order_id == target:
-                    return intent, str(leg.get("leg_type") or "").upper()
-        return None
+        if len(rows) > 1:
+            raise RuntimeError("ambiguous protection leg identity")
+        if not rows:
+            return None
+        return self._from_row(rows[0]), str(rows[0]["normalized_leg_type"]).upper()
 
     def find_active(
         self,
@@ -479,50 +682,89 @@ class OrderJournal:
     ) -> OrderIntent | None:
         states = ACTIVE_STATES if side.upper() == "BUY" else SELL_ACTIVE_STATES
         placeholders = ",".join("?" for _ in states)
+        requested_quantity = Decimal(_decimal_text(quantity, field="quantity"))
+        requested_price_text = _price_text(price)
         params: list[Any] = [
             self.venue,
             symbol.upper(),
             side.upper(),
             purpose,
-            str(quantity),
-            str(price),
             *states,
         ]
-        with self._connect() as con:
-            row = con.execute(
+        with self._session() as con:
+            rows = con.execute(
                 f"""
                 SELECT * FROM order_intents
                 WHERE venue = ? AND symbol = ? AND side = ? AND purpose = ?
-                  AND quantity = ? AND price = ? AND state IN ({placeholders})
-                ORDER BY created_at DESC LIMIT 1
+                  AND state IN ({placeholders})
+                ORDER BY created_at DESC
                 """,
                 params,
-            ).fetchone()
-        return self._from_row(row)
+            ).fetchall()
+        for row in rows:
+            try:
+                price_matches = (
+                    str(row["price"]).upper() == "MARKET"
+                    and requested_price_text == "MARKET"
+                ) or (
+                    requested_price_text != "MARKET"
+                    and Decimal(str(row["price"])) == Decimal(requested_price_text)
+                )
+                same = (
+                    Decimal(str(row["quantity"])) == requested_quantity
+                    and price_matches
+                )
+            except (ArithmeticError, TypeError, ValueError) as exc:
+                raise RuntimeError(
+                    "active journal intent contains invalid decimal fields"
+                ) from exc
+            if same:
+                return self._from_row(row)
+        return None
 
-    def _update(self, client_order_id: str, **values: Any) -> OrderIntent:
+    @staticmethod
+    def _row(con: sqlite3.Connection, client_order_id: str) -> sqlite3.Row:
+        row = con.execute(
+            "SELECT * FROM order_intents WHERE client_order_id = ?",
+            (client_order_id,),
+        ).fetchone()
+        if row is None:
+            raise KeyError(f"unknown order intent {client_order_id}")
+        return row
+
+    @staticmethod
+    def _update_row(
+        con: sqlite3.Connection,
+        client_order_id: str,
+        values: dict[str, Any],
+    ) -> sqlite3.Row:
         allowed = {
             "state",
             "exchange_order_id",
             "exchange_order_list_id",
             "executed_qty",
             "cumulative_quote_qty",
+            "metadata_json",
             "last_error",
+            "updated_at",
         }
         invalid = set(values) - allowed
         if invalid:
             raise ValueError(f"unsupported journal fields: {sorted(invalid)}")
-        values["updated_at"] = time.time()
+        values = {**values, "updated_at": time.time()}
         assignments = ", ".join(f"{name} = ?" for name in values)
-        params = [*values.values(), client_order_id]
-        with self._connect() as con:
-            cur = con.execute(
-                f"UPDATE order_intents SET {assignments} WHERE client_order_id = ?",
-                params,
-            )
-            if cur.rowcount != 1:
-                raise KeyError(f"unknown order intent {client_order_id}")
-        intent = self.get(client_order_id)
+        cur = con.execute(
+            f"UPDATE order_intents SET {assignments} WHERE client_order_id = ?",
+            [*values.values(), client_order_id],
+        )
+        if cur.rowcount != 1:
+            raise KeyError(f"unknown order intent {client_order_id}")
+        return OrderJournal._row(con, client_order_id)
+
+    def _update(self, client_order_id: str, **values: Any) -> OrderIntent:
+        with self._session(write=True) as con:
+            row = self._update_row(con, client_order_id, values)
+        intent = self._from_row(row)
         if intent is None:
             raise RuntimeError(f"order intent disappeared: {client_order_id}")
         return intent
@@ -538,26 +780,22 @@ class OrderJournal:
         observed market range beside the durable order intent lets cleanup after
         a restart explain why a passive order never traded.
         """
-        intent = self.get(client_order_id)
-        if intent is None:
-            raise KeyError(f"unknown order intent {client_order_id}")
-        metadata = dict(intent.metadata or {})
-        metadata.update(values)
-        with self._connect() as con:
-            cur = con.execute(
-                """
-                UPDATE order_intents
-                SET metadata_json = ?
-                WHERE client_order_id = ?
-                """,
-                (
-                    json.dumps(metadata, sort_keys=True, separators=(",", ":")),
-                    client_order_id,
-                ),
-            )
-            if cur.rowcount != 1:
+        with self._session(write=True) as con:
+            current = self._from_row(self._row(con, client_order_id))
+            if current is None:
                 raise KeyError(f"unknown order intent {client_order_id}")
-        updated = self.get(client_order_id)
+            metadata = dict(current.metadata or {})
+            metadata.update(values)
+            row = self._update_row(
+                con,
+                client_order_id,
+                {
+                    "metadata_json": json.dumps(
+                        metadata, sort_keys=True, separators=(",", ":")
+                    )
+                },
+            )
+        updated = self._from_row(row)
         if updated is None:
             raise RuntimeError(f"order intent disappeared: {client_order_id}")
         return updated
@@ -625,6 +863,7 @@ class OrderJournal:
         order_list_id: int | None = None,
         exchange_order_id: int | None = None,
     ) -> None:
+        """Atomically mark a protection intent and its exact parent protected."""
         child_values: dict[str, Any] = {
             "state": "PROTECTED",
             "last_error": None,
@@ -633,8 +872,16 @@ class OrderJournal:
             child_values["exchange_order_list_id"] = int(order_list_id)
         if exchange_order_id is not None:
             child_values["exchange_order_id"] = int(exchange_order_id)
-        self._update(protection_client_order_id, **child_values)
-        self._update(parent_client_order_id, state="PROTECTED", last_error=None)
+        with self._session(write=True) as con:
+            child = self._from_row(self._row(con, protection_client_order_id))
+            if child is None or child.parent_client_order_id != parent_client_order_id:
+                raise RuntimeError("protection parent identity mismatch")
+            self._update_row(con, protection_client_order_id, child_values)
+            self._update_row(
+                con,
+                parent_client_order_id,
+                {"state": "PROTECTED", "last_error": None},
+            )
 
     def mark_failed(self, client_order_id: str, error: object) -> OrderIntent:
         return self._update(
@@ -653,23 +900,133 @@ class OrderJournal:
         legs: Iterable[dict[str, Any]],
     ) -> OrderIntent:
         """Persist allowlisted OCO leg identities for exact fill attribution."""
+        with self._session(write=True) as con:
+            protection = self._from_row(
+                self._row(con, protection_client_order_id)
+            )
+            if protection is None:
+                raise KeyError(f"unknown order intent {protection_client_order_id}")
+            sanitized = self._store_legs(con, protection, legs)
+            metadata = dict(protection.metadata or {})
+            metadata["verified_legs"] = sanitized
+            row = self._update_row(
+                con,
+                protection_client_order_id,
+                {
+                    "metadata_json": json.dumps(
+                        metadata, sort_keys=True, separators=(",", ":")
+                    )
+                },
+            )
+        intent = self._from_row(row)
+        if intent is None:
+            raise RuntimeError("protection intent disappeared")
+        return intent
+
+    @staticmethod
+    def _sanitize_legs(legs: Iterable[dict[str, Any]]) -> list[dict[str, Any]]:
         sanitized: list[dict[str, Any]] = []
         for leg in legs:
-            if not isinstance(leg, dict) or leg.get("orderId") is None:
+            if not isinstance(leg, dict):
+                continue
+            order_id = leg.get("orderId", leg.get("order_id"))
+            if order_id is None:
                 continue
             sanitized.append(
                 {
-                    "order_id": int(leg["orderId"]),
-                    "client_order_id": str(leg.get("clientOrderId") or ""),
-                    "leg_type": str(leg.get("type") or "").upper(),
+                    "order_id": int(order_id),
+                    "client_order_id": str(
+                        leg.get("clientOrderId", leg.get("client_order_id")) or ""
+                    ),
+                    "leg_type": str(
+                        leg.get("type", leg.get("leg_type")) or ""
+                    ).upper(),
                 }
             )
         if len(sanitized) != 2:
             raise RuntimeError("verified OCO must contain exactly two legs")
-        return self.update_metadata(
-            protection_client_order_id,
-            {"verified_legs": sanitized},
-        )
+        if len({leg["order_id"] for leg in sanitized}) != 2:
+            raise RuntimeError("verified OCO legs must have distinct order IDs")
+        return sanitized
+
+    def _store_legs(
+        self,
+        con: sqlite3.Connection,
+        protection: OrderIntent,
+        legs: Iterable[dict[str, Any]],
+    ) -> list[dict[str, Any]]:
+        sanitized = self._sanitize_legs(legs)
+        now = time.time()
+        for leg in sanitized:
+            existing = con.execute(
+                "SELECT protection_client_order_id, client_order_id, leg_type "
+                "FROM order_intent_legs "
+                "WHERE venue = ? AND symbol = ? AND order_id = ?",
+                (self.venue, protection.symbol, leg["order_id"]),
+            ).fetchone()
+            expected = (
+                protection.client_order_id,
+                leg["client_order_id"],
+                leg["leg_type"],
+            )
+            if existing is not None and tuple(existing) != expected:
+                raise RuntimeError("OCO leg identity conflicts with journal history")
+            con.execute(
+                "INSERT OR IGNORE INTO order_intent_legs "
+                "(venue, symbol, order_id, protection_client_order_id, "
+                "client_order_id, leg_type, created_at) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?)",
+                (
+                    self.venue,
+                    protection.symbol,
+                    leg["order_id"],
+                    protection.client_order_id,
+                    leg["client_order_id"],
+                    leg["leg_type"],
+                    now,
+                ),
+            )
+        return sanitized
+
+    def mark_verified_protected(
+        self,
+        *,
+        parent_client_order_id: str,
+        protection_client_order_id: str,
+        legs: Iterable[dict[str, Any]],
+        order_list_id: int | None = None,
+        exchange_order_id: int | None = None,
+    ) -> None:
+        """Persist verified legs and both protected states in one transaction."""
+        with self._session(write=True) as con:
+            protection = self._from_row(
+                self._row(con, protection_client_order_id)
+            )
+            if (
+                protection is None
+                or protection.parent_client_order_id != parent_client_order_id
+            ):
+                raise RuntimeError("protection parent identity mismatch")
+            sanitized = self._store_legs(con, protection, legs)
+            metadata = dict(protection.metadata or {})
+            metadata["verified_legs"] = sanitized
+            child_values: dict[str, Any] = {
+                "state": "PROTECTED",
+                "last_error": None,
+                "metadata_json": json.dumps(
+                    metadata, sort_keys=True, separators=(",", ":")
+                ),
+            }
+            if order_list_id is not None:
+                child_values["exchange_order_list_id"] = int(order_list_id)
+            if exchange_order_id is not None:
+                child_values["exchange_order_id"] = int(exchange_order_id)
+            self._update_row(con, protection_client_order_id, child_values)
+            self._update_row(
+                con,
+                parent_client_order_id,
+                {"state": "PROTECTED", "last_error": None},
+            )
 
     def mark_exact_lifecycle_closed(
         self,
@@ -679,22 +1036,84 @@ class OrderJournal:
         exit_reason: str,
     ) -> None:
         """Close a BUY/OCO lifecycle after an exact terminal TP/STOP fill."""
-        protection = self.get(protection_client_order_id)
-        if protection is None or not protection.parent_client_order_id:
-            raise RuntimeError("protection has no exact parent BUY")
         reason = str(exit_reason).upper()
         if reason not in {"TP", "STOP"}:
             raise ValueError("exit reason must be TP or STOP")
-        metadata = {
-            "exact_lifecycle": True,
-            "exit_order_id": int(exit_order_id),
-            "exit_reason": reason,
-            "closed_at": time.time(),
-        }
-        self.update_metadata(protection_client_order_id, metadata)
-        self.update_metadata(protection.parent_client_order_id, metadata)
-        self.mark_closed(protection_client_order_id)
-        self.mark_closed(protection.parent_client_order_id)
+        with self._session(write=True) as con:
+            protection = self._from_row(
+                self._row(con, protection_client_order_id)
+            )
+            if protection is None or not protection.parent_client_order_id:
+                raise RuntimeError("protection has no exact parent BUY")
+            parent = self._from_row(
+                self._row(con, protection.parent_client_order_id)
+            )
+            if parent is None:
+                raise RuntimeError("protection parent BUY is unavailable")
+            leg = con.execute(
+                "SELECT leg_type FROM order_intent_legs "
+                "WHERE venue = ? AND symbol = ? AND order_id = ? "
+                "AND protection_client_order_id = ?",
+                (
+                    self.venue,
+                    protection.symbol,
+                    int(exit_order_id),
+                    protection_client_order_id,
+                ),
+            ).fetchone()
+            if leg is None:
+                raise RuntimeError("exit order is not a verified protection leg")
+            leg_type = str(leg["leg_type"] or "").upper()
+            if reason == "STOP" and "STOP" not in leg_type:
+                raise RuntimeError("STOP closure does not match verified leg type")
+            if reason == "TP" and "STOP" in leg_type:
+                raise RuntimeError("TP closure does not match verified leg type")
+            existing = con.execute(
+                "SELECT exit_order_id, exit_reason FROM order_lifecycle_closures "
+                "WHERE protection_client_order_id = ?",
+                (protection_client_order_id,),
+            ).fetchone()
+            if existing is not None and (
+                int(existing["exit_order_id"]) != int(exit_order_id)
+                or str(existing["exit_reason"]) != reason
+            ):
+                raise RuntimeError("lifecycle closure conflicts with journal history")
+            closed_at = time.time()
+            metadata_update = {
+                "exact_lifecycle": True,
+                "exit_order_id": int(exit_order_id),
+                "exit_reason": reason,
+                "closed_at": closed_at,
+            }
+            for intent in (protection, parent):
+                metadata = dict(intent.metadata or {})
+                metadata.update(metadata_update)
+                self._update_row(
+                    con,
+                    intent.client_order_id,
+                    {
+                        "state": "CLOSED",
+                        "last_error": None,
+                        "metadata_json": json.dumps(
+                            metadata, sort_keys=True, separators=(",", ":")
+                        ),
+                    },
+                )
+            con.execute(
+                "INSERT OR IGNORE INTO order_lifecycle_closures "
+                "(protection_client_order_id, venue, symbol, "
+                "parent_client_order_id, exit_order_id, exit_reason, closed_at) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?)",
+                (
+                    protection_client_order_id,
+                    self.venue,
+                    protection.symbol,
+                    protection.parent_client_order_id,
+                    int(exit_order_id),
+                    reason,
+                    closed_at,
+                ),
+            )
 
     def unresolved_buys(self, symbol: str | None = None) -> list[OrderIntent]:
         placeholders = ",".join("?" for _ in ACTIVE_STATES)
@@ -703,7 +1122,7 @@ class OrderJournal:
         if symbol:
             where_symbol = " AND symbol = ?"
             params.append(symbol.upper())
-        with self._connect() as con:
+        with self._session() as con:
             rows: Iterable[sqlite3.Row] = con.execute(
                 f"""
                 SELECT * FROM order_intents
@@ -722,7 +1141,7 @@ class OrderJournal:
         if symbol:
             where_symbol = " AND symbol = ?"
             params.append(symbol.upper())
-        with self._connect() as con:
+        with self._session() as con:
             rows: Iterable[sqlite3.Row] = con.execute(
                 f"""
                 SELECT * FROM order_intents
@@ -755,7 +1174,7 @@ class OrderJournal:
         if symbol:
             where_symbol = " AND symbol = ?"
             params.append(symbol.upper())
-        with self._connect() as con:
+        with self._session() as con:
             rows: Iterable[sqlite3.Row] = con.execute(
                 f"""
                 SELECT * FROM order_intents

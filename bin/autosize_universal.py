@@ -1696,7 +1696,10 @@ def _stats_poll_mytrades_once(symbol: str):
             try:
                 journal = _order_journal()
                 match = (
-                    journal.protection_for_leg_order_id(int(fill["order_id"]))
+                    journal.protection_for_leg_order_id(
+                        int(fill["order_id"]),
+                        symbol=symbol,
+                    )
                     if journal is not None
                     else None
                 )

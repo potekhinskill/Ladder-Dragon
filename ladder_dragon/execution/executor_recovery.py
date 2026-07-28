@@ -442,13 +442,10 @@ def recover_existing_protection(
                 "OTOCO protection verification failed; list cancellation "
                 "was requested and LIVE must halt for reconciliation"
             )
-        journal.record_verified_protection_legs(
-            protection.client_order_id,
-            pending,
-        )
-        journal.mark_protected(
+        journal.mark_verified_protected(
             parent_client_order_id=parent_client_order_id,
             protection_client_order_id=protection.client_order_id,
+            legs=pending,
             order_list_id=(
                 int(order_list_id) if order_list_id is not None else None
             ),
@@ -498,13 +495,10 @@ def recover_existing_protection(
             return False
         if list_status != "EXEC_STARTED" or outcome != "ACTIVE":
             return False
-        journal.record_verified_protection_legs(
-            protection.client_order_id,
-            legs,
-        )
-        journal.mark_protected(
+        journal.mark_verified_protected(
             parent_client_order_id=parent_client_order_id,
             protection_client_order_id=protection.client_order_id,
+            legs=legs,
             order_list_id=(
                 int(order_list_id) if order_list_id is not None else None
             ),

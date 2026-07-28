@@ -3,6 +3,36 @@
 All notable changes are documented here. Releases use Semantic Versioning; every
 section is dated and there is intentionally no `Unreleased` section.
 
+## [2.20.63] — 2026-07-28
+
+### Fixed
+- Exact BUY/OCO/TP-or-STOP lifecycle closure now commits parent state, protection
+  state, both metadata records, and normalized closure evidence in one SQLite
+  transaction. Verified OCO legs and both protected states have an equivalent
+  atomic transition.
+- Reusing a `client_order_id` now succeeds only for the same immutable intent.
+  Symbol, side, purpose, type, parent, metadata, quantity, and price conflicts
+  fail closed without exposing metadata values in the exception.
+- Active-intent deduplication compares quantity and price numerically with
+  `Decimal`, so historical formatting or later Binance filter formatting cannot
+  create a duplicate live intent.
+- OCO leg lookup and exact-lifecycle telemetry now use indexed normalized
+  tables instead of scanning and parsing every historical metadata document.
+  The process reuses one thread-safe, fork-aware SQLite connection and selects
+  WAL durability once per connection.
+
+### Changed
+- Exact journal history is retained indefinitely for audit and recovery.
+  Performance no longer depends on deleting or automatically archiving CLOSED
+  intents; destructive retention remains explicitly out of the runtime path.
+
+### Verified
+- Journal tests cover injected mid-transition crashes, idempotent and
+  conflicting intent IDs, numeric deduplication, indexed evidence independent
+  of legacy JSON, OCO recovery, exact TP/STOP closure, and secret-safe errors.
+- Source compilation, relevant execution regressions, and the complete project
+  test suite pass.
+
 ## [2.20.62] — 2026-07-28
 
 ### Added

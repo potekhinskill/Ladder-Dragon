@@ -15,6 +15,20 @@ entries concise; this is not a changelog or an activity log.
 
 ## Decisions
 
+### 2026-07-28 — Normalize hot journal evidence without deleting audit history
+
+- **Context:** OCO leg lookup and lifecycle telemetry scanned every historical
+  metadata JSON document, while automatic retention would remove evidence used
+  for recovery, accounting, and LIVE approval.
+- **Decision:** store verified legs and exact closures in indexed normalized
+  tables, commit multi-row lifecycle transitions atomically, and retain CLOSED
+  intents indefinitely instead of deleting them in the runtime.
+- **Why it worked:** injected mid-transaction failures roll back every related
+  state and metadata write; tests also prove lookup and telemetry remain exact
+  when legacy metadata JSON is unreadable.
+- **Reuse:** durable journals, ledgers, and approval evidence where hot queries
+  must remain bounded without weakening the audit trail.
+
 ### 2026-07-28 — Persist reusable agent learning in two focused records
 
 - **Context:** useful fixes and root-cause lessons were scattered across chats,

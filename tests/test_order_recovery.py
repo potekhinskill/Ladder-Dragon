@@ -269,6 +269,76 @@ def test_journal_reuses_active_intent_and_records_exchange_state(tmp_path):
     assert partial.executed_qty == "0.040"
 
 
+def test_prepare_is_decimal_idempotent_and_rejects_safe_conflicts(tmp_path):
+    journal = OrderJournal(tmp_path / "orders.sqlite3")
+    first = journal.prepare(
+        client_order_id="SAME-ID",
+        symbol="SOLUSDT",
+        side="BUY",
+        purpose="ladder",
+        order_type="LIMIT",
+        quantity="0.1000",
+        price="100.00",
+        metadata={"private": "do-not-print"},
+    )
+    repeated = journal.prepare(
+        client_order_id="SAME-ID",
+        symbol="SOLUSDT",
+        side="BUY",
+        purpose="ladder",
+        order_type="LIMIT",
+        quantity="0.1",
+        price="1E2",
+        metadata={"private": "do-not-print"},
+    )
+    assert repeated == first
+    assert repeated.quantity == "0.1000"
+
+    with pytest.raises(ValueError) as caught:
+        journal.prepare(
+            client_order_id="SAME-ID",
+            symbol="ETHUSDT",
+            side="BUY",
+            purpose="ladder",
+            order_type="LIMIT",
+            quantity="0.2",
+            price="100",
+            metadata={"private": "different-secret"},
+        )
+    message = str(caught.value)
+    assert "symbol" in message and "quantity" in message and "metadata" in message
+    assert "do-not-print" not in message
+    assert "different-secret" not in message
+
+
+def test_find_active_compares_historical_decimal_text_numerically(tmp_path):
+    journal = OrderJournal(tmp_path / "orders.sqlite3")
+    journal.prepare(
+        client_order_id="NUMERIC-ID",
+        symbol="SOLUSDT",
+        side="BUY",
+        purpose="ladder",
+        order_type="LIMIT",
+        quantity="0.1",
+        price="100",
+    )
+    with sqlite3.connect(journal.path) as con:
+        con.execute(
+            "UPDATE order_intents SET quantity = '0.100000', price = '1E+2' "
+            "WHERE client_order_id = 'NUMERIC-ID'"
+        )
+
+    active = journal.find_active(
+        symbol="SOLUSDT",
+        side="BUY",
+        purpose="ladder",
+        quantity="0.1",
+        price="100.00",
+    )
+    assert active is not None
+    assert active.client_order_id == "NUMERIC-ID"
+
+
 def test_runtime_telemetry_contains_only_sanitized_journal_summary(tmp_path):
     journal = OrderJournal(tmp_path / "orders.sqlite3", venue="mainnet")
     cancelled = journal.prepare(
@@ -348,6 +418,192 @@ def test_exact_oco_leg_closure_is_the_only_promotion_evidence(tmp_path):
         "closed_exact": 1, "tp": 0, "stop": 1, "required": 3,
         "promotion_ready": False,
     }
+
+
+def _prepared_verified_lifecycle(journal: OrderJournal) -> None:
+    journal.prepare(
+        client_order_id="BUY-ATOMIC",
+        symbol="SOLUSDT",
+        side="BUY",
+        purpose="ladder",
+        order_type="LIMIT",
+        quantity="0.1",
+        price="100",
+    )
+    journal.record_exchange_order(
+        "BUY-ATOMIC",
+        {"orderId": 110, "status": "FILLED", "executedQty": "0.1"},
+    )
+    journal.prepare(
+        client_order_id="OCO-ATOMIC",
+        symbol="SOLUSDT",
+        side="SELL",
+        purpose="oco",
+        order_type="OCO",
+        quantity="0.1",
+        price="102",
+        parent_client_order_id="BUY-ATOMIC",
+    )
+    journal.record_order_list(
+        "OCO-ATOMIC",
+        {"orderListId": 120, "listStatusType": "EXEC_STARTED"},
+    )
+
+
+def test_verified_protection_rolls_back_as_one_transition(tmp_path):
+    journal = OrderJournal(tmp_path / "orders.sqlite3", venue="mainnet")
+    _prepared_verified_lifecycle(journal)
+    with sqlite3.connect(journal.path) as con:
+        con.execute(
+            """
+            CREATE TRIGGER fail_parent_protection
+            BEFORE UPDATE OF state ON order_intents
+            WHEN OLD.client_order_id = 'BUY-ATOMIC'
+                 AND NEW.state = 'PROTECTED'
+            BEGIN
+                SELECT RAISE(ABORT, 'injected parent failure');
+            END
+            """
+        )
+
+    with pytest.raises(sqlite3.IntegrityError):
+        journal.mark_verified_protected(
+            parent_client_order_id="BUY-ATOMIC",
+            protection_client_order_id="OCO-ATOMIC",
+            legs=[
+                {"orderId": 121, "clientOrderId": "TP-A", "type": "LIMIT_MAKER"},
+                {
+                    "orderId": 122,
+                    "clientOrderId": "SL-A",
+                    "type": "STOP_LOSS_LIMIT",
+                },
+            ],
+            order_list_id=120,
+        )
+
+    assert journal.get("BUY-ATOMIC").state == "FILLED"
+    assert journal.get("OCO-ATOMIC").state == "SUBMITTED"
+    assert journal.protection_for_leg_order_id(121, symbol="SOLUSDT") is None
+    assert "verified_legs" not in journal.get("OCO-ATOMIC").metadata
+
+
+def test_exact_closure_rolls_back_metadata_states_and_evidence(tmp_path):
+    journal = OrderJournal(tmp_path / "orders.sqlite3", venue="mainnet")
+    _prepared_verified_lifecycle(journal)
+    journal.mark_verified_protected(
+        parent_client_order_id="BUY-ATOMIC",
+        protection_client_order_id="OCO-ATOMIC",
+        legs=[
+            {"orderId": 121, "clientOrderId": "TP-A", "type": "LIMIT_MAKER"},
+            {
+                "orderId": 122,
+                "clientOrderId": "SL-A",
+                "type": "STOP_LOSS_LIMIT",
+            },
+        ],
+        order_list_id=120,
+    )
+    with sqlite3.connect(journal.path) as con:
+        con.execute(
+            """
+            CREATE TRIGGER fail_parent_closure
+            BEFORE UPDATE OF state ON order_intents
+            WHEN OLD.client_order_id = 'BUY-ATOMIC'
+                 AND NEW.state = 'CLOSED'
+            BEGIN
+                SELECT RAISE(ABORT, 'injected parent failure');
+            END
+            """
+        )
+
+    with pytest.raises(sqlite3.IntegrityError):
+        journal.mark_exact_lifecycle_closed(
+            protection_client_order_id="OCO-ATOMIC",
+            exit_order_id=121,
+            exit_reason="TP",
+        )
+
+    assert journal.get("BUY-ATOMIC").state == "PROTECTED"
+    assert journal.get("OCO-ATOMIC").state == "PROTECTED"
+    assert "exact_lifecycle" not in journal.get("BUY-ATOMIC").metadata
+    assert "exact_lifecycle" not in journal.get("OCO-ATOMIC").metadata
+    assert read_order_journal_telemetry(journal.path)["lifecycle"]["closed_exact"] == 0
+
+
+def test_normalized_evidence_does_not_depend_on_metadata_scans(tmp_path):
+    journal = OrderJournal(tmp_path / "orders.sqlite3", venue="mainnet")
+    _prepared_verified_lifecycle(journal)
+    journal.mark_verified_protected(
+        parent_client_order_id="BUY-ATOMIC",
+        protection_client_order_id="OCO-ATOMIC",
+        legs=[
+            {"orderId": 121, "clientOrderId": "TP-A", "type": "LIMIT_MAKER"},
+            {
+                "orderId": 122,
+                "clientOrderId": "SL-A",
+                "type": "STOP_LOSS_LIMIT",
+            },
+        ],
+        order_list_id=120,
+    )
+    journal.mark_exact_lifecycle_closed(
+        protection_client_order_id="OCO-ATOMIC",
+        exit_order_id=121,
+        exit_reason="TP",
+    )
+    with sqlite3.connect(journal.path) as con:
+        con.execute(
+            "UPDATE order_intents SET metadata_json = '{broken' "
+            "WHERE client_order_id IN ('BUY-ATOMIC', 'OCO-ATOMIC')"
+        )
+
+    match = journal.protection_for_leg_order_id(121, symbol="SOLUSDT")
+    assert match is not None and match[1] == "LIMIT_MAKER"
+    lifecycle = read_order_journal_telemetry(journal.path)["lifecycle"]
+    assert lifecycle["closed_exact"] == 1
+    assert lifecycle["tp"] == 1
+
+
+def test_legacy_json_evidence_is_backfilled_once_into_schema_v2(tmp_path):
+    path = tmp_path / "orders.sqlite3"
+    journal = OrderJournal(path, venue="mainnet")
+    _prepared_verified_lifecycle(journal)
+    journal.mark_verified_protected(
+        parent_client_order_id="BUY-ATOMIC",
+        protection_client_order_id="OCO-ATOMIC",
+        legs=[
+            {"orderId": 121, "clientOrderId": "TP-A", "type": "LIMIT_MAKER"},
+            {
+                "orderId": 122,
+                "clientOrderId": "SL-A",
+                "type": "STOP_LOSS_LIMIT",
+            },
+        ],
+        order_list_id=120,
+    )
+    journal.mark_exact_lifecycle_closed(
+        protection_client_order_id="OCO-ATOMIC",
+        exit_order_id=121,
+        exit_reason="TP",
+    )
+    journal.close()
+    with sqlite3.connect(path) as con:
+        con.execute("DROP TABLE order_lifecycle_closures")
+        con.execute("DROP TABLE order_intent_legs")
+        con.execute("DROP TABLE order_journal_meta")
+
+    migrated = OrderJournal(path, venue="mainnet")
+
+    match = migrated.protection_for_leg_order_id(121, symbol="SOLUSDT")
+    assert match is not None and match[0].client_order_id == "OCO-ATOMIC"
+    assert read_order_journal_telemetry(path)["lifecycle"]["closed_exact"] == 1
+    with sqlite3.connect(path) as con:
+        version = con.execute(
+            "SELECT value FROM order_journal_meta WHERE key = 'schema_version'"
+        ).fetchone()
+        legs = con.execute("SELECT COUNT(*) FROM order_intent_legs").fetchone()
+    assert version == ("2",)
+    assert legs == (2,)
 
 
 def test_journal_telemetry_separates_open_managed_lot(tmp_path):

@@ -28,6 +28,31 @@ A partial execution, lost acknowledgement, network ambiguity, or journal write
 failure is not reported as a successful flatten. The symbol remains halted and
 the position remains unresolved for authoritative reconciliation.
 
+## Durable lifecycle journal
+
+Lifecycle evidence is one crash-consistent unit. Confirming protection writes
+the two exchange-verified OCO legs, protection state, and parent BUY state in
+one SQLite transaction. Confirming a TP or STOP writes both CLOSED states, both
+metadata records, and the normalized exact-closure record in one transaction.
+If any write fails, the whole transition rolls back.
+
+A repeated `client_order_id` is idempotent only when every immutable field
+matches the existing intent. Quantity and price are compared as exact
+`Decimal` values rather than formatted strings. A conflicting ID blocks the
+operation and its diagnostic names only the conflicting fields, never metadata
+contents.
+
+Normalized, indexed tables map exchange leg IDs to protection intents and hold
+exact closure summaries. Runtime recovery and dashboard telemetry use these
+tables instead of scanning historical JSON. The journal keeps a single
+thread-safe connection per process and reopens it after a fork.
+
+Closed intents are retained indefinitely because they are accounting,
+recovery, and production-approval evidence. The runtime does not delete or
+automatically archive them. Any future archival policy must be an explicit
+offline, checksum-verified operation that preserves normalized evidence and is
+validated against the release-approval requirements.
+
 ## HALT and SHADOW are separate states
 
 `HALT` blocks trading mutations. It stops new BUY workers and cannot be bypassed
