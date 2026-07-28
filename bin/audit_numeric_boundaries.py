@@ -12,12 +12,12 @@ from pathlib import Path
 
 
 LIMITS = {
-    "bin/ai_supervisor.py": 0,
-    "bin/autosize_universal.py": 0,
-    "ladder_dragon/ai/ai_context.py": 0,
+    "ladder_dragon/supervision/runtime.py": 0,
+    "ladder_dragon/execution/worker/runtime.py": 0,
+    "ladder_dragon/ai/context/runtime.py": 0,
     "ladder_dragon/numeric_compat.py": 1,
-    "ladder_dragon/execution/executor_orders.py": 0,
-    "ladder_dragon/execution/executor_protection.py": 0,
+    "ladder_dragon/execution/orders/runtime.py": 0,
+    "ladder_dragon/execution/protection/runtime.py": 0,
 }
 
 

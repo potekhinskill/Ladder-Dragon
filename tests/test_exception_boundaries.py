@@ -3,18 +3,18 @@ from pathlib import Path
 
 
 FILES = (
-    Path("bin/ai_supervisor.py"),
-    Path("ladder_dragon/ai/ai_context.py"),
-    Path("bin/autosize_universal.py"),
-    Path("bin/binance_mainnet_canary.py"),
+    Path("ladder_dragon/supervision/runtime.py"),
+    Path("ladder_dragon/ai/context/runtime.py"),
+    Path("ladder_dragon/execution/worker/runtime.py"),
+    Path("ladder_dragon/verification/live/mainnet_canary.py"),
     Path("bin/stats_view.py"),
-    Path("bin/tools_cancel_open.py"),
-    Path("bin/ai_plan_runner.py"),
+    Path("ladder_dragon/execution/operator/cancel_open.py"),
+    Path("ladder_dragon/supervision/plan_runner.py"),
     Path("bin/auto_ladder_map.py"),
     Path("bin/gen_vwap_autotune.py"),
     Path("bin/ladder_pct_runner.py"),
     Path("bin/pnl_24h.py"),
-    Path("ladder_dragon/execution/executor_protection.py"),
+    Path("ladder_dragon/execution/protection/runtime.py"),
 )
 
 
@@ -46,15 +46,17 @@ def _broad_exception_boundaries(path: Path) -> set[str]:
 def test_broad_exception_handlers_are_limited_to_fail_closed_boundaries():
     found = set().union(*(_broad_exception_boundaries(path) for path in FILES))
     assert found == {
-        "bin/autosize_universal.py::_panic_state_fail_closed",
-        "bin/autosize_universal.py::_gap_watchdog_fail_closed",
-        "bin/binance_mainnet_canary.py::run_canary",
-        "ladder_dragon/execution/executor_protection.py::protect_filled_buys",
+        "ladder_dragon/execution/worker/runtime.py::_panic_state_fail_closed",
+        "ladder_dragon/execution/worker/runtime.py::_gap_watchdog_fail_closed",
+        "ladder_dragon/verification/live/mainnet_canary.py::run_canary",
+        "ladder_dragon/execution/protection/runtime.py::protect_filled_buys",
     }
 
 
 def test_supervisor_financial_boundaries_do_not_call_float():
-    tree = ast.parse(Path("bin/ai_supervisor.py").read_text())
+    tree = ast.parse(
+        Path("ladder_dragon/supervision/runtime.py").read_text()
+    )
     financial_functions = {
         "get_balances",
         "get_balances_full",
@@ -82,8 +84,8 @@ def test_supervisor_financial_boundaries_do_not_call_float():
 
 def test_executor_order_and_protection_modules_have_no_float_calls():
     for path in (
-        Path("ladder_dragon/execution/executor_orders.py"),
-        Path("ladder_dragon/execution/executor_protection.py"),
+        Path("ladder_dragon/execution/orders/runtime.py"),
+        Path("ladder_dragon/execution/protection/runtime.py"),
     ):
         tree = ast.parse(path.read_text())
         calls = [
@@ -97,7 +99,7 @@ def test_executor_order_and_protection_modules_have_no_float_calls():
 
 
 def test_worker_financial_order_paths_have_no_float_calls():
-    path = Path("bin/autosize_universal.py")
+    path = Path("ladder_dragon/execution/worker/runtime.py")
     tree = ast.parse(path.read_text())
     financial_functions = {
         "place_market_order",

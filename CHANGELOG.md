@@ -3,6 +3,58 @@
 All notable changes are documented here. Releases use Semantic Versioning; every
 section is dated and there is intentionally no `Unreleased` section.
 
+## [2.20.66] — 2026-07-28
+
+### Changed
+- Supervisor configuration and the plan-runner implementation now live in the
+  `ladder_dragon.supervision` application package. Historical `bin` imports and
+  commands remain thin compatibility facades for systemd and operators.
+- Pure adaptive-entry and VWAP configuration policies were extracted from
+  `bin/ai_supervisor.py`, reducing it from 5717 to 5433 lines without changing
+  its public compatibility surface.
+- Authoritative risk-snapshot construction, startup intent reconciliation and
+  graceful child shutdown now execute from dedicated supervision services.
+  The runtime retains thin compatibility wrappers and shrank from 5315 to 4825
+  lines.
+- SQLite migration ownership moved from `bin` to
+  `ladder_dragon.persistence`; execution code no longer imports a CLI module.
+- Supervisor, execution worker and dashboard implementations moved behind thin
+  compatibility entry points. Recovery/risk/process/symbol policies, worker
+  BUY/holdings/PANIC policies and dashboard factory/services/repositories now
+  have explicit package boundaries.
+- Order-journal models, canonical schema values and durable connection policy
+  are separate from the compatibility class while atomic lifecycle methods
+  retain their existing transactions.
+- Prediction, AI context, LIMIT/MARKET/OCO/OTOCO placement, protection,
+  Testnet/Mainnet verification and operator cancellation are grouped in
+  technical packages with their historical imports and commands preserved.
+- Added concise English docstrings to major supervisor, execution, replay,
+  prediction, verification and dashboard nodes. Comments describe safety
+  invariants and sequencing instead of restating obvious syntax.
+- Added an architecture guide with dependency direction, package ownership and
+  an explicit register of remaining monolith seams.
+
+### Added
+- Architecture regressions require package code to remain independent of
+  `bin`, keep compatibility entry points thin, and prevent the three largest
+  legacy runtime modules from growing beyond their current budgets.
+- Added shared isolated runtime loaders under `tests/support`, strict
+  non-growth budgets for every remaining coordinator and a documented
+  no-automatic-cleanup policy for private local artifacts.
+- Source-language regression rejects Cyrillic outside explicit localization
+  files and requires English documentation on critical long-running nodes.
+
+### Fixed
+- Verification now blocks when an explicit 40-character `--expected-sha` does
+  not exactly match the checked-out commit, instead of silently reporting the
+  actual checkout as PASS.
+
+### Verified
+- Configuration, supervisor, strategy, migration, source-contract, deployment,
+  accounting and architecture regressions pass (56 targeted tests for this
+  extraction).
+- Source compilation and the complete project test suite pass (700 tests).
+
 ## [2.20.65] — 2026-07-28
 
 ### Fixed

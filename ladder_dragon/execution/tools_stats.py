@@ -9,7 +9,7 @@ import sqlite3, os, time
 from decimal import Decimal
 from typing import Optional, Tuple, Dict, Iterable, Any
 
-from bin.db_migrate import migrate
+from ladder_dragon.persistence.migrations import migrate
 from ladder_dragon.execution.trade_accounting import TradeExecution, decimal, decimal_text, replay_average_cost
 from ladder_dragon.sqlite_safety import quote_sqlite_identifier
 

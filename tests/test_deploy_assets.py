@@ -230,7 +230,7 @@ def test_intro_document_and_logo_cover_supported_platforms():
 
 def test_dashboard_exposes_read_only_ops_trading_and_ai_quality_blocks():
     index = dashboard_source()
-    app = read("FastAPI/pi-dashboard/app.py")
+    app = read("ladder_dragon/dashboard/runtime.py")
     backup = read("deploy/backup_raspberry_pi.sh")
     for marker in (
         "id=\"ops-load\"", "id=\"ops-ntp\"", "id=\"ops-backup\"",
@@ -242,7 +242,9 @@ def test_dashboard_exposes_read_only_ops_trading_and_ai_quality_blocks():
     assert '"operations": ops' in app
     assert '"network_probe_ok": network_probe_ok' in app
     assert '"writable": writable' in app
-    assert 'heartbeat_risk = dict(_AI_RUNTIME_STATUS.get("risk") or {})' in read("bin/ai_supervisor.py")
+    assert 'heartbeat_risk = dict(_AI_RUNTIME_STATUS.get("risk") or {})' in read(
+        "ladder_dragon/supervision/runtime.py"
+    )
     assert 'backup_status.json' in backup
     assert 'BACKUP_RUNTIME_STATUS_FILE' in backup
     assert 'id=\"ops-backup-reason\"' in index
@@ -252,7 +254,7 @@ def test_dashboard_exposes_read_only_ops_trading_and_ai_quality_blocks():
 
 
 def test_dashboard_transient_failures_are_bounded_and_visible():
-    app = read("FastAPI/pi-dashboard/app.py")
+    app = read("ladder_dragon/dashboard/runtime.py")
     index = dashboard_source()
     site = read("deploy/nginx/bot.local.conf")
     unit = read("deploy/pi-dashboard.service")
@@ -290,7 +292,7 @@ def test_dashboard_transient_failures_are_bounded_and_visible():
 
 
 def test_dashboard_large_sources_are_bounded_server_side():
-    app = read("FastAPI/pi-dashboard/app.py")
+    app = read("ladder_dragon/dashboard/runtime.py")
     exporter = read("deploy/export_sanitized_logs.py")
     service = read("deploy/ladder-dragon-log-export.service")
 
@@ -304,7 +306,7 @@ def test_dashboard_large_sources_are_bounded_server_side():
 
 def test_dashboard_publishes_version_and_changelog():
     index = dashboard_source()
-    app = read("FastAPI/pi-dashboard/app.py")
+    app = read("ladder_dragon/dashboard/runtime.py")
     installer = read("deploy/install_raspberry_pi.sh")
     updater = read("deploy/update_raspberry_pi.sh")
     assert 'id="product-version"' in index
@@ -377,7 +379,7 @@ def test_bounded_mainnet_canary_is_documented_and_not_preconfigured():
     readme = read("README.md")
     runbook = read("docs/RASPBERRY_PI_INSTALL.md")
     example = read(".env.example")
-    source = read("bin/binance_mainnet_canary.py")
+    source = read("ladder_dragon/verification/live/mainnet_canary.py")
     assert "python -m bin.binance_mainnet_canary" in readme
     assert "python -m bin.binance_mainnet_canary" in runbook
     assert "HARD_MAX_NOTIONAL_USDT = Decimal(\"10\")" in source
@@ -391,7 +393,7 @@ def test_bounded_mainnet_canary_is_documented_and_not_preconfigured():
 
 
 def test_dashboard_health_has_portable_host_and_optional_raspberry_telemetry():
-    app = read("FastAPI/pi-dashboard/app.py")
+    app = read("ladder_dragon/dashboard/runtime.py")
     assert 'def _host_snapshot()' in app
     assert '"host": _host_snapshot()' in app
     assert '"supported": False' in app
@@ -400,7 +402,7 @@ def test_dashboard_health_has_portable_host_and_optional_raspberry_telemetry():
 
 def test_dashboard_publishes_read_only_account_balances():
     index = dashboard_source()
-    app = read("FastAPI/pi-dashboard/app.py")
+    app = read("ladder_dragon/dashboard/runtime.py")
     assert 'id="balance-body"' in index
     assert 'getJSON(\'/api/account/balances\')' in index
     assert '@app.get("/api/account/balances")' in app
@@ -410,7 +412,7 @@ def test_dashboard_publishes_read_only_account_balances():
 
 def test_dashboard_publishes_read_only_open_orders():
     index = dashboard_source()
-    app = read("FastAPI/pi-dashboard/app.py")
+    app = read("ladder_dragon/dashboard/runtime.py")
     recovery = read("ladder_dragon/execution/order_recovery.py")
     assert 'id="open-orders-body"' in index
     assert "getJSON('/api/account/open-orders')" in index
@@ -423,8 +425,8 @@ def test_dashboard_publishes_read_only_open_orders():
 
 
 def test_supervisor_and_dashboard_share_canonical_ai_control_path():
-    supervisor = read("bin/ai_supervisor.py")
-    dashboard = read("FastAPI/pi-dashboard/app.py")
+    supervisor = read("ladder_dragon/supervision/runtime.py")
+    dashboard = read("ladder_dragon/dashboard/runtime.py")
     control = read("ladder_dragon/ai/ai_control.py")
 
     assert 'resolve_ai_control_path(os.getenv("AI_CONTROL_FILE"))' in supervisor
@@ -471,8 +473,8 @@ def test_dashboard_charts_have_bounded_responsive_containers():
 
 def test_shadow_ai_defaults_limit_cost_and_duplicate_requests():
     example = read(".env.example")
-    config = read("bin/supervisor_config.py")
-    dashboard = read("FastAPI/pi-dashboard/app.py")
+    config = read("ladder_dragon/supervision/config.py")
+    dashboard = read("ladder_dragon/dashboard/runtime.py")
     dashboard_env = read(".env.dashboard.example")
     changelog = read("CHANGELOG.md")
     assert "AI_CACHE_SEC=900" in example
@@ -488,14 +490,16 @@ def test_shadow_ai_defaults_limit_cost_and_duplicate_requests():
     assert 'os.getenv("AI_DAILY_TOKEN_LIMIT", "500000")' in dashboard
     assert 'os.getenv("AI_MAX_REQUESTS_PER_DAY", "400")' in config
     assert "AI_RAG_INCLUDE_VIRTUAL=0" in example
-    assert "include_virtual=False" in read("bin/ai_supervisor.py")
+    assert "include_virtual=False" in read(
+        "ladder_dragon/supervision/runtime.py"
+    )
     assert "## [2.10.10]" in changelog
 
 
 def test_dashboard_ai_toggle_is_advisory_only():
     index = dashboard_source()
-    app = read("FastAPI/pi-dashboard/app.py")
-    supervisor = read("bin/ai_supervisor.py")
+    app = read("ladder_dragon/dashboard/runtime.py")
+    supervisor = read("ladder_dragon/supervision/runtime.py")
     assert 'id="ai-toggle"' in index
     assert "POST'," in index and "/api/ai/control" in index
     assert '@app.post("/api/ai/control")' in app
@@ -523,13 +527,13 @@ def test_managed_service_uses_versionless_wrapper_and_separate_env():
 
 
 def test_executor_status_does_not_hide_oco_state_behind_question_mark():
-    executor = read("bin/autosize_universal.py")
+    executor = read("ladder_dragon/execution/worker/runtime.py")
     assert "OCO:?" not in executor
     assert 'protection_state = "not_checked"' in executor
 
 
 def test_executor_user_stream_reuses_authoritative_exchange_clock():
-    executor = read("bin/autosize_universal.py")
+    executor = read("ladder_dragon/execution/worker/runtime.py")
     example = read(".env.example")
     assert "timestamp_ms=TM._timestamp_ms" in executor
     assert 'os.getenv("BOT_USER_STREAM_SHADOW", "1")' in executor
@@ -787,7 +791,7 @@ def test_watchdog_publishes_sanitized_raspberry_health_for_dashboard():
     watchdog = read("deploy/pi-watchdog_v3.sh")
     watchdog_unit = read("deploy/pi-watchdog-v3.service")
     dashboard_unit = read("deploy/pi-dashboard.service")
-    dashboard = read("FastAPI/pi-dashboard/app.py")
+    dashboard = read("ladder_dragon/dashboard/runtime.py")
     index = dashboard_source()
     assert "HOST_HEALTH_FILE" in watchdog
     assert "get_throttled" in watchdog
@@ -862,7 +866,7 @@ def test_verified_release_installs_runtime_assets_after_merge():
 
 def test_installer_accepts_only_the_canonical_main_branch():
     installer = read("deploy/install_raspberry_pi.sh")
-    dashboard = read("FastAPI/pi-dashboard/app.py")
+    dashboard = read("ladder_dragon/dashboard/runtime.py")
     dashboard_example = read(".env.dashboard.example")
     assert '[[ "${BRANCH}" == "main" ]]' in installer
     assert 'fail "only the canonical main branch is supported"' in installer

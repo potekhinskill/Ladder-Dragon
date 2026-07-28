@@ -17,6 +17,79 @@ private infrastructure details.
 
 ## Mistakes
 
+### 2026-07-28 — Repeated synthetic SHA and guessed harness option
+
+- **Impact:** the first post-amend release harness exited before verification,
+  so the commit could not be published on that attempt.
+- **Root cause:** the command embedded the visible abbreviated commit prefix
+  with zero padding and guessed `--json-out` instead of reading the parser
+  output and using its documented `--output` option.
+- **Correction:** record the failure, amend again, capture the new exact SHA
+  from `git rev-parse HEAD`, and pass it unchanged with `--output`.
+- **Prevention:** build release commands only after `--help`; never type,
+  expand, or reuse a commit identifier manually.
+
+### 2026-07-28 — Rewrote injected dependency names inside string keys
+
+- **Impact:** two targeted risk reconciliation tests bypassed their patched
+  accounting adapter and opened an incomplete fixture database directly.
+- **Root cause:** a bulk identifier rewrite also changed quoted runtime mapping
+  keys, although compatibility keys must retain the original global names.
+- **Correction:** restore exact runtime keys and inject the patched daily
+  metrics loader explicitly; rerun supervisor recovery tests.
+- **Prevention:** after mechanical extraction, compare every dependency key
+  against the source module symbol table before running behavior tests.
+
+### 2026-07-28 — Put literal Cyrillic inside the English-source test
+
+- **Impact:** the complete suite failed because the new detector's own regex
+  contained literal Cyrillic range characters.
+- **Root cause:** a new source-language test was added without first locating
+  the existing repository-wide English-source regression and matching its
+  Unicode-escape representation.
+- **Correction:** express the Cyrillic block as `\\u0400-\\u04ff`, preserving
+  detection while keeping the test source itself English-only.
+- **Prevention:** search existing policy tests before adding a parallel guard;
+  source scanners must satisfy the same policy they enforce.
+
+### 2026-07-28 — Added docstrings without updating raw line budgets
+
+- **Impact:** the first targeted documentation regression failed because six
+  coordinator files exceeded their exact non-growth budgets by the newly added
+  docstring lines.
+- **Root cause:** the source-language change treated comments as behavior-free
+  but overlooked that the architecture gate intentionally counts every line.
+- **Correction:** raise each affected budget only to its exact documented line
+  count, with no spare capacity, and rerun the architecture suite.
+- **Prevention:** whenever comments or docstrings touch a budgeted monolith,
+  update the exact budget in the same patch or extract enough code to keep the
+  raw count below the existing limit.
+
+### 2026-07-28 — Typed a synthetic SHA instead of resolving HEAD
+
+- **Impact:** a candidate harness command received a wrong 40-character
+  `--expected-sha`; the run exposed that the option was not enforced.
+- **Root cause:** the command manually padded an abbreviated SHA rather than
+  using the exact `git rev-parse HEAD` result already printed by the preceding
+  command.
+- **Correction:** enforce exact checkout matching inside evidence validation
+  and rerun with the real full SHA.
+- **Prevention:** derive immutable identifiers programmatically and make every
+  verification option that claims an expected identity a mandatory equality
+  gate.
+
+### 2026-07-28 — Moved implementations without updating source-contract tests
+
+- **Impact:** the first architecture regression run failed because a deployment
+  test still searched the thin compatibility facade for configuration defaults,
+  and new production modules lacked the required purpose header.
+- **Root cause:** the move preserved runtime imports but did not inventory tests
+  that deliberately inspect source ownership and repository metadata.
+- **Correction:** point the contract test at the packaged implementation and
+  add complete production headers to every new module and facade.
+- **Prevention:** every module move must search for both imports and raw path
+  references, then run source-contract tests alongside runtime regressions.
+
 ### 2026-07-28 — Extended a journal contract without preserving test doubles
 
 - **Impact:** two protection regressions initially halted with `AttributeError`
@@ -30,6 +103,56 @@ private infrastructure details.
   authoritative implementation.
 - **Prevention:** when extending a dependency protocol, inspect its test doubles
   and either update all of them or add an explicit backward-compatible default.
+
+### 2026-07-28 — Invented the suffix of an expected commit SHA
+
+- **Impact:** the first release-harness process was started with an incorrect
+  40-character `--expected-sha` and had to be interrupted before artifact
+  generation.
+- **Root cause:** the seven-character SHA printed by `git commit` was expanded
+  manually instead of copying the authoritative `git rev-parse HEAD` output.
+- **Correction:** record the mistake, amend once more, then pass only the exact
+  full SHA returned after the final commit.
+- **Prevention:** never construct, autocomplete or reuse a pre-amend SHA;
+  capture `git rev-parse HEAD` after the final commit and copy it verbatim into
+  verification and deployment commands.
+
+### 2026-07-28 — Split tests by stale line numbers
+
+- **Impact:** the first component-test split produced three syntax/indentation
+  collection errors because two cuts landed inside functions and one copied an
+  incomplete multiline import.
+- **Root cause:** line numbers from the pre-helper-extraction audit were reused
+  after the files had already changed.
+- **Correction:** exactly rejoined the affected fragments, discovered current
+  top-level `def` boundaries, split again there, and verified all 211 original
+  tests were collected and passed once.
+- **Prevention:** mechanical source splits must use current AST/top-level
+  boundaries and run `pytest --collect-only` before executing tests or deleting
+  any source fragment.
+
+### 2026-07-28 — Used the host Python for a project smoke check
+
+- **Impact:** the first supervisor version smoke stopped on a missing
+  dependency before it could exercise the moved CLI.
+- **Root cause:** the command used system `python3` instead of the repository's
+  `.venv/bin/python`.
+- **Correction:** reran the command with the project virtual environment and
+  verified the compatibility CLI successfully.
+- **Prevention:** use `.venv/bin/python` for every executable smoke and pytest
+  command unless a matrix test explicitly selects another interpreter.
+
+### 2026-07-28 — Guessed prediction test filenames repeatedly
+
+- **Impact:** two prediction verification commands exited before collecting
+  tests; no source or runtime state was changed.
+- **Root cause:** nonexistent archive/walk-forward filenames were appended
+  after discovery output instead of selecting only paths returned by
+  `rg --files tests`.
+- **Correction:** ran the two discovered prediction/re-anchor test files and
+  then the complete project suite.
+- **Prevention:** construct every multi-file pytest command solely from the
+  current `rg --files tests` output; do not add inferred names afterward.
 
 ### 2026-07-28 — Repeated a guessed-test-path mistake
 

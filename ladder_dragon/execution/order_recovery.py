@@ -6,77 +6,27 @@
 from __future__ import annotations
 
 from contextlib import contextmanager
-from dataclasses import dataclass
 from decimal import Decimal
 from pathlib import Path
 import json
 import os
-import re
 import sqlite3
 import threading
 import time
 from typing import Any, Iterable, Iterator
 
-
-ACTIVE_STATES = (
-    "PREPARED",
-    "UNKNOWN",
-    "SUBMITTED",
-    "PARTIALLY_FILLED",
-    "FILLED",
-    "PROTECTION_PENDING",
+from ladder_dragon.execution.journal.connection import connect_journal
+from ladder_dragon.execution.journal.models import OrderIntent
+from ladder_dragon.execution.journal.schema import (
+    ACTIVE_STATES,
+    ORDER_JOURNAL_SCHEMA_VERSION,
+    SELL_ACTIVE_STATES,
+    TERMINAL_EXCHANGE_STATES,
+    TERMINAL_JOURNAL_STATES,
+    decimal_text as _decimal_text,
+    price_text as _price_text,
+    safe_error_text as _safe_error_text,
 )
-SELL_ACTIVE_STATES = (
-    "PREPARED",
-    "UNKNOWN",
-    "SUBMITTED",
-    "PARTIALLY_FILLED",
-    "PROTECTED",
-)
-TERMINAL_EXCHANGE_STATES = {"CANCELED", "EXPIRED", "EXPIRED_IN_MATCH", "REJECTED"}
-TERMINAL_JOURNAL_STATES = {
-    "FILLED",
-    "CLOSED",
-    "PROTECTED",
-    "CANCELED",
-    "CANCELLED",
-    "EXPIRED",
-    "EXPIRED_IN_MATCH",
-    "REJECTED",
-    "FAILED",
-}
-_SIGNED_BINANCE_URL_RE = re.compile(
-    r"(https://(?:[A-Za-z0-9.-]*\.)?binance\.(?:com|vision)/[^\s?]+)\?[^\s;]+",
-    re.IGNORECASE,
-)
-_SIGNATURE_PARAM_RE = re.compile(r"(signature=)[^&\s;]+", re.IGNORECASE)
-ORDER_JOURNAL_SCHEMA_VERSION = 3
-
-
-def _decimal_text(value: object, *, field: str) -> str:
-    """Return an exact, finite, non-negative canonical decimal string."""
-    try:
-        number = Decimal(str(value))
-    except (ArithmeticError, TypeError, ValueError) as exc:
-        raise ValueError(f"{field} must be a decimal") from exc
-    if not number.is_finite() or number < 0:
-        raise ValueError(f"{field} must be finite and non-negative")
-    return format(number, "f")
-
-
-def _price_text(value: object) -> str:
-    """Canonicalize a limit price or the non-financial MARKET sentinel."""
-    if str(value).upper() == "MARKET":
-        return "MARKET"
-    return _decimal_text(value, field="price")
-
-
-def _safe_error_text(error: object) -> str:
-    """Remove signed Binance query data before persisting an error."""
-    text = str(error)
-    text = _SIGNED_BINANCE_URL_RE.sub(r"\1?<redacted>", text)
-    text = _SIGNATURE_PARAM_RE.sub(r"\1<redacted>", text)
-    return text[:1000]
 
 
 def read_order_journal_telemetry(path: str | Path) -> dict[str, Any]:
@@ -286,26 +236,6 @@ def read_order_observation(
     return {key: metadata[key] for key in allowed if key in metadata}
 
 
-@dataclass(frozen=True)
-class OrderIntent:
-    """Represent OrderIntent."""
-    client_order_id: str
-    symbol: str
-    side: str
-    purpose: str
-    order_type: str
-    quantity: str
-    price: str
-    state: str
-    parent_client_order_id: str | None = None
-    exchange_order_id: int | None = None
-    exchange_order_list_id: int | None = None
-    executed_qty: str = "0"
-    cumulative_quote_qty: str = "0"
-    metadata: dict[str, Any] | None = None
-    last_error: str | None = None
-
-
 class OrderJournal:
     """Represent OrderJournal."""
 
@@ -325,19 +255,7 @@ class OrderJournal:
             return self._connection
         if self._connection is not None:
             self._connection.close()
-        con = sqlite3.connect(
-            self.path,
-            timeout=10,
-            check_same_thread=False,
-            isolation_level=None,
-        )
-        con.row_factory = sqlite3.Row
-        con.execute("PRAGMA busy_timeout=10000")
-        # FULL + WAL make the journal durable. WAL is selected once per
-        # process connection, not on every read and update.
-        con.execute("PRAGMA journal_mode=WAL")
-        con.execute("PRAGMA synchronous=FULL")
-        con.execute("PRAGMA foreign_keys=ON")
+        con = connect_journal(self.path)
         self._connection = con
         self._connection_pid = pid
         return con
@@ -367,6 +285,7 @@ class OrderJournal:
                 self._connection_pid = None
 
     def _init_schema(self) -> None:
+        """Create and migrate durable journal tables atomically."""
         with self._session(write=True) as con:
             con.executescript(
                 """
@@ -564,6 +483,7 @@ class OrderJournal:
         parent_client_order_id: str | None = None,
         metadata: dict[str, Any] | None = None,
     ) -> OrderIntent:
+        """Persist an immutable intent before any exchange mutation occurs."""
         now = time.time()
         normalized = {
             "venue": self.venue,
@@ -731,6 +651,7 @@ class OrderJournal:
         quantity: object,
         price: object,
     ) -> OrderIntent | None:
+        """Find a numerically equivalent active intent for deduplication."""
         states = ACTIVE_STATES if side.upper() == "BUY" else SELL_ACTIVE_STATES
         placeholders = ",".join("?" for _ in states)
         requested_quantity = Decimal(_decimal_text(quantity, field="quantity"))

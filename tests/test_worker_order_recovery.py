@@ -1,22 +1,12 @@
-import importlib.util
 import sqlite3
 from decimal import Decimal
-from pathlib import Path
 
 import pytest
 import requests
 
 from ladder_dragon.execution.binance_transport import BinanceResponseError
 from ladder_dragon.execution.order_recovery import OrderJournal
-
-
-def load_worker():
-    path = Path("bin/autosize_universal.py").resolve()
-    spec = importlib.util.spec_from_file_location("recovery_worker", path)
-    module = importlib.util.module_from_spec(spec)
-    assert spec and spec.loader
-    spec.loader.exec_module(module)
-    return module
+from tests.support.module_loaders import load_worker
 
 
 def configure_worker(worker, tmp_path, monkeypatch):

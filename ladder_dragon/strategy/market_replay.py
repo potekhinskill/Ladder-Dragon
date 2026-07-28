@@ -146,6 +146,7 @@ class OrderBookReplay:
         ]
 
     def process(self, event: MarketEvent) -> list[ReplayFill]:
+        """Apply one chronological market event without reusing its liquidity."""
         fills: list[ReplayFill] = []
         current_bids = {level.price: level.quantity for level in event.bids}
         current_asks = {level.price: level.quantity for level in event.asks}
@@ -567,6 +568,7 @@ def calibrate_market_events(
     min_trades: int = 50,
     measured_order_latencies_ms: Iterable[int] = (),
 ) -> ReplayCalibration:
+    """Summarize whether an archive is sufficient for calibrated L2 replay."""
     rows = list(events)
     if not rows:
         raise ValueError("cannot calibrate an empty replay")

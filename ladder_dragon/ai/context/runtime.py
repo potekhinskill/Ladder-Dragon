@@ -1,0 +1,1684 @@
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2026 IURII Potekhin
+# Purpose: implement the ai context component of the ai layer.
+"""Ladder Dragon AI context compatibility runtime."""
+
+from __future__ import annotations
+
+from dataclasses import dataclass
+from decimal import Decimal, InvalidOperation
+import hashlib
+import json
+import os
+import sqlite3
+import time
+import uuid
+from pathlib import Path
+from typing import Any, Callable, Iterable, Mapping, Sequence
+
+from ladder_dragon.execution.trade_accounting import TradeExecution, replay_average_cost
+from ladder_dragon.numeric_compat import compatibility_float
+from ladder_dragon.sqlite_safety import (
+    quote_sqlite_identifier,
+    validate_sqlite_column_ddl,
+)
+
+
+ZERO = Decimal("0")
+HORIZONS_SEC = (900, 3600, 14_400)
+CONTEXT_SCHEMA_VERSION = "ai-context-v3"
+AI_SCHEMA_VERSION = "005_unresolved_fill_resolution_scope"
+AI_SCHEMA_CHECKSUM = hashlib.sha256(AI_SCHEMA_VERSION.encode("utf-8")).hexdigest()
+UNRESOLVED_FILL_SCOPES = frozenset({"ATTRIBUTION", "INVENTORY"})
+AI_CONTEXT_SOURCE_ERRORS = (
+    ArithmeticError,
+    IndexError,
+    KeyError,
+    OSError,
+    RuntimeError,
+    TypeError,
+    ValueError,
+    sqlite3.Error,
+)
+
+
+def context_hash(context: Any) -> str:
+    """Handle context hash."""
+    from dataclasses import asdict
+
+    payload = json.dumps(asdict(context), ensure_ascii=False, sort_keys=True, default=str)
+    return hashlib.sha256(payload.encode("utf-8")).hexdigest()
+
+
+def _finite_decimal(value: object, *, field: str) -> Decimal:
+    try:
+        result = Decimal(str(value))
+    except (InvalidOperation, TypeError, ValueError) as exc:
+        raise ValueError(f"{field} is not a decimal") from exc
+    if not result.is_finite():
+        raise ValueError(f"{field} must be finite")
+    return result
+
+
+def _financial_result_decimal(
+    item: Mapping[str, Any], text_key: str, numeric_key: str
+) -> Decimal:
+    value = item.get(text_key)
+    if value in (None, ""):
+        value = item.get(numeric_key, 0) or 0
+    return _finite_decimal(value, field=numeric_key)
+
+
+def _compat_float(value: object) -> float:
+    """Return a finite numeric compatibility value at a public boundary."""
+    return compatibility_float(value)
+
+
+def _exact_text(value: object, *, field: str) -> str:
+    return format(_finite_decimal(value, field=field), "f")
+
+
+def evaluate_realized_ai_pnl(
+    fills: Sequence[Mapping[str, Any]], *, baseline_exit_price: object | None = None,
+    baseline_entry_price: object | None = None,
+) -> dict[str, Any]:
+    """Evaluate realized AI execution with exact financial arithmetic."""
+    buys = [f for f in fills if str(f.get("side", "")).upper() == "BUY" and str(f.get("status", "FILLED")).upper() == "FILLED"]
+    sells = [f for f in fills if str(f.get("side", "")).upper() == "SELL" and str(f.get("status", "FILLED")).upper() == "FILLED"]
+    bought_qty = sum(
+        (_finite_decimal(f.get("qty", f.get("executedQty", 0)) or 0, field="buy quantity") for f in buys),
+        ZERO,
+    )
+    sold_qty = sum(
+        (_finite_decimal(f.get("qty", f.get("executedQty", 0)) or 0, field="sell quantity") for f in sells),
+        ZERO,
+    )
+    buy_notional = sum(
+        (
+            _finite_decimal(f.get("price", 0) or 0, field="buy price")
+            * _finite_decimal(f.get("qty", f.get("executedQty", 0)) or 0, field="buy quantity")
+            for f in buys
+        ),
+        ZERO,
+    )
+    sell_notional = sum(
+        (
+            _finite_decimal(f.get("price", 0) or 0, field="sell price")
+            * _finite_decimal(f.get("qty", f.get("executedQty", 0)) or 0, field="sell quantity")
+            for f in sells
+        ),
+        ZERO,
+    )
+    fees = sum(
+        (_finite_decimal(f.get("fee_quote", f.get("commission_quote", 0)) or 0, field="fee") for f in fills),
+        ZERO,
+    )
+    slippage = sum(
+        (_finite_decimal(f.get("slippage_quote", 0) or 0, field="slippage") for f in fills),
+        ZERO,
+    )
+    net = sell_notional - buy_notional - fees - slippage
+    entry = (
+        _finite_decimal(baseline_entry_price, field="baseline entry price")
+        if baseline_entry_price is not None
+        else (buy_notional / bought_qty if bought_qty else None)
+    )
+    exit_price = (
+        _finite_decimal(baseline_exit_price, field="baseline exit price")
+        if baseline_exit_price is not None
+        else (sell_notional / sold_qty if sold_qty else None)
+    )
+    opportunity = None
+    if entry and exit_price and bought_qty:
+        opportunity = (exit_price - entry) * bought_qty - net
+    timestamps = [
+        int(f.get("ts", f.get("time", 0)) or 0)
+        for f in fills
+        if f.get("ts", f.get("time"))
+    ]
+    duration = (max(timestamps) - min(timestamps)) if len(timestamps) >= 2 else None
+    exits = [str(f.get("exit_reason", "")).upper() for f in sells]
+    # JSON and existing dashboard consumers receive numeric compatibility
+    # fields. Exact text companions are the durable accounting representation.
+    return {"net_pnl_quote": _compat_float(net), "net_pnl_quote_text": format(net, "f"),
+            "buy_qty": _compat_float(bought_qty), "buy_qty_text": format(bought_qty, "f"),
+            "sell_qty": _compat_float(sold_qty), "sell_qty_text": format(sold_qty, "f"),
+            "holding_duration_sec": duration,
+            "opportunity_cost_quote": _compat_float(opportunity) if opportunity is not None else None,
+            "opportunity_cost_quote_text": format(opportunity, "f") if opportunity is not None else None,
+            "baseline_entry_price": _compat_float(entry) if entry is not None else None,
+            "baseline_entry_price_text": format(entry, "f") if entry is not None else None,
+            "baseline_exit_price": _compat_float(exit_price) if exit_price is not None else None,
+            "baseline_exit_price_text": format(exit_price, "f") if exit_price is not None else None,
+            "fees_quote": _compat_float(fees), "fees_quote_text": format(fees, "f"),
+            "slippage_quote": _compat_float(slippage), "slippage_quote_text": format(slippage, "f"),
+            "partial_fill": bool(bought_qty > 0 and 0 < sold_qty < bought_qty),
+            "exit_reasons": sorted(set(exits)),
+            "exit_reason": exits[-1] if exits else "",
+            "closed": bool(bought_qty > 0 and sold_qty >= bought_qty - Decimal("0.000000000001"))}
+
+
+@dataclass(frozen=True)
+class TradeFeatures:
+    trade_history_available: bool = False
+    trade_count_30d: int = 0
+    sell_count_30d: int = 0
+    net_realized_pnl_30d: float = 0.0
+    win_rate_30d: float = 0.0
+    avg_win_usdt_30d: float = 0.0
+    avg_loss_usdt_30d: float = 0.0
+    consecutive_losses: int = 0
+    fees_usdt_30d: float = 0.0
+    turnover_usdt_30d: float = 0.0
+    position_pnl_pct: float = 0.0
+    net_realized_pnl_30d_text: str = "0"
+    avg_win_usdt_30d_text: str = "0"
+    avg_loss_usdt_30d_text: str = "0"
+    fees_usdt_30d_text: str = "0"
+    turnover_usdt_30d_text: str = "0"
+
+
+@dataclass(frozen=True)
+class MarketFeatures:
+    market_data_available: bool = False
+    orderbook_available: bool = False
+    market_data_age_sec: float = 999999.0
+    return_15m: float = 0.0
+    return_1h: float = 0.0
+    return_4h: float = 0.0
+    return_24h: float = 0.0
+    volume_ratio_1h: float = 1.0
+    spread_bps: float = 0.0
+    orderbook_imbalance_top5: float = 0.0
+    orderbook_imbalance_top20: float = 0.0
+    return_15m_text: str = "0"
+    return_1h_text: str = "0"
+    return_4h_text: str = "0"
+    return_24h_text: str = "0"
+    volume_ratio_1h_text: str = "1"
+    spread_bps_text: str = "0"
+    orderbook_imbalance_top5_text: str = "0"
+    orderbook_imbalance_top20_text: str = "0"
+
+
+@dataclass(frozen=True)
+class PortfolioFeatures:
+    portfolio_data_available: bool = False
+    portfolio_data_age_sec: float = 999999.0
+    open_buy_count: int = 0
+    open_sell_count: int = 0
+    open_buy_exposure_usdt: float = 0.0
+    portfolio_cap_used_pct: float = 0.0
+    free_reserve_ratio: float = 0.0
+    open_buy_exposure_usdt_text: str = "0"
+
+
+@dataclass(frozen=True)
+class AdvisorPerformance:
+    ai_samples_15m: int = 0
+    ai_accuracy_15m: float = 0.0
+    ai_samples_1h: int = 0
+    ai_accuracy_1h: float = 0.0
+    ai_samples_4h: int = 0
+    ai_accuracy_4h: float = 0.0
+    ai_vs_baseline_samples_1h: int = 0
+    ai_edge_vs_baseline_1h: float = 0.0
+    ai_closed_samples: int = 0
+    ai_realized_net_pnl_quote: float = 0.0
+    ai_realized_avg_pnl_quote: float = 0.0
+    ai_realized_stop_rate: float = 0.0
+    ai_realized_edge_ci_low: float = 0.0
+    ai_realized_edge_ci_high: float = 0.0
+    ai_unresolved_fills: int = 0
+    ai_realized_net_pnl_quote_text: str = "0"
+    ai_realized_avg_pnl_quote_text: str = "0"
+    ai_realized_edge_ci_low_text: str = "0"
+    ai_realized_edge_ci_high_text: str = "0"
+
+
+def load_trade_features(
+    db_path: str,
+    symbol: str,
+    current_price: float,
+    *,
+    now_ms: int | None = None,
+) -> TradeFeatures:
+    """Load trade features."""
+    if not db_path or not Path(db_path).exists():
+        return TradeFeatures()
+    now_ms = int(time.time() * 1000) if now_ms is None else now_ms
+    start_ms = now_ms - 30 * 86_400_000
+    try:
+        with sqlite3.connect(
+            f"file:{db_path}?mode=ro", uri=True, timeout=3
+        ) as connection:
+            exact_views = {
+                str(row[0]) for row in connection.execute(
+                    "SELECT name FROM sqlite_master WHERE type='view'"
+                )
+            }
+            if "trades_exact" in exact_views:
+                trade_source = "trades_exact"
+                trade_projection = (
+                    "ts,side,price_text,gross_qty_text,net_qty_text,"
+                    "commission_asset,commission_amount_text,"
+                    "commission_quote_text,commission_value_status"
+                )
+            else:
+                trade_source = "trades"
+                trade_projection = (
+                    "ts,side,CAST(price AS TEXT),CAST(qty AS TEXT),"
+                    "CAST(qty AS TEXT),'','0',"
+                    "CAST(COALESCE(fee_quote,0) AS TEXT),'legacy'"
+                )
+            rows = connection.execute(
+                f"""
+                SELECT {trade_projection}
+                FROM (
+                    SELECT * FROM {trade_source}
+                    WHERE symbol=? AND ts<=?
+                    ORDER BY ts DESC, id DESC
+                    LIMIT 1000
+                )
+                ORDER BY ts, id
+                """,
+                (symbol.upper(), now_ms),
+            ).fetchall()
+            if "inventory_exact" in exact_views:
+                inventory = connection.execute(
+                    "SELECT qty_text,avg_cost_text FROM inventory_exact WHERE symbol=?",
+                    (symbol.upper(),),
+                ).fetchone()
+            else:
+                inventory = connection.execute(
+                    "SELECT CAST(qty AS TEXT),CAST(avg_cost AS TEXT) "
+                    "FROM inventory WHERE symbol=?",
+                    (symbol.upper(),),
+                ).fetchone()
+    except sqlite3.Error:
+        return TradeFeatures()
+
+    executions: list[TradeExecution] = []
+    execution_times: list[int] = []
+    fees = ZERO
+    turnover = ZERO
+    for row in rows:
+        try:
+            timestamp = int(row[0])
+            fee = Decimal(str(row[7] or "0"))
+            execution = TradeExecution.create(
+                symbol=symbol,
+                side=row[1],
+                price=row[2],
+                gross_qty=row[3],
+                net_qty=row[4],
+                commission_asset=row[5] or "",
+                commission_amount=row[6] or 0,
+                commission_quote=fee,
+                commission_value_status=row[8] or "legacy",
+            )
+            executions.append(execution)
+            execution_times.append(timestamp)
+            if timestamp >= start_ms:
+                fees += fee
+                turnover += execution.price * execution.gross_qty
+        except (ArithmeticError, TypeError, ValueError):
+            continue
+    # Advisory history may begin after legacy inventory. Preserve the explicit
+    # partial-history behavior here; exact accounting callers remain strict.
+    replay = replay_average_cost(
+        executions,
+        allow_unpriced=True,
+        strict_inventory=False,
+    )
+    sell_times = [
+        timestamp
+        for execution, timestamp in zip(executions, execution_times)
+        if execution.side == "SELL"
+    ]
+    sells = [
+        result
+        for result, timestamp in zip(replay.sell_results, sell_times)
+        if timestamp >= start_ms
+    ]
+    recent_trade_count = sum(timestamp >= start_ms for timestamp in execution_times)
+    wins = [value for value in sells if value > 0]
+    losses = [value for value in sells if value < 0]
+    consecutive_losses = 0
+    for value in reversed(sells):
+        if value >= 0:
+            break
+        consecutive_losses += 1
+    position_pnl = 0.0
+    if inventory:
+        try:
+            qty, avg = Decimal(str(inventory[0])), Decimal(str(inventory[1]))
+            if qty > 0 and avg > 0 and current_price > 0:
+                position_pnl = _compat_float(
+                    _finite_decimal(current_price, field="current price") / avg - 1
+                )
+        except ArithmeticError:
+            pass
+    realized_total = sum(sells, ZERO)
+    average_win = sum(wins, ZERO) / len(wins) if wins else ZERO
+    average_loss = sum(losses, ZERO) / len(losses) if losses else ZERO
+    return TradeFeatures(
+        trade_history_available=True,
+        trade_count_30d=recent_trade_count,
+        sell_count_30d=len(sells),
+        net_realized_pnl_30d=_compat_float(realized_total),
+        win_rate_30d=(len(wins) / len(sells) if sells else 0.0),
+        avg_win_usdt_30d=(
+            _compat_float(average_win) if wins else 0.0
+        ),
+        avg_loss_usdt_30d=(
+            _compat_float(average_loss) if losses else 0.0
+        ),
+        consecutive_losses=consecutive_losses,
+        fees_usdt_30d=_compat_float(fees),
+        turnover_usdt_30d=_compat_float(turnover),
+        position_pnl_pct=position_pnl,
+        net_realized_pnl_30d_text=format(realized_total, "f"),
+        avg_win_usdt_30d_text=format(average_win, "f"),
+        avg_loss_usdt_30d_text=format(average_loss, "f"),
+        fees_usdt_30d_text=format(fees, "f"),
+        turnover_usdt_30d_text=format(turnover, "f"),
+    )
+
+
+def market_features_from_klines(
+    klines: Sequence[Sequence[Any]],
+) -> MarketFeatures:
+    """Handle market features from klines."""
+    valid: list[tuple[Sequence[Any], Decimal, Decimal]] = []
+    for row in klines:
+        if len(row) <= 5:
+            continue
+        try:
+            close = _finite_decimal(row[4], field="kline close")
+            volume = _finite_decimal(row[5], field="kline volume")
+        except ValueError:
+            continue
+        if close > ZERO and volume >= ZERO:
+            valid.append((row, close, volume))
+    if not valid:
+        return MarketFeatures()
+    current = valid[-1][1]
+
+    def period_return(bars: int) -> Decimal:
+        index = max(0, len(valid) - 1 - bars)
+        previous = valid[index][1]
+        return current / previous - Decimal("1") if previous > ZERO else ZERO
+
+    recent = [row[2] for row in valid[-12:]]
+    previous = [row[2] for row in valid[-24:-12]]
+    recent_avg = sum(recent, ZERO) / len(recent) if recent else ZERO
+    previous_avg = sum(previous, ZERO) / len(previous) if previous else ZERO
+    returns = {
+        "15m": period_return(3),
+        "1h": period_return(12),
+        "4h": period_return(48),
+        "24h": period_return(288),
+    }
+    volume_ratio = recent_avg / previous_avg if previous_avg > ZERO else Decimal("1")
+    close_time_ms = ZERO
+    if len(valid[-1][0]) > 6:
+        try:
+            close_time_ms = _finite_decimal(
+                valid[-1][0][6], field="kline close time"
+            )
+        except ValueError:
+            close_time_ms = ZERO
+    return MarketFeatures(
+        market_data_available=True,
+        market_data_age_sec=max(
+            0.0,
+            time.time() - _compat_float(close_time_ms / Decimal("1000"))
+            if close_time_ms > ZERO else 0.0,
+        ),
+        return_15m=_compat_float(returns["15m"]),
+        return_1h=_compat_float(returns["1h"]),
+        return_4h=_compat_float(returns["4h"]),
+        return_24h=_compat_float(returns["24h"]),
+        volume_ratio_1h=_compat_float(volume_ratio),
+        return_15m_text=format(returns["15m"], "f"),
+        return_1h_text=format(returns["1h"], "f"),
+        return_4h_text=format(returns["4h"], "f"),
+        return_24h_text=format(returns["24h"], "f"),
+        volume_ratio_1h_text=format(volume_ratio, "f"),
+    )
+
+
+def _orderbook_features_decimal(
+    depth: Mapping[str, Any],
+) -> tuple[Decimal, Decimal, Decimal]:
+    bids = depth.get("bids")
+    asks = depth.get("asks")
+    if not isinstance(bids, list) or not isinstance(asks, list) or not bids or not asks:
+        return ZERO, ZERO, ZERO
+    try:
+        best_bid = _finite_decimal(bids[0][0], field="best bid")
+        best_ask = _finite_decimal(asks[0][0], field="best ask")
+        midpoint = (best_bid + best_ask) / Decimal("2")
+        if midpoint <= ZERO or best_ask < best_bid:
+            raise ValueError("order book is crossed or invalid")
+        spread_bps = (best_ask - best_bid) / midpoint * Decimal("10000")
+    except (ArithmeticError, IndexError, TypeError, ValueError):
+        return ZERO, ZERO, ZERO
+
+    def imbalance(levels: int) -> Decimal:
+        bid_qty = sum(
+            (_finite_decimal(row[1], field="bid quantity") for row in bids[:levels]),
+            ZERO,
+        )
+        ask_qty = sum(
+            (_finite_decimal(row[1], field="ask quantity") for row in asks[:levels]),
+            ZERO,
+        )
+        total = bid_qty + ask_qty
+        return (bid_qty - ask_qty) / total if total > ZERO else ZERO
+
+    try:
+        return spread_bps, imbalance(5), imbalance(20)
+    except (ArithmeticError, IndexError, TypeError, ValueError):
+        return spread_bps, ZERO, ZERO
+
+
+def orderbook_features(depth: Mapping[str, Any]) -> tuple[float, float, float]:
+    """Return numeric compatibility values from exact order-book aggregates."""
+    spread, top5, top20 = _orderbook_features_decimal(depth)
+    return _compat_float(spread), _compat_float(top5), _compat_float(top20)
+
+
+def build_market_features(
+    symbol: str,
+    *,
+    get_klines: Callable[..., Sequence[Sequence[Any]]],
+    public_get: Callable[..., Any],
+) -> MarketFeatures:
+    try:
+        base = market_features_from_klines(
+            get_klines(symbol, "5m", limit=289)
+        )
+    except AI_CONTEXT_SOURCE_ERRORS:
+        base = MarketFeatures()
+    try:
+        depth = public_get("/api/v3/depth", {"symbol": symbol, "limit": 20})
+        spread_exact, top5_exact, top20_exact = _orderbook_features_decimal(depth)
+        orderbook_ok = (
+            isinstance(depth, Mapping)
+            and isinstance(depth.get("bids"), list)
+            and isinstance(depth.get("asks"), list)
+            and bool(depth.get("bids"))
+            and bool(depth.get("asks"))
+        )
+    except AI_CONTEXT_SOURCE_ERRORS:
+        spread_exact, top5_exact, top20_exact = ZERO, ZERO, ZERO
+        orderbook_ok = False
+    return MarketFeatures(
+        market_data_available=base.market_data_available,
+        orderbook_available=orderbook_ok,
+        market_data_age_sec=base.market_data_age_sec,
+        return_15m=base.return_15m,
+        return_1h=base.return_1h,
+        return_4h=base.return_4h,
+        return_24h=base.return_24h,
+        volume_ratio_1h=base.volume_ratio_1h,
+        spread_bps=_compat_float(spread_exact),
+        orderbook_imbalance_top5=_compat_float(top5_exact),
+        orderbook_imbalance_top20=_compat_float(top20_exact),
+        return_15m_text=base.return_15m_text,
+        return_1h_text=base.return_1h_text,
+        return_4h_text=base.return_4h_text,
+        return_24h_text=base.return_24h_text,
+        volume_ratio_1h_text=base.volume_ratio_1h_text,
+        spread_bps_text=format(spread_exact, "f"),
+        orderbook_imbalance_top5_text=format(top5_exact, "f"),
+        orderbook_imbalance_top20_text=format(top20_exact, "f"),
+    )
+
+
+def build_portfolio_features(
+    symbol: str,
+    *,
+    open_orders: Iterable[Mapping[str, Any]],
+    balances: Mapping[str, Mapping[str, Any]],
+    portfolio_cap_usdt: object,
+    reserve_usdt: object,
+) -> PortfolioFeatures:
+    orders = tuple(open_orders)
+    buys = [
+        order for order in orders
+        if str(order.get("symbol", "")).upper() == symbol.upper()
+        and str(order.get("side", "")).upper() == "BUY"
+    ]
+    sells = [
+        order for order in orders
+        if str(order.get("symbol", "")).upper() == symbol.upper()
+        and str(order.get("side", "")).upper() == "SELL"
+    ]
+    def remaining_exposure(order: Mapping[str, Any]) -> Decimal:
+        remaining = max(
+            ZERO,
+            _finite_decimal(
+                order.get("origQty") or 0,
+                field="open order quantity",
+            )
+            - _finite_decimal(
+                order.get("executedQty") or 0,
+                field="open order executed quantity",
+            ),
+        )
+        return _finite_decimal(
+            order.get("price") or 0,
+            field="open order price",
+        ) * remaining
+
+    exposure = sum(
+        remaining_exposure(order)
+        for order in buys
+    )
+    total_buy_exposure = sum(
+        remaining_exposure(order)
+        for order in orders
+        if str(order.get("side", "")).upper() == "BUY"
+    )
+    cap_exact = _finite_decimal(portfolio_cap_usdt, field="portfolio CAP")
+    reserve_exact = _finite_decimal(reserve_usdt, field="reserve")
+    free_usdt = _finite_decimal(
+        balances.get("USDT", {}).get("free", 0) or 0,
+        field="free USDT",
+    )
+    return PortfolioFeatures(
+        portfolio_data_available=True,
+        portfolio_data_age_sec=0.0,
+        open_buy_count=len(buys),
+        open_sell_count=len(sells),
+        open_buy_exposure_usdt=_compat_float(exposure),
+        portfolio_cap_used_pct=(
+            _compat_float(total_buy_exposure / cap_exact)
+            if cap_exact > 0 else 0.0
+        ),
+        free_reserve_ratio=(
+            _compat_float(free_usdt / reserve_exact) if reserve_exact > 0 else 0.0
+        ),
+        open_buy_exposure_usdt_text=format(exposure, "f"),
+    )
+
+
+class AdvisorDecisionStore:
+    """Represent AdvisorDecisionStore."""
+
+    def __init__(self, db_path: str) -> None:
+        self.path = Path(db_path)
+        self.path.parent.mkdir(parents=True, exist_ok=True)
+        self._init()
+
+    def _connect(self) -> sqlite3.Connection:
+        connection = sqlite3.connect(self.path, timeout=5)
+        connection.execute("PRAGMA busy_timeout=5000")
+        return connection
+
+    def _init(self) -> None:
+        """Apply additive AI decision migrations with checksum verification."""
+        with self._connect() as connection:
+            connection.execute(
+                """CREATE TABLE IF NOT EXISTS ai_schema_migrations(
+                    version TEXT PRIMARY KEY, checksum TEXT NOT NULL,
+                    applied_at INTEGER NOT NULL
+                )"""
+            )
+            # A separate fills table keeps the model forecast distinct from the
+            # execution fact and allows PnL attribution to one recommendation.
+            connection.execute(
+                """
+                CREATE TABLE IF NOT EXISTS ai_decisions(
+                    decision_id TEXT PRIMARY KEY,
+                    symbol TEXT NOT NULL,
+                    created_at INTEGER NOT NULL,
+                    price REAL NOT NULL,
+                    price_text TEXT,
+                    deterministic_mode TEXT NOT NULL,
+                    recommended_mode TEXT NOT NULL,
+                    width_scale REAL NOT NULL,
+                    cap_scale REAL NOT NULL,
+                    confidence REAL NOT NULL,
+                    applied INTEGER NOT NULL,
+                    policy_status TEXT NOT NULL DEFAULT '',
+                    policy_reasons TEXT NOT NULL DEFAULT '',
+                    benchmark_mode TEXT NOT NULL DEFAULT '',
+                    evaluation_json TEXT NOT NULL DEFAULT '{}',
+                    feature_json TEXT NOT NULL DEFAULT '[]',
+                    return_15m REAL,
+                    return_1h REAL,
+                    return_4h REAL,
+                    return_15m_text TEXT,
+                    return_1h_text TEXT,
+                    return_4h_text TEXT
+                )
+                """
+            )
+            connection.execute(
+                "CREATE INDEX IF NOT EXISTS ai_decisions_symbol_time "
+                "ON ai_decisions(symbol, created_at)"
+            )
+            connection.execute(
+                """CREATE TABLE IF NOT EXISTS ai_fills(
+                    fill_id TEXT PRIMARY KEY, decision_id TEXT NOT NULL,
+                    symbol TEXT NOT NULL, side TEXT NOT NULL, price REAL NOT NULL,
+                    qty REAL NOT NULL, fee_quote REAL NOT NULL DEFAULT 0,
+                    price_text TEXT, qty_text TEXT, fee_quote_text TEXT,
+                    exit_reason TEXT NOT NULL DEFAULT '', ts INTEGER NOT NULL,
+                    order_id TEXT, trade_id TEXT, client_order_id TEXT, order_list_id TEXT,
+                    leg_type TEXT NOT NULL DEFAULT '', link_status TEXT NOT NULL DEFAULT 'resolved',
+                    slippage_quote REAL NOT NULL DEFAULT 0,
+                    slippage_quote_text TEXT,
+                    FOREIGN KEY(decision_id) REFERENCES ai_decisions(decision_id)
+                )"""
+            )
+            connection.execute("CREATE INDEX IF NOT EXISTS ai_fills_decision ON ai_fills(decision_id, ts)")
+            connection.execute("""CREATE TABLE IF NOT EXISTS ai_unresolved_fills(
+                fill_key TEXT PRIMARY KEY, symbol TEXT NOT NULL, side TEXT NOT NULL,
+                order_id TEXT, trade_id TEXT, price REAL NOT NULL, qty REAL NOT NULL,
+                fee_quote REAL NOT NULL DEFAULT 0, price_text TEXT, qty_text TEXT,
+                fee_quote_text TEXT, ts INTEGER NOT NULL,
+                reason TEXT NOT NULL,
+                resolution_scope TEXT NOT NULL DEFAULT 'ATTRIBUTION',
+                created_at INTEGER NOT NULL
+            )""")
+            connection.execute("""CREATE TABLE IF NOT EXISTS ai_order_links(
+                client_order_id TEXT PRIMARY KEY, decision_id TEXT NOT NULL,
+                symbol TEXT NOT NULL, lot_id INTEGER, order_type TEXT NOT NULL DEFAULT '',
+                exchange_order_id TEXT, exchange_order_list_id TEXT,
+                leg_type TEXT NOT NULL DEFAULT '', expected_price REAL,
+                expected_price_text TEXT,
+                created_at INTEGER NOT NULL
+            )""")
+            columns = {
+                row[1] for row in connection.execute("PRAGMA table_info(ai_decisions)")
+            }
+            for column, ddl in (
+                ("policy_status", "TEXT NOT NULL DEFAULT ''"),
+                ("policy_reasons", "TEXT NOT NULL DEFAULT ''"),
+                ("benchmark_mode", "TEXT NOT NULL DEFAULT ''"),
+                ("evaluation_json", "TEXT NOT NULL DEFAULT '{}'"),
+                ("feature_json", "TEXT NOT NULL DEFAULT '[]'"),
+                ("rationale", "TEXT NOT NULL DEFAULT ''"),
+                ("context_version", "TEXT NOT NULL DEFAULT 'ai-context-v1'"),
+                ("config_version", "TEXT NOT NULL DEFAULT ''"),
+                ("context_hash", "TEXT NOT NULL DEFAULT ''"),
+                ("price_text", "TEXT"),
+                ("return_15m_text", "TEXT"),
+                ("return_1h_text", "TEXT"),
+                ("return_4h_text", "TEXT"),
+            ):
+                if column not in columns:
+                    safe_column = quote_sqlite_identifier(column)
+                    safe_ddl = validate_sqlite_column_ddl(ddl)
+                    connection.execute(
+                        "ALTER TABLE \"ai_decisions\" ADD COLUMN "
+                        f"{safe_column} {safe_ddl}"
+                    )
+            for table, table_columns in {
+                "ai_fills": {
+                    "order_id": "TEXT", "client_order_id": "TEXT",
+                    "trade_id": "TEXT",
+                    "order_list_id": "TEXT", "leg_type": "TEXT NOT NULL DEFAULT ''",
+                    "link_status": "TEXT NOT NULL DEFAULT 'resolved'",
+                    "slippage_quote": "REAL NOT NULL DEFAULT 0",
+                    "price_text": "TEXT", "qty_text": "TEXT",
+                    "fee_quote_text": "TEXT", "slippage_quote_text": "TEXT",
+                },
+                "ai_unresolved_fills": {
+                    "price_text": "TEXT", "qty_text": "TEXT",
+                    "fee_quote_text": "TEXT",
+                    "resolution_scope": (
+                        "TEXT NOT NULL DEFAULT 'ATTRIBUTION'"
+                    ),
+                },
+                "ai_order_links": {
+                    "exchange_order_id": "TEXT", "exchange_order_list_id": "TEXT",
+                    "leg_type": "TEXT NOT NULL DEFAULT ''", "expected_price": "REAL",
+                    "expected_price_text": "TEXT",
+                },
+            }.items():
+                safe_table = quote_sqlite_identifier(table)
+                existing = {
+                    row[1]
+                    for row in connection.execute(
+                        f"PRAGMA table_info({safe_table})"
+                    )
+                }
+                for column, ddl in table_columns.items():
+                    if column not in existing:
+                        safe_column = quote_sqlite_identifier(column)
+                        safe_ddl = validate_sqlite_column_ddl(ddl)
+                        connection.execute(
+                            f"ALTER TABLE {safe_table} ADD COLUMN "
+                            f"{safe_column} {safe_ddl}"
+                        )
+            connection.execute(
+                "UPDATE ai_decisions SET "
+                "price_text=COALESCE(NULLIF(price_text,''),printf('%.17g',price)),"
+                "return_15m_text=CASE WHEN return_15m IS NULL THEN return_15m_text "
+                "ELSE COALESCE(NULLIF(return_15m_text,''),printf('%.17g',return_15m)) END,"
+                "return_1h_text=CASE WHEN return_1h IS NULL THEN return_1h_text "
+                "ELSE COALESCE(NULLIF(return_1h_text,''),printf('%.17g',return_1h)) END,"
+                "return_4h_text=CASE WHEN return_4h IS NULL THEN return_4h_text "
+                "ELSE COALESCE(NULLIF(return_4h_text,''),printf('%.17g',return_4h)) END"
+            )
+            connection.execute(
+                "UPDATE ai_fills SET "
+                "price_text=COALESCE(NULLIF(price_text,''),printf('%.17g',price)),"
+                "qty_text=COALESCE(NULLIF(qty_text,''),printf('%.17g',qty)),"
+                "fee_quote_text=COALESCE(NULLIF(fee_quote_text,''),printf('%.17g',fee_quote)),"
+                "slippage_quote_text=COALESCE(NULLIF(slippage_quote_text,''),"
+                "printf('%.17g',slippage_quote))"
+            )
+            connection.execute(
+                "UPDATE ai_unresolved_fills SET "
+                "price_text=COALESCE(NULLIF(price_text,''),printf('%.17g',price)),"
+                "qty_text=COALESCE(NULLIF(qty_text,''),printf('%.17g',qty)),"
+                "fee_quote_text=COALESCE(NULLIF(fee_quote_text,''),printf('%.17g',fee_quote))"
+            )
+            connection.execute(
+                "UPDATE ai_order_links SET expected_price_text="
+                "CASE WHEN expected_price IS NULL THEN expected_price_text ELSE "
+                "COALESCE(NULLIF(expected_price_text,''),printf('%.17g',expected_price)) END"
+            )
+            # Create indexes only after ALTER TABLE: older Raspberry databases
+            # do not have these columns until the current migration.
+            connection.execute(
+                "CREATE INDEX IF NOT EXISTS ai_fills_exchange_trade "
+                "ON ai_fills(order_id, trade_id) WHERE order_id IS NOT NULL AND trade_id IS NOT NULL"
+            )
+            connection.execute(
+                "CREATE INDEX IF NOT EXISTS ai_order_links_exchange_id ON ai_order_links(exchange_order_id)"
+            )
+            connection.execute(
+                "CREATE INDEX IF NOT EXISTS ai_order_links_list_id ON ai_order_links(exchange_order_list_id)"
+            )
+            connection.execute(
+                "DELETE FROM ai_decisions WHERE created_at < ?",
+                (int(time.time()) - 365 * 86_400,),
+            )
+            connection.execute(
+                """INSERT OR IGNORE INTO ai_schema_migrations(
+                    version,checksum,applied_at
+                ) VALUES(?,?,?)""",
+                (AI_SCHEMA_VERSION, AI_SCHEMA_CHECKSUM, int(time.time())),
+            )
+            known_links = connection.execute(
+                """
+                SELECT DISTINCT l.decision_id,l.client_order_id,
+                                l.exchange_order_id,l.leg_type
+                FROM ai_order_links AS l
+                JOIN ai_decisions AS d ON d.decision_id=l.decision_id
+                JOIN ai_unresolved_fills AS u
+                  ON u.order_id=l.exchange_order_id
+                WHERE l.exchange_order_id IS NOT NULL
+                """
+            ).fetchall()
+            for decision_id, client_order_id, order_id, leg_type in known_links:
+                self._resolve_linked_fills(
+                    connection,
+                    decision_id=str(decision_id),
+                    client_order_id=str(client_order_id),
+                    exchange_order_id=str(order_id),
+                    leg_type=str(leg_type or ""),
+                )
+
+    def record_fill(self, decision_id: str, *, symbol: str, side: str,
+                    price: object, qty: object, fee_quote: object = 0,
+                    exit_reason: str = "", ts: int | None = None,
+                    order_id: str | int | None = None,
+                    trade_id: str | int | None = None,
+                    client_order_id: str | None = None,
+                    order_list_id: str | int | None = None,
+                    leg_type: str = "",
+                    slippage_quote: object = 0) -> str:
+        """Record fill."""
+        fill_id = uuid.uuid4().hex
+        with self._connect() as connection:
+            exists = connection.execute("SELECT 1 FROM ai_decisions WHERE decision_id=?", (decision_id,)).fetchone()
+            if not exists:
+                raise ValueError(f"unknown AI decision: {decision_id}")
+            if order_id is not None and trade_id is not None:
+                duplicate = connection.execute(
+                    "SELECT fill_id FROM ai_fills WHERE order_id=? AND trade_id=?",
+                    (str(order_id), str(trade_id)),
+                ).fetchone()
+                if duplicate:
+                    return str(duplicate[0])
+            price_exact = _finite_decimal(price, field="fill price")
+            qty_exact = _finite_decimal(qty, field="fill quantity")
+            fee_exact = _finite_decimal(fee_quote, field="fill fee")
+            slippage_exact = _finite_decimal(slippage_quote, field="fill slippage")
+            connection.execute(
+                """INSERT INTO ai_fills(
+                    fill_id,decision_id,symbol,side,price,qty,fee_quote,exit_reason,ts,
+                    order_id,trade_id,client_order_id,order_list_id,leg_type,link_status,slippage_quote,
+                    price_text,qty_text,fee_quote_text,slippage_quote_text
+                ) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                (fill_id, decision_id, symbol.upper(), side.upper(), format(price_exact, "f"),
+                 format(qty_exact, "f"), format(fee_exact, "f"),
+                 exit_reason, int(ts or time.time()),
+                 str(order_id) if order_id is not None else None,
+                 str(trade_id) if trade_id is not None else None,
+                 client_order_id,
+                 str(order_list_id) if order_list_id is not None else None,
+                 leg_type, "resolved", format(slippage_exact, "f"),
+                 format(price_exact, "f"), format(qty_exact, "f"),
+                 format(fee_exact, "f"), format(slippage_exact, "f")),
+            )
+        return fill_id
+
+    def record_unresolved_fill(
+        self, *, symbol: str, side: str, price: object, qty: object,
+        fee_quote: object = 0, ts: int | None = None,
+        order_id: str | int | None = None, trade_id: str | int | None = None,
+        reason: str = "missing_decision_mapping",
+        resolution_scope: str = "ATTRIBUTION",
+    ) -> str:
+        """Record an unresolved fill without conflating attribution and inventory."""
+        stamp = int(ts or time.time())
+        fill_key = f"{symbol.upper()}:{trade_id if trade_id is not None else order_id}:{stamp}"
+        scope = str(resolution_scope).strip().upper()
+        if scope not in UNRESOLVED_FILL_SCOPES:
+            raise ValueError("invalid unresolved fill resolution scope")
+        with self._connect() as connection:
+            price_exact = _finite_decimal(price, field="unresolved fill price")
+            qty_exact = _finite_decimal(qty, field="unresolved fill quantity")
+            fee_exact = _finite_decimal(fee_quote, field="unresolved fill fee")
+            connection.execute(
+                """INSERT OR REPLACE INTO ai_unresolved_fills(
+                    fill_key,symbol,side,order_id,trade_id,price,qty,fee_quote,
+                    price_text,qty_text,fee_quote_text,ts,reason,
+                    resolution_scope,created_at
+                ) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                (fill_key, symbol.upper(), side.upper(),
+                 str(order_id) if order_id is not None else None,
+                 str(trade_id) if trade_id is not None else None,
+                 format(price_exact, "f"), format(qty_exact, "f"),
+                 format(fee_exact, "f"),
+                 format(price_exact, "f"), format(qty_exact, "f"),
+                 format(fee_exact, "f"), stamp,
+                 reason[:240], scope, int(time.time())),
+            )
+        return fill_key
+
+    def link_client_order(self, client_order_id: str, decision_id: str, *, symbol: str,
+                          lot_id: int | None = None, order_type: str = "",
+                          exchange_order_id: str | int | None = None,
+                          exchange_order_list_id: str | int | None = None,
+                          leg_type: str = "", expected_price: object | None = None) -> None:
+        """Handle link client order."""
+        expected_exact = (
+            _finite_decimal(expected_price, field="expected order price")
+            if expected_price is not None else None
+        )
+        expected_text = format(expected_exact, "f") if expected_exact is not None else None
+        with self._connect() as connection:
+            existing = connection.execute(
+                "SELECT decision_id FROM ai_order_links WHERE client_order_id=?",
+                (client_order_id,),
+            ).fetchone()
+            if existing:
+                # After restart the new cycle may know only the current
+                # decision_id. Never overwrite the old link: the exchange
+                # order/trade already belongs to the original recommendation.
+                connection.execute(
+                    """UPDATE ai_order_links
+                       SET symbol=?, lot_id=COALESCE(lot_id,?),
+                           order_type=CASE WHEN order_type='' THEN ? ELSE order_type END,
+                           leg_type=CASE WHEN leg_type='' THEN ? ELSE leg_type END,
+                           exchange_order_id=COALESCE(exchange_order_id,?),
+                           exchange_order_list_id=COALESCE(exchange_order_list_id,?),
+                           expected_price=COALESCE(expected_price,?),
+                           expected_price_text=COALESCE(expected_price_text,?)
+                       WHERE client_order_id=?""",
+                    (symbol.upper(), lot_id, order_type, leg_type,
+                     str(exchange_order_id) if exchange_order_id is not None else None,
+                     str(exchange_order_list_id) if exchange_order_list_id is not None else None,
+                     expected_text, expected_text, client_order_id),
+                )
+                self._resolve_linked_fills(
+                    connection,
+                    decision_id=str(existing[0]),
+                    client_order_id=client_order_id,
+                    exchange_order_id=exchange_order_id,
+                    leg_type=leg_type,
+                )
+                return
+            connection.execute(
+                """INSERT OR REPLACE INTO ai_order_links(
+                    client_order_id,decision_id,symbol,lot_id,order_type,
+                    exchange_order_id,exchange_order_list_id,leg_type,expected_price,
+                    expected_price_text,created_at
+                ) VALUES(?,?,?,?,?,?,?,?,?,?,?)""",
+                (
+                    client_order_id, decision_id, symbol.upper(), lot_id, order_type,
+                    str(exchange_order_id) if exchange_order_id is not None else None,
+                    str(exchange_order_list_id) if exchange_order_list_id is not None else None,
+                    leg_type, expected_text, expected_text, int(time.time()),
+                ),
+            )
+            self._resolve_linked_fills(
+                connection,
+                decision_id=decision_id,
+                client_order_id=client_order_id,
+                exchange_order_id=exchange_order_id,
+                leg_type=leg_type,
+            )
+
+    @staticmethod
+    def _resolve_linked_fills(
+        connection: sqlite3.Connection,
+        *,
+        decision_id: str,
+        client_order_id: str,
+        exchange_order_id: str | int | None,
+        leg_type: str,
+    ) -> int:
+        """Atomically transfer newly linked fills out of the unresolved queue."""
+        if exchange_order_id is None:
+            return 0
+        rows = connection.execute(
+            """
+            SELECT fill_key,symbol,side,order_id,trade_id,
+                   COALESCE(NULLIF(price_text,''),CAST(price AS TEXT)),
+                   COALESCE(NULLIF(qty_text,''),CAST(qty AS TEXT)),
+                   COALESCE(NULLIF(fee_quote_text,''),CAST(fee_quote AS TEXT)),
+                   ts
+            FROM ai_unresolved_fills WHERE order_id=?
+            """,
+            (str(exchange_order_id),),
+        ).fetchall()
+        resolved = 0
+        for row in rows:
+            fill_id = f"resolved:{row[0]}"
+            connection.execute(
+                """
+                INSERT OR IGNORE INTO ai_fills(
+                    fill_id,decision_id,symbol,side,price,qty,fee_quote,
+                    exit_reason,ts,order_id,trade_id,client_order_id,
+                    order_list_id,leg_type,link_status,slippage_quote,
+                    price_text,qty_text,fee_quote_text,slippage_quote_text
+                ) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+                """,
+                (
+                    fill_id, decision_id, str(row[1]), str(row[2]),
+                    str(row[5]), str(row[6]), str(row[7]), "", int(row[8]),
+                    str(row[3]), str(row[4]) if row[4] is not None else None,
+                    client_order_id, None, leg_type, "resolved", "0",
+                    str(row[5]), str(row[6]), str(row[7]), "0",
+                ),
+            )
+            connection.execute(
+                "DELETE FROM ai_unresolved_fills WHERE fill_key=?",
+                (str(row[0]),),
+            )
+            resolved += 1
+        return resolved
+
+    def update_order_link(
+        self, client_order_id: str, *, exchange_order_id: str | int | None = None,
+        exchange_order_list_id: str | int | None = None, leg_type: str | None = None,
+    ) -> None:
+        """Update order link."""
+        changes = []
+        values: list[Any] = []
+        if exchange_order_id is not None:
+            changes.append("exchange_order_id=?")
+            values.append(str(exchange_order_id))
+        if exchange_order_list_id is not None:
+            changes.append("exchange_order_list_id=?")
+            values.append(str(exchange_order_list_id))
+        if leg_type is not None:
+            changes.append("leg_type=?")
+            values.append(str(leg_type))
+        if not changes:
+            return
+        values.append(client_order_id)
+        with self._connect() as connection:
+            connection.execute(
+                f"UPDATE ai_order_links SET {', '.join(changes)} WHERE client_order_id=?",
+                values,
+            )
+            row = connection.execute(
+                "SELECT decision_id,COALESCE(exchange_order_id,''),leg_type "
+                "FROM ai_order_links WHERE client_order_id=?",
+                (client_order_id,),
+            ).fetchone()
+            if row is not None:
+                self._resolve_linked_fills(
+                    connection,
+                    decision_id=str(row[0]),
+                    client_order_id=client_order_id,
+                    exchange_order_id=str(row[1]) or None,
+                    leg_type=str(row[2] or ""),
+                )
+
+    def decision_for_client_order(self, client_order_id: str) -> tuple[str, int | None] | None:
+        with self._connect() as connection:
+            row = connection.execute("SELECT decision_id,lot_id FROM ai_order_links WHERE client_order_id=?", (client_order_id,)).fetchone()
+        return (str(row[0]), int(row[1]) if row[1] is not None else None) if row else None
+
+    def decision_for_exchange_order(self, order_id: str | int) -> tuple[str, str, str] | None:
+        """Handle decision for exchange order."""
+        with self._connect() as connection:
+            row = connection.execute(
+                """SELECT decision_id,client_order_id,leg_type
+                   FROM ai_order_links WHERE exchange_order_id=? LIMIT 1""",
+                (str(order_id),),
+            ).fetchone()
+        return (str(row[0]), str(row[1]), str(row[2] or "")) if row else None
+
+    def order_link_for_exchange_order(self, order_id: str | int) -> dict[str, Any] | None:
+        """Handle order link for exchange order."""
+        with self._connect() as connection:
+            row = connection.execute(
+                """SELECT decision_id,client_order_id,leg_type,exchange_order_list_id,
+                          COALESCE(NULLIF(expected_price_text,''),CAST(expected_price AS TEXT))
+                   FROM ai_order_links WHERE exchange_order_id=? LIMIT 1""",
+                (str(order_id),),
+            ).fetchone()
+            if row is None:
+                return None
+            return {
+                "decision_id": str(row[0]), "client_order_id": str(row[1]),
+                "leg_type": str(row[2] or ""), "order_list_id": row[3],
+                "expected_price": _compat_float(row[4]) if row[4] is not None else None,
+                "expected_price_text": str(row[4]) if row[4] is not None else None,
+            }
+
+    def unresolved_fill_count(self) -> int:
+        with self._connect() as connection:
+            return int(connection.execute("SELECT COUNT(*) FROM ai_unresolved_fills").fetchone()[0])
+
+    def unresolved_fill_count_by_scope(self, resolution_scope: str) -> int:
+        """Count one explicit unresolved category without relaxing AI gates."""
+        scope = str(resolution_scope).strip().upper()
+        if scope not in UNRESOLVED_FILL_SCOPES:
+            raise ValueError("invalid unresolved fill resolution scope")
+        with self._connect() as connection:
+            return int(
+                connection.execute(
+                    "SELECT COUNT(*) FROM ai_unresolved_fills "
+                    "WHERE resolution_scope=?",
+                    (scope,),
+                ).fetchone()[0]
+            )
+
+    def update_policy(
+        self, decision_id: str, *, policy_status: str, policy_reasons: str,
+        benchmark_mode: str, applied: bool,
+    ) -> None:
+        with self._connect() as connection:
+            connection.execute(
+                """UPDATE ai_decisions SET applied=?,policy_status=?,policy_reasons=?,benchmark_mode=?
+                   WHERE decision_id=?""",
+                (int(applied), policy_status, policy_reasons, benchmark_mode, decision_id),
+            )
+
+    def evaluate_execution(self, decision_id: str, *, baseline_exit_price: object | None = None) -> dict[str, Any]:
+        """Evaluate execution."""
+        with self._connect() as connection:
+            rows = connection.execute(
+                """SELECT side,
+                          COALESCE(NULLIF(price_text,''),CAST(price AS TEXT)),
+                          COALESCE(NULLIF(qty_text,''),CAST(qty AS TEXT)),
+                          COALESCE(NULLIF(fee_quote_text,''),CAST(fee_quote AS TEXT)),
+                          exit_reason,ts,order_id,
+                          trade_id,client_order_id,order_list_id,leg_type,
+                          COALESCE(NULLIF(slippage_quote_text,''),CAST(slippage_quote AS TEXT))
+                   FROM ai_fills WHERE decision_id=? ORDER BY ts""",
+                (decision_id,),
+            ).fetchall()
+            decision = connection.execute(
+                "SELECT COALESCE(NULLIF(price_text,''),CAST(price AS TEXT)) "
+                "FROM ai_decisions WHERE decision_id=?",
+                (decision_id,),
+            ).fetchone()
+        if not decision:
+            raise ValueError(f"unknown AI decision: {decision_id}")
+        fills = [{
+            "side": r[0], "price": r[1], "qty": r[2], "fee_quote": r[3],
+            "exit_reason": r[4], "ts": r[5], "order_id": r[6],
+            "trade_id": r[7], "client_order_id": r[8], "order_list_id": r[9],
+            "leg_type": r[10], "slippage_quote": r[11],
+        } for r in rows]
+        # Baseline uses the same entry and quantity, so the comparison cannot
+        # win artificially because of a different position size.
+        result = evaluate_realized_ai_pnl(
+            fills,
+            baseline_entry_price=decision[0],
+            baseline_exit_price=baseline_exit_price,
+        )
+        result["decision_id"] = decision_id
+        with self._connect() as connection:
+            row = connection.execute("SELECT evaluation_json FROM ai_decisions WHERE decision_id=?", (decision_id,)).fetchone()
+            evaluation = json.loads((row[0] if row else "{}") or "{}")
+            evaluation["realized_execution"] = result
+            connection.execute("UPDATE ai_decisions SET evaluation_json=? WHERE decision_id=?", (json.dumps(evaluation), decision_id))
+        return result
+
+    def record(
+        self,
+        *,
+        symbol: str,
+        price: object,
+        deterministic_mode: str,
+        recommended_mode: str,
+        width_scale: float,
+        cap_scale: float,
+        confidence: float,
+        applied: bool,
+        policy_status: str = "",
+        policy_reasons: str = "",
+        benchmark_mode: str = "",
+        feature_json: str = "[]",
+        rationale: str = "",
+        context_version: str = CONTEXT_SCHEMA_VERSION,
+        config_version: str = "",
+        context_hash_value: str = "",
+        now: int | None = None,
+    ) -> str:
+        decision_id = uuid.uuid4().hex
+        price_text = _exact_text(price, field="decision price")
+        with self._connect() as connection:
+            connection.execute(
+                """
+                INSERT INTO ai_decisions(
+                    decision_id, symbol, created_at, price, price_text,
+                    deterministic_mode, recommended_mode, width_scale,
+                    cap_scale, confidence, applied, policy_status,
+                    policy_reasons, benchmark_mode, feature_json, rationale,
+                    context_version, config_version, context_hash
+                ) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+                """,
+                (
+                    decision_id, symbol.upper(), int(now or time.time()),
+                    price_text, price_text,
+                    deterministic_mode, recommended_mode, width_scale,
+                    cap_scale, confidence, int(applied),
+                    policy_status, policy_reasons, benchmark_mode,
+                    feature_json, rationale[:160], context_version,
+                    config_version, context_hash_value,
+                ),
+            )
+        return decision_id
+
+    def settle(
+        self,
+        symbol: str,
+        current_price: object,
+        *,
+        now: int | None = None,
+        price_lookup: Callable[[str, int], object] | None = None,
+        candles_lookup: Callable[[str, int, int], Sequence[Sequence[Any]]] | None = None,
+    ) -> int:
+        """Settle matured decisions without reading beyond each horizon."""
+        now = int(now or time.time())
+        updated = 0
+        with self._connect() as connection:
+            rows = connection.execute(
+                """
+                SELECT decision_id, created_at,
+                       COALESCE(NULLIF(price_text,''),CAST(price AS TEXT)),recommended_mode,
+                       deterministic_mode,width_scale,cap_scale,evaluation_json,
+                       COALESCE(NULLIF(return_15m_text,''),CAST(return_15m AS TEXT)),
+                       COALESCE(NULLIF(return_1h_text,''),CAST(return_1h AS TEXT)),
+                       COALESCE(NULLIF(return_4h_text,''),CAST(return_4h AS TEXT))
+                FROM ai_decisions
+                WHERE symbol=? AND created_at>=?
+                  AND (return_15m IS NULL OR return_1h IS NULL OR return_4h IS NULL)
+                """,
+                (symbol.upper(), now - 86_400),
+            ).fetchall()
+            for (
+                decision_id, created_at, price, recommended_mode,
+                deterministic_mode, width_scale, cap_scale, evaluation_json,
+                *existing
+            ) in rows:
+                price_exact = _finite_decimal(price, field="decision price")
+                current_price_exact = _finite_decimal(
+                    current_price, field="current settlement price"
+                )
+                if price_exact <= ZERO:
+                    continue
+                changes: dict[str, Any] = {}
+                evaluations = json.loads(evaluation_json or "{}")
+                for index, (column, horizon) in enumerate(zip(
+                    ("return_15m", "return_1h", "return_4h"),
+                    HORIZONS_SEC,
+                )):
+                    if existing[index] is None and now - created_at >= horizon:
+                        horizon_price_exact = current_price_exact
+                        if price_lookup is not None:
+                            try:
+                                horizon_price_exact = _finite_decimal(
+                                    price_lookup(symbol, (created_at + horizon) * 1000),
+                                    field="horizon settlement price",
+                                )
+                            except AI_CONTEXT_SOURCE_ERRORS:
+                                horizon_price_exact = current_price_exact
+                        return_exact = horizon_price_exact / price_exact - Decimal("1")
+                        changes[column] = format(return_exact, "f")
+                        changes[f"{column}_text"] = format(return_exact, "f")
+                        if candles_lookup is not None:
+                            try:
+                                candles = candles_lookup(
+                                    symbol,
+                                    created_at * 1000,
+                                    (created_at + horizon) * 1000,
+                                )
+                                evaluations[column.removeprefix("return_")] = {
+                                    "ai": virtual_plan_result(
+                                        _compat_float(price_exact), recommended_mode, width_scale,
+                                        cap_scale, candles,
+                                    ),
+                                    "baseline": virtual_plan_result(
+                                        _compat_float(price_exact), deterministic_mode, 1.0, 1.0,
+                                        candles,
+                                    ),
+                                }
+                            except AI_CONTEXT_SOURCE_ERRORS:
+                                # A missing virtual evaluation must not block
+                                # settlement of the observed market return.
+                                evaluations.pop(
+                                    column.removeprefix("return_"), None
+                                )
+                if not changes:
+                    continue
+                if evaluations:
+                    changes["evaluation_json"] = json.dumps(
+                        evaluations, sort_keys=True
+                    )
+                assignments = ", ".join(f"{column}=?" for column in changes)
+                connection.execute(
+                    f"UPDATE ai_decisions SET {assignments} WHERE decision_id=?",
+                    (*changes.values(), decision_id),
+                )
+                updated += 1
+        return updated
+
+    def performance(self, symbol: str, *, limit: int = 300) -> AdvisorPerformance:
+        """Aggregate bounded, chronological AI attribution for one symbol."""
+        with self._connect() as connection:
+            rows = connection.execute(
+                """
+                SELECT recommended_mode,
+                       COALESCE(NULLIF(return_15m_text,''),CAST(return_15m AS TEXT)),
+                       COALESCE(NULLIF(return_1h_text,''),CAST(return_1h AS TEXT)),
+                       COALESCE(NULLIF(return_4h_text,''),CAST(return_4h AS TEXT)),
+                       evaluation_json
+                FROM ai_decisions
+                WHERE symbol=? ORDER BY created_at DESC LIMIT ?
+                """,
+                (symbol.upper(), limit),
+            ).fetchall()
+
+        def score(index: int) -> tuple[int, float]:
+            values = [
+                directional_success(mode, row[index])
+                for row in rows
+                if row[index] is not None
+                for mode in (row[0],)
+            ]
+            return len(values), (sum(values) / len(values) if values else 0.0)
+
+        s15, a15 = score(1)
+        s1h, a1h = score(2)
+        s4h, a4h = score(3)
+        comparisons = [
+            directional_success(row[0], row[2])
+            - directional_success(row[4], row[2])
+            for row in self._comparison_rows(symbol, limit)
+            if row[2] is not None
+        ]
+        realized = []
+        stop_exits = 0
+        for row in rows:
+            try:
+                evaluation = json.loads(row[4] or "{}")
+            except (TypeError, ValueError, json.JSONDecodeError):
+                evaluation = {}
+            item = evaluation.get("realized_execution", {})
+            if not isinstance(item, dict) or not item.get("closed"):
+                continue
+            realized.append(item)
+            reason = str(item.get("exit_reason", "")).upper()
+            stop_exits += int("STOP" in reason or reason in {"SL", "STOP_LOSS"})
+        edge_values_exact = [
+            -_financial_result_decimal(
+                item, "opportunity_cost_quote_text", "opportunity_cost_quote"
+            )
+            for item in realized
+        ]
+        edge_mean_exact = (
+            sum(edge_values_exact, ZERO) / len(edge_values_exact)
+            if edge_values_exact else ZERO
+        )
+        if len(edge_values_exact) > 1:
+            variance_exact = sum(
+                ((value - edge_mean_exact) ** 2 for value in edge_values_exact), ZERO
+            ) / (len(edge_values_exact) - 1)
+            margin_exact = Decimal("1.96") * (
+                variance_exact / len(edge_values_exact)
+            ).sqrt()
+        else:
+            margin_exact = ZERO
+        realized_net_exact = sum(
+            (
+                _financial_result_decimal(item, "net_pnl_quote_text", "net_pnl_quote")
+                for item in realized
+            ),
+            ZERO,
+        )
+        realized_average_exact = (
+            realized_net_exact / len(realized) if realized else ZERO
+        )
+        with self._connect() as connection:
+            unresolved = int(connection.execute(
+                "SELECT COUNT(*) FROM ai_unresolved_fills WHERE symbol=?",
+                (symbol.upper(),),
+            ).fetchone()[0])
+        return AdvisorPerformance(
+            ai_samples_15m=s15,
+            ai_accuracy_15m=a15,
+            ai_samples_1h=s1h,
+            ai_accuracy_1h=a1h,
+            ai_samples_4h=s4h,
+            ai_accuracy_4h=a4h,
+            ai_vs_baseline_samples_1h=len(comparisons),
+            ai_edge_vs_baseline_1h=(
+                sum(comparisons) / len(comparisons) if comparisons else 0.0
+            ),
+            ai_closed_samples=len(realized),
+            ai_realized_net_pnl_quote=_compat_float(realized_net_exact),
+            ai_realized_avg_pnl_quote=_compat_float(realized_average_exact),
+            ai_realized_stop_rate=stop_exits / len(realized) if realized else 0.0,
+            ai_realized_edge_ci_low=_compat_float(edge_mean_exact - margin_exact),
+            ai_realized_edge_ci_high=_compat_float(edge_mean_exact + margin_exact),
+            ai_unresolved_fills=unresolved,
+            ai_realized_net_pnl_quote_text=format(realized_net_exact, "f"),
+            ai_realized_avg_pnl_quote_text=format(realized_average_exact, "f"),
+            ai_realized_edge_ci_low_text=format(
+                edge_mean_exact - margin_exact, "f"
+            ),
+            ai_realized_edge_ci_high_text=format(
+                edge_mean_exact + margin_exact, "f"
+            ),
+        )
+
+    def _comparison_rows(self, symbol: str, limit: int) -> list[tuple]:
+        with self._connect() as connection:
+            return connection.execute(
+                """
+                SELECT recommended_mode,
+                       COALESCE(NULLIF(return_15m_text,''),CAST(return_15m AS TEXT)),
+                       COALESCE(NULLIF(return_1h_text,''),CAST(return_1h AS TEXT)),
+                       COALESCE(NULLIF(return_4h_text,''),CAST(return_4h AS TEXT)),
+                       deterministic_mode
+                FROM ai_decisions
+                WHERE symbol=? ORDER BY created_at DESC LIMIT ?
+                """,
+                (symbol.upper(), limit),
+            ).fetchall()
+
+    def dashboard_summary(self, *, limit: int = 50) -> dict[str, Any]:
+        """Return sanitized advisory telemetry for the read-only dashboard."""
+        from ladder_dragon.ai.ai_policy import confidence_calibration
+
+        with self._connect() as connection:
+            rows = connection.execute(
+                """
+                SELECT decision_id,symbol,created_at,deterministic_mode,
+                       recommended_mode,width_scale,cap_scale,confidence,
+                       applied,policy_status,policy_reasons,benchmark_mode,
+                       COALESCE(NULLIF(return_15m_text,''),CAST(return_15m AS TEXT)),
+                       COALESCE(NULLIF(return_1h_text,''),CAST(return_1h AS TEXT)),
+                       COALESCE(NULLIF(return_4h_text,''),CAST(return_4h AS TEXT)),
+                       evaluation_json
+                FROM ai_decisions ORDER BY created_at DESC LIMIT ?
+                """,
+                (limit,),
+            ).fetchall()
+            calibration_rows_raw = connection.execute(
+                """
+                SELECT confidence,
+                       COALESCE(NULLIF(return_1h_text,''),CAST(return_1h AS TEXT)),
+                       recommended_mode
+                FROM ai_decisions WHERE return_1h IS NOT NULL
+                ORDER BY created_at DESC LIMIT 1000
+                """
+            ).fetchall()
+        calibration_rows = [
+            (confidence, _compat_float(result), mode)
+            for confidence, result, mode in calibration_rows_raw
+        ]
+        recent = [
+            {
+                "decision_id": row[0],
+                "symbol": row[1],
+                "created_at": row[2],
+                "baseline_mode": row[3],
+                "recommended_mode": row[4],
+                "width_scale": row[5],
+                "cap_scale": row[6],
+                "confidence": row[7],
+                "applied": bool(row[8]),
+                "status": row[9],
+                "reasons": row[10].split(",") if row[10] else [],
+                "benchmark_mode": row[11],
+                "return_15m": _compat_float(row[12]) if row[12] is not None else None,
+                "return_15m_text": str(row[12]) if row[12] is not None else None,
+                "return_1h": _compat_float(row[13]) if row[13] is not None else None,
+                "return_1h_text": str(row[13]) if row[13] is not None else None,
+                "return_4h": _compat_float(row[14]) if row[14] is not None else None,
+                "return_4h_text": str(row[14]) if row[14] is not None else None,
+                "evaluation": json.loads(row[15] or "{}"),
+            }
+            for row in rows
+        ]
+        changed = sum(
+            row["recommended_mode"] != row["baseline_mode"] for row in recent
+        )
+        closed = [row["evaluation"].get("realized_execution") for row in recent
+                  if row["evaluation"].get("realized_execution", {}).get("sell_qty", 0) > 0]
+        actual_pnl_exact = sum(
+            (_financial_result_decimal(item, "net_pnl_quote_text", "net_pnl_quote") for item in closed),
+            ZERO,
+        )
+        return {
+            "recent": recent,
+            "recommendation_count": len(recent),
+            "applied_count": sum(row["applied"] for row in recent),
+            "changed_mode_count": changed,
+            "ai_vs_baseline_1h": self._edge_summary(recent),
+            "calibration_1h": confidence_calibration(calibration_rows),
+            "realized_execution": {
+                "closed_decisions": len(closed),
+                "net_pnl_quote": _compat_float(actual_pnl_exact),
+                "net_pnl_quote_text": format(actual_pnl_exact, "f"),
+                "avg_holding_duration_sec": (
+                    _compat_float(
+                        sum(
+                            (
+                                _finite_decimal(
+                                    item.get("holding_duration_sec", 0) or 0,
+                                    field="holding duration",
+                                )
+                                for item in closed
+                            ),
+                            ZERO,
+                        ) / len(closed)
+                    )
+                    if closed else None
+                ),
+            },
+        }
+
+    def statistical_prediction(
+        self,
+        context: Any,
+        *,
+        min_samples: int = 60,
+    ) -> dict[str, Any]:
+        from ladder_dragon.ai.ai_statistical import (
+            MulticlassLogisticRegime,
+            context_vector,
+            return_label,
+        )
+
+        with self._connect() as connection:
+            rows = connection.execute(
+                """
+                SELECT feature_json,
+                       COALESCE(NULLIF(return_1h_text,''),CAST(return_1h AS TEXT))
+                FROM ai_decisions
+                WHERE return_1h IS NOT NULL AND feature_json!='[]'
+                ORDER BY created_at DESC LIMIT 2000
+                """
+            ).fetchall()
+        examples = []
+        for feature_json, result in rows:
+            try:
+                vector = json.loads(feature_json)
+                if isinstance(vector, list) and len(vector) == 10:
+                    examples.append((vector, return_label(_compat_float(result))))
+            except (TypeError, ValueError, json.JSONDecodeError):
+                continue
+        model = MulticlassLogisticRegime()
+        model.fit(examples)
+        prediction = model.predict(context_vector(context), min_samples=min_samples)
+        return {
+            "mode": prediction.mode,
+            "confidence": prediction.confidence,
+            "samples": prediction.samples,
+            "available": prediction.available,
+        }
+
+    @staticmethod
+    def _edge_summary(recent: list[dict[str, Any]]) -> dict[str, float | int]:
+        values = [
+            directional_success(row["recommended_mode"], row["return_1h"])
+            - directional_success(row["baseline_mode"], row["return_1h"])
+            for row in recent if row["return_1h"] is not None
+        ]
+        return {
+            "samples": len(values),
+            "edge": sum(values) / len(values) if values else 0.0,
+        }
+
+
+def directional_success(mode: str, market_return: object) -> int:
+    normalized = mode.upper()
+    result = _finite_decimal(market_return, field="market return")
+    fee = _finite_decimal(
+        os.getenv("AI_SHADOW_FEE_PCT", "0.00075") or "0.00075",
+        field="AI shadow fee",
+    )
+    slippage = _finite_decimal(
+        os.getenv("AI_SHADOW_SLIPPAGE_PCT", "0.0005") or "0.0005",
+        field="AI shadow slippage",
+    )
+    spread = _finite_decimal(
+        os.getenv("AI_SHADOW_SPREAD_PCT", "0.0002") or "0.0002",
+        field="AI shadow spread",
+    )
+    threshold = max(Decimal("0.001"), Decimal("2") * (fee + slippage + spread / 2))
+    if normalized == "UP":
+        return int(result > threshold)
+    if normalized == "DOWN":
+        return int(result < -threshold)
+    return int(abs(result) <= threshold)
+
+
+def virtual_plan_result(
+    reference_price: object,
+    mode: str,
+    width_scale: object,
+    cap_scale: object,
+    candles: Sequence[Sequence[Any]],
+) -> dict[str, float | str | bool]:
+    """Evaluate a virtual plan exactly and expose numeric compatibility fields."""
+    reference = _finite_decimal(reference_price, field="virtual reference price")
+    width = max(
+        Decimal("0.5"),
+        _finite_decimal(width_scale, field="virtual width scale"),
+    )
+    cap = max(ZERO, _finite_decimal(cap_scale, field="virtual CAP scale"))
+    offset = {
+        "UP": Decimal("0.005"),
+        "FLAT": Decimal("0.010"),
+        "DOWN": Decimal("0.015"),
+    }.get(mode.upper(), Decimal("0.01"))
+    entry = reference * (Decimal("1") - offset * width)
+    valid = [row for row in candles if len(row) > 4]
+    if not valid:
+        return {
+            "filled": False,
+            "entry": _compat_float(entry),
+            "entry_text": format(entry, "f"),
+            "net_return": 0.0,
+            "net_return_text": "0",
+            "scaled_pnl_pct": 0.0,
+            "scaled_pnl_pct_text": "0",
+            "mfe": 0.0,
+            "mfe_text": "0",
+            "mae": 0.0,
+            "mae_text": "0",
+        }
+    low = min(_finite_decimal(row[3], field="virtual candle low") for row in valid)
+    if low > entry:
+        return {
+            "filled": False,
+            "entry": _compat_float(entry),
+            "entry_text": format(entry, "f"),
+            "net_return": 0.0,
+            "net_return_text": "0",
+            "scaled_pnl_pct": 0.0,
+            "scaled_pnl_pct_text": "0",
+            "mfe": 0.0,
+            "mfe_text": "0",
+            "mae": 0.0,
+            "mae_text": "0",
+        }
+    high = max(_finite_decimal(row[2], field="virtual candle high") for row in valid)
+    close = _finite_decimal(valid[-1][4], field="virtual candle close")
+    fee = _finite_decimal(
+        os.getenv("AI_SHADOW_FEE_PCT", "0.00075") or "0.00075",
+        field="virtual fee",
+    )
+    slippage = _finite_decimal(
+        os.getenv("AI_SHADOW_SLIPPAGE_PCT", "0.0005") or "0.0005",
+        field="virtual slippage",
+    )
+    spread = _finite_decimal(
+        os.getenv("AI_SHADOW_SPREAD_PCT", "0.0002") or "0.0002",
+        field="virtual spread",
+    )
+    net_return = (close / entry - Decimal("1")) - Decimal("2") * (
+        fee + slippage + spread / Decimal("2")
+    )
+    scaled = net_return * cap
+    mfe = high / entry - Decimal("1")
+    mae = low / entry - Decimal("1")
+    return {
+        "filled": True,
+        "entry": _compat_float(entry),
+        "entry_text": format(entry, "f"),
+        # CAP changes absolute PnL, not percentage edge. Keep the percentage
+        # metric independent of sizing so larger recommendations do not look
+        # more profitable merely because they are larger.
+        "net_return": _compat_float(net_return),
+        "net_return_text": format(net_return, "f"),
+        "scaled_pnl_pct": _compat_float(scaled),
+        "scaled_pnl_pct_text": format(scaled, "f"),
+        "mfe": _compat_float(mfe),
+        "mfe_text": format(mfe, "f"),
+        "mae": _compat_float(mae),
+        "mae_text": format(mae, "f"),
+    }

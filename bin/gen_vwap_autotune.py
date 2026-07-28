@@ -19,7 +19,7 @@ from typing import Dict, Iterable, List, Optional, Tuple
 import time
 
 from ladder_dragon.execution.trade_accounting import TradeExecution, replay_average_cost
-from bin.db_migrate import migrate
+from ladder_dragon.persistence.migrations import migrate
 
 
 def clamp(value: float, lo: float, hi: float) -> float:

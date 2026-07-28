@@ -15,6 +15,47 @@ entries concise; this is not a changelog or an activity log.
 
 ## Decisions
 
+### 2026-07-28 — Inject legacy runtime adapters during physical extraction
+
+- **Context:** supervisor tests and compatibility callers patch established
+  runtime globals, while risk and recovery logic must move into package
+  services without silently binding stale copies of those adapters.
+- **Decision:** extracted services accept an explicit read-only runtime mapping;
+  the legacy wrapper passes its globals and the service resolves only named
+  dependencies at entry.
+- **Why it worked:** recovery, reconciliation, re-anchor and architecture
+  regressions still observe patched exchange, journal and accounting adapters,
+  while the supervisor runtime shrank by 490 lines.
+- **Reuse:** transitional extraction of cohesive LIVE orchestration whose
+  dependency interfaces cannot be changed atomically.
+
+### 2026-07-28 — Keep production source commentary English-only
+
+- **Context:** operator logs, Telegram messages and technical comments must be
+  understandable across deployment, review and incident-response environments,
+  while localized UI copy still needs native-language resources.
+- **Decision:** keep comments, docstrings and non-localized source text in
+  English; allow other languages only in explicit locale files. Document
+  invariants and dangerous sequencing rather than obvious syntax.
+- **Why it worked:** a repository-wide source scan finds no Cyrillic outside
+  locales, and AST regressions require English docstrings on critical nodes.
+- **Reuse:** every production, deployment, dashboard and operator-script
+  change.
+
+### 2026-07-28 — Decompose behind stable compatibility facades
+
+- **Context:** operator commands, systemd units and tests depend on established
+  `bin` paths, while keeping application logic there creates monoliths and
+  reverse package dependencies.
+- **Decision:** move implementations into technical packages, leave thin
+  import/CLI facades at historical paths, forbid package imports from `bin`,
+  and lower non-growth budgets whenever a monolith shrinks.
+- **Why it worked:** configuration, plan-runner and migration commands retain
+  their old interfaces; 221 focused regressions pass and the supervisor loses
+  284 lines without a flag-day rewrite.
+- **Reuse:** every remaining supervisor, worker, dashboard, journal or
+  prediction seam that must move without breaking deployment compatibility.
+
 ### 2026-07-28 — Preserve protection when reads are uncertain
 
 - **Context:** a timeout while verifying a live OCO/OTOCO proves neither that
@@ -28,6 +69,21 @@ entries concise; this is not a changelog or an activity log.
   and the next OCO quantity equals the residual.
 - **Reuse:** every recovery flow where an uncertain observation is followed by
   a cancel, replace, cleanup, or other safety-reducing mutation.
+
+### 2026-07-28 — Decompose behind stable compatibility facades
+
+- **Context:** systemd, operator commands and tests depend on historical module
+  paths, while keeping business logic in those entry points created
+  multi-thousand-line monoliths.
+- **Decision:** move implementations into technical package runtimes, preserve
+  historical imports and commands with facades of at most 20 lines, then
+  extract pure policies and repositories behind explicit boundaries. Reduce a
+  checked line budget after every extraction.
+- **Why it worked:** package-boundary tests reject reverse imports from `bin`,
+  CLI/ASGI facades remain callable, and the complete regression suite exercises
+  the same public contracts after each move.
+- **Reuse:** every large runtime migration where deployment paths cannot change
+  atomically with internal ownership.
 
 ### 2026-07-28 — Retry reads, reconcile mutations
 

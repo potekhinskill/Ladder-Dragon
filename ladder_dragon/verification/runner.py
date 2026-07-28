@@ -39,6 +39,7 @@ class HarnessRunner:
         self.context = context
 
     def _run_spec(self, spec: CheckSpec) -> CheckResult:
+        """Run one bounded check and normalize its result without side effects."""
         started = time.monotonic()
         if spec.blocked_reason is not None:
             return CheckResult(

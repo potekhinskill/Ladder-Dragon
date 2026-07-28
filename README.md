@@ -31,7 +31,7 @@ fee-aware FIFO accounting, restart reconciliation, per-symbol operational
 reporting, replay and walk-forward verification, and a private Raspberry Pi
 operations dashboard.
 
-Current product version: **2.20.65**. The single version source is
+Current product version: **2.20.66**. The single version source is
 `product_version.py`; releases follow [Semantic Versioning](https://semver.org/).
 Project contact: [LinkedIn](https://www.linkedin.com/in/ypotekhin/).
 
@@ -96,7 +96,7 @@ bounded, explainable, recoverable, and measurable before exposure is increased.
 ## Project status
 
 Ladder Dragon is an actively developed, experimental trading system. Version
-**2.20.65** is the current source release. `main` is the only long-lived branch;
+**2.20.66** is the current source release. `main` is the only long-lived branch;
 feature branches use the `ladderdragon/*` namespace.
 
 DRY and Binance Spot Testnet are the supported starting modes. Mainnet LIVE is
@@ -623,6 +623,9 @@ The complete operator-visible contract for protection, HALT versus SHADOW,
 managed versus legacy inventory, dashboard PnL availability, Telegram digest
 exclusions, and stable-log suppression is documented in
 [Runtime safety and reporting](docs/RUNTIME_SAFETY_AND_REPORTING.md).
+Package ownership, dependency direction, compatibility facades and the
+remaining monolith register are documented in
+[Architecture](docs/ARCHITECTURE.md).
 
 Gap flatten first derives the exact residual from both OCO legs, cancels every
 breached list, and polls Binance until those lists disappear and the required

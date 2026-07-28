@@ -212,6 +212,7 @@ class BinanceTransport:
         timeout: float = 15.0,
         max_tries: int = 8,
     ) -> Any:
+        """Retry bounded read failures while never replaying mutations blindly."""
         # Retry only transient network/exchange failures. Binance business
         # errors must be returned to the caller immediately.
         endpoint = url.split("?", 1)[0]
@@ -306,6 +307,7 @@ class BinanceTransport:
         timeout: float = 15.0,
         max_tries: int | None = None,
     ) -> Any:
+        """Sign one request and surface ambiguous mutations for reconciliation."""
         method = method.upper()
         # Main safety boundary: DRY may read private data, but every request
         # that changes exchange state is blocked before transport.

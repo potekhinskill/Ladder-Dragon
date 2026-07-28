@@ -12,14 +12,16 @@ def test_financial_module_float_calls_do_not_regress():
 
     assert report["ready"] is True
     assert report["counts"][
-        "ladder_dragon/execution/executor_orders.py"
+        "ladder_dragon/execution/orders/runtime.py"
     ] == 0
     assert report["counts"][
-        "ladder_dragon/execution/executor_protection.py"
+        "ladder_dragon/execution/protection/runtime.py"
     ] == 0
-    assert report["counts"]["bin/ai_supervisor.py"] == 0
-    assert report["counts"]["bin/autosize_universal.py"] == 0
-    assert report["counts"]["ladder_dragon/ai/ai_context.py"] == 0
+    assert report["counts"]["ladder_dragon/supervision/runtime.py"] == 0
+    assert (
+        report["counts"]["ladder_dragon/execution/worker/runtime.py"] == 0
+    )
+    assert report["counts"]["ladder_dragon/ai/context/runtime.py"] == 0
     assert report["counts"]["ladder_dragon/numeric_compat.py"] == 1
 
 

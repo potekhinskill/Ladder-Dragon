@@ -10,7 +10,7 @@ eligible only after their horizon has elapsed.
 
 from __future__ import annotations
 
-from dataclasses import asdict, dataclass
+from dataclasses import asdict
 from decimal import Decimal, InvalidOperation
 import hashlib
 import json
@@ -20,6 +20,15 @@ import random
 import sqlite3
 import time
 from typing import Iterable, Mapping, Sequence
+
+from ladder_dragon.strategy.prediction.models import (
+    HorizonPrediction,
+    PredictionBar,
+    PredictionFeatures,
+    PredictionOutcome,
+    ResolvedSample,
+    TradePlan,
+)
 
 
 D = Decimal
@@ -63,106 +72,6 @@ def _ema(values: Sequence[Decimal], length: int) -> list[Decimal]:
     for value in values[1:]:
         output.append(alpha * value + (ONE - alpha) * output[-1])
     return output
-
-
-@dataclass(frozen=True)
-class PredictionBar:
-    open_time_ms: int
-    close_time_ms: int
-    open: Decimal
-    high: Decimal
-    low: Decimal
-    close: Decimal
-    volume: Decimal
-
-
-@dataclass(frozen=True)
-class PredictionFeatures:
-    snapshot_ts_ms: int
-    last_closed_bar_ts_ms: int
-    price: Decimal
-    ema_slope: Decimal
-    ema_distance_pct: Decimal
-    adx: Decimal
-    plus_di: Decimal
-    minus_di: Decimal
-    atr_pct: Decimal
-    atr_change_pct: Decimal
-    vwap_deviation_pct: Decimal
-    rsi: Decimal
-    macd_histogram_pct: Decimal
-    volume_ratio: Decimal
-    orderbook_imbalance: Decimal
-    orderbook_available: bool
-    trade_flow_imbalance: Decimal
-    trade_flow_available: bool
-    spread_bps: Decimal
-    depth_quote: Decimal
-    acceleration: Decimal
-    executor_panic_active: bool | None
-    executor_panic_hits: int | None
-    regime: str
-
-
-@dataclass(frozen=True)
-class TradePlan:
-    entry_price: Decimal
-    take_profit_price: Decimal
-    stop_price: Decimal
-    notional_quote: Decimal
-    fee_pct: Decimal
-    slippage_pct: Decimal
-
-    def __post_init__(self) -> None:
-        values = (
-            self.entry_price,
-            self.take_profit_price,
-            self.stop_price,
-            self.notional_quote,
-            self.fee_pct,
-            self.slippage_pct,
-        )
-        if any(not value.is_finite() for value in values):
-            raise ValueError("trade plan values must be finite")
-        if self.entry_price <= 0 or self.notional_quote <= 0:
-            raise ValueError("entry price and notional must be positive")
-        if not self.stop_price < self.entry_price < self.take_profit_price:
-            raise ValueError("trade plan must satisfy stop < entry < take profit")
-        if self.fee_pct < 0 or self.slippage_pct < 0:
-            raise ValueError("execution costs must be non-negative")
-
-
-@dataclass(frozen=True)
-class HorizonPrediction:
-    horizon_min: int
-    probability_buy_fill: Decimal
-    probability_tp_before_stop: Decimal
-    expected_net_pnl_quote: Decimal
-    expected_mae_pct: Decimal
-    expected_time_to_fill_sec: Decimal
-    samples: int
-    available: bool
-
-
-@dataclass(frozen=True)
-class PredictionOutcome:
-    horizon_min: int
-    buy_filled: bool
-    tp_before_stop: bool | None
-    net_pnl_quote: Decimal
-    mae_pct: Decimal
-    time_to_fill_sec: int | None
-    exit_reason: str
-    resolved_at_ms: int
-
-
-@dataclass(frozen=True)
-class ResolvedSample:
-    snapshot_ts_ms: int
-    regime: str
-    horizon_min: int
-    outcome: PredictionOutcome
-    baseline_net_pnl_quote: Decimal
 
 
 def parse_closed_klines(
@@ -577,6 +486,7 @@ class PredictionShadowStore:
         return connection
 
     def _migrate(self) -> None:
+        """Create versioned SHADOW tables without deleting historical evidence."""
         with self._connect() as connection:
             connection.executescript("""
                 CREATE TABLE IF NOT EXISTS prediction_decisions (
@@ -649,6 +559,7 @@ class PredictionShadowStore:
         algorithm_decision: str,
         baseline_plan: TradePlan | None = None,
     ) -> str:
+        """Persist one immutable forecast and its untouched baseline plan."""
         normalized_kind = kind.upper()
         if normalized_kind not in {"STRATEGY", "REANCHOR"}:
             raise ValueError("prediction kind must be STRATEGY or REANCHOR")
@@ -720,6 +631,7 @@ class PredictionShadowStore:
         *,
         as_of_ms: int,
     ) -> int:
+        """Resolve only horizons fully elapsed at the supplied decision time."""
         ordered_bars = sorted(bars, key=lambda item: item.open_time_ms)
         earliest_close_ms = (
             int(ordered_bars[0].close_time_ms) if ordered_bars else None

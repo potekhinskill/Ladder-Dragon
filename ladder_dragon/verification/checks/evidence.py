@@ -5,6 +5,8 @@
 
 from __future__ import annotations
 
+import re
+import subprocess
 import time
 
 from ladder_dragon.execution.execution_latency import load_execution_latencies
@@ -22,6 +24,27 @@ def _check_evidence(context: HarnessContext) -> CheckResult:
     options = context.options
     reasons: list[str] = []
     metrics: dict[str, object] = {}
+    if options.expected_sha is not None:
+        expected = str(options.expected_sha).strip().lower()
+        if not re.fullmatch(r"[0-9a-f]{40}", expected):
+            reasons.append("expected commit SHA is invalid")
+            metrics["expected_sha_matched"] = False
+        else:
+            try:
+                current = subprocess.run(
+                    ("git", "rev-parse", "HEAD"),
+                    cwd=context.root,
+                    check=True,
+                    capture_output=True,
+                    text=True,
+                    timeout=10,
+                ).stdout.strip().lower()
+            except (OSError, subprocess.SubprocessError):
+                current = ""
+            matched = current == expected
+            metrics["expected_sha_matched"] = matched
+            if not matched:
+                reasons.append("expected commit SHA does not match checkout")
     for path in options.source_paths:
         if not path.is_file():
             reasons.append("a requested source artifact is unavailable")

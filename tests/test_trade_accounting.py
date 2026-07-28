@@ -1,6 +1,4 @@
 from decimal import Decimal
-import importlib.util
-from pathlib import Path
 import sqlite3
 
 import pytest
@@ -15,15 +13,7 @@ from ladder_dragon.execution.trade_accounting import (
     base_asset,
     replay_average_cost,
 )
-
-
-def load_worker():
-    path = Path("bin/autosize_universal.py").resolve()
-    spec = importlib.util.spec_from_file_location("commission_worker", path)
-    module = importlib.util.module_from_spec(spec)
-    assert spec and spec.loader
-    spec.loader.exec_module(module)
-    return module
+from tests.support.module_loaders import load_worker
 
 
 def test_omitted_commission_quote_fails_closed_when_fee_is_nonzero():

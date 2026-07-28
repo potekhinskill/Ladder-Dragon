@@ -26,6 +26,7 @@ from ladder_dragon.verification.models import (
     Status,
 )
 from ladder_dragon.verification.checks.raspberry import raspberry_checks
+from ladder_dragon.verification.checks.evidence import evidence_checks
 from ladder_dragon.verification.checks.release_continuity import (
     check_release_continuity,
 )
@@ -118,6 +119,28 @@ def test_unknown_profile_and_missing_check_fail_closed(tmp_path):
     missing = HarnessRunner(context)._run_spec(CheckSpec(name="missing"))
     assert missing.status is Status.BLOCKED
     assert missing.exit_code == 2
+
+
+def test_expected_sha_must_match_the_exact_checkout():
+    actual = subprocess.run(
+        ("git", "rev-parse", "HEAD"),
+        check=True,
+        capture_output=True,
+        text=True,
+    ).stdout.strip()
+    wrong = ("0" if actual[0] != "0" else "1") + actual[1:]
+    context = _context(Path.cwd(), "release")
+    context = replace(
+        context,
+        options=replace(context.options, expected_sha=wrong),
+    )
+    spec = evidence_checks(context)[0]
+
+    result = HarnessRunner(context)._run_spec(spec)
+
+    assert result.status is Status.BLOCKED
+    assert result.metrics["expected_sha_matched"] is False
+    assert "does not match checkout" in result.summary
 
 
 def test_testnet_and_mainnet_mutations_require_separate_confirmations(
