@@ -959,8 +959,8 @@ def test_ci_scans_full_history_and_pins_actions_by_commit():
 
 def test_library_modules_are_grouped_by_responsibility():
     expected = {
-        "ladder_dragon/ai/ai_context.py",
-        "ladder_dragon/execution/executor_orders.py",
+        "ladder_dragon/ai/context/runtime.py",
+        "ladder_dragon/execution/orders/runtime.py",
         "ladder_dragon/risk/risk_manager.py",
         "ladder_dragon/strategy/market_replay.py",
     }

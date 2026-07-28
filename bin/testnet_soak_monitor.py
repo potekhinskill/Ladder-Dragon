@@ -21,7 +21,7 @@ from typing import Any
 
 from dotenv import load_dotenv
 
-from bin.binance_testnet_smoke import (
+from ladder_dragon.verification.live.testnet_smoke import (
     SpotTestnetClient,
     balance_amount,
     symbol_assets,

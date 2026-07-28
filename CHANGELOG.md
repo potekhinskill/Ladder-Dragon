@@ -3,6 +3,21 @@
 All notable changes are documented here. Releases use Semantic Versioning; every
 section is dated and there is intentionally no `Unreleased` section.
 
+## [2.20.67] — 2026-07-28
+
+### Changed
+- BUY placement now executes directly from `execution.worker.buy_service`;
+  callers and tests use the package API instead of a historical worker wrapper.
+- CLI and ASGI launchers no longer replace their module identity through
+  `sys.modules`, and obsolete AI-context, order and protection import facades
+  were removed after production and test imports moved to their owning packages.
+- The worker runtime shrank from 3107 to 2800 lines and its architecture budget
+  was lowered to prevent the BUY orchestration returning to the monolith.
+
+### Verified
+- Worker safety, exception-boundary, accounting and architecture regressions
+  pass, and the complete project suite passes (701 tests).
+
 ## [2.20.66] — 2026-07-28
 
 ### Changed

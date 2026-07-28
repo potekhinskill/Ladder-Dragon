@@ -11,7 +11,7 @@ from types import SimpleNamespace
 
 import pytest
 import requests
-from bin import ai_supervisor
+from ladder_dragon.supervision import runtime as ai_supervisor
 def test_supervisor_reconciles_durable_order_before_running(
     tmp_path, monkeypatch
 ):

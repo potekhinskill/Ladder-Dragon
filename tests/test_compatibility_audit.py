@@ -1,7 +1,7 @@
 from pathlib import Path
 import sqlite3
 
-from bin.db_migrate import migrate
+from ladder_dragon.persistence.migrations import migrate
 from ladder_dragon.execution.compatibility_audit import audit_compatibility
 
 

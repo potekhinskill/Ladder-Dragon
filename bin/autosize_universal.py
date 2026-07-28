@@ -1,16 +1,12 @@
 #!/usr/bin/env python3
 # SPDX-License-Identifier: MIT
 # Copyright (c) 2026 IURII Potekhin
-# Purpose: preserve the historical worker CLI while delegating to the package.
+# Purpose: start the packaged execution worker from the operator CLI.
 
-"""Compatibility entry point for the Ladder Dragon execution worker."""
+"""Ladder Dragon execution-worker command."""
 
-import sys
-
-from ladder_dragon.execution.worker import runtime as _runtime
+from ladder_dragon.execution.worker.runtime import main
 
 
 if __name__ == "__main__":
-    raise SystemExit(_runtime.main())
-
-sys.modules[__name__] = _runtime
+    raise SystemExit(main())

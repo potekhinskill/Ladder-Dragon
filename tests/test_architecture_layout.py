@@ -9,10 +9,9 @@ def _line_count(path: str) -> int:
     return len((ROOT / path).read_text(encoding="utf-8").splitlines())
 
 
-def test_cli_compatibility_facades_remain_thin():
+def test_cli_launchers_remain_thin_and_never_alias_module_identity():
     for relative in (
         "bin/ai_plan_runner.py",
-        "bin/supervisor_config.py",
         "bin/db_migrate.py",
         "bin/ai_supervisor.py",
         "bin/autosize_universal.py",
@@ -22,6 +21,9 @@ def test_cli_compatibility_facades_remain_thin():
     ):
         assert _line_count(relative) <= 20
         tree = ast.parse((ROOT / relative).read_text(encoding="utf-8"))
+        assert "sys.modules" not in (ROOT / relative).read_text(
+            encoding="utf-8"
+        )
         imported_roots = {
             node.module.split(".", 1)[0]
             for node in ast.walk(tree)
@@ -52,7 +54,7 @@ def test_known_runtime_monoliths_can_only_shrink():
     """Prevent feature work from enlarging legacy orchestration modules."""
     budgets = {
         "ladder_dragon/supervision/runtime.py": 4825,
-        "ladder_dragon/execution/worker/runtime.py": 3107,
+        "ladder_dragon/execution/worker/runtime.py": 2800,
         "ladder_dragon/dashboard/runtime.py": 2867,
         "ladder_dragon/execution/order_recovery.py": 1284,
         "ladder_dragon/strategy/prediction/runtime.py": 1300,
@@ -112,6 +114,28 @@ def test_supervisor_risk_recovery_and_process_services_are_physical():
         )
 
 
+def test_worker_buy_service_has_no_legacy_runtime_wrapper():
+    runtime = ast.parse(
+        (ROOT / "ladder_dragon/execution/worker/runtime.py").read_text(
+            encoding="utf-8"
+        )
+    )
+    assert not any(
+        isinstance(node, ast.FunctionDef)
+        and node.name == "maybe_place_buys"
+        for node in runtime.body
+    )
+    service = ast.parse(
+        (ROOT / "ladder_dragon/execution/worker/buy_service.py").read_text(
+            encoding="utf-8"
+        )
+    )
+    assert any(
+        isinstance(node, ast.FunctionDef) and node.name == "place_buys"
+        for node in service.body
+    )
+
+
 def test_decomposition_targets_have_explicit_package_boundaries():
     required = (
         "ladder_dragon/supervision/risk_cycle.py",
@@ -141,7 +165,7 @@ def test_decomposition_targets_have_explicit_package_boundaries():
 
 def test_component_tests_replace_the_previous_test_monoliths():
     budgets = {
-        "tests/test_safety_gates.py": 1080,
+        "tests/test_safety_gates.py": 1085,
         "tests/supervision/test_supervisor_recovery.py": 1260,
         "tests/test_dashboard_security.py": 950,
         "tests/dashboard/test_dashboard_presentation.py": 700,

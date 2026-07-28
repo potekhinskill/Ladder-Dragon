@@ -17,6 +17,39 @@ private infrastructure details.
 
 ## Mistakes
 
+### 2026-07-28 — Searched package imports but missed a bin-to-bin dependency
+
+- **Impact:** the first complete no-facade suite stopped during Testnet soak
+  monitor collection.
+- **Root cause:** the migration search covered `ladder_dragon` and tests first,
+  but did not audit one production command importing another command module.
+- **Correction:** import Testnet client contracts from their owning
+  verification package and rerun full collection and tests.
+- **Prevention:** before deleting a facade, search the entire repository for
+  both absolute and relative references to its module path.
+
+### 2026-07-28 — Set the worker budget before the final import line
+
+- **Impact:** the first complete 2.20.67 suite had one architecture failure.
+- **Root cause:** the line budget was measured before adding the service import
+  that completed the wrapper wiring.
+- **Correction:** set the budget to the final measured 2835 lines and rerun the
+  complete suite.
+- **Prevention:** measure budgeted modules only after all wiring and formatting
+  changes are complete.
+
+### 2026-07-28 — Extracted annotated worker code without postponed annotations
+
+- **Impact:** the first worker contract run failed during module import before
+  any test or trading path executed.
+- **Root cause:** the extracted service retained runtime-only annotation names
+  but did not carry over `from __future__ import annotations` from its source
+  module.
+- **Correction:** postpone annotation evaluation in the service and rerun the
+  full worker compatibility set.
+- **Prevention:** every mechanical function extraction must preserve module
+  future imports before its first compile and collection check.
+
 ### 2026-07-28 — Repeated synthetic SHA and guessed harness option
 
 - **Impact:** the first post-amend release harness exited before verification,

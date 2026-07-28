@@ -1,7 +1,7 @@
 from dataclasses import fields
 
 from ladder_dragon.ai.ai_advisor import MarketContext
-from ladder_dragon.ai.ai_context import (
+from ladder_dragon.ai.context.runtime import (
     AdvisorPerformance,
     MarketFeatures,
     PortfolioFeatures,

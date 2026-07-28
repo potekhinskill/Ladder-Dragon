@@ -17,9 +17,9 @@ domain services (strategy, risk, AI policies)
 infrastructure adapters (execution, SQLite, Binance)
 ```
 
-Package code must never import `bin`. Compatibility commands may import package
-code and re-export established symbols, allowing systemd, operator commands and
-third-party imports to remain stable while implementations move.
+Package code must never import `bin`. Operator commands import only their
+package `main` function, and ASGI launchers expose only the packaged `app`.
+Tests and extensions import the owning package directly.
 
 ## Current packages
 
@@ -35,14 +35,14 @@ third-party imports to remain stable while implementations move.
 
 ## Monolith register
 
-Historical CLI and ASGI paths are thin compatibility facades. The following
-package runtimes remain incremental coordinators and are covered by strict
+CLI and ASGI paths are launchers, not import aliases. The following package
+runtimes remain incremental coordinators and are covered by strict
 non-growth budgets:
 
 | File | Main remaining seams |
 |---|---|
 | `ladder_dragon/supervision/runtime.py` | per-symbol planning, runtime bootstrap and the main supervision loop |
-| `ladder_dragon/execution/worker/runtime.py` | worker runtime coordinator pending further service extraction |
+| `ladder_dragon/execution/worker/runtime.py` | holdings, statistics synchronization and the main event loop |
 | `ladder_dragon/dashboard/runtime.py` | dashboard coordinator pending router/service extraction |
 | `ladder_dragon/execution/order_recovery.py` | journal schema, lifecycle commands, query projections |
 | `ladder_dragon/strategy/prediction/runtime.py` | compatibility coordinator for modular prediction APIs |
@@ -65,13 +65,12 @@ shutdown lifecycle are now physically owned by `risk_cycle.py`,
 its exchange and persistence adapters explicitly, preserving fail-closed
 behavior and test isolation without introducing a reverse dependency.
 
-## Compatibility facades
+## Runtime entry points
 
 `bin/ai_supervisor.py`, `bin/autosize_universal.py`, both Binance verification
-commands, the safeguarded cancellation command and
-`FastAPI/pi-dashboard/app.py` contain no business logic. They delegate to
-package modules so existing systemd, operator and third-party entry points do
-not change during decomposition.
+commands and the safeguarded cancellation command expose only executable
+launchers. `FastAPI/pi-dashboard/app.py` exposes only the packaged ASGI app.
+They do not emulate package modules or support historical extension imports.
 
 Private local state follows [LOCAL_ARTIFACTS.md](LOCAL_ARTIFACTS.md). Architecture
 work never moves or deletes runtime databases, `.runtime`, caches or environment

@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pytest
 
-from bin import ai_plan_runner
+from ladder_dragon.supervision import plan_runner as ai_plan_runner
 from bin import gen_vwap_autotune
 from bin import gen_vwap_env
 from ladder_dragon.execution import tools_market

@@ -15,6 +15,17 @@ entries concise; this is not a changelog or an activity log.
 
 ## Decisions
 
+### 2026-07-28 — Import owning packages instead of compatibility aliases
+
+- **Context:** module-identity replacement and historical import wrappers kept
+  tests and extensions coupled to paths that no longer owned implementation.
+- **Decision:** preserve executable CLI and ASGI entry points only; production,
+  tests and extensions import the technical package owner directly.
+- **Why it worked:** worker safety, accounting, AI, order, protection, Testnet,
+  Mainnet and deployment contracts pass without the removed alias modules.
+- **Reuse:** every remaining extraction; update callers in the same change
+  rather than adding a compatibility import solely for old tests.
+
 ### 2026-07-28 — Inject legacy runtime adapters during physical extraction
 
 - **Context:** supervisor tests and compatibility callers patch established

@@ -1,12 +1,10 @@
 #!/usr/bin/env python3
 # SPDX-License-Identifier: MIT
 # Copyright (c) 2026 IURII Potekhin
-# Purpose: preserve the historical database migration command path.
-"""Compatibility CLI for packaged SQLite migrations."""
+# Purpose: run packaged SQLite migrations from the operator CLI.
+"""SQLite migration command."""
 
-from ladder_dragon.persistence.migrations import MIGRATIONS, main, migrate
-
-__all__ = ["MIGRATIONS", "main", "migrate"]
+from ladder_dragon.persistence.migrations import main
 
 
 if __name__ == "__main__":

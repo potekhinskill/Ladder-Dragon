@@ -3,14 +3,10 @@
 # Copyright (c) 2026 IURII Potekhin
 # Purpose: preserve the safeguarded open-order cancellation CLI.
 
-"""Compatibility CLI for explicit operator cancellation."""
+"""Explicit operator cancellation command."""
 
-import sys
-
-from ladder_dragon.execution.operator import cancel_open as _runtime
+from ladder_dragon.execution.operator.cancel_open import main
 
 
 if __name__ == "__main__":
-    raise SystemExit(_runtime.main())
-
-sys.modules[__name__] = _runtime
+    raise SystemExit(main())

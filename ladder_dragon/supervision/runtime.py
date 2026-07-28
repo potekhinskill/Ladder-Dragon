@@ -32,7 +32,7 @@ from ladder_dragon.ai.ai_advisor import (
     MarketContext,
     limit_cap_by_recommendation_decimal,
 )
-from ladder_dragon.ai.ai_context import (
+from ladder_dragon.ai.context.runtime import (
     AdvisorDecisionStore,
     build_market_features,
     build_portfolio_features,

@@ -3,8 +3,8 @@ from types import SimpleNamespace
 
 import pytest
 
-from bin import ai_supervisor
-from bin.supervisor_config import build_supervisor_parser, validate_supervisor_args
+from ladder_dragon.supervision import runtime as ai_supervisor
+from ladder_dragon.supervision.config import build_supervisor_parser, validate_supervisor_args
 from ladder_dragon.strategy.reanchor import BuyReanchor, plan_buy_reanchors
 
 

@@ -3,7 +3,7 @@ import sys
 
 import pytest
 
-from bin import tools_cancel_open
+from ladder_dragon.execution.operator import cancel_open as tools_cancel_open
 from ladder_dragon.execution.order_recovery import OrderJournal
 
 

@@ -3,14 +3,10 @@
 # Copyright (c) 2026 IURII Potekhin
 # Purpose: preserve the authenticated Testnet smoke CLI.
 
-"""Compatibility CLI for Testnet verification."""
+"""Authenticated Testnet verification command."""
 
-import sys
-
-from ladder_dragon.verification.live import testnet_smoke as _runtime
+from ladder_dragon.verification.live.testnet_smoke import main
 
 
 if __name__ == "__main__":
-    raise SystemExit(_runtime.main())
-
-sys.modules[__name__] = _runtime
+    raise SystemExit(main())

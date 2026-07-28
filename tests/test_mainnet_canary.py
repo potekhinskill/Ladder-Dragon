@@ -7,8 +7,8 @@ from types import SimpleNamespace
 import pytest
 import requests
 
-from bin import binance_mainnet_canary as canary
-from bin.binance_testnet_smoke import symbol_rules, validate_sell_percent_prices
+from ladder_dragon.verification.live import mainnet_canary as canary
+from ladder_dragon.verification.live.testnet_smoke import symbol_rules, validate_sell_percent_prices
 from ladder_dragon.execution.order_recovery import OrderJournal
 
 

@@ -30,7 +30,7 @@ from ladder_dragon.execution.exchange_math import decimal, format_step, normaliz
 from ladder_dragon.execution.exchange_filters import validate_sell_percent_prices as _validate_sell_percent_prices
 from ladder_dragon.execution.order_identity import client_order_id
 from ladder_dragon.execution.order_recovery import OrderJournal
-from ladder_dragon.execution.executor_protection import emergency_gap_flatten
+from ladder_dragon.execution.protection.runtime import emergency_gap_flatten
 from ladder_dragon.risk.risk_manager import (
     RiskLimits,
     RiskManager,

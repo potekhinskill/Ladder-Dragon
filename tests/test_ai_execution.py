@@ -3,7 +3,7 @@ from decimal import Decimal
 
 import pytest
 
-from ladder_dragon.ai.ai_context import AdvisorDecisionStore, evaluate_realized_ai_pnl
+from ladder_dragon.ai.context.runtime import AdvisorDecisionStore, evaluate_realized_ai_pnl
 
 
 def test_ai_decision_fills_are_linked_and_evaluated(tmp_path):

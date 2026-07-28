@@ -11,8 +11,16 @@ from types import SimpleNamespace
 
 import pytest
 import requests
-from bin import ai_supervisor
+from ladder_dragon.supervision import runtime as ai_supervisor
+from ladder_dragon.execution.worker.buy_service import (
+    place_buys as place_buys_service,
+)
 from tests.support.module_loaders import load_worker
+
+
+def place_buys(worker, *args, **kwargs):
+    """Exercise the package BUY service with explicit test adapters."""
+    return place_buys_service(*args, runtime=vars(worker), **kwargs)
 
 
 @pytest.mark.parametrize(
@@ -845,7 +853,7 @@ def test_worker_blocks_oversized_plan_before_exchange_mutation(monkeypatch):
         ),
     )
 
-    assert worker.maybe_place_buys(
+    assert place_buys(worker,
         "SOLUSDT",
         [90.0],
         10.0,
@@ -902,7 +910,7 @@ def test_fast_market_apply_blocks_stale_buy_before_exchange_mutation(
     })
     monkeypatch.setattr(worker.time, "monotonic_ns", lambda: 2_000_000_000)
 
-    assert worker.maybe_place_buys(
+    assert place_buys(worker,
         "SOLUSDT",
         [90.0, 110.0],
         10.0,
@@ -944,7 +952,7 @@ def test_worker_blocks_buy_when_open_order_state_is_unavailable(monkeypatch):
         ),
     )
 
-    assert worker.maybe_place_buys(
+    assert place_buys(worker,
         "SOLUSDT",
         [90.0],
         10.0,
@@ -989,7 +997,7 @@ def test_worker_signal_stops_buy_loop_before_exchange_post(monkeypatch):
         ),
     )
 
-    assert worker.maybe_place_buys(
+    assert place_buys(worker,
         "SOLUSDT",
         [90.0, 80.0],
         10.0,

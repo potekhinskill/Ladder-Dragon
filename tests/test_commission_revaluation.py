@@ -3,7 +3,7 @@ import sqlite3
 
 import pytest
 
-from bin.db_migrate import migrate
+from ladder_dragon.persistence.migrations import migrate
 from ladder_dragon.execution import tools_stats
 from ladder_dragon.execution.commission_revaluation import (
     apply_revaluation,

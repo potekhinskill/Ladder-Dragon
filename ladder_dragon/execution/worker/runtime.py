@@ -68,11 +68,11 @@ from ladder_dragon.execution.executor_market import get_balances as market_get_b
 from ladder_dragon.execution.executor_market import get_price as market_get_price
 from ladder_dragon.execution.executor_market import get_price_decimal as market_get_price_decimal
 from ladder_dragon.execution.executor_market import get_symbol_assets as market_get_symbol_assets
-from ladder_dragon.execution.executor_orders import OrderDependencies
-from ladder_dragon.execution.executor_orders import place_limit_order as orders_place_limit_order
-from ladder_dragon.execution.executor_orders import place_market_order as orders_place_market_order
-from ladder_dragon.execution.executor_orders import place_oco_sell as orders_place_oco_sell
-from ladder_dragon.execution.executor_orders import place_otoco_buy as orders_place_otoco_buy
+from ladder_dragon.execution.orders.runtime import OrderDependencies
+from ladder_dragon.execution.orders.runtime import place_limit_order as orders_place_limit_order
+from ladder_dragon.execution.orders.runtime import place_market_order as orders_place_market_order
+from ladder_dragon.execution.orders.runtime import place_oco_sell as orders_place_oco_sell
+from ladder_dragon.execution.orders.runtime import place_otoco_buy as orders_place_otoco_buy
 from ladder_dragon.execution.executor_planning import (
     buy_candidates,
     existing_prices,
@@ -84,7 +84,7 @@ from ladder_dragon.execution.executor_planning import (
     plan_buy_order_decimal,
 )
 from ladder_dragon.execution.executor_planning import plan_buy_order
-from ladder_dragon.execution.executor_protection import (
+from ladder_dragon.execution.protection.runtime import (
     BreakevenRuntime,
     BreakevenStateStore,
     ProtectionConfig,
@@ -120,6 +120,7 @@ from ladder_dragon.execution.inventory_lots import (
 from ladder_dragon.execution.worker.buy_service import (
     cap_decimal as _cap_decimal,
     hard_buy_cap,
+    place_buys as service_place_buys,
 )
 from ladder_dragon.execution.worker.holdings_service import (
     effective_remainder_policy,
@@ -1669,7 +1670,7 @@ def _stats_poll_mytrades_once(symbol: str):
         try:
             ai_db = os.getenv("AI_DECISIONS_DB", "").strip()
             if ai_db:
-                from ladder_dragon.ai.ai_context import AdvisorDecisionStore
+                from ladder_dragon.ai.context.runtime import AdvisorDecisionStore
                 store = AdvisorDecisionStore(ai_db)
                 order_id = fill.get("order_id")
                 mapping = (
@@ -1797,315 +1798,6 @@ def _pick_ladder_aligned_oco_prices(symbol: str,
     return tp_limit, sl_stop, sl_limit
 
 # ------------------- Core logic: BUY / SELL -------------------
-
-def maybe_place_buys(symbol: str,
-                     ladder_prices: List[float],
-                     cap_per_order_usdt: object,
-                     *,
-                     min_order_usdt: Optional[float] = None,
-                     cap_floor_usdt: Optional[float] = None,
-                     target_buy_per_symbol: Optional[int] = None,
-                     enforce_limit: bool = False,
-                     use_remainder_in_last: bool = False,
-                     buy_limit_maker: bool = False,
-                     live_mode: bool = False,
-                     market_store: MarketSnapshotStore | None = None,
-                     market_policy: DecisionFreshnessPolicy | None = None,
-                     market_mode: str = "OFF",
-                     otoco_mode: str = "OFF",
-                     stop_limit_offset_pct: object = Decimal("0.0015")) -> List[int]:
-    """Handle maybe place buys."""
-    # Check the stop signal before any network request: after SIGTERM this function
-    # must not even read balances or open orders.
-    if not RUN:
-        log(f"[STOP] {symbol} BUY placement skipped before exchange reads")
-        return []
-    get_symbol_assets(symbol)
-    bals = get_balances()
-    reserve = max(
-        Decimal("0"),
-        _cap_decimal("RISK_RESERVE_USDT", os.getenv("RISK_RESERVE_USDT", "0")),
-    )
-    usdt_free = max(
-        Decimal("0"),
-        Decimal(str(bals.get("USDT", {}).get("free", 0))) - reserve,
-    )
-    cap_exact = _cap_decimal("per-order CAP", cap_per_order_usdt)
-
-    # Free-USDT threshold gate.
-    floor_exact = (
-        _cap_decimal("CAP floor", cap_floor_usdt)
-        if cap_floor_usdt is not None else None
-    )
-    if floor_exact is not None and usdt_free < floor_exact:
-        log(f"[CAP-FLOOR] free≈{usdt_free:.2f} < {floor_exact:.2f}; skip BUY this cycle")
-        return []
-
-    if usdt_free <= 0:
-        return []
-
-    pull_filters(symbol)
-    placed_ids: List[int] = []
-    now = get_price_exact(symbol)
-
-    # Prepare the limit and deduplication set.
-    allowed_new: Optional[int] = None
-    existing_buy_prices: set[Decimal] = set()
-    if enforce_limit and (target_buy_per_symbol is not None):
-        try:
-            open_orders = list_open_orders(symbol) or []
-        except (requests.RequestException, RuntimeError, ValueError) as exc:
-            log(
-                f"[BUY-BLOCK] {symbol} open-order state unavailable: "
-                f"{type(exc).__name__}"
-            )
-            return []
-        existing_buy_prices = existing_prices_decimal(
-            open_orders,
-            side="BUY",
-            now_price=now,
-            round_price=lambda value: _round_price_exact(symbol, value),
-        )
-        existing_cnt = len(existing_buy_prices)
-        allowed_new = max(0, int(target_buy_per_symbol) - existing_cnt)
-        log(f"[TARGET-LIMIT] {symbol} existing_buy={existing_cnt} target={int(target_buy_per_symbol)} → allow_new={allowed_new}")
-        if allowed_new <= 0:
-            return []
-
-    candidates = buy_candidates_decimal(
-        [Decimal(str(value)) for value in ladder_prices],
-        now_price=now,
-        occupied_prices=existing_buy_prices,
-        round_price=lambda value: _round_price_exact(symbol, value),
-        limit=allowed_new if enforce_limit else None,
-    )
-
-    total_slots = len(candidates)
-    if total_slots <= 0:
-        now = get_price_exact(symbol)
-        log(f"[BUY-NONE] {symbol} has no levels below market (now≈{fmt_price_sym(symbol, now)}). "
-            f"Check --ladder-prices and reduce-only mode.")
-        return []
-    selected_gap_pct = (
-        (now - candidates[0]) / now * Decimal("100")
-        if now > 0 else Decimal("0")
-    )
-    log(
-        f"[BUY-PRIORITY] {symbol} selected="
-        f"{fmt_price_sym(symbol, candidates[0])} "
-        f"gap={selected_gap_pct:.4f}% candidates={total_slots}"
-    )
-
-    initial_market_snapshot = (
-        market_store.snapshot() if market_store is not None else None
-    )
-    decision_reference_price = (
-        initial_market_snapshot.best_bid
-        if initial_market_snapshot is not None
-        and initial_market_snapshot.best_bid > 0
-        else now
-    )
-
-    def append_trace(trace: LatencyTrace) -> None:
-        try:
-            trace.append(
-                os.getenv(
-                    "BOT_LATENCY_TRACE_LOG",
-                    str(
-                        Path(__file__).resolve().parents[3]
-                        / "logs"
-                        / "latency_trace.ndjson"
-                    ),
-                )
-            )
-        except OSError as exc:
-            dbg(
-                "[LATENCY] trace unavailable="
-                f"{type(exc).__name__}"
-            )
-
-    # Main candidate loop.
-    for idx, p in enumerate(candidates, start=1):
-        if not RUN:
-            log(f"[STOP] {symbol} BUY placement interrupted before slot {idx}/{total_slots}")
-            break
-        if usdt_free <= 0:
-            break
-        remaining_slots = max(1, total_slots - idx + 1)
-        local_cap = min(cap_exact, usdt_free / Decimal(remaining_slots))
-        use_all_remaining = effective_remainder_policy(
-            requested=use_remainder_in_last and idx == total_slots,
-            live_mode=live_mode,
-        )
-        if use_all_remaining:
-            local_cap = usdt_free
-
-        dbg(f"[DYN-CAP] {symbol} slot {idx}/{total_slots} p≈{fmt_price_sym(symbol, p)} "
-            f"local_cap≈{local_cap:.2f} free≈{usdt_free:.2f}")
-        planned = plan_buy_order_decimal(
-            p,
-            free_quote=usdt_free,
-            cap_per_order=cap_exact,
-            remaining_slots=remaining_slots,
-            use_all_remaining=use_all_remaining,
-            min_order_notional=(
-                _cap_decimal("minimum order", min_order_usdt)
-                if min_order_usdt is not None else None
-            ),
-            min_quantity=_filter_decimal(symbol, "minQtyExact", "minQty"),
-            min_notional=_filter_decimal(
-                symbol, "minNotionalExact", "minNotional"
-            ),
-            round_price=lambda value: _round_price_exact(symbol, value),
-            round_quantity=lambda value: _round_qty_exact(symbol, value),
-        )
-        if planned is None:
-            continue
-        pr, qty, cost = planned.price, planned.quantity, planned.notional
-        # Final fail-closed boundary immediately before exchange mutation.
-        # This catches future planning regressions as well as remainder flags.
-        exchange_notional = _cap_decimal(
-            "exchange BUY notional",
-            pr * qty,
-        )
-        if exchange_notional > cap_exact:
-            log(
-                f"[CAP-HARD-BLOCK] {symbol} exchange={exchange_notional} "
-                f"> limit={cap_exact:.8f}"
-            )
-            continue
-        if (min_order_usdt is not None) and (cost < Decimal(str(min_order_usdt))):
-            log(f"[MIN-ORDER] skip BUY {fmt_qty_sym(symbol, qty)} @ {fmt_price_sym(symbol, pr)} "
-                f"(≈{cost:.2f} USDT < {Decimal(str(min_order_usdt)):.2f})")
-            continue
-
-        try:
-            if not RUN:
-                log(f"[STOP] {symbol} BUY placement interrupted before exchange POST")
-                break
-            maker_flag = (
-                buy_limit_maker or
-                os.getenv("BUY_LIMIT_MAKER", "").lower() in ("1", "true", "yes")
-            )
-            trace = LatencyTrace(symbol, "buy-submit")
-            if market_store is not None and market_policy is not None:
-                trace.mark("market_event_received")
-                trace.mark("feature_start")
-                latest_snapshot = market_store.snapshot()
-                upper_levels = [
-                    Decimal(str(level))
-                    for level in ladder_prices
-                    if Decimal(str(level)) > pr
-                ]
-                ladder_edge_pct = (
-                    (min(upper_levels) - pr) / pr
-                    if upper_levels and pr > 0
-                    else Decimal("0")
-                )
-                expected_gross_edge = max(
-                    _profit_floor_pct(),
-                    ladder_edge_pct,
-                ) * Decimal("10000")
-                gate = evaluate_snapshot_gate(
-                    latest_snapshot,
-                    decision_reference_price=decision_reference_price,
-                    expected_edge_bps=expected_gross_edge,
-                    fee_bps=(
-                        (
-                            max(
-                                Decimal("0"),
-                                getenv_decimal(
-                                    "BOT_BUY_FEE_PCT",
-                                    getenv_decimal("BOT_FEE_PCT", "0.001"),
-                                ),
-                            )
-                            + max(
-                                Decimal("0"),
-                                getenv_decimal(
-                                    "BOT_SELL_FEE_PCT",
-                                    getenv_decimal("BOT_FEE_PCT", "0.001"),
-                                ),
-                            )
-                        )
-                        * Decimal("10000")
-                    ),
-                    slippage_bps=(
-                        _non_fee_execution_cost_pct()
-                        * Decimal("10000")
-                    ),
-                    policy=market_policy,
-                    now_monotonic_ns=time.monotonic_ns(),
-                )
-                trace.mark("feature_end")
-                trace.mark("risk_decision")
-                if not gate.approved:
-                    log(
-                        f"[FAST-MARKET-{market_mode}] {symbol} BUY gate="
-                        f"{','.join(gate.reasons)} age_ms="
-                        f"{gate.snapshot_age_ms:.3f} move_bps="
-                        f"{gate.price_move_bps:.3f} net_edge_bps="
-                        f"{gate.net_edge_bps:.3f}"
-                    )
-                    if market_mode == "APPLY":
-                        append_trace(trace)
-                        continue
-            otoco_prices = None
-            if otoco_mode != "OFF":
-                otoco_prices = _pick_ladder_aligned_oco_prices(
-                    symbol,
-                    ladder_prices,
-                    pr,
-                    stop_limit_offset_pct,
-                )
-                if otoco_mode == "SHADOW":
-                    log(
-                        f"[OTOCO-SHADOW] {symbol} BUY="
-                        f"{fmt_price_sym(symbol, pr)} TP="
-                        f"{fmt_price_sym(symbol, otoco_prices[0])} STOP="
-                        f"{fmt_price_sym(symbol, otoco_prices[1])}"
-                    )
-            # IMPORTANT: place the order at the rounded price pr.
-            if otoco_mode == "APPLY":
-                if live_mode and os.getenv("BOT_OTOCO_APPROVED") != "YES":
-                    raise RuntimeError(
-                        "OTOCO APPLY requires BOT_OTOCO_APPROVED=YES"
-                    )
-                if otoco_prices is None:
-                    raise RuntimeError("OTOCO prices are unavailable")
-                j = place_otoco_buy(
-                    symbol,
-                    qty,
-                    pr,
-                    otoco_prices[0],
-                    otoco_prices[1],
-                    otoco_prices[2],
-                    maker=maker_flag,
-                    latency_trace=trace,
-                )
-            else:
-                j = place_limit_order(
-                    "BUY",
-                    symbol,
-                    qty,
-                    pr,
-                    maker=maker_flag,
-                    latency_trace=trace,
-                )
-            if j:
-                oid = int(j.get("orderId"))
-                placed_ids.append(oid)
-                # Subtract the quote spend at pr from free.
-                usdt_free = max(Decimal("0"), usdt_free - planned.notional)
-                # Deduplicate by the already rounded price.
-                existing_buy_prices.add(pr)
-            append_trace(trace)
-        except (requests.RequestException, RuntimeError, ValueError, OSError) as exc:
-            log(
-                f"[BUY-PLACE-ERR] {symbol} price={fmt_price_sym(symbol, pr)} "
-                f"reason={type(exc).__name__}"
-            )
-
-    return placed_ids
 
 def maybe_place_sells_from_holdings(
     symbol: str,
@@ -2721,7 +2413,7 @@ def main():
             log(f"[SKIP-BUY] {symbol} reason={skip_buys_reason}; new BUY orders suppressed this cycle")
         else:
             try:
-                new_ids = maybe_place_buys(
+                new_ids = service_place_buys(
                     symbol,
                     ladder_prices,
                     cap,
@@ -2744,6 +2436,7 @@ def main():
                     market_mode=args.fast_market_mode,
                     otoco_mode=args.otoco_mode,
                     stop_limit_offset_pct=args.stop_limit_offset_pct,
+                    runtime=globals(),
                 )
                 placed_ids = list(dict.fromkeys([*placed_ids, *new_ids]))
             except (

@@ -3,7 +3,7 @@ from decimal import Decimal
 
 import pytest
 
-from ladder_dragon.ai.ai_context import (
+from ladder_dragon.ai.context.runtime import (
     AdvisorDecisionStore,
     build_portfolio_features,
     directional_success,

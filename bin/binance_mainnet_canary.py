@@ -3,14 +3,10 @@
 # Copyright (c) 2026 IURII Potekhin
 # Purpose: preserve the separately confirmed Mainnet canary CLI.
 
-"""Compatibility CLI for Mainnet canary verification."""
+"""Separately confirmed Mainnet canary command."""
 
-import sys
-
-from ladder_dragon.verification.live import mainnet_canary as _runtime
+from ladder_dragon.verification.live.mainnet_canary import main
 
 
 if __name__ == "__main__":
-    raise SystemExit(_runtime.main())
-
-sys.modules[__name__] = _runtime
+    raise SystemExit(main())

@@ -6,6 +6,7 @@ FILES = (
     Path("ladder_dragon/supervision/runtime.py"),
     Path("ladder_dragon/ai/context/runtime.py"),
     Path("ladder_dragon/execution/worker/runtime.py"),
+    Path("ladder_dragon/execution/worker/buy_service.py"),
     Path("ladder_dragon/verification/live/mainnet_canary.py"),
     Path("bin/stats_view.py"),
     Path("ladder_dragon/execution/operator/cancel_open.py"),
@@ -113,7 +114,7 @@ def test_worker_financial_order_paths_have_no_float_calls():
         "_minimum_notional_exact",
         "avg_entry",
         "_pick_ladder_aligned_oco_prices",
-        "maybe_place_buys",
+        "place_buys",
         "maybe_place_sells_from_holdings",
     }
     violations: list[str] = []

@@ -9,9 +9,9 @@ from decimal import Decimal
 import pytest
 from fastapi.testclient import TestClient
 from ladder_dragon.ai.ai_runtime_status import write_runtime_status
-from ladder_dragon.ai.ai_context import AdvisorDecisionStore
+from ladder_dragon.ai.context.runtime import AdvisorDecisionStore
 from ladder_dragon.execution.order_recovery import OrderJournal
-from bin.db_migrate import migrate
+from ladder_dragon.persistence.migrations import migrate
 from tests.support.module_loaders import load_dashboard
 
 from tests.test_dashboard_security import dashboard_source, load_dashboard

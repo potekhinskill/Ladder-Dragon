@@ -2,7 +2,7 @@ from decimal import Decimal
 from pathlib import Path
 import sqlite3
 
-from bin.db_migrate import migrate
+from ladder_dragon.persistence.migrations import migrate
 from ladder_dragon.execution.accounting_retirement import (
     exact_only_schema,
     retire_accounting_schema,

@@ -2,7 +2,7 @@ import json
 import sqlite3
 import time
 
-from ladder_dragon.ai.ai_context import AdvisorDecisionStore
+from ladder_dragon.ai.context.runtime import AdvisorDecisionStore
 from ladder_dragon.ai.ai_knowledge import KnowledgeStore, cosine_similarity
 
 

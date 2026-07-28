@@ -1,12 +1,9 @@
 # SPDX-License-Identifier: MIT
 # Copyright (c) 2026 IURII Potekhin
-# Purpose: preserve the historical ASGI import while delegating to the package.
+# Purpose: expose the packaged dashboard ASGI application.
 
-"""Compatibility ASGI facade for the Ladder Dragon dashboard."""
+"""Ladder Dragon dashboard ASGI entry point."""
 
-import sys
+from ladder_dragon.dashboard.runtime import app
 
-from ladder_dragon.dashboard import runtime as _runtime
-
-
-sys.modules[__name__] = _runtime
+__all__ = ["app"]

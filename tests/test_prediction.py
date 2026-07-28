@@ -423,7 +423,7 @@ def test_reanchor_store_resolves_proposed_and_original_buy(tmp_path):
 def test_supervisor_shadow_records_strategy_and_hashed_reanchor(
     tmp_path, monkeypatch
 ):
-    from bin import ai_supervisor
+    from ladder_dragon.supervision import runtime as ai_supervisor
 
     database = tmp_path / "prediction.sqlite3"
     store = PredictionShadowStore(database)

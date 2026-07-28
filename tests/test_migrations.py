@@ -2,7 +2,7 @@ from pathlib import Path
 import hashlib
 import sqlite3
 
-from bin.db_migrate import MIGRATIONS, migrate
+from ladder_dragon.persistence.migrations import MIGRATIONS, migrate
 from ladder_dragon.execution.inventory_lots import sync_exchange_fill
 
 
