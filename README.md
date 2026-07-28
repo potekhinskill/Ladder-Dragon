@@ -19,6 +19,7 @@
   <a href="#quick-start">Quick start</a> ·
   <a href="#why-ladder-dragon">Why Ladder Dragon</a> ·
   <a href="#verification">Verification</a> ·
+  <a href="docs/RUNTIME_SAFETY_AND_REPORTING.md">Operations</a> ·
   <a href="#star-history">Star history</a> ·
   <a href="#dashboard">Dashboard</a> ·
   <a href="docs/RASPBERRY_PI_INSTALL.md">Raspberry Pi</a>
@@ -26,10 +27,11 @@
 
 Ladder Dragon is an open-source Python trading system for Binance Spot. It
 combines adaptive ladder entries, exchange-side OCO protection, exact
-fee-aware FIFO accounting, restart reconciliation, replay and walk-forward
-verification, and a private Raspberry Pi operations dashboard.
+fee-aware FIFO accounting, restart reconciliation, per-symbol operational
+reporting, replay and walk-forward verification, and a private Raspberry Pi
+operations dashboard.
 
-Current product version: **2.20.60**. The single version source is
+Current product version: **2.20.61**. The single version source is
 `product_version.py`; releases follow [Semantic Versioning](https://semver.org/).
 Project contact: [LinkedIn](https://www.linkedin.com/in/ypotekhin/).
 
@@ -64,8 +66,10 @@ bounded, explainable, recoverable, and measurable before exposure is increased.
    loss, freshness, spread, and gap constraints.
 3. An order intent is persisted before submission. Exchange acknowledgements,
    fills, partial fills, and restarts reconcile against Binance.
-4. Filled BUY quantity must receive verified exchange-side protection or the
-   system halts new entries.
+4. Filled BUY quantity must receive verified exchange-side protection. A
+   crossed OCO plan is rejected locally; a definitive LIVE attachment failure
+   attempts a confirmed exact emergency flatten, while partial or uncertain
+   outcomes remain halted.
 5. Exact fills, commissions, slippage, lifecycle outcomes, latency, and SHADOW
    predictions feed reports, replay validation, and production approval.
 
@@ -92,7 +96,7 @@ bounded, explainable, recoverable, and measurable before exposure is increased.
 ## Project status
 
 Ladder Dragon is an actively developed, experimental trading system. Version
-**2.20.60** is the current source release. `main` is the only long-lived branch;
+**2.20.61** is the current source release. `main` is the only long-lived branch;
 feature branches use the `ladderdragon/*` namespace.
 
 DRY and Binance Spot Testnet are the supported starting modes. Mainnet LIVE is
@@ -141,7 +145,9 @@ larger exposure.
 - portfolio VaR based on timestamp-aligned 15-minute natural-log returns and
   Expected Shortfall based on explicit non-negative scenario losses; both
   gates remain disabled until an operator reviews a positive USDT limit;
-- encrypted rotating backups and Telegram alerts for operational failures.
+- encrypted rotating backups and Telegram alerts for operational failures;
+- an idempotent English morning digest with exact per-symbol FIFO accounting,
+  explicit exclusions, and deduplicated fail-closed warnings.
 
 ## Architecture
 
@@ -599,6 +605,11 @@ exchange order ID before creating protection. An uncertain submission trips a
 persistent circuit halt. Partial fills, gap-below-stop, and restart recovery
 are fail-closed paths.
 
+The complete operator-visible contract for protection, HALT versus SHADOW,
+managed versus legacy inventory, dashboard PnL availability, Telegram digest
+exclusions, and stable-log suppression is documented in
+[Runtime safety and reporting](docs/RUNTIME_SAFETY_AND_REPORTING.md).
+
 Gap flatten first derives the exact residual from both OCO legs, cancels every
 breached list, and polls Binance until those lists disappear and the required
 base quantity is free. It reports success only after a `FILLED` MARKET response
@@ -899,6 +910,11 @@ are disabled; sanitized logs are exposed only under Basic Auth at `/logs/`.
 The Raspberry installer also exposes encrypted backup metadata and checksums at
 `/backups/`; decrypted env files and keys are never public.
 
+Position protection is scoped explicitly: a confirmed OCO applies only to the
+managed quantity covered by its verified SELL legs. Legacy account quantity is
+shown separately. The 24-hour FIFO PnL card is unavailable, with affected
+symbols named, whenever exact history cannot support the calculation.
+
 ## Raspberry Pi installation and updates
 
 Read [docs/RASPBERRY_PI_INSTALL.md](docs/RASPBERRY_PI_INSTALL.md) for the full
@@ -1058,6 +1074,7 @@ badge at the top remains the live count between chart updates.
 
 - [Introduction](docs/INTRODUCTION.md)
 - [Raspberry Pi runbook](docs/RASPBERRY_PI_INSTALL.md)
+- [Runtime safety and reporting](docs/RUNTIME_SAFETY_AND_REPORTING.md)
 - [Dashboard help](FRONT/help.html)
 - [Changelog](CHANGELOG.md)
 - [Security policy](SECURITY.md)

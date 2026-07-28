@@ -5,6 +5,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 ASSET = ROOT / "docs" / "assets" / "dashboard-overview-sanitized.png"
+RUNTIME_REFERENCE = ROOT / "docs" / "RUNTIME_SAFETY_AND_REPORTING.md"
 
 
 def test_sanitized_dashboard_preview_is_documented() -> None:
@@ -38,3 +39,28 @@ def test_live_dashboard_capture_is_not_committed_as_documentation() -> None:
     }
     original_capture_prefix = "\u0421\u043a\u0440\u0438\u043d\u0448\u043e\u0442"
     assert not any(name.startswith(original_capture_prefix) for name in tracked_docs)
+
+
+def test_runtime_safety_reference_is_linked_and_matches_current_contracts() -> None:
+    assert RUNTIME_REFERENCE.is_file()
+    reference = RUNTIME_REFERENCE.read_text(encoding="utf-8")
+    readme = (ROOT / "README.md").read_text(encoding="utf-8")
+    introduction = (ROOT / "docs" / "INTRODUCTION.md").read_text(
+        encoding="utf-8"
+    )
+    runbook = (ROOT / "docs" / "RASPBERRY_PI_INSTALL.md").read_text(
+        encoding="utf-8"
+    )
+
+    for required in (
+        "TP > market > STOP > STOP_LIMIT",
+        "HALT and SHADOW are separate states",
+        "Managed and legacy inventory",
+        "Exact PnL and dashboard availability",
+        "Excluded symbols",
+        "RISK_STABLE_INFO_LOG_INTERVAL_SEC",
+    ):
+        assert required in reference
+    assert "docs/RUNTIME_SAFETY_AND_REPORTING.md" in readme
+    assert "RUNTIME_SAFETY_AND_REPORTING.md" in introduction
+    assert "RUNTIME_SAFETY_AND_REPORTING.md" in runbook

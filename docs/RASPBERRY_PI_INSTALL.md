@@ -526,6 +526,36 @@ in `/etc/fstab`, never by a transient `/dev/sda1` path.
 inventory through Basic Auth. Local/public retention is 14 days; external
 retention follows `BACKUP_EXTERNAL_RETENTION_DAYS`.
 
+### 10.1 Daily Telegram trading digest
+
+The installer enables `ladder-dragon-daily-digest.timer`. At 08:00
+`Asia/Almaty`, it reads the exact trade database without write access and
+reports yesterday, the last 7 complete days, and the last 30 complete days.
+
+```bash
+sudo systemctl status ladder-dragon-daily-digest.timer --no-pager
+sudo systemctl list-timers ladder-dragon-daily-digest.timer --no-pager
+sudo journalctl -u ladder-dragon-daily-digest.service -n 50 --no-pager
+```
+
+Accounting is isolated by symbol. A symbol with incomplete FIFO history or an
+unpriced commission appears under `Excluded symbols`; exact eligible-symbol
+totals are still sent. The service never synthesizes a BUY or zero cost basis.
+A report-build failure sends at most one figure-free `BLOCKED` warning per
+local date. A missing database blocks before message construction and is
+reported in the service journal.
+
+Run a private preview only when terminal output is protected:
+
+```bash
+sudo -u bot env PYTHONPATH=/home/bot/apps/binance_bot \
+  /home/bot/apps/binance_bot/.venv/bin/python \
+  -m bin.daily_trading_digest --dry-run
+```
+
+See [Runtime safety and reporting](RUNTIME_SAFETY_AND_REPORTING.md) for the
+protection, accounting, dashboard, and HALT/SHADOW contracts.
+
 ## 11. Sanitized logs and watchdog
 
 ```text

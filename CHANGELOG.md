@@ -3,6 +3,21 @@
 All notable changes are documented here. Releases use Semantic Versioning; every
 section is dated and there is intentionally no `Unreleased` section.
 
+## [2.20.61] — 2026-07-28
+
+### Changed
+- Added a single runtime safety and reporting reference covering filled-BUY
+  protection, emergency flatten confirmation, HALT versus SHADOW, managed and
+  legacy inventory scope, exact FIFO PnL availability, daily Telegram digest
+  exclusions, stable-log suppression, and the deployment boundary.
+- Synchronized the public project description, introduction, dashboard
+  explanation, documentation index, and Raspberry Pi operator commands with
+  the behavior shipped in 2.20.57 through 2.20.60.
+
+### Verified
+- Documentation-link, publication-asset, version-synchronization, source
+  compilation, and complete project tests pass.
+
 ## [2.20.60] — 2026-07-28
 
 ### Fixed

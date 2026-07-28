@@ -4,7 +4,7 @@
 
 <h1 align="center">Ladder Dragon</h1>
 
-<p align="center">Adaptive Binance Spot ladder trading with Risk Manager, OCO protection, backtest/replay, and a read-only dashboard.</p>
+<p align="center">Adaptive Binance Spot execution with Risk Manager, verified OCO protection, exact accounting, replay, and read-only operations.</p>
 
 <p align="center">
   <img src="assets/dashboard-overview-sanitized.png" alt="Sanitized Ladder Dragon operations dashboard" width="1100">
@@ -16,12 +16,14 @@
 
 ## What it is
 
-Ladder Dragon combines four layers:
+Ladder Dragon combines five layers:
 
 1. **Strategy** — BUY/SELL ladders, ATR/EMA/VWAP/ADX, and market regimes.
 2. **Execution** — Binance transport, fills, OCO/STOP, FIFO inventory, and recovery.
 3. **Risk** — reserve, CAP, circuit breaker, reconciliation, and fail-closed gates.
 4. **AI advisory** — SHADOW recommendations and RAG context without order access.
+5. **Operations** — read-only dashboard, exact Telegram summaries, signed
+   releases, backups, health monitoring, and Raspberry Pi verification.
 
 The deterministic strategy remains authoritative. New expectancy, maker,
 regime, inventory, statistical-regime and correlation controls start in
@@ -30,6 +32,23 @@ orders. `APPLY` requires both explicit operator acknowledgement and passing
 chronological evidence. STRATEGY candidates are compared with a real
 `NO_TRADE`/USDT baseline; re-anchor candidates require the original untouched
 order as their baseline.
+
+## Current runtime contracts
+
+- A filled BUY is safe only after both Binance OCO legs are verified. A crossed
+  OCO relationship is not submitted; definitive LIVE attachment failure
+  attempts an exact confirmed emergency flatten.
+- HALT blocks every execution mutation, but healthy authenticated state may
+  continue producing non-executing SHADOW evidence.
+- Managed bot lots and legacy account inventory are separate scopes. Managed
+  OCO protection never implies protection for legacy quantity.
+- Numeric FIFO PnL is withheld when exact history is incomplete. Cash flow and
+  portfolio movement remain separate metrics.
+- The 08:00 `Asia/Almaty` Telegram digest reports eligible symbols exactly and
+  names excluded symbols instead of inventing a cost basis.
+
+See [Runtime safety and reporting](RUNTIME_SAFETY_AND_REPORTING.md) for the
+operator decision table and diagnostic commands.
 
 ## Supported platforms
 
@@ -177,4 +196,5 @@ Ubuntu and follow the Linux steps; native Windows LIVE is not supported.
 - Review Git history for secrets and production configuration before publishing.
 
 See [RASPBERRY_PI_INSTALL.md](RASPBERRY_PI_INSTALL.md), [README.md](../README.md),
+[RUNTIME_SAFETY_AND_REPORTING.md](RUNTIME_SAFETY_AND_REPORTING.md),
 [LICENSE](../LICENSE), and [DISCLAIMER.md](../DISCLAIMER.md).
