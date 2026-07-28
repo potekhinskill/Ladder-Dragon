@@ -2,10 +2,10 @@ import builtins
 from pathlib import Path
 import symtable
 
-from ladder_dragon.execution.worker.bootstrap import WorkerRuntimeState
+from ladder_dragon.execution.worker.lifecycle import WorkerRuntimeState
 
 
-BOOTSTRAP = Path("ladder_dragon/execution/worker/bootstrap.py")
+LIFECYCLE = Path("ladder_dragon/execution/worker/lifecycle.py")
 
 
 def test_runtime_state_reads_live_signal_and_connection_values():
@@ -43,8 +43,8 @@ def test_runtime_state_writes_modes_back_to_runtime_namespace():
 
 
 def test_worker_loop_has_no_snapshot_or_double_qualified_dependencies():
-    source = BOOTSTRAP.read_text(encoding="utf-8")
-    table = symtable.symtable(source, str(BOOTSTRAP), "exec")
+    source = LIFECYCLE.read_text(encoding="utf-8")
+    table = symtable.symtable(source, str(LIFECYCLE), "exec")
     worker = next(
         child for child in table.get_children()
         if child.get_name() == "run_worker"
@@ -60,5 +60,10 @@ def test_worker_loop_has_no_snapshot_or_double_qualified_dependencies():
             names.update(free_globals(child))
         return names
 
-    assert free_globals(worker) <= set(dir(builtins))
-    assert ".state." not in source
+    assert free_globals(worker) <= {
+        *dir(builtins),
+        "WorkerLoopContext",
+        "WorkerResources",
+        "run_event_loop",
+    }
+    assert "state.state." not in source

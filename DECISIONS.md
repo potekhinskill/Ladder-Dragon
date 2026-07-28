@@ -15,6 +15,19 @@ entries concise; this is not a changelog or an activity log.
 
 ## Decisions
 
+### 2026-07-28 — Keep the worker event loop incapable of creating BUYs
+
+- **Context:** one 788-line function mixed resource lifecycle, initial BUY
+  planning and long-running fill/protection reconciliation.
+- **Decision:** keep preflight and initial planning in `worker.lifecycle`; pass
+  an explicit mutable `WorkerLoopContext` into `worker.event_loop`, whose
+  dependencies intentionally exclude every BUY placement service.
+- **Why it worked:** lifecycle, recovery and safety regressions prove live
+  `RUN` mutation remains visible, all resources are released after a cleanup
+  failure and the event-loop source contains no BUY submission boundary.
+- **Reuse:** long-running execution loops that must observe and reduce risk but
+  must not independently create new exposure.
+
 ### 2026-07-28 — Keep transient preflight failures inside the supervisor
 
 - **Context:** a slow Binance time read or `-1021` is unsafe for trading but

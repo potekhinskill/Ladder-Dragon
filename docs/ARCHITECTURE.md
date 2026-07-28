@@ -42,7 +42,9 @@ non-growth budgets:
 | File | Main remaining seams |
 |---|---|
 | `ladder_dragon/supervision/runtime.py` | per-symbol planning, runtime bootstrap and the main supervision loop |
-| `ladder_dragon/execution/worker/bootstrap.py` | worker argument setup and the main event loop |
+| `ladder_dragon/execution/worker/bootstrap.py` | thin executable bootstrap |
+| `ladder_dragon/execution/worker/lifecycle.py` | worker preflight, initial plan, resource startup and cleanup |
+| `ladder_dragon/execution/worker/event_loop.py` | fill reconciliation, protection, PANIC, gap and time-stop loop |
 | `ladder_dragon/execution/worker/runtime.py` | shared exchange adapters and late-bound execution dependencies |
 | `ladder_dragon/dashboard/runtime.py` | dashboard coordinator pending router/service extraction |
 | `ladder_dragon/execution/order_recovery.py` | journal schema, lifecycle commands, query projections |
@@ -70,12 +72,13 @@ Authentication/transient preflight classification, bounded retry schedules and
 heartbeat-aware waits are owned by `preflight_resilience.py`; the runtime
 retains only orchestration and explicit callbacks for status and clocks.
 
-The worker CLI now constructs a `WorkerRuntimeState` over the live execution
-runtime namespace. The bootstrap loop therefore observes signal-driven `RUN`
-changes and current SQLite/WebSocket objects instead of stale snapshots, while
-mode assignments remain visible to late-bound execution adapters. The next
-worker extraction should split this event loop into lifecycle services without
-copying mutable runtime state.
+The worker CLI constructs a `WorkerRuntimeState` over the live execution
+runtime namespace. `lifecycle.py` owns preflight, initial planning and resource
+cleanup, while `event_loop.py` observes signal-driven `RUN` changes and current
+SQLite/WebSocket objects instead of stale snapshots. The event loop can
+reconcile fills, maintain protection and perform fail-closed exits, but it
+cannot create new BUY exposure. Cleanup attempts every observer, transport and
+symbol-lock release even when an earlier cleanup callback fails.
 
 ## Runtime entry points
 

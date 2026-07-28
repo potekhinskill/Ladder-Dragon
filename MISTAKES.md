@@ -17,6 +17,42 @@ private infrastructure details.
 
 ## Mistakes
 
+### 2026-07-28 — Guessed a documentation test path during release repair
+
+- **Impact:** the first post-documentation verification command stopped before
+  collecting tests because the requested file did not exist.
+- **Root cause:** the command inferred a likely filename instead of applying
+  the repository rule to discover paths first.
+- **Correction:** locate the documentation contract with `rg --files` and
+  content search, then run the discovered test plus the complete suite.
+- **Prevention:** every targeted pytest command must contain only paths copied
+  from current discovery output, including apparently obvious policy tests.
+
+### 2026-07-28 — Repeated manual expansion of an abbreviated release SHA
+
+- **Impact:** the first 2.20.68 release-harness command stopped at its identity
+  guard and had to be rerun; no tag, push or deployment occurred.
+- **Root cause:** despite existing lessons, the command again used a manually
+  typed 40-character identifier instead of reading the selected branch HEAD.
+- **Correction:** resolve `git rev-parse HEAD` after every branch switch and
+  pass that exact output unchanged to verification, tagging and deployment.
+- **Prevention:** release commands must derive immutable identifiers from Git
+  after checkout; a human-entered or expanded SHA is never an accepted input.
+
+### 2026-07-28 — Measured lifecycle boundaries before final cleanup wiring
+
+- **Impact:** the first worker decomposition checks failed on an incomplete
+  dependency allowlist, a stale line budget and a source assertion that also
+  matched the legitimate `WorkerResources.state` attribute.
+- **Root cause:** architecture constraints were updated before the final
+  lifecycle helper existed and one run-worker invariant was applied to the
+  entire module instead of the function it was designed to protect.
+- **Correction:** allow the explicit resource dependency, use the exact final
+  line budget and narrow the double-qualification assertion to
+  `state.state`.
+- **Prevention:** finalize helper wiring before measuring budgets and scope
+  structural source assertions to the AST node whose invariant they express.
+
 ### 2026-07-28 — Computed one retry delay from two wall-clock samples
 
 - **Impact:** a focused auth-backoff test intermittently waited 29 seconds in

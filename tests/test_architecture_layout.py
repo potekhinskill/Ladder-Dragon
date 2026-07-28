@@ -55,7 +55,9 @@ def test_known_runtime_monoliths_can_only_shrink():
     budgets = {
         "ladder_dragon/supervision/runtime.py": 4824,
         "ladder_dragon/execution/worker/runtime.py": 1661,
-        "ladder_dragon/execution/worker/bootstrap.py": 850,
+        "ladder_dragon/execution/worker/bootstrap.py": 18,
+        "ladder_dragon/execution/worker/lifecycle.py": 577,
+        "ladder_dragon/execution/worker/event_loop.py": 412,
         "ladder_dragon/dashboard/runtime.py": 2867,
         "ladder_dragon/execution/order_recovery.py": 1284,
         "ladder_dragon/strategy/prediction/runtime.py": 1300,
@@ -171,20 +173,29 @@ def test_worker_main_uses_explicit_mutable_runtime_state():
             encoding="utf-8"
         )
     )
+    lifecycle = ast.parse(
+        (ROOT / "ladder_dragon/execution/worker/lifecycle.py").read_text(
+            encoding="utf-8"
+        )
+    )
     assert not any(
         isinstance(node, ast.FunctionDef) and node.name == "main"
         for node in runtime.body
     )
-    bootstrap_names = {
+    lifecycle_names = {
         node.name
-        for node in bootstrap.body
+        for node in lifecycle.body
         if isinstance(node, (ast.ClassDef, ast.FunctionDef))
     }
     assert {
         "WorkerRuntimeState",
         "run_worker",
-        "main",
-    } <= bootstrap_names
+    } <= lifecycle_names
+    assert {
+        node.name
+        for node in bootstrap.body
+        if isinstance(node, ast.FunctionDef)
+    } == {"main"}
 
 
 def test_decomposition_targets_have_explicit_package_boundaries():
@@ -196,6 +207,8 @@ def test_decomposition_targets_have_explicit_package_boundaries():
         "ladder_dragon/supervision/prediction_shadow.py",
         "ladder_dragon/supervision/preflight_resilience.py",
         "ladder_dragon/execution/worker/bootstrap.py",
+        "ladder_dragon/execution/worker/lifecycle.py",
+        "ladder_dragon/execution/worker/event_loop.py",
         "ladder_dragon/execution/worker/buy_service.py",
         "ladder_dragon/execution/worker/holdings_service.py",
         "ladder_dragon/execution/worker/panic_control.py",

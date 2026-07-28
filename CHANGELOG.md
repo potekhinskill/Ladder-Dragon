@@ -3,6 +3,26 @@
 All notable changes are documented here. Releases use Semantic Versioning; every
 section is dated and there is intentionally no `Unreleased` section.
 
+## [2.20.72] — 2026-07-28
+
+### Changed
+- The 788-line worker coordinator is split into explicit lifecycle and
+  non-buying event-loop services; the executable bootstrap is now 18 lines.
+- `WorkerLoopContext` carries tracked orders and protection state explicitly
+  while retaining the live `WorkerRuntimeState` view required by SIGTERM,
+  WebSocket replacement and SQLite rebinding.
+- Worker cleanup now attempts every transport, observer and symbol-lock
+  release even when an earlier cleanup callback fails.
+- Architecture and deployment contracts point to the new physical owners and
+  prohibit BUY placement from the event-loop service.
+- Release workflow learning now explicitly prohibits manually expanding an
+  abbreviated SHA after a branch switch.
+
+### Verified
+- Lifecycle cleanup, live mutable state, worker safety, recovery, deployment
+  and architecture regressions pass; compileall and the complete suite pass
+  (714 tests).
+
 ## [2.20.71] — 2026-07-28
 
 ### Fixed
