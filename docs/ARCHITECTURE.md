@@ -42,15 +42,17 @@ non-growth budgets:
 | File | Main remaining seams |
 |---|---|
 | `ladder_dragon/supervision/runtime.py` | per-symbol planning, runtime bootstrap and the main supervision loop |
-| `ladder_dragon/execution/worker/runtime.py` | worker bootstrap and the main event loop |
+| `ladder_dragon/execution/worker/bootstrap.py` | worker argument setup and the main event loop |
+| `ladder_dragon/execution/worker/runtime.py` | shared exchange adapters and late-bound execution dependencies |
 | `ladder_dragon/dashboard/runtime.py` | dashboard coordinator pending router/service extraction |
 | `ladder_dragon/execution/order_recovery.py` | journal schema, lifecycle commands, query projections |
 | `ladder_dragon/strategy/prediction/runtime.py` | compatibility coordinator for modular prediction APIs |
 
-Future work must extract one cohesive seam at a time behind an unchanged
-facade. A move is complete only when:
+Future work must extract one cohesive seam at a time and migrate production
+and test imports to the owning package in the same change. A move is complete
+only when:
 
-1. callers and CLI paths remain compatible;
+1. executable CLI paths remain compatible and no import-only facade remains;
 2. the package has no reverse dependency on `bin`;
 3. focused and full regression suites pass;
 4. the old monolith becomes smaller;
@@ -64,6 +66,13 @@ shutdown lifecycle are now physically owned by `risk_cycle.py`,
 `recovery_gate.py` and `process_manager.py`. The compatibility runtime injects
 its exchange and persistence adapters explicitly, preserving fail-closed
 behavior and test isolation without introducing a reverse dependency.
+
+The worker CLI now constructs a `WorkerRuntimeState` over the live execution
+runtime namespace. The bootstrap loop therefore observes signal-driven `RUN`
+changes and current SQLite/WebSocket objects instead of stale snapshots, while
+mode assignments remain visible to late-bound execution adapters. The next
+worker extraction should split this event loop into lifecycle services without
+copying mutable runtime state.
 
 ## Runtime entry points
 

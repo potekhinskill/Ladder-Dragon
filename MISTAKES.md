@@ -319,3 +319,38 @@ private infrastructure details.
   retain fee evidence in SHADOW without modifying the plan.
 - **Prevention:** every SHADOW boundary needs a regression proving identical
   execution output to the baseline.
+### 2026-07-28 — Token rewrite skipped names inside Python 3.10 f-strings
+
+- **Impact:** the mechanically extracted worker loop initially retained four
+  unqualified runtime dependencies that would raise `NameError` on operator
+  log paths.
+- **Root cause:** Python 3.10 tokenization exposes an f-string as one string
+  token, so the name-rewrite pass could not see expressions inside it.
+- **Correction:** identify free globals with `symtable`, qualify the remaining
+  f-string expressions explicitly and repeat static validation.
+- **Prevention:** every token-based extraction must finish with a recursive
+  free-global audit; never assume token replacement can inspect f-string
+  expressions on every supported Python version.
+
+### 2026-07-28 — Token rewrite qualified an attribute name twice
+
+- **Impact:** four clock reads in the extracted worker loop initially became
+  `state.time.state.time()` and would fail before or during execution.
+- **Root cause:** the mechanical rewrite qualified every matching name token
+  without excluding tokens already used as an attribute after a dot.
+- **Correction:** restore `state.time.time()` and compare the normalized AST of
+  the moved function against its pre-extraction source.
+- **Prevention:** token rewrites must ignore attribute-name tokens and must pass
+  an AST-equivalence check, not only compilation and free-global analysis.
+
+### 2026-07-28 — Kept a source assertion tied to the pre-extraction name
+
+- **Impact:** the first targeted worker test run had one failure even though
+  the exchange-clock dependency remained unchanged.
+- **Root cause:** the deployment test was moved to the new bootstrap file but
+  still expected `TM._timestamp_ms` instead of its explicit runtime-state form
+  `state.TM._timestamp_ms`.
+- **Correction:** assert the new owner-qualified dependency and rerun the
+  complete worker regression set.
+- **Prevention:** when moving orchestration behind an explicit state object,
+  update both the source path and owner-qualified contract in structural tests.

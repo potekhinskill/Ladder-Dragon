@@ -3,6 +3,22 @@
 All notable changes are documented here. Releases use Semantic Versioning; every
 section is dated and there is intentionally no `Unreleased` section.
 
+## [2.20.70] — 2026-07-28
+
+### Changed
+- Worker CLI ownership and the main event loop moved from the execution-adapter
+  runtime into `execution.worker.bootstrap`.
+- The loop now receives an explicit mutable `WorkerRuntimeState` backed by the
+  live runtime namespace, preserving SIGTERM updates, WebSocket transport
+  replacement and SQLite connection rebinding without compatibility imports.
+- The execution-adapter runtime shrank from 2456 to 1663 lines and no longer
+  owns a `main` entry point.
+
+### Verified
+- Runtime-state, worker safety, recovery, accounting, deployment and
+  architecture regressions pass; compileall and the complete suite pass
+  (706 tests).
+
 ## [2.20.69] — 2026-07-28
 
 ### Changed

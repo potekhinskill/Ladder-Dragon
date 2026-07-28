@@ -527,15 +527,15 @@ def test_managed_service_uses_versionless_wrapper_and_separate_env():
 
 
 def test_executor_status_does_not_hide_oco_state_behind_question_mark():
-    executor = read("ladder_dragon/execution/worker/runtime.py")
+    executor = read("ladder_dragon/execution/worker/bootstrap.py")
     assert "OCO:?" not in executor
     assert 'protection_state = "not_checked"' in executor
 
 
 def test_executor_user_stream_reuses_authoritative_exchange_clock():
-    executor = read("ladder_dragon/execution/worker/runtime.py")
+    executor = read("ladder_dragon/execution/worker/bootstrap.py")
     example = read(".env.example")
-    assert "timestamp_ms=TM._timestamp_ms" in executor
+    assert "timestamp_ms=state.TM._timestamp_ms" in executor
     assert 'os.getenv("BOT_USER_STREAM_SHADOW", "1")' in executor
     assert "BOT_USER_STREAM_SHADOW=1" in example
     assert "BOT_USER_STREAM_STATE_WRITE_SEC" in executor

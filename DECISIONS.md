@@ -15,6 +15,20 @@ entries concise; this is not a changelog or an activity log.
 
 ## Decisions
 
+### 2026-07-28 — Move mutable orchestration through a live state namespace
+
+- **Context:** physically moving the worker loop could snapshot `RUN`, the
+  SQLite connection or WebSocket transport and break SIGTERM and restart
+  behavior.
+- **Decision:** pass an explicit `WorkerRuntimeState` backed by the owning
+  runtime namespace; reads remain late-bound and mode writes update that same
+  namespace.
+- **Why it worked:** focused regressions prove signal-style mutation and
+  connection rebinding are visible after state construction, while worker
+  safety, recovery, accounting and deployment contracts still pass.
+- **Reuse:** long-running orchestration extraction where signal handlers or
+  recovery code rebind process state after startup.
+
 ### 2026-07-28 — Import owning packages instead of compatibility aliases
 
 - **Context:** module-identity replacement and historical import wrappers kept

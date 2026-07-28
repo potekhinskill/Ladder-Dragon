@@ -5,7 +5,7 @@
 
 """Ladder Dragon execution-worker command."""
 
-from ladder_dragon.execution.worker.runtime import main
+from ladder_dragon.execution.worker.bootstrap import main
 
 
 if __name__ == "__main__":

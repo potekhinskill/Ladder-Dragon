@@ -54,7 +54,8 @@ def test_known_runtime_monoliths_can_only_shrink():
     """Prevent feature work from enlarging legacy orchestration modules."""
     budgets = {
         "ladder_dragon/supervision/runtime.py": 4825,
-        "ladder_dragon/execution/worker/runtime.py": 2456,
+        "ladder_dragon/execution/worker/runtime.py": 1661,
+        "ladder_dragon/execution/worker/bootstrap.py": 850,
         "ladder_dragon/dashboard/runtime.py": 2867,
         "ladder_dragon/execution/order_recovery.py": 1284,
         "ladder_dragon/strategy/prediction/runtime.py": 1300,
@@ -157,6 +158,33 @@ def test_worker_stats_service_has_no_legacy_runtime_wrapper():
         and node.name == "sync_account_trades"
         for node in service.body
     )
+
+
+def test_worker_main_uses_explicit_mutable_runtime_state():
+    runtime = ast.parse(
+        (ROOT / "ladder_dragon/execution/worker/runtime.py").read_text(
+            encoding="utf-8"
+        )
+    )
+    bootstrap = ast.parse(
+        (ROOT / "ladder_dragon/execution/worker/bootstrap.py").read_text(
+            encoding="utf-8"
+        )
+    )
+    assert not any(
+        isinstance(node, ast.FunctionDef) and node.name == "main"
+        for node in runtime.body
+    )
+    bootstrap_names = {
+        node.name
+        for node in bootstrap.body
+        if isinstance(node, (ast.ClassDef, ast.FunctionDef))
+    }
+    assert {
+        "WorkerRuntimeState",
+        "run_worker",
+        "main",
+    } <= bootstrap_names
 
 
 def test_decomposition_targets_have_explicit_package_boundaries():
