@@ -29,6 +29,12 @@ const POSITION_STATUS_KEYS = Object.freeze({
 function positionStatusText(code){
   return tr(POSITION_STATUS_KEYS[String(code||'')] || 'position_status_unknown');
 }
+function positionProtectionTone(code){
+  const normalized=String(code||'');
+  if(normalized==='confirmed'||normalized==='armed') return 'ok';
+  if(normalized==='missing_or_incomplete'||normalized==='journal_exchange_mismatch'||normalized==='warning') return 'bad';
+  return 'warn';
+}
 function applyLocale(){
   document.documentElement.lang = CURRENT_LOCALE;
   document.querySelectorAll('[data-i18n]').forEach(el=>{ el.textContent = tr(el.dataset.i18n); });
@@ -321,21 +327,61 @@ function updateTrading(t){
     const protection=p.protection||{};
     const state=protection.state||'not_checked';
     const managedQty=Number(p.managed_quantity||0), legacyQty=Number(p.legacy_quantity||0);
+    const lockedQty=Math.max(0,Number(protection.locked_quantity||0));
+    const managedProtectedQty=Math.min(managedQty,lockedQty);
+    const managedUnprotectedQty=Math.max(0,managedQty-managedProtectedQty);
+    const managedState=protection.managed_state||state;
+    const managedTone=positionProtectionTone(managedState);
     const basisStatus=protection.cost_basis_status||'unavailable';
     const basisLabel=positionStatusText(basisStatus);
-    const basisNote=`${tr('position_cost_basis')}: ${basisLabel} · ${tr('position_covered')} ${protection.cost_basis_covered_quantity??'0'} / ${tr('position_total')} ${p.quantity??'0'}`;
-    const unavailableBasis=`—<div class="muted">${esc(basisLabel)}</div>`;
+    const unavailableBasis=`—<span class="position-caption">${esc(tr('position_pnl_unavailable'))}</span>`;
     const pnl=p.unrealized_pnl_usdt==null?unavailableBasis:fmtUSDT(Number(p.unrealized_pnl_usdt));
     const average=p.average_entry_usdt==null?unavailableBasis:fmt(p.average_entry_usdt,4);
     const drawdown=p.drawdown_pct==null?unavailableBasis:fmtPct(Number(p.drawdown_pct));
-    const managedLine=managedQty>0
-      ? `<div><strong>${esc(tr('position_managed'))} ${fmt(managedQty,8)}</strong>: ${esc(positionStatusText(protection.managed_state||state))} · ${esc(tr('position_oco_locked'))} ${fmt(protection.locked_quantity||0,8)} · TP ${esc((protection.tp||[]).join(',')||'—')} · STOP ${esc((protection.stop||[]).join(',')||'—')} · ${esc(tr('position_gap_watchdog'))}: ${esc(positionStatusText(protection.gap_watchdog))}</div>`
-      : '';
-    const legacyLine=legacyQty>0
-      ? `<div class="muted"><strong>${esc(tr('position_legacy'))} ${fmt(legacyQty,8)}</strong>: ${esc(positionStatusText(protection.legacy_state||'unmanaged_unprotected'))} · ${esc(tr('position_not_covered_by_managed_oco'))}</div>`
-      : '';
-    return `<tr><td class="mono">${esc(p.symbol)}</td><td class="right mono">${fmt(p.quantity,8)}<div class="muted">${esc(tr('position_managed'))} ${fmt(managedQty,8)} · ${esc(tr('position_legacy'))} ${fmt(legacyQty,8)}</div></td><td class="right mono">${average}</td><td class="right mono">${p.current_price_usdt==null?'—':fmt(p.current_price_usdt,4)}</td><td class="right mono">${p.value_usdt==null?'—':fmtUSDT(Number(p.value_usdt))}</td><td class="right mono">${pnl}</td><td class="right mono">${drawdown}</td><td>${managedLine}${legacyLine}<div class="muted">${esc(basisNote)}</div></td></tr>`;
-  }).join(''):`<tr><td class="muted" colspan="8">${tr('no_positions')}</td></tr>`;
+    const managedCard=managedQty>0?`
+      <section class="position-scope managed">
+        <div class="position-scope-head">
+          <div class="position-scope-title">${esc(tr('position_managed'))}<span class="position-qty mono">${fmt(managedQty,8)}</span></div>
+          <span class="position-status ${managedTone}">${esc(positionStatusText(managedState))}</span>
+        </div>
+        <dl class="position-facts">
+          <dt>${esc(tr('position_oco_protected'))}</dt><dd class="mono">${fmt(managedProtectedQty,8)} / ${fmt(managedQty,8)}</dd>
+          <dt>${esc(tr('position_unprotected'))}</dt><dd class="mono ${managedUnprotectedQty>0?'position-unprotected':''}">${fmt(managedUnprotectedQty,8)}</dd>
+          <dt>TP</dt><dd class="mono">${esc((protection.tp||[]).join(', ')||'—')}</dd>
+          <dt>STOP</dt><dd class="mono">${esc((protection.stop||[]).join(', ')||'—')}</dd>
+          <dt>${esc(tr('position_gap_watchdog'))}</dt><dd>${esc(positionStatusText(protection.gap_watchdog))}</dd>
+        </dl>
+      </section>`:'';
+    const legacyCard=legacyQty>0?`
+      <section class="position-scope legacy">
+        <div class="position-scope-head">
+          <div class="position-scope-title">${esc(tr('position_legacy'))}<span class="position-qty mono">${fmt(legacyQty,8)}</span></div>
+          <span class="position-status warn">${esc(tr('position_outside_control'))}</span>
+        </div>
+        <p class="position-note">${esc(tr('position_legacy_explanation'))}</p>
+      </section>`:'';
+    return `<article class="position-card">
+      <div class="position-card-head">
+        <div><div class="position-symbol mono">${esc(p.symbol)}</div><div class="position-caption">${esc(tr('position_total_position'))}</div></div>
+        <div class="position-total"><strong class="mono">${fmt(p.quantity,8)}</strong><span class="position-caption">${esc(tr('quantity'))}</span></div>
+      </div>
+      <div class="position-metrics">
+        <div class="position-metric"><span class="position-metric-label">${esc(tr('price'))}</span><span class="position-metric-value mono">${p.current_price_usdt==null?'—':fmt(p.current_price_usdt,4)}</span></div>
+        <div class="position-metric"><span class="position-metric-label">${esc(tr('value'))}</span><span class="position-metric-value">${p.value_usdt==null?'—':fmtUSDT(Number(p.value_usdt))}</span></div>
+        <div class="position-metric"><span class="position-metric-label">${esc(tr('average'))}</span><span class="position-metric-value">${average}</span></div>
+        <div class="position-metric"><span class="position-metric-label">${esc(tr('unrealized'))}</span><span class="position-metric-value">${pnl}</span></div>
+        <div class="position-metric"><span class="position-metric-label">${esc(tr('drawdown'))}</span><span class="position-metric-value">${drawdown}</span></div>
+      </div>
+      <div class="position-scopes">${managedCard}${legacyCard}</div>
+      <details class="position-details">
+        <summary>${esc(tr('position_cost_basis_details'))}</summary>
+        <div class="position-details-body">
+          <span>${esc(basisLabel)}</span>
+          <span>${esc(tr('position_coverage'))}: ${fmt(Number(protection.cost_basis_covered_quantity||0),8)} / ${fmt(Number(p.quantity||0),8)}</span>
+        </div>
+      </details>
+    </article>`;
+  }).join(''):`<div class="position-empty muted">${esc(tr('no_positions'))}</div>`;
 }
 function updateAIQuality(ai){
   const src=ai.data_sources||{}, usage=ai.usage_today||{}, kb=ai.knowledge_base||{};

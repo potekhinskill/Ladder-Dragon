@@ -925,7 +925,7 @@ def test_dashboard_labels_stream_sessions_and_mixed_protection_explicitly():
     assert "observed total" in source
     assert "current session" in source
     assert "· soak " not in source
-    assert "position_not_covered_by_managed_oco" in source
+    assert "position_legacy_explanation" in source
     assert locales.count("position_not_covered_by_managed_oco:") == 2
 
 
@@ -952,6 +952,33 @@ def test_dashboard_localizes_position_codes_with_safe_unknown_fallback():
         "position_status_managed_lot_armed_only",
         "position_status_unmanaged_unprotected",
         "position_status_unknown",
+    ):
+        assert locales.count(f"{key}:") == 2
+
+
+def test_dashboard_splits_managed_and_legacy_position_into_compact_cards():
+    index = Path("FRONT/index.html").read_text(encoding="utf-8")
+    source = dashboard_source()
+    styles = Path("FRONT/dashboard.css").read_text(encoding="utf-8")
+    locales = Path("FRONT/locales.js").read_text(encoding="utf-8")
+
+    assert 'id="positions-body" class="position-list"' in index
+    assert "position-table" not in index
+    assert 'class="position-scope managed"' in source
+    assert 'class="position-scope legacy"' in source
+    assert "managedUnprotectedQty=Math.max(0,managedQty-managedProtectedQty)" in source
+    assert "position_unprotected" in source
+    assert "position_cost_basis_details" in source
+    assert "<details class=\"position-details\">" in source
+    assert ".position-scopes{display:grid" in styles
+    assert "@media (max-width:520px)" in styles
+    for key in (
+        "position_oco_protected",
+        "position_unprotected",
+        "position_outside_control",
+        "position_legacy_explanation",
+        "position_cost_basis_details",
+        "position_pnl_unavailable",
     ):
         assert locales.count(f"{key}:") == 2
 

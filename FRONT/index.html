@@ -149,11 +149,8 @@
 
     <div class="card monitor-card full">
       <div class="monitor-title" data-i18n="positions">Positions and protection</div>
-      <div class="position-box">
-        <table class="tbl position-table">
-          <thead><tr><th data-i18n="symbol">Symbol</th><th class="right" data-i18n="quantity">Qty</th><th class="right" data-i18n="average">Average</th><th class="right" data-i18n="price">Price</th><th class="right" data-i18n="value">Value</th><th class="right" data-i18n="unrealized">Unrealized PnL</th><th class="right" data-i18n="drawdown">Drawdown</th><th data-i18n="protection">OCO / TP / STOP / gap-watchdog</th></tr></thead>
-          <tbody id="positions-body"><tr><td class="muted" colspan="8">Loading…</td></tr></tbody>
-        </table>
+      <div id="positions-body" class="position-list">
+        <div class="position-empty muted" data-i18n="loading">Loading…</div>
       </div>
     </div>
 

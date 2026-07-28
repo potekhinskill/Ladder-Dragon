@@ -3,6 +3,26 @@
 All notable changes are documented here. Releases use Semantic Versioning; every
 section is dated and there is intentionally no `Unreleased` section.
 
+## [2.20.57] — 2026-07-28
+
+### Changed
+- The dashboard position view now uses responsive cards instead of a
+  980-pixel-wide table. Market value, basis-dependent PnL and protection
+  scopes remain readable on desktop and mobile without horizontal scrolling.
+- Managed bot inventory and legacy account inventory are shown as separate
+  sections. Managed protection reports exact OCO-protected and unprotected
+  quantities, while legacy inventory is clearly labelled as outside bot
+  control rather than being mixed into the OCO status sentence.
+- Purchase-history provenance moved into an optional details disclosure.
+  Internal status codes remain localized, while the primary view uses concise
+  operator-facing labels in English and Russian.
+
+### Verified
+- Dashboard regressions verify the responsive card structure, exact managed
+  protection remainder, localized labels, escaped dynamic content and
+  collapsed cost-basis details. Dashboard security and deployment asset tests,
+  Python compilation and the complete project suite pass.
+
 ## [2.20.56] — 2026-07-27
 
 ### Fixed

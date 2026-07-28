@@ -138,7 +138,15 @@
     position_status_not_applicable_legacy_inventory:"not applicable to legacy inventory",
     position_status_unmanaged_unprotected:"not managed by the bot and unprotected",
     position_status_journal_exchange_mismatch:"journal and Binance state differ",
-    position_status_unknown:"unknown status"
+    position_status_unknown:"unknown status",
+    position_total_position:"total account position",
+    position_oco_protected:"protected by OCO",
+    position_unprotected:"not protected",
+    position_outside_control:"outside bot control",
+    position_legacy_explanation:"This older balance is not managed by the bot and is not covered by the managed OCO.",
+    position_cost_basis_details:"Purchase history details",
+    position_coverage:"history coverage",
+    position_pnl_unavailable:"unavailable without complete purchase history"
   });
   Object.assign(translations.ru, {
     position_managed:"управляемая часть",
@@ -162,7 +170,15 @@
     position_status_not_applicable_legacy_inventory:"не применяется к наследуемому остатку",
     position_status_unmanaged_unprotected:"не управляется ботом и не защищено",
     position_status_journal_exchange_mismatch:"журнал расходится с состоянием Binance",
-    position_status_unknown:"неизвестное состояние"
+    position_status_unknown:"неизвестное состояние",
+    position_total_position:"общая позиция аккаунта",
+    position_oco_protected:"защищено OCO",
+    position_unprotected:"не защищено",
+    position_outside_control:"вне управления бота",
+    position_legacy_explanation:"Этот старый остаток не управляется ботом и не покрывается OCO управляемой части.",
+    position_cost_basis_details:"Детали истории покупок",
+    position_coverage:"покрытие истории",
+    position_pnl_unavailable:"недоступно без полной истории покупок"
   });
 
   const labels = [
