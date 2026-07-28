@@ -42,7 +42,7 @@ non-growth budgets:
 | File | Main remaining seams |
 |---|---|
 | `ladder_dragon/supervision/runtime.py` | per-symbol planning, runtime bootstrap and the main supervision loop |
-| `ladder_dragon/execution/worker/runtime.py` | statistics synchronization and the main event loop |
+| `ladder_dragon/execution/worker/runtime.py` | worker bootstrap and the main event loop |
 | `ladder_dragon/dashboard/runtime.py` | dashboard coordinator pending router/service extraction |
 | `ladder_dragon/execution/order_recovery.py` | journal schema, lifecycle commands, query projections |
 | `ladder_dragon/strategy/prediction/runtime.py` | compatibility coordinator for modular prediction APIs |

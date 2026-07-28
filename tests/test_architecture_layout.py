@@ -54,7 +54,7 @@ def test_known_runtime_monoliths_can_only_shrink():
     """Prevent feature work from enlarging legacy orchestration modules."""
     budgets = {
         "ladder_dragon/supervision/runtime.py": 4825,
-        "ladder_dragon/execution/worker/runtime.py": 2597,
+        "ladder_dragon/execution/worker/runtime.py": 2456,
         "ladder_dragon/dashboard/runtime.py": 2867,
         "ladder_dragon/execution/order_recovery.py": 1284,
         "ladder_dragon/strategy/prediction/runtime.py": 1300,
@@ -132,6 +132,29 @@ def test_worker_buy_service_has_no_legacy_runtime_wrapper():
     )
     assert any(
         isinstance(node, ast.FunctionDef) and node.name == "place_buys"
+        for node in service.body
+    )
+
+
+def test_worker_stats_service_has_no_legacy_runtime_wrapper():
+    runtime = ast.parse(
+        (ROOT / "ladder_dragon/execution/worker/runtime.py").read_text(
+            encoding="utf-8"
+        )
+    )
+    assert not any(
+        isinstance(node, ast.FunctionDef)
+        and node.name == "_stats_poll_mytrades_once"
+        for node in runtime.body
+    )
+    service = ast.parse(
+        (ROOT / "ladder_dragon/execution/worker/stats_sync.py").read_text(
+            encoding="utf-8"
+        )
+    )
+    assert any(
+        isinstance(node, ast.FunctionDef)
+        and node.name == "sync_account_trades"
         for node in service.body
     )
 

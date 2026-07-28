@@ -14,6 +14,12 @@ from ladder_dragon.execution.trade_accounting import (
     replay_average_cost,
 )
 from tests.support.module_loaders import load_worker
+from ladder_dragon.execution.worker.stats_sync import sync_account_trades
+
+
+def sync_worker_trades(worker, symbol: str) -> None:
+    """Exercise the package statistics service with explicit test adapters."""
+    sync_account_trades(symbol, runtime=vars(worker))
 
 
 def test_omitted_commission_quote_fails_closed_when_fee_is_nonzero():
@@ -279,7 +285,7 @@ def test_worker_retries_unpriced_trade_before_advancing_cursor(tmp_path, monkeyp
         worker, "_commission_quote_value", lambda *args: (None, "unpriced")
     )
 
-    worker._stats_poll_mytrades_once("SOLUSDT")
+    sync_worker_trades(worker, "SOLUSDT")
     assert worker.TOOLS_STATS.get_last_trade_id(worker.STATS_CON, "SOLUSDT") is None
 
     monkeypatch.setattr(
@@ -287,7 +293,7 @@ def test_worker_retries_unpriced_trade_before_advancing_cursor(tmp_path, monkeyp
         "_commission_quote_value",
         lambda *args: (Decimal("0.30"), "converted"),
     )
-    worker._stats_poll_mytrades_once("SOLUSDT")
+    sync_worker_trades(worker, "SOLUSDT")
 
     assert worker.TOOLS_STATS.get_last_trade_id(worker.STATS_CON, "SOLUSDT") == 5
     row = worker.STATS_CON.execute(
@@ -339,7 +345,7 @@ def test_worker_restart_replay_does_not_consume_sell_fifo_twice(
         lambda symbol, asset, amount, price, timestamp: (amount, "exact"),
     )
 
-    worker._stats_poll_mytrades_once("SOLUSDT")
+    sync_worker_trades(worker, "SOLUSDT")
     first_qty = worker.STATS_CON.execute(
         "SELECT qty FROM inventory_lots WHERE symbol='SOLUSDT' "
         "AND status='OPEN'"
@@ -349,7 +355,7 @@ def test_worker_restart_replay_does_not_consume_sell_fifo_twice(
     worker.STATS_CON.execute(
         "UPDATE inventory SET last_trade_id=0 WHERE symbol='SOLUSDT'"
     )
-    worker._stats_poll_mytrades_once("SOLUSDT")
+    sync_worker_trades(worker, "SOLUSDT")
 
     second_qty = worker.STATS_CON.execute(
         "SELECT qty FROM inventory_lots WHERE symbol='SOLUSDT' "

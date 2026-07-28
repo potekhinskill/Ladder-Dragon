@@ -3,6 +3,19 @@
 All notable changes are documented here. Releases use Semantic Versioning; every
 section is dated and there is intentionally no `Unreleased` section.
 
+## [2.20.69] — 2026-07-28
+
+### Changed
+- Idempotent account-trade polling, FIFO synchronization, cursor advancement
+  and AI fill attribution moved into `execution.worker.stats_sync`.
+- Worker recovery and tests call the owning stats service directly through
+  explicit runtime adapters; the worker coordinator shrank from 2597 to 2456
+  lines.
+
+### Verified
+- Accounting restart/idempotency, worker recovery, protection, safety and
+  exception-boundary regressions pass; the complete suite passes (702 tests).
+
 ## [2.20.68] — 2026-07-28
 
 ### Changed

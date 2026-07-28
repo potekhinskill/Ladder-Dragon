@@ -17,6 +17,17 @@ private infrastructure details.
 
 ## Mistakes
 
+### 2026-07-28 — Snapshotted mutable worker state before initialization
+
+- **Impact:** the restart-idempotency test returned before creating inventory
+  lots because the extracted stats service still saw its initial null
+  connection.
+- **Root cause:** runtime adapters were resolved before the initializer mutated
+  the worker-owned `STATS_CON` and `TOOLS_STATS` slots.
+- **Correction:** refresh both mutable slots immediately after initialization.
+- **Prevention:** injected adapter snapshots must be reacquired after any call
+  documented to mutate their owning runtime state.
+
 ### 2026-07-28 — Audited only the outer extracted function scope
 
 - **Impact:** two holdings safety tests failed because a nested rounding helper
