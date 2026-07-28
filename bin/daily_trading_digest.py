@@ -80,39 +80,49 @@ def _as_decimal(value: object, *, field: str) -> Decimal:
 def _summaries(
     connection: sqlite3.Connection,
     periods: tuple[tuple[str, datetime, datetime], ...],
-) -> tuple[PeriodSummary, ...]:
-    """Replay exact FIFO lots once and attribute SELL PnL to each period."""
+) -> tuple[tuple[PeriodSummary, ...], tuple[str, ...]]:
+    """Replay symbols independently and exclude incomplete FIFO histories."""
     connection.row_factory = sqlite3.Row
     ts_div = detect_ts_div(connection)
     end_sec = int(max(end for _, _, end in periods).timestamp())
     rows = list(iter_trades_until(connection, end_sec * ts_div - 1, None))
     lots: dict[str, list[list[Decimal]]] = {}
     values = {
-        label: {
-            "realized": ZERO,
-            "cash": ZERO,
-            "fees": ZERO,
-            "fills": 0,
-            "buys": 0,
-            "sells": 0,
-        }
+        label: {}
         for label, _, _ in periods
     }
+    excluded: dict[str, str] = {}
 
     for row in rows:
-        trade = _execution(row)
+        symbol = str(row["symbol"] or "").strip().upper()
+        if not symbol or symbol in excluded:
+            continue
+        try:
+            trade = _execution(row)
+            fee = trade.valued_commission()
+        except (ArithmeticError, TypeError, ValueError, UnpricedCommission):
+            excluded[symbol] = "unpriced or invalid exact trade data"
+            continue
         if not trade.symbol.endswith("USDT"):
-            raise ValueError(
-                f"daily digest cannot combine non-USDT quote asset: {trade.symbol}"
-            )
+            excluded[symbol] = "non-USDT quote asset"
+            continue
         timestamp = datetime.fromtimestamp(int(row["ts"]) / ts_div, periods[0][1].tzinfo)
         matching = [
             label for label, start, end in periods if start <= timestamp < end
         ]
-        fee = trade.valued_commission()
         if matching:
             for label in matching:
-                item = values[label]
+                item = values[label].setdefault(
+                    symbol,
+                    {
+                        "realized": ZERO,
+                        "cash": ZERO,
+                        "fees": ZERO,
+                        "fills": 0,
+                        "buys": 0,
+                        "sells": 0,
+                    },
+                )
                 item["fills"] += 1
                 item["fees"] += fee
                 if trade.side == "BUY":
@@ -145,27 +155,49 @@ def _summaries(
             else:
                 symbol_lots[0] = [lot_qty, lot_cost]
         if remaining > ZERO:
-            raise ValueError(
-                f"incomplete FIFO history for {trade.symbol}: SELL exceeds known inventory"
-            )
+            excluded[symbol] = "incomplete FIFO history"
+            continue
         realized = proceeds * matched_qty / trade.net_qty - matched_cost
         for label in matching:
-            values[label]["realized"] += realized
+            values[label][symbol]["realized"] += realized
 
-    return tuple(
-        PeriodSummary(
-            label=label,
-            start=start,
-            end=end,
-            realized_net_pnl=_as_decimal(values[label]["realized"], field="realized PnL"),
-            cash_flow=_as_decimal(values[label]["cash"], field="cash flow"),
-            fees_quote=_as_decimal(values[label]["fees"], field="fees"),
-            fills=int(values[label]["fills"]),
-            buys=int(values[label]["buys"]),
-            sells=int(values[label]["sells"]),
+    summaries = []
+    for label, start, end in periods:
+        included = [
+            item
+            for symbol, item in values[label].items()
+            if symbol not in excluded
+        ]
+        summaries.append(
+            PeriodSummary(
+                label=label,
+                start=start,
+                end=end,
+                realized_net_pnl=_as_decimal(
+                    sum(
+                        (item["realized"] for item in included),
+                        ZERO,
+                    ),
+                    field="realized PnL",
+                ),
+                cash_flow=_as_decimal(
+                    sum((item["cash"] for item in included), ZERO),
+                    field="cash flow",
+                ),
+                fees_quote=_as_decimal(
+                    sum((item["fees"] for item in included), ZERO),
+                    field="fees",
+                ),
+                fills=sum(int(item["fills"]) for item in included),
+                buys=sum(int(item["buys"]) for item in included),
+                sells=sum(int(item["sells"]) for item in included),
+            )
         )
-        for label, start, end in periods
+    exclusions = tuple(
+        f"{symbol} — {excluded[symbol]}"
+        for symbol in sorted(excluded)
     )
+    return tuple(summaries), exclusions
 
 
 def build_digest(db_path: Path, *, now: datetime, timezone_name: str) -> tuple[str, str]:
@@ -175,7 +207,7 @@ def build_digest(db_path: Path, *, now: datetime, timezone_name: str) -> tuple[s
     periods = _periods(local_now)
     uri = f"file:{db_path.resolve()}?mode=ro"
     with sqlite3.connect(uri, uri=True, timeout=15) as connection:
-        summaries = _summaries(connection, periods)
+        summaries, exclusions = _summaries(connection, periods)
 
     lines = [
         "🐉 Ladder Dragon — daily trading digest",
@@ -199,6 +231,9 @@ def build_digest(db_path: Path, *, now: datetime, timezone_name: str) -> tuple[s
             "valued fills and complete FIFO history.",
         )
     )
+    if exclusions:
+        lines.extend(("", "Excluded symbols:"))
+        lines.extend(f"• {item}" for item in exclusions)
     return "\n".join(lines), local_now.date().isoformat()
 
 
@@ -210,11 +245,32 @@ def _last_sent(path: Path) -> str:
     return str(payload.get("report_date", ""))
 
 
-def _mark_sent(path: Path, report_date: str) -> None:
+def _last_alert(path: Path) -> str:
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except (FileNotFoundError, PermissionError, OSError, json.JSONDecodeError):
+        return ""
+    return str(payload.get("blocked_alert_date", ""))
+
+
+def _mark_state(
+    path: Path,
+    *,
+    report_date: str | None = None,
+    blocked_alert_date: str | None = None,
+) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except (FileNotFoundError, PermissionError, OSError, json.JSONDecodeError):
+        payload = {}
+    if report_date is not None:
+        payload["report_date"] = report_date
+    if blocked_alert_date is not None:
+        payload["blocked_alert_date"] = blocked_alert_date
     temporary = path.with_name(f".{path.name}.{os.getpid()}.tmp")
     temporary.write_text(
-        json.dumps({"report_date": report_date}, separators=(",", ":")) + "\n",
+        json.dumps(payload, separators=(",", ":")) + "\n",
         encoding="utf-8",
     )
     temporary.chmod(0o600)
@@ -229,17 +285,31 @@ def main() -> int:
     parser.add_argument("--dry-run", action="store_true")
     args = parser.parse_args()
 
+    timezone = _timezone(args.timezone)
+    report_date = datetime.now(tz=timezone).date().isoformat()
     if not args.db.is_file():
         print(f"[BLOCKED] exact trade database is unavailable: {args.db}")
         return 2
     try:
         message, report_date = build_digest(
             args.db,
-            now=datetime.now(tz=_timezone(args.timezone)),
+            now=datetime.now(tz=timezone),
             timezone_name=args.timezone,
         )
     except (OSError, sqlite3.Error, UnpricedCommission, ValueError) as exc:
         print(f"[BLOCKED] daily trading digest: {type(exc).__name__}: {exc}")
+        if not args.dry_run and _last_alert(args.state) != report_date:
+            warning = (
+                "🐉 Ladder Dragon — daily trading digest BLOCKED\n"
+                f"Report date: {report_date}\n"
+                f"Reason: {type(exc).__name__}\n"
+                "No financial figures were sent."
+            )
+            if send_message(warning):
+                _mark_state(
+                    args.state,
+                    blocked_alert_date=report_date,
+                )
         return 2
     if args.dry_run:
         print(message)
@@ -250,7 +320,7 @@ def main() -> int:
     if not send_message(message):
         print("[FAILED] Telegram delivery was not confirmed")
         return 1
-    _mark_sent(args.state, report_date)
+    _mark_state(args.state, report_date=report_date)
     print(f"[OK] daily trading digest sent for {report_date}")
     return 0
 

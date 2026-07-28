@@ -3,6 +3,21 @@
 All notable changes are documented here. Releases use Semantic Versioning; every
 section is dated and there is intentionally no `Unreleased` section.
 
+## [2.20.59] — 2026-07-28
+
+### Fixed
+- The daily Telegram digest now isolates FIFO accounting by symbol. Symbols
+  with incomplete history, unpriced commissions or unsupported quote
+  provenance are listed under `Excluded symbols` while exact eligible-symbol
+  totals are still delivered.
+- Structural report failures now send one deduplicated English `BLOCKED`
+  warning per report date. The warning contains no estimated financial figures,
+  and no synthetic opening lot or zero cost basis is ever created.
+
+### Verified
+- Daily-digest regressions cover mixed valid/incomplete symbols, unpriced
+  commissions, exact eligible-symbol PnL and deduplicated blocked alerts.
+
 ## [2.20.58] — 2026-07-28
 
 ### Fixed
