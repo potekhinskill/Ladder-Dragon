@@ -454,6 +454,7 @@ function updateTrade24(sum, balances){
     $('#t24-portfolio').textContent='—';
     $('#t24-portfolio-sub').textContent='';
     $('#t24-fifo').textContent='—';
+    $('#t24-fifo-sub').textContent='';
     $('#t24-cashflow').textContent='—';
     $('#t24-equity').textContent='—';
     $('#t24-assets').textContent='';
@@ -500,6 +501,11 @@ function updateTrade24(sum, balances){
   const fifoEl = $('#t24-fifo');
   fifoEl.textContent = Number.isFinite(fifoPnl) ? fmtUSDT(fifoPnl) : '—';
   fifoEl.style.color = (Number.isFinite(fifoPnl) && fifoPnl < 0) ? 'var(--bad)' : 'var(--ok)';
+  const fifoExcluded = Array.isArray(d.realized_pnl_excluded_symbols)
+    ? d.realized_pnl_excluded_symbols : [];
+  $('#t24-fifo-sub').textContent = d.realized_pnl_status==='incomplete_fifo_history'
+    ? `${tr('fifo_history_incomplete')}: ${fifoExcluded.join(', ')||'—'}`
+    : '';
 
   // Cash flow uses only BUY/SELL notional and fees that occurred in the window.
   const cashflowEl = $('#t24-cashflow');

@@ -88,6 +88,8 @@
   Object.assign(translations.da, {portfolio_change_24h:"Ændring i porteføljens værdi (24 t)"});
   Object.assign(translations.en, {fifo_pnl_24h:"Realized FIFO PnL (24h)", cashflow_pnl_24h:"Trade cash flow (24h)"});
   Object.assign(translations.ru, {fifo_pnl_24h:"Реализованный FIFO PnL за 24 ч", cashflow_pnl_24h:"Денежный результат сделок за 24 ч"});
+  Object.assign(translations.en, {fifo_history_incomplete:"Unavailable: incomplete FIFO history"});
+  Object.assign(translations.ru, {fifo_history_incomplete:"Недоступно: неполная FIFO-история"});
   Object.assign(translations.zh, {fifo_pnl_24h:"已实现 FIFO PnL (24 小时)", cashflow_pnl_24h:"交易现金流结果 (24 小时)"});
   Object.assign(translations.es, {fifo_pnl_24h:"PnL FIFO realizado (24 h)", cashflow_pnl_24h:"Flujo de caja de operaciones (24 h)"});
   Object.assign(translations.de, {fifo_pnl_24h:"Realisierter FIFO-PnL (24 h)", cashflow_pnl_24h:"Trading-Cashflow (24 h)"});

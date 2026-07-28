@@ -509,6 +509,7 @@ def _load_trades(con: sqlite3.Connection, symbols: Optional[List[str]] = None) -
     SELECT
       symbol, side, price_text AS price, gross_qty_text AS qty,
       COALESCE(commission_quote_text, '0') AS fee_quote,
+      commission_value_status AS commission_status,
       CASE WHEN ts>1000000000000 THEN CAST(ts/1000 AS INTEGER) ELSE CAST(ts AS INTEGER) END AS ts_s
     FROM trades_exact
     WHERE 1=1 {sym_filter}
@@ -530,6 +531,8 @@ def _fifo_realized_pnl(rows: List[sqlite3.Row], cutoff_s: int, fee_pct: float) -
     total_trades_in_window = 0
     buy_vol = 0.0
     sell_vol = 0.0
+    incomplete_symbols: set[str] = set()
+    window_sell_symbols: set[str] = set()
 
     for r in rows:
         sym = r["symbol"]
@@ -538,6 +541,14 @@ def _fifo_realized_pnl(rows: List[sqlite3.Row], cutoff_s: int, fee_pct: float) -
         qty = float(r["qty"])
         ts_s = _ts_to_s(r["ts_s"])
         fee_q = _estimate_fee_quote(price, qty, float(r["fee_quote"]), fee_pct)
+        row_keys = set(r.keys()) if hasattr(r, "keys") else set(r)
+        commission_status = (
+            str(r["commission_status"] or "").lower()
+            if "commission_status" in row_keys
+            else "exact"
+        )
+        if commission_status not in {"exact", "converted", "not_applicable"}:
+            incomplete_symbols.add(sym)
 
         if sym not in lots:
             lots[sym] = []
@@ -554,6 +565,7 @@ def _fifo_realized_pnl(rows: List[sqlite3.Row], cutoff_s: int, fee_pct: float) -
             revenue = price * qty
             sell_fee = fee_q
             if ts_s >= cutoff_s:
+                window_sell_symbols.add(sym)
                 total_trades_in_window += 1
                 sell_vol += revenue
                 fees_in_window += sell_fee
@@ -572,18 +584,29 @@ def _fifo_realized_pnl(rows: List[sqlite3.Row], cutoff_s: int, fee_pct: float) -
                     pool.pop(0)
                 else:
                     pool[0][0] = lot_qty
+            if remain > 1e-12:
+                incomplete_symbols.add(sym)
 
         else:
             continue
 
     cashflow_pnl = sell_vol - buy_vol - fees_in_window
+    blocked_symbols = sorted(
+        incomplete_symbols.intersection(window_sell_symbols)
+    )
     return dict(
         total_trades=total_trades_in_window,
         buy_volume_usdt=round(buy_vol, 2),
         sell_volume_usdt=round(sell_vol, 2),
         fees_usdt=round(fees_in_window, 2),
         cashflow_pnl_usdt=round(cashflow_pnl, 2),
-        realized_pnl_usdt=round(realized_pnl, 2),
+        realized_pnl_usdt=(
+            None if blocked_symbols else round(realized_pnl, 2)
+        ),
+        realized_pnl_status=(
+            "incomplete_fifo_history" if blocked_symbols else "exact"
+        ),
+        realized_pnl_excluded_symbols=blocked_symbols,
     )
 
 def _api_creds() -> Tuple[str, str]:
@@ -2711,7 +2734,15 @@ def trades_summary(hours: int = 24, symbols: str = ""):
             "cashflow_pnl_usdt": stats["cashflow_pnl_usdt"],
             "realized_pnl_usdt": stats["realized_pnl_usdt"],
             "net_pnl_usdt": stats["realized_pnl_usdt"],
-            "realized_pnl_method": "fifo-net-fees",
+            "realized_pnl_method": (
+                "unavailable-incomplete-fifo-history"
+                if stats.get("realized_pnl_status", "exact") != "exact"
+                else "fifo-net-fees"
+            ),
+            "realized_pnl_status": stats.get("realized_pnl_status", "exact"),
+            "realized_pnl_excluded_symbols": stats.get(
+                "realized_pnl_excluded_symbols", []
+            ),
             "portfolio_change_usdt": eq["equity_pnl_usdt"],
             "equity_pnl_usdt": eq["equity_pnl_usdt"],
             "equity_now_usdt": eq.get("equity_now_usdt"),

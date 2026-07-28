@@ -3,6 +3,21 @@
 All notable changes are documented here. Releases use Semantic Versioning; every
 section is dated and there is intentionally no `Unreleased` section.
 
+## [2.20.60] — 2026-07-28
+
+### Fixed
+- The dashboard no longer reports a numeric 24-hour FIFO realized PnL when a
+  symbol sold in that window has incomplete lot history or unpriced commission
+  provenance. It displays the metric as unavailable and names the excluded
+  symbols instead of silently truncating excess SELL quantity.
+- Cash flow and portfolio valuation remain available as separate metrics and
+  are never relabelled as exact realized PnL.
+
+### Verified
+- Dashboard regressions cover exact complete-history PnL and fail-closed
+  incomplete-history output. Frontend syntax, security, localization and
+  deployment-asset checks pass.
+
 ## [2.20.59] — 2026-07-28
 
 ### Fixed

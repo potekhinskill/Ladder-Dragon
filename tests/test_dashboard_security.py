@@ -360,6 +360,34 @@ def test_fifo_realized_pnl_deducts_buy_and_sell_fees(monkeypatch):
 
     assert result["fees_usdt"] == 0.55
     assert result["realized_pnl_usdt"] == 3.95
+    assert result["realized_pnl_status"] == "exact"
+
+
+def test_fifo_realized_pnl_fails_closed_for_window_sell_with_incomplete_history(
+    monkeypatch,
+):
+    module = load_dashboard(monkeypatch)
+    rows = [
+        {
+            "symbol": "SOLUSDT",
+            "side": "SELL",
+            "price": 74.4,
+            "qty": 0.124,
+            "fee_quote": 0.006,
+            "commission_status": "converted",
+            "ts_s": 300,
+        }
+    ]
+
+    result = module._fifo_realized_pnl(
+        rows,
+        cutoff_s=200,
+        fee_pct=0.001,
+    )
+
+    assert result["realized_pnl_usdt"] is None
+    assert result["realized_pnl_status"] == "incomplete_fifo_history"
+    assert result["realized_pnl_excluded_symbols"] == ["SOLUSDT"]
 
 
 def test_trade_summary_separates_net_earnings_from_portfolio_change(monkeypatch):
