@@ -17,6 +17,31 @@ private infrastructure details.
 
 ## Mistakes
 
+### 2026-07-28 — Extended a journal contract without preserving test doubles
+
+- **Impact:** two protection regressions initially halted with `AttributeError`
+  because lightweight journal doubles did not implement the new partial-exit
+  query.
+- **Root cause:** the integration called the new method unconditionally even
+  though the protection boundary intentionally supports minimal journal
+  substitutes in isolated safety tests.
+- **Correction:** feature-detect the optional query and treat its absence as
+  zero historical partial exits; the production journal still supplies the
+  authoritative implementation.
+- **Prevention:** when extending a dependency protocol, inspect its test doubles
+  and either update all of them or add an explicit backward-compatible default.
+
+### 2026-07-28 — Repeated a guessed-test-path mistake
+
+- **Impact:** a related-test command stopped without executing because
+  `tests/test_executor_orders.py` was guessed but does not exist.
+- **Root cause:** the test list was composed before applying the repository's
+  existing lesson to discover paths with `rg --files`.
+- **Correction:** discovered the actual execution test files and reran the
+  complete targeted set successfully.
+- **Prevention:** run `rg --files tests` before every multi-file pytest command;
+  do not rely on module-to-test filename inference.
+
 ### 2026-07-28 — Backfill parsed exchange payload keys instead of stored keys
 
 - **Impact:** the first schema-v2 migration regression failed because historical

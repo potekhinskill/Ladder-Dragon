@@ -3,6 +3,31 @@
 All notable changes are documented here. Releases use Semantic Versioning; every
 section is dated and there is intentionally no `Unreleased` section.
 
+## [2.20.65] — 2026-07-28
+
+### Fixed
+- OCO and OTOCO recovery now preserve an existing exchange order list when any
+  verification read times out or disconnects. The uncertainty propagates to the
+  existing fail-closed HALT boundary without issuing cancellation or creating
+  replacement protection.
+- A terminal TP/STOP leg with positive partial execution is recorded once by
+  exchange order ID instead of being classified as ambiguous or as an exact
+  closed lifecycle. Replacement protection is sized only for the confirmed
+  residual BUY quantity.
+- Managed-inventory telemetry subtracts normalized partial protection exits, so
+  dashboard exposure does not continue to count quantity already sold.
+
+### Changed
+- The order journal schema is version 3 and adds an indexed, Decimal-text
+  partial-protection-exit table with conflict detection and idempotent replay.
+
+### Verified
+- Recovery tests cover OCO and OTOCO read timeouts without cancellation,
+  terminal partial STOP classification, ambiguous dual executions, idempotent
+  residual accounting, and exact residual OCO sizing.
+- Source compilation, restart/partial-fill/OCO/STOP/gap/idempotency regressions,
+  complete project tests, and the release verification profile pass.
+
 ## [2.20.64] — 2026-07-28
 
 ### Security

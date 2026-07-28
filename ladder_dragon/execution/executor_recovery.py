@@ -52,18 +52,18 @@ def classify_oco_legs(
         quantities.append(quantity)
     if all(status in ACTIVE_PROTECTION_STATES for status in statuses):
         return "ACTIVE", None, None
-    filled = [
+    executed_terminal = [
         leg
         for leg, status, quantity in zip(legs, statuses, quantities)
-        if status == "FILLED" and quantity > 0
+        if status in TERMINAL_PROTECTION_STATES and quantity > 0
     ]
     if (
-        len(filled) == 1
+        len(executed_terminal) == 1
         and all(status in TERMINAL_PROTECTION_STATES for status in statuses)
     ):
-        filled_type = str(filled[0].get("type") or "").upper()
-        reason = "STOP" if "STOP" in filled_type else "TP"
-        return "CLOSED", filled[0], reason
+        exit_type = str(executed_terminal[0].get("type") or "").upper()
+        reason = "STOP" if "STOP" in exit_type else "TP"
+        return "CLOSED", executed_terminal[0], reason
     if (
         not any(quantity > 0 for quantity in quantities)
         and all(status in TERMINAL_PROTECTION_STATES for status in statuses)
@@ -359,15 +359,17 @@ def recover_existing_protection(
     if protection is None:
         return False
     if protection.order_type == "OTOCO":
-        payload = dependencies.get_order_list_by_client_id(
-            protection.client_order_id
-        )
-        order_list_id = (
-            payload.get("orderListId")
-            if isinstance(payload, dict)
-            else None
-        )
+        payload: Dict[str, Any] | None = None
+        order_list_id = None
         try:
+            payload = dependencies.get_order_list_by_client_id(
+                protection.client_order_id
+            )
+            order_list_id = (
+                payload.get("orderListId")
+                if isinstance(payload, dict)
+                else None
+            )
             refs = payload.get("orders") if isinstance(payload, dict) else None
             if not isinstance(refs, list) or len(refs) != 3:
                 raise RuntimeError("OTOCO recovery requires exactly three orders")
@@ -417,31 +419,66 @@ def recover_existing_protection(
                     )
                     return False
                 return False
-            if any(
-                str(order.get("side") or "").upper() != "SELL"
-                or str(order.get("status") or "").upper()
-                not in {"NEW", "PARTIALLY_FILLED", "FILLED"}
-                for order in pending
+            outcome, filled_leg, exit_reason = classify_oco_legs(pending)
+            list_status = str(payload.get("listStatusType") or "").upper()
+        except requests.RequestException as exc:
+            # Read uncertainty is never permission to remove exchange-side
+            # protection. Preserve the list and let the caller halt.
+            raise RuntimeError(
+                "OTOCO protection verification is unavailable; "
+                "existing list was left unchanged"
+            ) from exc
+        except RuntimeError as exc:
+            if (
+                isinstance(payload, dict)
+                and str(payload.get("listStatusType") or "").upper()
+                == "EXEC_STARTED"
+                and order_list_id is not None
             ):
-                raise RuntimeError("OTOCO protection legs are not active")
-            leg_types = {
-                str(order.get("type") or "").upper()
-                for order in pending
-            }
-            if "LIMIT_MAKER" not in leg_types or not any(
-                "STOP" in value for value in leg_types
-            ):
-                raise RuntimeError("OTOCO TP/STOP identities are invalid")
-        except (requests.RequestException, RuntimeError):
-            if order_list_id is not None:
                 dependencies.cancel_oco(
                     protection.symbol,
                     int(order_list_id),
                 )
             raise RuntimeError(
-                "OTOCO protection verification failed; list cancellation "
+                "OTOCO protection is structurally invalid; list cancellation "
                 "was requested and LIVE must halt for reconciliation"
+            ) from exc
+        if list_status == "ALL_DONE" and outcome == "CLOSED":
+            if (
+                filled_leg is None
+                or exit_reason is None
+                or filled_leg.get("orderId") is None
+            ):
+                raise RuntimeError("closed OTOCO lacks an executed SELL leg")
+            journal.record_verified_protection_legs(
+                protection.client_order_id,
+                pending,
             )
+            filled_status = str(filled_leg.get("status") or "").upper()
+            if filled_status == "FILLED":
+                journal.mark_exact_lifecycle_closed(
+                    protection_client_order_id=protection.client_order_id,
+                    exit_order_id=int(filled_leg["orderId"]),
+                    exit_reason=exit_reason,
+                )
+                return True
+            journal.record_partial_protection_exit(
+                protection_client_order_id=protection.client_order_id,
+                exit_order_id=int(filled_leg["orderId"]),
+                exit_reason=exit_reason,
+                executed_qty=filled_leg.get("executedQty"),
+                terminal_status=filled_status,
+            )
+            return False
+        if list_status == "ALL_DONE" and outcome == "CANCELED":
+            journal.mark_failed(
+                protection.client_order_id,
+                "exchange OTOCO ended without a SELL fill",
+            )
+            journal.mark_protection_pending(parent_client_order_id)
+            return False
+        if list_status != "EXEC_STARTED" or outcome != "ACTIVE":
+            return False
         journal.mark_verified_protected(
             parent_client_order_id=parent_client_order_id,
             protection_client_order_id=protection.client_order_id,
@@ -452,18 +489,27 @@ def recover_existing_protection(
         )
         return True
     if protection.order_type == "OCO":
-        payload = dependencies.get_order_list_by_client_id(
-            protection.client_order_id
-        )
-        if not isinstance(payload, dict):
-            return False
-        order_list_id = payload.get("orderListId")
+        payload: Dict[str, Any] | None = None
+        order_list_id = None
         try:
+            payload = dependencies.get_order_list_by_client_id(
+                protection.client_order_id
+            )
+            if not isinstance(payload, dict):
+                return False
+            order_list_id = payload.get("orderListId")
             legs = dependencies.verify_oco_legs(protection.symbol, payload)
             outcome, filled_leg, exit_reason = classify_oco_legs(legs)
-        except (requests.RequestException, RuntimeError):
+        except requests.RequestException as exc:
+            raise RuntimeError(
+                "OCO protection verification is unavailable; "
+                "existing list was left unchanged"
+            ) from exc
+        except RuntimeError:
             if (
-                payload.get("listStatusType") == "EXEC_STARTED"
+                isinstance(payload, dict)
+                and str(payload.get("listStatusType") or "").upper()
+                == "EXEC_STARTED"
                 and order_list_id is not None
             ):
                 dependencies.cancel_oco(protection.symbol, int(order_list_id))
@@ -480,12 +526,22 @@ def recover_existing_protection(
                 protection.client_order_id,
                 legs,
             )
-            journal.mark_exact_lifecycle_closed(
+            filled_status = str(filled_leg.get("status") or "").upper()
+            if filled_status == "FILLED":
+                journal.mark_exact_lifecycle_closed(
+                    protection_client_order_id=protection.client_order_id,
+                    exit_order_id=int(filled_leg["orderId"]),
+                    exit_reason=exit_reason,
+                )
+                return True
+            journal.record_partial_protection_exit(
                 protection_client_order_id=protection.client_order_id,
                 exit_order_id=int(filled_leg["orderId"]),
                 exit_reason=exit_reason,
+                executed_qty=filled_leg.get("executedQty"),
+                terminal_status=filled_status,
             )
-            return True
+            return False
         if list_status == "ALL_DONE" and outcome == "CANCELED":
             journal.mark_failed(
                 protection.client_order_id,

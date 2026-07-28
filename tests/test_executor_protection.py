@@ -124,6 +124,50 @@ def test_filled_buy_gets_verified_oco_and_leaves_watch_list(tmp_path):
     assert store.load("SOLUSDT")["77"]["fill_price"] == "100"
 
 
+def test_terminal_partial_exit_reprotects_only_confirmed_residual(tmp_path):
+    placed = []
+
+    class Journal:
+        def get_by_exchange_order_id(self, _order_id):
+            return type("Intent", (), {"client_order_id": "BUY-parent"})()
+
+        def record_exchange_order(self, *_args):
+            return None
+
+        def partial_protection_exit_quantity(self, parent_client_order_id):
+            assert parent_client_order_id == "BUY-parent"
+            return Decimal("0.040")
+
+    deps = dependencies(
+        journal=lambda: Journal(),
+        get_order=lambda symbol, order_id: {
+            "orderId": order_id,
+            "status": "FILLED",
+            "executedQty": "0.100",
+            "cummulativeQuoteQty": "10.0",
+        },
+        recover_existing_protection=lambda client_id: False,
+        get_balances=lambda: {"SOL": {"free": "0.060", "locked": "0"}},
+        place_oco_sell=lambda *args, **kwargs: (
+            placed.append((args, kwargs)) or {"orderListId": 77}
+        ),
+    )
+
+    remaining = protect_filled_buys(
+        "SOLUSDT",
+        [42],
+        [90.0, 110.0],
+        config=config(),
+        panic_active=False,
+        breakeven_enabled=False,
+        state_store=state_store(tmp_path),
+        dependencies=deps,
+    )
+
+    assert remaining == []
+    assert placed[0][0][1] == Decimal("0.06")
+
+
 def test_terminal_zero_fill_buy_leaves_protection_watch_list(tmp_path):
     logs = []
     terminal_unfilled = set()

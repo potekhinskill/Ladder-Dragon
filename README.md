@@ -31,7 +31,7 @@ fee-aware FIFO accounting, restart reconciliation, per-symbol operational
 reporting, replay and walk-forward verification, and a private Raspberry Pi
 operations dashboard.
 
-Current product version: **2.20.64**. The single version source is
+Current product version: **2.20.65**. The single version source is
 `product_version.py`; releases follow [Semantic Versioning](https://semver.org/).
 Project contact: [LinkedIn](https://www.linkedin.com/in/ypotekhin/).
 
@@ -96,7 +96,7 @@ bounded, explainable, recoverable, and measurable before exposure is increased.
 ## Project status
 
 Ladder Dragon is an actively developed, experimental trading system. Version
-**2.20.64** is the current source release. `main` is the only long-lived branch;
+**2.20.65** is the current source release. `main` is the only long-lived branch;
 feature branches use the `ladderdragon/*` namespace.
 
 DRY and Binance Spot Testnet are the supported starting modes. Mainnet LIVE is
@@ -604,6 +604,12 @@ the process restarts, the executor reconciles Binance by `clientOrderId` and
 exchange order ID before creating protection. An uncertain submission trips a
 persistent circuit halt. Partial fills, gap-below-stop, and restart recovery
 are fail-closed paths.
+
+A timeout while reading an existing OCO/OTOCO never authorizes cancellation:
+the exchange-side protection is left unchanged and the symbol halts for later
+authoritative reconciliation. A terminal partial TP/STOP is recorded once by
+exchange order ID, excluded from exact lifecycle approval, and only the
+remaining BUY quantity is eligible for replacement protection.
 
 Signed POST/DELETE requests are never retried blindly by the HTTP transport.
 A network loss or Binance 5xx after a mutation is one `UNKNOWN` attempt and is

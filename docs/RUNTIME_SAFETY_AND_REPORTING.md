@@ -28,6 +28,17 @@ A partial execution, lost acknowledgement, network ambiguity, or journal write
 failure is not reported as a successful flatten. The symbol remains halted and
 the position remains unresolved for authoritative reconciliation.
 
+Read uncertainty is not permission to mutate protection. If any order-list or
+leg query times out, recovery leaves the existing OCO/OTOCO untouched and
+halts; it does not cancel the list or classify it as absent. Cancellation is
+considered only after a successful read proves a structural mismatch.
+
+A terminal leg with a positive partial execution is a confirmed partial exit,
+not an exact closed lifecycle. Its exchange order ID and quantity are recorded
+idempotently, the original protection becomes terminal, and the parent returns
+to `PROTECTION_PENDING`. Replacement protection is sized from the exact
+residual `BUY executed quantity - confirmed partial exits`.
+
 ## Exactly-once transport boundary
 
 The durable intent journal, not the HTTP client, owns mutation recovery.
@@ -69,9 +80,10 @@ operation and its diagnostic names only the conflicting fields, never metadata
 contents.
 
 Normalized, indexed tables map exchange leg IDs to protection intents and hold
-exact closure summaries. Runtime recovery and dashboard telemetry use these
-tables instead of scanning historical JSON. The journal keeps a single
-thread-safe connection per process and reopens it after a fork.
+exact closure summaries and terminal partial-exit quantities. Runtime recovery
+and dashboard telemetry use these tables instead of scanning historical JSON.
+The journal keeps a single thread-safe connection per process and reopens it
+after a fork.
 
 Closed intents are retained indefinitely because they are accounting,
 recovery, and production-approval evidence. The runtime does not delete or

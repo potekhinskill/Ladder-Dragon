@@ -1,4 +1,5 @@
 import sqlite3
+from decimal import Decimal
 
 import pytest
 import requests
@@ -56,6 +57,47 @@ def test_classify_oco_legs_identifies_exact_terminal_sell():
     }
 
     assert classify_oco_legs([stop, tp]) == ("CLOSED", stop, "STOP")
+
+
+def test_classify_oco_legs_accepts_one_terminal_partial_stop():
+    stop = {
+        "orderId": 21,
+        "side": "SELL",
+        "type": "STOP_LOSS_LIMIT",
+        "status": "EXPIRED_IN_MATCH",
+        "executedQty": "0.040",
+    }
+    tp = {
+        "orderId": 22,
+        "side": "SELL",
+        "type": "LIMIT_MAKER",
+        "status": "CANCELED",
+        "executedQty": "0",
+    }
+
+    assert classify_oco_legs([stop, tp]) == ("CLOSED", stop, "STOP")
+
+
+def test_classify_oco_legs_rejects_two_executed_terminal_legs():
+    legs = [
+        {
+            "orderId": 21,
+            "side": "SELL",
+            "type": "STOP_LOSS_LIMIT",
+            "status": "EXPIRED",
+            "executedQty": "0.040",
+        },
+        {
+            "orderId": 22,
+            "side": "SELL",
+            "type": "LIMIT_MAKER",
+            "status": "CANCELED",
+            "executedQty": "0.010",
+        },
+    ]
+
+    with pytest.raises(RuntimeError, match="ambiguous"):
+        classify_oco_legs(legs)
 
 
 def _protected_oco(journal: OrderJournal) -> None:
@@ -181,6 +223,83 @@ def test_recovery_closes_all_done_oco_with_exact_sell_fill(tmp_path):
     assert journal.get("OCO-OLD").state == "CLOSED"
     assert journal.get("BUY-OLD").state == "CLOSED"
     assert journal.get("OCO-OLD").metadata["exit_reason"] == "TP"
+
+
+def test_recovery_preserves_live_oco_when_verification_read_times_out(tmp_path):
+    journal = OrderJournal(tmp_path / "orders.sqlite3", venue="mainnet")
+    _protected_oco(journal)
+    dependencies = RecoveryDependencies(
+        journal=lambda: journal,
+        get_order_by_client_id=lambda symbol, client_id: None,
+        get_order_list_by_client_id=lambda client_id: {
+            "orderListId": 20,
+            "listStatusType": "EXEC_STARTED",
+        },
+        verify_oco_legs=lambda symbol, payload: (_ for _ in ()).throw(
+            requests.Timeout("read timed out")
+        ),
+        cancel_oco=lambda symbol, order_list_id: pytest.fail(
+            "read uncertainty must preserve live protection"
+        ),
+        halt=lambda reason, **metadata: None,
+        logger=lambda message: None,
+    )
+
+    with pytest.raises(RuntimeError, match="left unchanged"):
+        recover_existing_protection("BUY-OLD", dependencies=dependencies)
+    assert journal.get("OCO-OLD").state == "PROTECTED"
+    assert journal.get("BUY-OLD").state == "PROTECTED"
+
+
+def test_recovery_records_terminal_partial_exit_and_only_residual_inventory(
+    tmp_path,
+):
+    path = tmp_path / "orders.sqlite3"
+    journal = OrderJournal(path, venue="mainnet")
+    _protected_oco(journal)
+    stop = {
+        "orderId": 21,
+        "clientOrderId": "STOP-OLD",
+        "side": "SELL",
+        "type": "STOP_LOSS_LIMIT",
+        "status": "EXPIRED_IN_MATCH",
+        "executedQty": "0.040",
+    }
+    legs = [
+        stop,
+        {
+            "orderId": 22,
+            "clientOrderId": "TP-OLD",
+            "side": "SELL",
+            "type": "LIMIT_MAKER",
+            "status": "CANCELED",
+            "executedQty": "0",
+        },
+    ]
+    dependencies = RecoveryDependencies(
+        journal=lambda: journal,
+        get_order_by_client_id=lambda symbol, client_id: None,
+        get_order_list_by_client_id=lambda client_id: {
+            "orderListId": 20,
+            "listStatusType": "ALL_DONE",
+        },
+        verify_oco_legs=lambda symbol, payload: legs,
+        cancel_oco=lambda symbol, order_list_id: pytest.fail(
+            "terminal list must not be cancelled"
+        ),
+        halt=lambda reason, **metadata: None,
+        logger=lambda message: None,
+    )
+
+    assert recover_existing_protection("BUY-OLD", dependencies=dependencies) is False
+    assert recover_existing_protection("BUY-OLD", dependencies=dependencies) is False
+    assert journal.get("OCO-OLD").state == "FAILED"
+    assert journal.get("BUY-OLD").state == "PROTECTION_PENDING"
+    assert journal.partial_protection_exit_quantity("BUY-OLD") == Decimal("0.040")
+    managed = read_order_journal_telemetry(path)["managed_buys"]
+    assert managed == [
+        {"symbol": "SOLUSDT", "quantity": "0.084", "protected_buys": 0}
+    ]
 
 
 def recovery_dependencies(journal, lookup, *, halts=None, logs=None):
@@ -564,7 +683,7 @@ def test_normalized_evidence_does_not_depend_on_metadata_scans(tmp_path):
     assert lifecycle["tp"] == 1
 
 
-def test_legacy_json_evidence_is_backfilled_once_into_schema_v2(tmp_path):
+def test_legacy_json_evidence_is_backfilled_once_into_current_schema(tmp_path):
     path = tmp_path / "orders.sqlite3"
     journal = OrderJournal(path, venue="mainnet")
     _prepared_verified_lifecycle(journal)
@@ -602,7 +721,7 @@ def test_legacy_json_evidence_is_backfilled_once_into_schema_v2(tmp_path):
             "SELECT value FROM order_journal_meta WHERE key = 'schema_version'"
         ).fetchone()
         legs = con.execute("SELECT COUNT(*) FROM order_intent_legs").fetchone()
-    assert version == ("2",)
+    assert version == ("3",)
     assert legs == (2,)
 
 
@@ -771,6 +890,71 @@ def test_otoco_recovery_requires_filled_working_buy_and_two_active_legs(
     assert [
         item.client_order_id for item in journal.protected_buys("SOLUSDT")
     ] == ["BUY-OTOCO"]
+
+
+def test_otoco_read_timeout_preserves_exchange_list(tmp_path):
+    journal = OrderJournal(tmp_path / "orders.sqlite3", venue="mainnet")
+    journal.prepare(
+        client_order_id="BUY-OTOCO-TIMEOUT",
+        symbol="SOLUSDT",
+        side="BUY",
+        purpose="ladder",
+        order_type="OTOCO_WORKING",
+        quantity="0.1",
+        price="100",
+    )
+    journal.record_exchange_order(
+        "BUY-OTOCO-TIMEOUT",
+        {"orderId": 30, "status": "FILLED", "executedQty": "0.1"},
+    )
+    journal.prepare(
+        client_order_id="LIST-OTOCO-TIMEOUT",
+        symbol="SOLUSDT",
+        side="SELL",
+        purpose="otoco",
+        order_type="OTOCO",
+        quantity="0.1",
+        price="105",
+        parent_client_order_id="BUY-OTOCO-TIMEOUT",
+    )
+    journal.record_order_list(
+        "LIST-OTOCO-TIMEOUT",
+        {"orderListId": 31, "listStatusType": "EXEC_STARTED"},
+    )
+    journal.mark_protected(
+        parent_client_order_id="BUY-OTOCO-TIMEOUT",
+        protection_client_order_id="LIST-OTOCO-TIMEOUT",
+        order_list_id=31,
+    )
+    dependencies = RecoveryDependencies(
+        journal=lambda: journal,
+        get_order_by_client_id=lambda symbol, client_id: (_ for _ in ()).throw(
+            requests.Timeout("read timed out")
+        ),
+        get_order_list_by_client_id=lambda client_id: {
+            "orderListId": 31,
+            "listStatusType": "EXEC_STARTED",
+            "orders": [
+                {"clientOrderId": "BUY-OTOCO-TIMEOUT"},
+                {"clientOrderId": "TP-OTOCO-TIMEOUT"},
+                {"clientOrderId": "SL-OTOCO-TIMEOUT"},
+            ],
+        },
+        verify_oco_legs=lambda symbol, payload: [],
+        cancel_oco=lambda symbol, order_list_id: pytest.fail(
+            "read uncertainty must preserve OTOCO"
+        ),
+        halt=lambda reason, **metadata: None,
+        logger=lambda message: None,
+    )
+
+    with pytest.raises(RuntimeError, match="left unchanged"):
+        recover_existing_protection(
+            "BUY-OTOCO-TIMEOUT",
+            dependencies=dependencies,
+        )
+    assert journal.get("LIST-OTOCO-TIMEOUT").state == "PROTECTED"
+    assert journal.get("BUY-OTOCO-TIMEOUT").state == "PROTECTED"
 
 
 def test_cancelled_partial_otoco_must_be_all_done_before_separate_protection(

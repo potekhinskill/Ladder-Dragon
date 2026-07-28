@@ -50,7 +50,7 @@ _SIGNED_BINANCE_URL_RE = re.compile(
     re.IGNORECASE,
 )
 _SIGNATURE_PARAM_RE = re.compile(r"(signature=)[^&\s;]+", re.IGNORECASE)
-ORDER_JOURNAL_SCHEMA_VERSION = 2
+ORDER_JOURNAL_SCHEMA_VERSION = 3
 
 
 def _decimal_text(value: object, *, field: str) -> str:
@@ -130,11 +130,27 @@ def read_order_journal_telemetry(path: str | Path) -> dict[str, Any]:
                     "SUM(CASE WHEN exit_reason = 'STOP' THEN 1 ELSE 0 END) AS stop "
                     "FROM order_lifecycle_closures"
                 ).fetchone()
-            managed_rows = con.execute(
-                "SELECT symbol, state, executed_qty FROM order_intents "
-                "WHERE side = 'BUY' AND state IN "
-                "('PARTIALLY_FILLED','FILLED','PROTECTION_PENDING','PROTECTED')"
-            ).fetchall()
+            partial_exit_table = con.execute(
+                "SELECT 1 FROM sqlite_master WHERE type = 'table' "
+                "AND name = 'order_partial_protection_exits'"
+            ).fetchone()
+            if partial_exit_table is not None:
+                managed_rows = con.execute(
+                    "SELECT client_order_id, symbol, state, executed_qty "
+                    "FROM order_intents WHERE side = 'BUY' AND state IN "
+                    "('PARTIALLY_FILLED','FILLED','PROTECTION_PENDING','PROTECTED')"
+                ).fetchall()
+                partial_exit_rows = con.execute(
+                    "SELECT parent_client_order_id, executed_qty "
+                    "FROM order_partial_protection_exits"
+                ).fetchall()
+            else:
+                managed_rows = con.execute(
+                    "SELECT client_order_id, symbol, state, executed_qty "
+                    "FROM order_intents WHERE side = 'BUY' AND state IN "
+                    "('PARTIALLY_FILLED','FILLED','PROTECTION_PENDING','PROTECTED')"
+                ).fetchall()
+                partial_exit_rows = []
     except (OSError, sqlite3.Error, TypeError, ValueError) as exc:
         return {"available": False, "reason": type(exc).__name__}
 
@@ -180,13 +196,28 @@ def read_order_journal_telemetry(path: str | Path) -> dict[str, Any]:
         lifecycle["tp"] = int(lifecycle_counts["tp"] or 0)
         lifecycle["stop"] = int(lifecycle_counts["stop"] or 0)
     lifecycle["promotion_ready"] = lifecycle["closed_exact"] >= lifecycle["required"]
+    exited_by_parent: dict[str, Decimal] = {}
+    for row in partial_exit_rows:
+        try:
+            exited = Decimal(str(row["executed_qty"]))
+        except (ArithmeticError, TypeError, ValueError):
+            continue
+        if not exited.is_finite() or exited <= 0:
+            continue
+        parent_id = str(row["parent_client_order_id"] or "")
+        exited_by_parent[parent_id] = (
+            exited_by_parent.get(parent_id, Decimal("0")) + exited
+        )
     managed: dict[str, dict[str, Any]] = {}
     for row in managed_rows:
         symbol = str(row["symbol"] or "").upper()
         if not symbol:
             continue
         try:
-            quantity = Decimal(str(row["executed_qty"] or "0"))
+            quantity = Decimal(str(row["executed_qty"] or "0")) - exited_by_parent.get(
+                str(row["client_order_id"] or ""),
+                Decimal("0"),
+            )
         except (ArithmeticError, TypeError, ValueError):
             continue
         if quantity <= 0:
@@ -394,6 +425,26 @@ class OrderJournal:
                 );
                 CREATE INDEX IF NOT EXISTS idx_order_lifecycle_reason
                     ON order_lifecycle_closures(venue, symbol, exit_reason, closed_at);
+                CREATE TABLE IF NOT EXISTS order_partial_protection_exits (
+                    venue TEXT NOT NULL,
+                    symbol TEXT NOT NULL,
+                    exit_order_id INTEGER NOT NULL,
+                    protection_client_order_id TEXT NOT NULL,
+                    parent_client_order_id TEXT NOT NULL,
+                    exit_reason TEXT NOT NULL CHECK(exit_reason IN ('TP', 'STOP')),
+                    executed_qty TEXT NOT NULL,
+                    terminal_status TEXT NOT NULL,
+                    recorded_at REAL NOT NULL,
+                    PRIMARY KEY (venue, symbol, exit_order_id),
+                    FOREIGN KEY (protection_client_order_id)
+                        REFERENCES order_intents(client_order_id),
+                    FOREIGN KEY (parent_client_order_id)
+                        REFERENCES order_intents(client_order_id)
+                );
+                CREATE INDEX IF NOT EXISTS idx_partial_protection_parent
+                    ON order_partial_protection_exits(
+                        venue, parent_client_order_id
+                    );
                 CREATE TABLE IF NOT EXISTS order_journal_meta (
                     key TEXT PRIMARY KEY,
                     value TEXT NOT NULL
@@ -1114,6 +1165,130 @@ class OrderJournal:
                     closed_at,
                 ),
             )
+
+    def record_partial_protection_exit(
+        self,
+        *,
+        protection_client_order_id: str,
+        exit_order_id: int,
+        exit_reason: str,
+        executed_qty: object,
+        terminal_status: str,
+    ) -> None:
+        """Record a terminal partial TP/STOP and reopen only the residual lot."""
+        reason = str(exit_reason).upper()
+        status = str(terminal_status).upper()
+        quantity = _decimal_text(executed_qty, field="executed_qty")
+        if reason not in {"TP", "STOP"}:
+            raise ValueError("exit reason must be TP or STOP")
+        if Decimal(quantity) <= 0:
+            raise ValueError("partial protection exit quantity must be positive")
+        if status not in TERMINAL_EXCHANGE_STATES:
+            raise ValueError("partial protection exit must be terminal")
+        with self._session(write=True) as con:
+            protection = self._from_row(
+                self._row(con, protection_client_order_id)
+            )
+            if protection is None or not protection.parent_client_order_id:
+                raise RuntimeError("partial exit protection has no parent BUY")
+            parent = self._from_row(
+                self._row(con, protection.parent_client_order_id)
+            )
+            if parent is None:
+                raise RuntimeError("partial exit parent BUY is unavailable")
+            leg = con.execute(
+                "SELECT leg_type FROM order_intent_legs "
+                "WHERE venue = ? AND symbol = ? AND order_id = ? "
+                "AND protection_client_order_id = ?",
+                (
+                    self.venue,
+                    protection.symbol,
+                    int(exit_order_id),
+                    protection_client_order_id,
+                ),
+            ).fetchone()
+            if leg is None:
+                raise RuntimeError("partial exit is not a verified protection leg")
+            leg_type = str(leg["leg_type"] or "").upper()
+            if reason == "STOP" and "STOP" not in leg_type:
+                raise RuntimeError("partial STOP does not match verified leg type")
+            if reason == "TP" and "STOP" in leg_type:
+                raise RuntimeError("partial TP does not match verified leg type")
+            expected = (
+                protection_client_order_id,
+                protection.parent_client_order_id,
+                reason,
+                quantity,
+                status,
+            )
+            existing = con.execute(
+                "SELECT protection_client_order_id, parent_client_order_id, "
+                "exit_reason, executed_qty, terminal_status "
+                "FROM order_partial_protection_exits "
+                "WHERE venue = ? AND symbol = ? AND exit_order_id = ?",
+                (self.venue, protection.symbol, int(exit_order_id)),
+            ).fetchone()
+            if existing is not None and tuple(existing) != expected:
+                raise RuntimeError(
+                    "partial protection exit conflicts with journal history"
+                )
+            con.execute(
+                "INSERT OR IGNORE INTO order_partial_protection_exits "
+                "(venue, symbol, exit_order_id, protection_client_order_id, "
+                "parent_client_order_id, exit_reason, executed_qty, "
+                "terminal_status, recorded_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                (
+                    self.venue,
+                    protection.symbol,
+                    int(exit_order_id),
+                    protection_client_order_id,
+                    protection.parent_client_order_id,
+                    reason,
+                    quantity,
+                    status,
+                    time.time(),
+                ),
+            )
+            diagnostic = (
+                f"terminal partial {reason} exit {exit_order_id} executed "
+                f"{quantity}; residual protection required"
+            )
+            self._update_row(
+                con,
+                protection_client_order_id,
+                {"state": "FAILED", "last_error": diagnostic},
+            )
+            self._update_row(
+                con,
+                protection.parent_client_order_id,
+                {"state": "PROTECTION_PENDING", "last_error": diagnostic},
+            )
+
+    def partial_protection_exit_quantity(
+        self,
+        parent_client_order_id: str,
+    ) -> Decimal:
+        """Return the idempotent sum already exited by terminal partial legs."""
+        with self._session() as con:
+            rows = con.execute(
+                "SELECT executed_qty FROM order_partial_protection_exits "
+                "WHERE venue = ? AND parent_client_order_id = ?",
+                (self.venue, parent_client_order_id),
+            ).fetchall()
+        total = Decimal("0")
+        for row in rows:
+            try:
+                quantity = Decimal(str(row["executed_qty"]))
+            except (ArithmeticError, TypeError, ValueError) as exc:
+                raise RuntimeError(
+                    "partial protection exit contains invalid quantity"
+                ) from exc
+            if not quantity.is_finite() or quantity <= 0:
+                raise RuntimeError(
+                    "partial protection exit contains invalid quantity"
+                )
+            total += quantity
+        return total
 
     def unresolved_buys(self, symbol: str | None = None) -> list[OrderIntent]:
         placeholders = ",".join("?" for _ in ACTIVE_STATES)

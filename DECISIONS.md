@@ -15,6 +15,20 @@ entries concise; this is not a changelog or an activity log.
 
 ## Decisions
 
+### 2026-07-28 — Preserve protection when reads are uncertain
+
+- **Context:** a timeout while verifying a live OCO/OTOCO proves neither that
+  protection is invalid nor that it is absent; cancelling on that uncertainty
+  converts a read failure into an avoidable unprotected interval.
+- **Decision:** never mutate exchange protection after an uncertain read.
+  Halt with the existing list untouched. Record a terminal partial leg
+  idempotently and replace protection only for the exact confirmed residual.
+- **Why it worked:** OCO and OTOCO timeout regressions prove no cancellation or
+  replacement occurs, while terminal partial STOP recovery remains idempotent
+  and the next OCO quantity equals the residual.
+- **Reuse:** every recovery flow where an uncertain observation is followed by
+  a cancel, replace, cleanup, or other safety-reducing mutation.
+
 ### 2026-07-28 — Retry reads, reconcile mutations
 
 - **Context:** blind HTTP retries can duplicate a mutation whose exchange

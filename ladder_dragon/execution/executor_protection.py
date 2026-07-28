@@ -542,7 +542,22 @@ def protect_filled_buys(
                 dependencies.poll_trades(symbol)
                 remaining.remove(order_id)
                 continue
-            if executed_quantity <= 0:
+            exited_quantity = Decimal("0")
+            if journal is not None and parent_client_id:
+                partial_exit_reader = getattr(
+                    journal,
+                    "partial_protection_exit_quantity",
+                    None,
+                )
+                if callable(partial_exit_reader):
+                    exited_quantity = partial_exit_reader(parent_client_id)
+                if exited_quantity > executed_quantity:
+                    raise RuntimeError(
+                        "confirmed partial protection exits exceed BUY fill"
+                    )
+            quantity_requiring_protection = executed_quantity - exited_quantity
+            if quantity_requiring_protection <= 0:
+                dependencies.poll_trades(symbol)
                 remaining.remove(order_id)
                 continue
 
@@ -635,7 +650,7 @@ def protect_filled_buys(
             sellable = max(Decimal("0"), base_free)
             if exact_filters is not None:
                 quantity = round_step(
-                    min(executed_quantity, sellable),
+                    min(quantity_requiring_protection, sellable),
                     exact_filters.step,
                     "floor",
                 )
@@ -652,7 +667,7 @@ def protect_filled_buys(
                 min_sl = exact_filters.minimum_notional
             else:
                 quantity = Decimal(str(dependencies.round_quantity(
-                    symbol, min(executed_quantity, sellable)
+                    symbol, min(quantity_requiring_protection, sellable)
                 )))
                 tp_rounded = Decimal(str(dependencies.round_price(
                     symbol, tp_limit
