@@ -31,7 +31,7 @@ fee-aware FIFO accounting, restart reconciliation, per-symbol operational
 reporting, replay and walk-forward verification, and a private Raspberry Pi
 operations dashboard.
 
-Current product version: **2.20.63**. The single version source is
+Current product version: **2.20.64**. The single version source is
 `product_version.py`; releases follow [Semantic Versioning](https://semver.org/).
 Project contact: [LinkedIn](https://www.linkedin.com/in/ypotekhin/).
 
@@ -96,7 +96,7 @@ bounded, explainable, recoverable, and measurable before exposure is increased.
 ## Project status
 
 Ladder Dragon is an actively developed, experimental trading system. Version
-**2.20.63** is the current source release. `main` is the only long-lived branch;
+**2.20.64** is the current source release. `main` is the only long-lived branch;
 feature branches use the `ladderdragon/*` namespace.
 
 DRY and Binance Spot Testnet are the supported starting modes. Mainnet LIVE is
@@ -604,6 +604,14 @@ the process restarts, the executor reconciles Binance by `clientOrderId` and
 exchange order ID before creating protection. An uncertain submission trips a
 persistent circuit halt. Partial fills, gap-below-stop, and restart recovery
 are fail-closed paths.
+
+Signed POST/DELETE requests are never retried blindly by the HTTP transport.
+A network loss or Binance 5xx after a mutation is one `UNKNOWN` attempt and is
+resolved only through the durable intent and authoritative `clientOrderId`
+reconciliation. Read-only signed requests have a bounded three-attempt budget.
+HTTP 418 arms a process-wide local cooldown for Binance `Retry-After`; `-1021`
+performs one server-time synchronization before a safe retry of the
+definitively rejected request.
 
 The complete operator-visible contract for protection, HALT versus SHADOW,
 managed versus legacy inventory, dashboard PnL availability, Telegram digest

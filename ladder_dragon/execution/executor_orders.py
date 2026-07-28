@@ -35,6 +35,13 @@ def _record_definitive_rejection(
     """Record an exchange business rejection without treating it as a lost ACK."""
     if not isinstance(error, BinanceResponseError):
         return False
+    if (
+        error.code == -2010
+        and "duplicate" in error.binance_message.lower()
+    ):
+        # A duplicate client ID is evidence that an earlier submission may
+        # exist. Keep UNKNOWN and reconcile it instead of lying with FAILED.
+        return False
     if journal is not None:
         journal.mark_failed(client_id, error)
     logger(

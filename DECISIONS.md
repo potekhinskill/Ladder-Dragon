@@ -15,6 +15,21 @@ entries concise; this is not a changelog or an activity log.
 
 ## Decisions
 
+### 2026-07-28 — Retry reads, reconcile mutations
+
+- **Context:** blind HTTP retries can duplicate a mutation whose exchange
+  acknowledgement was lost, while only the caller has the durable intent needed
+  to determine the real outcome.
+- **Decision:** allow bounded retries only for read-only requests; propagate a
+  mutating network loss or 5xx as `UNKNOWN` and reconcile by `clientOrderId`.
+  Retry a mutation only after a definitive `-1021` rejection and successful
+  server-time synchronization.
+- **Why it worked:** regressions prove one mutation network call, authoritative
+  duplicate-ID recovery, bounded GET attempts, and fail-closed clock/418 paths
+  without secret-bearing diagnostics.
+- **Reuse:** every external API where a non-idempotent operation has a durable
+  intent or idempotency key owned above the transport layer.
+
 ### 2026-07-28 — Normalize hot journal evidence without deleting audit history
 
 - **Context:** OCO leg lookup and lifecycle telemetry scanned every historical

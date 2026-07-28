@@ -28,6 +28,32 @@ A partial execution, lost acknowledgement, network ambiguity, or journal write
 failure is not reported as a successful flatten. The symbol remains halted and
 the position remains unresolved for authoritative reconciliation.
 
+## Exactly-once transport boundary
+
+The durable intent journal, not the HTTP client, owns mutation recovery.
+Signed POST, DELETE, PUT, and PATCH calls therefore get one transport attempt.
+A timeout, connection loss, or Binance 5xx means the execution outcome is
+unknown; the caller marks the intent `UNKNOWN`, queries Binance by the durable
+`clientOrderId`, and either recovers the exact order or halts. The transport
+never sends the same mutation again merely because its acknowledgement was
+lost.
+
+A `-2010 Duplicate order` response is treated as evidence of an earlier
+submission and enters the same reconciliation path. It is not a definitive
+`FAILED` intent. Other confirmed business rejections remain terminal.
+
+Signed GET and HEAD calls are bounded to three attempts so exchange degradation
+cannot hold the single-threaded protection loop for the former eight-attempt
+budget. HTTP 418 is never retried: its `Retry-After` value arms a process-wide
+local cooldown, and every public or signed request fails locally until that
+interval expires. HTTP 429 uses the same local cooldown instead of sleeping
+inside the protection loop.
+
+`-1021` is a definitive clock rejection, so no order was accepted. On its first
+occurrence the transport reads `/api/v3/time`, estimates offset at the request
+midpoint, and retries the rejected operation once with the corrected timestamp.
+A failed synchronization or a second `-1021` is fail-closed.
+
 ## Durable lifecycle journal
 
 Lifecycle evidence is one crash-consistent unit. Confirming protection writes

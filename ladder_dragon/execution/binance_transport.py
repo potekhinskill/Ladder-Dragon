@@ -7,7 +7,9 @@ from __future__ import annotations
 
 import hashlib
 import hmac
+import math
 import random
+import threading
 import time
 from typing import Any, Callable, Mapping
 from urllib.parse import urlencode
@@ -39,11 +41,13 @@ class BinanceResponseError(requests.HTTPError):
         message: str,
         endpoint: str,
         response: requests.Response,
+        retry_after_seconds: int | None = None,
     ) -> None:
         self.status = int(status)
         self.code = code
         self.binance_message = str(message)[:300]
         self.endpoint = endpoint
+        self.retry_after_seconds = retry_after_seconds
         super().__init__(
             f"Binance HTTP {self.status} code={self.code}: "
             f"{self.binance_message or 'request rejected'} endpoint={endpoint}",
@@ -64,6 +68,7 @@ class BinanceTransport:
         live: Callable[[], bool],
         recv_window: Callable[[], int],
         logger: Callable[[str], None],
+        timestamp_ms: Callable[[], int] | None = None,
     ) -> None:
         self.session = session
         self._base_url = base_url
@@ -72,11 +77,15 @@ class BinanceTransport:
         self._live = live
         self._recv_window = recv_window
         self._logger = logger
+        self._timestamp_source = timestamp_ms or (lambda: int(time.time() * 1000))
+        self._clock_offset_ms = 0
+        self._state_lock = threading.RLock()
+        self._request_cooldown_until = 0.0
+        self._request_cooldown_error: BinanceResponseError | None = None
 
     @staticmethod
-    def _retryable(status: int, code: Any, *, include_clock: bool = False) -> bool:
-        codes = (1003, -1003, -1015, -1021) if include_clock else (1003, -1003, -1015)
-        return status in (418, 429) or 500 <= status < 600 or code in codes
+    def _retryable(status: int, code: Any) -> bool:
+        return 500 <= status < 600 or code in (1003, -1003, -1015)
 
     @staticmethod
     def _auth_error(status: int, code: Any) -> bool:
@@ -87,6 +96,8 @@ class BinanceTransport:
         response: requests.Response,
         payload: Any,
         endpoint: str,
+        *,
+        retry_after_seconds: int | None = None,
     ) -> BinanceResponseError:
         code = payload.get("code") if isinstance(payload, dict) else None
         message = payload.get("msg", "") if isinstance(payload, dict) else ""
@@ -96,7 +107,89 @@ class BinanceTransport:
             message=str(message),
             endpoint=endpoint,
             response=response,
+            retry_after_seconds=retry_after_seconds,
         )
+
+    @staticmethod
+    def _retry_after_seconds(
+        response: requests.Response,
+        *,
+        default: int,
+    ) -> int:
+        raw = response.headers.get("Retry-After")
+        try:
+            seconds = math.ceil(float(raw)) if raw is not None else default
+        except (OverflowError, TypeError, ValueError):
+            seconds = default
+        return min(3 * 24 * 60 * 60, max(1, seconds))
+
+    def _activate_rate_limit(
+        self,
+        response: requests.Response,
+        payload: Any,
+        endpoint: str,
+    ) -> BinanceResponseError:
+        is_ban = response.status_code == 418
+        retry_after = self._retry_after_seconds(
+            response,
+            default=120 if is_ban else 1,
+        )
+        error = self._response_error(
+            response,
+            payload,
+            endpoint,
+            retry_after_seconds=retry_after,
+        )
+        with self._state_lock:
+            self._request_cooldown_until = time.monotonic() + retry_after
+            self._request_cooldown_error = error
+        self._logger(
+            f"[{'IP-BAN' if is_ban else 'RATE-LIMIT'}] "
+            f"HTTP {response.status_code}; requests blocked locally for "
+            f"{retry_after}s endpoint={endpoint}"
+        )
+        return error
+
+    def _raise_if_rate_limited(self) -> None:
+        with self._state_lock:
+            if time.monotonic() >= self._request_cooldown_until:
+                self._request_cooldown_until = 0.0
+                self._request_cooldown_error = None
+                return
+            error = self._request_cooldown_error
+        if error is not None:
+            raise error
+
+    def _timestamp_ms(self) -> int:
+        with self._state_lock:
+            offset = self._clock_offset_ms
+        return int(self._timestamp_source()) + offset
+
+    def _resync_clock(self, *, timeout: float) -> None:
+        """Refresh the signed-request clock after a definitive -1021 rejection."""
+        endpoint = "/api/v3/time"
+        started = int(self._timestamp_source())
+        try:
+            response = self.session.request(
+                "GET",
+                self._base_url() + endpoint,
+                timeout=min(float(timeout), 5.0),
+            )
+            payload = response.json()
+            if response.status_code != 200 or not isinstance(payload, dict):
+                raise ValueError("invalid server-time response")
+            server_time = int(payload["serverTime"])
+            finished = int(self._timestamp_source())
+        except (KeyError, TypeError, ValueError, requests.RequestException) as exc:
+            raise BinanceNetworkError(
+                endpoint=endpoint,
+                cause_type=exc.__class__.__name__,
+            ) from exc
+        midpoint = started + max(0, finished - started) // 2
+        offset = server_time - midpoint
+        with self._state_lock:
+            self._clock_offset_ms = offset
+        self._logger(f"[CLOCK-SYNC] offset_ms={offset} endpoint={endpoint}")
 
     def _delay(self, backoff: float, response: requests.Response | None = None) -> tuple[float, float]:
         retry_after = response.headers.get("Retry-After") if response is not None else None
@@ -125,6 +218,7 @@ class BinanceTransport:
         tries = 0
         backoff = 0.5
         while True:
+            self._raise_if_rate_limited()
             tries += 1
             try:
                 response = self.session.request(
@@ -137,6 +231,8 @@ class BinanceTransport:
                 code = payload.get("code") if isinstance(payload, dict) else None
 
                 if response.status_code >= 400:
+                    if response.status_code in (418, 429):
+                        raise self._activate_rate_limit(response, payload, endpoint)
                     if self._auth_error(response.status_code, code):
                         notify_binance_auth_error(
                             status=response.status_code,
@@ -208,6 +304,7 @@ class BinanceTransport:
         path: str,
         params: Mapping[str, Any] | None = None,
         timeout: float = 15.0,
+        max_tries: int | None = None,
     ) -> Any:
         method = method.upper()
         # Main safety boundary: DRY may read private data, but every request
@@ -221,12 +318,22 @@ class BinanceTransport:
 
         base_params = dict(params or {})
         base_params.setdefault("recvWindow", self._recv_window())
+        read_only = method in ("GET", "HEAD")
+        # Mutations get one network attempt. Only the caller owns the durable
+        # intent and can reconcile an unknown outcome without duplicating it.
+        allowed_tries = (
+            max(1, int(max_tries))
+            if max_tries is not None and read_only
+            else (3 if read_only else 1)
+        )
         tries = 0
         backoff = 0.5
+        clock_resynced = False
         while True:
+            self._raise_if_rate_limited()
             tries += 1
             signed_params = dict(base_params)
-            signed_params["timestamp"] = int(time.time() * 1000)
+            signed_params["timestamp"] = self._timestamp_ms()
             query = urlencode(signed_params, doseq=True)
             signature = hmac.new(
                 api_secret.encode(), query.encode(), hashlib.sha256
@@ -246,6 +353,8 @@ class BinanceTransport:
                 code = payload.get("code") if isinstance(payload, dict) else None
 
                 if response.status_code >= 400:
+                    if response.status_code in (418, 429):
+                        raise self._activate_rate_limit(response, payload, path)
                     if self._auth_error(response.status_code, code):
                         notify_binance_auth_error(
                             status=response.status_code,
@@ -253,8 +362,17 @@ class BinanceTransport:
                             endpoint=path,
                             message=(payload or {}).get("msg", "") if isinstance(payload, dict) else "",
                         )
-                    if self._retryable(response.status_code, code, include_clock=True):
-                        if tries >= 8:
+                    if code == -1021 and not clock_resynced:
+                        self._resync_clock(timeout=timeout)
+                        clock_resynced = True
+                        continue
+                    if not read_only and 500 <= response.status_code < 600:
+                        raise BinanceNetworkError(
+                            endpoint=path,
+                            cause_type=f"HTTP{response.status_code}",
+                        )
+                    if self._retryable(response.status_code, code):
+                        if tries >= allowed_tries:
                             raise self._response_error(response, payload, path)
                         backoff, delay = self._delay(backoff, response)
                         self._logger(
@@ -265,10 +383,30 @@ class BinanceTransport:
                         continue
                     raise self._response_error(response, payload, path)
 
-                if isinstance(payload, dict) and payload.get("code") in (1003, -1003, -1015, -1021):
-                    if tries >= 8:
-                        raise requests.HTTPError(
-                            f"Binance code {payload.get('code')}: {payload.get('msg')}"
+                if isinstance(payload, dict) and payload.get("code") == -1021:
+                    if not clock_resynced:
+                        self._resync_clock(timeout=timeout)
+                        clock_resynced = True
+                        continue
+                    raise BinanceResponseError(
+                        status=response.status_code,
+                        code=payload.get("code"),
+                        message=str(payload.get("msg", "")),
+                        endpoint=path,
+                        response=response,
+                    )
+                if isinstance(payload, dict) and payload.get("code") in (
+                    1003,
+                    -1003,
+                    -1015,
+                ):
+                    if tries >= allowed_tries:
+                        raise BinanceResponseError(
+                            status=response.status_code,
+                            code=payload.get("code"),
+                            message=str(payload.get("msg", "")),
+                            endpoint=path,
+                            response=response,
                         )
                     backoff, delay = self._delay(backoff)
                     self._logger(
@@ -282,8 +420,10 @@ class BinanceTransport:
                 # The exchange answered. Do not retry or classify this as an
                 # uncertain submission; callers can safely mark it rejected.
                 raise
+            except BinanceNetworkError:
+                raise
             except requests.RequestException as exc:
-                if tries >= 8:
+                if not read_only or tries >= allowed_tries:
                     raise BinanceNetworkError(
                         endpoint=path,
                         cause_type=exc.__class__.__name__,

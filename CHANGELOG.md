@@ -3,6 +3,35 @@
 All notable changes are documented here. Releases use Semantic Versioning; every
 section is dated and there is intentionally no `Unreleased` section.
 
+## [2.20.64] — 2026-07-28
+
+### Security
+- Signed POST, DELETE, PUT, and PATCH requests now make exactly one transport
+  attempt. A network exception or Binance 5xx is returned as an unknown outcome
+  for journal-based `clientOrderId` reconciliation instead of being replayed
+  up to eight times.
+- Binance `-2010 Duplicate order` no longer marks an intent `FAILED`; it keeps
+  the intent unresolved until the existing exchange order is reconciled.
+- HTTP 418 immediately arms a shared local cooldown for the full
+  exchange-provided `Retry-After` interval. Requests are blocked locally during
+  the ban instead of extending it with retries.
+- HTTP 429 uses the same non-blocking local `Retry-After` cooldown, so the
+  protection loop is not held inside a long sleep and the IP is not hammered.
+
+### Changed
+- Signed GET/HEAD retries are bounded to three attempts, reducing the maximum
+  time a degraded exchange can hold the single-threaded protection loop.
+- The first definitive `-1021` rejection performs one midpoint-adjusted
+  `/api/v3/time` synchronization. Only then is the rejected request retried;
+  failed synchronization remains fail-closed.
+
+### Verified
+- Transport regressions prove one mutation attempt for network loss and 5xx,
+  bounded signed reads, 418 cooldown without another network request,
+  secret-safe diagnostics, clock resynchronization, and duplicate-ID recovery.
+- Source compilation, restart/partial-fill/OCO/STOP/gap/idempotency regressions,
+  complete project tests, and the release verification profile pass.
+
 ## [2.20.63] — 2026-07-28
 
 ### Fixed

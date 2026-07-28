@@ -265,9 +265,11 @@ def test_binance_transport_scrubs_signed_url_after_network_retry_exhaustion(
     monkeypatch,
 ):
     messages = []
+    calls = []
 
     class Session:
         def request(self, method, url, **kwargs):
+            calls.append((method, url))
             raise requests.ConnectionError(
                 f"connection lost for {url}&private_marker=must-not-leak"
             )
@@ -295,6 +297,210 @@ def test_binance_transport_scrubs_signed_url_after_network_retry_exhaustion(
     assert "private_marker" not in combined
     assert "private-secret" not in combined
     assert "/api/v3/order" in str(caught.value)
+    assert len(calls) == 1
+    assert not any("[RETRY]" in message for message in messages)
+
+
+def test_signed_read_retries_only_three_times(monkeypatch):
+    calls = []
+    messages = []
+
+    class Session:
+        def request(self, method, url, **kwargs):
+            calls.append((method, url))
+            raise requests.Timeout("read unavailable")
+
+    monkeypatch.setattr(
+        "ladder_dragon.execution.binance_transport.time.sleep", lambda _: None
+    )
+    transport = BinanceTransport(
+        Session(),
+        base_url=lambda: "https://api.binance.com",
+        api_key=lambda: "key",
+        api_secret=lambda: "secret",
+        live=lambda: True,
+        recv_window=lambda: 5000,
+        logger=messages.append,
+    )
+
+    with pytest.raises(BinanceNetworkError):
+        transport.signed_request("GET", "/api/v3/account")
+
+    assert len(calls) == 3
+    assert sum("[RETRY]" in message for message in messages) == 2
+
+
+def test_mutating_http_5xx_is_one_unknown_outcome_without_retry(monkeypatch):
+    calls = []
+    messages = []
+
+    class Response:
+        status_code = 503
+        headers = {}
+        text = ""
+
+        @staticmethod
+        def json():
+            return {"code": -1000, "msg": "unknown execution status"}
+
+    class Session:
+        def request(self, method, url, **kwargs):
+            calls.append((method, url))
+            return Response()
+
+    monkeypatch.setattr(
+        "ladder_dragon.execution.binance_transport.time.sleep", lambda _: None
+    )
+    transport = BinanceTransport(
+        Session(),
+        base_url=lambda: "https://api.binance.com",
+        api_key=lambda: "key",
+        api_secret=lambda: "secret",
+        live=lambda: True,
+        recv_window=lambda: 5000,
+        logger=messages.append,
+    )
+
+    with pytest.raises(BinanceNetworkError) as caught:
+        transport.signed_request(
+            "POST", "/api/v3/order", {"newClientOrderId": "SAFE-ID"}
+        )
+
+    assert caught.value.cause_type == "HTTP503"
+    assert len(calls) == 1
+    assert not any("[RETRY]" in message for message in messages)
+
+
+def test_http_418_arms_local_retry_after_cooldown_without_network_retry():
+    calls = []
+    messages = []
+
+    class Response:
+        status_code = 418
+        headers = {"Retry-After": "600"}
+        text = ""
+
+        @staticmethod
+        def json():
+            return {"code": -1003, "msg": "IP banned"}
+
+    class Session:
+        def request(self, method, url, **kwargs):
+            calls.append((method, url))
+            return Response()
+
+    transport = BinanceTransport(
+        Session(),
+        base_url=lambda: "https://api.binance.com",
+        api_key=lambda: "key",
+        api_secret=lambda: "secret",
+        live=lambda: True,
+        recv_window=lambda: 5000,
+        logger=messages.append,
+    )
+
+    with pytest.raises(BinanceResponseError) as first:
+        transport.signed_request("GET", "/api/v3/account")
+    with pytest.raises(BinanceResponseError) as second:
+        transport.signed_request("GET", "/api/v3/account")
+
+    assert first.value.status == 418
+    assert first.value.retry_after_seconds == 600
+    assert second.value is first.value
+    assert len(calls) == 1
+    assert sum("[IP-BAN]" in message for message in messages) == 1
+
+
+def test_http_429_uses_local_cooldown_instead_of_blocking_sleep(monkeypatch):
+    calls = []
+    messages = []
+    sleeps = []
+
+    class Response:
+        status_code = 429
+        headers = {"Retry-After": "3"}
+        text = ""
+
+        @staticmethod
+        def json():
+            return {"code": -1003, "msg": "too many requests"}
+
+    class Session:
+        def request(self, method, url, **kwargs):
+            calls.append((method, url))
+            return Response()
+
+    monkeypatch.setattr(
+        "ladder_dragon.execution.binance_transport.time.sleep", sleeps.append
+    )
+    transport = BinanceTransport(
+        Session(),
+        base_url=lambda: "https://api.binance.com",
+        api_key=lambda: "key",
+        api_secret=lambda: "secret",
+        live=lambda: True,
+        recv_window=lambda: 5000,
+        logger=messages.append,
+    )
+
+    with pytest.raises(BinanceResponseError) as first:
+        transport.public_get("/api/v3/time")
+    with pytest.raises(BinanceResponseError) as second:
+        transport.public_get("/api/v3/time")
+
+    assert first.value.status == 429
+    assert first.value.retry_after_seconds == 3
+    assert second.value is first.value
+    assert len(calls) == 1
+    assert sleeps == []
+    assert sum("[RATE-LIMIT]" in message for message in messages) == 1
+
+
+def test_clock_rejection_resyncs_before_one_safe_mutation_retry():
+    calls = []
+    now_ms = 1_700_000_000_000
+
+    class Response:
+        def __init__(self, status_code, payload):
+            self.status_code = status_code
+            self.payload = payload
+            self.headers = {}
+            self.text = ""
+
+        def json(self):
+            return self.payload
+
+    class Session:
+        def request(self, method, url, **kwargs):
+            calls.append((method, url))
+            if url.endswith("/api/v3/time"):
+                return Response(200, {"serverTime": now_ms + 5000})
+            order_calls = [item for item in calls if "/api/v3/order?" in item[1]]
+            if len(order_calls) == 1:
+                return Response(400, {"code": -1021, "msg": "timestamp outside window"})
+            return Response(200, {"orderId": 123, "status": "NEW"})
+
+    transport = BinanceTransport(
+        Session(),
+        base_url=lambda: "https://api.binance.com",
+        api_key=lambda: "key",
+        api_secret=lambda: "secret",
+        live=lambda: True,
+        recv_window=lambda: 5000,
+        logger=lambda message: None,
+        timestamp_ms=lambda: now_ms,
+    )
+
+    result = transport.signed_request(
+        "POST", "/api/v3/order", {"newClientOrderId": "CLOCK-ID"}
+    )
+
+    order_urls = [url for method, url in calls if "/api/v3/order?" in url]
+    assert result["orderId"] == 123
+    assert len(order_urls) == 2
+    assert "timestamp=1700000000000" in order_urls[0]
+    assert "timestamp=1700000005000" in order_urls[1]
+    assert [method for method, url in calls if url.endswith("/api/v3/time")] == ["GET"]
 
 
 def test_binance_transport_public_throttle_never_logs_query(monkeypatch):
@@ -1067,6 +1273,61 @@ def test_executor_market_order_halts_on_unconfirmed_response(tmp_path):
         )
     assert halted
     assert journal.nonterminal_orders()[0].state == "UNKNOWN"
+
+
+def test_duplicate_client_id_reconciles_instead_of_marking_failed(tmp_path):
+    halted = []
+    submitted = {}
+    journal = OrderJournal(tmp_path / "orders.sqlite3")
+    response = requests.Response()
+    response.status_code = 400
+
+    def duplicate(method, path, params):
+        submitted.update(params)
+        raise BinanceResponseError(
+            status=400,
+            code=-2010,
+            message="Duplicate order sent.",
+            endpoint=path,
+            response=response,
+        )
+
+    def lookup(symbol, client_id):
+        assert client_id == submitted["newClientOrderId"]
+        return {
+            "orderId": 991,
+            "clientOrderId": client_id,
+            "status": "FILLED",
+            "executedQty": "0.100",
+        }
+
+    dependencies = OrderDependencies(
+        live=lambda: True,
+        logger=lambda message: None,
+        pull_filters=lambda symbol: None,
+        round_price=lambda symbol, value: value,
+        round_qty=lambda symbol, value: round(value, 3),
+        min_qty=lambda symbol, hint: 0.001,
+        min_notional=lambda symbol, price: 5.0,
+        format_price=lambda symbol, value: f"{value:.2f}",
+        format_qty=lambda symbol, value: f"{value:.3f}",
+        journal=lambda: journal,
+        signed_request=duplicate,
+        get_order_by_client_id=lookup,
+        get_order_list_by_client_id=lambda client_id: None,
+        verify_oco_legs=lambda symbol, payload: [],
+        cancel_oco=lambda symbol, order_list_id: None,
+        halt=lambda reason, **metadata: halted.append((reason, metadata)),
+        validate_limit_sell_prices=lambda symbol, prices: None,
+    )
+
+    result = place_market_order(
+        "SOLUSDT", "SELL", 0.1, dependencies=dependencies, ref_price=100
+    )
+
+    assert result["orderId"] == 991
+    assert journal.get(submitted["newClientOrderId"]).state == "FILLED"
+    assert halted == []
 
 
 def test_executor_planning_is_deterministic_and_exchange_free():
