@@ -312,6 +312,7 @@ _STRATEGY_CONTROL_GATE_CACHE: Dict[
     str, tuple[float, dict[str, object]]
 ] = {}
 _BLOCKED_SHADOW_LAST_ATTEMPT: Dict[str, float] = {}
+_INFO_LOG_LAST_EMITTED: Dict[str, float] = {}
 # Keep one decision_id for the lifetime of a cached recommendation. This
 # prevents virtual statistics and RAG from treating every supervisor cycle as a new model.
 _AI_DECISION_IDS: Dict[str, str] = {}
@@ -4561,8 +4562,28 @@ def _cancel_open_buy_orders(orders: Optional[List[Dict[str, Any]]] = None) -> in
             continue
         if cancel_order(str(order["symbol"]), int(order["orderId"])):
             canceled += 1
-    log(f"[RISK] canceled open BUY orders={canceled}")
+    # A zero count is a stable no-op while BUY is blocked and used to flood
+    # journald every risk cycle. Real cancellation remains operator-visible.
+    if canceled:
+        log(f"[RISK] canceled open BUY orders={canceled}")
     return canceled
+
+
+def _log_info_rate_limited(
+    key: str,
+    message: str,
+    *,
+    interval_sec: float = 3600.0,
+) -> bool:
+    """Emit stable informational state at most once per bounded interval."""
+    now = time.monotonic()
+    interval = max(60.0, _analytics_float(interval_sec))
+    previous = _INFO_LOG_LAST_EMITTED.get(key)
+    if previous is not None and now - previous < interval:
+        return False
+    _INFO_LOG_LAST_EMITTED[key] = now
+    log(message)
+    return True
 
 
 def _notify_risk(decision: RiskDecision) -> None:
@@ -4799,9 +4820,20 @@ def _build_risk_snapshot(
                         break
             if money(valuation_price) <= 0:
                 if asset in unvalued_assets:
-                    log(
+                    _log_info_rate_limited(
+                        f"unvalued-allowlisted:{asset}",
                         f"[RISK] unvalued asset {asset} explicitly allowlisted; "
-                        "excluded from equity and exposure"
+                        "excluded from equity and exposure",
+                        interval_sec=max(
+                            60.0,
+                            _analytics_float(
+                                os.getenv(
+                                    "RISK_STABLE_INFO_LOG_INTERVAL_SEC",
+                                    "3600",
+                                )
+                                or "3600"
+                            ),
+                        ),
                     )
                     continue
                 raise RuntimeError(f"cannot value account asset {asset}")
@@ -5103,6 +5135,7 @@ def main():
     _PREDICTION_GATE_CACHE.clear()
     _STRATEGY_CONTROL_GATE_CACHE.clear()
     _BLOCKED_SHADOW_LAST_ATTEMPT.clear()
+    _INFO_LOG_LAST_EMITTED.clear()
     decisions_db = (
         os.getenv("AI_TESTNET_DECISIONS_DB", "").strip()
         if args.testnet else args.ai_decisions_db
@@ -5645,10 +5678,6 @@ def main():
                 # snapshot may still feed advisory-only SHADOW evidence.
                 if (
                     risk_snapshot_available
-                    and not bool(
-                        last_risk_signature
-                        and last_risk_signature[0]
-                    )
                     and not _auth_backoff_active(
                         auth_retry_at, now=now_loop
                     )

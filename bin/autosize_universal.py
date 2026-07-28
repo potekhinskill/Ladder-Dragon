@@ -1475,6 +1475,7 @@ def _protection_dependencies() -> ProtectionDependencies:
         round_step=round_step,
         cancel_oco=cancel_oco,
         place_market_order=place_market_order,
+        market_price=get_price_exact,
         lot_id_for_fill=lot_id_for_fill,
     )
 

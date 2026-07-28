@@ -1716,13 +1716,47 @@ def test_blocked_shadow_plan_skips_every_order_mutation(monkeypatch):
 
 
 def test_known_empty_order_snapshot_does_not_repeat_rest_query(monkeypatch):
+    messages = []
     monkeypatch.setattr(
         ai_supervisor.TM,
         "_signed_get",
         lambda *_args, **_kwargs: pytest.fail("unexpected REST query"),
     )
+    monkeypatch.setattr(ai_supervisor, "log", messages.append)
 
     assert ai_supervisor._cancel_open_buy_orders([]) == 0
+    assert messages == []
+
+
+def test_stable_risk_info_is_rate_limited(monkeypatch):
+    messages = []
+    timestamps = iter((100.0, 120.0, 3701.0))
+    monkeypatch.setattr(ai_supervisor, "log", messages.append)
+    monkeypatch.setattr(
+        ai_supervisor.time, "monotonic", lambda: next(timestamps)
+    )
+    monkeypatch.setattr(ai_supervisor, "_INFO_LOG_LAST_EMITTED", {})
+
+    assert ai_supervisor._log_info_rate_limited("MONKY", "allowlisted")
+    assert not ai_supervisor._log_info_rate_limited("MONKY", "allowlisted")
+    assert ai_supervisor._log_info_rate_limited("MONKY", "allowlisted")
+    assert messages == ["allowlisted", "allowlisted"]
+
+
+def test_halted_runtime_still_collects_non_executing_shadow_evidence():
+    runtime_source = inspect.getsource(ai_supervisor.main)
+    collect_at = runtime_source.index("_collect_blocked_shadow(")
+    blocked_start = runtime_source.rindex(
+        "if risk_buy_blocked:", 0, collect_at
+    )
+    blocked_end = runtime_source.index(
+        "if now_loop >= next_vwap_refresh:", blocked_start
+    )
+    blocked_branch = runtime_source[blocked_start:blocked_end]
+
+    assert "_collect_blocked_shadow(" in blocked_branch
+    assert "execution remains stopped" in blocked_branch.lower()
+    assert "last_risk_signature" not in blocked_branch
 
 
 def test_supervisor_auth_backoff_does_not_hide_other_preflight_errors():

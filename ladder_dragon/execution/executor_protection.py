@@ -94,6 +94,7 @@ class ProtectionDependencies:
     round_step: Callable[[object, object, str], object]
     cancel_oco: Callable[[str, int], None]
     place_market_order: Optional[Callable[..., Dict[str, Any] | None]] = None
+    market_price: Optional[Callable[[str], object]] = None
     sleep: Callable[[float], None] = time.sleep
     now: Callable[[], float] = time.time
     lot_id_for_fill: Optional[Callable[[str, object, int | None], int | None]] = None
@@ -142,6 +143,87 @@ def _confirmed_market_fill(
         executed,
         status,
     )
+
+
+def _emergency_flatten_unprotected_fill(
+    symbol: str,
+    order_id: int,
+    quantity: Decimal,
+    *,
+    parent_client_id: str | None,
+    reason: str,
+    dependencies: ProtectionDependencies,
+) -> bool:
+    """Flatten a filled BUY and durably close its parent only after exact ACK."""
+    result = None
+    error_type = None
+    try:
+        if dependencies.place_market_order is not None:
+            result = dependencies.place_market_order(
+                symbol,
+                "SELL",
+                quantity,
+                parent_client_order_id=parent_client_id,
+            )
+    except _PROTECTION_DATA_ERRORS as exc:
+        error_type = type(exc).__name__
+        dependencies.logger(
+            f"[PROTECTION-FLATTEN-ERR] {symbol} order={order_id}: "
+            f"{error_type}"
+        )
+
+    confirmed, executed, status = _confirmed_market_fill(result, quantity)
+    if not confirmed:
+        halt_reason = (
+            f"{reason}; emergency MARKET flatten not fully confirmed "
+            f"expected={quantity} executed={executed} status={status}"
+        )
+        if error_type:
+            halt_reason += f" error={error_type}"
+        dependencies.halt(
+            halt_reason,
+            symbol=symbol,
+            order_id=order_id,
+            client_order_id=parent_client_id,
+        )
+        return False
+
+    journal = dependencies.journal()
+    if journal is not None and parent_client_id:
+        try:
+            journal.update_metadata(
+                parent_client_id,
+                {
+                    "emergency_exit": True,
+                    "emergency_exit_reason": reason,
+                    "exit_order_id": int(result["orderId"]),
+                    "closed_at": dependencies.now(),
+                },
+            )
+            journal.mark_closed(parent_client_id)
+        except (KeyError, OSError, RuntimeError, sqlite3.Error, TypeError, ValueError) as exc:
+            dependencies.halt(
+                f"{reason}; MARKET flatten confirmed but journal closure failed "
+                f"error={type(exc).__name__}",
+                symbol=symbol,
+                order_id=order_id,
+                client_order_id=parent_client_id,
+            )
+            return False
+
+    dependencies.poll_trades(symbol)
+    dependencies.logger(
+        f"[PROTECTION-FLATTEN] {symbol} order={order_id} "
+        f"expected={quantity} executed={executed} reason={reason}"
+    )
+    dependencies.halt(
+        f"{reason}; emergency MARKET flatten confirmed "
+        f"expected={quantity} executed={executed}",
+        symbol=symbol,
+        order_id=order_id,
+        client_order_id=parent_client_id,
+    )
+    return True
 
 
 def emergency_gap_flatten(
@@ -560,6 +642,9 @@ def protect_filled_buys(
                 tp_rounded = round_step(
                     Decimal(str(tp_limit)), exact_filters.tick, "ceil"
                 )
+                stop_rounded = round_step(
+                    Decimal(str(sl_stop)), exact_filters.tick, "ceil"
+                )
                 sl_rounded = round_step(
                     Decimal(str(sl_limit)), exact_filters.tick, "floor"
                 )
@@ -571,6 +656,9 @@ def protect_filled_buys(
                 )))
                 tp_rounded = Decimal(str(dependencies.round_price(
                     symbol, tp_limit
+                )))
+                stop_rounded = Decimal(str(dependencies.round_price(
+                    symbol, sl_stop
                 )))
                 sl_rounded = Decimal(str(dependencies.round_price(
                     symbol, sl_limit
@@ -610,6 +698,39 @@ def protect_filled_buys(
                 )
                 continue
 
+            # Binance requires SELL OCO prices to satisfy
+            # TP > current market > STOP > STOP_LIMIT. A STOP already crossed
+            # while the BUY fill was being reconciled cannot protect the lot;
+            # submitting it only produces -2010 and leaves inventory exposed.
+            if dependencies.market_price is not None:
+                fresh_market = Decimal(
+                    str(dependencies.market_price(symbol))
+                )
+                if (
+                    not fresh_market.is_finite()
+                    or fresh_market <= 0
+                ):
+                    raise ValueError("fresh market price is invalid")
+                if not (
+                    tp_rounded > fresh_market > stop_rounded > sl_rounded
+                ):
+                    reason = (
+                        "fresh market crossed planned OCO relationship "
+                        f"tp={tp_rounded} market={fresh_market} "
+                        f"stop={stop_rounded} limit={sl_rounded}"
+                    )
+                    flattened = _emergency_flatten_unprotected_fill(
+                        symbol,
+                        order_id,
+                        quantity,
+                        parent_client_id=parent_client_id,
+                        reason=reason,
+                        dependencies=dependencies,
+                    )
+                    if flattened:
+                        remaining.remove(order_id)
+                    continue
+
             lot_id = dependencies.lot_id_for_fill(
                 symbol, average_fill_decimal, order_id
             ) if dependencies.lot_id_for_fill else None
@@ -617,46 +738,25 @@ def protect_filled_buys(
                 symbol,
                 quantity,
                 tp_rounded,
-                sl_stop,
+                stop_rounded,
                 sl_rounded,
                 parent_client_order_id=parent_client_id,
                 lot_id=lot_id,
             )
             protected = bool(oco)
-            if not oco and config.oco_fallback == "prefer-tp1" and os.getenv("BOT_LIVE_CONFIRMED") == "YES":
-                # A single TP in LIVE leaves the position without a stop loss.
-                # Confirm the complete emergency flatten, then persist a halt
-                # with an exact operator-facing outcome.
-                flatten_result = None
-                flatten_error = None
-                try:
-                    if dependencies.place_market_order is not None:
-                        flatten_result = dependencies.place_market_order(
-                            symbol, "SELL", quantity
-                        )
-                except _PROTECTION_DATA_ERRORS as exc:
-                    flatten_error = type(exc).__name__
-                    dependencies.logger(f"[FLATTEN-ERR] {symbol}: {exc}")
-                confirmed, flattened_quantity, flatten_status = (
-                    _confirmed_market_fill(flatten_result, quantity)
+            if not oco and os.getenv("BOT_LIVE_CONFIRMED") == "YES":
+                # Any LIVE OCO rejection is an unprotected filled position,
+                # regardless of the configured non-LIVE single-TP fallback.
+                flattened = _emergency_flatten_unprotected_fill(
+                    symbol,
+                    order_id,
+                    quantity,
+                    parent_client_id=parent_client_id,
+                    reason="OCO was not created for filled BUY",
+                    dependencies=dependencies,
                 )
-                if confirmed:
-                    reason = (
-                        "OCO was not created: LIVE single-TP fallback is "
-                        "forbidden; emergency MARKET flatten confirmed "
-                        f"expected={quantity} executed={flattened_quantity}"
-                    )
-                else:
-                    reason = (
-                        "OCO was not created and emergency MARKET flatten "
-                        "was not fully confirmed; position may be unprotected "
-                        f"expected={quantity} executed={flattened_quantity} "
-                        f"status={flatten_status}"
-                    )
-                    if flatten_error:
-                        reason += f" error={flatten_error}"
-                dependencies.halt(reason, symbol=symbol, order_id=order_id,
-                                  client_order_id=parent_client_id)
+                if flattened:
+                    remaining.remove(order_id)
                 continue
             if not oco and config.oco_fallback == "prefer-tp1":
                 try:

@@ -3,6 +3,27 @@
 All notable changes are documented here. Releases use Semantic Versioning; every
 section is dated and there is intentionally no `Unreleased` section.
 
+## [2.20.58] — 2026-07-28
+
+### Fixed
+- Filled BUY protection now validates the fresh Binance market relationship
+  `TP > market > STOP > STOP_LIMIT` immediately before OCO submission. A
+  crossed protection plan is never submitted as an inevitably rejected OCO.
+- Any definitive LIVE OCO attach failure now triggers an idempotent emergency
+  MARKET flatten, regardless of the non-LIVE single-TP fallback setting. The
+  parent BUY is closed only after a complete `FILLED` response and durable
+  journal update; partial, unknown or failed exits remain halted and unresolved.
+- Advisory SHADOW evidence continues while execution is HALTED when the
+  authenticated risk snapshot is healthy. It never starts workers or enables
+  order mutations.
+- Stable risk no-ops no longer flood journald: zero BUY cancellations are
+  silent and allowlisted unvalued-asset diagnostics are rate-limited.
+
+### Verified
+- Regressions cover crossed OCO prices, complete and partial emergency
+  flatten, journal closure, SHADOW collection under HALT and stable-log
+  suppression. Executor, recovery, risk and numeric-boundary suites pass.
+
 ## [2.20.57] — 2026-07-28
 
 ### Changed

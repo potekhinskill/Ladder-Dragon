@@ -228,6 +228,14 @@ def test_failed_oco_uses_single_tp_fallback(tmp_path, monkeypatch):
 def test_live_failed_oco_flattens_and_halts(tmp_path, monkeypatch):
     monkeypatch.setenv("BOT_LIVE_CONFIRMED", "YES")
     flattened, halts = [], []
+    live_config = ProtectionConfig(
+        stop_limit_offset_pct=0.0015,
+        oco_fallback="halt",
+        sell_limit_maker=False,
+        avg_cache_ttl=30,
+        avg_lookback=1000,
+        panic_sell_floor_pct=None,
+    )
     deps = dependencies(
         get_order=lambda symbol, order_id: {"orderId": order_id, "status": "FILLED",
                                              "executedQty": "0.100", "cummulativeQuoteQty": "10.0"},
@@ -237,10 +245,10 @@ def test_live_failed_oco_flattens_and_halts(tmp_path, monkeypatch):
         ),
         halt=lambda reason, **metadata: halts.append(reason),
     )
-    remaining = protect_filled_buys("SOLUSDT", [42], [90.0, 110.0], config=config(),
+    remaining = protect_filled_buys("SOLUSDT", [42], [90.0, 110.0], config=live_config,
                                     panic_active=False, breakeven_enabled=False,
                                     state_store=state_store(tmp_path), dependencies=deps)
-    assert remaining == [42]
+    assert remaining == []
     assert flattened[0][0][:3] == ("SOLUSDT", "SELL", Decimal("0.1"))
     assert "emergency MARKET flatten confirmed" in halts[0]
 
@@ -277,7 +285,7 @@ def test_live_failed_oco_reports_incomplete_market_flatten(
         dependencies=deps,
     )
 
-    assert "position may be unprotected" in halts[0]
+    assert "emergency MARKET flatten not fully confirmed" in halts[0]
     assert "expected=0.100 executed=0.040" in halts[0]
 
 
@@ -311,8 +319,122 @@ def test_live_failed_oco_catches_market_transport_error(
         dependencies=deps,
     )
 
-    assert "position may be unprotected" in halts[0]
+    assert "emergency MARKET flatten not fully confirmed" in halts[0]
     assert "error=ConnectionError" in halts[0]
+
+
+def test_crossed_oco_relationship_flattens_before_post_and_closes_parent(
+    tmp_path,
+    monkeypatch,
+):
+    monkeypatch.setenv("BOT_LIVE_CONFIRMED", "YES")
+    halts, polls, closed, metadata = [], [], [], []
+
+    class Journal:
+        def get_by_exchange_order_id(self, _order_id):
+            return type("Intent", (), {"client_order_id": "BUY-parent"})()
+
+        def update_metadata(self, client_id, values):
+            metadata.append((client_id, values))
+
+        def mark_closed(self, client_id):
+            closed.append(client_id)
+
+        def record_exchange_order(self, *_args):
+            return None
+
+    deps = dependencies(
+        journal=lambda: Journal(),
+        get_order=lambda symbol, order_id: {
+            "orderId": order_id,
+            "status": "FILLED",
+            "executedQty": "0.100",
+            "cummulativeQuoteQty": "10.0",
+        },
+        market_price=lambda _symbol: Decimal("94.99"),
+        place_oco_sell=lambda *_args, **_kwargs: (
+            (_ for _ in ()).throw(AssertionError("crossed OCO must not POST"))
+        ),
+        place_market_order=lambda *_args, **_kwargs: {
+            "orderId": 91,
+            "status": "FILLED",
+            "executedQty": "0.100",
+        },
+        poll_trades=lambda symbol: polls.append(symbol),
+        halt=lambda reason, **_metadata: halts.append(reason),
+    )
+
+    remaining = protect_filled_buys(
+        "SOLUSDT",
+        [42],
+        [90.0, 110.0],
+        config=config(),
+        panic_active=False,
+        breakeven_enabled=False,
+        state_store=state_store(tmp_path),
+        dependencies=deps,
+    )
+
+    assert remaining == []
+    assert closed == ["BUY-parent"]
+    assert metadata[0][1]["emergency_exit"] is True
+    assert metadata[0][1]["exit_order_id"] == 91
+    assert polls == ["SOLUSDT"]
+    assert "fresh market crossed planned OCO relationship" in halts[0]
+    assert "emergency MARKET flatten confirmed" in halts[0]
+
+
+def test_crossed_oco_relationship_keeps_parent_open_when_flatten_partial(
+    tmp_path,
+    monkeypatch,
+):
+    monkeypatch.setenv("BOT_LIVE_CONFIRMED", "YES")
+    halts, closed = [], []
+
+    class Journal:
+        def get_by_exchange_order_id(self, _order_id):
+            return type("Intent", (), {"client_order_id": "BUY-parent"})()
+
+        def update_metadata(self, *_args):
+            raise AssertionError("partial flatten must not close metadata")
+
+        def mark_closed(self, client_id):
+            closed.append(client_id)
+
+        def record_exchange_order(self, *_args):
+            return None
+
+    deps = dependencies(
+        journal=lambda: Journal(),
+        get_order=lambda symbol, order_id: {
+            "orderId": order_id,
+            "status": "FILLED",
+            "executedQty": "0.100",
+            "cummulativeQuoteQty": "10.0",
+        },
+        market_price=lambda _symbol: Decimal("95.00"),
+        place_market_order=lambda *_args, **_kwargs: {
+            "orderId": 91,
+            "status": "PARTIALLY_FILLED",
+            "executedQty": "0.040",
+        },
+        halt=lambda reason, **_metadata: halts.append(reason),
+    )
+
+    remaining = protect_filled_buys(
+        "SOLUSDT",
+        [42],
+        [90.0, 110.0],
+        config=config(),
+        panic_active=False,
+        breakeven_enabled=False,
+        state_store=state_store(tmp_path),
+        dependencies=deps,
+    )
+
+    assert remaining == [42]
+    assert closed == []
+    assert "not fully confirmed" in halts[0]
 
 
 def test_protection_uses_full_step_aligned_fill_and_tp_ceil(tmp_path):
@@ -353,11 +475,11 @@ def test_protection_uses_full_step_aligned_fill_and_tp_ceil(tmp_path):
     assert remaining == []
     assert placed[0][0][:5] == (
         "SOLUSDT",
-        Decimal("0.100"),
-        Decimal("110.1"),
-        "95.04",
-        Decimal("94.9"),
-    )
+            Decimal("0.100"),
+            Decimal("110.1"),
+            Decimal("95.1"),
+            Decimal("94.9"),
+        )
 
 
 def test_breakeven_rearms_partially_filled_oco(tmp_path):
