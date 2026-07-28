@@ -91,7 +91,10 @@ def test_supervisor_blocks_executed_buy_without_protection(
     assert halts[0][1]["metadata"] == {
         "gate": "startup_unprotected_fill",
         "symbol": "SOLUSDT",
+        "client_order_id": "LDBLAD-filled",
+        "exchange_order_id": 124,
     }
+    assert "LDBLAD-filled order=124 executed=0.1" in halts[0][0]
 
 
 def test_public_ip_guard_alert_never_exposes_address(
@@ -683,34 +686,6 @@ def test_halted_runtime_still_collects_non_executing_shadow_evidence():
     assert "_collect_blocked_shadow(" in blocked_branch
     assert "execution remains stopped" in blocked_branch.lower()
     assert "last_risk_signature" not in blocked_branch
-
-
-def test_supervisor_auth_backoff_does_not_hide_other_preflight_errors():
-    assert ai_supervisor._is_binance_auth_rejection(
-        RuntimeError("HTTP 401: {'code': -2015}")
-    )
-    assert not ai_supervisor._is_binance_auth_rejection(
-        RuntimeError("position reconciliation failed")
-    )
-    assert [
-        ai_supervisor._auth_retry_delay(
-            attempt, initial_sec=60, max_sec=900
-        )
-        for attempt in range(1, 7)
-    ] == [60, 120, 240, 480, 900, 900]
-    delay, retry_at = ai_supervisor._auth_retry_schedule(
-        3,
-        initial_sec=60,
-        max_sec=900,
-        now=1_000.0,
-    )
-    assert (delay, retry_at) == (240, 1_240.0)
-    assert ai_supervisor._auth_backoff_active(
-        retry_at, now=1_239.0
-    )
-    assert not ai_supervisor._auth_backoff_active(
-        retry_at, now=1_240.0
-    )
 
 
 def test_supervisor_live_waits_while_maintenance_is_active(

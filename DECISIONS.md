@@ -15,6 +15,20 @@ entries concise; this is not a changelog or an activity log.
 
 ## Decisions
 
+### 2026-07-28 — Keep transient preflight failures inside the supervisor
+
+- **Context:** a slow Binance time read or `-1021` is unsafe for trading but
+  does not require process death; systemd restarts only reset local retry
+  context and create noisy loops.
+- **Decision:** block BUY, publish a fresh `PREFLIGHT_BACKOFF` heartbeat and
+  retry read-only preflight with bounded exponential delay. Resynchronize the
+  exchange clock once after a definitive timestamp rejection.
+- **Why it worked:** regressions prove the process survives RTT failure,
+  watchdogs accept the fresh fail-closed state and signed URLs remain absent
+  from errors and alerts.
+- **Reuse:** temporary read-only exchange failures where no mutation has an
+  unknown outcome and safety requires waiting rather than exiting.
+
 ### 2026-07-28 — Move mutable orchestration through a live state namespace
 
 - **Context:** physically moving the worker loop could snapshot `RUN`, the

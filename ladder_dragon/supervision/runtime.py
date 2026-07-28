@@ -67,6 +67,7 @@ from ladder_dragon.supervision.vwap_config import (
 from ladder_dragon.supervision.prediction_shadow import (
     prediction_panic_state as _prediction_panic_state,
 )
+from ladder_dragon.supervision import preflight_resilience
 from ladder_dragon.supervision.process_manager import (
     schedule_child_restart,
     stop_child,
@@ -1042,8 +1043,15 @@ def get_exchange_filters(symbol: str) -> Dict[str, object]:
     step = _analytics_float(step_exact)
     min_qty = _analytics_float(min_qty_exact)
     min_notional = _analytics_float(min_notional_exact)
-    log(f"[FILTERS] {symbol} tickSize={tick:.8f} stepSize={step:.8f} "
-        f"minQty={min_qty:.6f} minNotional={min_notional:.2f}")
+    filter_message = (
+        f"[FILTERS] {symbol} tickSize={tick:.8f} stepSize={step:.8f} "
+        f"minQty={min_qty:.6f} minNotional={min_notional:.2f}"
+    )
+    _log_info_rate_limited(
+        f"filters:{symbol}:{tick_exact}:{step_exact}:{min_qty_exact}:"
+        f"{min_notional_exact}",
+        filter_message,
+    )
     return {
         "tickSize": tick,
         "stepSize": step,
@@ -3768,7 +3776,11 @@ def _preflight_live(args: argparse.Namespace, symbols: List[str], limits: RiskLi
         "reserve_usdt": str(limits.reserve_usdt),
         "stats_db": stats_db or None,
     }
-    log("[CONFIG] " + json.dumps(config, sort_keys=True))
+    config_message = "[CONFIG] " + json.dumps(config, sort_keys=True)
+    _log_info_rate_limited(
+        f"preflight-config:{config_message}",
+        config_message,
+    )
     # DRY also prints the final configuration but does not require trading keys.
     if not args.live:
         return
@@ -3776,14 +3788,22 @@ def _preflight_live(args: argparse.Namespace, symbols: List[str], limits: RiskLi
     # Equity is conservative: an unknown asset can never increase CAP.
     unvalued_assets = _configured_unvalued_assets()
     if unvalued_assets:
-        log(
+        unvalued_message = (
             "[PREFLIGHT] explicitly acknowledged unvalued assets excluded "
             "from equity: " + ",".join(sorted(unvalued_assets))
         )
+        _log_info_rate_limited(
+            f"preflight-unvalued:{','.join(sorted(unvalued_assets))}",
+            unvalued_message,
+        )
     if limits.halt_file.exists():
-        log(
+        halt_message = (
             f"[PREFLIGHT] persistent halt detected at {limits.halt_file}; "
             "supervisor will only reconcile and cancel BUY until manual reset"
+        )
+        _log_info_rate_limited(
+            f"preflight-halt:{limits.halt_file}",
+            halt_message,
         )
     if not TM.API_KEY or not TM.API_SECRET:
         prefix = "BINANCE_TESTNET" if args.testnet else "BINANCE"
@@ -3825,104 +3845,31 @@ def _preflight_live(args: argparse.Namespace, symbols: List[str], limits: RiskLi
     if account.get("canTrade") is not True:
         raise RuntimeError("Binance account/API key is not allowed to trade")
 
-    log("[PREFLIGHT] PASS " + json.dumps(config, sort_keys=True))
-
-
-def _is_binance_auth_rejection(exc: BaseException) -> bool:
-    """Recognize definitive Binance credential/IP rejections through wrappers."""
-    current: BaseException | None = exc
-    seen: set[int] = set()
-    while current is not None and id(current) not in seen:
-        seen.add(id(current))
-        status = getattr(current, "status", None)
-        code = getattr(current, "code", None)
-        if status in (401, 403) or code in (-2014, -2015, -1022):
-            return True
-        text = str(current).lower()
-        if any(marker in text for marker in (
-            "http 401",
-            "http 403",
-            "code=-2014",
-            "code=-2015",
-            "code=-1022",
-            "'code': -2014",
-            "'code': -2015",
-            "'code': -1022",
-            "invalid api-key",
-            "api_key/secret are required",
-        )):
-            return True
-        current = current.__cause__ or current.__context__
-    return False
-
-
-def _auth_retry_delay(
-    attempt: int,
-    *,
-    initial_sec: int,
-    max_sec: int,
-) -> int:
-    """Return bounded exponential delay for a one-based auth failure count."""
-    exponent = min(max(0, int(attempt) - 1), 16)
-    return min(int(max_sec), int(initial_sec) * (2 ** exponent))
-
-
-def _auth_retry_schedule(
-    attempt: int,
-    *,
-    initial_sec: int,
-    max_sec: int,
-    now: float,
-) -> tuple[int, float]:
-    """Return the delay and absolute runtime deadline for one auth retry."""
-    delay = _auth_retry_delay(
-        attempt,
-        initial_sec=initial_sec,
-        max_sec=max_sec,
+    pass_message = "[PREFLIGHT] PASS " + json.dumps(config, sort_keys=True)
+    _log_info_rate_limited(
+        f"preflight-pass:{pass_message}",
+        pass_message,
     )
-    return delay, now + delay
 
 
-def _auth_backoff_active(retry_at: float, *, now: float) -> bool:
-    """Tell runtime gates whether signed requests must remain deferred."""
-    return retry_at > now
-
-
-def _wait_for_auth_retry(
+def _wait_for_resilience_retry(
+    kind: str,
     delay_sec: int,
     *,
     attempt: int,
     persistent_halt: bool,
 ) -> None:
-    """Keep fail-closed telemetry fresh while waiting for credential recovery."""
-    deadline = time.monotonic() + max(1, int(delay_sec))
-    while True:
-        remaining = max(0, math.ceil(deadline - time.monotonic()))
-        if remaining <= 0:
-            return
-        _publish_ai_runtime_status(
-            state="AUTH_BACKOFF",
-            error="Binance authentication unavailable",
-            auth_backoff={
-                "active": True,
-                "attempt": int(attempt),
-                "retry_in_sec": remaining,
-                "retry_at": (
-                    datetime.now(timezone.utc)
-                    + timedelta(seconds=remaining)
-                ).isoformat(),
-            },
-            risk={
-                "halted": bool(persistent_halt),
-                "buy_blocked": True,
-                "reasons": (
-                    ["persistent circuit halt", "Binance authentication unavailable"]
-                    if persistent_halt
-                    else ["Binance authentication unavailable"]
-                ),
-            },
-        )
-        time.sleep(min(30, remaining))
+    """Delegate heartbeat-aware retry waiting to its package owner."""
+    preflight_resilience.wait_for_retry(
+        kind,
+        delay_sec,
+        attempt=attempt,
+        persistent_halt=persistent_halt,
+        publish=_publish_ai_runtime_status,
+        monotonic=time.monotonic,
+        sleep=time.sleep,
+        now_utc=lambda: datetime.now(timezone.utc),
+    )
 
 
 def _preflight_with_auth_backoff(
@@ -3930,9 +3877,10 @@ def _preflight_with_auth_backoff(
     symbols: List[str],
     limits: RiskLimits,
 ) -> None:
-    """Retry only definitive auth failures without a systemd restart storm."""
+    """Retry auth and transient read failures without a systemd restart storm."""
     state = _read_auth_resilience_state()
     attempt = int(state.attempt)
+    transient_attempt = 0
     if args.live:
         while True:
             try:
@@ -3958,7 +3906,8 @@ def _preflight_with_auth_backoff(
     while True:
         now_epoch = int(time.time())
         if state.retry_at_epoch > now_epoch:
-            _wait_for_auth_retry(
+            _wait_for_resilience_retry(
+                "AUTH",
                 state.retry_at_epoch - now_epoch,
                 attempt=max(1, state.attempt),
                 persistent_halt=limits.halt_file.exists(),
@@ -3973,25 +3922,53 @@ def _preflight_with_auth_backoff(
         try:
             _preflight_live(args, symbols, limits)
         except SUPERVISOR_OPERATION_ERRORS as exc:
-            if not args.live or not _is_binance_auth_rejection(exc):
+            if args.live and preflight_resilience.is_transient_failure(exc):
+                transient_attempt += 1
+                initial, maximum = preflight_resilience.retry_bounds(os.getenv)
+                delay = preflight_resilience.retry_delay(
+                    transient_attempt,
+                    initial_sec=initial,
+                    max_sec=maximum,
+                )
+                safe_reason = _runtime_recovery_reason(exc)
+                _log_info_rate_limited(
+                    f"preflight-transient:{safe_reason}",
+                    "[PREFLIGHT-BACKOFF] temporary Binance read failure; "
+                    f"BUY blocked; retry={delay}s attempt={transient_attempt} "
+                    f"reason={safe_reason}",
+                    interval_sec=300,
+                )
+                _wait_for_resilience_retry(
+                    "PREFLIGHT",
+                    delay,
+                    attempt=transient_attempt,
+                    persistent_halt=limits.halt_file.exists(),
+                )
+                continue
+            if (
+                not args.live
+                or not preflight_resilience.is_auth_rejection(exc)
+            ):
                 _publish_ai_runtime_status(
                     state="PREFLIGHT_FAILED", error=str(exc)
                 )
                 raise
+            failure_now_epoch = int(time.time())
             state = register_auth_failure(
                 state,
                 initial_sec=args.binance_auth_backoff_initial_sec,
                 max_sec=args.binance_auth_backoff_max_sec,
-                now_epoch=int(time.time()),
+                now_epoch=failure_now_epoch,
             )
             _save_auth_resilience_state(state)
             attempt = state.attempt
-            delay = max(1, state.retry_at_epoch - int(time.time()))
+            delay = max(1, state.retry_at_epoch - failure_now_epoch)
             log(
                 "[AUTH-BACKOFF] Binance authentication rejected; "
                 f"BUY blocked; retry={delay}s attempt={attempt}"
             )
-            _wait_for_auth_retry(
+            _wait_for_resilience_retry(
+                "AUTH",
                 delay,
                 attempt=attempt,
                 persistent_halt=limits.halt_file.exists(),
@@ -4005,8 +3982,21 @@ def _preflight_with_auth_backoff(
             _save_auth_resilience_state(state)
             continue
         else:
+            recovered_transient_attempt = transient_attempt
+            transient_attempt = 0
             state = register_auth_success(state, now_epoch=int(time.time()))
             _save_auth_resilience_state(state)
+            if recovered_transient_attempt:
+                _publish_ai_runtime_status(
+                    state="STARTING",
+                    error=None,
+                    preflight_backoff={
+                        "active": False,
+                        "attempt": recovered_transient_attempt,
+                        "retry_in_sec": 0,
+                        "retry_at": None,
+                    },
+                )
             if attempt:
                 _publish_ai_runtime_status(
                     state="STARTING",
@@ -4022,9 +4012,10 @@ def _preflight_with_auth_backoff(
             recovery = _pre_running_recovery_gate(args, symbols)
         except SUPERVISOR_OPERATION_ERRORS as exc:
             recovery_reason = _runtime_recovery_reason(exc)
-            log(
+            _log_info_rate_limited(
+                f"recovery-blocked:{recovery_reason}",
                 "[RECOVERY] pre-RUNNING gate blocked; "
-                f"reason={recovery_reason}"
+                f"reason={recovery_reason}",
             )
             _publish_ai_runtime_status(
                 state="RECOVERY_BLOCKED",
@@ -4347,6 +4338,12 @@ def main():
         },
         "order_journal": _runtime_order_journal_snapshot(),
         "auth_backoff": {
+            "active": False,
+            "attempt": 0,
+            "retry_in_sec": 0,
+            "retry_at": None,
+        },
+        "preflight_backoff": {
             "active": False,
             "attempt": 0,
             "retry_in_sec": 0,
@@ -4703,7 +4700,9 @@ def main():
                     risk_snapshot_available = False
                     consecutive_api_failures += 1
                     threshold = max(1, int(os.getenv("RISK_API_FAILURE_THRESHOLD", "3")))
-                    auth_rejected = _is_binance_auth_rejection(exc)
+                    auth_rejected = preflight_resilience.is_auth_rejection(
+                        exc
+                    )
                     if auth_rejected:
                         runtime_auth_state = register_auth_failure(
                             runtime_auth_state,
@@ -4756,7 +4755,7 @@ def main():
                     if risk_manager is not None and not decision.halted and not was_buy_blocked:
                         risk_manager.start_cooldown(reason)
                     _stop_children(reason)
-                    if _auth_backoff_active(
+                    if preflight_resilience.backoff_active(
                         auth_retry_at, now=now_loop
                     ):
                         log(
@@ -4786,7 +4785,7 @@ def main():
                 # snapshot may still feed advisory-only SHADOW evidence.
                 if (
                     risk_snapshot_available
-                    and not _auth_backoff_active(
+                    and not preflight_resilience.backoff_active(
                         auth_retry_at, now=now_loop
                     )
                 ):

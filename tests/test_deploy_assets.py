@@ -838,7 +838,8 @@ def test_watchdog_uses_current_heartbeat_and_not_legacy_runner_name():
     assert "STRIKES" in watchdog
     assert "systemctl restart mybot.service" in watchdog
     for state in (
-        "RUNNING", "AUTH_BACKOFF", "IP_BLOCKED", "RECOVERY_BLOCKED",
+        "RUNNING", "AUTH_BACKOFF", "PREFLIGHT_BACKOFF", "IP_BLOCKED",
+        "RECOVERY_BLOCKED",
         "INTENTIONALLY_STOPPED",
     ):
         assert state in watchdog

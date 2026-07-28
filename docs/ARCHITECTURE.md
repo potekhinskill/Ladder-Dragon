@@ -66,6 +66,9 @@ shutdown lifecycle are now physically owned by `risk_cycle.py`,
 `recovery_gate.py` and `process_manager.py`. The compatibility runtime injects
 its exchange and persistence adapters explicitly, preserving fail-closed
 behavior and test isolation without introducing a reverse dependency.
+Authentication/transient preflight classification, bounded retry schedules and
+heartbeat-aware waits are owned by `preflight_resilience.py`; the runtime
+retains only orchestration and explicit callbacks for status and clocks.
 
 The worker CLI now constructs a `WorkerRuntimeState` over the live execution
 runtime namespace. The bootstrap loop therefore observes signal-driven `RUN`

@@ -31,7 +31,7 @@ fee-aware FIFO accounting, restart reconciliation, per-symbol operational
 reporting, replay and walk-forward verification, and a private Raspberry Pi
 operations dashboard.
 
-Current product version: **2.20.70**. The single version source is
+Current product version: **2.20.71**. The single version source is
 `product_version.py`; releases follow [Semantic Versioning](https://semver.org/).
 Project contact: [LinkedIn](https://www.linkedin.com/in/ypotekhin/).
 
@@ -96,7 +96,7 @@ bounded, explainable, recoverable, and measurable before exposure is increased.
 ## Project status
 
 Ladder Dragon is an actively developed, experimental trading system. Version
-**2.20.70** is the current source release. `main` is the only long-lived branch;
+**2.20.71** is the current source release. `main` is the only long-lived branch;
 feature branches use the `ladderdragon/*` namespace.
 
 DRY and Binance Spot Testnet are the supported starting modes. Mainnet LIVE is
@@ -989,6 +989,15 @@ sudo -u bot env PYTHONPATH=/home/bot/apps/binance_bot \
   /home/bot/apps/binance_bot/.venv/bin/python \
   /home/bot/apps/binance_bot/bin/ip_guard.py accept-current
 ```
+
+Temporary Binance time RTT, network and `-1021` clock-window failures keep the
+supervisor alive in `PREFLIGHT_BACKOFF`, with BUY blocked and heartbeat
+updates throughout the bounded delay. A signed read rejected with `-1021`
+performs one authoritative server-time resynchronization and one newly signed
+retry. `BINANCE_PREFLIGHT_BACKOFF_INITIAL_SEC` and
+`BINANCE_PREFLIGHT_BACKOFF_MAX_SEC` default to 30 and 300 seconds. Repeated
+CONFIG, filters, persistent-HALT and unchanged recovery diagnostics are emitted
+at most once per hour while runtime JSON remains current every cycle.
 
 LIVE also reconciles durable nonterminal order IDs before `RUNNING`. Every
 durably protected BUY is checked against the exact Binance OCO order-list ID,

@@ -17,6 +17,29 @@ private infrastructure details.
 
 ## Mistakes
 
+### 2026-07-28 — Computed one retry delay from two wall-clock samples
+
+- **Impact:** a focused auth-backoff test intermittently waited 29 seconds in
+  the final slice instead of the configured 30 seconds.
+- **Root cause:** failure registration and delay subtraction sampled epoch time
+  separately, allowing a second boundary to pass between them.
+- **Correction:** capture one failure epoch and use it for both the persisted
+  deadline and the immediate delay.
+- **Prevention:** derive a retry deadline and its first wait from the same clock
+  sample; use monotonic time only after entering the wait loop.
+
+### 2026-07-28 — Added resilience tests back into known test monoliths
+
+- **Impact:** the architecture budget test failed, and inserting the new
+  supervisor tests split the tail assertions of an existing test.
+- **Root cause:** the patch targeted a nearby assertion instead of an exact
+  function boundary and ignored the repository rule that new component tests
+  belong in focused files.
+- **Correction:** restore the original auth-policy assertions and move the new
+  exchange and preflight regressions into dedicated component test modules.
+- **Prevention:** inspect full enclosing function boundaries before patching
+  tests and run architecture budgets immediately after adding test cases.
+
 ### 2026-07-28 — Snapshotted mutable worker state before initialization
 
 - **Impact:** the restart-idempotency test returned before creating inventory

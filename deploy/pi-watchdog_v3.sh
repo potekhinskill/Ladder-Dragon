@@ -299,7 +299,7 @@ try:
     # reset recovery state and hammer Binance after an IP/key/order rejection.
     ok = (
         payload.get("state") in {
-            "RUNNING", "AUTH_BACKOFF", "IP_BLOCKED", "RECOVERY_BLOCKED",
+            "RUNNING", "AUTH_BACKOFF", "PREFLIGHT_BACKOFF", "IP_BLOCKED", "RECOVERY_BLOCKED",
             "INTENTIONALLY_STOPPED"
         }
         and 0 <= age <= float(sys.argv[2])

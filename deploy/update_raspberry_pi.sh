@@ -177,7 +177,7 @@ try:
     updated = datetime.fromisoformat(status["updated_at"])
     age = (datetime.now(timezone.utc) - updated).total_seconds()
     ready_states = {
-        "RUNNING", "AUTH_BACKOFF", "IP_BLOCKED", "RECOVERY_BLOCKED",
+        "RUNNING", "AUTH_BACKOFF", "PREFLIGHT_BACKOFF", "IP_BLOCKED", "RECOVERY_BLOCKED",
         "INTENTIONALLY_STOPPED"
     }
     raise SystemExit(

@@ -53,7 +53,7 @@ def test_application_package_never_depends_on_bin_entrypoints():
 def test_known_runtime_monoliths_can_only_shrink():
     """Prevent feature work from enlarging legacy orchestration modules."""
     budgets = {
-        "ladder_dragon/supervision/runtime.py": 4825,
+        "ladder_dragon/supervision/runtime.py": 4824,
         "ladder_dragon/execution/worker/runtime.py": 1661,
         "ladder_dragon/execution/worker/bootstrap.py": 850,
         "ladder_dragon/dashboard/runtime.py": 2867,
@@ -194,6 +194,7 @@ def test_decomposition_targets_have_explicit_package_boundaries():
         "ladder_dragon/supervision/recovery_gate.py",
         "ladder_dragon/supervision/process_manager.py",
         "ladder_dragon/supervision/prediction_shadow.py",
+        "ladder_dragon/supervision/preflight_resilience.py",
         "ladder_dragon/execution/worker/bootstrap.py",
         "ladder_dragon/execution/worker/buy_service.py",
         "ladder_dragon/execution/worker/holdings_service.py",

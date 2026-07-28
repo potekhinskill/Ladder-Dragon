@@ -13,6 +13,7 @@ import math
 import hashlib
 import requests
 from typing import Dict, Tuple, List, Optional, Any
+from urllib.parse import urlsplit
 from ladder_dragon.execution.exchange_math import normalized_order_values, round_step
 from ladder_dragon.execution.telegram_alerts import notify_binance_auth_error
 
@@ -45,7 +46,30 @@ SESSION = requests.Session()
 SESSION.headers.update({"User-Agent": "tools_market/1.4"})
 
 class BinanceHttpError(RuntimeError):
-    pass
+    """Carry bounded Binance error fields without retaining a signed URL."""
+
+    def __init__(
+        self,
+        message: str | None = None,
+        *,
+        status: int | None = None,
+        code: int | None = None,
+        endpoint: str | None = None,
+    ) -> None:
+        self.status = status
+        self.code = code
+        self.endpoint = endpoint
+        if status is None and code is None and endpoint is None:
+            super().__init__(str(message or "Binance request failed"))
+            return
+        parts = [f"HTTP {status}" if status is not None else "Binance error"]
+        if code is not None:
+            parts.append(f"code={code}")
+        if endpoint:
+            parts.append(f"endpoint={endpoint}")
+        if message:
+            parts.append(str(message)[:240])
+        super().__init__(" ".join(parts))
 
 # ---- simple retries ----
 def _do_request(method: str, url: str, **kw) -> requests.Response:
@@ -76,14 +100,22 @@ def _raise_for_binance(resp: requests.Response):
         data = {"msg": resp.text}
     if not isinstance(data, dict):
         data = {"msg": str(data)}
+    raw_url = str(getattr(resp, "url", "") or "")
+    endpoint = urlsplit(raw_url).path or "<unknown>"
+    code = data.get("code")
     if resp.status_code in (401, 403) or data.get("code") in (-2014, -2015, -1022):
         notify_binance_auth_error(
             status=resp.status_code,
-            code=data.get("code"),
-            endpoint=resp.url,
+            code=code,
+            endpoint=endpoint,
             message=data.get("msg", ""),
         )
-    raise BinanceHttpError(f"HTTP {resp.status_code}: {data}")
+    raise BinanceHttpError(
+        status=int(resp.status_code),
+        code=int(code) if isinstance(code, int) else None,
+        endpoint=endpoint,
+        message=str(data.get("msg", "")),
+    )
 
 # ---- time offset (server time skew) ----
 _time_offset_ms: Optional[int] = None
@@ -93,11 +125,13 @@ _OFFSET_TTL = 60.0
 def _refresh_time_offset():
     global _time_offset_ms, _time_offset_ts
     url = f"{BASE_URL}/api/v3/time"
+    started = int(time.time() * 1000)
     r = _do_request("GET", url)
+    finished = int(time.time() * 1000)
     _raise_for_binance(r)
     srv = int(r.json()["serverTime"])
-    now = int(time.time() * 1000)
-    _time_offset_ms = srv - now
+    midpoint = started + max(0, finished - started) // 2
+    _time_offset_ms = srv - midpoint
     _time_offset_ts = time.time()
 
 def _timestamp_ms() -> int:
@@ -125,18 +159,42 @@ def _signed_get(path: str, params: Dict | None = None) -> Any:
     if not API_KEY or not API_SECRET:
         raise BinanceHttpError("BINANCE_API_KEY/SECRET not set in environment")
     url = f"{BASE_URL}{path}"
-    base_params = params.copy() if params else {}
-    base_params["timestamp"] = str(_timestamp_ms())
-    base_params["recvWindow"] = str(RECV_WINDOW)
-
-    items: List[Tuple[str, str]] = [(k, str(v)) for k, v in base_params.items()]
-    sig = _sign_tuples(items, API_SECRET)
-    items.append(("signature", sig))
-
     headers = {"X-MBX-APIKEY": API_KEY}
-    r = _do_request("GET", url, params=items, headers=headers)
-    _raise_for_binance(r)
-    return r.json()
+    for attempt in range(2):
+        base_params = params.copy() if params else {}
+        base_params["timestamp"] = str(_timestamp_ms())
+        base_params["recvWindow"] = str(RECV_WINDOW)
+        items: List[Tuple[str, str]] = [
+            (key, str(value)) for key, value in base_params.items()
+        ]
+        sig = _sign_tuples(items, API_SECRET)
+        items.append(("signature", sig))
+        r = _do_request("GET", url, params=items, headers=headers)
+        try:
+            payload = r.json()
+        except (requests.JSONDecodeError, TypeError, ValueError):
+            payload = None
+        code = payload.get("code") if isinstance(payload, dict) else None
+        if code == -1021 and attempt == 0:
+            # A received -1021 is a definitive rejection, so one resync and
+            # one newly signed retry cannot duplicate an exchange mutation.
+            _refresh_time_offset()
+            continue
+        if code == -1021 and r.status_code == 200:
+            raise BinanceHttpError(
+                status=200,
+                code=-1021,
+                endpoint=path,
+                message="clock resynchronization did not restore signed reads",
+            )
+        _raise_for_binance(r)
+        return payload if payload is not None else r.json()
+    raise BinanceHttpError(
+        status=400,
+        code=-1021,
+        endpoint=path,
+        message="clock resynchronization did not restore signed reads",
+    )
 
 # ---- kline interval normalization ----
 VALID_INTERVALS: set[str] = {

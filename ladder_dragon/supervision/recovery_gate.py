@@ -126,12 +126,23 @@ def pre_running_recovery_gate(
             "PROTECTED",
             "CLOSED",
         }:
-            reason = "reconciled BUY has execution without verified protection"
+            order_id = (
+                str(buy.exchange_order_id)
+                if buy.exchange_order_id is not None
+                else "unknown"
+            )
+            reason = (
+                f"reconciled BUY {buy.client_order_id} order={order_id} "
+                f"executed={executed} has execution without verified "
+                "protection"
+            )
             create_halt(
                 reason,
                 metadata={
                     "gate": "startup_unprotected_fill",
                     "symbol": buy.symbol,
+                    "client_order_id": buy.client_order_id,
+                    "exchange_order_id": buy.exchange_order_id,
                 },
             )
             raise RuntimeError(reason)

@@ -314,8 +314,8 @@ def _runtime_heartbeat_snapshot() -> Dict[str, object]:
     except (TypeError, ValueError, OverflowError):
         return {"state": state, "updated_at": None, "age_sec": None, "fresh": False}
     blocked_states = {
-        "AUTH_BACKOFF", "IP_BLOCKED", "RECOVERY_BLOCKED",
-        "INTENTIONALLY_STOPPED",
+        "AUTH_BACKOFF", "PREFLIGHT_BACKOFF", "IP_BLOCKED",
+        "RECOVERY_BLOCKED", "INTENTIONALLY_STOPPED",
     }
     return {
         "state": state,

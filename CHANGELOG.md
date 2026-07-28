@@ -3,6 +3,28 @@
 All notable changes are documented here. Releases use Semantic Versioning; every
 section is dated and there is intentionally no `Unreleased` section.
 
+## [2.20.71] — 2026-07-28
+
+### Fixed
+- Temporary Binance RTT, network and `-1021` preflight failures now keep the
+  supervisor alive in fail-closed `PREFLIGHT_BACKOFF` instead of producing a
+  traceback and systemd restart storm.
+- Legacy signed reads perform one midpoint-based server-clock resynchronization
+  and one newly signed retry after a definitive `-1021`; bounded exceptions and
+  auth alerts never retain a signed query URL.
+- Preflight failure classification, retry schedules and heartbeat-aware waits
+  moved into `supervision.preflight_resilience`; the supervisor runtime remains
+  below its previous architecture budget.
+- Stable CONFIG, exchange-filter, persistent-HALT and unchanged recovery
+  messages are rate-limited while heartbeat JSON remains fresh each cycle.
+- Startup HALT evidence identifies the exact executed BUY, exchange order and
+  quantity whose protection is missing.
+
+### Verified
+- Signed-read clock, preflight backoff, recovery, watchdog, dashboard and
+  deployment regressions pass; compileall and the complete suite pass
+  (712 tests).
+
 ## [2.20.70] — 2026-07-28
 
 ### Changed
