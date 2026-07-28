@@ -17,6 +17,18 @@ private infrastructure details.
 
 ## Mistakes
 
+### 2026-07-29 — Tested blocked SHADOW only inside the main runtime loop
+
+- **Impact:** a startup recovery block left advisory decisions and prediction
+  evidence stale for roughly 40 hours even though execution remained safely
+  halted.
+- **Root cause:** the earlier regression inspected only the post-startup risk
+  branch and did not exercise the separate pre-RUNNING recovery retry loop.
+- **Correction:** collect non-executing SHADOW evidence from the startup
+  recovery loop and preserve its fail-closed status while doing so.
+- **Prevention:** every blocked-observation test must cover both startup
+  recovery and steady-state risk gates, including status and mutation checks.
+
 ### 2026-07-28 — Guessed a documentation test path during release repair
 
 - **Impact:** the first post-documentation verification command stopped before

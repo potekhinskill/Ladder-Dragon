@@ -1,5 +1,7 @@
 """Fail-closed supervisor preflight and recovery retry regressions."""
 
+from decimal import Decimal
+import inspect
 from types import SimpleNamespace
 
 from ladder_dragon.supervision import preflight_resilience
@@ -92,6 +94,7 @@ def test_recovery_blocked_message_is_rate_limited(
     from ladder_dragon.execution.auth_resilience import AuthResilienceState
 
     recovery_attempts = []
+    shadow_attempts = []
     messages = []
 
     def recovery(*_args):
@@ -116,6 +119,16 @@ def test_recovery_blocked_message_is_rate_limited(
     monkeypatch.setattr(ai_supervisor, "_preflight_live", lambda *_args: None)
     monkeypatch.setattr(
         ai_supervisor, "_pre_running_recovery_gate", recovery
+    )
+    monkeypatch.setattr(
+        ai_supervisor,
+        "_collect_blocked_shadow",
+        lambda symbols, args, *, now_monotonic: shadow_attempts.append(
+            (tuple(symbols), args.live, now_monotonic)
+        ),
+    )
+    monkeypatch.setattr(
+        ai_supervisor, "_refresh_ai_control", lambda _args: None
     )
     monkeypatch.setattr(ai_supervisor.time, "sleep", lambda _seconds: None)
     monkeypatch.setattr(ai_supervisor.time, "monotonic", lambda: 100.0)
@@ -143,6 +156,73 @@ def test_recovery_blocked_message_is_rate_limited(
         "[RECOVERY] pre-RUNNING gate blocked; reason="
         "reconciled BUY has execution without verified protection"
     ]
+    assert len(shadow_attempts) == 2
+    assert all(
+        row[:2] == (("SOLUSDT",), True) for row in shadow_attempts
+    )
+
+
+def test_blocked_shadow_decision_preserves_recovery_status(monkeypatch):
+    published = []
+    monkeypatch.setattr(
+        ai_supervisor,
+        "_publish_ai_runtime_status",
+        lambda **updates: published.append(updates),
+    )
+
+    ai_supervisor._publish_plan_decision_status(
+        {"symbol": "SOLUSDT"},
+        execution_allowed=False,
+        publish=ai_supervisor._publish_ai_runtime_status,
+    )
+    ai_supervisor._publish_plan_decision_status(
+        {"symbol": "SOLUSDT"},
+        execution_allowed=True,
+        publish=ai_supervisor._publish_ai_runtime_status,
+    )
+
+    assert published[0] == {"last_decision": {"symbol": "SOLUSDT"}}
+    assert published[1] == {
+        "last_decision": {"symbol": "SOLUSDT"},
+        "state": "RUNNING",
+    }
+
+
+def test_runtime_arguments_and_singleton_precede_recovery_loop():
+    runtime_source = inspect.getsource(ai_supervisor.main)
+
+    normalized_at = runtime_source.index("_normalize_runtime_args(args)")
+    singleton_at = runtime_source.index(
+        "_acquire_singleton_lock(LOCK_FILE)"
+    )
+    preflight_at = runtime_source.index(
+        "_preflight_with_auth_backoff(args, symbols, limits)"
+    )
+
+    assert normalized_at < preflight_at
+    assert singleton_at < preflight_at
+
+
+def test_recovery_shadow_receives_normalized_planning_arguments():
+    args = SimpleNamespace(
+        ladder_pct="0.01,0.02,0.03",
+        ladder_pct_map="SOLUSDT=0.04,0.05,0.06",
+        pos_max_base_map="SOLUSDT:0.126",
+        pos_max_usdt_map="SOLUSDT:10",
+        child_buy_vwap_premium_map="SOLUSDT:1.003",
+        child_buy_vwap_discount_map="SOLUSDT:0.997",
+        child_buy_vwap_discount_scale_map="SOLUSDT:0.5",
+    )
+
+    ai_supervisor._normalize_runtime_args(args)
+
+    assert args.ladder_pct == (0.01, 0.02, 0.03)
+    assert args.ladder_pct_map == {"SOLUSDT": (0.04, 0.05, 0.06)}
+    assert args.pos_max_base_map == {"SOLUSDT": Decimal("0.126")}
+    assert args.pos_max_usdt_map == {"SOLUSDT": Decimal("10")}
+    assert args.child_buy_vwap_premium_map == {"SOLUSDT": 1.003}
+    assert args.child_buy_vwap_discount_map == {"SOLUSDT": 0.997}
+    assert args.child_buy_vwap_discount_scale_map == {"SOLUSDT": 0.5}
 
 
 def test_supervisor_auth_backoff_does_not_hide_other_preflight_errors():

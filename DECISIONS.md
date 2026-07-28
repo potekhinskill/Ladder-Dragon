@@ -15,6 +15,18 @@ entries concise; this is not a changelog or an activity log.
 
 ## Decisions
 
+### 2026-07-29 — Preserve fail-closed state while collecting SHADOW evidence
+
+- **Context:** startup recovery can block execution before the normal risk
+  loop, while strategy evaluation still needs fresh non-executing evidence.
+- **Decision:** acquire the supervisor singleton and normalize planning inputs
+  before recovery, then run only `execution_allowed=False` observations while
+  retaining the existing `RECOVERY_BLOCKED` heartbeat state.
+- **Why it worked:** recovery regressions prove observations continue without
+  any BUY, cancel or worker boundary and cannot publish a false `RUNNING`.
+- **Reuse:** any advisory or counterfactual collector that operates while an
+  execution gate is closed.
+
 ### 2026-07-28 — Keep the worker event loop incapable of creating BUYs
 
 - **Context:** one 788-line function mixed resource lifecycle, initial BUY

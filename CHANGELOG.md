@@ -3,6 +3,21 @@
 All notable changes are documented here. Releases use Semantic Versioning; every
 section is dated and there is intentionally no `Unreleased` section.
 
+## [2.20.73] — 2026-07-29
+
+### Fixed
+- A startup recovery block now continues read-only SHADOW decisions and
+  prediction evidence instead of leaving Decision DB stale indefinitely.
+- Advisory observations can no longer overwrite `RECOVERY_BLOCKED` or another
+  fail-closed heartbeat state with a misleading `RUNNING` state.
+- Planning arguments and the process singleton are established before the
+  recovery retry loop, so blocked SHADOW uses normalized inputs and cannot run
+  concurrently in a second supervisor.
+
+### Verified
+- Recovery, SHADOW non-mutation, supervisor lifecycle and architecture
+  regressions pass; compileall and the complete suite pass (717 tests).
+
 ## [2.20.72] — 2026-07-28
 
 ### Changed

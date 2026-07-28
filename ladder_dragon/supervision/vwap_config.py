@@ -71,6 +71,39 @@ def parse_decimal_limit_map(value: str) -> Dict[str, Decimal]:
     return result
 
 
+def normalize_runtime_args(args: argparse.Namespace) -> None:
+    """Normalize planning arguments before any retry loop can use them."""
+    if isinstance(args.ladder_pct, str):
+        ladder_pct = [
+            item.strip() for item in args.ladder_pct.split(",")
+        ]
+        if len(ladder_pct) != 3:
+            raise SystemExit(
+                "--ladder-pct expects three numbers: low,down,up"
+            )
+        args.ladder_pct = tuple(
+            _analytics_float(item) for item in ladder_pct
+        )
+    if isinstance(args.ladder_pct_map, str):
+        args.ladder_pct_map = parse_pct_map(args.ladder_pct_map)
+    if isinstance(args.pos_max_base_map, str):
+        args.pos_max_base_map = parse_decimal_limit_map(
+            args.pos_max_base_map
+        )
+    if isinstance(args.pos_max_usdt_map, str):
+        args.pos_max_usdt_map = parse_decimal_limit_map(
+            args.pos_max_usdt_map
+        )
+    for name in (
+        "child_buy_vwap_premium_map",
+        "child_buy_vwap_discount_map",
+        "child_buy_vwap_discount_scale_map",
+    ):
+        value = getattr(args, name, "")
+        if isinstance(value, str):
+            setattr(args, name, parse_limit_map(value))
+
+
 def getenv_float(name: str, default: Optional[float] = None) -> Optional[float]:
     value = os.getenv(name)
     if value is None or value == "":

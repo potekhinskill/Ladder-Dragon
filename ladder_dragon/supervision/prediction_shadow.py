@@ -8,6 +8,20 @@ import json
 import os
 import re
 from pathlib import Path
+from typing import Any, Callable, Dict
+
+
+def publish_plan_decision_status(
+    last_decision: Dict[str, Any],
+    *,
+    execution_allowed: bool,
+    publish: Callable[..., None],
+) -> None:
+    """Publish advisory evidence without masking a fail-closed runtime state."""
+    updates: Dict[str, Any] = {"last_decision": last_decision}
+    if execution_allowed:
+        updates["state"] = "RUNNING"
+    publish(**updates)
 
 
 def prediction_panic_state(

@@ -57,15 +57,16 @@ from ladder_dragon.supervision.entry_policy import (
 )
 from ladder_dragon.supervision.vwap_config import (
     getenv_float,
-    parse_decimal_limit_map,
     parse_limit_map,
     parse_pct_map,
     parse_vwap_output,
+    normalize_runtime_args as _normalize_runtime_args,
     resolve_vwap_params,
     resolve_vwap_value,
 )
 from ladder_dragon.supervision.prediction_shadow import (
     prediction_panic_state as _prediction_panic_state,
+    publish_plan_decision_status as _publish_plan_decision_status,
 )
 from ladder_dragon.supervision import preflight_resilience
 from ladder_dragon.supervision.process_manager import (
@@ -3212,9 +3213,8 @@ def run_for_symbol(
                 f"guards={','.join(policy.reasons) or 'none'} "
                 f"reason={recommendation.rationale}"
             )
-            _publish_ai_runtime_status(
-                state="RUNNING",
-                last_decision={
+            _publish_plan_decision_status(
+                {
                     "symbol": symbol,
                     "created_at": int(time.time()),
                     "baseline_mode": ai_context.deterministic_mode,
@@ -3226,6 +3226,8 @@ def run_for_symbol(
                     "pause_buys": policy.pause_buys,
                     "statistical_challenger": statistical,
                 },
+                execution_allowed=execution_allowed,
+                publish=_publish_ai_runtime_status,
             )
 
     auto_adapt = os.environ.get(
@@ -4032,6 +4034,14 @@ def _preflight_with_auth_backoff(
                     "reasons": [recovery_reason],
                 },
             )
+            # Recovery blocks every exchange mutation, but it must not freeze
+            # the advisory evidence needed to evaluate future strategy fixes.
+            _refresh_ai_control(args)
+            _collect_blocked_shadow(
+                symbols,
+                args,
+                now_monotonic=time.monotonic(),
+            )
             time.sleep(60)
             continue
         _publish_ai_runtime_status(recovery=recovery)
@@ -4381,6 +4391,17 @@ def main():
             "open_order_count_cap": limits.open_order_count_cap,
         }
     )
+    _normalize_runtime_args(args)
+    if args.singleton:
+        try:
+            _acquire_singleton_lock(LOCK_FILE)
+            log(f"[SINGLETON] acquired flock {LOCK_FILE} pid={os.getpid()}")
+        except (OSError, RuntimeError, BlockingIOError) as exc:
+            log(
+                f"[FATAL] singleton lock unavailable path={LOCK_FILE} "
+                f"error_type={exc.__class__.__name__}"
+            )
+            raise SystemExit(3) from exc
     _wait_for_maintenance_clear(args, limits)
     _preflight_with_auth_backoff(args, symbols, limits)
     global LIVE_MODE
@@ -4398,29 +4419,6 @@ def main():
         f"ai_advisor={ai_label}"
     )
     _publish_ai_runtime_status(state="RUNNING")
-
-    lp = [x.strip() for x in args.ladder_pct.split(",")]
-    if len(lp) != 3:
-        raise SystemExit("--ladder-pct expects three numbers: low,down,up")
-    args.ladder_pct = (_analytics_float(lp[0]), _analytics_float(lp[1]), _analytics_float(lp[2]))
-    args.ladder_pct_map = parse_ladder_pct_map(args.ladder_pct_map)
-
-    args.pos_max_base_map = parse_decimal_limit_map(args.pos_max_base_map)
-    args.pos_max_usdt_map = parse_decimal_limit_map(args.pos_max_usdt_map)
-    args.child_buy_vwap_premium_map = parse_limit_map(getattr(args, "child_buy_vwap_premium_map", ""))
-    args.child_buy_vwap_discount_map = parse_limit_map(getattr(args, "child_buy_vwap_discount_map", ""))
-    args.child_buy_vwap_discount_scale_map = parse_limit_map(getattr(args, "child_buy_vwap_discount_scale_map", ""))
-
-    if args.singleton:
-        try:
-            _acquire_singleton_lock(LOCK_FILE)
-            log(f"[SINGLETON] acquired flock {LOCK_FILE} pid={os.getpid()}")
-        except (OSError, RuntimeError, BlockingIOError) as exc:
-            log(
-                f"[FATAL] singleton lock unavailable path={LOCK_FILE} "
-                f"error_type={exc.__class__.__name__}"
-            )
-            raise SystemExit(3) from exc
 
     get_server_time_offset_ms()
     auto_cap = auto_cap_if_needed(args, n_syms=len(symbols))
