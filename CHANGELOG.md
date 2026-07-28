@@ -3,6 +3,20 @@
 All notable changes are documented here. Releases use Semantic Versioning; every
 section is dated and there is intentionally no `Unreleased` section.
 
+## [2.20.62] — 2026-07-28
+
+### Added
+- Added `DECISIONS.md` for concise, validated, reusable engineering decisions
+  and `MISTAKES.md` for agent-caused failures with explicit impact, root cause,
+  correction, and prevention.
+- Repository agent instructions now require both learning records to be read
+  before edits and updated when a successful invariant or a new mistake warrants
+  a durable lesson.
+
+### Verified
+- Documentation-contract, agent-instruction, version-synchronization, source
+  compilation, and complete project tests pass.
+
 ## [2.20.61] — 2026-07-28
 
 ### Changed

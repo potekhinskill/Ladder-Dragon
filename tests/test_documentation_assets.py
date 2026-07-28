@@ -6,6 +6,8 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 ASSET = ROOT / "docs" / "assets" / "dashboard-overview-sanitized.png"
 RUNTIME_REFERENCE = ROOT / "docs" / "RUNTIME_SAFETY_AND_REPORTING.md"
+DECISIONS = ROOT / "DECISIONS.md"
+MISTAKES = ROOT / "MISTAKES.md"
 
 
 def test_sanitized_dashboard_preview_is_documented() -> None:
@@ -64,3 +66,19 @@ def test_runtime_safety_reference_is_linked_and_matches_current_contracts() -> N
     assert "docs/RUNTIME_SAFETY_AND_REPORTING.md" in readme
     assert "RUNTIME_SAFETY_AND_REPORTING.md" in introduction
     assert "RUNTIME_SAFETY_AND_REPORTING.md" in runbook
+
+
+def test_agent_learning_records_are_required_and_structured() -> None:
+    agents = (ROOT / "AGENTS.md").read_text(encoding="utf-8")
+    decisions = DECISIONS.read_text(encoding="utf-8")
+    mistakes = MISTAKES.read_text(encoding="utf-8")
+    readme = (ROOT / "README.md").read_text(encoding="utf-8")
+
+    assert "Read `DECISIONS.md` and `MISTAKES.md` completely" in agents
+    assert "root cause" in agents.lower()
+    for heading in ("**Context:**", "**Decision:**", "**Why it worked:**", "**Reuse:**"):
+        assert heading in decisions
+    for heading in ("**Impact:**", "**Root cause:**", "**Correction:**", "**Prevention:**"):
+        assert heading in mistakes
+    assert "DECISIONS.md" in readme
+    assert "MISTAKES.md" in readme

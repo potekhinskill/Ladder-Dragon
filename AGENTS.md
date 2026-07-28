@@ -5,6 +5,7 @@ These rules apply to every repository change and every Raspberry Pi update.
 ## Before editing
 
 - Read this file and the nearest `AGENTS.md` instructions.
+- Read `DECISIONS.md` and `MISTAKES.md` completely before making changes.
 - Check `git status` and preserve user changes.
 - Locate related tests, migrations, systemd units, `.env.example` files, and docs.
 - Never read or print values from `.env`, keys, tokens, or backups.
@@ -73,6 +74,19 @@ These rules apply to every repository change and every Raspberry Pi update.
   partial fill, OCO/STOP, gap, and idempotency scenarios.
 - New logic needs a fail-closed test and a test proving no secret or look-ahead leakage.
 - Write comments for major nodes and dangerous financial decisions in English.
+
+## Learning records
+
+- After a successful solution is validated, add a concise reusable decision to
+  `DECISIONS.md` when it establishes a new invariant or workflow. Do not copy
+  routine changelog entries.
+- Whenever an agent decision causes a defect, unsafe state, misleading result,
+  failed release, or avoidable rework, identify the root cause and add a concise
+  entry to `MISTAKES.md` in the same logical change set.
+- A mistake entry must state impact, root cause, correction, and prevention.
+  Recording only the symptom is not sufficient.
+- Never place secrets, private endpoints, balances, account identifiers, or raw
+  production evidence in either learning file.
 
 ## Raspberry Pi deployment
 
