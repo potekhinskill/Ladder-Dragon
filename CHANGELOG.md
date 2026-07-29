@@ -3,6 +3,24 @@
 All notable changes are documented here. Releases use Semantic Versioning; every
 section is dated and there is intentionally no `Unreleased` section.
 
+## [2.20.83] — 2026-07-29
+
+### Fixed
+- The daily digest systemd sandbox now permits SQLite WAL shared-memory
+  coordination while the report connection remains `mode=ro`, preventing
+  `unable to open database file` at the scheduled 08:00 run.
+- Telegram delivery accepts only the known alert variables already injected by
+  systemd, so a closed configuration-directory parent no longer suppresses the
+  digest or its figure-free `BLOCKED` warning.
+- Missing databases now use the same deduplicated warning path, and failed
+  oneshot runs receive two bounded five-minute retries without duplicate
+  successful reports.
+
+### Verified
+- Daily digest, Telegram configuration, systemd isolation, retry,
+  idempotency, deployment and documentation regressions pass (98 focused
+  tests); compileall and the complete suite pass (753 tests).
+
 ## [2.20.82] — 2026-07-29
 
 ### Changed

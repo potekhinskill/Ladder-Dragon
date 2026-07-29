@@ -5,6 +5,8 @@
 Description=Ladder Dragon daily Telegram trading digest
 After=network-online.target
 Wants=network-online.target
+StartLimitIntervalSec=20min
+StartLimitBurst=3
 
 [Service]
 Type=oneshot
@@ -15,6 +17,8 @@ Environment=PYTHONPATH=/home/bot/apps/binance_bot
 Environment=BOT_STATS_DB=/home/bot/apps/binance_bot/db/bot_stats.db
 EnvironmentFile=-/etc/ladder-dragon/telegram.env
 ExecStart=/home/bot/apps/binance_bot/.venv/bin/python -m bin.daily_trading_digest
+Restart=on-failure
+RestartSec=5min
 NoNewPrivileges=yes
 PrivateTmp=yes
 PrivateDevices=yes
@@ -37,9 +41,11 @@ RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
 SystemCallArchitectures=native
 SystemCallFilter=@system-service
 SystemCallErrorNumber=EPERM
-ReadOnlyPaths=/home/bot/apps/binance_bot/db
 ReadOnlyPaths=-/etc/ladder-dragon/telegram.env
-ReadWritePaths=/var/lib/ladder-dragon/digests
+# SQLite mode=ro still coordinates with the live WAL through its shared-memory
+# sidecar. The application connection remains query-only; this writable mount
+# prevents the systemd sandbox from blocking WAL readers.
+ReadWritePaths=/home/bot/apps/binance_bot/db /var/lib/ladder-dragon/digests
 UMask=0077
 
 [Install]

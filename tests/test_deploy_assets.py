@@ -731,8 +731,14 @@ def test_daily_digest_is_exact_idempotent_and_scheduled_for_almaty_morning():
     assert "mode=ro" in source
     assert "_last_sent(args.state) == report_date" in source
     assert "User=bot" in service
-    assert "ReadOnlyPaths=/home/bot/apps/binance_bot/db" in service
-    assert "ReadWritePaths=/var/lib/ladder-dragon/digests" in service
+    assert "ReadOnlyPaths=/home/bot/apps/binance_bot/db" not in service
+    assert (
+        "ReadWritePaths=/home/bot/apps/binance_bot/db "
+        "/var/lib/ladder-dragon/digests"
+    ) in service
+    assert "Restart=on-failure" in service
+    assert "RestartSec=5min" in service
+    assert "StartLimitBurst=3" in service
     assert "OnCalendar=*-*-* 08:00:00 Asia/Almaty" in timer
     assert "Persistent=true" in timer
     assert "ladder-dragon-daily-digest.timer" in installer

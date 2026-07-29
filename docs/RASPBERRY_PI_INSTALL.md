@@ -533,8 +533,10 @@ retention follows `BACKUP_EXTERNAL_RETENTION_DAYS`.
 ### 10.1 Daily Telegram trading digest
 
 The installer enables `ladder-dragon-daily-digest.timer`. At 08:00
-`Asia/Almaty`, it reads the exact trade database without write access and
-reports yesterday, the last 7 complete days, and the last 30 complete days.
+`Asia/Almaty`, it opens the exact trade database with SQLite `mode=ro` and
+reports yesterday, the last 7 complete days, and the last 30 complete days. The
+systemd writable database mount exists only because a live WAL reader must
+coordinate through SQLite's shared-memory sidecar.
 
 ```bash
 sudo systemctl status ladder-dragon-daily-digest.timer --no-pager
@@ -546,8 +548,8 @@ Accounting is isolated by symbol. A symbol with incomplete FIFO history or an
 unpriced commission appears under `Excluded symbols`; exact eligible-symbol
 totals are still sent. The service never synthesizes a BUY or zero cost basis.
 A report-build failure sends at most one figure-free `BLOCKED` warning per
-local date. A missing database blocks before message construction and is
-reported in the service journal.
+local date. A failed service run is retried twice at five-minute intervals;
+idempotency prevents a successful report from being sent twice.
 
 Run a private preview only when terminal output is protected:
 

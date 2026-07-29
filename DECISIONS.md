@@ -4,6 +4,17 @@ Read this file before changing the repository. Record only decisions that were
 validated by tests or production evidence and are likely to be reused. Keep
 entries concise; this is not a changelog or an activity log.
 
+### 2026-07-29 — Make scheduled reports idempotent and retryable
+
+- **Context:** a single transient WAL or delivery failure at the scheduled
+  minute postponed an otherwise valid daily report until the next day.
+- **Decision:** retain an application-level read-only SQLite connection, permit
+  WAL coordination in the service sandbox, and retry a failed idempotent report
+  twice with one deduplicated figure-free warning.
+- **Why it worked:** delivery state prevents duplicates while bounded retries
+  recover from transient database and notification failures.
+- **Reuse:** every scheduled report or notification with a durable calendar key.
+
 ### 2026-07-29 — Use one dashboard body type scale
 
 - **Context:** operational cards mixed browser-default 16 px text with explicit

@@ -17,6 +17,18 @@ import urllib.request
 
 DEFAULT_CONFIG = Path("/etc/ladder-dragon/telegram.env")
 AUTH_ALERT_STATE = Path("/run/mybot/binance-auth-alert.json")
+CONFIG_ENV_NAMES = (
+    "TELEGRAM_ALERTS_ENABLED",
+    "BOT_ALERTS_ENABLED",
+    "TELEGRAM_BOT_TOKEN",
+    "TELEGRAM_TOKEN",
+    "BOT_TOKEN",
+    "TG_BOT_TOKEN",
+    "TELEGRAM_CHAT_ID",
+    "TELEGRAM_CHAT",
+    "CHAT_ID",
+    "TG_CHAT_ID",
+)
 
 
 def _parse_env(path: Path) -> dict[str, str]:
@@ -42,9 +54,14 @@ def _parse_env(path: Path) -> dict[str, str]:
 
 
 def load_config() -> dict[str, str]:
-    """Load config."""
+    """Load file values plus the explicit environment injected by systemd."""
     configured = Path(os.getenv("TELEGRAM_ALERTS_CONFIG", str(DEFAULT_CONFIG)))
-    return _parse_env(configured)
+    values = _parse_env(configured)
+    for name in CONFIG_ENV_NAMES:
+        value = os.getenv(name)
+        if value is not None:
+            values[name] = value
+    return values
 
 
 def _first(values: dict[str, str], *names: str) -> str:

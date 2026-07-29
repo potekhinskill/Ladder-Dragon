@@ -181,3 +181,45 @@ def test_structural_digest_failure_sends_one_deduplicated_warning(
     assert len(sent) == 1
     assert "daily trading digest BLOCKED" in sent[0]
     assert "No financial figures were sent." in sent[0]
+
+
+def test_missing_database_sends_one_deduplicated_warning(
+    tmp_path,
+    monkeypatch,
+):
+    state = tmp_path / "digest.json"
+    sent = []
+    monkeypatch.setattr(
+        daily_trading_digest,
+        "send_message",
+        lambda message: not sent.append(message),
+    )
+    monkeypatch.setattr(daily_trading_digest, "_timezone", lambda _name: TZ)
+    monkeypatch.setattr(
+        daily_trading_digest,
+        "datetime",
+        type(
+            "FixedDateTime",
+            (),
+            {
+                "now": staticmethod(
+                    lambda tz=None: datetime(2026, 7, 26, 9, tzinfo=TZ)
+                )
+            },
+        ),
+    )
+    monkeypatch.setattr(
+        "sys.argv",
+        [
+            "daily_trading_digest",
+            "--db",
+            str(tmp_path / "missing.db"),
+            "--state",
+            str(state),
+        ],
+    )
+
+    assert daily_trading_digest.main() == 2
+    assert daily_trading_digest.main() == 2
+    assert len(sent) == 1
+    assert "Reason: FileNotFoundError" in sent[0]

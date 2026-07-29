@@ -17,6 +17,20 @@ private infrastructure details.
 
 ## Mistakes
 
+### 2026-07-29 — Sandboxed a WAL reader as a static-file reader
+
+- **Impact:** the scheduled daily digest could not open the live SQLite
+  database, and its fallback Telegram warning was silently unavailable.
+- **Root cause:** the service made the entire WAL directory read-only and the
+  alert loader reread a file below a non-traversable directory instead of using
+  the explicit variables systemd had already loaded.
+- **Correction:** permit WAL coordination while retaining SQLite `mode=ro`,
+  accept only known Telegram environment keys, and add bounded idempotent
+  retries with deduplicated blocked warnings.
+- **Prevention:** deployment tests for read-only WAL consumers must model
+  sidecar access, and systemd `EnvironmentFile` consumers must be tested with an
+  unreadable source path.
+
 ### 2026-07-29 — Guessed a full commit SHA for verification
 
 - **Impact:** the first release-harness run used an incorrect expected SHA and

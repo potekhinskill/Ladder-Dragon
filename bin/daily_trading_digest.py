@@ -287,10 +287,9 @@ def main() -> int:
 
     timezone = _timezone(args.timezone)
     report_date = datetime.now(tz=timezone).date().isoformat()
-    if not args.db.is_file():
-        print(f"[BLOCKED] exact trade database is unavailable: {args.db}")
-        return 2
     try:
+        if not args.db.is_file():
+            raise FileNotFoundError("exact trade database is unavailable")
         message, report_date = build_digest(
             args.db,
             now=datetime.now(tz=timezone),

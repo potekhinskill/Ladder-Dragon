@@ -149,17 +149,19 @@ complete periods ending at local midnight:
 - the last 7 complete days;
 - the last 30 complete days.
 
-The service opens the trade database read-only and replays each symbol
-independently. A symbol with incomplete FIFO history, unpriced commission, an
-unsupported quote asset, or invalid exact data is listed under
-`Excluded symbols`. Eligible symbols still produce exact fills, fees, cash flow,
-and realized FIFO net PnL. The service never invents an opening BUY or assumes a
-zero cost basis.
+The service opens the trade database with SQLite `mode=ro` and replays each
+symbol independently. Its systemd sandbox permits the database directory only
+for WAL shared-memory coordination; the application connection cannot mutate
+the ledger. A symbol with incomplete FIFO history, unpriced commission, an
+unsupported quote asset, or invalid exact data is listed under `Excluded symbols`.
+Eligible symbols still produce exact fills, fees, cash flow, and realized FIFO
+net PnL. The service never invents an opening BUY or assumes a zero cost basis.
 
 Successful delivery is idempotent per local report date. A report-build failure
-after the database is opened can send one deduplicated `BLOCKED` warning for
-that date; the warning contains no financial figures. A missing database blocks
-the service before report construction and is recorded in the systemd journal.
+sends one deduplicated `BLOCKED` warning for that date; the warning contains no
+financial figures. Systemd retries a failed run twice at five-minute intervals,
+so a transient database or Telegram failure does not postpone the report by a
+full day.
 
 Private operator checks:
 

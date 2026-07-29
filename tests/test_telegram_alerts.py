@@ -28,6 +28,25 @@ def test_retired_system_path_is_not_read(tmp_path, monkeypatch):
     assert telegram_alerts.load_config() == {}
 
 
+def test_systemd_environment_works_when_config_path_is_not_readable(
+    tmp_path,
+    monkeypatch,
+):
+    monkeypatch.setenv(
+        "TELEGRAM_ALERTS_CONFIG",
+        str(tmp_path / "closed" / "telegram.env"),
+    )
+    monkeypatch.setenv("TELEGRAM_ALERTS_ENABLED", "1")
+    monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "environment-token")
+    monkeypatch.setenv("TELEGRAM_CHAT_ID", "321")
+
+    values = telegram_alerts.load_config()
+
+    assert values["TELEGRAM_ALERTS_ENABLED"] == "1"
+    assert values["TELEGRAM_BOT_TOKEN"] == "environment-token"
+    assert values["TELEGRAM_CHAT_ID"] == "321"
+
+
 def test_send_message_posts_json_without_logging_secret(tmp_path, monkeypatch):
     config = tmp_path / "telegram.env"
     config.write_text(
