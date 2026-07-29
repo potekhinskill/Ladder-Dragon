@@ -21,10 +21,39 @@ DASHBOARD_WAS_ENABLED=0
 WATCHDOG_WAS_ACTIVE=0
 WATCHDOG_WAS_ENABLED=0
 SERVICES_STOPPED=0
+PREVIOUS_HEAD=""
+CHECKOUT_ADVANCED=0
+EXTERNAL_DEPLOYMENT_MUTATED=0
 
 fail() {
   echo "[FAIL] $*" >&2
   exit 1
+}
+
+set_env_value() {
+  local file="$1"
+  local name="$2"
+  local value="$3"
+  local temporary line found=0
+  [[ "${name}" =~ ^[A-Z][A-Z0-9_]*$ ]] \
+    || fail "invalid environment variable name"
+  [[ "${value}" != *$'\n'* && "${value}" != *$'\r'* ]] \
+    || fail "environment value contains a line break"
+  temporary="$(mktemp "${file}.tmp.XXXXXX")"
+  while IFS= read -r line || [[ -n "${line}" ]]; do
+    if [[ "${line}" == "${name}="* ]]; then
+      printf '%s=%s\n' "${name}" "${value}" >>"${temporary}"
+      found=1
+    else
+      printf '%s\n' "${line}" >>"${temporary}"
+    fi
+  done <"${file}"
+  if [[ "${found}" == "0" ]]; then
+    printf '%s=%s\n' "${name}" "${value}" >>"${temporary}"
+  fi
+  chown --reference="${file}" "${temporary}"
+  chmod --reference="${file}" "${temporary}"
+  mv -f -- "${temporary}" "${file}"
 }
 
 prepare_persistent_control() {
@@ -193,12 +222,50 @@ verify_previous_service_state() {
   done
 }
 
+restore_previous_checkout() {
+  local current_head
+  [[ "${ACTION}" == "update" && "${CHECKOUT_ADVANCED}" == "1" ]] || return 0
+  [[ "${PREVIOUS_HEAD}" =~ ^[0-9a-fA-F]{40}$ ]] || return 1
+  current_head="$(runuser -u "${BOT_USER}" -- git rev-parse HEAD)" || return 1
+  [[ "${current_head}" != "${PREVIOUS_HEAD}" ]] || return 0
+  echo "[RECOVERY] restoring previous commit and dependency lock" >&2
+  runuser -u "${BOT_USER}" -- git reset --hard "${PREVIOUS_HEAD}" || return 1
+  [[ "$(runuser -u "${BOT_USER}" -- git rev-parse HEAD)" == "${PREVIOUS_HEAD}" ]] \
+    || return 1
+  runuser -u "${BOT_USER}" -- .venv/bin/python -m pip install \
+    --require-hashes -r requirements/raspberry.lock || return 1
+  runuser -u "${BOT_USER}" -- .venv/bin/python -m pip install \
+    --no-deps --no-build-isolation -e . || return 1
+  runuser -u "${BOT_USER}" -- .venv/bin/python -m pip check || return 1
+  runuser -u "${BOT_USER}" -- .venv/bin/python -m compileall -q \
+    bin ladder_dragon FastAPI/pi-dashboard || return 1
+}
+
+start_recovery_dashboard() {
+  systemctl daemon-reload || true
+  systemctl stop mybot pi-watchdog-v3.timer || true
+  restore_autostart || true
+  if ! systemctl start pi-healthd; then
+    echo "[RECOVERY-BLOCKED] dashboard could not be started" >&2
+  fi
+}
+
 recover_after_failure() {
   local status=$?
+  local rollback_ok=1
   trap - ERR INT TERM
   if [[ "${SERVICES_STOPPED}" == "1" ]]; then
-    echo "[RECOVERY] update failed; starting services that were active before update" >&2
-    start_previous_services || true
+    if ! restore_previous_checkout; then
+      rollback_ok=0
+    fi
+    if [[ "${rollback_ok}" == "1" && "${EXTERNAL_DEPLOYMENT_MUTATED}" == "0" ]]; then
+      echo "[RECOVERY] previous release restored; restoring prior service state" >&2
+      start_previous_services || true
+    else
+      start_recovery_dashboard
+      echo "[RECOVERY-BLOCKED] mybot remains stopped because a coherent previous runtime could not be proven" >&2
+      echo "[RECOVERY-BLOCKED] repair dependencies/deployment assets, verify HEAD, then restart explicitly" >&2
+    fi
   fi
   exit "${status}"
 }
@@ -227,8 +294,8 @@ try:
     updated = datetime.fromisoformat(status["updated_at"])
     age = (datetime.now(timezone.utc) - updated).total_seconds()
     ready_states = {
-        "RUNNING", "AUTH_BACKOFF", "PREFLIGHT_BACKOFF", "IP_BLOCKED", "RECOVERY_BLOCKED",
-        "INTENTIONALLY_STOPPED"
+        "RUNNING", "AUTH_BACKOFF", "PREFLIGHT_BACKOFF", "IP_BLOCKED",
+        "RECOVERY_BLOCKED"
     }
     raise SystemExit(
         0 if status.get("state") in ready_states and 0 <= age <= 90 else 1
@@ -248,10 +315,8 @@ dashboard_database_status() {
   dashboard_token="$(
     sed -n 's/^DASHBOARD_AUTH_TOKEN=//p' "${DASHBOARD_ENV}" | head -1
   )"
-  [[ "${dashboard_token}" =~ ^[0-9a-fA-F]{64,}$ ]] || {
-    echo 000
-    return
-  }
+  [[ "${dashboard_token}" =~ ^[0-9a-fA-F]{64,}$ ]] \
+    || fail "malformed DASHBOARD_AUTH_TOKEN"
   # Pass the credential over stdin, never argv, logs or a temporary file.
   printf '%s\n' \
     'silent' \
@@ -422,7 +487,11 @@ if [[ "${ACTION}" == "update" ]]; then
     trusted_signer="$(load_trusted_signer)"
     verify_trusted_commit "${UPDATE_COMMIT}" "${trusted_signer}"
   fi
+  PREVIOUS_HEAD="$(runuser -u "${BOT_USER}" -- git rev-parse HEAD)"
   runuser -u "${BOT_USER}" -- git merge --ff-only "${UPDATE_COMMIT}"
+  if [[ "$(runuser -u "${BOT_USER}" -- git rev-parse HEAD)" != "${PREVIOUS_HEAD}" ]]; then
+    CHECKOUT_ADVANCED=1
+  fi
   runuser -u "${BOT_USER}" -- .venv/bin/python -m pip install \
     --require-hashes -r requirements/raspberry.lock
   runuser -u "${BOT_USER}" -- .venv/bin/python -m pip install \
@@ -432,64 +501,30 @@ fi
 # This helper is read from the verified target checkout after the merge. Keeping
 # release-owned runtime assets outside the immutable updater prevents a previous
 # updater version from omitting files introduced by the new signed release.
+EXTERNAL_DEPLOYMENT_MUTATED=1
 [[ -x deploy/install_runtime_assets.sh ]] \
   || fail "verified release runtime-asset installer is missing or not executable"
 PROJECT_DIR="${PROJECT_DIR}" deploy/install_runtime_assets.sh
 
-if grep -q '^BOT_TESTNET_RUN_DIR=' .env; then
-  sed -i 's|^BOT_TESTNET_RUN_DIR=.*|BOT_TESTNET_RUN_DIR=/run/mybot/testnet|' .env
-else
-  printf '\nBOT_TESTNET_RUN_DIR=/run/mybot/testnet\n' >>.env
-fi
-if grep -q '^AI_RUNTIME_STATUS_FILE=' .env; then
-  sed -i 's|^AI_RUNTIME_STATUS_FILE=.*|AI_RUNTIME_STATUS_FILE=/run/mybot/ai_status.json|' .env
-else
-  printf 'AI_RUNTIME_STATUS_FILE=/run/mybot/ai_status.json\n' >>.env
-fi
-if grep -q '^BINANCE_AUTH_STATE_FILE=' .env; then
-  sed -i 's|^BINANCE_AUTH_STATE_FILE=.*|BINANCE_AUTH_STATE_FILE='"${PROJECT_DIR}"'/db/auth_resilience.json|' .env
-else
-  printf 'BINANCE_AUTH_STATE_FILE=%s/db/auth_resilience.json\n' \
-    "${PROJECT_DIR}" >>.env
-fi
+set_env_value .env BOT_TESTNET_RUN_DIR /run/mybot/testnet
+set_env_value .env AI_RUNTIME_STATUS_FILE /run/mybot/ai_status.json
+set_env_value .env BINANCE_AUTH_STATE_FILE \
+  "${PROJECT_DIR}/db/auth_resilience.json"
 if ! grep -q '^BINANCE_PUBLIC_IP_ENDPOINTS=' .env; then
   printf 'BINANCE_PUBLIC_IP_ENDPOINTS=https://api.ipify.org,https://checkip.amazonaws.com\n' >>.env
 fi
 chmod 0600 .env
 
-if grep -q '^AI_RUNTIME_STATUS_FILE=' "${DASHBOARD_ENV}"; then
-  sed -i 's|^AI_RUNTIME_STATUS_FILE=.*|AI_RUNTIME_STATUS_FILE=/run/mybot/ai_status.json|' "${DASHBOARD_ENV}"
-else
-  printf '\nAI_RUNTIME_STATUS_FILE=/run/mybot/ai_status.json\n' >>"${DASHBOARD_ENV}"
-fi
-if grep -q '^DASHBOARD_FOLLOW_BOT_PATHS=' "${DASHBOARD_ENV}"; then
-  sed -i 's/^DASHBOARD_FOLLOW_BOT_PATHS=.*/DASHBOARD_FOLLOW_BOT_PATHS=1/' "${DASHBOARD_ENV}"
-else
-  printf 'DASHBOARD_FOLLOW_BOT_PATHS=1\n' >>"${DASHBOARD_ENV}"
-fi
-if grep -q '^DASHBOARD_TRUST_PROXY_AUTH=' "${DASHBOARD_ENV}"; then
-  sed -i 's/^DASHBOARD_TRUST_PROXY_AUTH=.*/DASHBOARD_TRUST_PROXY_AUTH=1/' "${DASHBOARD_ENV}"
-else
-  printf 'DASHBOARD_TRUST_PROXY_AUTH=1\n' >>"${DASHBOARD_ENV}"
-fi
-
-set_env_value() {
-  local file="$1"
-  local name="$2"
-  local value="$3"
-  if grep -q "^${name}=" "${file}"; then
-    sed -i "s#^${name}=.*#${name}=${value}#" "${file}"
-  else
-    printf '%s=%s\n' "${name}" "${value}" >>"${file}"
-  fi
-}
+set_env_value "${DASHBOARD_ENV}" AI_RUNTIME_STATUS_FILE \
+  /run/mybot/ai_status.json
+set_env_value "${DASHBOARD_ENV}" DASHBOARD_FOLLOW_BOT_PATHS 1
+set_env_value "${DASHBOARD_ENV}" DASHBOARD_TRUST_PROXY_AUTH 1
 
 dashboard_token="$(
   sed -n 's/^DASHBOARD_AUTH_TOKEN=//p' "${DASHBOARD_ENV}" | head -1
 )"
-if [[ ! "${dashboard_token}" =~ ^[0-9a-fA-F]{64,}$ ]]; then
-  set_env_value "${DASHBOARD_ENV}" DASHBOARD_AUTH_TOKEN "$(openssl rand -hex 32)"
-fi
+[[ "${dashboard_token}" =~ ^[0-9a-fA-F]{64,}$ ]] \
+  || fail "malformed DASHBOARD_AUTH_TOKEN"
 dashboard_proxy_secret="$(
   sed -n 's/^DASHBOARD_PROXY_AUTH_SECRET=//p' "${DASHBOARD_ENV}" | head -1
 )"

@@ -955,10 +955,10 @@ def test_watchdog_uses_current_heartbeat_and_not_legacy_runner_name():
     for state in (
         "RUNNING", "AUTH_BACKOFF", "PREFLIGHT_BACKOFF", "IP_BLOCKED",
         "RECOVERY_BLOCKED",
-        "INTENTIONALLY_STOPPED",
     ):
         assert state in watchdog
         assert state in updater
+    assert "INTENTIONALLY_STOPPED" in watchdog
     assert "|| true'" not in service
     runtime_assets = read("deploy/install_runtime_assets.sh")
     assert "pi-watchdog_v3.sh" in runtime_assets

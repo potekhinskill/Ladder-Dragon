@@ -17,6 +17,30 @@ private infrastructure details.
 
 ## Mistakes
 
+### 2026-07-29 — Let a Linux-only syscall obscure a rewrite regression
+
+- **Impact:** the first focused deployment run failed on macOS metadata-command
+  syntax and a Markdown line wrap before validating the intended path rewrite.
+- **Root cause:** the unit executed GNU `--reference` options outside its
+  Raspberry Pi platform and compared raw wrapped prose.
+- **Correction:** stub only the platform metadata calls, retain the literal
+  rewrite execution, and normalize documentation whitespace.
+- **Prevention:** cross-platform tests of deployment helpers must isolate
+  platform-only syscalls and assert prose semantically rather than by wrapping.
+
+### 2026-07-29 — Restarted services without restoring their release
+
+- **Impact:** a failed dependency or asset update could restart LIVE execution
+  from a new checkout with old or partially installed runtime components.
+- **Root cause:** recovery remembered service state but not the previous Git
+  identity, dependency lock or whether external deployment assets had already
+  changed.
+- **Correction:** record the previous SHA, restore its checkout and hashed
+  dependencies before restart, and leave execution stopped whenever coherent
+  rollback cannot be proved.
+- **Prevention:** deployment recovery tests must inject failures before and
+  after every non-transactional boundary and prove no mixed runtime can start.
+
 ### 2026-07-29 — Let a regression inherit an operator CAP
 
 - **Impact:** the blocked-SHADOW regression passed locally but failed on every

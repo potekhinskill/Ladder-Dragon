@@ -4,6 +4,20 @@ Read this file before changing the repository. Record only decisions that were
 validated by tests or production evidence and are likely to be reused. Keep
 entries concise; this is not a changelog or an activity log.
 
+### 2026-07-29 — Restart only a coherently restored runtime
+
+- **Context:** a failed in-place dependency installation can leave the checkout
+  and virtual environment at different release boundaries.
+- **Decision:** automatically restart the bot only after restoring the exact
+  previous commit and its hashed dependency lock, and only before any external
+  deployment asset was mutated. Otherwise keep execution and watchdog stopped
+  while starting the dashboard for diagnosis.
+- **Why it worked:** recovery regressions prove rollback precedes service
+  restart and any unproven or externally partial state selects the stopped-bot
+  branch.
+- **Reuse:** every deployment that updates code, dependencies and system assets
+  through separate non-transactional operations.
+
 ### 2026-07-29 — Preserve primary failure across mandatory cleanup
 
 - **Context:** a cleanup failure can occur while a more important exchange or

@@ -468,6 +468,10 @@ sudo bash deploy/update_raspberry_pi.sh update "$RELEASE_SHA"
 
 The authorization is bound to one exact SHA, stored under `/run`, consumed once,
 and written to the authpriv journal. It is not a routine update switch.
+The marker is consumed before the update attempt continues. If any later
+merge, dependency or deployment step fails, the operator must create a new
+exact-SHA authorization after diagnosing the failure; a failed attempt never
+leaves reusable unsigned authority behind.
 
 The default local dashboard certificate is self-signed, so the nginx template
 intentionally does not send HSTS. For remote access, install a certificate from
@@ -484,6 +488,16 @@ and deployment is not declared ready until that request succeeds. It preserves
 Because configuration is preserved, newly documented risk controls must be
 reviewed and added explicitly; the updater never expands or rewrites exposure
 from `.env.example`.
+
+If an update fails after fast-forward but before external runtime assets are
+changed, recovery resets the clean tracked checkout to the recorded previous
+SHA, reinstalls that release's hashed dependency lock and editable package, and
+only then restores the previous service state. If rollback cannot be proved, or
+systemd/nginx/static assets may already be partially changed, `mybot` and its
+watchdog remain stopped. Recovery starts `pi-healthd` for diagnosis and prints
+an explicit repair instruction. Exchange-hosted OCO protection remains active;
+never start `mybot` manually until checkout, dependencies and deployment assets
+have been reconciled as one release.
 
 Database migration `007` adds the durable SELL FIFO-consumption journal before
 services restart. It is idempotent and does not rewrite historical lots.

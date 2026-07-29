@@ -3,6 +3,29 @@
 All notable changes are documented here. Releases use Semantic Versioning; every
 section is dated and there is intentionally no `Unreleased` section.
 
+## [2.20.90] — 2026-07-29
+
+### Fixed
+- Raspberry Pi update recovery now records the previous commit before
+  fast-forward and reinstalls that checkout's hashed dependency lock before
+  restoring LIVE services. If rollback is unproven or external deployment
+  assets may be partial, `mybot` and its watchdog remain stopped while the
+  dashboard is started for diagnosis.
+- Environment-file rewrites are now atomic literal line replacements, so
+  operator paths containing sed replacement characters cannot corrupt `.env`.
+- Dashboard readiness fails immediately on a malformed authentication token
+  instead of timing out as HTTP `000`.
+- Post-update heartbeat readiness no longer accepts
+  `INTENTIONALLY_STOPPED` after an expected service start.
+- The runbook documents that a break-glass authorization is consumed by the
+  attempt and must be recreated for any retry.
+
+### Verified
+- Deployment recovery regressions cover rollback ordering, partial-asset
+  blocking, literal special-character paths, malformed-token diagnostics,
+  heartbeat state and break-glass documentation; shell syntax, compileall and
+  the complete suite pass (772 tests).
+
 ## [2.20.89] — 2026-07-29
 
 ### Fixed
