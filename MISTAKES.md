@@ -17,6 +17,22 @@ private infrastructure details.
 
 ## Mistakes
 
+### 2026-07-29 — Treated service inactivity as restart authorization
+
+- **Impact:** an operator could stop the trading service during an incident and
+  have the watchdog revive it later; Telegram secrets were visible in process
+  arguments, stale alerts could accumulate without a bound, and a missing route
+  triggered a probe of an invented gateway.
+- **Root cause:** watchdog recovery inferred operator intent and network
+  topology from convenient defaults instead of requiring explicit systemd,
+  descriptor and route evidence.
+- **Correction:** require the unit to remain enabled immediately before
+  restart, keep Telegram data off argv, enforce outbox TTL/CAP retention and
+  report absent routes directly.
+- **Prevention:** watchdog regressions must prove intentional-stop suppression,
+  secret-free process arguments, bounded durable queues and no guessed network
+  endpoint.
+
 ### 2026-07-29 — Verified a GPG signature inside a restricted trust store
 
 - **Impact:** the first release command stopped before the harness and produced

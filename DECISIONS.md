@@ -4,6 +4,21 @@ Read this file before changing the repository. Record only decisions that were
 validated by tests or production evidence and are likely to be reused. Keep
 entries concise; this is not a changelog or an activity log.
 
+### 2026-07-29 — Require explicit restart authority in the watchdog
+
+- **Context:** service inactivity alone cannot distinguish a crash from an
+  operator's persistent stop, and recovery notifications must remain bounded
+  and secret-safe through long network outages.
+- **Decision:** restart only an enabled unit, treat disabled or masked inactive
+  units as intentionally stopped, pass Telegram data through descriptors, cap
+  and expire the durable outbox, and diagnose a missing route without guessing
+  a gateway.
+- **Why it worked:** regressions prove the watchdog performs no restart or
+  alert for a disabled bot, exposes no Telegram data in argv, bounds queued
+  messages and never probes a fabricated gateway.
+- **Reuse:** every autonomous recovery loop that can mutate service state or
+  retain outbound operational notifications.
+
 ### 2026-07-29 — Model replay latency and public liquidity symmetrically
 
 - **Context:** exact-price maker matching missed better resting orders, while

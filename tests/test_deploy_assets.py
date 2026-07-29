@@ -952,6 +952,11 @@ def test_watchdog_uses_current_heartbeat_and_not_legacy_runner_name():
     assert "1.8_autosize_universal.py" not in watchdog
     assert "STRIKES" in watchdog
     assert "systemctl restart mybot.service" in watchdog
+    assert "systemctl is-enabled --quiet mybot.service" in watchdog
+    assert "--config /dev/fd/3" in watchdog
+    assert "TELEGRAM_OUTBOX_MAX_AGE_SEC" in watchdog
+    assert "TELEGRAM_OUTBOX_MAX_FILES" in watchdog
+    assert "192.168.8.1" not in watchdog
     for state in (
         "RUNNING", "AUTH_BACKOFF", "PREFLIGHT_BACKOFF", "IP_BLOCKED",
         "RECOVERY_BLOCKED",

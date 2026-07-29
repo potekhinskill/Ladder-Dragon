@@ -3,6 +3,29 @@
 All notable changes are documented here. Releases use Semantic Versioning; every
 section is dated and there is intentionally no `Unreleased` section.
 
+## [2.20.92] — 2026-07-29
+
+### Security
+- Watchdog Telegram delivery now passes the bot token, chat ID and message body
+  through file descriptors instead of process arguments.
+- An inactive bot is restarted only while its systemd unit remains explicitly
+  enabled; an inactive disabled or masked unit is treated as an intentional
+  operator stop.
+
+### Fixed
+- Offline Telegram notifications now expire after 24 hours and the durable
+  outbox is capped at 288 files, preventing stale notification floods and
+  unbounded storage growth after a prolonged outage.
+- Missing default-route evidence is reported directly without probing a
+  hard-coded private gateway.
+- The Raspberry Pi runbook now defines `disable --now` as the persistent
+  operator-stop contract and documents the explicit resume command.
+
+### Verified
+- Focused watchdog regressions cover intentional-stop suppression, secret-free
+  curl arguments, outbox TTL/CAP retention and missing-route behavior; shell
+  syntax, compileall and the complete suite pass (782 tests).
+
 ## [2.20.91] — 2026-07-29
 
 ### Fixed

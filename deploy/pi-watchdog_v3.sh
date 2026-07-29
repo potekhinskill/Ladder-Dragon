@@ -21,6 +21,8 @@ ALERT_LOAD_DELTA=${WATCHDOG_ALERT_LOAD_DELTA:-0.5}
 ALERT_TEMP_DELTA_C=${WATCHDOG_ALERT_TEMP_DELTA_C:-2}
 TELEGRAM_OUTBOX="${WATCHDOG_TELEGRAM_OUTBOX:-${STATEDIR}/telegram-outbox}"
 TELEGRAM_OUTBOX_MAX_FLUSH=${WATCHDOG_TELEGRAM_OUTBOX_MAX_FLUSH:-10}
+TELEGRAM_OUTBOX_MAX_FILES=${WATCHDOG_TELEGRAM_OUTBOX_MAX_FILES:-288}
+TELEGRAM_OUTBOX_MAX_AGE_SEC=${WATCHDOG_TELEGRAM_OUTBOX_MAX_AGE_SEC:-86400}
 REASON_FILE="${STATEDIR}/reason.txt"
 HEARTBEAT="${AI_RUNTIME_STATUS_FILE:-/run/mybot/ai_status.json}"
 UPTIME_SOURCE="${WATCHDOG_UPTIME_SOURCE:-/proc/uptime}"
@@ -40,15 +42,46 @@ log() { printf '%s %s\n' "$1" "$2" >>"${LOG}"; }
 # Delivery is isolated in a function so a network outage keeps the message
 # locally and does not lose the failure reason.
 telegram_post() {
-  local msg="$1"
-  curl -sS -m 5 "https://api.telegram.org/bot${TG_BOT_TOKEN}/sendMessage" \
-    -d "chat_id=${TG_CHAT_ID}" \
-    --data-urlencode "text=${msg}" >/dev/null
+  local msg="$1" curl_config
+  [[ "${TG_BOT_TOKEN}" =~ ^[0-9]+:[A-Za-z0-9_-]+$ ]] || return 2
+  [[ "${TG_CHAT_ID}" =~ ^-?[0-9]+$ ]] || return 2
+  printf -v curl_config \
+    'url = "https://api.telegram.org/bot%s/sendMessage"\ndata = "chat_id=%s"\n' \
+    "${TG_BOT_TOKEN}" "${TG_CHAT_ID}"
+  # Keep the token, chat ID and message body out of argv, logs and temp files.
+  curl -sS -m 5 --config /dev/fd/3 --data-urlencode "text@-" \
+    3<<<"${curl_config}" <<<"${msg}" >/dev/null
+}
+
+prune_telegram_outbox() {
+  local reserve="${1:-0}" now path base created count keep_limit
+  mkdir -p "${TELEGRAM_OUTBOX}"
+  now="$(date +%s)"
+  while IFS= read -r path; do
+    base="${path##*/}"
+    created="${base%%-*}"
+    if [[ ! "${created}" =~ ^[0-9]+$ ]] ||
+      (( now - created > TELEGRAM_OUTBOX_MAX_AGE_SEC )); then
+      rm -f -- "${path}"
+      log "[telegram]" "pruned stale or malformed queued alert"
+    fi
+  done < <(find "${TELEGRAM_OUTBOX}" -maxdepth 1 -type f -name '*.msg' -print | sort)
+
+  keep_limit=$((TELEGRAM_OUTBOX_MAX_FILES - reserve))
+  (( keep_limit >= 0 )) || keep_limit=0
+  count="$(find "${TELEGRAM_OUTBOX}" -maxdepth 1 -type f -name '*.msg' | wc -l | tr -d ' ')"
+  while (( count > keep_limit )); do
+    path="$(find "${TELEGRAM_OUTBOX}" -maxdepth 1 -type f -name '*.msg' -print | sort | head -n 1)"
+    [[ -n "${path}" ]] || break
+    rm -f -- "${path}"
+    count=$((count - 1))
+    log "[telegram]" "pruned queued alert above retention cap"
+  done
 }
 
 queue_telegram_message() {
   local msg="$1" digest tmp target
-  mkdir -p "${TELEGRAM_OUTBOX}"
+  prune_telegram_outbox 1
   digest="$(printf '%s' "${msg}" | sha256sum | awk '{print $1}')"
   target="${TELEGRAM_OUTBOX}/$(date +%s)-$$-${digest}.msg"
   tmp="${target}.tmp"
@@ -61,6 +94,7 @@ flush_telegram_outbox() {
   local count path queued sent=0
   [[ -n "${TG_BOT_TOKEN:-}" && -n "${TG_CHAT_ID:-}" ]] || return 0
   [[ -d "${TELEGRAM_OUTBOX}" ]] || return 0
+  prune_telegram_outbox 0
   count="$(find "${TELEGRAM_OUTBOX}" -maxdepth 1 -type f -name '*.msg' | wc -l | tr -d ' ')"
   (( count > 0 )) || return 0
   telegram_post "✅ Telegram connection restored
@@ -251,8 +285,15 @@ net_fails=0
 net_success=0
 network_reason="ok"
 gw_ip="$(ip r | awk '/^default/ {print $3; exit}')"
-: "${gw_ip:=192.168.8.1}"
-gw_rc=0; ping -4 -c1 -W1 "${gw_ip}" >/dev/null 2>&1 || gw_rc=$?
+gw_rc=0
+gw_status="ok"
+if [[ -z "${gw_ip}" ]]; then
+  gw_rc=2
+  gw_status="missing-default-route"
+else
+  ping -4 -c1 -W1 "${gw_ip}" >/dev/null 2>&1 || gw_rc=$?
+  (( gw_rc == 0 )) || gw_status="unreachable"
+fi
 dns_rc=0; ping -4 -c1 -W2 1.1.1.1 >/dev/null 2>&1 || dns_rc=$?
 api_rc=0; curl --ipv4 --connect-timeout 2 -m 3 -sS \
   https://api.binance.com/api/v3/ping >/dev/null || api_rc=$?
@@ -260,7 +301,7 @@ reason="ok"
 if (( gw_rc != 0 || dns_rc != 0 || api_rc != 0 )); then
   net_fails=$((prev_net + 1))
   net_success=0
-  network_reason="network gw=${gw_rc} dns=${dns_rc} api=${api_rc}"
+  network_reason="network route=${gw_status} gw=${gw_rc} dns=${dns_rc} api=${api_rc}"
   printf '%s\n' "${network_reason}" >"${REASON_FILE}"
 else
   [[ -f "${REASON_FILE}" ]] && rm -f "${REASON_FILE}"
@@ -277,15 +318,25 @@ else
 fi
 
 health_ok=1
+mybot_restart_allowed=1
 if ! systemctl is-active --quiet mybot.service; then
-  health_ok=0
-  reason="mybot inactive"
+  mybot_enable_state="$(systemctl is-enabled mybot.service 2>/dev/null || true)"
+  if [[ "${mybot_enable_state}" != "enabled" &&
+    "${mybot_enable_state}" != "enabled-runtime" ]]; then
+    mybot_restart_allowed=0
+    reason="mybot intentionally stopped (${mybot_enable_state:-unknown})"
+    log "[v3]" "${reason}; restart and alerts suppressed"
+  else
+    health_ok=0
+    reason="mybot inactive"
+  fi
 fi
-if [[ "${health_ok}" == 1 && ! -r "${HEARTBEAT}" ]]; then
+if (( mybot_restart_allowed == 1 )) &&
+  [[ "${health_ok}" == 1 && ! -r "${HEARTBEAT}" ]]; then
   health_ok=0
   reason="heartbeat missing"
 fi
-if [[ "${health_ok}" == 1 ]]; then
+if (( mybot_restart_allowed == 1 )) && [[ "${health_ok}" == 1 ]]; then
   heartbeat_ok="$(python3 - "${HEARTBEAT}" "${HEARTBEAT_MAX_AGE_SEC}" <<'PY'
 import json
 import sys
@@ -335,15 +386,21 @@ fi
 # One brief failure must not kill the trading loop. Restart only after
 # STRIKES consecutive failed heartbeat checks.
 if (( health_fails >= STRIKES )); then
-  if (( health_alerted == 0 )); then
-    send_tg "⚠️ mybot unhealthy: ${reason}; restarting after ${health_fails} strikes" \
-      "mybot-health:${reason}"
-    health_alerted=1
+  # Recheck restart authority immediately before mutation to close a stop race.
+  if systemctl is-enabled --quiet mybot.service; then
+    if (( health_alerted == 0 )); then
+      send_tg "⚠️ mybot unhealthy: ${reason}; restarting after ${health_fails} strikes" \
+        "mybot-health:${reason}"
+      health_alerted=1
+    fi
+    systemctl restart mybot.service || true
+    systemctl is-active --quiet mybot.service && \
+      send_tg "🔁 mybot restarted (service active; heartbeat will be checked on the next cycle)" \
+        "mybot-restarted"
+  else
+    log "[v3]" "restart suppressed: mybot is no longer enabled"
+    health_alerted=0
   fi
-  systemctl restart mybot.service || true
-  systemctl is-active --quiet mybot.service && \
-    send_tg "🔁 mybot restarted (service active; heartbeat will be checked on the next cycle)" \
-      "mybot-restarted"
   health_fails=0
 fi
 

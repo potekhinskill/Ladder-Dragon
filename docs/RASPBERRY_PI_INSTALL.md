@@ -626,7 +626,29 @@ for heartbeat failures, restarts the service only after three consecutive
 failed checks. A recovery message is sent only for an announced incident and
 only after two consecutive successful checks. Network and heartbeat
 notifications have independent deduplication state. Offline alerts are queued
-in `/var/lib/pi-watchdog/telegram-outbox`.
+in `/var/lib/pi-watchdog/telegram-outbox`, expire after 24 hours, and are
+bounded to 288 files. Telegram credentials and message bodies are passed to
+`curl` through file descriptors rather than process arguments. If no default
+route exists, the watchdog reports that condition directly and never probes a
+guessed gateway.
+
+An operator stop must also remove automatic restart authority. Use:
+
+```bash
+sudo systemctl disable --now mybot
+```
+
+The watchdog treats an inactive, non-enabled unit as intentionally stopped and
+does not alert or restart it. Resume explicitly with:
+
+```bash
+sudo systemctl enable --now mybot
+```
+
+A plain `systemctl stop mybot` leaves the unit enabled and is only a transient
+stop; the watchdog may restart it after the configured strike threshold. For a
+short coordinated maintenance window, stop the watchdog timer first or use the
+project maintenance control.
 
 ## 12. Public depth archive and execution latency
 
