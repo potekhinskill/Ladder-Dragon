@@ -31,7 +31,7 @@ fee-aware FIFO accounting, restart reconciliation, per-symbol operational
 reporting, replay and walk-forward verification, and a private Raspberry Pi
 operations dashboard.
 
-Current product version: **2.20.75**. The single version source is
+Current product version: **2.20.76**. The single version source is
 `product_version.py`; releases follow [Semantic Versioning](https://semver.org/).
 Project contact: [LinkedIn](https://www.linkedin.com/in/ypotekhin/).
 
@@ -96,7 +96,7 @@ bounded, explainable, recoverable, and measurable before exposure is increased.
 ## Project status
 
 Ladder Dragon is an actively developed, experimental trading system. Version
-**2.20.75** is the current source release. `main` is the only long-lived branch;
+**2.20.76** is the current source release. `main` is the only long-lived branch;
 feature branches use the `ladderdragon/*` namespace.
 
 DRY and Binance Spot Testnet are the supported starting modes. Mainnet LIVE is
@@ -655,8 +655,10 @@ time, reconstructs remaining FIFO lots, requires the reconstructed quantity to
 match the current account, and writes a private hash-bound plan without touching
 the statistics database. Apply requires two explicit confirmations, a stopped
 service, a fresh full Binance re-read with the same plan hash, and an atomic
-post-write verification. Existing lots are archived as `SUPERSEDED`, never
-deleted. See the [Raspberry Pi runbook](docs/RASPBERRY_PI_INSTALL.md#8-legacy-holdings-cost-basis-import).
+post-write verification. The library mutation boundary independently requires
+and invokes that live revalidation; a caller cannot apply a stored plan by hash
+alone. Existing lots are archived as `SUPERSEDED`, never deleted. See the
+[Raspberry Pi runbook](docs/RASPBERRY_PI_INSTALL.md#8-legacy-holdings-cost-basis-import).
 
 This workflow intentionally rejects incomplete exchange history, tradeable
 transfers or deposits that cannot be explained by fills, surviving unpriced
@@ -664,7 +666,10 @@ lots, unpriced third-asset commissions, open symbol orders, and any balance
 change during reconstruction or between preview and apply. An unexplained
 remainder strictly below `LOT_SIZE.stepSize` is recorded as unmanaged dust and
 is never assigned an invented price. Importing a basis does not automatically
-enable holdings SELL or OCO management.
+enable holdings SELL or OCO management. If the plan reaches beyond the newest
+trade persisted in the statistics database, apply records the exact cursor-gap
+range in its audit row and returns a warning; historical reports for that range
+remain explicitly incomplete rather than silently appearing exact.
 
 New statistics databases are exact-only by default and never create financial
 REAL columns or synchronization triggers. Existing databases retain their

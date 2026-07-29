@@ -17,6 +17,18 @@ private infrastructure details.
 
 ## Mistakes
 
+### 2026-07-29 — Repeated a documented host-Python harness mistake
+
+- **Impact:** the first 2.20.75 release-harness invocation stopped before any
+  checks because the system interpreter lacked `websocket-client`.
+- **Root cause:** the command used `python3` even though the repository already
+  documents `.venv/bin/python` and this file contained the same lesson.
+- **Correction:** rerun the unchanged candidate through the project virtual
+  environment; all release checks passed.
+- **Prevention:** every project executable, pytest and harness command must
+  start with `.venv/bin/python`; use another interpreter only for an explicit
+  version-matrix check.
+
 ### 2026-07-29 — Put RAG configuration back into the supervisor monolith
 
 - **Impact:** the first focused 2.20.74 run failed the architecture budget

@@ -97,7 +97,9 @@ def _account_quantity(symbol: str, account: dict[str, Any]) -> Decimal:
         None,
     )
     if balance is None:
-        return Decimal("0")
+        raise RuntimeError(
+            f"{base} balance is absent from the Binance account snapshot"
+        )
     return Decimal(str(balance.get("free", "0"))) + Decimal(
         str(balance.get("locked", "0"))
     )
@@ -270,19 +272,30 @@ def main() -> int:
         saved = read_plan(plan_path)
         if saved.symbol != symbol:
             raise RuntimeError("plan symbol does not match --symbol")
-        fresh = build_live_plan(
-            symbol,
-            tolerance_pct=args.tolerance_pct,
-            max_pages=args.max_pages,
-            created_at=saved.created_at,
-        )
-        if fresh.plan_sha256 != saved.plan_sha256:
-            raise RuntimeError("Binance state changed after preview; create a new plan")
         db_path = args.stats_db or os.getenv("BOT_STATS_DB", "")
         if not db_path:
             raise RuntimeError("BOT_STATS_DB or --stats-db is required")
+        fresh_plans = []
+        warnings = []
+
+        def revalidate(saved_plan):
+            fresh_plan = build_live_plan(
+                symbol,
+                tolerance_pct=args.tolerance_pct,
+                max_pages=args.max_pages,
+                created_at=saved_plan.created_at,
+            )
+            fresh_plans.append(fresh_plan)
+            return fresh_plan
+
         with sqlite3.connect(db_path, timeout=30) as connection:
-            batch_id = apply_cost_basis_plan(connection, fresh)
+            batch_id = apply_cost_basis_plan(
+                connection,
+                saved,
+                revalidate=revalidate,
+                warning_sink=warnings.append,
+            )
+        fresh = fresh_plans[0]
         print(json.dumps({
             "mode": "apply",
             "symbol": fresh.symbol,
@@ -290,6 +303,7 @@ def main() -> int:
             "plan_sha256": fresh.plan_sha256,
             "account_quantity": format(fresh.account_quantity, "f"),
             "weighted_average": format(fresh.weighted_average, "f"),
+            "warnings": warnings,
             "database_written": True,
         }, indent=2, sort_keys=True))
         return 0

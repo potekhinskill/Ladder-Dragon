@@ -11,10 +11,11 @@ import os
 import sqlite3
 import tempfile
 import time
+import warnings
 from dataclasses import dataclass
 from decimal import Decimal, InvalidOperation
 from pathlib import Path
-from typing import Any, Iterable, Mapping
+from typing import Any, Callable, Iterable, Mapping
 
 from ladder_dragon.execution.inventory_lots import cost_basis_coverage, ensure_schema
 from ladder_dragon.execution.trade_accounting import base_asset
@@ -484,6 +485,9 @@ def _ensure_import_schema(connection: sqlite3.Connection) -> None:
         "prehistory_qty TEXT NOT NULL DEFAULT '0', "
         "unmanaged_dust_qty TEXT NOT NULL DEFAULT '0', "
         "history_reset_trade_id INTEGER NOT NULL DEFAULT 0, "
+        "stats_trade_max_id INTEGER, "
+        "cursor_gap_start_trade_id INTEGER, "
+        "cursor_gap_end_trade_id INTEGER, "
         "status TEXT NOT NULL)"
     )
     import_columns = {
@@ -501,6 +505,15 @@ def _ensure_import_schema(connection: sqlite3.Connection) -> None:
             connection.execute(
                 f"ALTER TABLE inventory_lot_imports ADD COLUMN {name} {definition}"
             )
+    cursor_audit_columns = {
+        "stats_trade_max_id",
+        "cursor_gap_start_trade_id",
+        "cursor_gap_end_trade_id",
+    }
+    if not cursor_audit_columns <= import_columns:
+        raise RuntimeError(
+            "statistics database requires cost-basis cursor audit migration 008"
+        )
     connection.execute(
         "CREATE INDEX IF NOT EXISTS inventory_lots_import_trade "
         "ON inventory_lots(symbol,source_trade_id,import_batch_id)"
@@ -508,11 +521,24 @@ def _ensure_import_schema(connection: sqlite3.Connection) -> None:
 
 
 def apply_cost_basis_plan(
-    connection: sqlite3.Connection, plan: CostBasisImportPlan
+    connection: sqlite3.Connection,
+    plan: CostBasisImportPlan,
+    *,
+    revalidate: Callable[[CostBasisImportPlan], CostBasisImportPlan] | None = None,
+    warning_sink: Callable[[str], None] | None = None,
 ) -> str:
-    """Atomically supersede open lots with a revalidated, hashed plan."""
+    """Revalidate freshness, then atomically supersede open inventory lots."""
     if _canonical_hash(plan.unsigned_dict()) != plan.plan_sha256:
         raise ValueError("cost-basis plan hash mismatch")
+    if revalidate is None:
+        raise RuntimeError("cost-basis apply requires live plan revalidation")
+    fresh = revalidate(plan)
+    if not isinstance(fresh, CostBasisImportPlan):
+        raise TypeError("cost-basis revalidation returned an invalid plan")
+    if fresh.plan_sha256 != plan.plan_sha256:
+        raise RuntimeError(
+            "cost-basis plan is stale; rebuild it from current exchange state"
+        )
     batch_id = f"basis-{plan.plan_sha256[:24]}"
     _ensure_import_schema(connection)
     connection.execute("BEGIN IMMEDIATE")
@@ -526,6 +552,33 @@ def apply_cost_basis_plan(
         if existing:
             connection.commit()
             return str(existing[0])
+        stats_trade_row = connection.execute(
+            "SELECT MAX(trade_id) FROM trades WHERE symbol=?",
+            (plan.symbol,),
+        ).fetchone()
+        stats_trade_max_id = (
+            int(stats_trade_row[0])
+            if stats_trade_row and stats_trade_row[0] is not None
+            else None
+        )
+        cursor_gap_start_trade_id = None
+        cursor_gap_end_trade_id = None
+        if stats_trade_max_id is None or stats_trade_max_id < plan.last_trade_id:
+            cursor_gap_start_trade_id = max(
+                plan.first_trade_id,
+                (stats_trade_max_id + 1) if stats_trade_max_id is not None else 0,
+            )
+            cursor_gap_end_trade_id = plan.last_trade_id
+            message = (
+                f"[COST-BASIS] {plan.symbol} stats trade history gap "
+                f"{cursor_gap_start_trade_id}..{cursor_gap_end_trade_id}; "
+                "the imported basis includes these fills, but historical "
+                "trade reports remain incomplete"
+            )
+            if warning_sink is None:
+                warnings.warn(message, RuntimeWarning, stacklevel=2)
+            else:
+                warning_sink(message)
         exact_inventory_view = connection.execute(
             "SELECT 1 FROM sqlite_master WHERE type='view' "
             "AND name='inventory_exact'"
@@ -598,7 +651,9 @@ def apply_cost_basis_plan(
             "batch_id,symbol,created_at,plan_sha256,history_sha256,account_qty,"
             "reconstructed_qty,weighted_average,last_trade_id,"
             "baseline_realized_pnl,prehistory_qty,unmanaged_dust_qty,"
-            "history_reset_trade_id,status) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+            "history_reset_trade_id,stats_trade_max_id,"
+            "cursor_gap_start_trade_id,cursor_gap_end_trade_id,status"
+            ") VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
             (
                 batch_id,
                 plan.symbol,
@@ -613,6 +668,9 @@ def apply_cost_basis_plan(
                 format(plan.prehistory_quantity, "f"),
                 format(plan.unmanaged_dust_quantity, "f"),
                 plan.history_reset_trade_id,
+                stats_trade_max_id,
+                cursor_gap_start_trade_id,
+                cursor_gap_end_trade_id,
                 "APPLIED",
             ),
         )

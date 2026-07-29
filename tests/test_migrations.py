@@ -9,13 +9,13 @@ from ladder_dragon.execution.inventory_lots import sync_exchange_fill
 def test_migrations_are_repeatable(tmp_path: Path):
     db = tmp_path / "bot.db"
     assert migrate(str(db)) == [
-        "001", "002", "003", "004", "005", "006", "007"
+        "001", "002", "003", "004", "005", "006", "007", "008"
     ]
     assert migrate(str(db)) == []
     with sqlite3.connect(db) as con:
         versions = [row[0] for row in con.execute("SELECT version FROM schema_migrations ORDER BY version")]
         assert versions == [
-            "001", "002", "003", "004", "005", "006", "007"
+            "001", "002", "003", "004", "005", "006", "007", "008"
         ]
         assert con.execute(
             "SELECT completed FROM database_bootstrap "
@@ -36,7 +36,9 @@ def test_migrations_are_repeatable(tmp_path: Path):
         assert {
             "batch_id", "plan_sha256", "history_sha256", "weighted_average",
             "last_trade_id", "baseline_realized_pnl", "prehistory_qty",
-            "unmanaged_dust_qty", "history_reset_trade_id", "status",
+            "unmanaged_dust_qty", "history_reset_trade_id",
+            "stats_trade_max_id", "cursor_gap_start_trade_id",
+            "cursor_gap_end_trade_id", "status",
         } <= import_columns
         consumption_columns = {
             row[1] for row in con.execute(
@@ -141,7 +143,7 @@ def test_fifo_sell_migration_seeds_existing_valued_trades(tmp_path: Path):
             ),
         )
 
-    assert migrate(str(database), exact_new_database=False) == ["007"]
+    assert migrate(str(database), exact_new_database=False) == ["007", "008"]
     with sqlite3.connect(database) as connection:
         assert connection.execute(
             "SELECT symbol,source_trade_id,source_order_id,qty,price "

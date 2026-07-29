@@ -64,6 +64,13 @@ def covered_plan(created_at=100):
     )
 
 
+def apply_plan(connection, plan, **kwargs):
+    """Apply one test plan through the mandatory freshness boundary."""
+    kwargs.setdefault("revalidate", lambda _saved: plan)
+    kwargs.setdefault("warning_sink", lambda _message: None)
+    return apply_cost_basis_plan(connection, plan, **kwargs)
+
+
 def test_cost_basis_plan_reconstructs_fifo_and_commissions_exactly():
     plan = covered_plan()
     assert plan.trade_count == 3
@@ -194,7 +201,7 @@ def test_cost_basis_apply_records_prehistory_and_dust_audit_fields(tmp_path):
         ],
         created_at=100,
     )
-    apply_cost_basis_plan(connection, plan)
+    apply_plan(connection, plan)
     row = connection.execute(
         "SELECT prehistory_qty,unmanaged_dust_qty,history_reset_trade_id "
         "FROM inventory_lot_imports"
@@ -221,9 +228,9 @@ def test_cost_basis_apply_is_atomic_archival_and_idempotent(tmp_path):
     )
     connection.commit()
     plan = covered_plan()
-    batch_id = apply_cost_basis_plan(connection, plan)
+    batch_id = apply_plan(connection, plan)
     assert batch_id.startswith("basis-")
-    assert apply_cost_basis_plan(connection, plan) == batch_id
+    assert apply_plan(connection, plan) == batch_id
     assert connection.execute(
         "SELECT COUNT(*) FROM inventory_lots WHERE status='SUPERSEDED'"
     ).fetchone()[0] == 1
@@ -246,10 +253,59 @@ def test_cost_basis_apply_is_atomic_archival_and_idempotent(tmp_path):
     )
 
 
+def test_cost_basis_apply_requires_fresh_library_evidence(tmp_path):
+    connection = tools_stats.init_db(str(tmp_path / "freshness.db"))
+    plan = covered_plan()
+
+    with pytest.raises(RuntimeError, match="requires live plan revalidation"):
+        apply_cost_basis_plan(connection, plan)
+    with pytest.raises(RuntimeError, match="plan is stale"):
+        apply_cost_basis_plan(
+            connection,
+            plan,
+            revalidate=lambda _saved: covered_plan(created_at=101),
+        )
+
+    assert connection.execute(
+        "SELECT COUNT(*) FROM inventory_lot_imports"
+    ).fetchone()[0] == 0
+    assert connection.execute(
+        "SELECT 1 FROM sqlite_master WHERE type='table' "
+        "AND name='inventory_lots'"
+    ).fetchone() is None
+
+
+def test_cost_basis_apply_audits_stats_cursor_gap(tmp_path):
+    connection = tools_stats.init_db(str(tmp_path / "cursor-gap.db"))
+    tools_stats.apply_trade(
+        connection,
+        "SOLUSDT",
+        "BUY",
+        Decimal("100"),
+        Decimal("0.999"),
+        trade_id=1,
+        fee_quote=Decimal("0"),
+        commission_quote=Decimal("0"),
+        commission_value_status="exact",
+    )
+    messages = []
+    plan = covered_plan()
+
+    apply_plan(connection, plan, warning_sink=messages.append)
+
+    assert len(messages) == 1
+    assert "stats trade history gap 2..3" in messages[0]
+    assert plan.plan_sha256 not in messages[0]
+    assert connection.execute(
+        "SELECT stats_trade_max_id,cursor_gap_start_trade_id,"
+        "cursor_gap_end_trade_id FROM inventory_lot_imports"
+    ).fetchone() == (1, 2, 3)
+
+
 def test_stats_recalculation_uses_imported_basis_then_new_trades(tmp_path):
     connection = tools_stats.init_db(str(tmp_path / "stats.db"))
     plan = covered_plan()
-    apply_cost_basis_plan(connection, plan)
+    apply_plan(connection, plan)
     tools_stats.apply_trade(
         connection,
         "SOLUSDT",
@@ -317,6 +373,24 @@ def test_live_plan_rejects_existing_symbol_orders(monkeypatch):
         )
 
 
+def test_account_quantity_rejects_missing_base_asset(monkeypatch):
+    monkeypatch.setattr(
+        import_legacy_cost_basis,
+        "exchange_symbol_row",
+        lambda _payload, _symbol: {"baseAsset": "SOL"},
+    )
+    monkeypatch.setattr(
+        import_legacy_cost_basis.market,
+        "_public_get",
+        lambda *_args, **_kwargs: {},
+    )
+
+    with pytest.raises(RuntimeError, match="SOL balance is absent"):
+        import_legacy_cost_basis._account_quantity(
+            "SOLUSDT", {"balances": [{"asset": "USDT", "free": "1"}]}
+        )
+
+
 def test_cost_basis_apply_rolls_back_when_post_import_verification_fails(
     tmp_path, monkeypatch,
 ):
@@ -336,7 +410,7 @@ def test_cost_basis_apply_rolls_back_when_post_import_verification_fails(
         )(),
     )
     with pytest.raises(RuntimeError, match="post-import verification failed"):
-        apply_cost_basis_plan(connection, covered_plan())
+        apply_plan(connection, covered_plan())
     assert connection.execute(
         "SELECT status FROM inventory_lots WHERE source_order_id='existing'"
     ).fetchone()[0] == "OPEN"

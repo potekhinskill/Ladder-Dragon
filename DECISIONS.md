@@ -15,6 +15,20 @@ entries concise; this is not a changelog or an activity log.
 
 ## Decisions
 
+### 2026-07-29 — Revalidate at the database mutation boundary
+
+- **Context:** a CLI can prove a preview still matches live exchange state, but
+  a reusable library mutation must not assume every future caller repeats that
+  time-of-check/time-of-use gate.
+- **Decision:** require the cost-basis apply function itself to invoke a live
+  revalidation callback before its write transaction, and persist any
+  statistics-cursor discontinuity as audit evidence while warning the caller.
+- **Why it worked:** stale and missing revalidation fail before lot mutation;
+  migration and cursor-gap regressions preserve the exact range, and the
+  complete 727-test suite passes.
+- **Reuse:** preview/apply tools that archive, supersede or otherwise replace
+  durable financial state after consulting an external authority.
+
 ### 2026-07-29 — Keep blocked analytics observable but compact
 
 - **Context:** fail-closed recovery must keep SHADOW evidence current, but

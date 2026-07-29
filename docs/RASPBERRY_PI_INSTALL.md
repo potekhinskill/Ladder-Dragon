@@ -350,11 +350,15 @@ sudo -u bot env \
 ```
 
 Apply re-fetches the full account and fill history and requires the exact same
-plan hash. It fails without changing the database if history is incomplete, a
+plan hash. Revalidation is mandatory inside the library mutation function, not
+only in the CLI. It fails without changing the database if history is incomplete, a
 commission cannot be valued at trade time, a transfer prevents quantity
 reconciliation, the symbol has an open order, the account changed during or
 after preview, or post-write verification fails. Existing open lots are retained
-as `SUPERSEDED`. Keep `mybot` stopped and
+as `SUPERSEDED`. The JSON result contains `warnings`; a statistics trade-ID gap
+is also stored in `inventory_lot_imports` and means reports do not have complete
+historical trade rows for that exact range, even though the imported FIFO basis
+includes those fills. Keep `mybot` stopped and
 inspect the database/dashboard result before deciding whether holdings
 management should be enabled.
 

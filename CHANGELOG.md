@@ -3,6 +3,22 @@
 All notable changes are documented here. Releases use Semantic Versioning; every
 section is dated and there is intentionally no `Unreleased` section.
 
+## [2.20.76] — 2026-07-29
+
+### Fixed
+- `apply_cost_basis_plan` now requires and invokes a live revalidation callback
+  before opening its write transaction, so a self-consistent but stale preview
+  cannot supersede inventory lots through a non-CLI caller.
+- Cost-basis apply compares the plan cursor with persisted statistics trades,
+  emits a sanitized warning for any skipped range, and stores the exact range
+  in migration `008` audit columns.
+- A missing base-asset balance now fails immediately with an exact diagnostic
+  instead of being represented as a plausible zero balance.
+
+### Verified
+- Cost-basis freshness, cursor audit, missing-asset and migration regressions
+  pass; compileall and the complete suite pass (727 tests).
+
 ## [2.20.75] — 2026-07-29
 
 ### Fixed
