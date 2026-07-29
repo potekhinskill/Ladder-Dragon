@@ -17,6 +17,19 @@ private infrastructure details.
 
 ## Mistakes
 
+### 2026-07-29 — Relied on documentation to select the harness interpreter
+
+- **Impact:** the first 2.20.77 release-harness command again stopped before
+  checks because host Python lacked a project dependency.
+- **Root cause:** the earlier correction documented `.venv/bin/python` but left
+  the executable boundary permissive, so the same human command error remained
+  possible.
+- **Correction:** make the harness re-execute through the repository `.venv`
+  before project imports and retain the selected interpreter only when no
+  local venv exists.
+- **Prevention:** enforce critical environment invariants in entry points and
+  tests; documentation is guidance, not a reliable runtime gate.
+
 ### 2026-07-29 — Repeated a documented host-Python harness mistake
 
 - **Impact:** the first 2.20.75 release-harness invocation stopped before any

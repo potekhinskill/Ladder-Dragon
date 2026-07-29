@@ -3,6 +3,22 @@
 All notable changes are documented here. Releases use Semantic Versioning; every
 section is dated and there is intentionally no `Unreleased` section.
 
+## [2.20.78] — 2026-07-29
+
+### Fixed
+- The verification harness now re-executes through the repository `.venv`
+  before importing project dependencies when a local virtual environment
+  exists, so an accidental host-`python3` invocation cannot fail on missing
+  project packages.
+- CI and other explicitly provisioned environments without a repository
+  `.venv` continue using their selected interpreter, while a failed or looping
+  local re-exec blocks with a clear diagnostic.
+
+### Verified
+- Host-Python re-exec, missing-venv CI fallback, loop prevention, harness,
+  version and deployment regressions pass (81 focused tests); compileall and
+  the complete suite pass (740 tests).
+
 ## [2.20.77] — 2026-07-29
 
 ### Added

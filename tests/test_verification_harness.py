@@ -12,6 +12,8 @@ from pathlib import Path
 import shutil
 import subprocess
 
+import pytest
+
 from bin import verification_harness
 from deploy import scan_tracked_secrets
 from ladder_dragon.verification.dashboard_assets import (
@@ -53,6 +55,73 @@ def _context(tmp_path: Path, profile: str = "local") -> HarnessContext:
             risk_status=tmp_path / "risk.json",
         ),
     )
+
+
+def test_harness_reexecs_project_venv_before_project_imports(
+    tmp_path,
+    monkeypatch,
+):
+    candidate = tmp_path / ".venv" / "bin" / "python"
+    candidate.parent.mkdir(parents=True)
+    candidate.write_text("", encoding="utf-8")
+    monkeypatch.setattr(
+        verification_harness.sys,
+        "argv",
+        ["verification_harness.py", "--profile", "local"],
+    )
+    captured = {}
+
+    def fake_execve(executable, argv, environment):
+        captured.update({
+            "executable": executable,
+            "argv": argv,
+            "marker": environment[
+                verification_harness._VENV_REEXEC_MARKER
+            ],
+        })
+
+    reexecuted = verification_harness._reexec_project_venv_if_needed(
+        project_root=tmp_path,
+        prefix=tmp_path / "host-python",
+        environ={},
+        execve_fn=fake_execve,
+    )
+
+    assert reexecuted is True
+    assert captured == {
+        "executable": str(candidate),
+        "argv": [
+            str(candidate),
+            "-m",
+            "bin.verification_harness",
+            "--profile",
+            "local",
+        ],
+        "marker": "1",
+    }
+
+
+def test_harness_keeps_explicit_ci_python_when_project_venv_is_absent(tmp_path):
+    assert verification_harness._reexec_project_venv_if_needed(
+        project_root=tmp_path,
+        prefix=tmp_path / "ci-python",
+        environ={},
+    ) is False
+
+
+def test_harness_reexec_loop_fails_closed(tmp_path):
+    candidate = tmp_path / ".venv" / "bin" / "python"
+    candidate.parent.mkdir(parents=True)
+    candidate.write_text("", encoding="utf-8")
+
+    with pytest.raises(SystemExit, match="could not enter"):
+        verification_harness._reexec_project_venv_if_needed(
+            project_root=tmp_path,
+            prefix=tmp_path / "host-python",
+            environ={
+                verification_harness._VENV_REEXEC_MARKER: "1",
+            },
+        )
 
 
 def test_profile_registry_contains_the_documented_interfaces(tmp_path):

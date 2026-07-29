@@ -29,6 +29,19 @@ entries concise; this is not a changelog or an activity log.
 
 ## Decisions
 
+### 2026-07-29 — Enforce the verification interpreter at the entry point
+
+- **Context:** repeatedly documenting the correct `.venv` command did not stop
+  accidental host-Python harness runs from failing before verification.
+- **Decision:** when a repository `.venv` exists, re-execute the harness through
+  it before project imports; preserve an explicit CI matrix interpreter only
+  when no local venv exists, and fail closed on a re-exec loop.
+- **Why it worked:** the formerly failing host-`python3` command now reaches
+  harness help, while unit tests prove re-exec arguments, CI fallback and loop
+  prevention without exposing environment contents.
+- **Reuse:** dependency-heavy operator entry points whose canonical runtime is
+  a repository-local virtual environment.
+
 ### 2026-07-29 — Revalidate at the database mutation boundary
 
 - **Context:** a CLI can prove a preview still matches live exchange state, but

@@ -44,6 +44,11 @@ RELEASE_SHA="$(git rev-parse HEAD)"
   --output ".runtime/verification-release.json"
 ```
 
+The explicit `.venv/bin/python` form remains canonical. As a second line of
+defense, the harness entry point automatically re-executes through the
+repository `.venv` before project imports when a local venv exists. CI jobs
+without a local `.venv` retain their selected matrix interpreter.
+
 `release_continuity` and the overall report must both be `PASS`. Its metrics
 are the release manifest: previous/current version and SHA plus every included
 commit. If verification changes any tracked file or finds a defect, do not add

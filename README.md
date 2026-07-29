@@ -31,7 +31,7 @@ fee-aware FIFO accounting, restart reconciliation, per-symbol operational
 reporting, replay and walk-forward verification, and a private Raspberry Pi
 operations dashboard.
 
-Current product version: **2.20.77**. The single version source is
+Current product version: **2.20.78**. The single version source is
 `product_version.py`; releases follow [Semantic Versioning](https://semver.org/).
 Project contact: [LinkedIn](https://www.linkedin.com/in/ypotekhin/).
 
@@ -96,7 +96,7 @@ bounded, explainable, recoverable, and measurable before exposure is increased.
 ## Project status
 
 Ladder Dragon is an actively developed, experimental trading system. Version
-**2.20.77** is the current source release. `main` is the only long-lived branch;
+**2.20.78** is the current source release. `main` is the only long-lived branch;
 feature branches use the `ladderdragon/*` namespace.
 
 DRY and Binance Spot Testnet are the supported starting modes. Mainnet LIVE is
@@ -267,6 +267,11 @@ the usage log.
 The unified verification harness runs the same fail-closed profiles locally, in
 GitHub Actions and on a deployed Raspberry Pi. It composes the existing tools;
 it does not duplicate trading or risk logic.
+
+In a local checkout, the harness enters the repository `.venv` before importing
+project dependencies even when it was accidentally started with host
+`python3`. CI environments without a repository-local `.venv` continue with
+their explicitly provisioned matrix interpreter.
 
 ```bash
 python -m bin.verification_harness --profile local
