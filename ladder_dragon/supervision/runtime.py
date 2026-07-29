@@ -84,6 +84,7 @@ from ladder_dragon.supervision.recovery_gate import (
 from ladder_dragon.supervision.risk_cycle import (
     build_risk_snapshot,
     configured_price_shocks_decimal as _configured_price_shocks_decimal,
+    initial_runtime_risk_gate,
     remaining_order_budget_decimal as _remaining_order_budget_decimal,
 )
 from ladder_dragon.supervision.symbol_service import (
@@ -4396,7 +4397,18 @@ def main():
         f"[SUP] symbols={symbols} ladder_mode={args.ladder_mode} "
         f"ai_advisor={ai_label}"
     )
-    _publish_ai_runtime_status(state="RUNNING")
+    initial_risk_gate = initial_runtime_risk_gate(
+        live=risk_manager is not None,
+        persistent_halt=limits.halt_file.exists(),
+    )
+    _publish_ai_runtime_status(
+        state=str(initial_risk_gate["state"]),
+        risk={
+            "buy_blocked": bool(initial_risk_gate["buy_blocked"]),
+            "halted": bool(initial_risk_gate["halted"]),
+            "reasons": list(initial_risk_gate["reasons"]),
+        },
+    )
 
     get_server_time_offset_ms()
     auto_cap = auto_cap_if_needed(args, n_syms=len(symbols))
@@ -4438,8 +4450,13 @@ def main():
             next_vwap_refresh = _next_vwap_refresh()
 
     next_risk_check = 0.0
-    risk_buy_blocked = False
-    last_risk_signature: tuple[bool, tuple[str, ...]] | None = None
+    risk_buy_blocked = bool(initial_risk_gate["buy_blocked"])
+    initial_risk_reasons = tuple(str(x) for x in initial_risk_gate["reasons"])
+    last_risk_signature: tuple[bool, tuple[str, ...]] | None = (
+        (bool(initial_risk_gate["halted"]), initial_risk_reasons)
+        if risk_manager is not None
+        else None
+    )
     previous_prices: Dict[str, Decimal] = {}
     consecutive_api_failures = 0
     runtime_auth_state = _read_auth_resilience_state()
@@ -4462,9 +4479,12 @@ def main():
                 # Remain visibly fail-closed until an authenticated risk
                 # snapshot succeeds, including the instant a retry is due.
                 auth_backoff_active = auth_failure_attempts > 0
+                risk_pending = (
+                    risk_manager is not None and not risk_snapshot_available
+                )
                 heartbeat_risk = dict(_AI_RUNTIME_STATUS.get("risk") or {})
                 heartbeat_risk.update({
-                    "buy_blocked": risk_buy_blocked,
+                    "buy_blocked": risk_buy_blocked or risk_pending,
                     "halted": bool(last_risk_signature and last_risk_signature[0]),
                     "reasons": list(last_risk_signature[1]) if last_risk_signature else [],
                     "consecutive_api_failures": consecutive_api_failures,
@@ -4477,7 +4497,7 @@ def main():
                     state=(
                         "AUTH_BACKOFF"
                         if auth_backoff_active
-                        else "RUNNING"
+                        else ("RISK_PENDING" if risk_pending else "RUNNING")
                     ),
                     auth_backoff={
                         "active": auth_backoff_active,

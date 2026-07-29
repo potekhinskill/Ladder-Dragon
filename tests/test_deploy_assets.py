@@ -557,6 +557,40 @@ def test_supervisor_control_logs_stay_inside_writable_rotated_directory():
     assert 'LOG="supervisor.log"' not in ctl
 
 
+def test_authoritative_control_state_survives_service_stop_and_reboot():
+    bot_unit = read("deploy/mybot.service")
+    dashboard_unit = read("deploy/pi-dashboard.service")
+    updater = read("deploy/update_raspberry_pi.sh")
+    installer = read("deploy/install_raspberry_pi.sh")
+    harness = read("bin/verification_harness.py")
+
+    control_dir = "/var/lib/ladder-dragon/control"
+    assert f"StateDirectory=ladder-dragon/control" in bot_unit
+    assert "StateDirectoryMode=0700" in bot_unit
+    assert "RuntimeDirectoryPreserve=yes" in bot_unit
+    for filename in (
+        "circuit_halt.json",
+        "risk_state.json",
+        "risk_alerts.ndjson",
+    ):
+        assert f"{control_dir}/{filename}" in bot_unit
+    assert f"CB_STATE_FILE={control_dir}/risk_state.json" in dashboard_unit
+    assert f"-{control_dir}" in dashboard_unit
+    assert f'default=Path("{control_dir}/risk_state.json")' in harness
+
+    assert updater.index("prepare_persistent_control") < updater.index(
+        "remember_service_state"
+    )
+    assert updater.index("prepare_persistent_control") < updater.index(
+        "systemctl stop mybot"
+    )
+    assert installer.index("prepare_persistent_control") < installer.index(
+        "systemctl stop mybot"
+    )
+    for script in (installer, updater):
+        assert "runtime and persistent control evidence conflict" in script
+
+
 def test_supervisor_stop_waits_for_managed_children_before_systemd_kill():
     ctl = read("bin/supervisor_ctl.sh")
     stop_all = ctl.split("cmd_stop_all() {", 1)[1].split(

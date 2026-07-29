@@ -14,6 +14,7 @@ BOT_USER="${BOT_USER:-bot}"
 PRESERVE_LIVE=0
 SKIP_APT=0
 TRUSTED_RELEASE_FINGERPRINT="808B9F52CB6C08901703EF7C113144122F1830A0"
+CONTROL_DIR="/var/lib/ladder-dragon/control"
 
 usage() {
   cat <<'EOF'
@@ -52,6 +53,23 @@ done
 fail() {
   echo "[FAIL] $*" >&2
   exit 1
+}
+
+prepare_persistent_control() {
+  local name source target
+  install -d -o "${BOT_USER}" -g "${BOT_USER}" -m 0700 "${CONTROL_DIR}"
+  for name in circuit_halt.json risk_state.json risk_alerts.ndjson; do
+    source="/run/mybot/${name}"
+    target="${CONTROL_DIR}/${name}"
+    [[ -f "${source}" ]] || continue
+    if [[ -f "${target}" ]]; then
+      cmp -s "${source}" "${target}" \
+        || fail "runtime and persistent control evidence conflict: ${name}"
+      continue
+    fi
+    install -o "${BOT_USER}" -g "${BOT_USER}" -m 0600 \
+      "${source}" "${target}"
+  done
 }
 
 # Signed deployments are released only from the canonical long-lived branch.
@@ -330,6 +348,9 @@ mybot_was_active="$(systemctl is-active mybot 2>/dev/null || true)"
 dashboard_was_active="$(systemctl is-active pi-healthd 2>/dev/null || true)"
 legacy_project=""
 prepared_checkout=""
+
+# Capture the legacy runtime marker before systemd removes RuntimeDirectory.
+prepare_persistent_control
 
 # Replace legacy code only after a checkout has been downloaded successfully.
 if [[ "${legacy_unit}" == 1 ]]; then

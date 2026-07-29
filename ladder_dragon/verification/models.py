@@ -75,7 +75,9 @@ class HarnessOptions:
     source_paths: tuple[Path, ...] = ()
     runtime_status: Path = Path("/run/mybot/ai_status.json")
     user_stream_status: Path = Path("/run/mybot/user_stream_SOLUSDT.json")
-    risk_status: Path = Path("/run/mybot/risk_state.json")
+    risk_status: Path = Path(
+        "/var/lib/ladder-dragon/control/risk_state.json"
+    )
     order_journal: Path = Path("db/order_intents.sqlite3")
     prediction_db: Path = Path("db/prediction_shadow.sqlite3")
     ai_decisions_db: Path = Path("db/ai_decisions.sqlite3")

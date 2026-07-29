@@ -31,7 +31,7 @@ fee-aware FIFO accounting, restart reconciliation, per-symbol operational
 reporting, replay and walk-forward verification, and a private Raspberry Pi
 operations dashboard.
 
-Current product version: **2.20.83**. The single version source is
+Current product version: **2.20.84**. The single version source is
 `product_version.py`; releases follow [Semantic Versioning](https://semver.org/).
 Project contact: [LinkedIn](https://www.linkedin.com/in/ypotekhin/).
 
@@ -96,7 +96,7 @@ bounded, explainable, recoverable, and measurable before exposure is increased.
 ## Project status
 
 Ladder Dragon is an actively developed, experimental trading system. Version
-**2.20.83** is the current source release. `main` is the only long-lived branch;
+**2.20.84** is the current source release. `main` is the only long-lived branch;
 feature branches use the `ladderdragon/*` namespace.
 
 DRY and Binance Spot Testnet are the supported starting modes. Mainnet LIVE is
@@ -1138,6 +1138,12 @@ persistent halt state, and restart survival:
 PYTHONPATH=. .venv/bin/python -m bin.binance_testnet_smoke \
   --mode gap-drill --symbol SOLUSDT
 ```
+
+Authoritative circuit-breaker files live in
+`/var/lib/ladder-dragon/control`, not the volatile `/run/mybot` runtime
+directory. Service stop, restart and reboot must preserve HALT evidence. A LIVE
+supervisor reports `RISK_PENDING` and keeps BUY blocked until its first
+authoritative risk snapshot succeeds.
 
 The dashboard and `/api/trading/overview` expose exact natural lifecycle
 evidence as `closed_exact / required`. Only an exchange-verified OCO leg with a

@@ -17,6 +17,34 @@ private infrastructure details.
 
 ## Mistakes
 
+### 2026-07-29 — Stored authoritative HALT in a volatile runtime directory
+
+- **Impact:** stopping the owning systemd service removed its runtime directory,
+  so a post-exit HALT write failed and restart telemetry could temporarily lose
+  the authoritative safety marker.
+- **Root cause:** persistent control evidence was placed below `/run` and an
+  operator mutation path stopped the service before verifying that the HALT
+  destination still existed and was writable.
+- **Correction:** move HALT, risk state and alerts to systemd `StateDirectory`,
+  migrate legacy evidence before service stop, fail on conflicting copies and
+  keep LIVE BUY blocked as `RISK_PENDING` until reconciliation.
+- **Prevention:** authoritative safety evidence must never depend on
+  `RuntimeDirectory`; stop/restart/reboot tests must prove persistence, and
+  mutation preflight must verify its fail-closed destination before exchange
+  submission.
+
+### 2026-07-29 — Published RUNNING before the first risk snapshot
+
+- **Impact:** the dashboard briefly showed `RUNNING` and `risk_halted=false`
+  during a slow startup even though execution remained blocked by the
+  preflight HALT.
+- **Root cause:** runtime status was initialized unconditionally and the
+  in-memory BUY gate started false before authoritative risk evaluation.
+- **Correction:** initialize LIVE as `RISK_PENDING`, preserve known HALT state
+  and publish BUY blocked until a successful snapshot exists.
+- **Prevention:** tests must distinguish process liveness from trading
+  readiness and assert fail-closed telemetry throughout the startup interval.
+
 ### 2026-07-29 — Sandboxed a WAL reader as a static-file reader
 
 - **Impact:** the scheduled daily digest could not open the live SQLite

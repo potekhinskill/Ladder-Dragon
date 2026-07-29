@@ -4,6 +4,17 @@ Read this file before changing the repository. Record only decisions that were
 validated by tests or production evidence and are likely to be reused. Keep
 entries concise; this is not a changelog or an activity log.
 
+### 2026-07-29 — Separate persistent safety state from process runtime
+
+- **Context:** systemd removes runtime directories across stop or reboot while
+  circuit HALT evidence must outlive both.
+- **Decision:** store authoritative control evidence in `StateDirectory`, keep
+  only disposable process files under `/run`, and represent LIVE startup as
+  `RISK_PENDING` until authoritative reconciliation completes.
+- **Why it worked:** path, migration-order and startup-state regressions prove
+  that HALT remains visible without allowing a transient BUY-ready status.
+- **Reuse:** every daemon whose safety decision must survive its own lifecycle.
+
 ### 2026-07-29 — Make scheduled reports idempotent and retryable
 
 - **Context:** a single transient WAL or delivery failure at the scheduled

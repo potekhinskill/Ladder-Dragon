@@ -13,9 +13,16 @@ Group=bot
 WorkingDirectory=/home/bot/apps/binance_bot
 EnvironmentFile=/home/bot/apps/binance_bot/.env
 EnvironmentFile=/home/bot/apps/binance_bot/.env.service
+Environment=LADDER_DRAGON_CONTROL_DIR=/var/lib/ladder-dragon/control
+Environment=CB_HALT_FILE=/var/lib/ladder-dragon/control/circuit_halt.json
+Environment=CB_STATE_FILE=/var/lib/ladder-dragon/control/risk_state.json
+Environment=CB_ALERTS_FILE=/var/lib/ladder-dragon/control/risk_alerts.ndjson
 Environment=PYTHONUNBUFFERED=1
 RuntimeDirectory=mybot
 RuntimeDirectoryMode=0700
+RuntimeDirectoryPreserve=yes
+StateDirectory=ladder-dragon/control
+StateDirectoryMode=0700
 ExecStart=/home/bot/apps/binance_bot/deploy/run_bot_service.sh
 ExecStop=/home/bot/apps/binance_bot/bin/supervisor_ctl.sh stop-all
 Restart=on-failure
@@ -47,7 +54,7 @@ SystemCallArchitectures=native
 SystemCallFilter=@system-service
 SystemCallErrorNumber=EPERM
 RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
-ReadWritePaths=/home/bot/apps/binance_bot/db /home/bot/apps/binance_bot/logs /run/mybot
+ReadWritePaths=/home/bot/apps/binance_bot/db /home/bot/apps/binance_bot/logs /run/mybot /var/lib/ladder-dragon/control
 ReadOnlyPaths=-/var/lib/ladder-dragon/maintenance.json
 UMask=0077
 

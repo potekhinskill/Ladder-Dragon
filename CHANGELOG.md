@@ -3,6 +3,24 @@
 All notable changes are documented here. Releases use Semantic Versioning; every
 section is dated and there is intentionally no `Unreleased` section.
 
+## [2.20.84] — 2026-07-29
+
+### Fixed
+- Authoritative circuit HALT, risk state and alert evidence now live in the
+  persistent systemd state directory instead of the volatile service runtime
+  directory, with conflict-detecting pre-stop migration for existing Pi
+  installations.
+- LIVE supervisor telemetry starts as `RISK_PENDING` with BUY blocked until the
+  first authenticated risk snapshot completes, so a slow startup can no longer
+  briefly report an unsafe false `RUNNING` state.
+- Dashboard and Pi verification read the same persistent risk-state path while
+  explicit custom and isolated Testnet control paths remain unchanged.
+
+### Verified
+- Persistent-path, explicit-path, startup risk-gate, deployment-order and
+  service-contract regressions pass (74 focused tests); compileall and shell
+  syntax checks pass; the complete suite passes (759 tests).
+
 ## [2.20.83] — 2026-07-29
 
 ### Fixed

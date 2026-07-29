@@ -275,6 +275,13 @@ cancel -> MARKET SELL of acquired delta`. Any post-BUY uncertainty attempts
 cleanup and creates a persistent halt. Do not reset that halt or start `mybot`
 until Binance open orders and balances have been reviewed.
 
+Production safety controls are stored in
+`/var/lib/ladder-dragon/control/{circuit_halt.json,risk_state.json,risk_alerts.ndjson}`.
+The installer and updater migrate an older `/run/mybot` control file before
+stopping the service and block on conflicting evidence. Never delete these
+files to make deployment pass; use the reviewed reset procedure only after
+authoritative exchange reconciliation.
+
 Do not repeat this paid acceptance drill to create an artificial sample. Before
 expanding beyond the minimal SOLUSDT canary, collect at least three naturally
 completed and exactly linked `BUY fill -> OCO confirmed -> TP or STOP fill`

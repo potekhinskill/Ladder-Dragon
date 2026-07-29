@@ -37,6 +37,44 @@ def limits(tmp_path: Path, **overrides) -> RiskLimits:
     return RiskLimits(**values)
 
 
+def test_default_raspberry_control_paths_move_to_existing_state_directory(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+):
+    control_dir = tmp_path / "control"
+    control_dir.mkdir()
+    monkeypatch.setenv("LADDER_DRAGON_CONTROL_DIR", str(control_dir))
+    monkeypatch.setenv("BOT_RUN_DIR", "/run/mybot")
+    for name in ("CB_HALT_FILE", "CB_STATE_FILE", "CB_ALERTS_FILE"):
+        monkeypatch.delenv(name, raising=False)
+
+    configured = RiskLimits.from_env()
+
+    assert configured.halt_file == control_dir / "circuit_halt.json"
+    assert configured.state_file == control_dir / "risk_state.json"
+    assert configured.alerts_file == control_dir / "risk_alerts.ndjson"
+
+
+def test_explicit_control_paths_are_never_redirected(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+):
+    control_dir = tmp_path / "control"
+    control_dir.mkdir()
+    isolated = tmp_path / "testnet"
+    monkeypatch.setenv("LADDER_DRAGON_CONTROL_DIR", str(control_dir))
+    monkeypatch.setenv("BOT_RUN_DIR", "/run/mybot")
+    monkeypatch.setenv("CB_HALT_FILE", str(isolated / "halt.json"))
+    monkeypatch.setenv("CB_STATE_FILE", str(isolated / "state.json"))
+    monkeypatch.setenv("CB_ALERTS_FILE", str(isolated / "alerts.ndjson"))
+
+    configured = RiskLimits.from_env()
+
+    assert configured.halt_file == isolated / "halt.json"
+    assert configured.state_file == isolated / "state.json"
+    assert configured.alerts_file == isolated / "alerts.ndjson"
+
+
 def snapshot(equity: str, **overrides) -> RiskSnapshot:
     values = dict(
         equity_usdt=Decimal(equity),

@@ -127,7 +127,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--risk-status",
         type=Path,
-        default=Path("/run/mybot/risk_state.json"),
+        default=Path("/var/lib/ladder-dragon/control/risk_state.json"),
     )
     parser.add_argument(
         "--order-journal",

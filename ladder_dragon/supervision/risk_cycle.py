@@ -29,6 +29,31 @@ from ladder_dragon.risk.risk_statistics import (
 from ladder_dragon.supervision.entry_policy import finite_decimal
 
 
+def initial_runtime_risk_gate(
+    *,
+    live: bool,
+    persistent_halt: bool,
+) -> dict[str, object]:
+    """Publish a fail-closed LIVE state until the first risk snapshot exists."""
+    if not live:
+        return {
+            "state": "RUNNING",
+            "buy_blocked": False,
+            "halted": False,
+            "reasons": (),
+        }
+    if persistent_halt:
+        reasons = ("persistent circuit halt requires authoritative evaluation",)
+    else:
+        reasons = ("authoritative risk snapshot pending",)
+    return {
+        "state": "RISK_PENDING",
+        "buy_blocked": True,
+        "halted": persistent_halt,
+        "reasons": reasons,
+    }
+
+
 def _runtime_dependency(runtime: Mapping[str, object], name: str) -> Any:
     """Resolve one explicit runtime adapter required by the risk coordinator."""
     try:

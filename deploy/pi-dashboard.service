@@ -14,6 +14,7 @@ Group=bot
 SupplementaryGroups=www-data
 WorkingDirectory=/home/bot/apps/binance_bot
 EnvironmentFile=/home/bot/apps/binance_bot/.env.dashboard
+Environment=CB_STATE_FILE=/var/lib/ladder-dragon/control/risk_state.json
 ExecStart=/home/bot/apps/binance_bot/.venv/bin/python -m bin.run_dashboard
 Restart=always
 RestartSec=2
@@ -41,7 +42,7 @@ SystemCallFilter=@system-service
 SystemCallErrorNumber=EPERM
 RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
 ReadWritePaths=/home/bot/apps/binance_bot/FastAPI/pi-dashboard/data
-ReadOnlyPaths=/home/bot/apps/binance_bot/db /home/bot/apps/binance_bot/logs -/run/mybot
+ReadOnlyPaths=/home/bot/apps/binance_bot/db /home/bot/apps/binance_bot/logs -/run/mybot -/var/lib/ladder-dragon/control
 ReadOnlyPaths=-/run/pi-watchdog/host-health.json
 ReadOnlyPaths=-/var/lib/ladder-dragon/maintenance.json
 UMask=0077

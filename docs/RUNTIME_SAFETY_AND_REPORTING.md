@@ -96,6 +96,13 @@ validated against the release-approval requirements.
 `HALT` blocks trading mutations. It stops new BUY workers and cannot be bypassed
 by AI, a strategy proposal, or a manual fallback.
 
+The authoritative marker, risk snapshot and alert stream are stored below
+`/var/lib/ladder-dragon/control`. They must survive service stop and host
+reboot; `/run/mybot` contains only disposable process-lifetime files. On LIVE
+startup the supervisor publishes `RISK_PENDING` with BUY blocked until the
+first authenticated risk snapshot completes. A pre-existing marker remains
+visible as halted throughout that interval.
+
 When authenticated account reconciliation is healthy, the supervisor may still
 calculate non-executing SHADOW candidates while HALT is active. This preserves
 counterfactual evidence needed to study BUY distance, re-anchoring, regimes, and

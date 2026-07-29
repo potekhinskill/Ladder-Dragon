@@ -19,6 +19,9 @@ from typing import Iterable, Mapping, Optional
 from ladder_dragon.execution.trade_accounting import TradeExecution
 from ladder_dragon.execution.telegram_alerts import notify as notify_telegram
 
+PERSISTENT_CONTROL_DIR = Path("/var/lib/ladder-dragon/control")
+LEGACY_RUNTIME_CONTROL_DIR = Path("/run/mybot")
+
 
 def money(value: object) -> Decimal:
     """Handle money."""
@@ -51,7 +54,47 @@ class RiskLimits:
 
     @classmethod
     def from_env(cls) -> "RiskLimits":
-        return cls.from_mapping(os.environ)
+        environ = dict(os.environ)
+        control_dir = Path(
+            environ.get(
+                "LADDER_DRAGON_CONTROL_DIR",
+                str(PERSISTENT_CONTROL_DIR),
+            )
+        )
+        run_dir = Path(
+            environ.get("BOT_RUN_DIR", str(LEGACY_RUNTIME_CONTROL_DIR))
+        )
+        legacy_paths = {
+            "CB_HALT_FILE": run_dir / "circuit_halt.json",
+            "CB_STATE_FILE": run_dir / "risk_state.json",
+            "CB_ALERTS_FILE": run_dir / "risk_alerts.ndjson",
+        }
+        try:
+            persistent_control_exists = control_dir.is_dir()
+        except OSError:
+            persistent_control_exists = False
+        if (
+            persistent_control_exists
+            and run_dir == LEGACY_RUNTIME_CONTROL_DIR
+            and all(
+                Path(environ.get(name, str(legacy_path))) == legacy_path
+                for name, legacy_path in legacy_paths.items()
+            )
+        ):
+            # Redirect only the exact legacy Raspberry layout. Explicit custom
+            # paths and isolated Testnet paths must remain untouched.
+            environ.update(
+                {
+                    "CB_HALT_FILE": str(
+                        control_dir / "circuit_halt.json"
+                    ),
+                    "CB_STATE_FILE": str(control_dir / "risk_state.json"),
+                    "CB_ALERTS_FILE": str(
+                        control_dir / "risk_alerts.ndjson"
+                    ),
+                }
+            )
+        return cls.from_mapping(environ)
 
     @classmethod
     def from_mapping(cls, environ: Mapping[str, str]) -> "RiskLimits":

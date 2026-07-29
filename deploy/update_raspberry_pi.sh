@@ -11,6 +11,7 @@ BOT_HOSTNAME="${BOT_HOSTNAME:-$(hostname -s).local}"
 BOT_USER="${BOT_USER:-$(stat -c '%U' "${PROJECT_DIR}" 2>/dev/null || echo bot)}"
 UPDATE_TRUST_CONFIG="/etc/ladder-dragon/update-trust.conf"
 BREAK_GLASS_MARKER="/run/ladder-dragon/update-break-glass"
+CONTROL_DIR="/var/lib/ladder-dragon/control"
 ACTION="${1:-update}"
 UPDATE_COMMIT="${2:-${BOT_UPDATE_COMMIT:-}}"
 MYBOT_WAS_ACTIVE=0
@@ -24,6 +25,23 @@ SERVICES_STOPPED=0
 fail() {
   echo "[FAIL] $*" >&2
   exit 1
+}
+
+prepare_persistent_control() {
+  local name source target
+  install -d -o "${BOT_USER}" -g "${BOT_USER}" -m 0700 "${CONTROL_DIR}"
+  for name in circuit_halt.json risk_state.json risk_alerts.ndjson; do
+    source="/run/mybot/${name}"
+    target="${CONTROL_DIR}/${name}"
+    [[ -f "${source}" ]] || continue
+    if [[ -f "${target}" ]]; then
+      cmp -s "${source}" "${target}" \
+        || fail "runtime and persistent control evidence conflict: ${name}"
+      continue
+    fi
+    install -o "${BOT_USER}" -g "${BOT_USER}" -m 0600 \
+      "${source}" "${target}"
+  done
 }
 
 verify_trusted_commit() {
@@ -331,6 +349,10 @@ export BACKUP_EXTERNAL_MOUNT="${backup_values[1]}"
 export BACKUP_EXTERNAL_DIR="${backup_values[2]}"
 export BACKUP_EXTERNAL_RETENTION_DAYS="${backup_values[3]}"
 PROJECT_DIR="${PROJECT_DIR}" deploy/backup_raspberry_pi.sh
+
+# Copy authoritative control evidence before stopping the legacy unit:
+# systemd removes an unpreserved RuntimeDirectory during stop.
+prepare_persistent_control
 
 # First record the systemd state. `systemctl stop` does not remove enabled:
 # autostart remains configured, while Restart=always cannot mix versions during the update.
