@@ -23,6 +23,10 @@ _PYTEST_TOTAL = {
     "failed": re.compile(r"(?<!\d)(\d+) failed\b"),
     "skipped": re.compile(r"(?<!\d)(\d+) skipped\b"),
 }
+_PYTEST_FAILED_NODE = re.compile(
+    r"^FAILED (?P<node>tests/[A-Za-z0-9_./-]+::[A-Za-z0-9_./:\[\]-]+)",
+    re.MULTILINE,
+)
 
 
 def _safe_metrics(output: str) -> dict[str, object]:
@@ -31,6 +35,11 @@ def _safe_metrics(output: str) -> dict[str, object]:
         matches = pattern.findall(output)
         if matches:
             metrics[name] = int(matches[-1])
+    failed_nodes = tuple(
+        dict.fromkeys(match.group("node") for match in _PYTEST_FAILED_NODE.finditer(output))
+    )
+    if failed_nodes:
+        metrics["failed_tests"] = list(failed_nodes[:20])
     return metrics
 
 

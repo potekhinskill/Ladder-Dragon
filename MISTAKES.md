@@ -17,6 +17,18 @@ private infrastructure details.
 
 ## Mistakes
 
+### 2026-07-29 — Hid the identity of a failed CI test
+
+- **Impact:** all three Linux CI jobs reported one failure, but the verification
+  artifact exposed only aggregate counters, forcing an avoidable diagnostic
+  release before the root cause could be corrected.
+- **Root cause:** child output was correctly excluded for secret safety, but the
+  allowlist contained totals only and omitted the non-sensitive pytest node ID.
+- **Correction:** retain only validated `tests/...::test_...` identifiers in
+  failed-check metrics while continuing to discard tracebacks and values.
+- **Prevention:** fail-closed verification reports must expose the smallest
+  safe diagnostic identity needed to reproduce a failure.
+
 ### 2026-07-29 — Let canary cleanup replace the initiating failure
 
 - **Impact:** simultaneous OCO and cleanup failures reported only the cleanup

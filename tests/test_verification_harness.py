@@ -516,6 +516,38 @@ def test_pytest_metrics_are_allowlisted_without_storing_output(
     assert "520 passed" not in result.summary
 
 
+def test_pytest_failure_metrics_keep_only_safe_node_ids(
+    tmp_path, monkeypatch
+):
+    secret = "signature=super-secret-value"
+
+    def fake_run(*args, **kwargs):
+        return subprocess.CompletedProcess(
+            args=["pytest"],
+            returncode=1,
+            stdout=(
+                "FAILED tests/test_canary.py::test_primary_error\n"
+                "1 failed, 765 passed\n"
+            ),
+            stderr=f"request body contained {secret}",
+        )
+
+    monkeypatch.setattr(subprocess, "run", fake_run)
+    result = HarnessRunner(_context(tmp_path))._run_spec(
+        CheckSpec(name="pytest", argv=("python", "-m", "pytest"))
+    )
+    rendered = json.dumps(result.as_dict())
+    assert result.metrics == {
+        "passed": 765,
+        "failed": 1,
+        "failed_tests": [
+            "tests/test_canary.py::test_primary_error",
+        ],
+    }
+    assert secret not in rendered
+    assert "request body" not in rendered
+
+
 def test_report_has_versioned_schema_fields_and_owner_only_mode(tmp_path):
     context = _context(tmp_path)
     checks = (

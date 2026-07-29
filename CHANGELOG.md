@@ -3,6 +3,19 @@
 All notable changes are documented here. Releases use Semantic Versioning; every
 section is dated and there is intentionally no `Unreleased` section.
 
+## [2.20.88] — 2026-07-29
+
+### Fixed
+- The verification harness now reports only allowlisted failed pytest node IDs
+  when a child test run fails. Tracebacks, assertion values, request bodies and
+  all other child output remain excluded from the JSON artifact, so Linux-only
+  CI failures are actionable without weakening secret containment.
+
+### Verified
+- The allowlist regression proves the failed node ID is retained while a
+  synthetic signed URL is absent from the report; compileall and the complete
+  suite pass locally (767 tests).
+
 ## [2.20.87] — 2026-07-29
 
 ### Fixed
