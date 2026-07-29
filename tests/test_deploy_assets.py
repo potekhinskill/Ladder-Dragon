@@ -478,10 +478,12 @@ def test_shadow_ai_defaults_limit_cost_and_duplicate_requests():
     dashboard_env = read(".env.dashboard.example")
     changelog = read("CHANGELOG.md")
     assert "AI_CACHE_SEC=900" in example
+    assert "AI_NEGATIVE_CACHE_SEC=30" in example
     assert "AI_DAILY_COST_LIMIT_USD=0.50" in example
     assert "AI_DAILY_TOKEN_LIMIT=500000" in example
     assert "AI_MAX_REQUESTS_PER_DAY=400" in example
     assert 'os.getenv("AI_CACHE_SEC", "900")' in config
+    assert 'os.getenv("AI_NEGATIVE_CACHE_SEC", "30")' in config
     assert 'os.getenv("AI_DAILY_COST_LIMIT_USD", "0.50")' in config
     assert 'os.getenv("AI_DAILY_COST_LIMIT_USD", "0.50")' in dashboard
     assert "AI_DAILY_COST_LIMIT_USD=0.50" in dashboard_env
@@ -490,6 +492,9 @@ def test_shadow_ai_defaults_limit_cost_and_duplicate_requests():
     assert 'os.getenv("AI_DAILY_TOKEN_LIMIT", "500000")' in dashboard
     assert 'os.getenv("AI_MAX_REQUESTS_PER_DAY", "400")' in config
     assert "AI_RAG_INCLUDE_VIRTUAL=0" in example
+    assert "AI_RAG_MIN_SCORE=0.75" in example
+    assert "AI_RAG_RETENTION_DAYS=365" in example
+    assert "AI_RAG_CANDIDATE_LIMIT=1000" in example
     assert "include_virtual=False" in read(
         "ladder_dragon/supervision/runtime.py"
     )

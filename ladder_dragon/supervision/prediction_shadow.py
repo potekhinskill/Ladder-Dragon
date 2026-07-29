@@ -10,6 +10,25 @@ import re
 from pathlib import Path
 from typing import Any, Callable, Dict
 
+from ladder_dragon.ai.ai_knowledge import KnowledgeStore
+
+
+def build_knowledge_store(
+    decisions_db: str,
+    *,
+    getenv: Callable[[str, str], str] = os.getenv,
+) -> KnowledgeStore:
+    """Build the bounded RAG store from validated supervisor settings."""
+    return KnowledgeStore(
+        decisions_db,
+        retention_days=int(
+            getenv("AI_RAG_RETENTION_DAYS", "365") or 365
+        ),
+        candidate_limit=int(
+            getenv("AI_RAG_CANDIDATE_LIMIT", "1000") or 1000
+        ),
+    )
+
 
 def publish_plan_decision_status(
     last_decision: Dict[str, Any],

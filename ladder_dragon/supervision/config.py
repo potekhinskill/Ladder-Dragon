@@ -194,6 +194,11 @@ def build_supervisor_parser() -> argparse.ArgumentParser:
     ap.add_argument("--ai-base-url", default=os.getenv("AI_BASE_URL", ""))
     ap.add_argument("--ai-timeout-sec", type=float, default=float(os.getenv("AI_TIMEOUT_SEC", "10")))
     ap.add_argument("--ai-cache-sec", type=int, default=int(os.getenv("AI_CACHE_SEC", "900")))
+    ap.add_argument(
+        "--ai-negative-cache-sec",
+        type=int,
+        default=int(os.getenv("AI_NEGATIVE_CACHE_SEC", "30")),
+    )
     ap.add_argument("--ai-min-confidence", type=float, default=float(os.getenv("AI_MIN_CONFIDENCE", "0.65")))
     ap.add_argument("--ai-width-scale-min", type=float, default=float(os.getenv("AI_WIDTH_SCALE_MIN", "0.75")))
     ap.add_argument("--ai-width-scale-max", type=float, default=float(os.getenv("AI_WIDTH_SCALE_MAX", "1.50")))
@@ -336,6 +341,7 @@ def validate_supervisor_args(parser: argparse.ArgumentParser, args: argparse.Nam
         "--vwap-refresh-sec": args.vwap_refresh_sec,
         "--vwap-refresh-jitter-sec": args.vwap_refresh_jitter_sec,
         "--ai-cache-sec": args.ai_cache_sec,
+        "--ai-negative-cache-sec": args.ai_negative_cache_sec,
     }
     for name, value in non_negative.items():
         if float(value) < 0:
@@ -445,9 +451,11 @@ def validate_supervisor_args(parser: argparse.ArgumentParser, args: argparse.Nam
     if not 0 <= args.ai_max_realized_stop_rate <= 1:
         parser.error("--ai-max-realized-stop-rate must be in [0, 1]")
     try:
-        rag_min_score = float(os.getenv("AI_RAG_MIN_SCORE", "0.65"))
+        rag_min_score = float(os.getenv("AI_RAG_MIN_SCORE", "0.75"))
         rag_min_matches = int(os.getenv("AI_RAG_MIN_MATCHES", "1"))
         rag_decay_days = int(os.getenv("AI_RAG_DECAY_DAYS", "180"))
+        rag_retention_days = int(os.getenv("AI_RAG_RETENTION_DAYS", "365"))
+        rag_candidate_limit = int(os.getenv("AI_RAG_CANDIDATE_LIMIT", "1000"))
         rag_market_age = float(os.getenv("AI_RAG_MAX_MARKET_AGE_SEC", "30"))
         rag_portfolio_age = float(os.getenv("AI_RAG_MAX_PORTFOLIO_AGE_SEC", "30"))
     except ValueError as exc:
@@ -458,6 +466,10 @@ def validate_supervisor_args(parser: argparse.ArgumentParser, args: argparse.Nam
         parser.error("AI_RAG_MIN_MATCHES must be > 0")
     if rag_decay_days < 0:
         parser.error("AI_RAG_DECAY_DAYS must be >= 0")
+    if rag_retention_days <= 0:
+        parser.error("AI_RAG_RETENTION_DAYS must be > 0")
+    if rag_candidate_limit <= 0:
+        parser.error("AI_RAG_CANDIDATE_LIMIT must be > 0")
     if rag_market_age <= 0 or rag_portfolio_age <= 0:
         parser.error("AI_RAG_MAX_*_AGE_SEC must be > 0")
     if not 0 <= args.ai_min_confidence <= 1:

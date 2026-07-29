@@ -15,6 +15,20 @@ entries concise; this is not a changelog or an activity log.
 
 ## Decisions
 
+### 2026-07-29 — Bound RAG by both market distance and retained evidence
+
+- **Context:** cosine-only retrieval treated proportional quiet and extreme
+  feature vectors as identical, while unbounded document scans made advisory
+  latency grow with database history.
+- **Decision:** combine cosine direction with normalized Euclidean distance,
+  retain evidence for a fixed horizon, score only a bounded newest candidate
+  set, and preserve time decay plus the non-future cutoff.
+- **Why it worked:** regressions distinguish equal-direction magnitudes, remove
+  expired documents and retrieval links, cap the Python candidate set, and
+  still reject future or insufficient evidence.
+- **Reuse:** any nearest-neighbor market retrieval where feature intensity and
+  predictable runtime are both part of the contract.
+
 ### 2026-07-29 — Publish only the canonical main branch
 
 - **Context:** merged release branches and a draft pull request remained

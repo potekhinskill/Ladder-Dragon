@@ -31,7 +31,7 @@ fee-aware FIFO accounting, restart reconciliation, per-symbol operational
 reporting, replay and walk-forward verification, and a private Raspberry Pi
 operations dashboard.
 
-Current product version: **2.20.73**. The single version source is
+Current product version: **2.20.74**. The single version source is
 `product_version.py`; releases follow [Semantic Versioning](https://semver.org/).
 Project contact: [LinkedIn](https://www.linkedin.com/in/ypotekhin/).
 
@@ -96,7 +96,7 @@ bounded, explainable, recoverable, and measurable before exposure is increased.
 ## Project status
 
 Ladder Dragon is an actively developed, experimental trading system. Version
-**2.20.73** is the current source release. `main` is the only long-lived branch;
+**2.20.74** is the current source release. `main` is the only long-lived branch;
 feature branches use the `ladderdragon/*` namespace.
 
 DRY and Binance Spot Testnet are the supported starting modes. Mainnet LIVE is
@@ -219,11 +219,15 @@ DEEPSEEK_API_KEY=your_key
 AI_USAGE_LOG=.runtime/ai_usage.ndjson
 AI_DECISIONS_DB=.runtime/ai_decisions.sqlite3
 AI_CACHE_SEC=900
+AI_NEGATIVE_CACHE_SEC=30
 AI_BLOCKED_SHADOW_INTERVAL_SEC=60
 AI_DAILY_COST_LIMIT_USD=0.50
 AI_DAILY_TOKEN_LIMIT=500000
 AI_MAX_REQUESTS_PER_DAY=400
 AI_RAG_TOP_K=3
+AI_RAG_MIN_SCORE=0.75
+AI_RAG_RETENTION_DAYS=365
+AI_RAG_CANDIDATE_LIMIT=1000
 AI_RAG_INCLUDE_VIRTUAL=0
 ```
 

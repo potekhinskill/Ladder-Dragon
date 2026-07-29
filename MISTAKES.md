@@ -17,6 +17,30 @@ private infrastructure details.
 
 ## Mistakes
 
+### 2026-07-29 — Put RAG configuration back into the supervisor monolith
+
+- **Impact:** the first focused 2.20.74 run failed the architecture budget
+  because the supervisor runtime grew 13 lines above its non-growth limit.
+- **Root cause:** environment-to-store construction was added at the call site
+  instead of the existing prediction-shadow ownership boundary.
+- **Correction:** move the bounded knowledge-store factory into
+  `supervision.prediction_shadow` and keep the runtime call to one line.
+- **Prevention:** before adding orchestration configuration, identify the
+  technical owner and check monolith line budgets in the first focused run.
+
+### 2026-07-29 — Published a policy commit without advancing the release
+
+- **Impact:** all three Python CI jobs passed their tests but the unified
+  harness correctly returned `BLOCKED`, leaving `main` red after branch cleanup.
+- **Root cause:** the policy-only change was treated as exempt from the linear
+  release invariant even though the repository explicitly requires
+  documentation-only releases to advance the semantic version.
+- **Correction:** include the policy commit in 2.20.74, update every public
+  version surface, and verify it through the release continuity harness.
+- **Prevention:** before any direct push to `main`, run the local harness
+  against the prospective commit and either publish the direct next version or
+  do not push.
+
 ### 2026-07-29 — Tested blocked SHADOW only inside the main runtime loop
 
 - **Impact:** a startup recovery block left advisory decisions and prediction

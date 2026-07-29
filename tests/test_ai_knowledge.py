@@ -3,7 +3,11 @@ import sqlite3
 import time
 
 from ladder_dragon.ai.context.runtime import AdvisorDecisionStore
-from ladder_dragon.ai.ai_knowledge import KnowledgeStore, cosine_similarity
+from ladder_dragon.ai.ai_knowledge import (
+    KnowledgeStore,
+    cosine_similarity,
+    hybrid_similarity,
+)
 
 
 def test_knowledge_store_ingests_only_evaluated_decisions_and_retrieves(tmp_path):
@@ -118,6 +122,16 @@ def test_cosine_similarity_is_bounded_and_zero_safe():
     assert cosine_similarity([0, 0], [1, 0]) == 0.0
 
 
+def test_hybrid_similarity_distinguishes_direction_from_magnitude():
+    quiet = [0.3] * 10
+    panic = [3.0] * 10
+
+    assert cosine_similarity(quiet, panic) == 1.0
+    assert hybrid_similarity(quiet, quiet) == 1.0
+    assert 0.70 < hybrid_similarity(quiet, panic) < 0.75
+    assert hybrid_similarity([0.0] * 10, quiet) == 0.0
+
+
 def test_rag_applies_similarity_decay_and_minimum_match_gate(tmp_path):
     path = tmp_path / "ai_decisions.sqlite3"
     decisions = AdvisorDecisionStore(str(path))
@@ -143,3 +157,94 @@ def test_rag_applies_similarity_decay_and_minimum_match_gate(tmp_path):
     )
     assert results and results[0]["raw_score"] > .99
     assert results[0]["score"] < results[0]["raw_score"]
+
+
+def test_rag_prunes_expired_evidence_and_bounds_python_candidates(tmp_path):
+    path = tmp_path / "ai_decisions.sqlite3"
+    decisions = AdvisorDecisionStore(str(path))
+    now = int(time.time())
+    for index, age_sec in enumerate((100, 200, 300), start=1):
+        decision_id = decisions.record(
+            symbol="SOLUSDT",
+            price=100,
+            deterministic_mode="FLAT",
+            recommended_mode="UP",
+            width_scale=1,
+            cap_scale=1,
+            confidence=.8,
+            applied=True,
+            feature_json=json.dumps([index / 10] * 10),
+            now=now - age_sec,
+        )
+        with sqlite3.connect(path) as connection:
+            connection.execute(
+                "UPDATE ai_decisions SET return_1h=?, evaluation_json=? "
+                "WHERE decision_id=?",
+                (
+                    .01,
+                    json.dumps(
+                        {"realized_execution": {"sell_qty": 1}}
+                    ),
+                    decision_id,
+                ),
+            )
+
+    knowledge = KnowledgeStore(
+        str(path),
+        retention_days=30,
+        candidate_limit=2,
+    )
+    with sqlite3.connect(path) as connection:
+        connection.execute(
+            """
+            INSERT INTO knowledge_documents(
+                document_id,source_decision_id,symbol,created_at,content,
+                embedding_json,outcome_json,status,updated_at
+            ) VALUES(?,?,?,?,?,?,?,?,?)
+            """,
+            (
+                "expired",
+                "expired-source",
+                "SOLUSDT",
+                now - 31 * 86_400,
+                "expired",
+                json.dumps([0.1] * 10),
+                "{}",
+                "validated",
+                now - 31 * 86_400,
+            ),
+        )
+        connection.execute(
+            "INSERT INTO knowledge_retrievals("
+            "decision_id,document_id,rank,score,created_at"
+            ") VALUES(?,?,?,?,?)",
+            (
+                "expired-link",
+                "expired",
+                1,
+                1.0,
+                now - 31 * 86_400,
+            ),
+        )
+
+    results = knowledge.retrieve(
+        "SOLUSDT",
+        [0.1] * 10,
+        now=now,
+        limit=5,
+    )
+
+    assert len(results) == 2
+    assert {result["created_at"] for result in results} == {
+        now - 100,
+        now - 200,
+    }
+    with sqlite3.connect(path) as connection:
+        assert connection.execute(
+            "SELECT COUNT(*) FROM knowledge_documents "
+            "WHERE document_id='expired'"
+        ).fetchone()[0] == 0
+        assert connection.execute(
+            "SELECT COUNT(*) FROM knowledge_retrievals "
+            "WHERE document_id='expired'"
+        ).fetchone()[0] == 0

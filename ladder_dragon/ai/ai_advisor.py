@@ -5,7 +5,7 @@
 
 from __future__ import annotations
 
-from dataclasses import asdict, dataclass, field
+from dataclasses import MISSING, asdict, dataclass, field, fields
 from datetime import datetime, timezone
 from decimal import Decimal
 import json
@@ -23,6 +23,36 @@ ALLOWED_MODES = {"UP", "DOWN", "FLAT"}
 MAX_RATIONALE_CHARS = 160
 MAX_AI_RESPONSE_BYTES = 65_536
 AI_RESPONSE_CHUNK_BYTES = 8_192
+
+
+def _compact_prompt_context(context: "MarketContext") -> dict[str, Any]:
+    """Serialize each exact numeric field once for the external prompt."""
+    payload = asdict(context)
+    context_fields = {
+        context_field.name: context_field
+        for context_field in fields(context)
+    }
+    for text_key in tuple(key for key in payload if key.endswith("_text")):
+        base_key = text_key.removesuffix("_text")
+        if base_key not in payload:
+            continue
+        text_value = str(payload[text_key] or "").strip()
+        text_field = context_fields[text_key]
+        base_field = context_fields[base_key]
+        text_is_default = (
+            text_field.default is not MISSING
+            and text_value == str(text_field.default)
+        )
+        base_is_default = (
+            base_field.default is not MISSING
+            and payload[base_key] == base_field.default
+        )
+        # A default exact-text placeholder can be stale when a caller builds a
+        # context manually. Production contexts populate both representations.
+        if text_value and (not text_is_default or base_is_default):
+            payload[base_key] = text_value
+        payload.pop(text_key, None)
+    return payload
 
 
 def _bounded_json_response(response: requests.Response) -> object:
@@ -65,6 +95,7 @@ class AdvisorConfig:
     api_key: str = field(repr=False)
     timeout_sec: float = 10.0
     cache_sec: int = 300
+    negative_cache_sec: int = 30
     min_confidence: float = 0.65
     width_scale_min: float = 0.75
     width_scale_max: float = 1.50
@@ -87,8 +118,14 @@ class AdvisorConfig:
             raise ValueError("AI base URL must use https://")
         if not self.api_key:
             raise ValueError("AI API key is required")
-        if self.timeout_sec <= 0 or self.cache_sec < 0:
-            raise ValueError("AI timeout must be > 0 and cache must be >= 0")
+        if (
+            self.timeout_sec <= 0
+            or self.cache_sec < 0
+            or self.negative_cache_sec < 0
+        ):
+            raise ValueError(
+                "AI timeout must be > 0 and cache TTLs must be >= 0"
+            )
         if not 0 <= self.min_confidence <= 1:
             raise ValueError("AI minimum confidence must be in [0, 1]")
         if not 0 < self.width_scale_min <= self.width_scale_max <= 3:
@@ -242,14 +279,14 @@ class AIAdvisor:
         # Cache both successful results and safe failures. This prevents an
         # unavailable API or low confidence from generating requests every second.
         self._cache: dict[
-            str, tuple[float, Optional[StrategyRecommendation]]
+            str, tuple[float, Optional[StrategyRecommendation], int]
         ] = {}
 
     def refresh_due(self, symbol: str) -> bool:
         cached = self._cache.get(symbol)
         return (
             cached is None
-            or self.clock() - cached[0] > self.config.cache_sec
+            or self.clock() - cached[0] > cached[2]
         )
 
     @property
@@ -287,7 +324,7 @@ class AIAdvisor:
             self._budget_blocked_day = None
             self._budget_blocked_reason = ""
         cached = self._cache.get(context.symbol)
-        if cached is not None and now - cached[0] <= self.config.cache_sec:
+        if cached is not None and now - cached[0] <= cached[2]:
             self._last_was_cache_hit = True
             return cached[1]
         started = time.monotonic()
@@ -320,7 +357,11 @@ class AIAdvisor:
                     f"{recommendation.confidence:.2f} < "
                     f"{self.config.min_confidence:.2f}"
                 )
-                self._cache[context.symbol] = (now, None)
+                self._cache[context.symbol] = (
+                    now,
+                    None,
+                    self.config.cache_sec,
+                )
                 return None
             self._log_usage(
                 context,
@@ -329,7 +370,11 @@ class AIAdvisor:
                 outcome="applied",
                 rationale=recommendation.rationale,
             )
-            self._cache[context.symbol] = (now, recommendation)
+            self._cache[context.symbol] = (
+                now,
+                recommendation,
+                self.config.cache_sec,
+            )
             return recommendation
         except (requests.RequestException, ValueError, KeyError, TypeError) as exc:
             # The advisory layer is fail-safe: any error selects the verified
@@ -345,7 +390,11 @@ class AIAdvisor:
                 f"[AI-ADVISOR] {context.symbol} unavailable: {exc}; "
                 "using deterministic strategy"
             )
-            self._cache[context.symbol] = (now, None)
+            self._cache[context.symbol] = (
+                now,
+                None,
+                self.config.negative_cache_sec,
+            )
             return None
 
     def _request(
@@ -377,7 +426,7 @@ class AIAdvisor:
                     "content": (
                         "Analyze this market context and return JSON only:\n"
                         + json.dumps(
-                            asdict(context),
+                            _compact_prompt_context(context),
                             ensure_ascii=False,
                             sort_keys=True,
                         )
@@ -463,7 +512,7 @@ class AIAdvisor:
             "decision_id": self._last_decision_id,
             "rationale": rationale[:MAX_RATIONALE_CHARS],
             "rejection_reason": rejection_reason[:240],
-            "context_version": "ai-context-v3",
+            "context_version": "ai-context-v4",
             "context_hash": hashlib.sha256(
                 json.dumps(asdict(context), ensure_ascii=False, sort_keys=True, default=str).encode("utf-8")
             ).hexdigest(),

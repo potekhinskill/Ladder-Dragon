@@ -18,6 +18,10 @@ from typing import Any, Mapping, Sequence
 EMBEDDING_DIMENSIONS = 10
 DEFAULT_LIMIT = 3
 MAX_CONTEXT_CHARS = 220
+DEFAULT_RETENTION_DAYS = 365
+DEFAULT_CANDIDATE_LIMIT = 1_000
+FEATURE_ABS_LIMIT = 3.0
+HYBRID_DIRECTION_WEIGHT = 0.4
 
 
 def _vector(value: str) -> tuple[float, ...] | None:
@@ -45,12 +49,61 @@ def cosine_similarity(left: Sequence[float], right: Sequence[float]) -> float:
     return max(-1.0, min(1.0, dot / (left_norm * right_norm)))
 
 
+def hybrid_similarity(left: Sequence[float], right: Sequence[float]) -> float:
+    """Combine directional agreement with magnitude-aware feature distance."""
+    if len(left) != len(right) or not left:
+        return 0.0
+    try:
+        left_values = tuple(float(value) for value in left)
+        right_values = tuple(float(value) for value in right)
+    except (TypeError, ValueError, OverflowError):
+        return 0.0
+    if not all(math.isfinite(value) for value in (*left_values, *right_values)):
+        return 0.0
+    left_norm = math.sqrt(sum(value * value for value in left_values))
+    right_norm = math.sqrt(sum(value * value for value in right_values))
+    if left_norm == 0 or right_norm == 0:
+        return 0.0
+    distance = math.sqrt(
+        sum(
+            (left_value - right_value) ** 2
+            for left_value, right_value in zip(left_values, right_values)
+        )
+    )
+    maximum_distance = 2 * FEATURE_ABS_LIMIT * math.sqrt(len(left_values))
+    distance_similarity = max(
+        0.0,
+        1.0 - min(1.0, distance / maximum_distance),
+    )
+    direction_similarity = max(
+        0.0,
+        cosine_similarity(left_values, right_values),
+    )
+    score = (
+        HYBRID_DIRECTION_WEIGHT * direction_similarity
+        + (1.0 - HYBRID_DIRECTION_WEIGHT) * distance_similarity
+    )
+    return max(0.0, min(1.0, score))
+
+
 class KnowledgeStore:
     """Represent KnowledgeStore."""
 
-    def __init__(self, db_path: str) -> None:
+    def __init__(
+        self,
+        db_path: str,
+        *,
+        retention_days: int = DEFAULT_RETENTION_DAYS,
+        candidate_limit: int = DEFAULT_CANDIDATE_LIMIT,
+    ) -> None:
+        if retention_days <= 0:
+            raise ValueError("knowledge retention days must be > 0")
+        if candidate_limit <= 0:
+            raise ValueError("knowledge candidate limit must be > 0")
         self.path = Path(db_path)
         self.path.parent.mkdir(parents=True, exist_ok=True)
+        self.retention_days = int(retention_days)
+        self.candidate_limit = int(candidate_limit)
         self._last_sync = 0.0
         self._last_sync_virtual = False
         self._init()
@@ -93,6 +146,33 @@ class KnowledgeStore:
                 "CREATE INDEX IF NOT EXISTS knowledge_documents_symbol_time "
                 "ON knowledge_documents(symbol, created_at)"
             )
+            connection.execute(
+                "CREATE INDEX IF NOT EXISTS knowledge_retrievals_created_at "
+                "ON knowledge_retrievals(created_at)"
+            )
+
+    def _prune(
+        self,
+        connection: sqlite3.Connection,
+        *,
+        current: int,
+    ) -> None:
+        cutoff = current - self.retention_days * 86_400
+        connection.execute(
+            "DELETE FROM knowledge_documents WHERE created_at < ?",
+            (cutoff,),
+        )
+        connection.execute(
+            """
+            DELETE FROM knowledge_retrievals
+            WHERE created_at < ?
+               OR NOT EXISTS(
+                   SELECT 1 FROM knowledge_documents AS document
+                   WHERE document.document_id=knowledge_retrievals.document_id
+               )
+            """,
+            (cutoff,),
+        )
 
     def sync_from_decisions(
         self, *, now: int | None = None, include_virtual: bool = False
@@ -106,6 +186,7 @@ class KnowledgeStore:
             return 0
         inserted = 0
         with self._connect() as connection:
+            self._prune(connection, current=current)
             rows = connection.execute(
                 """
                 SELECT decision_id,symbol,created_at,deterministic_mode,
@@ -115,7 +196,14 @@ class KnowledgeStore:
                        evaluation_json
                 FROM ai_decisions
                 WHERE feature_json!='[]' AND return_1h IS NOT NULL
-                """
+                  AND created_at >= ?
+                ORDER BY created_at DESC
+                LIMIT ?
+                """,
+                (
+                    current - self.retention_days * 86_400,
+                    max(self.candidate_limit, DEFAULT_CANDIDATE_LIMIT),
+                ),
             ).fetchall()
             for row in rows:
                 (
@@ -222,21 +310,30 @@ class KnowledgeStore:
         self.sync_from_decisions(now=current, include_virtual=include_virtual)
         statuses = ("validated", "virtual_validated") if include_virtual else ("validated",)
         with self._connect() as connection:
+            self._prune(connection, current=current)
             rows = connection.execute(
                 f"""
                 SELECT document_id,content,embedding_json,created_at,outcome_json
                 FROM knowledge_documents
                 WHERE symbol=? AND status IN ({','.join('?' for _ in statuses)})
-                  AND created_at < ?
+                  AND created_at >= ? AND created_at < ?
+                ORDER BY created_at DESC
+                LIMIT ?
                 """,
-                (symbol.upper(), *statuses, current),
+                (
+                    symbol.upper(),
+                    *statuses,
+                    current - self.retention_days * 86_400,
+                    current,
+                    self.candidate_limit,
+                ),
             ).fetchall()
         ranked: list[dict[str, Any]] = []
         for document_id, content, embedding_json, created_at, outcome_json in rows:
             candidate = _vector(embedding_json)
             if candidate is None:
                 continue
-            score = cosine_similarity(embedding, candidate)
+            score = hybrid_similarity(embedding, candidate)
             if score < float(min_score):
                 continue
             age_days = max(0.0, (current - int(created_at)) / 86_400)

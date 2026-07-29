@@ -3,6 +3,29 @@
 All notable changes are documented here. Releases use Semantic Versioning; every
 section is dated and there is intentionally no `Unreleased` section.
 
+## [2.20.74] — 2026-07-29
+
+### Changed
+- GitHub now keeps `main` as its only remote branch: merged-branch cleanup is
+  automatic, an active repository ruleset blocks creation of other branches,
+  and the agent policy plus regression test preserve that workflow.
+- RAG retrieval now combines directional cosine agreement with normalized
+  feature distance, so proportional vectors with materially different market
+  intensity no longer receive an identical score.
+- Knowledge documents and retrieval links use 365-day retention, while each
+  Python scoring pass is bounded to the newest 1,000 eligible candidates.
+- AI prompt serialization sends each numeric context field once, preferring
+  its exact text representation without duplicate float/text keys.
+- Provider failures use a 30-second negative cache; successful and
+  low-confidence responses retain the normal configured cache interval.
+- The default hybrid RAG similarity threshold is raised from 0.65 to 0.75.
+
+### Verified
+- Hybrid similarity, retention, candidate bounds, compact prompt, negative
+  cache, configuration and documentation regressions pass; compileall and the
+  complete suite pass (722 tests), and the release harness passes all 904
+  aggregated checks.
+
 ## [2.20.73] — 2026-07-29
 
 ### Fixed

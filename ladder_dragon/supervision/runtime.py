@@ -65,6 +65,7 @@ from ladder_dragon.supervision.vwap_config import (
     resolve_vwap_value,
 )
 from ladder_dragon.supervision.prediction_shadow import (
+    build_knowledge_store,
     prediction_panic_state as _prediction_panic_state,
     publish_plan_decision_status as _publish_plan_decision_status,
 )
@@ -355,6 +356,7 @@ def _build_ai_advisor(args: argparse.Namespace) -> Optional[AIAdvisor]:
         api_key=os.environ[key_name],
         timeout_sec=_analytics_float(args.ai_timeout_sec),
         cache_sec=int(args.ai_cache_sec),
+        negative_cache_sec=int(args.ai_negative_cache_sec),
         min_confidence=_analytics_float(args.ai_min_confidence),
         width_scale_min=_analytics_float(args.ai_width_scale_min),
         width_scale_max=_analytics_float(args.ai_width_scale_max),
@@ -2906,7 +2908,7 @@ def _build_ai_market_context(
                     context_vector(context),
                     limit=int(os.getenv("AI_RAG_TOP_K", "3") or 3),
                     include_virtual=False,
-                    min_score=_analytics_float(os.getenv("AI_RAG_MIN_SCORE", "0.65") or 0.65),
+                    min_score=_analytics_float(os.getenv("AI_RAG_MIN_SCORE", "0.75") or 0.75),
                     min_matches=max(1, int(os.getenv("AI_RAG_MIN_MATCHES", "1") or 1)),
                     decay_days=max(0, int(os.getenv("AI_RAG_DECAY_DAYS", "180") or 180)),
                 )
@@ -4258,7 +4260,7 @@ def main():
         if args.ai_advisor or statistical_regime_enabled
         else None
     )
-    _AI_KNOWLEDGE = KnowledgeStore(decisions_db) if args.ai_advisor else None
+    _AI_KNOWLEDGE = build_knowledge_store(decisions_db) if args.ai_advisor else None
     _AI_CONTROL_PATH = resolve_ai_control_path(os.getenv("AI_CONTROL_FILE"))
     configured_ai_mode = args.ai_mode if args.ai_advisor else "DISABLED"
     effective_ai_mode = configured_ai_mode

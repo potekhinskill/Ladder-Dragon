@@ -1,8 +1,10 @@
 import json
+from dataclasses import replace
 from datetime import datetime, timezone
 from decimal import Decimal
 
 import pytest
+import requests
 
 from ladder_dragon.ai.ai_advisor import (
     AIAdvisor,
@@ -121,6 +123,35 @@ def test_deepseek_advisor_uses_json_mode_and_returns_strict_recommendation():
     assert "api_key" not in user_content
 
 
+def test_prompt_serializes_exact_numeric_fields_once():
+    session = FakeSession(
+        {
+            "mode": "FLAT",
+            "ladder_width_scale": 1.0,
+            "cap_scale": 1.0,
+            "confidence": 0.8,
+            "rationale": "Exact compact context.",
+        }
+    )
+    advisor = AIAdvisor(config(), session=session, logger=lambda _: None)
+    exact_context = replace(
+        context(),
+        price_text="150.00000000",
+        risk_safe_cap_usdt_text="40.00000000",
+        return_1h=.0123456789,
+        return_1h_text="0.012345678900000000",
+    )
+
+    assert advisor.recommend(exact_context) is not None
+
+    user_content = session.calls[0][1]["json"]["messages"][1]["content"]
+    payload = json.loads(user_content.split("\n", 1)[1])
+    assert payload["price"] == "150.00000000"
+    assert payload["risk_safe_cap_usdt"] == "40.00000000"
+    assert payload["return_1h"] == "0.012345678900000000"
+    assert not any(key.endswith("_text") for key in payload)
+
+
 def test_ai_response_body_is_streamed_and_bounded_before_json_parsing():
     messages = []
 
@@ -205,7 +236,6 @@ def test_rag_context_is_sent_as_historical_context_only():
         }
     )
     advisor = AIAdvisor(config(), session=session, logger=lambda _: None)
-    from dataclasses import replace
 
     advisor.recommend(
         replace(
@@ -286,6 +316,53 @@ def test_low_confidence_is_ignored_and_valid_result_is_cached():
     assert advisor.recommend(context()) is not None
     assert advisor.last_was_cache_hit is True
     assert len(session.calls) == 1
+
+
+def test_provider_error_uses_short_negative_cache_ttl():
+    now = [100.0]
+    valid_payload = {
+        "mode": "FLAT",
+        "ladder_width_scale": 1.0,
+        "cap_scale": 0.5,
+        "confidence": 0.9,
+        "rationale": "Provider recovered.",
+    }
+
+    class FlakySession:
+        def __init__(self):
+            self.calls = 0
+
+        def post(self, endpoint, **kwargs):
+            self.calls += 1
+            if self.calls == 1:
+                raise requests.Timeout("temporary timeout")
+            return FakeResponse(
+                {
+                    "choices": [
+                        {"message": {"content": json.dumps(valid_payload)}}
+                    ]
+                }
+            )
+
+    session = FlakySession()
+    advisor = AIAdvisor(
+        config(cache_sec=300, negative_cache_sec=30),
+        session=session,
+        logger=lambda _: None,
+        clock=lambda: now[0],
+    )
+
+    assert advisor.recommend(context()) is None
+    now[0] += 10
+    assert advisor.recommend(context()) is None
+    assert advisor.last_was_cache_hit is True
+    assert session.calls == 1
+
+    now[0] += 21
+    assert advisor.refresh_due("SOLUSDT") is True
+    assert advisor.recommend(context()) is not None
+    assert advisor.last_was_cache_hit is False
+    assert session.calls == 2
 
 
 def test_daily_budget_block_is_logged_once_until_utc_day_changes():
@@ -371,7 +448,7 @@ def test_deepseek_usage_is_logged_without_prompt_or_response(tmp_path):
     assert event["estimated_cost_usd"] == "0.0000323400"
     assert event["rationale"] == "Trend confirmed."
     assert event["rejection_reason"] == ""
-    assert event["context_version"] == "ai-context-v3"
+    assert event["context_version"] == "ai-context-v4"
     assert len(event["context_hash"]) == 64
     assert "api_key" not in event
     assert "messages" not in event
