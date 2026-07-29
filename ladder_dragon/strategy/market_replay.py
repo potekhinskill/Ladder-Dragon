@@ -43,6 +43,7 @@ class ReplayOrder:
     created_ts: int
     remaining: Decimal = field(init=False)
     cancelled: bool = False
+    cancel_effective_ts: int | None = None
     queue_ahead: Decimal | None = None
     arrival_checked: bool = False
 
@@ -99,9 +100,10 @@ class OrderBookReplay:
         now_ms: int,
         *,
         queue_ahead: Decimal | None = None,
-    ) -> None:
+    ) -> bool:
         # Delay simulates order delivery time to the exchange.
-        self._rate_gate(now_ms)
+        if not self._rate_gate(now_ms):
+            return False
         order.created_ts = int(now_ms) + self.latency_ms
         order.queue_ahead = (
             None
@@ -109,14 +111,23 @@ class OrderBookReplay:
             else max(Decimal("0"), Decimal(str(queue_ahead)))
         )
         self.orders.append(order)
+        return True
 
     def cancel(self, order_id: str, now_ms: int) -> bool:
-        # Cancellation also consumes API budget and may be rejected by a rate limit.
-        self._rate_gate(now_ms)
+        # A throttled request never reaches the exchange. An accepted cancel
+        # remains exposed to fills until the same transport latency has elapsed.
+        if not self._rate_gate(now_ms):
+            return False
         for order in self.orders:
-            if order.order_id == order_id and not order.cancelled and order.remaining > 0:
-                order.cancelled = True
-                self._transfer_public_queue(order)
+            if (
+                order.order_id == order_id
+                and not order.cancelled
+                and order.cancel_effective_ts is None
+                and order.remaining > 0
+            ):
+                order.cancel_effective_ts = int(now_ms) + self.latency_ms
+                if order.cancel_effective_ts <= int(now_ms):
+                    self._cancel_order(order)
                 return True
         return False
 
@@ -148,6 +159,15 @@ class OrderBookReplay:
     def process(self, event: MarketEvent) -> list[ReplayFill]:
         """Apply one chronological market event without reusing its liquidity."""
         fills: list[ReplayFill] = []
+        # A local cancel is not authoritative before its simulated exchange
+        # arrival. Until this boundary the resting order remains fillable.
+        for order in self.orders:
+            if (
+                not order.cancelled
+                and order.cancel_effective_ts is not None
+                and order.cancel_effective_ts <= event.ts_ms
+            ):
+                self._cancel_order(order)
         current_bids = {level.price: level.quantity for level in event.bids}
         current_asks = {level.price: level.quantity for level in event.asks}
         # A depth reduction at our passive price may be a cancellation ahead
@@ -175,15 +195,13 @@ class OrderBookReplay:
         # External cancellations change the queue before matching the current event.
         for order in self.orders:
             if order.order_id in event.cancelled_order_ids:
-                order.cancelled = True
-                self._transfer_public_queue(order)
+                self._cancel_order(order)
         for update in event.exchange_order_updates:
             for order in self.orders:
                 if str(update.get("orderId")) != order.order_id:
                     continue
                 if str(update.get("status", "")).upper() in {"CANCELED", "EXPIRED", "REJECTED"}:
-                    order.cancelled = True
-                    self._transfer_public_queue(order)
+                    self._cancel_order(order)
 
         # An order can consume displayed liquidity as taker only once, when it
         # reaches the venue. A resting order is never reclassified by a later
@@ -234,7 +252,7 @@ class OrderBookReplay:
                         opposite.pop(level_price)
                     if order.remaining <= 0:
                         break
-                if order.remaining > 0 and order.queue_ahead is None:
+                if order.remaining > 0:
                     own_side = current_bids if side == "BUY" else current_asks
                     earlier_local = any(
                         candidate is not order
@@ -245,14 +263,19 @@ class OrderBookReplay:
                         and candidate.remaining > 0
                         for candidate in self.orders
                     )
-                    order.queue_ahead = (
-                        Decimal("0")
-                        if earlier_local
-                        else own_side.get(order.price, Decimal("0"))
-                    )
+                    if earlier_local:
+                        # Public depth is shared by the local FIFO and belongs
+                        # only to its first live order. Later local orders are
+                        # already sequenced behind it by price-time priority.
+                        order.queue_ahead = Decimal("0")
+                    elif order.queue_ahead is None:
+                        order.queue_ahead = own_side.get(
+                            order.price, Decimal("0")
+                        )
 
         # A public trade has one shared quantity. It first consumes the public
-        # FIFO queue and then local orders at exactly that reported price.
+        # FIFO queue and then local orders at that price or a better resting
+        # price that the aggressor must have crossed first.
         for trade_price, trade_qty, aggressor in event.trades:
             trade_price = Decimal(str(trade_price))
             available_trade = Decimal(str(trade_qty))
@@ -265,7 +288,12 @@ class OrderBookReplay:
             if not passive_side or available_trade <= 0:
                 continue
             for order in self._eligible(passive_side, event):
-                if not order.arrival_checked or trade_price != order.price:
+                price_reached = (
+                    trade_price <= order.price
+                    if passive_side == "BUY"
+                    else trade_price >= order.price
+                )
+                if not order.arrival_checked or not price_reached:
                     continue
                 queue_ahead = order.queue_ahead or Decimal("0")
                 queued = min(queue_ahead, available_trade)
@@ -276,9 +304,12 @@ class OrderBookReplay:
                 quantity = min(order.remaining, available_trade)
                 order.remaining -= quantity
                 available_trade -= quantity
-                fee = trade_price * quantity * self.maker_fee_pct
+                # The counterfactual local maker executes at its own resting
+                # limit, which may be better than the reported public print.
+                fill_price = order.price
+                fee = fill_price * quantity * self.maker_fee_pct
                 fills.append(ReplayFill(
-                    order.order_id, quantity, trade_price, fee, "MAKER"
+                    order.order_id, quantity, fill_price, fee, "MAKER"
                 ))
                 if available_trade <= 0:
                     break
@@ -293,7 +324,13 @@ class OrderBookReplay:
         self._previous_asks = current_asks
         return fills
 
-    def _transfer_public_queue(self, cancelled: ReplayOrder) -> None:
+    def _cancel_order(self, order: ReplayOrder) -> None:
+        if order.cancelled:
+            return
+        order.cancelled = True
+        self._handoff_public_queue(order)
+
+    def _handoff_public_queue(self, cancelled: ReplayOrder) -> None:
         queued = cancelled.queue_ahead or Decimal("0")
         if queued <= 0:
             return
@@ -307,15 +344,20 @@ class OrderBookReplay:
                 and not order.cancelled
                 and order.remaining > 0
             ):
-                order.queue_ahead = (order.queue_ahead or Decimal("0")) + queued
+                # The queue is shared state, not an amount owned independently
+                # by every local order. Never add the same public depth twice.
+                order.queue_ahead = max(
+                    order.queue_ahead or Decimal("0"), queued
+                )
                 return
 
-    def _rate_gate(self, now_ms: int) -> None:
+    def _rate_gate(self, now_ms: int) -> bool:
         cutoff = int(now_ms) - 60_000
         self._request_times = [ts for ts in self._request_times if ts >= cutoff]
         if len(self._request_times) >= self.max_requests_per_minute:
-            raise RuntimeError("replay rate limit exceeded")
+            return False
         self._request_times.append(int(now_ms))
+        return True
 
 
 def load_events(rows: Iterable[dict]) -> list[MarketEvent]:

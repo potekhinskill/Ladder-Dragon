@@ -31,7 +31,7 @@ fee-aware FIFO accounting, restart reconciliation, per-symbol operational
 reporting, replay and walk-forward verification, and a private Raspberry Pi
 operations dashboard.
 
-Current product version: **2.20.90**. The single version source is
+Current product version: **2.20.91**. The single version source is
 `product_version.py`; releases follow [Semantic Versioning](https://semver.org/).
 Project contact: [LinkedIn](https://www.linkedin.com/in/ypotekhin/).
 
@@ -96,7 +96,7 @@ bounded, explainable, recoverable, and measurable before exposure is increased.
 ## Project status
 
 Ladder Dragon is an actively developed, experimental trading system. Version
-**2.20.90** is the current source release. `main` is the only long-lived branch;
+**2.20.91** is the current source release. `main` is the only long-lived branch;
 feature branches use the `ladderdragon/*` namespace.
 
 DRY and Binance Spot Testnet are the supported starting modes. Mainnet LIVE is
@@ -872,11 +872,17 @@ market impact. These remain empirical approximations, not a claim that replay
 can identify other participants or predict future execution.
 
 Replay reports identify this fidelity as `L2_PRICE_LEVEL_FIFO_ESTIMATE` with
-`exact_l3=false`. Public trades have one conserved quantity and can consume a
-resting local FIFO queue only at the reported price. A local order receives a
-taker fill only when it reaches the venue; subsequent book movement cannot
-silently reclassify it. `bin.backtest --require-l3` fails closed because public
-Binance Spot depth has price levels but no individual resting-order IDs.
+`exact_l3=false`. Public trades have one conserved quantity. An aggressive
+public print can consume a resting local order at the same price or a better
+local maker price that the aggressor must have crossed first; the
+counterfactual fill retains the local limit price. Public FIFO depth is owned
+once by the first local order at a level and handed to its successor without
+addition if that order is cancelled. Submit and cancel requests use symmetric
+venue latency, and a throttled request is rejected without mutating replay
+state. A local order receives a taker fill only when it reaches the venue;
+subsequent book movement cannot silently reclassify it.
+`bin.backtest --require-l3` fails closed because public Binance Spot depth has
+price levels but no individual resting-order IDs.
 
 ### User Data Stream shadow observer
 

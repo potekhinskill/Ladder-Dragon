@@ -3,6 +3,24 @@
 All notable changes are documented here. Releases use Semantic Versioning; every
 section is dated and there is intentionally no `Unreleased` section.
 
+## [2.20.91] — 2026-07-29
+
+### Fixed
+- L2 replay maker matching now fills a better resting local limit when an
+  aggressive public trade passes through its price, while retaining the local
+  maker price and conserving the event's shared quantity.
+- Cancel requests now take effect only after the configured venue latency, so
+  an order can still receive a fill while its cancellation is in flight.
+- Public FIFO depth is handed between same-price local orders as shared state
+  rather than added twice.
+- Replay request throttling now rejects submit or cancel without mutating
+  replay state instead of aborting the complete simulation.
+
+### Verified
+- Focused maker price-through, non-crossing, cancel-latency, shared-queue and
+  rate-limit regressions pass together with archive, validation and readiness
+  replay tests; compileall and the complete suite pass (778 tests).
+
 ## [2.20.90] — 2026-07-29
 
 ### Fixed

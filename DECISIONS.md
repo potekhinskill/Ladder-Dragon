@@ -4,6 +4,20 @@ Read this file before changing the repository. Record only decisions that were
 validated by tests or production evidence and are likely to be reused. Keep
 entries concise; this is not a changelog or an activity log.
 
+### 2026-07-29 — Model replay latency and public liquidity symmetrically
+
+- **Context:** exact-price maker matching missed better resting orders, while
+  immediate cancellation let re-anchor avoid fills that remain possible in
+  flight.
+- **Decision:** let an aggressive public print reach equal-or-better local
+  maker prices, conserve its quantity, apply venue latency to submit and cancel,
+  and represent public FIFO depth once per same-price local queue.
+- **Why it worked:** adversarial regressions prove price-through fills at the
+  local limit, non-crossing orders remain open, pre-ACK cancels remain fillable,
+  shared depth is not doubled and throttling performs no mutation.
+- **Reuse:** every L2 simulation used to compare placement, cancellation or
+  re-anchor behavior with real execution.
+
 ### 2026-07-29 — Restart only a coherently restored runtime
 
 - **Context:** a failed in-place dependency installation can leave the checkout

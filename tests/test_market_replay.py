@@ -39,10 +39,11 @@ def test_price_priority_serves_more_aggressive_buy_first():
 def test_cancel_and_rate_limit():
     replay = OrderBookReplay(max_requests_per_minute=2)
     order = ReplayOrder("x", "BUY", Decimal("10"), Decimal("1"), 0)
-    replay.submit(order, 0)
+    assert replay.submit(order, 0)
     assert replay.cancel("x", 1)
-    with pytest.raises(RuntimeError):
-        replay.submit(ReplayOrder("y", "BUY", Decimal("10"), Decimal("1"), 0), 2)
+    assert not replay.submit(
+        ReplayOrder("y", "BUY", Decimal("10"), Decimal("1"), 0), 2
+    )
 
 
 def _archive_rows():
@@ -195,7 +196,7 @@ def test_order_crosses_as_taker_only_when_it_reaches_venue():
     assert fill.fee_quote == Decimal("0.2")
 
 
-def test_public_trade_at_another_price_cannot_consume_local_fifo_queue():
+def test_public_trade_below_buy_limit_consumes_local_fifo_queue():
     replay = OrderBookReplay()
     replay.process(MarketEvent(
         1,
@@ -205,14 +206,17 @@ def test_public_trade_at_another_price_cannot_consume_local_fifo_queue():
     order = ReplayOrder("resting", "BUY", Decimal("100"), Decimal("1"), 1)
     replay.submit(order, 1)
 
-    assert replay.process(MarketEvent(
+    fills = replay.process(MarketEvent(
         2,
         bids=(BookLevel(Decimal("100"), Decimal("2")),),
         asks=(BookLevel(Decimal("101"), Decimal("2")),),
         trades=((Decimal("99"), Decimal("10"), "SELL"),),
-    )) == []
-    assert order.queue_ahead == Decimal("2")
-    assert order.remaining == Decimal("1")
+    ))
+    assert [(fill.order_id, fill.quantity, fill.price) for fill in fills] == [
+        ("resting", Decimal("1"), Decimal("100"))
+    ]
+    assert order.queue_ahead == Decimal("0")
+    assert order.remaining == Decimal("0")
 
 
 def test_cancelled_first_order_transfers_shared_public_queue():

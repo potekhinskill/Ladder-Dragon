@@ -17,6 +17,46 @@ private infrastructure details.
 
 ## Mistakes
 
+### 2026-07-29 — Verified a GPG signature inside a restricted trust store
+
+- **Impact:** the first release command stopped before the harness and produced
+  no artifact; the signed commit and repository contents were unchanged.
+- **Root cause:** `git log --show-signature` was run where the GPG trust database
+  was outside the permitted filesystem boundary.
+- **Correction:** amend the learning record into the same atomic commit and run
+  signature verification with the narrow Git/GPG permission boundary before
+  starting the harness.
+- **Prevention:** commit creation and signature verification must use the same
+  explicitly authorized GPG boundary; never place a sandboxed signature probe
+  before release verification.
+
+### 2026-07-29 — Put an environment assignment after the timing executable
+
+- **Impact:** one verification command exited before pytest and had to be
+  repeated; repository and runtime state were unchanged.
+- **Root cause:** `PYTHONPATH=.` was placed where `/usr/bin/time` expected the
+  executable name instead of being applied by `env` before the timed command.
+- **Correction:** run `env PYTHONPATH=. /usr/bin/time ...` and keep its exit
+  status authoritative.
+- **Prevention:** environment assignments for wrapped commands must precede the
+  wrapper through `env`; never infer success from a timing command that did not
+  print pytest collection or results.
+
+### 2026-07-29 — Modeled placement and cancellation with unequal causality
+
+- **Impact:** replay missed maker fills at better local prices, let re-anchor
+  cancel without transport exposure and could count a shared public queue more
+  than once, biasing execution and expectancy evidence.
+- **Root cause:** matching was tied to literal public print equality,
+  cancellation mutated state synchronously, and queue ownership was not made an
+  explicit tested invariant.
+- **Correction:** use price-through maker matching at the local limit, delay
+  accepted cancels by venue latency, normalize one shared FIFO owner and return
+  rate-limit rejection without mutation.
+- **Prevention:** every matching-engine change must test adverse in-flight
+  cancellation, better-price makers, conserved event volume and two local
+  orders sharing one public price level.
+
 ### 2026-07-29 — Let a Linux-only syscall obscure a rewrite regression
 
 - **Impact:** the first focused deployment run failed on macOS metadata-command
