@@ -74,7 +74,9 @@ class HarnessOptions:
     latency_log: Path | None = None
     source_paths: tuple[Path, ...] = ()
     runtime_status: Path = Path("/run/mybot/ai_status.json")
-    user_stream_status: Path = Path("/run/mybot/user_stream_SOLUSDT.json")
+    user_stream_status: Path = Path(
+        "/var/lib/ladder-dragon/user-stream/user_stream_SOLUSDT.json"
+    )
     risk_status: Path = Path(
         "/var/lib/ladder-dragon/control/risk_state.json"
     )

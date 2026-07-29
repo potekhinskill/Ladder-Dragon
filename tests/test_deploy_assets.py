@@ -548,6 +548,34 @@ def test_executor_user_stream_reuses_authoritative_exchange_clock():
     assert "BOT_USER_STREAM_IDLE_TIMEOUT_SEC" in executor
 
 
+def test_user_stream_soak_is_independent_read_only_and_persistent():
+    service = read("deploy/ladder-dragon-user-stream-shadow.service")
+    runtime = read("ladder_dragon/execution/user_stream_shadow.py")
+    dashboard = read("ladder_dragon/dashboard/runtime.py")
+    dashboard_unit = read("deploy/pi-dashboard.service")
+    installer = read("deploy/install_raspberry_pi.sh")
+    updater = read("deploy/update_raspberry_pi.sh")
+    harness = read("bin/verification_harness.py")
+
+    assert "bin.user_stream_shadow" in service
+    assert "StateDirectory=ladder-dragon/user-stream" in service
+    assert "ReadWritePaths=/var/lib/ladder-dragon/user-stream" in service
+    assert "EnvironmentFile=/home/bot/apps/binance_bot/.env" in service
+    assert "_signed_get" in runtime
+    assert "_signed_post" not in runtime
+    assert "_signed_delete" not in runtime
+    assert "place_" not in runtime
+    assert "cancel_order" not in runtime
+    assert '"/api/v3/order"' in runtime
+    assert '"/api/v3/openOrders"' in runtime
+    assert "/var/lib/ladder-dragon/user-stream" in dashboard
+    assert "-/var/lib/ladder-dragon/user-stream" in dashboard_unit
+    assert "/var/lib/ladder-dragon/user-stream/user_stream_SOLUSDT.json" in harness
+    for script in (installer, updater):
+        assert "ladder-dragon-user-stream-shadow.service" in script
+        assert "read-only User Data Stream shadow service failed" in script
+
+
 def test_supervisor_control_logs_stay_inside_writable_rotated_directory():
     ctl = read("bin/supervisor_ctl.sh")
     unit = read("deploy/mybot.service")
@@ -945,6 +973,7 @@ def test_systemd_units_have_extended_sandboxing():
         "deploy/ladder-dragon-log-export.service",
         "deploy/ladder-dragon-depth-archive.service",
         "deploy/ladder-dragon-soak-audit.service",
+        "deploy/ladder-dragon-user-stream-shadow.service",
     ):
         unit = read(relative)
         assert "ProtectKernelTunables=yes" in unit

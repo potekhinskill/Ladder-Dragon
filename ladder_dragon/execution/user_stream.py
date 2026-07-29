@@ -156,6 +156,13 @@ class OrderEventMailbox:
                 )
             return matching
 
+    def consume_all(self) -> list[OrderStreamSignal]:
+        """Drain all accepted notifications for a read-only reconciliation loop."""
+        with self._condition:
+            events = list(self._events)
+            self._events.clear()
+            return events
+
     def wait(self, timeout: float) -> bool:
         """Wait until any new order event arrives or the timeout expires."""
         with self._condition:

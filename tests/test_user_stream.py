@@ -25,6 +25,7 @@ from ladder_dragon.execution.execution_latency import (
     load_execution_outcomes,
 )
 from ladder_dragon.execution.user_stream_soak import audit_user_stream_soak
+from ladder_dragon.execution.user_stream_shadow import reconcile_order_events
 
 
 def execution_report(**overrides):
@@ -179,6 +180,57 @@ def test_mailbox_wait_returns_immediately_when_event_is_pending():
     assert mailbox.wait(10) is True
     assert mailbox.consume_for([event.order_id]) == [event]
     assert mailbox.wait(0) is False
+
+
+def test_read_only_soak_mailbox_can_drain_all_events():
+    mailbox = OrderEventMailbox(max_events=4)
+    first = parse_order_signal(execution_report(i=123))
+    second = parse_order_signal(execution_report(i=124))
+    assert first is not None and second is not None
+    mailbox.put(first)
+    mailbox.put(second)
+
+    assert mailbox.consume_all() == [first, second]
+    assert mailbox.consume_all() == []
+
+
+def test_shadow_event_reconciliation_uses_get_and_validates_identity():
+    first = parse_order_signal(execution_report(i=123))
+    duplicate_order = parse_order_signal(
+        execution_report(i=123, X="FILLED", z="0.1")
+    )
+    second = parse_order_signal(execution_report(i=124))
+    assert first is not None and duplicate_order is not None and second is not None
+    calls = []
+
+    def signed_get(path, params):
+        calls.append((path, dict(params)))
+        return {"symbol": params["symbol"], "orderId": params["orderId"]}
+
+    count = reconcile_order_events(
+        [first, duplicate_order, second],
+        signed_get=signed_get,
+    )
+
+    assert count == 2
+    assert calls == [
+        ("/api/v3/order", {"symbol": "SOLUSDT", "orderId": 123}),
+        ("/api/v3/order", {"symbol": "SOLUSDT", "orderId": 124}),
+    ]
+
+
+def test_shadow_event_reconciliation_fails_closed_on_wrong_order():
+    event = parse_order_signal(execution_report(i=123))
+    assert event is not None
+
+    with pytest.raises(RuntimeError, match="identity mismatch"):
+        reconcile_order_events(
+            [event],
+            signed_get=lambda _path, _params: {
+                "symbol": "SOLUSDT",
+                "orderId": 999,
+            },
+        )
 
 
 def test_mailbox_wait_for_ignores_unrelated_pending_events():

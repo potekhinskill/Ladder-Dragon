@@ -108,6 +108,13 @@ calculate non-executing SHADOW candidates while HALT is active. This preserves
 counterfactual evidence needed to study BUY distance, re-anchoring, regimes, and
 expectancy without starting a worker or changing an order.
 
+Authenticated User Data Stream soak is also independent from execution. The
+`ladder-dragon-user-stream-shadow` service has no POST, DELETE, placement or
+cancel path; each accepted order notification can only wake an authoritative
+GET reconciliation. Its sanitized state persists below
+`/var/lib/ladder-dragon/user-stream`. This avoids the unsafe circular
+requirement to clear HALT merely to collect stream-readiness evidence.
+
 SHADOW evidence:
 
 - cannot submit or cancel an order;

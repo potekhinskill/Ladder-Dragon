@@ -151,6 +151,7 @@ def test_user_stream_health_is_sanitized_and_rest_authoritative(
         "last_order_event_at": 99.0,
     }), encoding="utf-8")
     monkeypatch.setenv("AI_RUNTIME_STATUS_FILE", str(status))
+    monkeypatch.setenv("USER_STREAM_STATUS_DIR", str(tmp_path))
     module = load_dashboard(monkeypatch)
 
     payload = module._user_stream_snapshot({"symbols": ["SOLUSDT"]})
@@ -180,6 +181,7 @@ def test_user_stream_snapshot_becomes_stale_after_threshold(tmp_path, monkeypatc
     stream.write_text(json.dumps({"state": "connected"}), encoding="utf-8")
     os.utime(stream, (100.0, 100.0))
     monkeypatch.setenv("AI_RUNTIME_STATUS_FILE", str(status))
+    monkeypatch.setenv("USER_STREAM_STATUS_DIR", str(tmp_path))
     monkeypatch.setenv("DASHBOARD_USER_STREAM_STALE_SEC", "30")
     module = load_dashboard(monkeypatch)
 
@@ -202,6 +204,7 @@ def test_user_stream_transport_activity_overrides_old_snapshot_mtime(
     }), encoding="utf-8")
     os.utime(stream, (100.0, 100.0))
     monkeypatch.setenv("AI_RUNTIME_STATUS_FILE", str(status))
+    monkeypatch.setenv("USER_STREAM_STATUS_DIR", str(tmp_path))
     monkeypatch.setenv("DASHBOARD_USER_STREAM_STALE_SEC", "30")
     module = load_dashboard(monkeypatch)
 

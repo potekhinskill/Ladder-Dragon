@@ -511,6 +511,8 @@ render_unit() {
 }
 render_unit deploy/mybot.service /etc/systemd/system/mybot.service
 render_unit deploy/pi-dashboard.service /etc/systemd/system/pi-healthd.service
+render_unit deploy/ladder-dragon-user-stream-shadow.service \
+  /etc/systemd/system/ladder-dragon-user-stream-shadow.service
 render_unit deploy/ladder-dragon-backup.service \
   /etc/systemd/system/ladder-dragon-backup.service
 install -m 0644 deploy/ladder-dragon-backup.timer \
@@ -593,6 +595,7 @@ fi
 systemctl enable ladder-dragon-backup.timer ladder-dragon-log-export.timer \
   ladder-dragon-depth-archive.timer ladder-dragon-soak-audit.timer \
   ladder-dragon-daily-digest.timer ladder-dragon-monthly-prediction.timer \
+  ladder-dragon-user-stream-shadow.service \
   >/dev/null
 start_previous_services
 systemctl start ladder-dragon-backup.timer
@@ -602,6 +605,9 @@ systemctl start ladder-dragon-depth-archive.timer
 systemctl start ladder-dragon-soak-audit.service ladder-dragon-soak-audit.timer
 systemctl start ladder-dragon-daily-digest.timer
 systemctl start ladder-dragon-monthly-prediction.timer
+systemctl restart ladder-dragon-user-stream-shadow.service
+systemctl is-active --quiet ladder-dragon-user-stream-shadow.service \
+  || fail "read-only User Data Stream shadow service failed"
 systemctl restart systemd-journald
 systemctl try-restart fail2ban || true
 systemctl try-restart zramswap || true

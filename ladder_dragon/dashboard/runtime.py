@@ -332,7 +332,7 @@ def _runtime_heartbeat_snapshot() -> Dict[str, object]:
 
 
 def _user_stream_snapshot(runtime: Dict[str, object]) -> Dict[str, object]:
-    """Read only sanitized worker snapshots stored beside the heartbeat."""
+    """Read sanitized snapshots from the independent read-only observer."""
     symbols = runtime.get("symbols")
     if not isinstance(symbols, list):
         symbols = []
@@ -341,7 +341,7 @@ def _user_stream_snapshot(runtime: Dict[str, object]) -> Dict[str, object]:
         symbol = str(raw_symbol).strip().upper()
         if not re.fullmatch(r"[A-Z0-9]{1,20}", symbol):
             continue
-        path = AI_RUNTIME_STATUS_FILE.parent / f"user_stream_{symbol}.json"
+        path = Path(os.getenv("USER_STREAM_STATUS_DIR", "/var/lib/ladder-dragon/user-stream")) / f"user_stream_{symbol}.json"
         try:
             payload = json.loads(path.read_text(encoding="utf-8"))
             if not isinstance(payload, dict):

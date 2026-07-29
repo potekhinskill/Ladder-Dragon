@@ -283,6 +283,16 @@ def raspberry_checks(context: HarnessContext) -> list[CheckSpec]:
             argv=("systemctl", "is-active", "--quiet", "pi-healthd"),
             timeout_sec=30,
         ),
+        CheckSpec(
+            name="pi_user_stream_service",
+            argv=(
+                "systemctl",
+                "is-active",
+                "--quiet",
+                "ladder-dragon-user-stream-shadow",
+            ),
+            timeout_sec=30,
+        ),
         CheckSpec(name="pi_risk_state", check=_risk_check),
         CheckSpec(name="pi_runtime_reconciliation", check=_runtime_check),
         CheckSpec(

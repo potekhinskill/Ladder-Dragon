@@ -282,6 +282,18 @@ stopping the service and block on conflicting evidence. Never delete these
 files to make deployment pass; use the reviewed reset procedure only after
 authoritative exchange reconciliation.
 
+The installer also enables `ladder-dragon-user-stream-shadow.service`. It is a
+read-only authenticated observer and remains active during execution HALT so
+the 24-hour stream soak can accumulate without starting an order worker. Check
+it independently:
+
+```bash
+systemctl is-active ladder-dragon-user-stream-shadow.service
+PYTHONPATH=. .venv/bin/python -m bin.audit_user_stream_soak \
+  /var/lib/ladder-dragon/user-stream/user_stream_SOLUSDT.json \
+  --minimum-hours 24
+```
+
 Do not repeat this paid acceptance drill to create an artificial sample. Before
 expanding beyond the minimal SOLUSDT canary, collect at least three naturally
 completed and exactly linked `BUY fill -> OCO confirmed -> TP or STOP fill`

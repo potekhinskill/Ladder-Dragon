@@ -1,0 +1,51 @@
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2026 IURII Potekhin
+# Purpose: collect read-only authenticated User Data Stream soak evidence.
+[Unit]
+Description=Ladder Dragon read-only User Data Stream shadow observer
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=bot
+Group=bot
+WorkingDirectory=/home/bot/apps/binance_bot
+EnvironmentFile=/home/bot/apps/binance_bot/.env
+Environment=PYTHONUNBUFFERED=1
+ExecStart=/home/bot/apps/binance_bot/.venv/bin/python -m bin.user_stream_shadow --symbol SOLUSDT --state-path /var/lib/ladder-dragon/user-stream/user_stream_SOLUSDT.json
+Restart=on-failure
+RestartSec=15
+TimeoutStopSec=10
+KillSignal=SIGTERM
+NoNewPrivileges=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectProc=invisible
+ProcSubset=pid
+ProtectSystem=strict
+ProtectHome=read-only
+ProtectClock=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+ProtectKernelLogs=yes
+ProtectHostname=yes
+RestrictSUIDSGID=yes
+RestrictRealtime=yes
+RestrictNamespaces=yes
+LockPersonality=yes
+MemoryDenyWriteExecute=yes
+CapabilityBoundingSet=
+AmbientCapabilities=
+SystemCallArchitectures=native
+SystemCallFilter=@system-service
+SystemCallErrorNumber=EPERM
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+StateDirectory=ladder-dragon/user-stream
+StateDirectoryMode=0700
+ReadWritePaths=/var/lib/ladder-dragon/user-stream
+UMask=0077
+
+[Install]
+WantedBy=multi-user.target

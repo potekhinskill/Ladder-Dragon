@@ -3,6 +3,27 @@
 All notable changes are documented here. Releases use Semantic Versioning; every
 section is dated and there is intentionally no `Unreleased` section.
 
+## [2.20.85] — 2026-07-29
+
+### Added
+- A dedicated read-only User Data Stream shadow service now collects
+  authenticated connection, reconnect and event-to-GET reconciliation evidence
+  independently from execution workers.
+- Sanitized stream-soak state persists below
+  `/var/lib/ladder-dragon/user-stream`; dashboard and Pi verification consume
+  the same path and require the observer service to be active.
+
+### Fixed
+- A persistent execution HALT no longer prevents the required 24-hour stream
+  soak from starting. The observer contains no order placement, cancellation
+  or replacement path and cannot relax Risk Manager.
+
+### Verified
+- User-stream parsing, deduplication, GET-only reconciliation, persistent
+  service, dashboard, harness and deployment regressions pass (109 focused
+  tests); compileall and shell syntax checks pass; the complete suite passes
+  (763 tests).
+
 ## [2.20.84] — 2026-07-29
 
 ### Fixed

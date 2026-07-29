@@ -17,6 +17,33 @@ private infrastructure details.
 
 ## Mistakes
 
+### 2026-07-29 — Changed a runtime path without its isolated dashboard fixtures
+
+- **Impact:** the first complete 2.20.85 test run failed three dashboard
+  fixtures and the monolith no-growth budget before release.
+- **Root cause:** the implementation changed the production stream directory
+  but retained tests that derived it from the heartbeat path, and added a
+  module constant to a file explicitly forbidden to grow.
+- **Correction:** inject the new directory explicitly in isolated fixtures and
+  resolve it at the existing read boundary without increasing the monolith.
+- **Prevention:** path migrations must enumerate production, deployment,
+  harness and fixture owners together; no-growth files require a line-count
+  check in the focused test set.
+
+### 2026-07-29 — Coupled a required soak observer to a halted worker
+
+- **Impact:** the 24-hour authenticated stream gate could not begin while HALT
+  correctly prevented execution workers, creating pressure to remove a safety
+  block before its evidence gate had passed.
+- **Root cause:** notification-only telemetry shared the lifecycle of the
+  component permitted to mutate orders, although observation did not require
+  execution authority.
+- **Correction:** run a separate GET-only observer with persistent sanitized
+  state and keep the worker event path unchanged.
+- **Prevention:** every readiness gate must be collectible under the safest
+  compatible execution state; observational services must not inherit mutation
+  lifecycle requirements without necessity.
+
 ### 2026-07-29 — Stored authoritative HALT in a volatile runtime directory
 
 - **Impact:** stopping the owning systemd service removed its runtime directory,

@@ -122,7 +122,9 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--user-stream-status",
         type=Path,
-        default=Path("/run/mybot/user_stream_SOLUSDT.json"),
+        default=Path(
+            "/var/lib/ladder-dragon/user-stream/user_stream_SOLUSDT.json"
+        ),
     )
     parser.add_argument(
         "--risk-status",

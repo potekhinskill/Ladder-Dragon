@@ -4,6 +4,17 @@ Read this file before changing the repository. Record only decisions that were
 validated by tests or production evidence and are likely to be reused. Keep
 entries concise; this is not a changelog or an activity log.
 
+### 2026-07-29 — Decouple observational soak from execution authority
+
+- **Context:** HALT must stop order workers, but readiness still requires
+  authenticated stream observation and event-triggered REST evidence.
+- **Decision:** operate a separate read-only observer whose only exchange
+  calls are GET reconciliations and whose sanitized counters survive restarts.
+- **Why it worked:** source-boundary, identity-mismatch, service and deployment
+  tests prove the observer cannot mutate orders and can run under HALT.
+- **Reuse:** telemetry, canary and soak collectors that need production inputs
+  but must never inherit trading authority.
+
 ### 2026-07-29 — Separate persistent safety state from process runtime
 
 - **Context:** systemd removes runtime directories across stop or reboot while

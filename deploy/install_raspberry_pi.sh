@@ -651,6 +651,8 @@ render_unit() {
 }
 render_unit "${PROJECT_DIR}/deploy/mybot.service" /etc/systemd/system/mybot.service
 render_unit "${PROJECT_DIR}/deploy/pi-dashboard.service" /etc/systemd/system/pi-healthd.service
+render_unit "${PROJECT_DIR}/deploy/ladder-dragon-user-stream-shadow.service" \
+  /etc/systemd/system/ladder-dragon-user-stream-shadow.service
 render_unit "${PROJECT_DIR}/deploy/ladder-dragon-backup.service" \
   /etc/systemd/system/ladder-dragon-backup.service
 install -m 0644 "${PROJECT_DIR}/deploy/ladder-dragon-backup.timer" \
@@ -715,6 +717,7 @@ systemctl daemon-reload
 systemctl disable --now make-pi-backup.timer make-pi-backup.service 2>/dev/null || true
 "${PROJECT_DIR}/.venv/bin/python" -m bin.maintenance_state clear >/dev/null
 systemctl enable nginx avahi-daemon fail2ban mybot pi-healthd \
+  ladder-dragon-user-stream-shadow.service \
   ladder-dragon-backup.timer ladder-dragon-log-export.timer \
   ladder-dragon-depth-archive.timer ladder-dragon-soak-audit.timer \
   ladder-dragon-daily-digest.timer ladder-dragon-monthly-prediction.timer \
@@ -722,6 +725,7 @@ systemctl enable nginx avahi-daemon fail2ban mybot pi-healthd \
 systemctl restart systemd-journald nginx avahi-daemon fail2ban
 systemctl restart zramswap 2>/dev/null || true
 systemctl start mybot pi-healthd ladder-dragon-backup.timer pi-watchdog-v3.timer
+systemctl start ladder-dragon-user-stream-shadow.service
 systemctl start ladder-dragon-log-export.service ladder-dragon-log-export.timer
 systemctl start ladder-dragon-depth-archive.timer
 systemctl start ladder-dragon-soak-audit.service ladder-dragon-soak-audit.timer
@@ -732,6 +736,8 @@ sleep 3
 systemctl is-active --quiet nginx || fail "nginx failed"
 systemctl is-active --quiet mybot || fail "mybot failed"
 systemctl is-active --quiet pi-healthd || fail "pi-healthd failed"
+systemctl is-active --quiet ladder-dragon-user-stream-shadow.service \
+  || fail "read-only User Data Stream shadow service failed"
 test -r /var/lib/ladder-dragon/logs/current.log || fail "log export failed"
 grep -q '^DASHBOARD_AUTH_TOKEN=replace_' "${PROJECT_DIR}/.env.dashboard" \
   && fail "placeholder dashboard token remains"
