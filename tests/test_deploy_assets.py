@@ -740,6 +740,22 @@ def test_daily_digest_is_exact_idempotent_and_scheduled_for_almaty_morning():
     assert "/var/lib/ladder-dragon/digests" in runtime_assets
 
 
+def test_monthly_prediction_contour_is_shadow_cutoff_bound_and_optional():
+    source = read("bin/monthly_prediction_report.py")
+    service = read("deploy/ladder-dragon-monthly-prediction.service")
+    timer = read("deploy/ladder-dragon-monthly-prediction.timer")
+    installer = read("deploy/install_raspberry_pi.sh")
+    updater = read("deploy/update_raspberry_pi.sh")
+    assert "mode\": \"SHADOW\"" not in source  # mode is produced by the package
+    assert "--notify-on-change" in service
+    assert "ConditionPathExists=" in service
+    assert "prediction-monthly-evidence.jsonl" in service
+    assert "OnCalendar=monthly" in timer
+    assert "Persistent=true" in timer
+    assert "ladder-dragon-monthly-prediction.timer" in installer
+    assert "ladder-dragon-monthly-prediction.timer" in updater
+
+
 def test_updates_are_commit_allowlisted_and_backups_are_encrypted():
     updater = read("deploy/update_raspberry_pi.sh")
     installer = read("deploy/install_raspberry_pi.sh")

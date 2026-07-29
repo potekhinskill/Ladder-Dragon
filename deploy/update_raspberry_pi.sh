@@ -509,6 +509,10 @@ render_unit deploy/ladder-dragon-daily-digest.service \
   /etc/systemd/system/ladder-dragon-daily-digest.service
 install -m 0644 deploy/ladder-dragon-daily-digest.timer \
   /etc/systemd/system/ladder-dragon-daily-digest.timer
+render_unit deploy/ladder-dragon-monthly-prediction.service \
+  /etc/systemd/system/ladder-dragon-monthly-prediction.service
+install -m 0644 deploy/ladder-dragon-monthly-prediction.timer \
+  /etc/systemd/system/ladder-dragon-monthly-prediction.timer
 install -d -o "${BOT_USER}" -g "${BOT_USER}" -m 0750 \
   /var/lib/ladder-dragon/depth-archives
 install -d -o root -g "${BOT_USER}" -m 0770 /var/lib/ladder-dragon/soak
@@ -566,7 +570,7 @@ else
 fi
 systemctl enable ladder-dragon-backup.timer ladder-dragon-log-export.timer \
   ladder-dragon-depth-archive.timer ladder-dragon-soak-audit.timer \
-  ladder-dragon-daily-digest.timer \
+  ladder-dragon-daily-digest.timer ladder-dragon-monthly-prediction.timer \
   >/dev/null
 start_previous_services
 systemctl start ladder-dragon-backup.timer
@@ -575,6 +579,7 @@ systemctl start ladder-dragon-log-export.service ladder-dragon-log-export.timer
 systemctl start ladder-dragon-depth-archive.timer
 systemctl start ladder-dragon-soak-audit.service ladder-dragon-soak-audit.timer
 systemctl start ladder-dragon-daily-digest.timer
+systemctl start ladder-dragon-monthly-prediction.timer
 systemctl restart systemd-journald
 systemctl try-restart fail2ban || true
 systemctl try-restart zramswap || true

@@ -1,6 +1,7 @@
 from ladder_dragon.ai.ai_advisor import MarketContext
 from ladder_dragon.ai.ai_statistical import (
     MulticlassLogisticRegime,
+    calibrated_logistic_prediction,
     context_vector,
     return_label,
 )
@@ -44,3 +45,22 @@ def test_logistic_benchmark_requires_samples_then_learns_direction():
     assert prediction.available is True
     assert prediction.mode == "UP"
     assert prediction.confidence > .5
+
+
+def test_logistic_confidence_uses_later_chronological_calibration_window():
+    examples = []
+    for _ in range(30):
+        examples.extend([
+            ([2] * 10, "UP"),
+            ([-2] * 10, "DOWN"),
+            ([0] * 10, "FLAT"),
+        ])
+    prediction = calibrated_logistic_prediction(
+        examples,
+        [2] * 10,
+        min_samples=60,
+        min_calibration_samples=15,
+    )
+    assert prediction.available is True
+    assert prediction.calibrated is True
+    assert 0 <= prediction.confidence <= 1

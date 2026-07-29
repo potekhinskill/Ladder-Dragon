@@ -33,6 +33,13 @@ Tests and extensions import the owning package directly.
 | `ladder_dragon/persistence/` | Versioned SQLite migrations and storage infrastructure |
 | `ladder_dragon/verification/` | Release, Testnet and Raspberry verification profiles |
 
+Prediction research is split by responsibility under
+`ladder_dragon/strategy/prediction/`: `decision_value` owns the monetary target,
+`historical_dataset` and `advanced_features` own cutoff-safe evidence,
+`statistical_models` owns transparent challengers, `ensemble` owns the
+defensive-only policy, and `monthly_contour` owns recurring walk-forward
+artifacts. None of these modules imports exchange order capabilities.
+
 ## Monolith register
 
 CLI and ASGI paths are launchers, not import aliases. The following package

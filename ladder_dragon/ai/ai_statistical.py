@@ -46,6 +46,7 @@ class StatisticalPrediction:
     confidence: float
     samples: int
     available: bool
+    calibrated: bool = False
 
 
 class MulticlassLogisticRegime:
@@ -105,3 +106,41 @@ class MulticlassLogisticRegime:
         return StatisticalPrediction(
             CLASSES[index], probabilities[index], self.samples, True
         )
+
+
+def calibrated_logistic_prediction(
+    examples: Sequence[tuple[Sequence[float], str]],
+    vector: Sequence[float],
+    *,
+    min_samples: int = 60,
+    min_calibration_samples: int = 20,
+) -> StatisticalPrediction:
+    """Fit chronologically and calibrate confidence on a later holdout."""
+    from ladder_dragon.strategy.prediction.statistical_models import PlattCalibrator
+
+    split = max(1, int(len(examples) * 0.8))
+    training = examples[:split]
+    calibration = examples[split:]
+    model = MulticlassLogisticRegime()
+    model.fit(training)
+    raw = model.predict(vector, min_samples=min_samples)
+    if not raw.available or len(calibration) < min_calibration_samples:
+        return raw
+    calibration_rows = []
+    for calibration_vector, expected in calibration:
+        prediction = model.predict(calibration_vector, min_samples=min_samples)
+        if prediction.available:
+            calibration_rows.append(
+                (prediction.confidence, prediction.mode == expected)
+            )
+    if len(calibration_rows) < min_calibration_samples:
+        return raw
+    calibrator = PlattCalibrator()
+    calibrator.fit(calibration_rows)
+    return StatisticalPrediction(
+        mode=raw.mode,
+        confidence=calibrator.predict(raw.confidence),
+        samples=len(examples),
+        available=True,
+        calibrated=True,
+    )

@@ -31,7 +31,7 @@ fee-aware FIFO accounting, restart reconciliation, per-symbol operational
 reporting, replay and walk-forward verification, and a private Raspberry Pi
 operations dashboard.
 
-Current product version: **2.20.76**. The single version source is
+Current product version: **2.20.77**. The single version source is
 `product_version.py`; releases follow [Semantic Versioning](https://semver.org/).
 Project contact: [LinkedIn](https://www.linkedin.com/in/ypotekhin/).
 
@@ -96,7 +96,7 @@ bounded, explainable, recoverable, and measurable before exposure is increased.
 ## Project status
 
 Ladder Dragon is an actively developed, experimental trading system. Version
-**2.20.76** is the current source release. `main` is the only long-lived branch;
+**2.20.77** is the current source release. `main` is the only long-lived branch;
 feature branches use the `ladderdragon/*` namespace.
 
 DRY and Binance Spot Testnet are the supported starting modes. Mainnet LIVE is
@@ -442,6 +442,51 @@ enable anything automatically. Re-anchor still requires an explicit configured
 `APPLY`; without a passing gate that setting is forced back to SHADOW. The
 prediction layer itself cannot change CAP, BUY distance, TTL, TP or STOP.
 
+#### Defensive prediction research contour
+
+Prediction quality is measured in quote currency, not by direction accuracy
+alone. The decision-value report compares the gate with the unchanged
+`always trade` counterfactual and includes movement-weighted confusion plus the
+capture rate for large DOWN moves.
+
+Historical Binance one-minute archives can seed the research dataset:
+
+```bash
+python -m bin.prediction_history_backfill \
+  --binance-klines-jsonl db/archives/multi-symbol-klines.jsonl \
+  --output db/prediction-monthly-evidence.jsonl
+```
+
+Each input line contains `symbol` and the standard seven-field Binance `kline`.
+Optional timestamped `agg_trade_imbalance`, `funding_rate` and `open_interest`
+fields are accepted, but values after the snapshot are never used. Output rows
+retain the source SHA-256. Features add short/long realized volatility and its
+ratio, VWAP deviation/slope, cyclical hour/week fields, aggressive trade
+imbalance, funding and open-interest change. Missing external evidence remains
+explicitly unavailable rather than becoming a plausible zero. The public depth
+recorder already captures a 1,000-level snapshot, contiguous `depth@100ms`
+updates and `aggTrade` events.
+
+The logistic challenger calibrates confidence on its latest chronological
+holdout. Shallow gradient boosting and a three-state HMM run as transparent
+offline challengers. Deterministic, statistical and LLM decisions are compared
+on identical windows. LLM can add a veto but cannot override another veto;
+predictor disagreement blocks BUY in the defensive ensemble.
+
+```bash
+python -m bin.monthly_prediction_report \
+  --evidence-jsonl db/prediction-monthly-evidence.jsonl \
+  --output db/prediction-monthly-report.json
+```
+
+The default cutoff is the end of the previous full Asia/Almaty month.
+Walk-forward training requires every training label to predate the test
+snapshot. The SHA-256-bound report remains `SHADOW` and cannot change
+execution. `ladder-dragon-monthly-prediction.timer` runs only when its
+sanitized evidence file exists and sends Telegram only when compact status
+changes. Retraining produces an artifact only; APPLY or any risk expansion
+still requires the statistical gate and separate operator approval.
+
 ### Net-expectancy strategy controls
 
 The next-generation controls are implemented as independent `SHADOW` layers.
@@ -464,9 +509,10 @@ drawdown and fill-rate gate and the operator separately sets
 - Inventory skew reduces only new managed BUY size as
   `1 - utilization^gamma`. The hard portfolio/symbol CAP, exchange filters,
   reserve and complete future OCO exposure remain absolute checks.
-- The transparent logistic regime model remains a SHADOW challenger to the
-  deterministic baseline and DeepSeek. Training rows are historical only;
-  DeepSeek is never placed in the low-latency execution path.
+- The calibrated logistic, shallow boosting and three-state HMM models remain
+  SHADOW challengers to the deterministic baseline and DeepSeek. Training rows
+  are historical only; DeepSeek is never placed in the low-latency execution
+  path.
 - Dynamic multi-window correlation clusters and L2 spread/depth checks cap
   correlated symbols together. Adding symbols is an operator decision and
   does not happen automatically; a panic correlation cluster is treated as
@@ -1057,7 +1103,8 @@ Mainnet and the prediction statistical gate; the timer cannot enable APPLY.
   including source-linked validation against exact live lifecycle outcomes;
 - validate the existing dynamic-spread, queue-progress and volume-impact models
   against multi-regime archives and measured `executionReport` latency;
-- expand multi-period walk-forward and production approval statistics;
+- collect enough exact out-of-sample decision-value evidence to compare every
+  prediction challenger across all market regimes;
 - keep the single finite-only numeric compatibility boundary isolated from
   financial state. Supervisor, worker, AI context, order and OCO/protection
   modules contain no direct binary-float conversion calls; indicator and legacy

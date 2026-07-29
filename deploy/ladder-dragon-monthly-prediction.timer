@@ -1,0 +1,14 @@
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2026 IURII Potekhin
+# Purpose: schedule the optional monthly defensive prediction report.
+[Unit]
+Description=Schedule Ladder Dragon monthly defensive prediction report
+
+[Timer]
+OnCalendar=monthly
+Persistent=true
+RandomizedDelaySec=15m
+Unit=ladder-dragon-monthly-prediction.service
+
+[Install]
+WantedBy=timers.target

@@ -3,6 +3,33 @@
 All notable changes are documented here. Releases use Semantic Versioning; every
 section is dated and there is intentionally no `Unreleased` section.
 
+## [2.20.77] — 2026-07-29
+
+### Added
+- Quote-currency decision value now compares a defensive regime gate with the
+  exact always-trade counterfactual, including movement-weighted confusion and
+  large-DOWN capture.
+- Source-hashed historical Binance backfill creates multi-symbol 1/5/15-minute
+  samples with strict feature/label cutoffs and optional timestamped trade
+  imbalance, funding-rate and open-interest evidence.
+- Extended SHADOW features, Platt calibration, shallow gradient boosting, a
+  three-state HMM, a defensive-only ensemble and a monthly walk-forward report
+  are available without adding order capabilities.
+- An optional monthly systemd timer produces a hash-bound SHADOW artifact and
+  sends Telegram only when its compact status changes.
+
+### Changed
+- The existing logistic challenger now reserves its latest chronological
+  history for confidence calibration instead of treating raw softmax
+  confidence as calibrated probability.
+- Deep book and aggregate-trade collection continues through the existing
+  public 1,000-level snapshot plus `depth@100ms`/`aggTrade` archive.
+
+### Verified
+- Defensive-value, no-look-ahead, feature, model, ensemble, monthly contour,
+  deployment, prediction, archive and architecture regressions pass (96
+  focused tests); compileall and the complete suite pass (737 tests).
+
 ## [2.20.76] — 2026-07-29
 
 ### Fixed

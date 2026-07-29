@@ -1,0 +1,46 @@
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2026 IURII Potekhin
+# Purpose: run the optional monthly defensive prediction report.
+[Unit]
+Description=Ladder Dragon monthly defensive prediction SHADOW report
+After=network-online.target
+Wants=network-online.target
+ConditionPathExists=/var/lib/ladder-dragon/prediction-monthly-evidence.jsonl
+
+[Service]
+Type=oneshot
+User=bot
+Group=bot
+WorkingDirectory=/home/bot/apps/binance_bot
+Environment=PYTHONPATH=/home/bot/apps/binance_bot
+EnvironmentFile=-/etc/ladder-dragon/telegram.env
+ExecStart=/home/bot/apps/binance_bot/.venv/bin/python -m bin.monthly_prediction_report --evidence-jsonl /var/lib/ladder-dragon/prediction-monthly-evidence.jsonl --output /var/lib/ladder-dragon/prediction-monthly-report.json --status-state /var/lib/ladder-dragon/prediction-monthly-status.json --notify-on-change
+NoNewPrivileges=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectSystem=strict
+ProtectHome=read-only
+ProtectClock=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+ProtectKernelLogs=yes
+ProtectHostname=yes
+RestrictSUIDSGID=yes
+RestrictRealtime=yes
+RestrictNamespaces=yes
+LockPersonality=yes
+MemoryDenyWriteExecute=yes
+CapabilityBoundingSet=
+AmbientCapabilities=
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+SystemCallArchitectures=native
+SystemCallFilter=@system-service
+SystemCallErrorNumber=EPERM
+ReadWritePaths=/var/lib/ladder-dragon
+ReadOnlyPaths=/home/bot/apps/binance_bot
+ReadOnlyPaths=-/etc/ladder-dragon/telegram.env
+UMask=0077
+
+[Install]
+WantedBy=multi-user.target

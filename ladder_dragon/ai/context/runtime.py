@@ -1526,39 +1526,13 @@ class AdvisorDecisionStore:
         *,
         min_samples: int = 60,
     ) -> dict[str, Any]:
-        from ladder_dragon.ai.ai_statistical import (
-            MulticlassLogisticRegime,
-            context_vector,
-            return_label,
+        from ladder_dragon.ai.context.statistical import statistical_prediction
+        return statistical_prediction(
+            self._connect,
+            context,
+            min_samples=min_samples,
+            numeric=_compat_float,
         )
-
-        with self._connect() as connection:
-            rows = connection.execute(
-                """
-                SELECT feature_json,
-                       COALESCE(NULLIF(return_1h_text,''),CAST(return_1h AS TEXT))
-                FROM ai_decisions
-                WHERE return_1h IS NOT NULL AND feature_json!='[]'
-                ORDER BY created_at DESC LIMIT 2000
-                """
-            ).fetchall()
-        examples = []
-        for feature_json, result in rows:
-            try:
-                vector = json.loads(feature_json)
-                if isinstance(vector, list) and len(vector) == 10:
-                    examples.append((vector, return_label(_compat_float(result))))
-            except (TypeError, ValueError, json.JSONDecodeError):
-                continue
-        model = MulticlassLogisticRegime()
-        model.fit(examples)
-        prediction = model.predict(context_vector(context), min_samples=min_samples)
-        return {
-            "mode": prediction.mode,
-            "confidence": prediction.confidence,
-            "samples": prediction.samples,
-            "available": prediction.available,
-        }
 
     @staticmethod
     def _edge_summary(recent: list[dict[str, Any]]) -> dict[str, float | int]:

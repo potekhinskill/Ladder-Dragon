@@ -4,6 +4,20 @@ Read this file before changing the repository. Record only decisions that were
 validated by tests or production evidence and are likely to be reused. Keep
 entries concise; this is not a changelog or an activity log.
 
+### 2026-07-29 — Optimize defensive predictions for monetary decision value
+
+- **Context:** direction accuracy treats a harmless small miss like a missed
+  crash and does not reveal whether a regime gate improved trading economics.
+- **Decision:** compare every defensive gate with the unchanged always-trade
+  counterfactual in quote currency, weight confusion by realized move size,
+  train only before a chronological cutoff, and forbid predictors from
+  expanding baseline risk.
+- **Why it worked:** regressions prove exact avoided-loss value, large-DOWN
+  capture, no future-labelled training rows and an ensemble that can only veto
+  BUY or preserve/reduce CAP.
+- **Reuse:** prediction challengers, regime filters and any experimental signal
+  proposed for execution.
+
 ## Entry format
 
 ### YYYY-MM-DD — Short decision title
