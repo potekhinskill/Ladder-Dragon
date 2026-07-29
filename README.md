@@ -31,7 +31,7 @@ fee-aware FIFO accounting, restart reconciliation, per-symbol operational
 reporting, replay and walk-forward verification, and a private Raspberry Pi
 operations dashboard.
 
-Current product version: **2.20.96**. The single version source is
+Current product version: **2.20.97**. The single version source is
 `product_version.py`; releases follow [Semantic Versioning](https://semver.org/).
 Project contact: [LinkedIn](https://www.linkedin.com/in/ypotekhin/).
 
@@ -96,7 +96,7 @@ bounded, explainable, recoverable, and measurable before exposure is increased.
 ## Project status
 
 Ladder Dragon is an actively developed, experimental trading system. Version
-**2.20.96** is the current source release. `main` is the only long-lived branch;
+**2.20.97** is the current source release. `main` is the only long-lived branch;
 feature branches use the `ladderdragon/*` namespace.
 
 DRY and Binance Spot Testnet are the supported starting modes. Mainnet LIVE is
@@ -349,7 +349,7 @@ available but still blocks RAG/approval; inventory/protection uncertainty
 blocks execution as well. User-stream soak requires 24 hours plus a reconnect,
 an order event and event-triggered authoritative REST reconciliation.
 Production soak also requires three exact closed lifecycles, a fresh runtime,
-no prediction backlog and a passing statistical gate.
+no overdue or unrecovered prediction outcomes and a passing statistical gate.
 
 Safe DRY/Testnet supervisor run:
 

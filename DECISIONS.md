@@ -4,6 +4,18 @@ Read this file before changing the repository. Record only decisions that were
 validated by tests or production evidence and are likely to be reused. Keep
 entries concise; this is not a changelog or an activity log.
 
+### 2026-07-29 — Distinguish scheduled work from a processing backlog
+
+- **Context:** continuous multi-horizon prediction always has unresolved
+  outcomes whose evaluation time is still in the future.
+- **Decision:** report future and settlement-grace outcomes as normal pending
+  work; block soak approval only on overdue or unrecovered expired outcomes,
+  and fail closed when the necessary timestamp schema is unavailable.
+- **Why it worked:** regressions preserve approval eligibility with concurrent
+  1/5/15-minute work and block independently on overdue and expired evidence.
+- **Reuse:** every streaming pipeline whose normal in-flight work overlaps an
+  approval or health audit.
+
 ### 2026-07-29 — Compare SHADOW variants on one immutable market window
 
 - **Context:** waiting longer on one negative strategy only increases confidence

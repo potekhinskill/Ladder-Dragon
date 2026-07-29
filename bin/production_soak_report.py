@@ -28,16 +28,33 @@ def _runtime(path: Path) -> dict[str, Any]:
     return payload
 
 
-def _prediction_counts(path: Path) -> dict[str, int]:
+def _empty_prediction_counts() -> dict[str, int | bool]:
+    return {
+        "resolved": 0,
+        "pending": 0,
+        "pending_future": 0,
+        "pending_settling": 0,
+        "overdue": 0,
+        "expired": 0,
+        "backlog_verifiable": False,
+    }
+
+
+def _prediction_counts(
+    path: Path,
+    *,
+    now_ms: int,
+    maximum_settlement_delay_sec: int,
+) -> dict[str, int | bool]:
     if not path.exists():
-        return {"resolved": 0, "pending": 0, "expired": 0}
+        return _empty_prediction_counts()
     with sqlite3.connect(f"file:{path}?mode=ro", uri=True, timeout=2) as con:
         columns = {
             str(row[1])
             for row in con.execute("PRAGMA table_info(prediction_outcomes)")
         }
         if not columns:
-            return {"resolved": 0, "pending": 0, "expired": 0}
+            return _empty_prediction_counts()
         resolved = int(con.execute(
             "SELECT COUNT(*) FROM prediction_outcomes "
             "WHERE outcome_json IS NOT NULL"
@@ -46,6 +63,32 @@ def _prediction_counts(path: Path) -> dict[str, int]:
             "SELECT COUNT(*) FROM prediction_outcomes "
             "WHERE resolved_at_ms IS NULL"
         ).fetchone()[0])
+        backlog_columns = {
+            "eligible_at_ms",
+            "resolved_at_ms",
+            "terminal_reason",
+        }
+        if not backlog_columns.issubset(columns):
+            counts = _empty_prediction_counts()
+            counts.update({"resolved": resolved, "pending": pending})
+            return counts
+        overdue_before_ms = now_ms - maximum_settlement_delay_sec * 1000
+        pending_future = int(con.execute(
+            "SELECT COUNT(*) FROM prediction_outcomes "
+            "WHERE resolved_at_ms IS NULL AND eligible_at_ms>?",
+            (now_ms,),
+        ).fetchone()[0])
+        pending_settling = int(con.execute(
+            "SELECT COUNT(*) FROM prediction_outcomes "
+            "WHERE resolved_at_ms IS NULL "
+            "AND eligible_at_ms>? AND eligible_at_ms<=?",
+            (overdue_before_ms, now_ms),
+        ).fetchone()[0])
+        overdue = int(con.execute(
+            "SELECT COUNT(*) FROM prediction_outcomes "
+            "WHERE resolved_at_ms IS NULL AND eligible_at_ms<=?",
+            (overdue_before_ms,),
+        ).fetchone()[0])
         expired = (
             int(con.execute(
                 "SELECT COUNT(*) FROM prediction_outcomes "
@@ -53,7 +96,15 @@ def _prediction_counts(path: Path) -> dict[str, int]:
             ).fetchone()[0])
             if "terminal_reason" in columns else 0
         )
-    return {"resolved": resolved, "pending": pending, "expired": expired}
+    return {
+        "resolved": resolved,
+        "pending": pending,
+        "pending_future": pending_future,
+        "pending_settling": pending_settling,
+        "overdue": overdue,
+        "expired": expired,
+        "backlog_verifiable": True,
+    }
 
 
 def build_report(
@@ -64,6 +115,7 @@ def build_report(
     required_hours: int,
     required_lifecycles: int,
     required_predictions: int,
+    maximum_settlement_delay_sec: int = 300,
     now_epoch: float | None = None,
 ) -> dict[str, Any]:
     now = time.time() if now_epoch is None else float(now_epoch)
@@ -90,7 +142,11 @@ def build_report(
     journal = read_order_journal_telemetry(journal_path)
     lifecycle = journal.get("lifecycle", {}) if journal.get("available") else {}
     exact = int(lifecycle.get("closed_exact", 0))
-    prediction = _prediction_counts(prediction_path)
+    prediction = _prediction_counts(
+        prediction_path,
+        now_ms=int(now * 1000),
+        maximum_settlement_delay_sec=max(0, maximum_settlement_delay_sec),
+    )
     prediction_runtime = runtime.get("prediction")
     prediction_symbols = (
         prediction_runtime.get("symbols", {})
@@ -118,7 +174,11 @@ def build_report(
             prediction["resolved"] >= required_predictions
         ),
         "prediction_gate_approved": prediction_gate_approved,
-        "no_prediction_backlog": prediction["pending"] == 0,
+        "no_prediction_backlog": (
+            prediction["backlog_verifiable"] is True
+            and prediction["overdue"] == 0
+            and prediction["expired"] == 0
+        ),
     }
     return {
         "schema_version": 1,
@@ -211,6 +271,15 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--required-hours", type=int, default=24)
     parser.add_argument("--required-lifecycles", type=int, default=3)
     parser.add_argument("--required-predictions", type=int, default=100)
+    parser.add_argument(
+        "--maximum-settlement-delay-sec",
+        type=int,
+        default=300,
+        help=(
+            "block only unresolved outcomes overdue by at least this many "
+            "seconds; future horizons remain normal pending work"
+        ),
+    )
     parser.add_argument("--output", type=Path)
     parser.add_argument("--status-state", type=Path)
     parser.add_argument("--notify-on-change", action="store_true")
@@ -242,6 +311,9 @@ def main(argv: list[str] | None = None) -> int:
         required_hours=max(1, args.required_hours),
         required_lifecycles=max(1, args.required_lifecycles),
         required_predictions=max(1, args.required_predictions),
+        maximum_settlement_delay_sec=max(
+            0, args.maximum_settlement_delay_sec
+        ),
     )
     if args.output:
         _write_atomic(args.output, report)

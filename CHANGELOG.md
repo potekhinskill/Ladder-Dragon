@@ -3,6 +3,29 @@
 All notable changes are documented here. Releases use Semantic Versioning; every
 section is dated and there is intentionally no `Unreleased` section.
 
+## [2.20.97] — 2026-07-29
+
+### Fixed
+- Production soak no longer treats normal unresolved 1/5/15-minute SHADOW
+  horizons as a prediction backlog. Only outcomes overdue beyond a bounded
+  settlement grace period or unrecovered `INSUFFICIENT_HISTORY` outcomes block
+  approval.
+- Missing or legacy prediction schema cannot silently satisfy the backlog gate;
+  the report now exposes whether backlog evidence is verifiable.
+
+### Added
+- Soak evidence separates future pending, settlement-grace, overdue and expired
+  outcome counts, with a configurable five-minute settlement delay ceiling.
+
+### Security
+- The correction changes reporting only. HALT, SHADOW, CAP and order mutation
+  authority remain unchanged.
+
+### Verified
+- Pending-horizon and fail-closed overdue/expired regressions pass; complete
+  compileall and the complete suite pass (803 tests). Release verification
+  results are recorded in the signed release manifest.
+
 ## [2.20.96] — 2026-07-29
 
 ### Added

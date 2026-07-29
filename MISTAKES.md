@@ -17,6 +17,17 @@ private infrastructure details.
 
 ## Mistakes
 
+### 2026-07-29 — Treated all in-flight horizons as a processing backlog
+
+- **Impact:** production soak approval could never pass while continuous
+  SHADOW collection correctly kept future 1/5/15-minute outcomes pending.
+- **Root cause:** the audit used `pending == 0` without comparing each outcome's
+  eligibility time with the report cutoff or allowing bounded settlement time.
+- **Correction:** classify future, settling, overdue and unrecovered expired
+  outcomes separately; only the latter two block approval.
+- **Prevention:** streaming approval tests must include simultaneous future
+  work and separately prove that overdue and expired evidence fails closed.
+
 ### 2026-07-29 — Replaced a specific prediction-store error contract
 
 - **Impact:** the first focused experiment run failed one existing re-anchor
