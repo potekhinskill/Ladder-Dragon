@@ -55,6 +55,8 @@ class TradePlan:
     notional_quote: Decimal
     fee_pct: Decimal
     slippage_pct: Decimal
+    entry_ttl_sec: int | None = None
+    entry_enabled: bool = True
 
     def __post_init__(self) -> None:
         values = (
@@ -73,6 +75,14 @@ class TradePlan:
             raise ValueError("trade plan must satisfy stop < entry < take profit")
         if self.fee_pct < 0 or self.slippage_pct < 0:
             raise ValueError("execution costs must be non-negative")
+        if self.entry_ttl_sec is not None and (
+            isinstance(self.entry_ttl_sec, bool)
+            or not isinstance(self.entry_ttl_sec, int)
+            or self.entry_ttl_sec <= 0
+        ):
+            raise ValueError("entry TTL must be a positive integer")
+        if not isinstance(self.entry_enabled, bool):
+            raise ValueError("entry_enabled must be boolean")
 
 
 @dataclass(frozen=True)

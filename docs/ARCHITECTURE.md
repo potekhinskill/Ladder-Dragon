@@ -37,8 +37,10 @@ Prediction research is split by responsibility under
 `ladder_dragon/strategy/prediction/`: `decision_value` owns the monetary target,
 `historical_dataset` and `advanced_features` own cutoff-safe evidence,
 `statistical_models` owns transparent challengers, `ensemble` owns the
-defensive-only policy, and `monthly_contour` owns recurring walk-forward
-artifacts. Historical splits share immutable training-prefix storage and use
+defensive-only policy, `experiments` owns same-snapshot SHADOW variants,
+`approval` owns CI/Holm gates, `walk_forward` owns chronological evaluation,
+and `monthly_contour` owns recurring artifacts. Historical splits share
+immutable training-prefix storage and use
 binary label cutoffs. The ensemble treats `FLAT` and `UP` as one safe family,
 uses confident `DOWN`/`PANIC` as vetoes and permits weak danger evidence only
 to reduce CAP. None of these modules imports exchange order capabilities.
@@ -58,7 +60,7 @@ non-growth budgets:
 | `ladder_dragon/execution/worker/runtime.py` | shared exchange adapters and late-bound execution dependencies |
 | `ladder_dragon/dashboard/runtime.py` | dashboard coordinator pending router/service extraction |
 | `ladder_dragon/execution/order_recovery.py` | journal schema, lifecycle commands, query projections |
-| `ladder_dragon/strategy/prediction/runtime.py` | compatibility coordinator for modular prediction APIs |
+| `ladder_dragon/strategy/prediction/runtime.py` | feature/outcome journal coordinator pending final store extraction |
 
 Future work must extract one cohesive seam at a time and migrate production
 and test imports to the owning package in the same change. A move is complete

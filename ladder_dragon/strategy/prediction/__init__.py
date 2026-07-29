@@ -21,8 +21,10 @@ from ladder_dragon.strategy.prediction.runtime import (
     evaluation_end_ms,
     parse_closed_klines,
     predict_distribution,
-    prediction_apply_gate,
     trade_flow_from_agg_trades,
+)
+from ladder_dragon.strategy.prediction.approval import prediction_apply_gate
+from ladder_dragon.strategy.prediction.walk_forward import (
     walk_forward_prediction_report,
 )
 

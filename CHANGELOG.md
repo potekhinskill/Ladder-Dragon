@@ -3,6 +3,34 @@
 All notable changes are documented here. Releases use Semantic Versioning; every
 section is dated and there is intentionally no `Unreleased` section.
 
+## [2.20.96] — 2026-07-29
+
+### Added
+- A SHADOW-only experiment contour records five fee-floor-safe strategy
+  candidates against the untouched current plan on identical snapshots:
+  TP floor, 15 bps BUY gap, five-minute TTL, bounded re-anchor and
+  DOWN/PANIC veto.
+- Runtime evidence reports each candidate's independent samples, expectancy,
+  baseline edge, fill rate, drawdown, regime coverage and promotion reasons.
+
+### Changed
+- Statistical approval and walk-forward logic now live in their technical
+  modules instead of the guarded prediction runtime coordinator.
+- Candidate sets are recorded at most every five minutes and expensive reports
+  refresh at most every 15 minutes.
+
+### Security
+- Experiment kinds require an explicit immutable baseline and have no exchange
+  or order transport. `apply_allowed` remains false even for an eligible report.
+- Promotion requires candidate-specific configuration p-values with Holm
+  correction in addition to the existing horizon/regime Holm gate.
+
+### Verified
+- Focused prediction, experiment, supervisor recovery and architecture
+  regressions pass, including no-look-ahead, TTL, regime veto, bounded cadence,
+  explicit baseline and no-order-capability checks; compileall and the complete
+  suite pass (801 tests).
+
 ## [2.20.95] — 2026-07-29
 
 ### Fixed

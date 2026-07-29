@@ -31,7 +31,7 @@ fee-aware FIFO accounting, restart reconciliation, per-symbol operational
 reporting, replay and walk-forward verification, and a private Raspberry Pi
 operations dashboard.
 
-Current product version: **2.20.95**. The single version source is
+Current product version: **2.20.96**. The single version source is
 `product_version.py`; releases follow [Semantic Versioning](https://semver.org/).
 Project contact: [LinkedIn](https://www.linkedin.com/in/ypotekhin/).
 
@@ -96,7 +96,7 @@ bounded, explainable, recoverable, and measurable before exposure is increased.
 ## Project status
 
 Ladder Dragon is an actively developed, experimental trading system. Version
-**2.20.95** is the current source release. `main` is the only long-lived branch;
+**2.20.96** is the current source release. `main` is the only long-lived branch;
 feature branches use the `ladderdragon/*` namespace.
 
 DRY and Binance Spot Testnet are the supported starting modes. Mainnet LIVE is
@@ -447,6 +447,24 @@ forecast. A passing report says `APPLY` is statistically eligible; it does not
 enable anything automatically. Re-anchor still requires an explicit configured
 `APPLY`; without a passing gate that setting is forced back to SHADOW. The
 prediction layer itself cannot change CAP, BUY distance, TTL, TP or STOP.
+
+While execution is HALTED, a bounded experiment contour records five
+counterfactual candidates every five minutes on the exact same immutable
+snapshot and candles as the current strategy baseline:
+
+- TP above the authoritative round-trip fee/slippage floor;
+- a BUY 15 bps below the observed market;
+- a five-minute entry TTL;
+- a re-anchor step of at most 15 bps toward a 5 bps target gap;
+- a `NO_TRADE` veto in `TREND_DOWN` and `PANIC`.
+
+Every candidate retains the untouched current strategy plan as its explicit
+baseline. Gates are refreshed at most every 15 minutes and remain
+`apply_allowed=false`. Promotion eligibility requires positive lower confidence
+bounds, minimum fill rate, regime coverage, acceptable drawdown, Holm-corrected
+horizon/regime hypotheses, and a second Holm correction across the five
+distinct configuration p-values. No candidate can clear HALT, select itself, or
+change an order.
 
 #### Defensive prediction research contour
 

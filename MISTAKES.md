@@ -17,6 +17,17 @@ private infrastructure details.
 
 ## Mistakes
 
+### 2026-07-29 — Replaced a specific prediction-store error contract
+
+- **Impact:** the first focused experiment run failed one existing re-anchor
+  regression even though persistence safety remained intact.
+- **Root cause:** a shared counterfactual baseline check replaced the established
+  re-anchor-specific diagnostic while adding experiment kinds.
+- **Correction:** preserve the exact re-anchor contract and use a separate
+  explicit-baseline diagnostic for experiment records.
+- **Prevention:** when extending a validator to new variants, retain existing
+  branch-specific messages and run the original contract tests immediately.
+
 ### 2026-07-29 — Relied on executescript for crash-sensitive migrations
 
 - **Impact:** a power loss between DDL statements or before the separate version

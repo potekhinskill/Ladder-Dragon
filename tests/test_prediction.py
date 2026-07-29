@@ -455,6 +455,7 @@ def test_supervisor_shadow_records_strategy_and_hashed_reanchor(
         take_profit_pct="0.01",
         stop_pct="-0.01",
         deterministic_mode="UP",
+        required_edge_pct=D("0.0096"),
         rolling={"proposals": [{
             "order_id": "raw-order-identifier",
             "old_price": "102",
@@ -464,7 +465,7 @@ def test_supervisor_shadow_records_strategy_and_hashed_reanchor(
     )
 
     summary = store.summary("SOLUSDT")
-    assert summary["decisions"] == 2
+    assert summary["decisions"] == 7
     assert summary["reanchor_counterfactuals"] == 1
     assert ai_supervisor._AI_RUNTIME_STATUS["prediction"][
         "can_change_orders"

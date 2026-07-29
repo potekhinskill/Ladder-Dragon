@@ -108,6 +108,17 @@ calculate non-executing SHADOW candidates while HALT is active. This preserves
 counterfactual evidence needed to study BUY distance, re-anchoring, regimes, and
 expectancy without starting a worker or changing an order.
 
+The experiment contour evaluates five candidates against the untouched current
+strategy plan on identical feature timestamps and 1/5/15-minute candles. All
+candidates use a TP above the authoritative cost floor; individual variants
+isolate BUY distance, five-minute TTL, bounded re-anchor and DOWN/PANIC veto
+effects. Recording is limited to one candidate set per five minutes, while
+expensive gates refresh at most every 15 minutes. Selection requires both the
+ordinary horizon/regime Holm gate and a configuration-level Holm correction
+using a distinct paired-edge p-value for every candidate. Even a passing
+candidate remains `apply_allowed=false` until a separate reviewed release and
+operator approval.
+
 Authenticated User Data Stream soak is also independent from execution. The
 `ladder-dragon-user-stream-shadow` service has no POST, DELETE, placement or
 cancel path; each accepted order notification can only wake an authoritative

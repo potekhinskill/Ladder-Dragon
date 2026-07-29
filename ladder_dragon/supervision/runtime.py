@@ -66,6 +66,7 @@ from ladder_dragon.supervision.vwap_config import (
 from ladder_dragon.supervision.prediction_shadow import (
     blocked_plan_summary as _blocked_plan_summary,
     build_knowledge_store,
+    collect_shadow_experiments,
     prediction_panic_state as _prediction_panic_state,
     publish_plan_decision_status as _publish_plan_decision_status,
 )
@@ -185,9 +186,7 @@ except ImportError as e:
     raise
 # <<< tools_market integration
 
-# =========================
 # Constants and environment
-# =========================
 
 BINANCE_API_BASE = (os.getenv("BINANCE_API_BASE") or os.getenv("BINANCE_BASE_URL") or "https://api.binance.com").rstrip("/")
 API_KEY = os.getenv("BINANCE_API_KEY", "")
@@ -931,9 +930,7 @@ def dbg(msg: str) -> None:
     if LOG_LEVEL in ("DEBUG", "TRACE"):
         print(msg, flush=True)
 
-# =========================
 # Utilities
-# =========================
 
 # VWAP configuration parsing lives in ladder_dragon.supervision.vwap_config.
 
@@ -945,13 +942,9 @@ def symbol_assets(symbol: str) -> Tuple[str, str]:
             return symbol[:-len(q)], q
     return symbol[:-3], symbol[-3:]
 
-# =========================
 # Resilient backoff with jitter
-# =========================
 
-# ================
 # Request signing
-# ================
 
 # ---- tools_market-based HTTP helpers ----
 
@@ -978,9 +971,7 @@ def _canonical_signed_request(method: str, path: str, params: Dict[str, Any] = N
     except ValueError:
         return r.text
 
-# ===========================
 # Account and market access
-# ===========================
 
 def get_server_time_offset_ms() -> int:
     try:
@@ -1367,9 +1358,7 @@ def place_market_order(symbol: str, side: str, quantity: object,
                 log(f"[PLACE-RETRY-ERR] {symbol} -> {e2}")
         return None
 
-# ============================
 # Smart order cleanup
-# ============================
 
 def _log_order_lifetime(
     symbol: str,
@@ -1560,9 +1549,7 @@ def smart_cleanup_orders(symbol: str,
     log(f"[CLEANUP-SUM] {symbol} reviewed={reviewed} canceled={canceled}")
     return {"reviewed": reviewed, "canceled": canceled}
 
-# ===========================
 # Ladder scheduler
-# ===========================
 
 # ===========================
 # Smart Rolling (brief)
@@ -1998,6 +1985,7 @@ def _record_prediction_shadow(
     stop_pct: object,
     deterministic_mode: str,
     rolling: Mapping[str, object],
+    required_edge_pct: Decimal | None,
 ) -> None:
     """Persist look-ahead-safe forecasts without changing an order decision."""
     if _PREDICTION_SHADOW is None:
@@ -2080,6 +2068,7 @@ def _record_prediction_shadow(
         },
         reverse=True,
     )
+    experiment_report = None
     if buy_levels:
         strategy_plan = _prediction_plan(
             buy_levels[0],
@@ -2100,6 +2089,14 @@ def _record_prediction_shadow(
                 f"mode={deterministic_mode};buy={strategy_plan.entry_price};"
                 f"panic={panic_active};reason=current-ladder"
             ),
+        )
+        experiment_report = collect_shadow_experiments(
+            _PREDICTION_SHADOW,
+            symbol=symbol,
+            features=features,
+            market_price=market,
+            baseline_plan=strategy_plan,
+            required_edge_pct=required_edge_pct,
         )
 
     proposals_raw = rolling.get("proposals")
@@ -2179,6 +2176,7 @@ def _record_prediction_shadow(
         "settled_this_cycle": settled,
         "gate": gate,
         "strategy_control_gate": strategy_gate,
+        "shadow_experiments": experiment_report,
         "walk_forward": {
             "method": walk_forward["method"],
             "lookahead": walk_forward["lookahead"],
@@ -3586,6 +3584,7 @@ def run_for_symbol(
             stop_pct=args.sl,
             deterministic_mode=dir_mode,
             rolling=sr,
+            required_edge_pct=required_edge,
         )
     except SUPERVISOR_OPERATION_ERRORS as exc:
         log(f"[PREDICTION-SHADOW] {symbol} unavailable={type(exc).__name__}")

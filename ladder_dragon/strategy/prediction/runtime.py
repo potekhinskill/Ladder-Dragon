@@ -16,7 +16,6 @@ import hashlib
 import json
 import math
 from pathlib import Path
-import random
 import sqlite3
 import time
 from typing import Iterable, Mapping, Sequence
@@ -357,6 +356,11 @@ def predict_distribution(
     min_samples: int = 60,
 ) -> tuple[HorizonPrediction, ...]:
     """Blend a TA prior with only chronologically eligible empirical outcomes."""
+    if not plan.entry_enabled:
+        return tuple(
+            HorizonPrediction(horizon, ZERO, ZERO, ZERO, ZERO, ZERO, 0, True)
+            for horizon in HORIZONS_MIN
+        )
     output: list[HorizonPrediction] = []
     for horizon in HORIZONS_MIN:
         prior = _technical_prior(features, plan, horizon)
@@ -427,8 +431,18 @@ def evaluate_plan(
     ]
     if not future or future[-1].close_time_ms < eligible_at - 60_000:
         return None
+    if not plan.entry_enabled:
+        return PredictionOutcome(
+            horizon_min, False, None, ZERO, ZERO, None, "NO_TRADE", eligible_at
+        )
+    entry_deadline_ms = (
+        snapshot_ts_ms + plan.entry_ttl_sec * 1000
+        if plan.entry_ttl_sec is not None else None
+    )
     fill_index: int | None = None
     for index, bar in enumerate(future):
+        if entry_deadline_ms is not None and bar.close_time_ms > entry_deadline_ms:
+            break
         if bar.low <= plan.entry_price:
             fill_index = index
             break
@@ -561,10 +575,13 @@ class PredictionShadowStore:
     ) -> str:
         """Persist one immutable forecast and its untouched baseline plan."""
         normalized_kind = kind.upper()
-        if normalized_kind not in {"STRATEGY", "REANCHOR"}:
-            raise ValueError("prediction kind must be STRATEGY or REANCHOR")
+        experimental = normalized_kind.startswith("EXPERIMENT_")
+        if normalized_kind not in {"STRATEGY", "REANCHOR"} and not experimental:
+            raise ValueError("unsupported prediction kind")
         if normalized_kind == "REANCHOR" and baseline_plan is None:
             raise ValueError("REANCHOR requires the original order baseline")
+        if experimental and baseline_plan is None:
+            raise ValueError("counterfactual kind requires an explicit baseline")
         decision_id = self._decision_id(
             normalized_kind,
             symbol.upper(),
@@ -616,13 +633,26 @@ class PredictionShadowStore:
         if not payload:
             return None
         raw = json.loads(payload)
-        return TradePlan(**{
+        values = {
             name: _decimal(raw[name], field=name)
             for name in (
                 "entry_price", "take_profit_price", "stop_price",
                 "notional_quote", "fee_pct", "slippage_pct",
             )
-        })
+        }
+        entry_enabled = raw.get("entry_enabled", True)
+        if not isinstance(entry_enabled, bool):
+            raise ValueError("entry_enabled must be boolean")
+        entry_ttl = raw.get("entry_ttl_sec")
+        if entry_ttl is not None and (
+            isinstance(entry_ttl, bool) or not isinstance(entry_ttl, int)
+        ):
+            raise ValueError("entry_ttl_sec must be an integer")
+        return TradePlan(
+            **values,
+            entry_ttl_sec=entry_ttl,
+            entry_enabled=entry_enabled,
+        )
 
     def settle(
         self,
@@ -1115,186 +1145,3 @@ class PredictionShadowStore:
             "reanchor_performance": self.reanchor_performance(symbol),
             "regime_performance": self.regime_performance(symbol),
         }
-
-
-def _bootstrap_ci(
-    values: Sequence[Decimal], *, iterations: int = 1000, seed: int = 23
-) -> tuple[Decimal, Decimal]:
-    if not values:
-        return ZERO, ZERO
-    rng = random.Random(seed)
-    means = []
-    for _ in range(iterations):
-        draw = [values[rng.randrange(len(values))] for _ in values]
-        means.append(sum(draw, ZERO) / D(str(len(draw))))
-    means.sort()
-    return means[int(len(means) * 0.025)], means[int(len(means) * 0.975)]
-
-
-def _paired_sign_p_value(edges: Sequence[Decimal]) -> float:
-    nonzero = [value for value in edges if value != 0]
-    if not nonzero:
-        return 1.0
-    wins = sum(value > 0 for value in nonzero)
-    probability = sum(
-        math.comb(len(nonzero), index) for index in range(wins, len(nonzero) + 1)
-    ) / (2 ** len(nonzero))
-    return min(1.0, probability)
-
-
-def _holm(p_values: Sequence[float], alpha: float = 0.05) -> list[bool]:
-    indexed = sorted(enumerate(p_values), key=lambda item: item[1])
-    accepted = [False] * len(p_values)
-    for rank, (index, value) in enumerate(indexed):
-        if value <= alpha / max(1, len(indexed) - rank):
-            accepted[index] = True
-        else:
-            break
-    return accepted
-
-
-def prediction_apply_gate(
-    samples: Sequence[ResolvedSample],
-    *,
-    min_independent_samples: int = 120,
-    min_regime_samples: int = 20,
-    min_fill_rate: Decimal = D("0.10"),
-    max_drawdown_quote: Decimal = D("25"),
-) -> dict[str, object]:
-    """Approve nothing unless net edge survives CI, Holm and every regime."""
-    ordered = sorted(samples, key=lambda item: (item.snapshot_ts_ms, item.horizon_min))
-    grouped: dict[int, list[ResolvedSample]] = {}
-    for item in ordered:
-        grouped.setdefault(item.snapshot_ts_ms, []).append(item)
-    independent_rows = []
-    for timestamp, rows in sorted(grouped.items()):
-        count = D(str(len(rows)))
-        independent_rows.append({
-            "timestamp": timestamp,
-            "regime": rows[0].regime,
-            "pnl": sum(
-                (row.outcome.net_pnl_quote for row in rows), ZERO
-            ) / count,
-            "edge": sum(
-                (
-                    row.outcome.net_pnl_quote
-                    - row.baseline_net_pnl_quote
-                    for row in rows
-                ),
-                ZERO,
-            ) / count,
-            "fill": D(str(sum(row.outcome.buy_filled for row in rows)))
-            / count,
-        })
-    independent = len(independent_rows)
-    pnl = [row["pnl"] for row in independent_rows]
-    edges = [row["edge"] for row in independent_rows]
-    ci = _bootstrap_ci(pnl)
-    edge_ci = _bootstrap_ci(edges)
-    hypotheses: list[tuple[str, list[Decimal]]] = []
-    for horizon in HORIZONS_MIN:
-        horizon_rows = [
-            row for row in ordered if row.horizon_min == horizon
-        ]
-        hypotheses.append((
-            f"horizon_{horizon}",
-            [
-                row.outcome.net_pnl_quote - row.baseline_net_pnl_quote
-                for row in horizon_rows
-            ],
-        ))
-    regimes = sorted({str(row["regime"]) for row in independent_rows})
-    for regime in regimes:
-        hypotheses.append((
-            f"regime_{regime}",
-            [
-                row["edge"]
-                for row in independent_rows
-                if row["regime"] == regime
-            ],
-        ))
-    p_values = [
-        _paired_sign_p_value(hypothesis_edges)
-        for _, hypothesis_edges in hypotheses
-    ]
-    holm = _holm(p_values)
-    hypothesis_report = {
-        name: {
-            "samples": len(hypothesis_edges),
-            "p_value": p_values[index],
-            "passed": holm[index],
-        }
-        for index, (name, hypothesis_edges) in enumerate(hypotheses)
-    }
-    cumulative = ZERO
-    peak = ZERO
-    max_drawdown = ZERO
-    for value in pnl:
-        cumulative += value
-        peak = max(peak, cumulative)
-        max_drawdown = max(max_drawdown, peak - cumulative)
-    fill_rate = (
-        sum((row["fill"] for row in independent_rows), ZERO)
-        / D(str(independent))
-        if independent_rows else ZERO
-    )
-    required_regimes = {"TREND_UP", "TREND_DOWN", "RANGE", "PANIC"}
-    regime_counts = {
-        regime: sum(row["regime"] == regime for row in independent_rows)
-        for regime in required_regimes
-    }
-    reasons = []
-    if independent < min_independent_samples:
-        reasons.append("insufficient independent samples")
-    if ci[0] <= 0:
-        reasons.append("net expectancy lower CI is not positive")
-    if edge_ci[0] <= 0:
-        reasons.append("baseline edge lower CI is not positive")
-    if any(count < min_regime_samples for count in regime_counts.values()):
-        reasons.append("market regime coverage is incomplete")
-    if hypotheses and not all(holm):
-        reasons.append("Holm-corrected hypotheses did not all pass")
-    if fill_rate < min_fill_rate:
-        reasons.append("fill rate is below threshold")
-    if max_drawdown > max_drawdown_quote:
-        reasons.append("drawdown exceeds threshold")
-    return {
-        "approved": not reasons,
-        "mode": "APPLY" if not reasons else "SHADOW",
-        "reasons": reasons,
-        "independent_samples": independent,
-        "net_expectancy_ci": [format(ci[0], "f"), format(ci[1], "f")],
-        "baseline_edge_ci": [format(edge_ci[0], "f"), format(edge_ci[1], "f")],
-        "fill_rate": format(fill_rate, "f"),
-        "max_drawdown_quote": format(max_drawdown, "f"),
-        "regime_counts": regime_counts,
-        "hypotheses": hypothesis_report,
-    }
-
-
-def walk_forward_prediction_report(
-    samples: Sequence[ResolvedSample],
-    *,
-    min_train_samples: int = 60,
-) -> dict[str, object]:
-    """Evaluate chronologically; a sample can train only later timestamps."""
-    ordered = sorted(samples, key=lambda item: (item.snapshot_ts_ms, item.horizon_min))
-    evaluated = []
-    for index, sample in enumerate(ordered):
-        train = [row for row in ordered[:index] if row.snapshot_ts_ms < sample.snapshot_ts_ms]
-        if len(train) < min_train_samples:
-            continue
-        evaluated.append({
-            "snapshot_ts_ms": sample.snapshot_ts_ms,
-            "horizon_min": sample.horizon_min,
-            "train_max_ts_ms": max(row.snapshot_ts_ms for row in train),
-            "actual_net_pnl_quote": format(sample.outcome.net_pnl_quote, "f"),
-            "baseline_net_pnl_quote": format(sample.baseline_net_pnl_quote, "f"),
-        })
-    return {
-        "schema_version": PREDICTION_SCHEMA_VERSION,
-        "method": "expanding-window-walk-forward",
-        "lookahead": False,
-        "evaluated": evaluated,
-        "gate": prediction_apply_gate(ordered),
-    }

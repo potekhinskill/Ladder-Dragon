@@ -7,10 +7,25 @@
 import json
 import os
 import re
+import time
+from decimal import Decimal
 from pathlib import Path
 from typing import Any, Callable, Dict, Sequence
 
 from ladder_dragon.ai.ai_knowledge import KnowledgeStore
+from ladder_dragon.strategy.prediction.experiments import (
+    build_shadow_variants,
+    record_shadow_variants,
+    shadow_variant_report,
+)
+from ladder_dragon.strategy.prediction.models import PredictionFeatures, TradePlan
+from ladder_dragon.strategy.prediction.runtime import PredictionShadowStore
+
+
+_EXPERIMENT_REPORT_CACHE: dict[
+    str, tuple[float, dict[str, object]]
+] = {}
+_EXPERIMENT_LAST_RECORD: dict[str, float] = {}
 
 
 def build_knowledge_store(
@@ -28,6 +43,57 @@ def build_knowledge_store(
             getenv("AI_RAG_CANDIDATE_LIMIT", "1000") or 1000
         ),
     )
+
+
+def collect_shadow_experiments(
+    store: PredictionShadowStore,
+    *,
+    symbol: str,
+    features: PredictionFeatures,
+    market_price: Decimal,
+    baseline_plan: TradePlan,
+    required_edge_pct: Decimal | None,
+    record_interval_sec: int = 300,
+    report_interval_sec: int = 900,
+) -> dict[str, object]:
+    """Record parallel variants and periodically refresh their expensive gates."""
+    if required_edge_pct is None:
+        return {
+            "mode": "SHADOW",
+            "available": False,
+            "reason": "authoritative required edge is unavailable",
+            "can_change_orders": False,
+        }
+    variants = build_shadow_variants(
+        market_price=market_price,
+        baseline_plan=baseline_plan,
+        required_edge_pct=required_edge_pct,
+        regime=features.regime,
+    )
+    now = time.monotonic()
+    last_record = _EXPERIMENT_LAST_RECORD.get(symbol)
+    if (
+        last_record is None
+        or now - last_record >= max(60, record_interval_sec)
+    ):
+        record_shadow_variants(
+            store,
+            symbol=symbol,
+            features=features,
+            variants=variants,
+        )
+        _EXPERIMENT_LAST_RECORD[symbol] = now
+    cached = _EXPERIMENT_REPORT_CACHE.get(symbol)
+    if cached is not None and now - cached[0] < max(60, report_interval_sec):
+        return cached[1]
+    report = shadow_variant_report(
+        store,
+        symbol=symbol,
+        variants=variants,
+        before_ts_ms=features.snapshot_ts_ms,
+    )
+    _EXPERIMENT_REPORT_CACHE[symbol] = (now, report)
+    return report
 
 
 def publish_plan_decision_status(

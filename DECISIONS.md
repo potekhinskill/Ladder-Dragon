@@ -4,6 +4,20 @@ Read this file before changing the repository. Record only decisions that were
 validated by tests or production evidence and are likely to be reused. Keep
 entries concise; this is not a changelog or an activity log.
 
+### 2026-07-29 — Compare SHADOW variants on one immutable market window
+
+- **Context:** waiting longer on one negative strategy only increases confidence
+  in the same result; testing several candidates creates selection bias unless
+  their evidence and hypotheses are aligned.
+- **Decision:** record bounded one-factor candidates on the same snapshot and
+  candles, preserve the current plan as each baseline, and require both the
+  normal horizon/regime gate and configuration-level Holm correction.
+- **Why it worked:** tests prove five distinct plans share one timestamp and
+  baseline, TTL/veto outcomes are explicit, p-values are candidate-specific,
+  and even statistically eligible evidence cannot authorize APPLY.
+- **Reuse:** every parallel strategy experiment where multiple configurations
+  compete for promotion from the same historical evidence.
+
 ### 2026-07-29 — Make migration evidence atomic with schema mutation
 
 - **Context:** SQLite `executescript` commits independently, so a power loss
