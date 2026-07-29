@@ -17,6 +17,9 @@ import requests
 
 from ladder_dragon.execution.order_recovery import OrderJournal, TERMINAL_EXCHANGE_STATES
 from ladder_dragon.execution.exchange_math import exact_symbol_filters, round_step
+from ladder_dragon.execution.protection.validation import (
+    exact_balance_quantity as _exact_balance_quantity,
+)
 
 
 _PROTECTION_DATA_ERRORS = (
@@ -98,17 +101,7 @@ class ProtectionDependencies:
     sleep: Callable[[float], None] = time.sleep
     now: Callable[[], float] = time.time
     lot_id_for_fill: Optional[Callable[[str, object, int | None], int | None]] = None
-
-
-def _exact_balance_quantity(
-    balances: Dict[str, Dict[str, object]],
-    asset: str,
-    field: str,
-) -> Decimal:
-    value = Decimal(str((balances.get(asset) or {}).get(field, 0) or 0))
-    if not value.is_finite() or value < 0:
-        raise ValueError(f"invalid {asset} {field} balance")
-    return value
+    average_entry_for_position: Optional[Callable[[str, object, int, int], Optional[object]]] = None
 
 
 def _remaining_oco_quantity(order: Dict[str, Any]) -> Decimal:
@@ -578,14 +571,29 @@ def protect_filled_buys(
                 config.stop_limit_offset_pct,
             )
 
+            # Reuse one authoritative account snapshot throughout protection.
+            exact_filters = exact_symbol_filters(dependencies.pull_filters(symbol))
+            base, _ = dependencies.get_symbol_assets(symbol)
+            balances = dependencies.get_balances()
+            base_free = _exact_balance_quantity(balances, base, "free")
+            position_quantity = base_free + _exact_balance_quantity(
+                balances, base, "locked"
+            )
+
             # In normal mode TP never falls below average entry and the fee
             # floor. Panic mode allows only the configured discount.
             try:
-                average_position = dependencies.average_entry(
-                    symbol,
-                    config.avg_cache_ttl,
-                    config.avg_lookback,
-                )
+                if dependencies.average_entry_for_position is not None:
+                    average_position = dependencies.average_entry_for_position(
+                        symbol, position_quantity, config.avg_cache_ttl,
+                        config.avg_lookback
+                    )
+                else:
+                    average_position = dependencies.average_entry(
+                        symbol,
+                        config.avg_cache_ttl,
+                        config.avg_lookback,
+                    )
             except (
                 ArithmeticError,
                 RuntimeError,
@@ -639,14 +647,6 @@ def protect_filled_buys(
                         )
                         tp_limit = guard_floor
 
-            exact_filters = exact_symbol_filters(
-                dependencies.pull_filters(symbol)
-            )
-            base, _ = dependencies.get_symbol_assets(symbol)
-            balances = dependencies.get_balances()
-            base_free = Decimal(
-                str(balances.get(base, {}).get("free", 0.0))
-            )
             sellable = max(Decimal("0"), base_free)
             if exact_filters is not None:
                 quantity = round_step(

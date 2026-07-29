@@ -35,6 +35,35 @@ function positionProtectionTone(code){
   if(normalized==='missing_or_incomplete'||normalized==='journal_exchange_mismatch'||normalized==='warning') return 'bad';
   return 'warn';
 }
+function userStreamSummary(stream){
+  const symbol=String(stream.symbol||'').toUpperCase();
+  const state=String(stream.state||'');
+  if(state==='not_configured_or_not_started'){
+    return `🟡 ${symbol} · ${tr('user_stream_not_started')} · ${tr('user_stream_rest_fallback')}`;
+  }
+  if(state==='connected'&&!stream.stale&&!stream.last_error){
+    const session=Number(stream.current_session_hours||0);
+    const age=stream.order_events>0&&stream.age_sec!=null?` · ${tr('user_stream_last_event')} ${fmt(stream.age_sec,0)}s`:'';
+    return `🟢 ${symbol} · ${tr('user_stream_connected')} · ${tr('user_stream_session')} ${fmt(session,2)}h${age}`;
+  }
+  return `🔴 ${symbol} · ${stream.stale?tr('user_stream_stale'):tr('user_stream_unavailable')}`;
+}
+function userStreamDiagnostics(streams){
+  const labels=[
+    ['sessions','sessions'],['order_events','events'],['bad_frames','bad frames'],
+    ['duplicates','duplicates'],['out_of_order_events','out-of-order'],
+    ['reconnects','reconnects'],['connection_attempts','connection attempts'],
+    ['disconnects','disconnects']
+  ];
+  return streams.flatMap(stream=>{
+    const prefix=String(stream.symbol||'').toUpperCase();
+    const counters=labels
+      .filter(([key])=>Number(stream[key]||0)>0)
+      .map(([key,label])=>`${label} ${Number(stream[key])}`);
+    if(stream.last_error) counters.push(`error ${String(stream.last_error)}`);
+    return counters.length?[`${prefix} · ${counters.join(' · ')}`]:[];
+  });
+}
 function applyLocale(){
   document.documentElement.lang = CURRENT_LOCALE;
   document.querySelectorAll('[data-i18n]').forEach(el=>{ el.textContent = tr(el.dataset.i18n); });
@@ -258,11 +287,12 @@ function updateOperations(h){
   $('#ops-watchdog').textContent=`${watchdog.state||'unknown'} · ${watchdog.enabled?tr('enabled'):tr('disabled')}`;
   $('#ops-watchdog').className=(watchdog.state==='active'&&watchdog.enabled)?'risk-ok':'risk-warn';
   const streams=o.user_stream?.streams||[];
-  const streamText=streams.length
-    ? streams.map(s=>`${s.symbol} ${s.state} · observed total ${s.cumulative_observation_hours??s.soak_hours??0}h · current session ${s.current_session_hours??0}h · sessions ${s.sessions||0} · age ${s.age_sec??'—'}s · events ${s.order_events||0} · bad frames ${s.bad_frames||0} · duplicates ${s.duplicates||0} · out-of-order ${s.out_of_order_events||0} · reconnects ${s.reconnects||0}/${s.connection_attempts||0} · disconnects ${s.disconnects||0}${s.last_error?' · '+s.last_error:''}`).join(', ')
-    : tr('no_data');
-  $('#ops-user-stream').textContent=streamText;
+  $('#ops-user-stream').textContent=streams.length?streams.map(userStreamSummary).join(', '):tr('no_data');
   $('#ops-user-stream').className=streams.length&&streams.every(s=>s.state==='connected'&&!s.stale&&!s.last_error)?'risk-ok':'risk-warn';
+  const streamDiagnostics=userStreamDiagnostics(streams);
+  const streamDetails=$('#ops-user-stream-details');
+  streamDetails.hidden=streamDiagnostics.length===0;
+  $('#ops-user-stream-diagnostics').textContent=streamDiagnostics.join('\n');
   const usb=o.usb_backup||{};
   $('#ops-usb').textContent=usb.mounted?`mounted · ${usb.writable?'rw':'dashboard namespace RO'}`:'not mounted';
   $('#ops-usb').className=usb.mounted?(usb.writable?'risk-ok':'risk-warn'):'risk-bad';
@@ -332,54 +362,28 @@ function updateTrading(t){
     const managedUnprotectedQty=Math.max(0,managedQty-managedProtectedQty);
     const managedState=protection.managed_state||state;
     const managedTone=positionProtectionTone(managedState);
-    const basisStatus=protection.cost_basis_status||'unavailable';
-    const basisLabel=positionStatusText(basisStatus);
-    const unavailableBasis=`—<span class="position-caption">${esc(tr('position_pnl_unavailable'))}</span>`;
-    const pnl=p.unrealized_pnl_usdt==null?unavailableBasis:fmtUSDT(Number(p.unrealized_pnl_usdt));
-    const average=p.average_entry_usdt==null?unavailableBasis:fmt(p.average_entry_usdt,4);
-    const drawdown=p.drawdown_pct==null?unavailableBasis:fmtPct(Number(p.drawdown_pct));
-    const managedCard=managedQty>0?`
-      <section class="position-scope managed">
-        <div class="position-scope-head">
-          <div class="position-scope-title">${esc(tr('position_managed'))}<span class="position-qty mono">${fmt(managedQty,8)}</span></div>
-          <span class="position-status ${managedTone}">${esc(positionStatusText(managedState))}</span>
-        </div>
-        <dl class="position-facts">
-          <dt>${esc(tr('position_oco_protected'))}</dt><dd class="mono">${fmt(managedProtectedQty,8)} / ${fmt(managedQty,8)}</dd>
-          <dt>${esc(tr('position_unprotected'))}</dt><dd class="mono ${managedUnprotectedQty>0?'position-unprotected':''}">${fmt(managedUnprotectedQty,8)}</dd>
-          <dt>TP</dt><dd class="mono">${esc((protection.tp||[]).join(', ')||'—')}</dd>
-          <dt>STOP</dt><dd class="mono">${esc((protection.stop||[]).join(', ')||'—')}</dd>
-          <dt>${esc(tr('position_gap_watchdog'))}</dt><dd>${esc(positionStatusText(protection.gap_watchdog))}</dd>
-        </dl>
-      </section>`:'';
-    const legacyCard=legacyQty>0?`
-      <section class="position-scope legacy">
-        <div class="position-scope-head">
-          <div class="position-scope-title">${esc(tr('position_legacy'))}<span class="position-qty mono">${fmt(legacyQty,8)}</span></div>
-          <span class="position-status warn">${esc(tr('position_outside_control'))}</span>
-        </div>
-        <p class="position-note">${esc(tr('position_legacy_explanation'))}</p>
-      </section>`:'';
+    const asset=String(p.base_asset||p.symbol||'').replace(/USDT$/,'');
+    const protectionRequired=managedQty>0&&managedUnprotectedQty>1e-12;
+    const protectionConfirmed=managedQty>0&&!protectionRequired&&managedTone==='ok';
+    const statusIcon=protectionRequired?'🔴':(protectionConfirmed?'🟢':'🟡');
+    const statusKey=protectionRequired?'position_action_required':(protectionConfirmed?'position_protection_confirmed':'position_legacy_only');
+    const basisHidden=p.average_entry_usdt==null||p.unrealized_pnl_usdt==null;
     return `<article class="position-card">
       <div class="position-card-head">
-        <div><div class="position-symbol mono">${esc(p.symbol)}</div><div class="position-caption">${esc(tr('position_total_position'))}</div></div>
-        <div class="position-total"><strong class="mono">${fmt(p.quantity,8)}</strong><span class="position-caption">${esc(tr('quantity'))}</span></div>
+        <div class="position-symbol mono">${esc(p.symbol)}</div>
+        <div class="position-alert ${protectionRequired?'bad':(protectionConfirmed?'ok':'warn')}">${statusIcon} ${esc(tr(statusKey))}</div>
       </div>
-      <div class="position-metrics">
-        <div class="position-metric"><span class="position-metric-label">${esc(tr('price'))}</span><span class="position-metric-value mono">${p.current_price_usdt==null?'—':fmt(p.current_price_usdt,4)}</span></div>
-        <div class="position-metric"><span class="position-metric-label">${esc(tr('value'))}</span><span class="position-metric-value">${p.value_usdt==null?'—':fmtUSDT(Number(p.value_usdt))}</span></div>
-        <div class="position-metric"><span class="position-metric-label">${esc(tr('average'))}</span><span class="position-metric-value">${average}</span></div>
-        <div class="position-metric"><span class="position-metric-label">${esc(tr('unrealized'))}</span><span class="position-metric-value">${pnl}</span></div>
-        <div class="position-metric"><span class="position-metric-label">${esc(tr('drawdown'))}</span><span class="position-metric-value">${drawdown}</span></div>
+      <div class="position-summary">
+        <div><span>${esc(tr('position_managed_position'))}</span><strong class="mono">${fmt(managedQty,8)} ${esc(asset)}</strong></div>
+        <div><span>${esc(tr('position_protected'))}</span><strong class="mono">${fmt(managedProtectedQty,8)} ${esc(asset)}</strong></div>
+        <div><span>${esc(tr('position_unprotected'))}</span><strong class="mono ${protectionRequired?'position-unprotected':''}">${fmt(managedUnprotectedQty,8)} ${esc(asset)}</strong></div>
       </div>
-      <div class="position-scopes">${managedCard}${legacyCard}</div>
-      <details class="position-details">
-        <summary>${esc(tr('position_cost_basis_details'))}</summary>
-        <div class="position-details-body">
-          <span>${esc(basisLabel)}</span>
-          <span>${esc(tr('position_coverage'))}: ${fmt(Number(protection.cost_basis_covered_quantity||0),8)} / ${fmt(Number(p.quantity||0),8)}</span>
-        </div>
-      </details>
+      ${protectionRequired?`<p class="position-buy-blocked">${esc(tr('position_new_buys_blocked'))}</p>`:''}
+      <div class="position-summary position-account">
+        <div><span>${esc(tr('position_total_balance'))}</span><strong class="mono">${fmt(p.quantity,8)} ${esc(asset)}</strong></div>
+        <div><span>${esc(tr('position_legacy_outside'))}</span><strong class="mono">${fmt(legacyQty,8)} ${esc(asset)}</strong></div>
+      </div>
+      ${basisHidden?`<p class="position-basis-hidden">${esc(tr('position_basis_hidden'))}</p>`:''}
     </article>`;
   }).join(''):`<div class="position-empty muted">${esc(tr('no_positions'))}</div>`;
 }

@@ -148,7 +148,24 @@
     position_legacy_explanation:"This older balance is not managed by the bot and is not covered by the managed OCO.",
     position_cost_basis_details:"Purchase history details",
     position_coverage:"history coverage",
-    position_pnl_unavailable:"unavailable without complete purchase history"
+    position_pnl_unavailable:"unavailable without complete purchase history",
+    position_action_required:"Protection required",
+    position_protection_confirmed:"Protection confirmed",
+    position_legacy_only:"Legacy balance outside bot control",
+    position_managed_position:"Managed position",
+    position_protected:"Protected",
+    position_new_buys_blocked:"New BUY orders are blocked.",
+    position_total_balance:"Total balance",
+    position_legacy_outside:"Older balance outside bot control",
+    position_basis_hidden:"Average price and PnL are hidden because purchase history is incomplete.",
+    user_stream_not_started:"account stream not started",
+    user_stream_rest_fallback:"fills use slower REST reconciliation",
+    user_stream_connected:"connected",
+    user_stream_session:"current session",
+    user_stream_last_event:"last event",
+    user_stream_stale:"stream is stale",
+    user_stream_unavailable:"stream unavailable",
+    user_stream_diagnostics:"Stream diagnostics"
   });
   Object.assign(translations.ru, {
     position_managed:"управляемая часть",
@@ -180,7 +197,24 @@
     position_legacy_explanation:"Этот старый остаток не управляется ботом и не покрывается OCO управляемой части.",
     position_cost_basis_details:"Детали истории покупок",
     position_coverage:"покрытие истории",
-    position_pnl_unavailable:"недоступно без полной истории покупок"
+    position_pnl_unavailable:"недоступно без полной истории покупок",
+    position_action_required:"Требуется защита",
+    position_protection_confirmed:"Защита подтверждена",
+    position_legacy_only:"Старый остаток вне управления бота",
+    position_managed_position:"Управляемая позиция",
+    position_protected:"Защищено",
+    position_new_buys_blocked:"Новые BUY заблокированы.",
+    position_total_balance:"Общий баланс",
+    position_legacy_outside:"Старый остаток вне управления",
+    position_basis_hidden:"Средняя цена и PnL скрыты — история покупок неполная.",
+    user_stream_not_started:"поток событий не запущен",
+    user_stream_rest_fallback:"исполнения сверяются через более медленный REST",
+    user_stream_connected:"подключён",
+    user_stream_session:"текущая сессия",
+    user_stream_last_event:"последнее событие",
+    user_stream_stale:"поток устарел",
+    user_stream_unavailable:"поток недоступен",
+    user_stream_diagnostics:"Диагностика потока"
   });
 
   const labels = [

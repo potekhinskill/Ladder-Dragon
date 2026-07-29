@@ -20,11 +20,11 @@ def test_dashboard_labels_stream_sessions_and_mixed_protection_explicitly():
     source = dashboard_source()
     locales = Path("FRONT/locales.js").read_text(encoding="utf-8")
 
-    assert "observed total" in source
-    assert "current session" in source
+    assert "observed total" not in source
+    assert "cumulative_observation_hours" not in source
     assert "· soak " not in source
-    assert "position_legacy_explanation" in source
-    assert locales.count("position_not_covered_by_managed_oco:") == 2
+    assert "position_legacy_outside" in source
+    assert locales.count("position_legacy_outside:") == 2
 
 
 def test_dashboard_localizes_position_codes_with_safe_unknown_fallback():
@@ -39,10 +39,8 @@ def test_dashboard_localizes_position_codes_with_safe_unknown_fallback():
     ):
         assert f"{code}: 'position_status_" in source
     assert "position_status_unknown" in source
-    assert "positionStatusText(basisStatus)" in source
-    assert "positionStatusText(protection.gap_watchdog)" in source
-    assert "esc(basisStatus)" not in source
-    assert "esc(protection.gap_watchdog" not in source
+    assert "protection.cost_basis_status" not in source
+    assert "protection.gap_watchdog" not in source
     for key in (
         "position_managed",
         "position_legacy",
@@ -54,7 +52,7 @@ def test_dashboard_localizes_position_codes_with_safe_unknown_fallback():
         assert locales.count(f"{key}:") == 2
 
 
-def test_dashboard_splits_managed_and_legacy_position_into_compact_cards():
+def test_dashboard_renders_one_concise_operational_position_summary():
     index = Path("FRONT/index.html").read_text(encoding="utf-8")
     source = dashboard_source()
     styles = Path("FRONT/dashboard.css").read_text(encoding="utf-8")
@@ -62,21 +60,30 @@ def test_dashboard_splits_managed_and_legacy_position_into_compact_cards():
 
     assert 'id="positions-body" class="position-list"' in index
     assert "position-table" not in index
-    assert 'class="position-scope managed"' in source
-    assert 'class="position-scope legacy"' in source
+    assert 'class="position-summary"' in source
+    assert 'position-summary position-account' in source
     assert "managedUnprotectedQty=Math.max(0,managedQty-managedProtectedQty)" in source
+    assert "protectionRequired=managedQty>0&&managedUnprotectedQty>1e-12" in source
+    assert "position_action_required" in source
     assert "position_unprotected" in source
-    assert "position_cost_basis_details" in source
-    assert "<details class=\"position-details\">" in source
-    assert ".position-scopes{display:grid" in styles
+    assert "position_new_buys_blocked" in source
+    assert "position_total_balance" in source
+    assert "position_legacy_outside" in source
+    assert "position_basis_hidden" in source
+    assert "<details class=\"position-details\">" not in source
+    assert "(protection.tp||[])" not in source
+    assert "(protection.stop||[])" not in source
+    assert ".position-summary{display:grid" in styles
     assert "@media (max-width:520px)" in styles
     for key in (
-        "position_oco_protected",
+        "position_action_required",
+        "position_managed_position",
+        "position_protected",
         "position_unprotected",
-        "position_outside_control",
-        "position_legacy_explanation",
-        "position_cost_basis_details",
-        "position_pnl_unavailable",
+        "position_new_buys_blocked",
+        "position_total_balance",
+        "position_legacy_outside",
+        "position_basis_hidden",
     ):
         assert locales.count(f"{key}:") == 2
 

@@ -103,3 +103,14 @@ def test_event_loop_reads_live_run_state_and_never_requires_buy_service():
     assert "service_place_buys" not in event_loop_source
     assert "place_limit_order" not in event_loop_source
     assert "place_otoco_buy" not in event_loop_source
+
+
+def test_stream_fill_is_reconciled_before_latency_persistence():
+    source = Path(
+        "ladder_dragon/execution/worker/event_loop.py"
+    ).read_text(encoding="utf-8")
+    stream_branch = source.split("if stream_events:", 1)[1]
+
+    assert stream_branch.index("_reconcile_tracked_buys(") < (
+        stream_branch.index("_record_stream_events(")
+    )

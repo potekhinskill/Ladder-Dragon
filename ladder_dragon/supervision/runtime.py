@@ -3139,9 +3139,10 @@ def run_for_symbol(
                 f"samples={statistical.get('samples', 0)}"
             )
         recommendation = (
-            _AI_ADVISOR.recommend(ai_context)
-            if advisor_active and _AI_ADVISOR is not None
-            else None
+            _AI_ADVISOR.recommend_shadow(ai_context)
+            if advisor_active and _AI_ADVISOR is not None and (_AI_POLICY is None or _AI_POLICY.mode == "SHADOW")
+            else _AI_ADVISOR.recommend(ai_context)
+            if advisor_active and _AI_ADVISOR is not None else None
         )
         if recommendation is not None:
             statistical_mode = (
@@ -3156,11 +3157,8 @@ def run_for_symbol(
             )
             if _AI_DECISIONS is not None:
                 try:
-                    decision_id = (
-                        _AI_DECISION_IDS.get(symbol)
-                        if _AI_ADVISOR.last_was_cache_hit
-                        else _AI_ADVISOR.last_decision_id
-                    )
+                    previous_decision_id = _AI_DECISION_IDS.get(symbol)
+                    decision_id = _AI_ADVISOR.last_decision_id or previous_decision_id
                     if not decision_id:
                         decision_id = _AI_DECISIONS.record(
                             symbol=symbol,
@@ -3183,7 +3181,7 @@ def run_for_symbol(
                             _AI_KNOWLEDGE.link_retrieval(
                                 decision_id, ai_context.rag_context
                             )
-                    if not _AI_ADVISOR.last_was_cache_hit:
+                    if not _AI_ADVISOR.last_was_cache_hit or decision_id != previous_decision_id:
                         _AI_DECISIONS.update_policy(
                             decision_id,
                             policy_status=policy.status,

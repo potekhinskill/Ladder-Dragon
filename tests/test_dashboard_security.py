@@ -810,6 +810,7 @@ def test_mixed_position_scopes_oco_to_managed_lot_and_hides_unverified_pnl(
     position = module.trading_overview_snapshot()["positions"][0]
     protection = position["protection"]
 
+    assert position["base_asset"] == "SOL"
     assert protection["state"] == "managed_confirmed_legacy_unmanaged"
     assert protection["managed_state"] == "confirmed"
     assert protection["legacy_state"] == "unmanaged_unprotected"

@@ -1,4 +1,6 @@
 import json
+import threading
+import time
 from dataclasses import replace
 from datetime import datetime, timezone
 from decimal import Decimal
@@ -363,6 +365,66 @@ def test_provider_error_uses_short_negative_cache_ttl():
     assert advisor.recommend(context()) is not None
     assert advisor.last_was_cache_hit is False
     assert session.calls == 2
+
+
+def test_shadow_refresh_is_nonblocking_and_deduplicated():
+    started = threading.Event()
+    release = threading.Event()
+
+    class BlockingSession:
+        def __init__(self):
+            self.calls = 0
+
+        def post(self, endpoint, **kwargs):
+            self.calls += 1
+            started.set()
+            assert release.wait(timeout=2)
+            return FakeResponse(
+                {
+                    "choices": [
+                        {
+                            "message": {
+                                "content": json.dumps(
+                                    {
+                                        "mode": "FLAT",
+                                        "ladder_width_scale": 1.0,
+                                        "cap_scale": 0.5,
+                                        "confidence": 0.9,
+                                        "rationale": "Stable range.",
+                                    }
+                                )
+                            }
+                        }
+                    ]
+                }
+            )
+
+    session = BlockingSession()
+    advisor = AIAdvisor(
+        config(),
+        session=session,
+        logger=lambda _: None,
+        decision_recorder=lambda *_args: "decision-shadow-1",
+    )
+
+    before = time.monotonic()
+    assert advisor.refresh_async(context()) is True
+    assert time.monotonic() - before < 0.1
+    assert started.wait(timeout=1)
+    assert advisor.refresh_async(context()) is False
+    assert advisor.cached_recommendation("SOLUSDT") is None
+
+    release.set()
+    deadline = time.monotonic() + 2
+    result = None
+    while time.monotonic() < deadline and result is None:
+        result = advisor.cached_recommendation("SOLUSDT")
+        if result is None:
+            time.sleep(0.01)
+
+    assert result is not None
+    assert session.calls == 1
+    assert advisor.last_decision_id == "decision-shadow-1"
 
 
 def test_daily_budget_block_is_logged_once_until_utc_day_changes():

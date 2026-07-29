@@ -29,6 +29,37 @@ entries concise; this is not a changelog or an activity log.
 
 ## Decisions
 
+### 2026-07-29 — Lead position monitoring with the required operator action
+
+- **Context:** one dashboard card mixed market value, incomplete PnL,
+  protection legs, gap state, journal provenance and legacy inventory, making
+  the urgent unprotected managed quantity difficult to see.
+- **Decision:** preserve detailed evidence in the read-only API, but render one
+  concise summary ordered as action, managed exposure, protection gap, BUY
+  block, account total, legacy boundary and cost-basis availability. Keep
+  healthy zero-valued stream counters out of the primary view and expose only
+  non-zero diagnostics behind an explicit disclosure.
+- **Why it worked:** presentation regressions prove internal status codes and
+  TP/STOP detail are absent from the primary card while exact quantities remain
+  escaped, localized and visually prioritized.
+- **Reuse:** operational views where one required safety action matters more
+  than the full diagnostic payload.
+
+### 2026-07-29 — Keep advisory and telemetry I/O outside the protection hot path
+
+- **Context:** synchronous SHADOW provider calls could delay deterministic
+  worker launch by the full provider timeout, while commission valuation and
+  telemetry persistence ran before fill protection.
+- **Decision:** consume only cached AI advice in SHADOW and refresh it once per
+  symbol in the background; after a fill, perform authoritative reconciliation
+  and protection before any non-critical persistence. APPLY remains
+  synchronous and every exchange protection verification remains authoritative.
+- **Why it worked:** regressions prove SHADOW refresh returns immediately,
+  concurrent refreshes are deduplicated, protection precedes telemetry, and
+  OCO/gap safety behavior is unchanged.
+- **Reuse:** advisory providers, analytics, logging and metrics adjacent to any
+  latency-sensitive risk or position-protection path.
+
 ### 2026-07-29 — Separate defensive danger from harmless direction differences
 
 - **Context:** strict label unanimity treated `FLAT` versus `UP` as a safety

@@ -171,3 +171,24 @@ def test_trade_frames_cannot_hide_a_stale_order_book():
 
     assert result.approved is False
     assert "market snapshot stale" in result.reasons
+
+
+def test_trade_flow_running_total_expires_old_frames_exactly():
+    store = MarketSnapshotStore(
+        "SOLUSDT",
+        monotonic_ns=lambda: 1,
+        flow_window_ms=2_000,
+    )
+    store.update({
+        "e": "aggTrade", "p": "10", "q": "2", "T": 1_000, "m": False,
+    })
+    store.update({
+        "e": "aggTrade", "p": "5", "q": "1", "T": 2_000, "m": True,
+    })
+    assert store.snapshot().trade_flow_quote == Decimal("15")
+
+    store.update({
+        "e": "aggTrade", "p": "2", "q": "3", "T": 3_001, "m": False,
+    })
+
+    assert store.snapshot().trade_flow_quote == Decimal("1")

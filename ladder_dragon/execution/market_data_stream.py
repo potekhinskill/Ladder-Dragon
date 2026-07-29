@@ -170,6 +170,7 @@ class MarketSnapshotStore:
         self._depth_imbalance = ZERO
         self._last_trade_price = ZERO
         self._trade_flow: deque[tuple[int, Decimal]] = deque(maxlen=10_000)
+        self._trade_flow_quote = ZERO
         self._ema20: Decimal | None = None
         self._atr14: Decimal | None = None
         self._vwap: Decimal | None = None
@@ -233,11 +234,17 @@ class MarketSnapshotStore:
                 signed_quote = price * quantity
                 if bool(payload.get("m")):
                     signed_quote = -signed_quote
+                if self._trade_flow.maxlen is not None and (
+                    len(self._trade_flow) == self._trade_flow.maxlen
+                ):
+                    self._trade_flow_quote -= self._trade_flow[0][1]
                 self._trade_flow.append((trade_time, signed_quote))
+                self._trade_flow_quote += signed_quote
                 self._last_trade_price = price
                 cutoff = trade_time - self._flow_window_ms
                 while self._trade_flow and self._trade_flow[0][0] < cutoff:
-                    self._trade_flow.popleft()
+                    _, expired_quote = self._trade_flow.popleft()
+                    self._trade_flow_quote -= expired_quote
             elif event == "kline":
                 kline = payload.get("k")
                 if isinstance(kline, Mapping) and bool(kline.get("x")):
@@ -317,7 +324,6 @@ class MarketSnapshotStore:
                 if midpoint > 0 and self._best_ask >= self._best_bid
                 else Decimal("Infinity")
             )
-            flow = sum((row[1] for row in self._trade_flow), ZERO)
             ready = (
                 self._best_bid > 0
                 and self._best_ask > 0
@@ -334,7 +340,7 @@ class MarketSnapshotStore:
                 ask_quantity=self._ask_quantity,
                 spread_bps=spread,
                 depth_imbalance=self._depth_imbalance,
-                trade_flow_quote=flow,
+                trade_flow_quote=self._trade_flow_quote,
                 last_trade_price=self._last_trade_price,
                 ema20=self._ema20,
                 atr14=self._atr14,

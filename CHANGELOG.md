@@ -3,6 +3,33 @@
 All notable changes are documented here. Releases use Semantic Versioning; every
 section is dated and there is intentionally no `Unreleased` section.
 
+## [2.20.80] — 2026-07-29
+
+### Changed
+- SHADOW AI provider refresh is non-blocking and deduplicated per symbol:
+  deterministic execution consumes only a fresh cached recommendation, while
+  APPLY retains its synchronous approval semantics.
+- User-stream fill reconciliation and protection now run before commission
+  valuation and append-only latency telemetry.
+- Protection reuses one authoritative balance snapshot for both exact
+  cost-basis coverage and sellable quantity instead of issuing a duplicate
+  signed account request.
+- Real-time aggregate trade flow maintains an exact rolling total, making
+  immutable market snapshots constant-time as the in-memory window grows.
+- The dashboard position card is reduced to one operational summary: protection
+  required/confirmed, managed protected and unprotected quantities, BUY block,
+  total balance, legacy balance and the exact reason cost basis is hidden.
+- User-stream monitoring now shows only connection state and execution impact
+  in the primary view; non-zero counters and sanitized errors are available in
+  a conditional diagnostics disclosure instead of one dense status sentence.
+
+### Verified
+- SHADOW non-blocking/deduplication, protection-before-telemetry ordering,
+  single-snapshot protection, rolling trade-flow expiry, OCO/STOP, gap and
+  safety regressions pass (159 focused tests); dashboard presentation,
+  localization, API-security and deployment assets pass (125 focused tests);
+  JavaScript syntax, compileall and the complete suite pass (748 tests).
+
 ## [2.20.79] — 2026-07-29
 
 ### Fixed

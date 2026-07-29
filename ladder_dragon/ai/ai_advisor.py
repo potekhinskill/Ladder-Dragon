@@ -13,6 +13,7 @@ import hashlib
 import os
 from pathlib import Path
 import sqlite3
+import threading
 import time
 from typing import Any, Callable, Mapping, Optional
 
@@ -281,13 +282,68 @@ class AIAdvisor:
         self._cache: dict[
             str, tuple[float, Optional[StrategyRecommendation], int]
         ] = {}
+        self._cache_decision_ids: dict[str, str] = {}
+        self._cache_lock = threading.Lock()
+        self._refresh_inflight: set[str] = set()
 
     def refresh_due(self, symbol: str) -> bool:
-        cached = self._cache.get(symbol)
+        with self._cache_lock:
+            cached = self._cache.get(symbol)
         return (
             cached is None
             or self.clock() - cached[0] > cached[2]
         )
+
+    def cached_recommendation(
+        self,
+        symbol: str,
+    ) -> Optional[StrategyRecommendation]:
+        """Return a fresh cached result without performing provider I/O."""
+        now = self.clock()
+        with self._cache_lock:
+            cached = self._cache.get(symbol)
+            if cached is None or now - cached[0] > cached[2]:
+                self._last_was_cache_hit = False
+                self._last_decision_id = None
+                return None
+            self._last_was_cache_hit = True
+            self._last_decision_id = self._cache_decision_ids.get(symbol)
+            return cached[1]
+
+    def refresh_async(self, context: MarketContext) -> bool:
+        """Refresh SHADOW advice in the background without delaying execution."""
+        if not self.config.enabled:
+            return False
+        with self._cache_lock:
+            cached = self._cache.get(context.symbol)
+            if (
+                cached is not None
+                and self.clock() - cached[0] <= cached[2]
+            ) or context.symbol in self._refresh_inflight:
+                return False
+            self._refresh_inflight.add(context.symbol)
+
+        def refresh() -> None:
+            try:
+                self.recommend(context)
+            finally:
+                with self._cache_lock:
+                    self._refresh_inflight.discard(context.symbol)
+
+        threading.Thread(
+            target=refresh,
+            name=f"ai-shadow-{context.symbol.lower()}",
+            daemon=True,
+        ).start()
+        return True
+
+    def recommend_shadow(
+        self, context: MarketContext
+    ) -> Optional[StrategyRecommendation]:
+        """Consume cached SHADOW advice and refresh it without blocking."""
+        recommendation = self.cached_recommendation(context.symbol)
+        self.refresh_async(context)
+        return recommendation
 
     @property
     def last_was_cache_hit(self) -> bool:
@@ -323,9 +379,13 @@ class AIAdvisor:
                 return None
             self._budget_blocked_day = None
             self._budget_blocked_reason = ""
-        cached = self._cache.get(context.symbol)
+        with self._cache_lock:
+            cached = self._cache.get(context.symbol)
         if cached is not None and now - cached[0] <= cached[2]:
             self._last_was_cache_hit = True
+            self._last_decision_id = self._cache_decision_ids.get(
+                context.symbol
+            )
             return cached[1]
         started = time.monotonic()
         usage: Optional[TokenUsage] = None
@@ -336,11 +396,13 @@ class AIAdvisor:
                 config=self.config,
             )
             applied = recommendation.confidence >= self.config.min_confidence
+            recorded_decision_id: Optional[str] = None
             if self.decision_recorder is not None:
                 try:
-                    self._last_decision_id = self.decision_recorder(
+                    recorded_decision_id = self.decision_recorder(
                         context, recommendation, applied
                     )
+                    self._last_decision_id = recorded_decision_id
                 except (OSError, sqlite3.Error) as exc:
                     self.logger(f"[AI-DECISION] cannot record decision: {exc}")
             if not applied:
@@ -357,11 +419,16 @@ class AIAdvisor:
                     f"{recommendation.confidence:.2f} < "
                     f"{self.config.min_confidence:.2f}"
                 )
-                self._cache[context.symbol] = (
-                    now,
-                    None,
-                    self.config.cache_sec,
-                )
+                with self._cache_lock:
+                    self._cache[context.symbol] = (
+                        now,
+                        None,
+                        self.config.cache_sec,
+                    )
+                    if recorded_decision_id:
+                        self._cache_decision_ids[context.symbol] = (
+                            recorded_decision_id
+                        )
                 return None
             self._log_usage(
                 context,
@@ -370,11 +437,16 @@ class AIAdvisor:
                 outcome="applied",
                 rationale=recommendation.rationale,
             )
-            self._cache[context.symbol] = (
-                now,
-                recommendation,
-                self.config.cache_sec,
-            )
+            with self._cache_lock:
+                self._cache[context.symbol] = (
+                    now,
+                    recommendation,
+                    self.config.cache_sec,
+                )
+                if recorded_decision_id:
+                    self._cache_decision_ids[context.symbol] = (
+                        recorded_decision_id
+                    )
             return recommendation
         except (requests.RequestException, ValueError, KeyError, TypeError) as exc:
             # The advisory layer is fail-safe: any error selects the verified
@@ -390,11 +462,12 @@ class AIAdvisor:
                 f"[AI-ADVISOR] {context.symbol} unavailable: {exc}; "
                 "using deterministic strategy"
             )
-            self._cache[context.symbol] = (
-                now,
-                None,
-                self.config.negative_cache_sec,
-            )
+            with self._cache_lock:
+                self._cache[context.symbol] = (
+                    now,
+                    None,
+                    self.config.negative_cache_sec,
+                )
             return None
 
     def _request(

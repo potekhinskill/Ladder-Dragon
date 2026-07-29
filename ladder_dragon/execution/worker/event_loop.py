@@ -342,7 +342,6 @@ def run_event_loop(context: WorkerLoopContext) -> None:
             else []
         )
         if stream_events:
-            _record_stream_events(context, stream_events)
             latest = stream_events[-1]
             state.log(
                 f"[USER-STREAM] {context.symbol} order={latest.order_id} "
@@ -350,6 +349,7 @@ def run_event_loop(context: WorkerLoopContext) -> None:
                 "immediate authoritative REST reconciliation"
             )
             _reconcile_tracked_buys(context, event_woken=True)
+            _record_stream_events(context, stream_events)
             last_check = 0
 
         if state.status_due(left, args.status_interval):

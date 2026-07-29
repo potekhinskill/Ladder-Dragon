@@ -17,6 +17,18 @@ private infrastructure details.
 
 ## Mistakes
 
+### 2026-07-29 — Guessed a full commit SHA for verification
+
+- **Impact:** the first release-harness run used an incorrect expected SHA and
+  was interrupted after doing avoidable work.
+- **Root cause:** the command expanded the displayed short commit ID by
+  invention instead of reading the exact 40-character object ID from Git.
+- **Correction:** obtain the candidate with `git rev-parse HEAD`, amend this
+  learning record into the same commit and rerun verification only with that
+  exact value.
+- **Prevention:** treat commit IDs as opaque identifiers; copy the complete SHA
+  from Git and never derive, pad or reconstruct it.
+
 ### 2026-07-29 — Shipped prediction research without scale and semantic edge tests
 
 - **Impact:** expanding splits rescanned and copied history quadratically,

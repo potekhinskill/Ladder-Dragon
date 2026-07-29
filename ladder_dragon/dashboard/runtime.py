@@ -1204,7 +1204,7 @@ def trading_overview_snapshot() -> Dict[str, object]:
         else:
             protection_state = "not_checked"
         positions.append({
-            "symbol": symbol, "quantity": round(quantity, 8),
+            "symbol": symbol, "base_asset": base, "quantity": round(quantity, 8),
             "managed_quantity": round(managed_quantity, 8),
             "legacy_quantity": round(legacy_quantity, 8),
             "average_entry_usdt": (

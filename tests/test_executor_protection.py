@@ -124,6 +124,44 @@ def test_filled_buy_gets_verified_oco_and_leaves_watch_list(tmp_path):
     assert store.load("SOLUSDT")["77"]["fill_price"] == "100"
 
 
+def test_protection_reuses_one_authoritative_balance_snapshot(tmp_path):
+    balance_reads = []
+    observed_positions = []
+    deps = dependencies(
+        get_order=lambda symbol, order_id: {
+            "orderId": order_id,
+            "status": "FILLED",
+            "executedQty": "0.100",
+            "cummulativeQuoteQty": "10.0",
+        },
+        get_balances=lambda: (
+            balance_reads.append(True)
+            or {"SOL": {"free": "0.100", "locked": "0.025"}}
+        ),
+        average_entry_for_position=(
+            lambda symbol, position, ttl, lookback: (
+                observed_positions.append(position) or Decimal("99")
+            )
+        ),
+        place_oco_sell=lambda *args, **kwargs: {"orderListId": 77},
+    )
+
+    remaining = protect_filled_buys(
+        "SOLUSDT",
+        [42],
+        [90.0, 110.0],
+        config=config(),
+        panic_active=False,
+        breakeven_enabled=False,
+        state_store=state_store(tmp_path),
+        dependencies=deps,
+    )
+
+    assert remaining == []
+    assert len(balance_reads) == 1
+    assert observed_positions == [Decimal("0.125")]
+
+
 def test_terminal_partial_exit_reprotects_only_confirmed_residual(tmp_path):
     placed = []
 

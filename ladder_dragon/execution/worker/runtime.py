@@ -625,22 +625,18 @@ def avg_entry(
     symbol: str,
     cache_ttl: int = 30,
     lookback: int = 1000,
+    *,
+    position: object | None = None,
 ) -> Optional[Decimal]:
-    """Return only a locally verified average without blocking BUY startup.
-
-    The previous implementation replayed up to 1,000 Binance trades and could
-    issue one historical conversion request per third-asset commission.  On a
-    Raspberry Pi that delayed replacement BUYs for several minutes.  The exact
-    lot ledger is already the authorization boundary for holdings cost basis,
-    so an incomplete or legacy ledger now returns ``None`` fail-closed instead
-    of consulting slow, potentially truncated exchange history.
-    """
+    """Return verified lot cost basis, optionally reusing a balance snapshot."""
     del lookback  # Retained for CLI/API compatibility.
-    base, _ = get_symbol_assets(symbol)
-    bals = get_balances()
-    pos_free = Decimal(str(bals.get(base, {}).get("free", "0") or "0"))
-    pos_locked = Decimal(str(bals.get(base, {}).get("locked", "0") or "0"))
-    pos = pos_free + pos_locked
+    if position is None:
+        base, _ = get_symbol_assets(symbol)
+        balances = get_balances()
+        base_balance = balances.get(base, {})
+        position = Decimal(str(base_balance.get("free", "0") or "0"))
+        position += Decimal(str(base_balance.get("locked", "0") or "0"))
+    pos = Decimal(str(position))
     if not pos.is_finite() or pos <= 0:
         return None
 
@@ -1390,6 +1386,11 @@ def _protection_dependencies() -> ProtectionDependencies:
         pick_oco_prices=_pick_ladder_aligned_oco_prices,
         average_entry=lambda symbol, ttl, lookback: avg_entry(
             symbol, cache_ttl=ttl, lookback=lookback
+        ),
+        average_entry_for_position=(
+            lambda symbol, position, ttl, lookback: avg_entry(
+                symbol, cache_ttl=ttl, lookback=lookback, position=position
+            )
         ),
         profit_floor_pct=_profit_floor_pct,
         pull_filters=pull_filters,
