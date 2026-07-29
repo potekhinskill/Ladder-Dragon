@@ -3,6 +3,20 @@
 All notable changes are documented here. Releases use Semantic Versioning; every
 section is dated and there is intentionally no `Unreleased` section.
 
+## [2.20.75] — 2026-07-29
+
+### Fixed
+- Dashboard AI diagnostics now expose the exact sanitized fail-closed runtime
+  state, such as `runtime:recovery_blocked`, instead of collapsing every
+  intentional protection block into the ambiguous `runtime_unhealthy`.
+- A blocked SHADOW collector no longer writes all ladder prices on every
+  observation. It emits a compact plan summary at most once per 15 minutes
+  while continuing prediction and counterfactual evidence collection.
+
+### Verified
+- Dashboard runtime-state and blocked-SHADOW regressions pass; compileall and
+  the complete suite pass (724 tests).
+
 ## [2.20.74] — 2026-07-29
 
 ### Changed

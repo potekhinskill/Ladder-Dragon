@@ -8,7 +8,7 @@ import json
 import os
 import re
 from pathlib import Path
-from typing import Any, Callable, Dict
+from typing import Any, Callable, Dict, Sequence
 
 from ladder_dragon.ai.ai_knowledge import KnowledgeStore
 
@@ -41,6 +41,21 @@ def publish_plan_decision_status(
     if execution_allowed:
         updates["state"] = "RUNNING"
     publish(**updates)
+
+
+def blocked_plan_summary(
+    symbol: str,
+    ladder: Sequence[float],
+    *,
+    best_buy: float,
+) -> str:
+    """Describe a blocked plan compactly without dumping every ladder level."""
+    return (
+        f"[BLOCKED-SHADOW] {symbol} advisory snapshot "
+        f"levels={len(ladder)} best_buy={best_buy:.2f} "
+        f"range={min(ladder):.2f}..{max(ladder):.2f}; "
+        "order mutation disabled"
+    )
 
 
 def prediction_panic_state(

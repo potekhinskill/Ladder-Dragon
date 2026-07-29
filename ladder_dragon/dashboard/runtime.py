@@ -33,6 +33,7 @@ from ladder_dragon.execution.telegram_alerts import notify_binance_auth_error
 from ladder_dragon.dashboard.app_factory import create_dashboard_app
 from ladder_dragon.dashboard.dependencies import open_read_only_sqlite
 from ladder_dragon.dashboard.services.accounting import base_asset_of
+from ladder_dragon.dashboard.services.runtime_health import runtime_degraded_reason
 
 APP_TZ = ZoneInfo("Asia/Almaty")
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
@@ -2471,10 +2472,8 @@ def ai_status(limit: int = 50):
         or (token_limit > 0 and usage["tokens"] >= token_limit)
         or (cost_limit > 0 and Decimal(usage["cost_usd"]) >= cost_limit)
     )
-    runtime_unhealthy = (
-        (DASHBOARD_FOLLOW_BOT_PATHS and not runtime)
-        or runtime_stale
-        or bool(runtime and runtime.get("state") != "RUNNING")
+    runtime_reason = runtime_degraded_reason(
+        runtime, follow_bot_paths=DASHBOARD_FOLLOW_BOT_PATHS, stale=runtime_stale
     )
     degraded_reasons = []
     if budget_exhausted:
@@ -2491,8 +2490,8 @@ def ai_status(limit: int = 50):
                 reason = reason.strip()
                 if reason and f"policy:{reason}" not in degraded_reasons:
                     degraded_reasons.append(f"policy:{reason}")
-    if runtime_unhealthy:
-        degraded_reasons.append("runtime_unhealthy")
+    if runtime_reason:
+        degraded_reasons.append(runtime_reason)
     degraded = bool(degraded_reasons)
     state = (
         "DISABLED" if effective_mode == "DISABLED"

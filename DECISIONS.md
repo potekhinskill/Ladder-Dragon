@@ -15,6 +15,20 @@ entries concise; this is not a changelog or an activity log.
 
 ## Decisions
 
+### 2026-07-29 — Keep blocked analytics observable but compact
+
+- **Context:** fail-closed recovery must keep SHADOW evidence current, but
+  printing every computed ladder level on each observation hid the actual
+  protection reason and grew the Raspberry Pi journal rapidly.
+- **Decision:** expose the exact bounded runtime state in dashboard APIs and
+  rate-limit blocked-plan summaries while leaving evidence calculation and
+  persistence unchanged.
+- **Why it worked:** dashboard and supervision regressions distinguish
+  `RECOVERY_BLOCKED`, stale and unavailable states, prove no order mutation,
+  and the complete 724-test suite passes.
+- **Reuse:** any read-only telemetry loop that continues while an execution
+  gate is closed.
+
 ### 2026-07-29 — Bound RAG by both market distance and retained evidence
 
 - **Context:** cosine-only retrieval treated proportional quiet and extreme

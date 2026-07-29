@@ -65,6 +65,7 @@ from ladder_dragon.supervision.vwap_config import (
     resolve_vwap_value,
 )
 from ladder_dragon.supervision.prediction_shadow import (
+    blocked_plan_summary as _blocked_plan_summary,
     build_knowledge_store,
     prediction_panic_state as _prediction_panic_state,
     publish_plan_decision_status as _publish_plan_decision_status,
@@ -3330,12 +3331,10 @@ def run_for_symbol(
     # without crossing the market or enabling re-anchor APPLY.
     adaptive_best_buy = _adaptive_best_buy_price(now_p, entry_gap)
     ladder_all.append(adaptive_best_buy)
-
     ladder_all = _deduplicate_ladder_prices(ladder_all, now_p, tick_exact)
 
-    log(f"[PLAN] {symbol} ladder -> " + ", ".join(f"{p:.2f}" for p in ladder_all))
-
     if execution_allowed:
+        log(f"[PLAN] {symbol} ladder -> " + ", ".join(f"{p:.2f}" for p in ladder_all))
         # 6) Cleanup at startup and on the regular interval.
         if not _STARTUP_CLEAN_DONE.get(symbol, False):
             startup_cleanup_orders(
@@ -3394,9 +3393,10 @@ def run_for_symbol(
             "proposals": [],
             "replacement_prices": [],
         }
-        log(
-            f"[BLOCKED-SHADOW] {symbol} advisory snapshot only; "
-            "order mutation disabled"
+        _log_info_rate_limited(
+            f"blocked-shadow-plan:{symbol}",
+            _blocked_plan_summary(symbol, ladder_all, best_buy=adaptive_best_buy),
+            interval_sec=900.0,
         )
 
     # 7) The exact entry adapter was applied to the ladder before cleanup.

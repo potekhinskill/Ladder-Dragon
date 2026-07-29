@@ -582,6 +582,9 @@ def test_blocked_shadow_plan_skips_every_order_mutation(monkeypatch):
     )
     monkeypatch.setattr(ai_supervisor, "_AI_ADVISOR", None)
     monkeypatch.setattr(ai_supervisor, "_AI_POLICY", None)
+    messages = []
+    monkeypatch.setattr(ai_supervisor, "log", messages.append)
+    monkeypatch.setattr(ai_supervisor, "_INFO_LOG_LAST_EMITTED", {})
     monkeypatch.setattr(ai_supervisor, "get_last_price", lambda _symbol: 100.0)
     monkeypatch.setattr(
         ai_supervisor, "_atr_pct", lambda *_args, **_kwargs: (0.2, 0.002)
@@ -642,6 +645,14 @@ def test_blocked_shadow_plan_skips_every_order_mutation(monkeypatch):
     )
 
     assert recorded == [("SOLUSDT", "UP")]
+    assert not any("ladder ->" in message for message in messages)
+    blocked_summaries = [
+        message for message in messages
+        if message.startswith("[BLOCKED-SHADOW]")
+    ]
+    assert len(blocked_summaries) == 1
+    assert "levels=" in blocked_summaries[0]
+    assert "order mutation disabled" in blocked_summaries[0]
 
 
 def test_known_empty_order_snapshot_does_not_repeat_rest_query(monkeypatch):
