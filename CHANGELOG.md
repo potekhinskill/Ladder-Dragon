@@ -3,6 +3,27 @@
 All notable changes are documented here. Releases use Semantic Versioning; every
 section is dated and there is intentionally no `Unreleased` section.
 
+## [2.20.98] — 2026-07-29
+
+### Fixed
+- Production soak now blocks on `INSUFFICIENT_HISTORY` outcomes created during
+  the current audited runtime window instead of rescanning lifetime expirations
+  as if they were failures of every later clean run.
+
+### Changed
+- Prediction evidence reports current-soak expirations and lifetime expiration
+  totals separately. Historical rows remain immutable and excluded from
+  fabricated backfill when verified archives do not cover their minute window.
+
+### Security
+- Missing expiry timestamps fail closed. The patch changes reporting scope only
+  and does not alter HALT, SHADOW, CAP, RAG eligibility or order authority.
+
+### Verified
+- Current-window, historical-expiration, future-pending and overdue regressions
+  pass; compileall and the complete suite pass (803 tests). Release
+  verification is recorded in the signed release manifest.
+
 ## [2.20.97] — 2026-07-29
 
 ### Fixed

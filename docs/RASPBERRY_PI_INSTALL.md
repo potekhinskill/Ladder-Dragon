@@ -561,7 +561,9 @@ block reconciled deterministic execution; any inventory/protection unresolved
 fill blocks both. User-stream approval additionally requires 24 hours, a
 reconnect, an order event and event-triggered authoritative REST
 reconciliation. Production approval requires three exact closed lifecycles,
-no overdue or unrecovered prediction outcomes and a passing statistical gate.
+no overdue outcomes or expirations created during the audited soak window, and
+a passing statistical gate. Older expirations remain visible as lifetime
+evidence without invalidating a later clean run.
 
 Use `apply` only when Git is already at the desired commit:
 

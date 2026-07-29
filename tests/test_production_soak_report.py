@@ -96,6 +96,12 @@ def test_continuous_shadow_future_pending_is_not_a_backlog(tmp_path):
             (now_ms + 300_000, None, None, None),
             (now_ms + 900_000, None, None, None),
             (now_ms - 60_000, None, None, None),
+            (
+                now_ms - 26 * 3600 * 1000,
+                now_ms - 26 * 3600 * 1000,
+                "INSUFFICIENT_HISTORY",
+                None,
+            ),
         ],
     )
 
@@ -114,6 +120,8 @@ def test_continuous_shadow_future_pending_is_not_a_backlog(tmp_path):
     assert report["prediction"]["pending_future"] == 3
     assert report["prediction"]["pending_settling"] == 1
     assert report["prediction"]["overdue"] == 0
+    assert report["prediction"]["expired"] == 0
+    assert report["prediction"]["expired_total"] == 1
     assert report["checks"]["no_prediction_backlog"] is True
 
 
@@ -160,6 +168,7 @@ def test_overdue_or_expired_shadow_outcome_blocks_soak(tmp_path):
 
     assert report["prediction"]["overdue"] == 1
     assert report["prediction"]["expired"] == 1
+    assert report["prediction"]["expired_total"] == 1
     assert report["checks"]["no_prediction_backlog"] is False
 
 

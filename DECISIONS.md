@@ -4,6 +4,17 @@ Read this file before changing the repository. Record only decisions that were
 validated by tests or production evidence and are likely to be reused. Keep
 entries concise; this is not a changelog or an activity log.
 
+### 2026-07-29 — Scope soak failures to the audited runtime window
+
+- **Context:** immutable historical failures remain useful evidence but cannot
+  prove that every later continuous run failed the same health condition.
+- **Decision:** retain lifetime totals while gating a soak only on expirations
+  created since its authoritative runtime start; carried unresolved overdue
+  work still blocks regardless of origin.
+- **Why it worked:** a historical expiration remains visible without blocking
+  a clean run, while current-window expiration and old unresolved work fail.
+- **Reuse:** every time-bounded readiness audit over an append-only history.
+
 ### 2026-07-29 — Distinguish scheduled work from a processing backlog
 
 - **Context:** continuous multi-horizon prediction always has unresolved

@@ -17,6 +17,17 @@ private infrastructure details.
 
 ## Mistakes
 
+### 2026-07-29 — Applied a lifetime failure count to a bounded soak
+
+- **Impact:** after fixing pending horizons, 26 immutable historical
+  expirations still made every new 24-hour run fail before it began.
+- **Root cause:** the audit counted terminal rows across the lifetime database
+  but measured duration from the current process start.
+- **Correction:** expose the lifetime count separately and gate only
+  expirations created inside the authoritative soak window.
+- **Prevention:** every bounded audit must apply one explicit time cutoff to
+  each historical failure metric while retaining carried active backlog.
+
 ### 2026-07-29 — Treated all in-flight horizons as a processing backlog
 
 - **Impact:** production soak approval could never pass while continuous

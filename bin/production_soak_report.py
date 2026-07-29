@@ -36,6 +36,7 @@ def _empty_prediction_counts() -> dict[str, int | bool]:
         "pending_settling": 0,
         "overdue": 0,
         "expired": 0,
+        "expired_total": 0,
         "backlog_verifiable": False,
     }
 
@@ -44,6 +45,7 @@ def _prediction_counts(
     path: Path,
     *,
     now_ms: int,
+    soak_started_ms: int,
     maximum_settlement_delay_sec: int,
 ) -> dict[str, int | bool]:
     if not path.exists():
@@ -65,6 +67,7 @@ def _prediction_counts(
         ).fetchone()[0])
         backlog_columns = {
             "eligible_at_ms",
+            "expired_at_ms",
             "resolved_at_ms",
             "terminal_reason",
         }
@@ -89,13 +92,16 @@ def _prediction_counts(
             "WHERE resolved_at_ms IS NULL AND eligible_at_ms<=?",
             (overdue_before_ms,),
         ).fetchone()[0])
-        expired = (
-            int(con.execute(
-                "SELECT COUNT(*) FROM prediction_outcomes "
-                "WHERE terminal_reason='INSUFFICIENT_HISTORY'"
-            ).fetchone()[0])
-            if "terminal_reason" in columns else 0
-        )
+        expired_total = int(con.execute(
+            "SELECT COUNT(*) FROM prediction_outcomes "
+            "WHERE terminal_reason='INSUFFICIENT_HISTORY'"
+        ).fetchone()[0])
+        expired = int(con.execute(
+            "SELECT COUNT(*) FROM prediction_outcomes "
+            "WHERE terminal_reason='INSUFFICIENT_HISTORY' "
+            "AND COALESCE(expired_at_ms,resolved_at_ms,eligible_at_ms)>=?",
+            (soak_started_ms,),
+        ).fetchone()[0])
     return {
         "resolved": resolved,
         "pending": pending,
@@ -103,6 +109,7 @@ def _prediction_counts(
         "pending_settling": pending_settling,
         "overdue": overdue,
         "expired": expired,
+        "expired_total": expired_total,
         "backlog_verifiable": True,
     }
 
@@ -119,6 +126,7 @@ def build_report(
     now_epoch: float | None = None,
 ) -> dict[str, Any]:
     now = time.time() if now_epoch is None else float(now_epoch)
+    started_at_ms = 0
     try:
         runtime = _runtime(runtime_path)
         started = datetime.fromisoformat(str(runtime["started_at"]))
@@ -127,6 +135,7 @@ def build_report(
             started = started.replace(tzinfo=timezone.utc)
         if updated.tzinfo is None:
             updated = updated.replace(tzinfo=timezone.utc)
+        started_at_ms = int(started.timestamp() * 1000)
         elapsed_sec = max(0, int(now - started.timestamp()))
         heartbeat_age_sec = max(0, int(now - updated.timestamp()))
     except (
@@ -145,6 +154,7 @@ def build_report(
     prediction = _prediction_counts(
         prediction_path,
         now_ms=int(now * 1000),
+        soak_started_ms=started_at_ms,
         maximum_settlement_delay_sec=max(0, maximum_settlement_delay_sec),
     )
     prediction_runtime = runtime.get("prediction")
