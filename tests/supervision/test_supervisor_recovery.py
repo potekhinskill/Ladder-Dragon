@@ -582,6 +582,7 @@ def test_blocked_shadow_plan_skips_every_order_mutation(monkeypatch):
     )
     monkeypatch.setattr(ai_supervisor, "_AI_ADVISOR", None)
     monkeypatch.setattr(ai_supervisor, "_AI_POLICY", None)
+    monkeypatch.setenv("BOT_CAP_PER_ORDER", "50")
     messages = []
     monkeypatch.setattr(ai_supervisor, "log", messages.append)
     monkeypatch.setattr(ai_supervisor, "_INFO_LOG_LAST_EMITTED", {})

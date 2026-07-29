@@ -3,6 +3,19 @@
 All notable changes are documented here. Releases use Semantic Versioning; every
 section is dated and there is intentionally no `Unreleased` section.
 
+## [2.20.89] — 2026-07-29
+
+### Fixed
+- The blocked-SHADOW log-rate regression now declares its required per-order
+  CAP instead of inheriting an operator environment value. The same assertions
+  therefore exercise inventory-skew diagnostics on clean Linux CI, developer
+  machines and isolated archives.
+
+### Verified
+- The previously Linux-only failed node is reproduced from the safe harness
+  diagnostic and passes with an empty `BOT_CAP_PER_ORDER` parent environment;
+  compileall and the complete suite pass (767 tests).
+
 ## [2.20.88] — 2026-07-29
 
 ### Fixed

@@ -17,6 +17,17 @@ private infrastructure details.
 
 ## Mistakes
 
+### 2026-07-29 — Let a regression inherit an operator CAP
+
+- **Impact:** the blocked-SHADOW regression passed locally but failed on every
+  clean Linux runner, blocking publication and Raspberry Pi deployment.
+- **Root cause:** the test asserted inventory-skew diagnostics without setting
+  `BOT_CAP_PER_ORDER`; a developer-shell value activated that branch locally.
+- **Correction:** set the required CAP explicitly inside the test.
+- **Prevention:** every test that asserts a configuration-dependent branch must
+  set or delete that environment variable with `monkeypatch`; parent
+  environment values are never valid fixtures.
+
 ### 2026-07-29 — Hid the identity of a failed CI test
 
 - **Impact:** all three Linux CI jobs reported one failure, but the verification
