@@ -5,6 +5,8 @@
 Description=Ladder Dragon Binance bot (DRY/Testnet by default)
 After=network-online.target
 Wants=network-online.target
+StartLimitIntervalSec=1h
+StartLimitBurst=5
 
 [Service]
 Type=simple
@@ -29,7 +31,7 @@ Restart=on-failure
 RestartSec=10
 TimeoutStopSec=45
 KillSignal=SIGTERM
-KillMode=mixed
+KillMode=control-group
 NoNewPrivileges=yes
 PrivateTmp=yes
 PrivateDevices=yes

@@ -1014,19 +1014,6 @@ def test_worker_signal_stops_buy_loop_before_exchange_post(monkeypatch):
     ) == []
 
 
-def test_supervisor_exponentially_backs_off_crashing_children(monkeypatch):
-    monkeypatch.setenv("BOT_CHILD_RESTART_BASE_SEC", "2")
-    monkeypatch.setenv("BOT_CHILD_RESTART_MAX_SEC", "10")
-    monkeypatch.setenv("BOT_CHILD_STABLE_SEC", "30")
-    ai_supervisor._CHILD_FAILURES.clear()
-    ai_supervisor._CHILD_RESTART_AFTER.clear()
-
-    assert ai_supervisor._schedule_child_restart("SOLUSDT", 1, 1, now=100) == 2
-    assert ai_supervisor._schedule_child_restart("SOLUSDT", 1, 1, now=101) == 4
-    assert ai_supervisor._schedule_child_restart("SOLUSDT", 0, 60, now=102) == 0
-    assert ai_supervisor._CHILD_FAILURES["SOLUSDT"] == 0
-
-
 def test_supervisor_auth_backoff_is_bounded_and_keeps_heartbeat_fresh(
     tmp_path, monkeypatch
 ):

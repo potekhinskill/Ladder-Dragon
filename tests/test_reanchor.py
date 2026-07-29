@@ -434,6 +434,7 @@ def test_reanchor_restart_stops_only_the_selected_symbol(monkeypatch):
     ai_supervisor._CHILD_PROCS.clear()
     ai_supervisor._CHILD_PROCS.update({"SOLUSDT": sol, "ETHUSDT": eth})
     ai_supervisor._CHILD_STARTED_AT.update({"SOLUSDT": 1, "ETHUSDT": 1})
+    ai_supervisor._CHILD_RESTART_HISTORY["SOLUSDT"] = [1.0, 2.0]
     monkeypatch.setattr(ai_supervisor, "log", lambda message: None)
     try:
         assert ai_supervisor._stop_child(
@@ -442,12 +443,14 @@ def test_reanchor_restart_stops_only_the_selected_symbol(monkeypatch):
         assert sol.terminated is True
         assert eth.terminated is False
         assert "SOLUSDT" not in ai_supervisor._CHILD_PROCS
+        assert "SOLUSDT" not in ai_supervisor._CHILD_RESTART_HISTORY
         assert ai_supervisor._CHILD_PROCS["ETHUSDT"] is eth
     finally:
         ai_supervisor._CHILD_PROCS.clear()
         ai_supervisor._CHILD_STARTED_AT.clear()
         ai_supervisor._CHILD_RESTART_AFTER.clear()
         ai_supervisor._CHILD_FAILURES.clear()
+        ai_supervisor._CHILD_RESTART_HISTORY.clear()
 
 
 def test_reanchor_restart_failure_retains_worker_and_defers_replacement(monkeypatch):
@@ -467,6 +470,29 @@ def test_reanchor_restart_failure_retains_worker_and_defers_replacement(monkeypa
     try:
         assert ai_supervisor._stop_child("SOLUSDT", "refresh") is False
         assert ai_supervisor._CHILD_PROCS["SOLUSDT"] is process
+    finally:
+        ai_supervisor._CHILD_PROCS.clear()
+
+
+def test_stop_children_reports_incomplete_cleanup(monkeypatch):
+    class Process:
+        pid = 404
+
+        def poll(self):
+            return None
+
+        def terminate(self):
+            raise OSError("permission denied")
+
+    process = Process()
+    messages = []
+    ai_supervisor._CHILD_PROCS.clear()
+    ai_supervisor._CHILD_PROCS["SOLUSDT"] = process
+    monkeypatch.setattr(ai_supervisor, "log", messages.append)
+    try:
+        assert ai_supervisor._stop_children("risk block") is False
+        assert ai_supervisor._CHILD_PROCS["SOLUSDT"] is process
+        assert any("CHILD-STOP-INCOMPLETE" in message for message in messages)
     finally:
         ai_supervisor._CHILD_PROCS.clear()
 

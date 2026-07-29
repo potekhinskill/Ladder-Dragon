@@ -3,6 +3,28 @@
 All notable changes are documented here. Releases use Semantic Versioning; every
 section is dated and there is intentionally no `Unreleased` section.
 
+## [2.20.94] — 2026-07-29
+
+### Fixed
+- The supervisor now translates its first `SIGTERM` into the existing graceful
+  `KeyboardInterrupt` shutdown path, publishes `STOPPING`, stops workers and
+  releases the singleton lock.
+- `mybot.service` now uses `KillMode=control-group`, so workers receive TERM
+  during service shutdown instead of remaining unsupervised until SIGKILL.
+- Non-zero worker exits are tracked in a rolling one-hour window. The third
+  exit activates bounded exponential backoff regardless of individual runtime,
+  and the fifth emits one sanitized Telegram restart-storm alert.
+- Successful intentional child shutdown clears its restart-window history;
+  failed cleanup retains the process and its evidence for another attempt.
+
+### Changed
+- The service declares an explicit five-start-per-hour systemd limit as a
+  second boundary around supervisor-level restart handling.
+
+### Verified
+- Focused SIGTERM, slow-crash window, alert, expiry, child cleanup and systemd
+  regressions pass; compileall and the complete suite pass (785 tests).
+
 ## [2.20.93] — 2026-07-29
 
 ### Fixed

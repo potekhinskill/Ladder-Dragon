@@ -17,6 +17,48 @@ private infrastructure details.
 
 ## Mistakes
 
+### 2026-07-29 — Added lifecycle policy back into a guarded monolith
+
+- **Impact:** the first complete suite failed architecture budgets even though
+  functional lifecycle tests passed, delaying the release without changing
+  runtime or external state.
+- **Root cause:** signal and restart orchestration were initially implemented
+  in `supervision/runtime.py` and new tests in `test_safety_gates.py` instead of
+  their existing component boundaries.
+- **Correction:** move registry, signal and rolling-window policy into
+  `supervision/process_manager.py`, move tests into
+  `tests/supervision/test_process_manager.py`, and keep both guarded monoliths
+  at or below their prior limits.
+- **Prevention:** check architecture line budgets before the first full suite;
+  new lifecycle policy belongs to its package component, never the integration
+  runtime or a legacy aggregate test module.
+
+### 2026-07-29 — Selected a focused pytest node without resolving its name
+
+- **Impact:** the first focused verification command stopped at collection and
+  had to be rerun; no test or repository state was changed.
+- **Root cause:** the intended re-anchor test name was inferred instead of read
+  from the test module before constructing the node ID.
+- **Correction:** resolve the exact function with `rg` and rerun the focused
+  set using the discovered node.
+- **Prevention:** never type a pytest node from memory; discover its exact
+  module and function name before starting a selective run.
+
+### 2026-07-29 — Split graceful shutdown authority across incompatible layers
+
+- **Impact:** a normal service stop could terminate the supervisor immediately,
+  leave workers unsupervised until SIGKILL and turn every deployment stop into
+  an avoidable recovery exercise; slower crash loops could also restart without
+  backoff or alert.
+- **Root cause:** worker TERM handling, supervisor cleanup, systemd kill mode and
+  restart counters were each reviewed locally without an end-to-end lifecycle
+  test across their boundaries.
+- **Correction:** handle supervisor TERM, signal the full control group, track
+  non-zero exits in a rolling window and alert at a bounded threshold.
+- **Prevention:** service lifecycle regressions must verify the complete signal
+  route, STOPPING evidence, child exit, escalation timeout and both fast and
+  slow repeated failures.
+
 ### 2026-07-29 — Reused a signed-value formatter for an expense magnitude
 
 - **Impact:** the Telegram digest displayed fees as positive income even though

@@ -515,6 +515,7 @@ def test_dashboard_ai_toggle_is_advisory_only():
 def test_managed_service_uses_versionless_wrapper_and_separate_env():
     unit = read("deploy/mybot.service")
     wrapper = read("deploy/run_bot_service.sh")
+    example = read(".env.example")
     assert "EnvironmentFile=/home/bot/apps/binance_bot/.env.service" in unit
     assert "deploy/run_bot_service.sh" in unit
     assert "autosize_universal.py" in wrapper
@@ -529,6 +530,16 @@ def test_managed_service_uses_versionless_wrapper_and_separate_env():
     assert "args+=(--auto-oco-holdings)" in wrapper
     assert "  --auto-oco-holdings\n" not in wrapper
     assert "BOT_SERVICE_AUTO_OCO_HOLDINGS=0" in read(".env.service.example")
+    assert "KillMode=control-group" in unit
+    assert "StartLimitIntervalSec=1h" in unit
+    assert "StartLimitBurst=5" in unit
+    supervisor = read("ladder_dragon/supervision/runtime.py")
+    process_manager = read("ladder_dragon/supervision/process_manager.py")
+    assert "SupervisorShutdownSignal" in supervisor
+    assert "signal.signal(signal.SIGTERM" in process_manager
+    assert "BOT_CHILD_RESTART_WINDOW_SEC=3600" in example
+    assert "BOT_CHILD_RESTART_WINDOW_LIMIT=3" in example
+    assert "BOT_CHILD_RESTART_ALERT_COUNT=5" in example
 
 
 def test_executor_status_does_not_hide_oco_state_behind_question_mark():

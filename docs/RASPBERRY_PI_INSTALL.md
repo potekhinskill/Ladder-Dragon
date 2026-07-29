@@ -223,6 +223,16 @@ sudo systemctl start mybot
 sudo systemctl start pi-watchdog-v3.timer
 ```
 
+`mybot.service` delivers `SIGTERM` to the supervisor and every worker in the
+control group. The supervisor translates its first TERM into the normal
+`STOPPING` path, waits for workers to exit gracefully, and retains TERM/KILL
+timeouts as a final bound. A worker that exits repeatedly is counted in a
+rolling one-hour window: the third non-zero exit activates exponential backoff
+even when each run lasted longer than the short-crash threshold, and the fifth
+emits one Telegram restart-storm alert. These defaults are configurable through
+`BOT_CHILD_RESTART_WINDOW_SEC`, `BOT_CHILD_RESTART_WINDOW_LIMIT`, and
+`BOT_CHILD_RESTART_ALERT_COUNT`.
+
 The optional lifecycle check uses a minimal isolated Testnet position:
 
 ```bash

@@ -11,7 +11,6 @@ import fcntl
 import sys
 import time
 import math
-import signal
 import random
 import argparse
 import subprocess
@@ -72,8 +71,8 @@ from ladder_dragon.supervision.prediction_shadow import (
 )
 from ladder_dragon.supervision import preflight_resilience
 from ladder_dragon.supervision.process_manager import (
-    schedule_child_restart,
-    stop_child,
+    ChildProcessRegistry,
+    SupervisorShutdownSignal,
 )
 from ladder_dragon.supervision.recovery_gate import (
     bounded_recovery_reason as _runtime_recovery_reason,
@@ -232,6 +231,9 @@ _CHILD_PROCS: Dict[str, subprocess.Popen] = {}
 _CHILD_STARTED_AT: Dict[str, float] = {}
 _CHILD_RESTART_AFTER: Dict[str, float] = {}
 _CHILD_FAILURES: Dict[str, int] = {}
+_CHILD_RESTART_HISTORY: Dict[str, list[float]] = {}
+_CHILD_REGISTRY = ChildProcessRegistry(_CHILD_PROCS, _CHILD_STARTED_AT, _CHILD_RESTART_AFTER,
+                                       _CHILD_FAILURES, _CHILD_RESTART_HISTORY)
 LIVE_MODE = False
 _AI_ADVISOR: Optional[AIAdvisor] = None
 _AI_DECISIONS: Optional[AdvisorDecisionStore] = None
@@ -913,7 +915,8 @@ def _refresh_ai_control(args: argparse.Namespace) -> None:
         if effective_mode == "DISABLED" and previous_mode != "DISABLED":
             # Existing children may have received AI parameters; restart them so
             # the next plan is fully deterministic.
-            _stop_children("AI disabled from dashboard")
+            if not _stop_children("AI disabled from dashboard"):
+                raise RuntimeError("worker stop incomplete after AI control change")
     ai_status = _AI_RUNTIME_STATUS.setdefault("ai", {})
     ai_status.update({
         "mode": effective_mode,
@@ -2569,13 +2572,8 @@ def _schedule_child_restart(
     now: Optional[float] = None,
 ) -> float:
     """Handle schedule child restart."""
-    return schedule_child_restart(
-        symbol,
-        return_code,
-        runtime_sec,
-        failures=_CHILD_FAILURES,
-        restart_after=_CHILD_RESTART_AFTER,
-        now=now,
+    return _CHILD_REGISTRY.schedule(
+        symbol, return_code, runtime_sec, logger=log, notifier=notify, now=now
     )
 
 def run_child(symbol: str, ladder: List[float], args: argparse.Namespace,
@@ -4033,21 +4031,12 @@ def _preflight_with_auth_backoff(
 
 def _stop_child(symbol: str, reason: str) -> bool:
     """Gracefully stop one worker before replacing its immutable plan."""
-    return stop_child(
-        symbol,
-        reason,
-        processes=_CHILD_PROCS,
-        started_at=_CHILD_STARTED_AT,
-        restart_after=_CHILD_RESTART_AFTER,
-        failures=_CHILD_FAILURES,
-        logger=log,
-    )
+    return _CHILD_REGISTRY.stop(symbol, reason, log)
 
 
-def _stop_children(reason: str) -> None:
-    """Stop every managed child while retaining per-symbol cleanup semantics."""
-    for symbol in list(_CHILD_PROCS):
-        _stop_child(symbol, reason)
+def _stop_children(reason: str) -> bool:
+    """Stop every managed child and report whether all exits were confirmed."""
+    return _CHILD_REGISTRY.stop_all(reason, log)
 
 
 def _collect_blocked_shadow(
@@ -4469,6 +4458,8 @@ def main():
     next_runtime_heartbeat = 0.0
     next_ai_control_check = 0.0
     risk_snapshot_available = False
+    shutdown_signal = SupervisorShutdownSignal()
+    shutdown_signal.install()
 
     try:
         while True:
@@ -4754,7 +4745,16 @@ def main():
                     reason = "; ".join(decision.reasons) or "risk limit"
                     if risk_manager is not None and not decision.halted and not was_buy_blocked:
                         risk_manager.start_cooldown(reason)
-                    _stop_children(reason)
+                    if not _stop_children(reason):
+                        halt_reason = (
+                            "worker stop could not be confirmed during risk block"
+                        )
+                        _create_manual_halt_once(
+                            halt_reason,
+                            limits=limits,
+                            metadata={"gate": "worker_stop_confirmation"},
+                        )
+                        raise RuntimeError(halt_reason)
                     if preflight_resilience.backoff_active(
                         auth_retry_at, now=now_loop
                     ):

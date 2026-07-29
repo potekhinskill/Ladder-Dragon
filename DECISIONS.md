@@ -4,6 +4,20 @@ Read this file before changing the repository. Record only decisions that were
 validated by tests or production evidence and are likely to be reused. Keep
 entries concise; this is not a changelog or an activity log.
 
+### 2026-07-29 — Make service shutdown and restart pressure explicit
+
+- **Context:** a supervisor-only TERM combined with `KillMode=mixed` bypassed
+  worker graceful handlers, while runtime-based failure reset missed slower
+  crash loops.
+- **Decision:** route supervisor TERM through the existing `STOPPING` cleanup,
+  signal the complete control group, and base child backoff and alerting on a
+  bounded rolling failure window.
+- **Why it worked:** regressions prove first TERM enters graceful shutdown,
+  repeated slow crashes back off and alert once, expired failures stop counting,
+  and intentional cleanup clears its window.
+- **Reuse:** every parent/child service whose safe shutdown and restart policy
+  cross Python, subprocess and systemd boundaries.
+
 ### 2026-07-29 — Separate stored expense magnitude from display direction
 
 - **Context:** exact commission accounting stores a positive expense magnitude,
