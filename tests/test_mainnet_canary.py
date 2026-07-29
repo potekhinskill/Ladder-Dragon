@@ -420,7 +420,7 @@ def test_mainnet_canary_completes_exact_lifecycle(tmp_path, monkeypatch):
     assert result["market_buy"] == "filled"
     assert result["oco"] == "verified"
     assert result["verified_oco_leg_types"] == ["LIMIT_MAKER", "STOP_LOSS_LIMIT"]
-    assert result["restart_reconciled"] is True
+    assert result["journal_reload_reconciled"] is True
     assert result["cleanup"] == "OCO canceled and canary position flattened"
     assert result["open_orders_after"] == 0
     assert Decimal(result["quote_balance_delta_usdt"]) == Decimal("-0.10")
@@ -481,6 +481,35 @@ class UnexpectedHighActualCommissionClient(FakeMainnetClient):
         return payload
 
 
+class PrimaryAndCleanupFailureClient(FakeMainnetClient):
+    def signed(self, method, path, params=None):
+        if method == "POST" and path == "/api/v3/orderList/oco":
+            raise RuntimeError("OCO rejected by PERCENT_PRICE")
+        if (
+            method == "POST"
+            and path == "/api/v3/order"
+            and params
+            and params.get("side") == "SELL"
+        ):
+            raise RuntimeError("cleanup SELL rejected")
+        return super().signed(method, path, params)
+
+
+class ZeroExecutedBuyClient(FakeMainnetClient):
+    def signed(self, method, path, params=None):
+        payload = super().signed(method, path, params)
+        if (
+            method == "POST"
+            and path == "/api/v3/order"
+            and params
+            and params.get("side") == "BUY"
+        ):
+            payload["executedQty"] = "0"
+            payload["cummulativeQuoteQty"] = "0"
+            self.buy = payload
+        return payload
+
+
 def test_post_buy_failure_creates_persistent_halt(tmp_path, monkeypatch):
     run_dir = tmp_path / "run"
     monkeypatch.setenv("BOT_RUN_DIR", str(run_dir))
@@ -497,6 +526,49 @@ def test_post_buy_failure_creates_persistent_halt(tmp_path, monkeypatch):
     report = json.loads(Path(args(tmp_path).report).read_text(encoding="utf-8"))
     assert report["status"] == "failed"
     assert report["error_type"] == "RuntimeError"
+
+
+def test_cleanup_failure_does_not_replace_primary_canary_error(
+    tmp_path, monkeypatch
+):
+    run_dir = tmp_path / "run"
+    monkeypatch.setenv("BOT_RUN_DIR", str(run_dir))
+    monkeypatch.setenv("RISK_RESERVE_USDT", "300")
+    OrderJournal(args(tmp_path).production_journal, venue="mainnet")
+
+    with pytest.raises(RuntimeError, match="PERCENT_PRICE"):
+        canary.run_canary(
+            args(tmp_path),
+            environ=confirmed_env(),
+            client=PrimaryAndCleanupFailureClient(),
+            service_check=lambda: None,
+        )
+
+    report = json.loads(Path(args(tmp_path).report).read_text(encoding="utf-8"))
+    assert report["error"] == "OCO rejected by PERCENT_PRICE"
+    assert report["error_type"] == "RuntimeError"
+    assert any("cleanup SELL rejected" in row for row in report["cleanup_errors"])
+    assert "cleanup SELL rejected" not in report["error"]
+    assert "signature=" not in json.dumps(report).lower()
+
+
+def test_zero_executed_buy_is_named_and_halts(tmp_path, monkeypatch):
+    run_dir = tmp_path / "run"
+    monkeypatch.setenv("BOT_RUN_DIR", str(run_dir))
+    monkeypatch.setenv("RISK_RESERVE_USDT", "300")
+    OrderJournal(args(tmp_path).production_journal, venue="mainnet")
+
+    with pytest.raises(RuntimeError, match="BUY executed zero quantity"):
+        canary.run_canary(
+            args(tmp_path),
+            environ=confirmed_env(),
+            client=ZeroExecutedBuyClient(),
+            service_check=lambda: None,
+        )
+
+    report = json.loads(Path(args(tmp_path).report).read_text(encoding="utf-8"))
+    assert report["error"] == "Mainnet canary BUY executed zero quantity"
+    assert (run_dir / "circuit_halt.json").exists()
 
 
 def test_oco_cancel_must_reach_all_done(tmp_path, monkeypatch):

@@ -80,13 +80,13 @@ def testnet_checks(context: HarnessContext) -> list[CheckSpec]:
         )
     checks.append(
         CheckSpec(
-            name="testnet_buy_oco_restart",
+            name="testnet_buy_oco_journal_reload",
             argv=(
                 python,
                 "-m",
                 "bin.binance_testnet_smoke",
                 "--mode",
-                "buy-oco-restart",
+                "buy-oco-journal-reload",
                 "--symbol",
                 options.symbol,
             ),

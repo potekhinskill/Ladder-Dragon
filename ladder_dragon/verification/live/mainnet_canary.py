@@ -8,6 +8,7 @@ This command is intentionally separate from the trading strategy. It refuses to
 run while ``mybot`` or its watchdog timer is active, accepts only ``SOLUSDT``,
 hard-caps quote exposure at 10 USDT, preserves the configured USDT reserve, and
 requires two canary-specific confirmations in addition to the normal LIVE gate.
+Journal reload proves durable state only; it is not a process crash drill.
 """
 
 from __future__ import annotations
@@ -484,7 +485,7 @@ def run_canary(
             stop_loss_pct=args.stop_loss_pct,
             stop_limit_offset_pct=args.stop_limit_offset_pct,
             journal_path=journal_path,
-            restart_drill=True,
+            journal_reload_drill=True,
             venue="mainnet-canary",
             purpose_prefix="mainnet_canary",
             venue_label="Mainnet canary",
@@ -540,6 +541,9 @@ def run_canary(
                 "duration_sec": str(Decimal(str(time.time() - started_at)).quantize(Decimal("0.001"))),
             }
         )
+        cleanup_errors = getattr(exc, "cleanup_errors", ())
+        if cleanup_errors:
+            report["cleanup_errors"] = list(cleanup_errors)
         _append_report(report_path, report)
         raise RuntimeError(reason) from exc
 

@@ -31,7 +31,7 @@ fee-aware FIFO accounting, restart reconciliation, per-symbol operational
 reporting, replay and walk-forward verification, and a private Raspberry Pi
 operations dashboard.
 
-Current product version: **2.20.86**. The single version source is
+Current product version: **2.20.87**. The single version source is
 `product_version.py`; releases follow [Semantic Versioning](https://semver.org/).
 Project contact: [LinkedIn](https://www.linkedin.com/in/ypotekhin/).
 
@@ -96,7 +96,7 @@ bounded, explainable, recoverable, and measurable before exposure is increased.
 ## Project status
 
 Ladder Dragon is an actively developed, experimental trading system. Version
-**2.20.86** is the current source release. `main` is the only long-lived branch;
+**2.20.87** is the current source release. `main` is the only long-lived branch;
 feature branches use the `ladderdragon/*` namespace.
 
 DRY and Binance Spot Testnet are the supported starting modes. Mainnet LIVE is
@@ -106,11 +106,12 @@ OCO/STOP, restart-recovery, gap-watchdog, backup, and circuit-breaker checks.
 No profitability is promised or implied.
 
 The bounded Mainnet canary completed a real `BUY -> fill -> OCO TP/STOP ->
-restart reconciliation -> cleanup SELL` lifecycle on `SOLUSDT`. Both OCO legs
+durable journal reload -> cleanup SELL` lifecycle on `SOLUSDT`. Both OCO legs
 were verified, the isolated canary position was flattened exactly, no open
-orders remained, and the circuit breaker stayed clear. This validates the
-bounded acceptance path; it does not establish profitability or authorize
-larger exposure.
+orders remained, and the circuit breaker stayed clear. The reload proves
+journal persistence, not crash-restart recovery. This validates the bounded
+acceptance path; it does not establish profitability or authorize larger
+exposure.
 
 ## Features
 
@@ -590,7 +591,7 @@ cleans up the test position. It never uses existing holdings:
 
 ```bash
 BOT_TESTNET_BUY_OCO_CONFIRMED=YES \
-python -m bin.binance_testnet_smoke --mode buy-oco-restart --symbol SOLUSDT
+python -m bin.binance_testnet_smoke --mode buy-oco-journal-reload --symbol SOLUSDT
 ```
 
 ### Bounded Mainnet canary
@@ -611,6 +612,14 @@ The drill is a deliberately bounded acceptance expense, not a profit test. Its
 immediate cleanup may realize spread and fees; it never waits in an exposed
 position merely to manufacture earnings. Run it only after a material executor
 change, not on a schedule.
+
+**Never cancel a production OCO or remove position protection merely to make
+the canary preflight pass.** Any existing `SOLUSDT` order means the acceptance
+account is not eligible for this drill. Run the canary on a flat account before
+enabling LIVE, or defer it until the managed position has closed and Binance,
+the journal and balances have been reconciled through the normal reviewed
+procedure. The journal reload proves durable persistence; it does not simulate
+a killed process or claim crash-restart coverage.
 
 The drill proves one deterministic safety lifecycle; it must not be repeated to
 manufacture a performance sample. Promotion beyond the SOLUSDT canary requires

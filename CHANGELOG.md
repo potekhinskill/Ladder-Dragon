@@ -3,6 +3,29 @@
 All notable changes are documented here. Releases use Semantic Versioning; every
 section is dated and there is intentionally no `Unreleased` section.
 
+## [2.20.87] — 2026-07-29
+
+### Fixed
+- A fail-closed SHADOW cycle still computes and persists fresh evidence every
+  minute, but unchanged PLAN, ATR, regime, expectancy, inventory and position
+  diagnostics are now emitted at most once per 15 minutes. Safety errors,
+  recovery changes and risk alerts remain immediate.
+- Mainnet/Testnet lifecycle cleanup no longer replaces an already active
+  primary failure. The report keeps the original error and records cleanup
+  failures separately while HALT remains fail-closed.
+- A formally FILLED BUY with zero executed quantity now fails with an explicit
+  diagnostic before any price or slippage division.
+- Canary evidence and Testnet mode names now say `journal_reload` instead of
+  claiming process restart coverage. Operator documentation explicitly forbids
+  removing a production OCO merely to satisfy canary preflight.
+
+### Verified
+- Blocked-SHADOW regression proves two consecutive observations persist twice,
+  enter no mutation path and emit each routine diagnostic only once;
+  canary regressions prove primary-error preservation, separate cleanup
+  evidence, zero-execution blocking and secret-free reports. Compileall passes
+  and the complete suite passes (766 tests).
+
 ## [2.20.86] — 2026-07-29
 
 ### Fixed

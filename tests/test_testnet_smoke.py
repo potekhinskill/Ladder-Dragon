@@ -177,8 +177,10 @@ class FakeTestnetClient:
         raise AssertionError(f"unexpected request: {method} {path} {params}")
 
 
-@pytest.mark.parametrize("restart_drill", [False, True])
-def test_buy_oco_lifecycle_verifies_and_cleans_position(tmp_path, restart_drill):
+@pytest.mark.parametrize("journal_reload_drill", [False, True])
+def test_buy_oco_lifecycle_verifies_and_cleans_position(
+    tmp_path, journal_reload_drill
+):
     client = FakeTestnetClient()
     result = execute_buy_oco_lifecycle(
         client=client,
@@ -192,12 +194,12 @@ def test_buy_oco_lifecycle_verifies_and_cleans_position(tmp_path, restart_drill)
         stop_loss_pct="0.02",
         stop_limit_offset_pct="0.002",
         journal_path=tmp_path / "testnet.sqlite3",
-        restart_drill=restart_drill,
+        journal_reload_drill=journal_reload_drill,
     )
     assert result["market_buy"] == "filled"
     assert result["oco"] == "verified"
     assert result["verified_oco_leg_types"] == ["LIMIT_MAKER", "STOP_LOSS_LIMIT"]
-    assert result["restart_reconciled"] is restart_drill
+    assert result["journal_reload_reconciled"] is journal_reload_drill
     assert client.cleaned
     assert OrderJournal(tmp_path / "testnet.sqlite3").unresolved_buys("SOLUSDT") == []
     assert any(

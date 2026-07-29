@@ -643,8 +643,11 @@ def test_blocked_shadow_plan_skips_every_order_mutation(monkeypatch):
     ai_supervisor.run_for_symbol(
         "SOLUSDT", args, execution_allowed=False
     )
+    ai_supervisor.run_for_symbol(
+        "SOLUSDT", args, execution_allowed=False
+    )
 
-    assert recorded == [("SOLUSDT", "UP")]
+    assert recorded == [("SOLUSDT", "UP"), ("SOLUSDT", "UP")]
     assert not any("ladder ->" in message for message in messages)
     blocked_summaries = [
         message for message in messages
@@ -653,6 +656,18 @@ def test_blocked_shadow_plan_skips_every_order_mutation(monkeypatch):
     assert len(blocked_summaries) == 1
     assert "levels=" in blocked_summaries[0]
     assert "order mutation disabled" in blocked_summaries[0]
+    routine_prefixes = (
+        "[PLAN]", "[ATR]", "[REGIME-", "[EXPECTANCY-SHADOW]",
+        "[EXPECTANCY-CONFIG]", "[ENTRY-ADAPT]",
+        "[INVENTORY-SKEW-", "[POS-MODE]",
+    )
+    for prefix in routine_prefixes:
+        assert sum(message.startswith(prefix) for message in messages) <= 1
+    for prefix in (
+        "[PLAN]", "[ATR]", "[REGIME-", "[ENTRY-ADAPT]",
+        "[INVENTORY-SKEW-", "[POS-MODE]",
+    ):
+        assert sum(message.startswith(prefix) for message in messages) == 1
 
 
 def test_known_empty_order_snapshot_does_not_repeat_rest_query(monkeypatch):

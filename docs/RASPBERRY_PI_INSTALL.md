@@ -228,10 +228,10 @@ The optional lifecycle check uses a minimal isolated Testnet position:
 ```bash
 BOT_TESTNET_BUY_OCO_CONFIRMED=YES \
 sudo -u bot env PYTHONPATH=. .venv/bin/python \
-  -m bin.binance_testnet_smoke --mode buy-oco-restart --symbol SOLUSDT
+  -m bin.binance_testnet_smoke --mode buy-oco-journal-reload --symbol SOLUSDT
 ```
 
-It verifies BUY fill, OCO legs, restart reconciliation, and cleanup. The
+It verifies BUY fill, OCO legs, journal reload reconciliation, and cleanup. The
 circuit-drill mode is isolated from production halt files.
 
 ### Optional bounded Mainnet acceptance canary
@@ -243,6 +243,13 @@ It preflights the account commission schedule, defaults to a `0.02 USDT` total
 commission budget with a hard `0.03 USDT` ceiling, and permits only one
 successful drill per release. The immediate cleanup is an acceptance expense;
 do not schedule or repeat it as a trading strategy.
+
+**Never cancel a production OCO or remove protection to satisfy this
+preflight.** Existing `SOLUSDT` orders make the account ineligible. Run the
+canary on a flat account before enabling LIVE, or defer it until the managed
+position closes and Binance, journal and balances have been reconciled by the
+reviewed operator procedure. Reloading `OrderJournal` proves durable state; it
+does not simulate SIGKILL or a new process.
 
 ```bash
 (

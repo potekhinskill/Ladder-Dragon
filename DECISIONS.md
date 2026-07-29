@@ -4,6 +4,18 @@ Read this file before changing the repository. Record only decisions that were
 validated by tests or production evidence and are likely to be reused. Keep
 entries concise; this is not a changelog or an activity log.
 
+### 2026-07-29 — Preserve primary failure across mandatory cleanup
+
+- **Context:** a cleanup failure can occur while a more important exchange or
+  protection failure is already propagating from a bounded canary.
+- **Decision:** keep the original exception authoritative for HALT and report
+  status, attach cleanup failures as a separate bounded evidence list, and
+  raise cleanup itself only when no primary failure exists.
+- **Why it worked:** regressions inject simultaneous OCO rejection and cleanup
+  failure, then prove the report and raised error retain the OCO cause while
+  exposing cleanup evidence without signed request data.
+- **Reuse:** every `finally` cleanup that runs after a financial mutation.
+
 ### 2026-07-29 — Bootstrap deployment from verified target code
 
 - **Context:** an immutable copy of the installed updater avoids mixed code but

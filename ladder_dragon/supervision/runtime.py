@@ -2907,9 +2907,13 @@ def run_for_symbol(
     execution_allowed: bool = True,
 ) -> None:
     """Build one plan; optionally retain only read-only SHADOW telemetry."""
+    cycle_log = log if execution_allowed else lambda message: _log_info_rate_limited(
+        f"blocked-shadow-detail:{symbol}:{message.partition(']')[0]}",
+        message, interval_sec=900.0,
+    )
     # 1) Current price + ATR
     now_p = get_last_price(symbol)
-    log(f"[PLAN] {symbol} now≈{now_p:.4f}")
+    cycle_log(f"[PLAN] {symbol} now≈{now_p:.4f}")
 
     atr_abs, atr_pct = _atr_pct(symbol, interval=(args.atr_interval if hasattr(args, 'atr_interval') else '5m'), length=20)
 
@@ -2918,7 +2922,7 @@ def run_for_symbol(
     tp2_calc = clamp(atr_pct * _analytics_float(args.atr_mult_tp2), _analytics_float(args.tp1_min), _analytics_float(args.tp1_max * 1.8))
     tp1_use = _analytics_float(args.tp1) if args.tp1 is not None else tp1_calc
     tp2_use = _analytics_float(args.tp2) if args.tp2 is not None else tp2_calc
-    log(f"[ATR] {symbol} ATR={atr_abs:.4f} -> tp1={tp1_use:.4f}..{args.tp1_max:.4f} with mults tp1={args.atr_mult_tp1} tp2={args.atr_mult_tp2} sl={args.atr_mult_sl}")
+    cycle_log(f"[ATR] {symbol} ATR={atr_abs:.4f} -> tp1={tp1_use:.4f}..{args.tp1_max:.4f} with mults tp1={args.atr_mult_tp1} tp2={args.atr_mult_tp2} sl={args.atr_mult_sl}")
 
     # 3) Direction mode (auto/forced)
     if args.dir_mode != "auto":
@@ -2930,7 +2934,7 @@ def run_for_symbol(
             "adx": 0.0,
             "candidate": dir_mode,
         }
-        log(f"[DIR] {symbol} mode={dir_mode} (forced)")
+        cycle_log(f"[DIR] {symbol} mode={dir_mode} (forced)")
     else:
         dir_mode, _diag = _infer_market_mode(
             symbol,
@@ -2942,7 +2946,7 @@ def run_for_symbol(
             adx_min=_analytics_float(args.dir_adx_min),
             hyst_bars=int(args.dir_hyst_bars),
             confirm_bars=int(args.dir_confirm_bars),
-            do_log=bool(args.dir_log)
+            do_log=bool(args.dir_log and execution_allowed)
         )
 
     raw_regime = {
@@ -3037,13 +3041,13 @@ def run_for_symbol(
                 f"[EXPECTANCY-BLOCK] {symbol} authoritative commission "
                 f"unavailable={commission_error}"
             )
-    log(
+    cycle_log(
         f"[REGIME-{regime_mode}] {symbol} raw={raw_regime} "
         f"confirmed={confirmed_regime} buys={regime_policy.buys_allowed} "
         f"cap_scale={regime_policy.cap_scale}"
     )
     if required_edge is not None:
-        log(
+        cycle_log(
             f"[EXPECTANCY-{expectancy_mode}] {symbol} required_edge="
             f"{required_edge:.8f} discount_not_relied_upon="
             f"{commission_schedule.discount_observed}"
@@ -3111,7 +3115,7 @@ def run_for_symbol(
             else {"available": False, "samples": 0}
         )
         if statistical_regime_mode != "OFF":
-            log(
+            cycle_log(
                 f"[STATISTICAL-{statistical_regime_mode}] {symbol} "
                 f"available={statistical.get('available', False)} "
                 f"mode={statistical.get('mode', 'FLAT')} "
@@ -3249,7 +3253,7 @@ def run_for_symbol(
         and tp1_exact >= required_edge
     )
     if required_edge is not None:
-        log(
+        cycle_log(
             f"[EXPECTANCY-CONFIG] {symbol} required={required_edge:.8f} "
             f"minimum_net={minimum_profit:.8f} tp={tp1_exact:.8f} "
             f"passes={expectancy_configuration_passes}"
@@ -3273,7 +3277,7 @@ def run_for_symbol(
         adaptive_target_buys,
         operator_target_buys_limit,
     )
-    log(
+    cycle_log(
         f"[ENTRY-ADAPT] {symbol} mode={dir_mode} "
         f"BUY gap={entry_gap:.4f} TP1 {before_tp1:.4f}→{tp1_use:.4f} "
         f"min_net={minimum_profit:.4f} "
@@ -3425,7 +3429,7 @@ def run_for_symbol(
             if hard_inventory_cap is not None
             else "unavailable"
         )
-        log(
+        cycle_log(
             f"[INVENTORY-SKEW-{inventory_mode}] {symbol} managed="
             f"{managed_exposure:.8f} scale={inventory_scale:.8f} "
             f"hard_cap={hard_cap_label} error={inventory_error or 'none'}"
@@ -3452,7 +3456,7 @@ def run_for_symbol(
         if execution_allowed
         else "blocked_shadow"
     )
-    log(f"[POS-MODE] {symbol} mode={mode}")
+    cycle_log(f"[POS-MODE] {symbol} mode={mode}")
 
     child_ladder = _deduplicate_ladder_prices(
         [*sr.get("replacement_prices", []), *ladder_all],

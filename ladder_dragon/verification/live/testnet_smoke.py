@@ -18,6 +18,7 @@ import json
 import os
 from pathlib import Path
 import re
+import sys
 import time
 from types import SimpleNamespace
 from typing import Any
@@ -313,8 +314,10 @@ def _submit_market_buy(
     if updated.state != "FILLED":
         response = _query_order(client, params["symbol"], client_id)
         updated = journal.record_exchange_order(client_id, response)
-    if updated.state != "FILLED" or decimal(updated.executed_qty) <= 0:
+    if updated.state != "FILLED":
         raise RuntimeError(f"{venue_label} MARKET BUY not filled: state={updated.state}")
+    if decimal(updated.executed_qty) <= 0:
+        raise RuntimeError(f"{venue_label} BUY executed zero quantity")
     return response
 
 
@@ -449,7 +452,7 @@ def execute_buy_oco_lifecycle(
     stop_loss_pct: object,
     stop_limit_offset_pct: object,
     journal_path: str | Path,
-    restart_drill: bool = False,
+    journal_reload_drill: bool = False,
     venue: str = "testnet",
     purpose_prefix: str = "testnet",
     venue_label: str = "Testnet",
@@ -502,7 +505,7 @@ def execute_buy_oco_lifecycle(
         buy_latency_ms = Decimal(str((time.monotonic() - buy_started) * 1000)).quantize(
             Decimal("0.1")
         )
-        if restart_drill:
+        if journal_reload_drill:
             journal = OrderJournal(journal_path, venue=venue)
             persisted = journal.get(buy_client_id)
             if persisted is None or persisted.state != "FILLED":
@@ -514,6 +517,8 @@ def execute_buy_oco_lifecycle(
 
         account_after_buy = client.signed("GET", "/api/v3/account")
         executed = decimal(buy.get("executedQty") or "0")
+        if executed <= 0:
+            raise RuntimeError(f"{venue_label} BUY executed zero quantity")
         acquired_free = max(
             Decimal("0"), balance_amount(account_after_buy, base_asset) - initial_base_free
         )
@@ -577,10 +582,11 @@ def execute_buy_oco_lifecycle(
             "order_list_id": oco.get("orderListId"),
             "verified_oco_leg_types": oco.get("verifiedLegTypes"),
             "oco_latency_ms": str(oco_latency_ms),
-            "restart_reconciled": restart_drill,
+            "journal_reload_reconciled": journal_reload_drill,
         })
         return result
     finally:
+        primary_error = sys.exc_info()[1]
         if oco and oco.get("orderListId") is not None:
             canceled_state: dict[str, Any] | None = None
             try:
@@ -745,7 +751,11 @@ def execute_buy_oco_lifecycle(
             except requests.RequestException as exc:
                 cleanup_errors.append(f"final balance verification failed: {exc}")
         if cleanup_errors:
-            raise RuntimeError("; ".join(cleanup_errors))
+            result["cleanup_errors"] = list(cleanup_errors)
+            if primary_error is not None:
+                setattr(primary_error, "cleanup_errors", tuple(cleanup_errors))
+            else:
+                raise RuntimeError("; ".join(cleanup_errors))
         if buy:
             journal.mark_closed(buy_client_id)
             result["cleanup"] = "OCO canceled and canary position flattened"
@@ -1054,7 +1064,7 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
     if args.mode == "authenticated":
         return result
 
-    if args.mode in ("buy-oco", "buy-oco-restart"):
+    if args.mode in ("buy-oco", "buy-oco-journal-reload"):
         if os.getenv("BOT_TESTNET_BUY_OCO_CONFIRMED", "") != "YES":
             raise RuntimeError(
                 f"{args.mode} requires BOT_TESTNET_BUY_OCO_CONFIRMED=YES"
@@ -1071,7 +1081,7 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
             stop_loss_pct=args.stop_loss_pct,
             stop_limit_offset_pct=args.stop_limit_offset_pct,
             journal_path=args.journal,
-            restart_drill=args.mode == "buy-oco-restart",
+            journal_reload_drill=args.mode == "buy-oco-journal-reload",
         )
         result.update(lifecycle)
         result["cleanup"] = "OCO canceled and test position flattened"
@@ -1145,7 +1155,7 @@ def main() -> int:
             "order-test",
             "limit-cancel",
             "buy-oco",
-            "buy-oco-restart",
+            "buy-oco-journal-reload",
             "circuit-drill",
             "gap-drill",
         ),

@@ -17,6 +17,96 @@ private infrastructure details.
 
 ## Mistakes
 
+### 2026-07-29 — Let canary cleanup replace the initiating failure
+
+- **Impact:** simultaneous OCO and cleanup failures reported only the cleanup
+  symptom, so the persistent HALT and private evidence could hide the actual
+  exchange-side trigger.
+- **Root cause:** the lifecycle raised a new `RuntimeError` unconditionally
+  from `finally` without detecting the exception already in flight.
+- **Correction:** preserve the primary exception and store cleanup failures in
+  a separate report field; cleanup raises independently only on an otherwise
+  successful lifecycle.
+- **Prevention:** every post-mutation cleanup test must inject both a primary
+  failure and a cleanup failure and assert root-cause preservation.
+
+### 2026-07-29 — Described journal reload as process restart
+
+- **Impact:** canary evidence could be interpreted as proof of SIGKILL and
+  new-process recovery although it only reopened the durable journal object.
+- **Root cause:** field, mode and documentation names used `restart` for a
+  narrower persistence check.
+- **Correction:** rename the API result, Testnet mode and harness check to
+  `journal_reload` and state explicitly that crash recovery is not exercised.
+- **Prevention:** verification evidence names must describe the exact tested
+  boundary and must not imply a stronger fault model.
+
+### 2026-07-29 — Repeated a Git metadata mutation inside the sandbox
+
+- **Impact:** the first staging command failed to create `.git/index.lock`;
+  working files were unchanged.
+- **Root cause:** after confirming `.git` was read-only, the next metadata
+  mutation still relied on an approved command prefix instead of explicitly
+  requesting the required filesystem permission.
+- **Correction:** stage the exact reviewed file set with narrow escalation.
+- **Prevention:** once a session proves `.git` read-only, every later branch,
+  index, commit or tag mutation in that session must request escalation.
+
+### 2026-07-29 — Guessed a learning-document test after discovery
+
+- **Impact:** one verification command attempted a nonexistent test path and
+  masked that subcommand with `|| true`; no repository or runtime state changed.
+- **Root cause:** the command mixed correct discovery with an inferred filename
+  instead of executing the path returned by discovery.
+- **Correction:** run the discovered `tests/test_documentation_assets.py`
+  directly and keep its exit status authoritative.
+- **Prevention:** never append a guessed test to a discovery command and never
+  suppress pytest failure while validating a candidate.
+
+### 2026-07-29 — Renamed a Git branch without checking metadata permissions
+
+- **Impact:** the first local branch rename failed before changing repository
+  state and had to be repeated with the required permission boundary.
+- **Root cause:** the command assumed workspace write access also covered
+  `.git`, although this session exposes Git metadata as read-only by default.
+- **Correction:** request the narrow Git branch operation outside the
+  filesystem sandbox.
+- **Prevention:** inspect the active permission profile before every Git
+  metadata mutation and escalate the exact operation when `.git` is read-only.
+
+### 2026-07-29 — Grew a budgeted test monolith during a logging fix
+
+- **Impact:** the second focused verification failed only the test-file
+  non-growth budget.
+- **Root cause:** the regression used vertically expanded assertion data in a
+  file already capped by the architecture policy.
+- **Correction:** keep the existing behavior test and express its small prefix
+  sets compactly without raising the budget.
+- **Prevention:** check line budgets before editing known monoliths and move
+  substantial new cases into focused component files.
+
+### 2026-07-29 — Required optional SHADOW diagnostics in a regression
+
+- **Impact:** the first focused verification had one false failure even though
+  rate limiting and evidence persistence behaved correctly.
+- **Root cause:** the test required expectancy and statistical messages that
+  are intentionally absent when their optional data providers are unavailable.
+- **Correction:** require every unconditional diagnostic once and constrain
+  optional diagnostics to at most once.
+- **Prevention:** logging tests must distinguish unconditional lifecycle
+  evidence from output guarded by optional provider availability.
+
+### 2026-07-29 — Combined unrelated large evidence reads into one command
+
+- **Impact:** the first audit output was truncated, so the required project
+  records and production evidence had to be read again in bounded sections.
+- **Root cause:** one command concatenated three long learning files and both
+  attachments without estimating the output size first.
+- **Correction:** count lines first, read policy files in bounded ranges and
+  summarize repetitive logs with targeted searches and tag counts.
+- **Prevention:** never combine independent large evidence sources in one tool
+  call; size them first and allocate separate bounded reads.
+
 ### 2026-07-29 — Repeated manual SHA interpolation in the release command
 
 - **Impact:** the first 2.20.86 release harness was interrupted after starting

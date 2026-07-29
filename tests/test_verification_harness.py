@@ -220,7 +220,7 @@ def test_testnet_and_mainnet_mutations_require_separate_confirmations(
     testnet = checks_for_profile(_context(tmp_path, "testnet"))
     blocked = {row.name: row.blocked_reason for row in testnet}
     assert blocked["testnet_authenticated"]
-    assert blocked["testnet_buy_oco_restart"]
+    assert blocked["testnet_buy_oco_journal_reload"]
 
     monkeypatch.setenv("BOT_LIVE_CONFIRMED", "YES")
     monkeypatch.setenv("BOT_MAINNET_CANARY_CONFIRMED", "YES")
