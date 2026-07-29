@@ -81,11 +81,16 @@ def _returns(bars: Sequence[PredictionBar]) -> list[Decimal]:
     ]
 
 
-def _rms(values: Sequence[Decimal]) -> Decimal:
+def _population_stddev(values: Sequence[Decimal]) -> Decimal:
     if not values:
         return ZERO
-    variance = sum((value * value for value in values), ZERO) / D(str(len(values)))
-    return D(str(math.sqrt(float(max(ZERO, variance)))))
+    count = D(len(values))
+    mean = sum(values, ZERO) / count
+    variance = sum(
+        ((value - mean) * (value - mean) for value in values),
+        ZERO,
+    ) / count
+    return max(ZERO, variance).sqrt()
 
 
 def _vwap(bars: Sequence[PredictionBar]) -> Decimal:
@@ -102,13 +107,27 @@ def latest_known_value(
     max_age_ms: int,
 ) -> Decimal | None:
     """Return only a value that existed by the feature cutoff."""
+    latest = _latest_known_observation(
+        values,
+        as_of_ms=as_of_ms,
+        max_age_ms=max_age_ms,
+    )
+    return latest.value if latest is not None else None
+
+
+def _latest_known_observation(
+    values: Sequence[TimedMarketValue],
+    *,
+    as_of_ms: int,
+    max_age_ms: int,
+) -> TimedMarketValue | None:
     eligible = [item for item in values if item.timestamp_ms <= as_of_ms]
     if not eligible:
         return None
     latest = max(eligible, key=lambda item: item.timestamp_ms)
     if as_of_ms - latest.timestamp_ms > max_age_ms:
         return None
-    return latest.value if latest.value.is_finite() else None
+    return latest if latest.value.is_finite() else None
 
 
 def build_extended_features(
@@ -129,8 +148,8 @@ def build_extended_features(
     if len(closed) < long_window + 1:
         raise ValueError("insufficient closed bars for extended features")
     returns = _returns(closed)
-    short_vol = _rms(returns[-short_window:])
-    long_vol = _rms(returns[-long_window:])
+    short_vol = _population_stddev(returns[-short_window:])
+    long_vol = _population_stddev(returns[-long_window:])
     recent = closed[-20:]
     previous = closed[-40:-20]
     recent_vwap = _vwap(recent)
@@ -146,19 +165,24 @@ def build_extended_features(
         as_of_ms=as_of_ms,
         max_age_ms=9 * 60 * 60_000,
     )
-    oi_now = latest_known_value(
+    oi_now = _latest_known_observation(
         open_interest,
         as_of_ms=as_of_ms,
         max_age_ms=10 * 60_000,
     )
-    prior_oi = latest_known_value(
+    prior_oi = _latest_known_observation(
         open_interest,
         as_of_ms=as_of_ms - 5 * 60_000,
         max_age_ms=10 * 60_000,
     )
     oi_change = (
-        oi_now / prior_oi - ONE
-        if oi_now is not None and prior_oi is not None and prior_oi > 0
+        oi_now.value / prior_oi.value - ONE
+        if (
+            oi_now is not None
+            and prior_oi is not None
+            and prior_oi.timestamp_ms < oi_now.timestamp_ms
+            and prior_oi.value > 0
+        )
         else None
     )
     flow = (

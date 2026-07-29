@@ -3,6 +3,25 @@
 All notable changes are documented here. Releases use Semantic Versioning; every
 section is dated and there is intentionally no `Unreleased` section.
 
+## [2.20.79] — 2026-07-29
+
+### Fixed
+- Expanding walk-forward splits now use binary label cutoffs and immutable
+  training-prefix views instead of rescanning and copying the entire dataset
+  for every test sample.
+- The defensive ensemble treats `FLAT` and `UP` as compatible safe votes,
+  retains confident `DOWN`/`PANIC` vetoes and reduces baseline CAP by half for
+  weak danger evidence instead of disabling range trading.
+- Open-interest change now requires two distinct timestamped observations, so
+  a sparse series cannot compare one stale point with itself.
+- Realized-volatility features now use population standard deviation and no
+  longer count constant directional drift as volatility.
+
+### Verified
+- Prediction pipeline, no-look-ahead, risk non-expansion, OI provenance,
+  volatility semantics, version and documentation regressions pass (63
+  focused tests); compileall and the complete suite pass (743 tests).
+
 ## [2.20.78] — 2026-07-29
 
 ### Fixed

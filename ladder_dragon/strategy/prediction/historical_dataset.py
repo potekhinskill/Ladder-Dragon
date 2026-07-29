@@ -6,9 +6,11 @@
 
 from __future__ import annotations
 
+from bisect import bisect_left
+from collections.abc import Iterator
 from dataclasses import dataclass
 from decimal import Decimal
-from typing import Mapping, Sequence
+from typing import Mapping, Sequence, overload
 
 from ladder_dragon.strategy.prediction.advanced_features import (
     ExtendedRegimeFeatures,
@@ -40,6 +42,37 @@ class SymbolAuxiliaryHistory:
     agg_trade_imbalance_by_close_ms: Mapping[int, Decimal]
     funding: Sequence[TimedMarketValue] = ()
     open_interest: Sequence[TimedMarketValue] = ()
+
+
+@dataclass(frozen=True)
+class WalkForwardTrainingPrefix(Sequence[HistoricalRegimeSample]):
+    """Read-only prefix view that does not copy an expanding training set."""
+
+    _rows: tuple[HistoricalRegimeSample, ...]
+    _stop: int
+
+    def __len__(self) -> int:
+        return self._stop
+
+    @overload
+    def __getitem__(self, index: int) -> HistoricalRegimeSample:
+        ...
+
+    @overload
+    def __getitem__(self, index: slice) -> tuple[HistoricalRegimeSample, ...]:
+        ...
+
+    def __getitem__(
+        self,
+        index: int | slice,
+    ) -> HistoricalRegimeSample | tuple[HistoricalRegimeSample, ...]:
+        if isinstance(index, slice):
+            start, stop, step = index.indices(self._stop)
+            return self._rows[start:stop:step]
+        normalized = index + self._stop if index < 0 else index
+        if normalized < 0 or normalized >= self._stop:
+            raise IndexError(index)
+        return self._rows[normalized]
 
 
 def _label(value: Decimal, threshold: Decimal) -> str:
@@ -111,15 +144,27 @@ def expanding_walk_forward_splits(
     samples: Sequence[HistoricalRegimeSample],
     *,
     min_train_samples: int,
-) -> list[tuple[tuple[HistoricalRegimeSample, ...], HistoricalRegimeSample]]:
-    """Return only splits where every training label predates the test snapshot."""
-    ordered = sorted(samples, key=lambda item: (item.snapshot_ts_ms, item.symbol))
-    output = []
-    for test in ordered:
-        train = tuple(
-            row for row in ordered
-            if row.label_ts_ms < test.snapshot_ts_ms
-        )
-        if len(train) >= min_train_samples:
-            output.append((train, test))
-    return output
+) -> Iterator[
+    tuple[WalkForwardTrainingPrefix, HistoricalRegimeSample]
+]:
+    """Yield purged splits in O(n log n) without copying growing prefixes."""
+    if min_train_samples < 0:
+        raise ValueError("min_train_samples must be non-negative")
+    tests = sorted(
+        samples,
+        key=lambda item: (item.snapshot_ts_ms, item.symbol, item.horizon_min),
+    )
+    training_rows = tuple(sorted(
+        samples,
+        key=lambda item: (
+            item.label_ts_ms,
+            item.snapshot_ts_ms,
+            item.symbol,
+            item.horizon_min,
+        ),
+    ))
+    label_timestamps = tuple(row.label_ts_ms for row in training_rows)
+    for test in tests:
+        stop = bisect_left(label_timestamps, test.snapshot_ts_ms)
+        if stop >= min_train_samples:
+            yield WalkForwardTrainingPrefix(training_rows, stop), test

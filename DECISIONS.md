@@ -29,6 +29,19 @@ entries concise; this is not a changelog or an activity log.
 
 ## Decisions
 
+### 2026-07-29 — Separate defensive danger from harmless direction differences
+
+- **Context:** strict label unanimity treated `FLAT` versus `UP` as a safety
+  conflict and disabled a grid in the range regime it is intended to evaluate.
+- **Decision:** group `FLAT` and `UP` as safe votes, retain a confident
+  `DOWN`/`PANIC` veto, and let a weak danger vote only halve the already
+  approved baseline CAP.
+- **Why it worked:** regressions prove safe disagreement preserves baseline
+  permission, weak danger cannot expand risk, and confident danger still
+  blocks BUY.
+- **Reuse:** veto-only ensembles where predictors disagree on opportunity but
+  not on the presence of material downside.
+
 ### 2026-07-29 — Enforce the verification interpreter at the entry point
 
 - **Context:** repeatedly documenting the correct `.venv` command did not stop

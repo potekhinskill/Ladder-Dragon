@@ -18,6 +18,7 @@ from ladder_dragon.strategy.prediction.ensemble import (
 )
 from ladder_dragon.strategy.prediction.historical_dataset import (
     HistoricalRegimeSample,
+    WalkForwardTrainingPrefix,
     build_historical_samples,
     expanding_walk_forward_splits,
 )
@@ -128,6 +129,49 @@ def test_extended_features_reject_future_external_values_and_offer_ablations():
     assert len({len(vector) for vector in variants.values()}) == 1
 
 
+def test_open_interest_requires_two_distinct_observations():
+    bars = _bars(80)
+    as_of = bars[-1].close_time_ms
+    features = build_extended_features(
+        bars,
+        as_of_ms=as_of,
+        open_interest=[
+            TimedMarketValue(as_of - 8 * 60_000, D("100")),
+        ],
+    )
+
+    assert features.open_interest_change_pct is None
+    assert features.open_interest_available is False
+
+
+def test_realized_volatility_excludes_constant_drift():
+    bars = _bars(80)
+    features = build_extended_features(
+        bars,
+        as_of_ms=bars[-1].close_time_ms,
+    )
+
+    assert features.realized_volatility_short > 0
+    constant_return_bars = []
+    price = D("100")
+    for index in range(80):
+        constant_return_bars.append(PredictionBar(
+            open_time_ms=index * 60_000,
+            close_time_ms=index * 60_000 + 59_999,
+            open=price,
+            high=price,
+            low=price,
+            close=price,
+            volume=D("10"),
+        ))
+        price *= D("1.001")
+    constant = build_extended_features(
+        constant_return_bars,
+        as_of_ms=constant_return_bars[-1].close_time_ms,
+    )
+    assert constant.realized_volatility_short < D("0.00000000000000000001")
+
+
 def test_historical_multi_symbol_samples_never_train_on_unresolved_labels():
     samples = build_historical_samples({
         "SOLUSDT": _bars(),
@@ -136,12 +180,27 @@ def test_historical_multi_symbol_samples_never_train_on_unresolved_labels():
     assert {sample.symbol for sample in samples} == {"SOLUSDT", "ETHUSDT"}
     assert all(sample.label_ts_ms > sample.snapshot_ts_ms for sample in samples)
 
-    splits = expanding_walk_forward_splits(samples, min_train_samples=10)
+    splits = list(expanding_walk_forward_splits(
+        samples,
+        min_train_samples=10,
+    ))
     assert splits
     assert all(
         max(row.label_ts_ms for row in train) < test.snapshot_ts_ms
         for train, test in splits
     )
+
+
+def test_walk_forward_splits_share_a_lazy_sorted_prefix():
+    samples = build_historical_samples({"SOLUSDT": _bars(240)})
+    splits = expanding_walk_forward_splits(samples, min_train_samples=10)
+    first_train, _first_test = next(splits)
+    second_train, _second_test = next(splits)
+
+    assert isinstance(first_train, WalkForwardTrainingPrefix)
+    assert first_train._rows is second_train._rows
+    assert len(second_train) >= len(first_train)
+    assert max(row.label_ts_ms for row in second_train) < _second_test.snapshot_ts_ms
 
 
 def test_historical_dataset_rejects_a_missing_minute():
@@ -189,6 +248,18 @@ def test_ensemble_can_only_preserve_or_reduce_baseline_risk():
     assert allowed.buy_allowed is True
     assert allowed.cap_scale == D("0.6")
 
+    safe_disagreement = conservative_regime_ensemble(
+        {
+            "deterministic": RegimeVote("deterministic", "FLAT", D("0.8")),
+            "statistical": RegimeVote("statistical", "UP", D("0.7")),
+        },
+        baseline_buy_allowed=True,
+        baseline_cap_scale=D("0.6"),
+    )
+    assert safe_disagreement.buy_allowed is True
+    assert safe_disagreement.cap_scale == D("0.6")
+    assert safe_disagreement.disagreement is False
+
     vetoed = conservative_regime_ensemble(
         {
             "deterministic": RegimeVote("deterministic", "UP", D("0.8")),
@@ -198,6 +269,18 @@ def test_ensemble_can_only_preserve_or_reduce_baseline_risk():
     )
     assert vetoed.buy_allowed is False
     assert vetoed.cap_scale == 0
+
+    cautious = conservative_regime_ensemble(
+        {
+            "deterministic": RegimeVote("deterministic", "FLAT", D("0.8")),
+            "statistical": RegimeVote("statistical", "DOWN", D("0.4")),
+        },
+        baseline_buy_allowed=True,
+        baseline_cap_scale=D("0.6"),
+    )
+    assert cautious.buy_allowed is True
+    assert cautious.cap_scale == D("0.3")
+    assert cautious.disagreement is True
 
     baseline_block = conservative_regime_ensemble(
         {"llm": RegimeVote("llm", "UP", D("1"))},

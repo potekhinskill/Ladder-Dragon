@@ -59,7 +59,9 @@ def conservative_regime_ensemble(
         vote for _name, vote in sorted(votes.items()) if vote.available
     )
     labels = {vote.label for vote in available}
-    disagreement = len(labels) > 1
+    danger_labels = labels & {"DOWN", "PANIC"}
+    safe_labels = labels & {"FLAT", "UP"}
+    disagreement = bool(danger_labels and safe_labels) or len(danger_labels) > 1
     vetoes = [
         vote for vote in available
         if vote.label in {"DOWN", "PANIC"}
@@ -82,18 +84,18 @@ def conservative_regime_ensemble(
             disagreement,
             available,
         )
-    if disagreement:
+    if danger_labels:
         return DefensiveEnsembleDecision(
-            False,
-            ZERO,
-            "predictor disagreement fails closed",
             True,
+            min(ONE, baseline_cap_scale * D("0.5")),
+            "low-confidence defensive signal halves baseline CAP",
+            disagreement,
             available,
         )
     return DefensiveEnsembleDecision(
         True,
         min(ONE, baseline_cap_scale),
-        "conservative predictors agree without expanding baseline risk",
+        "FLAT and UP predictors agree that no defensive veto is required",
         False,
         available,
     )

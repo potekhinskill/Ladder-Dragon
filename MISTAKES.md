@@ -17,6 +17,21 @@ private infrastructure details.
 
 ## Mistakes
 
+### 2026-07-29 — Shipped prediction research without scale and semantic edge tests
+
+- **Impact:** expanding splits rescanned and copied history quadratically,
+  harmless `FLAT`/`UP` disagreement blocked BUY, stale open interest appeared
+  unchanged, and directional drift inflated a volatility feature.
+- **Root cause:** the initial contour tested cutoff safety and risk
+  non-expansion but omitted large-dataset complexity, safe-label equivalence,
+  distinct timestamp provenance and a constant-return feature fixture.
+- **Correction:** use binary cutoffs over one immutable training store, group
+  safe votes, require distinct OI observations and calculate population
+  standard deviation.
+- **Prevention:** every new research feature needs an adversarial semantic
+  fixture, and every historical iterator needs a storage-sharing complexity
+  regression in addition to no-look-ahead tests.
+
 ### 2026-07-29 — Relied on documentation to select the harness interpreter
 
 - **Impact:** the first 2.20.77 release-harness command again stopped before

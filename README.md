@@ -31,7 +31,7 @@ fee-aware FIFO accounting, restart reconciliation, per-symbol operational
 reporting, replay and walk-forward verification, and a private Raspberry Pi
 operations dashboard.
 
-Current product version: **2.20.78**. The single version source is
+Current product version: **2.20.79**. The single version source is
 `product_version.py`; releases follow [Semantic Versioning](https://semver.org/).
 Project contact: [LinkedIn](https://www.linkedin.com/in/ypotekhin/).
 
@@ -96,7 +96,7 @@ bounded, explainable, recoverable, and measurable before exposure is increased.
 ## Project status
 
 Ladder Dragon is an actively developed, experimental trading system. Version
-**2.20.78** is the current source release. `main` is the only long-lived branch;
+**2.20.79** is the current source release. `main` is the only long-lived branch;
 feature branches use the `ladderdragon/*` namespace.
 
 DRY and Binance Spot Testnet are the supported starting modes. Mainnet LIVE is
@@ -468,15 +468,19 @@ fields are accepted, but values after the snapshot are never used. Output rows
 retain the source SHA-256. Features add short/long realized volatility and its
 ratio, VWAP deviation/slope, cyclical hour/week fields, aggressive trade
 imbalance, funding and open-interest change. Missing external evidence remains
-explicitly unavailable rather than becoming a plausible zero. The public depth
-recorder already captures a 1,000-level snapshot, contiguous `depth@100ms`
-updates and `aggTrade` events.
+explicitly unavailable rather than becoming a plausible zero. Open-interest
+change additionally requires two distinct timestamped observations, and
+realized volatility is population standard deviation rather than drift-sensitive
+RMS. The public depth recorder already captures a 1,000-level snapshot,
+contiguous `depth@100ms` updates and `aggTrade` events.
 
 The logistic challenger calibrates confidence on its latest chronological
 holdout. Shallow gradient boosting and a three-state HMM run as transparent
 offline challengers. Deterministic, statistical and LLM decisions are compared
-on identical windows. LLM can add a veto but cannot override another veto;
-predictor disagreement blocks BUY in the defensive ensemble.
+on identical windows. LLM can add a veto but cannot override another veto.
+`FLAT` and `UP` are the same safe vote family for a grid entry; a
+high-confidence `DOWN` or `PANIC` veto blocks BUY, while a lower-confidence
+danger vote can only halve the baseline CAP.
 
 ```bash
 python -m bin.monthly_prediction_report \
@@ -486,8 +490,10 @@ python -m bin.monthly_prediction_report \
 
 The default cutoff is the end of the previous full Asia/Almaty month.
 Walk-forward training requires every training label to predate the test
-snapshot. The SHA-256-bound report remains `SHADOW` and cannot change
-execution. `ladder-dragon-monthly-prediction.timer` runs only when its
+snapshot. Expanding splits use a shared, read-only prefix view so dataset
+preparation remains O(n log n) instead of copying or rescanning the full
+history for every test row. The SHA-256-bound report remains `SHADOW` and
+cannot change execution. `ladder-dragon-monthly-prediction.timer` runs only when its
 sanitized evidence file exists and sends Telegram only when compact status
 changes. Retraining produces an artifact only; APPLY or any risk expansion
 still requires the statistical gate and separate operator approval.

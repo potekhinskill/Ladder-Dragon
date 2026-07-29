@@ -38,7 +38,10 @@ Prediction research is split by responsibility under
 `historical_dataset` and `advanced_features` own cutoff-safe evidence,
 `statistical_models` owns transparent challengers, `ensemble` owns the
 defensive-only policy, and `monthly_contour` owns recurring walk-forward
-artifacts. None of these modules imports exchange order capabilities.
+artifacts. Historical splits share immutable training-prefix storage and use
+binary label cutoffs. The ensemble treats `FLAT` and `UP` as one safe family,
+uses confident `DOWN`/`PANIC` as vetoes and permits weak danger evidence only
+to reduce CAP. None of these modules imports exchange order capabilities.
 
 ## Monolith register
 
