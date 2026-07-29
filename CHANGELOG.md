@@ -3,6 +3,22 @@
 All notable changes are documented here. Releases use Semantic Versioning; every
 section is dated and there is intentionally no `Unreleased` section.
 
+## [2.20.82] — 2026-07-29
+
+### Changed
+- Dashboard positions/protection and AI/data-quality cards now share one
+  balanced two-column row on desktop and collapse to one column on narrow
+  screens.
+- Dashboard body, diagnostics, tables, controls and operational values use one
+  13 px baseline; section headings and primary values retain a clear larger
+  hierarchy.
+
+### Verified
+- Dashboard layout, responsive behavior, typography, localization and asset
+  regressions pass (120 focused tests); measured 1440 px and 390 px layouts
+  have no horizontal overflow; compileall, JavaScript syntax and the complete
+  suite pass (751 tests).
+
 ## [2.20.81] — 2026-07-29
 
 ### Fixed

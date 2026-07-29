@@ -4,6 +4,16 @@ Read this file before changing the repository. Record only decisions that were
 validated by tests or production evidence and are likely to be reused. Keep
 entries concise; this is not a changelog or an activity log.
 
+### 2026-07-29 — Use one dashboard body type scale
+
+- **Context:** operational cards mixed browser-default 16 px text with explicit
+  10, 11 and 12 px values, making related evidence look inconsistently ranked.
+- **Decision:** use a 13 px dashboard baseline for all operational body text,
+  with larger sizes reserved for section headings and primary KPI values.
+- **Why it worked:** paired cards remain readable at equal visual weight while
+  responsive tests preserve the single-column mobile layout.
+- **Reuse:** every dashboard card, table, diagnostic disclosure and control.
+
 ### 2026-07-29 — Mirror every authoritative halt into risk telemetry
 
 - **Context:** recovery can create the authoritative circuit-halt marker before
