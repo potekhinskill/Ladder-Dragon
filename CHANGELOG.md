@@ -3,6 +3,17 @@
 All notable changes are documented here. Releases use Semantic Versioning; every
 section is dated and there is intentionally no `Unreleased` section.
 
+## [2.20.81] — 2026-07-29
+
+### Fixed
+- Manual and recovery execution halts now atomically mirror their authoritative
+  marker into persistent risk state, so dashboard and Pi verification cannot
+  report `risk_state.json` as unavailable while BUY is already blocked.
+
+### Verified
+- Manual-halt creation, existing-equity preservation and risk regressions pass
+  (53 focused tests); compileall and the complete suite pass (750 tests).
+
 ## [2.20.80] — 2026-07-29
 
 ### Changed

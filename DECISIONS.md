@@ -4,6 +4,18 @@ Read this file before changing the repository. Record only decisions that were
 validated by tests or production evidence and are likely to be reused. Keep
 entries concise; this is not a changelog or an activity log.
 
+### 2026-07-29 — Mirror every authoritative halt into risk telemetry
+
+- **Context:** recovery can create the authoritative circuit-halt marker before
+  the risk manager has produced its normal state snapshot.
+- **Decision:** every manual or recovery halt atomically writes its marker,
+  then atomically mirrors it into matching halted risk telemetry while
+  preserving known equity fields.
+- **Why it worked:** dashboard and Pi verification receive one consistent
+  fail-closed state even when startup stops before the first risk evaluation.
+- **Reuse:** every safety control whose authoritative marker and operational
+  telemetry are stored separately.
+
 ### 2026-07-29 — Optimize defensive predictions for monetary decision value
 
 - **Context:** direction accuracy treats a harmless small miss like a missed

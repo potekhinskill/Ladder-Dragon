@@ -11,6 +11,7 @@ from ladder_dragon.risk.risk_manager import (
     RiskSnapshot,
     create_manual_halt,
     load_daily_trade_metrics,
+    sync_manual_halt_state,
 )
 
 
@@ -158,3 +159,57 @@ def test_execution_failure_creates_persistent_manual_halt(tmp_path: Path):
     assert marker["manual_reset_required"] is True
     assert marker["reasons"] == ["BUY 123 filled without protection"]
     assert marker["metadata"]["order_id"] == 123
+    state = json.loads(configured.state_file.read_text(encoding="utf-8"))
+    assert state["halted"] is True
+    assert state["halt_reasons"] == ["BUY 123 filled without protection"]
+    assert state["halted_at"] == marker["halted_at"]
+    assert state["cooldown_until"] == marker["cooldown_until"]
+
+
+def test_manual_halt_preserves_existing_equity_state(tmp_path: Path):
+    configured = limits(tmp_path)
+    configured.state_file.write_text(
+        json.dumps(
+            {
+                "day": "2026-07-29",
+                "start_equity_usdt": "1000.25",
+                "peak_equity_usdt": "1010.50",
+                "last_equity_usdt": "1005.75",
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    create_manual_halt(
+        "protection unavailable",
+        limits=configured,
+        now=1_775_000_000,
+    )
+
+    state = json.loads(configured.state_file.read_text(encoding="utf-8"))
+    assert state["halted"] is True
+    assert state["start_equity_usdt"] == "1000.25"
+    assert state["peak_equity_usdt"] == "1010.50"
+    assert state["last_equity_usdt"] == "1005.75"
+
+
+def test_existing_halt_repairs_missing_risk_state(tmp_path: Path):
+    configured = limits(tmp_path)
+    configured.halt_file.write_text(
+        json.dumps(
+            {
+                "halted_at": "2026-07-29T12:00:00+00:00",
+                "reasons": ["unprotected managed inventory"],
+                "manual_reset_required": True,
+                "cooldown_until": 1_775_000_060,
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    assert sync_manual_halt_state(configured) is True
+
+    state = json.loads(configured.state_file.read_text(encoding="utf-8"))
+    assert state["halted"] is True
+    assert state["halt_reasons"] == ["unprotected managed inventory"]
+    assert state["halted_at"] == "2026-07-29T12:00:00+00:00"

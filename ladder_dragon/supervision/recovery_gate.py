@@ -4,12 +4,43 @@
 
 """Fail-closed startup recovery classification and reconciliation."""
 
+import json
 import os
 import re
 from collections.abc import Mapping, Sequence
+from pathlib import Path
 from typing import Any
 
 import requests
+
+from ladder_dragon.risk.risk_manager import (
+    RiskLimits,
+    create_manual_halt,
+    sync_manual_halt_state,
+)
+
+
+def create_manual_halt_once(
+    reason: str,
+    *,
+    limits: RiskLimits | None = None,
+    metadata: dict[str, object],
+) -> None:
+    """Persist one safety reason and repair its telemetry without repeat alerts."""
+    resolved_limits = limits or RiskLimits.from_env()
+    try:
+        payload = json.loads(
+            Path(resolved_limits.halt_file).read_text(encoding="utf-8")
+        )
+        if reason in list(payload.get("reasons") or []):
+            if not sync_manual_halt_state(resolved_limits):
+                raise RuntimeError(
+                    "existing halt marker could not be mirrored to risk state"
+                )
+            return
+    except (FileNotFoundError, json.JSONDecodeError, OSError, TypeError):
+        pass
+    create_manual_halt(reason, limits=resolved_limits, metadata=metadata)
 
 
 def exchange_order_absent(exc: BaseException) -> bool:

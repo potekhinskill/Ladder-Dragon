@@ -77,6 +77,7 @@ from ladder_dragon.supervision.process_manager import (
 )
 from ladder_dragon.supervision.recovery_gate import (
     bounded_recovery_reason as _runtime_recovery_reason,
+    create_manual_halt_once as _create_manual_halt_once,
     exchange_order_absent as _exchange_order_absent,
     pre_running_recovery_gate,
 )
@@ -797,29 +798,6 @@ def _verify_all_live_protection(
             raise RuntimeError("protected journal symbol is outside configuration")
         checked += _verify_live_protection(journal, buy.client_order_id)
     return checked
-
-
-def _create_manual_halt_once(
-    reason: str,
-    *,
-    limits: RiskLimits | None = None,
-    metadata: dict[str, object],
-) -> None:
-    """Persist and notify one safety reason without repeating every risk tick."""
-    resolved_limits = limits or RiskLimits.from_env()
-    halt_file = getattr(resolved_limits, "halt_file", None)
-    if halt_file is not None:
-        try:
-            payload = json.loads(Path(halt_file).read_text(encoding="utf-8"))
-            if reason in list(payload.get("reasons") or []):
-                return
-        except (FileNotFoundError, json.JSONDecodeError, OSError, TypeError):
-            pass
-    create_manual_halt(
-        reason,
-        limits=resolved_limits,
-        metadata=metadata,
-    )
 
 
 def _runtime_protection_gate(symbols: list[str], limits: RiskLimits) -> int:

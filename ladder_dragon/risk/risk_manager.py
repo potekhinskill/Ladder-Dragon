@@ -257,6 +257,37 @@ def _atomic_json(path: Path, payload: dict) -> None:
             pass
 
 
+def sync_manual_halt_state(limits: RiskLimits) -> bool:
+    """Mirror an existing authoritative halt marker into risk telemetry."""
+    try:
+        marker = json.loads(limits.halt_file.read_text(encoding="utf-8"))
+        reasons = [str(reason) for reason in marker["reasons"] if str(reason)]
+        halted_at = str(marker["halted_at"])
+        cooldown_until = float(marker["cooldown_until"])
+        if not reasons or not halted_at:
+            raise ValueError("halt marker has incomplete safety evidence")
+    except (
+        FileNotFoundError,
+        json.JSONDecodeError,
+        KeyError,
+        TypeError,
+        ValueError,
+        OSError,
+    ):
+        return False
+    try:
+        raw_state = json.loads(limits.state_file.read_text(encoding="utf-8"))
+        state = RiskState(**raw_state)
+    except (FileNotFoundError, json.JSONDecodeError, TypeError, OSError):
+        state = RiskState(_utc_day(), "0", "0", "0")
+    state.halted = True
+    state.halt_reasons = reasons
+    state.halted_at = halted_at
+    state.cooldown_until = cooldown_until
+    _atomic_json(limits.state_file, asdict(state))
+    return True
+
+
 def create_manual_halt(
     reason: str,
     *,
@@ -282,6 +313,8 @@ def create_manual_halt(
     if metadata:
         payload["metadata"] = metadata
     _atomic_json(limits.halt_file, payload)
+    if not sync_manual_halt_state(limits):
+        raise RuntimeError("persisted halt marker could not be mirrored")
     limits.alerts_file.parent.mkdir(parents=True, exist_ok=True)
     alert = {
         "ts": payload["halted_at"],
