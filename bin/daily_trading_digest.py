@@ -220,7 +220,9 @@ def build_digest(db_path: Path, *, now: datetime, timezone_name: str) -> tuple[s
                 f"{item.label} ({item.start.date()} → {item.end.date()}):",
                 f"• Realized FIFO net PnL: {_money(item.realized_net_pnl)}",
                 f"• Cash flow: {_money(item.cash_flow)}",
-                f"• Fees: {_money(item.fees_quote)}",
+                # Fees are stored as a positive expense but displayed as their
+                # negative contribution to account cash and net performance.
+                f"• Fees: {_money(-item.fees_quote)}",
                 f"• Fills: {item.fills} (BUY {item.buys} / SELL {item.sells})",
             )
         )

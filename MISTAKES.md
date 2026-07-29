@@ -17,6 +17,17 @@ private infrastructure details.
 
 ## Mistakes
 
+### 2026-07-29 — Reused a signed-value formatter for an expense magnitude
+
+- **Impact:** the Telegram digest displayed fees as positive income even though
+  exact net PnL correctly treated them as a cost.
+- **Root cause:** presentation reused the generic money formatter without
+  converting the non-negative stored fee magnitude into signed account impact.
+- **Correction:** negate fees only at the digest presentation boundary and
+  retain the positive exact accounting value.
+- **Prevention:** financial-report tests must assert the displayed sign of every
+  income and expense category, not only its rounded magnitude.
+
 ### 2026-07-29 — Treated service inactivity as restart authorization
 
 - **Impact:** an operator could stop the trading service during an incident and

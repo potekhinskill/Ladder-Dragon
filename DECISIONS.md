@@ -4,6 +4,17 @@ Read this file before changing the repository. Record only decisions that were
 validated by tests or production evidence and are likely to be reused. Keep
 entries concise; this is not a changelog or an activity log.
 
+### 2026-07-29 — Separate stored expense magnitude from display direction
+
+- **Context:** exact commission accounting stores a positive expense magnitude,
+  while an operator-facing financial report must show its negative effect.
+- **Decision:** retain positive exact fee values in accounting and negate only
+  at the report presentation boundary.
+- **Why it worked:** the digest regression proves the fee is displayed with a
+  minus while existing exact FIFO net PnL remains unchanged.
+- **Reuse:** every report that presents non-negative stored costs, fees or
+  slippage as signed account impact.
+
 ### 2026-07-29 — Require explicit restart authority in the watchdog
 
 - **Context:** service inactivity alone cannot distinguish a crash from an

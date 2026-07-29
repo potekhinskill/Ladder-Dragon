@@ -3,6 +3,18 @@
 All notable changes are documented here. Releases use Semantic Versioning; every
 section is dated and there is intentionally no `Unreleased` section.
 
+## [2.20.93] — 2026-07-29
+
+### Fixed
+- The daily Telegram digest now displays exact fees as a negative account
+  impact instead of applying the generic positive-value prefix. Stored
+  commission values and net FIFO PnL accounting are unchanged.
+
+### Verified
+- The digest regression proves a `0.055 USDT` commission is displayed as
+  `Fees: -0.06 USDT` and rejects any positive fee prefix; compileall and the
+  complete suite pass (782 tests).
+
 ## [2.20.92] — 2026-07-29
 
 ### Security

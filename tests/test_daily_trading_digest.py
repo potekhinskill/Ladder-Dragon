@@ -41,6 +41,8 @@ def test_digest_uses_complete_periods_exact_fifo_and_english_only(tmp_path):
     assert "Yesterday (2026-07-25 → 2026-07-26)" in message
     assert "Realized FIFO net PnL: +4.90 USDT" in message
     assert "Cash flow: +54.95 USDT" in message
+    assert "Fees: -0.06 USDT" in message
+    assert "Fees: +" not in message
     assert "Fills: 1 (BUY 0 / SELL 1)" in message
     assert not any("\u0400" <= character <= "\u04ff" for character in message)
 
