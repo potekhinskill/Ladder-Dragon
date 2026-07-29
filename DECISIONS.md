@@ -15,6 +15,20 @@ entries concise; this is not a changelog or an activity log.
 
 ## Decisions
 
+### 2026-07-29 — Publish only the canonical main branch
+
+- **Context:** merged release branches and a draft pull request remained
+  visible after their commits were already published on the linear `main`
+  release line, making completed work look unfinished or duplicated.
+- **Decision:** keep temporary `ladderdragon/*` branches local, publish only
+  `main`, enable automatic deletion after merge, and block creation of every
+  other remote branch with an active GitHub ruleset.
+- **Why it worked:** ancestry checks proved both remaining remote branches had
+  no unique commits, their obsolete draft was closed, and the GitHub branch
+  inventory contained only `main` after deletion.
+- **Reuse:** every repository change and release; use local branches for
+  isolation without leaving a second public line of development.
+
 ### 2026-07-29 — Preserve fail-closed state while collecting SHADOW evidence
 
 - **Context:** startup recovery can block execution before the normal risk

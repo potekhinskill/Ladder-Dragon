@@ -12,7 +12,16 @@ These rules apply to every repository change and every Raspberry Pi update.
 
 ## Git and changelog
 
-- Work on a `ladderdragon/*` branch; keep one logical change set per atomic commit.
+- Keep `main` as the only branch published to GitHub. Work on a local,
+  temporary `ladderdragon/*` branch, but never push that branch to `origin`.
+  After verification, fast-forward the reviewed commit to `origin/main` and
+  delete the local temporary branch.
+- Do not create remote feature, release, agent, Dependabot, or compatibility
+  branches. If an exceptional remote branch is explicitly authorized, record
+  why it is necessary and delete it immediately after integration or rejection.
+- Keep GitHub's automatic merged-branch deletion enabled and an active ruleset
+  that blocks creation of every branch except `main`.
+- Keep one logical change set per atomic commit.
 - Do not use destructive commands (`reset --hard`, `checkout --`) without an explicit request.
 - Every functional, security, schema, deployment, or dashboard change must have a
   `CHANGELOG.md` entry in the same commit.

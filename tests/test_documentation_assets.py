@@ -82,3 +82,11 @@ def test_agent_learning_records_are_required_and_structured() -> None:
         assert heading in mistakes
     assert "DECISIONS.md" in readme
     assert "MISTAKES.md" in readme
+
+
+def test_remote_branch_policy_keeps_only_main() -> None:
+    agents = (ROOT / "AGENTS.md").read_text(encoding="utf-8")
+
+    assert "Keep `main` as the only branch published to GitHub" in agents
+    assert "never push that branch to `origin`" in agents
+    assert "blocks creation of every branch except `main`" in agents
