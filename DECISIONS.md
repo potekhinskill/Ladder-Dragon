@@ -4,6 +4,18 @@ Read this file before changing the repository. Record only decisions that were
 validated by tests or production evidence and are likely to be reused. Keep
 entries concise; this is not a changelog or an activity log.
 
+### 2026-07-29 — Bootstrap deployment from verified target code
+
+- **Context:** an immutable copy of the installed updater avoids mixed code but
+  cannot apply deployment steps introduced by the target release.
+- **Decision:** before backup or service stop, verify target ancestry and
+  signature, extract its updater from Git and execute it as the immutable
+  runner; never do this for unsigned break-glass.
+- **Why it worked:** ordering tests prove signature verification precedes
+  extraction and target execution precedes every service mutation.
+- **Reuse:** self-updating deployment tools whose post-checkout behavior changes
+  between releases.
+
 ### 2026-07-29 — Decouple observational soak from execution authority
 
 - **Context:** HALT must stop order workers, but readiness still requires

@@ -67,6 +67,38 @@ load_trusted_signer() {
     || fail "invalid update trust config"
 }
 
+bootstrap_verified_target_runner() {
+  local commit="$1"
+  local runner trusted_signer upstream
+  # Break-glass remains on the already installed immutable updater. Never
+  # execute unsigned target code before its one-use authorization is consumed.
+  [[ ! -f "${BREAK_GLASS_MARKER}" ]] || return 1
+  [[ "${commit}" =~ ^[0-9a-fA-F]{40}$ ]] \
+    || fail "update requires an exact 40-character commit SHA"
+  [[ -z "$(runuser -u "${BOT_USER}" -- git status --porcelain --untracked-files=no)" ]] \
+    || fail "tracked project files have local changes; commit or stash them first"
+  runuser -u "${BOT_USER}" -- git fetch --prune origin
+  runuser -u "${BOT_USER}" -- git cat-file -e "${commit}^{commit}"
+  upstream="$(runuser -u "${BOT_USER}" -- git rev-parse --abbrev-ref '@{upstream}')"
+  runuser -u "${BOT_USER}" -- git merge-base --is-ancestor HEAD "${commit}" \
+    || fail "requested commit is not a fast-forward from current HEAD"
+  runuser -u "${BOT_USER}" -- git merge-base --is-ancestor "${commit}" "${upstream}" \
+    || fail "requested commit is not contained in ${upstream}"
+  trusted_signer="$(load_trusted_signer)"
+  verify_trusted_commit "${commit}" "${trusted_signer}"
+  runner="$(mktemp /tmp/ladder-dragon-target-update.XXXXXX)"
+  runuser -u "${BOT_USER}" -- git show \
+    "${commit}:deploy/update_raspberry_pi.sh" >"${runner}" \
+    || {
+      rm -f "${runner}"
+      fail "verified target commit has no updater"
+    }
+  chmod 0700 "${runner}"
+  exec env BOT_UPDATE_TARGET_RUNNER=1 PROJECT_DIR="${PROJECT_DIR}" \
+    WEB_ROOT="${WEB_ROOT}" BOT_HOSTNAME="${BOT_HOSTNAME}" \
+    BOT_USER="${BOT_USER}" bash "${runner}" update "${commit}"
+}
+
 consume_break_glass() {
   local commit="${1,,}"
   [[ -f "${BREAK_GLASS_MARKER}" ]] || return 1
@@ -306,9 +338,20 @@ fi
 [[ -d "${PROJECT_DIR}" ]] || fail "project directory not found: ${PROJECT_DIR}"
 cd "${PROJECT_DIR}"
 
-# The update may replace this script. Continue from an immutable copy in /tmp,
-# so bash does not read the second half from a newly installed version.
-if [[ "${ACTION}" == "update" && "${BOT_UPDATE_RUNNER:-0}" != "1" ]]; then
+# Execute the updater from the verified target commit before any backup or
+# service mutation. New deployment steps therefore apply on the first update,
+# while the target script remains immutable when the checkout fast-forwards.
+if [[ "${ACTION}" == "update" && "${BOT_UPDATE_TARGET_RUNNER:-0}" != "1" ]]; then
+  if bootstrap_verified_target_runner "${UPDATE_COMMIT}"; then
+    fail "target updater unexpectedly returned"
+  fi
+fi
+
+# Unsigned break-glass and explicit apply retain the installed immutable
+# updater; they never execute unverified target code.
+if [[ ( "${ACTION}" == "update" || "${ACTION}" == "apply" ) \
+  && "${BOT_UPDATE_TARGET_RUNNER:-0}" != "1" \
+  && "${BOT_UPDATE_RUNNER:-0}" != "1" ]]; then
   runner="$(mktemp /tmp/ladder-dragon-update.XXXXXX)"
   install -m 0700 "$0" "${runner}"
   exec env BOT_UPDATE_RUNNER=1 PROJECT_DIR="${PROJECT_DIR}" WEB_ROOT="${WEB_ROOT}" \

@@ -17,6 +17,35 @@ private infrastructure details.
 
 ## Mistakes
 
+### 2026-07-29 — Repeated manual SHA interpolation in the release command
+
+- **Impact:** the first 2.20.86 release harness was interrupted after starting
+  with an expected SHA different from the signed commit; nothing was tagged or
+  published.
+- **Root cause:** the command printed `git rev-parse HEAD` but separately
+  hard-coded `--expected-sha`, repeating a documented failure instead of
+  binding one opaque value.
+- **Correction:** amend and re-sign the learning record, then derive
+  `release_sha` once and pass that same variable to verification and every
+  later release operation.
+- **Prevention:** release commands must never contain a manually typed
+  40-character commit ID; they must read the candidate into one shell variable
+  in the same process that consumes it.
+
+### 2026-07-29 — Continued deployment with the previous release's script body
+
+- **Impact:** the first 2.20.85 update advanced the checkout but did not install
+  its newly introduced systemd service; a second invocation was required.
+- **Root cause:** the updater intentionally copied its installed version to an
+  immutable runner before fast-forward, so code safety also froze all
+  post-checkout deployment behavior at the previous release.
+- **Correction:** verify the target commit before any service mutation, extract
+  its updater directly from the trusted Git object and execute that immutable
+  target runner.
+- **Prevention:** every deployment feature test must prove it is owned by the
+  verified target runner on the first invocation, not merely present after the
+  checkout changes.
+
 ### 2026-07-29 — Changed a runtime path without its isolated dashboard fixtures
 
 - **Impact:** the first complete 2.20.85 test run failed three dashboard

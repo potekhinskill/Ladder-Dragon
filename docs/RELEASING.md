@@ -106,6 +106,13 @@ dashboard assets, restores the previous service policy and waits for a fresh
 heartbeat. It does not import new `.env.example` values or alter reviewed
 exposure.
 
+Before backup or service stop, the installed updater fetches the requested
+commit, verifies its ancestry and maintainer signature, extracts that commit's
+updater to an immutable root-only temporary runner and re-executes it. This
+ensures deployment steps introduced by the new release run on the first update
+instead of one release later. Unsigned break-glass never executes target code
+through this bootstrap.
+
 Copy the exact PASS manifest to the Pi and run the read-only profile with
 `--expected-sha`, `--github-sha` and `--release-report` all referring to the
 same commit. The full command and runtime paths are maintained in

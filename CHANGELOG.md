@@ -3,6 +3,22 @@
 All notable changes are documented here. Releases use Semantic Versioning; every
 section is dated and there is intentionally no `Unreleased` section.
 
+## [2.20.86] — 2026-07-29
+
+### Fixed
+- The Pi updater now verifies and executes the updater from the requested
+  signed target commit before backup or service mutation, so deployment steps
+  introduced by a release apply on the first invocation.
+- The target runner is extracted from the verified Git object and remains
+  immutable while the checkout fast-forwards. Unsigned break-glass continues
+  on the already installed runner and never executes unverified target code.
+
+### Verified
+- Target-runner signature/order, break-glass separation, persistent-control,
+  service-state and stream-deployment regressions pass (4 focused tests);
+  compileall and shell syntax checks pass; the complete suite passes (764
+  tests).
+
 ## [2.20.85] — 2026-07-29
 
 ### Added

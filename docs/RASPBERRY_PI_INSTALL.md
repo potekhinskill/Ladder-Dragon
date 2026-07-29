@@ -294,6 +294,12 @@ PYTHONPATH=. .venv/bin/python -m bin.audit_user_stream_soak \
   --minimum-hours 24
 ```
 
+Normal updates bootstrap the updater from the verified target commit before
+creating a backup or stopping services. The target must be a signed
+fast-forward contained in the configured upstream. This makes newly added
+systemd/assets/migration steps effective on the first update invocation; the
+running target copy remains immutable while Git fast-forwards the checkout.
+
 Do not repeat this paid acceptance drill to create an artificial sample. Before
 expanding beyond the minimal SOLUSDT canary, collect at least three naturally
 completed and exactly linked `BUY fill -> OCO confirmed -> TP or STOP fill`

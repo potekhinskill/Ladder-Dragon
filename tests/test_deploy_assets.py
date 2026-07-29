@@ -877,6 +877,31 @@ def test_updater_preserves_stopped_services_and_does_not_arm_watchdog():
     assert "verify_previous_service_state" in updater
 
 
+def test_updater_executes_verified_target_logic_before_service_mutation():
+    updater = read("deploy/update_raspberry_pi.sh")
+    bootstrap = updater.split(
+        "bootstrap_verified_target_runner() {", 1
+    )[1].split("consume_break_glass() {", 1)[0]
+    invocation = (
+        'bootstrap_verified_target_runner "${UPDATE_COMMIT}"'
+    )
+
+    assert "git fetch --prune origin" in bootstrap
+    assert "verify_trusted_commit" in bootstrap
+    assert '"${commit}:deploy/update_raspberry_pi.sh"' in bootstrap
+    assert bootstrap.index("verify_trusted_commit") < bootstrap.index(
+        '"${commit}:deploy/update_raspberry_pi.sh"'
+    )
+    assert "BOT_UPDATE_TARGET_RUNNER=1" in bootstrap
+    assert '[[ ! -f "${BREAK_GLASS_MARKER}" ]] || return 1' in bootstrap
+    assert updater.index(invocation) < updater.index(
+        'PROJECT_DIR="${PROJECT_DIR}" deploy/backup_raspberry_pi.sh'
+    )
+    assert updater.index(invocation) < updater.index(
+        "\nremember_service_state\n"
+    )
+
+
 def test_watchdog_publishes_sanitized_raspberry_health_for_dashboard():
     watchdog = read("deploy/pi-watchdog_v3.sh")
     watchdog_unit = read("deploy/pi-watchdog-v3.service")
