@@ -17,6 +17,21 @@ private infrastructure details.
 
 ## Mistakes
 
+### 2026-07-29 — Relied on executescript for crash-sensitive migrations
+
+- **Impact:** a power loss between DDL statements or before the separate version
+  insert could leave a Raspberry Pi database partially migrated and unable to
+  complete startup automatically.
+- **Root cause:** migration files and completion evidence were treated as one
+  logical operation, but `sqlite3.executescript` supplied implicit commit
+  boundaries and bootstrap used another connection.
+- **Correction:** execute parser-complete statements inside a runner-owned
+  transaction, record the version there, couple bootstrap to its completion
+  marker, and guard exact legacy column resumes.
+- **Prevention:** every migration test suite must inject failures after schema
+  writes and at completion-evidence writes, and duplicate versions must fail
+  before any database mutation.
+
 ### 2026-07-29 — Added lifecycle policy back into a guarded monolith
 
 - **Impact:** the first complete suite failed architecture budgets even though

@@ -13,6 +13,7 @@ from ladder_dragon.execution.compatibility_audit import (
     DEFAULT_LEGACY_PATHS,
     audit_compatibility,
 )
+from ladder_dragon.persistence.sql_statements import execute_sql_script
 
 
 TRADE_LEGACY_COLUMNS = frozenset({"price", "qty", "fee_quote"})
@@ -50,9 +51,9 @@ def _create_exact_views(connection: sqlite3.Connection) -> None:
 
 def _rebuild_exact_schema(connection: sqlite3.Connection) -> None:
     """Replace compatibility tables with exact-only accounting tables."""
-    connection.executescript(
+    execute_sql_script(
+        connection,
         """
-        BEGIN IMMEDIATE;
         DROP VIEW IF EXISTS trades_exact;
         DROP VIEW IF EXISTS inventory_exact;
         DROP TRIGGER IF EXISTS trades_exact_after_insert;
@@ -113,27 +114,36 @@ def _rebuild_exact_schema(connection: sqlite3.Connection) -> None:
     _create_exact_views(connection)
 
 
+def bootstrap_exact_accounting_connection(
+    connection: sqlite3.Connection,
+) -> bool:
+    """Bootstrap exact accounting inside the caller-owned transaction."""
+    if exact_only_schema(connection):
+        return False
+    trade_count = int(connection.execute("SELECT COUNT(*) FROM trades").fetchone()[0])
+    inventory_count = int(
+        connection.execute("SELECT COUNT(*) FROM inventory").fetchone()[0]
+    )
+    if trade_count or inventory_count:
+        raise RuntimeError("exact bootstrap is restricted to empty accounting tables")
+    _rebuild_exact_schema(connection)
+    if connection.execute("PRAGMA integrity_check").fetchone()[0] != "ok":
+        raise RuntimeError("SQLite integrity check failed after exact bootstrap")
+    return True
+
+
 def bootstrap_exact_accounting_schema(database: Path) -> bool:
     """Make a newly migrated, empty database exact-only without a backup."""
     with sqlite3.connect(database, timeout=15) as connection:
         connection.execute("PRAGMA busy_timeout=7000")
-        if exact_only_schema(connection):
-            return False
-        trade_count = int(connection.execute("SELECT COUNT(*) FROM trades").fetchone()[0])
-        inventory_count = int(
-            connection.execute("SELECT COUNT(*) FROM inventory").fetchone()[0]
-        )
-        if trade_count or inventory_count:
-            raise RuntimeError("exact bootstrap is restricted to empty accounting tables")
+        connection.execute("BEGIN IMMEDIATE")
         try:
-            _rebuild_exact_schema(connection)
-            if connection.execute("PRAGMA integrity_check").fetchone()[0] != "ok":
-                raise RuntimeError("SQLite integrity check failed after exact bootstrap")
+            changed = bootstrap_exact_accounting_connection(connection)
             connection.commit()
         except (RuntimeError, sqlite3.Error):
             connection.rollback()
             raise
-    return True
+    return changed
 
 
 def retire_accounting_schema(database: Path, backup: Path) -> bool:
@@ -156,6 +166,7 @@ def retire_accounting_schema(database: Path, backup: Path) -> bool:
             connection.backup(destination)
         os.chmod(backup, 0o600)
         connection.execute("PRAGMA busy_timeout=7000")
+        connection.execute("BEGIN IMMEDIATE")
         try:
             _rebuild_exact_schema(connection)
             if connection.execute("PRAGMA integrity_check").fetchone()[0] != "ok":

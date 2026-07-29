@@ -3,6 +3,28 @@
 All notable changes are documented here. Releases use Semantic Versioning; every
 section is dated and there is intentionally no `Unreleased` section.
 
+## [2.20.95] — 2026-07-29
+
+### Fixed
+- Every SQLite migration now executes its complete schema change and
+  `schema_migrations` record inside one `BEGIN IMMEDIATE` transaction. A power
+  loss or SQL failure rolls back both instead of leaving a partially applied,
+  unrecorded migration.
+- Migration scripts are parsed with SQLite's statement parser, preserving
+  trigger bodies without the implicit commits caused by `executescript`.
+- Duplicate numeric migration versions are rejected before the database is
+  created or modified.
+- A partially applied legacy `ADD COLUMN` migration can resume only when the
+  existing column has the exact expected type, nullability and default;
+  mismatched schema evidence fails closed.
+- Fresh-database exact-accounting bootstrap and its completion marker now share
+  one caller-owned transaction.
+
+### Verified
+- Focused migration, exact-accounting, compatibility and SQLite safety
+  regressions pass (16 tests), including injected mid-migration, version-record
+  and bootstrap failures; compileall and the complete suite pass (791 tests).
+
 ## [2.20.94] — 2026-07-29
 
 ### Fixed

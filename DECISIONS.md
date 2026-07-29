@@ -4,6 +4,19 @@ Read this file before changing the repository. Record only decisions that were
 validated by tests or production evidence and are likely to be reused. Keep
 entries concise; this is not a changelog or an activity log.
 
+### 2026-07-29 — Make migration evidence atomic with schema mutation
+
+- **Context:** SQLite `executescript` commits independently, so a power loss
+  could leave DDL applied without its `schema_migrations` evidence.
+- **Decision:** let the runner own `BEGIN IMMEDIATE`; parse complete SQLite
+  statements without transaction control; write the version record in the same
+  transaction; reject duplicate versions before touching the database.
+- **Why it worked:** injected SQL, version-record and bootstrap failures roll
+  back every schema change and marker, while trigger-containing migrations and
+  guarded legacy partial resumes pass.
+- **Reuse:** every schema/bootstrap operation whose completion marker controls
+  whether a service can safely start.
+
 ### 2026-07-29 — Make service shutdown and restart pressure explicit
 
 - **Context:** a supervisor-only TERM combined with `KillMode=mixed` bypassed

@@ -515,6 +515,15 @@ Repeated Binance SELL trade IDs are ignored only when their normalized
 symbol/order/quantity/price payload matches exactly; a conflict or insufficient
 FIFO inventory fails closed without partially changing any lot.
 
+The migration runner owns one `BEGIN IMMEDIATE` transaction per migration.
+Schema statements and their `schema_migrations` completion record commit
+together; trigger bodies are parsed as complete SQLite statements rather than
+through `executescript`. Duplicate numeric versions block startup before any
+database mutation. A guarded recovery may skip an already present legacy
+`ADD COLUMN` only when its type, nullability and default match exactly.
+Fresh-database exact-accounting bootstrap and its completion marker also commit
+in one transaction.
+
 Copy the PASS release manifest generated for the same SHA to the Pi before the
 post-deployment gate. Run this on the maintainer workstation:
 

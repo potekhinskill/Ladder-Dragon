@@ -2,6 +2,9 @@ from pathlib import Path
 import hashlib
 import sqlite3
 
+import pytest
+
+import ladder_dragon.persistence.migrations as migration_runner
 from ladder_dragon.persistence.migrations import MIGRATIONS, migrate
 from ladder_dragon.execution.inventory_lots import sync_exchange_fill
 
@@ -111,6 +114,164 @@ def test_interrupted_empty_exact_bootstrap_resumes(tmp_path: Path):
         assert connection.execute(
             "SELECT completed FROM database_bootstrap"
         ).fetchone() == (1,)
+
+
+def test_failed_migration_rolls_back_schema_and_version(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    migration_dir = tmp_path / "migrations"
+    migration_dir.mkdir()
+    (migration_dir / "001_atomic.sql").write_text(
+        "CREATE TABLE partial_change(id INTEGER);\n"
+        "CREATE TABLE broken(\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(migration_runner, "MIGRATIONS", migration_dir)
+    database = tmp_path / "atomic.db"
+
+    with pytest.raises(ValueError, match="incomplete SQL statement"):
+        migrate(str(database), exact_new_database=False)
+
+    with sqlite3.connect(database) as connection:
+        assert connection.execute(
+            "SELECT 1 FROM sqlite_master WHERE name='partial_change'"
+        ).fetchone() is None
+        assert connection.execute(
+            "SELECT version FROM schema_migrations"
+        ).fetchall() == []
+
+
+def test_migration_version_record_failure_rolls_back_schema(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    migration_dir = tmp_path / "migrations"
+    migration_dir.mkdir()
+    (migration_dir / "001_atomic.sql").write_text(
+        "CREATE TABLE atomic_change(id INTEGER);\n"
+        "CREATE TRIGGER reject_migration_record "
+        "BEFORE INSERT ON schema_migrations "
+        "BEGIN SELECT RAISE(ABORT, 'reject version record'); END;\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(migration_runner, "MIGRATIONS", migration_dir)
+    database = tmp_path / "version-record.db"
+
+    with pytest.raises(sqlite3.IntegrityError, match="reject version record"):
+        migrate(str(database), exact_new_database=False)
+
+    with sqlite3.connect(database) as connection:
+        assert connection.execute(
+            "SELECT 1 FROM sqlite_master WHERE name='atomic_change'"
+        ).fetchone() is None
+        assert connection.execute(
+            "SELECT 1 FROM sqlite_master WHERE name='reject_migration_record'"
+        ).fetchone() is None
+
+
+def test_duplicate_migration_versions_fail_before_database_mutation(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    migration_dir = tmp_path / "migrations"
+    migration_dir.mkdir()
+    (migration_dir / "001_first.sql").write_text(
+        "CREATE TABLE first_change(id INTEGER);\n", encoding="utf-8"
+    )
+    (migration_dir / "001_second.sql").write_text(
+        "CREATE TABLE second_change(id INTEGER);\n", encoding="utf-8"
+    )
+    monkeypatch.setattr(migration_runner, "MIGRATIONS", migration_dir)
+    database = tmp_path / "duplicate.db"
+
+    with pytest.raises(RuntimeError, match="duplicate migration version"):
+        migrate(str(database), exact_new_database=False)
+
+    assert not database.exists()
+
+
+def test_partial_legacy_add_column_migration_resumes_safely(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    migration_dir = tmp_path / "migrations"
+    migration_dir.mkdir()
+    (migration_dir / "001_resume.sql").write_text(
+        "ALTER TABLE records ADD COLUMN exact_text TEXT;\n"
+        "ALTER TABLE records ADD COLUMN source_id INTEGER NOT NULL DEFAULT 0;\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(migration_runner, "MIGRATIONS", migration_dir)
+    database = tmp_path / "partial.db"
+    with sqlite3.connect(database) as connection:
+        connection.execute("CREATE TABLE records(id INTEGER)")
+        connection.execute("ALTER TABLE records ADD COLUMN exact_text TEXT")
+
+    assert migrate(str(database), exact_new_database=False) == ["001"]
+
+    with sqlite3.connect(database) as connection:
+        columns = {
+            row[1]: (row[2], row[3], row[4])
+            for row in connection.execute("PRAGMA table_info(records)")
+        }
+        assert columns["exact_text"] == ("TEXT", 0, None)
+        assert columns["source_id"] == ("INTEGER", 1, "0")
+
+
+def test_partial_migration_rejects_mismatched_existing_column(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    migration_dir = tmp_path / "migrations"
+    migration_dir.mkdir()
+    (migration_dir / "001_resume.sql").write_text(
+        "ALTER TABLE records ADD COLUMN exact_text TEXT;\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(migration_runner, "MIGRATIONS", migration_dir)
+    database = tmp_path / "partial-mismatch.db"
+    with sqlite3.connect(database) as connection:
+        connection.execute("CREATE TABLE records(id INTEGER, exact_text INTEGER)")
+
+    with pytest.raises(RuntimeError, match="column contract differs"):
+        migrate(str(database), exact_new_database=False)
+
+    with sqlite3.connect(database) as connection:
+        assert connection.execute(
+            "SELECT version FROM schema_migrations"
+        ).fetchall() == []
+
+
+def test_exact_bootstrap_and_completion_marker_roll_back_together(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    database = tmp_path / "bootstrap-atomic.db"
+    migrate(str(database), exact_new_database=False)
+    with sqlite3.connect(database) as connection:
+        connection.execute(
+            "CREATE TABLE database_bootstrap("
+            "target_storage TEXT PRIMARY KEY,completed INTEGER NOT NULL)"
+        )
+        connection.execute(
+            "INSERT INTO database_bootstrap VALUES('exact-accounting',0)"
+        )
+
+    def fail_after_schema_write(connection: sqlite3.Connection) -> bool:
+        connection.execute("CREATE TABLE leaked_bootstrap_state(id INTEGER)")
+        raise RuntimeError("injected bootstrap failure")
+
+    monkeypatch.setattr(
+        "ladder_dragon.execution.accounting_retirement."
+        "bootstrap_exact_accounting_connection",
+        fail_after_schema_write,
+    )
+
+    with pytest.raises(RuntimeError, match="injected bootstrap failure"):
+        migrate(str(database))
+
+    with sqlite3.connect(database) as connection:
+        assert connection.execute(
+            "SELECT completed FROM database_bootstrap"
+        ).fetchone() == (0,)
+        assert connection.execute(
+            "SELECT 1 FROM sqlite_master WHERE name='leaked_bootstrap_state'"
+        ).fetchone() is None
 
 
 def test_fifo_sell_migration_seeds_existing_valued_trades(tmp_path: Path):
