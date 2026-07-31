@@ -16,7 +16,7 @@
 
 ## What it is
 
-Ladder Dragon combines five layers:
+Ladder Dragon combines seven layers:
 
 1. **Strategy** — BUY/SELL ladders, ATR/EMA/VWAP/ADX, and market regimes.
 2. **Execution** — Binance transport, fills, OCO/STOP, FIFO inventory, and recovery.
@@ -24,6 +24,8 @@ Ladder Dragon combines five layers:
 4. **AI advisory** — SHADOW recommendations and RAG context without order access.
 5. **Operations** — read-only dashboard, exact Telegram summaries, signed
    releases, backups, health monitoring, and Raspberry Pi verification.
+6. **Persistence** — atomic migrations, exact journals, and source-hashed evidence.
+7. **Verification** — replay, walk-forward, recovery, Testnet, release, and Pi profiles.
 
 The deterministic strategy remains authoritative. New expectancy, maker,
 regime, inventory, statistical-regime and correlation controls start in
@@ -46,9 +48,12 @@ order as their baseline.
   portfolio movement remain separate metrics.
 - The 08:00 `Asia/Almaty` Telegram digest reports eligible symbols exactly and
   names excluded symbols instead of inventing a cost basis.
+- The independent User Data Stream observer can collect soak evidence during HALT.
+- Provider failures use bounded backoff and keep deterministic execution authoritative.
 
 See [Runtime safety and reporting](RUNTIME_SAFETY_AND_REPORTING.md) for the
 operator decision table and diagnostic commands.
+See [Implementation status](IMPLEMENTATION_STATUS.md) for completed and gated functions.
 
 ## Supported platforms
 
@@ -162,11 +167,13 @@ Mainnet LIVE is allowed only after checking balances, filters, OCO/STOP,
 gap/restart recovery, circuit breaker, and a real Testnet BUY → fill → protection
 → exit lifecycle.
 
-For releases, generate the PASS manifest from the final signed candidate SHA,
-publish that exact SHA/tag/artifact, deploy only the full 40-character SHA and
-run the read-only Pi verification profile. `BLOCKED` means required operational
-evidence is incomplete; `FAILED` means a check actually failed. See the
-release and Pi runbooks for the exact commands.
+For a release, generate the PASS manifest from the final signed candidate SHA.
+Publish that exact SHA, tag, and artifact.
+Deploy only the full 40-character SHA.
+Then run the read-only Pi verification profile.
+`BLOCKED` means that required evidence is incomplete.
+`FAILED` means that a check failed.
+See the release and Pi runbooks for the commands.
 
 ## Linux, macOS, and Windows
 
@@ -197,4 +204,5 @@ Ubuntu and follow the Linux steps; native Windows LIVE is not supported.
 
 See [RASPBERRY_PI_INSTALL.md](RASPBERRY_PI_INSTALL.md), [README.md](../README.md),
 [RUNTIME_SAFETY_AND_REPORTING.md](RUNTIME_SAFETY_AND_REPORTING.md),
+[CONFIGURATION.md](CONFIGURATION.md), [COMMAND_REFERENCE.md](COMMAND_REFERENCE.md),
 [LICENSE](../LICENSE), and [DISCLAIMER.md](../DISCLAIMER.md).

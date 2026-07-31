@@ -20,3 +20,17 @@ backup credential files.
 
 The architecture and verification checks inspect source paths and Git state,
 not the contents of private runtime artifacts.
+
+## Runtime categories
+
+The project can create these local categories:
+
+- `.runtime/` contains verification reports and temporary release evidence.
+- `db/` can contain local SQLite databases and their WAL files.
+- `logs/` can contain local operator logs.
+- `.env*` files can contain credentials and reviewed host configuration.
+- `__pycache__/`, `.pytest_cache/`, and tool caches contain generated data.
+
+The Raspberry Pi keeps durable control evidence below `/var/lib/ladder-dragon`.
+It keeps process-lifetime files below `/run/mybot`.
+Do not move durable control evidence into `/run`.

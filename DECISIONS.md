@@ -4,6 +4,31 @@ Read this file before changing the repository. Record only decisions that were
 validated by tests or production evidence and are likely to be reused. Keep
 entries concise; this is not a changelog or an activity log.
 
+### 2026-07-31 — Combine event updates with scheduled reconciliation
+
+- **Context:** a daily Star History run stayed stale after a new star.
+- **Decision:** process new-star events immediately and reconcile the authoritative count hourly.
+- **Why it worked:** the event removes normal delay, while the schedule repairs removals and missed events.
+- **Reuse:** derived public artifacts whose source provides incomplete change events.
+
+### 2026-07-31 — Derive documentation contracts from executable interfaces
+
+- **Context:** prose can preserve an obsolete command after a CLI changes.
+- **Decision:** compare commands, defaults, services, and modes with their executable definitions.
+- **Why it worked:** contract tests now compare current guides with CLI and systemd inventories.
+- **Reuse:** every guide that describes a command, configuration value, service, or implemented feature.
+
+### 2026-07-31 — Use one controlled English profile for documentation
+
+- **Context:** long sentences and variable terms made safety instructions hard
+  to scan and translate.
+- **Decision:** use the project ASD-STE100 profile for English documentation.
+  Keep procedures at 20 words and descriptions at 25 words.
+- **Why it worked:** one checker now validates all current normative guides
+  and has focused regression tests.
+- **Reuse:** README files, runbooks, safety policies, release records, agent
+  rules, and operator help.
+
 ### 2026-07-31 — Separate AI evidence cadence from operator log cadence
 
 - **Context:** repeated low-confidence responses are useful SHADOW evidence but

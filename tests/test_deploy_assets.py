@@ -173,7 +173,7 @@ def test_public_project_contact_is_documented_not_runtime_data():
     assert "https://www.linkedin.com/in/ypotekhin/" in copyright_text
 
 
-def test_readme_star_history_uses_daily_github_pages_chart():
+def test_readme_star_history_uses_event_and_hourly_pages_chart():
     readme = read("README.md")
     workflow = read(".github/workflows/star-history.yml")
     assert (
@@ -189,6 +189,12 @@ def test_readme_star_history_uses_daily_github_pages_chart():
         "## Documentation and license"
     )
     assert "cron:" in workflow
+    assert "watch:" in workflow
+    assert "types: [started]" in workflow
+    assert 'cron: "23 * * * *"' in workflow
+    assert 'cron: "17 1 * * *"' not in workflow
+    assert "timeout-minutes: 10" in workflow
+    assert "reconciles it each hour" in readme
     assert "contents: read" in workflow
     assert "pages: write" in workflow
     assert "id-token: write" in workflow

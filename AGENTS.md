@@ -6,6 +6,7 @@ These rules apply to every repository change and every Raspberry Pi update.
 
 - Read this file and the nearest `AGENTS.md` instructions.
 - Read `DECISIONS.md` and `MISTAKES.md` completely before making changes.
+- Read `docs/TECHNICAL_ENGLISH.md` before you write or change documentation.
 - Check `git status` and preserve user changes.
 - Locate related tests, migrations, systemd units, `.env.example` files, and docs.
 - Never read or print values from `.env`, keys, tokens, or backups.
@@ -32,10 +33,10 @@ These rules apply to every repository change and every Raspberry Pi update.
   named `## [X.Y.Z] — YYYY-MM-DD`.
 - Bump `__version__` in `product_version.py` for every changelog entry and verify
   that `^## [Unreleased]` is absent before committing.
-- The release continuity gate is mandatory. From the signed baseline recorded
-  in `.release-lineage.json`, a candidate must be the direct next Semantic
-  Version, may bump the version only once at the branch tip, and every published
-  release must have one annotated tag on a linear ancestor of `main`.
+- The release continuity gate is mandatory.
+- A candidate must be the direct next Semantic Version from the signed baseline.
+- A branch tip can increase the version only once.
+- Each published release must have one annotated tag on a linear ancestor of `main`.
 - Do not push a release when `release_continuity` is `BLOCKED`. Its verification
   artifact is the release manifest and must list the previous SHA, current SHA,
   and every included commit.
@@ -84,14 +85,25 @@ These rules apply to every repository change and every Raspberry Pi update.
 - New logic needs a fail-closed test and a test proving no secret or look-ahead leakage.
 - Write comments for major nodes and dangerous financial decisions in English.
 
+## Documentation language
+
+- Write English technical documentation with the project ASD-STE100 profile in
+  `docs/TECHNICAL_ENGLISH.md`.
+- Use no more than 20 words in an instruction.
+- Use no more than 25 words in a descriptive sentence.
+- Use one term for one meaning. Define each uncommon abbreviation.
+- Preserve commands, identifiers, legal text, locale text, and historical
+  evidence exactly when their exact form is necessary.
+- Run `.venv/bin/python -m bin.check_technical_english` before each commit that
+  changes documentation.
+
 ## Learning records
 
 - After a successful solution is validated, add a concise reusable decision to
   `DECISIONS.md` when it establishes a new invariant or workflow. Do not copy
   routine changelog entries.
-- Whenever an agent decision causes a defect, unsafe state, misleading result,
-  failed release, or avoidable rework, identify the root cause and add a concise
-  entry to `MISTAKES.md` in the same logical change set.
+- Identify the root cause when an agent decision causes a defect or avoidable rework.
+- Add a concise entry to `MISTAKES.md` in the same logical change set.
 - A mistake entry must state impact, root cause, correction, and prevention.
   Recording only the symptom is not sufficient.
 - Never place secrets, private endpoints, balances, account identifiers, or raw

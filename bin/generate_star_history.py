@@ -195,7 +195,7 @@ def render_svg(payload: dict[str, object], generated_on: date) -> str:
   <text x="892" y="256" text-anchor="end" fill="#64748b" font-family="system-ui,sans-serif" font-size="12">{generated_on.isoformat()}</text>
   <path d="{path}" fill="none" stroke="url(#line)" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>
   <circle cx="892" cy="{end_y:.1f}" r="7" fill="#21c07a" stroke="#d1fae5" stroke-width="2"/>
-  <text x="484" y="278" text-anchor="middle" fill="#64748b" font-family="system-ui,sans-serif" font-size="12">Official GitHub Stargazers API · updated daily</text>
+  <text x="484" y="278" text-anchor="middle" fill="#64748b" font-family="system-ui,sans-serif" font-size="12">Official GitHub Stargazers API · event update + hourly reconciliation</text>
 </svg>
 """
 

@@ -14,7 +14,17 @@ Before opening a pull request:
   changes;
 - use English maintenance comments for production code and preserve copyright
   headers;
+- write documentation with the project profile in
+  `docs/TECHNICAL_ENGLISH.md`;
+- run `.venv/bin/python -m bin.check_technical_english`;
 - do not include raw logs, databases, backups, API keys, or account data.
 
 A pull request should explain the user impact, safety boundaries, tests, and any
 required Raspberry Pi migration step.
+
+Use these references before you change an interface:
+
+- [implementation status](docs/IMPLEMENTATION_STATUS.md);
+- [configuration](docs/CONFIGURATION.md);
+- [command reference](docs/COMMAND_REFERENCE.md);
+- [architecture](docs/ARCHITECTURE.md).

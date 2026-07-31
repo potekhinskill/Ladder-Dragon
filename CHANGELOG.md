@@ -3,6 +3,34 @@
 All notable changes are documented here. Releases use Semantic Versioning; every
 section is dated and there is intentionally no `Unreleased` section.
 
+## [2.20.101] — 2026-07-31
+
+### Fixed
+- Star History now refreshes after each new GitHub star and reconciles hourly.
+  This replaces the stale daily-only update window.
+
+### Changed
+- Rewrote the README and current technical guides with the project
+  ASD-STE100 Simplified Technical English profile.
+- Synchronized current commands, configuration defaults, systemd units,
+  implemented features, approval boundaries, and known limits with the code.
+- Added separate implementation-status, configuration, and command references.
+- Replaced obsolete backtest options with the current positional CSV and
+  `--archive` command forms.
+- Simplified long historical log sentences without a change to dates, versions,
+  decisions, root causes, or test evidence.
+- Added one controlled vocabulary, procedure format, and documentation scope.
+
+### Added
+- Added an objective documentation check for sentence limits, contractions,
+  missing documents, Markdown exclusions, and required project guides.
+- Added contributor and agent rules that require the writing profile and its
+  documentation check.
+
+### Verified
+- The Technical English check and nine focused documentation regressions pass.
+- Compileall and the complete project suite pass (818 tests).
+
 ## [2.20.100] — 2026-07-31
 
 ### Fixed
@@ -247,10 +275,9 @@ section is dated and there is intentionally no `Unreleased` section.
 ## [2.20.88] — 2026-07-29
 
 ### Fixed
-- The verification harness now reports only allowlisted failed pytest node IDs
-  when a child test run fails. Tracebacks, assertion values, request bodies and
-  all other child output remain excluded from the JSON artifact, so Linux-only
-  CI failures are actionable without weakening secret containment.
+- The verification harness now reports only allowlisted failed pytest node IDs.
+  It excludes tracebacks, assertion values, request bodies, and other child output.
+  Thus, Linux-only CI failures remain actionable without weaker secret containment.
 
 ### Verified
 - The allowlist regression proves the failed node ID is retained while a
@@ -364,10 +391,9 @@ section is dated and there is intentionally no `Unreleased` section.
   hierarchy.
 
 ### Verified
-- Dashboard layout, responsive behavior, typography, localization and asset
-  regressions pass (120 focused tests); measured 1440 px and 390 px layouts
-  have no horizontal overflow; compileall, JavaScript syntax and the complete
-  suite pass (751 tests).
+- Dashboard layout, responsive behavior, typography, localization, and asset regressions pass (120 focused tests).
+  The measured 1440 px and 390 px layouts have no horizontal overflow.
+  Compileall, JavaScript syntax, and the complete suite pass (751 tests).
 
 ## [2.20.81] — 2026-07-29
 
@@ -401,11 +427,9 @@ section is dated and there is intentionally no `Unreleased` section.
   a conditional diagnostics disclosure instead of one dense status sentence.
 
 ### Verified
-- SHADOW non-blocking/deduplication, protection-before-telemetry ordering,
-  single-snapshot protection, rolling trade-flow expiry, OCO/STOP, gap and
-  safety regressions pass (159 focused tests); dashboard presentation,
-  localization, API-security and deployment assets pass (125 focused tests);
-  JavaScript syntax, compileall and the complete suite pass (748 tests).
+- SHADOW, protection, trade-flow, OCO, STOP, gap, and safety regressions pass (159 focused tests).
+  Dashboard, localization, API security, and deployment regressions pass (125 focused tests).
+  JavaScript syntax, compileall, and the complete suite pass (748 tests).
 
 ## [2.20.79] — 2026-07-29
 
@@ -787,10 +811,8 @@ section is dated and there is intentionally no `Unreleased` section.
 ## [2.20.61] — 2026-07-28
 
 ### Changed
-- Added a single runtime safety and reporting reference covering filled-BUY
-  protection, emergency flatten confirmation, HALT versus SHADOW, managed and
-  legacy inventory scope, exact FIFO PnL availability, daily Telegram digest
-  exclusions, stable-log suppression, and the deployment boundary.
+- Added one runtime safety and reporting reference.
+  It covers BUY protection, flatten confirmation, HALT, SHADOW, inventory, FIFO PnL, Telegram, logs, and deployment.
 - Synchronized the public project description, introduction, dashboard
   explanation, documentation index, and Raspberry Pi operator commands with
   the behavior shipped in 2.20.57 through 2.20.60.
@@ -856,10 +878,9 @@ section is dated and there is intentionally no `Unreleased` section.
 - The dashboard position view now uses responsive cards instead of a
   980-pixel-wide table. Market value, basis-dependent PnL and protection
   scopes remain readable on desktop and mobile without horizontal scrolling.
-- Managed bot inventory and legacy account inventory are shown as separate
-  sections. Managed protection reports exact OCO-protected and unprotected
-  quantities, while legacy inventory is clearly labelled as outside bot
-  control rather than being mixed into the OCO status sentence.
+- Managed bot inventory and legacy account inventory are shown in separate sections.
+  Managed protection reports exact protected and unprotected quantities.
+  Legacy inventory is clearly outside bot control.
 - Purchase-history provenance moved into an optional details disclosure.
   Internal status codes remain localized, while the primary view uses concise
   operator-facing labels in English and Russian.
@@ -941,10 +962,9 @@ section is dated and there is intentionally no `Unreleased` section.
   The two intentionally partial-history consumers opt into relaxed replay
   explicitly; exact daily reporting remains strict and blocks incomplete FIFO
   history.
-- Portfolio returns are now true additive natural-log returns. Correlation and
-  covariance VaR align symbols by exact candle intervals instead of trimming
-  unrelated series to a common length, and configured VaR fails closed when
-  an exposed symbol lacks sufficient history.
+- Portfolio returns are now additive natural-log returns.
+  Correlation and covariance VaR align symbols by exact candle intervals.
+  Configured VaR fails closed when an exposed symbol has insufficient history.
 - Expected Shortfall now accepts only finite, non-negative loss magnitudes and
   validates its confidence range instead of silently converting profits to
   zero-valued losses.
@@ -1041,17 +1061,16 @@ section is dated and there is intentionally no `Unreleased` section.
 - Synchronized the README, introduction, Raspberry Pi runbook, release
   procedure and example environment with the implemented strategy-control,
   SHADOW/APPLY, release-manifest and deployment behavior.
-- Documented that expectancy SHADOW retains authoritative fee accounting but
-  never exports the execution-changing required edge, that regime hold time
-  begins when the state machine is created, and that managed inventory requires
-  an explicit symbol/global hard CAP rather than the portfolio CAP.
+- Documented that expectancy SHADOW retains authoritative fee accounting.
+  It does not export the execution edge.
+  Regime hold time starts when the state machine starts.
+  Managed inventory requires an explicit hard CAP.
 - Corrected the signed release order so the verification manifest is generated
   from the final signed candidate commit, attached to the GitHub release and
   copied to the Pi before the read-only post-deployment profile.
-- Clarified the difference between execution safety and the stricter production
-  approval gate: attribution-only unresolved fills do not block deterministic
-  execution after inventory and exchange protection reconcile, but they still
-  block RAG/approval and therefore the Pi approval profile.
+- Clarified the difference between execution safety and production approval.
+  Attribution-only unresolved fills do not block execution after protection reconciliation.
+  They still block RAG, approval, and the Pi approval profile.
 - Corrected Testnet smoke commands, prediction database paths and manual test
   service handling so the watchdog cannot restart `mybot` during an isolated
   test run. Release commands now invoke the project virtual-environment
@@ -1449,10 +1468,9 @@ section is dated and there is intentionally no `Unreleased` section.
 ## [2.20.31] — 2026-07-26
 
 ### Added
-- Added one idempotent English Telegram trading digest at 08:00
-  `Asia/Almaty`. A single message reports yesterday, the last 7 complete days,
-  and the last 30 complete days with exact fill counts, valued fees, cash flow,
-  and realized FIFO net PnL.
+- Added one idempotent English Telegram trading digest at 08:00 `Asia/Almaty`.
+  One message reports yesterday and the last 7 and 30 complete days.
+  It includes fills, valued fees, cash flow, and realized FIFO net PnL.
 - Added a hardened systemd oneshot and persistent timer. The report reads the
   trade database in SQLite read-only mode, stores only its last successful
   report date, and never changes orders, HALT state, configuration, or Binance.
@@ -1488,10 +1506,9 @@ section is dated and there is intentionally no `Unreleased` section.
 - Stopped treating a terminal Binance OCO (`ALL_DONE`) as reusable protection.
   Both exchange legs must now be active before an existing or newly submitted
   OCO can return to journal state `PROTECTED`.
-- Added exact terminal OCO classification. One authoritative filled SELL leg
-  closes the BUY lifecycle as TP or STOP; two canceled zero-fill legs demote
-  the stale protection and allow only the normal protected-recovery path to
-  create a new, uniquely identified OCO.
+- Added exact terminal OCO classification.
+  One authoritative filled SELL leg closes the BUY lifecycle as TP or STOP.
+  Two canceled zero-fill legs permit only the normal protected-recovery path.
 - Removed the journal-only shortcut from restart recovery. A locally
   `PROTECTED` OCO is now queried and its two exact exchange legs are verified
   before the executor accepts it.
@@ -1874,10 +1891,9 @@ section is dated and there is intentionally no `Unreleased` section.
 ## [2.20.13] — 2026-07-23
 
 ### Fixed
-- User Data Stream PING, PONG and data frames now persist a sanitized transport
-  activity timestamp. The dashboard uses it for stale detection, preventing a
-  quiet healthy connection from being marked stale solely because the JSON file
-  or last order event is old.
+- User Data Stream frames now persist a sanitized transport activity timestamp.
+  The dashboard uses it for stale detection.
+  A quiet healthy connection no longer becomes stale because an order event is old.
 
 ### Verified
 - Focused User Data Stream and dashboard-security tests pass; project-wide
@@ -1892,10 +1908,9 @@ section is dated and there is intentionally no `Unreleased` section.
   waiting for the old worker's full runtime window.
 
 ### Safety
-- The recovery exit requires a verified transition, LIVE mode and an empty
-  tracked-BUY set. Active or unevaluable PANIC state and any retained BUY fail
-  closed; the replacement worker still re-runs preflight, Risk Manager,
-  gap-watchdog, CAP, VWAP and exchange open-order checks.
+- The recovery exit requires a verified transition, LIVE mode, and no tracked BUY.
+  Active PANIC, unknown PANIC, or a retained BUY fails closed.
+  The replacement worker runs all safety checks again.
 - The restart decision consumes only current control state and tracked order
   identifiers; it receives no future market data, credential or secret input.
 
@@ -1938,12 +1953,11 @@ section is dated and there is intentionally no `Unreleased` section.
   count, and caps every upward replacement step.
 
 ### Safety
-- Re-anchor remains `OFF` by default; `SHADOW` records candidates without
-  cancellation. `APPLY` never cancels partially filled BUYs, SELLs or OCO legs,
-  and never follows a falling ladder. A confirmed refresh
-  gracefully restarts only that symbol's worker so the replacement uses the new
-  immutable plan; panic, VWAP, CAP and the execution-cost profit floor remain
-  authoritative.
+- Re-anchor remains `OFF` by default.
+  `SHADOW` records candidates without cancellation.
+  `APPLY` does not cancel partial BUYs, SELLs, or OCO legs.
+  It does not follow a falling ladder.
+  A confirmed refresh restarts only the applicable worker.
 
 ### Verified
 - The focused re-anchor, Risk, Executor protection, and deployment suites pass
@@ -2412,10 +2426,9 @@ section is dated and there is intentionally no `Unreleased` section.
   locally received `NEW executionReport`. Replay calibration can consume these
   samples as actual observed order acknowledgement latency while continuing to
   label public event receive timing as a network proxy.
-- Added a least-privilege public depth recorder service and hourly systemd
-  timer. It records 15-minute SOLUSDT samples across volatility regimes,
-  retains seven days by default, uses an exclusive lock, and explicitly removes
-  Binance and AI credentials before starting.
+- Added a least-privilege public depth recorder and an hourly systemd timer.
+  It records 15-minute SOLUSDT samples and retains seven days by default.
+  It uses an exclusive lock and removes Binance and AI credentials.
 - Added dashboard User Data Stream freshness thresholds and explicit stale,
   reported-state and legacy cost-basis provenance fields.
 
@@ -2565,10 +2578,9 @@ section is dated and there is intentionally no `Unreleased` section.
 ## [2.10.97] — 2026-07-20
 
 ### Security
-- Added a preview-first legacy holdings cost-basis import. It reconstructs FIFO
-  lots from exact Binance trade IDs, order IDs and historical commissions,
-  requires account-quantity agreement, writes a private hash-bound plan, and
-  revalidates the complete live state before an atomic apply.
+- Added a preview-first legacy holdings cost-basis import.
+  It reconstructs FIFO lots from exact trade identifiers and commissions.
+  It requires quantity agreement and revalidates live state before an atomic apply.
 - Applying a basis requires two explicit confirmations and a stopped service.
   Any changed Binance state, incomplete history, unpriced commission or failed
   post-write coverage check rolls back; prior lots are archived rather than
@@ -2668,10 +2680,9 @@ section is dated and there is intentionally no `Unreleased` section.
   while unexpected programming failures propagate and stop execution.
 
 ### Added
-- OCO protection records retain the two detailed exchange-verified leg IDs and
-  types. A natural canary cycle is counted only after a fully `FILLED` exact
-  TP/STOP leg closes its exact parent BUY; partial and unresolved fills cannot
-  satisfy the promotion gate.
+- OCO protection records retain the two verified leg identifiers and types.
+  A natural canary cycle requires one fully `FILLED` exact TP or STOP leg.
+  Partial and unresolved fills cannot satisfy the promotion gate.
 - Runtime telemetry, the trading API, and dashboard expose exact closed cycles,
   TP/STOP counts, the required total of three, and promotion readiness.
 - Added a fully isolated `gap-drill` that proves OCO cancellation followed by a
@@ -2753,10 +2764,8 @@ section is dated and there is intentionally no `Unreleased` section.
   safety-control escalation path.
 
 ### Added
-- Active BUY intents now retain a throttled, durable market-price observation
-  range. PANIC and TTL cleanup logs include order age, configured TTL, limit
-  distance from the market, minimum observed market price, execution quantity,
-  and the exact cancellation reason.
+- Active BUY intents now retain a throttled, durable market-price range.
+  PANIC and TTL logs include age, TTL, distance, minimum price, quantity, and cancellation reason.
 - The bounded Mainnet canary now reads Binance account commission rates before
   mutation, estimates both MARKET legs, and refuses an estimate above its
   `0.02 USDT` default budget. The operator-set budget has an immutable
@@ -2912,10 +2921,9 @@ section is dated and there is intentionally no `Unreleased` section.
 ## [2.10.85] — 2026-07-19
 
 ### Added
-- Added a separate bounded Mainnet acceptance canary for `SOLUSDT`. It performs
-  a real `MARKET BUY -> verified OCO -> journal reload -> cleanup SELL` cycle,
-  cannot exceed `10 USDT`, preserves the configured reserve, and attributes the
-  lifecycle through isolated client IDs, a private journal, and an NDJSON report.
+- Added a separate bounded Mainnet acceptance canary for `SOLUSDT`.
+  It performs a real BUY, OCO, journal reload, and cleanup SELL cycle.
+  It cannot exceed `10 USDT` and preserves the configured reserve.
 
 ### Security
 - The canary requires the normal LIVE confirmation plus two canary-specific
@@ -3121,11 +3129,9 @@ section is dated and there is intentionally no `Unreleased` section.
 ## [2.10.75] — 2026-07-19
 
 ### Fixed
-- The hardened backup service retains only the filesystem capabilities required
-  to traverse the bot-owned project tree, read private backup sources, create
-  SQLite WAL sidecars, and publish `www-data` manifests. Removing every
-  capability in 2.10.73 caused systemd to fail before executing the backup
-  script with status 126 on Raspberry Pi installations using a `0750` bot home.
+- The hardened backup service retains only the required filesystem capabilities.
+  Release 2.10.73 removed all capabilities.
+  Thus, systemd failed with status 126 on hosts that used a `0750` bot home.
 - The existing filesystem namespace remains fail-closed: writes are still
   limited to `/var/lib/ladder-dragon`, the SQLite directory, and the configured
   external backup mount. `CAP_SYS_ADMIN` and ambient capabilities remain absent.
@@ -3224,10 +3230,7 @@ section is dated and there is intentionally no `Unreleased` section.
   level.
 
 ### Verified
-- Added regression coverage for privileged config parsing, CSRF/origin denial,
-  CSP integrity, locked dependencies, full-history scanners, pinned Actions,
-  extended systemd sandboxing, non-retried Binance business rejections, safe
-  transport logging, and rejection state recovery without a false halt.
+- Added regressions for configuration, CSRF, CSP, dependencies, history scans, Actions, systemd, Binance rejections, logs, and recovery.
 - `PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=. .venv/bin/python -m pytest -q` —
   243 tests pass.
 - `.venv/bin/python -m pip check` reports no broken requirements and

@@ -17,6 +17,20 @@ private infrastructure details.
 
 ## Mistakes
 
+### 2026-07-31 — Described a daily artifact as current
+
+- **Impact:** Star History displayed one star after GitHub already reported two.
+- **Root cause:** the workflow used only one daily schedule and no star event.
+- **Correction:** add the new-star event and hourly authoritative reconciliation.
+- **Prevention:** match freshness claims with source events and a bounded reconciliation interval.
+
+### 2026-07-31 — Documented obsolete backtest options
+
+- **Impact:** the README showed commands that the current backtest parser rejects.
+- **Root cause:** the shortened README was not compared with the command parser.
+- **Correction:** use the positional CSV argument and the current `--archive` option.
+- **Prevention:** derive CLI examples from parser help and test important documentation contracts.
+
 ### 2026-07-31 — Inserted prose before an existing sentence continuation
 
 - **Impact:** the first documentation check showed a duplicated continuation
@@ -155,10 +169,10 @@ private infrastructure details.
 
 ### 2026-07-29 — Treated service inactivity as restart authorization
 
-- **Impact:** an operator could stop the trading service during an incident and
-  have the watchdog revive it later; Telegram secrets were visible in process
-  arguments, stale alerts could accumulate without a bound, and a missing route
-  triggered a probe of an invented gateway.
+- **Impact:** the watchdog could restart a service that an operator stopped.
+  Process arguments exposed Telegram secrets.
+  Stale alerts had no limit.
+  A missing route caused a probe of an invented gateway.
 - **Root cause:** watchdog recovery inferred operator intent and network
   topology from convenient defaults instead of requiring explicit systemd,
   descriptor and route evidence.

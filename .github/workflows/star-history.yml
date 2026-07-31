@@ -1,13 +1,17 @@
 name: star history
 
 on:
+  watch:
+    types: [started]
   push:
     branches: [main]
     paths:
       - ".github/workflows/star-history.yml"
       - "bin/generate_star_history.py"
   schedule:
-    - cron: "17 1 * * *"
+    # The watch event has no removal action. The hourly run reconciles removals
+    # and recovers from delayed or missed repository events.
+    - cron: "23 * * * *"
   workflow_dispatch:
 
 permissions:
@@ -22,6 +26,7 @@ concurrency:
 jobs:
   publish:
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}

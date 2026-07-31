@@ -38,6 +38,7 @@ def test_star_history_svg_counts_stars_without_publishing_accounts():
     assert "must-not-leak" not in svg
     assert "also-private" not in svg
     assert "Official GitHub Stargazers API" in svg
+    assert "event update + hourly reconciliation" in svg
 
 
 def test_star_history_cli_fails_closed_on_malformed_input(tmp_path):

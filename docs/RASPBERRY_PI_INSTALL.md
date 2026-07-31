@@ -7,9 +7,8 @@ Fresh installation always starts in **Testnet DRY**. No real order is sent.
 
 ## 1. Prepare the host
 
-Recommended hardware is a Raspberry Pi 4/5 with at least 4 GiB RAM, 64-bit
-Raspberry Pi OS Lite, reliable storage, stable power, SSH, a fixed DHCP lease,
-and synchronized time.
+Use a Raspberry Pi 4 or 5 with at least 4 GiB of RAM.
+Use 64-bit Raspberry Pi OS Lite, reliable storage, stable power, SSH, and synchronized time.
 
 ```bash
 sudo apt update
@@ -82,10 +81,12 @@ Confirm the displayed release fingerprint through an independent channel before
 trusting the first clone. The installer repeats the exact-signature check before
 activating the project and refuses an unsigned or differently signed commit.
 
-The installer creates the virtual environment, nginx, FastAPI, fail2ban, zram,
-journald limits, systemd units, mDNS (`bot.local`), local TLS, Basic Auth,
-protected `/logs/` and `/backups/`, encrypted backups, and the watchdog. It
-does not place secrets in Git and starts `mybot` as Testnet DRY.
+The installer creates the Python environment and the required host services.
+These services include nginx, FastAPI, fail2ban, zram, systemd, mDNS, TLS, backups, and the watchdog.
+The installer does not put secrets in Git.
+It starts `mybot` in Testnet DRY mode.
+
+The [command reference](COMMAND_REFERENCE.md) lists each installed unit and timer.
 
 The dashboard password is stored at:
 
@@ -209,6 +210,10 @@ curl -sk -u dashboard https://bot.local/api/ai/status
 
 The dashboard API listens only on `127.0.0.1`; port `8081` must not be exposed.
 
+Compare the installed configuration with the
+[configuration reference](CONFIGURATION.md).
+Review the [implementation status](IMPLEMENTATION_STATUS.md) before you change a mode.
+
 ## 7. Run Testnet smoke and recovery checks
 
 ```bash
@@ -223,13 +228,13 @@ sudo systemctl start mybot
 sudo systemctl start pi-watchdog-v3.timer
 ```
 
-`mybot.service` delivers `SIGTERM` to the supervisor and every worker in the
-control group. The supervisor translates its first TERM into the normal
-`STOPPING` path, waits for workers to exit gracefully, and retains TERM/KILL
-timeouts as a final bound. A worker that exits repeatedly is counted in a
-rolling one-hour window: the third non-zero exit activates exponential backoff
-even when each run lasted longer than the short-crash threshold, and the fifth
-emits one Telegram restart-storm alert. These defaults are configurable through
+`mybot.service` sends `SIGTERM` to the supervisor and each worker.
+The supervisor changes the first signal to the normal `STOPPING` state.
+It waits for worker exit and keeps bounded TERM and KILL timeouts.
+The process manager counts repeated worker exits in a one-hour window.
+The third nonzero exit starts exponential backoff.
+The fifth exit sends one Telegram restart-storm alert.
+Configure these defaults with
 `BOT_CHILD_RESTART_WINDOW_SEC`, `BOT_CHILD_RESTART_WINDOW_LIMIT`, and
 `BOT_CHILD_RESTART_ALERT_COUNT`.
 
@@ -249,16 +254,18 @@ circuit-drill mode is isolated from production halt files.
 Run this only after Testnet, reconciliation, backup, and risk checks pass. The
 tool is restricted to `SOLUSDT`, preserves the configured USDT reserve, refuses
 an active bot/watchdog or existing SOL orders, and cannot exceed `10 USDT`.
-It preflights the account commission schedule, defaults to a `0.02 USDT` total
-commission budget with a hard `0.03 USDT` ceiling, and permits only one
-successful drill per release. The immediate cleanup is an acceptance expense;
+It checks the account commission schedule before the test.
+The default commission budget is `0.02 USDT`, with a hard `0.03 USDT` limit.
+It permits only one successful test for each release.
+The immediate cleanup is an acceptance expense;
 do not schedule or repeat it as a trading strategy.
 
 **Never cancel a production OCO or remove protection to satisfy this
 preflight.** Existing `SOLUSDT` orders make the account ineligible. Run the
-canary on a flat account before enabling LIVE, or defer it until the managed
-position closes and Binance, journal and balances have been reconciled by the
-reviewed operator procedure. Reloading `OrderJournal` proves durable state; it
+canary on a flat account before you enable LIVE.
+Otherwise, wait until the managed position closes.
+Then reconcile Binance, the journal, and balances with the reviewed procedure.
+Reloading `OrderJournal` proves durable state; it
 does not simulate SIGKILL or a new process.
 
 ```bash
@@ -311,6 +318,14 @@ PYTHONPATH=. .venv/bin/python -m bin.audit_user_stream_soak \
   --minimum-hours 24
 ```
 
+The monthly prediction timer creates offline evidence.
+It does not authorize APPLY or remove HALT.
+
+```bash
+systemctl list-timers ladder-dragon-monthly-prediction.timer --no-pager
+journalctl -u ladder-dragon-monthly-prediction.service -n 50 --no-pager
+```
+
 Normal updates bootstrap the updater from the verified target commit before
 creating a backup or stopping services. The target must be a signed
 fast-forward contained in the configured upstream. This makes newly added
@@ -336,10 +351,11 @@ sudo -u bot env PYTHONPATH=. .venv/bin/python \
   -m bin.binance_testnet_smoke --mode gap-drill --symbol SOLUSDT
 ```
 
-The drill proves that a breached OCO is not considered flattened after the
-cancel request alone. The watchdog waits for the exact order-list IDs to
-disappear and for their residual quantity to become free, then requires a
-`FILLED` MARKET result covering that quantity. A timeout, partial result or
+The test proves that an OCO cancel request does not prove a position exit.
+The watchdog waits until the exact order-list identifiers disappear.
+It also waits until the residual quantity becomes free.
+It then requires a `FILLED` MARKET result for that quantity.
+A timeout, partial result or
 lost acknowledgement leaves a persistent HALT. The executor floors once to
 `LOT_SIZE.stepSize`; it does not reserve an additional `minQty`.
 
@@ -369,9 +385,10 @@ managed quantities, weighted average, trade count, lot count, prehistory
 quantity, unmanaged dust, history reset trade ID and plan SHA. A negative
 historical inventory prefix may be seeded only by the exact quantity needed to
 reach zero at a later SELL. That unpriced seed must be fully consumed before
-the current FIFO position begins. Any remaining unexplained quantity is kept
-outside managed lots and is accepted only when it is strictly smaller than the
-exchange `LOT_SIZE.stepSize`; tradeable unexplained inventory fails closed.
+the current FIFO position begins.
+The importer keeps all remaining unexplained quantity outside managed lots.
+It accepts this quantity only when it is less than `LOT_SIZE.stepSize`.
+Tradeable unexplained inventory fails closed.
 The plan is mode `0600` and contains exchange provenance, so do not publish or
 commit it.
 
@@ -391,16 +408,24 @@ sudo -u bot env \
   --apply
 ```
 
-Apply re-fetches the full account and fill history and requires the exact same
-plan hash. Revalidation is mandatory inside the library mutation function, not
-only in the CLI. It fails without changing the database if history is incomplete, a
-commission cannot be valued at trade time, a transfer prevents quantity
-reconciliation, the symbol has an open order, the account changed during or
-after preview, or post-write verification fails. Existing open lots are retained
-as `SUPERSEDED`. The JSON result contains `warnings`; a statistics trade-ID gap
-is also stored in `inventory_lot_imports` and means reports do not have complete
-historical trade rows for that exact range, even though the imported FIFO basis
-includes those fills. Keep `mybot` stopped and
+Apply reads the full account and fill history again.
+It requires the same plan hash.
+The library mutation function must revalidate the plan.
+It fails without a database change for these conditions:
+
+- history is incomplete;
+- a commission has no trade-time value;
+- a transfer prevents quantity reconciliation;
+- the symbol has an open order;
+- the account changed during or after preview;
+- the post-write verification failed.
+
+Existing open lots remain as `SUPERSEDED`.
+The JSON result contains `warnings`.
+A statistics trade-ID gap is also stored in `inventory_lot_imports`.
+The gap means that reports do not contain complete trade rows for that range.
+The imported FIFO basis still includes those fills.
+Keep `mybot` stopped and
 inspect the database/dashboard result before deciding whether holdings
 management should be enabled.
 
@@ -478,20 +503,22 @@ sudo bash deploy/update_raspberry_pi.sh update "$RELEASE_SHA"
 
 The authorization is bound to one exact SHA, stored under `/run`, consumed once,
 and written to the authpriv journal. It is not a routine update switch.
-The marker is consumed before the update attempt continues. If any later
-merge, dependency or deployment step fails, the operator must create a new
-exact-SHA authorization after diagnosing the failure; a failed attempt never
-leaves reusable unsigned authority behind.
+The marker is consumed before the update attempt continues.
+If a later update step fails, diagnose the failure.
+The operator must create a new exact-SHA authorization.
+A failed attempt does not leave reusable unsigned authority.
 
-The default local dashboard certificate is self-signed, so the nginx template
-intentionally does not send HSTS. For remote access, install a certificate from
-a trusted private CA or use a private overlay such as Tailscale before enabling
-HSTS; otherwise a certificate mistake can lock browsers out of `bot.local`.
+The default local dashboard certificate is self-signed.
+Thus, the nginx template does not send HTTP Strict Transport Security (HSTS).
+For remote access, install a certificate from a trusted private certificate authority.
+You can use a private overlay before you enable HSTS.
 
-The updater creates an encrypted backup, records service state, stops services,
-applies only the requested fast-forward SHA, installs dependencies, updates
-nginx/frontend/systemd, runs validation, starts services, and waits for a fresh
-heartbeat plus an authenticated database-backed dashboard request. A transient
+The updater creates an encrypted backup and records the service state.
+It stops services and applies only the requested fast-forward SHA.
+It installs dependencies and updates nginx, frontend assets, and systemd.
+It validates and starts the services.
+It then waits for a fresh heartbeat and an authenticated dashboard response.
+A transient
 SQLite startup/schema race is reported as retryable HTTP 503, never HTTP 500,
 and deployment is not declared ready until that request succeeds. It preserves
 `.env`, `.env.dashboard`, venue, execution mode, symbols, and open orders.
@@ -499,10 +526,10 @@ Because configuration is preserved, newly documented risk controls must be
 reviewed and added explicitly; the updater never expands or rewrites exposure
 from `.env.example`.
 
-If an update fails after fast-forward but before external runtime assets are
-changed, recovery resets the clean tracked checkout to the recorded previous
-SHA, reinstalls that release's hashed dependency lock and editable package, and
-only then restores the previous service state. If rollback cannot be proved, or
+If an update fails before an asset change, recovery restores the previous SHA.
+Recovery installs the previous hashed dependencies and package.
+It then restores the previous service state.
+If rollback cannot be proved, or
 systemd/nginx/static assets may already be partially changed, `mybot` and its
 watchdog remain stopped. Recovery starts `pi-healthd` for diagnosis and prints
 an explicit repair instruction. Exchange-hosted OCO protection remains active;
@@ -511,9 +538,9 @@ have been reconciled as one release.
 
 Database migration `007` adds the durable SELL FIFO-consumption journal before
 services restart. It is idempotent and does not rewrite historical lots.
-Repeated Binance SELL trade IDs are ignored only when their normalized
-symbol/order/quantity/price payload matches exactly; a conflict or insufficient
-FIFO inventory fails closed without partially changing any lot.
+A repeated Binance SELL trade ID is idempotent only when its normalized payload matches.
+A conflict or insufficient FIFO inventory fails closed.
+The failed operation does not partially change a lot.
 
 The migration runner owns one `BEGIN IMMEDIATE` transaction per migration.
 Schema statements and their `schema_migrations` completion record commit
@@ -599,9 +626,10 @@ retention follows `BACKUP_EXTERNAL_RETENTION_DAYS`.
 
 ### 10.1 Daily Telegram trading digest
 
-The installer enables `ladder-dragon-daily-digest.timer`. At 08:00
-`Asia/Almaty`, it opens the exact trade database with SQLite `mode=ro` and
-reports yesterday, the last 7 complete days, and the last 30 complete days. The
+The installer enables `ladder-dragon-daily-digest.timer`.
+At 08:00 `Asia/Almaty`, the service opens the exact trade database in read-only mode.
+It reports yesterday and the last 7 and 30 complete days.
+The
 systemd writable database mount exists only because a live WAL reader must
 coordinate through SQLite's shared-memory sidecar.
 

@@ -13,11 +13,10 @@ responsibility. You are solely responsible for:
 - checking orders, fills, OCO/STOP protection, balances, and Risk Manager state;
 - complying with applicable law, exchange rules, and tax obligations.
 
-Authors and contributors do not promise the absence of errors, delays, slippage,
-desynchronization, API failures, connection loss, losses, or data loss. To the
-maximum extent permitted by applicable law, authors and contributors are not
-liable for direct, indirect, incidental, special, punitive, or consequential
-losses, including loss of money, profit, data, or account access.
+Authors and contributors do not promise that the software has no defects.
+Defects include delays, slippage, desynchronization, API failures, connection loss, financial loss, and data loss.
+Applicable law controls all liability limits.
+When applicable law permits, authors and contributors are not liable for losses, including loss of money, profit, data, or account access.
 
 Nothing in this document excludes liability that cannot be excluded under
 mandatory applicable law. Before using LIVE or providing the service to third

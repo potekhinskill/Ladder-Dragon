@@ -1,9 +1,9 @@
 # Ladder Dragon architecture
 
-Ladder Dragon uses a package-first structure: reusable application and domain
-logic lives under `ladder_dragon/`; files under `bin/` are stable command-line
-entry points; `deploy/` owns host integration; `FRONT/` contains published
-static assets; and `tests/` mirrors the technical boundaries.
+Ladder Dragon uses a package-first structure.
+Reusable application and domain logic is in `ladder_dragon/`.
+Files in `bin/` are stable command-line entry points.
+The `deploy/`, `FRONT/`, and `tests/` directories have separate technical scopes.
 
 ## Dependency direction
 
@@ -30,20 +30,27 @@ Tests and extensions import the owning package directly.
 | `ladder_dragon/risk/` | Limits, portfolio state and risk statistics |
 | `ladder_dragon/execution/` | Binance adapters, orders, protection, recovery, accounting and streams |
 | `ladder_dragon/ai/` | Advisory context, policy, knowledge and evidence |
+| `ladder_dragon/dashboard/` | FastAPI routes, repositories, services and host telemetry |
 | `ladder_dragon/persistence/` | Versioned SQLite migrations and storage infrastructure |
 | `ladder_dragon/verification/` | Release, Testnet and Raspberry verification profiles |
 
-Prediction research is split by responsibility under
-`ladder_dragon/strategy/prediction/`: `decision_value` owns the monetary target,
-`historical_dataset` and `advanced_features` own cutoff-safe evidence,
-`statistical_models` owns transparent challengers, `ensemble` owns the
-defensive-only policy, `experiments` owns same-snapshot SHADOW variants,
-`approval` owns CI/Holm gates, `walk_forward` owns chronological evaluation,
-and `monthly_contour` owns recurring artifacts. Historical splits share
-immutable training-prefix storage and use
-binary label cutoffs. The ensemble treats `FLAT` and `UP` as one safe family,
-uses confident `DOWN`/`PANIC` as vetoes and permits weak danger evidence only
-to reduce CAP. None of these modules imports exchange order capabilities.
+Prediction research is in `ladder_dragon/strategy/prediction/`.
+Each module has one responsibility:
+
+- `decision_value` owns the monetary target;
+- `historical_dataset` and `advanced_features` own cutoff-safe evidence;
+- `statistical_models` owns transparent challengers;
+- `ensemble` owns the defensive policy;
+- `experiments` owns same-snapshot SHADOW variants;
+- `approval` owns confidence interval and Holm gates;
+- `walk_forward` owns chronological evaluation;
+- `monthly_contour` owns recurring artifacts.
+
+Historical splits share immutable training-prefix storage and use binary label cutoffs.
+The ensemble treats `FLAT` and `UP` as one safe family.
+Confident `DOWN` or `PANIC` results stop a BUY.
+Weak danger evidence can only reduce CAP.
+These modules cannot import exchange order capabilities.
 
 ## Monolith register
 
@@ -61,6 +68,9 @@ non-growth budgets:
 | `ladder_dragon/dashboard/runtime.py` | dashboard coordinator pending router/service extraction |
 | `ladder_dragon/execution/order_recovery.py` | journal schema, lifecycle commands, query projections |
 | `ladder_dragon/strategy/prediction/runtime.py` | feature/outcome journal coordinator pending final store extraction |
+| `ladder_dragon/ai/context/runtime.py` | decision repository, attribution, RAG evidence and serialization |
+| `ladder_dragon/execution/orders/runtime.py` | LIMIT, MARKET, OCO and OTOCO orchestration |
+| `ladder_dragon/execution/protection/runtime.py` | protection verification, residual protection and emergency flatten |
 
 Future work must extract one cohesive seam at a time and migrate production
 and test imports to the owning package in the same change. A move is complete
@@ -75,11 +85,10 @@ only when:
 This avoids a flag-day rewrite of the LIVE execution path while making every
 release structurally better than its predecessor.
 
-The supervisor's authoritative risk snapshot, startup recovery gate and child
-shutdown lifecycle are now physically owned by `risk_cycle.py`,
-`recovery_gate.py` and `process_manager.py`. The compatibility runtime injects
-its exchange and persistence adapters explicitly, preserving fail-closed
-behavior and test isolation without introducing a reverse dependency.
+The supervisor risk snapshot, recovery gate, and child shutdown have separate modules.
+These modules are `risk_cycle.py`, `recovery_gate.py`, and `process_manager.py`.
+The supervisor runtime injects exchange and persistence adapters explicitly.
+This design preserves fail-closed behavior without a reverse dependency.
 Authentication/transient preflight classification, bounded retry schedules and
 heartbeat-aware waits are owned by `preflight_resilience.py`; the runtime
 retains only orchestration and explicit callbacks for status and clocks.
@@ -98,6 +107,9 @@ symbol-lock release even when an earlier cleanup callback fails.
 commands and the safeguarded cancellation command expose only executable
 launchers. `FastAPI/pi-dashboard/app.py` exposes only the packaged ASGI app.
 They do not emulate package modules or support historical extension imports.
+
+See [Command and service reference](COMMAND_REFERENCE.md) for all executable entry points.
+See [Implementation status](IMPLEMENTATION_STATUS.md) for current runtime gates.
 
 Private local state follows [LOCAL_ARTIFACTS.md](LOCAL_ARTIFACTS.md). Architecture
 work never moves or deletes runtime databases, `.runtime`, caches or environment

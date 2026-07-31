@@ -30,6 +30,12 @@ git commit -S -m "docs: synchronize runtime and release documentation"
 git verify-commit HEAD
 ```
 
+Run the Technical English check before you create the candidate commit:
+
+```bash
+.venv/bin/python -m bin.check_technical_english
+```
+
 ## 2. Verify the immutable candidate SHA
 
 The release profile must run against the final signed commit, not against an
@@ -100,18 +106,20 @@ key into the bot user's GPG keyring. Deploy only the tested full SHA:
 sudo bash deploy/update_raspberry_pi.sh update "${RELEASE_SHA}"
 ```
 
-The updater creates an encrypted backup, preserves service state and live env
-files, verifies the exact signed fast-forward commit, publishes and hashes all
-dashboard assets, restores the previous service policy and waits for a fresh
-heartbeat. It does not import new `.env.example` values or alter reviewed
+The updater creates an encrypted backup and preserves service state.
+It preserves the live environment files.
+It verifies the exact signed fast-forward commit.
+It publishes and hashes all dashboard assets.
+Then it restores the service policy and waits for a fresh heartbeat.
+It does not import new `.env.example` values or alter reviewed
 exposure.
 
-Before backup or service stop, the installed updater fetches the requested
-commit, verifies its ancestry and maintainer signature, extracts that commit's
-updater to an immutable root-only temporary runner and re-executes it. This
-ensures deployment steps introduced by the new release run on the first update
-instead of one release later. Unsigned break-glass never executes target code
-through this bootstrap.
+Before backup or service stop, the installed updater fetches the requested commit.
+It verifies the ancestry and maintainer signature.
+It extracts the target updater to an immutable, root-only temporary runner.
+Then it starts that runner.
+This action applies new deployment steps during the first update.
+Unsigned break-glass authority never executes target code through this bootstrap.
 
 Copy the exact PASS manifest to the Pi and run the read-only profile with
 `--expected-sha`, `--github-sha` and `--release-report` all referring to the
@@ -135,3 +143,7 @@ The updater accepts only a signature from the pinned fingerprint. Trust policy
 must never be supplied through environment variables. An unsigned emergency
 update requires the separate interactive, journaled, one-use break-glass
 procedure in the Raspberry Pi runbook; it is not a routine release option.
+
+See the [command reference](COMMAND_REFERENCE.md), the
+[configuration reference](CONFIGURATION.md), and the
+[implementation status](IMPLEMENTATION_STATUS.md) before release approval.

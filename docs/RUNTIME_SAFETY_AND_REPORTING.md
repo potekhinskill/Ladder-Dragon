@@ -28,10 +28,11 @@ A partial execution, lost acknowledgement, network ambiguity, or journal write
 failure is not reported as a successful flatten. The symbol remains halted and
 the position remains unresolved for authoritative reconciliation.
 
-Read uncertainty is not permission to mutate protection. If any order-list or
-leg query times out, recovery leaves the existing OCO/OTOCO untouched and
-halts; it does not cancel the list or classify it as absent. Cancellation is
-considered only after a successful read proves a structural mismatch.
+Read uncertainty does not permit a protection change.
+If an order-list or leg query times out, recovery leaves the OCO or OTOCO unchanged.
+Recovery enters HALT.
+It does not cancel the list or classify it as absent.
+Cancellation occurs only after a successful read proves a structural mismatch.
 
 A terminal leg with a positive partial execution is a confirmed partial exit,
 not an exact closed lifecycle. Its exchange order ID and quantity are recorded
@@ -43,11 +44,11 @@ residual `BUY executed quantity - confirmed partial exits`.
 
 The durable intent journal, not the HTTP client, owns mutation recovery.
 Signed POST, DELETE, PUT, and PATCH calls therefore get one transport attempt.
-A timeout, connection loss, or Binance 5xx means the execution outcome is
-unknown; the caller marks the intent `UNKNOWN`, queries Binance by the durable
-`clientOrderId`, and either recovers the exact order or halts. The transport
-never sends the same mutation again merely because its acknowledgement was
-lost.
+A timeout, connection loss, or Binance 5xx makes the execution outcome unknown.
+The caller marks the intent `UNKNOWN`.
+It queries Binance with the durable `clientOrderId`.
+It then recovers the exact order or enters HALT.
+The transport does not repeat a mutation because its acknowledgement was lost.
 
 A `-2010 Duplicate order` response is treated as evidence of an earlier
 submission and enters the same reconciliation path. It is not a definitive
@@ -133,6 +134,59 @@ SHADOW evidence:
 - is not a real closure and cannot enter real-only RAG;
 - cannot satisfy production approval by itself.
 
+## Strategy approval and execution cost
+
+The system reads authoritative account commission rates before it calculates the required edge.
+The required edge includes both fees, both slippage estimates, and a safety margin.
+
+The example configuration keeps these controls in SHADOW:
+
+- expectancy;
+- maker policy;
+- regime gate;
+- inventory skew;
+- statistical regime;
+- correlation-cluster gate.
+
+SHADOW fee values can improve exact accounting.
+SHADOW does not export the execution-changing required edge to a worker.
+
+APPLY requires `BOT_STRATEGY_CONTROLS_APPROVED=YES` and valid chronological evidence.
+It also requires an explicit managed-inventory hard CAP for each symbol.
+The portfolio CAP is not a substitute for this limit.
+
+## Prediction outcomes and provider failures
+
+Prediction horizons are 1, 5, and 15 minutes.
+An unresolved future horizon is normal pending work.
+An overdue horizon or unrecovered expired outcome blocks the prediction backlog gate.
+
+The soak report checks expirations from its current audited runtime window.
+It still reports lifetime expiration totals as historical evidence.
+
+AI provider failures select the deterministic strategy.
+Consecutive failures use exponential negative-cache backoff up to the normal cache time.
+One valid response resets this backoff.
+
+Identical provider and low-confidence diagnostics are limited to one each hour.
+The bounded usage and decision stores still record each result.
+Provider error text, response bodies, and endpoint URLs do not enter operator logs.
+
+## Low-latency modes
+
+Fast market data, OTOCO, and WebSocket trading are separate modes.
+The example configuration keeps all three modes OFF.
+
+Each LIVE APPLY mode requires its matching `YES` approval.
+These modes cannot bypass the normal LIVE confirmation or Risk Manager.
+
+The fast-market gate rejects an expired snapshot.
+It also rejects excessive spread, price movement, sequence regression, or insufficient net edge.
+
+OTOCO can submit a BUY with its future protection list.
+WebSocket trading uses server-adjusted timestamps and one bounded response deadline.
+REST remains the authoritative reconciliation path.
+
 ## Managed and legacy inventory
 
 The dashboard deliberately separates two scopes:
@@ -181,6 +235,7 @@ the ledger. A symbol with incomplete FIFO history, unpriced commission, an
 unsupported quote asset, or invalid exact data is listed under `Excluded symbols`.
 Eligible symbols still produce exact fills, fees, cash flow, and realized FIFO
 net PnL. The service never invents an opening BUY or assumes a zero cost basis.
+The report displays fees with a negative sign because they reduce net PnL.
 
 Successful delivery is idempotent per local report date. A report-build failure
 sends one deduplicated `BLOCKED` warning for that date; the warning contains no
@@ -212,6 +267,8 @@ and emergency actions remain visible. Stable no-op messages are suppressed:
   rate-limited by `RISK_STABLE_INFO_LOG_INTERVAL_SEC` (default: 3600 seconds).
 
 Rate limiting never suppresses a transition into a different risk state.
+Identical AI provider diagnostics are also limited to one each hour.
+Evidence persistence is not rate-limited.
 
 ## Operator decision table
 
@@ -233,4 +290,5 @@ new non-secret settings explicitly, copy the matching PASS release manifest,
 and run the Pi verification profile before treating the deployment as current.
 
 See the [Raspberry Pi runbook](RASPBERRY_PI_INSTALL.md), the
-[release procedure](RELEASING.md), and the project [README](../README.md).
+[release procedure](RELEASING.md), and the [configuration reference](CONFIGURATION.md).
+The [command reference](COMMAND_REFERENCE.md) lists each installed service.

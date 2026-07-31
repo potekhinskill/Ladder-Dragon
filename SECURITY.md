@@ -17,3 +17,12 @@ profile in `README.md` without including secrets.
 
 History rewriting does not revoke a credential. Treat every key that appeared
 in Git, a log, a backup, an artifact, or a fork as compromised and rotate it.
+
+## Runtime boundaries
+
+- Keep LIVE disabled unless the reviewed confirmation and exposure checks pass.
+- Keep dashboard Binance credentials read-only and without trade permission.
+- Keep durable HALT and risk evidence below `/var/lib/ladder-dragon/control`.
+- Treat an unknown order result as unresolved until Binance reconciliation succeeds.
+- Do not remove OCO protection because a read request failed.
+- Deploy only a verified, signed, 40-character commit SHA.

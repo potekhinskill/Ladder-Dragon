@@ -10,9 +10,8 @@ financial-liability limitations are described in `DISCLAIMER.md`.
 The public contact link belongs in this document and `README.md`; it is not
 copied into every source header or runtime configuration.
 
-Secrets, real backup files, production configuration, and private trading
-parameters must not enter Git or public releases unless they have been
-explicitly sanitized and approved for publication.
+Secrets, real backups, production configuration, and private trading parameters must not enter Git.
+Publication requires explicit sanitization and approval.
 
 Production inline comments and maintenance headers are written in English.
 Safety notes must remain clear about financial risk, fail-closed behavior,
