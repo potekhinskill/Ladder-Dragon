@@ -134,6 +134,8 @@ for path in \
   /etc/systemd/system/ladder-dragon-log-export.timer \
   /etc/systemd/system/ladder-dragon-soak-audit.service \
   /etc/systemd/system/ladder-dragon-soak-audit.timer \
+	  /etc/systemd/system/ladder-dragon-database-retention.service \
+	  /etc/systemd/system/ladder-dragon-database-retention.timer \
 	  /etc/nginx/sites-available \
 	  /etc/nginx/snippets/pi_api.conf \
 	  /etc/nginx/snippets/ladder_dragon_proxy_secret.conf \
@@ -158,6 +160,8 @@ for path in \
   /usr/local/bin/pi-watchdog_v3.sh \
   /usr/local/bin/ladder-dragon-soak-audit \
   /var/lib/ladder-dragon/soak \
+  /var/lib/ladder-dragon/database-archives \
+  /var/lib/ladder-dragon/database-retention \
   /var/log/pi-watchdog.log; do
   [[ -e "${path}" ]] && copy_rootfs_path "${path}"
 done

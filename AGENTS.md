@@ -79,6 +79,12 @@ These rules apply to every repository change and every Raspberry Pi update.
 - Validate and quote every SQLite identifier before interpolation. Dynamic
   migration declarations must use an explicit narrow grammar.
 - Version SQLite schema changes with migrations; do not delete historical data outside retention policy.
+- Classify each new persistent record as authoritative, derived, or disposable.
+  Define its growth limit, retention period, archive dependency, and scheduled
+  maintenance in the same change. Never auto-delete accounting, fills, FIFO,
+  unresolved state, order intents, or lifecycle evidence. Archive eligible
+  derived data only after a recent verified encrypted backup. Add tests that
+  prove pending and protected records survive retention.
 - After changes run at least `python3 -m compileall -q .` and `PYTHONPATH=. pytest -q`.
 - AI/Risk/Executor changes must run related unit and regression tests, including restart,
   partial fill, OCO/STOP, gap, and idempotency scenarios.

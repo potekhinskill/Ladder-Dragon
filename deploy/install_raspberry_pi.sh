@@ -677,6 +677,13 @@ render_unit "${PROJECT_DIR}/deploy/ladder-dragon-monthly-prediction.service" \
   /etc/systemd/system/ladder-dragon-monthly-prediction.service
 install -m 0644 "${PROJECT_DIR}/deploy/ladder-dragon-monthly-prediction.timer" \
   /etc/systemd/system/ladder-dragon-monthly-prediction.timer
+render_unit "${PROJECT_DIR}/deploy/ladder-dragon-database-retention.service" \
+  /etc/systemd/system/ladder-dragon-database-retention.service
+install -m 0644 "${PROJECT_DIR}/deploy/ladder-dragon-database-retention.timer" \
+  /etc/systemd/system/ladder-dragon-database-retention.timer
+install -d -o "${BOT_USER}" -g "${BOT_USER}" -m 0700 \
+  /var/lib/ladder-dragon/database-archives \
+  /var/lib/ladder-dragon/database-retention
 install -d -o "${BOT_USER}" -g "${BOT_USER}" -m 0750 \
   /var/lib/ladder-dragon/depth-archives
 install -d -o root -g "${BOT_USER}" -m 0770 /var/lib/ladder-dragon/soak
@@ -721,6 +728,7 @@ systemctl enable nginx avahi-daemon fail2ban mybot pi-healthd \
   ladder-dragon-backup.timer ladder-dragon-log-export.timer \
   ladder-dragon-depth-archive.timer ladder-dragon-soak-audit.timer \
   ladder-dragon-daily-digest.timer ladder-dragon-monthly-prediction.timer \
+  ladder-dragon-database-retention.timer \
   pi-watchdog-v3.timer >/dev/null
 systemctl restart systemd-journald nginx avahi-daemon fail2ban
 systemctl restart zramswap 2>/dev/null || true
@@ -731,6 +739,7 @@ systemctl start ladder-dragon-depth-archive.timer
 systemctl start ladder-dragon-soak-audit.service ladder-dragon-soak-audit.timer
 systemctl start ladder-dragon-daily-digest.timer
 systemctl start ladder-dragon-monthly-prediction.timer
+systemctl start ladder-dragon-database-retention.timer
 
 sleep 3
 systemctl is-active --quiet nginx || fail "nginx failed"

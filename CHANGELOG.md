@@ -3,6 +3,28 @@
 All notable changes are documented here. Releases use Semantic Versioning; every
 section is dated and there is intentionally no `Unreleased` section.
 
+## [2.20.108] — 2026-08-01
+
+### Added
+- A daily database-retention service archives terminal SHADOW predictions
+  before it removes them from the active database.
+- The retention report classifies accounting and recovery databases as
+  authoritative data with no automatic deletion.
+
+### Fixed
+- Opening the AI database no longer deletes old decisions as a hidden side
+  effect.
+
+### Security
+- Retention requires a recent successful encrypted backup, a mode-0600
+  content-addressed archive, terminal outcomes, and a bounded transaction.
+- Pending predictions, fills, FIFO lots, unresolved records, order intents,
+  and lifecycle evidence are never automatically deleted.
+
+### Verified
+- Retention archive, stale-backup block, pending-row preservation, deployment
+  assets, documentation, and complete project tests pass.
+
 ## [2.20.107] — 2026-08-01
 
 ### Fixed

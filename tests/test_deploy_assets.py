@@ -841,6 +841,25 @@ def test_monthly_prediction_contour_is_shadow_cutoff_bound_and_optional():
     assert "ladder-dragon-monthly-prediction.timer" in updater
 
 
+def test_database_retention_is_backup_gated_bounded_and_scheduled():
+    service = read("deploy/ladder-dragon-database-retention.service")
+    timer = read("deploy/ladder-dragon-database-retention.timer")
+    installer = read("deploy/install_raspberry_pi.sh")
+    updater = read("deploy/update_raspberry_pi.sh")
+    backup = read("deploy/backup_raspberry_pi.sh")
+    source = read("ladder_dragon/persistence/retention.py")
+    assert "--retention-days 365" in service
+    assert "--maximum-rows 2000" in service
+    assert "--backup-status /run/mybot/backup_status.json" in service
+    assert "SuccessExitStatus=2" in service
+    assert "OnCalendar=*-*-* 03:10:00" in timer
+    assert "BEGIN IMMEDIATE" in source
+    assert "VACUUM" not in source
+    assert "ladder-dragon-database-retention.timer" in installer
+    assert "ladder-dragon-database-retention.timer" in updater
+    assert "/var/lib/ladder-dragon/database-archives" in backup
+
+
 def test_updates_are_commit_allowlisted_and_backups_are_encrypted():
     updater = read("deploy/update_raspberry_pi.sh")
     installer = read("deploy/install_raspberry_pi.sh")

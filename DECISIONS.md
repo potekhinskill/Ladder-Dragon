@@ -4,6 +4,13 @@ Read this file before changing the repository. Record only decisions that were
 validated by tests or production evidence and are likely to be reused. Keep
 entries concise; this is not a changelog or an activity log.
 
+### 2026-08-01 — Archive derived telemetry before bounded retention
+
+- **Context:** continuous SHADOW evidence grows much faster than accounting and recovery databases.
+- **Decision:** keep authoritative data indefinitely; archive only terminal derived rows after a recent encrypted backup.
+- **Why it worked:** tests prove pending rows survive, stale backup evidence blocks deletion, and archived counts match deleted counts.
+- **Reuse:** every persistent telemetry feature that can grow for the life of the service.
+
 ### 2026-08-01 — Persist definitive recovery conflicts, not transient reads
 
 - **Context:** startup recovery must distinguish an uncertain exchange read from a proven journal conflict.

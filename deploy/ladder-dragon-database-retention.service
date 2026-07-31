@@ -1,0 +1,46 @@
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2026 IURII Potekhin
+# Purpose: archive terminal telemetry before bounded database retention.
+[Unit]
+Description=Ladder Dragon evidence-preserving database retention
+After=ladder-dragon-backup.service
+ConditionPathExists=/home/bot/apps/binance_bot/db/prediction_shadow.sqlite3
+
+[Service]
+Type=oneshot
+User=bot
+Group=bot
+WorkingDirectory=/home/bot/apps/binance_bot
+Environment=PYTHONPATH=/home/bot/apps/binance_bot
+ExecStart=/home/bot/apps/binance_bot/.venv/bin/python -m bin.database_retention --prediction-db /home/bot/apps/binance_bot/db/prediction_shadow.sqlite3 --stats-db /home/bot/apps/binance_bot/db/bot_stats.db --order-journal /home/bot/apps/binance_bot/db/order_intents.sqlite3 --ai-db /home/bot/apps/binance_bot/db/ai_decisions.sqlite3 --archive-dir /var/lib/ladder-dragon/database-archives --backup-status /run/mybot/backup_status.json --report /var/lib/ladder-dragon/database-retention/report.json --retention-days 365 --maximum-rows 2000
+SuccessExitStatus=2
+Nice=15
+IOSchedulingClass=idle
+NoNewPrivileges=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectSystem=strict
+ProtectHome=read-only
+ProtectClock=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+ProtectKernelLogs=yes
+ProtectHostname=yes
+RestrictSUIDSGID=yes
+RestrictRealtime=yes
+RestrictNamespaces=yes
+LockPersonality=yes
+MemoryDenyWriteExecute=yes
+CapabilityBoundingSet=
+AmbientCapabilities=
+RestrictAddressFamilies=AF_UNIX
+SystemCallArchitectures=native
+SystemCallFilter=@system-service
+SystemCallErrorNumber=EPERM
+ReadOnlyPaths=-/run/mybot
+ReadWritePaths=/home/bot/apps/binance_bot/db /var/lib/ladder-dragon/database-archives /var/lib/ladder-dragon/database-retention
+UMask=0077
+
+[Install]
+WantedBy=multi-user.target

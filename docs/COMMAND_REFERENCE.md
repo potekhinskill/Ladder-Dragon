@@ -88,6 +88,7 @@ The `--archive` option does not make the replay an L3 reconstruction.
 | `retire_legacy_accounting` | previews or applies exact-only retirement | `--apply` plus confirmation |
 | `revalue_legacy_commissions` | repairs exact legacy commission values | explicit reviewed operation |
 | `db_migrate` | applies versioned SQLite migrations | migration transaction |
+| `database_retention` | archives terminal SHADOW evidence and applies bounded retention | fresh encrypted backup |
 | `migrate_indexes` | applies the legacy index migration helper | reviewed database path |
 
 `tools_cancel_open` uses Testnet and dry-run by default.
@@ -122,6 +123,8 @@ Do not publish its output.
 | `ladder-dragon-backup.timer` | starts backup | 02:20 each day |
 | `ladder-dragon-daily-digest.service` | exact Telegram trading report | timer target |
 | `ladder-dragon-daily-digest.timer` | starts the digest | 08:00 Asia/Almaty |
+| `ladder-dragon-database-retention.service` | archives terminal SHADOW data | fresh encrypted backup |
+| `ladder-dragon-database-retention.timer` | starts database retention | daily after backup |
 | `ladder-dragon-depth-archive.service` | public L2 archive recorder | timer target |
 | `ladder-dragon-depth-archive.timer` | starts archive collection | each hour |
 | `ladder-dragon-log-export.service` | sanitized dashboard log export | timer target |

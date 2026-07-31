@@ -17,6 +17,13 @@ private infrastructure details.
 
 ## Mistakes
 
+### 2026-08-01 — Used fragile inline quoting for a remote database audit
+
+- **Impact:** two read-only audit commands failed before they opened a database.
+- **Root cause:** a multi-statement Python program passed through nested local and remote shell quoting.
+- **Correction:** send one checked read-only script to remote Python through standard input.
+- **Prevention:** use a temporary reviewed script for multi-statement remote diagnostics; do not use complex SSH one-liners.
+
 ### 2026-08-01 — Used a non-filling price outside exchange filters
 
 - **Impact:** the controlled Testnet drill connected and reconnected, but

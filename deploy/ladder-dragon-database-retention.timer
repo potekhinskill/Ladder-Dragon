@@ -1,0 +1,14 @@
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2026 IURII Potekhin
+# Purpose: schedule daily evidence-preserving database retention.
+[Unit]
+Description=Schedule Ladder Dragon database retention
+
+[Timer]
+OnCalendar=*-*-* 03:10:00
+RandomizedDelaySec=10m
+Persistent=true
+Unit=ladder-dragon-database-retention.service
+
+[Install]
+WantedBy=timers.target

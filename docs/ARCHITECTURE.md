@@ -32,6 +32,7 @@ Tests and extensions import the owning package directly.
 | `ladder_dragon/ai/` | Advisory context, policy, knowledge and evidence |
 | `ladder_dragon/dashboard/` | FastAPI routes, repositories, services and host telemetry |
 | `ladder_dragon/persistence/` | Versioned SQLite migrations and storage infrastructure |
+| `ladder_dragon/persistence/retention.py` | Backup-gated archive and retention for terminal derived telemetry |
 | `ladder_dragon/verification/` | Release, Testnet and Raspberry verification profiles |
 
 Prediction research is in `ladder_dragon/strategy/prediction/`.

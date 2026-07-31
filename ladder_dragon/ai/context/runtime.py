@@ -798,10 +798,8 @@ class AdvisorDecisionStore:
             connection.execute(
                 "CREATE INDEX IF NOT EXISTS ai_order_links_list_id ON ai_order_links(exchange_order_list_id)"
             )
-            connection.execute(
-                "DELETE FROM ai_decisions WHERE created_at < ?",
-                (int(time.time()) - 365 * 86_400,),
-            )
+            # Retention must never run as a side effect of opening a database.
+            # A scheduled maintenance contour must archive evidence first.
             connection.execute(
                 """INSERT OR IGNORE INTO ai_schema_migrations(
                     version,checksum,applied_at
