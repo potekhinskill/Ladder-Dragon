@@ -82,10 +82,12 @@ from ladder_dragon.supervision.recovery_gate import (
     pre_running_recovery_gate,
 )
 from ladder_dragon.supervision.risk_cycle import (
+    RiskConfigurationError,
     build_risk_snapshot,
     configured_price_shocks_decimal as _configured_price_shocks_decimal,
     initial_runtime_risk_gate,
     initial_runtime_risk_status,
+    risk_configuration_block,
     remaining_order_budget_decimal as _remaining_order_budget_decimal,
 )
 from ladder_dragon.supervision.symbol_service import (
@@ -4513,9 +4515,8 @@ def main():
                 # is sufficient to show a live process in the dashboard.
                 next_runtime_heartbeat = now_loop + 30.0
             if risk_manager is not None and now_loop >= next_risk_check:
-                # Run risk checks before symbol planning. On any block, stop
-                # workers and cancel only new BUY orders.
                 orders: List[Dict[str, Any]] = []
+                risk_configuration_blocked = False
                 try:
                     snapshot, orders, prices = _build_risk_snapshot(symbols, limits)
                     risk_snapshot_available = True
@@ -4587,9 +4588,7 @@ def main():
                                 for symbol, value in snapshot.symbol_exposure_usdt.items()
                             },
                         )
-                        cluster_mode = _control_mode(
-                            "RISK_CLUSTER_GATE_MODE"
-                        )
+                        cluster_mode = _control_mode("RISK_CLUSTER_GATE_MODE")
                         symbol_caps = {
                             symbol: min(
                                 safe_cap,
@@ -4650,9 +4649,7 @@ def main():
                             "reasons": list(decision.reasons),
                             "consecutive_api_failures": consecutive_api_failures,
                             "current_cap_per_order_usdt": os.getenv("BOT_CAP_PER_ORDER"),
-                            "operator_cap_per_order_usdt": os.getenv(
-                                "BOT_OPERATOR_CAP_PER_ORDER_USDT"
-                            ),
+                            "operator_cap_per_order_usdt": os.getenv("BOT_OPERATOR_CAP_PER_ORDER_USDT"),
                             "symbol_caps_usdt": {
                                 symbol: os.getenv(f"RISK_SYMBOL_CAP_{symbol.upper()}")
                                 for symbol in symbols
@@ -4666,10 +4663,7 @@ def main():
                                 "open_order_count": snapshot.open_order_count,
                                 "daily_trade_count": snapshot.daily_trade_count,
                                 "stale_order_count": snapshot.stale_order_count,
-                                "correlation_clusters": [
-                                    list(cluster)
-                                    for cluster in snapshot.correlation_clusters
-                                ],
+                                "correlation_clusters": [list(cluster) for cluster in snapshot.correlation_clusters],
                                 "cluster_exposure_usdt": {
                                     key: str(value)
                                     for key, value in (
@@ -4679,15 +4673,20 @@ def main():
                                 "liquidity_blocked_symbols": list(
                                     snapshot.liquidity_blocked_symbols
                                 ),
-                                "cluster_gate_mode": _control_mode(
-                                    "RISK_CLUSTER_GATE_MODE"
-                                ),
+                                "configuration_error": None,
+                                "cluster_gate_mode": _control_mode("RISK_CLUSTER_GATE_MODE"),
                             },
                         }
                     )
+                except RiskConfigurationError as exc:
+                    risk_snapshot_available = False
+                    risk_configuration_blocked = True
+                    reason, decision, configuration_status = risk_configuration_block(
+                        exc, consecutive_api_failures
+                    )
+                    _publish_ai_runtime_status(risk=configuration_status)
                 except SUPERVISOR_OPERATION_ERRORS as exc:
-                    # Unavailable telemetry is not a safe state: new BUY orders
-                    # are blocked and a cooldown starts after repeated errors.
+                    # Unavailable telemetry blocks BUY and can start cooldown.
                     risk_snapshot_available = False
                     consecutive_api_failures += 1
                     threshold = max(1, int(os.getenv("RISK_API_FAILURE_THRESHOLD", "3")))
@@ -4743,7 +4742,8 @@ def main():
                 risk_buy_blocked = decision.buy_blocked
                 if risk_buy_blocked:
                     reason = "; ".join(decision.reasons) or "risk limit"
-                    if risk_manager is not None and not decision.halted and not was_buy_blocked:
+                    if (risk_manager is not None and not decision.halted
+                            and not was_buy_blocked and not risk_configuration_blocked):
                         risk_manager.start_cooldown(reason)
                     if not _stop_children(reason):
                         halt_reason = (

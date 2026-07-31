@@ -24,6 +24,7 @@ SERVICES_STOPPED=0
 PREVIOUS_HEAD=""
 CHECKOUT_ADVANCED=0
 EXTERNAL_DEPLOYMENT_MUTATED=0
+MIGRATE_RECONCILE_TOLERANCE=0
 
 fail() {
   echo "[FAIL] $*" >&2
@@ -436,6 +437,15 @@ if [[ "${ACTION}" == "update" ]]; then
 fi
 
 [[ -f .env ]] || fail "configure ${PROJECT_DIR}/.env before deployment"
+if ! grep -q '^RISK_RECONCILE_TOLERANCE_FRACTION=' .env; then
+  legacy_reconcile_tolerance="$(
+    sed -n 's/^RISK_RECONCILE_TOLERANCE_PCT=//p' .env | head -1
+  )"
+  case "${legacy_reconcile_tolerance}" in
+    ""|0.02) MIGRATE_RECONCILE_TOLERANCE=1 ;;
+    *) fail "custom legacy reconciliation tolerance requires explicit migration" ;;
+  esac
+fi
 [[ -f .env.service ]] \
   || fail ".env.service is missing; run install_raspberry_pi.sh migrate first"
 systemctl cat mybot 2>/dev/null | grep -q 'deploy/run_bot_service.sh' \
@@ -510,6 +520,9 @@ set_env_value .env BOT_TESTNET_RUN_DIR /run/mybot/testnet
 set_env_value .env AI_RUNTIME_STATUS_FILE /run/mybot/ai_status.json
 set_env_value .env BINANCE_AUTH_STATE_FILE \
   "${PROJECT_DIR}/db/auth_resilience.json"
+if [[ "${MIGRATE_RECONCILE_TOLERANCE}" == "1" ]]; then
+  set_env_value .env RISK_RECONCILE_TOLERANCE_FRACTION 0.001
+fi
 if ! grep -q '^BINANCE_PUBLIC_IP_ENDPOINTS=' .env; then
   printf 'BINANCE_PUBLIC_IP_ENDPOINTS=https://api.ipify.org,https://checkip.amazonaws.com\n' >>.env
 fi

@@ -68,7 +68,8 @@ Historical virtual documents are archive data and cannot enter retrieval.
 | `RISK_PORTFOLIO_*` | portfolio exposure limits |
 | `RISK_DAILY_*` | turnover, BUY, and trade-count limits |
 | `RISK_RESERVE_USDT` | minimum free quote reserve |
-| `RISK_RECONCILE_*` | account and ledger reconciliation |
+| `RISK_RECONCILE_TOLERANCE_FRACTION` | account and ledger quantity tolerance; `0.001` means 0.1% |
+| `RISK_RECONCILE_*` | account and ledger reconciliation controls |
 | `RISK_VAR_*` | optional Value at Risk gate |
 | `RISK_EXPECTED_SHORTFALL_*` | optional Expected Shortfall gate |
 | `RISK_CLUSTER_*` | correlation-cluster evidence and limits |

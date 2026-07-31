@@ -3,6 +3,26 @@
 All notable changes are documented here. Releases use Semantic Versioning; every
 section is dated and there is intentionally no `Unreleased` section.
 
+## [2.20.110] — 2026-08-01
+
+### Fixed
+- Partially filled BUY orders now add only their unfilled quantity to portfolio,
+  symbol, correlated, and remaining-budget exposure.
+- Reconciliation tolerance now uses the unambiguous `_FRACTION` name, a 0.1%
+  default, and a strict 0-to-5% range.
+- Missing Value at Risk history now creates a configuration block. It does not
+  increment API failures or start an API cooldown.
+
+### Changed
+- The legacy `RISK_RECONCILE_TOLERANCE_PCT` name remains a deprecated fallback.
+  The new variable takes priority when both names exist.
+- The Raspberry updater migrates only the previous 2% default. It blocks before
+  service shutdown when it finds a custom legacy value.
+
+### Verified
+- Partial-fill exposure, invalid quantity, tolerance migration, configuration
+  classification, risk regression, and complete project tests pass.
+
 ## [2.20.109] — 2026-08-01
 
 ### Fixed

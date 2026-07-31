@@ -13,6 +13,7 @@ from typing import Any, Dict, List, Mapping, Sequence
 import requests
 
 from ladder_dragon.risk.risk_manager import (
+    RiskDecision,
     RiskLimits,
     RiskSnapshot,
     money,
@@ -27,6 +28,61 @@ from ladder_dragon.risk.risk_statistics import (
     stress_loss_decimal,
 )
 from ladder_dragon.supervision.entry_policy import finite_decimal
+
+
+class RiskConfigurationError(RuntimeError):
+    """Report a deterministic risk configuration block."""
+
+
+def risk_configuration_block(
+    error: RiskConfigurationError,
+    consecutive_api_failures: int,
+) -> tuple[str, RiskDecision, dict[str, object]]:
+    """Build a fail-closed status without changing the API failure count."""
+    reason = f"risk configuration blocked: {error}"
+    decision = RiskDecision(halted=False, buy_blocked=True, reasons=(reason,))
+    status = {
+        "buy_blocked": True,
+        "halted": False,
+        "reasons": [reason],
+        "configuration_error": str(error),
+        "consecutive_api_failures": consecutive_api_failures,
+    }
+    return reason, decision, status
+
+
+def reconciliation_tolerance_fraction(
+    environment: Mapping[str, str],
+) -> tuple[Decimal, bool]:
+    """Return a bounded fraction and whether the legacy name supplied it."""
+    current = environment.get("RISK_RECONCILE_TOLERANCE_FRACTION", "").strip()
+    legacy = environment.get("RISK_RECONCILE_TOLERANCE_PCT", "").strip()
+    raw = current or legacy or "0.001"
+    try:
+        value = finite_decimal(raw, name="reconciliation tolerance fraction")
+    except (ArithmeticError, TypeError, ValueError) as exc:
+        raise RiskConfigurationError(
+            "reconciliation tolerance fraction must be finite"
+        ) from exc
+    if value < 0 or value > Decimal("0.05"):
+        raise RiskConfigurationError(
+            "reconciliation tolerance fraction must be between 0 and 0.05"
+        )
+    return value, bool(legacy and not current)
+
+
+def remaining_open_buy_notional(order: Mapping[str, object]) -> Decimal:
+    """Value only the unfilled quantity of one open BUY order."""
+    price = finite_decimal(order.get("price", "0"), name="open BUY price")
+    original = finite_decimal(
+        order.get("origQty", "0"), name="open BUY original quantity"
+    )
+    executed = finite_decimal(
+        order.get("executedQty", "0"), name="open BUY executed quantity"
+    )
+    if price < 0 or original < 0 or executed < 0 or executed > original:
+        raise ValueError("open BUY quantities and price are inconsistent")
+    return price * (original - executed)
 
 
 def initial_runtime_risk_gate(
@@ -173,13 +229,16 @@ def build_risk_snapshot(
     # Strict reconciliation prevents a risk snapshot from mixing divergent
     # Binance account and local inventory-ledger data.
     if env_flag("RISK_RECONCILE_STRICT", True):
-        tolerance = max(
-            Decimal("0"),
-            exact_decimal(
-                os.getenv("RISK_RECONCILE_TOLERANCE_PCT", "0.02") or "0.02",
-                name="reconciliation tolerance",
-            ),
+        tolerance, used_legacy_tolerance = reconciliation_tolerance_fraction(
+            os.environ
         )
+        if used_legacy_tolerance:
+            log_info_rate_limited(
+                "legacy-risk-reconcile-tolerance",
+                "[CONFIG] RISK_RECONCILE_TOLERANCE_PCT is deprecated; "
+                "use RISK_RECONCILE_TOLERANCE_FRACTION",
+                interval_sec=3600,
+            )
         grace_sec = max(0.0, analytics_float(os.getenv("RISK_RECONCILE_GRACE_SEC", "5") or 5))
         retry_sec = max(0.05, analytics_float(os.getenv("RISK_RECONCILE_RETRY_SEC", "0.25") or 0.25))
         dust_steps = max(
@@ -334,7 +393,7 @@ def build_risk_snapshot(
             holdings_exposure += value
 
     open_buy = sum(
-        money(order.get("price")) * money(order.get("origQty"))
+        remaining_open_buy_notional(order)
         for order in orders
         if str(order.get("side", "")).upper() == "BUY"
     )
@@ -343,7 +402,7 @@ def build_risk_snapshot(
         symbol: asset_values.get(symbol_assets(symbol)[0], Decimal("0"))
         + sum(
             (
-                money(order.get("price")) * money(order.get("origQty"))
+                remaining_open_buy_notional(order)
                 for order in orders
                 if str(order.get("symbol", "")).upper() == symbol
                 and str(order.get("side", "")).upper() == "BUY"
@@ -395,7 +454,7 @@ def build_risk_snapshot(
                 and symbol not in histories
             )
             if missing_var_history:
-                raise RuntimeError(
+                raise RiskConfigurationError(
                     "VaR history unavailable for configured exposure: "
                     + ",".join(missing_var_history)
                 )
@@ -430,7 +489,7 @@ def build_risk_snapshot(
         asset_values.get(symbol_assets(symbol)[0], Decimal("0"))
         for symbol in symbols if symbol in correlated_symbols
     ) + sum(
-        money(order.get("price")) * money(order.get("origQty"))
+        remaining_open_buy_notional(order)
         for order in orders
         if str(order.get("side", "")).upper() == "BUY"
         and str(order.get("symbol", "")).upper() in correlated_symbols

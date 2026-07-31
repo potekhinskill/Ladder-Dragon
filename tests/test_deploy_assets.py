@@ -897,6 +897,17 @@ def test_updates_are_commit_allowlisted_and_backups_are_encrypted():
     assert "external-mount.conf" in installer
 
 
+def test_updater_migrates_only_the_previous_reconciliation_default():
+    updater = read("deploy/update_raspberry_pi.sh")
+    assert "MIGRATE_RECONCILE_TOLERANCE=0" in updater
+    assert '""|0.02) MIGRATE_RECONCILE_TOLERANCE=1' in updater
+    assert "custom legacy reconciliation tolerance requires explicit migration" in updater
+    assert "set_env_value .env RISK_RECONCILE_TOLERANCE_FRACTION 0.001" in updater
+    assert updater.index("custom legacy reconciliation tolerance") < updater.index(
+        "SERVICES_STOPPED=1\nsystemctl stop mybot"
+    )
+
+
 def test_updater_preserves_stopped_services_and_does_not_arm_watchdog():
     updater = read("deploy/update_raspberry_pi.sh")
     assert 'MYBOT_WAS_ACTIVE="$(service_flag is-active mybot)"' in updater

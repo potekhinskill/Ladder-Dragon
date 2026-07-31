@@ -4,6 +4,20 @@ Read this file before changing the repository. Record only decisions that were
 validated by tests or production evidence and are likely to be reused. Keep
 entries concise; this is not a changelog or an activity log.
 
+### 2026-08-01 — Separate exposure from acquired inventory
+
+- **Context:** a partial BUY fill exists in account holdings while its remainder stays in the order book.
+- **Decision:** value holdings once and add only each open BUY remainder to risk exposure.
+- **Why it worked:** exact regressions prove partial quantity is not duplicated across portfolio, symbol, or correlated exposure.
+- **Reuse:** every risk calculation that combines settled balances with partially executed orders.
+
+### 2026-08-01 — Classify deterministic risk blocks separately
+
+- **Context:** missing configured VaR history cannot recover through API retry or cooldown.
+- **Decision:** block BUY with configuration telemetry and preserve the current API failure count.
+- **Why it worked:** regressions prove configuration errors bypass API counting and API cooldown paths.
+- **Reuse:** every fail-closed condition caused by configuration or required local evidence.
+
 ### 2026-08-01 — Read stop state at every exchange boundary
 
 - **Context:** a copied Boolean cannot observe a signal that arrives during a multi-order batch.
