@@ -198,9 +198,11 @@ def build_non_filling_limit_buy(
 ) -> dict[str, str]:
     market = decimal(market_price)
     requested_notional = max(decimal(notional_usdt), rules["min_notional"] * Decimal("1.1"))
-    raw_price = market * Decimal("0.50")
+    # LIMIT_MAKER makes the drill non-taking. A one-percent offset stays close
+    # enough to the reference price for normal PERCENT_PRICE filters.
+    raw_price = market * Decimal("0.99")
     qty, price = normalized_order_values(
-        requested_notional / raw_price,
+        requested_notional / raw_price + rules["step"],
         raw_price,
         step=rules["step"],
         tick=rules["tick"],
@@ -211,8 +213,7 @@ def build_non_filling_limit_buy(
     return {
         "symbol": symbol,
         "side": "BUY",
-        "type": "LIMIT",
-        "timeInForce": "GTC",
+        "type": "LIMIT_MAKER",
         "quantity": qty,
         "price": price,
         "newOrderRespType": "RESULT",

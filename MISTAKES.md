@@ -17,6 +17,17 @@ private infrastructure details.
 
 ## Mistakes
 
+### 2026-08-01 — Used a non-filling price outside exchange filters
+
+- **Impact:** the controlled Testnet drill connected and reconnected, but
+  Binance rejected its order before an authenticated order event existed.
+- **Root cause:** the reused smoke builder placed a LIMIT BUY fifty percent
+  below market without checking the percent-price filter.
+- **Correction:** use `LIMIT_MAKER` one percent below the current price and
+  retain the notional ceiling and confirmed cleanup.
+- **Prevention:** every exchange drill order must prove both non-taking behavior
+  and compliance with current symbol filters.
+
 ### 2026-08-01 — Allowed a signed Testnet URL into a traceback
 
 - **Impact:** a rejected Testnet mutation printed a short-lived request

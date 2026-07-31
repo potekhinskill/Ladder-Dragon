@@ -3,6 +3,18 @@
 All notable changes are documented here. Releases use Semantic Versioning; every
 section is dated and there is intentionally no `Unreleased` section.
 
+## [2.20.106] — 2026-08-01
+
+### Fixed
+- The Testnet drill now uses a `LIMIT_MAKER` BUY one percent below the current
+  price instead of a LIMIT BUY fifty percent below it.
+- The bounded order stays near the reference price and cannot execute as a
+  taker.
+
+### Verified
+- Maker-only parameters, filter-compatible price distance, Testnet cleanup,
+  and complete project tests pass.
+
 ## [2.20.105] — 2026-08-01
 
 ### Security

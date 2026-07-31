@@ -146,8 +146,10 @@ def test_limit_smoke_order_is_below_market_and_respects_filters():
         },
         notional_usdt="10",
     )
-    assert Decimal(params["price"]) == Decimal("50.00")
+    assert Decimal(params["price"]) == Decimal("99.00")
     assert Decimal(params["quantity"]) * Decimal(params["price"]) >= Decimal("10")
+    assert params["type"] == "LIMIT_MAKER"
+    assert "timeInForce" not in params
     assert params["newClientOrderId"].startswith("LDBSMO-")
 
 
