@@ -196,6 +196,7 @@ function ensureCharts(){
     t: new Chart($('#chartTemp'), { ...base, data:{labels:[],datasets:[{data:[],borderWidth:2}]} }),
     c: new Chart($('#chartCPU'),  { ...base, data:{labels:[],datasets:[{data:[],borderWidth:2}]} }),
     m: new Chart($('#chartMem'),  { ...base, data:{labels:[],datasets:[{data:[],borderWidth:2}]} }),
+    v: new Chart($('#chartTradingVolume'), { ...base, data:{labels:[],datasets:[{data:[],borderWidth:2}]} }),
   };
 }
 
@@ -618,6 +619,12 @@ function updateCharts(hist){
   charts.t.data.labels = hist.labels; charts.t.data.datasets[0].data = hist.temp_c; charts.t.update();
   charts.c.data.labels = hist.labels; charts.c.data.datasets[0].data = hist.cpu_pct; charts.c.update();
   charts.m.data.labels = hist.labels; charts.m.data.datasets[0].data = hist.mem_used_gib; charts.m.update();
+  charts.v.data.labels = hist.labels;
+  charts.v.data.datasets[0].data = (hist.trading_volume_24h_usdt||[]).map(value=>{
+    const parsed=Number(value);
+    return Number.isFinite(parsed)?parsed:null;
+  });
+  charts.v.update();
 }
 
 /* ==== Realized orders for the last 24 hours ==== */

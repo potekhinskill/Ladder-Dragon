@@ -33,6 +33,10 @@ from ladder_dragon.execution.telegram_alerts import notify_binance_auth_error
 from ladder_dragon.dashboard.app_factory import create_dashboard_app
 from ladder_dragon.dashboard.dependencies import open_read_only_sqlite
 from ladder_dragon.dashboard.services.accounting import base_asset_of
+from ladder_dragon.dashboard.services.host_telemetry import (
+    load_history_payload,
+    rolling_trade_volume_24h_usdt,
+)
 from ladder_dragon.dashboard.services.runtime_health import runtime_degraded_reason
 
 APP_TZ = ZoneInfo("Asia/Almaty")
@@ -2104,31 +2108,27 @@ def account_open_orders():
 @app.get("/api/history")
 def history(hours: int = 24, points: int = 288):
     hours = max(1, min(hours, 168))
-    cutoff = int(time.time()) - hours*3600
-    rows = []
+    payload = load_history_payload(
+        HIST_FILE,
+        cutoff_epoch=int(time.time()) - hours * 3600,
+        points=points,
+        timezone=APP_TZ,
+    )
+    epochs = payload.pop("_epochs")
+    connection = None
     try:
-        with open(HIST_FILE) as f:
-            for line in f:
-                try:
-                    obj = json.loads(line)
-                    if obj.get("ts",0) >= cutoff:
-                        rows.append(obj)
-                except (json.JSONDecodeError, TypeError, ValueError):
-                    continue
-    except FileNotFoundError:
-        rows = []
-
-    if len(rows) > points and points > 0:
-        step = max(1, len(rows)//points)
-        rows = rows[::step]
-
-    labels = [datetime.fromtimestamp(r["ts"], APP_TZ).strftime("%H:%M") for r in rows]
-    return JSONResponse({
-        "labels": labels,
-        "temp_c": [r.get("temp_c") for r in rows],
-        "mem_used_gib": [r.get("mem_used_gib") for r in rows],
-        "cpu_pct": [r.get("cpu_pct") for r in rows],
-    })
+        connection, _ = _open_db()
+        payload["trading_volume_24h_usdt"] = rolling_trade_volume_24h_usdt(
+            connection, epochs
+        )
+        payload["trading_volume_24h_status"] = "exact"
+    except (OSError, sqlite3.Error, RuntimeError, ValueError):
+        payload["trading_volume_24h_usdt"] = [None] * len(epochs)
+        payload["trading_volume_24h_status"] = "unavailable"
+    finally:
+        if connection is not None:
+            connection.close()
+    return JSONResponse(payload)
 
 
 def _ai_cache_get(key: str) -> Optional[Dict]:

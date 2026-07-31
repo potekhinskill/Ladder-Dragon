@@ -4,6 +4,19 @@ Read this file before changing the repository. Record only decisions that were
 validated by tests or production evidence and are likely to be reused. Keep
 entries concise; this is not a changelog or an activity log.
 
+### 2026-07-31 — Plot trading turnover independently from PnL
+
+- **Context:** sell volume, cash flow and realized PnL answer different
+  questions and cannot represent total exchange activity on one chart.
+- **Decision:** chart trailing 24-hour executed BUY plus SELL quote turnover at
+  every host sample, aggregate money with `Decimal`, and exclude fills newer
+  than the plotted timestamp.
+- **Why it worked:** exact-window and API regressions prove both sides are
+  counted, the boundary is rolling, future fills do not leak and missing trade
+  data degrades only the new series.
+- **Reuse:** every operational chart or report that visualizes trading activity
+  separately from profitability and account-value change.
+
 ### 2026-07-29 — Scope soak failures to the audited runtime window
 
 - **Context:** immutable historical failures remain useful evidence but cannot

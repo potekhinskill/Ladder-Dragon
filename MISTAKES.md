@@ -17,6 +17,18 @@ private infrastructure details.
 
 ## Mistakes
 
+### 2026-07-31 — Assumed dashboard lifespan would not collect during an API test
+
+- **Impact:** the first focused chart run failed two new assertions even though
+  the endpoint returned correctly aligned exact and unavailable series.
+- **Root cause:** the tests expected one immutable metrics row while
+  `TestClient` correctly started the application lifespan collector, which
+  appended current host samples to the isolated history file.
+- **Correction:** assert value semantics and equal series lengths independently
+  of the number of samples collected during the request.
+- **Prevention:** dashboard API tests that start the lifespan must either stub
+  the collector explicitly or treat its additional telemetry rows as normal.
+
 ### 2026-07-29 — Applied a lifetime failure count to a bounded soak
 
 - **Impact:** after fixing pending horizons, 26 immutable historical

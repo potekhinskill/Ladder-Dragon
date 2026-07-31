@@ -3,6 +3,21 @@
 All notable changes are documented here. Releases use Semantic Versioning; every
 section is dated and there is intentionally no `Unreleased` section.
 
+## [2.20.99] — 2026-07-31
+
+### Added
+- The dashboard chart grid now includes exact rolling 24-hour trading volume
+  in USDT next to memory, using both executed BUY and SELL quote turnover.
+
+### Security
+- Financial aggregation uses `Decimal`, excludes future fills at every chart
+  timestamp, and degrades only the volume series when exact trade data is
+  unavailable. It does not change trading, HALT, SHADOW or order authority.
+
+### Verified
+- Exact-window, no-look-ahead, localization and responsive chart wiring
+  regressions pass; complete verification is recorded before publication.
+
 ## [2.20.98] — 2026-07-29
 
 ### Fixed

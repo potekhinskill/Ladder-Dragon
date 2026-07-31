@@ -175,7 +175,7 @@
     </div>
   </section>
 
-  <!-- Charts: two in a row plus one full-width chart below. -->
+  <!-- Charts: four operational series in a responsive two-column grid. -->
   <section class="grid-charts mt">
     <div class="card">
       <div class="chart-title" data-i18n="chart_temperature">Temperature (24h)</div>
@@ -185,9 +185,13 @@
       <div class="chart-title" data-i18n="chart_cpu">CPU, % (24h)</div>
       <div class="chart-frame"><canvas id="chartCPU"></canvas></div>
     </div>
-    <div class="card full">
+    <div class="card">
       <div class="chart-title" data-i18n="chart_memory">Memory, GiB (24h)</div>
       <div class="chart-frame"><canvas id="chartMem"></canvas></div>
+    </div>
+    <div class="card">
+      <div class="chart-title" data-i18n="chart_trading_volume_24h">Trading volume, USDT (24h)</div>
+      <div class="chart-frame"><canvas id="chartTradingVolume"></canvas></div>
     </div>
   </section>
 
