@@ -17,6 +17,17 @@ private infrastructure details.
 
 ## Mistakes
 
+### 2026-08-01 — Allowed a signed Testnet URL into a traceback
+
+- **Impact:** a rejected Testnet mutation printed a short-lived request
+  signature in local diagnostic output.
+- **Root cause:** the drill used `requests.raise_for_status()`, whose default
+  exception message includes the complete prepared URL.
+- **Correction:** replace the default exception with a bounded error that keeps
+  only HTTP status, Binance code, exception class, and endpoint path.
+- **Prevention:** every signed HTTP client must have a regression that rejects
+  URLs, query parameters, signatures, keys, and secrets in exception text.
+
 ### 2026-08-01 — Repeated manual expansion of a release SHA
 
 - **Impact:** one release harness ran with a false expected SHA and was stopped before it created an artifact.

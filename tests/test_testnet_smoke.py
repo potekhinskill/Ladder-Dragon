@@ -15,6 +15,7 @@ from ladder_dragon.verification.live.testnet_smoke import (
     execute_buy_oco_lifecycle,
     run_circuit_drill,
     SpotTestnetClient,
+    BinanceTestnetResponseError,
     symbol_rules,
     validate_testnet_base,
 )
@@ -36,6 +37,101 @@ def test_smoke_client_refuses_mainnet_and_lookalike_hosts():
         SpotTestnetClient("https://testnet.binance.vision").signed(
             "GET", "/api/v3/account"
         )
+
+
+def test_signed_testnet_error_never_retains_signed_url():
+    class Response:
+        status_code = 400
+        headers = {"Content-Length": "47"}
+
+        def iter_content(self, chunk_size):
+            assert chunk_size == 8192
+            yield b'{"code":-1013,"msg":"Filter failure: PRICE_FILTER"}'
+
+        def close(self):
+            return None
+
+    class Session:
+        headers = {}
+
+        def request(self, method, url, **kwargs):
+            assert kwargs["stream"] is True
+            assert "signature" in kwargs["params"]
+            return Response()
+
+    client = SpotTestnetClient(
+        "https://testnet.binance.vision",
+        api_key="test-key",
+        api_secret="test-secret",
+    )
+    client.session = Session()
+
+    with pytest.raises(BinanceTestnetResponseError) as captured:
+        client.signed("POST", "/api/v3/order", {"symbol": "SOLUSDT"})
+
+    diagnostic = str(captured.value)
+    assert diagnostic == (
+        "Binance Testnet HTTP 400 code=-1013 endpoint=/api/v3/order"
+    )
+    assert "signature=" not in diagnostic
+    assert "test-secret" not in diagnostic
+    assert "test-key" not in diagnostic
+
+
+def test_signed_testnet_network_error_discards_request_url():
+    class Session:
+        headers = {}
+
+        def request(self, method, url, **kwargs):
+            raise requests.Timeout(
+                f"timeout for {url}?signature=temporary-secret"
+            )
+
+    client = SpotTestnetClient(
+        "https://testnet.binance.vision",
+        api_key="test-key",
+        api_secret="test-secret",
+    )
+    client.session = Session()
+
+    with pytest.raises(RuntimeError) as captured:
+        client.signed("POST", "/api/v3/order", {"symbol": "SOLUSDT"})
+
+    diagnostic = str(captured.value)
+    assert diagnostic == (
+        "Binance Testnet network failure: Timeout endpoint=/api/v3/order"
+    )
+    assert "signature=" not in diagnostic
+    assert "temporary-secret" not in diagnostic
+
+
+def test_testnet_response_rejects_declared_oversize():
+    class Response:
+        status_code = 200
+        headers = {"Content-Length": "65537"}
+        closed = False
+
+        def iter_content(self, chunk_size):
+            raise AssertionError("oversize response must fail before reading")
+
+        def close(self):
+            self.closed = True
+
+    response = Response()
+
+    class Session:
+        headers = {}
+
+        def request(self, method, url, **kwargs):
+            return response
+
+    client = SpotTestnetClient("https://testnet.binance.vision")
+    client.session = Session()
+
+    with pytest.raises(ValueError, match="exceeds the byte limit"):
+        client.public_get("/api/v3/time")
+
+    assert response.closed is True
 
 
 def test_limit_smoke_order_is_below_market_and_respects_filters():

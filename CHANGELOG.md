@@ -3,6 +3,19 @@
 All notable changes are documented here. Releases use Semantic Versioning; every
 section is dated and there is intentionally no `Unreleased` section.
 
+## [2.20.105] — 2026-08-01
+
+### Security
+- Testnet HTTP and network errors now contain only the status, Binance code,
+  exception class, and endpoint path.
+- Signed URLs, query parameters, and request signatures cannot enter a
+  traceback from the Testnet client.
+- Testnet response JSON now has a strict 64 KiB decoded-byte limit.
+
+### Verified
+- Signed-error redaction, bounded response, Testnet smoke, documentation, and
+  complete project tests pass.
+
 ## [2.20.104] — 2026-08-01
 
 ### Added

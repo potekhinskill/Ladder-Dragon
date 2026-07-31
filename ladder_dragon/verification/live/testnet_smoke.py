@@ -46,6 +46,43 @@ from ladder_dragon.verification.live.user_stream_drill import (
 
 DEFAULT_BASE = "https://testnet.binance.vision"
 ALLOWED_HOST = "testnet.binance.vision"
+MAX_TESTNET_RESPONSE_BYTES = 65_536
+
+
+class BinanceTestnetResponseError(RuntimeError):
+    """Describe a Testnet rejection without retaining a signed request URL."""
+
+    def __init__(self, *, status: int, code: object, endpoint: str) -> None:
+        self.status = int(status)
+        self.code = code
+        self.endpoint = endpoint
+        super().__init__(
+            f"Binance Testnet HTTP {self.status} code={self.code} "
+            f"endpoint={self.endpoint}"
+        )
+
+
+def _bounded_response_json(response: requests.Response) -> Any:
+    """Decode one bounded JSON response without trusting Content-Length."""
+    content_length = response.headers.get("Content-Length")
+    if content_length is not None:
+        try:
+            declared = int(content_length)
+        except (TypeError, ValueError) as exc:
+            raise ValueError("Testnet response Content-Length is invalid") from exc
+        if declared < 0 or declared > MAX_TESTNET_RESPONSE_BYTES:
+            raise ValueError("Testnet response exceeds the byte limit")
+    body = bytearray()
+    for chunk in response.iter_content(chunk_size=8192):
+        if not chunk:
+            continue
+        body.extend(chunk)
+        if len(body) > MAX_TESTNET_RESPONSE_BYTES:
+            raise ValueError("Testnet response exceeds the byte limit")
+    try:
+        return json.loads(body.decode("utf-8"))
+    except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raise ValueError("Testnet response is not valid JSON") from exc
 
 
 def validate_testnet_base(base_url: str) -> str:
@@ -66,9 +103,44 @@ class SpotTestnetClient:
             self.session.headers.update({"X-MBX-APIKEY": api_key})
 
     def public_get(self, path: str, params: dict[str, Any] | None = None) -> Any:
-        response = self.session.get(self.base_url + path, params=params, timeout=10)
-        response.raise_for_status()
-        return response.json()
+        return self._request_json("GET", path, dict(params or {}))
+
+    def _request_json(
+        self,
+        method: str,
+        path: str,
+        params: dict[str, Any],
+    ) -> Any:
+        try:
+            response = self.session.request(
+                method.upper(),
+                self.base_url + path,
+                params=params,
+                timeout=10,
+                stream=True,
+            )
+        except requests.RequestException as exc:
+            raise RuntimeError(
+                f"Binance Testnet network failure: {type(exc).__name__} "
+                f"endpoint={path}"
+            ) from None
+        try:
+            payload = _bounded_response_json(response)
+            if response.status_code >= 400:
+                code = payload.get("code") if isinstance(payload, dict) else None
+                raise BinanceTestnetResponseError(
+                    status=response.status_code,
+                    code=code,
+                    endpoint=path,
+                )
+            return payload
+        except requests.RequestException as exc:
+            raise RuntimeError(
+                f"Binance Testnet response failure: {type(exc).__name__} "
+                f"endpoint={path}"
+            ) from None
+        finally:
+            response.close()
 
     def signed(self, method: str, path: str, params: dict[str, Any] | None = None) -> Any:
         if not self.api_key or not self.api_secret:
@@ -80,11 +152,7 @@ class SpotTestnetClient:
         payload["signature"] = hmac.new(
             self.api_secret.encode(), query.encode(), hashlib.sha256
         ).hexdigest()
-        response = self.session.request(
-            method.upper(), self.base_url + path, params=payload, timeout=10
-        )
-        response.raise_for_status()
-        return response.json()
+        return self._request_json(method, path, payload)
 
 
 def symbol_rules(exchange_info: dict[str, Any]) -> dict[str, Decimal]:
