@@ -780,3 +780,14 @@ sudo nginx -t
 
 Do not reset a persistent circuit halt until the account, open orders, ledger,
 and position protection have been reconciled manually.
+
+If the journal contains a removed symbol, keep HALT active.
+
+1. Stop the bot service.
+2. Add the exact symbol to the reviewed configuration.
+3. Start the bot and let startup recovery reconcile the intent.
+4. Verify the exchange order and journal state.
+5. Remove the symbol only after the intent reaches a terminal state.
+
+Do not edit the SQLite journal manually. Keep the bot stopped if recovery
+cannot prove the terminal exchange state.

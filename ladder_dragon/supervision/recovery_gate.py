@@ -7,9 +7,11 @@
 import json
 import os
 import re
+import shutil
+import time
 from collections.abc import Mapping, Sequence
 from pathlib import Path
-from typing import Any
+from typing import Any, NoReturn
 
 import requests
 
@@ -28,30 +30,63 @@ def create_manual_halt_once(
 ) -> None:
     """Persist one safety reason and repair its telemetry without repeat alerts."""
     resolved_limits = limits or RiskLimits.from_env()
+    halt_path = Path(resolved_limits.halt_file)
     try:
-        payload = json.loads(
-            Path(resolved_limits.halt_file).read_text(encoding="utf-8")
-        )
-        if reason in list(payload.get("reasons") or []):
+        payload = json.loads(halt_path.read_text(encoding="utf-8"))
+        if not isinstance(payload, dict):
+            raise TypeError("halt marker root must be an object")
+        reasons = payload.get("reasons")
+        if (
+            not isinstance(reasons, list)
+            or not reasons
+            or not all(isinstance(item, str) and item for item in reasons)
+            or not isinstance(payload.get("halted_at"), str)
+            or not payload.get("halted_at")
+            or isinstance(payload.get("cooldown_until"), bool)
+            or not isinstance(payload.get("cooldown_until"), (int, float))
+        ):
+            raise TypeError("halt marker schema is invalid")
+        if reason in reasons:
             if not sync_manual_halt_state(resolved_limits):
                 raise RuntimeError(
                     "existing halt marker could not be mirrored to risk state"
                 )
             return
-    except (FileNotFoundError, json.JSONDecodeError, OSError, TypeError):
+    except FileNotFoundError:
         pass
+    except (json.JSONDecodeError, TypeError):
+        archive = halt_path.with_name(
+            f"{halt_path.name}.corrupt-{time.time_ns()}"
+        )
+        try:
+            shutil.copy2(halt_path, archive)
+            archive.chmod(0o600)
+        except OSError as exc:
+            raise RuntimeError(
+                "corrupt halt marker could not be archived"
+            ) from exc
+    except OSError as exc:
+        raise RuntimeError("halt marker could not be read") from exc
     create_manual_halt(reason, limits=resolved_limits, metadata=metadata)
 
 
 def exchange_order_absent(exc: BaseException) -> bool:
     """Return whether Binance definitively reported a missing order."""
-    text = str(exc).lower()
-    return (
-        "code=-2013" in text
-        or "'code': -2013" in text
-        or '"code": -2013' in text
-        or "order does not exist" in text
+    current: BaseException | None = exc
+    seen: set[int] = set()
+    code_pattern = re.compile(
+        r"(?:^|[\s,{])(?:['\"]?code['\"]?)\s*[:=]\s*-2013(?!\d)"
     )
+    while current is not None and id(current) not in seen:
+        seen.add(id(current))
+        code = getattr(current, "code", None)
+        if code == -2013 or str(code).strip() == "-2013":
+            return True
+        text = str(current).lower()
+        if code_pattern.search(text) or "order does not exist" in text:
+            return True
+        current = current.__cause__ or current.__context__
+    return False
 
 
 def bounded_recovery_reason(exc: BaseException) -> str:
@@ -82,6 +117,24 @@ def _runtime_dependency(runtime: Mapping[str, object], name: str) -> Any:
         ) from exc
 
 
+def _halt_recovery(
+    create_halt: Any,
+    reason: str,
+    *,
+    gate: str,
+    metadata: dict[str, object] | None = None,
+    cause: BaseException | None = None,
+) -> NoReturn:
+    """Persist one startup invariant failure before stopping recovery."""
+    create_halt(
+        reason,
+        metadata={"gate": gate, **(metadata or {})},
+    )
+    if cause is not None:
+        raise RuntimeError(reason) from cause
+    raise RuntimeError(reason)
+
+
 def pre_running_recovery_gate(
     args: Any,
     symbols: Sequence[str],
@@ -105,7 +158,11 @@ def pre_running_recovery_gate(
 
     path = os.getenv("BOT_ORDER_JOURNAL", "").strip()
     if not path:
-        raise RuntimeError("LIVE order journal path is missing")
+        _halt_recovery(
+            create_halt,
+            "LIVE order journal path is missing",
+            gate="startup_missing_order_journal",
+        )
     journal = order_journal(
         path,
         venue="testnet" if args.testnet else "mainnet",
@@ -113,9 +170,15 @@ def pre_running_recovery_gate(
     checked = 0
     for intent in journal.nonterminal_orders():
         if intent.symbol not in symbols:
-            raise RuntimeError(
+            _halt_recovery(
+                create_halt,
                 "unresolved journal symbol is outside configuration: "
-                f"{intent.symbol}"
+                f"{intent.symbol}",
+                gate="startup_journal_symbol_mismatch",
+                metadata={
+                    "symbol": intent.symbol,
+                    "client_order_id": intent.client_order_id,
+                },
             )
         try:
             payload = tools_market._signed_get(
@@ -131,10 +194,18 @@ def pre_running_recovery_gate(
                     "authenticated order reconciliation failed"
                 ) from exc
             if intent.state not in {"PREPARED", "UNKNOWN"}:
-                raise RuntimeError(
+                _halt_recovery(
+                    create_halt,
                     f"exchange cannot find durable {intent.side} order "
-                    f"recorded as {intent.state}"
-                ) from exc
+                    f"recorded as {intent.state}",
+                    gate="startup_missing_durable_order",
+                    metadata={
+                        "symbol": intent.symbol,
+                        "client_order_id": intent.client_order_id,
+                        "journal_state": intent.state,
+                    },
+                    cause=exc,
+                )
             journal.mark_failed(
                 intent.client_order_id,
                 "exchange confirmed order absent during supervisor preflight",
@@ -142,14 +213,46 @@ def pre_running_recovery_gate(
             checked += 1
             continue
         if not isinstance(payload, dict):
-            raise RuntimeError("order reconciliation response is invalid")
-        journal.record_exchange_order(intent.client_order_id, payload)
+            _halt_recovery(
+                create_halt,
+                "order reconciliation response is invalid",
+                gate="startup_invalid_order_response",
+                metadata={
+                    "symbol": intent.symbol,
+                    "client_order_id": intent.client_order_id,
+                },
+            )
+        try:
+            journal.record_exchange_order(intent.client_order_id, payload)
+        except (KeyError, TypeError, ValueError) as exc:
+            _halt_recovery(
+                create_halt,
+                "exchange order cannot update the durable journal",
+                gate="startup_invalid_order_response",
+                metadata={
+                    "symbol": intent.symbol,
+                    "client_order_id": intent.client_order_id,
+                },
+                cause=exc,
+            )
         checked += 1
     for buy in journal.unresolved_buys():
-        executed = finite_decimal(
-            buy.executed_qty,
-            name="reconciled executed quantity",
-        )
+        try:
+            executed = finite_decimal(
+                buy.executed_qty,
+                name="reconciled executed quantity",
+            )
+        except (TypeError, ValueError) as exc:
+            _halt_recovery(
+                create_halt,
+                "reconciled BUY has an invalid executed quantity",
+                gate="startup_invalid_executed_quantity",
+                metadata={
+                    "symbol": buy.symbol,
+                    "client_order_id": buy.client_order_id,
+                },
+                cause=exc,
+            )
         if executed <= 0:
             continue
         protection = journal.protection_for_parent(buy.client_order_id)

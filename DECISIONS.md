@@ -4,6 +4,13 @@ Read this file before changing the repository. Record only decisions that were
 validated by tests or production evidence and are likely to be reused. Keep
 entries concise; this is not a changelog or an activity log.
 
+### 2026-08-01 — Persist definitive recovery conflicts, not transient reads
+
+- **Context:** startup recovery must distinguish an uncertain exchange read from a proven journal conflict.
+- **Decision:** retry transient reads without HALT; persist HALT for definitive conflicts; archive damaged HALT evidence before replacement.
+- **Why it worked:** regressions prove exact error classification, wrapped-cause handling, durable conflict reasons, and preserved damaged evidence.
+- **Reuse:** every startup gate that compares durable local state with an external authority.
+
 ### 2026-08-01 — Prove stream recovery with bounded Testnet evidence
 
 - **Context:** service restarts do not prove socket reconnect or event-triggered REST behavior.

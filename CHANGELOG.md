@@ -3,6 +3,23 @@
 All notable changes are documented here. Releases use Semantic Versioning; every
 section is dated and there is intentionally no `Unreleased` section.
 
+## [2.20.107] — 2026-08-01
+
+### Fixed
+- Startup recovery now classifies missing orders from exact Binance error codes
+  across wrapped exception chains.
+- Definitive journal, exchange, symbol, response, and quantity conflicts now
+  create a durable HALT before startup stops.
+- A damaged halt marker is archived before a new marker replaces it.
+
+### Changed
+- The Raspberry Pi runbook now explains recovery for an intent whose symbol is
+  absent from the current configuration.
+
+### Verified
+- Missing-order classification, wrapped errors, durable HALT, damaged evidence,
+  startup recovery, documentation, and complete project tests pass.
+
 ## [2.20.106] — 2026-08-01
 
 ### Fixed
