@@ -3,6 +3,19 @@
 All notable changes are documented here. Releases use Semantic Versioning; every
 section is dated and there is intentionally no `Unreleased` section.
 
+## [2.20.109] — 2026-08-01
+
+### Fixed
+- BUY placement now reads the mutable worker stop flag before each exchange
+  boundary instead of keeping one stale Boolean value.
+- Worker shutdown logs now distinguish `SIGINT` from `SIGTERM`.
+- Stable standard-library and HTTP dependencies are imported directly by the
+  BUY service instead of entering the runtime dependency map.
+
+### Verified
+- Live stop-state checks, signal diagnostics, architecture budgets,
+  documentation, and complete project tests pass.
+
 ## [2.20.108] — 2026-08-01
 
 ### Added

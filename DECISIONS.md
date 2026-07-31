@@ -4,6 +4,13 @@ Read this file before changing the repository. Record only decisions that were
 validated by tests or production evidence and are likely to be reused. Keep
 entries concise; this is not a changelog or an activity log.
 
+### 2026-08-01 — Read stop state at every exchange boundary
+
+- **Context:** a copied Boolean cannot observe a signal that arrives during a multi-order batch.
+- **Decision:** read mutable worker state before each balance read and order request; import stable dependencies directly.
+- **Why it worked:** regressions prove BUY placement has no captured `RUN` snapshot and the worker monolith does not grow.
+- **Reuse:** every long-running function that can cross a mutation boundary after shutdown starts.
+
 ### 2026-08-01 — Archive derived telemetry before bounded retention
 
 - **Context:** continuous SHADOW evidence grows much faster than accounting and recovery databases.

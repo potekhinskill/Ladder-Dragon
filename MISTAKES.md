@@ -17,6 +17,13 @@ private infrastructure details.
 
 ## Mistakes
 
+### 2026-08-01 — Built a release command with an unquoted interpreter path
+
+- **Impact:** the first clean-worktree release command did not start the harness.
+- **Root cause:** the interpreter path contained a space, and the command also used a manually completed SHA.
+- **Correction:** quote the project interpreter path and read the exact SHA with `git rev-parse HEAD`.
+- **Prevention:** every release command must use the project interpreter and exact SHA from commands, without manual path or SHA construction.
+
 ### 2026-08-01 — Used fragile inline quoting for a remote database audit
 
 - **Impact:** two read-only audit commands failed before they opened a database.

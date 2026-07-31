@@ -8,7 +8,11 @@ from __future__ import annotations
 
 import os
 from decimal import Decimal
+from pathlib import Path
+import time
 from typing import Any, List, Mapping, Optional
+
+import requests
 
 
 def cap_decimal(name: str, raw: object) -> Decimal:
@@ -73,9 +77,6 @@ def place_buys(symbol: str,
                      runtime: Mapping[str, object]) -> List[int]:
     """Place fail-closed BUY candidates through injected worker adapters."""
     LatencyTrace = _runtime_dependency(runtime, 'LatencyTrace')
-    Path = _runtime_dependency(runtime, 'Path')
-    RUN = _runtime_dependency(runtime, 'RUN')
-    __file__ = _runtime_dependency(runtime, '__file__')
     _cap_decimal = _runtime_dependency(runtime, '_cap_decimal')
     _filter_decimal = _runtime_dependency(runtime, '_filter_decimal')
     _non_fee_execution_cost_pct = _runtime_dependency(runtime, '_non_fee_execution_cost_pct')
@@ -96,16 +97,17 @@ def place_buys(symbol: str,
     getenv_decimal = _runtime_dependency(runtime, 'getenv_decimal')
     list_open_orders = _runtime_dependency(runtime, 'list_open_orders')
     log = _runtime_dependency(runtime, 'log')
-    os = _runtime_dependency(runtime, 'os')
     place_limit_order = _runtime_dependency(runtime, 'place_limit_order')
     place_otoco_buy = _runtime_dependency(runtime, 'place_otoco_buy')
     plan_buy_order_decimal = _runtime_dependency(runtime, 'plan_buy_order_decimal')
     pull_filters = _runtime_dependency(runtime, 'pull_filters')
-    requests = _runtime_dependency(runtime, 'requests')
-    time = _runtime_dependency(runtime, 'time')
+    def running() -> bool:
+        """Read the mutable worker stop flag at each safety boundary."""
+        return bool(_runtime_dependency(runtime, "RUN"))
+
     # Check the stop signal before any network request: after SIGTERM this function
     # must not even read balances or open orders.
-    if not RUN:
+    if not running():
         log(f"[STOP] {symbol} BUY placement skipped before exchange reads")
         return []
     get_symbol_assets(symbol)
@@ -214,7 +216,7 @@ def place_buys(symbol: str,
 
     # Main candidate loop.
     for idx, p in enumerate(candidates, start=1):
-        if not RUN:
+        if not running():
             log(f"[STOP] {symbol} BUY placement interrupted before slot {idx}/{total_slots}")
             break
         if usdt_free <= 0:
@@ -268,7 +270,7 @@ def place_buys(symbol: str,
             continue
 
         try:
-            if not RUN:
+            if not running():
                 log(f"[STOP] {symbol} BUY placement interrupted before exchange POST")
                 break
             maker_flag = (

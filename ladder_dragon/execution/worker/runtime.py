@@ -362,7 +362,7 @@ def install_signal_handlers():
     def handler(sig, frame):
         global RUN
         RUN = False
-        print("[EXIT] KeyboardInterrupt")
+        print(f"[EXIT] {signal.Signals(sig).name} requested graceful worker shutdown")
     signal.signal(signal.SIGINT, handler)
     signal.signal(signal.SIGTERM, handler)
 
