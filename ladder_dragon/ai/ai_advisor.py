@@ -24,6 +24,25 @@ ALLOWED_MODES = {"UP", "DOWN", "FLAT"}
 MAX_RATIONALE_CHARS = 160
 MAX_AI_RESPONSE_BYTES = 65_536
 AI_RESPONSE_CHUNK_BYTES = 8_192
+REPEATED_DIAGNOSTIC_INTERVAL_SEC = 3600
+SAFE_LOCAL_RESPONSE_ERRORS = {
+    "AI response Content-Length is invalid",
+    "AI response exceeds the byte limit",
+    "AI response is not valid UTF-8",
+    "AI response yielded a non-byte chunk",
+}
+
+
+def _safe_advisor_error(exc: Exception) -> str:
+    """Return an allowlisted diagnostic without provider URL or body text."""
+    status_code = getattr(getattr(exc, "response", None), "status_code", None)
+    label = type(exc).__name__
+    if isinstance(status_code, int) and 400 <= status_code <= 599:
+        return f"{label} status={status_code}"
+    message = str(exc)
+    if message in SAFE_LOCAL_RESPONSE_ERRORS:
+        return f"{label}: {message}"
+    return label
 
 
 def _compact_prompt_context(context: "MarketContext") -> dict[str, Any]:
@@ -285,6 +304,35 @@ class AIAdvisor:
         self._cache_decision_ids: dict[str, str] = {}
         self._cache_lock = threading.Lock()
         self._refresh_inflight: set[str] = set()
+        self._provider_error_streak: dict[str, int] = {}
+        self._diagnostic_logged_at: dict[tuple[str, str], float] = {}
+
+    def _log_diagnostic(self, symbol: str, signature: str, message: str) -> None:
+        """Rate-limit identical operator diagnostics without hiding evidence."""
+        now = self.clock()
+        key = (symbol, signature)
+        with self._cache_lock:
+            previous = self._diagnostic_logged_at.get(key)
+            if (
+                previous is not None
+                and now - previous < REPEATED_DIAGNOSTIC_INTERVAL_SEC
+            ):
+                return
+            self._diagnostic_logged_at[key] = now
+        self.logger(message)
+
+    def _record_provider_success(self, symbol: str) -> None:
+        with self._cache_lock:
+            self._provider_error_streak.pop(symbol, None)
+
+    def _negative_cache_ttl(self, symbol: str) -> int:
+        """Increase retry delay after consecutive provider failures."""
+        with self._cache_lock:
+            streak = self._provider_error_streak.get(symbol, 0) + 1
+            self._provider_error_streak[symbol] = streak
+        base = self.config.negative_cache_sec
+        ceiling = max(base, self.config.cache_sec)
+        return min(ceiling, base * (2 ** min(streak - 1, 10)))
 
     def refresh_due(self, symbol: str) -> bool:
         with self._cache_lock:
@@ -395,6 +443,7 @@ class AIAdvisor:
                 payload,
                 config=self.config,
             )
+            self._record_provider_success(context.symbol)
             applied = recommendation.confidence >= self.config.min_confidence
             recorded_decision_id: Optional[str] = None
             if self.decision_recorder is not None:
@@ -414,10 +463,12 @@ class AIAdvisor:
                     rationale=recommendation.rationale,
                     rejection_reason="confidence_below_threshold",
                 )
-                self.logger(
+                self._log_diagnostic(
+                    context.symbol,
+                    f"low_confidence:{recommendation.confidence:.2f}",
                     f"[AI-ADVISOR] {context.symbol} ignored: confidence "
                     f"{recommendation.confidence:.2f} < "
-                    f"{self.config.min_confidence:.2f}"
+                    f"{self.config.min_confidence:.2f}",
                 )
                 with self._cache_lock:
                     self._cache[context.symbol] = (
@@ -458,15 +509,19 @@ class AIAdvisor:
                 outcome="error",
                 rejection_reason=type(exc).__name__,
             )
-            self.logger(
-                f"[AI-ADVISOR] {context.symbol} unavailable: {exc}; "
-                "using deterministic strategy"
+            safe_error = _safe_advisor_error(exc)
+            self._log_diagnostic(
+                context.symbol,
+                f"provider_error:{safe_error}",
+                f"[AI-ADVISOR] {context.symbol} unavailable: {safe_error}; "
+                "using deterministic strategy",
             )
+            negative_ttl = self._negative_cache_ttl(context.symbol)
             with self._cache_lock:
                 self._cache[context.symbol] = (
                     now,
                     None,
-                    self.config.negative_cache_sec,
+                    negative_ttl,
                 )
             return None
 

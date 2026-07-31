@@ -3,6 +3,27 @@
 All notable changes are documented here. Releases use Semantic Versioning; every
 section is dated and there is intentionally no `Unreleased` section.
 
+## [2.20.100] — 2026-07-31
+
+### Fixed
+- Consecutive AI-provider failures now use bounded exponential negative-cache
+  backoff instead of retrying at the same short interval throughout an outage.
+- Provider diagnostics expose only the exception class and validated HTTP
+  status; endpoint URLs and response text no longer enter operator logs.
+
+### Changed
+- Identical low-confidence and provider-error messages are rate-limited to one
+  per hour. Decision and usage evidence is still recorded for every provider
+  response, so SHADOW statistics remain complete.
+
+### Security
+- The LLM remains advisory and fail-safe. Provider failures still select the
+  deterministic strategy and cannot change HALT, CAP or order authority.
+
+### Verified
+- Backoff, recovery, log-sanitization, diagnostic-rate and usage-preservation
+  regressions pass; compileall and the complete suite pass (809 tests).
+
 ## [2.20.99] — 2026-07-31
 
 ### Added

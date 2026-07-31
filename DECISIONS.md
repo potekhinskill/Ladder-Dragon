@@ -4,6 +4,20 @@ Read this file before changing the repository. Record only decisions that were
 validated by tests or production evidence and are likely to be reused. Keep
 entries concise; this is not a changelog or an activity log.
 
+### 2026-07-31 — Separate AI evidence cadence from operator log cadence
+
+- **Context:** repeated low-confidence responses are useful SHADOW evidence but
+  printing every one obscures incidents, while a provider outage should not be
+  retried forever at its shortest recovery interval.
+- **Decision:** retain every bounded usage and decision record, rate-limit only
+  identical human diagnostics, sanitize transport errors to class/status and
+  exponentially back off consecutive failures until the normal cache ceiling.
+- **Why it worked:** regressions prove all low-confidence calls remain in usage
+  evidence, duplicate messages are hourly, URLs are absent and valid recovery
+  resets provider backoff.
+- **Reuse:** advisory or telemetry providers where machine evidence and human
+  incident logs require different retention and retry cadences.
+
 ### 2026-07-31 — Plot trading turnover independently from PnL
 
 - **Context:** sell volume, cash flow and realized PnL answer different

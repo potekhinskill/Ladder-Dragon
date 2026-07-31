@@ -31,7 +31,7 @@ fee-aware FIFO accounting, restart reconciliation, per-symbol operational
 reporting, replay and walk-forward verification, and a private Raspberry Pi
 operations dashboard.
 
-Current product version: **2.20.99**. The single version source is
+Current product version: **2.20.100**. The single version source is
 `product_version.py`; releases follow [Semantic Versioning](https://semver.org/).
 Project contact: [LinkedIn](https://www.linkedin.com/in/ypotekhin/).
 
@@ -96,7 +96,7 @@ bounded, explainable, recoverable, and measurable before exposure is increased.
 ## Project status
 
 Ladder Dragon is an actively developed, experimental trading system. Version
-**2.20.99** is the current source release. `main` is the only long-lived branch;
+**2.20.100** is the current source release. `main` is the only long-lived branch;
 feature branches use the `ladderdragon/*` namespace.
 
 DRY and Binance Spot Testnet are the supported starting modes. Mainnet LIVE is
@@ -234,7 +234,10 @@ AI_RAG_INCLUDE_VIRTUAL=0
 
 `DISABLED` sends no requests, `SHADOW` records and evaluates recommendations
 without changing the plan, and `APPLY` can affect the plan only after the
-production gate. The dashboard switch changes only the advisory layer.
+production gate. Repeated provider failures back off exponentially up to
+`AI_CACHE_SEC`; identical operator diagnostics are summarized hourly while
+every response remains in the bounded usage and decision evidence. The
+dashboard switch changes only the advisory layer.
 When Risk Manager blocks BUY but the authenticated snapshot remains healthy,
 the supervisor stops every execution worker and continues a rate-limited,
 read-only SHADOW plan. This preserves feature, forecast, usage, and

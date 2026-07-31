@@ -367,6 +367,76 @@ def test_provider_error_uses_short_negative_cache_ttl():
     assert session.calls == 2
 
 
+def test_consecutive_provider_errors_back_off_and_sanitize_diagnostics():
+    now = [100.0]
+    messages = []
+
+    class FailingSession:
+        def __init__(self):
+            self.calls = 0
+
+        def post(self, endpoint, **kwargs):
+            self.calls += 1
+            response = requests.Response()
+            response.status_code = 503
+            response.url = "https://private.invalid/path"
+            raise requests.HTTPError(
+                "503 Server Error for url: https://private.invalid/path",
+                response=response,
+            )
+
+    session = FailingSession()
+    advisor = AIAdvisor(
+        config(cache_sec=300, negative_cache_sec=30),
+        session=session,
+        logger=messages.append,
+        clock=lambda: now[0],
+    )
+
+    assert advisor.recommend(context()) is None
+    now[0] += 31
+    assert advisor.recommend(context()) is None
+    now[0] += 31
+    assert advisor.refresh_due("SOLUSDT") is False
+    now[0] += 30
+    assert advisor.refresh_due("SOLUSDT") is True
+    assert session.calls == 2
+    assert len(messages) == 1
+    assert "HTTPError status=503" in messages[0]
+    assert "private.invalid" not in messages[0]
+
+
+def test_repeated_low_confidence_logs_hourly_without_dropping_usage(tmp_path):
+    now = [100.0]
+    messages = []
+    session = FakeSession(
+        {
+            "mode": "FLAT",
+            "ladder_width_scale": 1.0,
+            "cap_scale": 0.5,
+            "confidence": 0.60,
+            "rationale": "Insufficient confidence.",
+        }
+    )
+    advisor = AIAdvisor(
+        config(cache_sec=0, usage_log_path=str(tmp_path / "usage.ndjson")),
+        session=session,
+        logger=messages.append,
+        clock=lambda: now[0],
+    )
+
+    assert advisor.recommend(context()) is None
+    now[0] += 1
+    assert advisor.recommend(context()) is None
+    assert len(session.calls) == 2
+    assert len(messages) == 1
+    now[0] += 3600
+    assert advisor.recommend(context()) is None
+    assert len(session.calls) == 3
+    assert len(messages) == 2
+    assert len((tmp_path / "usage.ndjson").read_text().splitlines()) == 3
+
+
 def test_shadow_refresh_is_nonblocking_and_deduplicated():
     started = threading.Event()
     release = threading.Event()

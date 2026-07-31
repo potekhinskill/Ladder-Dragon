@@ -17,6 +17,29 @@ private infrastructure details.
 
 ## Mistakes
 
+### 2026-07-31 — Inserted prose before an existing sentence continuation
+
+- **Impact:** the first documentation check showed a duplicated continuation
+  that made the AI-mode paragraph grammatically invalid.
+- **Root cause:** the patch matched the first wrapped line of a sentence but did
+  not replace its complete original paragraph.
+- **Correction:** rewrite the whole paragraph as one coherent mode, backoff and
+  evidence contract.
+- **Prevention:** after patching wrapped prose, read the complete surrounding
+  paragraph rather than relying only on patch application and test success.
+
+### 2026-07-31 — Sanitized trusted local validation reasons with provider errors
+
+- **Impact:** the first focused advisory run hid the safe `byte limit` reason
+  from two existing regressions, making an intentional response-size rejection
+  less actionable to an operator.
+- **Root cause:** one sanitizer reduced every caught exception to its class even
+  though local bounded-response validators have fixed, non-provider messages.
+- **Correction:** preserve only an explicit allowlist of local response
+  validation reasons while continuing to remove network URL and body text.
+- **Prevention:** diagnostic sanitizers must classify trusted local validation
+  failures separately from untrusted transport and payload exceptions.
+
 ### 2026-07-31 — Assumed dashboard lifespan would not collect during an API test
 
 - **Impact:** the first focused chart run failed two new assertions even though
