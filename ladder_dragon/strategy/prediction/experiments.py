@@ -28,10 +28,21 @@ from ladder_dragon.strategy.prediction.walk_forward import (
 
 D = Decimal
 FEE_FLOOR_BUFFER_PCT = D("0.0010")
-CLOSE_ENTRY_GAP_PCT = D("0.0015")
-REANCHOR_TARGET_GAP_PCT = D("0.0005")
-REANCHOR_MAX_STEP_PCT = D("0.0015")
-ENTRY_TTL_SEC = 300
+TP_TARGETS = (
+    ("tp_115", D("0.0115")),
+    ("tp_130", D("0.0130")),
+    ("tp_150", D("0.0150")),
+)
+BUY_GAPS = (
+    ("buy_gap_10bps", D("0.0010")),
+    ("buy_gap_15bps", D("0.0015")),
+    ("buy_gap_20bps", D("0.0020")),
+)
+ENTRY_TTLS = (
+    ("ttl_5m", 300),
+    ("ttl_10m", 600),
+    ("ttl_15m", 900),
+)
 
 
 @dataclass(frozen=True)
@@ -43,6 +54,7 @@ class ShadowVariant:
     kind: str
     plan: TradePlan
     baseline_plan: TradePlan
+    maker_only: bool = False
 
 
 def _candidate_plan(
@@ -52,6 +64,7 @@ def _candidate_plan(
     target_pct: Decimal,
     entry_ttl_sec: int | None = None,
     entry_enabled: bool = True,
+    slippage_pct: Decimal | None = None,
 ) -> TradePlan:
     stop_distance = D("1") - baseline.stop_price / baseline.entry_price
     return TradePlan(
@@ -60,7 +73,11 @@ def _candidate_plan(
         stop_price=entry_price * (D("1") - stop_distance),
         notional_quote=baseline.notional_quote,
         fee_pct=baseline.fee_pct,
-        slippage_pct=baseline.slippage_pct,
+        slippage_pct=(
+            baseline.slippage_pct
+            if slippage_pct is None
+            else slippage_pct
+        ),
         entry_ttl_sec=entry_ttl_sec,
         entry_enabled=entry_enabled,
     )
@@ -85,41 +102,53 @@ def build_shadow_variants(
         baseline_target,
         required_edge_pct + FEE_FLOOR_BUFFER_PCT,
     )
-    close_entry = max(
-        baseline_plan.entry_price,
-        market_price * (D("1") - CLOSE_ENTRY_GAP_PCT),
-    )
-    reanchor_entry = max(
-        baseline_plan.entry_price,
-        min(
-            market_price * (D("1") - REANCHOR_TARGET_GAP_PCT),
-            baseline_plan.entry_price * (D("1") + REANCHOR_MAX_STEP_PCT),
-        ),
-    )
-    veto = str(regime).upper() in {"TREND_DOWN", "PANIC"}
-    definitions = (
-        ("tp_floor", "take_profit", baseline_plan.entry_price, None, True),
-        ("buy_gap_15bps", "buy_distance", close_entry, None, True),
-        ("ttl_5m", "entry_ttl", baseline_plan.entry_price, ENTRY_TTL_SEC, True),
-        ("reanchor_15bps", "reanchor", reanchor_entry, None, True),
-        ("regime_veto", "regime_gate", baseline_plan.entry_price, None, not veto),
-    )
-    return tuple(
-        ShadowVariant(
+    def variant(
+        variant_id: str,
+        dimension: str,
+        *,
+        entry_price: Decimal = baseline_plan.entry_price,
+        candidate_target: Decimal = target_pct,
+        entry_ttl_sec: int | None = None,
+        entry_enabled: bool = True,
+        maker_only: bool = False,
+    ) -> ShadowVariant:
+        return ShadowVariant(
             variant_id=variant_id,
             dimension=dimension,
             kind=f"EXPERIMENT_{variant_id.upper()}",
             plan=_candidate_plan(
                 baseline_plan,
-                entry_price=entry,
-                target_pct=target_pct,
-                entry_ttl_sec=ttl,
-                entry_enabled=enabled,
+                entry_price=entry_price,
+                target_pct=max(candidate_target, target_pct),
+                entry_ttl_sec=entry_ttl_sec,
+                entry_enabled=entry_enabled,
+                slippage_pct=D("0") if maker_only else None,
             ),
             baseline_plan=baseline_plan,
+            maker_only=maker_only,
         )
-        for variant_id, dimension, entry, ttl, enabled in definitions
-    )
+
+    variants = [
+        variant(
+            "range_only",
+            "regime_gate",
+            entry_enabled=str(regime).upper() == "RANGE",
+        ),
+        *(variant(name, "take_profit", candidate_target=value)
+          for name, value in TP_TARGETS),
+        variant("maker_only", "execution_policy", maker_only=True),
+        *(variant(name, "entry_ttl", entry_ttl_sec=value)
+          for name, value in ENTRY_TTLS),
+        *(variant(
+            name,
+            "buy_distance",
+            entry_price=max(
+                baseline_plan.entry_price,
+                market_price * (D("1") - value),
+            ),
+        ) for name, value in BUY_GAPS),
+    ]
+    return tuple(variants)
 
 
 def record_shadow_variants(
@@ -181,6 +210,16 @@ def shadow_variant_report(
             "kind": variant.kind,
             "entry_ttl_sec": variant.plan.entry_ttl_sec,
             "entry_enabled": variant.plan.entry_enabled,
+            "entry_order_type": (
+                "LIMIT_MAKER" if variant.maker_only else "BASELINE"
+            ),
+            "exit_order_type": (
+                "LIMIT_MAKER" if variant.maker_only else "BASELINE"
+            ),
+            "target_pct": str(
+                variant.plan.take_profit_price / variant.plan.entry_price
+                - D("1")
+            ),
             "samples": len(samples),
             "gate": gate,
             "configuration_p_value": p_values[variant_id],
@@ -199,8 +238,10 @@ def shadow_variant_report(
 
 
 __all__ = [
-    "ENTRY_TTL_SEC",
+    "BUY_GAPS",
+    "ENTRY_TTLS",
     "FEE_FLOOR_BUFFER_PCT",
+    "TP_TARGETS",
     "ShadowVariant",
     "build_shadow_variants",
     "record_shadow_variants",

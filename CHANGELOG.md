@@ -3,6 +3,26 @@
 All notable changes are documented here. Releases use Semantic Versioning; every
 section is dated and there is intentionally no `Unreleased` section.
 
+## [2.20.103] — 2026-08-01
+
+### Changed
+- The SHADOW contour now records 11 one-factor candidates on each shared
+  snapshot.
+- The candidates test RANGE-only entry, TP targets of 1.15%, 1.30%, and 1.50%,
+  and maker-only entry plus TP.
+- The candidates also test BUY lifetimes of 5, 10, and 15 minutes and BUY
+  distances of 10, 15, and 20 basis points.
+- Re-anchor is excluded from the promotion candidate set.
+
+### Security
+- Every candidate retains the untouched baseline and remains
+  `apply_allowed=false`. The change does not enable APPLY, change CAP, clear
+  HALT, or add order capability.
+
+### Verified
+- Same-snapshot, fee-floor, no-look-ahead, maker-policy, TTL, BUY-distance,
+  re-anchor-exclusion, and complete project tests pass.
+
 ## [2.20.102] — 2026-08-01
 
 ### Fixed

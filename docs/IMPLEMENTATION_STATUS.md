@@ -63,13 +63,15 @@ Future outcomes are normal pending work.
 Only overdue or unrecovered expired outcomes block the backlog gate.
 The soak report applies its expiration checks to the audited runtime window.
 
-The experiment contour compares these candidates on one snapshot:
+The experiment contour compares 11 candidates on one snapshot:
 
-- TP above the exact cost floor;
-- a 15 basis point BUY gap;
-- a five-minute BUY lifetime;
-- bounded re-anchor;
-- DOWN and PANIC vetoes.
+- RANGE-only entry;
+- TP targets of 1.15%, 1.30%, and 1.50%;
+- maker-only entry and TP;
+- BUY lifetimes of 5, 10, and 15 minutes;
+- BUY distances of 10, 15, and 20 basis points.
+
+Re-anchor is not a promotion candidate.
 
 No candidate can set `apply_allowed=true` by itself.
 

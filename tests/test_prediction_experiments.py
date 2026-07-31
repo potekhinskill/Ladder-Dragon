@@ -77,21 +77,35 @@ def test_variants_clear_fee_floor_and_change_one_named_dimension():
     )
 
     assert {variant.variant_id for variant in variants} == {
-        "tp_floor",
+        "range_only",
+        "tp_115",
+        "tp_130",
+        "tp_150",
+        "maker_only",
+        "buy_gap_10bps",
         "buy_gap_15bps",
+        "buy_gap_20bps",
         "ttl_5m",
-        "reanchor_15bps",
-        "regime_veto",
+        "ttl_10m",
+        "ttl_15m",
     }
     for variant in variants:
         target_pct = variant.plan.take_profit_price / variant.plan.entry_price - D("1")
         assert target_pct > D("0.0096")
         assert variant.baseline_plan == baseline
     by_id = {variant.variant_id: variant for variant in variants}
+    assert by_id["buy_gap_10bps"].plan.entry_price == D("99.9000")
     assert by_id["buy_gap_15bps"].plan.entry_price == D("99.8500")
+    assert by_id["buy_gap_20bps"].plan.entry_price == D("99.8000")
     assert by_id["ttl_5m"].plan.entry_ttl_sec == 300
-    assert by_id["reanchor_15bps"].plan.entry_price == D("99.849550")
-    assert by_id["regime_veto"].plan.entry_enabled is False
+    assert by_id["ttl_10m"].plan.entry_ttl_sec == 600
+    assert by_id["ttl_15m"].plan.entry_ttl_sec == 900
+    assert by_id["range_only"].plan.entry_enabled is False
+    assert by_id["maker_only"].maker_only is True
+    assert by_id["maker_only"].plan.slippage_pct == D("0")
+    assert by_id["tp_115"].plan.take_profit_price == D("100.84655")
+    assert by_id["tp_130"].plan.take_profit_price == D("100.99610")
+    assert by_id["tp_150"].plan.take_profit_price == D("101.19550")
 
 
 def test_parallel_variants_share_snapshot_and_explicit_baseline(tmp_path: Path):
@@ -112,13 +126,13 @@ def test_parallel_variants_share_snapshot_and_explicit_baseline(tmp_path: Path):
         variants=variants,
     )
 
-    assert len(set(decision_ids)) == 5
+    assert len(set(decision_ids)) == 11
     with store._connect() as connection:
         rows = connection.execute(
             "SELECT kind,snapshot_ts_ms,baseline_plan_json "
             "FROM prediction_decisions ORDER BY kind"
         ).fetchall()
-    assert len(rows) == 5
+    assert len(rows) == 11
     assert {row[1] for row in rows} == {features.snapshot_ts_ms}
     assert all(row[0].startswith("EXPERIMENT_") for row in rows)
     assert {
@@ -224,6 +238,10 @@ def test_variant_report_never_enables_apply(tmp_path: Path, monkeypatch):
         item["promotion_eligible"] is True and item["apply_allowed"] is False
         for item in report["variants"].values()
     )
+    maker = report["variants"]["maker_only"]
+    assert maker["entry_order_type"] == "LIMIT_MAKER"
+    assert maker["exit_order_type"] == "LIMIT_MAKER"
+    assert report["variants"]["range_only"]["entry_order_type"] == "BASELINE"
 
 
 def test_configuration_holm_uses_distinct_candidate_hypotheses():
@@ -281,7 +299,7 @@ def test_experiment_recording_is_bounded_to_five_minute_snapshots(
         baseline_plan=baseline,
         required_edge_pct=D("0.0096"),
     )
-    assert store.summary("SOLUSDT")["decisions"] == 5
+    assert store.summary("SOLUSDT")["decisions"] == 11
 
     clock["now"] = 1_301.0
     prediction_shadow.collect_shadow_experiments(
@@ -292,7 +310,19 @@ def test_experiment_recording_is_bounded_to_five_minute_snapshots(
         baseline_plan=baseline,
         required_edge_pct=D("0.0096"),
     )
-    assert store.summary("SOLUSDT")["decisions"] == 10
+    assert store.summary("SOLUSDT")["decisions"] == 22
+
+
+def test_reanchor_is_not_an_apply_candidate():
+    variants = build_shadow_variants(
+        market_price=D("100"),
+        baseline_plan=_baseline(),
+        required_edge_pct=D("0.0096"),
+        regime="RANGE",
+    )
+
+    assert all("REANCHOR" not in item.kind for item in variants)
+    assert all(item.dimension != "reanchor" for item in variants)
 
 
 def test_missing_authoritative_edge_records_no_candidate(tmp_path: Path):

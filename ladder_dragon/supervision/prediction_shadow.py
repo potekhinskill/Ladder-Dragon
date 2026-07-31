@@ -74,6 +74,7 @@ def collect_shadow_experiments(
     last_record = _EXPERIMENT_LAST_RECORD.get(symbol)
     if (
         last_record is None
+        or now < last_record
         or now - last_record >= max(60, record_interval_sec)
     ):
         record_shadow_variants(
