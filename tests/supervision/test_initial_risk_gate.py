@@ -1,4 +1,7 @@
-from ladder_dragon.supervision.risk_cycle import initial_runtime_risk_gate
+from ladder_dragon.supervision.risk_cycle import (
+    initial_runtime_risk_gate,
+    initial_runtime_risk_status,
+)
 
 
 def test_live_starts_blocked_until_authoritative_risk_snapshot():
@@ -29,4 +32,22 @@ def test_dry_runtime_does_not_publish_a_false_risk_block():
         "buy_blocked": False,
         "halted": False,
         "reasons": (),
+    }
+
+
+def test_live_startup_status_nests_fail_closed_risk_evidence():
+    status = initial_runtime_risk_status(
+        live=True,
+        persistent_halt=True,
+    )
+
+    assert status == {
+        "state": "RISK_PENDING",
+        "risk": {
+            "buy_blocked": True,
+            "halted": True,
+            "reasons": [
+                "persistent circuit halt requires authoritative evaluation"
+            ],
+        },
     }

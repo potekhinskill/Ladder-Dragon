@@ -4,6 +4,13 @@ Read this file before changing the repository. Record only decisions that were
 validated by tests or production evidence and are likely to be reused. Keep
 entries concise; this is not a changelog or an activity log.
 
+### 2026-08-01 — Publish fail-closed readiness before slow startup work
+
+- **Context:** authenticated startup can exceed a deployment readiness timeout.
+- **Decision:** publish `RISK_PENDING` before preflight and accept only its fresh, BUY-blocked form as startup readiness.
+- **Why it worked:** tests prove publication precedes preflight and intentional stops remain excluded.
+- **Reuse:** every service with slow startup work and an external readiness gate.
+
 ### 2026-07-31 — Combine event updates with scheduled reconciliation
 
 - **Context:** a daily Star History run stayed stale after a new star.

@@ -17,6 +17,20 @@ private infrastructure details.
 
 ## Mistakes
 
+### 2026-08-01 — Repeated manual expansion of a release SHA
+
+- **Impact:** one release harness ran with a false expected SHA and was stopped before it created an artifact.
+- **Root cause:** the command expanded the short commit display manually instead of reading `git rev-parse HEAD`.
+- **Correction:** amend the learning record, read the new exact SHA, and pass that value without manual transcription.
+- **Prevention:** assign the final `git rev-parse HEAD` output to the release command in one shell invocation.
+
+### 2026-08-01 — Waited for post-preflight state during deployment
+
+- **Impact:** the Pi installed a valid release, but its updater reported failure after 120 seconds.
+- **Root cause:** the supervisor published safe readiness only after authenticated preflight and market initialization.
+- **Correction:** publish fail-closed `RISK_PENDING` before preflight and recognize that state in the updater.
+- **Prevention:** deployment tests must prove one accepted fail-closed heartbeat exists before every slow startup boundary.
+
 ### 2026-07-31 — Described a daily artifact as current
 
 - **Impact:** Star History displayed one star after GitHub already reported two.

@@ -295,7 +295,7 @@ try:
     age = (datetime.now(timezone.utc) - updated).total_seconds()
     ready_states = {
         "RUNNING", "AUTH_BACKOFF", "PREFLIGHT_BACKOFF", "IP_BLOCKED",
-        "RECOVERY_BLOCKED"
+        "RECOVERY_BLOCKED", "RISK_PENDING"
     }
     raise SystemExit(
         0 if status.get("state") in ready_states and 0 <= age <= 90 else 1

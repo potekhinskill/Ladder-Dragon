@@ -85,6 +85,7 @@ from ladder_dragon.supervision.risk_cycle import (
     build_risk_snapshot,
     configured_price_shocks_decimal as _configured_price_shocks_decimal,
     initial_runtime_risk_gate,
+    initial_runtime_risk_status,
     remaining_order_budget_decimal as _remaining_order_budget_decimal,
 )
 from ladder_dragon.supervision.symbol_service import (
@@ -4285,10 +4286,11 @@ def main():
     _AI_RUNTIME_STATUS_PATH = Path(
         os.getenv("AI_RUNTIME_STATUS_FILE", str(run_dir / "ai_status.json"))
     )
+    limits = RiskLimits.from_env()
     _AI_RUNTIME_STATUS = {
         "product": {"name": "Ladder Dragon", "version": __version__},
         "started_at": datetime.now(timezone.utc).isoformat(),
-        "state": "STARTING",
+        **initial_runtime_risk_status(live=bool(args.live), persistent_halt=limits.halt_file.exists()),
         "venue": "testnet" if args.testnet else "mainnet",
         "execution_mode": "LIVE" if args.live else "DRY",
         "symbols": symbols,
@@ -4353,7 +4355,6 @@ def main():
     }
     _publish_ai_runtime_status()
     _refresh_ai_control(args)
-    limits = RiskLimits.from_env()
     _publish_ai_runtime_status(
         risk_limits={
             "reserve_usdt": str(limits.reserve_usdt),

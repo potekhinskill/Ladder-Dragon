@@ -3,6 +3,22 @@
 All notable changes are documented here. Releases use Semantic Versioning; every
 section is dated and there is intentionally no `Unreleased` section.
 
+## [2.20.102] — 2026-08-01
+
+### Fixed
+- LIVE now publishes a fail-closed `RISK_PENDING` heartbeat before slow
+  authenticated preflight and market initialization.
+- The Raspberry Pi updater accepts a fresh `RISK_PENDING` heartbeat as ready.
+  It still rejects `INTENTIONALLY_STOPPED`.
+
+### Security
+- The early heartbeat blocks BUY and preserves a persistent HALT state.
+  It does not enable APPLY, change CAP, or mutate Binance.
+
+### Verified
+- Startup-order, initial-risk, deployment-readiness, and complete project tests
+  pass. The release harness records the final counts before publication.
+
 ## [2.20.101] — 2026-07-31
 
 ### Fixed

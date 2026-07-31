@@ -105,7 +105,19 @@ def test_update_readiness_rejects_intentionally_stopped_runtime():
     heartbeat = _function("wait_for_heartbeat", "dashboard_database_status")
 
     assert '"RECOVERY_BLOCKED"' in heartbeat
+    assert '"RISK_PENDING"' in heartbeat
     assert '"INTENTIONALLY_STOPPED"' not in heartbeat
+
+
+def test_supervisor_publishes_fail_closed_live_startup_before_preflight():
+    runtime = (
+        ROOT / "ladder_dragon" / "supervision" / "runtime.py"
+    ).read_text(encoding="utf-8")
+    startup_gate = runtime.index("**initial_runtime_risk_status")
+    first_publish = runtime.index("_publish_ai_runtime_status()", startup_gate)
+    preflight = runtime.index("_preflight_with_auth_backoff", first_publish)
+
+    assert startup_gate < first_publish < preflight
 
 
 def test_break_glass_attempt_consumption_is_documented():

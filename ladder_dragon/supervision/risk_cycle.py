@@ -54,6 +54,26 @@ def initial_runtime_risk_gate(
     }
 
 
+def initial_runtime_risk_status(
+    *,
+    live: bool,
+    persistent_halt: bool,
+) -> dict[str, object]:
+    """Return the startup heartbeat fields for the initial risk gate."""
+    gate = initial_runtime_risk_gate(
+        live=live,
+        persistent_halt=persistent_halt,
+    )
+    return {
+        "state": str(gate["state"]),
+        "risk": {
+            "buy_blocked": bool(gate["buy_blocked"]),
+            "halted": bool(gate["halted"]),
+            "reasons": list(gate["reasons"]),
+        },
+    }
+
+
 def _runtime_dependency(runtime: Mapping[str, object], name: str) -> Any:
     """Resolve one explicit runtime adapter required by the risk coordinator."""
     try:
