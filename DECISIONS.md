@@ -4,6 +4,13 @@ Read this file before changing the repository. Record only decisions that were
 validated by tests or production evidence and are likely to be reused. Keep
 entries concise; this is not a changelog or an activity log.
 
+### 2026-08-01 — Prove stream recovery with bounded Testnet evidence
+
+- **Context:** service restarts do not prove socket reconnect or event-triggered REST behavior.
+- **Decision:** force one reconnect, create one bounded Testnet order, and confirm its authenticated event with REST.
+- **Why it worked:** tests prove reconnect, event identity, REST authority, confirmation, and cleanup.
+- **Reuse:** every notification stream whose readiness depends on a real external event.
+
 ### 2026-08-01 — Publish fail-closed readiness before slow startup work
 
 - **Context:** authenticated startup can exceed a deployment readiness timeout.

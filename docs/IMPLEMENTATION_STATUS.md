@@ -22,7 +22,7 @@ The configured mode and its evidence gate remain authoritative.
 | Fast market data | `bookTicker`, `aggTrade`, and depth snapshots | OFF by default |
 | WebSocket trading | Signed request transport and reconciliation | OFF and separately approved |
 | OTOCO | Atomic BUY with future protection list | OFF and separately approved |
-| User Data Stream | Independent read-only observer and soak evidence | Installed as a separate service |
+| User Data Stream | Independent observer, Testnet drill, and soak evidence | Installed as a separate service |
 | Dashboard | Read-only account, risk, AI, trades, positions, and host telemetry | Private authenticated access |
 | Reports | Daily trading digest, monthly prediction report, and signed soak report | Scheduled by systemd |
 | Deployment | Signed fast-forward update, backup, rollback, and asset verification | Exact 40-character SHA required |

@@ -39,6 +39,9 @@ from ladder_dragon.risk.risk_manager import (
     create_manual_halt,
 )
 from ladder_dragon.execution.time_safety import assess_exchange_clock
+from ladder_dragon.verification.live.user_stream_drill import (
+    execute_user_stream_drill,
+)
 
 
 DEFAULT_BASE = "https://testnet.binance.vision"
@@ -1105,7 +1108,19 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
         return result
 
     if os.getenv("BOT_TESTNET_ORDER_CONFIRMED", "") != "YES":
-        raise RuntimeError("limit-cancel requires BOT_TESTNET_ORDER_CONFIRMED=YES")
+        raise RuntimeError(
+            f"{args.mode} requires BOT_TESTNET_ORDER_CONFIRMED=YES"
+        )
+    if args.mode == "user-stream-drill":
+        result.update(execute_user_stream_drill(
+            client=client,
+            symbol=args.symbol,
+            order_params=order_params,
+            state_path=Path(args.user_stream_drill_state),
+            clock_offset_ms=clock.offset_ms,
+        ))
+        result["notional_usdt"] = str(actual_notional)
+        return result
     created: dict[str, Any] | None = None
     try:
         created = client.signed("POST", "/api/v3/order", order_params)
@@ -1154,6 +1169,7 @@ def main() -> int:
             "authenticated",
             "order-test",
             "limit-cancel",
+            "user-stream-drill",
             "buy-oco",
             "buy-oco-journal-reload",
             "circuit-drill",
@@ -1163,6 +1179,10 @@ def main() -> int:
     )
     parser.add_argument("--notional-usdt", type=Decimal, default=Decimal("10"))
     parser.add_argument("--max-notional-usdt", type=Decimal, default=Decimal("25"))
+    parser.add_argument(
+        "--user-stream-drill-state",
+        default=".runtime/testnet_user_stream_drill.json",
+    )
     parser.add_argument("--reserve-usdt", type=Decimal, default=Decimal("100"))
     parser.add_argument("--take-profit-pct", type=Decimal, default=Decimal("0.02"))
     parser.add_argument("--stop-loss-pct", type=Decimal, default=Decimal("0.02"))

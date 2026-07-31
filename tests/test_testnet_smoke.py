@@ -18,6 +18,10 @@ from ladder_dragon.verification.live.testnet_smoke import (
     symbol_rules,
     validate_testnet_base,
 )
+from ladder_dragon.execution.user_stream import parse_order_signal
+from ladder_dragon.verification.live.user_stream_drill import (
+    execute_user_stream_drill,
+)
 
 
 def test_smoke_client_refuses_mainnet_and_lookalike_hosts():
@@ -49,6 +53,104 @@ def test_limit_smoke_order_is_below_market_and_respects_filters():
     assert Decimal(params["price"]) == Decimal("50.00")
     assert Decimal(params["quantity"]) * Decimal(params["price"]) >= Decimal("10")
     assert params["newClientOrderId"].startswith("LDBSMO-")
+
+
+def test_user_stream_drill_proves_reconnect_and_event_rest(tmp_path):
+    class DrillClient:
+        api_key = "key"
+        api_secret = "secret"
+        base_url = "https://testnet.binance.vision"
+
+        def signed(self, method, path, params=None):
+            if method == "POST":
+                return {"orderId": 123, "clientOrderId": "drill-order"}
+            if method == "GET":
+                return {"symbol": "SOLUSDT", "orderId": 123}
+            if method == "DELETE":
+                return {"status": "CANCELED"}
+            raise AssertionError((method, path, params))
+
+    class DrillObserver:
+        def __init__(self, **kwargs):
+            self.mailbox = kwargs["mailbox"]
+            self.payload = {
+                "state": "stopped",
+                "reconnects": 0,
+                "event_woken_rest_reconciliations": 0,
+            }
+
+        def start(self):
+            self.payload["state"] = "connected"
+            signal = parse_order_signal({"event": {
+                "e": "executionReport",
+                "E": 1,
+                "T": 1,
+                "s": "SOLUSDT",
+                "i": 123,
+                "c": "drill-order",
+                "x": "NEW",
+                "X": "NEW",
+                "t": -1,
+                "S": "BUY",
+                "p": "50",
+                "q": "0.2",
+            }})
+            assert signal is not None
+            self.mailbox.put(signal)
+
+        def state(self):
+            return dict(self.payload)
+
+        def request_reconnect_drill(self):
+            self.payload["reconnects"] += 1
+
+        def record_rest_reconciliation(self, *, event_woken):
+            self.payload["event_woken_rest_reconciliations"] += int(
+                event_woken
+            )
+
+        def stop(self):
+            self.payload["state"] = "stopped"
+
+    result = execute_user_stream_drill(
+        client=DrillClient(),
+        symbol="SOLUSDT",
+        order_params={
+            "symbol": "SOLUSDT",
+            "newClientOrderId": "drill-order",
+        },
+        state_path=tmp_path / "stream.json",
+        clock_offset_ms=0,
+        observer_factory=DrillObserver,
+    )
+
+    assert result == {
+        "controlled_reconnects": 1,
+        "order_events": 1,
+        "event_woken_rest_reconciliations": 1,
+        "rest_remains_authoritative": True,
+        "order_cleanup": "canceled",
+    }
+
+
+def test_user_stream_drill_refuses_mainnet_before_start(tmp_path):
+    client = SimpleNamespace(
+        api_key="key",
+        api_secret="secret",
+        base_url="https://api.binance.com",
+    )
+
+    with pytest.raises(ValueError, match="requires Binance Spot Testnet"):
+        execute_user_stream_drill(
+            client=client,
+            symbol="SOLUSDT",
+            order_params={
+                "symbol": "SOLUSDT",
+                "newClientOrderId": "drill-order",
+            },
+            state_path=tmp_path / "stream.json",
+            clock_offset_ms=0,
+        )
 
 
 def exchange_info():

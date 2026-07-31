@@ -80,6 +80,31 @@ def testnet_checks(context: HarnessContext) -> list[CheckSpec]:
         )
     checks.append(
         CheckSpec(
+            name="testnet_user_stream_drill",
+            argv=(
+                python,
+                "-m",
+                "bin.binance_testnet_smoke",
+                "--mode",
+                "user-stream-drill",
+                "--symbol",
+                options.symbol,
+            ),
+            blocked_reason=(
+                "Testnet User Stream drill requires "
+                "--confirm-testnet-mutation and "
+                "BOT_TESTNET_ORDER_CONFIRMED=YES"
+                if (
+                    not options.confirm_testnet_mutation
+                    or os.getenv("BOT_TESTNET_ORDER_CONFIRMED") != "YES"
+                )
+                else None
+            ),
+            timeout_sec=180,
+        )
+    )
+    checks.append(
+        CheckSpec(
             name="testnet_buy_oco_journal_reload",
             argv=(
                 python,

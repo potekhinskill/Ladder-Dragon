@@ -336,6 +336,26 @@ def test_observer_writes_sanitized_state_and_queues_order_event(tmp_path):
     assert json.loads(state_text)["order_events"] == 1
 
 
+def test_controlled_reconnect_drill_closes_only_the_stream_socket(tmp_path):
+    connection = FakeConnection([])
+    observer = BinanceUserDataObserver(
+        api_key="key",
+        api_secret="secret",
+        rest_base_url="https://testnet.binance.vision",
+        mailbox=OrderEventMailbox(),
+        logger=lambda _message: None,
+        state_path=tmp_path / "stream.json",
+    )
+    observer._connection = connection
+    observer._set_state(state="connected")
+
+    observer.request_reconnect_drill()
+
+    assert connection.closed is True
+    assert observer.state()["controlled_reconnect_drills"] == 1
+    assert observer.state()["rest_reconciliations"] == 0
+
+
 def test_state_file_writes_are_rate_limited_but_memory_stays_current(
     tmp_path,
     monkeypatch,

@@ -249,6 +249,19 @@ sudo -u bot env PYTHONPATH=. .venv/bin/python \
 It verifies BUY fill, OCO legs, journal reload reconciliation, and cleanup. The
 circuit-drill mode is isolated from production halt files.
 
+Run the controlled User Data Stream drill separately:
+
+```bash
+sudo -u bot env BOT_TESTNET_ORDER_CONFIRMED=YES PYTHONPATH=. \
+  .venv/bin/python -m bin.binance_testnet_smoke \
+  --mode user-stream-drill --symbol SOLUSDT
+```
+
+The drill forces one reconnect. It then creates and cancels one non-filling
+Testnet LIMIT order. The authenticated event must wake a matching REST GET.
+
+The drill does not change Mainnet, HALT, APPLY, or CAP.
+
 ### Optional bounded Mainnet acceptance canary
 
 Run this only after Testnet, reconciliation, backup, and risk checks pass. The

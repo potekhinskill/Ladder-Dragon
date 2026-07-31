@@ -31,6 +31,7 @@ TERMINAL_EVENT_TYPES = {"eventStreamTerminated", "serverShutdown"}
 ORDER_EVENT_TYPE = "executionReport"
 PERSISTED_COUNTERS = (
     "reconnects",
+    "controlled_reconnect_drills",
     "connection_attempts",
     "sessions",
     "disconnects",
@@ -283,6 +284,7 @@ class BinanceUserDataObserver:
             "last_event_at": None,
             "last_order_event_at": None,
             "reconnects": 0,
+            "controlled_reconnect_drills": 0,
             "connection_attempts": 0,
             "sessions": 0,
             "disconnects": 0,
@@ -355,6 +357,18 @@ class BinanceUserDataObserver:
         if self._thread is not None:
             self._thread.join(timeout=max(0.0, timeout))
         self._set_state(state="stopped", force_persist=True)
+
+    def request_reconnect_drill(self) -> None:
+        """Close one connected socket to prove bounded automatic recovery."""
+        if self._state_value("state") != "connected":
+            raise RuntimeError("User Data Stream is not connected")
+        self._set_state(
+            controlled_reconnect_drills=(
+                int(self._state_value("controlled_reconnect_drills")) + 1
+            ),
+            force_persist=True,
+        )
+        self._close_connection()
 
     def _connector(self) -> Callable[..., object]:
         if self._connect is not None:

@@ -3,6 +3,25 @@
 All notable changes are documented here. Releases use Semantic Versioning; every
 section is dated and there is intentionally no `Unreleased` section.
 
+## [2.20.104] — 2026-08-01
+
+### Added
+- Added a confirmed Testnet User Data Stream drill.
+- The drill forces one socket reconnect, creates one bounded non-filling LIMIT
+  order, receives its authenticated event, and confirms it with REST.
+- The Testnet verification profile exposes the drill as a separate required
+  check when mutation confirmation is present.
+
+### Security
+- The drill accepts only the Binance Spot Testnet host.
+- It requires `BOT_TESTNET_ORDER_CONFIRMED=YES`, enforces the existing notional
+  ceiling, and cancels the Testnet order in `finally`.
+- A stream event remains notification-only and cannot authorize an order.
+
+### Verified
+- Controlled-reconnect, event-to-REST, cleanup, confirmation, stream-safety,
+  Testnet-smoke, and complete project tests pass.
+
 ## [2.20.103] — 2026-08-01
 
 ### Changed
