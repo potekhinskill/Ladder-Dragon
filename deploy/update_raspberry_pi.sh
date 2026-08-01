@@ -25,6 +25,7 @@ PREVIOUS_HEAD=""
 CHECKOUT_ADVANCED=0
 EXTERNAL_DEPLOYMENT_MUTATED=0
 MIGRATE_RECONCILE_TOLERANCE=0
+MIGRATE_DASHBOARD_RATE_LIMIT=0
 
 fail() {
   echo "[FAIL] $*" >&2
@@ -454,6 +455,13 @@ if [[ ! -f "${DASHBOARD_ENV}" ]]; then
   install -m 0600 .env.dashboard.example "${DASHBOARD_ENV}"
   fail "created ${DASHBOARD_ENV}; replace placeholder dashboard tokens/keys, then run again"
 fi
+dashboard_rate_limit="$(
+  sed -n 's/^DASHBOARD_RATE_LIMIT_PER_MIN=//p' "${DASHBOARD_ENV}" | head -1
+)"
+case "${dashboard_rate_limit}" in
+  ""|120) MIGRATE_DASHBOARD_RATE_LIMIT=1 ;;
+  *) : ;;
+esac
 
 [[ -r /etc/ladder-dragon/backup.env ]] \
   || fail "/etc/ladder-dragon/backup.env is missing; run installer migrate"
@@ -532,6 +540,9 @@ set_env_value "${DASHBOARD_ENV}" AI_RUNTIME_STATUS_FILE \
   /run/mybot/ai_status.json
 set_env_value "${DASHBOARD_ENV}" DASHBOARD_FOLLOW_BOT_PATHS 1
 set_env_value "${DASHBOARD_ENV}" DASHBOARD_TRUST_PROXY_AUTH 1
+if [[ "${MIGRATE_DASHBOARD_RATE_LIMIT}" == "1" ]]; then
+  set_env_value "${DASHBOARD_ENV}" DASHBOARD_RATE_LIMIT_PER_MIN 360
+fi
 
 dashboard_token="$(
   sed -n 's/^DASHBOARD_AUTH_TOKEN=//p' "${DASHBOARD_ENV}" | head -1

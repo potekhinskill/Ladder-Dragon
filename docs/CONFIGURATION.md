@@ -124,3 +124,5 @@ Process-lifetime state belongs below `/run/mybot`.
 
 Do not put a token or signature in a webhook URL.
 Use the separate read-only Binance key for dashboard endpoints.
+Set `DASHBOARD_RATE_LIMIT_PER_MIN=360` for the standard five-second refresh.
+The browser honors `Retry-After` when the dashboard returns HTTP 429.

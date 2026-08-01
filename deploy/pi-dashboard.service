@@ -42,8 +42,10 @@ SystemCallArchitectures=native
 SystemCallFilter=@system-service
 SystemCallErrorNumber=EPERM
 RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
-ReadWritePaths=/home/bot/apps/binance_bot/FastAPI/pi-dashboard/data
-ReadOnlyPaths=/home/bot/apps/binance_bot/db /home/bot/apps/binance_bot/logs -/run/mybot -/var/lib/ladder-dragon/control -/var/lib/ladder-dragon/user-stream
+# SQLite read-only connections can create WAL coordination sidecars. The
+# application keeps every database connection in read-only and query-only mode.
+ReadWritePaths=/home/bot/apps/binance_bot/FastAPI/pi-dashboard/data /home/bot/apps/binance_bot/db
+ReadOnlyPaths=/home/bot/apps/binance_bot/logs -/run/mybot -/var/lib/ladder-dragon/control -/var/lib/ladder-dragon/user-stream
 ReadOnlyPaths=-/run/pi-watchdog/host-health.json
 ReadOnlyPaths=-/var/lib/ladder-dragon/maintenance.json
 UMask=0077

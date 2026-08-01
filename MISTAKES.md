@@ -17,6 +17,34 @@ private infrastructure details.
 
 ## Mistakes
 
+### 2026-08-01 — Staged without the Git metadata permission
+
+- **Impact:** the first staging command stopped before it changed the index.
+- **Root cause:** the command ignored the active read-only permission for `.git`.
+- **Correction:** request the narrow Git staging permission and repeat the command.
+- **Prevention:** inspect Git metadata permissions before each staging operation.
+
+### 2026-08-01 — Grew the dashboard runtime during a resilience fix
+
+- **Impact:** the first complete test run failed the monolith non-growth gate.
+- **Root cause:** the new HTTP 429 response used four lines beyond the exact budget.
+- **Correction:** keep the response compact without increasing the architecture limit.
+- **Prevention:** check line budgets before each edit to a listed runtime monolith.
+
+### 2026-08-01 — Blocked SQLite WAL coordination in the dashboard sandbox
+
+- **Impact:** dashboard database routes returned HTTP 503 while healthy routes remained available.
+- **Root cause:** the service made the database directory read-only, which blocked SQLite shared-memory sidecars.
+- **Correction:** permit directory coordination while connections remain `mode=ro` and query-only.
+- **Prevention:** every live WAL reader must have a sandbox test for sidecar coordination.
+
+### 2026-08-01 — Checked the source dashboard unit name on the Pi
+
+- **Impact:** the first diagnostic incorrectly reported that the dashboard service was inactive.
+- **Root cause:** the command used `pi-dashboard`, but deployment installs the unit as `pi-healthd`.
+- **Correction:** resolve the deployed unit name from installation scripts before service inspection.
+- **Prevention:** derive service diagnostics from deployed asset contracts, not source filenames.
+
 ### 2026-08-01 — Built a release command with an unquoted interpreter path
 
 - **Impact:** the first clean-worktree release command did not start the harness.

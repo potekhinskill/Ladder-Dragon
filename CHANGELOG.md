@@ -3,6 +3,21 @@
 All notable changes are documented here. Releases use Semantic Versioning; every
 section is dated and there is intentionally no `Unreleased` section.
 
+## [2.20.111] — 2026-08-01
+
+### Fixed
+- One failed dashboard section no longer prevents healthy sections from updating.
+- Dashboard SQLite readers can create required WAL coordination sidecars.
+- The browser stops API polling for the server-provided interval after HTTP 429.
+- The dashboard uses only canonical trade summary and fill endpoints.
+
+### Changed
+- The authenticated per-client API limit is now 360 requests per minute.
+
+### Verified
+- Dashboard isolation, rate-limit recovery, SQLite sandbox, deployment asset,
+  documentation, and complete project tests pass.
+
 ## [2.20.110] — 2026-08-01
 
 ### Fixed

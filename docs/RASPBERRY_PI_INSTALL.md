@@ -646,6 +646,10 @@ The
 systemd writable database mount exists only because a live WAL reader must
 coordinate through SQLite's shared-memory sidecar.
 
+The dashboard uses the same SQLite coordination rule.
+Its application connections use `mode=ro` and `PRAGMA query_only=ON`.
+The dashboard continues to update healthy sections when one source is unavailable.
+
 ```bash
 sudo systemctl status ladder-dragon-daily-digest.timer --no-pager
 sudo systemctl list-timers ladder-dragon-daily-digest.timer --no-pager

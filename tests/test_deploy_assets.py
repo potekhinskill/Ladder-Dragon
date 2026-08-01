@@ -266,6 +266,7 @@ def test_dashboard_transient_failures_are_bounded_and_visible():
     unit = read("deploy/pi-dashboard.service")
 
     assert "DASHBOARD_STALE_CACHE_MAX_SEC" in app
+    assert 'DASHBOARD_RATE_LIMIT_PER_MIN", "360"' in app
     assert "ACCOUNT_BALANCE_STALE" in app
     assert "OPEN_ORDERS_STALE" in app
     assert "API_RESPONSE_CACHE" in index
@@ -280,6 +281,13 @@ def test_dashboard_transient_failures_are_bounded_and_visible():
     assert "FILLED_PAGE_SIZE = 300" in index
     assert "LOG_TAIL_BYTES = 256 * 1024" in index
     assert "POLL_JOBS" in index
+    assert "Promise.allSettled" in index
+    assert "API_RATE_LIMIT_UNTIL_MS" in index
+    assert "Retry-After" in index
+    assert "/api/bot/trades/summary" not in index
+    assert "/api/stats/24h" not in index
+    assert "`/api/orders/filled?" not in index
+    assert "`/api/fills?" not in index
     assert "setInterval(" not in index
     assert "url !== '/api/security/csrf'" in index
     assert "transport retry" in index
@@ -289,6 +297,10 @@ def test_dashboard_transient_failures_are_bounded_and_visible():
     assert "DASHBOARD_UPSTREAM_UNAVAILABLE" in site
     assert "Restart=always" in unit
     assert "RestartSec=2" in unit
+    assert (
+        "ReadWritePaths=/home/bot/apps/binance_bot/FastAPI/pi-dashboard/data "
+        "/home/bot/apps/binance_bot/db"
+    ) in unit
     updater = read("deploy/update_raspberry_pi.sh")
     assert "wait_for_dashboard_database 30" in updater
     assert "/api/trades/symbols?hours=1" in updater
@@ -905,6 +917,16 @@ def test_updater_migrates_only_the_previous_reconciliation_default():
     assert "set_env_value .env RISK_RECONCILE_TOLERANCE_FRACTION 0.001" in updater
     assert updater.index("custom legacy reconciliation tolerance") < updater.index(
         "SERVICES_STOPPED=1\nsystemctl stop mybot"
+    )
+
+
+def test_updater_migrates_only_the_previous_dashboard_rate_default():
+    updater = read("deploy/update_raspberry_pi.sh")
+    assert "MIGRATE_DASHBOARD_RATE_LIMIT=0" in updater
+    assert '""|120) MIGRATE_DASHBOARD_RATE_LIMIT=1' in updater
+    assert (
+        'set_env_value "${DASHBOARD_ENV}" DASHBOARD_RATE_LIMIT_PER_MIN 360'
+        in updater
     )
 
 

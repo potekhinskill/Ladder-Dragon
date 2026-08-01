@@ -666,3 +666,10 @@ entries concise; this is not a changelog or an activity log.
 - **Why it worked:** deployment and Pi verification tests now fail closed on a
   missing or changed asset.
 - **Reuse:** every static asset, nginx, dashboard, or deployment change.
+
+### 2026-08-01 — Isolate dashboard section failures
+
+- **Context:** one unavailable database or exchange endpoint stopped all dashboard updates.
+- **Decision:** update each section independently and pause polling after HTTP 429.
+- **Why it worked:** healthy host, AI, and history sections remain current during one source failure.
+- **Reuse:** every read-only operational page that combines independent data sources.

@@ -403,7 +403,10 @@ def test_dashboard_rate_limit_is_enforced(monkeypatch):
     with TestClient(module.app) as client:
         assert client.get("/api/bot/logs", headers=headers).status_code == 404
         assert client.get("/api/bot/logs", headers=headers).status_code == 404
-        assert client.get("/api/bot/logs", headers=headers).status_code == 429
+        limited = client.get("/api/bot/logs", headers=headers)
+
+    assert limited.status_code == 429
+    assert int(limited.headers["Retry-After"]) >= 1
 
 
 def test_dashboard_rate_limit_prunes_expired_client_keys(monkeypatch):

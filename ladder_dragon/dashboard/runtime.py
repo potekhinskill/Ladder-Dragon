@@ -51,7 +51,7 @@ BINANCE_BASE = os.getenv("BINANCE_API_BASE", "https://api.binance.com").rstrip("
 DASHBOARD_AUTH_TOKEN = os.getenv("DASHBOARD_AUTH_TOKEN", "")
 DASHBOARD_TRUST_PROXY_AUTH = os.getenv("DASHBOARD_TRUST_PROXY_AUTH", "0") == "1"
 DASHBOARD_PROXY_AUTH_SECRET = os.getenv("DASHBOARD_PROXY_AUTH_SECRET", "")
-DASHBOARD_RATE_LIMIT_PER_MIN = max(1, int(os.getenv("DASHBOARD_RATE_LIMIT_PER_MIN", "120")))
+DASHBOARD_RATE_LIMIT_PER_MIN = max(1, int(os.getenv("DASHBOARD_RATE_LIMIT_PER_MIN", "360")))
 _RATE_BUCKETS: Dict[str, deque] = defaultdict(deque)
 _RATE_LOCK = threading.Lock()
 _RATE_PRUNE_STATE = {"last": 0.0}
@@ -232,7 +232,8 @@ async def authenticate_and_rate_limit(request: Request, call_next):
             while bucket and bucket[0] <= now - 60:
                 bucket.popleft()
             if len(bucket) >= DASHBOARD_RATE_LIMIT_PER_MIN:
-                return JSONResponse({"ok": False, "error": "rate limit exceeded"}, status_code=429)
+                return JSONResponse(
+                    {"ok": False, "error": "rate limit exceeded"}, status_code=429, headers={"Retry-After": str(max(1, int(61 - (now - bucket[0]))))})
             bucket.append(now)
 
         if request.method not in {"GET", "HEAD", "OPTIONS"}:

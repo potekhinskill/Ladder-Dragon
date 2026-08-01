@@ -115,6 +115,7 @@ const API_RESPONSE_CACHE_MAX_ENTRY_BYTES = 128 * 1024;
 const API_RESPONSE_CACHE_MAX_BYTES = 512 * 1024;
 const FETCH_TIMEOUT_MS = 8000;
 const ACTIVE_FETCH_CONTROLLERS = new Set();
+let API_RATE_LIMIT_UNTIL_MS = 0;
 
 function payloadSize(payload){
   try{ return JSON.stringify(payload).length * 2; }
@@ -140,6 +141,9 @@ function cacheResponse(url,payload){
 }
 
 async function fetchWithTimeout(url,options={},timeoutMs=FETCH_TIMEOUT_MS){
+  if(url.startsWith('/api/') && Date.now() < API_RATE_LIMIT_UNTIL_MS){
+    throw new Error('HTTP 429 retry pending');
+  }
   const controller = new AbortController();
   const timer = setTimeout(()=>controller.abort('timeout'),timeoutMs);
   ACTIVE_FETCH_CONTROLLERS.add(controller);
@@ -159,6 +163,10 @@ function abortActiveFetches(){
 async function getJSON(url){
   try{
     const r = await fetchWithTimeout(url,{cache:'no-store'});
+    if(r.status === 429){
+      const retrySeconds = Math.max(1,Number.parseInt(r.headers.get('Retry-After')||'60',10)||60);
+      API_RATE_LIMIT_UNTIL_MS = Math.max(API_RATE_LIMIT_UNTIL_MS,Date.now()+retrySeconds*1000);
+    }
     if(!r.ok) throw new Error(`HTTP ${r.status}`);
     const payload = await r.json();
     if(url !== '/api/security/csrf'){
@@ -421,7 +429,7 @@ function fmtPct(p){
 /* --- symbol discovery (once per minute) --- */
 async function getSymbols(){
   const now = Date.now();
-  if(SYMBOLS_CACHE && (now - SYMBOLS_TS) < 60_000) return SYMBOLS_CACHE;
+  if(SYMBOLS_CACHE !== null && (now - SYMBOLS_TS) < 60_000) return SYMBOLS_CACHE;
   try{
     const j = await getJSON('/api/trades/symbols?hours=168');
     const arr = (j && j.ok && Array.isArray(j.symbols)) ? j.symbols : [];
@@ -429,25 +437,17 @@ async function getSymbols(){
     SYMBOLS_TS = now;
     return SYMBOLS_CACHE;
   }catch(e){
-    return SYMBOLS_CACHE || '';
+    SYMBOLS_CACHE = SYMBOLS_CACHE || '';
+    SYMBOLS_TS = now;
+    return SYMBOLS_CACHE;
   }
 }
 
 /* Fetch the summary with the symbols= filter when possible. */
 async function getTradeSummary24h(){
   const symbols = await getSymbols();
-  const urls = [
-    `/api/trades/summary?hours=24${symbols?`&symbols=${encodeURIComponent(symbols)}`:''}`,
-    `/api/bot/trades/summary?hours=24${symbols?`&symbols=${encodeURIComponent(symbols)}`:''}`,
-    '/api/stats/24h'
-  ];
-  for(const u of urls){
-    try{
-      const j = await getJSON(u);
-      if(j) return {ok:true, data:j, url:u};
-    }catch(e){}
-  }
-  return {ok:false};
+  const url = `/api/trades/summary?hours=24${symbols?`&symbols=${encodeURIComponent(symbols)}`:''}`;
+  return {ok:true,data:await getJSON(url),url};
 }
 
 function updateTrade24(sum, balances){
@@ -632,21 +632,10 @@ let FILLED_PAGE = 0;
 async function getFilledOrders24h(){
   const symbols = await getSymbols();
   const offset = FILLED_PAGE * FILLED_PAGE_SIZE;
-  const urls = [
-    `/api/trades/filled?hours=24&limit=${FILLED_PAGE_SIZE}&offset=${offset}${symbols?`&symbols=${encodeURIComponent(symbols)}`:''}`,
-    `/api/orders/filled?hours=24&limit=${FILLED_PAGE_SIZE}&offset=${offset}${symbols?`&symbols=${encodeURIComponent(symbols)}`:''}`,
-    `/api/fills?hours=24&limit=${FILLED_PAGE_SIZE}&offset=${offset}${symbols?`&symbols=${encodeURIComponent(symbols)}`:''}`
-  ];
-  for(const u of urls){
-    try{
-      const j = await getJSON(u);
-      if(!j) continue;
-      let arr = Array.isArray(j) ? j : (j.items||j.data||j.orders||j.trades||[]);
-      if(!Array.isArray(arr)) continue;
-      return {ok:true, url:u, items:arr, hasMore:arr.length===FILLED_PAGE_SIZE};
-    }catch(e){}
-  }
-  return {ok:false, items:[]};
+  const url = `/api/trades/filled?hours=24&limit=${FILLED_PAGE_SIZE}&offset=${offset}${symbols?`&symbols=${encodeURIComponent(symbols)}`:''}`;
+  const payload = await getJSON(url);
+  const items = Array.isArray(payload) ? payload : [];
+  return {ok:true,url,items,hasMore:items.length===FILLED_PAGE_SIZE};
 }
 
 function normFill(o){
@@ -722,7 +711,7 @@ async function refresh(){
   if(REFRESH_IN_FLIGHT) return;
   REFRESH_IN_FLIGHT = true;
   try{
-    const [h, hist, sum, ai, aiControl, balances, trading] = await Promise.all([
+    const results = await Promise.allSettled([
       getJSON('/api/health'),
       getJSON('/api/history?hours=24&points=288'),
       getTradeSummary24h(),
@@ -731,52 +720,59 @@ async function refresh(){
       getJSON('/api/account/balances'),
       getJSON('/api/trading/overview')
     ]);
-    updateKpis(h);
-    updateCharts(hist);
-    updateTrade24(sum, balances);
+    const values = results.map(result=>result.status==='fulfilled'?result.value:null);
+    const [h, hist, sum, ai, aiControl, balances, trading] = values;
+    if(h){ updateKpis(h); updateOperations(h); }
+    if(hist) updateCharts(hist);
+    updateTrade24(sum,balances);
     updateBalances(balances);
-    updateOperations(h);
-    updateTrading(trading);
-    updateAIQuality(ai);
-    $('#ai-state').textContent = ai.state || '—';
-    $('#ai-mode').textContent = ai.mode || '—';
-    const runtime = ai.runtime || {};
-    $('#ai-venue').textContent = [runtime.venue, runtime.execution_mode].filter(Boolean).join(' / ') || '—';
-    $('#ai-model').textContent = [runtime.provider, runtime.model].filter(Boolean).join(' / ') || '—';
-    const latest = Array.isArray(ai.recent) && ai.recent.length ? ai.recent[0] : {};
-    $('#ai-decision-id').textContent = latest.decision_id || runtime.last_decision || '—';
-    $('#ai-rationale').textContent = latest.rationale || (latest.policy_reasons || '—');
-    $('#ai-runtime').textContent = runtime.connected
-      ? `${runtime.stale ? tr('stale') : (runtime.process_state || tr('online_state'))} · ${runtime.updated_at ? tsShort(Date.parse(runtime.updated_at)) : '—'}`
-      : tr('no');
-    $('#ai-applied').textContent = ai.applied_count ?? 0;
-    const edge = ai.ai_vs_baseline_1h || {};
-    $('#ai-edge').textContent = edge.samples
-      ? `${(Number(edge.edge)*100).toFixed(1)}% / ${edge.samples}`
-      : tr('no_data');
-    const knowledge = ai.knowledge_base || {};
-    $('#ai-rag').textContent = `${knowledge.documents ?? 0} / ${knowledge.archived_virtual_documents ?? 0} / ${knowledge.retrievals ?? 0}`;
-    const ragDocuments = Array.isArray(latest.rag_documents) ? latest.rag_documents : [];
-    $('#ai-rag-recent').textContent = ragDocuments.length
-      ? ragDocuments.map(item=>`${String(item.document_id).slice(0,8)}:${Number(item.score).toFixed(3)}`).join(', ')
-      : tr('no');
-    $('#ai-realized-pnl').textContent = fmtUSDT(Number(knowledge.realized_net_pnl_quote || 0));
-    $('#ai-unresolved').textContent = unresolvedFillText(knowledge);
-    $('#ai-degraded-reasons').textContent = Array.isArray(ai.degraded_reasons) && ai.degraded_reasons.length
-      ? ai.degraded_reasons.join(', ')
-      : tr('no');
-    $('#ai-tokens').textContent = ai.usage_today?.tokens ?? 0;
-    $('#ai-cost').textContent = `$${Number(ai.usage_today?.cost_usd || 0).toFixed(6)}`;
-    const toggle = $('#ai-toggle');
-    const enabled = Boolean(aiControl.enabled);
-    toggle.disabled = !aiControl.configured;
-    toggle.dataset.enabled = enabled ? 'true' : 'false';
-    const visual = toggle.querySelector('.switch-visual');
-    visual?.classList.toggle('on', enabled);
-    toggle.setAttribute('aria-pressed', enabled ? 'true' : 'false');
-    toggle.setAttribute('aria-label', !aiControl.configured ? tr('ai_not_configured') : tr(enabled ? 'ai_on' : 'ai_off'));
+    if(trading) updateTrading(trading);
+    if(ai) updateAIQuality(ai);
+    if(ai && aiControl){
+      $('#ai-state').textContent = ai.state || '—';
+      $('#ai-mode').textContent = ai.mode || '—';
+      const runtime = ai.runtime || {};
+      $('#ai-venue').textContent = [runtime.venue, runtime.execution_mode].filter(Boolean).join(' / ') || '—';
+      $('#ai-model').textContent = [runtime.provider, runtime.model].filter(Boolean).join(' / ') || '—';
+      const latest = Array.isArray(ai.recent) && ai.recent.length ? ai.recent[0] : {};
+      $('#ai-decision-id').textContent = latest.decision_id || runtime.last_decision || '—';
+      $('#ai-rationale').textContent = latest.rationale || (latest.policy_reasons || '—');
+      $('#ai-runtime').textContent = runtime.connected
+        ? `${runtime.stale ? tr('stale') : (runtime.process_state || tr('online_state'))} · ${runtime.updated_at ? tsShort(Date.parse(runtime.updated_at)) : '—'}`
+        : tr('no');
+      $('#ai-applied').textContent = ai.applied_count ?? 0;
+      const edge = ai.ai_vs_baseline_1h || {};
+      $('#ai-edge').textContent = edge.samples
+        ? `${(Number(edge.edge)*100).toFixed(1)}% / ${edge.samples}`
+        : tr('no_data');
+      const knowledge = ai.knowledge_base || {};
+      $('#ai-rag').textContent = `${knowledge.documents ?? 0} / ${knowledge.archived_virtual_documents ?? 0} / ${knowledge.retrievals ?? 0}`;
+      const ragDocuments = Array.isArray(latest.rag_documents) ? latest.rag_documents : [];
+      $('#ai-rag-recent').textContent = ragDocuments.length
+        ? ragDocuments.map(item=>`${String(item.document_id).slice(0,8)}:${Number(item.score).toFixed(3)}`).join(', ')
+        : tr('no');
+      $('#ai-realized-pnl').textContent = fmtUSDT(Number(knowledge.realized_net_pnl_quote || 0));
+      $('#ai-unresolved').textContent = unresolvedFillText(knowledge);
+      $('#ai-degraded-reasons').textContent = Array.isArray(ai.degraded_reasons) && ai.degraded_reasons.length
+        ? ai.degraded_reasons.join(', ')
+        : tr('no');
+      $('#ai-tokens').textContent = ai.usage_today?.tokens ?? 0;
+      $('#ai-cost').textContent = `$${Number(ai.usage_today?.cost_usd || 0).toFixed(6)}`;
+      const toggle = $('#ai-toggle');
+      const enabled = Boolean(aiControl.enabled);
+      toggle.disabled = !aiControl.configured;
+      toggle.dataset.enabled = enabled ? 'true' : 'false';
+      const visual = toggle.querySelector('.switch-visual');
+      visual?.classList.toggle('on', enabled);
+      toggle.setAttribute('aria-pressed', enabled ? 'true' : 'false');
+      toggle.setAttribute('aria-label', !aiControl.configured ? tr('ai_not_configured') : tr(enabled ? 'ai_on' : 'ai_off'));
+    }
     if([h, hist, sum, ai, aiControl, balances, trading].some(item=>item?.transport_stale)){
       $('#footer').textContent = `API: ${tr('stale')} · transport retry`;
+    }
+    const failures = results.filter(result=>result.status==='rejected');
+    if(failures.length){
+      $('#footer').textContent = `${tr('api_error')}: ${failures.length} section(s) unavailable`;
     }
   }catch(e){
     $('#footer').textContent = `${tr('api_error')}: ${e}`;
@@ -965,7 +961,7 @@ async function runPollScheduler(){
     await job.run();
     if(POLLING_STOPPED || document.hidden) break;
   }
-  schedulePoll(250);
+  schedulePoll(Math.max(250,API_RATE_LIMIT_UNTIL_MS-Date.now()));
 }
 
 document.addEventListener('visibilitychange',()=>{
