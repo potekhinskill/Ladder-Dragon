@@ -48,6 +48,7 @@ ReadWritePaths=/home/bot/apps/binance_bot/FastAPI/pi-dashboard/data /home/bot/ap
 ReadOnlyPaths=/home/bot/apps/binance_bot/logs -/run/mybot -/var/lib/ladder-dragon/control -/var/lib/ladder-dragon/user-stream
 ReadOnlyPaths=-/run/pi-watchdog/host-health.json
 ReadOnlyPaths=-/var/lib/ladder-dragon/maintenance.json
+ReadOnlyPaths=-/var/lib/ladder-dragon/deployment-status.json
 UMask=0077
 
 [Install]

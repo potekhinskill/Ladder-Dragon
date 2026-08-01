@@ -277,8 +277,10 @@ function esc(value){
 }
 function updateOperations(h){
   const o=h.operations||{}, load=o.load_avg||{};
+  const heartbeat=o.heartbeat||{}, deployment=h.deployment||{}, notice=$('#deployment-notice');
+  notice.hidden=!(heartbeat.state==='IP_BLOCKED'&&deployment.status==='PASS'&&deployment.dashboard_backend_ready&&deployment.sqlite_ready);
   $('#ops-load').textContent=[load['1m'],load['5m'],load['15m']].map(x=>Number.isFinite(Number(x))?Number(x).toFixed(2):'—').join(' / ');
-  const bot=o.services?.mybot||{}, heartbeat=o.heartbeat||{};
+  const bot=o.services?.mybot||{};
   $('#ops-heartbeat').textContent=heartbeat.state ? `${heartbeat.state} · ${ageText(heartbeat.age_sec)}` : '—';
   $('#ops-heartbeat').className=heartbeat.fresh?'risk-ok':'risk-bad';
   $('#ops-restart').textContent=bot.started_at ? `${bot.started_at} · restarts ${bot.restart_count??0}` : '—';

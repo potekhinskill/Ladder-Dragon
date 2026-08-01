@@ -3,6 +3,24 @@
 All notable changes are documented here. Releases use Semantic Versioning; every
 section is dated and there is intentionally no `Unreleased` section.
 
+## [2.20.112] — 2026-08-01
+
+### Added
+- The dashboard shows a verified update notice when the current heartbeat is
+  `IP_BLOCKED`.
+- The Raspberry updater sends an English Telegram notice after dashboard and
+  SQLite readiness checks pass.
+
+### Security
+- The notice does not contain the public IP, credentials, balances, or signed
+  request data.
+- The updater writes one bounded derived status record and replaces it after
+  each verified deployment.
+
+### Verified
+- Deployment status validation, dashboard notice isolation, Telegram message,
+  service sandbox, updater ordering, documentation, and project tests pass.
+
 ## [2.20.111] — 2026-08-01
 
 ### Fixed

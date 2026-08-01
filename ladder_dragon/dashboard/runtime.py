@@ -28,7 +28,6 @@ from ladder_dragon.ai.ai_control import (
 from ladder_dragon.execution.order_recovery import read_order_journal_telemetry
 from ladder_dragon.sqlite_safety import quote_sqlite_identifier
 from product_version import PRODUCT_NAME, __version__
-
 from ladder_dragon.execution.telegram_alerts import notify_binance_auth_error
 from ladder_dragon.dashboard.app_factory import create_dashboard_app
 from ladder_dragon.dashboard.dependencies import open_read_only_sqlite
@@ -38,7 +37,7 @@ from ladder_dragon.dashboard.services.host_telemetry import (
     rolling_trade_volume_24h_usdt,
 )
 from ladder_dragon.dashboard.services.runtime_health import runtime_degraded_reason
-
+from ladder_dragon.deployment.status import read_deployment_status
 APP_TZ = ZoneInfo("Asia/Almaty")
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 BASE_DIR = PROJECT_ROOT / "FastAPI" / "pi-dashboard"
@@ -2063,7 +2062,8 @@ def health():
         # is the more relevant signal for the trading channel.
         "network_ok": effective_network_ok,
         "network_probe_ok": network_probe_ok,
-        "operations": ops
+        "operations": ops,
+        "deployment": read_deployment_status(),
     })
 
 

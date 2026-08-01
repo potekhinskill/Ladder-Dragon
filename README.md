@@ -28,7 +28,7 @@ Ladder Dragon is an open-source Python trading system for Binance Spot.
 It uses adaptive entry ladders and exchange-side protection.
 It also provides exact accounting, restart recovery, replay, and walk-forward tests.
 
-Current product version: **2.20.111**.
+Current product version: **2.20.112**.
 The version source is `product_version.py`.
 Releases use [Semantic Versioning](https://semver.org/).
 
@@ -66,7 +66,9 @@ It makes each trading decision bounded, visible, recoverable, and measurable.
 - Walk-forward tests train only on older evidence.
 - SHADOW prediction collects evidence without a change to orders.
 - The dashboard provides read-only host, account, order, risk, and AI status.
+- The dashboard shows a verified update notice during an active IP whitelist block.
 - Telegram sends concise health alerts and exact daily trading reports.
+- A successful update sends one English IP whitelist notice when trading stays blocked.
 
 ## Safety model
 

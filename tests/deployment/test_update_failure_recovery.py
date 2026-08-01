@@ -109,6 +109,22 @@ def test_update_readiness_rejects_intentionally_stopped_runtime():
     assert '"INTENTIONALLY_STOPPED"' not in heartbeat
 
 
+def test_verified_deployment_notice_follows_dashboard_readiness():
+    publish = UPDATER.split("publish_verified_deployment_status() {", 1)[1].split(
+        '\n}\n\nif [[ "${EUID}"', 1
+    )[0]
+    success_path = UPDATER.rsplit(
+        'if [[ "${MYBOT_WAS_ACTIVE}" == "1" && "${DASHBOARD_WAS_ACTIVE}" == "1" ]]; then',
+        1,
+    )[1]
+
+    assert "ladder_dragon.deployment.status" in publish
+    assert "--runtime-state" in publish
+    assert success_path.index("check_link") < success_path.index(
+        "publish_verified_deployment_status"
+    )
+
+
 def test_supervisor_publishes_fail_closed_live_startup_before_preflight():
     runtime = (
         ROOT / "ladder_dragon" / "supervision" / "runtime.py"

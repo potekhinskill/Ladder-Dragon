@@ -4,6 +4,13 @@ Read this file before changing the repository. Record only decisions that were
 validated by tests or production evidence and are likely to be reused. Keep
 entries concise; this is not a changelog or an activity log.
 
+### 2026-08-01 — Publish deployment facts only after readiness passes
+
+- **Context:** an IP whitelist block can hide successful local dashboard recovery.
+- **Decision:** publish one bounded deployment record after heartbeat, API, and SQLite checks pass.
+- **Why it worked:** tests prove ordering, validation, dashboard isolation, and an English Telegram message without an IP address.
+- **Reuse:** every operator message that combines deployment success with an independent fail-closed trading state.
+
 ### 2026-08-01 — Separate exposure from acquired inventory
 
 - **Context:** a partial BUY fill exists in account holdings while its remainder stays in the order book.

@@ -650,6 +650,14 @@ The dashboard uses the same SQLite coordination rule.
 Its application connections use `mode=ro` and `PRAGMA query_only=ON`.
 The dashboard continues to update healthy sections when one source is unavailable.
 
+After readiness passes, the updater replaces one derived deployment status file.
+The file is `/var/lib/ladder-dragon/deployment-status.json`.
+It has a 4 KiB limit and contains no account or network address data.
+It has no archive dependency.
+It needs no cleanup because each successful update replaces it.
+The dashboard shows this status when the current heartbeat is `IP_BLOCKED`.
+The updater also sends one English Telegram message for this state.
+
 ```bash
 sudo systemctl status ladder-dragon-daily-digest.timer --no-pager
 sudo systemctl list-timers ladder-dragon-daily-digest.timer --no-pager

@@ -240,6 +240,7 @@ def test_dashboard_exposes_read_only_ops_trading_and_ai_quality_blocks():
     backup = read("deploy/backup_raspberry_pi.sh")
     for marker in (
         "id=\"ops-load\"", "id=\"ops-ntp\"", "id=\"ops-backup\"",
+        "id=\"deployment-notice\"",
         "id=\"execution-banner\"", "id=\"trade-risk\"", "id=\"positions-body\"",
         "id=\"ai-context-age\"", "id=\"ai-budget\"", "id=\"ai-degraded-quality\"",
     ):
@@ -301,12 +302,18 @@ def test_dashboard_transient_failures_are_bounded_and_visible():
         "ReadWritePaths=/home/bot/apps/binance_bot/FastAPI/pi-dashboard/data "
         "/home/bot/apps/binance_bot/db"
     ) in unit
+    assert "ReadOnlyPaths=-/var/lib/ladder-dragon/deployment-status.json" in unit
     updater = read("deploy/update_raspberry_pi.sh")
     assert "wait_for_dashboard_database 30" in updater
     assert "/api/trades/symbols?hours=1" in updater
     assert "| curl --config -" in updater
     assert "Authorization: Bearer ${dashboard_token}" in updater
     assert 'curl -H "Authorization:' not in updater
+    assert "publish_verified_deployment_status" in updater
+    assert "ladder_dragon.deployment.status" in updater
+    assert "heartbeat.state==='IP_BLOCKED'" in index
+    assert "deployment.dashboard_backend_ready" in index
+    assert "deployment.sqlite_ready" in index
 
 
 def test_dashboard_large_sources_are_bounded_server_side():

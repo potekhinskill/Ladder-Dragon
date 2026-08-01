@@ -398,6 +398,27 @@ check_link() {
   python3 -m json.tool /run/mybot/ai_status.json
 }
 
+publish_verified_deployment_status() {
+  local commit version runtime_state publish_status
+  commit="$(runuser -u "${BOT_USER}" -- git rev-parse HEAD)"
+  version="$(runuser -u "${BOT_USER}" -- .venv/bin/python -c \
+    'from product_version import __version__; print(__version__)')"
+  runtime_state="$(python3 -c \
+    'import json; print(json.load(open("/run/mybot/ai_status.json"))["state"])')"
+  if .venv/bin/python -m ladder_dragon.deployment.status \
+    --commit "${commit}" --version "${version}" \
+    --runtime-state "${runtime_state}"; then
+    return 0
+  else
+    publish_status="$?"
+  fi
+  if [[ "${publish_status}" == "2" ]]; then
+    echo "[WARN] deployment status passed, but its Telegram notice was not delivered" >&2
+    return 0
+  fi
+  fail "verified deployment status could not be published"
+}
+
 if [[ "${EUID}" -ne 0 ]]; then
   exec sudo --preserve-env=PROJECT_DIR,WEB_ROOT,BOT_HOSTNAME,BOT_USER,BOT_UPDATE_COMMIT "$0" "$@"
 fi
@@ -733,6 +754,7 @@ grep -q '^DASHBOARD_AUTH_TOKEN=replace_' "${DASHBOARD_ENV}" \
   && fail "placeholder dashboard token remains"
 if [[ "${MYBOT_WAS_ACTIVE}" == "1" && "${DASHBOARD_WAS_ACTIVE}" == "1" ]]; then
   check_link
+  publish_verified_deployment_status
 else
   echo "[OK] preserved service state: mybot_active=${MYBOT_WAS_ACTIVE} dashboard_active=${DASHBOARD_WAS_ACTIVE}"
 fi

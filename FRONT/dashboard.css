@@ -25,6 +25,8 @@ h1{margin:0;font-size:20px;font-weight:800;line-height:1.15}
 .github-update:focus-visible{outline:2px solid #75a0ff;outline-offset:2px}
 .language-picker{margin-left:auto;display:inline-flex;align-items:center;gap:6px;color:var(--muted);font-size:var(--font-base)}
 .language-picker select{background:#111622;color:var(--text);border:1px solid var(--stroke);border-radius:8px;padding:4px 8px;font:inherit}
+.deployment-notice{display:flex;flex-direction:column;gap:4px;margin:0 0 var(--gap);padding:12px 14px;border:1px solid rgba(243,194,77,.5);border-radius:var(--rad);background:rgba(243,194,77,.11);color:#ffe6a3}
+.deployment-notice[hidden]{display:none}.deployment-notice strong{font-size:var(--font-heading)}
 .ai-toggle{display:inline-flex;align-items:center;gap:7px;border:0;background:transparent;color:var(--text);padding:0;font:inherit;font-size:var(--font-base);cursor:pointer}
 .ai-toggle:disabled{cursor:not-allowed;opacity:.55}
 .switch-visual{position:relative;display:inline-block;width:42px;height:24px;flex:0 0 auto;border:1px solid #3a4352;border-radius:999px;background:#272e39;transition:background .18s,border-color .18s}
