@@ -3,6 +3,14 @@
 All notable changes are documented here. Releases use Semantic Versioning; every
 section is dated and there is intentionally no `Unreleased` section.
 
+## [2.20.119] — 2026-08-01
+
+### Fixed
+- Risk alerts now ignore volatile retry counters when they deduplicate one unchanged failure.
+
+### Verified
+- Risk alert tests prove repeated causes stay quiet and changed causes alert immediately.
+
 ## [2.20.118] — 2026-08-01
 
 ### Security

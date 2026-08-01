@@ -6,6 +6,7 @@
 
 from decimal import Decimal
 import os
+import re
 import sqlite3
 import time
 from typing import Any, Dict, List, Mapping, Sequence
@@ -32,6 +33,22 @@ from ladder_dragon.supervision.entry_policy import finite_decimal
 
 class RiskConfigurationError(RuntimeError):
     """Report a deterministic risk configuration block."""
+
+
+_RISK_ATTEMPT_PREFIX = re.compile(
+    r"^(risk telemetry unavailable) \(\d+/\d+\):\s*"
+)
+
+
+def risk_alert_signature(
+    decision: RiskDecision,
+) -> tuple[bool, bool, tuple[str, ...]]:
+    """Return a stable alert key without volatile retry counters."""
+    reasons = tuple(
+        _RISK_ATTEMPT_PREFIX.sub(r"\1: ", str(reason)).strip()
+        for reason in decision.reasons
+    )
+    return decision.halted, decision.buy_blocked, reasons
 
 
 def risk_configuration_block(

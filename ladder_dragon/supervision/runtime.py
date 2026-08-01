@@ -87,6 +87,7 @@ from ladder_dragon.supervision.risk_cycle import (
     configured_price_shocks_decimal as _configured_price_shocks_decimal,
     initial_runtime_risk_gate,
     initial_runtime_risk_status,
+    risk_alert_signature,
     risk_configuration_block,
     remaining_order_budget_decimal as _remaining_order_budget_decimal,
 )
@@ -4447,6 +4448,7 @@ def main():
         if risk_manager is not None
         else None
     )
+    last_risk_alert_signature: tuple[bool, bool, tuple[str, ...]] | None = None
     previous_prices: Dict[str, Decimal] = {}
     consecutive_api_failures = 0
     runtime_auth_state = _read_auth_resilience_state()
@@ -4768,9 +4770,11 @@ def main():
                         except SUPERVISOR_OPERATION_ERRORS as exc:
                             log(f"[RISK] cancel BUY failed: {exc}")
                 signature = (decision.halted, decision.reasons)
-                if signature != last_risk_signature and decision.buy_blocked:
+                alert_signature = risk_alert_signature(decision)
+                if decision.buy_blocked and alert_signature != last_risk_alert_signature:
                     _notify_risk(decision)
                 last_risk_signature = signature
+                last_risk_alert_signature = alert_signature
                 next_risk_check = max(
                     now_loop + max(1, int(args.risk_check_sec)),
                     auth_retry_at,

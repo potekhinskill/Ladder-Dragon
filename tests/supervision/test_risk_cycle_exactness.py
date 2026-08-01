@@ -3,11 +3,13 @@ import inspect
 
 import pytest
 
+from ladder_dragon.risk.risk_manager import RiskDecision
 from ladder_dragon.supervision import risk_cycle, runtime
 from ladder_dragon.supervision.risk_cycle import (
     RiskConfigurationError,
     reconciliation_tolerance_fraction,
     remaining_open_buy_notional,
+    risk_alert_signature,
     risk_configuration_block,
 )
 
@@ -80,3 +82,45 @@ def test_var_history_block_is_not_an_api_failure_or_cooldown():
     config_block = source[config_offset:operation_offset]
     assert "start_cooldown" not in config_block
     assert "consecutive_api_failures +=" not in config_block
+
+
+def test_risk_alert_signature_ignores_only_retry_counter():
+    first = RiskDecision(
+        halted=False,
+        buy_blocked=True,
+        reasons=(
+            "risk telemetry unavailable (1/3): position reconciliation failed: "
+            "SOLUSDT",
+        ),
+    )
+    repeated = RiskDecision(
+        halted=False,
+        buy_blocked=True,
+        reasons=(
+            "risk telemetry unavailable (57/3): position reconciliation failed: "
+            "SOLUSDT",
+        ),
+    )
+
+    assert risk_alert_signature(first) == risk_alert_signature(repeated)
+
+
+def test_risk_alert_signature_preserves_material_changes():
+    baseline = RiskDecision(
+        halted=False,
+        buy_blocked=True,
+        reasons=("risk telemetry unavailable (2/3): account mismatch A",),
+    )
+    changed_reason = RiskDecision(
+        halted=False,
+        buy_blocked=True,
+        reasons=("risk telemetry unavailable (3/3): account mismatch B",),
+    )
+    changed_state = RiskDecision(
+        halted=True,
+        buy_blocked=True,
+        reasons=baseline.reasons,
+    )
+
+    assert risk_alert_signature(baseline) != risk_alert_signature(changed_reason)
+    assert risk_alert_signature(baseline) != risk_alert_signature(changed_state)

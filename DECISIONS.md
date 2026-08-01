@@ -4,6 +4,13 @@ Read this file before changing the repository. Record only decisions that were
 validated by tests or production evidence and are likely to be reused. Keep
 entries concise; this is not a changelog or an activity log.
 
+### 2026-08-01 — Deduplicate alerts by stable cause
+
+- **Context:** retry counters made one persistent risk failure look new each cycle.
+- **Decision:** keep counters in status, but exclude them from the alert identity.
+- **Why it worked:** tests prove changed causes alert immediately while repeated causes stay stable.
+- **Reuse:** every alert that contains attempts, ages, timestamps, or other volatile diagnostics.
+
 ### 2026-08-01 — Isolate static analysis from application credentials
 
 - **Context:** a verification child does not need exchange or notification credentials.

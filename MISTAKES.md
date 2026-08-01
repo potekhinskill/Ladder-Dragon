@@ -17,6 +17,20 @@ private infrastructure details.
 
 ## Mistakes
 
+### 2026-08-01 — Guessed verification module names
+
+- **Impact:** a successful full test sequence ended with a nonexistent module error.
+- **Root cause:** the command used inferred names instead of the harness check definitions.
+- **Correction:** use `bin.audit_numeric_boundaries` and `deploy/scan_tracked_secrets.py`.
+- **Prevention:** copy verification commands from the harness specification before manual runs.
+
+### 2026-08-01 — Deferred release surface and size checks
+
+- **Impact:** the first full 2.20.119 test run failed three release contract tests.
+- **Root cause:** the edit changed the version and guarded runtime before checking their linked constraints.
+- **Correction:** synchronize README and compact the runtime without increasing its line count.
+- **Prevention:** check version surfaces and monolith budgets before the first full test run.
+
 ### 2026-08-01 — Compared fixture paths by overlapping suffix
 
 - **Impact:** the release rule test classified every unsafe fixture finding as a safe-file finding.
