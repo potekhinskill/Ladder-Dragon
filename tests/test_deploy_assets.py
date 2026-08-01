@@ -29,7 +29,8 @@ def test_source_code_uses_english_outside_localization_catalogs():
     for path in ROOT.rglob("*"):
         if not path.is_file() or path.suffix not in extensions or path in allowed:
             continue
-        if any(part in {".git", ".venv"} for part in path.parts):
+        excluded = {".git", ".venv", ".semgrep-venv"}
+        if any(part in excluded for part in path.parts):
             continue
         for line_number, line in enumerate(path.read_text().splitlines(), start=1):
             if re.search(r"[\u0400-\u04ff]", line):
@@ -1115,7 +1116,10 @@ def test_runtime_dependencies_are_hash_locked_and_installed_without_dependency_r
     updater = read("deploy/update_raspberry_pi.sh")
     workflow = read(".github/workflows/security.yml")
     for relative in (
-        "requirements/raspberry.lock", "requirements/ci.lock", "requirements/audit.lock"
+        "requirements/raspberry.lock",
+        "requirements/ci.lock",
+        "requirements/audit.lock",
+        "requirements/semgrep.lock",
     ):
         lock = read(relative)
         assert "--hash=sha256:" in lock
@@ -1126,6 +1130,8 @@ def test_runtime_dependencies_are_hash_locked_and_installed_without_dependency_r
     assert "--require-hashes -r requirements/raspberry.lock" in updater
     assert "--require-hashes -r requirements/ci.lock" in workflow
     assert "--require-hashes -r requirements/audit.lock" in workflow
+    assert "--require-hashes -r requirements/semgrep.lock" in workflow
+    assert "python -m venv .semgrep-venv" in workflow
 
 
 def test_ci_scans_full_history_and_pins_actions_by_commit():

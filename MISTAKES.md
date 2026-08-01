@@ -17,6 +17,34 @@ private infrastructure details.
 
 ## Mistakes
 
+### 2026-08-01 — Compared fixture paths by overlapping suffix
+
+- **Impact:** the release rule test classified every unsafe fixture finding as a safe-file finding.
+- **Root cause:** `unsafe_patterns.py` also ends with the text `safe_patterns.py`.
+- **Correction:** compare the exact path name instead of a raw string suffix.
+- **Prevention:** add a regression for filenames where one complete name is a suffix of another.
+
+### 2026-08-01 — Reused a manually completed release SHA
+
+- **Impact:** the first release command contained an unverified commit identifier and required replacement.
+- **Root cause:** the command copied a short commit prefix and manually supplied the remaining characters.
+- **Correction:** read the complete identifier directly with `git rev-parse HEAD`.
+- **Prevention:** pass release identifiers only from command output or a validated shell variable.
+
+### 2026-08-01 — Scanned an isolated tool environment as project source
+
+- **Impact:** the English-source regression reported third-party package text as project violations.
+- **Root cause:** the recursive source scan excluded `.venv` but not the new `.semgrep-venv` directory.
+- **Correction:** exclude both isolated environments from repository source inspection.
+- **Prevention:** every new local tool directory needs an ignore rule and a source-scan exclusion.
+
+### 2026-08-01 — Mixed Semgrep with runtime-constrained audit tools
+
+- **Impact:** the first lock compilation stopped on incompatible Click versions.
+- **Root cause:** Semgrep was added to the environment constrained by the application CI lock.
+- **Correction:** place Semgrep in a separate hashed environment and lock file.
+- **Prevention:** inspect dependency constraints before adding development tools to a shared environment.
+
 ### 2026-08-01 — Left accepted IP telemetry stale
 
 - **Impact:** IP Guard accepted the fingerprint, but heartbeat still showed the previous changed state.

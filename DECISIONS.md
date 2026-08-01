@@ -694,3 +694,10 @@ entries concise; this is not a changelog or an activity log.
 - **Decision:** update each section independently and pause polling after HTTP 429.
 - **Why it worked:** healthy host, AI, and history sections remain current during one source failure.
 - **Reuse:** every read-only operational page that combines independent data sources.
+
+### 2026-08-01 — Isolate deterministic static analysis
+
+- **Context:** Semgrep and application audit tools require incompatible dependency versions.
+- **Decision:** pin Semgrep in a separate hashed environment and run only local project rules.
+- **Why it worked:** fixtures prove each rule, production scans need no network, and runtime dependencies remain unchanged.
+- **Reuse:** every development tool whose dependency graph conflicts with the application environment.

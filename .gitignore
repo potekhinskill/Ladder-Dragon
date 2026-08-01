@@ -12,6 +12,7 @@ htmlcov/
 
 # Virtual environments and local tooling
 .venv/
+.semgrep-venv/
 venv/
 .idea/
 .vscode/

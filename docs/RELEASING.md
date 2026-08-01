@@ -36,12 +36,22 @@ Run the Technical English check before you create the candidate commit:
 .venv/bin/python -m bin.check_technical_english
 ```
 
+Create the isolated Semgrep environment before local or release verification:
+
+```bash
+python3 -m venv .semgrep-venv
+.semgrep-venv/bin/python -m pip install \
+  --require-hashes -r requirements/semgrep.lock
+```
+
+Do not install Semgrep in the application environment or on Raspberry Pi.
+
 ## 2. Verify the immutable candidate SHA
 
 The release profile must run against the final signed commit, not against an
 uncommitted tree or a predecessor. It performs compilation, the complete test
-suite, numeric/secret audits, replay, walk-forward, approval, recovery,
-migration, deployment and release-continuity checks:
+suite, numeric, secret, and Semgrep audits, replay, approval, recovery,
+migration, deployment, and release-continuity checks:
 
 ```bash
 RELEASE_SHA="$(git rev-parse HEAD)"

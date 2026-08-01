@@ -1,0 +1,2 @@
+# Semgrep is isolated because its Click constraint conflicts with the runtime.
+semgrep==1.168.0

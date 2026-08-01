@@ -1,0 +1,86 @@
+rules:
+  - id: ladder-dragon.no-broad-exception-pass
+    languages: [python]
+    severity: ERROR
+    message: Do not silently discard Exception. Catch a specific type and report a safe reason.
+    pattern-either:
+      - pattern: |
+          try:
+            ...
+          except Exception:
+            pass
+      - pattern: |
+          try:
+            ...
+          except Exception as $ERROR:
+            pass
+
+  - id: ladder-dragon.no-shell-true
+    languages: [python]
+    severity: ERROR
+    message: Do not execute a subprocess through a shell.
+    pattern: subprocess.$FUNCTION(..., shell=True, ...)
+
+  - id: ladder-dragon.no-os-system
+    languages: [python]
+    severity: ERROR
+    message: Do not execute commands with os.system.
+    pattern: os.system(...)
+
+  - id: ladder-dragon.no-eval
+    languages: [python]
+    severity: ERROR
+    message: Do not evaluate dynamic Python expressions.
+    pattern: eval(...)
+
+  - id: ladder-dragon.no-exec
+    languages: [python]
+    severity: ERROR
+    message: Do not execute dynamic Python code.
+    pattern: exec(...)
+
+  - id: ladder-dragon.no-unsafe-pickle
+    languages: [python]
+    severity: ERROR
+    message: Do not deserialize untrusted pickle data.
+    pattern-either:
+      - pattern: pickle.load(...)
+      - pattern: pickle.loads(...)
+
+  - id: ladder-dragon.no-unsafe-yaml-loader
+    languages: [python]
+    severity: ERROR
+    message: Use yaml.safe_load for YAML input.
+    pattern-either:
+      - pattern: yaml.load($DATA)
+      - pattern: yaml.load($DATA, Loader=yaml.Loader)
+      - pattern: yaml.load($DATA, Loader=yaml.FullLoader)
+
+  - id: ladder-dragon.no-disabled-tls-verification
+    languages: [python]
+    severity: ERROR
+    message: Do not disable TLS certificate verification.
+    pattern: requests.$METHOD(..., verify=False, ...)
+
+  - id: ladder-dragon.no-insecure-tempfile-mktemp
+    languages: [python]
+    severity: ERROR
+    message: Use a securely created temporary file or directory.
+    pattern: tempfile.mktemp(...)
+
+  - id: ladder-dragon.requests-require-timeout
+    languages: [python]
+    severity: ERROR
+    message: Every direct requests call must have a bounded timeout.
+    patterns:
+      - pattern: requests.$METHOD(...)
+      - pattern-not: requests.$METHOD(..., timeout=$TIMEOUT, ...)
+      - metavariable-regex:
+          metavariable: $METHOD
+          regex: ^(get|post|put|patch|delete|request)$
+
+  - id: ladder-dragon.no-decimal-from-float
+    languages: [python]
+    severity: ERROR
+    message: Do not construct Decimal from a binary float.
+    pattern: Decimal(float(...))

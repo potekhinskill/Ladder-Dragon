@@ -141,6 +141,8 @@ def test_profile_registry_contains_the_documented_interfaces(tmp_path):
         "numeric_boundary_audit",
         "release_continuity",
         "tracked_secret_scan",
+        "semgrep_rule_tests",
+        "semgrep_static_analysis",
         "replay_regression",
         "walk_forward_approval",
         "recovery_regression",
@@ -151,6 +153,8 @@ def test_profile_registry_contains_the_documented_interfaces(tmp_path):
     }
     assert "pi_dashboard_assets" in pi_names
     assert "pi_user_stream_service" in pi_names
+    assert "semgrep_rule_tests" not in pi_names
+    assert "semgrep_static_analysis" not in pi_names
 
 
 def test_dashboard_asset_audit_fails_closed_on_missing_or_changed_asset(

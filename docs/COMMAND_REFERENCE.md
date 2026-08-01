@@ -21,6 +21,7 @@ Help output is the authoritative option reference.
 | `audit_replay_readiness` | checks archive, latency, regime, and validation evidence |
 | `audit_user_stream_soak` | checks authenticated stream duration and events |
 | `check_technical_english` | checks current guides against the project writing profile |
+| `semgrep_scan` | tests local Semgrep rules or scans production Python paths |
 | `production_soak_report` | builds a sanitized non-mutating soak report |
 | `testnet_soak_monitor` | monitors Testnet safety without order mutation |
 
@@ -28,13 +29,31 @@ The harness supports these profiles:
 
 | Profile | Scope |
 | --- | --- |
-| `local` | evidence checks, compileall, tests, numeric audit, and secret scan |
+| `local` | evidence, compileall, tests, numeric audit, secret scan, and Semgrep |
 | `release` | local checks plus replay, recovery, migration, deployment, and continuity |
 | `testnet` | public and separately confirmed authenticated Testnet checks |
 | `pi` | deployed SHA, services, assets, risk, stream, journal, and soak evidence |
 | `mainnet-canary` | separately confirmed bounded Mainnet acceptance test |
 
 The exit codes are `0` for PASS, `1` for FAILED, and `2` for BLOCKED.
+
+Install Semgrep in its isolated environment:
+
+```bash
+python3 -m venv .semgrep-venv
+.semgrep-venv/bin/python -m pip install \
+  --require-hashes -r requirements/semgrep.lock
+```
+
+Test the local rules before you scan production paths:
+
+```bash
+.venv/bin/python -m bin.semgrep_scan --rules-test
+.venv/bin/python -m bin.semgrep_scan
+```
+
+The scan does not use network rules or send metrics.
+The Pi profile does not install or run Semgrep.
 
 ## Strategy, prediction, and replay commands
 

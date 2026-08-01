@@ -3,6 +3,20 @@
 All notable changes are documented here. Releases use Semantic Versioning; every
 section is dated and there is intentionally no `Unreleased` section.
 
+## [2.20.116] — 2026-08-01
+
+### Added
+- Local Semgrep rules detect unsafe Python execution and error patterns.
+- Positive and negative fixtures verify every project rule.
+
+### Changed
+- Local and release verification now run a pinned offline Semgrep scan.
+- Semgrep uses a separate hashed environment and never runs on Raspberry Pi.
+
+### Verified
+- Rule fixtures, production scanning, harness integration, CI contracts,
+  deployment assets, and architecture tests pass.
+
 ## [2.20.115] — 2026-08-01
 
 ### Fixed

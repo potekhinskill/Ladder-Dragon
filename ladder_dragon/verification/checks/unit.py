@@ -34,4 +34,14 @@ def local_checks(context: HarnessContext) -> list[CheckSpec]:
             argv=(python, "deploy/scan_tracked_secrets.py"),
             timeout_sec=120,
         ),
+        CheckSpec(
+            name="semgrep_rule_tests",
+            argv=(python, "-m", "bin.semgrep_scan", "--rules-test"),
+            timeout_sec=300,
+        ),
+        CheckSpec(
+            name="semgrep_static_analysis",
+            argv=(python, "-m", "bin.semgrep_scan"),
+            timeout_sec=900,
+        ),
     ]
