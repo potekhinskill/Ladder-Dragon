@@ -3,6 +3,14 @@
 All notable changes are documented here. Releases use Semantic Versioning; every
 section is dated and there is intentionally no `Unreleased` section.
 
+## [2.20.118] — 2026-08-01
+
+### Security
+- Semgrep processes now receive a minimal environment without application credentials.
+
+### Verified
+- Semgrep policy, rule fixtures, environment isolation, and harness profile tests pass.
+
 ## [2.20.117] — 2026-08-01
 
 ### Fixed

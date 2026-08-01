@@ -25,13 +25,23 @@ RULE_MARKER = re.compile(r"# ruleid: (?P<rule>ladder-dragon\.[a-z0-9-]+)")
 
 
 def _scanner_environment() -> dict[str, str]:
-    """Return an offline environment with writable local Semgrep telemetry."""
-    environment = os.environ.copy()
-    environment.update({
+    """Return a minimal environment without application credentials."""
+    runtime_root = PROJECT_ROOT / ".runtime"
+    home = runtime_root / "semgrep-home"
+    temporary = runtime_root / "semgrep-tmp"
+    cache = runtime_root / "semgrep-cache"
+    for directory in (home, temporary, cache):
+        directory.mkdir(parents=True, exist_ok=True)
+    environment = {
+        "HOME": str(home),
+        "LANG": "C.UTF-8",
+        "PATH": os.pathsep.join((str(SEMGREP_ROOT / "bin"), os.defpath)),
         "SEMGREP_SEND_METRICS": "off",
         "SEMGREP_ENABLE_VERSION_CHECK": "0",
-        "SEMGREP_LOG_FILE": str(PROJECT_ROOT / ".runtime" / "semgrep.log"),
-    })
+        "SEMGREP_LOG_FILE": str(runtime_root / "semgrep.log"),
+        "TMPDIR": str(temporary),
+        "XDG_CACHE_HOME": str(cache),
+    }
     certificates = tuple(
         SEMGREP_ROOT.glob("lib/python*/site-packages/certifi/cacert.pem")
     )
@@ -55,6 +65,7 @@ def _verify_toolchain() -> bool:
         text=True,
         timeout=30,
         check=False,
+        env=_scanner_environment(),
     )
     return completed.returncode == 0 and completed.stdout.strip() == EXPECTED_VERSION
 

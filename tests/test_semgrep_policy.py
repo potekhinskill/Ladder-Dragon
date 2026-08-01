@@ -2,6 +2,7 @@
 
 from pathlib import Path
 import re
+import subprocess
 
 from bin import semgrep_scan
 
@@ -54,6 +55,41 @@ def test_semgrep_wrapper_uses_offline_bounded_settings():
     assert environment["SEMGREP_SEND_METRICS"] == "off"
     assert environment["SEMGREP_ENABLE_VERSION_CHECK"] == "0"
     assert "tests" not in semgrep_scan.PRODUCTION_TARGETS
+
+
+def test_semgrep_environment_does_not_inherit_application_secrets(monkeypatch):
+    monkeypatch.setenv("BINANCE_API_KEY", "must-not-reach-scanner")
+    monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "must-not-reach-scanner")
+
+    environment = semgrep_scan._scanner_environment()
+
+    assert "BINANCE_API_KEY" not in environment
+    assert "TELEGRAM_BOT_TOKEN" not in environment
+    assert set(environment) <= {
+        "HOME",
+        "LANG",
+        "PATH",
+        "SEMGREP_ENABLE_VERSION_CHECK",
+        "SEMGREP_LOG_FILE",
+        "SEMGREP_SEND_METRICS",
+        "SSL_CERT_FILE",
+        "TMPDIR",
+        "XDG_CACHE_HOME",
+    }
+
+
+def test_production_scan_receives_the_minimal_environment(monkeypatch):
+    captured = {}
+
+    def fake_run(*args, **kwargs):
+        captured["environment"] = kwargs["env"]
+        return subprocess.CompletedProcess(args[0], 0)
+
+    monkeypatch.setenv("BINANCE_API_KEY", "must-not-reach-scanner")
+    monkeypatch.setattr(semgrep_scan.subprocess, "run", fake_run)
+
+    assert semgrep_scan._production_scan() == 0
+    assert "BINANCE_API_KEY" not in captured["environment"]
 
 
 def test_unsafe_fixture_name_is_not_classified_as_the_safe_fixture():

@@ -4,6 +4,13 @@ Read this file before changing the repository. Record only decisions that were
 validated by tests or production evidence and are likely to be reused. Keep
 entries concise; this is not a changelog or an activity log.
 
+### 2026-08-01 — Isolate static analysis from application credentials
+
+- **Context:** a verification child does not need exchange or notification credentials.
+- **Decision:** run Semgrep with a minimal environment and project-local writable directories.
+- **Why it worked:** tests prove application secrets are absent while pinned offline scans pass.
+- **Reuse:** every development tool that analyzes source without runtime authority.
+
 ### 2026-08-01 — Refresh IP evidence at every authentication boundary
 
 - **Context:** a public IP can change after startup during a long supervisor run.

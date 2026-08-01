@@ -53,6 +53,7 @@ Test the local rules before you scan production paths:
 ```
 
 The scan does not use network rules or send metrics.
+The harness does not pass application credentials to the scanner process.
 The Pi profile does not install or run Semgrep.
 
 ## Strategy, prediction, and replay commands
