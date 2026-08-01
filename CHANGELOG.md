@@ -3,6 +3,25 @@
 All notable changes are documented here. Releases use Semantic Versioning; every
 section is dated and there is intentionally no `Unreleased` section.
 
+## [2.20.113] — 2026-08-01
+
+### Added
+- SQLite migration 009 creates a bounded derived index for exact SELL results.
+- One shared process lock serializes circuit HALT and risk-state changes.
+
+### Changed
+- Risk checks read only the SELL outcomes required by the configured loss limit.
+- Dashboard and Telegram IP-block notices now contain only the cause and action.
+
+### Fixed
+- Concurrent evaluate, HALT, cooldown, synchronization, and reset operations no
+  longer overwrite newer control state.
+- The risk cycle no longer replays all trade history every 15 seconds.
+
+### Verified
+- Control-lock concurrency, migration backfill, bounded growth, priced fee retry,
+  dashboard notices, risk regression, and project tests pass.
+
 ## [2.20.112] — 2026-08-01
 
 ### Added

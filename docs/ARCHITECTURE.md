@@ -28,6 +28,7 @@ Tests and extensions import the owning package directly.
 | `ladder_dragon/supervision/` | Supervisor configuration, worker orchestration, adaptive entry and VWAP policies |
 | `ladder_dragon/strategy/` | Replay, prediction, simulation, regimes and expectancy |
 | `ladder_dragon/risk/` | Limits, portfolio state and risk statistics |
+| `ladder_dragon/risk/trade_streaks.py` | Bounded SELL outcomes for loss-streak gates |
 | `ladder_dragon/execution/` | Binance adapters, orders, protection, recovery, accounting and streams |
 | `ladder_dragon/ai/` | Advisory context, policy, knowledge and evidence |
 | `ladder_dragon/dashboard/` | FastAPI routes, repositories, services and host telemetry |

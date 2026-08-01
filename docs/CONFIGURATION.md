@@ -78,6 +78,8 @@ Historical virtual documents are archive data and cannot enter retrieval.
 A zero VaR or Expected Shortfall CAP disables that optional gate.
 Unvalued-asset exclusion and acknowledgement lists must match exactly.
 Excluded assets cannot increase equity or CAP.
+HALT, reset, cooldown, and evaluation use one process lock.
+`RISK_MAX_CONSECUTIVE_LOSSES` cannot exceed 4,096 retained SELL outcomes.
 
 ## Transport and latency
 

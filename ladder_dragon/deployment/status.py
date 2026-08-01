@@ -119,14 +119,7 @@ def deployment_message(status: Mapping[str, Any]) -> str | None:
     """Build the English Telegram notice for a verified IP block."""
     if status.get("runtime_state") != "IP_BLOCKED":
         return None
-    return (
-        "Ladder Dragon: update complete\n"
-        "Dashboard backend and SQLite readiness checks passed.\n"
-        "Trading is IP_BLOCKED because the public IP changed.\n"
-        "Review the Binance whitelist.\n"
-        "New BUY orders and trading mutations are blocked.\n"
-        "Healthy local dashboard sections remain available."
-    )
+    return "Trading blocked: public IP changed. Review the Binance whitelist."
 
 
 def main() -> int:

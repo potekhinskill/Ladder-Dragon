@@ -8,6 +8,8 @@ from __future__ import annotations
 from dataclasses import asdict, dataclass, field
 from datetime import datetime, timezone
 from decimal import Decimal
+from contextlib import contextmanager
+import fcntl
 import json
 import os
 from pathlib import Path
@@ -18,6 +20,10 @@ from typing import Iterable, Mapping, Optional
 
 from ladder_dragon.execution.trade_accounting import TradeExecution
 from ladder_dragon.execution.telegram_alerts import notify as notify_telegram
+from ladder_dragon.risk.trade_streaks import (
+    MAX_RETAINED_SELL_OUTCOMES,
+    read_loss_streaks,
+)
 
 PERSISTENT_CONTROL_DIR = Path("/var/lib/ladder-dragon/control")
 LEGACY_RUNTIME_CONTROL_DIR = Path("/run/mybot")
@@ -190,6 +196,10 @@ class RiskLimits:
             raise ValueError("order/trade count caps must be > 0")
         if self.max_consecutive_losses <= 0 or self.cooldown_sec < 0:
             raise ValueError("loss streak must be > 0 and cooldown must be >= 0")
+        if self.max_consecutive_losses > MAX_RETAINED_SELL_OUTCOMES:
+            raise ValueError(
+                "loss streak limit exceeds the retained SELL outcome bound"
+            )
         if self.stress_loss_cap_usdt < 0 or self.var_cap_usdt < 0:
             raise ValueError("stress/VaR caps must be >= 0 (0 disables the gate)")
         if self.gap_risk_cap_usdt < 0:
@@ -300,8 +310,21 @@ def _atomic_json(path: Path, payload: dict) -> None:
             pass
 
 
-def sync_manual_halt_state(limits: RiskLimits) -> bool:
-    """Mirror an existing authoritative halt marker into risk telemetry."""
+@contextmanager
+def _control_state_lock(limits: RiskLimits):
+    """Serialize all control-state read-modify-write operations."""
+    lock_path = limits.state_file.with_name(f"{limits.state_file.name}.lock")
+    lock_path.parent.mkdir(parents=True, exist_ok=True)
+    descriptor = os.open(lock_path, os.O_CREAT | os.O_RDWR, 0o600)
+    with os.fdopen(descriptor, "a+", encoding="utf-8") as handle:
+        fcntl.flock(handle.fileno(), fcntl.LOCK_EX)
+        try:
+            yield
+        finally:
+            fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
+
+
+def _sync_manual_halt_state_unlocked(limits: RiskLimits) -> bool:
     try:
         marker = json.loads(limits.halt_file.read_text(encoding="utf-8"))
         reasons = [str(reason) for reason in marker["reasons"] if str(reason)]
@@ -331,6 +354,12 @@ def sync_manual_halt_state(limits: RiskLimits) -> bool:
     return True
 
 
+def sync_manual_halt_state(limits: RiskLimits) -> bool:
+    """Mirror an authoritative halt marker under the shared process lock."""
+    with _control_state_lock(limits):
+        return _sync_manual_halt_state_unlocked(limits)
+
+
 def create_manual_halt(
     reason: str,
     *,
@@ -341,23 +370,26 @@ def create_manual_halt(
     """Create manual halt."""
     limits = limits or RiskLimits.from_env()
     now = float(now or time.time())
-    reasons = [str(reason)]
-    try:
-        current = json.loads(limits.halt_file.read_text(encoding="utf-8"))
-        reasons = list(dict.fromkeys([*(current.get("reasons") or []), *reasons]))
-    except (FileNotFoundError, json.JSONDecodeError, OSError, TypeError):
-        pass
-    payload = {
-        "halted_at": datetime.fromtimestamp(now, timezone.utc).isoformat(),
-        "reasons": reasons,
-        "manual_reset_required": True,
-        "cooldown_until": now + limits.cooldown_sec,
-    }
-    if metadata:
-        payload["metadata"] = metadata
-    _atomic_json(limits.halt_file, payload)
-    if not sync_manual_halt_state(limits):
-        raise RuntimeError("persisted halt marker could not be mirrored")
+    with _control_state_lock(limits):
+        reasons = [str(reason)]
+        try:
+            current = json.loads(limits.halt_file.read_text(encoding="utf-8"))
+            reasons = list(
+                dict.fromkeys([*(current.get("reasons") or []), *reasons])
+            )
+        except (FileNotFoundError, json.JSONDecodeError, OSError, TypeError):
+            pass
+        payload = {
+            "halted_at": datetime.fromtimestamp(now, timezone.utc).isoformat(),
+            "reasons": reasons,
+            "manual_reset_required": True,
+            "cooldown_until": now + limits.cooldown_sec,
+        }
+        if metadata:
+            payload["metadata"] = metadata
+        _atomic_json(limits.halt_file, payload)
+        if not _sync_manual_halt_state_unlocked(limits):
+            raise RuntimeError("persisted halt marker could not be mirrored")
     limits.alerts_file.parent.mkdir(parents=True, exist_ok=True)
     alert = {
         "ts": payload["halted_at"],
@@ -423,7 +455,7 @@ class RiskManager:
             "exposure_usdt": snapshot.exposure_usdt,
         })
 
-    def trip(self, state: RiskState, reasons: Iterable[str], snapshot: RiskSnapshot, now: float) -> None:
+    def _trip_unlocked(self, state: RiskState, reasons: Iterable[str], snapshot: RiskSnapshot, now: float) -> None:
         # Persist the halt before notifying. Even if the webhook or log is
         # unavailable, the next run sees the marker and will not resume BUY.
         reasons = list(dict.fromkeys(reasons))
@@ -441,7 +473,12 @@ class RiskManager:
         _atomic_json(self.limits.halt_file, marker)
         self._alert("circuit_breaker", reasons, snapshot)
 
-    def evaluate(self, snapshot: RiskSnapshot, now: Optional[float] = None) -> RiskDecision:
+    def trip(self, state: RiskState, reasons: Iterable[str], snapshot: RiskSnapshot, now: float) -> None:
+        """Persist a circuit halt under the shared process lock."""
+        with _control_state_lock(self.limits):
+            self._trip_unlocked(state, reasons, snapshot, now)
+
+    def _evaluate_unlocked(self, snapshot: RiskSnapshot, now: Optional[float] = None) -> RiskDecision:
         """Evaluate evaluate."""
         now = float(now or time.time())
         state = self._load(snapshot.equity_usdt, now)
@@ -475,7 +512,7 @@ class RiskManager:
             )
 
         if circuit_reasons and not state.halted:
-            self.trip(state, circuit_reasons, snapshot, now)
+            self._trip_unlocked(state, circuit_reasons, snapshot, now)
 
         # Other limits block new BUY orders but still allow management of
         # existing positions and protective SELL/OCO orders.
@@ -529,14 +566,24 @@ class RiskManager:
             peak_drawdown_pct=peak_dd,
         )
 
-    def start_cooldown(self, reason: str, seconds: Optional[int] = None, now: Optional[float] = None) -> None:
+    def evaluate(self, snapshot: RiskSnapshot, now: Optional[float] = None) -> RiskDecision:
+        """Evaluate one risk snapshot under the shared process lock."""
+        with _control_state_lock(self.limits):
+            return self._evaluate_unlocked(snapshot, now)
+
+    def _start_cooldown_unlocked(self, reason: str, seconds: Optional[int] = None, now: Optional[float] = None) -> None:
         now = float(now or time.time())
         state = self._load(Decimal("0"), now)
         state.cooldown_until = max(state.cooldown_until, now + int(seconds or self.limits.cooldown_sec))
         state.cooldown_reason = reason
         self._save(state)
 
-    def reset(self, *, force: bool = False, now: Optional[float] = None) -> None:
+    def start_cooldown(self, reason: str, seconds: Optional[int] = None, now: Optional[float] = None) -> None:
+        """Start a cooldown under the shared process lock."""
+        with _control_state_lock(self.limits):
+            self._start_cooldown_unlocked(reason, seconds, now)
+
+    def _reset_unlocked(self, *, force: bool = False, now: Optional[float] = None) -> None:
         now = float(now or time.time())
         state = self._load(Decimal("0"), now)
         if not force and state.cooldown_until > now:
@@ -553,8 +600,19 @@ class RiskManager:
         state.cooldown_reason = ""
         self._save(state)
 
+    def reset(self, *, force: bool = False, now: Optional[float] = None) -> None:
+        """Reset circuit state under the shared process lock."""
+        with _control_state_lock(self.limits):
+            self._reset_unlocked(force=force, now=now)
 
-def load_daily_trade_metrics(db_path: str, symbols: Iterable[str], now: Optional[float] = None) -> dict:
+
+def load_daily_trade_metrics(
+    db_path: str,
+    symbols: Iterable[str],
+    now: Optional[float] = None,
+    *,
+    streak_limit: int = 1000,
+) -> dict:
     """Load daily trade metrics."""
     now = float(now or time.time())
     start = int(datetime.fromtimestamp(now, timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0).timestamp())
@@ -587,15 +645,24 @@ def load_daily_trade_metrics(db_path: str, symbols: Iterable[str], now: Optional
               AND (CASE WHEN ts > 1000000000000 THEN CAST(ts/1000 AS INTEGER) ELSE ts END) >= ?
             ORDER BY ts_s, id
         """
-        history_sql = f"""
-            SELECT symbol, side, {accounting_columns},
-                   CASE WHEN ts > 1000000000000 THEN CAST(ts/1000 AS INTEGER) ELSE ts END AS ts_s
-            FROM {trade_source}
-            WHERE symbol IN ({placeholders})
-            ORDER BY ts_s, id
-        """
         rows = con.execute(daily_sql, (*wanted, start)).fetchall()
-        history = con.execute(history_sql, wanted).fetchall()
+        indexed_streaks = read_loss_streaks(
+            con,
+            wanted,
+            limit=streak_limit,
+        )
+        history: list[tuple] = []
+        if indexed_streaks is None:
+            # Unmigrated external databases retain a compatibility path. The
+            # production database always uses the bounded derived index.
+            history_sql = f"""
+                SELECT symbol, side, {accounting_columns},
+                       CASE WHEN ts > 1000000000000 THEN CAST(ts/1000 AS INTEGER) ELSE ts END AS ts_s
+                FROM {trade_source}
+                WHERE symbol IN ({placeholders})
+                ORDER BY ts_s, id
+            """
+            history = con.execute(history_sql, wanted).fetchall()
 
     def execution(row: tuple) -> TradeExecution:
         symbol, side, price, gross, net, asset, amount, quote_value, status, _ = row
@@ -622,42 +689,59 @@ def load_daily_trade_metrics(db_path: str, symbols: Iterable[str], now: Optional
         Decimal("0"),
     )
 
-    # For a loss streak, restore average cost from the full history, not only
-    # from trades made today.
-    inventory: dict[str, tuple[Decimal, Decimal]] = {}
-    sell_results: list[tuple[str, Decimal]] = []
-    for row in history:
-        trade = execution(row)
-        qty, avg = inventory.get(trade.symbol, (Decimal("0"), Decimal("0")))
-        if trade.side == "BUY":
-            new_qty = qty + trade.net_qty
-            avg = ((avg * qty) + trade.buy_cost_quote()) / new_qty if new_qty > 0 else Decimal("0")
-            qty = new_qty
-        else:
-            used = min(qty, trade.net_qty)
-            ratio = used / trade.net_qty if trade.net_qty > 0 else Decimal("0")
-            sell_results.append((trade.symbol, trade.sell_proceeds_quote() * ratio - avg * used))
-            qty -= used
-            if qty <= 0:
-                qty, avg = Decimal("0"), Decimal("0")
-        inventory[trade.symbol] = (qty, avg)
-    streak = 0
-    for _, result in reversed(sell_results):
-        if result < 0:
-            streak += 1
-        else:
-            break
-    symbol_streaks: dict[str, int] = {}
-    for symbol in {item[0] for item in sell_results}:
-        count = 0
-        for item_symbol, result in reversed(sell_results):
-            if item_symbol != symbol:
-                continue
+    if indexed_streaks is not None:
+        streak, symbol_streaks = indexed_streaks
+    else:
+        # This branch supports old read-only databases outside deployment.
+        inventory: dict[str, tuple[Decimal, Decimal]] = {}
+        sell_results: list[tuple[str, Decimal]] = []
+        for row in history:
+            trade = execution(row)
+            qty, avg = inventory.get(
+                trade.symbol, (Decimal("0"), Decimal("0"))
+            )
+            if trade.side == "BUY":
+                new_qty = qty + trade.net_qty
+                avg = (
+                    ((avg * qty) + trade.buy_cost_quote()) / new_qty
+                    if new_qty > 0
+                    else Decimal("0")
+                )
+                qty = new_qty
+            else:
+                used = min(qty, trade.net_qty)
+                ratio = (
+                    used / trade.net_qty
+                    if trade.net_qty > 0
+                    else Decimal("0")
+                )
+                sell_results.append(
+                    (
+                        trade.symbol,
+                        trade.sell_proceeds_quote() * ratio - avg * used,
+                    )
+                )
+                qty -= used
+                if qty <= 0:
+                    qty, avg = Decimal("0"), Decimal("0")
+            inventory[trade.symbol] = (qty, avg)
+        streak = 0
+        for _, result in reversed(sell_results):
             if result < 0:
-                count += 1
+                streak += 1
             else:
                 break
-        symbol_streaks[symbol] = count
+        symbol_streaks = {}
+        for symbol in {item[0] for item in sell_results}:
+            count = 0
+            for item_symbol, result in reversed(sell_results):
+                if item_symbol != symbol:
+                    continue
+                if result < 0:
+                    count += 1
+                else:
+                    break
+            symbol_streaks[symbol] = count
     return {
         "daily_turnover_usdt": turnover,
         "daily_buy_usdt": buys,

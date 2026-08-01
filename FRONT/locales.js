@@ -232,12 +232,10 @@
     user_stream_diagnostics:"Диагностика потока"
   });
   Object.assign(translations.en, {
-    deployment_notice_title:"Update complete. Dashboard backend and SQLite readiness checks passed.",
-    deployment_notice_ip_blocked:"Trading is IP_BLOCKED because the public IP changed. Review the Binance whitelist. New BUY orders and trading mutations are blocked. Healthy local dashboard sections remain available."
+    deployment_notice_ip_blocked:"Trading blocked: public IP changed. Review the Binance whitelist."
   });
   Object.assign(translations.ru, {
-    deployment_notice_title:"Обновление завершено. Dashboard backend и SQLite readiness прошли.",
-    deployment_notice_ip_blocked:"Торговый контур находится в IP_BLOCKED: публичный IP изменился. Проверьте Binance whitelist. Новые BUY и торговые мутации заблокированы. Исправные локальные секции dashboard продолжают работать."
+    deployment_notice_ip_blocked:"Торговля заблокирована: изменился публичный IP. Проверьте Binance whitelist."
   });
 
   const labels = [

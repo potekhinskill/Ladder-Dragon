@@ -655,8 +655,8 @@ The file is `/var/lib/ladder-dragon/deployment-status.json`.
 It has a 4 KiB limit and contains no account or network address data.
 It has no archive dependency.
 It needs no cleanup because each successful update replaces it.
-The dashboard shows this status when the current heartbeat is `IP_BLOCKED`.
-The updater also sends one English Telegram message for this state.
+The dashboard shows one short action when the heartbeat is `IP_BLOCKED`.
+The updater sends the same short action in English through Telegram.
 
 ```bash
 sudo systemctl status ladder-dragon-daily-digest.timer --no-pager

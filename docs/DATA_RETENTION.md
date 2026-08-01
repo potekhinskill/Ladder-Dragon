@@ -48,6 +48,10 @@ blocks deletion but does not change the database.
 
 ## Existing bounded stores
 
+- The risk SELL outcome index keeps the latest 4,096 derived results.
+- Each exact SELL updates the index with its accounting transaction.
+- The index has no archive dependency because authoritative trades rebuild it.
+- The risk control lock is one disposable file and has no growth path.
 - RAG documents and retrieval links use the configured 365-day window.
 - Public depth archives use the configured 3-to-90-day window.
 - Sanitized logs and dashboard history use file-size and age limits.

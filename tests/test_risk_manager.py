@@ -1,10 +1,13 @@
 from decimal import Decimal
 from pathlib import Path
 import json
+import multiprocessing
 import sqlite3
+import time
 
 import pytest
 
+from ladder_dragon.execution import tools_stats
 from ladder_dragon.risk.risk_manager import (
     RiskLimits,
     RiskManager,
@@ -13,6 +16,16 @@ from ladder_dragon.risk.risk_manager import (
     load_daily_trade_metrics,
     sync_manual_halt_state,
 )
+from ladder_dragon.risk import risk_manager as risk_module
+from ladder_dragon.risk.trade_streaks import (
+    MAX_RETAINED_SELL_OUTCOMES,
+    record_sell_outcome,
+)
+
+
+def _reset_in_child(configured: RiskLimits, result_queue) -> None:
+    RiskManager(configured).reset(force=True, now=1_700_000_100)
+    result_queue.put("reset")
 
 
 def limits(tmp_path: Path, **overrides) -> RiskLimits:
@@ -183,6 +196,158 @@ def test_daily_trade_metrics(tmp_path: Path):
     assert result["daily_turnover_usdt"] == Decimal("190.0")
     assert result["daily_buy_usdt"] == Decimal("100.0")
     assert result["consecutive_losses"] == 1
+
+
+def test_migrated_risk_metrics_use_bounded_sell_outcomes(tmp_path: Path):
+    db = tmp_path / "stats.db"
+    con = tools_stats.init_db(str(db))
+    assert tools_stats.apply_trade(
+        con,
+        "SOLUSDT",
+        "BUY",
+        "100",
+        "1",
+        ts=1_700_000_000_000,
+        trade_id=1,
+        commission_quote="0.1",
+        commission_value_status="exact",
+    )
+    assert tools_stats.apply_trade(
+        con,
+        "SOLUSDT",
+        "SELL",
+        "90",
+        "1",
+        ts=1_700_000_001_000,
+        trade_id=2,
+        commission_quote="0.1",
+        commission_value_status="exact",
+    )
+    assert con.execute(
+        "SELECT net_pnl_quote_text FROM risk_sell_outcomes"
+    ).fetchone() == ("-10.2",)
+    con.close()
+
+    metrics = load_daily_trade_metrics(
+        str(db), ["SOLUSDT"], now=1_700_000_002, streak_limit=3
+    )
+
+    assert metrics["consecutive_losses"] == 1
+    assert metrics["symbol_consecutive_losses"] == {"SOLUSDT": 1}
+
+
+def test_migrated_risk_metrics_do_not_replay_old_trade_rows(tmp_path: Path):
+    db = tmp_path / "stats.db"
+    con = tools_stats.init_db(str(db))
+    con.execute(
+        "INSERT INTO trades("
+        "symbol,side,price_text,gross_qty,net_qty,commission_asset,"
+        "commission_amount,commission_quote,commission_value_status,ts,trade_id"
+        ") VALUES(?,?,?,?,?,?,?,?,?,?,?)",
+        (
+            "SOLUSDT", "BUY", "invalid-old-price", "1", "1", "USDT",
+            "0", "0", "exact", 1_600_000_000_000, 10,
+        ),
+    )
+    con.commit()
+    con.close()
+
+    metrics = load_daily_trade_metrics(
+        str(db), ["SOLUSDT"], now=1_700_000_000, streak_limit=3
+    )
+
+    assert metrics["daily_trade_count"] == 0
+    assert metrics["consecutive_losses"] == 0
+
+
+def test_sell_outcome_index_has_a_fixed_growth_bound(tmp_path: Path):
+    db = tmp_path / "stats.db"
+    con = tools_stats.init_db(str(db))
+    con.executemany(
+        "INSERT INTO risk_sell_outcomes("
+        "trade_row_id,symbol,exchange_trade_id,executed_at,net_pnl_quote_text"
+        ") VALUES(?,?,?,?,?)",
+        (
+            (row_id, "SOLUSDT", row_id, row_id, "-1")
+            for row_id in range(1, MAX_RETAINED_SELL_OUTCOMES + 2)
+        ),
+    )
+    record_sell_outcome(
+        con,
+        trade_row_id=MAX_RETAINED_SELL_OUTCOMES + 2,
+        symbol="SOLUSDT",
+        exchange_trade_id=MAX_RETAINED_SELL_OUTCOMES + 2,
+        executed_at=MAX_RETAINED_SELL_OUTCOMES + 2,
+        net_pnl_quote=Decimal("1"),
+    )
+    con.commit()
+
+    assert con.execute("SELECT COUNT(*) FROM risk_sell_outcomes").fetchone() == (
+        MAX_RETAINED_SELL_OUTCOMES,
+    )
+    con.close()
+
+
+def test_out_of_order_symbol_sync_rebuilds_global_streak_by_trade_time(
+    tmp_path: Path,
+):
+    db = tmp_path / "stats.db"
+    con = tools_stats.init_db(str(db))
+    for symbol, side, price, timestamp, trade_id in (
+        ("SOLUSDT", "BUY", "100", 1_700_000_000_000, 1),
+        ("SOLUSDT", "SELL", "90", 1_700_000_003_000, 2),
+        ("ETHUSDT", "BUY", "100", 1_700_000_001_000, 3),
+        ("ETHUSDT", "SELL", "110", 1_700_000_002_000, 4),
+    ):
+        assert tools_stats.apply_trade(
+            con,
+            symbol,
+            side,
+            price,
+            "1",
+            ts=timestamp,
+            trade_id=trade_id,
+            commission_quote="0",
+            commission_value_status="exact",
+        )
+    con.close()
+
+    metrics = load_daily_trade_metrics(
+        str(db),
+        ["SOLUSDT", "ETHUSDT"],
+        now=1_700_000_004,
+        streak_limit=3,
+    )
+
+    assert metrics["consecutive_losses"] == 1
+    assert metrics["symbol_consecutive_losses"] == {
+        "SOLUSDT": 1,
+        "ETHUSDT": 0,
+    }
+
+
+def test_control_lock_serializes_reset_with_other_processes(tmp_path: Path):
+    configured = limits(tmp_path)
+    create_manual_halt("manual review", limits=configured, now=1_700_000_000)
+    context = multiprocessing.get_context("spawn")
+    result_queue = context.Queue()
+    process = context.Process(
+        target=_reset_in_child,
+        args=(configured, result_queue),
+    )
+
+    with risk_module._control_state_lock(configured):
+        process.start()
+        time.sleep(0.2)
+        assert process.is_alive()
+        assert configured.halt_file.exists()
+
+    process.join(timeout=5)
+    assert process.exitcode == 0
+    assert result_queue.get(timeout=1) == "reset"
+    assert not configured.halt_file.exists()
+    state = json.loads(configured.state_file.read_text(encoding="utf-8"))
+    assert state["halted"] is False
 
 
 def test_execution_failure_creates_persistent_manual_halt(tmp_path: Path):

@@ -495,7 +495,11 @@ def build_risk_snapshot(
         and str(order.get("symbol", "")).upper() in correlated_symbols
     )
 
-    metrics = load_trade_metrics(os.environ["BOT_STATS_DB"], symbols)
+    metrics = load_trade_metrics(
+        os.environ["BOT_STATS_DB"],
+        symbols,
+        streak_limit=limits.max_consecutive_losses,
+    )
     stale_limit = max(0, int(os.getenv("RISK_STALE_ORDER_MAX_SEC", "0") or 0))
     stale_count = 0
     if stale_limit > 0:

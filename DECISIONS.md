@@ -4,6 +4,13 @@ Read this file before changing the repository. Record only decisions that were
 validated by tests or production evidence and are likely to be reused. Keep
 entries concise; this is not a changelog or an activity log.
 
+### 2026-08-01 — Serialize control state and bound loss-streak reads
+
+- **Context:** three processes can change HALT state while risk checks read trade history.
+- **Decision:** lock each control transition and maintain 4,096 derived SELL outcomes.
+- **Why it worked:** tests prove process exclusion, transactional updates, exact backfill, and fixed growth.
+- **Reuse:** every shared control file and every risk metric derived from growing authoritative history.
+
 ### 2026-08-01 — Publish deployment facts only after readiness passes
 
 - **Context:** an IP whitelist block can hide successful local dashboard recovery.

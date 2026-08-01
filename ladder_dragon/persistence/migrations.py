@@ -115,6 +115,28 @@ def migrate(db_path: str, *, exact_new_database: bool = True) -> list[str]:
                 sql=sql,
             )
             applied_now.append(version)
+        has_risk_outcome_state = con.execute(
+            "SELECT 1 FROM sqlite_master WHERE type='table' "
+            "AND name='risk_sell_outcome_state'"
+        ).fetchone()
+        pending_risk_outcomes = (
+            con.execute(
+                "SELECT backfill_complete FROM risk_sell_outcome_state "
+                "WHERE singleton=1"
+            ).fetchone()
+            if has_risk_outcome_state
+            else None
+        )
+        if pending_risk_outcomes is not None and int(pending_risk_outcomes[0]) == 0:
+            from ladder_dragon.risk.trade_streaks import rebuild_sell_outcomes
+
+            con.execute("BEGIN IMMEDIATE")
+            try:
+                rebuild_sell_outcomes(con)
+                con.commit()
+            except (ArithmeticError, RuntimeError, ValueError, sqlite3.Error):
+                con.rollback()
+                raise
         pending_exact = bool(
             exact_new_database
             and con.execute(

@@ -28,8 +28,10 @@ def test_verified_ip_block_status_is_bounded_and_operator_safe(tmp_path):
     assert loaded["dashboard_backend_ready"] is True
     assert loaded["sqlite_ready"] is True
     assert message is not None
-    assert "IP_BLOCKED" in message
     assert "public IP" in message
+    assert message == (
+        "Trading blocked: public IP changed. Review the Binance whitelist."
+    )
     assert "a" * 40 not in message
     assert path.stat().st_size < 4096
     assert path.stat().st_mode & 0o777 == 0o644
@@ -72,8 +74,9 @@ def test_cli_sends_verified_english_notice(tmp_path, monkeypatch):
 
     assert deployment_status.main() == 0
     assert len(messages) == 1
-    assert "readiness checks passed" in messages[0]
-    assert "New BUY orders and trading mutations are blocked" in messages[0]
+    assert messages[0] == (
+        "Trading blocked: public IP changed. Review the Binance whitelist."
+    )
     assert read_deployment_status(path) is not None
 
 

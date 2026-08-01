@@ -12,13 +12,13 @@ from ladder_dragon.execution.inventory_lots import sync_exchange_fill
 def test_migrations_are_repeatable(tmp_path: Path):
     db = tmp_path / "bot.db"
     assert migrate(str(db)) == [
-        "001", "002", "003", "004", "005", "006", "007", "008"
+        "001", "002", "003", "004", "005", "006", "007", "008", "009"
     ]
     assert migrate(str(db)) == []
     with sqlite3.connect(db) as con:
         versions = [row[0] for row in con.execute("SELECT version FROM schema_migrations ORDER BY version")]
         assert versions == [
-            "001", "002", "003", "004", "005", "006", "007", "008"
+            "001", "002", "003", "004", "005", "006", "007", "008", "009"
         ]
         assert con.execute(
             "SELECT completed FROM database_bootstrap "
@@ -31,6 +31,9 @@ def test_migrations_are_repeatable(tmp_path: Path):
         assert {"qty_text", "avg_cost_text", "realized_pnl_text"} <= inventory_columns
         assert {"price", "qty", "fee_quote"}.isdisjoint(trade_columns)
         assert {"qty", "avg_cost", "realized_pnl"}.isdisjoint(inventory_columns)
+        assert con.execute(
+            "SELECT backfill_complete FROM risk_sell_outcome_state"
+        ).fetchone() == (1,)
         import_columns = {
             row[1] for row in con.execute(
                 "PRAGMA table_info(inventory_lot_imports)"
@@ -304,7 +307,7 @@ def test_fifo_sell_migration_seeds_existing_valued_trades(tmp_path: Path):
             ),
         )
 
-    assert migrate(str(database), exact_new_database=False) == ["007", "008"]
+    assert migrate(str(database), exact_new_database=False) == ["007", "008", "009"]
     with sqlite3.connect(database) as connection:
         assert connection.execute(
             "SELECT symbol,source_trade_id,source_order_id,qty,price "

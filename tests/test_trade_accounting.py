@@ -213,6 +213,34 @@ def test_unpriced_external_commission_fails_closed_in_risk_metrics(tmp_path):
         load_daily_trade_metrics(str(db), ["SOLUSDT"], now=1_700_000_001)
 
 
+def test_priced_retry_rebuilds_sell_streak_after_unpriced_fill(tmp_path):
+    db = tmp_path / "stats.db"
+    con = tools_stats.init_db(str(db))
+    tools_stats.apply_trade(
+        con, "SOLUSDT", "BUY", "100", "1",
+        ts=1_700_000_000_000, trade_id=1,
+        commission_quote="0.1", commission_value_status="exact",
+    )
+    tools_stats.apply_trade(
+        con, "SOLUSDT", "SELL", "90", "1",
+        ts=1_700_000_001_000, trade_id=2,
+        commission_asset="BNB", commission_amount="0.001",
+        commission_quote=None, commission_value_status="unpriced",
+    )
+    assert tools_stats.apply_trade(
+        con, "SOLUSDT", "SELL", "90", "1",
+        ts=1_700_000_001_000, trade_id=2,
+        commission_asset="BNB", commission_amount="0.001",
+        commission_quote="0.1", commission_value_status="converted",
+    )
+    con.close()
+
+    metrics = load_daily_trade_metrics(
+        str(db), ["SOLUSDT"], now=1_700_000_002, streak_limit=3
+    )
+    assert metrics["consecutive_losses"] == 1
+
+
 def test_legacy_schema_remains_readable_by_risk_metrics(tmp_path):
     db = tmp_path / "legacy.db"
     with sqlite3.connect(db) as con:
