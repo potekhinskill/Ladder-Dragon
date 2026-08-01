@@ -331,6 +331,27 @@ PYTHONPATH=. .venv/bin/python -m bin.audit_user_stream_soak \
   --minimum-hours 24
 ```
 
+Run the Mainnet event drill only with a persistent HALT and SHADOW mode.
+The drill submits one bounded `LIMIT_MAKER` BUY below the market.
+It cancels the order immediately and requires zero execution.
+It then requires an account event and authoritative REST reconciliation.
+Do not remove an OCO or another open order for this drill.
+
+```bash
+sudo -u bot env \
+  BOT_LIVE_CONFIRMED=YES \
+  BOT_MAINNET_USER_STREAM_DRILL_CONFIRMED=YES \
+  BOT_MAINNET_USER_STREAM_DRILL_CLEANUP_CONFIRMED=YES \
+  PYTHONPATH=. \
+  .venv/bin/python -m bin.mainnet_user_stream_drill \
+  --symbol SOLUSDT --notional-usdt 6
+```
+
+The drill uses a separate authoritative journal.
+Do not delete this journal or its report.
+An unexpected fill triggers immediate cleanup and preserves HALT.
+Review Binance balances, open orders, and both journals after any failure.
+
 The monthly prediction timer creates offline evidence.
 It does not authorize APPLY or remove HALT.
 
@@ -587,7 +608,7 @@ sudo -u bot env PYTHONPATH=. .venv/bin/python \
   --github-sha "$RELEASE_SHA" \
   --release-report /home/bot/verification/verification-release.json \
   --runtime-status /run/mybot/ai_status.json \
-  --user-stream-status /run/mybot/user_stream_SOLUSDT.json \
+  --user-stream-status /var/lib/ladder-dragon/user-stream/user_stream_SOLUSDT.json \
   --order-journal /home/bot/apps/binance_bot/db/order_intents.sqlite3 \
   --prediction-db /home/bot/apps/binance_bot/db/prediction_shadow.sqlite3 \
   --ai-decisions-db /home/bot/apps/binance_bot/db/ai_decisions.sqlite3

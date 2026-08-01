@@ -43,6 +43,11 @@ ENTRY_TTLS = (
     ("ttl_10m", 600),
     ("ttl_15m", 900),
 )
+COMBINED_CANDIDATES = (
+    ("range_ttl5_maker_tp115_gap10", D("0.0115"), D("0.0010")),
+    ("range_ttl5_maker_tp130_gap15", D("0.0130"), D("0.0015")),
+    ("range_ttl5_maker_tp150_gap20", D("0.0150"), D("0.0020")),
+)
 
 
 @dataclass(frozen=True)
@@ -90,7 +95,7 @@ def build_shadow_variants(
     required_edge_pct: Decimal,
     regime: str,
 ) -> tuple[ShadowVariant, ...]:
-    """Build one-factor candidates that all clear the authoritative fee floor."""
+    """Build isolated and combined candidates above the authoritative fee floor."""
     if not market_price.is_finite() or market_price <= 0:
         raise ValueError("market price must be positive and finite")
     if not required_edge_pct.is_finite() or required_edge_pct <= 0:
@@ -147,6 +152,18 @@ def build_shadow_variants(
                 market_price * (D("1") - value),
             ),
         ) for name, value in BUY_GAPS),
+        *(variant(
+            name,
+            "combined_range_execution",
+            entry_price=max(
+                baseline_plan.entry_price,
+                market_price * (D("1") - gap),
+            ),
+            candidate_target=take_profit,
+            entry_ttl_sec=300,
+            entry_enabled=str(regime).upper() == "RANGE",
+            maker_only=True,
+        ) for name, take_profit, gap in COMBINED_CANDIDATES),
     ]
     return tuple(variants)
 
@@ -239,6 +256,7 @@ def shadow_variant_report(
 
 __all__ = [
     "BUY_GAPS",
+    "COMBINED_CANDIDATES",
     "ENTRY_TTLS",
     "FEE_FLOOR_BUFFER_PCT",
     "TP_TARGETS",

@@ -750,3 +750,10 @@ entries concise; this is not a changelog or an activity log.
 - **Decision:** require 60 real closures and use a deterministic bootstrap confidence interval.
 - **Why it worked:** small samples fail closed, and repeated audits return identical intervals.
 - **Reuse:** every production gate that evaluates realized advisory outcomes.
+
+### 2026-08-01 — Prove Mainnet stream events without enabling execution
+
+- **Context:** a connected stream without order events cannot prove event-triggered REST reconciliation.
+- **Decision:** submit one bounded non-taking order under HALT, cancel it immediately, and require zero execution.
+- **Why it worked:** tests prove intent-first recovery, cleanup, persistent event evidence, and unchanged execution gates.
+- **Reuse:** controlled authenticated stream drills on an otherwise idle account.

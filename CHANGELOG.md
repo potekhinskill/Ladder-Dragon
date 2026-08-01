@@ -3,6 +3,22 @@
 All notable changes are documented here. Releases use Semantic Versioning; every
 section is dated and there is intentionally no `Unreleased` section.
 
+## [2.20.123] — 2026-08-01
+
+### Added
+- SHADOW now records three combined RANGE, five-minute, maker-only candidates.
+- A bounded Mainnet drill proves account-event to REST reconciliation under persistent HALT.
+
+### Fixed
+- The Pi guide now uses the persistent User Data Stream evidence path.
+
+### Security
+- The Mainnet drill uses intent-first journaling, a 10 USDT hard limit, immediate cancellation, and mandatory cleanup.
+- The drill cannot remove HALT, enable APPLY, or run with another open `SOLUSDT` order.
+
+### Verified
+- Tests cover equal-snapshot candidates, RANGE gating, zero-fill cancellation, cleanup, and persistent evidence paths.
+
 ## [2.20.122] — 2026-08-01
 
 ### Fixed

@@ -17,6 +17,7 @@ def test_cli_launchers_remain_thin_and_never_alias_module_identity():
         "bin/autosize_universal.py",
         "bin/binance_testnet_smoke.py",
         "bin/binance_mainnet_canary.py",
+        "bin/mainnet_user_stream_drill.py",
         "bin/tools_cancel_open.py",
     ):
         assert _line_count(relative) <= 20

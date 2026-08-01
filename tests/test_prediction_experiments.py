@@ -88,6 +88,9 @@ def test_variants_clear_fee_floor_and_change_one_named_dimension():
         "ttl_5m",
         "ttl_10m",
         "ttl_15m",
+        "range_ttl5_maker_tp115_gap10",
+        "range_ttl5_maker_tp130_gap15",
+        "range_ttl5_maker_tp150_gap20",
     }
     for variant in variants:
         target_pct = variant.plan.take_profit_price / variant.plan.entry_price - D("1")
@@ -106,6 +109,14 @@ def test_variants_clear_fee_floor_and_change_one_named_dimension():
     assert by_id["tp_115"].plan.take_profit_price == D("100.84655")
     assert by_id["tp_130"].plan.take_profit_price == D("100.99610")
     assert by_id["tp_150"].plan.take_profit_price == D("101.19550")
+    combined = by_id["range_ttl5_maker_tp130_gap15"]
+    assert combined.dimension == "combined_range_execution"
+    assert combined.plan.entry_price == D("99.8500")
+    assert combined.plan.entry_ttl_sec == 300
+    assert combined.plan.entry_enabled is False
+    assert combined.plan.slippage_pct == D("0")
+    assert combined.maker_only is True
+    assert combined.plan.take_profit_price == D("101.1480500")
 
 
 def test_parallel_variants_share_snapshot_and_explicit_baseline(tmp_path: Path):
@@ -126,13 +137,13 @@ def test_parallel_variants_share_snapshot_and_explicit_baseline(tmp_path: Path):
         variants=variants,
     )
 
-    assert len(set(decision_ids)) == 11
+    assert len(set(decision_ids)) == 14
     with store._connect() as connection:
         rows = connection.execute(
             "SELECT kind,snapshot_ts_ms,baseline_plan_json "
             "FROM prediction_decisions ORDER BY kind"
         ).fetchall()
-    assert len(rows) == 11
+    assert len(rows) == 14
     assert {row[1] for row in rows} == {features.snapshot_ts_ms}
     assert all(row[0].startswith("EXPERIMENT_") for row in rows)
     assert {
@@ -299,7 +310,7 @@ def test_experiment_recording_is_bounded_to_five_minute_snapshots(
         baseline_plan=baseline,
         required_edge_pct=D("0.0096"),
     )
-    assert store.summary("SOLUSDT")["decisions"] == 11
+    assert store.summary("SOLUSDT")["decisions"] == 14
 
     clock["now"] = 1_301.0
     prediction_shadow.collect_shadow_experiments(
@@ -310,7 +321,36 @@ def test_experiment_recording_is_bounded_to_five_minute_snapshots(
         baseline_plan=baseline,
         required_edge_pct=D("0.0096"),
     )
-    assert store.summary("SOLUSDT")["decisions"] == 22
+    assert store.summary("SOLUSDT")["decisions"] == 28
+
+
+def test_combined_variants_trade_only_in_range():
+    baseline = _baseline()
+    range_variants = build_shadow_variants(
+        market_price=D("100"),
+        baseline_plan=baseline,
+        required_edge_pct=D("0.0096"),
+        regime="RANGE",
+    )
+    down_variants = build_shadow_variants(
+        market_price=D("100"),
+        baseline_plan=baseline,
+        required_edge_pct=D("0.0096"),
+        regime="TREND_DOWN",
+    )
+
+    range_combined = [
+        item for item in range_variants
+        if item.dimension == "combined_range_execution"
+    ]
+    down_combined = [
+        item for item in down_variants
+        if item.dimension == "combined_range_execution"
+    ]
+    assert len(range_combined) == len(down_combined) == 3
+    assert all(item.plan.entry_enabled for item in range_combined)
+    assert all(not item.plan.entry_enabled for item in down_combined)
+    assert all(item.maker_only for item in range_combined + down_combined)
 
 
 def test_reanchor_is_not_an_apply_candidate():

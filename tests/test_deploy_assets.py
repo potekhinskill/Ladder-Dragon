@@ -594,6 +594,7 @@ def test_user_stream_soak_is_independent_read_only_and_persistent():
     installer = read("deploy/install_raspberry_pi.sh")
     updater = read("deploy/update_raspberry_pi.sh")
     harness = read("bin/verification_harness.py")
+    install_guide = read("docs/RASPBERRY_PI_INSTALL.md")
 
     assert "bin.user_stream_shadow" in service
     assert "StateDirectory=ladder-dragon/user-stream" in service
@@ -609,6 +610,8 @@ def test_user_stream_soak_is_independent_read_only_and_persistent():
     assert "/var/lib/ladder-dragon/user-stream" in dashboard
     assert "-/var/lib/ladder-dragon/user-stream" in dashboard_unit
     assert "/var/lib/ladder-dragon/user-stream/user_stream_SOLUSDT.json" in harness
+    assert "/run/mybot/user_stream_SOLUSDT.json" not in install_guide
+    assert "/var/lib/ladder-dragon/user-stream/user_stream_SOLUSDT.json" in install_guide
     for script in (installer, updater):
         assert "ladder-dragon-user-stream-shadow.service" in script
         assert "read-only User Data Stream shadow service failed" in script

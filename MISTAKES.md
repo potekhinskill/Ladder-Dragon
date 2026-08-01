@@ -1097,3 +1097,10 @@ private infrastructure details.
   complete worker regression set.
 - **Prevention:** when moving orchestration behind an explicit state object,
   update both the source path and owner-qualified contract in structural tests.
+
+### 2026-08-01 — Documented the transient stream path after persistence changed
+
+- **Impact:** the Pi verification example read `/run`, while the service stored durable stream evidence under `/var/lib`.
+- **Root cause:** the service path changed, but the operator command was not covered by a documentation contract test.
+- **Correction:** use the persistent path in the Pi guide and verification examples.
+- **Prevention:** tests must compare every documented evidence path with the deployed service configuration.
