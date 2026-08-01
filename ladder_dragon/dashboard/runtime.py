@@ -2232,6 +2232,7 @@ def _ai_database_aggregates(
         "unresolved_fills": 0,
         "unresolved_attribution_fills": 0,
         "unresolved_inventory_fills": 0,
+        "reviewed_unattributable_fills": 0,
         "closed_decisions": 0,
         "realized_net_pnl_quote": 0.0,
     }
@@ -2280,35 +2281,15 @@ def _ai_database_aggregates(
             connection.execute("SELECT COUNT(*) FROM knowledge_retrievals").fetchone()[0]
         )
     if "ai_unresolved_fills" in tables:
-        unresolved_total = int(
-            connection.execute("SELECT COUNT(*) FROM ai_unresolved_fills").fetchone()[0]
-        )
-        stats["unresolved_fills"] = unresolved_total
-        unresolved_columns = {
-            str(row["name"])
-            for row in connection.execute(
-                "PRAGMA table_info(ai_unresolved_fills)"
-            )
-        }
-        if "resolution_scope" in unresolved_columns:
-            stats["unresolved_attribution_fills"] = int(
-                connection.execute(
-                    "SELECT COUNT(*) FROM ai_unresolved_fills "
-                    "WHERE resolution_scope='ATTRIBUTION'"
-                ).fetchone()[0]
-            )
-            stats["unresolved_inventory_fills"] = int(
-                connection.execute(
-                    "SELECT COUNT(*) FROM ai_unresolved_fills "
-                    "WHERE resolution_scope='INVENTORY' "
-                    "OR resolution_scope IS NULL "
-                    "OR resolution_scope NOT IN "
-                    "('ATTRIBUTION','INVENTORY')"
-                ).fetchone()[0]
-            )
-        else:
-            # Unknown legacy rows remain an execution-risk category.
-            stats["unresolved_inventory_fills"] = unresolved_total
+        from ladder_dragon.ai.unresolved_fills import lifecycle_counts
+
+        unresolved = lifecycle_counts(connection)
+        stats["unresolved_fills"] = unresolved["pending"]
+        stats["unresolved_attribution_fills"] = unresolved["attribution"]
+        stats["unresolved_inventory_fills"] = unresolved["inventory"]
+        stats["reviewed_unattributable_fills"] = unresolved[
+            "reviewed_unattributable"
+        ]
     return _ai_cache_put(cache_key, stats)
 
 
@@ -2368,6 +2349,7 @@ def ai_status(limit: int = 50):
         "unresolved_fills": 0,
         "unresolved_attribution_fills": 0,
         "unresolved_inventory_fills": 0,
+        "reviewed_unattributable_fills": 0,
         "closed_decisions": 0,
         "realized_net_pnl_quote": 0.0,
     }

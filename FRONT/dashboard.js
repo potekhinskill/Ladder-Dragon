@@ -87,7 +87,8 @@ const unresolvedFillText = knowledge => {
     knowledge?.unresolved_attribution_fills || 0
   );
   const inventory = Number(knowledge?.unresolved_inventory_fills || 0);
-  return `${total} · attribution ${attribution} / inventory ${inventory}`;
+  const reviewed = Number(knowledge?.reviewed_unattributable_fills || 0);
+  return `${total} pending · attribution ${attribution} / inventory ${inventory} · reviewed ${reviewed}`;
 };
 const NF2 = new Intl.NumberFormat('ru-RU',{minimumFractionDigits:2,maximumFractionDigits:2});
 const NF4 = new Intl.NumberFormat('ru-RU',{minimumFractionDigits:4,maximumFractionDigits:4});

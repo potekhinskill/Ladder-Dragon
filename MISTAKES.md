@@ -17,6 +17,13 @@ private infrastructure details.
 
 ## Mistakes
 
+### 2026-08-01 — Added a command without the command inventory
+
+- **Impact:** the first complete test run failed one documentation contract.
+- **Root cause:** the new CLI was documented in the runbook but omitted from the command reference.
+- **Correction:** add `review_unattributed_fills` to the operator command table.
+- **Prevention:** compare every new `bin` module with `docs/COMMAND_REFERENCE.md` before the full suite.
+
 ### 2026-08-01 — Guessed verification module names
 
 - **Impact:** a successful full test sequence ended with a nonexistent module error.

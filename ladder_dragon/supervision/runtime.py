@@ -840,43 +840,13 @@ def _unresolved_fill_counts() -> Dict[str, int]:
             ).fetchone()
             if table is None:
                 raise RuntimeError("unresolved-fill table is missing")
-            total = int(
-                connection.execute(
-                    "SELECT COUNT(*) FROM ai_unresolved_fills"
-                ).fetchone()[0]
-            )
-            columns = {
-                str(row[1])
-                for row in connection.execute(
-                    "PRAGMA table_info(ai_unresolved_fills)"
-                )
-            }
-            if "resolution_scope" not in columns:
-                # A legacy or damaged schema has not proven that its rows are
-                # attribution-only. Preserve the historical fail-closed rule.
-                return {
-                    "total": total,
-                    "attribution": 0,
-                    "inventory": total,
-                }
-            attribution = int(
-                connection.execute(
-                    "SELECT COUNT(*) FROM ai_unresolved_fills "
-                    "WHERE resolution_scope='ATTRIBUTION'"
-                ).fetchone()[0]
-            )
-            inventory = int(
-                connection.execute(
-                    "SELECT COUNT(*) FROM ai_unresolved_fills "
-                    "WHERE resolution_scope='INVENTORY' "
-                    "OR resolution_scope IS NULL "
-                    "OR resolution_scope NOT IN ('ATTRIBUTION','INVENTORY')"
-                ).fetchone()[0]
-            )
+            from ladder_dragon.ai.unresolved_fills import lifecycle_counts
+
+            counts = lifecycle_counts(connection)
             return {
-                "total": total,
-                "attribution": attribution,
-                "inventory": inventory,
+                "total": counts["pending"],
+                "attribution": counts["attribution"],
+                "inventory": counts["inventory"],
             }
     except (OSError, sqlite3.Error, TypeError, ValueError) as exc:
         raise RuntimeError("unresolved-fill reconciliation unavailable") from exc

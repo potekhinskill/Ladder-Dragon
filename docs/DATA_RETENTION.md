@@ -16,6 +16,14 @@ The following data has no automatic deletion:
 This data supports accounting, recovery, and safety checks. Archive or retire
 it only with a reviewed migration.
 
+Unresolved-fill rows use these permanent lifecycle states:
+
+- `PENDING` blocks the applicable gate.
+- `REVIEWED_UNATTRIBUTABLE` records proven history without an invented AI link.
+- `RESOLVED_LINKED` records a later exact link to an existing decision.
+
+The runtime never deletes these rows. Retention jobs must not select them.
+
 ## Derived data
 
 Prediction SHADOW decisions and terminal outcomes are derived evidence. The

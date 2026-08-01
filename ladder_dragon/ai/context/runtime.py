@@ -17,6 +17,7 @@ from pathlib import Path
 from typing import Any, Callable, Iterable, Mapping, Sequence
 
 from ladder_dragon.execution.trade_accounting import TradeExecution, replay_average_cost
+from ladder_dragon.ai.unresolved_fills import lifecycle_counts, record_pending_fill
 from ladder_dragon.numeric_compat import compatibility_float
 from ladder_dragon.sqlite_safety import (
     quote_sqlite_identifier,
@@ -27,9 +28,12 @@ from ladder_dragon.sqlite_safety import (
 ZERO = Decimal("0")
 HORIZONS_SEC = (900, 3600, 14_400)
 CONTEXT_SCHEMA_VERSION = "ai-context-v3"
-AI_SCHEMA_VERSION = "005_unresolved_fill_resolution_scope"
+AI_SCHEMA_VERSION = "006_unresolved_fill_lifecycle"
 AI_SCHEMA_CHECKSUM = hashlib.sha256(AI_SCHEMA_VERSION.encode("utf-8")).hexdigest()
 UNRESOLVED_FILL_SCOPES = frozenset({"ATTRIBUTION", "INVENTORY"})
+UNRESOLVED_FILL_STATUSES = frozenset({
+    "PENDING", "REVIEWED_UNATTRIBUTABLE", "RESOLVED_LINKED",
+})
 AI_CONTEXT_SOURCE_ERRORS = (
     ArithmeticError,
     IndexError,
@@ -684,6 +688,11 @@ class AdvisorDecisionStore:
                 fee_quote_text TEXT, ts INTEGER NOT NULL,
                 reason TEXT NOT NULL,
                 resolution_scope TEXT NOT NULL DEFAULT 'ATTRIBUTION',
+                resolution_status TEXT NOT NULL DEFAULT 'PENDING',
+                resolution_note TEXT NOT NULL DEFAULT '',
+                reviewed_at INTEGER,
+                resolved_decision_id TEXT,
+                resolution_updated_at INTEGER,
                 created_at INTEGER NOT NULL
             )""")
             connection.execute("""CREATE TABLE IF NOT EXISTS ai_order_links(
@@ -735,6 +744,11 @@ class AdvisorDecisionStore:
                     "resolution_scope": (
                         "TEXT NOT NULL DEFAULT 'ATTRIBUTION'"
                     ),
+                    "resolution_status": "TEXT NOT NULL DEFAULT 'PENDING'",
+                    "resolution_note": "TEXT NOT NULL DEFAULT ''",
+                    "reviewed_at": "INTEGER",
+                    "resolved_decision_id": "TEXT",
+                    "resolution_updated_at": "INTEGER",
                 },
                 "ai_order_links": {
                     "exchange_order_id": "TEXT", "exchange_order_list_id": "TEXT",
@@ -798,6 +812,10 @@ class AdvisorDecisionStore:
             connection.execute(
                 "CREATE INDEX IF NOT EXISTS ai_order_links_list_id ON ai_order_links(exchange_order_list_id)"
             )
+            connection.execute(
+                "CREATE INDEX IF NOT EXISTS ai_unresolved_lifecycle "
+                "ON ai_unresolved_fills(resolution_status,resolution_scope,symbol)"
+            )
             # Retention must never run as a side effect of opening a database.
             # A scheduled maintenance contour must archive evidence first.
             connection.execute(
@@ -815,6 +833,7 @@ class AdvisorDecisionStore:
                 JOIN ai_unresolved_fills AS u
                   ON u.order_id=l.exchange_order_id
                 WHERE l.exchange_order_id IS NOT NULL
+                  AND u.resolution_status IN ('PENDING','REVIEWED_UNATTRIBUTABLE')
                 """
             ).fetchall()
             for decision_id, client_order_id, order_id, leg_type in known_links:
@@ -888,20 +907,14 @@ class AdvisorDecisionStore:
             price_exact = _finite_decimal(price, field="unresolved fill price")
             qty_exact = _finite_decimal(qty, field="unresolved fill quantity")
             fee_exact = _finite_decimal(fee_quote, field="unresolved fill fee")
-            connection.execute(
-                """INSERT OR REPLACE INTO ai_unresolved_fills(
-                    fill_key,symbol,side,order_id,trade_id,price,qty,fee_quote,
-                    price_text,qty_text,fee_quote_text,ts,reason,
-                    resolution_scope,created_at
-                ) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
-                (fill_key, symbol.upper(), side.upper(),
-                 str(order_id) if order_id is not None else None,
-                 str(trade_id) if trade_id is not None else None,
-                 format(price_exact, "f"), format(qty_exact, "f"),
-                 format(fee_exact, "f"),
-                 format(price_exact, "f"), format(qty_exact, "f"),
-                 format(fee_exact, "f"), stamp,
-                 reason[:240], scope, int(time.time())),
+            record_pending_fill(
+                connection, fill_key=fill_key, symbol=symbol.upper(),
+                side=side.upper(),
+                order_id=str(order_id) if order_id is not None else None,
+                trade_id=str(trade_id) if trade_id is not None else None,
+                price=format(price_exact, "f"), qty=format(qty_exact, "f"),
+                fee_quote=format(fee_exact, "f"), ts=stamp, reason=reason,
+                scope=scope, created_at=int(time.time()),
             )
         return fill_key
 
@@ -989,6 +1002,7 @@ class AdvisorDecisionStore:
                    COALESCE(NULLIF(fee_quote_text,''),CAST(fee_quote AS TEXT)),
                    ts
             FROM ai_unresolved_fills WHERE order_id=?
+              AND resolution_status IN ('PENDING','REVIEWED_UNATTRIBUTABLE')
             """,
             (str(exchange_order_id),),
         ).fetchall()
@@ -1013,8 +1027,10 @@ class AdvisorDecisionStore:
                 ),
             )
             connection.execute(
-                "DELETE FROM ai_unresolved_fills WHERE fill_key=?",
-                (str(row[0]),),
+                "UPDATE ai_unresolved_fills SET resolution_status='RESOLVED_LINKED',"
+                "resolution_note='exact_order_link',reviewed_at=NULL,"
+                "resolved_decision_id=?,resolution_updated_at=? WHERE fill_key=?",
+                (decision_id, int(time.time()), str(row[0])),
             )
             resolved += 1
         return resolved
@@ -1092,7 +1108,10 @@ class AdvisorDecisionStore:
 
     def unresolved_fill_count(self) -> int:
         with self._connect() as connection:
-            return int(connection.execute("SELECT COUNT(*) FROM ai_unresolved_fills").fetchone()[0])
+            return int(connection.execute(
+                "SELECT COUNT(*) FROM ai_unresolved_fills "
+                "WHERE resolution_status='PENDING'"
+            ).fetchone()[0])
 
     def unresolved_fill_count_by_scope(self, resolution_scope: str) -> int:
         """Count one explicit unresolved category without relaxing AI gates."""
@@ -1103,10 +1122,17 @@ class AdvisorDecisionStore:
             return int(
                 connection.execute(
                     "SELECT COUNT(*) FROM ai_unresolved_fills "
-                    "WHERE resolution_scope=?",
+                    "WHERE resolution_scope=? AND resolution_status='PENDING'",
                     (scope,),
                 ).fetchone()[0]
             )
+
+    def unresolved_fill_lifecycle_counts(self) -> dict[str, int]:
+        """Return bounded lifecycle totals without exposing fill identifiers."""
+        with self._connect() as connection:
+            counts = lifecycle_counts(connection)
+        return {status.lower(): counts[status.lower()]
+                for status in UNRESOLVED_FILL_STATUSES}
 
     def update_policy(
         self, decision_id: str, *, policy_status: str, policy_reasons: str,
@@ -1378,10 +1404,9 @@ class AdvisorDecisionStore:
             realized_net_exact / len(realized) if realized else ZERO
         )
         with self._connect() as connection:
-            unresolved = int(connection.execute(
-                "SELECT COUNT(*) FROM ai_unresolved_fills WHERE symbol=?",
-                (symbol.upper(),),
-            ).fetchone()[0])
+            unresolved = lifecycle_counts(
+                connection, symbol=symbol.upper()
+            )["pending"]
         return AdvisorPerformance(
             ai_samples_15m=s15,
             ai_accuracy_15m=a15,

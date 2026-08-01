@@ -134,11 +134,9 @@ def _unresolved_fills(path: Path) -> int | None:
             }
             if "ai_unresolved_fills" not in tables:
                 return None
-            return int(
-                connection.execute(
-                    "SELECT COUNT(*) FROM ai_unresolved_fills"
-                ).fetchone()[0]
-            )
+            from ladder_dragon.ai.unresolved_fills import lifecycle_counts
+
+            return lifecycle_counts(connection)["pending"]
     except (OSError, sqlite3.Error, TypeError, ValueError):
         return None
 

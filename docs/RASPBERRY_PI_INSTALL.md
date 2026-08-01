@@ -605,6 +605,27 @@ no overdue outcomes or expirations created during the audited soak window, and
 a passing statistical gate. Older expirations remain visible as lifetime
 evidence without invalidating a later clean run.
 
+Review a historical attribution gap only after the journal proves each order.
+The command does not create an AI decision link.
+
+Run the preview first:
+
+```bash
+sudo -u bot env PYTHONPATH=. .venv/bin/python \
+  -m bin.review_unattributed_fills \
+  --ai-db db/ai_decisions.sqlite3 \
+  --journal db/order_intents.sqlite3 \
+  --note historical_canary_without_decision_link \
+  --before-ts <REVIEW_CUTOFF_EPOCH> \
+  --expected-count <REVIEWED_COUNT>
+```
+
+Confirm the exact candidate count. Then run the same command with `--apply`.
+Set `BOT_UNATTRIBUTED_REVIEW_CONFIRMED=YES` only for the apply command.
+
+The command keeps each raw row as `REVIEWED_UNATTRIBUTABLE`.
+It does not remove HALT or permit APPLY.
+
 Use `apply` only when Git is already at the desired commit:
 
 ```bash

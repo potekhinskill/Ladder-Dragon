@@ -290,6 +290,7 @@ def test_ai_status_exposes_decision_rationale_and_realized_summary(tmp_path, mon
     assert payload["knowledge_base"]["unresolved_fills"] == 2
     assert payload["knowledge_base"]["unresolved_attribution_fills"] == 1
     assert payload["knowledge_base"]["unresolved_inventory_fills"] == 1
+    assert payload["knowledge_base"]["reviewed_unattributable_fills"] == 0
 
 
 def test_ai_control_button_changes_only_advisory_mode(tmp_path, monkeypatch):

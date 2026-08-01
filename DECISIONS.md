@@ -4,6 +4,13 @@ Read this file before changing the repository. Record only decisions that were
 validated by tests or production evidence and are likely to be reused. Keep
 entries concise; this is not a changelog or an activity log.
 
+### 2026-08-01 — Preserve unattributable fill evidence
+
+- **Context:** historical canary fills had journal proof but no valid `decision_id`.
+- **Decision:** review an exact bounded set, preserve each row, and never invent an AI link.
+- **Why it worked:** tests prove pending gates clear while RAG and AI fills remain unchanged.
+- **Reuse:** every historical execution fact that cannot receive exact model attribution.
+
 ### 2026-08-01 — Deduplicate alerts by stable cause
 
 - **Context:** retry counters made one persistent risk failure look new each cycle.

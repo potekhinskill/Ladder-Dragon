@@ -3,6 +3,23 @@
 All notable changes are documented here. Releases use Semantic Versioning; every
 section is dated and there is intentionally no `Unreleased` section.
 
+## [2.20.120] — 2026-08-01
+
+### Added
+- Historical attribution gaps now use a durable reviewed lifecycle.
+- A guarded command verifies exact journal evidence before review.
+
+### Changed
+- Only pending attribution gaps block AI readiness and Pi verification.
+- Reviewed and linked rows remain in the authoritative evidence table.
+
+### Security
+- Review requires an exact count, cutoff, approved reason, and matching Mainnet journal orders.
+- Review never creates a `decision_id`, RAG document, fill attribution, or exchange mutation.
+
+### Verified
+- The complete project suite and Technical English check pass.
+
 ## [2.20.119] — 2026-08-01
 
 ### Fixed

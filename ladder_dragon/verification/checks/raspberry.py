@@ -101,11 +101,10 @@ def _unresolved_fill_check(context: HarnessContext) -> CheckResult:
             }
             if "ai_unresolved_fills" not in tables:
                 raise ValueError("unresolved fill table is missing")
-            count = int(
-                connection.execute(
-                    "SELECT COUNT(*) FROM ai_unresolved_fills"
-                ).fetchone()[0]
-            )
+            from ladder_dragon.ai.unresolved_fills import lifecycle_counts
+
+            lifecycle = lifecycle_counts(connection)
+            count = lifecycle["pending"]
         status = Status.PASS if count == 0 else Status.BLOCKED
         summary = (
             "no unresolved fills"
@@ -122,7 +121,13 @@ def _unresolved_fill_check(context: HarnessContext) -> CheckResult:
         duration_ms=int((time.monotonic() - started) * 1000),
         summary=summary,
         exit_code=0 if status is Status.PASS else 2,
-        metrics={"unresolved_fills": count},
+        metrics={
+            "unresolved_fills": count,
+            "reviewed_unattributable": (
+                lifecycle["reviewed_unattributable"]
+                if "lifecycle" in locals() else None
+            ),
+        },
     )
 
 

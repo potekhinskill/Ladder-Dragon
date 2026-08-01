@@ -11,6 +11,8 @@ import json
 from pathlib import Path
 import sqlite3
 
+from ladder_dragon.ai.unresolved_fills import lifecycle_counts
+
 
 ZERO = Decimal("0")
 
@@ -92,10 +94,9 @@ def audit_ai_readiness(
             "SELECT evaluation_json FROM ai_decisions WHERE symbol=?",
             (normalized_symbol,),
         ).fetchall()
-        unresolved = int(connection.execute(
-            "SELECT COUNT(*) FROM ai_unresolved_fills WHERE symbol=?",
-            (normalized_symbol,),
-        ).fetchone()[0])
+        unresolved = lifecycle_counts(
+            connection, symbol=normalized_symbol
+        )["pending"]
         real_rag = int(connection.execute(
             "SELECT COUNT(*) FROM knowledge_documents "
             "WHERE symbol=? AND status='validated'",
