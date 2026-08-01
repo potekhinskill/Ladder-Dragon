@@ -17,6 +17,13 @@ private infrastructure details.
 
 ## Mistakes
 
+### 2026-08-01 — Added dashboard coverage to a capped test module
+
+- **Impact:** the first complete test run failed the component test size gate.
+- **Root cause:** the new regression was added before checking the existing 700-line limit.
+- **Correction:** move the regression into a focused dashboard localization module.
+- **Prevention:** check architecture budgets before adding tests to an existing component module.
+
 ### 2026-08-01 — Added a command without the command inventory
 
 - **Impact:** the first complete test run failed one documentation contract.

@@ -258,7 +258,8 @@ def test_dashboard_exposes_read_only_ops_trading_and_ai_quality_blocks():
     assert 'id=\"ops-backup-reason\"' in index
     assert "SupplementaryGroups=www-data" in read("deploy/pi-dashboard.service")
     assert '\"heartbeat\": _runtime_heartbeat_snapshot()' in app
-    assert "dashboard namespace RO" in index
+    assert "tr('dashboard_read_only')" in index
+    assert "dashboard_read_only:" in read("FRONT/locales.js")
 
 
 def test_dashboard_transient_failures_are_bounded_and_visible():

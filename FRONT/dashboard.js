@@ -35,6 +35,19 @@ function positionProtectionTone(code){
   if(normalized==='missing_or_incomplete'||normalized==='journal_exchange_mismatch'||normalized==='warning') return 'bad';
   return 'warn';
 }
+function serviceStateText(state){
+  const normalized=String(state||'');
+  if(normalized==='active'||normalized==='inactive') return tr(`service_${normalized}`);
+  return normalized||tr('unavailable');
+}
+const RISK_REASON_KEYS = Object.freeze({
+  'post-emergency-exit reconciliation requires statistical approval before execution resumes':
+    'risk_reason_post_emergency_approval'
+});
+function riskReasonText(reason){
+  const normalized=String(reason||'');
+  return RISK_REASON_KEYS[normalized]?tr(RISK_REASON_KEYS[normalized]):normalized;
+}
 function userStreamSummary(stream){
   const symbol=String(stream.symbol||'').toUpperCase();
   const state=String(stream.state||'');
@@ -44,23 +57,24 @@ function userStreamSummary(stream){
   if(state==='connected'&&!stream.stale&&!stream.last_error){
     const session=Number(stream.current_session_hours||0);
     const age=stream.order_events>0&&stream.age_sec!=null?` · ${tr('user_stream_last_event')} ${fmt(stream.age_sec,0)}s`:'';
-    return `🟢 ${symbol} · ${tr('user_stream_connected')} · ${tr('user_stream_session')} ${fmt(session,2)}h${age}`;
+    return `🟢 ${symbol} · ${tr('user_stream_connected')} · ${tr('user_stream_session')} ${fmt(session,2)}${tr('hours_short')}${age}`;
   }
   return `🔴 ${symbol} · ${stream.stale?tr('user_stream_stale'):tr('user_stream_unavailable')}`;
 }
 function userStreamDiagnostics(streams){
   const labels=[
-    ['sessions','sessions'],['order_events','events'],['bad_frames','bad frames'],
-    ['duplicates','duplicates'],['out_of_order_events','out-of-order'],
-    ['reconnects','reconnects'],['connection_attempts','connection attempts'],
-    ['disconnects','disconnects']
+    ['sessions','stream_counter_sessions'],['order_events','stream_counter_events'],
+    ['bad_frames','stream_counter_bad_frames'],['duplicates','stream_counter_duplicates'],
+    ['out_of_order_events','stream_counter_out_of_order'],
+    ['reconnects','stream_counter_reconnects'],['connection_attempts','stream_counter_attempts'],
+    ['disconnects','stream_counter_disconnects']
   ];
   return streams.flatMap(stream=>{
     const prefix=String(stream.symbol||'').toUpperCase();
     const counters=labels
       .filter(([key])=>Number(stream[key]||0)>0)
-      .map(([key,label])=>`${label} ${Number(stream[key])}`);
-    if(stream.last_error) counters.push(`error ${String(stream.last_error)}`);
+      .map(([key,label])=>`${tr(label)} ${Number(stream[key])}`);
+    if(stream.last_error) counters.push(`${tr('stream_counter_error')} ${String(stream.last_error)}`);
     return counters.length?[`${prefix} · ${counters.join(' · ')}`]:[];
   });
 }
@@ -88,7 +102,9 @@ const unresolvedFillText = knowledge => {
   );
   const inventory = Number(knowledge?.unresolved_inventory_fills || 0);
   const reviewed = Number(knowledge?.reviewed_unattributable_fills || 0);
-  return `${total} pending · attribution ${attribution} / inventory ${inventory} · reviewed ${reviewed}`;
+  return tr('unresolved_fill_summary', {
+    pending: total, attribution, inventory, reviewed
+  });
 };
 const NF2 = new Intl.NumberFormat('ru-RU',{minimumFractionDigits:2,maximumFractionDigits:2});
 const NF4 = new Intl.NumberFormat('ru-RU',{minimumFractionDigits:4,maximumFractionDigits:4});
@@ -245,7 +261,7 @@ function updateKpis(h){
 
   // Services.
   const s = (h.services?.mybot||'').trim();
-  $('#bot-status').textContent = s || '—';
+  $('#bot-status').textContent = s ? serviceStateText(s) : '—';
   $('#dot-bot').style.background = s==='active' ? '#21c07a' : (s ? '#f3c24d' : '#ff6e6e');
   $('#bans').textContent = `${h.services?.fail2ban_sshd_bans ?? 0} ${tr('bans')}`;
 
@@ -265,9 +281,9 @@ function updateKpis(h){
 function ageText(seconds){
   if(!Number.isFinite(Number(seconds))) return '—';
   const s=Math.max(0,Math.floor(Number(seconds)));
-  if(s<60) return `${s}s ago`;
-  if(s<3600) return `${Math.floor(s/60)}m ago`;
-  return `${Math.floor(s/3600)}h ${Math.floor((s%3600)/60)}m ago`;
+  if(s<60) return tr('age_seconds_ago',{value:s});
+  if(s<3600) return tr('age_minutes_ago',{value:Math.floor(s/60)});
+  return tr('age_hours_ago',{hours:Math.floor(s/3600),minutes:Math.floor((s%3600)/60)});
 }
 function bytesText(bytes){
   if(!Number.isFinite(Number(bytes))) return '—';
@@ -296,7 +312,8 @@ function updateOperations(h){
   const throttleBad=['under_voltage_now','freq_capped_now','throttled_now','temp_limit_now','under_voltage_hist','freq_capped_hist','throttled_hist','temp_limit_hist'].some(k=>throttle[k]);
   $('#ops-throttle').textContent=throttle.supported===false ? tr('unavailable') : (throttleBad ? `WARNING · ${throttle.raw||'—'}` : `OK · ${throttle.raw||'throttled=0x0'}`);
   const watchdog=o.services?.watchdog||{};
-  $('#ops-watchdog').textContent=`${watchdog.state||'unknown'} · ${watchdog.enabled?tr('enabled'):tr('disabled')}`;
+  const watchdogState=serviceStateText(watchdog.state);
+  $('#ops-watchdog').textContent=`${watchdogState} · ${watchdog.enabled?tr('enabled'):tr('disabled')}`;
   $('#ops-watchdog').className=(watchdog.state==='active'&&watchdog.enabled)?'risk-ok':'risk-warn';
   const streams=o.user_stream?.streams||[];
   $('#ops-user-stream').textContent=streams.length?streams.map(userStreamSummary).join(', '):tr('no_data');
@@ -306,13 +323,15 @@ function updateOperations(h){
   streamDetails.hidden=streamDiagnostics.length===0;
   $('#ops-user-stream-diagnostics').textContent=streamDiagnostics.join('\n');
   const usb=o.usb_backup||{};
-  $('#ops-usb').textContent=usb.mounted?`mounted · ${usb.writable?'rw':'dashboard namespace RO'}`:'not mounted';
+  $('#ops-usb').textContent=usb.mounted
+    ? `${tr('usb_mounted')} · ${usb.writable?'rw':tr('dashboard_read_only')}`
+    : tr('usb_not_mounted');
   $('#ops-usb').className=usb.mounted?(usb.writable?'risk-ok':'risk-warn'):'risk-bad';
   $('#ops-usb-free').textContent=usb.free_gib!=null?`${fmt(usb.free_gib,2)} GiB · ${fmt(usb.used_percent,1)}% used`:'—';
   const disk=h.disk_gib||{};
   $('#ops-root-free').textContent=(disk.total!=null&&disk.used!=null)?`${fmt(Number(disk.total)-Number(disk.used),2)} / ${fmt(disk.total,2)} GiB free`:'—';
   const backup=o.backup||{};
-  $('#ops-backup').textContent=backup.status||'—';
+  $('#ops-backup').textContent=backup.status==='success'?tr('backup_success'):(backup.status||'—');
   const latest=backup.last_success||{};
   $('#ops-backup-age').textContent=latest.updated_at?`${latest.updated_at} · ${ageText(latest.age_sec)}`:'—';
   $('#ops-backup-size').textContent=bytesText(latest.size_bytes);
@@ -326,14 +345,14 @@ function updateTrading(t){
   const caps=t.caps||{};
   const activeCap=caps.per_order_usdt!=null?fmtUSDT(Number(caps.per_order_usdt)):'—';
   const hardCap=caps.operator_hard_usdt!=null?fmtUSDT(Number(caps.operator_hard_usdt)):'—';
-  $('#trade-cap-order').textContent=`${activeCap} · hard ${hardCap}`;
+  $('#trade-cap-order').textContent=`${activeCap} · ${tr('cap_hard')} ${hardCap}`;
   $('#trade-cap-portfolio').textContent=caps.portfolio_usdt!=null?fmtUSDT(Number(caps.portfolio_usdt)):'—';
   const perSymbol=caps.per_symbol||{};
   $('#trade-cap-symbol').textContent=Object.keys(perSymbol).length?Object.entries(perSymbol).map(([s,v])=>`${s} ${v}`).join(', '):'—';
   const risk=t.risk||{}, blocked=Boolean(risk.buy_blocked||risk.halted);
-  $('#trade-risk').textContent=risk.halted?'HALTED':(risk.buy_blocked?'BUY BLOCKED':'OK');
+  $('#trade-risk').textContent=risk.halted?tr('risk_halted'):(risk.buy_blocked?tr('risk_buy_blocked'):tr('risk_ok'));
   $('#trade-risk').className=blocked?'risk-bad':'risk-ok';
-  $('#trade-risk-reasons').textContent=Array.isArray(risk.reasons)&&risk.reasons.length?risk.reasons.join(' · '):tr('no');
+  $('#trade-risk-reasons').textContent=Array.isArray(risk.reasons)&&risk.reasons.length?risk.reasons.map(riskReasonText).join(' · '):tr('no');
   const cooldown=Number(risk.cooldown_until||0);
   $('#trade-cooldown').textContent=cooldown>Math.floor(Date.now()/1000)?new Date(cooldown*1000).toLocaleString(CURRENT_LOCALE):tr('no');
   $('#trade-recon').textContent=risk.reconciliation_delta!=null?JSON.stringify(risk.reconciliation_delta):tr('no_data');
@@ -355,7 +374,9 @@ function updateTrading(t){
     : '—';
   const symbolStates=reanchor.symbols||{};
   const latestProposal=Object.values(symbolStates).flatMap(state=>Array.isArray(state?.proposals)?state.proposals:[])[0];
-  $('#trade-reanchor-activity').textContent=`shadow ${reanchorTotals.shadow_candidates??0} · apply ${reanchorTotals.apply_cancels??0}`+
+  $('#trade-reanchor-activity').textContent=tr('reanchor_activity_summary',{
+    shadow:reanchorTotals.shadow_candidates??0, apply:reanchorTotals.apply_cancels??0
+  })+
     (latestProposal?` · ${latestProposal.old_price}→${latestProposal.target_price}`:'');
   const last=t.last_order;
   const lifecycle=orders.lifecycle||{};
@@ -405,11 +426,19 @@ function updateAIQuality(ai){
   $('#ai-decision-db-age').textContent=ageText(src.decision_db_age_sec);
   $('#ai-usage-age').textContent=ageText(src.usage_log_age_sec);
   const limits=(ai.runtime||{}).budgets||{};
-  $('#ai-budget').textContent=`${usage.requests??0}/${limits.max_requests_per_day??'—'} req · ${usage.tokens??0}/${limits.max_tokens_per_day??'—'} tok · $${usage.cost_usd??'0'}/$${limits.max_cost_usd_per_day??'—'}`;
-  $('#ai-errors').textContent=`${usage.recent_errors??0} recent · ${usage.errors??0} total`;
+  $('#ai-budget').textContent=tr('ai_budget_summary',{
+    requests:usage.requests??0, request_limit:limits.max_requests_per_day??'—',
+    tokens:usage.tokens??0, token_limit:limits.max_tokens_per_day??'—',
+    cost:`$${usage.cost_usd??'0'}`, cost_limit:`$${limits.max_cost_usd_per_day??'—'}`
+  });
+  $('#ai-errors').textContent=tr('api_error_summary',{
+    recent:usage.recent_errors??0, total:usage.errors??0
+  });
   const recent=Array.isArray(ai.recent)?ai.recent:[];
   const rejected=recent.filter(row=>String(row.status||'').toUpperCase()==='REJECTED').length;
-  $('#ai-decisions-quality').textContent=`${ai.applied_count??0} applied / ${rejected} rejected`;
+  $('#ai-decisions-quality').textContent=tr('ai_decision_summary',{
+    applied:ai.applied_count??0, rejected
+  });
   $('#ai-unresolved-quality').textContent=unresolvedFillText(kb);
   const edge=ai.ai_vs_baseline_1h||{};
   $('#ai-edge-quality').textContent=edge.samples?`${fmt(Number(edge.edge)*100,2)}% / ${edge.samples}`:tr('no_data');

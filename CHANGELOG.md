@@ -3,6 +3,15 @@
 All notable changes are documented here. Releases use Semantic Versioning; every
 section is dated and there is intentionally no `Unreleased` section.
 
+## [2.20.121] — 2026-08-01
+
+### Fixed
+- The Russian dashboard now translates dynamic operational summaries and common runtime states.
+- Known risk reasons now use localized text without changing unknown evidence.
+
+### Verified
+- The complete project suite and Technical English check pass.
+
 ## [2.20.120] — 2026-08-01
 
 ### Added

@@ -23,5 +23,12 @@ def test_user_stream_summary_hides_zero_counters_behind_diagnostics():
         "user_stream_connected",
         "user_stream_stale",
         "user_stream_diagnostics",
+        "hours_short",
+        "stream_counter_sessions",
+        "stream_counter_events",
+        "stream_counter_reconnects",
     ):
         assert locales.count(f"{key}:") == 2
+
+    assert "`${label} ${Number(stream[key])}`" not in source
+    assert "`${tr(label)} ${Number(stream[key])}`" in source
