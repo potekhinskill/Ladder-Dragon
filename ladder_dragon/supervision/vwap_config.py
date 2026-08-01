@@ -7,8 +7,9 @@ from __future__ import annotations
 
 import argparse
 import os
+import re
 from decimal import Decimal
-from typing import Dict, Optional, Tuple
+from typing import Collection, Dict, Optional, Tuple
 
 from ladder_dragon.numeric_compat import compatibility_float
 from ladder_dragon.supervision.entry_policy import finite_decimal
@@ -51,27 +52,53 @@ def parse_limit_map(value: str) -> Dict[str, float]:
     return result
 
 
-def parse_decimal_limit_map(value: str) -> Dict[str, Decimal]:
-    """Parse financial limits without a binary-float compatibility hop."""
+def parse_decimal_limit_map(
+    value: str,
+    *,
+    option_name: str = "position limit map",
+    allowed_symbols: Collection[str] | None = None,
+) -> Dict[str, Decimal]:
+    """Parse every financial limit or reject the complete malformed map."""
     result: Dict[str, Decimal] = {}
     if not value:
         return result
-    for raw in value.split(","):
-        if not raw.strip() or ":" not in raw:
-            continue
+    allowed = set(allowed_symbols) if allowed_symbols is not None else None
+    for index, raw in enumerate(value.split(","), start=1):
+        if not raw.strip() or raw.count(":") != 1:
+            raise ValueError(
+                f"{option_name} item {index} must use SYMBOL:VALUE"
+            )
         key, encoded = raw.split(":", 1)
+        key = key.strip()
+        if not re.fullmatch(r"[A-Z0-9]{5,20}", key):
+            raise ValueError(
+                f"{option_name} item {index} has an invalid symbol"
+            )
+        if key in result:
+            raise ValueError(f"{option_name} contains duplicate symbols")
+        if allowed is not None and key not in allowed:
+            raise ValueError(
+                f"{option_name} contains a symbol outside --symbols"
+            )
         try:
             parsed = finite_decimal(
                 encoded.strip(),
-                name=f"limit for {key.strip()}",
+                name=f"limit for {key}",
             )
-        except ValueError:
-            continue
-        result[key.strip()] = parsed
+        except ValueError as exc:
+            raise ValueError(
+                f"{option_name} item {index} has an invalid value"
+            ) from exc
+        if parsed < 0:
+            raise ValueError(f"{option_name} values must be non-negative")
+        result[key] = parsed
     return result
 
 
-def normalize_runtime_args(args: argparse.Namespace) -> None:
+def normalize_runtime_args(
+    args: argparse.Namespace,
+    symbols: Collection[str] | None = None,
+) -> None:
     """Normalize planning arguments before any retry loop can use them."""
     if isinstance(args.ladder_pct, str):
         ladder_pct = [
@@ -88,11 +115,15 @@ def normalize_runtime_args(args: argparse.Namespace) -> None:
         args.ladder_pct_map = parse_pct_map(args.ladder_pct_map)
     if isinstance(args.pos_max_base_map, str):
         args.pos_max_base_map = parse_decimal_limit_map(
-            args.pos_max_base_map
+            args.pos_max_base_map,
+            option_name="--pos-max-base-map",
+            allowed_symbols=symbols,
         )
     if isinstance(args.pos_max_usdt_map, str):
         args.pos_max_usdt_map = parse_decimal_limit_map(
-            args.pos_max_usdt_map
+            args.pos_max_usdt_map,
+            option_name="--pos-max-usdt-map",
+            allowed_symbols=symbols,
         )
     for name in (
         "child_buy_vwap_premium_map",

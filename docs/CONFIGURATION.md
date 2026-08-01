@@ -80,6 +80,8 @@ Unvalued-asset exclusion and acknowledgement lists must match exactly.
 Excluded assets cannot increase equity or CAP.
 HALT, reset, cooldown, and evaluation use one process lock.
 `RISK_MAX_CONSECUTIVE_LOSSES` cannot exceed 4,096 retained SELL outcomes.
+`--pos-max-base-map` and `--pos-max-usdt-map` use `SYMBOL:VALUE` items.
+One malformed, duplicate, negative, or unconfigured item stops startup.
 
 ## Transport and latency
 
@@ -99,6 +101,7 @@ HALT, reset, cooldown, and evaluation use one process lock.
 The ED25519 key path must be absolute and owner-only.
 The application does not log private key material.
 IP Guard accepts a changed fingerprint only after the complete signed read-only preflight passes.
+Runtime authentication rejection refreshes the same two-source IP evidence.
 An authentication or source-consensus failure keeps BUY blocked.
 Automatic acceptance never removes HALT or changes a trading limit.
 

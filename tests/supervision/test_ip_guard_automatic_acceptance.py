@@ -1,5 +1,6 @@
 """Automatic public IP acceptance after authoritative read-only authentication."""
 
+import inspect
 from types import SimpleNamespace
 
 from ladder_dragon.execution.auth_resilience import (
@@ -157,3 +158,55 @@ def test_stale_pending_ip_cannot_pass_without_fresh_consensus(tmp_path, monkeypa
     assert not saved
     assert published[-1]["state"] == "IP_BLOCKED"
     assert published[-1]["risk"]["buy_blocked"] is True
+
+
+def test_non_live_preflight_ignores_persisted_live_ip_change(
+    tmp_path,
+    monkeypatch,
+):
+    state = _changed_state()
+    saved = []
+    monkeypatch.setattr(supervisor, "_read_auth_resilience_state", lambda: state)
+    monkeypatch.setattr(
+        supervisor,
+        "_observe_public_ip",
+        lambda _state: (_ for _ in ()).throw(
+            AssertionError("non-LIVE mode contacted public IP sources")
+        ),
+    )
+    monkeypatch.setattr(supervisor, "_preflight_live", lambda *_args: None)
+    monkeypatch.setattr(
+        supervisor,
+        "_pre_running_recovery_gate",
+        lambda *_args: {"checked": 0, "blocked": False},
+    )
+    monkeypatch.setattr(supervisor, "_save_auth_resilience_state", saved.append)
+    monkeypatch.setattr(
+        supervisor, "_publish_ai_runtime_status", lambda **_updates: None
+    )
+
+    supervisor._preflight_with_auth_backoff(
+        SimpleNamespace(
+            live=False,
+            binance_auth_backoff_initial_sec=60,
+            binance_auth_backoff_max_sec=120,
+        ),
+        ["SOLUSDT"],
+        SimpleNamespace(halt_file=tmp_path / "halt.json"),
+    )
+
+    assert saved[-1].public_ip_changed is True
+    assert saved[-1].pending_public_ip_sha256 == state.pending_public_ip_sha256
+
+
+def test_runtime_auth_rejection_observes_ip_before_persisted_backoff():
+    source = inspect.getsource(supervisor.main)
+    block_start = source.index("if auth_rejected:")
+    block_end = source.index("else:", block_start)
+    block = source[block_start:block_end]
+
+    observe_at = block.index("_observe_public_ip(runtime_auth_state)")
+    register_at = block.index("register_auth_failure(")
+    save_at = block.index("_save_auth_resilience_state(runtime_auth_state)")
+
+    assert observe_at < register_at < save_at

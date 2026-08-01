@@ -191,7 +191,9 @@ def test_blocked_shadow_decision_preserves_recovery_status(monkeypatch):
 def test_runtime_arguments_and_singleton_precede_recovery_loop():
     runtime_source = inspect.getsource(ai_supervisor.main)
 
-    normalized_at = runtime_source.index("_normalize_runtime_args(args)")
+    normalized_at = runtime_source.index(
+        "_normalize_runtime_args(args, symbols)"
+    )
     singleton_at = runtime_source.index(
         "_acquire_singleton_lock(LOCK_FILE)"
     )

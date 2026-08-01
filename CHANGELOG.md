@@ -3,6 +3,20 @@
 All notable changes are documented here. Releases use Semantic Versioning; every
 section is dated and there is intentionally no `Unreleased` section.
 
+## [2.20.117] — 2026-08-01
+
+### Fixed
+- Runtime authentication rejection now refreshes two-source IP Guard evidence.
+- DRY and Testnet ignore pending LIVE public-IP changes.
+- Position-limit maps now reject malformed, duplicate, and unconfigured items.
+
+### Security
+- Invalid financial map items cannot silently remove a position limit.
+- IP Guard continues to persist fingerprints only, without public addresses.
+
+### Verified
+- IP Guard, configuration, authentication, architecture, numeric, and exception tests pass.
+
 ## [2.20.116] — 2026-08-01
 
 ### Added

@@ -4,6 +4,20 @@ Read this file before changing the repository. Record only decisions that were
 validated by tests or production evidence and are likely to be reused. Keep
 entries concise; this is not a changelog or an activity log.
 
+### 2026-08-01 — Refresh IP evidence at every authentication boundary
+
+- **Context:** a public IP can change after startup during a long supervisor run.
+- **Decision:** refresh two-source fingerprint evidence before runtime authentication backoff.
+- **Why it worked:** tests prove runtime rejection observes before persistence, while non-LIVE modes make no IP request.
+- **Reuse:** every long-running authenticated service with network-identity diagnostics.
+
+### 2026-08-01 — Reject a complete malformed financial map
+
+- **Context:** skipping one invalid item can silently remove its position limit.
+- **Decision:** reject malformed, duplicate, negative, or unconfigured map items before preflight.
+- **Why it worked:** exact Decimal tests prove one bad item prevents every partial result.
+- **Reuse:** every configuration map that controls money, quantity, exposure, or loss.
+
 ### 2026-08-01 — Accept changed IP only after current authoritative evidence
 
 - **Context:** manual acceptance remained necessary after an operator updated the Binance whitelist.

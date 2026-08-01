@@ -3949,7 +3949,7 @@ def _preflight_with_auth_backoff(
         else:
             recovered_transient_attempt = transient_attempt
             transient_attempt = 0
-            if state.public_ip_changed:
+            if args.live and state.public_ip_changed:
                 if consensus != state.pending_public_ip_sha256:
                     _publish_ai_runtime_status(
                         state="IP_BLOCKED",
@@ -4360,7 +4360,7 @@ def main():
             "open_order_count_cap": limits.open_order_count_cap,
         }
     )
-    _normalize_runtime_args(args)
+    _normalize_runtime_args(args, symbols)
     if args.singleton:
         try:
             _acquire_singleton_lock(LOCK_FILE)
@@ -4689,6 +4689,7 @@ def main():
                         exc
                     )
                     if auth_rejected:
+                        runtime_auth_state, _ = _observe_public_ip(runtime_auth_state)
                         runtime_auth_state = register_auth_failure(
                             runtime_auth_state,
                             initial_sec=args.binance_auth_backoff_initial_sec,
