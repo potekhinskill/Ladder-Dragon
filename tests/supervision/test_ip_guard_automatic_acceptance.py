@@ -20,6 +20,7 @@ def _changed_state() -> AuthResilienceState:
 def test_successful_read_only_preflight_accepts_pending_ip(tmp_path, monkeypatch):
     saved = []
     notices = []
+    published = []
     state = _changed_state()
     monkeypatch.setattr(supervisor, "_read_auth_resilience_state", lambda: state)
     monkeypatch.setattr(
@@ -42,7 +43,9 @@ def test_successful_read_only_preflight_accepts_pending_ip(tmp_path, monkeypatch
         lambda *args, **kwargs: notices.append((args, kwargs)),
     )
     monkeypatch.setattr(
-        supervisor, "_publish_ai_runtime_status", lambda **_updates: None
+        supervisor,
+        "_publish_ai_runtime_status",
+        lambda **updates: published.append(updates),
     )
 
     supervisor._preflight_with_auth_backoff(
@@ -58,6 +61,7 @@ def test_successful_read_only_preflight_accepts_pending_ip(tmp_path, monkeypatch
     assert saved[-1].public_ip_sha256 == state.pending_public_ip_sha256
     assert saved[-1].pending_public_ip_sha256 == ""
     assert saved[-1].public_ip_changed is False
+    assert {"ip_guard": {"changed": False, "consensus": True}} in published
     assert notices[-1][0][0] == "public IP access verified"
 
 

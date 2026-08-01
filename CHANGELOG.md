@@ -3,6 +3,16 @@
 All notable changes are documented here. Releases use Semantic Versioning; every
 section is dated and there is intentionally no `Unreleased` section.
 
+## [2.20.115] — 2026-08-01
+
+### Fixed
+- Runtime telemetry clears the changed-IP flag after automatic acceptance.
+- Dashboard status now matches the accepted persistent IP Guard state.
+
+### Verified
+- Automatic acceptance, telemetry recovery, architecture, documentation, and
+  project tests pass.
+
 ## [2.20.114] — 2026-08-01
 
 ### Changed

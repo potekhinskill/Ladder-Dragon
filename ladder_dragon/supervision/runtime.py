@@ -3961,13 +3961,9 @@ def _preflight_with_auth_backoff(
                     time.sleep(300)
                     state = _read_auth_resilience_state()
                     continue
-                state = accept_authenticated_public_ip(
-                    state, now_epoch=int(time.time())
-                )
-                notify(
-                    "public IP access verified",
-                    ["IP Guard updated automatically after a signed Binance read"],
-                )
+                state = accept_authenticated_public_ip(state, now_epoch=int(time.time()))
+                _publish_ai_runtime_status(ip_guard={"changed": False, "consensus": True})
+                notify("public IP access verified", ["IP Guard updated automatically"])
             state = register_auth_success(state, now_epoch=int(time.time()))
             _save_auth_resilience_state(state)
             if recovered_transient_attempt:

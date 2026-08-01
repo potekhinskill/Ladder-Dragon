@@ -17,6 +17,20 @@ private infrastructure details.
 
 ## Mistakes
 
+### 2026-08-01 — Left accepted IP telemetry stale
+
+- **Impact:** IP Guard accepted the fingerprint, but heartbeat still showed the previous changed state.
+- **Root cause:** the acceptance path persisted state without publishing the corresponding runtime update.
+- **Correction:** publish `changed=false` immediately after authoritative acceptance.
+- **Prevention:** recovery tests must compare persistent state with public runtime telemetry.
+
+### 2026-08-01 — Invoked the Pi updater on the workstation
+
+- **Impact:** one command stopped at local sudo before any deployment change.
+- **Root cause:** the updater command omitted the required SSH execution boundary.
+- **Correction:** run the exact updater inside the Raspberry Pi checkout through SSH.
+- **Prevention:** identify the command host explicitly before each deployment command.
+
 ### 2026-08-01 — Grew the supervisor during an IP Guard fix
 
 - **Impact:** the first focused run failed the supervisor non-growth gate.
