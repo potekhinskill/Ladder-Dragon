@@ -288,7 +288,7 @@ def run_drill(
     state_path = Path(args.state)
     _require_halted_shadow(runtime_path)
     observer_before = _require_observer(state_path)
-    limits = RiskLimits.from_mapping(environ)
+    limits = RiskLimits.from_runtime_mapping(environ)
     if limits.reserve_usdt <= 0:
         raise RuntimeError("RISK_RESERVE_USDT must be greater than zero")
     if not limits.halt_file.is_file():

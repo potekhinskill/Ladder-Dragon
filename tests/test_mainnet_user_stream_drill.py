@@ -251,6 +251,26 @@ def test_mainnet_stream_drill_requires_persistent_halt_file(tmp_path):
     assert client.calls == []
 
 
+def test_mainnet_stream_drill_resolves_pi_control_directory(tmp_path):
+    runtime, state = _evidence(tmp_path)
+    environment = _environment(tmp_path)
+    for name in ("CB_HALT_FILE", "CB_STATE_FILE", "CB_ALERTS_FILE"):
+        environment.pop(name)
+    control_dir = tmp_path / "persistent-control"
+    control_dir.mkdir()
+    (control_dir / "circuit_halt.json").write_text("{}", encoding="utf-8")
+    environment["LADDER_DRAGON_CONTROL_DIR"] = str(control_dir)
+    environment["BOT_RUN_DIR"] = "/run/mybot"
+
+    report = run_drill(
+        _args(tmp_path, runtime, state),
+        environ=environment,
+        client=FakeClient(state),
+    )
+
+    assert report["status"] == "passed"
+
+
 def test_mainnet_stream_drill_never_reports_credentials(tmp_path):
     runtime, state = _evidence(tmp_path, halted=False)
     environment = _environment(tmp_path)

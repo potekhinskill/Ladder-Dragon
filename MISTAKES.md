@@ -1104,3 +1104,17 @@ private infrastructure details.
 - **Root cause:** the service path changed, but the operator command was not covered by a documentation contract test.
 - **Correction:** use the persistent path in the Pi guide and verification examples.
 - **Prevention:** tests must compare every documented evidence path with the deployed service configuration.
+
+### 2026-08-01 — Tested the drill with injected paths only
+
+- **Impact:** release 2.20.123 rejected the real persistent HALT before any exchange mutation.
+- **Root cause:** tests supplied explicit temporary paths, but the operator CLI did not inherit systemd path overrides.
+- **Correction:** resolve existing persistent Pi paths from any runtime mapping while preserving explicit paths.
+- **Prevention:** every operator command must have a Pi-default integration test without systemd environment variables.
+
+### 2026-08-01 — Typed a release SHA instead of resolving it
+
+- **Impact:** the first commit-signature check failed before release verification.
+- **Root cause:** the verification command used a manually copied full SHA.
+- **Correction:** resolve the candidate with `git rev-parse HEAD` in the same command.
+- **Prevention:** never type a release SHA when Git can provide the exact value.

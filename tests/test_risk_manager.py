@@ -68,6 +68,20 @@ def test_default_raspberry_control_paths_move_to_existing_state_directory(
     assert configured.alerts_file == control_dir / "risk_alerts.ndjson"
 
 
+def test_runtime_mapping_resolves_persistent_control_paths(tmp_path: Path):
+    control_dir = tmp_path / "control"
+    control_dir.mkdir()
+
+    configured = RiskLimits.from_runtime_mapping({
+        "LADDER_DRAGON_CONTROL_DIR": str(control_dir),
+        "BOT_RUN_DIR": "/run/mybot",
+    })
+
+    assert configured.halt_file == control_dir / "circuit_halt.json"
+    assert configured.state_file == control_dir / "risk_state.json"
+    assert configured.alerts_file == control_dir / "risk_alerts.ndjson"
+
+
 def test_explicit_control_paths_are_never_redirected(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,

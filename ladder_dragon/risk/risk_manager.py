@@ -60,7 +60,15 @@ class RiskLimits:
 
     @classmethod
     def from_env(cls) -> "RiskLimits":
-        environ = dict(os.environ)
+        return cls.from_runtime_mapping(os.environ)
+
+    @classmethod
+    def from_runtime_mapping(
+        cls,
+        source: Mapping[str, str],
+    ) -> "RiskLimits":
+        """Resolve persistent Pi paths while preserving explicit test paths."""
+        environ = dict(source)
         control_dir = Path(
             environ.get(
                 "LADDER_DRAGON_CONTROL_DIR",

@@ -3,6 +3,18 @@
 All notable changes are documented here. Releases use Semantic Versioning; every
 section is dated and there is intentionally no `Unreleased` section.
 
+## [2.20.124] — 2026-08-01
+
+### Fixed
+- Operator commands now resolve existing persistent Pi control paths without systemd environment injection.
+- The Mainnet User Stream drill now proves the same HALT file used by `mybot.service`.
+
+### Security
+- Explicit Testnet and temporary control paths remain unchanged.
+
+### Verified
+- Tests cover persistent path resolution, explicit path isolation, and drill preflight behavior.
+
 ## [2.20.123] — 2026-08-01
 
 ### Added
