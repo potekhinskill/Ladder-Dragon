@@ -4,6 +4,13 @@ Read this file before changing the repository. Record only decisions that were
 validated by tests or production evidence and are likely to be reused. Keep
 entries concise; this is not a changelog or an activity log.
 
+### 2026-08-01 — Accept changed IP only after current authoritative evidence
+
+- **Context:** manual acceptance remained necessary after an operator updated the Binance whitelist.
+- **Decision:** require fresh two-source consensus and a complete signed read-only preflight before automatic acceptance.
+- **Why it worked:** tests prove retries preserve pending state and stale consensus cannot authorize acceptance.
+- **Reuse:** every automatic recovery that changes a persisted trust baseline.
+
 ### 2026-08-01 — Serialize control state and bound loss-streak reads
 
 - **Context:** three processes can change HALT state while risk checks read trade history.

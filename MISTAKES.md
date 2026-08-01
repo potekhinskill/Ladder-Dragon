@@ -17,6 +17,13 @@ private infrastructure details.
 
 ## Mistakes
 
+### 2026-08-01 — Grew the supervisor during an IP Guard fix
+
+- **Impact:** the first focused run failed the supervisor non-growth gate.
+- **Root cause:** the final consensus branch used one line beyond the exact budget.
+- **Correction:** compact the internal function signature without raising the budget.
+- **Prevention:** measure each guarded monolith before its first focused test run.
+
 ### 2026-08-01 — Staged without the Git metadata permission
 
 - **Impact:** the first staging command stopped before it changed the index.

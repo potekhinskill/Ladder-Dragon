@@ -3,6 +3,22 @@
 All notable changes are documented here. Releases use Semantic Versioning; every
 section is dated and there is intentionally no `Unreleased` section.
 
+## [2.20.114] — 2026-08-01
+
+### Changed
+- IP Guard now verifies changed public IP fingerprints automatically.
+- Two independent HTTPS sources must agree before the verification starts.
+- The complete signed read-only Binance preflight must pass before acceptance.
+
+### Security
+- Failed authentication keeps the pending fingerprint blocked.
+- Automatic IP acceptance never removes HALT or changes trading limits.
+- Persisted state contains fingerprints only. It never contains the public IP.
+
+### Verified
+- Pending-state, authentication retry, automatic acceptance, source-consensus,
+  secret-exposure, preflight, and architecture tests pass.
+
 ## [2.20.113] — 2026-08-01
 
 ### Added

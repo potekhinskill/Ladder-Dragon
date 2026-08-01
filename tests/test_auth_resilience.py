@@ -4,6 +4,7 @@ import pytest
 
 from ladder_dragon.execution.auth_resilience import (
     AuthResilienceState,
+    accept_authenticated_public_ip,
     accept_public_ip_fingerprint,
     load_auth_state,
     observe_public_ip_fingerprint,
@@ -35,7 +36,7 @@ def test_auth_backoff_survives_restart_without_secret_or_ip(tmp_path):
     assert path.stat().st_mode & 0o777 == 0o600
 
 
-def test_changed_ip_stays_blocked_until_explicit_acceptance():
+def test_changed_ip_stays_pending_until_authenticated_acceptance():
     first = public_ip_fingerprint("203.0.113.10")
     second = public_ip_fingerprint("203.0.113.11")
     baseline = observe_public_ip_fingerprint(
@@ -48,9 +49,9 @@ def test_changed_ip_stays_blocked_until_explicit_acceptance():
 
     assert changed.public_ip_changed is True
     assert changed.public_ip_sha256 == first
-    accepted = accept_public_ip_fingerprint(
-        changed, second, now_epoch=30
-    )
+    assert changed.pending_public_ip_sha256 == second
+    assert register_auth_success(changed, now_epoch=25).public_ip_changed is True
+    accepted = accept_authenticated_public_ip(changed, now_epoch=30)
     assert accepted.public_ip_changed is False
     assert register_auth_success(accepted, now_epoch=40).attempt == 0
 

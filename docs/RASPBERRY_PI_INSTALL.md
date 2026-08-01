@@ -657,6 +657,9 @@ It has no archive dependency.
 It needs no cleanup because each successful update replaces it.
 The dashboard shows one short action when the heartbeat is `IP_BLOCKED`.
 The updater sends the same short action in English through Telegram.
+IP Guard checks a changed fingerprint with two independent HTTPS sources.
+It accepts the fingerprint after the complete signed read-only Binance preflight passes.
+Failed authentication keeps BUY blocked and does not remove HALT.
 
 ```bash
 sudo systemctl status ladder-dragon-daily-digest.timer --no-pager

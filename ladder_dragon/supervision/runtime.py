@@ -109,6 +109,7 @@ from ladder_dragon.execution.executor_recovery import classify_oco_legs
 from ladder_dragon.execution.latency_trace import LatencyTrace
 from ladder_dragon.execution.auth_resilience import (
     AuthResilienceState,
+    accept_authenticated_public_ip,
     load_auth_state,
     observe_public_ip_fingerprint,
     public_ip_fingerprint,
@@ -545,7 +546,7 @@ def _save_auth_resilience_state(state: AuthResilienceState) -> None:
     save_auth_state(_auth_resilience_path(), state)
 
 
-def _observe_public_ip(state: AuthResilienceState) -> AuthResilienceState:
+def _observe_public_ip(state: AuthResilienceState) -> tuple[AuthResilienceState, str | None]:
     """Check egress identity without logging or persisting the public IP."""
     configured = os.getenv("BINANCE_PUBLIC_IP_ENDPOINTS", "").strip()
     if not configured:
@@ -568,7 +569,7 @@ def _observe_public_ip(state: AuthResilienceState) -> AuthResilienceState:
         hosts.add(parsed.hostname)
         valid_endpoints.append(endpoint)
     if not valid_endpoints:
-        return state
+        return state, None
     fingerprints: list[str] = []
     for endpoint in valid_endpoints:
         try:
@@ -596,7 +597,7 @@ def _observe_public_ip(state: AuthResilienceState) -> AuthResilienceState:
             "[IP-GUARD] source consensus unavailable; "
             "Binance signed authentication remains authoritative"
         )
-        return state
+        return state, None
     observed = observe_public_ip_fingerprint(state, consensus)
     if observed != state:
         _save_auth_resilience_state(observed)
@@ -610,14 +611,10 @@ def _observe_public_ip(state: AuthResilienceState) -> AuthResilienceState:
     if observed.public_ip_changed:
         notify(
             "public egress IP changed",
-            ["Binance whitelist review is required; BUY remains blocked"],
+            ["Checking signed Binance access; BUY remains blocked"],
             {"fingerprint": consensus[:12], "sources": len(fingerprints)},
         )
-        raise RuntimeError(
-            "public egress IP fingerprint changed; "
-            "Binance whitelist review required"
-        )
-    return observed
+    return observed, consensus
 
 
 def _verify_live_protection(
@@ -3866,29 +3863,10 @@ def _preflight_with_auth_backoff(
     state = _read_auth_resilience_state()
     attempt = int(state.attempt)
     transient_attempt = 0
-    if args.live:
-        while True:
-            try:
-                state = _observe_public_ip(state)
-            except RuntimeError:
-                _publish_ai_runtime_status(
-                    state="IP_BLOCKED",
-                    error="public egress IP changed",
-                    risk={
-                        "halted": bool(limits.halt_file.exists()),
-                        "buy_blocked": True,
-                        "reasons": ["Binance whitelist review required"],
-                    },
-                    ip_guard={
-                        "changed": True,
-                        "address_exposed": False,
-                    },
-                )
-                time.sleep(300)
-                state = _read_auth_resilience_state()
-                continue
-            break
     while True:
+        consensus = None
+        if args.live:
+            state, consensus = _observe_public_ip(state)
         now_epoch = int(time.time())
         if state.retry_at_epoch > now_epoch:
             _wait_for_resilience_retry(
@@ -3900,6 +3878,7 @@ def _preflight_with_auth_backoff(
             state = AuthResilienceState(
                 attempt=state.attempt,
                 public_ip_sha256=state.public_ip_sha256,
+                pending_public_ip_sha256=state.pending_public_ip_sha256,
                 public_ip_changed=state.public_ip_changed,
                 updated_at_epoch=int(time.time()),
             )
@@ -3961,6 +3940,7 @@ def _preflight_with_auth_backoff(
             state = AuthResilienceState(
                 attempt=state.attempt,
                 public_ip_sha256=state.public_ip_sha256,
+                pending_public_ip_sha256=state.pending_public_ip_sha256,
                 public_ip_changed=state.public_ip_changed,
                 updated_at_epoch=int(time.time()),
             )
@@ -3969,6 +3949,25 @@ def _preflight_with_auth_backoff(
         else:
             recovered_transient_attempt = transient_attempt
             transient_attempt = 0
+            if state.public_ip_changed:
+                if consensus != state.pending_public_ip_sha256:
+                    _publish_ai_runtime_status(
+                        state="IP_BLOCKED",
+                        error="public IP source consensus unavailable",
+                        risk={"halted": bool(limits.halt_file.exists()),
+                              "buy_blocked": True,
+                              "reasons": ["Wait for IP source consensus"]},
+                    )
+                    time.sleep(300)
+                    state = _read_auth_resilience_state()
+                    continue
+                state = accept_authenticated_public_ip(
+                    state, now_epoch=int(time.time())
+                )
+                notify(
+                    "public IP access verified",
+                    ["IP Guard updated automatically after a signed Binance read"],
+                )
             state = register_auth_success(state, now_epoch=int(time.time()))
             _save_auth_resilience_state(state)
             if recovered_transient_attempt:

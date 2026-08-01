@@ -26,6 +26,7 @@ class AuthResilienceState:
     attempt: int = 0
     retry_at_epoch: int = 0
     public_ip_sha256: str = ""
+    pending_public_ip_sha256: str = ""
     public_ip_changed: bool = False
     updated_at_epoch: int = 0
 
@@ -53,17 +54,20 @@ def load_auth_state(path: str | Path) -> AuthResilienceState:
     attempt = int(payload.get("attempt", 0))
     retry_at = int(payload.get("retry_at_epoch", 0))
     fingerprint = str(payload.get("public_ip_sha256", ""))
+    pending_fingerprint = str(payload.get("pending_public_ip_sha256", ""))
     if attempt < 0 or attempt > 1000 or retry_at < 0:
         raise ValueError("authentication state bounds are invalid")
-    if fingerprint and (
-        len(fingerprint) != 64
-        or any(character not in "0123456789abcdef" for character in fingerprint)
-    ):
-        raise ValueError("public IP fingerprint is invalid")
+    for candidate in (fingerprint, pending_fingerprint):
+        if candidate and (
+            len(candidate) != 64
+            or any(character not in "0123456789abcdef" for character in candidate)
+        ):
+            raise ValueError("public IP fingerprint is invalid")
     return AuthResilienceState(
         attempt=attempt,
         retry_at_epoch=retry_at,
         public_ip_sha256=fingerprint,
+        pending_public_ip_sha256=pending_fingerprint,
         public_ip_changed=bool(payload.get("public_ip_changed", False)),
         updated_at_epoch=int(payload.get("updated_at_epoch", 0)),
     )
@@ -118,6 +122,7 @@ def register_auth_failure(
         attempt=attempt,
         retry_at_epoch=now + delay,
         public_ip_sha256=state.public_ip_sha256,
+        pending_public_ip_sha256=state.pending_public_ip_sha256,
         public_ip_changed=state.public_ip_changed,
         updated_at_epoch=now,
     )
@@ -128,11 +133,12 @@ def register_auth_success(
     *,
     now_epoch: int | None = None,
 ) -> AuthResilienceState:
-    """Clear retry counters while retaining the approved IP fingerprint."""
+    """Clear retry counters without accepting a pending IP fingerprint."""
     now = int(time.time()) if now_epoch is None else int(now_epoch)
     return AuthResilienceState(
         public_ip_sha256=state.public_ip_sha256,
-        public_ip_changed=False,
+        pending_public_ip_sha256=state.pending_public_ip_sha256,
+        public_ip_changed=state.public_ip_changed,
         updated_at_epoch=now,
     )
 
@@ -147,16 +153,15 @@ def observe_public_ip_fingerprint(
     now = int(time.time()) if now_epoch is None else int(now_epoch)
     if len(fingerprint) != 64:
         raise ValueError("public IP fingerprint is invalid")
-    changed = bool(
-        state.public_ip_sha256 and state.public_ip_sha256 != fingerprint
-    )
+    changed = bool(state.public_ip_sha256 and state.public_ip_sha256 != fingerprint)
     return AuthResilienceState(
         attempt=state.attempt,
         retry_at_epoch=state.retry_at_epoch,
         public_ip_sha256=(
             state.public_ip_sha256 if changed else fingerprint
         ),
-        public_ip_changed=state.public_ip_changed or changed,
+        pending_public_ip_sha256=fingerprint if changed else "",
+        public_ip_changed=changed,
         updated_at_epoch=now,
     )
 
@@ -174,4 +179,19 @@ def accept_public_ip_fingerprint(
     return AuthResilienceState(
         public_ip_sha256=fingerprint,
         updated_at_epoch=now,
+    )
+
+
+def accept_authenticated_public_ip(
+    state: AuthResilienceState,
+    *,
+    now_epoch: int | None = None,
+) -> AuthResilienceState:
+    """Accept a pending fingerprint after a successful signed read."""
+    if not state.public_ip_changed or not state.pending_public_ip_sha256:
+        return state
+    return accept_public_ip_fingerprint(
+        state,
+        state.pending_public_ip_sha256,
+        now_epoch=now_epoch,
     )

@@ -105,7 +105,7 @@ Never remove a protective SELL order to make a test pass.
 | `run_dashboard` | runs the dashboard on loopback |
 | `user_stream_shadow` | runs the independent read-only stream observer |
 | `generate_star_history` | generates the public star-history SVG |
-| `ip_guard` | reads or updates the public IP fingerprint state |
+| `ip_guard` | reads state or performs manual IP acceptance recovery |
 | `ai_advisor_smoke` | tests an advisory provider without order tools |
 
 `daily_trading_digest --dry-run` prints private account data.

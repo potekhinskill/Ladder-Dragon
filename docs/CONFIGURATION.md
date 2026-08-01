@@ -87,7 +87,7 @@ HALT, reset, cooldown, and evaluation use one process lock.
 | --- | --- |
 | `BINANCE_AUTH_BACKOFF_*` | definitive authentication failure backoff |
 | `BINANCE_PREFLIGHT_BACKOFF_*` | transient preflight backoff |
-| `BINANCE_PUBLIC_IP_ENDPOINTS` | two-source public IP fingerprint check |
+| `BINANCE_PUBLIC_IP_ENDPOINTS` | two-source IP consensus before signed automatic acceptance |
 | `BOT_USER_STREAM_*` | notification-only stream state |
 | `BOT_EXECUTION_LATENCY_LOG` | intent-to-exchange-event samples |
 | `BOT_LATENCY_TRACE_LOG` | local execution phase samples |
@@ -98,6 +98,9 @@ HALT, reset, cooldown, and evaluation use one process lock.
 
 The ED25519 key path must be absolute and owner-only.
 The application does not log private key material.
+IP Guard accepts a changed fingerprint only after the complete signed read-only preflight passes.
+An authentication or source-consensus failure keeps BUY blocked.
+Automatic acceptance never removes HALT or changes a trading limit.
 
 ## Data paths
 

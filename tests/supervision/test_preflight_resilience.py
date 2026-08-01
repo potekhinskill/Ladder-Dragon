@@ -44,7 +44,7 @@ def test_supervisor_transient_preflight_failure_stays_in_process(
         ai_supervisor, "_save_auth_resilience_state", lambda _state: None
     )
     monkeypatch.setattr(
-        ai_supervisor, "_observe_public_ip", lambda current: current
+        ai_supervisor, "_observe_public_ip", lambda current: (current, None)
     )
     monkeypatch.setattr(ai_supervisor, "_preflight_live", preflight)
     monkeypatch.setattr(
@@ -114,7 +114,7 @@ def test_recovery_blocked_message_is_rate_limited(
         ai_supervisor, "_save_auth_resilience_state", lambda _state: None
     )
     monkeypatch.setattr(
-        ai_supervisor, "_observe_public_ip", lambda current: current
+        ai_supervisor, "_observe_public_ip", lambda current: (current, None)
     )
     monkeypatch.setattr(ai_supervisor, "_preflight_live", lambda *_args: None)
     monkeypatch.setattr(

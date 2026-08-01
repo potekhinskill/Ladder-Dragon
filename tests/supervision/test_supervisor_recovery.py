@@ -97,7 +97,7 @@ def test_supervisor_blocks_executed_buy_without_protection(
     assert "LDBLAD-filled order=124 executed=0.1" in halts[0][0]
 
 
-def test_public_ip_guard_alert_never_exposes_address(
+def test_public_ip_guard_pending_state_never_exposes_address(
     tmp_path, monkeypatch
 ):
     from ladder_dragon.execution.auth_resilience import (
@@ -131,10 +131,11 @@ def test_public_ip_guard_alert_never_exposes_address(
         lambda *args, **kwargs: alerts.append((args, kwargs)),
     )
 
-    with pytest.raises(RuntimeError, match="whitelist review"):
-        ai_supervisor._observe_public_ip(baseline)
+    observed, consensus = ai_supervisor._observe_public_ip(baseline)
 
     persisted = (tmp_path / "auth.json").read_text()
+    assert observed.public_ip_changed is True
+    assert consensus == observed.pending_public_ip_sha256
     assert raw_ip not in persisted
     assert raw_ip not in str(alerts)
 
@@ -179,7 +180,7 @@ def test_public_ip_guard_disagreement_cannot_create_false_block(
         lambda *_args, **_kwargs: pytest.fail("false change alert sent"),
     )
 
-    assert ai_supervisor._observe_public_ip(baseline) == baseline
+    assert ai_supervisor._observe_public_ip(baseline) == (baseline, None)
 
 
 def _protected_oco_journal(tmp_path):
