@@ -49,6 +49,7 @@ This value does not fall back to the portfolio CAP.
 | `AI_CACHE_SEC` | sets the normal advice cache time |
 | `AI_NEGATIVE_CACHE_SEC` | sets the first provider-error cache time |
 | `AI_*LIMIT*` and `AI_MAX_REQUESTS_PER_DAY` | set daily budgets |
+| `AI_MIN_CLOSED_DECISIONS` | sets the real-closure minimum for AI APPLY; default `60` |
 | `AI_RAG_*` | set real-only retrieval limits and retention |
 | `AI_DECISIONS_DB` and `AI_USAGE_LOG` | store local evidence |
 

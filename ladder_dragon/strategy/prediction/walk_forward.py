@@ -20,6 +20,7 @@ def walk_forward_prediction_report(
     """Evaluate chronologically; a sample can train only later timestamps."""
     ordered = sorted(samples, key=lambda item: (item.snapshot_ts_ms, item.horizon_min))
     evaluated = []
+    eligible_samples: list[ResolvedSample] = []
     for index, sample in enumerate(ordered):
         train = [
             row for row in ordered[:index]
@@ -27,6 +28,7 @@ def walk_forward_prediction_report(
         ]
         if len(train) < min_train_samples:
             continue
+        eligible_samples.append(sample)
         evaluated.append({
             "snapshot_ts_ms": sample.snapshot_ts_ms,
             "horizon_min": sample.horizon_min,
@@ -39,7 +41,9 @@ def walk_forward_prediction_report(
         "method": "expanding-window-walk-forward",
         "lookahead": False,
         "evaluated": evaluated,
-        "gate": prediction_apply_gate(ordered),
+        # The approval cohort must match the reported walk-forward cohort.
+        # Cold-start rows have no valid training history and cannot affect APPLY.
+        "gate": prediction_apply_gate(eligible_samples),
     }
 
 __all__ = ["walk_forward_prediction_report"]

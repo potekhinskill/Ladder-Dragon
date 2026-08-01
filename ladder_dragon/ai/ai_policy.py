@@ -29,7 +29,7 @@ class PolicyConfig:
     min_trade_sells: int = 20
     min_accuracy_samples: int = 30
     min_ai_accuracy: float = 0.50
-    min_closed_decisions: int = 5
+    min_closed_decisions: int = 60
     min_real_rag_episodes: int = 5
     max_realized_stop_rate: float = 0.60
 

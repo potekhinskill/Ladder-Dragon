@@ -19,9 +19,10 @@ ZERO = D("0")
 HORIZONS_MIN = (1, 5, 15)
 
 
-def _bootstrap_ci(
+def bootstrap_mean_ci(
     values: Sequence[Decimal], *, iterations: int = 1000, seed: int = 23
 ) -> tuple[Decimal, Decimal]:
+    """Return a deterministic percentile bootstrap interval for the mean."""
     if not values:
         return ZERO, ZERO
     rng = random.Random(seed)
@@ -116,8 +117,8 @@ def prediction_apply_gate(
     independent = len(independent_rows)
     pnl = [row["pnl"] for row in independent_rows]
     edges = [row["edge"] for row in independent_rows]
-    ci = _bootstrap_ci(pnl)
-    edge_ci = _bootstrap_ci(edges)
+    ci = bootstrap_mean_ci(pnl)
+    edge_ci = bootstrap_mean_ci(edges)
     hypotheses: list[tuple[str, list[Decimal]]] = []
     for horizon in HORIZONS_MIN:
         horizon_rows = [row for row in ordered if row.horizon_min == horizon]
@@ -189,6 +190,7 @@ def prediction_apply_gate(
     }
 
 __all__ = [
+    "bootstrap_mean_ci",
     "configuration_edge_p_value",
     "holm_configuration_correction",
     "prediction_apply_gate",

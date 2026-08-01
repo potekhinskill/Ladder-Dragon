@@ -4,6 +4,7 @@ import hashlib
 import json
 
 import pytest
+import ladder_dragon.strategy.prediction.walk_forward as walk_forward_module
 
 from ladder_dragon.strategy.prediction import (
     PredictionBar,
@@ -508,3 +509,47 @@ def test_walk_forward_and_apply_gate_are_chronological_and_strict():
         for row in report["evaluated"]
     )
     assert prediction_apply_gate(samples[:10])["mode"] == "SHADOW"
+
+
+def test_walk_forward_gate_excludes_cold_start_samples(monkeypatch):
+    samples = []
+    for index in range(4):
+        outcome = PredictionOutcome(
+            1,
+            True,
+            True,
+            D("1"),
+            D("0.001"),
+            30,
+            "TP",
+            index * 60_000 + 60_000,
+        )
+        samples.append(ResolvedSample(
+            snapshot_ts_ms=index * 60_000,
+            regime="RANGE",
+            horizon_min=1,
+            outcome=outcome,
+            baseline_net_pnl_quote=D("0"),
+        ))
+    gated: list[ResolvedSample] = []
+
+    def capture_gate(rows):
+        gated.extend(rows)
+        return {"mode": "SHADOW"}
+
+    monkeypatch.setattr(
+        walk_forward_module,
+        "prediction_apply_gate",
+        capture_gate,
+    )
+
+    report = walk_forward_module.walk_forward_prediction_report(
+        samples,
+        min_train_samples=2,
+    )
+
+    assert [row.snapshot_ts_ms for row in gated] == [120_000, 180_000]
+    assert [row["snapshot_ts_ms"] for row in report["evaluated"]] == [
+        120_000,
+        180_000,
+    ]

@@ -39,13 +39,24 @@ def make_db(path, *, edges, stops=0, real_rag=0, unresolved=0):
 
 def test_ai_readiness_passes_only_with_positive_real_evidence(tmp_path):
     path = tmp_path / "ai.sqlite3"
-    make_db(path, edges=["1", "1", "1", "1", "1"], real_rag=5)
+    make_db(path, edges=["1"] * 60, real_rag=5)
 
     report = audit_ai_readiness(path, "SOLUSDT")
 
     assert report.ready is True
-    assert report.net_pnl_quote == Decimal("6.25")
+    assert report.net_pnl_quote == Decimal("75.00")
     assert report.edge_ci_low == Decimal("1")
+    assert report.edge_ci_high == Decimal("1")
+
+
+def test_ai_readiness_default_rejects_small_positive_sample(tmp_path):
+    path = tmp_path / "ai.sqlite3"
+    make_db(path, edges=["1"] * 5, real_rag=5)
+
+    report = audit_ai_readiness(path, "SOLUSDT")
+
+    assert report.ready is False
+    assert "closed decisions 5 < 60" in report.reasons
 
 
 def test_ai_readiness_fails_closed_on_missing_and_unresolved_evidence(tmp_path):
@@ -55,7 +66,7 @@ def test_ai_readiness_fails_closed_on_missing_and_unresolved_evidence(tmp_path):
     report = audit_ai_readiness(path, "SOLUSDT")
 
     assert report.ready is False
-    assert "closed decisions 1 < 5" in report.reasons
+    assert "closed decisions 1 < 60" in report.reasons
     assert "real RAG episodes 0 < 5" in report.reasons
     assert "unresolved fills 1 > 0" in report.reasons
     assert "realized edge confidence interval includes zero" in report.reasons

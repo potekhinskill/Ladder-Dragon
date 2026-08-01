@@ -17,7 +17,7 @@ def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--db", required=True)
     parser.add_argument("--symbol", required=True)
-    parser.add_argument("--minimum-closed-decisions", type=int, default=5)
+    parser.add_argument("--minimum-closed-decisions", type=int, default=60)
     parser.add_argument("--minimum-real-rag-episodes", type=int, default=5)
     parser.add_argument(
         "--maximum-stop-rate", type=Decimal, default=Decimal("0.60")

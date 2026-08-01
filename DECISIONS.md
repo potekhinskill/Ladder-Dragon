@@ -736,3 +736,17 @@ entries concise; this is not a changelog or an activity log.
 - **Decision:** pin Semgrep in a separate hashed environment and run only local project rules.
 - **Why it worked:** fixtures prove each rule, production scans need no network, and runtime dependencies remain unchanged.
 - **Reuse:** every development tool whose dependency graph conflicts with the application environment.
+
+### 2026-08-01 — Gate only statistically eligible observations
+
+- **Context:** cold-start samples appeared in an approval gate without valid prior training history.
+- **Decision:** use one chronological eligibility cohort for walk-forward results and production approval.
+- **Why it worked:** tests prove cold-start rows cannot change the approval input.
+- **Reuse:** every evaluation that trains on past data and approves future operation.
+
+### 2026-08-01 — Require robust AI readiness evidence
+
+- **Context:** five closures and a normal approximation could approve weak AI evidence.
+- **Decision:** require 60 real closures and use a deterministic bootstrap confidence interval.
+- **Why it worked:** small samples fail closed, and repeated audits return identical intervals.
+- **Reuse:** every production gate that evaluates realized advisory outcomes.

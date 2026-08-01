@@ -12,6 +12,7 @@ from pathlib import Path
 import sqlite3
 
 from ladder_dragon.ai.unresolved_fills import lifecycle_counts
+from ladder_dragon.strategy.prediction.approval import bootstrap_mean_ci
 
 
 ZERO = Decimal("0")
@@ -65,7 +66,7 @@ def audit_ai_readiness(
     db_path: str | Path,
     symbol: str,
     *,
-    minimum_closed_decisions: int = 5,
+    minimum_closed_decisions: int = 60,
     minimum_real_rag_episodes: int = 5,
     maximum_stop_rate: Decimal = Decimal("0.60"),
 ) -> AiReadiness:
@@ -126,16 +127,7 @@ def audit_ai_readiness(
         -_decimal(item, "opportunity_cost_quote_text", "opportunity_cost_quote")
         for item in closed
     ]
-    edge_mean = sum(edges, ZERO) / len(edges) if edges else ZERO
-    if len(edges) > 1:
-        variance = sum(
-            ((value - edge_mean) ** 2 for value in edges), ZERO
-        ) / Decimal(len(edges) - 1)
-        margin = Decimal("1.96") * (
-            variance / Decimal(len(edges))
-        ).sqrt()
-    else:
-        margin = ZERO
+    ci_low, ci_high = bootstrap_mean_ci(edges)
     net_pnl = sum(
         (
             _decimal(item, "net_pnl_quote_text", "net_pnl_quote")
@@ -146,8 +138,6 @@ def audit_ai_readiness(
     stop_rate = (
         Decimal(stop_count) / Decimal(len(closed)) if closed else ZERO
     )
-    ci_low = edge_mean - margin
-    ci_high = edge_mean + margin
     reasons: list[str] = []
     if len(closed) < minimum_closed_decisions:
         reasons.append(

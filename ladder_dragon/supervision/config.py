@@ -230,7 +230,7 @@ def build_supervisor_parser() -> argparse.ArgumentParser:
     ap.add_argument("--ai-min-accuracy", type=float,
                     default=float(os.getenv("AI_MIN_ACCURACY", "0.50")))
     ap.add_argument("--ai-min-closed-decisions", type=int,
-                    default=int(os.getenv("AI_MIN_CLOSED_DECISIONS", "5")))
+                    default=int(os.getenv("AI_MIN_CLOSED_DECISIONS", "60")))
     ap.add_argument("--ai-max-realized-stop-rate", type=float,
                     default=float(os.getenv("AI_MAX_REALIZED_STOP_RATE", "0.60")))
 

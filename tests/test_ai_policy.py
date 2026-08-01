@@ -139,7 +139,7 @@ def test_bad_historical_ai_accuracy_disables_application():
 def test_apply_requires_realized_positive_edge_and_stop_rate_gate():
     result = apply_safety_policy(
         context(
-            ai_closed_samples=5,
+            ai_closed_samples=60,
             ai_realized_edge_ci_low=-.1,
             ai_realized_edge_ci_high=.2,
             ai_realized_stop_rate=.2,
@@ -152,7 +152,7 @@ def test_apply_requires_realized_positive_edge_and_stop_rate_gate():
 
     result = apply_safety_policy(
         context(
-            ai_closed_samples=5,
+            ai_closed_samples=60,
             ai_realized_edge_ci_low=.1,
             ai_realized_edge_ci_high=.2,
             ai_realized_stop_rate=.9,

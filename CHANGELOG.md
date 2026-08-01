@@ -3,6 +3,18 @@
 All notable changes are documented here. Releases use Semantic Versioning; every
 section is dated and there is intentionally no `Unreleased` section.
 
+## [2.20.122] — 2026-08-01
+
+### Fixed
+- Walk-forward approval now excludes samples without sufficient prior training history.
+- AI readiness now uses a deterministic bootstrap confidence interval.
+
+### Changed
+- AI APPLY requires 60 real closed decisions by default.
+
+### Verified
+- Tests cover cold-start exclusion, small-sample rejection, and deterministic confidence intervals.
+
 ## [2.20.121] — 2026-08-01
 
 ### Fixed
