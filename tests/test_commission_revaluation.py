@@ -10,6 +10,7 @@ from ladder_dragon.execution.commission_revaluation import (
     build_revaluation,
     legacy_rows,
 )
+from ladder_dragon.execution.executor_stats import commission_quote_value
 
 
 def _legacy_database(path):
@@ -90,3 +91,57 @@ def test_mismatched_fill_remains_unresolved_and_cannot_apply(tmp_path):
             recalculate_inventory=tools_stats.recalculate_inventory,
         )
     connection.close()
+
+
+def test_commission_conversion_rejects_a_later_candle_and_cache_stays_empty():
+    trade_time_ms = 1_700_000_000_000
+    minute_ms = trade_time_ms // 60_000 * 60_000
+    cache = {}
+    calls = []
+
+    def public_get(path, params):
+        calls.append((path, params))
+        return [[minute_ms + 60_000, "0", "0", "0", "300", "0"]]
+
+    value, status = commission_quote_value(
+        "SOLUSDT",
+        "BNB",
+        Decimal("0.001"),
+        Decimal("100"),
+        trade_time_ms,
+        symbol_assets=lambda symbol: ("SOL", "USDT"),
+        public_get=public_get,
+        cache=cache,
+    )
+
+    assert value is None
+    assert status == "unpriced"
+    assert cache == {}
+    assert len(calls) == 2
+    assert all(call[1]["startTime"] == minute_ms for call in calls)
+
+
+def test_commission_conversion_uses_exact_inverse_after_later_direct_candle():
+    trade_time_ms = 1_700_000_000_000
+    minute_ms = trade_time_ms // 60_000 * 60_000
+    cache = {}
+
+    def public_get(path, params):
+        if params["symbol"] == "BNBUSDT":
+            return [[minute_ms + 60_000, "0", "0", "0", "300", "0"]]
+        return [[minute_ms, "0", "0", "0", "0.004", "0"]]
+
+    value, status = commission_quote_value(
+        "SOLUSDT",
+        "BNB",
+        Decimal("0.001"),
+        Decimal("100"),
+        trade_time_ms,
+        symbol_assets=lambda symbol: ("SOL", "USDT"),
+        public_get=public_get,
+        cache=cache,
+    )
+
+    assert value == Decimal("0.250")
+    assert status == "converted"
+    assert cache[("BNB", "USDT", minute_ms)] == Decimal("250")

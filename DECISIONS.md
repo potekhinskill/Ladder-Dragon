@@ -4,6 +4,13 @@ Read this file before changing the repository. Record only decisions that were
 validated by tests or production evidence and are likely to be reused. Keep
 entries concise; this is not a changelog or an activity log.
 
+### 2026-08-02 — Require exact time identity for financial evidence
+
+- **Context:** an API can return the first record after a requested time.
+- **Decision:** compare the returned timestamp with the requested timestamp before calculation or caching.
+- **Why it worked:** tests reject later candles, preserve an empty cache, and accept an exact inverse conversion.
+- **Reuse:** every historical fee, price, rate, candle, or external value joined by time.
+
 ### 2026-08-02 — Verify protection on both sides of replacement
 
 - **Context:** a breakeven move removes one OCO before it creates another OCO.

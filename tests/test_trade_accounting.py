@@ -260,15 +260,17 @@ def test_legacy_schema_remains_readable_by_risk_metrics(tmp_path):
 def test_worker_prices_bnb_commission_from_recorded_minute(monkeypatch):
     worker = load_worker()
     worker._COMMISSION_QUOTE_CACHE.clear()
+    trade_time_ms = 1_700_000_000_000
+    minute_ms = trade_time_ms // 60_000 * 60_000
     monkeypatch.setattr(worker, "get_symbol_assets", lambda symbol: ("SOL", "USDT"))
     monkeypatch.setattr(
         worker,
         "_public_get",
-        lambda path, params: [[0, "0", "0", "0", "300.00", "0"]],
+        lambda path, params: [[minute_ms, "0", "0", "0", "300.00", "0"]],
     )
 
     value, status = worker._commission_quote_value(
-        "SOLUSDT", "BNB", Decimal("0.001"), Decimal("100"), 1_700_000_000_000
+        "SOLUSDT", "BNB", Decimal("0.001"), Decimal("100"), trade_time_ms
     )
 
     assert value == Decimal("0.30000")

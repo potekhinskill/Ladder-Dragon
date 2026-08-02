@@ -49,6 +49,10 @@ def commission_quote_value(
             )
             if not isinstance(candles, list) or not candles:
                 continue
+            # Binance can return the first candle after startTime. Reject that
+            # future price because commission provenance requires the trade minute.
+            if int(candles[0][0]) != minute_ms:
+                continue
             close = Decimal(str(candles[0][4]))
             if close <= 0:
                 continue

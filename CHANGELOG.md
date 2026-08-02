@@ -3,6 +3,22 @@
 All notable changes are documented here. Releases use Semantic Versioning; every
 section is dated and there is intentionally no `Unreleased` section.
 
+## [2.20.130] — 2026-08-02
+
+### Changed
+- Third-asset commission conversion now requires an exact one-minute candle timestamp.
+
+### Fixed
+- A missing conversion minute no longer uses the first later Binance candle.
+- A mismatched candle cannot enter the process conversion cache.
+
+### Security
+- Commission valuation fails closed as `unpriced` when no exact conversion minute exists.
+- Historical and LIVE accounting cannot use future candle prices for commission provenance.
+
+### Verified
+- The complete 941-test suite and the technical English check pass.
+
 ## [2.20.129] — 2026-08-02
 
 ### Changed
