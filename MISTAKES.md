@@ -17,6 +17,13 @@ private infrastructure details.
 
 ## Mistakes
 
+### 2026-08-03 — Built indicators without connecting a consumer
+
+- **Impact:** each fast-market worker received and processed unused candle data.
+- **Root cause:** indicator production was implemented before its decision contract and remained after integration stopped.
+- **Correction:** remove the candle subscription, calculations, state, and public snapshot fields.
+- **Prevention:** each new stream and derived value must identify an active consumer and a decision test.
+
 ### 2026-08-03 — Latched a recoverable full-snapshot anomaly
 
 - **Impact:** one duplicate or reordered depth snapshot could block fast-market BUY decisions until process restart.

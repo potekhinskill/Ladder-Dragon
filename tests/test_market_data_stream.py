@@ -16,12 +16,12 @@ def test_combined_market_stream_contains_realtime_sources():
     assert "solusdt@bookTicker" in url
     assert "solusdt@aggTrade" in url
     assert "solusdt@depth20@100ms" in url
-    assert "solusdt@kline_1m" in url
+    assert "kline" not in url
     assert "apiKey" not in url
 
 
 def test_market_snapshot_is_immutable_and_incremental():
-    ticks = iter((1_000_000_000, 1_100_000_000, 1_200_000_000, 1_300_000_000))
+    ticks = iter((1_000_000_000, 1_100_000_000, 1_200_000_000))
     store = MarketSnapshotStore(
         "SOLUSDT",
         monotonic_ns=lambda: next(ticks),
@@ -36,14 +36,6 @@ def test_market_snapshot_is_immutable_and_incremental():
     store.update({
         "e": "aggTrade", "p": "100.05", "q": "1", "T": 1000, "m": False,
     })
-    store.update({
-        "e": "kline",
-        "k": {
-            "x": True, "c": "100", "h": "101", "l": "99",
-            "v": "2", "q": "200",
-        },
-    })
-
     snapshot = store.snapshot()
     assert snapshot.ready is True
     assert snapshot.best_bid == Decimal("100")
@@ -51,9 +43,6 @@ def test_market_snapshot_is_immutable_and_incremental():
     assert snapshot.spread_bps > 0
     assert snapshot.depth_imbalance > 0
     assert snapshot.trade_flow_quote == Decimal("100.05")
-    assert snapshot.ema20 == Decimal("100")
-    assert snapshot.atr14 == Decimal("2")
-    assert snapshot.vwap == Decimal("100")
 
 
 def test_depth_sequence_regression_fails_closed_until_fresh_snapshot():

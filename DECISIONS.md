@@ -4,6 +4,13 @@ Read this file before changing the repository. Record only decisions that were
 validated by tests or production evidence and are likely to be reused. Keep
 entries concise; this is not a changelog or an activity log.
 
+### 2026-08-03 — Do not stream data without an active consumer
+
+- **Context:** fast-market candles produced unseeded indicators that no decision or report consumed.
+- **Decision:** remove the stream and fields; test any adaptive threshold in SHADOW before integration.
+- **Why it worked:** tests prove the reduced stream still supplies every fast-market gate input.
+- **Reuse:** every subscription, cache, and derived metric without a named consumer.
+
 ### 2026-08-03 — Reset connection-scoped market evidence on reconnect
 
 - **Context:** full depth snapshots can repeat identifiers, and identifiers do not span WebSocket sessions.

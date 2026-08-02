@@ -34,7 +34,6 @@ def combined_market_stream_url(symbol: str, *, testnet: bool = False) -> str:
             f"{lower}@bookTicker",
             f"{lower}@aggTrade",
             f"{lower}@depth20@100ms",
-            f"{lower}@kline_1m",
         )
     )
     return f"{base}?streams={streams}"
@@ -63,9 +62,6 @@ class MarketSnapshot:
     depth_imbalance: Decimal
     trade_flow_quote: Decimal
     last_trade_price: Decimal
-    ema20: Decimal | None
-    atr14: Decimal | None
-    vwap: Decimal | None
     depth_update_id: int | None
     sequence_ok: bool
     ready: bool
@@ -171,10 +167,6 @@ class MarketSnapshotStore:
         self._last_trade_price = ZERO
         self._trade_flow: deque[tuple[int, Decimal]] = deque(maxlen=10_000)
         self._trade_flow_quote = ZERO
-        self._ema20: Decimal | None = None
-        self._atr14: Decimal | None = None
-        self._vwap: Decimal | None = None
-        self._previous_close: Decimal | None = None
         self._depth_update_id: int | None = None
         self._sequence_ok = True
         self._book_received_monotonic_ns = 0
@@ -262,40 +254,6 @@ class MarketSnapshotStore:
                 while self._trade_flow and self._trade_flow[0][0] < cutoff:
                     _, expired_quote = self._trade_flow.popleft()
                     self._trade_flow_quote -= expired_quote
-            elif event == "kline":
-                kline = payload.get("k")
-                if isinstance(kline, Mapping) and bool(kline.get("x")):
-                    close = _decimal(kline.get("c"), name="kline close")
-                    high = _decimal(kline.get("h"), name="kline high")
-                    low = _decimal(kline.get("l"), name="kline low")
-                    volume = _decimal(kline.get("v"), name="kline volume")
-                    quote_volume = _decimal(
-                        kline.get("q"), name="kline quote volume"
-                    )
-                    alpha = Decimal("2") / Decimal("21")
-                    self._ema20 = (
-                        close
-                        if self._ema20 is None
-                        else self._ema20 + alpha * (close - self._ema20)
-                    )
-                    previous = self._previous_close or close
-                    true_range = max(
-                        high - low,
-                        abs(high - previous),
-                        abs(low - previous),
-                    )
-                    self._atr14 = (
-                        true_range
-                        if self._atr14 is None
-                        else (
-                            self._atr14 * Decimal("13") + true_range
-                        )
-                        / Decimal("14")
-                    )
-                    self._vwap = (
-                        quote_volume / volume if volume > 0 else close
-                    )
-                    self._previous_close = close
             elif "b" in payload and "a" in payload:
                 self._best_bid = _decimal(payload.get("b"), name="best bid")
                 self._bid_quantity = _decimal(
@@ -359,9 +317,6 @@ class MarketSnapshotStore:
                 depth_imbalance=self._depth_imbalance,
                 trade_flow_quote=self._trade_flow_quote,
                 last_trade_price=self._last_trade_price,
-                ema20=self._ema20,
-                atr14=self._atr14,
-                vwap=self._vwap,
                 depth_update_id=self._depth_update_id,
                 sequence_ok=self._sequence_ok,
                 ready=ready,

@@ -204,6 +204,9 @@ These modes cannot bypass the normal LIVE confirmation or Risk Manager.
 
 The fast-market gate rejects an expired snapshot.
 It also rejects excessive spread, price movement, sequence regression, or insufficient net edge.
+Its stream contains book ticker, aggregate trade, and full depth data only.
+Strategy indicators use the canonical REST candle workflow.
+Test each adaptive fast-market threshold in SHADOW before it can affect APPLY.
 An older depth snapshot blocks the current decision until a valid snapshot arrives.
 Duplicate full snapshots are valid and refresh their depth values.
 Each reconnect clears connection-specific identifiers and requires new book and depth frames.

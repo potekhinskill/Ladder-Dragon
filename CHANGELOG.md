@@ -3,6 +3,23 @@
 All notable changes are documented here. Releases use Semantic Versioning; every
 section is dated and there is intentionally no `Unreleased` section.
 
+## [2.20.145] — 2026-08-03
+
+### Changed
+- Fast-market streaming now subscribes only to book ticker, aggregate trade, and full depth data.
+- Strategy indicators continue to use the canonical REST candle workflow.
+
+### Fixed
+- Workers no longer calculate and retain unused stream EMA, ATR, and minute VWAP values.
+- The public market snapshot no longer exposes fields without an active consumer.
+
+### Security
+- Fixed decision thresholds remain unchanged; this release cannot expand trading risk.
+- Market freshness, spread, movement, sequence, and economic gates remain fail closed.
+
+### Verified
+- Focused market-stream and fast-market safety tests pass.
+
 ## [2.20.144] — 2026-08-03
 
 ### Changed
