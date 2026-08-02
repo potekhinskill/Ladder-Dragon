@@ -4,6 +4,13 @@ Read this file before changing the repository. Record only decisions that were
 validated by tests or production evidence and are likely to be reused. Keep
 entries concise; this is not a changelog or an activity log.
 
+### 2026-08-03 — Reset connection-scoped market evidence on reconnect
+
+- **Context:** full depth snapshots can repeat identifiers, and identifiers do not span WebSocket sessions.
+- **Decision:** accept duplicate snapshots and clear identifiers and freshness before each new session.
+- **Why it worked:** tests prove transient blocking, recovery, and fresh-frame requirements after reconnect.
+- **Reuse:** every stream where sequence identity or freshness belongs to one connection.
+
 ### 2026-08-03 — Reject unsorted evidence instead of repairing it silently
 
 - **Context:** OHLC open and close depend on authenticated trade chronology.

@@ -3,6 +3,23 @@
 All notable changes are documented here. Releases use Semantic Versioning; every
 section is dated and there is intentionally no `Unreleased` section.
 
+## [2.20.144] — 2026-08-03
+
+### Changed
+- Full depth snapshots can repeat their update identifier and refresh market state.
+- Each WebSocket connection starts with new sequence and freshness evidence.
+
+### Fixed
+- One reordered depth snapshot no longer blocks fast-market decisions permanently.
+- Reconnects cannot compare a new session with an obsolete depth identifier.
+
+### Security
+- An older frame still blocks BUY until a valid full snapshot arrives.
+- A reconnect requires new book and depth frames before market readiness returns.
+
+### Verified
+- Ten focused market-stream tests pass, including duplicate, recovery, and reconnect cases.
+
 ## [2.20.143] — 2026-08-03
 
 ### Changed

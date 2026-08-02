@@ -204,6 +204,9 @@ These modes cannot bypass the normal LIVE confirmation or Risk Manager.
 
 The fast-market gate rejects an expired snapshot.
 It also rejects excessive spread, price movement, sequence regression, or insufficient net edge.
+An older depth snapshot blocks the current decision until a valid snapshot arrives.
+Duplicate full snapshots are valid and refresh their depth values.
+Each reconnect clears connection-specific identifiers and requires new book and depth frames.
 
 OTOCO can submit a BUY with its future protection list.
 WebSocket trading uses server-adjusted timestamps and one bounded response deadline.

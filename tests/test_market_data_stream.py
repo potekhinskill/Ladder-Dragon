@@ -1,6 +1,8 @@
+import json
 from decimal import Decimal
 
 from ladder_dragon.execution.market_data_stream import (
+    BinanceMarketDataObserver,
     DecisionFreshnessPolicy,
     MarketSnapshotStore,
     combined_market_stream_url,
@@ -54,8 +56,8 @@ def test_market_snapshot_is_immutable_and_incremental():
     assert snapshot.vwap == Decimal("100")
 
 
-def test_depth_sequence_regression_fails_closed():
-    ticks = iter((1, 2, 3))
+def test_depth_sequence_regression_fails_closed_until_fresh_snapshot():
+    ticks = iter((1, 2, 3, 4))
     store = MarketSnapshotStore(
         "SOLUSDT",
         monotonic_ns=lambda: next(ticks),
@@ -73,6 +75,131 @@ def test_depth_sequence_regression_fails_closed():
     })
 
     assert store.snapshot().sequence_ok is False
+
+    store.update({
+        "lastUpdateId": 11,
+        "bids": [["100", "3"]],
+        "asks": [["100.1", "1"]],
+    })
+
+    snapshot = store.snapshot()
+    assert snapshot.sequence_ok is True
+    assert snapshot.depth_update_id == 11
+    assert snapshot.depth_imbalance > 0
+
+
+def test_duplicate_full_depth_snapshot_refreshes_without_latching_failure():
+    ticks = iter((1, 2, 3))
+    store = MarketSnapshotStore(
+        "SOLUSDT",
+        monotonic_ns=lambda: next(ticks),
+    )
+    store.update({"b": "100", "B": "2", "a": "100.1", "A": "3"})
+    store.update({
+        "lastUpdateId": 10,
+        "bids": [["100", "1"]],
+        "asks": [["100.1", "3"]],
+    })
+    first_imbalance = store.snapshot().depth_imbalance
+
+    store.update({
+        "lastUpdateId": 10,
+        "bids": [["100", "4"]],
+        "asks": [["100.1", "1"]],
+    })
+
+    snapshot = store.snapshot()
+    assert snapshot.sequence_ok is True
+    assert snapshot.depth_update_id == 10
+    assert snapshot.depth_imbalance > first_imbalance
+
+
+def test_new_stream_session_requires_fresh_book_and_depth_frames():
+    ticks = iter((1, 2, 3, 4))
+    store = MarketSnapshotStore(
+        "SOLUSDT",
+        monotonic_ns=lambda: next(ticks),
+    )
+    store.update({"b": "100", "B": "2", "a": "100.1", "A": "3"})
+    store.update({
+        "lastUpdateId": 10,
+        "bids": [["100", "2"]],
+        "asks": [["100.1", "1"]],
+    })
+    assert store.snapshot().ready is True
+
+    store.begin_stream_session()
+    reset = store.snapshot()
+    assert reset.ready is False
+    assert reset.depth_update_id is None
+    assert reset.sequence_ok is True
+
+    store.update({
+        "lastUpdateId": 1,
+        "bids": [["100", "2"]],
+        "asks": [["100.1", "1"]],
+    })
+    assert store.snapshot().ready is False
+
+    store.update({"b": "100", "B": "2", "a": "100.1", "A": "3"})
+    assert store.snapshot().ready is True
+
+
+def test_observer_reconnect_resets_connection_scoped_depth_identity():
+    store = MarketSnapshotStore("SOLUSDT", monotonic_ns=lambda: 1)
+    store.update({
+        "lastUpdateId": 10,
+        "bids": [["100", "2"]],
+        "asks": [["100.1", "1"]],
+    })
+    store.update({
+        "lastUpdateId": 9,
+        "bids": [["100", "2"]],
+        "asks": [["100.1", "1"]],
+    })
+    assert store.snapshot().sequence_ok is False
+
+    class StopState:
+        stopped = False
+
+        def is_set(self):
+            return self.stopped
+
+        def set(self):
+            self.stopped = True
+
+        def wait(self, _timeout):
+            return self.stopped
+
+    stop = StopState()
+
+    class BrokenConnection:
+        def recv(self):
+            raise OSError("connection lost")
+
+    class RecoveredConnection:
+        def recv(self):
+            stop.set()
+            return json.dumps({
+                "lastUpdateId": 5,
+                "bids": [["100", "2"]],
+                "asks": [["100.1", "1"]],
+            })
+
+    connections = iter((BrokenConnection(), RecoveredConnection()))
+    observer = BinanceMarketDataObserver(
+        store,
+        testnet=False,
+        logger=lambda _message: None,
+        connect=lambda _url, timeout: next(connections),
+    )
+    observer._stop = stop
+
+    observer._run()
+
+    snapshot = store.snapshot()
+    assert snapshot.sequence_ok is True
+    assert snapshot.depth_update_id == 5
 
 
 def test_snapshot_gate_rejects_stale_move_spread_and_negative_net_edge():

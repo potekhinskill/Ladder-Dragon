@@ -182,6 +182,20 @@ class MarketSnapshotStore:
         self._depth_received_monotonic_ns = 0
         self._depth_received_at_ms = 0
 
+    def begin_stream_session(self) -> None:
+        """Invalidate connection-scoped book evidence before a new session."""
+
+        with self._condition:
+            # Snapshot identifiers are not continuous across WebSocket sessions.
+            # Require fresh book and depth frames before BUY can resume.
+            self._depth_update_id = None
+            self._sequence_ok = True
+            self._book_received_monotonic_ns = 0
+            self._book_received_at_ms = 0
+            self._depth_received_monotonic_ns = 0
+            self._depth_received_at_ms = 0
+            self._condition.notify_all()
+
     def update(self, raw_payload: Mapping[str, object]) -> None:
         payload = raw_payload.get("data", raw_payload)
         if not isinstance(payload, Mapping):
@@ -192,17 +206,19 @@ class MarketSnapshotStore:
         with self._condition:
             if "lastUpdateId" in payload and "bids" in payload:
                 update_id = int(payload["lastUpdateId"])
+                bids = payload.get("bids")
+                asks = payload.get("asks")
+                if not isinstance(bids, list) or not isinstance(asks, list):
+                    raise ValueError("depth snapshot is invalid")
                 if (
                     self._depth_update_id is not None
-                    and update_id <= self._depth_update_id
+                    and update_id < self._depth_update_id
                 ):
+                    # A stale full snapshot blocks this decision only. A later
+                    # accepted snapshot restores sequence validity.
                     self._sequence_ok = False
                 else:
                     self._depth_update_id = update_id
-                    bids = payload.get("bids")
-                    asks = payload.get("asks")
-                    if not isinstance(bids, list) or not isinstance(asks, list):
-                        raise ValueError("depth snapshot is invalid")
                     bid_quote = sum(
                         (
                             _decimal(row[0], name="bid price")
@@ -227,6 +243,7 @@ class MarketSnapshotStore:
                     )
                     self._depth_received_monotonic_ns = now_ns
                     self._depth_received_at_ms = now_ms
+                    self._sequence_ok = True
             elif event == "aggTrade":
                 price = _decimal(payload.get("p"), name="trade price")
                 quantity = _decimal(payload.get("q"), name="trade quantity")
@@ -406,6 +423,7 @@ class BinanceMarketDataObserver:
             try:
                 connection = self._connect(self.url, timeout=10)
                 self._connection = connection
+                self.store.begin_stream_session()
                 self.logger(
                     f"[MARKET-STREAM] {self.store.symbol} connected"
                 )

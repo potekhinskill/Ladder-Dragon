@@ -17,6 +17,13 @@ private infrastructure details.
 
 ## Mistakes
 
+### 2026-08-03 — Latched a recoverable full-snapshot anomaly
+
+- **Impact:** one duplicate or reordered depth snapshot could block fast-market BUY decisions until process restart.
+- **Root cause:** full snapshots used permanent diff-stream sequence state that also survived reconnects.
+- **Correction:** accept duplicates, recover after a valid snapshot, and reset connection-scoped evidence on reconnect.
+- **Prevention:** stream tests must cover duplicate frames, reordered frames, recovery, and reconnect boundaries.
+
 ### 2026-08-03 — Trusted file order for OHLC construction
 
 - **Impact:** an unsorted archive could silently assign incorrect minute open and close prices.
