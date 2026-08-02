@@ -9,6 +9,7 @@ from __future__ import annotations
 import argparse
 import math
 import sys
+from decimal import Decimal, InvalidOperation
 from typing import Dict, Iterable, List, Optional, Tuple
 
 from ladder_dragon.execution import tools_market as TM
@@ -67,7 +68,44 @@ def clamp(value: float, lo: float, hi: float) -> float:
     return max(lo, min(hi, value))
 
 
-def fmt_pairs(pairs: Dict[str, float], precision: int = 6) -> str:
+def adaptive_discount(
+    base: object,
+    *,
+    mode: str,
+    atr_pct: object,
+    up_multiplier: object,
+    down_multiplier: object,
+    atr_coefficient: object,
+    minimum: object,
+    maximum: object,
+) -> Decimal:
+    """Return a bounded VWAP discount from mode and volatility evidence."""
+    try:
+        values = tuple(Decimal(str(value)) for value in (
+            base, atr_pct, up_multiplier, down_multiplier,
+            atr_coefficient, minimum, maximum,
+        ))
+    except (InvalidOperation, TypeError, ValueError) as exc:
+        raise ValueError("VWAP discount inputs must be decimals") from exc
+    discount, atr, up, down, atr_coef, lower, upper = values
+    if not all(value.is_finite() for value in values):
+        raise ValueError("VWAP discount inputs must be finite")
+    if discount < 0 or atr < 0 or atr_coef < 0 or lower < 0 or upper < lower:
+        raise ValueError("VWAP discount bounds and inputs must be non-negative")
+    if upper > Decimal("0.5"):
+        raise ValueError("VWAP discount maximum cannot exceed 0.5")
+    if up <= 0 or down <= 0:
+        raise ValueError("VWAP discount mode multipliers must be positive")
+    normalized_mode = str(mode).upper()
+    if normalized_mode == "UP":
+        discount *= up
+    elif normalized_mode == "DOWN":
+        discount *= down
+    discount *= Decimal("1") + atr * atr_coef
+    return max(lower, min(upper, discount))
+
+
+def fmt_pairs(pairs: Dict[str, object], precision: int = 6) -> str:
     return ",".join(f"{sym}:{val:.{precision}f}" for sym, val in pairs.items())
 
 
@@ -81,9 +119,9 @@ def emit_lines(lines: Iterable[str]) -> bool:
     return True
 
 
-def build_maps(symbols: List[str], args: argparse.Namespace) -> Tuple[Dict[str, float], Dict[str, float], Dict[str, float]]:
+def build_maps(symbols: List[str], args: argparse.Namespace) -> Tuple[Dict[str, float], Dict[str, Decimal], Dict[str, float]]:
     premium_map: Dict[str, float] = {}
-    discount_map: Dict[str, float] = {}
+    discount_map: Dict[str, Decimal] = {}
     scale_map: Dict[str, float] = {}
 
     for symbol in symbols:
@@ -105,13 +143,22 @@ def build_maps(symbols: List[str], args: argparse.Namespace) -> Tuple[Dict[str, 
         premium *= max(0.1, 1.0 - atr_pct * args.premium_atr_coef)
         premium = clamp(premium, args.premium_floor, args.premium_ceil)
 
-        discount = args.base_discount
+        discount = adaptive_discount(
+            args.base_discount,
+            mode=mode,
+            atr_pct=atr_pct,
+            up_multiplier=args.discount_up_mult,
+            down_multiplier=args.discount_down_mult,
+            atr_coefficient=args.discount_atr_coef,
+            minimum=args.discount_min,
+            maximum=args.discount_max,
+        )
         scale = args.base_scale
         scale *= 1.0 + atr_pct * args.scale_atr_coef
         scale = clamp(scale, args.scale_min, args.scale_max)
 
         premium_map[symbol] = premium
-        if discount > 0:
+        if discount > Decimal("0"):
             discount_map[symbol] = discount
         if abs(scale - 1.0) > 1e-4:
             scale_map[symbol] = scale
@@ -130,7 +177,7 @@ def main() -> None:
     parser.add_argument("--dir-eps", type=float, default=0.0005)
 
     parser.add_argument("--base-premium", type=float, default=0.0030)
-    parser.add_argument("--base-discount", type=float, default=0.0060)
+    parser.add_argument("--base-discount", type=Decimal, default=Decimal("0.0060"))
     parser.add_argument("--base-scale", type=float, default=1.30)
 
     parser.add_argument("--premium-up-mult", type=float, default=0.75)
@@ -139,6 +186,12 @@ def main() -> None:
     parser.add_argument("--premium-floor", type=float, default=0.0008)
     parser.add_argument("--premium-ceil", type=float, default=0.0060)
 
+    parser.add_argument("--discount-up-mult", type=Decimal, default=Decimal("0.75"))
+    parser.add_argument("--discount-down-mult", type=Decimal, default=Decimal("1.20"))
+    parser.add_argument("--discount-atr-coef", type=Decimal, default=Decimal("2.0"))
+    parser.add_argument("--discount-min", type=Decimal, default=Decimal("0"))
+    parser.add_argument("--discount-max", type=Decimal, default=Decimal("0.0200"))
+
     parser.add_argument("--scale-atr-coef", type=float, default=2.0)
     parser.add_argument("--scale-min", type=float, default=1.0)
     parser.add_argument("--scale-max", type=float, default=2.5)
@@ -146,6 +199,20 @@ def main() -> None:
     parser.add_argument("--precision", type=int, default=6)
 
     args = parser.parse_args()
+
+    try:
+        adaptive_discount(
+            args.base_discount,
+            mode="FLAT",
+            atr_pct=0,
+            up_multiplier=args.discount_up_mult,
+            down_multiplier=args.discount_down_mult,
+            atr_coefficient=args.discount_atr_coef,
+            minimum=args.discount_min,
+            maximum=args.discount_max,
+        )
+    except ValueError as exc:
+        parser.error(str(exc))
 
     symbols = [s.strip().upper() for s in args.symbols.split(",") if s.strip()]
     if not symbols:

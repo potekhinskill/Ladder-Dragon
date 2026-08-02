@@ -12,9 +12,9 @@ import json
 import os
 import sqlite3
 import sys
-from decimal import Decimal
+from decimal import Decimal, InvalidOperation
 from pathlib import Path
-from typing import Dict, Iterable, List, Optional, Tuple
+from typing import Dict, Optional, Tuple
 
 import time
 
@@ -26,7 +26,7 @@ def clamp(value: float, lo: float, hi: float) -> float:
     return max(lo, min(hi, value))
 
 
-def fmt_map(data: Dict[str, float], precision: int) -> str:
+def fmt_map(data: Dict[str, object], precision: int) -> str:
     return ",".join(f"{sym}:{val:.{precision}f}" for sym, val in sorted(data.items()))
 
 
@@ -36,7 +36,7 @@ def ema(prev: Optional[float], new: float, alpha: float) -> float:
     return prev * (1.0 - alpha) + new * alpha
 
 
-def load_prev_values(path: Optional[str]) -> Dict[str, Dict[str, float]]:
+def load_prev_values(path: Optional[str]) -> Dict[str, Dict[str, object]]:
     if not path:
         return {}
     try:
@@ -49,7 +49,7 @@ def load_prev_values(path: Optional[str]) -> Dict[str, Dict[str, float]]:
     return {}
 
 
-def save_values(path: Optional[str], values: Dict[str, Dict[str, float]]) -> None:
+def save_values(path: Optional[str], values: Dict[str, Dict[str, object]]) -> None:
     if not path:
         return
     tmp = Path(path + ".tmp")
@@ -65,35 +65,66 @@ def save_values(path: Optional[str], values: Dict[str, Dict[str, float]]) -> Non
             pass
 
 
-def compute_fifo_pnl(rows: Iterable[Tuple[str, object, object, object]]) -> float:
-    """Return a compatibility float after exact FIFO arithmetic."""
-    inv = Decimal("0")
-    avg = Decimal("0")
-    realized = Decimal("0")
-    for side, price, qty, fee in rows:
-        price = Decimal(str(price))
-        qty = Decimal(str(qty))
-        fee = Decimal(str(fee))
-        if side == "BUY":
-            new_inv = inv + qty
-            avg = (
-                (avg * inv + price * qty + fee) / new_inv
-                if new_inv > 0 else Decimal("0")
-            )
-            inv = new_inv
-        else:
-            qty_eff = min(qty, inv) if inv > 0 else Decimal("0")
-            realized += (price - avg) * qty_eff - fee
-            inv -= qty_eff
-            if inv <= Decimal("1e-18"):
-                inv = Decimal("0")
-                avg = Decimal("0")
-    return float(realized)
+def adaptive_discount(
+    base: object,
+    *,
+    pnl: object,
+    trade_count: int,
+    minimum_trades: int,
+    pnl_threshold: object,
+    loss_multiplier: object,
+    profit_multiplier: object,
+    minimum: object,
+    maximum: object,
+) -> Decimal:
+    """Return a bounded VWAP discount from exact performance evidence."""
+    try:
+        values = tuple(Decimal(str(value)) for value in (
+            base, pnl, pnl_threshold, loss_multiplier,
+            profit_multiplier, minimum, maximum,
+        ))
+    except (InvalidOperation, TypeError, ValueError) as exc:
+        raise ValueError("VWAP autotune discount inputs must be decimals") from exc
+    discount, exact_pnl, threshold, loss_mult, profit_mult, lower, upper = values
+    if not all(value.is_finite() for value in values):
+        raise ValueError("VWAP autotune discount inputs must be finite")
+    if threshold <= 0:
+        raise ValueError("VWAP autotune PnL threshold must be positive")
+    if discount < 0 or lower < 0 or upper < lower:
+        raise ValueError("VWAP autotune discount bounds must be non-negative")
+    if upper > Decimal("0.5"):
+        raise ValueError("VWAP autotune discount maximum cannot exceed 0.5")
+    if loss_mult <= 0 or profit_mult <= 0:
+        raise ValueError("VWAP autotune discount multipliers must be positive")
+    if int(minimum_trades) < 0 or int(trade_count) < 0:
+        raise ValueError("VWAP autotune trade counts must be non-negative")
+    if trade_count >= minimum_trades:
+        if exact_pnl <= -abs(threshold):
+            discount *= loss_mult
+        elif exact_pnl >= abs(threshold):
+            discount *= profit_mult
+    return max(lower, min(upper, discount))
+
+
+def decimal_ema(previous: object | None, new: Decimal, alpha: object) -> Decimal:
+    """Smooth one exact parameter value without binary floating-point arithmetic."""
+    try:
+        weight = Decimal(str(alpha))
+        old = None if previous is None else Decimal(str(previous))
+    except (InvalidOperation, TypeError, ValueError) as exc:
+        raise ValueError("VWAP discount EMA inputs must be decimals") from exc
+    if not weight.is_finite() or not Decimal("0") <= weight <= Decimal("1"):
+        raise ValueError("VWAP discount EMA alpha must be in [0, 1]")
+    if old is None:
+        return new
+    if not old.is_finite():
+        raise ValueError("VWAP discount EMA history must be finite")
+    return old * (Decimal("1") - weight) + new * weight
 
 
 def get_stats(symbol: str,
               conn: sqlite3.Connection,
-              hours: int) -> Tuple[float, int]:
+              hours: int) -> Tuple[Decimal, int]:
     """Calculate window PnL using cost basis from the complete history.
 
     Replaying only the last N hours makes a position opened earlier look like
@@ -125,7 +156,7 @@ def get_stats(symbol: str,
             continue
     result = replay_average_cost(executions, allow_unpriced=False)
     sell_results = iter(result.sell_results)
-    window_pnl = 0
+    window_pnl = Decimal("0")
     recent_count = 0
     for execution, timestamp in zip(executions, timestamps):
         if timestamp >= cutoff_ms:
@@ -134,14 +165,14 @@ def get_stats(symbol: str,
             pnl = next(sell_results)
             if timestamp >= cutoff_ms:
                 window_pnl += pnl
-    return float(window_pnl), recent_count
+    return window_pnl, recent_count
 
 
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--symbols", required=True)
     parser.add_argument("--hours", type=int, default=24)
-    parser.add_argument("--pnl-threshold", type=float, default=25.0,
+    parser.add_argument("--pnl-threshold", type=Decimal, default=Decimal("25.0"),
                         help="USDT PnL threshold to adjust more aggressively")
     parser.add_argument("--min-trades", type=int, default=20,
                         help="Minimum recent executions before tuning")
@@ -150,7 +181,7 @@ def main() -> None:
     parser.add_argument("--precision", type=int, default=6)
 
     parser.add_argument("--base-premium", type=float, default=0.0030)
-    parser.add_argument("--base-discount", type=float, default=0.0060)
+    parser.add_argument("--base-discount", type=Decimal, default=Decimal("0.0060"))
     parser.add_argument("--base-scale", type=float, default=1.30)
 
     parser.add_argument("--premium-loss-mult", type=float, default=1.20)
@@ -163,8 +194,10 @@ def main() -> None:
     parser.add_argument("--scale-min", type=float, default=0.8)
     parser.add_argument("--scale-max", type=float, default=3.0)
 
-    parser.add_argument("--discount-min", type=float, default=0.0)
-    parser.add_argument("--discount-max", type=float, default=0.0200)
+    parser.add_argument("--discount-min", type=Decimal, default=Decimal("0"))
+    parser.add_argument("--discount-max", type=Decimal, default=Decimal("0.0200"))
+    parser.add_argument("--discount-loss-mult", type=Decimal, default=Decimal("1.20"))
+    parser.add_argument("--discount-profit-mult", type=Decimal, default=Decimal("0.80"))
 
     parser.add_argument("--state-file", type=str, default=None,
                         help="JSON file to store previous tuned values (optional)")
@@ -172,6 +205,22 @@ def main() -> None:
                         help="Path to SQLite stats DB (defaults to TS.BOT_STATS_DB or env)")
 
     args = parser.parse_args()
+
+    try:
+        adaptive_discount(
+            args.base_discount,
+            pnl=0,
+            trade_count=0,
+            minimum_trades=args.min_trades,
+            pnl_threshold=args.pnl_threshold,
+            loss_multiplier=args.discount_loss_mult,
+            profit_multiplier=args.discount_profit_mult,
+            minimum=args.discount_min,
+            maximum=args.discount_max,
+        )
+        decimal_ema(None, args.base_discount, args.alpha)
+    except ValueError as exc:
+        parser.error(str(exc))
 
     symbols = [s.strip().upper() for s in args.symbols.split(",") if s.strip()]
     if not symbols:
@@ -188,7 +237,7 @@ def main() -> None:
     prev_values = load_prev_values(args.state_file)
 
     premium_map: Dict[str, float] = {}
-    discount_map: Dict[str, float] = {}
+    discount_map: Dict[str, Decimal] = {}
     scale_map: Dict[str, float] = {}
 
     for symbol in symbols:
@@ -199,7 +248,17 @@ def main() -> None:
         base_scale = prev_values.get(symbol, {}).get("scale", args.base_scale)
 
         premium = base_premium
-        discount = base_discount
+        discount = adaptive_discount(
+            base_discount,
+            pnl=pnl,
+            trade_count=trade_cnt,
+            minimum_trades=args.min_trades,
+            pnl_threshold=args.pnl_threshold,
+            loss_multiplier=args.discount_loss_mult,
+            profit_multiplier=args.discount_profit_mult,
+            minimum=args.discount_min,
+            maximum=args.discount_max,
+        )
         scale = base_scale
 
         if trade_cnt < args.min_trades:
@@ -214,12 +273,11 @@ def main() -> None:
             scale *= args.scale_profit_mult
 
         premium = clamp(premium, args.premium_floor, args.premium_ceil)
-        discount = clamp(discount, args.discount_min, args.discount_max)
         scale = clamp(scale, args.scale_min, args.scale_max)
 
         prev = prev_values.get(symbol, {})
         premium_smooth = ema(prev.get("premium"), premium, args.alpha)
-        discount_smooth = ema(prev.get("discount"), discount, args.alpha)
+        discount_smooth = decimal_ema(prev.get("discount"), discount, args.alpha)
         scale_smooth = ema(prev.get("scale"), scale, args.alpha)
 
         premium_map[symbol] = premium_smooth
@@ -228,7 +286,7 @@ def main() -> None:
 
         prev_values[symbol] = {
             "premium": premium_smooth,
-            "discount": discount_smooth,
+            "discount": str(discount_smooth),
             "scale": scale_smooth,
             "pnl": pnl,
             "trades": trade_cnt,

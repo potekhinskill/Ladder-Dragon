@@ -269,7 +269,7 @@ def build_supervisor_parser() -> argparse.ArgumentParser:
                     help="Configure --vwap-autotune-enable.")
     ap.add_argument("--no-vwap-autotune", action="store_false", dest="vwap_autotune_enable")
     ap.add_argument("--vwap-autotune-hours", type=int, default=int(os.getenv("VWAP_AUTOTUNE_HOURS", "24")))
-    ap.add_argument("--vwap-autotune-threshold", type=float, default=float(os.getenv("VWAP_AUTOTUNE_THRESHOLD", "25.0")))
+    ap.add_argument("--vwap-autotune-threshold", type=Decimal, default=Decimal(os.getenv("VWAP_AUTOTUNE_THRESHOLD", "25.0")))
     ap.add_argument("--vwap-autotune-alpha", type=float, default=float(os.getenv("VWAP_AUTOTUNE_ALPHA", "0.6")))
     ap.add_argument("--vwap-autotune-state", type=str, default=os.getenv("VWAP_AUTOTUNE_STATE", "/run/mybot/vwap_state.json"))
 

@@ -70,9 +70,9 @@ The Pi profile does not install or run Semgrep.
 | `regime_pnl_report` | compares strategy, buy-and-hold, and USDT by regime |
 | `auto_ladder_map` | generates deterministic ladder diagnostics |
 | `ladder_pct_runner` | runs the percentage-ladder utility |
-| `gen_vwap_autotune` | generates VWAP tuning evidence |
-| `gen_vwap_env` | generates reviewed VWAP configuration text |
-| `update_vwap_env` | updates reviewed VWAP settings |
+| `gen_vwap_autotune` | generates PnL-adjusted VWAP configuration text |
+| `gen_vwap_env` | generates regime-adjusted VWAP configuration text |
+| `update_vwap_env` | runs both generators with the active project interpreter |
 
 Run an OHLC backtest:
 

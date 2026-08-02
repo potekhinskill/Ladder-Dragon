@@ -4,6 +4,13 @@ Read this file before changing the repository. Record only decisions that were
 validated by tests or production evidence and are likely to be reused. Keep
 entries concise; this is not a changelog or an activity log.
 
+### 2026-08-02 — Adapt VWAP discount in its conservative direction
+
+- **Context:** a static discount made its bounds, smoothing, and persistent state ineffective.
+- **Decision:** increase the threshold for DOWN, loss, and volatility evidence; decrease it for UP and profit evidence.
+- **Why it worked:** exact tests prove bounded Decimal changes, sample gating, invalid-input rejection, and active-interpreter execution.
+- **Reuse:** every threshold where a larger value requires stronger evidence before exposure can increase.
+
 ### 2026-08-02 — Version changed experiment semantics
 
 - **Context:** a changed plan under an existing kind would mix incompatible SHADOW outcomes.

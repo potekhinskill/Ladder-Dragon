@@ -33,6 +33,12 @@ The applicable mode must also be `APPLY`.
 | `BOT_INVENTORY_SKEW_*` | managed-inventory size reduction |
 | `BOT_STATISTICAL_REGIME_MODE` | transparent statistical challenger |
 | `BUY_VWAP_HYSTERESIS_PCT` | VWAP gate Schmitt band |
+| `BUY_VWAP_DISCOUNT_*` | bounded VWAP discount adaptation from regime and ATR |
+| `VWAP_AUTOTUNE_DISCOUNT_*` | bounded VWAP discount adaptation from exact PnL evidence |
+
+A larger VWAP discount requires a deeper price decline before CAP scaling.
+DOWN, loss, and volatility evidence increase this threshold.
+UP and profit evidence decrease it.
 
 Each traded symbol requires an explicit managed-inventory hard CAP.
 For example, SOL uses `RISK_MANAGED_INVENTORY_HARD_CAP_SOLUSDT`.

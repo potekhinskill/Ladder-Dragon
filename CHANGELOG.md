@@ -3,6 +3,27 @@
 All notable changes are documented here. Releases use Semantic Versioning; every
 section is dated and there is intentionally no `Unreleased` section.
 
+## [2.20.126] — 2026-08-02
+
+### Added
+- VWAP discount generation now reacts to regime, ATR, and exact PnL evidence.
+- New bounded discount multipliers permit reviewed operator configuration.
+
+### Changed
+- VWAP discount EMA state now stores exact decimal text between generator runs.
+- The VWAP update command uses its active Python interpreter.
+
+### Fixed
+- Discount bounds, smoothing, and state persistence now govern a value that can change.
+- The unused duplicate FIFO calculation was removed from the autotune command.
+
+### Security
+- Invalid or non-finite discount inputs fail before configuration output.
+- DOWN, loss, and volatility evidence can only require a deeper discount with default settings.
+
+### Verified
+- The complete project suite and focused VWAP, exception, architecture, deployment, and numeric tests pass.
+
 ## [2.20.125] — 2026-08-02
 
 ### Added

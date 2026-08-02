@@ -10,6 +10,7 @@ import argparse
 import os
 import subprocess
 import sys
+from decimal import Decimal
 from pathlib import Path
 from typing import List
 
@@ -20,7 +21,7 @@ def main() -> None:
     parser.add_argument("--out", required=True)
     parser.add_argument("--with-autotune", action="store_true")
     parser.add_argument("--autotune-hours", type=int, default=24)
-    parser.add_argument("--autotune-threshold", type=float, default=25.0)
+    parser.add_argument("--autotune-threshold", type=Decimal, default=Decimal("25.0"))
     parser.add_argument("--autotune-state", type=str, default="/run/mybot/vwap_state.json")
     args = parser.parse_args()
 
@@ -30,11 +31,13 @@ def main() -> None:
     if os.getenv("VWAP_AUTOTUNE") is not None:
         args.with_autotune = os.getenv("VWAP_AUTOTUNE") not in ("0", "false", "False")
     args.autotune_hours = int(os.getenv("VWAP_AUTOTUNE_HOURS", str(args.autotune_hours)))
-    args.autotune_threshold = float(os.getenv("VWAP_AUTOTUNE_THRESHOLD", str(args.autotune_threshold)))
+    args.autotune_threshold = Decimal(
+        os.getenv("VWAP_AUTOTUNE_THRESHOLD", str(args.autotune_threshold))
+    )
     args.autotune_state = os.getenv("VWAP_AUTOTUNE_STATE", args.autotune_state)
 
     base_cmd = [
-        "/home/bot/apps/binance_bot/.venv/bin/python3",
+        sys.executable,
         str(Path(__file__).resolve().with_name("gen_vwap_env.py")),
         "--symbols", args.symbols,
         "--interval", env("BUY_VWAP_INTERVAL", "1m"),
@@ -47,6 +50,11 @@ def main() -> None:
         "--premium-atr-coef", env("BUY_VWAP_PREMIUM_ATR_COEF", "0.0"),
         "--premium-floor", env("BUY_VWAP_PREMIUM_FLOOR", "0.0008"),
         "--premium-ceil", env("BUY_VWAP_PREMIUM_CEIL", "0.0060"),
+        "--discount-up-mult", env("BUY_VWAP_DISCOUNT_UP_MULT", "0.75"),
+        "--discount-down-mult", env("BUY_VWAP_DISCOUNT_DOWN_MULT", "1.20"),
+        "--discount-atr-coef", env("BUY_VWAP_DISCOUNT_ATR_COEF", "2.0"),
+        "--discount-min", env("BUY_VWAP_DISCOUNT_MIN", "0"),
+        "--discount-max", env("BUY_VWAP_DISCOUNT_MAX", "0.0200"),
         "--scale-atr-coef", env("BUY_VWAP_DISCOUNT_SCALE_ATR_COEF", "2.0"),
         "--scale-min", env("BUY_VWAP_DISCOUNT_SCALE_MIN", "1.0"),
         "--scale-max", env("BUY_VWAP_DISCOUNT_SCALE_MAX", "2.5"),
@@ -59,11 +67,15 @@ def main() -> None:
 
     if args.with_autotune:
         auto_cmd = [
-            "/home/bot/apps/binance_bot/.venv/bin/python3",
+            sys.executable,
             str(Path(__file__).resolve().with_name("gen_vwap_autotune.py")),
             "--symbols", args.symbols,
             "--hours", str(args.autotune_hours),
             "--pnl-threshold", str(args.autotune_threshold),
+            "--discount-loss-mult", env("VWAP_AUTOTUNE_DISCOUNT_LOSS_MULT", "1.20"),
+            "--discount-profit-mult", env("VWAP_AUTOTUNE_DISCOUNT_PROFIT_MULT", "0.80"),
+            "--discount-min", env("BUY_VWAP_DISCOUNT_MIN", "0"),
+            "--discount-max", env("BUY_VWAP_DISCOUNT_MAX", "0.0200"),
             "--state-file", args.autotune_state,
         ]
         auto_out = subprocess.check_output(auto_cmd, text=True)
