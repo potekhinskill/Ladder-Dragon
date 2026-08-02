@@ -129,10 +129,19 @@ def audit_replay_readiness(
     }
     if unknown_validation_hashes:
         reasons.append("validation reports reference unknown archives")
-    eligible_validations = [
-        row for row in validation_rows
-        if row.ready and row.archive_sha256 in calibration_hashes
-    ]
+    validation_hashes = [row.archive_sha256 for row in validation_rows]
+    if len(set(validation_hashes)) != len(validation_hashes):
+        reasons.append("duplicate validation report archives")
+    eligible_by_archive: dict[str, ReplayValidation] = {}
+    for row in validation_rows:
+        if not row.ready or row.archive_sha256 not in calibration_hashes:
+            continue
+        current = eligible_by_archive.get(row.archive_sha256)
+        if current is None or row.covered_orders < current.covered_orders:
+            # Duplicate reports block readiness. Use the smaller coverage so
+            # diagnostic totals cannot claim repeated real-order evidence.
+            eligible_by_archive[row.archive_sha256] = row
+    eligible_validations = list(eligible_by_archive.values())
     if len(eligible_validations) < minimum_validation_reports:
         reasons.append(
             f"eligible validation reports {len(eligible_validations)} < "

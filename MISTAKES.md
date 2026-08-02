@@ -17,6 +17,13 @@ private infrastructure details.
 
 ## Mistakes
 
+### 2026-08-03 — Counted report paths instead of evidence identities
+
+- **Impact:** repeated validation reports could satisfy the real-order coverage threshold.
+- **Root cause:** readiness summed report aggregates without deduplicating their archive identity.
+- **Correction:** block duplicate archive hashes and count one conservative report per archive.
+- **Prevention:** every evidence aggregate must define and test its authoritative identity key.
+
 ### 2026-08-03 — Reused a cached test count after recording the same lesson
 
 - **Impact:** the first candidate changelog overstated the main test count by five.

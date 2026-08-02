@@ -4,6 +4,13 @@ Read this file before changing the repository. Record only decisions that were
 validated by tests or production evidence and are likely to be reused. Keep
 entries concise; this is not a changelog or an activity log.
 
+### 2026-08-03 — Aggregate evidence only by unique authoritative identity
+
+- **Context:** repeated validation files could count one archive more than once.
+- **Decision:** block duplicate archive identities and keep conservative diagnostic totals.
+- **Why it worked:** tests prove repeated reports cannot increase validated-order evidence.
+- **Reuse:** every readiness gate that aggregates reports, samples, or lifecycle evidence.
+
 ### 2026-08-03 — Own financial provenance vocabulary at the accounting boundary
 
 - **Context:** independent status allowlists excluded different valued commissions.

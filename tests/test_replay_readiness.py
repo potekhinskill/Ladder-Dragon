@@ -32,12 +32,16 @@ def calibration(index: int, volatility: str, *, measured: bool = False) -> Repla
     )
 
 
-def validation(row: ReplayCalibration) -> ReplayValidation:
+def validation(
+    row: ReplayCalibration,
+    *,
+    covered_orders: int = 10,
+) -> ReplayValidation:
     return ReplayValidation(
         ready=True,
         reasons=(),
         archive_sha256=row.archive_sha256,
-        covered_orders=10,
+        covered_orders=covered_orders,
         excluded_orders=0,
         actual_filled_orders=5,
         replay_filled_orders=5,
@@ -73,3 +77,25 @@ def test_replay_readiness_fails_closed_on_short_homogeneous_data():
     assert any("missing volatility regimes" in reason for reason in report.reasons)
     assert any("measured latency archives" in reason for reason in report.reasons)
     assert "eligible validation reports 0 < 1" in report.reasons
+
+
+def test_replay_readiness_rejects_duplicate_validation_archives():
+    calibrations = [
+        calibration(1, "0.2"),
+        calibration(2, "1.0", measured=True),
+        calibration(3, "3.0"),
+    ]
+    first = validation(calibrations[1], covered_orders=10)
+    repeated = validation(calibrations[1], covered_orders=6)
+
+    report = audit_replay_readiness(
+        calibrations,
+        validations=[first, repeated],
+        minimum_validated_orders=10,
+    )
+
+    assert report.ready is False
+    assert "duplicate validation report archives" in report.reasons
+    assert report.validation_report_count == 2
+    assert report.validated_order_count == 6
+    assert "validated real orders 6 < 10" in report.reasons

@@ -3,6 +3,23 @@
 All notable changes are documented here. Releases use Semantic Versioning; every
 section is dated and there is intentionally no `Unreleased` section.
 
+## [2.20.141] — 2026-08-03
+
+### Changed
+- Replay readiness now permits one validation report for each archive hash.
+- Duplicate reports use the smaller coverage value in diagnostic totals.
+
+### Fixed
+- Repeated validation files can no longer inflate validated real-order counts.
+- Multiple reports for one archive now block replay readiness explicitly.
+
+### Security
+- Duplicate evidence fails closed before replay-model approval.
+- The change cannot enable APPLY, remove HALT, or create an order.
+
+### Verified
+- Focused replay readiness and validation tests pass.
+
 ## [2.20.140] — 2026-08-03
 
 ### Changed
