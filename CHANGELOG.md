@@ -3,6 +3,19 @@
 All notable changes are documented here. Releases use Semantic Versioning; every
 section is dated and there is intentionally no `Unreleased` section.
 
+## [2.20.131] — 2026-08-02
+
+### Changed
+- Re-anchor planning now normalizes desired BUY levels after market-gap adjustment.
+- The planner preserves unique descending ranks before it matches open BUY orders.
+
+### Security
+- Defensive normalization prevents future level transformations from assigning duplicate desired ranks.
+- Existing age, trigger, movement, market-crossing, and cycle limits remain unchanged.
+
+### Verified
+- The complete 942-test suite and the technical English check pass.
+
 ## [2.20.130] — 2026-08-02
 
 ### Changed

@@ -1,6 +1,6 @@
 # Implementation status
 
-This document describes the code in version **2.20.130**.
+This document describes the code in version **2.20.131**.
 It does not describe future plans as completed work.
 
 An implemented function is not automatically approved for LIVE use.
@@ -33,7 +33,7 @@ The example configuration uses these modes:
 
 | Control | Default |
 | --- | --- |
-| Adaptive re-anchor | `OFF` |
+| Adaptive re-anchor | `OFF`; transformed BUY ranks remain unique |
 | Expectancy control | `SHADOW` |
 | Maker policy | `SHADOW` |
 | Regime gate | `SHADOW` |

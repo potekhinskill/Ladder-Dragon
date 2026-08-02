@@ -177,6 +177,25 @@ def test_reanchor_shadow_best_buy_stays_within_market_gap():
     assert planned[0].target_price < Decimal("100")
 
 
+def test_reanchor_market_pull_preserves_unique_price_ranks():
+    planned = plan_buy_reanchors(
+        [order(1, price="99.00"), order(2, price="98.50")],
+        ["99.70", "99.69", "99.69"],
+        now_price="100",
+        tick_size="0.01",
+        now_ms=1_000_000,
+        min_age_sec=120,
+        trigger_pct="0.0025",
+        max_step_pct="0.01",
+        max_per_cycle=2,
+        max_market_gap_pct="0.0015",
+    )
+
+    targets = [item.target_price for item in planned]
+    assert targets == [Decimal("99.85"), Decimal("99.48")]
+    assert len(targets) == len(set(targets))
+
+
 def test_supervisor_reanchor_cancels_once_and_returns_bounded_replacement(monkeypatch):
     monkeypatch.setenv("BOT_REANCHOR_CANCEL_REPLACE", "0")
     open_orders = [order(7)]

@@ -4,6 +4,13 @@ Read this file before changing the repository. Record only decisions that were
 validated by tests or production evidence and are likely to be reused. Keep
 entries concise; this is not a changelog or an activity log.
 
+### 2026-08-02 — Normalize ranked prices after transformation
+
+- **Context:** a unique sorted ladder can receive later price transformations.
+- **Decision:** repeat uniqueness and ordering normalization before rank-based order matching.
+- **Why it worked:** tests prove market-gap adjustment preserves two distinct descending target ranks.
+- **Reuse:** every ranked price plan that transforms values after its initial deduplication.
+
 ### 2026-08-02 — Require exact time identity for financial evidence
 
 - **Context:** an API can return the first record after a requested time.

@@ -100,6 +100,9 @@ def plan_buy_reanchors(
             # levels keep their original spacing, while the per-cycle step,
             # age and trigger limits still prevent an unbounded chase.
             desired[0] = max(desired[0], near_market)
+            # Normalize again after transformation. Future level transforms
+            # must not create duplicate ranks for separate BUY orders.
+            desired = sorted(set(desired), reverse=True)
 
     ranked_orders: list[tuple[Decimal, int, int, Decimal]] = []
     for order in orders:
