@@ -66,7 +66,10 @@ function userStreamDiagnostics(streams){
     ['sessions','stream_counter_sessions'],['order_events','stream_counter_events'],
     ['bad_frames','stream_counter_bad_frames'],['duplicates','stream_counter_duplicates'],
     ['out_of_order_events','stream_counter_out_of_order'],
-    ['reconnects','stream_counter_reconnects'],['connection_attempts','stream_counter_attempts'],
+    ['planned_reconnects','stream_counter_planned_reconnects'],
+    ['failure_reconnects','stream_counter_failure_reconnects'],
+    ['legacy_unclassified_reconnects','stream_counter_legacy_reconnects'],
+    ['connection_attempts','stream_counter_attempts'],
     ['disconnects','stream_counter_disconnects']
   ];
   return streams.flatMap(stream=>{
@@ -385,6 +388,7 @@ function updateTrading(t){
   cycleNode.textContent=`${exact} / ${required} · TP ${Number(lifecycle.tp||0)} · STOP ${Number(lifecycle.stop||0)}`;
   cycleNode.className=lifecycle.promotion_ready?'risk-ok':'risk-warn';
   $('#trade-last-order').textContent=last?`${last.symbol} ${last.side} ${last.status} id=${last.order_id??'—'}${last.partial_fill?' partial':''} · latency ${last.latency_ms??'—'} ms · fee ${last.commission_usdt??'—'} · ${last.updated_at||'—'}`:tr('no');
+  updateShadowExperiments(t.prediction||{});
   const rows=Array.isArray(t.positions)?t.positions:[];
   $('#positions-body').innerHTML=rows.length?rows.map(p=>{
     const protection=p.protection||{};
@@ -419,6 +423,26 @@ function updateTrading(t){
       ${basisHidden?`<p class="position-basis-hidden">${esc(tr('position_basis_hidden'))}</p>`:''}
     </article>`;
   }).join(''):`<div class="position-empty muted">${esc(tr('no_positions'))}</div>`;
+}
+function updateShadowExperiments(prediction){
+  const symbols=prediction.symbols&&typeof prediction.symbols==='object'?prediction.symbols:{};
+  const report=Object.values(symbols).map(row=>row?.shadow_experiments).find(row=>row?.variants)||{};
+  const variants=Object.entries(report.variants||{}).filter(([name])=>name.startsWith('v2_'));
+  const ready=variants.filter(([,row])=>Boolean(row?.promotion_eligible)).length;
+  const summary=$('#shadow-experiments-summary'), body=$('#shadow-experiments-body');
+  if(!summary||!body) return;
+  summary.textContent=tr('shadow_experiment_summary',{count:variants.length,ready});
+  body.innerHTML=variants.length?variants.map(([name,row])=>{
+    const gate=row.gate||{}, outcomes=row.outcomes||{}, ci=Array.isArray(gate.net_expectancy_ci)?gate.net_expectancy_ci:[];
+    const regimes=gate.regime_counts&&typeof gate.regime_counts==='object'?Object.keys(gate.regime_counts).filter(key=>Number(gate.regime_counts[key])>0).length:0;
+    const fill=Number(gate.fill_rate), low=Number(ci[0]), high=Number(ci[1]);
+    const tone=row.promotion_eligible?'ok':'warn';
+    return `<div class="shadow-experiment-row">
+      <div><strong>${esc(name.replace(/^v2_/,'').replaceAll('_',' '))}</strong><span class="pill ${tone}">${esc(row.promotion_eligible?tr('shadow_ready'):tr('shadow_collecting'))}</span></div>
+      <div class="muted">${esc(tr('shadow_samples'))}: ${Number(row.independent_samples||0)} · ${esc(tr('shadow_outcomes'))}: ${Number(outcomes.resolved||0)}/${Number(outcomes.total||0)} · ${esc(tr('shadow_pending'))}: ${Number(outcomes.future||0)+Number(outcomes.settling||0)} · ${esc(tr('shadow_overdue'))}: ${Number(outcomes.overdue||0)}</div>
+      <div class="muted">${esc(tr('shadow_fill'))}: ${Number.isFinite(fill)?fmt(fill*100,2)+'%':'—'} · CI: ${Number.isFinite(low)&&Number.isFinite(high)?`${fmt(low,6)}..${fmt(high,6)}`:'—'} · Holm: ${row.configuration_holm_passed?'PASS':'FAIL'} · ${esc(tr('shadow_regimes'))}: ${regimes}/4</div>
+    </div>`;
+  }).join(''):`<div class="muted">${esc(tr('no_data'))}</div>`;
 }
 function updateAIQuality(ai){
   const src=ai.data_sources||{}, usage=ai.usage_today||{}, kb=ai.knowledge_base||{};

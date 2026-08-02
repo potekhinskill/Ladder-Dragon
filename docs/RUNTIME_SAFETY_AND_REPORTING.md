@@ -109,17 +109,24 @@ calculate non-executing SHADOW candidates while HALT is active. This preserves
 counterfactual evidence needed to study BUY distance, re-anchoring, regimes, and
 expectancy without starting a worker or changing an order.
 
-The experiment contour evaluates 11 candidates against the untouched current
+The experiment contour evaluates 15 candidates against the untouched current
 strategy plan. All candidates use identical feature timestamps and
 1/5/15-minute candles.
 
 The candidates test these controls:
 
 - RANGE-only entry;
-- TP targets of 1.15%, 1.30%, and 1.50%;
+- TP targets of 1.00%, 1.05%, and 1.10%;
 - maker-only entry and TP;
-- BUY lifetimes of 5, 10, and 15 minutes;
-- BUY distances of 10, 15, and 20 basis points.
+- BUY lifetimes of 3, 5, and 8 minutes;
+- BUY distances of 5, 8, and 10 basis points;
+- four RANGE and maker-only combinations.
+
+The fourth combination calculates a dynamic 5-to-15 basis-point BUY distance.
+It adds the spread to one quarter of the one-minute ATR percentage.
+
+Each semantic generation uses new experiment identifiers.
+The database retains older results without mixing them into the active gate.
 
 The promotion set excludes re-anchor. Recording is limited to one candidate
 set per five minutes. Expensive gates refresh at most every 15 minutes.
@@ -135,6 +142,8 @@ cancel path; each accepted order notification can only wake an authoritative
 GET reconciliation. Its sanitized state persists below
 `/var/lib/ladder-dragon/user-stream`. This avoids the unsafe circular
 requirement to clear HALT merely to collect stream-readiness evidence.
+The dashboard separates planned idle refreshes from transport failures.
+Historical reconnects without classification remain visible as legacy evidence.
 
 SHADOW evidence:
 

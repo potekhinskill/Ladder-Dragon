@@ -19,6 +19,7 @@ from ladder_dragon.strategy.prediction.approval import (
 )
 from ladder_dragon.strategy.prediction.experiments import (
     build_shadow_variants,
+    dynamic_entry_gap_pct,
     record_shadow_variants,
     shadow_variant_report,
 )
@@ -77,46 +78,62 @@ def test_variants_clear_fee_floor_and_change_one_named_dimension():
     )
 
     assert {variant.variant_id for variant in variants} == {
-        "range_only",
-        "tp_115",
-        "tp_130",
-        "tp_150",
-        "maker_only",
-        "buy_gap_10bps",
-        "buy_gap_15bps",
-        "buy_gap_20bps",
-        "ttl_5m",
-        "ttl_10m",
-        "ttl_15m",
-        "range_ttl5_maker_tp115_gap10",
-        "range_ttl5_maker_tp130_gap15",
-        "range_ttl5_maker_tp150_gap20",
+        "v2_range_only",
+        "v2_tp_100",
+        "v2_tp_105",
+        "v2_tp_110",
+        "v2_maker_only",
+        "v2_buy_gap_5bps",
+        "v2_buy_gap_8bps",
+        "v2_buy_gap_10bps",
+        "v2_ttl_3m",
+        "v2_ttl_5m",
+        "v2_ttl_8m",
+        "v2_a_range_ttl5_maker_tp100_gap5",
+        "v2_b_range_ttl5_maker_tp105_gap8",
+        "v2_c_range_ttl5_maker_tp110_gap10",
+        "v2_d_range_ttl8_maker_tp105_dynamic",
     }
     for variant in variants:
         target_pct = variant.plan.take_profit_price / variant.plan.entry_price - D("1")
         assert target_pct > D("0.0096")
         assert variant.baseline_plan == baseline
     by_id = {variant.variant_id: variant for variant in variants}
-    assert by_id["buy_gap_10bps"].plan.entry_price == D("99.9000")
-    assert by_id["buy_gap_15bps"].plan.entry_price == D("99.8500")
-    assert by_id["buy_gap_20bps"].plan.entry_price == D("99.8000")
-    assert by_id["ttl_5m"].plan.entry_ttl_sec == 300
-    assert by_id["ttl_10m"].plan.entry_ttl_sec == 600
-    assert by_id["ttl_15m"].plan.entry_ttl_sec == 900
-    assert by_id["range_only"].plan.entry_enabled is False
-    assert by_id["maker_only"].maker_only is True
-    assert by_id["maker_only"].plan.slippage_pct == D("0")
-    assert by_id["tp_115"].plan.take_profit_price == D("100.84655")
-    assert by_id["tp_130"].plan.take_profit_price == D("100.99610")
-    assert by_id["tp_150"].plan.take_profit_price == D("101.19550")
-    combined = by_id["range_ttl5_maker_tp130_gap15"]
+    assert by_id["v2_buy_gap_5bps"].plan.entry_price == D("99.9500")
+    assert by_id["v2_buy_gap_8bps"].plan.entry_price == D("99.9200")
+    assert by_id["v2_buy_gap_10bps"].plan.entry_price == D("99.9000")
+    assert by_id["v2_ttl_3m"].plan.entry_ttl_sec == 180
+    assert by_id["v2_ttl_5m"].plan.entry_ttl_sec == 300
+    assert by_id["v2_ttl_8m"].plan.entry_ttl_sec == 480
+    assert by_id["v2_range_only"].plan.entry_enabled is False
+    assert by_id["v2_maker_only"].maker_only is True
+    assert by_id["v2_maker_only"].plan.slippage_pct == D("0")
+    assert by_id["v2_tp_100"].plan.take_profit_price == D("100.69700")
+    assert by_id["v2_tp_105"].plan.take_profit_price == D("100.746850")
+    assert by_id["v2_tp_110"].plan.take_profit_price == D("100.79670")
+    combined = by_id["v2_b_range_ttl5_maker_tp105_gap8"]
     assert combined.dimension == "combined_range_execution"
-    assert combined.plan.entry_price == D("99.8500")
+    assert combined.plan.entry_price == D("99.9200")
     assert combined.plan.entry_ttl_sec == 300
     assert combined.plan.entry_enabled is False
     assert combined.plan.slippage_pct == D("0")
     assert combined.maker_only is True
-    assert combined.plan.take_profit_price == D("101.1480500")
+    assert combined.plan.take_profit_price == D("100.9691600")
+    dynamic = by_id["v2_d_range_ttl8_maker_tp105_dynamic"]
+    assert dynamic.plan.entry_price == D("99.9500")
+    assert dynamic.plan.entry_ttl_sec == 480
+
+
+def test_dynamic_gap_is_decimal_and_bounded():
+    assert dynamic_entry_gap_pct(
+        spread_bps=D("1"), atr_pct=D("0.003")
+    ) == D("0.00085")
+    assert dynamic_entry_gap_pct(
+        spread_bps=D("0"), atr_pct=D("0")
+    ) == D("0.0005")
+    assert dynamic_entry_gap_pct(
+        spread_bps=D("20"), atr_pct=D("0.02")
+    ) == D("0.0015")
 
 
 def test_parallel_variants_share_snapshot_and_explicit_baseline(tmp_path: Path):
@@ -137,13 +154,13 @@ def test_parallel_variants_share_snapshot_and_explicit_baseline(tmp_path: Path):
         variants=variants,
     )
 
-    assert len(set(decision_ids)) == 14
+    assert len(set(decision_ids)) == 15
     with store._connect() as connection:
         rows = connection.execute(
             "SELECT kind,snapshot_ts_ms,baseline_plan_json "
             "FROM prediction_decisions ORDER BY kind"
         ).fetchall()
-    assert len(rows) == 14
+    assert len(rows) == 15
     assert {row[1] for row in rows} == {features.snapshot_ts_ms}
     assert all(row[0].startswith("EXPERIMENT_") for row in rows)
     assert {
@@ -244,15 +261,50 @@ def test_variant_report_never_enables_apply(tmp_path: Path, monkeypatch):
     )
 
     assert report["mode"] == "SHADOW"
+    assert report["generation"] == "v2"
     assert report["can_change_orders"] is False
     assert all(
         item["promotion_eligible"] is True and item["apply_allowed"] is False
         for item in report["variants"].values()
     )
-    maker = report["variants"]["maker_only"]
+    maker = report["variants"]["v2_maker_only"]
     assert maker["entry_order_type"] == "LIMIT_MAKER"
     assert maker["exit_order_type"] == "LIMIT_MAKER"
-    assert report["variants"]["range_only"]["entry_order_type"] == "BASELINE"
+    assert report["variants"]["v2_range_only"]["entry_order_type"] == "BASELINE"
+
+
+def test_variant_report_separates_future_work_from_backlog(tmp_path: Path):
+    store = PredictionShadowStore(tmp_path / "prediction.sqlite3")
+    features = _features()
+    variants = build_shadow_variants(
+        market_price=D("100"),
+        baseline_plan=_baseline(),
+        required_edge_pct=D("0.0096"),
+        regime="RANGE",
+    )
+    record_shadow_variants(
+        store,
+        symbol="SOLUSDT",
+        features=features,
+        variants=variants,
+    )
+
+    report = shadow_variant_report(
+        store,
+        symbol="SOLUSDT",
+        variants=variants,
+        before_ts_ms=60_000,
+    )
+
+    counts = report["variants"]["v2_tp_100"]["outcomes"]
+    assert counts == {
+        "total": 3,
+        "resolved": 0,
+        "expired": 0,
+        "future": 3,
+        "settling": 0,
+        "overdue": 0,
+    }
 
 
 def test_configuration_holm_uses_distinct_candidate_hypotheses():
@@ -310,7 +362,7 @@ def test_experiment_recording_is_bounded_to_five_minute_snapshots(
         baseline_plan=baseline,
         required_edge_pct=D("0.0096"),
     )
-    assert store.summary("SOLUSDT")["decisions"] == 14
+    assert store.summary("SOLUSDT")["decisions"] == 15
 
     clock["now"] = 1_301.0
     prediction_shadow.collect_shadow_experiments(
@@ -321,7 +373,7 @@ def test_experiment_recording_is_bounded_to_five_minute_snapshots(
         baseline_plan=baseline,
         required_edge_pct=D("0.0096"),
     )
-    assert store.summary("SOLUSDT")["decisions"] == 28
+    assert store.summary("SOLUSDT")["decisions"] == 30
 
 
 def test_combined_variants_trade_only_in_range():
@@ -347,7 +399,7 @@ def test_combined_variants_trade_only_in_range():
         item for item in down_variants
         if item.dimension == "combined_range_execution"
     ]
-    assert len(range_combined) == len(down_combined) == 3
+    assert len(range_combined) == len(down_combined) == 4
     assert all(item.plan.entry_enabled for item in range_combined)
     assert all(not item.plan.entry_enabled for item in down_combined)
     assert all(item.maker_only for item in range_combined + down_combined)

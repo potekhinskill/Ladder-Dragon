@@ -141,6 +141,9 @@ def test_user_stream_health_is_sanitized_and_rest_authoritative(
         "out_of_order_events": 4,
         "bad_frames": 2,
         "reconnects": 2,
+        "idle_reconnects": 1,
+        "transport_failure_reconnects": 0,
+        "controlled_reconnect_drills": 1,
         "connection_attempts": 5,
         "sessions": 4,
         "disconnects": 2,
@@ -166,6 +169,9 @@ def test_user_stream_health_is_sanitized_and_rest_authoritative(
     assert row["out_of_order_events"] == 4
     assert row["bad_frames"] == 2
     assert row["reconnects"] == 2
+    assert row["planned_reconnects"] == 2
+    assert row["failure_reconnects"] == 0
+    assert row["legacy_unclassified_reconnects"] == 0
     assert row["connection_attempts"] == 5
     assert row["sessions"] == 4
     assert row["disconnects"] == 2

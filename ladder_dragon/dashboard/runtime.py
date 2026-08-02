@@ -379,6 +379,14 @@ def _user_stream_snapshot(runtime: Dict[str, object]) -> Dict[str, object]:
                 if reported_state == "connected" and connected_at > 0
                 else 0.0
             )
+            reconnects = int(payload.get("reconnects") or 0)
+            idle_reconnects = int(payload.get("idle_reconnects") or 0)
+            controlled_reconnects = int(
+                payload.get("controlled_reconnect_drills") or 0
+            )
+            failure_reconnects = int(
+                payload.get("transport_failure_reconnects") or 0
+            )
             rows.append({
                 "symbol": symbol,
                 "available": True,
@@ -393,7 +401,13 @@ def _user_stream_snapshot(runtime: Dict[str, object]) -> Dict[str, object]:
                     payload.get("out_of_order_events") or 0
                 ),
                 "bad_frames": int(payload.get("bad_frames") or 0),
-                "reconnects": int(payload.get("reconnects") or 0),
+                "reconnects": reconnects,
+                "planned_reconnects": idle_reconnects + controlled_reconnects,
+                "failure_reconnects": failure_reconnects,
+                "legacy_unclassified_reconnects": max(
+                    0, reconnects - idle_reconnects
+                    - controlled_reconnects - failure_reconnects
+                ),
                 "connection_attempts": int(
                     payload.get("connection_attempts") or 0
                 ),
@@ -428,6 +442,9 @@ def _user_stream_snapshot(runtime: Dict[str, object]) -> Dict[str, object]:
                 "out_of_order_events": 0,
                 "bad_frames": 0,
                 "reconnects": 0,
+                "planned_reconnects": 0,
+                "failure_reconnects": 0,
+                "legacy_unclassified_reconnects": 0,
                 "connection_attempts": 0,
                 "sessions": 0,
                 "disconnects": 0,

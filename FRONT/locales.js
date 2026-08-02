@@ -271,6 +271,9 @@
     stream_counter_duplicates:"duplicates",
     stream_counter_out_of_order:"out-of-order",
     stream_counter_reconnects:"reconnects",
+    stream_counter_planned_reconnects:"planned reconnects",
+    stream_counter_failure_reconnects:"failed reconnects",
+    stream_counter_legacy_reconnects:"legacy reconnects",
     stream_counter_attempts:"connection attempts",
     stream_counter_disconnects:"disconnects",
     stream_counter_error:"error",
@@ -285,7 +288,17 @@
     risk_ok:"OK",
     cap_hard:"hard",
     reanchor_activity_summary:"shadow {shadow} · apply {apply}",
-    risk_reason_post_emergency_approval:"Post-emergency reconciliation requires statistical approval before execution resumes."
+    risk_reason_post_emergency_approval:"Post-emergency reconciliation requires statistical approval before execution resumes.",
+    shadow_experiments:"SHADOW experiments",
+    shadow_experiment_summary:"SHADOW experiments · {count} candidates · {ready} ready",
+    shadow_ready:"ready",
+    shadow_collecting:"collecting",
+    shadow_samples:"independent samples",
+    shadow_outcomes:"resolved outcomes",
+    shadow_pending:"pending",
+    shadow_overdue:"overdue",
+    shadow_fill:"fill rate",
+    shadow_regimes:"regimes"
   });
   Object.assign(translations.ru, {
     age_seconds_ago:"{value} с назад",
@@ -302,6 +315,9 @@
     stream_counter_duplicates:"дубликатов",
     stream_counter_out_of_order:"не по порядку",
     stream_counter_reconnects:"переподключений",
+    stream_counter_planned_reconnects:"штатных переподключений",
+    stream_counter_failure_reconnects:"аварийных переподключений",
+    stream_counter_legacy_reconnects:"старых неклассифицированных переподключений",
     stream_counter_attempts:"попыток подключения",
     stream_counter_disconnects:"отключений",
     stream_counter_error:"ошибка",
@@ -316,7 +332,17 @@
     risk_ok:"НОРМА",
     cap_hard:"жёсткий лимит",
     reanchor_activity_summary:"SHADOW {shadow} · APPLY {apply}",
-    risk_reason_post_emergency_approval:"После аварийного выхода торговля возобновится только после статистического одобрения."
+    risk_reason_post_emergency_approval:"После аварийного выхода торговля возобновится только после статистического одобрения.",
+    shadow_experiments:"SHADOW-эксперименты",
+    shadow_experiment_summary:"SHADOW-эксперименты · кандидатов {count} · готовы {ready}",
+    shadow_ready:"готов",
+    shadow_collecting:"сбор данных",
+    shadow_samples:"независимых наблюдений",
+    shadow_outcomes:"рассчитано исходов",
+    shadow_pending:"ожидают",
+    shadow_overdue:"просрочено",
+    shadow_fill:"исполнение",
+    shadow_regimes:"режимов"
   });
   Object.assign(translations.en, {
     deployment_notice_ip_blocked:"Trading blocked: public IP changed. Review the Binance whitelist."

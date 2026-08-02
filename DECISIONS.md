@@ -4,6 +4,13 @@ Read this file before changing the repository. Record only decisions that were
 validated by tests or production evidence and are likely to be reused. Keep
 entries concise; this is not a changelog or an activity log.
 
+### 2026-08-02 — Version changed experiment semantics
+
+- **Context:** a changed plan under an existing kind would mix incompatible SHADOW outcomes.
+- **Decision:** assign new kinds to changed candidates and retain old terminal evidence unchanged.
+- **Why it worked:** tests prove one snapshot contains only the new matrix and each kind has explicit baseline evidence.
+- **Reuse:** every experiment whose price, lifetime, execution policy, feature formula, or regime rule changes.
+
 ### 2026-08-01 — Preserve unattributable fill evidence
 
 - **Context:** historical canary fills had journal proof but no valid `decision_id`.

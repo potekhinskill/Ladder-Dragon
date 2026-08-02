@@ -1,6 +1,6 @@
 # Implementation status
 
-This document describes the code in version **2.20.101**.
+This document describes the code in version **2.20.125**.
 It does not describe future plans as completed work.
 
 An implemented function is not automatically approved for LIVE use.
@@ -15,7 +15,7 @@ The configured mode and its evidence gate remain authoritative.
 | Accounting | Exact FIFO lots, valued fees, SELL idempotency, and cursor audits | Fail closed on incomplete evidence |
 | Replay | Sequential L2 events, shared liquidity, queue state, latency, fees, and slippage | L2 model, not exact L3 |
 | Prediction | 1, 5, and 15 minute SHADOW outcomes | Enabled for evidence only |
-| Experiments | Five same-snapshot strategy candidates | SHADOW only |
+| Experiments | Versioned same-snapshot strategy candidates | SHADOW only |
 | Statistical approval | Walk-forward, confidence intervals, regime checks, and Holm correction | Must pass before APPLY |
 | AI advice | Validated DeepSeek, OpenAI, or compatible provider response | Disabled by default |
 | RAG | Hybrid similarity, retention, bounded candidates, and real-only retrieval | Virtual records stay archived |
@@ -63,17 +63,21 @@ Future outcomes are normal pending work.
 Only overdue or unrecovered expired outcomes block the backlog gate.
 The soak report applies its expiration checks to the audited runtime window.
 
-The experiment contour compares 14 candidates on one snapshot:
+The active experiment contour compares 15 version-two candidates on one snapshot:
 
 - RANGE-only entry;
-- TP targets of 1.15%, 1.30%, and 1.50%;
+- TP targets of 1.00%, 1.05%, and 1.10%;
 - maker-only entry and TP;
-- BUY lifetimes of 5, 10, and 15 minutes;
-- BUY distances of 10, 15, and 20 basis points.
+- BUY lifetimes of 3, 5, and 8 minutes;
+- BUY distances of 5, 8, and 10 basis points.
 
 Three combined candidates use RANGE-only entry, a five-minute lifetime, and maker-only execution.
-They pair each TP target with the matching BUY distance.
+They pair each TP target with one fixed BUY distance.
+The fourth combined candidate uses an eight-minute lifetime and a dynamic 5-to-15 basis-point BUY distance.
 All candidates use the same immutable snapshot and baseline.
+
+New plan semantics use a new experiment identifier.
+Historical experiment rows remain available and never mix with the active generation.
 
 Re-anchor is not a promotion candidate.
 

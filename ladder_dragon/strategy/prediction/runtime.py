@@ -1106,6 +1106,47 @@ class PredictionShadowStore:
             ))
         return output
 
+    def outcome_status_counts(
+        self,
+        symbol: str,
+        kind: str,
+        *,
+        as_of_ms: int,
+        settlement_grace_ms: int = 300_000,
+    ) -> dict[str, int]:
+        """Classify one candidate's outcomes without treating future work as backlog."""
+        cutoff = int(as_of_ms) - max(0, int(settlement_grace_ms))
+        with self._connect() as connection:
+            row = connection.execute(
+                """SELECT
+                       COUNT(*),
+                       SUM(CASE WHEN o.outcome_json IS NOT NULL THEN 1 ELSE 0 END),
+                       SUM(CASE WHEN o.expired_at_ms IS NOT NULL THEN 1 ELSE 0 END),
+                       SUM(CASE WHEN o.resolved_at_ms IS NULL
+                                 AND o.eligible_at_ms>? THEN 1 ELSE 0 END),
+                       SUM(CASE WHEN o.resolved_at_ms IS NULL
+                                 AND o.eligible_at_ms<=?
+                                 AND o.eligible_at_ms>? THEN 1 ELSE 0 END),
+                       SUM(CASE WHEN o.resolved_at_ms IS NULL
+                                 AND o.eligible_at_ms<=? THEN 1 ELSE 0 END)
+                   FROM prediction_outcomes o
+                   JOIN prediction_decisions d ON d.decision_id=o.decision_id
+                   WHERE d.symbol=? AND d.kind=?""",
+                (
+                    int(as_of_ms),
+                    int(as_of_ms),
+                    cutoff,
+                    cutoff,
+                    symbol.upper(),
+                    kind.upper(),
+                ),
+            ).fetchone()
+        values = tuple(int(value or 0) for value in row)
+        return dict(zip(
+            ("total", "resolved", "expired", "future", "settling", "overdue"),
+            values,
+        ))
+
     def summary(self, symbol: str) -> dict[str, object]:
         with self._connect() as connection:
             decisions = connection.execute(

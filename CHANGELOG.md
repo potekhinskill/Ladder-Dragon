@@ -3,6 +3,25 @@
 All notable changes are documented here. Releases use Semantic Versioning; every
 section is dated and there is intentionally no `Unreleased` section.
 
+## [2.20.125] — 2026-08-02
+
+### Added
+- SHADOW now compares 15 version-two candidates on each shared market snapshot.
+- The new matrix tests 1.00% to 1.10% TP, 3-to-8-minute TTL, and 5-to-10 basis-point BUY distances.
+- One combined candidate uses a bounded dynamic BUY distance from spread and ATR evidence.
+- The dashboard shows independent samples, outcomes, backlog, fill rate, confidence intervals, regimes, and Holm status.
+
+### Changed
+- New candidate semantics use new experiment identifiers. Historical rows remain unchanged.
+- User Stream telemetry separates planned idle refreshes from transport failures and legacy reconnect evidence.
+
+### Security
+- All candidates remain SHADOW-only and cannot change orders, HALT, APPLY, CAP, or Risk Manager output.
+- Future prediction horizons remain normal pending work. Only overdue outcomes appear as backlog.
+
+### Verified
+- The complete project test suite and focused prediction, stream, dashboard, security, and architecture tests pass.
+
 ## [2.20.124] — 2026-08-01
 
 ### Fixed

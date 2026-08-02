@@ -56,6 +56,12 @@ h1{margin:0;font-size:20px;font-weight:800;line-height:1.15}
 .monitor-card{min-width:0;overflow:hidden}
 .monitor-card.full{grid-column:1/-1}
 .ai-quality-card .monitor-grid{grid-template-columns:1fr}
+.shadow-experiments{margin-top:12px;border-top:1px solid var(--stroke);padding-top:10px}
+.shadow-experiments summary{cursor:pointer;color:var(--muted);font-weight:700}
+.shadow-experiment-list{display:grid;gap:8px;margin-top:10px}
+.shadow-experiment-row{padding:9px;border:1px solid var(--stroke);border-radius:10px;background:rgba(255,255,255,.015)}
+.shadow-experiment-row>div:first-child{display:flex;justify-content:space-between;gap:8px;margin-bottom:4px;text-transform:capitalize}
+.shadow-experiment-row .muted{line-height:1.45}
 .monitor-title{color:var(--text);font-size:var(--font-heading);font-weight:800;line-height:1.25;margin-bottom:10px}
 .monitor-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:3px 18px}
 .monitor-row{display:flex;justify-content:space-between;align-items:flex-start;gap:12px;min-width:0;font-size:var(--font-base);line-height:1.4;padding:3px 0}

@@ -27,6 +27,9 @@ def test_user_stream_summary_hides_zero_counters_behind_diagnostics():
         "stream_counter_sessions",
         "stream_counter_events",
         "stream_counter_reconnects",
+        "stream_counter_planned_reconnects",
+        "stream_counter_failure_reconnects",
+        "stream_counter_legacy_reconnects",
     ):
         assert locales.count(f"{key}:") == 2
 

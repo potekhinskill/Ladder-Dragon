@@ -69,6 +69,8 @@ def collect_shadow_experiments(
         baseline_plan=baseline_plan,
         required_edge_pct=required_edge_pct,
         regime=features.regime,
+        spread_bps=features.spread_bps,
+        atr_pct=features.atr_pct,
     )
     now = time.monotonic()
     last_record = _EXPERIMENT_LAST_RECORD.get(symbol)

@@ -31,6 +31,8 @@ TERMINAL_EVENT_TYPES = {"eventStreamTerminated", "serverShutdown"}
 ORDER_EVENT_TYPE = "executionReport"
 PERSISTED_COUNTERS = (
     "reconnects",
+    "idle_reconnects",
+    "transport_failure_reconnects",
     "controlled_reconnect_drills",
     "connection_attempts",
     "sessions",
@@ -274,6 +276,7 @@ class BinanceUserDataObserver:
         self._stop = threading.Event()
         self._thread: Optional[threading.Thread] = None
         self._connection: Optional[object] = None
+        self._controlled_reconnect_pending = threading.Event()
         self._state_lock = threading.RLock()
         now = self._clock()
         self._state = {
@@ -284,6 +287,8 @@ class BinanceUserDataObserver:
             "last_event_at": None,
             "last_order_event_at": None,
             "reconnects": 0,
+            "idle_reconnects": 0,
+            "transport_failure_reconnects": 0,
             "controlled_reconnect_drills": 0,
             "connection_attempts": 0,
             "sessions": 0,
@@ -368,6 +373,7 @@ class BinanceUserDataObserver:
             ),
             force_persist=True,
         )
+        self._controlled_reconnect_pending.set()
         self._close_connection()
 
     def _connector(self) -> Callable[..., object]:
@@ -391,15 +397,30 @@ class BinanceUserDataObserver:
                 self._close_connection()
                 if self._stop.is_set():
                     break
+                controlled = self._controlled_reconnect_pending.is_set()
+                self._controlled_reconnect_pending.clear()
+                idle = isinstance(exc, TimeoutError)
+                expected = controlled or idle
                 self._set_state(
                     state="reconnecting",
                     reconnects=int(self._state_value("reconnects")) + 1,
+                    idle_reconnects=(
+                        int(self._state_value("idle_reconnects")) + int(idle)
+                    ),
+                    transport_failure_reconnects=(
+                        int(self._state_value("transport_failure_reconnects"))
+                        + int(not expected)
+                    ),
                     disconnects=int(self._state_value("disconnects")) + 1,
-                    last_error=type(exc).__name__,
+                    last_error=None if expected else type(exc).__name__,
                     force_persist=True,
                 )
+                reason = (
+                    "controlled" if controlled
+                    else "idle" if idle else type(exc).__name__
+                )
                 self.logger(
-                    f"[USER-STREAM] disconnected={type(exc).__name__}; "
+                    f"[USER-STREAM] reconnect={reason}; "
                     "REST polling remains authoritative"
                 )
                 self._stop.wait(delay)
