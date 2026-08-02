@@ -3,6 +3,23 @@
 All notable changes are documented here. Releases use Semantic Versioning; every
 section is dated and there is intentionally no `Unreleased` section.
 
+## [2.20.132] — 2026-08-02
+
+### Changed
+- OTOCO success and recovery now use one verified journal-state finalizer.
+- A definitive OTOCO rejection now fails both prepared intents immediately.
+
+### Fixed
+- Lost OTOCO acknowledgements now mark a confirmed filled BUY as protected.
+- Restart recovery no longer reports a false unprotected fill for that state.
+
+### Security
+- OTOCO reconciliation still requires one BUY and two valid SELL protection legs.
+- Uncertain or structurally invalid reconciliation remains fail closed.
+
+### Verified
+- The complete 944-test suite and the technical English check pass.
+
 ## [2.20.131] — 2026-08-02
 
 ### Changed

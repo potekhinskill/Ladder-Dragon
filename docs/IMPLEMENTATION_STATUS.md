@@ -1,6 +1,6 @@
 # Implementation status
 
-This document describes the code in version **2.20.131**.
+This document describes the code in version **2.20.132**.
 It does not describe future plans as completed work.
 
 An implemented function is not automatically approved for LIVE use.
@@ -21,7 +21,7 @@ The configured mode and its evidence gate remain authoritative.
 | RAG | Hybrid similarity, retention, bounded candidates, and real-only retrieval | Virtual records stay archived |
 | Fast market data | `bookTicker`, `aggTrade`, and depth snapshots | OFF by default |
 | WebSocket trading | Signed request transport and reconciliation | OFF and separately approved |
-| OTOCO | Atomic BUY with future protection list | OFF and separately approved |
+| OTOCO | Atomic BUY with symmetric ACK-loss recovery | OFF and separately approved |
 | User Data Stream | Independent observer, Testnet drill, and soak evidence | Installed as a separate service |
 | Dashboard | Read-only account, risk, AI, trades, positions, and host telemetry | Private authenticated access |
 | Reports | Daily trading digest, monthly prediction report, and signed soak report | Scheduled by systemd |

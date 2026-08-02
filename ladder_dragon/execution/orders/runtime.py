@@ -24,6 +24,7 @@ from ladder_dragon.execution.exchange_math import (
 from ladder_dragon.execution.order_identity import client_order_id
 from ladder_dragon.execution.order_recovery import OrderJournal, TERMINAL_EXCHANGE_STATES
 from ladder_dragon.execution.executor_recovery import classify_oco_legs
+from ladder_dragon.execution.orders.otoco_state import record_verified_otoco
 
 
 def _record_definitive_rejection(
@@ -31,6 +32,8 @@ def _record_definitive_rejection(
     client_id: str,
     error: BaseException,
     logger: Callable[[str], None],
+    *,
+    related_client_ids: tuple[str, ...] = (),
 ) -> bool:
     """Record an exchange business rejection without treating it as a lost ACK."""
     if not isinstance(error, BinanceResponseError):
@@ -44,6 +47,8 @@ def _record_definitive_rejection(
         return False
     if journal is not None:
         journal.mark_failed(client_id, error)
+        for related_client_id in related_client_ids:
+            journal.mark_failed(related_client_id, error)
     logger(
         f"[REJECTED] client={client_id} status={error.status} "
         f"code={error.code} endpoint={error.endpoint} "
@@ -1154,9 +1159,14 @@ def place_otoco_buy(
                 working_client_order_id=working_client_id,
                 dependencies=dependencies,
             )
-            journal.record_exchange_order(working_client_id, working)
-            journal.record_order_list(list_client_id, existing)
-            journal.record_verified_protection_legs(list_client_id, pending)
+            record_verified_otoco(
+                journal,
+                working_client_id=working_client_id,
+                list_client_id=list_client_id,
+                order_list=existing,
+                working=working,
+                pending=pending,
+            )
             result = dict(working)
             result["orderListId"] = existing.get("orderListId")
             result["listClientOrderId"] = list_client_id
@@ -1248,25 +1258,14 @@ def place_otoco_buy(
             dependencies=dependencies,
         )
         if journal is not None:
-            journal.record_exchange_order(working_client_id, working)
-            journal.record_order_list(list_client_id, verified)
-            protection_active = (
-                str(working.get("status") or "").upper() == "FILLED"
-                and all(
-                    str(order.get("status") or "").upper()
-                    in {"NEW", "PARTIALLY_FILLED"}
-                    for order in pending
-                )
+            record_verified_otoco(
+                journal,
+                working_client_id=working_client_id,
+                list_client_id=list_client_id,
+                order_list=verified,
+                working=working,
+                pending=pending,
             )
-            if protection_active:
-                journal.mark_verified_protected(
-                    parent_client_order_id=working_client_id,
-                    protection_client_order_id=list_client_id,
-                    legs=pending,
-                    order_list_id=int(payload["orderListId"]),
-                )
-            else:
-                journal.record_verified_protection_legs(list_client_id, pending)
         result = dict(working)
         result["orderListId"] = payload["orderListId"]
         result["listClientOrderId"] = list_client_id
@@ -1281,9 +1280,8 @@ def place_otoco_buy(
             list_client_id,
             exc,
             dependencies.logger,
+            related_client_ids=(working_client_id,),
         ):
-            if journal is not None:
-                journal.mark_failed(working_client_id, exc)
             raise
         if journal is not None:
             journal.mark_unknown(list_client_id, exc)
@@ -1317,11 +1315,13 @@ def place_otoco_buy(
                     raise RuntimeError(
                         "OTOCO verification failed after submission"
                     ) from verify_exc
-                journal.record_exchange_order(working_client_id, working)
-                journal.record_order_list(list_client_id, reconciled)
-                journal.record_verified_protection_legs(
-                    list_client_id,
-                    pending,
+                record_verified_otoco(
+                    journal,
+                    working_client_id=working_client_id,
+                    list_client_id=list_client_id,
+                    order_list=reconciled,
+                    working=working,
+                    pending=pending,
                 )
                 result = dict(working)
                 result["orderListId"] = reconciled.get("orderListId")

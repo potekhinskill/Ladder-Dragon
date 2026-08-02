@@ -4,6 +4,13 @@ Read this file before changing the repository. Record only decisions that were
 validated by tests or production evidence and are likely to be reused. Keep
 entries concise; this is not a changelog or an activity log.
 
+### 2026-08-02 — Finalize verified OTOCO state through one boundary
+
+- **Context:** normal success and lost-ACK recovery proved the same exchange state through separate journal paths.
+- **Decision:** use one finalizer that records structure and promotes fully active protection to `PROTECTED`.
+- **Why it worked:** regressions prove lost-ACK recovery protects both intents, while definitive rejection fails both prepared intents.
+- **Reuse:** every mutation whose normal and reconciled outcomes can prove the same durable lifecycle state.
+
 ### 2026-08-02 — Normalize ranked prices after transformation
 
 - **Context:** a unique sorted ladder can receive later price transformations.
