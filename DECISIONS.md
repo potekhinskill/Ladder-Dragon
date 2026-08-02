@@ -4,6 +4,13 @@ Read this file before changing the repository. Record only decisions that were
 validated by tests or production evidence and are likely to be reused. Keep
 entries concise; this is not a changelog or an activity log.
 
+### 2026-08-02 — Compare predictors on one availability cohort
+
+- **Context:** per-source filters let intermittent predictors select different observations and bias accuracy.
+- **Decision:** score all sources only where every source predicted; report total, common, and per-source availability.
+- **Why it worked:** tests prove missing and future predictions cannot alter the common comparison.
+- **Reuse:** every side-by-side model report with optional or intermittent prediction sources.
+
 ### 2026-08-02 — Keep named financial methods in one canonical module
 
 - **Context:** dashboard FIFO logic used float arithmetic and rejected a commission status accepted by exact accounting.

@@ -3,6 +3,23 @@
 All notable changes are documented here. Releases use Semantic Versioning; every
 section is dated and there is intentionally no `Unreleased` section.
 
+## [2.20.134] — 2026-08-02
+
+### Changed
+- Challenger accuracy now uses one full-coverage cohort for every prediction source.
+- Reports show resolved observations, common observations, and source availability.
+
+### Fixed
+- Intermittent predictor availability can no longer bias side-by-side accuracy.
+- Large-DOWN capture now uses the same observations for every challenger.
+
+### Security
+- Outcomes after the report cutoff cannot affect sources, coverage, or scores.
+- The report remains SHADOW evidence and cannot authorize APPLY.
+
+### Verified
+- The complete 954-test suite and the technical English check pass.
+
 ## [2.20.133] — 2026-08-02
 
 ### Changed

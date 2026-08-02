@@ -42,6 +42,7 @@ Each module has one responsibility:
 - `decision_value` owns the monetary target;
 - `historical_dataset` and `advanced_features` own cutoff-safe evidence;
 - `statistical_models` owns transparent challengers;
+- `challengers` owns full-coverage comparisons for live predictor evidence;
 - `ensemble` owns the defensive policy;
 - `experiments` owns same-snapshot SHADOW variants;
 - `approval` owns confidence interval and Holm gates;
