@@ -4,6 +4,13 @@ Read this file before changing the repository. Record only decisions that were
 validated by tests or production evidence and are likely to be reused. Keep
 entries concise; this is not a changelog or an activity log.
 
+### 2026-08-02 — Keep partial risk uncertainty inside a valid snapshot
+
+- **Context:** one unknown FIFO loss streak suppressed reconciliation and SHADOW evidence.
+- **Decision:** publish the unknown field and block BUY at the Risk Manager boundary.
+- **Why it worked:** tests preserve a valid snapshot while unknown provenance blocks exposure.
+- **Reuse:** every independent risk metric that can be unavailable without invalidating other evidence.
+
 ### 2026-08-02 — Publish safety evidence at its authoritative source
 
 - **Context:** Pi verification read reconciliation evidence that only the dashboard derived from text.

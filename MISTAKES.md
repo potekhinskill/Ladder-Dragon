@@ -17,6 +17,13 @@ private infrastructure details.
 
 ## Mistakes
 
+### 2026-08-02 — Escalated one unknown metric into total telemetry failure
+
+- **Impact:** FIFO import evidence kept the supervisor in `RISK_PENDING` and stopped new SHADOW snapshots.
+- **Root cause:** the streak reader raised a generic runtime error instead of returning structured uncertainty.
+- **Correction:** keep the risk snapshot valid and block BUY through an explicit completeness field.
+- **Prevention:** unavailable derived evidence must block its action without suppressing independent authoritative evidence.
+
 ### 2026-08-02 — Counted tests from a stale cache
 
 - **Impact:** the first candidate changelog overstated the complete suite by five tests.

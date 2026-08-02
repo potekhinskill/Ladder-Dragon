@@ -4656,6 +4656,8 @@ def main():
                                     snapshot.liquidity_blocked_symbols
                                 ),
                                 "configuration_error": None,
+                                "loss_streak_complete": snapshot.loss_streak_complete,
+                                "loss_streak_incomplete_symbols": list(snapshot.loss_streak_incomplete_symbols),
                                 "cluster_gate_mode": _control_mode("RISK_CLUSTER_GATE_MODE"),
                             },
                         }

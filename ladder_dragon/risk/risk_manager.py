@@ -237,6 +237,8 @@ class RiskSnapshot:
     expected_shortfall_usdt: Decimal = Decimal("0")
     stale_order_count: int = 0
     symbol_consecutive_losses: dict[str, int] = field(default_factory=dict)
+    loss_streak_complete: bool = True
+    loss_streak_incomplete_symbols: tuple[str, ...] = ()
     symbol_exposure_usdt: dict[str, Decimal] = field(default_factory=dict)
     correlation_clusters: tuple[tuple[str, ...], ...] = ()
     cluster_exposure_usdt: dict[str, Decimal] = field(default_factory=dict)
@@ -543,6 +545,12 @@ class RiskManager:
             block_reasons.append("protected USDT reserve reached")
         if snapshot.consecutive_losses >= self.limits.max_consecutive_losses:
             block_reasons.append("consecutive loss limit reached")
+        if not snapshot.loss_streak_complete:
+            symbols = ",".join(snapshot.loss_streak_incomplete_symbols)
+            block_reasons.append(
+                "loss streak evidence is incomplete"
+                + (f": {symbols}" if symbols else "")
+            )
         symbol_limit = self.limits.max_consecutive_losses
         blocked_symbols = sorted(symbol for symbol, streak in snapshot.symbol_consecutive_losses.items()
                                  if streak >= symbol_limit)
@@ -698,7 +706,7 @@ def load_daily_trade_metrics(
     )
 
     if indexed_streaks is not None:
-        streak, symbol_streaks = indexed_streaks
+        streak, symbol_streaks, incomplete_streak_symbols = indexed_streaks
     else:
         # This branch supports old read-only databases outside deployment.
         inventory: dict[str, tuple[Decimal, Decimal]] = {}
@@ -750,10 +758,13 @@ def load_daily_trade_metrics(
                 else:
                     break
             symbol_streaks[symbol] = count
+        incomplete_streak_symbols = ()
     return {
         "daily_turnover_usdt": turnover,
         "daily_buy_usdt": buys,
         "daily_trade_count": len(rows),
         "consecutive_losses": streak,
         "symbol_consecutive_losses": symbol_streaks,
+        "loss_streak_complete": not incomplete_streak_symbols,
+        "loss_streak_incomplete_symbols": incomplete_streak_symbols,
     }

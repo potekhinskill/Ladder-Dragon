@@ -3,6 +3,23 @@
 All notable changes are documented here. Releases use Semantic Versioning; every
 section is dated and there is intentionally no `Unreleased` section.
 
+## [2.20.139] — 2026-08-02
+
+### Changed
+- Risk snapshots now identify symbols with incomplete FIFO loss-streak evidence.
+- Runtime telemetry publishes loss-streak completeness as structured data.
+
+### Fixed
+- An imported FIFO boundary no longer makes all risk telemetry unavailable.
+- Account reconciliation and SHADOW collection continue while BUY remains blocked.
+
+### Security
+- Unknown loss-streak provenance still blocks BUY without inventing a streak value.
+- The change cannot remove HALT, enable APPLY, or create an order.
+
+### Verified
+- Focused risk, accounting, recovery, and architecture tests pass.
+
 ## [2.20.138] — 2026-08-02
 
 ### Changed

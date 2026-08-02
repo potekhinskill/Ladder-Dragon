@@ -482,8 +482,8 @@ def read_loss_streaks(
     symbols: Iterable[str],
     *,
     limit: int,
-) -> tuple[int, dict[str, int]] | None:
-    """Read only enough recent SELL outcomes to enforce the configured gate."""
+) -> tuple[int, dict[str, int], tuple[str, ...]] | None:
+    """Read bounded streaks and identify symbols with incomplete evidence."""
     wanted = tuple(dict.fromkeys(str(symbol).upper() for symbol in symbols))
     if not wanted or not _table_exists(connection, "risk_sell_outcomes"):
         return None
@@ -493,15 +493,14 @@ def read_loss_streaks(
     if state is None or int(state[0]) != 1:
         raise RuntimeError("risk SELL outcome backfill is incomplete")
     incomplete_placeholders = ",".join("?" for _ in wanted)
-    incomplete = connection.execute(
-        "SELECT symbol FROM risk_fifo_incomplete_symbols "
-        f"WHERE symbol IN ({incomplete_placeholders}) ORDER BY symbol LIMIT 1",
-        wanted,
-    ).fetchone()
-    if incomplete is not None:
-        raise RuntimeError(
-            f"risk FIFO history is incomplete for {str(incomplete[0])}"
+    incomplete_symbols = tuple(
+        str(row[0])
+        for row in connection.execute(
+            "SELECT symbol FROM risk_fifo_incomplete_symbols "
+            f"WHERE symbol IN ({incomplete_placeholders}) ORDER BY symbol",
+            wanted,
         )
+    )
     bounded_limit = max(1, min(int(limit), MAX_RETAINED_SELL_OUTCOMES))
     scopes = ("*", *wanted)
     scope_placeholders = ",".join("?" for _ in scopes)
@@ -513,9 +512,11 @@ def read_loss_streaks(
             scopes,
         )
     }
-    return values.get("*", 0), {
-        symbol: values.get(symbol, 0) for symbol in wanted
-    }
+    return (
+        values.get("*", 0),
+        {symbol: values.get(symbol, 0) for symbol in wanted},
+        incomplete_symbols,
+    )
 
 
 def replace_symbol_fifo_basis(

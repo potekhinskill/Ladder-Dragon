@@ -109,6 +109,10 @@ calculate non-executing SHADOW candidates while HALT is active. This preserves
 counterfactual evidence needed to study BUY distance, re-anchoring, regimes, and
 expectancy without starting a worker or changing an order.
 
+An incomplete loss-streak boundary blocks BUY inside a valid risk snapshot.
+It does not suppress account reconciliation or SHADOW evidence collection.
+The risk snapshot lists each symbol whose loss-streak evidence is incomplete.
+
 The experiment contour evaluates 15 candidates against the untouched current
 strategy plan. All candidates use identical feature timestamps and
 1/5/15-minute candles.

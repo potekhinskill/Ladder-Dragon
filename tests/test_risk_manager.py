@@ -147,6 +147,28 @@ def test_soft_limits_block_buys_without_permanent_halt(tmp_path: Path):
     assert not (tmp_path / "halt.json").exists()
 
 
+def test_incomplete_loss_streak_blocks_buy_without_losing_risk_snapshot(
+    tmp_path: Path,
+):
+    manager = RiskManager(limits(tmp_path))
+
+    decision = manager.evaluate(
+        snapshot(
+            "1000",
+            loss_streak_complete=False,
+            loss_streak_incomplete_symbols=("SOLUSDT",),
+        ),
+        now=1_700_000_000,
+    )
+
+    assert decision.buy_blocked is True
+    assert decision.halted is False
+    assert decision.reasons == (
+        "loss streak evidence is incomplete: SOLUSDT",
+    )
+    assert not (tmp_path / "halt.json").exists()
+
+
 def test_risk_snapshot_normalizes_legacy_numeric_inputs_to_decimal():
     observed = RiskSnapshot(
         equity_usdt=1000.25,
@@ -310,10 +332,11 @@ def test_loss_streak_marks_missing_fifo_without_rejecting_accounting(
     ).fetchone() == (1_700_000_000_000, 1, 0)
     con.close()
 
-    with pytest.raises(RuntimeError, match="FIFO history is incomplete"):
-        load_daily_trade_metrics(
-            str(db), ["SOLUSDT"], now=1_700_000_001, streak_limit=3
-        )
+    metrics = load_daily_trade_metrics(
+        str(db), ["SOLUSDT"], now=1_700_000_001, streak_limit=3
+    )
+    assert metrics["loss_streak_complete"] is False
+    assert metrics["loss_streak_incomplete_symbols"] == ("SOLUSDT",)
 
 
 def test_incomplete_fifo_symbol_does_not_block_an_exact_symbol(tmp_path: Path):
@@ -342,10 +365,12 @@ def test_incomplete_fifo_symbol_does_not_block_an_exact_symbol(tmp_path: Path):
     )
     assert metrics["consecutive_losses"] == 0
     assert metrics["symbol_consecutive_losses"] == {"SOLUSDT": 0}
-    with pytest.raises(RuntimeError, match="ETHUSDT"):
-        load_daily_trade_metrics(
-            str(db), ["ETHUSDT"], now=1_700_000_003, streak_limit=3
-        )
+    assert metrics["loss_streak_complete"] is True
+    eth_metrics = load_daily_trade_metrics(
+        str(db), ["ETHUSDT"], now=1_700_000_003, streak_limit=3
+    )
+    assert eth_metrics["loss_streak_complete"] is False
+    assert eth_metrics["loss_streak_incomplete_symbols"] == ("ETHUSDT",)
 
 
 def test_migrated_risk_metrics_do_not_replay_old_trade_rows(tmp_path: Path):
