@@ -116,3 +116,68 @@ def test_public_depth_archive_rejects_sequence_gap(tmp_path):
             clock_ms=lambda: 1_000,
         )
     assert not (tmp_path / "broken.jsonl").exists()
+
+
+def test_public_depth_archive_flushes_pre_sync_trades(tmp_path):
+    connection = FakeConnection()
+    connection.frames = iter([
+        {"data": {
+            "e": "aggTrade", "E": 1_005, "s": "SOLUSDT",
+            "a": 1233, "p": "75.01", "q": "0.2", "m": True,
+        }},
+        {"data": {
+            "e": "depthUpdate", "E": 1_010, "s": "SOLUSDT",
+            "U": 101, "u": 101, "b": [], "a": [],
+        }},
+    ])
+    output = tmp_path / "buffered.jsonl"
+    ticks = iter([1_000, 1_000, 1_005, 1_015, 1_020, 1_025])
+
+    metadata = record_public_depth(
+        "SOLUSDT",
+        output,
+        duration_sec=60,
+        max_events=3,
+        session=FakeSession(),
+        connect=lambda *args, **kwargs: connection,
+        clock_ms=lambda: next(ticks),
+    )
+
+    rows = [json.loads(line) for line in output.read_text().splitlines()]
+    assert [row.get("e", "snapshot") for row in rows] == [
+        "snapshot", "aggTrade", "depthUpdate",
+    ]
+    assert metadata["trade_event_count"] == 1
+    assert metadata["depth_event_count"] == 1
+    assert metadata["event_count"] == 3
+
+
+def test_public_depth_archive_rejects_pre_sync_buffer_overflow(tmp_path):
+    connection = FakeConnection()
+    connection.frames = iter([
+        {"data": {
+            "e": "aggTrade", "E": 1_005, "s": "SOLUSDT",
+            "a": 1233, "p": "75.01", "q": "0.2", "m": True,
+        }},
+        {"data": {
+            "e": "aggTrade", "E": 1_006, "s": "SOLUSDT",
+            "a": 1234, "p": "75.02", "q": "0.3", "m": False,
+        }},
+    ])
+    output = tmp_path / "overflow.jsonl"
+    import pytest
+
+    with pytest.raises(ValueError, match="pre-sync trade buffer"):
+        record_public_depth(
+            "SOLUSDT",
+            output,
+            duration_sec=60,
+            max_events=3,
+            session=FakeSession(),
+            connect=lambda *args, **kwargs: connection,
+            clock_ms=lambda: 1_000,
+        )
+
+    assert connection.closed is True
+    assert not output.exists()
+    assert not output.with_suffix(".jsonl.metadata.json").exists()

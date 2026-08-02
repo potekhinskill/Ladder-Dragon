@@ -4,6 +4,13 @@ Read this file before changing the repository. Record only decisions that were
 validated by tests or production evidence and are likely to be reused. Keep
 entries concise; this is not a changelog or an activity log.
 
+### 2026-08-03 — Buffer independent events until synchronization is proved
+
+- **Context:** trades could arrive before the depth stream completed its sequence handshake.
+- **Decision:** retain them in a bounded buffer and publish only after contiguous depth evidence.
+- **Why it worked:** tests preserve early trades and reject capacity exhaustion without partial files.
+- **Reuse:** every recorder that combines independently ordered streams behind one synchronization gate.
+
 ### 2026-08-03 — Aggregate evidence only by unique authoritative identity
 
 - **Context:** repeated validation files could count one archive more than once.

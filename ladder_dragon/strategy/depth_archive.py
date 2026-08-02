@@ -100,6 +100,7 @@ def record_public_depth(
         with temporary.open("wb") as handle:
             emit(handle, snapshot)
             synchronized = False
+            pending_trades: list[dict] = []
             while written < max_events and time.monotonic() < deadline:
                 try:
                     raw = connection.recv()
@@ -123,6 +124,10 @@ def record_public_depth(
                         if not first_id <= last_update_id + 1 <= final_id:
                             continue
                         synchronized = True
+                        for pending_trade in pending_trades:
+                            trade_events += 1
+                            emit(handle, pending_trade)
+                        pending_trades.clear()
                     elif first_id != last_update_id + 1:
                         raise ValueError(
                             "Binance depth sequence gap while recording: "
@@ -131,9 +136,18 @@ def record_public_depth(
                     last_update_id = final_id
                     depth_events += 1
                     emit(handle, row)
-                elif event_type == "aggTrade" and synchronized:
-                    trade_events += 1
-                    emit(handle, row)
+                elif event_type == "aggTrade":
+                    if synchronized:
+                        trade_events += 1
+                        emit(handle, row)
+                    else:
+                        # Reserve one event slot for the depth update that
+                        # proves synchronization before publishing any trade.
+                        if written + len(pending_trades) + 1 >= max_events:
+                            raise ValueError(
+                                "pre-sync trade buffer exceeds max_events"
+                            )
+                        pending_trades.append(row)
             handle.flush()
             os.fsync(handle.fileno())
         if depth_events == 0:

@@ -775,6 +775,9 @@ The installer enables `ladder-dragon-depth-archive.timer`. It records public
 SOLUSDT depth and aggregate trades for 15 minutes each hour and removes samples
 older than seven days. It never receives trading credentials.
 
+The recorder buffers trades until it proves depth sequence continuity.
+The memory buffer is limited by `max_events` and is never published alone.
+
 ```bash
 sudo systemctl status ladder-dragon-depth-archive.timer --no-pager
 sudo systemctl start ladder-dragon-depth-archive.service

@@ -3,6 +3,23 @@
 All notable changes are documented here. Releases use Semantic Versioning; every
 section is dated and there is intentionally no `Unreleased` section.
 
+## [2.20.142] — 2026-08-03
+
+### Changed
+- The depth recorder buffers aggregate trades until depth synchronization succeeds.
+- The pre-synchronization buffer reserves capacity for the proving depth update.
+
+### Fixed
+- Aggregate trades arriving before the first contiguous depth update are retained.
+- Buffer overflow now aborts without publishing a truncated archive.
+
+### Security
+- Unsynchronized or incomplete archives remain unpublished.
+- The recorder still uses public data and receives no credentials.
+
+### Verified
+- Focused depth archive, market replay, and readiness tests pass.
+
 ## [2.20.141] — 2026-08-03
 
 ### Changed

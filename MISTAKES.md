@@ -17,6 +17,13 @@ private infrastructure details.
 
 ## Mistakes
 
+### 2026-08-03 — Applied one stream's synchronization gate to another stream
+
+- **Impact:** aggregate trades received during depth synchronization disappeared from replay archives.
+- **Root cause:** recording treated independent trade events as invalid until the depth sequence synchronized.
+- **Correction:** buffer early trades within the event budget and flush them after depth proof.
+- **Prevention:** mixed-stream tests must cover events before, during, and after synchronization.
+
 ### 2026-08-03 — Counted report paths instead of evidence identities
 
 - **Impact:** repeated validation reports could satisfy the real-order coverage threshold.
