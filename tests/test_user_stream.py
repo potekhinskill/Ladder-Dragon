@@ -151,6 +151,62 @@ def test_execution_outcomes_group_partial_and_terminal_reports(tmp_path):
     assert outcomes[0].commission_quote == Decimal("0.002")
 
 
+def test_execution_outcomes_use_canonical_legacy_commission_status(tmp_path):
+    path = tmp_path / "execution-latency.ndjson"
+    signal = parse_order_signal(
+        execution_report(
+            x="TRADE",
+            X="FILLED",
+            l="0.10",
+            z="0.10",
+            Z="7.55000000",
+            t=458,
+        ),
+        received_time_ms=1_700_000_000_080,
+    )
+    assert signal is not None
+    append_execution_latency_sample(
+        path,
+        signal,
+        intent_created_at_ms=1_700_000_000_000,
+        commission_quote=Decimal("0.001"),
+        commission_value_status="legacy",
+    )
+
+    outcomes = load_execution_outcomes(path)
+
+    assert len(outcomes) == 1
+    assert outcomes[0].commission_quote == Decimal("0.001")
+
+
+def test_execution_outcomes_reject_unknown_commission_status(tmp_path):
+    path = tmp_path / "execution-latency.ndjson"
+    signal = parse_order_signal(
+        execution_report(
+            x="TRADE",
+            X="FILLED",
+            l="0.10",
+            z="0.10",
+            Z="7.55000000",
+            t=459,
+        ),
+        received_time_ms=1_700_000_000_080,
+    )
+    assert signal is not None
+    append_execution_latency_sample(
+        path,
+        signal,
+        intent_created_at_ms=1_700_000_000_000,
+        commission_quote=Decimal("0.001"),
+        commission_value_status="guessed",
+    )
+
+    outcomes = load_execution_outcomes(path)
+
+    assert len(outcomes) == 1
+    assert outcomes[0].commission_quote is None
+
+
 def test_mailbox_deduplicates_events_and_consumes_only_requested_order():
     mailbox = OrderEventMailbox(max_events=4)
     first = parse_order_signal(execution_report())

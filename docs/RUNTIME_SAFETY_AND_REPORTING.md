@@ -241,6 +241,10 @@ the metric as unavailable and names the affected symbols. Cash flow and
 portfolio valuation remain visible under their own labels and are never used as
 a substitute for realized profit.
 
+Exact accounting owns the recognized commission provenance vocabulary.
+Reports and replay calibration must use its shared status predicate.
+Unknown status values are unpriced, even when a stored quote value exists.
+
 ## Daily Telegram digest
 
 `ladder-dragon-daily-digest.timer` runs at 08:00 `Asia/Almaty` and reports three

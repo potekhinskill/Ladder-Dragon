@@ -3,6 +3,24 @@
 All notable changes are documented here. Releases use Semantic Versioning; every
 section is dated and there is intentionally no `Unreleased` section.
 
+## [2.20.140] — 2026-08-03
+
+### Changed
+- Exact accounting now owns the recognized valued-commission status contract.
+- Replay calibration uses the same commission provenance contract as reports.
+
+### Fixed
+- Legacy valued commissions no longer disappear from execution outcomes.
+- Unknown commission statuses now fail closed even when a quote value exists.
+
+### Security
+- The change does not enable APPLY, remove HALT, or create an order.
+- Unpriced and unknown provenance cannot enter calibrated fee totals.
+
+### Verified
+- Focused accounting, User Stream, revaluation, and dashboard tests pass.
+- The release harness passes all checks with 1,170 total tests.
+
 ## [2.20.139] — 2026-08-02
 
 ### Changed

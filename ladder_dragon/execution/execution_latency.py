@@ -13,6 +13,7 @@ from decimal import Decimal, InvalidOperation
 from pathlib import Path
 from typing import Mapping
 
+from ladder_dragon.execution.trade_accounting import commission_status_is_valued
 from ladder_dragon.execution.user_stream import OrderStreamSignal
 
 
@@ -223,7 +224,7 @@ def load_execution_outcomes(path: str | Path) -> list[ExecutionOutcome]:
                     payload.get("commission_value_status", "")
                 ).lower()
                 raw_fee = payload.get("commission_quote")
-                if trade_id < 0 or status not in {"exact", "converted", "quote"}:
+                if trade_id < 0 or not commission_status_is_valued(status):
                     current["commission_quote"] = None
                 elif raw_fee is None:
                     current["commission_quote"] = None

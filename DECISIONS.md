@@ -4,6 +4,13 @@ Read this file before changing the repository. Record only decisions that were
 validated by tests or production evidence and are likely to be reused. Keep
 entries concise; this is not a changelog or an activity log.
 
+### 2026-08-03 — Own financial provenance vocabulary at the accounting boundary
+
+- **Context:** independent status allowlists excluded different valued commissions.
+- **Decision:** exact accounting owns one status predicate for all financial consumers.
+- **Why it worked:** tests accept legacy evidence and reject unknown provenance across accounting and replay calibration.
+- **Reuse:** every report, model, or gate that consumes commission values.
+
 ### 2026-08-02 — Keep partial risk uncertainty inside a valid snapshot
 
 - **Context:** one unknown FIFO loss streak suppressed reconciliation and SHADOW evidence.

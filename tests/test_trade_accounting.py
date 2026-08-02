@@ -39,6 +39,31 @@ def test_omitted_commission_quote_fails_closed_when_fee_is_nonzero():
         replay_average_cost([trade])
 
 
+def test_commission_status_contract_accepts_legacy_and_rejects_unknown():
+    common = dict(
+        symbol="SOLUSDT",
+        side="BUY",
+        price="100",
+        gross_qty="1",
+        commission_asset="USDT",
+        commission_amount="0.1",
+        commission_quote="0.1",
+    )
+
+    legacy = TradeExecution.create(
+        **common,
+        commission_value_status="legacy",
+    )
+    unknown = TradeExecution.create(
+        **common,
+        commission_value_status="guessed",
+    )
+
+    assert legacy.valued_commission() == Decimal("0.1")
+    with pytest.raises(UnpricedCommission):
+        unknown.valued_commission()
+
+
 @pytest.mark.parametrize(
     ("symbol", "expected"),
     (

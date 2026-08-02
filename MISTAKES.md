@@ -17,6 +17,20 @@ private infrastructure details.
 
 ## Mistakes
 
+### 2026-08-03 — Reused a cached test count after recording the same lesson
+
+- **Impact:** the first candidate changelog overstated the main test count by five.
+- **Root cause:** the count came from the pytest cache instead of the completed harness report.
+- **Correction:** report the harness total and amend the same signed candidate.
+- **Prevention:** never use `.pytest_cache` as evidence for a release test count.
+
+### 2026-08-03 — Copied commission status allowlists into consumers
+
+- **Impact:** replay calibration excluded valued legacy commissions from historical outcomes.
+- **Root cause:** each consumer defined provenance validity with its own string set.
+- **Correction:** move the recognized vocabulary to exact accounting and import its predicate.
+- **Prevention:** financial consumers must not define independent commission status allowlists.
+
 ### 2026-08-02 — Escalated one unknown metric into total telemetry failure
 
 - **Impact:** FIFO import evidence kept the supervisor in `RISK_PENDING` and stopped new SHADOW snapshots.

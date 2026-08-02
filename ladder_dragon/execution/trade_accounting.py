@@ -11,6 +11,17 @@ from typing import Iterable
 
 
 ZERO = Decimal("0")
+VALUED_COMMISSION_STATUSES = frozenset(
+    {
+        "basis-import",
+        "converted",
+        "exact",
+        "legacy",
+        "none",
+        "not_applicable",
+        "quote",
+    }
+)
 KNOWN_QUOTES = (
     "FDUSD",
     "USDT",
@@ -57,6 +68,11 @@ class UnpricedCommission(RuntimeError):
 
 class InventoryShortfall(RuntimeError):
     pass
+
+
+def commission_status_is_valued(status: object) -> bool:
+    """Return true only for recognized commission-value provenance."""
+    return str(status).strip().lower() in VALUED_COMMISSION_STATUSES
 
 
 @dataclass(frozen=True)
@@ -122,14 +138,19 @@ class TradeExecution:
         )
 
     def valued_commission(self, *, allow_unpriced: bool = False) -> Decimal:
+        valued_status = commission_status_is_valued(
+            self.commission_value_status
+        )
+        if self.commission_amount > ZERO and (
+            self.commission_quote is None or not valued_status
+        ):
+            if allow_unpriced:
+                return ZERO
+            raise UnpricedCommission(
+                f"unpriced {self.commission_asset or 'unknown'} commission "
+                f"for {self.symbol} {self.side}"
+            )
         if self.commission_quote is None:
-            if self.commission_amount > ZERO:
-                if allow_unpriced:
-                    return ZERO
-                raise UnpricedCommission(
-                    f"unpriced {self.commission_asset or 'unknown'} commission "
-                    f"for {self.symbol} {self.side}"
-                )
             return ZERO
         return self.commission_quote
 
