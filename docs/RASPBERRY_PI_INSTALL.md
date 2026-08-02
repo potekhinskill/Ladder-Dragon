@@ -777,6 +777,8 @@ older than seven days. It never receives trading credentials.
 
 The recorder buffers trades until it proves depth sequence continuity.
 The memory buffer is limited by `max_events` and is never published alone.
+Prediction backfill rejects aggregate trades with decreasing timestamps.
+Do not concatenate recording sessions. Keep each verified archive separate.
 
 ```bash
 sudo systemctl status ladder-dragon-depth-archive.timer --no-pager

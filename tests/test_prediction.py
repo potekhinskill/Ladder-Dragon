@@ -383,6 +383,30 @@ def test_prediction_archive_rejects_metadata_hash_mismatch(tmp_path):
         load_verified_prediction_archive(archive)
 
 
+def test_prediction_archive_rejects_out_of_order_trades(tmp_path):
+    archive = tmp_path / "SOLUSDT.jsonl"
+    archive.write_text(
+        '{"e":"aggTrade","s":"SOLUSDT","T":62000,"p":"100","q":"1"}\n'
+        '{"e":"aggTrade","s":"SOLUSDT","T":62000,"p":"101","q":"1"}\n'
+        '{"e":"aggTrade","s":"SOLUSDT","T":61000,"p":"99","q":"1"}\n',
+        encoding="utf-8",
+    )
+    digest = hashlib.sha256(archive.read_bytes()).hexdigest()
+    archive.with_suffix(".jsonl.metadata.json").write_text(
+        json.dumps({
+            "schema_version": 1,
+            "symbol": "SOLUSDT",
+            "archive_sha256": digest,
+            "contains_secrets": False,
+        }),
+        encoding="utf-8",
+    )
+    import pytest
+
+    with pytest.raises(ValueError, match="line 3.*chronological order"):
+        load_verified_prediction_archive(archive)
+
+
 def test_reanchor_store_resolves_proposed_and_original_buy(tmp_path):
     store = PredictionShadowStore(tmp_path / "prediction.sqlite3")
     features = _features()

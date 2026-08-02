@@ -48,6 +48,7 @@ def load_verified_prediction_archive(
         raise ValueError("prediction archive secret-safety is not attested")
 
     minutes: dict[int, list[Decimal]] = {}
+    last_trade_timestamp: int | None = None
     with archive.open(encoding="utf-8") as handle:
         for line_number, line in enumerate(handle, start=1):
             if not line.strip():
@@ -76,6 +77,14 @@ def load_verified_prediction_archive(
                 raise ValueError(f"archive line {line_number} has invalid price")
             if not quantity.is_finite() or quantity <= 0:
                 raise ValueError(f"archive line {line_number} has invalid quantity")
+            if (
+                last_trade_timestamp is not None
+                and timestamp < last_trade_timestamp
+            ):
+                raise ValueError(
+                    f"archive line {line_number} is out of chronological order"
+                )
+            last_trade_timestamp = timestamp
             minute = timestamp - timestamp % 60_000
             row = minutes.setdefault(
                 minute, [price, price, price, price, Decimal("0")]

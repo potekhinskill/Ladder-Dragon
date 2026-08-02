@@ -3,6 +3,23 @@
 All notable changes are documented here. Releases use Semantic Versioning; every
 section is dated and there is intentionally no `Unreleased` section.
 
+## [2.20.143] — 2026-08-03
+
+### Changed
+- Prediction archive loading now requires nondecreasing aggregate-trade timestamps.
+- Equal millisecond timestamps remain valid in their authenticated archive order.
+
+### Fixed
+- Unsorted archive rows can no longer corrupt minute-bar open and close values.
+- Incorrectly concatenated sessions now fail with the exact offending line.
+
+### Security
+- Invalid chronology blocks backfill before Prediction DB changes.
+- The check remains streaming and does not increase archive memory usage.
+
+### Verified
+- Focused prediction archive, depth archive, and historical dataset tests pass.
+
 ## [2.20.142] — 2026-08-03
 
 ### Changed

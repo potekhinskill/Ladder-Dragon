@@ -4,6 +4,13 @@ Read this file before changing the repository. Record only decisions that were
 validated by tests or production evidence and are likely to be reused. Keep
 entries concise; this is not a changelog or an activity log.
 
+### 2026-08-03 — Reject unsorted evidence instead of repairing it silently
+
+- **Context:** OHLC open and close depend on authenticated trade chronology.
+- **Decision:** require nondecreasing timestamps while streaming verified archives.
+- **Why it worked:** tests identify the first reversed trade before bar construction completes.
+- **Reuse:** every financial adapter where source order defines an aggregate value.
+
 ### 2026-08-03 — Buffer independent events until synchronization is proved
 
 - **Context:** trades could arrive before the depth stream completed its sequence handshake.

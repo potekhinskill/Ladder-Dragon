@@ -17,6 +17,13 @@ private infrastructure details.
 
 ## Mistakes
 
+### 2026-08-03 — Trusted file order for OHLC construction
+
+- **Impact:** an unsorted archive could silently assign incorrect minute open and close prices.
+- **Root cause:** hash validation proved file integrity but not chronological semantics.
+- **Correction:** reject the first aggregate trade whose timestamp decreases.
+- **Prevention:** order-dependent aggregations must validate monotonic source keys before accumulation.
+
 ### 2026-08-03 — Applied one stream's synchronization gate to another stream
 
 - **Impact:** aggregate trades received during depth synchronization disappeared from replay archives.
