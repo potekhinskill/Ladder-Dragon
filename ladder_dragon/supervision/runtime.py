@@ -89,6 +89,7 @@ from ladder_dragon.supervision.risk_cycle import (
     initial_runtime_risk_status,
     risk_alert_signature,
     risk_configuration_block,
+    risk_operation_failure_status,
     remaining_order_budget_decimal as _remaining_order_budget_decimal,
 )
 from ladder_dragon.supervision.symbol_service import (
@@ -4623,6 +4624,11 @@ def main():
                             "buy_blocked": decision.buy_blocked,
                             "halted": decision.halted,
                             "reasons": list(decision.reasons),
+                            "reconciliation_delta": (
+                                []
+                                if env_flag("RISK_RECONCILE_STRICT", True)
+                                else None
+                            ),
                             "consecutive_api_failures": consecutive_api_failures,
                             "current_cap_per_order_usdt": os.getenv("BOT_CAP_PER_ORDER"),
                             "operator_cap_per_order_usdt": os.getenv("BOT_OPERATOR_CAP_PER_ORDER_USDT"),
@@ -4714,6 +4720,14 @@ def main():
                     if consecutive_api_failures >= threshold:
                         risk_manager.start_cooldown(reason)
                     decision = RiskDecision(halted=False, buy_blocked=True, reasons=(reason,))
+                    _publish_ai_runtime_status(
+                        risk=risk_operation_failure_status(
+                            _AI_RUNTIME_STATUS.get("risk"),
+                            exc,
+                            decision,
+                            consecutive_api_failures,
+                        )
+                    )
 
                 was_buy_blocked = risk_buy_blocked
                 risk_buy_blocked = decision.buy_blocked

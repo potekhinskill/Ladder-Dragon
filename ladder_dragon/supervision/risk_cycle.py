@@ -35,6 +35,19 @@ class RiskConfigurationError(RuntimeError):
     """Report a deterministic risk configuration block."""
 
 
+class RiskReconciliationError(RuntimeError):
+    """Report exact account and inventory reconciliation differences."""
+
+    def __init__(self, differences: Sequence[Mapping[str, object]]) -> None:
+        self.reconciliation_delta = tuple(dict(item) for item in differences)
+        details = "; ".join(
+            f"{item['symbol']}: account={item['account']}, "
+            f"ledger={item['ledger']}"
+            for item in self.reconciliation_delta
+        )
+        super().__init__(f"position reconciliation failed: {details}")
+
+
 _RISK_ATTEMPT_PREFIX = re.compile(
     r"^(risk telemetry unavailable) \(\d+/\d+\):\s*"
 )
@@ -66,6 +79,30 @@ def risk_configuration_block(
         "consecutive_api_failures": consecutive_api_failures,
     }
     return reason, decision, status
+
+
+def risk_operation_failure_status(
+    current: object,
+    error: BaseException,
+    decision: RiskDecision,
+    consecutive_api_failures: int,
+) -> dict[str, object]:
+    """Publish safe failure evidence without parsing human-readable errors."""
+    status = dict(current) if isinstance(current, Mapping) else {}
+    status.update(
+        {
+            "buy_blocked": decision.buy_blocked,
+            "halted": decision.halted,
+            "reasons": list(decision.reasons),
+            "consecutive_api_failures": consecutive_api_failures,
+            "reconciliation_delta": (
+                [dict(item) for item in error.reconciliation_delta]
+                if isinstance(error, RiskReconciliationError)
+                else None
+            ),
+        }
+    )
+    return status
 
 
 def reconciliation_tolerance_fraction(
@@ -143,6 +180,7 @@ def initial_runtime_risk_status(
             "buy_blocked": bool(gate["buy_blocked"]),
             "halted": bool(gate["halted"]),
             "reasons": list(gate["reasons"]),
+            "reconciliation_delta": None,
         },
     }
 
@@ -282,7 +320,7 @@ def build_risk_snapshot(
                     str(symbol).upper(): exact_decimal(qty, name="ledger quantity")
                     for symbol, qty in con.execute(inventory_source).fetchall()
                 }
-            mismatches = []
+            mismatches: list[dict[str, object]] = []
             for symbol in symbols:
                 base, _ = symbol_assets(symbol)
                 account_qty = exact_decimal(
@@ -306,15 +344,31 @@ def build_risk_snapshot(
                 )
                 if db_qty is None:
                     if account_qty > allowed:
-                        mismatches.append(f"{symbol}: account={account_qty:.8f}, ledger=missing")
+                        mismatches.append(
+                            {
+                                "symbol": symbol,
+                                "account": format(account_qty, "f"),
+                                "ledger": None,
+                                "delta": format(account_qty, "f"),
+                                "allowed": format(allowed, "f"),
+                            }
+                        )
                     continue
                 if abs(account_qty - db_qty) > allowed:
-                    mismatches.append(f"{symbol}: account={account_qty:.8f}, ledger={db_qty:.8f}")
+                    mismatches.append(
+                        {
+                            "symbol": symbol,
+                            "account": format(account_qty, "f"),
+                            "ledger": format(db_qty, "f"),
+                            "delta": format(account_qty - db_qty, "f"),
+                            "allowed": format(allowed, "f"),
+                        }
+                    )
             if not mismatches:
                 break
             remaining = deadline - time.monotonic()
             if remaining <= 0:
-                raise RuntimeError("position reconciliation failed: " + "; ".join(mismatches))
+                raise RiskReconciliationError(mismatches)
             waited = True
             time.sleep(min(retry_sec, remaining))
             balances = get_balances_full()

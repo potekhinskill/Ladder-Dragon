@@ -49,5 +49,6 @@ def test_live_startup_status_nests_fail_closed_risk_evidence():
             "reasons": [
                 "persistent circuit halt requires authoritative evaluation"
             ],
+            "reconciliation_delta": None,
         },
     }

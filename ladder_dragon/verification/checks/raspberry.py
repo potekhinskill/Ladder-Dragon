@@ -171,8 +171,13 @@ def _runtime_check(context: HarnessContext) -> CheckResult:
             if risk.get("halted") is True or risk.get("buy_blocked") is True:
                 reasons.append("risk currently blocks trading")
             delta = risk.get("reconciliation_delta")
-            if delta not in (None, [], {}):
+            if not isinstance(delta, list):
+                reasons.append("account reconciliation evidence is unavailable")
+            elif delta:
                 reasons.append("account and journal reconciliation differs")
+            metrics["reconciliation_mismatch_count"] = (
+                len(delta) if isinstance(delta, list) else None
+            )
     except (OSError, KeyError, TypeError, ValueError, json.JSONDecodeError):
         reasons.append("runtime status is unavailable or invalid")
     status = Status.PASS if not reasons else Status.BLOCKED

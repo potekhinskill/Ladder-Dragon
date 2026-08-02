@@ -3,6 +3,24 @@
 All notable changes are documented here. Releases use Semantic Versioning; every
 section is dated and there is intentionally no `Unreleased` section.
 
+## [2.20.138] — 2026-08-02
+
+### Changed
+- The supervisor now publishes structured account reconciliation evidence.
+- The dashboard displays authoritative evidence without parsing diagnostic text.
+
+### Fixed
+- Raspberry Pi verification no longer accepts a missing reconciliation result.
+- Account and inventory differences now reach release verification directly.
+
+### Security
+- Missing, disabled, or malformed reconciliation evidence blocks Pi approval.
+- Verification metrics expose mismatch counts without account quantities.
+
+### Verified
+- Eleven focused supervision and verification tests pass.
+- The complete 971-test suite and Python compilation pass.
+
 ## [2.20.137] — 2026-08-02
 
 ### Changed

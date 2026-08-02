@@ -17,6 +17,20 @@ private infrastructure details.
 
 ## Mistakes
 
+### 2026-08-02 — Counted tests from a stale cache
+
+- **Impact:** the first candidate changelog overstated the complete suite by five tests.
+- **Root cause:** the count came from cached node identifiers instead of the completed test report.
+- **Correction:** use the release harness count and amend the candidate before publication.
+- **Prevention:** report test counts only from the completed command or signed verification manifest.
+
+### 2026-08-02 — Added a verification field without a producer
+
+- **Impact:** Pi verification could pass without checking account and inventory reconciliation.
+- **Root cause:** the gate read a field that only the dashboard derived from human-readable text.
+- **Correction:** publish exact structured evidence in the supervisor and block missing evidence.
+- **Prevention:** contract tests must cover every producer and consumer of safety evidence.
+
 ### 2026-08-02 — Identified CI from Git topology alone
 
 - **Impact:** a local or octopus merge could receive the release gate exception intended only for GitHub pull request CI.

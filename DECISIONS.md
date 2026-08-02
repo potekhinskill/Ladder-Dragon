@@ -4,6 +4,13 @@ Read this file before changing the repository. Record only decisions that were
 validated by tests or production evidence and are likely to be reused. Keep
 entries concise; this is not a changelog or an activity log.
 
+### 2026-08-02 — Publish safety evidence at its authoritative source
+
+- **Context:** Pi verification read reconciliation evidence that only the dashboard derived from text.
+- **Decision:** publish structured evidence from the supervisor and reject missing evidence at every safety consumer.
+- **Why it worked:** tests distinguish a proved match, a mismatch, and unavailable evidence.
+- **Reuse:** every release gate that consumes runtime safety state.
+
 ### 2026-08-02 — Bind CI exceptions to authoritative event evidence
 
 - **Context:** commit topology alone cannot prove that a merge came from GitHub pull request CI.

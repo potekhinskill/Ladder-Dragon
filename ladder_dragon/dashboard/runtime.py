@@ -1241,14 +1241,6 @@ def trading_overview_snapshot() -> Dict[str, object]:
     else:
         last_order = journal.get("latest")
     reconciliation_delta = risk.get("reconciliation_delta")
-    if reconciliation_delta is None:
-        parsed = []
-        for reason in risk.get("reasons", []) if isinstance(risk.get("reasons"), list) else []:
-            match = re.search(r"(?P<symbol>[A-Z0-9]+): account=(?P<account>[0-9.]+), ledger=(?P<ledger>[0-9.]+)", str(reason))
-            if match:
-                account_qty = float(match.group("account")); ledger_qty = float(match.group("ledger"))
-                parsed.append({"symbol": match.group("symbol"), "account": account_qty, "ledger": ledger_qty, "delta": round(account_qty - ledger_qty, 8)})
-        reconciliation_delta = parsed or None
     return {
         "ok": True,
         "updated_at": now_str(),
