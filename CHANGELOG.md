@@ -3,6 +3,24 @@
 All notable changes are documented here. Releases use Semantic Versioning; every
 section is dated and there is intentionally no `Unreleased` section.
 
+## [2.20.137] — 2026-08-02
+
+### Changed
+- GitHub pull request merge handling now requires exact workflow and event evidence.
+- Release-continuity tests now have a focused component module.
+
+### Fixed
+- Local and octopus merges can no longer imitate a GitHub pull request merge.
+- A version change in the pull request base parent cannot pass as the candidate change.
+
+### Security
+- The release gate accepts only the event's exact pull request head commit.
+- Oversized, missing, malformed, or inconsistent event evidence fails closed.
+
+### Verified
+- The complete 964-test suite and Python compilation pass.
+- Seven focused release-continuity tests pass.
+
 ## [2.20.136] — 2026-08-02
 
 ### Changed

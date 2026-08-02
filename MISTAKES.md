@@ -17,6 +17,13 @@ private infrastructure details.
 
 ## Mistakes
 
+### 2026-08-02 — Identified CI from Git topology alone
+
+- **Impact:** a local or octopus merge could receive the release gate exception intended only for GitHub pull request CI.
+- **Root cause:** the gate treated two or more parents as sufficient proof of a synthetic GitHub merge.
+- **Correction:** require exact GitHub event evidence and authorize only the event's pull request head commit.
+- **Prevention:** test every CI-only exception against local, malformed, wrong-parent, and multi-parent inputs.
+
 ### 2026-08-02 — Assumed every stored SELL had complete FIFO history
 
 - **Impact:** the first complete test run rejected valid imported-basis and incomplete-symbol accounting scenarios.

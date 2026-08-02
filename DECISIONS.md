@@ -4,6 +4,13 @@ Read this file before changing the repository. Record only decisions that were
 validated by tests or production evidence and are likely to be reused. Keep
 entries concise; this is not a changelog or an activity log.
 
+### 2026-08-02 — Bind CI exceptions to authoritative event evidence
+
+- **Context:** commit topology alone cannot prove that a merge came from GitHub pull request CI.
+- **Decision:** require the exact workflow event, merge ref, merge SHA, two parents, and event head before allowing a parent version commit.
+- **Why it worked:** tests accept one verified synthetic merge and reject local, octopus, wrong-head, and base-version merges.
+- **Reuse:** every verification exception that depends on CI provider identity or event topology.
+
 ### 2026-08-02 — Use one FIFO sign for risk and reporting
 
 - **Context:** average cost and FIFO can assign opposite signs to one ladder SELL.

@@ -6,6 +6,7 @@
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
 import re
 import subprocess
@@ -33,7 +34,9 @@ CHANGELOG_VERSION_RE = re.compile(
     re.MULTILINE,
 )
 FULL_SHA_RE = re.compile(r"^[0-9a-f]{40}$")
+PULL_REQUEST_REF_RE = re.compile(r"^refs/pull/\d+/merge$")
 LINEAGE_FILE = ".release-lineage.json"
+MAX_GITHUB_EVENT_BYTES = 1_048_576
 
 
 def _version_tuple(version: str) -> tuple[int, int, int]:
@@ -93,6 +96,34 @@ def _source_version(text: str) -> str:
 
 def _version_at(root: Path, ref: str) -> str:
     return _source_version(_git(root, "show", f"{ref}:product_version.py"))
+
+
+def _github_pull_request_candidate(
+    head: str,
+    head_parents: list[str],
+) -> str | None:
+    """Return the verified PR head for one GitHub synthetic merge."""
+    if (
+        os.environ.get("GITHUB_ACTIONS") != "true"
+        or os.environ.get("GITHUB_EVENT_NAME") != "pull_request"
+        or not PULL_REQUEST_REF_RE.fullmatch(
+            os.environ.get("GITHUB_REF", "")
+        )
+        or os.environ.get("GITHUB_SHA", "").lower() != head
+        or len(head_parents) != 2
+    ):
+        return None
+    event_path = Path(os.environ.get("GITHUB_EVENT_PATH", ""))
+    if (
+        not event_path.is_file()
+        or event_path.stat().st_size > MAX_GITHUB_EVENT_BYTES
+    ):
+        return None
+    payload = json.loads(event_path.read_text(encoding="utf-8"))
+    candidate = str(payload["pull_request"]["head"]["sha"]).lower()
+    if not FULL_SHA_RE.fullmatch(candidate) or candidate not in head_parents:
+        return None
+    return candidate
 
 
 def _blocked(
@@ -236,10 +267,12 @@ def check_release_continuity(context: HarnessContext) -> CheckResult:
                 root, "rev-list", "--parents", "-n", "1", "HEAD"
             ).split()[1:]
             permitted_final_commits = {head}
-            if len(head_parents) >= 2:
-                # GitHub pull_request workflows test a synthetic merge commit;
-                # the candidate tip is one of its direct parents.
-                permitted_final_commits.update(head_parents)
+            pull_request_candidate = _github_pull_request_candidate(
+                head, head_parents
+            )
+            if pull_request_candidate is not None:
+                # Only the event's PR head can own the version change.
+                permitted_final_commits.add(pull_request_candidate)
             if (
                 len(version_commits) != 1
                 or version_commits[0] not in permitted_final_commits
