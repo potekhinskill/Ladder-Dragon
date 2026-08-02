@@ -3,6 +3,24 @@
 All notable changes are documented here. Releases use Semantic Versioning; every
 section is dated and there is intentionally no `Unreleased` section.
 
+## [2.20.127] — 2026-08-02
+
+### Changed
+- Public market reads now apply a process-local cooldown from Binance `Retry-After` evidence.
+- HTTP 418 uses a 120-second default when Binance omits a valid cooldown.
+- HTTP 429 uses a one-second default when Binance omits a valid cooldown.
+
+### Fixed
+- HTTP 418 and 429 no longer cause three immediate read retries.
+- The unused float-based USDT balance helper was removed.
+
+### Security
+- Cooldown errors retain only the status, endpoint path, and bounded delay.
+- Signed query values cannot enter cooldown diagnostics.
+
+### Verified
+- The complete project test suite and the technical English check pass.
+
 ## [2.20.126] — 2026-08-02
 
 ### Added

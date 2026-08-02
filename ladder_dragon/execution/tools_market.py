@@ -11,6 +11,7 @@ import time
 import hmac
 import math
 import hashlib
+import threading
 import requests
 from typing import Dict, Tuple, List, Optional, Any
 from urllib.parse import urlsplit
@@ -55,10 +56,12 @@ class BinanceHttpError(RuntimeError):
         status: int | None = None,
         code: int | None = None,
         endpoint: str | None = None,
+        retry_after_seconds: int | None = None,
     ) -> None:
         self.status = status
         self.code = code
         self.endpoint = endpoint
+        self.retry_after_seconds = retry_after_seconds
         if status is None and code is None and endpoint is None:
             super().__init__(str(message or "Binance request failed"))
             return
@@ -72,13 +75,64 @@ class BinanceHttpError(RuntimeError):
         super().__init__(" ".join(parts))
 
 # ---- simple retries ----
+_rate_limit_lock = threading.RLock()
+_rate_limit_until = 0.0
+_rate_limit_error: BinanceHttpError | None = None
+
+
+def _retry_after_seconds(response: requests.Response) -> int:
+    """Return a bounded exchange cooldown from Retry-After."""
+    default = 120 if response.status_code == 418 else 1
+    raw = getattr(response, "headers", {}).get("Retry-After")
+    try:
+        seconds = math.ceil(float(raw)) if raw is not None else default
+    except (OverflowError, TypeError, ValueError):
+        seconds = default
+    return min(3 * 24 * 60 * 60, max(1, seconds))
+
+
+def _raise_if_rate_limited() -> None:
+    global _rate_limit_until, _rate_limit_error
+    with _rate_limit_lock:
+        if time.monotonic() >= _rate_limit_until:
+            _rate_limit_until = 0.0
+            _rate_limit_error = None
+            return
+        error = _rate_limit_error
+    if error is not None:
+        raise error
+
+
+def _activate_rate_limit(response: requests.Response, url: str) -> BinanceHttpError:
+    """Block local reads until Binance permits the next request."""
+    global _rate_limit_until, _rate_limit_error
+    retry_after = _retry_after_seconds(response)
+    deadline = time.monotonic() + retry_after
+    endpoint = urlsplit(url).path or "<unknown>"
+    error = BinanceHttpError(
+        status=int(response.status_code),
+        endpoint=endpoint,
+        retry_after_seconds=retry_after,
+        message=f"requests blocked locally for {retry_after}s",
+    )
+    with _rate_limit_lock:
+        if _rate_limit_error is not None and _rate_limit_until > deadline:
+            return _rate_limit_error
+        _rate_limit_until = deadline
+        _rate_limit_error = error
+    return error
+
+
 def _do_request(method: str, url: str, **kw) -> requests.Response:
     attempts = 3
     delay = 0.5
     for i in range(attempts):
+        _raise_if_rate_limited()
         try:
             r = SESSION.request(method, url, timeout=TIMEOUT, **kw)
-            if r.status_code in (418, 429) or 500 <= r.status_code < 600:
+            if r.status_code in (418, 429):
+                raise _activate_rate_limit(r, url)
+            if 500 <= r.status_code < 600:
                 if i == attempts - 1:
                     return r
                 time.sleep(delay)
@@ -369,17 +423,6 @@ def get_symbol_filters(symbol: str) -> Dict[str, object]:
 def get_ticker_price(symbol: str) -> float:
     data = _public_get("/api/v3/ticker/price", {"symbol": symbol.upper()})
     return float(data["price"])
-
-def get_free_and_balance_usdt() -> Tuple[float, float]:
-    data = _signed_get("/api/v3/account")
-    free = 0.0
-    locked = 0.0
-    for a in data.get("balances", []):
-        if a.get("asset") == "USDT":
-            free = float(a.get("free", 0))
-            locked = float(a.get("locked", 0))
-            break
-    return free, free + locked
 
 # ---- filter-aware qty/price normalization ----
 def _decimals_from_float_step(step: float) -> int:

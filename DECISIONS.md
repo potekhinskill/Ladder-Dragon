@@ -4,6 +4,13 @@ Read this file before changing the repository. Record only decisions that were
 validated by tests or production evidence and are likely to be reused. Keep
 entries concise; this is not a changelog or an activity log.
 
+### 2026-08-02 — Convert Retry-After into a non-blocking local cooldown
+
+- **Context:** immediate public-read retries can extend an exchange rate limit or IP ban.
+- **Decision:** cache one bounded error until `Retry-After` expires and make no network request during that interval.
+- **Why it worked:** tests prove one exchange call, no blocking sleep, exact cooldown expiry, bounded defaults, and query-free diagnostics.
+- **Reuse:** every read-only transport used by latency-sensitive or periodic services.
+
 ### 2026-08-02 — Adapt VWAP discount in its conservative direction
 
 - **Context:** a static discount made its bounds, smoothing, and persistent state ineffective.
