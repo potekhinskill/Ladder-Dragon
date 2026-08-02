@@ -3,6 +3,23 @@
 All notable changes are documented here. Releases use Semantic Versioning; every
 section is dated and there is intentionally no `Unreleased` section.
 
+## [2.20.128] — 2026-08-02
+
+### Changed
+- Exchange step arithmetic now requires finite positive step and tick values.
+- Order normalization now validates all four required exact symbol filters together.
+- Market filter reads validate required fields before the result enters the process cache.
+
+### Fixed
+- A zero exchange step no longer bypasses rounding or selects the eight-decimal fallback.
+- Missing price, quantity, or minimum-notional filters now cause a local fail-closed error.
+
+### Security
+- Invalid exchange filter metadata cannot reach an order submission boundary.
+
+### Verified
+- The complete 935-test suite and the technical English check pass.
+
 ## [2.20.127] — 2026-08-02
 
 ### Changed

@@ -156,6 +156,27 @@ def test_recorded_exchange_filters(monkeypatch):
     assert result["minNotionalExact"] == "5.00000000"
 
 
+@pytest.mark.parametrize(
+    "missing_type", ("PRICE_FILTER", "LOT_SIZE", "MIN_NOTIONAL")
+)
+def test_exchange_filter_read_rejects_missing_required_filter(
+    monkeypatch, missing_type
+):
+    fixture = Path("tests/fixtures/binance/exchange_info_solusdt.json")
+    payload = json.loads(fixture.read_text())
+    payload["symbols"][0]["filters"] = [
+        item for item in payload["symbols"][0]["filters"]
+        if item.get("filterType") != missing_type
+    ]
+    monkeypatch.setattr(tools_market, "_public_get", lambda *args, **kwargs: payload)
+    tools_market._exchange_cache = {}
+    tools_market._exchange_cache_ts = {}
+
+    with pytest.raises(tools_market.BinanceHttpError, match="finite and positive"):
+        tools_market.get_symbol_filters("SOLUSDT")
+    assert "SOLUSDT" not in tools_market._exchange_cache
+
+
 def test_order_normalization_uses_exact_filter_strings(monkeypatch):
     filters = {
         "stepSize": 1e-08,

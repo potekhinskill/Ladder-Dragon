@@ -1,12 +1,58 @@
 from decimal import Decimal
 
-from ladder_dragon.execution.exchange_math import normalized_order_values, round_step
+import pytest
+
+from ladder_dragon.execution.exchange_math import (
+    format_step,
+    normalized_order_values,
+    round_step,
+)
 
 
 def test_step_rounding_has_no_binary_float_drift():
     assert round_step("0.3", "0.1", "floor") == Decimal("0.3")
     assert round_step("100.001", "0.01", "floor") == Decimal("100.00")
     assert round_step("100.001", "0.01", "ceil") == Decimal("100.01")
+
+
+@pytest.mark.parametrize("step", ("0", "-0.01", "NaN", "Infinity", "bad"))
+def test_step_operations_reject_invalid_exchange_quantum(step):
+    with pytest.raises(ValueError, match="finite and positive"):
+        round_step("1", step)
+    with pytest.raises(ValueError, match="finite and positive"):
+        format_step("1", step)
+
+
+@pytest.mark.parametrize("value", ("NaN", "Infinity", "bad"))
+def test_step_operations_reject_non_finite_exchange_value(value):
+    with pytest.raises(ValueError, match="value must be finite"):
+        round_step(value, "0.01")
+    with pytest.raises(ValueError, match="value must be finite"):
+        format_step(value, "0.01")
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    (
+        ("step", "0"),
+        ("tick", "0"),
+        ("min_qty", "0"),
+        ("min_notional", "0"),
+    ),
+)
+def test_order_normalization_rejects_invalid_required_filter(field, value):
+    filters = {
+        "step": "0.001",
+        "tick": "0.01",
+        "min_qty": "0.001",
+        "min_notional": "5",
+    }
+    filters[field] = value
+
+    with pytest.raises(ValueError, match="finite and positive"):
+        normalized_order_values(
+            "0.1", "100", side="BUY", **filters
+        )
 
 
 def test_min_notional_rounds_quantity_up_exactly():

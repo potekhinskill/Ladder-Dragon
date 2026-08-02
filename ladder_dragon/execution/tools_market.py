@@ -15,7 +15,11 @@ import threading
 import requests
 from typing import Dict, Tuple, List, Optional, Any
 from urllib.parse import urlsplit
-from ladder_dragon.execution.exchange_math import normalized_order_values, round_step
+from ladder_dragon.execution.exchange_math import (
+    exact_symbol_filters,
+    normalized_order_values,
+    round_step,
+)
 from ladder_dragon.execution.telegram_alerts import notify_binance_auth_error
 
 # --- optional .env ---
@@ -373,7 +377,7 @@ def get_symbol_filters(symbol: str) -> Dict[str, object]:
     tick_size_exact = "0"
     step_size_exact = "0"
     min_qty_exact = "0"
-    min_notional_exact = "5"
+    min_notional_exact = "0"
 
     # Additional fields used by the supervisor and validators.
     price_precision = int(info.get("pricePrecision", 0))
@@ -416,6 +420,12 @@ def get_symbol_filters(symbol: str) -> Dict[str, object]:
         "marketStepSizeExact": market_step_size_exact,
         "marketMinQtyExact": market_min_qty_exact,
     }
+    try:
+        exact_symbol_filters(res)
+    except ValueError as exc:
+        raise BinanceHttpError(
+            f"exchangeInfo: invalid required filters for '{symbol}': {exc}"
+        ) from exc
     _exchange_cache[symbol] = res
     _exchange_cache_ts[symbol] = now
     return res

@@ -4,6 +4,13 @@ Read this file before changing the repository. Record only decisions that were
 validated by tests or production evidence and are likely to be reused. Keep
 entries concise; this is not a changelog or an activity log.
 
+### 2026-08-02 — Validate exchange filters before rounding
+
+- **Context:** a missing filter became zero and silently disabled step rounding.
+- **Decision:** require finite positive filter values in parsing, normalization, rounding, and formatting boundaries.
+- **Why it worked:** regressions reject missing and invalid filters before caching or order submission.
+- **Reuse:** every exchange adapter that converts venue metadata into executable order parameters.
+
 ### 2026-08-02 — Convert Retry-After into a non-blocking local cooldown
 
 - **Context:** immediate public-read retries can extend an exchange rate limit or IP ban.

@@ -41,10 +41,30 @@ def decimal(value: object) -> Decimal:
     return Decimal(str(value))
 
 
+def _positive_step(value: object) -> Decimal:
+    """Return one finite positive exchange step."""
+    try:
+        quantum = decimal(value)
+    except (InvalidOperation, TypeError, ValueError) as exc:
+        raise ValueError("exchange step must be finite and positive") from exc
+    if not quantum.is_finite() or quantum <= 0:
+        raise ValueError("exchange step must be finite and positive")
+    return quantum
+
+
+def _finite_value(value: object) -> Decimal:
+    """Return one finite exchange value."""
+    try:
+        amount = decimal(value)
+    except (InvalidOperation, TypeError, ValueError) as exc:
+        raise ValueError("exchange value must be finite") from exc
+    if not amount.is_finite():
+        raise ValueError("exchange value must be finite")
+    return amount
+
+
 def round_step(value: object, step: object, mode: str = "floor") -> Decimal:
-    amount, quantum = decimal(value), decimal(step)
-    if quantum <= 0:
-        return amount
+    amount, quantum = _finite_value(value), _positive_step(step)
     rounding = {
         "floor": ROUND_FLOOR,
         "down": ROUND_FLOOR,
@@ -59,8 +79,8 @@ def round_step(value: object, step: object, mode: str = "floor") -> Decimal:
 
 
 def format_step(value: object, step: object) -> str:
-    amount, quantum = decimal(value), decimal(step)
-    places = max(0, -quantum.normalize().as_tuple().exponent) if quantum > 0 else 8
+    amount, quantum = _finite_value(value), _positive_step(step)
+    places = max(0, -quantum.normalize().as_tuple().exponent)
     return f"{amount:.{places}f}"
 
 
@@ -74,10 +94,19 @@ def normalized_order_values(
     min_notional: object,
     side: str,
 ) -> tuple[str, str]:
-    step_d, tick_d = decimal(step), decimal(tick)
+    filters = exact_symbol_filters({
+        "tickSizeExact": tick,
+        "stepSizeExact": step,
+        "minQtyExact": min_qty,
+        "minNotionalExact": min_notional,
+    })
+    if filters is None:  # The complete internal mapping must always parse.
+        raise ValueError("exchange filters are incomplete")
+    step_d, tick_d = filters.step, filters.tick
     qty_d = round_step(qty, step_d, "floor")
     price_d = round_step(price, tick_d, "floor" if side.upper() == "BUY" else "ceil")
-    minimum_qty, minimum_notional = decimal(min_qty), decimal(min_notional)
+    minimum_qty = filters.minimum_quantity
+    minimum_notional = filters.minimum_notional
     if qty_d < minimum_qty:
         qty_d = round_step(minimum_qty, step_d, "ceil")
     if price_d > 0 and qty_d * price_d < minimum_notional:
