@@ -4,6 +4,13 @@ Read this file before changing the repository. Record only decisions that were
 validated by tests or production evidence and are likely to be reused. Keep
 entries concise; this is not a changelog or an activity log.
 
+### 2026-08-03 — Share symbol quote vocabulary with exact accounting
+
+- **Context:** a fixed four-character fallback corrupted assets for BTC, ETH, and BNB quotes.
+- **Decision:** infer only from the accounting quote list and reject unknown suffixes.
+- **Why it worked:** tests cover three-, four-, and five-character quotes plus fail-closed rejection.
+- **Reuse:** every offline or read-only parser for Binance concatenated symbols.
+
 ### 2026-08-03 — Do not stream data without an active consumer
 
 - **Context:** fast-market candles produced unseeded indicators that no decision or report consumed.

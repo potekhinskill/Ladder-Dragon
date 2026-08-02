@@ -112,6 +112,8 @@ IP Guard accepts a changed fingerprint only after the complete signed read-only 
 Runtime authentication rejection refreshes the same two-source IP evidence.
 An authentication or source-consensus failure keeps BUY blocked.
 Automatic acceptance never removes HALT or changes a trading limit.
+Read-only symbol fallback uses the exact-accounting quote list.
+An unknown quote suffix blocks balance-dependent work instead of guessing asset names.
 
 ## Data paths
 

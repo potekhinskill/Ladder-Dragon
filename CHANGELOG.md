@@ -3,6 +3,23 @@
 All notable changes are documented here. Releases use Semantic Versioning; every
 section is dated and there is intentionally no `Unreleased` section.
 
+## [2.20.146] — 2026-08-03
+
+### Changed
+- Read-only symbol fallback now uses the exact-accounting quote vocabulary.
+- The parser supports known three-, four-, and five-character quote assets.
+
+### Fixed
+- ETHBTC no longer becomes the invalid asset pair `ET` and `HBTC` during metadata failure.
+- Holdings logic can no longer derive a false zero balance from that split.
+
+### Security
+- Unknown quote suffixes fail closed instead of producing guessed asset names.
+- Order placement still requires authoritative exchange filters.
+
+### Verified
+- Focused executor-market and module-boundary tests pass.
+
 ## [2.20.145] — 2026-08-03
 
 ### Changed

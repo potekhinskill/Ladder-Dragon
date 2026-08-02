@@ -10,6 +10,8 @@ from typing import Any, Callable, Dict, MutableMapping, Tuple
 
 import requests
 
+from ladder_dragon.execution.trade_accounting import KNOWN_QUOTES
+
 
 MARKET_READ_ERRORS = (
     ArithmeticError,
@@ -100,7 +102,9 @@ def get_symbol_assets(
     cache: MutableMapping[str, Tuple[str, str]],
 ) -> Tuple[str, str]:
     """Return symbol assets."""
-    normalized = symbol.upper()
+    normalized = symbol.strip().upper()
+    if not normalized:
+        raise ValueError("symbol is empty")
     cached = cache.get(normalized)
     if cached is not None:
         return cached
@@ -117,6 +121,9 @@ def get_symbol_assets(
         # Symbol suffix inference is deliberately limited to a read-only
         # fallback. Order placement still requires exchange filters.
         pass
-    if normalized.endswith("USDT"):
-        return normalized[:-4], "USDT"
-    return normalized[:-4], normalized[-4:]
+    # This read-only fallback shares the accounting vocabulary. Unknown
+    # suffixes fail closed instead of producing a false zero balance.
+    for quote in KNOWN_QUOTES:
+        if normalized.endswith(quote) and len(normalized) > len(quote):
+            return normalized[: -len(quote)], quote
+    raise ValueError(f"cannot determine assets for symbol {normalized}")

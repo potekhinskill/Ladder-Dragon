@@ -17,6 +17,13 @@ private infrastructure details.
 
 ## Mistakes
 
+### 2026-08-03 — Guessed every quote asset as four characters
+
+- **Impact:** a transient metadata failure could hide a real balance for BTC-, ETH-, or BNB-quoted symbols.
+- **Root cause:** the fallback encoded one suffix length instead of the exchange quote vocabulary.
+- **Correction:** use the exact-accounting quote list and reject unknown suffixes.
+- **Prevention:** symbol parsers must share one ordered quote vocabulary and test different suffix lengths.
+
 ### 2026-08-03 — Built indicators without connecting a consumer
 
 - **Impact:** each fast-market worker received and processed unused candle data.

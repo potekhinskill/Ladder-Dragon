@@ -583,6 +583,20 @@ def test_executor_market_fallbacks_and_asset_cache():
     assert assets == ("SOL", "USDT")
     assert cache["SOLUSDT"] == assets
 
+    def unavailable(_symbol):
+        raise requests.ConnectionError("exchange info unavailable")
+
+    assert get_symbol_assets(
+        "ETHBTC", exchange_info=unavailable, cache={}
+    ) == ("ETH", "BTC")
+    assert get_symbol_assets(
+        "SOLFDUSD", exchange_info=unavailable, cache={}
+    ) == ("SOL", "FDUSD")
+    with pytest.raises(ValueError, match="cannot determine assets"):
+        get_symbol_assets(
+            "ABCXYZ", exchange_info=unavailable, cache={}
+        )
+
     balances = get_balances(
         signed_request=lambda *args: {
             "balances": [{"asset": "USDT", "free": "10.5", "locked": "1.5"}]
