@@ -18,6 +18,7 @@ LIMITS = {
     "ladder_dragon/numeric_compat.py": 1,
     "ladder_dragon/execution/orders/runtime.py": 0,
     "ladder_dragon/execution/protection/runtime.py": 0,
+    "ladder_dragon/execution/protection/breakeven.py": 0,
 }
 
 

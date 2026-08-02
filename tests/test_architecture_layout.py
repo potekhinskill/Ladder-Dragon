@@ -118,6 +118,38 @@ def test_supervisor_risk_recovery_and_process_services_are_physical():
         )
 
 
+def test_breakeven_service_owns_its_runtime_logic():
+    runtime = ast.parse(
+        (ROOT / "ladder_dragon/execution/protection/runtime.py").read_text(
+            encoding="utf-8"
+        )
+    )
+    assert not any(
+        isinstance(node, (ast.ClassDef, ast.FunctionDef))
+        and node.name in {
+            "BreakevenRuntime",
+            "BreakevenStateStore",
+            "maintain_breakeven",
+        }
+        for node in runtime.body
+    )
+    service = ast.parse(
+        (ROOT / "ladder_dragon/execution/protection/breakeven.py").read_text(
+            encoding="utf-8"
+        )
+    )
+    definitions = {
+        node.name
+        for node in service.body
+        if isinstance(node, (ast.ClassDef, ast.FunctionDef))
+    }
+    assert {
+        "BreakevenRuntime",
+        "BreakevenStateStore",
+        "maintain_breakeven",
+    } <= definitions
+
+
 def test_worker_buy_service_has_no_legacy_runtime_wrapper():
     runtime = ast.parse(
         (ROOT / "ladder_dragon/execution/worker/runtime.py").read_text(

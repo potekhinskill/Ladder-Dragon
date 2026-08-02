@@ -4,6 +4,13 @@ Read this file before changing the repository. Record only decisions that were
 validated by tests or production evidence and are likely to be reused. Keep
 entries concise; this is not a changelog or an activity log.
 
+### 2026-08-02 — Verify protection on both sides of replacement
+
+- **Context:** a breakeven move removes one OCO before it creates another OCO.
+- **Decision:** verify old-list absence, then require a verified replacement or create HALT.
+- **Why it worked:** tests cover delayed cancellation, empty responses, network errors, successful re-arm, and secret-safe diagnostics.
+- **Reuse:** every workflow that replaces exchange-side protection after a destructive mutation.
+
 ### 2026-08-02 — Validate exchange filters before rounding
 
 - **Context:** a missing filter became zero and silently disabled step rounding.

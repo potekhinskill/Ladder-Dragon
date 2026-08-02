@@ -17,6 +17,7 @@ FILES = (
     Path("bin/ladder_pct_runner.py"),
     Path("bin/pnl_24h.py"),
     Path("ladder_dragon/execution/protection/runtime.py"),
+    Path("ladder_dragon/execution/protection/breakeven.py"),
 )
 
 
@@ -88,6 +89,7 @@ def test_executor_order_and_protection_modules_have_no_float_calls():
     for path in (
         Path("ladder_dragon/execution/orders/runtime.py"),
         Path("ladder_dragon/execution/protection/runtime.py"),
+        Path("ladder_dragon/execution/protection/breakeven.py"),
     ):
         tree = ast.parse(path.read_text())
         calls = [

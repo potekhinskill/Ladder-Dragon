@@ -3,12 +3,14 @@ from decimal import Decimal
 
 import requests
 
-from ladder_dragon.execution.protection.runtime import (
+from ladder_dragon.execution.protection.breakeven import (
     BreakevenRuntime,
     BreakevenStateStore,
+    maintain_breakeven,
+)
+from ladder_dragon.execution.protection.runtime import (
     ProtectionConfig,
     ProtectionDependencies,
-    maintain_breakeven,
     protect_filled_buys,
     emergency_gap_flatten,
 )
@@ -594,9 +596,10 @@ def test_breakeven_rearms_partially_filled_oco(tmp_path):
         replacements.append((args, kwargs))
         return {"orderListId": 78}
 
+    responses = iter((open_orders, []))
     deps = dependencies(
         logger=logs.append,
-        list_open_orders=lambda symbol: open_orders,
+        list_open_orders=lambda symbol: next(responses),
         cancel_oco=lambda symbol, order_list_id: canceled.append(
             (symbol, order_list_id)
         ),
@@ -711,6 +714,102 @@ def test_breakeven_cancel_error_reconciles_absent_old_oco(tmp_path):
         "SOLUSDT", Decimal("0.6"), Decimal("110.0")
     )
     assert "78" in store.load("SOLUSDT")
+
+
+def test_breakeven_successful_cancel_requires_absent_old_oco(tmp_path):
+    halts, replacements = [], []
+    store = state_store(tmp_path)
+    store.save("SOLUSDT", {"77": {"fill_price": 100.0}})
+    open_orders = [
+        {
+            "side": "SELL", "orderListId": 77, "type": "LIMIT_MAKER",
+            "origQty": "1", "executedQty": "0.4", "price": "110",
+        },
+        {
+            "side": "SELL", "orderListId": 77,
+            "type": "STOP_LOSS_LIMIT", "stopPrice": "95",
+        },
+    ]
+    deps = dependencies(
+        list_open_orders=lambda symbol: open_orders,
+        place_oco_sell=lambda *args: replacements.append(args),
+        halt=lambda reason, **metadata: halts.append((reason, metadata)),
+    )
+
+    maintain_breakeven(
+        "SOLUSDT", offset_pct=0.001, stop_limit_offset_pct=0.0015,
+        state_store=store, dependencies=deps,
+    )
+
+    assert replacements == []
+    assert "old list remains open" in halts[0][0]
+    assert halts[0][1]["order_list_id"] == 77
+
+
+def test_breakeven_empty_replacement_halts_unprotected_position(tmp_path):
+    halts = []
+    store = state_store(tmp_path)
+    store.save("SOLUSDT", {"77": {"fill_price": 100.0}})
+    initial = [
+        {
+            "side": "SELL", "orderListId": 77, "type": "LIMIT_MAKER",
+            "origQty": "1", "executedQty": "0.4", "price": "110",
+        },
+        {
+            "side": "SELL", "orderListId": 77,
+            "type": "STOP_LOSS_LIMIT", "stopPrice": "95",
+        },
+    ]
+    responses = iter((initial, []))
+    deps = dependencies(
+        list_open_orders=lambda symbol: next(responses),
+        place_oco_sell=lambda *args: None,
+        halt=lambda reason, **metadata: halts.append((reason, metadata)),
+    )
+
+    maintain_breakeven(
+        "SOLUSDT", offset_pct=0.001, stop_limit_offset_pct=0.0015,
+        state_store=store, dependencies=deps,
+    )
+
+    assert "without confirmed protection" in halts[0][0]
+    assert halts[0][1]["error_type"] == "UnconfirmedReplacement"
+    assert "77" in store.load("SOLUSDT")
+
+
+def test_breakeven_replacement_error_halts_without_secret_text(tmp_path):
+    halts, logs = [], []
+    store = state_store(tmp_path)
+    store.save("SOLUSDT", {"77": {"fill_price": 100.0}})
+    initial = [
+        {
+            "side": "SELL", "orderListId": 77, "type": "LIMIT_MAKER",
+            "origQty": "1", "executedQty": "0.4", "price": "110",
+        },
+        {
+            "side": "SELL", "orderListId": 77,
+            "type": "STOP_LOSS_LIMIT", "stopPrice": "95",
+        },
+    ]
+    responses = iter((initial, []))
+    deps = dependencies(
+        logger=logs.append,
+        list_open_orders=lambda symbol: next(responses),
+        place_oco_sell=lambda *args: (_ for _ in ()).throw(
+            requests.ConnectionError("https://api.test/?signature=secret")
+        ),
+        halt=lambda reason, **metadata: halts.append((reason, metadata)),
+    )
+
+    maintain_breakeven(
+        "SOLUSDT", offset_pct=0.001, stop_limit_offset_pct=0.0015,
+        state_store=store, dependencies=deps,
+    )
+
+    evidence = repr((halts, logs))
+    assert halts[0][1]["error_type"] == "ConnectionError"
+    assert "signature=" not in evidence
+    assert "secret" not in evidence
 
 
 def test_breakeven_runtime_respects_interval():

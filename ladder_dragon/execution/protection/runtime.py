@@ -7,7 +7,6 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from decimal import Decimal, InvalidOperation, ROUND_CEILING
-import json
 import os
 import sqlite3
 import time
@@ -17,6 +16,7 @@ import requests
 
 from ladder_dragon.execution.order_recovery import OrderJournal, TERMINAL_EXCHANGE_STATES
 from ladder_dragon.execution.exchange_math import exact_symbol_filters, round_step
+from ladder_dragon.execution.protection.breakeven import BreakevenStateStore
 from ladder_dragon.execution.protection.validation import (
     exact_balance_quantity as _exact_balance_quantity,
 )
@@ -43,25 +43,6 @@ class ProtectionConfig:
     avg_cache_ttl: int
     avg_lookback: int
     panic_sell_floor_pct: Optional[float]
-
-
-@dataclass
-class BreakevenRuntime:
-    """Represent BreakevenRuntime."""
-
-    enabled: bool
-    offset_pct: float
-    check_interval: int
-    tick: int = 0
-
-    def due(self) -> bool:
-        if not self.enabled:
-            return False
-        self.tick += 1
-        if self.tick < max(1, int(self.check_interval)):
-            return False
-        self.tick = 0
-        return True
 
 
 @dataclass(frozen=True)
@@ -409,40 +390,6 @@ def emergency_gap_flatten(
     except _PROTECTION_DATA_ERRORS as exc:
         dependencies.halt(f"gap watchdog failed: {exc}", symbol=symbol)
         return False
-
-
-class BreakevenStateStore:
-    """Represent BreakevenStateStore."""
-
-    def __init__(
-        self,
-        run_dir: Callable[[], str],
-        debugger: Callable[[str], None],
-    ) -> None:
-        self._run_dir = run_dir
-        self._debugger = debugger
-
-    def _path(self, symbol: str) -> str:
-        return os.path.join(self._run_dir(), f"oco_be_state_{symbol}.json")
-
-    def load(self, symbol: str) -> dict:
-        try:
-            path = self._path(symbol)
-            if os.path.exists(path):
-                with open(path, "r", encoding="utf-8") as handle:
-                    return json.load(handle) or {}
-        except (OSError, json.JSONDecodeError, TypeError) as exc:
-            self._debugger(f"[BE] state load err: {exc}")
-        return {}
-
-    def save(self, symbol: str, state: dict) -> None:
-        try:
-            path = self._path(symbol)
-            os.makedirs(os.path.dirname(path) or self._run_dir(), exist_ok=True)
-            with open(path, "w", encoding="utf-8") as handle:
-                json.dump(state, handle)
-        except (OSError, TypeError, ValueError) as exc:
-            self._debugger(f"[BE] state save err: {exc}")
 
 
 def protect_filled_buys(
@@ -867,229 +814,3 @@ def protect_filled_buys(
             except ValueError:
                 pass
     return remaining
-
-
-def maintain_breakeven(
-    symbol: str,
-    *,
-    offset_pct: float,
-    stop_limit_offset_pct: float,
-    state_store: BreakevenStateStore,
-    dependencies: ProtectionDependencies,
-) -> None:
-    """Maintain breakeven."""
-    try:
-        groups: Dict[str, List[Dict[str, Any]]] = {}
-        for order in dependencies.list_open_orders(symbol):
-            try:
-                if str(order.get("side", "")).upper() != "SELL":
-                    continue
-                order_list_id = order.get("orderListId")
-                if not order_list_id:
-                    continue
-                groups.setdefault(str(order_list_id), []).append(order)
-            except (AttributeError, TypeError, ValueError):
-                continue
-        if not groups:
-            return
-        state = state_store.load(symbol)
-        for order_list_id, orders in groups.items():
-            take_profit = next(
-                (
-                    item
-                    for item in orders
-                    if "LIMIT" in str(item.get("type", "")).upper()
-                    and "STOP" not in str(item.get("type", "")).upper()
-                ),
-                None,
-            )
-            stop_loss = next(
-                (
-                    item
-                    for item in orders
-                    if "STOP_LOSS" in str(item.get("type", "")).upper()
-                ),
-                None,
-            )
-            if not take_profit or not stop_loss:
-                continue
-            try:
-                original = Decimal(str(
-                    take_profit.get("origQty", "0") or "0"
-                ))
-                executed = Decimal(str(
-                    take_profit.get("executedQty", "0") or "0"
-                ))
-                remaining = max(Decimal("0"), original - executed)
-            except (InvalidOperation, TypeError, ValueError):
-                continue
-            if executed <= 0 or remaining <= 0:
-                continue
-
-            fill_price = Decimal(str(
-                state.get(str(order_list_id), {}).get("fill_price", "0")
-            ))
-            if fill_price <= 0:
-                continue
-            exact_filters = exact_symbol_filters(
-                dependencies.pull_filters(symbol)
-            )
-            offset = max(Decimal("0"), Decimal(str(offset_pct)))
-            target_raw = fill_price * (Decimal("1") + offset)
-            target_stop = (
-                round_step(target_raw, exact_filters.tick, "floor")
-                if exact_filters is not None
-                else Decimal(str(dependencies.round_price(
-                    symbol, target_raw
-                )))
-            )
-            try:
-                current_stop = Decimal(str(
-                    stop_loss.get("stopPrice", "0") or "0"
-                ))
-            except (InvalidOperation, TypeError, ValueError):
-                current_stop = Decimal("0")
-            if current_stop >= target_stop:
-                continue
-
-            tick = (
-                exact_filters.tick
-                if exact_filters is not None
-                else Decimal(str(dependencies.tick_size(symbol)))
-            )
-            epsilon = max(
-                tick * max(
-                    Decimal("1"),
-                    Decimal(str(dependencies.price_eps_mult())),
-                ),
-                fill_price * max(
-                    Decimal("0"), Decimal(str(stop_limit_offset_pct))
-                ),
-            )
-            sl_stop = round_step(target_stop, tick, "up")
-            sl_limit = round_step(sl_stop - epsilon, tick, "down")
-            if sl_stop <= sl_limit:
-                sl_stop = round_step(sl_limit + tick, tick, "up")
-            try:
-                tp_price = Decimal(str(
-                    take_profit.get("price", "0") or "0"
-                ))
-            except (InvalidOperation, TypeError, ValueError):
-                tp_price = Decimal("0")
-            if tp_price <= 0:
-                continue
-
-            if exact_filters is not None:
-                remaining = round_step(
-                    remaining, exact_filters.step, "floor"
-                )
-                minimum_quantity = exact_filters.minimum_quantity
-                min_tp = exact_filters.minimum_notional
-                min_sl = exact_filters.minimum_notional
-            else:
-                remaining = Decimal(str(dependencies.round_quantity(
-                    symbol, remaining
-                )))
-                minimum_quantity = Decimal(str(
-                    dependencies.min_quantity(symbol, 0)
-                ))
-                min_tp = Decimal(str(dependencies.min_notional(
-                    symbol, tp_price
-                )))
-                min_sl = Decimal(str(dependencies.min_notional(
-                    symbol, sl_limit
-                )))
-            if remaining < minimum_quantity:
-                dependencies.debugger(
-                    f"[BE] skip dust remain="
-                    f"{dependencies.format_quantity(symbol, remaining)}"
-                )
-                continue
-            if remaining * tp_price < min_tp:
-                dependencies.debugger(
-                    f"[BE] skip TP notional too small: "
-                    f"{remaining * tp_price:.2f} < {min_tp:.2f}"
-                )
-                continue
-            if remaining * sl_limit < min_sl:
-                dependencies.debugger(
-                    f"[BE] skip SL notional too small: "
-                    f"{remaining * sl_limit:.2f} < {min_sl:.2f}"
-                )
-                continue
-
-            try:
-                dependencies.cancel_oco(symbol, int(order_list_id))
-                dependencies.sleep(0.25)
-            except _PROTECTION_DATA_ERRORS as exc:
-                # A lost cancel response is not permission to create another
-                # OCO. Query Binance and proceed only when the old list is
-                # conclusively absent.
-                try:
-                    refreshed_orders = dependencies.list_open_orders(symbol) or []
-                except _PROTECTION_DATA_ERRORS as verify_exc:
-                    dependencies.halt(
-                        "breakeven OCO cancel reconciliation unavailable",
-                        symbol=symbol,
-                        order_list_id=int(order_list_id),
-                        cancel_error_type=exc.__class__.__name__,
-                        verify_error_type=verify_exc.__class__.__name__,
-                    )
-                    dependencies.logger(
-                        f"[BE-CANCEL-UNKNOWN] {symbol} orderListId={order_list_id} "
-                        f"cancel_error={exc.__class__.__name__} "
-                        f"verify_error={verify_exc.__class__.__name__}"
-                    )
-                    continue
-                old_list_open = any(
-                    str(order.get("orderListId", "")) == str(order_list_id)
-                    for order in refreshed_orders
-                    if isinstance(order, dict)
-                )
-                if old_list_open:
-                    dependencies.halt(
-                        "breakeven OCO cancel not confirmed; old list remains open",
-                        symbol=symbol,
-                        order_list_id=int(order_list_id),
-                        cancel_error_type=exc.__class__.__name__,
-                    )
-                    dependencies.logger(
-                        f"[BE-CANCEL-OPEN] {symbol} orderListId={order_list_id}"
-                    )
-                    continue
-                dependencies.logger(
-                    f"[BE-CANCEL-RECOVERED] {symbol} orderListId={order_list_id} "
-                    "confirmed absent"
-                )
-            replacement = dependencies.place_oco_sell(
-                symbol,
-                remaining,
-                tp_price,
-                sl_stop,
-                sl_limit,
-            )
-            if not replacement:
-                continue
-            try:
-                new_order_list_id = int(
-                    replacement.get("orderListId") or 0
-                )
-            except (AttributeError, TypeError, ValueError):
-                new_order_list_id = 0
-            if new_order_list_id:
-                state.pop(str(order_list_id), None)
-                state[str(new_order_list_id)] = {
-                    "fill_price": format(fill_price, "f"),
-                    "tp_price": format(tp_price, "f"),
-                    "ts": dependencies.now(),
-                }
-                state_store.save(symbol, state)
-                dependencies.logger(
-                    f"[BE] {symbol} OCO re-arm -> BE stop="
-                    f"{dependencies.format_price(symbol, sl_stop)} "
-                    f"(orderListId={new_order_list_id})"
-                )
-    except _PROTECTION_DATA_ERRORS as exc:
-        dependencies.debugger(
-            f"[BE] loop err type={type(exc).__name__}"
-        )

@@ -17,6 +17,9 @@ def test_financial_module_float_calls_do_not_regress():
     assert report["counts"][
         "ladder_dragon/execution/protection/runtime.py"
     ] == 0
+    assert report["counts"][
+        "ladder_dragon/execution/protection/breakeven.py"
+    ] == 0
     assert report["counts"]["ladder_dragon/supervision/runtime.py"] == 0
     assert (
         report["counts"]["ladder_dragon/execution/worker/runtime.py"] == 0

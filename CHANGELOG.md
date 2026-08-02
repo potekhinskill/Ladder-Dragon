@@ -3,6 +3,24 @@
 All notable changes are documented here. Releases use Semantic Versioning; every
 section is dated and there is intentionally no `Unreleased` section.
 
+## [2.20.129] — 2026-08-02
+
+### Changed
+- Breakeven maintenance now owns a separate protection service.
+- A canceled OCO must become absent before its replacement starts.
+
+### Fixed
+- A successful cancel response no longer bypasses old OCO verification.
+- An empty, malformed, or failed replacement now creates a persistent HALT.
+
+### Security
+- Replacement errors expose only bounded error types in HALT metadata and logs.
+- Breakeven maintenance cannot continue mutations after protection becomes uncertain.
+
+### Verified
+- The complete 939-test suite and the technical English check pass.
+- Semgrep, replay, walk-forward, recovery, migration, and deployment checks pass.
+
 ## [2.20.128] — 2026-08-02
 
 ### Changed
