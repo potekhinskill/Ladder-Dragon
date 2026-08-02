@@ -32,6 +32,9 @@ from ladder_dragon.execution.telegram_alerts import notify_binance_auth_error
 from ladder_dragon.dashboard.app_factory import create_dashboard_app
 from ladder_dragon.dashboard.dependencies import open_read_only_sqlite
 from ladder_dragon.dashboard.services.accounting import base_asset_of
+from ladder_dragon.dashboard.services.trade_summary import (
+    fifo_realized_pnl as _fifo_realized_pnl,
+)
 from ladder_dragon.dashboard.services.host_telemetry import (
     load_history_payload,
     rolling_trade_volume_24h_usdt,
@@ -502,13 +505,6 @@ def _fee_pct_default() -> float:
     except (TypeError, ValueError):
         return 0.00075
 
-def _estimate_fee_quote(price: float, qty: float, fee_quote: float, fee_pct: float) -> float:
-    # Prefer a quote-currency fee from the database; otherwise estimate it by
-    # percentage when the fee was paid in BNB.
-    if fee_quote and fee_quote > 0:
-        return float(fee_quote)
-    return float(price * qty * fee_pct)
-
 def _load_trades(con: sqlite3.Connection, symbols: Optional[List[str]] = None) -> List[sqlite3.Row]:
     sym_filter = ""
     args: List = []
@@ -522,7 +518,9 @@ def _load_trades(con: sqlite3.Connection, symbols: Optional[List[str]] = None) -
     sql = f"""
     SELECT
       symbol, side, price_text AS price, gross_qty_text AS qty,
-      COALESCE(commission_quote_text, '0') AS fee_quote,
+      net_qty_text AS net_qty,
+      commission_asset, commission_amount_text AS commission_amount,
+      commission_quote_text AS fee_quote,
       commission_value_status AS commission_status,
       CASE WHEN ts>1000000000000 THEN CAST(ts/1000 AS INTEGER) ELSE CAST(ts AS INTEGER) END AS ts_s
     FROM trades_exact
@@ -530,98 +528,6 @@ def _load_trades(con: sqlite3.Connection, symbols: Optional[List[str]] = None) -
     ORDER BY ts_s ASC
     """
     return list(con.execute(sql, args).fetchall())
-
-def _fifo_realized_pnl(rows: List[sqlite3.Row], cutoff_s: int, fee_pct: float) -> Dict:
-    """
-    Calculate FIFO realized net PnL for SELL fills inside the selected window.
-
-    BUY fees are embedded in lot cost and the proportional SELL fee is deducted
-    from each matched quantity. Historical BUY fills remain available as FIFO
-    cost basis even when they predate the reporting window.
-    """
-    lots: Dict[str, List[Tuple[float, float]]] = {}
-    realized_pnl = 0.0
-    fees_in_window = 0.0
-    total_trades_in_window = 0
-    buy_vol = 0.0
-    sell_vol = 0.0
-    incomplete_symbols: set[str] = set()
-    window_sell_symbols: set[str] = set()
-
-    for r in rows:
-        sym = r["symbol"]
-        side = str(r["side"]).upper()
-        price = float(r["price"])
-        qty = float(r["qty"])
-        ts_s = _ts_to_s(r["ts_s"])
-        fee_q = _estimate_fee_quote(price, qty, float(r["fee_quote"]), fee_pct)
-        row_keys = set(r.keys()) if hasattr(r, "keys") else set(r)
-        commission_status = (
-            str(r["commission_status"] or "").lower()
-            if "commission_status" in row_keys
-            else "exact"
-        )
-        if commission_status not in {"exact", "converted", "not_applicable"}:
-            incomplete_symbols.add(sym)
-
-        if sym not in lots:
-            lots[sym] = []
-
-        if side == "BUY":
-            cost_unit = (price * qty + fee_q) / max(qty, 1e-12)
-            lots[sym].append([qty, cost_unit])
-            if ts_s >= cutoff_s:
-                total_trades_in_window += 1
-                buy_vol += price * qty
-                fees_in_window += fee_q
-
-        elif side == "SELL":
-            revenue = price * qty
-            sell_fee = fee_q
-            if ts_s >= cutoff_s:
-                window_sell_symbols.add(sym)
-                total_trades_in_window += 1
-                sell_vol += revenue
-                fees_in_window += sell_fee
-
-            remain = qty
-            pool = lots[sym]
-            while remain > 1e-12 and pool:
-                lot_qty, lot_cost_unit = pool[0]
-                take = min(lot_qty, remain)
-                if ts_s >= cutoff_s:
-                    proportional_sell_fee = sell_fee * (take / max(qty, 1e-12))
-                    realized_pnl += (price - lot_cost_unit) * take - proportional_sell_fee
-                lot_qty -= take
-                remain -= take
-                if lot_qty <= 1e-12:
-                    pool.pop(0)
-                else:
-                    pool[0][0] = lot_qty
-            if remain > 1e-12:
-                incomplete_symbols.add(sym)
-
-        else:
-            continue
-
-    cashflow_pnl = sell_vol - buy_vol - fees_in_window
-    blocked_symbols = sorted(
-        incomplete_symbols.intersection(window_sell_symbols)
-    )
-    return dict(
-        total_trades=total_trades_in_window,
-        buy_volume_usdt=round(buy_vol, 2),
-        sell_volume_usdt=round(sell_vol, 2),
-        fees_usdt=round(fees_in_window, 2),
-        cashflow_pnl_usdt=round(cashflow_pnl, 2),
-        realized_pnl_usdt=(
-            None if blocked_symbols else round(realized_pnl, 2)
-        ),
-        realized_pnl_status=(
-            "incomplete_fifo_history" if blocked_symbols else "exact"
-        ),
-        realized_pnl_excluded_symbols=blocked_symbols,
-    )
 
 def _api_creds() -> Tuple[str, str]:
     """Read dedicated read-only credentials on demand; do not retain globals."""
@@ -2684,7 +2590,8 @@ def trades_summary(hours: int = 24, symbols: str = ""):
     an explicit approximation fallback.
     """
     hours = max(1, min(int(hours), 168))
-    cutoff_s = int(time.time()) - hours * 3600
+    end_s = int(time.time())
+    cutoff_s = end_s - hours * 3600
     syms = [s.strip().upper() for s in symbols.split(",") if s.strip()] or None
 
     try:
@@ -2696,7 +2603,7 @@ def trades_summary(hours: int = 24, symbols: str = ""):
     fee_pct = _fee_pct_default()
     try:
         rows = _load_trades(con, syms)
-        stats = _fifo_realized_pnl(rows, cutoff_s, fee_pct)
+        stats = _fifo_realized_pnl(rows, cutoff_s, fee_pct, end_s=end_s)
         eq = equity_pnl_usdt(cutoff_s, rows, fee_pct, syms)
 
         equity_then = eq.get("equity_then_usdt")

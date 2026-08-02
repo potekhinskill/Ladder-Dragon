@@ -3,6 +3,24 @@
 All notable changes are documented here. Releases use Semantic Versioning; every
 section is dated and there is intentionally no `Unreleased` section.
 
+## [2.20.133] — 2026-08-02
+
+### Changed
+- Exact accounting now provides one canonical Decimal FIFO replay function.
+- Dashboard trade summaries use a separate service built on that function.
+
+### Fixed
+- Valued `legacy` commissions no longer block realized FIFO PnL.
+- A stored zero legacy commission no longer becomes an estimated fee.
+
+### Security
+- Unpriced commissions and incomplete FIFO history still block realized PnL.
+- Trades after the report cutoff cannot enter current FIFO results.
+- The dashboard remains read-only and does not change execution decisions.
+
+### Verified
+- The complete 951-test suite and the technical English check pass.
+
 ## [2.20.132] — 2026-08-02
 
 ### Changed

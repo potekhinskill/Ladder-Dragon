@@ -59,7 +59,7 @@ def test_known_runtime_monoliths_can_only_shrink():
         "ladder_dragon/execution/worker/bootstrap.py": 18,
         "ladder_dragon/execution/worker/lifecycle.py": 577,
         "ladder_dragon/execution/worker/event_loop.py": 412,
-        "ladder_dragon/dashboard/runtime.py": 2867,
+        "ladder_dragon/dashboard/runtime.py": 2773,
         "ladder_dragon/execution/order_recovery.py": 1284,
         "ladder_dragon/strategy/prediction/runtime.py": 1300,
         "ladder_dragon/ai/context/runtime.py": 1684,

@@ -392,7 +392,7 @@ def test_trade_summary_separates_net_earnings_from_portfolio_change(monkeypatch)
 
     monkeypatch.setattr(module, "_open_db", lambda: (Connection(), "test.db"))
     monkeypatch.setattr(module, "_load_trades", lambda con, syms: [])
-    monkeypatch.setattr(module, "_fifo_realized_pnl", lambda rows, cutoff, fee: {
+    monkeypatch.setattr(module, "_fifo_realized_pnl", lambda rows, cutoff, fee, **kwargs: {
         "total_trades": 2,
         "buy_volume_usdt": 10.0,
         "sell_volume_usdt": 11.0,

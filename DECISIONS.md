@@ -4,6 +4,13 @@ Read this file before changing the repository. Record only decisions that were
 validated by tests or production evidence and are likely to be reused. Keep
 entries concise; this is not a changelog or an activity log.
 
+### 2026-08-02 — Keep named financial methods in one canonical module
+
+- **Context:** dashboard FIFO logic used float arithmetic and rejected a commission status accepted by exact accounting.
+- **Decision:** implement FIFO once with Decimal and keep dashboard code as a read-only presentation adapter.
+- **Why it worked:** tests prove exact legacy fees, FIFO lot order, window replay, and fail-closed incomplete history.
+- **Reuse:** every report or user interface that presents an accounting result already defined by the execution layer.
+
 ### 2026-08-02 — Finalize verified OTOCO state through one boundary
 
 - **Context:** normal success and lost-ACK recovery proved the same exchange state through separate journal paths.

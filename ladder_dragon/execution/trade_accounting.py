@@ -192,3 +192,46 @@ def replay_average_cost(
         if qty <= ZERO:
             qty, avg = ZERO, ZERO
     return InventoryResult(qty, avg, realized, tuple(sell_results))
+
+
+def replay_fifo(
+    trades: Iterable[TradeExecution],
+    *,
+    allow_unpriced: bool = False,
+    strict_inventory: bool = True,
+) -> InventoryResult:
+    """Replay exact first-in, first-out lots and return each SELL result."""
+    lots: list[list[Decimal]] = []
+    realized = ZERO
+    sell_results: list[Decimal] = []
+    for trade in trades:
+        if trade.side == "BUY":
+            cost = trade.buy_cost_quote(allow_unpriced=allow_unpriced)
+            lots.append([trade.net_qty, cost / trade.net_qty])
+            continue
+
+        available = sum((lot[0] for lot in lots), ZERO)
+        if strict_inventory and trade.net_qty > available:
+            raise InventoryShortfall(
+                f"SELL quantity exceeds replay inventory for {trade.symbol}"
+            )
+        remaining = min(trade.net_qty, available)
+        proceeds = trade.sell_proceeds_quote(allow_unpriced=allow_unpriced)
+        result = ZERO
+        while remaining > ZERO and lots:
+            lot_qty, unit_cost = lots[0]
+            take = min(remaining, lot_qty)
+            result += proceeds * take / trade.net_qty - unit_cost * take
+            remaining -= take
+            lot_qty -= take
+            if lot_qty <= ZERO:
+                lots.pop(0)
+            else:
+                lots[0][0] = lot_qty
+        realized += result
+        sell_results.append(result)
+
+    qty = sum((lot[0] for lot in lots), ZERO)
+    cost = sum((lot[0] * lot[1] for lot in lots), ZERO)
+    avg = cost / qty if qty > ZERO else ZERO
+    return InventoryResult(qty, avg, realized, tuple(sell_results))

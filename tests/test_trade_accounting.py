@@ -12,6 +12,7 @@ from ladder_dragon.execution.trade_accounting import (
     UnpricedCommission,
     base_asset,
     replay_average_cost,
+    replay_fifo,
 )
 from tests.support.module_loaders import load_worker
 from ladder_dragon.execution.worker.stats_sync import sync_account_trades
@@ -120,6 +121,46 @@ def test_quote_and_bnb_commissions_are_included_in_cost_and_realized_pnl():
 
     assert result.qty == Decimal("0")
     assert result.realized_pnl == Decimal("9.84")
+
+
+def test_fifo_replay_uses_oldest_exact_lot_cost():
+    trades = [
+        TradeExecution.create(
+            symbol="SOLUSDT", side="BUY", price="100", gross_qty="1",
+            commission_quote="0",
+        ),
+        TradeExecution.create(
+            symbol="SOLUSDT", side="BUY", price="200", gross_qty="1",
+            commission_quote="0",
+        ),
+        TradeExecution.create(
+            symbol="SOLUSDT", side="SELL", price="300", gross_qty="1",
+            commission_quote="0",
+        ),
+    ]
+
+    result = replay_fifo(trades)
+
+    assert result.realized_pnl == Decimal("200")
+    assert result.sell_results == (Decimal("200"),)
+    assert result.qty == Decimal("1")
+    assert result.avg_cost == Decimal("200")
+
+
+def test_fifo_replay_rejects_inventory_shortfall_before_consumption():
+    trades = [
+        TradeExecution.create(
+            symbol="SOLUSDT", side="BUY", price="100", gross_qty="1",
+            commission_quote="0",
+        ),
+        TradeExecution.create(
+            symbol="SOLUSDT", side="SELL", price="110", gross_qty="1.1",
+            commission_quote="0",
+        ),
+    ]
+
+    with pytest.raises(InventoryShortfall):
+        replay_fifo(trades)
 
 
 def test_partial_fills_keep_exact_net_quantity_and_fifo(tmp_path):

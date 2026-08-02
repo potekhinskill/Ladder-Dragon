@@ -1,6 +1,6 @@
 # Implementation status
 
-This document describes the code in version **2.20.132**.
+This document describes the code in version **2.20.133**.
 It does not describe future plans as completed work.
 
 An implemented function is not automatically approved for LIVE use.
@@ -23,7 +23,7 @@ The configured mode and its evidence gate remain authoritative.
 | WebSocket trading | Signed request transport and reconciliation | OFF and separately approved |
 | OTOCO | Atomic BUY with symmetric ACK-loss recovery | OFF and separately approved |
 | User Data Stream | Independent observer, Testnet drill, and soak evidence | Installed as a separate service |
-| Dashboard | Read-only account, risk, AI, trades, positions, and host telemetry | Private authenticated access |
+| Dashboard | Read-only account, canonical FIFO PnL, risk, AI, positions, and host data | Private authenticated access |
 | Reports | Daily trading digest, monthly prediction report, and signed soak report | Scheduled by systemd |
 | Deployment | Signed fast-forward update, backup, rollback, and asset verification | Exact 40-character SHA required |
 
