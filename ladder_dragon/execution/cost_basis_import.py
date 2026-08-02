@@ -19,6 +19,7 @@ from typing import Any, Callable, Iterable, Mapping
 
 from ladder_dragon.execution.inventory_lots import cost_basis_coverage, ensure_schema
 from ladder_dragon.execution.trade_accounting import base_asset
+from ladder_dragon.risk.trade_streaks import replace_symbol_fifo_basis
 
 
 ZERO = Decimal("0")
@@ -646,6 +647,19 @@ def apply_cost_basis_plan(
             )
         if abs(verified.average_price - plan.weighted_average) > Decimal("1e-18"):
             raise RuntimeError("post-import weighted average mismatch")
+        replace_symbol_fifo_basis(
+            connection,
+            symbol=plan.symbol,
+            lots=(
+                (
+                    lot.source_trade_id,
+                    lot.opened_at_ms,
+                    lot.quantity,
+                    lot.unit_cost,
+                )
+                for lot in plan.lots
+            ),
+        )
         connection.execute(
             "INSERT INTO inventory_lot_imports("
             "batch_id,symbol,created_at,plan_sha256,history_sha256,account_qty,"

@@ -17,6 +17,27 @@ private infrastructure details.
 
 ## Mistakes
 
+### 2026-08-02 — Assumed every stored SELL had complete FIFO history
+
+- **Impact:** the first complete test run rejected valid imported-basis and incomplete-symbol accounting scenarios.
+- **Root cause:** the risk index treated missing derived lots as a trade failure instead of unavailable risk evidence.
+- **Correction:** preserve accounting, mark only that symbol incomplete, and synchronize an applied cost-basis plan atomically.
+- **Prevention:** derived risk tests must include imports, legacy gaps, and unrelated symbols with complete history.
+
+### 2026-08-02 — Used a character class as a migration ceiling
+
+- **Impact:** the first focused migration test applied migration 010 to a fixture intended to stop at 006.
+- **Root cause:** the glob pattern constrained each digit but did not compare the complete migration number.
+- **Correction:** parse each three-digit prefix and compare its integer value with the fixture boundary.
+- **Prevention:** select migration ranges by parsed numeric versions, never by filename character classes.
+
+### 2026-08-02 — Typed the GitHub repository name in a workflow command
+
+- **Impact:** two read-only CI watch commands returned HTTP 404 and required a corrected rerun.
+- **Root cause:** the command typed the repository owner instead of deriving it from the configured `origin`.
+- **Correction:** rerun both watches with the canonical repository; both workflows reported success.
+- **Prevention:** derive the complete repository name once from `origin` and reuse it for every `gh` command.
+
 ### 2026-08-01 — Added dashboard coverage to a capped test module
 
 - **Impact:** the first complete test run failed the component test size gate.

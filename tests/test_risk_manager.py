@@ -8,6 +8,7 @@ import time
 import pytest
 
 from ladder_dragon.execution import tools_stats
+from ladder_dragon.execution.trade_accounting import TradeExecution
 from ladder_dragon.risk.risk_manager import (
     RiskLimits,
     RiskManager,
@@ -19,7 +20,7 @@ from ladder_dragon.risk.risk_manager import (
 from ladder_dragon.risk import risk_manager as risk_module
 from ladder_dragon.risk.trade_streaks import (
     MAX_RETAINED_SELL_OUTCOMES,
-    record_sell_outcome,
+    record_trade_outcome,
 )
 
 
@@ -250,6 +251,103 @@ def test_migrated_risk_metrics_use_bounded_sell_outcomes(tmp_path: Path):
     assert metrics["symbol_consecutive_losses"] == {"SOLUSDT": 1}
 
 
+def test_loss_streak_uses_fifo_sign_instead_of_average_cost(tmp_path: Path):
+    db = tmp_path / "stats.db"
+    con = tools_stats.init_db(str(db))
+    for side, price, timestamp, trade_id in (
+        ("BUY", "200", 1_700_000_000_000, 1),
+        ("BUY", "100", 1_700_000_001_000, 2),
+        ("SELL", "160", 1_700_000_002_000, 3),
+    ):
+        assert tools_stats.apply_trade(
+            con,
+            "SOLUSDT",
+            side,
+            price,
+            "1",
+            ts=timestamp,
+            trade_id=trade_id,
+            commission_quote="0",
+            commission_value_status="exact",
+        )
+
+    assert con.execute(
+        "SELECT net_pnl_quote_text FROM risk_sell_outcomes"
+    ).fetchone() == ("-40",)
+    assert tools_stats.get_inventory_decimal(con, "SOLUSDT")[2] == Decimal("10")
+    con.close()
+
+    metrics = load_daily_trade_metrics(
+        str(db), ["SOLUSDT"], now=1_700_000_003, streak_limit=3
+    )
+    assert metrics["consecutive_losses"] == 1
+    assert metrics["symbol_consecutive_losses"] == {"SOLUSDT": 1}
+
+
+def test_loss_streak_marks_missing_fifo_without_rejecting_accounting(
+    tmp_path: Path,
+):
+    db = tmp_path / "stats.db"
+    con = tools_stats.init_db(str(db))
+
+    assert tools_stats.apply_trade(
+        con,
+        "SOLUSDT",
+        "SELL",
+        "160",
+        "1",
+        ts=1_700_000_000_000,
+        trade_id=1,
+        commission_quote="0",
+        commission_value_status="exact",
+    )
+
+    assert con.execute("SELECT COUNT(*) FROM trades").fetchone() == (1,)
+    assert con.execute("SELECT COUNT(*) FROM risk_sell_outcomes").fetchone() == (0,)
+    assert con.execute(
+        "SELECT last_trade_at,last_trade_row_id,open_fifo_lot_count "
+        "FROM risk_sell_outcome_state"
+    ).fetchone() == (1_700_000_000_000, 1, 0)
+    con.close()
+
+    with pytest.raises(RuntimeError, match="FIFO history is incomplete"):
+        load_daily_trade_metrics(
+            str(db), ["SOLUSDT"], now=1_700_000_001, streak_limit=3
+        )
+
+
+def test_incomplete_fifo_symbol_does_not_block_an_exact_symbol(tmp_path: Path):
+    db = tmp_path / "stats.db"
+    con = tools_stats.init_db(str(db))
+    for symbol, side, price, timestamp, trade_id in (
+        ("ETHUSDT", "SELL", "2000", 1_700_000_000_000, 1),
+        ("SOLUSDT", "BUY", "100", 1_700_000_001_000, 2),
+        ("SOLUSDT", "SELL", "110", 1_700_000_002_000, 3),
+    ):
+        assert tools_stats.apply_trade(
+            con,
+            symbol,
+            side,
+            price,
+            "1",
+            ts=timestamp,
+            trade_id=trade_id,
+            commission_quote="0",
+            commission_value_status="exact",
+        )
+    con.close()
+
+    metrics = load_daily_trade_metrics(
+        str(db), ["SOLUSDT"], now=1_700_000_003, streak_limit=3
+    )
+    assert metrics["consecutive_losses"] == 0
+    assert metrics["symbol_consecutive_losses"] == {"SOLUSDT": 0}
+    with pytest.raises(RuntimeError, match="ETHUSDT"):
+        load_daily_trade_metrics(
+            str(db), ["ETHUSDT"], now=1_700_000_003, streak_limit=3
+        )
+
+
 def test_migrated_risk_metrics_do_not_replay_old_trade_rows(tmp_path: Path):
     db = tmp_path / "stats.db"
     con = tools_stats.init_db(str(db))
@@ -286,13 +384,27 @@ def test_sell_outcome_index_has_a_fixed_growth_bound(tmp_path: Path):
             for row_id in range(1, MAX_RETAINED_SELL_OUTCOMES + 2)
         ),
     )
-    record_sell_outcome(
+    con.execute(
+        "INSERT INTO risk_fifo_lots("
+        "source_trade_row_id,symbol,exchange_trade_id,opened_at,"
+        "remaining_qty_text,unit_cost_quote_text) VALUES(?,?,?,?,?,?)",
+        (9_000, "SOLUSDT", 9_000, 9_000, "1", "100"),
+    )
+    con.execute(
+        "UPDATE risk_sell_outcome_state SET open_fifo_lot_count=1"
+    )
+    record_trade_outcome(
         con,
-        trade_row_id=MAX_RETAINED_SELL_OUTCOMES + 2,
-        symbol="SOLUSDT",
-        exchange_trade_id=MAX_RETAINED_SELL_OUTCOMES + 2,
-        executed_at=MAX_RETAINED_SELL_OUTCOMES + 2,
-        net_pnl_quote=Decimal("1"),
+        trade_row_id=9_001,
+        exchange_trade_id=9_001,
+        executed_at=9_001,
+        trade=TradeExecution.create(
+            symbol="SOLUSDT",
+            side="SELL",
+            price="101",
+            gross_qty="1",
+            commission_quote="0",
+        ),
     )
     con.commit()
 

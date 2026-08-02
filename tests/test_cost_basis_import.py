@@ -323,6 +323,13 @@ def test_stats_recalculation_uses_imported_basis_then_new_trades(tmp_path):
     assert qty == Decimal("1.000")
     assert average == plan.weighted_average
     assert realized > 0
+    assert Decimal(connection.execute(
+        "SELECT net_pnl_quote_text FROM risk_sell_outcomes "
+        "ORDER BY executed_at DESC LIMIT 1"
+    ).fetchone()[0]) > 0
+    assert connection.execute(
+        "SELECT 1 FROM risk_fifo_incomplete_symbols WHERE symbol='SOLUSDT'"
+    ).fetchone() is None
 
 
 def test_apply_requires_stopped_confirmation_and_rejects_fresh_heartbeat(

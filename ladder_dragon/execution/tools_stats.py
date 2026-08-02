@@ -12,8 +12,7 @@ from typing import Optional, Tuple, Dict, Iterable, Any
 from ladder_dragon.persistence.migrations import migrate
 from ladder_dragon.execution.trade_accounting import TradeExecution, decimal, decimal_text, replay_average_cost
 from ladder_dragon.risk.trade_streaks import (
-    rebuild_sell_outcomes,
-    record_sell_outcome,
+    record_trade_outcome,
 )
 from ladder_dragon.sqlite_safety import quote_sqlite_identifier
 
@@ -261,15 +260,6 @@ def apply_trade(con: sqlite3.Connection,
     if not con.in_transaction:
         con.execute("BEGIN IMMEDIATE")
     with con:
-        prior_quantity, prior_average, _ = get_inventory_decimal(con, sym)
-        prior_trade_status = None
-        if trade_id is not None:
-            prior_trade = con.execute(
-                "SELECT commission_value_status FROM trades "
-                "WHERE symbol=? AND trade_id=?",
-                (sym, int(trade_id)),
-            ).fetchone()
-            prior_trade_status = str(prior_trade[0]) if prior_trade else None
         if _uses_legacy_real_accounting(con):
             inserted = exec_with_retry(con, """
               INSERT INTO trades(
@@ -313,38 +303,21 @@ def apply_trade(con: sqlite3.Connection,
         recalculate_inventory(con, sym)
         if (
             inserted == 1
-            and execution.side == "SELL"
             and execution.commission_value_status != "unpriced"
             and trade_id is not None
         ):
-            if prior_trade_status == "unpriced":
-                # The first unpriced pass already changed inventory. Rebuild
-                # from authoritative history after the exact fee arrives.
-                rebuild_sell_outcomes(con)
-                return True
-            used = min(prior_quantity, execution.net_qty)
-            ratio = (
-                used / execution.net_qty
-                if execution.net_qty > 0
-                else Decimal("0")
-            )
-            net_result = (
-                execution.sell_proceeds_quote() * ratio
-                - prior_average * used
-            )
             trade_row = con.execute(
                 "SELECT id FROM trades WHERE symbol=? AND trade_id=?",
                 (sym, int(trade_id)),
             ).fetchone()
             if trade_row is None:
-                raise RuntimeError("persisted SELL trade row is unavailable")
-            record_sell_outcome(
+                raise RuntimeError("persisted trade row is unavailable")
+            record_trade_outcome(
                 con,
                 trade_row_id=int(trade_row[0]),
-                symbol=sym,
                 exchange_trade_id=int(trade_id),
                 executed_at=ts,
-                net_pnl_quote=net_result,
+                trade=execution,
             )
     return inserted == 1
 

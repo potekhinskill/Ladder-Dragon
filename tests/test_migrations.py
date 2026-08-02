@@ -12,13 +12,13 @@ from ladder_dragon.execution.inventory_lots import sync_exchange_fill
 def test_migrations_are_repeatable(tmp_path: Path):
     db = tmp_path / "bot.db"
     assert migrate(str(db)) == [
-        "001", "002", "003", "004", "005", "006", "007", "008", "009"
+        "001", "002", "003", "004", "005", "006", "007", "008", "009", "010"
     ]
     assert migrate(str(db)) == []
     with sqlite3.connect(db) as con:
         versions = [row[0] for row in con.execute("SELECT version FROM schema_migrations ORDER BY version")]
         assert versions == [
-            "001", "002", "003", "004", "005", "006", "007", "008", "009"
+            "001", "002", "003", "004", "005", "006", "007", "008", "009", "010"
         ]
         assert con.execute(
             "SELECT completed FROM database_bootstrap "
@@ -34,6 +34,22 @@ def test_migrations_are_repeatable(tmp_path: Path):
         assert con.execute(
             "SELECT backfill_complete FROM risk_sell_outcome_state"
         ).fetchone() == (1,)
+        risk_state_columns = {
+            row[1] for row in con.execute(
+                "PRAGMA table_info(risk_sell_outcome_state)"
+            )
+        }
+        assert {
+            "last_trade_at", "last_trade_row_id", "open_fifo_lot_count"
+        } <= risk_state_columns
+        assert con.execute(
+            "SELECT 1 FROM sqlite_master WHERE type='table' "
+            "AND name='risk_fifo_lots'"
+        ).fetchone()
+        assert con.execute(
+            "SELECT 1 FROM sqlite_master WHERE type='table' "
+            "AND name='risk_fifo_incomplete_symbols'"
+        ).fetchone()
         import_columns = {
             row[1] for row in con.execute(
                 "PRAGMA table_info(inventory_lot_imports)"
@@ -285,7 +301,11 @@ def test_fifo_sell_migration_seeds_existing_valued_trades(tmp_path: Path):
             "version TEXT PRIMARY KEY,checksum TEXT NOT NULL,"
             "applied_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP)"
         )
-        for migration in sorted(MIGRATIONS.glob("[0-9][0-9][0-6]_*.sql")):
+        for migration in (
+            item
+            for item in sorted(MIGRATIONS.glob("[0-9][0-9][0-9]_*.sql"))
+            if int(item.name.split("_", 1)[0]) <= 6
+        ):
             sql = migration.read_text(encoding="utf-8")
             connection.executescript(sql)
             connection.execute(
@@ -302,12 +322,25 @@ def test_fifo_sell_migration_seeds_existing_valued_trades(tmp_path: Path):
             "commission_quote,commission_value_status"
             ") VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
             (
+                "SOLUSDT", "BUY", 100.0, 0.5, 0.0, 1_700_000_000_000,
+                20, "100", "0.5", "0.5", "USDT", "0", "0", "exact",
+            ),
+        )
+        connection.execute(
+            "INSERT INTO trades("
+            "symbol,side,price,qty,fee_quote,ts,trade_id,price_text,"
+            "gross_qty,net_qty,commission_asset,commission_amount,"
+            "commission_quote,commission_value_status"
+            ") VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+            (
                 "SOLUSDT", "SELL", 110.0, 0.5, 0.05, 1_700_000_001_000,
                 21, "110", "0.5", "0.5", "USDT", "0.05", "0.05", "exact",
             ),
         )
 
-    assert migrate(str(database), exact_new_database=False) == ["007", "008", "009"]
+    assert migrate(str(database), exact_new_database=False) == [
+        "007", "008", "009", "010"
+    ]
     with sqlite3.connect(database) as connection:
         assert connection.execute(
             "SELECT symbol,source_trade_id,source_order_id,qty,price "

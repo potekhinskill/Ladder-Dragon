@@ -156,6 +156,52 @@ class InventoryResult:
     sell_results: tuple[Decimal, ...]
 
 
+@dataclass(frozen=True)
+class FifoLotCost:
+    """Represent one remaining FIFO quantity and its exact unit cost."""
+
+    qty: Decimal
+    unit_cost: Decimal
+
+
+@dataclass(frozen=True)
+class FifoConsumption:
+    """Describe one read-only FIFO SELL allocation plan."""
+
+    result: Decimal
+    allocations: tuple[Decimal, ...]
+
+
+def fifo_sell_consumption(
+    lots: Iterable[FifoLotCost],
+    trade: TradeExecution,
+    *,
+    allow_unpriced: bool = False,
+    strict_inventory: bool = True,
+) -> FifoConsumption:
+    """Plan one FIFO SELL without changing the supplied lot state."""
+    if trade.side != "SELL":
+        raise ValueError("FIFO consumption requires a SELL trade")
+    remaining = trade.net_qty
+    proceeds = trade.sell_proceeds_quote(allow_unpriced=allow_unpriced)
+    result = ZERO
+    allocations: list[Decimal] = []
+    for lot in lots:
+        if remaining <= ZERO:
+            break
+        if lot.qty <= ZERO or lot.unit_cost <= ZERO:
+            raise ValueError("FIFO lot quantity and unit cost must be positive")
+        used = min(remaining, lot.qty)
+        result += proceeds * used / trade.net_qty - lot.unit_cost * used
+        allocations.append(used)
+        remaining -= used
+    if strict_inventory and remaining > ZERO:
+        raise InventoryShortfall(
+            f"SELL quantity exceeds replay inventory for {trade.symbol}"
+        )
+    return FifoConsumption(result=result, allocations=tuple(allocations))
+
+
 def replay_average_cost(
     trades: Iterable[TradeExecution],
     *,
@@ -210,20 +256,15 @@ def replay_fifo(
             lots.append([trade.net_qty, cost / trade.net_qty])
             continue
 
-        available = sum((lot[0] for lot in lots), ZERO)
-        if strict_inventory and trade.net_qty > available:
-            raise InventoryShortfall(
-                f"SELL quantity exceeds replay inventory for {trade.symbol}"
-            )
-        remaining = min(trade.net_qty, available)
-        proceeds = trade.sell_proceeds_quote(allow_unpriced=allow_unpriced)
-        result = ZERO
-        while remaining > ZERO and lots:
-            lot_qty, unit_cost = lots[0]
-            take = min(remaining, lot_qty)
-            result += proceeds * take / trade.net_qty - unit_cost * take
-            remaining -= take
-            lot_qty -= take
+        consumption = fifo_sell_consumption(
+            (FifoLotCost(lot[0], lot[1]) for lot in lots),
+            trade,
+            allow_unpriced=allow_unpriced,
+            strict_inventory=strict_inventory,
+        )
+        result = consumption.result
+        for take in consumption.allocations:
+            lot_qty = lots[0][0] - take
             if lot_qty <= ZERO:
                 lots.pop(0)
             else:

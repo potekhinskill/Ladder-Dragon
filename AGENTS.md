@@ -41,6 +41,8 @@ These rules apply to every repository change and every Raspberry Pi update.
   artifact is the release manifest and must list the previous SHA, current SHA,
   and every included commit.
 - Push only after tests; report the commit SHA and Raspberry update command.
+- Derive the GitHub repository name from the configured `origin` before each `gh` command.
+- Do not type or reconstruct the GitHub repository owner and name manually.
 
 ## Security and execution modes
 

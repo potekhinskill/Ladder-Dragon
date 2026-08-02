@@ -3,6 +3,27 @@
 All notable changes are documented here. Releases use Semantic Versioning; every
 section is dated and there is intentionally no `Unreleased` section.
 
+## [2.20.136] — 2026-08-02
+
+### Changed
+- GitHub commands must derive the repository name from the configured `origin`.
+- The release learning record documents the failed manual repository transcription.
+- Risk loss streaks now use the canonical exact FIFO SELL allocation.
+- Migration 010 rebuilds a bounded derived FIFO state from authoritative trades.
+
+### Fixed
+- The release workflow no longer permits a manually reconstructed GitHub repository name.
+- Average-cost signs no longer disagree with FIFO PnL in the loss circuit breaker.
+- Numeric migration fixtures no longer use a character range as a version limit.
+
+### Security
+- Missing FIFO coverage preserves accounting but blocks that symbol's risk streak.
+- The derived index keeps 4,096 SELL outcomes and at most 65,536 open FIFO lots.
+
+### Verified
+- Both 2.20.135 GitHub workflows passed after the corrected read-only watch.
+- The complete 960-test suite and the technical English check pass.
+
 ## [2.20.135] — 2026-08-02
 
 ### Changed
