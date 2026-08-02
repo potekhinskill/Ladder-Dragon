@@ -4,6 +4,13 @@ Read this file before changing the repository. Record only decisions that were
 validated by tests or production evidence and are likely to be reused. Keep
 entries concise; this is not a changelog or an activity log.
 
+### 2026-08-02 — Isolate each sequential model process
+
+- **Context:** mixed symbols and horizons created transitions between different processes at one market time.
+- **Decision:** fit and update each HMM by symbol and horizon; score models only on trained sequences.
+- **Why it worked:** tests prove separate transitions, independent prior state, and equal exclusion of cold sequences.
+- **Reuse:** every sequential model over multi-symbol or multi-horizon evidence.
+
 ### 2026-08-02 — Compare predictors on one availability cohort
 
 - **Context:** per-source filters let intermittent predictors select different observations and bias accuracy.

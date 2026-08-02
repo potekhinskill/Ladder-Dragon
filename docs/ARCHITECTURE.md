@@ -50,6 +50,7 @@ Each module has one responsibility:
 - `monthly_contour` owns recurring artifacts.
 
 Historical splits share immutable training-prefix storage and use binary label cutoffs.
+Each HMM sequence contains one symbol and one prediction horizon.
 The ensemble treats `FLAT` and `UP` as one safe family.
 Confident `DOWN` or `PANIC` results stop a BUY.
 Weak danger evidence can only reduce CAP.

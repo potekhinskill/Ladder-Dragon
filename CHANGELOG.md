@@ -3,6 +3,23 @@
 All notable changes are documented here. Releases use Semantic Versioning; every
 section is dated and there is intentionally no `Unreleased` section.
 
+## [2.20.135] — 2026-08-02
+
+### Changed
+- Monthly HMM evaluation now uses one sequence for each symbol and horizon.
+- Boosting and HMM scores retain one common eligible test cohort.
+
+### Fixed
+- Labels from different horizons no longer create false HMM transitions.
+- HMM state no longer passes between horizons or symbols at one market time.
+
+### Security
+- A cold HMM sequence excludes the same row from both model scores.
+- The change remains inside the offline SHADOW report and cannot authorize APPLY.
+
+### Verified
+- The complete 957-test suite and the technical English check pass.
+
 ## [2.20.134] — 2026-08-02
 
 ### Changed

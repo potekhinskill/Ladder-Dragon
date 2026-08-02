@@ -29,6 +29,34 @@ from ladder_dragon.strategy.prediction.statistical_models import (
 
 
 D = Decimal
+SequenceKey = tuple[str, int]
+
+
+def _fit_hmm_sequences(
+    rows: Sequence[HistoricalRegimeSample],
+) -> dict[SequenceKey, ThreeStateRegimeHMM]:
+    """Fit one chronological HMM for each symbol and prediction horizon."""
+    grouped: dict[SequenceKey, list[tuple[tuple[float, ...], str]]] = {}
+    for row in sorted(
+        rows,
+        key=lambda item: (
+            item.symbol,
+            item.horizon_min,
+            item.snapshot_ts_ms,
+            item.label_ts_ms,
+        ),
+    ):
+        key = (row.symbol, row.horizon_min)
+        grouped.setdefault(key, []).append((
+            tuple(float(value) for value in row.features.vector()),
+            row.label,
+        ))
+    models = {}
+    for key, examples in grouped.items():
+        model = ThreeStateRegimeHMM()
+        model.fit(examples)
+        models[key] = model
+    return models
 
 
 def _walk_forward_predictions(
@@ -55,7 +83,6 @@ def _walk_forward_predictions(
         if len(train) < min_train_samples:
             continue
         boosting = ShallowGradientBoostingRegime()
-        hmm = ThreeStateRegimeHMM()
         training_rows = [
             (
                 tuple(float(value) for value in row.features.vector()),
@@ -64,9 +91,15 @@ def _walk_forward_predictions(
             for row in train
         ]
         boosting.fit(training_rows)
-        hmm.fit(training_rows)
-        previous = (1 / 3, 1 / 3, 1 / 3)
+        hmm_by_sequence = _fit_hmm_sequences(train)
+        previous_by_sequence: dict[SequenceKey, tuple[float, float, float]] = {}
         for row in test:
+            sequence = (row.symbol, row.horizon_min)
+            hmm = hmm_by_sequence.get(sequence)
+            # Keep both model scores on one cohort. A cold HMM sequence cannot
+            # contribute a synthetic FLAT prediction to either model score.
+            if hmm is None or hmm.samples < min_train_samples:
+                continue
             vector = tuple(float(value) for value in row.features.vector())
             boost_prediction = boosting.predict(
                 vector,
@@ -74,10 +107,13 @@ def _walk_forward_predictions(
             )
             hmm_prediction = hmm.predict(
                 vector,
-                previous_probabilities=previous,
+                previous_probabilities=previous_by_sequence.get(
+                    sequence,
+                    (1 / 3, 1 / 3, 1 / 3),
+                ),
                 min_samples=min_train_samples,
             )
-            previous = hmm_prediction.probabilities
+            previous_by_sequence[sequence] = hmm_prediction.probabilities
             evaluated.append({
                 "symbol": row.symbol,
                 "snapshot_ts_ms": row.snapshot_ts_ms,
