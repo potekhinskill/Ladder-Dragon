@@ -3,6 +3,22 @@
 All notable changes are documented here. Releases use Semantic Versioning; every
 section is dated and there is intentionally no `Unreleased` section.
 
+## [2.20.149] — 2026-08-03
+
+### Changed
+- Exact-only accounting retirement now requires the standard stopped-runtime evidence.
+- The command reference lists every retirement mutation boundary.
+
+### Fixed
+- APPLY now rejects missing stopped confirmation and a fresh `RUNNING` heartbeat.
+- The runtime gate executes immediately before the irreversible retirement call.
+
+### Security
+- Preview remains read-only, while APPLY fails closed before any retirement database mutation.
+
+### Verified
+- The complete pytest suite and technical English check pass.
+
 ## [2.20.148] — 2026-08-03
 
 ### Changed

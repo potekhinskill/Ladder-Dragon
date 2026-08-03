@@ -1237,3 +1237,10 @@ private infrastructure details.
 - **Root cause:** lifecycle and dashboard code assumed a BNB discount independently from execution code.
 - **Correction:** all active consumers import one conservative exact fee constant.
 - **Prevention:** define each financial default once, and require explicit configuration for any discount.
+
+### 2026-08-03 — Omitted the stopped-runtime gate from accounting retirement
+
+- **Impact:** a live writer could invalidate the audit or receive a database-lock error during retirement.
+- **Root cause:** the new CLI copied confirmation and backup gates, but missed the shared runtime gate.
+- **Correction:** APPLY now checks stopped-runtime evidence before it calls the irreversible operation.
+- **Prevention:** every destructive CLI needs a test that blocks before its first mutation boundary.

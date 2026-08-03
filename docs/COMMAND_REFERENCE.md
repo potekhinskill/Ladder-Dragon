@@ -107,7 +107,7 @@ The `--archive` option does not make the replay an L3 reconstruction.
 | `maintenance_state` | sets, clears, or reads maintenance state | explicit operator command |
 | `import_legacy_cost_basis` | previews or applies a FIFO basis plan | `--apply` plus confirmations |
 | `review_unattributed_fills` | reviews exact historical attribution gaps | `--apply` plus confirmation |
-| `retire_legacy_accounting` | previews or applies exact-only retirement | `--apply` plus confirmation |
+| `retire_legacy_accounting` | previews or applies exact-only retirement | stopped runtime evidence, backup, `--apply`, and confirmation |
 | `revalue_legacy_commissions` | repairs exact legacy commission values | explicit reviewed operation |
 | `db_migrate` | applies versioned SQLite migrations | migration transaction |
 | `database_retention` | archives terminal SHADOW evidence and applies bounded retention | fresh encrypted backup |

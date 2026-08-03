@@ -925,3 +925,10 @@ entries concise; this is not a changelog or an activity log.
 - **Decision:** all consumers use the standard 0.1% Spot fee until the operator confirms a lower rate.
 - **Why it worked:** breakeven, execution floors, and dashboard estimates now share one exact constant.
 - **Reuse:** every account-cost default that affects protection, execution, or reporting.
+
+### 2026-08-03 — Stop runtime before irreversible accounting retirement
+
+- **Context:** a live writer could invalidate a clean audit before an exact-only schema rebuild.
+- **Decision:** require explicit stopped-runtime evidence immediately before the retirement library call.
+- **Why it worked:** a regression proves that an active runtime prevents backup and schema mutation.
+- **Reuse:** every one-way database operation that follows a separate readiness audit.

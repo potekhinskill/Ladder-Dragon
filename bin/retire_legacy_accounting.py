@@ -10,6 +10,7 @@ import argparse
 import json
 from pathlib import Path
 
+from bin.import_legacy_cost_basis import _require_stopped_runtime
 from ladder_dragon.execution.accounting_retirement import retire_accounting_schema
 from ladder_dragon.execution.compatibility_audit import (
     DEFAULT_LEGACY_PATHS,
@@ -37,6 +38,8 @@ def main() -> int:
         raise SystemExit(f"--apply requires --confirm {CONFIRMATION}")
     if args.backup is None:
         raise SystemExit("--apply requires --backup outside the live database path")
+    # No writer may enter the audited database before the irreversible rebuild.
+    _require_stopped_runtime()
     changed = retire_accounting_schema(args.stats_db, args.backup)
     print("Retired legacy REAL accounting columns." if changed else "Already exact-only.")
     return 0
