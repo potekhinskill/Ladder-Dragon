@@ -3,6 +3,23 @@
 All notable changes are documented here. Releases use Semantic Versioning; every
 section is dated and there is intentionally no `Unreleased` section.
 
+## [2.20.156] — 2026-08-03
+
+### Changed
+- Runtime asset installation repairs the exact failed Debian `atop` service.
+- Installation disables the exact failed `rtl_tcp` service when no Realtek USB device exists.
+
+### Fixed
+- A missing `/var/log/atop` directory no longer leaves `atop.service` failed.
+- An unused RTL-SDR listener no longer remains enabled without its hardware.
+
+### Security
+- Modified operator units are never changed by this host cleanup.
+- The disabled RTL-SDR unit remains installed for explicit future reactivation.
+
+### Verified
+- The complete pytest suite and technical English check pass.
+
 ## [2.20.155] — 2026-08-03
 
 ### Added

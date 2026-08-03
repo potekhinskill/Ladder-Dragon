@@ -1279,3 +1279,10 @@ private infrastructure details.
 - **Root cause:** the readiness denominator had no reviewed epoch boundary.
 - **Correction:** preserve lifetime counters and subtract an immutable baseline for the current soak.
 - **Prevention:** repeatable certification needs append-only epochs, not counter resets or lifetime-only ratios.
+
+### 2026-08-03 — Scoped the first post-release log check too narrowly
+
+- **Impact:** application services looked clean while two old host units remained failed.
+- **Root cause:** the first check reviewed project journals before it reviewed the global failed-unit set.
+- **Correction:** inspect global failed units and repair only exact, understood definitions.
+- **Prevention:** each Pi log review must start with `systemctl --failed` before service-specific journals.

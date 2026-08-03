@@ -967,3 +967,10 @@ entries concise; this is not a changelog or an activity log.
 - **Decision:** preserve lifetime counters and measure readiness from an append-only epoch baseline.
 - **Why it worked:** old failures remain visible, while new evidence gets an independent denominator.
 - **Reuse:** every repeated soak whose historical counters must remain immutable.
+
+### 2026-08-03 — Repair optional host services by exact identity
+
+- **Context:** two unrelated failed units remained after a healthy application deployment.
+- **Decision:** repair a known package precondition and disable a known listener only after exact unit checks.
+- **Why it worked:** tests preserve modified units and available hardware while cleaning both observed failures.
+- **Reuse:** every deployment cleanup that touches an optional host service.

@@ -1,4 +1,5 @@
 from pathlib import Path
+import os
 import re
 import subprocess
 
@@ -1150,6 +1151,129 @@ def test_runtime_auth_resilience_state_is_not_a_checkout_change():
     ignore = read(".gitignore")
 
     assert "db/auth_resilience.json" in ignore.splitlines()
+
+
+def _runtime_asset_function(name: str) -> str:
+    source = read("deploy/install_runtime_assets.sh")
+    return f"{name}() {{" + source.split(f"{name}() {{", 1)[1].split(
+        "\n}\n", 1
+    )[0] + "\n}\n"
+
+
+def _run_host_service_repair(
+    function_name: str,
+    unit: Path,
+    data_path: Path,
+) -> subprocess.CompletedProcess[str]:
+    script = "\n".join((
+        "set -euo pipefail",
+        'fail() { echo "[FAIL] $*" >&2; exit 1; }',
+        'systemctl() { printf "%s\\n" "$*" >>"${SYSTEMCTL_LOG}"; }',
+        _runtime_asset_function(function_name),
+        f'{function_name} "$1" "$2"',
+    ))
+    log = unit.parent / "systemctl.log"
+    return subprocess.run(
+        ("bash", "-c", script, "bash", str(unit), str(data_path)),
+        check=False,
+        capture_output=True,
+        text=True,
+        env={**os.environ, "SYSTEMCTL_LOG": str(log)},
+    )
+
+
+def test_runtime_assets_repair_only_known_failed_atop(tmp_path):
+    unit = tmp_path / "atop.service"
+    log_dir = tmp_path / "atop"
+    unit.write_text(
+        'Environment="LOGPATH=/var/log/atop"\n'
+        'ExecStart=/bin/sh -c \'exec /usr/bin/atop ${LOGOPTS} '
+        '-w "${LOGPATH}/atop_$(date +%%Y%%m%%d)" ${LOGINTERVAL}\'\n',
+        encoding="utf-8",
+    )
+
+    completed = _run_host_service_repair(
+        "repair_failed_atop_service", unit, log_dir
+    )
+
+    assert completed.returncode == 0, completed.stderr
+    assert log_dir.is_dir()
+    calls = (tmp_path / "systemctl.log").read_text(encoding="utf-8")
+    assert "start atop.service" in calls
+    assert "is-active --quiet atop.service" in calls
+
+
+def test_runtime_assets_preserve_modified_atop_unit(tmp_path):
+    unit = tmp_path / "atop.service"
+    log_dir = tmp_path / "atop"
+    unit.write_text("ExecStart=/usr/local/bin/operator-monitor\n", encoding="utf-8")
+
+    completed = _run_host_service_repair(
+        "repair_failed_atop_service", unit, log_dir
+    )
+
+    assert completed.returncode == 0, completed.stderr
+    assert not log_dir.exists()
+
+
+def test_runtime_assets_disable_only_known_failed_rtl_tcp_without_usb(tmp_path):
+    unit = tmp_path / "rtl_tcp.service"
+    usb_root = tmp_path / "usb"
+    usb_root.mkdir()
+    unit.write_text(
+        "Description=RTL-SDR TCP server\n"
+        "ExecStart=/usr/bin/rtl_tcp -a 0.0.0.0 -p 1234 -s 2048000 -g 35\n",
+        encoding="utf-8",
+    )
+
+    completed = _run_host_service_repair(
+        "disable_failed_rtl_tcp_without_device", unit, usb_root
+    )
+
+    assert completed.returncode == 0, completed.stderr
+    calls = (tmp_path / "systemctl.log").read_text(encoding="utf-8")
+    assert "disable --now rtl_tcp.service" in calls
+    assert "reset-failed rtl_tcp.service" in calls
+
+
+def test_runtime_assets_preserve_rtl_tcp_when_realtek_usb_exists(tmp_path):
+    unit = tmp_path / "rtl_tcp.service"
+    usb_root = tmp_path / "usb"
+    device = usb_root / "1-1"
+    device.mkdir(parents=True)
+    (device / "idVendor").write_text("0bda\n", encoding="utf-8")
+    unit.write_text(
+        "Description=RTL-SDR TCP server\n"
+        "ExecStart=/usr/bin/rtl_tcp -a 0.0.0.0 -p 1234 -s 2048000 -g 35\n",
+        encoding="utf-8",
+    )
+
+    completed = _run_host_service_repair(
+        "disable_failed_rtl_tcp_without_device", unit, usb_root
+    )
+
+    assert completed.returncode == 0, completed.stderr
+    calls = (tmp_path / "systemctl.log").read_text(encoding="utf-8")
+    assert "disable --now rtl_tcp.service" not in calls
+
+
+def test_runtime_assets_preserve_modified_rtl_tcp_unit(tmp_path):
+    unit = tmp_path / "rtl_tcp.service"
+    usb_root = tmp_path / "usb"
+    usb_root.mkdir()
+    unit.write_text(
+        "Description=Operator radio service\n"
+        "ExecStart=/usr/local/bin/operator-radio\n",
+        encoding="utf-8",
+    )
+
+    completed = _run_host_service_repair(
+        "disable_failed_rtl_tcp_without_device", unit, usb_root
+    )
+
+    assert completed.returncode == 0, completed.stderr
+    calls = (tmp_path / "systemctl.log").read_text(encoding="utf-8")
+    assert "disable --now rtl_tcp.service" not in calls
 
 
 def _run_watchdog_interface_cleanup(config: Path) -> subprocess.CompletedProcess[str]:
