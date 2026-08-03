@@ -15,7 +15,9 @@ from __future__ import annotations
 import hashlib
 import hmac
 import json
+import math
 import os
+import re
 import threading
 import time
 import uuid
@@ -44,6 +46,9 @@ PERSISTED_COUNTERS = (
     "event_woken_rest_reconciliations",
     "bad_frames",
 )
+CURRENT_USER_STREAM_SOAK_EPOCH_ID = "transport-stability-2026-08-v1"
+MAX_USER_STREAM_SOAK_EPOCHS = 64
+_SOAK_EPOCH_ID = re.compile(r"^[a-z0-9][a-z0-9._-]{0,63}$")
 
 
 @dataclass(frozen=True)
@@ -301,8 +306,12 @@ class BinanceUserDataObserver:
             "bad_frames": 0,
             "last_exchange_event_time_ms": None,
             "last_error": None,
+            "current_soak_epoch_id": CURRENT_USER_STREAM_SOAK_EPOCH_ID,
+            "soak_epochs": [],
+            "soak_epoch_error": None,
         }
         self._restore_sanitized_state()
+        self._ensure_current_soak_epoch(now)
 
     def _restore_sanitized_state(self) -> None:
         """Carry non-secret soak counters across short executor sessions."""
@@ -344,6 +353,93 @@ class BinanceUserDataObserver:
             exchange_time = 0
         if exchange_time > 0:
             self._state["last_exchange_event_time_ms"] = exchange_time
+        raw_epochs = payload.get("soak_epochs")
+        if raw_epochs is None:
+            return
+        try:
+            self._state["soak_epochs"] = self._validated_soak_epochs(raw_epochs)
+        except (TypeError, ValueError, OverflowError):
+            # Keep the transport available, but make readiness fail closed.
+            self._state["soak_epoch_error"] = "invalid persisted soak epoch evidence"
+
+    def _validated_soak_epochs(self, raw_epochs: object) -> list[dict[str, object]]:
+        """Validate append-only epoch baselines without accepting unknown fields."""
+        if not isinstance(raw_epochs, list):
+            raise TypeError("soak epochs must be a list")
+        if len(raw_epochs) > MAX_USER_STREAM_SOAK_EPOCHS:
+            raise ValueError("too many soak epochs")
+        validated: list[dict[str, object]] = []
+        seen_ids: set[str] = set()
+        previous_started_at = 0.0
+        for raw_epoch in raw_epochs:
+            if not isinstance(raw_epoch, Mapping):
+                raise TypeError("soak epoch must be an object")
+            if set(raw_epoch) != {"id", "started_at", "baseline"}:
+                raise ValueError("soak epoch fields are invalid")
+            epoch_id = str(raw_epoch.get("id") or "")
+            if not _SOAK_EPOCH_ID.fullmatch(epoch_id) or epoch_id in seen_ids:
+                raise ValueError("invalid or duplicate soak epoch id")
+            started_at = float(raw_epoch.get("started_at") or 0)
+            if (
+                started_at <= previous_started_at
+                or not math.isfinite(started_at)
+            ):
+                raise ValueError("invalid soak epoch start")
+            raw_baseline = raw_epoch.get("baseline")
+            if not isinstance(raw_baseline, Mapping):
+                raise TypeError("soak epoch baseline must be an object")
+            if set(raw_baseline) != set(PERSISTED_COUNTERS):
+                raise ValueError("soak epoch baseline fields are invalid")
+            baseline: dict[str, int] = {}
+            for name in PERSISTED_COUNTERS:
+                value = int(raw_baseline.get(name, -1))
+                current = int(self._state[name])
+                if value < 0 or value > current:
+                    raise ValueError("invalid soak epoch counter baseline")
+                baseline[name] = value
+            seen_ids.add(epoch_id)
+            previous_started_at = started_at
+            validated.append({
+                "id": epoch_id,
+                "started_at": started_at,
+                "baseline": baseline,
+            })
+        return validated
+
+    def _ensure_current_soak_epoch(self, now: float) -> None:
+        """Append one immutable baseline when the reviewed epoch identifier changes."""
+        if self._state["soak_epoch_error"] is not None:
+            return
+        epochs = self._state["soak_epochs"]
+        if not isinstance(epochs, list):
+            self._state["soak_epoch_error"] = "invalid in-memory soak epoch evidence"
+            return
+        matches = [
+            row for row in epochs
+            if row.get("id") == CURRENT_USER_STREAM_SOAK_EPOCH_ID
+        ]
+        if len(matches) == 1:
+            if epochs[-1] is matches[0]:
+                return
+            self._state["soak_epoch_error"] = "current soak epoch is not latest"
+            return
+        if matches or len(epochs) >= MAX_USER_STREAM_SOAK_EPOCHS:
+            self._state["soak_epoch_error"] = "soak epoch history cannot accept a new epoch"
+            return
+        if (
+            not math.isfinite(now)
+            or now <= 0
+            or (epochs and now <= float(epochs[-1]["started_at"]))
+        ):
+            self._state["soak_epoch_error"] = "new soak epoch start is invalid"
+            return
+        epochs.append({
+            "id": CURRENT_USER_STREAM_SOAK_EPOCH_ID,
+            "started_at": float(now),
+            "baseline": {
+                name: int(self._state[name]) for name in PERSISTED_COUNTERS
+            },
+        })
 
     def start(self) -> None:
         if self._thread is not None and self._thread.is_alive():

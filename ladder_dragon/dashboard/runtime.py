@@ -41,6 +41,7 @@ from ladder_dragon.dashboard.services.host_telemetry import (
     rolling_trade_volume_24h_usdt,
 )
 from ladder_dragon.dashboard.services.runtime_health import runtime_degraded_reason
+from ladder_dragon.dashboard.services.user_stream import current_soak_epoch_metrics
 from ladder_dragon.deployment.status import read_deployment_status
 APP_TZ = ZoneInfo("Asia/Almaty")
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
@@ -383,6 +384,7 @@ def _user_stream_snapshot(runtime: Dict[str, object]) -> Dict[str, object]:
                 if reported_state == "connected" and connected_at > 0
                 else 0.0
             )
+            soak_epoch = current_soak_epoch_metrics(payload, now=time.time())
             reconnects = int(payload.get("reconnects") or 0)
             idle_reconnects = int(payload.get("idle_reconnects") or 0)
             controlled_reconnects = int(
@@ -424,6 +426,7 @@ def _user_stream_snapshot(runtime: Dict[str, object]) -> Dict[str, object]:
                     cumulative_observation_hours, 2
                 ),
                 "current_session_hours": round(current_session_hours, 2),
+                **soak_epoch,
                 "last_error": (
                     str(payload.get("last_error"))
                     if payload.get("last_error") else None
@@ -455,6 +458,10 @@ def _user_stream_snapshot(runtime: Dict[str, object]) -> Dict[str, object]:
                 "soak_hours": 0.0,
                 "cumulative_observation_hours": 0.0,
                 "current_session_hours": 0.0,
+                "soak_epoch_id": None,
+                "soak_epoch_hours": 0.0,
+                "soak_epoch_reconnects": 0,
+                "soak_epoch_order_events": 0,
                 "last_error": None,
                 "last_event_at": None,
                 "last_order_event_at": None,

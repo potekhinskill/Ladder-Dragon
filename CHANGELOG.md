@@ -3,6 +3,25 @@
 All notable changes are documented here. Releases use Semantic Versioning; every
 section is dated and there is intentionally no `Unreleased` section.
 
+## [2.20.155] — 2026-08-03
+
+### Added
+- User Stream readiness now uses an immutable, versioned soak epoch.
+- Audit output keeps separate current-epoch and lifetime counters.
+
+### Changed
+- The dashboard shows the current soak epoch duration for each connected account stream.
+
+### Fixed
+- Historical reconnect churn no longer blocks a new reviewed stability period forever.
+
+### Security
+- Epoch evidence is append-only, bounded, sanitized, and validated before readiness can pass.
+- Damaged epoch evidence blocks approval without disabling authoritative REST reconciliation.
+
+### Verified
+- The complete pytest suite and technical English check pass.
+
 ## [2.20.154] — 2026-08-03
 
 ### Changed

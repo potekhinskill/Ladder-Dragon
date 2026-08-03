@@ -334,6 +334,19 @@ PYTHONPATH=. .venv/bin/python -m bin.audit_user_stream_soak \
 
 The soak blocks when the average reconnect rate exceeds one reconnect each hour.
 
+Readiness uses the current, versioned soak epoch.
+The epoch starts from immutable lifetime-counter baselines.
+Historical reconnects remain available as lifetime evidence.
+The observer never resets or deletes lifetime counters.
+The snapshot retains up to 64 append-only epoch baselines.
+The observer blocks a new epoch when this limit is full.
+The operator must review and archive evidence before any manual migration.
+No automatic epoch deletion is permitted.
+
+The current epoch requires 24 hours of continuous observation.
+It also requires a controlled reconnect, one order event, and event-triggered REST reconciliation.
+Run the controlled drills only after the new epoch starts.
+
 Run the Mainnet event drill only with a persistent HALT and SHADOW mode.
 The drill submits one bounded `LIMIT_MAKER` BUY below the market.
 It cancels the order immediately and requires zero execution.

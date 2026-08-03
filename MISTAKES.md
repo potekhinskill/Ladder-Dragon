@@ -1272,3 +1272,10 @@ private infrastructure details.
 - **Root cause:** the audit checked the monotonic counters independently, without a reconnect-rate limit.
 - **Correction:** calculate cumulative reconnects per observed hour and block excessive churn.
 - **Prevention:** each soak gate must bound failure frequency, not only total elapsed time.
+
+### 2026-08-03 — Used lifetime counters for a repeatable soak
+
+- **Impact:** repaired transport behavior could never pass while old reconnects remained in evidence.
+- **Root cause:** the readiness denominator had no reviewed epoch boundary.
+- **Correction:** preserve lifetime counters and subtract an immutable baseline for the current soak.
+- **Prevention:** repeatable certification needs append-only epochs, not counter resets or lifetime-only ratios.

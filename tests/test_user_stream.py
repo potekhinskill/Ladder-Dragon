@@ -13,7 +13,9 @@ import ladder_dragon.execution.user_stream as user_stream_module
 
 from ladder_dragon.execution.user_stream import (
     BinanceUserDataObserver,
+    CURRENT_USER_STREAM_SOAK_EPOCH_ID,
     OrderEventMailbox,
+    PERSISTED_COUNTERS,
     parse_order_signal,
     reconciliation_due,
     signed_subscription_request,
@@ -26,6 +28,17 @@ from ladder_dragon.execution.execution_latency import (
 )
 from ladder_dragon.execution.user_stream_soak import audit_user_stream_soak
 from ladder_dragon.execution.user_stream_shadow import reconcile_order_events
+
+
+def soak_epoch(started_at, **baseline_overrides):
+    """Build a complete sanitized epoch baseline for audit tests."""
+    baseline = {name: 0 for name in PERSISTED_COUNTERS}
+    baseline.update(baseline_overrides)
+    return [{
+        "id": CURRENT_USER_STREAM_SOAK_EPOCH_ID,
+        "started_at": started_at,
+        "baseline": baseline,
+    }]
 
 
 def execution_report(**overrides):
@@ -658,6 +671,9 @@ def test_observer_restores_only_sanitized_cumulative_soak_state(tmp_path):
     assert state["sessions"] == 2
     assert state["order_events"] == 4
     assert state["last_error"] is None
+    assert state["soak_epoch_error"] is None
+    assert state["soak_epochs"][0]["baseline"]["reconnects"] == 2
+    assert state["soak_epochs"][0]["baseline"]["order_events"] == 4
     assert "api_key" not in state
 
 
@@ -673,6 +689,7 @@ def test_user_stream_soak_audit_requires_duration_freshness_and_drills(
         "order_events": 2,
         "rest_reconciliations": 4,
         "event_woken_rest_reconciliations": 2,
+        "soak_epochs": soak_epoch(1_000),
     }))
     path.touch()
 
@@ -688,6 +705,7 @@ def test_user_stream_soak_audit_requires_duration_freshness_and_drills(
     assert ready.ready is True
     assert ready.as_dict()["rest_remains_authoritative"] is True
     assert ready.streams[0]["reconnects_per_hour"] == 0.04
+    assert ready.streams[0]["lifetime_reconnects"] == 1
 
     blocked = audit_user_stream_soak(
         [path],
@@ -711,6 +729,7 @@ def test_user_stream_soak_blocks_chronic_reconnect_churn(tmp_path):
         "order_events": 2,
         "rest_reconciliations": 4,
         "event_woken_rest_reconciliations": 2,
+        "soak_epochs": soak_epoch(1_000),
     }))
     path.touch()
 
@@ -724,6 +743,125 @@ def test_user_stream_soak_blocks_chronic_reconnect_churn(tmp_path):
     assert blocked.ready is False
     assert blocked.streams[0]["reconnects_per_hour"] == 9.6
     assert "reconnect rate is too high" in " ".join(blocked.reasons)
+
+
+def test_user_stream_soak_uses_epoch_without_deleting_lifetime_evidence(
+    tmp_path,
+):
+    path = tmp_path / "stream.json"
+    payload = {
+        "state": "connected",
+        "first_observed_at": 1_000,
+        "sessions": 37,
+        "reconnects": 1_070,
+        "order_events": 3,
+        "rest_reconciliations": 6_700,
+        "event_woken_rest_reconciliations": 3,
+        "soak_epochs": soak_epoch(
+            1_000 + 100 * 3600,
+            sessions=36,
+            reconnects=1_069,
+            order_events=2,
+            rest_reconciliations=6_600,
+            event_woken_rest_reconciliations=2,
+        ),
+    }
+    path.write_text(json.dumps(payload))
+
+    ready = audit_user_stream_soak(
+        [path],
+        minimum_hours=24,
+        maximum_reconnects_per_hour=1,
+        require_reconnect=True,
+        require_order_event=True,
+        require_event_woken_rest=True,
+        now=1_000 + 125 * 3600,
+    )
+
+    assert ready.ready is True
+    row = ready.streams[0]
+    assert row["reconnects"] == 1
+    assert row["lifetime_reconnects"] == 1_070
+    assert row["reconnects_per_hour"] == 0.04
+    assert row["order_events"] == 1
+    assert row["lifetime_order_events"] == 3
+    assert row["age_hours"] == 25
+    assert row["lifetime_age_hours"] == 125
+
+
+def test_observer_does_not_reset_an_existing_soak_epoch(tmp_path):
+    path = tmp_path / "stream.json"
+    payload = {
+        "state": "connected",
+        "first_observed_at": 1_000,
+        "sessions": 10,
+        "reconnects": 20,
+        "soak_epochs": soak_epoch(2_000, sessions=9, reconnects=19),
+    }
+    path.write_text(json.dumps(payload))
+
+    observer = BinanceUserDataObserver(
+        api_key="key",
+        api_secret="secret",
+        rest_base_url="https://api.binance.com",
+        mailbox=OrderEventMailbox(),
+        logger=lambda message: None,
+        state_path=path,
+        clock=lambda: 3_000,
+    )
+
+    state = observer.state()
+    assert len(state["soak_epochs"]) == 1
+    assert state["soak_epochs"][0]["started_at"] == 2_000
+    assert state["soak_epochs"][0]["baseline"]["reconnects"] == 19
+
+
+def test_observer_refuses_to_delete_epoch_history_at_growth_limit(tmp_path):
+    path = tmp_path / "stream.json"
+    epochs = []
+    for index in range(user_stream_module.MAX_USER_STREAM_SOAK_EPOCHS):
+        epochs.append({
+            "id": f"historical-{index}",
+            "started_at": 1_000 + index,
+            "baseline": {name: 0 for name in PERSISTED_COUNTERS},
+        })
+    path.write_text(json.dumps({
+        "state": "connected",
+        "first_observed_at": 1_000,
+        "soak_epochs": epochs,
+    }))
+
+    observer = BinanceUserDataObserver(
+        api_key="key",
+        api_secret="secret",
+        rest_base_url="https://api.binance.com",
+        mailbox=OrderEventMailbox(),
+        logger=lambda message: None,
+        state_path=path,
+        clock=lambda: 2_000,
+    )
+
+    state = observer.state()
+    assert len(state["soak_epochs"]) == user_stream_module.MAX_USER_STREAM_SOAK_EPOCHS
+    assert state["soak_epochs"] == epochs
+    assert state["soak_epoch_error"] is not None
+
+
+def test_user_stream_soak_fails_closed_for_damaged_epoch(tmp_path):
+    path = tmp_path / "stream.json"
+    path.write_text(json.dumps({
+        "state": "connected",
+        "first_observed_at": 1_000,
+        "sessions": 1,
+        "reconnects": 1,
+        "soak_epoch_error": "invalid persisted soak epoch evidence",
+        "soak_epochs": [],
+    }))
+
+    blocked = audit_user_stream_soak([path], now=2_000)
+
+    assert blocked.ready is False
+    assert "unreadable snapshot" in " ".join(blocked.reasons)
 
 
 def test_user_stream_soak_rejects_non_finite_reconnect_limit():
@@ -754,6 +892,8 @@ def test_user_stream_persists_authoritative_rest_reconciliation_evidence(
     payload = json.loads(path.read_text())
     assert payload["rest_reconciliations"] == 2
     assert payload["event_woken_rest_reconciliations"] == 1
+    assert payload["current_soak_epoch_id"] == CURRENT_USER_STREAM_SOAK_EPOCH_ID
+    assert len(payload["soak_epochs"]) == 1
     assert "api_key" not in payload
 
 

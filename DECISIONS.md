@@ -960,3 +960,10 @@ entries concise; this is not a changelog or an activity log.
 - **Decision:** readiness permits at most one cumulative reconnect per observed hour.
 - **Why it worked:** controlled drills remain eligible, while chronic reconnect churn blocks approval.
 - **Reuse:** every duration gate whose subject can fail and recover during observation.
+
+### 2026-08-03 — Start User Stream readiness from an immutable epoch
+
+- **Context:** lifetime reconnect churn permanently blocked a later stable observation period.
+- **Decision:** preserve lifetime counters and measure readiness from an append-only epoch baseline.
+- **Why it worked:** old failures remain visible, while new evidence gets an independent denominator.
+- **Reuse:** every repeated soak whose historical counters must remain immutable.

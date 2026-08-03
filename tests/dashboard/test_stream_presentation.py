@@ -21,6 +21,7 @@ def test_user_stream_summary_hides_zero_counters_behind_diagnostics():
         "user_stream_not_started",
         "user_stream_rest_fallback",
         "user_stream_connected",
+        "user_stream_soak_epoch",
         "user_stream_stale",
         "user_stream_diagnostics",
         "hours_short",
@@ -30,6 +31,8 @@ def test_user_stream_summary_hides_zero_counters_behind_diagnostics():
         "stream_counter_planned_reconnects",
         "stream_counter_failure_reconnects",
         "stream_counter_legacy_reconnects",
+        "stream_counter_epoch_reconnects",
+        "stream_counter_epoch_events",
     ):
         assert locales.count(f"{key}:") == 2
 

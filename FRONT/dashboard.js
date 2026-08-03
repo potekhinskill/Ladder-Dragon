@@ -56,8 +56,12 @@ function userStreamSummary(stream){
   }
   if(state==='connected'&&!stream.stale&&!stream.last_error){
     const session=Number(stream.current_session_hours||0);
+    const soak=Number(stream.soak_epoch_hours||0);
     const age=stream.order_events>0&&stream.age_sec!=null?` · ${tr('user_stream_last_event')} ${fmt(stream.age_sec,0)}s`:'';
-    return `🟢 ${symbol} · ${tr('user_stream_connected')} · ${tr('user_stream_session')} ${fmt(session,2)}${tr('hours_short')}${age}`;
+    const window=stream.soak_epoch_id
+      ?`${tr('user_stream_soak_epoch')} ${fmt(soak,2)}${tr('hours_short')}`
+      :`${tr('user_stream_session')} ${fmt(session,2)}${tr('hours_short')}`;
+    return `🟢 ${symbol} · ${tr('user_stream_connected')} · ${window}${age}`;
   }
   return `🔴 ${symbol} · ${stream.stale?tr('user_stream_stale'):tr('user_stream_unavailable')}`;
 }
@@ -70,7 +74,9 @@ function userStreamDiagnostics(streams){
     ['failure_reconnects','stream_counter_failure_reconnects'],
     ['legacy_unclassified_reconnects','stream_counter_legacy_reconnects'],
     ['connection_attempts','stream_counter_attempts'],
-    ['disconnects','stream_counter_disconnects']
+    ['disconnects','stream_counter_disconnects'],
+    ['soak_epoch_reconnects','stream_counter_epoch_reconnects'],
+    ['soak_epoch_order_events','stream_counter_epoch_events']
   ];
   return streams.flatMap(stream=>{
     const prefix=String(stream.symbol||'').toUpperCase();
