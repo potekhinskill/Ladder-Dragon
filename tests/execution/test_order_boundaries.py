@@ -36,7 +36,6 @@ from ladder_dragon.execution import executor_planning
 from ladder_dragon.execution.executor_recovery import get_order_by_client_id, verify_oco_legs
 from ladder_dragon.execution.executor_runtime import (
     status_due,
-    trading_seconds,
     trading_wakeups,
 )
 from ladder_dragon.execution.order_recovery import OrderJournal
@@ -795,17 +794,7 @@ def test_executor_planning_exposes_no_legacy_float_api():
     assert legacy_names.isdisjoint(vars(executor_planning))
 
 
-def test_executor_runtime_owns_worker_lifecycle_timing():
-    sleeps = []
-    ticks = list(
-        trading_seconds(
-            3,
-            running=lambda: True,
-            sleep=lambda seconds: sleeps.append(seconds),
-        )
-    )
-    assert ticks == [2, 1, 0]
-    assert sleeps == [1, 1, 1]
+def test_executor_runtime_reports_status_on_schedule():
     assert status_due(10, 5)
     assert not status_due(9, 5)
 

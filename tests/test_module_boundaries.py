@@ -33,11 +33,6 @@ from ladder_dragon.execution.executor_planning import (
     plan_sell_order_decimal,
 )
 from ladder_dragon.execution.executor_recovery import get_order_by_client_id, verify_oco_legs
-from ladder_dragon.execution.executor_runtime import (
-    status_due,
-    trading_seconds,
-    trading_wakeups,
-)
 from ladder_dragon.execution.order_recovery import OrderJournal
 from ladder_dragon.strategy.strategy_math import (
     adx_from_klines,

@@ -3,6 +3,17 @@
 All notable changes are documented here. Releases use Semantic Versioning; every
 section is dated and there is intentionally no `Unreleased` section.
 
+## [2.20.152] — 2026-08-03
+
+### Changed
+- Worker timing now exposes only the active event-driven countdown.
+
+### Fixed
+- Removed the unused sleep-based `trading_seconds` generator and its obsolete test contract.
+
+### Verified
+- The complete pytest suite and technical English check pass.
+
 ## [2.20.151] — 2026-08-03
 
 ### Added
