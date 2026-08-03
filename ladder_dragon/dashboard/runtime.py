@@ -26,6 +26,7 @@ from ladder_dragon.ai.ai_control import (
     write_ai_control,
 )
 from ladder_dragon.execution.order_recovery import read_order_journal_telemetry
+from ladder_dragon.execution.trade_accounting import DEFAULT_SPOT_FEE_PCT
 from ladder_dragon.sqlite_safety import quote_sqlite_identifier
 from product_version import PRODUCT_NAME, __version__
 from ladder_dragon.execution.telegram_alerts import notify_binance_auth_error
@@ -501,9 +502,9 @@ def _ts_to_s(ts_val) -> int:
 
 def _fee_pct_default() -> float:
     try:
-        return float(os.getenv("BOT_FEE_PCT", "0.00075"))
+        return float(os.getenv("BOT_FEE_PCT", str(DEFAULT_SPOT_FEE_PCT)))
     except (TypeError, ValueError):
-        return 0.00075
+        return float(DEFAULT_SPOT_FEE_PCT)
 
 def _load_trades(con: sqlite3.Connection, symbols: Optional[List[str]] = None) -> List[sqlite3.Row]:
     sym_filter = ""

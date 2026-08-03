@@ -8,10 +8,37 @@ from __future__ import annotations
 import argparse
 import os
 import re
-from decimal import Decimal
+from decimal import Decimal, InvalidOperation
 from pathlib import Path
 
 from product_version import product_label
+
+
+def _environment_int_default(
+    parser: argparse.ArgumentParser,
+    name: str,
+    fallback: str,
+) -> int:
+    """Read an integer default without exposing its invalid value."""
+    try:
+        return int(os.getenv(name, fallback))
+    except (TypeError, ValueError):
+        parser.error(f"{name} must contain an integer")
+
+
+def _environment_decimal_default(
+    parser: argparse.ArgumentParser,
+    name: str,
+    fallback: str,
+) -> Decimal:
+    """Read a finite decimal default without exposing its invalid value."""
+    try:
+        value = Decimal(os.getenv(name, fallback))
+    except (InvalidOperation, TypeError, ValueError):
+        parser.error(f"{name} must contain a decimal number")
+    if not value.is_finite():
+        parser.error(f"{name} must contain a finite decimal number")
+    return value
 
 
 def build_executor_parser() -> argparse.ArgumentParser:
@@ -118,22 +145,38 @@ def build_executor_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--fast-market-max-age-ms",
         type=int,
-        default=int(os.getenv("BOT_FAST_MARKET_MAX_AGE_MS", "500")),
+        default=_environment_int_default(
+            parser,
+            "BOT_FAST_MARKET_MAX_AGE_MS",
+            "500",
+        ),
     )
     parser.add_argument(
         "--fast-market-max-spread-bps",
         type=Decimal,
-        default=Decimal(os.getenv("BOT_FAST_MARKET_MAX_SPREAD_BPS", "25")),
+        default=_environment_decimal_default(
+            parser,
+            "BOT_FAST_MARKET_MAX_SPREAD_BPS",
+            "25",
+        ),
     )
     parser.add_argument(
         "--fast-market-max-move-bps",
         type=Decimal,
-        default=Decimal(os.getenv("BOT_FAST_MARKET_MAX_MOVE_BPS", "8")),
+        default=_environment_decimal_default(
+            parser,
+            "BOT_FAST_MARKET_MAX_MOVE_BPS",
+            "8",
+        ),
     )
     parser.add_argument(
         "--fast-market-min-net-edge-bps",
         type=Decimal,
-        default=Decimal(os.getenv("BOT_FAST_MARKET_MIN_NET_EDGE_BPS", "2")),
+        default=_environment_decimal_default(
+            parser,
+            "BOT_FAST_MARKET_MIN_NET_EDGE_BPS",
+            "2",
+        ),
     )
     parser.add_argument(
         "--otoco-mode",

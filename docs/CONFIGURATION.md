@@ -29,6 +29,7 @@ The applicable mode must also be `APPLY`.
 | `ADAPTIVE_REANCHOR_MODE` and `REANCHOR_*` | bounded BUY refresh |
 | `PREDICTION_*` | SHADOW database, interval, fees, and slippage |
 | `BOT_EXPECTANCY_*` | exact execution-cost floor evidence |
+| `BOT_FEE_PCT` | conservative Spot fee per side; `0.001` means 0.1% |
 | `BOT_REGIME_*` | regime state machine and hysteresis |
 | `BOT_INVENTORY_SKEW_*` | managed-inventory size reduction |
 | `BOT_STATISTICAL_REGIME_MODE` | transparent statistical challenger |
@@ -39,6 +40,7 @@ The applicable mode must also be `APPLY`.
 A larger VWAP discount requires a deeper price decline before CAP scaling.
 DOWN, loss, and volatility evidence increase this threshold.
 UP and profit evidence decrease it.
+Set a lower fee only after you confirm the active account discount.
 
 Each traded symbol requires an explicit managed-inventory hard CAP.
 For example, SOL uses `RISK_MANAGED_INVENTORY_HARD_CAP_SOLUSDT`.

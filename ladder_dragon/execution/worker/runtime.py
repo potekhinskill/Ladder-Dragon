@@ -52,6 +52,7 @@ from ladder_dragon.execution.websocket_trading import (
 )
 from product_version import product_label, user_agent
 from ladder_dragon.execution.executor_config import build_executor_parser, validate_executor_args
+from ladder_dragon.execution.trade_accounting import DEFAULT_SPOT_FEE_PCT
 from ladder_dragon.strategy.strategy_math import atr_from_klines as _atr_from_klines
 from ladder_dragon.strategy.strategy_math import clamp, ema_value as _ema, panic_triggered as panic_raw
 from ladder_dragon.strategy.strategy_math import shift_buy_levels
@@ -412,8 +413,6 @@ class SymbolLock:
         except OSError:
             pass
 
-# --- profit floor helpers ---
-
 def _tp1_max_pct() -> Decimal:
     # Upper bound for the nearest target (zero means no cap).
     return max(Decimal("0"), getenv_decimal("TP1_MAX", "0.040"))
@@ -424,21 +423,21 @@ def _fee_floor_pct() -> Decimal:
         Decimal("0"),
         getenv_decimal(
             "BOT_BUY_FEE_PCT",
-            getenv_decimal("BOT_FEE_PCT", "0.001"),
+            getenv_decimal("BOT_FEE_PCT", DEFAULT_SPOT_FEE_PCT),
         ),
     )
     sell_fee = max(
         Decimal("0"),
         getenv_decimal(
             "BOT_SELL_FEE_PCT",
-            getenv_decimal("BOT_FEE_PCT", "0.001"),
+            getenv_decimal("BOT_FEE_PCT", DEFAULT_SPOT_FEE_PCT),
         ),
     )
     return (buy_fee + sell_fee) * Decimal("1.05")
 
 def _execution_cost_floor_pct() -> Decimal:
     """Handle execution cost floor pct."""
-    fee = max(Decimal("0"), getenv_decimal("BOT_FEE_PCT", "0.001"))
+    fee = max(Decimal("0"), getenv_decimal("BOT_FEE_PCT", DEFAULT_SPOT_FEE_PCT))
     spread = max(Decimal("0"), getenv_decimal(
         "BOT_SPREAD_PCT", getenv_decimal("RISK_SPREAD_PCT", "0")
     ))
@@ -1500,7 +1499,7 @@ def account_fee_pct(symbol: str) -> Decimal:
     cached = _ACCOUNT_FEE_CACHE.get(symbol.upper())
     if cached and now - cached[0] < 300:
         return cached[1]
-    fallback = max(Decimal("0"), getenv_decimal("BOT_FEE_PCT", "0.001"))
+    fallback = max(Decimal("0"), getenv_decimal("BOT_FEE_PCT", DEFAULT_SPOT_FEE_PCT))
     try:
         rows = _signed_request("GET", "/sapi/v1/asset/tradeFee", {"symbol": symbol.upper()}) or []
         row = rows[0] if isinstance(rows, list) and rows else rows

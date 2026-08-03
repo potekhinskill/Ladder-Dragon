@@ -11,6 +11,9 @@ from typing import Iterable
 
 
 ZERO = Decimal("0")
+# Use the standard Binance Spot fee when the operator has not confirmed a
+# lower account rate. A discount must never be inferred from BNB holdings.
+DEFAULT_SPOT_FEE_PCT = Decimal("0.001")
 VALUED_COMMISSION_STATUSES = frozenset(
     {
         "basis-import",

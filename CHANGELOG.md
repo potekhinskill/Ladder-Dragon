@@ -3,6 +3,23 @@
 All notable changes are documented here. Releases use Semantic Versioning; every
 section is dated and there is intentionally no `Unreleased` section.
 
+## [2.20.148] — 2026-08-03
+
+### Changed
+- Execution, protection, and dashboard code now use one conservative Spot fee default.
+- The example configuration defines `BOT_FEE_PCT=0.001` explicitly.
+
+### Fixed
+- Default breakeven protection now covers a 0.2% round-trip fee instead of 0.15%.
+- Invalid fast-market numeric environment values now produce safe parser diagnostics.
+
+### Security
+- An account fee discount requires an explicit operator configuration.
+- Parser diagnostics identify the invalid setting without printing its value.
+
+### Verified
+- The complete pytest suite and technical English check pass.
+
 ## [2.20.147] — 2026-08-03
 
 ### Changed

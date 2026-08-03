@@ -14,6 +14,8 @@ from typing import Any, List, Mapping, Optional
 
 import requests
 
+from ladder_dragon.execution.trade_accounting import DEFAULT_SPOT_FEE_PCT
+
 
 def cap_decimal(name: str, raw: object) -> Decimal:
     """Parse a non-negative finite CAP or fail closed."""
@@ -306,14 +308,20 @@ def place_buys(symbol: str,
                                 Decimal("0"),
                                 getenv_decimal(
                                     "BOT_BUY_FEE_PCT",
-                                    getenv_decimal("BOT_FEE_PCT", "0.001"),
+                                    getenv_decimal(
+                                        "BOT_FEE_PCT",
+                                        DEFAULT_SPOT_FEE_PCT,
+                                    ),
                                 ),
                             )
                             + max(
                                 Decimal("0"),
                                 getenv_decimal(
                                     "BOT_SELL_FEE_PCT",
-                                    getenv_decimal("BOT_FEE_PCT", "0.001"),
+                                    getenv_decimal(
+                                        "BOT_FEE_PCT",
+                                        DEFAULT_SPOT_FEE_PCT,
+                                    ),
                                 ),
                             )
                         )

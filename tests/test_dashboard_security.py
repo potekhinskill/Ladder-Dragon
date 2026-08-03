@@ -23,6 +23,15 @@ def dashboard_source() -> str:
     )
 
 
+def test_dashboard_uses_conservative_fee_without_confirmed_discount(monkeypatch):
+    monkeypatch.delenv("BOT_FEE_PCT", raising=False)
+    module = load_dashboard(monkeypatch)
+    assert module._fee_pct_default() == 0.001
+
+    monkeypatch.setenv("BOT_FEE_PCT", "0.00075")
+    assert module._fee_pct_default() == 0.00075
+
+
 def test_api_is_closed_without_authentication(monkeypatch):
     module = load_dashboard(monkeypatch)
     with TestClient(module.app) as client:

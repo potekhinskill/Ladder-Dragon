@@ -1230,3 +1230,10 @@ private infrastructure details.
 - **Root cause:** the verification command used a manually copied full SHA.
 - **Correction:** resolve the candidate with `git rev-parse HEAD` in the same command.
 - **Prevention:** never type a release SHA when Git can provide the exact value.
+
+### 2026-08-03 — Copied an account fee default into separate consumers
+
+- **Impact:** default breakeven protection could close below the actual round-trip fee floor.
+- **Root cause:** lifecycle and dashboard code assumed a BNB discount independently from execution code.
+- **Correction:** all active consumers import one conservative exact fee constant.
+- **Prevention:** define each financial default once, and require explicit configuration for any discount.

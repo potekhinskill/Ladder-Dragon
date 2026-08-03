@@ -918,3 +918,10 @@ entries concise; this is not a changelog or an activity log.
 - **Decision:** submit one bounded non-taking order under HALT, cancel it immediately, and require zero execution.
 - **Why it worked:** tests prove intent-first recovery, cleanup, persistent event evidence, and unchanged execution gates.
 - **Reuse:** controlled authenticated stream drills on an otherwise idle account.
+
+### 2026-08-03 — Use one conservative default fee
+
+- **Context:** protection and reporting used different fallback fees for the same account setting.
+- **Decision:** all consumers use the standard 0.1% Spot fee until the operator confirms a lower rate.
+- **Why it worked:** breakeven, execution floors, and dashboard estimates now share one exact constant.
+- **Reuse:** every account-cost default that affects protection, execution, or reporting.

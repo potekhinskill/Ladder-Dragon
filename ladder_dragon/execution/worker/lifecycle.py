@@ -151,7 +151,7 @@ def run_worker(state: WorkerRuntimeState) -> None:
         # --- Breakeven: keep OCO linked to the original BUY average price ---
         be_syms = {s.strip().upper() for s in args.breakeven_on_tp1_symbols.split(",") if s.strip()}
         BE_ENABLED = symbol.upper() in be_syms
-        fee_pct = max(state.Decimal("0"), state.getenv_decimal("BOT_FEE_PCT", "0.00075"))
+        fee_pct = max(state.Decimal("0"), state.getenv_decimal("BOT_FEE_PCT", state.DEFAULT_SPOT_FEE_PCT))
         BE_OFFSET = (
             args.breakeven_offset_pct
             if args.breakeven_offset_pct is not None

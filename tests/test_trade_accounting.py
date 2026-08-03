@@ -7,6 +7,7 @@ from bin import pnl_24h
 from ladder_dragon.execution import tools_stats
 from ladder_dragon.risk.risk_manager import load_daily_trade_metrics
 from ladder_dragon.execution.trade_accounting import (
+    DEFAULT_SPOT_FEE_PCT,
     InventoryShortfall,
     TradeExecution,
     UnpricedCommission,
@@ -21,6 +22,11 @@ from ladder_dragon.execution.worker.stats_sync import sync_account_trades
 def sync_worker_trades(worker, symbol: str) -> None:
     """Exercise the package statistics service with explicit test adapters."""
     sync_account_trades(symbol, runtime=vars(worker))
+
+
+def test_default_spot_fee_is_conservative_without_an_explicit_discount():
+    assert DEFAULT_SPOT_FEE_PCT == Decimal("0.001")
+    assert Decimal("2") * DEFAULT_SPOT_FEE_PCT == Decimal("0.002")
 
 
 def test_omitted_commission_quote_fails_closed_when_fee_is_nonzero():
