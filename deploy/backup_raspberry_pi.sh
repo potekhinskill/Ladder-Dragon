@@ -150,6 +150,7 @@ done
 # Watchdog state and the current Telegram configuration stay only inside the
 # encrypted age archive. They never enter the HTTP directory.
 for path in \
+  /etc/watchdog.conf \
   /etc/ladder-dragon/telegram.env \
   /etc/ladder-dragon/soak-report-signing.pem \
   /etc/ladder-dragon/soak-report-signing.pub.pem \

@@ -4,6 +4,13 @@ Read this file before changing the repository. Record only decisions that were
 validated by tests or production evidence and are likely to be reused. Keep
 entries concise; this is not a changelog or an activity log.
 
+### 2026-08-03 — Test network reachability instead of packet idleness
+
+- **Context:** a five-second interface check treated normal traffic gaps as Wi-Fi failures.
+- **Decision:** keep the hardware watchdog, but assign network checks to the hysteresis watchdog.
+- **Why it worked:** live evidence showed a healthy route and fresh transport activity during repeated warnings.
+- **Reuse:** every watchdog that observes an interface with bursty traffic.
+
 ### 2026-08-03 — Retire only identified legacy deployment units
 
 - **Context:** an obsolete timer repeatedly called a script removed from the current release.

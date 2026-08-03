@@ -46,6 +46,33 @@ retire_legacy_stats_sync() {
   echo "[OK] retired legacy bot-stats-sync units"
 }
 
+remove_idle_interface_watchdog_check() {
+  local config="${1:-/etc/watchdog.conf}"
+  local temporary
+
+  [[ -f "${config}" ]] || return 0
+  grep -Eq \
+    '^[[:space:]]*interface[[:space:]]*=[[:space:]]*wlan0[[:space:]]*(#.*)?$' \
+    "${config}" || return 0
+
+  temporary="$(mktemp "${config}.tmp.XXXXXX")"
+  awk \
+    '!/^[[:space:]]*interface[[:space:]]*=[[:space:]]*wlan0[[:space:]]*(#.*)?$/' \
+    "${config}" >"${temporary}"
+  chown --reference="${config}" "${temporary}"
+  chmod --reference="${config}" "${temporary}"
+  mv -f -- "${temporary}" "${config}"
+
+  # Keep the hardware watchdog active. Network health has a separate hysteresis check.
+  if systemctl is-active --quiet watchdog.service; then
+    systemctl restart watchdog.service \
+      || fail "hardware watchdog could not restart"
+    systemctl is-active --quiet watchdog.service \
+      || fail "hardware watchdog did not restart"
+  fi
+  echo "[OK] removed idle wlan0 check from hardware watchdog"
+}
+
 [[ "${EUID}" -eq 0 ]] || fail "runtime assets must be installed as root"
 [[ -d "${PROJECT_DIR}/deploy" ]] || fail "release deploy directory is missing"
 
@@ -65,5 +92,6 @@ install -o root -g root -m 0755 \
   /usr/local/bin/ladder-dragon-soak-audit
 
 retire_legacy_stats_sync
+remove_idle_interface_watchdog_check
 
 echo "[OK] installed release runtime assets"

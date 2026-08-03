@@ -6,6 +6,13 @@ avoidable rework. Identify the root cause rather than recording only the
 symptom. Keep entries concise and exclude secrets, balances, account data, and
 private infrastructure details.
 
+### 2026-08-03 — Used packet idleness as a network failure signal
+
+- **Impact:** normal Wi-Fi traffic gaps produced frequent system warnings.
+- **Root cause:** the hardware watchdog required received packets during every short interval.
+- **Correction:** remove only the legacy `wlan0` interface check and keep reachability monitoring active.
+- **Prevention:** network health checks must test reachability with hysteresis, not packet presence.
+
 ### 2026-08-03 — Left an obsolete timer outside release ownership
 
 - **Impact:** systemd logged a failed statistics synchronization service every two minutes.

@@ -1152,6 +1152,73 @@ def test_runtime_auth_resilience_state_is_not_a_checkout_change():
     assert "db/auth_resilience.json" in ignore.splitlines()
 
 
+def _run_watchdog_interface_cleanup(config: Path) -> subprocess.CompletedProcess[str]:
+    runtime_assets = read("deploy/install_runtime_assets.sh")
+    function = "remove_idle_interface_watchdog_check() {" + runtime_assets.split(
+        "remove_idle_interface_watchdog_check() {", 1
+    )[1].split("\n}\n", 1)[0] + "\n}\n"
+    script = "\n".join(
+        (
+            "set -euo pipefail",
+            'fail() { echo "[FAIL] $*" >&2; exit 1; }',
+            "systemctl() { :; }",
+            "chown() { :; }",
+            "chmod() { :; }",
+            function,
+            'remove_idle_interface_watchdog_check "$1"',
+        )
+    )
+    return subprocess.run(
+        ("bash", "-c", script, "bash", str(config)),
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+
+
+def test_runtime_assets_remove_only_idle_wlan0_watchdog_check(tmp_path):
+    config = tmp_path / "watchdog.conf"
+    config.write_text(
+        "watchdog-device = /dev/watchdog\n"
+        "interval = 5\n"
+        "interface = wlan0\n"
+        "max-load-1 = 8\n",
+        encoding="utf-8",
+    )
+
+    completed = _run_watchdog_interface_cleanup(config)
+
+    assert completed.returncode == 0, completed.stderr
+    assert config.read_text(encoding="utf-8") == (
+        "watchdog-device = /dev/watchdog\n"
+        "interval = 5\n"
+        "max-load-1 = 8\n"
+    )
+    runtime_assets = read("deploy/install_runtime_assets.sh")
+    cleanup = runtime_assets.split(
+        "remove_idle_interface_watchdog_check() {", 1
+    )[1].split("\n}\n", 1)[0]
+    assert "hardware watchdog could not restart" in cleanup
+    assert "hardware watchdog did not restart" in cleanup
+
+
+def test_runtime_assets_preserve_operator_watchdog_interface(tmp_path):
+    config = tmp_path / "watchdog.conf"
+    original = "watchdog-device = /dev/watchdog\ninterface = eth0\n"
+    config.write_text(original, encoding="utf-8")
+
+    completed = _run_watchdog_interface_cleanup(config)
+
+    assert completed.returncode == 0, completed.stderr
+    assert config.read_text(encoding="utf-8") == original
+
+
+def test_backup_preserves_hardware_watchdog_configuration():
+    backup = read("deploy/backup_raspberry_pi.sh")
+
+    assert "/etc/watchdog.conf" in backup
+
+
 def test_installer_accepts_only_the_canonical_main_branch():
     installer = read("deploy/install_raspberry_pi.sh")
     dashboard = read("ladder_dragon/dashboard/runtime.py")

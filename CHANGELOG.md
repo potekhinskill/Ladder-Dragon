@@ -3,6 +3,22 @@
 All notable changes are documented here. Releases use Semantic Versioning; every
 section is dated and there is intentionally no `Unreleased` section.
 
+## [2.20.154] — 2026-08-03
+
+### Changed
+- Deployment removes the obsolete packet-idle check from the hardware watchdog.
+- Encrypted backups now include the hardware watchdog configuration.
+
+### Fixed
+- Normal gaps in received Wi-Fi packets no longer produce repeated system warnings.
+
+### Security
+- The hardware watchdog remains active after the configuration change.
+- Network recovery continues through the route, Internet, and heartbeat watchdog.
+
+### Verified
+- The complete pytest suite and technical English check pass.
+
 ## [2.20.153] — 2026-08-03
 
 ### Changed
