@@ -3,6 +3,23 @@
 All notable changes are documented here. Releases use Semantic Versioning; every
 section is dated and there is intentionally no `Unreleased` section.
 
+## [2.20.151] — 2026-08-03
+
+### Added
+- User Stream soak output now includes cumulative reconnects per observed hour.
+- The audit CLI exposes `--maximum-reconnects-per-hour` with a safe default of `1`.
+
+### Fixed
+- A long-lived but chronically reconnecting stream no longer passes readiness.
+- Calendar age alone can no longer represent connection stability.
+
+### Security
+- Non-finite, negative, or exceeded reconnect limits fail closed.
+- Negative persisted reconnect counters make the snapshot unreadable.
+
+### Verified
+- The complete pytest suite and technical English check pass.
+
 ## [2.20.150] — 2026-08-03
 
 ### Changed

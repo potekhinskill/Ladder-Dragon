@@ -939,3 +939,10 @@ entries concise; this is not a changelog or an activity log.
 - **Decision:** remove every float planner, result type, callback type, import, and test.
 - **Why it worked:** production callers already use equivalent Decimal functions exclusively.
 - **Reuse:** every completed financial type migration after repository-wide caller verification.
+
+### 2026-08-03 — Limit cumulative User Stream reconnect rate
+
+- **Context:** calendar soak age did not distinguish a stable stream from repeated disconnections.
+- **Decision:** readiness permits at most one cumulative reconnect per observed hour.
+- **Why it worked:** controlled drills remain eligible, while chronic reconnect churn blocks approval.
+- **Reuse:** every duration gate whose subject can fail and recover during observation.

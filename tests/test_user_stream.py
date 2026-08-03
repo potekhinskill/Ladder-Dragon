@@ -687,6 +687,7 @@ def test_user_stream_soak_audit_requires_duration_freshness_and_drills(
     )
     assert ready.ready is True
     assert ready.as_dict()["rest_remains_authoritative"] is True
+    assert ready.streams[0]["reconnects_per_hour"] == 0.04
 
     blocked = audit_user_stream_soak(
         [path],
@@ -698,6 +699,41 @@ def test_user_stream_soak_audit_requires_duration_freshness_and_drills(
     )
     assert blocked.ready is False
     assert "soak duration" in " ".join(blocked.reasons)
+
+
+def test_user_stream_soak_blocks_chronic_reconnect_churn(tmp_path):
+    path = tmp_path / "stream.json"
+    path.write_text(json.dumps({
+        "state": "connected",
+        "first_observed_at": 1_000,
+        "sessions": 241,
+        "reconnects": 240,
+        "order_events": 2,
+        "rest_reconciliations": 4,
+        "event_woken_rest_reconciliations": 2,
+    }))
+    path.touch()
+
+    blocked = audit_user_stream_soak(
+        [path],
+        minimum_hours=24,
+        maximum_reconnects_per_hour=1,
+        now=1_000 + 25 * 3600,
+    )
+
+    assert blocked.ready is False
+    assert blocked.streams[0]["reconnects_per_hour"] == 9.6
+    assert "reconnect rate is too high" in " ".join(blocked.reasons)
+
+
+def test_user_stream_soak_rejects_non_finite_reconnect_limit():
+    blocked = audit_user_stream_soak(
+        [],
+        maximum_reconnects_per_hour=float("nan"),
+    )
+
+    assert blocked.ready is False
+    assert "finite and non-negative" in " ".join(blocked.reasons)
 
 
 def test_user_stream_persists_authoritative_rest_reconciliation_evidence(

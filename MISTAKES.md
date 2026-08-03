@@ -1251,3 +1251,10 @@ private infrastructure details.
 - **Root cause:** callers migrated to Decimal, but the replaced implementation and tests remained.
 - **Correction:** remove the float API and keep only exact planning functions.
 - **Prevention:** finish each financial type migration with a dead-API audit and removal regression.
+
+### 2026-08-03 — Used process age as User Stream stability evidence
+
+- **Impact:** repeated reconnects could accumulate the same readiness duration as one stable connection.
+- **Root cause:** the audit checked the monotonic counters independently, without a reconnect-rate limit.
+- **Correction:** calculate cumulative reconnects per observed hour and block excessive churn.
+- **Prevention:** each soak gate must bound failure frequency, not only total elapsed time.

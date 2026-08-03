@@ -18,6 +18,7 @@ def main() -> int:
     parser.add_argument("snapshots", nargs="+", type=Path)
     parser.add_argument("--minimum-hours", type=float, default=24.0)
     parser.add_argument("--maximum-stale-sec", type=float, default=180.0)
+    parser.add_argument("--maximum-reconnects-per-hour", type=float, default=1.0)
     parser.add_argument(
         "--allow-no-reconnect", action="store_true",
         help="diagnostic only; production readiness requires a real reconnect",
@@ -35,6 +36,7 @@ def main() -> int:
         args.snapshots,
         minimum_hours=args.minimum_hours,
         maximum_stale_sec=args.maximum_stale_sec,
+        maximum_reconnects_per_hour=args.maximum_reconnects_per_hour,
         require_reconnect=not args.allow_no_reconnect,
         require_order_event=not args.allow_no_order_event,
         require_event_woken_rest=not args.allow_no_event_rest,

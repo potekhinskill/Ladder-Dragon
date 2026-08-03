@@ -328,8 +328,11 @@ it independently:
 systemctl is-active ladder-dragon-user-stream-shadow.service
 PYTHONPATH=. .venv/bin/python -m bin.audit_user_stream_soak \
   /var/lib/ladder-dragon/user-stream/user_stream_SOLUSDT.json \
-  --minimum-hours 24
+  --minimum-hours 24 \
+  --maximum-reconnects-per-hour 1
 ```
+
+The soak blocks when the average reconnect rate exceeds one reconnect each hour.
 
 Run the Mainnet event drill only with a persistent HALT and SHADOW mode.
 The drill submits one bounded `LIMIT_MAKER` BUY below the market.
