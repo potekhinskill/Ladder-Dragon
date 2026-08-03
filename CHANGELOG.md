@@ -3,6 +3,20 @@
 All notable changes are documented here. Releases use Semantic Versioning; every
 section is dated and there is intentionally no `Unreleased` section.
 
+## [2.20.157] — 2026-08-03
+
+### Changed
+- Post-deployment log review is scoped to Ladder Dragon services and sanitized application logs.
+
+### Fixed
+- Removed Raspberry Pi host-specific `atop` and `rtl_tcp` management from the product updater.
+
+### Security
+- Product deployment no longer starts or disables unrelated host services.
+
+### Verified
+- The complete pytest suite and technical English check pass.
+
 ## [2.20.156] — 2026-08-03
 
 ### Changed

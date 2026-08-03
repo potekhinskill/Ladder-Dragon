@@ -570,10 +570,6 @@ It validates and starts the services.
 It then waits for a fresh heartbeat and an authenticated dashboard response.
 It removes the obsolete `wlan0` packet-idle check from the hardware watchdog.
 The managed host watchdog continues to test the route, Internet, and heartbeat.
-The updater repairs the exact failed `atop` unit when its log directory is missing.
-It disables the exact failed `rtl_tcp` unit when no Realtek USB device exists.
-It does not change a modified operator unit.
-It keeps the disabled `rtl_tcp` unit file for manual reactivation.
 A transient
 SQLite startup/schema race is reported as retryable HTTP 503, never HTTP 500,
 and deployment is not declared ready until that request succeeds. It preserves

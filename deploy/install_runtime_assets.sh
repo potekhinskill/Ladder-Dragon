@@ -73,52 +73,6 @@ remove_idle_interface_watchdog_check() {
   echo "[OK] removed idle wlan0 check from hardware watchdog"
 }
 
-repair_failed_atop_service() {
-  local unit="${1:-/lib/systemd/system/atop.service}"
-  local log_dir="${2:-/var/log/atop}"
-
-  [[ -f "${unit}" ]] || return 0
-  systemctl is-failed --quiet atop.service || return 0
-
-  # Repair only the packaged service that writes its daily files to /var/log/atop.
-  grep -Fqx 'Environment="LOGPATH=/var/log/atop"' "${unit}" || return 0
-  grep -Fq '/usr/bin/atop ${LOGOPTS} -w "${LOGPATH}/atop_' "${unit}" \
-    || return 0
-  if [[ -e "${log_dir}" && ! -d "${log_dir}" ]]; then
-    fail "atop log path exists but is not a directory"
-  fi
-  install -d -m 0755 "${log_dir}"
-  systemctl reset-failed atop.service 2>/dev/null || true
-  systemctl start atop.service || fail "repaired atop.service could not start"
-  systemctl is-active --quiet atop.service \
-    || fail "repaired atop.service is not active"
-  echo "[OK] repaired failed atop.service log directory"
-}
-
-disable_failed_rtl_tcp_without_device() {
-  local unit="${1:-/etc/systemd/system/rtl_tcp.service}"
-  local usb_root="${2:-/sys/bus/usb/devices}"
-  local vendor_file vendor
-
-  [[ -f "${unit}" ]] || return 0
-  systemctl is-failed --quiet rtl_tcp.service || return 0
-
-  # Disable only the observed local unit. Preserve every modified operator unit.
-  grep -Fqx 'Description=RTL-SDR TCP server' "${unit}" || return 0
-  grep -Fqx \
-    'ExecStart=/usr/bin/rtl_tcp -a 0.0.0.0 -p 1234 -s 2048000 -g 35' \
-    "${unit}" || return 0
-  for vendor_file in "${usb_root}"/*/idVendor; do
-    [[ -f "${vendor_file}" ]] || continue
-    vendor="$(tr '[:upper:]' '[:lower:]' <"${vendor_file}")"
-    [[ "${vendor}" == "0bda" ]] && return 0
-  done
-  systemctl disable --now rtl_tcp.service 2>/dev/null \
-    || fail "failed rtl_tcp.service could not be disabled"
-  systemctl reset-failed rtl_tcp.service 2>/dev/null || true
-  echo "[OK] disabled failed rtl_tcp.service without an RTL-SDR device"
-}
-
 [[ "${EUID}" -eq 0 ]] || fail "runtime assets must be installed as root"
 [[ -d "${PROJECT_DIR}/deploy" ]] || fail "release deploy directory is missing"
 
@@ -139,7 +93,5 @@ install -o root -g root -m 0755 \
 
 retire_legacy_stats_sync
 remove_idle_interface_watchdog_check
-repair_failed_atop_service
-disable_failed_rtl_tcp_without_device
 
 echo "[OK] installed release runtime assets"

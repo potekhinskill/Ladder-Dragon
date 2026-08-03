@@ -968,9 +968,9 @@ entries concise; this is not a changelog or an activity log.
 - **Why it worked:** old failures remain visible, while new evidence gets an independent denominator.
 - **Reuse:** every repeated soak whose historical counters must remain immutable.
 
-### 2026-08-03 — Repair optional host services by exact identity
+### 2026-08-03 — Keep bot log review inside product ownership
 
-- **Context:** two unrelated failed units remained after a healthy application deployment.
-- **Decision:** repair a known package precondition and disable a known listener only after exact unit checks.
-- **Why it worked:** tests preserve modified units and available hardware while cleaning both observed failures.
-- **Reuse:** every deployment cleanup that touches an optional host service.
+- **Context:** a global failed-unit scan included unrelated host software in an application review.
+- **Decision:** review owned units and sanitized product logs; report other host failures separately.
+- **Why it worked:** deployment tests prove the updater contains no `atop` or `rtl_tcp` management.
+- **Reuse:** every application health review on a shared host.

@@ -1280,9 +1280,16 @@ private infrastructure details.
 - **Correction:** preserve lifetime counters and subtract an immutable baseline for the current soak.
 - **Prevention:** repeatable certification needs append-only epochs, not counter resets or lifetime-only ratios.
 
-### 2026-08-03 — Scoped the first post-release log check too narrowly
+### 2026-08-03 — Put host-specific maintenance in the product updater
 
-- **Impact:** application services looked clean while two old host units remained failed.
-- **Root cause:** the first check reviewed project journals before it reviewed the global failed-unit set.
-- **Correction:** inspect global failed units and repair only exact, understood definitions.
-- **Prevention:** each Pi log review must start with `systemctl --failed` before service-specific journals.
+- **Impact:** one release coupled Ladder Dragon deployment to unrelated `atop` and `rtl_tcp` services.
+- **Root cause:** a global failed-unit scan was mistaken for the requested bot log review.
+- **Correction:** remove all unrelated service management and keep the local host correction separate.
+- **Prevention:** change a non-project service only through an explicit host-maintenance task.
+
+### 2026-08-03 — Repeated manual release SHA reconstruction
+
+- **Impact:** the release harness completed but blocked because its expected SHA was incorrect.
+- **Root cause:** a short commit identifier was expanded manually instead of read from Git.
+- **Correction:** amend the candidate and resolve `HEAD` inside the harness command.
+- **Prevention:** never type or reconstruct a release SHA; use `git rev-parse HEAD` in the same shell command.
