@@ -932,3 +932,10 @@ entries concise; this is not a changelog or an activity log.
 - **Decision:** require explicit stopped-runtime evidence immediately before the retirement library call.
 - **Why it worked:** a regression proves that an active runtime prevents backup and schema mutation.
 - **Reuse:** every one-way database operation that follows a separate readiness audit.
+
+### 2026-08-03 — Expose one Decimal order-planning API
+
+- **Context:** completed Decimal migration left a parallel unused float planner beside production code.
+- **Decision:** remove every float planner, result type, callback type, import, and test.
+- **Why it worked:** production callers already use equivalent Decimal functions exclusively.
+- **Reuse:** every completed financial type migration after repository-wide caller verification.

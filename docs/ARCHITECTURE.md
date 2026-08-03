@@ -104,6 +104,8 @@ SQLite/WebSocket objects instead of stale snapshots. The event loop can
 reconcile fills, maintain protection and perform fail-closed exits, but it
 cannot create new BUY exposure. Cleanup attempts every observer, transport and
 symbol-lock release even when an earlier cleanup callback fails.
+Order planning exposes only Decimal prices, quantities, notionals, and rounding callbacks.
+No binary-float planning compatibility API remains.
 
 ## Runtime entry points
 

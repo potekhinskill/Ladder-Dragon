@@ -1244,3 +1244,10 @@ private infrastructure details.
 - **Root cause:** the new CLI copied confirmation and backup gates, but missed the shared runtime gate.
 - **Correction:** APPLY now checks stopped-runtime evidence before it calls the irreversible operation.
 - **Prevention:** every destructive CLI needs a test that blocks before its first mutation boundary.
+
+### 2026-08-03 — Retained float planners after Decimal migration
+
+- **Impact:** an unused parallel monetary API could be selected during later refactoring.
+- **Root cause:** callers migrated to Decimal, but the replaced implementation and tests remained.
+- **Correction:** remove the float API and keep only exact planning functions.
+- **Prevention:** finish each financial type migration with a dead-API audit and removal regression.

@@ -75,16 +75,12 @@ from ladder_dragon.execution.orders.runtime import place_market_order as orders_
 from ladder_dragon.execution.orders.runtime import place_oco_sell as orders_place_oco_sell
 from ladder_dragon.execution.orders.runtime import place_otoco_buy as orders_place_otoco_buy
 from ladder_dragon.execution.executor_planning import (
-    buy_candidates,
-    existing_prices,
     existing_prices_decimal,
-    guarded_sell_levels,
     guarded_sell_levels_decimal,
     plan_sell_order_decimal,
     buy_candidates_decimal,
     plan_buy_order_decimal,
 )
-from ladder_dragon.execution.executor_planning import plan_buy_order
 from ladder_dragon.execution.protection.breakeven import (
     BreakevenRuntime, BreakevenStateStore, maintain_breakeven,
 )

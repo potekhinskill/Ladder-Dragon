@@ -3,6 +3,22 @@
 All notable changes are documented here. Releases use Semantic Versioning; every
 section is dated and there is intentionally no `Unreleased` section.
 
+## [2.20.150] — 2026-08-03
+
+### Changed
+- Order planning now exposes only the active Decimal API.
+- Worker runtime imports only Decimal planning services.
+
+### Fixed
+- Removed 257 lines of unused parallel float planning code.
+- Removed the obsolete float planning test and compatibility imports.
+
+### Security
+- A boundary regression prevents reintroduction of the removed float financial API.
+
+### Verified
+- The complete pytest suite and technical English check pass.
+
 ## [2.20.149] — 2026-08-03
 
 ### Changed

@@ -1,6 +1,6 @@
 # Implementation status
 
-This document describes the code in version **2.20.149**.
+This document describes the code in version **2.20.150**.
 It does not describe future plans as completed work.
 
 An implemented function is not automatically approved for LIVE use.
@@ -10,7 +10,7 @@ The configured mode and its evidence gate remain authoritative.
 
 | Area | Implemented behavior | Default or approval state |
 | --- | --- | --- |
-| Execution | Binance Spot LIMIT, MARKET, OCO, OTOCO, cancel-replace, and recovery | DRY or Testnet first |
+| Execution | Decimal-only Binance Spot planning, orders, cancel-replace, and recovery | DRY or Testnet first |
 | Protection | Verified OCO legs, confirmed breakeven re-arm, gap flatten, and persistent HALT | Required for managed fills |
 | Accounting | Exact FIFO lots, FIFO risk streaks, fee conversion, SELL idempotency, and cursor audits | Fail closed on incomplete evidence |
 | Replay | Sequential L2 events, shared liquidity, queue state, latency, fees, and slippage | L2 model, not exact L3 |

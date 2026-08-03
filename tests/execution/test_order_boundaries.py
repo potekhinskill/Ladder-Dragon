@@ -26,16 +26,13 @@ from ladder_dragon.execution.orders.runtime import (
     place_otoco_buy,
 )
 from ladder_dragon.execution.executor_planning import (
-    buy_candidates,
     buy_candidates_decimal,
     existing_prices_decimal,
     guarded_sell_levels_decimal,
-    guarded_sell_levels,
-    plan_buy_order,
     plan_buy_order_decimal,
     plan_sell_order_decimal,
-    plan_sell_order,
 )
+from ladder_dragon.execution import executor_planning
 from ladder_dragon.execution.executor_recovery import get_order_by_client_id, verify_oco_legs
 from ladder_dragon.execution.executor_runtime import (
     status_due,
@@ -783,56 +780,19 @@ def test_duplicate_client_id_reconciles_instead_of_marking_failed(tmp_path):
     assert halted == []
 
 
-def test_executor_planning_is_deterministic_and_exchange_free():
-    rounded = lambda value: round(value, 2)
-    assert buy_candidates(
-        [90.004, 94.0, 95.0, 100.0, 105.0],
-        now_price=100.0,
-        occupied_prices={90.0},
-        round_price=rounded,
-        limit=2,
-    ) == [95.0, 94.0]
+def test_executor_planning_exposes_no_legacy_float_api():
+    legacy_names = {
+        "PlannedOrder",
+        "RoundValue",
+        "buy_candidates",
+        "existing_prices",
+        "guarded_sell_levels",
+        "plan_buy_order",
+        "plan_sell_order",
+        "plan_sell_orders",
+    }
 
-    buy = plan_buy_order(
-        95.0,
-        free_quote=20.0,
-        cap_per_order=10.0,
-        remaining_slots=2,
-        use_all_remaining=False,
-        min_order_notional=5.0,
-        min_quantity=0.01,
-        min_notional=5.0,
-        round_price=rounded,
-        round_quantity=lambda value: round(value, 3),
-    )
-    assert buy is not None
-    assert buy.price == 95.0
-    assert buy.notional <= 10.0
-
-    levels = guarded_sell_levels(
-        [90.0, 101.0, 103.0, 105.0],
-        now_price=100.0,
-        occupied_prices=set(),
-        round_price=rounded,
-        limit=2,
-        average_entry=102.0,
-        panic_active=False,
-        panic_floor_pct=None,
-        profit_floor_pct=0.01,
-    )
-    assert levels == [105.0]
-
-    sell = plan_sell_order(
-        levels[0],
-        quantity_left=1.0,
-        share=0.5,
-        is_last=False,
-        min_quantity=0.01,
-        min_notional=5.0,
-        round_quantity=lambda value: round(value, 3),
-    )
-    assert sell is not None
-    assert sell.quantity == 0.5
+    assert legacy_names.isdisjoint(vars(executor_planning))
 
 
 def test_executor_runtime_owns_worker_lifecycle_timing():

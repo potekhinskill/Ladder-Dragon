@@ -26,15 +26,11 @@ from ladder_dragon.execution.orders.runtime import (
     place_otoco_buy,
 )
 from ladder_dragon.execution.executor_planning import (
-    buy_candidates,
     buy_candidates_decimal,
     existing_prices_decimal,
     guarded_sell_levels_decimal,
-    guarded_sell_levels,
-    plan_buy_order,
     plan_buy_order_decimal,
     plan_sell_order_decimal,
-    plan_sell_order,
 )
 from ladder_dragon.execution.executor_recovery import get_order_by_client_id, verify_oco_legs
 from ladder_dragon.execution.executor_runtime import (
