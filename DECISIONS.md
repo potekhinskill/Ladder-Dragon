@@ -4,6 +4,13 @@ Read this file before changing the repository. Record only decisions that were
 validated by tests or production evidence and are likely to be reused. Keep
 entries concise; this is not a changelog or an activity log.
 
+### 2026-08-03 — Apply venue paths as one validated set
+
+- **Context:** optional Testnet overrides could leave Mainnet state paths active.
+- **Decision:** resolve every Testnet path, prove separation, then replace the complete environment set.
+- **Why it worked:** tests prove safe defaults, explicit paths, collision rejection, and no partial mutation.
+- **Reuse:** every environment switch that selects persistent state or control evidence.
+
 ### 2026-08-03 — Share symbol quote vocabulary with exact accounting
 
 - **Context:** a fixed four-character fallback corrupted assets for BTC, ETH, and BNB quotes.

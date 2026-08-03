@@ -3,6 +3,24 @@
 All notable changes are documented here. Releases use Semantic Versioning; every
 section is dated and there is intentionally no `Unreleased` section.
 
+## [2.20.147] — 2026-08-03
+
+### Changed
+- Python Testnet entry points now assign the complete isolated state-path set.
+- Missing Testnet variables use the same safe defaults as the managed service wrapper.
+
+### Fixed
+- Direct Testnet supervisor, risk control, and soak commands cannot retain Mainnet paths silently.
+- Circuit-breaker files now always follow the selected Testnet runtime directory.
+- Managed startup rejects collisions before database migration begins.
+
+### Security
+- Testnet and Mainnet path collisions block execution before environment mutation.
+- Bash and Python independently enforce the same isolation boundary.
+
+### Verified
+- Ten focused venue, supervisor, and deployment tests pass.
+
 ## [2.20.146] — 2026-08-03
 
 ### Changed

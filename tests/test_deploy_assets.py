@@ -551,6 +551,15 @@ def test_managed_service_uses_versionless_wrapper_and_separate_env():
     assert "--copy-top-bots" not in unit + wrapper
     assert 'BOT_SERVICE_EXECUTION:-dry' in wrapper
     assert 'BOT_SERVICE_VENUE:-testnet' in wrapper
+    assert 'export BOT_MAINNET_STATS_DB=' in wrapper
+    assert 'export BOT_MAINNET_ORDER_JOURNAL=' in wrapper
+    assert 'export BOT_MAINNET_RUN_DIR=' in wrapper
+    assert "Testnet statistics path matches Mainnet" in wrapper
+    assert "Testnet order journal path matches Mainnet" in wrapper
+    assert "Testnet runtime path matches Mainnet" in wrapper
+    assert wrapper.index("Testnet statistics path matches Mainnet") < wrapper.index(
+        '"${PYTHON}" -m bin.db_migrate'
+    )
     assert 'BOT_LIVE_CONFIRMED:-NO' in wrapper
     assert 'BOT_SERVICE_AUTO_OCO_HOLDINGS:-0' in wrapper
     assert 'if [[ "${AUTO_OCO_HOLDINGS}" == "1" ]]' in wrapper

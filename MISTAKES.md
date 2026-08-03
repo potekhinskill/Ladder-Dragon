@@ -17,6 +17,13 @@ private infrastructure details.
 
 ## Mistakes
 
+### 2026-08-03 — Treated Testnet path overrides as optional
+
+- **Impact:** a direct Testnet CLI run could retain Mainnet databases or control files.
+- **Root cause:** the selector changed each path only when its Testnet variable was nonempty.
+- **Correction:** resolve safe defaults, reject collisions, and apply all paths after validation.
+- **Prevention:** venue switches must prove complete state isolation before changing process configuration.
+
 ### 2026-08-03 — Guessed every quote asset as four characters
 
 - **Impact:** a transient metadata failure could hide a real balance for BTC-, ETH-, or BNB-quoted symbols.

@@ -126,6 +126,11 @@ An unknown quote suffix blocks balance-dependent work instead of guessing asset 
 | `LADDER_DRAGON_CONTROL_DIR` | `/var/lib/ladder-dragon/control` |
 | `BOT_RUN_DIR` | `/run/mybot` |
 
+Testnet always replaces the statistics database, order journal, and runtime directory together.
+Missing `BOT_TESTNET_*` values use isolated defaults below the project database directory.
+The Testnet runtime default is `/run/mybot/testnet`.
+Any Testnet and Mainnet path collision blocks startup before environment changes.
+
 Persistent safety evidence belongs below `/var/lib/ladder-dragon`.
 Process-lifetime state belongs below `/run/mybot`.
 

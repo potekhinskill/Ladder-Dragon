@@ -30,10 +30,36 @@ export PYTHONPATH="${PROJECT_DIR}${PYTHONPATH:+:${PYTHONPATH}}"
   exit 2
 }
 
+# Preserve the Mainnet paths so the Python venue boundary can prove isolation.
+export BOT_MAINNET_STATS_DB="${BOT_MAINNET_STATS_DB:-${BOT_STATS_DB:-${PROJECT_DIR}/db/bot_stats.db}}"
+export BOT_MAINNET_ORDER_JOURNAL="${BOT_MAINNET_ORDER_JOURNAL:-${BOT_ORDER_JOURNAL:-${PROJECT_DIR}/db/order_intents.sqlite3}}"
+export BOT_MAINNET_RUN_DIR="${BOT_MAINNET_RUN_DIR:-${BOT_RUN_DIR:-/run/mybot}}"
+
 if [[ "${VENUE}" == "testnet" ]]; then
-  export BOT_STATS_DB="${BOT_TESTNET_STATS_DB:-${PROJECT_DIR}/db/testnet_bot_stats.db}"
-  export BOT_ORDER_JOURNAL="${BOT_TESTNET_ORDER_JOURNAL:-${PROJECT_DIR}/db/testnet_order_intents.sqlite3}"
-  export BOT_RUN_DIR="${BOT_TESTNET_RUN_DIR:-/run/mybot/testnet}"
+  testnet_stats_db="${BOT_TESTNET_STATS_DB:-${PROJECT_DIR}/db/testnet_bot_stats.db}"
+  testnet_order_journal="${BOT_TESTNET_ORDER_JOURNAL:-${PROJECT_DIR}/db/testnet_order_intents.sqlite3}"
+  testnet_run_dir="${BOT_TESTNET_RUN_DIR:-/run/mybot/testnet}"
+
+  [[ "$(realpath -m -- "${testnet_stats_db}")" != "$(realpath -m -- "${BOT_MAINNET_STATS_DB}")" ]] || {
+    echo "Testnet statistics path matches Mainnet" >&2
+    exit 2
+  }
+  [[ "$(realpath -m -- "${testnet_order_journal}")" != "$(realpath -m -- "${BOT_MAINNET_ORDER_JOURNAL}")" ]] || {
+    echo "Testnet order journal path matches Mainnet" >&2
+    exit 2
+  }
+  [[ "$(realpath -m -- "${testnet_run_dir}")" != "$(realpath -m -- "${BOT_MAINNET_RUN_DIR}")" ]] || {
+    echo "Testnet runtime path matches Mainnet" >&2
+    exit 2
+  }
+  [[ "$(realpath -m -- "${testnet_stats_db}")" != "$(realpath -m -- "${testnet_order_journal}")" ]] || {
+    echo "Testnet statistics and order journal paths must differ" >&2
+    exit 2
+  }
+
+  export BOT_STATS_DB="${testnet_stats_db}"
+  export BOT_ORDER_JOURNAL="${testnet_order_journal}"
+  export BOT_RUN_DIR="${testnet_run_dir}"
 fi
 
 "${PYTHON}" -m bin.db_migrate
