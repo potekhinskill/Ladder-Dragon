@@ -4,6 +4,13 @@ Read this file before changing the repository. Record only decisions that were
 validated by tests or production evidence and are likely to be reused. Keep
 entries concise; this is not a changelog or an activity log.
 
+### 2026-08-03 — Retire only identified legacy deployment units
+
+- **Context:** an obsolete timer repeatedly called a script removed from the current release.
+- **Decision:** verify the legacy command and timer target before unit removal.
+- **Why it worked:** tests prove that retirement stops before deletion when a same-name unit differs.
+- **Reuse:** every deployment cleanup that removes root-owned services from an earlier architecture.
+
 ### 2026-08-03 — Apply venue paths as one validated set
 
 - **Context:** optional Testnet overrides could leave Mainnet state paths active.

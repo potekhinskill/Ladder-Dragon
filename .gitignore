@@ -33,6 +33,7 @@ key_start_bot.txt
 **/key_start_bot.txt
 
 # Runtime state
+db/auth_resilience.json
 *.pid
 *.lock
 !requirements/*.lock

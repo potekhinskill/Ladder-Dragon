@@ -1,5 +1,6 @@
 from pathlib import Path
 import re
+import subprocess
 
 import product_version
 
@@ -1073,6 +1074,82 @@ def test_verified_release_installs_runtime_assets_after_merge():
     assert "runtime assets must be installed as root" in runtime_assets
     assert "/usr/local/libexec/ladder-dragon/export_sanitized_logs.py" in runtime_assets
     assert "install -o root -g root -m 0644" in runtime_assets
+
+
+def test_runtime_assets_retire_only_the_known_legacy_stats_sync_units():
+    runtime_assets = read("deploy/install_runtime_assets.sh")
+    retirement = runtime_assets.split("retire_legacy_stats_sync() {", 1)[1].split(
+        "\n}\n", 1
+    )[0]
+
+    assert 'grep -Fqx "ExecStart=${PROJECT_DIR}/stats_sync.sh"' in retirement
+    assert 'grep -Fqx "Unit=bot-stats-sync.service"' in retirement
+    assert "bot-stats-sync.service is not the known legacy unit" in retirement
+    assert "bot-stats-sync.timer is not the known legacy unit" in retirement
+    assert "systemctl disable --now bot-stats-sync.timer" in retirement
+    assert "could not stop legacy bot-stats-sync.timer" in retirement
+    assert 'rm -f -- "${service}" "${timer}"' in retirement
+    assert retirement.index("disable --now") < retirement.index('rm -f --')
+    assert retirement.index('rm -f --') < retirement.index("daemon-reload")
+    assert "retire_legacy_stats_sync\n" in runtime_assets
+
+
+def _run_legacy_stats_sync_retirement(unit_dir: Path) -> subprocess.CompletedProcess[str]:
+    runtime_assets = read("deploy/install_runtime_assets.sh")
+    function = "retire_legacy_stats_sync() {" + runtime_assets.split(
+        "retire_legacy_stats_sync() {", 1
+    )[1].split("\n}\n", 1)[0] + "\n}\n"
+    script = "\n".join(
+        (
+            "set -euo pipefail",
+            'PROJECT_DIR="/home/bot/apps/binance_bot"',
+            'fail() { echo "[FAIL] $*" >&2; exit 1; }',
+            "systemctl() { :; }",
+            function,
+            'retire_legacy_stats_sync "$1"',
+        )
+    )
+    return subprocess.run(
+        ("bash", "-c", script, "bash", str(unit_dir)),
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+
+
+def test_runtime_assets_remove_identified_legacy_stats_sync_units(tmp_path):
+    service = tmp_path / "bot-stats-sync.service"
+    timer = tmp_path / "bot-stats-sync.timer"
+    service.write_text(
+        "ExecStart=/home/bot/apps/binance_bot/stats_sync.sh\n", encoding="utf-8"
+    )
+    timer.write_text("Unit=bot-stats-sync.service\n", encoding="utf-8")
+
+    completed = _run_legacy_stats_sync_retirement(tmp_path)
+
+    assert completed.returncode == 0, completed.stderr
+    assert not service.exists()
+    assert not timer.exists()
+
+
+def test_runtime_assets_preserve_conflicting_stats_sync_unit(tmp_path):
+    service = tmp_path / "bot-stats-sync.service"
+    timer = tmp_path / "bot-stats-sync.timer"
+    service.write_text("ExecStart=/usr/local/bin/operator-sync\n", encoding="utf-8")
+    timer.write_text("Unit=bot-stats-sync.service\n", encoding="utf-8")
+
+    completed = _run_legacy_stats_sync_retirement(tmp_path)
+
+    assert completed.returncode == 1
+    assert "not the known legacy unit" in completed.stderr
+    assert service.exists()
+    assert timer.exists()
+
+
+def test_runtime_auth_resilience_state_is_not_a_checkout_change():
+    ignore = read(".gitignore")
+
+    assert "db/auth_resilience.json" in ignore.splitlines()
 
 
 def test_installer_accepts_only_the_canonical_main_branch():

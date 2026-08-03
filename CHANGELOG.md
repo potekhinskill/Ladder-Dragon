@@ -3,6 +3,22 @@
 All notable changes are documented here. Releases use Semantic Versioning; every
 section is dated and there is intentionally no `Unreleased` section.
 
+## [2.20.153] — 2026-08-03
+
+### Changed
+- Runtime asset installation now retires the known legacy statistics synchronization units.
+- The repository now ignores the local authentication resilience state file.
+
+### Fixed
+- A removed `stats_sync.sh` no longer causes a failed service every two minutes.
+- Runtime authentication evidence no longer appears as an untracked checkout file.
+
+### Security
+- Unit retirement rejects a same-name unit when its command or timer target differs.
+
+### Verified
+- The complete pytest suite and technical English check pass.
+
 ## [2.20.152] — 2026-08-03
 
 ### Changed

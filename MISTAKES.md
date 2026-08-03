@@ -6,6 +6,13 @@ avoidable rework. Identify the root cause rather than recording only the
 symptom. Keep entries concise and exclude secrets, balances, account data, and
 private infrastructure details.
 
+### 2026-08-03 — Left an obsolete timer outside release ownership
+
+- **Impact:** systemd logged a failed statistics synchronization service every two minutes.
+- **Root cause:** the replacement deployment removed the script but did not retire its legacy units.
+- **Correction:** verified runtime asset installation now disables and removes the identified units.
+- **Prevention:** each removed service script needs a tested unit-retirement step in the replacement release.
+
 ## Entry format
 
 ### YYYY-MM-DD — Short failure title
