@@ -3,6 +3,22 @@
 All notable changes are documented here. Releases use Semantic Versioning; every
 section is dated and there is intentionally no `Unreleased` section.
 
+## [2.20.160] — 2026-08-04
+
+### Changed
+- Changed-IP authentication recovery now performs one signed read each minute.
+- Runtime diagnostics describe Binance code `-2015` as an authentication rejection.
+
+### Fixed
+- A 15-minute generic backoff no longer delays recovery after an allowlist update.
+
+### Security
+- Automatic recovery still requires signed Binance success and fresh two-source IP consensus.
+- Recovery never removes HALT or changes SHADOW, CAP, or execution permissions.
+
+### Verified
+- Authentication, IP Guard, documentation, and complete project tests pass.
+
 ## [2.20.159] — 2026-08-04
 
 ### Changed

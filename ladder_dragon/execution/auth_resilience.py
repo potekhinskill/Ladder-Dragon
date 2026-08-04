@@ -17,6 +17,7 @@ from typing import Any
 
 
 SCHEMA_VERSION = 1
+PUBLIC_IP_AUTH_RETRY_MAX_SEC = 60
 
 
 @dataclass(frozen=True)
@@ -128,6 +129,17 @@ def register_auth_failure(
     )
 
 
+def auth_failure_retry_max_sec(
+    state: AuthResilienceState,
+    configured_max_sec: int,
+) -> int:
+    """Probe a changed-IP rejection each minute without weakening other backoff."""
+    maximum = max(1, int(configured_max_sec))
+    if state.public_ip_changed:
+        return min(maximum, PUBLIC_IP_AUTH_RETRY_MAX_SEC)
+    return maximum
+
+
 def register_auth_success(
     state: AuthResilienceState,
     *,
@@ -154,9 +166,12 @@ def observe_public_ip_fingerprint(
     if len(fingerprint) != 64:
         raise ValueError("public IP fingerprint is invalid")
     changed = bool(state.public_ip_sha256 and state.public_ip_sha256 != fingerprint)
+    retry_at = state.retry_at_epoch
+    if changed and retry_at > 0:
+        retry_at = min(retry_at, now + PUBLIC_IP_AUTH_RETRY_MAX_SEC)
     return AuthResilienceState(
         attempt=state.attempt,
-        retry_at_epoch=state.retry_at_epoch,
+        retry_at_epoch=retry_at,
         public_ip_sha256=(
             state.public_ip_sha256 if changed else fingerprint
         ),

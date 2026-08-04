@@ -138,7 +138,7 @@ def wait_for_retry(
     if normalized not in {"AUTH", "PREFLIGHT"}:
         raise ValueError("retry kind must be AUTH or PREFLIGHT")
     if normalized == "AUTH":
-        error = "Binance authentication unavailable"
+        error = "Binance signed authentication rejected"
         state = "AUTH_BACKOFF"
         field = "auth_backoff"
     else:

@@ -1307,3 +1307,9 @@ private infrastructure details.
 - **Root cause:** a short commit identifier was expanded manually instead of read from Git.
 - **Correction:** amend the candidate and resolve `HEAD` inside the harness command.
 - **Prevention:** never type or reconstruct a release SHA; use `git rev-parse HEAD` in the same shell command.
+### 2026-08-04 — Described an ambiguous Binance rejection as an IP block
+
+- **Impact:** the operator looked for an IP block that Binance did not report.
+- **Root cause:** status text treated code `-2015` as proof of one cause, although it also covers keys and permissions.
+- **Correction:** use accurate signed-authentication wording and retry changed-IP recovery each minute.
+- **Prevention:** user-facing diagnostics must not narrow a provider error beyond its documented meaning.

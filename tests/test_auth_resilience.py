@@ -6,6 +6,7 @@ from ladder_dragon.execution.auth_resilience import (
     AuthResilienceState,
     accept_authenticated_public_ip,
     accept_public_ip_fingerprint,
+    auth_failure_retry_max_sec,
     load_auth_state,
     observe_public_ip_fingerprint,
     public_ip_fingerprint,
@@ -13,6 +14,30 @@ from ladder_dragon.execution.auth_resilience import (
     register_auth_success,
     save_auth_state,
 )
+
+
+def test_changed_ip_caps_auth_retry_at_one_minute():
+    changed = AuthResilienceState(public_ip_changed=True)
+
+    assert auth_failure_retry_max_sec(changed, 900) == 60
+    assert auth_failure_retry_max_sec(changed, 45) == 45
+    assert auth_failure_retry_max_sec(AuthResilienceState(), 900) == 900
+
+
+def test_changed_ip_observation_shortens_existing_retry_deadline():
+    first = public_ip_fingerprint("203.0.113.20")
+    second = public_ip_fingerprint("203.0.113.21")
+    baseline = AuthResilienceState(
+        retry_at_epoch=1_900,
+        public_ip_sha256=first,
+    )
+
+    changed = observe_public_ip_fingerprint(
+        baseline, second, now_epoch=1_000
+    )
+
+    assert changed.public_ip_changed is True
+    assert changed.retry_at_epoch == 1_060
 
 
 def test_auth_backoff_survives_restart_without_secret_or_ip(tmp_path):

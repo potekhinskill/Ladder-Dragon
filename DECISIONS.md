@@ -981,3 +981,9 @@ entries concise; this is not a changelog or an activity log.
 - **Decision:** review owned units and sanitized product logs; report other host failures separately.
 - **Why it worked:** deployment tests prove the updater contains no `atop` or `rtl_tcp` management.
 - **Reuse:** every application health review on a shared host.
+### 2026-08-04 — Probe changed-IP authentication once each minute
+
+- **Context:** generic exponential backoff delayed recovery after an operator updated the Binance allowlist.
+- **Decision:** cap signed read retries at 60 seconds only while two-source evidence shows a changed public IP.
+- **Why it worked:** other credential failures keep the longer backoff, and signed success remains authoritative.
+- **Reuse:** identity changes that require external acceptance but permit cheap read-only verification.

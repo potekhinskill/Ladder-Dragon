@@ -112,6 +112,8 @@ The ED25519 key path must be absolute and owner-only.
 The application does not log private key material.
 IP Guard accepts a changed fingerprint only after the complete signed read-only preflight passes.
 Runtime authentication rejection refreshes the same two-source IP evidence.
+When the fingerprint changed, signed recovery checks run once each minute.
+Other authentication failures keep the configured exponential backoff.
 An authentication or source-consensus failure keeps BUY blocked.
 Automatic acceptance never removes HALT or changes a trading limit.
 Read-only symbol fallback uses the exact-accounting quote list.

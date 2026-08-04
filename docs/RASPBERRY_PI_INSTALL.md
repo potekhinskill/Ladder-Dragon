@@ -720,6 +720,9 @@ The updater sends the same short action in English through Telegram.
 IP Guard checks a changed fingerprint with two independent HTTPS sources.
 It accepts the fingerprint after the complete signed read-only Binance preflight passes.
 Failed authentication keeps BUY blocked and does not remove HALT.
+The supervisor retries a changed-IP rejection each minute.
+It recovers automatically after Binance accepts the signed read.
+Code `-2015` can also mean an invalid key or insufficient permissions.
 
 ```bash
 sudo systemctl status ladder-dragon-daily-digest.timer --no-pager

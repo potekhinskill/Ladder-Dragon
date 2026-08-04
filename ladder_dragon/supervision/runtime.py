@@ -112,6 +112,7 @@ from ladder_dragon.execution.latency_trace import LatencyTrace
 from ladder_dragon.execution.auth_resilience import (
     AuthResilienceState,
     accept_authenticated_public_ip,
+    auth_failure_retry_max_sec,
     load_auth_state,
     observe_public_ip_fingerprint,
     public_ip_fingerprint,
@@ -3902,7 +3903,9 @@ def _preflight_with_auth_backoff(
             state = register_auth_failure(
                 state,
                 initial_sec=args.binance_auth_backoff_initial_sec,
-                max_sec=args.binance_auth_backoff_max_sec,
+                max_sec=auth_failure_retry_max_sec(
+                    state, args.binance_auth_backoff_max_sec
+                ),
                 now_epoch=failure_now_epoch,
             )
             _save_auth_resilience_state(state)
@@ -4682,7 +4685,10 @@ def main():
                         runtime_auth_state = register_auth_failure(
                             runtime_auth_state,
                             initial_sec=args.binance_auth_backoff_initial_sec,
-                            max_sec=args.binance_auth_backoff_max_sec,
+                            max_sec=auth_failure_retry_max_sec(
+                                runtime_auth_state,
+                                args.binance_auth_backoff_max_sec,
+                            ),
                             now_epoch=int(now_loop),
                         )
                         _save_auth_resilience_state(runtime_auth_state)
@@ -4693,10 +4699,7 @@ def main():
                         delay = max(
                             1, int(auth_retry_at - now_loop)
                         )
-                        reason = (
-                            "Binance authentication unavailable; "
-                            f"retry in {delay}s"
-                        )
+                        reason = f"Binance signed authentication rejected; retry in {delay}s"
                         log(
                             "[AUTH-BACKOFF] runtime authentication rejected; "
                             f"BUY blocked; retry={delay}s "
@@ -4704,7 +4707,7 @@ def main():
                         )
                         _publish_ai_runtime_status(
                             state="AUTH_BACKOFF",
-                            error="Binance authentication unavailable",
+                            error="Binance signed authentication rejected",
                             auth_backoff={
                                 "active": True,
                                 "attempt": auth_failure_attempts,
