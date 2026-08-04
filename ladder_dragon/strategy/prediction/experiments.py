@@ -28,25 +28,15 @@ from ladder_dragon.strategy.prediction.walk_forward import (
 
 D = Decimal
 EDGE_EPSILON_PCT = D("0.000001")
-TP_TARGETS = (
-    ("v2_tp_100", D("0.0100")),
-    ("v2_tp_105", D("0.0105")),
-    ("v2_tp_110", D("0.0110")),
+SHADOW_GENERATION = "v3"
+MAKER_TTLS = (
+    ("v3_maker_ttl8", 480),
+    ("v3_maker_ttl15", 900),
 )
-BUY_GAPS = (
-    ("v2_buy_gap_5bps", D("0.0005")),
-    ("v2_buy_gap_8bps", D("0.0008")),
-    ("v2_buy_gap_10bps", D("0.0010")),
-)
-ENTRY_TTLS = (
-    ("v2_ttl_3m", 180),
-    ("v2_ttl_5m", 300),
-    ("v2_ttl_8m", 480),
-)
-COMBINED_CANDIDATES = (
-    ("v2_a_range_ttl5_maker_tp100_gap5", D("0.0100"), 300, D("0.0005")),
-    ("v2_b_range_ttl5_maker_tp105_gap8", D("0.0105"), 300, D("0.0008")),
-    ("v2_c_range_ttl5_maker_tp110_gap10", D("0.0110"), 300, D("0.0010")),
+RANGE_DEEP_GAPS = (
+    ("v3_range_maker_ttl15_gap30", D("0.0030")),
+    ("v3_range_maker_ttl15_gap40", D("0.0040")),
+    ("v3_range_maker_ttl15_gap50", D("0.0050")),
 )
 
 
@@ -61,21 +51,6 @@ class ShadowVariant:
     baseline_plan: TradePlan
     maker_only: bool = False
     entry_gap_bps: Decimal | None = None
-
-
-def dynamic_entry_gap_pct(
-    *, spread_bps: Decimal, atr_pct: Decimal
-) -> Decimal:
-    """Clamp spread plus one-quarter ATR to a five-to-fifteen basis-point gap."""
-    if (
-        not spread_bps.is_finite()
-        or spread_bps < 0
-        or not atr_pct.is_finite()
-        or atr_pct < 0
-    ):
-        raise ValueError("dynamic gap inputs must be finite and non-negative")
-    proposed = spread_bps / D("10000") + atr_pct / D("4")
-    return min(D("0.0015"), max(D("0.0005"), proposed))
 
 
 def _candidate_plan(
@@ -110,8 +85,6 @@ def build_shadow_variants(
     baseline_plan: TradePlan,
     required_edge_pct: Decimal,
     regime: str,
-    spread_bps: Decimal = D("0"),
-    atr_pct: Decimal = D("0"),
 ) -> tuple[ShadowVariant, ...]:
     """Build isolated and combined candidates above the authoritative fee floor."""
     if not market_price.is_finite() or market_price <= 0:
@@ -122,10 +95,6 @@ def build_shadow_variants(
         baseline_plan.take_profit_price / baseline_plan.entry_price - D("1")
     )
     target_pct = max(baseline_target, required_edge_pct + EDGE_EPSILON_PCT)
-    dynamic_gap = dynamic_entry_gap_pct(
-        spread_bps=spread_bps,
-        atr_pct=atr_pct,
-    )
     def variant(
         variant_id: str,
         dimension: str,
@@ -157,52 +126,41 @@ def build_shadow_variants(
             ),
         )
 
+    range_enabled = str(regime).upper() == "RANGE"
     variants = [
+        variant("v3_maker_control", "maker_control", maker_only=True),
+        *(variant(
+            name,
+            "maker_ttl",
+            entry_ttl_sec=ttl,
+            maker_only=True,
+        ) for name, ttl in MAKER_TTLS),
         variant(
-            "v2_range_only",
-            "regime_gate",
-            entry_enabled=str(regime).upper() == "RANGE",
+            "v3_range_maker_control",
+            "range_maker_control",
+            entry_enabled=range_enabled,
+            maker_only=True,
         ),
-        *(variant(name, "take_profit", candidate_target=value)
-          for name, value in TP_TARGETS),
-        variant("v2_maker_only", "execution_policy", maker_only=True),
-        *(variant(name, "entry_ttl", entry_ttl_sec=value)
-          for name, value in ENTRY_TTLS),
+        *(variant(
+            f"v3_range_maker_ttl{ttl // 60}",
+            "range_maker_ttl",
+            entry_ttl_sec=ttl,
+            entry_enabled=range_enabled,
+            maker_only=True,
+        ) for _name, ttl in MAKER_TTLS),
         *(variant(
             name,
-            "buy_distance",
-            entry_price=max(
-                baseline_plan.entry_price,
-                market_price * (D("1") - value),
-            ),
-            entry_gap_pct=value,
-        ) for name, value in BUY_GAPS),
-        *(variant(
-            name,
-            "combined_range_execution",
-            entry_price=max(
+            "range_maker_deep_entry",
+            # A conservative experiment can keep or deepen the baseline BUY.
+            entry_price=min(
                 baseline_plan.entry_price,
                 market_price * (D("1") - gap),
             ),
-            candidate_target=take_profit,
-            entry_ttl_sec=ttl,
-            entry_enabled=str(regime).upper() == "RANGE",
+            entry_ttl_sec=900,
+            entry_enabled=range_enabled,
             maker_only=True,
             entry_gap_pct=gap,
-        ) for name, take_profit, ttl, gap in COMBINED_CANDIDATES),
-        variant(
-            "v2_d_range_ttl8_maker_tp105_dynamic",
-            "combined_range_execution",
-            entry_price=max(
-                baseline_plan.entry_price,
-                market_price * (D("1") - dynamic_gap),
-            ),
-            candidate_target=D("0.0105"),
-            entry_ttl_sec=480,
-            entry_enabled=str(regime).upper() == "RANGE",
-            maker_only=True,
-            entry_gap_pct=dynamic_gap,
-        ),
+        ) for name, gap in RANGE_DEEP_GAPS),
     ]
     return tuple(variants)
 
@@ -297,7 +255,7 @@ def shadow_variant_report(
         }
     return {
         "mode": "SHADOW",
-        "generation": "v2",
+        "generation": SHADOW_GENERATION,
         "baseline": "current_strategy_plan",
         "same_snapshot": True,
         "can_change_orders": False,
@@ -306,14 +264,12 @@ def shadow_variant_report(
 
 
 __all__ = [
-    "BUY_GAPS",
-    "COMBINED_CANDIDATES",
-    "ENTRY_TTLS",
     "EDGE_EPSILON_PCT",
-    "TP_TARGETS",
+    "MAKER_TTLS",
+    "RANGE_DEEP_GAPS",
+    "SHADOW_GENERATION",
     "ShadowVariant",
     "build_shadow_variants",
-    "dynamic_entry_gap_pct",
     "record_shadow_variants",
     "shadow_variant_report",
 ]

@@ -3,6 +3,24 @@
 All notable changes are documented here. Releases use Semantic Versioning; every
 section is dated and there is intentionally no `Unreleased` section.
 
+## [2.20.163] — 2026-08-05
+
+### Changed
+- The active SHADOW contour now compares nine focused version-three candidates.
+- Candidates use maker-only execution, optional RANGE entry, and 8-to-15-minute BUY lifetimes.
+- Deep-entry variants test 30, 40, and 50 basis points with one authoritative TP floor.
+
+### Fixed
+- New candidates never pull a BUY closer than the untouched baseline price.
+- New semantic identifiers keep version-two evidence outside the active gate.
+
+### Security
+- Every new candidate remains SHADOW-only and cannot change an order.
+- HALT, CAP, Risk Manager, and execution permissions remain authoritative.
+
+### Verified
+- Prediction experiment, SHADOW isolation, documentation, and complete project tests pass.
+
 ## [2.20.162] — 2026-08-05
 
 ### Changed

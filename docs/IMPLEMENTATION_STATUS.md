@@ -63,17 +63,15 @@ Future outcomes are normal pending work.
 Only overdue or unrecovered expired outcomes block the backlog gate.
 The soak report applies its expiration checks to the audited runtime window.
 
-The active experiment contour compares 15 version-two candidates on one snapshot:
+The active experiment contour compares nine version-three candidates on one snapshot:
 
-- RANGE-only entry;
-- TP targets of 1.00%, 1.05%, and 1.10%;
 - maker-only entry and TP;
-- BUY lifetimes of 3, 5, and 8 minutes;
-- BUY distances of 5, 8, and 10 basis points.
+- optional RANGE-only entry;
+- BUY lifetimes of 8 and 15 minutes;
+- conservative BUY distances of 30, 40, and 50 basis points.
 
-Three combined candidates use RANGE-only entry, a five-minute lifetime, and maker-only execution.
-They pair each TP target with one fixed BUY distance.
-The fourth combined candidate uses an eight-minute lifetime and a dynamic 5-to-15 basis-point BUY distance.
+All candidates use the authoritative TP floor.
+Deep-entry candidates can keep or lower the baseline BUY price.
 All candidates use the same immutable snapshot and baseline.
 
 New plan semantics use a new experiment identifier.

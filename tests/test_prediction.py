@@ -490,7 +490,8 @@ def test_supervisor_shadow_records_strategy_and_hashed_reanchor(
     )
 
     summary = store.summary("SOLUSDT")
-    assert summary["decisions"] == 17
+    # One strategy decision, one re-anchor sample, and nine v3 candidates.
+    assert summary["decisions"] == 11
     assert summary["reanchor_counterfactuals"] == 1
     assert ai_supervisor._AI_RUNTIME_STATUS["prediction"][
         "can_change_orders"

@@ -4,6 +4,13 @@ Read this file before changing the repository. Record only decisions that were
 validated by tests or production evidence and are likely to be reused. Keep
 entries concise; this is not a changelog or an activity log.
 
+### 2026-08-05 — Narrow experiments around the least harmful boundary
+
+- **Context:** closer BUY prices increased fills but made every version-two net confidence interval negative.
+- **Decision:** test nine maker-only variants that keep or deepen the baseline BUY and use one authoritative TP floor.
+- **Why it worked:** tests prove equal snapshots, new identifiers, strict SHADOW isolation, and no closer BUY price.
+- **Reuse:** every experiment generation after broad parameter exploration rejects the tested direction.
+
 ### 2026-08-05 — Start a new soak epoch only after causal repair
 
 - **Context:** authentication failure produced reconnect churn that could not represent repaired transport stability.
