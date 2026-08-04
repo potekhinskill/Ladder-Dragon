@@ -3,6 +3,20 @@
 All notable changes are documented here. Releases use Semantic Versioning; every
 section is dated and there is intentionally no `Unreleased` section.
 
+## [2.20.159] — 2026-08-04
+
+### Changed
+- Runtime and CI environments now use `cryptography 50.0.0`.
+
+### Fixed
+- The dependency audit no longer reports `PYSEC-2026-3552` from `cryptography 49.0.0`.
+
+### Security
+- Hashed Raspberry Pi and CI locks now require the fixed cryptography release.
+
+### Verified
+- Dependency audit, the complete pytest suite, and the release harness pass.
+
 ## [2.20.158] — 2026-08-04
 
 ### Changed

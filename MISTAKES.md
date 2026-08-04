@@ -6,6 +6,13 @@ avoidable rework. Identify the root cause rather than recording only the
 symptom. Keep entries concise and exclude secrets, balances, account data, and
 private infrastructure details.
 
+### 2026-08-04 — Resolved complete locks for one pinned package
+
+- **Impact:** the first lock refresh stalled without changing either target lock.
+- **Root cause:** a full resolver repeated work for a hash block already generated in another project lock.
+- **Correction:** reuse the complete generated block, then validate each target with hashes and the dependency audit.
+- **Prevention:** reuse an identical generated package block only when its version and source match exactly.
+
 ### 2026-08-04 — Used a recovery latch as a permanent alert gate
 
 - **Impact:** repeated failed restarts produced no Telegram reminder after the first alert.
