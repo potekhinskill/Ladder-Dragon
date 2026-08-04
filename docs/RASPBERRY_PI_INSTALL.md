@@ -769,6 +769,9 @@ bounded to 288 files. Telegram credentials and message bodies are passed to
 route exists, the watchdog reports that condition directly and never probes a
 guessed gateway.
 
+An unresolved bot-health incident sends another alert after the configured
+cooldown. Each confirmed failure series can still restart the enabled service.
+
 An operator stop must also remove automatic restart authority. Use:
 
 ```bash

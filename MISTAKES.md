@@ -6,6 +6,13 @@ avoidable rework. Identify the root cause rather than recording only the
 symptom. Keep entries concise and exclude secrets, balances, account data, and
 private infrastructure details.
 
+### 2026-08-04 — Used a recovery latch as a permanent alert gate
+
+- **Impact:** repeated failed restarts produced no Telegram reminder after the first alert.
+- **Root cause:** `health_alerted` controlled both recovery hysteresis and alert delivery.
+- **Correction:** route every confirmed failure through the existing time-based alert gate.
+- **Prevention:** delivery cooldowns and recovery-state latches must have separate responsibilities.
+
 ### 2026-08-03 — Used packet idleness as a network failure signal
 
 - **Impact:** normal Wi-Fi traffic gaps produced frequent system warnings.

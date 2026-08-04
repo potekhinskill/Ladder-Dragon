@@ -388,11 +388,11 @@ fi
 if (( health_fails >= STRIKES )); then
   # Recheck restart authority immediately before mutation to close a stop race.
   if systemctl is-enabled --quiet mybot.service; then
-    if (( health_alerted == 0 )); then
-      send_tg "⚠️ mybot unhealthy: ${reason}; restarting after ${health_fails} strikes" \
-        "mybot-health:${reason}"
-      health_alerted=1
-    fi
+    # The shared alert gate suppresses repeats, but permits a reminder after
+    # its cooldown. Keep health_alerted only for recovery hysteresis.
+    send_tg "⚠️ mybot unhealthy: ${reason}; restarting after ${health_fails} strikes" \
+      "mybot-health:${reason}"
+    health_alerted=1
     systemctl restart mybot.service || true
     systemctl is-active --quiet mybot.service && \
       send_tg "🔁 mybot restarted (service active; heartbeat will be checked on the next cycle)" \

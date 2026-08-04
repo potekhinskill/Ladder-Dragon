@@ -161,6 +161,24 @@ def test_watchdog_sends_one_full_snapshot_and_suppresses_identical_repeat(tmp_pa
     assert "172.17." not in texts[0]
 
 
+def test_watchdog_repeats_unresolved_health_alert_after_cooldown(tmp_path):
+    bindir = _fake_bin(tmp_path)
+    curl_log = tmp_path / "curl.jsonl"
+    _run_watchdog(tmp_path, bindir, curl_log)
+    _run_watchdog(tmp_path, bindir, curl_log)
+
+    alert_files = list((tmp_path / "state-dir").glob("telegram-alert.state.*"))
+    assert len(alert_files) == 1
+    fields = alert_files[0].read_text(encoding="utf-8").split()
+    fields[1] = str(int(time.time()) - 3601)
+    alert_files[0].write_text(" ".join(fields) + "\n", encoding="utf-8")
+
+    _run_watchdog(tmp_path, bindir, curl_log)
+
+    texts = _telegram_texts(curl_log)
+    assert sum("mybot unhealthy" in text for text in texts) == 2
+
+
 def test_watchdog_queues_alerts_offline_and_reports_network_recovery(tmp_path):
     bindir = _fake_bin(tmp_path)
     curl_log = tmp_path / "curl.jsonl"

@@ -3,6 +3,20 @@
 All notable changes are documented here. Releases use Semantic Versioning; every
 section is dated and there is intentionally no `Unreleased` section.
 
+## [2.20.158] — 2026-08-04
+
+### Changed
+- The watchdog uses the shared alert cooldown for repeated bot-health incidents.
+
+### Fixed
+- An unresolved bot failure now sends another Telegram alert after the cooldown.
+
+### Security
+- Repeated alerts keep credentials and message bodies outside process arguments.
+
+### Verified
+- Focused watchdog tests, the complete pytest suite, and the technical English check pass.
+
 ## [2.20.157] — 2026-08-03
 
 ### Changed

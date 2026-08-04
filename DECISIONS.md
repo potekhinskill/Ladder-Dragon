@@ -4,6 +4,13 @@ Read this file before changing the repository. Record only decisions that were
 validated by tests or production evidence and are likely to be reused. Keep
 entries concise; this is not a changelog or an activity log.
 
+### 2026-08-04 — Use cooldowns for persistent incident reminders
+
+- **Context:** one recovery latch also suppressed every later alert for an unresolved bot failure.
+- **Decision:** send each confirmed failure through the shared cooldown gate; use the latch only for recovery hysteresis.
+- **Why it worked:** tests suppress an immediate duplicate and send another alert after the exact cooldown.
+- **Reuse:** every persistent incident that needs bounded reminders and a separate recovery message.
+
 ### 2026-08-03 — Test network reachability instead of packet idleness
 
 - **Context:** a five-second interface check treated normal traffic gaps as Wi-Fi failures.
