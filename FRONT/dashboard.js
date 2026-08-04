@@ -303,8 +303,16 @@ function esc(value){
 }
 function updateOperations(h){
   const o=h.operations||{}, load=o.load_avg||{};
-  const heartbeat=o.heartbeat||{}, deployment=h.deployment||{}, notice=$('#deployment-notice');
-  notice.hidden=!(heartbeat.state==='IP_BLOCKED'&&deployment.status==='PASS'&&deployment.dashboard_backend_ready&&deployment.sqlite_ready);
+  const heartbeat=o.heartbeat||{}, notice=$('#deployment-notice');
+  const noticeKey=heartbeat.state==='IP_BLOCKED'
+    ?'deployment_notice_ip_blocked'
+    :(heartbeat.state==='AUTH_BACKOFF'?'deployment_notice_auth_backoff':null);
+  notice.hidden=!(noticeKey&&heartbeat.alive_fail_closed);
+  if(!notice.hidden){
+    const message=$('#deployment-notice-message');
+    message.dataset.i18n=noticeKey;
+    message.textContent=tr(noticeKey);
+  }
   $('#ops-load').textContent=[load['1m'],load['5m'],load['15m']].map(x=>Number.isFinite(Number(x))?Number(x).toFixed(2):'—').join(' / ');
   const bot=o.services?.mybot||{};
   $('#ops-heartbeat').textContent=heartbeat.state ? `${heartbeat.state} · ${ageText(heartbeat.age_sec)}` : '—';

@@ -6,6 +6,13 @@ avoidable rework. Identify the root cause rather than recording only the
 symptom. Keep entries concise and exclude secrets, balances, account data, and
 private infrastructure details.
 
+### 2026-08-05 — Gated a runtime warning on deployment history
+
+- **Impact:** the dashboard hid a current Binance authentication rejection.
+- **Root cause:** the banner required `IP_BLOCKED` and a successful deployment record, while the runtime reported `AUTH_BACKOFF`.
+- **Correction:** derive the warning from the fresh heartbeat and use an accurate message for each state.
+- **Prevention:** current operational warnings must not depend on unrelated historical status records.
+
 ### 2026-08-04 — Resolved complete locks for one pinned package
 
 - **Impact:** the first lock refresh stalled without changing either target lock.

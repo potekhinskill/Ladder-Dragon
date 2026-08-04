@@ -351,10 +351,12 @@
     shadow_regimes:"режимов"
   });
   Object.assign(translations.en, {
-    deployment_notice_ip_blocked:"Trading blocked: public IP changed. Review the Binance whitelist."
+    deployment_notice_ip_blocked:"Trading blocked: public IP changed. Review the Binance whitelist.",
+    deployment_notice_auth_backoff:"Binance rejected authentication. Check the API key, permissions, and IP allowlist. Retry is automatic."
   });
   Object.assign(translations.ru, {
-    deployment_notice_ip_blocked:"Торговля заблокирована: изменился публичный IP. Проверьте Binance whitelist."
+    deployment_notice_ip_blocked:"Торговля заблокирована: изменился публичный IP. Проверьте Binance whitelist.",
+    deployment_notice_auth_backoff:"Binance отклонил авторизацию. Проверьте API-ключ, разрешения и IP allowlist. Повторная проверка выполняется автоматически."
   });
 
   const labels = [

@@ -3,6 +3,22 @@
 All notable changes are documented here. Releases use Semantic Versioning; every
 section is dated and there is intentionally no `Unreleased` section.
 
+## [2.20.161] — 2026-08-05
+
+### Changed
+- The dashboard uses separate notices for `AUTH_BACKOFF` and `IP_BLOCKED`.
+
+### Fixed
+- A fresh `AUTH_BACKOFF` heartbeat now displays its operator action.
+- Runtime warnings no longer depend on the last deployment-status record.
+
+### Security
+- The notice contains no public address, credential, balance, or signed request data.
+- Stale fail-closed heartbeats do not display a current authentication warning.
+
+### Verified
+- Dashboard presentation, asset, security, and complete project tests pass.
+
 ## [2.20.160] — 2026-08-04
 
 ### Changed

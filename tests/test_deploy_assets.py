@@ -263,6 +263,17 @@ def test_dashboard_exposes_read_only_ops_trading_and_ai_quality_blocks():
     assert "dashboard_read_only:" in read("FRONT/locales.js")
 
 
+def test_dashboard_shows_fresh_auth_and_ip_runtime_notices():
+    index = dashboard_source()
+    locales = read("FRONT/locales.js")
+
+    assert "heartbeat.state==='AUTH_BACKOFF'" in index
+    assert "heartbeat.state==='IP_BLOCKED'" in index
+    assert "noticeKey&&heartbeat.alive_fail_closed" in index
+    assert "deployment_notice_auth_backoff" in locales
+    assert "API key, permissions, and IP allowlist" in locales
+
+
 def test_dashboard_transient_failures_are_bounded_and_visible():
     app = read("ladder_dragon/dashboard/runtime.py")
     index = dashboard_source()
@@ -315,8 +326,8 @@ def test_dashboard_transient_failures_are_bounded_and_visible():
     assert "publish_verified_deployment_status" in updater
     assert "ladder_dragon.deployment.status" in updater
     assert "heartbeat.state==='IP_BLOCKED'" in index
-    assert "deployment.dashboard_backend_ready" in index
-    assert "deployment.sqlite_ready" in index
+    assert "heartbeat.state==='AUTH_BACKOFF'" in index
+    assert "heartbeat.alive_fail_closed" in index
 
 
 def test_dashboard_large_sources_are_bounded_server_side():

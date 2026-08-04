@@ -4,6 +4,13 @@ Read this file before changing the repository. Record only decisions that were
 validated by tests or production evidence and are likely to be reused. Keep
 entries concise; this is not a changelog or an activity log.
 
+### 2026-08-05 — Drive operational notices from fresh runtime state
+
+- **Context:** an authentication warning depended on one deployment record and one narrower runtime state.
+- **Decision:** select the notice from a fresh fail-closed heartbeat, independently of deployment history.
+- **Why it worked:** tests cover distinct authentication and changed-IP messages and reject stale heartbeats.
+- **Reuse:** every dashboard warning for a live runtime condition.
+
 ### 2026-08-04 — Use cooldowns for persistent incident reminders
 
 - **Context:** one recovery latch also suppressed every later alert for an unresolved bot failure.
