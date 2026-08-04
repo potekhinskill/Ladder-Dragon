@@ -3,6 +3,22 @@
 All notable changes are documented here. Releases use Semantic Versioning; every
 section is dated and there is intentionally no `Unreleased` section.
 
+## [2.20.162] — 2026-08-05
+
+### Changed
+- User Stream readiness now uses the `transport-stability-2026-08-v2` epoch.
+- Current documentation identifies the v2 epoch and its approval requirements.
+
+### Fixed
+- Authentication-failure reconnect churn no longer contaminates the repaired transport soak denominator.
+
+### Security
+- The observer preserves the complete v1 epoch and every lifetime counter.
+- The release does not remove HALT or change SHADOW, CAP, or execution permissions.
+
+### Verified
+- Epoch migration, User Stream, documentation, and complete project tests pass.
+
 ## [2.20.161] — 2026-08-05
 
 ### Changed

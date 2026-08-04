@@ -816,6 +816,50 @@ def test_observer_does_not_reset_an_existing_soak_epoch(tmp_path):
     assert state["soak_epochs"][0]["baseline"]["reconnects"] == 19
 
 
+def test_observer_appends_reviewed_epoch_and_preserves_previous_evidence(
+    tmp_path,
+):
+    path = tmp_path / "stream.json"
+    previous_epoch = {
+        "id": "transport-stability-2026-08-v1",
+        "started_at": 1_000,
+        "baseline": {name: 0 for name in PERSISTED_COUNTERS},
+    }
+    path.write_text(json.dumps({
+        "state": "connected",
+        "first_observed_at": 900,
+        "sessions": 4,
+        "reconnects": 2_210,
+        "order_events": 2,
+        "rest_reconciliations": 544,
+        "event_woken_rest_reconciliations": 2,
+        "soak_epochs": [previous_epoch],
+    }))
+
+    observer = BinanceUserDataObserver(
+        api_key="key",
+        api_secret="secret",
+        rest_base_url="https://api.binance.com",
+        mailbox=OrderEventMailbox(),
+        logger=lambda message: None,
+        state_path=path,
+        clock=lambda: 2_000,
+    )
+
+    epochs = observer.state()["soak_epochs"]
+    assert [row["id"] for row in epochs] == [
+        "transport-stability-2026-08-v1",
+        CURRENT_USER_STREAM_SOAK_EPOCH_ID,
+    ]
+    assert epochs[0] == previous_epoch
+    assert epochs[1]["started_at"] == 2_000
+    assert epochs[1]["baseline"]["reconnects"] == 2_210
+    assert epochs[1]["baseline"]["sessions"] == 4
+    assert epochs[1]["baseline"]["order_events"] == 2
+    assert epochs[1]["baseline"]["rest_reconciliations"] == 544
+    assert epochs[1]["baseline"]["event_woken_rest_reconciliations"] == 2
+
+
 def test_observer_refuses_to_delete_epoch_history_at_growth_limit(tmp_path):
     path = tmp_path / "stream.json"
     epochs = []

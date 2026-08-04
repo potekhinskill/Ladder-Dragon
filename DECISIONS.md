@@ -4,6 +4,13 @@ Read this file before changing the repository. Record only decisions that were
 validated by tests or production evidence and are likely to be reused. Keep
 entries concise; this is not a changelog or an activity log.
 
+### 2026-08-05 — Start a new soak epoch only after causal repair
+
+- **Context:** authentication failure produced reconnect churn that could not represent repaired transport stability.
+- **Decision:** preserve the failed epoch, then start a new immutable baseline after signed authentication succeeds.
+- **Why it worked:** migration tests retain v1 evidence and baseline v2 from exact lifetime counters.
+- **Reuse:** every repeated certification after a verified external dependency repair.
+
 ### 2026-08-05 — Drive operational notices from fresh runtime state
 
 - **Context:** an authentication warning depended on one deployment record and one narrower runtime state.

@@ -148,6 +148,9 @@ GET reconciliation. Its sanitized state persists below
 requirement to clear HALT merely to collect stream-readiness evidence.
 The dashboard separates planned idle refreshes from transport failures.
 Historical reconnects without classification remain visible as legacy evidence.
+The current v2 epoch starts after signed Binance authentication recovered.
+The observer retains the earlier epoch and all lifetime counters.
+Only current-epoch counters contribute to the reconnect-rate readiness gate.
 
 SHADOW evidence:
 

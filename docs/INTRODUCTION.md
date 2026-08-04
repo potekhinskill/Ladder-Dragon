@@ -48,7 +48,8 @@ order as their baseline.
   portfolio movement remain separate metrics.
 - The 08:00 `Asia/Almaty` Telegram digest reports eligible symbols exactly and
   names excluded symbols instead of inventing a cost basis.
-- The independent User Data Stream observer can collect soak evidence during HALT.
+- The independent User Data Stream observer collects current-epoch soak evidence during HALT.
+- A new reviewed epoch preserves all lifetime counters and starts a new readiness denominator.
 - Provider failures use bounded backoff and keep deterministic execution authoritative.
 
 See [Runtime safety and reporting](RUNTIME_SAFETY_AND_REPORTING.md) for the

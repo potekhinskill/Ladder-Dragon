@@ -22,7 +22,7 @@ The configured mode and its evidence gate remain authoritative.
 | Fast market data | `bookTicker`, `aggTrade`, and depth snapshots | OFF by default |
 | WebSocket trading | Signed request transport and reconciliation | OFF and separately approved |
 | OTOCO | Atomic BUY with symmetric ACK-loss recovery | OFF and separately approved |
-| User Data Stream | Independent observer, reconnect-rate gate, drill, and soak evidence | Installed as a separate service |
+| User Data Stream | Independent observer, reconnect-rate gate, drill, and versioned soak evidence | v2 epoch active after authentication recovery |
 | Dashboard | Read-only account, canonical FIFO PnL, risk, AI, positions, and host data | Private authenticated access |
 | Reports | Daily trading digest, monthly prediction report, and signed soak report | Scheduled by systemd |
 | Deployment | Signed fast-forward update, backup, rollback, and asset verification | Exact 40-character SHA required |
@@ -93,7 +93,7 @@ Promotion still requires these items:
 - exact natural BUY to OCO to TP or STOP lifecycles;
 - zero unresolved inventory or protection fills;
 - resolved AI attribution evidence;
-- a continuous authenticated User Data Stream soak;
+- a continuous authenticated User Data Stream soak in the current v2 epoch;
 - closed prediction horizons without an overdue backlog;
 - positive lower confidence bounds;
 - baseline improvement after Holm correction;

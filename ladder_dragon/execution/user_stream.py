@@ -46,7 +46,8 @@ PERSISTED_COUNTERS = (
     "event_woken_rest_reconciliations",
     "bad_frames",
 )
-CURRENT_USER_STREAM_SOAK_EPOCH_ID = "transport-stability-2026-08-v1"
+# A reviewed identifier change starts a new baseline without deleting lifetime evidence.
+CURRENT_USER_STREAM_SOAK_EPOCH_ID = "transport-stability-2026-08-v2"
 MAX_USER_STREAM_SOAK_EPOCHS = 64
 _SOAK_EPOCH_ID = re.compile(r"^[a-z0-9][a-z0-9._-]{0,63}$")
 

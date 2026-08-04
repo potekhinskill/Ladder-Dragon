@@ -139,9 +139,8 @@ same commit. The full command and runtime paths are maintained in
 The Pi profile is stricter than a deployment smoke test:
 
 - `PASS` means deployment and all production evidence gates pass;
-- `BLOCKED` means the host may be safely running but required approval evidence
-  such as attribution, 24-hour stream soak, exact lifecycles or prediction
-  closure is incomplete;
+- `BLOCKED` means the host can run safely while required approval evidence is incomplete.
+- Required evidence includes current-epoch stream soak, exact lifecycles, attribution, and prediction closure.
 - `FAILED` means a required check actually failed.
 
 Never turn `BLOCKED` into `PASS` by deleting evidence, clearing HALT, inventing

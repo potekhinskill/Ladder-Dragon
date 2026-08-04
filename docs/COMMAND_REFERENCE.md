@@ -19,7 +19,7 @@ Help output is the authoritative option reference.
 | `audit_legacy_compatibility` | reports remaining legacy accounting dependencies |
 | `audit_numeric_boundaries` | finds direct float calls at financial boundaries |
 | `audit_replay_readiness` | checks archive, latency, regime, and validation evidence |
-| `audit_user_stream_soak` | checks current-epoch stream duration, stability, and events |
+| `audit_user_stream_soak` | checks the current reviewed epoch for duration, stability, and events |
 | `check_technical_english` | checks current guides against the project writing profile |
 | `semgrep_scan` | tests local Semgrep rules or scans production Python paths |
 | `production_soak_report` | builds a sanitized non-mutating soak report |
