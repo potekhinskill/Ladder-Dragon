@@ -3,6 +3,20 @@
 All notable changes are documented here. Releases use Semantic Versioning; every
 section is dated and there is intentionally no `Unreleased` section.
 
+## [2.20.166] — 2026-08-05
+
+### Added
+- The User Stream service now accepts one controlled reconnect through `SIGUSR1`.
+
+### Changed
+- Signal handling only schedules the drill. The service loop closes the notification socket safely.
+
+### Security
+- REST remains authoritative, and the command does not restart the service or change orders.
+
+### Verified
+- Controlled reconnect, signal wiring, User Stream, documentation, and complete project tests pass.
+
 ## [2.20.165] — 2026-08-05
 
 ### Changed

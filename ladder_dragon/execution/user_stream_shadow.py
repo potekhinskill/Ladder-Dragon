@@ -75,10 +75,30 @@ def reconcile_order_events(
     return len(identities)
 
 
+def consume_controlled_reconnect(
+    observer: BinanceUserDataObserver,
+    reconnect_event: threading.Event | None,
+    *,
+    logger: Callable[[str], None],
+) -> bool:
+    """Consume one operator request only when the observer is connected."""
+    if (
+        reconnect_event is None
+        or not reconnect_event.is_set()
+        or observer.state().get("state") != "connected"
+    ):
+        return False
+    observer.request_reconnect_drill()
+    reconnect_event.clear()
+    logger("[USER-STREAM-SOAK] controlled reconnect requested")
+    return True
+
+
 def run_user_stream_shadow(
     config: UserStreamShadowConfig,
     *,
     stop_event: threading.Event,
+    reconnect_event: threading.Event | None = None,
     logger: Callable[[str], None] = print,
 ) -> int:
     """Run a bounded-I/O observer until systemd requests a clean stop."""
@@ -102,6 +122,13 @@ def run_user_stream_shadow(
     next_periodic_rest = 0.0
     try:
         while not stop_event.is_set():
+            # A controlled reconnect closes only the notification socket.
+            # REST remains authoritative during reconnection.
+            consume_controlled_reconnect(
+                observer,
+                reconnect_event,
+                logger=logger,
+            )
             mailbox.wait(timeout=1.0)
             events = mailbox.consume_all()
             if events:

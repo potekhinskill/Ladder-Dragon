@@ -1334,3 +1334,10 @@ private infrastructure details.
 - **Root cause:** status text treated code `-2015` as proof of one cause, although it also covers keys and permissions.
 - **Correction:** use accurate signed-authentication wording and retry changed-IP recovery each minute.
 - **Prevention:** user-facing diagnostics must not narrow a provider error beyond its documented meaning.
+
+### 2026-08-05 — Released a soak requirement without its production control
+
+- **Impact:** a stable Mainnet observer could not produce the controlled reconnect required by the Pi profile.
+- **Root cause:** the Testnet drill owned reconnect control, while the Mainnet drill only proved order event to REST behavior.
+- **Correction:** add a signal-safe reconnect request to the persistent shadow service.
+- **Prevention:** every mandatory verification condition needs a documented production command before release.

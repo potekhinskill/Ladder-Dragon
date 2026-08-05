@@ -1015,3 +1015,10 @@ entries concise; this is not a changelog or an activity log.
 - **Decision:** cap signed read retries at 60 seconds only while two-source evidence shows a changed public IP.
 - **Why it worked:** other credential failures keep the longer backoff, and signed success remains authoritative.
 - **Reuse:** identity changes that require external acceptance but permit cheap read-only verification.
+
+### 2026-08-05 — Request a User Stream reconnect without a service restart
+
+- **Context:** soak approval requires reconnect evidence, but the Mainnet event drill does not reconnect the persistent observer.
+- **Decision:** `SIGUSR1` schedules one socket-only reconnect in the persistent shadow service.
+- **Why it worked:** the signal handler performs no network work, and REST stays authoritative during recovery.
+- **Reuse:** controlled transport drills that must preserve process age and service restart evidence.

@@ -27,7 +27,10 @@ from ladder_dragon.execution.execution_latency import (
     load_execution_outcomes,
 )
 from ladder_dragon.execution.user_stream_soak import audit_user_stream_soak
-from ladder_dragon.execution.user_stream_shadow import reconcile_order_events
+from ladder_dragon.execution.user_stream_shadow import (
+    consume_controlled_reconnect,
+    reconcile_order_events,
+)
 
 
 def soak_epoch(started_at, **baseline_overrides):
@@ -39,6 +42,36 @@ def soak_epoch(started_at, **baseline_overrides):
         "started_at": started_at,
         "baseline": baseline,
     }]
+
+
+def test_controlled_reconnect_request_waits_for_connected_observer():
+    class Observer:
+        def __init__(self):
+            self.connection_state = "reconnecting"
+            self.requests = 0
+
+        def state(self):
+            return {"state": self.connection_state}
+
+        def request_reconnect_drill(self):
+            self.requests += 1
+
+    observer = Observer()
+    requested = threading.Event()
+    requested.set()
+    messages = []
+
+    assert not consume_controlled_reconnect(
+        observer, requested, logger=messages.append
+    )
+    assert requested.is_set()
+    observer.connection_state = "connected"
+    assert consume_controlled_reconnect(
+        observer, requested, logger=messages.append
+    )
+    assert observer.requests == 1
+    assert not requested.is_set()
+    assert messages == ["[USER-STREAM-SOAK] controlled reconnect requested"]
 
 
 def execution_report(**overrides):

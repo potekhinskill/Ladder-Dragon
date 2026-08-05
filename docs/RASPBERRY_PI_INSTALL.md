@@ -352,6 +352,15 @@ The current epoch requires 24 hours of continuous observation.
 It also requires a controlled reconnect, one order event, and event-triggered REST reconciliation.
 Run the controlled drills only after the new epoch starts.
 
+Request one controlled reconnect without restarting the service:
+
+```bash
+sudo systemctl kill --kill-who=main --signal=SIGUSR1 \
+  ladder-dragon-user-stream-shadow.service
+```
+
+Wait until the stream reconnects. Then run the soak audit again.
+
 Run the Mainnet event drill only with a persistent HALT and SHADOW mode.
 The drill submits one bounded `LIMIT_MAKER` BUY below the market.
 It cancels the order immediately and requires zero execution.
