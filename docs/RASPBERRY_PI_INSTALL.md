@@ -340,9 +340,9 @@ Readiness uses the current, versioned soak epoch.
 The epoch starts from immutable lifetime-counter baselines.
 Historical reconnects remain available as lifetime evidence.
 The observer never resets or deletes lifetime counters.
-Release 2.20.162 starts the `transport-stability-2026-08-v2` epoch.
-This epoch starts after signed Binance authentication recovered.
-The previous epoch remains in the same sanitized snapshot.
+Release 2.20.165 starts the `transport-stability-2026-08-v3` epoch.
+This epoch starts after signed Binance authentication and IP Guard recovered.
+The v1 and v2 epochs remain in the same sanitized snapshot.
 The snapshot retains up to 64 append-only epoch baselines.
 The observer blocks a new epoch when this limit is full.
 The operator must review and archive evidence before any manual migration.

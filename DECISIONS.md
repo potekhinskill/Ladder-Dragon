@@ -21,8 +21,8 @@ entries concise; this is not a changelog or an activity log.
 ### 2026-08-05 — Start a new soak epoch only after causal repair
 
 - **Context:** authentication failure produced reconnect churn that could not represent repaired transport stability.
-- **Decision:** preserve the failed epoch, then start a new immutable baseline after signed authentication succeeds.
-- **Why it worked:** migration tests retain v1 evidence and baseline v2 from exact lifetime counters.
+- **Decision:** preserve failed epochs, then start a new baseline after fresh signed authentication and IP Guard recovery.
+- **Why it worked:** v3 migration tests retain v1 and v2 evidence and use exact lifetime counters.
 - **Reuse:** every repeated certification after a verified external dependency repair.
 
 ### 2026-08-05 — Drive operational notices from fresh runtime state

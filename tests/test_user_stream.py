@@ -820,10 +820,17 @@ def test_observer_appends_reviewed_epoch_and_preserves_previous_evidence(
     tmp_path,
 ):
     path = tmp_path / "stream.json"
-    previous_epoch = {
+    previous_v1 = {
         "id": "transport-stability-2026-08-v1",
         "started_at": 1_000,
         "baseline": {name: 0 for name in PERSISTED_COUNTERS},
+    }
+    previous_v2_baseline = {name: 0 for name in PERSISTED_COUNTERS}
+    previous_v2_baseline.update({"sessions": 3, "reconnects": 2_000})
+    previous_v2 = {
+        "id": "transport-stability-2026-08-v2",
+        "started_at": 1_500,
+        "baseline": previous_v2_baseline,
     }
     path.write_text(json.dumps({
         "state": "connected",
@@ -833,7 +840,7 @@ def test_observer_appends_reviewed_epoch_and_preserves_previous_evidence(
         "order_events": 2,
         "rest_reconciliations": 544,
         "event_woken_rest_reconciliations": 2,
-        "soak_epochs": [previous_epoch],
+        "soak_epochs": [previous_v1, previous_v2],
     }))
 
     observer = BinanceUserDataObserver(
@@ -849,15 +856,17 @@ def test_observer_appends_reviewed_epoch_and_preserves_previous_evidence(
     epochs = observer.state()["soak_epochs"]
     assert [row["id"] for row in epochs] == [
         "transport-stability-2026-08-v1",
+        "transport-stability-2026-08-v2",
         CURRENT_USER_STREAM_SOAK_EPOCH_ID,
     ]
-    assert epochs[0] == previous_epoch
-    assert epochs[1]["started_at"] == 2_000
-    assert epochs[1]["baseline"]["reconnects"] == 2_210
-    assert epochs[1]["baseline"]["sessions"] == 4
-    assert epochs[1]["baseline"]["order_events"] == 2
-    assert epochs[1]["baseline"]["rest_reconciliations"] == 544
-    assert epochs[1]["baseline"]["event_woken_rest_reconciliations"] == 2
+    assert epochs[0] == previous_v1
+    assert epochs[1] == previous_v2
+    assert epochs[2]["started_at"] == 2_000
+    assert epochs[2]["baseline"]["reconnects"] == 2_210
+    assert epochs[2]["baseline"]["sessions"] == 4
+    assert epochs[2]["baseline"]["order_events"] == 2
+    assert epochs[2]["baseline"]["rest_reconciliations"] == 544
+    assert epochs[2]["baseline"]["event_woken_rest_reconciliations"] == 2
 
 
 def test_observer_refuses_to_delete_epoch_history_at_growth_limit(tmp_path):

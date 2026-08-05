@@ -6,6 +6,13 @@ avoidable rework. Identify the root cause rather than recording only the
 symptom. Keep entries concise and exclude secrets, balances, account data, and
 private infrastructure details.
 
+### 2026-08-05 — Started a soak epoch before causal recovery
+
+- **Impact:** the v2 stability denominator accumulated authentication-failure reconnect churn.
+- **Root cause:** the epoch release preceded verified signed authentication and IP Guard recovery.
+- **Correction:** preserve v2 and start v3 only after both authorities report recovery.
+- **Prevention:** verify current external authority before each certification epoch change.
+
 ### 2026-08-05 — Started the alert cooldown before delivery
 
 - **Impact:** Binance authentication failures produced no Telegram message.

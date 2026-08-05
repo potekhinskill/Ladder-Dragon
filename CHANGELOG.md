@@ -3,6 +3,22 @@
 All notable changes are documented here. Releases use Semantic Versioning; every
 section is dated and there is intentionally no `Unreleased` section.
 
+## [2.20.165] — 2026-08-05
+
+### Changed
+- User Stream readiness now uses the `transport-stability-2026-08-v3` epoch.
+- The new epoch starts after signed Binance authentication and IP Guard recovery.
+
+### Fixed
+- Authentication-failure reconnect churn no longer contaminates the current stability denominator.
+
+### Security
+- The observer preserves all v1 and v2 counters and append-only epoch evidence.
+- The release does not remove HALT or enable APPLY.
+
+### Verified
+- Epoch migration, evidence retention, User Stream, documentation, and complete project tests pass.
+
 ## [2.20.164] — 2026-08-05
 
 ### Changed
