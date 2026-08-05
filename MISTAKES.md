@@ -6,6 +6,13 @@ avoidable rework. Identify the root cause rather than recording only the
 symptom. Keep entries concise and exclude secrets, balances, account data, and
 private infrastructure details.
 
+### 2026-08-05 — Started the alert cooldown before delivery
+
+- **Impact:** Binance authentication failures produced no Telegram message.
+- **Root cause:** services lacked injected configuration, and a failed send still started the success cooldown.
+- **Correction:** inject the root-owned file through systemd and retain the actual delivery result.
+- **Prevention:** alert tests must cover service configuration, failed transport, retry timing, and changing diagnostic endpoints.
+
 ### 2026-08-05 — Gated a runtime warning on deployment history
 
 - **Impact:** the dashboard hid a current Binance authentication rejection.

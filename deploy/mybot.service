@@ -15,6 +15,7 @@ Group=bot
 WorkingDirectory=/home/bot/apps/binance_bot
 EnvironmentFile=/home/bot/apps/binance_bot/.env
 EnvironmentFile=/home/bot/apps/binance_bot/.env.service
+EnvironmentFile=-/etc/ladder-dragon/telegram.env
 Environment=LADDER_DRAGON_CONTROL_DIR=/var/lib/ladder-dragon/control
 Environment=CB_HALT_FILE=/var/lib/ladder-dragon/control/circuit_halt.json
 Environment=CB_STATE_FILE=/var/lib/ladder-dragon/control/risk_state.json

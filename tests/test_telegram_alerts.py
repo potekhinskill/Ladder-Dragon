@@ -118,10 +118,41 @@ def test_binance_auth_alert_is_redacted_and_deduplicated(tmp_path, monkeypatch):
     assert telegram_alerts.notify_binance_auth_error(
         status=401,
         code=-2015,
-        endpoint="https://api.binance.com/api/v3/account",
+        endpoint="https://api.binance.com/api/v3/openOrders",
         message="Invalid API-key=secret-key",
     ) is False
     assert len(captured) == 1
     assert "-2015" in captured[0]["text"]
     assert "secret-key" not in captured[0]["text"]
     assert "api.binance.com/api/v3/account" in captured[0]["text"]
+
+
+def test_binance_auth_alert_retries_after_failed_delivery(tmp_path, monkeypatch):
+    state = tmp_path / "auth-alert.json"
+    now = [1000.0]
+    results = iter([False, True])
+    attempts = []
+    monkeypatch.setenv("BINANCE_AUTH_ALERT_STATE", str(state))
+    monkeypatch.setattr(telegram_alerts.time, "time", lambda: now[0])
+
+    def fake_notify(event, reasons, metadata):
+        attempts.append((event, reasons, metadata))
+        return next(results)
+
+    monkeypatch.setattr(telegram_alerts, "notify", fake_notify)
+    kwargs = {
+        "status": 401,
+        "code": -2015,
+        "endpoint": "/api/v3/openOrders",
+        "retry_sec": 60.0,
+    }
+
+    assert telegram_alerts.notify_binance_auth_error(**kwargs) is False
+    assert json.loads(state.read_text(encoding="utf-8"))["delivered"] is False
+    now[0] += 59.0
+    assert telegram_alerts.notify_binance_auth_error(**kwargs) is False
+    assert len(attempts) == 1
+    now[0] += 1.0
+    assert telegram_alerts.notify_binance_auth_error(**kwargs) is True
+    assert json.loads(state.read_text(encoding="utf-8"))["delivered"] is True
+    assert len(attempts) == 2

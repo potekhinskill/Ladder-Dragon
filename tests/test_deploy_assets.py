@@ -556,6 +556,7 @@ def test_managed_service_uses_versionless_wrapper_and_separate_env():
     wrapper = read("deploy/run_bot_service.sh")
     example = read(".env.example")
     assert "EnvironmentFile=/home/bot/apps/binance_bot/.env.service" in unit
+    assert "EnvironmentFile=-/etc/ladder-dragon/telegram.env" in unit
     assert "deploy/run_bot_service.sh" in unit
     assert "autosize_universal.py" in wrapper
     assert "1.8_autosize" not in unit + wrapper
@@ -621,6 +622,7 @@ def test_user_stream_soak_is_independent_read_only_and_persistent():
     assert "StateDirectory=ladder-dragon/user-stream" in service
     assert "ReadWritePaths=/var/lib/ladder-dragon/user-stream" in service
     assert "EnvironmentFile=/home/bot/apps/binance_bot/.env" in service
+    assert "EnvironmentFile=-/etc/ladder-dragon/telegram.env" in service
     assert "_signed_get" in runtime
     assert "_signed_post" not in runtime
     assert "_signed_delete" not in runtime

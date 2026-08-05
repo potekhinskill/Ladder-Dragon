@@ -119,8 +119,9 @@ def notify_binance_auth_error(
     endpoint: str,
     message: str = "",
     cooldown_sec: float = 1800.0,
+    retry_sec: float = 60.0,
 ) -> bool:
-    """Send binance auth error."""
+    """Send one bounded Binance authentication incident notification."""
     status_text = str(status if status is not None else "unknown")
     code_text = str(code if code is not None else "unknown")
     safe_endpoint = str(endpoint).split("?", 1)[0][:120]
@@ -129,7 +130,9 @@ def notify_binance_auth_error(
         "<redacted>",
         str(message),
     )[:180]
-    key = f"{status_text}:{code_text}:{safe_endpoint}"
+    # One authentication incident can fail on several endpoints. The endpoint
+    # remains diagnostic evidence, but it must not create a new alert identity.
+    key = f"{status_text}:{code_text}"
     state_path = Path(os.getenv("BINANCE_AUTH_ALERT_STATE", str(AUTH_ALERT_STATE)))
     now = time.time()
     try:
@@ -140,25 +143,30 @@ def notify_binance_auth_error(
         previous_ts = float(previous.get("ts", 0))
     except (TypeError, ValueError):
         previous_ts = 0.0
-    if previous.get("key") == key and now - previous_ts < max(0.0, cooldown_sec):
+    previous_delivered = bool(previous.get("delivered", True))
+    suppression_sec = cooldown_sec if previous_delivered else retry_sec
+    if previous.get("key") == key and now - previous_ts < max(0.0, suppression_sec):
         return False
-    try:
-        state_path.parent.mkdir(parents=True, exist_ok=True)
-        temporary = state_path.with_name(f".{state_path.name}.{os.getpid()}.tmp")
-        temporary.write_text(json.dumps({"key": key, "ts": now}), encoding="utf-8")
-        os.replace(temporary, state_path)
-    except OSError:
-        # The notification still matters; failure to persist dedup state must
-        # not hide an authentication problem.
-        pass
     reason = f"Binance auth failed: HTTP {status_text}, code {code_text}"
     if safe_message:
         reason += f" ({safe_message})"
-    return notify(
+    delivered = notify(
         "binance_auth_failed",
         [reason],
         {"endpoint": safe_endpoint},
     )
+    try:
+        state_path.parent.mkdir(parents=True, exist_ok=True)
+        temporary = state_path.with_name(f".{state_path.name}.{os.getpid()}.tmp")
+        temporary.write_text(
+            json.dumps({"key": key, "ts": now, "delivered": delivered}),
+            encoding="utf-8",
+        )
+        os.replace(temporary, state_path)
+    except OSError:
+        # A failed state write must not change the real delivery result.
+        pass
+    return delivered
 
 
 def main() -> int:

@@ -3,6 +3,23 @@
 All notable changes are documented here. Releases use Semantic Versioning; every
 section is dated and there is intentionally no `Unreleased` section.
 
+## [2.20.164] — 2026-08-05
+
+### Changed
+- Binance authentication alerts now use one incident identity across signed endpoints.
+- Failed Telegram delivery retries after one minute instead of entering the success cooldown.
+
+### Fixed
+- The bot and User Stream services now receive Telegram configuration through systemd.
+- An unreadable root-owned configuration directory no longer suppresses authentication alerts.
+
+### Security
+- Alert messages keep credentials, signatures, public addresses, and query strings out of diagnostics.
+- Authentication failure still blocks BUY and all trading mutations.
+
+### Verified
+- Telegram delivery, cooldown, service asset, documentation, and complete project tests pass.
+
 ## [2.20.163] — 2026-08-05
 
 ### Changed

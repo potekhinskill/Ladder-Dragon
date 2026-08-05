@@ -4,6 +4,13 @@ Read this file before changing the repository. Record only decisions that were
 validated by tests or production evidence and are likely to be reused. Keep
 entries concise; this is not a changelog or an activity log.
 
+### 2026-08-05 — Start alert cooldowns after confirmed delivery
+
+- **Context:** a failed Telegram request could suppress later authentication alerts.
+- **Decision:** record the delivery result and use a short retry delay after failure.
+- **Why it worked:** tests prove endpoint deduplication, failed-delivery retry, and systemd configuration injection.
+- **Reuse:** every alert where transport success controls the next delivery interval.
+
 ### 2026-08-05 — Narrow experiments around the least harmful boundary
 
 - **Context:** closer BUY prices increased fills but made every version-two net confidence interval negative.

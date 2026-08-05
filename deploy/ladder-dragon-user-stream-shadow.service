@@ -12,6 +12,7 @@ User=bot
 Group=bot
 WorkingDirectory=/home/bot/apps/binance_bot
 EnvironmentFile=/home/bot/apps/binance_bot/.env
+EnvironmentFile=-/etc/ladder-dragon/telegram.env
 Environment=PYTHONUNBUFFERED=1
 ExecStart=/home/bot/apps/binance_bot/.venv/bin/python -m bin.user_stream_shadow --symbol SOLUSDT --state-path /var/lib/ladder-dragon/user-stream/user_stream_SOLUSDT.json
 Restart=on-failure
