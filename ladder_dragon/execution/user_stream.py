@@ -48,7 +48,7 @@ PERSISTED_COUNTERS = (
 )
 # Change this identifier only after the cause of a failed epoch is repaired.
 # The observer appends a baseline and never deletes prior lifetime evidence.
-CURRENT_USER_STREAM_SOAK_EPOCH_ID = "transport-stability-2026-08-v3"
+CURRENT_USER_STREAM_SOAK_EPOCH_ID = "transport-stability-2026-08-v4"
 MAX_USER_STREAM_SOAK_EPOCHS = 64
 _SOAK_EPOCH_ID = re.compile(r"^[a-z0-9][a-z0-9._-]{0,63}$")
 

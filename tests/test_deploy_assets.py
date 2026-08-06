@@ -1062,7 +1062,7 @@ def test_watchdog_uses_current_heartbeat_and_not_legacy_runner_name():
     assert "TELEGRAM_OUTBOX_MAX_FILES" in watchdog
     assert "192.168.8.1" not in watchdog
     for state in (
-        "RUNNING", "AUTH_BACKOFF", "PREFLIGHT_BACKOFF", "IP_BLOCKED",
+        "RUNNING", "RISK_PENDING", "AUTH_BACKOFF", "PREFLIGHT_BACKOFF", "IP_BLOCKED",
         "RECOVERY_BLOCKED",
     ):
         assert state in watchdog

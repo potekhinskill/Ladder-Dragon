@@ -39,7 +39,7 @@ def audit_user_stream_soak(
     *,
     minimum_hours: float = 24.0,
     maximum_stale_sec: float = 180.0,
-    maximum_reconnects_per_hour: float = 1.0,
+    maximum_transport_failure_reconnects_per_hour: float = 1.0,
     require_reconnect: bool = False,
     require_order_event: bool = False,
     require_event_woken_rest: bool = False,
@@ -52,12 +52,14 @@ def audit_user_stream_soak(
     inputs = tuple(paths)
     if not inputs:
         reasons.append("no User Data Stream snapshots were supplied")
-    valid_reconnect_limit = (
-        math.isfinite(maximum_reconnects_per_hour)
-        and maximum_reconnects_per_hour >= 0
+    valid_failure_limit = (
+        math.isfinite(maximum_transport_failure_reconnects_per_hour)
+        and maximum_transport_failure_reconnects_per_hour >= 0
     )
-    if not valid_reconnect_limit:
-        reasons.append("maximum reconnect rate must be finite and non-negative")
+    if not valid_failure_limit:
+        reasons.append(
+            "maximum transport-failure reconnect rate must be finite and non-negative"
+        )
     for path in inputs:
         try:
             payload = json.loads(path.read_text(encoding="utf-8"))
@@ -131,7 +133,19 @@ def audit_user_stream_soak(
                 epoch_counters[name] = lifetime_value - baseline_value
             age_hours = max(0.0, current - epoch_started_at) / 3600
             reconnects = epoch_counters["reconnects"]
-            reconnect_rate = (
+            idle_reconnects = epoch_counters["idle_reconnects"]
+            transport_failure_reconnects = epoch_counters[
+                "transport_failure_reconnects"
+            ]
+            controlled_reconnect_drills = epoch_counters[
+                "controlled_reconnect_drills"
+            ]
+            transport_failure_rate = (
+                transport_failure_reconnects / age_hours
+                if age_hours > 0
+                else None
+            )
+            total_reconnect_rate = (
                 reconnects / age_hours
                 if age_hours > 0
                 else None
@@ -156,9 +170,17 @@ def audit_user_stream_soak(
             "sessions": sessions,
             "lifetime_sessions": lifetime_counters["sessions"],
             "reconnects": reconnects,
+            "idle_reconnects": idle_reconnects,
+            "transport_failure_reconnects": transport_failure_reconnects,
+            "controlled_reconnect_drills": controlled_reconnect_drills,
             "lifetime_reconnects": lifetime_counters["reconnects"],
             "reconnects_per_hour": (
-                round(reconnect_rate, 3) if reconnect_rate is not None else None
+                round(total_reconnect_rate, 3)
+                if total_reconnect_rate is not None else None
+            ),
+            "transport_failure_reconnects_per_hour": (
+                round(transport_failure_rate, 3)
+                if transport_failure_rate is not None else None
             ),
             "order_events": order_events,
             "lifetime_order_events": lifetime_counters["order_events"],
@@ -180,15 +202,18 @@ def audit_user_stream_soak(
             reasons.append(f"{path}: snapshot is stale")
         if sessions < 1:
             reasons.append(f"{path}: no authenticated session is recorded")
-        if require_reconnect and reconnects < 1:
-            reasons.append(f"{path}: reconnect has not been observed")
-        reconnect_rate_exceeded = (
-            reconnects > 0
-            if reconnect_rate is None
-            else reconnect_rate > maximum_reconnects_per_hour
+        if require_reconnect and controlled_reconnect_drills < 1:
+            reasons.append(f"{path}: controlled reconnect has not been observed")
+        failure_rate_exceeded = (
+            transport_failure_reconnects > 0
+            if transport_failure_rate is None
+            else transport_failure_rate
+            > maximum_transport_failure_reconnects_per_hour
         )
-        if valid_reconnect_limit and reconnect_rate_exceeded:
-            reasons.append(f"{path}: reconnect rate is too high for a stable soak")
+        if valid_failure_limit and failure_rate_exceeded:
+            reasons.append(
+                f"{path}: transport-failure reconnect rate is too high"
+            )
         if require_order_event and order_events < 1:
             reasons.append(f"{path}: no order event has been observed")
         if require_event_woken_rest and event_woken_rest < 1:

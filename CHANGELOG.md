@@ -3,6 +3,23 @@
 All notable changes are documented here. Releases use Semantic Versioning; every
 section is dated and there is intentionally no `Unreleased` section.
 
+## [2.20.167] — 2026-08-06
+
+### Changed
+- User Stream readiness now uses the `transport-stability-2026-08-v4` epoch.
+- The audit reports idle, controlled, total, and transport-failure reconnects separately.
+
+### Fixed
+- Expected idle reconnects no longer fail the transport-stability rate gate.
+- A fresh `RISK_PENDING` heartbeat no longer causes a watchdog restart.
+
+### Security
+- HALT and SHADOW remain unchanged, and REST remains authoritative.
+- Historical v1, v2, and v3 epoch evidence remains append-only.
+
+### Verified
+- User Stream, watchdog, deployment, documentation, and complete project tests pass.
+
 ## [2.20.166] — 2026-08-05
 
 ### Added

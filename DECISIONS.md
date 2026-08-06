@@ -1022,3 +1022,17 @@ entries concise; this is not a changelog or an activity log.
 - **Decision:** `SIGUSR1` schedules one socket-only reconnect in the persistent shadow service.
 - **Why it worked:** the signal handler performs no network work, and REST stays authoritative during recovery.
 - **Reuse:** controlled transport drills that must preserve process age and service restart evidence.
+
+### 2026-08-06 — Measure only unexpected transport reconnects as failures
+
+- **Context:** planned idle socket renewal made a healthy User Stream fail its stability gate.
+- **Decision:** gate the transport-failure rate and report idle, controlled, and total reconnects separately.
+- **Why it worked:** tests accept expected renewal and reject repeated transport exceptions at the same rate.
+- **Reuse:** every reliability gate that combines planned lifecycle events with unexpected failures.
+
+### 2026-08-06 — Preserve fresh fail-closed runtime state
+
+- **Context:** temporary exchange timeouts published `RISK_PENDING`, and the watchdog restarted the responsive supervisor.
+- **Decision:** accept a fresh `RISK_PENDING` heartbeat as alive and fail-closed.
+- **Why it worked:** the watchdog test proves no restart or unhealthy alert occurs for this state.
+- **Reuse:** every watchdog where liveness and external dependency readiness are separate conditions.

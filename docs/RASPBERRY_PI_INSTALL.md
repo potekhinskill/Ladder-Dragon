@@ -331,18 +331,19 @@ systemctl is-active ladder-dragon-user-stream-shadow.service
 PYTHONPATH=. .venv/bin/python -m bin.audit_user_stream_soak \
   /var/lib/ladder-dragon/user-stream/user_stream_SOLUSDT.json \
   --minimum-hours 24 \
-  --maximum-reconnects-per-hour 1
+  --maximum-transport-failure-reconnects-per-hour 1
 ```
 
-The soak blocks when the average reconnect rate exceeds one reconnect each hour.
+The soak blocks when transport failures exceed one reconnect each hour.
+Idle and controlled reconnects remain visible but do not indicate transport instability.
 
 Readiness uses the current, versioned soak epoch.
 The epoch starts from immutable lifetime-counter baselines.
 Historical reconnects remain available as lifetime evidence.
 The observer never resets or deletes lifetime counters.
-Release 2.20.165 starts the `transport-stability-2026-08-v3` epoch.
-This epoch starts after signed Binance authentication and IP Guard recovered.
-The v1 and v2 epochs remain in the same sanitized snapshot.
+Release 2.20.167 starts the `transport-stability-2026-08-v4` epoch.
+This epoch starts after reconnect classification and watchdog recovery were corrected.
+The v1, v2, and v3 epochs remain in the same sanitized snapshot.
 The snapshot retains up to 64 append-only epoch baselines.
 The observer blocks a new epoch when this limit is full.
 The operator must review and archive evidence before any manual migration.

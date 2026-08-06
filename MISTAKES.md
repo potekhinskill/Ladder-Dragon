@@ -1341,3 +1341,24 @@ private infrastructure details.
 - **Root cause:** the Testnet drill owned reconnect control, while the Mainnet drill only proved order event to REST behavior.
 - **Correction:** add a signal-safe reconnect request to the persistent shadow service.
 - **Prevention:** every mandatory verification condition needs a documented production command before release.
+
+### 2026-08-06 — Counted expected socket renewal as instability
+
+- **Impact:** 111 idle reconnects blocked a stream with zero transport failures.
+- **Root cause:** readiness used the total reconnect counter after the observer added explicit reconnect classifications.
+- **Correction:** gate only `transport_failure_reconnects` and keep all counters visible.
+- **Prevention:** reliability gates must use classified failure counters, not aggregate lifecycle counters.
+
+### 2026-08-06 — Restarted a responsive fail-closed supervisor
+
+- **Impact:** temporary exchange timeouts broke the required continuous production soak window.
+- **Root cause:** the watchdog accepted preflight backoff but omitted the fresh `RISK_PENDING` heartbeat.
+- **Correction:** accept `RISK_PENDING` while its heartbeat remains fresh.
+- **Prevention:** each new runtime state needs an end-to-end watchdog policy test before release.
+
+### 2026-08-06 — Left two assertions on the previous epoch index
+
+- **Impact:** the first focused test run failed after the v4 fixture correctly added a fourth epoch.
+- **Root cause:** most assertions moved to index three, but two retained the old index.
+- **Correction:** verify the new baseline fields on the complete current epoch object.
+- **Prevention:** after inserting ordered fixture data, review every positional assertion in that test.

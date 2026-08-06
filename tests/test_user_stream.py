@@ -719,6 +719,7 @@ def test_user_stream_soak_audit_requires_duration_freshness_and_drills(
         "first_observed_at": 1_000,
         "sessions": 3,
         "reconnects": 1,
+        "controlled_reconnect_drills": 1,
         "order_events": 2,
         "rest_reconciliations": 4,
         "event_woken_rest_reconciliations": 2,
@@ -738,6 +739,7 @@ def test_user_stream_soak_audit_requires_duration_freshness_and_drills(
     assert ready.ready is True
     assert ready.as_dict()["rest_remains_authoritative"] is True
     assert ready.streams[0]["reconnects_per_hour"] == 0.04
+    assert ready.streams[0]["transport_failure_reconnects_per_hour"] == 0
     assert ready.streams[0]["lifetime_reconnects"] == 1
 
     blocked = audit_user_stream_soak(
@@ -759,6 +761,7 @@ def test_user_stream_soak_blocks_chronic_reconnect_churn(tmp_path):
         "first_observed_at": 1_000,
         "sessions": 241,
         "reconnects": 240,
+        "transport_failure_reconnects": 240,
         "order_events": 2,
         "rest_reconciliations": 4,
         "event_woken_rest_reconciliations": 2,
@@ -769,13 +772,47 @@ def test_user_stream_soak_blocks_chronic_reconnect_churn(tmp_path):
     blocked = audit_user_stream_soak(
         [path],
         minimum_hours=24,
-        maximum_reconnects_per_hour=1,
+        maximum_transport_failure_reconnects_per_hour=1,
         now=1_000 + 25 * 3600,
     )
 
     assert blocked.ready is False
     assert blocked.streams[0]["reconnects_per_hour"] == 9.6
-    assert "reconnect rate is too high" in " ".join(blocked.reasons)
+    assert blocked.streams[0]["transport_failure_reconnects_per_hour"] == 9.6
+    assert "transport-failure reconnect rate is too high" in " ".join(
+        blocked.reasons
+    )
+
+
+def test_user_stream_soak_allows_expected_idle_reconnects(tmp_path):
+    path = tmp_path / "stream.json"
+    path.write_text(json.dumps({
+        "state": "connected",
+        "first_observed_at": 1_000,
+        "sessions": 4,
+        "reconnects": 112,
+        "idle_reconnects": 111,
+        "transport_failure_reconnects": 0,
+        "controlled_reconnect_drills": 1,
+        "order_events": 2,
+        "rest_reconciliations": 100,
+        "event_woken_rest_reconciliations": 2,
+        "soak_epochs": soak_epoch(1_000),
+    }))
+
+    ready = audit_user_stream_soak(
+        [path],
+        minimum_hours=24,
+        maximum_transport_failure_reconnects_per_hour=1,
+        require_reconnect=True,
+        require_order_event=True,
+        require_event_woken_rest=True,
+        now=1_000 + 25 * 3600,
+    )
+
+    assert ready.ready is True
+    assert ready.streams[0]["reconnects_per_hour"] == 4.48
+    assert ready.streams[0]["transport_failure_reconnects_per_hour"] == 0
 
 
 def test_user_stream_soak_uses_epoch_without_deleting_lifetime_evidence(
@@ -787,6 +824,7 @@ def test_user_stream_soak_uses_epoch_without_deleting_lifetime_evidence(
         "first_observed_at": 1_000,
         "sessions": 37,
         "reconnects": 1_070,
+        "controlled_reconnect_drills": 5,
         "order_events": 3,
         "rest_reconciliations": 6_700,
         "event_woken_rest_reconciliations": 3,
@@ -794,6 +832,7 @@ def test_user_stream_soak_uses_epoch_without_deleting_lifetime_evidence(
             1_000 + 100 * 3600,
             sessions=36,
             reconnects=1_069,
+            controlled_reconnect_drills=4,
             order_events=2,
             rest_reconciliations=6_600,
             event_woken_rest_reconciliations=2,
@@ -804,7 +843,7 @@ def test_user_stream_soak_uses_epoch_without_deleting_lifetime_evidence(
     ready = audit_user_stream_soak(
         [path],
         minimum_hours=24,
-        maximum_reconnects_per_hour=1,
+        maximum_transport_failure_reconnects_per_hour=1,
         require_reconnect=True,
         require_order_event=True,
         require_event_woken_rest=True,
@@ -865,15 +904,22 @@ def test_observer_appends_reviewed_epoch_and_preserves_previous_evidence(
         "started_at": 1_500,
         "baseline": previous_v2_baseline,
     }
+    previous_v3_baseline = {name: 0 for name in PERSISTED_COUNTERS}
+    previous_v3_baseline.update({"sessions": 4, "reconnects": 2_100})
+    previous_v3 = {
+        "id": "transport-stability-2026-08-v3",
+        "started_at": 1_750,
+        "baseline": previous_v3_baseline,
+    }
     path.write_text(json.dumps({
         "state": "connected",
         "first_observed_at": 900,
-        "sessions": 4,
+        "sessions": 5,
         "reconnects": 2_210,
         "order_events": 2,
         "rest_reconciliations": 544,
         "event_woken_rest_reconciliations": 2,
-        "soak_epochs": [previous_v1, previous_v2],
+        "soak_epochs": [previous_v1, previous_v2, previous_v3],
     }))
 
     observer = BinanceUserDataObserver(
@@ -890,16 +936,18 @@ def test_observer_appends_reviewed_epoch_and_preserves_previous_evidence(
     assert [row["id"] for row in epochs] == [
         "transport-stability-2026-08-v1",
         "transport-stability-2026-08-v2",
+        "transport-stability-2026-08-v3",
         CURRENT_USER_STREAM_SOAK_EPOCH_ID,
     ]
     assert epochs[0] == previous_v1
     assert epochs[1] == previous_v2
-    assert epochs[2]["started_at"] == 2_000
-    assert epochs[2]["baseline"]["reconnects"] == 2_210
-    assert epochs[2]["baseline"]["sessions"] == 4
-    assert epochs[2]["baseline"]["order_events"] == 2
-    assert epochs[2]["baseline"]["rest_reconciliations"] == 544
-    assert epochs[2]["baseline"]["event_woken_rest_reconciliations"] == 2
+    assert epochs[2] == previous_v3
+    assert epochs[3]["started_at"] == 2_000
+    assert epochs[3]["baseline"]["reconnects"] == 2_210
+    assert epochs[3]["baseline"]["sessions"] == 5
+    assert epochs[3]["baseline"]["order_events"] == 2
+    assert epochs[3]["baseline"]["rest_reconciliations"] == 544
+    assert epochs[3]["baseline"]["event_woken_rest_reconciliations"] == 2
 
 
 def test_observer_refuses_to_delete_epoch_history_at_growth_limit(tmp_path):
@@ -953,7 +1001,7 @@ def test_user_stream_soak_fails_closed_for_damaged_epoch(tmp_path):
 def test_user_stream_soak_rejects_non_finite_reconnect_limit():
     blocked = audit_user_stream_soak(
         [],
-        maximum_reconnects_per_hour=float("nan"),
+        maximum_transport_failure_reconnects_per_hour=float("nan"),
     )
 
     assert blocked.ready is False

@@ -80,6 +80,7 @@ def _run_watchdog(
     strikes: int = 1,
     outbox_max_files: int = 288,
     outbox_max_age_sec: int = 86400,
+    heartbeat_state: str = "RUNNING",
 ) -> None:
     uptime_source = tmp_path / "uptime"
     uptime_source.write_text("3600.0 0.0\n", encoding="utf-8")
@@ -87,7 +88,7 @@ def _run_watchdog(
     heartbeat.write_text(
         json.dumps(
             {
-                "state": "RUNNING",
+                "state": heartbeat_state,
                 "updated_at": datetime.now(timezone.utc).isoformat(),
             }
         ),
@@ -267,6 +268,22 @@ def test_disabled_inactive_bot_is_not_restarted_or_reported_unhealthy(tmp_path):
     assert "intentionally stopped" in (tmp_path / "watchdog.log").read_text(
         encoding="utf-8"
     )
+
+
+def test_fresh_risk_pending_bot_is_not_restarted(tmp_path):
+    bindir = _fake_bin(tmp_path)
+    curl_log = tmp_path / "curl.jsonl"
+
+    _run_watchdog(
+        tmp_path,
+        bindir,
+        curl_log,
+        mybot_active=True,
+        heartbeat_state="RISK_PENDING",
+    )
+
+    assert not (tmp_path / "systemctl.log").exists()
+    assert not any("mybot unhealthy" in row for row in _telegram_texts(curl_log))
 
 
 def test_telegram_credentials_and_message_never_enter_curl_argv(tmp_path):
