@@ -1,6 +1,6 @@
 # Implementation status
 
-This document describes the code in version **2.20.179**.
+This document describes the code in version **2.20.180**.
 It does not describe future plans as completed work.
 
 An implemented function is not automatically approved for LIVE use.
@@ -62,6 +62,8 @@ The prediction layer records these outputs for each horizon:
 Each settled return requires a successful historical price lookup.
 A failed lookup keeps that horizon pending for the next cycle.
 The diagnostic includes only the symbol, horizon, and error type.
+Settlement selects bounded oldest and newest due work from the full history.
+The historical price must come from the exact minute containing the horizon.
 
 Future outcomes are normal pending work.
 Only overdue or unrecovered expired outcomes block the backlog gate.

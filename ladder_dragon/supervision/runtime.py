@@ -38,6 +38,7 @@ from ladder_dragon.ai.context.runtime import (
     context_hash,
     load_trade_features,
 )
+from ladder_dragon.ai.context.settlement import exact_horizon_open
 from ladder_dragon.ai.ai_knowledge import KnowledgeStore
 from ladder_dragon.ai.ai_policy import (
     PolicyConfig,
@@ -2756,13 +2757,9 @@ def _build_ai_market_context(
     if _AI_DECISIONS is not None:
         try:
             def horizon_price(sym: str, target_ms: int) -> Decimal:
-                candles = TM.get_klines(
-                    sym, "1m", limit=1, startTime=target_ms
-                )
-                if not candles:
-                    raise ValueError("missing horizon candle")
                 return _finite_decimal(
-                    candles[0][1], name="AI horizon candle price"
+                    exact_horizon_open(TM.get_klines, sym, target_ms),
+                    name="AI horizon candle price",
                 )
 
             def horizon_candles(

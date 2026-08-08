@@ -3,6 +3,19 @@
 All notable changes are documented here. Releases use Semantic Versioning; every
 section is dated and there is intentionally no `Unreleased` section.
 
+## [2.20.180] — 2026-08-09
+
+### Changed
+- AI settlement now processes a bounded mix of the oldest and newest due decisions.
+- Historical horizon prices now require the exact minute containing the target time.
+
+### Fixed
+- Failed AI labels older than one day now remain eligible for recovery.
+- A later Binance candle can no longer create look-ahead in AI return labels.
+
+### Verified
+- Historical retry, bounded fairness, exact-minute, fail-closed, and AI context tests pass.
+
 ## [2.20.179] — 2026-08-08
 
 ### Changed

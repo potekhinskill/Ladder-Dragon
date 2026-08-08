@@ -1127,3 +1127,10 @@ entries concise; this is not a changelog or an activity log.
 - **Decision:** preserve `NULL`, emit a safe diagnostic, and retry the same horizon later.
 - **Why it worked:** tests reject current-price substitution and accept only the later successful exact-time lookup.
 - **Reuse:** every retriable label or outcome whose source has authoritative time identity.
+
+### 2026-08-09 — Drain historical labels without starving current work
+
+- **Context:** a recent-time filter permanently excluded failed AI settlements after one day.
+- **Decision:** select bounded oldest and newest due decisions from the complete history.
+- **Why it worked:** tests settle old rows, bound each cycle, and preserve current work.
+- **Reuse:** every retry queue that combines historical recovery with current results.

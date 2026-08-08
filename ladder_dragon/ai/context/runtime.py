@@ -27,6 +27,7 @@ from ladder_dragon.ai.unresolved_fills import (
     lifecycle_counts,
     record_pending_fill,
 )
+from ladder_dragon.ai.context.settlement import select_due_settlements
 from ladder_dragon.numeric_compat import compatibility_float
 from ladder_dragon.sqlite_safety import (
     quote_sqlite_identifier,
@@ -1241,20 +1242,7 @@ class AdvisorDecisionStore:
         now = int(now or time.time())
         updated = 0
         with self._connect() as connection:
-            rows = connection.execute(
-                """
-                SELECT decision_id, created_at,
-                       COALESCE(NULLIF(price_text,''),CAST(price AS TEXT)),recommended_mode,
-                       deterministic_mode,width_scale,cap_scale,evaluation_json,
-                       COALESCE(NULLIF(return_15m_text,''),CAST(return_15m AS TEXT)),
-                       COALESCE(NULLIF(return_1h_text,''),CAST(return_1h AS TEXT)),
-                       COALESCE(NULLIF(return_4h_text,''),CAST(return_4h AS TEXT))
-                FROM ai_decisions
-                WHERE symbol=? AND created_at>=?
-                  AND (return_15m IS NULL OR return_1h IS NULL OR return_4h IS NULL)
-                """,
-                (symbol.upper(), now - 86_400),
-            ).fetchall()
+            rows = select_due_settlements(connection, symbol, now)
             for (
                 decision_id, created_at, price, recommended_mode,
                 deterministic_mode, width_scale, cap_scale, evaluation_json,

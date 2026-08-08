@@ -183,6 +183,9 @@ The portfolio CAP is not a substitute for this limit.
 Prediction horizons are 1, 5, and 15 minutes.
 An unresolved future horizon is normal pending work.
 An overdue horizon or unrecovered expired outcome blocks the prediction backlog gate.
+Each settlement cycle processes bounded oldest and newest due AI decisions.
+This selection drains history without delaying current labels.
+The settlement price uses only the exact minute containing the requested horizon.
 
 The soak report checks expirations from its current audited runtime window.
 It still reports lifetime expiration totals as historical evidence.
