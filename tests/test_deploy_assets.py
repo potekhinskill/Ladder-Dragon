@@ -442,11 +442,12 @@ def test_dashboard_health_has_portable_host_and_optional_raspberry_telemetry():
 def test_dashboard_publishes_read_only_account_balances():
     index = dashboard_source()
     app = read("ladder_dragon/dashboard/runtime.py")
+    transport = read("ladder_dragon/dashboard/services/binance_readonly.py")
     assert 'id="balance-body"' in index
     assert 'getJSON(\'/api/account/balances\')' in index
     assert '@app.get("/api/account/balances")' in app
     assert '"valuation_status": "priced"' in app
-    assert 'dashboard API credentials are read-only by design' in app
+    assert 'dashboard API credentials are read-only by design' in transport
 
 
 def test_dashboard_publishes_read_only_open_orders():

@@ -242,6 +242,73 @@ def test_variant_report_never_enables_apply(tmp_path: Path, monkeypatch):
     )
 
 
+def test_variant_report_separates_active_cohort_from_opportunity_cost(monkeypatch):
+    from ladder_dragon.strategy.prediction import experiments
+
+    active = PredictionOutcome(
+        1, True, True, D("1"), D("0"), 1, "TP", 1
+    )
+    no_trade = replace(
+        active,
+        buy_filled=False,
+        tp_before_stop=None,
+        net_pnl_quote=D("0"),
+        time_to_fill_sec=None,
+        exit_reason="NO_TRADE",
+    )
+    samples = [
+        ResolvedSample(1, "RANGE", 1, active, D("0")),
+        ResolvedSample(2, "TREND_UP", 1, no_trade, D("2")),
+    ]
+    variant = next(
+        item
+        for item in build_shadow_variants(
+            market_price=D("100"),
+            baseline_plan=_baseline(),
+            required_edge_pct=D("0.0096"),
+            regime="RANGE",
+        )
+        if item.variant_id == "v3_range_maker_control"
+    )
+
+    class Store:
+        def resolved_samples(self, *args, **kwargs):
+            return samples
+
+        def outcome_status_counts(self, *args, **kwargs):
+            return {}
+
+    monkeypatch.setattr(
+        experiments,
+        "walk_forward_prediction_report",
+        lambda rows: {
+            "gate": {
+                "approved": True,
+                "independent_samples": len(rows),
+                "fill_rate": str(len(rows)),
+            }
+        },
+    )
+    monkeypatch.setattr(
+        experiments,
+        "holm_configuration_correction",
+        lambda p_values: {name: True for name in p_values},
+    )
+
+    report = shadow_variant_report(
+        Store(),
+        symbol="SOLUSDT",
+        variants=[variant],
+        before_ts_ms=10,
+    )["variants"][variant.variant_id]
+
+    assert report["comparison_scope"] == "full_strategy_replacement"
+    assert report["no_trade_opportunity_cost_included"] is True
+    assert report["gate"]["independent_samples"] == 2
+    assert report["active_cohort"]["samples"] == 1
+    assert report["active_cohort"]["diagnostic_only"] is True
+
+
 def test_variant_report_separates_future_work_from_backlog(tmp_path: Path):
     store = PredictionShadowStore(tmp_path / "prediction.sqlite3")
     features = _features()

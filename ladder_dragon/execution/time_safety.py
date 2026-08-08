@@ -21,6 +21,19 @@ class ClockCheck:
             raise RuntimeError(self.reason)
 
 
+def exchange_time_offset_ms(
+    *,
+    server_time_ms: int,
+    request_started_ms: int,
+    response_finished_ms: int,
+) -> int:
+    """Estimate the exchange offset at the request midpoint."""
+    if response_finished_ms < request_started_ms:
+        raise ValueError("response time precedes request time")
+    midpoint = (request_started_ms + response_finished_ms) // 2
+    return int(server_time_ms) - midpoint
+
+
 def assess_exchange_clock(
     *,
     server_time_ms: int,
@@ -29,13 +42,14 @@ def assess_exchange_clock(
     max_offset_ms: int = 1000,
     max_round_trip_ms: int = 5000,
 ) -> ClockCheck:
-    if response_finished_ms < request_started_ms:
-        raise ValueError("response time precedes request time")
     if max_offset_ms < 0 or max_round_trip_ms <= 0:
         raise ValueError("clock safety limits are invalid")
     round_trip = response_finished_ms - request_started_ms
-    midpoint = (request_started_ms + response_finished_ms) // 2
-    offset = int(server_time_ms) - midpoint
+    offset = exchange_time_offset_ms(
+        server_time_ms=server_time_ms,
+        request_started_ms=request_started_ms,
+        response_finished_ms=response_finished_ms,
+    )
     # The server timestamp can have been captured anywhere inside the RTT window.
     # Only the portion outside half the RTT is a guaranteed local-clock error.
     guaranteed = max(0, abs(offset) - (round_trip // 2))

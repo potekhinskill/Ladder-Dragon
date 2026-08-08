@@ -261,6 +261,51 @@ def test_strategy_uses_explicit_no_trade_baseline(tmp_path):
     assert baseline["buy_filled"] is False
 
 
+def test_resolved_analytics_use_a_bounded_recent_decision_window(
+    tmp_path, monkeypatch
+):
+    from ladder_dragon.strategy.prediction import runtime
+
+    store = PredictionShadowStore(tmp_path / "prediction.sqlite3")
+    outcome = json.dumps({
+        "horizon_min": 1,
+        "buy_filled": True,
+        "tp_before_stop": True,
+        "net_pnl_quote": "1",
+        "mae_pct": "0",
+        "time_to_fill_sec": 1,
+        "exit_reason": "TP",
+        "resolved_at_ms": 999_999,
+    })
+    for snapshot in (59_999, 119_999, 179_999):
+        features = _features(snapshot_ts_ms=snapshot)
+        decision_id = store.record(
+            kind="STRATEGY",
+            symbol="SOLUSDT",
+            features=features,
+            plan=_plan(),
+            predictions=predict_distribution(features, _plan(), []),
+            algorithm_decision=f"snapshot={snapshot}",
+        )
+        with store._connect() as connection:
+            connection.execute(
+                "UPDATE prediction_outcomes SET outcome_json=?,resolved_at_ms=? "
+                "WHERE decision_id=? AND horizon_min=1",
+                (outcome, 999_999, decision_id),
+            )
+    monkeypatch.setattr(runtime, "MAX_RESOLVED_DECISIONS", 2)
+    monkeypatch.setattr(runtime, "MAX_PERFORMANCE_DECISIONS", 1)
+
+    samples = store.resolved_samples("SOLUSDT")
+    regime = store.regime_performance(
+        "SOLUSDT", minimum_samples_per_regime=1
+    )
+
+    assert [row.snapshot_ts_ms for row in samples] == [119_999, 179_999]
+    assert regime["maximum_decisions"] == 1
+    assert sum(group["samples"] for group in regime["groups"]) == 1
+
+
 def test_reanchor_requires_independent_original_order_baseline(tmp_path):
     store = PredictionShadowStore(tmp_path / "prediction.sqlite3")
     features = _features()

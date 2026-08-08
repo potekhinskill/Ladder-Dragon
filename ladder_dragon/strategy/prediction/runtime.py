@@ -35,6 +35,8 @@ ZERO = D("0")
 ONE = D("1")
 HORIZONS_MIN = (1, 5, 15)
 PREDICTION_SCHEMA_VERSION = 1
+MAX_RESOLVED_DECISIONS = 1_000
+MAX_PERFORMANCE_DECISIONS = 10_000
 
 
 def _decimal(value: object, *, field: str) -> Decimal:
@@ -859,48 +861,56 @@ class PredictionShadowStore:
         """Summarize counterfactual value without enabling APPLY."""
         with self._connect() as connection:
             rows = connection.execute(
-                """SELECT d.feature_json,d.plan_json,o.horizon_min,
+                """WITH recent AS (
+                       SELECT decision_id,feature_json,plan_json
+                       FROM prediction_decisions
+                       WHERE symbol=? AND kind='REANCHOR'
+                       ORDER BY rowid DESC
+                       LIMIT ?
+                   )
+                   SELECT d.feature_json,d.plan_json,o.horizon_min,
                           o.outcome_json,o.baseline_outcome_json
-                   FROM prediction_decisions d
+                   FROM recent d
                    JOIN prediction_outcomes o ON o.decision_id=d.decision_id
-                   WHERE d.symbol=? AND d.kind='REANCHOR'
-                     AND o.outcome_json IS NOT NULL""",
-                (symbol.upper(),),
-            ).fetchall()
-        filled = 0
-        tp = 0
-        net = ZERO
-        baseline_net = ZERO
-        gaps: list[Decimal] = []
-        missing_baselines = 0
-        for feature_json, plan_json, _horizon, outcome_json, baseline_json in rows:
-            outcome = self._outcome(outcome_json)
-            if not baseline_json:
-                missing_baselines += 1
-                continue
-            baseline = self._outcome(baseline_json)
-            filled += int(outcome.buy_filled)
-            tp += int(outcome.tp_before_stop is True)
-            net += outcome.net_pnl_quote
-            baseline_net += baseline.net_pnl_quote
-            try:
-                feature = json.loads(feature_json)
-                plan = json.loads(plan_json)
-                market = _decimal(
-                    feature.get("price", feature.get("current_price")),
-                    field="current price",
-                )
-                entry = _decimal(plan["entry_price"], field="entry price")
-                if market > 0:
-                    gaps.append((market - entry) / market)
-            except (
-                KeyError,
-                TypeError,
-                ValueError,
-                json.JSONDecodeError,
-            ):
-                continue
-        count = len(rows) - missing_baselines
+                   WHERE o.outcome_json IS NOT NULL""",
+                (symbol.upper(), MAX_PERFORMANCE_DECISIONS),
+            )
+            filled = 0
+            tp = 0
+            net = ZERO
+            baseline_net = ZERO
+            gaps: list[Decimal] = []
+            missing_baselines = 0
+            row_count = 0
+            for feature_json, plan_json, _horizon, outcome_json, baseline_json in rows:
+                row_count += 1
+                outcome = self._outcome(outcome_json)
+                if not baseline_json:
+                    missing_baselines += 1
+                    continue
+                baseline = self._outcome(baseline_json)
+                filled += int(outcome.buy_filled)
+                tp += int(outcome.tp_before_stop is True)
+                net += outcome.net_pnl_quote
+                baseline_net += baseline.net_pnl_quote
+                try:
+                    feature = json.loads(feature_json)
+                    plan = json.loads(plan_json)
+                    market = _decimal(
+                        feature.get("price", feature.get("current_price")),
+                        field="current price",
+                    )
+                    entry = _decimal(plan["entry_price"], field="entry price")
+                    if market > 0:
+                        gaps.append((market - entry) / market)
+                except (
+                    KeyError,
+                    TypeError,
+                    ValueError,
+                    json.JSONDecodeError,
+                ):
+                    continue
+        count = row_count - missing_baselines
         mean_gap = (
             sum(gaps, ZERO) / D(str(len(gaps))) if gaps else ZERO
         )
@@ -913,6 +923,7 @@ class PredictionShadowStore:
             "baseline_net_pnl_quote": str(baseline_net),
             "net_edge_quote": str(net - baseline_net),
             "mean_entry_gap_pct": str(mean_gap),
+            "maximum_decisions": MAX_PERFORMANCE_DECISIONS,
         }
 
     def regime_performance(
@@ -925,65 +936,71 @@ class PredictionShadowStore:
         minimum = max(1, int(minimum_samples_per_regime))
         with self._connect() as connection:
             rows = connection.execute(
-                """SELECT d.kind,d.feature_json,d.plan_json,o.outcome_json,
+                """WITH recent AS (
+                       SELECT decision_id,kind,feature_json,plan_json
+                       FROM prediction_decisions
+                       WHERE symbol=?
+                       ORDER BY rowid DESC
+                       LIMIT ?
+                   )
+                   SELECT d.kind,d.feature_json,d.plan_json,o.outcome_json,
                           o.baseline_outcome_json
-                   FROM prediction_decisions d
+                   FROM recent d
                    JOIN prediction_outcomes o ON o.decision_id=d.decision_id
-                   WHERE d.symbol=? AND o.outcome_json IS NOT NULL
-                   ORDER BY d.snapshot_ts_ms,o.horizon_min""",
-                (symbol.upper(),),
-            ).fetchall()
-        buckets: dict[tuple[str, str, str], dict[str, object]] = {}
-        for kind, feature_json, plan_json, outcome_json, baseline_json in rows:
-            try:
-                features = json.loads(feature_json)
-                plan = json.loads(plan_json)
-                outcome = self._outcome(outcome_json)
-                baseline = self._baseline_outcome(
-                    str(kind), baseline_json, outcome
-                )
-                regime = str(features.get("regime") or "UNKNOWN").upper()
-                panic = features.get("executor_panic_active")
-                panic_label = (
-                    "ACTIVE" if panic is True
-                    else "INACTIVE" if panic is False
-                    else "UNKNOWN"
-                )
-                price = _decimal(
-                    features.get("price", features.get("current_price")),
-                    field="feature price",
-                )
-                entry = _decimal(plan["entry_price"], field="entry price")
-                gap = max(ZERO, (price - entry) / price) if price > 0 else ZERO
-            except (
-                KeyError,
-                TypeError,
-                ValueError,
-                json.JSONDecodeError,
-            ):
-                continue
-            key = (regime, str(kind).upper(), panic_label)
-            bucket = buckets.setdefault(key, {
-                "samples": 0,
-                "fills": 0,
-                "tp_before_stop": 0,
-                "net": ZERO,
-                "baseline_net": ZERO,
-                "mae": ZERO,
-                "entry_gap": ZERO,
-            })
-            bucket["samples"] = int(bucket["samples"]) + 1
-            bucket["fills"] = int(bucket["fills"]) + int(outcome.buy_filled)
-            bucket["tp_before_stop"] = (
-                int(bucket["tp_before_stop"])
-                + int(outcome.tp_before_stop is True)
+                   WHERE o.outcome_json IS NOT NULL""",
+                (symbol.upper(), MAX_PERFORMANCE_DECISIONS),
             )
-            bucket["net"] = bucket["net"] + outcome.net_pnl_quote
-            bucket["baseline_net"] = (
-                bucket["baseline_net"] + baseline.net_pnl_quote
-            )
-            bucket["mae"] = bucket["mae"] + outcome.mae_pct
-            bucket["entry_gap"] = bucket["entry_gap"] + gap
+            buckets: dict[tuple[str, str, str], dict[str, object]] = {}
+            for kind, feature_json, plan_json, outcome_json, baseline_json in rows:
+                try:
+                    features = json.loads(feature_json)
+                    plan = json.loads(plan_json)
+                    outcome = self._outcome(outcome_json)
+                    baseline = self._baseline_outcome(
+                        str(kind), baseline_json, outcome
+                    )
+                    regime = str(features.get("regime") or "UNKNOWN").upper()
+                    panic = features.get("executor_panic_active")
+                    panic_label = (
+                        "ACTIVE" if panic is True
+                        else "INACTIVE" if panic is False
+                        else "UNKNOWN"
+                    )
+                    price = _decimal(
+                        features.get("price", features.get("current_price")),
+                        field="feature price",
+                    )
+                    entry = _decimal(plan["entry_price"], field="entry price")
+                    gap = max(ZERO, (price - entry) / price) if price > 0 else ZERO
+                except (
+                    KeyError,
+                    TypeError,
+                    ValueError,
+                    json.JSONDecodeError,
+                ):
+                    continue
+                key = (regime, str(kind).upper(), panic_label)
+                bucket = buckets.setdefault(key, {
+                    "samples": 0,
+                    "fills": 0,
+                    "tp_before_stop": 0,
+                    "net": ZERO,
+                    "baseline_net": ZERO,
+                    "mae": ZERO,
+                    "entry_gap": ZERO,
+                })
+                bucket["samples"] = int(bucket["samples"]) + 1
+                bucket["fills"] = int(bucket["fills"]) + int(outcome.buy_filled)
+                bucket["tp_before_stop"] = (
+                    int(bucket["tp_before_stop"])
+                    + int(outcome.tp_before_stop is True)
+                )
+                bucket["net"] = bucket["net"] + outcome.net_pnl_quote
+                bucket["baseline_net"] = (
+                    bucket["baseline_net"] + baseline.net_pnl_quote
+                )
+                bucket["mae"] = bucket["mae"] + outcome.mae_pct
+                bucket["entry_gap"] = bucket["entry_gap"] + gap
 
         groups = []
         observed_regimes: set[str] = set()
@@ -1016,6 +1033,7 @@ class PredictionShadowStore:
         return {
             "symbol": symbol.upper(),
             "minimum_samples_per_regime": minimum,
+            "maximum_decisions": MAX_PERFORMANCE_DECISIONS,
             "groups": groups,
             "observed_regimes": sorted(observed_regimes),
             "missing_or_insufficient_regimes": sorted(
@@ -1077,17 +1095,29 @@ class PredictionShadowStore:
         before_ts_ms: int | None = None,
         kind: str = "STRATEGY",
     ) -> list[ResolvedSample]:
-        query = """SELECT d.snapshot_ts_ms,d.feature_json,o.horizon_min,
-                          o.outcome_json,o.baseline_outcome_json
-                   FROM prediction_decisions d
-                   JOIN prediction_outcomes o ON o.decision_id=d.decision_id
-                   WHERE d.symbol=? AND d.kind=? AND o.outcome_json IS NOT NULL"""
+        query = """WITH recent AS (
+                       SELECT decision_id,snapshot_ts_ms,feature_json
+                       FROM prediction_decisions
+                       WHERE symbol=? AND kind=?"""
         normalized_kind = kind.upper()
         params: list[object] = [symbol.upper(), normalized_kind]
         if before_ts_ms is not None:
+            query += " AND snapshot_ts_ms<=?"
+            params.append(int(before_ts_ms))
+        # Decisions are immutable and append-only. The rowid walk avoids a
+        # temporary sort that can exceed the Raspberry Pi tmpfs capacity.
+        query += """ ORDER BY rowid DESC
+                       LIMIT ?
+                   )
+                   SELECT d.snapshot_ts_ms,d.feature_json,o.horizon_min,
+                          o.outcome_json,o.baseline_outcome_json
+                   FROM recent d
+                   JOIN prediction_outcomes o ON o.decision_id=d.decision_id
+                   WHERE o.outcome_json IS NOT NULL"""
+        params.append(MAX_RESOLVED_DECISIONS)
+        if before_ts_ms is not None:
             query += " AND o.resolved_at_ms<=?"
             params.append(int(before_ts_ms))
-        query += " ORDER BY d.snapshot_ts_ms,o.horizon_min"
         with self._connect() as connection:
             rows = connection.execute(query, params).fetchall()
         output = []
@@ -1104,7 +1134,10 @@ class PredictionShadowStore:
                 outcome=outcome,
                 baseline_net_pnl_quote=baseline.net_pnl_quote,
             ))
-        return output
+        return sorted(
+            output,
+            key=lambda item: (item.snapshot_ts_ms, item.horizon_min),
+        )
 
     def outcome_status_counts(
         self,

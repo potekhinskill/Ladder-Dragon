@@ -1362,3 +1362,24 @@ private infrastructure details.
 - **Root cause:** most assertions moved to index three, but two retained the old index.
 - **Correction:** verify the new baseline fields on the complete current epoch object.
 - **Prevention:** after inserting ordered fixture data, review every positional assertion in that test.
+
+### 2026-08-08 — Used an unbounded temporary sort for SHADOW reports
+
+- **Impact:** the Pi kept source evidence but stopped publishing current prediction summaries.
+- **Root cause:** report queries sorted the complete append-only database in the small temporary filesystem.
+- **Correction:** use append order and a bounded recent decision window for derived analytics.
+- **Prevention:** test every growing operational query for bounded memory and temporary-storage use.
+
+### 2026-08-08 — Duplicated Binance clock handling in the dashboard
+
+- **Impact:** a clock drift could reject read-only dashboard requests while trading reads recovered.
+- **Root cause:** the dashboard signed requests with local time and did not handle `-1021`.
+- **Correction:** use the shared midpoint offset calculation and one resynchronized retry.
+- **Prevention:** share exchange time primitives across every signed transport.
+
+### 2026-08-08 — Substituted current price for missing history
+
+- **Impact:** portfolio change could hide price movement when an exact historical candle was unavailable.
+- **Root cause:** a display fallback treated current price as historical evidence.
+- **Correction:** require the exact minute and return an unavailable portfolio change otherwise.
+- **Prevention:** never replace missing historical data with later data in a time-based metric.

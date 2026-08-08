@@ -21,21 +21,32 @@ def walk_forward_prediction_report(
     ordered = sorted(samples, key=lambda item: (item.snapshot_ts_ms, item.horizon_min))
     evaluated = []
     eligible_samples: list[ResolvedSample] = []
-    for index, sample in enumerate(ordered):
-        train = [
-            row for row in ordered[:index]
-            if row.snapshot_ts_ms < sample.snapshot_ts_ms
-        ]
-        if len(train) < min_train_samples:
-            continue
-        eligible_samples.append(sample)
-        evaluated.append({
-            "snapshot_ts_ms": sample.snapshot_ts_ms,
-            "horizon_min": sample.horizon_min,
-            "train_max_ts_ms": max(row.snapshot_ts_ms for row in train),
-            "actual_net_pnl_quote": format(sample.outcome.net_pnl_quote, "f"),
-            "baseline_net_pnl_quote": format(sample.baseline_net_pnl_quote, "f"),
-        })
+    prior_samples = 0
+    prior_timestamp: int | None = None
+    index = 0
+    while index < len(ordered):
+        timestamp = ordered[index].snapshot_ts_ms
+        end = index
+        while end < len(ordered) and ordered[end].snapshot_ts_ms == timestamp:
+            end += 1
+        current = ordered[index:end]
+        if prior_samples >= min_train_samples and prior_timestamp is not None:
+            for sample in current:
+                eligible_samples.append(sample)
+                evaluated.append({
+                    "snapshot_ts_ms": sample.snapshot_ts_ms,
+                    "horizon_min": sample.horizon_min,
+                    "train_max_ts_ms": prior_timestamp,
+                    "actual_net_pnl_quote": format(
+                        sample.outcome.net_pnl_quote, "f"
+                    ),
+                    "baseline_net_pnl_quote": format(
+                        sample.baseline_net_pnl_quote, "f"
+                    ),
+                })
+        prior_samples += len(current)
+        prior_timestamp = timestamp
+        index = end
     return {
         "schema_version": 1,
         "method": "expanding-window-walk-forward",

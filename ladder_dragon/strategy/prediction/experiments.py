@@ -203,7 +203,16 @@ def shadow_variant_report(
     before_ts_ms: int,
 ) -> dict[str, object]:
     """Return independent walk-forward gates; never authorize APPLY."""
-    evidence: dict[str, tuple[ShadowVariant, list[object], dict[str, object]]] = {}
+    evidence: dict[
+        str,
+        tuple[
+            ShadowVariant,
+            list[object],
+            dict[str, object],
+            list[object],
+            dict[str, object],
+        ],
+    ] = {}
     p_values: dict[str, float] = {}
     for variant in variants:
         samples = store.resolved_samples(
@@ -212,11 +221,27 @@ def shadow_variant_report(
             kind=variant.kind,
         )
         walk_forward = walk_forward_prediction_report(samples)
-        evidence[variant.variant_id] = (variant, samples, walk_forward)
+        active_samples = [
+            row for row in samples if row.outcome.exit_reason != "NO_TRADE"
+        ]
+        active_gate = walk_forward_prediction_report(active_samples)["gate"]
+        evidence[variant.variant_id] = (
+            variant,
+            samples,
+            walk_forward,
+            active_samples,
+            active_gate,
+        )
         p_values[variant.variant_id] = configuration_edge_p_value(samples)
     configuration_holm = holm_configuration_correction(p_values)
     reports: dict[str, object] = {}
-    for variant_id, (variant, samples, walk_forward) in evidence.items():
+    for variant_id, (
+        variant,
+        samples,
+        walk_forward,
+        active_samples,
+        active_gate,
+    ) in evidence.items():
         gate = walk_forward["gate"]
         holm_passed = configuration_holm[variant_id]
         outcome_counts = store.outcome_status_counts(
@@ -248,6 +273,20 @@ def shadow_variant_report(
             ),
             "gate": gate,
             "configuration_p_value": p_values[variant_id],
+            # Promotion compares a complete strategy replacement. This
+            # diagnostic isolates the candidate only where its entry is active.
+            "comparison_scope": "full_strategy_replacement",
+            "no_trade_opportunity_cost_included": True,
+            "active_cohort": {
+                "diagnostic_only": True,
+                "samples": len(active_samples),
+                "net_expectancy_ci": active_gate.get("net_expectancy_ci"),
+                "baseline_edge_ci": active_gate.get("baseline_edge_ci"),
+                "fill_rate": active_gate.get("fill_rate"),
+                "configuration_p_value": configuration_edge_p_value(
+                    active_samples
+                ),
+            },
             "configuration_holm_passed": holm_passed,
             "promotion_eligible": bool(gate.get("approved")) and holm_passed,
             "apply_allowed": False,

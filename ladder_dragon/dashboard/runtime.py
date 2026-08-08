@@ -4,7 +4,7 @@
 
 from fastapi import Request
 from fastapi.responses import JSONResponse
-import psutil, shutil, json, os, socket, asyncio, subprocess, math, time, hmac, hashlib, secrets, threading, re, platform, shlex, ipaddress
+import psutil, shutil, json, os, socket, asyncio, subprocess, math, time, secrets, threading, re, platform, shlex, ipaddress
 import requests
 from collections import defaultdict, deque
 from contextlib import asynccontextmanager
@@ -42,6 +42,7 @@ from ladder_dragon.dashboard.services.host_telemetry import (
 )
 from ladder_dragon.dashboard.services.runtime_health import runtime_degraded_reason
 from ladder_dragon.dashboard.services.user_stream import current_soak_epoch_metrics
+from ladder_dragon.dashboard.services.binance_readonly import ReadOnlyBinanceClient
 from ladder_dragon.deployment.status import read_deployment_status
 APP_TZ = ZoneInfo("Asia/Almaty")
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
@@ -549,6 +550,14 @@ def ensure_api_creds() -> bool:
     key, secret = _api_creds()
     return bool(key and secret)
 
+
+_BINANCE_READER = ReadOnlyBinanceClient(
+    session=SESSION,
+    base_url=BINANCE_BASE,
+    credentials=_api_creds,
+    auth_error=notify_binance_auth_error,
+)
+
 # ---- Binance helpers & equity-PNL ------------------------------------------------
 
 def _pub_get(path: str, params=None, timeout: float = 10.0):
@@ -556,48 +565,20 @@ def _pub_get(path: str, params=None, timeout: float = 10.0):
     r.raise_for_status()
     return r.json()
 
-def _ts_ms() -> int:
-    return int(time.time() * 1000)
-
-def _sign(qs: str, secret: str) -> str:
-    return hmac.new(secret.encode(), qs.encode(), hashlib.sha256).hexdigest()
-
 def _signed(method: str, path: str, params=None, timeout: float = 10.0):
-    if method.upper() not in ("GET", "HEAD"):
-        raise RuntimeError("dashboard API credentials are read-only by design")
-    key, secret = _api_creds()
-    if not key or not secret:
-        raise RuntimeError("No API creds")
-    p = dict(params or {})
-    p.setdefault("recvWindow", 5000)
-    p["timestamp"] = _ts_ms()
-    qs = requests.models.RequestEncodingMixin._encode_params(p)
-    sig = _sign(qs, secret)
-    url = f"{BINANCE_BASE}{path}?{qs}&signature={sig}"
-    headers = {"X-MBX-APIKEY": key}
-    r = SESSION.request(method, url, headers=headers, timeout=timeout)
-    if r.status_code in (401, 403):
-        try:
-            error_payload = r.json()
-        except ValueError:
-            error_payload = {}
-        notify_binance_auth_error(
-            status=r.status_code,
-            code=error_payload.get("code") if isinstance(error_payload, dict) else None,
-            endpoint=path,
-            message=error_payload.get("msg", "") if isinstance(error_payload, dict) else "",
-        )
-    r.raise_for_status()
-    return r.json()
+    return _BINANCE_READER.signed(method, path, params=params, timeout=timeout)
 
 def price_now(symbol: str) -> float:
     j = _pub_get("/api/v3/ticker/price", {"symbol": symbol})
     return float(j["price"])
 
 def price_at(symbol: str, ts_ms: int) -> float:
-    j = _pub_get("/api/v3/klines", {"symbol": symbol, "interval": "1m", "startTime": ts_ms, "limit": 1})
+    minute_ms = ts_ms - (ts_ms % 60_000)
+    j = _pub_get("/api/v3/klines", {"symbol": symbol, "interval": "1m", "startTime": minute_ms, "limit": 1})
     if not j:
-        return price_now(symbol)
+        raise RuntimeError("historical price is unavailable")
+    if int(j[0][0]) != minute_ms:
+        raise RuntimeError("historical price timestamp does not match")
     return float(j[0][1])  # open
 
 def account_balances_now() -> Dict[str, float]:
@@ -1425,8 +1406,7 @@ def equity_pnl_usdt(cutoff_s: int, rows: List[sqlite3.Row], fee_pct: float, symb
         for a in list(assets):
             if a == "USDT": continue
             sym = f"{a}USDT"
-            try: p_then[a] = price_at(sym, cutoff_ms)
-            except _DATA_SOURCE_ERRORS: p_then[a] = p_now.get(a, 0.0)
+            p_then[a] = price_at(sym, cutoff_ms)
 
         # Restrict current balances.
         q1 = {a: bals_now.get(a, 0.0) for a in assets}
@@ -1462,34 +1442,17 @@ def equity_pnl_usdt(cutoff_s: int, rows: List[sqlite3.Row], fee_pct: float, symb
             "equity_assets": sorted(list(set(assets))),
         }
     except _DATA_SOURCE_ERRORS:
-        # Fallback approximation.
+        # Current portfolio value can remain visible, but historical change
+        # must not use the current price as a substitute for missing history.
         approx_now = _approx_equity_now_from_db(rows, symbols_list, fee_pct)
-        p_now_local: Dict[str, float] = {}
-        for a in dQ.keys():
-            try:
-                p_now_local[a] = price_now(f"{a}USDT")
-            except _DATA_SOURCE_ERRORS:
-                p_now_local[a] = 0.0
-        inv_delta = sum((p_now_local.get(a, 0.0) * dq) for a, dq in dQ.items())
-        approx_pnl = delta_usdt + inv_delta - fees_usdt
-
         eq_now  = approx_now.get("equity_now_usdt")
-        eq_then = (round(eq_now - approx_pnl, 2) if (eq_now is not None) else None)
-
-        equity_pct = None
-        # Avoid misleading percentages when eq_then is tiny.
-        if (eq_then not in (None, 0)) and (equity_pct is None) and (eq_now is not None) and abs(eq_then) >= 10.0:
-            try:
-                equity_pct = round((eq_now - eq_then) / eq_then * 100.0, 2)
-            except (ArithmeticError, TypeError, ValueError):
-                equity_pct = None
 
         return {
-            "method": "db-holdings-minima",
+            "method": "unavailable-historical-price",
             "equity_now_usdt": eq_now,
-            "equity_then_usdt": eq_then,
-            "equity_pnl_usdt": round(approx_pnl, 2),
-            "equity_pct": equity_pct,
+            "equity_then_usdt": None,
+            "equity_pnl_usdt": None,
+            "equity_pct": None,
             "buy_volume_usdt": round(buy_usdt, 2),
             "sell_volume_usdt": round(sell_usdt, 2),
             "fees_usdt": round(fees_usdt, 2),

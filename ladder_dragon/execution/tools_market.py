@@ -15,6 +15,8 @@ import threading
 import requests
 from typing import Dict, Tuple, List, Optional, Any
 from urllib.parse import urlsplit
+
+from ladder_dragon.execution.time_safety import exchange_time_offset_ms
 from ladder_dragon.execution.exchange_math import (
     exact_symbol_filters,
     normalized_order_values,
@@ -188,8 +190,11 @@ def _refresh_time_offset():
     finished = int(time.time() * 1000)
     _raise_for_binance(r)
     srv = int(r.json()["serverTime"])
-    midpoint = started + max(0, finished - started) // 2
-    _time_offset_ms = srv - midpoint
+    _time_offset_ms = exchange_time_offset_ms(
+        server_time_ms=srv,
+        request_started_ms=started,
+        response_finished_ms=finished,
+    )
     _time_offset_ts = time.time()
 
 def _timestamp_ms() -> int:

@@ -3,6 +3,31 @@
 All notable changes are documented here. Releases use Semantic Versioning; every
 section is dated and there is intentionally no `Unreleased` section.
 
+## [2.20.168] — 2026-08-08
+
+### Added
+- SHADOW reports now show a diagnostic cohort for active candidate entries.
+- The diagnostic cohort excludes `NO_TRADE` rows and cannot approve APPLY.
+
+### Changed
+- Approval still compares each complete candidate against the always-active baseline.
+- Prediction analytics use the latest 1,000 decisions per candidate.
+- Raw prediction decisions and outcomes remain append-only.
+- Walk-forward eligibility now uses one linear chronological pass.
+
+### Fixed
+- Prediction reports no longer require an unbounded SQLite temporary sort.
+- Dashboard signed reads now compensate for the Binance server clock offset.
+- A Binance `-1021` response causes one clock refresh and one read-only retry.
+- Missing historical candles no longer use the current price as historical evidence.
+
+### Security
+- Dashboard Binance requests remain read-only and use bounded, secret-safe responses.
+- HALT, SHADOW, CAP, and all execution approvals remain unchanged.
+
+### Verified
+- Complete project, documentation, prediction, dashboard, and transport tests pass.
+
 ## [2.20.167] — 2026-08-06
 
 ### Changed

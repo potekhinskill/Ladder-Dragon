@@ -28,7 +28,7 @@ Ladder Dragon is an open-source Python trading system for Binance Spot.
 It uses adaptive entry ladders and exchange-side protection.
 It also provides exact accounting, restart recovery, replay, and walk-forward tests.
 
-Current product version: **2.20.167**.
+Current product version: **2.20.168**.
 The version source is `product_version.py`.
 Releases use [Semantic Versioning](https://semver.org/).
 
@@ -163,6 +163,13 @@ The Raspberry Pi stores prediction evidence in this database:
 It records probability, expected net PnL, adverse movement, and execution time.
 Historical features use an as-of cutoff.
 Walk-forward splits exclude labels that were not available at the test time.
+Operational reports use the latest 1,000 decisions for each candidate.
+The database keeps all raw decisions and outcomes.
+
+The promotion gate evaluates a complete strategy replacement.
+It includes the opportunity cost of `NO_TRADE` periods.
+An active-entry cohort reports candidate quality inside its permitted regime.
+This diagnostic cohort cannot approve APPLY.
 
 The defensive ensemble can stop a BUY or reduce CAP.
 It cannot expand baseline risk.
@@ -322,15 +329,15 @@ The exact implemented and approval states are in
 ## Remaining engineering work
 
 - Run the controlled Testnet User Data Stream drill.
-- Complete the continuous 24-hour Mainnet User Data Stream soak for the current v2 epoch.
+- Preserve the completed Mainnet User Data Stream evidence for the current v4 epoch.
 - Close overdue outcomes and review journal-proven attribution gaps without inventing a `decision_id`.
 - Validate replay results against more real terminal order lifecycles.
 - Compare nine version-three maker-only SHADOW candidates with 8-to-15-minute BUY lifetimes.
 - Keep strategy changes in SHADOW until every statistical gate passes.
 - Continue the planned extraction of large runtime coordinators.
 
-The v2 stream epoch starts after signed Binance authentication recovered.
-The observer keeps the v1 counters as immutable lifetime evidence.
+The v4 stream epoch separates planned reconnects from transport failures.
+The observer keeps all older epoch counters as immutable lifetime evidence.
 
 ## Star history
 

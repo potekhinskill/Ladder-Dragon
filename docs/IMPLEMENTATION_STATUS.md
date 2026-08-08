@@ -1,6 +1,6 @@
 # Implementation status
 
-This document describes the code in version **2.20.167**.
+This document describes the code in version **2.20.168**.
 It does not describe future plans as completed work.
 
 An implemented function is not automatically approved for LIVE use.
@@ -74,6 +74,15 @@ All candidates use the authoritative TP floor.
 Deep-entry candidates can keep or lower the baseline BUY price.
 All candidates use the same immutable snapshot and baseline.
 
+The promotion gate evaluates the complete candidate strategy.
+It includes `NO_TRADE` opportunity cost against the active baseline.
+The report also shows an active-entry cohort without `NO_TRADE` rows.
+That cohort is diagnostic and cannot approve APPLY.
+
+Operational analytics use the latest 1,000 decisions for each candidate.
+This limit bounds Raspberry Pi memory and temporary storage use.
+Raw decisions and outcomes remain append-only in SQLite.
+
 New plan semantics use a new experiment identifier.
 Historical experiment rows remain available and never mix with the active generation.
 
@@ -91,7 +100,7 @@ Promotion still requires these items:
 - exact natural BUY to OCO to TP or STOP lifecycles;
 - zero unresolved inventory or protection fills;
 - resolved AI attribution evidence;
-- a continuous authenticated User Data Stream soak in the current v2 epoch;
+- a continuous authenticated User Data Stream soak in the current v4 epoch;
 - closed prediction horizons without an overdue backlog;
 - positive lower confidence bounds;
 - baseline improvement after Holm correction;
@@ -110,5 +119,6 @@ This state permits evidence collection without order mutation.
 - Correlated symbols do not provide independent risk during a market panic.
 - A provider response cannot replace deterministic risk or protection checks.
 - Raspberry Pi network latency can remain larger than local processing latency.
+- Portfolio change is unavailable when an exact historical candle is unavailable.
 
 See [Runtime safety and reporting](RUNTIME_SAFETY_AND_REPORTING.md) for operator actions.

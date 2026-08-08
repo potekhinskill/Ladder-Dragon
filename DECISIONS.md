@@ -1036,3 +1036,24 @@ entries concise; this is not a changelog or an activity log.
 - **Decision:** accept a fresh `RISK_PENDING` heartbeat as alive and fail-closed.
 - **Why it worked:** the watchdog test proves no restart or unhealthy alert occurs for this state.
 - **Reuse:** every watchdog where liveness and external dependency readiness are separate conditions.
+
+### 2026-08-08 — Bound derived analytics, not source evidence
+
+- **Context:** an append-only SHADOW database exceeded the Raspberry Pi temporary-sort capacity.
+- **Decision:** keep all evidence and analyze the latest 1,000 decisions for each candidate.
+- **Why it worked:** indexed row order removes the temporary sort and preserves every source row.
+- **Reuse:** every growing evidence store with disposable operational summaries.
+
+### 2026-08-08 — Separate replacement and active-entry comparisons
+
+- **Context:** RANGE-only candidates have valid `NO_TRADE` outcomes outside RANGE.
+- **Decision:** promotion includes opportunity cost, while a diagnostic cohort measures only active entries.
+- **Why it worked:** the promotion question stays complete, and entry quality remains visible without selection bias.
+- **Reuse:** every gated strategy whose valid action set depends on market state.
+
+### 2026-08-08 — Require exact-time historical valuation
+
+- **Context:** Binance can return a later candle when the requested minute is unavailable.
+- **Decision:** require the exact candle minute and show portfolio change as unavailable otherwise.
+- **Why it worked:** the dashboard never substitutes a current or future price for historical evidence.
+- **Reuse:** every historical valuation or commission conversion from time-indexed market data.
