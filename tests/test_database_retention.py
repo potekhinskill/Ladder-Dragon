@@ -2,7 +2,11 @@ import gzip
 import json
 from pathlib import Path
 import sqlite3
+import sys
 
+import pytest
+
+from bin import database_retention
 from ladder_dragon.persistence.retention import rotate_prediction_shadow
 
 
@@ -92,6 +96,51 @@ def test_retention_blocks_without_fresh_encrypted_backup(tmp_path):
             "SELECT COUNT(*) FROM prediction_decisions"
         ).fetchone()[0] == 3
     assert not (tmp_path / "archives").exists()
+
+
+def test_retention_empty_run_is_successful_with_fresh_backup(tmp_path):
+    now = 2_000_000_000.0
+    database = tmp_path / "prediction.sqlite3"
+    backup = tmp_path / "backup.json"
+    fresh_ms = int(now * 1_000)
+    _database(database, old_ms=fresh_ms, fresh_ms=fresh_ms)
+    _backup(backup, now)
+
+    result = rotate_prediction_shadow(
+        database, tmp_path / "archives", backup, now=now
+    )
+
+    assert result["status"] == "PASS"
+    assert result["reason"] == "no terminal prediction rows exceed retention"
+
+
+@pytest.mark.parametrize(("status", "expected"), (("PASS", 0), ("BLOCKED", 2)))
+def test_retention_cli_exposes_blocked_status_to_systemd(
+    tmp_path, monkeypatch, status, expected,
+):
+    report = tmp_path / "report.json"
+    monkeypatch.setattr(
+        database_retention,
+        "rotate_prediction_shadow",
+        lambda *_args, **_kwargs: {"status": status},
+    )
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "database_retention",
+            "--prediction-db", str(tmp_path / "prediction.sqlite3"),
+            "--stats-db", str(tmp_path / "stats.sqlite3"),
+            "--order-journal", str(tmp_path / "journal.sqlite3"),
+            "--ai-db", str(tmp_path / "ai.sqlite3"),
+            "--archive-dir", str(tmp_path / "archives"),
+            "--backup-status", str(tmp_path / "backup.json"),
+            "--report", str(report),
+        ],
+    )
+
+    assert database_retention.main() == expected
+    assert json.loads(report.read_text(encoding="utf-8"))["status"] == status
 
 
 def test_retention_rejects_short_or_unbounded_policy(tmp_path):

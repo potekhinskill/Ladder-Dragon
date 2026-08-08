@@ -899,7 +899,8 @@ def test_database_retention_is_backup_gated_bounded_and_scheduled():
     assert "--retention-days 365" in service
     assert "--maximum-rows 2000" in service
     assert "--backup-status /run/mybot/backup_status.json" in service
-    assert "SuccessExitStatus=2" in service
+    assert "SuccessExitStatus=0" in service
+    assert "SuccessExitStatus=2" not in service
     assert "OnCalendar=*-*-* 03:10:00" in timer
     assert "BEGIN IMMEDIATE" in source
     assert "VACUUM" not in source

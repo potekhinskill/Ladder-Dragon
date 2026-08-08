@@ -4,6 +4,13 @@ Read this file before changing the repository. Record only decisions that were
 validated by tests or production evidence and are likely to be reused. Keep
 entries concise; this is not a changelog or an activity log.
 
+### 2026-08-08 — Expose blocked scheduled maintenance to systemd
+
+- **Context:** a safety block can prevent retention without changing protected data.
+- **Decision:** use success only for completed or empty work; preserve a nonzero BLOCKED exit.
+- **Why it worked:** tests distinguish an empty PASS from a backup-gated BLOCKED result.
+- **Reuse:** every scheduled maintenance job with a fail-closed status.
+
 ### 2026-08-08 — Require complete exchange fill identity
 
 - **Context:** AI fill deduplication needs the Binance order and trade identifiers.

@@ -3,6 +3,19 @@
 All notable changes are documented here. Releases use Semantic Versioning; every
 section is dated and there is intentionally no `Unreleased` section.
 
+## [2.20.175] — 2026-08-08
+
+### Changed
+- The database-retention service now accepts only exit code `0` as success.
+- Retention documentation now states the systemd failure behavior.
+
+### Fixed
+- A blocked retention run now appears as a failed systemd unit.
+- An empty eligible set remains a successful run and does not create false alerts.
+
+### Verified
+- Retention status, empty-run, deployment-unit, Technical English, and complete regression tests pass.
+
 ## [2.20.174] — 2026-08-08
 
 ### Changed

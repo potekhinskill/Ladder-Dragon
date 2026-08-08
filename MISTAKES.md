@@ -1432,3 +1432,10 @@ private infrastructure details.
 - **Root cause:** AI deduplication treated the Binance trade identifier as optional.
 - **Correction:** require both exchange identifiers before ledger or AI database mutation.
 - **Prevention:** reject financial events that lack their authoritative deduplication identity.
+
+### 2026-08-08 — Marked blocked retention as systemd success
+
+- **Impact:** repeated backup-gated retention blocks were absent from failed-unit monitoring.
+- **Root cause:** the unit included the CLI BLOCKED exit in `SuccessExitStatus`.
+- **Correction:** accept only exit code `0` as service success.
+- **Prevention:** never whitelist a fail-closed maintenance result as successful execution.

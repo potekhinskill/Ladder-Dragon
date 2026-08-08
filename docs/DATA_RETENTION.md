@@ -54,6 +54,8 @@ cat /var/lib/ladder-dragon/database-retention/report.json
 Exit code `0` means PASS. Exit code `2` means BLOCKED. A missing or stale backup
 blocks deletion but does not change the database.
 
+The systemd service records BLOCKED as a failed unit. A later successful run clears the failure.
+
 ## Existing bounded stores
 
 - The risk SELL outcome index keeps the latest 4,096 derived results.

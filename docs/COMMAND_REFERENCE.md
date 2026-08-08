@@ -145,7 +145,7 @@ Do not publish its output.
 | `ladder-dragon-backup.timer` | starts backup | 02:20 each day |
 | `ladder-dragon-daily-digest.service` | exact Telegram trading report | timer target |
 | `ladder-dragon-daily-digest.timer` | starts the digest | 08:00 Asia/Almaty |
-| `ladder-dragon-database-retention.service` | archives terminal SHADOW data | fresh encrypted backup |
+| `ladder-dragon-database-retention.service` | archives terminal SHADOW data | fails when retention is blocked |
 | `ladder-dragon-database-retention.timer` | starts database retention | daily after backup |
 | `ladder-dragon-depth-archive.service` | public L2 archive recorder | timer target |
 | `ladder-dragon-depth-archive.timer` | starts archive collection | each hour |
