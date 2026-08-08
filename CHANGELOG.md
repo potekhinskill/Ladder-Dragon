@@ -3,6 +3,19 @@
 All notable changes are documented here. Releases use Semantic Versioning; every
 section is dated and there is intentionally no `Unreleased` section.
 
+## [2.20.172] — 2026-08-08
+
+### Changed
+- Attributed AI-fill monetary columns now use exact TEXT affinity.
+- Slippage evidence now has an explicit provenance status.
+
+### Fixed
+- Retroactively linked fills no longer report unknown slippage as verified zero.
+- Incomplete financial evidence no longer enters readiness, RAG, or dashboard PnL totals.
+
+### Verified
+- Exact migration, linkage, PnL, readiness, RAG, dashboard, and restart tests pass.
+
 ## [2.20.171] — 2026-08-08
 
 ### Changed

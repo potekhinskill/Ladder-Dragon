@@ -1071,3 +1071,10 @@ entries concise; this is not a changelog or an activity log.
 - **Decision:** retain both column names, use TEXT affinity, and require equal values.
 - **Why it worked:** tests preserve exact digits, round-trip legacy doubles, reject invalid evidence, and keep legacy queries compatible.
 - **Reuse:** every compatibility schema that retains an older monetary column name.
+
+### 2026-08-08 — Represent unknown financial cost as provenance
+
+- **Context:** retroactive fill linkage lacks the expected price needed to prove slippage.
+- **Decision:** store a compatibility zero with `unavailable` provenance and exclude the financial result from approval evidence.
+- **Why it worked:** tests preserve lifecycle closure while readiness, RAG, and dashboard PnL reject incomplete costs.
+- **Reuse:** every financial metric where a missing cost is not evidence of zero cost.

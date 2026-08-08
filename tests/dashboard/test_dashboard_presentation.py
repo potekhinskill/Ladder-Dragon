@@ -263,9 +263,10 @@ def test_ai_status_exposes_decision_rationale_and_realized_summary(tmp_path, mon
         recommended_mode="UP", width_scale=1, cap_scale=1, confidence=.8,
         applied=True, rationale="Test rationale", policy_status="APPLIED",
     )
-    store.record_fill(decision, symbol="SOLUSDT", side="BUY", price=100, qty=1, ts=10)
+    store.record_fill(decision, symbol="SOLUSDT", side="BUY", price=100,
+                      qty=1, slippage_quote=0, ts=10)
     store.record_fill(decision, symbol="SOLUSDT", side="SELL", price=101, qty=1,
-                      exit_reason="TP", ts=20)
+                      exit_reason="TP", slippage_quote=0, ts=20)
     store.record_unresolved_fill(
         symbol="SOLUSDT", side="BUY", price=99, qty=.1, order_id=101
     )

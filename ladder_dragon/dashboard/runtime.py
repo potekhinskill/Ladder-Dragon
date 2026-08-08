@@ -2094,6 +2094,7 @@ def _ai_database_aggregates(
         "unresolved_inventory_fills": 0,
         "reviewed_unattributable_fills": 0,
         "closed_decisions": 0,
+        "incomplete_closed_decisions": 0,
         "realized_net_pnl_quote": 0.0,
     }
     safe_evaluation = (
@@ -2105,9 +2106,15 @@ def _ai_database_aggregates(
         SELECT
           COALESCE(SUM(CASE
             WHEN json_extract({safe_evaluation}, '$.realized_execution.closed') = 1
+             AND json_extract({safe_evaluation}, '$.realized_execution.financial_evidence_complete') = 1
             THEN 1 ELSE 0 END), 0) AS closed_count,
           COALESCE(SUM(CASE
             WHEN json_extract({safe_evaluation}, '$.realized_execution.closed') = 1
+             AND COALESCE(json_extract({safe_evaluation}, '$.realized_execution.financial_evidence_complete'), 0) != 1
+            THEN 1 ELSE 0 END), 0) AS incomplete_closed_count,
+          COALESCE(SUM(CASE
+            WHEN json_extract({safe_evaluation}, '$.realized_execution.closed') = 1
+             AND json_extract({safe_evaluation}, '$.realized_execution.financial_evidence_complete') = 1
             THEN CAST(COALESCE(
               json_extract({safe_evaluation}, '$.realized_execution.net_pnl_quote_text'),
               json_extract({safe_evaluation}, '$.realized_execution.net_pnl_quote'),
@@ -2118,6 +2125,9 @@ def _ai_database_aggregates(
         """
     ).fetchone()
     stats["closed_decisions"] = int(realized["closed_count"] or 0)
+    stats["incomplete_closed_decisions"] = int(
+        realized["incomplete_closed_count"] or 0
+    )
     stats["realized_net_pnl_quote"] = float(realized["net_pnl"] or 0)
 
     if "knowledge_documents" in tables:

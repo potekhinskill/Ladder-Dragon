@@ -1411,3 +1411,10 @@ private infrastructure details.
 - **Root cause:** the first migration used SQLite `printf('%.17g')` and expected identical behavior across versions.
 - **Correction:** use Python 17-digit formatting and verify equal TEXT values plus exact legacy round-trip behavior.
 - **Prevention:** run migration tests with the project virtual environment before the release profile.
+
+### 2026-08-08 — Encoded unknown AI slippage as zero
+
+- **Impact:** retroactively linked fills could overstate net PnL and opportunity cost.
+- **Root cause:** the linkage schema had no provenance field for an unavailable expected price.
+- **Correction:** add slippage provenance and exclude incomplete financial evidence from approval consumers.
+- **Prevention:** every optional financial input must distinguish unavailable data from a verified zero.

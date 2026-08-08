@@ -159,12 +159,18 @@ def sync_account_trades(
                     ))
                     fill_price = Decimal(str(fill["price"]))
                     fill_qty = Decimal(str(fill["qty"]))
-                    slippage_quote = Decimal("0")
+                    slippage_quote = None
                     if expected_price and expected_price > 0:
                         slippage_quote = (
                             (fill_price - expected_price) * fill_qty
                             if fill["side"] == "BUY"
                             else (expected_price - fill_price) * fill_qty
+                        )
+                    exchange_slippage = fill.get("slippage_quote")
+                    if exchange_slippage not in (None, ""):
+                        slippage_quote = (
+                            (slippage_quote or Decimal("0"))
+                            + Decimal(str(exchange_slippage))
                         )
                     normalized_leg = leg_type.upper()
                     exit_reason = (
@@ -180,10 +186,7 @@ def sync_account_trades(
                         trade_id=fill.get("trade_id"),
                         client_order_id=client_order_id,
                         leg_type=leg_type, exit_reason=exit_reason,
-                        slippage_quote=(
-                            slippage_quote
-                            + Decimal(str(fill.get("slippage_quote", "0") or "0"))
-                        ),
+                        slippage_quote=slippage_quote,
                     )
                     # Update realized_execution after every actual fill. The record
                     # stays open until the final SELL; only after the last TP/STOP

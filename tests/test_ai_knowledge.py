@@ -34,7 +34,10 @@ def test_knowledge_store_ingests_only_evaluated_decisions_and_retrieves(tmp_path
     with sqlite3.connect(path) as connection:
         connection.execute(
             "UPDATE ai_decisions SET return_1h=?, evaluation_json=? WHERE decision_id=?",
-            (0.012, json.dumps({"realized_execution": {"net_pnl_quote": 1.2, "sell_qty": 1.0}}), decision_id),
+                (0.012, json.dumps({"realized_execution": {
+                    "net_pnl_quote": 1.2, "sell_qty": 1.0,
+                    "financial_evidence_complete": True,
+                }}), decision_id),
         )
 
     results = knowledge.retrieve("SOLUSDT", [0.1] * 10, now=int(time.time()))
@@ -47,6 +50,36 @@ def test_knowledge_store_ingests_only_evaluated_decisions_and_retrieves(tmp_path
     assert knowledge.stats() == {
         "documents": 1, "virtual_documents": 0, "retrievals": 1,
     }
+
+
+def test_knowledge_store_rejects_real_closure_with_unknown_slippage(tmp_path):
+    path = tmp_path / "ai_decisions.sqlite3"
+    decisions = AdvisorDecisionStore(str(path))
+    decision_id = decisions.record(
+        symbol="SOLUSDT", price=100, deterministic_mode="FLAT",
+        recommended_mode="UP", width_scale=1, cap_scale=1,
+        confidence=.8, applied=True, feature_json=json.dumps([0.1] * 10),
+        now=int(time.time()) - 7200,
+    )
+    with sqlite3.connect(path) as connection:
+        connection.execute(
+            "UPDATE ai_decisions SET return_1h=?,evaluation_json=? "
+            "WHERE decision_id=?",
+            (
+                .01,
+                json.dumps({"realized_execution": {
+                    "closed": True, "sell_qty": 1,
+                    "financial_evidence_complete": False,
+                    "net_pnl_quote_text": None,
+                }}),
+                decision_id,
+            ),
+        )
+
+    knowledge = KnowledgeStore(str(path))
+
+    assert knowledge.retrieve("SOLUSDT", [0.1] * 10) == []
+    assert knowledge.stats()["documents"] == 0
 
 
 def test_knowledge_store_can_opt_in_to_settled_virtual_shadow(tmp_path):
@@ -144,7 +177,9 @@ def test_rag_applies_similarity_decay_and_minimum_match_gate(tmp_path):
     with sqlite3.connect(path) as connection:
         connection.execute(
             "UPDATE ai_decisions SET return_1h=?, evaluation_json=? WHERE decision_id=?",
-            (.01, json.dumps({"realized_execution": {"sell_qty": 1}}), decision_id),
+                (.01, json.dumps({"realized_execution": {
+                    "sell_qty": 1, "financial_evidence_complete": True,
+                }}), decision_id),
         )
     knowledge = KnowledgeStore(str(path))
     assert knowledge.retrieve(
@@ -183,7 +218,10 @@ def test_rag_prunes_expired_evidence_and_bounds_python_candidates(tmp_path):
                 (
                     .01,
                     json.dumps(
-                        {"realized_execution": {"sell_qty": 1}}
+                            {"realized_execution": {
+                                "sell_qty": 1,
+                                "financial_evidence_complete": True,
+                            }}
                     ),
                     decision_id,
                 ),

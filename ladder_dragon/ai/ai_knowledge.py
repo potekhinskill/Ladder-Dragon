@@ -224,7 +224,10 @@ class KnowledgeStore:
                 sell_quantity = Decimal(str(
                     realized.get("sell_qty_text", realized.get("sell_qty", 0)) or 0
                 ))
-                is_real = sell_quantity > 0
+                is_real = (
+                    sell_quantity > 0
+                    and realized.get("financial_evidence_complete") is True
+                )
                 if is_real:
                     status = "validated"
                     outcome = {
@@ -238,6 +241,10 @@ class KnowledgeStore:
                             "opportunity_cost_quote_text"
                         ),
                     }
+                elif sell_quantity > 0:
+                    # A real closure with unknown costs is neither verified real
+                    # evidence nor a virtual outcome.
+                    continue
                 elif include_virtual:
                     virtual = evaluation.get("1h", {})
                     if not isinstance(virtual, dict):

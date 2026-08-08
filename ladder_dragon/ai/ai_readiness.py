@@ -37,6 +37,7 @@ class AiReadiness:
     reasons: tuple[str, ...]
     symbol: str
     closed_decisions: int
+    incomplete_closed_decisions: int
     real_rag_episodes: int
     virtual_rag_episodes: int
     unresolved_fills: int
@@ -47,11 +48,12 @@ class AiReadiness:
 
     def as_dict(self) -> dict[str, object]:
         return {
-            "schema_version": 1,
+            "schema_version": 2,
             "ready": self.ready,
             "reasons": list(self.reasons),
             "symbol": self.symbol,
             "closed_decisions": self.closed_decisions,
+            "incomplete_closed_decisions": self.incomplete_closed_decisions,
             "real_rag_episodes": self.real_rag_episodes,
             "virtual_rag_episodes": self.virtual_rag_episodes,
             "unresolved_fills": self.unresolved_fills,
@@ -110,6 +112,7 @@ def audit_ai_readiness(
         ).fetchone()[0])
 
     closed: list[dict] = []
+    incomplete_closed = 0
     stop_count = 0
     for (raw_evaluation,) in evaluations:
         try:
@@ -118,6 +121,9 @@ def audit_ai_readiness(
             continue
         item = evaluation.get("realized_execution", {})
         if not isinstance(item, dict) or not item.get("closed"):
+            continue
+        if item.get("financial_evidence_complete") is not True:
+            incomplete_closed += 1
             continue
         closed.append(item)
         reason = str(item.get("exit_reason", "")).upper()
@@ -158,6 +164,7 @@ def audit_ai_readiness(
         reasons=tuple(reasons),
         symbol=normalized_symbol,
         closed_decisions=len(closed),
+        incomplete_closed_decisions=incomplete_closed,
         real_rag_episodes=real_rag,
         virtual_rag_episodes=virtual_rag,
         unresolved_fills=unresolved,

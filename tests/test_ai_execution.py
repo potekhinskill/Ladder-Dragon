@@ -11,9 +11,12 @@ def test_ai_decision_fills_are_linked_and_evaluated(tmp_path):
     decision = store.record(symbol="SOLUSDT", price=100, deterministic_mode="FLAT",
                             recommended_mode="UP", width_scale=1, cap_scale=1,
                             confidence=.8, applied=True)
-    store.record_fill(decision, symbol="SOLUSDT", side="BUY", price=100, qty=1, fee_quote=.1, ts=10)
+    store.record_fill(
+        decision, symbol="SOLUSDT", side="BUY", price=100, qty=1,
+        fee_quote=.1, slippage_quote=0, ts=10,
+    )
     store.record_fill(decision, symbol="SOLUSDT", side="SELL", price=102, qty=1, fee_quote=.1,
-                      exit_reason="OCO_TP", ts=70)
+                      exit_reason="OCO_TP", slippage_quote=0, ts=70)
     result = store.evaluate_execution(decision, baseline_exit_price=101)
     assert result["net_pnl_quote"] == 1.8
     assert result["holding_duration_sec"] == 60.0
@@ -23,8 +26,12 @@ def test_ai_decision_fills_are_linked_and_evaluated(tmp_path):
 def test_ai_pnl_preserves_exact_decimal_companions():
     result = evaluate_realized_ai_pnl(
         [
-            {"side": "BUY", "price": "0.123456789", "qty": "3.00000000", "fee_quote": "0.00000001"},
-            {"side": "SELL", "price": "0.223456789", "qty": "3.00000000", "fee_quote": "0.00000002"},
+            {"side": "BUY", "price": "0.123456789", "qty": "3.00000000",
+             "fee_quote": "0.00000001", "slippage_quote": "0",
+             "slippage_value_status": "exact"},
+            {"side": "SELL", "price": "0.223456789", "qty": "3.00000000",
+             "fee_quote": "0.00000002", "slippage_quote": "0",
+             "slippage_value_status": "exact"},
         ]
     )
 
@@ -53,16 +60,20 @@ def test_ai_store_persists_exact_fill_and_expected_price_text(tmp_path):
 
     with sqlite3.connect(path) as connection:
         fill = connection.execute(
-            "SELECT price_text,qty_text,fee_quote_text,slippage_quote_text FROM ai_fills"
+            "SELECT typeof(price),price,price_text,typeof(qty),qty,qty_text,"
+            "typeof(fee_quote),fee_quote,fee_quote_text,"
+            "typeof(slippage_quote),slippage_quote,slippage_quote_text,"
+            "slippage_value_status FROM ai_fills"
         ).fetchone()
         expected = connection.execute(
             "SELECT expected_price_text FROM ai_order_links WHERE client_order_id='exact-client'"
         ).fetchone()
     assert fill == (
-        "0.123456789123456789",
-        "3.000000000000000001",
-        "0.000000000000000003",
-        "0.000000000000000004",
+        "text", "0.123456789123456789", "0.123456789123456789",
+        "text", "3.000000000000000001", "3.000000000000000001",
+        "text", "0.000000000000000003", "0.000000000000000003",
+        "text", "0.000000000000000004", "0.000000000000000004",
+        "exact",
     )
     assert expected == ("0.123456789123456789",)
 
@@ -144,11 +155,12 @@ def test_late_exchange_link_resolves_fill_atomically(tmp_path):
     with sqlite3.connect(path) as connection:
         row = connection.execute(
             "SELECT decision_id,client_order_id,order_id,trade_id,"
-            "price_text,qty_text,fee_quote_text,link_status FROM ai_fills"
+            "price_text,qty_text,fee_quote_text,link_status,"
+            "slippage_value_status FROM ai_fills"
         ).fetchone()
     assert row == (
         decision, "client-buy", "12345", "88",
-        "77.33", "0.124", "0.001", "resolved",
+        "77.33", "0.124", "0.001", "resolved", "unavailable",
     )
 
 
@@ -324,13 +336,41 @@ def test_realized_result_records_partial_fill_and_exit_metadata(tmp_path):
     decision = store.record(symbol="SOLUSDT", price=100, deterministic_mode="FLAT",
                             recommended_mode="UP", width_scale=1, cap_scale=1,
                             confidence=.8, applied=True)
-    store.record_fill(decision, symbol="SOLUSDT", side="BUY", price=100, qty=1, ts=10)
+    store.record_fill(
+        decision, symbol="SOLUSDT", side="BUY", price=100, qty=1,
+        slippage_quote=0, ts=10,
+    )
     store.record_fill(decision, symbol="SOLUSDT", side="SELL", price=101, qty=.5,
                       exit_reason="STOP", slippage_quote=.1, ts=20)
     result = store.evaluate_execution(decision)
     assert result["partial_fill"] is True
     assert result["exit_reason"] == "STOP"
     assert result["slippage_quote"] == .1
+
+
+def test_unknown_slippage_blocks_financial_evidence(tmp_path):
+    store = AdvisorDecisionStore(str(tmp_path / "ai.db"))
+    decision = store.record(
+        symbol="SOLUSDT", price=100, deterministic_mode="FLAT",
+        recommended_mode="UP", width_scale=1, cap_scale=1,
+        confidence=.8, applied=True,
+    )
+    store.record_fill(
+        decision, symbol="SOLUSDT", side="BUY", price=100, qty=1,
+        slippage_quote=0, ts=10,
+    )
+    store.record_fill(
+        decision, symbol="SOLUSDT", side="SELL", price=101, qty=1, ts=20,
+    )
+
+    result = store.evaluate_execution(decision)
+
+    assert result["closed"] is True
+    assert result["financial_evidence_complete"] is False
+    assert result["slippage_value_status"] == "unavailable"
+    assert result["slippage_quote_text"] is None
+    assert result["net_pnl_quote_text"] is None
+    assert result["opportunity_cost_quote_text"] is None
 
 
 def test_exchange_trade_id_is_idempotent_and_preserved(tmp_path):
@@ -424,3 +464,83 @@ def test_legacy_ai_schema_migrates_before_new_indexes(tmp_path):
         assert connection.execute(
             "SELECT price_text,return_1h_text FROM ai_decisions WHERE decision_id='legacy'"
         ).fetchone() == ("12.5", "0.125")
+
+
+def test_legacy_ai_fill_amounts_migrate_to_exact_text(tmp_path):
+    path = tmp_path / "legacy-fill.db"
+    store = AdvisorDecisionStore(str(path))
+    decision = store.record(
+        symbol="SOLUSDT", price=100, deterministic_mode="FLAT",
+        recommended_mode="UP", width_scale=1, cap_scale=1,
+        confidence=.8, applied=True,
+    )
+    with sqlite3.connect(path) as connection:
+        connection.execute("DROP TABLE ai_fills")
+        connection.execute(
+            """CREATE TABLE ai_fills(
+                fill_id TEXT PRIMARY KEY, decision_id TEXT NOT NULL,
+                symbol TEXT NOT NULL, side TEXT NOT NULL,
+                price REAL NOT NULL, qty REAL NOT NULL,
+                fee_quote REAL NOT NULL DEFAULT 0,
+                price_text TEXT, qty_text TEXT, fee_quote_text TEXT,
+                exit_reason TEXT NOT NULL DEFAULT '', ts INTEGER NOT NULL,
+                order_id TEXT, trade_id TEXT, client_order_id TEXT,
+                order_list_id TEXT, leg_type TEXT NOT NULL DEFAULT '',
+                link_status TEXT NOT NULL DEFAULT 'resolved',
+                slippage_quote REAL NOT NULL DEFAULT 0,
+                slippage_quote_text TEXT
+            )"""
+        )
+        connection.execute(
+            "INSERT INTO ai_fills VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+            (
+                "legacy-fill", decision, "SOLUSDT", "BUY", 0.1, 0.2, 0.0,
+                "0.100000000000000001", "0.200000000000000001", "0",
+                "", 10, None, None, None, None, "", "resolved", 0.0, "0",
+            ),
+        )
+
+    AdvisorDecisionStore(str(path))
+
+    with sqlite3.connect(path) as connection:
+        affinities = {
+            row[1]: row[2] for row in connection.execute(
+                "PRAGMA table_info(ai_fills)"
+            )
+        }
+        row = connection.execute(
+            "SELECT price,price_text,qty,qty_text,slippage_value_status "
+            "FROM ai_fills"
+        ).fetchone()
+    assert all(
+        affinities[column] == "TEXT"
+        for column in ("price", "qty", "fee_quote", "slippage_quote")
+    )
+    assert row == (
+        "0.100000000000000001", "0.100000000000000001",
+        "0.200000000000000001", "0.200000000000000001",
+        "legacy_unverified",
+    )
+
+
+def test_ai_fill_schema_rejects_mismatched_exact_companion(tmp_path):
+    path = tmp_path / "ai.db"
+    store = AdvisorDecisionStore(str(path))
+    decision = store.record(
+        symbol="SOLUSDT", price=100, deterministic_mode="FLAT",
+        recommended_mode="UP", width_scale=1, cap_scale=1,
+        confidence=.8, applied=True,
+    )
+    with sqlite3.connect(path) as connection:
+        with pytest.raises(sqlite3.IntegrityError):
+            connection.execute(
+                """INSERT INTO ai_fills(
+                    fill_id,decision_id,symbol,side,price,qty,fee_quote,
+                    price_text,qty_text,fee_quote_text,exit_reason,ts,
+                    slippage_quote,slippage_quote_text,slippage_value_status
+                ) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                (
+                    "damaged", decision, "SOLUSDT", "BUY", "1.1", "1", "0",
+                    "1.2", "1", "0", "", 1, "0", "0", "exact",
+                ),
+            )

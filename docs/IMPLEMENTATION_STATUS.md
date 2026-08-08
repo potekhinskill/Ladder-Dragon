@@ -1,6 +1,6 @@
 # Implementation status
 
-This document describes the code in version **2.20.171**.
+This document describes the code in version **2.20.172**.
 It does not describe future plans as completed work.
 
 An implemented function is not automatically approved for LIVE use.
@@ -12,7 +12,7 @@ The configured mode and its evidence gate remain authoritative.
 | --- | --- | --- |
 | Execution | Decimal-only Binance Spot planning, orders, cancel-replace, and recovery | DRY or Testnet first |
 | Protection | Verified OCO legs, confirmed breakeven re-arm, gap flatten, and persistent HALT | Required for managed fills |
-| Accounting | Exact FIFO lots, unresolved fills, risk streaks, fee conversion, SELL idempotency, and cursor audits | Fail closed on incomplete evidence |
+| Accounting | Exact FIFO lots, exact AI fills, fee provenance, risk streaks, and cursor audits | Fail closed on incomplete evidence |
 | Replay | Sequential L2 events, shared liquidity, queue state, latency, fees, and slippage | L2 model, not exact L3 |
 | Prediction | 1, 5, and 15 minute SHADOW outcomes | Enabled for evidence only |
 | Experiments | Versioned same-snapshot strategy candidates | SHADOW only |
@@ -85,6 +85,11 @@ Raw decisions and outcomes remain append-only in SQLite.
 
 New plan semantics use a new experiment identifier.
 Historical experiment rows remain available and never mix with the active generation.
+
+Attributed AI fills store monetary values as exact text.
+Each fill records whether its slippage value is verified.
+Unknown slippage makes financial evidence incomplete.
+Incomplete evidence cannot enter readiness, RAG, or dashboard PnL totals.
 
 Re-anchor is not a promotion candidate.
 

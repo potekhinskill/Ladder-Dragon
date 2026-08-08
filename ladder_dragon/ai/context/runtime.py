@@ -17,6 +17,10 @@ from pathlib import Path
 from typing import Any, Callable, Iterable, Mapping, Sequence
 
 from ladder_dragon.execution.trade_accounting import TradeExecution, replay_average_cost
+from ladder_dragon.ai.fills import (
+    create_ai_fill_table,
+    ensure_exact_ai_fill_storage,
+)
 from ladder_dragon.ai.unresolved_fills import (
     create_unresolved_fill_table,
     ensure_exact_amount_storage,
@@ -33,7 +37,7 @@ from ladder_dragon.sqlite_safety import (
 ZERO = Decimal("0")
 HORIZONS_SEC = (900, 3600, 14_400)
 CONTEXT_SCHEMA_VERSION = "ai-context-v3"
-AI_SCHEMA_VERSION = "007_exact_unresolved_fill_amounts"
+AI_SCHEMA_VERSION = "008_exact_ai_fill_amounts"
 AI_SCHEMA_CHECKSUM = hashlib.sha256(AI_SCHEMA_VERSION.encode("utf-8")).hexdigest()
 UNRESOLVED_FILL_SCOPES = frozenset({"ATTRIBUTION", "INVENTORY"})
 UNRESOLVED_FILL_STATUSES = frozenset({
@@ -122,6 +126,11 @@ def evaluate_realized_ai_pnl(
         (_finite_decimal(f.get("fee_quote", f.get("commission_quote", 0)) or 0, field="fee") for f in fills),
         ZERO,
     )
+    slippage_statuses = {
+        str(fill.get("slippage_value_status", "unavailable")).strip().lower()
+        for fill in fills
+    }
+    financial_evidence_complete = slippage_statuses <= {"exact"}
     slippage = sum(
         (_finite_decimal(f.get("slippage_quote", 0) or 0, field="slippage") for f in fills),
         ZERO,
@@ -138,7 +147,7 @@ def evaluate_realized_ai_pnl(
         else (sell_notional / sold_qty if sold_qty else None)
     )
     opportunity = None
-    if entry and exit_price and bought_qty:
+    if financial_evidence_complete and entry and exit_price and bought_qty:
         opportunity = (exit_price - entry) * bought_qty - net
     timestamps = [
         int(f.get("ts", f.get("time", 0)) or 0)
@@ -149,7 +158,8 @@ def evaluate_realized_ai_pnl(
     exits = [str(f.get("exit_reason", "")).upper() for f in sells]
     # JSON and existing dashboard consumers receive numeric compatibility
     # fields. Exact text companions are the durable accounting representation.
-    return {"net_pnl_quote": _compat_float(net), "net_pnl_quote_text": format(net, "f"),
+    return {"net_pnl_quote": _compat_float(net) if financial_evidence_complete else None,
+            "net_pnl_quote_text": format(net, "f") if financial_evidence_complete else None,
             "buy_qty": _compat_float(bought_qty), "buy_qty_text": format(bought_qty, "f"),
             "sell_qty": _compat_float(sold_qty), "sell_qty_text": format(sold_qty, "f"),
             "holding_duration_sec": duration,
@@ -160,7 +170,12 @@ def evaluate_realized_ai_pnl(
             "baseline_exit_price": _compat_float(exit_price) if exit_price is not None else None,
             "baseline_exit_price_text": format(exit_price, "f") if exit_price is not None else None,
             "fees_quote": _compat_float(fees), "fees_quote_text": format(fees, "f"),
-            "slippage_quote": _compat_float(slippage), "slippage_quote_text": format(slippage, "f"),
+            "slippage_quote": _compat_float(slippage) if financial_evidence_complete else None,
+            "slippage_quote_text": format(slippage, "f") if financial_evidence_complete else None,
+            "slippage_value_status": (
+                "exact" if financial_evidence_complete else "unavailable"
+            ),
+            "financial_evidence_complete": financial_evidence_complete,
             "partial_fill": bool(bought_qty > 0 and 0 < sold_qty < bought_qty),
             "exit_reasons": sorted(set(exits)),
             "exit_reason": exits[-1] if exits else "",
@@ -671,20 +686,7 @@ class AdvisorDecisionStore:
                 "CREATE INDEX IF NOT EXISTS ai_decisions_symbol_time "
                 "ON ai_decisions(symbol, created_at)"
             )
-            connection.execute(
-                """CREATE TABLE IF NOT EXISTS ai_fills(
-                    fill_id TEXT PRIMARY KEY, decision_id TEXT NOT NULL,
-                    symbol TEXT NOT NULL, side TEXT NOT NULL, price REAL NOT NULL,
-                    qty REAL NOT NULL, fee_quote REAL NOT NULL DEFAULT 0,
-                    price_text TEXT, qty_text TEXT, fee_quote_text TEXT,
-                    exit_reason TEXT NOT NULL DEFAULT '', ts INTEGER NOT NULL,
-                    order_id TEXT, trade_id TEXT, client_order_id TEXT, order_list_id TEXT,
-                    leg_type TEXT NOT NULL DEFAULT '', link_status TEXT NOT NULL DEFAULT 'resolved',
-                    slippage_quote REAL NOT NULL DEFAULT 0,
-                    slippage_quote_text TEXT,
-                    FOREIGN KEY(decision_id) REFERENCES ai_decisions(decision_id)
-                )"""
-            )
+            create_ai_fill_table(connection)
             connection.execute("CREATE INDEX IF NOT EXISTS ai_fills_decision ON ai_fills(decision_id, ts)")
             create_unresolved_fill_table(connection)
             connection.execute("""CREATE TABLE IF NOT EXISTS ai_order_links(
@@ -729,6 +731,9 @@ class AdvisorDecisionStore:
                     "slippage_quote": "REAL NOT NULL DEFAULT 0",
                     "price_text": "TEXT", "qty_text": "TEXT",
                     "fee_quote_text": "TEXT", "slippage_quote_text": "TEXT",
+                    "slippage_value_status": (
+                        "TEXT NOT NULL DEFAULT 'legacy_unverified'"
+                    ),
                 },
                 "ai_unresolved_fills": {
                     "price_text": "TEXT", "qty_text": "TEXT",
@@ -773,14 +778,7 @@ class AdvisorDecisionStore:
                 "return_4h_text=CASE WHEN return_4h IS NULL THEN return_4h_text "
                 "ELSE COALESCE(NULLIF(return_4h_text,''),printf('%.17g',return_4h)) END"
             )
-            connection.execute(
-                "UPDATE ai_fills SET "
-                "price_text=COALESCE(NULLIF(price_text,''),printf('%.17g',price)),"
-                "qty_text=COALESCE(NULLIF(qty_text,''),printf('%.17g',qty)),"
-                "fee_quote_text=COALESCE(NULLIF(fee_quote_text,''),printf('%.17g',fee_quote)),"
-                "slippage_quote_text=COALESCE(NULLIF(slippage_quote_text,''),"
-                "printf('%.17g',slippage_quote))"
-            )
+            ensure_exact_ai_fill_storage(connection)
             ensure_exact_amount_storage(connection)
             connection.execute(
                 "UPDATE ai_order_links SET expected_price_text="
@@ -840,7 +838,7 @@ class AdvisorDecisionStore:
                     client_order_id: str | None = None,
                     order_list_id: str | int | None = None,
                     leg_type: str = "",
-                    slippage_quote: object = 0) -> str:
+                    slippage_quote: object | None = None) -> str:
         """Record fill."""
         fill_id = uuid.uuid4().hex
         with self._connect() as connection:
@@ -857,13 +855,18 @@ class AdvisorDecisionStore:
             price_exact = _finite_decimal(price, field="fill price")
             qty_exact = _finite_decimal(qty, field="fill quantity")
             fee_exact = _finite_decimal(fee_quote, field="fill fee")
-            slippage_exact = _finite_decimal(slippage_quote, field="fill slippage")
+            slippage_status = "exact" if slippage_quote is not None else "unavailable"
+            slippage_exact = _finite_decimal(
+                slippage_quote if slippage_quote is not None else ZERO,
+                field="fill slippage",
+            )
             connection.execute(
                 """INSERT INTO ai_fills(
                     fill_id,decision_id,symbol,side,price,qty,fee_quote,exit_reason,ts,
                     order_id,trade_id,client_order_id,order_list_id,leg_type,link_status,slippage_quote,
-                    price_text,qty_text,fee_quote_text,slippage_quote_text
-                ) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                    price_text,qty_text,fee_quote_text,slippage_quote_text,
+                    slippage_value_status
+                ) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
                 (fill_id, decision_id, symbol.upper(), side.upper(), format(price_exact, "f"),
                  format(qty_exact, "f"), format(fee_exact, "f"),
                  exit_reason, int(ts or time.time()),
@@ -873,7 +876,8 @@ class AdvisorDecisionStore:
                  str(order_list_id) if order_list_id is not None else None,
                  leg_type, "resolved", format(slippage_exact, "f"),
                  format(price_exact, "f"), format(qty_exact, "f"),
-                 format(fee_exact, "f"), format(slippage_exact, "f")),
+                 format(fee_exact, "f"), format(slippage_exact, "f"),
+                 slippage_status),
             )
         return fill_id
 
@@ -1002,15 +1006,16 @@ class AdvisorDecisionStore:
                     fill_id,decision_id,symbol,side,price,qty,fee_quote,
                     exit_reason,ts,order_id,trade_id,client_order_id,
                     order_list_id,leg_type,link_status,slippage_quote,
-                    price_text,qty_text,fee_quote_text,slippage_quote_text
-                ) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+                    price_text,qty_text,fee_quote_text,slippage_quote_text,
+                    slippage_value_status
+                ) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
                 """,
                 (
                     fill_id, decision_id, str(row[1]), str(row[2]),
                     str(row[5]), str(row[6]), str(row[7]), "", int(row[8]),
                     str(row[3]), str(row[4]) if row[4] is not None else None,
                     client_order_id, None, leg_type, "resolved", "0",
-                    str(row[5]), str(row[6]), str(row[7]), "0",
+                    str(row[5]), str(row[6]), str(row[7]), "0", "unavailable",
                 ),
             )
             connection.execute(
@@ -1142,7 +1147,8 @@ class AdvisorDecisionStore:
                           COALESCE(NULLIF(fee_quote_text,''),CAST(fee_quote AS TEXT)),
                           exit_reason,ts,order_id,
                           trade_id,client_order_id,order_list_id,leg_type,
-                          COALESCE(NULLIF(slippage_quote_text,''),CAST(slippage_quote AS TEXT))
+                          COALESCE(NULLIF(slippage_quote_text,''),CAST(slippage_quote AS TEXT)),
+                          slippage_value_status
                    FROM ai_fills WHERE decision_id=? ORDER BY ts""",
                 (decision_id,),
             ).fetchall()
@@ -1158,6 +1164,7 @@ class AdvisorDecisionStore:
             "exit_reason": r[4], "ts": r[5], "order_id": r[6],
             "trade_id": r[7], "client_order_id": r[8], "order_list_id": r[9],
             "leg_type": r[10], "slippage_quote": r[11],
+            "slippage_value_status": r[12],
         } for r in rows]
         # Baseline uses the same entry and quantity, so the comparison cannot
         # win artificially because of a different position size.
@@ -1356,7 +1363,8 @@ class AdvisorDecisionStore:
             except (TypeError, ValueError, json.JSONDecodeError):
                 evaluation = {}
             item = evaluation.get("realized_execution", {})
-            if not isinstance(item, dict) or not item.get("closed"):
+            if (not isinstance(item, dict) or not item.get("closed")
+                    or not item.get("financial_evidence_complete")):
                 continue
             realized.append(item)
             reason = str(item.get("exit_reason", "")).upper()
@@ -1496,7 +1504,10 @@ class AdvisorDecisionStore:
             row["recommended_mode"] != row["baseline_mode"] for row in recent
         )
         closed = [row["evaluation"].get("realized_execution") for row in recent
-                  if row["evaluation"].get("realized_execution", {}).get("sell_qty", 0) > 0]
+                  if row["evaluation"].get("realized_execution", {}).get("sell_qty", 0) > 0
+                  and row["evaluation"].get("realized_execution", {}).get(
+                      "financial_evidence_complete"
+                  )]
         actual_pnl_exact = sum(
             (_financial_result_decimal(item, "net_pnl_quote_text", "net_pnl_quote") for item in closed),
             ZERO,
