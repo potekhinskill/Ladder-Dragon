@@ -1453,3 +1453,17 @@ private infrastructure details.
 - **Root cause:** the transaction-control expression recognized only `END TRANSACTION`.
 - **Correction:** reject standalone `END` while preserving complete trigger statements.
 - **Prevention:** test every SQLite transaction-control alias against the script boundary.
+
+### 2026-08-08 — Let transport middleware change the security peer
+
+- **Impact:** application checks could not distinguish the socket peer from a forwarded client address.
+- **Root cause:** Uvicorn parsed forwarding headers before the application authenticated nginx.
+- **Correction:** preserve the socket peer and parse one client header after proxy authentication.
+- **Prevention:** authenticate a proxy before accepting any security-sensitive forwarded identity.
+
+### 2026-08-08 — Added security tests to a full presentation module
+
+- **Impact:** the complete regression stopped at the component size gate.
+- **Root cause:** the first patch did not check the destination test module budget.
+- **Correction:** move proxy security tests into a focused component module.
+- **Prevention:** check architecture budgets before adding tests to an established component.

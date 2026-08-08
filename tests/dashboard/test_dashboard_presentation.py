@@ -358,33 +358,6 @@ def test_log_api_is_disabled_by_default(monkeypatch):
     assert response.status_code == 404
 
 
-def test_proxy_auth_requires_shared_secret(monkeypatch):
-    monkeypatch.setenv("DASHBOARD_AUTH_TOKEN", "")
-    monkeypatch.setenv("DASHBOARD_TRUST_PROXY_AUTH", "1")
-    monkeypatch.setenv("DASHBOARD_PROXY_AUTH_SECRET", "a" * 64)
-    module = load_dashboard(
-        monkeypatch,
-        "proxy_dashboard",
-        auth_token=None,
-    )
-
-    with TestClient(module.app) as client:
-        forged = client.get(
-            "/api/does-not-exist",
-            headers={"X-Authenticated-User": "dashboard"},
-        )
-        trusted = client.get(
-            "/api/does-not-exist",
-            headers={
-                "X-Authenticated-User": "dashboard",
-                "X-Dashboard-Proxy-Secret": "a" * 64,
-            },
-        )
-
-    assert forged.status_code == 401
-    assert trusted.status_code == 404
-
-
 def test_raw_log_routes_are_not_registered(monkeypatch):
     module = load_dashboard(monkeypatch)
     paths = {route.path for route in module.app.routes}

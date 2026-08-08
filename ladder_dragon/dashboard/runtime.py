@@ -155,6 +155,30 @@ def _prune_rate_buckets(now: float) -> None:
             _RATE_BUCKETS.pop(stale_client, None)
     _RATE_PRUNE_STATE["last"] = now
 
+
+def _is_loopback_peer(peer: str) -> bool:
+    """Return true only for a parsed loopback address."""
+    try:
+        return ipaddress.ip_address(peer).is_loopback
+    except ValueError:
+        return False
+
+
+def _rate_limit_client(
+    peer: str,
+    forwarded: str,
+    *,
+    proxy_authenticated: bool,
+) -> str:
+    """Accept the nginx client address only across the trusted local boundary."""
+    if not proxy_authenticated or not _is_loopback_peer(peer):
+        return peer
+    try:
+        return str(ipaddress.ip_address(forwarded))
+    except ValueError:
+        return peer
+
+
 @asynccontextmanager
 async def lifespan(_app):
     task = asyncio.create_task(collector_loop())
@@ -200,6 +224,7 @@ async def sqlite_temporarily_unavailable(
 async def authenticate_and_rate_limit(request: Request, call_next):
     """Authenticate every API request and enforce a bounded per-client rate."""
     if request.url.path.startswith("/api/"):
+        peer = request.client.host if request.client else "unknown"
         proxy_user = request.headers.get("X-Authenticated-User", "")
         proxy_secret = request.headers.get("X-Dashboard-Proxy-Secret", "")
         bearer = request.headers.get("Authorization", "")
@@ -207,6 +232,7 @@ async def authenticate_and_rate_limit(request: Request, call_next):
         supplied = bearer[7:] if bearer.startswith("Bearer ") else header_token
         proxy_authenticated = (
             DASHBOARD_TRUST_PROXY_AUTH
+            and _is_loopback_peer(peer)
             and bool(proxy_user)
             and bool(DASHBOARD_PROXY_AUTH_SECRET)
             and secrets.compare_digest(proxy_secret, DASHBOARD_PROXY_AUTH_SECRET)
@@ -222,15 +248,11 @@ async def authenticate_and_rate_limit(request: Request, call_next):
             status = 503 if not DASHBOARD_AUTH_TOKEN and not proxy_configured else 401
             return JSONResponse({"ok": False, "error": "dashboard authentication required"}, status_code=status)
 
-        peer = request.client.host if request.client else "unknown"
-        client = peer
-        if proxy_authenticated:
-            try:
-                if ipaddress.ip_address(peer).is_loopback:
-                    forwarded = request.headers.get("X-Real-IP", "")
-                    client = str(ipaddress.ip_address(forwarded))
-            except ValueError:
-                client = peer
+        client = _rate_limit_client(
+            peer,
+            request.headers.get("X-Real-IP", ""),
+            proxy_authenticated=proxy_authenticated,
+        )
         now = time.monotonic()
         with _RATE_LOCK:
             _prune_rate_buckets(now)

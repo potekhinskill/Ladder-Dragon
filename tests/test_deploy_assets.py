@@ -72,6 +72,7 @@ def test_dashboard_launcher_uses_absolute_project_app_path():
     assert "Path(__file__).resolve().parents[1]" in launcher
     assert "sys.path.insert(0, str(app_dir))" in launcher
     assert "uvicorn.run(app," in launcher
+    assert "proxy_headers=False" in launcher
 
 
 def test_nginx_requires_auth_and_publishes_only_encrypted_backups():

@@ -3,6 +3,16 @@
 All notable changes are documented here. Releases use Semantic Versioning; every
 section is dated and there is intentionally no `Unreleased` section.
 
+## [2.20.178] — 2026-08-08
+
+### Security
+- The dashboard now accepts proxy authentication only from a loopback peer.
+- Uvicorn no longer changes the peer address from forwarding headers.
+- Rate limiting accepts `X-Real-IP` only after local proxy authentication.
+
+### Verified
+- Proxy forgery, per-client rate limiting, deployment contracts, and complete regression tests pass.
+
 ## [2.20.177] — 2026-08-08
 
 ### Fixed

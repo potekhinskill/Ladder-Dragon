@@ -4,6 +4,13 @@ Read this file before changing the repository. Record only decisions that were
 validated by tests or production evidence and are likely to be reused. Keep
 entries concise; this is not a changelog or an activity log.
 
+### 2026-08-08 — Keep the socket peer authoritative until application authentication
+
+- **Context:** automatic proxy parsing changed the peer before application checks.
+- **Decision:** disable Uvicorn proxy parsing and accept one client header after local proxy authentication.
+- **Why it worked:** tests reject remote proxy claims and preserve independent client rate buckets.
+- **Reuse:** every local reverse proxy that supplies security-sensitive client identity.
+
 ### 2026-08-08 — Reject every top-level transaction terminator
 
 - **Context:** SQLite accepts standalone `END` as an alias for `COMMIT`.

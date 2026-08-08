@@ -20,7 +20,8 @@ def main() -> None:
     from app import app
 
     port = int(os.getenv("DASHBOARD_PORT", "8081"))
-    uvicorn.run(app, host="127.0.0.1", port=port, proxy_headers=True)
+    # The application validates proxy identity before it accepts client headers.
+    uvicorn.run(app, host="127.0.0.1", port=port, proxy_headers=False)
 
 
 if __name__ == "__main__":

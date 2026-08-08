@@ -211,6 +211,7 @@ curl -sk -u dashboard https://bot.local/api/ai/status
 ```
 
 The dashboard API listens only on `127.0.0.1`; port `8081` must not be exposed.
+The application accepts a client address only from the authenticated local nginx proxy.
 
 Compare the installed configuration with the
 [configuration reference](CONFIGURATION.md).
