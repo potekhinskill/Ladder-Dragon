@@ -4,6 +4,13 @@ Read this file before changing the repository. Record only decisions that were
 validated by tests or production evidence and are likely to be reused. Keep
 entries concise; this is not a changelog or an activity log.
 
+### 2026-08-08 — Reject every top-level transaction terminator
+
+- **Context:** SQLite accepts standalone `END` as an alias for `COMMIT`.
+- **Decision:** reject `END` and `END TRANSACTION` when either starts a migration statement.
+- **Why it worked:** regression tests prove rejection occurs before schema mutation and triggers remain valid.
+- **Reuse:** every parser that executes scripts inside a caller-owned transaction.
+
 ### 2026-08-08 — Validate economic plans before external actions
 
 - **Context:** a malformed ladder could select hidden defaults after market reads.

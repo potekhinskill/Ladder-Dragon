@@ -3,6 +3,15 @@
 All notable changes are documented here. Releases use Semantic Versioning; every
 section is dated and there is intentionally no `Unreleased` section.
 
+## [2.20.177] — 2026-08-08
+
+### Fixed
+- Migration scripts now reject standalone `END` transaction control.
+- Trigger bodies remain valid because their complete statement starts with `CREATE`.
+
+### Verified
+- Transaction parsing, trigger parsing, rollback, and complete regression tests pass.
+
 ## [2.20.176] — 2026-08-08
 
 ### Changed

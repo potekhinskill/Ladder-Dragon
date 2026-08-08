@@ -1446,3 +1446,10 @@ private infrastructure details.
 - **Root cause:** the plan runner caught parse failures and substituted hard-coded percentages.
 - **Correction:** validate the full ladder argument before network access or worker launch.
 - **Prevention:** reject malformed execution parameters instead of selecting fallback values.
+
+### 2026-08-08 — Allowed SQLite END through the migration guard
+
+- **Impact:** a future migration could commit schema changes before recording its version.
+- **Root cause:** the transaction-control expression recognized only `END TRANSACTION`.
+- **Correction:** reject standalone `END` while preserving complete trigger statements.
+- **Prevention:** test every SQLite transaction-control alias against the script boundary.

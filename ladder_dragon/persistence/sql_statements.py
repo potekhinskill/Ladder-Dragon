@@ -16,7 +16,7 @@ from ladder_dragon.sqlite_safety import (
 
 _TRANSACTION_CONTROL = re.compile(
     r"^\s*(?:(?:--[^\n]*\n)|(?:/\*.*?\*/\s*))*"
-    r"(?:BEGIN|COMMIT|END\s+TRANSACTION|ROLLBACK)\b",
+    r"(?:BEGIN|COMMIT|END(?:\s+TRANSACTION)?|ROLLBACK)\b",
     re.IGNORECASE | re.DOTALL,
 )
 _ADD_COLUMN = re.compile(

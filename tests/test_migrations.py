@@ -6,6 +6,7 @@ import pytest
 
 import ladder_dragon.persistence.migrations as migration_runner
 from ladder_dragon.persistence.migrations import MIGRATIONS, migrate
+from ladder_dragon.persistence.sql_statements import parse_sql_statements
 from ladder_dragon.execution.inventory_lots import sync_exchange_fill
 
 
@@ -158,6 +159,39 @@ def test_failed_migration_rolls_back_schema_and_version(
         assert connection.execute(
             "SELECT version FROM schema_migrations"
         ).fetchall() == []
+
+
+def test_standalone_end_is_rejected_before_schema_mutation(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    migration_dir = tmp_path / "migrations"
+    migration_dir.mkdir()
+    (migration_dir / "001_forbidden_end.sql").write_text(
+        "CREATE TABLE leaked_by_end(id INTEGER);\nEND;\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(migration_runner, "MIGRATIONS", migration_dir)
+    database = tmp_path / "forbidden-end.db"
+
+    with pytest.raises(ValueError, match="must not control transactions"):
+        migrate(str(database), exact_new_database=False)
+
+    with sqlite3.connect(database) as connection:
+        assert connection.execute(
+            "SELECT 1 FROM sqlite_master WHERE name='leaked_by_end'"
+        ).fetchone() is None
+        assert connection.execute(
+            "SELECT version FROM schema_migrations"
+        ).fetchall() == []
+
+
+@pytest.mark.parametrize(
+    "statement",
+    ("BEGIN;", "COMMIT;", "END;", "END TRANSACTION;", "ROLLBACK;"),
+)
+def test_migration_parser_rejects_top_level_transaction_control(statement: str):
+    with pytest.raises(ValueError, match="must not control transactions"):
+        parse_sql_statements(statement)
 
 
 def test_migration_version_record_failure_rolls_back_schema(
