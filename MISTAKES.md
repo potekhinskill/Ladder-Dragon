@@ -1439,3 +1439,10 @@ private infrastructure details.
 - **Root cause:** the unit included the CLI BLOCKED exit in `SuccessExitStatus`.
 - **Correction:** accept only exit code `0` as service success.
 - **Prevention:** never whitelist a fail-closed maintenance result as successful execution.
+
+### 2026-08-08 — Replaced malformed ladder input with hidden defaults
+
+- **Impact:** LIVE workers could receive economic parameters that the operator did not select.
+- **Root cause:** the plan runner caught parse failures and substituted hard-coded percentages.
+- **Correction:** validate the full ladder argument before network access or worker launch.
+- **Prevention:** reject malformed execution parameters instead of selecting fallback values.

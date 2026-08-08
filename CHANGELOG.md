@@ -3,6 +3,19 @@
 All notable changes are documented here. Releases use Semantic Versioning; every
 section is dated and there is intentionally no `Unreleased` section.
 
+## [2.20.176] — 2026-08-08
+
+### Changed
+- The plan runner validates percentage ladders during argument parsing.
+- Operator help and errors now use complete English messages.
+
+### Fixed
+- Invalid `--ladder-pct` input no longer selects hidden economic defaults.
+- Invalid filters, nonfinite prices, and one-sided generated ladders now stop before worker launch.
+
+### Verified
+- LIVE fail-closed ordering, parser bounds, two-sided output, CLI help, and complete regression tests pass.
+
 ## [2.20.175] — 2026-08-08
 
 ### Changed

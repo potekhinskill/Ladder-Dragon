@@ -130,6 +130,14 @@ Never remove a protective SELL order to make a test pass.
 | `ip_guard` | reads state or performs manual IP acceptance recovery |
 | `ai_advisor_smoke` | tests an advisory provider without order tools |
 
+Use this DRY command to validate a percentage ladder:
+
+```bash
+python -m bin.ai_plan_runner --symbols SOLUSDT --ladder-pct=0.5,20,20
+```
+
+The command rejects malformed values before a market request or worker launch.
+
 `daily_trading_digest --dry-run` prints private account data.
 Do not publish its output.
 

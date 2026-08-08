@@ -4,6 +4,13 @@ Read this file before changing the repository. Record only decisions that were
 validated by tests or production evidence and are likely to be reused. Keep
 entries concise; this is not a changelog or an activity log.
 
+### 2026-08-08 — Validate economic plans before external actions
+
+- **Context:** a malformed ladder could select hidden defaults after market reads.
+- **Decision:** parse and validate the complete plan before network access or worker launch.
+- **Why it worked:** tests prove invalid LIVE input causes no API request and no child process.
+- **Reuse:** every operator command that converts text into execution parameters.
+
 ### 2026-08-08 — Expose blocked scheduled maintenance to systemd
 
 - **Context:** a safety block can prevent retention without changing protected data.

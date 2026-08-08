@@ -27,6 +27,66 @@ def test_plan_runner_validates_symbols_before_network_or_child_processes():
             ai_plan_runner.parse_args(["--symbols", invalid])
 
 
+def test_plan_runner_parses_valid_percentage_ladder():
+    args = ai_plan_runner.parse_args(
+        ["--symbols", "SOLUSDT", "--ladder-pct=-0.5,20,12"]
+    )
+
+    assert args.ladder_pct == (-0.5, 20.0, 12)
+
+
+@pytest.mark.parametrize(
+    "value",
+    (
+        "broken", "1,2", "1,2,3,4", "text,2,3", "1,text,3",
+        "1,2,text", "nan,2,3", "1,inf,3", "0,2,3", "100,2,3",
+        "1,0,3", "1,2,1",
+    ),
+)
+def test_plan_runner_rejects_invalid_percentage_ladder(value):
+    with pytest.raises(SystemExit) as caught:
+        ai_plan_runner.parse_args(
+            ["--symbols", "SOLUSDT", "--ladder-pct", value, "--live"]
+        )
+
+    assert caught.value.code == 2
+
+
+def test_invalid_live_ladder_stops_before_network_or_child(monkeypatch):
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "ai_plan_runner", "--symbols", "SOLUSDT", "--live",
+            "--ladder-pct", "private-invalid-payload",
+        ],
+    )
+    monkeypatch.setattr(
+        ai_plan_runner,
+        "_public_get",
+        lambda *_args, **_kwargs: pytest.fail("network request occurred"),
+    )
+    monkeypatch.setattr(
+        ai_plan_runner,
+        "spawn_child",
+        lambda *_args, **_kwargs: pytest.fail("child process started"),
+    )
+
+    with pytest.raises(SystemExit) as caught:
+        ai_plan_runner.main()
+
+    assert caught.value.code == 2
+
+
+@pytest.mark.parametrize(
+    "levels",
+    ([99.0], [101.0], [float("nan"), 99.0, 101.0]),
+)
+def test_plan_runner_requires_finite_two_sided_ladder(levels):
+    with pytest.raises(ValueError, match="generated ladder"):
+        ai_plan_runner._require_two_sided_ladder(levels, 100.0)
+
+
 def test_vwap_discount_adapts_to_regime_and_volatility():
     common = {
         "atr_pct": Decimal("0.01"),

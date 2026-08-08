@@ -48,7 +48,7 @@ SYMBOL_RE = re.compile(r"^[A-Z0-9]{5,20}$")
 def _public_get(path: str, params: Dict | None = None, timeout: int = 12) -> Dict:
     url = BINANCE_API + path
     last_err = None
-    for i in range(3):  # English maintenance note.
+    for i in range(3):
         try:
             r = requests.get(url, params=params or {}, timeout=timeout)
             if r.status_code in (418, 429) or 500 <= r.status_code < 600:
@@ -84,13 +84,16 @@ def get_filters(symbol: str) -> Tuple[float, float, float]:
                 min_notional = float(f.get("minNotional", 5.0))
             except (TypeError, ValueError, ArithmeticError):
                 min_notional = 5.0
-    return tick, step, min_notional
+    filters = (tick, step, min_notional)
+    if any(not math.isfinite(value) or value <= 0 for value in filters):
+        raise ValueError("exchange filters must be finite and positive")
+    return filters
 
 
 # --- Ladder mathematics ---
 
 def _geomspace(a: float, b: float, n: int) -> List[float]:
-    """English documentation."""
+    """Return a geometric sequence that preserves the input sign."""
     if n <= 1:
         return [a]
     sign = -1.0 if a < 0 else 1.0
@@ -127,7 +130,7 @@ def _dedup_preserve(seq: List[float]) -> List[float]:
     return out
 
 def _preview_levels(levels: List[float], n: int = 3) -> str:
-    """English documentation."""
+    """Return a bounded ladder preview for operator diagnostics."""
     if not levels:
         return "[] (n=0)"
     head = ", ".join(f"{x:.8f}" for x in levels[:n])
@@ -140,14 +143,14 @@ def build_ladder_pct(now_price: float,
                      pct_low: float, pct_high: float, density: int,
                      tick: float,
                      atr_scale: float | None = None) -> List[float]:
-    """English documentation."""
+    """Build quantized BUY and SELL levels from percentage distances."""
     # Scale percentages when atr_scale is provided.
     if atr_scale and atr_scale > 0:
         pct_low  = pct_low  * atr_scale
         pct_high = pct_high * atr_scale
 
-    lows  = _geomspace(pct_low,  pct_low * 0.1, max(2, density))  # English maintenance note.
-    highs = _geomspace(pct_high, pct_high * 0.1, max(2, density)) # English maintenance note.
+    lows = _geomspace(pct_low, pct_low * 0.1, max(2, density))
+    highs = _geomspace(pct_high, pct_high * 0.1, max(2, density))
 
     # Convert percentages to prices and quantize them.
     buy_levels_raw  = [_round_price_down(now_price * (1.0 + p / 100.0), tick) for p in lows]   # BUY
@@ -167,7 +170,7 @@ def build_ladder_pct(now_price: float,
 
 
 def estimate_atr_ratio(symbol: str, interval: str = "1h", window: int = 14) -> float:
-    """English documentation."""
+    """Estimate the average true range as a fraction of the last close."""
     k = _public_get("/api/v3/klines", {"symbol": symbol, "interval": interval, "limit": window + 2})
     if len(k) < 2:
         return 0.0
@@ -255,30 +258,75 @@ def _parse_symbol_list(value: str) -> list[str]:
     return symbols
 
 
+def _parse_density(value: str) -> int:
+    """Parse a ladder density that can create both sides."""
+    try:
+        density = int(value)
+    except (TypeError, ValueError) as exc:
+        raise argparse.ArgumentTypeError("density must be an integer") from exc
+    if density < 2:
+        raise argparse.ArgumentTypeError("density must be at least 2")
+    return density
+
+
+def _parse_ladder_pct(value: str) -> tuple[float, float, int]:
+    """Parse one complete percentage ladder without economic fallbacks."""
+    try:
+        low_text, high_text, density_text = [
+            item.strip() for item in value.split(",")
+        ]
+        low = abs(float(low_text))
+        high = abs(float(high_text))
+        density = _parse_density(density_text)
+    except (TypeError, ValueError, argparse.ArgumentTypeError) as exc:
+        raise argparse.ArgumentTypeError(
+            '--ladder-pct must be "low,high,density"'
+        ) from exc
+    if not math.isfinite(low) or not math.isfinite(high):
+        raise argparse.ArgumentTypeError("ladder percentages must be finite")
+    if low <= 0 or low >= 100 or high <= 0:
+        raise argparse.ArgumentTypeError(
+            "BUY percentage must be between 0 and 100; SELL percentage must be positive"
+        )
+    return -low, high, density
+
+
+def _require_two_sided_ladder(levels: List[float], now_price: float) -> None:
+    """Reject a ladder without finite levels on both market sides."""
+    if any(not math.isfinite(level) or level <= 0 for level in levels):
+        raise ValueError("generated ladder contains an invalid price")
+    if not any(level < now_price for level in levels):
+        raise ValueError("generated ladder has no BUY level below market")
+    if not any(level > now_price for level in levels):
+        raise ValueError("generated ladder has no SELL level above market")
+
+
 def parse_args(argv: Optional[list[str]] = None) -> argparse.Namespace:
-    p = argparse.ArgumentParser(description="English/English English Ladder Dragon")
+    p = argparse.ArgumentParser(
+        description="Launch Ladder Dragon workers from one validated plan."
+    )
     p.add_argument("--version", action="version", version=product_label("plan runner"))
     p.add_argument("--symbols", type=_parse_symbol_list, required=True,
-                   help="English English, English: SOLUSDT,ETHUSDT,BTCUSDT")
+                   help="Comma-separated Binance symbols, such as SOLUSDT,ETHUSDT")
     p.add_argument("--base", type=str, default=DEFAULT_BASE,
-                   help=f"English English English English (default: {DEFAULT_BASE})")
+                   help=f"Worker entry point (default: {DEFAULT_BASE})")
 
     # Ladder mode.
     p.add_argument("--ladder-mode", choices=["pct", "manual"], default="pct",
-                    help="pct — English English English English, manual — English --ladder-prices English English")
-    p.add_argument("--ladder-pct", type=str, default="-0.5,20,20",
-                help="English English pct: '<min%>,<max%>,<density>'. English: -0.5,20,20")
-    p.add_argument("--grid-density", type=int, default=20,
-                   help="English English English English English English English pct")
+                   help="Use generated percentages or explicit manual prices")
+    p.add_argument("--ladder-pct", type=_parse_ladder_pct, default=None,
+                   help='Percentage ladder as "low,high,density"; use = before a negative low')
+    p.add_argument("--grid-density", type=_parse_density, default=20,
+                   help="Default percentage-ladder density")
     p.add_argument("--atr-interval", type=str, default="1h")
     p.add_argument("--atr-window", type=int, default=14,
-                   help="English English ATR")
+                   help="Average true range window")
     p.add_argument("--atr-scale-k", type=float, default=0.5,
-                   help="English English pct English ATR: scale = 1 + ATR_ratio * k")
+                   help="Average true range percentage scale coefficient")
 
     # Explicit manual ladder.
     p.add_argument("--ladder-prices", type=str, default="",
-                   help="English English English English: '165.82,175.94,...' — English English English English manual")
+                   help="Comma-separated prices for manual ladder mode")
 
     # Trading parameters passed to children.
     p.add_argument("--tp1", type=float, default=0.02)
@@ -306,7 +354,10 @@ def main() -> int:
         if os.path.exists(cand):
             base_script = cand
         else:
-            print(f"[ERR] English English English English: {args.base}", file=sys.stderr)
+            print(
+                f"[ERR] worker entry point does not exist: {args.base}",
+                file=sys.stderr,
+            )
             return 3
 
     py = sys.executable or "python3"
@@ -324,20 +375,12 @@ def main() -> int:
                 now = get_now_price(sym)
                 tick, step, min_notional = get_filters(sym)
 
-                if tick <= 0:
-                    print(f"[WARN] {sym} tickSize=0 — English English English", file=sys.stderr)
-
                 # Exchange-filter log for diagnostics.
                 print(f"[PLAN] {sym} filters: tick={tick:.8f} step={step:.8f} minNotional={min_notional:.4f}")
 
-                # Parse "--ladder-pct".
-                try:
-                    lo_s, hi_s, den_s = [x.strip() for x in args.ladder_pct.split(",")]
-                    pct_low  = -abs(float(lo_s))   # English maintenance note.
-                    pct_high =  abs(float(hi_s))   # English maintenance note.
-                    density  = int(den_s) if den_s else args.grid_density
-                except (TypeError, ValueError, ArithmeticError):
-                    pct_low, pct_high, density = -0.5, 20.0, args.grid_density
+                pct_low, pct_high, density = args.ladder_pct or (
+                    -0.5, 20.0, args.grid_density
+                )
 
                 # ATR scaling.
                 atr_ratio = estimate_atr_ratio(sym, args.atr_interval, args.atr_window)
@@ -351,6 +394,7 @@ def main() -> int:
                     tick=tick,
                     atr_scale=scale
                 )
+                _require_two_sided_ladder(levels, now)
                 ladder_csv = ",".join(f"{lv:.8f}" for lv in levels)
 
                 # One-time plan diagnostics.
