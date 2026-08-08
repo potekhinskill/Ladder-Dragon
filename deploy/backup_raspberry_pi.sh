@@ -15,23 +15,44 @@ BACKUP_EXTERNAL_DIR="${BACKUP_EXTERNAL_DIR:-}"
 BACKUP_EXTERNAL_RETENTION_DAYS="${BACKUP_EXTERNAL_RETENTION_DAYS:-90}"
 STAMP="$(date -u +%Y-%m-%d-%H%M%S)"
 DEST="${BACKUP_DIR}/${STAMP}"
+STATUS_ARCHIVE_NAME=""
+STATUS_ARCHIVE_SIZE=""
+STATUS_ARCHIVE_SHA256=""
+ACTIVE_TEMP_FILES=()
 
 # DEST temporarily contains decrypted env/SQLite data. Remove staging even when
 # the external mirror fails, so an emergency backup never leaves secrets on the SD card.
 write_status() {
   local status="$1"
   local reason="${2:-}"
-  local tmp="${PUBLIC_BACKUP_DIR}/.backup_status.$$"
+  local tmp runtime_tmp
+  tmp="${PUBLIC_BACKUP_DIR}/.backup_status.$$"
   mkdir -p "${PUBLIC_BACKUP_DIR}" 2>/dev/null || return 0
-  printf '{"status":"%s","reason":"%s","updated_at":"%s UTC"}\n' \
-    "${status}" "${reason}" "$(date -u +%Y-%m-%dT%H:%M:%S)" >"${tmp}" 2>/dev/null || return 0
-  install -o root -g www-data -m 0640 "${tmp}" "${BACKUP_STATUS_FILE}" 2>/dev/null || true
+  if [[ "${status}" == "success" && -n "${STATUS_ARCHIVE_NAME}" ]]; then
+    printf '{"schema_version":2,"status":"success","reason":"","updated_at":"%s UTC","archive_name":"%s","archive_size_bytes":%s,"archive_sha256":"%s","archive_verified":true}\n' \
+      "$(date -u +%Y-%m-%dT%H:%M:%S)" "${STATUS_ARCHIVE_NAME}" \
+      "${STATUS_ARCHIVE_SIZE}" "${STATUS_ARCHIVE_SHA256}" >"${tmp}" 2>/dev/null || return 0
+  else
+    printf '{"schema_version":2,"status":"failed","reason":"%s","updated_at":"%s UTC"}\n' \
+      "${reason}" "$(date -u +%Y-%m-%dT%H:%M:%S)" >"${tmp}" 2>/dev/null || return 0
+  fi
+  chown root:www-data "${tmp}" 2>/dev/null || true
+  chmod 0640 "${tmp}" 2>/dev/null || true
+  sync -f "${tmp}" 2>/dev/null || true
+  mv -f "${tmp}" "${BACKUP_STATUS_FILE}" 2>/dev/null || true
   install -d -m 0755 "$(dirname "${RUNTIME_STATUS_FILE}")" 2>/dev/null || true
-  install -m 0644 "${tmp}" "${RUNTIME_STATUS_FILE}" 2>/dev/null || true
-  rm -f "${tmp}"
+  runtime_tmp="${RUNTIME_STATUS_FILE}.tmp.$$"
+  cp "${BACKUP_STATUS_FILE}" "${runtime_tmp}" 2>/dev/null || return 0
+  chmod 0644 "${runtime_tmp}" 2>/dev/null || true
+  sync -f "${runtime_tmp}" 2>/dev/null || true
+  mv -f "${runtime_tmp}" "${RUNTIME_STATUS_FILE}" 2>/dev/null || true
 }
 
 cleanup_staging() {
+  local temporary
+  for temporary in "${ACTIVE_TEMP_FILES[@]}"; do
+    rm -f -- "${temporary}"
+  done
   rm -rf -- "${DEST}"
 }
 on_exit() {
@@ -210,15 +231,31 @@ for source in sorted((project / "db").glob("*.db")) + sorted((project / "db").gl
     os.chmod(target, 0o600)
 PY
 
-# The archive is never written to disk unencrypted: tar is streamed directly into age.
+# The archive is never written to disk unencrypted. A same-directory rename
+# prevents the dashboard or mirror loop from observing partial ciphertext.
+archive_name="ladder-dragon-${STAMP}.tgz.age"
+archive_tmp="$(mktemp "${BACKUP_DIR}/.${archive_name}.tmp.XXXXXX")"
+ACTIVE_TEMP_FILES+=("${archive_tmp}")
+# age must create its output path. The private root-only directory prevents
+# another process from claiming this randomized name before age opens it.
+rm -f "${archive_tmp}"
 tar -C "${BACKUP_DIR}" -czf - "${STAMP}" \
   | age -r "${BACKUP_AGE_RECIPIENT}" \
-      -o "${BACKUP_DIR}/ladder-dragon-${STAMP}.tgz.age"
+      -o "${archive_tmp}"
+[[ -s "${archive_tmp}" ]] || {
+  echo "[FAIL] encrypted backup archive is empty" >&2
+  exit 1
+}
+sync -f "${archive_tmp}"
+mv -f "${archive_tmp}" "${BACKUP_DIR}/${archive_name}"
 
 # Keep a checksum with a relative filename. It can be verified on the SD card,
 # the external disk, or after downloading from /backups/.
-archive_name="ladder-dragon-${STAMP}.tgz.age"
-(cd "${BACKUP_DIR}" && sha256sum "${archive_name}" >"${archive_name}.sha256")
+checksum_tmp="$(mktemp "${BACKUP_DIR}/.${archive_name}.sha256.tmp.XXXXXX")"
+ACTIVE_TEMP_FILES+=("${checksum_tmp}")
+(cd "${BACKUP_DIR}" && sha256sum "${archive_name}" >"${checksum_tmp}")
+sync -f "${checksum_tmp}"
+mv -f "${checksum_tmp}" "${BACKUP_DIR}/${archive_name}.sha256"
 chmod 0600 "${BACKUP_DIR}/${archive_name}" "${BACKUP_DIR}/${archive_name}.sha256"
 
 # Before publishing, remove only expired local copies, then synchronize the full
@@ -229,26 +266,46 @@ find "${BACKUP_DIR}" -maxdepth 1 -type f -name 'ladder-dragon-*.tgz.age*' \
 
 mirror_external_archive() {
   local source_archive="$1"
-  local name
+  local name digest archive_tmp checksum_tmp copied_digest
   name="$(basename "${source_archive}")"
+  digest="$(sha256sum "${source_archive}" | awk '{print $1}')"
+  archive_tmp="$(mktemp "${BACKUP_EXTERNAL_DIR}/.${name}.tmp.XXXXXX")"
+  checksum_tmp="$(mktemp "${BACKUP_EXTERNAL_DIR}/.${name}.sha256.tmp.XXXXXX")"
+  ACTIVE_TEMP_FILES+=("${archive_tmp}" "${checksum_tmp}")
   # --preserve=timestamps does not attempt to change exFAT file ownership.
-  cp --preserve=timestamps -f "${source_archive}" "${BACKUP_EXTERNAL_DIR}/${name}"
+  cp --preserve=timestamps -f "${source_archive}" "${archive_tmp}"
+  copied_digest="$(sha256sum "${archive_tmp}" | awk '{print $1}')"
+  [[ "${copied_digest}" == "${digest}" ]] || return 1
+  sync -f "${archive_tmp}"
+  mv -f "${archive_tmp}" "${BACKUP_EXTERNAL_DIR}/${name}"
   # Recreate the checksum in the destination directory so the path stays portable
   # and contains no Raspberry Pi local paths.
-  (cd "${BACKUP_EXTERNAL_DIR}" && sha256sum "${name}" >"${name}.sha256")
+  printf '%s  %s\n' "${digest}" "${name}" >"${checksum_tmp}"
+  sync -f "${checksum_tmp}"
+  mv -f "${checksum_tmp}" "${BACKUP_EXTERNAL_DIR}/${name}.sha256"
   (cd "${BACKUP_EXTERNAL_DIR}" && sha256sum -c "${name}.sha256" >/dev/null)
 }
 
 publish_public_archive() {
   local source_archive="$1"
-  local name
+  local name digest archive_tmp checksum_tmp copied_digest
   name="$(basename "${source_archive}")"
-  cp --preserve=timestamps -f "${source_archive}" "${PUBLIC_BACKUP_DIR}/${name}"
-  chown root:www-data "${PUBLIC_BACKUP_DIR}/${name}"
-  chmod 0640 "${PUBLIC_BACKUP_DIR}/${name}"
-  (cd "${PUBLIC_BACKUP_DIR}" && sha256sum "${name}" >"${name}.sha256")
-  chown root:www-data "${PUBLIC_BACKUP_DIR}/${name}.sha256"
-  chmod 0640 "${PUBLIC_BACKUP_DIR}/${name}.sha256"
+  digest="$(sha256sum "${source_archive}" | awk '{print $1}')"
+  archive_tmp="$(mktemp "${PUBLIC_BACKUP_DIR}/.${name}.tmp.XXXXXX")"
+  checksum_tmp="$(mktemp "${PUBLIC_BACKUP_DIR}/.${name}.sha256.tmp.XXXXXX")"
+  ACTIVE_TEMP_FILES+=("${archive_tmp}" "${checksum_tmp}")
+  cp --preserve=timestamps -f "${source_archive}" "${archive_tmp}"
+  copied_digest="$(sha256sum "${archive_tmp}" | awk '{print $1}')"
+  [[ "${copied_digest}" == "${digest}" ]] || return 1
+  chown root:www-data "${archive_tmp}"
+  chmod 0640 "${archive_tmp}"
+  sync -f "${archive_tmp}"
+  mv -f "${archive_tmp}" "${PUBLIC_BACKUP_DIR}/${name}"
+  printf '%s  %s\n' "${digest}" "${name}" >"${checksum_tmp}"
+  chown root:www-data "${checksum_tmp}"
+  chmod 0640 "${checksum_tmp}"
+  sync -f "${checksum_tmp}"
+  mv -f "${checksum_tmp}" "${PUBLIC_BACKUP_DIR}/${name}.sha256"
   (cd "${PUBLIC_BACKUP_DIR}" && sha256sum -c "${name}.sha256" >/dev/null)
 }
 
@@ -294,4 +351,7 @@ manifest_tmp="$(mktemp "${PUBLIC_BACKUP_DIR}/.index.XXXXXX")"
 } >"${manifest_tmp}"
 install -o root -g www-data -m 0640 "${manifest_tmp}" "${PUBLIC_BACKUP_DIR}/index.txt"
 rm -f "${manifest_tmp}"
+STATUS_ARCHIVE_NAME="${archive_name}"
+STATUS_ARCHIVE_SIZE="$(stat -c %s "${BACKUP_DIR}/${archive_name}")"
+STATUS_ARCHIVE_SHA256="$(sha256sum "${BACKUP_DIR}/${archive_name}" | awk '{print $1}')"
 echo "${BACKUP_DIR}/ladder-dragon-${STAMP}.tgz.age"

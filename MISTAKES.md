@@ -1383,3 +1383,10 @@ private infrastructure details.
 - **Root cause:** a display fallback treated current price as historical evidence.
 - **Correction:** require the exact minute and return an unavailable portfolio change otherwise.
 - **Prevention:** never replace missing historical data with later data in a time-based metric.
+
+### 2026-08-08 — Inferred backup success from an archive name
+
+- **Impact:** the dashboard could show success for a partial archive or stale backup attempt.
+- **Root cause:** status and archive identity were independent, and the archive fallback was optimistic.
+- **Correction:** publish verified archives atomically and require matching status identity before success.
+- **Prevention:** artifact health must use completion evidence that identifies the exact published artifact.

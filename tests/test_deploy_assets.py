@@ -1045,6 +1045,13 @@ def test_backup_reconciles_all_archives_and_verifies_destination_checksums():
     assert 'publish_public_archive "${source_archive}"' in backup
     assert "BACKUP_EXTERNAL_RETENTION_DAYS" in backup
     assert "write_status()" in backup
+    assert '"schema_version":2' in backup
+    assert '"archive_name":"%s"' in backup
+    assert '"archive_sha256":"%s"' in backup
+    assert '"archive_verified":true' in backup
+    assert 'mktemp "${BACKUP_DIR}/.${archive_name}.tmp.XXXXXX"' in backup
+    assert 'rm -f "${archive_tmp}"' in backup
+    assert 'mv -f "${archive_tmp}" "${PUBLIC_BACKUP_DIR}/${name}"' in backup
 
 
 def test_watchdog_uses_current_heartbeat_and_not_legacy_runner_name():

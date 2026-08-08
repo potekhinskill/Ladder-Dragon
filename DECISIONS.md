@@ -1057,3 +1057,10 @@ entries concise; this is not a changelog or an activity log.
 - **Decision:** require the exact candle minute and show portfolio change as unavailable otherwise.
 - **Why it worked:** the dashboard never substitutes a current or future price for historical evidence.
 - **Reuse:** every historical valuation or commission conversion from time-indexed market data.
+
+### 2026-08-08 — Bind success status to one atomic artifact
+
+- **Context:** an archive name could exist without proof that its backup operation completed.
+- **Decision:** publish verified ciphertext atomically, then bind success to its name, size, and SHA-256.
+- **Why it worked:** tests reject missing status, stale success, small files, and mismatched checksum evidence.
+- **Reuse:** every dashboard status that summarizes a generated recovery artifact.

@@ -43,6 +43,7 @@ from ladder_dragon.dashboard.services.host_telemetry import (
 from ladder_dragon.dashboard.services.runtime_health import runtime_degraded_reason
 from ladder_dragon.dashboard.services.user_stream import current_soak_epoch_metrics
 from ladder_dragon.dashboard.services.binance_readonly import ReadOnlyBinanceClient
+from ladder_dragon.dashboard.services.backup_health import backup_snapshot
 from ladder_dragon.deployment.status import read_deployment_status
 APP_TZ = ZoneInfo("Asia/Almaty")
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
@@ -1667,42 +1668,15 @@ def _binance_latency_snapshot() -> Dict[str, object]:
 def _backup_snapshot() -> Dict[str, object]:
     """Handle backup snapshot."""
     public_dir = Path(os.getenv("DASHBOARD_BACKUP_PUBLIC_DIR", "/var/lib/ladder-dragon/backups-public"))
-    status_payload: Dict[str, object] = {}
-    for status_path in (
-        Path(os.getenv("DASHBOARD_BACKUP_STATUS_FILE", "/run/mybot/backup_status.json")),
-        public_dir / "backup_status.json",
-    ):
-        try:
-            raw_status = json.loads(status_path.read_text(encoding="utf-8"))
-            if isinstance(raw_status, dict):
-                status_payload = raw_status
-                break
-        except (OSError, ValueError, TypeError):
-            continue
-    archives = []
-    try:
-        archives = sorted(public_dir.glob("ladder-dragon-*.tgz.age"), key=lambda p: p.stat().st_mtime)
-    except (OSError, PermissionError):
-        return {"status": status_payload.get("status", "unavailable"), "reason": status_payload.get("reason", "backup directory is not readable"), "directory": str(public_dir)}
-    if not archives:
-        return {"status": status_payload.get("status", "unknown"), "reason": status_payload.get("reason", "no encrypted archive found"), "directory": str(public_dir)}
-    latest = archives[-1]
-    try:
-        stat = latest.stat()
-        return {
-            "status": status_payload.get("status", "success"),
-            "reason": status_payload.get("reason"),
-            "directory": str(public_dir),
-            "last_success": {
-                "name": latest.name,
-                "size_bytes": stat.st_size,
-                "age_sec": max(0, int(time.time() - stat.st_mtime)),
-                "updated_at": datetime.fromtimestamp(stat.st_mtime, APP_TZ).strftime("%Y-%m-%d %H:%M:%S"),
-            },
-            "archive_count": len(archives),
-        }
-    except OSError as exc:
-        return {"status": "unavailable", "reason": type(exc).__name__, "directory": str(public_dir)}
+    return backup_snapshot(
+        public_dir=public_dir,
+        status_paths=(
+            Path(os.getenv("DASHBOARD_BACKUP_STATUS_FILE", "/run/mybot/backup_status.json")),
+            public_dir / "backup_status.json",
+        ),
+        timezone=APP_TZ,
+        minimum_archive_bytes=1024,
+    )
 
 
 def _usb_snapshot() -> Dict[str, object]:

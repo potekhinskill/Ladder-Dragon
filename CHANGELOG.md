@@ -3,6 +3,27 @@
 All notable changes are documented here. Releases use Semantic Versioning; every
 section is dated and there is intentionally no `Unreleased` section.
 
+## [2.20.169] — 2026-08-08
+
+### Added
+- Backup status now identifies one archive by name, size, and SHA-256.
+- Dashboard validation rejects missing, legacy, stale, or inconsistent backup evidence.
+
+### Changed
+- Local, external, and dashboard archive copies now use verified temporary files and atomic publication.
+- Backup status files now use schema version two and atomic publication.
+
+### Fixed
+- An encrypted file name alone can no longer produce a successful dashboard backup status.
+- A newer unverified archive now changes dashboard backup status to `unknown`.
+
+### Security
+- Encrypted archives remain private until checksum verification and atomic publication complete.
+- The dashboard does not read backup plaintext or decryption keys.
+
+### Verified
+- Complete project, documentation, backup, dashboard, and deployment tests pass.
+
 ## [2.20.168] — 2026-08-08
 
 ### Added

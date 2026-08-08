@@ -1,6 +1,6 @@
 # Implementation status
 
-This document describes the code in version **2.20.168**.
+This document describes the code in version **2.20.169**.
 It does not describe future plans as completed work.
 
 An implemented function is not automatically approved for LIVE use.
@@ -22,10 +22,10 @@ The configured mode and its evidence gate remain authoritative.
 | Fast market data | `bookTicker`, `aggTrade`, and depth snapshots | OFF by default |
 | WebSocket trading | Signed request transport and reconciliation | OFF and separately approved |
 | OTOCO | Atomic BUY with symmetric ACK-loss recovery | OFF and separately approved |
-| User Data Stream | Independent observer, reconnect-rate gate, drill, and versioned soak evidence | v3 epoch active after authentication recovery |
+| User Data Stream | Independent observer, reconnect-rate gate, drill, and versioned soak evidence | v4 epoch classifies reconnect causes |
 | Dashboard | Read-only account, canonical FIFO PnL, risk, AI, positions, and host data | Private authenticated access |
 | Reports | Daily trading digest, monthly prediction report, and signed soak report | Scheduled by systemd |
-| Deployment | Signed fast-forward update, backup, rollback, and asset verification | Exact 40-character SHA required |
+| Deployment | Signed update, atomic verified backup publication, rollback, and asset verification | Exact 40-character SHA required |
 
 ## Strategy-control defaults
 

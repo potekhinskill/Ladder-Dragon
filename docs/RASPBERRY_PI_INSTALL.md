@@ -708,6 +708,10 @@ The service mirrors encrypted archives, checksums, and safe inventory files. It
 fails rather than writing to an unmounted path. Mount the disk by UUID or label
 in `/etc/fstab`, never by a transient `/dev/sda1` path.
 
+The service verifies each encrypted copy before atomic publication.
+Status identifies the completed archive by name, size, and SHA-256.
+The dashboard reports `unknown` when this evidence is missing or inconsistent.
+
 `https://bot.local/backups/` exposes only encrypted archives, checksums, and safe
 inventory through Basic Auth. Local/public retention is 14 days; external
 retention follows `BACKUP_EXTERNAL_RETENTION_DAYS`.
