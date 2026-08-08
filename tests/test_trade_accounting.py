@@ -16,7 +16,10 @@ from ladder_dragon.execution.trade_accounting import (
     replay_fifo,
 )
 from tests.support.module_loaders import load_worker
-from ladder_dragon.execution.worker.stats_sync import sync_account_trades
+from ladder_dragon.execution.worker.stats_sync import (
+    _required_exchange_trade_id,
+    sync_account_trades,
+)
 
 
 def sync_worker_trades(worker, symbol: str) -> None:
@@ -27,6 +30,18 @@ def sync_worker_trades(worker, symbol: str) -> None:
 def test_default_spot_fee_is_conservative_without_an_explicit_discount():
     assert DEFAULT_SPOT_FEE_PCT == Decimal("0.001")
     assert Decimal("2") * DEFAULT_SPOT_FEE_PCT == Decimal("0.002")
+
+
+@pytest.mark.parametrize("trade_id", (None, "", "   "))
+def test_worker_rejects_missing_trade_identity_without_payload_leak(trade_id):
+    private_payload = "private-provider-response"
+
+    with pytest.raises(ValueError, match="exchange fill trade_id is required") as caught:
+        _required_exchange_trade_id(
+            {"trade_id": trade_id, "provider_response": private_payload}
+        )
+
+    assert private_payload not in str(caught.value)
 
 
 def test_omitted_commission_quote_fails_closed_when_fee_is_nonzero():

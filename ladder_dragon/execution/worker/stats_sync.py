@@ -32,6 +32,14 @@ def _runtime_dependency(runtime: Mapping[str, object], name: str) -> Any:
         ) from exc
 
 
+def _required_exchange_trade_id(fill: Mapping[str, object]) -> object:
+    """Return the authoritative trade identifier or reject the fill."""
+    trade_id = fill.get("trade_id")
+    if trade_id is None or not str(trade_id).strip():
+        raise ValueError("exchange fill trade_id is required")
+    return trade_id
+
+
 def sync_account_trades(
     symbol: str, *, runtime: MutableMapping[str, object]
 ) -> None:
@@ -65,6 +73,8 @@ def sync_account_trades(
         return
     def on_fill(fill: dict) -> None:
         """Handle on fill."""
+        # Reject damaged exchange evidence before any ledger or AI mutation.
+        trade_id = _required_exchange_trade_id(fill)
         try:
             ensure_lots_schema(STATS_CON)
             sync_exchange_fill(STATS_CON, fill)
@@ -143,7 +153,7 @@ def sync_account_trades(
                         symbol=symbol, side=fill["side"], price=fill["price"],
                         qty=fill["qty"], fee_quote=fill["fee_quote"],
                         ts=int(fill["ts"] / 1000), order_id=order_id,
-                        trade_id=fill.get("trade_id"),
+                        trade_id=trade_id,
                         reason="exchange_order_id_not_mapped_to_decision",
                     )
                     dbg(
@@ -183,7 +193,7 @@ def sync_account_trades(
                         price=fill_price, qty=fill_qty,
                         fee_quote=fill["fee_quote"],
                         ts=int(fill["ts"] / 1000), order_id=order_id,
-                        trade_id=fill.get("trade_id"),
+                        trade_id=trade_id,
                         client_order_id=client_order_id,
                         leg_type=leg_type, exit_reason=exit_reason,
                         slippage_quote=slippage_quote,

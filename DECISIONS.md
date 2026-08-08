@@ -4,6 +4,13 @@ Read this file before changing the repository. Record only decisions that were
 validated by tests or production evidence and are likely to be reused. Keep
 entries concise; this is not a changelog or an activity log.
 
+### 2026-08-08 — Require complete exchange fill identity
+
+- **Context:** AI fill deduplication needs the Binance order and trade identifiers.
+- **Decision:** reject partial identities before any ledger or AI database mutation.
+- **Why it worked:** tests prove fail-closed rejection, restart idempotency, and payload-safe diagnostics.
+- **Reuse:** every financial event whose external identity controls deduplication.
+
 ### 2026-08-05 — Start alert cooldowns after confirmed delivery
 
 - **Context:** a failed Telegram request could suppress later authentication alerts.

@@ -121,7 +121,7 @@ def test_fill_mapping_uses_exchange_order_id_and_unresolved_is_excluded(tmp_path
     assert store.order_link_for_exchange_order(12345)["expected_price"] == 100
     store.record_fill(
         decision, symbol="SOLUSDT", side="BUY", price=100, qty=.5,
-        order_id=12345, client_order_id="client-buy", ts=10,
+        order_id=12345, trade_id=54321, client_order_id="client-buy", ts=10,
     )
     store.record_unresolved_fill(
         symbol="SOLUSDT", side="SELL", price=99, qty=.1,
@@ -391,6 +391,33 @@ def test_exchange_trade_id_is_idempotent_and_preserved(tmp_path):
     assert first == second
     result = store.evaluate_execution(decision)
     assert result["buy_qty"] == .5
+
+
+@pytest.mark.parametrize(
+    ("order_id", "trade_id"),
+    ((123, None), (None, 456), ("", 456), (123, "")),
+)
+def test_partial_exchange_fill_identity_fails_before_insert(
+    tmp_path, order_id, trade_id,
+):
+    path = tmp_path / "ai.db"
+    store = AdvisorDecisionStore(str(path))
+    decision = store.record(
+        symbol="SOLUSDT", price=100, deterministic_mode="FLAT",
+        recommended_mode="UP", width_scale=1, cap_scale=1, confidence=.8,
+        applied=True,
+    )
+
+    with pytest.raises(
+        ValueError, match="exchange fill requires order_id and trade_id"
+    ):
+        store.record_fill(
+            decision, symbol="SOLUSDT", side="BUY", price=100, qty=.5,
+            order_id=order_id, trade_id=trade_id,
+        )
+
+    with sqlite3.connect(path) as connection:
+        assert connection.execute("SELECT COUNT(*) FROM ai_fills").fetchone()[0] == 0
 
 
 def test_restart_relink_does_not_replace_original_decision(tmp_path):

@@ -1425,3 +1425,10 @@ private infrastructure details.
 - **Root cause:** exception handling replaced unavailable historical evidence with the current cycle price.
 - **Correction:** keep the horizon pending and retry the authoritative lookup during a later cycle.
 - **Prevention:** never persist a fallback value as time-bound ground truth without explicit provenance.
+
+### 2026-08-08 — Allowed partial exchange fill identity
+
+- **Impact:** repeated fills without `trade_id` could duplicate AI PnL evidence.
+- **Root cause:** AI deduplication treated the Binance trade identifier as optional.
+- **Correction:** require both exchange identifiers before ledger or AI database mutation.
+- **Prevention:** reject financial events that lack their authoritative deduplication identity.

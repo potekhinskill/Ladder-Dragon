@@ -15,6 +15,21 @@ SLIPPAGE_VALUE_STATUSES = frozenset({
 })
 
 
+def normalize_exchange_fill_identity(
+    order_id: object | None, trade_id: object | None,
+) -> tuple[str | None, str | None]:
+    """Require a complete Binance identity when either identifier is present."""
+    supplied = order_id is not None or trade_id is not None
+    normalized_order = str(order_id).strip() if order_id is not None else ""
+    normalized_trade = str(trade_id).strip() if trade_id is not None else ""
+    if supplied and not (normalized_order and normalized_trade):
+        raise ValueError("exchange fill requires order_id and trade_id")
+    return (
+        normalized_order if supplied else None,
+        normalized_trade if supplied else None,
+    )
+
+
 def create_ai_fill_table(connection: sqlite3.Connection) -> None:
     """Create the exact attributed-fill evidence table."""
     connection.execute(

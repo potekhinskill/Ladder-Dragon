@@ -19,7 +19,7 @@ from typing import Any, Callable, Iterable, Mapping, Sequence
 from ladder_dragon.execution.trade_accounting import TradeExecution, replay_average_cost
 from ladder_dragon.ai.fills import (
     create_ai_fill_table,
-    ensure_exact_ai_fill_storage,
+    ensure_exact_ai_fill_storage, normalize_exchange_fill_identity,
 )
 from ladder_dragon.ai.unresolved_fills import (
     create_unresolved_fill_table,
@@ -841,14 +841,15 @@ class AdvisorDecisionStore:
                     slippage_quote: object | None = None) -> str:
         """Record fill."""
         fill_id = uuid.uuid4().hex
+        normalized_order_id, normalized_trade_id = normalize_exchange_fill_identity(order_id, trade_id)
         with self._connect() as connection:
             exists = connection.execute("SELECT 1 FROM ai_decisions WHERE decision_id=?", (decision_id,)).fetchone()
             if not exists:
                 raise ValueError(f"unknown AI decision: {decision_id}")
-            if order_id is not None and trade_id is not None:
+            if normalized_order_id is not None:
                 duplicate = connection.execute(
                     "SELECT fill_id FROM ai_fills WHERE order_id=? AND trade_id=?",
-                    (str(order_id), str(trade_id)),
+                    (normalized_order_id, normalized_trade_id),
                 ).fetchone()
                 if duplicate:
                     return str(duplicate[0])
@@ -870,8 +871,7 @@ class AdvisorDecisionStore:
                 (fill_id, decision_id, symbol.upper(), side.upper(), format(price_exact, "f"),
                  format(qty_exact, "f"), format(fee_exact, "f"),
                  exit_reason, int(ts or time.time()),
-                 str(order_id) if order_id is not None else None,
-                 str(trade_id) if trade_id is not None else None,
+                 normalized_order_id, normalized_trade_id,
                  client_order_id,
                  str(order_list_id) if order_list_id is not None else None,
                  leg_type, "resolved", format(slippage_exact, "f"),

@@ -3,6 +3,18 @@
 All notable changes are documented here. Releases use Semantic Versioning; every
 section is dated and there is intentionally no `Unreleased` section.
 
+## [2.20.174] — 2026-08-08
+
+### Changed
+- Worker fill synchronization now validates the Binance trade identifier before any ledger or AI database mutation.
+
+### Fixed
+- Attributed exchange fills now require both `order_id` and `trade_id`.
+- A damaged fill cannot bypass restart-safe deduplication or duplicate AI PnL evidence.
+
+### Verified
+- Partial identities fail closed, diagnostics exclude payload data, and AI, FIFO, restart, and full regression tests pass.
+
 ## [2.20.173] — 2026-08-08
 
 ### Changed
