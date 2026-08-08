@@ -17,7 +17,12 @@ from pathlib import Path
 from typing import Any, Callable, Iterable, Mapping, Sequence
 
 from ladder_dragon.execution.trade_accounting import TradeExecution, replay_average_cost
-from ladder_dragon.ai.unresolved_fills import lifecycle_counts, record_pending_fill
+from ladder_dragon.ai.unresolved_fills import (
+    create_unresolved_fill_table,
+    ensure_exact_amount_storage,
+    lifecycle_counts,
+    record_pending_fill,
+)
 from ladder_dragon.numeric_compat import compatibility_float
 from ladder_dragon.sqlite_safety import (
     quote_sqlite_identifier,
@@ -28,7 +33,7 @@ from ladder_dragon.sqlite_safety import (
 ZERO = Decimal("0")
 HORIZONS_SEC = (900, 3600, 14_400)
 CONTEXT_SCHEMA_VERSION = "ai-context-v3"
-AI_SCHEMA_VERSION = "006_unresolved_fill_lifecycle"
+AI_SCHEMA_VERSION = "007_exact_unresolved_fill_amounts"
 AI_SCHEMA_CHECKSUM = hashlib.sha256(AI_SCHEMA_VERSION.encode("utf-8")).hexdigest()
 UNRESOLVED_FILL_SCOPES = frozenset({"ATTRIBUTION", "INVENTORY"})
 UNRESOLVED_FILL_STATUSES = frozenset({
@@ -681,20 +686,7 @@ class AdvisorDecisionStore:
                 )"""
             )
             connection.execute("CREATE INDEX IF NOT EXISTS ai_fills_decision ON ai_fills(decision_id, ts)")
-            connection.execute("""CREATE TABLE IF NOT EXISTS ai_unresolved_fills(
-                fill_key TEXT PRIMARY KEY, symbol TEXT NOT NULL, side TEXT NOT NULL,
-                order_id TEXT, trade_id TEXT, price REAL NOT NULL, qty REAL NOT NULL,
-                fee_quote REAL NOT NULL DEFAULT 0, price_text TEXT, qty_text TEXT,
-                fee_quote_text TEXT, ts INTEGER NOT NULL,
-                reason TEXT NOT NULL,
-                resolution_scope TEXT NOT NULL DEFAULT 'ATTRIBUTION',
-                resolution_status TEXT NOT NULL DEFAULT 'PENDING',
-                resolution_note TEXT NOT NULL DEFAULT '',
-                reviewed_at INTEGER,
-                resolved_decision_id TEXT,
-                resolution_updated_at INTEGER,
-                created_at INTEGER NOT NULL
-            )""")
+            create_unresolved_fill_table(connection)
             connection.execute("""CREATE TABLE IF NOT EXISTS ai_order_links(
                 client_order_id TEXT PRIMARY KEY, decision_id TEXT NOT NULL,
                 symbol TEXT NOT NULL, lot_id INTEGER, order_type TEXT NOT NULL DEFAULT '',
@@ -789,12 +781,7 @@ class AdvisorDecisionStore:
                 "slippage_quote_text=COALESCE(NULLIF(slippage_quote_text,''),"
                 "printf('%.17g',slippage_quote))"
             )
-            connection.execute(
-                "UPDATE ai_unresolved_fills SET "
-                "price_text=COALESCE(NULLIF(price_text,''),printf('%.17g',price)),"
-                "qty_text=COALESCE(NULLIF(qty_text,''),printf('%.17g',qty)),"
-                "fee_quote_text=COALESCE(NULLIF(fee_quote_text,''),printf('%.17g',fee_quote))"
-            )
+            ensure_exact_amount_storage(connection)
             connection.execute(
                 "UPDATE ai_order_links SET expected_price_text="
                 "CASE WHEN expected_price IS NULL THEN expected_price_text ELSE "

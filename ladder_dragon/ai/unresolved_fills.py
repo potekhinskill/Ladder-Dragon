@@ -6,7 +6,108 @@
 
 from __future__ import annotations
 
+from decimal import Decimal, InvalidOperation
 import sqlite3
+
+
+def create_unresolved_fill_table(connection: sqlite3.Connection) -> None:
+    """Create the exact unresolved-fill evidence table."""
+    connection.execute(
+        """CREATE TABLE IF NOT EXISTS ai_unresolved_fills(
+            fill_key TEXT PRIMARY KEY, symbol TEXT NOT NULL, side TEXT NOT NULL,
+            order_id TEXT, trade_id TEXT,
+            price TEXT NOT NULL CHECK(price != '' AND price=price_text),
+            qty TEXT NOT NULL CHECK(qty != '' AND qty=qty_text),
+            fee_quote TEXT NOT NULL DEFAULT '0'
+                CHECK(fee_quote != '' AND fee_quote=fee_quote_text),
+            price_text TEXT NOT NULL, qty_text TEXT NOT NULL,
+            fee_quote_text TEXT NOT NULL, ts INTEGER NOT NULL,
+            reason TEXT NOT NULL,
+            resolution_scope TEXT NOT NULL DEFAULT 'ATTRIBUTION',
+            resolution_status TEXT NOT NULL DEFAULT 'PENDING',
+            resolution_note TEXT NOT NULL DEFAULT '',
+            reviewed_at INTEGER,
+            resolved_decision_id TEXT,
+            resolution_updated_at INTEGER,
+            created_at INTEGER NOT NULL
+        )"""
+    )
+
+
+def ensure_exact_amount_storage(connection: sqlite3.Connection) -> None:
+    """Replace legacy REAL amount affinity with exact TEXT storage."""
+    affinities = {
+        str(row[1]): str(row[2]).upper()
+        for row in connection.execute("PRAGMA table_info(ai_unresolved_fills)")
+    }
+    amount_columns = {"price", "qty", "fee_quote"}
+    if not amount_columns.issubset(affinities):
+        raise ValueError("unresolved fill amount columns are missing")
+    if all(affinities[column] == "TEXT" for column in amount_columns):
+        return
+
+    shadow_exists = connection.execute(
+        "SELECT 1 FROM sqlite_master WHERE type='table' "
+        "AND name='ai_unresolved_fills_exact'"
+    ).fetchone()
+    if shadow_exists:
+        raise RuntimeError("unresolved fill migration table already exists")
+    connection.execute(
+        """CREATE TABLE ai_unresolved_fills_exact(
+            fill_key TEXT PRIMARY KEY, symbol TEXT NOT NULL, side TEXT NOT NULL,
+            order_id TEXT, trade_id TEXT,
+            price TEXT NOT NULL CHECK(price != '' AND price=price_text),
+            qty TEXT NOT NULL CHECK(qty != '' AND qty=qty_text),
+            fee_quote TEXT NOT NULL DEFAULT '0'
+                CHECK(fee_quote != '' AND fee_quote=fee_quote_text),
+            price_text TEXT NOT NULL, qty_text TEXT NOT NULL,
+            fee_quote_text TEXT NOT NULL, ts INTEGER NOT NULL,
+            reason TEXT NOT NULL,
+            resolution_scope TEXT NOT NULL DEFAULT 'ATTRIBUTION',
+            resolution_status TEXT NOT NULL DEFAULT 'PENDING',
+            resolution_note TEXT NOT NULL DEFAULT '',
+            reviewed_at INTEGER,
+            resolved_decision_id TEXT,
+            resolution_updated_at INTEGER,
+            created_at INTEGER NOT NULL
+        )"""
+    )
+    rows = connection.execute(
+        """SELECT fill_key,symbol,side,order_id,trade_id,
+            price,qty,fee_quote,price_text,qty_text,fee_quote_text,
+            ts,reason,resolution_scope,resolution_status,resolution_note,
+            reviewed_at,resolved_decision_id,resolution_updated_at,created_at
+        FROM ai_unresolved_fills"""
+    )
+    for row in rows:
+        try:
+            exact = tuple(
+                str(row[text_index])
+                if row[text_index] not in (None, "")
+                else format(row[value_index], ".17g")
+                for value_index, text_index in ((5, 8), (6, 9), (7, 10))
+            )
+            if any(not Decimal(value).is_finite() for value in exact):
+                raise ValueError
+        except (InvalidOperation, TypeError, ValueError) as exc:
+            # Do not include evidence values in this error. They can contain
+            # incident data that must not enter deployment logs.
+            raise ValueError(
+                "unresolved fill monetary evidence is invalid"
+            ) from exc
+        connection.execute(
+            """INSERT INTO ai_unresolved_fills_exact(
+                fill_key,symbol,side,order_id,trade_id,price,qty,fee_quote,
+                price_text,qty_text,fee_quote_text,ts,reason,resolution_scope,
+                resolution_status,resolution_note,reviewed_at,
+                resolved_decision_id,resolution_updated_at,created_at
+            ) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+            (*row[:5], *exact, *exact, *row[11:]),
+        )
+    connection.execute("DROP TABLE ai_unresolved_fills")
+    connection.execute(
+        "ALTER TABLE ai_unresolved_fills_exact RENAME TO ai_unresolved_fills"
+    )
 
 
 def record_pending_fill(
@@ -15,6 +116,8 @@ def record_pending_fill(
     fee_quote: str, ts: int, reason: str, scope: str, created_at: int,
 ) -> None:
     """Upsert evidence without reopening a reviewed attribution gap."""
+    # The primary and companion columns remain for rollback compatibility.
+    # Both columns use TEXT affinity and an equality constraint.
     connection.execute(
         """INSERT INTO ai_unresolved_fills(
             fill_key,symbol,side,order_id,trade_id,price,qty,fee_quote,

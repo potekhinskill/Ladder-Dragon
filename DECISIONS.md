@@ -1064,3 +1064,10 @@ entries concise; this is not a changelog or an activity log.
 - **Decision:** publish verified ciphertext atomically, then bind success to its name, size, and SHA-256.
 - **Why it worked:** tests reject missing status, stale success, small files, and mismatched checksum evidence.
 - **Reuse:** every dashboard status that summarizes a generated recovery artifact.
+
+### 2026-08-08 — Preserve exact evidence across compatibility columns
+
+- **Context:** unresolved-fill strings entered REAL columns before their exact companion columns.
+- **Decision:** retain both column names, use TEXT affinity, and require equal values.
+- **Why it worked:** tests preserve exact digits, round-trip legacy doubles, reject invalid evidence, and keep legacy queries compatible.
+- **Reuse:** every compatibility schema that retains an older monetary column name.

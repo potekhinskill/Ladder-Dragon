@@ -215,6 +215,32 @@ def test_unresolved_fill_scope_rejects_unknown_classification(tmp_path):
         )
 
 
+def test_unresolved_fill_amount_columns_keep_exact_text(tmp_path):
+    path = tmp_path / "ai.db"
+    store = AdvisorDecisionStore(str(path))
+    store.record_unresolved_fill(
+        symbol="SOLUSDT",
+        side="BUY",
+        price="0.123456789123456789",
+        qty="3.000000000000000001",
+        fee_quote="0.000000000000000003",
+        order_id=12345,
+    )
+
+    with sqlite3.connect(path) as connection:
+        row = connection.execute(
+            "SELECT typeof(price),price,price_text,typeof(qty),qty,qty_text,"
+            "typeof(fee_quote),fee_quote,fee_quote_text "
+            "FROM ai_unresolved_fills"
+        ).fetchone()
+
+    assert row == (
+        "text", "0.123456789123456789", "0.123456789123456789",
+        "text", "3.000000000000000001", "3.000000000000000001",
+        "text", "0.000000000000000003", "0.000000000000000003",
+    )
+
+
 def test_legacy_unresolved_mapping_migrates_to_attribution_scope(tmp_path):
     path = tmp_path / "ai.db"
     with sqlite3.connect(path) as connection:
@@ -237,6 +263,60 @@ def test_legacy_unresolved_mapping_migrates_to_attribution_scope(tmp_path):
 
     assert store.unresolved_fill_count_by_scope("ATTRIBUTION") == 1
     assert store.unresolved_fill_count_by_scope("INVENTORY") == 0
+    with sqlite3.connect(path) as connection:
+        affinities = {
+            row[1]: row[2]
+            for row in connection.execute(
+                "PRAGMA table_info(ai_unresolved_fills)"
+            )
+        }
+        values = connection.execute(
+            "SELECT typeof(price),price,price_text,typeof(qty),qty,qty_text "
+            "FROM ai_unresolved_fills"
+        ).fetchone()
+    assert affinities["price"] == "TEXT"
+    assert affinities["qty"] == "TEXT"
+    assert affinities["fee_quote"] == "TEXT"
+    assert values[0] == "text"
+    assert values[1] == values[2]
+    assert float(values[1]) == 77.33
+    assert values[3] == "text"
+    assert values[4] == values[5]
+    assert float(values[4]) == 0.124
+
+
+def test_unresolved_fill_migration_rejects_invalid_exact_evidence(tmp_path):
+    path = tmp_path / "damaged-ai.db"
+    with sqlite3.connect(path) as connection:
+        connection.execute(
+            """CREATE TABLE ai_unresolved_fills(
+                fill_key TEXT PRIMARY KEY, symbol TEXT NOT NULL,
+                side TEXT NOT NULL, order_id TEXT, trade_id TEXT,
+                price REAL NOT NULL, qty REAL NOT NULL,
+                fee_quote REAL NOT NULL DEFAULT 0,
+                price_text TEXT, qty_text TEXT, fee_quote_text TEXT,
+                ts INTEGER NOT NULL, reason TEXT NOT NULL,
+                created_at INTEGER NOT NULL
+            )"""
+        )
+        connection.execute(
+            "INSERT INTO ai_unresolved_fills VALUES("
+            "'damaged','SOLUSDT','BUY','123',NULL,77.33,0.124,0,"
+            "'not-a-decimal','0.124','0',20,'damaged evidence',20)"
+        )
+
+    with pytest.raises(ValueError, match="monetary evidence") as caught:
+        AdvisorDecisionStore(str(path))
+
+    assert "not-a-decimal" not in str(caught.value)
+    with sqlite3.connect(path) as connection:
+        price_affinity = {
+            row[1]: row[2]
+            for row in connection.execute(
+                "PRAGMA table_info(ai_unresolved_fills)"
+            )
+        }["price"]
+    assert price_affinity == "REAL"
 
 
 def test_realized_result_records_partial_fill_and_exit_metadata(tmp_path):

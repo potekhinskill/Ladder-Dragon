@@ -1397,3 +1397,17 @@ private infrastructure details.
 - **Root cause:** a long test name matched the Lob test credential detector.
 - **Correction:** shorten the test name and keep the verified detector enabled.
 - **Prevention:** run the verified remote secret scan before any production deployment.
+
+### 2026-08-08 — Kept REAL affinity in unresolved-fill evidence
+
+- **Impact:** SQLite converted exact incident strings to IEEE-754 values in compatibility columns.
+- **Root cause:** the exact-text migration added companion columns but retained the original REAL declarations.
+- **Correction:** migrate both compatibility and companion columns to equal exact TEXT values.
+- **Prevention:** finish each exact-money migration with storage-affinity and direct-reader tests.
+
+### 2026-08-08 — Assumed one SQLite legacy-float rendering
+
+- **Impact:** the release profile blocked and exposed a non-round-trip legacy value on an older SQLite version.
+- **Root cause:** the first migration used SQLite `printf('%.17g')` and expected identical behavior across versions.
+- **Correction:** use Python 17-digit formatting and verify equal TEXT values plus exact legacy round-trip behavior.
+- **Prevention:** run migration tests with the project virtual environment before the release profile.

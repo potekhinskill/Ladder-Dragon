@@ -3,6 +3,19 @@
 All notable changes are documented here. Releases use Semantic Versioning; every
 section is dated and there is intentionally no `Unreleased` section.
 
+## [2.20.171] — 2026-08-08
+
+### Changed
+- Unresolved-fill monetary columns now use exact TEXT affinity.
+- A transactional migration preserves companion values and round-trips legacy doubles.
+
+### Fixed
+- SQLite can no longer convert new unresolved-fill amounts to IEEE-754 values.
+- Invalid legacy monetary evidence now blocks migration without exposing its value.
+
+### Verified
+- AI storage, migration, lifecycle, restart, and fail-closed regression tests pass.
+
 ## [2.20.170] — 2026-08-08
 
 ### Fixed
