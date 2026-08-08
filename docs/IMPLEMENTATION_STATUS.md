@@ -1,6 +1,6 @@
 # Implementation status
 
-This document describes the code in version **2.20.178**.
+This document describes the code in version **2.20.179**.
 It does not describe future plans as completed work.
 
 An implemented function is not automatically approved for LIVE use.
@@ -67,12 +67,12 @@ Future outcomes are normal pending work.
 Only overdue or unrecovered expired outcomes block the backlog gate.
 The soak report applies its expiration checks to the audited runtime window.
 
-The active experiment contour compares nine version-three candidates on one snapshot:
+The active experiment contour compares twelve version-four candidates on one snapshot:
 
 - maker-only entry and TP;
-- optional RANGE-only entry;
-- BUY lifetimes of 8 and 15 minutes;
-- conservative BUY distances of 30, 40, and 50 basis points.
+- always-active and RANGE-only entry scopes;
+- BUY lifetimes of 30 and 60 minutes;
+- conservative BUY distances of 40, 45, and 50 basis points.
 
 All candidates use the authoritative TP floor.
 Deep-entry candidates can keep or lower the baseline BUY price.

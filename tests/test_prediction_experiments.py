@@ -77,15 +77,18 @@ def test_variants_clear_fee_floor_and_change_one_named_dimension():
     )
 
     assert {variant.variant_id for variant in variants} == {
-        "v3_maker_control",
-        "v3_maker_ttl8",
-        "v3_maker_ttl15",
-        "v3_range_maker_control",
-        "v3_range_maker_ttl8",
-        "v3_range_maker_ttl15",
-        "v3_range_maker_ttl15_gap30",
-        "v3_range_maker_ttl15_gap40",
-        "v3_range_maker_ttl15_gap50",
+        "v4_maker_ttl30_gap40",
+        "v4_maker_ttl30_gap45",
+        "v4_maker_ttl30_gap50",
+        "v4_maker_ttl60_gap40",
+        "v4_maker_ttl60_gap45",
+        "v4_maker_ttl60_gap50",
+        "v4_range_maker_ttl30_gap40",
+        "v4_range_maker_ttl30_gap45",
+        "v4_range_maker_ttl30_gap50",
+        "v4_range_maker_ttl60_gap40",
+        "v4_range_maker_ttl60_gap45",
+        "v4_range_maker_ttl60_gap50",
     }
     for variant in variants:
         target_pct = variant.plan.take_profit_price / variant.plan.entry_price - D("1")
@@ -94,12 +97,12 @@ def test_variants_clear_fee_floor_and_change_one_named_dimension():
         assert variant.maker_only is True
         assert variant.plan.slippage_pct == D("0")
     by_id = {variant.variant_id: variant for variant in variants}
-    assert by_id["v3_maker_ttl8"].plan.entry_ttl_sec == 480
-    assert by_id["v3_maker_ttl15"].plan.entry_ttl_sec == 900
-    assert by_id["v3_range_maker_control"].plan.entry_enabled is False
-    assert by_id["v3_range_maker_ttl15_gap30"].plan.entry_price == D("99.70")
-    assert by_id["v3_range_maker_ttl15_gap40"].plan.entry_price == D("99.6000")
-    assert by_id["v3_range_maker_ttl15_gap50"].plan.entry_price == D("99.5000")
+    assert by_id["v4_maker_ttl30_gap40"].plan.entry_ttl_sec == 1_800
+    assert by_id["v4_maker_ttl60_gap50"].plan.entry_ttl_sec == 3_600
+    assert by_id["v4_range_maker_ttl30_gap40"].plan.entry_enabled is False
+    assert by_id["v4_maker_ttl30_gap40"].plan.entry_price == D("99.6000")
+    assert by_id["v4_maker_ttl30_gap45"].plan.entry_price == D("99.5500")
+    assert by_id["v4_maker_ttl30_gap50"].plan.entry_price == D("99.5000")
 
 
 def test_parallel_variants_share_snapshot_and_explicit_baseline(tmp_path: Path):
@@ -120,13 +123,13 @@ def test_parallel_variants_share_snapshot_and_explicit_baseline(tmp_path: Path):
         variants=variants,
     )
 
-    assert len(set(decision_ids)) == 9
+    assert len(set(decision_ids)) == 12
     with store._connect() as connection:
         rows = connection.execute(
             "SELECT kind,snapshot_ts_ms,baseline_plan_json "
             "FROM prediction_decisions ORDER BY kind"
         ).fetchall()
-    assert len(rows) == 9
+    assert len(rows) == 12
     assert {row[1] for row in rows} == {features.snapshot_ts_ms}
     assert all(row[0].startswith("EXPERIMENT_") for row in rows)
     assert {
@@ -227,13 +230,13 @@ def test_variant_report_never_enables_apply(tmp_path: Path, monkeypatch):
     )
 
     assert report["mode"] == "SHADOW"
-    assert report["generation"] == "v3"
+    assert report["generation"] == "v4"
     assert report["can_change_orders"] is False
     assert all(
         item["promotion_eligible"] is True and item["apply_allowed"] is False
         for item in report["variants"].values()
     )
-    maker = report["variants"]["v3_maker_control"]
+    maker = report["variants"]["v4_maker_ttl30_gap40"]
     assert maker["entry_order_type"] == "LIMIT_MAKER"
     assert maker["exit_order_type"] == "LIMIT_MAKER"
     assert all(
@@ -268,7 +271,7 @@ def test_variant_report_separates_active_cohort_from_opportunity_cost(monkeypatc
             required_edge_pct=D("0.0096"),
             regime="RANGE",
         )
-        if item.variant_id == "v3_range_maker_control"
+        if item.variant_id == "v4_range_maker_ttl30_gap40"
     )
 
     class Store:
@@ -332,7 +335,7 @@ def test_variant_report_separates_future_work_from_backlog(tmp_path: Path):
         before_ts_ms=60_000,
     )
 
-    counts = report["variants"]["v3_maker_control"]["outcomes"]
+    counts = report["variants"]["v4_maker_ttl30_gap40"]["outcomes"]
     assert counts == {
         "total": 3,
         "resolved": 0,
@@ -398,7 +401,7 @@ def test_experiment_recording_is_bounded_to_five_minute_snapshots(
         baseline_plan=baseline,
         required_edge_pct=D("0.0096"),
     )
-    assert store.summary("SOLUSDT")["decisions"] == 9
+    assert store.summary("SOLUSDT")["decisions"] == 12
 
     clock["now"] = 1_301.0
     prediction_shadow.collect_shadow_experiments(
@@ -409,7 +412,7 @@ def test_experiment_recording_is_bounded_to_five_minute_snapshots(
         baseline_plan=baseline,
         required_edge_pct=D("0.0096"),
     )
-    assert store.summary("SOLUSDT")["decisions"] == 18
+    assert store.summary("SOLUSDT")["decisions"] == 24
 
 
 def test_combined_variants_trade_only_in_range():
@@ -452,9 +455,9 @@ def test_deep_entry_candidates_never_move_closer_than_baseline():
 
     deep_entries = [
         item for item in variants
-        if item.dimension == "range_maker_deep_entry"
+        if item.dimension in {"maker_deep_entry", "range_maker_deep_entry"}
     ]
-    assert len(deep_entries) == 3
+    assert len(deep_entries) == 12
     assert all(item.plan.entry_price <= baseline.entry_price for item in deep_entries)
 
 

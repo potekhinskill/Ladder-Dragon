@@ -4,6 +4,13 @@ Read this file before changing the repository. Record only decisions that were
 validated by tests or production evidence and are likely to be reused. Keep
 entries concise; this is not a changelog or an activity log.
 
+### 2026-08-08 — Tune entry distance and lifetime as one SHADOW matrix
+
+- **Context:** deeper maker entry improved edge and drawdown but reduced fill rate.
+- **Decision:** compare three deep gaps with two longer lifetimes in global and RANGE-only scopes.
+- **Why it worked:** tests prove twelve immutable kinds, equal snapshots, exact TP reuse, and permanent SHADOW isolation.
+- **Reuse:** every experiment where one safer parameter creates a measurable participation tradeoff.
+
 ### 2026-08-08 — Keep the socket peer authoritative until application authentication
 
 - **Context:** automatic proxy parsing changed the peer before application checks.

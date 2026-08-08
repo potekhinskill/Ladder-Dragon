@@ -3,6 +3,18 @@
 All notable changes are documented here. Releases use Semantic Versioning; every
 section is dated and there is intentionally no `Unreleased` section.
 
+## [2.20.179] — 2026-08-08
+
+### Changed
+- The active experiment generation now compares twelve immutable version-four maker candidates.
+- Candidates combine 40, 45, and 50 basis-point gaps with 30-minute and 60-minute BUY lifetimes.
+- Each parameter pair runs as an always-active candidate and a RANGE-only candidate.
+- All candidates preserve the authoritative TP floor, safety gates, SHADOW isolation, and `apply_allowed=false`.
+- Version-three evidence remains immutable and separate from the new candidate kinds.
+
+### Verified
+- Sixty focused prediction, safety, and dashboard tests pass with the complete regression suite.
+
 ## [2.20.178] — 2026-08-08
 
 ### Security

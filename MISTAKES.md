@@ -6,6 +6,27 @@ avoidable rework. Identify the root cause rather than recording only the
 symptom. Keep entries concise and exclude secrets, balances, account data, and
 private infrastructure details.
 
+### 2026-08-08 — Repeated a Git metadata permission failure
+
+- **Impact:** the first staging command stopped without changing the index.
+- **Root cause:** the command ignored the earlier branch-lock denial in the same workspace.
+- **Correction:** rerun Git metadata writes with the required workspace permission.
+- **Prevention:** after one Git lock denial, escalate every later metadata write in that task.
+
+### 2026-08-08 — Updated only direct experiment tests
+
+- **Impact:** the first complete regression run failed one supervisor integration count.
+- **Root cause:** the search targeted v3 names and missed a generic decision-count assertion.
+- **Correction:** update the integrated decision total for twelve version-four candidates.
+- **Prevention:** search changed behavior and aggregate counts, not only renamed identifiers.
+
+### 2026-08-08 — Guessed a release test path
+
+- **Impact:** one focused verification command stopped before it ran the requested tests.
+- **Root cause:** the command used an inferred filename instead of the repository test inventory.
+- **Correction:** locate the release and version tests with `rg --files` before the rerun.
+- **Prevention:** derive every focused test path from the current repository before execution.
+
 ### 2026-08-05 — Started a soak epoch before causal recovery
 
 - **Impact:** the v2 stability denominator accumulated authentication-failure reconnect churn.

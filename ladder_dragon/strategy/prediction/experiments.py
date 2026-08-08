@@ -28,15 +28,15 @@ from ladder_dragon.strategy.prediction.walk_forward import (
 
 D = Decimal
 EDGE_EPSILON_PCT = D("0.000001")
-SHADOW_GENERATION = "v3"
+SHADOW_GENERATION = "v4"
 MAKER_TTLS = (
-    ("v3_maker_ttl8", 480),
-    ("v3_maker_ttl15", 900),
+    ("ttl30", 1_800),
+    ("ttl60", 3_600),
 )
-RANGE_DEEP_GAPS = (
-    ("v3_range_maker_ttl15_gap30", D("0.0030")),
-    ("v3_range_maker_ttl15_gap40", D("0.0040")),
-    ("v3_range_maker_ttl15_gap50", D("0.0050")),
+DEEP_ENTRY_GAPS = (
+    ("gap40", D("0.0040")),
+    ("gap45", D("0.0045")),
+    ("gap50", D("0.0050")),
 )
 
 
@@ -127,41 +127,33 @@ def build_shadow_variants(
         )
 
     range_enabled = str(regime).upper() == "RANGE"
-    variants = [
-        variant("v3_maker_control", "maker_control", maker_only=True),
-        *(variant(
-            name,
-            "maker_ttl",
-            entry_ttl_sec=ttl,
-            maker_only=True,
-        ) for name, ttl in MAKER_TTLS),
-        variant(
-            "v3_range_maker_control",
-            "range_maker_control",
-            entry_enabled=range_enabled,
-            maker_only=True,
-        ),
-        *(variant(
-            f"v3_range_maker_ttl{ttl // 60}",
-            "range_maker_ttl",
-            entry_ttl_sec=ttl,
-            entry_enabled=range_enabled,
-            maker_only=True,
-        ) for _name, ttl in MAKER_TTLS),
-        *(variant(
-            name,
-            "range_maker_deep_entry",
+    variants = []
+    for ttl_name, ttl_sec in MAKER_TTLS:
+        for gap_name, gap_pct in DEEP_ENTRY_GAPS:
             # A conservative experiment can keep or deepen the baseline BUY.
-            entry_price=min(
+            entry_price = min(
                 baseline_plan.entry_price,
-                market_price * (D("1") - gap),
-            ),
-            entry_ttl_sec=900,
-            entry_enabled=range_enabled,
-            maker_only=True,
-            entry_gap_pct=gap,
-        ) for name, gap in RANGE_DEEP_GAPS),
-    ]
+                market_price * (D("1") - gap_pct),
+            )
+            variants.extend((
+                variant(
+                    f"v4_maker_{ttl_name}_{gap_name}",
+                    "maker_deep_entry",
+                    entry_price=entry_price,
+                    entry_ttl_sec=ttl_sec,
+                    maker_only=True,
+                    entry_gap_pct=gap_pct,
+                ),
+                variant(
+                    f"v4_range_maker_{ttl_name}_{gap_name}",
+                    "range_maker_deep_entry",
+                    entry_price=entry_price,
+                    entry_ttl_sec=ttl_sec,
+                    entry_enabled=range_enabled,
+                    maker_only=True,
+                    entry_gap_pct=gap_pct,
+                ),
+            ))
     return tuple(variants)
 
 
@@ -305,7 +297,7 @@ def shadow_variant_report(
 __all__ = [
     "EDGE_EPSILON_PCT",
     "MAKER_TTLS",
-    "RANGE_DEEP_GAPS",
+    "DEEP_ENTRY_GAPS",
     "SHADOW_GENERATION",
     "ShadowVariant",
     "build_shadow_variants",

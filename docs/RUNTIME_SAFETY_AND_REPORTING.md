@@ -113,16 +113,16 @@ An incomplete loss-streak boundary blocks BUY inside a valid risk snapshot.
 It does not suppress account reconciliation or SHADOW evidence collection.
 The risk snapshot lists each symbol whose loss-streak evidence is incomplete.
 
-The experiment contour evaluates nine candidates against the untouched current
+The experiment contour evaluates twelve candidates against the untouched current
 strategy plan. All candidates use identical feature timestamps and
 1/5/15-minute candles.
 
 The candidates test these controls:
 
 - maker-only entry and TP;
-- optional RANGE-only entry;
-- BUY lifetimes of 8 and 15 minutes;
-- conservative BUY distances of 30, 40, and 50 basis points.
+- always-active and RANGE-only entry scopes;
+- BUY lifetimes of 30 and 60 minutes;
+- conservative BUY distances of 40, 45, and 50 basis points.
 
 Every candidate uses the authoritative TP floor.
 No candidate can move a BUY closer than the untouched baseline.
