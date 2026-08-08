@@ -1078,3 +1078,10 @@ entries concise; this is not a changelog or an activity log.
 - **Decision:** store a compatibility zero with `unavailable` provenance and exclude the financial result from approval evidence.
 - **Why it worked:** tests preserve lifecycle closure while readiness, RAG, and dashboard PnL reject incomplete costs.
 - **Reuse:** every financial metric where a missing cost is not evidence of zero cost.
+
+### 2026-08-08 — Keep failed horizon settlement pending
+
+- **Context:** a historical price lookup can fail after its prediction horizon matures.
+- **Decision:** preserve `NULL`, emit a safe diagnostic, and retry the same horizon later.
+- **Why it worked:** tests reject current-price substitution and accept only the later successful exact-time lookup.
+- **Reuse:** every retriable label or outcome whose source has authoritative time identity.

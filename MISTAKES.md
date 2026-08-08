@@ -1418,3 +1418,10 @@ private infrastructure details.
 - **Root cause:** the linkage schema had no provenance field for an unavailable expected price.
 - **Correction:** add slippage provenance and exclude incomplete financial evidence from approval consumers.
 - **Prevention:** every optional financial input must distinguish unavailable data from a verified zero.
+
+### 2026-08-08 — Stored current price as historical settlement
+
+- **Impact:** a transient lookup failure could create permanent, incorrect predictor labels.
+- **Root cause:** exception handling replaced unavailable historical evidence with the current cycle price.
+- **Correction:** keep the horizon pending and retry the authoritative lookup during a later cycle.
+- **Prevention:** never persist a fallback value as time-bound ground truth without explicit provenance.

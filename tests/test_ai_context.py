@@ -213,6 +213,51 @@ def test_decision_store_settles_horizons_and_calculates_accuracy(tmp_path):
     assert performance.ai_accuracy_4h == 0
 
 
+def test_decision_store_retries_failed_horizon_price_without_fallback(tmp_path):
+    path = tmp_path / "decisions.db"
+    store = AdvisorDecisionStore(str(path))
+    decision = store.record(
+        symbol="SOLUSDT", price="100", deterministic_mode="FLAT",
+        recommended_mode="UP", width_scale=1, cap_scale=1,
+        confidence=.8, applied=False, now=1_000,
+    )
+    requests = []
+    diagnostics = []
+
+    def unavailable(_symbol, target_ms):
+        requests.append(target_ms)
+        raise RuntimeError("private provider response")
+
+    assert store.settle(
+        "SOLUSDT", "999", now=1_900, price_lookup=unavailable,
+        source_error=diagnostics.append,
+    ) == 0
+    with sqlite3.connect(path) as connection:
+        pending = connection.execute(
+            "SELECT return_15m,return_15m_text FROM ai_decisions "
+            "WHERE decision_id=?",
+            (decision,),
+        ).fetchone()
+    assert requests == [1_900_000]
+    assert pending == (None, None)
+    assert diagnostics == [
+        "[AI-SETTLEMENT] horizon price unavailable; "
+        "symbol=SOLUSDT; horizon_sec=900; error_type=RuntimeError"
+    ]
+    assert "private provider response" not in diagnostics[0]
+
+    assert store.settle(
+        "SOLUSDT", "999", now=1_901,
+        price_lookup=lambda _symbol, _target_ms: "101",
+    ) == 1
+    with sqlite3.connect(path) as connection:
+        settled = connection.execute(
+            "SELECT return_15m_text FROM ai_decisions WHERE decision_id=?",
+            (decision,),
+        ).fetchone()
+    assert settled == ("0.01",)
+
+
 def test_decision_store_records_virtual_ai_and_baseline_plan(tmp_path):
     store = AdvisorDecisionStore(str(tmp_path / "decisions.db"))
     store.record(

@@ -1235,6 +1235,7 @@ class AdvisorDecisionStore:
         now: int | None = None,
         price_lookup: Callable[[str, int], object] | None = None,
         candles_lookup: Callable[[str, int, int], Sequence[Sequence[Any]]] | None = None,
+        source_error: Callable[[str], None] | None = None,
     ) -> int:
         """Settle matured decisions without reading beyond each horizon."""
         now = int(now or time.time())
@@ -1279,8 +1280,12 @@ class AdvisorDecisionStore:
                                     price_lookup(symbol, (created_at + horizon) * 1000),
                                     field="horizon settlement price",
                                 )
-                            except AI_CONTEXT_SOURCE_ERRORS:
-                                horizon_price_exact = current_price_exact
+                            except AI_CONTEXT_SOURCE_ERRORS as exc:
+                                if source_error is not None:
+                                    source_error("[AI-SETTLEMENT] horizon price unavailable; "
+                                        f"symbol={symbol.upper()}; horizon_sec={horizon}; "
+                                        f"error_type={exc.__class__.__name__}")
+                                continue
                         return_exact = horizon_price_exact / price_exact - Decimal("1")
                         changes[column] = format(return_exact, "f")
                         changes[f"{column}_text"] = format(return_exact, "f")

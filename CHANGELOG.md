@@ -3,6 +3,19 @@
 All notable changes are documented here. Releases use Semantic Versioning; every
 section is dated and there is intentionally no `Unreleased` section.
 
+## [2.20.173] — 2026-08-08
+
+### Changed
+- AI return settlement now retries a horizon after a historical price source failure.
+- Settlement diagnostics contain only safe structural fields.
+
+### Fixed
+- A transient lookup failure no longer stores the current price as historical ground truth.
+- Failed horizons remain pending and cannot enter predictor quality statistics.
+
+### Verified
+- Settlement retry, exact timestamp, no-look-ahead, diagnostic, and complete regression tests pass.
+
 ## [2.20.172] — 2026-08-08
 
 ### Changed

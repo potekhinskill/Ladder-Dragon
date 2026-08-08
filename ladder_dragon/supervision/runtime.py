@@ -2781,6 +2781,7 @@ def _build_ai_market_context(
                 price,
                 price_lookup=horizon_price,
                 candles_lookup=horizon_candles,
+                source_error=dbg,
             )
         except sqlite3.Error as exc:
             dbg(f"[AI-DECISION] settle failed: {exc}")
