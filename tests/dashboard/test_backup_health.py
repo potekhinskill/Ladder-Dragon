@@ -59,7 +59,7 @@ def test_archive_without_verified_status_is_unknown(tmp_path):
     assert "last_success" not in result
 
 
-def test_corrupt_or_legacy_status_is_unknown(tmp_path):
+def test_bad_status_is_unknown(tmp_path):
     _archive(tmp_path)
     status = tmp_path / "backup_status.json"
     status.write_text("not-json", encoding="utf-8")

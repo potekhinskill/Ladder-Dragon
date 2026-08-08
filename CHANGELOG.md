@@ -3,6 +3,17 @@
 All notable changes are documented here. Releases use Semantic Versioning; every
 section is dated and there is intentionally no `Unreleased` section.
 
+## [2.20.170] — 2026-08-08
+
+### Fixed
+- The backup status test no longer uses an identifier that resembles a Lob test credential.
+
+### Security
+- The verified TruffleHog gate remains strict and requires no detector exclusion.
+
+### Verified
+- The complete release profile and both GitHub security workflows pass.
+
 ## [2.20.169] — 2026-08-08
 
 ### Added

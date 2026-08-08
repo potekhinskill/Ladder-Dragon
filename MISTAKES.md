@@ -1390,3 +1390,10 @@ private infrastructure details.
 - **Root cause:** status and archive identity were independent, and the archive fallback was optimistic.
 - **Correction:** publish verified archives atomically and require matching status identity before success.
 - **Prevention:** artifact health must use completion evidence that identifies the exact published artifact.
+
+### 2026-08-08 — Used a credential-like test identifier
+
+- **Impact:** the verified secret scan blocked the first release candidate.
+- **Root cause:** a long test name matched the Lob test credential detector.
+- **Correction:** shorten the test name and keep the verified detector enabled.
+- **Prevention:** run the verified remote secret scan before any production deployment.
