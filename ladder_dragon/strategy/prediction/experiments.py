@@ -28,7 +28,8 @@ from ladder_dragon.strategy.prediction.walk_forward import (
 
 D = Decimal
 EDGE_EPSILON_PCT = D("0.000001")
-SHADOW_GENERATION = "v5"
+SHADOW_GENERATION = "v6"
+EXPERIMENT_HORIZONS_MIN = (30, 60)
 MAKER_TTLS = (
     ("ttl30", 1_800),
     ("ttl60", 3_600),
@@ -134,7 +135,7 @@ def build_shadow_variants(
             entry_price = market_price * (D("1") - gap_pct)
             variants.extend((
                 variant(
-                    f"v5_maker_{ttl_name}_{gap_name}",
+                    f"v6_maker_{ttl_name}_{gap_name}",
                     "maker_entry_gap",
                     entry_price=entry_price,
                     entry_ttl_sec=ttl_sec,
@@ -142,7 +143,7 @@ def build_shadow_variants(
                     entry_gap_pct=gap_pct,
                 ),
                 variant(
-                    f"v5_range_maker_{ttl_name}_{gap_name}",
+                    f"v6_range_maker_{ttl_name}_{gap_name}",
                     "range_maker_entry_gap",
                     entry_price=entry_price,
                     entry_ttl_sec=ttl_sec,
@@ -169,7 +170,12 @@ def record_shadow_variants(
             before_ts_ms=features.snapshot_ts_ms,
             kind=variant.kind,
         )
-        predictions = predict_distribution(features, variant.plan, history)
+        predictions = predict_distribution(
+            features,
+            variant.plan,
+            history,
+            horizons_min=EXPERIMENT_HORIZONS_MIN,
+        )
         decision_ids.append(store.record(
             kind=variant.kind,
             symbol=symbol,
@@ -180,6 +186,7 @@ def record_shadow_variants(
             algorithm_decision=(
                 f"variant={variant.variant_id};dimension={variant.dimension}"
             ),
+            horizons_min=EXPERIMENT_HORIZONS_MIN,
         ))
     return tuple(decision_ids)
 
@@ -209,11 +216,17 @@ def shadow_variant_report(
             before_ts_ms=before_ts_ms,
             kind=variant.kind,
         )
-        walk_forward = walk_forward_prediction_report(samples)
+        walk_forward = walk_forward_prediction_report(
+            samples,
+            required_horizons_min=EXPERIMENT_HORIZONS_MIN,
+        )
         active_samples = [
             row for row in samples if row.outcome.exit_reason != "NO_TRADE"
         ]
-        active_gate = walk_forward_prediction_report(active_samples)["gate"]
+        active_gate = walk_forward_prediction_report(
+            active_samples,
+            required_horizons_min=EXPERIMENT_HORIZONS_MIN,
+        )["gate"]
         evidence[variant.variant_id] = (
             variant,
             samples,
@@ -284,6 +297,7 @@ def shadow_variant_report(
     return {
         "mode": "SHADOW",
         "generation": SHADOW_GENERATION,
+        "horizons_min": list(EXPERIMENT_HORIZONS_MIN),
         "baseline": "current_strategy_plan",
         "same_snapshot": True,
         "can_change_orders": False,
@@ -293,6 +307,7 @@ def shadow_variant_report(
 
 __all__ = [
     "EDGE_EPSILON_PCT",
+    "EXPERIMENT_HORIZONS_MIN",
     "MAKER_TTLS",
     "MAKER_ENTRY_GAPS",
     "SHADOW_GENERATION",

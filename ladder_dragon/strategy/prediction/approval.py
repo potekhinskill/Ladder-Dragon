@@ -16,7 +16,23 @@ from ladder_dragon.strategy.prediction.models import ResolvedSample
 
 D = Decimal
 ZERO = D("0")
-HORIZONS_MIN = (1, 5, 15)
+DEFAULT_HORIZONS_MIN = (1, 5, 15)
+
+
+def _validated_horizons(horizons_min: Sequence[int]) -> tuple[int, ...]:
+    horizons = tuple(horizons_min)
+    invalid_type = any(
+        isinstance(value, bool) or not isinstance(value, int)
+        for value in horizons
+    )
+    if (
+        not horizons
+        or invalid_type
+        or any(value <= 0 for value in horizons)
+        or tuple(sorted(set(horizons))) != horizons
+    ):
+        raise ValueError("approval horizons must be unique increasing positive integers")
+    return horizons
 
 
 def bootstrap_mean_ci(
@@ -92,8 +108,10 @@ def prediction_apply_gate(
     min_regime_samples: int = 20,
     min_fill_rate: Decimal = D("0.10"),
     max_drawdown_quote: Decimal = D("25"),
+    required_horizons_min: Sequence[int] = DEFAULT_HORIZONS_MIN,
 ) -> dict[str, object]:
     """Approve nothing unless net edge survives CI, Holm and every regime."""
+    required_horizons = _validated_horizons(required_horizons_min)
     ordered = sorted(samples, key=lambda item: (item.snapshot_ts_ms, item.horizon_min))
     grouped: dict[int, list[ResolvedSample]] = {}
     for item in ordered:
@@ -120,7 +138,7 @@ def prediction_apply_gate(
     ci = bootstrap_mean_ci(pnl)
     edge_ci = bootstrap_mean_ci(edges)
     hypotheses: list[tuple[str, list[Decimal]]] = []
-    for horizon in HORIZONS_MIN:
+    for horizon in required_horizons:
         horizon_rows = [row for row in ordered if row.horizon_min == horizon]
         hypotheses.append((
             f"horizon_{horizon}",

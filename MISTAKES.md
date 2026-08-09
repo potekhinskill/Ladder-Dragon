@@ -1488,3 +1488,10 @@ private infrastructure details.
 - **Root cause:** the first patch did not check the destination test module budget.
 - **Correction:** move proxy security tests into a focused component module.
 - **Prevention:** check architecture budgets before adding tests to an established component.
+
+### 2026-08-10 — Compared lifetimes beyond the observation horizon
+
+- **Impact:** version-four and version-five TTL pairs produced identical evidence and delayed useful learning.
+- **Root cause:** candidate lifetimes exceeded the fixed 15-minute maximum outcome horizon.
+- **Correction:** give version-six candidates isolated 30-minute and 60-minute outcome horizons.
+- **Prevention:** prove that each experimental parameter can change an outcome inside its observation window.

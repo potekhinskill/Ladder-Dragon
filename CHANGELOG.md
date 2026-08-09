@@ -3,6 +3,19 @@
 All notable changes are documented here. Releases use Semantic Versioning; every
 section is dated and there is intentionally no `Unreleased` section.
 
+## [2.20.182] — 2026-08-10
+
+### Changed
+- Version-six SHADOW candidates now use isolated 30-minute and 60-minute outcome horizons.
+- Normal strategy predictions retain their required 1, 5, and 15-minute horizons.
+- Approval hypotheses now follow the explicitly selected horizon set.
+
+### Fixed
+- Entry lifetimes of 30 and 60 minutes are no longer evaluated through the same 15-minute window.
+
+### Verified
+- Minute-45 fill separation, horizon isolation, immutable evidence, fail-closed approval, and prediction tests pass.
+
 ## [2.20.181] — 2026-08-09
 
 ### Changed

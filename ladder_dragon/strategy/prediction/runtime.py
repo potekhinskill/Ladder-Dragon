@@ -350,21 +350,39 @@ def _technical_prior(
     )
 
 
+def _validated_horizons(horizons_min: Sequence[int]) -> tuple[int, ...]:
+    horizons = tuple(horizons_min)
+    invalid_type = any(
+        isinstance(value, bool) or not isinstance(value, int)
+        for value in horizons
+    )
+    if (
+        not horizons
+        or invalid_type
+        or any(value <= 0 for value in horizons)
+        or tuple(sorted(set(horizons))) != horizons
+    ):
+        raise ValueError("prediction horizons must be unique increasing positive integers")
+    return horizons
+
+
 def predict_distribution(
     features: PredictionFeatures,
     plan: TradePlan,
     history: Sequence[ResolvedSample],
     *,
     min_samples: int = 60,
+    horizons_min: Sequence[int] = HORIZONS_MIN,
 ) -> tuple[HorizonPrediction, ...]:
     """Blend a TA prior with only chronologically eligible empirical outcomes."""
+    horizons = _validated_horizons(horizons_min)
     if not plan.entry_enabled:
         return tuple(
             HorizonPrediction(horizon, ZERO, ZERO, ZERO, ZERO, ZERO, 0, True)
-            for horizon in HORIZONS_MIN
+            for horizon in horizons
         )
     output: list[HorizonPrediction] = []
-    for horizon in HORIZONS_MIN:
+    for horizon in horizons:
         prior = _technical_prior(features, plan, horizon)
         rows = [
             sample for sample in history
@@ -574,8 +592,12 @@ class PredictionShadowStore:
         predictions: Sequence[HorizonPrediction],
         algorithm_decision: str,
         baseline_plan: TradePlan | None = None,
+        horizons_min: Sequence[int] = HORIZONS_MIN,
     ) -> str:
         """Persist one immutable forecast and its untouched baseline plan."""
+        horizons = _validated_horizons(horizons_min)
+        if tuple(item.horizon_min for item in predictions) != horizons:
+            raise ValueError("prediction horizons do not match outcome horizons")
         normalized_kind = kind.upper()
         experimental = normalized_kind.startswith("EXPERIMENT_")
         if normalized_kind not in {"STRATEGY", "REANCHOR"} and not experimental:
@@ -614,7 +636,7 @@ class PredictionShadowStore:
                     algorithm_decision[:160], now_ms,
                 ),
             )
-            for horizon in HORIZONS_MIN:
+            for horizon in horizons:
                 eligible_at = evaluation_end_ms(
                     features.snapshot_ts_ms, horizon
                 )

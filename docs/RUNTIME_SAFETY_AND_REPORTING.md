@@ -115,13 +115,14 @@ The risk snapshot lists each symbol whose loss-streak evidence is incomplete.
 
 The experiment contour evaluates twelve candidates against the untouched current
 strategy plan. All candidates use identical feature timestamps and
-1/5/15-minute candles.
+30/60-minute outcome windows.
 
 The candidates test these controls:
 
 - maker-only entry and TP;
 - always-active and RANGE-only entry scopes;
 - BUY lifetimes of 30 and 60 minutes;
+- outcome horizons of 30 and 60 minutes;
 - explicit BUY distances of 15, 20, and 25 basis points.
 
 Every candidate uses the authoritative TP floor.
@@ -129,6 +130,7 @@ Candidate prices can be closer than the baseline because they cannot change orde
 
 Each semantic generation uses new experiment identifiers.
 The database retains older results without mixing them into the active gate.
+The ordinary strategy gate still requires 1, 5, and 15-minute outcomes.
 
 The promotion set excludes re-anchor. Recording is limited to one candidate
 set per five minutes. Expensive gates refresh at most every 15 minutes.

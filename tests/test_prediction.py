@@ -535,7 +535,7 @@ def test_supervisor_shadow_records_strategy_and_hashed_reanchor(
     )
 
     summary = store.summary("SOLUSDT")
-    # One strategy decision, one re-anchor sample, and twelve v4 candidates.
+    # One strategy decision, one re-anchor sample, and twelve v6 candidates.
     assert summary["decisions"] == 14
     assert summary["reanchor_counterfactuals"] == 1
     assert ai_supervisor._AI_RUNTIME_STATUS["prediction"][
@@ -581,6 +581,52 @@ def test_walk_forward_and_apply_gate_are_chronological_and_strict():
     assert prediction_apply_gate(samples[:10])["mode"] == "SHADOW"
 
 
+def test_apply_gate_uses_explicit_experiment_horizons():
+    samples = []
+    for index in range(120):
+        horizon = (30, 60)[index % 2]
+        outcome = PredictionOutcome(
+            horizon, True, True, D("1"), D("0"), 30, "TP", index + 1
+        )
+        samples.append(ResolvedSample(
+            snapshot_ts_ms=index,
+            regime=("TREND_UP", "TREND_DOWN", "RANGE", "PANIC")[index % 4],
+            horizon_min=horizon,
+            outcome=outcome,
+            baseline_net_pnl_quote=D("0"),
+        ))
+
+    gate = prediction_apply_gate(samples, required_horizons_min=(30, 60))
+
+    assert set(gate["hypotheses"]) >= {"horizon_30", "horizon_60"}
+    assert "horizon_15" not in gate["hypotheses"]
+
+
+@pytest.mark.parametrize("horizons", [(), (60, 30), (30, 30), (0, 30)])
+def test_apply_gate_rejects_invalid_required_horizons(horizons):
+    with pytest.raises(ValueError, match="unique increasing positive integers"):
+        prediction_apply_gate([], required_horizons_min=horizons)
+
+
+def test_store_rejects_mismatched_prediction_and_outcome_horizons(tmp_path):
+    store = PredictionShadowStore(tmp_path / "prediction.sqlite3")
+    features = _features()
+    plan = _plan()
+    predictions = predict_distribution(
+        features, plan, [], horizons_min=(30, 60)
+    )
+
+    with pytest.raises(ValueError, match="do not match"):
+        store.record(
+            kind="STRATEGY",
+            symbol="SOLUSDT",
+            features=features,
+            plan=plan,
+            predictions=predictions,
+            algorithm_decision="invalid-horizon-contract",
+        )
+
+
 def test_walk_forward_gate_excludes_cold_start_samples(monkeypatch):
     samples = []
     for index in range(4):
@@ -603,7 +649,7 @@ def test_walk_forward_gate_excludes_cold_start_samples(monkeypatch):
         ))
     gated: list[ResolvedSample] = []
 
-    def capture_gate(rows):
+    def capture_gate(rows, **_kwargs):
         gated.extend(rows)
         return {"mode": "SHADOW"}
 

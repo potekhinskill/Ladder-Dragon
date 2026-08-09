@@ -16,6 +16,7 @@ def walk_forward_prediction_report(
     samples: Sequence[ResolvedSample],
     *,
     min_train_samples: int = 60,
+    required_horizons_min: Sequence[int] = (1, 5, 15),
 ) -> dict[str, object]:
     """Evaluate chronologically; a sample can train only later timestamps."""
     ordered = sorted(samples, key=lambda item: (item.snapshot_ts_ms, item.horizon_min))
@@ -54,7 +55,10 @@ def walk_forward_prediction_report(
         "evaluated": evaluated,
         # The approval cohort must match the reported walk-forward cohort.
         # Cold-start rows have no valid training history and cannot affect APPLY.
-        "gate": prediction_apply_gate(eligible_samples),
+        "gate": prediction_apply_gate(
+            eligible_samples,
+            required_horizons_min=required_horizons_min,
+        ),
     }
 
 __all__ = ["walk_forward_prediction_report"]

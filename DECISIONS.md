@@ -1141,3 +1141,10 @@ entries concise; this is not a changelog or an activity log.
 - **Decision:** start immutable version-five candidates at explicit 15, 20, and 25 basis-point gaps.
 - **Why it worked:** explicit prices remain distinct when the baseline gap is deeper.
 - **Reuse:** every SHADOW generation whose tested action never occurs in a material sample.
+
+### 2026-08-10 — Match experiment horizons to candidate lifetimes
+
+- **Context:** 30-minute and 60-minute entry lifetimes were evaluated only through 15 minutes.
+- **Decision:** version-six experiments use isolated 30-minute and 60-minute outcome horizons.
+- **Why it worked:** a regression proves that a minute-45 fill distinguishes the two lifetimes.
+- **Reuse:** every experiment whose parameter can act only after the standard observation window.
