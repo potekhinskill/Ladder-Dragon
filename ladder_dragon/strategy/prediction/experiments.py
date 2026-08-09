@@ -28,15 +28,15 @@ from ladder_dragon.strategy.prediction.walk_forward import (
 
 D = Decimal
 EDGE_EPSILON_PCT = D("0.000001")
-SHADOW_GENERATION = "v4"
+SHADOW_GENERATION = "v5"
 MAKER_TTLS = (
     ("ttl30", 1_800),
     ("ttl60", 3_600),
 )
-DEEP_ENTRY_GAPS = (
-    ("gap40", D("0.0040")),
-    ("gap45", D("0.0045")),
-    ("gap50", D("0.0050")),
+MAKER_ENTRY_GAPS = (
+    ("gap15", D("0.0015")),
+    ("gap20", D("0.0020")),
+    ("gap25", D("0.0025")),
 )
 
 
@@ -129,24 +129,21 @@ def build_shadow_variants(
     range_enabled = str(regime).upper() == "RANGE"
     variants = []
     for ttl_name, ttl_sec in MAKER_TTLS:
-        for gap_name, gap_pct in DEEP_ENTRY_GAPS:
-            # A conservative experiment can keep or deepen the baseline BUY.
-            entry_price = min(
-                baseline_plan.entry_price,
-                market_price * (D("1") - gap_pct),
-            )
+        for gap_name, gap_pct in MAKER_ENTRY_GAPS:
+            # An explicit market gap keeps every candidate distinct from the baseline.
+            entry_price = market_price * (D("1") - gap_pct)
             variants.extend((
                 variant(
-                    f"v4_maker_{ttl_name}_{gap_name}",
-                    "maker_deep_entry",
+                    f"v5_maker_{ttl_name}_{gap_name}",
+                    "maker_entry_gap",
                     entry_price=entry_price,
                     entry_ttl_sec=ttl_sec,
                     maker_only=True,
                     entry_gap_pct=gap_pct,
                 ),
                 variant(
-                    f"v4_range_maker_{ttl_name}_{gap_name}",
-                    "range_maker_deep_entry",
+                    f"v5_range_maker_{ttl_name}_{gap_name}",
+                    "range_maker_entry_gap",
                     entry_price=entry_price,
                     entry_ttl_sec=ttl_sec,
                     entry_enabled=range_enabled,
@@ -297,7 +294,7 @@ def shadow_variant_report(
 __all__ = [
     "EDGE_EPSILON_PCT",
     "MAKER_TTLS",
-    "DEEP_ENTRY_GAPS",
+    "MAKER_ENTRY_GAPS",
     "SHADOW_GENERATION",
     "ShadowVariant",
     "build_shadow_variants",

@@ -122,10 +122,10 @@ The candidates test these controls:
 - maker-only entry and TP;
 - always-active and RANGE-only entry scopes;
 - BUY lifetimes of 30 and 60 minutes;
-- conservative BUY distances of 40, 45, and 50 basis points.
+- explicit BUY distances of 15, 20, and 25 basis points.
 
 Every candidate uses the authoritative TP floor.
-No candidate can move a BUY closer than the untouched baseline.
+Candidate prices can be closer than the baseline because they cannot change orders.
 
 Each semantic generation uses new experiment identifiers.
 The database retains older results without mixing them into the active gate.

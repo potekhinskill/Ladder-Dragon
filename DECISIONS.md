@@ -1134,3 +1134,10 @@ entries concise; this is not a changelog or an activity log.
 - **Decision:** select bounded oldest and newest due decisions from the complete history.
 - **Why it worked:** tests settle old rows, bound each cycle, and preserve current work.
 - **Reuse:** every retry queue that combines historical recovery with current results.
+
+### 2026-08-09 — Retire zero-fill SHADOW entry gaps early
+
+- **Context:** all version-four 40–50 basis-point candidates had zero fills after 319 resolved outcomes each.
+- **Decision:** start immutable version-five candidates at explicit 15, 20, and 25 basis-point gaps.
+- **Why it worked:** explicit prices remain distinct when the baseline gap is deeper.
+- **Reuse:** every SHADOW generation whose tested action never occurs in a material sample.

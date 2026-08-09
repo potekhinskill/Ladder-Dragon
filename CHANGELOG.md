@@ -3,6 +3,16 @@
 All notable changes are documented here. Releases use Semantic Versioning; every
 section is dated and there is intentionally no `Unreleased` section.
 
+## [2.20.181] — 2026-08-09
+
+### Changed
+- The active SHADOW generation now uses immutable version-five candidate identifiers.
+- Maker entry gaps now test 15, 20, and 25 basis points with 30-minute and 60-minute lifetimes.
+- Candidate prices use explicit market gaps instead of inheriting a deeper baseline.
+
+### Verified
+- Version-five identity, price isolation, maker-only behavior, RANGE gating, and experiment tests pass.
+
 ## [2.20.180] — 2026-08-09
 
 ### Changed
