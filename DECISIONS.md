@@ -4,6 +4,13 @@ Read this file before changing the repository. Record only decisions that were
 validated by tests or production evidence and are likely to be reused. Keep
 entries concise; this is not a changelog or an activity log.
 
+### 2026-08-10 — Observe an exit after the entry lifetime
+
+- **Context:** version-six ended one outcome horizon when its 60-minute BUY lifetime ended.
+- **Decision:** version-seven uses a 60-minute entry lifetime with 90-minute and 120-minute outcomes.
+- **Why it worked:** a regression fills at minute 60 and observes a later TP on both horizons.
+- **Reuse:** every experiment where entry can occur near the end of its permitted lifetime.
+
 ### 2026-08-08 — Tune entry distance and lifetime as one SHADOW matrix
 
 - **Context:** deeper maker entry improved edge and drawdown but reduced fill rate.

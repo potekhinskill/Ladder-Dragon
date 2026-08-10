@@ -3,6 +3,20 @@
 All notable changes are documented here. Releases use Semantic Versioning; every
 section is dated and there is intentionally no `Unreleased` section.
 
+## [2.20.183] — 2026-08-10
+
+### Changed
+- Version-seven SHADOW narrows the matrix to 25, 30, and 35 basis-point maker entries.
+- Each candidate uses a 60-minute BUY lifetime and remains always active.
+- Outcome horizons increase to 90 and 120 minutes.
+
+### Fixed
+- A late BUY fill now has a separate observation period for TP or STOP evidence.
+- Rejected RANGE-only and 30-minute lifetime variants no longer consume the active experiment matrix.
+
+### Verified
+- Late-fill exit observation, immutable identifiers, exact horizons, SHADOW isolation, and prediction tests pass.
+
 ## [2.20.182] — 2026-08-10
 
 ### Changed

@@ -6,6 +6,13 @@ avoidable rework. Identify the root cause rather than recording only the
 symptom. Keep entries concise and exclude secrets, balances, account data, and
 private infrastructure details.
 
+### 2026-08-10 — Ended one outcome at the entry deadline
+
+- **Impact:** late version-six fills had no separate time to produce TP or STOP evidence.
+- **Root cause:** the 60-minute outcome horizon equaled the longest permitted BUY lifetime.
+- **Correction:** version-seven evaluates the 60-minute BUY lifetime through 90-minute and 120-minute outcomes.
+- **Prevention:** require each entry experiment to retain a tested post-fill observation period.
+
 ### 2026-08-08 — Repeated a Git metadata permission failure
 
 - **Impact:** the first staging command stopped without changing the index.

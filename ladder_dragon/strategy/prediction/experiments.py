@@ -28,16 +28,15 @@ from ladder_dragon.strategy.prediction.walk_forward import (
 
 D = Decimal
 EDGE_EPSILON_PCT = D("0.000001")
-SHADOW_GENERATION = "v6"
-EXPERIMENT_HORIZONS_MIN = (30, 60)
+SHADOW_GENERATION = "v7"
+EXPERIMENT_HORIZONS_MIN = (90, 120)
 MAKER_TTLS = (
-    ("ttl30", 1_800),
     ("ttl60", 3_600),
 )
 MAKER_ENTRY_GAPS = (
-    ("gap15", D("0.0015")),
-    ("gap20", D("0.0020")),
     ("gap25", D("0.0025")),
+    ("gap30", D("0.0030")),
+    ("gap35", D("0.0035")),
 )
 
 
@@ -87,7 +86,7 @@ def build_shadow_variants(
     required_edge_pct: Decimal,
     regime: str,
 ) -> tuple[ShadowVariant, ...]:
-    """Build isolated and combined candidates above the authoritative fee floor."""
+    """Build narrowed maker candidates above the authoritative fee floor."""
     if not market_price.is_finite() or market_price <= 0:
         raise ValueError("market price must be positive and finite")
     if not required_edge_pct.is_finite() or required_edge_pct <= 0:
@@ -127,30 +126,21 @@ def build_shadow_variants(
             ),
         )
 
-    range_enabled = str(regime).upper() == "RANGE"
+    # Version seven keeps the regime argument for the stable caller contract.
+    # Production evidence rejected the RANGE-only cohort, so it cannot gate entry.
+    del regime
     variants = []
     for ttl_name, ttl_sec in MAKER_TTLS:
         for gap_name, gap_pct in MAKER_ENTRY_GAPS:
             # An explicit market gap keeps every candidate distinct from the baseline.
             entry_price = market_price * (D("1") - gap_pct)
-            variants.extend((
-                variant(
-                    f"v6_maker_{ttl_name}_{gap_name}",
-                    "maker_entry_gap",
-                    entry_price=entry_price,
-                    entry_ttl_sec=ttl_sec,
-                    maker_only=True,
-                    entry_gap_pct=gap_pct,
-                ),
-                variant(
-                    f"v6_range_maker_{ttl_name}_{gap_name}",
-                    "range_maker_entry_gap",
-                    entry_price=entry_price,
-                    entry_ttl_sec=ttl_sec,
-                    entry_enabled=range_enabled,
-                    maker_only=True,
-                    entry_gap_pct=gap_pct,
-                ),
+            variants.append(variant(
+                f"v7_maker_{ttl_name}_{gap_name}",
+                "maker_entry_gap",
+                entry_price=entry_price,
+                entry_ttl_sec=ttl_sec,
+                maker_only=True,
+                entry_gap_pct=gap_pct,
             ))
     return tuple(variants)
 

@@ -1,6 +1,6 @@
 # Implementation status
 
-This document describes the code in version **2.20.182**.
+This document describes the code in version **2.20.183**.
 It does not describe future plans as completed work.
 
 An implemented function is not automatically approved for LIVE use.
@@ -69,13 +69,13 @@ Future outcomes are normal pending work.
 Only overdue or unrecovered expired outcomes block the backlog gate.
 The soak report applies its expiration checks to the audited runtime window.
 
-The active experiment contour compares twelve version-six candidates on one snapshot:
+The active experiment contour compares three version-seven candidates on one snapshot:
 
 - maker-only entry and TP;
-- always-active and RANGE-only entry scopes;
-- BUY lifetimes of 30 and 60 minutes;
-- outcome horizons of 30 and 60 minutes;
-- explicit BUY distances of 15, 20, and 25 basis points.
+- an always-active entry scope;
+- a BUY lifetime of 60 minutes;
+- outcome horizons of 90 and 120 minutes;
+- explicit BUY distances of 25, 30, and 35 basis points.
 
 All candidates use the authoritative TP floor.
 Candidate prices use their explicit market gaps independently from the baseline.
@@ -83,9 +83,8 @@ All candidates use the same immutable snapshot and baseline.
 Normal strategy predictions retain their 1, 5, and 15-minute horizons.
 
 The promotion gate evaluates the complete candidate strategy.
-It includes `NO_TRADE` opportunity cost against the active baseline.
-The report also shows an active-entry cohort without `NO_TRADE` rows.
-That cohort is diagnostic and cannot approve APPLY.
+All active candidates use the same entry scope.
+The active-entry diagnostic therefore uses the same cohort.
 
 Operational analytics use the latest 1,000 decisions for each candidate.
 This limit bounds Raspberry Pi memory and temporary storage use.
