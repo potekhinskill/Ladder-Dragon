@@ -4,6 +4,13 @@ Read this file before changing the repository. Record only decisions that were
 validated by tests or production evidence and are likely to be reused. Keep
 entries concise; this is not a changelog or an activity log.
 
+### 2026-08-11 — Alert on persisted incident transitions
+
+- **Context:** one changed public IP remained pending through each signed authentication retry.
+- **Decision:** alert only when the persisted pending fingerprint changes, and omit diagnostic identifiers from Telegram.
+- **Why it worked:** tests prove repeated observations send one notice and signed recovery accepts the pending fingerprint before its notice.
+- **Reuse:** every persistent incident whose condition remains true across retries or process restarts.
+
 ### 2026-08-10 — Observe an exit after the entry lifetime
 
 - **Context:** version-six ended one outcome horizon when its 60-minute BUY lifetime ended.

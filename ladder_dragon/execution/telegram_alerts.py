@@ -112,6 +112,27 @@ def notify(event: str, reasons: list[str] | tuple[str, ...], metadata: dict | No
     return send_message("\n".join(lines))
 
 
+def notify_public_ip_change() -> bool:
+    """Send one operator-focused notice for a newly observed public IP."""
+    return notify(
+        "public IP change detected",
+        [
+            "Two independent sources confirmed the change",
+            "Binance access is checked automatically; BUY remains blocked",
+            "No Raspberry Pi restart is required",
+        ],
+    )
+
+
+def notify_binance_auth_recovered(*, public_ip_accepted: bool) -> bool:
+    """Explain signed-access recovery without exposing diagnostic identifiers."""
+    reasons = ["Signed Binance access succeeded"]
+    if public_ip_accepted:
+        reasons.append("IP Guard accepted the new public IP")
+    reasons.append("Other risk gates remain unchanged")
+    return notify("Binance access restored", reasons)
+
+
 def notify_binance_auth_error(
     *,
     status: int | None,

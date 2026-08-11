@@ -6,6 +6,13 @@ avoidable rework. Identify the root cause rather than recording only the
 symptom. Keep entries concise and exclude secrets, balances, account data, and
 private infrastructure details.
 
+### 2026-08-11 — Alerted on an incident level instead of its transition
+
+- **Impact:** one public IP incident sent the same Telegram message during every minute-long authentication retry.
+- **Root cause:** the notifier checked `public_ip_changed` as a level and used the generic metadata formatter without persistent alert identity.
+- **Correction:** compare pending fingerprints, send one operator-focused notice, and send one notice after signed recovery.
+- **Prevention:** persistent incident alerts must use durable transition identity and must exclude internal diagnostic fields from operator messages.
+
 ### 2026-08-10 — Ended one outcome at the entry deadline
 
 - **Impact:** late version-six fills had no separate time to produce TP or STOP evidence.

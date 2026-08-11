@@ -40,8 +40,8 @@ def test_successful_read_only_preflight_accepts_pending_ip(tmp_path, monkeypatch
     )
     monkeypatch.setattr(
         supervisor,
-        "notify",
-        lambda *args, **kwargs: notices.append((args, kwargs)),
+        "notify_binance_auth_recovered",
+        lambda *, public_ip_accepted: notices.append(public_ip_accepted),
     )
     monkeypatch.setattr(
         supervisor,
@@ -63,7 +63,7 @@ def test_successful_read_only_preflight_accepts_pending_ip(tmp_path, monkeypatch
     assert saved[-1].pending_public_ip_sha256 == ""
     assert saved[-1].public_ip_changed is False
     assert {"ip_guard": {"changed": False, "consensus": True}} in published
-    assert notices[-1][0][0] == "public IP access verified"
+    assert notices == [True]
 
 
 def test_auth_retry_preserves_pending_ip_until_success(tmp_path, monkeypatch):

@@ -173,6 +173,8 @@ path only after the current root-owned file has been created successfully.
 Circuit-breaker and execution failures remain fail-closed if Telegram is unavailable.
 The bot and User Stream services receive this file through systemd.
 Failed authentication alerts retry after one minute.
+An IP change sends one transition notice without a fingerprint or source count.
+Successful signed recovery sends one notice and keeps all independent risk gates unchanged.
 
 Verify configuration without printing values:
 
@@ -742,6 +744,7 @@ It accepts the fingerprint after the complete signed read-only Binance preflight
 Failed authentication keeps BUY blocked and does not remove HALT.
 The supervisor retries a changed-IP rejection each minute.
 It recovers automatically after Binance accepts the signed read.
+Telegram sends one change notice and one recovery notice for that incident.
 Code `-2015` can also mean an invalid key or insufficient permissions.
 
 ```bash

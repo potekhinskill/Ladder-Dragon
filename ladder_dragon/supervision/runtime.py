@@ -112,16 +112,17 @@ from ladder_dragon.execution.executor_recovery import classify_oco_legs
 from ladder_dragon.execution.latency_trace import LatencyTrace
 from ladder_dragon.execution.auth_resilience import (
     AuthResilienceState,
-    accept_authenticated_public_ip,
     auth_failure_retry_max_sec,
+    finalize_auth_success,
     load_auth_state,
     observe_public_ip_fingerprint,
     public_ip_fingerprint,
     register_auth_failure,
-    register_auth_success,
     save_auth_state,
 )
-from ladder_dragon.execution.telegram_alerts import notify
+from ladder_dragon.execution.telegram_alerts import (
+    notify, notify_binance_auth_recovered, notify_public_ip_change,
+)
 from ladder_dragon.execution.maintenance_state import (
     DEFAULT_PATH as DEFAULT_MAINTENANCE_PATH,
     load_maintenance_state,
@@ -612,12 +613,11 @@ def _observe_public_ip(state: AuthResilienceState) -> tuple[AuthResilienceState,
         "changed": observed.public_ip_changed,
         "address_exposed": False,
     })
-    if observed.public_ip_changed:
-        notify(
-            "public egress IP changed",
-            ["Checking signed Binance access; BUY remains blocked"],
-            {"fingerprint": consensus[:12], "sources": len(fingerprints)},
-        )
+    new_fingerprint = (
+        observed.pending_public_ip_sha256 != state.pending_public_ip_sha256
+    )
+    if observed.public_ip_changed and new_fingerprint:
+        notify_public_ip_change()
     return observed, consensus
 
 
@@ -3943,10 +3943,11 @@ def _preflight_with_auth_backoff(
                     time.sleep(300)
                     state = _read_auth_resilience_state()
                     continue
-                state = accept_authenticated_public_ip(state, now_epoch=int(time.time()))
+            state, accepted_public_ip = finalize_auth_success(
+                state, accept_public_ip=args.live, now_epoch=int(time.time()))
+            if accepted_public_ip:
                 _publish_ai_runtime_status(ip_guard={"changed": False, "consensus": True})
-                notify("public IP access verified", ["IP Guard updated automatically"])
-            state = register_auth_success(state, now_epoch=int(time.time()))
+                notify_binance_auth_recovered(public_ip_accepted=True)
             _save_auth_resilience_state(state)
             if recovered_transient_attempt:
                 _publish_ai_runtime_status(
@@ -4503,11 +4504,14 @@ def main():
                         log(
                             "[AUTH-BACKOFF] Binance authentication recovered"
                         )
-                        runtime_auth_state = register_auth_success(
-                            runtime_auth_state,
-                            now_epoch=int(now_loop),
-                        )
+                        runtime_auth_state, accepted_public_ip = finalize_auth_success(
+                            runtime_auth_state, now_epoch=int(now_loop))
+                        if accepted_public_ip:
+                            _publish_ai_runtime_status(ip_guard={"changed": False, "consensus": True})
                         _save_auth_resilience_state(runtime_auth_state)
+                        notify_binance_auth_recovered(
+                            public_ip_accepted=accepted_public_ip
+                        )
                         auth_failure_attempts = 0
                         auth_retry_at = 0.0
                         _publish_ai_runtime_status(

@@ -7,6 +7,7 @@ from ladder_dragon.execution.auth_resilience import (
     accept_authenticated_public_ip,
     accept_public_ip_fingerprint,
     auth_failure_retry_max_sec,
+    finalize_auth_success,
     load_auth_state,
     observe_public_ip_fingerprint,
     public_ip_fingerprint,
@@ -79,6 +80,24 @@ def test_changed_ip_stays_pending_until_authenticated_acceptance():
     accepted = accept_authenticated_public_ip(changed, now_epoch=30)
     assert accepted.public_ip_changed is False
     assert register_auth_success(accepted, now_epoch=40).attempt == 0
+
+
+def test_finalize_auth_success_reports_pending_ip_acceptance():
+    state = AuthResilienceState(
+        attempt=4,
+        retry_at_epoch=500,
+        public_ip_sha256=public_ip_fingerprint("203.0.113.10"),
+        pending_public_ip_sha256=public_ip_fingerprint("203.0.113.11"),
+        public_ip_changed=True,
+    )
+
+    recovered, accepted = finalize_auth_success(state, now_epoch=600)
+
+    assert accepted is True
+    assert recovered.attempt == 0
+    assert recovered.retry_at_epoch == 0
+    assert recovered.public_ip_changed is False
+    assert recovered.pending_public_ip_sha256 == ""
 
 
 def test_invalid_auth_state_fails_validation(tmp_path):

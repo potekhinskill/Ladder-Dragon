@@ -127,6 +127,39 @@ def test_binance_auth_alert_is_redacted_and_deduplicated(tmp_path, monkeypatch):
     assert "api.binance.com/api/v3/account" in captured[0]["text"]
 
 
+def test_ip_guard_notices_are_operator_focused(monkeypatch):
+    notices = []
+    monkeypatch.setattr(
+        telegram_alerts,
+        "notify",
+        lambda *args, **kwargs: notices.append((args, kwargs)) or True,
+    )
+
+    assert telegram_alerts.notify_public_ip_change() is True
+    assert telegram_alerts.notify_binance_auth_recovered(
+        public_ip_accepted=True
+    ) is True
+
+    assert notices == [
+        ((
+            "public IP change detected",
+            [
+                "Two independent sources confirmed the change",
+                "Binance access is checked automatically; BUY remains blocked",
+                "No Raspberry Pi restart is required",
+            ],
+        ), {}),
+        ((
+            "Binance access restored",
+            [
+                "Signed Binance access succeeded",
+                "IP Guard accepted the new public IP",
+                "Other risk gates remain unchanged",
+            ],
+        ), {}),
+    ]
+
+
 def test_binance_auth_alert_retries_after_failed_delivery(tmp_path, monkeypatch):
     state = tmp_path / "auth-alert.json"
     now = [1000.0]

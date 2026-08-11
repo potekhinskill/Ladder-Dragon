@@ -113,6 +113,8 @@ The application does not log private key material.
 IP Guard accepts a changed fingerprint only after the complete signed read-only preflight passes.
 Runtime authentication rejection refreshes the same two-source IP evidence.
 When the fingerprint changed, signed recovery checks run once each minute.
+Telegram reports a new fingerprint transition once and omits diagnostic identifiers.
+Successful signed recovery sends one clear notice and preserves all other risk gates.
 Other authentication failures keep the configured exponential backoff.
 An authentication or source-consensus failure keeps BUY blocked.
 Automatic acceptance never removes HALT or changes a trading limit.

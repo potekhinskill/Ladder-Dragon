@@ -3,6 +3,20 @@
 All notable changes are documented here. Releases use Semantic Versioning; every
 section is dated and there is intentionally no `Unreleased` section.
 
+## [2.20.185] — 2026-08-11
+
+### Fixed
+- IP Guard now sends one Telegram notice for each new persisted public IP transition.
+- Repeated signed authentication retries no longer repeat the same public IP notice.
+- Runtime signed recovery now accepts the pending fingerprint and sends one recovery notice.
+
+### Changed
+- Public IP Telegram notices omit fingerprints, source counts, and other internal diagnostic fields.
+- Recovery notices state that independent risk gates remain unchanged.
+
+### Verified
+- IP transition, restart-safe deduplication, LIVE-only acceptance, recovery, redaction, and complete regression tests pass.
+
 ## [2.20.184] — 2026-08-11
 
 ### Fixed

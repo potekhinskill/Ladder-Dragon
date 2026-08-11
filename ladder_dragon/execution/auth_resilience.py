@@ -210,3 +210,23 @@ def accept_authenticated_public_ip(
         state.pending_public_ip_sha256,
         now_epoch=now_epoch,
     )
+
+
+def finalize_auth_success(
+    state: AuthResilienceState,
+    *,
+    accept_public_ip: bool = True,
+    now_epoch: int | None = None,
+) -> tuple[AuthResilienceState, bool]:
+    """Clear auth backoff and report whether signed proof accepted a pending IP."""
+    accepted_public_ip = bool(
+        accept_public_ip
+        and state.public_ip_changed
+        and state.pending_public_ip_sha256
+    )
+    if accepted_public_ip:
+        return (
+            accept_authenticated_public_ip(state, now_epoch=now_epoch),
+            True,
+        )
+    return register_auth_success(state, now_epoch=now_epoch), False
