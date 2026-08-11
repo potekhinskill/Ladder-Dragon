@@ -46,7 +46,7 @@ def test_command_reference_uses_deployed_dashboard_unit_name() -> None:
     assert "`pi-dashboard.service` | private dashboard" not in reference
 
 
-def test_command_examples_use_project_python() -> None:
+def test_venv_commands() -> None:
     reference = (ROOT / "docs" / "COMMAND_REFERENCE.md").read_text(encoding="utf-8")
 
     assert "\npython -m bin." not in reference

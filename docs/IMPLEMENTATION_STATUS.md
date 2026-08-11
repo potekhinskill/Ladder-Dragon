@@ -1,6 +1,6 @@
 # Implementation status
 
-This document describes the code in version **2.20.187**.
+This document describes the code in version **2.20.188**.
 It does not describe future plans as completed work.
 
 An implemented function is not automatically approved for LIVE use.

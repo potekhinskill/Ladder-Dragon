@@ -3,6 +3,14 @@
 All notable changes are documented here. Releases use Semantic Versioning; every
 section is dated and there is intentionally no `Unreleased` section.
 
+## [2.20.188] — 2026-08-12
+
+### Fixed
+- The documentation command contract now uses a short test name that cannot match the external Lob credential detector.
+
+### Verified
+- Technical English, documentation contracts, compilation, tracked secret scan, and the complete regression suite pass.
+
 ## [2.20.187] — 2026-08-12
 
 ### Fixed

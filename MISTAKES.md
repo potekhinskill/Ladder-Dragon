@@ -6,6 +6,13 @@ avoidable rework. Identify the root cause rather than recording only the
 symptom. Keep entries concise and exclude secrets, balances, account data, and
 private infrastructure details.
 
+### 2026-08-12 — Used a credential-like documentation test name
+
+- **Impact:** GitHub Actions blocked release 2.20.187 after all local release checks passed.
+- **Root cause:** the new test name matched the external Lob credential detector pattern.
+- **Correction:** shorten the test name and publish the correction as the direct next release.
+- **Prevention:** keep test identifiers short and inspect external verified secret scan results before creating a release page.
+
 ### 2026-08-11 — Treated relative edge as sufficient experiment progress
 
 - **Impact:** version-seven increased participation but every candidate retained a negative net expectancy confidence interval.
