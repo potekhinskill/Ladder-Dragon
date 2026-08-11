@@ -56,6 +56,10 @@ h1{margin:0;font-size:20px;font-weight:800;line-height:1.15}
 .monitor-card{min-width:0;overflow:hidden}
 .monitor-card.full{grid-column:1/-1}
 .ai-quality-card .monitor-grid{grid-template-columns:1fr}
+.operations-monitor-card .monitor-grid{grid-template-columns:1fr}
+.operations-monitor-card .monitor-row{display:grid;grid-template-columns:minmax(150px,42%) minmax(0,1fr);column-gap:16px}
+.operations-monitor-card .monitor-row>span:first-child{min-width:0}
+.operations-monitor-card .monitor-row>span:last-child{overflow-wrap:break-word;word-break:normal}
 .shadow-experiments{margin-top:12px;border-top:1px solid var(--stroke);padding-top:10px}
 .shadow-experiments summary{cursor:pointer;color:var(--muted);font-weight:700}
 .shadow-experiment-list{display:grid;gap:8px;margin-top:10px}
@@ -89,6 +93,8 @@ h1{margin:0;font-size:20px;font-weight:800;line-height:1.15}
 .position-buy-blocked{margin:9px 0 0;color:#ffaaaa;font-size:var(--font-base);font-weight:800}
 .position-basis-hidden{margin:9px 0 0;color:var(--muted);font-size:var(--font-base);line-height:1.4}
 @media (max-width:520px){
+  .operations-monitor-card .monitor-row{grid-template-columns:1fr;gap:2px}
+  .operations-monitor-card .monitor-row>span:last-child{text-align:left}
   .position-card-head{align-items:stretch;flex-direction:column;gap:6px}
   .position-alert{width:max-content;max-width:100%}
   .position-summary>div{align-items:flex-start;flex-direction:column;gap:2px}

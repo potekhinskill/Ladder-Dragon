@@ -1155,3 +1155,10 @@ entries concise; this is not a changelog or an activity log.
 - **Decision:** version-six experiments use isolated 30-minute and 60-minute outcome horizons.
 - **Why it worked:** a regression proves that a minute-45 fill distinguishes the two lifetimes.
 - **Reuse:** every experiment whose parameter can act only after the standard observation window.
+
+### 2026-08-11 — Preserve readable widths inside half-width cards
+
+- **Context:** nested two-column grids reduced operational values to narrow fragments on common desktop widths.
+- **Decision:** each half-width operational card uses one metric column with bounded labels and flexible values.
+- **Why it worked:** desktop values retain 292 pixels at 1,266 pixels, while mobile rows stack vertically.
+- **Reuse:** every dense dashboard card that already shares its parent row with another card.

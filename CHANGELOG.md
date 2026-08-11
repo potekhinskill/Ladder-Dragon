@@ -3,6 +3,15 @@
 All notable changes are documented here. Releases use Semantic Versioning; every
 section is dated and there is intentionally no `Unreleased` section.
 
+## [2.20.184] — 2026-08-11
+
+### Fixed
+- Host and risk metrics now use the full width of each dashboard card.
+- Long values wrap at normal word boundaries instead of narrow character fragments.
+
+### Verified
+- Responsive layout contracts and the complete regression suite pass.
+
 ## [2.20.183] — 2026-08-10
 
 ### Changed
