@@ -4,6 +4,13 @@ Read this file before changing the repository. Record only decisions that were
 validated by tests or production evidence and are likely to be reused. Keep
 entries concise; this is not a changelog or an activity log.
 
+### 2026-08-11 — Require positive absolute expectancy after relative improvement
+
+- **Context:** version-seven beat its baseline but retained a negative net expectancy confidence interval at every tested gap.
+- **Decision:** version-eight tests deeper maker entries and keeps the corrected lifetime and outcome windows.
+- **Why it worked:** production evidence separates improved relative edge from an economically acceptable absolute result.
+- **Reuse:** every experiment where a candidate can beat a losing baseline while remaining unprofitable.
+
 ### 2026-08-11 — Alert on persisted incident transitions
 
 - **Context:** one changed public IP remained pending through each signed authentication retry.

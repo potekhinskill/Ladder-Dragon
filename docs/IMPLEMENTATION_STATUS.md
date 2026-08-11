@@ -1,6 +1,6 @@
 # Implementation status
 
-This document describes the code in version **2.20.185**.
+This document describes the code in version **2.20.186**.
 It does not describe future plans as completed work.
 
 An implemented function is not automatically approved for LIVE use.
@@ -69,18 +69,21 @@ Future outcomes are normal pending work.
 Only overdue or unrecovered expired outcomes block the backlog gate.
 The soak report applies its expiration checks to the audited runtime window.
 
-The active experiment contour compares three version-seven candidates on one snapshot:
+The active experiment contour compares three version-eight candidates on one snapshot:
 
 - maker-only entry and TP;
 - an always-active entry scope;
 - a BUY lifetime of 60 minutes;
 - outcome horizons of 90 and 120 minutes;
-- explicit BUY distances of 25, 30, and 35 basis points.
+- explicit BUY distances of 40, 45, and 50 basis points.
 
 All candidates use the authoritative TP floor.
 Candidate prices use their explicit market gaps independently from the baseline.
 All candidates use the same immutable snapshot and baseline.
 Normal strategy predictions retain their 1, 5, and 15-minute horizons.
+
+Version-seven improved fill rate, but each net expectancy confidence interval remained negative.
+Version-eight tests deeper entries with the corrected lifetime and outcome windows.
 
 The promotion gate evaluates the complete candidate strategy.
 All active candidates use the same entry scope.

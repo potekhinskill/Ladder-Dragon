@@ -6,6 +6,13 @@ avoidable rework. Identify the root cause rather than recording only the
 symptom. Keep entries concise and exclude secrets, balances, account data, and
 private infrastructure details.
 
+### 2026-08-11 — Treated relative edge as sufficient experiment progress
+
+- **Impact:** version-seven increased participation but every candidate retained a negative net expectancy confidence interval.
+- **Root cause:** candidate selection emphasized fill rate and baseline edge before positive absolute expectancy.
+- **Correction:** preserve version-seven evidence and test deeper version-eight entries with the corrected observation windows.
+- **Prevention:** require positive absolute expectancy before promotion, even when a candidate beats its baseline.
+
 ### 2026-08-11 — Alerted on an incident level instead of its transition
 
 - **Impact:** one public IP incident sent the same Telegram message during every minute-long authentication retry.

@@ -3,6 +3,17 @@
 All notable changes are documented here. Releases use Semantic Versioning; every
 section is dated and there is intentionally no `Unreleased` section.
 
+## [2.20.186] — 2026-08-11
+
+### Changed
+- Version-eight SHADOW replaces rejected version-seven candidates with 40, 45, and 50 basis-point maker entries.
+- Each candidate keeps the 60-minute BUY lifetime and the 90-minute and 120-minute outcomes.
+- Version-seven evidence remains immutable and separate from the active generation.
+
+### Verified
+- Production evidence rejects every version-seven candidate because each net expectancy confidence interval is negative.
+- Immutable identity, exact gaps, late-fill observation, SHADOW isolation, and complete regression tests pass.
+
 ## [2.20.185] — 2026-08-11
 
 ### Fixed
