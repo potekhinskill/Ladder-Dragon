@@ -133,7 +133,7 @@ Never remove a protective SELL order to make a test pass.
 Use this DRY command to validate a percentage ladder:
 
 ```bash
-python -m bin.ai_plan_runner --symbols SOLUSDT --ladder-pct=0.5,20,20
+.venv/bin/python -m bin.ai_plan_runner --symbols SOLUSDT --ladder-pct=0.5,20,20
 ```
 
 The command rejects malformed values before a market request or worker launch.
@@ -146,7 +146,7 @@ Do not publish its output.
 | Unit | Function | Schedule or state |
 | --- | --- | --- |
 | `mybot.service` | supervisor and execution workers | persistent service |
-| `pi-dashboard.service` | private dashboard | persistent service |
+| `pi-healthd.service` | private dashboard | persistent service |
 | `pi-watchdog-v3.service` | host and bot recovery check | timer target |
 | `pi-watchdog-v3.timer` | starts the watchdog | each 5 minutes |
 | `ladder-dragon-backup.service` | encrypted private backup | timer target |

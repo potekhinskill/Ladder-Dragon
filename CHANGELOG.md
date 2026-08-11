@@ -3,6 +3,19 @@
 All notable changes are documented here. Releases use Semantic Versioning; every
 section is dated and there is intentionally no `Unreleased` section.
 
+## [2.20.187] — 2026-08-12
+
+### Fixed
+- Current guides now identify the installed dashboard service and the active User Data Stream epoch correctly.
+- The remaining-work list now separates repeatable Testnet drills from the blocked Mainnet transport-stability gate.
+- Command examples now use the required project virtual environment.
+
+### Changed
+- Prediction documentation now distinguishes standard 1, 5, and 15-minute labels from longer SHADOW experiment outcomes.
+
+### Verified
+- Technical English, documentation contracts, compilation, and the complete regression suite pass.
+
 ## [2.20.186] — 2026-08-11
 
 ### Changed

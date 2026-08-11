@@ -30,16 +30,32 @@ def test_command_reference_lists_all_cli_modules() -> None:
 
 def test_command_reference_lists_all_systemd_units() -> None:
     reference = (ROOT / "docs" / "COMMAND_REFERENCE.md").read_text(encoding="utf-8")
-    units = list((ROOT / "deploy").glob("*.service"))
-    units.extend((ROOT / "deploy").glob("*.timer"))
+    unit_names = {path.name for path in (ROOT / "deploy").glob("*.service")}
+    unit_names.update(path.name for path in (ROOT / "deploy").glob("*.timer"))
+    unit_names.remove("pi-dashboard.service")
+    unit_names.add("pi-healthd.service")
 
-    missing = sorted(path.name for path in units if path.name not in reference)
+    missing = sorted(name for name in unit_names if name not in reference)
     assert missing == []
+
+
+def test_command_reference_uses_deployed_dashboard_unit_name() -> None:
+    reference = (ROOT / "docs" / "COMMAND_REFERENCE.md").read_text(encoding="utf-8")
+
+    assert "`pi-healthd.service` | private dashboard" in reference
+    assert "`pi-dashboard.service` | private dashboard" not in reference
+
+
+def test_command_examples_use_project_python() -> None:
+    reference = (ROOT / "docs" / "COMMAND_REFERENCE.md").read_text(encoding="utf-8")
+
+    assert "\npython -m bin." not in reference
 
 
 def test_guides_do_not_name_unknown_project_units() -> None:
     known = {path.name for path in (ROOT / "deploy").glob("*.service")}
     known.update(path.name for path in (ROOT / "deploy").glob("*.timer"))
+    known.add("pi-healthd.service")
     unit_pattern = re.compile(
         r"(?:ladder-dragon-[a-z0-9-]+|mybot|pi-dashboard|pi-watchdog-v3)"
         r"\.(?:service|timer)"

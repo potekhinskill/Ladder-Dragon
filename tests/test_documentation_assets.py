@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from ladder_dragon.execution.user_stream import CURRENT_USER_STREAM_SOAK_EPOCH_ID
+
 
 ROOT = Path(__file__).resolve().parents[1]
 ASSET = ROOT / "docs" / "assets" / "dashboard-overview-sanitized.png"
@@ -63,6 +65,9 @@ def test_runtime_safety_reference_is_linked_and_matches_current_contracts() -> N
         "RISK_STABLE_INFO_LOG_INTERVAL_SEC",
     ):
         assert required in reference
+    epoch_version = CURRENT_USER_STREAM_SOAK_EPOCH_ID.rsplit("-v", 1)[1]
+    assert f"current v{epoch_version} epoch" in reference
+    assert "retains the v1 through v3 epochs" in reference
     assert "docs/RUNTIME_SAFETY_AND_REPORTING.md" in readme
     assert "RUNTIME_SAFETY_AND_REPORTING.md" in introduction
     assert "RUNTIME_SAFETY_AND_REPORTING.md" in runbook
