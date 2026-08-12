@@ -6,6 +6,13 @@ avoidable rework. Identify the root cause rather than recording only the
 symptom. Keep entries concise and exclude secrets, balances, account data, and
 private infrastructure details.
 
+### 2026-08-12 — Repeated a rejected zero-fill entry region
+
+- **Impact:** every version-eight candidate recorded zero fills and could not measure absolute expectancy.
+- **Root cause:** the next generation deepened entries without comparing its 40-basis-point boundary with version-four evidence.
+- **Correction:** preserve version-eight evidence and move version nine to 34, 36, and 38 basis points.
+- **Prevention:** compare all immutable generations before selecting a new experimental parameter range.
+
 ### 2026-08-12 — Repeated authentication alerts too frequently
 
 - **Impact:** one continuing Binance rejection produced four similar Telegram notices in two hours.

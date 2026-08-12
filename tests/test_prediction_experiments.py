@@ -77,9 +77,9 @@ def test_variants_clear_fee_floor_and_change_one_named_dimension():
     )
 
     assert {variant.variant_id for variant in variants} == {
-        "v8_maker_ttl60_gap40",
-        "v8_maker_ttl60_gap45",
-        "v8_maker_ttl60_gap50",
+        "v9_maker_ttl60_gap34",
+        "v9_maker_ttl60_gap36",
+        "v9_maker_ttl60_gap38",
     }
     for variant in variants:
         target_pct = variant.plan.take_profit_price / variant.plan.entry_price - D("1")
@@ -90,9 +90,9 @@ def test_variants_clear_fee_floor_and_change_one_named_dimension():
     by_id = {variant.variant_id: variant for variant in variants}
     assert all(item.plan.entry_ttl_sec == 3_600 for item in variants)
     assert all(item.plan.entry_enabled for item in variants)
-    assert by_id["v8_maker_ttl60_gap40"].plan.entry_price == D("99.6000")
-    assert by_id["v8_maker_ttl60_gap45"].plan.entry_price == D("99.5500")
-    assert by_id["v8_maker_ttl60_gap50"].plan.entry_price == D("99.5000")
+    assert by_id["v9_maker_ttl60_gap34"].plan.entry_price == D("99.6600")
+    assert by_id["v9_maker_ttl60_gap36"].plan.entry_price == D("99.6400")
+    assert by_id["v9_maker_ttl60_gap38"].plan.entry_price == D("99.6200")
 
 
 def test_parallel_variants_share_snapshot_and_explicit_baseline(tmp_path: Path):
@@ -226,14 +226,14 @@ def test_variant_report_never_enables_apply(tmp_path: Path, monkeypatch):
     )
 
     assert report["mode"] == "SHADOW"
-    assert report["generation"] == "v8"
+    assert report["generation"] == "v9"
     assert report["horizons_min"] == [90, 120]
     assert report["can_change_orders"] is False
     assert all(
         item["promotion_eligible"] is True and item["apply_allowed"] is False
         for item in report["variants"].values()
     )
-    maker = report["variants"]["v8_maker_ttl60_gap40"]
+    maker = report["variants"]["v9_maker_ttl60_gap34"]
     assert maker["entry_order_type"] == "LIMIT_MAKER"
     assert maker["exit_order_type"] == "LIMIT_MAKER"
     assert all(
@@ -268,7 +268,7 @@ def test_variant_report_separates_active_cohort_from_opportunity_cost(monkeypatc
             required_edge_pct=D("0.0096"),
             regime="RANGE",
         )
-        if item.variant_id == "v8_maker_ttl60_gap40"
+        if item.variant_id == "v9_maker_ttl60_gap34"
     )
 
     class Store:
@@ -332,7 +332,7 @@ def test_variant_report_separates_future_work_from_backlog(tmp_path: Path):
         before_ts_ms=60_000,
     )
 
-    counts = report["variants"]["v8_maker_ttl60_gap40"]["outcomes"]
+    counts = report["variants"]["v9_maker_ttl60_gap34"]["outcomes"]
     assert counts == {
         "total": 2,
         "resolved": 0,
@@ -412,7 +412,7 @@ def test_experiment_recording_is_bounded_to_five_minute_snapshots(
     assert store.summary("SOLUSDT")["decisions"] == 6
 
 
-def test_v8_variants_do_not_depend_on_the_current_regime():
+def test_v9_variants_do_not_depend_on_the_current_regime():
     baseline = _baseline()
     range_variants = build_shadow_variants(
         market_price=D("100"),
@@ -433,7 +433,7 @@ def test_v8_variants_do_not_depend_on_the_current_regime():
     assert all(item.maker_only for item in range_variants)
 
 
-def test_v8_entry_gaps_are_explicit_and_distinct():
+def test_v9_entry_gaps_are_explicit_and_distinct():
     baseline = replace(_baseline(), entry_price=D("99.20"))
     variants = build_shadow_variants(
         market_price=D("100"),
@@ -448,7 +448,7 @@ def test_v8_entry_gaps_are_explicit_and_distinct():
     ]
     assert len(entry_variants) == 3
     assert {item.plan.entry_price for item in entry_variants} == {
-        D("99.60"), D("99.55"), D("99.50"),
+        D("99.66"), D("99.64"), D("99.62"),
     }
     assert all(
         baseline.entry_price < item.plan.entry_price < D("100")
@@ -456,7 +456,7 @@ def test_v8_entry_gaps_are_explicit_and_distinct():
     )
 
 
-def test_v8_horizons_observe_exits_after_a_late_fill():
+def test_v9_horizons_observe_exits_after_a_late_fill():
     variants = build_shadow_variants(
         market_price=D("100"),
         baseline_plan=_baseline(),
@@ -469,7 +469,7 @@ def test_v8_horizons_observe_exits_after_a_late_fill():
             119_999 + index * 60_000,
             D("100"),
             D("102") if index == 74 else D("100"),
-            D("99.60") if index == 59 else D("100"),
+            D("99.66") if index == 59 else D("100"),
             D("100"),
             D("1"),
         )

@@ -4,6 +4,13 @@ Read this file before changing the repository. Record only decisions that were
 validated by tests or production evidence and are likely to be reused. Keep
 entries concise; this is not a changelog or an activity log.
 
+### 2026-08-12 — Test the observed participation boundary
+
+- **Context:** version-seven filled at 35 basis points, while versions four and eight had no fills at 40 basis points.
+- **Decision:** version-nine tests 34, 36, and 38 basis points with the corrected lifetime and outcome windows.
+- **Why it worked:** production history defines the narrow boundary, and tests prove distinct immutable SHADOW plans.
+- **Reuse:** every experiment where adjacent generations identify active and inactive parameter regions.
+
 ### 2026-08-12 — Separate auth probing from operator reminder cadence
 
 - **Context:** signed access must retry quickly, but repeated Telegram notices do not improve recovery.

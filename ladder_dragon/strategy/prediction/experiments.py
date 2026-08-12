@@ -28,17 +28,17 @@ from ladder_dragon.strategy.prediction.walk_forward import (
 
 D = Decimal
 EDGE_EPSILON_PCT = D("0.000001")
-SHADOW_GENERATION = "v8"
+SHADOW_GENERATION = "v9"
 EXPERIMENT_HORIZONS_MIN = (90, 120)
 MAKER_TTLS = (
     ("ttl60", 3_600),
 )
-# Version seven improved relative edge but retained negative absolute expectancy.
-# Version eight deepens only the entry gap and preserves the corrected windows.
+# Version seven retained fills at 35 bps, while versions four and eight had no
+# fills at 40 bps. Version nine brackets that observed participation boundary.
 MAKER_ENTRY_GAPS = (
-    ("gap40", D("0.0040")),
-    ("gap45", D("0.0045")),
-    ("gap50", D("0.0050")),
+    ("gap34", D("0.0034")),
+    ("gap36", D("0.0036")),
+    ("gap38", D("0.0038")),
 )
 
 
@@ -137,7 +137,7 @@ def build_shadow_variants(
             # An explicit market gap keeps every candidate distinct from the baseline.
             entry_price = market_price * (D("1") - gap_pct)
             variants.append(variant(
-                f"v8_maker_{ttl_name}_{gap_name}",
+                f"v9_maker_{ttl_name}_{gap_name}",
                 "maker_entry_gap",
                 entry_price=entry_price,
                 entry_ttl_sec=ttl_sec,

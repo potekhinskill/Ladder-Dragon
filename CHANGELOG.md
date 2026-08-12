@@ -3,6 +3,16 @@
 All notable changes are documented here. Releases use Semantic Versioning; every
 section is dated and there is intentionally no `Unreleased` section.
 
+## [2.20.190] — 2026-08-12
+
+### Changed
+- Version-nine SHADOW replaces the zero-fill version-eight candidates with 34, 36, and 38 basis-point maker entries.
+- Each candidate keeps the 60-minute BUY lifetime and the 90-minute and 120-minute outcomes.
+- Version-eight evidence remains immutable and separate from the active generation.
+
+### Verified
+- Historical production evidence, exact gaps, immutable identity, SHADOW isolation, and 39 focused prediction tests pass.
+
 ## [2.20.189] — 2026-08-12
 
 ### Fixed

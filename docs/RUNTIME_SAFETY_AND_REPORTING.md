@@ -123,13 +123,14 @@ The candidates test these controls:
 - an always-active entry scope;
 - a BUY lifetime of 60 minutes;
 - outcome horizons of 90 and 120 minutes;
-- explicit BUY distances of 40, 45, and 50 basis points.
+- explicit BUY distances of 34, 36, and 38 basis points.
 
 Every candidate uses the authoritative TP floor.
 Candidate prices can be closer than the baseline because they cannot change orders.
 
 Version-seven evidence remains immutable after its negative net expectancy result.
-Version-eight keeps the corrected lifetime and tests deeper entry prices.
+Version-eight evidence remains immutable after its zero-fill result.
+Version-nine tests the observed participation boundary without reusing the 40-basis-point gap.
 
 Each semantic generation uses new experiment identifiers.
 The database retains older results without mixing them into the active gate.
