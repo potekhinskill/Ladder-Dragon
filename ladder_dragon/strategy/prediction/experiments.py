@@ -18,6 +18,7 @@ from ladder_dragon.strategy.prediction.approval import (
     holm_configuration_correction,
 )
 from ladder_dragon.strategy.prediction.experiment_lifecycle import (
+    REPORT_SCHEMA_VERSION,
     confirmation_report,
     evidence_assignment,
     list_experiments,
@@ -35,13 +36,14 @@ from ladder_dragon.strategy.prediction.walk_forward import (
 
 D = Decimal
 EDGE_EPSILON_PCT = D("0.000001")
-SHADOW_GENERATION = "v9"
+SHADOW_GENERATION = "v10"
 EXPERIMENT_HORIZONS_MIN = (90, 120)
 MAKER_TTLS = (
     ("ttl60", 3_600),
 )
 # Version seven retained fills at 35 bps, while versions four and eight had no
-# fills at 40 bps. Version nine brackets that observed participation boundary.
+# fills at 40 bps. Version ten preserves the version nine market hypothesis and
+# starts a new evidence cohort for the hardened confirmation protocol.
 MAKER_ENTRY_GAPS = (
     ("gap34", D("0.0034")),
     ("gap36", D("0.0036")),
@@ -137,7 +139,7 @@ def build_shadow_variants(
             ),
         )
 
-    # Version nine keeps the regime argument for the stable caller contract.
+    # Version ten keeps the regime argument for the stable caller contract.
     # Production evidence rejected the RANGE-only cohort, so it cannot gate entry.
     del regime
     variants = []
@@ -146,7 +148,7 @@ def build_shadow_variants(
             # An explicit market gap keeps every candidate distinct from the baseline.
             entry_price = market_price * (D("1") - gap_pct)
             variants.append(variant(
-                f"v9_maker_{ttl_name}_{gap_name}",
+                f"v10_maker_{ttl_name}_{gap_name}",
                 "maker_entry_gap",
                 entry_price=entry_price,
                 entry_ttl_sec=ttl_sec,
@@ -335,7 +337,7 @@ def shadow_variant_report(
             experiment_id=str(manifests[-1]["experiment_id"]),
         )
         if manifests else {
-            "schema_version": 2,
+            "schema_version": REPORT_SCHEMA_VERSION,
             "experiment_lifecycle_status": "BLOCKED",
             "confirmation_status": "BLOCKED",
             "blocking_reasons": ["frozen experiment manifest is missing"],

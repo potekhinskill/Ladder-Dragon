@@ -1537,3 +1537,10 @@ private infrastructure details.
 - **Root cause:** candidate lifetimes exceeded the fixed 15-minute maximum outcome horizon.
 - **Correction:** give version-six candidates isolated 30-minute and 60-minute outcome horizons.
 - **Prevention:** prove that each experimental parameter can change an outcome inside its observation window.
+
+### 2026-08-12 — Coupled confirmation reporting to lifecycle mutation
+
+- **Impact:** a dashboard read could finalize an experiment, while part of its inference still used dependent snapshots.
+- **Root cause:** the first protocol reused the snapshot gate and changed state inside the report function.
+- **Correction:** use block-native inference and require explicit finalization of one reviewed report fingerprint.
+- **Prevention:** keep reporting read-only and define the independent statistical unit before implementation.

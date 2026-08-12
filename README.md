@@ -28,7 +28,7 @@ Ladder Dragon is an open-source Python trading system for Binance Spot.
 It uses adaptive entry ladders and exchange-side protection.
 It also provides exact accounting, restart recovery, replay, and walk-forward tests.
 
-Current product version: **2.20.191**.
+Current product version: **2.20.192**.
 The version source is `product_version.py`.
 Releases use [Semantic Versioning](https://semver.org/).
 
@@ -167,12 +167,15 @@ Operational reports use the latest 1,000 decisions for each candidate.
 The database keeps all raw decisions and outcomes.
 
 Selection compares candidates on shared future snapshots.
+Every candidate must have the same selection snapshot set.
 Selection evidence is diagnostic and cannot confirm its selected candidate.
 An operator freezes one explicit candidate before independent confirmation starts.
 The frozen manifest uses canonical JSON and SHA-256 fingerprints.
 Confirmation uses only decision snapshots after its purged time boundary.
-It uses six non-overlapping windows of 20 independent decisions.
-At least five windows must have positive PnL and positive baseline edge.
+It uses ten non-overlapping blocks of 12 independent decisions.
+At least nine blocks must have positive PnL and positive baseline edge.
+An unresolved decision stops the eligible prefix until its outcomes close.
+Reports are read-only, and explicit finalization binds the reviewed report SHA-256.
 The existing 120-sample, confidence, Holm, fill, drawdown, and regime checks remain mandatory.
 
 The first gate evaluates a complete strategy replacement.
@@ -345,7 +348,7 @@ The exact implemented and approval states are in
 - Stabilize the Mainnet v4 transport-failure reconnect rate and obtain a continuous 24-hour PASS.
 - Close overdue outcomes and review journal-proven attribution gaps without inventing a `decision_id`.
 - Validate replay results against more real terminal order lifecycles.
-- Compare three version-nine maker-only SHADOW candidates on 90-minute and 120-minute outcomes.
+- Compare three version-ten maker-only SHADOW candidates on 90-minute and 120-minute outcomes.
 - Freeze one selected candidate before collecting independent confirmation evidence.
 - Keep strategy changes in SHADOW until every statistical gate passes.
 - Continue the planned extraction of large runtime coordinators.

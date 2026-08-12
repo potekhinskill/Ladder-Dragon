@@ -5,7 +5,6 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
 from decimal import Decimal
 import hashlib
 import json
@@ -13,9 +12,11 @@ import sqlite3
 import time
 from typing import Iterable, Mapping, Sequence, TYPE_CHECKING
 
-from ladder_dragon.strategy.prediction.approval import (
-    bootstrap_mean_ci,
-    prediction_apply_gate,
+from ladder_dragon.strategy.prediction.confirmation_statistics import (
+    DecisionEvidence,
+    block_confirmation_gate,
+    drawdown,
+    summarize_window,
 )
 from ladder_dragon.strategy.prediction.models import ResolvedSample
 
@@ -27,7 +28,7 @@ if TYPE_CHECKING:
 D = Decimal
 ZERO = D("0")
 MANIFEST_SCHEMA_VERSION = 1
-REPORT_SCHEMA_VERSION = 2
+REPORT_SCHEMA_VERSION = 3
 EVIDENCE_ROLES = frozenset({"SELECTION", "CONFIRMATION", "DIAGNOSTIC", "LEGACY"})
 LIFECYCLE_STATES = frozenset({
     "SELECTION", "FROZEN", "CONFIRMING", "CONFIRMED", "REJECTED",
@@ -48,11 +49,11 @@ DEFAULT_CRITERIA = {
     "min_regime_samples": 20,
     "min_fill_rate": "0.10",
     "max_drawdown_quote": "25",
-    "window_method": "fixed_decision_count",
-    "window_size_decisions": 20,
-    "required_complete_windows": 6,
-    # Five positive windows require stability beyond one favorable interval.
-    "minimum_positive_windows": 5,
+    "window_method": "fixed_non_overlapping_decision_blocks",
+    "window_size_decisions": 12,
+    "required_complete_windows": 10,
+    # Nine positive blocks permit one isolated adverse interval.
+    "minimum_positive_windows": 9,
     "maximum_consecutive_negative_windows": 1,
     "embargo_ms": 900_000,
 }
@@ -221,6 +222,10 @@ def variant_fingerprints(
         raise ValueError("confirmation window size must be positive")
     if int(policy["required_complete_windows"]) <= 0:
         raise ValueError("required confirmation windows must be positive")
+    if not 0 < int(policy["minimum_positive_windows"]) <= int(
+        policy["required_complete_windows"]
+    ):
+        raise ValueError("positive confirmation windows are invalid")
     if (
         int(policy["window_size_decisions"])
         * int(policy["required_complete_windows"])
@@ -441,6 +446,22 @@ def freeze_experiment(
         observed_kinds = {str(row[1]) for row in decisions}
         if observed_kinds != set(kinds):
             raise ValueError("selection cohort does not contain every candidate")
+        snapshots_by_kind = {
+            kind: [int(row[2]) for row in decisions if str(row[1]) == kind]
+            for kind in kinds
+        }
+        if any(
+            len(snapshots) != len(set(snapshots))
+            for snapshots in snapshots_by_kind.values()
+        ):
+            raise ValueError("selection cohort contains duplicate candidate snapshots")
+        snapshot_sets = [set(snapshots) for snapshots in snapshots_by_kind.values()]
+        if not snapshot_sets or any(
+            snapshots != snapshot_sets[0] for snapshots in snapshot_sets[1:]
+        ):
+            raise ValueError("selection candidates do not share identical snapshots")
+        if cutoff != max(snapshot_sets[0]):
+            raise ValueError("selection cutoff is not the final shared snapshot")
         if any(int(row[3]) != len(required) or int(row[4] or 0) != len(required) for row in decisions):
             raise ValueError("selection outcomes are not fully closed")
         if any(int(row[2]) > cutoff for row in decisions):
@@ -520,18 +541,9 @@ def freeze_experiment(
     return result
 
 
-@dataclass(frozen=True)
-class _DecisionEvidence:
-    decision_id: str
-    snapshot_ts_ms: int
-    regime: str
-    samples: tuple[ResolvedSample, ...]
-    complete: bool
-
-
 def _confirmation_decisions(
     store: "PredictionShadowStore", manifest: Mapping[str, object]
-) -> tuple[list[_DecisionEvidence], list[str]]:
+) -> tuple[list[DecisionEvidence], list[str]]:
     required = tuple(int(value) for value in manifest["candidate_parameters"]["horizons_min"])
     with store._connect() as connection:
         rows = connection.execute(
@@ -553,7 +565,7 @@ def _confirmation_decisions(
     grouped: dict[str, list[tuple]] = {}
     for row in rows:
         grouped.setdefault(str(row[0]), []).append(row)
-    output: list[_DecisionEvidence] = []
+    output: list[DecisionEvidence] = []
     reasons: list[str] = []
     for decision_id, values in grouped.items():
         from ladder_dragon.strategy.prediction.experiments import ShadowVariant
@@ -610,7 +622,7 @@ def _confirmation_decisions(
                     outcome=outcome,
                     baseline_net_pnl_quote=baseline.net_pnl_quote,
                 ))
-        output.append(_DecisionEvidence(
+        output.append(DecisionEvidence(
             decision_id=decision_id,
             snapshot_ts_ms=int(values[0][1]),
             regime=str(features.get("regime", "UNKNOWN")),
@@ -623,75 +635,10 @@ def _confirmation_decisions(
     return output, reasons
 
 
-def _drawdown(values: Sequence[Decimal]) -> Decimal:
-    cumulative = ZERO
-    peak = ZERO
-    maximum = ZERO
-    for value in values:
-        cumulative += value
-        peak = max(peak, cumulative)
-        maximum = max(maximum, peak - cumulative)
-    return maximum
-
-
-def _window(rows: Sequence[_DecisionEvidence], index: int) -> dict[str, object]:
-    pnl: list[Decimal] = []
-    baseline: list[Decimal] = []
-    fills = ZERO
-    no_trade = 0
-    opportunity = ZERO
-    regimes: dict[str, dict[str, object]] = {}
-    for decision in rows:
-        count = D(str(len(decision.samples)))
-        candidate_value = sum((row.outcome.net_pnl_quote for row in decision.samples), ZERO) / count
-        baseline_value = sum((row.baseline_net_pnl_quote for row in decision.samples), ZERO) / count
-        fill = sum((D(str(int(row.outcome.buy_filled))) for row in decision.samples), ZERO) / count
-        pnl.append(candidate_value)
-        baseline.append(baseline_value)
-        fills += fill
-        if all(row.outcome.exit_reason == "NO_TRADE" for row in decision.samples):
-            no_trade += 1
-            opportunity += baseline_value
-        bucket = regimes.setdefault(decision.regime, {"decisions": 0, "pnl": ZERO, "edge": ZERO})
-        bucket["decisions"] = int(bucket["decisions"]) + 1
-        bucket["pnl"] = bucket["pnl"] + candidate_value
-        bucket["edge"] = bucket["edge"] + candidate_value - baseline_value
-    candidate_total = sum(pnl, ZERO)
-    baseline_total = sum(baseline, ZERO)
-    edge = candidate_total - baseline_total
-    return {
-        "index": index,
-        "status": "COMPLETE",
-        "start_ts_ms": rows[0].snapshot_ts_ms,
-        "end_ts_ms": rows[-1].snapshot_ts_ms,
-        "independent_decisions": len(rows),
-        "candidate_net_pnl_quote": format(candidate_total, "f"),
-        "baseline_net_pnl_quote": format(baseline_total, "f"),
-        "edge_quote": format(edge, "f"),
-        "fill_rate": format(fills / D(str(len(rows))), "f"),
-        "max_drawdown_quote": format(_drawdown(pnl), "f"),
-        "no_trade_count": no_trade,
-        "no_trade_opportunity_cost_quote": format(opportunity, "f"),
-        "regimes": {
-            name: {
-                "decisions": int(value["decisions"]),
-                "pnl_quote": format(value["pnl"], "f"),
-                "edge_quote": format(value["edge"], "f"),
-            }
-            for name, value in sorted(regimes.items())
-        },
-        "absolute_positive": candidate_total > 0,
-        "edge_positive": edge > 0,
-        "evidence_complete": True,
-        "blocking_reasons": [],
-        "positive": candidate_total > 0 and edge > 0,
-    }
-
-
 def confirmation_report(
     store: "PredictionShadowStore", *, experiment_id: str
 ) -> dict[str, object]:
-    """Evaluate only post-freeze evidence in fixed non-overlapping windows."""
+    """Read post-freeze evidence without changing experiment state."""
     try:
         manifest = load_manifest(store, experiment_id)
     except (ValueError, sqlite3.Error, json.JSONDecodeError) as exc:
@@ -708,15 +655,26 @@ def confirmation_report(
             "lookahead": False,
         }
     decisions, reasons = _confirmation_decisions(store, manifest)
-    complete = [row for row in decisions if row.complete]
-    pending = [row for row in decisions if not row.complete]
     criteria = manifest["criteria"]
     size = int(criteria["window_size_decisions"])
+    required_windows = int(criteria["required_complete_windows"])
+    required_decisions = size * required_windows
+    first_pending = next(
+        (index for index, row in enumerate(decisions) if not row.complete),
+        len(decisions),
+    )
+    # A later closed outcome cannot jump over an earlier unresolved decision.
+    complete_prefix = decisions[:first_pending]
+    pending_tail = decisions[first_pending:]
     windows = [
-        _window(complete[offset:offset + size], offset // size + 1)
-        for offset in range(0, len(complete) - len(complete) % size, size)
+        summarize_window(
+            complete_prefix[offset:offset + size], offset // size + 1
+        )
+        for offset in range(
+            0, len(complete_prefix) - len(complete_prefix) % size, size
+        )
     ]
-    remainder = complete[len(windows) * size:] + pending
+    remainder = complete_prefix[len(windows) * size:] + pending_tail
     if remainder:
         windows.append({
             "index": len(windows) + 1,
@@ -728,75 +686,64 @@ def confirmation_report(
             "blocking_reasons": ["window is incomplete"],
         })
     full = [row for row in windows if row["status"] == "COMPLETE"]
-    positive = sum(bool(row["positive"]) for row in full)
-    negative = len(full) - positive
+    evaluated_windows = full[:required_windows]
+    evaluated_blocks = [
+        complete_prefix[offset:offset + size]
+        for offset in range(0, required_decisions, size)
+        if len(complete_prefix[offset:offset + size]) == size
+    ]
+    positive = sum(bool(row["positive"]) for row in evaluated_windows)
+    negative = len(evaluated_windows) - positive
     longest_negative = 0
     current_negative = 0
-    for row in full:
+    for row in evaluated_windows:
         current_negative = 0 if row["positive"] else current_negative + 1
         longest_negative = max(longest_negative, current_negative)
-    all_samples = [sample for row in complete for sample in row.samples]
-    gate = prediction_apply_gate(
-        all_samples,
-        min_independent_samples=int(criteria["min_independent_samples"]),
-        min_regime_samples=int(criteria["min_regime_samples"]),
-        min_fill_rate=D(str(criteria["min_fill_rate"])),
-        max_drawdown_quote=D(str(criteria["max_drawdown_quote"])),
-        required_horizons_min=tuple(manifest["candidate_parameters"]["horizons_min"]),
+    gate = block_confirmation_gate(
+        evaluated_blocks,
+        criteria=criteria,
+        required_horizons_min=tuple(
+            manifest["candidate_parameters"]["horizons_min"]
+        ),
     )
-    # This gate evaluates evidence only. It has no execution authority.
-    gate["mode"] = "SHADOW"
-    gate["apply_allowed"] = False
-    required_windows = int(criteria["required_complete_windows"])
-    enough = len(full) >= required_windows and len(complete) >= int(criteria["min_independent_samples"])
+    enough = (
+        len(evaluated_windows) == required_windows
+        and len(complete_prefix) >= required_decisions
+        and required_decisions >= int(criteria["min_independent_samples"])
+    )
     if not enough:
         reasons.append("predeclared confirmation volume is incomplete")
+        if pending_tail and len(complete_prefix) < required_decisions:
+            reasons.append("confirmation sequence contains an unresolved decision")
     if positive < int(criteria["minimum_positive_windows"]):
         reasons.append("positive-window requirement is not met")
     if longest_negative > int(criteria["maximum_consecutive_negative_windows"]):
         reasons.append("negative-window sequence exceeds the limit")
     reasons.extend(str(item) for item in gate.get("reasons", []))
     reasons = list(dict.fromkeys(reasons))
-    pnl_values = [D(str(row["candidate_net_pnl_quote"])) for row in full]
-    edge_values = [D(str(row["edge_quote"])) for row in full]
-    window_pnl_ci = bootstrap_mean_ci(pnl_values, seed=41)
-    window_edge_ci = bootstrap_mean_ci(edge_values, seed=43)
+    pnl_values = [
+        D(str(row["candidate_net_pnl_quote"])) for row in evaluated_windows
+    ]
+    edge_values = [D(str(row["edge_quote"])) for row in evaluated_windows]
     regime_edges: dict[str, Decimal] = {}
-    for row in full:
+    for row in evaluated_windows:
         for regime, values in row["regimes"].items():
             regime_edges[regime] = (
                 regime_edges.get(regime, ZERO) + D(str(values["edge_quote"]))
             )
-    if enough and window_pnl_ci[0] <= 0:
-        reasons.append("window-block net expectancy lower CI is not positive")
-    if enough and window_edge_ci[0] <= 0:
-        reasons.append("window-block baseline edge lower CI is not positive")
-    reasons = list(dict.fromkeys(reasons))
-    passed = enough and not reasons
-    status = "PASSED" if passed else ("IN_PROGRESS" if not enough else "FAILED")
+    evaluation_passed = enough and not reasons
     lifecycle_status = str(manifest["current_status"])
-    if lifecycle_status in {"FROZEN", "CONFIRMING"}:
-        with store._connect() as connection:
-            connection.execute("BEGIN IMMEDIATE")
-            if lifecycle_status == "FROZEN" and decisions:
-                lifecycle_status = transition_experiment(
-                    connection,
-                    experiment_id=experiment_id,
-                    to_status="CONFIRMING",
-                    reason="first confirmation snapshot recorded",
-                )
-            if enough and lifecycle_status == "CONFIRMING":
-                lifecycle_status = transition_experiment(
-                    connection,
-                    experiment_id=experiment_id,
-                    to_status="CONFIRMED" if passed else "REJECTED",
-                    reason=(
-                        "predeclared first gate passed"
-                        if passed else "predeclared first gate failed"
-                    ),
-                )
-            connection.commit()
-    return {
+    if lifecycle_status == "CONFIRMED":
+        status = "PASSED"
+    elif lifecycle_status == "REJECTED":
+        status = "FAILED"
+    elif lifecycle_status == "BLOCKED":
+        status = "BLOCKED"
+    elif enough:
+        status = "READY_TO_FINALIZE"
+    else:
+        status = "IN_PROGRESS"
+    report = {
         "schema_version": REPORT_SCHEMA_VERSION,
         "experiment_lifecycle_status": lifecycle_status,
         "experiment_id": manifest["experiment_id"],
@@ -808,11 +755,12 @@ def confirmation_report(
         "confirmation_start_ts_ms": manifest["confirmation_start_ts_ms"],
         "confirmation_status": status,
         "confirmation_progress": {
-            "complete_decisions": len(complete),
-            "pending_decisions": len(pending),
-            "required_decisions": int(criteria["min_independent_samples"]),
+            "complete_decisions": len(complete_prefix),
+            "pending_decisions": len(pending_tail),
+            "required_decisions": required_decisions,
             "complete_windows": len(full),
             "required_complete_windows": required_windows,
+            "evaluated_windows": len(evaluated_windows),
         },
         "complete_windows": len(full),
         "pending_windows": sum(row["status"] == "PENDING" for row in windows),
@@ -830,26 +778,75 @@ def confirmation_report(
         ),
         "worst_window_pnl_quote": format(min(pnl_values), "f") if full else None,
         "maximum_consecutive_negative_windows": longest_negative,
-        "overall_drawdown_quote": format(_drawdown(pnl_values), "f"),
+        "overall_drawdown_quote": format(drawdown(pnl_values), "f"),
         "regimes_without_positive_edge": sorted(
             regime for regime, edge in regime_edges.items() if edge <= 0
         ),
-        "window_block_net_expectancy_ci": [
-            format(window_pnl_ci[0], "f"), format(window_pnl_ci[1], "f")
-        ],
-        "window_block_baseline_edge_ci": [
-            format(window_edge_ci[0], "f"), format(window_edge_ci[1], "f")
-        ],
+        "window_block_net_expectancy_ci": gate["net_expectancy_ci"],
+        "window_block_baseline_edge_ci": gate["baseline_edge_ci"],
         "windows": windows,
         "statistical_gate": gate,
         "blocking_reasons": reasons,
-        "first_gate_passed": passed,
-        "eligible_for_second_gate_review": passed,
-        "promotion_eligible": passed,
+        "evaluation_passed": evaluation_passed,
+        "finalization_ready": enough,
+        "proposed_final_status": (
+            "CONFIRMED" if evaluation_passed else "REJECTED"
+        ) if enough else None,
+        "first_gate_passed": lifecycle_status == "CONFIRMED",
+        "eligible_for_second_gate_review": lifecycle_status == "CONFIRMED",
+        "promotion_eligible": lifecycle_status == "CONFIRMED",
         "apply_allowed": False,
         "can_change_orders": False,
         "lookahead": False,
     }
+    report["report_sha256"] = sha256_json(report)
+    return report
+
+
+def finalize_experiment(
+    store: "PredictionShadowStore",
+    *,
+    experiment_id: str,
+    expected_report_sha256: str,
+) -> dict[str, object]:
+    """Finalize the exact reviewed report with an append-only transition."""
+    report = confirmation_report(store, experiment_id=experiment_id)
+    expected = str(expected_report_sha256).strip().lower()
+    if len(expected) != 64 or any(ch not in "0123456789abcdef" for ch in expected):
+        raise ValueError("reviewed confirmation report fingerprint is invalid")
+    if report.get("report_sha256") != expected:
+        raise ValueError("confirmation report changed before finalization")
+    if not report.get("finalization_ready"):
+        raise ValueError("confirmation is not ready for finalization")
+    with store._connect() as connection:
+        connection.execute("BEGIN IMMEDIATE")
+        # Hold the writer reservation while the exact reviewed report is checked.
+        locked_report = confirmation_report(store, experiment_id=experiment_id)
+        if locked_report.get("report_sha256") != expected:
+            raise ValueError("confirmation report changed before finalization")
+        target = str(locked_report["proposed_final_status"])
+        current = _current_status(connection, experiment_id)
+        if current not in {"FROZEN", "CONFIRMING"}:
+            raise ValueError("experiment is already finalized")
+        if current == "FROZEN":
+            transition_experiment(
+                connection,
+                experiment_id=experiment_id,
+                to_status="CONFIRMING",
+                reason="operator requested confirmation finalization",
+            )
+        transition_experiment(
+            connection,
+            experiment_id=experiment_id,
+            to_status=target,
+            reason=(
+                "reviewed first confirmation gate passed"
+                if target == "CONFIRMED"
+                else "reviewed first confirmation gate failed"
+            ),
+        )
+        connection.commit()
+    return confirmation_report(store, experiment_id=experiment_id)
 
 
 def supersede_experiment(
@@ -877,6 +874,7 @@ __all__ = [
     "canonical_json",
     "confirmation_report",
     "evidence_assignment",
+    "finalize_experiment",
     "freeze_experiment",
     "list_experiments",
     "load_manifest",

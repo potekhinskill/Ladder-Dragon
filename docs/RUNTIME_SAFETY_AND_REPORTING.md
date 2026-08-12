@@ -130,7 +130,8 @@ Candidate prices can be closer than the baseline because they cannot change orde
 
 Version-seven evidence remains immutable after its negative net expectancy result.
 Version-eight evidence remains immutable after its zero-fill result.
-Version-nine tests the observed participation boundary without reusing the 40-basis-point gap.
+Version-nine tested the observed participation boundary without reusing the 40-basis-point gap.
+Version-ten starts new evidence for the hardened confirmation protocol.
 
 Each semantic generation uses new experiment identifiers.
 Existing evidence receives the `LEGACY` role during migration.
@@ -147,6 +148,7 @@ Selection output has `diagnostic_only=true`.
 Selection output also has `cannot_confirm_selected_candidate=true`.
 
 The operator must freeze one exact candidate with `prediction_experiment`.
+Each candidate must have the same selection snapshot set.
 The manifest fixes candidate, baseline, criteria, horizons, windows, source, and scope.
 Canonical JSON and SHA-256 protect manifest identity.
 Frozen manifests and lifecycle transitions are append-only.
@@ -156,13 +158,18 @@ It also starts after a fixed 15-minute embargo.
 Snapshot time determines cohort membership.
 Settlement time cannot move an older decision into confirmation.
 
-Confirmation uses six sequential windows of 20 independent decisions.
+Confirmation uses ten sequential blocks of 12 independent decisions.
 Multiple horizons from one decision count once.
-Confidence intervals also bootstrap these non-overlapping window blocks.
-The incomplete final window remains `PENDING`.
-Five complete windows must have positive PnL and positive baseline edge.
-Two consecutive negative windows block the stability rule.
+Confidence intervals bootstrap these non-overlapping blocks.
+Holm tests also use block-level results.
+The first unresolved decision stops the eligible prefix.
+The incomplete final block remains `PENDING`.
+Nine complete blocks must have positive PnL and positive baseline edge.
+Two consecutive negative blocks block the stability rule.
 All existing confidence, Holm, fill, drawdown, and regime gates remain required.
+
+The confirmation report is read-only.
+The operator must finalize the reviewed report with its SHA-256.
 
 Future data can evaluate a frozen hypothesis or help construct the next one.
 Data that changes candidate selection or semantics cannot confirm the new candidate.

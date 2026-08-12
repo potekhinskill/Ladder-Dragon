@@ -84,16 +84,21 @@ Normal strategy predictions retain their 1, 5, and 15-minute horizons.
 
 Version-seven improved fill rate, but each net expectancy confidence interval remained negative.
 Version-eight repeated the zero-fill boundary at 40 basis points and deeper.
-Version-nine tests the narrow boundary between version-seven fills and version-eight inactivity.
+Version-nine tested the boundary between version-seven fills and version-eight inactivity.
+Version-ten starts a separate cohort for the hardened confirmation protocol.
 
 Selection compares all active candidates on identical snapshots.
+Freeze requires the exact same snapshot set for every candidate.
 Its evidence is diagnostic after candidate choice.
 An explicit operator freeze creates an immutable candidate manifest.
 Confirmation starts after the selection outcomes and a 15-minute embargo.
 It accepts only new decision snapshots linked to that manifest.
 
-Confirmation uses six fixed windows of 20 independent decisions.
-At least five windows need positive PnL and positive baseline edge.
+Confirmation uses ten fixed blocks of 12 independent decisions.
+At least nine blocks need positive PnL and positive baseline edge.
+An unresolved decision stops the eligible prefix.
+Confidence intervals and Holm tests use complete blocks.
+The report is read-only and finalization requires its reviewed SHA-256.
 The existing 120-sample statistical requirements remain unchanged.
 
 The first gate evaluates the complete candidate strategy.

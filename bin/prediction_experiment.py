@@ -16,6 +16,7 @@ from product_version import __version__
 from ladder_dragon.strategy.prediction.experiment_lifecycle import (
     candidate_rule,
     confirmation_report,
+    finalize_experiment,
     freeze_experiment,
     list_experiments,
     load_manifest,
@@ -49,6 +50,12 @@ def _parser() -> argparse.ArgumentParser:
     show.add_argument("experiment_id")
     report = subparsers.add_parser("report", help="Evaluate confirmation evidence.")
     report.add_argument("experiment_id")
+    finalize = subparsers.add_parser(
+        "finalize", help="Finalize one reviewed confirmation report."
+    )
+    finalize.add_argument("experiment_id")
+    finalize.add_argument("--report-sha256", required=True)
+    finalize.add_argument("--confirm", required=True)
     freeze = subparsers.add_parser("freeze", help="Freeze one selected candidate.")
     freeze.add_argument("--experiment-id", required=True)
     freeze.add_argument("--symbol", required=True)
@@ -138,6 +145,14 @@ def main(argv: list[str] | None = None) -> int:
         payload = load_manifest(store, args.experiment_id)
     elif args.command == "report":
         payload = confirmation_report(store, experiment_id=args.experiment_id)
+    elif args.command == "finalize":
+        if args.confirm != "FINALIZE":
+            raise SystemExit("--confirm must equal FINALIZE")
+        payload = finalize_experiment(
+            store,
+            experiment_id=args.experiment_id,
+            expected_report_sha256=args.report_sha256,
+        )
     elif args.command == "supersede":
         if args.confirm != "SUPERSEDE":
             raise SystemExit("--confirm must equal SUPERSEDE")

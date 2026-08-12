@@ -61,6 +61,11 @@ def _paired_sign_p_value(edges: Sequence[Decimal]) -> float:
     return min(1.0, probability)
 
 
+def paired_sign_p_value(edges: Sequence[Decimal]) -> float:
+    """Return the exact one-sided paired sign-test probability."""
+    return _paired_sign_p_value(edges)
+
+
 def _holm(p_values: Sequence[float], alpha: float = 0.05) -> list[bool]:
     indexed = sorted(enumerate(p_values), key=lambda item: item[1])
     accepted = [False] * len(p_values)
@@ -211,5 +216,6 @@ __all__ = [
     "bootstrap_mean_ci",
     "configuration_edge_p_value",
     "holm_configuration_correction",
+    "paired_sign_p_value",
     "prediction_apply_gate",
 ]

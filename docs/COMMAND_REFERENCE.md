@@ -105,14 +105,24 @@ Freeze only an explicitly reviewed selection candidate:
 .venv/bin/python -m bin.prediction_experiment freeze \
   --experiment-id EXPERIMENT_ID \
   --symbol SOLUSDT \
-  --variant-id v9_maker_ttl60_gap36 \
+  --variant-id v10_maker_ttl60_gap36 \
   --selection-end-ts-ms TIMESTAMP \
   --confirm FREEZE
 ```
 
-The command rejects pending selection outcomes.
+The command rejects pending, asymmetric, or incomplete selection outcomes.
 It never selects the best candidate automatically.
-Use `show`, `report`, and `supersede` for later lifecycle operations.
+The `report` command never changes lifecycle state.
+
+Finalize the exact reviewed report:
+
+```bash
+.venv/bin/python -m bin.prediction_experiment finalize EXPERIMENT_ID \
+  --report-sha256 REPORT_SHA256 \
+  --confirm FINALIZE
+```
+
+Use `show` and `supersede` for other lifecycle operations.
 
 ## Execution and operator commands
 

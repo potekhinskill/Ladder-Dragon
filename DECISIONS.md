@@ -1197,3 +1197,10 @@ entries concise; this is not a changelog or an activity log.
 - **Decision:** freeze one explicit manifest before collecting a new, purged confirmation cohort.
 - **Why it worked:** roles, fingerprints, fixed windows, and append-only transitions prevent evidence reuse.
 - **Reuse:** every adaptive experiment that selects a hypothesis from observed outcomes.
+
+### 2026-08-12 — Make confirmation evidence block-native
+
+- **Context:** snapshot-level inference did not match the predeclared confirmation windows.
+- **Decision:** use identical selection snapshots and fixed confirmation blocks for all statistical inference.
+- **Why it worked:** unresolved gaps cannot reorder evidence, and reports cannot change lifecycle state.
+- **Reuse:** every time-series experiment with dependent observations and an explicit operator gate.

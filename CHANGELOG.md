@@ -3,6 +3,19 @@
 All notable changes are documented here. Releases use Semantic Versioning; every
 section is dated and there is intentionally no `Unreleased` section.
 
+## [2.20.192] — 2026-08-12
+
+### Changed
+- Version-ten SHADOW starts a new cohort for the hardened confirmation protocol.
+- Selection freeze now requires identical snapshot sets for every candidate.
+- Confirmation evaluates ten fixed blocks of 12 decisions and permits one isolated negative block.
+- Confidence intervals and Holm tests now use complete decision blocks as the independent unit.
+- An unresolved decision now stops the eligible confirmation prefix until its outcomes close.
+- Confirmation reports are read-only and require an explicit fingerprint-bound finalization command.
+
+### Verified
+- Symmetry, contiguous-prefix, block inference, read-only reporting, finalization, and SHADOW isolation tests pass.
+
 ## [2.20.191] — 2026-08-12
 
 ### Added

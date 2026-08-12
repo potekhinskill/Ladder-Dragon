@@ -17,6 +17,7 @@ from ladder_dragon.strategy.prediction.experiment_lifecycle import (
     canonical_json,
     confirmation_report,
     evidence_assignment,
+    finalize_experiment,
     freeze_experiment,
     load_manifest,
     selection_experiment_id,
@@ -172,7 +173,7 @@ def _frozen(tmp_path: Path):
     frozen_at = evaluation_end_ms(snapshot, max(EXPERIMENT_HORIZONS_MIN)) + 1
     manifest = freeze_experiment(
         store,
-        experiment_id="exp-v9-gap36",
+        experiment_id="exp-v10-gap36",
         generation=SHADOW_GENERATION,
         symbol="SOLUSDT",
         selected_variant=variants[1],
@@ -352,6 +353,40 @@ def test_incomplete_selection_blocks_freeze(tmp_path: Path):
         )
 
 
+def test_asymmetric_selection_snapshots_block_freeze(tmp_path: Path):
+    store = PredictionShadowStore(tmp_path / "prediction.sqlite3")
+    variants = _variants()
+    cohort = selection_experiment_id(SHADOW_GENERATION, "SOLUSDT")
+    for variant in variants:
+        decision_id = _record(
+            store, variant, timestamp=59_999, experiment_id=cohort, role="SELECTION"
+        )
+        _resolve(store, decision_id)
+    extra_id = _record(
+        store,
+        variants[0],
+        timestamp=359_999,
+        experiment_id=cohort,
+        role="SELECTION",
+    )
+    _resolve(store, extra_id)
+
+    with pytest.raises(ValueError, match="identical snapshots"):
+        freeze_experiment(
+            store,
+            experiment_id="asymmetric-selection",
+            generation=SHADOW_GENERATION,
+            symbol="SOLUSDT",
+            selected_variant=variants[1],
+            all_variants=variants,
+            horizons_min=EXPERIMENT_HORIZONS_MIN,
+            selection_end_ts_ms=359_999,
+            product_version="2.20.192",
+            source_commit="a" * 40,
+            frozen_at_ms=20_000_000,
+        )
+
+
 def test_freeze_time_before_closed_selection_is_rejected(tmp_path: Path):
     store = PredictionShadowStore(tmp_path / "prediction.sqlite3")
     variants = _variants()
@@ -391,7 +426,7 @@ def test_missing_manifest_blocks_confirmation(tmp_path: Path):
 def test_incomplete_window_is_pending_and_cannot_pass(tmp_path: Path):
     store, variants, manifest = _frozen(tmp_path)
     start = int(manifest["confirmation_start_ts_ms"])
-    for index in range(19):
+    for index in range(11):
         decision_id = _record(
             store,
             variants[1],
@@ -424,6 +459,65 @@ def test_horizons_do_not_inflate_independent_decisions(tmp_path: Path):
     assert report["confirmation_progress"]["complete_decisions"] == 1
 
 
+def test_report_is_read_only_and_does_not_advance_lifecycle(tmp_path: Path):
+    store, variants, manifest = _frozen(tmp_path)
+    decision_id = _record(
+        store,
+        variants[1],
+        timestamp=int(manifest["confirmation_start_ts_ms"]),
+        experiment_id=manifest["experiment_id"],
+        role="CONFIRMATION",
+    )
+    _resolve(store, decision_id)
+
+    first = confirmation_report(store, experiment_id=manifest["experiment_id"])
+    second = confirmation_report(store, experiment_id=manifest["experiment_id"])
+
+    assert first["experiment_lifecycle_status"] == "FROZEN"
+    assert second["experiment_lifecycle_status"] == "FROZEN"
+    with store._connect() as connection:
+        transitions = connection.execute(
+            "SELECT from_status,to_status FROM prediction_experiment_transitions"
+        ).fetchall()
+    assert transitions == [("SELECTION", "FROZEN")]
+
+
+def test_unresolved_decision_stops_confirmation_prefix(tmp_path: Path):
+    store, variants, manifest = _frozen(tmp_path)
+    start = int(manifest["confirmation_start_ts_ms"])
+    for index in range(120):
+        decision_id = _record(
+            store,
+            variants[1],
+            timestamp=start + index * 300_000,
+            experiment_id=manifest["experiment_id"],
+            role="CONFIRMATION",
+            regime=("TREND_UP", "TREND_DOWN", "RANGE", "PANIC")[index % 4],
+        )
+        if index != 5:
+            _resolve(store, decision_id)
+
+    report = confirmation_report(store, experiment_id=manifest["experiment_id"])
+
+    assert report["confirmation_progress"]["complete_decisions"] == 5
+    assert report["confirmation_progress"]["pending_decisions"] == 115
+    assert report["complete_windows"] == 0
+    assert "confirmation sequence contains an unresolved decision" in report[
+        "blocking_reasons"
+    ]
+
+
+def test_finalize_rejects_a_stale_report_fingerprint(tmp_path: Path):
+    store, _variants_value, manifest = _frozen(tmp_path)
+
+    with pytest.raises(ValueError, match="report changed"):
+        finalize_experiment(
+            store,
+            experiment_id=manifest["experiment_id"],
+            expected_report_sha256="0" * 64,
+        )
+
+
 def test_full_independent_confirmation_can_pass_without_apply(tmp_path: Path):
     store, variants, manifest = _frozen(tmp_path)
     start = int(manifest["confirmation_start_ts_ms"])
@@ -441,16 +535,24 @@ def test_full_independent_confirmation_can_pass_without_apply(tmp_path: Path):
 
     report = confirmation_report(store, experiment_id=manifest["experiment_id"])
 
-    assert report["complete_windows"] == 6
-    assert report["positive_windows"] == 6
+    assert report["complete_windows"] == 10
+    assert report["positive_windows"] == 10
     complete_windows = [row for row in report["windows"] if row["status"] == "COMPLETE"]
     assert all(
         left["end_ts_ms"] < right["start_ts_ms"]
         for left, right in zip(complete_windows, complete_windows[1:])
     )
-    assert report["first_gate_passed"] is True
-    assert report["eligible_for_second_gate_review"] is True
-    assert report["promotion_eligible"] is True
+    assert report["confirmation_status"] == "READY_TO_FINALIZE"
+    assert report["evaluation_passed"] is True
+    assert report["first_gate_passed"] is False
+    finalized = finalize_experiment(
+        store,
+        experiment_id=manifest["experiment_id"],
+        expected_report_sha256=report["report_sha256"],
+    )
+    assert finalized["first_gate_passed"] is True
+    assert finalized["eligible_for_second_gate_review"] is True
+    assert finalized["promotion_eligible"] is True
     assert report["apply_allowed"] is False
     assert report["can_change_orders"] is False
     assert report["lookahead"] is False
@@ -469,13 +571,13 @@ def test_unstable_windows_fail_even_with_positive_total(tmp_path: Path):
             role="CONFIRMATION",
             regime=regimes[index % 4],
         )
-        window = index // 20
-        _resolve(store, decision_id, pnl="10" if window < 3 else "-1")
+        window = index // 12
+        _resolve(store, decision_id, pnl="10" if window < 6 else "-1")
 
     report = confirmation_report(store, experiment_id=manifest["experiment_id"])
 
     assert D(report["cumulative_pnl_quote"]) > 0
-    assert report["negative_windows"] == 3
+    assert report["negative_windows"] == 4
     assert report["first_gate_passed"] is False
 
 
