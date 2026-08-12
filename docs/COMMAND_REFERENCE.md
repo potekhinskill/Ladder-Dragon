@@ -66,6 +66,7 @@ The Pi profile does not install or run Semgrep.
 | `record_depth_archive` | records public depth and aggregate-trade JSONL |
 | `prediction_history_backfill` | creates cutoff-safe samples from archived bars |
 | `backfill_prediction_archive` | repairs eligible expired prediction outcomes |
+| `prediction_experiment` | freezes and audits independent SHADOW confirmation |
 | `monthly_prediction_report` | creates the monthly defensive SHADOW report |
 | `regime_pnl_report` | compares strategy, buy-and-hold, and USDT by regime |
 | `auto_ladder_map` | generates deterministic ladder diagnostics |
@@ -91,6 +92,27 @@ Add an archived L2 event stream:
 
 The positional CSV must contain `ts,open,high,low,close`.
 The `--archive` option does not make the replay an L3 reconstruction.
+
+Inspect the local experiment lifecycle:
+
+```bash
+.venv/bin/python -m bin.prediction_experiment status --symbol SOLUSDT
+```
+
+Freeze only an explicitly reviewed selection candidate:
+
+```bash
+.venv/bin/python -m bin.prediction_experiment freeze \
+  --experiment-id EXPERIMENT_ID \
+  --symbol SOLUSDT \
+  --variant-id v9_maker_ttl60_gap36 \
+  --selection-end-ts-ms TIMESTAMP \
+  --confirm FREEZE
+```
+
+The command rejects pending selection outcomes.
+It never selects the best candidate automatically.
+Use `show`, `report`, and `supersede` for later lifecycle operations.
 
 ## Execution and operator commands
 

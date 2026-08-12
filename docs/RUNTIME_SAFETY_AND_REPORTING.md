@@ -133,16 +133,46 @@ Version-eight evidence remains immutable after its zero-fill result.
 Version-nine tests the observed participation boundary without reusing the 40-basis-point gap.
 
 Each semantic generation uses new experiment identifiers.
+Existing evidence receives the `LEGACY` role during migration.
+Legacy evidence cannot become confirmation evidence.
 The database retains older results without mixing them into the active gate.
 The ordinary strategy gate still requires 1, 5, and 15-minute outcomes.
 
 The promotion set excludes re-anchor. Recording is limited to one candidate
 set per five minutes. Expensive gates refresh at most every 15 minutes.
 
-Selection requires the normal horizon and regime Holm gate. It also requires
-a configuration-level Holm correction with a distinct p-value for each
-candidate. A passing candidate remains `apply_allowed=false` until a separate
-reviewed release and operator approval.
+Selection requires the normal horizon and regime Holm gate.
+It also applies a distinct configuration-level Holm test to each candidate.
+Selection output has `diagnostic_only=true`.
+Selection output also has `cannot_confirm_selected_candidate=true`.
+
+The operator must freeze one exact candidate with `prediction_experiment`.
+The manifest fixes candidate, baseline, criteria, horizons, windows, source, and scope.
+Canonical JSON and SHA-256 protect manifest identity.
+Frozen manifests and lifecycle transitions are append-only.
+
+Confirmation starts after every selected outcome closes.
+It also starts after a fixed 15-minute embargo.
+Snapshot time determines cohort membership.
+Settlement time cannot move an older decision into confirmation.
+
+Confirmation uses six sequential windows of 20 independent decisions.
+Multiple horizons from one decision count once.
+Confidence intervals also bootstrap these non-overlapping window blocks.
+The incomplete final window remains `PENDING`.
+Five complete windows must have positive PnL and positive baseline edge.
+Two consecutive negative windows block the stability rule.
+All existing confidence, Holm, fill, drawdown, and regime gates remain required.
+
+Future data can evaluate a frozen hypothesis or help construct the next one.
+Data that changes candidate selection or semantics cannot confirm the new candidate.
+
+```text
+Future data may either evaluate a frozen hypothesis or help construct the next one. Once data influences candidate selection or algorithm changes, it cannot also confirm that new candidate.
+```
+
+A passed first gate only permits a separate second-gate review.
+It always keeps `apply_allowed=false`.
 
 Authenticated User Data Stream soak is also independent from execution. The
 `ladder-dragon-user-stream-shadow` service has no POST, DELETE, placement or

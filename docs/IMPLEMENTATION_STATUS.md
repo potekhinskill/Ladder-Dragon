@@ -15,7 +15,7 @@ The configured mode and its evidence gate remain authoritative.
 | Accounting | Exact FIFO lots, exact AI fills, fee provenance, risk streaks, and cursor audits | Fail closed on incomplete evidence |
 | Replay | Sequential L2 events, shared liquidity, queue state, latency, fees, and slippage | L2 model, not exact L3 |
 | Prediction | 1, 5, and 15 minute SHADOW outcomes | Enabled for evidence only |
-| Experiments | Versioned same-snapshot strategy candidates | SHADOW only |
+| Experiments | Selection, immutable freeze, and independent confirmation | SHADOW only |
 | Statistical approval | Walk-forward, confidence intervals, regime checks, and Holm correction | Must pass before APPLY |
 | AI advice | Validated DeepSeek, OpenAI, or compatible provider response | Disabled by default |
 | RAG | Hybrid similarity, retention, bounded candidates, and real-only retrieval | Virtual records stay archived |
@@ -86,13 +86,24 @@ Version-seven improved fill rate, but each net expectancy confidence interval re
 Version-eight repeated the zero-fill boundary at 40 basis points and deeper.
 Version-nine tests the narrow boundary between version-seven fills and version-eight inactivity.
 
-The promotion gate evaluates the complete candidate strategy.
+Selection compares all active candidates on identical snapshots.
+Its evidence is diagnostic after candidate choice.
+An explicit operator freeze creates an immutable candidate manifest.
+Confirmation starts after the selection outcomes and a 15-minute embargo.
+It accepts only new decision snapshots linked to that manifest.
+
+Confirmation uses six fixed windows of 20 independent decisions.
+At least five windows need positive PnL and positive baseline edge.
+The existing 120-sample statistical requirements remain unchanged.
+
+The first gate evaluates the complete candidate strategy.
 All active candidates use the same entry scope.
 The active-entry diagnostic therefore uses the same cohort.
 
 Operational analytics use the latest 1,000 decisions for each candidate.
 This limit bounds Raspberry Pi memory and temporary storage use.
-Raw decisions and outcomes remain append-only in SQLite.
+Classified lifecycle evidence remains append-only in SQLite.
+Automated retention does not delete classified lifecycle evidence.
 
 New plan semantics use a new experiment identifier.
 Historical experiment rows remain available and never mix with the active generation.
@@ -104,7 +115,7 @@ Incomplete evidence cannot enter readiness, RAG, or dashboard PnL totals.
 
 Re-anchor is not a promotion candidate.
 
-No candidate can set `apply_allowed=true` by itself.
+No first-gate result can set `apply_allowed=true`.
 
 ## Current approval boundary
 

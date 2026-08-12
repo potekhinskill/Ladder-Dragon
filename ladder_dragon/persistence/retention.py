@@ -145,6 +145,10 @@ def rotate_prediction_shadow(
             result.update(status="BLOCKED", reason="prediction database does not exist")
         return result
 
+    # Install role columns before retention filters classified evidence.
+    from ladder_dragon.strategy.prediction.runtime import PredictionShadowStore
+    PredictionShadowStore(database)
+
     cutoff_ms = int((current - retention_days * SECONDS_PER_DAY) * 1_000)
     with sqlite3.connect(database, timeout=30) as connection:
         connection.execute("PRAGMA busy_timeout=30000")
@@ -154,6 +158,7 @@ def rotate_prediction_shadow(
                 """SELECT d.decision_id
                    FROM prediction_decisions AS d
                    WHERE d.created_at_ms < ?
+                     AND COALESCE(d.evidence_role,'LEGACY')='LEGACY'
                      AND EXISTS(
                          SELECT 1 FROM prediction_outcomes AS o
                          WHERE o.decision_id=d.decision_id
@@ -185,6 +190,7 @@ def rotate_prediction_shadow(
                 f"""SELECT COUNT(*) FROM prediction_decisions AS d
                     WHERE d.decision_id IN ({placeholders})
                       AND d.created_at_ms < ?
+                      AND COALESCE(d.evidence_role,'LEGACY')='LEGACY'
                       AND NOT EXISTS(
                           SELECT 1 FROM prediction_outcomes AS o
                           WHERE o.decision_id=d.decision_id

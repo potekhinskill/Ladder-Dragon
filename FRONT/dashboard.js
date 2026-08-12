@@ -441,22 +441,25 @@ function updateTrading(t){
 function updateShadowExperiments(prediction){
   const symbols=prediction.symbols&&typeof prediction.symbols==='object'?prediction.symbols:{};
   const report=Object.values(symbols).map(row=>row?.shadow_experiments).find(row=>row?.variants)||{};
-  const variants=Object.entries(report.variants||{}).filter(([name])=>name.startsWith('v2_'));
-  const ready=variants.filter(([,row])=>Boolean(row?.promotion_eligible)).length;
+  const generation=String(report.generation||'');
+  const variants=Object.entries(report.variants||{}).filter(([name])=>!generation||name.startsWith(`${generation}_`));
+  const confirmation=report.confirmation_evidence||{};
+  const ready=report.eligible_for_second_gate_review?1:0;
   const summary=$('#shadow-experiments-summary'), body=$('#shadow-experiments-body');
   if(!summary||!body) return;
   summary.textContent=tr('shadow_experiment_summary',{count:variants.length,ready});
-  body.innerHTML=variants.length?variants.map(([name,row])=>{
+  const confirmationLine=`<div class="shadow-experiment-row"><div><strong>${esc(tr('shadow_confirmation'))}</strong><span class="pill ${ready?'ok':'warn'}">${esc(String(confirmation.confirmation_status||'BLOCKED'))}</span></div><div class="muted">${esc(tr('shadow_windows'))}: ${Number(confirmation.complete_windows||0)}/${Number(confirmation.confirmation_progress?.required_complete_windows||0)} · ${esc(tr('shadow_samples'))}: ${Number(confirmation.confirmation_progress?.complete_decisions||0)}/${Number(confirmation.confirmation_progress?.required_decisions||0)}</div></div>`;
+  body.innerHTML=confirmationLine+(variants.length?variants.map(([name,row])=>{
     const gate=row.gate||{}, outcomes=row.outcomes||{}, ci=Array.isArray(gate.net_expectancy_ci)?gate.net_expectancy_ci:[];
     const regimes=gate.regime_counts&&typeof gate.regime_counts==='object'?Object.keys(gate.regime_counts).filter(key=>Number(gate.regime_counts[key])>0).length:0;
     const fill=Number(gate.fill_rate), low=Number(ci[0]), high=Number(ci[1]);
-    const tone=row.promotion_eligible?'ok':'warn';
+    const tone='warn';
     return `<div class="shadow-experiment-row">
-      <div><strong>${esc(name.replace(/^v2_/,'').replaceAll('_',' '))}</strong><span class="pill ${tone}">${esc(row.promotion_eligible?tr('shadow_ready'):tr('shadow_collecting'))}</span></div>
+      <div><strong>${esc(name.replace(new RegExp(`^${generation}_`),'').replaceAll('_',' '))}</strong><span class="pill ${tone}">${esc(tr('shadow_selection_only'))}</span></div>
       <div class="muted">${esc(tr('shadow_samples'))}: ${Number(row.independent_samples||0)} · ${esc(tr('shadow_outcomes'))}: ${Number(outcomes.resolved||0)}/${Number(outcomes.total||0)} · ${esc(tr('shadow_pending'))}: ${Number(outcomes.future||0)+Number(outcomes.settling||0)} · ${esc(tr('shadow_overdue'))}: ${Number(outcomes.overdue||0)}</div>
       <div class="muted">${esc(tr('shadow_fill'))}: ${Number.isFinite(fill)?fmt(fill*100,2)+'%':'—'} · CI: ${Number.isFinite(low)&&Number.isFinite(high)?`${fmt(low,6)}..${fmt(high,6)}`:'—'} · Holm: ${row.configuration_holm_passed?'PASS':'FAIL'} · ${esc(tr('shadow_regimes'))}: ${regimes}/4</div>
     </div>`;
-  }).join(''):`<div class="muted">${esc(tr('no_data'))}</div>`;
+  }).join(''):`<div class="muted">${esc(tr('no_data'))}</div>`);
 }
 function updateAIQuality(ai){
   const src=ai.data_sources||{}, usage=ai.usage_today||{}, kb=ai.knowledge_base||{};

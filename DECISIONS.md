@@ -1190,3 +1190,10 @@ entries concise; this is not a changelog or an activity log.
 - **Decision:** each half-width operational card uses one metric column with bounded labels and flexible values.
 - **Why it worked:** desktop values retain 292 pixels at 1,266 pixels, while mobile rows stack vertically.
 - **Reuse:** every dense dashboard card that already shares its parent row with another card.
+
+### 2026-08-12 — Separate candidate selection from confirmation
+
+- **Context:** shared future samples selected one SHADOW candidate and also supported its promotion gate.
+- **Decision:** freeze one explicit manifest before collecting a new, purged confirmation cohort.
+- **Why it worked:** roles, fingerprints, fixed windows, and append-only transitions prevent evidence reuse.
+- **Reuse:** every adaptive experiment that selects a hypothesis from observed outcomes.

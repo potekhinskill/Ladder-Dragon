@@ -17,6 +17,13 @@ from ladder_dragon.strategy.prediction.approval import (
     configuration_edge_p_value,
     holm_configuration_correction,
 )
+from ladder_dragon.strategy.prediction.experiment_lifecycle import (
+    confirmation_report,
+    evidence_assignment,
+    list_experiments,
+    selection_experiment_id,
+    variant_fingerprints,
+)
 from ladder_dragon.strategy.prediction.runtime import (
     PredictionShadowStore,
     predict_distribution,
@@ -53,6 +60,8 @@ class ShadowVariant:
     baseline_plan: TradePlan
     maker_only: bool = False
     entry_gap_bps: Decimal | None = None
+    regime_policy: str = "always_active"
+    model_rule: str = "predict_distribution:v1:expanding_history_before_snapshot"
 
 
 def _candidate_plan(
@@ -128,7 +137,7 @@ def build_shadow_variants(
             ),
         )
 
-    # Version eight keeps the regime argument for the stable caller contract.
+    # Version nine keeps the regime argument for the stable caller contract.
     # Production evidence rejected the RANGE-only cohort, so it cannot gate entry.
     del regime
     variants = []
@@ -157,6 +166,19 @@ def record_shadow_variants(
     """Record every candidate against the same immutable feature snapshot."""
     decision_ids = []
     for variant in variants:
+        experiment_id, evidence_role = evidence_assignment(
+            store,
+            generation=SHADOW_GENERATION,
+            symbol=symbol,
+            variant=variant,
+            horizons_min=EXPERIMENT_HORIZONS_MIN,
+            snapshot_ts_ms=features.snapshot_ts_ms,
+        )
+        candidate_fp, baseline_fp = variant_fingerprints(
+            variant,
+            generation=SHADOW_GENERATION,
+            horizons_min=EXPERIMENT_HORIZONS_MIN,
+        )
         history = store.resolved_samples(
             symbol,
             before_ts_ms=features.snapshot_ts_ms,
@@ -179,6 +201,10 @@ def record_shadow_variants(
                 f"variant={variant.variant_id};dimension={variant.dimension}"
             ),
             horizons_min=EXPERIMENT_HORIZONS_MIN,
+            experiment_id=experiment_id,
+            evidence_role=evidence_role,
+            candidate_fingerprint=candidate_fp,
+            baseline_fingerprint=baseline_fp,
         ))
     return tuple(decision_ids)
 
@@ -202,11 +228,14 @@ def shadow_variant_report(
         ],
     ] = {}
     p_values: dict[str, float] = {}
+    selection_cohort = selection_experiment_id(SHADOW_GENERATION, symbol)
     for variant in variants:
         samples = store.resolved_samples(
             symbol,
             before_ts_ms=before_ts_ms,
             kind=variant.kind,
+            experiment_id=selection_cohort,
+            evidence_role="SELECTION",
         )
         walk_forward = walk_forward_prediction_report(
             samples,
@@ -242,6 +271,8 @@ def shadow_variant_report(
             symbol,
             variant.kind,
             as_of_ms=before_ts_ms,
+            experiment_id=selection_cohort,
+            evidence_role="SELECTION",
         )
         reports[variant.variant_id] = {
             "dimension": variant.dimension,
@@ -282,17 +313,65 @@ def shadow_variant_report(
                 ),
             },
             "configuration_holm_passed": holm_passed,
-            "promotion_eligible": bool(gate.get("approved")) and holm_passed,
+            # Selection can create a hypothesis, but it cannot confirm one.
+            "diagnostic_only": True,
+            "cannot_confirm_selected_candidate": True,
+            "selection_gate_passed": bool(gate.get("approved")) and holm_passed,
+            "promotion_eligible": False,
+            "eligible_for_second_gate_review": False,
             "apply_allowed": False,
             "lookahead": False,
         }
+    manifests = (
+        [
+            row for row in list_experiments(store, symbol=symbol)
+            if row.get("generation") == SHADOW_GENERATION
+        ]
+        if hasattr(store, "_connect") else []
+    )
+    confirmation = (
+        confirmation_report(
+            store,
+            experiment_id=str(manifests[-1]["experiment_id"]),
+        )
+        if manifests else {
+            "schema_version": 2,
+            "experiment_lifecycle_status": "BLOCKED",
+            "confirmation_status": "BLOCKED",
+            "blocking_reasons": ["frozen experiment manifest is missing"],
+            "first_gate_passed": False,
+            "eligible_for_second_gate_review": False,
+            "promotion_eligible": False,
+            "apply_allowed": False,
+            "can_change_orders": False,
+            "lookahead": False,
+        }
+    )
     return {
+        "schema_version": 2,
         "mode": "SHADOW",
         "generation": SHADOW_GENERATION,
         "horizons_min": list(EXPERIMENT_HORIZONS_MIN),
         "baseline": "current_strategy_plan",
         "same_snapshot": True,
         "can_change_orders": False,
+        "selection_evidence": {
+            "diagnostic_only": True,
+            "cannot_confirm_selected_candidate": True,
+            "variants": reports,
+        },
+        "confirmation_evidence": confirmation,
+        "diagnostic_evidence": {
+            "active_cohorts": True,
+            "apply_allowed": False,
+        },
+        "first_gate_passed": bool(confirmation.get("first_gate_passed")),
+        "eligible_for_second_gate_review": bool(
+            confirmation.get("eligible_for_second_gate_review")
+        ),
+        "promotion_eligible": bool(confirmation.get("promotion_eligible")),
+        "apply_allowed": False,
+        "lookahead": False,
         "variants": reports,
     }
 

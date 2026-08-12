@@ -3,6 +3,22 @@
 All notable changes are documented here. Releases use Semantic Versioning; every
 section is dated and there is intentionally no `Unreleased` section.
 
+## [2.20.191] — 2026-08-12
+
+### Added
+- SHADOW experiments now use explicit selection, immutable freeze, and independent confirmation roles.
+- Canonical manifests bind candidates, baselines, criteria, windows, scope, product version, and source commit with SHA-256.
+- The operator CLI provides `status`, `freeze`, `show`, `report`, and `supersede` lifecycle commands.
+
+### Changed
+- Confirmation uses six non-overlapping windows of 20 independent decision snapshots.
+- Five windows need positive PnL and positive baseline edge before first-gate review eligibility.
+- Old prediction evidence migrates to `LEGACY` and cannot become confirmation evidence.
+- Dashboard selection rows remain diagnostic and display independent confirmation progress separately.
+
+### Verified
+- Lifecycle, fingerprint, boundary, window, migration, Decimal, fail-closed, dashboard, and SHADOW isolation tests pass.
+
 ## [2.20.190] — 2026-08-12
 
 ### Changed

@@ -114,6 +114,32 @@ def test_retention_empty_run_is_successful_with_fresh_backup(tmp_path):
     assert result["reason"] == "no terminal prediction rows exceed retention"
 
 
+def test_retention_preserves_classified_lifecycle_evidence(tmp_path):
+    now = 2_000_000_000.0
+    database = tmp_path / "prediction.sqlite3"
+    backup = tmp_path / "backup.json"
+    old_ms = int((now - 400 * 86_400) * 1000)
+    _database(database, old_ms=old_ms, fresh_ms=int(now * 1000))
+    _backup(backup, now)
+    from ladder_dragon.strategy.prediction import PredictionShadowStore
+    PredictionShadowStore(database)
+    with sqlite3.connect(database) as connection:
+        connection.execute(
+            "UPDATE prediction_decisions SET evidence_role='CONFIRMATION' "
+            "WHERE decision_id='terminal'"
+        )
+
+    result = rotate_prediction_shadow(
+        database, tmp_path / "archives", backup, now=now
+    )
+
+    assert result["status"] == "PASS"
+    with sqlite3.connect(database) as connection:
+        assert connection.execute(
+            "SELECT COUNT(*) FROM prediction_decisions WHERE decision_id='terminal'"
+        ).fetchone()[0] == 1
+
+
 @pytest.mark.parametrize(("status", "expected"), (("PASS", 0), ("BLOCKED", 2)))
 def test_retention_cli_exposes_blocked_status_to_systemd(
     tmp_path, monkeypatch, status, expected,

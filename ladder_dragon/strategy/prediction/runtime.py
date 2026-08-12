@@ -34,9 +34,10 @@ D = Decimal
 ZERO = D("0")
 ONE = D("1")
 HORIZONS_MIN = (1, 5, 15)
-PREDICTION_SCHEMA_VERSION = 1
+PREDICTION_SCHEMA_VERSION = 2
 MAX_RESOLVED_DECISIONS = 1_000
 MAX_PERFORMANCE_DECISIONS = 10_000
+EVIDENCE_ROLES = frozenset({"SELECTION", "CONFIRMATION", "DIAGNOSTIC", "LEGACY"})
 
 
 def _decimal(value: object, *, field: str) -> Decimal:
@@ -574,6 +575,10 @@ class PredictionShadowStore:
                     "ALTER TABLE prediction_outcomes "
                     "ADD COLUMN source_sha256 TEXT"
                 )
+            from ladder_dragon.strategy.prediction.experiment_lifecycle import (
+                migrate_experiment_lifecycle,
+            )
+            migrate_experiment_lifecycle(connection)
 
     @staticmethod
     def _decision_id(
@@ -593,6 +598,10 @@ class PredictionShadowStore:
         algorithm_decision: str,
         baseline_plan: TradePlan | None = None,
         horizons_min: Sequence[int] = HORIZONS_MIN,
+        experiment_id: str | None = None,
+        evidence_role: str = "LEGACY",
+        candidate_fingerprint: str | None = None,
+        baseline_fingerprint: str | None = None,
     ) -> str:
         """Persist one immutable forecast and its untouched baseline plan."""
         horizons = _validated_horizons(horizons_min)
@@ -606,11 +615,27 @@ class PredictionShadowStore:
             raise ValueError("REANCHOR requires the original order baseline")
         if experimental and baseline_plan is None:
             raise ValueError("counterfactual kind requires an explicit baseline")
+        role = str(evidence_role).strip().upper()
+        if role not in EVIDENCE_ROLES:
+            raise ValueError("unsupported prediction evidence role")
+        normalized_experiment_id = (
+            str(experiment_id).strip() if experiment_id is not None else None
+        )
+        if role != "LEGACY" and not normalized_experiment_id:
+            raise ValueError("non-legacy evidence requires experiment_id")
+        if role == "LEGACY" and normalized_experiment_id:
+            raise ValueError("legacy evidence cannot have experiment_id")
+        fingerprints = (candidate_fingerprint, baseline_fingerprint)
+        if role != "LEGACY" and any(
+            not isinstance(value, str) or len(value) != 64
+            for value in fingerprints
+        ):
+            raise ValueError("classified evidence requires SHA-256 fingerprints")
         decision_id = self._decision_id(
             normalized_kind,
             symbol.upper(),
             features.snapshot_ts_ms,
-            algorithm_decision,
+            f"{algorithm_decision}:{normalized_experiment_id or ''}:{role}",
         )
         feature_json = json.dumps(_json_value(asdict(features)), sort_keys=True)
         plan_json = json.dumps(_json_value(asdict(plan)), sort_keys=True)
@@ -627,13 +652,16 @@ class PredictionShadowStore:
                 """INSERT OR IGNORE INTO prediction_decisions
                    (decision_id,schema_version,kind,symbol,snapshot_ts_ms,
                     feature_json,plan_json,baseline_plan_json,prediction_json,
-                    algorithm_decision,created_at_ms)
-                   VALUES (?,?,?,?,?,?,?,?,?,?,?)""",
+                    algorithm_decision,created_at_ms,experiment_id,evidence_role,
+                    candidate_fingerprint,baseline_fingerprint)
+                   VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
                 (
                     decision_id, PREDICTION_SCHEMA_VERSION, normalized_kind,
                     symbol.upper(), features.snapshot_ts_ms, feature_json,
                     plan_json, baseline_json, prediction_json,
                     algorithm_decision[:160], now_ms,
+                    normalized_experiment_id, role,
+                    candidate_fingerprint, baseline_fingerprint,
                 ),
             )
             for horizon in horizons:
@@ -1116,6 +1144,8 @@ class PredictionShadowStore:
         *,
         before_ts_ms: int | None = None,
         kind: str = "STRATEGY",
+        experiment_id: str | None = None,
+        evidence_role: str | None = None,
     ) -> list[ResolvedSample]:
         query = """WITH recent AS (
                        SELECT decision_id,snapshot_ts_ms,feature_json
@@ -1123,6 +1153,15 @@ class PredictionShadowStore:
                        WHERE symbol=? AND kind=?"""
         normalized_kind = kind.upper()
         params: list[object] = [symbol.upper(), normalized_kind]
+        if experiment_id is not None:
+            query += " AND experiment_id=?"
+            params.append(str(experiment_id))
+        if evidence_role is not None:
+            role = str(evidence_role).upper()
+            if role not in EVIDENCE_ROLES:
+                raise ValueError("unsupported prediction evidence role")
+            query += " AND evidence_role=?"
+            params.append(role)
         if before_ts_ms is not None:
             query += " AND snapshot_ts_ms<=?"
             params.append(int(before_ts_ms))
@@ -1168,12 +1207,28 @@ class PredictionShadowStore:
         *,
         as_of_ms: int,
         settlement_grace_ms: int = 300_000,
+        experiment_id: str | None = None,
+        evidence_role: str | None = None,
     ) -> dict[str, int]:
         """Classify one candidate's outcomes without treating future work as backlog."""
         cutoff = int(as_of_ms) - max(0, int(settlement_grace_ms))
+        filters = ""
+        params: list[object] = [
+            int(as_of_ms), int(as_of_ms), cutoff, cutoff,
+            symbol.upper(), kind.upper(),
+        ]
+        if experiment_id is not None:
+            filters += " AND d.experiment_id=?"
+            params.append(str(experiment_id))
+        if evidence_role is not None:
+            role = str(evidence_role).upper()
+            if role not in EVIDENCE_ROLES:
+                raise ValueError("unsupported prediction evidence role")
+            filters += " AND d.evidence_role=?"
+            params.append(role)
         with self._connect() as connection:
             row = connection.execute(
-                """SELECT
+                f"""SELECT
                        COUNT(*),
                        SUM(CASE WHEN o.outcome_json IS NOT NULL THEN 1 ELSE 0 END),
                        SUM(CASE WHEN o.expired_at_ms IS NOT NULL THEN 1 ELSE 0 END),
@@ -1186,15 +1241,8 @@ class PredictionShadowStore:
                                  AND o.eligible_at_ms<=? THEN 1 ELSE 0 END)
                    FROM prediction_outcomes o
                    JOIN prediction_decisions d ON d.decision_id=o.decision_id
-                   WHERE d.symbol=? AND d.kind=?""",
-                (
-                    int(as_of_ms),
-                    int(as_of_ms),
-                    cutoff,
-                    cutoff,
-                    symbol.upper(),
-                    kind.upper(),
-                ),
+                   WHERE d.symbol=? AND d.kind=?{filters}""",
+                params,
             ).fetchone()
         values = tuple(int(value or 0) for value in row)
         return dict(zip(

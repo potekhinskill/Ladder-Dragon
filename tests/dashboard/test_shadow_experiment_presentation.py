@@ -14,7 +14,9 @@ def test_shadow_experiments_are_collapsed_and_use_safe_runtime_fields():
     assert "row.independent_samples" in script
     assert "outcomes.overdue" in script
     assert "row.configuration_holm_passed" in script
-    assert "esc(name.replace" in script
+    assert "report.eligible_for_second_gate_review" in script
+    assert "report.confirmation_evidence" in script
+    assert "shadow_selection_only" in script
     assert ".shadow-experiment-list" in styles
     for key in (
         "shadow_experiment_summary",
@@ -23,5 +25,8 @@ def test_shadow_experiments_are_collapsed_and_use_safe_runtime_fields():
         "shadow_overdue",
         "shadow_fill",
         "shadow_regimes",
+        "shadow_confirmation",
+        "shadow_windows",
+        "shadow_selection_only",
     ):
         assert locales.count(f"{key}:") == 2

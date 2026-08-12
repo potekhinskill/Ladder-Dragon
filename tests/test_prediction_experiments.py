@@ -230,9 +230,13 @@ def test_variant_report_never_enables_apply(tmp_path: Path, monkeypatch):
     assert report["horizons_min"] == [90, 120]
     assert report["can_change_orders"] is False
     assert all(
-        item["promotion_eligible"] is True and item["apply_allowed"] is False
+        item["selection_gate_passed"] is True
+        and item["promotion_eligible"] is False
+        and item["apply_allowed"] is False
         for item in report["variants"].values()
     )
+    assert report["confirmation_evidence"]["confirmation_status"] == "BLOCKED"
+    assert report["first_gate_passed"] is False
     maker = report["variants"]["v9_maker_ttl60_gap34"]
     assert maker["entry_order_type"] == "LIMIT_MAKER"
     assert maker["exit_order_type"] == "LIMIT_MAKER"

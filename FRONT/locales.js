@@ -302,7 +302,10 @@
     shadow_pending:"pending",
     shadow_overdue:"overdue",
     shadow_fill:"fill rate",
-    shadow_regimes:"regimes"
+    shadow_regimes:"regimes",
+    shadow_confirmation:"independent confirmation",
+    shadow_windows:"complete windows",
+    shadow_selection_only:"selection only"
   });
   Object.assign(translations.ru, {
     age_seconds_ago:"{value} с назад",
@@ -348,7 +351,10 @@
     shadow_pending:"ожидают",
     shadow_overdue:"просрочено",
     shadow_fill:"исполнение",
-    shadow_regimes:"режимов"
+    shadow_regimes:"режимов",
+    shadow_confirmation:"независимое подтверждение",
+    shadow_windows:"полных окон",
+    shadow_selection_only:"только выбор"
   });
   Object.assign(translations.en, {
     deployment_notice_ip_blocked:"Trading blocked: public IP changed. Review the Binance whitelist.",
