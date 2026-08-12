@@ -3,6 +3,16 @@
 All notable changes are documented here. Releases use Semantic Versioning; every
 section is dated and there is intentionally no `Unreleased` section.
 
+## [2.20.189] — 2026-08-12
+
+### Fixed
+- Binance authentication alerts now use operator actions instead of a partially redacted provider message.
+- Endpoint changes no longer add low-value diagnostic details to Telegram alerts.
+- A persistent authentication incident now repeats after four hours instead of every 30 minutes.
+
+### Verified
+- Auth alert identity, failed-delivery retry, reminder timing, redaction, compilation, and complete regression tests pass.
+
 ## [2.20.188] — 2026-08-12
 
 ### Fixed

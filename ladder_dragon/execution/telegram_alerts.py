@@ -9,7 +9,6 @@ import argparse
 import json
 import os
 from pathlib import Path
-import re
 import time
 import urllib.error
 import urllib.request
@@ -17,6 +16,7 @@ import urllib.request
 
 DEFAULT_CONFIG = Path("/etc/ladder-dragon/telegram.env")
 AUTH_ALERT_STATE = Path("/run/mybot/binance-auth-alert.json")
+AUTH_ALERT_REMINDER_SEC = 4 * 60 * 60
 CONFIG_ENV_NAMES = (
     "TELEGRAM_ALERTS_ENABLED",
     "BOT_ALERTS_ENABLED",
@@ -139,20 +139,15 @@ def notify_binance_auth_error(
     code: int | None,
     endpoint: str,
     message: str = "",
-    cooldown_sec: float = 1800.0,
+    cooldown_sec: float = AUTH_ALERT_REMINDER_SEC,
     retry_sec: float = 60.0,
 ) -> bool:
     """Send one bounded Binance authentication incident notification."""
     status_text = str(status if status is not None else "unknown")
     code_text = str(code if code is not None else "unknown")
-    safe_endpoint = str(endpoint).split("?", 1)[0][:120]
-    safe_message = re.sub(
-        r"(?i)(api[-_ ]?key|api[-_ ]?secret|signature|token|password)\s*[:=]?\s*\S+",
-        "<redacted>",
-        str(message),
-    )[:180]
-    # One authentication incident can fail on several endpoints. The endpoint
-    # remains diagnostic evidence, but it must not create a new alert identity.
+    del endpoint, message
+    # Callers retain endpoint and provider diagnostics in local logs. Telegram
+    # identifies the incident only by its bounded HTTP and Binance codes.
     key = f"{status_text}:{code_text}"
     state_path = Path(os.getenv("BINANCE_AUTH_ALERT_STATE", str(AUTH_ALERT_STATE)))
     now = time.time()
@@ -168,13 +163,13 @@ def notify_binance_auth_error(
     suppression_sec = cooldown_sec if previous_delivered else retry_sec
     if previous.get("key") == key and now - previous_ts < max(0.0, suppression_sec):
         return False
-    reason = f"Binance auth failed: HTTP {status_text}, code {code_text}"
-    if safe_message:
-        reason += f" ({safe_message})"
     delivered = notify(
-        "binance_auth_failed",
-        [reason],
-        {"endpoint": safe_endpoint},
+        "Binance signed access rejected",
+        [
+            f"Binance returned HTTP {status_text}, code {code_text}",
+            "Check the API key, IP allowlist, and read permissions",
+            "BUY remains blocked; automatic signed checks continue",
+        ],
     )
     try:
         state_path.parent.mkdir(parents=True, exist_ok=True)

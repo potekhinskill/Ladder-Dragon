@@ -4,6 +4,13 @@ Read this file before changing the repository. Record only decisions that were
 validated by tests or production evidence and are likely to be reused. Keep
 entries concise; this is not a changelog or an activity log.
 
+### 2026-08-12 — Separate auth probing from operator reminder cadence
+
+- **Context:** signed access must retry quickly, but repeated Telegram notices do not improve recovery.
+- **Decision:** retry signed checks each minute and repeat one operator-focused incident notice after four hours.
+- **Why it worked:** tests preserve failed-delivery retry while suppressing endpoint changes and 30-minute reminders.
+- **Reuse:** every persistent external authorization incident with automatic recovery probes.
+
 ### 2026-08-11 — Require positive absolute expectancy after relative improvement
 
 - **Context:** version-seven beat its baseline but retained a negative net expectancy confidence interval at every tested gap.

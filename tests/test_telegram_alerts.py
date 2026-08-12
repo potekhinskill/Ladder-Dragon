@@ -124,7 +124,9 @@ def test_binance_auth_alert_is_redacted_and_deduplicated(tmp_path, monkeypatch):
     assert len(captured) == 1
     assert "-2015" in captured[0]["text"]
     assert "secret-key" not in captured[0]["text"]
-    assert "api.binance.com/api/v3/account" in captured[0]["text"]
+    assert "<redacted>" not in captured[0]["text"]
+    assert "api.binance.com" not in captured[0]["text"]
+    assert "Check the API key, IP allowlist, and read permissions" in captured[0]["text"]
 
 
 def test_ip_guard_notices_are_operator_focused(monkeypatch):
@@ -168,7 +170,7 @@ def test_binance_auth_alert_retries_after_failed_delivery(tmp_path, monkeypatch)
     monkeypatch.setenv("BINANCE_AUTH_ALERT_STATE", str(state))
     monkeypatch.setattr(telegram_alerts.time, "time", lambda: now[0])
 
-    def fake_notify(event, reasons, metadata):
+    def fake_notify(event, reasons, metadata=None):
         attempts.append((event, reasons, metadata))
         return next(results)
 
@@ -188,4 +190,30 @@ def test_binance_auth_alert_retries_after_failed_delivery(tmp_path, monkeypatch)
     now[0] += 1.0
     assert telegram_alerts.notify_binance_auth_error(**kwargs) is True
     assert json.loads(state.read_text(encoding="utf-8"))["delivered"] is True
+    assert len(attempts) == 2
+
+
+def test_binance_auth_reminder_waits_four_hours(tmp_path, monkeypatch):
+    state = tmp_path / "auth-alert.json"
+    now = [1000.0]
+    attempts = []
+    monkeypatch.setenv("BINANCE_AUTH_ALERT_STATE", str(state))
+    monkeypatch.setattr(telegram_alerts.time, "time", lambda: now[0])
+    monkeypatch.setattr(
+        telegram_alerts,
+        "notify",
+        lambda *args, **kwargs: attempts.append((args, kwargs)) or True,
+    )
+    kwargs = {
+        "status": 401,
+        "code": -2015,
+        "endpoint": "/api/v3/myTrades",
+        "message": "Invalid API-key, IP, or permissions for action.",
+    }
+
+    assert telegram_alerts.notify_binance_auth_error(**kwargs) is True
+    now[0] += telegram_alerts.AUTH_ALERT_REMINDER_SEC - 1
+    assert telegram_alerts.notify_binance_auth_error(**kwargs) is False
+    now[0] += 1
+    assert telegram_alerts.notify_binance_auth_error(**kwargs) is True
     assert len(attempts) == 2

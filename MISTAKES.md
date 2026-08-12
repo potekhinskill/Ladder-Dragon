@@ -6,6 +6,13 @@ avoidable rework. Identify the root cause rather than recording only the
 symptom. Keep entries concise and exclude secrets, balances, account data, and
 private infrastructure details.
 
+### 2026-08-12 — Repeated authentication alerts too frequently
+
+- **Impact:** one continuing Binance rejection produced four similar Telegram notices in two hours.
+- **Root cause:** the operator reminder reused a 30-minute infrastructure cooldown and included sanitized provider text.
+- **Correction:** use a four-hour reminder and a fixed operator-focused reason without endpoint metadata.
+- **Prevention:** keep automatic probe cadence independent from human reminder cadence and provider wording.
+
 ### 2026-08-12 — Used a credential-like documentation test name
 
 - **Impact:** GitHub Actions blocked release 2.20.187 after all local release checks passed.
