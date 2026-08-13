@@ -407,7 +407,21 @@ def protect_filled_buys(
     """Protect executed BUYs and return order IDs still awaiting a terminal result."""
     remaining = list(order_ids)
     for order_id in list(remaining):
-        order = dependencies.get_order(symbol, order_id)
+        try:
+            order = dependencies.get_order(symbol, order_id)
+        except _PROTECTION_DATA_ERRORS as exc:
+            reason = (
+                f"unable to verify BUY order {order_id}: "
+                f"{type(exc).__name__}"
+            )
+            dependencies.logger(f"[PROTECTION-ERR] {symbol} {reason}")
+            dependencies.halt(
+                reason,
+                symbol=symbol,
+                order_id=order_id,
+                error_type=type(exc).__name__,
+            )
+            break
         if not order:
             continue
         status = str(order.get("status", "")).upper()

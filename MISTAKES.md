@@ -1586,3 +1586,10 @@ private infrastructure details.
 - **Root cause:** the final quantity repair was conditional on missing exact filters.
 - **Correction:** apply exact ceiling repair to BUY orders within the approved quote budget.
 - **Prevention:** test exchange-rule changes at the final mutation boundary with production filter fields.
+
+### 2026-08-13 — Left initial reconciliation outside network boundaries
+
+- **Impact:** MARKET, OCO, OTOCO, and BUY protection retries could lose their controlled uncertainty response.
+- **Root cause:** exception handling covered submissions and later verification but not each function's first exchange lookup.
+- **Correction:** centralize active-intent reconciliation and halt protection when BUY status is unavailable.
+- **Prevention:** include the first network operation in every mutation and protection failure checklist.

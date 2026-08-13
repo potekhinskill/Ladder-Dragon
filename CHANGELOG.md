@@ -3,6 +3,17 @@
 All notable changes are documented here. Releases use Semantic Versioning; every
 section is dated and there is intentionally no `Unreleased` section.
 
+## [2.20.197] — 2026-08-13
+
+### Fixed
+- MARKET, OCO, and OTOCO retries now mark active intents unknown after a failed exchange lookup.
+- BUY protection now halts after an unavailable order-status lookup and preserves the complete retry queue.
+- Active LIMIT, MARKET, OCO, and OTOCO reconciliation now uses one fail-closed boundary.
+
+### Verified
+- Tests cover failed active MARKET, OCO, and OTOCO reconciliation without duplicate submissions.
+- A protection lookup failure produces one safe halt and preserves every pending order identifier.
+
 ## [2.20.196] — 2026-08-13
 
 ### Fixed

@@ -26,6 +26,7 @@ from ladder_dragon.execution.order_identity import client_order_id
 from ladder_dragon.execution.order_recovery import OrderJournal, TERMINAL_EXCHANGE_STATES
 from ladder_dragon.execution.executor_recovery import classify_oco_legs
 from ladder_dragon.execution.orders.otoco_state import record_verified_otoco
+from ladder_dragon.execution.orders import reconciliation as active_reconciliation
 
 
 def _record_definitive_rejection(
@@ -232,13 +233,9 @@ def place_limit_order(
         else None
     )
     if active is not None:
-        try:
-            existing = dependencies.get_order_by_client_id(
-                symbol, active.client_order_id
-            )
-        except requests.RequestException as exc:
-            journal.mark_unknown(active.client_order_id, exc)
-            raise
+        existing = active_reconciliation.reconcile_active_order(
+            journal, active.client_order_id,
+            dependencies.get_order_by_client_id, symbol)
         if existing is not None:
             updated = journal.record_exchange_order(
                 active.client_order_id, existing
@@ -371,7 +368,6 @@ def place_limit_order(
         raise
 
 
-
 def place_market_order(
     symbol: str,
     side: str,
@@ -454,7 +450,9 @@ def place_market_order(
         else None
     )
     if active is not None:
-        existing = dependencies.get_order_by_client_id(symbol, active.client_order_id)
+        existing = active_reconciliation.reconcile_active_order(
+            journal, active.client_order_id,
+            dependencies.get_order_by_client_id, symbol)
         if existing is not None:
             if journal is not None:
                 journal.record_exchange_order(active.client_order_id, existing)
@@ -662,7 +660,8 @@ def place_oco_sell(
     _link_ai_order(list_client_id, symbol, lot_id=lot_id, order_type="OCO", leg_type="LIST",
                    expected_price=tp_text)
     if active is not None:
-        existing = dependencies.get_order_list_by_client_id(list_client_id)
+        existing = active_reconciliation.reconcile_active_order_list(
+            journal, list_client_id, dependencies.get_order_list_by_client_id)
         if isinstance(existing, dict):
             order_list_id = existing.get("orderListId")
             try:
@@ -1151,7 +1150,8 @@ def place_otoco_buy(
         )
     )
     if existing_protection is not None:
-        existing = dependencies.get_order_list_by_client_id(list_client_id)
+        existing = active_reconciliation.reconcile_active_order_list(
+            journal, list_client_id, dependencies.get_order_list_by_client_id)
         if isinstance(existing, dict):
             working, pending = _verify_otoco_orders(
                 symbol,

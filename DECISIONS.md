@@ -1239,3 +1239,17 @@ entries concise; this is not a changelog or an activity log.
 - **Decision:** increase only BUY quantity, use ceiling step rounding, and enforce the caller's quote budget.
 - **Why it worked:** tests submit the exact minimum and block CAP excess or SELL quantity growth.
 - **Reuse:** every final exchange boundary that can increase a planned order quantity.
+
+### 2026-08-13 — Reconcile active intents through one network boundary
+
+- **Context:** placement retries query Binance before deciding whether another mutation is safe.
+- **Decision:** every failed active-intent lookup records `UNKNOWN` before the network error leaves the function.
+- **Why it worked:** MARKET, OCO, and OTOCO tests preserve uncertainty and prevent a second POST.
+- **Reuse:** every idempotent exchange mutation that begins with a remote state lookup.
+
+### 2026-08-13 — Halt when filled BUY status is unavailable
+
+- **Context:** protection cannot prove whether a watched BUY requires an exit order without its exchange status.
+- **Decision:** emit a redacted diagnostic, halt mutations, stop the batch, and retain the complete retry queue.
+- **Why it worked:** the failure test records one halt and preserves all pending order identifiers.
+- **Reuse:** every protection loop where one unavailable source invalidates later batch decisions.
