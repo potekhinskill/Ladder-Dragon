@@ -6,6 +6,20 @@ avoidable rework. Identify the root cause rather than recording only the
 symptom. Keep entries concise and exclude secrets, balances, account data, and
 private infrastructure details.
 
+### 2026-08-13 — Omitted a public version surface
+
+- **Impact:** the first complete regression failed after the product version changed.
+- **Root cause:** the initial patch updated the canonical version and changelog, but not the README version.
+- **Correction:** synchronize the README and rerun the complete regression from the start.
+- **Prevention:** search all version surfaces before the first release-candidate test run.
+
+### 2026-08-13 — Mixed evaluated and retained confirmation windows
+
+- **Impact:** later complete windows diluted three summary metrics from the frozen confirmation prefix.
+- **Root cause:** numerators used evaluated windows, while denominators used all retained complete windows.
+- **Correction:** derive both sides of each aggregate from the evaluated window count.
+- **Prevention:** each cohort regression must add excluded evidence with an extreme opposing value.
+
 ### 2026-08-12 — Repeated a rejected zero-fill entry region
 
 - **Impact:** every version-eight candidate recorded zero fills and could not measure absolute expectancy.

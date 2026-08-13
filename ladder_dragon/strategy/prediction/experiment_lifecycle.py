@@ -725,6 +725,7 @@ def confirmation_report(
         D(str(row["candidate_net_pnl_quote"])) for row in evaluated_windows
     ]
     edge_values = [D(str(row["edge_quote"])) for row in evaluated_windows]
+    evaluated_count = len(evaluated_windows)
     regime_edges: dict[str, Decimal] = {}
     for row in evaluated_windows:
         for regime, values in row["regimes"].items():
@@ -767,14 +768,17 @@ def confirmation_report(
         "positive_windows": positive,
         "negative_windows": negative,
         "positive_window_fraction": (
-            format(D(str(positive)) / D(str(len(full))), "f") if full else "0"
+            format(D(str(positive)) / D(str(evaluated_count)), "f")
+            if evaluated_count else "0"
         ),
         "cumulative_pnl_quote": format(sum(pnl_values, ZERO), "f"),
         "mean_pnl_per_window_quote": (
-            format(sum(pnl_values, ZERO) / D(str(len(full))), "f") if full else "0"
+            format(sum(pnl_values, ZERO) / D(str(evaluated_count)), "f")
+            if evaluated_count else "0"
         ),
         "mean_edge_per_window_quote": (
-            format(sum(edge_values, ZERO) / D(str(len(full))), "f") if full else "0"
+            format(sum(edge_values, ZERO) / D(str(evaluated_count)), "f")
+            if evaluated_count else "0"
         ),
         "worst_window_pnl_quote": format(min(pnl_values), "f") if full else None,
         "maximum_consecutive_negative_windows": longest_negative,

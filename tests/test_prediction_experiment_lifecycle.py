@@ -558,6 +558,36 @@ def test_full_independent_confirmation_can_pass_without_apply(tmp_path: Path):
     assert report["lookahead"] is False
 
 
+def test_report_aggregates_only_the_predeclared_window_prefix(tmp_path: Path):
+    store, variants, manifest = _frozen(tmp_path)
+    start = int(manifest["confirmation_start_ts_ms"])
+    regimes = ("TREND_UP", "TREND_DOWN", "RANGE", "PANIC")
+    for index in range(132):
+        decision_id = _record(
+            store,
+            variants[1],
+            timestamp=start + index * 300_000,
+            experiment_id=manifest["experiment_id"],
+            role="CONFIRMATION",
+            regime=regimes[index % 4],
+        )
+        _resolve(
+            store,
+            decision_id,
+            pnl="1" if index < 120 else "-100",
+        )
+
+    report = confirmation_report(store, experiment_id=manifest["experiment_id"])
+
+    assert report["complete_windows"] == 11
+    assert report["confirmation_progress"]["evaluated_windows"] == 10
+    assert report["positive_windows"] == 10
+    assert report["positive_window_fraction"] == "1"
+    assert report["cumulative_pnl_quote"] == "120"
+    assert report["mean_pnl_per_window_quote"] == "12"
+    assert report["mean_edge_per_window_quote"] == "12"
+
+
 def test_unstable_windows_fail_even_with_positive_total(tmp_path: Path):
     store, variants, manifest = _frozen(tmp_path)
     start = int(manifest["confirmation_start_ts_ms"])

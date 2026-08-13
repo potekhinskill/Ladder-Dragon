@@ -3,6 +3,16 @@
 All notable changes are documented here. Releases use Semantic Versioning; every
 section is dated and there is intentionally no `Unreleased` section.
 
+## [2.20.193] — 2026-08-13
+
+### Fixed
+- Confirmation summary metrics now use only the predeclared evaluated window prefix.
+- Later complete windows cannot dilute the frozen positive fraction, mean PnL, or mean edge.
+
+### Verified
+- The confirmation lifecycle regression proves that an extra adverse window cannot change frozen summary metrics.
+- Compilation, Technical English, and the complete pytest suite pass.
+
 ## [2.20.192] — 2026-08-12
 
 ### Changed

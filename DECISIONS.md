@@ -4,6 +4,13 @@ Read this file before changing the repository. Record only decisions that were
 validated by tests or production evidence and are likely to be reused. Keep
 entries concise; this is not a changelog or an activity log.
 
+### 2026-08-13 — Bind aggregate denominators to the evaluated cohort
+
+- **Context:** confirmation reports retain complete windows beyond the predeclared evaluation prefix.
+- **Decision:** calculate each summary numerator and denominator from the same frozen window prefix.
+- **Why it worked:** a regression adds an adverse later window and proves that frozen summary metrics do not change.
+- **Reuse:** every report that retains evidence beyond a predeclared evaluation cohort.
+
 ### 2026-08-12 — Test the observed participation boundary
 
 - **Context:** version-seven filled at 35 basis points, while versions four and eight had no fills at 40 basis points.
