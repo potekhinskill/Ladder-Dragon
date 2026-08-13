@@ -3,6 +3,19 @@
 All notable changes are documented here. Releases use Semantic Versioning; every
 section is dated and there is intentionally no `Unreleased` section.
 
+## [2.20.199] — 2026-08-13
+
+### Fixed
+- Time-stop tracking now retains a position when its MARKET SELL is not submitted.
+- Hard-cap flattening now reports progress only after an exchange order is accepted.
+- A flatten quantity repair cannot exceed the available position remainder.
+- Worker PANIC now uses Wilder smoothing for Average True Range.
+
+### Verified
+- Tests cover unsubmitted time-stop SELL orders and preserve their retry queue.
+- Tests cover stalled flatten attempts, accepted slices, BUY blocking, and SELL quantity bounds.
+- A deterministic candle regression verifies Wilder smoothing and excludes the open candle.
+
 ## [2.20.198] — 2026-08-13
 
 ### Fixed

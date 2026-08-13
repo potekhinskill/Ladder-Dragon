@@ -55,6 +55,7 @@ from ladder_dragon.supervision.entry_policy import (
     directional_entry_settings as _directional_entry_settings,
     finite_decimal as _finite_decimal,
 )
+from ladder_dragon.supervision.position_flatten import BUY_BLOCKING_MODES, submit_flatten_slices
 from ladder_dragon.supervision.vwap_config import (
     getenv_float,
     parse_limit_map,
@@ -2507,20 +2508,19 @@ def position_guard_and_maybe_flatten(symbol: str, now_price: float, atr_abs: flo
             )
             price = round_step(now_price_d + offset * atr_abs_d, tick, "ceil")
 
-            tries = 0
-            while left > 0 and tries < slice_cnt:
-                qty = min(left, per_slice)
-                qty = _ensure_min_notional_qty(symbol, qty, price, step, min_qty, min_notional)
-                if qty is None or qty <= 0:
-                    break
-                ok = place_limit_order(symbol, "SELL", qty, price, filters=filters)
-                if not ok and args.flatten_market_failover:
-                    qty_m = _ensure_min_notional_qty(symbol, qty, now_price, step, min_qty, min_notional)
-                    if qty_m:
-                        place_market_order(symbol, "SELL", qty_m, ref_price=now_price, filters=filters)
-                left -= qty
-                tries += 1
-
+            submitted = submit_flatten_slices(
+                symbol=symbol, remaining=left, per_slice=per_slice,
+                slice_count=slice_cnt, limit_price=price,
+                market_price=now_price_d, step=step,
+                minimum_quantity=min_qty, minimum_notional=min_notional,
+                market_failover=args.flatten_market_failover,
+                normalize_quantity=_ensure_min_notional_qty,
+                place_limit=lambda *a, **kw: place_limit_order(*a, filters=filters, **kw),
+                place_market=lambda *a, **kw: place_market_order(*a, filters=filters, **kw),
+            )
+            if submitted <= 0:
+                log(f"[FLAT-STALL] {symbol} no SELL order was accepted")
+                return "flatten_stalled"
             return "flattening"
         except SUPERVISOR_OPERATION_ERRORS as e:
             log(f"[FLAT-ERR] {symbol} error_type={e.__class__.__name__} detail={e}")
@@ -3444,7 +3444,7 @@ def run_for_symbol(
     )
     ladder_for_child = (
         child_ladder
-        if mode not in ("reduce_only", "flattening")
+        if mode not in BUY_BLOCKING_MODES
         and not ai_pause_buys
         and not controls_pause_buys
         else _prune_to_sells_only(now_p, ladder_all)

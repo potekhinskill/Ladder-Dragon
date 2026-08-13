@@ -95,12 +95,13 @@ def ema_series(values: Sequence[float], length: int) -> list[float]:
 
 
 def atr_from_klines(klines: Sequence[Sequence[object]], period: int = 14) -> float:
+    period = max(1, int(period))
     if len(klines) < period + 2:
         return 0.0
     closed = klines[:-1]
-    highs = [float(row[2]) for row in closed]
-    lows = [float(row[3]) for row in closed]
-    closes = [float(row[4]) for row in closed]
+    highs = [Decimal(str(row[2])) for row in closed]
+    lows = [Decimal(str(row[3])) for row in closed]
+    closes = [Decimal(str(row[4])) for row in closed]
     true_ranges = [
         max(
             highs[index] - lows[index],
@@ -111,7 +112,12 @@ def atr_from_klines(klines: Sequence[Sequence[object]], period: int = 14) -> flo
     ]
     if len(true_ranges) < period:
         return 0.0
-    return ema_value(true_ranges[-(period * 3):], period)
+    average = sum(true_ranges[:period], Decimal("0")) / Decimal(period)
+    for true_range in true_ranges[period:]:
+        average = (
+            average * Decimal(period - 1) + true_range
+        ) / Decimal(period)
+    return float(average)
 
 
 def adx_from_klines(klines: Sequence[Sequence[object]], length: int = 14) -> float:

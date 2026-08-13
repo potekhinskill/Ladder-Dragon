@@ -70,13 +70,24 @@ def apply_time_stop(context: Any) -> None:
                 f"[TIME-STOP] {context.symbol} order={order_id} "
                 f"age>{max_hold_min:g}m; flattening"
             )
-            state.place_market_order(
+            result = state.place_market_order(
                 context.symbol,
                 "SELL",
                 qty_exp,
                 ref_price=state.get_price_exact(context.symbol),
                 filters=state.symbol_filters.get(context.symbol),
             )
+            if not isinstance(result, dict) or result.get("orderId") is None:
+                reason = (
+                    f"time stop flatten was not submitted for BUY order "
+                    f"{order_id}"
+                )
+                state._trip_execution_halt(
+                    reason,
+                    symbol=context.symbol,
+                    order_id=order_id,
+                )
+                return
         state._trip_execution_halt(
             "max holding time exceeded",
             symbol=context.symbol,

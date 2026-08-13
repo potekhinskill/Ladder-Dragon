@@ -6,6 +6,20 @@ avoidable rework. Identify the root cause rather than recording only the
 symptom. Keep entries concise and exclude secrets, balances, account data, and
 private infrastructure details.
 
+### 2026-08-13 — Treated attempted flatten orders as accepted
+
+- **Impact:** time-stop and hard-cap paths could report progress while no SELL order existed.
+- **Root cause:** callers ignored optional placement results and reduced local tracking state unconditionally.
+- **Correction:** preserve tracking after rejection and count only accepted submissions within the available remainder.
+- **Prevention:** every mutation caller must test the returned acceptance evidence before it changes local progress.
+
+### 2026-08-13 — Used EMA smoothing for ATR
+
+- **Impact:** the worker PANIC volatility band reacted faster than the documented Average True Range semantics.
+- **Root cause:** the ATR function reused a general EMA helper with the wrong smoothing weight.
+- **Correction:** calculate the initial period average and apply Wilder smoothing to closed candles.
+- **Prevention:** test named indicators against deterministic canonical sequences.
+
 ### 2026-08-13 — Left safety-loop lookups outside fail-closed boundaries
 
 - **Impact:** a network failure could stop PANIC cancellation or time-stop inspection before a controlled HALT.

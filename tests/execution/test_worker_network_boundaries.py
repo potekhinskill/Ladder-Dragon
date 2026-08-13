@@ -129,3 +129,53 @@ def test_time_stop_lookup_failure_halts_and_preserves_queue():
             },
         )
     ]
+
+
+def test_time_stop_unsubmitted_flatten_halts_and_preserves_queue():
+    halts = []
+    state = SimpleNamespace(
+        LIVE_MODE=True,
+        getenv_float=lambda name, default: Decimal("30"),
+        time=SimpleNamespace(time=lambda: 10_000),
+        requests=requests,
+        get_order=lambda *_args: {
+            "status": "FILLED",
+            "time": 1,
+            "executedQty": "0.001",
+        },
+        Decimal=Decimal,
+        STATS_CON=None,
+        log=lambda _message: None,
+        place_market_order=lambda *_args, **_kwargs: None,
+        get_price_exact=lambda _symbol: Decimal("100"),
+        symbol_filters={"SOLUSDT": {}},
+        _trip_execution_halt=lambda reason, **metadata: halts.append(
+            (reason, metadata)
+        ),
+    )
+    context = WorkerLoopContext(
+        state=state,
+        args=SimpleNamespace(),
+        symbol="SOLUSDT",
+        attach_oco=True,
+        ladder_prices=[],
+        placed_ids=[401],
+        panic_active=False,
+        panic_sell_floor_pct=None,
+        breakeven=SimpleNamespace(),
+        breakeven_state=None,
+        user_stream_mailbox=None,
+        user_stream_observer=None,
+        started_at=0,
+        protection_state="pending",
+    )
+
+    apply_time_stop(context)
+
+    assert context.placed_ids == [401]
+    assert halts == [
+        (
+            "time stop flatten was not submitted for BUY order 401",
+            {"symbol": "SOLUSDT", "order_id": 401},
+        )
+    ]

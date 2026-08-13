@@ -156,6 +156,16 @@ def test_indicator_math_handles_recorded_candle_shape():
     assert adx_from_klines(candles, length=5) >= 0
 
 
+def test_atr_uses_wilder_smoothing_after_initial_average():
+    closes = ["100", "101", "102", "103", "113", "999"]
+    candles = [
+        [index, close, close, close, close, "1"]
+        for index, close in enumerate(closes)
+    ]
+
+    assert atr_from_klines(candles, period=3) == 4.0
+
+
 def test_binance_transport_blocks_mutations_before_network():
     class NoNetworkSession:
         def request(self, *args, **kwargs):

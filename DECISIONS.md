@@ -4,6 +4,20 @@ Read this file before changing the repository. Record only decisions that were
 validated by tests or production evidence and are likely to be reused. Keep
 entries concise; this is not a changelog or an activity log.
 
+### 2026-08-13 — Count only accepted flatten submissions
+
+- **Context:** emergency flatten loops reduced their local remainder after rejected LIMIT and MARKET orders.
+- **Decision:** reduce the remainder only after an accepted order and keep stalled modes BUY-blocking.
+- **Why it worked:** regressions prove rejection cannot report progress or increase a SELL above the available remainder.
+- **Reuse:** every order loop that derives local progress from an exchange mutation.
+
+### 2026-08-13 — Use Wilder smoothing for ATR
+
+- **Context:** the worker PANIC indicator used the standard EMA weight for Average True Range.
+- **Decision:** seed ATR with one period average, then apply Wilder smoothing to each closed candle.
+- **Why it worked:** a deterministic candle sequence produces the canonical value and ignores the open candle.
+- **Reuse:** every risk threshold that names a standard technical indicator.
+
 ### 2026-08-13 — Resolve frozen parameters from configuration
 
 - **Context:** a selection preview reconstructed the configured entry gap from one stored market price and plan.
