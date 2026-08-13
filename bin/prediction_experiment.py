@@ -6,7 +6,6 @@
 from __future__ import annotations
 
 import argparse
-from decimal import Decimal
 import json
 import os
 from pathlib import Path
@@ -28,11 +27,9 @@ from ladder_dragon.strategy.prediction.experiments import (
     EXPERIMENT_HORIZONS_MIN,
     SHADOW_GENERATION,
     ShadowVariant,
+    configured_entry_gap_bps,
 )
 from ladder_dragon.strategy.prediction.runtime import PredictionShadowStore
-
-
-D = Decimal
 
 
 def _parser() -> argparse.ArgumentParser:
@@ -98,7 +95,7 @@ def _selection_variants(
     cohort = selection_experiment_id(generation, symbol)
     with store._connect() as connection:
         rows = connection.execute(
-            """SELECT d.kind,d.feature_json,d.plan_json,d.baseline_plan_json
+            """SELECT d.kind,d.plan_json,d.baseline_plan_json
                FROM prediction_decisions d
                JOIN (
                    SELECT kind,MAX(snapshot_ts_ms) AS latest
@@ -113,25 +110,27 @@ def _selection_variants(
             (cohort, symbol.upper(), cutoff, cohort, symbol.upper()),
         ).fetchall()
     variants = []
-    for kind, feature_json, plan_json, baseline_json in rows:
+    for kind, plan_json, baseline_json in rows:
         plan = store._plan(str(plan_json))
         baseline = store._plan(str(baseline_json))
         if plan is None or baseline is None:
             raise ValueError("selection plan is incomplete")
-        feature = json.loads(str(feature_json))
-        market = D(str(feature["price"]))
-        gap = (market - plan.entry_price) / market * D("10000")
         normalized_kind = str(kind).upper()
         if not normalized_kind.startswith("EXPERIMENT_"):
             raise ValueError("selection kind is invalid")
+        variant_id = normalized_kind.removeprefix("EXPERIMENT_").lower()
         variants.append(ShadowVariant(
-            variant_id=normalized_kind.removeprefix("EXPERIMENT_").lower(),
+            variant_id=variant_id,
             dimension="maker_entry_gap",
             kind=normalized_kind,
             plan=plan,
             baseline_plan=baseline,
             maker_only=True,
-            entry_gap_bps=gap,
+            # The stored price can include exchange tick rounding. The gap is
+            # immutable strategy configuration, not snapshot-derived evidence.
+            entry_gap_bps=configured_entry_gap_bps(
+                variant_id, generation=generation
+            ),
         ))
     return tuple(variants)
 

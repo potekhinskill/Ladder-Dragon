@@ -3,6 +3,22 @@
 All notable changes are documented here. Releases use Semantic Versioning; every
 section is dated and there is intentionally no `Unreleased` section.
 
+## [2.20.195] — 2026-08-13
+
+### Fixed
+- Selection preview and freeze now use the configured entry gap.
+- Tick-rounded snapshot prices cannot change the frozen candidate fingerprint.
+
+### Changed
+- Version-eleven SHADOW tests 38, 42, and 44 basis-point maker entries.
+- The outcome horizons are 300 and 360 minutes after a 60-minute entry lifetime.
+- The target, fee floor, stop distance, and permanent SHADOW isolation remain unchanged.
+
+### Verified
+- Two rounded plans at different prices produce the same gap and fingerprint semantics.
+- Production replay keeps 28% to 44% fill rates and shows positive mean PnL on both new horizons.
+- Focused prediction tests, compilation, Technical English, and the complete pytest suite pass.
+
 ## [2.20.194] — 2026-08-13
 
 ### Fixed

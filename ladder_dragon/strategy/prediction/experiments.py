@@ -36,19 +36,39 @@ from ladder_dragon.strategy.prediction.walk_forward import (
 
 D = Decimal
 EDGE_EPSILON_PCT = D("0.000001")
-SHADOW_GENERATION = "v10"
-EXPERIMENT_HORIZONS_MIN = (90, 120)
+SHADOW_GENERATION = "v11"
+EXPERIMENT_HORIZONS_MIN = (300, 360)
 MAKER_TTLS = (
     ("ttl60", 3_600),
 )
-# Version seven retained fills at 35 bps, while versions four and eight had no
-# fills at 40 bps. Version ten preserves the version nine market hypothesis and
-# starts a new evidence cohort for the hardened confirmation protocol.
+# Version ten showed that 90-minute and 120-minute outcomes ended before the
+# observed recovery. A bounded replay found positive 300-minute and 360-minute
+# outcomes near the active participation boundary. Version eleven tests that
+# recovery horizon on fresh evidence without changing the protected TP floor.
 MAKER_ENTRY_GAPS = (
-    ("gap34", D("0.0034")),
-    ("gap36", D("0.0036")),
     ("gap38", D("0.0038")),
+    ("gap42", D("0.0042")),
+    ("gap44", D("0.0044")),
 )
+
+
+def configured_entry_gap_bps(
+    variant_id: str, *, generation: str = SHADOW_GENERATION
+) -> Decimal:
+    """Return the stable configured gap for one current-generation variant."""
+    normalized_generation = str(generation).strip().lower()
+    normalized_variant = str(variant_id).strip().lower()
+    if normalized_generation != SHADOW_GENERATION:
+        raise ValueError("configured entry gap is unavailable for generation")
+    configured = {
+        f"{SHADOW_GENERATION}_maker_{ttl_name}_{gap_name}": gap_pct * D("10000")
+        for ttl_name, _ttl_sec in MAKER_TTLS
+        for gap_name, gap_pct in MAKER_ENTRY_GAPS
+    }
+    try:
+        return configured[normalized_variant]
+    except KeyError as exc:
+        raise ValueError("configured entry gap is unavailable for variant") from exc
 
 
 @dataclass(frozen=True)
@@ -139,7 +159,7 @@ def build_shadow_variants(
             ),
         )
 
-    # Version ten keeps the regime argument for the stable caller contract.
+    # Version eleven keeps the regime argument for the stable caller contract.
     # Production evidence rejected the RANGE-only cohort, so it cannot gate entry.
     del regime
     variants = []
@@ -148,7 +168,7 @@ def build_shadow_variants(
             # An explicit market gap keeps every candidate distinct from the baseline.
             entry_price = market_price * (D("1") - gap_pct)
             variants.append(variant(
-                f"v10_maker_{ttl_name}_{gap_name}",
+                f"v11_maker_{ttl_name}_{gap_name}",
                 "maker_entry_gap",
                 entry_price=entry_price,
                 entry_ttl_sec=ttl_sec,
@@ -386,6 +406,7 @@ __all__ = [
     "SHADOW_GENERATION",
     "ShadowVariant",
     "build_shadow_variants",
+    "configured_entry_gap_bps",
     "record_shadow_variants",
     "shadow_variant_report",
 ]

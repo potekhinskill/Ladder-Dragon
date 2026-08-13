@@ -4,6 +4,20 @@ Read this file before changing the repository. Record only decisions that were
 validated by tests or production evidence and are likely to be reused. Keep
 entries concise; this is not a changelog or an activity log.
 
+### 2026-08-13 — Resolve frozen parameters from configuration
+
+- **Context:** a selection preview reconstructed the configured entry gap from one stored market price and plan.
+- **Decision:** resolve each current-generation gap from the same immutable table that builds its SHADOW variant.
+- **Why it worked:** two rounded plans at different prices now produce the same preview gap and fingerprint semantics.
+- **Reuse:** every operator workflow that reconstructs immutable strategy parameters from stored evidence.
+
+### 2026-08-13 — Observe recovery before rejecting a maker entry
+
+- **Context:** version-ten fills remained negative at 120 minutes but recovered near the active gap boundary after 300 minutes.
+- **Decision:** version-eleven tests 38, 42, and 44 basis points with 300-minute and 360-minute outcomes.
+- **Why it worked:** bounded production replay retained useful fills and produced positive mean PnL at both new horizons.
+- **Reuse:** every experiment where the entry lifetime and expected recovery exceed the original outcome horizon.
+
 ### 2026-08-13 — Reconstruct fingerprints from frozen semantics
 
 - **Context:** the current ticker and closed-bar feature price can differ for one confirmation decision.

@@ -77,9 +77,9 @@ def test_variants_clear_fee_floor_and_change_one_named_dimension():
     )
 
     assert {variant.variant_id for variant in variants} == {
-        "v10_maker_ttl60_gap34",
-        "v10_maker_ttl60_gap36",
-        "v10_maker_ttl60_gap38",
+        "v11_maker_ttl60_gap38",
+        "v11_maker_ttl60_gap42",
+        "v11_maker_ttl60_gap44",
     }
     for variant in variants:
         target_pct = variant.plan.take_profit_price / variant.plan.entry_price - D("1")
@@ -90,9 +90,9 @@ def test_variants_clear_fee_floor_and_change_one_named_dimension():
     by_id = {variant.variant_id: variant for variant in variants}
     assert all(item.plan.entry_ttl_sec == 3_600 for item in variants)
     assert all(item.plan.entry_enabled for item in variants)
-    assert by_id["v10_maker_ttl60_gap34"].plan.entry_price == D("99.6600")
-    assert by_id["v10_maker_ttl60_gap36"].plan.entry_price == D("99.6400")
-    assert by_id["v10_maker_ttl60_gap38"].plan.entry_price == D("99.6200")
+    assert by_id["v11_maker_ttl60_gap38"].plan.entry_price == D("99.6200")
+    assert by_id["v11_maker_ttl60_gap42"].plan.entry_price == D("99.5800")
+    assert by_id["v11_maker_ttl60_gap44"].plan.entry_price == D("99.5600")
 
 
 def test_parallel_variants_share_snapshot_and_explicit_baseline(tmp_path: Path):
@@ -130,7 +130,7 @@ def test_parallel_variants_share_snapshot_and_explicit_baseline(tmp_path: Path):
             "SELECT DISTINCT horizon_min FROM prediction_outcomes "
             "ORDER BY horizon_min"
         ).fetchall()
-    assert horizons == [(90,), (120,)]
+    assert horizons == [(300,), (360,)]
 
 
 def test_entry_ttl_rejects_a_fill_observed_after_expiry():
@@ -226,8 +226,8 @@ def test_variant_report_never_enables_apply(tmp_path: Path, monkeypatch):
     )
 
     assert report["mode"] == "SHADOW"
-    assert report["generation"] == "v10"
-    assert report["horizons_min"] == [90, 120]
+    assert report["generation"] == "v11"
+    assert report["horizons_min"] == [300, 360]
     assert report["can_change_orders"] is False
     assert all(
         item["selection_gate_passed"] is True
@@ -237,7 +237,7 @@ def test_variant_report_never_enables_apply(tmp_path: Path, monkeypatch):
     )
     assert report["confirmation_evidence"]["confirmation_status"] == "BLOCKED"
     assert report["first_gate_passed"] is False
-    maker = report["variants"]["v10_maker_ttl60_gap34"]
+    maker = report["variants"]["v11_maker_ttl60_gap38"]
     assert maker["entry_order_type"] == "LIMIT_MAKER"
     assert maker["exit_order_type"] == "LIMIT_MAKER"
     assert all(
@@ -272,7 +272,7 @@ def test_variant_report_separates_active_cohort_from_opportunity_cost(monkeypatc
             required_edge_pct=D("0.0096"),
             regime="RANGE",
         )
-        if item.variant_id == "v10_maker_ttl60_gap34"
+        if item.variant_id == "v11_maker_ttl60_gap38"
     )
 
     class Store:
@@ -336,7 +336,7 @@ def test_variant_report_separates_future_work_from_backlog(tmp_path: Path):
         before_ts_ms=60_000,
     )
 
-    counts = report["variants"]["v10_maker_ttl60_gap34"]["outcomes"]
+    counts = report["variants"]["v11_maker_ttl60_gap38"]["outcomes"]
     assert counts == {
         "total": 2,
         "resolved": 0,
@@ -416,7 +416,7 @@ def test_experiment_recording_is_bounded_to_five_minute_snapshots(
     assert store.summary("SOLUSDT")["decisions"] == 6
 
 
-def test_v10_variants_do_not_depend_on_the_current_regime():
+def test_v11_variants_do_not_depend_on_the_current_regime():
     baseline = _baseline()
     range_variants = build_shadow_variants(
         market_price=D("100"),
@@ -437,7 +437,7 @@ def test_v10_variants_do_not_depend_on_the_current_regime():
     assert all(item.maker_only for item in range_variants)
 
 
-def test_v10_entry_gaps_are_explicit_and_distinct():
+def test_v11_entry_gaps_are_explicit_and_distinct():
     baseline = replace(_baseline(), entry_price=D("99.20"))
     variants = build_shadow_variants(
         market_price=D("100"),
@@ -452,7 +452,7 @@ def test_v10_entry_gaps_are_explicit_and_distinct():
     ]
     assert len(entry_variants) == 3
     assert {item.plan.entry_price for item in entry_variants} == {
-        D("99.66"), D("99.64"), D("99.62"),
+        D("99.62"), D("99.58"), D("99.56"),
     }
     assert all(
         baseline.entry_price < item.plan.entry_price < D("100")
@@ -460,7 +460,7 @@ def test_v10_entry_gaps_are_explicit_and_distinct():
     )
 
 
-def test_v10_horizons_observe_exits_after_a_late_fill():
+def test_v11_horizons_observe_recovery_after_a_late_fill():
     variants = build_shadow_variants(
         market_price=D("100"),
         baseline_plan=_baseline(),
@@ -472,30 +472,37 @@ def test_v10_horizons_observe_exits_after_a_late_fill():
             60_000 + index * 60_000,
             119_999 + index * 60_000,
             D("100"),
-            D("102") if index == 74 else D("100"),
-            D("99.66") if index == 59 else D("100"),
+            D("102") if index == 249 else D("100"),
+            D("99.62") if index == 59 else D("100"),
             D("100"),
             D("1"),
         )
-        for index in range(120)
+        for index in range(360)
     ]
 
-    outcome_90 = evaluate_plan(
-        bars,
-        snapshot_ts_ms=59_999,
-        horizon_min=90,
-        plan=variants[0].plan,
-    )
     outcome_120 = evaluate_plan(
         bars,
         snapshot_ts_ms=59_999,
         horizon_min=120,
         plan=variants[0].plan,
     )
+    outcome_300 = evaluate_plan(
+        bars,
+        snapshot_ts_ms=59_999,
+        horizon_min=300,
+        plan=variants[0].plan,
+    )
+    outcome_360 = evaluate_plan(
+        bars,
+        snapshot_ts_ms=59_999,
+        horizon_min=360,
+        plan=variants[0].plan,
+    )
 
-    assert outcome_90 is not None and outcome_90.exit_reason == "TP"
-    assert outcome_120 is not None and outcome_120.exit_reason == "TP"
-    assert outcome_90.time_to_fill_sec == 3_600
+    assert outcome_120 is not None and outcome_120.exit_reason == "HORIZON"
+    assert outcome_300 is not None and outcome_300.exit_reason == "TP"
+    assert outcome_360 is not None and outcome_360.exit_reason == "TP"
+    assert outcome_300.time_to_fill_sec == 3_600
 
 
 def test_reanchor_is_not_an_apply_candidate():

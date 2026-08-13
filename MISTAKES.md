@@ -6,6 +6,20 @@ avoidable rework. Identify the root cause rather than recording only the
 symptom. Keep entries concise and exclude secrets, balances, account data, and
 private infrastructure details.
 
+### 2026-08-13 — Reconstructed selection configuration from one snapshot
+
+- **Impact:** tick rounding could make repeated selection previews describe one strategy with different entry gaps.
+- **Root cause:** the CLI derived a configuration parameter from a stored market price and rounded plan.
+- **Correction:** resolve the gap from the same immutable table that creates the current SHADOW generation.
+- **Prevention:** never reconstruct a configuration fingerprint from snapshot-dependent financial values.
+
+### 2026-08-13 — Ended maker outcomes before the observed recovery
+
+- **Impact:** version-ten classified late maker fills before their expected recovery completed.
+- **Root cause:** the outcome horizon increased only to twice the entry lifetime without a production horizon-sensitivity replay.
+- **Correction:** start a fresh cohort with 300-minute and 360-minute outcomes near the proven participation boundary.
+- **Prevention:** replay several post-fill horizons before each experiment changes an entry lifetime.
+
 ### 2026-08-13 — Reconstructed a frozen rule from a dynamic price
 
 - **Impact:** valid confirmation decisions could receive a false rule mismatch and remain permanently blocked.

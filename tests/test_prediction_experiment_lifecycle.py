@@ -173,7 +173,7 @@ def _frozen(tmp_path: Path):
     frozen_at = evaluation_end_ms(snapshot, max(EXPERIMENT_HORIZONS_MIN)) + 1
     manifest = freeze_experiment(
         store,
-        experiment_id="exp-v10-gap36",
+        experiment_id="exp-v11-gap42",
         generation=SHADOW_GENERATION,
         symbol="SOLUSDT",
         selected_variant=variants[1],
