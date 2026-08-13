@@ -84,6 +84,42 @@ def format_step(value: object, step: object) -> str:
     return f"{amount:.{places}f}"
 
 
+def bounded_limit_order_values(
+    qty: object,
+    price: object,
+    *,
+    filters: ExactSymbolFilters,
+    side: str,
+    maximum_notional: object | None,
+) -> tuple[str, str] | None:
+    """Normalize a LIMIT order without increasing unapproved exposure."""
+    quantity = round_step(qty, filters.step, "floor")
+    order_price = round_step(
+        price,
+        filters.tick,
+        "floor" if side.upper() == "BUY" else "ceil",
+    )
+    if order_price <= 0 or quantity < filters.minimum_quantity:
+        return None
+    if quantity * order_price < filters.minimum_notional:
+        if side.upper() != "BUY":
+            return None
+        needed = max(
+            filters.minimum_notional / order_price,
+            filters.minimum_quantity,
+        )
+        quantity = round_step(needed, filters.step, "ceil")
+    if quantity <= 0 or quantity * order_price < filters.minimum_notional:
+        return None
+    if maximum_notional is not None:
+        limit = _finite_value(maximum_notional)
+        if limit < 0:
+            raise ValueError("LIMIT maximum notional must be non-negative")
+        if quantity * order_price > limit:
+            return None
+    return format_step(quantity, filters.step), format_step(order_price, filters.tick)
+
+
 def normalized_order_values(
     qty: object,
     price: object,

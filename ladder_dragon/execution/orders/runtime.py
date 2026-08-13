@@ -17,6 +17,7 @@ import requests
 
 from ladder_dragon.execution.binance_transport import BinanceResponseError
 from ladder_dragon.execution.exchange_math import (
+    bounded_limit_order_values,
     exact_symbol_filters,
     format_step,
     round_step,
@@ -136,7 +137,6 @@ class OrderDependencies:
     halt: Callable[..., None]
     validate_limit_sell_prices: Callable[[str, list[object]], None]
 
-
 def place_limit_order(
     side: str,
     symbol: str,
@@ -144,10 +144,9 @@ def place_limit_order(
     price: object,
     *,
     dependencies: OrderDependencies,
-    maker: bool = False,
-    purpose: str = "ladder",
+    maker: bool = False, purpose: str = "ladder",
     parent_client_order_id: Optional[str] = None,
-    latency_trace: Any | None = None,
+    latency_trace: Any | None = None, maximum_notional: object | None = None,
 ) -> Dict[str, Any] | None:
     """Place limit order."""
     try:
@@ -172,18 +171,18 @@ def place_limit_order(
         return None
     filters = exact_symbol_filters(dependencies.pull_filters(symbol))
     if filters is not None:
-        tick = filters.tick
-        step = filters.step
-        min_qty_exact = filters.minimum_quantity
-        min_notional_exact = filters.minimum_notional
-        price_exact = round_step(
+        normalized = bounded_limit_order_values(
+            raw_quantity,
             raw_price,
-            tick,
-            "floor" if side.upper() == "BUY" else "ceil",
+            filters=filters,
+            side=side,
+            maximum_notional=maximum_notional,
         )
-        quantity_exact = round_step(raw_quantity, step, "floor")
-        price_text = format_step(price_exact, tick)
-        quantity_text = format_step(quantity_exact, step)
+        if normalized is None:
+            return None
+        quantity_text, price_text = normalized
+        quantity_exact = Decimal(quantity_text)
+        price_exact = Decimal(price_text)
     else:
         # Compatibility boundary for injected tests and older adapters. The
         # bundled production adapter always supplies the exact filter fields.
@@ -201,24 +200,23 @@ def place_limit_order(
         min_notional_exact = Decimal(
             str(dependencies.min_notional(symbol, price_exact))
         )
-
-    if quantity_exact < min_qty_exact:
-        return None
-    if quantity_exact * price_exact < min_notional_exact and filters is None:
-        needed = max(min_notional_exact / price_exact, min_qty_exact)
-        quantity_text = dependencies.format_qty(
-            symbol,
-            dependencies.round_qty(symbol, needed),
-        )
-        quantity_exact = Decimal(quantity_text)
-        if (
-            quantity_exact <= 0
-            or quantity_exact < min_qty_exact
-            or quantity_exact * price_exact < min_notional_exact
-        ):
+        if maximum_notional is not None:
+            raise ValueError("LIMIT maximum notional requires exact filters")
+        if quantity_exact < min_qty_exact:
             return None
-    if quantity_exact * price_exact < min_notional_exact:
-        return None
+        if quantity_exact * price_exact < min_notional_exact:
+            if side.upper() != "BUY":
+                return None
+            needed = max(min_notional_exact / price_exact, min_qty_exact)
+            quantity_text = dependencies.format_qty(
+                symbol,
+                dependencies.round_qty(symbol, needed),
+            )
+            quantity_exact = Decimal(quantity_text)
+            if quantity_exact <= 0 or quantity_exact < min_qty_exact:
+                return None
+        if quantity_exact * price_exact < min_notional_exact:
+            return None
     journal = dependencies.journal()
     # First find an equivalent active intent. If the order already exists on
     # Binance, return it instead of sending another POST.
@@ -317,6 +315,8 @@ def place_limit_order(
             latency_trace.mark("exchange_ack")
         if isinstance(payload, dict):
             payload.setdefault("clientOrderId", order_client_id)
+            payload.setdefault("origQty", quantity_text)
+            payload.setdefault("price", price_text)
             if journal is not None:
                 journal.record_exchange_order(order_client_id, payload)
         order_id = payload.get("orderId")

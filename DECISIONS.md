@@ -1232,3 +1232,10 @@ entries concise; this is not a changelog or an activity log.
 - **Decision:** use identical selection snapshots and fixed confirmation blocks for all statistical inference.
 - **Why it worked:** unresolved gaps cannot reorder evidence, and reports cannot change lifecycle state.
 - **Reuse:** every time-series experiment with dependent observations and an explicit operator gate.
+
+### 2026-08-13 — Bound exchange minimum adjustments by order direction
+
+- **Context:** refreshed filters can make a planned LIMIT order smaller than the exchange minimum.
+- **Decision:** increase only BUY quantity, use ceiling step rounding, and enforce the caller's quote budget.
+- **Why it worked:** tests submit the exact minimum and block CAP excess or SELL quantity growth.
+- **Reuse:** every final exchange boundary that can increase a planned order quantity.

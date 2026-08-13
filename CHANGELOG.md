@@ -3,6 +3,17 @@
 All notable changes are documented here. Releases use Semantic Versioning; every
 section is dated and there is intentionally no `Unreleased` section.
 
+## [2.20.196] — 2026-08-13
+
+### Fixed
+- Exact-filter LIMIT BUY orders can increase to the exchange minimum notional.
+- The increase uses ceiling step rounding and stays within the approved quote budget.
+- LIMIT SELL quantities never increase to satisfy a minimum notional.
+
+### Verified
+- Tests cover exact-filter increases, quote-budget rejection, and SELL fail-closed behavior.
+- Focused executor and safety tests pass.
+
 ## [2.20.195] — 2026-08-13
 
 ### Fixed

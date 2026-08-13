@@ -388,12 +388,27 @@ def place_buys(symbol: str,
                     pr,
                     maker=maker_flag,
                     latency_trace=trace,
+                    maximum_notional=local_cap,
                 )
             if j:
                 oid = int(j.get("orderId"))
                 placed_ids.append(oid)
-                # Subtract the quote spend at pr from free.
-                usdt_free = max(Decimal("0"), usdt_free - planned.notional)
+                # Use the submitted values because the final exchange-filter
+                # boundary can raise a BUY to the minimum notional.
+                try:
+                    submitted_notional = (
+                        Decimal(str(j.get("origQty")))
+                        * Decimal(str(j.get("price")))
+                    )
+                except (ArithmeticError, TypeError, ValueError):
+                    submitted_notional = local_cap
+                if (
+                    not submitted_notional.is_finite()
+                    or submitted_notional <= 0
+                    or submitted_notional > local_cap
+                ):
+                    submitted_notional = local_cap
+                usdt_free = max(Decimal("0"), usdt_free - submitted_notional)
                 # Deduplicate by the already rounded price.
                 existing_buy_prices.add(pr)
             append_trace(trace)

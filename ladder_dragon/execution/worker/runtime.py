@@ -1421,7 +1421,7 @@ def place_limit_order(side: str,
                       maker: bool = False,
                       purpose: str = "ladder",
                       parent_client_order_id: Optional[str] = None,
-                      latency_trace: LatencyTrace | None = None) -> Dict[str, Any] | None:
+                      latency_trace: LatencyTrace | None = None, maximum_notional: object | None = None) -> Dict[str, Any] | None:
     return orders_place_limit_order(
         side,
         symbol,
@@ -1432,6 +1432,7 @@ def place_limit_order(side: str,
         purpose=purpose,
         parent_client_order_id=parent_client_order_id,
         latency_trace=latency_trace,
+        maximum_notional=maximum_notional,
     )
 
 def place_oco_sell(symbol: str,

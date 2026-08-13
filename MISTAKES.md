@@ -1579,3 +1579,10 @@ private infrastructure details.
 - **Root cause:** the first protocol reused the snapshot gate and changed state inside the report function.
 - **Correction:** use block-native inference and require explicit finalization of one reviewed report fingerprint.
 - **Prevention:** keep reporting read-only and define the independent statistical unit before implementation.
+
+### 2026-08-13 — Limited minimum-notional repair to compatibility filters
+
+- **Impact:** refreshed production filters could suppress an otherwise valid LIMIT BUY level.
+- **Root cause:** the final quantity repair was conditional on missing exact filters.
+- **Correction:** apply exact ceiling repair to BUY orders within the approved quote budget.
+- **Prevention:** test exchange-rule changes at the final mutation boundary with production filter fields.
