@@ -6,6 +6,13 @@ avoidable rework. Identify the root cause rather than recording only the
 symptom. Keep entries concise and exclude secrets, balances, account data, and
 private infrastructure details.
 
+### 2026-08-13 — Left safety-loop lookups outside fail-closed boundaries
+
+- **Impact:** a network failure could stop PANIC cancellation or time-stop inspection before a controlled HALT.
+- **Root cause:** later mutation errors had handlers, but the first status lookups did not.
+- **Correction:** PANIC and time-stop status reads now enter HALT and preserve uncertain order state.
+- **Prevention:** test the first read and each recovery read in every safety loop.
+
 ### 2026-08-13 — Reconstructed selection configuration from one snapshot
 
 - **Impact:** tick rounding could make repeated selection previews describe one strategy with different entry gaps.

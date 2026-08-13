@@ -9,6 +9,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any
 
+from ladder_dragon.execution.worker.time_stop import apply_time_stop
+
 
 @dataclass
 class WorkerLoopContext:
@@ -241,65 +243,6 @@ def _run_gap_watchdog(context: WorkerLoopContext) -> None:
     )
 
 
-def _apply_time_stop(context: WorkerLoopContext) -> None:
-    """Flatten expired tracked fills and trip the execution halt."""
-    state = context.state
-    max_hold_min = max(
-        0.0,
-        state.getenv_float("BOT_MAX_HOLDING_MINUTES", 0.0),
-    )
-    if not (
-        state.LIVE_MODE and max_hold_min > 0 and context.placed_ids
-    ):
-        return
-    now_ms = int(state.time.time() * 1000)
-    for order_id in list(context.placed_ids):
-        held = state.get_order(context.symbol, order_id)
-        if not held or str(held.get("status", "")).upper() != "FILLED":
-            continue
-        opened_ms = int(
-            held.get("time") or held.get("transactTime") or now_ms
-        )
-        if now_ms - opened_ms < max_hold_min * 60_000:
-            continue
-        qty_exp = state.Decimal(str(held.get("executedQty", 0) or 0))
-        if state.STATS_CON is not None:
-            try:
-                lots = state.oldest_lots(
-                    state.STATS_CON,
-                    context.symbol,
-                )
-                lot_qty = sum(
-                    (lot.qty for lot in lots),
-                    state.Decimal("0"),
-                )
-                if lot_qty > 0:
-                    qty_exp = min(qty_exp, lot_qty)
-            except state.sqlite3.Error as exc:
-                state.dbg(
-                    "[TIME-STOP] FIFO lots unavailable="
-                    f"{type(exc).__name__}"
-                )
-        if qty_exp > 0:
-            state.log(
-                f"[TIME-STOP] {context.symbol} order={order_id} "
-                f"age>{max_hold_min:g}m; flattening"
-            )
-            state.place_market_order(
-                context.symbol,
-                "SELL",
-                qty_exp,
-                ref_price=state.get_price_exact(context.symbol),
-                filters=state.symbol_filters.get(context.symbol),
-            )
-        state._trip_execution_halt(
-            "max holding time exceeded",
-            symbol=context.symbol,
-            order_id=order_id,
-        )
-        context.placed_ids.remove(order_id)
-
-
 def run_event_loop(context: WorkerLoopContext) -> None:
     """Observe tracked orders and maintain protection without creating BUYs."""
     state = context.state
@@ -400,7 +343,7 @@ def run_event_loop(context: WorkerLoopContext) -> None:
                 last_check = 0
                 _reconcile_tracked_buys(context, event_woken=False)
 
-        _apply_time_stop(context)
+        apply_time_stop(context)
 
         if context.breakeven.due():
             state.maintain_breakeven(

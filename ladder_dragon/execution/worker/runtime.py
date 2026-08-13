@@ -129,6 +129,7 @@ from ladder_dragon.execution.worker.panic_control import (
     panic_recovery_restart_required as _panic_recovery_restart_required,
 )
 from ladder_dragon.execution.worker.stats_sync import sync_account_trades
+from ladder_dragon.execution.worker.exchange_safety import require_order_status
 
 import requests
 # per-symbol lock
@@ -1129,9 +1130,9 @@ def cancel_open_buys_for_panic(symbol: str, order_ids: List[int]) -> List[int]:
         cancellation_market_price = None
 
     for order_id in list(remaining):
-        order = get_order(symbol, order_id)
+        reason = f"panic cancel cannot confirm BUY order {order_id}"
+        order = require_order_status(symbol, order_id, get_order, _trip_execution_halt, reason)
         if not order:
-            reason = f"panic cancel cannot confirm BUY order {order_id}"
             _trip_execution_halt(reason, symbol=symbol, order_id=order_id)
             raise RuntimeError(reason)
 
@@ -1157,7 +1158,7 @@ def cancel_open_buys_for_panic(symbol: str, order_ids: List[int]) -> List[int]:
             ) as exc:
                 # A lost cancellation response is uncertain until Binance is
                 # queried again. Never assume that the BUY disappeared.
-                cancelled = get_order(symbol, order_id)
+                cancelled = require_order_status(symbol, order_id, get_order, _trip_execution_halt, reason)
                 verified_status = str(
                     (cancelled or {}).get("status") or ""
                 ).upper()

@@ -3,6 +3,16 @@
 All notable changes are documented here. Releases use Semantic Versioning; every
 section is dated and there is intentionally no `Unreleased` section.
 
+## [2.20.198] — 2026-08-13
+
+### Fixed
+- PANIC cancellation now enters HALT when its initial or recovery order lookup fails.
+- Time-stop inspection now enters HALT and preserves the complete retry queue when order status is unavailable.
+
+### Verified
+- Tests cover both PANIC lookup boundaries without an unsafe cancellation retry.
+- Tests prove that a time-stop lookup failure submits no SELL and preserves all tracked order identifiers.
+
 ## [2.20.197] — 2026-08-13
 
 ### Fixed
