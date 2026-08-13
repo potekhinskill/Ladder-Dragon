@@ -3,6 +3,16 @@
 All notable changes are documented here. Releases use Semantic Versioning; every
 section is dated and there is intentionally no `Unreleased` section.
 
+## [2.20.200] — 2026-08-14
+
+### Fixed
+- Regime hysteresis now applies its minimum hold to the first transition after process start.
+- Elapsed regime hold time now uses a monotonic clock.
+
+### Verified
+- Tests prove that the first transition waits for the exact hold boundary.
+- Tests preserve immediate confirmed transitions when the hold is disabled.
+
 ## [2.20.199] — 2026-08-13
 
 ### Fixed

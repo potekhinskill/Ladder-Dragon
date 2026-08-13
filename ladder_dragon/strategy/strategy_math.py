@@ -11,7 +11,7 @@ import time
 
 
 class RegimeHysteresis:
-    """Represent RegimeHysteresis."""
+    """Confirm regime changes after a monotonic minimum hold."""
     def __init__(self, initial: str = "NEUTRAL", *, min_hold_sec: float = 300.0,
                  confirmations: int = 2) -> None:
         self.current = initial
@@ -19,10 +19,10 @@ class RegimeHysteresis:
         self.confirmations = max(1, int(confirmations))
         self._candidate = initial
         self._count = 0
-        self._changed_at = 0.0
+        self._changed_at = time.monotonic()
 
     def update(self, candidate: str, now: float | None = None) -> str:
-        now = time.time() if now is None else float(now)
+        now = time.monotonic() if now is None else float(now)
         candidate = str(candidate).upper()
         if candidate == self.current:
             self._candidate, self._count = candidate, 0

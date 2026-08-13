@@ -6,6 +6,13 @@ avoidable rework. Identify the root cause rather than recording only the
 symptom. Keep entries concise and exclude secrets, balances, account data, and
 private infrastructure details.
 
+### 2026-08-14 — Initialized a regime hold at the Unix epoch
+
+- **Impact:** the first confirmed regime change bypassed its configured minimum hold after each process start.
+- **Root cause:** the classifier initialized its transition timestamp to zero instead of the active clock.
+- **Correction:** initialize the timestamp from the monotonic clock and retain zero as an explicit disabled duration only.
+- **Prevention:** test the first transition at both sides of every time-based hold boundary.
+
 ### 2026-08-13 — Treated attempted flatten orders as accepted
 
 - **Impact:** time-stop and hard-cap paths could report progress while no SELL order existed.

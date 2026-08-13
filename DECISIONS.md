@@ -4,6 +4,13 @@ Read this file before changing the repository. Record only decisions that were
 validated by tests or production evidence and are likely to be reused. Keep
 entries concise; this is not a changelog or an activity log.
 
+### 2026-08-14 — Start regime holds at process creation
+
+- **Context:** one regime classifier treated the first transition as if the prior state began at the Unix epoch.
+- **Decision:** initialize each regime hold from the monotonic process clock and apply it to the first transition.
+- **Why it worked:** boundary tests block the first transition before 300 seconds and allow it at 300 seconds.
+- **Reuse:** every state machine that limits transition frequency after process start.
+
 ### 2026-08-13 — Count only accepted flatten submissions
 
 - **Context:** emergency flatten loops reduced their local remainder after rejected LIMIT and MARKET orders.
