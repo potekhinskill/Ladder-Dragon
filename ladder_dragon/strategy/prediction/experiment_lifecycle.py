@@ -571,11 +571,12 @@ def _confirmation_decisions(
         from ladder_dragon.strategy.prediction.experiments import ShadowVariant
         plan = store._plan(str(values[0][8]))
         baseline_plan = store._plan(str(values[0][9]))
-        features_for_rule = json.loads(str(values[0][2]))
         if plan is None or baseline_plan is None:
             reasons.append("confirmation plan evidence is incomplete")
         else:
-            market = D(str(features_for_rule["price"]))
+            # The entry gap is frozen strategy semantics, not a value that can
+            # be reconstructed from a later snapshot price and stored plan.
+            frozen_gap = manifest["candidate_parameters"]["entry_gap_bps"]
             reconstructed = ShadowVariant(
                 variant_id=str(manifest["selected_variant"]),
                 dimension=str(manifest["candidate_parameters"]["dimension"]),
@@ -586,7 +587,9 @@ def _confirmation_decisions(
                     manifest["candidate_parameters"]["entry_order_policy"]
                     == "LIMIT_MAKER"
                 ),
-                entry_gap_bps=(market - plan.entry_price) / market * D("10000"),
+                entry_gap_bps=(
+                    D(str(frozen_gap)) if frozen_gap is not None else None
+                ),
                 regime_policy=str(manifest["candidate_parameters"]["regime_policy"]),
                 model_rule=str(manifest["candidate_parameters"]["model_rule"]),
             )

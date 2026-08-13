@@ -6,6 +6,13 @@ avoidable rework. Identify the root cause rather than recording only the
 symptom. Keep entries concise and exclude secrets, balances, account data, and
 private infrastructure details.
 
+### 2026-08-13 — Reconstructed a frozen rule from a dynamic price
+
+- **Impact:** valid confirmation decisions could receive a false rule mismatch and remain permanently blocked.
+- **Root cause:** validation derived the configured entry gap from a stored plan and a different snapshot price.
+- **Correction:** use the immutable manifest gap while validating all other stored plan semantics.
+- **Prevention:** reconstruct configuration fingerprints only from fields with the same provenance as the frozen rule.
+
 ### 2026-08-13 — Omitted a public version surface
 
 - **Impact:** the first complete regression failed after the product version changed.

@@ -633,6 +633,30 @@ def test_fingerprint_mismatch_blocks_confirmation(tmp_path: Path):
     assert report["first_gate_passed"] is False
 
 
+def test_confirmation_rule_uses_frozen_gap_not_snapshot_price(tmp_path: Path):
+    store, variants, manifest = _frozen(tmp_path)
+    confirmation_variants = build_shadow_variants(
+        market_price=D("100.03"),
+        baseline_plan=variants[1].baseline_plan,
+        required_edge_pct=D("0.0096"),
+        regime="RANGE",
+    )
+    decision_id = _record(
+        store,
+        confirmation_variants[1],
+        timestamp=int(manifest["confirmation_start_ts_ms"]),
+        experiment_id=manifest["experiment_id"],
+        role="CONFIRMATION",
+    )
+    _resolve(store, decision_id)
+
+    report = confirmation_report(store, experiment_id=manifest["experiment_id"])
+
+    assert "confirmation rule differs from frozen manifest" not in report[
+        "blocking_reasons"
+    ]
+
+
 def test_old_schema_rows_migrate_to_legacy_without_confirmation(tmp_path: Path):
     database = tmp_path / "legacy.sqlite3"
     with sqlite3.connect(database) as connection:

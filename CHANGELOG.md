@@ -3,6 +3,16 @@
 All notable changes are documented here. Releases use Semantic Versioning; every
 section is dated and there is intentionally no `Unreleased` section.
 
+## [2.20.194] — 2026-08-13
+
+### Fixed
+- Confirmation reconstructs the candidate with the frozen entry-gap rule.
+- A later snapshot price cannot create a false candidate fingerprint mismatch.
+
+### Verified
+- The lifecycle regression uses different construction and feature prices without weakening fingerprint validation.
+- Compilation, Technical English, and the complete pytest suite pass.
+
 ## [2.20.193] — 2026-08-13
 
 ### Fixed

@@ -4,6 +4,13 @@ Read this file before changing the repository. Record only decisions that were
 validated by tests or production evidence and are likely to be reused. Keep
 entries concise; this is not a changelog or an activity log.
 
+### 2026-08-13 — Reconstruct fingerprints from frozen semantics
+
+- **Context:** the current ticker and closed-bar feature price can differ for one confirmation decision.
+- **Decision:** reconstruct stable rules from the immutable manifest and validate each stored plan separately.
+- **Why it worked:** a regression changes the construction price while the frozen rule fingerprint remains valid.
+- **Reuse:** every integrity check that reconstructs snapshot-independent configuration from dynamic evidence.
+
 ### 2026-08-13 — Bind aggregate denominators to the evaluated cohort
 
 - **Context:** confirmation reports retain complete windows beyond the predeclared evaluation prefix.
