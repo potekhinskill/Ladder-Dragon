@@ -67,7 +67,7 @@ def test_runtime_safety_reference_is_linked_and_matches_current_contracts() -> N
         assert required in reference
     epoch_version = CURRENT_USER_STREAM_SOAK_EPOCH_ID.rsplit("-v", 1)[1]
     assert f"current v{epoch_version} epoch" in reference
-    assert "retains the v1 through v3 epochs" in reference
+    assert "retains the v1 through v4 epochs" in reference
     assert "docs/RUNTIME_SAFETY_AND_REPORTING.md" in readme
     assert "RUNTIME_SAFETY_AND_REPORTING.md" in introduction
     assert "RUNTIME_SAFETY_AND_REPORTING.md" in runbook

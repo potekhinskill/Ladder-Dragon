@@ -132,7 +132,7 @@ Promotion still requires these items:
 - exact natural BUY to OCO to TP or STOP lifecycles;
 - zero unresolved inventory or protection fills;
 - resolved AI attribution evidence;
-- a continuous authenticated User Data Stream soak in the current v4 epoch;
+- a continuous authenticated User Data Stream soak in the current v5 epoch;
 - closed prediction horizons without an overdue backlog;
 - positive lower confidence bounds;
 - baseline improvement after Holm correction;

@@ -4,6 +4,13 @@ Read this file before changing the repository. Record only decisions that were
 validated by tests or production evidence and are likely to be reused. Keep
 entries concise; this is not a changelog or an activity log.
 
+### 2026-08-14 — Keep remote valuation outside local accounting requests
+
+- **Context:** sequential Binance reads exceeded the dashboard deadline and hid complete local trade totals.
+- **Decision:** return local accounting immediately and refresh one bounded, disposable valuation cache in the background.
+- **Why it worked:** tests return partial data immediately, reuse stale data, and cap cache growth at 16 entries.
+- **Reuse:** every dashboard endpoint that combines local authoritative data with slower external telemetry.
+
 ### 2026-08-14 — Size client deadlines from production latency
 
 - **Context:** valid dashboard responses completed after the previous client deadline during concurrent refreshes.

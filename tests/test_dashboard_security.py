@@ -409,14 +409,12 @@ def test_trade_summary_separates_net_earnings_from_portfolio_change(monkeypatch)
         "cashflow_pnl_usdt": 0.98,
         "realized_pnl_usdt": -12.26,
     })
-    monkeypatch.setattr(module, "equity_pnl_usdt", lambda cutoff, rows, fee, syms: {
-        "equity_pnl_usdt": 6.02,
-        "equity_now_usdt": 794.66,
-        "equity_then_usdt": 788.64,
-        "equity_pct": 0.76,
-        "method": "balances+klines",
-        "equity_assets": ["SOL", "USDT"],
-    })
+    module._EQUITY_SUMMARY_CACHE._entries[(24, ())] = {
+        "ts": module.time.monotonic(),
+        "payload": {"equity_pnl_usdt": 6.02, "equity_now_usdt": 794.66,
+                    "equity_then_usdt": 788.64, "equity_pct": 0.76,
+                    "method": "balances+klines", "equity_assets": ["SOL", "USDT"]},
+    }
 
     payload = json.loads(module.trades_summary().body)
 

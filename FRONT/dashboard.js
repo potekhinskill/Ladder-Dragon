@@ -356,7 +356,14 @@ function updateOperations(h){
 }
 function updateTrading(t){
   const mode=String(t.execution_mode||'UNKNOWN').toUpperCase();
-  const banner=$('#execution-banner'); banner.textContent=`${mode} · ${(t.symbols||[]).join(', ')||'—'}`; banner.className=`live-banner ${mode==='LIVE'?'live':(mode==='DRY'?'dry':(mode==='STOPPED'?'stopped':''))}`;
+  const executionSymbols=Array.isArray(t.symbols)?t.symbols:[];
+  const prediction=t.prediction&&typeof t.prediction==='object'?t.prediction:{};
+  const shadowOnlySymbols=Array.isArray(prediction.shadow_only_symbols)?prediction.shadow_only_symbols:[];
+  const banner=$('#execution-banner'); banner.textContent=`${mode} · ${executionSymbols.join(', ')||'—'}`; banner.className=`live-banner ${mode==='LIVE'?'live':(mode==='DRY'?'dry':(mode==='STOPPED'?'stopped':''))}`;
+  $('#trade-execution-symbols').textContent=executionSymbols.join(', ')||'—';
+  $('#trade-shadow-symbols').textContent=shadowOnlySymbols.length
+    ? `SHADOW · ${shadowOnlySymbols.join(', ')}`
+    : tr('no');
   $('#trade-free-usdt').textContent=fmtUSDT(Number(t.free_usdt));
   $('#trade-reserve').textContent=t.reserve_usdt!=null?fmtUSDT(Number(t.reserve_usdt)):'—';
   const caps=t.caps||{};
@@ -402,7 +409,7 @@ function updateTrading(t){
   cycleNode.textContent=`${exact} / ${required} · TP ${Number(lifecycle.tp||0)} · STOP ${Number(lifecycle.stop||0)}`;
   cycleNode.className=lifecycle.promotion_ready?'risk-ok':'risk-warn';
   $('#trade-last-order').textContent=last?`${last.symbol} ${last.side} ${last.status} id=${last.order_id??'—'}${last.partial_fill?' partial':''} · latency ${last.latency_ms??'—'} ms · fee ${last.commission_usdt??'—'} · ${last.updated_at||'—'}`:tr('no');
-  updateShadowExperiments(t.prediction||{});
+  updateShadowExperiments(prediction);
   const rows=Array.isArray(t.positions)?t.positions:[];
   $('#positions-body').innerHTML=rows.length?rows.map(p=>{
     const protection=p.protection||{};
@@ -573,7 +580,11 @@ function updateTrade24(sum, balances){
   const portfolioEl = $('#t24-portfolio');
   portfolioEl.textContent = Number.isFinite(portfolioChange) ? fmtUSDT(portfolioChange) : '—';
   portfolioEl.style.color = (Number.isFinite(portfolioChange) && portfolioChange < 0) ? 'var(--bad)' : 'var(--ok)';
-  $('#t24-portfolio-sub').textContent = Number.isFinite(pct) ? `(${fmtPct(pct)})` : '';
+  $('#t24-portfolio-sub').textContent = Number.isFinite(pct)
+    ? `(${fmtPct(pct)})`
+    : d.equity_cache_status==='refreshing'
+      ? tr('loading')
+      : d.equity_cache_status==='stale' ? tr('stale') : '';
 
   // FIFO PnL realizes the historical lot cost only for SELL fills in the window.
   const fifoEl = $('#t24-fifo');

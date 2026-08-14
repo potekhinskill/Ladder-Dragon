@@ -3,6 +3,27 @@
 All notable changes are documented here. Releases use Semantic Versioning; every
 section is dated and there is intentionally no `Unreleased` section.
 
+## [2.20.203] — 2026-08-14
+
+### Added
+- The trading panel now separates execution symbols from SHADOW-only symbols.
+- User Stream readiness now uses the append-only `transport-stability-2026-08-v5` epoch.
+
+### Fixed
+- Local trade summaries no longer wait for remote portfolio valuation.
+- One bounded cache refreshes portfolio valuation outside the request path.
+- The cache returns recent stale data and discards data after five minutes.
+- The disposable cache retains at most 16 entries.
+
+### Security
+- ETHUSDT remains SHADOW-only and cannot change orders.
+- Historical User Stream epochs and lifetime counters remain unchanged.
+- REST remains authoritative, and the reconnect-rate gate remains unchanged.
+
+### Verified
+- All 198 focused dashboard, cache, architecture, documentation, and User Stream tests pass.
+- All 1,164 project tests pass.
+
 ## [2.20.202] — 2026-08-14
 
 ### Fixed

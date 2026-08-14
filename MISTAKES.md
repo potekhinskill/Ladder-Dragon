@@ -6,6 +6,27 @@ avoidable rework. Identify the root cause rather than recording only the
 symptom. Keep entries concise and exclude secrets, balances, account data, and
 private infrastructure details.
 
+### 2026-08-14 — Increased the deadline without removing sequential remote work
+
+- **Impact:** `/api/trades/summary` still timed out after the client deadline increased to 20 seconds.
+- **Root cause:** one request still performed several sequential Binance reads with separate ten-second limits.
+- **Correction:** return local accounting immediately and refresh remote valuation through one bounded cache worker.
+- **Prevention:** measure the complete dependency path before changing only its outer deadline.
+
+### 2026-08-14 — Added cache logic to a full runtime module
+
+- **Impact:** the first implementation exceeded the dashboard runtime architecture budget.
+- **Root cause:** the component budget was checked after the first patch instead of before it.
+- **Correction:** move the reusable cache into a focused service module.
+- **Prevention:** check the architecture budget before selecting the destination for new logic.
+
+### 2026-08-14 — Selected a nonexistent documentation test
+
+- **Impact:** the first focused test command stopped before it evaluated the change.
+- **Root cause:** the command guessed the test suffix instead of reading the collected function name.
+- **Correction:** locate the exact function and rerun the focused suite.
+- **Prevention:** search the test definition before using a node identifier.
+
 ### 2026-08-14 — Passed an option-like search pattern without a delimiter
 
 - **Impact:** one documentation search stopped before it returned results.

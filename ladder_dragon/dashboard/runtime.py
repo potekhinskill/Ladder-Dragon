@@ -44,6 +44,7 @@ from ladder_dragon.dashboard.services.runtime_health import runtime_degraded_rea
 from ladder_dragon.dashboard.services.user_stream import current_soak_epoch_metrics
 from ladder_dragon.dashboard.services.binance_readonly import ReadOnlyBinanceClient
 from ladder_dragon.dashboard.services.backup_health import backup_snapshot
+from ladder_dragon.dashboard.services.stale_refresh import StaleWhileRefreshCache
 from ladder_dragon.deployment.status import read_deployment_status
 APP_TZ = ZoneInfo("Asia/Almaty")
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
@@ -140,6 +141,15 @@ _DATA_SOURCE_ERRORS = (
     TypeError,
     KeyError,
     ArithmeticError,
+)
+_EQUITY_SUMMARY_CACHE = StaleWhileRefreshCache(
+    ttl_sec=60,
+    maximum_stale_sec=DASHBOARD_STALE_CACHE_MAX_SEC,
+    load_errors=_DATA_SOURCE_ERRORS,
+    error_logger=lambda exc: print(
+        f"[DASHBOARD] EQUITY_SUMMARY_REFRESH_FAILED type={type(exc).__name__}",
+        flush=True,
+    ),
 )
 
 
@@ -1483,6 +1493,7 @@ def equity_pnl_usdt(cutoff_s: int, rows: List[sqlite3.Row], fee_pct: float, symb
             "equity_now_usdt_approx": eq_now,
         }
 
+
 # ------------------- system helpers (original) ------------------------------------
 
 def run_command(*args: str, timeout=5):
@@ -2573,7 +2584,25 @@ def trades_summary(hours: int = 24, symbols: str = ""):
     try:
         rows = _load_trades(con, syms)
         stats = _fifo_realized_pnl(rows, cutoff_s, fee_pct, end_s=end_s)
-        eq = equity_pnl_usdt(cutoff_s, rows, fee_pct, syms)
+        # Remote portfolio valuation must not delay local trade accounting.
+        # Return cached equity now and refresh it in one bounded background job.
+        eq, cache_status, cache_age = _EQUITY_SUMMARY_CACHE.get(
+            (hours, tuple(syms or ())),
+            lambda: equity_pnl_usdt(cutoff_s, list(rows), fee_pct, syms),
+        )
+        if eq is None:
+            eq = {
+                "method": cache_status,
+                "equity_now_usdt": None,
+                "equity_then_usdt": None,
+                "equity_pnl_usdt": None,
+                "equity_pct": None,
+                "equity_assets": None,
+            }
+        eq["equity_cache_status"] = cache_status
+        eq["equity_cache_age_sec"] = (
+            round(cache_age, 3) if cache_age is not None else None
+        )
 
         equity_then = eq.get("equity_then_usdt")
         equity_pnl  = eq.get("equity_pnl_usdt")
@@ -2612,6 +2641,8 @@ def trades_summary(hours: int = 24, symbols: str = ""):
             "equity_pct": equity_pct,
             "equity_method": eq.get("method"),
             "equity_assets": eq.get("equity_assets"),
+            "equity_cache_status": eq.get("equity_cache_status"),
+            "equity_cache_age_sec": eq.get("equity_cache_age_sec"),
         })
     finally:
         try: con.close()
