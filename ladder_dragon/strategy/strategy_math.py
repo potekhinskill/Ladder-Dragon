@@ -245,10 +245,10 @@ def geometric_ladder(
 
 
 def split_ladder(now_price: float, ladder: Sequence[float]) -> tuple[list[float], list[float]]:
-    """Split ladder."""
-    del now_price
-    midpoint = len(ladder) // 2
-    return list(ladder[:midpoint]), list(ladder[midpoint:])
+    """Classify levels by market side after tick-level deduplication."""
+    buys = [price for price in ladder if price < now_price]
+    sells = [price for price in ladder if price >= now_price]
+    return buys, sells
 
 
 def shift_buy_levels(

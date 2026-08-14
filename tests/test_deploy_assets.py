@@ -580,7 +580,11 @@ def test_managed_service_uses_versionless_wrapper_and_separate_env():
     assert 'if [[ "${AUTO_OCO_HOLDINGS}" == "1" ]]' in wrapper
     assert "args+=(--auto-oco-holdings)" in wrapper
     assert "  --auto-oco-holdings\n" not in wrapper
-    assert "BOT_SERVICE_AUTO_OCO_HOLDINGS=0" in read(".env.service.example")
+    service_example = read(".env.service.example")
+    assert "BOT_SERVICE_AUTO_OCO_HOLDINGS=0" in service_example
+    assert 'SYMBOLS="${BOT_SERVICE_SYMBOLS:-SOLUSDT}"' in wrapper
+    assert "BOT_SERVICE_SYMBOLS=SOLUSDT" in service_example
+    assert "BOT_PREDICTION_SHADOW_SYMBOLS=SOLUSDT,ETHUSDT" in service_example
     assert "KillMode=control-group" in unit
     assert "StartLimitIntervalSec=1h" in unit
     assert "StartLimitBurst=5" in unit

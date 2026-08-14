@@ -181,6 +181,8 @@ from ladder_dragon.supervision.config import (
     build_supervisor_parser,
     validate_supervisor_args,
 )
+from ladder_dragon.supervision.shadow_collection import collect_read_only_shadow
+from ladder_dragon.supervision.shadow_collection import resolve_prediction_shadow_symbols
 
 try:
     import requests
@@ -4026,32 +4028,17 @@ def _collect_blocked_shadow(
     now_monotonic: float,
 ) -> None:
     """Keep advisory evidence fresh without entering any execution path."""
-    if (
-        _AI_ADVISOR is None
-        or _AI_POLICY is None
-        or str(_AI_POLICY.mode).upper() != "SHADOW"
-    ):
-        return
-    interval = max(
-        30,
-        int(os.getenv("AI_BLOCKED_SHADOW_INTERVAL_SEC", "60") or "60"),
+    advisor_shadow = _AI_ADVISOR is not None and _AI_POLICY is not None \
+        and str(_AI_POLICY.mode).upper() == "SHADOW"
+    collect_read_only_shadow(
+        symbols, args,
+        enabled=_PREDICTION_SHADOW is not None or advisor_shadow,
+        now_monotonic=now_monotonic,
+        interval_sec=max(30, int(os.getenv("AI_BLOCKED_SHADOW_INTERVAL_SEC", "60") or "60")),
+        last_attempts=_BLOCKED_SHADOW_LAST_ATTEMPT,
+        run_symbol=run_for_symbol, logger=log,
+        operation_errors=SUPERVISOR_OPERATION_ERRORS,
     )
-    for symbol in symbols:
-        last_attempt = _BLOCKED_SHADOW_LAST_ATTEMPT.get(symbol)
-        if (
-            last_attempt is not None
-            and now_monotonic - last_attempt < interval
-        ):
-            continue
-        # Rate-limit failures as well as successful observations.
-        _BLOCKED_SHADOW_LAST_ATTEMPT[symbol] = now_monotonic
-        try:
-            run_for_symbol(symbol, args, execution_allowed=False)
-        except SUPERVISOR_OPERATION_ERRORS as exc:
-            log(
-                f"[BLOCKED-SHADOW] {symbol} unavailable="
-                f"{type(exc).__name__}"
-            )
 
 
 def _cancel_open_buy_orders(orders: Optional[List[Dict[str, Any]]] = None) -> int:
@@ -4185,6 +4172,12 @@ def main():
     args = ap.parse_args()
     log(f"[VERSION] {product_label('supervisor')}")
     symbols = validate_supervisor_args(ap, args)
+    try:
+        prediction_shadow_symbols, shadow_only_symbols = resolve_prediction_shadow_symbols(
+            symbols, os.getenv("BOT_PREDICTION_SHADOW_SYMBOLS", "")
+        )
+    except ValueError as exc:
+        ap.error(str(exc))
     _configure_venue(args)
     global _AI_ADVISOR, _AI_DECISIONS, _AI_DECISIONS_PATH
     global _AI_KNOWLEDGE, _AI_POLICY
@@ -4329,6 +4322,7 @@ def main():
             "mode": "SHADOW",
             "horizons_min": [1, 5, 15],
             "can_change_orders": False,
+            "configured_symbols": prediction_shadow_symbols, "shadow_only_symbols": shadow_only_symbols,
             "last_error": prediction_init_error,
             "symbols": {},
         },
@@ -4368,6 +4362,7 @@ def main():
     )
     log(
         f"[SUP] symbols={symbols} ladder_mode={args.ladder_mode} "
+        f"prediction_shadow_symbols={prediction_shadow_symbols} "
         f"ai_advisor={ai_label}"
     )
     initial_risk_gate = initial_runtime_risk_gate(
@@ -4790,7 +4785,7 @@ def main():
                     )
                 ):
                     _collect_blocked_shadow(
-                        symbols,
+                        prediction_shadow_symbols,
                         args,
                         now_monotonic=time.monotonic(),
                     )
@@ -4811,6 +4806,11 @@ def main():
                 except SUPERVISOR_OPERATION_ERRORS as e:
                     log(f"[ERR] {sym}: {e}")
                 time.sleep(0.2)
+            _collect_blocked_shadow(
+                shadow_only_symbols,
+                args,
+                now_monotonic=time.monotonic(),
+            )
             time.sleep(0.5)
     except KeyboardInterrupt:
         log("[SUP] shutdown requested")

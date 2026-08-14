@@ -3,6 +3,19 @@
 All notable changes are documented here. Releases use Semantic Versioning; every
 section is dated and there is intentionally no `Unreleased` section.
 
+## [2.20.201] — 2026-08-14
+
+### Added
+- Prediction SHADOW can collect separate SOLUSDT and ETHUSDT evidence without widening execution scope.
+- New service templates keep SOLUSDT as the only execution symbol.
+
+### Fixed
+- Ladder splitting now classifies each level by market side after uneven tick deduplication.
+
+### Verified
+- Tests prove that SHADOW-only ETHUSDT never enters the execution symbol list.
+- Tests cover read-only collection without AI and uneven ladder deduplication.
+
 ## [2.20.200] — 2026-08-14
 
 ### Fixed

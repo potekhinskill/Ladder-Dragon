@@ -4,6 +4,13 @@ Read this file before changing the repository. Record only decisions that were
 validated by tests or production evidence and are likely to be reused. Keep
 entries concise; this is not a changelog or an activity log.
 
+### 2026-08-14 — Keep prediction and execution symbol scopes separate
+
+- **Context:** ETH prediction evidence was needed without enabling an ETH worker.
+- **Decision:** configure prediction symbols separately and force additional symbols through the read-only collector.
+- **Why it worked:** tests preserve the execution list and pass ETH with `execution_allowed=False`.
+- **Reuse:** every multi-symbol experiment that is not approved for execution.
+
 ### 2026-08-14 — Start regime holds at process creation
 
 - **Context:** one regime classifier treated the first transition as if the prior state began at the Unix epoch.

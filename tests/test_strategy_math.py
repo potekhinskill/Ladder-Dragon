@@ -10,10 +10,20 @@ from ladder_dragon.supervision import plan_runner as ai_plan_runner
 from bin import gen_vwap_autotune
 from bin import gen_vwap_env
 from ladder_dragon.execution import tools_market
+from ladder_dragon.strategy.strategy_math import split_ladder
+
+
 def test_ladder_has_buy_and_sell_levels():
     levels = ai_plan_runner.build_ladder_pct(100, -5, 3, 12, 0.01)
     assert any(value < 100 for value in levels)
     assert any(value > 100 for value in levels)
+
+
+def test_split_ladder_uses_market_side_after_uneven_deduplication():
+    buys, sells = split_ladder(100.0, [99.0, 101.0, 102.0, 103.0])
+
+    assert buys == [99.0]
+    assert sells == [101.0, 102.0, 103.0]
 
 
 def test_plan_runner_validates_symbols_before_network_or_child_processes():

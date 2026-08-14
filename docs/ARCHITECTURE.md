@@ -65,6 +65,7 @@ non-growth budgets:
 | File | Main remaining seams |
 |---|---|
 | `ladder_dragon/supervision/runtime.py` | per-symbol planning, runtime bootstrap and the main supervision loop |
+| `ladder_dragon/supervision/shadow_collection.py` | validation and scheduling for read-only prediction symbols |
 | `ladder_dragon/execution/worker/bootstrap.py` | thin executable bootstrap |
 | `ladder_dragon/execution/worker/lifecycle.py` | worker preflight, initial plan, resource startup and cleanup |
 | `ladder_dragon/execution/worker/event_loop.py` | fill reconciliation, protection, PANIC, gap and time-stop loop |

@@ -128,6 +128,7 @@ An unknown quote suffix blocks balance-dependent work instead of guessing asset 
 | `BOT_STATS_DB` | `/home/bot/apps/binance_bot/db/bot_stats.db` |
 | `BOT_ORDER_JOURNAL` | `/home/bot/apps/binance_bot/db/order_intents.sqlite3` |
 | `PREDICTION_SHADOW_DB` | `/home/bot/apps/binance_bot/db/prediction_shadow.sqlite3` |
+| `BOT_PREDICTION_SHADOW_SYMBOLS` | `SOLUSDT,ETHUSDT` |
 | `AI_DECISIONS_DB` | `/home/bot/apps/binance_bot/db/ai_decisions.sqlite3` |
 | `LADDER_DRAGON_CONTROL_DIR` | `/var/lib/ladder-dragon/control` |
 | `BOT_RUN_DIR` | `/run/mybot` |
@@ -139,6 +140,10 @@ Any Testnet and Mainnet path collision blocks startup before environment changes
 
 Persistent safety evidence belongs below `/var/lib/ladder-dragon`.
 Process-lifetime state belongs below `/run/mybot`.
+
+Prediction SHADOW symbols use separate symbol-scoped evidence.
+They never extend `BOT_SERVICE_SYMBOLS` or start execution workers.
+Each symbol requires its own statistical PASS before separate APPLY approval.
 
 ## Dashboard and notifications
 
