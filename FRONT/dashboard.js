@@ -139,7 +139,7 @@ const API_RESPONSE_CACHE_TTL_MS = 300000;
 const API_RESPONSE_CACHE_MAX_KEYS = 24;
 const API_RESPONSE_CACHE_MAX_ENTRY_BYTES = 128 * 1024;
 const API_RESPONSE_CACHE_MAX_BYTES = 512 * 1024;
-const FETCH_TIMEOUT_MS = 8000;
+const FETCH_TIMEOUT_MS = 20000;
 const ACTIVE_FETCH_CONTROLLERS = new Set();
 let API_RATE_LIMIT_UNTIL_MS = 0;
 
@@ -784,15 +784,16 @@ async function refresh(){
   if(REFRESH_IN_FLIGHT) return;
   REFRESH_IN_FLIGHT = true;
   try{
-    const results = await Promise.allSettled([
-      getJSON('/api/health'),
-      getJSON('/api/history?hours=24&points=288'),
-      getTradeSummary24h(),
-      getJSON('/api/ai/status?limit=100'),
-      getJSON('/api/ai/control'),
-      getJSON('/api/account/balances'),
-      getJSON('/api/trading/overview')
-    ]);
+    const sections = [
+      ['/api/health',getJSON('/api/health')],
+      ['/api/history',getJSON('/api/history?hours=24&points=288')],
+      ['/api/trades/summary',getTradeSummary24h()],
+      ['/api/ai/status',getJSON('/api/ai/status?limit=100')],
+      ['/api/ai/control',getJSON('/api/ai/control')],
+      ['/api/account/balances',getJSON('/api/account/balances')],
+      ['/api/trading/overview',getJSON('/api/trading/overview')]
+    ];
+    const results = await Promise.allSettled(sections.map(([,request])=>request));
     const values = results.map(result=>result.status==='fulfilled'?result.value:null);
     const [h, hist, sum, ai, aiControl, balances, trading] = values;
     if(h){ updateKpis(h); updateOperations(h); }
@@ -843,9 +844,9 @@ async function refresh(){
     if([h, hist, sum, ai, aiControl, balances, trading].some(item=>item?.transport_stale)){
       $('#footer').textContent = `API: ${tr('stale')} · transport retry`;
     }
-    const failures = results.filter(result=>result.status==='rejected');
+    const failures = results.flatMap((result,index)=>result.status==='rejected'?[sections[index][0]]:[]);
     if(failures.length){
-      $('#footer').textContent = `${tr('api_error')}: ${failures.length} section(s) unavailable`;
+      $('#footer').textContent = `${tr('api_error')}: ${failures.join(', ')}`;
     }
   }catch(e){
     $('#footer').textContent = `${tr('api_error')}: ${e}`;

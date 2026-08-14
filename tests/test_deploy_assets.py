@@ -289,7 +289,7 @@ def test_dashboard_transient_failures_are_bounded_and_visible():
     assert "API_RESPONSE_CACHE_TTL_MS = 300000" in index
     assert "API_RESPONSE_CACHE_MAX_KEYS = 24" in index
     assert "API_RESPONSE_CACHE_MAX_BYTES = 512 * 1024" in index
-    assert "FETCH_TIMEOUT_MS = 8000" in index
+    assert "FETCH_TIMEOUT_MS = 20000" in index
     assert "AbortController" in index
     assert "visibilitychange" in index
     assert "pagehide" in index

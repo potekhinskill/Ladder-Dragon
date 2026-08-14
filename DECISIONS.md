@@ -4,6 +4,13 @@ Read this file before changing the repository. Record only decisions that were
 validated by tests or production evidence and are likely to be reused. Keep
 entries concise; this is not a changelog or an activity log.
 
+### 2026-08-14 — Size client deadlines from production latency
+
+- **Context:** valid dashboard responses completed after the previous client deadline during concurrent refreshes.
+- **Decision:** use a bounded 20-second deadline and preserve each failed section name through concurrent collection.
+- **Why it worked:** production responses completed within 14 seconds, and focused transport tests pass.
+- **Reuse:** every operational client that polls several independent sources concurrently.
+
 ### 2026-08-14 — Keep prediction and execution symbol scopes separate
 
 - **Context:** ETH prediction evidence was needed without enabling an ETH worker.

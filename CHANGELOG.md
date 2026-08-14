@@ -3,6 +3,16 @@
 All notable changes are documented here. Releases use Semantic Versioning; every
 section is dated and there is intentionally no `Unreleased` section.
 
+## [2.20.202] — 2026-08-14
+
+### Fixed
+- Dashboard refresh allows 20 seconds for bounded API responses that can exceed the previous client deadline.
+- A failed refresh identifies each unavailable API section without exposing exception text.
+
+### Verified
+- All 113 focused dashboard, deployment, localization, and security tests pass.
+- Tests prove that transport diagnostics preserve section identity and exclude exception reasons.
+
 ## [2.20.201] — 2026-08-14
 
 ### Added

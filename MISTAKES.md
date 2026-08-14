@@ -6,6 +6,27 @@ avoidable rework. Identify the root cause rather than recording only the
 symptom. Keep entries concise and exclude secrets, balances, account data, and
 private infrastructure details.
 
+### 2026-08-14 — Passed an option-like search pattern without a delimiter
+
+- **Impact:** one documentation search stopped before it returned results.
+- **Root cause:** the pattern started with `--profile`, and `rg` parsed it as an option.
+- **Correction:** repeat the search with the explicit `--` argument delimiter.
+- **Prevention:** use an argument delimiter when a search pattern can start with a hyphen.
+
+### 2026-08-14 — Attempted staging without metadata permission
+
+- **Impact:** the first staging command stopped before it changed the index.
+- **Root cause:** the command ignored the read-only Git metadata boundary in the active permission profile.
+- **Correction:** stage the exact reviewed file set with the required narrow permission.
+- **Prevention:** inspect Git metadata permissions before the first index, branch, commit, or tag mutation.
+
+### 2026-08-14 — Used a shorter client deadline than valid responses
+
+- **Impact:** successful backend responses could appear unavailable, while the footer hid the affected section.
+- **Root cause:** the deadline ignored measured production latency, and concurrent results discarded section identity.
+- **Correction:** increase the bounded deadline and retain safe section names for failed requests.
+- **Prevention:** compare each client deadline with measured latency and preserve request identity through concurrent aggregation.
+
 ### 2026-08-14 — Initialized a regime hold at the Unix epoch
 
 - **Impact:** the first confirmed regime change bypassed its configured minimum hold after each process start.
