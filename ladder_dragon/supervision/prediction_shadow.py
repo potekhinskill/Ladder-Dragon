@@ -18,6 +18,10 @@ from ladder_dragon.strategy.prediction.experiments import (
     record_shadow_variants,
     shadow_variant_report,
 )
+from ladder_dragon.strategy.prediction.experiment_config import (
+    experiment_spec_for_generation,
+    experiment_spec_for_symbol,
+)
 from ladder_dragon.strategy.prediction.models import PredictionFeatures, TradePlan
 from ladder_dragon.strategy.prediction.runtime import PredictionShadowStore
 
@@ -64,14 +68,17 @@ def collect_shadow_experiments(
             "reason": "authoritative required edge is unavailable",
             "can_change_orders": False,
         }
+    spec = experiment_spec_for_symbol(symbol)
     variants = build_shadow_variants(
         market_price=market_price,
         baseline_plan=baseline_plan,
         required_edge_pct=required_edge_pct,
         regime=features.regime,
+        generation=spec.generation,
     )
+    cache_key = f"{symbol.upper()}:{spec.generation}"
     now = time.monotonic()
-    last_record = _EXPERIMENT_LAST_RECORD.get(symbol)
+    last_record = _EXPERIMENT_LAST_RECORD.get(cache_key)
     if (
         last_record is None
         or now < last_record
@@ -82,9 +89,11 @@ def collect_shadow_experiments(
             symbol=symbol,
             features=features,
             variants=variants,
+            generation=spec.generation,
+            horizons_min=spec.horizons_min,
         )
-        _EXPERIMENT_LAST_RECORD[symbol] = now
-    cached = _EXPERIMENT_REPORT_CACHE.get(symbol)
+        _EXPERIMENT_LAST_RECORD[cache_key] = now
+    cached = _EXPERIMENT_REPORT_CACHE.get(cache_key)
     if cached is not None and now - cached[0] < max(60, report_interval_sec):
         return cached[1]
     report = shadow_variant_report(
@@ -92,8 +101,35 @@ def collect_shadow_experiments(
         symbol=symbol,
         variants=variants,
         before_ts_ms=features.snapshot_ts_ms,
+        generation=spec.generation,
+        horizons_min=spec.horizons_min,
+        superseded_selection_generations=(
+            spec.superseded_selection_generations
+        ),
     )
-    _EXPERIMENT_REPORT_CACHE[symbol] = (now, report)
+    report["lifecycle_status"] = "SELECTION"
+    superseded_reports = {}
+    for generation in spec.superseded_selection_generations:
+        historical_spec = experiment_spec_for_generation(generation)
+        historical_variants = build_shadow_variants(
+            market_price=market_price,
+            baseline_plan=baseline_plan,
+            required_edge_pct=required_edge_pct,
+            regime=features.regime,
+            generation=generation,
+        )
+        historical_report = shadow_variant_report(
+            store,
+            symbol=symbol,
+            variants=historical_variants,
+            before_ts_ms=features.snapshot_ts_ms,
+            generation=generation,
+            horizons_min=historical_spec.horizons_min,
+        )
+        historical_report["lifecycle_status"] = "SUPERSEDED"
+        superseded_reports[generation] = historical_report
+    report["superseded_reports"] = superseded_reports
+    _EXPERIMENT_REPORT_CACHE[cache_key] = (now, report)
     return report
 
 

@@ -1295,3 +1295,10 @@ entries concise; this is not a changelog or an activity log.
 - **Decision:** emit a redacted diagnostic, halt mutations, stop the batch, and retain the complete retry queue.
 - **Why it worked:** the failure test records one halt and preserves all pending order identifiers.
 - **Reuse:** every protection loop where one unavailable source invalidates later batch decisions.
+
+### 2026-08-14 — Keep SHADOW generations symbol-scoped
+
+- **Context:** SOLUSDT required a new selection while ETHUSDT lacked mature outcomes.
+- **Decision:** map each prediction symbol to one immutable generation and preserve all earlier evidence.
+- **Why it worked:** SOLUSDT advances without resetting ETHUSDT or widening execution scope.
+- **Reuse:** every multi-symbol experiment with different evidence maturity.

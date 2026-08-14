@@ -26,6 +26,18 @@ def test_execution_symbols_remain_in_prediction_evidence():
     assert shadow_only == ["ETHUSDT"]
 
 
+def test_execution_controls_are_not_applicable_to_shadow_only_symbol():
+    assert supervisor.execution_control_scope(
+        "ETHUSDT", ["SOLUSDT"]
+    ) == (False, "not_applicable_shadow_only")
+    assert supervisor.execution_control_scope(
+        "SOLUSDT", ["SOLUSDT"]
+    ) == (True, "active")
+    assert supervisor.execution_control_scope(
+        "SOLUSDT", "SOLUSDT"
+    ) == (True, "active")
+
+
 @pytest.mark.parametrize("configured", ["SOLUSDT,SOLUSDT", "SOL/USDT"])
 def test_prediction_symbols_reject_invalid_configuration(configured):
     with pytest.raises(ValueError):

@@ -66,7 +66,7 @@ function userStreamSummary(stream){
   return `🔴 ${symbol} · ${stream.stale?tr('user_stream_stale'):tr('user_stream_unavailable')}`;
 }
 function userStreamDiagnostics(streams){
-  const labels=[
+  const lifetimeLabels=[
     ['sessions','stream_counter_sessions'],['order_events','stream_counter_events'],
     ['bad_frames','stream_counter_bad_frames'],['duplicates','stream_counter_duplicates'],
     ['out_of_order_events','stream_counter_out_of_order'],
@@ -74,17 +74,29 @@ function userStreamDiagnostics(streams){
     ['failure_reconnects','stream_counter_failure_reconnects'],
     ['legacy_unclassified_reconnects','stream_counter_legacy_reconnects'],
     ['connection_attempts','stream_counter_attempts'],
-    ['disconnects','stream_counter_disconnects'],
-    ['soak_epoch_reconnects','stream_counter_epoch_reconnects'],
-    ['soak_epoch_order_events','stream_counter_epoch_events']
+    ['disconnects','stream_counter_disconnects']
+  ];
+  const epochLabels=[
+    ['soak_epoch_sessions','stream_counter_sessions'],
+    ['soak_epoch_order_events','stream_counter_events'],
+    ['soak_epoch_planned_reconnects','stream_counter_planned_reconnects'],
+    ['soak_epoch_failure_reconnects','stream_counter_failure_reconnects'],
+    ['soak_epoch_connection_attempts','stream_counter_attempts'],
+    ['soak_epoch_disconnects','stream_counter_disconnects']
   ];
   return streams.flatMap(stream=>{
     const prefix=String(stream.symbol||'').toUpperCase();
-    const counters=labels
+    const epoch=epochLabels
       .filter(([key])=>Number(stream[key]||0)>0)
       .map(([key,label])=>`${tr(label)} ${Number(stream[key])}`);
-    if(stream.last_error) counters.push(`${tr('stream_counter_error')} ${String(stream.last_error)}`);
-    return counters.length?[`${prefix} · ${counters.join(' · ')}`]:[];
+    const lifetime=lifetimeLabels
+      .filter(([key])=>Number(stream[key]||0)>0)
+      .map(([key,label])=>`${tr(label)} ${Number(stream[key])}`);
+    if(stream.last_error) epoch.push(`${tr('stream_counter_error')} ${String(stream.last_error)}`);
+    return [
+      `${prefix} · ${tr('stream_epoch_metrics')} · ${epoch.join(' · ')||tr('no_data')}`,
+      `${prefix} · ${tr('stream_lifetime_metrics')} · ${lifetime.join(' · ')||tr('no_data')}`
+    ];
   });
 }
 function applyLocale(){
@@ -447,26 +459,35 @@ function updateTrading(t){
 }
 function updateShadowExperiments(prediction){
   const symbols=prediction.symbols&&typeof prediction.symbols==='object'?prediction.symbols:{};
-  const report=Object.values(symbols).map(row=>row?.shadow_experiments).find(row=>row?.variants)||{};
-  const generation=String(report.generation||'');
-  const variants=Object.entries(report.variants||{}).filter(([name])=>!generation||name.startsWith(`${generation}_`));
-  const confirmation=report.confirmation_evidence||{};
-  const ready=report.eligible_for_second_gate_review?1:0;
+  const reports=Object.entries(symbols).map(([symbol,row])=>[symbol,row?.shadow_experiments]).filter(([,report])=>report?.variants);
+  const candidateCount=reports.reduce((total,[,report])=>total+Object.keys(report.variants||{}).length,0);
+  const ready=reports.filter(([,report])=>report.eligible_for_second_gate_review).length;
   const summary=$('#shadow-experiments-summary'), body=$('#shadow-experiments-body');
   if(!summary||!body) return;
-  summary.textContent=tr('shadow_experiment_summary',{count:variants.length,ready});
-  const confirmationLine=`<div class="shadow-experiment-row"><div><strong>${esc(tr('shadow_confirmation'))}</strong><span class="pill ${ready?'ok':'warn'}">${esc(String(confirmation.confirmation_status||'BLOCKED'))}</span></div><div class="muted">${esc(tr('shadow_windows'))}: ${Number(confirmation.complete_windows||0)}/${Number(confirmation.confirmation_progress?.required_complete_windows||0)} · ${esc(tr('shadow_samples'))}: ${Number(confirmation.confirmation_progress?.complete_decisions||0)}/${Number(confirmation.confirmation_progress?.required_decisions||0)}</div></div>`;
-  body.innerHTML=confirmationLine+(variants.length?variants.map(([name,row])=>{
-    const gate=row.gate||{}, outcomes=row.outcomes||{}, ci=Array.isArray(gate.net_expectancy_ci)?gate.net_expectancy_ci:[];
-    const regimes=gate.regime_counts&&typeof gate.regime_counts==='object'?Object.keys(gate.regime_counts).filter(key=>Number(gate.regime_counts[key])>0).length:0;
-    const fill=Number(gate.fill_rate), low=Number(ci[0]), high=Number(ci[1]);
-    const tone='warn';
-    return `<div class="shadow-experiment-row">
-      <div><strong>${esc(name.replace(new RegExp(`^${generation}_`),'').replaceAll('_',' '))}</strong><span class="pill ${tone}">${esc(tr('shadow_selection_only'))}</span></div>
-      <div class="muted">${esc(tr('shadow_samples'))}: ${Number(row.independent_samples||0)} · ${esc(tr('shadow_outcomes'))}: ${Number(outcomes.resolved||0)}/${Number(outcomes.total||0)} · ${esc(tr('shadow_pending'))}: ${Number(outcomes.future||0)+Number(outcomes.settling||0)} · ${esc(tr('shadow_overdue'))}: ${Number(outcomes.overdue||0)}</div>
-      <div class="muted">${esc(tr('shadow_fill'))}: ${Number.isFinite(fill)?fmt(fill*100,2)+'%':'—'} · CI: ${Number.isFinite(low)&&Number.isFinite(high)?`${fmt(low,6)}..${fmt(high,6)}`:'—'} · Holm: ${row.configuration_holm_passed?'PASS':'FAIL'} · ${esc(tr('shadow_regimes'))}: ${regimes}/4</div>
-    </div>`;
-  }).join(''):`<div class="muted">${esc(tr('no_data'))}</div>`);
+  summary.textContent=tr('shadow_experiment_summary',{count:candidateCount,ready});
+  body.innerHTML=reports.length?reports.map(([symbol,report])=>{
+    const generation=String(report.generation||'');
+    const confirmation=report.confirmation_evidence||{};
+    const reportReady=report.eligible_for_second_gate_review?1:0;
+    const lifecycle=String(report.lifecycle_status||'SELECTION');
+    const renderVariants=source=>{
+      const sourceGeneration=String(source.generation||'');
+      const variants=Object.entries(source.variants||{}).filter(([name])=>!sourceGeneration||name.startsWith(`${sourceGeneration}_`));
+      return variants.length?variants.map(([name,row])=>{
+        const gate=row.gate||{}, outcomes=row.outcomes||{}, ci=Array.isArray(gate.net_expectancy_ci)?gate.net_expectancy_ci:[];
+        const regimes=gate.regime_counts&&typeof gate.regime_counts==='object'?Object.keys(gate.regime_counts).filter(key=>Number(gate.regime_counts[key])>0).length:0;
+        const fill=Number(gate.fill_rate), low=Number(ci[0]), high=Number(ci[1]);
+        return `<div class="shadow-experiment-row">
+          <div><strong>${esc(name.replace(new RegExp(`^${sourceGeneration}_`),'').replaceAll('_',' '))}</strong><span class="pill warn">${esc(tr('shadow_selection_only'))}</span></div>
+          <div class="muted">${esc(tr('shadow_samples'))}: ${Number(row.independent_samples||0)} · ${esc(tr('shadow_outcomes'))}: ${Number(outcomes.resolved||0)}/${Number(outcomes.total||0)} · ${esc(tr('shadow_pending'))}: ${Number(outcomes.future||0)+Number(outcomes.settling||0)} · ${esc(tr('shadow_overdue'))}: ${Number(outcomes.overdue||0)}</div>
+          <div class="muted">${esc(tr('shadow_fill'))}: ${Number.isFinite(fill)?fmt(fill*100,2)+'%':'—'} · CI: ${Number.isFinite(low)&&Number.isFinite(high)?`${fmt(low,6)}..${fmt(high,6)}`:'—'} · Holm: ${row.configuration_holm_passed?'PASS':'FAIL'} · ${esc(tr('shadow_regimes'))}: ${regimes}/4</div>
+        </div>`;
+      }).join(''):`<div class="muted">${esc(tr('no_data'))}</div>`;
+    };
+    const history=Object.entries(report.superseded_reports||{}).map(([oldGeneration,oldReport])=>`<details class="shadow-experiment-history"><summary>${esc(tr('shadow_supersedes'))}: ${esc(oldGeneration.toUpperCase())} · ${esc(String(oldReport.lifecycle_status||'SUPERSEDED'))}</summary>${renderVariants(oldReport)}</details>`).join('');
+    const confirmationLine=`<div class="shadow-experiment-row"><div><strong>${esc(tr('shadow_confirmation'))}</strong><span class="pill ${reportReady?'ok':'warn'}">${esc(String(confirmation.confirmation_status||'BLOCKED'))}</span></div><div class="muted">${esc(tr('shadow_windows'))}: ${Number(confirmation.complete_windows||0)}/${Number(confirmation.confirmation_progress?.required_complete_windows||0)} · ${esc(tr('shadow_samples'))}: ${Number(confirmation.confirmation_progress?.complete_decisions||0)}/${Number(confirmation.confirmation_progress?.required_decisions||0)}</div></div>`;
+    return `<section class="shadow-experiment-symbol"><h3>${esc(symbol)} · ${esc(generation.toUpperCase())} · ${esc(lifecycle)}</h3>${confirmationLine}${renderVariants(report)}${history}</section>`;
+  }).join(''):`<div class="muted">${esc(tr('no_data'))}</div>`;
 }
 function updateAIQuality(ai){
   const src=ai.data_sources||{}, usage=ai.usage_today||{}, kb=ai.knowledge_base||{};

@@ -9,6 +9,24 @@ import re
 from typing import Callable, MutableMapping, Sequence
 
 
+def execution_control_scope(
+    symbol: str, execution_symbols: object
+) -> tuple[bool, str]:
+    """Classify execution-only controls for one prediction symbol."""
+    if isinstance(execution_symbols, str):
+        execution_symbols = tuple(
+            item.strip().upper()
+            for item in execution_symbols.split(",")
+            if item.strip()
+        )
+    applicable = (
+        isinstance(execution_symbols, (list, tuple))
+        and symbol.upper() in execution_symbols
+    )
+    status = "active" if applicable else "not_applicable_shadow_only"
+    return applicable, status
+
+
 def resolve_prediction_shadow_symbols(
     execution_symbols: Sequence[str], configured: str
 ) -> tuple[list[str], list[str]]:

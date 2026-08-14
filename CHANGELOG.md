@@ -3,6 +3,26 @@
 All notable changes are documented here. Releases use Semantic Versioning; every
 section is dated and there is intentionally no `Unreleased` section.
 
+## [2.20.204] — 2026-08-14
+
+### Added
+- SOLUSDT version twelve tests 44, 46, and 48 basis-point maker gaps.
+- ETHUSDT continues version-eleven SHADOW evidence without a reset.
+- The dashboard reports active and superseded experiment metrics for each symbol.
+
+### Fixed
+- Execution-only inventory limits now show not applicable for SHADOW-only symbols.
+- User Stream diagnostics separate current-epoch counters from lifetime history.
+
+### Security
+- Both experiment generations remain `LIMIT_MAKER` and cannot change orders.
+- Existing ETHUSDT and User Stream evidence remains append-only.
+- Unvalued assets cannot increase equity, exposure, or CAP.
+
+### Verified
+- Python compilation and JavaScript syntax checks pass.
+- All 1,167 project tests pass.
+
 ## [2.20.203] — 2026-08-14
 
 ### Added

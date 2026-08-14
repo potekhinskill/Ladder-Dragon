@@ -181,7 +181,9 @@
     user_stream_last_event:"last event",
     user_stream_stale:"stream is stale",
     user_stream_unavailable:"stream unavailable",
-    user_stream_diagnostics:"Stream diagnostics"
+    user_stream_diagnostics:"Stream diagnostics",
+    stream_epoch_metrics:"current soak epoch",
+    stream_lifetime_metrics:"lifetime history"
   });
   Object.assign(translations.ru, {
     decision_id:"ID решения",
@@ -305,7 +307,8 @@
     shadow_regimes:"regimes",
     shadow_confirmation:"independent confirmation",
     shadow_windows:"complete windows",
-    shadow_selection_only:"selection only"
+    shadow_selection_only:"selection only",
+    shadow_supersedes:"supersedes rejected selection"
   });
   Object.assign(translations.ru, {
     age_seconds_ago:"{value} с назад",
@@ -330,6 +333,8 @@
     stream_counter_epoch_reconnects:"переподключений периода",
     stream_counter_epoch_events:"событий периода",
     stream_counter_error:"ошибка",
+    stream_epoch_metrics:"текущий период проверки",
+    stream_lifetime_metrics:"история за всё время",
     service_active:"активен",
     service_inactive:"неактивен",
     backup_success:"успешно",
@@ -354,7 +359,8 @@
     shadow_regimes:"режимов",
     shadow_confirmation:"независимое подтверждение",
     shadow_windows:"полных окон",
-    shadow_selection_only:"только выбор"
+    shadow_selection_only:"только выбор",
+    shadow_supersedes:"заменяет отклонённый выбор"
   });
   Object.assign(translations.en, {
     deployment_notice_ip_blocked:"Trading blocked: public IP changed. Review the Binance whitelist.",

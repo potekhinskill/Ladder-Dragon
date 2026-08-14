@@ -144,6 +144,8 @@ Process-lifetime state belongs below `/run/mybot`.
 Prediction SHADOW symbols use separate symbol-scoped evidence.
 They never extend `BOT_SERVICE_SYMBOLS` or start execution workers.
 Each symbol requires its own statistical PASS before separate APPLY approval.
+SOLUSDT uses version-twelve gaps of 44, 46, and 48 basis points.
+ETHUSDT continues version-eleven gaps without an evidence reset.
 
 ## Dashboard and notifications
 

@@ -41,7 +41,9 @@ from ladder_dragon.dashboard.services.host_telemetry import (
     rolling_trade_volume_24h_usdt,
 )
 from ladder_dragon.dashboard.services.runtime_health import runtime_degraded_reason
-from ladder_dragon.dashboard.services.user_stream import current_soak_epoch_metrics
+from ladder_dragon.dashboard.services.user_stream import (
+    current_soak_epoch_metrics, empty_soak_epoch_metrics,
+)
 from ladder_dragon.dashboard.services.binance_readonly import ReadOnlyBinanceClient
 from ladder_dragon.dashboard.services.backup_health import backup_snapshot
 from ladder_dragon.dashboard.services.stale_refresh import StaleWhileRefreshCache
@@ -492,10 +494,7 @@ def _user_stream_snapshot(runtime: Dict[str, object]) -> Dict[str, object]:
                 "soak_hours": 0.0,
                 "cumulative_observation_hours": 0.0,
                 "current_session_hours": 0.0,
-                "soak_epoch_id": None,
-                "soak_epoch_hours": 0.0,
-                "soak_epoch_reconnects": 0,
-                "soak_epoch_order_events": 0,
+                **empty_soak_epoch_metrics(),
                 "last_error": None,
                 "last_event_at": None,
                 "last_order_event_at": None,

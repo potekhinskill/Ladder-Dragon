@@ -193,6 +193,11 @@ BOT_SERVICE_SYMBOLS=SOLUSDT
 BOT_PREDICTION_SHADOW_SYMBOLS=SOLUSDT,ETHUSDT
 ```
 
+The dashboard reports each SHADOW symbol and generation separately.
+SOLUSDT version twelve supersedes the rejected version-eleven selection.
+ETHUSDT version eleven continues without a database reset.
+SHADOW-only controls show `not_applicable_shadow_only` for execution-only limits.
+
 Testnet LIVE requires both `BOT_LIVE_CONFIRMED=YES` in `.env` and
 `BOT_SERVICE_EXECUTION=live` in `.env.service`. Mainnet LIVE requires a
 separate review of filters, balance, CAP, reserve, protection, and circuit state.

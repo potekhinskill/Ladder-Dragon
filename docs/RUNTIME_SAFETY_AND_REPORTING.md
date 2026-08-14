@@ -192,6 +192,7 @@ Historical reconnects without classification remain visible as legacy evidence.
 The current v5 epoch starts after correction of the authorization and host clock incident.
 The observer retains the v1 through v4 epochs and all lifetime counters.
 Only current-epoch counters contribute to the reconnect-rate readiness gate.
+The dashboard labels current-epoch and lifetime counters separately.
 
 SHADOW evidence:
 
@@ -216,6 +217,8 @@ The example configuration keeps these controls in SHADOW:
 
 SHADOW fee values can improve exact accounting.
 SHADOW does not export the execution-changing required edge to a worker.
+Each SHADOW symbol keeps an independent generation and report.
+Execution-only inventory controls are not applicable to SHADOW-only symbols.
 
 APPLY requires `BOT_STRATEGY_CONTROLS_APPROVED=YES` and valid chronological evidence.
 It also requires an explicit managed-inventory hard CAP for each symbol.

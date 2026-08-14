@@ -9,18 +9,38 @@ import math
 from typing import Mapping
 
 
+_EPOCH_COUNTER_FIELDS = (
+    "sessions",
+    "order_events",
+    "idle_reconnects",
+    "controlled_reconnect_drills",
+    "transport_failure_reconnects",
+    "connection_attempts",
+    "disconnects",
+)
+
+
+def empty_soak_epoch_metrics() -> dict[str, object]:
+    return {
+        "soak_epoch_id": None,
+        "soak_epoch_hours": 0.0,
+        "soak_epoch_reconnects": 0,
+        "soak_epoch_order_events": 0,
+        "soak_epoch_sessions": 0,
+        "soak_epoch_planned_reconnects": 0,
+        "soak_epoch_failure_reconnects": 0,
+        "soak_epoch_connection_attempts": 0,
+        "soak_epoch_disconnects": 0,
+    }
+
+
 def current_soak_epoch_metrics(
     payload: Mapping[str, object],
     *,
     now: float,
 ) -> dict[str, object]:
     """Return safe display metrics without making a readiness decision."""
-    result: dict[str, object] = {
-        "soak_epoch_id": None,
-        "soak_epoch_hours": 0.0,
-        "soak_epoch_reconnects": 0,
-        "soak_epoch_order_events": 0,
-    }
+    result = empty_soak_epoch_metrics()
     epoch_id = str(payload.get("current_soak_epoch_id") or "")
     raw_epochs = payload.get("soak_epochs")
     if not epoch_id or not isinstance(raw_epochs, list):
@@ -41,21 +61,29 @@ def current_soak_epoch_metrics(
             or not isinstance(baseline, Mapping)
         ):
             return result
-        reconnects = max(
-            0,
-            int(payload.get("reconnects") or 0)
-            - int(baseline.get("reconnects") or 0),
-        )
-        order_events = max(
-            0,
-            int(payload.get("order_events") or 0)
-            - int(baseline.get("order_events") or 0),
-        )
+        counters = {
+            name: max(
+                0,
+                int(payload.get(name) or 0)
+                - int(baseline.get(name) or 0),
+            )
+            for name in ("reconnects", *_EPOCH_COUNTER_FIELDS)
+        }
     except (TypeError, ValueError, OverflowError):
         return result
     return {
         "soak_epoch_id": epoch_id,
         "soak_epoch_hours": round(max(0.0, now - started_at) / 3600, 2),
-        "soak_epoch_reconnects": reconnects,
-        "soak_epoch_order_events": order_events,
+        "soak_epoch_reconnects": counters["reconnects"],
+        "soak_epoch_order_events": counters["order_events"],
+        "soak_epoch_sessions": counters["sessions"],
+        "soak_epoch_planned_reconnects": (
+            counters["idle_reconnects"]
+            + counters["controlled_reconnect_drills"]
+        ),
+        "soak_epoch_failure_reconnects": counters[
+            "transport_failure_reconnects"
+        ],
+        "soak_epoch_connection_attempts": counters["connection_attempts"],
+        "soak_epoch_disconnects": counters["disconnects"],
     }

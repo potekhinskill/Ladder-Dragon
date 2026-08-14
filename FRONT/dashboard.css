@@ -63,6 +63,10 @@ h1{margin:0;font-size:20px;font-weight:800;line-height:1.15}
 .shadow-experiments{margin-top:12px;border-top:1px solid var(--stroke);padding-top:10px}
 .shadow-experiments summary{cursor:pointer;color:var(--muted);font-weight:700}
 .shadow-experiment-list{display:grid;gap:8px;margin-top:10px}
+.shadow-experiment-symbol{display:grid;gap:8px;padding-top:4px}
+.shadow-experiment-symbol+.shadow-experiment-symbol{border-top:1px solid var(--stroke);padding-top:12px}
+.shadow-experiment-symbol h3{margin:0;font-size:14px;color:var(--text)}
+.shadow-experiment-history summary{cursor:pointer;color:var(--muted);font-weight:700;margin:4px 0 8px}
 .shadow-experiment-row{padding:9px;border:1px solid var(--stroke);border-radius:10px;background:rgba(255,255,255,.015)}
 .shadow-experiment-row>div:first-child{display:flex;justify-content:space-between;gap:8px;margin-bottom:4px;text-transform:capitalize}
 .shadow-experiment-row .muted{line-height:1.45}

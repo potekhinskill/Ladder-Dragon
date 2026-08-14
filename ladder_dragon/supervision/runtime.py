@@ -181,9 +181,7 @@ from ladder_dragon.supervision.config import (
     build_supervisor_parser,
     validate_supervisor_args,
 )
-from ladder_dragon.supervision.shadow_collection import collect_read_only_shadow
-from ladder_dragon.supervision.shadow_collection import resolve_prediction_shadow_symbols
-
+from ladder_dragon.supervision.shadow_collection import collect_read_only_shadow, execution_control_scope, resolve_prediction_shadow_symbols
 try:
     import requests
 except ImportError:
@@ -3360,7 +3358,8 @@ def run_for_symbol(
     managed_exposure = Decimal("0")
     hard_inventory_cap: Decimal | None = None
     inventory_error: str | None = None
-    if risk_safe_cap > 0:
+    inventory_applicable, inventory_status = execution_control_scope(symbol, _AI_RUNTIME_STATUS.get("symbols", args.symbols))
+    if risk_safe_cap > 0 and inventory_applicable:
         # An explicit per-symbol budget takes priority over the global CAP and
         # prevents a correlated asset from consuming the remaining portfolio limit.
         symbol_cap = _finite_decimal(
@@ -3403,7 +3402,7 @@ def run_for_symbol(
             f"{managed_exposure:.8f} scale={inventory_scale:.8f} "
             f"hard_cap={hard_cap_label} error={inventory_error or 'none'}"
         )
-    else:
+    elif risk_safe_cap <= 0:
         cap_scaling_reason = _cap_scaling_inactive_reason(
             risk_safe_cap,
             inventory_mode=inventory_mode,
@@ -3486,6 +3485,7 @@ def run_for_symbol(
             },
             "inventory_skew": {
                 "mode": inventory_mode,
+                "applicable": inventory_applicable, "status": inventory_status,
                 "managed_exposure_usdt": str(managed_exposure),
                 "hard_cap_usdt": (
                     str(hard_inventory_cap)

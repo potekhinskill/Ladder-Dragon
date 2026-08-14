@@ -1663,3 +1663,10 @@ private infrastructure details.
 - **Root cause:** exception handling covered submissions and later verification but not each function's first exchange lookup.
 - **Correction:** centralize active-intent reconciliation and halt protection when BUY status is unavailable.
 - **Prevention:** include the first network operation in every mutation and protection failure checklist.
+
+### 2026-08-14 — Presented multi-symbol SHADOW as one experiment
+
+- **Impact:** the dashboard hid mature SOLUSDT evidence and showed ETHUSDT execution-only errors.
+- **Root cause:** presentation selected the first symbol, while supervision applied controls before checking execution scope.
+- **Correction:** render each symbol separately and mark execution-only controls not applicable for SHADOW-only symbols.
+- **Prevention:** test every multi-symbol view and control with distinct execution and observation scopes.

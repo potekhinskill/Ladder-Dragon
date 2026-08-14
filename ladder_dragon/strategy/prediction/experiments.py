@@ -17,6 +17,11 @@ from ladder_dragon.strategy.prediction.approval import (
     configuration_edge_p_value,
     holm_configuration_correction,
 )
+from ladder_dragon.strategy.prediction.experiment_config import (
+    V12_SPEC,
+    configured_entry_gap_bps,
+    experiment_spec_for_generation,
+)
 from ladder_dragon.strategy.prediction.experiment_lifecycle import (
     REPORT_SCHEMA_VERSION,
     confirmation_report,
@@ -36,39 +41,10 @@ from ladder_dragon.strategy.prediction.walk_forward import (
 
 D = Decimal
 EDGE_EPSILON_PCT = D("0.000001")
-SHADOW_GENERATION = "v11"
-EXPERIMENT_HORIZONS_MIN = (300, 360)
-MAKER_TTLS = (
-    ("ttl60", 3_600),
-)
-# Version ten showed that 90-minute and 120-minute outcomes ended before the
-# observed recovery. A bounded replay found positive 300-minute and 360-minute
-# outcomes near the active participation boundary. Version eleven tests that
-# recovery horizon on fresh evidence without changing the protected TP floor.
-MAKER_ENTRY_GAPS = (
-    ("gap38", D("0.0038")),
-    ("gap42", D("0.0042")),
-    ("gap44", D("0.0044")),
-)
-
-
-def configured_entry_gap_bps(
-    variant_id: str, *, generation: str = SHADOW_GENERATION
-) -> Decimal:
-    """Return the stable configured gap for one current-generation variant."""
-    normalized_generation = str(generation).strip().lower()
-    normalized_variant = str(variant_id).strip().lower()
-    if normalized_generation != SHADOW_GENERATION:
-        raise ValueError("configured entry gap is unavailable for generation")
-    configured = {
-        f"{SHADOW_GENERATION}_maker_{ttl_name}_{gap_name}": gap_pct * D("10000")
-        for ttl_name, _ttl_sec in MAKER_TTLS
-        for gap_name, gap_pct in MAKER_ENTRY_GAPS
-    }
-    try:
-        return configured[normalized_variant]
-    except KeyError as exc:
-        raise ValueError("configured entry gap is unavailable for variant") from exc
+SHADOW_GENERATION = V12_SPEC.generation
+EXPERIMENT_HORIZONS_MIN = V12_SPEC.horizons_min
+MAKER_TTLS = V12_SPEC.maker_ttls
+MAKER_ENTRY_GAPS = V12_SPEC.maker_entry_gaps
 
 
 @dataclass(frozen=True)
@@ -118,6 +94,7 @@ def build_shadow_variants(
     baseline_plan: TradePlan,
     required_edge_pct: Decimal,
     regime: str,
+    generation: str = SHADOW_GENERATION,
 ) -> tuple[ShadowVariant, ...]:
     """Build narrowed maker candidates above the authoritative fee floor."""
     if not market_price.is_finite() or market_price <= 0:
@@ -159,16 +136,17 @@ def build_shadow_variants(
             ),
         )
 
-    # Version eleven keeps the regime argument for the stable caller contract.
+    spec = experiment_spec_for_generation(generation)
+    # Maker-gap generations keep the regime argument for the stable caller contract.
     # Production evidence rejected the RANGE-only cohort, so it cannot gate entry.
     del regime
     variants = []
-    for ttl_name, ttl_sec in MAKER_TTLS:
-        for gap_name, gap_pct in MAKER_ENTRY_GAPS:
+    for ttl_name, ttl_sec in spec.maker_ttls:
+        for gap_name, gap_pct in spec.maker_entry_gaps:
             # An explicit market gap keeps every candidate distinct from the baseline.
             entry_price = market_price * (D("1") - gap_pct)
             variants.append(variant(
-                f"v11_maker_{ttl_name}_{gap_name}",
+                f"{spec.generation}_maker_{ttl_name}_{gap_name}",
                 "maker_entry_gap",
                 entry_price=entry_price,
                 entry_ttl_sec=ttl_sec,
@@ -184,22 +162,24 @@ def record_shadow_variants(
     symbol: str,
     features: PredictionFeatures,
     variants: Iterable[ShadowVariant],
+    generation: str = SHADOW_GENERATION,
+    horizons_min: tuple[int, ...] = EXPERIMENT_HORIZONS_MIN,
 ) -> tuple[str, ...]:
     """Record every candidate against the same immutable feature snapshot."""
     decision_ids = []
     for variant in variants:
         experiment_id, evidence_role = evidence_assignment(
             store,
-            generation=SHADOW_GENERATION,
+            generation=generation,
             symbol=symbol,
             variant=variant,
-            horizons_min=EXPERIMENT_HORIZONS_MIN,
+            horizons_min=horizons_min,
             snapshot_ts_ms=features.snapshot_ts_ms,
         )
         candidate_fp, baseline_fp = variant_fingerprints(
             variant,
-            generation=SHADOW_GENERATION,
-            horizons_min=EXPERIMENT_HORIZONS_MIN,
+            generation=generation,
+            horizons_min=horizons_min,
         )
         history = store.resolved_samples(
             symbol,
@@ -210,7 +190,7 @@ def record_shadow_variants(
             features,
             variant.plan,
             history,
-            horizons_min=EXPERIMENT_HORIZONS_MIN,
+            horizons_min=horizons_min,
         )
         decision_ids.append(store.record(
             kind=variant.kind,
@@ -222,7 +202,7 @@ def record_shadow_variants(
             algorithm_decision=(
                 f"variant={variant.variant_id};dimension={variant.dimension}"
             ),
-            horizons_min=EXPERIMENT_HORIZONS_MIN,
+            horizons_min=horizons_min,
             experiment_id=experiment_id,
             evidence_role=evidence_role,
             candidate_fingerprint=candidate_fp,
@@ -237,6 +217,9 @@ def shadow_variant_report(
     symbol: str,
     variants: Iterable[ShadowVariant],
     before_ts_ms: int,
+    generation: str = SHADOW_GENERATION,
+    horizons_min: tuple[int, ...] = EXPERIMENT_HORIZONS_MIN,
+    superseded_selection_generations: tuple[str, ...] = (),
 ) -> dict[str, object]:
     """Return independent walk-forward gates; never authorize APPLY."""
     evidence: dict[
@@ -250,7 +233,7 @@ def shadow_variant_report(
         ],
     ] = {}
     p_values: dict[str, float] = {}
-    selection_cohort = selection_experiment_id(SHADOW_GENERATION, symbol)
+    selection_cohort = selection_experiment_id(generation, symbol)
     for variant in variants:
         samples = store.resolved_samples(
             symbol,
@@ -261,14 +244,14 @@ def shadow_variant_report(
         )
         walk_forward = walk_forward_prediction_report(
             samples,
-            required_horizons_min=EXPERIMENT_HORIZONS_MIN,
+            required_horizons_min=horizons_min,
         )
         active_samples = [
             row for row in samples if row.outcome.exit_reason != "NO_TRADE"
         ]
         active_gate = walk_forward_prediction_report(
             active_samples,
-            required_horizons_min=EXPERIMENT_HORIZONS_MIN,
+            required_horizons_min=horizons_min,
         )["gate"]
         evidence[variant.variant_id] = (
             variant,
@@ -347,7 +330,7 @@ def shadow_variant_report(
     manifests = (
         [
             row for row in list_experiments(store, symbol=symbol)
-            if row.get("generation") == SHADOW_GENERATION
+            if row.get("generation") == generation
         ]
         if hasattr(store, "_connect") else []
     )
@@ -372,8 +355,11 @@ def shadow_variant_report(
     return {
         "schema_version": 2,
         "mode": "SHADOW",
-        "generation": SHADOW_GENERATION,
-        "horizons_min": list(EXPERIMENT_HORIZONS_MIN),
+        "generation": generation,
+        "horizons_min": list(horizons_min),
+        "superseded_selection_generations": list(
+            superseded_selection_generations
+        ),
         "baseline": "current_strategy_plan",
         "same_snapshot": True,
         "can_change_orders": False,
