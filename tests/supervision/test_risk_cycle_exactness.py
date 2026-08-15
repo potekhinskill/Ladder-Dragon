@@ -7,11 +7,65 @@ from ladder_dragon.risk.risk_manager import RiskDecision
 from ladder_dragon.supervision import risk_cycle, runtime
 from ladder_dragon.supervision.risk_cycle import (
     RiskConfigurationError,
+    direct_usdt_valuation_price,
     reconciliation_tolerance_fraction,
     remaining_open_buy_notional,
     risk_alert_signature,
     risk_configuration_block,
 )
+
+
+def test_direct_account_asset_quote_is_fetched_and_cached():
+    prices = {}
+    requested = []
+
+    price = direct_usdt_valuation_price(
+        "KERNEL",
+        prices,
+        lambda symbol: requested.append(symbol) or Decimal("0.1734"),
+    )
+
+    assert price == Decimal("0.1734")
+    assert prices == {"KERNELUSDT": Decimal("0.1734")}
+    assert requested == ["KERNELUSDT"]
+
+
+def test_unavailable_direct_quote_keeps_bridge_fallback_reachable():
+    def unavailable(_symbol):
+        raise RuntimeError("temporary direct quote failure")
+
+    assert direct_usdt_valuation_price("KERNEL", {}, unavailable) is None
+
+
+def test_missing_direct_and_bridge_quotes_keep_risk_fail_closed(monkeypatch):
+    requested = []
+    monkeypatch.setenv("RISK_RECONCILE_STRICT", "0")
+    monkeypatch.setenv("RISK_RECONCILE_SYNC_FILLS", "0")
+    monkeypatch.delenv("RISK_UNVALUED_ASSETS", raising=False)
+    monkeypatch.delenv("RISK_UNVALUED_ASSETS_ACK", raising=False)
+    monkeypatch.setattr(
+        runtime,
+        "get_balances_full",
+        lambda: {
+            "USDT": {"free": "100", "locked": "0"},
+            "KERNEL": {"free": "1", "locked": "0"},
+        },
+    )
+    monkeypatch.setattr(runtime, "get_last_price", lambda _symbol: "75")
+
+    def unavailable(symbol):
+        requested.append(symbol)
+        raise RuntimeError("temporary price failure")
+
+    monkeypatch.setattr(runtime, "get_last_price_decimal", unavailable)
+    monkeypatch.setattr(runtime.TM, "_signed_get", lambda *_args, **_kwargs: [])
+
+    with pytest.raises(RuntimeError, match="cannot value account asset KERNEL"):
+        runtime._build_risk_snapshot(
+            ["SOLUSDT"], runtime.RiskLimits.from_mapping({})
+        )
+
+    assert requested[0] == "KERNELUSDT"
 
 
 def test_partial_buy_exposure_counts_only_unfilled_quantity():

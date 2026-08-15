@@ -139,6 +139,35 @@ def remaining_open_buy_notional(order: Mapping[str, object]) -> Decimal:
     return price * (original - executed)
 
 
+def direct_usdt_valuation_price(
+    asset: str,
+    prices: dict[str, object],
+    get_last_price_decimal: Any,
+) -> Decimal | None:
+    """Resolve and cache the direct USDT quote before bridge conversion."""
+    valuation_symbol = f"{asset.upper()}USDT"
+    try:
+        raw_price = prices.get(valuation_symbol)
+        price = finite_decimal(
+            raw_price if raw_price is not None
+            else get_last_price_decimal(valuation_symbol),
+            name=f"{valuation_symbol} valuation price",
+        )
+    except (
+        ArithmeticError,
+        KeyError,
+        RuntimeError,
+        TypeError,
+        ValueError,
+        requests.RequestException,
+    ):
+        return None
+    if price <= 0:
+        return None
+    prices[valuation_symbol] = price
+    return price
+
+
 def initial_runtime_risk_gate(
     *,
     live: bool,
@@ -396,7 +425,9 @@ def build_risk_snapshot(
             # Try direct USDT first, then common cross-quotes. Stablecoin
             # conversion includes the configured haircut and exit fee.
             valuation_symbol = f"{asset}USDT"
-            valuation_price = prices.get(valuation_symbol)
+            valuation_price = direct_usdt_valuation_price(
+                asset, prices, get_last_price_decimal
+            )
             if valuation_price is None:
                 for quote in ("USDC", "FDUSD", "BTC", "ETH"):
                     candidate = f"{asset}{quote}"

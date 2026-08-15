@@ -1,5 +1,19 @@
 # Engineering decisions
 
+### 2026-08-15 — Keep external AI inside execution scope
+
+- **Context:** observation-only symbols consumed most of the daily external AI budget.
+- **Decision:** run external advice only for execution symbols, while all symbols retain statistical SHADOW collection.
+- **Why it worked:** scope tests preserve ETH and BTC evidence without external advisor requests.
+- **Reuse:** every research scope that is broader than the approved execution scope.
+
+### 2026-08-15 — Prefer direct account valuation quotes
+
+- **Context:** an account asset had a direct USDT pair but valuation started with less reliable bridge pairs.
+- **Decision:** fetch and cache the direct USDT quote before any bridge conversion.
+- **Why it worked:** tests resolve KERNEL through `KERNELUSDT` and preserve the fail-closed bridge fallback.
+- **Reuse:** every exact account valuation path with direct and bridged market pairs.
+
 ### 2026-08-15 — Keep scenario analysis independent from execution scope
 
 - **Context:** long-horizon evidence needs several symbols without enabling new workers.

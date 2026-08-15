@@ -1,4 +1,5 @@
 from types import SimpleNamespace
+import inspect
 
 import pytest
 
@@ -36,6 +37,12 @@ def test_execution_controls_are_not_applicable_to_shadow_only_symbol():
     assert supervisor.execution_control_scope(
         "SOLUSDT", "SOLUSDT"
     ) == (True, "active")
+
+
+def test_external_ai_budget_stays_inside_execution_scope():
+    source = inspect.getsource(supervisor.run_for_symbol)
+
+    assert "execution_control_scope(symbol, args.symbols)[0]" in source
 
 
 @pytest.mark.parametrize("configured", ["SOLUSDT,SOLUSDT", "SOL/USDT"])

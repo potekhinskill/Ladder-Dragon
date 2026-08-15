@@ -3027,7 +3027,6 @@ def run_for_symbol(
             f"[STRATEGY-CONTROLS-BLOCK] {symbol} APPLY lacks approved "
             "walk-forward evidence or explicit operator approval"
         )
-
     operator_target_buys_limit = max(1, int(args.target_buy_per_symbol))
     target_buys_use = operator_target_buys_limit
     param_hyst = _PARAM_HYSTERESIS.setdefault(symbol, {
@@ -3057,6 +3056,7 @@ def run_for_symbol(
     advisor_active = (
         _AI_ADVISOR is not None
         and (_AI_POLICY is None or _AI_POLICY.mode != "DISABLED")
+        and execution_control_scope(symbol, args.symbols)[0]
     )
     if advisor_active or (
         statistical_regime_mode != "OFF" and _AI_DECISIONS is not None

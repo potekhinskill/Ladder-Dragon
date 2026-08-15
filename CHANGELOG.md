@@ -3,6 +3,21 @@
 All notable changes are documented here. Releases use Semantic Versioning; every
 section is dated and there is intentionally no `Unreleased` section.
 
+## [2.20.207] — 2026-08-15
+
+### Fixed
+- Account valuation now requests a direct USDT quote before bridge conversion.
+- External AI advice now remains limited to configured execution symbols.
+
+### Security
+- Missing direct and bridge prices still block BUY through the risk gate.
+- Observation-only symbols retain statistical SHADOW collection without order access.
+
+### Verified
+- All 33 focused risk, SHADOW scope, and architecture tests pass.
+- All 1,186 project tests pass.
+- The technical English and Python compilation checks pass.
+
 ## [2.20.206] — 2026-08-15
 
 ### Added
