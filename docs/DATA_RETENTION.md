@@ -43,6 +43,12 @@ Pending, settling, overdue, and unresolved outcomes are never eligible. The
 service does not run `VACUUM`. SQLite reuses free pages without a long writer
 lock or extra SD-card writes.
 
+Market scenario snapshots and outcomes are derived SHADOW evidence.
+The store blocks new snapshots at 250,000 rows.
+The scheduled retention job keeps 365 days online.
+It archives terminal rows only after a recent verified encrypted backup.
+Pending outcomes are never deleted.
+
 Use these commands on Raspberry Pi:
 
 ```bash

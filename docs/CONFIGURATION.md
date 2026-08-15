@@ -28,6 +28,7 @@ The applicable mode must also be `APPLY`.
 | `ADAPT_*` and `DIR_*` | deterministic ladder adaptation |
 | `ADAPTIVE_REANCHOR_MODE` and `REANCHOR_*` | bounded BUY refresh |
 | `PREDICTION_*` | SHADOW database, interval, fees, and slippage |
+| `BOT_MARKET_ANALYSIS_*` | public scenario symbols, intervals, costs, and evidence paths |
 | `BOT_EXPECTANCY_*` | exact execution-cost floor evidence |
 | `BOT_FEE_PCT` | conservative Spot fee per side; `0.001` means 0.1% |
 | `BOT_REGIME_*` | regime state machine and hysteresis |
@@ -129,6 +130,11 @@ An unknown quote suffix blocks balance-dependent work instead of guessing asset 
 | `BOT_ORDER_JOURNAL` | `/home/bot/apps/binance_bot/db/order_intents.sqlite3` |
 | `PREDICTION_SHADOW_DB` | `/home/bot/apps/binance_bot/db/prediction_shadow.sqlite3` |
 | `BOT_PREDICTION_SHADOW_SYMBOLS` | `SOLUSDT,ETHUSDT` |
+| `BOT_MARKET_ANALYSIS_SYMBOLS` | `SOLUSDT,ETHUSDT,BTCUSDT` |
+| `BOT_MARKET_ANALYSIS_TIMEFRAMES` | `1h,4h,1d,1w,1M` |
+| `BOT_MARKET_ANALYSIS_ROUND_TRIP_COST_PCT` | `0.0025` |
+| `BOT_MARKET_ANALYSIS_DB` | `db/market_scenario_shadow.sqlite3` |
+| `BOT_MARKET_ANALYSIS_STATUS_FILE` | `/var/lib/ladder-dragon/market-analysis/status.json` |
 | `AI_DECISIONS_DB` | `/home/bot/apps/binance_bot/db/ai_decisions.sqlite3` |
 | `LADDER_DRAGON_CONTROL_DIR` | `/var/lib/ladder-dragon/control` |
 | `BOT_RUN_DIR` | `/run/mybot` |
@@ -144,6 +150,8 @@ Process-lifetime state belongs below `/run/mybot`.
 Prediction SHADOW symbols use separate symbol-scoped evidence.
 They never extend `BOT_SERVICE_SYMBOLS` or start execution workers.
 Each symbol requires its own statistical PASS before separate APPLY approval.
+Market analysis uses an independent public-data symbol list.
+Its symbols never extend `BOT_SERVICE_SYMBOLS`.
 SOLUSDT uses version-twelve gaps of 44, 46, and 48 basis points.
 ETHUSDT continues version-eleven gaps without an evidence reset.
 

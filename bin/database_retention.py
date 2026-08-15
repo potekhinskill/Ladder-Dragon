@@ -16,6 +16,7 @@ import tempfile
 from ladder_dragon.persistence.retention import (
     REPORT_SCHEMA,
     protected_database_inventory,
+    rotate_market_scenarios,
     rotate_prediction_shadow,
 )
 from product_version import __version__
@@ -42,6 +43,7 @@ def _write_report(path: Path, payload: dict[str, object]) -> None:
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--prediction-db", type=Path, required=True)
+    parser.add_argument("--market-analysis-db", type=Path, required=True)
     parser.add_argument("--stats-db", type=Path, required=True)
     parser.add_argument("--order-journal", type=Path, required=True)
     parser.add_argument("--ai-db", type=Path, required=True)
@@ -59,12 +61,23 @@ def main() -> int:
         retention_days=args.retention_days,
         maximum_rows=args.maximum_rows,
     )
+    market_rotation = rotate_market_scenarios(
+        args.market_analysis_db,
+        args.archive_dir,
+        args.backup_status,
+        retention_days=args.retention_days,
+        maximum_rows=args.maximum_rows,
+    )
     report: dict[str, object] = {
         "schema": REPORT_SCHEMA,
         "version": __version__,
         "generated_at": datetime.now(timezone.utc).isoformat(),
-        "status": rotation["status"],
+        "status": (
+            "PASS" if rotation["status"] == market_rotation["status"] == "PASS"
+            else "BLOCKED"
+        ),
         "prediction": rotation,
+        "market_analysis": market_rotation,
         "protected": protected_database_inventory(
             [args.stats_db, args.order_journal, args.ai_db]
         ),

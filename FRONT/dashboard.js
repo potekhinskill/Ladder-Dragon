@@ -811,6 +811,45 @@ function updateFilled24h(resp){
     : `<tr><td class="muted" colspan="7">${tr('no_recent_fills')}</td></tr>`;
 }
 
+function updateMarketScenarios(payload){
+  const pill = $('#market-scenario-pill');
+  const body = $('#market-scenario-body');
+  if(!pill || !body) return;
+  const results = Array.isArray(payload?.results) ? payload.results : [];
+  if(!payload?.ok || !results.length){
+    pill.textContent = tr('unavailable'); setPill(pill,'warn');
+    body.innerHTML = `<div class="muted">${tr('no_data')}</div>`;
+    return;
+  }
+  pill.textContent = `${payload.mode || 'SHADOW'} · ${payload.stale ? tr('stale') : payload.status}`;
+  setPill(pill,payload.stale || payload.status!=='PASS' ? 'warn' : 'ok');
+  const grouped = new Map();
+  results.forEach(item=>{
+    const symbol = String(item.symbol || '—');
+    if(!grouped.has(symbol)) grouped.set(symbol,[]);
+    grouped.get(symbol).push(item);
+  });
+  body.innerHTML = [...grouped.entries()].map(([symbol,items])=>{
+    const rows = items.map(item=>{
+      const analysis = item.analysis || {}, stats = item.statistics || {};
+      const expectancy = stats.expectancy_after_costs || {};
+      const weights = [analysis.bullish_weight,analysis.range_weight,analysis.bearish_weight]
+        .map(value=>Number.isFinite(Number(value)) ? `${(Number(value)*100).toFixed(0)}%` : '—')
+        .join(' / ');
+      const mean = Number.isFinite(Number(expectancy.mean))
+        ? `${(Number(expectancy.mean)*100).toFixed(3)}%`
+        : '—';
+      return `<div class="market-scenario-row">
+        <span class="mono">${escapeHtml(item.timeframe || '—')}</span>
+        <span>${escapeHtml(analysis.primary_scenario || '—')}</span>
+        <span class="mono">B/R/S ${escapeHtml(weights)}</span>
+        <span class="mono">n=${Number(stats.resolved || 0)} · E=${escapeHtml(mean)} · ${escapeHtml(stats.status || '—')}</span>
+      </div>`;
+    }).join('');
+    return `<div class="market-scenario-symbol"><h3>${escapeHtml(symbol)}</h3>${rows}</div>`;
+  }).join('');
+}
+
 let REFRESH_IN_FLIGHT = false;
 async function refresh(){
   if(REFRESH_IN_FLIGHT) return;
@@ -823,16 +862,18 @@ async function refresh(){
       ['/api/ai/status',getJSON('/api/ai/status?limit=100')],
       ['/api/ai/control',getJSON('/api/ai/control')],
       ['/api/account/balances',getJSON('/api/account/balances')],
-      ['/api/trading/overview',getJSON('/api/trading/overview')]
+      ['/api/trading/overview',getJSON('/api/trading/overview')],
+      ['/api/market/scenarios',getJSON('/api/market/scenarios')]
     ];
     const results = await Promise.allSettled(sections.map(([,request])=>request));
     const values = results.map(result=>result.status==='fulfilled'?result.value:null);
-    const [h, hist, sum, ai, aiControl, balances, trading] = values;
+    const [h, hist, sum, ai, aiControl, balances, trading, scenarios] = values;
     if(h){ updateKpis(h); updateOperations(h); }
     if(hist) updateCharts(hist);
     updateTrade24(sum,balances);
     updateBalances(balances);
     if(trading) updateTrading(trading);
+    updateMarketScenarios(scenarios);
     if(ai) updateAIQuality(ai);
     if(ai && aiControl){
       $('#ai-state').textContent = ai.state || '—';
@@ -873,7 +914,7 @@ async function refresh(){
       toggle.setAttribute('aria-pressed', enabled ? 'true' : 'false');
       toggle.setAttribute('aria-label', !aiControl.configured ? tr('ai_not_configured') : tr(enabled ? 'ai_on' : 'ai_off'));
     }
-    if([h, hist, sum, ai, aiControl, balances, trading].some(item=>item?.transport_stale)){
+    if([h, hist, sum, ai, aiControl, balances, trading, scenarios].some(item=>item?.transport_stale)){
       $('#footer').textContent = `API: ${tr('stale')} · transport retry`;
     }
     const failures = results.flatMap((result,index)=>result.status==='rejected'?[sections[index][0]]:[]);

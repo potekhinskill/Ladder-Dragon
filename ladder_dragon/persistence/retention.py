@@ -228,6 +228,126 @@ def rotate_prediction_shadow(
     return result
 
 
+def rotate_market_scenarios(
+    database: Path,
+    archive_directory: Path,
+    backup_status: Path,
+    *,
+    retention_days: int = 365,
+    maximum_rows: int = 2_000,
+    maximum_backup_age_hours: int = 36,
+    now: float | None = None,
+) -> dict[str, Any]:
+    """Archive and prune bounded terminal market scenario evidence."""
+    if not 30 <= retention_days <= 3_650:
+        raise ValueError("scenario retention days must be between 30 and 3650")
+    if not 1 <= maximum_rows <= 10_000:
+        raise ValueError("maximum rows must be between 1 and 10000")
+    current = time.time() if now is None else float(now)
+    backup_ok, backup_reason = _backup_is_fresh(
+        backup_status, now=current, maximum_age_hours=maximum_backup_age_hours
+    )
+    result: dict[str, Any] = {
+        "database": database.name,
+        "classification": "derived_terminal_market_scenario_telemetry",
+        "retention_days": retention_days,
+        "status": "BLOCKED" if not backup_ok else "PASS",
+        "reason": backup_reason,
+        "archived_snapshots": 0,
+        "deleted_snapshots": 0,
+        "deleted_outcomes": 0,
+    }
+    if not database.exists() or not backup_ok:
+        if not database.exists():
+            result.update(status="BLOCKED", reason="scenario database does not exist")
+        return result
+    cutoff_ms = int((current - retention_days * SECONDS_PER_DAY) * 1_000)
+    with sqlite3.connect(database, timeout=30) as connection:
+        connection.row_factory = sqlite3.Row
+        rows = connection.execute(
+            """SELECT s.*,o.resolved_at_ms,o.outcome_open_ms,o.outcome_close_ms,
+                      o.exit_price_text,o.candidate_net_return_text,
+                      o.baseline_net_return_text,o.edge_text
+               FROM market_scenario_snapshots AS s
+               JOIN market_scenario_outcomes AS o ON o.snapshot_id=s.snapshot_id
+               WHERE o.resolved_at_ms < ?
+               ORDER BY s.sequence LIMIT ?""",
+            (cutoff_ms, maximum_rows),
+        ).fetchall()
+        evidence = [dict(row) for row in rows]
+    if not evidence:
+        result["reason"] = "no terminal market scenarios exceed retention"
+        return result
+    ids = [str(row["snapshot_id"]) for row in evidence]
+    payload = ("\n".join(
+        json.dumps(
+            {"schema": "ladder-dragon-market-scenario-retention-v1", "evidence": row},
+            sort_keys=True,
+            separators=(",", ":"),
+        )
+        for row in evidence
+    ) + "\n").encode("utf-8")
+    digest = hashlib.sha256(payload).hexdigest()
+    archive_directory.mkdir(parents=True, exist_ok=True, mode=0o700)
+    archive = archive_directory / f"market-scenario-terminal-{digest}.jsonl.gz"
+    if archive.exists():
+        with gzip.open(archive, "rb") as stream:
+            if hashlib.sha256(stream.read()).hexdigest() != digest:
+                raise RuntimeError("existing scenario archive hash mismatch")
+    else:
+        descriptor, temporary_name = tempfile.mkstemp(
+            prefix=".market-scenario-terminal-", suffix=".tmp", dir=archive_directory
+        )
+        try:
+            with os.fdopen(descriptor, "wb") as raw:
+                with gzip.GzipFile(fileobj=raw, mode="wb", mtime=0) as compressed:
+                    compressed.write(payload)
+                raw.flush()
+                os.fsync(raw.fileno())
+            os.chmod(temporary_name, 0o600)
+            os.replace(temporary_name, archive)
+        finally:
+            try:
+                os.unlink(temporary_name)
+            except FileNotFoundError:
+                pass
+    placeholders = ",".join("?" for _ in ids)
+    with sqlite3.connect(database, timeout=30, isolation_level=None) as connection:
+        connection.execute("PRAGMA busy_timeout=30000")
+        connection.execute("BEGIN IMMEDIATE")
+        try:
+            still_terminal = int(connection.execute(
+                f"""SELECT COUNT(*) FROM market_scenario_outcomes
+                    WHERE snapshot_id IN ({placeholders}) AND resolved_at_ms < ?""",
+                [*ids, cutoff_ms],
+            ).fetchone()[0])
+            if still_terminal != len(ids):
+                raise RuntimeError("scenario state changed before retention commit")
+            deleted_outcomes = connection.execute(
+                f"DELETE FROM market_scenario_outcomes WHERE snapshot_id IN ({placeholders})",
+                ids,
+            ).rowcount
+            deleted_snapshots = connection.execute(
+                f"DELETE FROM market_scenario_snapshots WHERE snapshot_id IN ({placeholders})",
+                ids,
+            ).rowcount
+            if deleted_outcomes != len(ids) or deleted_snapshots != len(ids):
+                raise RuntimeError("scenario retention delete count mismatch")
+            connection.execute("COMMIT")
+        except Exception:
+            connection.execute("ROLLBACK")
+            raise
+    result.update(
+        reason="terminal market scenarios archived and pruned",
+        archive=archive.name,
+        archive_sha256=digest,
+        archived_snapshots=len(ids),
+        deleted_snapshots=deleted_snapshots,
+        deleted_outcomes=deleted_outcomes,
+    )
+    return result
+
+
 def protected_database_inventory(paths: list[Path]) -> list[dict[str, Any]]:
     """Report protected databases without opening or modifying them."""
     output = []

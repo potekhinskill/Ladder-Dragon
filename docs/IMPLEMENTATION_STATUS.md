@@ -15,6 +15,7 @@ The configured mode and its evidence gate remain authoritative.
 | Accounting | Exact FIFO lots, exact AI fills, fee provenance, risk streaks, and cursor audits | Fail closed on incomplete evidence |
 | Replay | Sequential L2 events, shared liquidity, queue state, latency, fees, and slippage | L2 model, not exact L3 |
 | Prediction | 1, 5, and 15 minute SHADOW outcomes | Enabled for evidence only |
+| Market scenarios | 1-hour through monthly closed-candle outcomes | SHADOW only |
 | Experiments | Selection, immutable freeze, and independent confirmation | SHADOW only |
 | Statistical approval | Walk-forward, confidence intervals, regime checks, and Holm correction | Must pass before APPLY |
 | AI advice | Validated DeepSeek, OpenAI, or compatible provider response | Disabled by default |
@@ -46,6 +47,10 @@ The example configuration uses these modes:
 | AI advisor | disabled, with mode `SHADOW` |
 
 `SHADOW` records evidence and does not change an order.
+
+The scenario engine applies identical rules to each configured symbol.
+It reports each symbol and timeframe separately.
+Scenario weights remain uncalibrated until independent outcomes pass the statistical gate.
 `APPLY` requires the applicable approval variable and statistical evidence.
 
 ## Prediction evidence

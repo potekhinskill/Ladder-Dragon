@@ -47,6 +47,8 @@
   };
 
   Object.assign(translations.ru, {version:"Версия", type:"Тип", created:"Создан", api_ok:"API: ok", current:"актуально", assets_in_equity:"Активы в расчёте", infrastructure:"Инфраструктура / хост", host_platform:"Платформа", portfolio_change_24h:"Изменение стоимости портфеля за 24 ч"});
+  Object.assign(en, {market_scenarios:"Market scenario analysis", market_scenarios_shadow_note:"SHADOW only. Results never expand execution symbols."});
+  Object.assign(translations.ru, {market_scenarios:"Сценарный анализ рынка", market_scenarios_shadow_note:"Только SHADOW. Результаты не расширяют список торговых символов."});
   Object.assign(translations.zh, {version:"版本", type:"类型", created:"创建时间", api_ok:"API 正常", current:"当前", assets_in_equity:"计算中的资产"});
   Object.assign(translations.es, {version:"Versión", type:"Tipo", created:"Creada", api_ok:"API: ok", current:"actualizado", assets_in_equity:"Activos calculados"});
   Object.assign(translations.de, {version:"Version", type:"Typ", created:"Erstellt", api_ok:"API: ok", current:"aktuell", assets_in_equity:"Einbezogene Assets"});

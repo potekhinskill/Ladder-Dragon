@@ -1,5 +1,12 @@
 # Engineering decisions
 
+### 2026-08-15 — Keep scenario analysis independent from execution scope
+
+- **Context:** long-horizon evidence needs several symbols without enabling new workers.
+- **Decision:** configure analysis symbols separately and collect public closed candles in a credential-free SHADOW service.
+- **Why it worked:** tests prove identical rules, symbol-specific statistics, exact-next-candle settlement, and no order imports.
+- **Reuse:** every research feed that needs broader market coverage than the approved execution scope.
+
 Read this file before changing the repository. Record only decisions that were
 validated by tests or production evidence and are likely to be reused. Keep
 entries concise; this is not a changelog or an activity log.

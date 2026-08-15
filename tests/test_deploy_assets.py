@@ -894,6 +894,23 @@ def test_monthly_prediction_contour_is_shadow_cutoff_bound_and_optional():
     assert "ladder-dragon-monthly-prediction.timer" in updater
 
 
+def test_market_scenario_service_is_public_shadow_and_separate_from_execution():
+    service = read("deploy/ladder-dragon-market-scenario.service")
+    timer = read("deploy/ladder-dragon-market-scenario.timer")
+    installer = read("deploy/install_raspberry_pi.sh")
+    updater = read("deploy/update_raspberry_pi.sh")
+    example = read(".env.example")
+    assert "bin.market_scenario_shadow" in service
+    assert "EnvironmentFile=-/etc/ladder-dragon/market-analysis.env" in service
+    assert "BINANCE_API_KEY" not in service
+    assert "BINANCE_API_SECRET" not in service
+    assert "OnCalendar=hourly" in timer
+    assert "BOT_MARKET_ANALYSIS_SYMBOLS=SOLUSDT,ETHUSDT,BTCUSDT" in example
+    assert "ladder-dragon-market-scenario.timer" in installer
+    assert "ladder-dragon-market-scenario.timer" in updater
+    assert "start --no-block ladder-dragon-market-scenario.service" in updater
+
+
 def test_database_retention_is_backup_gated_bounded_and_scheduled():
     service = read("deploy/ladder-dragon-database-retention.service")
     timer = read("deploy/ladder-dragon-database-retention.timer")
@@ -903,6 +920,7 @@ def test_database_retention_is_backup_gated_bounded_and_scheduled():
     source = read("ladder_dragon/persistence/retention.py")
     assert "--retention-days 365" in service
     assert "--maximum-rows 2000" in service
+    assert "--market-analysis-db" in service
     assert "--backup-status /run/mybot/backup_status.json" in service
     assert "SuccessExitStatus=0" in service
     assert "SuccessExitStatus=2" not in service

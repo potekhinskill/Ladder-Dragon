@@ -7,7 +7,10 @@ import sys
 import pytest
 
 from bin import database_retention
-from ladder_dragon.persistence.retention import rotate_prediction_shadow
+from ladder_dragon.persistence.retention import (
+    rotate_market_scenarios,
+    rotate_prediction_shadow,
+)
 
 
 def _database(path: Path, *, old_ms: int, fresh_ms: int) -> None:
@@ -140,6 +143,55 @@ def test_retention_preserves_classified_lifecycle_evidence(tmp_path):
         ).fetchone()[0] == 1
 
 
+def test_market_scenario_retention_archives_only_resolved_evidence(tmp_path):
+    now = 2_000_000_000.0
+    old_ms = int((now - 400 * 86_400) * 1000)
+    database = tmp_path / "market.sqlite3"
+    backup = tmp_path / "backup.json"
+    _backup(backup, now)
+    with sqlite3.connect(database) as connection:
+        connection.executescript(
+            """
+            CREATE TABLE market_scenario_snapshots(
+                sequence INTEGER PRIMARY KEY, snapshot_id TEXT UNIQUE,
+                symbol TEXT,timeframe TEXT,as_of_open_ms INTEGER,
+                as_of_close_ms INTEGER,created_at_ms INTEGER,
+                entry_price_text TEXT,shadow_action TEXT,analysis_json TEXT,
+                mode TEXT,apply_allowed INTEGER
+            );
+            CREATE TABLE market_scenario_outcomes(
+                snapshot_id TEXT PRIMARY KEY,resolved_at_ms INTEGER,
+                outcome_open_ms INTEGER,outcome_close_ms INTEGER,
+                exit_price_text TEXT,candidate_net_return_text TEXT,
+                baseline_net_return_text TEXT,edge_text TEXT
+            );
+            """
+        )
+        for sequence, identity in ((1, "resolved"), (2, "pending")):
+            connection.execute(
+                "INSERT INTO market_scenario_snapshots VALUES(?,?,?,?,?,?,?,?,?,?,?,?)",
+                (sequence, identity, "SOLUSDT", "1h", old_ms, old_ms, old_ms,
+                 "100", "LONG", "{}", "SHADOW", 0),
+            )
+        connection.execute(
+            "INSERT INTO market_scenario_outcomes VALUES(?,?,?,?,?,?,?,?)",
+            ("resolved", old_ms, old_ms, old_ms, "101", "0.01", "0.01", "0"),
+        )
+    result = rotate_market_scenarios(
+        database, tmp_path / "archives", backup, now=now
+    )
+    assert result["status"] == "PASS"
+    assert result["deleted_snapshots"] == 1
+    with sqlite3.connect(database) as connection:
+        assert connection.execute(
+            "SELECT snapshot_id FROM market_scenario_snapshots"
+        ).fetchall() == [("pending",)]
+    with gzip.open(
+        tmp_path / "archives" / str(result["archive"]), "rt", encoding="utf-8"
+    ) as stream:
+        assert json.loads(stream.readline())["evidence"]["snapshot_id"] == "resolved"
+
+
 @pytest.mark.parametrize(("status", "expected"), (("PASS", 0), ("BLOCKED", 2)))
 def test_retention_cli_exposes_blocked_status_to_systemd(
     tmp_path, monkeypatch, status, expected,
@@ -151,11 +203,17 @@ def test_retention_cli_exposes_blocked_status_to_systemd(
         lambda *_args, **_kwargs: {"status": status},
     )
     monkeypatch.setattr(
+        database_retention,
+        "rotate_market_scenarios",
+        lambda *_args, **_kwargs: {"status": status},
+    )
+    monkeypatch.setattr(
         sys,
         "argv",
         [
             "database_retention",
             "--prediction-db", str(tmp_path / "prediction.sqlite3"),
+            "--market-analysis-db", str(tmp_path / "market.sqlite3"),
             "--stats-db", str(tmp_path / "stats.sqlite3"),
             "--order-journal", str(tmp_path / "journal.sqlite3"),
             "--ai-db", str(tmp_path / "ai.sqlite3"),

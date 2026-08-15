@@ -155,6 +155,8 @@ for path in \
   /etc/systemd/system/ladder-dragon-log-export.timer \
   /etc/systemd/system/ladder-dragon-soak-audit.service \
   /etc/systemd/system/ladder-dragon-soak-audit.timer \
+	  /etc/systemd/system/ladder-dragon-market-scenario.service \
+	  /etc/systemd/system/ladder-dragon-market-scenario.timer \
 	  /etc/systemd/system/ladder-dragon-database-retention.service \
 	  /etc/systemd/system/ladder-dragon-database-retention.timer \
 	  /etc/nginx/sites-available \

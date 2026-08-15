@@ -37,6 +37,9 @@ Tests and extensions import the owning package directly.
 | `ladder_dragon/verification/` | Release, Testnet and Raspberry verification profiles |
 
 Prediction research is in `ladder_dragon/strategy/prediction/`.
+Scenario calculations are in `ladder_dragon/strategy/scenario_analysis.py`.
+Public collection is in `ladder_dragon/market_analysis/`.
+This package has no order or credential dependency.
 Each module has one responsibility:
 
 - `decision_value` owns the monetary target;

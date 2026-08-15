@@ -3,6 +3,27 @@
 All notable changes are documented here. Releases use Semantic Versioning; every
 section is dated and there is intentionally no `Unreleased` section.
 
+## [2.20.205] — 2026-08-15
+
+### Added
+- A universal Scenario Analysis Engine evaluates every configured symbol with identical rules.
+- Closed-candle analysis covers 1-hour, 4-hour, daily, weekly, and monthly intervals.
+- The dashboard shows separate scenario weights and expectancy statistics for each symbol and interval.
+- An hourly public-data service collects evidence without exchange credentials.
+
+### Changed
+- Terminal scenario evidence uses backup-gated archive retention after 365 days.
+- Statistical PASS requires 60 resolved outcomes and positive lower confidence bounds after costs.
+
+### Security
+- `BOT_MARKET_ANALYSIS_SYMBOLS` never extends `BOT_SERVICE_SYMBOLS`.
+- Scenario analysis is fixed to SHADOW and cannot create, cancel, or change orders.
+- Open candles, missing successor candles, oversized responses, and malformed market data fail closed.
+
+### Verified
+- Python compilation and JavaScript syntax checks pass.
+- All 1,182 project tests pass.
+
 ## [2.20.204] — 2026-08-14
 
 ### Added

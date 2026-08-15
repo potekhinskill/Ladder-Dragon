@@ -68,6 +68,7 @@ The Pi profile does not install or run Semgrep.
 | `backfill_prediction_archive` | repairs eligible expired prediction outcomes |
 | `prediction_experiment` | freezes and audits independent SHADOW confirmation |
 | `monthly_prediction_report` | creates the monthly defensive SHADOW report |
+| `market_scenario_shadow` | collects public multi-symbol scenario evidence |
 | `regime_pnl_report` | compares strategy, buy-and-hold, and USDT by regime |
 | `auto_ladder_map` | generates deterministic ladder diagnostics |
 | `ladder_pct_runner` | runs the percentage-ladder utility |
@@ -192,6 +193,8 @@ Do not publish its output.
 | `ladder-dragon-log-export.service` | sanitized dashboard log export | timer target |
 | `ladder-dragon-log-export.timer` | refreshes the log export | each minute |
 | `ladder-dragon-monthly-prediction.service` | monthly SHADOW report | timer target |
+| `ladder-dragon-market-scenario.service` | public multi-symbol scenarios | hourly timer target |
+| `ladder-dragon-market-scenario.timer` | schedules public multi-symbol scenarios | hourly |
 | `ladder-dragon-monthly-prediction.timer` | starts the prediction report | monthly |
 | `ladder-dragon-soak-audit.service` | signed production soak report | timer target |
 | `ladder-dragon-soak-audit.timer` | starts the soak report | each 15 minutes |

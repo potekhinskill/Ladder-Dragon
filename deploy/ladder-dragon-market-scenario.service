@@ -1,0 +1,47 @@
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2026 IURII Potekhin
+# Purpose: collect public multi-symbol market scenarios without execution authority.
+[Unit]
+Description=Ladder Dragon multi-symbol market scenario SHADOW
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=bot
+Group=bot
+WorkingDirectory=/home/bot/apps/binance_bot
+Environment=PYTHONPATH=/home/bot/apps/binance_bot
+Environment=BOT_MARKET_ANALYSIS_DB=/home/bot/apps/binance_bot/db/market_scenario_shadow.sqlite3
+Environment=BOT_MARKET_ANALYSIS_STATUS_FILE=/var/lib/ladder-dragon/market-analysis/status.json
+EnvironmentFile=-/etc/ladder-dragon/market-analysis.env
+ExecStart=/home/bot/apps/binance_bot/.venv/bin/python -m bin.market_scenario_shadow
+NoNewPrivileges=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectSystem=strict
+ProtectHome=read-only
+ProtectClock=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+ProtectKernelLogs=yes
+ProtectHostname=yes
+RestrictSUIDSGID=yes
+RestrictRealtime=yes
+RestrictNamespaces=yes
+LockPersonality=yes
+MemoryDenyWriteExecute=yes
+CapabilityBoundingSet=
+AmbientCapabilities=
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+SystemCallArchitectures=native
+SystemCallFilter=@system-service
+SystemCallErrorNumber=EPERM
+ReadOnlyPaths=/home/bot/apps/binance_bot
+ReadOnlyPaths=-/etc/ladder-dragon/market-analysis.env
+ReadWritePaths=/home/bot/apps/binance_bot/db /var/lib/ladder-dragon/market-analysis
+UMask=0077
+
+[Install]
+WantedBy=multi-user.target

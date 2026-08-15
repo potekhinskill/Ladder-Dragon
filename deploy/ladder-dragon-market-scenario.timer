@@ -1,0 +1,14 @@
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2026 IURII Potekhin
+# Purpose: schedule hourly multi-symbol market scenario collection.
+[Unit]
+Description=Schedule Ladder Dragon market scenario SHADOW
+
+[Timer]
+OnCalendar=hourly
+Persistent=true
+RandomizedDelaySec=2m
+Unit=ladder-dragon-market-scenario.service
+
+[Install]
+WantedBy=timers.target

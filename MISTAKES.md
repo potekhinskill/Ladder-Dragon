@@ -6,6 +6,20 @@ avoidable rework. Identify the root cause rather than recording only the
 symptom. Keep entries concise and exclude secrets, balances, account data, and
 private infrastructure details.
 
+### 2026-08-15 — Documented a service without its timer
+
+- **Impact:** the first complete regression stopped at the systemd inventory contract.
+- **Root cause:** the command reference added the service but omitted its separate timer unit.
+- **Correction:** add both units and rerun the complete regression.
+- **Prevention:** compare every new service and timer against the complete deployment unit inventory.
+
+### 2026-08-15 — Built new SQLite fixtures from memory
+
+- **Impact:** two focused runs stopped before validating retention and exact-next-candle behavior.
+- **Root cause:** test slices and placeholder counts were not checked against their intended evidence shape.
+- **Correction:** remove the anchor candle explicitly and match every declared fixture column.
+- **Prevention:** inspect fixture identities and schema column counts before the first focused run.
+
 ### 2026-08-14 — Increased the deadline without removing sequential remote work
 
 - **Impact:** `/api/trades/summary` still timed out after the client deadline increased to 20 seconds.

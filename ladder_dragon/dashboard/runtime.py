@@ -46,6 +46,7 @@ from ladder_dragon.dashboard.services.user_stream import (
 )
 from ladder_dragon.dashboard.services.binance_readonly import ReadOnlyBinanceClient
 from ladder_dragon.dashboard.services.backup_health import backup_snapshot
+from ladder_dragon.dashboard.services.market_analysis import market_analysis_snapshot
 from ladder_dragon.dashboard.services.stale_refresh import StaleWhileRefreshCache
 from ladder_dragon.deployment.status import read_deployment_status
 APP_TZ = ZoneInfo("Asia/Almaty")
@@ -201,7 +202,6 @@ async def lifespan(_app):
 
 
 app = create_dashboard_app(lifespan)
-
 GiB = 1024**3
 
 
@@ -2448,7 +2448,6 @@ def ai_status(limit: int = 50):
         },
     }
 
-
 def _ai_control_snapshot() -> Dict[str, object]:
     """Handle ai control snapshot."""
     runtime = _load_ai_runtime_status()
@@ -2476,6 +2475,8 @@ def _ai_control_snapshot() -> Dict[str, object]:
         "control_error": control_error,
         "updated_at": control.get("updated_at") if control else None,
     }
+@app.get("/api/market/scenarios")
+def market_scenarios(): return market_analysis_snapshot()
 
 
 @app.get("/api/ai/control")

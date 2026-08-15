@@ -191,9 +191,13 @@ BOT_SERVICE_VENUE=testnet
 BOT_SERVICE_EXECUTION=dry
 BOT_SERVICE_SYMBOLS=SOLUSDT
 BOT_PREDICTION_SHADOW_SYMBOLS=SOLUSDT,ETHUSDT
+BOT_MARKET_ANALYSIS_SYMBOLS=SOLUSDT,ETHUSDT,BTCUSDT
+BOT_MARKET_ANALYSIS_TIMEFRAMES=1h,4h,1d,1w,1M
 ```
 
 The dashboard reports each SHADOW symbol and generation separately.
+The scenario service uses public closed candles only.
+Its symbol list cannot start an execution worker.
 SOLUSDT version twelve supersedes the rejected version-eleven selection.
 ETHUSDT version eleven continues without a database reset.
 SHADOW-only controls show `not_applicable_shadow_only` for execution-only limits.
