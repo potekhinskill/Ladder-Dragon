@@ -3,6 +3,18 @@
 All notable changes are documented here. Releases use Semantic Versioning; every
 section is dated and there is intentionally no `Unreleased` section.
 
+## [2.20.206] — 2026-08-15
+
+### Added
+- BTCUSDT now collects independent version-eleven prediction SHADOW evidence.
+
+### Security
+- BTCUSDT remains observation-only and cannot start an execution worker or change orders.
+
+### Verified
+- All 1,182 project tests pass.
+- The technical English and Python compilation checks pass.
+
 ## [2.20.205] — 2026-08-15
 
 ### Added

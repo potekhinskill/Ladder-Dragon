@@ -50,6 +50,7 @@ _GENERATION_SPECS = {
     V12_SPEC.generation: V12_SPEC,
 }
 _SYMBOL_SPECS = {
+    "BTCUSDT": V11_SPEC,
     "ETHUSDT": V11_SPEC,
     "SOLUSDT": V12_SPEC,
 }

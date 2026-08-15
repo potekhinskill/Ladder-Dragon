@@ -9,12 +9,12 @@ def test_prediction_symbols_do_not_widen_execution_scope():
     execution = ["SOLUSDT"]
 
     configured, shadow_only = supervisor.resolve_prediction_shadow_symbols(
-        execution, "SOLUSDT,ETHUSDT"
+        execution, "SOLUSDT,ETHUSDT,BTCUSDT"
     )
 
     assert execution == ["SOLUSDT"]
-    assert configured == ["SOLUSDT", "ETHUSDT"]
-    assert shadow_only == ["ETHUSDT"]
+    assert configured == ["SOLUSDT", "ETHUSDT", "BTCUSDT"]
+    assert shadow_only == ["ETHUSDT", "BTCUSDT"]
 
 
 def test_execution_symbols_remain_in_prediction_evidence():

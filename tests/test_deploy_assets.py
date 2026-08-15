@@ -584,7 +584,10 @@ def test_managed_service_uses_versionless_wrapper_and_separate_env():
     assert "BOT_SERVICE_AUTO_OCO_HOLDINGS=0" in service_example
     assert 'SYMBOLS="${BOT_SERVICE_SYMBOLS:-SOLUSDT}"' in wrapper
     assert "BOT_SERVICE_SYMBOLS=SOLUSDT" in service_example
-    assert "BOT_PREDICTION_SHADOW_SYMBOLS=SOLUSDT,ETHUSDT" in service_example
+    assert (
+        "BOT_PREDICTION_SHADOW_SYMBOLS=SOLUSDT,ETHUSDT,BTCUSDT"
+        in service_example
+    )
     assert "KillMode=control-group" in unit
     assert "StartLimitIntervalSec=1h" in unit
     assert "StartLimitBurst=5" in unit

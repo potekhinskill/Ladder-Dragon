@@ -416,7 +416,7 @@ def test_experiment_recording_is_bounded_to_five_minute_snapshots(
     assert store.summary("SOLUSDT")["decisions"] == 6
 
 
-def test_symbol_scopes_keep_sol_v12_separate_from_eth_v11(
+def test_symbol_scopes_keep_sol_v12_separate_from_eth_and_btc_v11(
     tmp_path: Path, monkeypatch
 ):
     from ladder_dragon.supervision import prediction_shadow
@@ -442,6 +442,14 @@ def test_symbol_scopes_keep_sol_v12_separate_from_eth_v11(
         baseline_plan=_baseline(),
         required_edge_pct=D("0.0096"),
     )
+    btc = prediction_shadow.collect_shadow_experiments(
+        store,
+        symbol="BTCUSDT",
+        features=_features(),
+        market_price=D("100"),
+        baseline_plan=_baseline(),
+        required_edge_pct=D("0.0096"),
+    )
 
     assert sol["generation"] == "v12"
     assert sol["lifecycle_status"] == "SELECTION"
@@ -459,14 +467,24 @@ def test_symbol_scopes_keep_sol_v12_separate_from_eth_v11(
         "v11_maker_ttl60_gap42",
         "v11_maker_ttl60_gap44",
     }
+    assert btc["generation"] == "v11"
+    assert btc["lifecycle_status"] == "SELECTION"
+    assert btc["superseded_selection_generations"] == []
+    assert set(btc["variants"]) == {
+        "v11_maker_ttl60_gap38",
+        "v11_maker_ttl60_gap42",
+        "v11_maker_ttl60_gap44",
+    }
     assert sol["can_change_orders"] is False
     assert eth["can_change_orders"] is False
+    assert btc["can_change_orders"] is False
     assert sol["superseded_reports"]["v11"]["generation"] == "v11"
     assert (
         sol["superseded_reports"]["v11"]["lifecycle_status"]
         == "SUPERSEDED"
     )
     assert eth["superseded_reports"] == {}
+    assert btc["superseded_reports"] == {}
 
 
 def test_v12_variants_do_not_depend_on_the_current_regime():

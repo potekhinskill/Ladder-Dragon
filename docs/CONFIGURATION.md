@@ -129,7 +129,7 @@ An unknown quote suffix blocks balance-dependent work instead of guessing asset 
 | `BOT_STATS_DB` | `/home/bot/apps/binance_bot/db/bot_stats.db` |
 | `BOT_ORDER_JOURNAL` | `/home/bot/apps/binance_bot/db/order_intents.sqlite3` |
 | `PREDICTION_SHADOW_DB` | `/home/bot/apps/binance_bot/db/prediction_shadow.sqlite3` |
-| `BOT_PREDICTION_SHADOW_SYMBOLS` | `SOLUSDT,ETHUSDT` |
+| `BOT_PREDICTION_SHADOW_SYMBOLS` | `SOLUSDT,ETHUSDT,BTCUSDT` |
 | `BOT_MARKET_ANALYSIS_SYMBOLS` | `SOLUSDT,ETHUSDT,BTCUSDT` |
 | `BOT_MARKET_ANALYSIS_TIMEFRAMES` | `1h,4h,1d,1w,1M` |
 | `BOT_MARKET_ANALYSIS_ROUND_TRIP_COST_PCT` | `0.0025` |
@@ -154,6 +154,7 @@ Market analysis uses an independent public-data symbol list.
 Its symbols never extend `BOT_SERVICE_SYMBOLS`.
 SOLUSDT uses version-twelve gaps of 44, 46, and 48 basis points.
 ETHUSDT continues version-eleven gaps without an evidence reset.
+BTCUSDT starts an independent version-eleven evidence scope.
 
 ## Dashboard and notifications
 
