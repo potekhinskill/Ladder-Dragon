@@ -3,6 +3,23 @@
 All notable changes are documented here. Releases use Semantic Versioning; every
 section is dated and there is intentionally no `Unreleased` section.
 
+## [2.20.208] — 2026-08-16
+
+### Changed
+- SOLUSDT version thirteen tests 48, 50, and 52 basis-point maker gaps.
+- ETHUSDT version twelve tests 19, 22, and 27 basis-point maker gaps.
+- BTCUSDT continues its existing version-eleven evidence without a reset.
+- SOLUSDT version twelve and ETHUSDT version eleven remain visible as superseded evidence.
+
+### Security
+- ETHUSDT gaps use completed version-eleven SELECTION windows before a fixed calibration cutoff.
+- Every active candidate remains `LIMIT_MAKER`, uses a 60-minute lifetime, and cannot change orders.
+- Ambiguous generation lookups without a symbol now fail closed.
+
+### Verified
+- All 1,186 project tests pass.
+- The technical English and Python compilation checks pass.
+
 ## [2.20.207] — 2026-08-15
 
 ### Fixed

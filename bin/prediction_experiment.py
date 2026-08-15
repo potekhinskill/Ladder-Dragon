@@ -129,7 +129,7 @@ def _selection_variants(
             # The stored price can include exchange tick rounding. The gap is
             # immutable strategy configuration, not snapshot-derived evidence.
             entry_gap_bps=configured_entry_gap_bps(
-                variant_id, generation=generation
+                variant_id, generation=generation, symbol=symbol
             ),
         ))
     return tuple(variants)

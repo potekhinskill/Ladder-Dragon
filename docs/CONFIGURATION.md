@@ -152,9 +152,10 @@ They never extend `BOT_SERVICE_SYMBOLS` or start execution workers.
 Each symbol requires its own statistical PASS before separate APPLY approval.
 Market analysis uses an independent public-data symbol list.
 Its symbols never extend `BOT_SERVICE_SYMBOLS`.
-SOLUSDT uses version-twelve gaps of 44, 46, and 48 basis points.
-ETHUSDT continues version-eleven gaps without an evidence reset.
-BTCUSDT starts an independent version-eleven evidence scope.
+SOLUSDT uses version-thirteen gaps of 48, 50, and 52 basis points.
+ETHUSDT uses version-twelve gaps of 19, 22, and 27 basis points.
+BTCUSDT continues its independent version-eleven evidence scope.
+Earlier SOLUSDT and ETHUSDT generations remain visible as superseded evidence.
 
 ## Dashboard and notifications
 

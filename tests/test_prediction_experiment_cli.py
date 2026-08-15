@@ -34,7 +34,16 @@ def test_configured_gap_rejects_unknown_semantics():
     assert configured_entry_gap_bps(
         "v11_maker_ttl60_gap42", generation="v11"
     ) == D("42")
-    assert configured_entry_gap_bps("v12_maker_ttl60_gap46") == D("46")
+    with pytest.raises(ValueError, match="requires a symbol"):
+        configured_entry_gap_bps(
+            "v12_maker_ttl60_gap46", generation="v12"
+        )
+    assert configured_entry_gap_bps(
+        "v12_maker_ttl60_gap46", generation="v12", symbol="SOLUSDT"
+    ) == D("46")
+    assert configured_entry_gap_bps(
+        "v12_maker_ttl60_gap22", generation="v12", symbol="ETHUSDT"
+    ) == D("22")
 
 
 def _features(snapshot: int, price: str) -> PredictionFeatures:
@@ -131,7 +140,7 @@ def test_selection_preview_uses_stable_configured_gap(tmp_path: Path):
             cutoff=snapshot,
         )[0])
 
-    assert [row.entry_gap_bps for row in reconstructed] == [D("46"), D("46")]
+    assert [row.entry_gap_bps for row in reconstructed] == [D("50"), D("50")]
     assert variant_fingerprints(
         reconstructed[0],
         generation=SHADOW_GENERATION,

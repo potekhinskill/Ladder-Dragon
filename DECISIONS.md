@@ -1323,3 +1323,11 @@ entries concise; this is not a changelog or an activity log.
 - **Decision:** map each prediction symbol to one immutable generation and preserve all earlier evidence.
 - **Why it worked:** SOLUSDT advances without resetting ETHUSDT or widening execution scope.
 - **Reuse:** every multi-symbol experiment with different evidence maturity.
+
+### 2026-08-16 — Calibrate zero-fill gaps from completed selection windows
+
+- **Context:** ETHUSDT version eleven produced no fills at 38, 42, or 44 basis points.
+- **Decision:** select version-twelve gaps from completed 60-minute SELECTION excursions before a fixed cutoff.
+- **Evidence:** 278 complete windows ended by 2026-08-15 18:31 UTC; partial starting minutes were excluded.
+- **Why it worked:** 19, 22, and 27 basis points produced historical touch rates of 13.67%, 10.79%, and 5.04%.
+- **Reuse:** every zero-fill generation where one predeclared parameter can be recalibrated without future confirmation evidence.

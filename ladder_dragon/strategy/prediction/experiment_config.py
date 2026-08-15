@@ -33,7 +33,7 @@ V11_SPEC = ShadowExperimentSpec(
         ("gap44", D("0.0044")),
     ),
 )
-V12_SPEC = ShadowExperimentSpec(
+SOL_V12_SPEC = ShadowExperimentSpec(
     generation="v12",
     horizons_min=(300, 360),
     maker_ttls=(("ttl60", 3_600),),
@@ -44,25 +44,68 @@ V12_SPEC = ShadowExperimentSpec(
     ),
     superseded_selection_generations=("v11",),
 )
+ETH_V12_SPEC = ShadowExperimentSpec(
+    generation="v12",
+    horizons_min=(300, 360),
+    maker_ttls=(("ttl60", 3_600),),
+    maker_entry_gaps=(
+        ("gap19", D("0.0019")),
+        ("gap22", D("0.0022")),
+        ("gap27", D("0.0027")),
+    ),
+    superseded_selection_generations=("v11",),
+)
+SOL_V13_SPEC = ShadowExperimentSpec(
+    generation="v13",
+    horizons_min=(300, 360),
+    maker_ttls=(("ttl60", 3_600),),
+    maker_entry_gaps=(
+        ("gap48", D("0.0048")),
+        ("gap50", D("0.0050")),
+        ("gap52", D("0.0052")),
+    ),
+    superseded_selection_generations=("v11", "v12"),
+)
 
-_GENERATION_SPECS = {
-    V11_SPEC.generation: V11_SPEC,
-    V12_SPEC.generation: V12_SPEC,
+# Preserve the public historical name for callers that inspect SOL v12.
+V12_SPEC = SOL_V12_SPEC
+
+_SYMBOL_GENERATION_SPECS = {
+    ("BTCUSDT", "v11"): V11_SPEC,
+    ("ETHUSDT", "v11"): V11_SPEC,
+    ("ETHUSDT", "v12"): ETH_V12_SPEC,
+    ("SOLUSDT", "v11"): V11_SPEC,
+    ("SOLUSDT", "v12"): SOL_V12_SPEC,
+    ("SOLUSDT", "v13"): SOL_V13_SPEC,
 }
 _SYMBOL_SPECS = {
     "BTCUSDT": V11_SPEC,
-    "ETHUSDT": V11_SPEC,
-    "SOLUSDT": V12_SPEC,
+    "ETHUSDT": ETH_V12_SPEC,
+    "SOLUSDT": SOL_V13_SPEC,
 }
 
 
-def experiment_spec_for_generation(generation: str) -> ShadowExperimentSpec:
-    """Return one known immutable generation or fail closed."""
+def experiment_spec_for_generation(
+    generation: str, *, symbol: str | None = None
+) -> ShadowExperimentSpec:
+    """Return one immutable symbol generation or reject ambiguous semantics."""
     normalized = str(generation).strip().lower()
-    try:
-        return _GENERATION_SPECS[normalized]
-    except KeyError as exc:
-        raise ValueError("SHADOW experiment generation is unavailable") from exc
+    if symbol is not None:
+        key = (str(symbol).strip().upper(), normalized)
+        try:
+            return _SYMBOL_GENERATION_SPECS[key]
+        except KeyError as exc:
+            raise ValueError("SHADOW experiment generation is unavailable") from exc
+    matches = {
+        spec for (_symbol, known_generation), spec
+        in _SYMBOL_GENERATION_SPECS.items()
+        if known_generation == normalized
+    }
+    if len(matches) == 1:
+        return matches.pop()
+    if len(matches) > 1:
+        raise ValueError("SHADOW experiment generation requires a symbol")
+    raise ValueError("SHADOW experiment generation is unavailable")
 
 
 def experiment_spec_for_symbol(symbol: str) -> ShadowExperimentSpec:
@@ -75,12 +118,14 @@ def experiment_spec_for_symbol(symbol: str) -> ShadowExperimentSpec:
 
 
 def configured_entry_gap_bps(
-    variant_id: str, *, generation: str = "v12"
+    variant_id: str, *, generation: str = "v13", symbol: str | None = None
 ) -> Decimal:
     """Return one configured entry gap without snapshot reconstruction."""
     try:
-        spec = experiment_spec_for_generation(generation)
+        spec = experiment_spec_for_generation(generation, symbol=symbol)
     except ValueError as exc:
+        if "requires a symbol" in str(exc):
+            raise
         raise ValueError(
             "configured entry gap is unavailable for generation"
         ) from exc
@@ -100,6 +145,9 @@ __all__ = [
     "ShadowExperimentSpec",
     "V11_SPEC",
     "V12_SPEC",
+    "ETH_V12_SPEC",
+    "SOL_V12_SPEC",
+    "SOL_V13_SPEC",
     "configured_entry_gap_bps",
     "experiment_spec_for_generation",
     "experiment_spec_for_symbol",

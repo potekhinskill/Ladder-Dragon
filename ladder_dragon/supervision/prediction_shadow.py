@@ -75,6 +75,7 @@ def collect_shadow_experiments(
         required_edge_pct=required_edge_pct,
         regime=features.regime,
         generation=spec.generation,
+        symbol=symbol,
     )
     cache_key = f"{symbol.upper()}:{spec.generation}"
     now = time.monotonic()
@@ -110,13 +111,16 @@ def collect_shadow_experiments(
     report["lifecycle_status"] = "SELECTION"
     superseded_reports = {}
     for generation in spec.superseded_selection_generations:
-        historical_spec = experiment_spec_for_generation(generation)
+        historical_spec = experiment_spec_for_generation(
+            generation, symbol=symbol
+        )
         historical_variants = build_shadow_variants(
             market_price=market_price,
             baseline_plan=baseline_plan,
             required_edge_pct=required_edge_pct,
             regime=features.regime,
             generation=generation,
+            symbol=symbol,
         )
         historical_report = shadow_variant_report(
             store,

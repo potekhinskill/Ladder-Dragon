@@ -18,7 +18,7 @@ from ladder_dragon.strategy.prediction.approval import (
     holm_configuration_correction,
 )
 from ladder_dragon.strategy.prediction.experiment_config import (
-    V12_SPEC,
+    SOL_V13_SPEC,
     configured_entry_gap_bps,
     experiment_spec_for_generation,
 )
@@ -41,10 +41,10 @@ from ladder_dragon.strategy.prediction.walk_forward import (
 
 D = Decimal
 EDGE_EPSILON_PCT = D("0.000001")
-SHADOW_GENERATION = V12_SPEC.generation
-EXPERIMENT_HORIZONS_MIN = V12_SPEC.horizons_min
-MAKER_TTLS = V12_SPEC.maker_ttls
-MAKER_ENTRY_GAPS = V12_SPEC.maker_entry_gaps
+SHADOW_GENERATION = SOL_V13_SPEC.generation
+EXPERIMENT_HORIZONS_MIN = SOL_V13_SPEC.horizons_min
+MAKER_TTLS = SOL_V13_SPEC.maker_ttls
+MAKER_ENTRY_GAPS = SOL_V13_SPEC.maker_entry_gaps
 
 
 @dataclass(frozen=True)
@@ -95,6 +95,7 @@ def build_shadow_variants(
     required_edge_pct: Decimal,
     regime: str,
     generation: str = SHADOW_GENERATION,
+    symbol: str | None = None,
 ) -> tuple[ShadowVariant, ...]:
     """Build narrowed maker candidates above the authoritative fee floor."""
     if not market_price.is_finite() or market_price <= 0:
@@ -136,7 +137,7 @@ def build_shadow_variants(
             ),
         )
 
-    spec = experiment_spec_for_generation(generation)
+    spec = experiment_spec_for_generation(generation, symbol=symbol)
     # Maker-gap generations keep the regime argument for the stable caller contract.
     # Production evidence rejected the RANGE-only cohort, so it cannot gate entry.
     del regime

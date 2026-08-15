@@ -198,9 +198,10 @@ BOT_MARKET_ANALYSIS_TIMEFRAMES=1h,4h,1d,1w,1M
 The dashboard reports each SHADOW symbol and generation separately.
 The scenario service uses public closed candles only.
 Its symbol list cannot start an execution worker.
-SOLUSDT version twelve supersedes the rejected version-eleven selection.
-ETHUSDT version eleven continues without a database reset.
-BTCUSDT version eleven starts with separate evidence.
+SOLUSDT version thirteen supersedes versions eleven and twelve.
+ETHUSDT version twelve supersedes version eleven.
+BTCUSDT version eleven continues without a database reset.
+All superseded evidence remains append-only and visible.
 SHADOW-only controls show `not_applicable_shadow_only` for execution-only limits.
 
 Testnet LIVE requires both `BOT_LIVE_CONFIRMED=YES` in `.env` and

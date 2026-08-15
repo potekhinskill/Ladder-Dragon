@@ -106,7 +106,7 @@ Freeze only an explicitly reviewed selection candidate:
 .venv/bin/python -m bin.prediction_experiment freeze \
   --experiment-id EXPERIMENT_ID \
   --symbol SOLUSDT \
-  --variant-id v12_maker_ttl60_gap46 \
+  --variant-id v13_maker_ttl60_gap50 \
   --selection-end-ts-ms TIMESTAMP \
   --confirm FREEZE
 ```
