@@ -12,6 +12,7 @@ def test_user_stream_summary_hides_zero_counters_behind_diagnostics():
 
     assert "userStreamSummary" in source
     assert "userStreamDiagnostics" in source
+    assert "${tr('user_stream_session')} ${fmt(session,2)}" in source
     assert "not_configured_or_not_started" in source
     assert "user_stream_rest_fallback" in source
     assert ".filter(([key])=>Number(stream[key]||0)>0)" in source
@@ -22,6 +23,7 @@ def test_user_stream_summary_hides_zero_counters_behind_diagnostics():
         "user_stream_rest_fallback",
         "user_stream_connected",
         "user_stream_soak_epoch",
+        "user_stream_session",
         "user_stream_stale",
         "user_stream_diagnostics",
         "hours_short",

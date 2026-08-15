@@ -328,6 +328,25 @@ def shadow_variant_report(
             "apply_allowed": False,
             "lookahead": False,
         }
+    first_counts = next(
+        (row["outcomes"] for row in reports.values()), {}
+    )
+    first_snapshot_ms = int(first_counts.get("first_snapshot_ts_ms") or 0)
+    selection_progress = {
+        "age_sec": (
+            max(0, (int(before_ts_ms) - first_snapshot_ms) // 1_000)
+            if first_snapshot_ms else None
+        ),
+        "snapshots": int(first_counts.get("cohort_snapshots") or 0),
+        "resolved_outcomes": sum(
+            int(row["outcomes"].get("resolved") or 0)
+            for row in reports.values()
+        ),
+        "total_outcomes": sum(
+            int(row["outcomes"].get("total") or 0)
+            for row in reports.values()
+        ),
+    }
     manifests = (
         [
             row for row in list_experiments(store, symbol=symbol)
@@ -367,8 +386,10 @@ def shadow_variant_report(
         "selection_evidence": {
             "diagnostic_only": True,
             "cannot_confirm_selected_candidate": True,
+            "progress": selection_progress,
             "variants": reports,
         },
+        "selection_progress": selection_progress,
         "confirmation_evidence": confirmation,
         "diagnostic_evidence": {
             "active_cohorts": True,

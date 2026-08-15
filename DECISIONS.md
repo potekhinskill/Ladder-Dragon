@@ -1331,3 +1331,10 @@ entries concise; this is not a changelog or an activity log.
 - **Evidence:** 278 complete windows ended by 2026-08-15 18:31 UTC; partial starting minutes were excluded.
 - **Why it worked:** 19, 22, and 27 basis points produced historical touch rates of 13.67%, 10.79%, and 5.04%.
 - **Reuse:** every zero-fill generation where one predeclared parameter can be recalibrated without future confirmation evidence.
+
+### 2026-08-16 — Label operational evidence by its cohort scope
+
+- **Context:** cumulative transport and execution evidence appeared beside newly started SHADOW generations.
+- **Decision:** label historical totals explicitly and show separate cutoff-bounded progress for each active generation.
+- **Why it worked:** the dashboard no longer presents mature infrastructure evidence as current candidate maturity.
+- **Reuse:** every operational view that combines lifetime, certification, session, and experimental evidence.

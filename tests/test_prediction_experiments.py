@@ -328,6 +328,17 @@ def test_variant_report_separates_future_work_from_backlog(tmp_path: Path):
         features=features,
         variants=variants,
     )
+    future_features = replace(
+        features,
+        snapshot_ts_ms=120_000,
+        last_closed_bar_ts_ms=120_000,
+    )
+    record_shadow_variants(
+        store,
+        symbol="SOLUSDT",
+        features=future_features,
+        variants=variants,
+    )
 
     report = shadow_variant_report(
         store,
@@ -344,6 +355,15 @@ def test_variant_report_separates_future_work_from_backlog(tmp_path: Path):
         "future": 2,
         "settling": 0,
         "overdue": 0,
+        "cohort_snapshots": 1,
+        "first_snapshot_ts_ms": 59_999,
+        "last_snapshot_ts_ms": 59_999,
+    }
+    assert report["selection_progress"] == {
+        "age_sec": 0,
+        "snapshots": 1,
+        "resolved_outcomes": 0,
+        "total_outcomes": 6,
     }
 
 

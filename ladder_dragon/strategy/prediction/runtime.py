@@ -1215,7 +1215,7 @@ class PredictionShadowStore:
         filters = ""
         params: list[object] = [
             int(as_of_ms), int(as_of_ms), cutoff, cutoff,
-            symbol.upper(), kind.upper(),
+            symbol.upper(), kind.upper(), int(as_of_ms),
         ]
         if experiment_id is not None:
             filters += " AND d.experiment_id=?"
@@ -1238,15 +1238,20 @@ class PredictionShadowStore:
                                  AND o.eligible_at_ms<=?
                                  AND o.eligible_at_ms>? THEN 1 ELSE 0 END),
                        SUM(CASE WHEN o.resolved_at_ms IS NULL
-                                 AND o.eligible_at_ms<=? THEN 1 ELSE 0 END)
+                                 AND o.eligible_at_ms<=? THEN 1 ELSE 0 END),
+                       COUNT(DISTINCT d.snapshot_ts_ms),
+                       MIN(d.snapshot_ts_ms),
+                       MAX(d.snapshot_ts_ms)
                    FROM prediction_outcomes o
                    JOIN prediction_decisions d ON d.decision_id=o.decision_id
-                   WHERE d.symbol=? AND d.kind=?{filters}""",
+                   WHERE d.symbol=? AND d.kind=?
+                     AND d.snapshot_ts_ms<=?{filters}""",
                 params,
             ).fetchone()
         values = tuple(int(value or 0) for value in row)
         return dict(zip(
-            ("total", "resolved", "expired", "future", "settling", "overdue"),
+            ("total", "resolved", "expired", "future", "settling", "overdue",
+             "cohort_snapshots", "first_snapshot_ts_ms", "last_snapshot_ts_ms"),
             values,
         ))
 

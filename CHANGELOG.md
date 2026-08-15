@@ -3,6 +3,21 @@
 All notable changes are documented here. Releases use Semantic Versioning; every
 section is dated and there is intentionally no `Unreleased` section.
 
+## [2.20.209] — 2026-08-16
+
+### Fixed
+- User Stream status now separates the certification epoch from the current connection duration.
+- Execution lifecycle totals now state that they are cumulative history.
+- Each active SHADOW generation now shows its own age, snapshots, outcomes, and selection progress.
+
+### Security
+- Current-generation progress excludes decisions after the report cutoff.
+- Display-only progress cannot authorize APPLY or change orders.
+
+### Verified
+- All 1,186 project tests pass.
+- The technical English, JavaScript syntax, and Python compilation checks pass.
+
 ## [2.20.208] — 2026-08-16
 
 ### Changed

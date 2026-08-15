@@ -16,6 +16,8 @@ def test_shadow_experiments_are_collapsed_and_use_safe_runtime_fields():
     assert "row.configuration_holm_passed" in script
     assert "report.eligible_for_second_gate_review" in script
     assert "report.confirmation_evidence" in script
+    assert "report.selection_progress" in script
+    assert "progress.resolved_outcomes" in script
     assert "Object.entries(symbols)" in script
     assert "Object.values(symbols)" not in script
     assert "superseded_reports" in script
@@ -27,6 +29,7 @@ def test_shadow_experiments_are_collapsed_and_use_safe_runtime_fields():
     assert ".shadow-experiment-history" in styles
     for key in (
         "shadow_experiment_summary",
+        "shadow_generation_progress",
         "shadow_samples",
         "shadow_outcomes",
         "shadow_overdue",

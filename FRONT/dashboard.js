@@ -59,7 +59,7 @@ function userStreamSummary(stream){
     const soak=Number(stream.soak_epoch_hours||0);
     const age=stream.order_events>0&&stream.age_sec!=null?` · ${tr('user_stream_last_event')} ${fmt(stream.age_sec,0)}s`:'';
     const window=stream.soak_epoch_id
-      ?`${tr('user_stream_soak_epoch')} ${fmt(soak,2)}${tr('hours_short')}`
+      ?`${tr('user_stream_soak_epoch')} ${fmt(soak,2)}${tr('hours_short')} · ${tr('user_stream_session')} ${fmt(session,2)}${tr('hours_short')}`
       :`${tr('user_stream_session')} ${fmt(session,2)}${tr('hours_short')}`;
     return `🟢 ${symbol} · ${tr('user_stream_connected')} · ${window}${age}`;
   }
@@ -468,6 +468,8 @@ function updateShadowExperiments(prediction){
   body.innerHTML=reports.length?reports.map(([symbol,report])=>{
     const generation=String(report.generation||'');
     const confirmation=report.confirmation_evidence||{};
+    const progress=report.selection_progress||{}, variantRows=Object.values(report.variants||{});
+    const progressAge=progress.age_sec==null?NaN:Number(progress.age_sec)/3600, selectionPassed=variantRows.filter(row=>row.selection_gate_passed).length;
     const reportReady=report.eligible_for_second_gate_review?1:0;
     const lifecycle=String(report.lifecycle_status||'SELECTION');
     const renderVariants=source=>{
@@ -485,8 +487,9 @@ function updateShadowExperiments(prediction){
       }).join(''):`<div class="muted">${esc(tr('no_data'))}</div>`;
     };
     const history=Object.entries(report.superseded_reports||{}).map(([oldGeneration,oldReport])=>`<details class="shadow-experiment-history"><summary>${esc(tr('shadow_supersedes'))}: ${esc(oldGeneration.toUpperCase())} · ${esc(String(oldReport.lifecycle_status||'SUPERSEDED'))}</summary>${renderVariants(oldReport)}</details>`).join('');
+    const progressLine=`<div class="shadow-experiment-row"><div class="muted">${esc(tr('shadow_generation_progress',{age:Number.isFinite(progressAge)?fmt(progressAge,2):'—',snapshots:Number(progress.snapshots||0),resolved:Number(progress.resolved_outcomes||0),total:Number(progress.total_outcomes||0),passed:selectionPassed,candidates:variantRows.length}))}</div></div>`;
     const confirmationLine=`<div class="shadow-experiment-row"><div><strong>${esc(tr('shadow_confirmation'))}</strong><span class="pill ${reportReady?'ok':'warn'}">${esc(String(confirmation.confirmation_status||'BLOCKED'))}</span></div><div class="muted">${esc(tr('shadow_windows'))}: ${Number(confirmation.complete_windows||0)}/${Number(confirmation.confirmation_progress?.required_complete_windows||0)} · ${esc(tr('shadow_samples'))}: ${Number(confirmation.confirmation_progress?.complete_decisions||0)}/${Number(confirmation.confirmation_progress?.required_decisions||0)}</div></div>`;
-    return `<section class="shadow-experiment-symbol"><h3>${esc(symbol)} · ${esc(generation.toUpperCase())} · ${esc(lifecycle)}</h3>${confirmationLine}${renderVariants(report)}${history}</section>`;
+    return `<section class="shadow-experiment-symbol"><h3>${esc(symbol)} · ${esc(generation.toUpperCase())} · ${esc(lifecycle)}</h3>${progressLine}${confirmationLine}${renderVariants(report)}${history}</section>`;
   }).join(''):`<div class="muted">${esc(tr('no_data'))}</div>`;
 }
 function updateAIQuality(ai){
