@@ -152,6 +152,10 @@ def test_profile_registry_contains_the_documented_interfaces(tmp_path):
     assert "pi_user_stream_service" in pi_names
     assert "semgrep_rule_tests" not in pi_names
     assert "semgrep_static_analysis" not in pi_names
+    for profile in KNOWN_PROFILES:
+        checks = checks_for_profile(_context(tmp_path, profile))
+        assert checks
+        assert all(check.name != "profile_resolution" for check in checks)
 
 
 def test_dashboard_asset_audit_fails_closed_on_missing_or_changed_asset(

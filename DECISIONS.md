@@ -1,5 +1,12 @@
 # Engineering decisions
 
+### 2026-08-16 — Audit all active financial boundaries explicitly
+
+- **Context:** the numeric audit omitted active risk and exact-accounting modules.
+- **Decision:** register each critical module with its reviewed current direct-float ceiling.
+- **Why it worked:** tests verify zero and compatibility ceilings for risk and accounting paths.
+- **Reuse:** every financial module added outside an existing audited package.
+
 ### 2026-08-16 — Retry complete report pages without partial output
 
 - **Context:** one temporary network failure stopped paginated trade history with a raw traceback.

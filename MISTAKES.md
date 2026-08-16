@@ -6,6 +6,13 @@ avoidable rework. Identify the root cause rather than recording only the
 symptom. Keep entries concise and exclude secrets, balances, account data, and
 private infrastructure details.
 
+### 2026-08-16 — Let verification registries drift from behavior
+
+- **Impact:** profile names and numeric boundaries could change outside their declared registries.
+- **Root cause:** one registry was unused, and the numeric audit retained its original file list.
+- **Correction:** gate profile resolution through its registry and add active risk and accounting modules.
+- **Prevention:** each verification registry must have a test for every declared and critical member.
+
 ### 2026-08-16 — Let one report page expose a raw source failure
 
 - **Impact:** a temporary network failure stopped the PnL report with a traceback.

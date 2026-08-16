@@ -49,6 +49,13 @@ def _mainnet_checks(context: HarnessContext) -> list[CheckSpec]:
 
 def checks_for_profile(context: HarnessContext) -> list[CheckSpec]:
     profile = context.options.profile
+    if profile not in KNOWN_PROFILES:
+        return [
+            CheckSpec(
+                name="profile_resolution",
+                blocked_reason=f"unknown verification profile: {profile}",
+            )
+        ]
     if profile == "local":
         return evidence_checks(context) + local_checks(context)
     if profile == "release":
@@ -67,6 +74,6 @@ def checks_for_profile(context: HarnessContext) -> list[CheckSpec]:
     return [
         CheckSpec(
             name="profile_resolution",
-            blocked_reason=f"unknown verification profile: {profile}",
+            blocked_reason=f"verification profile has no resolver: {profile}",
         )
     ]

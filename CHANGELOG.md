@@ -3,6 +3,21 @@
 All notable changes are documented here. Releases use Semantic Versioning; every
 section is dated and there is intentionally no `Unreleased` section.
 
+## [2.20.214] — 2026-08-16
+
+### Fixed
+- The profile registry now rejects names before profile resolution.
+- Each registered verification profile must resolve to a concrete check set.
+- Numeric regression budgets now include risk and exact-accounting modules.
+
+### Security
+- New direct float conversions cannot enter the covered risk modules unnoticed.
+- Exact-accounting boundaries retain explicit compatibility budgets or zero limits.
+
+### Verified
+- All 1,205 project tests pass.
+- The technical English and Python compilation checks pass.
+
 ## [2.20.213] — 2026-08-16
 
 ### Fixed

@@ -12,10 +12,16 @@ from pathlib import Path
 
 
 LIMITS = {
+    "ladder_dragon/risk/risk_manager.py": 6,
+    "ladder_dragon/supervision/risk_cycle.py": 0,
     "ladder_dragon/supervision/runtime.py": 0,
     "ladder_dragon/execution/worker/runtime.py": 0,
     "ladder_dragon/ai/context/runtime.py": 0,
     "ladder_dragon/numeric_compat.py": 1,
+    "ladder_dragon/execution/cost_basis_import.py": 3,
+    "ladder_dragon/execution/commission_revaluation.py": 1,
+    "ladder_dragon/execution/trade_accounting.py": 0,
+    "ladder_dragon/execution/inventory_lots.py": 0,
     "ladder_dragon/execution/orders/runtime.py": 0,
     "ladder_dragon/execution/protection/runtime.py": 0,
     "ladder_dragon/execution/protection/breakeven.py": 0,
