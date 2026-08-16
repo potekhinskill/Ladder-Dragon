@@ -6,6 +6,13 @@ avoidable rework. Identify the root cause rather than recording only the
 symptom. Keep entries concise and exclude secrets, balances, account data, and
 private infrastructure details.
 
+### 2026-08-17 — Named a nonexistent focused test module
+
+- **Impact:** the first focused command stopped before test collection.
+- **Root cause:** the command inferred a module name instead of resolving the test path.
+- **Correction:** locate the real tests before the next focused run.
+- **Prevention:** use `rg --files tests` before naming an unfamiliar test module.
+
 ### 2026-08-16 — Missed a source contract for a dependent default
 
 - **Impact:** the first complete suite failed after focused behavior tests passed.

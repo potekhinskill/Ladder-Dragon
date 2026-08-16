@@ -3,6 +3,20 @@
 All notable changes are documented here. Releases use Semantic Versioning; every
 section is dated and there is intentionally no `Unreleased` section.
 
+## [2.20.216] — 2026-08-17
+
+### Changed
+- ETHUSDT version twelve is now a superseded SHADOW selection generation.
+- ETHUSDT version thirteen tests 20, 21, and 22 basis-point maker gaps.
+- The new generation keeps the 60-minute lifetime and 300-minute and 360-minute horizons.
+
+### Security
+- ETHUSDT version thirteen remains SHADOW-only and cannot change orders.
+- Historical version-twelve evidence remains visible and immutable.
+
+### Verified
+- All 1,210 project tests pass. Technical English, compilation, and numeric boundary checks pass.
+
 ## [2.20.215] — 2026-08-16
 
 ### Fixed

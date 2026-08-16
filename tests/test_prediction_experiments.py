@@ -479,13 +479,13 @@ def test_symbol_scopes_keep_active_generations_separate(
         "v14_maker_ttl75_gap48",
         "v14_maker_ttl90_gap48",
     }
-    assert eth["generation"] == "v12"
+    assert eth["generation"] == "v13"
     assert eth["lifecycle_status"] == "SELECTION"
-    assert eth["superseded_selection_generations"] == ["v11"]
+    assert eth["superseded_selection_generations"] == ["v11", "v12"]
     assert set(eth["variants"]) == {
-        "v12_maker_ttl60_gap19",
-        "v12_maker_ttl60_gap22",
-        "v12_maker_ttl60_gap27",
+        "v13_maker_ttl60_gap20",
+        "v13_maker_ttl60_gap21",
+        "v13_maker_ttl60_gap22",
     }
     assert btc["generation"] == "v12"
     assert btc["lifecycle_status"] == "SELECTION"
@@ -505,8 +505,13 @@ def test_symbol_scopes_keep_active_generations_separate(
         == "SUPERSEDED"
     )
     assert eth["superseded_reports"]["v11"]["generation"] == "v11"
+    assert eth["superseded_reports"]["v12"]["generation"] == "v12"
     assert (
         eth["superseded_reports"]["v11"]["lifecycle_status"]
+        == "SUPERSEDED"
+    )
+    assert (
+        eth["superseded_reports"]["v12"]["lifecycle_status"]
         == "SUPERSEDED"
     )
     assert btc["superseded_reports"]["v11"]["generation"] == "v11"
@@ -578,6 +583,29 @@ def test_btc_v12_uses_calibrated_gaps_without_changing_lifetime():
     }
     assert {item.entry_gap_bps for item in variants} == {
         D("8.4"), D("9.4"), D("10.3"),
+    }
+    assert {item.plan.entry_ttl_sec for item in variants} == {3_600}
+    assert all(item.dimension == "maker_entry_gap" for item in variants)
+    assert all(item.maker_only for item in variants)
+
+
+def test_eth_v13_narrows_the_gap_without_changing_other_semantics():
+    variants = build_shadow_variants(
+        market_price=D("2000"),
+        baseline_plan=_baseline(),
+        required_edge_pct=D("0.0096"),
+        regime="RANGE",
+        generation="v13",
+        symbol="ETHUSDT",
+    )
+
+    assert {item.variant_id for item in variants} == {
+        "v13_maker_ttl60_gap20",
+        "v13_maker_ttl60_gap21",
+        "v13_maker_ttl60_gap22",
+    }
+    assert {item.entry_gap_bps for item in variants} == {
+        D("20"), D("21"), D("22"),
     }
     assert {item.plan.entry_ttl_sec for item in variants} == {3_600}
     assert all(item.dimension == "maker_entry_gap" for item in variants)

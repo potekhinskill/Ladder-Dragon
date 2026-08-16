@@ -1,5 +1,12 @@
 # Engineering decisions
 
+### 2026-08-17 — Narrow ETH gaps around the participation boundary
+
+- **Context:** version twelve found negative expectancy at 19 basis points and insufficient fills at 27 basis points.
+- **Decision:** keep 22 basis points as control and test 20 and 21 basis points.
+- **Why it worked:** tests change only the entry gap and preserve the lifetime, horizons, maker policy, and SHADOW isolation.
+- **Reuse:** every generation where adjacent candidates bound participation and expectancy in opposite directions.
+
 ### 2026-08-16 — Let measured equity advance the risk day
 
 - **Context:** control actions had no current equity but could initialize a new daily baseline.

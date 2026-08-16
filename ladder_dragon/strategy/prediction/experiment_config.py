@@ -55,6 +55,17 @@ ETH_V12_SPEC = ShadowExperimentSpec(
     ),
     superseded_selection_generations=("v11",),
 )
+ETH_V13_SPEC = ShadowExperimentSpec(
+    generation="v13",
+    horizons_min=(300, 360),
+    maker_ttls=(("ttl60", 3_600),),
+    maker_entry_gaps=(
+        ("gap20", D("0.0020")),
+        ("gap21", D("0.0021")),
+        ("gap22", D("0.0022")),
+    ),
+    superseded_selection_generations=("v11", "v12"),
+)
 SOL_V13_SPEC = ShadowExperimentSpec(
     generation="v13",
     horizons_min=(300, 360),
@@ -97,6 +108,7 @@ _SYMBOL_GENERATION_SPECS = {
     ("BTCUSDT", "v12"): BTC_V12_SPEC,
     ("ETHUSDT", "v11"): V11_SPEC,
     ("ETHUSDT", "v12"): ETH_V12_SPEC,
+    ("ETHUSDT", "v13"): ETH_V13_SPEC,
     ("SOLUSDT", "v11"): V11_SPEC,
     ("SOLUSDT", "v12"): SOL_V12_SPEC,
     ("SOLUSDT", "v13"): SOL_V13_SPEC,
@@ -104,7 +116,7 @@ _SYMBOL_GENERATION_SPECS = {
 }
 _SYMBOL_SPECS = {
     "BTCUSDT": BTC_V12_SPEC,
-    "ETHUSDT": ETH_V12_SPEC,
+    "ETHUSDT": ETH_V13_SPEC,
     "SOLUSDT": SOL_V14_SPEC,
 }
 
@@ -180,6 +192,7 @@ __all__ = [
     "V11_SPEC",
     "V12_SPEC",
     "ETH_V12_SPEC",
+    "ETH_V13_SPEC",
     "BTC_V12_SPEC",
     "SOL_V12_SPEC",
     "SOL_V13_SPEC",
