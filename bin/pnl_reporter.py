@@ -11,20 +11,14 @@ from typing import List, Dict, Tuple, Any
 import requests
 from dotenv import load_dotenv
 
+from ladder_dragon.execution.trade_accounting import symbol_assets
+
 load_dotenv()
 BINANCE = (os.getenv("BINANCE_BASE_URL") or os.getenv("BINANCE_API_BASE") or "https://api.binance.com").rstrip("/")
 API_KEY = os.getenv("BINANCE_API_KEY","")
 API_SECRET = os.getenv("BINANCE_API_SECRET","")
 
 REPORTS_DIR = "reports"
-QUOTES = ("USDT","USDC","FDUSD","BUSD","TUSD","DAI","USDE","USDD","EUR","BTC","BNB","ETH")
-
-def split_symbol(symbol: str) -> Tuple[str, str]:
-    for q in QUOTES:
-        if symbol.endswith(q):
-            return symbol[:-len(q)], q
-    # fallback
-    return symbol[:-4], symbol[-4:]
 
 def signed_get(path: str, params: Dict) -> Any:
     url = BINANCE + path
@@ -95,7 +89,7 @@ def fifo_pnl(trades: List[Dict]) -> Tuple[Decimal, Decimal, Dict[str, Any]]:
         fee = _decimal(t["commission"], field="trade commission")
         fee_asset = t["commissionAsset"]
         symbol = t["symbol"]
-        base, quote = split_symbol(symbol)
+        base, quote = symbol_assets(symbol)
 
         if is_buy:
             eff_qty = qty
@@ -180,12 +174,12 @@ def main():
     totals_by_quote: Dict[str, Dict[str, Decimal]] = {}
 
     for sym in symbols:
+        quote = symbol_assets(sym)[1]
         print(f"[FETCH] {sym} trades...")
         trades = fetch_trades(sym, start, end)
         trades = sorted(trades, key=lambda x: x["time"])
         pnl_gross, fees_quote, stats = fifo_pnl(trades)
 
-        base, quote = split_symbol(sym)
         quotes_used.add(quote)
 
         # Accumulate quote-level aggregates.

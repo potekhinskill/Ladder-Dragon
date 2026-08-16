@@ -57,12 +57,20 @@ def decimal_text(value: object) -> str:
     return format(value, "f")
 
 
-def base_asset(symbol: str) -> str:
+def symbol_assets(symbol: str) -> tuple[str, str]:
+    """Return canonical base and quote assets or fail closed."""
     normalized = symbol.strip().upper()
     for quote in KNOWN_QUOTES:
         if normalized.endswith(quote) and len(normalized) > len(quote):
-            return normalized[: -len(quote)]
-    raise ValueError(f"cannot determine base asset for {symbol}")
+            return normalized[: -len(quote)], quote
+    raise ValueError(f"cannot determine assets for symbol {normalized}")
+
+
+def base_asset(symbol: str) -> str:
+    try:
+        return symbol_assets(symbol)[0]
+    except ValueError as exc:
+        raise ValueError(f"cannot determine base asset for {symbol}") from exc
 
 
 class UnpricedCommission(RuntimeError):

@@ -12,6 +12,7 @@ from ladder_dragon.execution.trade_accounting import (
     TradeExecution,
     UnpricedCommission,
     base_asset,
+    symbol_assets,
     replay_average_cost,
     replay_fifo,
 )
@@ -98,6 +99,23 @@ def test_commission_status_contract_accepts_legacy_and_rejects_unknown():
 )
 def test_base_asset_supports_binance_quote_assets(symbol, expected):
     assert base_asset(symbol) == expected
+
+
+@pytest.mark.parametrize(
+    ("symbol", "expected"),
+    (
+        ("BTCTRY", ("BTC", "TRY")),
+        ("ETHGBP", ("ETH", "GBP")),
+        ("SOLAUD", ("SOL", "AUD")),
+    ),
+)
+def test_symbol_assets_uses_the_canonical_quote_vocabulary(symbol, expected):
+    assert symbol_assets(symbol) == expected
+
+
+def test_symbol_assets_rejects_an_unknown_quote_without_guessing():
+    with pytest.raises(ValueError, match="cannot determine assets"):
+        symbol_assets("ABCXYZ")
 
 
 def test_average_cost_replay_rejects_inventory_shortfall_by_default():

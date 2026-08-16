@@ -1,5 +1,12 @@
 # Engineering decisions
 
+### 2026-08-16 — Parse financial symbols through one canonical boundary
+
+- **Context:** one PnL tool copied an incomplete quote list and guessed every unknown quote as four characters.
+- **Decision:** expose one fail-closed base and quote parser from execution accounting.
+- **Why it worked:** tests classify TRY, GBP, and AUD correctly and reject an unknown quote before a signed request.
+- **Reuse:** every financial reader that derives assets from a Binance symbol.
+
 ### 2026-08-16 — Change one experiment axis at a time
 
 - **Context:** deeper SOLUSDT gaps improved expectancy but reduced the fill rate to zero.

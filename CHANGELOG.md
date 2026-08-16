@@ -3,6 +3,21 @@
 All notable changes are documented here. Releases use Semantic Versioning; every
 section is dated and there is intentionally no `Unreleased` section.
 
+## [2.20.211] — 2026-08-16
+
+### Fixed
+- The PnL reporter now uses the canonical Binance symbol asset parser.
+- Three-letter quote assets no longer enter the four-character fallback.
+- Unknown quote assets now block the report before any signed Binance request.
+
+### Security
+- Commission classification now uses the same base and quote assets as execution accounting.
+- Invalid symbols fail closed without provider response data or credentials in the error.
+
+### Verified
+- All 1,193 project tests pass.
+- The technical English and Python compilation checks pass.
+
 ## [2.20.210] — 2026-08-16
 
 ### Changed
