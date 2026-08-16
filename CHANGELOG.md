@@ -3,6 +3,22 @@
 All notable changes are documented here. Releases use Semantic Versioning; every
 section is dated and there is intentionally no `Unreleased` section.
 
+## [2.20.213] — 2026-08-16
+
+### Fixed
+- The PnL reporter now retries each trade-history page within a fixed limit.
+- A failed page now stops the report with a controlled nonzero result.
+- Market scenario status now describes symbol scopes without a constant proof claim.
+
+### Security
+- Signed trade responses now use a streamed one-mebibyte decoded-body limit.
+- Provider response text cannot enter the PnL reporter error output.
+- The scenario status schema advances to version two for the corrected scope contract.
+
+### Verified
+- All 1,205 project tests pass.
+- The technical English and Python compilation checks pass.
+
 ## [2.20.212] — 2026-08-16
 
 ### Fixed

@@ -1,5 +1,19 @@
 # Engineering decisions
 
+### 2026-08-16 — Retry complete report pages without partial output
+
+- **Context:** one temporary network failure stopped paginated trade history with a raw traceback.
+- **Decision:** retry each complete page within a fixed limit and block the report after exhaustion.
+- **Why it worked:** tests recover one failed page and reject persistent failure without partial output.
+- **Reuse:** every bounded report that reads paginated remote evidence.
+
+### 2026-08-16 — Publish observations instead of constant proof claims
+
+- **Context:** one status field claimed an unchanged execution scope with a constant Boolean value.
+- **Decision:** publish the execution, analysis, and SHADOW-only symbol lists without a proof flag.
+- **Why it worked:** the versioned status now contains only values derived from its inputs.
+- **Reuse:** every operational status that describes a safety boundary enforced elsewhere.
+
 ### 2026-08-16 — Verify protection by structure and quantity
 
 - **Context:** an account-wide OCO leg count could hide one uncovered position remainder.

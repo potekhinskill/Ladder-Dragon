@@ -42,15 +42,14 @@ def resolve_analysis_timeframes(configured: str) -> tuple[str, ...]:
     return values
 
 
-def prove_execution_scope_unchanged(
+def describe_symbol_scopes(
     execution_symbols: Sequence[str], analysis_symbols: Sequence[str]
 ) -> dict[str, object]:
-    """Describe scope separation without adding analysis symbols to execution."""
+    """Describe configured execution and observation symbols."""
     execution = tuple(str(item).upper() for item in execution_symbols)
     analysis = tuple(str(item).upper() for item in analysis_symbols)
     return {
         "execution_symbols": list(execution),
         "analysis_symbols": list(analysis),
         "shadow_only_symbols": [item for item in analysis if item not in execution],
-        "execution_scope_unchanged": True,
     }

@@ -5,9 +5,16 @@
 # Purpose: format realized trade reports.
 """Ladder Dragon pnl reporter support."""
 
-import os, time, hmac, hashlib, argparse
+import argparse
 from decimal import Decimal, InvalidOperation
-from typing import List, Dict, Tuple, Any
+import hashlib
+import hmac
+import json
+import os
+import sys
+import time
+from typing import Any, Callable, Dict, List, Tuple
+
 import requests
 from dotenv import load_dotenv
 
@@ -19,6 +26,38 @@ API_KEY = os.getenv("BINANCE_API_KEY","")
 API_SECRET = os.getenv("BINANCE_API_SECRET","")
 
 REPORTS_DIR = "reports"
+MAX_RESPONSE_BYTES = 1024 * 1024
+MAX_PAGE_ATTEMPTS = 3
+
+
+class PnLReportSourceError(RuntimeError):
+    """Report a bounded source failure without provider response text."""
+
+    def __init__(self, *, endpoint: str, status: int | None) -> None:
+        self.endpoint = endpoint
+        self.status = status
+        suffix = f" status={status}" if status is not None else ""
+        super().__init__(f"PnL source unavailable endpoint={endpoint}{suffix}")
+
+
+def _bounded_json(response: requests.Response, endpoint: str) -> Any:
+    chunks: list[bytes] = []
+    size = 0
+    try:
+        for chunk in response.iter_content(chunk_size=8192):
+            size += len(chunk)
+            if size > MAX_RESPONSE_BYTES:
+                raise PnLReportSourceError(
+                    endpoint=endpoint, status=response.status_code
+                )
+            chunks.append(chunk)
+        return json.loads(b"".join(chunks).decode("utf-8"))
+    except PnLReportSourceError:
+        raise
+    except (UnicodeDecodeError, json.JSONDecodeError, TypeError, ValueError):
+        raise PnLReportSourceError(
+            endpoint=endpoint, status=response.status_code
+        ) from None
 
 def signed_get(path: str, params: Dict) -> Any:
     url = BINANCE + path
@@ -31,13 +70,62 @@ def signed_get(path: str, params: Dict) -> Any:
     qs = requests.utils.urlparse(pr.url).query
     sig = hmac.new(API_SECRET.encode(), qs.encode(), hashlib.sha256).hexdigest()
     params["signature"] = sig
-    r = requests.get(url, params=params, headers={"X-MBX-APIKEY": API_KEY}, timeout=15)
-    if r.status_code >= 400:
-        raise RuntimeError(f"HTTP {r.status_code}: {r.text}")
-    return r.json()
+    try:
+        response = requests.get(
+            url,
+            params=params,
+            headers={"X-MBX-APIKEY": API_KEY},
+            timeout=15,
+            stream=True,
+        )
+    except requests.RequestException:
+        raise PnLReportSourceError(endpoint=path, status=None) from None
+    try:
+        payload = _bounded_json(response, path)
+        if response.status_code >= 400:
+            raise PnLReportSourceError(
+                endpoint=path, status=response.status_code
+            )
+        return payload
+    finally:
+        response.close()
 
-def fetch_trades(symbol: str, start_ts: int, end_ts: int) -> List[Dict]:
+
+def _trade_page(
+    params: Dict[str, object],
+    *,
+    request: Callable[[str, Dict], Any],
+    sleep: Callable[[float], None],
+) -> list[Dict]:
+    endpoint = "/api/v3/myTrades"
+    for attempt in range(1, MAX_PAGE_ATTEMPTS + 1):
+        try:
+            payload = request(endpoint, params)
+            if not isinstance(payload, list) or not all(
+                isinstance(row, dict) for row in payload
+            ):
+                raise PnLReportSourceError(endpoint=endpoint, status=None)
+            return payload
+        except (requests.RequestException, RuntimeError) as exc:
+            if attempt >= MAX_PAGE_ATTEMPTS:
+                if isinstance(exc, PnLReportSourceError):
+                    raise
+                raise PnLReportSourceError(endpoint=endpoint, status=None) from None
+            sleep(0.5 * attempt)
+    raise AssertionError("unreachable PnL page retry state")
+
+
+def fetch_trades(
+    symbol: str,
+    start_ts: int,
+    end_ts: int,
+    *,
+    request: Callable[[str, Dict], Any] | None = None,
+    sleep: Callable[[float], None] | None = None,
+) -> List[Dict]:
     """Fetch trades."""
+    page_request = request or signed_get
+    pause = sleep or time.sleep
     out: List[Dict] = []
     step = 24*60*60*1000
     cur = start_ts
@@ -45,19 +133,32 @@ def fetch_trades(symbol: str, start_ts: int, end_ts: int) -> List[Dict]:
         ts_to = min(end_ts, cur + step)
         cursor = cur
         while True:
-            batch = signed_get("/api/v3/myTrades", {
-                "symbol": symbol,
-                "startTime": cursor,
-                "endTime": ts_to,
-                "limit": 1000
-            })
+            batch = _trade_page(
+                {
+                    "symbol": symbol,
+                    "startTime": cursor,
+                    "endTime": ts_to,
+                    "limit": 1000,
+                },
+                request=page_request,
+                sleep=pause,
+            )
             if not batch:
                 break
             out.extend(batch)
             if len(batch) < 1000:
                 break
-            last_time = batch[-1]["time"]
-            cursor = int(last_time) + 1
+            try:
+                next_cursor = int(batch[-1]["time"]) + 1
+            except (KeyError, TypeError, ValueError):
+                raise PnLReportSourceError(
+                    endpoint="/api/v3/myTrades", status=None
+                ) from None
+            if next_cursor <= cursor:
+                raise PnLReportSourceError(
+                    endpoint="/api/v3/myTrades", status=None
+                )
+            cursor = next_cursor
         cur = ts_to
     return out
 
@@ -157,7 +258,7 @@ def parse_args():
     p.add_argument("--days", type=int, default=7)
     return p.parse_args()
 
-def main():
+def main() -> int:
     args = parse_args()
     ensure_reports_dir()
     symbols = [s.strip().upper() for s in args.symbols.split(",") if s.strip()]
@@ -173,31 +274,42 @@ def main():
     # Aggregates per quote asset.
     totals_by_quote: Dict[str, Dict[str, Decimal]] = {}
 
-    for sym in symbols:
-        quote = symbol_assets(sym)[1]
-        print(f"[FETCH] {sym} trades...")
-        trades = fetch_trades(sym, start, end)
-        trades = sorted(trades, key=lambda x: x["time"])
-        pnl_gross, fees_quote, stats = fifo_pnl(trades)
+    try:
+        for sym in symbols:
+            quote = symbol_assets(sym)[1]
+            print(f"[FETCH] {sym} trades...")
+            trades = fetch_trades(sym, start, end)
+            trades = sorted(trades, key=lambda x: x["time"])
+            pnl_gross, fees_quote, stats = fifo_pnl(trades)
 
-        quotes_used.add(quote)
+            quotes_used.add(quote)
 
-        # Accumulate quote-level aggregates.
-        agg = totals_by_quote.setdefault(
-            quote, {"gross": Decimal("0"), "net": Decimal("0")}
-        )
-        agg["gross"] += pnl_gross
-        agg["net"]   += (pnl_gross - fees_quote)
-
-        # Line-by-line report per symbol.
-        if stats["trades"] == 0:
-            lines.append(f"{sym}: no trades in period; pnl=0.000000 fees={fees_quote:.6f} net={-fees_quote:.6f}")
-        else:
-            lines.append(
-                f"{sym}: pnl={pnl_gross:.6f} fees={fees_quote:.6f} net={pnl_gross-fees_quote:.6f} "
-                f"wins={stats['wins']}/{stats['trades']} "
-                f"avg_sell_notional={stats['avg_sell_notional']:.2f}"
+            # Accumulate quote-level aggregates.
+            agg = totals_by_quote.setdefault(
+                quote, {"gross": Decimal("0"), "net": Decimal("0")}
             )
+            agg["gross"] += pnl_gross
+            agg["net"] += pnl_gross - fees_quote
+
+            # Line-by-line report per symbol.
+            if stats["trades"] == 0:
+                lines.append(
+                    f"{sym}: no trades in period; pnl=0.000000 "
+                    f"fees={fees_quote:.6f} net={-fees_quote:.6f}"
+                )
+            else:
+                lines.append(
+                    f"{sym}: pnl={pnl_gross:.6f} fees={fees_quote:.6f} "
+                    f"net={pnl_gross-fees_quote:.6f} "
+                    f"wins={stats['wins']}/{stats['trades']} "
+                    f"avg_sell_notional={stats['avg_sell_notional']:.2f}"
+                )
+    except (KeyError, PnLReportSourceError, TypeError, ValueError) as exc:
+        print(
+            f"[ERR] PnL report unavailable: {type(exc).__name__}",
+            file=sys.stderr,
+        )
+        return 2
 
     lines.append("")
 
@@ -245,6 +357,7 @@ def main():
             print(f"[DONE] [{quote}] gross={gross:.8f} net={net:.8f}")
 
     print("[DONE] Reports written to:", REPORTS_DIR)
+    return 0
 
 if __name__ == "__main__":
-    main()
+    raise SystemExit(main())

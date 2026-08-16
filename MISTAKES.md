@@ -6,6 +6,20 @@ avoidable rework. Identify the root cause rather than recording only the
 symptom. Keep entries concise and exclude secrets, balances, account data, and
 private infrastructure details.
 
+### 2026-08-16 — Let one report page expose a raw source failure
+
+- **Impact:** a temporary network failure stopped the PnL report with a traceback.
+- **Root cause:** pagination called the signed transport without a bounded retry and error boundary.
+- **Correction:** retry complete pages and return a controlled nonzero report result.
+- **Prevention:** each remote pagination loop must test temporary and persistent source failure.
+
+### 2026-08-16 — Published a constant as proof
+
+- **Impact:** scenario status claimed that execution scope was verified when it only described two input lists.
+- **Root cause:** the function name and Boolean field promised more than the implementation checked.
+- **Correction:** remove the proof claim and publish only derived symbol scopes.
+- **Prevention:** a status field must identify its evidence or use descriptive wording.
+
 ### 2026-08-16 — Counted protection legs across the account
 
 - **Impact:** complete OCO lists could hide a separate uncovered Testnet position.

@@ -10,7 +10,7 @@ from ladder_dragon.market_analysis.binance_public import (
     fetch_closed_klines,
 )
 from ladder_dragon.market_analysis.config import (
-    prove_execution_scope_unchanged,
+    describe_symbol_scopes,
     resolve_analysis_symbols,
     resolve_analysis_timeframes,
 )
@@ -65,10 +65,10 @@ def _payload(count: int = 61) -> list[list[object]]:
 def test_analysis_symbols_are_separate_from_execution_scope():
     analysis = resolve_analysis_symbols("SOLUSDT,ETHUSDT,BTCUSDT")
     assert analysis == ("SOLUSDT", "ETHUSDT", "BTCUSDT")
-    scope = prove_execution_scope_unchanged(("SOLUSDT",), analysis)
+    scope = describe_symbol_scopes(("SOLUSDT",), analysis)
     assert scope["execution_symbols"] == ["SOLUSDT"]
     assert scope["shadow_only_symbols"] == ["ETHUSDT", "BTCUSDT"]
-    assert scope["execution_scope_unchanged"] is True
+    assert "execution_scope_unchanged" not in scope
     assert resolve_analysis_timeframes("1h,4h,1d,1w,1M")[-1] == "1M"
 
 
@@ -160,6 +160,7 @@ def test_service_publishes_separate_symbol_results_without_order_authority(
         "SOLUSDT", "ETHUSDT",
     ]
     stored = json.loads(status.read_text())
+    assert stored["schema"] == "ladder-dragon-market-scenario-status-v2"
     assert stored["scope"]["shadow_only_symbols"] == ["ETHUSDT"]
 
 

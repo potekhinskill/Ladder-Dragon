@@ -17,7 +17,7 @@ from typing import Callable, Sequence
 import requests
 
 from ladder_dragon.market_analysis.binance_public import fetch_closed_klines
-from ladder_dragon.market_analysis.config import prove_execution_scope_unchanged
+from ladder_dragon.market_analysis.config import describe_symbol_scopes
 from ladder_dragon.market_analysis.store import MarketScenarioStore
 from ladder_dragon.strategy.scenario_analysis import analyze_scenarios
 from product_version import user_agent
@@ -96,7 +96,7 @@ class MarketScenarioService:
                         "error_type": type(exc).__name__,
                     })
         payload: dict[str, object] = {
-            "schema": "ladder-dragon-market-scenario-status-v1",
+            "schema": "ladder-dragon-market-scenario-status-v2",
             "generated_at": datetime.fromtimestamp(
                 current_ms / 1000, tz=timezone.utc
             ).isoformat(),
@@ -105,7 +105,7 @@ class MarketScenarioService:
             "can_change_orders": False,
             "market_data": "public_closed_klines",
             "round_trip_cost_pct": format(self.round_trip_cost_pct, "f"),
-            "scope": prove_execution_scope_unchanged(
+            "scope": describe_symbol_scopes(
                 self.execution_symbols, self.symbols
             ),
             "status": "PASS" if results and not failures else "DEGRADED",
