@@ -1,5 +1,20 @@
 # Engineering decisions
 
+### 2026-08-16 — Change one experiment axis at a time
+
+- **Context:** deeper SOLUSDT gaps improved expectancy but reduced the fill rate to zero.
+- **Decision:** hold the 48 basis-point gap and compare 60-minute, 75-minute, and 90-minute lifetimes.
+- **Why it worked:** tests keep every other candidate parameter equal and identify lifetime as the only changed axis.
+- **Reuse:** every experiment where evidence supports one parameter but another parameter limits participation.
+
+### 2026-08-16 — Calibrate BTC gaps from completed selection windows
+
+- **Context:** BTCUSDT version eleven produced no fills at 38, 42, or 44 basis points.
+- **Decision:** select version-twelve gaps from completed 60-minute SELECTION excursions before a fixed cutoff.
+- **Evidence:** 188 complete windows ended by 2026-08-16 06:27:02 UTC.
+- **Why it worked:** 8.4, 9.4, and 10.3 basis points produced touch rates of 14.89%, 9.04%, and 4.79%.
+- **Reuse:** every zero-fill symbol that requires evidence-based entry recalibration.
+
 ### 2026-08-15 — Keep external AI inside execution scope
 
 - **Context:** observation-only symbols consumed most of the daily external AI budget.

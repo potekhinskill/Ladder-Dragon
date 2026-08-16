@@ -29,6 +29,9 @@ from ladder_dragon.strategy.prediction.experiments import (
     ShadowVariant,
     configured_entry_gap_bps,
 )
+from ladder_dragon.strategy.prediction.experiment_config import (
+    experiment_dimension,
+)
 from ladder_dragon.strategy.prediction.runtime import PredictionShadowStore
 
 
@@ -121,7 +124,7 @@ def _selection_variants(
         variant_id = normalized_kind.removeprefix("EXPERIMENT_").lower()
         variants.append(ShadowVariant(
             variant_id=variant_id,
-            dimension="maker_entry_gap",
+            dimension=experiment_dimension(generation, symbol=symbol),
             kind=normalized_kind,
             plan=plan,
             baseline_plan=baseline,

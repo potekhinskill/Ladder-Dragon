@@ -18,8 +18,9 @@ from ladder_dragon.strategy.prediction.approval import (
     holm_configuration_correction,
 )
 from ladder_dragon.strategy.prediction.experiment_config import (
-    SOL_V13_SPEC,
+    SOL_V14_SPEC,
     configured_entry_gap_bps,
+    experiment_dimension,
     experiment_spec_for_generation,
 )
 from ladder_dragon.strategy.prediction.experiment_lifecycle import (
@@ -41,10 +42,10 @@ from ladder_dragon.strategy.prediction.walk_forward import (
 
 D = Decimal
 EDGE_EPSILON_PCT = D("0.000001")
-SHADOW_GENERATION = SOL_V13_SPEC.generation
-EXPERIMENT_HORIZONS_MIN = SOL_V13_SPEC.horizons_min
-MAKER_TTLS = SOL_V13_SPEC.maker_ttls
-MAKER_ENTRY_GAPS = SOL_V13_SPEC.maker_entry_gaps
+SHADOW_GENERATION = SOL_V14_SPEC.generation
+EXPERIMENT_HORIZONS_MIN = SOL_V14_SPEC.horizons_min
+MAKER_TTLS = SOL_V14_SPEC.maker_ttls
+MAKER_ENTRY_GAPS = SOL_V14_SPEC.maker_entry_gaps
 
 
 @dataclass(frozen=True)
@@ -138,9 +139,10 @@ def build_shadow_variants(
         )
 
     spec = experiment_spec_for_generation(generation, symbol=symbol)
-    # Maker-gap generations keep the regime argument for the stable caller contract.
+    # Maker generations keep the regime argument for the stable caller contract.
     # Production evidence rejected the RANGE-only cohort, so it cannot gate entry.
     del regime
+    dimension = experiment_dimension(generation, symbol=symbol)
     variants = []
     for ttl_name, ttl_sec in spec.maker_ttls:
         for gap_name, gap_pct in spec.maker_entry_gaps:
@@ -148,7 +150,7 @@ def build_shadow_variants(
             entry_price = market_price * (D("1") - gap_pct)
             variants.append(variant(
                 f"{spec.generation}_maker_{ttl_name}_{gap_name}",
-                "maker_entry_gap",
+                dimension,
                 entry_price=entry_price,
                 entry_ttl_sec=ttl_sec,
                 maker_only=True,

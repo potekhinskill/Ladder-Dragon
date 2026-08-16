@@ -66,22 +66,46 @@ SOL_V13_SPEC = ShadowExperimentSpec(
     ),
     superseded_selection_generations=("v11", "v12"),
 )
+SOL_V14_SPEC = ShadowExperimentSpec(
+    generation="v14",
+    horizons_min=(300, 360),
+    maker_ttls=(
+        ("ttl60", 3_600),
+        ("ttl75", 4_500),
+        ("ttl90", 5_400),
+    ),
+    maker_entry_gaps=(("gap48", D("0.0048")),),
+    superseded_selection_generations=("v11", "v12", "v13"),
+)
+BTC_V12_SPEC = ShadowExperimentSpec(
+    generation="v12",
+    horizons_min=(300, 360),
+    maker_ttls=(("ttl60", 3_600),),
+    maker_entry_gaps=(
+        ("gap8p4", D("0.00084")),
+        ("gap9p4", D("0.00094")),
+        ("gap10p3", D("0.00103")),
+    ),
+    superseded_selection_generations=("v11",),
+)
 
 # Preserve the public historical name for callers that inspect SOL v12.
 V12_SPEC = SOL_V12_SPEC
 
 _SYMBOL_GENERATION_SPECS = {
     ("BTCUSDT", "v11"): V11_SPEC,
+    ("BTCUSDT", "v12"): BTC_V12_SPEC,
     ("ETHUSDT", "v11"): V11_SPEC,
     ("ETHUSDT", "v12"): ETH_V12_SPEC,
     ("SOLUSDT", "v11"): V11_SPEC,
     ("SOLUSDT", "v12"): SOL_V12_SPEC,
     ("SOLUSDT", "v13"): SOL_V13_SPEC,
+    ("SOLUSDT", "v14"): SOL_V14_SPEC,
 }
 _SYMBOL_SPECS = {
-    "BTCUSDT": V11_SPEC,
+    "BTCUSDT": BTC_V12_SPEC,
     "ETHUSDT": ETH_V12_SPEC,
-    "SOLUSDT": SOL_V13_SPEC,
+    "SOLUSDT": SOL_V14_SPEC,
 }
 
 
@@ -117,8 +141,18 @@ def experiment_spec_for_symbol(symbol: str) -> ShadowExperimentSpec:
         raise ValueError("SHADOW experiment symbol is unavailable") from exc
 
 
+def experiment_dimension(
+    generation: str, *, symbol: str | None = None
+) -> str:
+    """Name the single parameter axis changed by one experiment."""
+    spec = experiment_spec_for_generation(generation, symbol=symbol)
+    if len(spec.maker_ttls) > 1 and len(spec.maker_entry_gaps) == 1:
+        return "maker_entry_ttl"
+    return "maker_entry_gap"
+
+
 def configured_entry_gap_bps(
-    variant_id: str, *, generation: str = "v13", symbol: str | None = None
+    variant_id: str, *, generation: str = "v14", symbol: str | None = None
 ) -> Decimal:
     """Return one configured entry gap without snapshot reconstruction."""
     try:
@@ -146,9 +180,12 @@ __all__ = [
     "V11_SPEC",
     "V12_SPEC",
     "ETH_V12_SPEC",
+    "BTC_V12_SPEC",
     "SOL_V12_SPEC",
     "SOL_V13_SPEC",
+    "SOL_V14_SPEC",
     "configured_entry_gap_bps",
+    "experiment_dimension",
     "experiment_spec_for_generation",
     "experiment_spec_for_symbol",
 ]

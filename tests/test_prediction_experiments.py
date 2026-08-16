@@ -77,9 +77,9 @@ def test_variants_clear_fee_floor_and_change_one_named_dimension():
     )
 
     assert {variant.variant_id for variant in variants} == {
-        "v13_maker_ttl60_gap48",
-        "v13_maker_ttl60_gap50",
-        "v13_maker_ttl60_gap52",
+        "v14_maker_ttl60_gap48",
+        "v14_maker_ttl75_gap48",
+        "v14_maker_ttl90_gap48",
     }
     for variant in variants:
         target_pct = variant.plan.take_profit_price / variant.plan.entry_price - D("1")
@@ -87,12 +87,12 @@ def test_variants_clear_fee_floor_and_change_one_named_dimension():
         assert variant.baseline_plan == baseline
         assert variant.maker_only is True
         assert variant.plan.slippage_pct == D("0")
-    by_id = {variant.variant_id: variant for variant in variants}
-    assert all(item.plan.entry_ttl_sec == 3_600 for item in variants)
+    assert {item.plan.entry_ttl_sec for item in variants} == {
+        3_600, 4_500, 5_400,
+    }
     assert all(item.plan.entry_enabled for item in variants)
-    assert by_id["v13_maker_ttl60_gap48"].plan.entry_price == D("99.5200")
-    assert by_id["v13_maker_ttl60_gap50"].plan.entry_price == D("99.5000")
-    assert by_id["v13_maker_ttl60_gap52"].plan.entry_price == D("99.4800")
+    assert all(item.plan.entry_price == D("99.5200") for item in variants)
+    assert all(item.dimension == "maker_entry_ttl" for item in variants)
 
 
 def test_parallel_variants_share_snapshot_and_explicit_baseline(tmp_path: Path):
@@ -226,7 +226,7 @@ def test_variant_report_never_enables_apply(tmp_path: Path, monkeypatch):
     )
 
     assert report["mode"] == "SHADOW"
-    assert report["generation"] == "v13"
+    assert report["generation"] == "v14"
     assert report["horizons_min"] == [300, 360]
     assert report["can_change_orders"] is False
     assert all(
@@ -237,7 +237,7 @@ def test_variant_report_never_enables_apply(tmp_path: Path, monkeypatch):
     )
     assert report["confirmation_evidence"]["confirmation_status"] == "BLOCKED"
     assert report["first_gate_passed"] is False
-    maker = report["variants"]["v13_maker_ttl60_gap48"]
+    maker = report["variants"]["v14_maker_ttl60_gap48"]
     assert maker["entry_order_type"] == "LIMIT_MAKER"
     assert maker["exit_order_type"] == "LIMIT_MAKER"
     assert all(
@@ -272,7 +272,7 @@ def test_variant_report_separates_active_cohort_from_opportunity_cost(monkeypatc
             required_edge_pct=D("0.0096"),
             regime="RANGE",
         )
-        if item.variant_id == "v13_maker_ttl60_gap48"
+        if item.variant_id == "v14_maker_ttl60_gap48"
     )
 
     class Store:
@@ -347,7 +347,7 @@ def test_variant_report_separates_future_work_from_backlog(tmp_path: Path):
         before_ts_ms=60_000,
     )
 
-    counts = report["variants"]["v13_maker_ttl60_gap48"]["outcomes"]
+    counts = report["variants"]["v14_maker_ttl60_gap48"]["outcomes"]
     assert counts == {
         "total": 2,
         "resolved": 0,
@@ -471,13 +471,13 @@ def test_symbol_scopes_keep_active_generations_separate(
         required_edge_pct=D("0.0096"),
     )
 
-    assert sol["generation"] == "v13"
+    assert sol["generation"] == "v14"
     assert sol["lifecycle_status"] == "SELECTION"
-    assert sol["superseded_selection_generations"] == ["v11", "v12"]
+    assert sol["superseded_selection_generations"] == ["v11", "v12", "v13"]
     assert set(sol["variants"]) == {
-        "v13_maker_ttl60_gap48",
-        "v13_maker_ttl60_gap50",
-        "v13_maker_ttl60_gap52",
+        "v14_maker_ttl60_gap48",
+        "v14_maker_ttl75_gap48",
+        "v14_maker_ttl90_gap48",
     }
     assert eth["generation"] == "v12"
     assert eth["lifecycle_status"] == "SELECTION"
@@ -487,13 +487,13 @@ def test_symbol_scopes_keep_active_generations_separate(
         "v12_maker_ttl60_gap22",
         "v12_maker_ttl60_gap27",
     }
-    assert btc["generation"] == "v11"
+    assert btc["generation"] == "v12"
     assert btc["lifecycle_status"] == "SELECTION"
-    assert btc["superseded_selection_generations"] == []
+    assert btc["superseded_selection_generations"] == ["v11"]
     assert set(btc["variants"]) == {
-        "v11_maker_ttl60_gap38",
-        "v11_maker_ttl60_gap42",
-        "v11_maker_ttl60_gap44",
+        "v12_maker_ttl60_gap8p4",
+        "v12_maker_ttl60_gap9p4",
+        "v12_maker_ttl60_gap10p3",
     }
     assert sol["can_change_orders"] is False
     assert eth["can_change_orders"] is False
@@ -509,10 +509,14 @@ def test_symbol_scopes_keep_active_generations_separate(
         eth["superseded_reports"]["v11"]["lifecycle_status"]
         == "SUPERSEDED"
     )
-    assert btc["superseded_reports"] == {}
+    assert btc["superseded_reports"]["v11"]["generation"] == "v11"
+    assert (
+        btc["superseded_reports"]["v11"]["lifecycle_status"]
+        == "SUPERSEDED"
+    )
 
 
-def test_v13_variants_do_not_depend_on_the_current_regime():
+def test_v14_variants_do_not_depend_on_the_current_regime():
     baseline = _baseline()
     range_variants = build_shadow_variants(
         market_price=D("100"),
@@ -533,7 +537,7 @@ def test_v13_variants_do_not_depend_on_the_current_regime():
     assert all(item.maker_only for item in range_variants)
 
 
-def test_v13_entry_gaps_are_explicit_and_distinct():
+def test_v14_holds_gap_constant_and_changes_only_ttl():
     baseline = replace(_baseline(), entry_price=D("99.20"))
     variants = build_shadow_variants(
         market_price=D("100"),
@@ -542,21 +546,45 @@ def test_v13_entry_gaps_are_explicit_and_distinct():
         regime="RANGE",
     )
 
-    entry_variants = [
+    ttl_variants = [
         item for item in variants
-        if item.dimension == "maker_entry_gap"
+        if item.dimension == "maker_entry_ttl"
     ]
-    assert len(entry_variants) == 3
-    assert {item.plan.entry_price for item in entry_variants} == {
-        D("99.52"), D("99.50"), D("99.48"),
+    assert len(ttl_variants) == 3
+    assert {item.plan.entry_price for item in ttl_variants} == {D("99.52")}
+    assert {item.plan.entry_ttl_sec for item in ttl_variants} == {
+        3_600, 4_500, 5_400,
     }
     assert all(
         baseline.entry_price < item.plan.entry_price < D("100")
-        for item in entry_variants
+        for item in ttl_variants
     )
 
 
-def test_v13_horizons_observe_recovery_after_a_late_fill():
+def test_btc_v12_uses_calibrated_gaps_without_changing_lifetime():
+    variants = build_shadow_variants(
+        market_price=D("100000"),
+        baseline_plan=_baseline(),
+        required_edge_pct=D("0.0096"),
+        regime="RANGE",
+        generation="v12",
+        symbol="BTCUSDT",
+    )
+
+    assert {item.variant_id for item in variants} == {
+        "v12_maker_ttl60_gap8p4",
+        "v12_maker_ttl60_gap9p4",
+        "v12_maker_ttl60_gap10p3",
+    }
+    assert {item.entry_gap_bps for item in variants} == {
+        D("8.4"), D("9.4"), D("10.3"),
+    }
+    assert {item.plan.entry_ttl_sec for item in variants} == {3_600}
+    assert all(item.dimension == "maker_entry_gap" for item in variants)
+    assert all(item.maker_only for item in variants)
+
+
+def test_v14_horizons_observe_recovery_after_a_late_fill():
     variants = build_shadow_variants(
         market_price=D("100"),
         baseline_plan=_baseline(),

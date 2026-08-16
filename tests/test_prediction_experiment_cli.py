@@ -44,6 +44,12 @@ def test_configured_gap_rejects_unknown_semantics():
     assert configured_entry_gap_bps(
         "v12_maker_ttl60_gap22", generation="v12", symbol="ETHUSDT"
     ) == D("22")
+    assert configured_entry_gap_bps(
+        "v12_maker_ttl60_gap8p4", generation="v12", symbol="BTCUSDT"
+    ) == D("8.40000")
+    assert configured_entry_gap_bps(
+        "v14_maker_ttl90_gap48", generation="v14", symbol="SOLUSDT"
+    ) == D("48")
 
 
 def _features(snapshot: int, price: str) -> PredictionFeatures:
@@ -140,7 +146,10 @@ def test_selection_preview_uses_stable_configured_gap(tmp_path: Path):
             cutoff=snapshot,
         )[0])
 
-    assert [row.entry_gap_bps for row in reconstructed] == [D("50"), D("50")]
+    assert [row.entry_gap_bps for row in reconstructed] == [D("48"), D("48")]
+    assert [row.dimension for row in reconstructed] == [
+        "maker_entry_ttl", "maker_entry_ttl",
+    ]
     assert variant_fingerprints(
         reconstructed[0],
         generation=SHADOW_GENERATION,

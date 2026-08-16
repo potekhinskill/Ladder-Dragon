@@ -3,6 +3,23 @@
 All notable changes are documented here. Releases use Semantic Versioning; every
 section is dated and there is intentionally no `Unreleased` section.
 
+## [2.20.210] — 2026-08-16
+
+### Changed
+- SOLUSDT version fourteen holds the 48 basis-point gap and tests 60-minute, 75-minute, and 90-minute lifetimes.
+- BTCUSDT version twelve tests calibrated gaps of 8.4, 9.4, and 10.3 basis points.
+- ETHUSDT version twelve continues without a reset.
+- SOLUSDT version thirteen and BTCUSDT version eleven remain visible as superseded evidence.
+
+### Security
+- BTCUSDT gaps use 188 completed SELECTION windows before the fixed calibration cutoff.
+- Historical touch rates are 14.89%, 9.04%, and 4.79% for the three BTCUSDT gaps.
+- Every active candidate remains `LIMIT_MAKER`, uses fixed 300-minute and 360-minute horizons, and cannot change orders.
+
+### Verified
+- All 1,187 project tests pass.
+- The technical English and Python compilation checks pass.
+
 ## [2.20.209] — 2026-08-16
 
 ### Fixed
