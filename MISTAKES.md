@@ -6,6 +6,34 @@ avoidable rework. Identify the root cause rather than recording only the
 symptom. Keep entries concise and exclude secrets, balances, account data, and
 private infrastructure details.
 
+### 2026-08-16 — Missed a source contract for a dependent default
+
+- **Impact:** the first complete suite failed after focused behavior tests passed.
+- **Root cause:** the initial search found the contract module, but the patch updated only behavior tests.
+- **Correction:** require the dynamic symbol path in the deployment source contract.
+- **Prevention:** inspect each source-contract match before changing an operator default.
+
+### 2026-08-16 — Inserted a test before an existing final assertion
+
+- **Impact:** the first focused run failed after the new test consumed the wrong captured output.
+- **Root cause:** the patch matched an intermediate assertion instead of the complete function boundary.
+- **Correction:** restore the L3 assertion to its original test before rerunning the focused set.
+- **Prevention:** inspect the complete enclosing test after inserting a new top-level function.
+
+### 2026-08-16 — Let control placeholders change financial baselines
+
+- **Impact:** a UTC-day control action could replace real equity baselines with zero.
+- **Root cause:** financial loading and control-state loading shared one required equity argument.
+- **Correction:** control actions load without equity and cannot advance the financial day.
+- **Prevention:** placeholder financial values must never cross an authoritative state transition.
+
+### 2026-08-16 — Fixed symbol evidence beside a variable symbol
+
+- **Impact:** a non-SOL Pi profile could audit the stable SOL User Stream file.
+- **Root cause:** the parser assigned independent defaults to a symbol and its evidence path.
+- **Correction:** derive the default path after symbol normalization and validation.
+- **Prevention:** dependent CLI defaults must resolve from one validated source value.
+
 ### 2026-08-16 — Let verification registries drift from behavior
 
 - **Impact:** profile names and numeric boundaries could change outside their declared registries.

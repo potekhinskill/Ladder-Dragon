@@ -122,9 +122,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--user-stream-status",
         type=Path,
-        default=Path(
-            "/var/lib/ladder-dragon/user-stream/user_stream_SOLUSDT.json"
-        ),
+        default=None,
     )
     parser.add_argument(
         "--risk-status",
@@ -165,6 +163,9 @@ def main(argv: list[str] | None = None) -> int:
     symbol = args.symbol.strip().upper()
     if not SYMBOL_RE.fullmatch(symbol):
         raise SystemExit("--symbol must be a valid uppercase Binance symbol")
+    user_stream_status = args.user_stream_status or Path(
+        f"/var/lib/ladder-dragon/user-stream/user_stream_{symbol}.json"
+    )
     output = args.output or Path(
         f".runtime/verification-{profile}.json"
     )
@@ -182,7 +183,7 @@ def main(argv: list[str] | None = None) -> int:
         latency_log=args.latency_log,
         source_paths=tuple(args.source),
         runtime_status=args.runtime_status,
-        user_stream_status=args.user_stream_status,
+        user_stream_status=user_stream_status,
         risk_status=args.risk_status,
         order_journal=args.order_journal,
         prediction_db=args.prediction_db,

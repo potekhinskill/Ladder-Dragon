@@ -261,6 +261,44 @@ def test_replay_fees_are_validated_and_l3_request_fails_closed(monkeypatch, caps
     assert "not L3 order IDs" in capsys.readouterr().err
 
 
+def test_backtest_rejects_ineligible_calibration_before_simulation(
+    tmp_path, monkeypatch, capsys,
+):
+    calibration = calibrate_market_events(
+        [MarketEvent(
+            1_000,
+            bids=(BookLevel(Decimal("99"), Decimal("1")),),
+            asks=(BookLevel(Decimal("101"), Decimal("1")),),
+        )],
+        source_sha256="a" * 64,
+        min_book_events=2,
+        min_trades=1,
+    )
+    assert calibration.eligible is False
+    calibration_path = tmp_path / "calibration.json"
+    write_calibration(calibration_path, calibration)
+    candles = tmp_path / "candles.csv"
+    candles.write_text(
+        "ts,open,high,low,close\n1,100,101,99,100\n2,100,101,99,100\n",
+        encoding="utf-8",
+    )
+
+    def fail_simulation(*_args, **_kwargs):
+        raise AssertionError("ineligible calibration reached simulation")
+
+    monkeypatch.setattr(backtest, "simulate_grid", fail_simulation)
+    monkeypatch.setattr(
+        "sys.argv",
+        ["backtest", str(candles), "--calibration", str(calibration_path)],
+    )
+
+    with pytest.raises(SystemExit) as exc_info:
+        backtest.main()
+
+    assert exc_info.value.code == 2
+    assert "calibration is not eligible" in capsys.readouterr().err
+
+
 def test_measured_execution_report_latency_overrides_public_proxy(tmp_path):
     archive = tmp_path / "measured.jsonl"
     archive.write_text(

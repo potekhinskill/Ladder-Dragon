@@ -641,7 +641,7 @@ def test_user_stream_soak_is_independent_read_only_and_persistent():
     assert '"/api/v3/openOrders"' in runtime
     assert "/var/lib/ladder-dragon/user-stream" in dashboard
     assert "-/var/lib/ladder-dragon/user-stream" in dashboard_unit
-    assert "/var/lib/ladder-dragon/user-stream/user_stream_SOLUSDT.json" in harness
+    assert "/var/lib/ladder-dragon/user-stream/user_stream_{symbol}.json" in harness
     assert "/run/mybot/user_stream_SOLUSDT.json" not in install_guide
     assert "/var/lib/ladder-dragon/user-stream/user_stream_SOLUSDT.json" in install_guide
     for script in (installer, updater):

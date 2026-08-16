@@ -3,6 +3,20 @@
 All notable changes are documented here. Releases use Semantic Versioning; every
 section is dated and there is intentionally no `Unreleased` section.
 
+## [2.20.215] — 2026-08-16
+
+### Fixed
+- Risk control actions no longer advance the equity day without measured equity.
+- The Pi User Stream default now follows the validated verification symbol.
+
+### Security
+- An ineligible replay calibration cannot reach backtest simulation.
+- The next authoritative risk snapshot owns each new daily equity baseline.
+- A non-SOL Pi profile cannot silently audit the SOL User Stream file.
+
+### Verified
+- All 1,209 project tests pass. Technical English, compilation, and numeric boundary checks pass.
+
 ## [2.20.214] — 2026-08-16
 
 ### Fixed

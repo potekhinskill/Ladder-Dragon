@@ -421,16 +421,20 @@ class RiskManager:
         limits.validate()
         self.limits = limits
 
-    def _load(self, equity: Decimal, now: float) -> RiskState:
+    def _load(self, equity: Decimal | None, now: float) -> RiskState:
+        baseline = Decimal("0") if equity is None else equity
+        current_day = _utc_day(now)
         try:
             raw = json.loads(self.limits.state_file.read_text(encoding="utf-8"))
             state = RiskState(**raw)
         except (FileNotFoundError, json.JSONDecodeError, TypeError, OSError):
-            state = RiskState(_utc_day(now), str(equity), str(equity), str(equity))
-        if state.day != _utc_day(now):
+            state = RiskState(
+                current_day, str(baseline), str(baseline), str(baseline)
+            )
+        if state.day != current_day and equity is not None:
             # A new day updates equity baselines but does not clear the circuit halt:
             # unlocking always requires an intentional manual reset.
-            state.day = _utc_day(now)
+            state.day = current_day
             state.start_equity_usdt = str(equity)
             state.peak_equity_usdt = str(equity)
             state.last_equity_usdt = str(equity)
@@ -589,7 +593,7 @@ class RiskManager:
 
     def _start_cooldown_unlocked(self, reason: str, seconds: Optional[int] = None, now: Optional[float] = None) -> None:
         now = float(now or time.time())
-        state = self._load(Decimal("0"), now)
+        state = self._load(None, now)
         state.cooldown_until = max(state.cooldown_until, now + int(seconds or self.limits.cooldown_sec))
         state.cooldown_reason = reason
         self._save(state)
@@ -601,7 +605,7 @@ class RiskManager:
 
     def _reset_unlocked(self, *, force: bool = False, now: Optional[float] = None) -> None:
         now = float(now or time.time())
-        state = self._load(Decimal("0"), now)
+        state = self._load(None, now)
         if not force and state.cooldown_until > now:
             until = datetime.fromtimestamp(state.cooldown_until, timezone.utc).isoformat()
             raise RuntimeError(f"cooldown is active until {until}; use --force only after manual review")

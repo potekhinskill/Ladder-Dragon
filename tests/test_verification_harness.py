@@ -559,3 +559,54 @@ def test_cli_unknown_profile_writes_blocked_artifact(tmp_path, monkeypatch):
     assert result == 2
     assert payload["status"] == "BLOCKED"
     assert payload["block_reasons"]
+
+
+def test_cli_user_stream_default_tracks_the_validated_symbol(
+    tmp_path, monkeypatch,
+):
+    captured = {}
+
+    class FakeRunner:
+        def __init__(self, context):
+            captured["status"] = context.options.user_stream_status
+
+        def run(self):
+            return []
+
+    monkeypatch.setattr(verification_harness, "PROJECT_ROOT", tmp_path)
+    monkeypatch.setattr(verification_harness, "HarnessRunner", FakeRunner)
+    output = tmp_path / "report.json"
+
+    verification_harness.main([
+        "--profile", "local", "--symbol", "ETHUSDT",
+        "--output", str(output),
+    ])
+
+    assert captured["status"] == Path(
+        "/var/lib/ladder-dragon/user-stream/user_stream_ETHUSDT.json"
+    )
+
+
+def test_cli_user_stream_explicit_path_overrides_symbol_default(
+    tmp_path, monkeypatch,
+):
+    captured = {}
+
+    class FakeRunner:
+        def __init__(self, context):
+            captured["status"] = context.options.user_stream_status
+
+        def run(self):
+            return []
+
+    monkeypatch.setattr(verification_harness, "PROJECT_ROOT", tmp_path)
+    monkeypatch.setattr(verification_harness, "HarnessRunner", FakeRunner)
+    explicit = tmp_path / "reviewed-stream.json"
+
+    verification_harness.main([
+        "--profile", "local", "--symbol", "ETHUSDT",
+        "--user-stream-status", str(explicit),
+        "--output", str(tmp_path / "report.json"),
+    ])
+
+    assert captured["status"] == explicit

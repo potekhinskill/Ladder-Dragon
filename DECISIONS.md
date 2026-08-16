@@ -1,5 +1,19 @@
 # Engineering decisions
 
+### 2026-08-16 — Let measured equity advance the risk day
+
+- **Context:** control actions had no current equity but could initialize a new daily baseline.
+- **Decision:** only an authoritative risk snapshot can advance the equity day.
+- **Why it worked:** tests preserve prior equity through control actions and reset it on the next snapshot.
+- **Reuse:** every financial state transition that also has a non-financial control path.
+
+### 2026-08-16 — Derive symbol-scoped evidence after validation
+
+- **Context:** the Pi harness combined a variable symbol with a fixed SOL User Stream path.
+- **Decision:** derive the default evidence path from the validated symbol and preserve explicit overrides.
+- **Why it worked:** tests select ETH evidence by default and retain one reviewed custom path.
+- **Reuse:** every CLI where one selector determines a default evidence artifact.
+
 ### 2026-08-16 — Audit all active financial boundaries explicitly
 
 - **Context:** the numeric audit omitted active risk and exact-accounting modules.

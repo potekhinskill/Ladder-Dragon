@@ -1,4 +1,5 @@
 from decimal import Decimal
+from datetime import datetime, timezone
 from pathlib import Path
 import json
 import multiprocessing
@@ -205,6 +206,39 @@ def test_reset_requires_cooldown_or_force(tmp_path: Path):
         manager.reset(now=1_700_000_020)
     manager.reset(force=True, now=1_700_000_020)
     assert not (tmp_path / "halt.json").exists()
+
+
+def test_control_actions_cannot_advance_equity_day_with_placeholder(
+    tmp_path: Path,
+):
+    configured = limits(tmp_path)
+    configured.state_file.write_text(
+        json.dumps({
+            "day": "2026-08-15",
+            "start_equity_usdt": "1000.25",
+            "peak_equity_usdt": "1010.50",
+            "last_equity_usdt": "1005.75",
+        }),
+        encoding="utf-8",
+    )
+    manager = RiskManager(configured)
+    next_day = datetime(2026, 8, 16, 0, 1, tzinfo=timezone.utc).timestamp()
+
+    manager.start_cooldown("operator review", seconds=60, now=next_day)
+    manager.reset(force=True, now=next_day + 1)
+
+    state = json.loads(configured.state_file.read_text(encoding="utf-8"))
+    assert state["day"] == "2026-08-15"
+    assert state["start_equity_usdt"] == "1000.25"
+    assert state["peak_equity_usdt"] == "1010.50"
+    assert state["last_equity_usdt"] == "1005.75"
+
+    manager.evaluate(snapshot("990.40"), now=next_day + 2)
+    state = json.loads(configured.state_file.read_text(encoding="utf-8"))
+    assert state["day"] == "2026-08-16"
+    assert state["start_equity_usdt"] == "990.40"
+    assert state["peak_equity_usdt"] == "990.40"
+    assert state["last_equity_usdt"] == "990.40"
 
 
 def test_daily_trade_metrics(tmp_path: Path):
