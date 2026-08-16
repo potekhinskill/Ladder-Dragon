@@ -1,5 +1,19 @@
 # Engineering decisions
 
+### 2026-08-16 — Verify protection by structure and quantity
+
+- **Context:** an account-wide OCO leg count could hide one uncovered position remainder.
+- **Decision:** require two equal legs for each OCO and compare covered quantity with account quantity.
+- **Why it worked:** tests detect an uncovered third position behind two complete OCO lists.
+- **Reuse:** every portfolio check that aggregates exchange-side position protection.
+
+### 2026-08-16 — Preserve long soak progress through source failures
+
+- **Context:** one temporary source failure could end a twelve-hour Testnet soak without a report.
+- **Decision:** checkpoint the report, retry within a fixed limit, and block persistent source failure.
+- **Why it worked:** tests preserve completed samples, reject persistent failure, and exclude provider response text.
+- **Reuse:** every long verification loop that depends on a remote data source.
+
 ### 2026-08-16 — Parse financial symbols through one canonical boundary
 
 - **Context:** one PnL tool copied an incomplete quote list and guessed every unknown quote as four characters.

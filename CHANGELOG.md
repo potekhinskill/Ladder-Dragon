@@ -3,6 +3,22 @@
 All notable changes are documented here. Releases use Semantic Versioning; every
 section is dated and there is intentionally no `Unreleased` section.
 
+## [2.20.212] — 2026-08-16
+
+### Fixed
+- The index helper now selects exact or legacy accounting columns from the active schema.
+- The Testnet soak now verifies OCO structure and covered quantity for each position.
+- A temporary source failure now preserves progress and retries within a fixed limit.
+
+### Security
+- An unsupported trades schema now blocks index maintenance instead of reporting completion.
+- Persistent Testnet source failures now block the soak without provider response text.
+- Several complete OCO lists cannot hide an uncovered position remainder.
+
+### Verified
+- All 1,201 project tests pass.
+- The technical English and Python compilation checks pass.
+
 ## [2.20.211] — 2026-08-16
 
 ### Fixed

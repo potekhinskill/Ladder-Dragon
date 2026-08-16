@@ -6,6 +6,20 @@ avoidable rework. Identify the root cause rather than recording only the
 symptom. Keep entries concise and exclude secrets, balances, account data, and
 private infrastructure details.
 
+### 2026-08-16 — Counted protection legs across the account
+
+- **Impact:** complete OCO lists could hide a separate uncovered Testnet position.
+- **Root cause:** the monitor compared one account-wide leg count with a single-position threshold.
+- **Correction:** validate each OCO structure and compare its shared quantity with the account position.
+- **Prevention:** protection checks must prove covered quantity for every monitored position.
+
+### 2026-08-16 — Left the long soak loop without source recovery
+
+- **Impact:** one source failure could discard many hours of Testnet validation progress.
+- **Root cause:** the monitor wrote its report only after a normal loop exit.
+- **Correction:** checkpoint failures, retry temporary errors, and block after a fixed consecutive limit.
+- **Prevention:** long verification loops must persist progress before every recoverable retry.
+
 ### 2026-08-15 — Documented a service without its timer
 
 - **Impact:** the first complete regression stopped at the systemd inventory contract.

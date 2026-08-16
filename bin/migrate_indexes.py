@@ -2,23 +2,49 @@
 # SPDX-License-Identifier: MIT
 # Copyright (c) 2026 IURII Potekhin
 # Purpose: apply database index migrations.
-import os, sqlite3, sys
+import os
+import sqlite3
 
 DB = os.getenv('BOT_STATS_DB', '/home/bot/apps/binance_bot/db/bot_stats.db')
 
-DDL = [
-    # Covering index for symbol+ts queries (month/day).
-    "CREATE INDEX IF NOT EXISTS trades_monthly_cover "
-    "ON trades(symbol, ts, side, price, qty, fee_quote);",
-
-    # Protect against duplicate trades (trade_id is unique per symbol).
-    "CREATE UNIQUE INDEX IF NOT EXISTS trades_sym_tradeid_uq "
-    "ON trades(symbol, trade_id) WHERE trade_id IS NOT NULL;"
-]
+EXACT_MONTHLY_COLUMNS = (
+    "symbol",
+    "ts",
+    "side",
+    "price_text",
+    "gross_qty",
+    "commission_quote",
+)
+LEGACY_MONTHLY_COLUMNS = ("symbol", "ts", "side", "price", "qty", "fee_quote")
 
 def table_exists(con: sqlite3.Connection, name: str) -> bool:
     cur = con.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name=?;", (name,))
     return cur.fetchone() is not None
+
+
+def _table_columns(con: sqlite3.Connection, name: str) -> set[str]:
+    return {str(row[1]) for row in con.execute(f'PRAGMA table_info("{name}")')}
+
+
+def index_statements(con: sqlite3.Connection) -> tuple[str, str]:
+    """Select index definitions for the authoritative trades schema."""
+    columns = _table_columns(con, "trades")
+    if set(EXACT_MONTHLY_COLUMNS).issubset(columns):
+        monthly_columns = EXACT_MONTHLY_COLUMNS
+    elif set(LEGACY_MONTHLY_COLUMNS).issubset(columns):
+        monthly_columns = LEGACY_MONTHLY_COLUMNS
+    else:
+        raise RuntimeError("trades schema cannot support the monthly covering index")
+    monthly = (
+        "CREATE INDEX IF NOT EXISTS trades_monthly_cover ON trades("
+        + ", ".join(monthly_columns)
+        + ");"
+    )
+    unique = (
+        "CREATE UNIQUE INDEX IF NOT EXISTS trades_sym_tradeid_uq "
+        "ON trades(symbol, trade_id) WHERE trade_id IS NOT NULL;"
+    )
+    return monthly, unique
 
 def main() -> int:
     # Open the connection and set a lock timeout.
@@ -30,14 +56,10 @@ def main() -> int:
             return 0
 
         cur = con.cursor()
-        for sql in DDL:
-            try:
-                cur.execute(sql)
-                idx_name = sql.split(' IF NOT EXISTS ')[-1].split()[0]
-                print(f"[IDX] {idx_name} ok")
-            except sqlite3.OperationalError as e:
-                # For example, if the schema differs unexpectedly.
-                print(f"[WARN] {e.__class__.__name__}: {e}", file=sys.stderr)
+        for sql in index_statements(con):
+            cur.execute(sql)
+            idx_name = sql.split(" IF NOT EXISTS ")[-1].split()[0]
+            print(f"[IDX] {idx_name} ok")
 
         # Refresh optimizer statistics.
         cur.executescript("ANALYZE; PRAGMA optimize;")

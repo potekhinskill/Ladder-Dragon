@@ -23,7 +23,7 @@ Help output is the authoritative option reference.
 | `check_technical_english` | checks current guides against the project writing profile |
 | `semgrep_scan` | tests local Semgrep rules or scans production Python paths |
 | `production_soak_report` | builds a sanitized non-mutating soak report |
-| `testnet_soak_monitor` | monitors Testnet safety without order mutation |
+| `testnet_soak_monitor` | monitors Testnet safety with bounded source retries |
 
 The harness supports these profiles:
 
@@ -144,7 +144,7 @@ Use `show` and `supersede` for other lifecycle operations.
 | `revalue_legacy_commissions` | repairs exact legacy commission values | explicit reviewed operation |
 | `db_migrate` | applies versioned SQLite migrations | migration transaction |
 | `database_retention` | archives terminal SHADOW evidence and applies bounded retention | fresh encrypted backup |
-| `migrate_indexes` | applies the legacy index migration helper | reviewed database path |
+| `migrate_indexes` | applies indexes for the active accounting schema | reviewed database path |
 
 `tools_cancel_open` uses Testnet and dry-run by default.
 Never remove a protective SELL order to make a test pass.
