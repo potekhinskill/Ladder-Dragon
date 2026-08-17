@@ -3,6 +3,19 @@
 All notable changes are documented here. Releases use Semantic Versioning; every
 section is dated and there is intentionally no `Unreleased` section.
 
+## [2.20.222] — 2026-08-18
+
+### Fixed
+- Observation-only inventory gates now report `NOT_APPLICABLE` before the first version-three outcome resolves.
+- Inventory applicability now comes from the configured execution scope and has a separate cache identity.
+
+### Security
+- A missing runtime symbol list fails closed as applicable instead of declaring an execution symbol observation-only.
+
+### Verified
+- All 1,255 project tests pass.
+- Compilation, architecture budgets, documentation contracts, and Technical English checks pass.
+
 ## [2.20.221] — 2026-08-18
 
 ### Fixed

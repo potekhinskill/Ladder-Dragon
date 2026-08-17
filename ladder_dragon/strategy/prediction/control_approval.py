@@ -155,6 +155,8 @@ def _snapshot_values(
 def control_specific_gate(
     control: str,
     samples: Sequence[ResolvedSample],
+    *,
+    applicable: bool | None = None,
 ) -> dict[str, object]:
     """Evaluate one control with criteria that match its intended effect."""
     normalized = str(control).strip().lower()
@@ -170,6 +172,35 @@ def control_specific_gate(
                 "maker fills and missed fills are not represented in evidence"
             ],
             "independent_samples": 0,
+        }
+    if normalized == "inventory" and applicable is False:
+        return {
+            "approved": False,
+            "mode": "NOT_APPLICABLE",
+            "status": "NOT_APPLICABLE",
+            "policy": "inventory_control_v2",
+            "reasons": [
+                "inventory control does not apply to this observation-only symbol"
+            ],
+            "independent_samples": 0,
+            "binding_independent_samples": 0,
+            "binding_reachability": {
+                "status": "NOT_APPLICABLE",
+                "observed_independent_samples": 0,
+                "applicable_independent_samples": 0,
+                "binding_independent_samples": 0,
+                "required_binding_independent_samples": (
+                    MINIMUM_INDEPENDENT_SNAPSHOTS
+                ),
+                "binding_rate": None,
+                "binding_rate_upper_95": None,
+                "projected_required_independent_samples": None,
+                "projected_ready_ts_ms": None,
+                "projected_duration_ms": None,
+                "maximum_duration_ms": MAXIMUM_EVIDENCE_DURATION_MS,
+                "practically_reachable": None,
+                "outcome_values_used": False,
+            },
         }
     rows = _snapshot_values(
         normalized, samples, include_financial=normalized != "inventory"

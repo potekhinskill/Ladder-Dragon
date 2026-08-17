@@ -59,7 +59,7 @@ def test_strategy_apply_requires_explicit_approval_and_statistical_gate(
     monkeypatch.setattr(ai_supervisor, "_PREDICTION_SHADOW", Store())
     monkeypatch.setattr(
         "ladder_dragon.supervision.strategy_control_gates.control_specific_gate",
-        lambda control, samples: {
+        lambda control, samples, **_kwargs: {
             "approved": control == "expectancy" and samples == ["historical-only"],
             "mode": "APPLY",
             "reasons": [],

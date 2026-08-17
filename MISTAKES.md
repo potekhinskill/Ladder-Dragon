@@ -6,6 +6,13 @@ avoidable rework. Identify the root cause rather than recording only the
 symptom. Keep entries concise and exclude secrets, balances, account data, and
 private infrastructure details.
 
+### 2026-08-18 — Derived applicability only from resolved evidence
+
+- **Impact:** a new observation-only cohort temporarily reported a stateful-model block instead of `NOT_APPLICABLE`.
+- **Root cause:** applicability lived only in unresolved metadata and was unavailable to the current gate reader.
+- **Correction:** pass configured execution scope directly to the gate and include it in cache identity.
+- **Prevention:** verify new status semantics before and after the first outcome resolves.
+
 ### 2026-08-18 — Mixed training rows into configuration selection
 
 - **Impact:** cold-start outcomes could change configuration p-values and Holm decisions after the approval gate excluded them.

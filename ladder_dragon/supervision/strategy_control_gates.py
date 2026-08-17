@@ -33,12 +33,13 @@ def control_gate(
     store: object | None,
     cache: MutableMapping[str, tuple[float, dict[str, object]]],
     now_monotonic: float,
+    applicable: bool | None = None,
 ) -> dict[str, object]:
     """Return current evidence for one execution-changing control."""
     normalized = str(control).strip().lower()
     if normalized not in CONTROL_KINDS:
         raise ValueError("unknown strategy control")
-    cache_key = f"{symbol.upper()}:{normalized}"
+    cache_key = f"{symbol.upper()}:{normalized}:{applicable}"
     cached = cache.get(cache_key)
     if cached is not None and now_monotonic - cached[0] < 60:
         return cached[1]
@@ -60,7 +61,9 @@ def control_gate(
                 samples = store.resolved_samples(
                     symbol, kind=CONTROL_KINDS[normalized]
                 )
-            result = control_specific_gate(normalized, samples)
+            result = control_specific_gate(
+                normalized, samples, applicable=applicable
+            )
             if evidence is not None:
                 result["statistical_reader"] = {
                     "scanned_snapshots": evidence.scanned_snapshots,

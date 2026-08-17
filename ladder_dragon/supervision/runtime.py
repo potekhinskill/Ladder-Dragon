@@ -1896,11 +1896,14 @@ def _prediction_reanchor_gate(symbol: str) -> dict[str, object]:
 
 def _strategy_control_gate(symbol: str, control: str) -> dict[str, object]:
     """Return evidence for one execution-changing strategy control."""
+    configured = _AI_RUNTIME_STATUS.get("symbols")
+    applicable = (execution_control_scope(symbol, configured)[0]
+                  if isinstance(configured, list) and configured else True)
+    applicable = applicable if str(control).strip().lower() == "inventory" else None
     return strategy_control_gates.control_gate(
         symbol, control, store=_PREDICTION_SHADOW, cache=_STRATEGY_CONTROL_GATE_CACHE,
-        now_monotonic=time.monotonic(),
+        now_monotonic=time.monotonic(), applicable=applicable,
     )
-
 
 def _strategy_control_apply_allowed(symbol: str, control: str) -> tuple[bool, dict[str, object]]:
     """Require separate operator approval and evidence for one control."""
