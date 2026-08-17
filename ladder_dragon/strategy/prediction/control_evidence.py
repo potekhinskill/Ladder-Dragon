@@ -43,6 +43,8 @@ def _candidate_plans(
         if inventory_enabled
         else baseline.notional_quote
     )
+    # Change one control dimension against the same baseline. Evidence for
+    # one control must never authorize a different execution change.
     return {
         "expectancy": replace(
             baseline,

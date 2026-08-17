@@ -15,6 +15,10 @@ from typing import Any, List, Mapping, Optional
 import requests
 
 from ladder_dragon.execution.trade_accounting import DEFAULT_SPOT_FEE_PCT
+from ladder_dragon.risk.inventory_caps import (
+    open_buy_notional,
+    remaining_inventory_budget,
+)
 
 
 def cap_decimal(name: str, raw: object) -> Decimal:
@@ -112,7 +116,7 @@ def place_buys(symbol: str,
     if not running():
         log(f"[STOP] {symbol} BUY placement skipped before exchange reads")
         return []
-    get_symbol_assets(symbol)
+    base_asset, _quote_asset = get_symbol_assets(symbol)
     bals = get_balances()
     reserve = max(
         Decimal("0"),
@@ -138,6 +142,7 @@ def place_buys(symbol: str,
 
     pull_filters(symbol)
     placed_ids: List[int] = []
+    local_inventory_commitments: dict[int, Decimal] = {}
     now = get_price_exact(symbol)
 
     # Prepare the limit and deduplication set.
@@ -215,6 +220,72 @@ def place_buys(symbol: str,
                 "[LATENCY] trace unavailable="
                 f"{type(exc).__name__}"
             )
+
+    def inventory_buy_allowed(exchange_notional: Decimal) -> bool:
+        """Recheck authoritative inventory immediately before a LIVE POST."""
+        hard_cap_name = f"RISK_MANAGED_INVENTORY_HARD_CAP_{symbol.upper()}"
+        hard_cap_raw = os.getenv(hard_cap_name)
+        try:
+            if hard_cap_raw is None or not hard_cap_raw.strip():
+                raise ValueError("managed inventory hard CAP is missing")
+            current_balances = get_balances()
+            current_orders = list_open_orders(symbol) or []
+            held_row = current_balances.get(base_asset, {})
+            held_quantity = (
+                Decimal(str(held_row.get("free", "0")))
+                + Decimal(str(held_row.get("locked", "0")))
+            )
+            remaining = remaining_inventory_budget(
+                hard_cap_quote=hard_cap_raw,
+                held_base_quantity=held_quantity,
+                market_price=get_price_exact(symbol),
+                open_buy_notional_quote=open_buy_notional(current_orders),
+            )
+            visible_order_ids = {
+                int(row["orderId"])
+                for row in current_orders
+                if row.get("orderId") is not None
+            }
+            unseen_commitment = sum(
+                (
+                    notional for order_id, notional
+                    in local_inventory_commitments.items()
+                    if order_id not in visible_order_ids
+                ),
+                Decimal("0"),
+            )
+            # Exchange visibility can lag the preceding successful POST.
+            remaining = max(
+                Decimal("0"), remaining - unseen_commitment
+            )
+            minimum = _filter_decimal(
+                symbol, "minNotionalExact", "minNotional"
+            )
+            if remaining < minimum:
+                log(
+                    f"[INVENTORY-CAP-BLOCK] {symbol} remaining="
+                    f"{remaining:.8f} below exchange minimum"
+                )
+                return False
+            if exchange_notional > remaining:
+                log(
+                    f"[INVENTORY-CAP-BLOCK] {symbol} exchange="
+                    f"{exchange_notional:.8f} remaining={remaining:.8f}"
+                )
+                return False
+            return True
+        except (
+            ArithmeticError,
+            requests.RequestException,
+            RuntimeError,
+            TypeError,
+            ValueError,
+        ) as exc:
+            log(
+                f"[INVENTORY-CAP-BLOCK] {symbol} state unavailable: "
+                f"{type(exc).__name__}"
+            )
+            return False
 
     # Main candidate loop.
     for idx, p in enumerate(candidates, start=1):
@@ -362,6 +433,9 @@ def place_buys(symbol: str,
                         f"{fmt_price_sym(symbol, otoco_prices[0])} STOP="
                         f"{fmt_price_sym(symbol, otoco_prices[1])}"
                     )
+            if live_mode and not inventory_buy_allowed(exchange_notional):
+                append_trace(trace)
+                continue
             # IMPORTANT: place the order at the rounded price pr.
             if otoco_mode == "APPLY":
                 if live_mode and os.getenv("BOT_OTOCO_APPROVED") != "YES":
@@ -409,6 +483,7 @@ def place_buys(symbol: str,
                 ):
                     submitted_notional = local_cap
                 usdt_free = max(Decimal("0"), usdt_free - submitted_notional)
+                local_inventory_commitments[oid] = submitted_notional
                 # Deduplicate by the already rounded price.
                 existing_buy_prices.add(pr)
             append_trace(trace)

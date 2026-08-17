@@ -35,6 +35,9 @@ from ladder_dragon.strategy.prediction.runtime import (
     PredictionShadowStore,
     predict_distribution,
 )
+from ladder_dragon.strategy.prediction.statistical_evidence import (
+    resolved_independent_evidence,
+)
 from ladder_dragon.strategy.prediction.walk_forward import (
     walk_forward_prediction_report,
 )
@@ -220,6 +223,7 @@ def shadow_variant_report(
     symbol: str,
     variants: Iterable[ShadowVariant],
     before_ts_ms: int,
+    resolved_before_ts_ms: int | None = None,
     generation: str = SHADOW_GENERATION,
     horizons_min: tuple[int, ...] = EXPERIMENT_HORIZONS_MIN,
     superseded_selection_generations: tuple[str, ...] = (),
@@ -238,13 +242,31 @@ def shadow_variant_report(
     p_values: dict[str, float] = {}
     selection_cohort = selection_experiment_id(generation, symbol)
     for variant in variants:
-        samples = store.resolved_samples(
-            symbol,
-            before_ts_ms=before_ts_ms,
-            kind=variant.kind,
-            experiment_id=selection_cohort,
-            evidence_role="SELECTION",
-        )
+        if hasattr(store, "_connect"):
+            independent_evidence = resolved_independent_evidence(
+                store,
+                symbol,
+                before_ts_ms=before_ts_ms,
+                resolved_before_ts_ms=(
+                    before_ts_ms
+                    if resolved_before_ts_ms is None
+                    else resolved_before_ts_ms
+                ),
+                kind=variant.kind,
+                experiment_id=selection_cohort,
+                evidence_role="SELECTION",
+                required_horizons_min=horizons_min,
+            )
+            samples = list(independent_evidence.samples)
+        else:
+            independent_evidence = None
+            samples = store.resolved_samples(
+                symbol,
+                before_ts_ms=before_ts_ms,
+                kind=variant.kind,
+                experiment_id=selection_cohort,
+                evidence_role="SELECTION",
+            )
         walk_forward = walk_forward_prediction_report(
             samples,
             required_horizons_min=horizons_min,
@@ -302,6 +324,20 @@ def shadow_variant_report(
             "resolved_horizon_samples": len(samples),
             "independent_samples": int(gate.get("independent_samples", 0)),
             "outcomes": outcome_counts,
+            "statistical_reader": (
+                {
+                    "scanned_snapshots": independent_evidence.scanned_snapshots,
+                    "excluded_overlapping_snapshots": (
+                        independent_evidence.excluded_overlapping_snapshots
+                    ),
+                    "stopped_at_pending_snapshot": (
+                        independent_evidence.stopped_at_pending_snapshot
+                    ),
+                    "bounded_memory": True,
+                }
+                if independent_evidence is not None
+                else {"bounded_memory": True, "test_adapter": True}
+            ),
             "entry_gap_bps": (
                 str(variant.entry_gap_bps)
                 if variant.entry_gap_bps is not None else None

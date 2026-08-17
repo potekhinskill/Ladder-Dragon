@@ -6,6 +6,13 @@ avoidable rework. Identify the root cause rather than recording only the
 symptom. Keep entries concise and exclude secrets, balances, account data, and
 private infrastructure details.
 
+### 2026-08-17 — Added comments beyond a coordinator budget
+
+- **Impact:** the complete suite failed because two comment lines enlarged the legacy supervisor coordinator.
+- **Root cause:** the edit did not check the known line budget before it changed a full module.
+- **Correction:** keep the explanation in the focused control-gate module and restore the coordinator budget.
+- **Prevention:** check architecture budgets before all edits, including comment-only changes.
+
 ### 2026-08-17 — Counted overlapping outcomes as independent evidence
 
 - **Impact:** frequent snapshots overstated statistical sample size and could permit unreliable promotion.
@@ -1782,3 +1789,17 @@ private infrastructure details.
 - **Root cause:** initialization and promotion orchestration were added before checking the coordinator limit.
 - **Correction:** extract SHADOW initialization and promotion gates into focused modules.
 - **Prevention:** inspect architecture budgets before changing a known runtime coordinator.
+
+### 2026-08-17 — Reused a model window as statistical history
+
+- **Impact:** selection and control gates could never reach 120 independent observations.
+- **Root cause:** one 1,000-row limit served both model training and long-horizon inference.
+- **Correction:** keep bounded model history and stream independent statistical timestamps from full history.
+- **Prevention:** calculate maximum attainable independent samples before starting each experiment.
+
+### 2026-08-17 — Checked inventory CAP only before order planning
+
+- **Impact:** one accepted BUY could move symbol exposure above its absolute CAP.
+- **Root cause:** the Risk Manager compared current exposure without reserving the proposed order.
+- **Correction:** clamp batch budgets and recheck authoritative inventory immediately before POST.
+- **Prevention:** test each absolute CAP with exposure just below its boundary and a larger proposed mutation.

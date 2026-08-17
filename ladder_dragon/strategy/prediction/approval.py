@@ -135,6 +135,8 @@ def prediction_apply_gate(
     for item in ordered:
         grouped.setdefault(item.snapshot_ts_ms, []).append(item)
     raw_snapshot_samples = len(grouped)
+    # Treat all horizons from one snapshot as one unit. Keep the next unit
+    # only after the longest prior outcome interval closes.
     selected_timestamps = set(non_overlapping_timestamps(
         grouped, horizons_min=required_horizons
     ))
@@ -231,6 +233,12 @@ def prediction_apply_gate(
         "independent_samples": independent,
         "excluded_overlapping_snapshots": raw_snapshot_samples - independent,
         "independence_spacing_ms": outcome_spacing_ms(required_horizons),
+        "minimum_calendar_duration_ms": (
+            max(0, min_independent_samples - 1)
+            * outcome_spacing_ms(required_horizons)
+            + max(required_horizons) * 60_000
+        ),
+        "calendar_minimum_excludes_regime_wait": True,
         "net_expectancy_ci": [format(ci[0], "f"), format(ci[1], "f")],
         "baseline_edge_ci": [format(edge_ci[0], "f"), format(edge_ci[1], "f")],
         "fill_rate": format(fill_rate, "f"),

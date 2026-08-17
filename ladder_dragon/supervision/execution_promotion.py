@@ -145,6 +145,8 @@ def build_execution_promotion_report(
         if symbol not in prediction:
             blockers.append("symbol is outside prediction SHADOW scope")
         current_method_passed = False
+        # A historical CONFIRMED transition is not sufficient. Recompute its
+        # evidence with the current statistical method before promotion.
         if lifecycle == "CONFIRMED" and store is not None:
             try:
                 current_method_passed = _current_method_passes(

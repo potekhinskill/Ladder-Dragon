@@ -160,17 +160,21 @@ def _record(
 def _frozen(tmp_path: Path):
     store = PredictionShadowStore(tmp_path / "prediction.sqlite3")
     variants = _variants()
-    snapshot = 59_999
     cohort = selection_experiment_id(SHADOW_GENERATION, "SOLUSDT")
-    for variant in variants:
-        decision_id = _record(
-            store,
-            variant,
-            timestamp=snapshot,
-            experiment_id=cohort,
-            role="SELECTION",
-        )
-        _resolve(store, decision_id)
+    regimes = ("TREND_UP", "TREND_DOWN", "RANGE", "PANIC")
+    snapshot = 59_999
+    for index in range(150):
+        snapshot = 59_999 + index * CONFIRMATION_SPACING_MS
+        for variant in variants:
+            decision_id = _record(
+                store,
+                variant,
+                timestamp=snapshot,
+                experiment_id=cohort,
+                role="SELECTION",
+                regime=regimes[index % len(regimes)],
+            )
+            _resolve(store, decision_id)
     frozen_at = evaluation_end_ms(snapshot, max(EXPERIMENT_HORIZONS_MIN)) + 1
     manifest = freeze_experiment(
         store,
@@ -351,6 +355,33 @@ def test_incomplete_selection_blocks_freeze(tmp_path: Path):
             product_version="2.20.191",
             source_commit="a" * 40,
             frozen_at_ms=20_000_000,
+        )
+
+
+def test_complete_but_weak_selection_blocks_freeze(tmp_path: Path):
+    store = PredictionShadowStore(tmp_path / "prediction.sqlite3")
+    variants = _variants()
+    cohort = selection_experiment_id(SHADOW_GENERATION, "SOLUSDT")
+    for variant in variants:
+        decision_id = _record(
+            store, variant, timestamp=59_999,
+            experiment_id=cohort, role="SELECTION",
+        )
+        _resolve(store, decision_id, pnl="-1", baseline="0", exit_reason="STOP")
+
+    with pytest.raises(ValueError, match="did not pass the selection gate"):
+        freeze_experiment(
+            store,
+            experiment_id="weak-selection",
+            generation=SHADOW_GENERATION,
+            symbol="SOLUSDT",
+            selected_variant=variants[1],
+            all_variants=variants,
+            horizons_min=EXPERIMENT_HORIZONS_MIN,
+            selection_end_ts_ms=59_999,
+            product_version="2.20.219",
+            source_commit="a" * 40,
+            frozen_at_ms=30_000_000,
         )
 
 

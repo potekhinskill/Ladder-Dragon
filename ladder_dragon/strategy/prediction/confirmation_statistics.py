@@ -40,6 +40,8 @@ def validate_confirmation_criteria(
     criteria: Mapping[str, object], *, required_horizons_min: Sequence[int]
 ) -> dict[str, int]:
     """Reject a confirmation design that cannot satisfy its own tests."""
+    # Validate capacity before evidence collection. An impossible manifest
+    # must fail before it can consume an immutable confirmation cohort.
     spacing = outcome_spacing_ms(required_horizons_min)
     size = int(criteria["window_size_decisions"])
     windows = int(criteria["required_complete_windows"])
@@ -67,6 +69,10 @@ def validate_confirmation_criteria(
         "independence_spacing_ms": spacing,
         "minimum_sign_blocks": required_sign_blocks,
         "hypothesis_count": hypotheses,
+        "minimum_calendar_duration_ms": (
+            max(0, minimum_samples - 1) * spacing
+            + max(int(value) for value in required_horizons_min) * 60_000
+        ),
     }
 
 
@@ -74,6 +80,8 @@ def non_overlapping_decisions(
     decisions: Sequence[DecisionEvidence], *, required_horizons_min: Sequence[int]
 ) -> list[DecisionEvidence]:
     """Select decisions whose maximum outcome intervals do not overlap."""
+    # Purge outcome overlap before block construction. Later grouping cannot
+    # make dependent decisions statistically independent.
     selected = set(non_overlapping_timestamps(
         (item.snapshot_ts_ms for item in decisions),
         horizons_min=required_horizons_min,

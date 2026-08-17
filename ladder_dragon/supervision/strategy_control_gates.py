@@ -10,6 +10,12 @@ import sqlite3
 from typing import Callable, Mapping, MutableMapping, Sequence
 
 from ladder_dragon.strategy.prediction.control_evidence import CONTROL_KINDS
+from ladder_dragon.strategy.prediction.control_approval import (
+    control_specific_gate,
+)
+from ladder_dragon.strategy.prediction.statistical_evidence import (
+    resolved_independent_evidence,
+)
 
 
 CONTROL_APPROVAL_VARIABLES = {
@@ -41,10 +47,36 @@ def control_gate(
         result = _blocked("prediction journal is unavailable")
     else:
         try:
-            samples = store.resolved_samples(
-                symbol, kind=CONTROL_KINDS[normalized]
-            )
-            result = dict(report_builder(samples)["gate"])
+            if hasattr(store, "_connect"):
+                evidence = resolved_independent_evidence(
+                    store,
+                    symbol,
+                    kind=CONTROL_KINDS[normalized],
+                    required_horizons_min=(1, 5, 15),
+                )
+                samples = evidence.samples
+            else:
+                # Small injected test adapters do not expose SQLite internals.
+                evidence = None
+                samples = store.resolved_samples(
+                    symbol, kind=CONTROL_KINDS[normalized]
+                )
+            if normalized == "expectancy":
+                result = dict(report_builder(samples)["gate"])
+                result["policy"] = "expectancy_control_v1"
+            else:
+                result = control_specific_gate(normalized, samples)
+            if evidence is not None:
+                result["statistical_reader"] = {
+                    "scanned_snapshots": evidence.scanned_snapshots,
+                    "excluded_overlapping_snapshots": (
+                        evidence.excluded_overlapping_snapshots
+                    ),
+                    "stopped_at_pending_snapshot": (
+                        evidence.stopped_at_pending_snapshot
+                    ),
+                    "bounded_memory": True,
+                }
         except (OSError, sqlite3.Error, TypeError, ValueError):
             result = _blocked("strategy gate evidence is unreadable")
     cache[cache_key] = (now_monotonic, result)
@@ -80,6 +112,8 @@ def evaluate_control_requests(
     """Evaluate each requested control against only its own gate."""
     permissions: dict[str, bool] = {}
     gates: dict[str, dict[str, object]] = {}
+    # Resolve every control independently for telemetry. Only controls that
+    # request APPLY participate in the combined execution decision.
     for control in modes:
         permissions[control], gates[control] = apply_allowed(symbol, control)
     requested = [control for control, mode in modes.items() if mode == "APPLY"]

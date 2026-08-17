@@ -1,6 +1,6 @@
 # Implementation status
 
-This document describes the code in version **2.20.190**.
+This document describes the code in version **2.20.219**.
 It does not describe future plans as completed work.
 
 An implemented function is not automatically approved for LIVE use.
@@ -82,6 +82,7 @@ Every symbol keeps separate selection and confirmation evidence.
 
 Selection compares all active candidates on identical snapshots.
 Freeze requires the exact same snapshot set for every candidate.
+Freeze also requires the selected candidate to pass the selection gate.
 Its evidence is diagnostic after candidate choice.
 An explicit operator freeze creates an immutable candidate manifest.
 Confirmation starts after the selection outcomes and a 15-minute embargo.
@@ -95,14 +96,17 @@ Confidence intervals and Holm tests use complete blocks.
 The report is read-only and finalization requires its reviewed SHA-256.
 The existing 120-sample statistical requirements remain unchanged.
 The freeze command rejects criteria that cannot satisfy their tests.
+Reports show the minimum calendar duration for the configured horizons.
+The duration excludes additional time needed for rare market regimes.
 Promotion recomputes old confirmations with the current statistical method.
 
 The first gate evaluates the complete candidate strategy.
 All active candidates use the same entry scope.
 The active-entry diagnostic therefore uses the same cohort.
 
-Operational analytics use the latest 1,000 decisions for each candidate.
-This limit bounds Raspberry Pi memory and temporary storage use.
+Prediction training uses the latest 1,000 decisions for each candidate.
+Statistical gates stream the complete journal in append order.
+They retain no more than 512 independent snapshots in memory.
 Classified lifecycle evidence remains append-only in SQLite.
 Automated retention does not delete classified lifecycle evidence.
 
@@ -115,6 +119,11 @@ Unknown slippage makes financial evidence incomplete.
 Incomplete evidence cannot enter readiness, RAG, or dashboard PnL totals.
 
 Re-anchor is not a promotion candidate.
+
+Inventory control approval uses tail loss and drawdown improvement.
+It does not require absolute PnL superiority.
+Maker control approval stays blocked until evidence includes real maker execution semantics.
+The required semantics include fills and missed fills.
 
 No first-gate result can set `apply_allowed=true`.
 

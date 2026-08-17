@@ -1444,3 +1444,17 @@ entries concise; this is not a changelog or an activity log.
 - **Decision:** keep candidates outside execution until confirmation, two symbol CAPs, and explicit approval all pass.
 - **Why it worked:** startup rejects premature scope changes before preflight or worker creation.
 - **Reuse:** every SHADOW symbol considered for later execution.
+
+### 2026-08-17 — Stream independent evidence from complete history
+
+- **Context:** a 1,000-row model window could not contain 120 independent six-hour outcomes.
+- **Decision:** stream append-only history and retain a bounded, prefix-stable set of independent snapshots.
+- **Why it worked:** tests reach 120 units without loading overlapping rows into memory.
+- **Reuse:** every statistical gate whose independent sample spacing exceeds its model history window.
+
+### 2026-08-17 — Recheck inventory capacity before every LIVE BUY
+
+- **Context:** current exposure below a CAP did not prove that the next order fitted inside it.
+- **Decision:** reserve batch capacity in supervision and recheck balances plus open BUY orders before POST.
+- **Why it worked:** a 0.01 USDT remainder cannot authorize a minimum-notional BUY.
+- **Reuse:** every absolute exposure limit that controls a later exchange mutation.

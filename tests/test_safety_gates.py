@@ -53,7 +53,7 @@ def test_strategy_apply_requires_explicit_approval_and_statistical_gate(
     class Store:
         def resolved_samples(self, symbol, *, kind):
             assert symbol == "SOLUSDT"
-            assert kind == "CONTROL_MAKER"
+            assert kind == "CONTROL_EXPECTANCY"
             return ["historical-only"]
 
     monkeypatch.setattr(ai_supervisor, "_PREDICTION_SHADOW", Store())
@@ -69,15 +69,15 @@ def test_strategy_apply_requires_explicit_approval_and_statistical_gate(
         },
     )
     ai_supervisor._STRATEGY_CONTROL_GATE_CACHE.clear()
-    monkeypatch.setenv("BOT_MAKER_POLICY_APPROVED", "NO")
+    monkeypatch.setenv("BOT_EXPECTANCY_APPROVED", "NO")
     allowed, _ = ai_supervisor._strategy_control_apply_allowed(
-        "SOLUSDT", "maker"
+        "SOLUSDT", "expectancy"
     )
     assert allowed is False
 
-    monkeypatch.setenv("BOT_MAKER_POLICY_APPROVED", "YES")
+    monkeypatch.setenv("BOT_EXPECTANCY_APPROVED", "YES")
     allowed, evidence = ai_supervisor._strategy_control_apply_allowed(
-        "SOLUSDT", "maker"
+        "SOLUSDT", "expectancy"
     )
     assert allowed is True
     assert evidence["approved"] is True

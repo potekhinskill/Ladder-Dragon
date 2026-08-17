@@ -144,6 +144,7 @@ from ladder_dragon.risk.risk_manager import (
     load_daily_trade_metrics,
     money,
 )
+from ladder_dragon.risk.inventory_caps import clamp_symbol_order_caps
 from ladder_dragon.risk.risk_statistics import (
     correlated_symbols_multi_window as derive_correlated_symbols_multi_window,
     covariance_var,
@@ -4564,13 +4565,12 @@ def main():
                             },
                         )
                         cluster_mode = _control_mode("RISK_CLUSTER_GATE_MODE")
-                        symbol_caps = {
-                            symbol: min(
-                                safe_cap,
-                                allocations.get(symbol, safe_cap),
-                            )
-                            for symbol in symbols
-                        }
+                        symbol_caps = clamp_symbol_order_caps(
+                            symbols, safe_order_cap=safe_cap,
+                            allocations=allocations,
+                            exposures=snapshot.symbol_exposure_usdt, hard_caps=limits.managed_inventory_caps_usdt,
+                            possible_orders_per_symbol=args.target_buy_per_symbol,
+                        )
                         if cluster_mode == "APPLY":
                             cluster_apply_allowed = all(
                                 _strategy_control_apply_allowed(

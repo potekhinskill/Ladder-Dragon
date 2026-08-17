@@ -493,6 +493,25 @@ def freeze_experiment(
             for row in selected_rows
         ):
             raise ValueError("selection fingerprint differs from selected candidate")
+        # Freeze is an irreversible boundary. A complete cohort is necessary,
+        # but it is not sufficient unless the preregistered selection gate passed.
+        from ladder_dragon.strategy.prediction.experiments import (
+            shadow_variant_report,
+        )
+        selection_report = shadow_variant_report(
+            store,
+            symbol=symbol,
+            variants=variants,
+            before_ts_ms=cutoff,
+            resolved_before_ts_ms=frozen_at,
+            generation=generation,
+            horizons_min=required,
+        )
+        selected_report = selection_report["variants"].get(
+            selected_variant.variant_id, {}
+        )
+        if not bool(selected_report.get("selection_gate_passed")):
+            raise ValueError("selected candidate did not pass the selection gate")
         manifest = {
             "schema_version": MANIFEST_SCHEMA_VERSION,
             "experiment_id": identifier,
@@ -514,6 +533,8 @@ def freeze_experiment(
                 "independence_spacing_ms"
             ],
             "selection_rule": "explicit_operator_choice_after_configuration_holm_review",
+            "selection_gate_passed": True,
+            "selection_gate_policy": "walk_forward_configuration_holm_v1",
             "selection_experiment_id": cohort,
             "selection_end_ts_ms": cutoff,
             "frozen_at_ms": frozen_at,

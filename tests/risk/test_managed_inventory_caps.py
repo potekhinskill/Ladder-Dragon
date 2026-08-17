@@ -1,6 +1,11 @@
 from decimal import Decimal
 
 from ladder_dragon.risk.risk_manager import RiskLimits, RiskManager, RiskSnapshot
+from ladder_dragon.risk.inventory_caps import (
+    clamp_symbol_order_caps,
+    open_buy_notional,
+    remaining_inventory_budget,
+)
 
 
 D = Decimal
@@ -66,3 +71,33 @@ def test_symbol_inventory_below_cap_remains_eligible(tmp_path):
     )
 
     assert decision.buy_blocked is False
+
+
+def test_inventory_budget_includes_holdings_and_unfilled_buy_commitments():
+    open_notional = open_buy_notional([{
+        "side": "BUY",
+        "price": "10",
+        "origQty": "1",
+        "executedQty": "0.4",
+    }])
+
+    assert open_notional == D("6.0")
+    assert remaining_inventory_budget(
+        hard_cap_quote="30",
+        held_base_quantity="2",
+        market_price="10",
+        open_buy_notional_quote=open_notional,
+    ) == D("4.0")
+
+
+def test_batch_cap_reserves_remaining_inventory_across_all_slots():
+    caps = clamp_symbol_order_caps(
+        ["SOLUSDT"],
+        safe_order_cap=D("10"),
+        allocations={"SOLUSDT": D("10")},
+        exposures={"SOLUSDT": D("29.99")},
+        hard_caps={"SOLUSDT": D("30")},
+        possible_orders_per_symbol=2,
+    )
+
+    assert caps == {"SOLUSDT": D("0.005")}

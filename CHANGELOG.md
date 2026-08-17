@@ -3,6 +3,28 @@
 All notable changes are documented here. Releases use Semantic Versioning; every
 section is dated and there is intentionally no `Unreleased` section.
 
+## [2.20.219] — 2026-08-17
+
+### Fixed
+- The implementation status now identifies the release that contains the documented behavior.
+- Safety comments now explain statistical independence, control isolation, and absolute inventory CAP boundaries.
+- Statistical gates stream the full journal and retain a bounded independent prefix.
+- Each LIVE BUY rechecks the remaining symbol inventory CAP before exchange submission.
+- Experiment freeze now requires a passed selection report.
+
+### Changed
+- Inventory evidence now uses tail loss and drawdown instead of absolute PnL superiority.
+- Maker promotion stays blocked until evidence models maker fills and missed fills.
+- Statistical reports now show the minimum possible calendar duration.
+
+### Security
+- A stale risk snapshot cannot authorize an order that crosses the absolute symbol inventory CAP.
+- A complete but failed selection cohort cannot enter confirmation.
+
+### Verified
+- All 1,241 project tests pass.
+- The compilation, documentation contract, and Technical English checks pass.
+
 ## [2.20.218] — 2026-08-17
 
 ### Changed

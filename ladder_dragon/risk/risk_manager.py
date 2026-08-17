@@ -118,6 +118,8 @@ class RiskLimits:
     def from_mapping(cls, environ: Mapping[str, str]) -> "RiskLimits":
         """Build limits only from the explicitly supplied environment."""
         run_dir = Path(environ.get("BOT_RUN_DIR", "/run/mybot"))
+        # Require one explicit CAP per symbol. The deprecated account-wide
+        # value cannot silently authorize an execution symbol.
         cap_prefix = "RISK_MANAGED_INVENTORY_HARD_CAP_"
         managed_caps = {
             name[len(cap_prefix):].upper(): money(value)
@@ -578,6 +580,8 @@ class RiskManager:
                                  if streak >= symbol_limit)
         if blocked_symbols:
             block_reasons.append("symbol loss streak limit reached: " + ",".join(blocked_symbols))
+        # This absolute CAP is a Risk Manager boundary. Optional inventory
+        # skew can reduce order size but cannot disable this check.
         for symbol, exposure in sorted(snapshot.symbol_exposure_usdt.items()):
             cap = self.limits.managed_inventory_caps_usdt.get(symbol)
             if cap is None:
