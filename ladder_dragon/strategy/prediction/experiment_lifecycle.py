@@ -13,6 +13,7 @@ import time
 from typing import Iterable, Mapping, Sequence, TYPE_CHECKING
 
 from ladder_dragon.strategy.prediction.confirmation_statistics import (
+    DEFAULT_CONFIRMATION_CRITERIA,
     DecisionEvidence,
     block_confirmation_gate,
     drawdown,
@@ -47,19 +48,7 @@ ALLOWED_TRANSITIONS = {
     "SUPERSEDED": frozenset(),
     "BLOCKED": frozenset({"SUPERSEDED"}),
 }
-DEFAULT_CRITERIA = {
-    "min_independent_samples": 120,
-    "min_regime_samples": 20,
-    "min_fill_rate": "0.10",
-    "max_drawdown_quote": "25",
-    "window_method": "fixed_non_overlapping_decision_blocks",
-    "window_size_decisions": 12,
-    "required_complete_windows": 10,
-    # Nine positive blocks permit one isolated adverse interval.
-    "minimum_positive_windows": 9,
-    "maximum_consecutive_negative_windows": 1,
-    "embargo_ms": 900_000,
-}
+DEFAULT_CRITERIA = DEFAULT_CONFIRMATION_CRITERIA
 
 
 def canonical_json(value: object) -> str:

@@ -163,7 +163,8 @@ def _frozen(tmp_path: Path):
     cohort = selection_experiment_id(SHADOW_GENERATION, "SOLUSDT")
     regimes = ("TREND_UP", "TREND_DOWN", "RANGE", "PANIC")
     snapshot = 59_999
-    for index in range(150):
+    # Selection needs 60 independent training snapshots and 120 evaluations.
+    for index in range(180):
         snapshot = 59_999 + index * CONFIRMATION_SPACING_MS
         for variant in variants:
             decision_id = _record(

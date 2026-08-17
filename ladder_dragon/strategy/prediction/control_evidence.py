@@ -7,6 +7,7 @@ from __future__ import annotations
 
 from dataclasses import replace
 from decimal import Decimal
+import json
 from typing import Mapping
 
 from ladder_dragon.strategy.prediction.models import PredictionFeatures, TradePlan
@@ -17,11 +18,41 @@ from ladder_dragon.strategy.prediction.runtime import (
 
 
 CONTROL_KINDS: Mapping[str, str] = {
-    "expectancy": "CONTROL_EXPECTANCY",
-    "inventory": "CONTROL_INVENTORY",
-    "maker": "CONTROL_MAKER",
-    "regime": "CONTROL_REGIME",
+    "expectancy": "CONTROL_EXPECTANCY_V2",
+    "inventory": "CONTROL_INVENTORY_V2",
+    "maker": "CONTROL_MAKER_V2",
+    "regime": "CONTROL_REGIME_V2",
 }
+
+
+def _control_metadata(
+    control: str, baseline: TradePlan, candidate: TradePlan
+) -> dict[str, object]:
+    """Describe whether one control changed its pre-outcome plan."""
+    fields = {
+        "expectancy": "take_profit_price",
+        "inventory": (
+            "entry_enabled"
+            if candidate.entry_enabled != baseline.entry_enabled
+            else "notional_quote"
+        ),
+        "maker": "slippage_pct",
+        "regime": "entry_enabled",
+    }
+    field = fields[control]
+    before = getattr(baseline, field)
+    after = getattr(candidate, field)
+    binding = candidate != baseline
+    return {
+        "binding": binding,
+        "control": control,
+        "field": field,
+        "from": str(before).lower() if isinstance(before, bool) else format(before, "f"),
+        "reason": "plan_changed" if binding else "no_plan_change",
+        "rule": "v2",
+        "to": str(after).lower() if isinstance(after, bool) else format(after, "f"),
+        "baseline_notional_quote": format(baseline.notional_quote, "f"),
+    }
 
 
 def _candidate_plans(
@@ -83,6 +114,10 @@ def record_control_evidence(
         regime_buys_allowed=regime_buys_allowed,
     ).items():
         kind = CONTROL_KINDS[control]
+        metadata = _control_metadata(control, baseline_plan, plan)
+        encoded_metadata = json.dumps(
+            metadata, sort_keys=True, separators=(",", ":")
+        )
         history = store.resolved_samples(
             symbol, before_ts_ms=features.snapshot_ts_ms, kind=kind
         )
@@ -94,7 +129,7 @@ def record_control_evidence(
             plan=plan,
             baseline_plan=baseline_plan,
             predictions=predictions,
-            algorithm_decision=f"control={control};rule=v1",
+            algorithm_decision=encoded_metadata,
         ))
     return tuple(identifiers)
 

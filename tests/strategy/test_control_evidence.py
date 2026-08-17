@@ -1,4 +1,5 @@
 from decimal import Decimal
+import json
 
 import pytest
 
@@ -89,6 +90,43 @@ def test_each_execution_control_records_a_separate_counterfactual(monkeypatch):
     assert {row["kind"] for row in records} == set(CONTROL_KINDS.values())
     assert all(row["baseline_plan"] is baseline for row in records)
     assert len({row["algorithm_decision"] for row in records}) == 4
+    metadata = [json.loads(row["algorithm_decision"]) for row in records]
+    assert all(row["binding"] is True for row in metadata)
+    assert all(row["reason"] == "plan_changed" for row in metadata)
+    assert {row["field"] for row in metadata} == {
+        "take_profit_price", "notional_quote", "slippage_pct", "entry_enabled"
+    }
+
+
+def test_unchanged_control_is_recorded_as_nonbinding(monkeypatch):
+    records = []
+
+    class Store:
+        def resolved_samples(self, *_args, **_kwargs):
+            return []
+
+        def record(self, **kwargs):
+            records.append(kwargs)
+            return kwargs["kind"]
+
+    monkeypatch.setattr(
+        "ladder_dragon.strategy.prediction.control_evidence.predict_distribution",
+        lambda *_args, **_kwargs: (),
+    )
+    baseline = _plan()
+    record_control_evidence(
+        Store(), symbol="SOLUSDT", features=_features(),
+        baseline_plan=baseline, required_edge_pct=None,
+        inventory_scale=D("1"), regime_buys_allowed=True,
+    )
+
+    metadata = {
+        row["kind"]: json.loads(row["algorithm_decision"])
+        for row in records
+    }
+    assert metadata[CONTROL_KINDS["expectancy"]]["binding"] is False
+    assert metadata[CONTROL_KINDS["inventory"]]["binding"] is False
+    assert metadata[CONTROL_KINDS["regime"]]["binding"] is False
 
 
 def test_one_control_approval_cannot_authorize_another_control():

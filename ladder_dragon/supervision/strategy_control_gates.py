@@ -61,11 +61,7 @@ def control_gate(
                 samples = store.resolved_samples(
                     symbol, kind=CONTROL_KINDS[normalized]
                 )
-            if normalized == "expectancy":
-                result = dict(report_builder(samples)["gate"])
-                result["policy"] = "expectancy_control_v1"
-            else:
-                result = control_specific_gate(normalized, samples)
+            result = control_specific_gate(normalized, samples)
             if evidence is not None:
                 result["statistical_reader"] = {
                     "scanned_snapshots": evidence.scanned_snapshots,

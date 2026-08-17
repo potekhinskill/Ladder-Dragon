@@ -1803,3 +1803,24 @@ private infrastructure details.
 - **Root cause:** the Risk Manager compared current exposure without reserving the proposed order.
 - **Correction:** clamp batch budgets and recheck authoritative inventory immediately before POST.
 - **Prevention:** test each absolute CAP with exposure just below its boundary and a larger proposed mutation.
+
+### 2026-08-18 — Continued a BUY batch after uncertain submission
+
+- **Impact:** a later BUY could be submitted before the accepted quantity of the first BUY was known.
+- **Root cause:** the batch treated all placement exceptions as level-local failures.
+- **Correction:** raise a typed uncertainty for LIMIT and OTOCO, then stop the batch immediately.
+- **Prevention:** test that a lost acknowledgement permits exactly one mutation attempt per batch.
+
+### 2026-08-18 — Counted horizons as training samples
+
+- **Impact:** adding outcome horizons shortened cold-start training without adding independent market information.
+- **Root cause:** the walk-forward counter advanced for each resolved row instead of each decision timestamp.
+- **Correction:** purge overlapping timestamps and count each retained timestamp once.
+- **Prevention:** define the statistical unit before setting every sample threshold.
+
+### 2026-08-18 — Mixed binding and no-op control evidence
+
+- **Impact:** unchanged plans could dilute an effect estimate or appear to support control promotion.
+- **Root cause:** control records did not state whether the candidate changed the baseline plan.
+- **Correction:** store exact binding metadata and evaluate binding and full cohorts separately.
+- **Prevention:** every counterfactual control record must identify its changed field and pre-outcome reason.

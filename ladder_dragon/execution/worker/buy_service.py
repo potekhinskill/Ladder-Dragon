@@ -14,6 +14,7 @@ from typing import Any, List, Mapping, Optional
 
 import requests
 
+from ladder_dragon.execution.orders.reconciliation import UncertainOrderSubmission
 from ladder_dragon.execution.trade_accounting import DEFAULT_SPOT_FEE_PCT
 from ladder_dragon.risk.inventory_caps import (
     open_buy_notional,
@@ -487,6 +488,15 @@ def place_buys(symbol: str,
                 # Deduplicate by the already rounded price.
                 existing_buy_prices.add(pr)
             append_trace(trace)
+        except UncertainOrderSubmission as exc:
+            # One unknown mutation invalidates every later inventory decision.
+            # Stop this batch before another BUY can cross the absolute CAP.
+            append_trace(trace)
+            log(
+                f"[BUY-BATCH-HALT] {symbol} price={fmt_price_sym(symbol, pr)} "
+                f"reason={type(exc).__name__}"
+            )
+            break
         except (requests.RequestException, RuntimeError, ValueError, OSError) as exc:
             log(
                 f"[BUY-PLACE-ERR] {symbol} price={fmt_price_sym(symbol, pr)} "

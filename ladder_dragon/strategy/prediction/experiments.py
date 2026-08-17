@@ -17,6 +17,10 @@ from ladder_dragon.strategy.prediction.approval import (
     configuration_edge_p_value,
     holm_configuration_correction,
 )
+from ladder_dragon.strategy.prediction.confirmation_statistics import (
+    DEFAULT_CONFIRMATION_CRITERIA,
+    validate_confirmation_criteria,
+)
 from ladder_dragon.strategy.prediction.experiment_config import (
     SOL_V14_SPEC,
     configured_entry_gap_bps,
@@ -290,6 +294,10 @@ def shadow_variant_report(
         )
     configuration_holm = holm_configuration_correction(p_values)
     reports: dict[str, object] = {}
+    confirmation_design = validate_confirmation_criteria(
+        DEFAULT_CONFIRMATION_CRITERIA,
+        required_horizons_min=horizons_min,
+    )
     for variant_id, (
         variant,
         samples,
@@ -323,6 +331,19 @@ def shadow_variant_report(
             ),
             "resolved_horizon_samples": len(samples),
             "independent_samples": int(gate.get("independent_samples", 0)),
+            "available_independent_samples": int(
+                gate.get("available_independent_samples", 0)
+            ),
+            "training_independent_samples": int(
+                gate.get("training_independent_samples", 0)
+            ),
+            "evaluated_independent_samples": int(
+                gate.get("evaluated_independent_samples", 0)
+            ),
+            "required_total_independent_samples": int(
+                gate.get("required_total_independent_samples", 0)
+            ),
+            "estimated_ready_ts_ms": gate.get("estimated_ready_ts_ms"),
             "outcomes": outcome_counts,
             "statistical_reader": (
                 {
@@ -412,6 +433,16 @@ def shadow_variant_report(
             "lookahead": False,
         }
     )
+    selection_minimum_duration_ms = max(
+        (
+            int(row["gate"].get("minimum_calendar_duration_ms", 0))
+            for row in reports.values()
+        ),
+        default=0,
+    )
+    confirmation_minimum_duration_ms = int(
+        confirmation_design["minimum_calendar_duration_ms"]
+    )
     return {
         "schema_version": 2,
         "mode": "SHADOW",
@@ -422,6 +453,15 @@ def shadow_variant_report(
         ),
         "baseline": "current_strategy_plan",
         "same_snapshot": True,
+        "calendar_plan": {
+            "selection_minimum_duration_ms": selection_minimum_duration_ms,
+            "confirmation_minimum_duration_ms": confirmation_minimum_duration_ms,
+            "end_to_end_minimum_duration_ms": (
+                selection_minimum_duration_ms + confirmation_minimum_duration_ms
+            ),
+            "embargo_ms": int(DEFAULT_CONFIRMATION_CRITERIA["embargo_ms"]),
+            "maximum_practical_duration_ms": 180 * 24 * 60 * 60_000,
+        },
         "can_change_orders": False,
         "selection_evidence": {
             "diagnostic_only": True,

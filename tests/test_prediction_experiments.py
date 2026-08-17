@@ -208,7 +208,16 @@ def test_variant_report_never_enables_apply(tmp_path: Path, monkeypatch):
         experiments,
         "walk_forward_prediction_report",
         lambda samples, **_kwargs: {
-            "gate": {"approved": True, "reasons": []},
+            "gate": {
+                "approved": True,
+                "reasons": [],
+                "available_independent_samples": 180,
+                "training_independent_samples": 60,
+                "evaluated_independent_samples": 120,
+                "required_total_independent_samples": 180,
+                "minimum_calendar_duration_ms": 1_000,
+                "estimated_ready_ts_ms": 2_000,
+            },
             "lookahead": False,
         },
     )
@@ -237,6 +246,14 @@ def test_variant_report_never_enables_apply(tmp_path: Path, monkeypatch):
     )
     assert report["confirmation_evidence"]["confirmation_status"] == "BLOCKED"
     assert report["first_gate_passed"] is False
+    assert report["calendar_plan"]["selection_minimum_duration_ms"] == 1_000
+    assert report["calendar_plan"]["confirmation_minimum_duration_ms"] > (
+        report["calendar_plan"]["embargo_ms"]
+    )
+    assert report["calendar_plan"]["end_to_end_minimum_duration_ms"] == (
+        report["calendar_plan"]["selection_minimum_duration_ms"]
+        + report["calendar_plan"]["confirmation_minimum_duration_ms"]
+    )
     maker = report["variants"]["v14_maker_ttl60_gap48"]
     assert maker["entry_order_type"] == "LIMIT_MAKER"
     assert maker["exit_order_type"] == "LIMIT_MAKER"

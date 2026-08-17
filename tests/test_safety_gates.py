@@ -53,19 +53,16 @@ def test_strategy_apply_requires_explicit_approval_and_statistical_gate(
     class Store:
         def resolved_samples(self, symbol, *, kind):
             assert symbol == "SOLUSDT"
-            assert kind == "CONTROL_EXPECTANCY"
+            assert kind == "CONTROL_EXPECTANCY_V2"
             return ["historical-only"]
 
     monkeypatch.setattr(ai_supervisor, "_PREDICTION_SHADOW", Store())
     monkeypatch.setattr(
-        ai_supervisor,
-        "walk_forward_prediction_report",
-        lambda samples: {
-            "gate": {
-                "approved": True,
-                "mode": "APPLY",
-                "reasons": [],
-            }
+        "ladder_dragon.supervision.strategy_control_gates.control_specific_gate",
+        lambda control, samples: {
+            "approved": control == "expectancy" and samples == ["historical-only"],
+            "mode": "APPLY",
+            "reasons": [],
         },
     )
     ai_supervisor._STRATEGY_CONTROL_GATE_CACHE.clear()

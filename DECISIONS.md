@@ -1458,3 +1458,24 @@ entries concise; this is not a changelog or an activity log.
 - **Decision:** reserve batch capacity in supervision and recheck balances plus open BUY orders before POST.
 - **Why it worked:** a 0.01 USDT remainder cannot authorize a minimum-notional BUY.
 - **Reuse:** every absolute exposure limit that controls a later exchange mutation.
+
+### 2026-08-18 — Stop a mutation batch after uncertain submission
+
+- **Context:** a lost acknowledgement leaves the accepted order and inventory commitment unknown.
+- **Decision:** raise one typed uncertainty and stop every later BUY in the current batch.
+- **Why it worked:** LIMIT and OTOCO tests prove that no second mutation follows an unresolved submission.
+- **Reuse:** every mutation batch where one unknown result invalidates later capacity decisions.
+
+### 2026-08-18 — Count walk-forward training by independent timestamp
+
+- **Context:** one decision produces multiple outcome horizons but represents one market snapshot.
+- **Decision:** purge overlap first, then count each retained timestamp once for training and evaluation.
+- **Why it worked:** changing the number of horizons no longer changes cold-start sample meaning.
+- **Reuse:** every multi-horizon time-series experiment with one decision per timestamp.
+
+### 2026-08-18 — Separate binding effects from full-cohort safety
+
+- **Context:** no-op control rows diluted measured effects but still represented operational safety.
+- **Decision:** measure control benefit on binding rows and enforce non-inferiority on all rows.
+- **Why it worked:** no-op rows cannot prove an effect, while they remain visible to safety checks.
+- **Reuse:** every conditional control that changes only some baseline decisions.

@@ -365,7 +365,7 @@ def place_limit_order(
             )
         except (AttributeError, TypeError, ValueError):
             dependencies.logger(f"[ERR] place_limit_order: {exc}")
-        raise
+        raise active_reconciliation.UncertainOrderSubmission("uncertain LIMIT") from exc
 
 
 def place_market_order(
@@ -1312,7 +1312,7 @@ def place_otoco_buy(
                         symbol=symbol,
                         client_order_id=list_client_id,
                     )
-                    raise RuntimeError(
+                    raise active_reconciliation.UncertainOrderSubmission(
                         "OTOCO verification failed after submission"
                     ) from verify_exc
                 record_verified_otoco(
@@ -1332,4 +1332,4 @@ def place_otoco_buy(
                 symbol=symbol,
                 client_order_id=list_client_id,
             )
-        raise
+        raise active_reconciliation.UncertainOrderSubmission("uncertain OTOCO") from exc

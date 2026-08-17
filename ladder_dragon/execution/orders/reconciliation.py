@@ -14,6 +14,10 @@ from ladder_dragon.execution.order_recovery import OrderJournal
 Result = TypeVar("Result")
 
 
+class UncertainOrderSubmission(RuntimeError):
+    """Stop a mutation batch when Binance cannot confirm a submitted order."""
+
+
 def reconcile_active_intent(
     client_order_id: str,
     *,

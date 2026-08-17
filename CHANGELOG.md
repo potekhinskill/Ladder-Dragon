@@ -3,6 +3,27 @@
 All notable changes are documented here. Releases use Semantic Versioning; every
 section is dated and there is intentionally no `Unreleased` section.
 
+## [2.20.220] — 2026-08-18
+
+### Added
+- SHADOW control evidence now records binding state, the changed field, exact values, and the application reason.
+- Statistical reports show raw, available, training, evaluated, and required snapshot counts with a readiness estimate.
+- Rare-regime reachability reports forecast whether predeclared coverage can finish within 180 days.
+
+### Changed
+- Walk-forward cold-start training now counts independent timestamps instead of outcome-horizon rows.
+- Control approval measures effects on binding cohorts and safety on complete cohorts.
+- Maker promotion now reports `NOT_IMPLEMENTED` until execution and missed-fill evidence exists.
+
+### Security
+- An uncertain LIMIT or OTOCO submission stops the complete BUY batch before another exchange mutation.
+- Contradictory control metadata and negative confirmation embargoes now fail closed.
+- Confirmation calendar reports include cold-start training, outcome horizons, embargo, and confirmation evidence.
+
+### Verified
+- All 1,251 project tests pass.
+- Compilation, architecture budgets, documentation contracts, and Technical English checks pass.
+
 ## [2.20.219] — 2026-08-17
 
 ### Fixed

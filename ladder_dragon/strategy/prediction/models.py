@@ -6,6 +6,8 @@
 
 from dataclasses import dataclass
 from decimal import Decimal
+import json
+from typing import Mapping
 
 
 @dataclass(frozen=True)
@@ -116,3 +118,15 @@ class ResolvedSample:
     horizon_min: int
     outcome: PredictionOutcome
     baseline_net_pnl_quote: Decimal
+    decision_metadata: Mapping[str, object] | None = None
+
+
+def decision_metadata(raw: str) -> Mapping[str, object] | None:
+    """Return structured decision metadata, or none for historical text records."""
+    if not raw.startswith("{"):
+        return None
+    try:
+        value = json.loads(raw)
+    except (TypeError, ValueError):
+        return None
+    return value if isinstance(value, dict) else None

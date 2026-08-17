@@ -6,6 +6,7 @@ import requests
 
 from ladder_dragon.execution.binance_transport import BinanceResponseError
 from ladder_dragon.execution.order_recovery import OrderJournal
+from ladder_dragon.execution.orders.reconciliation import UncertainOrderSubmission
 from tests.support.module_loaders import load_worker
 
 
@@ -333,7 +334,7 @@ def test_uncertain_unconfirmed_post_trips_persistent_halt(tmp_path, monkeypatch)
     monkeypatch.setattr(worker, "_signed_request", signed)
     try:
         worker.place_limit_order("BUY", "SOLUSDT", 0.1, 100.0)
-    except requests.ConnectionError:
+    except UncertainOrderSubmission:
         pass
     else:
         raise AssertionError("uncertain submission must fail closed")

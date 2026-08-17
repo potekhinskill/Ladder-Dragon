@@ -11,7 +11,11 @@ def test_shadow_experiments_are_collapsed_and_use_safe_runtime_fields():
 
     assert '<details class="shadow-experiments"' in index
     assert "function updateShadowExperiments(prediction)" in script
-    assert "row.independent_samples" in script
+    assert "row.available_independent_samples" in script
+    assert "row.training_independent_samples" in script
+    assert "row.evaluated_independent_samples" in script
+    assert "row.required_total_independent_samples" in script
+    assert "row.estimated_ready_ts_ms" in script
     assert "outcomes.overdue" in script
     assert "row.configuration_holm_passed" in script
     assert "report.eligible_for_second_gate_review" in script
@@ -31,6 +35,12 @@ def test_shadow_experiments_are_collapsed_and_use_safe_runtime_fields():
         "shadow_experiment_summary",
         "shadow_generation_progress",
         "shadow_samples",
+        "shadow_raw",
+        "shadow_available",
+        "shadow_training",
+        "shadow_evaluated",
+        "shadow_required_total",
+        "shadow_ready_eta",
         "shadow_outcomes",
         "shadow_overdue",
         "shadow_fill",

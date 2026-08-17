@@ -1,6 +1,6 @@
 # Implementation status
 
-This document describes the code in version **2.20.219**.
+This document describes the code in version **2.20.220**.
 It does not describe future plans as completed work.
 
 An implemented function is not automatically approved for LIVE use.
@@ -36,7 +36,7 @@ The example configuration uses these modes:
 | --- | --- |
 | Adaptive re-anchor | `OFF`; transformed BUY ranks remain unique |
 | Expectancy control | `SHADOW` |
-| Maker policy | `SHADOW` |
+| Maker policy | `NOT_IMPLEMENTED`; promotion requires a maker execution model |
 | Regime gate | `SHADOW` |
 | Inventory skew | `SHADOW` |
 | Statistical regime | `SHADOW` |
@@ -97,14 +97,17 @@ The report is read-only and finalization requires its reviewed SHA-256.
 The existing 120-sample statistical requirements remain unchanged.
 The freeze command rejects criteria that cannot satisfy their tests.
 Reports show the minimum calendar duration for the configured horizons.
-The duration excludes additional time needed for rare market regimes.
+The duration includes cold-start training, evaluation, outcomes, embargo, and confirmation.
+Reports forecast rare-regime coverage from pre-outcome decision frequencies.
+An impractical regime forecast blocks approval without changing the criteria.
 Promotion recomputes old confirmations with the current statistical method.
 
 The first gate evaluates the complete candidate strategy.
 All active candidates use the same entry scope.
 The active-entry diagnostic therefore uses the same cohort.
 
-Prediction training uses the latest 1,000 decisions for each candidate.
+Prediction training requires 60 independent snapshots for each candidate.
+Multiple outcome horizons from one snapshot count as one training unit.
 Statistical gates stream the complete journal in append order.
 They retain no more than 512 independent snapshots in memory.
 Classified lifecycle evidence remains append-only in SQLite.
@@ -112,6 +115,14 @@ Automated retention does not delete classified lifecycle evidence.
 
 New plan semantics use a new experiment identifier.
 Historical experiment rows remain available and never mix with the active generation.
+
+Control evidence records whether each control changed its baseline plan.
+Binding cohorts measure control effects.
+Full cohorts enforce safety and non-inferiority.
+Inventory approval uses binding tail loss and drawdown.
+Expectancy approval requires positive binding edge and net expectancy.
+Regime approval also requires full-cohort regime coverage.
+Maker promotion remains unavailable until evidence stores fills, missed fills, queue state, and adverse selection.
 
 Attributed AI fills store monetary values as exact text.
 Each fill records whether its slippage value is verified.

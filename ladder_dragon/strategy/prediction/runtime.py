@@ -26,7 +26,7 @@ from ladder_dragon.strategy.prediction.models import (
     PredictionFeatures,
     PredictionOutcome,
     ResolvedSample,
-    TradePlan,
+    TradePlan, decision_metadata,
 )
 
 
@@ -663,7 +663,7 @@ class PredictionShadowStore:
                     decision_id, PREDICTION_SCHEMA_VERSION, normalized_kind,
                     symbol.upper(), features.snapshot_ts_ms, feature_json,
                     plan_json, baseline_json, prediction_json,
-                    algorithm_decision[:160], now_ms,
+                    algorithm_decision, now_ms,
                     normalized_experiment_id, role,
                     candidate_fingerprint, baseline_fingerprint,
                 ),
@@ -1152,7 +1152,7 @@ class PredictionShadowStore:
         evidence_role: str | None = None,
     ) -> list[ResolvedSample]:
         query = """WITH recent AS (
-                       SELECT decision_id,snapshot_ts_ms,feature_json
+                       SELECT decision_id,snapshot_ts_ms,feature_json,algorithm_decision
                        FROM prediction_decisions
                        WHERE symbol=? AND kind=?"""
         normalized_kind = kind.upper()
@@ -1174,8 +1174,8 @@ class PredictionShadowStore:
         query += """ ORDER BY rowid DESC
                        LIMIT ?
                    )
-                   SELECT d.snapshot_ts_ms,d.feature_json,o.horizon_min,
-                          o.outcome_json,o.baseline_outcome_json
+                   SELECT d.snapshot_ts_ms,d.feature_json,d.algorithm_decision,
+                          o.horizon_min,o.outcome_json,o.baseline_outcome_json
                    FROM recent d
                    JOIN prediction_outcomes o ON o.decision_id=d.decision_id
                    WHERE o.outcome_json IS NOT NULL"""
@@ -1186,7 +1186,7 @@ class PredictionShadowStore:
         with self._connect() as connection:
             rows = connection.execute(query, params).fetchall()
         output = []
-        for snapshot, feature_json, horizon, outcome_json, baseline_json in rows:
+        for snapshot, feature_json, decision, horizon, outcome_json, baseline_json in rows:
             features = json.loads(feature_json)
             outcome = self._outcome(outcome_json)
             baseline = self._baseline_outcome(
@@ -1198,12 +1198,12 @@ class PredictionShadowStore:
                 horizon_min=int(horizon),
                 outcome=outcome,
                 baseline_net_pnl_quote=baseline.net_pnl_quote,
+                decision_metadata=decision_metadata(str(decision)),
             ))
         return sorted(
             output,
             key=lambda item: (item.snapshot_ts_ms, item.horizon_min),
         )
-
     def outcome_status_counts(
         self,
         symbol: str,

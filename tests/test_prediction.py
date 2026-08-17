@@ -569,7 +569,9 @@ def test_walk_forward_and_apply_gate_are_chronological_and_strict():
             ))
 
     gate = prediction_apply_gate(samples)
-    report = walk_forward_prediction_report(samples, min_train_samples=12)
+    report = walk_forward_prediction_report(
+        samples, min_train_independent_snapshots=12
+    )
 
     assert gate["approved"] is True
     assert gate["mode"] == "APPLY"
@@ -641,10 +643,10 @@ def test_walk_forward_gate_excludes_cold_start_samples(monkeypatch):
             D("0.001"),
             30,
             "TP",
-            index * 60_000 + 60_000,
+                index * 60_001 + 60_000,
         )
         samples.append(ResolvedSample(
-            snapshot_ts_ms=index * 60_000,
+            snapshot_ts_ms=index * 60_001,
             regime="RANGE",
             horizon_min=1,
             outcome=outcome,
@@ -664,11 +666,12 @@ def test_walk_forward_gate_excludes_cold_start_samples(monkeypatch):
 
     report = walk_forward_module.walk_forward_prediction_report(
         samples,
-        min_train_samples=2,
+        min_train_independent_snapshots=2,
+        required_horizons_min=(1,),
     )
 
-    assert [row.snapshot_ts_ms for row in gated] == [120_000, 180_000]
+    assert [row.snapshot_ts_ms for row in gated] == [120_002, 180_003]
     assert [row["snapshot_ts_ms"] for row in report["evaluated"]] == [
-        120_000,
-        180_000,
+        120_002,
+        180_003,
     ]

@@ -1,9 +1,11 @@
+from dataclasses import replace
 from decimal import Decimal
 
 import pytest
 
 from ladder_dragon.strategy.prediction import PredictionOutcome, ResolvedSample
 from ladder_dragon.strategy.prediction.approval import prediction_apply_gate
+from ladder_dragon.strategy.prediction.approval import regime_reachability_report
 from ladder_dragon.strategy.prediction.confirmation_statistics import (
     validate_confirmation_criteria,
 )
@@ -79,3 +81,54 @@ def test_holm_requirements_must_be_reachable_by_predeclared_blocks():
         validate_confirmation_criteria(
             criteria, required_horizons_min=(300, 360)
         )
+
+
+def test_rare_regime_projection_blocks_impractical_design():
+    samples = [
+        _sample(index * 21_900_000, horizon)
+        for index in range(20)
+        for horizon in (300, 360)
+    ]
+
+    report = regime_reachability_report(
+        samples, required_horizons_min=(300, 360)
+    )
+
+    assert report["status"] == "READY"
+    assert report["practically_reachable"] is False
+    assert report["regimes"]["PANIC"]["observed"] == 0
+    assert report["outcome_values_used"] is False
+
+
+def test_regime_projection_does_not_read_realized_outcomes():
+    samples = [
+        _sample(index * 21_900_000, horizon)
+        for index in range(20)
+        for horizon in (300, 360)
+    ]
+    changed = [
+        ResolvedSample(
+            row.snapshot_ts_ms, row.regime, row.horizon_min,
+            replace(row.outcome, net_pnl_quote=D("999")), D("-999"),
+        )
+        for row in samples
+    ]
+
+    assert regime_reachability_report(
+        samples, required_horizons_min=(300, 360)
+    ) == regime_reachability_report(
+        changed, required_horizons_min=(300, 360)
+    )
+
+
+def test_confirmation_calendar_includes_the_frozen_embargo():
+    report = validate_confirmation_criteria(
+        DEFAULT_CRITERIA, required_horizons_min=(300, 360)
+    )
+    without_embargo = (
+        119 * report["independence_spacing_ms"] + 360 * 60_000
+    )
+
+    assert report["minimum_calendar_duration_ms"] == (
+        without_embargo + DEFAULT_CRITERIA["embargo_ms"]
+    )

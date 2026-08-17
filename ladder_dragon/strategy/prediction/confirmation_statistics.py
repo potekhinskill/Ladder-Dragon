@@ -23,6 +23,18 @@ from ladder_dragon.strategy.prediction.statistical_units import (
 
 D = Decimal
 ZERO = D("0")
+DEFAULT_CONFIRMATION_CRITERIA = {
+    "min_independent_samples": 120,
+    "min_regime_samples": 20,
+    "min_fill_rate": "0.10",
+    "max_drawdown_quote": "25",
+    "window_method": "fixed_non_overlapping_decision_blocks",
+    "window_size_decisions": 12,
+    "required_complete_windows": 10,
+    "minimum_positive_windows": 9,
+    "maximum_consecutive_negative_windows": 1,
+    "embargo_ms": 900_000,
+}
 
 
 def minimum_sign_blocks(hypothesis_count: int, *, alpha: float = 0.05) -> int:
@@ -49,6 +61,7 @@ def validate_confirmation_criteria(
     minimum_regime = int(criteria["min_regime_samples"])
     minimum_positive = int(criteria["minimum_positive_windows"])
     maximum_negative = int(criteria["maximum_consecutive_negative_windows"])
+    embargo_ms = int(criteria["embargo_ms"])
     if size <= 0 or windows <= 0:
         raise ValueError("confirmation windows must be positive")
     if minimum_samples <= 0 or minimum_regime <= 0:
@@ -61,6 +74,8 @@ def validate_confirmation_criteria(
         raise ValueError("positive-window requirement is impossible")
     if not 0 <= maximum_negative <= windows:
         raise ValueError("negative-window requirement is impossible")
+    if embargo_ms < 0:
+        raise ValueError("confirmation embargo must be non-negative")
     hypotheses = len(tuple(required_horizons_min)) + 4
     required_sign_blocks = minimum_sign_blocks(hypotheses)
     if windows < required_sign_blocks:
@@ -72,6 +87,7 @@ def validate_confirmation_criteria(
         "minimum_calendar_duration_ms": (
             max(0, minimum_samples - 1) * spacing
             + max(int(value) for value in required_horizons_min) * 60_000
+            + embargo_ms
         ),
     }
 

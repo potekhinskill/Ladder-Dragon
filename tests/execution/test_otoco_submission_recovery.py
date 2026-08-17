@@ -10,6 +10,7 @@ import requests
 from ladder_dragon.execution.binance_transport import BinanceResponseError
 from ladder_dragon.execution.order_recovery import OrderJournal
 from ladder_dragon.execution.orders.runtime import OrderDependencies, place_otoco_buy
+from ladder_dragon.execution.orders.reconciliation import UncertainOrderSubmission
 
 
 def _dependencies(journal, *, submit, reconcile, lookup, halts):
@@ -144,3 +145,22 @@ def test_definitive_otoco_rejection_fails_working_and_list_intents(tmp_path):
 
     assert journal.get(submitted["workingClientOrderId"]).state == "FAILED"
     assert journal.get(submitted["listClientOrderId"]).state == "FAILED"
+
+
+def test_unconfirmed_otoco_raises_batch_stopping_uncertainty(tmp_path):
+    journal = OrderJournal(tmp_path / "orders.sqlite3")
+    halts = []
+    dependencies = _dependencies(
+        journal,
+        submit=lambda *_args, **_kwargs: (_ for _ in ()).throw(
+            requests.Timeout("ACK unavailable")
+        ),
+        reconcile=lambda _client_id: None,
+        lookup=lambda _symbol, _client_id: None,
+        halts=halts,
+    )
+
+    with pytest.raises(UncertainOrderSubmission):
+        _place(dependencies)
+
+    assert halts == ["uncertain OTOCO submission has no exchange confirmation"]

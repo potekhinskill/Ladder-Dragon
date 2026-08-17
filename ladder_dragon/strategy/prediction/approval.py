@@ -6,7 +6,7 @@
 
 from __future__ import annotations
 
-from decimal import Decimal
+from decimal import Decimal, ROUND_CEILING
 import math
 import random
 from typing import Sequence
@@ -239,6 +239,7 @@ def prediction_apply_gate(
             + max(required_horizons) * 60_000
         ),
         "calendar_minimum_excludes_regime_wait": True,
+        "required_evaluation_independent_samples": min_independent_samples,
         "net_expectancy_ci": [format(ci[0], "f"), format(ci[1], "f")],
         "baseline_edge_ci": [format(edge_ci[0], "f"), format(edge_ci[1], "f")],
         "fill_rate": format(fill_rate, "f"),
@@ -247,10 +248,76 @@ def prediction_apply_gate(
         "hypotheses": hypothesis_report,
     }
 
+
+def regime_reachability_report(
+    samples: Sequence[ResolvedSample],
+    *,
+    required_horizons_min: Sequence[int],
+    minimum_per_regime: int = 20,
+    minimum_observations: int = 20,
+    maximum_duration_ms: int = 180 * 24 * 60 * 60_000,
+) -> dict[str, object]:
+    """Estimate regime coverage from pre-outcome decision frequencies."""
+    required_horizons = _validated_horizons(required_horizons_min)
+    grouped: dict[int, str] = {}
+    for sample in sorted(samples, key=lambda row: row.snapshot_ts_ms):
+        grouped.setdefault(sample.snapshot_ts_ms, sample.regime)
+    selected = non_overlapping_timestamps(
+        grouped, horizons_min=required_horizons
+    )
+    regimes = ("TREND_UP", "TREND_DOWN", "RANGE", "PANIC")
+    counts = {
+        regime: sum(grouped[timestamp] == regime for timestamp in selected)
+        for regime in regimes
+    }
+    observed = len(selected)
+    mature = observed >= minimum_observations
+    spacing = outcome_spacing_ms(required_horizons)
+    details: dict[str, object] = {}
+    reachable = mature
+    projected_total = observed
+    for regime in regimes:
+        count = counts[regime]
+        if count:
+            estimate = int(
+                (D(str(minimum_per_regime)) * D(str(observed)) / D(str(count)))
+                .to_integral_value(rounding=ROUND_CEILING)
+            )
+            duration = max(0, estimate - 1) * spacing + max(required_horizons) * 60_000
+            regime_reachable = duration <= maximum_duration_ms
+            projected_total = max(projected_total, estimate)
+        else:
+            estimate = None
+            duration = None
+            regime_reachable = not mature
+        if mature and not regime_reachable:
+            reachable = False
+        details[regime] = {
+            "observed": count,
+            "observed_fraction": (
+                format(D(str(count)) / D(str(observed)), "f") if observed else "0"
+            ),
+            "projected_required_independent_samples": estimate,
+            "projected_duration_ms": duration,
+            "reachable_within_limit": regime_reachable,
+        }
+    return {
+        "status": "READY" if mature else "INSUFFICIENT_HISTORY",
+        "observed_independent_samples": observed,
+        "minimum_observations": minimum_observations,
+        "minimum_per_regime": minimum_per_regime,
+        "maximum_duration_ms": maximum_duration_ms,
+        "projected_required_independent_samples": projected_total if mature else None,
+        "practically_reachable": reachable if mature else None,
+        "regimes": details,
+        "outcome_values_used": False,
+    }
+
 __all__ = [
     "bootstrap_mean_ci",
     "configuration_edge_p_value",
     "holm_configuration_correction",
     "paired_sign_p_value",
     "prediction_apply_gate",
+    "regime_reachability_report",
 ]

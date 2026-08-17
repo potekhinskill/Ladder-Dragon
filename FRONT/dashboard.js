@@ -479,9 +479,11 @@ function updateShadowExperiments(prediction){
         const gate=row.gate||{}, outcomes=row.outcomes||{}, ci=Array.isArray(gate.net_expectancy_ci)?gate.net_expectancy_ci:[];
         const regimes=gate.regime_counts&&typeof gate.regime_counts==='object'?Object.keys(gate.regime_counts).filter(key=>Number(gate.regime_counts[key])>0).length:0;
         const fill=Number(gate.fill_rate), low=Number(ci[0]), high=Number(ci[1]);
+        const available=Number(row.available_independent_samples||0), training=Number(row.training_independent_samples||0), evaluated=Number(row.evaluated_independent_samples||0), required=Number(row.required_total_independent_samples||0), readyAt=Number(row.estimated_ready_ts_ms);
         return `<div class="shadow-experiment-row">
           <div><strong>${esc(name.replace(new RegExp(`^${sourceGeneration}_`),'').replaceAll('_',' '))}</strong><span class="pill warn">${esc(tr('shadow_selection_only'))}</span></div>
-          <div class="muted">${esc(tr('shadow_samples'))}: ${Number(row.independent_samples||0)} · ${esc(tr('shadow_outcomes'))}: ${Number(outcomes.resolved||0)}/${Number(outcomes.total||0)} · ${esc(tr('shadow_pending'))}: ${Number(outcomes.future||0)+Number(outcomes.settling||0)} · ${esc(tr('shadow_overdue'))}: ${Number(outcomes.overdue||0)}</div>
+          <div class="muted">${esc(tr('shadow_raw'))}: ${Number(outcomes.cohort_snapshots||0)} · ${esc(tr('shadow_available'))}: ${available} · ${esc(tr('shadow_training'))}: ${training} · ${esc(tr('shadow_evaluated'))}: ${evaluated} · ${esc(tr('shadow_required_total'))}: ${required}</div>
+          <div class="muted">${esc(tr('shadow_ready_eta'))}: ${Number.isFinite(readyAt)?esc(tsShort(readyAt)):'—'} · ${esc(tr('shadow_outcomes'))}: ${Number(outcomes.resolved||0)}/${Number(outcomes.total||0)} · ${esc(tr('shadow_pending'))}: ${Number(outcomes.future||0)+Number(outcomes.settling||0)} · ${esc(tr('shadow_overdue'))}: ${Number(outcomes.overdue||0)}</div>
           <div class="muted">${esc(tr('shadow_fill'))}: ${Number.isFinite(fill)?fmt(fill*100,2)+'%':'—'} · CI: ${Number.isFinite(low)&&Number.isFinite(high)?`${fmt(low,6)}..${fmt(high,6)}`:'—'} · Holm: ${row.configuration_holm_passed?'PASS':'FAIL'} · ${esc(tr('shadow_regimes'))}: ${regimes}/4</div>
         </div>`;
       }).join(''):`<div class="muted">${esc(tr('no_data'))}</div>`;

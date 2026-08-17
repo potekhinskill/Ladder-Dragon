@@ -10,7 +10,7 @@ from dataclasses import dataclass
 import json
 from typing import Sequence
 
-from ladder_dragon.strategy.prediction.models import ResolvedSample
+from ladder_dragon.strategy.prediction.models import ResolvedSample, decision_metadata
 from ladder_dragon.strategy.prediction.statistical_units import outcome_spacing_ms
 
 
@@ -47,8 +47,8 @@ def resolved_independent_evidence(
         raise ValueError("maximum statistical snapshots must be positive")
     normalized_kind = str(kind).upper()
     query = """SELECT d.decision_id,d.snapshot_ts_ms,d.feature_json,
-                      o.horizon_min,o.outcome_json,o.baseline_outcome_json,
-                      o.resolved_at_ms
+                      d.algorithm_decision,o.horizon_min,o.outcome_json,
+                      o.baseline_outcome_json,o.resolved_at_ms
                FROM prediction_decisions d
                LEFT JOIN prediction_outcomes o ON o.decision_id=d.decision_id
                WHERE d.symbol=? AND d.kind=?"""
@@ -87,17 +87,17 @@ def resolved_independent_evidence(
             excluded += 1
             return False
         next_allowed_ms = snapshot + outcome_spacing_ms(horizons)
-        by_horizon = {int(row[3]): row for row in rows}
+        by_horizon = {int(row[4]): row for row in rows}
         if tuple(sorted(by_horizon)) != horizons:
             stopped_pending = True
             return True
         if any(
-            row[4] is None
+            row[5] is None
             or (
                 resolved_before_ts_ms is not None
                 and (
-                    row[6] is None
-                    or int(row[6]) > int(resolved_before_ts_ms)
+                    row[7] is None
+                    or int(row[7]) > int(resolved_before_ts_ms)
                 )
             )
             for row in by_horizon.values()
@@ -107,10 +107,10 @@ def resolved_independent_evidence(
         features = json.loads(str(rows[0][2]))
         for horizon in horizons:
             row = by_horizon[horizon]
-            outcome = store._outcome(str(row[4]))
+            outcome = store._outcome(str(row[5]))
             baseline = store._baseline_outcome(
                 normalized_kind,
-                str(row[5]) if row[5] is not None else None,
+                str(row[6]) if row[6] is not None else None,
                 outcome,
             )
             output.append(ResolvedSample(
@@ -119,6 +119,7 @@ def resolved_independent_evidence(
                 horizon_min=horizon,
                 outcome=outcome,
                 baseline_net_pnl_quote=baseline.net_pnl_quote,
+                decision_metadata=decision_metadata(str(row[3])),
             ))
         return len(output) // len(horizons) >= maximum_snapshots
 
