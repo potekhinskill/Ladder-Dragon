@@ -3,6 +3,21 @@
 All notable changes are documented here. Releases use Semantic Versioning; every
 section is dated and there is intentionally no `Unreleased` section.
 
+## [2.20.217] — 2026-08-17
+
+### Added
+- BTCUSDT and ETHUSDT now have a separate staged execution-promotion report.
+- Each candidate reports its experiment status, approval, and exact USDT CAPs.
+
+### Security
+- Candidate membership cannot widen the configured execution symbol list.
+- Removing a new execution symbol from the candidate list cannot bypass promotion.
+- Premature candidate execution blocks startup before exchange preflight or worker creation.
+- Promotion requires `CONFIRMED`, an order CAP, an inventory hard CAP, and symbol approval.
+
+### Verified
+- All 1,220 project tests pass. Technical English, compilation, and numeric boundary checks pass.
+
 ## [2.20.216] — 2026-08-17
 
 ### Changed

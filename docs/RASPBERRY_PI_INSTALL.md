@@ -191,6 +191,7 @@ BOT_SERVICE_VENUE=testnet
 BOT_SERVICE_EXECUTION=dry
 BOT_SERVICE_SYMBOLS=SOLUSDT
 BOT_PREDICTION_SHADOW_SYMBOLS=SOLUSDT,ETHUSDT,BTCUSDT
+BOT_EXECUTION_CANDIDATE_SYMBOLS=BTCUSDT,ETHUSDT
 BOT_MARKET_ANALYSIS_SYMBOLS=SOLUSDT,ETHUSDT,BTCUSDT
 BOT_MARKET_ANALYSIS_TIMEFRAMES=1h,4h,1d,1w,1M
 ```
@@ -198,8 +199,11 @@ BOT_MARKET_ANALYSIS_TIMEFRAMES=1h,4h,1d,1w,1M
 The dashboard reports each SHADOW symbol and generation separately.
 The scenario service uses public closed candles only.
 Its symbol list cannot start an execution worker.
+The candidate list cannot start an execution worker.
+Do not add a candidate to `BOT_SERVICE_SYMBOLS` before promotion passes.
+Promotion requires `CONFIRMED`, two reviewed CAPs, and symbol approval.
 SOLUSDT version fourteen supersedes versions eleven through thirteen.
-ETHUSDT version twelve supersedes version eleven.
+ETHUSDT version thirteen supersedes versions eleven and twelve.
 BTCUSDT version twelve supersedes version eleven.
 All superseded evidence remains append-only and visible.
 SHADOW-only controls show `not_applicable_shadow_only` for execution-only limits.

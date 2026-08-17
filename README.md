@@ -28,7 +28,7 @@ Ladder Dragon is an open-source Python trading system for Binance Spot.
 It uses adaptive entry ladders and exchange-side protection.
 It also provides exact accounting, restart recovery, replay, and walk-forward tests.
 
-Current product version: **2.20.216**.
+Current product version: **2.20.217**.
 The version source is `product_version.py`.
 Releases use [Semantic Versioning](https://semver.org/).
 
@@ -349,9 +349,10 @@ The exact implemented and approval states are in
 - Stabilize the Mainnet v4 transport-failure reconnect rate and obtain a continuous 24-hour PASS.
 - Close overdue outcomes and review journal-proven attribution gaps without inventing a `decision_id`.
 - Validate replay results against more real terminal order lifecycles.
-- Compare SOLUSDT version-thirteen gaps of 48, 50, and 52 basis points.
-- Compare ETHUSDT version-twelve gaps of 19, 22, and 27 basis points.
-- Continue BTCUSDT version-eleven evidence without enabling its execution.
+- Compare SOLUSDT version-fourteen lifetimes at a 48 basis-point gap.
+- Compare ETHUSDT version-thirteen gaps of 20, 21, and 22 basis points.
+- Continue BTCUSDT version-twelve evidence without enabling its execution.
+- Approve separate BTCUSDT and ETHUSDT CAPs only after confirmation.
 - Freeze one selected candidate before collecting independent confirmation evidence.
 - Keep strategy changes in SHADOW until every statistical gate passes.
 - Continue the planned extraction of large runtime coordinators.

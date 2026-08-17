@@ -7,6 +7,7 @@
 import json
 import os
 import re
+import sqlite3
 import time
 from decimal import Decimal
 from pathlib import Path
@@ -30,6 +31,23 @@ _EXPERIMENT_REPORT_CACHE: dict[
     str, tuple[float, dict[str, object]]
 ] = {}
 _EXPERIMENT_LAST_RECORD: dict[str, float] = {}
+
+
+def initialize_prediction_shadow(
+    path: Path,
+    *,
+    enabled: bool,
+    logger: Callable[[str], None],
+) -> tuple[PredictionShadowStore | None, str | None]:
+    """Open the SHADOW journal and return a safe unavailable status."""
+    if not enabled:
+        return None, None
+    try:
+        return PredictionShadowStore(path), None
+    except (OSError, sqlite3.Error) as exc:
+        error_type = type(exc).__name__
+        logger(f"[PREDICTION-SHADOW] journal unavailable={error_type}")
+        return None, error_type
 
 
 def build_knowledge_store(

@@ -55,6 +55,7 @@ from ladder_dragon.supervision.entry_policy import (
     directional_entry_settings as _directional_entry_settings,
     finite_decimal as _finite_decimal,
 )
+from ladder_dragon.supervision.execution_promotion import prepare_execution_promotion_report
 from ladder_dragon.supervision.position_flatten import BUY_BLOCKING_MODES, submit_flatten_slices
 from ladder_dragon.supervision.vwap_config import (
     getenv_float,
@@ -69,6 +70,7 @@ from ladder_dragon.supervision.prediction_shadow import (
     blocked_plan_summary as _blocked_plan_summary,
     build_knowledge_store,
     collect_shadow_experiments,
+    initialize_prediction_shadow,
     prediction_panic_state as _prediction_panic_state,
     publish_plan_decision_status as _publish_plan_decision_status,
 )
@@ -4245,17 +4247,14 @@ def main():
     prediction_path = Path(
         os.getenv("PREDICTION_SHADOW_DB", str(default_prediction_path))
     )
-    _PREDICTION_SHADOW = None
-    prediction_init_error = None
-    if prediction_enabled:
-        try:
-            _PREDICTION_SHADOW = PredictionShadowStore(prediction_path)
-        except (OSError, sqlite3.Error) as exc:
-            prediction_init_error = type(exc).__name__
-            log(
-                "[PREDICTION-SHADOW] journal unavailable="
-                f"{prediction_init_error}"
-            )
+    _PREDICTION_SHADOW, prediction_init_error = initialize_prediction_shadow(
+        prediction_path, enabled=prediction_enabled, logger=log)
+    try:
+        execution_promotion = prepare_execution_promotion_report(
+            execution_symbols=symbols, prediction_symbols=prediction_shadow_symbols,
+            store=_PREDICTION_SHADOW, environment=os.environ)
+    except ValueError as exc:
+        ap.error(str(exc))
     _AI_RUNTIME_STATUS_PATH = Path(
         os.getenv("AI_RUNTIME_STATUS_FILE", str(run_dir / "ai_status.json"))
     )
@@ -4326,6 +4325,7 @@ def main():
             "last_error": prediction_init_error,
             "symbols": {},
         },
+        "execution_promotion": execution_promotion,
     }
     _publish_ai_runtime_status()
     _refresh_ai_control(args)

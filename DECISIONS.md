@@ -1416,3 +1416,10 @@ entries concise; this is not a changelog or an activity log.
 - **Decision:** label historical totals explicitly and show separate cutoff-bounded progress for each active generation.
 - **Why it worked:** the dashboard no longer presents mature infrastructure evidence as current candidate maturity.
 - **Reuse:** every operational view that combines lifetime, certification, session, and experimental evidence.
+
+### 2026-08-17 — Stage symbol promotion behind independent gates
+
+- **Context:** BTCUSDT and ETHUSDT need execution preparation without execution authority.
+- **Decision:** keep candidates outside execution until confirmation, two symbol CAPs, and explicit approval all pass.
+- **Why it worked:** startup rejects premature scope changes before preflight or worker creation.
+- **Reuse:** every SHADOW symbol considered for later execution.

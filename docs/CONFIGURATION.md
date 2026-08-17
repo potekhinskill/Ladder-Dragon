@@ -17,9 +17,12 @@ Never copy credentials into documentation, Git, logs, or command arguments.
 | `BOT_FAST_MARKET_APPROVED` | permits fast-market APPLY | `NO` |
 | `BOT_OTOCO_APPROVED` | permits OTOCO APPLY | `NO` |
 | `BOT_WS_TRADING_APPROVED` | permits WebSocket trading APPLY | `NO` |
+| `BOT_EXECUTION_PROMOTION_APPROVED_<SYMBOL>` | permits one confirmed symbol promotion | `NO` |
 
 An approval variable does not bypass HALT, CAP, reserve, or reconciliation.
 The applicable mode must also be `APPLY`.
+Candidate promotion also requires a current `CONFIRMED` experiment.
+It requires explicit order and managed-inventory CAPs for that symbol.
 
 ## Strategy and prediction
 
@@ -28,6 +31,7 @@ The applicable mode must also be `APPLY`.
 | `ADAPT_*` and `DIR_*` | deterministic ladder adaptation |
 | `ADAPTIVE_REANCHOR_MODE` and `REANCHOR_*` | bounded BUY refresh |
 | `PREDICTION_*` | SHADOW database, interval, fees, and slippage |
+| `BOT_EXECUTION_CANDIDATE_SYMBOLS` | staged symbols that remain outside execution |
 | `BOT_MARKET_ANALYSIS_*` | public scenario symbols, intervals, costs, and evidence paths |
 | `BOT_EXPECTANCY_*` | exact execution-cost floor evidence |
 | `BOT_FEE_PCT` | conservative Spot fee per side; `0.001` means 0.1% |
@@ -46,6 +50,8 @@ Set a lower fee only after you confirm the active account discount.
 Each traded symbol requires an explicit managed-inventory hard CAP.
 For example, SOL uses `RISK_MANAGED_INVENTORY_HARD_CAP_SOLUSDT`.
 This value does not fall back to the portfolio CAP.
+Each staged symbol also requires `RISK_SYMBOL_CAP_<SYMBOL>`.
+The per-order CAP cannot exceed the managed-inventory hard CAP.
 
 ## AI and RAG
 
@@ -130,6 +136,7 @@ An unknown quote suffix blocks balance-dependent work instead of guessing asset 
 | `BOT_ORDER_JOURNAL` | `/home/bot/apps/binance_bot/db/order_intents.sqlite3` |
 | `PREDICTION_SHADOW_DB` | `/home/bot/apps/binance_bot/db/prediction_shadow.sqlite3` |
 | `BOT_PREDICTION_SHADOW_SYMBOLS` | `SOLUSDT,ETHUSDT,BTCUSDT` |
+| `BOT_EXECUTION_CANDIDATE_SYMBOLS` | `BTCUSDT,ETHUSDT` |
 | `BOT_MARKET_ANALYSIS_SYMBOLS` | `SOLUSDT,ETHUSDT,BTCUSDT` |
 | `BOT_MARKET_ANALYSIS_TIMEFRAMES` | `1h,4h,1d,1w,1M` |
 | `BOT_MARKET_ANALYSIS_ROUND_TRIP_COST_PCT` | `0.0025` |
@@ -150,6 +157,9 @@ Process-lifetime state belongs below `/run/mybot`.
 Prediction SHADOW symbols use separate symbol-scoped evidence.
 They never extend `BOT_SERVICE_SYMBOLS` or start execution workers.
 Each symbol requires its own statistical PASS before separate APPLY approval.
+Execution candidates remain staged until all promotion gates pass.
+Premature addition to `BOT_SERVICE_SYMBOLS` blocks supervisor startup.
+Removing a new execution symbol from the candidate list cannot bypass this gate.
 Market analysis uses an independent public-data symbol list.
 Its symbols never extend `BOT_SERVICE_SYMBOLS`.
 SOLUSDT version fourteen holds a 48 basis-point gap and tests 60-minute, 75-minute, and 90-minute lifetimes.

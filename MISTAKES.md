@@ -1754,3 +1754,10 @@ private infrastructure details.
 - **Root cause:** presentation selected the first symbol, while supervision applied controls before checking execution scope.
 - **Correction:** render each symbol separately and mark execution-only controls not applicable for SHADOW-only symbols.
 - **Prevention:** test every multi-symbol view and control with distinct execution and observation scopes.
+
+### 2026-08-17 — Enlarged the legacy supervisor coordinator
+
+- **Impact:** the first promotion patch failed the runtime size budget.
+- **Root cause:** initialization and promotion orchestration were added before checking the coordinator limit.
+- **Correction:** extract SHADOW initialization and promotion gates into focused modules.
+- **Prevention:** inspect architecture budgets before changing a known runtime coordinator.
