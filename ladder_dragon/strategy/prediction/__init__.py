@@ -25,6 +25,7 @@ from ladder_dragon.strategy.prediction.runtime import (
 )
 from ladder_dragon.strategy.prediction.approval import prediction_apply_gate
 from ladder_dragon.strategy.prediction.walk_forward import (
+    evaluated_walk_forward_samples,
     walk_forward_prediction_report,
 )
 
@@ -39,6 +40,7 @@ __all__ = [
     "ResolvedSample",
     "TradePlan",
     "build_prediction_features",
+    "evaluated_walk_forward_samples",
     "evaluate_plan",
     "evaluation_end_ms",
     "parse_closed_klines",

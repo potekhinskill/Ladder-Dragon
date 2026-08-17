@@ -3,6 +3,28 @@
 All notable changes are documented here. Releases use Semantic Versioning; every
 section is dated and there is intentionally no `Unreleased` section.
 
+## [2.20.221] — 2026-08-18
+
+### Fixed
+- Configuration Holm tests now use the same post-training evaluation cohort as the walk-forward gate.
+- Specialized control gates are now the only source for the control-gate cache and runtime status.
+- Zero evaluated samples now display unavailable fill, confidence interval, Holm, and regime values.
+- Rare-regime forecasts now use a one-sided confidence bound and report an estimated ready time.
+
+### Changed
+- Control evidence version three validates identity, Boolean fields, changed values, applicability, and positive baseline notional.
+- Inventory promotion reports `STATEFUL_MODEL_REQUIRED` until a sequential portfolio replay exists.
+- Observation-only inventory reports `NOT_APPLICABLE` and includes binding reachability.
+- Maker evidence collection stops until the execution model includes queue state, fills, missed fills, and adverse selection.
+
+### Security
+- Training outcomes cannot influence configuration selection or Holm correction.
+- Malformed control metadata blocks approval instead of changing cohort membership through truthy strings.
+
+### Verified
+- All 1,254 project tests pass.
+- Compilation, architecture budgets, documentation contracts, and Technical English checks pass.
+
 ## [2.20.220] — 2026-08-18
 
 ### Added

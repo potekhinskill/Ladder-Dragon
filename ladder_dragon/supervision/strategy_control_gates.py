@@ -7,7 +7,7 @@ from __future__ import annotations
 
 import os
 import sqlite3
-from typing import Callable, Mapping, MutableMapping, Sequence
+from typing import Callable, Mapping, MutableMapping
 
 from ladder_dragon.strategy.prediction.control_evidence import CONTROL_KINDS
 from ladder_dragon.strategy.prediction.control_approval import (
@@ -32,7 +32,6 @@ def control_gate(
     *,
     store: object | None,
     cache: MutableMapping[str, tuple[float, dict[str, object]]],
-    report_builder: Callable[[Sequence[object]], Mapping[str, object]],
     now_monotonic: float,
 ) -> dict[str, object]:
     """Return current evidence for one execution-changing control."""

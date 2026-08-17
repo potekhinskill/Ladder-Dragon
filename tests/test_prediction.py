@@ -501,6 +501,7 @@ def test_supervisor_shadow_records_strategy_and_hashed_reanchor(
     as_of = int(rows[-1][6]) + 1
     monkeypatch.setattr(ai_supervisor, "_PREDICTION_SHADOW", store)
     monkeypatch.setattr(ai_supervisor, "_PREDICTION_LAST_ATTEMPT", {})
+    ai_supervisor._STRATEGY_CONTROL_GATE_CACHE.clear()
     # A fresh Linux runner may have less uptime than the throttle interval.
     # Missing history must still permit the first SHADOW snapshot.
     monkeypatch.setattr(ai_supervisor.time, "monotonic", lambda: 10.0)
@@ -536,11 +537,16 @@ def test_supervisor_shadow_records_strategy_and_hashed_reanchor(
 
     summary = store.summary("SOLUSDT")
     # The journal keeps strategy, re-anchor, experiment, and control evidence.
-    assert summary["decisions"] == 9
+    assert summary["decisions"] == 8
     assert summary["reanchor_counterfactuals"] == 1
     assert ai_supervisor._AI_RUNTIME_STATUS["prediction"][
         "can_change_orders"
     ] is False
+    controls = ai_supervisor._AI_RUNTIME_STATUS["prediction"]["symbols"]["SOLUSDT"][
+        "strategy_control_gates"
+    ]
+    assert controls["maker"]["status"] == "NOT_IMPLEMENTED"
+    assert controls["inventory"]["status"] == "STATEFUL_MODEL_REQUIRED"
     assert b"raw-order-identifier" not in database.read_bytes()
 
 

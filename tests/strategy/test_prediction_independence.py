@@ -83,7 +83,7 @@ def test_holm_requirements_must_be_reachable_by_predeclared_blocks():
         )
 
 
-def test_rare_regime_projection_blocks_impractical_design():
+def test_zero_rare_regime_uses_confidence_bound_before_rejection():
     samples = [
         _sample(index * 21_900_000, horizon)
         for index in range(20)
@@ -95,8 +95,10 @@ def test_rare_regime_projection_blocks_impractical_design():
     )
 
     assert report["status"] == "READY"
-    assert report["practically_reachable"] is False
+    assert report["practically_reachable"] is True
     assert report["regimes"]["PANIC"]["observed"] == 0
+    assert D(report["regimes"]["PANIC"]["observed_fraction_upper_95"]) > 0
+    assert report["regimes"]["PANIC"]["projected_ready_ts_ms"] is not None
     assert report["outcome_values_used"] is False
 
 

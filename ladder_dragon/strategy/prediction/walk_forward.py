@@ -19,13 +19,13 @@ from ladder_dragon.strategy.prediction.statistical_units import (
 )
 
 
-def walk_forward_prediction_report(
+def evaluated_walk_forward_samples(
     samples: Sequence[ResolvedSample],
     *,
     min_train_independent_snapshots: int = 60,
     required_horizons_min: Sequence[int] = (1, 5, 15),
-) -> dict[str, object]:
-    """Evaluate chronologically; a sample can train only later timestamps."""
+) -> tuple[ResolvedSample, ...]:
+    """Return the exact post-training cohort used by all approval tests."""
     if min_train_independent_snapshots < 0:
         raise ValueError("minimum training snapshots must be non-negative")
     horizons = tuple(int(value) for value in required_horizons_min)
@@ -35,7 +35,6 @@ def walk_forward_prediction_report(
         grouped_timestamps, horizons_min=horizons
     ))
     ordered = [item for item in ordered if item.snapshot_ts_ms in retained]
-    evaluated = []
     eligible_samples: list[ResolvedSample] = []
     prior_snapshots = 0
     prior_timestamp: int | None = None
@@ -52,25 +51,52 @@ def walk_forward_prediction_report(
         ):
             for sample in current:
                 eligible_samples.append(sample)
-                evaluated.append({
+        prior_snapshots += 1
+        prior_timestamp = timestamp
+        index = end
+    return tuple(eligible_samples)
+
+
+def walk_forward_prediction_report(
+    samples: Sequence[ResolvedSample],
+    *,
+    min_train_independent_snapshots: int = 60,
+    required_horizons_min: Sequence[int] = (1, 5, 15),
+) -> dict[str, object]:
+    """Evaluate chronologically; a sample can train only later timestamps."""
+    horizons = tuple(int(value) for value in required_horizons_min)
+    eligible_samples = list(evaluated_walk_forward_samples(
+        samples,
+        min_train_independent_snapshots=min_train_independent_snapshots,
+        required_horizons_min=horizons,
+    ))
+    retained = non_overlapping_timestamps(
+        {item.snapshot_ts_ms for item in samples}, horizons_min=horizons
+    )
+    prior_by_timestamp = {
+        timestamp: retained[index - 1]
+        for index, timestamp in enumerate(retained)
+        if index >= min_train_independent_snapshots and index > 0
+    }
+    evaluated = [
+        {
                     "snapshot_ts_ms": sample.snapshot_ts_ms,
                     "horizon_min": sample.horizon_min,
-                    "train_max_ts_ms": prior_timestamp,
+                    "train_max_ts_ms": prior_by_timestamp[sample.snapshot_ts_ms],
                     "actual_net_pnl_quote": format(
                         sample.outcome.net_pnl_quote, "f"
                     ),
                     "baseline_net_pnl_quote": format(
                         sample.baseline_net_pnl_quote, "f"
                     ),
-                })
-        prior_snapshots += 1
-        prior_timestamp = timestamp
-        index = end
+        }
+        for sample in eligible_samples
+    ]
     gate = prediction_apply_gate(
         eligible_samples, required_horizons_min=horizons
     )
     reachability = regime_reachability_report(
-        ordered,
+        samples,
         required_horizons_min=horizons,
         minimum_per_regime=20,
     )
@@ -121,4 +147,4 @@ def walk_forward_prediction_report(
         "gate": gate,
     }
 
-__all__ = ["walk_forward_prediction_report"]
+__all__ = ["evaluated_walk_forward_samples", "walk_forward_prediction_report"]

@@ -3,10 +3,15 @@
 # Purpose: verify independent walk-forward training and calendar evidence.
 """Walk-forward calendar and independent training regressions."""
 
+from dataclasses import replace
 from decimal import Decimal
 
 from ladder_dragon.strategy.prediction.models import PredictionOutcome, ResolvedSample
-from ladder_dragon.strategy.prediction.walk_forward import walk_forward_prediction_report
+from ladder_dragon.strategy.prediction.approval import configuration_edge_p_value
+from ladder_dragon.strategy.prediction.walk_forward import (
+    evaluated_walk_forward_samples,
+    walk_forward_prediction_report,
+)
 
 
 D = Decimal
@@ -61,3 +66,27 @@ def test_readiness_timestamp_includes_remaining_units_and_final_outcome():
     assert gate["estimated_ready_ts_ms"] == (
         last_timestamp + 170 * 21_600_001 + 360 * 60_000
     )
+
+
+def test_configuration_hypothesis_excludes_training_outcomes():
+    samples = _samples(61)
+    samples = [
+        row if index >= len(samples) - 2 else replace(
+            row,
+            outcome=PredictionOutcome(
+                row.horizon_min, True, False, D("-999"), D("0"), 1,
+                "STOP", row.snapshot_ts_ms + row.horizon_min * 60_000,
+            ),
+        )
+        for index, row in enumerate(samples)
+    ]
+    evaluated = evaluated_walk_forward_samples(
+        samples, required_horizons_min=(300, 360)
+    )
+
+    assert {row.snapshot_ts_ms for row in evaluated} == {
+        60 * 21_600_001
+    }
+    assert configuration_edge_p_value(
+        evaluated, required_horizons_min=(300, 360)
+    ) == 0.5

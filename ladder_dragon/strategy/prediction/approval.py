@@ -21,6 +21,7 @@ from ladder_dragon.strategy.prediction.statistical_units import (
 D = Decimal
 ZERO = D("0")
 DEFAULT_HORIZONS_MIN = (1, 5, 15)
+ONE_SIDED_95_Z = D("1.6448536269514722")
 
 
 def _validated_horizons(horizons_min: Sequence[int]) -> tuple[int, ...]:
@@ -37,6 +38,22 @@ def _validated_horizons(horizons_min: Sequence[int]) -> tuple[int, ...]:
     ):
         raise ValueError("approval horizons must be unique increasing positive integers")
     return horizons
+
+
+def binomial_upper_rate(successes: int, observations: int) -> Decimal:
+    """Return a one-sided Wilson upper rate for a rare pre-outcome event."""
+    if observations <= 0:
+        return D("1")
+    n = D(observations)
+    p = D(successes) / n
+    z2 = ONE_SIDED_95_Z * ONE_SIDED_95_Z
+    spread = ONE_SIDED_95_Z * (
+        p * (D("1") - p) / n + z2 / (D("4") * n * n)
+    ).sqrt()
+    return min(
+        D("1"),
+        (p + z2 / (D("2") * n) + spread) / (D("1") + z2 / n),
+    )
 
 
 def bootstrap_mean_ci(
@@ -276,8 +293,10 @@ def regime_reachability_report(
     details: dict[str, object] = {}
     reachable = mature
     projected_total = observed
+    last_timestamp = max(selected) if selected else None
     for regime in regimes:
         count = counts[regime]
+        upper_rate = binomial_upper_rate(count, observed)
         if count:
             estimate = int(
                 (D(str(minimum_per_regime)) * D(str(observed)) / D(str(count)))
@@ -287,9 +306,23 @@ def regime_reachability_report(
             regime_reachable = duration <= maximum_duration_ms
             projected_total = max(projected_total, estimate)
         else:
-            estimate = None
-            duration = None
-            regime_reachable = not mature
+            estimate = (
+                int((D(minimum_per_regime) / upper_rate).to_integral_value(
+                    rounding=ROUND_CEILING
+                ))
+                if observed else None
+            )
+            duration = (
+                max(0, estimate - 1) * spacing
+                + max(required_horizons) * 60_000
+                if estimate is not None else None
+            )
+            regime_reachable = (
+                duration <= maximum_duration_ms
+                if duration is not None else True
+            )
+            if estimate is not None:
+                projected_total = max(projected_total, estimate)
         if mature and not regime_reachable:
             reachable = False
         details[regime] = {
@@ -297,8 +330,18 @@ def regime_reachability_report(
             "observed_fraction": (
                 format(D(str(count)) / D(str(observed)), "f") if observed else "0"
             ),
+            "observed_fraction_upper_95": (
+                format(upper_rate, "f") if observed else None
+            ),
             "projected_required_independent_samples": estimate,
             "projected_duration_ms": duration,
+            "projected_ready_ts_ms": (
+                last_timestamp
+                + max(0, estimate - observed) * spacing
+                + max(required_horizons) * 60_000
+                if last_timestamp is not None and estimate is not None
+                else None
+            ),
             "reachable_within_limit": regime_reachable,
         }
     return {
@@ -308,12 +351,19 @@ def regime_reachability_report(
         "minimum_per_regime": minimum_per_regime,
         "maximum_duration_ms": maximum_duration_ms,
         "projected_required_independent_samples": projected_total if mature else None,
+        "projected_ready_ts_ms": (
+            last_timestamp
+            + max(0, projected_total - observed) * spacing
+            + max(required_horizons) * 60_000
+            if mature and last_timestamp is not None else None
+        ),
         "practically_reachable": reachable if mature else None,
         "regimes": details,
         "outcome_values_used": False,
     }
 
 __all__ = [
+    "binomial_upper_rate",
     "bootstrap_mean_ci",
     "configuration_edge_p_value",
     "holm_configuration_correction",

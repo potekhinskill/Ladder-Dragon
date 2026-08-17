@@ -12,7 +12,26 @@ from ladder_dragon.strategy.prediction.models import (
 D = Decimal
 
 
-def _samples(candidate_values, baseline_values):
+def _metadata(control="expectancy", *, binding=True, applicable=True):
+    fields = {
+        "expectancy": "take_profit_price",
+        "inventory": "notional_quote",
+        "regime": "entry_enabled",
+    }
+    return {
+        "applicable": applicable,
+        "baseline_notional_quote": "10",
+        "binding": binding,
+        "control": control,
+        "field": fields[control],
+        "from": "10",
+        "reason": "plan_changed" if binding else "no_plan_change",
+        "rule": "v3",
+        "to": "9" if binding else "10",
+    }
+
+
+def _samples(candidate_values, baseline_values, control="expectancy"):
     output = []
     regimes = ("TREND_UP", "TREND_DOWN", "RANGE", "PANIC")
     for index, (candidate, baseline) in enumerate(
@@ -28,10 +47,7 @@ def _samples(candidate_values, baseline_values):
             15,
             outcome,
             D(str(baseline)),
-            {
-                "binding": True,
-                "baseline_notional_quote": "10",
-            },
+            _metadata(control),
         ))
     return output
 
@@ -45,26 +61,34 @@ def test_maker_control_cannot_pass_without_execution_evidence():
     assert "missed fills" in gate["reasons"][0]
 
 
-def test_inventory_control_uses_tail_and_drawdown_not_profit_superiority():
+def test_inventory_control_requires_a_stateful_portfolio_model():
     baseline = [-0.02 if index % 10 == 0 else 0.01 for index in range(120)]
     candidate = [-0.01 if index % 10 == 0 else 0.0095 for index in range(120)]
 
     gate = control_specific_gate(
-        "inventory", _samples(candidate, baseline)
-    )
-
-    assert gate["approved"] is True
-    assert gate["profit_superiority_required"] is False
-    assert D(gate["candidate_tail_quote"]) > D(gate["baseline_tail_quote"])
-
-
-def test_inventory_control_blocks_unchanged_risk_profile():
-    gate = control_specific_gate(
-        "inventory", _samples([1] * 120, [1] * 120)
+        "inventory", _samples(candidate, baseline, "inventory")
     )
 
     assert gate["approved"] is False
-    assert "inventory tail loss did not improve" in gate["reasons"]
+    assert gate["status"] == "STATEFUL_MODEL_REQUIRED"
+
+
+def test_shadow_only_inventory_is_not_applicable():
+    samples = _samples([1] * 2, [1] * 2, "inventory")
+    samples = [
+        ResolvedSample(
+            row.snapshot_ts_ms, row.regime, row.horizon_min, row.outcome,
+            row.baseline_net_pnl_quote,
+            _metadata("inventory", binding=False, applicable=False),
+        )
+        for row in samples
+    ]
+    gate = control_specific_gate(
+        "inventory", samples
+    )
+
+    assert gate["approved"] is False
+    assert gate["status"] == "NOT_APPLICABLE"
 
 
 def test_noop_control_rows_cannot_prove_a_binding_effect():
@@ -73,7 +97,7 @@ def test_noop_control_rows_cannot_prove_a_binding_effect():
         ResolvedSample(
             row.snapshot_ts_ms, row.regime, row.horizon_min, row.outcome,
             row.baseline_net_pnl_quote,
-            {"binding": False, "baseline_notional_quote": "10"},
+            _metadata("expectancy", binding=False),
         )
         for row in samples
     ]
@@ -83,3 +107,12 @@ def test_noop_control_rows_cannot_prove_a_binding_effect():
     assert gate["approved"] is False
     assert gate["binding_independent_samples"] == 0
     assert "insufficient binding independent samples" in gate["reasons"]
+
+
+def test_malformed_binding_metadata_blocks_the_gate():
+    samples = _samples([1], [0])
+    samples[0].decision_metadata["binding"] = "false"
+
+    import pytest
+    with pytest.raises(ValueError, match="booleans"):
+        control_specific_gate("expectancy", samples)

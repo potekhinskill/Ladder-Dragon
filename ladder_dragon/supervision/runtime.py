@@ -1898,7 +1898,6 @@ def _strategy_control_gate(symbol: str, control: str) -> dict[str, object]:
     """Return evidence for one execution-changing strategy control."""
     return strategy_control_gates.control_gate(
         symbol, control, store=_PREDICTION_SHADOW, cache=_STRATEGY_CONTROL_GATE_CACHE,
-        report_builder=walk_forward_prediction_report,
         now_monotonic=time.monotonic(),
     )
 
@@ -1947,6 +1946,7 @@ def _record_prediction_shadow(
     required_edge_pct: Decimal | None,
     inventory_scale: Decimal = Decimal("1"),
     regime_buys_allowed: bool = True,
+    inventory_applicable: bool = True,
 ) -> None:
     """Persist look-ahead-safe forecasts without changing an order decision."""
     if _PREDICTION_SHADOW is None:
@@ -2059,6 +2059,7 @@ def _record_prediction_shadow(
             required_edge_pct=required_edge_pct,
             inventory_scale=inventory_scale,
             regime_buys_allowed=regime_buys_allowed,
+            inventory_applicable=inventory_applicable,
         )
         experiment_report = collect_shadow_experiments(
             _PREDICTION_SHADOW,
@@ -2119,16 +2120,11 @@ def _record_prediction_shadow(
     walk_forward = walk_forward_prediction_report(reanchor_samples)
     gate = walk_forward["gate"]
     _PREDICTION_GATE_CACHE[symbol] = (time.monotonic(), gate)
-    control_gates = {}
-    for control, kind in CONTROL_KINDS.items():
-        control_samples = _PREDICTION_SHADOW.resolved_samples(
-            symbol, before_ts_ms=features.snapshot_ts_ms, kind=kind
-        )
-        control_gate = walk_forward_prediction_report(control_samples)["gate"]
-        control_gates[control] = control_gate
-        _STRATEGY_CONTROL_GATE_CACHE[
-            f"{symbol.upper()}:{control}"
-        ] = (time.monotonic(), control_gate)
+    # Only the policy-specific loader can populate the control-gate cache.
+    control_gates = {
+        control: _strategy_control_gate(symbol, control)
+        for control in CONTROL_KINDS
+    }
     summary = _PREDICTION_SHADOW.summary(symbol)
     runtime = _AI_RUNTIME_STATUS.setdefault("prediction", {})
     if not isinstance(runtime, dict):
@@ -3557,6 +3553,7 @@ def run_for_symbol(
             required_edge_pct=required_edge,
             inventory_scale=inventory_scale,
             regime_buys_allowed=regime_policy.buys_allowed,
+            inventory_applicable=inventory_applicable,
         )
     except SUPERVISOR_OPERATION_ERRORS as exc:
         log(f"[PREDICTION-SHADOW] {symbol} unavailable={type(exc).__name__}")

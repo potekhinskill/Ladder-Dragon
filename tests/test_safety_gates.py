@@ -53,7 +53,7 @@ def test_strategy_apply_requires_explicit_approval_and_statistical_gate(
     class Store:
         def resolved_samples(self, symbol, *, kind):
             assert symbol == "SOLUSDT"
-            assert kind == "CONTROL_EXPECTANCY_V2"
+            assert kind == "CONTROL_EXPECTANCY_V3"
             return ["historical-only"]
 
     monkeypatch.setattr(ai_supervisor, "_PREDICTION_SHADOW", Store())

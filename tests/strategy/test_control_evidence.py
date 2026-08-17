@@ -86,16 +86,19 @@ def test_each_execution_control_records_a_separate_counterfactual(monkeypatch):
         regime_buys_allowed=False,
     )
 
-    assert set(identifiers) == set(CONTROL_KINDS.values())
-    assert {row["kind"] for row in records} == set(CONTROL_KINDS.values())
+    modeled = {kind for name, kind in CONTROL_KINDS.items() if name != "maker"}
+    assert set(identifiers) == modeled
+    assert {row["kind"] for row in records} == modeled
     assert all(row["baseline_plan"] is baseline for row in records)
-    assert len({row["algorithm_decision"] for row in records}) == 4
+    assert len({row["algorithm_decision"] for row in records}) == 3
     metadata = [json.loads(row["algorithm_decision"]) for row in records]
     assert all(row["binding"] is True for row in metadata)
     assert all(row["reason"] == "plan_changed" for row in metadata)
     assert {row["field"] for row in metadata} == {
-        "take_profit_price", "notional_quote", "slippage_pct", "entry_enabled"
+        "take_profit_price", "notional_quote", "entry_enabled"
     }
+    assert all(row["rule"] == "v3" for row in metadata)
+    assert not any(row["kind"] == CONTROL_KINDS["maker"] for row in records)
 
 
 def test_unchanged_control_is_recorded_as_nonbinding(monkeypatch):
@@ -127,6 +130,33 @@ def test_unchanged_control_is_recorded_as_nonbinding(monkeypatch):
     assert metadata[CONTROL_KINDS["expectancy"]]["binding"] is False
     assert metadata[CONTROL_KINDS["inventory"]]["binding"] is False
     assert metadata[CONTROL_KINDS["regime"]]["binding"] is False
+
+
+def test_shadow_only_inventory_is_explicitly_not_applicable(monkeypatch):
+    records = []
+
+    class Store:
+        def resolved_samples(self, *_args, **_kwargs):
+            return []
+
+        def record(self, **kwargs):
+            records.append(kwargs)
+            return kwargs["kind"]
+
+    monkeypatch.setattr(
+        "ladder_dragon.strategy.prediction.control_evidence.predict_distribution",
+        lambda *_args, **_kwargs: (),
+    )
+    record_control_evidence(
+        Store(), symbol="ETHUSDT", features=_features(), baseline_plan=_plan(),
+        required_edge_pct=None, inventory_scale=D("0.5"),
+        regime_buys_allowed=True, inventory_applicable=False,
+    )
+
+    row = next(item for item in records if item["kind"] == CONTROL_KINDS["inventory"])
+    metadata = json.loads(row["algorithm_decision"])
+    assert metadata["applicable"] is False
+    assert metadata["binding"] is False
 
 
 def test_one_control_approval_cannot_authorize_another_control():

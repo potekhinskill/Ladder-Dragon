@@ -14,6 +14,7 @@ def test_shadow_experiments_are_collapsed_and_use_safe_runtime_fields():
     assert "row.available_independent_samples" in script
     assert "row.training_independent_samples" in script
     assert "row.evaluated_independent_samples" in script
+    assert "const measured=evaluated>0" in script
     assert "row.required_total_independent_samples" in script
     assert "row.estimated_ready_ts_ms" in script
     assert "outcomes.overdue" in script

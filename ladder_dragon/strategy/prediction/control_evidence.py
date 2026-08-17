@@ -18,15 +18,15 @@ from ladder_dragon.strategy.prediction.runtime import (
 
 
 CONTROL_KINDS: Mapping[str, str] = {
-    "expectancy": "CONTROL_EXPECTANCY_V2",
-    "inventory": "CONTROL_INVENTORY_V2",
-    "maker": "CONTROL_MAKER_V2",
-    "regime": "CONTROL_REGIME_V2",
+    "expectancy": "CONTROL_EXPECTANCY_V3",
+    "inventory": "CONTROL_INVENTORY_V3",
+    "maker": "CONTROL_MAKER_V3",
+    "regime": "CONTROL_REGIME_V3",
 }
 
 
 def _control_metadata(
-    control: str, baseline: TradePlan, candidate: TradePlan
+    control: str, baseline: TradePlan, candidate: TradePlan, *, applicable: bool
 ) -> dict[str, object]:
     """Describe whether one control changed its pre-outcome plan."""
     fields = {
@@ -36,20 +36,20 @@ def _control_metadata(
             if candidate.entry_enabled != baseline.entry_enabled
             else "notional_quote"
         ),
-        "maker": "slippage_pct",
         "regime": "entry_enabled",
     }
     field = fields[control]
     before = getattr(baseline, field)
     after = getattr(candidate, field)
-    binding = candidate != baseline
+    binding = applicable and candidate != baseline
     return {
         "binding": binding,
+        "applicable": applicable,
         "control": control,
         "field": field,
         "from": str(before).lower() if isinstance(before, bool) else format(before, "f"),
         "reason": "plan_changed" if binding else "no_plan_change",
-        "rule": "v2",
+        "rule": "v3",
         "to": str(after).lower() if isinstance(after, bool) else format(after, "f"),
         "baseline_notional_quote": format(baseline.notional_quote, "f"),
     }
@@ -88,7 +88,6 @@ def _candidate_plans(
             notional_quote=inventory_notional,
             entry_enabled=inventory_enabled,
         ),
-        "maker": replace(baseline, slippage_pct=Decimal("0")),
         "regime": replace(
             baseline, entry_enabled=bool(regime_buys_allowed)
         ),
@@ -104,8 +103,9 @@ def record_control_evidence(
     required_edge_pct: Decimal | None,
     inventory_scale: Decimal,
     regime_buys_allowed: bool,
+    inventory_applicable: bool = True,
 ) -> tuple[str, ...]:
-    """Record one explicit candidate and baseline for each control."""
+    """Record modeled controls; omit maker until an execution model exists."""
     identifiers: list[str] = []
     for control, plan in _candidate_plans(
         baseline_plan,
@@ -113,8 +113,13 @@ def record_control_evidence(
         inventory_scale=inventory_scale,
         regime_buys_allowed=regime_buys_allowed,
     ).items():
+        applicable = control != "inventory" or inventory_applicable
+        if not applicable:
+            plan = baseline_plan
         kind = CONTROL_KINDS[control]
-        metadata = _control_metadata(control, baseline_plan, plan)
+        metadata = _control_metadata(
+            control, baseline_plan, plan, applicable=applicable
+        )
         encoded_metadata = json.dumps(
             metadata, sort_keys=True, separators=(",", ":")
         )

@@ -1,6 +1,6 @@
 # Implementation status
 
-This document describes the code in version **2.20.220**.
+This document describes the code in version **2.20.221**.
 It does not describe future plans as completed work.
 
 An implemented function is not automatically approved for LIVE use.
@@ -119,10 +119,14 @@ Historical experiment rows remain available and never mix with the active genera
 Control evidence records whether each control changed its baseline plan.
 Binding cohorts measure control effects.
 Full cohorts enforce safety and non-inferiority.
-Inventory approval uses binding tail loss and drawdown.
+Inventory promotion requires a sequential portfolio replay.
 Expectancy approval requires positive binding edge and net expectancy.
 Regime approval also requires full-cohort regime coverage.
 Maker promotion remains unavailable until evidence stores fills, missed fills, queue state, and adverse selection.
+The runtime does not record maker evidence before that model exists.
+Control metadata version three uses strict identity and transition validation.
+Each control report estimates binding frequency and its evidence-ready time.
+Observation-only inventory reports `NOT_APPLICABLE`.
 
 Attributed AI fills store monetary values as exact text.
 Each fill records whether its slippage value is verified.
@@ -131,8 +135,8 @@ Incomplete evidence cannot enter readiness, RAG, or dashboard PnL totals.
 
 Re-anchor is not a promotion candidate.
 
-Inventory control approval uses tail loss and drawdown improvement.
-It does not require absolute PnL superiority.
+Inventory control reports `STATEFUL_MODEL_REQUIRED` for execution symbols.
+Independent order outcomes cannot approve this state-dependent policy.
 Maker control approval stays blocked until evidence includes real maker execution semantics.
 The required semantics include fills and missed fills.
 

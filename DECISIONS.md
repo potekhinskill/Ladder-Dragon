@@ -1,5 +1,26 @@
 # Engineering decisions
 
+### 2026-08-18 — Use one evaluation cohort for all selection tests
+
+- **Context:** configuration Holm tests included cold-start rows that the walk-forward gate excluded.
+- **Decision:** derive one post-training cohort and use it for the gate, configuration test, and Holm correction.
+- **Why it worked:** training outcomes cannot change selection p-values, while evaluation outcomes remain unchanged.
+- **Reuse:** every model-selection process that separates training data from evaluation data.
+
+### 2026-08-18 — Require stateful evidence for stateful controls
+
+- **Context:** independent order outcomes could not represent inventory feedback across later decisions.
+- **Decision:** block inventory promotion until a sequential portfolio replay models exposure, CAP use, and later order sizes.
+- **Why it worked:** inventory reports remain observable but cannot claim an unsupported APPLY result.
+- **Reuse:** every policy where one action changes the state used by later actions.
+
+### 2026-08-18 — Version and validate control evidence semantics
+
+- **Context:** permissive metadata truthiness could misclassify damaged rows as binding evidence.
+- **Decision:** start version-three cohorts with strict identity, type, transition, applicability, and notional validation.
+- **Why it worked:** malformed metadata blocks the gate, and observation-only inventory is explicitly not applicable.
+- **Reuse:** every append-only evidence stream whose metadata selects a statistical cohort.
+
 ### 2026-08-17 — Define independence by complete outcome intervals
 
 - **Context:** five-minute snapshots shared most of their 300-minute and 360-minute outcome periods.

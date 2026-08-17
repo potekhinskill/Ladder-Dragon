@@ -6,6 +6,20 @@ avoidable rework. Identify the root cause rather than recording only the
 symptom. Keep entries concise and exclude secrets, balances, account data, and
 private infrastructure details.
 
+### 2026-08-18 — Mixed training rows into configuration selection
+
+- **Impact:** cold-start outcomes could change configuration p-values and Holm decisions after the approval gate excluded them.
+- **Root cause:** the walk-forward module did not expose its evaluation cohort to the experiment selector.
+- **Correction:** use one explicit post-training cohort for every selection statistic.
+- **Prevention:** test that changed training outcomes cannot change a selection result.
+
+### 2026-08-18 — Let a generic report overwrite specialized control evidence
+
+- **Impact:** runtime status could temporarily replace control-specific policies with an unrelated generic gate.
+- **Root cause:** two producers shared one cache without a single ownership contract.
+- **Correction:** permit only the specialized control loader to populate the cache.
+- **Prevention:** each approval cache must have one policy-specific producer.
+
 ### 2026-08-17 — Added comments beyond a coordinator budget
 
 - **Impact:** the complete suite failed because two comment lines enlarged the legacy supervisor coordinator.
