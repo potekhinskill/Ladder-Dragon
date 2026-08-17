@@ -6,6 +6,27 @@ avoidable rework. Identify the root cause rather than recording only the
 symptom. Keep entries concise and exclude secrets, balances, account data, and
 private infrastructure details.
 
+### 2026-08-17 — Counted overlapping outcomes as independent evidence
+
+- **Impact:** frequent snapshots overstated statistical sample size and could permit unreliable promotion.
+- **Root cause:** grouping horizons by snapshot did not remove dependence between adjacent snapshot outcomes.
+- **Correction:** purge starts through the inclusive maximum horizon before inference and confirmation blocking.
+- **Prevention:** define and test the independent outcome interval before setting any sample threshold.
+
+### 2026-08-17 — Placed an absolute CAP inside an optional control
+
+- **Impact:** a SHADOW inventory-skew mode could leave the absolute symbol inventory limit outside Risk Manager enforcement.
+- **Root cause:** safety and optimization shared one code path and one mode switch.
+- **Correction:** move the absolute per-symbol CAP into unconditional Risk Manager evaluation.
+- **Prevention:** an optimization mode must never own a non-optional loss or exposure boundary.
+
+### 2026-08-17 — Reused one approval gate for unrelated controls
+
+- **Impact:** evidence for one strategy adjustment could authorize three adjustments with different semantics.
+- **Root cause:** the implementation treated a group of control modes as one candidate strategy.
+- **Correction:** collect separate baselines, evidence kinds, gates, and approval variables.
+- **Prevention:** each independently switchable execution control needs its own counterfactual identity.
+
 ### 2026-08-17 — Named a nonexistent focused test module
 
 - **Impact:** the first focused command stopped before test collection.

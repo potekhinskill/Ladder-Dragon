@@ -28,7 +28,7 @@ Ladder Dragon is an open-source Python trading system for Binance Spot.
 It uses adaptive entry ladders and exchange-side protection.
 It also provides exact accounting, restart recovery, replay, and walk-forward tests.
 
-Current product version: **2.20.217**.
+Current product version: **2.20.218**.
 The version source is `product_version.py`.
 Releases use [Semantic Versioning](https://semver.org/).
 
@@ -173,7 +173,8 @@ Selection evidence is diagnostic and cannot confirm its selected candidate.
 An operator freezes one explicit candidate before independent confirmation starts.
 The frozen manifest uses canonical JSON and SHA-256 fingerprints.
 Confirmation uses only decision snapshots after its purged time boundary.
-It uses ten non-overlapping blocks of 12 independent decisions.
+It removes snapshots with overlapping 360-minute outcome intervals.
+It then uses ten non-overlapping blocks of 12 independent decisions.
 At least nine blocks must have positive PnL and positive baseline edge.
 An unresolved decision stops the eligible prefix until its outcomes close.
 Reports are read-only, and explicit finalization binds the reviewed report SHA-256.

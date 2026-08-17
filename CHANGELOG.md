@@ -3,6 +3,25 @@
 All notable changes are documented here. Releases use Semantic Versioning; every
 section is dated and there is intentionally no `Unreleased` section.
 
+## [2.20.218] — 2026-08-17
+
+### Changed
+- Statistical gates now purge snapshot outcomes that overlap the longest configured horizon.
+- Reports preserve raw evidence and show excluded overlap counts and the active method.
+- Expectancy, inventory, maker, and regime controls now collect separate counterfactual evidence.
+- Each execution-changing control now requires its own operator approval.
+
+### Security
+- Old `CONFIRMED` states cannot promote a symbol without passing the current statistical method.
+- Confirmation blocks use outcome intervals separated by more than 360 minutes.
+- Impossible confirmation criteria fail before experiment freeze.
+- The Risk Manager enforces each symbol's absolute inventory CAP in every control mode.
+- The statistical regime challenger rejects the unsupported `APPLY` mode.
+
+### Verified
+- All 1,232 project tests pass.
+- Technical English, compilation, architecture, and focused safety checks pass.
+
 ## [2.20.217] — 2026-08-17
 
 ### Added

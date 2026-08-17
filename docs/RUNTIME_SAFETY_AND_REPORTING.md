@@ -113,25 +113,9 @@ An incomplete loss-streak boundary blocks BUY inside a valid risk snapshot.
 It does not suppress account reconciliation or SHADOW evidence collection.
 The risk snapshot lists each symbol whose loss-streak evidence is incomplete.
 
-The experiment contour evaluates three candidates against the untouched current
-strategy plan. All candidates use identical feature timestamps and
-90/120-minute outcome windows.
-
-The candidates test these controls:
-
-- maker-only entry and TP;
-- an always-active entry scope;
-- a BUY lifetime of 60 minutes;
-- outcome horizons of 90 and 120 minutes;
-- explicit BUY distances of 34, 36, and 38 basis points.
-
-Every candidate uses the authoritative TP floor.
-Candidate prices can be closer than the baseline because they cannot change orders.
-
-Version-seven evidence remains immutable after its negative net expectancy result.
-Version-eight evidence remains immutable after its zero-fill result.
-Version-nine tested the observed participation boundary without reusing the 40-basis-point gap.
-Version-ten starts new evidence for the hardened confirmation protocol.
+Each symbol keeps one immutable SHADOW generation and its own candidate set.
+Current experiments use 300-minute and 360-minute outcome horizons.
+Raw five-minute snapshots remain immutable and available for diagnostics.
 
 Each semantic generation uses new experiment identifiers.
 Existing evidence receives the `LEGACY` role during migration.
@@ -158,7 +142,8 @@ It also starts after a fixed 15-minute embargo.
 Snapshot time determines cohort membership.
 Settlement time cannot move an older decision into confirmation.
 
-Confirmation uses ten sequential blocks of 12 independent decisions.
+Confirmation first purges decisions whose 360-minute outcome intervals overlap.
+It then uses ten sequential blocks of 12 independent decisions.
 Multiple horizons from one decision count once.
 Confidence intervals bootstrap these non-overlapping blocks.
 Holm tests also use block-level results.
@@ -167,6 +152,8 @@ The incomplete final block remains `PENDING`.
 Nine complete blocks must have positive PnL and positive baseline edge.
 Two consecutive negative blocks block the stability rule.
 All existing confidence, Holm, fill, drawdown, and regime gates remain required.
+An impossible confirmation design is rejected before experiment freeze.
+An older `CONFIRMED` state cannot bypass the current statistical method.
 
 The confirmation report is read-only.
 The operator must finalize the reviewed report with its SHA-256.
@@ -220,9 +207,12 @@ SHADOW does not export the execution-changing required edge to a worker.
 Each SHADOW symbol keeps an independent generation and report.
 Execution-only inventory controls are not applicable to SHADOW-only symbols.
 
-APPLY requires `BOT_STRATEGY_CONTROLS_APPROVED=YES` and valid chronological evidence.
+Each APPLY control requires its own approval and chronological evidence.
+The four approval variables cover expectancy, maker, regime, and inventory.
 It also requires an explicit managed-inventory hard CAP for each symbol.
 The portfolio CAP is not a substitute for this limit.
+The Risk Manager enforces the hard CAP even when inventory skew is SHADOW.
+`BOT_STATISTICAL_REGIME_MODE` accepts only `OFF` or `SHADOW`.
 
 ## Prediction outcomes and provider failures
 

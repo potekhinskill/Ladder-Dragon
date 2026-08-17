@@ -65,6 +65,9 @@ def test_confirmed_candidate_needs_caps_consistent_with_total_limit(monkeypatch)
         "_current_generation_status",
         lambda _store, _symbol: ("v12", "CONFIRMED"),
     )
+    monkeypatch.setattr(
+        execution_promotion, "_current_method_passes", lambda *_args, **_kwargs: True
+    )
     environment = _environment("BTCUSDT")
     environment["RISK_SYMBOL_CAP_BTCUSDT"] = "31"
 
@@ -89,6 +92,9 @@ def test_all_promotion_gates_can_pass_without_enabling_execution(monkeypatch):
         "_current_generation_status",
         lambda _store, _symbol: ("v12", "CONFIRMED"),
     )
+    monkeypatch.setattr(
+        execution_promotion, "_current_method_passes", lambda *_args, **_kwargs: True
+    )
 
     report = execution_promotion.build_execution_promotion_report(
         execution_symbols=["SOLUSDT"],
@@ -105,11 +111,37 @@ def test_all_promotion_gates_can_pass_without_enabling_execution(monkeypatch):
     assert report["lookahead"] is False
 
 
+def test_legacy_confirmation_cannot_bypass_the_current_method(monkeypatch):
+    monkeypatch.setattr(
+        execution_promotion,
+        "_current_generation_status",
+        lambda _store, _symbol: ("v12", "CONFIRMED"),
+    )
+    monkeypatch.setattr(
+        execution_promotion, "_current_method_passes", lambda *_args, **_kwargs: False
+    )
+
+    report = execution_promotion.build_execution_promotion_report(
+        execution_symbols=["SOLUSDT"],
+        prediction_symbols=["SOLUSDT", "BTCUSDT"],
+        candidate_symbols=["BTCUSDT"],
+        store=object(),
+        environment=_environment("BTCUSDT"),
+    )
+
+    candidate = report["candidates"]["BTCUSDT"]
+    assert candidate["promotion_eligible"] is False
+    assert "current statistical method" in candidate["blocking_reasons"][0]
+
+
 def test_promotion_report_does_not_copy_unrelated_environment_values(monkeypatch):
     monkeypatch.setattr(
         execution_promotion,
         "_current_generation_status",
         lambda _store, _symbol: ("v12", "CONFIRMED"),
+    )
+    monkeypatch.setattr(
+        execution_promotion, "_current_method_passes", lambda *_args, **_kwargs: True
     )
     environment = _environment("BTCUSDT")
     environment["BINANCE_API_SECRET"] = "must-not-appear"

@@ -13,7 +13,10 @@ Never copy credentials into documentation, Git, logs, or command arguments.
 | `BOT_LIVE_CONFIRMED` | permits reviewed Mainnet LIVE execution | `NO` |
 | `BOT_TESTNET_ORDER_CONFIRMED` | permits the Testnet limit-cancel test | `NO` |
 | `BOT_TESTNET_BUY_OCO_CONFIRMED` | permits the Testnet BUY and OCO lifecycle | `NO` |
-| `BOT_STRATEGY_CONTROLS_APPROVED` | permits approved strategy controls | `NO` |
+| `BOT_EXPECTANCY_APPROVED` | permits expectancy APPLY | `NO` |
+| `BOT_INVENTORY_SKEW_APPROVED` | permits inventory APPLY | `NO` |
+| `BOT_MAKER_POLICY_APPROVED` | permits maker-policy APPLY | `NO` |
+| `BOT_REGIME_GATE_APPROVED` | permits regime-gate APPLY | `NO` |
 | `BOT_FAST_MARKET_APPROVED` | permits fast-market APPLY | `NO` |
 | `BOT_OTOCO_APPROVED` | permits OTOCO APPLY | `NO` |
 | `BOT_WS_TRADING_APPROVED` | permits WebSocket trading APPLY | `NO` |
@@ -37,7 +40,7 @@ It requires explicit order and managed-inventory CAPs for that symbol.
 | `BOT_FEE_PCT` | conservative Spot fee per side; `0.001` means 0.1% |
 | `BOT_REGIME_*` | regime state machine and hysteresis |
 | `BOT_INVENTORY_SKEW_*` | managed-inventory size reduction |
-| `BOT_STATISTICAL_REGIME_MODE` | transparent statistical challenger |
+| `BOT_STATISTICAL_REGIME_MODE` | OFF or SHADOW statistical challenger |
 | `BUY_VWAP_HYSTERESIS_PCT` | VWAP gate Schmitt band |
 | `BUY_VWAP_DISCOUNT_*` | bounded VWAP discount adaptation from regime and ATR |
 | `VWAP_AUTOTUNE_DISCOUNT_*` | bounded VWAP discount adaptation from exact PnL evidence |
@@ -50,6 +53,7 @@ Set a lower fee only after you confirm the active account discount.
 Each traded symbol requires an explicit managed-inventory hard CAP.
 For example, SOL uses `RISK_MANAGED_INVENTORY_HARD_CAP_SOLUSDT`.
 This value does not fall back to the portfolio CAP.
+The Risk Manager enforces this CAP in every strategy-control mode.
 Each staged symbol also requires `RISK_SYMBOL_CAP_<SYMBOL>`.
 The per-order CAP cannot exceed the managed-inventory hard CAP.
 

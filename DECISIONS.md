@@ -1,5 +1,26 @@
 # Engineering decisions
 
+### 2026-08-17 — Define independence by complete outcome intervals
+
+- **Context:** five-minute snapshots shared most of their 300-minute and 360-minute outcome periods.
+- **Decision:** retain raw rows, but infer only from starts separated beyond the longest inclusive outcome interval.
+- **Why it worked:** reports show raw and purged counts, while confirmation blocks contain no overlapping outcomes.
+- **Reuse:** every experiment where labels remain dependent after grouping multiple horizons by snapshot.
+
+### 2026-08-17 — Keep absolute inventory limits outside adaptive controls
+
+- **Context:** the managed-inventory CAP was evaluated inside an optional inventory-skew mode.
+- **Decision:** enforce one explicit absolute CAP per execution symbol in the Risk Manager.
+- **Why it worked:** missing or reached CAPs block BUY in every adaptive-control mode.
+- **Reuse:** every safety limit that must remain active when an optimization feature is observational.
+
+### 2026-08-17 — Require one evidence gate per strategy control
+
+- **Context:** one generic strategy gate authorized four controls with different decision semantics.
+- **Decision:** record and approve expectancy, inventory, maker, and regime counterfactuals separately.
+- **Why it worked:** one control's evidence or approval cannot authorize another control.
+- **Reuse:** every independently switchable control that can change execution behavior.
+
 ### 2026-08-17 — Narrow ETH gaps around the participation boundary
 
 - **Context:** version twelve found negative expectancy at 19 basis points and insufficient fills at 27 basis points.

@@ -48,6 +48,11 @@ from ladder_dragon.ai.ai_policy import (
     usage_budget_allows,
 )
 from ladder_dragon.ai.ai_statistical import context_vector
+from ladder_dragon.strategy.prediction.control_evidence import (
+    CONTROL_KINDS,
+    record_control_evidence,
+)
+from ladder_dragon.supervision import strategy_control_gates
 from ladder_dragon.ai.ai_runtime_status import write_runtime_status
 from ladder_dragon.ai.ai_control import read_ai_control, resolve_ai_control_path
 from ladder_dragon.supervision.entry_policy import (
@@ -1888,44 +1893,20 @@ def _prediction_reanchor_gate(symbol: str) -> dict[str, object]:
     return result
 
 
-def _strategy_control_gate(symbol: str) -> dict[str, object]:
-    """Return look-ahead-safe approval evidence for strategy controls."""
-    now_monotonic = time.monotonic()
-    cached = _STRATEGY_CONTROL_GATE_CACHE.get(symbol)
-    if cached is not None and now_monotonic - cached[0] < 60:
-        return cached[1]
-    if _PREDICTION_SHADOW is None:
-        result = {
-            "approved": False,
-            "mode": "SHADOW",
-            "reasons": ["prediction journal is unavailable"],
-        }
-    else:
-        try:
-            samples = _PREDICTION_SHADOW.resolved_samples(
-                symbol, kind="STRATEGY"
-            )
-            result = walk_forward_prediction_report(samples)["gate"]
-        except (OSError, sqlite3.Error, TypeError, ValueError):
-            result = {
-                "approved": False,
-                "mode": "SHADOW",
-                "reasons": ["strategy gate evidence is unreadable"],
-            }
-    _STRATEGY_CONTROL_GATE_CACHE[symbol] = (now_monotonic, result)
-    return result
-
-
-def _strategy_controls_apply_allowed(
-    symbol: str,
-) -> tuple[bool, dict[str, object]]:
-    """Require operator approval and statistical evidence for APPLY."""
-    gate = _strategy_control_gate(symbol)
-    operator_approved = (
-        os.getenv("BOT_STRATEGY_CONTROLS_APPROVED", "").strip().upper()
-        == "YES"
+def _strategy_control_gate(symbol: str, control: str) -> dict[str, object]:
+    """Return evidence for one execution-changing strategy control."""
+    return strategy_control_gates.control_gate(
+        symbol, control, store=_PREDICTION_SHADOW, cache=_STRATEGY_CONTROL_GATE_CACHE,
+        report_builder=walk_forward_prediction_report,
+        now_monotonic=time.monotonic(),
     )
-    return operator_approved and bool(gate.get("approved")), gate
+
+
+def _strategy_control_apply_allowed(symbol: str, control: str) -> tuple[bool, dict[str, object]]:
+    """Require separate operator approval and evidence for one control."""
+    return strategy_control_gates.control_apply_allowed(
+        symbol, control, gate_loader=_strategy_control_gate, environ=os.environ,
+    )
 
 
 def _prediction_plan(
@@ -1963,6 +1944,8 @@ def _record_prediction_shadow(
     deterministic_mode: str,
     rolling: Mapping[str, object],
     required_edge_pct: Decimal | None,
+    inventory_scale: Decimal = Decimal("1"),
+    regime_buys_allowed: bool = True,
 ) -> None:
     """Persist look-ahead-safe forecasts without changing an order decision."""
     if _PREDICTION_SHADOW is None:
@@ -2067,6 +2050,15 @@ def _record_prediction_shadow(
                 f"panic={panic_active};reason=current-ladder"
             ),
         )
+        record_control_evidence(
+            _PREDICTION_SHADOW,
+            symbol=symbol,
+            features=features,
+            baseline_plan=strategy_plan,
+            required_edge_pct=required_edge_pct,
+            inventory_scale=inventory_scale,
+            regime_buys_allowed=regime_buys_allowed,
+        )
         experiment_report = collect_shadow_experiments(
             _PREDICTION_SHADOW,
             symbol=symbol,
@@ -2126,15 +2118,16 @@ def _record_prediction_shadow(
     walk_forward = walk_forward_prediction_report(reanchor_samples)
     gate = walk_forward["gate"]
     _PREDICTION_GATE_CACHE[symbol] = (time.monotonic(), gate)
-    strategy_samples = _PREDICTION_SHADOW.resolved_samples(
-        symbol, before_ts_ms=features.snapshot_ts_ms, kind="STRATEGY"
-    )
-    strategy_walk_forward = walk_forward_prediction_report(strategy_samples)
-    strategy_gate = strategy_walk_forward["gate"]
-    _STRATEGY_CONTROL_GATE_CACHE[symbol] = (
-        time.monotonic(),
-        strategy_gate,
-    )
+    control_gates = {}
+    for control, kind in CONTROL_KINDS.items():
+        control_samples = _PREDICTION_SHADOW.resolved_samples(
+            symbol, before_ts_ms=features.snapshot_ts_ms, kind=kind
+        )
+        control_gate = walk_forward_prediction_report(control_samples)["gate"]
+        control_gates[control] = control_gate
+        _STRATEGY_CONTROL_GATE_CACHE[
+            f"{symbol.upper()}:{control}"
+        ] = (time.monotonic(), control_gate)
     summary = _PREDICTION_SHADOW.summary(symbol)
     runtime = _AI_RUNTIME_STATUS.setdefault("prediction", {})
     if not isinstance(runtime, dict):
@@ -2152,7 +2145,7 @@ def _record_prediction_shadow(
         "executor_panic_hits": features.executor_panic_hits,
         "settled_this_cycle": settled,
         "gate": gate,
-        "strategy_control_gate": strategy_gate,
+        "strategy_control_gates": control_gates,
         "shadow_experiments": experiment_report,
         "walk_forward": {
             "method": walk_forward["method"],
@@ -2963,21 +2956,19 @@ def run_for_symbol(
     expectancy_mode = _control_mode("BOT_EXPECTANCY_MODE")
     inventory_mode = _control_mode("BOT_INVENTORY_SKEW_MODE")
     maker_mode = _control_mode("BOT_MAKER_POLICY_MODE")
-    requested_apply = any(
-        mode == "APPLY"
-        for mode in (
-            regime_mode,
-            expectancy_mode,
-            inventory_mode,
-            maker_mode,
-        )
+    control_modes = {
+        "expectancy": expectancy_mode,
+        "inventory": inventory_mode,
+        "maker": maker_mode,
+        "regime": regime_mode,
+    }
+    control_review = strategy_control_gates.evaluate_control_requests(
+        symbol, control_modes, apply_allowed=_strategy_control_apply_allowed
     )
-    controls_apply_allowed, controls_gate = (
-        _strategy_controls_apply_allowed(symbol)
-        if requested_apply
-        else (False, _strategy_control_gate(symbol))
-    )
-    controls_gate_blocked = requested_apply and not controls_apply_allowed
+    control_permissions = control_review["permissions"]
+    control_gates = control_review["gates"]
+    controls_apply_allowed = bool(control_review["approved"])
+    controls_gate_blocked = bool(control_review["blocked"])
     commission_schedule: CommissionSchedule | None = None
     required_edge: Decimal | None = None
     commission_error: str | None = None
@@ -3046,8 +3037,8 @@ def run_for_symbol(
     ai_cap_scale = 1.0
     ai_pause_buys = False
     statistical = {"available": False, "samples": 0}
-    statistical_regime_mode = _control_mode(
-        "BOT_STATISTICAL_REGIME_MODE"
+    statistical_regime_mode = strategy_control_gates.statistical_challenger_mode(
+        _control_mode("BOT_STATISTICAL_REGIME_MODE")
     )
     extra_env = _strategy_child_env(
         commission_schedule=commission_schedule,
@@ -3499,12 +3490,15 @@ def run_for_symbol(
             },
             "apply_gate": {
                 "approved": controls_apply_allowed,
-                "operator_approved": (
-                    os.getenv(
-                        "BOT_STRATEGY_CONTROLS_APPROVED", ""
-                    ).strip().upper() == "YES"
-                ),
-                "evidence": controls_gate,
+                "operator_approved": {
+                    control: (
+                        os.getenv(variable, "").strip().upper() == "YES"
+                    )
+                    for control, variable in (
+                        strategy_control_gates.CONTROL_APPROVAL_VARIABLES.items()
+                    )
+                },
+                "evidence": control_gates,
                 "blocked": controls_gate_blocked,
             },
             "statistical_challenger": (
@@ -3560,6 +3554,8 @@ def run_for_symbol(
             deterministic_mode=dir_mode,
             rolling=sr,
             required_edge_pct=required_edge,
+            inventory_scale=inventory_scale,
+            regime_buys_allowed=regime_policy.buys_allowed,
         )
     except SUPERVISOR_OPERATION_ERRORS as exc:
         log(f"[PREDICTION-SHADOW] {symbol} unavailable={type(exc).__name__}")
@@ -4198,7 +4194,9 @@ def main():
     ) or args.ai_decisions_db
     _AI_DECISIONS_PATH = Path(decisions_db)
     statistical_regime_enabled = (
-        _control_mode("BOT_STATISTICAL_REGIME_MODE") != "OFF"
+        strategy_control_gates.statistical_challenger_mode(
+            _control_mode("BOT_STATISTICAL_REGIME_MODE")
+        ) != "OFF"
     )
     _AI_DECISIONS = (
         AdvisorDecisionStore(decisions_db)
@@ -4575,7 +4573,9 @@ def main():
                         }
                         if cluster_mode == "APPLY":
                             cluster_apply_allowed = all(
-                                _strategy_controls_apply_allowed(symbol)[0]
+                                _strategy_control_apply_allowed(
+                                    symbol, "inventory"
+                                )[0]
                                 for symbol in symbols
                             )
                             if not cluster_apply_allowed:

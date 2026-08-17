@@ -13,6 +13,7 @@ import fcntl
 import json
 import os
 from pathlib import Path
+import re
 import sqlite3
 import tempfile
 import time
@@ -57,6 +58,9 @@ class RiskLimits:
     gap_risk_cap_usdt: Decimal = Decimal("0")
     expected_shortfall_cap_usdt: Decimal = Decimal("0")
     stale_order_count_cap: int = 0
+    managed_inventory_caps_usdt: dict[str, Decimal] = field(
+        default_factory=dict
+    )
 
     @classmethod
     def from_env(cls) -> "RiskLimits":
@@ -114,6 +118,14 @@ class RiskLimits:
     def from_mapping(cls, environ: Mapping[str, str]) -> "RiskLimits":
         """Build limits only from the explicitly supplied environment."""
         run_dir = Path(environ.get("BOT_RUN_DIR", "/run/mybot"))
+        cap_prefix = "RISK_MANAGED_INVENTORY_HARD_CAP_"
+        managed_caps = {
+            name[len(cap_prefix):].upper(): money(value)
+            for name, value in environ.items()
+            if name.startswith(cap_prefix)
+            and name != "RISK_MANAGED_INVENTORY_HARD_CAP_USDT"
+            and value.strip()
+        }
         return cls(
             max_daily_loss_usdt=money(
                 environ.get("CB_MAX_DAILY_LOSS_USDT", "100")
@@ -177,6 +189,7 @@ class RiskLimits:
             stale_order_count_cap=int(
                 environ.get("RISK_STALE_ORDER_COUNT_CAP", "0")
             ),
+            managed_inventory_caps_usdt=managed_caps,
         )
 
     def validate(self) -> None:
@@ -216,6 +229,11 @@ class RiskLimits:
             raise ValueError("expected shortfall cap must be >= 0")
         if self.stale_order_count_cap < 0:
             raise ValueError("stale order cap must be >= 0")
+        for symbol, cap in self.managed_inventory_caps_usdt.items():
+            if re.fullmatch(r"[A-Z0-9]{5,20}", symbol) is None:
+                raise ValueError("managed inventory CAP symbol is invalid")
+            if not cap.is_finite() or cap <= 0:
+                raise ValueError("managed inventory CAP must be positive")
 
 
 @dataclass(frozen=True)
@@ -560,6 +578,16 @@ class RiskManager:
                                  if streak >= symbol_limit)
         if blocked_symbols:
             block_reasons.append("symbol loss streak limit reached: " + ",".join(blocked_symbols))
+        for symbol, exposure in sorted(snapshot.symbol_exposure_usdt.items()):
+            cap = self.limits.managed_inventory_caps_usdt.get(symbol)
+            if cap is None:
+                block_reasons.append(
+                    f"managed inventory hard CAP is unavailable: {symbol}"
+                )
+            elif exposure >= cap:
+                block_reasons.append(
+                    f"managed inventory hard CAP reached: {symbol}"
+                )
         if self.limits.stress_loss_cap_usdt > 0 and snapshot.stress_loss_usdt >= self.limits.stress_loss_cap_usdt:
             block_reasons.append(f"stress loss {snapshot.stress_loss_usdt:.2f} >= cap {self.limits.stress_loss_cap_usdt:.2f} USDT")
         if self.limits.var_cap_usdt > 0 and snapshot.var_usdt >= self.limits.var_cap_usdt:

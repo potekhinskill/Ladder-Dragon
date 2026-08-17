@@ -74,23 +74,11 @@ Future outcomes are normal pending work.
 Only overdue or unrecovered expired outcomes block the backlog gate.
 The soak report applies its expiration checks to the audited runtime window.
 
-The active experiment contour compares three version-nine candidates on one snapshot:
-
-- maker-only entry and TP;
-- an always-active entry scope;
-- a BUY lifetime of 60 minutes;
-- outcome horizons of 90 and 120 minutes;
-- explicit BUY distances of 34, 36, and 38 basis points.
-
-All candidates use the authoritative TP floor.
-Candidate prices use their explicit market gaps independently from the baseline.
-All candidates use the same immutable snapshot and baseline.
-Normal strategy predictions retain their 1, 5, and 15-minute horizons.
-
-Version-seven improved fill rate, but each net expectancy confidence interval remained negative.
-Version-eight repeated the zero-fill boundary at 40 basis points and deeper.
-Version-nine tested the boundary between version-seven fills and version-eight inactivity.
-Version-ten starts a separate cohort for the hardened confirmation protocol.
+SOLUSDT uses version fourteen with 60-minute, 75-minute, and 90-minute lifetimes.
+ETHUSDT uses version thirteen with 20, 21, and 22 basis-point gaps.
+BTCUSDT uses version twelve with 8.4, 9.4, and 10.3 basis-point gaps.
+All three use 300-minute and 360-minute outcome horizons.
+Every symbol keeps separate selection and confirmation evidence.
 
 Selection compares all active candidates on identical snapshots.
 Freeze requires the exact same snapshot set for every candidate.
@@ -99,12 +87,15 @@ An explicit operator freeze creates an immutable candidate manifest.
 Confirmation starts after the selection outcomes and a 15-minute embargo.
 It accepts only new decision snapshots linked to that manifest.
 
-Confirmation uses ten fixed blocks of 12 independent decisions.
+Confirmation purges overlapping 360-minute outcome intervals first.
+It then uses ten fixed blocks of 12 independent decisions.
 At least nine blocks need positive PnL and positive baseline edge.
 An unresolved decision stops the eligible prefix.
 Confidence intervals and Holm tests use complete blocks.
 The report is read-only and finalization requires its reviewed SHA-256.
 The existing 120-sample statistical requirements remain unchanged.
+The freeze command rejects criteria that cannot satisfy their tests.
+Promotion recomputes old confirmations with the current statistical method.
 
 The first gate evaluates the complete candidate strategy.
 All active candidates use the same entry scope.

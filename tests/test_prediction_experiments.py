@@ -378,8 +378,9 @@ def test_configuration_holm_uses_distinct_candidate_hypotheses():
             positive,
             net_pnl_quote=D("1") if index % 2 == 0 else D("-1"),
         )
-        winning.append(ResolvedSample(index, "RANGE", 1, positive, D("0")))
-        mixed.append(ResolvedSample(index, "RANGE", 1, alternating, D("0")))
+        timestamp = index * (15 * 60_000 + 1)
+        winning.append(ResolvedSample(timestamp, "RANGE", 1, positive, D("0")))
+        mixed.append(ResolvedSample(timestamp, "RANGE", 1, alternating, D("0")))
     p_values = {
         "winning": configuration_edge_p_value(winning),
         "mixed": configuration_edge_p_value(mixed),

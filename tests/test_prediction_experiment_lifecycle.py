@@ -32,6 +32,7 @@ from ladder_dragon.strategy.prediction.runtime import evaluation_end_ms
 
 
 D = Decimal
+CONFIRMATION_SPACING_MS = max(EXPERIMENT_HORIZONS_MIN) * 60_000 + 1
 
 
 def _features(timestamp: int, regime: str = "RANGE") -> PredictionFeatures:
@@ -430,7 +431,7 @@ def test_incomplete_window_is_pending_and_cannot_pass(tmp_path: Path):
         decision_id = _record(
             store,
             variants[1],
-            timestamp=start + index * 300_000,
+            timestamp=start + index * CONFIRMATION_SPACING_MS,
             experiment_id=manifest["experiment_id"],
             role="CONFIRMATION",
         )
@@ -489,7 +490,7 @@ def test_unresolved_decision_stops_confirmation_prefix(tmp_path: Path):
         decision_id = _record(
             store,
             variants[1],
-            timestamp=start + index * 300_000,
+            timestamp=start + index * CONFIRMATION_SPACING_MS,
             experiment_id=manifest["experiment_id"],
             role="CONFIRMATION",
             regime=("TREND_UP", "TREND_DOWN", "RANGE", "PANIC")[index % 4],
@@ -526,7 +527,7 @@ def test_full_independent_confirmation_can_pass_without_apply(tmp_path: Path):
         decision_id = _record(
             store,
             variants[1],
-            timestamp=start + index * 300_000,
+            timestamp=start + index * CONFIRMATION_SPACING_MS,
             experiment_id=manifest["experiment_id"],
             role="CONFIRMATION",
             regime=regimes[index % 4],
@@ -566,7 +567,7 @@ def test_report_aggregates_only_the_predeclared_window_prefix(tmp_path: Path):
         decision_id = _record(
             store,
             variants[1],
-            timestamp=start + index * 300_000,
+            timestamp=start + index * CONFIRMATION_SPACING_MS,
             experiment_id=manifest["experiment_id"],
             role="CONFIRMATION",
             regime=regimes[index % 4],
@@ -596,7 +597,7 @@ def test_unstable_windows_fail_even_with_positive_total(tmp_path: Path):
         decision_id = _record(
             store,
             variants[1],
-            timestamp=start + index * 300_000,
+            timestamp=start + index * CONFIRMATION_SPACING_MS,
             experiment_id=manifest["experiment_id"],
             role="CONFIRMATION",
             regime=regimes[index % 4],

@@ -16,7 +16,9 @@ from ladder_dragon.strategy.prediction.confirmation_statistics import (
     DecisionEvidence,
     block_confirmation_gate,
     drawdown,
+    non_overlapping_decisions,
     summarize_window,
+    validate_confirmation_criteria,
 )
 from ladder_dragon.strategy.prediction.models import ResolvedSample
 
@@ -27,8 +29,9 @@ if TYPE_CHECKING:
 
 D = Decimal
 ZERO = D("0")
-MANIFEST_SCHEMA_VERSION = 1
-REPORT_SCHEMA_VERSION = 3
+MANIFEST_SCHEMA_VERSION = 2
+REPORT_SCHEMA_VERSION = 4
+STATISTICAL_METHOD_VERSION = "purged-outcome-intervals-v1"
 EVIDENCE_ROLES = frozenset({"SELECTION", "CONFIRMATION", "DIAGNOSTIC", "LEGACY"})
 LIFECYCLE_STATES = frozenset({
     "SELECTION", "FROZEN", "CONFIRMING", "CONFIRMED", "REJECTED",
@@ -412,6 +415,9 @@ def freeze_experiment(
     required = tuple(int(value) for value in horizons_min)
     if not required or sorted(set(required)) != list(required):
         raise ValueError("manifest horizons must be unique and increasing")
+    feasibility = validate_confirmation_criteria(
+        policy, required_horizons_min=required
+    )
     variants = tuple(all_variants)
     if selected_variant.variant_id not in {row.variant_id for row in variants}:
         raise ValueError("selected variant is not in the selection cohort")
@@ -503,6 +509,10 @@ def freeze_experiment(
             "baseline": baseline_rule(selected_variant),
             "baseline_fingerprint": baseline_fp,
             "criteria": policy,
+            "statistical_method": STATISTICAL_METHOD_VERSION,
+            "independence_spacing_ms": feasibility[
+                "independence_spacing_ms"
+            ],
             "selection_rule": "explicit_operator_choice_after_configuration_holm_review",
             "selection_experiment_id": cohort,
             "selection_end_ts_ms": cutoff,
@@ -659,16 +669,45 @@ def confirmation_report(
         }
     decisions, reasons = _confirmation_decisions(store, manifest)
     criteria = manifest["criteria"]
+    required_horizons = tuple(
+        int(value)
+        for value in manifest["candidate_parameters"]["horizons_min"]
+    )
+    try:
+        feasibility = validate_confirmation_criteria(
+            criteria, required_horizons_min=required_horizons
+        )
+    except (KeyError, TypeError, ValueError) as exc:
+        return {
+            "schema_version": REPORT_SCHEMA_VERSION,
+            "experiment_id": experiment_id,
+            "experiment_lifecycle_status": manifest["current_status"],
+            "confirmation_status": "BLOCKED",
+            "blocking_reasons": [str(exc)],
+            "first_gate_passed": False,
+            "eligible_for_second_gate_review": False,
+            "promotion_eligible": False,
+            "apply_allowed": False,
+            "can_change_orders": False,
+            "lookahead": False,
+        }
+    independent_decisions = non_overlapping_decisions(
+        decisions, required_horizons_min=required_horizons
+    )
     size = int(criteria["window_size_decisions"])
     required_windows = int(criteria["required_complete_windows"])
     required_decisions = size * required_windows
     first_pending = next(
-        (index for index, row in enumerate(decisions) if not row.complete),
-        len(decisions),
+        (
+            index
+            for index, row in enumerate(independent_decisions)
+            if not row.complete
+        ),
+        len(independent_decisions),
     )
     # A later closed outcome cannot jump over an earlier unresolved decision.
-    complete_prefix = decisions[:first_pending]
-    pending_tail = decisions[first_pending:]
+    complete_prefix = independent_decisions[:first_pending]
+    pending_tail = independent_decisions[first_pending:]
     windows = [
         summarize_window(
             complete_prefix[offset:offset + size], offset // size + 1
@@ -705,9 +744,7 @@ def confirmation_report(
     gate = block_confirmation_gate(
         evaluated_blocks,
         criteria=criteria,
-        required_horizons_min=tuple(
-            manifest["candidate_parameters"]["horizons_min"]
-        ),
+        required_horizons_min=required_horizons,
     )
     enough = (
         len(evaluated_windows) == required_windows
@@ -737,8 +774,10 @@ def confirmation_report(
             )
     evaluation_passed = enough and not reasons
     lifecycle_status = str(manifest["current_status"])
-    if lifecycle_status == "CONFIRMED":
+    if lifecycle_status == "CONFIRMED" and evaluation_passed:
         status = "PASSED"
+    elif lifecycle_status == "CONFIRMED":
+        status = "BLOCKED_BY_CURRENT_METHOD"
     elif lifecycle_status == "REJECTED":
         status = "FAILED"
     elif lifecycle_status == "BLOCKED":
@@ -759,6 +798,10 @@ def confirmation_report(
         "confirmation_start_ts_ms": manifest["confirmation_start_ts_ms"],
         "confirmation_status": status,
         "confirmation_progress": {
+            "raw_decisions": len(decisions),
+            "excluded_overlapping_decisions": (
+                len(decisions) - len(independent_decisions)
+            ),
             "complete_decisions": len(complete_prefix),
             "pending_decisions": len(pending_tail),
             "required_decisions": required_decisions,
@@ -766,6 +809,8 @@ def confirmation_report(
             "required_complete_windows": required_windows,
             "evaluated_windows": len(evaluated_windows),
         },
+        "statistical_method": STATISTICAL_METHOD_VERSION,
+        "independence_spacing_ms": feasibility["independence_spacing_ms"],
         "complete_windows": len(full),
         "pending_windows": sum(row["status"] == "PENDING" for row in windows),
         "positive_windows": positive,
@@ -799,9 +844,15 @@ def confirmation_report(
         "proposed_final_status": (
             "CONFIRMED" if evaluation_passed else "REJECTED"
         ) if enough else None,
-        "first_gate_passed": lifecycle_status == "CONFIRMED",
-        "eligible_for_second_gate_review": lifecycle_status == "CONFIRMED",
-        "promotion_eligible": lifecycle_status == "CONFIRMED",
+        "first_gate_passed": (
+            lifecycle_status == "CONFIRMED" and evaluation_passed
+        ),
+        "eligible_for_second_gate_review": (
+            lifecycle_status == "CONFIRMED" and evaluation_passed
+        ),
+        "promotion_eligible": (
+            lifecycle_status == "CONFIRMED" and evaluation_passed
+        ),
         "apply_allowed": False,
         "can_change_orders": False,
         "lookahead": False,

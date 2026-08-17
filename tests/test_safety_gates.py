@@ -53,7 +53,7 @@ def test_strategy_apply_requires_explicit_approval_and_statistical_gate(
     class Store:
         def resolved_samples(self, symbol, *, kind):
             assert symbol == "SOLUSDT"
-            assert kind == "STRATEGY"
+            assert kind == "CONTROL_MAKER"
             return ["historical-only"]
 
     monkeypatch.setattr(ai_supervisor, "_PREDICTION_SHADOW", Store())
@@ -69,13 +69,15 @@ def test_strategy_apply_requires_explicit_approval_and_statistical_gate(
         },
     )
     ai_supervisor._STRATEGY_CONTROL_GATE_CACHE.clear()
-    monkeypatch.setenv("BOT_STRATEGY_CONTROLS_APPROVED", "NO")
-    allowed, _ = ai_supervisor._strategy_controls_apply_allowed("SOLUSDT")
+    monkeypatch.setenv("BOT_MAKER_POLICY_APPROVED", "NO")
+    allowed, _ = ai_supervisor._strategy_control_apply_allowed(
+        "SOLUSDT", "maker"
+    )
     assert allowed is False
 
-    monkeypatch.setenv("BOT_STRATEGY_CONTROLS_APPROVED", "YES")
-    allowed, evidence = ai_supervisor._strategy_controls_apply_allowed(
-        "SOLUSDT"
+    monkeypatch.setenv("BOT_MAKER_POLICY_APPROVED", "YES")
+    allowed, evidence = ai_supervisor._strategy_control_apply_allowed(
+        "SOLUSDT", "maker"
     )
     assert allowed is True
     assert evidence["approved"] is True
@@ -84,11 +86,11 @@ def test_strategy_apply_requires_explicit_approval_and_statistical_gate(
 
 def test_strategy_apply_blocks_when_evidence_is_unavailable(monkeypatch):
     monkeypatch.setattr(ai_supervisor, "_PREDICTION_SHADOW", None)
-    monkeypatch.setenv("BOT_STRATEGY_CONTROLS_APPROVED", "YES")
+    monkeypatch.setenv("BOT_MAKER_POLICY_APPROVED", "YES")
     ai_supervisor._STRATEGY_CONTROL_GATE_CACHE.clear()
 
-    allowed, evidence = ai_supervisor._strategy_controls_apply_allowed(
-        "SOLUSDT"
+    allowed, evidence = ai_supervisor._strategy_control_apply_allowed(
+        "SOLUSDT", "maker"
     )
 
     assert allowed is False

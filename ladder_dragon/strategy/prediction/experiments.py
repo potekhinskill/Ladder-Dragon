@@ -263,7 +263,9 @@ def shadow_variant_report(
             active_samples,
             active_gate,
         )
-        p_values[variant.variant_id] = configuration_edge_p_value(samples)
+        p_values[variant.variant_id] = configuration_edge_p_value(
+            samples, required_horizons_min=horizons_min
+        )
     configuration_holm = holm_configuration_correction(p_values)
     reports: dict[str, object] = {}
     for variant_id, (
@@ -317,7 +319,7 @@ def shadow_variant_report(
                 "baseline_edge_ci": active_gate.get("baseline_edge_ci"),
                 "fill_rate": active_gate.get("fill_rate"),
                 "configuration_p_value": configuration_edge_p_value(
-                    active_samples
+                    active_samples, required_horizons_min=horizons_min
                 ),
             },
             "configuration_holm_passed": holm_passed,

@@ -609,11 +609,15 @@ class PredictionShadowStore:
             raise ValueError("prediction horizons do not match outcome horizons")
         normalized_kind = kind.upper()
         experimental = normalized_kind.startswith("EXPERIMENT_")
-        if normalized_kind not in {"STRATEGY", "REANCHOR"} and not experimental:
+        control = normalized_kind.startswith("CONTROL_")
+        if (
+            normalized_kind not in {"STRATEGY", "REANCHOR"} and not experimental
+            and not control
+        ):
             raise ValueError("unsupported prediction kind")
         if normalized_kind == "REANCHOR" and baseline_plan is None:
             raise ValueError("REANCHOR requires the original order baseline")
-        if experimental and baseline_plan is None:
+        if (experimental or control) and baseline_plan is None:
             raise ValueError("counterfactual kind requires an explicit baseline")
         role = str(evidence_role).strip().upper()
         if role not in EVIDENCE_ROLES:

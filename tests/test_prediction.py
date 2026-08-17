@@ -535,8 +535,8 @@ def test_supervisor_shadow_records_strategy_and_hashed_reanchor(
     )
 
     summary = store.summary("SOLUSDT")
-    # One strategy decision, one re-anchor sample, and three v11 candidates.
-    assert summary["decisions"] == 5
+    # The journal keeps strategy, re-anchor, experiment, and control evidence.
+    assert summary["decisions"] == 9
     assert summary["reanchor_counterfactuals"] == 1
     assert ai_supervisor._AI_RUNTIME_STATUS["prediction"][
         "can_change_orders"
@@ -548,24 +548,25 @@ def test_walk_forward_and_apply_gate_are_chronological_and_strict():
     regimes = ("TREND_UP", "TREND_DOWN", "RANGE", "PANIC")
     samples = []
     for index in range(120):
-        horizon = (1, 5, 15)[index % 3]
-        outcome = PredictionOutcome(
-            horizon,
-            True,
-            True,
-            D("1"),
-            D("0.001"),
-            30,
-            "TP",
-            index * 60_000 + horizon * 60_000,
-        )
-        samples.append(ResolvedSample(
-            snapshot_ts_ms=index * 60_000,
-            regime=regimes[index % len(regimes)],
-            horizon_min=horizon,
-            outcome=outcome,
-            baseline_net_pnl_quote=D("0"),
-        ))
+        timestamp = index * (15 * 60_000 + 1)
+        for horizon in (1, 5, 15):
+            outcome = PredictionOutcome(
+                horizon,
+                True,
+                True,
+                D("1"),
+                D("0.001"),
+                30,
+                "TP",
+                timestamp + horizon * 60_000,
+            )
+            samples.append(ResolvedSample(
+                snapshot_ts_ms=timestamp,
+                regime=regimes[index % len(regimes)],
+                horizon_min=horizon,
+                outcome=outcome,
+                baseline_net_pnl_quote=D("0"),
+            ))
 
     gate = prediction_apply_gate(samples)
     report = walk_forward_prediction_report(samples, min_train_samples=12)
@@ -578,23 +579,25 @@ def test_walk_forward_and_apply_gate_are_chronological_and_strict():
         row["train_max_ts_ms"] < row["snapshot_ts_ms"]
         for row in report["evaluated"]
     )
-    assert prediction_apply_gate(samples[:10])["mode"] == "SHADOW"
+    assert prediction_apply_gate(samples[:30])["mode"] == "SHADOW"
 
 
 def test_apply_gate_uses_explicit_experiment_horizons():
     samples = []
     for index in range(120):
-        horizon = (30, 60)[index % 2]
-        outcome = PredictionOutcome(
-            horizon, True, True, D("1"), D("0"), 30, "TP", index + 1
-        )
-        samples.append(ResolvedSample(
-            snapshot_ts_ms=index,
-            regime=("TREND_UP", "TREND_DOWN", "RANGE", "PANIC")[index % 4],
-            horizon_min=horizon,
-            outcome=outcome,
-            baseline_net_pnl_quote=D("0"),
-        ))
+        timestamp = index * (60 * 60_000 + 1)
+        for horizon in (30, 60):
+            outcome = PredictionOutcome(
+                horizon, True, True, D("1"), D("0"), 30, "TP",
+                timestamp + horizon * 60_000,
+            )
+            samples.append(ResolvedSample(
+                snapshot_ts_ms=timestamp,
+                regime=("TREND_UP", "TREND_DOWN", "RANGE", "PANIC")[index % 4],
+                horizon_min=horizon,
+                outcome=outcome,
+                baseline_net_pnl_quote=D("0"),
+            ))
 
     gate = prediction_apply_gate(samples, required_horizons_min=(30, 60))
 

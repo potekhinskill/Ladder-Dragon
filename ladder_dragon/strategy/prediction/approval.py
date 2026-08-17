@@ -12,6 +12,10 @@ import random
 from typing import Sequence
 
 from ladder_dragon.strategy.prediction.models import ResolvedSample
+from ladder_dragon.strategy.prediction.statistical_units import (
+    non_overlapping_timestamps,
+    outcome_spacing_ms,
+)
 
 
 D = Decimal
@@ -77,13 +81,22 @@ def _holm(p_values: Sequence[float], alpha: float = 0.05) -> list[bool]:
     return accepted
 
 
-def configuration_edge_p_value(samples: Sequence[ResolvedSample]) -> float:
+def configuration_edge_p_value(
+    samples: Sequence[ResolvedSample],
+    *,
+    required_horizons_min: Sequence[int] = DEFAULT_HORIZONS_MIN,
+) -> float:
     """Return one independent paired-edge hypothesis for one configuration."""
     grouped: dict[int, list[ResolvedSample]] = {}
     for sample in samples:
         grouped.setdefault(sample.snapshot_ts_ms, []).append(sample)
+    selected = set(non_overlapping_timestamps(
+        grouped, horizons_min=required_horizons_min
+    ))
     edges = []
-    for rows in grouped.values():
+    for timestamp, rows in grouped.items():
+        if timestamp not in selected:
+            continue
         count = D(str(len(rows)))
         edges.append(sum(
             (
@@ -121,8 +134,14 @@ def prediction_apply_gate(
     grouped: dict[int, list[ResolvedSample]] = {}
     for item in ordered:
         grouped.setdefault(item.snapshot_ts_ms, []).append(item)
+    raw_snapshot_samples = len(grouped)
+    selected_timestamps = set(non_overlapping_timestamps(
+        grouped, horizons_min=required_horizons
+    ))
     independent_rows = []
     for timestamp, rows in sorted(grouped.items()):
+        if timestamp not in selected_timestamps:
+            continue
         count = D(str(len(rows)))
         independent_rows.append({
             "timestamp": timestamp,
@@ -143,8 +162,13 @@ def prediction_apply_gate(
     ci = bootstrap_mean_ci(pnl)
     edge_ci = bootstrap_mean_ci(edges)
     hypotheses: list[tuple[str, list[Decimal]]] = []
+    independent_samples = [
+        row for row in ordered if row.snapshot_ts_ms in selected_timestamps
+    ]
     for horizon in required_horizons:
-        horizon_rows = [row for row in ordered if row.horizon_min == horizon]
+        horizon_rows = [
+            row for row in independent_samples if row.horizon_min == horizon
+        ]
         hypotheses.append((
             f"horizon_{horizon}",
             [
@@ -203,7 +227,10 @@ def prediction_apply_gate(
         "approved": not reasons,
         "mode": "APPLY" if not reasons else "SHADOW",
         "reasons": reasons,
+        "raw_snapshot_samples": raw_snapshot_samples,
         "independent_samples": independent,
+        "excluded_overlapping_snapshots": raw_snapshot_samples - independent,
+        "independence_spacing_ms": outcome_spacing_ms(required_horizons),
         "net_expectancy_ci": [format(ci[0], "f"), format(ci[1], "f")],
         "baseline_edge_ci": [format(edge_ci[0], "f"), format(edge_ci[1], "f")],
         "fill_rate": format(fill_rate, "f"),

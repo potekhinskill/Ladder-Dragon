@@ -15,10 +15,73 @@ from ladder_dragon.strategy.prediction.approval import (
     paired_sign_p_value,
 )
 from ladder_dragon.strategy.prediction.models import ResolvedSample
+from ladder_dragon.strategy.prediction.statistical_units import (
+    non_overlapping_timestamps,
+    outcome_spacing_ms,
+)
 
 
 D = Decimal
 ZERO = D("0")
+
+
+def minimum_sign_blocks(hypothesis_count: int, *, alpha: float = 0.05) -> int:
+    """Return the minimum all-positive block count for the first Holm test."""
+    count = int(hypothesis_count)
+    if count <= 0 or not 0 < alpha <= 1:
+        raise ValueError("Holm feasibility inputs are invalid")
+    observations = 1
+    while 2 ** (-observations) > alpha / count:
+        observations += 1
+    return observations
+
+
+def validate_confirmation_criteria(
+    criteria: Mapping[str, object], *, required_horizons_min: Sequence[int]
+) -> dict[str, int]:
+    """Reject a confirmation design that cannot satisfy its own tests."""
+    spacing = outcome_spacing_ms(required_horizons_min)
+    size = int(criteria["window_size_decisions"])
+    windows = int(criteria["required_complete_windows"])
+    minimum_samples = int(criteria["min_independent_samples"])
+    minimum_regime = int(criteria["min_regime_samples"])
+    minimum_positive = int(criteria["minimum_positive_windows"])
+    maximum_negative = int(criteria["maximum_consecutive_negative_windows"])
+    if size <= 0 or windows <= 0:
+        raise ValueError("confirmation windows must be positive")
+    if minimum_samples <= 0 or minimum_regime <= 0:
+        raise ValueError("confirmation sample requirements must be positive")
+    if size * windows < minimum_samples:
+        raise ValueError("confirmation windows cannot reach the sample requirement")
+    if minimum_regime * 4 > size * windows:
+        raise ValueError("regime requirement exceeds confirmation capacity")
+    if not 0 <= minimum_positive <= windows:
+        raise ValueError("positive-window requirement is impossible")
+    if not 0 <= maximum_negative <= windows:
+        raise ValueError("negative-window requirement is impossible")
+    hypotheses = len(tuple(required_horizons_min)) + 4
+    required_sign_blocks = minimum_sign_blocks(hypotheses)
+    if windows < required_sign_blocks:
+        raise ValueError("confirmation has too few blocks for Holm significance")
+    return {
+        "independence_spacing_ms": spacing,
+        "minimum_sign_blocks": required_sign_blocks,
+        "hypothesis_count": hypotheses,
+    }
+
+
+def non_overlapping_decisions(
+    decisions: Sequence[DecisionEvidence], *, required_horizons_min: Sequence[int]
+) -> list[DecisionEvidence]:
+    """Select decisions whose maximum outcome intervals do not overlap."""
+    selected = set(non_overlapping_timestamps(
+        (item.snapshot_ts_ms for item in decisions),
+        horizons_min=required_horizons_min,
+    ))
+    return [
+        item for item in sorted(decisions, key=lambda row: row.snapshot_ts_ms)
+        if item.snapshot_ts_ms in selected
+    ]
 
 
 @dataclass(frozen=True)
@@ -112,6 +175,9 @@ def block_confirmation_gate(
     required_horizons_min: Sequence[int],
 ) -> dict[str, object]:
     """Evaluate inference on predeclared non-overlapping decision blocks."""
+    feasibility = validate_confirmation_criteria(
+        criteria, required_horizons_min=required_horizons_min
+    )
     decisions = [decision for block in blocks for decision in block]
     pnl: list[Decimal] = []
     edges: list[Decimal] = []
@@ -197,6 +263,15 @@ def block_confirmation_gate(
         reasons.append("market regime coverage is incomplete")
     if hypotheses and not all(holm.values()):
         reasons.append("Holm-corrected block hypotheses did not all pass")
+    insufficient_hypothesis_blocks = sorted(
+        name for name, values in hypotheses.items()
+        if len(values) < feasibility["minimum_sign_blocks"]
+    )
+    if insufficient_hypothesis_blocks:
+        reasons.append(
+            "hypotheses have too few independent blocks: "
+            + ",".join(insufficient_hypothesis_blocks)
+        )
     if fill_rate < D(str(criteria["min_fill_rate"])):
         reasons.append("fill rate is below threshold")
     maximum_drawdown = drawdown(pnl)
@@ -210,6 +285,8 @@ def block_confirmation_gate(
         "reasons": reasons,
         "independent_samples": len(decisions),
         "independent_blocks": len(blocks),
+        "independence_spacing_ms": feasibility["independence_spacing_ms"],
+        "minimum_sign_blocks": feasibility["minimum_sign_blocks"],
         "net_expectancy_ci": [format(net_ci[0], "f"), format(net_ci[1], "f")],
         "baseline_edge_ci": [format(edge_ci[0], "f"), format(edge_ci[1], "f")],
         "fill_rate": format(fill_rate, "f"),
@@ -230,5 +307,8 @@ __all__ = [
     "DecisionEvidence",
     "block_confirmation_gate",
     "drawdown",
+    "minimum_sign_blocks",
+    "non_overlapping_decisions",
     "summarize_window",
+    "validate_confirmation_criteria",
 ]

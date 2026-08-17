@@ -14,6 +14,7 @@ from ladder_dragon.strategy.prediction.experiment_config import (
     experiment_spec_for_symbol,
 )
 from ladder_dragon.strategy.prediction.experiment_lifecycle import (
+    confirmation_report,
     list_experiments,
 )
 
@@ -73,6 +74,29 @@ def _current_generation_status(store: object, symbol: str) -> tuple[str, str]:
     return generation, str(manifests[-1].get("current_status") or "BLOCKED")
 
 
+def _current_method_passes(
+    store: object, *, symbol: str, generation: str
+) -> bool:
+    """Require a confirmed manifest to pass the current statistical method."""
+    manifests = [
+        row
+        for row in list_experiments(store, symbol=symbol)
+        if str(row.get("generation") or "") == generation
+    ]
+    if not manifests:
+        return False
+    manifests.sort(
+        key=lambda row: (
+            int(row.get("created_at_ms") or 0),
+            str(row.get("experiment_id") or ""),
+        )
+    )
+    report = confirmation_report(
+        store, experiment_id=str(manifests[-1]["experiment_id"])
+    )
+    return bool(report.get("promotion_eligible"))
+
+
 def build_execution_promotion_report(
     *,
     execution_symbols: Sequence[str],
@@ -120,8 +144,28 @@ def build_execution_promotion_report(
 
         if symbol not in prediction:
             blockers.append("symbol is outside prediction SHADOW scope")
+        current_method_passed = False
+        if lifecycle == "CONFIRMED" and store is not None:
+            try:
+                current_method_passed = _current_method_passes(
+                    store, symbol=symbol, generation=generation
+                )
+            except (
+                AttributeError,
+                KeyError,
+                OSError,
+                RuntimeError,
+                sqlite3.Error,
+                TypeError,
+                ValueError,
+            ):
+                current_method_passed = False
         if lifecycle != "CONFIRMED":
             blockers.append(f"experiment lifecycle is {lifecycle}, not CONFIRMED")
+        elif not current_method_passed:
+            blockers.append(
+                "confirmation does not pass the current statistical method"
+            )
         if order_cap_error:
             blockers.append(order_cap_error)
         if inventory_cap_error:
@@ -142,6 +186,7 @@ def build_execution_promotion_report(
         candidates[symbol] = {
             "generation": generation,
             "lifecycle_status": lifecycle,
+            "current_statistical_method_passed": current_method_passed,
             "prediction_shadow": symbol in prediction,
             "operator_approved": approved,
             "order_cap_usdt": (
