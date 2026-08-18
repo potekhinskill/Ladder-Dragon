@@ -19,21 +19,31 @@ from ladder_dragon.strategy.prediction.statistical_units import (
     non_overlapping_timestamps,
     outcome_spacing_ms,
 )
+from ladder_dragon.strategy.prediction.statistical_design import (
+    DEFAULT_STATISTICAL_DESIGN,
+    EXPECTANCY_REGIMES,
+    PANIC_REGIME,
+    REQUIRED_EVALUATION_SNAPSHOTS,
+)
 
 
 D = Decimal
 ZERO = D("0")
 DEFAULT_CONFIRMATION_CRITERIA = {
-    "min_independent_samples": 120,
-    "min_regime_samples": 20,
+    "min_independent_samples": REQUIRED_EVALUATION_SNAPSHOTS,
+    "min_regime_samples": 8,
     "min_fill_rate": "0.10",
     "max_drawdown_quote": "25",
     "window_method": "fixed_non_overlapping_decision_blocks",
-    "window_size_decisions": 12,
-    "required_complete_windows": 10,
-    "minimum_positive_windows": 9,
+    "window_size_decisions": 8,
+    "required_complete_windows": 7,
+    "minimum_positive_windows": 6,
     "maximum_consecutive_negative_windows": 1,
     "embargo_ms": 900_000,
+    "maximum_confirmation_duration_ms": (
+        DEFAULT_STATISTICAL_DESIGN.maximum_confirmation_duration_ms
+    ),
+    "power_analysis": DEFAULT_STATISTICAL_DESIGN.as_dict(),
 }
 
 
@@ -68,7 +78,7 @@ def validate_confirmation_criteria(
         raise ValueError("confirmation sample requirements must be positive")
     if size * windows < minimum_samples:
         raise ValueError("confirmation windows cannot reach the sample requirement")
-    if minimum_regime * 4 > size * windows:
+    if minimum_regime * len(EXPECTANCY_REGIMES) > size * windows:
         raise ValueError("regime requirement exceeds confirmation capacity")
     if not 0 <= minimum_positive <= windows:
         raise ValueError("positive-window requirement is impossible")
@@ -76,7 +86,7 @@ def validate_confirmation_criteria(
         raise ValueError("negative-window requirement is impossible")
     if embargo_ms < 0:
         raise ValueError("confirmation embargo must be non-negative")
-    hypotheses = len(tuple(required_horizons_min)) + 4
+    hypotheses = len(tuple(required_horizons_min)) + len(EXPECTANCY_REGIMES)
     required_sign_blocks = minimum_sign_blocks(hypotheses)
     if windows < required_sign_blocks:
         raise ValueError("confirmation has too few blocks for Holm significance")
@@ -242,7 +252,7 @@ def block_confirmation_gate(
             if block_values:
                 values.append(sum(block_values, ZERO) / D(str(len(block_values))))
         hypotheses[f"horizon_{int(horizon)}"] = values
-    required_regimes = ("TREND_UP", "TREND_DOWN", "RANGE", "PANIC")
+    required_regimes = EXPECTANCY_REGIMES
     for regime in required_regimes:
         values = []
         for block in blocks:
@@ -324,6 +334,16 @@ def block_confirmation_gate(
             }
             for name, values in hypotheses.items()
         },
+        "panic_safety": {
+            "status": "POLICY_REQUIRED",
+            "policy": "block_new_entries",
+            "observed_independent_samples": sum(
+                decision.regime == PANIC_REGIME for decision in decisions
+            ),
+            "expectancy_hypothesis": False,
+            "blocks_expectancy": False,
+        },
+        "power_analysis": DEFAULT_STATISTICAL_DESIGN.as_dict(),
     }
 
 

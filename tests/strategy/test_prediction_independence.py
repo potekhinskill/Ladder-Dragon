@@ -96,9 +96,9 @@ def test_zero_rare_regime_uses_confidence_bound_before_rejection():
 
     assert report["status"] == "READY"
     assert report["practically_reachable"] is True
-    assert report["regimes"]["PANIC"]["observed"] == 0
-    assert D(report["regimes"]["PANIC"]["observed_fraction_upper_95"]) > 0
-    assert report["regimes"]["PANIC"]["projected_ready_ts_ms"] is not None
+    assert report["panic"]["observed"] == 0
+    assert report["panic"]["gate"] == "SAFETY_ONLY"
+    assert report["panic"]["blocks_expectancy"] is False
     assert report["outcome_values_used"] is False
 
 
@@ -128,7 +128,8 @@ def test_confirmation_calendar_includes_the_frozen_embargo():
         DEFAULT_CRITERIA, required_horizons_min=(300, 360)
     )
     without_embargo = (
-        119 * report["independence_spacing_ms"] + 360 * 60_000
+        (int(DEFAULT_CRITERIA["min_independent_samples"]) - 1)
+        * report["independence_spacing_ms"] + 360 * 60_000
     )
 
     assert report["minimum_calendar_duration_ms"] == (

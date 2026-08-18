@@ -17,6 +17,9 @@ def test_shadow_experiments_are_collapsed_and_use_safe_runtime_fields():
     assert "const measured=evaluated>0" in script
     assert "row.required_total_independent_samples" in script
     assert "row.estimated_ready_ts_ms" in script
+    assert "row.estimated_ready_days" in script
+    assert "row.readiness_reason" in script
+    assert "row.historical_training_independent_samples" in script
     assert "outcomes.overdue" in script
     assert "row.configuration_holm_passed" in script
     assert "report.eligible_for_second_gate_review" in script
@@ -43,9 +46,13 @@ def test_shadow_experiments_are_collapsed_and_use_safe_runtime_fields():
         "shadow_raw",
         "shadow_available",
         "shadow_training",
+        "shadow_historical_training",
         "shadow_evaluated",
         "shadow_required_total",
         "shadow_ready_eta",
+        "shadow_ready_days",
+        "shadow_waiting_reason",
+        "shadow_safety_only",
         "shadow_outcomes",
         "shadow_overdue",
         "shadow_fill",

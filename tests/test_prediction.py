@@ -613,6 +613,46 @@ def test_apply_gate_uses_explicit_experiment_horizons():
     assert "horizon_15" not in gate["hypotheses"]
 
 
+def test_panic_is_a_safety_veto_not_an_expectancy_hypothesis():
+    samples = []
+    regimes = ("TREND_UP", "TREND_DOWN", "RANGE")
+    for index in range(50):
+        timestamp = index * (60 * 60_000 + 1)
+        for horizon in (30, 60):
+            samples.append(ResolvedSample(
+                timestamp,
+                regimes[index % len(regimes)],
+                horizon,
+                PredictionOutcome(
+                    horizon, True, True, D("1"), D("0"), 1, "TP",
+                    timestamp + horizon * 60_000,
+                ),
+                D("0"),
+            ))
+    panic_timestamp = 51 * (60 * 60_000 + 1)
+    for horizon in (30, 60):
+        samples.append(ResolvedSample(
+            panic_timestamp,
+            "PANIC",
+            horizon,
+            PredictionOutcome(
+                horizon, True, False, D("-100"), D("1"), 1, "STOP",
+                panic_timestamp + horizon * 60_000,
+            ),
+            D("0"),
+        ))
+
+    gate = prediction_apply_gate(
+        samples,
+        min_regime_samples=1,
+        required_horizons_min=(30, 60),
+    )
+
+    assert "regime_PANIC" not in gate["hypotheses"]
+    assert gate["panic_safety"]["observed_independent_samples"] == 1
+    assert gate["panic_safety"]["blocks_expectancy"] is False
+
+
 @pytest.mark.parametrize("horizons", [(), (60, 30), (30, 30), (0, 30)])
 def test_apply_gate_rejects_invalid_required_horizons(horizons):
     with pytest.raises(ValueError, match="unique increasing positive integers"):

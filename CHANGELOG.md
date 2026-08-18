@@ -3,6 +3,26 @@
 All notable changes are documented here. Releases use Semantic Versioning; every
 section is dated and there is intentionally no `Unreleased` section.
 
+## [2.20.224] — 2026-08-18
+
+### Added
+- Exact sign-test power analysis now preregisters each required evaluation volume.
+- Closed historical evidence now satisfies cold-start training without entering evaluation.
+- The dashboard now shows readiness days and the current waiting reason.
+
+### Changed
+- New SOL v15, ETH v14, and BTC v13 cohorts use the powered statistical design.
+- Confirmation now uses seven live blocks with eight independent decisions each.
+- PANIC now uses a separate entry-safety gate instead of a profit hypothesis.
+
+### Security
+- Selection and confirmation stop at separate preregistered 45-day deadlines.
+- Historical training rows cannot enter selection, Holm, or confirmation inference.
+
+### Verified
+- Focused statistical, lifecycle, dashboard, and multi-symbol tests pass.
+- All 1,264 project tests, compilation, and Technical English checks pass.
+
 ## [2.20.223] — 2026-08-18
 
 ### Fixed

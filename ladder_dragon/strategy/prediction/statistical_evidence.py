@@ -33,6 +33,88 @@ class IndependentEvidence:
     cohort_summary: dict[str, object]
 
 
+@dataclass(frozen=True)
+class HistoricalTrainingEvidence:
+    """Closed, pre-cohort timestamps used only for cold-start training."""
+
+    independent_snapshots: int
+    latest_snapshot_ts_ms: int | None
+    source_snapshots: int
+
+
+def closed_historical_training_evidence(
+    store: object,
+    symbol: str,
+    *,
+    before_ts_ms: int,
+    required_horizons_min: Sequence[int],
+    maximum_snapshots: int,
+    excluded_experiment_id: str | None = None,
+    kinds: Sequence[str] = (),
+) -> HistoricalTrainingEvidence:
+    """Count closed pre-cohort evidence without importing outcomes into tests."""
+    horizons = tuple(int(value) for value in required_horizons_min)
+    if maximum_snapshots < 0:
+        raise ValueError("maximum historical training snapshots must be non-negative")
+    if not horizons or tuple(sorted(set(horizons))) != horizons:
+        raise ValueError("statistical horizons must be unique and increasing")
+    if maximum_snapshots == 0:
+        return HistoricalTrainingEvidence(0, None, 0)
+    placeholders = ",".join("?" for _ in horizons)
+    normalized_kinds = tuple(str(value).upper() for value in kinds)
+    excluded_clause = (
+        " AND d.experiment_id<>?" if excluded_experiment_id is not None else ""
+    )
+    kind_clause = (
+        " AND d.kind IN (" + ",".join("?" for _ in normalized_kinds) + ")"
+        if normalized_kinds else ""
+    )
+    query = f"""SELECT snapshot_ts_ms
+                FROM (
+                    SELECT d.decision_id,d.snapshot_ts_ms,
+                           COUNT(DISTINCT o.horizon_min) AS horizon_count,
+                           SUM(CASE WHEN o.outcome_json IS NOT NULL THEN 1 ELSE 0 END)
+                               AS resolved_count
+                    FROM prediction_decisions d
+                    JOIN prediction_outcomes o ON o.decision_id=d.decision_id
+                    WHERE d.symbol=?
+                      AND d.evidence_role IN ('SELECTION','LEGACY')
+                      AND d.snapshot_ts_ms<?
+                      {excluded_clause}
+                      {kind_clause}
+                      AND o.horizon_min IN ({placeholders})
+                      AND o.resolved_at_ms<?
+                    GROUP BY d.decision_id,d.snapshot_ts_ms
+                    HAVING horizon_count=? AND resolved_count=?
+                )
+                GROUP BY snapshot_ts_ms
+                ORDER BY snapshot_ts_ms"""
+    params: list[object] = [symbol.upper(), int(before_ts_ms)]
+    if excluded_experiment_id is not None:
+        params.append(str(excluded_experiment_id))
+    params.extend(normalized_kinds)
+    params.extend([
+        *horizons, int(before_ts_ms), len(horizons), len(horizons),
+    ])
+    with store._connect() as connection:
+        timestamps = [int(row[0]) for row in connection.execute(query, params)]
+    spacing = outcome_spacing_ms(horizons)
+    selected: list[int] = []
+    next_allowed: int | None = None
+    for timestamp in timestamps:
+        if next_allowed is not None and timestamp < next_allowed:
+            continue
+        selected.append(timestamp)
+        next_allowed = timestamp + spacing
+        if len(selected) >= maximum_snapshots:
+            break
+    return HistoricalTrainingEvidence(
+        independent_snapshots=len(selected),
+        latest_snapshot_ts_ms=selected[-1] if selected else None,
+        source_snapshots=len(timestamps),
+    )
+
+
 def resolved_independent_evidence(
     store: object,
     symbol: str,
@@ -256,7 +338,9 @@ def resolved_independent_evidence(
 
 
 __all__ = [
+    "HistoricalTrainingEvidence",
     "IndependentEvidence",
     "MAX_INDEPENDENT_SNAPSHOTS",
+    "closed_historical_training_evidence",
     "resolved_independent_evidence",
 ]

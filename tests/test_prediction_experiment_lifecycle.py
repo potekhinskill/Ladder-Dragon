@@ -163,7 +163,7 @@ def _frozen(tmp_path: Path):
     cohort = selection_experiment_id(SHADOW_GENERATION, "SOLUSDT")
     regimes = ("TREND_UP", "TREND_DOWN", "RANGE", "PANIC")
     snapshot = 59_999
-    # Selection needs 60 independent training snapshots and 120 evaluations.
+    # Selection has enough independent rows for the powered evaluation design.
     for index in range(180):
         snapshot = 59_999 + index * CONFIRMATION_SPACING_MS
         for variant in variants:
@@ -472,7 +472,7 @@ def test_incomplete_window_is_pending_and_cannot_pass(tmp_path: Path):
     report = confirmation_report(store, experiment_id=manifest["experiment_id"])
 
     assert report["windows"][-1]["status"] == "PENDING"
-    assert report["complete_windows"] == 0
+    assert report["complete_windows"] == 1
     assert report["first_gate_passed"] is False
 
 
@@ -532,8 +532,8 @@ def test_unresolved_decision_stops_confirmation_prefix(tmp_path: Path):
 
     report = confirmation_report(store, experiment_id=manifest["experiment_id"])
 
-    assert report["confirmation_progress"]["complete_decisions"] == 5
-    assert report["confirmation_progress"]["pending_decisions"] == 115
+    assert report["confirmation_progress"]["complete_decisions"] == 4
+    assert report["confirmation_progress"]["pending_decisions"] == 86
     assert report["complete_windows"] == 0
     assert "confirmation sequence contains an unresolved decision" in report[
         "blocking_reasons"
@@ -549,6 +549,25 @@ def test_finalize_rejects_a_stale_report_fingerprint(tmp_path: Path):
             experiment_id=manifest["experiment_id"],
             expected_report_sha256="0" * 64,
         )
+
+
+def test_confirmation_deadline_allows_explicit_rejection(
+    tmp_path: Path, monkeypatch
+):
+    from ladder_dragon.strategy.prediction import experiment_lifecycle
+
+    store, _variants_value, manifest = _frozen(tmp_path)
+    deadline = (
+        int(manifest["confirmation_start_ts_ms"])
+        + int(manifest["criteria"]["maximum_confirmation_duration_ms"])
+    )
+    monkeypatch.setattr(experiment_lifecycle.time, "time", lambda: (deadline + 1) / 1_000)
+
+    report = confirmation_report(store, experiment_id=manifest["experiment_id"])
+
+    assert report["finalization_ready"] is True
+    assert report["proposed_final_status"] == "REJECTED"
+    assert report["confirmation_progress"]["confirmation_deadline_expired"] is True
 
 
 def test_full_independent_confirmation_can_pass_without_apply(tmp_path: Path):
@@ -568,8 +587,8 @@ def test_full_independent_confirmation_can_pass_without_apply(tmp_path: Path):
 
     report = confirmation_report(store, experiment_id=manifest["experiment_id"])
 
-    assert report["complete_windows"] == 10
-    assert report["positive_windows"] == 10
+    assert report["complete_windows"] == 11
+    assert report["positive_windows"] == 7
     complete_windows = [row for row in report["windows"] if row["status"] == "COMPLETE"]
     assert all(
         left["end_ts_ms"] < right["start_ts_ms"]
@@ -612,19 +631,20 @@ def test_report_aggregates_only_the_predeclared_window_prefix(tmp_path: Path):
 
     report = confirmation_report(store, experiment_id=manifest["experiment_id"])
 
-    assert report["complete_windows"] == 11
-    assert report["confirmation_progress"]["evaluated_windows"] == 10
-    assert report["positive_windows"] == 10
+    assert report["complete_windows"] == 12
+    assert report["confirmation_progress"]["evaluated_windows"] == 7
+    assert report["positive_windows"] == 7
     assert report["positive_window_fraction"] == "1"
-    assert report["cumulative_pnl_quote"] == "120"
-    assert report["mean_pnl_per_window_quote"] == "12"
-    assert report["mean_edge_per_window_quote"] == "12"
+    assert report["cumulative_pnl_quote"] == "56"
+    assert report["mean_pnl_per_window_quote"] == "8"
+    assert report["mean_edge_per_window_quote"] == "8"
 
 
 def test_unstable_windows_fail_even_with_positive_total(tmp_path: Path):
     store, variants, manifest = _frozen(tmp_path)
     start = int(manifest["confirmation_start_ts_ms"])
     regimes = ("TREND_UP", "TREND_DOWN", "RANGE", "PANIC")
+    expectancy_index = 0
     for index in range(120):
         decision_id = _record(
             store,
@@ -634,13 +654,15 @@ def test_unstable_windows_fail_even_with_positive_total(tmp_path: Path):
             role="CONFIRMATION",
             regime=regimes[index % 4],
         )
-        window = index // 12
+        window = expectancy_index // 8
         _resolve(store, decision_id, pnl="10" if window < 6 else "-1")
+        if regimes[index % 4] != "PANIC":
+            expectancy_index += 1
 
     report = confirmation_report(store, experiment_id=manifest["experiment_id"])
 
     assert D(report["cumulative_pnl_quote"]) > 0
-    assert report["negative_windows"] == 4
+    assert report["negative_windows"] == 1
     assert report["first_gate_passed"] is False
 
 

@@ -25,6 +25,9 @@ from ladder_dragon.strategy.prediction.experiment_config import (
 )
 from ladder_dragon.strategy.prediction.models import PredictionFeatures, TradePlan
 from ladder_dragon.strategy.prediction.runtime import PredictionShadowStore
+from ladder_dragon.strategy.prediction.statistical_design import (
+    DEFAULT_STATISTICAL_DESIGN,
+)
 
 
 _EXPERIMENT_REPORT_CACHE: dict[
@@ -98,10 +101,30 @@ def collect_shadow_experiments(
     cache_key = f"{symbol.upper()}:{spec.generation}"
     now = time.monotonic()
     last_record = _EXPERIMENT_LAST_RECORD.get(cache_key)
+    selection_cohort = f"selection:{spec.generation}:{symbol.upper()}"
+    with store._connect() as connection:
+        first_row = connection.execute(
+            """SELECT MIN(snapshot_ts_ms) FROM prediction_decisions
+               WHERE experiment_id=? AND evidence_role='SELECTION'""",
+            (selection_cohort,),
+        ).fetchone()
+    first_snapshot_ms = int(first_row[0]) if first_row and first_row[0] else None
+    recording_deadline_ms = (
+        first_snapshot_ms
+        + DEFAULT_STATISTICAL_DESIGN.maximum_selection_duration_ms
+        if first_snapshot_ms is not None else None
+    )
+    recording_allowed = (
+        recording_deadline_ms is None
+        or features.snapshot_ts_ms <= recording_deadline_ms
+    )
     if (
-        last_record is None
-        or now < last_record
-        or now - last_record >= max(60, record_interval_sec)
+        recording_allowed
+        and (
+            last_record is None
+            or now < last_record
+            or now - last_record >= max(60, record_interval_sec)
+        )
     ):
         record_shadow_variants(
             store,
@@ -127,6 +150,7 @@ def collect_shadow_experiments(
         ),
     )
     report["lifecycle_status"] = "SELECTION"
+    report["recording_stopped_by_deadline"] = not recording_allowed
     superseded_reports = {}
     for generation in spec.superseded_selection_generations:
         historical_spec = experiment_spec_for_generation(

@@ -22,6 +22,10 @@ from ladder_dragon.strategy.prediction.confirmation_statistics import (
     validate_confirmation_criteria,
 )
 from ladder_dragon.strategy.prediction.models import ResolvedSample
+from ladder_dragon.strategy.prediction.statistical_design import (
+    DEFAULT_STATISTICAL_DESIGN,
+    EXPECTANCY_REGIMES,
+)
 
 if TYPE_CHECKING:
     from ladder_dragon.strategy.prediction.experiments import ShadowVariant
@@ -30,9 +34,9 @@ if TYPE_CHECKING:
 
 D = Decimal
 ZERO = D("0")
-MANIFEST_SCHEMA_VERSION = 2
-REPORT_SCHEMA_VERSION = 4
-STATISTICAL_METHOD_VERSION = "purged-outcome-intervals-v1"
+MANIFEST_SCHEMA_VERSION = 3
+REPORT_SCHEMA_VERSION = 5
+STATISTICAL_METHOD_VERSION = "powered-historical-cold-start-v1"
 EVIDENCE_ROLES = frozenset({"SELECTION", "CONFIRMATION", "DIAGNOSTIC", "LEGACY"})
 LIFECYCLE_STATES = frozenset({
     "SELECTION", "FROZEN", "CONFIRMING", "CONFIRMED", "REJECTED",
@@ -701,9 +705,16 @@ def confirmation_report(
             "can_change_orders": False,
             "lookahead": False,
         }
-    independent_decisions = non_overlapping_decisions(
+    all_independent_decisions = non_overlapping_decisions(
         decisions, required_horizons_min=required_horizons
     )
+    panic_decisions = [
+        row for row in all_independent_decisions if row.regime == "PANIC"
+    ]
+    independent_decisions = [
+        row for row in all_independent_decisions
+        if row.regime in EXPECTANCY_REGIMES
+    ]
     size = int(criteria["window_size_decisions"])
     required_windows = int(criteria["required_complete_windows"])
     required_decisions = size * required_windows
@@ -759,7 +770,7 @@ def confirmation_report(
     required_regime_blocks = int(gate["minimum_sign_blocks"])
     regime_block_counts = {
         regime: int(gate["hypotheses"][f"regime_{regime}"]["blocks"])
-        for regime in ("TREND_UP", "TREND_DOWN", "RANGE", "PANIC")
+        for regime in EXPECTANCY_REGIMES
     }
     observed_blocks = len(evaluated_blocks)
     projected_regime_blocks: dict[str, int | None] = {}
@@ -812,7 +823,18 @@ def confirmation_report(
             regime_edges[regime] = (
                 regime_edges.get(regime, ZERO) + D(str(values["edge_quote"]))
             )
+    confirmation_deadline_ms = int(manifest["confirmation_start_ts_ms"]) + int(
+        criteria.get(
+            "maximum_confirmation_duration_ms",
+            DEFAULT_STATISTICAL_DESIGN.maximum_confirmation_duration_ms,
+        )
+    )
+    deadline_expired = int(time.time() * 1000) > confirmation_deadline_ms
+    if deadline_expired and not enough:
+        reasons.append("predeclared confirmation deadline expired")
+        reasons = list(dict.fromkeys(reasons))
     evaluation_passed = enough and not reasons
+    finalization_ready = enough or deadline_expired
     lifecycle_status = str(manifest["current_status"])
     if lifecycle_status == "CONFIRMED" and evaluation_passed:
         status = "PASSED"
@@ -822,7 +844,7 @@ def confirmation_report(
         status = "FAILED"
     elif lifecycle_status == "BLOCKED":
         status = "BLOCKED"
-    elif enough:
+    elif finalization_ready:
         status = "READY_TO_FINALIZE"
     else:
         status = "IN_PROGRESS"
@@ -840,8 +862,10 @@ def confirmation_report(
         "confirmation_progress": {
             "raw_decisions": len(decisions),
             "excluded_overlapping_decisions": (
-                len(decisions) - len(independent_decisions)
+                len(decisions) - len(all_independent_decisions)
             ),
+            "panic_safety_decisions": len(panic_decisions),
+            "panic_blocks_expectancy": False,
             "complete_decisions": len(complete_prefix),
             "pending_decisions": len(pending_tail),
             "required_decisions": required_decisions,
@@ -852,6 +876,17 @@ def confirmation_report(
             "required_regime_distinct_blocks": required_regime_blocks,
             "projected_regime_total_blocks": projected_regime_blocks,
             "confirmation_estimated_ready_ts_ms": confirmation_eta_ms,
+            "confirmation_deadline_ts_ms": confirmation_deadline_ms,
+            "confirmation_deadline_expired": deadline_expired,
+            "readiness_reason": (
+                "predeclared confirmation deadline expired"
+                if deadline_expired and not enough else
+                "live independent confirmation is incomplete"
+                if not enough else
+                "confirmation criteria are not met"
+                if not evaluation_passed else
+                "confirmation gate passed"
+            ),
         },
         "statistical_method": STATISTICAL_METHOD_VERSION,
         "independence_spacing_ms": feasibility["independence_spacing_ms"],
@@ -884,10 +919,10 @@ def confirmation_report(
         "statistical_gate": gate,
         "blocking_reasons": reasons,
         "evaluation_passed": evaluation_passed,
-        "finalization_ready": enough,
+        "finalization_ready": finalization_ready,
         "proposed_final_status": (
             "CONFIRMED" if evaluation_passed else "REJECTED"
-        ) if enough else None,
+        ) if finalization_ready else None,
         "first_gate_passed": (
             lifecycle_status == "CONFIRMED" and evaluation_passed
         ),

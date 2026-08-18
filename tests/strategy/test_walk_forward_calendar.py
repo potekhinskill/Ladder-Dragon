@@ -12,6 +12,10 @@ from ladder_dragon.strategy.prediction.walk_forward import (
     evaluated_walk_forward_samples,
     walk_forward_prediction_report,
 )
+from ladder_dragon.strategy.prediction.statistical_design import (
+    DEFAULT_STATISTICAL_DESIGN,
+    REQUIRED_EVALUATION_SNAPSHOTS,
+)
 
 
 D = Decimal
@@ -48,9 +52,9 @@ def test_training_threshold_counts_snapshots_instead_of_horizon_rows():
     assert gate["available_independent_samples"] == 65
     assert gate["training_independent_samples"] == 60
     assert gate["evaluated_independent_samples"] == 5
-    assert gate["required_total_independent_samples"] == 180
+    assert gate["required_total_independent_samples"] == 112
     assert gate["minimum_calendar_duration_ms"] == (
-        179 * 21_600_001 + 360 * 60_000
+        111 * 21_600_001 + 360 * 60_000
     )
 
 
@@ -64,7 +68,7 @@ def test_readiness_timestamp_includes_remaining_units_and_final_outcome():
     last_timestamp = 9 * 21_600_001
 
     assert gate["estimated_ready_ts_ms"] == (
-        last_timestamp + 170 * 21_600_001 + 360 * 60_000
+        last_timestamp + 102 * 21_600_001 + 360 * 60_000
     )
 
 
@@ -90,3 +94,50 @@ def test_configuration_hypothesis_excludes_training_outcomes():
     assert configuration_edge_p_value(
         evaluated, required_horizons_min=(300, 360)
     ) == 0.5
+
+
+def test_power_design_replaces_fixed_evaluation_volume():
+    assert REQUIRED_EVALUATION_SNAPSHOTS == 52
+    assert DEFAULT_STATISTICAL_DESIGN.as_dict() == {
+        "method": "exact_one_sided_sign_test_bonferroni_v1",
+        "family_alpha": 0.05,
+        "target_power": 0.8,
+        "minimum_win_probability": 0.72,
+        "hypothesis_count": 5,
+        "required_evaluation_snapshots": 52,
+        "required_historical_training_snapshots": 30,
+        "maximum_selection_duration_ms": 3_888_000_000,
+        "maximum_confirmation_duration_ms": 3_888_000_000,
+    }
+
+
+def test_closed_history_satisfies_training_without_consuming_live_rows():
+    report = walk_forward_prediction_report(
+        _samples(5),
+        historical_training_snapshots=30,
+        historical_training_max_ts_ms=-1,
+        as_of_ts_ms=4 * 21_600_001,
+        required_horizons_min=(300, 360),
+    )
+    gate = report["gate"]
+
+    assert gate["historical_training_independent_samples"] == 30
+    assert gate["live_training_independent_samples"] == 0
+    assert gate["evaluated_independent_samples"] == 5
+    assert gate["required_total_independent_samples"] == 52
+    assert all(row["train_max_ts_ms"] == -1 for row in report["evaluated"])
+
+
+def test_selection_deadline_stops_an_unfinished_design():
+    samples = _samples(2)
+    deadline = DEFAULT_STATISTICAL_DESIGN.maximum_selection_duration_ms
+    report = walk_forward_prediction_report(
+        samples,
+        historical_training_snapshots=30,
+        historical_training_max_ts_ms=-1,
+        as_of_ts_ms=deadline + 1,
+        required_horizons_min=(300, 360),
+    )
+
+    assert report["gate"]["selection_deadline_expired"] is True
+    assert "predeclared selection deadline expired" in report["gate"]["reasons"]

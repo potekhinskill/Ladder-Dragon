@@ -6,6 +6,13 @@ avoidable rework. Identify the root cause rather than recording only the
 symptom. Keep entries concise and exclude secrets, balances, account data, and
 private infrastructure details.
 
+### 2026-08-18 — Used a power formula for the wrong test
+
+- **Impact:** the first draft produced a sample size that did not match the approval hypothesis.
+- **Root cause:** the design used a mean-test approximation while approval used an exact sign test.
+- **Correction:** calculate exact binomial power with the Holm-adjusted first-test threshold.
+- **Prevention:** derive power from the same test, direction, correction, and effect used by the gate.
+
 ### 2026-08-18 — Reconstructed a release SHA
 
 - **Impact:** the first release verification was blocked before publication.

@@ -21,6 +21,8 @@ class ShadowExperimentSpec:
     maker_ttls: tuple[tuple[str, int], ...]
     maker_entry_gaps: tuple[tuple[str, Decimal], ...]
     superseded_selection_generations: tuple[str, ...] = ()
+    regime_policy: str = "always_active"
+    statistical_design_version: str = "fixed_60_120_v1"
 
 
 V11_SPEC = ShadowExperimentSpec(
@@ -99,6 +101,33 @@ BTC_V12_SPEC = ShadowExperimentSpec(
     ),
     superseded_selection_generations=("v11",),
 )
+SOL_V15_SPEC = ShadowExperimentSpec(
+    generation="v15",
+    horizons_min=(300, 360),
+    maker_ttls=SOL_V14_SPEC.maker_ttls,
+    maker_entry_gaps=SOL_V14_SPEC.maker_entry_gaps,
+    superseded_selection_generations=("v11", "v12", "v13", "v14"),
+    regime_policy="block_panic",
+    statistical_design_version="powered_historical_cold_start_v1",
+)
+ETH_V14_SPEC = ShadowExperimentSpec(
+    generation="v14",
+    horizons_min=(300, 360),
+    maker_ttls=ETH_V13_SPEC.maker_ttls,
+    maker_entry_gaps=ETH_V13_SPEC.maker_entry_gaps,
+    superseded_selection_generations=("v11", "v12", "v13"),
+    regime_policy="block_panic",
+    statistical_design_version="powered_historical_cold_start_v1",
+)
+BTC_V13_SPEC = ShadowExperimentSpec(
+    generation="v13",
+    horizons_min=(300, 360),
+    maker_ttls=BTC_V12_SPEC.maker_ttls,
+    maker_entry_gaps=BTC_V12_SPEC.maker_entry_gaps,
+    superseded_selection_generations=("v11", "v12"),
+    regime_policy="block_panic",
+    statistical_design_version="powered_historical_cold_start_v1",
+)
 
 # Preserve the public historical name for callers that inspect SOL v12.
 V12_SPEC = SOL_V12_SPEC
@@ -106,18 +135,21 @@ V12_SPEC = SOL_V12_SPEC
 _SYMBOL_GENERATION_SPECS = {
     ("BTCUSDT", "v11"): V11_SPEC,
     ("BTCUSDT", "v12"): BTC_V12_SPEC,
+    ("BTCUSDT", "v13"): BTC_V13_SPEC,
     ("ETHUSDT", "v11"): V11_SPEC,
     ("ETHUSDT", "v12"): ETH_V12_SPEC,
     ("ETHUSDT", "v13"): ETH_V13_SPEC,
+    ("ETHUSDT", "v14"): ETH_V14_SPEC,
     ("SOLUSDT", "v11"): V11_SPEC,
     ("SOLUSDT", "v12"): SOL_V12_SPEC,
     ("SOLUSDT", "v13"): SOL_V13_SPEC,
     ("SOLUSDT", "v14"): SOL_V14_SPEC,
+    ("SOLUSDT", "v15"): SOL_V15_SPEC,
 }
 _SYMBOL_SPECS = {
-    "BTCUSDT": BTC_V12_SPEC,
-    "ETHUSDT": ETH_V13_SPEC,
-    "SOLUSDT": SOL_V14_SPEC,
+    "BTCUSDT": BTC_V13_SPEC,
+    "ETHUSDT": ETH_V14_SPEC,
+    "SOLUSDT": SOL_V15_SPEC,
 }
 
 
@@ -164,7 +196,7 @@ def experiment_dimension(
 
 
 def configured_entry_gap_bps(
-    variant_id: str, *, generation: str = "v14", symbol: str | None = None
+    variant_id: str, *, generation: str = "v15", symbol: str | None = None
 ) -> Decimal:
     """Return one configured entry gap without snapshot reconstruction."""
     try:
@@ -194,9 +226,12 @@ __all__ = [
     "ETH_V12_SPEC",
     "ETH_V13_SPEC",
     "BTC_V12_SPEC",
+    "BTC_V13_SPEC",
     "SOL_V12_SPEC",
     "SOL_V13_SPEC",
     "SOL_V14_SPEC",
+    "SOL_V15_SPEC",
+    "ETH_V14_SPEC",
     "configured_entry_gap_bps",
     "experiment_dimension",
     "experiment_spec_for_generation",

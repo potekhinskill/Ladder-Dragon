@@ -16,6 +16,12 @@ from ladder_dragon.strategy.prediction.statistical_units import (
     non_overlapping_timestamps,
     outcome_spacing_ms,
 )
+from ladder_dragon.strategy.prediction.statistical_design import (
+    DEFAULT_STATISTICAL_DESIGN,
+    EXPECTANCY_REGIMES,
+    PANIC_REGIME,
+    REQUIRED_EVALUATION_SNAPSHOTS,
+)
 
 
 D = Decimal
@@ -106,6 +112,8 @@ def configuration_edge_p_value(
     """Return one independent paired-edge hypothesis for one configuration."""
     grouped: dict[int, list[ResolvedSample]] = {}
     for sample in samples:
+        if sample.regime not in EXPECTANCY_REGIMES:
+            continue
         grouped.setdefault(sample.snapshot_ts_ms, []).append(sample)
     selected = set(non_overlapping_timestamps(
         grouped, horizons_min=required_horizons_min
@@ -139,8 +147,8 @@ def holm_configuration_correction(
 def prediction_apply_gate(
     samples: Sequence[ResolvedSample],
     *,
-    min_independent_samples: int = 120,
-    min_regime_samples: int = 20,
+    min_independent_samples: int = REQUIRED_EVALUATION_SNAPSHOTS,
+    min_regime_samples: int = 8,
     min_fill_rate: Decimal = D("0.10"),
     max_drawdown_quote: Decimal = D("25"),
     required_horizons_min: Sequence[int] = DEFAULT_HORIZONS_MIN,
@@ -175,6 +183,11 @@ def prediction_apply_gate(
             ) / count,
             "fill": D(str(sum(row.outcome.buy_filled for row in rows))) / count,
         })
+    all_independent_rows = independent_rows
+    independent_rows = [
+        row for row in all_independent_rows
+        if str(row["regime"]) in EXPECTANCY_REGIMES
+    ]
     independent = len(independent_rows)
     pnl = [row["pnl"] for row in independent_rows]
     edges = [row["edge"] for row in independent_rows]
@@ -182,7 +195,9 @@ def prediction_apply_gate(
     edge_ci = bootstrap_mean_ci(edges)
     hypotheses: list[tuple[str, list[Decimal]]] = []
     independent_samples = [
-        row for row in ordered if row.snapshot_ts_ms in selected_timestamps
+        row for row in ordered
+        if row.snapshot_ts_ms in selected_timestamps
+        and row.regime in EXPECTANCY_REGIMES
     ]
     for horizon in required_horizons:
         horizon_rows = [
@@ -195,8 +210,7 @@ def prediction_apply_gate(
                 for row in horizon_rows
             ],
         ))
-    regimes = sorted({str(row["regime"]) for row in independent_rows})
-    for regime in regimes:
+    for regime in EXPECTANCY_REGIMES:
         hypotheses.append((
             f"regime_{regime}",
             [row["edge"] for row in independent_rows if row["regime"] == regime],
@@ -222,7 +236,7 @@ def prediction_apply_gate(
         sum((row["fill"] for row in independent_rows), ZERO) / D(str(independent))
         if independent_rows else ZERO
     )
-    required_regimes = {"TREND_UP", "TREND_DOWN", "RANGE", "PANIC"}
+    required_regimes = set(EXPECTANCY_REGIMES)
     regime_counts = {
         regime: sum(row["regime"] == regime for row in independent_rows)
         for regime in required_regimes
@@ -263,6 +277,25 @@ def prediction_apply_gate(
         "max_drawdown_quote": format(max_drawdown, "f"),
         "regime_counts": regime_counts,
         "hypotheses": hypothesis_report,
+        "panic_safety": panic_safety_gate(all_independent_rows),
+        "power_analysis": DEFAULT_STATISTICAL_DESIGN.as_dict(),
+    }
+
+
+def panic_safety_gate(
+    independent_rows: Sequence[dict[str, object]],
+) -> dict[str, object]:
+    """Report PANIC observations without testing PANIC profitability."""
+    panic_rows = [
+        row for row in independent_rows if str(row.get("regime")) == PANIC_REGIME
+    ]
+    return {
+        "status": "POLICY_REQUIRED",
+        "policy": "block_new_entries",
+        "observed_independent_samples": len(panic_rows),
+        "expectancy_hypothesis": False,
+        "blocks_expectancy": False,
+        "reason": "PANIC is a safety veto and is outside the profit domain",
     }
 
 
@@ -272,7 +305,9 @@ def regime_reachability_report(
     required_horizons_min: Sequence[int],
     minimum_per_regime: int = 20,
     minimum_observations: int = 20,
-    maximum_duration_ms: int = 180 * 24 * 60 * 60_000,
+    maximum_duration_ms: int = (
+        DEFAULT_STATISTICAL_DESIGN.maximum_selection_duration_ms
+    ),
 ) -> dict[str, object]:
     """Estimate regime coverage from pre-outcome decision frequencies."""
     required_horizons = _validated_horizons(required_horizons_min)
@@ -282,7 +317,7 @@ def regime_reachability_report(
     selected = non_overlapping_timestamps(
         grouped, horizons_min=required_horizons
     )
-    regimes = ("TREND_UP", "TREND_DOWN", "RANGE", "PANIC")
+    regimes = EXPECTANCY_REGIMES
     counts = {
         regime: sum(grouped[timestamp] == regime for timestamp in selected)
         for regime in regimes
@@ -359,6 +394,13 @@ def regime_reachability_report(
         ),
         "practically_reachable": reachable if mature else None,
         "regimes": details,
+        "panic": {
+            "observed": sum(
+                grouped[timestamp] == PANIC_REGIME for timestamp in selected
+            ),
+            "gate": "SAFETY_ONLY",
+            "blocks_expectancy": False,
+        },
         "outcome_values_used": False,
     }
 
@@ -368,6 +410,7 @@ __all__ = [
     "configuration_edge_p_value",
     "holm_configuration_correction",
     "paired_sign_p_value",
+    "panic_safety_gate",
     "prediction_apply_gate",
     "regime_reachability_report",
 ]

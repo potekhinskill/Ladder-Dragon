@@ -1,6 +1,6 @@
 # Implementation status
 
-This document describes the code in version **2.20.223**.
+This document describes the code in version **2.20.224**.
 It does not describe future plans as completed work.
 
 An implemented function is not automatically approved for LIVE use.
@@ -74,9 +74,9 @@ Future outcomes are normal pending work.
 Only overdue or unrecovered expired outcomes block the backlog gate.
 The soak report applies its expiration checks to the audited runtime window.
 
-SOLUSDT uses version fourteen with 60-minute, 75-minute, and 90-minute lifetimes.
-ETHUSDT uses version thirteen with 20, 21, and 22 basis-point gaps.
-BTCUSDT uses version twelve with 8.4, 9.4, and 10.3 basis-point gaps.
+SOLUSDT uses version fifteen with 60-minute, 75-minute, and 90-minute lifetimes.
+ETHUSDT uses version fourteen with 20, 21, and 22 basis-point gaps.
+BTCUSDT uses version thirteen with 8.4, 9.4, and 10.3 basis-point gaps.
 All three use 300-minute and 360-minute outcome horizons.
 Every symbol keeps separate selection and confirmation evidence.
 
@@ -89,24 +89,33 @@ Confirmation starts after the selection outcomes and a 15-minute embargo.
 It accepts only new decision snapshots linked to that manifest.
 
 Confirmation purges overlapping 360-minute outcome intervals first.
-It then uses ten fixed blocks of 12 independent decisions.
-At least nine blocks need positive PnL and positive baseline edge.
+It then uses seven fixed blocks of eight independent decisions.
+At least six blocks need positive PnL and positive baseline edge.
 An unresolved decision stops the eligible prefix.
 Confidence intervals and Holm tests use complete blocks.
 The report is read-only and finalization requires its reviewed SHA-256.
-The existing 120-sample statistical requirements remain unchanged.
+An exact sign-test power analysis requires 52 independent selection decisions.
+The power target is 80 percent for a 72 percent positive-edge probability.
+The family error rate is 0.05 across five expectancy hypotheses.
+Confirmation requires 56 new independent decisions after the frozen boundary.
 The freeze command rejects criteria that cannot satisfy their tests.
 Reports show the minimum calendar duration for the configured horizons.
 The duration includes cold-start training, evaluation, outcomes, embargo, and confirmation.
-Reports forecast rare-regime coverage from pre-outcome decision frequencies.
-An impractical regime forecast blocks approval without changing the criteria.
+Reports forecast expectancy-regime coverage from pre-outcome decision frequencies.
+PANIC is a separate safety veto that blocks new entries.
+PANIC frequency does not block an ordinary expectancy decision.
+Each selection and confirmation phase has a preregistered 45-day deadline.
+An expired incomplete phase becomes ready for a REJECTED finalization.
 Promotion recomputes old confirmations with the current statistical method.
 
 The first gate evaluates the complete candidate strategy.
 All active candidates use the same entry scope.
 The active-entry diagnostic therefore uses the same cohort.
 
-Prediction training requires 60 independent snapshots for each candidate.
+Prediction training requires 30 independent snapshots for each candidate.
+Verified closed history can satisfy this cold-start prerequisite.
+Missing history uses earlier live rows only for training.
+Historical training rows cannot enter selection or confirmation inference.
 Multiple outcome horizons from one snapshot count as one training unit.
 Statistical gates stream the complete journal in append order.
 Control readers retain bounded binding and non-binding evidence groups.
@@ -128,6 +137,7 @@ Control metadata version four verifies candidate and baseline plan fingerprints.
 Expectancy evidence uses 300-minute and 360-minute horizons.
 Regime evidence uses 15-minute and 360-minute horizons.
 Each control report estimates binding frequency and its evidence-ready time.
+The dashboard shows readiness in days and the current waiting reason.
 Observation-only inventory reports `NOT_APPLICABLE`.
 Promotion reports `EXECUTION_POLICY_NOT_BOUND` until workers verify frozen parameters.
 

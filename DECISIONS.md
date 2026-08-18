@@ -1,5 +1,12 @@
 # Engineering decisions
 
+### 2026-08-18 — Size experiments before evidence collection
+
+- **Context:** fixed sample counts and rare PANIC observations made canary duration unclear.
+- **Decision:** use exact power analysis, closed-history training, live confirmation, and separate 45-day phase deadlines.
+- **Why it worked:** each cohort has a preregistered size, purpose, deadline, and independent evidence boundary.
+- **Reuse:** every time-series experiment with expensive independent observations and rare safety states.
+
 ### 2026-08-18 — Bind promotion to executable policy
 
 - **Context:** statistical confirmation did not prove that a worker used the selected policy.

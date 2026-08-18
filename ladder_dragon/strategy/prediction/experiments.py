@@ -22,7 +22,7 @@ from ladder_dragon.strategy.prediction.confirmation_statistics import (
     validate_confirmation_criteria,
 )
 from ladder_dragon.strategy.prediction.experiment_config import (
-    SOL_V14_SPEC,
+    SOL_V15_SPEC,
     configured_entry_gap_bps,
     experiment_dimension,
     experiment_spec_for_generation,
@@ -40,7 +40,11 @@ from ladder_dragon.strategy.prediction.runtime import (
     predict_distribution,
 )
 from ladder_dragon.strategy.prediction.statistical_evidence import (
+    closed_historical_training_evidence,
     resolved_independent_evidence,
+)
+from ladder_dragon.strategy.prediction.statistical_design import (
+    DEFAULT_STATISTICAL_DESIGN,
 )
 from ladder_dragon.strategy.prediction.walk_forward import (
     evaluated_walk_forward_samples,
@@ -50,10 +54,10 @@ from ladder_dragon.strategy.prediction.walk_forward import (
 
 D = Decimal
 EDGE_EPSILON_PCT = D("0.000001")
-SHADOW_GENERATION = SOL_V14_SPEC.generation
-EXPERIMENT_HORIZONS_MIN = SOL_V14_SPEC.horizons_min
-MAKER_TTLS = SOL_V14_SPEC.maker_ttls
-MAKER_ENTRY_GAPS = SOL_V14_SPEC.maker_entry_gaps
+SHADOW_GENERATION = SOL_V15_SPEC.generation
+EXPERIMENT_HORIZONS_MIN = SOL_V15_SPEC.horizons_min
+MAKER_TTLS = SOL_V15_SPEC.maker_ttls
+MAKER_ENTRY_GAPS = SOL_V15_SPEC.maker_entry_gaps
 
 
 @dataclass(frozen=True)
@@ -69,6 +73,27 @@ class ShadowVariant:
     entry_gap_bps: Decimal | None = None
     regime_policy: str = "always_active"
     model_rule: str = "predict_distribution:v1:expanding_history_before_snapshot"
+
+
+def compatible_historical_kinds(
+    variant: ShadowVariant, *, generation: str, symbol: str
+) -> tuple[str, ...]:
+    """Return older candidate kinds with identical gap and lifetime semantics."""
+    active = experiment_spec_for_generation(generation, symbol=symbol)
+    compatible = []
+    for old_generation in active.superseded_selection_generations:
+        old = experiment_spec_for_generation(old_generation, symbol=symbol)
+        for ttl_name, ttl_sec in old.maker_ttls:
+            for gap_name, gap_pct in old.maker_entry_gaps:
+                if (
+                    ttl_sec == variant.plan.entry_ttl_sec
+                    and gap_pct * D("10000") == variant.entry_gap_bps
+                ):
+                    candidate = (
+                        f"{old.generation}_maker_{ttl_name}_{gap_name}".upper()
+                    )
+                    compatible.append(f"EXPERIMENT_{candidate}")
+    return tuple(compatible)
 
 
 def _candidate_plan(
@@ -144,6 +169,13 @@ def build_shadow_variants(
                 entry_gap_pct * D("10000")
                 if entry_gap_pct is not None else None
             ),
+            regime_policy=spec.regime_policy,
+            model_rule=(
+                "predict_distribution:v2:compatible_closed_history_before_snapshot"
+                if spec.statistical_design_version
+                == "powered_historical_cold_start_v1"
+                else "predict_distribution:v1:expanding_history_before_snapshot"
+            ),
         )
 
     spec = experiment_spec_for_generation(generation, symbol=symbol)
@@ -197,10 +229,23 @@ def record_shadow_variants(
             before_ts_ms=features.snapshot_ts_ms,
             kind=variant.kind,
         )
+        for historical_kind in compatible_historical_kinds(
+            variant, generation=generation, symbol=symbol
+        ):
+            history.extend(store.resolved_samples(
+                symbol,
+                before_ts_ms=features.snapshot_ts_ms,
+                kind=historical_kind,
+                evidence_role="SELECTION",
+            ))
+        history.sort(key=lambda row: (row.snapshot_ts_ms, row.horizon_min))
         predictions = predict_distribution(
             features,
             variant.plan,
             history,
+            min_samples=(
+                DEFAULT_STATISTICAL_DESIGN.historical_training_snapshots
+            ),
             horizons_min=horizons_min,
         )
         decision_ids.append(store.record(
@@ -247,6 +292,30 @@ def shadow_variant_report(
     p_values: dict[str, float] = {}
     selection_cohort = selection_experiment_id(generation, symbol)
     for variant in variants:
+        historical_training = (
+            closed_historical_training_evidence(
+                store,
+                symbol,
+                before_ts_ms=before_ts_ms,
+                required_horizons_min=horizons_min,
+                maximum_snapshots=(
+                    DEFAULT_STATISTICAL_DESIGN.historical_training_snapshots
+                ),
+                excluded_experiment_id=selection_cohort,
+                kinds=compatible_historical_kinds(
+                    variant, generation=generation, symbol=symbol
+                ),
+            )
+            if hasattr(store, "_connect") else None
+        )
+        historical_count = (
+            historical_training.independent_snapshots
+            if historical_training else 0
+        )
+        historical_cutoff = (
+            historical_training.latest_snapshot_ts_ms
+            if historical_training else None
+        )
         if hasattr(store, "_connect"):
             independent_evidence = resolved_independent_evidence(
                 store,
@@ -274,16 +343,27 @@ def shadow_variant_report(
             )
         walk_forward = walk_forward_prediction_report(
             samples,
+            historical_training_snapshots=historical_count,
+            historical_training_max_ts_ms=historical_cutoff,
+            as_of_ts_ms=before_ts_ms,
             required_horizons_min=horizons_min,
         )
         evaluated_samples = list(evaluated_walk_forward_samples(
-            samples, required_horizons_min=horizons_min
+            samples,
+            min_train_independent_snapshots=(
+                DEFAULT_STATISTICAL_DESIGN.historical_training_snapshots
+            ),
+            historical_training_snapshots=historical_count,
+            required_horizons_min=horizons_min,
         ))
         active_samples = [
             row for row in samples if row.outcome.exit_reason != "NO_TRADE"
         ]
         active_gate = walk_forward_prediction_report(
             active_samples,
+            historical_training_snapshots=historical_count,
+            historical_training_max_ts_ms=historical_cutoff,
+            as_of_ts_ms=before_ts_ms,
             required_horizons_min=horizons_min,
         )["gate"]
         evidence[variant.variant_id] = (
@@ -348,6 +428,15 @@ def shadow_variant_report(
                 gate.get("required_total_independent_samples", 0)
             ),
             "estimated_ready_ts_ms": gate.get("estimated_ready_ts_ms"),
+            "estimated_ready_days": gate.get("estimated_ready_days"),
+            "readiness_reason": gate.get("readiness_reason"),
+            "selection_deadline_ts_ms": gate.get("selection_deadline_ts_ms"),
+            "selection_deadline_expired": gate.get(
+                "selection_deadline_expired"
+            ),
+            "historical_training_independent_samples": int(
+                gate.get("historical_training_independent_samples", 0)
+            ),
             "outcomes": outcome_counts,
             "statistical_reader": (
                 {
@@ -381,7 +470,12 @@ def shadow_variant_report(
                 "fill_rate": active_gate.get("fill_rate"),
                 "configuration_p_value": configuration_edge_p_value(
                     evaluated_walk_forward_samples(
-                        active_samples, required_horizons_min=horizons_min
+                        active_samples,
+                        min_train_independent_snapshots=(
+                            DEFAULT_STATISTICAL_DESIGN.historical_training_snapshots
+                        ),
+                        historical_training_snapshots=historical_count,
+                        required_horizons_min=horizons_min,
                     ),
                     required_horizons_min=horizons_min,
                 ),
@@ -390,7 +484,11 @@ def shadow_variant_report(
             # Selection can create a hypothesis, but it cannot confirm one.
             "diagnostic_only": True,
             "cannot_confirm_selected_candidate": True,
-            "selection_gate_passed": bool(gate.get("approved")) and holm_passed,
+            "selection_gate_passed": (
+                bool(gate.get("approved"))
+                and holm_passed
+                and variant.regime_policy == "block_panic"
+            ),
             "promotion_eligible": False,
             "eligible_for_second_gate_review": False,
             "apply_allowed": False,
@@ -468,6 +566,13 @@ def shadow_variant_report(
             ),
             "embargo_ms": int(DEFAULT_CONFIRMATION_CRITERIA["embargo_ms"]),
             "maximum_practical_duration_ms": 180 * 24 * 60 * 60_000,
+            "maximum_selection_duration_ms": (
+                DEFAULT_STATISTICAL_DESIGN.maximum_selection_duration_ms
+            ),
+            "maximum_confirmation_duration_ms": (
+                DEFAULT_STATISTICAL_DESIGN.maximum_confirmation_duration_ms
+            ),
+            "power_analysis": DEFAULT_STATISTICAL_DESIGN.as_dict(),
         },
         "can_change_orders": False,
         "selection_evidence": {
@@ -501,6 +606,7 @@ __all__ = [
     "SHADOW_GENERATION",
     "ShadowVariant",
     "build_shadow_variants",
+    "compatible_historical_kinds",
     "configured_entry_gap_bps",
     "record_shadow_variants",
     "shadow_variant_report",
