@@ -1,5 +1,12 @@
 # Engineering decisions
 
+### 2026-08-18 — Version report semantics with each experiment generation
+
+- **Context:** a current report also renders superseded generations with older training boundaries.
+- **Decision:** apply powered historical training only to generations that preregister that design.
+- **Why it worked:** old reports retain their original cohort rules and cannot block current collection.
+- **Reuse:** every dashboard that recomputes immutable generations under evolving statistical code.
+
 ### 2026-08-18 — Size experiments before evidence collection
 
 - **Context:** fixed sample counts and rare PANIC observations made canary duration unclear.

@@ -45,6 +45,7 @@ from ladder_dragon.strategy.prediction.statistical_evidence import (
 )
 from ladder_dragon.strategy.prediction.statistical_design import (
     DEFAULT_STATISTICAL_DESIGN,
+    REQUIRED_EVALUATION_SNAPSHOTS,
 )
 from ladder_dragon.strategy.prediction.walk_forward import (
     evaluated_walk_forward_samples,
@@ -291,6 +292,18 @@ def shadow_variant_report(
     ] = {}
     p_values: dict[str, float] = {}
     selection_cohort = selection_experiment_id(generation, symbol)
+    report_spec = experiment_spec_for_generation(generation, symbol=symbol)
+    powered_design = (
+        report_spec.statistical_design_version
+        == "powered_historical_cold_start_v1"
+    )
+    training_requirement = (
+        DEFAULT_STATISTICAL_DESIGN.historical_training_snapshots
+        if powered_design else 60
+    )
+    evaluation_requirement = (
+        REQUIRED_EVALUATION_SNAPSHOTS if powered_design else 120
+    )
     for variant in variants:
         historical_training = (
             closed_historical_training_evidence(
@@ -306,7 +319,7 @@ def shadow_variant_report(
                     variant, generation=generation, symbol=symbol
                 ),
             )
-            if hasattr(store, "_connect") else None
+            if powered_design and hasattr(store, "_connect") else None
         )
         historical_count = (
             historical_training.independent_snapshots
@@ -343,16 +356,16 @@ def shadow_variant_report(
             )
         walk_forward = walk_forward_prediction_report(
             samples,
+            min_train_independent_snapshots=training_requirement,
             historical_training_snapshots=historical_count,
             historical_training_max_ts_ms=historical_cutoff,
+            required_evaluation_snapshots=evaluation_requirement,
             as_of_ts_ms=before_ts_ms,
             required_horizons_min=horizons_min,
         )
         evaluated_samples = list(evaluated_walk_forward_samples(
             samples,
-            min_train_independent_snapshots=(
-                DEFAULT_STATISTICAL_DESIGN.historical_training_snapshots
-            ),
+            min_train_independent_snapshots=training_requirement,
             historical_training_snapshots=historical_count,
             required_horizons_min=horizons_min,
         ))
@@ -361,8 +374,10 @@ def shadow_variant_report(
         ]
         active_gate = walk_forward_prediction_report(
             active_samples,
+            min_train_independent_snapshots=training_requirement,
             historical_training_snapshots=historical_count,
             historical_training_max_ts_ms=historical_cutoff,
+            required_evaluation_snapshots=evaluation_requirement,
             as_of_ts_ms=before_ts_ms,
             required_horizons_min=horizons_min,
         )["gate"]
@@ -471,9 +486,7 @@ def shadow_variant_report(
                 "configuration_p_value": configuration_edge_p_value(
                     evaluated_walk_forward_samples(
                         active_samples,
-                        min_train_independent_snapshots=(
-                            DEFAULT_STATISTICAL_DESIGN.historical_training_snapshots
-                        ),
+                        min_train_independent_snapshots=training_requirement,
                         historical_training_snapshots=historical_count,
                         required_horizons_min=horizons_min,
                     ),

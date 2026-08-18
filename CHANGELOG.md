@@ -3,6 +3,19 @@
 All notable changes are documented here. Releases use Semantic Versioning; every
 section is dated and there is intentionally no `Unreleased` section.
 
+## [2.20.225] — 2026-08-18
+
+### Fixed
+- Superseded experiment reports now retain their original 60/120 training contract.
+- Powered historical training now applies only to new versioned experiment generations.
+
+### Security
+- A superseded cohort cannot enter a newer training boundary or block current SHADOW collection.
+
+### Verified
+- Focused multi-generation, lifecycle, and walk-forward regressions pass.
+- All 1,265 project tests, compilation, and Technical English checks pass.
+
 ## [2.20.224] — 2026-08-18
 
 ### Added

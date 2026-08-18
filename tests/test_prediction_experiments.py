@@ -644,6 +644,43 @@ def test_v15_cold_start_uses_only_identical_historical_semantics():
     ) == ("EXPERIMENT_V14_MAKER_TTL75_GAP48",)
 
 
+def test_superseded_generation_keeps_legacy_training_contract(
+    tmp_path: Path, monkeypatch
+):
+    from ladder_dragon.strategy.prediction import experiments
+
+    store = PredictionShadowStore(tmp_path / "prediction.sqlite3")
+    variants = build_shadow_variants(
+        market_price=D("100"),
+        baseline_plan=_baseline(),
+        required_edge_pct=D("0.0096"),
+        regime="RANGE",
+        generation="v14",
+        symbol="SOLUSDT",
+    )
+    monkeypatch.setattr(
+        experiments,
+        "closed_historical_training_evidence",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(
+            AssertionError("legacy generation used powered historical training")
+        ),
+    )
+
+    report = shadow_variant_report(
+        store,
+        symbol="SOLUSDT",
+        variants=variants,
+        before_ts_ms=60_000,
+        generation="v14",
+        horizons_min=(300, 360),
+    )
+
+    assert all(
+        row["required_total_independent_samples"] == 180
+        for row in report["variants"].values()
+    )
+
+
 def test_btc_v12_uses_calibrated_gaps_without_changing_lifetime():
     variants = build_shadow_variants(
         market_price=D("100000"),

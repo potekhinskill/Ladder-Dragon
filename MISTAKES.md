@@ -6,6 +6,13 @@ avoidable rework. Identify the root cause rather than recording only the
 symptom. Keep entries concise and exclude secrets, balances, account data, and
 private infrastructure details.
 
+### 2026-08-18 — Applied a new training boundary to superseded generations
+
+- **Impact:** each production SHADOW symbol reported `ValueError` after release 2.20.224.
+- **Root cause:** the report path selected one current statistical design for active and historical generations.
+- **Correction:** resolve the design from each report generation before selecting training evidence.
+- **Prevention:** test current and superseded generations together with overlapping historical timestamps.
+
 ### 2026-08-18 — Used a power formula for the wrong test
 
 - **Impact:** the first draft produced a sample size that did not match the approval hypothesis.
