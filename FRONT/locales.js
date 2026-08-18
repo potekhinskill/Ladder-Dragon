@@ -317,6 +317,8 @@
     shadow_regimes:"regimes",
     shadow_confirmation:"independent confirmation",
     shadow_windows:"complete windows",
+    shadow_regime_blocks:"regime blocks",
+    shadow_confirmation_eta:"confirmation ETA",
     shadow_selection_only:"selection only",
     shadow_supersedes:"supersedes rejected selection"
   });
@@ -377,6 +379,8 @@
     shadow_regimes:"режимов",
     shadow_confirmation:"независимое подтверждение",
     shadow_windows:"полных окон",
+    shadow_regime_blocks:"блоков режимов",
+    shadow_confirmation_eta:"готовность подтверждения",
     shadow_selection_only:"только выбор",
     shadow_supersedes:"заменяет отклонённый выбор"
   });

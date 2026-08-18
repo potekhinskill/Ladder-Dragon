@@ -180,6 +180,11 @@ def build_execution_promotion_report(
             blockers.append("per-order CAP exceeds managed-inventory hard CAP")
         if not approved:
             blockers.append(f"{approval_name}=YES is required")
+        # The current worker does not consume the frozen gap and entry TTL as
+        # one immutable execution policy. Never promote statistical evidence
+        # until worker startup can prove the exact manifest policy is active.
+        execution_policy_bound = False
+        blockers.append("EXECUTION_POLICY_NOT_BOUND")
 
         eligible = not blockers
         enabled = symbol in execution
@@ -200,6 +205,8 @@ def build_execution_promotion_report(
                 else None
             ),
             "promotion_eligible": eligible,
+            "execution_policy_bound": execution_policy_bound,
+            "execution_policy_status": "EXECUTION_POLICY_NOT_BOUND",
             "execution_enabled": enabled,
             "blocking_reasons": blockers,
         }

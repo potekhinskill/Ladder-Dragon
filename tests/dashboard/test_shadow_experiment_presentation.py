@@ -28,6 +28,10 @@ def test_shadow_experiments_are_collapsed_and_use_safe_runtime_fields():
     assert "superseded_reports" in script
     assert "lifecycle_status" in script
     assert "<h3>${esc(symbol)}" in script
+    assert "openHistoryKeys" in script
+    assert "details.shadow-experiment-history[open][data-history-key]" in script
+    assert 'data-history-key="${esc(historyKey)}"' in script
+    assert "openHistoryKeys.has(historyKey)?' open':''" in script
     assert "shadow_selection_only" in script
     assert ".shadow-experiment-list" in styles
     assert ".shadow-experiment-symbol" in styles

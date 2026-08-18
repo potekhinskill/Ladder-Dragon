@@ -109,3 +109,43 @@ def test_full_history_reader_stops_at_first_independent_pending_snapshot(tmp_pat
 
     assert {row.snapshot_ts_ms for row in evidence.samples} == {0}
     assert evidence.stopped_at_pending_snapshot is True
+
+
+def test_control_reader_keeps_late_binding_rows_after_nonbinding_capacity(tmp_path):
+    store = PredictionShadowStore(tmp_path / "prediction.sqlite3")
+    with store._connect() as connection:
+        for index in range(9):
+            snapshot = index * 2 * 60_000
+            decision_id = f"control-{index}"
+            metadata = json.dumps({"binding": index >= 6})
+            connection.execute(
+                "INSERT INTO prediction_decisions VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                (
+                    decision_id, 2, "CONTROL_EXPECTANCY_V4", "SOLUSDT",
+                    snapshot, '{"regime":"RANGE"}',
+                    '{"notional_quote":"10"}',
+                    '{"notional_quote":"10"}', "[]",
+                    metadata, snapshot, None, "LEGACY", None, None,
+                ),
+            )
+            resolved_at = snapshot + 60_000
+            payload = _outcome(1, resolved_at)
+            connection.execute(
+                "INSERT INTO prediction_outcomes VALUES(?,?,?,?,?,?,?,?,?)",
+                (decision_id, 1, resolved_at, resolved_at, payload, payload,
+                 None, None, None),
+            )
+        connection.commit()
+
+    evidence = resolved_independent_evidence(
+        store, "SOLUSDT", kind="CONTROL_EXPECTANCY_V4",
+        required_horizons_min=(1,), maximum_snapshots=3,
+        prefer_binding=True,
+    )
+
+    assert evidence.total_independent_snapshots == 9
+    assert evidence.retained_binding_snapshots == 3
+    assert evidence.discarded_nonbinding_snapshots == 3
+    assert len({row.snapshot_ts_ms for row in evidence.samples}) == 6
+    assert evidence.cohort_summary["independent_snapshots"] == 9
+    assert evidence.cohort_summary["binding_snapshots"] == 3

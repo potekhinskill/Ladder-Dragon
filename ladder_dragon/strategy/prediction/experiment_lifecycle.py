@@ -756,6 +756,36 @@ def confirmation_report(
         criteria=criteria,
         required_horizons_min=required_horizons,
     )
+    required_regime_blocks = int(gate["minimum_sign_blocks"])
+    regime_block_counts = {
+        regime: int(gate["hypotheses"][f"regime_{regime}"]["blocks"])
+        for regime in ("TREND_UP", "TREND_DOWN", "RANGE", "PANIC")
+    }
+    observed_blocks = len(evaluated_blocks)
+    projected_regime_blocks: dict[str, int | None] = {}
+    for regime, count in regime_block_counts.items():
+        projected_regime_blocks[regime] = (
+            (required_regime_blocks * observed_blocks + count - 1) // count
+            if count > 0 else None
+        )
+    projected_block_totals = [
+        value for value in projected_regime_blocks.values() if value is not None
+    ]
+    confirmation_eta_blocks = (
+        max(required_windows, *projected_block_totals)
+        if len(projected_block_totals) == len(projected_regime_blocks)
+        else None
+    )
+    last_confirmation_ts = (
+        complete_prefix[-1].snapshot_ts_ms if complete_prefix else None
+    )
+    confirmation_eta_ms = (
+        last_confirmation_ts
+        + max(0, confirmation_eta_blocks - observed_blocks)
+        * size * feasibility["independence_spacing_ms"]
+        if last_confirmation_ts is not None and confirmation_eta_blocks is not None
+        else None
+    )
     enough = (
         len(evaluated_windows) == required_windows
         and len(complete_prefix) >= required_decisions
@@ -818,6 +848,10 @@ def confirmation_report(
             "complete_windows": len(full),
             "required_complete_windows": required_windows,
             "evaluated_windows": len(evaluated_windows),
+            "regime_distinct_blocks": regime_block_counts,
+            "required_regime_distinct_blocks": required_regime_blocks,
+            "projected_regime_total_blocks": projected_regime_blocks,
+            "confirmation_estimated_ready_ts_ms": confirmation_eta_ms,
         },
         "statistical_method": STATISTICAL_METHOD_VERSION,
         "independence_spacing_ms": feasibility["independence_spacing_ms"],

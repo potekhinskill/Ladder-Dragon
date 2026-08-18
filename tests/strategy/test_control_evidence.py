@@ -4,6 +4,7 @@ import json
 import pytest
 
 from ladder_dragon.strategy.prediction.control_evidence import (
+    CONTROL_HORIZONS_MIN,
     CONTROL_KINDS,
     record_control_evidence,
 )
@@ -97,7 +98,14 @@ def test_each_execution_control_records_a_separate_counterfactual(monkeypatch):
     assert {row["field"] for row in metadata} == {
         "take_profit_price", "notional_quote", "entry_enabled"
     }
-    assert all(row["rule"] == "v3" for row in metadata)
+    assert all(row["rule"] == "v4" for row in metadata)
+    assert all(len(row["candidate_plan_fingerprint"]) == 64 for row in metadata)
+    assert {
+        row["kind"]: row["horizons_min"] for row in records
+    } == {
+        CONTROL_KINDS[name]: CONTROL_HORIZONS_MIN[name]
+        for name in ("expectancy", "inventory", "regime")
+    }
     assert not any(row["kind"] == CONTROL_KINDS["maker"] for row in records)
 
 
@@ -153,10 +161,9 @@ def test_shadow_only_inventory_is_explicitly_not_applicable(monkeypatch):
         regime_buys_allowed=True, inventory_applicable=False,
     )
 
-    row = next(item for item in records if item["kind"] == CONTROL_KINDS["inventory"])
-    metadata = json.loads(row["algorithm_decision"])
-    assert metadata["applicable"] is False
-    assert metadata["binding"] is False
+    assert not any(
+        item["kind"] == CONTROL_KINDS["inventory"] for item in records
+    )
 
 
 def test_one_control_approval_cannot_authorize_another_control():

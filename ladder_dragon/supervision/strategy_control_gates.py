@@ -9,7 +9,10 @@ import os
 import sqlite3
 from typing import Callable, Mapping, MutableMapping
 
-from ladder_dragon.strategy.prediction.control_evidence import CONTROL_KINDS
+from ladder_dragon.strategy.prediction.control_evidence import (
+    CONTROL_HORIZONS_MIN,
+    CONTROL_KINDS,
+)
 from ladder_dragon.strategy.prediction.control_approval import (
     control_specific_gate,
 )
@@ -52,7 +55,9 @@ def control_gate(
                     store,
                     symbol,
                     kind=CONTROL_KINDS[normalized],
-                    required_horizons_min=(1, 5, 15),
+                    required_horizons_min=CONTROL_HORIZONS_MIN[normalized],
+                    maximum_snapshots=150,
+                    prefer_binding=True,
                 )
                 samples = evidence.samples
             else:
@@ -62,7 +67,10 @@ def control_gate(
                     symbol, kind=CONTROL_KINDS[normalized]
                 )
             result = control_specific_gate(
-                normalized, samples, applicable=applicable
+                normalized, samples, applicable=applicable,
+                evidence_summary=(
+                    evidence.cohort_summary if evidence is not None else None
+                ),
             )
             if evidence is not None:
                 result["statistical_reader"] = {
@@ -73,6 +81,16 @@ def control_gate(
                     "stopped_at_pending_snapshot": (
                         evidence.stopped_at_pending_snapshot
                     ),
+                    "total_independent_snapshots": (
+                        evidence.total_independent_snapshots
+                    ),
+                    "retained_binding_snapshots": (
+                        evidence.retained_binding_snapshots
+                    ),
+                    "discarded_nonbinding_snapshots": (
+                        evidence.discarded_nonbinding_snapshots
+                    ),
+                    "binding_capacity": 150,
                     "bounded_memory": True,
                 }
         except (OSError, sqlite3.Error, TypeError, ValueError):

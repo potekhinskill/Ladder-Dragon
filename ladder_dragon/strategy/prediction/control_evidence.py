@@ -6,7 +6,9 @@
 from __future__ import annotations
 
 from dataclasses import replace
+from dataclasses import asdict
 from decimal import Decimal
+import hashlib
 import json
 from typing import Mapping
 
@@ -18,11 +20,32 @@ from ladder_dragon.strategy.prediction.runtime import (
 
 
 CONTROL_KINDS: Mapping[str, str] = {
-    "expectancy": "CONTROL_EXPECTANCY_V3",
-    "inventory": "CONTROL_INVENTORY_V3",
-    "maker": "CONTROL_MAKER_V3",
-    "regime": "CONTROL_REGIME_V3",
+    "expectancy": "CONTROL_EXPECTANCY_V4",
+    "inventory": "CONTROL_INVENTORY_V4",
+    "maker": "CONTROL_MAKER_V4",
+    "regime": "CONTROL_REGIME_V4",
 }
+CONTROL_HORIZONS_MIN: Mapping[str, tuple[int, ...]] = {
+    "expectancy": (300, 360),
+    "inventory": (360,),
+    "maker": (300, 360),
+    "regime": (15, 360),
+}
+
+
+def _plan_payload(plan: TradePlan) -> dict[str, object]:
+    """Return the exact JSON representation used by the prediction journal."""
+    return {
+        key: format(value, "f") if isinstance(value, Decimal) else value
+        for key, value in asdict(plan).items()
+    }
+
+
+def _plan_fingerprint(plan: TradePlan) -> str:
+    encoded = json.dumps(
+        _plan_payload(plan), sort_keys=True, separators=(",", ":")
+    ).encode("utf-8")
+    return hashlib.sha256(encoded).hexdigest()
 
 
 def _control_metadata(
@@ -49,9 +72,11 @@ def _control_metadata(
         "field": field,
         "from": str(before).lower() if isinstance(before, bool) else format(before, "f"),
         "reason": "plan_changed" if binding else "no_plan_change",
-        "rule": "v3",
+        "rule": "v4",
         "to": str(after).lower() if isinstance(after, bool) else format(after, "f"),
         "baseline_notional_quote": format(baseline.notional_quote, "f"),
+        "baseline_plan_fingerprint": _plan_fingerprint(baseline),
+        "candidate_plan_fingerprint": _plan_fingerprint(candidate),
     }
 
 
@@ -115,7 +140,9 @@ def record_control_evidence(
     ).items():
         applicable = control != "inventory" or inventory_applicable
         if not applicable:
-            plan = baseline_plan
+            # Observation-only symbols cannot exercise stateful inventory policy.
+            # Do not grow an immutable journal that no approval gate can consume.
+            continue
         kind = CONTROL_KINDS[control]
         metadata = _control_metadata(
             control, baseline_plan, plan, applicable=applicable
@@ -126,7 +153,10 @@ def record_control_evidence(
         history = store.resolved_samples(
             symbol, before_ts_ms=features.snapshot_ts_ms, kind=kind
         )
-        predictions = predict_distribution(features, plan, history)
+        horizons = CONTROL_HORIZONS_MIN[control]
+        predictions = predict_distribution(
+            features, plan, history, horizons_min=horizons
+        )
         identifiers.append(store.record(
             kind=kind,
             symbol=symbol,
@@ -135,8 +165,9 @@ def record_control_evidence(
             baseline_plan=baseline_plan,
             predictions=predictions,
             algorithm_decision=encoded_metadata,
+            horizons_min=horizons,
         ))
     return tuple(identifiers)
 
 
-__all__ = ["CONTROL_KINDS", "record_control_evidence"]
+__all__ = ["CONTROL_HORIZONS_MIN", "CONTROL_KINDS", "record_control_evidence"]

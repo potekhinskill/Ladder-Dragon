@@ -56,7 +56,8 @@ def test_candidate_remains_blocked_without_confirmation_caps_and_approval(
     assert candidate["execution_enabled"] is False
     assert candidate["lifecycle_status"] == "SELECTION"
     assert report["can_change_execution_scope"] is False
-    assert len(candidate["blocking_reasons"]) == 4
+    assert len(candidate["blocking_reasons"]) == 5
+    assert candidate["execution_policy_bound"] is False
 
 
 def test_confirmed_candidate_needs_caps_consistent_with_total_limit(monkeypatch):
@@ -82,11 +83,12 @@ def test_confirmed_candidate_needs_caps_consistent_with_total_limit(monkeypatch)
     candidate = report["candidates"]["BTCUSDT"]
     assert candidate["promotion_eligible"] is False
     assert candidate["blocking_reasons"] == [
-        "per-order CAP exceeds managed-inventory hard CAP"
+        "per-order CAP exceeds managed-inventory hard CAP",
+        "EXECUTION_POLICY_NOT_BOUND",
     ]
 
 
-def test_all_promotion_gates_can_pass_without_enabling_execution(monkeypatch):
+def test_statistical_gates_cannot_bypass_missing_execution_policy(monkeypatch):
     monkeypatch.setattr(
         execution_promotion,
         "_current_generation_status",
@@ -105,7 +107,8 @@ def test_all_promotion_gates_can_pass_without_enabling_execution(monkeypatch):
     )
 
     candidate = report["candidates"]["BTCUSDT"]
-    assert candidate["promotion_eligible"] is True
+    assert candidate["promotion_eligible"] is False
+    assert candidate["execution_policy_status"] == "EXECUTION_POLICY_NOT_BOUND"
     assert candidate["execution_enabled"] is False
     assert report["blocked_execution_symbols"] == []
     assert report["lookahead"] is False

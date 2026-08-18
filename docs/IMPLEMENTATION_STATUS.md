@@ -1,6 +1,6 @@
 # Implementation status
 
-This document describes the code in version **2.20.222**.
+This document describes the code in version **2.20.223**.
 It does not describe future plans as completed work.
 
 An implemented function is not automatically approved for LIVE use.
@@ -109,7 +109,7 @@ The active-entry diagnostic therefore uses the same cohort.
 Prediction training requires 60 independent snapshots for each candidate.
 Multiple outcome horizons from one snapshot count as one training unit.
 Statistical gates stream the complete journal in append order.
-They retain no more than 512 independent snapshots in memory.
+Control readers retain bounded binding and non-binding evidence groups.
 Classified lifecycle evidence remains append-only in SQLite.
 Automated retention does not delete classified lifecycle evidence.
 
@@ -124,9 +124,12 @@ Expectancy approval requires positive binding edge and net expectancy.
 Regime approval also requires full-cohort regime coverage.
 Maker promotion remains unavailable until evidence stores fills, missed fills, queue state, and adverse selection.
 The runtime does not record maker evidence before that model exists.
-Control metadata version three uses strict identity and transition validation.
+Control metadata version four verifies candidate and baseline plan fingerprints.
+Expectancy evidence uses 300-minute and 360-minute horizons.
+Regime evidence uses 15-minute and 360-minute horizons.
 Each control report estimates binding frequency and its evidence-ready time.
 Observation-only inventory reports `NOT_APPLICABLE`.
+Promotion reports `EXECUTION_POLICY_NOT_BOUND` until workers verify frozen parameters.
 
 Attributed AI fills store monetary values as exact text.
 Each fill records whether its slippage value is verified.

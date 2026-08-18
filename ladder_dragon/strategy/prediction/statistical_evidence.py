@@ -7,6 +7,8 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from decimal import Decimal
+import hashlib
 import json
 from typing import Sequence
 
@@ -25,6 +27,10 @@ class IndependentEvidence:
     scanned_snapshots: int
     excluded_overlapping_snapshots: int
     stopped_at_pending_snapshot: bool
+    total_independent_snapshots: int
+    retained_binding_snapshots: int
+    discarded_nonbinding_snapshots: int
+    cohort_summary: dict[str, object]
 
 
 def resolved_independent_evidence(
@@ -38,6 +44,7 @@ def resolved_independent_evidence(
     experiment_id: str | None = None,
     evidence_role: str | None = None,
     maximum_snapshots: int = MAX_INDEPENDENT_SNAPSHOTS,
+    prefer_binding: bool = False,
 ) -> IndependentEvidence:
     """Stream the full cohort and retain only a stable independent prefix."""
     horizons = tuple(int(value) for value in required_horizons_min)
@@ -48,7 +55,8 @@ def resolved_independent_evidence(
     normalized_kind = str(kind).upper()
     query = """SELECT d.decision_id,d.snapshot_ts_ms,d.feature_json,
                       d.algorithm_decision,o.horizon_min,o.outcome_json,
-                      o.baseline_outcome_json,o.resolved_at_ms
+                      o.baseline_outcome_json,o.resolved_at_ms,
+                      d.plan_json,d.baseline_plan_json
                FROM prediction_decisions d
                LEFT JOIN prediction_outcomes o ON o.decision_id=d.decision_id
                WHERE d.symbol=? AND d.kind=?"""
@@ -76,9 +84,28 @@ def resolved_independent_evidence(
     next_allowed_ms: int | None = None
     previous_snapshot: int | None = None
     current: list[tuple[object, ...]] = []
+    binding_groups: list[list[ResolvedSample]] = []
+    nonbinding_groups: list[list[ResolvedSample]] = []
+    total_independent = 0
+    total_binding = 0
+    discarded_nonbinding = 0
+    candidate_total = Decimal("0")
+    baseline_total = Decimal("0")
+    edge_bps_total = Decimal("0")
+    candidate_equity = Decimal("0")
+    baseline_equity = Decimal("0")
+    candidate_peak = Decimal("0")
+    baseline_peak = Decimal("0")
+    candidate_max_drawdown = Decimal("0")
+    baseline_max_drawdown = Decimal("0")
 
     def consume(rows: list[tuple[object, ...]]) -> bool:
         nonlocal scanned, excluded, stopped_pending, next_allowed_ms
+        nonlocal total_independent, total_binding, discarded_nonbinding
+        nonlocal candidate_total, baseline_total, edge_bps_total
+        nonlocal candidate_equity, baseline_equity
+        nonlocal candidate_peak, baseline_peak
+        nonlocal candidate_max_drawdown, baseline_max_drawdown
         if not rows:
             return False
         snapshot = int(rows[0][1])
@@ -105,6 +132,25 @@ def resolved_independent_evidence(
             stopped_pending = True
             return True
         features = json.loads(str(rows[0][2]))
+        metadata = decision_metadata(str(rows[0][3]))
+        if prefer_binding:
+            candidate_plan = json.loads(str(rows[0][8]))
+            baseline_plan = json.loads(str(rows[0][9]))
+            canonical = lambda value: hashlib.sha256(json.dumps(
+                value, sort_keys=True, separators=(",", ":")
+            ).encode("utf-8")).hexdigest()
+            metadata = {
+                **metadata,
+                "_authoritative_candidate_plan": candidate_plan,
+                "_authoritative_baseline_plan": baseline_plan,
+                "_authoritative_candidate_plan_fingerprint": canonical(
+                    candidate_plan
+                ),
+                "_authoritative_baseline_plan_fingerprint": canonical(
+                    baseline_plan
+                ),
+            }
+        group: list[ResolvedSample] = []
         for horizon in horizons:
             row = by_horizon[horizon]
             outcome = store._outcome(str(row[5]))
@@ -113,15 +159,55 @@ def resolved_independent_evidence(
                 str(row[6]) if row[6] is not None else None,
                 outcome,
             )
-            output.append(ResolvedSample(
+            group.append(ResolvedSample(
                 snapshot_ts_ms=snapshot,
                 regime=str(features.get("regime", "UNKNOWN")),
                 horizon_min=horizon,
                 outcome=outcome,
                 baseline_net_pnl_quote=baseline.net_pnl_quote,
-                decision_metadata=decision_metadata(str(row[3])),
+                decision_metadata=metadata,
             ))
-        return len(output) // len(horizons) >= maximum_snapshots
+        total_independent += 1
+        if prefer_binding:
+            count = Decimal(len(group))
+            candidate_value = sum(
+                (sample.outcome.net_pnl_quote for sample in group), Decimal("0")
+            ) / count
+            baseline_value = sum(
+                (sample.baseline_net_pnl_quote for sample in group), Decimal("0")
+            ) / count
+            authoritative_notional = Decimal(
+                str(baseline_plan["notional_quote"])
+            )
+            candidate_total += candidate_value
+            baseline_total += baseline_value
+            edge_bps_total += (
+                (candidate_value - baseline_value)
+                / authoritative_notional * Decimal("10000")
+            )
+            candidate_equity += candidate_value
+            baseline_equity += baseline_value
+            candidate_peak = max(candidate_peak, candidate_equity)
+            baseline_peak = max(baseline_peak, baseline_equity)
+            candidate_max_drawdown = max(
+                candidate_max_drawdown, candidate_peak - candidate_equity
+            )
+            baseline_max_drawdown = max(
+                baseline_max_drawdown, baseline_peak - baseline_equity
+            )
+        if prefer_binding and metadata.get("binding") is True:
+            total_binding += 1
+            if len(binding_groups) < maximum_snapshots:
+                binding_groups.append(group)
+        elif prefer_binding:
+            if len(nonbinding_groups) < maximum_snapshots:
+                nonbinding_groups.append(group)
+            else:
+                discarded_nonbinding += 1
+        else:
+            output.extend(group)
+            return len(output) // len(horizons) >= maximum_snapshots
+        return False
 
     with store._connect() as connection:
         cursor = connection.execute(query, params)
@@ -140,11 +226,32 @@ def resolved_independent_evidence(
         else:
             consume(current)
 
+    if prefer_binding:
+        output = [
+            sample
+            for group in sorted(
+                [*binding_groups, *nonbinding_groups],
+                key=lambda item: item[0].snapshot_ts_ms,
+            )
+            for sample in group
+        ]
     return IndependentEvidence(
         samples=tuple(output),
         scanned_snapshots=scanned,
         excluded_overlapping_snapshots=excluded,
         stopped_at_pending_snapshot=stopped_pending,
+        total_independent_snapshots=total_independent,
+        retained_binding_snapshots=len(binding_groups),
+        discarded_nonbinding_snapshots=discarded_nonbinding,
+        cohort_summary={
+            "independent_snapshots": total_independent,
+            "binding_snapshots": total_binding,
+            "candidate_pnl_sum": format(candidate_total, "f"),
+            "baseline_pnl_sum": format(baseline_total, "f"),
+            "edge_bps_sum": format(edge_bps_total, "f"),
+            "candidate_max_drawdown": format(candidate_max_drawdown, "f"),
+            "baseline_max_drawdown": format(baseline_max_drawdown, "f"),
+        },
     )
 
 

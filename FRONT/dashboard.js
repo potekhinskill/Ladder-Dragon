@@ -464,6 +464,9 @@ function updateShadowExperiments(prediction){
   const ready=reports.filter(([,report])=>report.eligible_for_second_gate_review).length;
   const summary=$('#shadow-experiments-summary'), body=$('#shadow-experiments-body');
   if(!summary||!body) return;
+  // The polling refresh replaces this subtree. Preserve each operator-opened
+  // history panel by its symbol and immutable experiment generation.
+  const openHistoryKeys=new Set([...body.querySelectorAll('details.shadow-experiment-history[open][data-history-key]')].map(item=>item.dataset.historyKey));
   summary.textContent=tr('shadow_experiment_summary',{count:candidateCount,ready});
   body.innerHTML=reports.length?reports.map(([symbol,report])=>{
     const generation=String(report.generation||'');
@@ -488,9 +491,14 @@ function updateShadowExperiments(prediction){
         </div>`;
       }).join(''):`<div class="muted">${esc(tr('no_data'))}</div>`;
     };
-    const history=Object.entries(report.superseded_reports||{}).map(([oldGeneration,oldReport])=>`<details class="shadow-experiment-history"><summary>${esc(tr('shadow_supersedes'))}: ${esc(oldGeneration.toUpperCase())} · ${esc(String(oldReport.lifecycle_status||'SUPERSEDED'))}</summary>${renderVariants(oldReport)}</details>`).join('');
+    const history=Object.entries(report.superseded_reports||{}).map(([oldGeneration,oldReport])=>{
+      const historyKey=`${symbol}:${oldGeneration}`;
+      return `<details class="shadow-experiment-history" data-history-key="${esc(historyKey)}"${openHistoryKeys.has(historyKey)?' open':''}><summary>${esc(tr('shadow_supersedes'))}: ${esc(oldGeneration.toUpperCase())} · ${esc(String(oldReport.lifecycle_status||'SUPERSEDED'))}</summary>${renderVariants(oldReport)}</details>`;
+    }).join('');
     const progressLine=`<div class="shadow-experiment-row"><div class="muted">${esc(tr('shadow_generation_progress',{age:Number.isFinite(progressAge)?fmt(progressAge,2):'—',snapshots:Number(progress.snapshots||0),resolved:Number(progress.resolved_outcomes||0),total:Number(progress.total_outcomes||0),passed:selectionPassed,candidates:variantRows.length}))}</div></div>`;
-    const confirmationLine=`<div class="shadow-experiment-row"><div><strong>${esc(tr('shadow_confirmation'))}</strong><span class="pill ${reportReady?'ok':'warn'}">${esc(String(confirmation.confirmation_status||'BLOCKED'))}</span></div><div class="muted">${esc(tr('shadow_windows'))}: ${Number(confirmation.complete_windows||0)}/${Number(confirmation.confirmation_progress?.required_complete_windows||0)} · ${esc(tr('shadow_samples'))}: ${Number(confirmation.confirmation_progress?.complete_decisions||0)}/${Number(confirmation.confirmation_progress?.required_decisions||0)}</div></div>`;
+    const regimeBlocks=confirmation.confirmation_progress?.regime_distinct_blocks||{}, requiredRegimeBlocks=Number(confirmation.confirmation_progress?.required_regime_distinct_blocks||0), confirmationEta=Number(confirmation.confirmation_progress?.confirmation_estimated_ready_ts_ms);
+    const regimeBlockText=['TREND_UP','TREND_DOWN','RANGE','PANIC'].map(name=>`${name} ${Number(regimeBlocks[name]||0)}/${requiredRegimeBlocks}`).join(' · ');
+    const confirmationLine=`<div class="shadow-experiment-row"><div><strong>${esc(tr('shadow_confirmation'))}</strong><span class="pill ${reportReady?'ok':'warn'}">${esc(String(confirmation.confirmation_status||'BLOCKED'))}</span></div><div class="muted">${esc(tr('shadow_windows'))}: ${Number(confirmation.complete_windows||0)}/${Number(confirmation.confirmation_progress?.required_complete_windows||0)} · ${esc(tr('shadow_samples'))}: ${Number(confirmation.confirmation_progress?.complete_decisions||0)}/${Number(confirmation.confirmation_progress?.required_decisions||0)}</div><div class="muted">${esc(tr('shadow_regime_blocks'))}: ${esc(regimeBlockText)} · ${esc(tr('shadow_confirmation_eta'))}: ${Number.isFinite(confirmationEta)?esc(tsShort(confirmationEta)):'—'}</div></div>`;
     return `<section class="shadow-experiment-symbol"><h3>${esc(symbol)} · ${esc(generation.toUpperCase())} · ${esc(lifecycle)}</h3>${progressLine}${confirmationLine}${renderVariants(report)}${history}</section>`;
   }).join(''):`<div class="muted">${esc(tr('no_data'))}</div>`;
 }

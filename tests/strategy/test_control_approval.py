@@ -1,4 +1,6 @@
 from decimal import Decimal
+import hashlib
+import json
 
 from ladder_dragon.strategy.prediction.control_approval import (
     control_specific_gate,
@@ -18,16 +20,36 @@ def _metadata(control="expectancy", *, binding=True, applicable=True):
         "inventory": "notional_quote",
         "regime": "entry_enabled",
     }
+    field = fields[control]
+    baseline_plan = {
+        "take_profit_price": "10",
+        "notional_quote": "10",
+        "entry_enabled": True,
+    }
+    candidate_plan = dict(baseline_plan)
+    if binding:
+        candidate_plan[field] = False if field == "entry_enabled" else "9"
+    canonical = lambda value: hashlib.sha256(json.dumps(
+        value, sort_keys=True, separators=(",", ":")
+    ).encode("utf-8")).hexdigest()
+    before = baseline_plan[field]
+    after = candidate_plan[field]
     return {
         "applicable": applicable,
         "baseline_notional_quote": "10",
         "binding": binding,
         "control": control,
-        "field": fields[control],
-        "from": "10",
+        "field": field,
+        "from": str(before).lower() if isinstance(before, bool) else before,
         "reason": "plan_changed" if binding else "no_plan_change",
-        "rule": "v3",
-        "to": "9" if binding else "10",
+        "rule": "v4",
+        "to": str(after).lower() if isinstance(after, bool) else after,
+        "baseline_plan_fingerprint": canonical(baseline_plan),
+        "candidate_plan_fingerprint": canonical(candidate_plan),
+        "_authoritative_baseline_plan": baseline_plan,
+        "_authoritative_candidate_plan": candidate_plan,
+        "_authoritative_baseline_plan_fingerprint": canonical(baseline_plan),
+        "_authoritative_candidate_plan_fingerprint": canonical(candidate_plan),
     }
 
 
@@ -83,9 +105,7 @@ def test_shadow_only_inventory_is_not_applicable():
         )
         for row in samples
     ]
-    gate = control_specific_gate(
-        "inventory", samples
-    )
+    gate = control_specific_gate("inventory", samples, applicable=False)
 
     assert gate["approved"] is False
     assert gate["status"] == "NOT_APPLICABLE"
@@ -115,4 +135,13 @@ def test_malformed_binding_metadata_blocks_the_gate():
 
     import pytest
     with pytest.raises(ValueError, match="booleans"):
+        control_specific_gate("expectancy", samples)
+
+
+def test_metadata_transition_must_match_authoritative_plans():
+    samples = _samples([1], [0])
+    samples[0].decision_metadata["to"] = "garbage"
+
+    import pytest
+    with pytest.raises(ValueError, match="journal plans"):
         control_specific_gate("expectancy", samples)

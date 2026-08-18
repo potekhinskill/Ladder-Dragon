@@ -7,7 +7,7 @@
 from __future__ import annotations
 
 from decimal import Decimal, ROUND_CEILING
-from typing import Sequence
+from typing import Mapping, Sequence
 
 from ladder_dragon.strategy.prediction.approval import (
     binomial_upper_rate,
@@ -33,7 +33,7 @@ def _validated_metadata(control: str, value: object) -> dict[str, object]:
     """Reject ambiguous control identity before statistical aggregation."""
     if not isinstance(value, dict):
         raise ValueError("control metadata is not an object")
-    if value.get("rule") != "v3" or value.get("control") != control:
+    if value.get("rule") != "v4" or value.get("control") != control:
         raise ValueError("control metadata identity is invalid")
     if type(value.get("binding")) is not bool or type(value.get("applicable")) is not bool:
         raise ValueError("control metadata booleans are invalid")
@@ -51,14 +51,40 @@ def _validated_metadata(control: str, value: object) -> dict[str, object]:
     notional = D(str(value.get("baseline_notional_quote", "")))
     if not notional.is_finite() or notional <= ZERO:
         raise ValueError("control baseline notional must be positive")
+    candidate_plan = value.get("_authoritative_candidate_plan")
+    baseline_plan = value.get("_authoritative_baseline_plan")
+    if not isinstance(candidate_plan, dict) or not isinstance(baseline_plan, dict):
+        raise ValueError("authoritative control plans are unavailable")
+    if value.get("candidate_plan_fingerprint") != value.get(
+        "_authoritative_candidate_plan_fingerprint"
+    ) or value.get("baseline_plan_fingerprint") != value.get(
+        "_authoritative_baseline_plan_fingerprint"
+    ):
+        raise ValueError("control plan fingerprint is invalid")
+    if D(str(baseline_plan.get("notional_quote", ""))) != notional:
+        raise ValueError("control baseline notional differs from the journal plan")
+    expected_before = baseline_plan.get(str(value["field"]))
+    expected_after = candidate_plan.get(str(value["field"]))
+    normalize = lambda item: (
+        str(item).lower() if isinstance(item, bool) else format(D(str(item)), "f")
+    )
+    if before != normalize(expected_before) or after != normalize(expected_after):
+        raise ValueError("control transition differs from the journal plans")
     return value
 
 
-def _binding_reachability(rows: Sequence[dict[str, object]]) -> dict[str, object]:
+def _binding_reachability(
+    rows: Sequence[dict[str, object]],
+    summary: Mapping[str, object] | None = None,
+) -> dict[str, object]:
     """Estimate binding maturity without reading any outcome value."""
-    observed = len(rows)
-    binding = sum(bool(row["binding"]) for row in rows)
-    applicable = sum(bool(row["applicable"]) for row in rows)
+    observed = int(summary["independent_snapshots"]) if summary else len(rows)
+    binding = int(summary["binding_snapshots"]) if summary else sum(
+        bool(row["binding"]) for row in rows
+    )
+    applicable = observed if summary else sum(
+        bool(row["applicable"]) for row in rows
+    )
     upper = binomial_upper_rate(binding, applicable)
     rate = D(binding) / D(applicable) if applicable else ZERO
     timestamps = [int(row["timestamp"]) for row in rows]
@@ -157,6 +183,7 @@ def control_specific_gate(
     samples: Sequence[ResolvedSample],
     *,
     applicable: bool | None = None,
+    evidence_summary: Mapping[str, object] | None = None,
 ) -> dict[str, object]:
     """Evaluate one control with criteria that match its intended effect."""
     normalized = str(control).strip().lower()
@@ -207,7 +234,7 @@ def control_specific_gate(
     )
     if len({row["applicable"] for row in rows}) > 1:
         raise ValueError("control applicability changed inside one evidence version")
-    reachability = _binding_reachability(rows)
+    reachability = _binding_reachability(rows, evidence_summary)
     if normalized == "inventory":
         status = (
             "NOT_APPLICABLE"
@@ -250,6 +277,15 @@ def control_specific_gate(
         reasons.append("full cohort exceeds the non-inferiority margin")
     if candidate_drawdown > baseline_drawdown:
         reasons.append("full cohort drawdown is worse than baseline")
+    if evidence_summary and int(evidence_summary["independent_snapshots"]) > 0:
+        cohort_count = D(str(evidence_summary["independent_snapshots"]))
+        cohort_edge_bps = D(str(evidence_summary["edge_bps_sum"])) / cohort_count
+        if cohort_edge_bps < -NONINFERIORITY_MARGIN_BPS:
+            reasons.append("complete cohort exceeds the non-inferiority margin")
+        if D(str(evidence_summary["candidate_max_drawdown"])) > D(
+            str(evidence_summary["baseline_max_drawdown"])
+        ):
+            reasons.append("complete cohort drawdown is worse than baseline")
     report: dict[str, object] = {
         "approved": False,
         "mode": "SHADOW",
@@ -258,6 +294,7 @@ def control_specific_gate(
         "independent_samples": len(rows),
         "binding_independent_samples": len(binding_rows),
         "binding_reachability": reachability,
+        "complete_cohort_summary": dict(evidence_summary or {}),
         "binding_edge_ci": [format(edge_ci[0], "f"), format(edge_ci[1], "f")],
         "full_edge_bps_ci": [
             format(full_edge_bps_ci[0], "f"), format(full_edge_bps_ci[1], "f")

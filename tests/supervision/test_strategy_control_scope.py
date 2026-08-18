@@ -10,7 +10,7 @@ def test_shadow_only_inventory_gate_is_immediately_not_applicable(monkeypatch):
     class Store:
         def resolved_samples(self, symbol, *, kind):
             assert symbol == "ETHUSDT"
-            assert kind == "CONTROL_INVENTORY_V3"
+            assert kind == "CONTROL_INVENTORY_V4"
             return []
 
     monkeypatch.setattr(runtime, "_PREDICTION_SHADOW", Store())

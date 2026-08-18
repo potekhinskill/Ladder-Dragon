@@ -3,6 +3,19 @@
 All notable changes are documented here. Releases use Semantic Versioning; every
 section is dated and there is intentionally no `Unreleased` section.
 
+## [2.20.223] — 2026-08-18
+
+### Fixed
+- Polling refreshes now preserve each open superseded-experiment history panel.
+- Promotion now blocks until workers bind the exact frozen execution policy.
+- Control evidence now uses bounded binding-aware reads and control-specific horizons.
+- Control metadata now matches immutable candidate and baseline plan fingerprints.
+- Confirmation reports now expose distinct regime-block coverage and readiness.
+- Observation-only symbols no longer store inapplicable inventory-control rows.
+
+### Verified
+- The full test suite, focused regressions, compilation, documentation, and browser checks pass.
+
 ## [2.20.222] — 2026-08-18
 
 ### Fixed

@@ -1,5 +1,26 @@
 # Engineering decisions
 
+### 2026-08-18 — Bind promotion to executable policy
+
+- **Context:** statistical confirmation did not prove that a worker used the selected policy.
+- **Decision:** block promotion with `EXECUTION_POLICY_NOT_BOUND` until startup verifies every frozen parameter.
+- **Why it worked:** a confirmed experiment cannot authorize different execution semantics.
+- **Reuse:** every evidence gate that enables an execution-changing feature.
+
+### 2026-08-18 — Version control evidence by model semantics
+
+- **Context:** short horizons and weak metadata validation could misstate control effectiveness.
+- **Decision:** start V4 journals with control-specific horizons and authoritative plan fingerprints.
+- **Why it worked:** old evidence cannot mix with the stricter preregistered model.
+- **Reuse:** every statistical model change that alters cohorts, horizons, or normalization.
+
+### 2026-08-18 — Preserve interactive state across polling redraws
+
+- **Context:** a dashboard refresh replaced open nested history panels every five seconds.
+- **Decision:** capture stable open panel keys before replacement and restore them in the new markup.
+- **Why it worked:** browser verification keeps the selected panel open after a complete section redraw.
+- **Reuse:** every polled view that replaces interactive HTML elements.
+
 ### 2026-08-18 — Use one evaluation cohort for all selection tests
 
 - **Context:** configuration Holm tests included cold-start rows that the walk-forward gate excluded.

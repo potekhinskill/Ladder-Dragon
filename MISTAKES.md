@@ -6,6 +6,34 @@ avoidable rework. Identify the root cause rather than recording only the
 symptom. Keep entries concise and exclude secrets, balances, account data, and
 private infrastructure details.
 
+### 2026-08-18 — Reconstructed a release SHA
+
+- **Impact:** the first release verification was blocked before publication.
+- **Root cause:** the expected SHA was manually expanded from abbreviated commit output.
+- **Correction:** obtain the immutable candidate only with `git rev-parse HEAD`.
+- **Prevention:** never type, infer, or reconstruct a release SHA.
+
+### 2026-08-18 — Allowed evidence semantics to differ from execution
+
+- **Impact:** a confirmed maker candidate could theoretically authorize a worker with different gap or time-to-live settings.
+- **Root cause:** promotion checked lifecycle evidence but lacked an executable-policy fingerprint.
+- **Correction:** promotion now fails closed until worker startup can verify the frozen policy.
+- **Prevention:** bind every promotion artifact to the exact configuration consumed by execution.
+
+### 2026-08-18 — Used a chronological prefix for rare controls
+
+- **Impact:** low-frequency binding rows after the reader limit could never reach the approval gate.
+- **Root cause:** bounded memory stopped the scan instead of prioritizing decision-relevant rows.
+- **Correction:** the reader scans the cohort and retains bounded binding and non-binding groups separately.
+- **Prevention:** capacity tests must include useful evidence after more than one full buffer.
+
+### 2026-08-18 — Replaced open dashboard panels during polling
+
+- **Impact:** an opened experiment history panel closed at the next five-second refresh.
+- **Root cause:** the renderer replaced the complete subtree without preserving native `details` state.
+- **Correction:** identify each history panel by symbol and generation, then restore its `open` attribute.
+- **Prevention:** test interactive state across every polling redraw that uses `innerHTML`.
+
 ### 2026-08-18 — Derived applicability only from resolved evidence
 
 - **Impact:** a new observation-only cohort temporarily reported a stateful-model block instead of `NOT_APPLICABLE`.
