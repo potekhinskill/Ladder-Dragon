@@ -4,7 +4,12 @@ from pathlib import Path
 
 import pytest
 
-from bin.prediction_experiment import _parser, _selection_variants
+from bin.prediction_experiment import (
+    _freeze_horizons,
+    _parser,
+    _selection_variants,
+    _source_commit,
+)
 from ladder_dragon.strategy.prediction import (
     PredictionFeatures,
     PredictionShadowStore,
@@ -31,6 +36,7 @@ def test_champion_activation_does_not_accept_a_caller_halt_path():
         "champion-activate", "experiment-id",
         "--report-sha256", "a" * 64,
         "--manifest-sha256", "b" * 64,
+        "--expected-execution-policy-fingerprint", "c" * 64,
         "--expected-previous-activation-id", "NONE",
         "--maximum-order-usdt", "6",
         "--maximum-inventory-usdt", "18",
@@ -41,6 +47,39 @@ def test_champion_activation_does_not_accept_a_caller_halt_path():
     assert not hasattr(parsed, "halt_file")
     with pytest.raises(SystemExit):
         _parser().parse_args([*arguments, "--halt-file", "/tmp/decoy"])
+
+
+def test_freeze_horizons_are_symbol_generation_scoped():
+    assert _freeze_horizons("v14", "SOLUSDT") == (300, 360)
+    assert _freeze_horizons("v12", "ETHUSDT") == (300, 360)
+
+
+def test_champion_source_requires_clean_published_annotated_release(monkeypatch):
+    head = "d" * 40
+
+    def completed(command, **_kwargs):
+        key = tuple(command[1:])
+        outputs = {
+            ("rev-parse", "HEAD"): head,
+            ("status", "--porcelain"): "",
+            ("cat-file", "-t", "refs/tags/v2.20.228"): "tag",
+            ("rev-list", "-n", "1", "v2.20.228"): head,
+            ("rev-parse", "origin/main"): head,
+        }
+        return type("Result", (), {"stdout": outputs[key]})()
+
+    monkeypatch.setattr("bin.prediction_experiment.subprocess.run", completed)
+    assert _source_commit() == head
+
+    def dirty(command, **kwargs):
+        result = completed(command, **kwargs)
+        if tuple(command[1:]) == ("status", "--porcelain"):
+            result.stdout = " M product_version.py"
+        return result
+
+    monkeypatch.setattr("bin.prediction_experiment.subprocess.run", dirty)
+    with pytest.raises(RuntimeError, match="clean checkout"):
+        _source_commit()
 
 
 def test_configured_gap_rejects_unknown_semantics():

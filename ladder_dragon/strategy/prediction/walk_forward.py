@@ -212,7 +212,7 @@ def walk_forward_prediction_report(
         "readiness_reason": waiting_reason,
         "selection_deadline_ts_ms": selection_deadline_ms,
         "selection_deadline_expired": expired,
-        "power_analysis": DEFAULT_STATISTICAL_DESIGN.as_dict(),
+        "sign_test_power": DEFAULT_STATISTICAL_DESIGN.as_dict(),
         "regime_reachability": reachability,
     })
     return {

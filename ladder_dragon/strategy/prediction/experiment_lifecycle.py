@@ -147,6 +147,30 @@ def _ratio(numerator: Decimal, denominator: Decimal, *, field: str) -> str:
     return format(numerator / denominator, "f")
 
 
+def _fee_schedule_rule(plan: "TradePlan") -> dict[str, object]:
+    """Describe exact fee provenance without using account identifiers."""
+    return {
+        "provenance": plan.fee_provenance,
+        "conservative_fee_pct": format(plan.fee_pct, "f"),
+        "maker_buy_fee_pct": (
+            format(plan.maker_buy_fee_pct, "f")
+            if plan.maker_buy_fee_pct is not None else None
+        ),
+        "maker_sell_fee_pct": (
+            format(plan.maker_sell_fee_pct, "f")
+            if plan.maker_sell_fee_pct is not None else None
+        ),
+        "taker_buy_fee_pct": (
+            format(plan.taker_buy_fee_pct, "f")
+            if plan.taker_buy_fee_pct is not None else None
+        ),
+        "taker_sell_fee_pct": (
+            format(plan.taker_sell_fee_pct, "f")
+            if plan.taker_sell_fee_pct is not None else None
+        ),
+    }
+
+
 def candidate_rule(
     variant: "ShadowVariant",
     *,
@@ -155,7 +179,7 @@ def candidate_rule(
 ) -> dict[str, object]:
     """Describe stable decision semantics without a snapshot's absolute price."""
     plan = variant.plan
-    return {
+    common = {
         "generation": generation,
         "variant_id": variant.variant_id,
         "dimension": variant.dimension,
@@ -165,8 +189,6 @@ def candidate_rule(
         ),
         "entry_ttl_sec": plan.entry_ttl_sec,
         "entry_enabled": plan.entry_enabled,
-        "entry_order_policy": "LIMIT_MAKER" if variant.maker_only else "BASELINE",
-        "exit_order_policy": "LIMIT_MAKER" if variant.maker_only else "BASELINE",
         "target_return": _ratio(
             plan.take_profit_price - plan.entry_price,
             plan.entry_price,
@@ -185,11 +207,41 @@ def candidate_rule(
         "model_rule": variant.model_rule,
         "online_update_rule": "immutable_code_and_past_resolved_evidence_only",
     }
+    if variant.candidate_rule_version == 1:
+        return {
+            **common,
+            "entry_order_policy": (
+                "LIMIT_MAKER" if variant.maker_only else "BASELINE"
+            ),
+            "exit_order_policy": (
+                "LIMIT_MAKER" if variant.maker_only else "BASELINE"
+            ),
+        }
+    if variant.candidate_rule_version != 2:
+        raise ValueError("candidate rule version is unsupported")
+    return {
+        **common,
+        "candidate_rule_version": 2,
+        "entry_order_policy": (
+            "LIMIT_MAKER" if variant.maker_only else "BASELINE"
+        ),
+        "take_profit_order_policy": (
+            "LIMIT_MAKER" if variant.maker_only else "BASELINE"
+        ),
+        "stop_order_policy": (
+            "STOP_LOSS_LIMIT" if variant.maker_only else "BASELINE"
+        ),
+        "execution_model_rule": variant.execution_model_rule,
+        "execution_model_promotion_ready": (
+            variant.execution_model_promotion_ready
+        ),
+        "fee_schedule": _fee_schedule_rule(plan),
+    }
 
 
 def baseline_rule(variant: "ShadowVariant") -> dict[str, object]:
     plan = variant.baseline_plan
-    return {
+    rule = {
         "rule": "current_strategy_plan",
         "target_return": _ratio(
             plan.take_profit_price - plan.entry_price,
@@ -206,6 +258,9 @@ def baseline_rule(variant: "ShadowVariant") -> dict[str, object]:
         "entry_ttl_sec": plan.entry_ttl_sec,
         "entry_enabled": plan.entry_enabled,
     }
+    if variant.candidate_rule_version == 2:
+        rule["fee_schedule"] = _fee_schedule_rule(plan)
+    return rule
 
 
 def variant_fingerprints(
@@ -605,6 +660,11 @@ def _confirmation_decisions(
             # The entry gap is frozen strategy semantics, not a value that can
             # be reconstructed from a later snapshot price and stored plan.
             frozen_gap = manifest["candidate_parameters"]["entry_gap_bps"]
+            candidate_parameters = manifest["candidate_parameters"]
+            legacy_rule = (
+                "exit_order_policy" in candidate_parameters
+                and "stop_order_policy" not in candidate_parameters
+            )
             reconstructed = ShadowVariant(
                 variant_id=str(manifest["selected_variant"]),
                 dimension=str(manifest["candidate_parameters"]["dimension"]),
@@ -620,6 +680,19 @@ def _confirmation_decisions(
                 ),
                 regime_policy=str(manifest["candidate_parameters"]["regime_policy"]),
                 model_rule=str(manifest["candidate_parameters"]["model_rule"]),
+                candidate_rule_version=(
+                    1 if legacy_rule else int(
+                        candidate_parameters.get("candidate_rule_version", 0)
+                    )
+                ),
+                execution_model_rule=str(
+                    candidate_parameters.get("execution_model_rule") or ""
+                ),
+                execution_model_promotion_ready=(
+                    candidate_parameters.get(
+                        "execution_model_promotion_ready"
+                    ) is True
+                ),
             )
             actual_candidate, actual_baseline = variant_fingerprints(
                 reconstructed,
@@ -777,20 +850,19 @@ def confirmation_report(
         for regime in EXPECTANCY_REGIMES
     }
     observed_blocks = len(evaluated_blocks)
+    remaining_blocks = max(0, required_windows - observed_blocks)
+    irrecoverable_regimes = sorted(
+        regime for regime, count in regime_block_counts.items()
+        if count + remaining_blocks < required_regime_blocks
+    )
+    confirmation_futile = bool(irrecoverable_regimes)
     projected_regime_blocks: dict[str, int | None] = {}
     for regime, count in regime_block_counts.items():
         projected_regime_blocks[regime] = (
             (required_regime_blocks * observed_blocks + count - 1) // count
             if count > 0 else None
         )
-    projected_block_totals = [
-        value for value in projected_regime_blocks.values() if value is not None
-    ]
-    confirmation_eta_blocks = (
-        max(required_windows, *projected_block_totals)
-        if len(projected_block_totals) == len(projected_regime_blocks)
-        else None
-    )
+    confirmation_eta_blocks = None if confirmation_futile else required_windows
     last_confirmation_ts = (
         complete_prefix[-1].snapshot_ts_ms if complete_prefix else None
     )
@@ -814,6 +886,11 @@ def confirmation_report(
         reasons.append("positive-window requirement is not met")
     if longest_negative > int(criteria["maximum_consecutive_negative_windows"]):
         reasons.append("negative-window sequence exceeds the limit")
+    if confirmation_futile:
+        reasons.append(
+            "predeclared confirmation regime coverage is irrecoverable: "
+            + ",".join(irrecoverable_regimes)
+        )
     reasons.extend(str(item) for item in gate.get("reasons", []))
     reasons = list(dict.fromkeys(reasons))
     pnl_values = [
@@ -838,7 +915,7 @@ def confirmation_report(
         reasons.append("predeclared confirmation deadline expired")
         reasons = list(dict.fromkeys(reasons))
     evaluation_passed = enough and not reasons
-    finalization_ready = enough or deadline_expired
+    finalization_ready = enough or deadline_expired or confirmation_futile
     lifecycle_status = str(manifest["current_status"])
     if lifecycle_status == "CONFIRMED" and evaluation_passed:
         status = "PASSED"
@@ -879,10 +956,14 @@ def confirmation_report(
             "regime_distinct_blocks": regime_block_counts,
             "required_regime_distinct_blocks": required_regime_blocks,
             "projected_regime_total_blocks": projected_regime_blocks,
+            "irrecoverable_regimes": irrecoverable_regimes,
+            "confirmation_futile": confirmation_futile,
             "confirmation_estimated_ready_ts_ms": confirmation_eta_ms,
             "confirmation_deadline_ts_ms": confirmation_deadline_ms,
             "confirmation_deadline_expired": deadline_expired,
             "readiness_reason": (
+                "predeclared confirmation regime coverage is irrecoverable"
+                if confirmation_futile else
                 "predeclared confirmation deadline expired"
                 if deadline_expired and not enough else
                 "live independent confirmation is incomplete"
@@ -933,8 +1014,30 @@ def confirmation_report(
         "eligible_for_second_gate_review": (
             lifecycle_status == "CONFIRMED" and evaluation_passed
         ),
+        "execution_model_gate": {
+            "status": (
+                "PASS"
+                if manifest["candidate_parameters"].get(
+                    "execution_model_promotion_ready"
+                ) is True else "NOT_IMPLEMENTED"
+            ),
+            "model_rule": manifest["candidate_parameters"].get(
+                "execution_model_rule"
+            ),
+            "reason": (
+                None
+                if manifest["candidate_parameters"].get(
+                    "execution_model_promotion_ready"
+                ) is True
+                else "maker fills and STOP_LOSS_LIMIT gaps are not represented"
+            ),
+        },
         "promotion_eligible": (
-            lifecycle_status == "CONFIRMED" and evaluation_passed
+            lifecycle_status == "CONFIRMED"
+            and evaluation_passed
+            and manifest["candidate_parameters"].get(
+                "execution_model_promotion_ready"
+            ) is True
         ),
         "apply_allowed": False,
         "can_change_orders": False,

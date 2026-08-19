@@ -1,6 +1,6 @@
 # Implementation status
 
-This document describes the code in version **2.20.227**.
+This document describes the code in version **2.20.228**.
 It does not describe future plans as completed work.
 
 An implemented function is not automatically approved for LIVE use.
@@ -75,11 +75,13 @@ Future outcomes are normal pending work.
 Only overdue or unrecovered expired outcomes block the backlog gate.
 The soak report applies its expiration checks to the audited runtime window.
 
-SOLUSDT uses version fifteen with 60-minute, 75-minute, and 90-minute lifetimes.
-ETHUSDT uses version fourteen with 20, 21, and 22 basis-point gaps.
-BTCUSDT uses version thirteen with 8.4, 9.4, and 10.3 basis-point gaps.
+SOLUSDT uses version sixteen with 60-minute, 75-minute, and 90-minute lifetimes.
+ETHUSDT uses version fifteen with 20, 21, and 22 basis-point gaps.
+BTCUSDT uses version fourteen with 8.4, 9.4, and 10.3 basis-point gaps.
 All three use 300-minute and 360-minute outcome horizons.
 Every symbol keeps separate selection and confirmation evidence.
+New generations use the authoritative Binance account commission schedule.
+Older configured-fee evidence remains archived and cannot enter new training.
 
 Selection compares all active candidates on identical snapshots.
 Freeze requires the exact same snapshot set for every candidate.
@@ -99,6 +101,7 @@ An exact sign-test power analysis requires 52 independent selection decisions.
 The power target is 80 percent for a 72 percent positive-edge probability.
 The family error rate is 0.05 across five expectancy hypotheses.
 Confirmation requires 56 new independent decisions after the frozen boundary.
+Irrecoverable regime coverage makes confirmation ready for early rejection.
 The freeze command rejects criteria that cannot satisfy their tests.
 Reports show the minimum calendar duration for the configured horizons.
 The duration includes cold-start training, evaluation, outcomes, embargo, and confirmation.
@@ -108,6 +111,7 @@ PANIC frequency does not block an ordinary expectancy decision.
 Each selection and confirmation phase has a preregistered 45-day deadline.
 An expired incomplete phase becomes ready for a REJECTED finalization.
 Promotion recomputes old confirmations with the current statistical method.
+Promotion remains blocked until replay represents maker misses and stop-limit gaps.
 
 The first gate evaluates the complete candidate strategy.
 All active candidates use the same entry scope.
@@ -145,6 +149,8 @@ The worker verifies the active registry record before LIVE execution.
 Runtime controls can only reduce risk, block BUY, cancel BUY, or flatten.
 New CHALLENGER generations remain in SHADOW until independent confirmation and explicit activation.
 Each activation receives a new version and fingerprint.
+Activation binds the reviewed exposure limits to the policy fingerprint.
+Activation requires a clean checkout at the exact published annotated release tag.
 Each order intent records the active activation and policy fingerprints.
 The authoritative activation registry has no automatic retention.
 

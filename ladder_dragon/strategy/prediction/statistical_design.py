@@ -28,7 +28,7 @@ class StatisticalDesign:
     maximum_confirmation_duration_ms: int = 45 * DAY_MS
 
     def required_evaluation_snapshots(self) -> int:
-        """Return the exact sample size for the Holm-adjusted sign test."""
+        """Return the exact sample size for the adjusted sign test only."""
         if not 0 < self.family_alpha < 1:
             raise ValueError("family alpha must be between zero and one")
         if not 0 < self.target_power < 1:
@@ -62,6 +62,7 @@ class StatisticalDesign:
         """Return values suitable for immutable manifests and status reports."""
         return {
             "method": "exact_one_sided_sign_test_bonferroni_v1",
+            "scope": "sign_test_only",
             "family_alpha": self.family_alpha,
             "target_power": self.target_power,
             "minimum_win_probability": self.minimum_win_probability,

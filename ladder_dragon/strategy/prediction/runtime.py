@@ -26,9 +26,8 @@ from ladder_dragon.strategy.prediction.models import (
     PredictionFeatures,
     PredictionOutcome,
     ResolvedSample,
-    TradePlan, decision_metadata,
+    TradePlan, decision_metadata, trade_plan_fee_fields,
 )
-
 
 D = Decimal
 ZERO = D("0")
@@ -708,6 +707,7 @@ class PredictionShadowStore:
             **values,
             entry_ttl_sec=entry_ttl,
             entry_enabled=entry_enabled,
+            **trade_plan_fee_fields(raw),
         )
 
     def settle(

@@ -106,7 +106,7 @@ Freeze only an explicitly reviewed selection candidate:
 .venv/bin/python -m bin.prediction_experiment freeze \
   --experiment-id EXPERIMENT_ID \
   --symbol SOLUSDT \
-  --variant-id v14_maker_ttl75_gap48 \
+  --variant-id v16_maker_ttl75_gap48 \
   --selection-end-ts-ms TIMESTAMP \
   --confirm FREEZE
 ```
@@ -139,6 +139,7 @@ Activate only the reviewed policy while persistent HALT exists:
 .venv/bin/python -m bin.prediction_experiment champion-activate EXPERIMENT_ID \
   --report-sha256 REPORT_SHA256 \
   --manifest-sha256 MANIFEST_SHA256 \
+  --expected-execution-policy-fingerprint POLICY_SHA256 \
   --expected-previous-activation-id NONE \
   --maximum-order-usdt 6 \
   --maximum-inventory-usdt 18 \

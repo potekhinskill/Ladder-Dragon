@@ -100,6 +100,7 @@ def test_power_design_replaces_fixed_evaluation_volume():
     assert REQUIRED_EVALUATION_SNAPSHOTS == 52
     assert DEFAULT_STATISTICAL_DESIGN.as_dict() == {
         "method": "exact_one_sided_sign_test_bonferroni_v1",
+        "scope": "sign_test_only",
         "family_alpha": 0.05,
         "target_power": 0.8,
         "minimum_win_probability": 0.72,

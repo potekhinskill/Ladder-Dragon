@@ -24,6 +24,8 @@ def test_shadow_experiments_are_collapsed_and_use_safe_runtime_fields():
     assert "row.configuration_holm_passed" in script
     assert "report.eligible_for_second_gate_review" in script
     assert "report.confirmation_evidence" in script
+    assert "confirmationProgress.confirmation_futile" in script
+    assert "confirmation.execution_model_gate" in script
     assert "report.selection_progress" in script
     assert "progress.resolved_outcomes" in script
     assert "Object.entries(symbols)" in script
@@ -58,6 +60,8 @@ def test_shadow_experiments_are_collapsed_and_use_safe_runtime_fields():
         "shadow_fill",
         "shadow_regimes",
         "shadow_confirmation",
+        "shadow_execution_model",
+        "shadow_futile",
         "shadow_windows",
         "shadow_selection_only",
         "shadow_supersedes",

@@ -22,7 +22,7 @@ from ladder_dragon.strategy.prediction.confirmation_statistics import (
     validate_confirmation_criteria,
 )
 from ladder_dragon.strategy.prediction.experiment_config import (
-    SOL_V15_SPEC,
+    SOL_V16_SPEC,
     configured_entry_gap_bps,
     experiment_dimension,
     experiment_spec_for_generation,
@@ -55,10 +55,10 @@ from ladder_dragon.strategy.prediction.walk_forward import (
 
 D = Decimal
 EDGE_EPSILON_PCT = D("0.000001")
-SHADOW_GENERATION = SOL_V15_SPEC.generation
-EXPERIMENT_HORIZONS_MIN = SOL_V15_SPEC.horizons_min
-MAKER_TTLS = SOL_V15_SPEC.maker_ttls
-MAKER_ENTRY_GAPS = SOL_V15_SPEC.maker_entry_gaps
+SHADOW_GENERATION = SOL_V16_SPEC.generation
+EXPERIMENT_HORIZONS_MIN = SOL_V16_SPEC.horizons_min
+MAKER_TTLS = SOL_V16_SPEC.maker_ttls
+MAKER_ENTRY_GAPS = SOL_V16_SPEC.maker_entry_gaps
 
 
 @dataclass(frozen=True)
@@ -74,6 +74,9 @@ class ShadowVariant:
     entry_gap_bps: Decimal | None = None
     regime_policy: str = "always_active"
     model_rule: str = "predict_distribution:v1:expanding_history_before_snapshot"
+    candidate_rule_version: int = 2
+    execution_model_rule: str = "ohlc_touch_diagnostic_v1"
+    execution_model_promotion_ready: bool = False
 
 
 def compatible_historical_kinds(
@@ -84,6 +87,8 @@ def compatible_historical_kinds(
     compatible = []
     for old_generation in active.superseded_selection_generations:
         old = experiment_spec_for_generation(old_generation, symbol=symbol)
+        if old.evidence_semantics_version != active.evidence_semantics_version:
+            continue
         for ttl_name, ttl_sec in old.maker_ttls:
             for gap_name, gap_pct in old.maker_entry_gaps:
                 if (
@@ -120,6 +125,11 @@ def _candidate_plan(
         ),
         entry_ttl_sec=entry_ttl_sec,
         entry_enabled=entry_enabled,
+        maker_buy_fee_pct=baseline.maker_buy_fee_pct,
+        maker_sell_fee_pct=baseline.maker_sell_fee_pct,
+        taker_buy_fee_pct=baseline.taker_buy_fee_pct,
+        taker_sell_fee_pct=baseline.taker_sell_fee_pct,
+        fee_provenance=baseline.fee_provenance,
     )
 
 
@@ -176,6 +186,9 @@ def build_shadow_variants(
                 if spec.statistical_design_version
                 == "powered_historical_cold_start_v1"
                 else "predict_distribution:v1:expanding_history_before_snapshot"
+            ),
+            candidate_rule_version=(
+                2 if spec.evidence_semantics_version.endswith("_v2") else 1
             ),
         )
 
@@ -422,7 +435,18 @@ def shadow_variant_report(
                 "LIMIT_MAKER" if variant.maker_only else "BASELINE"
             ),
             "exit_order_type": (
+                "OCO" if variant.maker_only else "BASELINE"
+            ),
+            "take_profit_order_type": (
                 "LIMIT_MAKER" if variant.maker_only else "BASELINE"
+            ),
+            "stop_order_type": (
+                "STOP_LOSS_LIMIT" if variant.maker_only else "BASELINE"
+            ),
+            "execution_model_status": (
+                "PROMOTION_READY"
+                if variant.execution_model_promotion_ready
+                else "NOT_IMPLEMENTED"
             ),
             "target_pct": str(
                 variant.plan.take_profit_price / variant.plan.entry_price
@@ -585,7 +609,7 @@ def shadow_variant_report(
             "maximum_confirmation_duration_ms": (
                 DEFAULT_STATISTICAL_DESIGN.maximum_confirmation_duration_ms
             ),
-            "power_analysis": DEFAULT_STATISTICAL_DESIGN.as_dict(),
+            "sign_test_power": DEFAULT_STATISTICAL_DESIGN.as_dict(),
         },
         "can_change_orders": False,
         "selection_evidence": {

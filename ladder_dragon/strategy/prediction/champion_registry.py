@@ -86,6 +86,16 @@ def _positive_decimal(value: object, *, field: str) -> Decimal:
     return parsed
 
 
+def _nonnegative_decimal(value: object, *, field: str) -> Decimal:
+    try:
+        parsed = D(str(value))
+    except (InvalidOperation, TypeError, ValueError) as exc:
+        raise ValueError(f"{field} is invalid") from exc
+    if not parsed.is_finite() or parsed < 0:
+        raise ValueError(f"{field} must be non-negative")
+    return parsed
+
+
 def _sha256(value: object, *, field: str) -> str:
     normalized = str(value).strip().lower()
     if len(normalized) != 64 or any(
@@ -93,6 +103,26 @@ def _sha256(value: object, *, field: str) -> str:
     ):
         raise ValueError(f"{field} is invalid")
     return normalized
+
+
+def _evidence_fee_schedule(parameters: Mapping[str, object]) -> dict[str, str]:
+    """Validate the authoritative fee schedule bound to experiment evidence."""
+    schedule = parameters.get("fee_schedule")
+    if not isinstance(schedule, Mapping):
+        raise ValueError("CHAMPION evidence fee schedule is unavailable")
+    if schedule.get("provenance") != "BINANCE_ACCOUNT_COMMISSION_MAX_V1":
+        raise ValueError("CHAMPION evidence fees are not authoritative")
+    result = {"provenance": "BINANCE_ACCOUNT_COMMISSION_MAX_V1"}
+    for field in (
+        "maker_buy_fee_pct",
+        "maker_sell_fee_pct",
+        "taker_buy_fee_pct",
+        "taker_sell_fee_pct",
+    ):
+        result[field] = format(
+            _nonnegative_decimal(schedule.get(field), field=field), "f"
+        )
+    return result
 
 
 def execution_policy_from_manifest(
@@ -105,10 +135,22 @@ def execution_policy_from_manifest(
     parameters = manifest.get("candidate_parameters")
     if not isinstance(parameters, Mapping):
         raise ValueError("candidate parameters are unavailable")
+    if parameters.get("candidate_rule_version") != 2:
+        raise ValueError("CHAMPION candidate rule is not execution-bound")
     if parameters.get("entry_order_policy") != "LIMIT_MAKER":
         raise ValueError("CHAMPION entry policy must be LIMIT_MAKER")
-    if parameters.get("exit_order_policy") != "LIMIT_MAKER":
-        raise ValueError("CHAMPION exit policy must be LIMIT_MAKER")
+    if parameters.get("take_profit_order_policy") != "LIMIT_MAKER":
+        raise ValueError("CHAMPION take-profit policy must be LIMIT_MAKER")
+    if parameters.get("stop_order_policy") != "STOP_LOSS_LIMIT":
+        raise ValueError("CHAMPION stop policy must be STOP_LOSS_LIMIT")
+    if parameters.get("execution_model_promotion_ready") is not True:
+        raise ValueError("CHAMPION execution model is not promotion-ready")
+    execution_model_rule = str(
+        parameters.get("execution_model_rule") or ""
+    ).strip()
+    if not execution_model_rule:
+        raise ValueError("CHAMPION execution model identity is unavailable")
+    evidence_fee_schedule = _evidence_fee_schedule(parameters)
     if parameters.get("entry_enabled") is not True:
         raise ValueError("CHAMPION entry must be enabled")
     entry_gap = _positive_decimal(
@@ -146,7 +188,10 @@ def execution_policy_from_manifest(
         "target_return": format(target_return, "f"),
         "stop_distance": format(stop_distance, "f"),
         "entry_order_policy": "LIMIT_MAKER",
-        "exit_order_policy": "LIMIT_MAKER",
+        "take_profit_order_policy": "LIMIT_MAKER",
+        "stop_order_policy": "STOP_LOSS_LIMIT",
+        "execution_model_rule": execution_model_rule,
+        "evidence_fee_schedule": evidence_fee_schedule,
         "maximum_order_notional_usdt": format(order_cap, "f"),
         "maximum_inventory_usdt": format(inventory_cap, "f"),
         "maximum_active_buy_orders": 1,
@@ -265,6 +310,7 @@ def activate_champion(
     experiment_id: str,
     expected_report_sha256: str,
     expected_manifest_sha256: str,
+    expected_execution_policy_fingerprint: str,
     expected_previous_activation_id: str | None,
     maximum_order_notional_usdt: object,
     maximum_inventory_usdt: object,
@@ -282,6 +328,10 @@ def activate_champion(
     manifest_sha = _sha256(
         expected_manifest_sha256, field="manifest fingerprint"
     )
+    expected_policy_sha = _sha256(
+        expected_execution_policy_fingerprint,
+        field="execution policy fingerprint",
+    )
     report = confirmation_report(store, experiment_id=experiment_id)
     if report.get("report_sha256") != report_sha:
         raise ValueError("confirmation report changed before activation")
@@ -298,6 +348,8 @@ def activate_champion(
         maximum_inventory_usdt=maximum_inventory_usdt,
     )
     policy_fingerprint = sha256_json(policy)
+    if policy_fingerprint != expected_policy_sha:
+        raise ValueError("execution policy changed after preview")
     symbol = str(policy["symbol"])
     now_ms = int(time.time() * 1000) if activated_at_ms is None else int(activated_at_ms)
     source = str(source_commit).strip().lower()

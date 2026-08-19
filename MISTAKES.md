@@ -1901,3 +1901,17 @@ private infrastructure details.
 - **Root cause:** cleanup extraction removed a helper before checking its re-anchor caller.
 - **Correction:** retain a thin supervisor wrapper around the shared cleanup implementation.
 - **Prevention:** search every caller before moving a private helper, then run the complete suite.
+
+### 2026-08-19 — Described all candidate exits as maker orders
+
+- **Impact:** statistical confirmation could imply executable profit without modeling stop-limit non-fill risk.
+- **Root cause:** the candidate rule copied the maker entry label to the complete OCO exit.
+- **Correction:** identify each OCO leg and block promotion for the incomplete candle-touch execution model.
+- **Prevention:** compare every evidence order type with the exact production exchange request before enabling promotion.
+
+### 2026-08-19 — Re-entered exposure limits after CHAMPION preview
+
+- **Impact:** activation could use larger caps than the operator reviewed.
+- **Root cause:** the reviewed artifacts excluded limits, and activation constructed a new policy from CLI values.
+- **Correction:** expose the complete policy fingerprint and require it unchanged during activation.
+- **Prevention:** bind every reviewed mutable input to one saved or fingerprinted activation artifact.

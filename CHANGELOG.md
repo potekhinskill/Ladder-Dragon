@@ -3,6 +3,28 @@
 All notable changes are documented here. Releases use Semantic Versioning; every
 section is dated and there is intentionally no `Unreleased` section.
 
+## [2.20.228] — 2026-08-19
+
+### Changed
+- SOL v16, ETH v15, and BTC v14 use the authoritative Binance account commission schedule.
+- Power metadata now identifies its exact sign-test-only scope.
+- Freeze resolves horizons from the exact symbol and generation specification.
+
+### Fixed
+- Candidate manifests now identify LIMIT_MAKER take-profit and STOP_LOSS_LIMIT stop legs separately.
+- Confirmation reports detect irrecoverable regime coverage inside the fixed seven-block prefix.
+- The dashboard shows execution-model readiness and early-rejection status.
+
+### Security
+- Candle-touch evidence cannot promote a CHAMPION before maker misses and stop-limit gaps are modeled.
+- Preview fingerprints reviewed exposure limits, and activation requires the unchanged policy fingerprint.
+- Activation requires a clean checkout at the exact published annotated release.
+- Configured-fee evidence cannot authorize CHAMPION activation.
+
+### Verified
+- All 1,284 project tests and compilation pass.
+- Technical English and focused architecture contracts pass.
+
 ## [2.20.227] — 2026-08-19
 
 ### Security

@@ -1549,3 +1549,17 @@ entries concise; this is not a changelog or an activity log.
 - **Decision:** activate one append-only CHAMPION per symbol while every newer CHALLENGER remains SHADOW-only.
 - **Why it worked:** worker startup reconstructs fixed policy values, and every order intent retains the activation fingerprints.
 - **Reuse:** every adaptive strategy that researches replacements while a bounded production policy remains stable.
+
+### 2026-08-19 — Bind promotion to exchange-faithful execution evidence
+
+- **Context:** candle-touch evidence did not represent missed maker fills or stop-limit gaps.
+- **Decision:** keep this evidence diagnostic and block CHAMPION promotion until an execution-faithful model exists.
+- **Why it worked:** manifests now identify OCO leg types, account fees, and the incomplete execution model.
+- **Reuse:** every strategy promotion whose exchange order lifecycle differs from its signal model.
+
+### 2026-08-19 — Activate only the reviewed execution policy
+
+- **Context:** separate preview and activation commands could accept different exposure limits.
+- **Decision:** preview fingerprints all limits, and activation requires that exact fingerprint from a clean published release.
+- **Why it worked:** any cap, manifest, report, checkout, or release change blocks activation.
+- **Reuse:** every two-step operator action that converts reviewed evidence into mutation authority.

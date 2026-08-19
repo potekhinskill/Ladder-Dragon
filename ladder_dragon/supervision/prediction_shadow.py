@@ -9,7 +9,7 @@ import os
 import re
 import sqlite3
 import time
-from decimal import Decimal
+from decimal import Decimal, InvalidOperation
 from pathlib import Path
 from typing import Any, Callable, Dict, Sequence
 
@@ -28,12 +28,47 @@ from ladder_dragon.strategy.prediction.runtime import PredictionShadowStore
 from ladder_dragon.strategy.prediction.statistical_design import (
     DEFAULT_STATISTICAL_DESIGN,
 )
+from ladder_dragon.strategy.expectancy_controls import CommissionSchedule
 
 
 _EXPERIMENT_REPORT_CACHE: dict[
     str, tuple[float, dict[str, object]]
 ] = {}
 _EXPERIMENT_LAST_RECORD: dict[str, float] = {}
+
+
+def build_prediction_plan(
+    entry_price: object,
+    *,
+    take_profit_pct: object,
+    stop_pct: object,
+    notional_quote: Decimal,
+    fee_pct: Decimal,
+    slippage_pct: Decimal,
+    commission_schedule: CommissionSchedule,
+) -> TradePlan:
+    """Create one plan with the authoritative account commission schedule."""
+    try:
+        entry = Decimal(str(entry_price))
+        take_profit = Decimal(str(take_profit_pct))
+        stop = Decimal(str(stop_pct))
+    except (InvalidOperation, TypeError, ValueError) as exc:
+        raise ValueError("prediction plan values must be decimal") from exc
+    if any(not value.is_finite() for value in (entry, take_profit, stop)):
+        raise ValueError("prediction plan values must be finite")
+    return TradePlan(
+        entry_price=entry,
+        take_profit_price=entry * (Decimal("1") + take_profit),
+        stop_price=entry * (Decimal("1") + stop),
+        notional_quote=notional_quote,
+        fee_pct=fee_pct,
+        slippage_pct=slippage_pct,
+        maker_buy_fee_pct=commission_schedule.maker_buy,
+        maker_sell_fee_pct=commission_schedule.maker_sell,
+        taker_buy_fee_pct=commission_schedule.taker_buy,
+        taker_sell_fee_pct=commission_schedule.taker_sell,
+        fee_provenance="BINANCE_ACCOUNT_COMMISSION_MAX_V1",
+    )
 
 
 def initialize_prediction_shadow(

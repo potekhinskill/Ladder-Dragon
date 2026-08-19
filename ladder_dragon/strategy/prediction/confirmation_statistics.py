@@ -43,7 +43,7 @@ DEFAULT_CONFIRMATION_CRITERIA = {
     "maximum_confirmation_duration_ms": (
         DEFAULT_STATISTICAL_DESIGN.maximum_confirmation_duration_ms
     ),
-    "power_analysis": DEFAULT_STATISTICAL_DESIGN.as_dict(),
+    "sign_test_power": DEFAULT_STATISTICAL_DESIGN.as_dict(),
 }
 
 
@@ -343,7 +343,7 @@ def block_confirmation_gate(
             "expectancy_hypothesis": False,
             "blocks_expectancy": False,
         },
-        "power_analysis": DEFAULT_STATISTICAL_DESIGN.as_dict(),
+        "sign_test_power": DEFAULT_STATISTICAL_DESIGN.as_dict(),
     }
 
 

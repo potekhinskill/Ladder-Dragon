@@ -527,6 +527,13 @@ def test_supervisor_shadow_records_strategy_and_hashed_reanchor(
         stop_pct="-0.01",
         deterministic_mode="UP",
         required_edge_pct=D("0.0096"),
+        commission_schedule=ai_supervisor.CommissionSchedule(
+            maker_buy=D("0.0007"),
+            maker_sell=D("0.0008"),
+            taker_buy=D("0.001"),
+            taker_sell=D("0.0011"),
+            discount_observed=False,
+        ),
         rolling={"proposals": [{
             "order_id": "raw-order-identifier",
             "old_price": "102",
@@ -547,6 +554,16 @@ def test_supervisor_shadow_records_strategy_and_hashed_reanchor(
     ]
     assert controls["maker"]["status"] == "NOT_IMPLEMENTED"
     assert controls["inventory"]["status"] == "STATEFUL_MODEL_REQUIRED"
+    with store._connect() as connection:
+        plan_json = connection.execute(
+            "SELECT plan_json FROM prediction_decisions "
+            "WHERE kind='STRATEGY'"
+        ).fetchone()[0]
+    stored_plan = json.loads(plan_json)
+    assert stored_plan["fee_pct"] == "0.0011"
+    assert stored_plan["maker_buy_fee_pct"] == "0.0007"
+    assert stored_plan["taker_sell_fee_pct"] == "0.0011"
+    assert stored_plan["fee_provenance"] == "BINANCE_ACCOUNT_COMMISSION_MAX_V1"
     assert b"raw-order-identifier" not in database.read_bytes()
 
 

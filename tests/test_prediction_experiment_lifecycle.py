@@ -476,6 +476,30 @@ def test_incomplete_window_is_pending_and_cannot_pass(tmp_path: Path):
     assert report["first_gate_passed"] is False
 
 
+def test_irrecoverable_regime_prefix_is_ready_for_early_rejection(tmp_path: Path):
+    store, variants, manifest = _frozen(tmp_path)
+    start = int(manifest["confirmation_start_ts_ms"])
+    for index in range(8):
+        decision_id = _record(
+            store,
+            variants[1],
+            timestamp=start + index * CONFIRMATION_SPACING_MS,
+            experiment_id=manifest["experiment_id"],
+            role="CONFIRMATION",
+            regime="TREND_UP",
+        )
+        _resolve(store, decision_id)
+
+    report = confirmation_report(store, experiment_id=manifest["experiment_id"])
+
+    progress = report["confirmation_progress"]
+    assert progress["confirmation_futile"] is True
+    assert progress["irrecoverable_regimes"] == ["RANGE", "TREND_DOWN"]
+    assert progress["confirmation_estimated_ready_ts_ms"] is None
+    assert report["finalization_ready"] is True
+    assert report["proposed_final_status"] == "REJECTED"
+
+
 def test_horizons_do_not_inflate_independent_decisions(tmp_path: Path):
     store, variants, manifest = _frozen(tmp_path)
     decision_id = _record(
@@ -604,7 +628,8 @@ def test_full_independent_confirmation_can_pass_without_apply(tmp_path: Path):
     )
     assert finalized["first_gate_passed"] is True
     assert finalized["eligible_for_second_gate_review"] is True
-    assert finalized["promotion_eligible"] is True
+    assert finalized["promotion_eligible"] is False
+    assert finalized["execution_model_gate"]["status"] == "NOT_IMPLEMENTED"
     assert report["apply_allowed"] is False
     assert report["can_change_orders"] is False
     assert report["lookahead"] is False
@@ -765,6 +790,13 @@ def test_rule_fingerprint_uses_relative_semantics_not_dynamic_price():
     ) == candidate_rule(
         scaled, generation=SHADOW_GENERATION, horizons_min=EXPERIMENT_HORIZONS_MIN
     )
+    rule = candidate_rule(
+        first, generation=SHADOW_GENERATION, horizons_min=EXPERIMENT_HORIZONS_MIN
+    )
+    assert rule["take_profit_order_policy"] == "LIMIT_MAKER"
+    assert rule["stop_order_policy"] == "STOP_LOSS_LIMIT"
+    assert rule["execution_model_promotion_ready"] is False
+    assert "exit_order_policy" not in rule
 
 
 def test_lifecycle_module_has_no_exchange_mutation_capability():

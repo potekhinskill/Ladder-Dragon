@@ -79,6 +79,7 @@ from ladder_dragon.supervision.vwap_config import (
 )
 from ladder_dragon.supervision.prediction_shadow import (
     blocked_plan_summary as _blocked_plan_summary,
+    build_prediction_plan,
     build_knowledge_store,
     collect_shadow_experiments,
     initialize_prediction_shadow,
@@ -1768,31 +1769,6 @@ def _strategy_control_apply_allowed(symbol: str, control: str) -> tuple[bool, di
     )
 
 
-def _prediction_plan(
-    entry_price: object,
-    *,
-    take_profit_pct: object,
-    stop_pct: object,
-    notional_quote: Decimal,
-    fee_pct: Decimal,
-    slippage_pct: Decimal,
-) -> TradePlan:
-    """Create one exact long-only counterfactual plan."""
-    entry = _finite_decimal(entry_price, name="prediction entry")
-    take_profit = _finite_decimal(
-        take_profit_pct, name="prediction take profit"
-    )
-    stop = _finite_decimal(stop_pct, name="prediction stop")
-    return TradePlan(
-        entry_price=entry,
-        take_profit_price=entry * (Decimal("1") + take_profit),
-        stop_price=entry * (Decimal("1") + stop),
-        notional_quote=notional_quote,
-        fee_pct=fee_pct,
-        slippage_pct=slippage_pct,
-    )
-
-
 def _record_prediction_shadow(
     symbol: str,
     *,
@@ -1803,12 +1779,17 @@ def _record_prediction_shadow(
     deterministic_mode: str,
     rolling: Mapping[str, object],
     required_edge_pct: Decimal | None,
+    commission_schedule: CommissionSchedule | None,
     inventory_scale: Decimal = Decimal("1"),
     regime_buys_allowed: bool = True,
     inventory_applicable: bool = True,
 ) -> None:
     """Persist look-ahead-safe forecasts without changing an order decision."""
     if _PREDICTION_SHADOW is None:
+        return
+    # Statistical evidence must contain the complete authoritative fee
+    # schedule. A configured fallback remains valid for execution safety only.
+    if commission_schedule is None:
         return
     interval = max(
         10,
@@ -1829,9 +1810,11 @@ def _record_prediction_shadow(
     )
     if cap <= 0:
         return
-    fee = _finite_decimal(
-        os.getenv("PREDICTION_FEE_PCT", "0.00075") or "0.00075",
-        name="PREDICTION_FEE_PCT",
+    fee = max(
+        commission_schedule.maker_buy,
+        commission_schedule.maker_sell,
+        commission_schedule.taker_buy,
+        commission_schedule.taker_sell,
     )
     slippage = _finite_decimal(
         os.getenv("PREDICTION_SLIPPAGE_PCT", "0.0005") or "0.0005",
@@ -1890,13 +1873,14 @@ def _record_prediction_shadow(
     )
     experiment_report = None
     if buy_levels:
-        strategy_plan = _prediction_plan(
+        strategy_plan = build_prediction_plan(
             buy_levels[0],
             take_profit_pct=take_profit_pct,
             stop_pct=stop_pct,
             notional_quote=cap,
             fee_pct=fee,
             slippage_pct=slippage,
+            commission_schedule=commission_schedule,
         )
         predictions = predict_distribution(features, strategy_plan, history)
         _PREDICTION_SHADOW.record(
@@ -1937,21 +1921,23 @@ def _record_prediction_shadow(
     for proposal in proposals:
         if not isinstance(proposal, Mapping):
             continue
-        old_plan = _prediction_plan(
+        old_plan = build_prediction_plan(
             proposal.get("old_price"),
             take_profit_pct=take_profit_pct,
             stop_pct=stop_pct,
             notional_quote=cap,
             fee_pct=fee,
             slippage_pct=slippage,
+            commission_schedule=commission_schedule,
         )
-        proposed_plan = _prediction_plan(
+        proposed_plan = build_prediction_plan(
             proposal.get("target_price"),
             take_profit_pct=take_profit_pct,
             stop_pct=stop_pct,
             notional_quote=cap,
             fee_pct=fee,
             slippage_pct=slippage,
+            commission_schedule=commission_schedule,
         )
         predictions = predict_distribution(
             features, proposed_plan, reanchor_history
@@ -3518,6 +3504,7 @@ def run_for_symbol(
             deterministic_mode=dir_mode,
             rolling=sr,
             required_edge_pct=required_edge,
+            commission_schedule=commission_schedule,
             inventory_scale=inventory_scale,
             regime_buys_allowed=regime_policy.buys_allowed,
             inventory_applicable=inventory_applicable,

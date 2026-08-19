@@ -206,8 +206,9 @@ Its symbol list cannot start an execution worker.
 The candidate list cannot start an execution worker.
 Do not add a candidate to `BOT_SERVICE_SYMBOLS` before promotion passes.
 Promotion requires `CONFIRMED`, two reviewed CAPs, and symbol approval.
-SOLUSDT version fourteen supersedes versions eleven through thirteen.
-ETHUSDT version thirteen supersedes versions eleven and twelve.
+SOLUSDT version sixteen supersedes versions eleven through fifteen.
+ETHUSDT version fifteen supersedes versions eleven through fourteen.
+BTCUSDT version fourteen supersedes versions eleven through thirteen.
 BTCUSDT version twelve supersedes version eleven.
 All superseded evidence remains append-only and visible.
 SHADOW-only controls show `not_applicable_shadow_only` for execution-only limits.

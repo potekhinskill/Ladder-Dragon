@@ -169,9 +169,10 @@ The supervisor does not start its execution worker.
 Removing a symbol from the candidate list cannot bypass the CHAMPION gate.
 Market analysis uses an independent public-data symbol list.
 Its symbols never extend `BOT_SERVICE_SYMBOLS`.
-SOLUSDT version fifteen tests a 48 basis-point gap and three entry lifetimes.
-ETHUSDT version fourteen uses 20, 21, and 22 basis-point gaps.
-BTCUSDT version thirteen uses 8.4, 9.4, and 10.3 basis-point gaps.
+SOLUSDT version sixteen tests a 48 basis-point gap and three entry lifetimes.
+ETHUSDT version fifteen uses 20, 21, and 22 basis-point gaps.
+BTCUSDT version fourteen uses 8.4, 9.4, and 10.3 basis-point gaps.
+These generations use the authoritative Binance account commission schedule.
 Earlier SOLUSDT, ETHUSDT, and BTCUSDT generations remain visible as superseded evidence.
 
 ## Dashboard and notifications

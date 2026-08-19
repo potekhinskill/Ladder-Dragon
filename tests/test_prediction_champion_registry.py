@@ -38,11 +38,22 @@ def _confirmed_manifest(
         "selected_variant": f"{generation}_maker_ttl60_gap8p4",
         "candidate_fingerprint": candidate_fingerprint,
         "candidate_parameters": {
+            "candidate_rule_version": 2,
             "entry_gap_bps": "8.4",
             "entry_ttl_sec": 3600,
             "entry_enabled": True,
             "entry_order_policy": "LIMIT_MAKER",
-            "exit_order_policy": "LIMIT_MAKER",
+            "take_profit_order_policy": "LIMIT_MAKER",
+            "stop_order_policy": "STOP_LOSS_LIMIT",
+            "execution_model_rule": "verified_replay_oco_v1",
+            "execution_model_promotion_ready": True,
+            "fee_schedule": {
+                "maker_buy_fee_pct": "0.0007",
+                "maker_sell_fee_pct": "0.0008",
+                "taker_buy_fee_pct": "0.001",
+                "taker_sell_fee_pct": "0.0011",
+                "provenance": "BINANCE_ACCOUNT_COMMISSION_MAX_V1",
+            },
             "target_return": "0.0096",
             "stop_distance": "0.01",
         },
@@ -99,11 +110,17 @@ def _activate(
             "promotion_eligible": True,
         },
     )
+    policy = champion_registry.execution_policy_from_manifest(
+        manifest,
+        maximum_order_notional_usdt="6",
+        maximum_inventory_usdt="18",
+    )
     return champion_registry.activate_champion(
         store,
         experiment_id=str(manifest["experiment_id"]),
         expected_report_sha256=REPORT_SHA,
         expected_manifest_sha256=str(manifest["manifest_sha256"]),
+        expected_execution_policy_fingerprint=sha256_json(policy),
         expected_previous_activation_id=previous,
         maximum_order_notional_usdt="6",
         maximum_inventory_usdt="18",
@@ -112,6 +129,26 @@ def _activate(
         execution_halt_confirmed=True,
         activated_at_ms=activated_at_ms,
     )
+
+
+def test_execution_policy_rejects_configured_fee_evidence(tmp_path: Path):
+    store = PredictionShadowStore(tmp_path / "prediction.sqlite3")
+    manifest = _confirmed_manifest(
+        store,
+        experiment_id="btc-v14-confirmed",
+        generation="v14",
+        candidate_fingerprint="a" * 64,
+    )
+    manifest["candidate_parameters"]["fee_schedule"]["provenance"] = (
+        "CONFIGURED_SYMMETRIC_V1"
+    )
+
+    with pytest.raises(ValueError, match="fees are not authoritative"):
+        champion_registry.execution_policy_from_manifest(
+            manifest,
+            maximum_order_notional_usdt="6",
+            maximum_inventory_usdt="18",
+        )
 
 
 def test_first_activation_is_restart_safe_and_exact(tmp_path: Path, monkeypatch):
@@ -138,6 +175,44 @@ def test_first_activation_is_restart_safe_and_exact(tmp_path: Path, monkeypatch)
     assert loaded["execution_policy"]["runtime_mutation_policy"] == "protective_only"
 
 
+def test_activation_rejects_caps_that_differ_from_preview(tmp_path: Path, monkeypatch):
+    store = PredictionShadowStore(tmp_path / "prediction.sqlite3")
+    manifest = _confirmed_manifest(
+        store,
+        experiment_id="btc-v13-confirmed",
+        generation="v13",
+        candidate_fingerprint="a" * 64,
+    )
+    monkeypatch.setattr(
+        champion_registry,
+        "confirmation_report",
+        lambda *_args, **_kwargs: {
+            "report_sha256": REPORT_SHA,
+            "promotion_eligible": True,
+        },
+    )
+    reviewed = champion_registry.execution_policy_from_manifest(
+        manifest,
+        maximum_order_notional_usdt="6",
+        maximum_inventory_usdt="18",
+    )
+
+    with pytest.raises(ValueError, match="changed after preview"):
+        champion_registry.activate_champion(
+            store,
+            experiment_id=str(manifest["experiment_id"]),
+            expected_report_sha256=REPORT_SHA,
+            expected_manifest_sha256=str(manifest["manifest_sha256"]),
+            expected_execution_policy_fingerprint=sha256_json(reviewed),
+            expected_previous_activation_id=None,
+            maximum_order_notional_usdt="60",
+            maximum_inventory_usdt="180",
+            product_version="2.20.226",
+            source_commit=SOURCE_COMMIT,
+            execution_halt_confirmed=True,
+        )
+
+
 def test_activation_without_execution_halt_fails_closed(tmp_path: Path, monkeypatch):
     store = PredictionShadowStore(tmp_path / "prediction.sqlite3")
     manifest = _confirmed_manifest(
@@ -161,6 +236,7 @@ def test_activation_without_execution_halt_fails_closed(tmp_path: Path, monkeypa
             experiment_id=str(manifest["experiment_id"]),
             expected_report_sha256=REPORT_SHA,
             expected_manifest_sha256=str(manifest["manifest_sha256"]),
+            expected_execution_policy_fingerprint="d" * 64,
             expected_previous_activation_id=None,
             maximum_order_notional_usdt="6",
             maximum_inventory_usdt="18",

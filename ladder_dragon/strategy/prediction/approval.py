@@ -278,7 +278,7 @@ def prediction_apply_gate(
         "regime_counts": regime_counts,
         "hypotheses": hypothesis_report,
         "panic_safety": panic_safety_gate(all_independent_rows),
-        "power_analysis": DEFAULT_STATISTICAL_DESIGN.as_dict(),
+        "sign_test_power": DEFAULT_STATISTICAL_DESIGN.as_dict(),
     }
 
 

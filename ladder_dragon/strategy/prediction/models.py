@@ -5,7 +5,7 @@
 """Prediction domain models."""
 
 from dataclasses import dataclass
-from decimal import Decimal
+from decimal import Decimal, InvalidOperation
 import json
 from typing import Mapping
 
@@ -59,6 +59,11 @@ class TradePlan:
     slippage_pct: Decimal
     entry_ttl_sec: int | None = None
     entry_enabled: bool = True
+    maker_buy_fee_pct: Decimal | None = None
+    maker_sell_fee_pct: Decimal | None = None
+    taker_buy_fee_pct: Decimal | None = None
+    taker_sell_fee_pct: Decimal | None = None
+    fee_provenance: str = "CONFIGURED_SYMMETRIC_V1"
 
     def __post_init__(self) -> None:
         values = (
@@ -77,6 +82,26 @@ class TradePlan:
             raise ValueError("trade plan must satisfy stop < entry < take profit")
         if self.fee_pct < 0 or self.slippage_pct < 0:
             raise ValueError("execution costs must be non-negative")
+        exact_fees = (
+            self.maker_buy_fee_pct,
+            self.maker_sell_fee_pct,
+            self.taker_buy_fee_pct,
+            self.taker_sell_fee_pct,
+        )
+        if any(value is None for value in exact_fees) != all(
+            value is None for value in exact_fees
+        ):
+            raise ValueError("authoritative fee schedule must be complete")
+        if any(
+            value is not None and (not value.is_finite() or value < 0)
+            for value in exact_fees
+        ):
+            raise ValueError("authoritative fee schedule must be non-negative")
+        if self.fee_provenance not in {
+            "CONFIGURED_SYMMETRIC_V1",
+            "BINANCE_ACCOUNT_COMMISSION_MAX_V1",
+        }:
+            raise ValueError("fee provenance is unsupported")
         if self.entry_ttl_sec is not None and (
             isinstance(self.entry_ttl_sec, bool)
             or not isinstance(self.entry_ttl_sec, int)
@@ -85,6 +110,27 @@ class TradePlan:
             raise ValueError("entry TTL must be a positive integer")
         if not isinstance(self.entry_enabled, bool):
             raise ValueError("entry_enabled must be boolean")
+
+
+def trade_plan_fee_fields(raw: Mapping[str, object]) -> dict[str, object]:
+    """Parse optional authoritative fee fields from one stored plan."""
+    fields: dict[str, object] = {}
+    for name in (
+        "maker_buy_fee_pct", "maker_sell_fee_pct",
+        "taker_buy_fee_pct", "taker_sell_fee_pct",
+    ):
+        value = raw.get(name)
+        try:
+            parsed = Decimal(str(value)) if value is not None else None
+        except (InvalidOperation, TypeError, ValueError) as exc:
+            raise ValueError(f"{name} is not a decimal") from exc
+        if parsed is not None and not parsed.is_finite():
+            raise ValueError(f"{name} must be finite")
+        fields[name] = parsed
+    fields["fee_provenance"] = str(
+        raw.get("fee_provenance") or "CONFIGURED_SYMMETRIC_V1"
+    )
+    return fields
 
 
 @dataclass(frozen=True)

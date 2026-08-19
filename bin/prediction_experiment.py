@@ -30,17 +30,18 @@ from ladder_dragon.strategy.prediction.experiment_lifecycle import (
     list_experiments,
     load_manifest,
     selection_experiment_id,
+    sha256_json,
     supersede_experiment,
     variant_fingerprints,
 )
 from ladder_dragon.strategy.prediction.experiments import (
-    EXPERIMENT_HORIZONS_MIN,
     SHADOW_GENERATION,
     ShadowVariant,
     configured_entry_gap_bps,
 )
 from ladder_dragon.strategy.prediction.experiment_config import (
     experiment_dimension,
+    experiment_spec_for_generation,
 )
 from ladder_dragon.strategy.prediction.runtime import PredictionShadowStore
 
@@ -95,6 +96,9 @@ def _parser() -> argparse.ArgumentParser:
     activate.add_argument("experiment_id")
     activate.add_argument("--report-sha256", required=True)
     activate.add_argument("--manifest-sha256", required=True)
+    activate.add_argument(
+        "--expected-execution-policy-fingerprint", required=True
+    )
     activate.add_argument("--expected-previous-activation-id", required=True)
     activate.add_argument("--maximum-order-usdt", required=True)
     activate.add_argument("--maximum-inventory-usdt", required=True)
@@ -103,19 +107,39 @@ def _parser() -> argparse.ArgumentParser:
 
 
 def _source_commit() -> str:
-    try:
-        value = subprocess.run(
-            ["git", "rev-parse", "HEAD"],
+    """Return one clean, published, annotated release checkout identity."""
+    def git_output(*arguments: str) -> str:
+        return subprocess.run(
+            ["git", *arguments],
             check=True,
             capture_output=True,
             text=True,
             timeout=10,
-        ).stdout.strip().lower()
+        ).stdout.strip()
+
+    try:
+        value = git_output("rev-parse", "HEAD").lower()
+        if git_output("status", "--porcelain"):
+            raise RuntimeError("CHAMPION activation requires a clean checkout")
+        tag = f"v{__version__}"
+        if git_output("cat-file", "-t", f"refs/tags/{tag}") != "tag":
+            raise RuntimeError("CHAMPION activation requires an annotated release tag")
+        if git_output("rev-list", "-n", "1", tag).lower() != value:
+            raise RuntimeError("CHAMPION activation release tag differs from HEAD")
+        if git_output("rev-parse", "origin/main").lower() != value:
+            raise RuntimeError("CHAMPION activation requires the published main release")
     except (OSError, subprocess.SubprocessError) as exc:
         raise RuntimeError("source commit is unavailable") from exc
     if len(value) != 40 or any(ch not in "0123456789abcdef" for ch in value):
         raise RuntimeError("source commit is invalid")
     return value
+
+
+def _freeze_horizons(generation: str, symbol: str) -> tuple[int, ...]:
+    """Resolve freeze horizons from the exact symbol generation."""
+    return experiment_spec_for_generation(
+        generation, symbol=symbol
+    ).horizons_min
 
 
 def _selection_variants(
@@ -202,11 +226,18 @@ def main(argv: list[str] | None = None) -> int:
         manifest = load_manifest(store, args.experiment_id)
         report = confirmation_report(store, experiment_id=args.experiment_id)
         current = active_champion(store, symbol=str(manifest["symbol"]))
-        policy = execution_policy_from_manifest(
-            manifest,
-            maximum_order_notional_usdt=args.maximum_order_usdt,
-            maximum_inventory_usdt=args.maximum_inventory_usdt,
-        )
+        policy = None
+        policy_error = None
+        try:
+            policy = execution_policy_from_manifest(
+                manifest,
+                maximum_order_notional_usdt=args.maximum_order_usdt,
+                maximum_inventory_usdt=args.maximum_inventory_usdt,
+            )
+        except ValueError as exc:
+            if report.get("promotion_eligible"):
+                raise
+            policy_error = str(exc)
         payload = {
             "status": "READY_FOR_EXPLICIT_ACTIVATION"
             if report.get("promotion_eligible") else "BLOCKED",
@@ -219,10 +250,17 @@ def main(argv: list[str] | None = None) -> int:
                 current["activation_id"] if current is not None else None
             ),
             "execution_policy": policy,
+            "execution_policy_fingerprint": (
+                sha256_json(policy) if policy is not None else None
+            ),
             "apply_allowed": False,
             "reason": (
                 "repeat with champion-activate and --confirm ACTIVATE"
                 if report.get("promotion_eligible")
+                else policy_error or "execution model is not promotion-ready"
+                if report.get("evaluation_passed")
+                and report.get("execution_model_gate", {}).get("status")
+                == "NOT_IMPLEMENTED"
                 else "independent confirmation has not passed"
             ),
         }
@@ -240,6 +278,9 @@ def main(argv: list[str] | None = None) -> int:
                 experiment_id=args.experiment_id,
                 expected_report_sha256=args.report_sha256,
                 expected_manifest_sha256=args.manifest_sha256,
+                expected_execution_policy_fingerprint=(
+                    args.expected_execution_policy_fingerprint
+                ),
                 expected_previous_activation_id=previous,
                 maximum_order_notional_usdt=args.maximum_order_usdt,
                 maximum_inventory_usdt=args.maximum_inventory_usdt,
@@ -248,6 +289,7 @@ def main(argv: list[str] | None = None) -> int:
                 execution_halt_confirmed=True,
             )
     else:
+        horizons_min = _freeze_horizons(args.generation, args.symbol)
         variants = _selection_variants(
             store,
             generation=args.generation,
@@ -263,7 +305,7 @@ def main(argv: list[str] | None = None) -> int:
             candidate_fp, baseline_fp = variant_fingerprints(
                 selected,
                 generation=args.generation,
-                horizons_min=EXPERIMENT_HORIZONS_MIN,
+                horizons_min=horizons_min,
             )
             print(json.dumps({
                 "status": "BLOCKED",
@@ -272,7 +314,7 @@ def main(argv: list[str] | None = None) -> int:
                 "candidate": candidate_rule(
                     selected,
                     generation=args.generation,
-                    horizons_min=EXPERIMENT_HORIZONS_MIN,
+                    horizons_min=horizons_min,
                 ),
                 "candidate_fingerprint": candidate_fp,
                 "baseline_fingerprint": baseline_fp,
@@ -287,7 +329,7 @@ def main(argv: list[str] | None = None) -> int:
             symbol=args.symbol,
             selected_variant=selected,
             all_variants=variants,
-            horizons_min=EXPERIMENT_HORIZONS_MIN,
+            horizons_min=horizons_min,
             selection_end_ts_ms=args.selection_end_ts_ms,
             product_version=__version__,
             source_commit=_source_commit(),

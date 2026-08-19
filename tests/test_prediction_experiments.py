@@ -78,9 +78,9 @@ def test_variants_clear_fee_floor_and_change_one_named_dimension():
     )
 
     assert {variant.variant_id for variant in variants} == {
-        "v15_maker_ttl60_gap48",
-        "v15_maker_ttl75_gap48",
-        "v15_maker_ttl90_gap48",
+        "v16_maker_ttl60_gap48",
+        "v16_maker_ttl75_gap48",
+        "v16_maker_ttl90_gap48",
     }
     for variant in variants:
         target_pct = variant.plan.take_profit_price / variant.plan.entry_price - D("1")
@@ -236,7 +236,7 @@ def test_variant_report_never_enables_apply(tmp_path: Path, monkeypatch):
     )
 
     assert report["mode"] == "SHADOW"
-    assert report["generation"] == "v15"
+    assert report["generation"] == "v16"
     assert report["horizons_min"] == [300, 360]
     assert report["can_change_orders"] is False
     assert all(
@@ -255,9 +255,12 @@ def test_variant_report_never_enables_apply(tmp_path: Path, monkeypatch):
         report["calendar_plan"]["selection_minimum_duration_ms"]
         + report["calendar_plan"]["confirmation_minimum_duration_ms"]
     )
-    maker = report["variants"]["v15_maker_ttl60_gap48"]
+    maker = report["variants"]["v16_maker_ttl60_gap48"]
     assert maker["entry_order_type"] == "LIMIT_MAKER"
-    assert maker["exit_order_type"] == "LIMIT_MAKER"
+    assert maker["exit_order_type"] == "OCO"
+    assert maker["take_profit_order_type"] == "LIMIT_MAKER"
+    assert maker["stop_order_type"] == "STOP_LOSS_LIMIT"
+    assert maker["execution_model_status"] == "NOT_IMPLEMENTED"
     assert all(
         item["entry_order_type"] == "LIMIT_MAKER"
         for item in report["variants"].values()
@@ -290,7 +293,7 @@ def test_variant_report_separates_active_cohort_from_opportunity_cost(monkeypatc
             required_edge_pct=D("0.0096"),
             regime="RANGE",
         )
-        if item.variant_id == "v15_maker_ttl60_gap48"
+        if item.variant_id == "v16_maker_ttl60_gap48"
     )
 
     class Store:
@@ -365,7 +368,7 @@ def test_variant_report_separates_future_work_from_backlog(tmp_path: Path):
         before_ts_ms=60_000,
     )
 
-    counts = report["variants"]["v15_maker_ttl60_gap48"]["outcomes"]
+    counts = report["variants"]["v16_maker_ttl60_gap48"]["outcomes"]
     assert counts == {
         "total": 2,
         "resolved": 0,
@@ -490,29 +493,33 @@ def test_symbol_scopes_keep_active_generations_separate(
         required_edge_pct=D("0.0096"),
     )
 
-    assert sol["generation"] == "v15"
+    assert sol["generation"] == "v16"
     assert sol["lifecycle_status"] == "SELECTION"
-    assert sol["superseded_selection_generations"] == ["v11", "v12", "v13", "v14"]
+    assert sol["superseded_selection_generations"] == [
+        "v11", "v12", "v13", "v14", "v15",
+    ]
     assert set(sol["variants"]) == {
-        "v15_maker_ttl60_gap48",
-        "v15_maker_ttl75_gap48",
-        "v15_maker_ttl90_gap48",
+        "v16_maker_ttl60_gap48",
+        "v16_maker_ttl75_gap48",
+        "v16_maker_ttl90_gap48",
     }
-    assert eth["generation"] == "v14"
+    assert eth["generation"] == "v15"
     assert eth["lifecycle_status"] == "SELECTION"
-    assert eth["superseded_selection_generations"] == ["v11", "v12", "v13"]
+    assert eth["superseded_selection_generations"] == [
+        "v11", "v12", "v13", "v14",
+    ]
     assert set(eth["variants"]) == {
-        "v14_maker_ttl60_gap20",
-        "v14_maker_ttl60_gap21",
-        "v14_maker_ttl60_gap22",
+        "v15_maker_ttl60_gap20",
+        "v15_maker_ttl60_gap21",
+        "v15_maker_ttl60_gap22",
     }
-    assert btc["generation"] == "v13"
+    assert btc["generation"] == "v14"
     assert btc["lifecycle_status"] == "SELECTION"
-    assert btc["superseded_selection_generations"] == ["v11", "v12"]
+    assert btc["superseded_selection_generations"] == ["v11", "v12", "v13"]
     assert set(btc["variants"]) == {
-        "v13_maker_ttl60_gap8p4",
-        "v13_maker_ttl60_gap9p4",
-        "v13_maker_ttl60_gap10p3",
+        "v14_maker_ttl60_gap8p4",
+        "v14_maker_ttl60_gap9p4",
+        "v14_maker_ttl60_gap10p3",
     }
     assert sol["can_change_orders"] is False
     assert eth["can_change_orders"] is False
@@ -628,6 +635,8 @@ def test_v15_cold_start_uses_only_identical_historical_semantics():
         baseline_plan=_baseline(),
         required_edge_pct=D("0.0096"),
         regime="RANGE",
+        generation="v15",
+        symbol="SOLUSDT",
     )
     ttl60 = next(row for row in variants if row.plan.entry_ttl_sec == 3_600)
     ttl75 = next(row for row in variants if row.plan.entry_ttl_sec == 4_500)
@@ -642,6 +651,21 @@ def test_v15_cold_start_uses_only_identical_historical_semantics():
     assert compatible_historical_kinds(
         ttl75, generation="v15", symbol="SOLUSDT"
     ) == ("EXPERIMENT_V14_MAKER_TTL75_GAP48",)
+
+
+def test_v16_does_not_train_on_older_fee_or_exit_semantics():
+    variant = build_shadow_variants(
+        market_price=D("100"),
+        baseline_plan=_baseline(),
+        required_edge_pct=D("0.0096"),
+        regime="RANGE",
+        generation="v16",
+        symbol="SOLUSDT",
+    )[0]
+
+    assert compatible_historical_kinds(
+        variant, generation="v16", symbol="SOLUSDT"
+    ) == ()
 
 
 def test_superseded_generation_keeps_legacy_training_contract(
