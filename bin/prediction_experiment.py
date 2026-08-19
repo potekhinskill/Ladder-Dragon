@@ -12,6 +12,10 @@ from pathlib import Path
 import subprocess
 
 from product_version import __version__
+from ladder_dragon.risk.risk_manager import (
+    RiskLimits,
+    confirmed_execution_halt,
+)
 from ladder_dragon.strategy.prediction.champion_registry import (
     activate_champion,
     active_champion,
@@ -94,7 +98,6 @@ def _parser() -> argparse.ArgumentParser:
     activate.add_argument("--expected-previous-activation-id", required=True)
     activate.add_argument("--maximum-order-usdt", required=True)
     activate.add_argument("--maximum-inventory-usdt", required=True)
-    activate.add_argument("--halt-file", required=True, type=Path)
     activate.add_argument("--confirm", required=True)
     return parser
 
@@ -226,23 +229,24 @@ def main(argv: list[str] | None = None) -> int:
     elif args.command == "champion-activate":
         if args.confirm != "ACTIVATE":
             raise SystemExit("--confirm must equal ACTIVATE")
-        if not args.halt_file.is_file():
-            raise SystemExit("persistent execution HALT must exist before activation")
         previous = args.expected_previous_activation_id.strip()
         if previous.upper() == "NONE":
             previous = None
-        payload = activate_champion(
-            store,
-            experiment_id=args.experiment_id,
-            expected_report_sha256=args.report_sha256,
-            expected_manifest_sha256=args.manifest_sha256,
-            expected_previous_activation_id=previous,
-            maximum_order_notional_usdt=args.maximum_order_usdt,
-            maximum_inventory_usdt=args.maximum_inventory_usdt,
-            product_version=__version__,
-            source_commit=_source_commit(),
-            execution_halt_confirmed=True,
-        )
+        limits = RiskLimits.from_env()
+        # Keep reset excluded until the immutable activation row is committed.
+        with confirmed_execution_halt(limits):
+            payload = activate_champion(
+                store,
+                experiment_id=args.experiment_id,
+                expected_report_sha256=args.report_sha256,
+                expected_manifest_sha256=args.manifest_sha256,
+                expected_previous_activation_id=previous,
+                maximum_order_notional_usdt=args.maximum_order_usdt,
+                maximum_inventory_usdt=args.maximum_inventory_usdt,
+                product_version=__version__,
+                source_commit=_source_commit(),
+                execution_halt_confirmed=True,
+            )
     else:
         variants = _selection_variants(
             store,

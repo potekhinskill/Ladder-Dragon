@@ -1,5 +1,12 @@
 # Engineering decisions
 
+### 2026-08-19 — Resolve activation HALT from Risk Manager
+
+- **Context:** a caller-selected file could satisfy the CHAMPION activation check without the authoritative HALT.
+- **Decision:** resolve and validate the configured HALT while holding the Risk Manager lock through activation.
+- **Why it worked:** tests reject missing, malformed, and caller-selected evidence and serialize a concurrent reset.
+- **Reuse:** every privileged mutation that requires an existing persistent safety state.
+
 ### 2026-08-18 — Version report semantics with each experiment generation
 
 - **Context:** a current report also renders superseded generations with older training boundaries.

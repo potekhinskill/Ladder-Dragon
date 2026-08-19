@@ -180,7 +180,8 @@ The worker verifies them against the prediction database before LIVE execution.
 
 A CHALLENGER stays in SHADOW until independent confirmation.
 Confirmation cannot change orders or activate the candidate.
-Activation requires a persistent execution HALT and explicit operator confirmation.
+Activation validates the authoritative persistent HALT under the Risk Manager lock.
+It also requires explicit operator confirmation.
 
 Runtime controls can reduce order size or block BUY.
 They can cancel open BUY orders or flatten for safety.

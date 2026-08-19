@@ -142,10 +142,11 @@ Activate only the reviewed policy while persistent HALT exists:
   --expected-previous-activation-id NONE \
   --maximum-order-usdt 6 \
   --maximum-inventory-usdt 18 \
-  --halt-file /run/mybot/circuit_halt.json \
   --confirm ACTIVATE
 ```
 
+Activation resolves the authoritative HALT from Risk Manager configuration.
+It rejects missing or invalid HALT evidence.
 Use the current activation identifier instead of `NONE` for replacement.
 Restart the supervisor before you reset HALT.
 The worker verifies the activation again before LIVE execution.

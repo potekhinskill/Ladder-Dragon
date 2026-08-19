@@ -3,6 +3,17 @@
 All notable changes are documented here. Releases use Semantic Versioning; every
 section is dated and there is intentionally no `Unreleased` section.
 
+## [2.20.227] — 2026-08-19
+
+### Security
+- CHAMPION activation now resolves the authoritative HALT from Risk Manager configuration.
+- Activation validates HALT evidence and holds the control lock through the registry write.
+- The CLI no longer accepts a caller-selected HALT path.
+
+### Verified
+- All 1,278 project tests and compilation pass.
+- Technical English and 46 focused contract tests pass.
+
 ## [2.20.226] — 2026-08-19
 
 ### Added

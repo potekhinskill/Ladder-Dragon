@@ -6,6 +6,13 @@ avoidable rework. Identify the root cause rather than recording only the
 symptom. Keep entries concise and exclude secrets, balances, account data, and
 private infrastructure details.
 
+### 2026-08-19 — Trusted a caller-selected HALT file
+
+- **Impact:** any existing file could satisfy the CHAMPION activation precondition while the authoritative HALT was absent.
+- **Root cause:** the CLI accepted a path and checked file existence without using Risk Manager configuration or marker validation.
+- **Correction:** remove the path option and hold the configured HALT lock through the activation database write.
+- **Prevention:** a safety precondition must resolve its authority internally and validate its complete evidence contract.
+
 ### 2026-08-18 — Applied a new training boundary to superseded generations
 
 - **Impact:** each production SHADOW symbol reported `ValueError` after release 2.20.224.

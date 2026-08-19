@@ -14,6 +14,7 @@ from ladder_dragon.risk.risk_manager import (
     RiskLimits,
     RiskManager,
     RiskSnapshot,
+    confirmed_execution_halt,
     create_manual_halt,
     load_daily_trade_metrics,
     sync_manual_halt_state,
@@ -533,6 +534,44 @@ def test_control_lock_serializes_reset_with_other_processes(tmp_path: Path):
     assert not configured.halt_file.exists()
     state = json.loads(configured.state_file.read_text(encoding="utf-8"))
     assert state["halted"] is False
+
+
+def test_champion_guard_requires_a_valid_authoritative_halt(tmp_path: Path):
+    configured = limits(tmp_path)
+    decoy = tmp_path / "decoy.json"
+    decoy.write_text("{}", encoding="utf-8")
+
+    with pytest.raises(RuntimeError, match="valid persistent execution HALT"):
+        with confirmed_execution_halt(configured):
+            pytest.fail("missing HALT entered the guarded mutation")
+
+    configured.halt_file.write_text("{}", encoding="utf-8")
+    with pytest.raises(RuntimeError, match="valid persistent execution HALT"):
+        with confirmed_execution_halt(configured):
+            pytest.fail("invalid HALT entered the guarded mutation")
+
+    create_manual_halt("activation review", limits=configured, now=1_700_000_000)
+    with confirmed_execution_halt(configured):
+        state = json.loads(configured.state_file.read_text(encoding="utf-8"))
+        assert state["halted"] is True
+
+
+def test_champion_guard_excludes_a_concurrent_reset(tmp_path: Path):
+    configured = limits(tmp_path)
+    create_manual_halt("activation review", limits=configured, now=1_700_000_000)
+    context = multiprocessing.get_context("spawn")
+    result_queue = context.Queue()
+    process = context.Process(target=_reset_in_child, args=(configured, result_queue))
+
+    with confirmed_execution_halt(configured):
+        process.start()
+        time.sleep(0.2)
+        assert process.is_alive()
+        assert configured.halt_file.exists()
+
+    process.join(timeout=5)
+    assert process.exitcode == 0
+    assert result_queue.get(timeout=1) == "reset"
 
 
 def test_execution_failure_creates_persistent_manual_halt(tmp_path: Path):

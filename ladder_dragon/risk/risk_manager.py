@@ -17,7 +17,7 @@ import re
 import sqlite3
 import tempfile
 import time
-from typing import Iterable, Mapping, Optional
+from typing import Iterable, Iterator, Mapping, Optional
 
 from ladder_dragon.execution.trade_accounting import TradeExecution
 from ladder_dragon.execution.telegram_alerts import notify as notify_telegram
@@ -388,6 +388,19 @@ def sync_manual_halt_state(limits: RiskLimits) -> bool:
     """Mirror an authoritative halt marker under the shared process lock."""
     with _control_state_lock(limits):
         return _sync_manual_halt_state_unlocked(limits)
+
+
+@contextmanager
+def confirmed_execution_halt(limits: RiskLimits) -> Iterator[None]:
+    """Hold the control lock while one operation requires a valid HALT."""
+    with _control_state_lock(limits):
+        # Validate the authoritative marker and keep reset excluded until the
+        # guarded mutation completes. A caller-selected path cannot prove HALT.
+        if not _sync_manual_halt_state_unlocked(limits):
+            raise RuntimeError(
+                "valid persistent execution HALT is required"
+            )
+        yield
 
 
 def create_manual_halt(

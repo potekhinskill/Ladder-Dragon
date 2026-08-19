@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pytest
 
-from bin.prediction_experiment import _selection_variants
+from bin.prediction_experiment import _parser, _selection_variants
 from ladder_dragon.strategy.prediction import (
     PredictionFeatures,
     PredictionShadowStore,
@@ -24,6 +24,23 @@ from ladder_dragon.strategy.prediction.experiments import (
 
 
 D = Decimal
+
+
+def test_champion_activation_does_not_accept_a_caller_halt_path():
+    arguments = [
+        "champion-activate", "experiment-id",
+        "--report-sha256", "a" * 64,
+        "--manifest-sha256", "b" * 64,
+        "--expected-previous-activation-id", "NONE",
+        "--maximum-order-usdt", "6",
+        "--maximum-inventory-usdt", "18",
+        "--confirm", "ACTIVATE",
+    ]
+
+    parsed = _parser().parse_args(arguments)
+    assert not hasattr(parsed, "halt_file")
+    with pytest.raises(SystemExit):
+        _parser().parse_args([*arguments, "--halt-file", "/tmp/decoy"])
 
 
 def test_configured_gap_rejects_unknown_semantics():

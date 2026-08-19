@@ -52,6 +52,16 @@ def test_venv_commands() -> None:
     assert "\npython -m bin." not in reference
 
 
+def test_champion_activation_resolves_the_authoritative_halt() -> None:
+    reference = (ROOT / "docs" / "COMMAND_REFERENCE.md").read_text(encoding="utf-8")
+    source = (ROOT / "bin" / "prediction_experiment.py").read_text(encoding="utf-8")
+
+    assert "--halt-file" not in reference
+    assert "--halt-file" not in source
+    assert "RiskLimits.from_env()" in source
+    assert "with confirmed_execution_halt(limits):" in source
+
+
 def test_guides_do_not_name_unknown_project_units() -> None:
     known = {path.name for path in (ROOT / "deploy").glob("*.service")}
     known.update(path.name for path in (ROOT / "deploy").glob("*.timer"))
