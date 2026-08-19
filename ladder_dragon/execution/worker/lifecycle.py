@@ -3,7 +3,6 @@
 # Purpose: own worker preflight, resource startup, and shutdown lifecycle.
 
 """Worker lifecycle and mutable runtime orchestration."""
-
 from __future__ import annotations
 
 from collections.abc import MutableMapping
@@ -15,32 +14,27 @@ from ladder_dragon.execution.worker.event_loop import (
     WorkerLoopContext,
     run_event_loop,
 )
-
-
+from ladder_dragon.execution.worker.champion_preflight import champion_ladder, require_live_champion
 class WorkerRuntimeState:
     """Expose live worker module state without snapshotting mutable globals."""
-
     def __init__(self, namespace: MutableMapping[str, Any]) -> None:
         object.__setattr__(self, "_namespace", namespace)
-
     def __getattr__(self, name: str) -> Any:
         try:
             return self._namespace[name]
         except KeyError as exc:
             raise AttributeError(name) from exc
-
     def __setattr__(self, name: str, value: Any) -> None:
         self._namespace[name] = value
 
     def namespace(self) -> MutableMapping[str, Any]:
         """Return the live namespace for services that require late binding."""
         return self._namespace
-
-
 @dataclass
 class WorkerResources:
     """Stop every worker resource even when one cleanup operation fails."""
-
+    verify_champion = staticmethod(require_live_champion)
+    build_champion_ladder = staticmethod(champion_ladder)
     state: WorkerRuntimeState
     lock: Any
     user_stream_observer: Any = None
@@ -82,6 +76,7 @@ def run_worker(state: WorkerRuntimeState) -> None:
     args = state.validate_executor_args(parser, parser.parse_args())
     state.log(f"[VERSION] {state.product_label('executor')}")
     state.LIVE_MODE = bool(args.live)
+    champion = None
     state.WS_TRADING_MODE = args.ws_trading_mode
     if state.LIVE_MODE:
         # Supervisor risk calculation treats target-buy as a hard maximum.
@@ -89,8 +84,11 @@ def run_worker(state: WorkerRuntimeState) -> None:
         args.enforce_target_buys = True
 
     if state.LIVE_MODE:
-        # Repeat preflight even after supervisor validation: a worker can be started
-        # independently or long after the original check.
+        # Repeat preflight because a worker can start without the supervisor.
+        try:
+            champion = WorkerResources.verify_champion(state, args)
+        except (OSError, state.sqlite3.Error, TypeError, ValueError) as exc:
+            parser.error(f"LIVE CHAMPION verification failed: {exc}")
         halt_file = state.Path(
             state.os.getenv(
                 "CB_HALT_FILE",
@@ -216,6 +214,8 @@ def run_worker(state: WorkerRuntimeState) -> None:
                 f"max_age={args.fast_market_max_age_ms}ms"
             )
         current_price = state.get_price(symbol)
+        if champion is not None:
+            ladder_prices = WorkerResources.build_champion_ladder(state, champion, current_price)
 
         # Protection deduplication also runs here: direct worker startup must not
         # depend on whether the supervisor normalized the ladder.

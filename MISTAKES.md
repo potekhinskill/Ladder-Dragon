@@ -1887,3 +1887,10 @@ private infrastructure details.
 - **Root cause:** control records did not state whether the candidate changed the baseline plan.
 - **Correction:** store exact binding metadata and evaluate binding and full cohorts separately.
 - **Prevention:** every counterfactual control record must identify its changed field and pre-outcome reason.
+
+### 2026-08-19 — Moved shared cancellation evidence too narrowly
+
+- **Impact:** two re-anchor tests lost their injectable order-lifetime evidence boundary.
+- **Root cause:** cleanup extraction removed a helper before checking its re-anchor caller.
+- **Correction:** retain a thin supervisor wrapper around the shared cleanup implementation.
+- **Prevention:** search every caller before moving a private helper, then run the complete suite.

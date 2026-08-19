@@ -7,6 +7,9 @@ def test_dashboard_distinguishes_execution_and_shadow_only_symbols():
     locales = Path("FRONT/locales.js").read_text(encoding="utf-8")
 
     assert 'id="trade-execution-symbols"' in index
+    assert "execution_permitted_symbols" in script
+    assert "mode==='LIVE'&&!permittedSymbols.length?'SHADOW':mode" in script
+    assert "'no active CHAMPION'" in script
     assert 'id="trade-shadow-symbols"' in index
     assert "prediction.shadow_only_symbols" in script
     assert "SHADOW · ${shadowOnlySymbols.join(', ')}" in script

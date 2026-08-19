@@ -371,8 +371,15 @@ function updateTrading(t){
   const executionSymbols=Array.isArray(t.symbols)?t.symbols:[];
   const prediction=t.prediction&&typeof t.prediction==='object'?t.prediction:{};
   const shadowOnlySymbols=Array.isArray(prediction.shadow_only_symbols)?prediction.shadow_only_symbols:[];
-  const banner=$('#execution-banner'); banner.textContent=`${mode} · ${executionSymbols.join(', ')||'—'}`; banner.className=`live-banner ${mode==='LIVE'?'live':(mode==='DRY'?'dry':(mode==='STOPPED'?'stopped':''))}`;
-  $('#trade-execution-symbols').textContent=executionSymbols.join(', ')||'—';
+  const promotion=t.execution_promotion&&typeof t.execution_promotion==='object'?t.execution_promotion:{};
+  const championAware=Number(promotion.schema_version||0)>=2;
+  const permittedSymbols=Array.isArray(promotion.execution_permitted_symbols)?promotion.execution_permitted_symbols:[];
+  const effectiveMode=championAware&&mode==='LIVE'&&!permittedSymbols.length?'SHADOW':mode;
+  const scopeLabel=championAware?(permittedSymbols.length?`CHAMPION ${permittedSymbols.join(', ')}`:'no active CHAMPION'):(executionSymbols.join(', ')||'—');
+  const banner=$('#execution-banner'); banner.textContent=`${effectiveMode} · ${scopeLabel}`; banner.className=`live-banner ${effectiveMode==='LIVE'?'live':(effectiveMode==='DRY'?'dry':(effectiveMode==='STOPPED'?'stopped':''))}`;
+  $('#trade-execution-symbols').textContent=championAware
+    ? `${executionSymbols.join(', ')||'—'} · CHAMPION ${permittedSymbols.join(', ')||'—'}`
+    : executionSymbols.join(', ')||'—';
   $('#trade-shadow-symbols').textContent=shadowOnlySymbols.length
     ? `SHADOW · ${shadowOnlySymbols.join(', ')}`
     : tr('no');

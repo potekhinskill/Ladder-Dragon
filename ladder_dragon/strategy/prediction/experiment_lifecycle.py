@@ -135,6 +135,10 @@ def migrate_experiment_lifecycle(connection: sqlite3.Connection) -> None:
         BEFORE DELETE ON prediction_experiment_transitions
         BEGIN SELECT RAISE(ABORT, 'experiment transitions are append-only'); END;
     """)
+    from ladder_dragon.strategy.prediction.champion_registry import (
+        migrate_champion_registry,
+    )
+    migrate_champion_registry(connection)
 
 
 def _ratio(numerator: Decimal, denominator: Decimal, *, field: str) -> str:

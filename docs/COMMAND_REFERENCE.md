@@ -125,6 +125,31 @@ Finalize the exact reviewed report:
 
 Use `show` and `supersede` for other lifecycle operations.
 
+Preview a confirmed CHAMPION policy:
+
+```bash
+.venv/bin/python -m bin.prediction_experiment champion-preview EXPERIMENT_ID \
+  --maximum-order-usdt 6 \
+  --maximum-inventory-usdt 18
+```
+
+Activate only the reviewed policy while persistent HALT exists:
+
+```bash
+.venv/bin/python -m bin.prediction_experiment champion-activate EXPERIMENT_ID \
+  --report-sha256 REPORT_SHA256 \
+  --manifest-sha256 MANIFEST_SHA256 \
+  --expected-previous-activation-id NONE \
+  --maximum-order-usdt 6 \
+  --maximum-inventory-usdt 18 \
+  --halt-file /run/mybot/circuit_halt.json \
+  --confirm ACTIVATE
+```
+
+Use the current activation identifier instead of `NONE` for replacement.
+Restart the supervisor before you reset HALT.
+The worker verifies the activation again before LIVE execution.
+
 ## Execution and operator commands
 
 | Command | Purpose | Mutation boundary |

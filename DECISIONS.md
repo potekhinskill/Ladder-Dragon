@@ -1535,3 +1535,10 @@ entries concise; this is not a changelog or an activity log.
 - **Decision:** measure control benefit on binding rows and enforce non-inferiority on all rows.
 - **Why it worked:** no-op rows cannot prove an effect, while they remain visible to safety checks.
 - **Reuse:** every conditional control that changes only some baseline decisions.
+
+### 2026-08-19 — Trade only an immutable activated CHAMPION
+
+- **Context:** confirmed evidence did not identify one exact policy consumed by the LIVE worker.
+- **Decision:** activate one append-only CHAMPION per symbol while every newer CHALLENGER remains SHADOW-only.
+- **Why it worked:** worker startup reconstructs fixed policy values, and every order intent retains the activation fingerprints.
+- **Reuse:** every adaptive strategy that researches replacements while a bounded production policy remains stable.

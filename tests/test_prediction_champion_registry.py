@@ -1,0 +1,328 @@
+from __future__ import annotations
+
+import os
+import sqlite3
+from pathlib import Path
+from types import SimpleNamespace
+
+import pytest
+
+from ladder_dragon.strategy.prediction import PredictionShadowStore
+from ladder_dragon.strategy.prediction import champion_registry
+from ladder_dragon.execution.worker.champion_preflight import (
+    champion_ladder,
+    require_live_champion,
+)
+from ladder_dragon.strategy.prediction.experiment_lifecycle import (
+    canonical_json,
+    sha256_json,
+)
+
+
+REPORT_SHA = "b" * 64
+SOURCE_COMMIT = "c" * 40
+
+
+def _confirmed_manifest(
+    store: PredictionShadowStore,
+    *,
+    experiment_id: str,
+    generation: str,
+    candidate_fingerprint: str,
+) -> dict[str, object]:
+    manifest = {
+        "schema_version": 3,
+        "experiment_id": experiment_id,
+        "generation": generation,
+        "symbol": "BTCUSDT",
+        "selected_variant": f"{generation}_maker_ttl60_gap8p4",
+        "candidate_fingerprint": candidate_fingerprint,
+        "candidate_parameters": {
+            "entry_gap_bps": "8.4",
+            "entry_ttl_sec": 3600,
+            "entry_enabled": True,
+            "entry_order_policy": "LIMIT_MAKER",
+            "exit_order_policy": "LIMIT_MAKER",
+            "target_return": "0.0096",
+            "stop_distance": "0.01",
+        },
+    }
+    manifest_sha = sha256_json(manifest)
+    with store._connect() as connection:
+        connection.execute(
+            """INSERT INTO prediction_experiment_manifests
+               (experiment_id,schema_version,generation,symbol,selected_variant,
+                selection_experiment_id,selection_end_ts_ms,
+                confirmation_start_ts_ms,manifest_json,manifest_sha256,
+                created_at_ms)
+               VALUES(?,?,?,?,?,?,?,?,?,?,?)""",
+            (
+                experiment_id,
+                3,
+                generation,
+                "BTCUSDT",
+                manifest["selected_variant"],
+                f"selection:{generation}:BTCUSDT",
+                1,
+                2,
+                canonical_json(manifest),
+                manifest_sha,
+                3,
+            ),
+        )
+        connection.executemany(
+            """INSERT INTO prediction_experiment_transitions
+               (experiment_id,from_status,to_status,changed_at_ms,reason)
+               VALUES(?,?,?,?,?)""",
+            (
+                (experiment_id, "SELECTION", "FROZEN", 3, "test freeze"),
+                (experiment_id, "FROZEN", "CONFIRMING", 4, "test confirmation"),
+                (experiment_id, "CONFIRMING", "CONFIRMED", 5, "test pass"),
+            ),
+        )
+    return {**manifest, "manifest_sha256": manifest_sha}
+
+
+def _activate(
+    store: PredictionShadowStore,
+    monkeypatch: pytest.MonkeyPatch,
+    manifest: dict[str, object],
+    *,
+    previous: str | None,
+    activated_at_ms: int,
+) -> dict[str, object]:
+    monkeypatch.setattr(
+        champion_registry,
+        "confirmation_report",
+        lambda *_args, **_kwargs: {
+            "report_sha256": REPORT_SHA,
+            "promotion_eligible": True,
+        },
+    )
+    return champion_registry.activate_champion(
+        store,
+        experiment_id=str(manifest["experiment_id"]),
+        expected_report_sha256=REPORT_SHA,
+        expected_manifest_sha256=str(manifest["manifest_sha256"]),
+        expected_previous_activation_id=previous,
+        maximum_order_notional_usdt="6",
+        maximum_inventory_usdt="18",
+        product_version="2.20.226",
+        source_commit=SOURCE_COMMIT,
+        execution_halt_confirmed=True,
+        activated_at_ms=activated_at_ms,
+    )
+
+
+def test_first_activation_is_restart_safe_and_exact(tmp_path: Path, monkeypatch):
+    store = PredictionShadowStore(tmp_path / "prediction.sqlite3")
+    manifest = _confirmed_manifest(
+        store,
+        experiment_id="btc-v13-confirmed",
+        generation="v13",
+        candidate_fingerprint="a" * 64,
+    )
+
+    activated = _activate(
+        store, monkeypatch, manifest, previous=None, activated_at_ms=10
+    )
+    restarted = PredictionShadowStore(store.path)
+    loaded = champion_registry.active_champion(restarted, symbol="BTCUSDT")
+
+    assert loaded == activated
+    assert loaded["champion_version"] == 1
+    assert loaded["execution_policy"]["entry_gap_bps"] == "8.4"
+    assert loaded["execution_policy"]["entry_ttl_sec"] == 3600
+    assert loaded["execution_policy"]["target_return"] == "0.0096"
+    assert loaded["execution_policy"]["maximum_order_notional_usdt"] == "6"
+    assert loaded["execution_policy"]["runtime_mutation_policy"] == "protective_only"
+
+
+def test_activation_without_execution_halt_fails_closed(tmp_path: Path, monkeypatch):
+    store = PredictionShadowStore(tmp_path / "prediction.sqlite3")
+    manifest = _confirmed_manifest(
+        store,
+        experiment_id="btc-v13-confirmed",
+        generation="v13",
+        candidate_fingerprint="a" * 64,
+    )
+    monkeypatch.setattr(
+        champion_registry,
+        "confirmation_report",
+        lambda *_args, **_kwargs: {
+            "report_sha256": REPORT_SHA,
+            "promotion_eligible": True,
+        },
+    )
+
+    with pytest.raises(ValueError, match="confirmed execution halt"):
+        champion_registry.activate_champion(
+            store,
+            experiment_id=str(manifest["experiment_id"]),
+            expected_report_sha256=REPORT_SHA,
+            expected_manifest_sha256=str(manifest["manifest_sha256"]),
+            expected_previous_activation_id=None,
+            maximum_order_notional_usdt="6",
+            maximum_inventory_usdt="18",
+            product_version="2.20.226",
+            source_commit=SOURCE_COMMIT,
+            execution_halt_confirmed=False,
+        )
+
+
+def test_replacement_requires_reviewed_previous_and_preserves_history(
+    tmp_path: Path, monkeypatch
+):
+    store = PredictionShadowStore(tmp_path / "prediction.sqlite3")
+    first_manifest = _confirmed_manifest(
+        store,
+        experiment_id="btc-v13-confirmed",
+        generation="v13",
+        candidate_fingerprint="a" * 64,
+    )
+    first = _activate(
+        store, monkeypatch, first_manifest, previous=None, activated_at_ms=10
+    )
+    second_manifest = _confirmed_manifest(
+        store,
+        experiment_id="btc-v14-confirmed",
+        generation="v14",
+        candidate_fingerprint="d" * 64,
+    )
+
+    with pytest.raises(ValueError, match="changed before activation"):
+        _activate(
+            store,
+            monkeypatch,
+            second_manifest,
+            previous="wrong-activation",
+            activated_at_ms=20,
+        )
+
+    second = _activate(
+        store,
+        monkeypatch,
+        second_manifest,
+        previous=str(first["activation_id"]),
+        activated_at_ms=20,
+    )
+    history = champion_registry.list_champions(store, symbol="BTCUSDT")
+
+    assert second["champion_version"] == 2
+    assert second["previous_activation_id"] == first["activation_id"]
+    assert [row["status"] for row in history] == ["SUPERSEDED", "ACTIVE"]
+    assert len({row["champion_fingerprint"] for row in history}) == 2
+
+
+def test_activation_rows_are_immutable(tmp_path: Path, monkeypatch):
+    store = PredictionShadowStore(tmp_path / "prediction.sqlite3")
+    manifest = _confirmed_manifest(
+        store,
+        experiment_id="btc-v13-confirmed",
+        generation="v13",
+        candidate_fingerprint="a" * 64,
+    )
+    activated = _activate(
+        store, monkeypatch, manifest, previous=None, activated_at_ms=10
+    )
+    with store._connect() as connection:
+        indexes = {
+            str(row[1]): bool(row[2])
+            for row in connection.execute(
+                "PRAGMA index_list(prediction_champion_activations)"
+            )
+        }
+    assert indexes["prediction_champion_single_root"] is True
+    assert indexes["prediction_champion_single_replacement"] is True
+
+    with store._connect() as connection, pytest.raises(
+        sqlite3.IntegrityError, match="immutable"
+    ):
+        connection.execute(
+            """UPDATE prediction_champion_activations
+               SET champion_version=2 WHERE activation_id=?""",
+            (activated["activation_id"],),
+        )
+
+
+def test_worker_identity_verification_rejects_a_different_fingerprint(
+    tmp_path: Path, monkeypatch
+):
+    store = PredictionShadowStore(tmp_path / "prediction.sqlite3")
+    manifest = _confirmed_manifest(
+        store,
+        experiment_id="btc-v13-confirmed",
+        generation="v13",
+        candidate_fingerprint="a" * 64,
+    )
+    activated = _activate(
+        store, monkeypatch, manifest, previous=None, activated_at_ms=10
+    )
+
+    with pytest.raises(ValueError, match="champion_fingerprint differs"):
+        champion_registry.verify_active_champion(
+            store,
+            symbol="BTCUSDT",
+            activation_id=str(activated["activation_id"]),
+            champion_fingerprint="f" * 64,
+            execution_policy_fingerprint=str(
+                activated["execution_policy_fingerprint"]
+            ),
+        )
+
+
+def test_direct_worker_rebuilds_policy_and_clamps_caps(tmp_path: Path, monkeypatch):
+    store = PredictionShadowStore(tmp_path / "prediction.sqlite3")
+    manifest = _confirmed_manifest(
+        store,
+        experiment_id="btc-v13-confirmed",
+        generation="v13",
+        candidate_fingerprint="a" * 64,
+    )
+    activated = _activate(
+        store, monkeypatch, manifest, previous=None, activated_at_ms=10
+    )
+    monkeypatch.setenv("PREDICTION_SHADOW_DB", str(store.path))
+    monkeypatch.setenv(
+        "BOT_CHAMPION_ACTIVATION_ID", str(activated["activation_id"])
+    )
+    monkeypatch.setenv(
+        "BOT_CHAMPION_FINGERPRINT", str(activated["champion_fingerprint"])
+    )
+    monkeypatch.setenv(
+        "BOT_CHAMPION_POLICY_FINGERPRINT",
+        str(activated["execution_policy_fingerprint"]),
+    )
+    monkeypatch.setenv("BOT_CAP_PER_ORDER", "100")
+    monkeypatch.setenv("RISK_MANAGED_INVENTORY_HARD_CAP_BTCUSDT", "200")
+    state = SimpleNamespace(os=os, _compat_float=float)
+    args = SimpleNamespace(
+        symbol="BTCUSDT",
+        tp1=0.5,
+        tp2=0.6,
+        sl=-0.5,
+        target_buy_per_symbol=7,
+        buy_limit_maker=False,
+        sell_limit_maker=False,
+        bear_buy_shift_pct=0.2,
+        bear_cap_scale=2.0,
+        buy_vwap_discount=0.1,
+        buy_vwap_discount_scale=3.0,
+    )
+
+    loaded = require_live_champion(state, args)
+    ladder = champion_ladder(state, loaded, "60000")
+
+    assert os.environ["BOT_CAP_PER_ORDER"] == "6"
+    assert os.environ["RISK_MANAGED_INVENTORY_HARD_CAP_BTCUSDT"] == "18"
+    assert args.tp1 == pytest.approx(0.0096)
+    assert args.tp2 == pytest.approx(0.0096)
+    assert args.sl == pytest.approx(-0.01)
+    assert args.target_buy_per_symbol == 1
+    assert args.buy_limit_maker is True
+    assert args.sell_limit_maker is True
+    assert args.bear_buy_shift_pct == 0
+    assert args.bear_cap_scale == 1
+    assert args.buy_vwap_discount is None
+    assert args.buy_vwap_discount_scale is None
+    assert ladder == pytest.approx([59350.104, 59949.6, 60525.11616])

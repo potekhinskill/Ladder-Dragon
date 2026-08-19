@@ -11,6 +11,7 @@ from ladder_dragon.execution.binance_transport import (
     BinanceResponseError,
     BinanceTransport,
 )
+from ladder_dragon.execution.champion_attribution import execution_attribution
 from ladder_dragon.execution.executor_config import build_executor_parser, validate_executor_args
 from ladder_dragon.execution.executor_market import (
     get_balances,
@@ -63,6 +64,48 @@ def test_signed_timestamp_fails_closed_when_exchange_clock_is_unavailable(
     )
     with pytest.raises(requests.ConnectionError, match="offline"):
         tools_market._timestamp_ms()
+
+
+def test_champion_order_attribution_is_complete_and_secret_free(
+    monkeypatch, tmp_path
+):
+    monkeypatch.setenv(
+        "BOT_CHAMPION_ACTIVATION_ID", "champion:btcusdt:v1:0123456789abcdef"
+    )
+    monkeypatch.setenv("BOT_CHAMPION_FINGERPRINT", "a" * 64)
+    monkeypatch.setenv("BOT_CHAMPION_POLICY_FINGERPRINT", "b" * 64)
+    monkeypatch.setenv("BINANCE_API_SECRET", "must-not-appear")
+
+    metadata = execution_attribution({"leg": "entry"})
+
+    assert metadata == {
+        "leg": "entry",
+        "champion": {
+            "activation_id": "champion:btcusdt:v1:0123456789abcdef",
+            "champion_fingerprint": "a" * 64,
+            "execution_policy_fingerprint": "b" * 64,
+        },
+    }
+    assert "must-not-appear" not in str(metadata)
+    intent = OrderJournal(tmp_path / "orders.db").prepare(
+        client_order_id="champion-entry",
+        symbol="BTCUSDT",
+        side="BUY",
+        purpose="entry",
+        order_type="LIMIT_MAKER",
+        quantity="0.001",
+        price="60000",
+        metadata={"leg": "entry"},
+    )
+    assert intent.metadata == metadata
+    assert "must-not-appear" not in str(intent.metadata)
+
+
+def test_partial_champion_order_attribution_fails_closed(monkeypatch):
+    monkeypatch.setenv("BOT_CHAMPION_ACTIVATION_ID", "champion:btcusdt:v1:test")
+
+    with pytest.raises(ValueError, match="attribution is incomplete"):
+        execution_attribution()
 
 
 def test_executor_recovery_queries_and_verifies_oco():

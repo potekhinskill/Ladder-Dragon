@@ -1,6 +1,6 @@
 # Implementation status
 
-This document describes the code in version **2.20.225**.
+This document describes the code in version **2.20.226**.
 It does not describe future plans as completed work.
 
 An implemented function is not automatically approved for LIVE use.
@@ -17,6 +17,7 @@ The configured mode and its evidence gate remain authoritative.
 | Prediction | 1, 5, and 15 minute SHADOW outcomes | Enabled for evidence only |
 | Market scenarios | 1-hour through monthly closed-candle outcomes | SHADOW only |
 | Experiments | Selection, immutable freeze, and independent confirmation | SHADOW only |
+| CHAMPION | Append-only activation of one confirmed policy per symbol | No active policy by default |
 | Statistical approval | Walk-forward, confidence intervals, regime checks, and Holm correction | Must pass before APPLY |
 | AI advice | Validated DeepSeek, OpenAI, or compatible provider response | Disabled by default |
 | RAG | Hybrid similarity, retention, bounded candidates, and real-only retrieval | Virtual records stay archived |
@@ -139,7 +140,13 @@ Regime evidence uses 15-minute and 360-minute horizons.
 Each control report estimates binding frequency and its evidence-ready time.
 The dashboard shows readiness in days and the current waiting reason.
 Observation-only inventory reports `NOT_APPLICABLE`.
-Promotion reports `EXECUTION_POLICY_NOT_BOUND` until workers verify frozen parameters.
+An activated CHAMPION fixes entry gap, entry lifetime, target, stop, and maximum exposure.
+The worker verifies the active registry record before LIVE execution.
+Runtime controls can only reduce risk, block BUY, cancel BUY, or flatten.
+New CHALLENGER generations remain in SHADOW until independent confirmation and explicit activation.
+Each activation receives a new version and fingerprint.
+Each order intent records the active activation and policy fingerprints.
+The authoritative activation registry has no automatic retention.
 
 Attributed AI fills store monetary values as exact text.
 Each fill records whether its slippage value is verified.
@@ -154,6 +161,7 @@ Maker control approval stays blocked until evidence includes real maker executio
 The required semantics include fills and missed fills.
 
 No first-gate result can set `apply_allowed=true`.
+No confirmed result changes execution without a separate halted activation.
 
 ## Current approval boundary
 

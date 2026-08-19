@@ -3,6 +3,28 @@
 All notable changes are documented here. Releases use Semantic Versioning; every
 section is dated and there is intentionally no `Unreleased` section.
 
+## [2.20.226] — 2026-08-19
+
+### Added
+- Confirmed experiments can now enter an append-only CHAMPION activation registry.
+- Every CHAMPION replacement receives a new version, fingerprint, and previous-activation link.
+- Durable order intents now record the active CHAMPION and execution-policy fingerprints.
+
+### Changed
+- Symbols without an active CHAMPION continue SHADOW collection without starting an execution worker.
+- Active CHAMPION workers use fixed gap, lifetime, target, stop, maker policy, and reviewed maximum exposure.
+- The dashboard now separates configured execution symbols from permitted CHAMPION symbols.
+
+### Security
+- LIVE workers independently verify the active registry identity before exchange access.
+- Activation requires persistent HALT and exact reviewed report, manifest, and previous-activation identities.
+- Runtime controls can reduce or stop risk but cannot retune an active CHAMPION.
+- A runtime activation change stops old workers before another order can be submitted.
+
+### Verified
+- The complete regression suite and compilation pass.
+- Technical English and tracked-secret checks pass.
+
 ## [2.20.225] — 2026-08-18
 
 ### Fixed

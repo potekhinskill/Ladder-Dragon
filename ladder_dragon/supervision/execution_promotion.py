@@ -10,6 +10,7 @@ import re
 import sqlite3
 from typing import Mapping, Sequence
 
+from ladder_dragon.strategy.prediction.champion_registry import active_champion
 from ladder_dragon.strategy.prediction.experiment_config import (
     experiment_spec_for_symbol,
 )
@@ -20,7 +21,6 @@ from ladder_dragon.strategy.prediction.experiment_lifecycle import (
 
 
 _SYMBOL_RE = re.compile(r"[A-Z0-9]{5,20}")
-_REVIEWED_BASELINE_EXECUTION_SYMBOLS = frozenset({"SOLUSDT"})
 
 
 def resolve_execution_candidate_symbols(configured: str) -> list[str]:
@@ -97,6 +97,12 @@ def _current_method_passes(
     return bool(report.get("promotion_eligible"))
 
 
+def _experiment_method_passes(store: object, experiment_id: str) -> bool:
+    """Recheck one activated experiment with the current method."""
+    report = confirmation_report(store, experiment_id=experiment_id)
+    return bool(report.get("promotion_eligible"))
+
+
 def build_execution_promotion_report(
     *,
     execution_symbols: Sequence[str],
@@ -110,6 +116,8 @@ def build_execution_promotion_report(
     prediction = {item.strip().upper() for item in prediction_symbols}
     candidates: dict[str, object] = {}
     blocked_execution: list[str] = []
+    permitted_execution: list[str] = []
+    active_policies: dict[str, object] = {}
 
     for symbol in candidate_symbols:
         blockers: list[str] = []
@@ -141,6 +149,22 @@ def build_execution_promotion_report(
         )
         approval_name = f"BOT_EXECUTION_PROMOTION_APPROVED_{symbol}"
         approved = environment.get(approval_name, "").strip().upper() == "YES"
+
+        champion: dict[str, object] | None = None
+        champion_error: str | None = None
+        if store is not None:
+            try:
+                champion = active_champion(store, symbol=symbol)
+            except (
+                AttributeError,
+                KeyError,
+                OSError,
+                RuntimeError,
+                sqlite3.Error,
+                TypeError,
+                ValueError,
+            ) as exc:
+                champion_error = type(exc).__name__
 
         if symbol not in prediction:
             blockers.append("symbol is outside prediction SHADOW scope")
@@ -180,16 +204,52 @@ def build_execution_promotion_report(
             blockers.append("per-order CAP exceeds managed-inventory hard CAP")
         if not approved:
             blockers.append(f"{approval_name}=YES is required")
-        # The current worker does not consume the frozen gap and entry TTL as
-        # one immutable execution policy. Never promote statistical evidence
-        # until worker startup can prove the exact manifest policy is active.
-        execution_policy_bound = False
-        blockers.append("EXECUTION_POLICY_NOT_BOUND")
+        execution_policy_bound = champion is not None
+
+        champion_method_passed = False
+        if champion is not None and store is not None:
+            try:
+                champion_method_passed = _experiment_method_passes(
+                    store, str(champion["experiment_id"])
+                )
+            except (
+                AttributeError,
+                KeyError,
+                OSError,
+                RuntimeError,
+                sqlite3.Error,
+                TypeError,
+                ValueError,
+            ):
+                champion_method_passed = False
+
+        execution_blockers: list[str] = []
+        if champion_error:
+            execution_blockers.append(
+                f"CHAMPION registry unavailable: {champion_error}"
+            )
+        elif champion is None:
+            execution_blockers.append("active CHAMPION is unavailable")
+        elif not champion_method_passed:
+            execution_blockers.append(
+                "active CHAMPION does not pass the current statistical method"
+            )
+        if order_cap_error:
+            execution_blockers.append(order_cap_error)
+        if inventory_cap_error:
+            execution_blockers.append(inventory_cap_error)
+        if not approved:
+            execution_blockers.append(f"{approval_name}=YES is required")
+
+        enabled = symbol in execution
+        execution_permitted = enabled and not execution_blockers
+        if enabled and not execution_permitted:
+            blocked_execution.append(symbol)
+        if execution_permitted and champion is not None:
+            permitted_execution.append(symbol)
+            active_policies[symbol] = champion
 
         eligible = not blockers
-        enabled = symbol in execution
-        if enabled and not eligible:
-            blocked_execution.append(symbol)
         candidates[symbol] = {
             "generation": generation,
             "lifecycle_status": lifecycle,
@@ -206,18 +266,26 @@ def build_execution_promotion_report(
             ),
             "promotion_eligible": eligible,
             "execution_policy_bound": execution_policy_bound,
-            "execution_policy_status": "EXECUTION_POLICY_NOT_BOUND",
+            "execution_policy_status": (
+                "ACTIVE_CHAMPION_BOUND"
+                if execution_policy_bound else "EXECUTION_POLICY_NOT_BOUND"
+            ),
             "execution_enabled": enabled,
+            "execution_permitted": execution_permitted,
+            "execution_blocking_reasons": execution_blockers,
+            "active_champion": champion,
             "blocking_reasons": blockers,
         }
 
     return {
-        "schema_version": 1,
-        "mode": "STAGED",
+        "schema_version": 2,
+        "mode": "CHAMPION_CHALLENGER",
         "can_change_execution_scope": False,
         "lookahead": False,
         "candidate_symbols": list(candidate_symbols),
         "blocked_execution_symbols": blocked_execution,
+        "execution_permitted_symbols": permitted_execution,
+        "active_champions": active_policies,
         "candidates": candidates,
     }
 
@@ -246,12 +314,10 @@ def prepare_execution_promotion_report(
             "BTCUSDT,ETHUSDT",
         )
     )
-    new_execution = (
-        symbol.strip().upper()
-        for symbol in execution_symbols
-        if symbol.strip().upper() not in _REVIEWED_BASELINE_EXECUTION_SYMBOLS
+    configured_execution = (
+        symbol.strip().upper() for symbol in execution_symbols if symbol.strip()
     )
-    candidates = list(dict.fromkeys([*candidates, *new_execution]))
+    candidates = list(dict.fromkeys([*candidates, *configured_execution]))
     report = build_execution_promotion_report(
         execution_symbols=execution_symbols,
         prediction_symbols=prediction_symbols,
@@ -259,7 +325,6 @@ def prepare_execution_promotion_report(
         store=store,
         environment=environment,
     )
-    require_safe_execution_scope(report)
     return report
 
 

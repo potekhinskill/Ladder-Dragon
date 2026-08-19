@@ -15,6 +15,7 @@ import threading
 import time
 from typing import Any, Iterable, Iterator
 
+from ladder_dragon.execution.champion_attribution import execution_attribution
 from ladder_dragon.execution.journal.connection import connect_journal
 from ladder_dragon.execution.journal.models import OrderIntent
 from ladder_dragon.execution.journal.schema import (
@@ -485,6 +486,7 @@ class OrderJournal:
     ) -> OrderIntent:
         """Persist an immutable intent before any exchange mutation occurs."""
         now = time.time()
+        metadata = execution_attribution(metadata)
         normalized = {
             "venue": self.venue,
             "symbol": symbol.upper(),
@@ -494,9 +496,7 @@ class OrderJournal:
             "quantity": _decimal_text(quantity, field="quantity"),
             "price": _price_text(price),
             "parent_client_order_id": parent_client_order_id,
-            "metadata_json": json.dumps(
-                metadata or {}, sort_keys=True, separators=(",", ":")
-            ),
+            "metadata_json": json.dumps(metadata, sort_keys=True, separators=(",", ":")),
         }
         with self._session(write=True) as con:
             inserted = con.execute(
@@ -542,7 +542,7 @@ class OrderJournal:
                     existing_metadata = json.loads(row["metadata_json"] or "{}")
                 except (json.JSONDecodeError, TypeError):
                     existing_metadata = object()
-                if existing_metadata != (metadata or {}):
+                if existing_metadata != metadata:
                     mismatches.append("metadata")
                 for field in ("quantity", "price"):
                     try:

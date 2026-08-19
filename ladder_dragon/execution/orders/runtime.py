@@ -27,8 +27,6 @@ from ladder_dragon.execution.order_recovery import OrderJournal, TERMINAL_EXCHAN
 from ladder_dragon.execution.executor_recovery import classify_oco_legs
 from ladder_dragon.execution.orders.otoco_state import record_verified_otoco
 from ladder_dragon.execution.orders import reconciliation as active_reconciliation
-
-
 def _record_definitive_rejection(
     journal: OrderJournal | None,
     client_id: str,

@@ -52,6 +52,7 @@ from ladder_dragon.strategy.prediction.control_evidence import (
     CONTROL_KINDS,
     record_control_evidence,
 )
+from ladder_dragon.strategy.prediction.champion_registry import active_champion
 from ladder_dragon.supervision import strategy_control_gates
 from ladder_dragon.ai.ai_runtime_status import write_runtime_status
 from ladder_dragon.ai.ai_control import read_ai_control, resolve_ai_control_path
@@ -62,6 +63,11 @@ from ladder_dragon.supervision.entry_policy import (
 )
 from ladder_dragon.supervision.execution_promotion import prepare_execution_promotion_report
 from ladder_dragon.supervision.position_flatten import BUY_BLOCKING_MODES, submit_flatten_slices
+from ladder_dragon.supervision.order_cleanup import (
+    _log_order_lifetime as _cleanup_log_order_lifetime,
+    smart_cleanup_orders as _smart_cleanup_orders,
+    startup_cleanup_orders as _startup_cleanup_orders,
+)
 from ladder_dragon.supervision.vwap_config import (
     getenv_float,
     parse_limit_map,
@@ -261,6 +267,7 @@ _AI_RUNTIME_STATUS_PATH: Optional[Path] = None
 _AI_RUNTIME_STATUS: Dict[str, Any] = {}
 _AI_CONTROL_PATH: Optional[Path] = None
 _PREDICTION_SHADOW: Optional[PredictionShadowStore] = None
+_ACTIVE_CHAMPIONS: Dict[str, Dict[str, object]] = {}
 _PREDICTION_LAST_ATTEMPT: Dict[str, float] = {}
 _PREDICTION_GATE_CACHE: Dict[
     str, tuple[float, dict[str, object]]
@@ -1343,194 +1350,43 @@ def place_market_order(symbol: str, side: str, quantity: object,
 
 # Smart order cleanup
 
-def _log_order_lifetime(
+def _log_order_lifetime(symbol: str, order: Dict[str, Any], **fields: Any) -> None:
+    _cleanup_log_order_lifetime(symbol, order, runtime=globals(), **fields)
+
+
+def startup_cleanup_orders(
     symbol: str,
-    order: Dict[str, Any],
-    *,
     now_price: float,
-    age_sec: int,
-    ttl_sec: Optional[int],
-    cancel_reason: str,
-) -> None:
-    """Emit durable, secret-free evidence explaining an unfilled cancel."""
-    order_id = int(order.get("orderId") or 0)
-    observation = read_order_observation(
-        os.getenv("BOT_ORDER_JOURNAL", ""),
-        order_id,
-    )
-    limit_price = money(order.get("price") or "0")
-    market_price = money(now_price)
-    distance_pct = None
-    if market_price > 0 and limit_price > 0:
-        distance_pct = (
-            (market_price - limit_price) / market_price * Decimal("100")
-        ).quantize(Decimal("0.0001"))
-    log(
-        "[ORDER-LIFETIME] "
-        + json.dumps(
-            {
-                "symbol": symbol,
-                "order_id": order_id,
-                "cancel_reason": cancel_reason,
-                "age_sec": max(0, int(age_sec)),
-                "ttl_sec": int(ttl_sec) if ttl_sec is not None else None,
-                "limit_price": str(limit_price),
-                "market_price_at_cancel": str(market_price),
-                "limit_below_market_pct": (
-                    str(distance_pct) if distance_pct is not None else None
-                ),
-                "minimum_observed_market_price": observation.get(
-                    "market_min_price"
-                ),
-                "market_observation_count": observation.get(
-                    "market_observation_count", 0
-                ),
-                "executed_qty": str(order.get("executedQty") or "0"),
-            },
-            sort_keys=True,
-            separators=(",", ":"),
-        )
+    ladder_prices: List[float],
+    tick_size: float,
+    grace_sec: Optional[int],
+) -> Dict[str, int]:
+    """Delegate startup cleanup while preserving injectable runtime edges."""
+    return _startup_cleanup_orders(
+        symbol, now_price, ladder_prices, tick_size, grace_sec, runtime=globals()
     )
 
-def startup_cleanup_orders(symbol: str,
-                           now_price: float,
-                           ladder_prices: List[float],
-                           tick_size: float,
-                           grace_sec: Optional[int]) -> Dict[str, int]:
-    """Cancel only proven stale startup BUYs while preserving every SELL."""
-    try:
-        orders = list_open_orders(symbol)
-    except SUPERVISOR_OPERATION_ERRORS as e:
-        log(f"[START-CLEANUP] {symbol} list_open_orders failed: {e}")
-        return {"reviewed": 0, "canceled": 0}
-    if not orders:
-        return {"reviewed": 0, "canceled": 0}
 
-    allowed = {_round_to_tick(p, tick_size) for p in ladder_prices}
-    now_ms = int(time.time() * 1000)
-
-    reviewed = canceled = 0
-    for o in orders:
-        try:
-            reviewed += 1
-            # Generic ladder cleanup owns BUY intents only. Protective SELL,
-            # OCO and OTOCO legs are lifecycle-managed by the executor and may
-            # never be removed by age or ladder-distance policy.
-            if str(o.get("side") or "").upper() != "BUY":
-                continue
-            typ = (o.get("type") or "").upper()
-            if typ not in ("LIMIT", "LIMIT_MAKER"):
-                continue
-
-            price = _analytics_float(o.get("price") or 0.0)
-            pr = _round_to_tick(price, tick_size)
-            upd = int(o.get("updateTime") or o.get("time") or now_ms)
-            age = max(0, (now_ms - upd)//1000)
-
-            off = pr not in allowed
-            old = (grace_sec is not None and age > int(grace_sec))
-            offladder_grace = int(
-                os.getenv(
-                    "START_CLEANUP_OFFLADDER_GRACE_SEC",
-                    str(grace_sec if grace_sec is not None else 900),
-                )
-                or 0
-            )
-
-            do_cancel = False
-            reason = None
-            if old:
-                do_cancel = True
-                reason = f"age>{grace_sec}s"
-            elif off:
-                if offladder_grace == 0 or age > offladder_grace:
-                    do_cancel = True
-                    reason = "off-ladder"
-
-            if do_cancel:
-                if cancel_order(symbol, int(o.get("orderId"))):
-                    canceled += 1
-                    log(
-                        f"[START-CLEANUP] {symbol} canceled id={o.get('orderId')} "
-                        f"price={pr} age={age}s ttl={grace_sec}s reason={reason}"
-                    )
-                    _log_order_lifetime(
-                        symbol,
-                        o,
-                        now_price=now_price,
-                        age_sec=age,
-                        ttl_sec=grace_sec,
-                        cancel_reason=str(reason),
-                    )
-        except SUPERVISOR_OPERATION_ERRORS as e:
-            log(f"[START-CLEANUP] {symbol} skip: {e}")
-
-    log(f"[START-CLEANUP-SUM] {symbol} reviewed={reviewed} canceled={canceled}")
-    return {"reviewed": reviewed, "canceled": canceled}
-
-def smart_cleanup_orders(symbol: str,
-                         now_price: float,
-                         ladder_prices: List[float],
-                         tick_size: float,
-                         near_ttl_sec: Optional[int],
-                         far_ttl_sec: Optional[int],
-                         cancel_offladder: bool = True) -> Dict[str, int]:
-    """Apply bounded TTL cleanup without touching protective orders."""
-    try:
-        orders = list_open_orders(symbol)
-    except SUPERVISOR_OPERATION_ERRORS as e:
-        log(f"[CLEANUP] {symbol} list_open_orders failed: {e}")
-        return {"reviewed": 0, "canceled": 0}
-    if not orders:
-        return {"reviewed": 0, "canceled": 0}
-
-    now_ms = int(time.time() * 1000)
-    near_lo = now_price * 0.90
-    near_hi = now_price * 1.10
-    allowed = {_round_to_tick(p, tick_size) for p in ladder_prices} if cancel_offladder else set()
-    offladder_grace = int(
-        os.getenv("CLEANUP_OFFLADDER_GRACE_SEC", str(CLEANUP_WARMUP_SEC)) or 0
+def smart_cleanup_orders(
+    symbol: str,
+    now_price: float,
+    ladder_prices: List[float],
+    tick_size: float,
+    near_ttl_sec: Optional[int],
+    far_ttl_sec: Optional[int],
+    cancel_offladder: bool = True,
+) -> Dict[str, int]:
+    """Delegate periodic cleanup while preserving injectable runtime edges."""
+    return _smart_cleanup_orders(
+        symbol,
+        now_price,
+        ladder_prices,
+        tick_size,
+        near_ttl_sec,
+        far_ttl_sec,
+        cancel_offladder,
+        runtime=globals(),
     )
-
-    reviewed = canceled = 0
-    for o in orders:
-        try:
-            reviewed += 1
-            # SELL orders can be the only active protection for filled
-            # inventory. Only the executor's exact lifecycle may cancel them.
-            if str(o.get("side") or "").upper() != "BUY":
-                continue
-            price = _analytics_float(o.get("price") or 0.0)
-            pr = _round_to_tick(price, tick_size)
-            upd = int(o.get("updateTime") or o.get("time") or now_ms)
-            age = max(0, (now_ms - upd)//1000)
-
-            in_near = (near_lo <= price <= near_hi)
-            ttl = (near_ttl_sec if in_near else far_ttl_sec)
-            reason = None
-
-            if ttl and age > ttl:
-                reason = f"age>{ttl}s"
-            elif cancel_offladder and pr not in allowed and age > offladder_grace:
-                reason = "off-ladder"
-
-            if reason:
-                if cancel_order(symbol, int(o.get("orderId"))):
-                    canceled += 1
-                    log(f"[CLEANUP] {symbol} canceled {o.get('side')} {o.get('type')} id={o.get('orderId')} price={pr} age={age}s reason={reason}")
-                    _log_order_lifetime(
-                        symbol,
-                        o,
-                        now_price=now_price,
-                        age_sec=age,
-                        ttl_sec=ttl,
-                        cancel_reason=str(reason),
-                    )
-        except SUPERVISOR_OPERATION_ERRORS as e:
-            log(f"[CLEANUP] {symbol} skip: {e}")
-
-    log(f"[CLEANUP-SUM] {symbol} reviewed={reviewed} canceled={canceled}")
-    return {"reviewed": reviewed, "canceled": canceled}
 
 # Ladder scheduler
 
@@ -2869,6 +2725,29 @@ def run_for_symbol(
     execution_allowed: bool = True,
 ) -> None:
     """Build one plan; optionally retain only read-only SHADOW telemetry."""
+    champion = _ACTIVE_CHAMPIONS.get(symbol.upper()) if execution_allowed else None
+    if execution_allowed and champion is None:
+        raise RuntimeError("active CHAMPION is required for execution")
+    if execution_allowed:
+        if _PREDICTION_SHADOW is None:
+            _stop_children("CHAMPION registry is unavailable")
+            raise RuntimeError("CHAMPION registry is unavailable")
+        current_champion = active_champion(_PREDICTION_SHADOW, symbol=symbol)
+        if (
+            current_champion is None
+            or current_champion.get("champion_fingerprint")
+            != champion.get("champion_fingerprint")
+        ):
+            # Never let an old child keep trading after an operator activates
+            # a replacement. The next reviewed startup loads the new policy.
+            _stop_children("active CHAMPION changed during runtime")
+            raise RuntimeError("active CHAMPION changed during runtime")
+    champion_policy = (
+        champion.get("execution_policy")
+        if isinstance(champion, Mapping) else None
+    )
+    if execution_allowed and not isinstance(champion_policy, Mapping):
+        raise RuntimeError("active CHAMPION execution policy is unavailable")
     cycle_log = log if execution_allowed else lambda message: _log_info_rate_limited(
         f"blocked-shadow-detail:{symbol}:{message.partition(']')[0]}",
         message, interval_sec=900.0,
@@ -3046,6 +2925,18 @@ def run_for_symbol(
         expectancy_mode=expectancy_mode,
         maker_mode=maker_mode,
     )
+    if champion is not None:
+        # The worker rechecks these identifiers against the authoritative
+        # append-only registry before it can make a LIVE exchange mutation.
+        extra_env.update({
+            "BOT_CHAMPION_ACTIVATION_ID": champion["activation_id"],
+            "BOT_CHAMPION_FINGERPRINT": champion["champion_fingerprint"],
+            "BOT_CHAMPION_POLICY_FINGERPRINT": champion[
+                "execution_policy_fingerprint"
+            ],
+            "BUY_LIMIT_MAKER": "1",
+            "SELL_LIMIT_MAKER": "1",
+        })
     advisor_active = (
         _AI_ADVISOR is not None
         and (_AI_POLICY is None or _AI_POLICY.mode != "DISABLED")
@@ -3207,6 +3098,24 @@ def run_for_symbol(
         tp_floor=args.tp1_min,
         tp_ceiling=args.tp1_max,
     )
+    champion_stop_pct: Decimal | None = None
+    champion_entry_ttl_sec: int | None = None
+    if isinstance(champion_policy, Mapping):
+        # A CHAMPION consumes the exact frozen semantics. Market classifiers,
+        # AI, and recent PnL may block or reduce risk, but cannot retune it.
+        entry_gap = _finite_decimal(
+            champion_policy["entry_gap_bps"], name="CHAMPION entry gap"
+        ) / Decimal("10000")
+        tp1_exact = _finite_decimal(
+            champion_policy["target_return"], name="CHAMPION target return"
+        )
+        minimum_profit = tp1_exact
+        champion_stop_pct = -_finite_decimal(
+            champion_policy["stop_distance"], name="CHAMPION stop distance"
+        )
+        champion_entry_ttl_sec = int(champion_policy["entry_ttl_sec"])
+        target_buys_use = 1
+        ai_width_scale = 1.0
     expectancy_configuration_passes = bool(
         required_edge is not None
         and minimum_profit >= required_edge
@@ -3226,12 +3135,16 @@ def run_for_symbol(
         "DEV_BUY_PCT": format(entry_gap, "f"),
         "MIN_PROFIT_OVER_AVG": format(minimum_profit, "f"),
     })
-    if dir_mode == "UP":
+    if champion_policy is not None:
+        target_buys_use = 1
+    elif dir_mode == "UP":
         target_buys_use = max(1, int(args.dir_up_target_buys))
     elif dir_mode == "DOWN":
         target_buys_use = max(1, int(args.dir_down_target_buys))
-    adaptive_target_buys = round(
-        param_hyst["buys"].update(_analytics_float(target_buys_use))
+    adaptive_target_buys = (
+        1
+        if champion_policy is not None
+        else round(param_hyst["buys"].update(_analytics_float(target_buys_use)))
     )
     target_buys_use = limit_target_buys(
         adaptive_target_buys,
@@ -3263,15 +3176,29 @@ def run_for_symbol(
     tick_exact = filters.get("tickSizeExact", tick)
 
     # 5) Build the ladder and deduplicate by tick step and side
-    low *= ai_width_scale
-    down *= ai_width_scale
-    up *= ai_width_scale
-    ladder_all = build_ladder_pct(now_p, low, down, up, args.grid_density)
-    # DEV_BUY_PCT used to be a dead child environment value. Add the exact
-    # adaptive best BUY to the actual ladder so an UP market starts closer
-    # without crossing the market or enabling re-anchor APPLY.
     adaptive_best_buy = _adaptive_best_buy_price(now_p, entry_gap)
-    ladder_all.append(adaptive_best_buy)
+    if isinstance(champion_policy, Mapping):
+        champion_entry = _finite_decimal(
+            adaptive_best_buy, name="CHAMPION entry price"
+        )
+        champion_target = champion_entry * (Decimal("1") + tp1_exact)
+        champion_stop = champion_entry * (
+            Decimal("1") + (champion_stop_pct or Decimal("0"))
+        )
+        # The worker prioritizes the closest BUY and enforces one active BUY.
+        # The lower and upper anchors provide the exact OCO stop and target.
+        ladder_all = [
+            _analytics_float(champion_stop),
+            _analytics_float(champion_entry),
+            _analytics_float(champion_target),
+        ]
+    else:
+        low *= ai_width_scale
+        down *= ai_width_scale
+        up *= ai_width_scale
+        ladder_all = build_ladder_pct(now_p, low, down, up, args.grid_density)
+        # Add the exact adaptive best BUY to the executable baseline ladder.
+        ladder_all.append(adaptive_best_buy)
     ladder_all = _deduplicate_ladder_prices(ladder_all, now_p, tick_exact)
 
     if execution_allowed:
@@ -3292,25 +3219,40 @@ def run_for_symbol(
             now_price=now_p,
             ladder_prices=ladder_all,
             tick_size=tick,
-            near_ttl_sec=args.near_ttl_sec,
-            far_ttl_sec=args.far_ttl_sec,
+            near_ttl_sec=(champion_entry_ttl_sec or args.near_ttl_sec),
+            far_ttl_sec=(champion_entry_ttl_sec or args.far_ttl_sec),
             cancel_offladder=True,
         )
 
         reanchor_gate = (
             _prediction_reanchor_gate(symbol)
-            if str(args.reanchor_mode).upper() == "APPLY"
+            if champion_policy is None
+            and str(args.reanchor_mode).upper() == "APPLY"
             else {"approved": False, "mode": "SHADOW"}
         )
-        sr = smart_rolling(
-            symbol,
-            now_p,
-            ladder_all,
-            args,
-            tick_size=tick_exact,
-            prediction_apply_approved=bool(
-                reanchor_gate.get("approved", False)
-            ),
+        sr = (
+            smart_rolling(
+                symbol,
+                now_p,
+                ladder_all,
+                args,
+                tick_size=tick_exact,
+                prediction_apply_approved=bool(
+                    reanchor_gate.get("approved", False)
+                ),
+            )
+            if champion_policy is None
+            else {
+                "kept": 0,
+                "cancel": {
+                    "ttl": 0,
+                    "atr": 0,
+                    "reanchor": 0,
+                    "shadow": 0,
+                },
+                "proposals": [],
+                "replacement_prices": [],
+            }
         )
         _publish_reanchor_runtime(symbol, sr, args)
         log(
@@ -3363,6 +3305,14 @@ def run_for_symbol(
             risk_safe_cap = min(
                 risk_safe_cap,
                 max(Decimal("0"), symbol_cap),
+            )
+        if isinstance(champion_policy, Mapping):
+            risk_safe_cap = min(
+                risk_safe_cap,
+                _finite_decimal(
+                    champion_policy["maximum_order_notional_usdt"],
+                    name="CHAMPION maximum order notional",
+                ),
             )
         try:
             hard_inventory_cap = _managed_inventory_hard_cap(symbol)
@@ -3517,6 +3467,8 @@ def run_for_symbol(
     orig_vwap_scale = getattr(args, "child_buy_vwap_discount_scale", None)
     orig_vwap_interval = getattr(args, "child_buy_vwap_interval", None)
     orig_vwap_window = getattr(args, "child_buy_vwap_window", None)
+    orig_bear_buy_shift = getattr(args, "child_bear_buy_shift_pct", 0.0)
+    orig_sl = args.sl
     if execution_allowed:
         try:
             args.target_buy_per_symbol = int(target_buys_use)
@@ -3525,13 +3477,20 @@ def run_for_symbol(
             args.child_buy_vwap_discount_scale = vwap_scale_final
             args.child_buy_vwap_interval = vwap_interval_final
             args.child_buy_vwap_window = vwap_window_final
+            if champion_policy is not None:
+                # These adapters can only block a CHAMPION. They cannot move
+                # its entry or widen its stop after activation.
+                args.child_buy_vwap_discount = None
+                args.child_buy_vwap_discount_scale = None
+                args.child_bear_buy_shift_pct = 0.0
+                args.sl = _analytics_float(champion_stop_pct)
             run_child(
                 symbol,
                 ladder_for_child,
                 args,
                 extra_env=extra_env,
                 tp1=tp1_use,
-                tp2=tp2_use,
+                tp2=(tp1_use if champion_policy is not None else tp2_use),
             )
         finally:
             args.target_buy_per_symbol = orig_tb
@@ -3540,6 +3499,8 @@ def run_for_symbol(
             args.child_buy_vwap_discount_scale = orig_vwap_scale
             args.child_buy_vwap_interval = orig_vwap_interval
             args.child_buy_vwap_window = orig_vwap_window
+            args.child_bear_buy_shift_pct = orig_bear_buy_shift
+            args.sl = orig_sl
 
     # In execution mode SHADOW analytics runs only after the deterministic
     # worker launch. In blocked mode no worker or mutation path exists, so the
@@ -3550,7 +3511,10 @@ def run_for_symbol(
             now_price=now_p,
             ladder=ladder_all,
             take_profit_pct=tp1_use,
-            stop_pct=args.sl,
+            stop_pct=(
+                champion_stop_pct
+                if champion_stop_pct is not None else args.sl
+            ),
             deterministic_mode=dir_mode,
             rolling=sr,
             required_edge_pct=required_edge,
@@ -4181,7 +4145,7 @@ def main():
     global _AI_ADVISOR, _AI_DECISIONS, _AI_DECISIONS_PATH
     global _AI_KNOWLEDGE, _AI_POLICY
     global _AI_RUNTIME_STATUS_PATH, _AI_RUNTIME_STATUS, _AI_CONTROL_PATH
-    global _PREDICTION_SHADOW
+    global _PREDICTION_SHADOW, _ACTIVE_CHAMPIONS
     _AI_DECISION_IDS.clear()
     _AI_CONTEXT_CACHE.clear()
     _PREDICTION_LAST_ATTEMPT.clear()
@@ -4254,6 +4218,31 @@ def main():
             store=_PREDICTION_SHADOW, environment=os.environ)
     except ValueError as exc:
         ap.error(str(exc))
+    active_champions = execution_promotion.get("active_champions", {})
+    _ACTIVE_CHAMPIONS = (
+        {
+            str(symbol).upper(): dict(champion)
+            for symbol, champion in active_champions.items()
+            if isinstance(champion, Mapping)
+        }
+        if isinstance(active_champions, Mapping)
+        else {}
+    )
+    for symbol, champion in _ACTIVE_CHAMPIONS.items():
+        policy = champion.get("execution_policy")
+        if not isinstance(policy, Mapping):
+            ap.error(f"CHAMPION policy is unavailable for {symbol}")
+        cap_name = f"RISK_MANAGED_INVENTORY_HARD_CAP_{symbol}"
+        configured_cap = _finite_decimal(
+            os.environ.get(cap_name, "0") or "0", name=cap_name
+        )
+        champion_cap = _finite_decimal(
+            policy["maximum_inventory_usdt"],
+            name="CHAMPION maximum inventory",
+        )
+        # Runtime configuration may reduce the reviewed maximum. It can never
+        # increase the immutable CHAMPION inventory boundary.
+        os.environ[cap_name] = format(min(configured_cap, champion_cap), "f")
     _AI_RUNTIME_STATUS_PATH = Path(
         os.getenv("AI_RUNTIME_STATUS_FILE", str(run_dir / "ai_status.json"))
     )
@@ -4802,7 +4791,11 @@ def main():
 
             for sym in symbols:
                 try:
-                    run_for_symbol(sym, args)
+                    run_for_symbol(
+                        sym,
+                        args,
+                        execution_allowed=sym.upper() in _ACTIVE_CHAMPIONS,
+                    )
                 except SUPERVISOR_OPERATION_ERRORS as e:
                     log(f"[ERR] {sym}: {e}")
                 time.sleep(0.2)

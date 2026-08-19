@@ -168,6 +168,24 @@ Future data may either evaluate a frozen hypothesis or help construct the next o
 A passed first gate only permits a separate second-gate review.
 It always keeps `apply_allowed=false`.
 
+## CHAMPION and CHALLENGER execution
+
+Each symbol can have one active CHAMPION policy.
+The activation table and replacement chain are append-only.
+Every replacement references the reviewed previous activation.
+
+The CHAMPION fixes the entry gap, entry lifetime, target, stop, and maximum exposure.
+The supervisor passes its three fingerprints to the worker.
+The worker verifies them against the prediction database before LIVE execution.
+
+A CHALLENGER stays in SHADOW until independent confirmation.
+Confirmation cannot change orders or activate the candidate.
+Activation requires a persistent execution HALT and explicit operator confirmation.
+
+Runtime controls can reduce order size or block BUY.
+They can cancel open BUY orders or flatten for safety.
+They cannot increase size or change CHAMPION strategy parameters.
+
 Authenticated User Data Stream soak is also independent from execution. The
 `ladder-dragon-user-stream-shadow` service has no POST, DELETE, placement or
 cancel path; each accepted order notification can only wake an authoritative

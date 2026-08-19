@@ -26,6 +26,8 @@ An approval variable does not bypass HALT, CAP, reserve, or reconciliation.
 The applicable mode must also be `APPLY`.
 Candidate promotion also requires a current `CONFIRMED` experiment.
 It requires explicit order and managed-inventory CAPs for that symbol.
+Confirmation permits activation review but does not start execution.
+Activation requires a persistent HALT and the reviewed report and manifest fingerprints.
 
 ## Strategy and prediction
 
@@ -162,13 +164,14 @@ Prediction SHADOW symbols use separate symbol-scoped evidence.
 They never extend `BOT_SERVICE_SYMBOLS` or start execution workers.
 Each symbol requires its own statistical PASS before separate APPLY approval.
 Execution candidates remain staged until all promotion gates pass.
-Premature addition to `BOT_SERVICE_SYMBOLS` blocks supervisor startup.
-Removing a new execution symbol from the candidate list cannot bypass this gate.
+An execution symbol without an active CHAMPION remains SHADOW-only.
+The supervisor does not start its execution worker.
+Removing a symbol from the candidate list cannot bypass the CHAMPION gate.
 Market analysis uses an independent public-data symbol list.
 Its symbols never extend `BOT_SERVICE_SYMBOLS`.
-SOLUSDT version fourteen holds a 48 basis-point gap and tests 60-minute, 75-minute, and 90-minute lifetimes.
-ETHUSDT uses version-twelve gaps of 19, 22, and 27 basis points.
-BTCUSDT version twelve uses calibrated gaps of 8.4, 9.4, and 10.3 basis points.
+SOLUSDT version fifteen tests a 48 basis-point gap and three entry lifetimes.
+ETHUSDT version fourteen uses 20, 21, and 22 basis-point gaps.
+BTCUSDT version thirteen uses 8.4, 9.4, and 10.3 basis-point gaps.
 Earlier SOLUSDT, ETHUSDT, and BTCUSDT generations remain visible as superseded evidence.
 
 ## Dashboard and notifications

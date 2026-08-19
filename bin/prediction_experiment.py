@@ -12,6 +12,12 @@ from pathlib import Path
 import subprocess
 
 from product_version import __version__
+from ladder_dragon.strategy.prediction.champion_registry import (
+    activate_champion,
+    active_champion,
+    execution_policy_from_manifest,
+    list_champions,
+)
 from ladder_dragon.strategy.prediction.experiment_lifecycle import (
     candidate_rule,
     confirmation_report,
@@ -69,6 +75,27 @@ def _parser() -> argparse.ArgumentParser:
     supersede.add_argument("experiment_id")
     supersede.add_argument("--reason", required=True)
     supersede.add_argument("--confirm", required=True)
+    champions = subparsers.add_parser(
+        "champions", help="List immutable CHAMPION activations."
+    )
+    champions.add_argument("--symbol")
+    preview_champion = subparsers.add_parser(
+        "champion-preview", help="Preview one exact CHAMPION activation."
+    )
+    preview_champion.add_argument("experiment_id")
+    preview_champion.add_argument("--maximum-order-usdt", required=True)
+    preview_champion.add_argument("--maximum-inventory-usdt", required=True)
+    activate = subparsers.add_parser(
+        "champion-activate", help="Activate one reviewed CONFIRMED candidate."
+    )
+    activate.add_argument("experiment_id")
+    activate.add_argument("--report-sha256", required=True)
+    activate.add_argument("--manifest-sha256", required=True)
+    activate.add_argument("--expected-previous-activation-id", required=True)
+    activate.add_argument("--maximum-order-usdt", required=True)
+    activate.add_argument("--maximum-inventory-usdt", required=True)
+    activate.add_argument("--halt-file", required=True, type=Path)
+    activate.add_argument("--confirm", required=True)
     return parser
 
 
@@ -166,6 +193,56 @@ def main(argv: list[str] | None = None) -> int:
                 reason=args.reason,
             ),
         }
+    elif args.command == "champions":
+        payload = list_champions(store, symbol=args.symbol)
+    elif args.command == "champion-preview":
+        manifest = load_manifest(store, args.experiment_id)
+        report = confirmation_report(store, experiment_id=args.experiment_id)
+        current = active_champion(store, symbol=str(manifest["symbol"]))
+        policy = execution_policy_from_manifest(
+            manifest,
+            maximum_order_notional_usdt=args.maximum_order_usdt,
+            maximum_inventory_usdt=args.maximum_inventory_usdt,
+        )
+        payload = {
+            "status": "READY_FOR_EXPLICIT_ACTIVATION"
+            if report.get("promotion_eligible") else "BLOCKED",
+            "experiment_id": args.experiment_id,
+            "symbol": manifest["symbol"],
+            "manifest_sha256": manifest["manifest_sha256"],
+            "confirmation_report_sha256": report.get("report_sha256"),
+            "promotion_eligible": bool(report.get("promotion_eligible")),
+            "current_champion_activation_id": (
+                current["activation_id"] if current is not None else None
+            ),
+            "execution_policy": policy,
+            "apply_allowed": False,
+            "reason": (
+                "repeat with champion-activate and --confirm ACTIVATE"
+                if report.get("promotion_eligible")
+                else "independent confirmation has not passed"
+            ),
+        }
+    elif args.command == "champion-activate":
+        if args.confirm != "ACTIVATE":
+            raise SystemExit("--confirm must equal ACTIVATE")
+        if not args.halt_file.is_file():
+            raise SystemExit("persistent execution HALT must exist before activation")
+        previous = args.expected_previous_activation_id.strip()
+        if previous.upper() == "NONE":
+            previous = None
+        payload = activate_champion(
+            store,
+            experiment_id=args.experiment_id,
+            expected_report_sha256=args.report_sha256,
+            expected_manifest_sha256=args.manifest_sha256,
+            expected_previous_activation_id=previous,
+            maximum_order_notional_usdt=args.maximum_order_usdt,
+            maximum_inventory_usdt=args.maximum_inventory_usdt,
+            product_version=__version__,
+            source_commit=_source_commit(),
+            execution_halt_confirmed=True,
+        )
     else:
         variants = _selection_variants(
             store,
