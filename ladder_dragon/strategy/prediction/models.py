@@ -64,6 +64,8 @@ class TradePlan:
     taker_buy_fee_pct: Decimal | None = None
     taker_sell_fee_pct: Decimal | None = None
     fee_provenance: str = "CONFIGURED_SYMMETRIC_V1"
+    stop_limit_offset_pct: Decimal = Decimal("0.0015")
+    maximum_holding_min: int | None = None
 
     def __post_init__(self) -> None:
         values = (
@@ -73,6 +75,7 @@ class TradePlan:
             self.notional_quote,
             self.fee_pct,
             self.slippage_pct,
+            self.stop_limit_offset_pct,
         )
         if any(not value.is_finite() for value in values):
             raise ValueError("trade plan values must be finite")
@@ -82,6 +85,10 @@ class TradePlan:
             raise ValueError("trade plan must satisfy stop < entry < take profit")
         if self.fee_pct < 0 or self.slippage_pct < 0:
             raise ValueError("execution costs must be non-negative")
+        if self.stop_limit_offset_pct <= 0:
+            raise ValueError("stop-limit offset must be positive")
+        if self.stop_price * (Decimal("1") + self.stop_limit_offset_pct) >= self.entry_price:
+            raise ValueError("stop trigger must remain below entry")
         exact_fees = (
             self.maker_buy_fee_pct,
             self.maker_sell_fee_pct,
@@ -110,6 +117,12 @@ class TradePlan:
             raise ValueError("entry TTL must be a positive integer")
         if not isinstance(self.entry_enabled, bool):
             raise ValueError("entry_enabled must be boolean")
+        if self.maximum_holding_min is not None and (
+            isinstance(self.maximum_holding_min, bool)
+            or not isinstance(self.maximum_holding_min, int)
+            or self.maximum_holding_min <= 0
+        ):
+            raise ValueError("maximum holding time must be a positive integer")
 
 
 def trade_plan_fee_fields(raw: Mapping[str, object]) -> dict[str, object]:
@@ -130,6 +143,16 @@ def trade_plan_fee_fields(raw: Mapping[str, object]) -> dict[str, object]:
     fields["fee_provenance"] = str(
         raw.get("fee_provenance") or "CONFIGURED_SYMMETRIC_V1"
     )
+    try:
+        fields["stop_limit_offset_pct"] = Decimal(
+            str(raw.get("stop_limit_offset_pct", "0.0015"))
+        )
+        maximum_holding = raw.get("maximum_holding_min")
+        fields["maximum_holding_min"] = (
+            int(maximum_holding) if maximum_holding is not None else None
+        )
+    except (InvalidOperation, TypeError, ValueError) as exc:
+        raise ValueError("protective plan fields are invalid") from exc
     return fields
 
 

@@ -466,9 +466,9 @@ function updateTrading(t){
 }
 function updateShadowExperiments(prediction){
   const symbols=prediction.symbols&&typeof prediction.symbols==='object'?prediction.symbols:{};
-  const reports=Object.entries(symbols).map(([symbol,row])=>[symbol,row?.shadow_experiments]).filter(([,report])=>report?.variants);
-  const candidateCount=reports.reduce((total,[,report])=>total+Object.keys(report.variants||{}).length,0);
-  const ready=reports.filter(([,report])=>report.eligible_for_second_gate_review).length;
+  const reports=Object.entries(symbols).map(([symbol,row])=>[symbol,row?.shadow_experiments]).filter(([,report])=>report?.variants||report?.execution_episode);
+  const candidateCount=reports.reduce((total,[,report])=>total+(report.execution_episode?1:Object.keys(report.variants||{}).length),0);
+  const ready=reports.filter(([,report])=>report.eligible_for_second_gate_review||report.execution_episode?.promotion_eligible).length;
   const summary=$('#shadow-experiments-summary'), body=$('#shadow-experiments-body');
   if(!summary||!body) return;
   // The polling refresh replaces this subtree. Preserve each operator-opened
@@ -477,6 +477,10 @@ function updateShadowExperiments(prediction){
   summary.textContent=tr('shadow_experiment_summary',{count:candidateCount,ready});
   body.innerHTML=reports.length?reports.map(([symbol,report])=>{
     const generation=String(report.generation||'');
+    if(report.execution_episode&&report.lifecycle_mode==='PROMOTION'){
+      const episode=report.execution_episode, validation=episode.model_validation||{}, next=episode.next_sequential_look==null?NaN:Number(episode.next_sequential_look), terminal=Number(episode.eligible_terminal_episodes||0), signTrials=Number(episode.nonzero_sign_trials||0), filled=Number(episode.filled_episodes||0), readyAt=episode.projected_ready_ts_ms==null?NaN:Number(episode.projected_ready_ts_ms), readyDays=Number.isFinite(readyAt)?Math.max(0,(readyAt-Date.now())/86400000):NaN;
+      return `<section class="shadow-experiment-symbol"><h3>${esc(symbol)} · ${esc(generation.toUpperCase())} · ${esc(String(report.lifecycle_status||'PRESELECTED'))}</h3><div class="shadow-experiment-row"><div><strong>${esc(String(report.variant_id||'—').replaceAll('_',' '))}</strong><span class="pill ${episode.status==='PASS'?'ok':'warn'}">${esc(String(episode.status||'SHADOW'))}</span></div><div class="muted">${esc(tr('shadow_samples'))}: ${signTrials}/${Number.isFinite(next)?next:signTrials} · episodes: ${terminal} · ${esc(tr('shadow_fill'))}: ${filled}/${terminal} · 360m primary · 300m diagnostic</div><div class="muted">${esc(tr('shadow_ready_eta'))}: ${Number.isFinite(readyAt)?esc(tsShort(readyAt)):'—'} · ${esc(tr('shadow_ready_days'))}: ${Number.isFinite(readyDays)?fmt(readyDays,1):'—'} · ${esc(tr('shadow_waiting_reason'))}: ${esc(String(episode.readiness_reason||'—'))}</div><div class="muted">${esc(tr('shadow_execution_model'))}: ${esc(String(validation.status||'BLOCKED'))} · ${esc(String(episode.execution_model_rule||'—'))} · active=${episode.active_episode===true?'yes':'no'}</div></div></section>`;
+    }
     const confirmation=report.confirmation_evidence||{};
     const progress=report.selection_progress||{}, variantRows=Object.values(report.variants||{});
     const progressAge=progress.age_sec==null?NaN:Number(progress.age_sec)/3600, selectionPassed=variantRows.filter(row=>row.selection_gate_passed).length;

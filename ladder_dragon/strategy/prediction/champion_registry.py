@@ -22,7 +22,7 @@ if TYPE_CHECKING:
 
 
 D = Decimal
-CHAMPION_POLICY_SCHEMA_VERSION = 1
+CHAMPION_POLICY_SCHEMA_VERSION = 2
 PROTECTIVE_RUNTIME_ACTIONS = (
     "REDUCE_ORDER_NOTIONAL",
     "BLOCK_BUY",
@@ -135,7 +135,7 @@ def execution_policy_from_manifest(
     parameters = manifest.get("candidate_parameters")
     if not isinstance(parameters, Mapping):
         raise ValueError("candidate parameters are unavailable")
-    if parameters.get("candidate_rule_version") != 2:
+    if parameters.get("candidate_rule_version") != 3:
         raise ValueError("CHAMPION candidate rule is not execution-bound")
     if parameters.get("entry_order_policy") != "LIMIT_MAKER":
         raise ValueError("CHAMPION entry policy must be LIMIT_MAKER")
@@ -159,9 +159,24 @@ def execution_policy_from_manifest(
     target_return = _positive_decimal(
         parameters.get("target_return"), field="target return"
     )
-    stop_distance = _positive_decimal(
-        parameters.get("stop_distance"), field="stop distance"
+    stop_limit_distance = _positive_decimal(
+        parameters.get("stop_limit_distance"), field="stop-limit distance"
     )
+    stop_trigger_offset = _positive_decimal(
+        parameters.get("stop_trigger_offset_pct"),
+        field="stop trigger offset",
+    )
+    if stop_trigger_offset >= stop_limit_distance:
+        raise ValueError("stop trigger offset must remain below entry")
+    maximum_holding = parameters.get("maximum_holding_min")
+    primary_horizon = parameters.get("primary_horizon_min")
+    if (
+        isinstance(maximum_holding, bool)
+        or not isinstance(maximum_holding, int)
+        or maximum_holding <= 0
+        or maximum_holding != primary_horizon
+    ):
+        raise ValueError("maximum holding time must equal the primary horizon")
     ttl = parameters.get("entry_ttl_sec")
     if isinstance(ttl, bool) or not isinstance(ttl, int) or ttl <= 0:
         raise ValueError("entry TTL must be a positive integer")
@@ -186,7 +201,10 @@ def execution_policy_from_manifest(
         "entry_gap_bps": format(entry_gap, "f"),
         "entry_ttl_sec": ttl,
         "target_return": format(target_return, "f"),
-        "stop_distance": format(stop_distance, "f"),
+        "stop_limit_distance": format(stop_limit_distance, "f"),
+        "stop_trigger_offset_pct": format(stop_trigger_offset, "f"),
+        "maximum_holding_min": maximum_holding,
+        "primary_horizon_min": primary_horizon,
         "entry_order_policy": "LIMIT_MAKER",
         "take_profit_order_policy": "LIMIT_MAKER",
         "stop_order_policy": "STOP_LOSS_LIMIT",
@@ -202,6 +220,8 @@ def execution_policy_from_manifest(
             "CHANGE_ENTRY_GAP",
             "CHANGE_ENTRY_TTL",
             "CHANGE_TAKE_PROFIT",
+            "CHANGE_STOP_TRIGGER_OFFSET",
+            "CHANGE_MAXIMUM_HOLDING_TIME",
         ],
     }
 

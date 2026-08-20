@@ -56,6 +56,13 @@ def main() -> int:
         type=Decimal,
         default=Decimal("10"),
     )
+    for name in (
+        "maker-buy-fee-pct",
+        "maker-sell-fee-pct",
+        "taker-buy-fee-pct",
+        "taker-sell-fee-pct",
+    ):
+        parser.add_argument(f"--{name}", type=Decimal, required=True)
     args = parser.parse_args()
     report = validate_replay_outcomes(
         load_jsonl_archive(args.archive),
@@ -72,6 +79,10 @@ def main() -> int:
         maximum_slippage_error_bps_mae=(
             args.maximum_slippage_error_bps_mae
         ),
+        maker_buy_fee_pct=args.maker_buy_fee_pct,
+        maker_sell_fee_pct=args.maker_sell_fee_pct,
+        taker_buy_fee_pct=args.taker_buy_fee_pct,
+        taker_sell_fee_pct=args.taker_sell_fee_pct,
     )
     rendered = json.dumps(report.as_dict(), indent=2, sort_keys=True) + "\n"
     if args.output:

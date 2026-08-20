@@ -55,6 +55,7 @@ from ladder_dragon.strategy.prediction.walk_forward import (
 
 D = Decimal
 EDGE_EPSILON_PCT = D("0.000001")
+# Keep historical API defaults stable. Runtime symbol resolution selects v17.
 SHADOW_GENERATION = SOL_V16_SPEC.generation
 EXPERIMENT_HORIZONS_MIN = SOL_V16_SPEC.horizons_min
 MAKER_TTLS = SOL_V16_SPEC.maker_ttls
@@ -110,13 +111,23 @@ def _candidate_plan(
     entry_ttl_sec: int | None = None,
     entry_enabled: bool = True,
     slippage_pct: Decimal | None = None,
+    stop_limit_offset_pct: Decimal | None = None,
+    maximum_holding_min: int | None = None,
+    stop_limit_distance: Decimal | None = None,
+    evidence_notional_quote: Decimal | None = None,
 ) -> TradePlan:
-    stop_distance = D("1") - baseline.stop_price / baseline.entry_price
+    stop_distance = (
+        D("1") - baseline.stop_price / baseline.entry_price
+        if stop_limit_distance is None else stop_limit_distance
+    )
     return TradePlan(
         entry_price=entry_price,
         take_profit_price=entry_price * (D("1") + target_pct),
         stop_price=entry_price * (D("1") - stop_distance),
-        notional_quote=baseline.notional_quote,
+        notional_quote=(
+            baseline.notional_quote
+            if evidence_notional_quote is None else evidence_notional_quote
+        ),
         fee_pct=baseline.fee_pct,
         slippage_pct=(
             baseline.slippage_pct
@@ -130,6 +141,14 @@ def _candidate_plan(
         taker_buy_fee_pct=baseline.taker_buy_fee_pct,
         taker_sell_fee_pct=baseline.taker_sell_fee_pct,
         fee_provenance=baseline.fee_provenance,
+        stop_limit_offset_pct=(
+            baseline.stop_limit_offset_pct
+            if stop_limit_offset_pct is None else stop_limit_offset_pct
+        ),
+        maximum_holding_min=(
+            baseline.maximum_holding_min
+            if maximum_holding_min is None else maximum_holding_min
+        ),
     )
 
 
@@ -169,10 +188,18 @@ def build_shadow_variants(
             plan=_candidate_plan(
                 baseline_plan,
                 entry_price=entry_price,
-                target_pct=max(candidate_target, target_pct),
+                target_pct=(
+                    candidate_target
+                    if spec.lifecycle_mode == "PROMOTION"
+                    else max(candidate_target, target_pct)
+                ),
                 entry_ttl_sec=entry_ttl_sec,
                 entry_enabled=entry_enabled,
                 slippage_pct=D("0") if maker_only else None,
+                stop_limit_offset_pct=spec.stop_limit_offset_pct,
+                maximum_holding_min=spec.maximum_holding_min,
+                stop_limit_distance=spec.stop_limit_distance,
+                evidence_notional_quote=spec.evidence_notional_quote,
             ),
             baseline_plan=baseline_plan,
             maker_only=maker_only,
@@ -182,13 +209,22 @@ def build_shadow_variants(
             ),
             regime_policy=spec.regime_policy,
             model_rule=(
+                "fixed_rule:no_online_training"
+                if spec.statistical_design_version
+                == "episode_alpha_spending_v1"
+                else
                 "predict_distribution:v2:compatible_closed_history_before_snapshot"
                 if spec.statistical_design_version
                 == "powered_historical_cold_start_v1"
                 else "predict_distribution:v1:expanding_history_before_snapshot"
             ),
             candidate_rule_version=(
-                2 if spec.evidence_semantics_version.endswith("_v2") else 1
+                3 if spec.lifecycle_mode == "PROMOTION"
+                else 2 if spec.evidence_semantics_version.endswith("_v2") else 1
+            ),
+            execution_model_rule=spec.execution_model_rule,
+            execution_model_promotion_ready=(
+                spec.lifecycle_mode == "PROMOTION"
             ),
         )
 
@@ -206,6 +242,10 @@ def build_shadow_variants(
                 f"{spec.generation}_maker_{ttl_name}_{gap_name}",
                 dimension,
                 entry_price=entry_price,
+                candidate_target=(
+                    spec.target_return
+                    if spec.target_return is not None else target_pct
+                ),
                 entry_ttl_sec=ttl_sec,
                 maker_only=True,
                 entry_gap_pct=gap_pct,
@@ -317,12 +357,22 @@ def shadow_variant_report(
     evaluation_requirement = (
         REQUIRED_EVALUATION_SNAPSHOTS if powered_design else 120
     )
+    training_before_ts_ms = before_ts_ms
+    if powered_design and hasattr(store, "_connect"):
+        with store._connect() as connection:
+            first_selection = connection.execute(
+                """SELECT MIN(snapshot_ts_ms) FROM prediction_decisions
+                   WHERE experiment_id=? AND evidence_role='SELECTION'""",
+                (selection_cohort,),
+            ).fetchone()
+        if first_selection and first_selection[0] is not None:
+            training_before_ts_ms = int(first_selection[0])
     for variant in variants:
         historical_training = (
             closed_historical_training_evidence(
                 store,
                 symbol,
-                before_ts_ms=before_ts_ms,
+                before_ts_ms=training_before_ts_ms,
                 required_horizons_min=horizons_min,
                 maximum_snapshots=(
                     DEFAULT_STATISTICAL_DESIGN.historical_training_snapshots

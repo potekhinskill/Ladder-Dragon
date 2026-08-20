@@ -33,6 +33,8 @@ class ExecutionOutcome:
     first_fill_received_at_ms: int | None
     final_received_at_ms: int
     commission_quote: Decimal | None = None
+    order_type: str = "UNKNOWN"
+    stop_price: Decimal = Decimal("0")
 
     @property
     def fill_ratio(self) -> Decimal:
@@ -73,7 +75,7 @@ def append_execution_latency_sample(
     if created <= 0 or received < created:
         raise ValueError("execution latency timestamps are invalid")
     payload: dict[str, object] = {
-        "schema_version": 3,
+        "schema_version": 4,
         "symbol": signal.symbol,
         "order_ref": hashlib.sha256(
             f"{signal.symbol}:{signal.order_id}:{signal.client_order_id}".encode()
@@ -86,7 +88,9 @@ def append_execution_latency_sample(
         "trade_id": signal.trade_id,
         "order_status": signal.order_status,
         "side": signal.side,
+        "order_type": signal.order_type,
         "order_price": _exact_nonnegative(signal.order_price, field="order price"),
+        "stop_price": _exact_nonnegative(signal.stop_price, field="stop price"),
         "original_quantity": _exact_nonnegative(
             signal.original_quantity, field="original quantity"
         ),
@@ -138,7 +142,7 @@ def load_execution_latencies(path: str | Path) -> list[int]:
             payload = json.loads(line)
             if not isinstance(payload, Mapping):
                 raise ValueError(f"latency line {line_number} is not an object")
-            if int(payload.get("schema_version", 0)) not in {1, 2, 3}:
+            if int(payload.get("schema_version", 0)) not in {1, 2, 3, 4}:
                 raise ValueError(f"latency line {line_number} has unsupported schema")
             if (
                 str(payload.get("execution_type", "")).upper() != "NEW"
@@ -163,7 +167,7 @@ def load_execution_outcomes(path: str | Path) -> list[ExecutionOutcome]:
             if not isinstance(payload, Mapping):
                 raise ValueError(f"outcome line {line_number} is not an object")
             schema_version = int(payload.get("schema_version", 0))
-            if schema_version not in {2, 3}:
+            if schema_version not in {2, 3, 4}:
                 continue
             order_ref = str(payload.get("order_ref", ""))
             if not order_ref:
@@ -172,9 +176,10 @@ def load_execution_outcomes(path: str | Path) -> list[ExecutionOutcome]:
             cumulative = Decimal(str(payload.get("cumulative_quantity", "0")))
             quote = Decimal(str(payload.get("cumulative_quote", "0")))
             order_price = Decimal(str(payload.get("order_price", "0")))
+            stop_price = Decimal(str(payload.get("stop_price", "0")))
             if any(
                 not value.is_finite() or value < 0
-                for value in (original, cumulative, quote, order_price)
+                for value in (original, cumulative, quote, order_price, stop_price)
             ):
                 raise ValueError(f"outcome line {line_number} has invalid values")
             current = grouped.setdefault(
@@ -183,10 +188,14 @@ def load_execution_outcomes(path: str | Path) -> list[ExecutionOutcome]:
                     "order_ref": order_ref,
                     "symbol": str(payload.get("symbol", "")).upper(),
                     "side": str(payload.get("side", "")).upper(),
+                    "order_type": str(
+                        payload.get("order_type", "UNKNOWN")
+                    ).upper(),
                     "intent_created_at_ms": int(
                         payload.get("intent_created_at_ms", 0)
                     ),
                     "order_price": order_price,
+                    "stop_price": stop_price,
                     "original_quantity": original,
                     "cumulative_quantity": Decimal("0"),
                     "cumulative_quote": Decimal("0"),
@@ -202,7 +211,11 @@ def load_execution_outcomes(path: str | Path) -> list[ExecutionOutcome]:
             if (
                 current["symbol"] != str(payload.get("symbol", "")).upper()
                 or current["side"] != str(payload.get("side", "")).upper()
+                or current["order_type"] != str(
+                    payload.get("order_type", "UNKNOWN")
+                ).upper()
                 or current["order_price"] != order_price
+                or current["stop_price"] != stop_price
                 or current["original_quantity"] != original
             ):
                 raise ValueError(f"outcome line {line_number} changes order identity")

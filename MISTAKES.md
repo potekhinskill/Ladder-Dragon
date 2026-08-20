@@ -1915,3 +1915,10 @@ private infrastructure details.
 - **Root cause:** the reviewed artifacts excluded limits, and activation constructed a new policy from CLI values.
 - **Correction:** expose the complete policy fingerprint and require it unchanged during activation.
 - **Prevention:** bind every reviewed mutable input to one saved or fingerprinted activation artifact.
+
+### 2026-08-20 — Treated incompatible history as fixed-rule training
+
+- **Impact:** old candidate rows appeared to shorten cold-start time but could not validate the new execution rule.
+- **Root cause:** an empty compatibility filter removed the candidate-kind restriction.
+- **Correction:** return zero compatible history and remove training from the fixed promotion rule.
+- **Prevention:** require an explicit compatibility identity before historical evidence enters any statistical role.

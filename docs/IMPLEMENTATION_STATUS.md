@@ -1,6 +1,6 @@
 # Implementation status
 
-This document describes the code in version **2.20.228**.
+This document describes the code in version **2.20.229**.
 It does not describe future plans as completed work.
 
 An implemented function is not automatically approved for LIVE use.
@@ -13,10 +13,10 @@ The configured mode and its evidence gate remain authoritative.
 | Execution | Decimal-only Binance Spot planning, orders, cancel-replace, and recovery | DRY or Testnet first |
 | Protection | Verified OCO legs, confirmed breakeven re-arm, gap flatten, and persistent HALT | Required for managed fills |
 | Accounting | Exact FIFO lots, exact AI fills, fee provenance, risk streaks, and cursor audits | Fail closed on incomplete evidence |
-| Replay | Sequential L2 events, shared liquidity, queue state, latency, fees, and slippage | L2 model, not exact L3 |
+| Replay | Sequential L2 events, queue state, latency, exact fees, partial fills, and stop gaps | L2 model, not exact L3 |
 | Prediction | 1, 5, and 15 minute SHADOW outcomes | Enabled for evidence only |
 | Market scenarios | 1-hour through monthly closed-candle outcomes | SHADOW only |
-| Experiments | Selection, immutable freeze, and independent confirmation | SHADOW only |
+| Experiments | Diagnostic cohorts and one preregistered SOL execution-episode cohort | SHADOW only |
 | CHAMPION | Append-only activation of one confirmed policy per symbol | No active policy by default |
 | Statistical approval | Walk-forward, confidence intervals, regime checks, and Holm correction | Must pass before APPLY |
 | AI advice | Validated DeepSeek, OpenAI, or compatible provider response | Disabled by default |
@@ -75,57 +75,64 @@ Future outcomes are normal pending work.
 Only overdue or unrecovered expired outcomes block the backlog gate.
 The soak report applies its expiration checks to the audited runtime window.
 
-SOLUSDT uses version sixteen with 60-minute, 75-minute, and 90-minute lifetimes.
-ETHUSDT uses version fifteen with 20, 21, and 22 basis-point gaps.
-BTCUSDT uses version fourteen with 8.4, 9.4, and 10.3 basis-point gaps.
-All three use 300-minute and 360-minute outcome horizons.
-Every symbol keeps separate selection and confirmation evidence.
-New generations use the authoritative Binance account commission schedule.
-Older configured-fee evidence remains archived and cannot enter new training.
+SOLUSDT version seventeen uses one fixed 48-basis-point candidate and a 90-minute entry lifetime.
+Its primary endpoint is 360 minutes.
+The 300-minute result is diagnostic only.
+The SHADOW evidence notional is fixed at 6 USDT.
+CHAMPION exposure limits require a separate reviewed activation.
+ETHUSDT version fifteen and BTCUSDT version fourteen remain diagnostic only.
+Their evidence cannot enter confirmation.
 
-Selection compares all active candidates on identical snapshots.
-Freeze requires the exact same snapshot set for every candidate.
-Freeze also requires the selected candidate to pass the selection gate.
-Its evidence is diagnostic after candidate choice.
-An explicit operator freeze creates an immutable candidate manifest.
-Confirmation starts after the selection outcomes and a 15-minute embargo.
-It accepts only new decision snapshots linked to that manifest.
+The online episode model reads one-minute public depth and aggregate trades.
+It models conservative LIMIT_MAKER queue position, partial fills, missed fills, and adverse selection.
+It models the LIMIT_MAKER take-profit leg and the STOP_LOSS_LIMIT trigger separately.
+It also models stop gaps, unfilled stop limits, emergency flattening, and exact account fees.
+One episode can run at a time.
+The next episode starts after the prior episode becomes terminal.
+The database stores compact starts and terminal results.
+It does not store the raw L2 stream.
 
-Confirmation purges overlapping 360-minute outcome intervals first.
-It then uses seven fixed blocks of eight independent decisions.
-At least six blocks need positive PnL and positive baseline edge.
-An unresolved decision stops the eligible prefix.
-Confidence intervals and Holm tests use complete blocks.
-The report is read-only and finalization requires its reviewed SHA-256.
-An exact sign-test power analysis requires 52 independent selection decisions.
-The power target is 80 percent for a 72 percent positive-edge probability.
-The family error rate is 0.05 across five expectancy hypotheses.
-Confirmation requires 56 new independent decisions after the frozen boundary.
-Irrecoverable regime coverage makes confirmation ready for early rejection.
-The freeze command rejects criteria that cannot satisfy their tests.
-Reports show the minimum calendar duration for the configured horizons.
-The duration includes cold-start training, evaluation, outcomes, embargo, and confirmation.
-Reports forecast expectancy-regime coverage from pre-outcome decision frequencies.
-PANIC is a separate safety veto that blocks new entries.
-PANIC frequency does not block an ordinary expectancy decision.
-Each selection and confirmation phase has a preregistered 45-day deadline.
-An expired incomplete phase becomes ready for a REJECTED finalization.
-Promotion recomputes old confirmations with the current statistical method.
-Promotion remains blocked until replay represents maker misses and stop-limit gaps.
+Historical data selects the fixed SOL candidate and estimates variance only.
+The fixed candidate does not use online training.
+An operator command freezes its exact policy before live confirmation.
+Confirmation accepts only episodes that start after the frozen boundary.
+It also requires the frozen candidate and execution-model fingerprints.
+
+The group sequential sign test uses four preregistered nonzero-outcome looks.
+The looks contain 12, 24, 34, and 43 outcomes.
+Their alpha spending totals 0.05.
+The final sign-test power exceeds 80 percent for a 72 percent positive-outcome probability.
+This power statement applies only to the conditional nonzero sign test.
+Fill rate, total PnL, drawdown, and regime safety remain separate requirements.
+Each ordinary regime requires at least three filled episodes and non-inferior mean PnL.
+PANIC remains a separate safety veto and does not enter expectancy inference.
+The confirmation deadline is 14 days.
+The design also stops after 300 terminal episodes.
+An incomplete design becomes ready for REJECTED finalization at either limit.
+
+Promotion also requires empirical replay validation against sanitized real order reports.
+The validation requires at least ten covered terminal orders.
+It requires a filled LIMIT_MAKER order and a filled STOP_LOSS_LIMIT order.
+The validation compares fills, ratios, prices, latency, fees, and slippage.
 
 The first gate evaluates the complete candidate strategy.
 All active candidates use the same entry scope.
 The active-entry diagnostic therefore uses the same cohort.
 
-Prediction training requires 30 independent snapshots for each candidate.
-Verified closed history can satisfy this cold-start prerequisite.
-Missing history uses earlier live rows only for training.
-Historical training rows cannot enter selection or confirmation inference.
-Multiple outcome horizons from one snapshot count as one training unit.
+Diagnostic prediction cohorts retain their existing walk-forward training rules.
+The SOL version-seventeen fixed rule has no cold-start training delay.
+Historical rows cannot enter its live confirmation inference.
 Statistical gates stream the complete journal in append order.
 Control readers retain bounded binding and non-binding evidence groups.
-Classified lifecycle evidence remains append-only in SQLite.
-Automated retention does not delete classified lifecycle evidence.
+Classified lifecycle and execution-episode evidence remains append-only in SQLite.
+Episode starts and results are derived SHADOW evidence.
+Imported model validations are authoritative promotion artifacts.
+The episode store has a fixed limit of 250,000 starts.
+The validation store has a fixed limit of 1,024 reports.
+Automated retention does not delete this evidence.
+The prediction database backup includes all these records.
+No scheduled maintenance changes these append-only tables.
+Capacity exhaustion fails closed and requires a reviewed schema change.
 
 New plan semantics use a new experiment identifier.
 Historical experiment rows remain available and never mix with the active generation.

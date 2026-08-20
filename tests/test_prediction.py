@@ -543,8 +543,8 @@ def test_supervisor_shadow_records_strategy_and_hashed_reanchor(
     )
 
     summary = store.summary("SOLUSDT")
-    # The journal keeps strategy, re-anchor, experiment, and control evidence.
-    assert summary["decisions"] == 8
+    # Promotion generations use compact episodes, not legacy OHLC decisions.
+    assert summary["decisions"] == 5
     assert summary["reanchor_counterfactuals"] == 1
     assert ai_supervisor._AI_RUNTIME_STATUS["prediction"][
         "can_change_orders"

@@ -1563,3 +1563,10 @@ entries concise; this is not a changelog or an activity log.
 - **Decision:** preview fingerprints all limits, and activation requires that exact fingerprint from a clean published release.
 - **Why it worked:** any cap, manifest, report, checkout, or release change blocks activation.
 - **Reuse:** every two-step operator action that converts reviewed evidence into mutation authority.
+
+### 2026-08-20 — Confirm one exchange-faithful episode policy
+
+- **Context:** candle outcomes could not prove maker queue behavior or stop-limit execution.
+- **Decision:** preregister one SOL candidate and collect sequential compact L2 execution episodes.
+- **Why it worked:** live confirmation now includes missed fills, partial fills, exact fees, and stop gaps.
+- **Reuse:** every promotion where the exchange lifecycle differs from a candle-touch model.

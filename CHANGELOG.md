@@ -3,6 +3,27 @@
 All notable changes are documented here. Releases use Semantic Versioning; every
 section is dated and there is intentionally no `Unreleased` section.
 
+## [2.20.229] — 2026-08-20
+
+### Added
+- SOL v17 collects one preregistered execution candidate as sequential compact L2 episodes.
+- The episode model includes maker queues, partial fills, missed fills, exact fees, and protected exit gaps.
+- Immutable episode starts, terminal results, and empirical model validations share the prediction database backup.
+
+### Changed
+- SOL uses one 360-minute primary endpoint and one diagnostic 300-minute endpoint.
+- ETH v15 and BTC v14 remain diagnostic-only research cohorts.
+- The group sequential design uses preregistered alpha spending and a 14-day confirmation deadline.
+
+### Security
+- Promotion requires post-freeze candidate-matched episodes and sanitized validation of real maker and stop-limit fills.
+- Historical candidate data cannot enter live SOL confirmation or fixed-rule training.
+- CHAMPION policy binds the stop trigger offset, stop-limit distance, maximum holding time, and exact fee schedule.
+
+### Verified
+- All 1,293 project tests and Python compilation pass.
+- Technical English and diff integrity checks pass.
+
 ## [2.20.228] — 2026-08-19
 
 ### Changed

@@ -42,11 +42,14 @@ def outcome(
     quote: str,
     status: str,
     first_fill: int | None,
+    side: str = "BUY",
+    order_type: str = "LIMIT_MAKER",
+    stop_price: str = "0",
 ) -> ExecutionOutcome:
     return ExecutionOutcome(
         order_ref=order_ref,
         symbol="SOLUSDT",
-        side="BUY",
+        side=side,
         intent_created_at_ms=1000,
         order_price=Decimal(price),
         original_quantity=Decimal("1"),
@@ -56,30 +59,47 @@ def outcome(
         first_fill_received_at_ms=first_fill,
         final_received_at_ms=3000,
         commission_quote=(
-            Decimal("0.1") if Decimal(quantity) > 0 else Decimal("0")
+            Decimal(quote) * (
+                Decimal("0.00075")
+                if order_type == "LIMIT_MAKER" else Decimal("0.001")
+            )
+            if Decimal(quantity) > 0 else Decimal("0")
         ),
+        order_type=order_type,
+        stop_price=Decimal(stop_price),
     )
 
 
 def test_replay_validation_matches_real_fill_and_cancel(tmp_path):
     events = [
         MarketEvent(
-            ts_ms=timestamp,
+            ts_ms=1000,
             bids=(BookLevel(Decimal("99"), Decimal("10")),),
             asks=(BookLevel(Decimal("100"), Decimal("10")),),
-        )
-        for timestamp in (1000, 2000, 3000)
+        ),
+        MarketEvent(
+            ts_ms=2000,
+            bids=(BookLevel(Decimal("99"), Decimal("10")),),
+            asks=(BookLevel(Decimal("100"), Decimal("10")),),
+            trades=((Decimal("99"), Decimal("11"), "SELL"),),
+        ),
+        MarketEvent(
+            ts_ms=3000,
+            bids=(BookLevel(Decimal("99"), Decimal("10")),),
+            asks=(BookLevel(Decimal("100"), Decimal("10")),),
+        ),
     ]
     report = validate_replay_outcomes(
         events,
         [
             outcome(
-                "filled", price="101", quantity="1", quote="100",
-                status="FILLED", first_fill=1000,
+                "filled", price="99", quantity="1", quote="99",
+                status="FILLED", first_fill=2000,
             ),
             outcome(
-                "cancelled", price="90", quantity="0", quote="0",
-                status="CANCELED", first_fill=None,
+                "stop", price="99", quantity="1", quote="99",
+                status="FILLED", first_fill=2000, side="SELL",
+                order_type="STOP_LOSS_LIMIT", stop_price="99",
             ),
         ],
         calibration(),
@@ -95,6 +115,8 @@ def test_replay_validation_matches_real_fill_and_cancel(tmp_path):
     assert report.slippage_error_bps_mae == Decimal("0")
     assert report.queue_model == "L2_PRICE_LEVEL_FIFO_PROXY"
     assert report.exact_l3 is False
+    assert report.actual_limit_maker_filled_orders == 1
+    assert report.actual_stop_limit_filled_orders == 1
 
     path = tmp_path / "validation.json"
     write_replay_validation(path, report)

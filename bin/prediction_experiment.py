@@ -6,6 +6,7 @@
 from __future__ import annotations
 
 import argparse
+from decimal import Decimal
 import json
 import os
 from pathlib import Path
@@ -27,6 +28,7 @@ from ladder_dragon.strategy.prediction.experiment_lifecycle import (
     confirmation_report,
     finalize_experiment,
     freeze_experiment,
+    freeze_preselected_episode_experiment,
     list_experiments,
     load_manifest,
     selection_experiment_id,
@@ -37,13 +39,18 @@ from ladder_dragon.strategy.prediction.experiment_lifecycle import (
 from ladder_dragon.strategy.prediction.experiments import (
     SHADOW_GENERATION,
     ShadowVariant,
+    build_shadow_variants,
     configured_entry_gap_bps,
 )
 from ladder_dragon.strategy.prediction.experiment_config import (
     experiment_dimension,
     experiment_spec_for_generation,
+    experiment_spec_for_symbol,
 )
 from ladder_dragon.strategy.prediction.runtime import PredictionShadowStore
+from ladder_dragon.strategy.prediction.episode_evidence import (
+    record_model_validation,
+)
 
 
 def _parser() -> argparse.ArgumentParser:
@@ -74,6 +81,24 @@ def _parser() -> argparse.ArgumentParser:
     freeze.add_argument("--selection-end-ts-ms", required=True, type=int)
     freeze.add_argument("--generation", default=SHADOW_GENERATION)
     freeze.add_argument("--confirm", default="")
+    bootstrap = subparsers.add_parser(
+        "episode-bootstrap",
+        help="Freeze the preregistered single candidate before live episodes.",
+    )
+    bootstrap.add_argument("--experiment-id", required=True)
+    bootstrap.add_argument("--symbol", default="SOLUSDT")
+    bootstrap.add_argument("--generation")
+    bootstrap.add_argument("--confirm", default="")
+    validation = subparsers.add_parser(
+        "model-validation-import",
+        help="Import a reviewed sanitized execution replay validation.",
+    )
+    validation.add_argument("--symbol", default="SOLUSDT")
+    validation.add_argument("--generation")
+    validation.add_argument("--experiment-id", required=True)
+    validation.add_argument("--report", required=True, type=Path)
+    validation.add_argument("--report-sha256", required=True)
+    validation.add_argument("--confirm", default="")
     supersede = subparsers.add_parser(
         "supersede", help="Supersede one experiment without deleting evidence."
     )
@@ -192,6 +217,40 @@ def _selection_variants(
     return tuple(variants)
 
 
+def _preselected_episode_variant(
+    store: PredictionShadowStore,
+    *,
+    generation: str,
+    symbol: str,
+) -> ShadowVariant:
+    """Build the fixed rule from the latest closed, non-secret strategy plan."""
+    with store._connect() as connection:
+        row = connection.execute(
+            """SELECT feature_json,plan_json FROM prediction_decisions
+               WHERE symbol=? AND kind='STRATEGY'
+               ORDER BY snapshot_ts_ms DESC LIMIT 1""",
+            (symbol.upper(),),
+        ).fetchone()
+    if row is None:
+        raise ValueError("a closed strategy plan is required for bootstrap")
+    feature = json.loads(str(row[0]))
+    baseline = store._plan(str(row[1]))
+    if not isinstance(feature, dict) or baseline is None:
+        raise ValueError("bootstrap strategy evidence is invalid")
+    market = Decimal(str(feature.get("price")))
+    variants = build_shadow_variants(
+        market_price=market,
+        baseline_plan=baseline,
+        required_edge_pct=Decimal("0.000001"),
+        regime=str(feature.get("regime") or "RANGE"),
+        generation=generation,
+        symbol=symbol,
+    )
+    if len(variants) != 1:
+        raise ValueError("episode bootstrap requires exactly one candidate")
+    return variants[0]
+
+
 def main(argv: list[str] | None = None) -> int:
     args = _parser().parse_args(argv)
     store = PredictionShadowStore(Path(args.database))
@@ -288,7 +347,74 @@ def main(argv: list[str] | None = None) -> int:
                 source_commit=_source_commit(),
                 execution_halt_confirmed=True,
             )
+    elif args.command == "episode-bootstrap":
+        if args.confirm != "BOOTSTRAP":
+            raise SystemExit("--confirm must equal BOOTSTRAP")
+        generation = (
+            args.generation
+            or experiment_spec_for_symbol(args.symbol).generation
+        )
+        spec = experiment_spec_for_generation(
+            generation, symbol=args.symbol
+        )
+        selected = _preselected_episode_variant(
+            store,
+            generation=generation,
+            symbol=args.symbol,
+        )
+        payload = freeze_preselected_episode_experiment(
+            store,
+            experiment_id=args.experiment_id,
+            generation=generation,
+            symbol=args.symbol,
+            selected_variant=selected,
+            horizons_min=spec.horizons_min,
+            product_version=__version__,
+            source_commit=_source_commit(),
+        )
+    elif args.command == "model-validation-import":
+        if args.confirm != "IMPORT":
+            raise SystemExit("--confirm must equal IMPORT")
+        if args.report.stat().st_size > 65_536:
+            raise ValueError("replay validation report is too large")
+        report_payload = json.loads(args.report.read_text(encoding="utf-8"))
+        if not isinstance(report_payload, dict):
+            raise ValueError("replay validation report must be an object")
+        report_sha = sha256_json(report_payload)
+        if report_sha != args.report_sha256.strip().lower():
+            raise ValueError("replay validation report fingerprint differs")
+        generation = (
+            args.generation
+            or experiment_spec_for_symbol(args.symbol).generation
+        )
+        spec = experiment_spec_for_generation(
+            generation, symbol=args.symbol
+        )
+        if spec.lifecycle_mode != "PROMOTION":
+            raise ValueError("model validation requires a promotion generation")
+        payload = {
+            "validation_id": record_model_validation(
+                store,
+                symbol=args.symbol,
+                execution_model_rule=spec.execution_model_rule,
+                experiment_id=args.experiment_id,
+                report=report_payload,
+            ),
+            "report_sha256": report_sha,
+            "apply_allowed": False,
+        }
     else:
+        generation_spec = experiment_spec_for_generation(
+            args.generation, symbol=args.symbol
+        )
+        if generation_spec.lifecycle_mode != "PROMOTION":
+            raise SystemExit(
+                "diagnostic-only generations cannot enter confirmation"
+            )
+        if generation_spec.statistical_design_version == "episode_alpha_spending_v1":
+            raise SystemExit(
+                "promotion episodes must use the episode-bootstrap command"
+            )
         horizons_min = _freeze_horizons(args.generation, args.symbol)
         variants = _selection_variants(
             store,

@@ -1783,6 +1783,8 @@ def _record_prediction_shadow(
     inventory_scale: Decimal = Decimal("1"),
     regime_buys_allowed: bool = True,
     inventory_applicable: bool = True,
+    exchange_filters: Mapping[str, object] | None = None,
+    stop_limit_offset_pct: object = Decimal("0.0015"),
 ) -> None:
     """Persist look-ahead-safe forecasts without changing an order decision."""
     if _PREDICTION_SHADOW is None:
@@ -1824,9 +1826,10 @@ def _record_prediction_shadow(
     klines = TM.get_klines(symbol, "1m", limit=1000)
     preliminary, _ = build_prediction_features(klines, as_of_ms=as_of_ms)
     snapshot_ms = preliminary.snapshot_ts_ms
-    depth_raw = TM._public_get(
-        "/api/v3/depth", {"symbol": symbol.upper(), "limit": 20}
-    )
+    depth_raw = TM._public_get("/api/v3/depth", {
+        "symbol": symbol.upper(),
+        "limit": 1000 if symbol.upper() == "SOLUSDT" else 20,
+    })
     depth = depth_raw if isinstance(depth_raw, Mapping) else None
     trades_raw = TM._public_get(
         "/api/v3/aggTrades",
@@ -1838,6 +1841,7 @@ def _record_prediction_shadow(
         },
     )
     trades = trades_raw if isinstance(trades_raw, list) else []
+    trades_complete = len(trades) < 1000
     flow, flow_available = trade_flow_from_agg_trades(
         [row for row in trades if isinstance(row, Mapping)],
         start_ms=snapshot_ms - 60_000,
@@ -1881,6 +1885,7 @@ def _record_prediction_shadow(
             fee_pct=fee,
             slippage_pct=slippage,
             commission_schedule=commission_schedule,
+            stop_limit_offset_pct=stop_limit_offset_pct,
         )
         predictions = predict_distribution(features, strategy_plan, history)
         _PREDICTION_SHADOW.record(
@@ -1911,6 +1916,13 @@ def _record_prediction_shadow(
             market_price=market,
             baseline_plan=strategy_plan,
             required_edge_pct=required_edge_pct,
+            depth=dict(depth) if isinstance(depth, Mapping) else None,
+            trades=[dict(row) for row in trades if isinstance(row, Mapping)],
+            trades_complete=trades_complete,
+            filters=(
+                dict(exchange_filters)
+                if exchange_filters is not None else None
+            ),
         )
 
     proposals_raw = rolling.get("proposals")
@@ -3086,6 +3098,7 @@ def run_for_symbol(
     )
     champion_stop_pct: Decimal | None = None
     champion_entry_ttl_sec: int | None = None
+    champion_stop_offset_pct: Decimal | None = None
     if isinstance(champion_policy, Mapping):
         # A CHAMPION consumes the exact frozen semantics. Market classifiers,
         # AI, and recent PnL may block or reduce risk, but cannot retune it.
@@ -3097,9 +3110,15 @@ def run_for_symbol(
         )
         minimum_profit = tp1_exact
         champion_stop_pct = -_finite_decimal(
-            champion_policy["stop_distance"], name="CHAMPION stop distance"
+            champion_policy["stop_limit_distance"], name="CHAMPION stop limit"
+        )
+        champion_stop_offset_pct = _finite_decimal(
+            champion_policy["stop_trigger_offset_pct"], name="CHAMPION stop offset"
         )
         champion_entry_ttl_sec = int(champion_policy["entry_ttl_sec"])
+        extra_env["BOT_MAX_HOLDING_MINUTES"] = str(
+            int(champion_policy["maximum_holding_min"])
+        )
         target_buys_use = 1
         ai_width_scale = 1.0
     expectancy_configuration_passes = bool(
@@ -3142,7 +3161,6 @@ def run_for_symbol(
         f"min_net={minimum_profit:.4f} "
         f"target_buys={args.target_buy_per_symbol}→{target_buys_use}"
     )
-
     vwap_premium_final, vwap_discount_final, vwap_scale_final, vwap_interval_final, vwap_window_final = resolve_vwap_params(
         symbol,
         dir_mode,
@@ -3155,12 +3173,10 @@ def run_for_symbol(
             f"[VWAP-AUTO] {symbol} dir={dir_mode} atr_pct={atr_pct:.4f} premium={vwap_premium_final if vwap_premium_final is not None else '∅'} "
             f"discount={vwap_discount_final if vwap_discount_final is not None else '∅'} scale={vwap_scale_final if vwap_scale_final is not None else '∅'}"
         )
-
     # 4) Exchange filters: read once for tick normalization and guards
     filters = get_exchange_filters_cached(symbol)
     tick = filters["tickSize"]
     tick_exact = filters.get("tickSizeExact", tick)
-
     # 5) Build the ladder and deduplicate by tick step and side
     adaptive_best_buy = _adaptive_best_buy_price(now_p, entry_gap)
     if isinstance(champion_policy, Mapping):
@@ -3445,7 +3461,6 @@ def run_for_symbol(
             "buy_disabled": controls_pause_buys,
         }
         _publish_ai_runtime_status()
-
     # 10) Start the child with a temporary target_buys override
     orig_tb = int(args.target_buy_per_symbol)
     orig_vwap_premium = getattr(args, "child_buy_vwap_premium", None)
@@ -3455,6 +3470,7 @@ def run_for_symbol(
     orig_vwap_window = getattr(args, "child_buy_vwap_window", None)
     orig_bear_buy_shift = getattr(args, "child_bear_buy_shift_pct", 0.0)
     orig_sl = args.sl
+    orig_stop_limit_offset = args.stop_limit_offset_pct
     if execution_allowed:
         try:
             args.target_buy_per_symbol = int(target_buys_use)
@@ -3470,6 +3486,7 @@ def run_for_symbol(
                 args.child_buy_vwap_discount_scale = None
                 args.child_bear_buy_shift_pct = 0.0
                 args.sl = _analytics_float(champion_stop_pct)
+                args.stop_limit_offset_pct = _analytics_float(champion_stop_offset_pct)
             run_child(
                 symbol,
                 ladder_for_child,
@@ -3487,6 +3504,7 @@ def run_for_symbol(
             args.child_buy_vwap_window = orig_vwap_window
             args.child_bear_buy_shift_pct = orig_bear_buy_shift
             args.sl = orig_sl
+            args.stop_limit_offset_pct = orig_stop_limit_offset
 
     # In execution mode SHADOW analytics runs only after the deterministic
     # worker launch. In blocked mode no worker or mutation path exists, so the
@@ -3508,6 +3526,8 @@ def run_for_symbol(
             inventory_scale=inventory_scale,
             regime_buys_allowed=regime_policy.buys_allowed,
             inventory_applicable=inventory_applicable,
+            exchange_filters=filters,
+            stop_limit_offset_pct=args.stop_limit_offset_pct,
         )
     except SUPERVISOR_OPERATION_ERRORS as exc:
         log(f"[PREDICTION-SHADOW] {symbol} unavailable={type(exc).__name__}")

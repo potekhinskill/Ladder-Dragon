@@ -24,6 +24,15 @@ class ShadowExperimentSpec:
     regime_policy: str = "always_active"
     statistical_design_version: str = "fixed_60_120_v1"
     evidence_semantics_version: str = "configured_fee_touch_model_v1"
+    lifecycle_mode: str = "DIAGNOSTIC_ONLY"
+    execution_model_rule: str = "ohlc_touch_diagnostic_v1"
+    primary_horizon_min: int | None = None
+    diagnostic_horizons_min: tuple[int, ...] = ()
+    stop_limit_offset_pct: Decimal = D("0.0015")
+    maximum_holding_min: int | None = None
+    target_return: Decimal | None = None
+    stop_limit_distance: Decimal | None = None
+    evidence_notional_quote: Decimal | None = None
 
 
 V11_SPEC = ShadowExperimentSpec(
@@ -159,6 +168,27 @@ BTC_V14_SPEC = ShadowExperimentSpec(
     statistical_design_version="powered_historical_cold_start_v1",
     evidence_semantics_version="authoritative_fee_oco_touch_model_v2",
 )
+SOL_V17_SPEC = ShadowExperimentSpec(
+    generation="v17",
+    horizons_min=(300, 360),
+    maker_ttls=(("ttl90", 5_400),),
+    maker_entry_gaps=(("gap48", D("0.0048")),),
+    superseded_selection_generations=(
+        "v11", "v12", "v13", "v14", "v15", "v16",
+    ),
+    regime_policy="block_panic",
+    statistical_design_version="episode_alpha_spending_v1",
+    evidence_semantics_version="minute_l2_episode_execution_v1",
+    lifecycle_mode="PROMOTION",
+    execution_model_rule="minute_l2_fifo_oco_gap_v1",
+    primary_horizon_min=360,
+    diagnostic_horizons_min=(300,),
+    stop_limit_offset_pct=D("0.0015"),
+    maximum_holding_min=360,
+    target_return=D("0.0060"),
+    stop_limit_distance=D("0.01035"),
+    evidence_notional_quote=D("6"),
+)
 
 # Preserve the public historical name for callers that inspect SOL v12.
 V12_SPEC = SOL_V12_SPEC
@@ -179,11 +209,12 @@ _SYMBOL_GENERATION_SPECS = {
     ("SOLUSDT", "v14"): SOL_V14_SPEC,
     ("SOLUSDT", "v15"): SOL_V15_SPEC,
     ("SOLUSDT", "v16"): SOL_V16_SPEC,
+    ("SOLUSDT", "v17"): SOL_V17_SPEC,
 }
 _SYMBOL_SPECS = {
     "BTCUSDT": BTC_V14_SPEC,
     "ETHUSDT": ETH_V15_SPEC,
-    "SOLUSDT": SOL_V16_SPEC,
+    "SOLUSDT": SOL_V17_SPEC,
 }
 
 
@@ -267,6 +298,7 @@ __all__ = [
     "SOL_V14_SPEC",
     "SOL_V15_SPEC",
     "SOL_V16_SPEC",
+    "SOL_V17_SPEC",
     "ETH_V14_SPEC",
     "ETH_V15_SPEC",
     "configured_entry_gap_bps",

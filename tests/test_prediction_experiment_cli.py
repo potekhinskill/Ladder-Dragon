@@ -3,6 +3,7 @@ from decimal import Decimal
 from pathlib import Path
 
 import pytest
+from product_version import __version__
 
 from bin.prediction_experiment import (
     _freeze_horizons,
@@ -56,14 +57,15 @@ def test_freeze_horizons_are_symbol_generation_scoped():
 
 def test_champion_source_requires_clean_published_annotated_release(monkeypatch):
     head = "d" * 40
+    tag = f"v{__version__}"
 
     def completed(command, **_kwargs):
         key = tuple(command[1:])
         outputs = {
             ("rev-parse", "HEAD"): head,
             ("status", "--porcelain"): "",
-            ("cat-file", "-t", "refs/tags/v2.20.228"): "tag",
-            ("rev-list", "-n", "1", "v2.20.228"): head,
+            ("cat-file", "-t", f"refs/tags/{tag}"): "tag",
+            ("rev-list", "-n", "1", tag): head,
             ("rev-parse", "origin/main"): head,
         }
         return type("Result", (), {"stdout": outputs[key]})()

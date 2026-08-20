@@ -76,11 +76,19 @@ def require_live_champion(state: object, args: object) -> dict[str, object]:
         policy.get("target_return"), field="CHAMPION target return"
     )
     stop = _nonnegative_decimal(
-        policy.get("stop_distance"), field="CHAMPION stop distance"
+        policy.get("stop_limit_distance"), field="CHAMPION stop limit distance"
     )
+    stop_offset = _nonnegative_decimal(
+        policy.get("stop_trigger_offset_pct"), field="CHAMPION stop trigger offset"
+    )
+    maximum_holding = int(policy.get("maximum_holding_min") or 0)
+    if stop_offset <= 0 or stop_offset >= stop or maximum_holding <= 0:
+        raise ValueError("CHAMPION protective timing is invalid")
     args.tp1 = state._compat_float(target)
     args.tp2 = state._compat_float(target)
     args.sl = state._compat_float(-stop)
+    args.stop_limit_offset_pct = state._compat_float(stop_offset)
+    state.os.environ["BOT_MAX_HOLDING_MINUTES"] = str(maximum_holding)
     args.target_buy_per_symbol = 1
     args.buy_limit_maker = True
     args.sell_limit_maker = True
@@ -111,7 +119,7 @@ def champion_ladder(
         policy.get("target_return"), field="CHAMPION target return"
     )
     stop = _nonnegative_decimal(
-        policy.get("stop_distance"), field="CHAMPION stop distance"
+        policy.get("stop_limit_distance"), field="CHAMPION stop limit distance"
     )
     if gap >= 1 or stop >= 1:
         raise ValueError("CHAMPION price distance is invalid")

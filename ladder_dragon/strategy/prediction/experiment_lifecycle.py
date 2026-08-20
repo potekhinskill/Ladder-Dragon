@@ -139,6 +139,10 @@ def migrate_experiment_lifecycle(connection: sqlite3.Connection) -> None:
         migrate_champion_registry,
     )
     migrate_champion_registry(connection)
+    from ladder_dragon.strategy.prediction.episode_evidence import (
+        migrate_episode_evidence,
+    )
+    migrate_episode_evidence(connection)
 
 
 def _ratio(numerator: Decimal, denominator: Decimal, *, field: str) -> str:
@@ -201,7 +205,15 @@ def candidate_rule(
         ),
         "fee_pct": format(plan.fee_pct, "f"),
         "slippage_pct": format(plan.slippage_pct, "f"),
-        "notional_policy": "current_strategy_cap",
+        "notional_policy": (
+            "fixed_shadow_evidence_notional"
+            if variant.candidate_rule_version == 3
+            else "current_strategy_cap"
+        ),
+        "evidence_notional_quote": (
+            format(plan.notional_quote, "f")
+            if variant.candidate_rule_version == 3 else None
+        ),
         "regime_policy": variant.regime_policy,
         "horizons_min": [int(value) for value in horizons_min],
         "model_rule": variant.model_rule,
@@ -217,11 +229,11 @@ def candidate_rule(
                 "LIMIT_MAKER" if variant.maker_only else "BASELINE"
             ),
         }
-    if variant.candidate_rule_version != 2:
+    if variant.candidate_rule_version not in {2, 3}:
         raise ValueError("candidate rule version is unsupported")
-    return {
+    rule = {
         **common,
-        "candidate_rule_version": 2,
+        "candidate_rule_version": variant.candidate_rule_version,
         "entry_order_policy": (
             "LIMIT_MAKER" if variant.maker_only else "BASELINE"
         ),
@@ -237,6 +249,24 @@ def candidate_rule(
         ),
         "fee_schedule": _fee_schedule_rule(plan),
     }
+    if variant.candidate_rule_version == 3:
+        if plan.maximum_holding_min is None:
+            raise ValueError("promotion candidate requires maximum holding time")
+        rule.update({
+            "stop_limit_distance": common["stop_distance"],
+            "stop_trigger_offset_pct": format(
+                plan.stop_limit_offset_pct, "f"
+            ),
+            "maximum_holding_min": plan.maximum_holding_min,
+            "primary_horizon_min": max(int(value) for value in horizons_min),
+            "diagnostic_horizons_min": [
+                int(value) for value in horizons_min
+                if int(value) != max(int(item) for item in horizons_min)
+            ],
+            "episode_concurrency": 1,
+            "panic_policy": "SEPARATE_SAFETY_VETO",
+        })
+    return rule
 
 
 def baseline_rule(variant: "ShadowVariant") -> dict[str, object]:
@@ -258,7 +288,7 @@ def baseline_rule(variant: "ShadowVariant") -> dict[str, object]:
         "entry_ttl_sec": plan.entry_ttl_sec,
         "entry_enabled": plan.entry_enabled,
     }
-    if variant.candidate_rule_version == 2:
+    if variant.candidate_rule_version in {2, 3}:
         rule["fee_schedule"] = _fee_schedule_rule(plan)
     return rule
 
@@ -624,6 +654,205 @@ def freeze_experiment(
     return result
 
 
+def freeze_preselected_episode_experiment(
+    store: "PredictionShadowStore",
+    *,
+    experiment_id: str,
+    generation: str,
+    symbol: str,
+    selected_variant: "ShadowVariant",
+    horizons_min: Sequence[int],
+    product_version: str,
+    source_commit: str,
+    frozen_at_ms: int | None = None,
+) -> dict[str, object]:
+    """Freeze one preregistered candidate before live episode confirmation."""
+    from ladder_dragon.strategy.prediction.experiment_config import (
+        experiment_spec_for_generation,
+    )
+    from ladder_dragon.strategy.prediction.episode_evidence import (
+        MAXIMUM_CONFIRMATION_DURATION_MS,
+    )
+    spec = experiment_spec_for_generation(generation, symbol=symbol)
+    if spec.lifecycle_mode != "PROMOTION" or len(spec.maker_ttls) != 1 or len(spec.maker_entry_gaps) != 1:
+        raise ValueError("episode bootstrap requires one promotion candidate")
+    required = tuple(int(value) for value in horizons_min)
+    if required != spec.horizons_min:
+        raise ValueError("episode horizons differ from the preregistered design")
+    frozen_at = int(time.time() * 1000) if frozen_at_ms is None else int(frozen_at_ms)
+    criteria = dict(DEFAULT_CRITERIA)
+    criteria["maximum_confirmation_duration_ms"] = (
+        MAXIMUM_CONFIRMATION_DURATION_MS
+    )
+    candidate_fp, baseline_fp = variant_fingerprints(
+        selected_variant,
+        generation=generation,
+        horizons_min=required,
+        criteria=criteria,
+    )
+    manifest = {
+        "schema_version": MANIFEST_SCHEMA_VERSION,
+        "experiment_id": str(experiment_id),
+        "generation": generation,
+        "symbol": symbol.upper(),
+        "scope": {"symbol": symbol.upper()},
+        "selected_variant": selected_variant.variant_id,
+        "candidate_parameters": candidate_rule(
+            selected_variant,
+            generation=generation,
+            horizons_min=required,
+        ),
+        "candidate_fingerprint": candidate_fp,
+        "baseline": baseline_rule(selected_variant),
+        "baseline_fingerprint": baseline_fp,
+        "criteria": criteria,
+        "statistical_method": "group_sequential_sign_test_alpha_spending_v1",
+        "independence_spacing_ms": None,
+        "selection_rule": "preregistered_single_candidate_before_live_confirmation",
+        "selection_gate_passed": True,
+        "selection_gate_policy": "historical_selection_variance_only_v1",
+        "historical_evidence_role": "SELECTION_AND_VARIANCE_ONLY",
+        "historical_evidence_reused_for_confirmation": False,
+        "selection_experiment_id": selection_experiment_id(generation, symbol),
+        "selection_end_ts_ms": frozen_at,
+        "frozen_at_ms": frozen_at,
+        "confirmation_start_ts_ms": frozen_at + 1,
+        "confirmation_deadline_ts_ms": (
+            frozen_at + 1 + MAXIMUM_CONFIRMATION_DURATION_MS
+        ),
+        "product_version": str(product_version),
+        "source_commit": str(source_commit),
+        "lifecycle_status": "CONFIRMING",
+        "can_change_orders": False,
+        "apply_allowed": False,
+    }
+    digest = sha256_json(manifest)
+    if _active_manifest(store, generation=generation, symbol=symbol) is not None:
+        raise ValueError("generation already has an active experiment")
+    with store._connect() as connection:
+        connection.execute("BEGIN IMMEDIATE")
+        if connection.execute(
+            "SELECT 1 FROM prediction_experiment_manifests WHERE experiment_id=?",
+            (str(experiment_id),),
+        ).fetchone():
+            raise ValueError("experiment_id is already frozen")
+        connection.execute(
+            """INSERT INTO prediction_experiment_manifests
+               (experiment_id,schema_version,generation,symbol,selected_variant,
+                selection_experiment_id,selection_end_ts_ms,
+                confirmation_start_ts_ms,manifest_json,manifest_sha256,created_at_ms)
+               VALUES(?,?,?,?,?,?,?,?,?,?,?)""",
+            (
+                str(experiment_id), MANIFEST_SCHEMA_VERSION, generation,
+                symbol.upper(), selected_variant.variant_id,
+                selection_experiment_id(generation, symbol), frozen_at,
+                frozen_at + 1, canonical_json(manifest), digest, frozen_at,
+            ),
+        )
+        connection.execute(
+            """INSERT INTO prediction_experiment_transitions
+               (experiment_id,from_status,to_status,changed_at_ms,reason)
+               VALUES(?,?,?,?,?)""",
+            (str(experiment_id), "SELECTION", "FROZEN", frozen_at,
+             "preregistered single-candidate freeze"),
+        )
+        transition_experiment(
+            connection,
+            experiment_id=str(experiment_id),
+            to_status="CONFIRMING",
+            reason="live episode confirmation started",
+            changed_at_ms=frozen_at + 1,
+        )
+        connection.commit()
+    return load_manifest(store, str(experiment_id))
+
+
+def _episode_confirmation_report(
+    store: "PredictionShadowStore",
+    manifest: Mapping[str, object],
+) -> dict[str, object]:
+    """Evaluate only terminal episodes created after the frozen boundary."""
+    from ladder_dragon.strategy.prediction.episode_evidence import (
+        load_episode_results,
+        model_validation_status,
+        sequential_episode_report,
+    )
+    parameters = manifest["candidate_parameters"]
+    results = load_episode_results(
+        store,
+        symbol=str(manifest["symbol"]),
+        generation=str(manifest["generation"]),
+        variant_id=str(manifest["selected_variant"]),
+        started_after_ms=int(manifest["confirmation_start_ts_ms"]),
+        candidate_fingerprint=str(manifest["candidate_fingerprint"]),
+        execution_model_rule=str(parameters["execution_model_rule"]),
+    )
+    sequential = sequential_episode_report(results)
+    deadline = int(manifest["confirmation_deadline_ts_ms"])
+    deadline_expired = int(time.time() * 1000) > deadline
+    if deadline_expired and sequential["status"] != "PASS":
+        sequential = dict(sequential)
+        sequential["status"] = "READY_TO_REJECT"
+        sequential["approved"] = False
+        sequential["readiness_reason"] = (
+            "preregistered confirmation deadline expired"
+        )
+    sequential["confirmation_deadline_ts_ms"] = deadline
+    sequential["confirmation_deadline_expired"] = deadline_expired
+    validation = model_validation_status(
+        store,
+        symbol=str(manifest["symbol"]),
+        execution_model_rule=str(parameters["execution_model_rule"]),
+        expected_fee_schedule=parameters["fee_schedule"],
+    )
+    evaluation_passed = bool(sequential["approved"])
+    validation_passed = validation.get("status") == "PASS"
+    finalization_ready = sequential["status"] in {"PASS", "READY_TO_REJECT"}
+    lifecycle_status = str(manifest["current_status"])
+    report = {
+        "schema_version": REPORT_SCHEMA_VERSION,
+        "experiment_lifecycle_status": lifecycle_status,
+        "experiment_id": manifest["experiment_id"],
+        "generation": manifest["generation"],
+        "selected_variant": manifest["selected_variant"],
+        "candidate_fingerprint": manifest["candidate_fingerprint"],
+        "baseline_fingerprint": manifest["baseline_fingerprint"],
+        "selection_cutoff_ts_ms": manifest["selection_end_ts_ms"],
+        "confirmation_start_ts_ms": manifest["confirmation_start_ts_ms"],
+        "confirmation_status": (
+            "PASSED" if lifecycle_status == "CONFIRMED" and evaluation_passed
+            else "READY_TO_FINALIZE" if finalization_ready else "IN_PROGRESS"
+        ),
+        "confirmation_progress": sequential,
+        "statistical_method": sequential["method"],
+        "blocking_reasons": (
+            [] if evaluation_passed else [
+                "preregistered live episode test has not passed"
+            ]
+        ),
+        "evaluation_passed": evaluation_passed,
+        "finalization_ready": finalization_ready,
+        "proposed_final_status": (
+            "CONFIRMED" if evaluation_passed else "REJECTED"
+        ) if finalization_ready else None,
+        "first_gate_passed": lifecycle_status == "CONFIRMED" and evaluation_passed,
+        "eligible_for_second_gate_review": (
+            lifecycle_status == "CONFIRMED" and evaluation_passed
+        ),
+        "execution_model_gate": validation,
+        "promotion_eligible": bool(
+            lifecycle_status == "CONFIRMED"
+            and evaluation_passed
+            and validation_passed
+        ),
+        "apply_allowed": False,
+        "can_change_orders": False,
+        "lookahead": False,
+    }
+    report["report_sha256"] = sha256_json(report)
+    return report
+
+
 def _confirmation_decisions(
     store: "PredictionShadowStore", manifest: Mapping[str, object]
 ) -> tuple[list[DecisionEvidence], list[str]]:
@@ -758,6 +987,8 @@ def confirmation_report(
             "can_change_orders": False,
             "lookahead": False,
         }
+    if manifest.get("statistical_method") == "group_sequential_sign_test_alpha_spending_v1":
+        return _episode_confirmation_report(store, manifest)
     decisions, reasons = _confirmation_decisions(store, manifest)
     criteria = manifest["criteria"]
     required_horizons = tuple(
@@ -1120,6 +1351,7 @@ __all__ = [
     "evidence_assignment",
     "finalize_experiment",
     "freeze_experiment",
+    "freeze_preselected_episode_experiment",
     "list_experiments",
     "load_manifest",
     "migrate_experiment_lifecycle",

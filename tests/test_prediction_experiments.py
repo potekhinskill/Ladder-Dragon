@@ -23,6 +23,9 @@ from ladder_dragon.strategy.prediction.experiments import (
     record_shadow_variants,
     shadow_variant_report,
 )
+from ladder_dragon.strategy.prediction.statistical_evidence import (
+    closed_historical_training_evidence,
+)
 
 
 D = Decimal
@@ -429,7 +432,7 @@ def test_experiment_recording_is_bounded_to_five_minute_snapshots(
 
     prediction_shadow.collect_shadow_experiments(
         store,
-        symbol="SOLUSDT",
+        symbol="ETHUSDT",
         features=_features(),
         market_price=D("100"),
         baseline_plan=baseline,
@@ -438,24 +441,24 @@ def test_experiment_recording_is_bounded_to_five_minute_snapshots(
     clock["now"] = 1_060.0
     prediction_shadow.collect_shadow_experiments(
         store,
-        symbol="SOLUSDT",
+        symbol="ETHUSDT",
         features=replace(_features(), snapshot_ts_ms=119_999),
         market_price=D("100"),
         baseline_plan=baseline,
         required_edge_pct=D("0.0096"),
     )
-    assert store.summary("SOLUSDT")["decisions"] == 3
+    assert store.summary("ETHUSDT")["decisions"] == 3
 
     clock["now"] = 1_301.0
     prediction_shadow.collect_shadow_experiments(
         store,
-        symbol="SOLUSDT",
+        symbol="ETHUSDT",
         features=replace(_features(), snapshot_ts_ms=179_999),
         market_price=D("100"),
         baseline_plan=baseline,
         required_edge_pct=D("0.0096"),
     )
-    assert store.summary("SOLUSDT")["decisions"] == 6
+    assert store.summary("ETHUSDT")["decisions"] == 6
 
 
 def test_symbol_scopes_keep_active_generations_separate(
@@ -493,16 +496,11 @@ def test_symbol_scopes_keep_active_generations_separate(
         required_edge_pct=D("0.0096"),
     )
 
-    assert sol["generation"] == "v16"
-    assert sol["lifecycle_status"] == "SELECTION"
-    assert sol["superseded_selection_generations"] == [
-        "v11", "v12", "v13", "v14", "v15",
-    ]
-    assert set(sol["variants"]) == {
-        "v16_maker_ttl60_gap48",
-        "v16_maker_ttl75_gap48",
-        "v16_maker_ttl90_gap48",
-    }
+    assert sol["generation"] == "v17"
+    assert sol["lifecycle_status"] == "LIVE_CONFIRMATION"
+    assert sol["lifecycle_mode"] == "PROMOTION"
+    assert sol["variant_id"] == "v17_maker_ttl90_gap48"
+    assert sol["execution_episode"]["status"] == "BLOCKED"
     assert eth["generation"] == "v15"
     assert eth["lifecycle_status"] == "SELECTION"
     assert eth["superseded_selection_generations"] == [
@@ -524,12 +522,9 @@ def test_symbol_scopes_keep_active_generations_separate(
     assert sol["can_change_orders"] is False
     assert eth["can_change_orders"] is False
     assert btc["can_change_orders"] is False
-    assert sol["superseded_reports"]["v11"]["generation"] == "v11"
-    assert sol["superseded_reports"]["v12"]["generation"] == "v12"
-    assert (
-        sol["superseded_reports"]["v11"]["lifecycle_status"]
-        == "SUPERSEDED"
-    )
+    assert sol["superseded_generations"] == [
+        "v11", "v12", "v13", "v14", "v15", "v16",
+    ]
     assert eth["superseded_reports"]["v11"]["generation"] == "v11"
     assert eth["superseded_reports"]["v12"]["generation"] == "v12"
     assert (
@@ -562,7 +557,7 @@ def test_selection_stops_recording_after_preregistered_deadline(
     )
     prediction_shadow.collect_shadow_experiments(
         store,
-        symbol="SOLUSDT",
+        symbol="ETHUSDT",
         features=_features(),
         market_price=D("100"),
         baseline_plan=_baseline(),
@@ -571,7 +566,7 @@ def test_selection_stops_recording_after_preregistered_deadline(
     clock["now"] = 2_000.0
     report = prediction_shadow.collect_shadow_experiments(
         store,
-        symbol="SOLUSDT",
+        symbol="ETHUSDT",
         features=replace(
             _features(), snapshot_ts_ms=59_999 + 45 * DAY_MS + 1
         ),
@@ -580,7 +575,7 @@ def test_selection_stops_recording_after_preregistered_deadline(
         required_edge_pct=D("0.0096"),
     )
 
-    assert store.summary("SOLUSDT")["decisions"] == 3
+    assert store.summary("ETHUSDT")["decisions"] == 3
     assert report["recording_stopped_by_deadline"] is True
 
 
@@ -666,6 +661,21 @@ def test_v16_does_not_train_on_older_fee_or_exit_semantics():
     assert compatible_historical_kinds(
         variant, generation="v16", symbol="SOLUSDT"
     ) == ()
+
+
+def test_empty_compatible_kind_set_cannot_admit_unrelated_training(tmp_path: Path):
+    store = PredictionShadowStore(tmp_path / "prediction.sqlite3")
+    evidence = closed_historical_training_evidence(
+        store,
+        "SOLUSDT",
+        before_ts_ms=1_000_000,
+        required_horizons_min=(300, 360),
+        maximum_snapshots=30,
+        kinds=(),
+    )
+
+    assert evidence.independent_snapshots == 0
+    assert evidence.source_snapshots == 0
 
 
 def test_superseded_generation_keeps_legacy_training_contract(

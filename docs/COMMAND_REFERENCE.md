@@ -66,7 +66,7 @@ The Pi profile does not install or run Semgrep.
 | `record_depth_archive` | records public depth and aggregate-trade JSONL |
 | `prediction_history_backfill` | creates cutoff-safe samples from archived bars |
 | `backfill_prediction_archive` | repairs eligible expired prediction outcomes |
-| `prediction_experiment` | freezes and audits independent SHADOW confirmation |
+| `prediction_experiment` | bootstraps and audits independent SHADOW confirmation |
 | `monthly_prediction_report` | creates the monthly defensive SHADOW report |
 | `market_scenario_shadow` | collects public multi-symbol scenario evidence |
 | `regime_pnl_report` | compares strategy, buy-and-hold, and USDT by regime |
@@ -94,26 +94,53 @@ Add an archived L2 event stream:
 The positional CSV must contain `ts,open,high,low,close`.
 The `--archive` option does not make the replay an L3 reconstruction.
 
+Validate replay with the exact frozen account fee schedule:
+
+```bash
+.venv/bin/python -m bin.validate_replay_outcomes archive.jsonl \
+  --execution-log execution-latency.ndjson \
+  --calibration calibration.json \
+  --maker-buy-fee-pct MAKER_BUY_RATE \
+  --maker-sell-fee-pct MAKER_SELL_RATE \
+  --taker-buy-fee-pct TAKER_BUY_RATE \
+  --taker-sell-fee-pct TAKER_SELL_RATE \
+  --output validation.json
+```
+
 Inspect the local experiment lifecycle:
 
 ```bash
 .venv/bin/python -m bin.prediction_experiment status --symbol SOLUSDT
 ```
 
-Freeze only an explicitly reviewed selection candidate:
+Freeze the preregistered SOL execution candidate:
 
 ```bash
-.venv/bin/python -m bin.prediction_experiment freeze \
+.venv/bin/python -m bin.prediction_experiment episode-bootstrap \
   --experiment-id EXPERIMENT_ID \
   --symbol SOLUSDT \
-  --variant-id v16_maker_ttl75_gap48 \
-  --selection-end-ts-ms TIMESTAMP \
-  --confirm FREEZE
+  --generation v17 \
+  --confirm BOOTSTRAP
 ```
 
-The command rejects pending, asymmetric, or incomplete selection outcomes.
-It never selects the best candidate automatically.
+The command requires a clean checkout of the exact published release tag.
+It freezes one preselected candidate before live episodes start.
+Diagnostic-only generations cannot enter confirmation.
 The `report` command never changes lifecycle state.
+
+Import one reviewed execution-model validation:
+
+```bash
+.venv/bin/python -m bin.prediction_experiment model-validation-import \
+  --symbol SOLUSDT \
+  --generation v17 \
+  --experiment-id EXPERIMENT_ID \
+  --report validation.json \
+  --report-sha256 REPORT_SHA256 \
+  --confirm IMPORT
+```
+
+The report must contain sanitized real LIMIT_MAKER and STOP_LOSS_LIMIT fills.
 
 Finalize the exact reviewed report:
 

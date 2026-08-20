@@ -60,6 +60,10 @@ def closed_historical_training_evidence(
         raise ValueError("statistical horizons must be unique and increasing")
     if maximum_snapshots == 0:
         return HistoricalTrainingEvidence(0, None, 0)
+    # An empty compatibility set means that no historical rule is eligible.
+    # It must never remove the SQL kind filter and admit unrelated evidence.
+    if not kinds:
+        return HistoricalTrainingEvidence(0, None, 0)
     placeholders = ",".join("?" for _ in horizons)
     normalized_kinds = tuple(str(value).upper() for value in kinds)
     excluded_clause = (

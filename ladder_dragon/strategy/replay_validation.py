@@ -42,10 +42,16 @@ class ReplayValidation:
     slippage_error_bps_mae: Decimal | None = None
     queue_model: str = "L2_PRICE_LEVEL_FIFO_PROXY"
     exact_l3: bool = False
+    actual_limit_maker_filled_orders: int = 0
+    actual_stop_limit_filled_orders: int = 0
+    maker_buy_fee_pct: Decimal | None = None
+    maker_sell_fee_pct: Decimal | None = None
+    taker_buy_fee_pct: Decimal | None = None
+    taker_sell_fee_pct: Decimal | None = None
 
     def as_dict(self) -> dict[str, object]:
         return {
-            "schema_version": 2,
+            "schema_version": 4,
             "ready": self.ready,
             "reasons": list(self.reasons),
             "archive_sha256": self.archive_sha256,
@@ -75,12 +81,34 @@ class ReplayValidation:
             ),
             "queue_model": self.queue_model,
             "exact_l3": self.exact_l3,
+            "actual_limit_maker_filled_orders": (
+                self.actual_limit_maker_filled_orders
+            ),
+            "actual_stop_limit_filled_orders": (
+                self.actual_stop_limit_filled_orders
+            ),
+            "maker_buy_fee_pct": (
+                format(self.maker_buy_fee_pct, "f")
+                if self.maker_buy_fee_pct is not None else None
+            ),
+            "maker_sell_fee_pct": (
+                format(self.maker_sell_fee_pct, "f")
+                if self.maker_sell_fee_pct is not None else None
+            ),
+            "taker_buy_fee_pct": (
+                format(self.taker_buy_fee_pct, "f")
+                if self.taker_buy_fee_pct is not None else None
+            ),
+            "taker_sell_fee_pct": (
+                format(self.taker_sell_fee_pct, "f")
+                if self.taker_sell_fee_pct is not None else None
+            ),
         }
 
     @classmethod
     def from_dict(cls, payload: dict[str, object]) -> "ReplayValidation":
         schema = int(payload.get("schema_version", 0))
-        if schema not in {1, 2}:
+        if schema not in {1, 2, 3, 4}:
             raise ValueError("unsupported replay validation schema")
 
         def optional_decimal(name: str) -> Decimal | None:
@@ -109,6 +137,16 @@ class ReplayValidation:
                 payload.get("queue_model", "L2_PRICE_LEVEL_FIFO_PROXY")
             ),
             exact_l3=bool(payload.get("exact_l3", False)),
+            actual_limit_maker_filled_orders=int(
+                payload.get("actual_limit_maker_filled_orders", 0)
+            ),
+            actual_stop_limit_filled_orders=int(
+                payload.get("actual_stop_limit_filled_orders", 0)
+            ),
+            maker_buy_fee_pct=optional_decimal("maker_buy_fee_pct"),
+            maker_sell_fee_pct=optional_decimal("maker_sell_fee_pct"),
+            taker_buy_fee_pct=optional_decimal("taker_buy_fee_pct"),
+            taker_sell_fee_pct=optional_decimal("taker_sell_fee_pct"),
         )
 
 
@@ -139,6 +177,11 @@ def _simulate_order(
     events: list[MarketEvent],
     outcome: ExecutionOutcome,
     calibration: ReplayCalibration,
+    *,
+    maker_buy_fee_pct: Decimal,
+    maker_sell_fee_pct: Decimal,
+    taker_buy_fee_pct: Decimal,
+    taker_sell_fee_pct: Decimal,
 ) -> tuple[Decimal, Decimal, Decimal, int | None]:
     relevant = [
         event for event in events
@@ -149,6 +192,12 @@ def _simulate_order(
         return Decimal("0"), Decimal("0"), Decimal("0"), None
     replay = OrderBookReplay(
         latency_ms=calibration.latency_ms_p95,
+        maker_fee_pct=(
+            maker_buy_fee_pct if outcome.side == "BUY" else maker_sell_fee_pct
+        ),
+        taker_fee_pct=(
+            taker_buy_fee_pct if outcome.side == "BUY" else taker_sell_fee_pct
+        ),
         market_impact_bps=calibration.market_impact_bps,
     )
     order = ReplayOrder(
@@ -158,16 +207,30 @@ def _simulate_order(
         quantity=outcome.original_quantity,
         created_ts=outcome.intent_created_at_ms,
     )
-    replay.submit(
-        order,
-        outcome.intent_created_at_ms,
-        queue_ahead=_queue_ahead(relevant[0], outcome),
-    )
+    stop_pending = outcome.order_type == "STOP_LOSS_LIMIT"
+    if stop_pending and (outcome.side != "SELL" or outcome.stop_price <= 0):
+        return Decimal("0"), Decimal("0"), Decimal("0"), None
+    if not stop_pending:
+        replay.submit(
+            order,
+            outcome.intent_created_at_ms,
+            queue_ahead=_queue_ahead(relevant[0], outcome),
+        )
     quantity = Decimal("0")
     quote = Decimal("0")
     fee_quote = Decimal("0")
     first_fill_ms: int | None = None
     for event in relevant:
+        if stop_pending:
+            trigger_prices = [price for price, _qty, _side in event.trades]
+            if not trigger_prices or min(trigger_prices) > outcome.stop_price:
+                continue
+            replay.submit(
+                order,
+                event.ts_ms,
+                queue_ahead=_queue_ahead(event, outcome),
+            )
+            stop_pending = False
         for fill in replay.process(event):
             if fill.order_id != outcome.order_ref:
                 continue
@@ -191,6 +254,10 @@ def validate_replay_outcomes(
     maximum_latency_error_ms_mae: Decimal = Decimal("1000"),
     maximum_fee_error_quote_mae: Decimal = Decimal("0.02"),
     maximum_slippage_error_bps_mae: Decimal = Decimal("10"),
+    maker_buy_fee_pct: Decimal = Decimal("0.00075"),
+    maker_sell_fee_pct: Decimal = Decimal("0.00075"),
+    taker_buy_fee_pct: Decimal = Decimal("0.001"),
+    taker_sell_fee_pct: Decimal = Decimal("0.001"),
 ) -> ReplayValidation:
     """Replay terminal real orders and fail closed on insufficient accuracy."""
     rows = sorted(events, key=lambda event: event.ts_ms)
@@ -198,6 +265,14 @@ def validate_replay_outcomes(
         raise ValueError("replay validation requires market events")
     if minimum_orders < 1:
         raise ValueError("minimum orders must be positive")
+    fee_rates = (
+        maker_buy_fee_pct,
+        maker_sell_fee_pct,
+        taker_buy_fee_pct,
+        taker_sell_fee_pct,
+    )
+    if any(not value.is_finite() or value < 0 for value in fee_rates):
+        raise ValueError("replay validation fee rates are invalid")
     covered: list[
         tuple[ExecutionOutcome, Decimal, Decimal, Decimal, int | None]
     ] = []
@@ -211,7 +286,13 @@ def validate_replay_outcomes(
             excluded += 1
             continue
         quantity, quote, fee_quote, first_fill_ms = _simulate_order(
-            rows, outcome, calibration
+            rows,
+            outcome,
+            calibration,
+            maker_buy_fee_pct=maker_buy_fee_pct,
+            maker_sell_fee_pct=maker_sell_fee_pct,
+            taker_buy_fee_pct=taker_buy_fee_pct,
+            taker_sell_fee_pct=taker_sell_fee_pct,
         )
         covered.append(
             (outcome, quantity, quote, fee_quote, first_fill_ms)
@@ -225,6 +306,8 @@ def validate_replay_outcomes(
     slippage_errors: list[Decimal] = []
     actual_filled = 0
     replay_filled = 0
+    actual_limit_maker = 0
+    actual_stop_limit = 0
     for (
         outcome,
         replay_quantity,
@@ -236,6 +319,12 @@ def validate_replay_outcomes(
         replay_has_fill = replay_quantity > 0
         actual_filled += int(actual_has_fill)
         replay_filled += int(replay_has_fill)
+        actual_limit_maker += int(
+            actual_has_fill and outcome.order_type == "LIMIT_MAKER"
+        )
+        actual_stop_limit += int(
+            actual_has_fill and outcome.order_type == "STOP_LOSS_LIMIT"
+        )
         classification_hits += int(actual_has_fill == replay_has_fill)
         replay_ratio = min(
             Decimal("1"), replay_quantity / outcome.original_quantity
@@ -287,6 +376,10 @@ def validate_replay_outcomes(
         reasons.append("calibration is not eligible")
     if sample_count < minimum_orders:
         reasons.append(f"covered orders {sample_count} < {minimum_orders}")
+    if actual_limit_maker < 1:
+        reasons.append("actual LIMIT_MAKER coverage is unavailable")
+    if actual_stop_limit < 1:
+        reasons.append("actual STOP_LOSS_LIMIT coverage is unavailable")
     if accuracy < minimum_classification_accuracy:
         reasons.append("fill classification accuracy below threshold")
     if ratio_mae > maximum_fill_ratio_mae:
@@ -321,6 +414,12 @@ def validate_replay_outcomes(
         latency_error_ms_mae=latency_mae,
         fee_error_quote_mae=fee_mae,
         slippage_error_bps_mae=slippage_mae,
+        actual_limit_maker_filled_orders=actual_limit_maker,
+        actual_stop_limit_filled_orders=actual_stop_limit,
+        maker_buy_fee_pct=maker_buy_fee_pct,
+        maker_sell_fee_pct=maker_sell_fee_pct,
+        taker_buy_fee_pct=taker_buy_fee_pct,
+        taker_sell_fee_pct=taker_sell_fee_pct,
     )
 
 

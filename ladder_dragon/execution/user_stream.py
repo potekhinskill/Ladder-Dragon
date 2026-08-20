@@ -75,6 +75,8 @@ class OrderStreamSignal:
     commission_amount: str
     commission_asset: str
     received_time_ms: int
+    order_type: str = "UNKNOWN"
+    stop_price: str = "0"
 
     @property
     def dedupe_key(self) -> tuple[object, ...]:
@@ -123,6 +125,8 @@ def parse_order_signal(
                 if received_time_ms is not None
                 else int(time.time() * 1000)
             ),
+            order_type=str(event_raw.get("o", "UNKNOWN") or "UNKNOWN").upper(),
+            stop_price=str(event_raw.get("P", "0") or "0"),
         )
     except (TypeError, ValueError, OverflowError):
         return None

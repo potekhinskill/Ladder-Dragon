@@ -86,7 +86,9 @@ def execution_report(**overrides):
         "X": "PARTIALLY_FILLED",
         "t": 456,
         "S": "BUY",
+        "o": "LIMIT_MAKER",
         "p": "75.50",
+        "P": "0",
         "q": "0.10000000",
         "L": "75.50",
         "l": "0.01000000",
@@ -113,6 +115,8 @@ def test_execution_report_parser_preserves_partial_fill_identity():
     assert signal.last_quantity == "0.01000000"
     assert signal.cumulative_quantity == "0.01000000"
     assert signal.side == "BUY"
+    assert signal.order_type == "LIMIT_MAKER"
+    assert signal.stop_price == "0"
     assert signal.order_price == "75.50"
     assert signal.original_quantity == "0.10000000"
     assert signal.last_price == "75.50"
@@ -140,7 +144,8 @@ def test_execution_latency_log_is_sanitized_and_calibratable(tmp_path):
     text = path.read_text()
     assert "LDBLAD-test" not in text
     assert payload["intent_to_event_ms"] == 10
-    assert payload["schema_version"] == 3
+    assert payload["schema_version"] == 4
+    assert payload["order_type"] == "LIMIT_MAKER"
     assert payload["order_price"] == "75.50"
     assert payload["original_quantity"] == "0.10000000"
     assert load_execution_latencies(path) == [20]

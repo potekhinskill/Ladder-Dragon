@@ -29,6 +29,9 @@ from ladder_dragon.strategy.prediction.statistical_design import (
     DEFAULT_STATISTICAL_DESIGN,
 )
 from ladder_dragon.strategy.expectancy_controls import CommissionSchedule
+from ladder_dragon.supervision.execution_episode_shadow import (
+    collect_execution_episode,
+)
 
 
 _EXPERIMENT_REPORT_CACHE: dict[
@@ -46,6 +49,8 @@ def build_prediction_plan(
     fee_pct: Decimal,
     slippage_pct: Decimal,
     commission_schedule: CommissionSchedule,
+    stop_limit_offset_pct: object = Decimal("0.0015"),
+    maximum_holding_min: int | None = None,
 ) -> TradePlan:
     """Create one plan with the authoritative account commission schedule."""
     try:
@@ -68,6 +73,8 @@ def build_prediction_plan(
         taker_buy_fee_pct=commission_schedule.taker_buy,
         taker_sell_fee_pct=commission_schedule.taker_sell,
         fee_provenance="BINANCE_ACCOUNT_COMMISSION_MAX_V1",
+        stop_limit_offset_pct=Decimal(str(stop_limit_offset_pct)),
+        maximum_holding_min=maximum_holding_min,
     )
 
 
@@ -115,6 +122,10 @@ def collect_shadow_experiments(
     required_edge_pct: Decimal | None,
     record_interval_sec: int = 300,
     report_interval_sec: int = 900,
+    depth: dict[str, object] | None = None,
+    trades: Sequence[dict[str, object]] = (),
+    trades_complete: bool = False,
+    filters: dict[str, object] | None = None,
 ) -> dict[str, object]:
     """Record parallel variants and periodically refresh their expensive gates."""
     if required_edge_pct is None:
@@ -133,6 +144,56 @@ def collect_shadow_experiments(
         generation=spec.generation,
         symbol=symbol,
     )
+    if spec.lifecycle_mode == "PROMOTION":
+        if depth is None or filters is None:
+            return {
+                "mode": "SHADOW",
+                "available": False,
+                "generation": spec.generation,
+                "lifecycle_status": "LIVE_CONFIRMATION",
+                "lifecycle_mode": spec.lifecycle_mode,
+                "variant_id": variants[0].variant_id,
+                "superseded_generations": list(
+                    spec.superseded_selection_generations
+                ),
+                "execution_episode": {
+                    "status": "BLOCKED",
+                    "reason": "exact public episode evidence is unavailable",
+                    "promotion_eligible": False,
+                },
+                "can_change_orders": False,
+                "apply_allowed": False,
+            }
+        episode = collect_execution_episode(
+            store,
+            symbol=symbol,
+            generation=spec,
+            variants=variants,
+            features=features,
+            depth=depth,
+            trades=trades,
+            trades_complete=trades_complete,
+            filters=filters,
+        )
+        return {
+            "mode": "SHADOW",
+            "available": True,
+            "generation": spec.generation,
+            "lifecycle_status": episode.get(
+                "experiment_lifecycle_status", "PRESELECTED"
+            ),
+            "lifecycle_mode": spec.lifecycle_mode,
+            "selection_policy": "PREREGISTERED_SINGLE_CANDIDATE",
+            "primary_horizon_min": spec.primary_horizon_min,
+            "diagnostic_horizons_min": list(spec.diagnostic_horizons_min),
+            "variant_id": variants[0].variant_id,
+            "execution_episode": episode,
+            "superseded_generations": list(
+                spec.superseded_selection_generations
+            ),
+            "can_change_orders": False,
+            "apply_allowed": False,
+        }
     cache_key = f"{symbol.upper()}:{spec.generation}"
     now = time.monotonic()
     last_record = _EXPERIMENT_LAST_RECORD.get(cache_key)
@@ -186,6 +247,11 @@ def collect_shadow_experiments(
     )
     report["lifecycle_status"] = "SELECTION"
     report["recording_stopped_by_deadline"] = not recording_allowed
+    report["execution_episode"] = {
+        "status": "DIAGNOSTIC_ONLY",
+        "promotion_eligible": False,
+    }
+    report["lifecycle_mode"] = spec.lifecycle_mode
     superseded_reports = {}
     for generation in spec.superseded_selection_generations:
         historical_spec = experiment_spec_for_generation(

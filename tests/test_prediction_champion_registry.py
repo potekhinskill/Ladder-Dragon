@@ -38,7 +38,7 @@ def _confirmed_manifest(
         "selected_variant": f"{generation}_maker_ttl60_gap8p4",
         "candidate_fingerprint": candidate_fingerprint,
         "candidate_parameters": {
-            "candidate_rule_version": 2,
+            "candidate_rule_version": 3,
             "entry_gap_bps": "8.4",
             "entry_ttl_sec": 3600,
             "entry_enabled": True,
@@ -55,7 +55,10 @@ def _confirmed_manifest(
                 "provenance": "BINANCE_ACCOUNT_COMMISSION_MAX_V1",
             },
             "target_return": "0.0096",
-            "stop_distance": "0.01",
+            "stop_limit_distance": "0.01",
+            "stop_trigger_offset_pct": "0.0015",
+            "maximum_holding_min": 360,
+            "primary_horizon_min": 360,
         },
     }
     manifest_sha = sha256_json(manifest)
@@ -377,6 +380,7 @@ def test_direct_worker_rebuilds_policy_and_clamps_caps(tmp_path: Path, monkeypat
         tp1=0.5,
         tp2=0.6,
         sl=-0.5,
+        stop_limit_offset_pct=0.2,
         target_buy_per_symbol=7,
         buy_limit_maker=False,
         sell_limit_maker=False,
@@ -394,6 +398,8 @@ def test_direct_worker_rebuilds_policy_and_clamps_caps(tmp_path: Path, monkeypat
     assert args.tp1 == pytest.approx(0.0096)
     assert args.tp2 == pytest.approx(0.0096)
     assert args.sl == pytest.approx(-0.01)
+    assert args.stop_limit_offset_pct == pytest.approx(0.0015)
+    assert os.environ["BOT_MAX_HOLDING_MINUTES"] == "360"
     assert args.target_buy_per_symbol == 1
     assert args.buy_limit_maker is True
     assert args.sell_limit_maker is True
