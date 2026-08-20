@@ -3,6 +3,19 @@
 All notable changes are documented here. Releases use Semantic Versioning; every
 section is dated and there is intentionally no `Unreleased` section.
 
+## [2.20.231] — 2026-08-20
+
+### Changed
+- User Stream readiness now uses the append-only `transport-stability-2026-08-v6` epoch.
+- The observer retains v1 through v5 baselines and all lifetime counters.
+
+### Fixed
+- Network and authentication failures from v5 no longer distort the repaired connection's readiness rate.
+
+### Verified
+- All 1,298 project tests and Python compilation pass.
+- User Stream epoch, Technical English, secret, static-analysis, and release continuity checks pass.
+
 ## [2.20.230] — 2026-08-20
 
 ### Changed

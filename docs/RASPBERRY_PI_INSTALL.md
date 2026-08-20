@@ -371,6 +371,9 @@ The v1, v2, and v3 epochs remain in the same sanitized snapshot.
 Release 2.20.203 starts the `transport-stability-2026-08-v5` epoch.
 This epoch starts after correction of the authorization and host clock incident.
 The v1 through v4 epochs remain in the same sanitized snapshot.
+Release 2.20.231 starts the `transport-stability-2026-08-v6` epoch.
+This epoch starts after Wi-Fi recovery and successful signed REST authentication.
+The v1 through v5 epochs remain in the same sanitized snapshot.
 The snapshot retains up to 64 append-only epoch baselines.
 The observer blocks a new epoch when this limit is full.
 The operator must review and archive evidence before any manual migration.

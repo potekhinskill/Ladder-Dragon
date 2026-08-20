@@ -921,15 +921,29 @@ def test_observer_appends_reviewed_epoch_and_preserves_previous_evidence(
         "started_at": 1_900,
         "baseline": dict(previous_v3_baseline),
     }
+    previous_v5_baseline = dict(previous_v3_baseline)
+    previous_v5_baseline["transport_failure_reconnects"] = 2_384
+    previous_v5 = {
+        "id": "transport-stability-2026-08-v5",
+        "started_at": 1_950,
+        "baseline": previous_v5_baseline,
+    }
     path.write_text(json.dumps({
         "state": "connected",
         "first_observed_at": 900,
         "sessions": 5,
         "reconnects": 2_210,
+        "transport_failure_reconnects": 2_384,
         "order_events": 2,
         "rest_reconciliations": 544,
         "event_woken_rest_reconciliations": 2,
-        "soak_epochs": [previous_v1, previous_v2, previous_v3, previous_v4],
+        "soak_epochs": [
+            previous_v1,
+            previous_v2,
+            previous_v3,
+            previous_v4,
+            previous_v5,
+        ],
     }))
 
     observer = BinanceUserDataObserver(
@@ -948,18 +962,21 @@ def test_observer_appends_reviewed_epoch_and_preserves_previous_evidence(
         "transport-stability-2026-08-v2",
         "transport-stability-2026-08-v3",
         "transport-stability-2026-08-v4",
+        "transport-stability-2026-08-v5",
         CURRENT_USER_STREAM_SOAK_EPOCH_ID,
     ]
     assert epochs[0] == previous_v1
     assert epochs[1] == previous_v2
     assert epochs[2] == previous_v3
     assert epochs[3] == previous_v4
-    assert epochs[4]["started_at"] == 2_000
-    assert epochs[4]["baseline"]["reconnects"] == 2_210
-    assert epochs[4]["baseline"]["sessions"] == 5
-    assert epochs[4]["baseline"]["order_events"] == 2
-    assert epochs[4]["baseline"]["rest_reconciliations"] == 544
-    assert epochs[4]["baseline"]["event_woken_rest_reconciliations"] == 2
+    assert epochs[4] == previous_v5
+    assert epochs[5]["started_at"] == 2_000
+    assert epochs[5]["baseline"]["reconnects"] == 2_210
+    assert epochs[5]["baseline"]["transport_failure_reconnects"] == 2_384
+    assert epochs[5]["baseline"]["sessions"] == 5
+    assert epochs[5]["baseline"]["order_events"] == 2
+    assert epochs[5]["baseline"]["rest_reconciliations"] == 544
+    assert epochs[5]["baseline"]["event_woken_rest_reconciliations"] == 2
 
 
 def test_observer_refuses_to_delete_epoch_history_at_growth_limit(tmp_path):

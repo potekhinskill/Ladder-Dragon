@@ -195,8 +195,8 @@ GET reconciliation. Its sanitized state persists below
 requirement to clear HALT merely to collect stream-readiness evidence.
 The dashboard separates planned idle refreshes from transport failures.
 Historical reconnects without classification remain visible as legacy evidence.
-The current v5 epoch starts after correction of the authorization and host clock incident.
-The observer retains the v1 through v4 epochs and all lifetime counters.
+The current v6 epoch starts after Wi-Fi recovery and successful signed REST authentication.
+The observer retains the v1 through v5 epochs and all lifetime counters.
 Only current-epoch counters contribute to the reconnect-rate readiness gate.
 The dashboard labels current-epoch and lifetime counters separately.
 

@@ -1,6 +1,6 @@
 # Implementation status
 
-This document describes the code in version **2.20.230**.
+This document describes the code in version **2.20.231**.
 It does not describe future plans as completed work.
 
 An implemented function is not automatically approved for LIVE use.
@@ -186,7 +186,7 @@ Promotion still requires these items:
 - exact natural BUY to OCO to TP or STOP lifecycles;
 - zero unresolved inventory or protection fills;
 - resolved AI attribution evidence;
-- a continuous authenticated User Data Stream soak in the current v5 epoch;
+- a continuous authenticated User Data Stream soak in the current v6 epoch;
 - closed prediction horizons without an overdue backlog;
 - positive lower confidence bounds;
 - baseline improvement after Holm correction;
