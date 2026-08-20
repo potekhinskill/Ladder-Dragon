@@ -6,6 +6,13 @@ avoidable rework. Identify the root cause rather than recording only the
 symptom. Keep entries concise and exclude secrets, balances, account data, and
 private infrastructure details.
 
+### 2026-08-20 — Depended on a restricted user-level GitHub endpoint
+
+- **Impact:** the hourly Star History workflow failed continuously and sent repeated GitHub notifications.
+- **Root cause:** the workflow required the full Stargazer list and reduced each GraphQL failure to a generic `ValueError`.
+- **Correction:** use aggregate metadata, bounded Pages state, daily reconciliation, and safe reason codes.
+- **Prevention:** prefer aggregate APIs and test diagnostics for each external data-access boundary.
+
 ### 2026-08-19 — Trusted a caller-selected HALT file
 
 - **Impact:** any existing file could satisfy the CHAMPION activation precondition while the authoritative HALT was absent.

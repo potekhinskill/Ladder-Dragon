@@ -1,5 +1,12 @@
 # Engineering decisions
 
+### 2026-08-20 — Persist only aggregate star snapshots
+
+- **Context:** GitHub restricted user-level Stargazer lists and the hourly Pages workflow failed continuously.
+- **Decision:** read repository counts, merge bounded daily snapshots, and retain one public seed without account identities.
+- **Why it worked:** tests cover removals, same-day events, corrupt state, response limits, and current public metadata.
+- **Reuse:** every public trend artifact that needs aggregate history but does not need user-level records.
+
 ### 2026-08-19 — Resolve activation HALT from Risk Manager
 
 - **Context:** a caller-selected file could satisfy the CHAMPION activation check without the authoritative HALT.

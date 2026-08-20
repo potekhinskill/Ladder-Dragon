@@ -7,11 +7,12 @@ on:
     branches: [main]
     paths:
       - ".github/workflows/star-history.yml"
+      - ".github/star-history-seed.json"
       - "bin/generate_star_history.py"
   schedule:
-    # The watch event has no removal action. The hourly run reconciles removals
+    # The watch event has no removal action. The daily run reconciles removals
     # and recovers from delayed or missed repository events.
-    - cron: "23 * * * *"
+    - cron: "23 1 * * *"
   workflow_dispatch:
 
 permissions:
@@ -40,9 +41,14 @@ jobs:
       - name: Generate star history from GitHub
         env:
           GITHUB_TOKEN: ${{ github.token }}
+          STAR_HISTORY_STATE_URL: >-
+            https://${{ github.repository_owner }}.github.io/${{ github.event.repository.name }}/star-history.json
         run: >-
           python3 bin/generate_star_history.py
           --repository "${GITHUB_REPOSITORY}"
+          --seed-json .github/star-history-seed.json
+          --previous-url "${STAR_HISTORY_STATE_URL}"
+          --state-output _site/star-history.json
           --output _site/star-history.svg
       - uses: actions/upload-pages-artifact@fc324d3547104276b827a68afc52ff2a11cc49c9 # v5.0.0
         with:

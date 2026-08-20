@@ -3,6 +3,24 @@
 All notable changes are documented here. Releases use Semantic Versioning; every
 section is dated and there is intentionally no `Unreleased` section.
 
+## [2.20.230] — 2026-08-20
+
+### Changed
+- Star History now reconciles one aggregate repository count each day and after each new-star event.
+- GitHub Pages retains at most 3,660 derived daily count snapshots without account identities.
+
+### Fixed
+- The workflow no longer calls the GitHub Stargazers list endpoint that rejects the Actions token.
+- Safe error codes now identify provider, input, and state failures without response data.
+
+### Security
+- Remote JSON reads have a strict 128 KiB decoded-byte limit before parsing.
+- Star History stores no GitHub account names or user-level Stargazer records.
+
+### Verified
+- All 1,298 project tests and Python compilation pass.
+- Live aggregate generation, Technical English, and diff integrity checks pass.
+
 ## [2.20.229] — 2026-08-20
 
 ### Added

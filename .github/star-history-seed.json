@@ -1,0 +1,19 @@
+{
+  "created_at": "2026-07-18T09:39:54Z",
+  "repository": "potekhinskill/Ladder-Dragon",
+  "samples": [
+    {
+      "count": 0,
+      "date": "2026-07-18"
+    },
+    {
+      "count": 1,
+      "date": "2026-07-26"
+    },
+    {
+      "count": 2,
+      "date": "2026-07-31"
+    }
+  ],
+  "schema_version": 1
+}

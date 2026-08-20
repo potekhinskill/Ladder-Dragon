@@ -176,7 +176,7 @@ def test_public_project_contact_is_documented_not_runtime_data():
     assert "https://www.linkedin.com/in/ypotekhin/" in copyright_text
 
 
-def test_readme_star_history_uses_event_and_hourly_pages_chart():
+def test_readme_star_history_uses_event_and_daily_aggregate_chart():
     readme = read("README.md")
     workflow = read(".github/workflows/star-history.yml")
     assert (
@@ -194,15 +194,20 @@ def test_readme_star_history_uses_event_and_hourly_pages_chart():
     assert "cron:" in workflow
     assert "watch:" in workflow
     assert "types: [started]" in workflow
-    assert 'cron: "23 * * * *"' in workflow
-    assert 'cron: "17 1 * * *"' not in workflow
+    assert 'cron: "23 1 * * *"' in workflow
+    assert 'cron: "23 * * * *"' not in workflow
     assert "timeout-minutes: 10" in workflow
-    assert "reconciles it each hour" in readme
+    assert "reconciles the aggregate count each day" in readme
     assert "contents: read" in workflow
     assert "pages: write" in workflow
     assert "id-token: write" in workflow
     assert "contents: write" not in workflow
     assert "bin/generate_star_history.py" in workflow
+    assert ".github/star-history-seed.json" in workflow
+    assert "--state-output _site/star-history.json" in workflow
+    assert "--previous-url" in workflow
+    assert "stargazerCount" not in workflow
+    assert "graphql" not in workflow.lower()
     assert "GITHUB_TOKEN: ${{ github.token }}" in workflow
     assert "echo ${GITHUB_TOKEN}" not in workflow
     assert (
