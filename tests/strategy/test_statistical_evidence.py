@@ -111,6 +111,112 @@ def test_full_history_reader_stops_at_first_independent_pending_snapshot(tmp_pat
     assert evidence.stopped_at_pending_snapshot is True
 
 
+def test_full_history_reader_skips_terminal_unusable_prefix(tmp_path):
+    store = PredictionShadowStore(tmp_path / "prediction.sqlite3")
+    with store._connect() as connection:
+        for index, snapshot in enumerate((0, 16 * 60_000, 32 * 60_000)):
+            decision_id = f"terminal-{index}"
+            connection.execute(
+                "INSERT INTO prediction_decisions VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                (
+                    decision_id, 2, "CONTROL_TEST", "SOLUSDT", snapshot,
+                    '{"regime":"RANGE"}', "{}", "{}", "[]", "test",
+                    snapshot, None, "LEGACY", None, None,
+                ),
+            )
+            for horizon in (1, 5, 15):
+                resolved_at = snapshot + horizon * 60_000
+                payload = _outcome(horizon, resolved_at) if index == 1 else None
+                terminal_reason = "INSUFFICIENT_HISTORY" if index == 0 else None
+                connection.execute(
+                    "INSERT INTO prediction_outcomes VALUES(?,?,?,?,?,?,?,?,?)",
+                    (
+                        decision_id, horizon, resolved_at,
+                        resolved_at if index < 2 else None,
+                        payload, payload, terminal_reason, None, None,
+                    ),
+                )
+        connection.commit()
+
+    evidence = resolved_independent_evidence(
+        store,
+        "SOLUSDT",
+        kind="CONTROL_TEST",
+        required_horizons_min=(1, 5, 15),
+    )
+
+    assert {row.snapshot_ts_ms for row in evidence.samples} == {16 * 60_000}
+    assert evidence.skipped_terminal_snapshots == 1
+    assert evidence.stopped_at_pending_snapshot is True
+
+
+def test_terminal_outcome_after_cutoff_remains_pending(tmp_path):
+    store = PredictionShadowStore(tmp_path / "prediction.sqlite3")
+    with store._connect() as connection:
+        connection.execute(
+            "INSERT INTO prediction_decisions VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+            (
+                "terminal-future", 2, "CONTROL_TEST", "SOLUSDT", 0,
+                '{"regime":"RANGE"}', "{}", "{}", "[]", "test", 0,
+                None, "LEGACY", None, None,
+            ),
+        )
+        for horizon in (1, 5, 15):
+            connection.execute(
+                "INSERT INTO prediction_outcomes VALUES(?,?,?,?,?,?,?,?,?)",
+                (
+                    "terminal-future", horizon, 100, 100, None, None,
+                    "INSUFFICIENT_HISTORY", None, None,
+                ),
+            )
+        connection.commit()
+
+    evidence = resolved_independent_evidence(
+        store,
+        "SOLUSDT",
+        kind="CONTROL_TEST",
+        required_horizons_min=(1, 5, 15),
+        resolved_before_ts_ms=99,
+    )
+
+    assert evidence.samples == ()
+    assert evidence.skipped_terminal_snapshots == 0
+    assert evidence.stopped_at_pending_snapshot is True
+
+
+def test_unknown_terminal_reason_stops_evidence_prefix(tmp_path):
+    store = PredictionShadowStore(tmp_path / "prediction.sqlite3")
+    with store._connect() as connection:
+        connection.execute(
+            "INSERT INTO prediction_decisions VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+            (
+                "terminal-unknown", 2, "CONTROL_TEST", "SOLUSDT", 0,
+                '{"regime":"RANGE"}', "{}", "{}", "[]", "test", 0,
+                None, "LEGACY", None, None,
+            ),
+        )
+        for horizon in (1, 5, 15):
+            connection.execute(
+                "INSERT INTO prediction_outcomes VALUES(?,?,?,?,?,?,?,?,?)",
+                (
+                    "terminal-unknown", horizon, 100, 100, None, None,
+                    "UNKNOWN_REASON", None, None,
+                ),
+            )
+        connection.commit()
+
+    evidence = resolved_independent_evidence(
+        store,
+        "SOLUSDT",
+        kind="CONTROL_TEST",
+        required_horizons_min=(1, 5, 15),
+    )
+
+    assert evidence.samples == ()
+    assert evidence.skipped_terminal_snapshots == 0
+    assert evidence.stopped_at_pending_snapshot is True
+
+
 def test_control_reader_keeps_late_binding_rows_after_nonbinding_capacity(tmp_path):
     store = PredictionShadowStore(tmp_path / "prediction.sqlite3")
     with store._connect() as connection:

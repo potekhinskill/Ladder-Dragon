@@ -1,5 +1,12 @@
 # Engineering decisions
 
+### 2026-08-21 — Separate terminal gaps from mutable evidence
+
+- **Context:** a stable evidence prefix stopped at an immutable snapshot without an outcome value.
+- **Decision:** skip only known terminal gaps after their cutoff and retain pending or unknown rows as blockers.
+- **Why it worked:** tests preserve later resolved evidence, time cutoffs, and fail-closed handling for unknown reasons.
+- **Reuse:** every chronological evidence reader that combines terminal gaps with retriable work.
+
 ### 2026-08-20 — Persist only aggregate star snapshots
 
 - **Context:** GitHub restricted user-level Stargazer lists and the hourly Pages workflow failed continuously.

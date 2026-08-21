@@ -17,6 +17,7 @@ from ladder_dragon.strategy.prediction.statistical_units import outcome_spacing_
 
 
 MAX_INDEPENDENT_SNAPSHOTS = 512
+TERMINAL_UNUSABLE_REASONS = frozenset({"INSUFFICIENT_HISTORY"})
 
 
 @dataclass(frozen=True)
@@ -26,6 +27,7 @@ class IndependentEvidence:
     samples: tuple[ResolvedSample, ...]
     scanned_snapshots: int
     excluded_overlapping_snapshots: int
+    skipped_terminal_snapshots: int
     stopped_at_pending_snapshot: bool
     total_independent_snapshots: int
     retained_binding_snapshots: int
@@ -142,7 +144,7 @@ def resolved_independent_evidence(
     query = """SELECT d.decision_id,d.snapshot_ts_ms,d.feature_json,
                       d.algorithm_decision,o.horizon_min,o.outcome_json,
                       o.baseline_outcome_json,o.resolved_at_ms,
-                      d.plan_json,d.baseline_plan_json
+                      d.plan_json,d.baseline_plan_json,o.terminal_reason
                FROM prediction_decisions d
                LEFT JOIN prediction_outcomes o ON o.decision_id=d.decision_id
                WHERE d.symbol=? AND d.kind=?"""
@@ -166,6 +168,7 @@ def resolved_independent_evidence(
     output: list[ResolvedSample] = []
     scanned = 0
     excluded = 0
+    skipped_terminal = 0
     stopped_pending = False
     next_allowed_ms: int | None = None
     previous_snapshot: int | None = None
@@ -186,7 +189,8 @@ def resolved_independent_evidence(
     baseline_max_drawdown = Decimal("0")
 
     def consume(rows: list[tuple[object, ...]]) -> bool:
-        nonlocal scanned, excluded, stopped_pending, next_allowed_ms
+        nonlocal scanned, excluded, skipped_terminal, stopped_pending
+        nonlocal next_allowed_ms
         nonlocal total_independent, total_binding, discarded_nonbinding
         nonlocal candidate_total, baseline_total, edge_bps_total
         nonlocal candidate_equity, baseline_equity
@@ -196,27 +200,39 @@ def resolved_independent_evidence(
             return False
         snapshot = int(rows[0][1])
         scanned += 1
-        if next_allowed_ms is not None and snapshot < next_allowed_ms:
-            excluded += 1
-            return False
-        next_allowed_ms = snapshot + outcome_spacing_ms(horizons)
         by_horizon = {int(row[4]): row for row in rows}
         if tuple(sorted(by_horizon)) != horizons:
             stopped_pending = True
             return True
+
+        # A terminal outcome without a value can never become evidence. Skip it
+        # without consuming an independent interval, but stop at mutable work.
+        rows_by_horizon = tuple(by_horizon.values())
         if any(
-            row[5] is None
+            row[7] is None
             or (
                 resolved_before_ts_ms is not None
-                and (
-                    row[7] is None
-                    or int(row[7]) > int(resolved_before_ts_ms)
-                )
+                and int(row[7]) > int(resolved_before_ts_ms)
             )
-            for row in by_horizon.values()
+            for row in rows_by_horizon
         ):
             stopped_pending = True
             return True
+        unresolved = tuple(row for row in rows_by_horizon if row[5] is None)
+        if unresolved:
+            if all(
+                str(row[10] or "").strip().upper()
+                in TERMINAL_UNUSABLE_REASONS
+                for row in unresolved
+            ):
+                skipped_terminal += 1
+                return False
+            stopped_pending = True
+            return True
+        if next_allowed_ms is not None and snapshot < next_allowed_ms:
+            excluded += 1
+            return False
+        next_allowed_ms = snapshot + outcome_spacing_ms(horizons)
         features = json.loads(str(rows[0][2]))
         metadata = decision_metadata(str(rows[0][3]))
         if prefer_binding:
@@ -325,6 +341,7 @@ def resolved_independent_evidence(
         samples=tuple(output),
         scanned_snapshots=scanned,
         excluded_overlapping_snapshots=excluded,
+        skipped_terminal_snapshots=skipped_terminal,
         stopped_at_pending_snapshot=stopped_pending,
         total_independent_snapshots=total_independent,
         retained_binding_snapshots=len(binding_groups),
@@ -332,6 +349,7 @@ def resolved_independent_evidence(
         cohort_summary={
             "independent_snapshots": total_independent,
             "binding_snapshots": total_binding,
+            "skipped_terminal_snapshots": skipped_terminal,
             "candidate_pnl_sum": format(candidate_total, "f"),
             "baseline_pnl_sum": format(baseline_total, "f"),
             "edge_bps_sum": format(edge_bps_total, "f"),

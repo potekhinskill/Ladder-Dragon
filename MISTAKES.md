@@ -6,6 +6,13 @@ avoidable rework. Identify the root cause rather than recording only the
 symptom. Keep entries concise and exclude secrets, balances, account data, and
 private infrastructure details.
 
+### 2026-08-21 — Treated a terminal gap as pending work
+
+- **Impact:** active BTC and ETH selection reports stayed at zero independent samples despite later resolved outcomes.
+- **Root cause:** the reader checked only `outcome_json` and did not read the immutable `terminal_reason`.
+- **Correction:** skip known resolved terminal gaps without consuming an independence interval.
+- **Prevention:** evidence-prefix tests must combine terminal gaps, later outcomes, pending rows, cutoffs, and unknown reasons.
+
 ### 2026-08-20 — Depended on a restricted user-level GitHub endpoint
 
 - **Impact:** the hourly Star History workflow failed continuously and sent repeated GitHub notifications.

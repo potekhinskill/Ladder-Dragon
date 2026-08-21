@@ -3,6 +3,20 @@
 All notable changes are documented here. Releases use Semantic Versioning; every
 section is dated and there is intentionally no `Unreleased` section.
 
+## [2.20.232] — 2026-08-21
+
+### Fixed
+- Statistical evidence skips known terminal snapshots that cannot produce an outcome.
+- Terminal snapshots no longer consume an independent outcome interval.
+- Mutable, future, and unknown outcome states still stop the stable evidence prefix.
+
+### Changed
+- Prediction status reports the number of skipped terminal snapshots.
+
+### Verified
+- All 1,301 project tests and Python compilation pass.
+- Technical English and diff integrity checks pass.
+
 ## [2.20.231] — 2026-08-20
 
 ### Changed

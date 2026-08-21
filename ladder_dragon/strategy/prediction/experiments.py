@@ -533,6 +533,9 @@ def shadow_variant_report(
                     "excluded_overlapping_snapshots": (
                         independent_evidence.excluded_overlapping_snapshots
                     ),
+                    "skipped_terminal_snapshots": (
+                        independent_evidence.skipped_terminal_snapshots
+                    ),
                     "stopped_at_pending_snapshot": (
                         independent_evidence.stopped_at_pending_snapshot
                     ),
