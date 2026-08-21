@@ -1591,3 +1591,10 @@ entries concise; this is not a changelog or an activity log.
 - **Decision:** preregister one SOL candidate and collect sequential compact L2 execution episodes.
 - **Why it worked:** live confirmation now includes missed fills, partial fills, exact fees, and stop gaps.
 - **Reuse:** every promotion where the exchange lifecycle differs from a candle-touch model.
+
+### 2026-08-22 — Collect active execution evidence once per release
+
+- **Context:** replay validation needs one real passive fill without enabling strategy execution.
+- **Decision:** use one separately approved 6 USDT LIMIT_MAKER attempt under persistent HALT with mandatory cleanup.
+- **Why it worked:** the durable marker blocks repeats, and the drill restores only its acquired SOL quantity.
+- **Reuse:** every paid Mainnet validation that must not become an adaptive sampling loop.

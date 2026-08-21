@@ -68,12 +68,16 @@ def append_execution_latency_sample(
     intent_created_at_ms: int,
     commission_quote: Decimal | None = None,
     commission_value_status: str = "not_applicable",
+    observation_source: str = "USER_STREAM",
 ) -> dict[str, object]:
     """Append one non-secret timing sample with a hashed client identity."""
     created = int(intent_created_at_ms)
     received = int(signal.received_time_ms)
     if created <= 0 or received < created:
         raise ValueError("execution latency timestamps are invalid")
+    source = str(observation_source).strip().upper()
+    if source not in {"USER_STREAM", "REST_TERMINAL_QUERY"}:
+        raise ValueError("execution observation source is invalid")
     payload: dict[str, object] = {
         "schema_version": 4,
         "symbol": signal.symbol,
@@ -109,6 +113,7 @@ def append_execution_latency_sample(
             if commission_quote is not None else None
         ),
         "commission_value_status": str(commission_value_status)[:32],
+        "observation_source": source,
         "intent_to_event_ms": max(0, int(signal.event_time_ms) - created),
         "intent_to_receive_ms": received - created,
         "exchange_to_receive_ms": (

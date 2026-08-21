@@ -18,6 +18,7 @@ def test_cli_launchers_remain_thin_and_never_alias_module_identity():
         "bin/binance_testnet_smoke.py",
         "bin/binance_mainnet_canary.py",
         "bin/mainnet_user_stream_drill.py",
+        "bin/mainnet_limit_maker_validation.py",
         "bin/tools_cancel_open.py",
     ):
         assert _line_count(relative) <= 20
@@ -256,6 +257,7 @@ def test_decomposition_targets_have_explicit_package_boundaries():
         "ladder_dragon/execution/orders/otoco.py",
         "ladder_dragon/execution/protection/emergency_flatten.py",
         "ladder_dragon/verification/live/mainnet_canary.py",
+        "ladder_dragon/verification/live/mainnet_limit_maker_validation.py",
         "docs/LOCAL_ARTIFACTS.md",
     )
     assert [path for path in required if not (ROOT / path).is_file()] == []

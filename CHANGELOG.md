@@ -3,6 +3,21 @@
 All notable changes are documented here. Releases use Semantic Versioning; every
 section is dated and there is intentionally no `Unreleased` section.
 
+## [2.20.234] — 2026-08-22
+
+### Added
+- A separately confirmed drill collects one real SOLUSDT LIMIT_MAKER fill for replay validation.
+- The drill records sanitized typed fill evidence and uses a separate authoritative journal.
+
+### Security
+- The drill requires persistent HALT, exact 6 USDT exposure, a positive reserve, and two drill confirmations.
+- One durable marker permits only one exchange mutation attempt for each release.
+- Mandatory MARKET cleanup sells only the SOL quantity acquired by the drill.
+
+### Verified
+- All 1,308 project tests and Python compilation pass.
+- Technical English and diff integrity checks pass.
+
 ## [2.20.233] — 2026-08-21
 
 ### Security

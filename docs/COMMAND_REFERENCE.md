@@ -189,6 +189,7 @@ The worker verifies the activation again before LIVE execution.
 | `binance_testnet_smoke` | runs public or confirmed Testnet checks | explicit mode confirmation |
 | `binance_mainnet_canary` | runs one bounded Mainnet lifecycle | three explicit confirmations |
 | `mainnet_user_stream_drill` | proves one Mainnet order event and REST reconciliation | three explicit confirmations and persistent HALT |
+| `mainnet_limit_maker_validation` | collects one real passive fill for replay validation | separate approval, 6 USDT ceiling, cleanup, and persistent HALT |
 | `tools_cancel_open` | previews or cancels selected open orders | `--live` plus venue selection |
 | `risk_ctl` | reads or resets the persistent HALT | manual reset review |
 | `maintenance_state` | sets, clears, or reads maintenance state | explicit operator command |

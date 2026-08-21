@@ -413,6 +413,34 @@ Do not delete this journal or its report.
 An unexpected fill triggers immediate cleanup and preserves HALT.
 Review Binance balances, open orders, and both journals after any failure.
 
+WARNING: The LIMIT_MAKER validation drill creates a real Mainnet fill.
+Run it only after separate approval for one 6 USDT attempt.
+Keep the persistent HALT active during the complete procedure.
+
+```bash
+sudo -u bot env \
+  BOT_LIVE_CONFIRMED=YES \
+  BOT_MAINNET_LIMIT_MAKER_VALIDATION_CONFIRMED=YES \
+  BOT_MAINNET_LIMIT_MAKER_VALIDATION_CLEANUP_CONFIRMED=YES \
+  PYTHONPATH=. \
+  .venv/bin/python -m bin.mainnet_limit_maker_validation \
+  --symbol SOLUSDT --notional-usdt 6 --wait-sec 90
+```
+
+The drill posts at the highest non-crossing tick.
+It cancels the remainder after the first fill or the wait limit.
+It sells only the acquired SOL quantity with a MARKET cleanup order.
+The command permits one exchange attempt for each release.
+A no-fill result uses exit code 2 and still consumes the attempt.
+Any uncertain cleanup preserves HALT and uses exit code 1.
+
+The separate SQLite journal is authoritative order evidence.
+The report and sanitized execution log are derived replay evidence.
+The journal grows by at most two intents for each attempted release.
+The report grows by at most three bounded rows for each attempted release.
+Do not delete these records before a verified encrypted backup and promotion audit.
+The normal evidence archive policy controls later retention.
+
 The monthly prediction timer creates offline evidence.
 It does not authorize APPLY or remove HALT.
 
