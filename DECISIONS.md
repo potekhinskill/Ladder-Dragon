@@ -1,5 +1,12 @@
 # Engineering decisions
 
+### 2026-08-21 — Lock every audited bootstrap distribution
+
+- **Context:** dependency auditing inspected a runner-provided tool outside the project lock policy.
+- **Decision:** pin `pip` inside the hash-locked audit environment before the audit starts.
+- **Why it worked:** local and GitHub audits inspect the same safe tool version.
+- **Reuse:** every isolated verification environment that audits its own package manager or bootstrap tools.
+
 ### 2026-08-21 — Separate terminal gaps from mutable evidence
 
 - **Context:** a stable evidence prefix stopped at an immutable snapshot without an outcome value.

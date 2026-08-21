@@ -6,6 +6,13 @@ avoidable rework. Identify the root cause rather than recording only the
 symptom. Keep entries concise and exclude secrets, balances, account data, and
 private infrastructure details.
 
+### 2026-08-21 — Audited an unpinned runner bootstrap tool
+
+- **Impact:** release 2.20.232 failed dependency CI before the Pi update.
+- **Root cause:** the audit lock resolved `pip` transitively instead of declaring its safe version.
+- **Correction:** pin the fixed `pip` release in the hash-locked audit environment.
+- **Prevention:** contract tests must reject vulnerable bootstrap versions in every audited lock.
+
 ### 2026-08-21 — Treated a terminal gap as pending work
 
 - **Impact:** active BTC and ETH selection reports stayed at zero independent samples despite later resolved outcomes.

@@ -1347,6 +1347,8 @@ def test_runtime_dependencies_are_hash_locked_and_installed_without_dependency_r
     assert "cryptography==50.0.0" in read("requirements/ci.lock")
     assert "cryptography==49.0.0" not in read("requirements/raspberry.lock")
     assert "cryptography==49.0.0" not in read("requirements/ci.lock")
+    assert "pip==26.2" in read("requirements/audit.lock")
+    assert "pip==26.1.2" not in read("requirements/audit.lock")
     assert "--require-hashes -r" in installer
     assert "--no-deps --no-build-isolation -e" in installer
     assert "--require-hashes -r requirements/raspberry.lock" in updater

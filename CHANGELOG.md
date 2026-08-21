@@ -3,6 +3,18 @@
 All notable changes are documented here. Releases use Semantic Versioning; every
 section is dated and there is intentionally no `Unreleased` section.
 
+## [2.20.233] — 2026-08-21
+
+### Security
+- The audit environment installs a hash-locked `pip` release without the known bootstrap vulnerability.
+
+### Fixed
+- Dependency auditing no longer inherits the vulnerable `pip` version from the GitHub runner.
+
+### Verified
+- Dependency auditing reports no known vulnerabilities in the isolated audit environment.
+- All project tests, Python compilation, Technical English, and diff integrity checks pass.
+
 ## [2.20.232] — 2026-08-21
 
 ### Fixed
