@@ -250,9 +250,13 @@ def record_episode_result(
             ).fetchone()[0]))
         except (json.JSONDecodeError, TypeError, ValueError) as exc:
             raise ValueError("episode start payload is damaged") from exc
+        start_semantics_fingerprint = (
+            str(start_payload.get("evidence_semantics_fingerprint") or "")
+            if isinstance(start_payload, dict) else None
+        )
         if (
-            not isinstance(start_payload, dict)
-            or start_payload.get("evidence_semantics_fingerprint")
+            start_semantics_fingerprint is None
+            or start_semantics_fingerprint
             != result.evidence_semantics_fingerprint
         ):
             raise ValueError("episode evidence semantics differ from its start")

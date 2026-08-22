@@ -1,7 +1,9 @@
 from __future__ import annotations
 
-from dataclasses import replace
+from dataclasses import asdict, replace
 from decimal import Decimal
+import hashlib
+import json
 import time
 
 from ladder_dragon.strategy.market_replay import BookLevel, MarketEvent
@@ -324,6 +326,72 @@ def test_episode_store_is_append_only_and_restart_evidence_is_excluded(tmp_path)
             assert "immutable" in str(exc)
         else:
             raise AssertionError("episode result update unexpectedly succeeded")
+
+
+def test_restart_recovery_accepts_missing_legacy_semantics_fingerprint(tmp_path):
+    store = PredictionShadowStore(tmp_path / "prediction.sqlite3")
+    spec = _spec("legacy-interrupted")
+    payload = {
+        key: format(value, "f") if isinstance(value, D) else value
+        for key, value in asdict(spec).items()
+    }
+    payload.pop("evidence_semantics_fingerprint")
+    encoded = json.dumps(payload, sort_keys=True, separators=(",", ":"))
+    digest = hashlib.sha256(encoded.encode("utf-8")).hexdigest()
+    with store._connect() as connection:
+        connection.execute(
+            """INSERT INTO prediction_execution_episode_starts
+               (episode_id,symbol,generation,variant_id,candidate_fingerprint,
+                execution_model_rule,started_at_ms,spec_json,spec_sha256,
+                created_at_ms) VALUES(?,?,?,?,?,?,?,?,?,?)""",
+            (
+                spec.episode_id,
+                spec.symbol,
+                spec.generation,
+                spec.variant_id,
+                spec.candidate_fingerprint,
+                spec.execution_model_rule,
+                spec.started_at_ms,
+                encoded,
+                digest,
+                spec.started_at_ms,
+            ),
+        )
+
+    assert recover_interrupted_episodes(
+        store, symbol="SOLUSDT", now_ms=10_000
+    ) == 1
+    rows = load_episode_results(
+        store,
+        symbol="SOLUSDT",
+        generation="v18",
+        variant_id="v18_maker_ttl90_gap48",
+    )
+    assert rows[0].terminal_reason == "PROCESS_RESTART_DATA_GAP"
+    assert rows[0].evidence_semantics_fingerprint == ""
+    assert rows[0].eligible_for_promotion is False
+
+
+def test_episode_result_rejects_a_different_nonempty_semantics_fingerprint(tmp_path):
+    store = PredictionShadowStore(tmp_path / "prediction.sqlite3")
+    spec = replace(
+        _spec("semantics-mismatch"),
+        evidence_semantics_fingerprint="a" * 64,
+    )
+    result = replace(
+        _result(1, "0.2"),
+        episode_id=spec.episode_id,
+        started_at_ms=spec.started_at_ms,
+        evidence_semantics_fingerprint="b" * 64,
+    )
+    record_episode_start(store, spec)
+
+    try:
+        record_episode_result(store, result)
+    except ValueError as exc:
+        assert "semantics differ" in str(exc)
+    else:
+        raise AssertionError("mismatched evidence semantics unexpectedly passed")
 
 
 def test_episode_start_and_terminal_round_trip(tmp_path):

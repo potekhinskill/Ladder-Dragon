@@ -3,6 +3,15 @@
 All notable changes are documented here. Releases use Semantic Versioning; every
 section is dated and there is intentionally no `Unreleased` section.
 
+## [2.20.242] — 2026-08-23
+
+### Fixed
+- Restart recovery now normalizes a missing legacy episode-semantics fingerprint to the historical empty value.
+- An interrupted version 18 episode no longer blocks version 19 SHADOW collection after restart.
+
+### Verified
+- Legacy recovery regression tests, all project tests, and Python compilation pass.
+
 ## [2.20.241] — 2026-08-23
 
 ### Fixed

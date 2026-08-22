@@ -6,6 +6,13 @@ avoidable rework. Identify the root cause rather than recording only the
 symptom. Keep entries concise and exclude secrets, balances, account data, and
 private infrastructure details.
 
+### 2026-08-23 — Compared an absent legacy fingerprint with an empty normalized fingerprint
+
+- **Impact:** one interrupted version 18 episode blocked every version 19 SHADOW collection attempt after restart.
+- **Root cause:** recovery normalized the absent field to an empty string, but result validation compared the raw missing value.
+- **Correction:** normalize both start and result semantics fingerprints before identity validation.
+- **Prevention:** test restart recovery with records created before each append-only schema extension.
+
 ### 2026-08-23 — Routed the execution regime to the wrong call
 
 - **Impact:** all blocked SHADOW symbols stopped collecting, and SOL version 19 created no episodes.
