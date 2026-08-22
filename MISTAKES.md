@@ -6,6 +6,13 @@ avoidable rework. Identify the root cause rather than recording only the
 symptom. Keep entries concise and exclude secrets, balances, account data, and
 private infrastructure details.
 
+### 2026-08-22 — Coupled immutable evidence to an execution-only plan error
+
+- **Impact:** SOL version 17 stopped creating episodes during high volatility, although persistent HALT kept money safe.
+- **Root cause:** the read-only collector reused an execution planner that raised before the immutable candidate collector ran.
+- **Correction:** allow only SHADOW planning to retain the configured TP ceiling; keep execution rejection unchanged.
+- **Prevention:** blocked-observation tests must inject an invalid adaptive plan and require evidence progress without mutation.
+
 ### 2026-08-22 — External rotation ran after the capacity-sensitive copy
 
 - **Impact:** a full external disk blocked a safe Raspberry Pi update backup.

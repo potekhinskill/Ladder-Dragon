@@ -3,6 +3,20 @@
 All notable changes are documented here. Releases use Semantic Versioning; every
 section is dated and there is intentionally no `Unreleased` section.
 
+## [2.20.237] — 2026-08-22
+
+### Fixed
+- SHADOW planning retains the configured TP ceiling when the adaptive profit floor exceeds it.
+- SOL version 17 evidence collection no longer stops on this execution-only plan conflict.
+
+### Security
+- LIVE execution still rejects the same inconsistent profit and TP bounds.
+- The observational clamp cannot run with execution authority.
+
+### Verified
+- All project tests and Python compilation pass.
+- Technical English and focused execution fail-closed tests pass.
+
 ## [2.20.236] — 2026-08-22
 
 ### Fixed

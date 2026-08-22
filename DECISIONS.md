@@ -1,5 +1,12 @@
 # Engineering decisions
 
+### 2026-08-22 — Keep SHADOW evidence independent from execution plan validity
+
+- **Context:** high volatility made an adaptive profit floor exceed the configured TP ceiling and stopped immutable evidence.
+- **Decision:** clamp only the observational baseline to the TP ceiling. Keep execution on the default fail-closed path.
+- **Why it worked:** tests prove SHADOW returns the ceiling and LIVE execution rejects identical inputs.
+- **Reuse:** every immutable observer that shares calculations with an execution planner.
+
 ### 2026-08-22 — Reclaim external backup capacity before mirroring
 
 - **Context:** post-copy retention cannot recover a full external backup disk.

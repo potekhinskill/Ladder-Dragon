@@ -3063,9 +3063,8 @@ def run_for_symbol(
                 publish=_publish_ai_runtime_status,
             )
 
-    auto_adapt = os.environ.get(
-        "AUTO_ADAPT_ENABLE", "0"
-    ) in ("1", "true", "True", "YES", "yes")
+    auto_adapt = os.environ.get("AUTO_ADAPT_ENABLE", "0") in (
+        "1", "true", "True", "YES", "yes")
     configured_minimum_profit = _finite_decimal(
         os.environ.get("MIN_PROFIT_OVER_AVG", "0.002") or "0.002",
         name="configured minimum profit",
@@ -3095,6 +3094,7 @@ def run_for_symbol(
         down_tp_multiplier=args.dir_down_tp1_mult,
         tp_floor=args.tp1_min,
         tp_ceiling=args.tp1_max,
+        allow_observation_clamp=not execution_allowed,
     )
     champion_stop_pct: Decimal | None = None
     champion_entry_ttl_sec: int | None = None

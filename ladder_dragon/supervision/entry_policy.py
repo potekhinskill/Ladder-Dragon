@@ -37,6 +37,7 @@ def directional_entry_settings(
     down_tp_multiplier: object,
     tp_floor: object,
     tp_ceiling: object,
+    allow_observation_clamp: bool = False,
 ) -> tuple[Decimal, Decimal, Decimal]:
     """Return exact entry gap, profit floor and TP for one market regime."""
     gap = finite_decimal(base_gap, name="base BUY gap")
@@ -85,7 +86,13 @@ def directional_entry_settings(
     gap = min(ceiling, max(floor, gap))
     required_tp = max(tp_minimum, tp, minimum_profit)
     if required_tp > tp_maximum:
-        raise ValueError("minimum profitable TP exceeds the configured ceiling")
+        if not allow_observation_clamp:
+            raise ValueError(
+                "minimum profitable TP exceeds the configured ceiling"
+            )
+        # SHADOW retains the configured plan for observation. Execution uses
+        # the default fail-closed branch for the same inconsistent bounds.
+        required_tp = tp_maximum
     return gap, minimum_profit, required_tp
 
 
