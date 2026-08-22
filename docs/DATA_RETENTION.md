@@ -79,6 +79,7 @@ The systemd service records BLOCKED as a failed unit. A later successful run cle
 - Archive validation evidence only after a verified encrypted backup and promotion audit.
 - Sanitized logs and dashboard history use file-size and age limits.
 - Encrypted backups use local and external retention policies.
+- External rotation runs before mirroring and preserves the newest encrypted archive.
 
 The backup includes database archives. Do not delete an archive only because
 the active database is smaller.

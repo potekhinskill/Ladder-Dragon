@@ -110,6 +110,37 @@ fi
 install -d -m 0700 "${DEST}"
 install -d -o root -g www-data -m 0750 "${PUBLIC_BACKUP_DIR}"
 
+prune_expired_external_backups() {
+  local latest_archive="" expired archive_checksum
+  [[ -n "${BACKUP_EXTERNAL_DIR}" ]] || return 0
+
+  # Reclaim expired external capacity before writing a new archive. Preserve the
+  # newest encrypted archive until a replacement is verified and published.
+  latest_archive="$({
+    find "${BACKUP_EXTERNAL_DIR}" -maxdepth 1 -type f \
+      \( -name 'ladder-dragon-*.tgz.age' -o -name 'preinstall-*.tgz.age' \) \
+      -printf '%T@ %p\n'
+  } | sort -nr | sed -n '1{s/^[^ ]* //;p;}')"
+
+  while IFS= read -r -d '' expired; do
+    [[ "${expired}" == "${latest_archive}" ]] && continue
+    archive_checksum="${expired}.sha256"
+    rm -f -- "${expired}" "${archive_checksum}"
+  done < <(
+    find "${BACKUP_EXTERNAL_DIR}" -maxdepth 1 -type f \
+      \( -name 'ladder-dragon-*.tgz.age' -o -name 'preinstall-*.tgz.age' \) \
+      -mtime +"${BACKUP_EXTERNAL_RETENTION_DAYS}" -print0
+  )
+
+  find "${BACKUP_EXTERNAL_DIR}" -maxdepth 1 -type f \
+    -name 'inventory-*.txt' \
+    -mtime +"${BACKUP_EXTERNAL_RETENTION_DAYS}" -delete
+}
+
+# A full external disk cannot receive the new verified archive. Apply the
+# configured retention policy before local collection and external mirroring.
+prune_expired_external_backups
+
 # The inventory contains no secret-variable values.
 {
   echo "created_at=${STAMP}"
@@ -329,9 +360,7 @@ if [[ -n "${BACKUP_EXTERNAL_DIR}" ]]; then
   # unavailable, the script exits above and never silently writes to the SD card.
   cp --preserve=timestamps -f "${DEST}/inventory.txt" \
     "${BACKUP_EXTERNAL_DIR}/inventory-${STAMP}.txt"
-  find "${BACKUP_EXTERNAL_DIR}" -maxdepth 1 -type f \
-    \( -name 'ladder-dragon-*.tgz.age*' -o -name 'preinstall-*.tgz.age*' -o -name 'inventory-*.txt' \) \
-    -mtime +"${BACKUP_EXTERNAL_RETENTION_DAYS}" -delete
+  prune_expired_external_backups
 fi
 
 # The web directory contains only encrypted archives, checksums, and a safe

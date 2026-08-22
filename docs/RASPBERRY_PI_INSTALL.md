@@ -802,7 +802,9 @@ The dashboard reports `unknown` when this evidence is missing or inconsistent.
 
 `https://bot.local/backups/` exposes only encrypted archives, checksums, and safe
 inventory through Basic Auth. Local/public retention is 14 days; external
-retention follows `BACKUP_EXTERNAL_RETENTION_DAYS`.
+retention follows `BACKUP_EXTERNAL_RETENTION_DAYS`. External rotation runs before
+each mirror operation. Rotation keeps the newest encrypted archive until its
+verified replacement exists.
 
 ### 10.1 Daily Telegram trading digest
 

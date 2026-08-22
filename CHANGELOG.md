@@ -3,6 +3,16 @@
 All notable changes are documented here. Releases use Semantic Versioning; every
 section is dated and there is intentionally no `Unreleased` section.
 
+## [2.20.236] — 2026-08-22
+
+### Fixed
+- External backup retention now runs before a new encrypted archive is mirrored.
+- Rotation preserves the newest encrypted archive until a verified replacement exists.
+
+### Verified
+- Deployment asset tests, all project tests, and Python compilation pass.
+- Technical English and diff integrity checks pass.
+
 ## [2.20.235] — 2026-08-22
 
 ### Added

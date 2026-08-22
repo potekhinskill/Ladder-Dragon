@@ -1,5 +1,12 @@
 # Engineering decisions
 
+### 2026-08-22 — Reclaim external backup capacity before mirroring
+
+- **Context:** post-copy retention cannot recover a full external backup disk.
+- **Decision:** apply external retention before copying and preserve the newest encrypted archive.
+- **Why it worked:** expired files free capacity without removing the latest recovery point.
+- **Reuse:** every capacity-sensitive write to a bounded external store.
+
 ### 2026-08-21 — Lock every audited bootstrap distribution
 
 - **Context:** dependency auditing inspected a runner-provided tool outside the project lock policy.

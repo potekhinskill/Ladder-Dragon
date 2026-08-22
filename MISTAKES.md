@@ -6,6 +6,13 @@ avoidable rework. Identify the root cause rather than recording only the
 symptom. Keep entries concise and exclude secrets, balances, account data, and
 private infrastructure details.
 
+### 2026-08-22 — External rotation ran after the capacity-sensitive copy
+
+- **Impact:** a full external disk blocked a safe Raspberry Pi update backup.
+- **Root cause:** retention ran only after external archive mirroring completed.
+- **Correction:** run bounded retention before mirroring and preserve the newest archive.
+- **Prevention:** test the order of retention and capacity-sensitive writes.
+
 ### 2026-08-21 — Audited an unpinned runner bootstrap tool
 
 - **Impact:** release 2.20.232 failed dependency CI before the Pi update.

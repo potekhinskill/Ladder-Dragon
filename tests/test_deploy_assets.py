@@ -1102,7 +1102,7 @@ def test_backup_reconciles_all_archives_and_verifies_destination_checksums():
     assert 'for source_archive in "${BACKUP_DIR}"/*.tgz.age' in backup
     assert 'sha256sum -c "${name}.sha256"' in backup
     assert 'cp --preserve=timestamps -f "${source_archive}"' in backup
-    assert "preinstall-*.tgz.age*" in backup
+    assert "preinstall-*.tgz.age" in backup
     assert 'publish_public_archive "${source_archive}"' in backup
     assert "BACKUP_EXTERNAL_RETENTION_DAYS" in backup
     assert "write_status()" in backup
@@ -1113,6 +1113,17 @@ def test_backup_reconciles_all_archives_and_verifies_destination_checksums():
     assert 'mktemp "${BACKUP_DIR}/.${archive_name}.tmp.XXXXXX"' in backup
     assert 'rm -f "${archive_tmp}"' in backup
     assert 'mv -f "${archive_tmp}" "${PUBLIC_BACKUP_DIR}/${name}"' in backup
+
+
+def test_backup_prunes_external_retention_before_mirroring():
+    backup = read("deploy/backup_raspberry_pi.sh")
+    first_prune = backup.index("prune_expired_external_backups\n")
+    mirror_loop = backup.index('for source_archive in "${BACKUP_DIR}"/*.tgz.age')
+
+    assert first_prune < mirror_loop
+    assert '[[ "${expired}" == "${latest_archive}" ]] && continue' in backup
+    assert 'rm -f -- "${expired}" "${archive_checksum}"' in backup
+    assert '-mtime +"${BACKUP_EXTERNAL_RETENTION_DAYS}" -print0' in backup
 
 
 def test_watchdog_uses_current_heartbeat_and_not_legacy_runner_name():
