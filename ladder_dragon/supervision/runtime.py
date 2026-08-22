@@ -2946,7 +2946,6 @@ def run_for_symbol(
             price=now_p,
             atr_pct=_analytics_float(atr_pct or 0),
             deterministic_mode=dir_mode,
-            execution_regime=confirmed_regime,
             diag=_diag,
             ladder=(_analytics_float(low), _analytics_float(down), _analytics_float(up)),
             target_buys=target_buys_use,
@@ -3520,6 +3519,7 @@ def run_for_symbol(
                 if champion_stop_pct is not None else args.sl
             ),
             deterministic_mode=dir_mode,
+            execution_regime=confirmed_regime,
             rolling=sr,
             required_edge_pct=required_edge,
             commission_schedule=commission_schedule,

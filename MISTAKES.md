@@ -6,6 +6,13 @@ avoidable rework. Identify the root cause rather than recording only the
 symptom. Keep entries concise and exclude secrets, balances, account data, and
 private infrastructure details.
 
+### 2026-08-23 — Routed the execution regime to the wrong call
+
+- **Impact:** all blocked SHADOW symbols stopped collecting, and SOL version 19 created no episodes.
+- **Root cause:** the change added `execution_regime` to the AI context call instead of the evidence collector call.
+- **Correction:** pass the confirmed regime only to the SHADOW evidence collector.
+- **Prevention:** test call contracts through the blocked statistical SHADOW path before release.
+
 ### 2026-08-22 — Coupled immutable evidence to an execution-only plan error
 
 - **Impact:** SOL version 17 stopped creating episodes during high volatility, although persistent HALT kept money safe.

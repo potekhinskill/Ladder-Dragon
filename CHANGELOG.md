@@ -3,6 +3,15 @@
 All notable changes are documented here. Releases use Semantic Versioning; every
 section is dated and there is intentionally no `Unreleased` section.
 
+## [2.20.241] — 2026-08-23
+
+### Fixed
+- The confirmed execution regime now reaches the version 19 SHADOW evidence collector.
+- Statistical SHADOW mode no longer passes an unsupported argument to the AI context builder.
+
+### Verified
+- Focused SHADOW routing tests, all project tests, and Python compilation pass.
+
 ## [2.20.240] — 2026-08-22
 
 ### Fixed

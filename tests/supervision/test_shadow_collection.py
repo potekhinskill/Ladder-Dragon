@@ -1,9 +1,32 @@
-from types import SimpleNamespace
+import ast
 import inspect
+import textwrap
+from types import SimpleNamespace
 
 import pytest
 
 from ladder_dragon.supervision import runtime as supervisor
+
+
+def test_confirmed_regime_is_routed_to_shadow_evidence_collector():
+    tree = ast.parse(textwrap.dedent(inspect.getsource(supervisor.run_for_symbol)))
+    calls = {
+        node.func.id: node
+        for node in ast.walk(tree)
+        if isinstance(node, ast.Call) and isinstance(node.func, ast.Name)
+        and node.func.id in {
+            "_build_ai_market_context", "_record_prediction_shadow"
+        }
+    }
+    ai_keywords = {item.arg for item in calls["_build_ai_market_context"].keywords}
+    shadow_keywords = {
+        item.arg: item.value
+        for item in calls["_record_prediction_shadow"].keywords
+    }
+
+    assert "execution_regime" not in ai_keywords
+    assert isinstance(shadow_keywords["execution_regime"], ast.Name)
+    assert shadow_keywords["execution_regime"].id == "confirmed_regime"
 
 
 def test_prediction_symbols_do_not_widen_execution_scope():
