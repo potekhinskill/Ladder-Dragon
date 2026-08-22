@@ -19,6 +19,10 @@ from ladder_dragon.strategy.prediction.execution_episode import (
     ExecutionEpisodeSpec,
     result_from_payload,
 )
+from ladder_dragon.strategy.prediction.episode_expectancy import (
+    net_expectancy_criteria,
+    sequential_net_expectancy_report,
+)
 
 
 if TYPE_CHECKING:
@@ -53,6 +57,8 @@ def episode_confirmation_criteria(
     statistical_design_version: str,
 ) -> dict[str, object]:
     """Return the immutable criteria evaluated by one promotion generation."""
+    if statistical_design_version == "episode_net_expectancy_alpha_spending_v3":
+        return net_expectancy_criteria()
     if statistical_design_version != "episode_combined_alpha_spending_v2":
         raise ValueError("unsupported episode statistical design")
     return {
@@ -236,6 +242,20 @@ def record_episode_result(
         )
         if start is None or tuple(start) != identity:
             raise ValueError("episode result identity differs from its start")
+        try:
+            start_payload = json.loads(str(connection.execute(
+                "SELECT spec_json FROM prediction_execution_episode_starts "
+                "WHERE episode_id=?",
+                (result.episode_id,),
+            ).fetchone()[0]))
+        except (json.JSONDecodeError, TypeError, ValueError) as exc:
+            raise ValueError("episode start payload is damaged") from exc
+        if (
+            not isinstance(start_payload, dict)
+            or start_payload.get("evidence_semantics_fingerprint")
+            != result.evidence_semantics_fingerprint
+        ):
+            raise ValueError("episode evidence semantics differ from its start")
         connection.execute(
             """INSERT INTO prediction_execution_episode_results
                (episode_id,symbol,generation,variant_id,candidate_fingerprint,
@@ -288,6 +308,9 @@ def recover_interrupted_episodes(
             variant_id=str(row[3]),
             candidate_fingerprint=str(row[4]),
             execution_model_rule=str(row[5]),
+            evidence_semantics_fingerprint=str(
+                spec_payload.get("evidence_semantics_fingerprint") or ""
+            ),
             start_regime=str(spec_payload.get("start_regime") or "UNKNOWN"),
             started_at_ms=int(row[6]),
             terminal_at_ms=int(now_ms),
@@ -464,6 +487,31 @@ def sequential_episode_report(
     criteria: Mapping[str, object] | None,
 ) -> dict[str, object]:
     """Evaluate each look with the exact criteria frozen in the manifest."""
+    if (
+        isinstance(criteria, Mapping)
+        and criteria.get("criteria_schema_version") == 3
+    ):
+        expected = net_expectancy_criteria()
+        if _canonical(criteria) != _canonical(expected):
+            return {
+                "schema_version": 3,
+                "method": "UNSUPPORTED_FROZEN_CONTRACT",
+                "status": "BLOCKED",
+                "approved": False,
+                "readiness_reason": (
+                    "frozen episode criteria differ from the evaluator contract"
+                ),
+                "looks": [],
+                "projected_ready_ts_ms": None,
+            }
+        from ladder_dragon.strategy.prediction.episode_semantics import (
+            evidence_semantics_fingerprint,
+        )
+        return sequential_net_expectancy_report(
+            results,
+            criteria=expected,
+            required_semantics_fingerprint=evidence_semantics_fingerprint(),
+        )
     all_results = sorted(results, key=lambda row: row.terminal_at_ms)
     rows = [row for row in all_results if row.eligible_for_promotion]
     filled = [row for row in rows if row.entry_filled_quantity > ZERO]
@@ -788,6 +836,7 @@ def model_validation_status(
         "actual_stop_limit_filled_orders": int(
             report.get("actual_stop_limit_filled_orders", 0)
         ),
+        "replay_readiness": report.get("replay_readiness"),
     }
 
 
@@ -808,6 +857,7 @@ def record_model_validation(
     if report.get("ready") is not True:
         raise ValueError("replay validation must contain a strict PASS")
     validation = ReplayValidation.from_dict(dict(report))
+    readiness = validation.replay_readiness
     if (
         not validation.ready
         or validation.covered_orders < 10
@@ -815,8 +865,16 @@ def record_model_validation(
         or validation.actual_limit_maker_filled_orders < 1
         or validation.actual_stop_limit_filled_orders < 1
         or validation.queue_model != "L2_PRICE_LEVEL_FIFO_PROXY"
+        or not isinstance(readiness, Mapping)
+        or readiness.get("ready") is not True
+        or int(readiness.get("archive_count", 0)) < 3
+        or D(str(readiness.get("span_days", "0"))) < D("2")
+        or set(readiness.get("regimes", ())) != {"low", "normal", "high"}
+        or int(readiness.get("measured_latency_archives", 0)) < 1
+        or int(readiness.get("execution_sample_count", 0)) < 10
+        or int(readiness.get("validated_order_count", 0)) < 10
     ):
-        raise ValueError("replay validation is not promotion-ready")
+        raise ValueError("strict replay readiness is not promotion-ready")
     manifest = load_manifest(store, str(experiment_id))
     parameters = manifest.get("candidate_parameters")
     if (

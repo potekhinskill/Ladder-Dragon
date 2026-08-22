@@ -1640,3 +1640,10 @@ entries concise; this is not a changelog or an activity log.
 - **Decision:** reserve each attempt against fixed count, turnover, release, and expiry limits before mutation.
 - **Why it worked:** crashes consume capacity, and every drill keeps its existing HALT and confirmation gates.
 - **Reuse:** every paid production validation that needs several preregistered attempts.
+
+### 2026-08-22 — Bind promotion to complete execution semantics
+
+- **Context:** ordinary exits, protective exits, and execution regimes used different evidence boundaries.
+- **Decision:** fingerprint one contract and attach it to every episode, manifest, replay gate, and CHAMPION policy.
+- **Why it worked:** mixed semantics fail closed, while PANIC losses remain inside net expectancy.
+- **Reuse:** every promotion where safety exits and normal exits share one production strategy.

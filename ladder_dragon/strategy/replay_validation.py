@@ -10,7 +10,7 @@ from decimal import Decimal
 import hashlib
 import json
 from pathlib import Path
-from typing import Iterable
+from typing import Iterable, Mapping
 
 from ladder_dragon.execution.execution_latency import ExecutionOutcome
 from ladder_dragon.strategy.market_replay import (
@@ -50,10 +50,11 @@ class ReplayValidation:
     maker_sell_fee_pct: Decimal | None = None
     taker_buy_fee_pct: Decimal | None = None
     taker_sell_fee_pct: Decimal | None = None
+    replay_readiness: Mapping[str, object] | None = None
 
     def as_dict(self) -> dict[str, object]:
         return {
-            "schema_version": 5,
+            "schema_version": 6,
             "ready": self.ready,
             "reasons": list(self.reasons),
             "archive_sha256": self.archive_sha256,
@@ -106,12 +107,16 @@ class ReplayValidation:
                 format(self.taker_sell_fee_pct, "f")
                 if self.taker_sell_fee_pct is not None else None
             ),
+            "replay_readiness": (
+                dict(self.replay_readiness)
+                if self.replay_readiness is not None else None
+            ),
         }
 
     @classmethod
     def from_dict(cls, payload: dict[str, object]) -> "ReplayValidation":
         schema = int(payload.get("schema_version", 0))
-        if schema not in {1, 2, 3, 4, 5}:
+        if schema not in {1, 2, 3, 4, 5, 6}:
             raise ValueError("unsupported replay validation schema")
 
         def optional_decimal(name: str) -> Decimal | None:
@@ -153,6 +158,11 @@ class ReplayValidation:
             maker_sell_fee_pct=optional_decimal("maker_sell_fee_pct"),
             taker_buy_fee_pct=optional_decimal("taker_buy_fee_pct"),
             taker_sell_fee_pct=optional_decimal("taker_sell_fee_pct"),
+            replay_readiness=(
+                dict(payload["replay_readiness"])
+                if isinstance(payload.get("replay_readiness"), Mapping)
+                else None
+            ),
         )
 
 

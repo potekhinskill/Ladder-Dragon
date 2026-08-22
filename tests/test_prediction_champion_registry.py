@@ -17,6 +17,9 @@ from ladder_dragon.strategy.prediction.experiment_lifecycle import (
     canonical_json,
     sha256_json,
 )
+from ladder_dragon.strategy.prediction.episode_semantics import (
+    evidence_semantics_fingerprint,
+)
 
 
 REPORT_SHA = "b" * 64
@@ -37,9 +40,12 @@ def _confirmed_manifest(
         "symbol": "BTCUSDT",
         "selected_variant": f"{generation}_maker_ttl60_gap8p4",
         "candidate_fingerprint": candidate_fingerprint,
-        "criteria": {"regime_activation_policy": "confirmed_only_v1"},
+        "criteria": {
+            "regime_activation_policy": "confirmed_execution_regime_only_v2"
+        },
         "candidate_parameters": {
-            "candidate_rule_version": 3,
+            "candidate_rule_version": 4,
+            "evidence_semantics_fingerprint": evidence_semantics_fingerprint(),
             "entry_gap_bps": "8.4",
             "entry_ttl_sec": 3600,
             "entry_enabled": True,

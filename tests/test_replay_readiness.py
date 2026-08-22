@@ -95,7 +95,27 @@ def test_replay_readiness_rejects_duplicate_validation_archives():
     )
 
     assert report.ready is False
-    assert "duplicate validation report archives" in report.reasons
+    assert "duplicate validation report archive sets" in report.reasons
     assert report.validation_report_count == 2
-    assert report.validated_order_count == 6
-    assert "validated real orders 6 < 10" in report.reasons
+    assert report.validated_order_count == 10
+
+
+def test_replay_readiness_accepts_one_validation_covering_three_sessions():
+    calibrations = [
+        calibration(1, "0.2"),
+        calibration(2, "1.0", measured=True),
+        calibration(3, "3.0"),
+    ]
+    combined = ReplayValidation(
+        **{
+            **validation(calibrations[0]).__dict__,
+            "archive_sha256": "f" * 64,
+            "archive_sha256s": tuple(
+                row.archive_sha256 for row in calibrations
+            ),
+        }
+    )
+    report = audit_replay_readiness(calibrations, validations=[combined])
+    assert report.ready is True
+    assert report.validation_report_count == 1
+    assert report.validated_order_count == 10

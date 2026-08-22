@@ -1,6 +1,6 @@
 # Implementation status
 
-This document describes the code in version **2.20.238**.
+This document describes the code in version **2.20.239**.
 It does not describe future plans as completed work.
 
 An implemented function is not automatically approved for LIVE use.
@@ -75,7 +75,7 @@ Future outcomes are normal pending work.
 Only overdue or unrecovered expired outcomes block the backlog gate.
 The soak report applies its expiration checks to the audited runtime window.
 
-SOLUSDT version eighteen uses one fixed 48-basis-point candidate and a 90-minute entry lifetime.
+SOLUSDT version nineteen uses one fixed 48-basis-point candidate and a 90-minute entry lifetime.
 Its primary endpoint is 360 minutes.
 The 300-minute result is diagnostic only.
 The SHADOW evidence notional is fixed at 6 USDT.
@@ -98,31 +98,35 @@ An operator command freezes its exact policy before live confirmation.
 Confirmation accepts only episodes that start after the frozen boundary.
 It also requires the frozen candidate and execution-model fingerprints.
 
-The combined sequential gate uses four preregistered nonzero-outcome looks.
-The looks contain 12, 24, 34, and 43 outcomes.
+The net-expectancy gate uses four preregistered terminal-attempt looks.
+The looks contain 12, 24, 34, and 43 attempts.
 Their alpha spending totals 0.05.
-The final sign-test power exceeds 80 percent for a 72 percent positive-outcome probability.
-This power statement applies only to the conditional nonzero sign test.
-Each look also checks fill rate, total PnL, drawdown, and regime safety.
+Each look requires a positive one-sided bootstrap lower mean bound.
+Each look also checks fill rate, drawdown, and regime safety.
+PANIC flatten PnL enters the mean and drawdown.
+PANIC vetoes are terminal unfilled attempts in the fill denominator.
 At least two ordinary regimes require three filled episodes and non-inferior mean PnL.
 Only these confirmed regimes can authorize CHAMPION BUY orders.
 An uncovered regime blocks BUY and keeps position protection active.
-PANIC remains a separate safety veto and does not enter expectancy inference.
+Residual PANIC exposure remains a separate safety failure.
 The confirmation deadline is 14 days.
 The design also stops after 300 terminal episodes.
 An impossible design becomes ready for REJECTED finalization before either limit.
 
-Promotion also requires empirical replay validation against sanitized real order reports.
+Promotion also requires strict replay readiness against sanitized real order reports.
 The validation requires at least ten covered terminal orders.
 It requires a filled LIMIT_MAKER order and a filled STOP_LOSS_LIMIT order.
 The validation compares fills, ratios, prices, latency, fees, and slippage.
+Readiness requires three archives spanning two days.
+The archives must cover low, normal, and high volatility.
+At least one archive must contain measured order latency.
 
 The first gate evaluates the complete candidate strategy.
 All active candidates use the same entry scope.
 The active-entry diagnostic therefore uses the same cohort.
 
 Diagnostic prediction cohorts retain their existing walk-forward training rules.
-The SOL version-eighteen fixed rule has no cold-start training delay.
+The SOL version-nineteen fixed rule has no cold-start training delay.
 Historical rows cannot enter its live confirmation inference.
 Statistical gates stream the complete journal in append order.
 Control readers retain bounded binding and non-binding evidence groups.

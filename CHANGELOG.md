@@ -3,6 +3,29 @@
 All notable changes are documented here. Releases use Semantic Versioning; every
 section is dated and there is intentionally no `Unreleased` section.
 
+## [2.20.239] — 2026-08-22
+
+### Added
+- SOL version 19 binds each episode to one execution-semantics fingerprint.
+- Bounded aggregate-trade pagination recovers complete high-activity minute evidence.
+- Replay readiness requires three archives, two days, three volatility regimes, and measured latency.
+
+### Fixed
+- PANIC flatten losses now enter net expectancy, drawdown, and sequential evidence.
+- PANIC vetoes now count as terminal unfilled attempts.
+- Promotion regimes now use the confirmed execution classifier instead of the minute diagnostic classifier.
+- The sequential gate now requires a positive one-sided lower mean bound after fees.
+- The dashboard now reports version 19 terminal attempts instead of a legacy sign-trial count.
+
+### Security
+- Mixed evidence semantics block promotion.
+- CHAMPION activation accepts only the version 19 execution-bound policy.
+- Validation batches enforce drill quotas, cooldowns, clean release identity, and a hash-chained ledger.
+
+### Verified
+- All project tests and Python compilation pass.
+- Technical English and diff integrity checks pass.
+
 ## [2.20.238] — 2026-08-22
 
 ### Added

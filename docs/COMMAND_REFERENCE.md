@@ -137,7 +137,7 @@ Freeze the preregistered SOL execution candidate:
 .venv/bin/python -m bin.prediction_experiment episode-bootstrap \
   --experiment-id EXPERIMENT_ID \
   --symbol SOLUSDT \
-  --generation v18 \
+  --generation v19 \
   --confirm BOOTSTRAP
 ```
 
@@ -151,7 +151,7 @@ Import one reviewed execution-model validation:
 ```bash
 .venv/bin/python -m bin.prediction_experiment model-validation-import \
   --symbol SOLUSDT \
-  --generation v18 \
+  --generation v19 \
   --experiment-id EXPERIMENT_ID \
   --report validation.json \
   --report-sha256 REPORT_SHA256 \
@@ -159,6 +159,7 @@ Import one reviewed execution-model validation:
 ```
 
 The report must contain sanitized real LIMIT_MAKER and STOP_LOSS_LIMIT fills.
+It must include strict readiness across three replay archives and two days.
 
 Finalize the exact reviewed report:
 

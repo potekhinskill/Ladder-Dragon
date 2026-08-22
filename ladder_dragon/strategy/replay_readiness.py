@@ -123,25 +123,31 @@ def audit_replay_readiness(
             f"execution samples {execution_samples} < {minimum_execution_samples}"
         )
     calibration_hashes = {row.archive_sha256 for row in rows}
+    def validation_hashes(row: ReplayValidation) -> tuple[str, ...]:
+        return row.archive_sha256s or (row.archive_sha256,)
+
     unknown_validation_hashes = {
-        row.archive_sha256 for row in validation_rows
-        if row.archive_sha256 not in calibration_hashes
+        archive_hash
+        for row in validation_rows
+        for archive_hash in validation_hashes(row)
+        if archive_hash not in calibration_hashes
     }
     if unknown_validation_hashes:
         reasons.append("validation reports reference unknown archives")
-    validation_hashes = [row.archive_sha256 for row in validation_rows]
-    if len(set(validation_hashes)) != len(validation_hashes):
-        reasons.append("duplicate validation report archives")
-    eligible_by_archive: dict[str, ReplayValidation] = {}
+    referenced_sets = [tuple(sorted(validation_hashes(row))) for row in validation_rows]
+    if len(set(referenced_sets)) != len(referenced_sets):
+        reasons.append("duplicate validation report archive sets")
+    eligible_validations: list[ReplayValidation] = []
+    seen_validation_archives: set[str] = set()
     for row in validation_rows:
-        if not row.ready or row.archive_sha256 not in calibration_hashes:
+        hashes = set(validation_hashes(row))
+        if not row.ready or not hashes or not hashes <= calibration_hashes:
             continue
-        current = eligible_by_archive.get(row.archive_sha256)
-        if current is None or row.covered_orders < current.covered_orders:
-            # Duplicate reports block readiness. Use the smaller coverage so
-            # diagnostic totals cannot claim repeated real-order evidence.
-            eligible_by_archive[row.archive_sha256] = row
-    eligible_validations = list(eligible_by_archive.values())
+        if seen_validation_archives & hashes:
+            reasons.append("validation report archive sets overlap")
+            continue
+        seen_validation_archives.update(hashes)
+        eligible_validations.append(row)
     if len(eligible_validations) < minimum_validation_reports:
         reasons.append(
             f"eligible validation reports {len(eligible_validations)} < "

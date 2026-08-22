@@ -1978,3 +1978,10 @@ private infrastructure details.
 - **Root cause:** the code stored `passed_at` before all combined gates passed.
 - **Correction:** freeze the boundary only after statistics, fills, drawdown, and regime gates pass together.
 - **Prevention:** test that later looks can repair incomplete regime coverage.
+
+### 2026-08-22 — Excluded protective exits from strategy expectancy
+
+- **Impact:** six profitable take-profits hid a negative result after nine PANIC flatten exits.
+- **Root cause:** PANIC was classified only as a safety veto, outside promotion eligibility.
+- **Correction:** include PANIC flatten PnL and count PANIC vetoes as terminal unfilled attempts.
+- **Prevention:** reconcile every terminal execution reason with the statistical trial definition.

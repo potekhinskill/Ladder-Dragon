@@ -29,6 +29,9 @@ from ladder_dragon.strategy.prediction.execution_episode import (
 from ladder_dragon.strategy.prediction.experiment_config import (
     ShadowExperimentSpec,
 )
+from ladder_dragon.strategy.prediction.episode_semantics import (
+    evidence_semantics_fingerprint,
+)
 from ladder_dragon.strategy.prediction.experiment_lifecycle import (
     list_experiments,
     variant_fingerprints,
@@ -121,6 +124,7 @@ def _episode_spec(
     generation: ShadowExperimentSpec,
     variant: ShadowVariant,
     features: PredictionFeatures,
+    execution_regime: str | None = None,
     filters: Mapping[str, object],
     criteria: Mapping[str, object] | None = None,
 ) -> ExecutionEpisodeSpec:
@@ -164,7 +168,8 @@ def _episode_spec(
         variant_id=variant.variant_id,
         candidate_fingerprint=candidate_fingerprint,
         execution_model_rule=generation.execution_model_rule,
-        start_regime=features.regime,
+        evidence_semantics_fingerprint=evidence_semantics_fingerprint(),
+        start_regime=execution_regime or features.regime,
         started_at_ms=start,
         entry_deadline_ms=start + plan.entry_ttl_sec * 1_000,
         diagnostic_at_ms=start + 300 * 60_000,
@@ -190,6 +195,7 @@ def collect_execution_episode(
     generation: ShadowExperimentSpec,
     variants: Sequence[ShadowVariant],
     features: PredictionFeatures,
+    execution_regime: str | None = None,
     depth: Mapping[str, object],
     trades: Sequence[Mapping[str, object]],
     trades_complete: bool,
@@ -197,6 +203,7 @@ def collect_execution_episode(
 ) -> dict[str, object]:
     """Advance one episode, then start the next only after a later interval."""
     normalized = symbol.upper()
+    evidence_regime = execution_regime or features.regime
     if generation.lifecycle_mode != "PROMOTION":
         return {
             "status": "DIAGNOSTIC_ONLY",
@@ -226,6 +233,14 @@ def collect_execution_episode(
         and current_fingerprint != manifest.get("candidate_fingerprint")
     ):
         raise ValueError("promotion candidate differs from frozen manifest")
+    if manifest is not None:
+        parameters = manifest.get("candidate_parameters")
+        if (
+            not isinstance(parameters, Mapping)
+            or parameters.get("evidence_semantics_fingerprint")
+            != evidence_semantics_fingerprint()
+        ):
+            raise ValueError("promotion evidence semantics differ from manifest")
 
     event = _event(
         timestamp_ms=features.snapshot_ts_ms,
@@ -237,7 +252,7 @@ def collect_execution_episode(
     terminal_this_interval = False
     if active is not None:
         result = (
-            active.process(event, panic_active=features.regime == "PANIC")
+            active.process(event, panic_active=evidence_regime == "PANIC")
             if trades_complete
             else active.abort(features.snapshot_ts_ms, "INCOMPLETE_TRADE_PAGE")
         )
@@ -249,7 +264,7 @@ def collect_execution_episode(
     if (
         not terminal_this_interval
         and normalized not in _ACTIVE
-        and features.regime != "PANIC"
+        and evidence_regime != "PANIC"
         and trades_complete
         and (
             manifest is None
@@ -265,6 +280,7 @@ def collect_execution_episode(
             generation=generation,
             variant=variants[0],
             features=features,
+            execution_regime=evidence_regime,
             filters=filters,
             criteria=(
                 manifest.get("criteria") if manifest is not None else None

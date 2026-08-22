@@ -6,6 +6,7 @@
 from __future__ import annotations
 
 import argparse
+from dataclasses import replace
 from decimal import Decimal
 import json
 
@@ -19,6 +20,7 @@ from ladder_dragon.strategy.replay_validation import (
     validate_replay_sessions,
     write_replay_validation,
 )
+from ladder_dragon.strategy.replay_readiness import audit_replay_readiness
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -76,6 +78,13 @@ def main() -> int:
         taker_buy_fee_pct=args.taker_buy_fee_pct,
         taker_sell_fee_pct=args.taker_sell_fee_pct,
     )
+    readiness = audit_replay_readiness(
+        [session.calibration for session in sessions],
+        validations=[report],
+        minimum_validation_reports=1,
+        minimum_validated_orders=args.minimum_orders,
+    )
+    report = replace(report, replay_readiness=readiness.as_dict())
     if args.output:
         write_replay_validation(args.output, report)
     print(json.dumps(report.as_dict(), indent=2, sort_keys=True))

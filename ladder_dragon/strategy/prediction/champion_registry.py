@@ -16,13 +16,16 @@ from ladder_dragon.strategy.prediction.experiment_lifecycle import (
     load_manifest,
     sha256_json,
 )
+from ladder_dragon.strategy.prediction.episode_semantics import (
+    evidence_semantics_fingerprint,
+)
 
 if TYPE_CHECKING:
     from ladder_dragon.strategy.prediction.runtime import PredictionShadowStore
 
 
 D = Decimal
-CHAMPION_POLICY_SCHEMA_VERSION = 3
+CHAMPION_POLICY_SCHEMA_VERSION = 4
 EXECUTION_REGIMES = ("RANGE", "TREND_UP", "TREND_DOWN")
 PROTECTIVE_RUNTIME_ACTIONS = (
     "REDUCE_ORDER_NOTIONAL",
@@ -137,8 +140,12 @@ def execution_policy_from_manifest(
     parameters = manifest.get("candidate_parameters")
     if not isinstance(parameters, Mapping):
         raise ValueError("candidate parameters are unavailable")
-    if parameters.get("candidate_rule_version") != 3:
+    if parameters.get("candidate_rule_version") != 4:
         raise ValueError("CHAMPION candidate rule is not execution-bound")
+    semantics_fingerprint = _sha256(
+        parameters.get("evidence_semantics_fingerprint"),
+        field="evidence semantics fingerprint",
+    )
     if parameters.get("entry_order_policy") != "LIMIT_MAKER":
         raise ValueError("CHAMPION entry policy must be LIMIT_MAKER")
     if parameters.get("take_profit_order_policy") != "LIMIT_MAKER":
@@ -204,7 +211,8 @@ def execution_policy_from_manifest(
     criteria = manifest.get("criteria")
     if (
         not isinstance(criteria, Mapping)
-        or criteria.get("regime_activation_policy") != "confirmed_only_v1"
+        or criteria.get("regime_activation_policy")
+        != "confirmed_execution_regime_only_v2"
     ):
         raise ValueError("CHAMPION regime activation policy is unavailable")
     return {
@@ -228,12 +236,13 @@ def execution_policy_from_manifest(
         "take_profit_order_policy": "LIMIT_MAKER",
         "stop_order_policy": "STOP_LOSS_LIMIT",
         "execution_model_rule": execution_model_rule,
+        "evidence_semantics_fingerprint": semantics_fingerprint,
         "evidence_fee_schedule": evidence_fee_schedule,
         "maximum_order_notional_usdt": format(order_cap, "f"),
         "maximum_inventory_usdt": format(inventory_cap, "f"),
         "maximum_active_buy_orders": 1,
         "allowed_entry_regimes": list(allowed_regimes),
-        "regime_activation_policy": "confirmed_only_v1",
+        "regime_activation_policy": "confirmed_execution_regime_only_v2",
         "runtime_mutation_policy": "protective_only",
         "allowed_runtime_actions": list(PROTECTIVE_RUNTIME_ACTIONS),
         "forbidden_runtime_actions": [
@@ -252,6 +261,11 @@ def champion_allows_regime(
 ) -> bool:
     """Fail closed unless the immutable policy confirms this entry regime."""
     if policy.get("schema_version") != CHAMPION_POLICY_SCHEMA_VERSION:
+        return False
+    if (
+        policy.get("evidence_semantics_fingerprint")
+        != evidence_semantics_fingerprint()
+    ):
         return False
     allowed = policy.get("allowed_entry_regimes")
     if not isinstance(allowed, list) or not allowed:

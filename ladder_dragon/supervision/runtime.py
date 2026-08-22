@@ -5,7 +5,6 @@
 # Purpose: supervise strategy workers and enforce execution gates.
 
 """Ladder Dragon ai supervisor support."""
-
 import os
 import fcntl
 import sys
@@ -53,6 +52,8 @@ from ladder_dragon.strategy.prediction.control_evidence import (
     record_control_evidence,
 )
 from ladder_dragon.strategy.prediction.champion_registry import active_champion, champion_allows_regime
+from ladder_dragon.strategy.prediction.episode_semantics import require_runtime_regime_contract
+from ladder_dragon.supervision.aggregate_trade_history import load_aggregate_trade_window
 from ladder_dragon.supervision import strategy_control_gates
 from ladder_dragon.ai.ai_runtime_status import write_runtime_status
 from ladder_dragon.ai.ai_control import read_ai_control, resolve_ai_control_path
@@ -1777,6 +1778,7 @@ def _record_prediction_shadow(
     take_profit_pct: object,
     stop_pct: object,
     deterministic_mode: str,
+    execution_regime: str | None = None,
     rolling: Mapping[str, object],
     required_edge_pct: Decimal | None,
     commission_schedule: CommissionSchedule | None,
@@ -1831,17 +1833,12 @@ def _record_prediction_shadow(
         "limit": 1000 if symbol.upper() == "SOLUSDT" else 20,
     })
     depth = depth_raw if isinstance(depth_raw, Mapping) else None
-    trades_raw = TM._public_get(
-        "/api/v3/aggTrades",
-        {
-            "symbol": symbol.upper(),
-            "startTime": snapshot_ms - 60_000,
-            "endTime": snapshot_ms,
-            "limit": 1000,
-        },
+    trades, trades_complete, _trade_pages = load_aggregate_trade_window(
+        TM._public_get,
+        symbol=symbol,
+        start_ms=snapshot_ms - 60_000,
+        end_ms=snapshot_ms,
     )
-    trades = trades_raw if isinstance(trades_raw, list) else []
-    trades_complete = len(trades) < 1000
     flow, flow_available = trade_flow_from_agg_trades(
         [row for row in trades if isinstance(row, Mapping)],
         start_ms=snapshot_ms - 60_000,
@@ -1849,7 +1846,7 @@ def _record_prediction_shadow(
     )
     # A full Binance page may have truncated a high-activity minute. Keep the
     # value for diagnostics but never claim that such trade flow is complete.
-    flow_available = flow_available and len(trades) < 1000
+    flow_available = flow_available and trades_complete
     panic_active, panic_hits = _prediction_panic_state(symbol)
     features, bars = build_prediction_features(
         klines,
@@ -1913,6 +1910,7 @@ def _record_prediction_shadow(
             _PREDICTION_SHADOW,
             symbol=symbol,
             features=features,
+            execution_regime=execution_regime or features.regime,
             market_price=market,
             baseline_plan=strategy_plan,
             required_edge_pct=required_edge_pct,
@@ -2948,6 +2946,7 @@ def run_for_symbol(
             price=now_p,
             atr_pct=_analytics_float(atr_pct or 0),
             deterministic_mode=dir_mode,
+            execution_regime=confirmed_regime,
             diag=_diag,
             ladder=(_analytics_float(low), _analytics_float(down), _analytics_float(up)),
             target_buys=target_buys_use,
@@ -3510,6 +3509,7 @@ def run_for_symbol(
     # worker launch. In blocked mode no worker or mutation path exists, so the
     # same evidence can be collected without delaying BUY protection.
     try:
+        require_runtime_regime_contract(symbol, args, os.environ)
         _record_prediction_shadow(
             symbol,
             now_price=now_p,

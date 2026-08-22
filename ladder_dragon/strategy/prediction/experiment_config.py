@@ -8,6 +8,11 @@ from __future__ import annotations
 from dataclasses import dataclass
 from decimal import Decimal
 
+from ladder_dragon.strategy.prediction.episode_semantics import (
+    EVIDENCE_SEMANTICS_VERSION,
+    EXECUTION_MODEL_RULE,
+)
+
 
 D = Decimal
 
@@ -210,6 +215,27 @@ SOL_V18_SPEC = ShadowExperimentSpec(
     stop_limit_distance=SOL_V17_SPEC.stop_limit_distance,
     evidence_notional_quote=SOL_V17_SPEC.evidence_notional_quote,
 )
+SOL_V19_SPEC = ShadowExperimentSpec(
+    generation="v19",
+    horizons_min=SOL_V18_SPEC.horizons_min,
+    maker_ttls=SOL_V18_SPEC.maker_ttls,
+    maker_entry_gaps=SOL_V18_SPEC.maker_entry_gaps,
+    superseded_selection_generations=(
+        "v11", "v12", "v13", "v14", "v15", "v16", "v17", "v18",
+    ),
+    regime_policy=SOL_V18_SPEC.regime_policy,
+    statistical_design_version="episode_net_expectancy_alpha_spending_v3",
+    evidence_semantics_version=EVIDENCE_SEMANTICS_VERSION,
+    lifecycle_mode=SOL_V18_SPEC.lifecycle_mode,
+    execution_model_rule=EXECUTION_MODEL_RULE,
+    primary_horizon_min=SOL_V18_SPEC.primary_horizon_min,
+    diagnostic_horizons_min=SOL_V18_SPEC.diagnostic_horizons_min,
+    stop_limit_offset_pct=SOL_V18_SPEC.stop_limit_offset_pct,
+    maximum_holding_min=SOL_V18_SPEC.maximum_holding_min,
+    target_return=SOL_V18_SPEC.target_return,
+    stop_limit_distance=SOL_V18_SPEC.stop_limit_distance,
+    evidence_notional_quote=SOL_V18_SPEC.evidence_notional_quote,
+)
 
 # Preserve the public historical name for callers that inspect SOL v12.
 V12_SPEC = SOL_V12_SPEC
@@ -232,11 +258,12 @@ _SYMBOL_GENERATION_SPECS = {
     ("SOLUSDT", "v16"): SOL_V16_SPEC,
     ("SOLUSDT", "v17"): SOL_V17_SPEC,
     ("SOLUSDT", "v18"): SOL_V18_SPEC,
+    ("SOLUSDT", "v19"): SOL_V19_SPEC,
 }
 _SYMBOL_SPECS = {
     "BTCUSDT": BTC_V14_SPEC,
     "ETHUSDT": ETH_V15_SPEC,
-    "SOLUSDT": SOL_V18_SPEC,
+    "SOLUSDT": SOL_V19_SPEC,
 }
 
 
@@ -322,6 +349,7 @@ __all__ = [
     "SOL_V16_SPEC",
     "SOL_V17_SPEC",
     "SOL_V18_SPEC",
+    "SOL_V19_SPEC",
     "ETH_V14_SPEC",
     "ETH_V15_SPEC",
     "configured_entry_gap_bps",

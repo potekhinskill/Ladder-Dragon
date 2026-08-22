@@ -471,6 +471,8 @@ sudo -u bot PYTHONPATH=. .venv/bin/python -m bin.mainnet_validation_batch \
   --manifest logs/mainnet-validation-batch.json \
   --symbol SOLUSDT --maximum-attempts 4 \
   --maximum-turnover-usdt 48 --duration-hours 24 \
+  --limit-maker-attempts 2 --stop-limit-attempts 2 \
+  --minimum-cooldown-sec 300 \
   --confirm CREATE_VALIDATION_BATCH
 ```
 
@@ -479,6 +481,8 @@ Each drill still requires its existing Mainnet environment confirmations.
 Each reservation consumes one attempt and twice the requested notional.
 A crash after reservation cannot restore that attempt.
 The batch stops at its attempt, turnover, release, or time limit.
+The append-only ledger uses a hash chain.
+Separate drill quotas prevent adaptive reallocation after outcomes are visible.
 Do not delete its manifest or append-only attempt ledger.
 
 The separate SQLite journal is authoritative order evidence.

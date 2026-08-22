@@ -58,6 +58,33 @@ def _current_commit() -> str:
     commit = completed.stdout.strip().lower()
     if not re.fullmatch(r"[0-9a-f]{40}", commit):
         raise RuntimeError("validation batch source commit is invalid")
+    checks = (
+        (["git", "status", "--porcelain"], "validation checkout is not clean"),
+        (["git", "describe", "--tags", "--exact-match", "HEAD"],
+         "validation checkout is not an exact release tag"),
+        (["git", "rev-parse", "origin/main"],
+         "reviewed origin/main is unavailable"),
+    )
+    outputs = []
+    for command, reason in checks:
+        try:
+            result = subprocess.run(
+                command, check=True, capture_output=True, text=True,
+            )
+        except (OSError, subprocess.SubprocessError) as exc:
+            raise RuntimeError(reason) from exc
+        outputs.append(result.stdout.strip())
+    if outputs[0]:
+        raise RuntimeError("validation checkout is not clean")
+    try:
+        tag_type = subprocess.run(
+            ["git", "cat-file", "-t", f"refs/tags/{outputs[1]}"],
+            check=True, capture_output=True, text=True,
+        ).stdout.strip()
+    except (OSError, subprocess.SubprocessError) as exc:
+        raise RuntimeError("validation release tag is unavailable") from exc
+    if tag_type != "tag" or outputs[2].lower() != commit:
+        raise RuntimeError("validation release identity differs from origin/main")
     return commit
 
 
@@ -70,6 +97,9 @@ def create_batch_manifest(
     duration_hours: int,
     created_at_ms: int | None = None,
     source_commit: str | None = None,
+    limit_maker_attempts: int | None = None,
+    stop_limit_attempts: int | None = None,
+    minimum_cooldown_sec: int = 0,
 ) -> dict[str, object]:
     """Create one immutable authorization envelope without placing an order."""
     normalized = symbol.strip().upper()
@@ -82,13 +112,32 @@ def create_batch_manifest(
         raise RuntimeError("validation batch turnover exceeds the hard cap")
     if not 1 <= duration_hours <= HARD_MAX_DURATION_HOURS:
         raise RuntimeError("validation batch duration is outside the hard cap")
+    limit_quota = maximum_attempts if limit_maker_attempts is None else int(
+        limit_maker_attempts
+    )
+    stop_quota = maximum_attempts if stop_limit_attempts is None else int(
+        stop_limit_attempts
+    )
+    if (
+        limit_quota < 0 or stop_quota < 0
+        or limit_quota + stop_quota < maximum_attempts
+        or max(limit_quota, stop_quota) > maximum_attempts
+    ):
+        raise RuntimeError("validation batch drill quotas are invalid")
+    if not 0 <= int(minimum_cooldown_sec) <= 3_600:
+        raise RuntimeError("validation batch cooldown is invalid")
     now_ms = int(time.time() * 1000) if created_at_ms is None else int(created_at_ms)
     payload: dict[str, object] = {
-        "schema_version": 1,
+        "schema_version": 2,
         "batch_id": uuid.uuid4().hex,
         "symbol": normalized,
         "allowed_drills": list(ALLOWED_DRILLS),
         "maximum_attempts": maximum_attempts,
+        "maximum_attempts_by_drill": {
+            "LIMIT_MAKER": limit_quota,
+            "STOP_LOSS_LIMIT": stop_quota,
+        },
+        "minimum_cooldown_sec": int(minimum_cooldown_sec),
         "maximum_turnover_usdt": format(turnover, "f"),
         "expires_at_ms": now_ms + duration_hours * 60 * 60_000,
         "created_at_ms": now_ms,
@@ -150,24 +199,45 @@ def reserve_validation_attempt(
         fcntl.flock(handle.fileno(), fcntl.LOCK_EX)
         handle.seek(0)
         rows = []
+        previous_hash = "0" * 64
         try:
             for line in handle:
                 if line.strip():
                     row = json.loads(line)
                     if not isinstance(row, dict):
                         raise TypeError("attempt row is not an object")
+                    row_hash = str(row.get("entry_sha256", ""))
+                    unhashed = dict(row)
+                    unhashed.pop("entry_sha256", None)
+                    if (
+                        row.get("previous_entry_sha256") != previous_hash
+                        or not re.fullmatch(r"[0-9a-f]{64}", row_hash)
+                        or _sha256(unhashed) != row_hash
+                        or row.get("batch_id") != manifest.get("batch_id")
+                        or row.get("manifest_sha256")
+                        != manifest.get("manifest_sha256")
+                    ):
+                        raise TypeError("attempt ledger chain differs")
                     rows.append(row)
+                    previous_hash = row_hash
         except (UnicodeError, json.JSONDecodeError, TypeError) as exc:
             raise RuntimeError("validation batch ledger is invalid") from exc
         consumed = sum((_decimal(row["turnover_usdt"], field="ledger turnover") for row in rows), Decimal("0"))
         if len(rows) >= int(manifest["maximum_attempts"]):
             raise RuntimeError("validation batch attempt limit reached")
+        drill_rows = [row for row in rows if row.get("drill") == normalized_drill]
+        quota = int(manifest["maximum_attempts_by_drill"][normalized_drill])
+        if len(drill_rows) >= quota:
+            raise RuntimeError("validation batch drill quota reached")
+        cooldown_ms = int(manifest.get("minimum_cooldown_sec", 0)) * 1_000
+        if rows and timestamp - int(rows[-1].get("reserved_at_ms", 0)) < cooldown_ms:
+            raise RuntimeError("validation batch cooldown is active")
         if consumed + turnover > _decimal(
             manifest["maximum_turnover_usdt"], field="turnover limit"
         ):
             raise RuntimeError("validation batch turnover limit reached")
         reservation = {
-            "schema_version": 1,
+            "schema_version": 2,
             "attempt_id": uuid.uuid4().hex,
             "batch_id": manifest["batch_id"],
             "manifest_sha256": manifest["manifest_sha256"],
@@ -176,7 +246,9 @@ def reserve_validation_attempt(
             "turnover_usdt": format(turnover, "f"),
             "reserved_at_ms": timestamp,
             "status": "RESERVED_BEFORE_MUTATION",
+            "previous_entry_sha256": previous_hash,
         }
+        reservation["entry_sha256"] = _sha256(reservation)
         handle.seek(0, os.SEEK_END)
         handle.write(_canonical(reservation) + "\n")
         handle.flush()
@@ -191,6 +263,9 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--maximum-attempts", type=int, required=True)
     parser.add_argument("--maximum-turnover-usdt", type=Decimal, required=True)
     parser.add_argument("--duration-hours", type=int, required=True)
+    parser.add_argument("--limit-maker-attempts", type=int)
+    parser.add_argument("--stop-limit-attempts", type=int)
+    parser.add_argument("--minimum-cooldown-sec", type=int, default=0)
     parser.add_argument("--confirm", required=True)
     return parser
 
@@ -205,6 +280,9 @@ def main() -> int:
         maximum_attempts=args.maximum_attempts,
         maximum_turnover_usdt=args.maximum_turnover_usdt,
         duration_hours=args.duration_hours,
+        limit_maker_attempts=args.limit_maker_attempts,
+        stop_limit_attempts=args.stop_limit_attempts,
+        minimum_cooldown_sec=args.minimum_cooldown_sec,
     )
     print(json.dumps(payload, sort_keys=True))
     return 0

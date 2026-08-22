@@ -207,12 +207,12 @@ def candidate_rule(
         "slippage_pct": format(plan.slippage_pct, "f"),
         "notional_policy": (
             "fixed_shadow_evidence_notional"
-            if variant.candidate_rule_version == 3
+            if variant.candidate_rule_version in {3, 4}
             else "current_strategy_cap"
         ),
         "evidence_notional_quote": (
             format(plan.notional_quote, "f")
-            if variant.candidate_rule_version == 3 else None
+            if variant.candidate_rule_version in {3, 4} else None
         ),
         "regime_policy": variant.regime_policy,
         "horizons_min": [int(value) for value in horizons_min],
@@ -229,7 +229,7 @@ def candidate_rule(
                 "LIMIT_MAKER" if variant.maker_only else "BASELINE"
             ),
         }
-    if variant.candidate_rule_version not in {2, 3}:
+    if variant.candidate_rule_version not in {2, 3, 4}:
         raise ValueError("candidate rule version is unsupported")
     rule = {
         **common,
@@ -249,7 +249,7 @@ def candidate_rule(
         ),
         "fee_schedule": _fee_schedule_rule(plan),
     }
-    if variant.candidate_rule_version == 3:
+    if variant.candidate_rule_version in {3, 4}:
         if plan.maximum_holding_min is None:
             raise ValueError("promotion candidate requires maximum holding time")
         rule.update({
@@ -264,8 +264,18 @@ def candidate_rule(
                 if int(value) != max(int(item) for item in horizons_min)
             ],
             "episode_concurrency": 1,
-            "panic_policy": "SEPARATE_SAFETY_VETO",
+            "panic_policy": (
+                "INCLUDE_FLATTEN_PNL_AND_COUNT_VETO_ATTEMPT"
+                if variant.candidate_rule_version == 4
+                else "SEPARATE_SAFETY_VETO"
+            ),
         })
+    if variant.candidate_rule_version == 4:
+        if len(variant.evidence_semantics_fingerprint) != 64:
+            raise ValueError("promotion evidence semantics fingerprint is invalid")
+        rule["evidence_semantics_fingerprint"] = (
+            variant.evidence_semantics_fingerprint
+        )
     return rule
 
 
@@ -288,7 +298,7 @@ def baseline_rule(variant: "ShadowVariant") -> dict[str, object]:
         "entry_ttl_sec": plan.entry_ttl_sec,
         "entry_enabled": plan.entry_enabled,
     }
-    if variant.candidate_rule_version in {2, 3}:
+    if variant.candidate_rule_version in {2, 3, 4}:
         rule["fee_schedule"] = _fee_schedule_rule(plan)
     return rule
 
@@ -301,7 +311,7 @@ def variant_fingerprints(
     criteria: Mapping[str, object] | None = None,
 ) -> tuple[str, str]:
     policy = dict(DEFAULT_CRITERIA if criteria is None else criteria)
-    if policy.get("criteria_schema_version") != 2:
+    if policy.get("criteria_schema_version") not in {2, 3}:
         if int(policy["embargo_ms"]) < 0:
             raise ValueError("confirmation embargo must be non-negative")
         if int(policy["window_size_decisions"]) <= 0:
@@ -777,6 +787,11 @@ def _episode_confirmation_report(
         sequential_episode_report,
     )
     parameters = manifest["candidate_parameters"]
+    semantics_ready = bool(
+        parameters.get("candidate_rule_version") == 4
+        and isinstance(parameters.get("evidence_semantics_fingerprint"), str)
+        and len(str(parameters.get("evidence_semantics_fingerprint"))) == 64
+    )
     results = load_episode_results(
         store,
         symbol=str(manifest["symbol"]),
@@ -807,7 +822,7 @@ def _episode_confirmation_report(
         execution_model_rule=str(parameters["execution_model_rule"]),
         expected_fee_schedule=parameters["fee_schedule"],
     )
-    evaluation_passed = bool(sequential["approved"])
+    evaluation_passed = bool(sequential["approved"] and semantics_ready)
     validation_passed = validation.get("status") == "PASS"
     sequential["execution_model_projected_ready_ts_ms"] = (
         int(time.time() * 1000) if validation_passed else None
@@ -839,7 +854,7 @@ def _episode_confirmation_report(
         "statistical_method": sequential["method"],
         "blocking_reasons": (
             [] if evaluation_passed else [
-                "preregistered live episode test has not passed"
+                "promotion evidence semantics or live episode test has not passed"
             ]
         ),
         "evaluation_passed": evaluation_passed,
@@ -933,6 +948,11 @@ def _confirmation_decisions(
                     candidate_parameters.get(
                         "execution_model_promotion_ready"
                     ) is True
+                ),
+                evidence_semantics_fingerprint=str(
+                    candidate_parameters.get(
+                        "evidence_semantics_fingerprint"
+                    ) or ""
                 ),
             )
             actual_candidate, actual_baseline = variant_fingerprints(

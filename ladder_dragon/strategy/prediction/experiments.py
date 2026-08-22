@@ -27,6 +27,9 @@ from ladder_dragon.strategy.prediction.experiment_config import (
     experiment_dimension,
     experiment_spec_for_generation,
 )
+from ladder_dragon.strategy.prediction.episode_semantics import (
+    evidence_semantics_fingerprint,
+)
 from ladder_dragon.strategy.prediction.experiment_lifecycle import (
     REPORT_SCHEMA_VERSION,
     confirmation_report,
@@ -78,6 +81,7 @@ class ShadowVariant:
     candidate_rule_version: int = 2
     execution_model_rule: str = "ohlc_touch_diagnostic_v1"
     execution_model_promotion_ready: bool = False
+    evidence_semantics_fingerprint: str = ""
 
 
 def compatible_historical_kinds(
@@ -210,8 +214,7 @@ def build_shadow_variants(
             regime_policy=spec.regime_policy,
             model_rule=(
                 "fixed_rule:no_online_training"
-                if spec.statistical_design_version
-                == "episode_alpha_spending_v1"
+                if spec.lifecycle_mode == "PROMOTION"
                 else
                 "predict_distribution:v2:compatible_closed_history_before_snapshot"
                 if spec.statistical_design_version
@@ -219,12 +222,20 @@ def build_shadow_variants(
                 else "predict_distribution:v1:expanding_history_before_snapshot"
             ),
             candidate_rule_version=(
-                3 if spec.lifecycle_mode == "PROMOTION"
+                4 if spec.statistical_design_version
+                == "episode_net_expectancy_alpha_spending_v3"
+                else 3 if spec.lifecycle_mode == "PROMOTION"
                 else 2 if spec.evidence_semantics_version.endswith("_v2") else 1
             ),
             execution_model_rule=spec.execution_model_rule,
             execution_model_promotion_ready=(
                 spec.lifecycle_mode == "PROMOTION"
+            ),
+            evidence_semantics_fingerprint=(
+                evidence_semantics_fingerprint()
+                if spec.statistical_design_version
+                == "episode_net_expectancy_alpha_spending_v3"
+                else ""
             ),
         )
 

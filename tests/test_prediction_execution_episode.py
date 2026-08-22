@@ -27,6 +27,9 @@ from ladder_dragon.strategy.prediction.execution_episode import (
     ExecutionEpisodeSpec,
 )
 from ladder_dragon.strategy.prediction.runtime import PredictionShadowStore
+from ladder_dragon.strategy.prediction.episode_semantics import (
+    evidence_semantics_fingerprint,
+)
 
 
 D = Decimal
@@ -97,6 +100,18 @@ def _promotion_variant():
     )[0]
 
 
+def _v19_promotion_variant():
+    baseline = _promotion_variant().baseline_plan
+    return build_shadow_variants(
+        market_price=D("100"),
+        baseline_plan=baseline,
+        required_edge_pct=D("0.001"),
+        regime="RANGE",
+        generation="v19",
+        symbol="SOLUSDT",
+    )[0]
+
+
 def test_episode_models_partial_maker_fill_and_exact_tp_fees():
     episode = ExecutionEpisode(_spec(), _event(0))
 
@@ -146,6 +161,52 @@ def test_episode_records_a_missed_fill_without_inventing_a_trade():
     assert result.entry_filled_quantity == 0
     assert result.net_pnl_quote == 0
     assert result.eligible_for_promotion is True
+
+
+def test_panic_flatten_is_financial_evidence_and_veto_is_a_no_fill_attempt():
+    filled = ExecutionEpisode(_spec("panic-filled"), _event(0))
+    assert filled.process(
+        _event(30_000, trades=((D("99"), D("2"), "SELL"),))
+    ) is None
+    flattened = filled.process(_event(60_000, bid="90"), panic_active=True)
+    assert flattened is not None
+    assert flattened.terminal_reason == "PANIC_FLATTEN"
+    assert flattened.net_pnl_quote < 0
+    assert flattened.eligible_for_promotion is True
+
+    empty = ExecutionEpisode(_spec("panic-empty"), _event(0))
+    veto = empty.process(_event(30_000), panic_active=True)
+    assert veto is not None
+    assert veto.terminal_reason == "PANIC_VETO"
+    assert veto.entry_filled_quantity == 0
+    assert veto.net_pnl_quote == 0
+    assert veto.eligible_for_promotion is True
+
+
+def test_v19_net_expectancy_rejects_frequent_wins_with_larger_panic_losses():
+    rows = []
+    for index in range(12):
+        loss = index >= 10
+        rows.append(replace(
+            _result(index, "-1" if loss else "0.1"),
+            generation="v19",
+            variant_id="v19_maker_ttl90_gap48",
+            execution_model_rule="minute_l2_fifo_oco_gap_v2",
+            terminal_reason="PANIC_FLATTEN" if loss else "TAKE_PROFIT",
+            panic_veto=loss,
+            evidence_semantics_fingerprint=evidence_semantics_fingerprint(),
+        ))
+    report = sequential_episode_report(
+        rows,
+        criteria=episode_confirmation_criteria(
+            "episode_net_expectancy_alpha_spending_v3"
+        ),
+    )
+    assert report["financial_outcomes"] == 12
+    assert report["panic_flatten_outcomes"] == 2
+    assert D(report["net_pnl_quote"]) < 0
+    assert report["status"] != "PASS"
+    assert report["approved"] is False
 
 
 def _result(index: int, pnl: str) -> ExecutionEpisodeResult:
@@ -291,15 +352,15 @@ def test_model_validation_requires_filled_maker_and_stop_limit_orders(tmp_path):
     freeze_preselected_episode_experiment(
         store,
         experiment_id="validation-experiment",
-        generation="v18",
+        generation="v19",
         symbol="SOLUSDT",
-        selected_variant=_promotion_variant(),
+        selected_variant=_v19_promotion_variant(),
         horizons_min=(300, 360),
         product_version="2.20.229",
         source_commit="b" * 40,
     )
     report = {
-        "schema_version": 4,
+        "schema_version": 6,
         "ready": True,
         "reasons": [],
         "archive_sha256": "c" * 64,
@@ -321,12 +382,25 @@ def test_model_validation_requires_filled_maker_and_stop_limit_orders(tmp_path):
         "maker_sell_fee_pct": "0.0008",
         "taker_buy_fee_pct": "0.001",
         "taker_sell_fee_pct": "0.0011",
+        "replay_readiness": {
+            "ready": True,
+            "reasons": [],
+            "archive_count": 3,
+            "span_days": "2",
+            "regimes": ["low", "normal", "high"],
+            "measured_latency_archives": 1,
+            "execution_sample_count": 10,
+            "book_event_count": 1000,
+            "trade_count": 1000,
+            "validation_report_count": 1,
+            "validated_order_count": 10,
+        },
     }
     try:
         record_model_validation(
             store,
             symbol="SOLUSDT",
-            execution_model_rule="minute_l2_fifo_oco_gap_v1",
+            execution_model_rule="minute_l2_fifo_oco_gap_v2",
             experiment_id="validation-experiment",
             report=report,
         )
@@ -339,14 +413,14 @@ def test_model_validation_requires_filled_maker_and_stop_limit_orders(tmp_path):
     record_model_validation(
         store,
         symbol="SOLUSDT",
-        execution_model_rule="minute_l2_fifo_oco_gap_v1",
+        execution_model_rule="minute_l2_fifo_oco_gap_v2",
         experiment_id="validation-experiment",
         report=report,
     )
     assert model_validation_status(
         store,
         symbol="SOLUSDT",
-        execution_model_rule="minute_l2_fifo_oco_gap_v1",
+        execution_model_rule="minute_l2_fifo_oco_gap_v2",
     )["status"] == "PASS"
     with store._connect() as connection:
         try:

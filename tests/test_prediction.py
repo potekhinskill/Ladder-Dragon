@@ -516,7 +516,10 @@ def test_supervisor_shadow_records_strategy_and_hashed_reanchor(
     def public_get(path, params):
         if path.endswith("depth"):
             return {"bids": [["103.9", "5"]], "asks": [["104.0", "4"]]}
-        return [{"T": int(rows[-1][6]), "q": "2", "m": False}]
+        return [{
+            "a": 1, "T": int(rows[-1][6]),
+            "p": "104", "q": "2", "m": False,
+        }]
 
     monkeypatch.setattr(ai_supervisor.TM, "_public_get", public_get)
     ai_supervisor._record_prediction_shadow(

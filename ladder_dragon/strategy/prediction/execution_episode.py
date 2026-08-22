@@ -49,6 +49,7 @@ class ExecutionEpisodeSpec:
     maximum_event_gap_ms: int = 120_000
     latency_ms: int = 0
     market_impact_bps: Decimal = ZERO
+    evidence_semantics_fingerprint: str = ""
 
     def __post_init__(self) -> None:
         prices = (
@@ -68,8 +69,12 @@ class ExecutionEpisodeSpec:
             and self.execution_model_rule and self.start_regime
         ):
             raise ValueError("execution episode identity is incomplete")
-        if len(self.candidate_fingerprint) != 64:
-            raise ValueError("candidate fingerprint must be SHA-256")
+        if (
+            len(self.candidate_fingerprint) != 64
+            or self.evidence_semantics_fingerprint
+            and len(self.evidence_semantics_fingerprint) != 64
+        ):
+            raise ValueError("episode fingerprints must be SHA-256")
         if any(not value.is_finite() or value <= 0 for value in prices):
             raise ValueError("execution episode prices must be positive")
         if not (
@@ -120,6 +125,7 @@ class ExecutionEpisodeResult:
     stop_limit_unfilled: bool
     panic_veto: bool
     eligible_for_promotion: bool
+    evidence_semantics_fingerprint: str = ""
 
     def payload(self) -> dict[str, object]:
         """Return a stable JSON-compatible result."""
@@ -364,6 +370,9 @@ class ExecutionEpisode:
             variant_id=self.spec.variant_id,
             candidate_fingerprint=self.spec.candidate_fingerprint,
             execution_model_rule=self.spec.execution_model_rule,
+            evidence_semantics_fingerprint=(
+                self.spec.evidence_semantics_fingerprint
+            ),
             start_regime=self.spec.start_regime,
             started_at_ms=self.spec.started_at_ms,
             terminal_at_ms=int(now_ms),
@@ -422,9 +431,13 @@ class ExecutionEpisode:
                 entry = self._order(self.ENTRY_ID)
                 if entry is not None and entry.remaining > 0:
                     self.replay.cancel(self.ENTRY_ID, event.ts_ms)
-                return self._finish(event.ts_ms, "PANIC_VETO", eligible=False)
+                # A veto is a terminal no-fill attempt. It belongs in the fill
+                # denominator, but contributes zero to net expectancy.
+                return self._finish(event.ts_ms, "PANIC_VETO", eligible=True)
             self._market_flatten(bid)
-            return self._finish(event.ts_ms, "PANIC_FLATTEN", eligible=False)
+            # Protective exits are real financial outcomes. Excluding their
+            # losses would bias expectancy toward ordinary take-profit exits.
+            return self._finish(event.ts_ms, "PANIC_FLATTEN", eligible=True)
 
         if self.phase == "ENTRY":
             entry = self._order(self.ENTRY_ID)
@@ -489,6 +502,9 @@ def result_from_payload(payload: Mapping[str, object]) -> ExecutionEpisodeResult
         "adverse_selection_pct",
     }
     values = dict(payload)
+    # Historical v17/v18 records remain readable as pilot evidence. Their
+    # missing fingerprint prevents promotion under the v19 contract.
+    values.setdefault("evidence_semantics_fingerprint", "")
     for field in decimal_fields:
         values[field] = D(str(values[field]))
     diagnostic = values.get("diagnostic_300m_net_pnl_quote")
