@@ -1964,3 +1964,17 @@ private infrastructure details.
 - **Root cause:** the hourly recorder schedule was not bound to the complete order lifecycle.
 - **Correction:** run a bounded continuous archive from pre-POST readiness through terminal cleanup.
 - **Prevention:** test that every empirical outcome interval is contained in exactly one source archive.
+
+### 2026-08-22 — Evaluated episode evidence with local thresholds
+
+- **Impact:** a candidate could pass a test that differed from its frozen manifest fingerprint.
+- **Root cause:** the evaluator retained constants after lifecycle manifests became authoritative.
+- **Correction:** evaluate only a validated manifest contract and block every unsupported legacy contract.
+- **Prevention:** test each frozen threshold at the evaluator boundary and compare the complete canonical contract.
+
+### 2026-08-22 — Froze regime evidence at a partial statistical pass
+
+- **Impact:** later regime episodes could not repair coverage after an early sign-test boundary.
+- **Root cause:** the code stored `passed_at` before all combined gates passed.
+- **Correction:** freeze the boundary only after statistics, fills, drawdown, and regime gates pass together.
+- **Prevention:** test that later looks can repair incomplete regime coverage.

@@ -6,6 +6,7 @@ import time
 
 from ladder_dragon.strategy.market_replay import BookLevel, MarketEvent
 from ladder_dragon.strategy.prediction.episode_evidence import (
+    episode_confirmation_criteria,
     load_episode_results,
     model_validation_status,
     record_episode_result,
@@ -50,8 +51,8 @@ def _spec(episode_id: str = "episode-1") -> ExecutionEpisodeSpec:
     return ExecutionEpisodeSpec(
         episode_id=episode_id,
         symbol="SOLUSDT",
-        generation="v17",
-        variant_id="v17_maker_ttl90_gap48",
+        generation="v18",
+        variant_id="v18_maker_ttl90_gap48",
         candidate_fingerprint="a" * 64,
         execution_model_rule="minute_l2_fifo_oco_gap_v1",
         start_regime="RANGE",
@@ -91,7 +92,7 @@ def _promotion_variant():
         baseline_plan=baseline,
         required_edge_pct=D("0.001"),
         regime="RANGE",
-        generation="v17",
+        generation="v18",
         symbol="SOLUSDT",
     )[0]
 
@@ -151,8 +152,8 @@ def _result(index: int, pnl: str) -> ExecutionEpisodeResult:
     return ExecutionEpisodeResult(
         episode_id=f"episode-{index}",
         symbol="SOLUSDT",
-        generation="v17",
-        variant_id="v17_maker_ttl90_gap48",
+        generation="v18",
+        variant_id="v18_maker_ttl90_gap48",
         candidate_fingerprint="a" * 64,
         execution_model_rule="minute_l2_fifo_oco_gap_v1",
         start_regime=("RANGE", "TREND_UP", "TREND_DOWN")[index % 3],
@@ -176,13 +177,63 @@ def _result(index: int, pnl: str) -> ExecutionEpisodeResult:
 
 
 def test_preregistered_alpha_spending_can_pass_at_the_first_strong_look():
-    report = sequential_episode_report(_result(index, "0.2") for index in range(12))
+    report = sequential_episode_report(
+        (_result(index, "0.2") for index in range(12)),
+        criteria=episode_confirmation_criteria(
+            "episode_combined_alpha_spending_v2"
+        ),
+    )
 
     assert report["alpha_total"] == "0.050"
     assert report["passed_at_episode"] == 12
     assert report["status"] == "PASS"
     assert report["approved"] is True
     assert D(report["power_analysis"]["maximum_look_power"]) >= D("0.80")
+
+
+def test_early_sign_boundary_does_not_freeze_incomplete_regime_evidence():
+    rows = [
+        replace(_result(index, "0.2"), start_regime="RANGE")
+        for index in range(12)
+    ]
+    rows.extend(
+        replace(_result(index, "0.2"), start_regime="TREND_UP")
+        for index in range(12, 24)
+    )
+
+    report = sequential_episode_report(
+        rows,
+        criteria=episode_confirmation_criteria(
+            "episode_combined_alpha_spending_v2"
+        ),
+    )
+
+    assert report["looks"][0]["passed"] is False
+    assert report["passed_at_episode"] == 24
+    assert report["confirmed_execution_regimes"] == ["RANGE", "TREND_UP"]
+
+
+def test_exhausted_preregistered_looks_are_ready_to_reject_immediately():
+    report = sequential_episode_report(
+        (_result(index, "-0.2") for index in range(43)),
+        criteria=episode_confirmation_criteria(
+            "episode_combined_alpha_spending_v2"
+        ),
+    )
+
+    assert report["next_sequential_look"] is None
+    assert report["status"] == "READY_TO_REJECT"
+    assert report["approved"] is False
+
+
+def test_legacy_episode_manifest_is_blocked_instead_of_using_local_defaults():
+    report = sequential_episode_report(
+        (_result(index, "0.2") for index in range(12)),
+        criteria={"min_independent_samples": 52},
+    )
+
+    assert report["status"] == "BLOCKED"
+    assert report["approved"] is False
 
 
 def test_episode_store_is_append_only_and_restart_evidence_is_excluded(tmp_path):
@@ -196,8 +247,8 @@ def test_episode_store_is_append_only_and_restart_evidence_is_excluded(tmp_path)
     rows = load_episode_results(
         store,
         symbol="SOLUSDT",
-        generation="v17",
-        variant_id="v17_maker_ttl90_gap48",
+        generation="v18",
+        variant_id="v18_maker_ttl90_gap48",
     )
     assert rows[0].terminal_reason == "PROCESS_RESTART_DATA_GAP"
     assert rows[0].eligible_for_promotion is False
@@ -229,8 +280,8 @@ def test_episode_start_and_terminal_round_trip(tmp_path):
     loaded = load_episode_results(
         store,
         symbol="SOLUSDT",
-        generation="v17",
-        variant_id="v17_maker_ttl90_gap48",
+        generation="v18",
+        variant_id="v18_maker_ttl90_gap48",
     )
     assert loaded == [result]
 
@@ -240,7 +291,7 @@ def test_model_validation_requires_filled_maker_and_stop_limit_orders(tmp_path):
     freeze_preselected_episode_experiment(
         store,
         experiment_id="validation-experiment",
-        generation="v17",
+        generation="v18",
         symbol="SOLUSDT",
         selected_variant=_promotion_variant(),
         horizons_min=(300, 360),
@@ -314,8 +365,8 @@ def test_preselected_manifest_excludes_pre_freeze_episode_results(tmp_path):
     frozen_at = int(time.time() * 1000)
     manifest = freeze_preselected_episode_experiment(
         store,
-        experiment_id="sol-v17-live-confirmation",
-        generation="v17",
+        experiment_id="sol-v18-live-confirmation",
+        generation="v18",
         symbol="SOLUSDT",
         selected_variant=variant,
         horizons_min=(300, 360),
@@ -344,7 +395,7 @@ def test_preselected_manifest_excludes_pre_freeze_episode_results(tmp_path):
     assert manifest["current_status"] == "CONFIRMING"
     assert manifest["historical_evidence_reused_for_confirmation"] is False
     report = confirmation_report(
-        store, experiment_id="sol-v17-live-confirmation"
+        store, experiment_id="sol-v18-live-confirmation"
     )
     assert report["confirmation_status"] == "IN_PROGRESS"
     assert report["confirmation_progress"]["eligible_terminal_episodes"] == 0

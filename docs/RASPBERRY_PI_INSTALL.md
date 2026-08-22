@@ -430,7 +430,7 @@ sudo -u bot env \
 The drill posts at the highest non-crossing tick.
 It cancels the remainder after the first fill or the wait limit.
 It sells only the acquired SOL quantity with a MARKET cleanup order.
-The command permits one exchange attempt for each release.
+Without a batch manifest, the command permits one exchange attempt for each release.
 A no-fill result uses exit code 2 and still consumes the attempt.
 Any uncertain cleanup preserves HALT and uses exit code 1.
 
@@ -454,7 +454,7 @@ The STOP limit is 5 basis points below the trigger.
 The take-profit leg is 5 percent above the reference price.
 The drill cancels both legs after the wait limit.
 It sells only its remaining acquired SOL quantity.
-The command permits one exchange attempt for each release.
+Without a batch manifest, the command permits one exchange attempt for each release.
 A missing STOP fill uses exit code 2 and still consumes the attempt.
 Any uncertain cleanup preserves HALT and uses exit code 1.
 
@@ -462,6 +462,24 @@ Each validation drill starts a contiguous public archive before POST.
 It closes that archive only after terminal reconciliation and cleanup.
 The store accepts at most 32 archives or 512 MiB.
 Capacity exhaustion blocks another drill and never deletes evidence.
+
+Create a bounded batch only after separate operator approval.
+This command does not place an order:
+
+```bash
+sudo -u bot PYTHONPATH=. .venv/bin/python -m bin.mainnet_validation_batch \
+  --manifest logs/mainnet-validation-batch.json \
+  --symbol SOLUSDT --maximum-attempts 4 \
+  --maximum-turnover-usdt 48 --duration-hours 24 \
+  --confirm CREATE_VALIDATION_BATCH
+```
+
+Add `--batch-manifest logs/mainnet-validation-batch.json` to an approved drill.
+Each drill still requires its existing Mainnet environment confirmations.
+Each reservation consumes one attempt and twice the requested notional.
+A crash after reservation cannot restore that attempt.
+The batch stops at its attempt, turnover, release, or time limit.
+Do not delete its manifest or append-only attempt ledger.
 
 The separate SQLite journal is authoritative order evidence.
 The report and sanitized execution log are derived replay evidence.

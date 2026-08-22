@@ -44,6 +44,40 @@ MINIMUM_FILLED_EPISODES = 10
 MINIMUM_FILL_RATE = D("0.05")
 MAXIMUM_DRAWDOWN_FRACTION = D("0.25")
 REGIME_NONINFERIORITY_FRACTION = D("0.02")
+EPISODE_CRITERIA_SCHEMA_VERSION = 2
+EPISODE_STATISTICAL_METHOD = "group_sequential_combined_gate_alpha_spending_v2"
+ELIGIBLE_REGIMES = ("RANGE", "TREND_UP", "TREND_DOWN")
+
+
+def episode_confirmation_criteria(
+    statistical_design_version: str,
+) -> dict[str, object]:
+    """Return the immutable criteria evaluated by one promotion generation."""
+    if statistical_design_version != "episode_combined_alpha_spending_v2":
+        raise ValueError("unsupported episode statistical design")
+    return {
+        "criteria_schema_version": EPISODE_CRITERIA_SCHEMA_VERSION,
+        "method": EPISODE_STATISTICAL_METHOD,
+        "trial_definition": "eligible_nonzero_primary_net_pnl",
+        "sequential_looks": [
+            {"sample_count": count, "alpha_spend": format(alpha, "f")}
+            for count, alpha in SEQUENTIAL_LOOKS
+        ],
+        "minimum_eligible_terminal_episodes": 12,
+        "minimum_filled_episodes": MINIMUM_FILLED_EPISODES,
+        "minimum_fill_rate": "0.10",
+        "maximum_drawdown_fraction": format(MAXIMUM_DRAWDOWN_FRACTION, "f"),
+        "eligible_regimes": list(ELIGIBLE_REGIMES),
+        "minimum_regime_filled_episodes": 3,
+        "minimum_confirmed_regimes": 2,
+        "regime_noninferiority_fraction": format(
+            REGIME_NONINFERIORITY_FRACTION, "f"
+        ),
+        "regime_activation_policy": "confirmed_only_v1",
+        "maximum_terminal_episodes": MAXIMUM_TERMINAL_EPISODES,
+        "maximum_confirmation_duration_ms": MAXIMUM_CONFIRMATION_DURATION_MS,
+        "panic_policy": "separate_safety_veto",
+    }
 
 
 def _json_value(value: object) -> object:
@@ -355,46 +389,159 @@ def _maximum_drawdown(values: Iterable[Decimal]) -> Decimal:
     return drawdown
 
 
+def _validated_episode_criteria(
+    criteria: Mapping[str, object] | None,
+) -> dict[str, object]:
+    """Validate the frozen evaluator contract without applying local defaults."""
+    if not isinstance(criteria, Mapping):
+        raise ValueError("frozen episode criteria are unavailable")
+    if criteria.get("criteria_schema_version") != EPISODE_CRITERIA_SCHEMA_VERSION:
+        raise ValueError("frozen episode criteria schema is unsupported")
+    if criteria.get("method") != EPISODE_STATISTICAL_METHOD:
+        raise ValueError("frozen episode statistical method is unsupported")
+    expected = episode_confirmation_criteria("episode_combined_alpha_spending_v2")
+    if _canonical(criteria) != _canonical(expected):
+        raise ValueError("frozen episode criteria differ from the evaluator contract")
+    return expected
+
+
+def _regime_report(
+    rows: list[ExecutionEpisodeResult],
+    *,
+    regimes: tuple[str, ...],
+    minimum_filled: int,
+    noninferiority_fraction: Decimal,
+) -> tuple[dict[str, dict[str, object]], tuple[str, ...]]:
+    reports: dict[str, dict[str, object]] = {}
+    confirmed = []
+    for regime in regimes:
+        cohort = [
+            row for row in rows
+            if row.entry_filled_quantity > ZERO and row.start_regime == regime
+        ]
+        pnl = sum((row.net_pnl_quote for row in cohort), ZERO)
+        notional = sum((row.entry_notional_quote for row in cohort), ZERO)
+        mean_pnl = pnl / D(len(cohort)) if cohort else ZERO
+        mean_notional = notional / D(len(cohort)) if cohort else ZERO
+        measured = len(cohort) >= minimum_filled
+        noninferior = bool(
+            measured
+            and mean_pnl >= -mean_notional * noninferiority_fraction
+        )
+        if noninferior:
+            confirmed.append(regime)
+        reports[regime] = {
+            "filled_episodes": len(cohort),
+            "required_filled_episodes": minimum_filled,
+            "measured": measured,
+            "mean_net_pnl_quote": format(mean_pnl, "f"),
+            "noninferior": noninferior,
+        }
+    return reports, tuple(confirmed)
+
+
+def _projected_timestamp(
+    rows: list[ExecutionEpisodeResult],
+    *,
+    observed_events: int,
+    required_events: int,
+    mean_duration_ms: Decimal | None,
+) -> int | None:
+    if required_events <= observed_events:
+        return rows[-1].terminal_at_ms if rows else None
+    if not rows or observed_events <= 0 or mean_duration_ms is None:
+        return None
+    rate = D(observed_events) / D(len(rows))
+    return int(
+        D(rows[-1].terminal_at_ms)
+        + mean_duration_ms * D(required_events - observed_events) / rate
+    )
+
+
 def sequential_episode_report(
     results: Iterable[ExecutionEpisodeResult],
+    *,
+    criteria: Mapping[str, object] | None,
 ) -> dict[str, object]:
-    """Apply the preregistered sign-test alpha spending to primary outcomes."""
-    rows = [row for row in results if row.eligible_for_promotion]
-    filled = [row for row in rows if row.entry_filled_quantity > 0]
+    """Evaluate each look with the exact criteria frozen in the manifest."""
+    all_results = sorted(results, key=lambda row: row.terminal_at_ms)
+    rows = [row for row in all_results if row.eligible_for_promotion]
+    filled = [row for row in rows if row.entry_filled_quantity > ZERO]
     sign_rows = [row for row in rows if row.net_pnl_quote != ZERO]
+    try:
+        contract = _validated_episode_criteria(criteria)
+    except ValueError as exc:
+        return {
+            "schema_version": 2,
+            "method": "UNSUPPORTED_FROZEN_CONTRACT",
+            "eligible_terminal_episodes": len(rows),
+            "filled_episodes": len(filled),
+            "nonzero_sign_trials": len(sign_rows),
+            "looks": [],
+            "passed_at_episode": None,
+            "next_sequential_look": None,
+            "statistics_projected_ready_ts_ms": None,
+            "regime_projected_ready_ts_ms": None,
+            "projected_ready_ts_ms": None,
+            "readiness_reason": str(exc),
+            "regime_safety": {},
+            "confirmed_execution_regimes": [],
+            "regime_noninferiority_passed": False,
+            "status": "BLOCKED",
+            "approved": False,
+        }
+
+    looks = tuple(
+        (int(item["sample_count"]), D(str(item["alpha_spend"])))
+        for item in contract["sequential_looks"]
+    )
+    regimes = tuple(str(item) for item in contract["eligible_regimes"])
+    minimum_terminal = int(contract["minimum_eligible_terminal_episodes"])
+    minimum_filled = int(contract["minimum_filled_episodes"])
+    minimum_fill_rate = D(str(contract["minimum_fill_rate"]))
+    drawdown_fraction = D(str(contract["maximum_drawdown_fraction"]))
+    minimum_regime = int(contract["minimum_regime_filled_episodes"])
+    minimum_confirmed_regimes = int(contract["minimum_confirmed_regimes"])
+    regime_fraction = D(str(contract["regime_noninferiority_fraction"]))
+    maximum_terminal = int(contract["maximum_terminal_episodes"])
+
     passed_at: int | None = None
+    passed_boundary: int | None = None
+    passed_regimes: tuple[str, ...] = ()
     look_reports = []
-    for sample_count, alpha in SEQUENTIAL_LOOKS:
+    for sample_count, alpha in looks:
         sign_cohort = sign_rows[:sample_count]
-        boundary = (
-            sign_cohort[-1].terminal_at_ms if len(sign_cohort) == sample_count
-            else None
-        )
+        reached = len(sign_cohort) == sample_count
+        boundary = sign_cohort[-1].terminal_at_ms if reached else None
         cohort = [
             row for row in rows
             if boundary is not None and row.terminal_at_ms <= boundary
         ]
         wins = sum(row.net_pnl_quote > ZERO for row in sign_cohort)
-        p_value = (
-            _sign_tail(wins, len(sign_cohort))
-            if sign_cohort else ONE
-        )
-        cohort_filled = sum(row.entry_filled_quantity > 0 for row in cohort)
+        p_value = _sign_tail(wins, len(sign_cohort)) if sign_cohort else ONE
+        cohort_filled = sum(row.entry_filled_quantity > ZERO for row in cohort)
         fill_rate = D(cohort_filled) / D(len(cohort)) if cohort else ZERO
         pnl = sum((row.net_pnl_quote for row in cohort), ZERO)
         maximum_notional = max(
             (row.entry_notional_quote for row in cohort), default=ZERO
         )
         drawdown = _maximum_drawdown(row.net_pnl_quote for row in cohort)
-        reached = len(sign_rows) >= sample_count
+        regime_reports, confirmed_regimes = _regime_report(
+            cohort,
+            regimes=regimes,
+            minimum_filled=minimum_regime,
+            noninferiority_fraction=regime_fraction,
+        )
         passed = bool(
             reached
+            and len(cohort) >= minimum_terminal
             and p_value <= alpha
             and pnl > ZERO
-            and cohort_filled >= MINIMUM_FILLED_EPISODES
-            and fill_rate >= MINIMUM_FILL_RATE
+            and cohort_filled >= minimum_filled
+            and fill_rate >= minimum_fill_rate
             and maximum_notional > ZERO
-            and drawdown <= maximum_notional * MAXIMUM_DRAWDOWN_FRACTION
+            and drawdown <= maximum_notional * drawdown_fraction
+            and len(confirmed_regimes) >= minimum_confirmed_regimes
         )
         look_reports.append({
             "sample_count": sample_count,
@@ -405,114 +552,154 @@ def sequential_episode_report(
             "critical_wins": _critical_wins(sample_count, alpha),
             "design_power": format(_design_power(sample_count, alpha), "f"),
             "one_sided_p_value": format(p_value, "f"),
+            "eligible_terminal_episodes": len(cohort),
             "filled_episodes": cohort_filled,
             "fill_rate": format(fill_rate, "f"),
             "net_pnl_quote": format(pnl, "f"),
             "maximum_drawdown_quote": format(drawdown, "f"),
+            "confirmed_execution_regimes": list(confirmed_regimes),
+            "regime_safety": regime_reports,
             "passed": passed,
         })
+        # Freeze the boundary only after every preregistered gate passes.
         if passed and passed_at is None:
             passed_at = sample_count
+            passed_boundary = boundary
+            passed_regimes = confirmed_regimes
 
-    regime_boundary = (
-        sign_rows[passed_at - 1].terminal_at_ms
-        if passed_at is not None else None
-    )
-    regime_filled = [
-        row for row in filled
-        if regime_boundary is None or row.terminal_at_ms <= regime_boundary
+    display_rows = [
+        row for row in rows
+        if passed_boundary is None or row.terminal_at_ms <= passed_boundary
     ]
-    regime_reports: dict[str, dict[str, object]] = {}
-    regime_pass = True
-    for regime in ("RANGE", "TREND_UP", "TREND_DOWN"):
-        cohort = [row for row in regime_filled if row.start_regime == regime]
-        pnl = sum((row.net_pnl_quote for row in cohort), ZERO)
-        notional = sum((row.entry_notional_quote for row in cohort), ZERO)
-        mean_pnl = pnl / D(len(cohort)) if cohort else ZERO
-        mean_notional = notional / D(len(cohort)) if cohort else ZERO
-        measured = len(cohort) >= 3
-        noninferior = (
-            mean_pnl >= -mean_notional * REGIME_NONINFERIORITY_FRACTION
-            if measured else True
+    regime_reports, confirmed_regimes = _regime_report(
+        display_rows,
+        regimes=regimes,
+        minimum_filled=minimum_regime,
+        noninferiority_fraction=regime_fraction,
+    )
+    if passed_at is not None:
+        confirmed_regimes = passed_regimes
+
+    next_look = (
+        None if passed_at is not None else
+        next((count for count, _alpha in looks if count > len(sign_rows)), None)
+    )
+    losses = len(sign_rows) - sum(row.net_pnl_quote > ZERO for row in sign_rows)
+    future_sign_possible = any(
+        count > len(sign_rows) and losses <= count - _critical_wins(count, alpha)
+        for count, alpha in looks
+    )
+    remaining_terminal = max(0, maximum_terminal - len(rows))
+    regime_counts = {
+        regime: sum(
+            row.entry_filled_quantity > ZERO and row.start_regime == regime
+            for row in rows
         )
-        regime_pass = regime_pass and measured and noninferior
-        regime_reports[regime] = {
-            "filled_episodes": len(cohort),
-            "measured": measured,
-            "mean_net_pnl_quote": format(mean_pnl, "f"),
-            "noninferior": noninferior,
-        }
-
-    panic_rows = [row for row in results if row.panic_veto]
-    panic_failures = [
-        row for row in panic_rows
-        if row.entry_filled_quantity > row.exit_filled_quantity
-    ]
-    status = "PASS" if passed_at is not None and regime_pass else "SHADOW"
-    if len(rows) >= MAXIMUM_TERMINAL_EPISODES and passed_at is None:
-        status = "READY_TO_REJECT"
-    next_look = next(
-        (sample_count for sample_count, _alpha in SEQUENTIAL_LOOKS
-         if sample_count > len(sign_rows)),
-        None,
+        for regime in regimes
+    }
+    possible_regimes = sum(
+        count >= minimum_regime
+        or minimum_regime - count <= remaining_terminal
+        for count in regime_counts.values()
     )
+    status = "PASS" if passed_at is not None else "SHADOW"
+    if status != "PASS" and (
+        len(rows) >= maximum_terminal
+        or next_look is None
+        or not future_sign_possible
+        or possible_regimes < minimum_confirmed_regimes
+    ):
+        status = "READY_TO_REJECT"
+
     durations = [
         D(row.terminal_at_ms - row.started_at_ms)
         for row in rows if row.terminal_at_ms > row.started_at_ms
     ]
-    mean_duration_ms = (
-        sum(durations, ZERO) / D(len(durations)) if durations else None
+    mean_duration_ms = sum(durations, ZERO) / D(len(durations)) if durations else None
+    statistics_eta = (
+        rows[-1].terminal_at_ms
+        if passed_at is not None and rows else
+        _projected_timestamp(
+            rows,
+            observed_events=len(sign_rows),
+            required_events=next_look,
+            mean_duration_ms=mean_duration_ms,
+        )
+        if next_look is not None else None
     )
-    projected_ready_ts_ms = (
-        int(
+    regime_etas = []
+    for regime in regimes:
+        eta = (
             rows[-1].terminal_at_ms
-            + mean_duration_ms
-            * D(next_look - len(sign_rows))
-            / (D(len(sign_rows)) / D(len(rows)))
+            if regime_reports[regime]["noninferior"] and rows else
+            None
+            if regime_counts[regime] >= minimum_regime else
+            _projected_timestamp(
+                rows,
+                observed_events=regime_counts[regime],
+                required_events=minimum_regime,
+                mean_duration_ms=mean_duration_ms,
+            )
         )
-        if (
-            rows and sign_rows and mean_duration_ms is not None
-            and next_look is not None
-        )
-        else None
+        if eta is not None:
+            regime_etas.append(eta)
+    regime_etas.sort()
+    regime_eta = (
+        regime_etas[minimum_confirmed_regimes - 1]
+        if len(regime_etas) >= minimum_confirmed_regimes else None
     )
+    combined_eta = (
+        max(statistics_eta, regime_eta)
+        if statistics_eta is not None and regime_eta is not None else None
+    )
+    panic_rows = [row for row in all_results if row.panic_veto]
+    panic_failures = [
+        row for row in panic_rows
+        if row.entry_filled_quantity > row.exit_filled_quantity
+    ]
     return {
-        "schema_version": 1,
-        "method": "group_sequential_sign_test_alpha_spending_v1",
+        "schema_version": 2,
+        "method": contract["method"],
         "primary_horizon_min": 360,
         "diagnostic_horizons_min": [300],
         "eligible_terminal_episodes": len(rows),
         "filled_episodes": len(filled),
         "nonzero_sign_trials": len(sign_rows),
-        "maximum_terminal_episodes": MAXIMUM_TERMINAL_EPISODES,
-        "maximum_confirmation_duration_ms": MAXIMUM_CONFIRMATION_DURATION_MS,
+        "maximum_terminal_episodes": maximum_terminal,
+        "maximum_confirmation_duration_ms": contract[
+            "maximum_confirmation_duration_ms"
+        ],
         "power_analysis": {
             "scope": "conditional_nonzero_sign_test_only",
             "positive_outcome_probability": format(
                 DESIGN_POSITIVE_OUTCOME_PROBABILITY, "f"
             ),
             "target_power": format(DESIGN_TARGET_POWER, "f"),
-            "maximum_look_power": format(
-                _design_power(*SEQUENTIAL_LOOKS[-1]), "f"
-            ),
+            "maximum_look_power": format(_design_power(*looks[-1]), "f"),
         },
-        "alpha_total": format(sum((alpha for _n, alpha in SEQUENTIAL_LOOKS), ZERO), "f"),
+        "alpha_total": format(sum((alpha for _n, alpha in looks), ZERO), "f"),
         "looks": look_reports,
         "passed_at_episode": passed_at,
         "next_sequential_look": next_look,
         "mean_episode_duration_ms": (
             format(mean_duration_ms, "f") if mean_duration_ms is not None else None
         ),
-        "projected_ready_ts_ms": projected_ready_ts_ms,
+        "statistics_projected_ready_ts_ms": statistics_eta,
+        "regime_projected_ready_ts_ms": regime_eta,
+        "projected_ready_ts_ms": combined_eta,
         "readiness_reason": (
-            "preregistered sequential boundary passed"
+            "all preregistered gates passed"
             if status == "PASS" else
-            "all preregistered looks failed"
+            "remaining preregistered looks cannot pass"
             if status == "READY_TO_REJECT" else
-            "waiting for terminal sequential episodes"
+            "waiting for the next combined statistical and regime look"
         ),
         "regime_safety": regime_reports,
-        "regime_noninferiority_passed": regime_pass,
+        "confirmed_execution_regimes": list(confirmed_regimes),
+        "required_confirmed_regimes": minimum_confirmed_regimes,
+        "regime_noninferiority_passed": (
+            len(confirmed_regimes) >= minimum_confirmed_regimes
+        ),
         "panic_veto": {
             "status": (
                 "PASS" if panic_rows and not panic_failures

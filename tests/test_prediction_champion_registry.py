@@ -37,6 +37,7 @@ def _confirmed_manifest(
         "symbol": "BTCUSDT",
         "selected_variant": f"{generation}_maker_ttl60_gap8p4",
         "candidate_fingerprint": candidate_fingerprint,
+        "criteria": {"regime_activation_policy": "confirmed_only_v1"},
         "candidate_parameters": {
             "candidate_rule_version": 3,
             "entry_gap_bps": "8.4",
@@ -105,16 +106,22 @@ def _activate(
     previous: str | None,
     activated_at_ms: int,
 ) -> dict[str, object]:
+    confirmation = {
+        "report_sha256": REPORT_SHA,
+        "promotion_eligible": True,
+        "confirmation_progress": {
+            "status": "PASS",
+            "confirmed_execution_regimes": ["RANGE", "TREND_UP"],
+        },
+    }
     monkeypatch.setattr(
         champion_registry,
         "confirmation_report",
-        lambda *_args, **_kwargs: {
-            "report_sha256": REPORT_SHA,
-            "promotion_eligible": True,
-        },
+        lambda *_args, **_kwargs: confirmation,
     )
     policy = champion_registry.execution_policy_from_manifest(
         manifest,
+        confirmation=confirmation,
         maximum_order_notional_usdt="6",
         maximum_inventory_usdt="18",
     )
@@ -149,6 +156,12 @@ def test_execution_policy_rejects_configured_fee_evidence(tmp_path: Path):
     with pytest.raises(ValueError, match="fees are not authoritative"):
         champion_registry.execution_policy_from_manifest(
             manifest,
+            confirmation={
+                "confirmation_progress": {
+                    "status": "PASS",
+                    "confirmed_execution_regimes": ["RANGE"],
+                }
+            },
             maximum_order_notional_usdt="6",
             maximum_inventory_usdt="18",
         )
@@ -176,6 +189,15 @@ def test_first_activation_is_restart_safe_and_exact(tmp_path: Path, monkeypatch)
     assert loaded["execution_policy"]["target_return"] == "0.0096"
     assert loaded["execution_policy"]["maximum_order_notional_usdt"] == "6"
     assert loaded["execution_policy"]["runtime_mutation_policy"] == "protective_only"
+    assert loaded["execution_policy"]["allowed_entry_regimes"] == [
+        "RANGE", "TREND_UP",
+    ]
+    assert champion_registry.champion_allows_regime(
+        loaded["execution_policy"], "TREND_UP"
+    ) is True
+    assert champion_registry.champion_allows_regime(
+        loaded["execution_policy"], "TREND_DOWN"
+    ) is False
 
 
 def test_activation_rejects_caps_that_differ_from_preview(tmp_path: Path, monkeypatch):
@@ -186,16 +208,22 @@ def test_activation_rejects_caps_that_differ_from_preview(tmp_path: Path, monkey
         generation="v13",
         candidate_fingerprint="a" * 64,
     )
+    confirmation = {
+        "report_sha256": REPORT_SHA,
+        "promotion_eligible": True,
+        "confirmation_progress": {
+            "status": "PASS",
+            "confirmed_execution_regimes": ["RANGE", "TREND_UP"],
+        },
+    }
     monkeypatch.setattr(
         champion_registry,
         "confirmation_report",
-        lambda *_args, **_kwargs: {
-            "report_sha256": REPORT_SHA,
-            "promotion_eligible": True,
-        },
+        lambda *_args, **_kwargs: confirmation,
     )
     reviewed = champion_registry.execution_policy_from_manifest(
         manifest,
+        confirmation=confirmation,
         maximum_order_notional_usdt="6",
         maximum_inventory_usdt="18",
     )

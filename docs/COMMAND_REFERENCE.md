@@ -137,7 +137,7 @@ Freeze the preregistered SOL execution candidate:
 .venv/bin/python -m bin.prediction_experiment episode-bootstrap \
   --experiment-id EXPERIMENT_ID \
   --symbol SOLUSDT \
-  --generation v17 \
+  --generation v18 \
   --confirm BOOTSTRAP
 ```
 
@@ -151,7 +151,7 @@ Import one reviewed execution-model validation:
 ```bash
 .venv/bin/python -m bin.prediction_experiment model-validation-import \
   --symbol SOLUSDT \
-  --generation v17 \
+  --generation v18 \
   --experiment-id EXPERIMENT_ID \
   --report validation.json \
   --report-sha256 REPORT_SHA256 \
@@ -209,6 +209,7 @@ The worker verifies the activation again before LIVE execution.
 | `mainnet_user_stream_drill` | proves one Mainnet order event and REST reconciliation | three explicit confirmations and persistent HALT |
 | `mainnet_limit_maker_validation` | collects one real passive fill for replay validation | separate approval, 6 USDT ceiling, cleanup, and persistent HALT |
 | `mainnet_stop_limit_validation` | collects one real STOP_LOSS_LIMIT outcome | separate approval, 6 USDT ceiling, cleanup, and persistent HALT |
+| `mainnet_validation_batch` | creates a bounded validation authorization | no order; fixed attempts, turnover, release, and expiry |
 | `tools_cancel_open` | previews or cancels selected open orders | `--live` plus venue selection |
 | `risk_ctl` | reads or resets the persistent HALT | manual reset review |
 | `maintenance_state` | sets, clears, or reads maintenance state | explicit operator command |

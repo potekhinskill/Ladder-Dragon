@@ -52,7 +52,7 @@ from ladder_dragon.strategy.prediction.control_evidence import (
     CONTROL_KINDS,
     record_control_evidence,
 )
-from ladder_dragon.strategy.prediction.champion_registry import active_champion
+from ladder_dragon.strategy.prediction.champion_registry import active_champion, champion_allows_regime
 from ladder_dragon.supervision import strategy_control_gates
 from ladder_dragon.ai.ai_runtime_status import write_runtime_status
 from ladder_dragon.ai.ai_control import read_ai_control, resolve_ai_control_path
@@ -3372,13 +3372,13 @@ def run_for_symbol(
     cycle_log(f"[POS-MODE] {symbol} mode={mode}")
 
     child_ladder = _deduplicate_ladder_prices(
-        [*sr.get("replacement_prices", []), *ladder_all],
-        now_p,
-        tick_exact,
+        [*sr.get("replacement_prices", []), *ladder_all], now_p, tick_exact,
     )
+    champion_regime_allowed = champion_policy is None or champion_allows_regime(champion_policy, confirmed_regime)
     controls_pause_buys = (
         controls_gate_blocked
         or expectancy_pause_buys
+        or not champion_regime_allowed
         or (
             regime_mode == "APPLY"
             and not regime_policy.buys_allowed
@@ -3400,7 +3400,7 @@ def run_for_symbol(
     if controls_pause_buys:
         log(
             f"[NO-TRADE] {symbol} BUY disabled expectancy="
-            f"{expectancy_pause_buys} regime={confirmed_regime} "
+            f"{expectancy_pause_buys} regime={confirmed_regime}/{champion_regime_allowed} "
             f"inventory_scale={inventory_scale:.8f}; protection remains active"
         )
     controls_runtime = _AI_RUNTIME_STATUS.setdefault(

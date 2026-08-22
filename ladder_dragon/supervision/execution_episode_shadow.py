@@ -292,7 +292,10 @@ def collect_execution_episode(
         ),
         execution_model_rule=generation.execution_model_rule,
     )
-    report = sequential_episode_report(results)
+    report = sequential_episode_report(
+        results,
+        criteria=(manifest.get("criteria") if manifest is not None else None),
+    )
     if manifest is None:
         report["status"] = "AWAITING_BOOTSTRAP"
         report["approved"] = False
@@ -308,6 +311,17 @@ def collect_execution_episode(
         report["readiness_reason"] = (
             "preregistered confirmation deadline expired"
         )
+    validation = model_validation_status(
+        store,
+        symbol=normalized,
+        execution_model_rule=generation.execution_model_rule,
+        expected_fee_schedule={
+            "maker_buy_fee_pct": variants[0].plan.maker_buy_fee_pct,
+            "maker_sell_fee_pct": variants[0].plan.maker_sell_fee_pct,
+            "taker_buy_fee_pct": variants[0].plan.taker_buy_fee_pct,
+            "taker_sell_fee_pct": variants[0].plan.taker_sell_fee_pct,
+        },
+    )
     report.update({
         "mode": "SHADOW",
         "can_change_orders": False,
@@ -324,16 +338,14 @@ def collect_execution_episode(
             manifest.get("current_status") if manifest is not None
             else "PRESELECTED"
         ),
-        "model_validation": model_validation_status(
-            store,
-            symbol=normalized,
-            execution_model_rule=generation.execution_model_rule,
-            expected_fee_schedule={
-                "maker_buy_fee_pct": variants[0].plan.maker_buy_fee_pct,
-                "maker_sell_fee_pct": variants[0].plan.maker_sell_fee_pct,
-                "taker_buy_fee_pct": variants[0].plan.taker_buy_fee_pct,
-                "taker_sell_fee_pct": variants[0].plan.taker_sell_fee_pct,
-            },
+        "model_validation": validation,
+        "execution_model_projected_ready_ts_ms": (
+            features.snapshot_ts_ms if validation.get("status") == "PASS" else None
+        ),
+        "champion_projected_ready_ts_ms": (
+            features.snapshot_ts_ms
+            if report.get("approved") and validation.get("status") == "PASS"
+            else None
         ),
     })
     report["promotion_eligible"] = bool(

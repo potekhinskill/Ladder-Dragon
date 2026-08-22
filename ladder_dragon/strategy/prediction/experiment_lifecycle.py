@@ -301,22 +301,23 @@ def variant_fingerprints(
     criteria: Mapping[str, object] | None = None,
 ) -> tuple[str, str]:
     policy = dict(DEFAULT_CRITERIA if criteria is None else criteria)
-    if int(policy["embargo_ms"]) < 0:
-        raise ValueError("confirmation embargo must be non-negative")
-    if int(policy["window_size_decisions"]) <= 0:
-        raise ValueError("confirmation window size must be positive")
-    if int(policy["required_complete_windows"]) <= 0:
-        raise ValueError("required confirmation windows must be positive")
-    if not 0 < int(policy["minimum_positive_windows"]) <= int(
-        policy["required_complete_windows"]
-    ):
-        raise ValueError("positive confirmation windows are invalid")
-    if (
-        int(policy["window_size_decisions"])
-        * int(policy["required_complete_windows"])
-        < int(policy["min_independent_samples"])
-    ):
-        raise ValueError("confirmation windows cannot weaken the sample minimum")
+    if policy.get("criteria_schema_version") != 2:
+        if int(policy["embargo_ms"]) < 0:
+            raise ValueError("confirmation embargo must be non-negative")
+        if int(policy["window_size_decisions"]) <= 0:
+            raise ValueError("confirmation window size must be positive")
+        if int(policy["required_complete_windows"]) <= 0:
+            raise ValueError("required confirmation windows must be positive")
+        if not 0 < int(policy["minimum_positive_windows"]) <= int(
+            policy["required_complete_windows"]
+        ):
+            raise ValueError("positive confirmation windows are invalid")
+        if (
+            int(policy["window_size_decisions"])
+            * int(policy["required_complete_windows"])
+            < int(policy["min_independent_samples"])
+        ):
+            raise ValueError("confirmation windows cannot weaken the sample minimum")
     candidate = {
         "candidate": candidate_rule(
             variant, generation=generation, horizons_min=horizons_min
@@ -671,7 +672,7 @@ def freeze_preselected_episode_experiment(
         experiment_spec_for_generation,
     )
     from ladder_dragon.strategy.prediction.episode_evidence import (
-        MAXIMUM_CONFIRMATION_DURATION_MS,
+        episode_confirmation_criteria,
     )
     spec = experiment_spec_for_generation(generation, symbol=symbol)
     if spec.lifecycle_mode != "PROMOTION" or len(spec.maker_ttls) != 1 or len(spec.maker_entry_gaps) != 1:
@@ -680,10 +681,8 @@ def freeze_preselected_episode_experiment(
     if required != spec.horizons_min:
         raise ValueError("episode horizons differ from the preregistered design")
     frozen_at = int(time.time() * 1000) if frozen_at_ms is None else int(frozen_at_ms)
-    criteria = dict(DEFAULT_CRITERIA)
-    criteria["maximum_confirmation_duration_ms"] = (
-        MAXIMUM_CONFIRMATION_DURATION_MS
-    )
+    criteria = episode_confirmation_criteria(spec.statistical_design_version)
+    maximum_duration_ms = int(criteria["maximum_confirmation_duration_ms"])
     candidate_fp, baseline_fp = variant_fingerprints(
         selected_variant,
         generation=generation,
@@ -706,7 +705,7 @@ def freeze_preselected_episode_experiment(
         "baseline": baseline_rule(selected_variant),
         "baseline_fingerprint": baseline_fp,
         "criteria": criteria,
-        "statistical_method": "group_sequential_sign_test_alpha_spending_v1",
+        "statistical_method": criteria["method"],
         "independence_spacing_ms": None,
         "selection_rule": "preregistered_single_candidate_before_live_confirmation",
         "selection_gate_passed": True,
@@ -718,7 +717,7 @@ def freeze_preselected_episode_experiment(
         "frozen_at_ms": frozen_at,
         "confirmation_start_ts_ms": frozen_at + 1,
         "confirmation_deadline_ts_ms": (
-            frozen_at + 1 + MAXIMUM_CONFIRMATION_DURATION_MS
+            frozen_at + 1 + maximum_duration_ms
         ),
         "product_version": str(product_version),
         "source_commit": str(source_commit),
@@ -787,7 +786,10 @@ def _episode_confirmation_report(
         candidate_fingerprint=str(manifest["candidate_fingerprint"]),
         execution_model_rule=str(parameters["execution_model_rule"]),
     )
-    sequential = sequential_episode_report(results)
+    sequential = sequential_episode_report(
+        results,
+        criteria=manifest.get("criteria"),
+    )
     deadline = int(manifest["confirmation_deadline_ts_ms"])
     deadline_expired = int(time.time() * 1000) > deadline
     if deadline_expired and sequential["status"] != "PASS":
@@ -807,6 +809,16 @@ def _episode_confirmation_report(
     )
     evaluation_passed = bool(sequential["approved"])
     validation_passed = validation.get("status") == "PASS"
+    sequential["execution_model_projected_ready_ts_ms"] = (
+        int(time.time() * 1000) if validation_passed else None
+    )
+    sequential["champion_projected_ready_ts_ms"] = (
+        max(
+            int(sequential["projected_ready_ts_ms"] or 0),
+            int(sequential["execution_model_projected_ready_ts_ms"] or 0),
+        )
+        if evaluation_passed and validation_passed else None
+    )
     finalization_ready = sequential["status"] in {"PASS", "READY_TO_REJECT"}
     lifecycle_status = str(manifest["current_status"])
     report = {
@@ -987,7 +999,10 @@ def confirmation_report(
             "can_change_orders": False,
             "lookahead": False,
         }
-    if manifest.get("statistical_method") == "group_sequential_sign_test_alpha_spending_v1":
+    if manifest.get("statistical_method") in {
+        "group_sequential_sign_test_alpha_spending_v1",
+        "group_sequential_combined_gate_alpha_spending_v2",
+    }:
         return _episode_confirmation_report(store, manifest)
     decisions, reasons = _confirmation_decisions(store, manifest)
     criteria = manifest["criteria"]

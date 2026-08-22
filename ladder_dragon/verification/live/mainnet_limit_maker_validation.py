@@ -57,6 +57,9 @@ from ladder_dragon.verification.live.testnet_smoke import (
 from ladder_dragon.verification.live.validation_archive import (
     ContinuousDepthArchive,
 )
+from ladder_dragon.verification.live.validation_batch import (
+    reserve_validation_attempt,
+)
 from product_version import __version__
 
 
@@ -425,7 +428,9 @@ def run_validation_drill(
     if limits.reserve_usdt <= 0 or not limits.halt_file.is_file():
         raise RuntimeError("persistent HALT and positive USDT reserve are required")
     report_path = resolve_project_path(args.report)
-    _require_no_prior_attempt(report_path)
+    batch_manifest = getattr(args, "batch_manifest", None)
+    if batch_manifest is None:
+        _require_no_prior_attempt(report_path)
     journal_path = resolve_project_path(args.journal)
     production_journal_path = resolve_project_path(args.production_journal)
     execution_log_path = resolve_project_path(args.execution_log)
@@ -520,6 +525,17 @@ def run_validation_drill(
     archive: ContinuousDepthArchive | None = None
     archive_started = False
     try:
+        if batch_manifest is not None:
+            reservation = reserve_validation_attempt(
+                resolve_project_path(batch_manifest),
+                drill="LIMIT_MAKER",
+                symbol=symbol,
+                turnover_usdt=requested * Decimal("2"),
+            )
+            report["validation_batch_attempt_id"] = reservation["attempt_id"]
+            report["validation_batch_manifest_sha256"] = reservation[
+                "manifest_sha256"
+            ]
         archive = archive_factory(
             symbol=symbol,
             directory=archive_directory,
@@ -729,6 +745,7 @@ def build_parser() -> argparse.ArgumentParser:
         default=os.getenv("BOT_ORDER_JOURNAL", "db/order_intents.sqlite3"),
     )
     parser.add_argument("--report", default="logs/mainnet_maker_validation.ndjson")
+    parser.add_argument("--batch-manifest", default=None)
     parser.add_argument("--execution-log", default="logs/execution_latency.ndjson")
     parser.add_argument(
         "--archive-dir", default="logs/replay-validation-archives"
@@ -755,7 +772,8 @@ def main() -> int:
                 "hard_max_notional_usdt": str(HARD_MAX_NOTIONAL_USDT),
                 "cleanup": "mandatory-market-sell",
                 "requires_halt": True,
-                "one_attempt_per_release": True,
+                "one_attempt_per_release": args.batch_manifest is None,
+                "bounded_batch": args.batch_manifest is not None,
             },
             sort_keys=True,
         ),

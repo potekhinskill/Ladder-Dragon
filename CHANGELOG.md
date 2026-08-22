@@ -3,6 +3,27 @@
 All notable changes are documented here. Releases use Semantic Versioning; every
 section is dated and there is intentionally no `Unreleased` section.
 
+## [2.20.238] — 2026-08-22
+
+### Added
+- SOL version 18 uses one immutable combined sequential confirmation contract.
+- Bounded Mainnet validation batches limit attempts, turnover, release scope, and expiry before mutation.
+- The dashboard reports separate statistics, regime, and CHAMPION readiness estimates.
+
+### Fixed
+- Episode evaluation now applies the exact thresholds stored in the frozen manifest.
+- A partial sign-test pass no longer prevents later episodes from completing regime coverage.
+- Exhausted or mathematically impossible sequential looks become ready for rejection immediately.
+
+### Security
+- A CHAMPION permits BUY orders only in independently confirmed regimes.
+- Unsupported legacy episode contracts fail closed and cannot enter promotion.
+- Validation batch crashes consume reserved capacity and cannot restore an exchange attempt.
+
+### Verified
+- All project tests and Python compilation pass.
+- Technical English and diff integrity checks pass.
+
 ## [2.20.237] — 2026-08-22
 
 ### Fixed

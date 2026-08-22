@@ -1,6 +1,6 @@
 # Implementation status
 
-This document describes the code in version **2.20.236**.
+This document describes the code in version **2.20.238**.
 It does not describe future plans as completed work.
 
 An implemented function is not automatically approved for LIVE use.
@@ -75,7 +75,7 @@ Future outcomes are normal pending work.
 Only overdue or unrecovered expired outcomes block the backlog gate.
 The soak report applies its expiration checks to the audited runtime window.
 
-SOLUSDT version seventeen uses one fixed 48-basis-point candidate and a 90-minute entry lifetime.
+SOLUSDT version eighteen uses one fixed 48-basis-point candidate and a 90-minute entry lifetime.
 Its primary endpoint is 360 minutes.
 The 300-minute result is diagnostic only.
 The SHADOW evidence notional is fixed at 6 USDT.
@@ -98,17 +98,19 @@ An operator command freezes its exact policy before live confirmation.
 Confirmation accepts only episodes that start after the frozen boundary.
 It also requires the frozen candidate and execution-model fingerprints.
 
-The group sequential sign test uses four preregistered nonzero-outcome looks.
+The combined sequential gate uses four preregistered nonzero-outcome looks.
 The looks contain 12, 24, 34, and 43 outcomes.
 Their alpha spending totals 0.05.
 The final sign-test power exceeds 80 percent for a 72 percent positive-outcome probability.
 This power statement applies only to the conditional nonzero sign test.
-Fill rate, total PnL, drawdown, and regime safety remain separate requirements.
-Each ordinary regime requires at least three filled episodes and non-inferior mean PnL.
+Each look also checks fill rate, total PnL, drawdown, and regime safety.
+At least two ordinary regimes require three filled episodes and non-inferior mean PnL.
+Only these confirmed regimes can authorize CHAMPION BUY orders.
+An uncovered regime blocks BUY and keeps position protection active.
 PANIC remains a separate safety veto and does not enter expectancy inference.
 The confirmation deadline is 14 days.
 The design also stops after 300 terminal episodes.
-An incomplete design becomes ready for REJECTED finalization at either limit.
+An impossible design becomes ready for REJECTED finalization before either limit.
 
 Promotion also requires empirical replay validation against sanitized real order reports.
 The validation requires at least ten covered terminal orders.
@@ -120,16 +122,18 @@ All active candidates use the same entry scope.
 The active-entry diagnostic therefore uses the same cohort.
 
 Diagnostic prediction cohorts retain their existing walk-forward training rules.
-The SOL version-seventeen fixed rule has no cold-start training delay.
+The SOL version-eighteen fixed rule has no cold-start training delay.
 Historical rows cannot enter its live confirmation inference.
 Statistical gates stream the complete journal in append order.
 Control readers retain bounded binding and non-binding evidence groups.
 Classified lifecycle and execution-episode evidence remains append-only in SQLite.
 Episode starts and results are derived SHADOW evidence.
 Imported model validations are authoritative promotion artifacts.
+Validation batch manifests and attempt ledgers are authoritative operator artifacts.
 The episode store has a fixed limit of 250,000 starts.
 The validation store has a fixed limit of 1,024 reports.
 Automated retention does not delete this evidence.
+Automated retention does not delete validation batch artifacts.
 The prediction database backup includes all these records.
 No scheduled maintenance changes these append-only tables.
 Capacity exhaustion fails closed and requires a reviewed schema change.

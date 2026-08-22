@@ -290,6 +290,7 @@ def main(argv: list[str] | None = None) -> int:
         try:
             policy = execution_policy_from_manifest(
                 manifest,
+                confirmation=report,
                 maximum_order_notional_usdt=args.maximum_order_usdt,
                 maximum_inventory_usdt=args.maximum_inventory_usdt,
             )

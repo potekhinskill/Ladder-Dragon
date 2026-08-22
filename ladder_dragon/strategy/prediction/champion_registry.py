@@ -22,7 +22,8 @@ if TYPE_CHECKING:
 
 
 D = Decimal
-CHAMPION_POLICY_SCHEMA_VERSION = 2
+CHAMPION_POLICY_SCHEMA_VERSION = 3
+EXECUTION_REGIMES = ("RANGE", "TREND_UP", "TREND_DOWN")
 PROTECTIVE_RUNTIME_ACTIONS = (
     "REDUCE_ORDER_NOTIONAL",
     "BLOCK_BUY",
@@ -128,6 +129,7 @@ def _evidence_fee_schedule(parameters: Mapping[str, object]) -> dict[str, str]:
 def execution_policy_from_manifest(
     manifest: Mapping[str, object],
     *,
+    confirmation: Mapping[str, object],
     maximum_order_notional_usdt: object,
     maximum_inventory_usdt: object,
 ) -> dict[str, object]:
@@ -188,6 +190,23 @@ def execution_policy_from_manifest(
     )
     if order_cap > inventory_cap:
         raise ValueError("maximum order notional exceeds maximum inventory")
+    progress = confirmation.get("confirmation_progress")
+    if not isinstance(progress, Mapping) or progress.get("status") != "PASS":
+        raise ValueError("CHAMPION confirmation progress has not passed")
+    raw_regimes = progress.get("confirmed_execution_regimes")
+    if not isinstance(raw_regimes, list) or not raw_regimes:
+        raise ValueError("CHAMPION confirmed execution regimes are unavailable")
+    allowed_regimes = tuple(
+        regime for regime in EXECUTION_REGIMES if regime in raw_regimes
+    )
+    if len(allowed_regimes) != len(raw_regimes):
+        raise ValueError("CHAMPION confirmed execution regimes are invalid")
+    criteria = manifest.get("criteria")
+    if (
+        not isinstance(criteria, Mapping)
+        or criteria.get("regime_activation_policy") != "confirmed_only_v1"
+    ):
+        raise ValueError("CHAMPION regime activation policy is unavailable")
     return {
         "schema_version": CHAMPION_POLICY_SCHEMA_VERSION,
         "symbol": str(manifest.get("symbol") or "").strip().upper(),
@@ -213,6 +232,8 @@ def execution_policy_from_manifest(
         "maximum_order_notional_usdt": format(order_cap, "f"),
         "maximum_inventory_usdt": format(inventory_cap, "f"),
         "maximum_active_buy_orders": 1,
+        "allowed_entry_regimes": list(allowed_regimes),
+        "regime_activation_policy": "confirmed_only_v1",
         "runtime_mutation_policy": "protective_only",
         "allowed_runtime_actions": list(PROTECTIVE_RUNTIME_ACTIONS),
         "forbidden_runtime_actions": [
@@ -224,6 +245,20 @@ def execution_policy_from_manifest(
             "CHANGE_MAXIMUM_HOLDING_TIME",
         ],
     }
+
+
+def champion_allows_regime(
+    policy: Mapping[str, object], regime: object
+) -> bool:
+    """Fail closed unless the immutable policy confirms this entry regime."""
+    if policy.get("schema_version") != CHAMPION_POLICY_SCHEMA_VERSION:
+        return False
+    allowed = policy.get("allowed_entry_regimes")
+    if not isinstance(allowed, list) or not allowed:
+        return False
+    if any(item not in EXECUTION_REGIMES for item in allowed):
+        return False
+    return str(regime) in allowed
 
 
 def _row_payload(row: sqlite3.Row | tuple[object, ...]) -> dict[str, object]:
@@ -364,6 +399,7 @@ def activate_champion(
         raise ValueError("only a CONFIRMED experiment can become CHAMPION")
     policy = execution_policy_from_manifest(
         manifest,
+        confirmation=report,
         maximum_order_notional_usdt=maximum_order_notional_usdt,
         maximum_inventory_usdt=maximum_inventory_usdt,
     )
@@ -475,6 +511,7 @@ __all__ = [
     "PROTECTIVE_RUNTIME_ACTIONS",
     "activate_champion",
     "active_champion",
+    "champion_allows_regime",
     "execution_policy_from_manifest",
     "list_champions",
     "migrate_champion_registry",

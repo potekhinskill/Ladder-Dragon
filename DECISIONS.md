@@ -1626,3 +1626,17 @@ entries concise; this is not a changelog or an activity log.
 - **Decision:** preserve each archive and calibration, then assign each order to exactly one session.
 - **Why it worked:** the report aggregates metrics without inventing market continuity.
 - **Reuse:** every empirical gate built from separate bounded observation windows.
+
+### 2026-08-22 — Evaluate the exact frozen episode contract
+
+- **Context:** the episode evaluator used local thresholds instead of immutable manifest criteria.
+- **Decision:** pass the frozen criteria into every look and reject unsupported contracts.
+- **Why it worked:** one fingerprint now identifies both the candidate and its executed statistical test.
+- **Reuse:** every promotion evaluator that consumes preregistered evidence.
+
+### 2026-08-22 — Bound repeated Mainnet validation with one expiring batch
+
+- **Context:** one attempt per release slowed evidence collection, while unrestricted retries could become adaptive sampling.
+- **Decision:** reserve each attempt against fixed count, turnover, release, and expiry limits before mutation.
+- **Why it worked:** crashes consume capacity, and every drill keeps its existing HALT and confirmation gates.
+- **Reuse:** every paid production validation that needs several preregistered attempts.
