@@ -475,3 +475,28 @@ def test_preselected_manifest_excludes_pre_freeze_episode_results(tmp_path):
     assert report["confirmation_progress"]["eligible_terminal_episodes"] == 0
     assert report["execution_model_gate"]["status"] == "BLOCKED"
     assert report["promotion_eligible"] is False
+
+
+def test_v19_manifest_uses_episode_confirmation_report(tmp_path):
+    store = PredictionShadowStore(tmp_path / "prediction.sqlite3")
+    manifest = freeze_preselected_episode_experiment(
+        store,
+        experiment_id="sol-v19-live-confirmation",
+        generation="v19",
+        symbol="SOLUSDT",
+        selected_variant=_v19_promotion_variant(),
+        horizons_min=(300, 360),
+        product_version="2.20.240",
+        source_commit="c" * 40,
+        frozen_at_ms=int(time.time() * 1000),
+    )
+
+    report = confirmation_report(
+        store, experiment_id=str(manifest["experiment_id"])
+    )
+
+    assert report["confirmation_status"] == "IN_PROGRESS"
+    assert report["confirmation_progress"]["method"] == (
+        "group_sequential_net_expectancy_alpha_spending_v3"
+    )
+    assert report["promotion_eligible"] is False

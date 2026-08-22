@@ -1022,6 +1022,7 @@ def confirmation_report(
     if manifest.get("statistical_method") in {
         "group_sequential_sign_test_alpha_spending_v1",
         "group_sequential_combined_gate_alpha_spending_v2",
+        "group_sequential_net_expectancy_alpha_spending_v3",
     }:
         return _episode_confirmation_report(store, manifest)
     decisions, reasons = _confirmation_decisions(store, manifest)

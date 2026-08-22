@@ -1985,3 +1985,10 @@ private infrastructure details.
 - **Root cause:** PANIC was classified only as a safety veto, outside promotion eligibility.
 - **Correction:** include PANIC flatten PnL and count PANIC vetoes as terminal unfilled attempts.
 - **Prevention:** reconcile every terminal execution reason with the statistical trial definition.
+
+### 2026-08-22 — Omitted the new evaluator from report dispatch
+
+- **Impact:** the version 19 report failed closed before it could evaluate any live episode.
+- **Root cause:** the dispatch allowlist omitted the new statistical method identifier.
+- **Correction:** route version 19 manifests to the episode evaluator.
+- **Prevention:** test each frozen statistical method through the public report entry point.

@@ -3,6 +3,15 @@
 All notable changes are documented here. Releases use Semantic Versioning; every
 section is dated and there is intentionally no `Unreleased` section.
 
+## [2.20.240] — 2026-08-22
+
+### Fixed
+- Version 19 reports now dispatch to the preregistered net-expectancy evaluator.
+- Version 19 no longer falls through to the incompatible legacy window evaluator.
+
+### Verified
+- The version 19 empty-cohort report remains fail-closed and returns `IN_PROGRESS`.
+
 ## [2.20.239] — 2026-08-22
 
 ### Added
