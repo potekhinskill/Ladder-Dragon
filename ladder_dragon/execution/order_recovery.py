@@ -17,6 +17,7 @@ from typing import Any, Iterable, Iterator
 
 from ladder_dragon.execution.champion_attribution import execution_attribution
 from ladder_dragon.execution.journal.connection import connect_journal
+from ladder_dragon.execution.journal.leg_lookup import created_at_ms_for_order
 from ladder_dragon.execution.journal.models import OrderIntent
 from ladder_dragon.execution.journal.schema import (
     ACTIVE_STATES,
@@ -587,20 +588,11 @@ class OrderJournal:
     def created_at_ms_for_exchange_order(self, exchange_order_id: int) -> int | None:
         """Return the durable pre-POST wall-clock timestamp for one exact order."""
         with self._session() as con:
-            row = con.execute(
-                "SELECT created_at FROM order_intents "
-                "WHERE exchange_order_id = ? ORDER BY created_at DESC LIMIT 1",
-                (int(exchange_order_id),),
-            ).fetchone()
-        if row is None:
-            return None
-        try:
-            created_at = Decimal(str(row["created_at"]))
-        except (ArithmeticError, TypeError, ValueError):
-            return None
-        if not created_at.is_finite() or created_at <= 0:
-            return None
-        return int(created_at * Decimal("1000"))
+            return created_at_ms_for_order(
+                con,
+                venue=self.venue,
+                exchange_order_id=exchange_order_id,
+            )
 
     def protection_for_parent(self, parent_client_order_id: str) -> OrderIntent | None:
         with self._session() as con:

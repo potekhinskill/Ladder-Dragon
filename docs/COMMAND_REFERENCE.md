@@ -63,6 +63,7 @@ The Pi profile does not install or run Semgrep.
 | `backtest` | runs OHLC backtest and optional archived L2 replay |
 | `calibrate_replay` | creates a source-hashed replay calibration report |
 | `validate_replay_outcomes` | compares replay with real terminal order outcomes |
+| `validate_replay_sessions` | validates separate contiguous replay sessions without joining gaps |
 | `record_depth_archive` | records public depth and aggregate-trade JSONL |
 | `prediction_history_backfill` | creates cutoff-safe samples from archived bars |
 | `backfill_prediction_archive` | repairs eligible expired prediction outcomes |
@@ -106,6 +107,23 @@ Validate replay with the exact frozen account fee schedule:
   --taker-sell-fee-pct TAKER_SELL_RATE \
   --output validation.json
 ```
+
+Validate separate archives without joining recording gaps:
+
+```bash
+.venv/bin/python -m bin.validate_replay_sessions \
+  --session maker.jsonl maker-calibration.json \
+  --session stop.jsonl stop-calibration.json \
+  --execution-log execution-latency.ndjson \
+  --maker-buy-fee-pct MAKER_BUY_RATE \
+  --maker-sell-fee-pct MAKER_SELL_RATE \
+  --taker-buy-fee-pct TAKER_BUY_RATE \
+  --taker-sell-fee-pct TAKER_SELL_RATE \
+  --output validation.json
+```
+
+Each terminal order must fit inside one session.
+The validator rejects duplicate or overlapping archive identities.
 
 Inspect the local experiment lifecycle:
 
@@ -190,6 +208,7 @@ The worker verifies the activation again before LIVE execution.
 | `binance_mainnet_canary` | runs one bounded Mainnet lifecycle | three explicit confirmations |
 | `mainnet_user_stream_drill` | proves one Mainnet order event and REST reconciliation | three explicit confirmations and persistent HALT |
 | `mainnet_limit_maker_validation` | collects one real passive fill for replay validation | separate approval, 6 USDT ceiling, cleanup, and persistent HALT |
+| `mainnet_stop_limit_validation` | collects one real STOP_LOSS_LIMIT outcome | separate approval, 6 USDT ceiling, cleanup, and persistent HALT |
 | `tools_cancel_open` | previews or cancels selected open orders | `--live` plus venue selection |
 | `risk_ctl` | reads or resets the persistent HALT | manual reset review |
 | `maintenance_state` | sets, clears, or reads maintenance state | explicit operator command |

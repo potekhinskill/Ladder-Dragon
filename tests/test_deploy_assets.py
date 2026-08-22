@@ -447,12 +447,23 @@ def test_mainnet_maker_validation_is_one_shot_and_not_preconfigured():
     )
     assert "python -m bin.mainnet_limit_maker_validation" in runbook
     assert "mainnet_limit_maker_validation" in commands
+    assert "mainnet_stop_limit_validation" in commands
+    assert "validate_replay_sessions" in commands
     assert 'HARD_MAX_NOTIONAL_USDT = Decimal("6")' in source
     assert "one exchange attempt for each release" in runbook
     assert "BOT_MAINNET_LIMIT_MAKER_VALIDATION_CONFIRMED" in source
     assert "BOT_MAINNET_LIMIT_MAKER_VALIDATION_CLEANUP_CONFIRMED" in source
     assert "BOT_MAINNET_LIMIT_MAKER_VALIDATION_CONFIRMED" not in example
     assert "BOT_MAINNET_LIMIT_MAKER_VALIDATION_CLEANUP_CONFIRMED" not in example
+
+    stop_source = read(
+        "ladder_dragon/verification/live/"
+        "mainnet_stop_limit_validation.py"
+    )
+    assert "python -m bin.mainnet_stop_limit_validation" in runbook
+    assert 'HARD_MAX_NOTIONAL_USDT = Decimal("6")' in stop_source
+    assert "BOT_MAINNET_STOP_LIMIT_VALIDATION_CONFIRMED" in stop_source
+    assert "BOT_MAINNET_STOP_LIMIT_VALIDATION_CONFIRMED" not in example
 
 
 def test_dashboard_health_has_portable_host_and_optional_raspberry_telemetry():

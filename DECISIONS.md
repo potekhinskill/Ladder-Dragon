@@ -1598,3 +1598,17 @@ entries concise; this is not a changelog or an activity log.
 - **Decision:** use one separately approved 6 USDT LIMIT_MAKER attempt under persistent HALT with mandatory cleanup.
 - **Why it worked:** the durable marker blocks repeats, and the drill restores only its acquired SOL quantity.
 - **Reuse:** every paid Mainnet validation that must not become an adaptive sampling loop.
+
+### 2026-08-22 — Bind each mutation to one contiguous replay session
+
+- **Context:** hourly archives did not cover complete order lifecycles.
+- **Decision:** start public depth before POST and stop it after terminal cleanup.
+- **Why it worked:** each replayed order now fits inside one verified source interval.
+- **Reuse:** every external mutation used as empirical market-model evidence.
+
+### 2026-08-22 — Aggregate replay sessions without joining gaps
+
+- **Context:** validation needs multiple paid outcomes collected in separate sessions.
+- **Decision:** preserve each archive and calibration, then assign each order to exactly one session.
+- **Why it worked:** the report aggregates metrics without inventing market continuity.
+- **Reuse:** every empirical gate built from separate bounded observation windows.

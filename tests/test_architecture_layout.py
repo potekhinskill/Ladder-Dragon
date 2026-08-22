@@ -19,6 +19,8 @@ def test_cli_launchers_remain_thin_and_never_alias_module_identity():
         "bin/binance_mainnet_canary.py",
         "bin/mainnet_user_stream_drill.py",
         "bin/mainnet_limit_maker_validation.py",
+        "bin/mainnet_stop_limit_validation.py",
+        "bin/validate_replay_sessions.py",
         "bin/tools_cancel_open.py",
     ):
         assert _line_count(relative) <= 20
@@ -251,6 +253,7 @@ def test_decomposition_targets_have_explicit_package_boundaries():
         "ladder_dragon/dashboard/repositories/trades.py",
         "ladder_dragon/execution/journal/connection.py",
         "ladder_dragon/execution/journal/lifecycle.py",
+        "ladder_dragon/execution/journal/leg_lookup.py",
         "ladder_dragon/strategy/prediction/models.py",
         "ladder_dragon/strategy/prediction/walk_forward.py",
         "ladder_dragon/ai/context/decision_repository.py",
@@ -258,6 +261,8 @@ def test_decomposition_targets_have_explicit_package_boundaries():
         "ladder_dragon/execution/protection/emergency_flatten.py",
         "ladder_dragon/verification/live/mainnet_canary.py",
         "ladder_dragon/verification/live/mainnet_limit_maker_validation.py",
+        "ladder_dragon/verification/live/mainnet_stop_limit_validation.py",
+        "ladder_dragon/verification/replay_sessions.py",
         "docs/LOCAL_ARTIFACTS.md",
     )
     assert [path for path in required if not (ROOT / path).is_file()] == []

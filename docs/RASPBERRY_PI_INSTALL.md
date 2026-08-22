@@ -434,9 +434,39 @@ The command permits one exchange attempt for each release.
 A no-fill result uses exit code 2 and still consumes the attempt.
 Any uncertain cleanup preserves HALT and uses exit code 1.
 
+WARNING: The STOP_LOSS_LIMIT validation drill creates real Mainnet orders.
+Run it only after separate approval for one 6 USDT attempt.
+Keep the persistent HALT active during the complete procedure.
+
+```bash
+sudo -u bot env \
+  BOT_LIVE_CONFIRMED=YES \
+  BOT_MAINNET_STOP_LIMIT_VALIDATION_CONFIRMED=YES \
+  BOT_MAINNET_STOP_LIMIT_VALIDATION_CLEANUP_CONFIRMED=YES \
+  PYTHONPATH=. \
+  .venv/bin/python -m bin.mainnet_stop_limit_validation \
+  --symbol SOLUSDT --notional-usdt 6 --wait-sec 300
+```
+
+The drill buys exactly 6 USDT before it arms one OCO.
+The fixed STOP trigger is 10 basis points below the reference price.
+The STOP limit is 5 basis points below the trigger.
+The take-profit leg is 5 percent above the reference price.
+The drill cancels both legs after the wait limit.
+It sells only its remaining acquired SOL quantity.
+The command permits one exchange attempt for each release.
+A missing STOP fill uses exit code 2 and still consumes the attempt.
+Any uncertain cleanup preserves HALT and uses exit code 1.
+
+Each validation drill starts a contiguous public archive before POST.
+It closes that archive only after terminal reconciliation and cleanup.
+The store accepts at most 32 archives or 512 MiB.
+Capacity exhaustion blocks another drill and never deletes evidence.
+
 The separate SQLite journal is authoritative order evidence.
 The report and sanitized execution log are derived replay evidence.
-The journal grows by at most two intents for each attempted release.
+The maker journal grows by at most two intents for each attempted release.
+The STOP journal grows by at most three intents for each attempted release.
 The report grows by at most three bounded rows for each attempted release.
 Do not delete these records before a verified encrypted backup and promotion audit.
 The normal evidence archive policy controls later retention.

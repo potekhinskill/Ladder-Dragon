@@ -177,6 +177,31 @@ class CleanupFailureClient(FakeClient):
         return super().signed(method, path, params)
 
 
+class FakeArchive:
+    def __init__(self, path: Path) -> None:
+        self.path = path
+
+    def start(self) -> Path:
+        self.path.parent.mkdir(parents=True, exist_ok=True)
+        self.path.write_text("{}\n", encoding="utf-8")
+        return self.path
+
+    def stop(self) -> dict[str, object]:
+        return {"contains_secrets": False, "archive_sha256": "a" * 64}
+
+
+class FailingArchive(FakeArchive):
+    def start(self) -> Path:
+        raise RuntimeError("archive handshake unavailable")
+
+    def stop(self) -> dict[str, object]:
+        raise AssertionError("an archive that never started must not be stopped")
+
+
+def _archive_factory(tmp_path: Path):
+    return lambda **_options: FakeArchive(tmp_path / "archive.jsonl")
+
+
 def _environment(tmp_path: Path) -> dict[str, str]:
     control = tmp_path / "control"
     control.mkdir()
@@ -201,6 +226,7 @@ def _args(tmp_path: Path, runtime: Path, state: Path):
         "--production-journal", str(tmp_path / "production.sqlite3"),
         "--report", str(tmp_path / "validation.ndjson"),
         "--execution-log", str(tmp_path / "execution.ndjson"),
+        "--archive-dir", str(tmp_path / "archives"),
         "--lock-file", str(tmp_path / "validation.lock"),
         "--wait-sec", "5",
     ])
@@ -232,12 +258,15 @@ def test_validation_drill_collects_maker_fill_and_restores_base(tmp_path):
         _args(tmp_path, runtime, state),
         environ=_environment(tmp_path),
         client=client,
+        archive_factory=_archive_factory(tmp_path),
     )
 
     assert report["status"] == "passed"
     assert Decimal(report["executed_qty"]) > 0
     assert report["cleanup_order_filled"] is True
     assert report["base_residual_qty"] == "0"
+    assert report["archive_sha256"] == "a" * 64
+    assert Path(report["archive_path"]).is_file()
     assert client.base_free == Decimal("3.000")
     evidence = json.loads((tmp_path / "execution.ndjson").read_text())
     assert evidence["order_type"] == "LIMIT_MAKER"
@@ -247,7 +276,7 @@ def test_validation_drill_collects_maker_fill_and_restores_base(tmp_path):
     assert (tmp_path / "control" / "circuit_halt.json").is_file()
 
 
-def test_validation_drill_records_no_fill_without_fake_evidence(
+def test_validation_drill_records_exact_terminal_no_fill_evidence(
     tmp_path, monkeypatch
 ):
     runtime, state = _evidence(tmp_path)
@@ -262,11 +291,15 @@ def test_validation_drill_records_no_fill_without_fake_evidence(
         _args(tmp_path, runtime, state),
         environ=_environment(tmp_path),
         client=client,
+        archive_factory=_archive_factory(tmp_path),
     )
 
     assert report["status"] == "no_fill"
     assert report["executed_qty"] == "0"
-    assert not (tmp_path / "execution.ndjson").exists()
+    evidence = json.loads((tmp_path / "execution.ndjson").read_text())
+    assert evidence["order_type"] == "LIMIT_MAKER"
+    assert evidence["order_status"] == "CANCELED"
+    assert evidence["cumulative_quantity"] == "0"
     assert client.calls.count(("POST", "/api/v3/order")) == 1
 
 
@@ -281,9 +314,27 @@ def test_validation_drill_requires_specific_confirmation(tmp_path):
             _args(tmp_path, runtime, state),
             environ=environment,
             client=client,
+            archive_factory=_archive_factory(tmp_path),
         )
 
     assert client.calls == []
+
+
+def test_validation_drill_never_posts_before_archive_readiness(tmp_path):
+    runtime, state = _evidence(tmp_path)
+    client = FakeClient(state)
+
+    with pytest.raises(RuntimeError, match="archive handshake unavailable"):
+        drill.run_validation_drill(
+            _args(tmp_path, runtime, state),
+            environ=_environment(tmp_path),
+            client=client,
+            archive_factory=lambda **_options: FailingArchive(
+                tmp_path / "archive.jsonl"
+            ),
+        )
+
+    assert client.calls.count(("POST", "/api/v3/order")) == 0
 
 
 def test_validation_drill_is_one_exchange_attempt_per_release(tmp_path):
@@ -301,6 +352,7 @@ def test_validation_drill_is_one_exchange_attempt_per_release(tmp_path):
             args,
             environ=_environment(tmp_path),
             client=client,
+            archive_factory=_archive_factory(tmp_path),
         )
 
     assert client.calls == []
@@ -316,6 +368,7 @@ def test_validation_drill_preserves_halt_when_cleanup_fails(tmp_path):
             _args(tmp_path, runtime, state),
             environ=environment,
             client=client,
+            archive_factory=_archive_factory(tmp_path),
         )
 
     assert Path(environment["CB_HALT_FILE"]).is_file()
@@ -339,6 +392,7 @@ def test_validation_drill_never_reports_credentials(tmp_path):
             _args(tmp_path, runtime, state),
             environ=environment,
             client=FakeClient(state),
+            archive_factory=_archive_factory(tmp_path),
         )
 
     assert "private-key-value" not in str(captured.value)

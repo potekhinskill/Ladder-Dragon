@@ -14,7 +14,7 @@ from pathlib import Path
 import re
 import sys
 import time
-from typing import Any, Mapping
+from typing import Any, Callable, Mapping
 
 import requests
 from dotenv import load_dotenv
@@ -53,6 +53,9 @@ from ladder_dragon.verification.live.testnet_smoke import (
     balance_amount,
     symbol_assets,
     symbol_rules,
+)
+from ladder_dragon.verification.live.validation_archive import (
+    ContinuousDepthArchive,
 )
 from product_version import __version__
 
@@ -302,6 +305,36 @@ def _append_maker_evidence(
             commission_value_status=fee_status,
             observation_source="REST_TERMINAL_QUERY",
         )
+    if not trades:
+        append_execution_latency_sample(
+            path,
+            OrderStreamSignal(
+                event_time_ms=final_received_at_ms,
+                transaction_time_ms=final_received_at_ms,
+                symbol=symbol,
+                order_id=order_id,
+                client_order_id=order_client_id,
+                execution_type=final_status,
+                order_status=final_status,
+                trade_id=-1,
+                side="BUY",
+                order_price=order_price,
+                original_quantity=original_quantity,
+                last_price="0",
+                last_quantity="0",
+                cumulative_quantity="0",
+                cumulative_quote="0",
+                commission_amount="0",
+                commission_asset="",
+                received_time_ms=final_received_at_ms,
+                order_type="LIMIT_MAKER",
+                stop_price="0",
+            ),
+            intent_created_at_ms=intent_created_at_ms,
+            commission_quote=Decimal("0"),
+            commission_value_status="not_applicable",
+            observation_source="REST_TERMINAL_QUERY",
+        )
     order_ref = hashlib.sha256(
         f"{symbol}:{order_id}:{order_client_id}".encode()
     ).hexdigest()[:24]
@@ -368,6 +401,9 @@ def run_validation_drill(
     *,
     environ: Mapping[str, str] = os.environ,
     client: Any | None = None,
+    archive_factory: Callable[..., ContinuousDepthArchive] = (
+        ContinuousDepthArchive
+    ),
 ) -> dict[str, Any]:
     """Collect one real passive fill and restore the initial base position."""
     _require_confirmations(environ)
@@ -393,6 +429,7 @@ def run_validation_drill(
     journal_path = resolve_project_path(args.journal)
     production_journal_path = resolve_project_path(args.production_journal)
     execution_log_path = resolve_project_path(args.execution_log)
+    archive_directory = resolve_project_path(args.archive_dir)
     if journal_path == production_journal_path:
         raise RuntimeError("validation and production journals must be separate")
     production = read_order_journal_telemetry(production_journal_path)
@@ -480,7 +517,16 @@ def run_validation_drill(
     final: dict[str, Any] | None = None
     primary_error: BaseException | None = None
     cleanup_done = False
+    archive: ContinuousDepthArchive | None = None
+    archive_started = False
     try:
+        archive = archive_factory(
+            symbol=symbol,
+            directory=archive_directory,
+            label=f"maker-{__version__}",
+        )
+        archive_path = archive.start()
+        archive_started = True
         report["mutation_started"] = True
         # This durable marker consumes the authorized attempt before POST.
         # A process crash must not permit an unreviewed second real order.
@@ -547,25 +593,25 @@ def run_validation_drill(
         order_ref = None
         fee_quote = Decimal("0")
         cleanup_fee_quote = Decimal("0")
+        created_at_ms = journal.created_at_ms_for_exchange_order(
+            int(final.get("orderId") or 0)
+        )
+        if created_at_ms is None:
+            raise RuntimeError("validation intent timestamp is unavailable")
+        order_ref, fee_quote = _append_maker_evidence(
+            execution_log_path,
+            symbol=symbol,
+            order_client_id=params["newClientOrderId"],
+            order_id=int(final.get("orderId") or 0),
+            intent_created_at_ms=created_at_ms,
+            order_price=params["price"],
+            original_quantity=params["quantity"],
+            final_status=str(final.get("status") or "UNKNOWN").upper(),
+            final_received_at_ms=final_received_at_ms,
+            trades=trades,
+            client=client,
+        )
         if executed > 0:
-            created_at_ms = journal.created_at_ms_for_exchange_order(
-                int(final.get("orderId") or 0)
-            )
-            if created_at_ms is None:
-                raise RuntimeError("validation intent timestamp is unavailable")
-            order_ref, fee_quote = _append_maker_evidence(
-                execution_log_path,
-                symbol=symbol,
-                order_client_id=params["newClientOrderId"],
-                order_id=int(final.get("orderId") or 0),
-                intent_created_at_ms=created_at_ms,
-                order_price=params["price"],
-                original_quantity=params["quantity"],
-                final_status=str(final.get("status") or "UNKNOWN").upper(),
-                final_received_at_ms=final_received_at_ms,
-                trades=trades,
-                client=client,
-            )
             if cleanup is None or int(cleanup.get("orderId") or 0) <= 0:
                 raise RuntimeError("validation cleanup identity is unavailable")
             cleanup_trades = _trades_for_order(
@@ -581,6 +627,8 @@ def run_validation_drill(
         total_commission = fee_quote + cleanup_fee_quote
         if total_commission > HARD_MAX_COMMISSION_USDT:
             raise RuntimeError("actual validation commission exceeds 0.03 USDT")
+        archive_metadata = archive.stop()
+        archive = None
         report.update(
             {
                 "status": "passed" if executed > 0 else "no_fill",
@@ -599,6 +647,10 @@ def run_validation_drill(
                     observer_after.get("event_woken_rest_reconciliations") or 0
                 ) - int(
                     observer_before.get("event_woken_rest_reconciliations") or 0
+                ),
+                "archive_path": str(archive_path),
+                "archive_sha256": str(
+                    archive_metadata.get("archive_sha256") or ""
                 ),
             }
         )
@@ -630,6 +682,8 @@ def run_validation_drill(
                     rules=rules,
                     parent_client_order_id=params["newClientOrderId"],
                 )
+            if archive is not None and archive_started:
+                archive.stop()
         except DRILL_ERRORS as exc:
             cleanup_error = exc
         if primary_error is not None or cleanup_error is not None:
@@ -676,6 +730,9 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--report", default="logs/mainnet_maker_validation.ndjson")
     parser.add_argument("--execution-log", default="logs/execution_latency.ndjson")
+    parser.add_argument(
+        "--archive-dir", default="logs/replay-validation-archives"
+    )
     parser.add_argument(
         "--lock-file", default=".runtime/mainnet-maker-validation.lock"
     )

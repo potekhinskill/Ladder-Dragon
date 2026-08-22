@@ -3,6 +3,25 @@
 All notable changes are documented here. Releases use Semantic Versioning; every
 section is dated and there is intentionally no `Unreleased` section.
 
+## [2.20.235] — 2026-08-22
+
+### Added
+- A bounded STOP_LOSS_LIMIT drill collects typed Mainnet replay evidence under persistent HALT.
+- Replay validation accepts separate contiguous sessions without joining gaps between archives.
+
+### Fixed
+- Validation depth recording now starts before POST and stops after the terminal cleanup boundary.
+- OCO validation stores exact TP and STOP leg identities before attributing execution events.
+- A confirmed maker cancellation now contributes typed zero-fill replay evidence.
+
+### Security
+- Mainnet validation archives have fixed session and storage ceilings.
+- STOP validation requires exact 6 USDT exposure and two new operator confirmations.
+
+### Verified
+- All 1,319 project tests and Python compilation pass.
+- Technical English, Semgrep, and diff integrity checks pass.
+
 ## [2.20.234] — 2026-08-22
 
 ### Added

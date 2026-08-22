@@ -44,6 +44,8 @@ def record_public_depth(
     session: Optional[requests.Session] = None,
     connect: Optional[Callable[..., object]] = None,
     clock_ms: Optional[Callable[[], int]] = None,
+    stop_requested: Optional[Callable[[], bool]] = None,
+    ready_callback: Optional[Callable[[], None]] = None,
 ) -> dict[str, object]:
     """Record snapshot plus contiguous public events and publish atomically."""
     symbol = _symbol(symbol)
@@ -68,6 +70,7 @@ def record_public_depth(
     last_update_id: Optional[int] = None
     deadline = time.monotonic() + duration_sec
     digest = hashlib.sha256()
+    stop = stop_requested or (lambda: False)
 
     def emit(handle, payload: dict) -> None:
         nonlocal written
@@ -101,7 +104,11 @@ def record_public_depth(
             emit(handle, snapshot)
             synchronized = False
             pending_trades: list[dict] = []
-            while written < max_events and time.monotonic() < deadline:
+            while (
+                written < max_events
+                and time.monotonic() < deadline
+                and not stop()
+            ):
                 try:
                     raw = connection.recv()
                 except WebSocketTimeoutException:
@@ -128,6 +135,8 @@ def record_public_depth(
                             trade_events += 1
                             emit(handle, pending_trade)
                         pending_trades.clear()
+                        if ready_callback is not None:
+                            ready_callback()
                     elif first_id != last_update_id + 1:
                         raise ValueError(
                             "Binance depth sequence gap while recording: "

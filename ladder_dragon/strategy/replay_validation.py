@@ -7,6 +7,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from decimal import Decimal
+import hashlib
 import json
 from pathlib import Path
 from typing import Iterable
@@ -40,6 +41,7 @@ class ReplayValidation:
     latency_error_ms_mae: Decimal | None
     fee_error_quote_mae: Decimal | None = None
     slippage_error_bps_mae: Decimal | None = None
+    archive_sha256s: tuple[str, ...] = ()
     queue_model: str = "L2_PRICE_LEVEL_FIFO_PROXY"
     exact_l3: bool = False
     actual_limit_maker_filled_orders: int = 0
@@ -51,10 +53,11 @@ class ReplayValidation:
 
     def as_dict(self) -> dict[str, object]:
         return {
-            "schema_version": 4,
+            "schema_version": 5,
             "ready": self.ready,
             "reasons": list(self.reasons),
             "archive_sha256": self.archive_sha256,
+            "archive_sha256s": list(self.archive_sha256s),
             "covered_orders": self.covered_orders,
             "excluded_orders": self.excluded_orders,
             "actual_filled_orders": self.actual_filled_orders,
@@ -108,7 +111,7 @@ class ReplayValidation:
     @classmethod
     def from_dict(cls, payload: dict[str, object]) -> "ReplayValidation":
         schema = int(payload.get("schema_version", 0))
-        if schema not in {1, 2, 3, 4}:
+        if schema not in {1, 2, 3, 4, 5}:
             raise ValueError("unsupported replay validation schema")
 
         def optional_decimal(name: str) -> Decimal | None:
@@ -119,6 +122,9 @@ class ReplayValidation:
             ready=bool(payload.get("ready")),
             reasons=tuple(str(item) for item in payload.get("reasons", [])),
             archive_sha256=str(payload.get("archive_sha256", "")),
+            archive_sha256s=tuple(
+                str(item) for item in payload.get("archive_sha256s", [])
+            ),
             covered_orders=int(payload.get("covered_orders", 0)),
             excluded_orders=int(payload.get("excluded_orders", 0)),
             actual_filled_orders=int(payload.get("actual_filled_orders", 0)),
@@ -242,62 +248,41 @@ def _simulate_order(
     return quantity, quote, fee_quote, first_fill_ms
 
 
-def validate_replay_outcomes(
-    events: Iterable[MarketEvent],
-    outcomes: Iterable[ExecutionOutcome],
-    calibration: ReplayCalibration,
-    *,
-    minimum_orders: int = 10,
-    minimum_classification_accuracy: Decimal = Decimal("0.80"),
-    maximum_fill_ratio_mae: Decimal = Decimal("0.25"),
-    maximum_price_error_bps_mae: Decimal = Decimal("10"),
-    maximum_latency_error_ms_mae: Decimal = Decimal("1000"),
-    maximum_fee_error_quote_mae: Decimal = Decimal("0.02"),
-    maximum_slippage_error_bps_mae: Decimal = Decimal("10"),
-    maker_buy_fee_pct: Decimal = Decimal("0.00075"),
-    maker_sell_fee_pct: Decimal = Decimal("0.00075"),
-    taker_buy_fee_pct: Decimal = Decimal("0.001"),
-    taker_sell_fee_pct: Decimal = Decimal("0.001"),
-) -> ReplayValidation:
-    """Replay terminal real orders and fail closed on insufficient accuracy."""
-    rows = sorted(events, key=lambda event: event.ts_ms)
-    if not rows:
-        raise ValueError("replay validation requires market events")
-    if minimum_orders < 1:
-        raise ValueError("minimum orders must be positive")
-    fee_rates = (
-        maker_buy_fee_pct,
-        maker_sell_fee_pct,
-        taker_buy_fee_pct,
-        taker_sell_fee_pct,
-    )
+@dataclass(frozen=True)
+class ReplayValidationSession:
+    """Bind one calibration to one contiguous public market session."""
+
+    events: tuple[MarketEvent, ...]
+    calibration: ReplayCalibration
+
+
+def _validate_fee_rates(fee_rates: tuple[Decimal, ...]) -> None:
     if any(not value.is_finite() or value < 0 for value in fee_rates):
         raise ValueError("replay validation fee rates are invalid")
+
+
+def _build_validation_report(
     covered: list[
         tuple[ExecutionOutcome, Decimal, Decimal, Decimal, int | None]
-    ] = []
-    excluded = 0
-    for outcome in outcomes:
-        if (
-            outcome.final_status not in TERMINAL_STATUSES
-            or outcome.intent_created_at_ms < rows[0].ts_ms
-            or outcome.final_received_at_ms > rows[-1].ts_ms
-        ):
-            excluded += 1
-            continue
-        quantity, quote, fee_quote, first_fill_ms = _simulate_order(
-            rows,
-            outcome,
-            calibration,
-            maker_buy_fee_pct=maker_buy_fee_pct,
-            maker_sell_fee_pct=maker_sell_fee_pct,
-            taker_buy_fee_pct=taker_buy_fee_pct,
-            taker_sell_fee_pct=taker_sell_fee_pct,
-        )
-        covered.append(
-            (outcome, quantity, quote, fee_quote, first_fill_ms)
-        )
-
+    ],
+    *,
+    excluded: int,
+    archive_sha256: str,
+    archive_sha256s: tuple[str, ...],
+    calibrations_eligible: bool,
+    minimum_orders: int,
+    minimum_classification_accuracy: Decimal,
+    maximum_fill_ratio_mae: Decimal,
+    maximum_price_error_bps_mae: Decimal,
+    maximum_latency_error_ms_mae: Decimal,
+    maximum_fee_error_quote_mae: Decimal,
+    maximum_slippage_error_bps_mae: Decimal,
+    maker_buy_fee_pct: Decimal,
+    maker_sell_fee_pct: Decimal,
+    taker_buy_fee_pct: Decimal,
+    taker_sell_fee_pct: Decimal,
+) -> ReplayValidation:
+    """Aggregate simulations after strict session coverage is established."""
     classification_hits = 0
     ratio_errors: list[Decimal] = []
     price_errors: list[Decimal] = []
@@ -343,13 +328,9 @@ def validate_replay_outcomes(
             replay_slippage = abs(
                 replay_price / outcome.order_price - Decimal("1")
             ) * Decimal("10000")
-            slippage_errors.append(
-                abs(replay_slippage - actual_slippage)
-            )
+            slippage_errors.append(abs(replay_slippage - actual_slippage))
             if outcome.commission_quote is not None:
-                fee_errors.append(
-                    abs(replay_fee - outcome.commission_quote)
-                )
+                fee_errors.append(abs(replay_fee - outcome.commission_quote))
         if (
             outcome.first_fill_received_at_ms is not None
             and replay_first_fill is not None
@@ -372,7 +353,7 @@ def validate_replay_outcomes(
     fee_mae = _mean(fee_errors)
     slippage_mae = _mean(slippage_errors)
     reasons: list[str] = []
-    if not calibration.eligible:
+    if not calibrations_eligible:
         reasons.append("calibration is not eligible")
     if sample_count < minimum_orders:
         reasons.append(f"covered orders {sample_count} < {minimum_orders}")
@@ -403,7 +384,8 @@ def validate_replay_outcomes(
     return ReplayValidation(
         ready=not reasons,
         reasons=tuple(reasons),
-        archive_sha256=calibration.archive_sha256,
+        archive_sha256=archive_sha256,
+        archive_sha256s=archive_sha256s,
         covered_orders=sample_count,
         excluded_orders=excluded,
         actual_filled_orders=actual_filled,
@@ -420,6 +402,207 @@ def validate_replay_outcomes(
         maker_sell_fee_pct=maker_sell_fee_pct,
         taker_buy_fee_pct=taker_buy_fee_pct,
         taker_sell_fee_pct=taker_sell_fee_pct,
+    )
+
+
+def validate_replay_outcomes(
+    events: Iterable[MarketEvent],
+    outcomes: Iterable[ExecutionOutcome],
+    calibration: ReplayCalibration,
+    *,
+    minimum_orders: int = 10,
+    minimum_classification_accuracy: Decimal = Decimal("0.80"),
+    maximum_fill_ratio_mae: Decimal = Decimal("0.25"),
+    maximum_price_error_bps_mae: Decimal = Decimal("10"),
+    maximum_latency_error_ms_mae: Decimal = Decimal("1000"),
+    maximum_fee_error_quote_mae: Decimal = Decimal("0.02"),
+    maximum_slippage_error_bps_mae: Decimal = Decimal("10"),
+    maker_buy_fee_pct: Decimal = Decimal("0.00075"),
+    maker_sell_fee_pct: Decimal = Decimal("0.00075"),
+    taker_buy_fee_pct: Decimal = Decimal("0.001"),
+    taker_sell_fee_pct: Decimal = Decimal("0.001"),
+) -> ReplayValidation:
+    """Replay terminal real orders and fail closed on insufficient accuracy."""
+    rows = sorted(events, key=lambda event: event.ts_ms)
+    if not rows:
+        raise ValueError("replay validation requires market events")
+    if minimum_orders < 1:
+        raise ValueError("minimum orders must be positive")
+    fee_rates = (
+        maker_buy_fee_pct,
+        maker_sell_fee_pct,
+        taker_buy_fee_pct,
+        taker_sell_fee_pct,
+    )
+    _validate_fee_rates(fee_rates)
+    covered: list[
+        tuple[ExecutionOutcome, Decimal, Decimal, Decimal, int | None]
+    ] = []
+    excluded = 0
+    for outcome in outcomes:
+        if (
+            outcome.final_status not in TERMINAL_STATUSES
+            or outcome.intent_created_at_ms < rows[0].ts_ms
+            or outcome.final_received_at_ms > rows[-1].ts_ms
+        ):
+            excluded += 1
+            continue
+        quantity, quote, fee_quote, first_fill_ms = _simulate_order(
+            rows,
+            outcome,
+            calibration,
+            maker_buy_fee_pct=maker_buy_fee_pct,
+            maker_sell_fee_pct=maker_sell_fee_pct,
+            taker_buy_fee_pct=taker_buy_fee_pct,
+            taker_sell_fee_pct=taker_sell_fee_pct,
+        )
+        covered.append(
+            (outcome, quantity, quote, fee_quote, first_fill_ms)
+        )
+
+    return _build_validation_report(
+        covered,
+        excluded=excluded,
+        archive_sha256=calibration.archive_sha256,
+        archive_sha256s=(calibration.archive_sha256,),
+        calibrations_eligible=calibration.eligible,
+        minimum_orders=minimum_orders,
+        minimum_classification_accuracy=minimum_classification_accuracy,
+        maximum_fill_ratio_mae=maximum_fill_ratio_mae,
+        maximum_price_error_bps_mae=maximum_price_error_bps_mae,
+        maximum_latency_error_ms_mae=maximum_latency_error_ms_mae,
+        maximum_fee_error_quote_mae=maximum_fee_error_quote_mae,
+        maximum_slippage_error_bps_mae=maximum_slippage_error_bps_mae,
+        maker_buy_fee_pct=maker_buy_fee_pct,
+        maker_sell_fee_pct=maker_sell_fee_pct,
+        taker_buy_fee_pct=taker_buy_fee_pct,
+        taker_sell_fee_pct=taker_sell_fee_pct,
+    )
+
+
+def validate_replay_sessions(
+    sessions: Iterable[ReplayValidationSession],
+    outcomes: Iterable[ExecutionOutcome],
+    **thresholds: object,
+) -> ReplayValidation:
+    """Validate separate archives without fabricating continuity across gaps."""
+    rows = list(sessions)
+    if not rows:
+        raise ValueError("replay validation requires sessions")
+    prepared: list[tuple[list[MarketEvent], ReplayCalibration]] = []
+    hashes: list[str] = []
+    intervals: list[tuple[int, int]] = []
+    for session in rows:
+        events = sorted(session.events, key=lambda event: event.ts_ms)
+        if not events:
+            raise ValueError("replay validation session has no market events")
+        calibration = session.calibration
+        if (
+            events[0].ts_ms != calibration.first_ts_ms
+            or events[-1].ts_ms != calibration.last_ts_ms
+        ):
+            raise ValueError("replay validation session calibration is mismatched")
+        digest = calibration.archive_sha256
+        if len(digest) != 64 or digest in hashes:
+            raise ValueError("replay validation archive identity is invalid")
+        hashes.append(digest)
+        intervals.append((events[0].ts_ms, events[-1].ts_ms))
+        prepared.append((events, calibration))
+    ordered_intervals = sorted(intervals)
+    if any(
+        current[0] <= previous[1]
+        for previous, current in zip(ordered_intervals, ordered_intervals[1:])
+    ):
+        raise ValueError("replay validation sessions overlap")
+
+    defaults: dict[str, object] = {
+        "minimum_orders": 10,
+        "minimum_classification_accuracy": Decimal("0.80"),
+        "maximum_fill_ratio_mae": Decimal("0.25"),
+        "maximum_price_error_bps_mae": Decimal("10"),
+        "maximum_latency_error_ms_mae": Decimal("1000"),
+        "maximum_fee_error_quote_mae": Decimal("0.02"),
+        "maximum_slippage_error_bps_mae": Decimal("10"),
+        "maker_buy_fee_pct": Decimal("0.00075"),
+        "maker_sell_fee_pct": Decimal("0.00075"),
+        "taker_buy_fee_pct": Decimal("0.001"),
+        "taker_sell_fee_pct": Decimal("0.001"),
+    }
+    unknown = set(thresholds) - set(defaults)
+    if unknown:
+        raise TypeError(f"unknown replay validation options: {sorted(unknown)}")
+    defaults.update(thresholds)
+    minimum_orders = int(defaults["minimum_orders"])
+    if minimum_orders < 1:
+        raise ValueError("minimum orders must be positive")
+    maker_buy = Decimal(str(defaults["maker_buy_fee_pct"]))
+    maker_sell = Decimal(str(defaults["maker_sell_fee_pct"]))
+    taker_buy = Decimal(str(defaults["taker_buy_fee_pct"]))
+    taker_sell = Decimal(str(defaults["taker_sell_fee_pct"]))
+    _validate_fee_rates((maker_buy, maker_sell, taker_buy, taker_sell))
+
+    covered: list[
+        tuple[ExecutionOutcome, Decimal, Decimal, Decimal, int | None]
+    ] = []
+    excluded = 0
+    for outcome in outcomes:
+        matches = [
+            item for item in prepared
+            if outcome.final_status in TERMINAL_STATUSES
+            and outcome.intent_created_at_ms >= item[0][0].ts_ms
+            and outcome.final_received_at_ms <= item[0][-1].ts_ms
+        ]
+        if len(matches) != 1:
+            excluded += 1
+            continue
+        events, calibration = matches[0]
+        covered.append(
+            (
+                outcome,
+                *_simulate_order(
+                    events,
+                    outcome,
+                    calibration,
+                    maker_buy_fee_pct=maker_buy,
+                    maker_sell_fee_pct=maker_sell,
+                    taker_buy_fee_pct=taker_buy,
+                    taker_sell_fee_pct=taker_sell,
+                ),
+            )
+        )
+    ordered_hashes = tuple(
+        digest for _interval, digest in sorted(zip(intervals, hashes))
+    )
+    bundle_sha = hashlib.sha256("\n".join(ordered_hashes).encode()).hexdigest()
+    return _build_validation_report(
+        covered,
+        excluded=excluded,
+        archive_sha256=bundle_sha,
+        archive_sha256s=ordered_hashes,
+        calibrations_eligible=all(item[1].eligible for item in prepared),
+        minimum_orders=minimum_orders,
+        minimum_classification_accuracy=Decimal(
+            str(defaults["minimum_classification_accuracy"])
+        ),
+        maximum_fill_ratio_mae=Decimal(
+            str(defaults["maximum_fill_ratio_mae"])
+        ),
+        maximum_price_error_bps_mae=Decimal(
+            str(defaults["maximum_price_error_bps_mae"])
+        ),
+        maximum_latency_error_ms_mae=Decimal(
+            str(defaults["maximum_latency_error_ms_mae"])
+        ),
+        maximum_fee_error_quote_mae=Decimal(
+            str(defaults["maximum_fee_error_quote_mae"])
+        ),
+        maximum_slippage_error_bps_mae=Decimal(
+            str(defaults["maximum_slippage_error_bps_mae"])
+        ),
+        maker_buy_fee_pct=maker_buy,
+        maker_sell_fee_pct=maker_sell,
+        taker_buy_fee_pct=taker_buy,
+        taker_sell_fee_pct=taker_sell,
     )
 
 

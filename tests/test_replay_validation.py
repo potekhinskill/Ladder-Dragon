@@ -7,8 +7,10 @@ from ladder_dragon.strategy.market_replay import (
     ReplayCalibration,
 )
 from ladder_dragon.strategy.replay_validation import (
+    ReplayValidationSession,
     read_replay_validation,
     validate_replay_outcomes,
+    validate_replay_sessions,
     write_replay_validation,
 )
 
@@ -45,19 +47,21 @@ def outcome(
     side: str = "BUY",
     order_type: str = "LIMIT_MAKER",
     stop_price: str = "0",
+    created_at_ms: int = 1000,
+    final_at_ms: int = 3000,
 ) -> ExecutionOutcome:
     return ExecutionOutcome(
         order_ref=order_ref,
         symbol="SOLUSDT",
         side=side,
-        intent_created_at_ms=1000,
+        intent_created_at_ms=created_at_ms,
         order_price=Decimal(price),
         original_quantity=Decimal("1"),
         cumulative_quantity=Decimal(quantity),
         cumulative_quote=Decimal(quote),
         final_status=status,
         first_fill_received_at_ms=first_fill,
-        final_received_at_ms=3000,
+        final_received_at_ms=final_at_ms,
         commission_quote=(
             Decimal(quote) * (
                 Decimal("0.00075")
@@ -148,3 +152,80 @@ def test_replay_validation_fails_closed_without_empirical_coverage():
     assert "covered orders 1 < 10" in report.reasons
     assert "matched fill prices unavailable" in report.reasons
     assert "matched fill latencies unavailable" in report.reasons
+
+
+def test_replay_sessions_never_bridge_an_archive_gap():
+    first = calibration()
+    second = ReplayCalibration(
+        **{
+            **first.__dict__,
+            "archive_sha256": "b" * 64,
+            "first_ts_ms": 5000,
+            "last_ts_ms": 7000,
+        }
+    )
+    first_events = tuple(
+        MarketEvent(
+            ts_ms=timestamp,
+            bids=(BookLevel(Decimal("99"), Decimal("10")),),
+            asks=(BookLevel(Decimal("100"), Decimal("10")),),
+        )
+        for timestamp in (1000, 3000)
+    )
+    second_events = tuple(
+        MarketEvent(
+            ts_ms=timestamp,
+            bids=(BookLevel(Decimal("99"), Decimal("10")),),
+            asks=(BookLevel(Decimal("100"), Decimal("10")),),
+        )
+        for timestamp in (5000, 7000)
+    )
+    report = validate_replay_sessions(
+        [
+            ReplayValidationSession(first_events, first),
+            ReplayValidationSession(second_events, second),
+        ],
+        [
+            outcome(
+                "crosses-gap",
+                price="99",
+                quantity="0",
+                quote="0",
+                status="CANCELED",
+                first_fill=None,
+                created_at_ms=2500,
+                final_at_ms=5500,
+            )
+        ],
+        minimum_orders=1,
+    )
+
+    assert report.covered_orders == 0
+    assert report.excluded_orders == 1
+    assert report.archive_sha256s == ("a" * 64, "b" * 64)
+
+
+def test_replay_sessions_reject_duplicate_archive_identity():
+    events = (
+        MarketEvent(
+            ts_ms=1000,
+            bids=(BookLevel(Decimal("99"), Decimal("10")),),
+            asks=(BookLevel(Decimal("100"), Decimal("10")),),
+        ),
+        MarketEvent(
+            ts_ms=3000,
+            bids=(BookLevel(Decimal("99"), Decimal("10")),),
+            asks=(BookLevel(Decimal("100"), Decimal("10")),),
+        ),
+    )
+
+    import pytest
+
+    with pytest.raises(ValueError, match="archive identity"):
+        validate_replay_sessions(
+            [
+                ReplayValidationSession(events, calibration()),
+                ReplayValidationSession(events, calibration()),
+            ],
+            [],
+        )

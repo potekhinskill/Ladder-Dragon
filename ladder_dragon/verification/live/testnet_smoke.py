@@ -502,10 +502,12 @@ def _submit_oco(
             f"{venue_label} OCO leg types are invalid: {sorted(leg_types)}"
         )
     verified["verifiedLegTypes"] = sorted(leg_types)
-    journal.record_order_list(list_client_id, verified)
-    journal.mark_protected(
+    # Store exact leg identities before execution events can be attributed.
+    # An OCO list identity cannot prove which TP or STOP leg reached terminal.
+    journal.mark_verified_protected(
         parent_client_order_id=parent_client_order_id,
         protection_client_order_id=list_client_id,
+        legs=leg_payloads,
         order_list_id=int(order_list_id),
     )
     return verified

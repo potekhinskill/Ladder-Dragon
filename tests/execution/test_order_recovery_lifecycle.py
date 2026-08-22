@@ -101,6 +101,7 @@ def test_otoco_recovery_requires_filled_working_buy_and_two_active_legs(
     ) is True
     assert journal.get("BUY-OTOCO").state == "PROTECTED"
     assert journal.protection_for_leg_order_id(12)[1] == "STOP_LOSS_LIMIT"
+    assert journal.created_at_ms_for_exchange_order(12) is not None
     assert journal.unresolved_buys("SOLUSDT") == []
     assert [
         item.client_order_id for item in journal.protected_buys("SOLUSDT")

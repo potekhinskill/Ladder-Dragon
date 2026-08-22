@@ -1943,3 +1943,10 @@ private infrastructure details.
 - **Root cause:** an empty compatibility filter removed the candidate-kind restriction.
 - **Correction:** return zero compatible history and remove training from the fixed promotion rule.
 - **Prevention:** require an explicit compatibility identity before historical evidence enters any statistical role.
+
+### 2026-08-22 — Sampled depth independently from validation mutations
+
+- **Impact:** no terminal Mainnet order had full depth coverage for replay validation.
+- **Root cause:** the hourly recorder schedule was not bound to the complete order lifecycle.
+- **Correction:** run a bounded continuous archive from pre-POST readiness through terminal cleanup.
+- **Prevention:** test that every empirical outcome interval is contained in exactly one source archive.
