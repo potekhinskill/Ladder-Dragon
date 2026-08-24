@@ -51,10 +51,11 @@ class ReplayValidation:
     taker_buy_fee_pct: Decimal | None = None
     taker_sell_fee_pct: Decimal | None = None
     replay_readiness: Mapping[str, object] | None = None
+    validation_domain: Mapping[str, object] | None = None
 
     def as_dict(self) -> dict[str, object]:
         return {
-            "schema_version": 6,
+            "schema_version": 7,
             "ready": self.ready,
             "reasons": list(self.reasons),
             "archive_sha256": self.archive_sha256,
@@ -111,12 +112,16 @@ class ReplayValidation:
                 dict(self.replay_readiness)
                 if self.replay_readiness is not None else None
             ),
+            "validation_domain": (
+                dict(self.validation_domain)
+                if self.validation_domain is not None else None
+            ),
         }
 
     @classmethod
     def from_dict(cls, payload: dict[str, object]) -> "ReplayValidation":
         schema = int(payload.get("schema_version", 0))
-        if schema not in {1, 2, 3, 4, 5, 6}:
+        if schema not in {1, 2, 3, 4, 5, 6, 7}:
             raise ValueError("unsupported replay validation schema")
 
         def optional_decimal(name: str) -> Decimal | None:
@@ -161,6 +166,11 @@ class ReplayValidation:
             replay_readiness=(
                 dict(payload["replay_readiness"])
                 if isinstance(payload.get("replay_readiness"), Mapping)
+                else None
+            ),
+            validation_domain=(
+                dict(payload["validation_domain"])
+                if isinstance(payload.get("validation_domain"), Mapping)
                 else None
             ),
         )
@@ -293,6 +303,10 @@ def _build_validation_report(
     taker_sell_fee_pct: Decimal,
 ) -> ReplayValidation:
     """Aggregate simulations after strict session coverage is established."""
+    from ladder_dragon.strategy.prediction.episode_semantics import (
+        EXECUTION_MODEL_RULE,
+        execution_engine_validation_domain,
+    )
     classification_hits = 0
     ratio_errors: list[Decimal] = []
     price_errors: list[Decimal] = []
@@ -412,6 +426,15 @@ def _build_validation_report(
         maker_sell_fee_pct=maker_sell_fee_pct,
         taker_buy_fee_pct=taker_buy_fee_pct,
         taker_sell_fee_pct=taker_sell_fee_pct,
+        validation_domain=execution_engine_validation_domain(
+            execution_model_rule=EXECUTION_MODEL_RULE,
+            fee_schedule={
+                "maker_buy_fee_pct": maker_buy_fee_pct,
+                "maker_sell_fee_pct": maker_sell_fee_pct,
+                "taker_buy_fee_pct": taker_buy_fee_pct,
+                "taker_sell_fee_pct": taker_sell_fee_pct,
+            },
+        ),
     )
 
 

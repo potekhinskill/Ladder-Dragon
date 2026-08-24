@@ -11,12 +11,15 @@ from decimal import Decimal, InvalidOperation
 from typing import Mapping
 
 
-EVIDENCE_SEMANTICS_VERSION = "minute_l2_episode_execution_v3"
+EVIDENCE_SEMANTICS_VERSION = "minute_l2_episode_execution_v4"
 EXECUTION_MODEL_RULE = "minute_l2_fifo_oco_gap_v3"
+V20_EVIDENCE_SEMANTICS_VERSION = "minute_l2_episode_execution_v3"
+V20_EXECUTION_MODEL_RULE = "minute_l2_fifo_oco_gap_v3"
 V19_EVIDENCE_SEMANTICS_VERSION = "minute_l2_episode_execution_v2"
 V19_EXECUTION_MODEL_RULE = "minute_l2_fifo_oco_gap_v2"
 REGIME_CLASSIFIER_VERSION = "execution_30m_ema_adx_hysteresis_v1"
 EXECUTABLE_ENTRY_REGIMES = ("RANGE", "TREND_UP", "TREND_DOWN")
+V21_EXECUTABLE_ENTRY_REGIMES = ("RANGE",)
 
 
 def execution_model_contract() -> dict[str, object]:
@@ -44,7 +47,7 @@ def execution_model_contract() -> dict[str, object]:
 
 
 def evidence_semantics_contract() -> dict[str, object]:
-    """Return the immutable contract used by v20 evidence and execution."""
+    """Return the immutable contract used by v21 evidence and execution."""
     return {
         "version": EVIDENCE_SEMANTICS_VERSION,
         "execution_model_rule": EXECUTION_MODEL_RULE,
@@ -54,7 +57,7 @@ def evidence_semantics_contract() -> dict[str, object]:
         "panic_flatten_policy": "INCLUDE_NET_PNL_AND_DRAWDOWN",
         "panic_veto_policy": "TERMINAL_UNFILLED_ATTEMPT",
         "trade_page_policy": "BOUNDED_CONTIGUOUS_AGGTRADES_V1",
-        "executable_entry_regimes": list(EXECUTABLE_ENTRY_REGIMES),
+        "executable_entry_regimes": list(V21_EXECUTABLE_ENTRY_REGIMES),
         "execution_model": execution_model_contract(),
         "regime_classifier": {
             "version": REGIME_CLASSIFIER_VERSION,
@@ -86,8 +89,17 @@ def canonical_digest(payload: Mapping[str, object]) -> str:
 
 
 def evidence_semantics_fingerprint() -> str:
-    """Return the reviewed fingerprint required on every v20 episode."""
+    """Return the reviewed fingerprint required on every v21 episode."""
     return canonical_digest(evidence_semantics_contract())
+
+
+def v20_evidence_semantics_fingerprint() -> str:
+    """Preserve the exact historical v20 fingerprint."""
+    contract = evidence_semantics_contract()
+    contract["version"] = V20_EVIDENCE_SEMANTICS_VERSION
+    contract["execution_model_rule"] = V20_EXECUTION_MODEL_RULE
+    contract["executable_entry_regimes"] = list(EXECUTABLE_ENTRY_REGIMES)
+    return canonical_digest(contract)
 
 
 def v19_evidence_semantics_fingerprint() -> str:
@@ -100,29 +112,37 @@ def v19_evidence_semantics_fingerprint() -> str:
     return canonical_digest(contract)
 
 
-def execution_validation_domain(
-    candidate_parameters: Mapping[str, object],
+def execution_engine_validation_domain(
+    *,
+    execution_model_rule: str,
+    fee_schedule: Mapping[str, object],
 ) -> dict[str, object]:
-    """Bind replay validation to the exact candidate and simulator domain."""
-    fields = (
-        "entry_gap_bps",
-        "entry_ttl_sec",
-        "target_return",
-        "stop_limit_distance",
-        "stop_trigger_offset_pct",
-        "maximum_holding_min",
-        "primary_horizon_min",
-        "evidence_notional_quote",
-        "execution_model_rule",
-        "evidence_semantics_fingerprint",
-    )
-    domain = {field: candidate_parameters.get(field) for field in fields}
-    domain["execution_model"] = execution_model_contract()
-    return domain
+    """Describe reusable order-engine evidence without candidate geometry."""
+    rates = {
+        field: str(fee_schedule.get(field))
+        for field in (
+            "maker_buy_fee_pct",
+            "maker_sell_fee_pct",
+            "taker_buy_fee_pct",
+            "taker_sell_fee_pct",
+        )
+    }
+    return {
+        "schema_version": 1,
+        "scope": "REUSABLE_EXECUTION_ENGINE",
+        "execution_model_rule": str(execution_model_rule),
+        "entry_order_policy": "LIMIT_MAKER",
+        "take_profit_order_policy": "LIMIT_MAKER",
+        "stop_order_policy": "STOP_LOSS_LIMIT",
+        "queue_model": "L2_PRICE_LEVEL_FIFO_PROXY",
+        "fee_schedule": rates,
+        "execution_model": execution_model_contract(),
+        "candidate_parameters_excluded": True,
+    }
 
 
 def require_execution_regime_contract(observed: Mapping[str, object]) -> None:
-    """Reject collection when the live classifier differs from v20."""
+    """Reject collection when the live classifier differs from v21."""
     expected = dict(evidence_semantics_contract()["regime_classifier"])
     comparable = {}
     required = {}
@@ -137,7 +157,7 @@ def require_execution_regime_contract(observed: Mapping[str, object]) -> None:
         except (InvalidOperation, TypeError, ValueError) as exc:
             raise ValueError("execution regime classifier is invalid") from exc
     if comparable != required:
-        raise ValueError("execution regime classifier differs from v20 evidence")
+        raise ValueError("execution regime classifier differs from v21 evidence")
 
 
 def require_runtime_regime_contract(
@@ -171,11 +191,15 @@ __all__ = [
     "REGIME_CLASSIFIER_VERSION",
     "V19_EVIDENCE_SEMANTICS_VERSION",
     "V19_EXECUTION_MODEL_RULE",
+    "V20_EVIDENCE_SEMANTICS_VERSION",
+    "V20_EXECUTION_MODEL_RULE",
+    "V21_EXECUTABLE_ENTRY_REGIMES",
     "canonical_digest",
     "evidence_semantics_contract",
     "evidence_semantics_fingerprint",
     "execution_model_contract",
-    "execution_validation_domain",
+    "execution_engine_validation_domain",
+    "v20_evidence_semantics_fingerprint",
     "v19_evidence_semantics_fingerprint",
     "require_execution_regime_contract",
     "require_runtime_regime_contract",

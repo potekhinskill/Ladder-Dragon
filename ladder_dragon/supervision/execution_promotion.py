@@ -41,6 +41,19 @@ def resolve_execution_candidate_symbols(configured: str) -> list[str]:
     return symbols
 
 
+def champion_position_allows_buy(
+    policy: Mapping[str, object] | None,
+    managed_exposure: Decimal,
+    *,
+    exposure_available: bool = True,
+) -> bool:
+    """Allow a first CHAMPION BUY only while no managed position exists."""
+    if policy is None:
+        return True
+    limit = policy.get("maximum_concurrent_positions")
+    return exposure_available and limit == 1 and managed_exposure == 0
+
+
 def _positive_cap(
     environment: Mapping[str, str], name: str
 ) -> tuple[Decimal | None, str | None]:
@@ -330,6 +343,7 @@ def prepare_execution_promotion_report(
 
 __all__ = [
     "build_execution_promotion_report",
+    "champion_position_allows_buy",
     "prepare_execution_promotion_report",
     "require_safe_execution_scope",
     "resolve_execution_candidate_symbols",

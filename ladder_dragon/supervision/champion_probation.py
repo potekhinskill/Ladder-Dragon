@@ -16,7 +16,7 @@ from typing import Mapping
 from ladder_dragon.risk.risk_manager import RiskDecision
 
 
-TERMINAL_BUY_STATES = {"FILLED", "CANCELED", "EXPIRED", "REJECTED"}
+TERMINAL_BUY_STATES = {"FILLED", "CANCELED", "EXPIRED", "REJECTED", "CLOSED"}
 
 
 def _decimal(value: object, *, field: str) -> Decimal:
@@ -50,23 +50,31 @@ def _atomic_json(path: Path, payload: Mapping[str, object]) -> None:
 
 def _intent_totals(
     journal_path: Path, *, activation_id: str, symbol: str
-) -> tuple[int, int, Decimal]:
+) -> tuple[int, int, int, Decimal]:
     if not journal_path.is_file():
         raise RuntimeError("CHAMPION probation order journal is unavailable")
     try:
         with sqlite3.connect(
             f"file:{journal_path}?mode=ro", uri=True, timeout=2
         ) as connection:
+            closed_parents = {
+                str(row[0]) for row in connection.execute(
+                    "SELECT parent_client_order_id FROM order_lifecycle_closures "
+                    "WHERE symbol=?",
+                    (symbol,),
+                )
+            }
             rows = connection.execute(
-                "SELECT state,quantity,price,metadata_json FROM order_intents "
+                "SELECT client_order_id,state,quantity,price,metadata_json "
+                "FROM order_intents "
                 "WHERE symbol=? AND side='BUY'",
                 (symbol,),
             ).fetchall()
     except sqlite3.Error as exc:
         raise RuntimeError("CHAMPION probation order journal is unreadable") from exc
-    entries = terminals = 0
+    entries = terminals = closed_lifecycles = 0
     turnover = Decimal("0")
-    for state, quantity, price, metadata_json in rows:
+    for client_order_id, state, quantity, price, metadata_json in rows:
         try:
             metadata = json.loads(str(metadata_json or "{}"))
             champion = metadata.get("champion")
@@ -82,7 +90,8 @@ def _intent_totals(
         entries += 1
         turnover += exact_quantity * exact_price
         terminals += str(state).upper() in TERMINAL_BUY_STATES
-    return entries, terminals, turnover
+        closed_lifecycles += str(client_order_id) in closed_parents
+    return entries, terminals, closed_lifecycles, turnover
 
 
 def evaluate_champion_probation(
@@ -165,11 +174,12 @@ def evaluate_champion_probation(
         state[activation_id] = updated
         _atomic_json(state_path, state)
         current = updated
-    entries, terminals, turnover = _intent_totals(
+    entries, terminals, closed_lifecycles, turnover = _intent_totals(
         journal_path, activation_id=activation_id, symbol=symbol
     )
     maximum_entries = int(probation.get("maximum_entries") or 0)
     minimum_terminals = int(probation.get("minimum_terminal_entries") or 0)
+    minimum_closed = int(probation.get("minimum_closed_lifecycles") or 0)
     maximum_turnover = _decimal(
         probation.get("maximum_turnover_usdt"), field="turnover limit"
     )
@@ -180,6 +190,7 @@ def evaluate_champion_probation(
     if (
         maximum_entries <= 0
         or minimum_terminals <= 0
+        or minimum_closed <= 0
         or duration_ms <= 0
         or maximum_turnover <= 0
         or maximum_loss <= 0
@@ -196,7 +207,12 @@ def evaluate_champion_probation(
         }
     passed_at = current.get("passed_at_ms")
     expired = now_ms >= int(current["started_at_ms"]) + duration_ms
-    if passed_at is None and expired and terminals >= minimum_terminals:
+    if (
+        passed_at is None
+        and expired
+        and terminals >= minimum_terminals
+        and closed_lifecycles >= minimum_closed
+    ):
         updated = dict(current)
         updated["passed_at_ms"] = now_ms
         state[activation_id] = updated
@@ -211,6 +227,7 @@ def evaluate_champion_probation(
         "symbol": symbol,
         "entries": entries,
         "terminal_entries": terminals,
+        "closed_lifecycles": closed_lifecycles,
         "turnover_usdt": format(turnover, "f"),
         "equity_loss_usdt": format(loss, "f"),
         "expires_at_ms": int(current["started_at_ms"]) + duration_ms,

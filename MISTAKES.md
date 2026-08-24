@@ -2027,3 +2027,17 @@ private infrastructure details.
 - **Root cause:** the collector excluded PANIC but did not share the CHAMPION entry-regime allowlist.
 - **Correction:** preserve version 19 as pilot evidence and start version 20 only in executable regimes.
 - **Prevention:** fingerprint the entry-state scope and reject every result outside that scope.
+
+### 2026-08-24 — Added proof during replay import
+
+- **Impact:** a generic drill report could appear to validate candidate parameters it never exercised.
+- **Root cause:** the importer stamped its expected candidate domain onto the source report.
+- **Correction:** require a source-owned reusable engine domain and keep candidate expectancy in SHADOW evidence.
+- **Prevention:** importers can verify proof fields but must never create missing proof.
+
+### 2026-08-24 — Allowed activation above the observed evidence scale
+
+- **Impact:** the first CHAMPION could accept more inventory than its live evidence covered.
+- **Root cause:** preview limits were fingerprinted but were not bounded by the evidence notional.
+- **Correction:** require exact 6 USDT caps, one managed position, and one closed probation lifecycle.
+- **Prevention:** bind first-production scale to observed evidence before fingerprinting operator limits.

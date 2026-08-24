@@ -496,10 +496,10 @@ def test_symbol_scopes_keep_active_generations_separate(
         required_edge_pct=D("0.0096"),
     )
 
-    assert sol["generation"] == "v20"
+    assert sol["generation"] == "v21"
     assert sol["lifecycle_status"] == "LIVE_CONFIRMATION"
     assert sol["lifecycle_mode"] == "PROMOTION"
-    assert sol["variant_id"] == "v20_maker_ttl90_gap48"
+    assert sol["variant_id"] == "v21_maker_ttl90_gap48"
     assert sol["execution_episode"]["status"] == "BLOCKED"
     assert eth["generation"] == "v15"
     assert eth["lifecycle_status"] == "SELECTION"
@@ -525,7 +525,7 @@ def test_symbol_scopes_keep_active_generations_separate(
     assert sol["superseded_generations"] == [
         "v11", "v12", "v13", "v14", "v15", "v16",
         "v17", "v18",
-        "v19",
+        "v19", "v20",
     ]
     assert eth["superseded_reports"]["v11"]["generation"] == "v11"
     assert eth["superseded_reports"]["v12"]["generation"] == "v12"

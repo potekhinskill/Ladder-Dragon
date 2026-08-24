@@ -61,6 +61,8 @@ def episode_confirmation_criteria(
         return net_expectancy_criteria()
     if statistical_design_version == "episode_anytime_expectancy_v4":
         return net_expectancy_criteria(anytime_valid=True)
+    if statistical_design_version == "episode_anytime_expectancy_v5":
+        return net_expectancy_criteria(anytime_valid=True, exact_policy=True)
     if statistical_design_version != "episode_combined_alpha_spending_v2":
         raise ValueError("unsupported episode statistical design")
     return {
@@ -495,10 +497,12 @@ def sequential_episode_report(
     """Evaluate each look with the exact criteria frozen in the manifest."""
     if (
         isinstance(criteria, Mapping)
-        and criteria.get("criteria_schema_version") in {3, 4}
+        and criteria.get("criteria_schema_version") in {3, 4, 5}
     ):
+        criteria_schema = int(criteria["criteria_schema_version"])
         expected = net_expectancy_criteria(
-            anytime_valid=criteria.get("criteria_schema_version") == 4
+            anytime_valid=criteria_schema in {4, 5},
+            exact_policy=criteria_schema == 5,
         )
         if _canonical(criteria) != _canonical(expected):
             return {
@@ -514,11 +518,19 @@ def sequential_episode_report(
             }
         from ladder_dragon.strategy.prediction.episode_semantics import (
             evidence_semantics_fingerprint,
+            v19_evidence_semantics_fingerprint,
+            v20_evidence_semantics_fingerprint,
         )
         return sequential_net_expectancy_report(
             results,
             criteria=expected,
-            required_semantics_fingerprint=evidence_semantics_fingerprint(),
+            required_semantics_fingerprint=(
+                evidence_semantics_fingerprint()
+                if criteria_schema == 5
+                else v20_evidence_semantics_fingerprint()
+                if criteria_schema == 4
+                else v19_evidence_semantics_fingerprint()
+            ),
         )
     all_results = sorted(results, key=lambda row: row.terminal_at_ms)
     rows = [row for row in all_results if row.eligible_for_promotion]
@@ -834,10 +846,17 @@ def model_validation_status(
     if expected_candidate_parameters is not None:
         from ladder_dragon.strategy.prediction.episode_semantics import (
             canonical_digest,
-            execution_validation_domain,
+            execution_engine_validation_domain,
         )
-        expected_domain = execution_validation_domain(
-            expected_candidate_parameters
+        schedule = expected_candidate_parameters.get("fee_schedule")
+        if not isinstance(schedule, Mapping):
+            return {
+                "status": "BLOCKED",
+                "reason": "replay validation fee schedule is unavailable",
+            }
+        expected_domain = execution_engine_validation_domain(
+            execution_model_rule=execution_model_rule,
+            fee_schedule=schedule,
         )
         observed_domain = report.get("validation_domain")
         if (
@@ -847,7 +866,7 @@ def model_validation_status(
         ):
             return {
                 "status": "BLOCKED",
-                "reason": "replay validation candidate domain differs",
+                "reason": "replay validation engine domain differs",
             }
     return {
         "validation_id": str(row[0]),
@@ -882,7 +901,8 @@ def record_model_validation(
         load_manifest,
     )
     from ladder_dragon.strategy.prediction.episode_semantics import (
-        execution_validation_domain,
+        canonical_digest,
+        execution_engine_validation_domain,
     )
     if report.get("ready") is not True:
         raise ValueError("replay validation must contain a strict PASS")
@@ -928,8 +948,19 @@ def record_model_validation(
         for field, value in rates.items()
     ):
         raise ValueError("replay validation fee schedule differs")
+    expected_domain = execution_engine_validation_domain(
+        execution_model_rule=execution_model_rule,
+        fee_schedule=schedule,
+    )
+    if (
+        not isinstance(validation.validation_domain, Mapping)
+        or canonical_digest(validation.validation_domain)
+        != canonical_digest(expected_domain)
+    ):
+        raise ValueError("replay validation engine domain differs")
+    # The importer verifies the source-owned domain. It never adds proof that
+    # the replay report did not contain before this boundary.
     stored_report = dict(report)
-    stored_report["validation_domain"] = execution_validation_domain(parameters)
     payload_hash = _digest(stored_report)
     source_hash = str(validation.archive_sha256).strip().lower()
     if len(source_hash) != 64 or any(

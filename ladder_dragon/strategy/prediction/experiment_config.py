@@ -13,6 +13,8 @@ from ladder_dragon.strategy.prediction.episode_semantics import (
     EXECUTION_MODEL_RULE,
     V19_EVIDENCE_SEMANTICS_VERSION,
     V19_EXECUTION_MODEL_RULE,
+    V20_EVIDENCE_SEMANTICS_VERSION,
+    V20_EXECUTION_MODEL_RULE,
 )
 
 
@@ -248,9 +250,9 @@ SOL_V20_SPEC = ShadowExperimentSpec(
     ),
     regime_policy=SOL_V19_SPEC.regime_policy,
     statistical_design_version="episode_anytime_expectancy_v4",
-    evidence_semantics_version=EVIDENCE_SEMANTICS_VERSION,
+    evidence_semantics_version=V20_EVIDENCE_SEMANTICS_VERSION,
     lifecycle_mode=SOL_V19_SPEC.lifecycle_mode,
-    execution_model_rule=EXECUTION_MODEL_RULE,
+    execution_model_rule=V20_EXECUTION_MODEL_RULE,
     primary_horizon_min=SOL_V19_SPEC.primary_horizon_min,
     diagnostic_horizons_min=SOL_V19_SPEC.diagnostic_horizons_min,
     stop_limit_offset_pct=SOL_V19_SPEC.stop_limit_offset_pct,
@@ -258,6 +260,28 @@ SOL_V20_SPEC = ShadowExperimentSpec(
     target_return=SOL_V19_SPEC.target_return,
     stop_limit_distance=SOL_V19_SPEC.stop_limit_distance,
     evidence_notional_quote=SOL_V19_SPEC.evidence_notional_quote,
+)
+SOL_V21_SPEC = ShadowExperimentSpec(
+    generation="v21",
+    horizons_min=SOL_V20_SPEC.horizons_min,
+    maker_ttls=SOL_V20_SPEC.maker_ttls,
+    maker_entry_gaps=SOL_V20_SPEC.maker_entry_gaps,
+    superseded_selection_generations=(
+        "v11", "v12", "v13", "v14", "v15", "v16", "v17", "v18",
+        "v19", "v20",
+    ),
+    regime_policy="range_only",
+    statistical_design_version="episode_anytime_expectancy_v5",
+    evidence_semantics_version=EVIDENCE_SEMANTICS_VERSION,
+    lifecycle_mode=SOL_V20_SPEC.lifecycle_mode,
+    execution_model_rule=EXECUTION_MODEL_RULE,
+    primary_horizon_min=SOL_V20_SPEC.primary_horizon_min,
+    diagnostic_horizons_min=SOL_V20_SPEC.diagnostic_horizons_min,
+    stop_limit_offset_pct=SOL_V20_SPEC.stop_limit_offset_pct,
+    maximum_holding_min=SOL_V20_SPEC.maximum_holding_min,
+    target_return=SOL_V20_SPEC.target_return,
+    stop_limit_distance=SOL_V20_SPEC.stop_limit_distance,
+    evidence_notional_quote=SOL_V20_SPEC.evidence_notional_quote,
 )
 
 # Preserve the public historical name for callers that inspect SOL v12.
@@ -283,11 +307,12 @@ _SYMBOL_GENERATION_SPECS = {
     ("SOLUSDT", "v18"): SOL_V18_SPEC,
     ("SOLUSDT", "v19"): SOL_V19_SPEC,
     ("SOLUSDT", "v20"): SOL_V20_SPEC,
+    ("SOLUSDT", "v21"): SOL_V21_SPEC,
 }
 _SYMBOL_SPECS = {
     "BTCUSDT": BTC_V14_SPEC,
     "ETHUSDT": ETH_V15_SPEC,
-    "SOLUSDT": SOL_V20_SPEC,
+    "SOLUSDT": SOL_V21_SPEC,
 }
 
 
@@ -375,6 +400,7 @@ __all__ = [
     "SOL_V18_SPEC",
     "SOL_V19_SPEC",
     "SOL_V20_SPEC",
+    "SOL_V21_SPEC",
     "ETH_V14_SPEC",
     "ETH_V15_SPEC",
     "configured_entry_gap_bps",

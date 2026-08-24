@@ -17,9 +17,11 @@ def _champion() -> dict[str, dict[str, object]]:
             "activated_at_ms": 1_000,
             "execution_policy": {
                 "probation": {
+                    "schema_version": 2,
                     "duration_hours": 24,
                     "maximum_entries": 3,
                     "minimum_terminal_entries": 1,
+                    "minimum_closed_lifecycles": 1,
                     "maximum_turnover_usdt": "18",
                     "maximum_equity_loss_usdt": "3",
                 }
@@ -28,16 +30,23 @@ def _champion() -> dict[str, dict[str, object]]:
     }
 
 
-def _journal(path: Path, rows: int, *, state: str = "FILLED") -> None:
+def _journal(
+    path: Path, rows: int, *, state: str = "FILLED", closed: int = 0
+) -> None:
     with sqlite3.connect(path) as connection:
         connection.execute(
-            "CREATE TABLE order_intents (symbol TEXT,side TEXT,state TEXT,"
-            "quantity TEXT,price TEXT,metadata_json TEXT)"
+            "CREATE TABLE order_intents (client_order_id TEXT,symbol TEXT,"
+            "side TEXT,state TEXT,quantity TEXT,price TEXT,metadata_json TEXT)"
+        )
+        connection.execute(
+            "CREATE TABLE order_lifecycle_closures ("
+            "parent_client_order_id TEXT,symbol TEXT)"
         )
         for index in range(rows):
             connection.execute(
-                "INSERT INTO order_intents VALUES(?,?,?,?,?,?)",
+                "INSERT INTO order_intents VALUES(?,?,?,?,?,?,?)",
                 (
+                    f"buy-{index}",
                     "SOLUSDT",
                     "BUY",
                     state,
@@ -48,12 +57,17 @@ def _journal(path: Path, rows: int, *, state: str = "FILLED") -> None:
                     }),
                 ),
             )
+            if index < closed:
+                connection.execute(
+                    "INSERT INTO order_lifecycle_closures VALUES(?,?)",
+                    (f"buy-{index}", "SOLUSDT"),
+                )
 
 
 def test_probation_blocks_the_fourth_entry_and_passes_after_time(tmp_path):
     journal = tmp_path / "orders.sqlite3"
     state = tmp_path / "probation.json"
-    _journal(journal, 3)
+    _journal(journal, 3, closed=1)
 
     active = evaluate_champion_probation(
         _champion(),
@@ -74,6 +88,26 @@ def test_probation_blocks_the_fourth_entry_and_passes_after_time(tmp_path):
     assert active["buy_blocked"] is True
     assert passed["status"] == "PASS"
     assert passed["buy_blocked"] is False
+    assert passed["closed_lifecycles"] == 1
+
+
+def test_probation_does_not_pass_without_a_closed_lifecycle(tmp_path):
+    journal = tmp_path / "orders.sqlite3"
+    state = tmp_path / "probation.json"
+    _journal(journal, 1)
+
+    evaluate_champion_probation(
+        _champion(), journal_path=journal, state_path=state,
+        equity_usdt=Decimal("100"), now_ms=2_000,
+    )
+    report = evaluate_champion_probation(
+        _champion(), journal_path=journal, state_path=state,
+        equity_usdt=Decimal("100"), now_ms=24 * 60 * 60_000 + 2_000,
+    )
+
+    assert report["status"] == "BLOCKED"
+    assert report["buy_blocked"] is True
+    assert report["closed_lifecycles"] == 0
 
 
 def test_probation_equity_loss_requests_a_persistent_halt(tmp_path):

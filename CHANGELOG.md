@@ -3,6 +3,26 @@
 All notable changes are documented here. Releases use Semantic Versioning; every
 section is dated and there is intentionally no `Unreleased` section.
 
+## [2.20.246] — 2026-08-24
+
+### Added
+- SOL version 21 preregisters one reachable RANGE-only execution policy.
+- Replay session validation can import its source-owned PASS artifact in one confirmed command.
+
+### Fixed
+- Replay imports no longer add candidate-specific proof absent from the source report.
+- Statistical futility now includes confidence-bound reachability and shared regime capacity.
+- Readiness estimates now include statistical, fill-rate, and regime requirements.
+- First CHAMPION exposure cannot exceed the 6 USDT evidence scale or one managed position.
+- Probation now requires one exact closed protection lifecycle before PASS.
+
+### Security
+- Version 20 remains pilot evidence and cannot satisfy the current CHAMPION contract.
+- Engine validation excludes candidate geometry and verifies its source-owned immutable domain.
+
+### Verified
+- All project tests, Python compilation, Technical English, and release checks pass.
+
 ## [2.20.245] — 2026-08-24
 
 ### Changed

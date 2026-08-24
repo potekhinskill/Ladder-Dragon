@@ -5,7 +5,7 @@
 
 from __future__ import annotations
 
-from decimal import Decimal
+from decimal import Decimal, ROUND_CEILING
 import hashlib
 import random
 from typing import Iterable, Mapping
@@ -20,22 +20,29 @@ ZERO = D("0")
 ELIGIBLE_REGIMES = ("RANGE", "TREND_UP", "TREND_DOWN")
 
 
-def net_expectancy_criteria(*, anytime_valid: bool = False) -> dict[str, object]:
+def net_expectancy_criteria(
+    *, anytime_valid: bool = False, exact_policy: bool = False
+) -> dict[str, object]:
     """Return one immutable net-expectancy statistical contract."""
     if anytime_valid:
+        regimes = ("RANGE",) if exact_policy else ELIGIBLE_REGIMES
+        schema = 5 if exact_policy else 4
         return {
-            "criteria_schema_version": 4,
-            "method": "anytime_valid_betting_e_process_v4",
+            "criteria_schema_version": schema,
+            "method": f"anytime_valid_betting_e_process_v{schema}",
             "trial_definition": "executable_terminal_attempts_net_of_fees_including_panic",
             "minimum_eligible_terminal_episodes": 24,
             "minimum_filled_episodes": 10,
             "minimum_fill_rate": "0.10",
             "maximum_drawdown_fraction": "0.25",
-            "eligible_regimes": list(ELIGIBLE_REGIMES),
-            "minimum_regime_filled_episodes": 8,
-            "minimum_confirmed_regimes": 2,
+            "eligible_regimes": list(regimes),
+            "minimum_regime_filled_episodes": 12 if exact_policy else 8,
+            "minimum_confirmed_regimes": 1 if exact_policy else 2,
             "regime_noninferiority_fraction": "0",
-            "regime_activation_policy": "confirmed_execution_regime_only_v3",
+            "regime_activation_policy": (
+                "exact_preregistered_execution_regimes_v4"
+                if exact_policy else "confirmed_execution_regime_only_v3"
+            ),
             "maximum_terminal_episodes": 300,
             "maximum_confirmation_duration_ms": 14 * 24 * 60 * 60_000,
             "panic_policy": "include_flatten_pnl_and_count_veto_attempt",
@@ -45,6 +52,28 @@ def net_expectancy_criteria(*, anytime_valid: bool = False) -> dict[str, object]
             "outcome_lower_bound_quote": "-0.12",
             "outcome_upper_bound_quote": "0.06",
             "regime_confidence_policy": "bonferroni_mixture_e_process_v1",
+            "design_effect_quote": "0.02",
+            "design_effect_required_filled_episodes": (
+                _minimum_passing_count(
+                    value=D("0.02"),
+                    alpha=D("0.05") / D(len(regimes)),
+                    lower_bound=D("-0.12"),
+                    upper_bound=D("0.06"),
+                    threshold=D("0"),
+                    maximum=300,
+                )
+            ),
+            "best_case_required_filled_episodes": (
+                _minimum_passing_count(
+                    value=D("0.06"),
+                    alpha=D("0.05") / D(len(regimes)),
+                    lower_bound=D("-0.12"),
+                    upper_bound=D("0.06"),
+                    threshold=D("0"),
+                    maximum=300,
+                )
+            ),
+            "feasibility_policy": "bounded_e_process_reachability_v1",
         }
     return {
         "criteria_schema_version": 3,
@@ -165,6 +194,84 @@ def _anytime_lower(
     return low
 
 
+def _minimum_passing_count(
+    *, value: Decimal, alpha: Decimal, lower_bound: Decimal,
+    upper_bound: Decimal, threshold: Decimal, maximum: int,
+) -> int | None:
+    """Return the first sample count that can cross one frozen bound."""
+    for count in range(1, maximum + 1):
+        if _anytime_lower(
+            [value] * count,
+            alpha=alpha,
+            lower_bound=lower_bound,
+            upper_bound=upper_bound,
+        ) > threshold:
+            return count
+    return None
+
+
+def _additional_best_case_count(
+    values: list[Decimal], *, alpha: Decimal, lower_bound: Decimal,
+    upper_bound: Decimal, threshold: Decimal, maximum_additional: int,
+) -> int | None:
+    """Return the smallest best-case continuation that crosses the bound."""
+    for additional in range(maximum_additional + 1):
+        if _anytime_lower(
+            values + [upper_bound] * additional,
+            alpha=alpha,
+            lower_bound=lower_bound,
+            upper_bound=upper_bound,
+        ) > threshold:
+            return additional
+    return None
+
+
+def anytime_design_feasibility(
+    criteria: Mapping[str, object],
+) -> dict[str, object]:
+    """Prove that the frozen e-process design can reach every hard gate."""
+    if int(criteria.get("criteria_schema_version", 0)) != 5:
+        raise ValueError("exact anytime design requires criteria schema 5")
+    regimes = criteria.get("eligible_regimes")
+    if not isinstance(regimes, list) or not regimes:
+        raise ValueError("exact anytime design requires eligible regimes")
+    maximum = int(criteria["maximum_terminal_episodes"])
+    minimum_regime = int(criteria["minimum_regime_filled_episodes"])
+    required_regimes = int(criteria["minimum_confirmed_regimes"])
+    best_case = criteria.get("best_case_required_filled_episodes")
+    design_effect = criteria.get("design_effect_required_filled_episodes")
+    if (
+        isinstance(best_case, bool)
+        or not isinstance(best_case, int)
+        or isinstance(design_effect, bool)
+        or not isinstance(design_effect, int)
+    ):
+        raise ValueError("exact anytime confidence bounds are unreachable")
+    required_total = max(
+        int(criteria["minimum_eligible_terminal_episodes"]),
+        minimum_regime * required_regimes,
+        design_effect,
+    )
+    feasible = bool(
+        0 < required_regimes <= len(regimes)
+        and best_case <= minimum_regime
+        and required_total <= maximum
+    )
+    if not feasible:
+        raise ValueError("exact anytime design is mathematically unreachable")
+    return {
+        "schema_version": 1,
+        "policy": "bounded_e_process_reachability_v1",
+        "eligible_regimes": list(regimes),
+        "required_confirmed_regimes": required_regimes,
+        "best_case_required_per_regime": best_case,
+        "design_effect_required_filled_episodes": design_effect,
+        "minimum_planned_terminal_episodes": required_total,
+        "maximum_terminal_episodes": maximum,
+        "feasible": True,
+    }
+
+
 def _anytime_regimes(
     rows: list[ExecutionEpisodeResult], criteria: Mapping[str, object]
 ) -> tuple[dict[str, dict[str, object]], list[str]]:
@@ -223,7 +330,7 @@ def _anytime_report(
         and row.evidence_semantics_fingerprint == required_semantics_fingerprint
     ]
     base = {
-        "schema_version": 4,
+        "schema_version": int(criteria["criteria_schema_version"]),
         "method": criteria["method"],
         "raw_terminal_episodes": len(rows_all),
         "eligible_terminal_episodes": len(rows),
@@ -296,28 +403,97 @@ def _anytime_report(
         upper_bound=upper_bound,
     )
     remaining = max(0, maximum - len(rows))
-    possible_regimes = sum(
-        int(report["filled_episodes"]) + remaining
-        >= int(criteria["minimum_regime_filled_episodes"])
-        for report in regime_report.values()
+    regime_alpha = alpha / D(len(criteria["eligible_regimes"]))
+    regime_threshold = -notional * D(
+        str(criteria["regime_noninferiority_fraction"])
+    )
+    regime_additional: dict[str, int | None] = {}
+    for name, report in regime_report.items():
+        cohort_values = [
+            row.net_pnl_quote for row in rows
+            if row.start_regime == name and row.entry_filled_quantity > ZERO
+        ]
+        bound_need = _additional_best_case_count(
+            cohort_values,
+            alpha=regime_alpha,
+            lower_bound=lower_bound,
+            upper_bound=upper_bound,
+            threshold=regime_threshold,
+            maximum_additional=remaining,
+        )
+        count_need = max(
+            0,
+            int(criteria["minimum_regime_filled_episodes"])
+            - int(report["filled_episodes"]),
+        )
+        regime_additional[name] = (
+            None if bound_need is None else max(count_need, bound_need)
+        )
+    required_regime_budget = sorted(
+        value for value in regime_additional.values() if value is not None
+    )[: int(criteria["minimum_confirmed_regimes"])]
+    regimes_reachable = bool(
+        len(required_regime_budget) >= int(criteria["minimum_confirmed_regimes"])
+        and sum(required_regime_budget) <= remaining
     )
     futile = bool(
         len(rows) >= minimum
         and (
             optimistic_lower <= ZERO
-            or possible_regimes < int(criteria["minimum_confirmed_regimes"])
+            or not regimes_reachable
         )
     )
     status = "PASS" if passed else "READY_TO_REJECT" if futile or len(rows) >= maximum else "SHADOW"
-    durations = [
-        row.terminal_at_ms - row.started_at_ms
-        for row in rows if row.terminal_at_ms > row.started_at_ms
-    ]
-    mean_duration = sum(durations) // len(durations) if durations else None
-    next_count = minimum if len(rows) < minimum else min(maximum, len(rows) + 1)
+    cadence = (
+        (rows[-1].terminal_at_ms - rows[0].terminal_at_ms) // (len(rows) - 1)
+        if len(rows) > 1 else None
+    )
+    overall_additional = _additional_best_case_count(
+        values,
+        alpha=alpha,
+        lower_bound=lower_bound,
+        upper_bound=upper_bound,
+        threshold=ZERO,
+        maximum_additional=remaining,
+    )
+    minimum_additional = max(0, minimum - len(rows))
+    statistical_additional = (
+        None if overall_additional is None
+        else max(minimum_additional, overall_additional)
+    )
+    observed_filled = len(filled)
+    regime_additional_total = (
+        sum(required_regime_budget)
+        if len(required_regime_budget) >= int(criteria["minimum_confirmed_regimes"])
+        else None
+    )
+    regime_terminal_additional = (
+        int(
+            (D(regime_additional_total) * D(len(rows)) / D(observed_filled))
+            .to_integral_value(rounding=ROUND_CEILING)
+        )
+        if regime_additional_total is not None and observed_filled > 0
+        else 0 if regime_additional_total == 0 else None
+    )
+    full_additional = (
+        max(statistical_additional, regime_terminal_additional)
+        if statistical_additional is not None
+        and regime_terminal_additional is not None else None
+    )
+    next_count = len(rows) + full_additional if full_additional is not None else maximum
     statistics_eta = (
-        rows[-1].terminal_at_ms + mean_duration * (next_count - len(rows))
-        if rows and mean_duration is not None and status == "SHADOW" else None
+        rows[-1].terminal_at_ms + cadence * statistical_additional
+        if rows and cadence is not None and statistical_additional is not None
+        and status == "SHADOW" else None
+    )
+    regime_eta = (
+        rows[-1].terminal_at_ms + cadence * regime_terminal_additional
+        if rows and cadence is not None and regime_terminal_additional is not None
+        and status == "SHADOW" else None
+    )
+    projected_ready = (
+        max(statistics_eta, regime_eta)
+        if statistics_eta is not None and regime_eta is not None else None
     )
     look = {
         "sample_count": len(rows),
@@ -359,14 +535,18 @@ def _anytime_report(
         "next_sequential_look": next_count if status == "SHADOW" else None,
         "data_collection_projected_ready_ts_ms": statistics_eta,
         "statistics_projected_ready_ts_ms": statistics_eta,
-        "regime_projected_ready_ts_ms": None,
+        "regime_projected_ready_ts_ms": regime_eta,
         "execution_model_projected_ready_ts_ms": None,
-        "projected_ready_ts_ms": None,
+        "projected_ready_ts_ms": projected_ready,
         "regime_safety": regime_report,
         "regime_missing_filled_episodes": {
             name: max(0, int(criteria["minimum_regime_filled_episodes"]) - int(report["filled_episodes"]))
             for name, report in regime_report.items()
         },
+        "regime_best_case_additional_episodes": regime_additional,
+        "regime_best_case_additional_terminal_episodes": (
+            regime_terminal_additional
+        ),
         "confirmed_execution_regimes": confirmed,
         "required_confirmed_regimes": int(criteria["minimum_confirmed_regimes"]),
         "status": status,
@@ -412,7 +592,7 @@ def sequential_net_expectancy_report(
 ) -> dict[str, object]:
     """Evaluate complete attempts and reject mixed evidence semantics."""
     rows_all = sorted(results, key=lambda row: row.terminal_at_ms)
-    if criteria.get("criteria_schema_version") == 4:
+    if criteria.get("criteria_schema_version") in {4, 5}:
         return _anytime_report(
             rows_all,
             criteria=criteria,

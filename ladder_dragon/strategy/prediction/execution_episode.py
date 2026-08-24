@@ -505,7 +505,7 @@ def result_from_payload(payload: Mapping[str, object]) -> ExecutionEpisodeResult
     }
     values = dict(payload)
     # Historical records remain readable as pilot evidence. A missing
-    # fingerprint prevents promotion under the v20 contract.
+    # fingerprint prevents promotion under the current contract.
     values.setdefault("evidence_semantics_fingerprint", "")
     for field in decimal_fields:
         values[field] = D(str(values[field]))

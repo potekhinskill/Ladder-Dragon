@@ -9,6 +9,7 @@ import argparse
 from dataclasses import replace
 from decimal import Decimal
 import json
+from pathlib import Path
 
 from ladder_dragon.execution.execution_latency import load_execution_outcomes
 from ladder_dragon.strategy.market_replay import (
@@ -35,6 +36,11 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--execution-log", required=True)
     parser.add_argument("--output")
     parser.add_argument("--minimum-orders", type=int, default=10)
+    parser.add_argument("--prediction-db", type=Path)
+    parser.add_argument("--experiment-id")
+    parser.add_argument("--symbol")
+    parser.add_argument("--execution-model-rule")
+    parser.add_argument("--confirm-import")
     for name, value in (
         ("minimum-classification-accuracy", "0.80"),
         ("maximum-fill-ratio-mae", "0.25"),
@@ -56,6 +62,20 @@ def build_parser() -> argparse.ArgumentParser:
 
 def main() -> int:
     args = build_parser().parse_args()
+    import_values = (
+        args.prediction_db,
+        args.experiment_id,
+        args.symbol,
+        args.execution_model_rule,
+        args.confirm_import,
+    )
+    if any(value is not None for value in import_values) and (
+        any(value is None for value in import_values)
+        or args.confirm_import != "IMPORT_PASS"
+    ):
+        raise SystemExit(
+            "replay import requires all identity arguments and IMPORT_PASS"
+        )
     sessions = [
         ReplayValidationSession(
             events=tuple(load_jsonl_archive(archive)),
@@ -87,8 +107,23 @@ def main() -> int:
     report = replace(report, replay_readiness=readiness.as_dict())
     if args.output:
         write_replay_validation(args.output, report)
-    print(json.dumps(report.as_dict(), indent=2, sort_keys=True))
-    return 0 if report.ready else 2
+    payload = report.as_dict()
+    if args.prediction_db is not None:
+        from ladder_dragon.strategy.prediction.episode_evidence import (
+            record_model_validation,
+        )
+        from ladder_dragon.strategy.prediction.runtime import (
+            PredictionShadowStore,
+        )
+        payload["imported_validation_id"] = record_model_validation(
+            PredictionShadowStore(args.prediction_db),
+            symbol=args.symbol,
+            execution_model_rule=args.execution_model_rule,
+            experiment_id=args.experiment_id,
+            report=payload,
+        )
+    print(json.dumps(payload, indent=2, sort_keys=True))
+    return 0 if report.ready and readiness.ready else 2
 
 
 __all__ = ["build_parser", "main"]

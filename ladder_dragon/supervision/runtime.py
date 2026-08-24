@@ -62,7 +62,7 @@ from ladder_dragon.supervision.entry_policy import (
     directional_entry_settings as _directional_entry_settings,
     finite_decimal as _finite_decimal,
 )
-from ladder_dragon.supervision.execution_promotion import prepare_execution_promotion_report
+from ladder_dragon.supervision.execution_promotion import champion_position_allows_buy, prepare_execution_promotion_report
 from ladder_dragon.supervision.champion_probation import apply_champion_probation_gate
 from ladder_dragon.supervision.position_flatten import BUY_BLOCKING_MODES, submit_flatten_slices
 from ladder_dragon.supervision.order_cleanup import (
@@ -3282,7 +3282,6 @@ def run_for_symbol(
             _blocked_plan_summary(symbol, ladder_all, best_buy=adaptive_best_buy),
             interval_sec=900.0,
         )
-
     # 7) The exact entry adapter was applied to the ladder before cleanup.
     # AI may only reduce an already safe CAP. Even if the model returns a
     # coefficient above 1, the Risk Manager calculation remains the upper bound.
@@ -3293,7 +3292,7 @@ def run_for_symbol(
     inventory_scale = Decimal("1")
     managed_exposure = Decimal("0")
     hard_inventory_cap: Decimal | None = None
-    inventory_error: str | None = None
+    inventory_error: str | None = "NotEvaluated" if champion_policy else None
     inventory_applicable, inventory_status = execution_control_scope(symbol, _AI_RUNTIME_STATUS.get("symbols", args.symbols))
     if risk_safe_cap > 0 and inventory_applicable:
         # An explicit per-symbol budget takes priority over the global CAP and
@@ -3318,6 +3317,7 @@ def run_for_symbol(
         try:
             hard_inventory_cap = _managed_inventory_hard_cap(symbol)
             managed_exposure = _managed_inventory_exposure(symbol, now_p)
+            inventory_error = None
             inventory_scale = inventory_skew_scale(
                 managed_exposure,
                 hard_inventory_cap,
@@ -3369,7 +3369,6 @@ def run_for_symbol(
         else "blocked_shadow"
     )
     cycle_log(f"[POS-MODE] {symbol} mode={mode}")
-
     child_ladder = _deduplicate_ladder_prices(
         [*sr.get("replacement_prices", []), *ladder_all], now_p, tick_exact,
     )
@@ -3378,6 +3377,7 @@ def run_for_symbol(
         controls_gate_blocked
         or expectancy_pause_buys
         or not champion_regime_allowed
+        or not champion_position_allows_buy(champion_policy, managed_exposure, exposure_available=inventory_error is None)
         or (
             regime_mode == "APPLY"
             and not regime_policy.buys_allowed

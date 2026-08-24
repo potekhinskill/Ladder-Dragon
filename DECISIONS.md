@@ -1675,3 +1675,24 @@ entries concise; this is not a changelog or an activity log.
 - **Decision:** limit entries, turnover, duration, and equity loss during durable CHAMPION probation.
 - **Why it worked:** the worker requires a fresh probation gate, and a loss breach creates persistent HALT.
 - **Reuse:** every evidence-backed policy that enters production for the first time.
+
+### 2026-08-24 — Separate engine proof from candidate expectancy
+
+- **Context:** real drills validate order mechanics, while SHADOW episodes validate strategy geometry.
+- **Decision:** reuse source-owned engine proof only across identical engine and fee domains.
+- **Why it worked:** gap and target changes cannot inherit expectancy, but they do not require duplicate paid drills.
+- **Reuse:** every strategy family that shares one unchanged exchange execution adapter.
+
+### 2026-08-24 — Constrain the first CHAMPION to observed scale
+
+- **Context:** one small validation episode did not support a larger concurrent inventory policy.
+- **Decision:** require 6 USDT order and inventory limits, one position, and one closed probation lifecycle.
+- **Why it worked:** activation and runtime now reject every unobserved exposure increase.
+- **Reuse:** every first production activation with limited live-scale evidence.
+
+### 2026-08-24 — Preregister a reachable execution-regime cohort
+
+- **Context:** a multi-regime confirmation design could exceed its frozen episode budget.
+- **Decision:** version 21 confirms RANGE only and freezes an e-process reachability proof.
+- **Why it worked:** futility, readiness, and CHAMPION scope now evaluate one identical regime set.
+- **Reuse:** every sequential experiment with rare states and a fixed observation ceiling.

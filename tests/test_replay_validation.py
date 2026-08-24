@@ -1,4 +1,7 @@
 from decimal import Decimal
+import sys
+
+import pytest
 
 from ladder_dragon.execution.execution_latency import ExecutionOutcome
 from ladder_dragon.strategy.market_replay import (
@@ -13,6 +16,7 @@ from ladder_dragon.strategy.replay_validation import (
     validate_replay_sessions,
     write_replay_validation,
 )
+from ladder_dragon.verification import replay_sessions
 
 
 def calibration() -> ReplayCalibration:
@@ -219,8 +223,6 @@ def test_replay_sessions_reject_duplicate_archive_identity():
         ),
     )
 
-    import pytest
-
     with pytest.raises(ValueError, match="archive identity"):
         validate_replay_sessions(
             [
@@ -229,3 +231,19 @@ def test_replay_sessions_reject_duplicate_archive_identity():
             ],
             [],
         )
+
+
+def test_replay_import_requires_a_complete_confirmed_identity(monkeypatch):
+    monkeypatch.setattr(sys, "argv", [
+        "validate_replay_sessions",
+        "--session", "archive.jsonl", "calibration.json",
+        "--execution-log", "execution.ndjson",
+        "--maker-buy-fee-pct", "0.001",
+        "--maker-sell-fee-pct", "0.001",
+        "--taker-buy-fee-pct", "0.001",
+        "--taker-sell-fee-pct", "0.001",
+        "--prediction-db", "prediction.sqlite3",
+    ])
+
+    with pytest.raises(SystemExit, match="all identity arguments"):
+        replay_sessions.main()

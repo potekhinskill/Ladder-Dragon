@@ -25,7 +25,7 @@ if TYPE_CHECKING:
 
 
 D = Decimal
-CHAMPION_POLICY_SCHEMA_VERSION = 5
+CHAMPION_POLICY_SCHEMA_VERSION = 6
 EXECUTION_REGIMES = ("RANGE", "TREND_UP", "TREND_DOWN")
 PROTECTIVE_RUNTIME_ACTIONS = (
     "REDUCE_ORDER_NOTIONAL",
@@ -140,7 +140,7 @@ def execution_policy_from_manifest(
     parameters = manifest.get("candidate_parameters")
     if not isinstance(parameters, Mapping):
         raise ValueError("candidate parameters are unavailable")
-    if parameters.get("candidate_rule_version") != 5:
+    if parameters.get("candidate_rule_version") != 6:
         raise ValueError("CHAMPION candidate rule is not execution-bound")
     semantics_fingerprint = _sha256(
         parameters.get("evidence_semantics_fingerprint"),
@@ -197,6 +197,14 @@ def execution_policy_from_manifest(
     )
     if order_cap > inventory_cap:
         raise ValueError("maximum order notional exceeds maximum inventory")
+    evidence_notional = _positive_decimal(
+        parameters.get("evidence_notional_quote"),
+        field="CHAMPION evidence notional",
+    )
+    if order_cap != evidence_notional or inventory_cap != evidence_notional:
+        raise ValueError(
+            "first CHAMPION caps must equal the evidence notional"
+        )
     progress = confirmation.get("confirmation_progress")
     if not isinstance(progress, Mapping) or progress.get("status") != "PASS":
         raise ValueError("CHAMPION confirmation progress has not passed")
@@ -212,9 +220,12 @@ def execution_policy_from_manifest(
     if (
         not isinstance(criteria, Mapping)
         or criteria.get("regime_activation_policy")
-        != "confirmed_execution_regime_only_v3"
+        != "exact_preregistered_execution_regimes_v4"
     ):
         raise ValueError("CHAMPION regime activation policy is unavailable")
+    frozen_regimes = criteria.get("eligible_regimes")
+    if not isinstance(frozen_regimes, list) or raw_regimes != frozen_regimes:
+        raise ValueError("CHAMPION regimes differ from the frozen policy")
     return {
         "schema_version": CHAMPION_POLICY_SCHEMA_VERSION,
         "symbol": str(manifest.get("symbol") or "").strip().upper(),
@@ -241,8 +252,9 @@ def execution_policy_from_manifest(
         "maximum_order_notional_usdt": format(order_cap, "f"),
         "maximum_inventory_usdt": format(inventory_cap, "f"),
         "maximum_active_buy_orders": 1,
+        "maximum_concurrent_positions": 1,
         "allowed_entry_regimes": list(allowed_regimes),
-        "regime_activation_policy": "confirmed_execution_regime_only_v3",
+        "regime_activation_policy": "exact_preregistered_execution_regimes_v4",
         "runtime_mutation_policy": "protective_only",
         "allowed_runtime_actions": list(PROTECTIVE_RUNTIME_ACTIONS),
         "forbidden_runtime_actions": [
@@ -254,10 +266,11 @@ def execution_policy_from_manifest(
             "CHANGE_MAXIMUM_HOLDING_TIME",
         ],
         "probation": {
-            "schema_version": 1,
+            "schema_version": 2,
             "duration_hours": 24,
             "maximum_entries": 3,
             "minimum_terminal_entries": 1,
+            "minimum_closed_lifecycles": 1,
             "maximum_turnover_usdt": format(order_cap * Decimal("3"), "f"),
             "maximum_equity_loss_usdt": format(order_cap / Decimal("2"), "f"),
             "failure_action": "PERSISTENT_HALT",

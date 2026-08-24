@@ -41,10 +41,12 @@ def _confirmed_manifest(
         "selected_variant": f"{generation}_maker_ttl60_gap8p4",
         "candidate_fingerprint": candidate_fingerprint,
         "criteria": {
-            "regime_activation_policy": "confirmed_execution_regime_only_v3"
+            "regime_activation_policy": "exact_preregistered_execution_regimes_v4",
+            "eligible_regimes": ["RANGE"],
         },
         "candidate_parameters": {
-            "candidate_rule_version": 5,
+            "candidate_rule_version": 6,
+            "evidence_notional_quote": "6",
             "evidence_semantics_fingerprint": evidence_semantics_fingerprint(),
             "entry_gap_bps": "8.4",
             "entry_ttl_sec": 3600,
@@ -117,7 +119,7 @@ def _activate(
         "promotion_eligible": True,
         "confirmation_progress": {
             "status": "PASS",
-            "confirmed_execution_regimes": ["RANGE", "TREND_UP"],
+            "confirmed_execution_regimes": ["RANGE"],
         },
     }
     monkeypatch.setattr(
@@ -129,7 +131,7 @@ def _activate(
         manifest,
         confirmation=confirmation,
         maximum_order_notional_usdt="6",
-        maximum_inventory_usdt="18",
+        maximum_inventory_usdt="6",
     )
     return champion_registry.activate_champion(
         store,
@@ -139,7 +141,7 @@ def _activate(
         expected_execution_policy_fingerprint=sha256_json(policy),
         expected_previous_activation_id=previous,
         maximum_order_notional_usdt="6",
-        maximum_inventory_usdt="18",
+        maximum_inventory_usdt="6",
         product_version="2.20.226",
         source_commit=SOURCE_COMMIT,
         execution_halt_confirmed=True,
@@ -169,7 +171,7 @@ def test_execution_policy_rejects_configured_fee_evidence(tmp_path: Path):
                 }
             },
             maximum_order_notional_usdt="6",
-            maximum_inventory_usdt="18",
+            maximum_inventory_usdt="6",
         )
 
 
@@ -196,10 +198,10 @@ def test_first_activation_is_restart_safe_and_exact(tmp_path: Path, monkeypatch)
     assert loaded["execution_policy"]["maximum_order_notional_usdt"] == "6"
     assert loaded["execution_policy"]["runtime_mutation_policy"] == "protective_only"
     assert loaded["execution_policy"]["allowed_entry_regimes"] == [
-        "RANGE", "TREND_UP",
+        "RANGE",
     ]
     assert champion_registry.champion_allows_regime(
-        loaded["execution_policy"], "TREND_UP"
+        loaded["execution_policy"], "RANGE"
     ) is True
     assert champion_registry.champion_allows_regime(
         loaded["execution_policy"], "TREND_DOWN"
@@ -219,7 +221,7 @@ def test_activation_rejects_caps_that_differ_from_preview(tmp_path: Path, monkey
         "promotion_eligible": True,
         "confirmation_progress": {
             "status": "PASS",
-            "confirmed_execution_regimes": ["RANGE", "TREND_UP"],
+            "confirmed_execution_regimes": ["RANGE"],
         },
     }
     monkeypatch.setattr(
@@ -231,10 +233,10 @@ def test_activation_rejects_caps_that_differ_from_preview(tmp_path: Path, monkey
         manifest,
         confirmation=confirmation,
         maximum_order_notional_usdt="6",
-        maximum_inventory_usdt="18",
+        maximum_inventory_usdt="6",
     )
 
-    with pytest.raises(ValueError, match="changed after preview"):
+    with pytest.raises(ValueError, match="caps must equal the evidence notional"):
         champion_registry.activate_champion(
             store,
             experiment_id=str(manifest["experiment_id"]),
@@ -276,7 +278,7 @@ def test_activation_without_execution_halt_fails_closed(tmp_path: Path, monkeypa
             expected_execution_policy_fingerprint="d" * 64,
             expected_previous_activation_id=None,
             maximum_order_notional_usdt="6",
-            maximum_inventory_usdt="18",
+            maximum_inventory_usdt="6",
             product_version="2.20.226",
             source_commit=SOURCE_COMMIT,
             execution_halt_confirmed=False,
@@ -429,7 +431,7 @@ def test_direct_worker_rebuilds_policy_and_clamps_caps(tmp_path: Path, monkeypat
     ladder = champion_ladder(state, loaded, "60000")
 
     assert os.environ["BOT_CAP_PER_ORDER"] == "6"
-    assert os.environ["RISK_MANAGED_INVENTORY_HARD_CAP_BTCUSDT"] == "18"
+    assert os.environ["RISK_MANAGED_INVENTORY_HARD_CAP_BTCUSDT"] == "6"
     assert args.tp1 == pytest.approx(0.0096)
     assert args.tp2 == pytest.approx(0.0096)
     assert args.sl == pytest.approx(-0.01)

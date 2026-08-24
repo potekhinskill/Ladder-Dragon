@@ -28,9 +28,15 @@ from ladder_dragon.strategy.prediction.execution_episode import (
     ExecutionEpisodeResult,
     ExecutionEpisodeSpec,
 )
+from ladder_dragon.strategy.prediction.episode_expectancy import (
+    anytime_design_feasibility,
+)
 from ladder_dragon.strategy.prediction.runtime import PredictionShadowStore
 from ladder_dragon.strategy.prediction.episode_semantics import (
     evidence_semantics_fingerprint,
+    execution_engine_validation_domain,
+    v19_evidence_semantics_fingerprint,
+    v20_evidence_semantics_fingerprint,
 )
 
 
@@ -126,6 +132,18 @@ def _v20_promotion_variant():
     )[0]
 
 
+def _v21_promotion_variant():
+    baseline = _promotion_variant().baseline_plan
+    return build_shadow_variants(
+        market_price=D("100"),
+        baseline_plan=baseline,
+        required_edge_pct=D("0.001"),
+        regime="RANGE",
+        generation="v21",
+        symbol="SOLUSDT",
+    )[0]
+
+
 def test_episode_models_partial_maker_fill_and_exact_tp_fees():
     episode = ExecutionEpisode(_spec(), _event(0))
 
@@ -208,7 +226,7 @@ def test_v19_net_expectancy_rejects_frequent_wins_with_larger_panic_losses():
             execution_model_rule="minute_l2_fifo_oco_gap_v2",
             terminal_reason="PANIC_FLATTEN" if loss else "TAKE_PROFIT",
             panic_veto=loss,
-            evidence_semantics_fingerprint=evidence_semantics_fingerprint(),
+            evidence_semantics_fingerprint=v19_evidence_semantics_fingerprint(),
         ))
     report = sequential_episode_report(
         rows,
@@ -231,7 +249,7 @@ def test_v20_anytime_gate_confirms_only_executable_profitable_regimes():
             generation="v20",
             variant_id="v20_maker_ttl90_gap48",
             execution_model_rule="minute_l2_fifo_oco_gap_v3",
-            evidence_semantics_fingerprint=evidence_semantics_fingerprint(),
+            evidence_semantics_fingerprint=v20_evidence_semantics_fingerprint(),
         )
         for index in range(60)
     ]
@@ -260,13 +278,25 @@ def test_v20_regime_confidence_rejects_negative_trend_up():
             generation="v20",
             variant_id="v20_maker_ttl90_gap48",
             execution_model_rule="minute_l2_fifo_oco_gap_v3",
-            evidence_semantics_fingerprint=evidence_semantics_fingerprint(),
+            evidence_semantics_fingerprint=v20_evidence_semantics_fingerprint(),
         ))
 
     report = sequential_episode_report(rows, criteria=criteria)
 
     assert report["regime_safety"]["TREND_UP"]["noninferior"] is False
     assert "TREND_UP" not in report["confirmed_execution_regimes"]
+
+
+def test_v21_design_rejects_an_unreachable_regime_requirement():
+    criteria = episode_confirmation_criteria("episode_anytime_expectancy_v5")
+    criteria["minimum_regime_filled_episodes"] = 10
+
+    try:
+        anytime_design_feasibility(criteria)
+    except ValueError as exc:
+        assert "unreachable" in str(exc)
+    else:
+        raise AssertionError("unreachable v21 design unexpectedly passed")
 
 
 def _result(index: int, pnl: str) -> ExecutionEpisodeResult:
@@ -486,7 +516,7 @@ def test_model_validation_requires_filled_maker_and_stop_limit_orders(tmp_path):
         source_commit="b" * 40,
     )
     report = {
-        "schema_version": 6,
+        "schema_version": 7,
         "ready": True,
         "reasons": [],
         "archive_sha256": "c" * 64,
@@ -521,7 +551,31 @@ def test_model_validation_requires_filled_maker_and_stop_limit_orders(tmp_path):
             "validation_report_count": 1,
             "validated_order_count": 10,
         },
+        "validation_domain": execution_engine_validation_domain(
+            execution_model_rule="minute_l2_fifo_oco_gap_v2",
+            fee_schedule={
+                "maker_buy_fee_pct": "0.0007",
+                "maker_sell_fee_pct": "0.0008",
+                "taker_buy_fee_pct": "0.001",
+                "taker_sell_fee_pct": "0.0011",
+            },
+        ),
     }
+    report_without_domain = dict(report)
+    report_without_domain.pop("validation_domain")
+    report_without_domain["actual_stop_limit_filled_orders"] = 1
+    try:
+        record_model_validation(
+            store,
+            symbol="SOLUSDT",
+            execution_model_rule="minute_l2_fifo_oco_gap_v2",
+            experiment_id="validation-experiment",
+            report=report_without_domain,
+        )
+    except ValueError as exc:
+        assert "engine domain differs" in str(exc)
+    else:
+        raise AssertionError("source report without a proof domain passed")
     try:
         record_model_validation(
             store,
@@ -556,7 +610,7 @@ def test_model_validation_requires_filled_maker_and_stop_limit_orders(tmp_path):
         symbol="SOLUSDT",
         execution_model_rule="minute_l2_fifo_oco_gap_v2",
         expected_candidate_parameters=changed,
-    )["status"] == "BLOCKED"
+    )["status"] == "PASS"
     with store._connect() as connection:
         try:
             connection.execute(
@@ -659,4 +713,31 @@ def test_v20_manifest_uses_anytime_confirmation_and_new_semantics(tmp_path):
         "anytime_valid_betting_e_process_v4"
     )
     assert manifest["candidate_parameters"]["candidate_rule_version"] == 5
+    assert report["promotion_eligible"] is False
+
+
+def test_v21_manifest_freezes_one_reachable_execution_regime(tmp_path):
+    store = PredictionShadowStore(tmp_path / "prediction.sqlite3")
+    manifest = freeze_preselected_episode_experiment(
+        store,
+        experiment_id="sol-v21-live-confirmation",
+        generation="v21",
+        symbol="SOLUSDT",
+        selected_variant=_v21_promotion_variant(),
+        horizons_min=(300, 360),
+        product_version="2.20.246",
+        source_commit="e" * 40,
+        frozen_at_ms=int(time.time() * 1000),
+    )
+
+    report = confirmation_report(
+        store, experiment_id=str(manifest["experiment_id"])
+    )
+
+    assert manifest["criteria"]["eligible_regimes"] == ["RANGE"]
+    assert manifest["statistical_feasibility"]["feasible"] is True
+    assert manifest["candidate_parameters"]["candidate_rule_version"] == 6
+    assert report["confirmation_progress"]["method"] == (
+        "anytime_valid_betting_e_process_v5"
+    )
     assert report["promotion_eligible"] is False

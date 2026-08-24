@@ -30,7 +30,7 @@ from ladder_dragon.strategy.prediction.experiment_config import (
     ShadowExperimentSpec,
 )
 from ladder_dragon.strategy.prediction.episode_semantics import (
-    EXECUTABLE_ENTRY_REGIMES,
+    V21_EXECUTABLE_ENTRY_REGIMES,
     evidence_semantics_fingerprint,
     execution_model_contract,
 )
@@ -256,6 +256,14 @@ def collect_execution_episode(
             != evidence_semantics_fingerprint()
         ):
             raise ValueError("promotion evidence semantics differ from manifest")
+    frozen_regimes = (
+        tuple(manifest.get("criteria", {}).get("eligible_regimes", ()))
+        if manifest is not None
+        and isinstance(manifest.get("criteria"), Mapping)
+        else V21_EXECUTABLE_ENTRY_REGIMES
+    )
+    if not frozen_regimes:
+        raise ValueError("promotion entry regime scope is unavailable")
 
     event = _event(
         timestamp_ms=features.snapshot_ts_ms,
@@ -280,7 +288,7 @@ def collect_execution_episode(
         not terminal_this_interval
         and normalized not in _ACTIVE
         # Collect only regimes that the immutable CHAMPION can execute.
-        and evidence_regime in EXECUTABLE_ENTRY_REGIMES
+        and evidence_regime in frozen_regimes
         and trades_complete
         and (
             manifest is None

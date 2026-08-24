@@ -119,11 +119,17 @@ Validate separate archives without joining recording gaps:
   --maker-sell-fee-pct MAKER_SELL_RATE \
   --taker-buy-fee-pct TAKER_BUY_RATE \
   --taker-sell-fee-pct TAKER_SELL_RATE \
-  --output validation.json
+  --output validation.json \
+  --prediction-db db/prediction_shadow.sqlite3 \
+  --experiment-id EXPERIMENT_ID \
+  --symbol SOLUSDT \
+  --execution-model-rule minute_l2_fifo_oco_gap_v3 \
+  --confirm-import IMPORT_PASS
 ```
 
 Each terminal order must fit inside one session.
 The validator rejects duplicate or overlapping archive identities.
+The optional identity arguments build and import one source-owned PASS artifact.
 
 Inspect the local experiment lifecycle:
 
@@ -137,7 +143,7 @@ Freeze the preregistered SOL execution candidate:
 .venv/bin/python -m bin.prediction_experiment episode-bootstrap \
   --experiment-id EXPERIMENT_ID \
   --symbol SOLUSDT \
-  --generation v20 \
+  --generation v21 \
   --confirm BOOTSTRAP
 ```
 
@@ -151,7 +157,7 @@ Import one reviewed execution-model validation:
 ```bash
 .venv/bin/python -m bin.prediction_experiment model-validation-import \
   --symbol SOLUSDT \
-  --generation v20 \
+  --generation v21 \
   --experiment-id EXPERIMENT_ID \
   --report validation.json \
   --report-sha256 REPORT_SHA256 \

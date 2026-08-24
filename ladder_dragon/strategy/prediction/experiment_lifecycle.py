@@ -207,12 +207,12 @@ def candidate_rule(
         "slippage_pct": format(plan.slippage_pct, "f"),
         "notional_policy": (
             "fixed_shadow_evidence_notional"
-            if variant.candidate_rule_version in {3, 4, 5}
+            if variant.candidate_rule_version in {3, 4, 5, 6}
             else "current_strategy_cap"
         ),
         "evidence_notional_quote": (
             format(plan.notional_quote, "f")
-            if variant.candidate_rule_version in {3, 4, 5} else None
+            if variant.candidate_rule_version in {3, 4, 5, 6} else None
         ),
         "regime_policy": variant.regime_policy,
         "horizons_min": [int(value) for value in horizons_min],
@@ -229,7 +229,7 @@ def candidate_rule(
                 "LIMIT_MAKER" if variant.maker_only else "BASELINE"
             ),
         }
-    if variant.candidate_rule_version not in {2, 3, 4, 5}:
+    if variant.candidate_rule_version not in {2, 3, 4, 5, 6}:
         raise ValueError("candidate rule version is unsupported")
     rule = {
         **common,
@@ -249,7 +249,7 @@ def candidate_rule(
         ),
         "fee_schedule": _fee_schedule_rule(plan),
     }
-    if variant.candidate_rule_version in {3, 4, 5}:
+    if variant.candidate_rule_version in {3, 4, 5, 6}:
         if plan.maximum_holding_min is None:
             raise ValueError("promotion candidate requires maximum holding time")
         rule.update({
@@ -266,11 +266,11 @@ def candidate_rule(
             "episode_concurrency": 1,
             "panic_policy": (
                 "INCLUDE_FLATTEN_PNL_AND_COUNT_VETO_ATTEMPT"
-                if variant.candidate_rule_version in {4, 5}
+                if variant.candidate_rule_version in {4, 5, 6}
                 else "SEPARATE_SAFETY_VETO"
             ),
         })
-    if variant.candidate_rule_version in {4, 5}:
+    if variant.candidate_rule_version in {4, 5, 6}:
         if len(variant.evidence_semantics_fingerprint) != 64:
             raise ValueError("promotion evidence semantics fingerprint is invalid")
         rule["evidence_semantics_fingerprint"] = (
@@ -298,7 +298,7 @@ def baseline_rule(variant: "ShadowVariant") -> dict[str, object]:
         "entry_ttl_sec": plan.entry_ttl_sec,
         "entry_enabled": plan.entry_enabled,
     }
-    if variant.candidate_rule_version in {2, 3, 4, 5}:
+    if variant.candidate_rule_version in {2, 3, 4, 5, 6}:
         rule["fee_schedule"] = _fee_schedule_rule(plan)
     return rule
 
@@ -311,7 +311,7 @@ def variant_fingerprints(
     criteria: Mapping[str, object] | None = None,
 ) -> tuple[str, str]:
     policy = dict(DEFAULT_CRITERIA if criteria is None else criteria)
-    if policy.get("criteria_schema_version") not in {2, 3, 4}:
+    if policy.get("criteria_schema_version") not in {2, 3, 4, 5}:
         if int(policy["embargo_ms"]) < 0:
             raise ValueError("confirmation embargo must be non-negative")
         if int(policy["window_size_decisions"]) <= 0:
@@ -684,6 +684,9 @@ def freeze_preselected_episode_experiment(
     from ladder_dragon.strategy.prediction.episode_evidence import (
         episode_confirmation_criteria,
     )
+    from ladder_dragon.strategy.prediction.episode_expectancy import (
+        anytime_design_feasibility,
+    )
     spec = experiment_spec_for_generation(generation, symbol=symbol)
     if spec.lifecycle_mode != "PROMOTION" or len(spec.maker_ttls) != 1 or len(spec.maker_entry_gaps) != 1:
         raise ValueError("episode bootstrap requires one promotion candidate")
@@ -692,6 +695,10 @@ def freeze_preselected_episode_experiment(
         raise ValueError("episode horizons differ from the preregistered design")
     frozen_at = int(time.time() * 1000) if frozen_at_ms is None else int(frozen_at_ms)
     criteria = episode_confirmation_criteria(spec.statistical_design_version)
+    feasibility = (
+        anytime_design_feasibility(criteria)
+        if int(criteria.get("criteria_schema_version", 0)) == 5 else None
+    )
     maximum_duration_ms = int(criteria["maximum_confirmation_duration_ms"])
     candidate_fp, baseline_fp = variant_fingerprints(
         selected_variant,
@@ -715,6 +722,7 @@ def freeze_preselected_episode_experiment(
         "baseline": baseline_rule(selected_variant),
         "baseline_fingerprint": baseline_fp,
         "criteria": criteria,
+        "statistical_feasibility": feasibility,
         "statistical_method": criteria["method"],
         "independence_spacing_ms": None,
         "selection_rule": "preregistered_single_candidate_before_live_confirmation",
@@ -787,9 +795,9 @@ def _episode_confirmation_report(
         sequential_episode_report,
     )
     parameters = manifest["candidate_parameters"]
-    promotion_contract_ready = parameters.get("candidate_rule_version") == 5
+    promotion_contract_ready = parameters.get("candidate_rule_version") == 6
     semantics_ready = bool(
-        parameters.get("candidate_rule_version") in {4, 5}
+        parameters.get("candidate_rule_version") in {4, 5, 6}
         and isinstance(parameters.get("evidence_semantics_fingerprint"), str)
         and len(str(parameters.get("evidence_semantics_fingerprint"))) == 64
     )
@@ -858,7 +866,7 @@ def _episode_confirmation_report(
             []
             if evaluation_passed and promotion_contract_ready
             else [
-                "promotion requires the v20 executable-policy contract"
+                "promotion requires the v21 executable-policy contract"
                 if not promotion_contract_ready
                 else "promotion evidence semantics or live episode test has not passed"
             ]
@@ -1031,6 +1039,7 @@ def confirmation_report(
         "group_sequential_combined_gate_alpha_spending_v2",
         "group_sequential_net_expectancy_alpha_spending_v3",
         "anytime_valid_betting_e_process_v4",
+        "anytime_valid_betting_e_process_v5",
     }:
         return _episode_confirmation_report(store, manifest)
     decisions, reasons = _confirmation_decisions(store, manifest)

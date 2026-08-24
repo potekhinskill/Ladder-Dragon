@@ -1,6 +1,6 @@
 # Implementation status
 
-This document describes the code in version **2.20.245**.
+This document describes the code in version **2.20.246**.
 It does not describe future plans as completed work.
 
 An implemented function is not automatically approved for LIVE use.
@@ -75,7 +75,7 @@ Future outcomes are normal pending work.
 Only overdue or unrecovered expired outcomes block the backlog gate.
 The soak report applies its expiration checks to the audited runtime window.
 
-SOLUSDT version twenty uses one fixed 48-basis-point candidate and a 90-minute entry lifetime.
+SOLUSDT version twenty-one uses one fixed 48-basis-point candidate and a 90-minute entry lifetime.
 Its primary endpoint is 360 minutes.
 The 300-minute result is diagnostic only.
 The SHADOW evidence notional is fixed at 6 USDT.
@@ -105,15 +105,15 @@ The gate also checks fill rate, drawdown, and regime safety.
 PANIC flatten PnL enters the mean and drawdown.
 PANIC vetoes are terminal unfilled attempts in the fill denominator.
 RECOVERY and PANIC cannot start an entry episode.
-At least two executable regimes require eight filled episodes and a positive confidence bound.
-Only these confirmed regimes can authorize CHAMPION BUY orders.
-An uncovered regime blocks BUY and keeps position protection active.
+Version twenty-one preregisters RANGE as its only executable entry regime.
+RANGE requires twelve filled episodes and a positive confidence bound.
+Every other regime blocks CHAMPION BUY and keeps position protection active.
 Residual PANIC exposure remains a separate safety failure.
 The confirmation deadline is 14 days.
 The design also stops after 300 terminal episodes.
 An impossible design becomes ready for REJECTED finalization before either limit.
 
-Promotion also requires strict replay readiness against sanitized real order reports.
+Promotion also requires strict reusable engine replay against sanitized real order reports.
 The validation requires at least ten covered terminal orders.
 It requires a filled LIMIT_MAKER order and a filled STOP_LOSS_LIMIT order.
 The validation compares fills, ratios, prices, latency, fees, and slippage.
@@ -126,7 +126,7 @@ All active candidates use the same entry scope.
 The active-entry diagnostic therefore uses the same cohort.
 
 Diagnostic prediction cohorts retain their existing walk-forward training rules.
-The SOL version-twenty fixed rule has no cold-start training delay.
+The SOL version-twenty-one fixed rule has no cold-start training delay.
 Historical rows cannot enter its live confirmation inference.
 Statistical gates stream the complete journal in append order.
 Control readers retain bounded binding and non-binding evidence groups.
@@ -162,6 +162,7 @@ Each control report estimates binding frequency and its evidence-ready time.
 The dashboard shows readiness in days and the current waiting reason.
 Observation-only inventory reports `NOT_APPLICABLE`.
 An activated CHAMPION fixes entry gap, entry lifetime, target, stop, and maximum exposure.
+The first CHAMPION uses one 6 USDT order and one 6 USDT managed position.
 The worker verifies the active registry record before LIVE execution.
 Runtime controls can only reduce risk, block BUY, cancel BUY, or flatten.
 New CHALLENGER generations remain in SHADOW until independent confirmation and explicit activation.
@@ -172,6 +173,7 @@ Each order intent records the active activation and policy fingerprints.
 The authoritative activation registry has no automatic retention.
 Each new CHAMPION starts a 24-hour probation period.
 Probation limits entries, turnover, and account-equity loss.
+Probation requires one exact BUY-to-protective-exit lifecycle before PASS.
 An equity-loss breach creates persistent HALT.
 The worker fails closed without a current probation result.
 
@@ -179,7 +181,8 @@ The public depth service records consecutive 55-minute sessions.
 The service restarts after a recorder failure.
 Seven-day rotation bounds disposable public archive growth.
 Each validation drill also stores its complete order-lifecycle archive.
-Replay validation must match the exact candidate and simulator domain.
+Replay validation matches the reusable order engine, fee schedule, and simulator domain.
+Candidate gap, lifetime, target, and stop evidence remains inside SHADOW confirmation.
 
 Attributed AI fills store monetary values as exact text.
 Each fill records whether its slippage value is verified.

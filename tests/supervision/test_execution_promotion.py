@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import inspect
 import json
+from decimal import Decimal
 
 import pytest
 
@@ -26,6 +27,23 @@ def test_candidate_list_is_staged_without_widening_execution_scope():
 
     assert execution == ["SOLUSDT"]
     assert candidates == ["BTCUSDT", "ETHUSDT"]
+
+
+def test_first_champion_blocks_a_second_managed_position():
+    policy = {"maximum_concurrent_positions": 1}
+
+    assert execution_promotion.champion_position_allows_buy(
+        policy, Decimal("0")
+    ) is True
+    assert execution_promotion.champion_position_allows_buy(
+        policy, Decimal("0.0001")
+    ) is False
+    assert execution_promotion.champion_position_allows_buy(
+        {}, Decimal("0")
+    ) is False
+    assert execution_promotion.champion_position_allows_buy(
+        policy, Decimal("0"), exposure_available=False
+    ) is False
 
 
 @pytest.mark.parametrize("configured", ["BTCUSDT,BTCUSDT", "BTC/USDT"])
