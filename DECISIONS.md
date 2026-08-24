@@ -1,5 +1,12 @@
 # Engineering decisions
 
+### 2026-08-24 — Use one aggregate-trade selector family per page
+
+- **Context:** Binance rejects continuation identifiers combined with time-range parameters.
+- **Decision:** bound the first page by time, then continue only by aggregate-trade identifier.
+- **Why it worked:** tests prove valid parameters, contiguous identities, bounded completion, and secret-safe diagnostics.
+- **Reuse:** every remote pagination API with mutually exclusive cursor and range selectors.
+
 ### 2026-08-22 — Keep SHADOW evidence independent from execution plan validity
 
 - **Context:** high volatility made an adaptive profit floor exceed the configured TP ceiling and stopped immutable evidence.

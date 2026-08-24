@@ -6,6 +6,13 @@ avoidable rework. Identify the root cause rather than recording only the
 symptom. Keep entries concise and exclude secrets, balances, account data, and
 private infrastructure details.
 
+### 2026-08-24 — Combined incompatible aggregate-trade selectors
+
+- **Impact:** high-activity SHADOW symbols failed on the second aggregate-trade page and collected evidence slowly.
+- **Root cause:** continuation retained `endTime` while adding `fromId`, which Binance rejects.
+- **Correction:** use time bounds only on the first page and identifier-only continuation afterward.
+- **Prevention:** pagination tests must assert every request parameter set, not only returned rows.
+
 ### 2026-08-23 — Compared an absent legacy fingerprint with an empty normalized fingerprint
 
 - **Impact:** one interrupted version 18 episode blocked every version 19 SHADOW collection attempt after restart.

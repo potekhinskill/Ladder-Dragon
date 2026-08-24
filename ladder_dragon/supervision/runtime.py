@@ -53,7 +53,7 @@ from ladder_dragon.strategy.prediction.control_evidence import (
 )
 from ladder_dragon.strategy.prediction.champion_registry import active_champion, champion_allows_regime
 from ladder_dragon.strategy.prediction.episode_semantics import require_runtime_regime_contract
-from ladder_dragon.supervision.aggregate_trade_history import load_aggregate_trade_window
+from ladder_dragon.supervision.aggregate_trade_history import load_aggregate_trade_window, safe_aggregate_trade_error
 from ladder_dragon.supervision import strategy_control_gates
 from ladder_dragon.ai.ai_runtime_status import write_runtime_status
 from ladder_dragon.ai.ai_control import read_ai_control, resolve_ai_control_path
@@ -3530,7 +3530,7 @@ def run_for_symbol(
             stop_limit_offset_pct=args.stop_limit_offset_pct,
         )
     except SUPERVISOR_OPERATION_ERRORS as exc:
-        log(f"[PREDICTION-SHADOW] {symbol} unavailable={type(exc).__name__}")
+        log(f"[PREDICTION-SHADOW] {symbol} unavailable={safe_aggregate_trade_error(exc)}")
         runtime = _AI_RUNTIME_STATUS.setdefault("prediction", {})
         if isinstance(runtime, dict):
             runtime.update({

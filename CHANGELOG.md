@@ -3,6 +3,19 @@
 All notable changes are documented here. Releases use Semantic Versioning; every
 section is dated and there is intentionally no `Unreleased` section.
 
+## [2.20.243] — 2026-08-24
+
+### Fixed
+- Aggregate-trade continuation requests now use `fromId` without incompatible time-range parameters.
+- High-activity ETH and BTC SHADOW windows can continue beyond the first Binance page.
+- SHADOW source failures now log bounded status, code, endpoint, and retry evidence without provider text.
+
+### Security
+- Aggregate-trade diagnostics exclude URLs, query parameters, response bodies, and credential-like values.
+
+### Verified
+- All project tests, Python compilation, Technical English, and live public pagination verification pass.
+
 ## [2.20.242] — 2026-08-23
 
 ### Fixed
