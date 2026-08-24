@@ -6,6 +6,13 @@ avoidable rework. Identify the root cause rather than recording only the
 symptom. Keep entries concise and exclude secrets, balances, account data, and
 private infrastructure details.
 
+### 2026-08-24 — Named all cold-start delay as missing history
+
+- **Impact:** active BTC and ETH training appeared stuck although independent live snapshots accumulated.
+- **Root cause:** the readiness text named only the unavailable historical source and omitted live cold-start progress.
+- **Correction:** expose both source counts and use one source-neutral cold-start reason.
+- **Prevention:** progress diagnostics must name every evidence source that can satisfy the same gate.
+
 ### 2026-08-24 — Combined incompatible aggregate-trade selectors
 
 - **Impact:** high-activity SHADOW symbols failed on the second aggregate-trade page and collected evidence slowly.

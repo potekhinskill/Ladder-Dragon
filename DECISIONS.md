@@ -1,5 +1,12 @@
 # Engineering decisions
 
+### 2026-08-24 — Distinguish cold-start evidence sources
+
+- **Context:** compatible history can be unavailable while live independent training continues normally.
+- **Decision:** report closed-history and live cold-start counts separately against one immutable training requirement.
+- **Why it worked:** the dashboard exposes real progress without admitting incompatible older strategy evidence.
+- **Reuse:** every statistical cold-start that can combine archived and newly collected evidence.
+
 ### 2026-08-24 — Use one aggregate-trade selector family per page
 
 - **Context:** Binance rejects continuation identifiers combined with time-range parameters.

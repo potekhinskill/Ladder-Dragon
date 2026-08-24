@@ -527,6 +527,15 @@ def shadow_variant_report(
             "training_independent_samples": int(
                 gate.get("training_independent_samples", 0)
             ),
+            "historical_training_independent_samples": int(
+                gate.get("historical_training_independent_samples", 0)
+            ),
+            "live_training_independent_samples": int(
+                gate.get("live_training_independent_samples", 0)
+            ),
+            "required_training_independent_samples": int(
+                gate.get("required_training_independent_samples", 0)
+            ),
             "evaluated_independent_samples": int(
                 gate.get("evaluated_independent_samples", 0)
             ),
@@ -539,9 +548,6 @@ def shadow_variant_report(
             "selection_deadline_ts_ms": gate.get("selection_deadline_ts_ms"),
             "selection_deadline_expired": gate.get(
                 "selection_deadline_expired"
-            ),
-            "historical_training_independent_samples": int(
-                gate.get("historical_training_independent_samples", 0)
             ),
             "outcomes": outcome_counts,
             "statistical_reader": (

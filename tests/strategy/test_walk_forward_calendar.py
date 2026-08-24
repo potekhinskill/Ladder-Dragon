@@ -51,6 +51,8 @@ def test_training_threshold_counts_snapshots_instead_of_horizon_rows():
 
     assert gate["available_independent_samples"] == 65
     assert gate["training_independent_samples"] == 60
+    assert gate["live_training_independent_samples"] == 60
+    assert gate["required_training_independent_samples"] == 60
     assert gate["evaluated_independent_samples"] == 5
     assert gate["required_total_independent_samples"] == 112
     assert gate["minimum_calendar_duration_ms"] == (
@@ -69,6 +71,9 @@ def test_readiness_timestamp_includes_remaining_units_and_final_outcome():
 
     assert gate["estimated_ready_ts_ms"] == (
         last_timestamp + 102 * 21_600_001 + 360 * 60_000
+    )
+    assert gate["readiness_reason"] == (
+        "independent cold-start training is incomplete"
     )
 
 

@@ -3,6 +3,19 @@
 All notable changes are documented here. Releases use Semantic Versioning; every
 section is dated and there is intentionally no `Unreleased` section.
 
+## [2.20.245] — 2026-08-24
+
+### Changed
+- Selection diagnostics now separate compatible closed history from live cold-start training.
+- The dashboard shows current training progress against its required independent-snapshot total.
+
+### Fixed
+- Cold-start readiness no longer implies that only missing historical evidence can unblock evaluation.
+- Missing readiness timestamps no longer render as Unix-epoch dates.
+
+### Verified
+- All project tests, Python compilation, and Technical English checks pass.
+
 ## [2.20.244] — 2026-08-24
 
 ### Added

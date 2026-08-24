@@ -13,6 +13,8 @@ def test_shadow_experiments_are_collapsed_and_use_safe_runtime_fields():
     assert "function updateShadowExperiments(prediction)" in script
     assert "row.available_independent_samples" in script
     assert "row.training_independent_samples" in script
+    assert "row.required_training_independent_samples" in script
+    assert "row.live_training_independent_samples" in script
     assert "row.evaluated_independent_samples" in script
     assert "const measured=evaluated>0" in script
     assert "row.required_total_independent_samples" in script
@@ -49,6 +51,7 @@ def test_shadow_experiments_are_collapsed_and_use_safe_runtime_fields():
         "shadow_available",
         "shadow_training",
         "shadow_historical_training",
+        "shadow_live_training",
         "shadow_evaluated",
         "shadow_required_total",
         "shadow_ready_eta",

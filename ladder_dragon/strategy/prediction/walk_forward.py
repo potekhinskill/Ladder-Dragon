@@ -178,7 +178,7 @@ def walk_forward_prediction_report(
     waiting_reason = (
         "selection deadline expired"
         if expired else
-        "closed historical training is incomplete"
+        "independent cold-start training is incomplete"
         if training < min_train_independent_snapshots else
         "live independent evaluation is incomplete"
         if evaluated_count < required_evaluation else
