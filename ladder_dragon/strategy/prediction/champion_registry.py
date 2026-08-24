@@ -25,7 +25,7 @@ if TYPE_CHECKING:
 
 
 D = Decimal
-CHAMPION_POLICY_SCHEMA_VERSION = 4
+CHAMPION_POLICY_SCHEMA_VERSION = 5
 EXECUTION_REGIMES = ("RANGE", "TREND_UP", "TREND_DOWN")
 PROTECTIVE_RUNTIME_ACTIONS = (
     "REDUCE_ORDER_NOTIONAL",
@@ -140,7 +140,7 @@ def execution_policy_from_manifest(
     parameters = manifest.get("candidate_parameters")
     if not isinstance(parameters, Mapping):
         raise ValueError("candidate parameters are unavailable")
-    if parameters.get("candidate_rule_version") != 4:
+    if parameters.get("candidate_rule_version") != 5:
         raise ValueError("CHAMPION candidate rule is not execution-bound")
     semantics_fingerprint = _sha256(
         parameters.get("evidence_semantics_fingerprint"),
@@ -212,7 +212,7 @@ def execution_policy_from_manifest(
     if (
         not isinstance(criteria, Mapping)
         or criteria.get("regime_activation_policy")
-        != "confirmed_execution_regime_only_v2"
+        != "confirmed_execution_regime_only_v3"
     ):
         raise ValueError("CHAMPION regime activation policy is unavailable")
     return {
@@ -242,7 +242,7 @@ def execution_policy_from_manifest(
         "maximum_inventory_usdt": format(inventory_cap, "f"),
         "maximum_active_buy_orders": 1,
         "allowed_entry_regimes": list(allowed_regimes),
-        "regime_activation_policy": "confirmed_execution_regime_only_v2",
+        "regime_activation_policy": "confirmed_execution_regime_only_v3",
         "runtime_mutation_policy": "protective_only",
         "allowed_runtime_actions": list(PROTECTIVE_RUNTIME_ACTIONS),
         "forbidden_runtime_actions": [
@@ -253,6 +253,16 @@ def execution_policy_from_manifest(
             "CHANGE_STOP_TRIGGER_OFFSET",
             "CHANGE_MAXIMUM_HOLDING_TIME",
         ],
+        "probation": {
+            "schema_version": 1,
+            "duration_hours": 24,
+            "maximum_entries": 3,
+            "minimum_terminal_entries": 1,
+            "maximum_turnover_usdt": format(order_cap * Decimal("3"), "f"),
+            "maximum_equity_loss_usdt": format(order_cap / Decimal("2"), "f"),
+            "failure_action": "PERSISTENT_HALT",
+            "entry_limit_action": "BLOCK_BUY_UNTIL_PROBATION_END",
+        },
     }
 
 

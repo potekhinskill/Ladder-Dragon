@@ -131,7 +131,7 @@ def test_batch_enforces_drill_quotas_cooldown_and_ledger_chain(
         now_ms=2_000,
     )
     assert first["previous_entry_sha256"] == "0" * 64
-    with pytest.raises(RuntimeError, match="quota"):
+    with pytest.raises(RuntimeError, match="fixed sequence"):
         validation_batch.reserve_validation_attempt(
             tmp_path / "batch.json",
             drill="LIMIT_MAKER",

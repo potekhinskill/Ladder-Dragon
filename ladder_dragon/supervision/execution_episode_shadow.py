@@ -30,7 +30,9 @@ from ladder_dragon.strategy.prediction.experiment_config import (
     ShadowExperimentSpec,
 )
 from ladder_dragon.strategy.prediction.episode_semantics import (
+    EXECUTABLE_ENTRY_REGIMES,
     evidence_semantics_fingerprint,
+    execution_model_contract,
 )
 from ladder_dragon.strategy.prediction.experiment_lifecycle import (
     list_experiments,
@@ -43,8 +45,6 @@ from ladder_dragon.strategy.prediction.runtime import PredictionShadowStore
 
 D = Decimal
 ZERO = D("0")
-MODEL_LATENCY_MS = 1_000
-EMERGENCY_MARKET_IMPACT_BPS = D("10")
 _ACTIVE: dict[str, ExecutionEpisode] = {}
 _RECOVERED: set[str] = set()
 
@@ -132,6 +132,7 @@ def _episode_spec(
     if exact is None:
         raise ValueError("exact exchange filters are unavailable")
     plan = variant.plan
+    model = execution_model_contract()
     if plan.entry_ttl_sec is None or plan.maximum_holding_min is None:
         raise ValueError("promotion candidate timing is unavailable")
     entry = round_step(plan.entry_price, exact.tick, "floor")
@@ -179,12 +180,26 @@ def _episode_spec(
         stop_trigger_price=stop_trigger,
         stop_limit_price=stop_limit,
         quantity=quantity,
-        maker_buy_fee_pct=plan.maker_buy_fee_pct or plan.fee_pct,
-        maker_sell_fee_pct=plan.maker_sell_fee_pct or plan.fee_pct,
-        taker_sell_fee_pct=plan.taker_sell_fee_pct or plan.fee_pct,
-        latency_ms=MODEL_LATENCY_MS,
-        market_impact_bps=EMERGENCY_MARKET_IMPACT_BPS,
-        maximum_event_gap_ms=180_000,
+        maker_buy_fee_pct=(
+            plan.maker_buy_fee_pct
+            if plan.maker_buy_fee_pct is not None else plan.fee_pct
+        ),
+        maker_sell_fee_pct=(
+            plan.maker_sell_fee_pct
+            if plan.maker_sell_fee_pct is not None else plan.fee_pct
+        ),
+        taker_buy_fee_pct=(
+            plan.taker_buy_fee_pct
+            if plan.taker_buy_fee_pct is not None else plan.fee_pct
+        ),
+        taker_sell_fee_pct=(
+            plan.taker_sell_fee_pct
+            if plan.taker_sell_fee_pct is not None else plan.fee_pct
+        ),
+        latency_ms=int(model["latency_ms"]),
+        market_impact_bps=D(str(model["emergency_market_impact_bps"])),
+        stop_unfilled_grace_ms=int(model["stop_unfilled_grace_ms"]),
+        maximum_event_gap_ms=int(model["maximum_event_gap_ms"]),
     )
 
 
@@ -264,7 +279,8 @@ def collect_execution_episode(
     if (
         not terminal_this_interval
         and normalized not in _ACTIVE
-        and evidence_regime != "PANIC"
+        # Collect only regimes that the immutable CHAMPION can execute.
+        and evidence_regime in EXECUTABLE_ENTRY_REGIMES
         and trades_complete
         and (
             manifest is None
@@ -337,6 +353,10 @@ def collect_execution_episode(
             "taker_buy_fee_pct": variants[0].plan.taker_buy_fee_pct,
             "taker_sell_fee_pct": variants[0].plan.taker_sell_fee_pct,
         },
+        expected_candidate_parameters=(
+            manifest.get("candidate_parameters")
+            if isinstance(manifest, Mapping) else None
+        ),
     )
     report.update({
         "mode": "SHADOW",

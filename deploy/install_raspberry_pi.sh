@@ -730,8 +730,9 @@ systemctl disable --now make-pi-backup.timer make-pi-backup.service 2>/dev/null 
 "${PROJECT_DIR}/.venv/bin/python" -m bin.maintenance_state clear >/dev/null
 systemctl enable nginx avahi-daemon fail2ban mybot pi-healthd \
   ladder-dragon-user-stream-shadow.service \
+  ladder-dragon-depth-archive.service \
   ladder-dragon-backup.timer ladder-dragon-log-export.timer \
-  ladder-dragon-depth-archive.timer ladder-dragon-soak-audit.timer \
+  ladder-dragon-soak-audit.timer \
   ladder-dragon-daily-digest.timer ladder-dragon-monthly-prediction.timer \
   ladder-dragon-market-scenario.timer ladder-dragon-database-retention.timer \
   pi-watchdog-v3.timer >/dev/null
@@ -740,7 +741,8 @@ systemctl restart zramswap 2>/dev/null || true
 systemctl start mybot pi-healthd ladder-dragon-backup.timer pi-watchdog-v3.timer
 systemctl start ladder-dragon-user-stream-shadow.service
 systemctl start ladder-dragon-log-export.service ladder-dragon-log-export.timer
-systemctl start ladder-dragon-depth-archive.timer
+systemctl disable --now ladder-dragon-depth-archive.timer 2>/dev/null || true
+systemctl start ladder-dragon-depth-archive.service
 systemctl start ladder-dragon-soak-audit.service ladder-dragon-soak-audit.timer
 systemctl start ladder-dragon-daily-digest.timer
 systemctl start ladder-dragon-monthly-prediction.timer

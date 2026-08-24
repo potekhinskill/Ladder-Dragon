@@ -3,6 +3,29 @@
 All notable changes are documented here. Releases use Semantic Versioning; every
 section is dated and there is intentionally no `Unreleased` section.
 
+## [2.20.244] — 2026-08-24
+
+### Added
+- SOL version 20 uses an anytime-valid betting e-process and executable-regime evidence.
+- CHAMPION activation now includes a durable 24-hour probation policy.
+- A fixed-sequence Mainnet validation runner enforces the approved batch manifest.
+- The public depth service now records consecutive retained replay sessions.
+
+### Fixed
+- RECOVERY episodes no longer improve evidence for a policy that blocks RECOVERY entry.
+- Replay validation now binds every candidate and simulator input to one exact domain.
+- Entry taker fees now use the authoritative BUY taker rate.
+- Each executable regime now needs a positive one-sided confidence bound.
+
+### Security
+- Probation blocks excess entries or turnover and creates persistent HALT after its loss limit.
+- The LIVE worker fails closed without a current probation decision.
+- Validation automation stops after the first failed or uncertain Mainnet drill.
+
+### Verified
+- Focused prediction, CHAMPION, probation, validation, deployment, and documentation tests pass.
+- All project tests, Python compilation, shell syntax, and diff integrity checks pass.
+
 ## [2.20.243] — 2026-08-24
 
 ### Fixed

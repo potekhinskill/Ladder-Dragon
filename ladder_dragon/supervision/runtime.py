@@ -63,6 +63,7 @@ from ladder_dragon.supervision.entry_policy import (
     finite_decimal as _finite_decimal,
 )
 from ladder_dragon.supervision.execution_promotion import prepare_execution_promotion_report
+from ladder_dragon.supervision.champion_probation import apply_champion_probation_gate
 from ladder_dragon.supervision.position_flatten import BUY_BLOCKING_MODES, submit_flatten_slices
 from ladder_dragon.supervision.order_cleanup import (
     _log_order_lifetime as _cleanup_log_order_lifetime,
@@ -4486,22 +4487,19 @@ def main():
             if risk_manager is not None and now_loop >= next_risk_check:
                 orders: List[Dict[str, Any]] = []
                 risk_configuration_blocked = False
+                probation: dict[str, object] = {"status": "UNAVAILABLE"}
+                os.environ["BOT_CHAMPION_PROBATION_ALLOWED"] = "NO"
                 try:
                     snapshot, orders, prices = _build_risk_snapshot(symbols, limits)
                     risk_snapshot_available = True
                     consecutive_api_failures = 0
                     if auth_failure_attempts:
-                        log(
-                            "[AUTH-BACKOFF] Binance authentication recovered"
-                        )
-                        runtime_auth_state, accepted_public_ip = finalize_auth_success(
-                            runtime_auth_state, now_epoch=int(now_loop))
+                        log("[AUTH-BACKOFF] Binance authentication recovered")
+                        runtime_auth_state, accepted_public_ip = finalize_auth_success(runtime_auth_state, now_epoch=int(now_loop))
                         if accepted_public_ip:
                             _publish_ai_runtime_status(ip_guard={"changed": False, "consensus": True})
                         _save_auth_resilience_state(runtime_auth_state)
-                        notify_binance_auth_recovered(
-                            public_ip_accepted=accepted_public_ip
-                        )
+                        notify_binance_auth_recovered(public_ip_accepted=accepted_public_ip)
                         auth_failure_attempts = 0
                         auth_retry_at = 0.0
                         _publish_ai_runtime_status(
@@ -4514,14 +4512,15 @@ def main():
                             }
                         )
                     shocks, previous_prices = _configured_price_shocks_decimal(
-                        symbols,
-                        prices,
-                        previous_prices,
-                        os.getenv("RISK_SHOCK_PCT", "0.05") or "0.05",
-                    )
+                        symbols, prices, previous_prices,
+                        os.getenv("RISK_SHOCK_PCT", "0.05") or "0.05")
                     if shocks:
                         risk_manager.start_cooldown("; ".join(shocks))
                     decision = risk_manager.evaluate(snapshot)
+                    probation, decision = apply_champion_probation_gate(
+                        _ACTIVE_CHAMPIONS, snapshot.equity_usdt, decision,
+                        environ=os.environ, limits=limits, create_halt=_create_manual_halt_once,
+                        now_ms=int(time.time() * 1000))
                     unresolved_fills = _unresolved_fill_counts()
                     inventory_unresolved = unresolved_fills["inventory"]
                     if inventory_unresolved:
@@ -4634,6 +4633,7 @@ def main():
                                 if os.getenv(f"RISK_SYMBOL_CAP_{symbol.upper()}") is not None
                             },
                             "unresolved_fills": unresolved_fills,
+                            "champion_probation": probation,
                             "snapshot": {
                                 "equity_usdt": str(snapshot.equity_usdt),
                                 "exposure_usdt": str(snapshot.exposure_usdt),

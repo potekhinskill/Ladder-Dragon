@@ -45,6 +45,7 @@ class ExecutionEpisodeSpec:
     maker_buy_fee_pct: Decimal
     maker_sell_fee_pct: Decimal
     taker_sell_fee_pct: Decimal
+    taker_buy_fee_pct: Decimal = ZERO
     stop_unfilled_grace_ms: int = 60_000
     maximum_event_gap_ms: int = 120_000
     latency_ms: int = 0
@@ -61,6 +62,7 @@ class ExecutionEpisodeSpec:
         fees = (
             self.maker_buy_fee_pct,
             self.maker_sell_fee_pct,
+            self.taker_buy_fee_pct,
             self.taker_sell_fee_pct,
             self.market_impact_bps,
         )
@@ -149,7 +151,7 @@ class ExecutionEpisode:
             maker_fee_pct=ZERO,
             taker_fee_pct=ZERO,
             market_impact_bps=ZERO,
-            # Public cancellations cannot prove that queue ahead disappeared.
+            # This value is part of the hashed execution-semantics contract.
             queue_cancellation_ahead_ratio=ZERO,
         )
         self.phase = "ENTRY"
@@ -232,7 +234,7 @@ class ExecutionEpisode:
         if fill.order_id == self.ENTRY_ID:
             rate = (
                 self.spec.maker_buy_fee_pct
-                if fill.liquidity == "MAKER" else self.spec.taker_sell_fee_pct
+                if fill.liquidity == "MAKER" else self.spec.taker_buy_fee_pct
             )
         else:
             rate = (
@@ -502,8 +504,8 @@ def result_from_payload(payload: Mapping[str, object]) -> ExecutionEpisodeResult
         "adverse_selection_pct",
     }
     values = dict(payload)
-    # Historical v17/v18 records remain readable as pilot evidence. Their
-    # missing fingerprint prevents promotion under the v19 contract.
+    # Historical records remain readable as pilot evidence. A missing
+    # fingerprint prevents promotion under the v20 contract.
     values.setdefault("evidence_semantics_fingerprint", "")
     for field in decimal_fields:
         values[field] = D(str(values[field]))

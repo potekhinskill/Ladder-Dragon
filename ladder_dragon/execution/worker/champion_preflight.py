@@ -48,6 +48,8 @@ def require_live_champion(state: object, args: object) -> dict[str, object]:
     policy = champion.get("execution_policy")
     if not isinstance(policy, Mapping):
         raise ValueError("active CHAMPION execution policy is unavailable")
+    if state.os.getenv("BOT_CHAMPION_PROBATION_ALLOWED", "") != "YES":
+        raise ValueError("LIVE worker requires a current CHAMPION probation gate")
     order_maximum = _nonnegative_decimal(
         policy.get("maximum_order_notional_usdt"), field="CHAMPION order CAP"
     )

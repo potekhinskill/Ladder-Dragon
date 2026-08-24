@@ -41,10 +41,10 @@ def _confirmed_manifest(
         "selected_variant": f"{generation}_maker_ttl60_gap8p4",
         "candidate_fingerprint": candidate_fingerprint,
         "criteria": {
-            "regime_activation_policy": "confirmed_execution_regime_only_v2"
+            "regime_activation_policy": "confirmed_execution_regime_only_v3"
         },
         "candidate_parameters": {
-            "candidate_rule_version": 4,
+            "candidate_rule_version": 5,
             "evidence_semantics_fingerprint": evidence_semantics_fingerprint(),
             "entry_gap_bps": "8.4",
             "entry_ttl_sec": 3600,
@@ -406,6 +406,7 @@ def test_direct_worker_rebuilds_policy_and_clamps_caps(tmp_path: Path, monkeypat
         "BOT_CHAMPION_POLICY_FINGERPRINT",
         str(activated["execution_policy_fingerprint"]),
     )
+    monkeypatch.setenv("BOT_CHAMPION_PROBATION_ALLOWED", "YES")
     monkeypatch.setenv("BOT_CAP_PER_ORDER", "100")
     monkeypatch.setenv("RISK_MANAGED_INVENTORY_HARD_CAP_BTCUSDT", "200")
     state = SimpleNamespace(os=os, _compat_float=float)

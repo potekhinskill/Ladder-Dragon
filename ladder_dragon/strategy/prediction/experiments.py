@@ -29,6 +29,7 @@ from ladder_dragon.strategy.prediction.experiment_config import (
 )
 from ladder_dragon.strategy.prediction.episode_semantics import (
     evidence_semantics_fingerprint,
+    v19_evidence_semantics_fingerprint,
 )
 from ladder_dragon.strategy.prediction.experiment_lifecycle import (
     REPORT_SCHEMA_VERSION,
@@ -222,7 +223,9 @@ def build_shadow_variants(
                 else "predict_distribution:v1:expanding_history_before_snapshot"
             ),
             candidate_rule_version=(
-                4 if spec.statistical_design_version
+                5 if spec.statistical_design_version
+                == "episode_anytime_expectancy_v4"
+                else 4 if spec.statistical_design_version
                 == "episode_net_expectancy_alpha_spending_v3"
                 else 3 if spec.lifecycle_mode == "PROMOTION"
                 else 2 if spec.evidence_semantics_version.endswith("_v2") else 1
@@ -233,6 +236,9 @@ def build_shadow_variants(
             ),
             evidence_semantics_fingerprint=(
                 evidence_semantics_fingerprint()
+                if spec.statistical_design_version
+                == "episode_anytime_expectancy_v4"
+                else v19_evidence_semantics_fingerprint()
                 if spec.statistical_design_version
                 == "episode_net_expectancy_alpha_spending_v3"
                 else ""

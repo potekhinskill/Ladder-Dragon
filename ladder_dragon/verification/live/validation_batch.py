@@ -14,6 +14,7 @@ import os
 from pathlib import Path
 import re
 import subprocess
+import sys
 import time
 import uuid
 from typing import Mapping
@@ -128,7 +129,7 @@ def create_batch_manifest(
         raise RuntimeError("validation batch cooldown is invalid")
     now_ms = int(time.time() * 1000) if created_at_ms is None else int(created_at_ms)
     payload: dict[str, object] = {
-        "schema_version": 2,
+        "schema_version": 3,
         "batch_id": uuid.uuid4().hex,
         "symbol": normalized,
         "allowed_drills": list(ALLOWED_DRILLS),
@@ -146,6 +147,17 @@ def create_batch_manifest(
         "persistent_halt_required": True,
         "automatic_stop": True,
     }
+    sequence = []
+    used = {"LIMIT_MAKER": 0, "STOP_LOSS_LIMIT": 0}
+    while len(sequence) < maximum_attempts:
+        for drill, quota in (
+            ("LIMIT_MAKER", limit_quota),
+            ("STOP_LOSS_LIMIT", stop_quota),
+        ):
+            if len(sequence) < maximum_attempts and used[drill] < quota:
+                sequence.append(drill)
+                used[drill] += 1
+    payload["attempt_sequence"] = sequence
     payload["manifest_sha256"] = _sha256(payload)
     path.parent.mkdir(parents=True, exist_ok=True)
     descriptor = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
@@ -225,6 +237,13 @@ def reserve_validation_attempt(
         consumed = sum((_decimal(row["turnover_usdt"], field="ledger turnover") for row in rows), Decimal("0"))
         if len(rows) >= int(manifest["maximum_attempts"]):
             raise RuntimeError("validation batch attempt limit reached")
+        sequence = manifest.get("attempt_sequence")
+        if (
+            isinstance(sequence, list)
+            and len(rows) < len(sequence)
+            and normalized_drill != sequence[len(rows)]
+        ):
+            raise RuntimeError("validation drill differs from the fixed sequence")
         drill_rows = [row for row in rows if row.get("drill") == normalized_drill]
         quota = int(manifest["maximum_attempts_by_drill"][normalized_drill])
         if len(drill_rows) >= quota:
@@ -256,6 +275,59 @@ def reserve_validation_attempt(
         return reservation
 
 
+def run_validation_batch(
+    manifest_path: Path, *, notional_usdt: Decimal
+) -> int:
+    """Run the fixed sequence and stop after the first uncertain result."""
+    if os.getenv("BOT_MAINNET_VALIDATION_BATCH_RUN_CONFIRMED", "") != "YES":
+        raise RuntimeError("Mainnet validation batch run is not confirmed")
+    manifest = _load_manifest(manifest_path)
+    sequence = manifest.get("attempt_sequence")
+    if not isinstance(sequence, list) or not sequence:
+        raise RuntimeError("validation batch fixed sequence is unavailable")
+    turnover = _decimal(notional_usdt, field="attempt turnover")
+    if turnover > Decimal("6"):
+        raise RuntimeError("validation batch attempt exceeds 6 USDT")
+    ledger = manifest_path.with_suffix(manifest_path.suffix + ".attempts.ndjson")
+    completed = 0
+    if ledger.exists():
+        completed = sum(
+            bool(line.strip())
+            for line in ledger.read_text(encoding="utf-8").splitlines()
+        )
+    child_environment = dict(os.environ)
+    child_environment.update({
+        "BOT_MAINNET_LIMIT_MAKER_VALIDATION_CONFIRMED": "YES",
+        "BOT_MAINNET_LIMIT_MAKER_VALIDATION_CLEANUP_CONFIRMED": "YES",
+        "BOT_MAINNET_STOP_LIMIT_VALIDATION_CONFIRMED": "YES",
+        "BOT_MAINNET_STOP_LIMIT_VALIDATION_CLEANUP_CONFIRMED": "YES",
+    })
+    modules = {
+        "LIMIT_MAKER": "bin.mainnet_limit_maker_validation",
+        "STOP_LOSS_LIMIT": "bin.mainnet_stop_limit_validation",
+    }
+    pending = sequence[completed:]
+    for index, drill in enumerate(pending):
+        command = [
+            sys.executable,
+            "-m",
+            modules[str(drill)],
+            "--symbol",
+            str(manifest["symbol"]),
+            "--notional-usdt",
+            format(turnover, "f"),
+            "--batch-manifest",
+            str(manifest_path),
+        ]
+        result = subprocess.run(command, env=child_environment, check=False)
+        if result.returncode != 0:
+            return int(result.returncode)
+        cooldown = int(manifest.get("minimum_cooldown_sec", 0))
+        if cooldown > 0 and index + 1 < len(pending):
+            time.sleep(cooldown)
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Create a bounded Mainnet validation batch")
     parser.add_argument("--manifest", type=Path, required=True)
@@ -266,6 +338,15 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--limit-maker-attempts", type=int)
     parser.add_argument("--stop-limit-attempts", type=int)
     parser.add_argument("--minimum-cooldown-sec", type=int, default=0)
+    parser.add_argument("--confirm", required=True)
+    return parser
+
+
+def build_run_parser() -> argparse.ArgumentParser:
+    """Build the explicit batch-run parser."""
+    parser = argparse.ArgumentParser(description="Run one fixed validation batch")
+    parser.add_argument("--manifest", type=Path, required=True)
+    parser.add_argument("--notional-usdt", type=Decimal, default=Decimal("6"))
     parser.add_argument("--confirm", required=True)
     return parser
 
@@ -288,4 +369,8 @@ def main() -> int:
     return 0
 
 
-__all__ = ["create_batch_manifest", "reserve_validation_attempt"]
+__all__ = [
+    "create_batch_manifest",
+    "reserve_validation_attempt",
+    "run_validation_batch",
+]

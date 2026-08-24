@@ -844,7 +844,7 @@ def test_log_export_is_rotated_sanitized_and_managed_by_systemd():
     assert "expected protected logs HTTP 401" in installer
 
 
-def test_public_depth_archive_has_timer_retention_and_no_secret_environment():
+def test_public_depth_archive_is_continuous_retained_and_secret_free():
     wrapper = read("deploy/record_depth_archive.sh")
     service = read("deploy/ladder-dragon-depth-archive.service")
     timer = read("deploy/ladder-dragon-depth-archive.timer")
@@ -856,11 +856,15 @@ def test_public_depth_archive_has_timer_retention_and_no_secret_environment():
     assert "-u BINANCE_API_SECRET" in wrapper
     assert "flock -n" in wrapper
     assert "OnUnitActiveSec=1h" in timer
+    assert "BOT_DEPTH_ARCHIVE_CONTINUOUS=1" in service
+    assert "Restart=on-failure" in service
     assert "User=bot" in service
     assert "EnvironmentFile=-/etc/ladder-dragon/depth-archive.conf" in service
     assert "ReadWritePaths=/var/lib/ladder-dragon/depth-archives" in service
-    assert "ladder-dragon-depth-archive.timer" in installer
-    assert "ladder-dragon-depth-archive.timer" in updater
+    assert "disable --now ladder-dragon-depth-archive.timer" in installer
+    assert "disable --now ladder-dragon-depth-archive.timer" in updater
+    assert "ladder-dragon-depth-archive.service" in installer
+    assert "ladder-dragon-depth-archive.service" in updater
     assert "/usr/local/bin/ladder-dragon-depth-archive" in runtime_assets
 
 

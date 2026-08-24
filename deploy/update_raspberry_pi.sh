@@ -728,7 +728,7 @@ else
     >/dev/null || [[ "$?" == "2" ]]
 fi
 systemctl enable ladder-dragon-backup.timer ladder-dragon-log-export.timer \
-  ladder-dragon-depth-archive.timer ladder-dragon-soak-audit.timer \
+  ladder-dragon-depth-archive.service ladder-dragon-soak-audit.timer \
   ladder-dragon-daily-digest.timer ladder-dragon-monthly-prediction.timer \
   ladder-dragon-market-scenario.timer ladder-dragon-database-retention.timer \
   ladder-dragon-user-stream-shadow.service \
@@ -737,7 +737,8 @@ start_previous_services
 systemctl start ladder-dragon-backup.timer
 systemctl start ladder-dragon-backup.service
 systemctl start ladder-dragon-log-export.service ladder-dragon-log-export.timer
-systemctl start ladder-dragon-depth-archive.timer
+systemctl disable --now ladder-dragon-depth-archive.timer 2>/dev/null || true
+systemctl restart ladder-dragon-depth-archive.service
 systemctl start ladder-dragon-soak-audit.service ladder-dragon-soak-audit.timer
 systemctl start ladder-dragon-daily-digest.timer
 systemctl start ladder-dragon-monthly-prediction.timer

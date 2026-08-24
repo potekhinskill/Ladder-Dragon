@@ -1654,3 +1654,17 @@ entries concise; this is not a changelog or an activity log.
 - **Decision:** fingerprint one contract and attach it to every episode, manifest, replay gate, and CHAMPION policy.
 - **Why it worked:** mixed semantics fail closed, while PANIC losses remain inside net expectancy.
 - **Reuse:** every promotion where safety exits and normal exits share one production strategy.
+
+### 2026-08-24 — Confirm only the executable entry policy
+
+- **Context:** RECOVERY outcomes improved evidence although production blocks RECOVERY entries.
+- **Decision:** start version 20 episodes only in executable regimes and bind all simulator inputs to the fingerprint.
+- **Why it worked:** confirmation now measures the exact policy that a CHAMPION can execute.
+- **Reuse:** every experiment whose runtime policy excludes states from its signal classifier.
+
+### 2026-08-24 — Use bounded probation after CHAMPION activation
+
+- **Context:** full SHADOW confirmation did not limit the first LIVE execution period.
+- **Decision:** limit entries, turnover, duration, and equity loss during durable CHAMPION probation.
+- **Why it worked:** the worker requires a fresh probation gate, and a loss breach creates persistent HALT.
+- **Reuse:** every evidence-backed policy that enters production for the first time.

@@ -59,6 +59,8 @@ def episode_confirmation_criteria(
     """Return the immutable criteria evaluated by one promotion generation."""
     if statistical_design_version == "episode_net_expectancy_alpha_spending_v3":
         return net_expectancy_criteria()
+    if statistical_design_version == "episode_anytime_expectancy_v4":
+        return net_expectancy_criteria(anytime_valid=True)
     if statistical_design_version != "episode_combined_alpha_spending_v2":
         raise ValueError("unsupported episode statistical design")
     return {
@@ -493,9 +495,11 @@ def sequential_episode_report(
     """Evaluate each look with the exact criteria frozen in the manifest."""
     if (
         isinstance(criteria, Mapping)
-        and criteria.get("criteria_schema_version") == 3
+        and criteria.get("criteria_schema_version") in {3, 4}
     ):
-        expected = net_expectancy_criteria()
+        expected = net_expectancy_criteria(
+            anytime_valid=criteria.get("criteria_schema_version") == 4
+        )
         if _canonical(criteria) != _canonical(expected):
             return {
                 "schema_version": 3,
@@ -772,6 +776,7 @@ def model_validation_status(
     symbol: str,
     execution_model_rule: str,
     expected_fee_schedule: Mapping[str, object] | None = None,
+    expected_candidate_parameters: Mapping[str, object] | None = None,
 ) -> dict[str, object]:
     """Return the latest immutable actual-order validation for one model."""
     with store._connect() as connection:
@@ -826,6 +831,24 @@ def model_validation_status(
                     "status": "BLOCKED",
                     "reason": "replay validation fee schedule differs",
                 }
+    if expected_candidate_parameters is not None:
+        from ladder_dragon.strategy.prediction.episode_semantics import (
+            canonical_digest,
+            execution_validation_domain,
+        )
+        expected_domain = execution_validation_domain(
+            expected_candidate_parameters
+        )
+        observed_domain = report.get("validation_domain")
+        if (
+            not isinstance(observed_domain, Mapping)
+            or canonical_digest(observed_domain)
+            != canonical_digest(expected_domain)
+        ):
+            return {
+                "status": "BLOCKED",
+                "reason": "replay validation candidate domain differs",
+            }
     return {
         "validation_id": str(row[0]),
         "status": str(row[1]),
@@ -857,6 +880,9 @@ def record_model_validation(
     from ladder_dragon.strategy.replay_validation import ReplayValidation
     from ladder_dragon.strategy.prediction.experiment_lifecycle import (
         load_manifest,
+    )
+    from ladder_dragon.strategy.prediction.episode_semantics import (
+        execution_validation_domain,
     )
     if report.get("ready") is not True:
         raise ValueError("replay validation must contain a strict PASS")
@@ -902,7 +928,9 @@ def record_model_validation(
         for field, value in rates.items()
     ):
         raise ValueError("replay validation fee schedule differs")
-    payload_hash = _digest(dict(report))
+    stored_report = dict(report)
+    stored_report["validation_domain"] = execution_validation_domain(parameters)
+    payload_hash = _digest(stored_report)
     source_hash = str(validation.archive_sha256).strip().lower()
     if len(source_hash) != 64 or any(
         character not in "0123456789abcdef" for character in source_hash
@@ -941,7 +969,7 @@ def record_model_validation(
                 "PASS",
                 validation.covered_orders,
                 validation.actual_filled_orders,
-                _canonical(dict(report)),
+                _canonical(stored_report),
                 payload_hash,
                 source_hash,
                 timestamp,

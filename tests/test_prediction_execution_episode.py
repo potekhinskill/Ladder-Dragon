@@ -114,6 +114,18 @@ def _v19_promotion_variant():
     )[0]
 
 
+def _v20_promotion_variant():
+    baseline = _promotion_variant().baseline_plan
+    return build_shadow_variants(
+        market_price=D("100"),
+        baseline_plan=baseline,
+        required_edge_pct=D("0.001"),
+        regime="RANGE",
+        generation="v20",
+        symbol="SOLUSDT",
+    )[0]
+
+
 def test_episode_models_partial_maker_fill_and_exact_tp_fees():
     episode = ExecutionEpisode(_spec(), _event(0))
 
@@ -209,6 +221,52 @@ def test_v19_net_expectancy_rejects_frequent_wins_with_larger_panic_losses():
     assert D(report["net_pnl_quote"]) < 0
     assert report["status"] != "PASS"
     assert report["approved"] is False
+
+
+def test_v20_anytime_gate_confirms_only_executable_profitable_regimes():
+    criteria = episode_confirmation_criteria("episode_anytime_expectancy_v4")
+    rows = [
+        replace(
+            _result(index, "0.05"),
+            generation="v20",
+            variant_id="v20_maker_ttl90_gap48",
+            execution_model_rule="minute_l2_fifo_oco_gap_v3",
+            evidence_semantics_fingerprint=evidence_semantics_fingerprint(),
+        )
+        for index in range(60)
+    ]
+
+    report = sequential_episode_report(rows, criteria=criteria)
+
+    assert report["status"] == "PASS"
+    assert set(report["confirmed_execution_regimes"]) == {
+        "RANGE", "TREND_UP", "TREND_DOWN",
+    }
+    damaged = list(rows)
+    damaged[0] = replace(damaged[0], start_regime="RECOVERY")
+    blocked = sequential_episode_report(damaged, criteria=criteria)
+    assert blocked["status"] == "BLOCKED"
+    assert "non-executable" in blocked["readiness_reason"]
+
+
+def test_v20_regime_confidence_rejects_negative_trend_up():
+    criteria = episode_confirmation_criteria("episode_anytime_expectancy_v4")
+    rows = []
+    for index in range(24):
+        regime = ("RANGE", "TREND_UP", "TREND_DOWN")[index % 3]
+        pnl = "-0.05" if regime == "TREND_UP" else "0.05"
+        rows.append(replace(
+            _result(index, pnl),
+            generation="v20",
+            variant_id="v20_maker_ttl90_gap48",
+            execution_model_rule="minute_l2_fifo_oco_gap_v3",
+            evidence_semantics_fingerprint=evidence_semantics_fingerprint(),
+        ))
+
+    report = sequential_episode_report(rows, criteria=criteria)
+
+    assert report["regime_safety"]["TREND_UP"]["noninferior"] is False
+    assert "TREND_UP" not in report["confirmed_execution_regimes"]
 
 
 def _result(index: int, pnl: str) -> ExecutionEpisodeResult:
@@ -417,7 +475,7 @@ def test_episode_start_and_terminal_round_trip(tmp_path):
 
 def test_model_validation_requires_filled_maker_and_stop_limit_orders(tmp_path):
     store = PredictionShadowStore(tmp_path / "prediction.sqlite3")
-    freeze_preselected_episode_experiment(
+    manifest = freeze_preselected_episode_experiment(
         store,
         experiment_id="validation-experiment",
         generation="v19",
@@ -489,7 +547,16 @@ def test_model_validation_requires_filled_maker_and_stop_limit_orders(tmp_path):
         store,
         symbol="SOLUSDT",
         execution_model_rule="minute_l2_fifo_oco_gap_v2",
+        expected_candidate_parameters=manifest["candidate_parameters"],
     )["status"] == "PASS"
+    changed = dict(manifest["candidate_parameters"])
+    changed["entry_gap_bps"] = "49"
+    assert model_validation_status(
+        store,
+        symbol="SOLUSDT",
+        execution_model_rule="minute_l2_fifo_oco_gap_v2",
+        expected_candidate_parameters=changed,
+    )["status"] == "BLOCKED"
     with store._connect() as connection:
         try:
             connection.execute(
@@ -567,4 +634,29 @@ def test_v19_manifest_uses_episode_confirmation_report(tmp_path):
     assert report["confirmation_progress"]["method"] == (
         "group_sequential_net_expectancy_alpha_spending_v3"
     )
+    assert report["promotion_eligible"] is False
+
+
+def test_v20_manifest_uses_anytime_confirmation_and_new_semantics(tmp_path):
+    store = PredictionShadowStore(tmp_path / "prediction.sqlite3")
+    manifest = freeze_preselected_episode_experiment(
+        store,
+        experiment_id="sol-v20-live-confirmation",
+        generation="v20",
+        symbol="SOLUSDT",
+        selected_variant=_v20_promotion_variant(),
+        horizons_min=(300, 360),
+        product_version="2.20.244",
+        source_commit="d" * 40,
+        frozen_at_ms=int(time.time() * 1000),
+    )
+
+    report = confirmation_report(
+        store, experiment_id=str(manifest["experiment_id"])
+    )
+
+    assert report["confirmation_progress"]["method"] == (
+        "anytime_valid_betting_e_process_v4"
+    )
+    assert manifest["candidate_parameters"]["candidate_rule_version"] == 5
     assert report["promotion_eligible"] is False

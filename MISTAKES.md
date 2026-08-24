@@ -2013,3 +2013,10 @@ private infrastructure details.
 - **Root cause:** the dispatch allowlist omitted the new statistical method identifier.
 - **Correction:** route version 19 manifests to the episode evaluator.
 - **Prevention:** test each frozen statistical method through the public report entry point.
+
+### 2026-08-24 — Counted a blocked entry regime as promotion evidence
+
+- **Impact:** profitable RECOVERY episodes made version 19 look positive while its executable regimes remained negative.
+- **Root cause:** the collector excluded PANIC but did not share the CHAMPION entry-regime allowlist.
+- **Correction:** preserve version 19 as pilot evidence and start version 20 only in executable regimes.
+- **Prevention:** fingerprint the entry-state scope and reject every result outside that scope.

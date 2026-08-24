@@ -7,17 +7,20 @@ After=network-online.target
 Wants=network-online.target
 
 [Service]
-Type=oneshot
+Type=simple
 User=bot
 Group=bot
 Environment=PROJECT_DIR=/home/bot/apps/binance_bot
 Environment=BOT_DEPTH_ARCHIVE_DIR=/var/lib/ladder-dragon/depth-archives
 Environment=BOT_DEPTH_ARCHIVE_SYMBOLS=SOLUSDT
-Environment=BOT_DEPTH_ARCHIVE_DURATION_SEC=840
+Environment=BOT_DEPTH_ARCHIVE_DURATION_SEC=3300
 Environment=BOT_DEPTH_ARCHIVE_MAX_EVENTS=250000
 Environment=BOT_DEPTH_ARCHIVE_RETENTION_DAYS=7
+Environment=BOT_DEPTH_ARCHIVE_CONTINUOUS=1
 EnvironmentFile=-/etc/ladder-dragon/depth-archive.conf
 ExecStart=/usr/local/bin/ladder-dragon-depth-archive
+Restart=on-failure
+RestartSec=15s
 Nice=15
 IOSchedulingClass=idle
 NoNewPrivileges=yes

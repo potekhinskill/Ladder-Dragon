@@ -1,6 +1,6 @@
 # Implementation status
 
-This document describes the code in version **2.20.243**.
+This document describes the code in version **2.20.244**.
 It does not describe future plans as completed work.
 
 An implemented function is not automatically approved for LIVE use.
@@ -75,7 +75,7 @@ Future outcomes are normal pending work.
 Only overdue or unrecovered expired outcomes block the backlog gate.
 The soak report applies its expiration checks to the audited runtime window.
 
-SOLUSDT version nineteen uses one fixed 48-basis-point candidate and a 90-minute entry lifetime.
+SOLUSDT version twenty uses one fixed 48-basis-point candidate and a 90-minute entry lifetime.
 Its primary endpoint is 360 minutes.
 The 300-minute result is diagnostic only.
 The SHADOW evidence notional is fixed at 6 USDT.
@@ -98,14 +98,14 @@ An operator command freezes its exact policy before live confirmation.
 Confirmation accepts only episodes that start after the frozen boundary.
 It also requires the frozen candidate and execution-model fingerprints.
 
-The net-expectancy gate uses four preregistered terminal-attempt looks.
-The looks contain 12, 24, 34, and 43 attempts.
-Their alpha spending totals 0.05.
-Each look requires a positive one-sided bootstrap lower mean bound.
-Each look also checks fill rate, drawdown, and regime safety.
+The net-expectancy gate uses a preregistered betting e-process.
+It supports continuous review without invalid repeated testing.
+The one-sided confidence bound must remain positive after fees.
+The gate also checks fill rate, drawdown, and regime safety.
 PANIC flatten PnL enters the mean and drawdown.
 PANIC vetoes are terminal unfilled attempts in the fill denominator.
-At least two ordinary regimes require three filled episodes and non-inferior mean PnL.
+RECOVERY and PANIC cannot start an entry episode.
+At least two executable regimes require eight filled episodes and a positive confidence bound.
 Only these confirmed regimes can authorize CHAMPION BUY orders.
 An uncovered regime blocks BUY and keeps position protection active.
 Residual PANIC exposure remains a separate safety failure.
@@ -126,7 +126,7 @@ All active candidates use the same entry scope.
 The active-entry diagnostic therefore uses the same cohort.
 
 Diagnostic prediction cohorts retain their existing walk-forward training rules.
-The SOL version-nineteen fixed rule has no cold-start training delay.
+The SOL version-twenty fixed rule has no cold-start training delay.
 Historical rows cannot enter its live confirmation inference.
 Statistical gates stream the complete journal in append order.
 Control readers retain bounded binding and non-binding evidence groups.
@@ -134,10 +134,12 @@ Classified lifecycle and execution-episode evidence remains append-only in SQLit
 Episode starts and results are derived SHADOW evidence.
 Imported model validations are authoritative promotion artifacts.
 Validation batch manifests and attempt ledgers are authoritative operator artifacts.
+The CHAMPION probation state is authoritative safety state.
 The episode store has a fixed limit of 250,000 starts.
 The validation store has a fixed limit of 1,024 reports.
 Automated retention does not delete this evidence.
 Automated retention does not delete validation batch artifacts.
+Automated retention does not delete CHAMPION probation state.
 The prediction database backup includes all these records.
 No scheduled maintenance changes these append-only tables.
 Capacity exhaustion fails closed and requires a reviewed schema change.
@@ -168,6 +170,16 @@ Activation binds the reviewed exposure limits to the policy fingerprint.
 Activation requires a clean checkout at the exact published annotated release tag.
 Each order intent records the active activation and policy fingerprints.
 The authoritative activation registry has no automatic retention.
+Each new CHAMPION starts a 24-hour probation period.
+Probation limits entries, turnover, and account-equity loss.
+An equity-loss breach creates persistent HALT.
+The worker fails closed without a current probation result.
+
+The public depth service records consecutive 55-minute sessions.
+The service restarts after a recorder failure.
+Seven-day rotation bounds disposable public archive growth.
+Each validation drill also stores its complete order-lifecycle archive.
+Replay validation must match the exact candidate and simulator domain.
 
 Attributed AI fills store monetary values as exact text.
 Each fill records whether its slippage value is verified.

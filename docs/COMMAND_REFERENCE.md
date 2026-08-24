@@ -137,7 +137,7 @@ Freeze the preregistered SOL execution candidate:
 .venv/bin/python -m bin.prediction_experiment episode-bootstrap \
   --experiment-id EXPERIMENT_ID \
   --symbol SOLUSDT \
-  --generation v19 \
+  --generation v20 \
   --confirm BOOTSTRAP
 ```
 
@@ -151,7 +151,7 @@ Import one reviewed execution-model validation:
 ```bash
 .venv/bin/python -m bin.prediction_experiment model-validation-import \
   --symbol SOLUSDT \
-  --generation v19 \
+  --generation v20 \
   --experiment-id EXPERIMENT_ID \
   --report validation.json \
   --report-sha256 REPORT_SHA256 \
@@ -198,6 +198,21 @@ Use the current activation identifier instead of `NONE` for replacement.
 Restart the supervisor before you reset HALT.
 The worker verifies the activation again before LIVE execution.
 
+WARNING: The next command creates real Mainnet orders.
+
+Run only an independently approved batch manifest:
+
+```bash
+BOT_MAINNET_VALIDATION_BATCH_RUN_CONFIRMED=YES \
+  .venv/bin/python -m bin.run_mainnet_validation_batch \
+  --manifest BATCH_MANIFEST \
+  --notional-usdt 6 \
+  --confirm RUN_VALIDATION_BATCH
+```
+
+The runner follows the immutable LIMIT_MAKER and STOP_LOSS_LIMIT sequence.
+It stops after the first failed or uncertain drill.
+
 ## Execution and operator commands
 
 | Command | Purpose | Mutation boundary |
@@ -211,6 +226,7 @@ The worker verifies the activation again before LIVE execution.
 | `mainnet_limit_maker_validation` | collects one real passive fill for replay validation | separate approval, 6 USDT ceiling, cleanup, and persistent HALT |
 | `mainnet_stop_limit_validation` | collects one real STOP_LOSS_LIMIT outcome | separate approval, 6 USDT ceiling, cleanup, and persistent HALT |
 | `mainnet_validation_batch` | creates a bounded validation authorization | no order; fixed attempts, turnover, release, and expiry |
+| `run_mainnet_validation_batch` | runs the fixed validation sequence | separate approval, persistent HALT, and automatic stop |
 | `tools_cancel_open` | previews or cancels selected open orders | `--live` plus venue selection |
 | `risk_ctl` | reads or resets the persistent HALT | manual reset review |
 | `maintenance_state` | sets, clears, or reads maintenance state | explicit operator command |
