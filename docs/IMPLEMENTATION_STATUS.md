@@ -1,6 +1,6 @@
 # Implementation status
 
-This document describes the code in version **2.20.248**.
+This document describes the code in version **2.20.249**.
 It does not describe future plans as completed work.
 
 An implemented function is not automatically approved for LIVE use.
@@ -75,7 +75,9 @@ Future outcomes are normal pending work.
 Only overdue or unrecovered expired outcomes block the backlog gate.
 The soak report applies its expiration checks to the audited runtime window.
 
-SOLUSDT version twenty-one uses one fixed 48-basis-point candidate and a 90-minute entry lifetime.
+SOLUSDT version twenty-two uses one fixed 48-basis-point candidate and a 90-minute entry lifetime.
+Its take-profit target is 80 basis points.
+Version twenty-one remains immutable historical evidence with a 60-basis-point target.
 Its primary endpoint is 360 minutes.
 The 300-minute result is diagnostic only.
 The SHADOW evidence notional is fixed at 6 USDT.
@@ -91,6 +93,8 @@ One episode can run at a time.
 The next episode starts after the prior episode becomes terminal.
 The database stores compact starts and terminal results.
 It does not store the raw L2 stream.
+Each new result stores maximum favorable and adverse bid excursions before exit.
+These diagnostics cannot change promotion or order decisions.
 
 Historical data selects the fixed SOL candidate and estimates variance only.
 The fixed candidate does not use online training.
@@ -105,7 +109,7 @@ The gate also checks fill rate, drawdown, and regime safety.
 PANIC flatten PnL enters the mean and drawdown.
 PANIC vetoes are terminal unfilled attempts in the fill denominator.
 RECOVERY and PANIC cannot start an entry episode.
-Version twenty-one preregisters RANGE as its only executable entry regime.
+Version twenty-two preregisters RANGE as its only executable entry regime.
 RANGE requires twelve filled episodes and a positive confidence bound.
 Every other regime blocks CHAMPION BUY and keeps position protection active.
 Residual PANIC exposure remains a separate safety failure.

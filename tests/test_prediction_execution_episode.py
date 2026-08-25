@@ -40,6 +40,7 @@ from ladder_dragon.strategy.prediction.episode_semantics import (
     execution_engine_validation_domain,
     v19_evidence_semantics_fingerprint,
     v20_evidence_semantics_fingerprint,
+    v21_evidence_semantics_fingerprint,
 )
 from ladder_dragon.strategy.replay_policy import (
     PRODUCTION_REPLAY_ACCEPTANCE_POLICY,
@@ -150,6 +151,18 @@ def _v21_promotion_variant():
     )[0]
 
 
+def _v22_promotion_variant():
+    baseline = _promotion_variant().baseline_plan
+    return build_shadow_variants(
+        market_price=D("100"),
+        baseline_plan=baseline,
+        required_edge_pct=D("0.001"),
+        regime="RANGE",
+        generation="v22",
+        symbol="SOLUSDT",
+    )[0]
+
+
 def test_episode_models_partial_maker_fill_and_exact_tp_fees():
     episode = ExecutionEpisode(_spec(), _event(0))
 
@@ -167,6 +180,9 @@ def test_episode_models_partial_maker_fill_and_exact_tp_fees():
     assert result.total_fee_quote == D("0.1000")
     assert result.net_pnl_quote == D("0.9000")
     assert result.eligible_for_promotion is True
+    assert result.excursion_evidence_available is True
+    assert result.maximum_favorable_excursion_pct == D("100") / D("99") - D("1")
+    assert result.maximum_adverse_excursion_pct == D("0")
 
 
 def test_episode_models_stop_trigger_gap_and_market_flatten():
@@ -313,7 +329,7 @@ def test_v21_evidence_quality_bounds_known_source_attrition():
             variant_id="v21_maker_ttl90_gap48",
             execution_model_rule="minute_l2_fifo_oco_gap_v3",
             start_regime="RANGE",
-            evidence_semantics_fingerprint=evidence_semantics_fingerprint(),
+            evidence_semantics_fingerprint=v21_evidence_semantics_fingerprint(),
         )
 
     gap = replace(
@@ -346,6 +362,39 @@ def test_v21_evidence_quality_bounds_known_source_attrition():
         ),
     )
     assert unknown_report["evidence_quality"]["status"] == "BLOCKED"
+
+
+def test_v22_reports_excursions_without_using_them_for_approval():
+    row = replace(
+        _result(1, "0.05"),
+        generation="v22",
+        variant_id="v22_maker_ttl90_gap48_tp80",
+        execution_model_rule="minute_l2_fifo_oco_gap_v3",
+        start_regime="RANGE",
+        evidence_semantics_fingerprint=evidence_semantics_fingerprint(),
+        maximum_favorable_excursion_pct=D("0.009"),
+        maximum_adverse_excursion_pct=D("0.004"),
+        excursion_evidence_available=True,
+    )
+
+    report = sequential_episode_report(
+        [row],
+        criteria=episode_confirmation_criteria(
+            "episode_anytime_expectancy_v6"
+        ),
+    )
+
+    diagnostics = report["excursion_diagnostics"]
+    assert diagnostics["available"] is True
+    assert diagnostics["filled_episodes"] == 1
+    assert diagnostics["overall"][
+        "mean_maximum_favorable_excursion_pct"
+    ] == "0.009"
+    assert diagnostics["overall"][
+        "mean_maximum_adverse_excursion_pct"
+    ] == "0.004"
+    assert diagnostics["affects_promotion"] is False
+    assert report["approved"] is False
 
 
 def _result(index: int, pnl: str) -> ExecutionEpisodeResult:
@@ -506,6 +555,9 @@ def test_restart_recovery_accepts_missing_legacy_semantics_fingerprint(tmp_path)
     )
     assert rows[0].terminal_reason == "PROCESS_RESTART_DATA_GAP"
     assert rows[0].evidence_semantics_fingerprint == ""
+    assert rows[0].excursion_evidence_available is False
+    assert rows[0].maximum_favorable_excursion_pct == D("0")
+    assert rows[0].maximum_adverse_excursion_pct == D("0")
     assert rows[0].eligible_for_promotion is False
 
 
@@ -847,3 +899,29 @@ def test_v21_manifest_freezes_one_reachable_execution_regime(tmp_path):
         "anytime_valid_betting_e_process_v5"
     )
     assert report["promotion_eligible"] is False
+
+
+def test_v22_manifest_freezes_tp_only_and_excursion_contract(tmp_path):
+    store = PredictionShadowStore(tmp_path / "prediction.sqlite3")
+    variant = _v22_promotion_variant()
+    manifest = freeze_preselected_episode_experiment(
+        store,
+        experiment_id="sol-v22-live-confirmation",
+        generation="v22",
+        symbol="SOLUSDT",
+        selected_variant=variant,
+        horizons_min=(300, 360),
+        product_version="2.20.249",
+        source_commit="f" * 40,
+        frozen_at_ms=int(time.time() * 1000),
+    )
+
+    assert variant.variant_id == "v22_maker_ttl90_gap48_tp80"
+    assert variant.dimension == "take_profit_target"
+    assert manifest["candidate_parameters"]["target_return"] == "0.0080"
+    assert manifest["candidate_parameters"]["stop_distance"] == "0.01035"
+    assert manifest["candidate_parameters"]["candidate_rule_version"] == 7
+    assert manifest["criteria"]["criteria_schema_version"] == 6
+    assert manifest["criteria"]["diagnostic_policy"] == (
+        "BEST_BID_MFE_MAE_AFTER_ENTRY_TO_TERMINAL_V1"
+    )

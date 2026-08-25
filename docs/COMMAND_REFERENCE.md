@@ -154,7 +154,7 @@ Freeze the preregistered SOL execution candidate:
 .venv/bin/python -m bin.prediction_experiment episode-bootstrap \
   --experiment-id EXPERIMENT_ID \
   --symbol SOLUSDT \
-  --generation v21 \
+  --generation v22 \
   --confirm BOOTSTRAP
 ```
 
@@ -168,7 +168,7 @@ Import one reviewed execution-model validation:
 ```bash
 .venv/bin/python -m bin.prediction_experiment model-validation-import \
   --symbol SOLUSDT \
-  --generation v21 \
+  --generation v22 \
   --experiment-id EXPERIMENT_ID \
   --report validation.json \
   --report-sha256 REPORT_SHA256 \

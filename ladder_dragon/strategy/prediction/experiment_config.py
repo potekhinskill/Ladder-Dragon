@@ -15,6 +15,8 @@ from ladder_dragon.strategy.prediction.episode_semantics import (
     V19_EXECUTION_MODEL_RULE,
     V20_EVIDENCE_SEMANTICS_VERSION,
     V20_EXECUTION_MODEL_RULE,
+    V21_EVIDENCE_SEMANTICS_VERSION,
+    V21_EXECUTION_MODEL_RULE,
 )
 
 
@@ -42,6 +44,7 @@ class ShadowExperimentSpec:
     target_return: Decimal | None = None
     stop_limit_distance: Decimal | None = None
     evidence_notional_quote: Decimal | None = None
+    target_name: str | None = None
 
 
 V11_SPEC = ShadowExperimentSpec(
@@ -272,9 +275,9 @@ SOL_V21_SPEC = ShadowExperimentSpec(
     ),
     regime_policy="range_only",
     statistical_design_version="episode_anytime_expectancy_v5",
-    evidence_semantics_version=EVIDENCE_SEMANTICS_VERSION,
+    evidence_semantics_version=V21_EVIDENCE_SEMANTICS_VERSION,
     lifecycle_mode=SOL_V20_SPEC.lifecycle_mode,
-    execution_model_rule=EXECUTION_MODEL_RULE,
+    execution_model_rule=V21_EXECUTION_MODEL_RULE,
     primary_horizon_min=SOL_V20_SPEC.primary_horizon_min,
     diagnostic_horizons_min=SOL_V20_SPEC.diagnostic_horizons_min,
     stop_limit_offset_pct=SOL_V20_SPEC.stop_limit_offset_pct,
@@ -282,6 +285,30 @@ SOL_V21_SPEC = ShadowExperimentSpec(
     target_return=SOL_V20_SPEC.target_return,
     stop_limit_distance=SOL_V20_SPEC.stop_limit_distance,
     evidence_notional_quote=SOL_V20_SPEC.evidence_notional_quote,
+)
+SOL_V22_SPEC = ShadowExperimentSpec(
+    generation="v22",
+    horizons_min=SOL_V21_SPEC.horizons_min,
+    maker_ttls=SOL_V21_SPEC.maker_ttls,
+    maker_entry_gaps=SOL_V21_SPEC.maker_entry_gaps,
+    superseded_selection_generations=(
+        "v11", "v12", "v13", "v14", "v15", "v16", "v17", "v18",
+        "v19", "v20", "v21",
+    ),
+    regime_policy=SOL_V21_SPEC.regime_policy,
+    statistical_design_version="episode_anytime_expectancy_v6",
+    evidence_semantics_version=EVIDENCE_SEMANTICS_VERSION,
+    lifecycle_mode=SOL_V21_SPEC.lifecycle_mode,
+    execution_model_rule=EXECUTION_MODEL_RULE,
+    primary_horizon_min=SOL_V21_SPEC.primary_horizon_min,
+    diagnostic_horizons_min=SOL_V21_SPEC.diagnostic_horizons_min,
+    stop_limit_offset_pct=SOL_V21_SPEC.stop_limit_offset_pct,
+    maximum_holding_min=SOL_V21_SPEC.maximum_holding_min,
+    # Change one financial axis. All entry and protection settings stay fixed.
+    target_return=D("0.0080"),
+    stop_limit_distance=SOL_V21_SPEC.stop_limit_distance,
+    evidence_notional_quote=SOL_V21_SPEC.evidence_notional_quote,
+    target_name="tp80",
 )
 
 # Preserve the public historical name for callers that inspect SOL v12.
@@ -308,11 +335,12 @@ _SYMBOL_GENERATION_SPECS = {
     ("SOLUSDT", "v19"): SOL_V19_SPEC,
     ("SOLUSDT", "v20"): SOL_V20_SPEC,
     ("SOLUSDT", "v21"): SOL_V21_SPEC,
+    ("SOLUSDT", "v22"): SOL_V22_SPEC,
 }
 _SYMBOL_SPECS = {
     "BTCUSDT": BTC_V14_SPEC,
     "ETHUSDT": ETH_V15_SPEC,
-    "SOLUSDT": SOL_V21_SPEC,
+    "SOLUSDT": SOL_V22_SPEC,
 }
 
 
@@ -355,6 +383,8 @@ def experiment_dimension(
     spec = experiment_spec_for_generation(generation, symbol=symbol)
     if len(spec.maker_ttls) > 1 and len(spec.maker_entry_gaps) == 1:
         return "maker_entry_ttl"
+    if spec.target_name is not None:
+        return "take_profit_target"
     return "maker_entry_gap"
 
 
@@ -371,8 +401,9 @@ def configured_entry_gap_bps(
             "configured entry gap is unavailable for generation"
         ) from exc
     normalized_variant = str(variant_id).strip().lower()
+    suffix = f"_{spec.target_name}" if spec.target_name is not None else ""
     configured = {
-        f"{spec.generation}_maker_{ttl_name}_{gap_name}": gap_pct * D("10000")
+        f"{spec.generation}_maker_{ttl_name}_{gap_name}{suffix}": gap_pct * D("10000")
         for ttl_name, _ttl_sec in spec.maker_ttls
         for gap_name, gap_pct in spec.maker_entry_gaps
     }
@@ -401,6 +432,7 @@ __all__ = [
     "SOL_V19_SPEC",
     "SOL_V20_SPEC",
     "SOL_V21_SPEC",
+    "SOL_V22_SPEC",
     "ETH_V14_SPEC",
     "ETH_V15_SPEC",
     "configured_entry_gap_bps",

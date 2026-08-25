@@ -13,6 +13,7 @@ from typing import Iterable, Mapping
 from ladder_dragon.strategy.prediction.execution_episode import (
     ExecutionEpisodeResult,
 )
+from ladder_dragon.strategy.prediction.episode_semantics import EXCURSION_POLICY
 
 
 D = Decimal
@@ -51,13 +52,14 @@ def _evidence_quality(
 
 
 def net_expectancy_criteria(
-    *, anytime_valid: bool = False, exact_policy: bool = False
+    *, anytime_valid: bool = False, exact_policy: bool = False,
+    excursion_diagnostics: bool = False,
 ) -> dict[str, object]:
     """Return one immutable net-expectancy statistical contract."""
     if anytime_valid:
         regimes = ("RANGE",) if exact_policy else ELIGIBLE_REGIMES
-        schema = 5 if exact_policy else 4
-        return {
+        schema = 6 if excursion_diagnostics else 5 if exact_policy else 4
+        criteria = {
             "criteria_schema_version": schema,
             "method": f"anytime_valid_betting_e_process_v{schema}",
             "trial_definition": "executable_terminal_attempts_net_of_fees_including_panic",
@@ -105,6 +107,9 @@ def net_expectancy_criteria(
             ),
             "feasibility_policy": "bounded_e_process_reachability_v1",
         }
+        if excursion_diagnostics:
+            criteria["diagnostic_policy"] = EXCURSION_POLICY
+        return criteria
     return {
         "criteria_schema_version": 3,
         "method": "group_sequential_net_expectancy_alpha_spending_v3",
@@ -282,8 +287,8 @@ def anytime_design_feasibility(
     criteria: Mapping[str, object],
 ) -> dict[str, object]:
     """Prove that the frozen e-process design can reach every hard gate."""
-    if int(criteria.get("criteria_schema_version", 0)) != 5:
-        raise ValueError("exact anytime design requires criteria schema 5")
+    if int(criteria.get("criteria_schema_version", 0)) not in {5, 6}:
+        raise ValueError("exact anytime design requires criteria schema 5 or 6")
     regimes = criteria.get("eligible_regimes")
     if not isinstance(regimes, list) or not regimes:
         raise ValueError("exact anytime design requires eligible regimes")
@@ -365,6 +370,47 @@ def _anytime_regimes(
     return reports, confirmed
 
 
+def _excursion_diagnostics(
+    rows: list[ExecutionEpisodeResult],
+) -> dict[str, object]:
+    """Summarize pre-exit bid excursions without changing the gate."""
+    cohort = [
+        row for row in rows
+        if row.entry_filled_quantity > ZERO and row.excursion_evidence_available
+    ]
+
+    def summary(items: list[ExecutionEpisodeResult]) -> dict[str, object]:
+        count = len(items)
+        return {
+            "filled_episodes": count,
+            "mean_maximum_favorable_excursion_pct": format(
+                sum((row.maximum_favorable_excursion_pct for row in items), ZERO)
+                / D(count) if count else ZERO,
+                "f",
+            ),
+            "mean_maximum_adverse_excursion_pct": format(
+                sum((row.maximum_adverse_excursion_pct for row in items), ZERO)
+                / D(count) if count else ZERO,
+                "f",
+            ),
+        }
+
+    terminal_reasons = sorted({row.terminal_reason for row in cohort})
+    return {
+        "policy": EXCURSION_POLICY,
+        "available": bool(cohort),
+        "filled_episodes": len(cohort),
+        "overall": summary(cohort),
+        "by_terminal_reason": {
+            reason: summary([
+                row for row in cohort if row.terminal_reason == reason
+            ])
+            for reason in terminal_reasons
+        },
+        "affects_promotion": False,
+    }
+
+
 def _anytime_report(
     rows_all: list[ExecutionEpisodeResult],
     *,
@@ -389,6 +435,7 @@ def _anytime_report(
         "eligible_terminal_episodes": len(rows),
         "semantics_mismatch_episodes": len(mixed),
         "evidence_quality": quality,
+        "excursion_diagnostics": _excursion_diagnostics(rows),
     }
     if mixed:
         return {
@@ -669,7 +716,7 @@ def sequential_net_expectancy_report(
 ) -> dict[str, object]:
     """Evaluate complete attempts and reject mixed evidence semantics."""
     rows_all = sorted(results, key=lambda row: row.terminal_at_ms)
-    if criteria.get("criteria_schema_version") in {4, 5}:
+    if criteria.get("criteria_schema_version") in {4, 5, 6}:
         return _anytime_report(
             rows_all,
             criteria=criteria,

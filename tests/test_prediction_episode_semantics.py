@@ -6,7 +6,9 @@ from types import SimpleNamespace
 import pytest
 
 from ladder_dragon.strategy.prediction.episode_semantics import (
+    evidence_semantics_fingerprint,
     require_runtime_regime_contract,
+    v21_evidence_semantics_fingerprint,
 )
 from ladder_dragon.supervision.config import build_supervisor_parser
 
@@ -31,7 +33,14 @@ def test_runtime_classifier_requires_the_complete_frozen_contract():
         require_runtime_regime_contract(
             "SOLUSDT", _arguments(dir_mode="flat"), {}
         )
-    with pytest.raises(ValueError, match="differs from v21"):
+
+
+def test_v21_fingerprint_remains_immutable_after_excursion_extension():
+    assert v21_evidence_semantics_fingerprint() == (
+        "cffc75fa033fcea362d9a096768c99e467af30182c0bcc8f2d796c8b070e2e5a"
+    )
+    assert evidence_semantics_fingerprint() != v21_evidence_semantics_fingerprint()
+    with pytest.raises(ValueError, match="differs from evidence"):
         require_runtime_regime_contract(
             "SOLUSDT", _arguments(), {"BOT_REGIME_CONFIRMATIONS": "2"}
         )

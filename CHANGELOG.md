@@ -3,6 +3,24 @@
 All notable changes are documented here. Releases use Semantic Versioning; every
 section is dated and there is intentionally no `Unreleased` section.
 
+## [2.20.249] — 2026-08-25
+
+### Added
+- SOL version 22 tests an 80-basis-point take-profit target while preserving version 21 evidence.
+- New episode results record maximum favorable and adverse bid excursions before exit.
+- The dashboard reports aggregate MFE and MAE diagnostics without using them for promotion.
+
+### Changed
+- The current SOL promotion candidate changes only the take-profit target.
+- Entry gap, entry lifetime, stop geometry, fees, notional, and RANGE scope remain unchanged.
+
+### Security
+- Versioned semantics prevent version 21 and version 22 episode evidence from mixing.
+- Persistent HALT and all live execution settings remain unchanged.
+
+### Verified
+- All project tests, Python compilation, Technical English, and focused prediction checks pass.
+
 ## [2.20.248] — 2026-08-25
 
 ### Added

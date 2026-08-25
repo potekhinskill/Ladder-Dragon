@@ -128,6 +128,9 @@ class ExecutionEpisodeResult:
     panic_veto: bool
     eligible_for_promotion: bool
     evidence_semantics_fingerprint: str = ""
+    maximum_favorable_excursion_pct: Decimal = ZERO
+    maximum_adverse_excursion_pct: Decimal = ZERO
+    excursion_evidence_available: bool = False
 
     def payload(self) -> dict[str, object]:
         """Return a stable JSON-compatible result."""
@@ -163,6 +166,7 @@ class ExecutionEpisode:
         self.exit_proceeds = ZERO
         self.exit_fees = ZERO
         self.minimum_bid_after_entry: Decimal | None = None
+        self.maximum_bid_after_entry: Decimal | None = None
         self.diagnostic_net_pnl: Decimal | None = None
         self.stop_triggered_at_ms: int | None = None
         self.stop_limit_had_fill = False
@@ -364,6 +368,15 @@ class ExecutionEpisode:
             max(ZERO, ONE - self.minimum_bid_after_entry / average_entry)
             if self.minimum_bid_after_entry is not None else ZERO
         )
+        favorable = (
+            max(ZERO, self.maximum_bid_after_entry / average_entry - ONE)
+            if self.maximum_bid_after_entry is not None else ZERO
+        )
+        excursions_available = bool(
+            self.entry_quantity > ZERO
+            and self.minimum_bid_after_entry is not None
+            and self.maximum_bid_after_entry is not None
+        )
         self.phase = "TERMINAL"
         self.result = ExecutionEpisodeResult(
             episode_id=self.spec.episode_id,
@@ -395,6 +408,9 @@ class ExecutionEpisode:
             ),
             panic_veto=self.panic_veto,
             eligible_for_promotion=eligible,
+            maximum_favorable_excursion_pct=favorable,
+            maximum_adverse_excursion_pct=adverse,
+            excursion_evidence_available=excursions_available,
         )
         return self.result
 
@@ -416,9 +432,15 @@ class ExecutionEpisode:
         self.last_event_ms = int(event.ts_ms)
         self._apply_fills(self.replay.process(event))
         if self.entry_quantity > 0:
+            # Measure executable bid excursions only after an entry fill.
+            # These diagnostics never change order or promotion decisions.
             self.minimum_bid_after_entry = (
                 bid if self.minimum_bid_after_entry is None
                 else min(self.minimum_bid_after_entry, bid)
+            )
+            self.maximum_bid_after_entry = (
+                bid if self.maximum_bid_after_entry is None
+                else max(self.maximum_bid_after_entry, bid)
             )
         if (
             self.diagnostic_net_pnl is None
@@ -502,11 +524,19 @@ def result_from_payload(payload: Mapping[str, object]) -> ExecutionEpisodeResult
         "net_pnl_quote",
         "total_fee_quote",
         "adverse_selection_pct",
+        "maximum_favorable_excursion_pct",
+        "maximum_adverse_excursion_pct",
     }
     values = dict(payload)
     # Historical records remain readable as pilot evidence. A missing
     # fingerprint prevents promotion under the current contract.
     values.setdefault("evidence_semantics_fingerprint", "")
+    values.setdefault("maximum_favorable_excursion_pct", "0")
+    values.setdefault(
+        "maximum_adverse_excursion_pct",
+        values.get("adverse_selection_pct", "0"),
+    )
+    values.setdefault("excursion_evidence_available", False)
     for field in decimal_fields:
         values[field] = D(str(values[field]))
     diagnostic = values.get("diagnostic_300m_net_pnl_quote")

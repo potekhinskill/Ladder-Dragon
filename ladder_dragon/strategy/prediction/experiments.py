@@ -31,6 +31,7 @@ from ladder_dragon.strategy.prediction.episode_semantics import (
     evidence_semantics_fingerprint,
     v19_evidence_semantics_fingerprint,
     v20_evidence_semantics_fingerprint,
+    v21_evidence_semantics_fingerprint,
 )
 from ladder_dragon.strategy.prediction.experiment_lifecycle import (
     REPORT_SCHEMA_VERSION,
@@ -224,7 +225,9 @@ def build_shadow_variants(
                 else "predict_distribution:v1:expanding_history_before_snapshot"
             ),
             candidate_rule_version=(
-                6 if spec.statistical_design_version
+                7 if spec.statistical_design_version
+                == "episode_anytime_expectancy_v6"
+                else 6 if spec.statistical_design_version
                 == "episode_anytime_expectancy_v5"
                 else 5 if spec.statistical_design_version
                 == "episode_anytime_expectancy_v4"
@@ -239,6 +242,9 @@ def build_shadow_variants(
             ),
             evidence_semantics_fingerprint=(
                 evidence_semantics_fingerprint()
+                if spec.statistical_design_version
+                == "episode_anytime_expectancy_v6"
+                else v21_evidence_semantics_fingerprint()
                 if spec.statistical_design_version
                 == "episode_anytime_expectancy_v5"
                 else v20_evidence_semantics_fingerprint()
@@ -256,12 +262,13 @@ def build_shadow_variants(
     del regime
     dimension = experiment_dimension(generation, symbol=symbol)
     variants = []
+    target_suffix = f"_{spec.target_name}" if spec.target_name else ""
     for ttl_name, ttl_sec in spec.maker_ttls:
         for gap_name, gap_pct in spec.maker_entry_gaps:
             # An explicit market gap keeps every candidate distinct from the baseline.
             entry_price = market_price * (D("1") - gap_pct)
             variants.append(variant(
-                f"{spec.generation}_maker_{ttl_name}_{gap_name}",
+                f"{spec.generation}_maker_{ttl_name}_{gap_name}{target_suffix}",
                 dimension,
                 entry_price=entry_price,
                 candidate_target=(

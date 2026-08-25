@@ -1,5 +1,12 @@
 # Engineering decisions
 
+### 2026-08-25 — Change one exit axis in a new evidence generation
+
+- **Context:** version 21 showed an unfavorable reward-to-loss ratio under its fixed 60-basis-point target.
+- **Decision:** preserve version 21 and test an 80-basis-point target in version 22.
+- **Why it worked:** the new fingerprint records maximum favorable and adverse bid excursions without changing decisions.
+- **Reuse:** every financial parameter change derived from completed immutable confirmation evidence.
+
 ### 2026-08-25 — Separate order proof from market calibration context
 
 - **Context:** a bounded Mainnet batch cannot also provide two days of public market coverage.

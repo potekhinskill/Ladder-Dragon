@@ -45,7 +45,7 @@ def _confirmed_manifest(
             "eligible_regimes": ["RANGE"],
         },
         "candidate_parameters": {
-            "candidate_rule_version": 6,
+            "candidate_rule_version": 7,
             "evidence_notional_quote": "6",
             "evidence_semantics_fingerprint": evidence_semantics_fingerprint(),
             "entry_gap_bps": "8.4",

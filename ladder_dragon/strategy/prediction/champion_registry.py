@@ -140,7 +140,7 @@ def execution_policy_from_manifest(
     parameters = manifest.get("candidate_parameters")
     if not isinstance(parameters, Mapping):
         raise ValueError("candidate parameters are unavailable")
-    if parameters.get("candidate_rule_version") != 6:
+    if parameters.get("candidate_rule_version") != 7:
         raise ValueError("CHAMPION candidate rule is not execution-bound")
     semantics_fingerprint = _sha256(
         parameters.get("evidence_semantics_fingerprint"),
