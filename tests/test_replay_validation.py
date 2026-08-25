@@ -15,6 +15,10 @@ from ladder_dragon.strategy.replay_validation import (
     validate_replay_outcomes,
     validate_replay_sessions,
     write_replay_validation,
+    replay_acceptance_reasons,
+)
+from ladder_dragon.strategy.replay_policy import (
+    PRODUCTION_REPLAY_ACCEPTANCE_POLICY,
 )
 from ladder_dragon.verification import replay_sessions
 
@@ -231,6 +235,37 @@ def test_replay_sessions_reject_duplicate_archive_identity():
             ],
             [],
         )
+
+
+def test_production_policy_rejects_omitted_orders_and_weakened_thresholds():
+    report = validate_replay_outcomes(
+        [
+            MarketEvent(
+                ts_ms=timestamp,
+                bids=(BookLevel(Decimal("99"), Decimal("10")),),
+                asks=(BookLevel(Decimal("100"), Decimal("10")),),
+            )
+            for timestamp in (1000, 3000)
+        ],
+        [
+            outcome(
+                "outside", price="99", quantity="0", quote="0",
+                status="CANCELED", first_fill=None,
+                created_at_ms=500, final_at_ms=3500,
+            )
+        ],
+        calibration(),
+        minimum_orders=1,
+    )
+    assert report.excluded_orders == 1
+    assert "excluded orders 1 != 0" in report.reasons
+    reasons = replay_acceptance_reasons(
+        report, PRODUCTION_REPLAY_ACCEPTANCE_POLICY
+    )
+    assert "covered orders 0 < 10" in reasons
+    assert report.acceptance_policy_sha256 != (
+        PRODUCTION_REPLAY_ACCEPTANCE_POLICY.fingerprint
+    )
 
 
 def test_replay_import_requires_a_complete_confirmed_identity(monkeypatch):

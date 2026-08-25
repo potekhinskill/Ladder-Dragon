@@ -837,6 +837,9 @@ def _episode_confirmation_report(
     sequential["execution_model_projected_ready_ts_ms"] = (
         int(time.time() * 1000) if validation_passed else None
     )
+    sequential["execution_replay_ready_ts_ms"] = (
+        int(time.time() * 1000) if validation_passed else None
+    )
     sequential["champion_projected_ready_ts_ms"] = (
         max(
             int(sequential["projected_ready_ts_ms"] or 0),
@@ -844,6 +847,9 @@ def _episode_confirmation_report(
         )
         if evaluation_passed and validation_passed else None
     )
+    sequential["expected_launch_ts_ms"] = sequential[
+        "champion_projected_ready_ts_ms"
+    ]
     finalization_ready = sequential["status"] in {"PASS", "READY_TO_REJECT"}
     lifecycle_status = str(manifest["current_status"])
     report = {

@@ -17,21 +17,20 @@ from ladder_dragon.strategy.market_replay import (
     load_jsonl_archive,
     write_calibration,
 )
+from ladder_dragon.strategy.replay_policy import (
+    PRODUCTION_REPLAY_ACCEPTANCE_POLICY,
+)
 
 
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("archive", help="Binance snapshot/depth/trade JSONL")
     parser.add_argument("--output", required=True)
-    parser.add_argument("--min-book-events", type=int, default=100)
-    parser.add_argument("--min-trades", type=int, default=50)
     parser.add_argument(
         "--execution-latency-log",
         help="sanitized executionReport correlation JSONL",
     )
     args = parser.parse_args()
-    if args.min_book_events < 1 or args.min_trades < 1:
-        parser.error("minimum sample counts must be positive")
     events = load_jsonl_archive(args.archive)
     measured_latencies = (
         load_execution_latencies(args.execution_latency_log)
@@ -40,8 +39,10 @@ def main() -> int:
     report = calibrate_market_events(
         events,
         source_sha256=archive_sha256(args.archive),
-        min_book_events=args.min_book_events,
-        min_trades=args.min_trades,
+        min_book_events=(
+            PRODUCTION_REPLAY_ACCEPTANCE_POLICY.minimum_book_events
+        ),
+        min_trades=PRODUCTION_REPLAY_ACCEPTANCE_POLICY.minimum_trades,
         measured_order_latencies_ms=measured_latencies,
     )
     write_calibration(args.output, report)

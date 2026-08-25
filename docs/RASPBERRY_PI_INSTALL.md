@@ -927,9 +927,11 @@ project maintenance control.
 
 ## 12. Public depth archive and execution latency
 
-The installer enables `ladder-dragon-depth-archive.timer`. It records public
-SOLUSDT depth and aggregate trades for 15 minutes each hour and removes samples
-older than seven days. It never receives trading credentials.
+The installer enables the continuous `ladder-dragon-depth-archive.service`.
+It records public SOLUSDT depth and aggregate trades in separate sessions.
+It calibrates each completed session with the fixed replay policy.
+It removes archives and derived calibrations after seven days.
+It never receives trading credentials.
 
 The recorder buffers trades until it proves depth sequence continuity.
 The memory buffer is limited by `max_events` and is never published alone.
@@ -941,7 +943,7 @@ sudo systemctl status ladder-dragon-depth-archive.timer --no-pager
 sudo systemctl start ladder-dragon-depth-archive.service
 sudo journalctl -u ladder-dragon-depth-archive.service -n 50 --no-pager
 sudo -u bot find /var/lib/ladder-dragon/depth-archives -maxdepth 1 \
-  -type f -name '*.metadata.json' -print
+  -type f \( -name '*.metadata.json' -o -name '*.calibration.json' \) -print
 ```
 
 Non-secret overrides may be placed in the root-owned

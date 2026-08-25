@@ -36,12 +36,30 @@ def test_batch_reserves_before_mutation_and_stops_at_attempt_limit(
         turnover_usdt=Decimal("12"),
         now_ms=2_000,
     )
+    validation_batch.complete_validation_attempt(
+        tmp_path / "batch.json",
+        attempt_id=first["attempt_id"],
+        status="SUCCEEDED",
+        archive_path="first.jsonl",
+        archive_sha256="1" * 64,
+        order_refs=("first-order",),
+        completed_at_ms=2_500,
+    )
     second = validation_batch.reserve_validation_attempt(
         tmp_path / "batch.json",
         drill="STOP_LOSS_LIMIT",
         symbol="SOLUSDT",
         turnover_usdt=Decimal("12"),
         now_ms=3_000,
+    )
+    validation_batch.complete_validation_attempt(
+        tmp_path / "batch.json",
+        attempt_id=second["attempt_id"],
+        status="SUCCEEDED",
+        archive_path="second.jsonl",
+        archive_sha256="2" * 64,
+        order_refs=("second-order",),
+        completed_at_ms=3_500,
     )
 
     assert first["status"] == "RESERVED_BEFORE_MUTATION"
@@ -62,12 +80,20 @@ def test_batch_fails_closed_on_turnover_expiry_and_manifest_damage(
 ):
     _manifest(tmp_path, attempts=3, turnover="12")
     monkeypatch.setattr(validation_batch, "_current_commit", lambda: COMMIT)
-    validation_batch.reserve_validation_attempt(
+    first = validation_batch.reserve_validation_attempt(
         tmp_path / "batch.json",
         drill="LIMIT_MAKER",
         symbol="SOLUSDT",
         turnover_usdt=Decimal("12"),
         now_ms=2_000,
+    )
+    validation_batch.complete_validation_attempt(
+        tmp_path / "batch.json",
+        attempt_id=first["attempt_id"],
+        status="SUCCEEDED",
+        archive_sha256="1" * 64,
+        order_refs=("first-order",),
+        completed_at_ms=2_500,
     )
     with pytest.raises(RuntimeError, match="turnover limit reached"):
         validation_batch.reserve_validation_attempt(
@@ -131,6 +157,22 @@ def test_batch_enforces_drill_quotas_cooldown_and_ledger_chain(
         now_ms=2_000,
     )
     assert first["previous_entry_sha256"] == "0" * 64
+    with pytest.raises(RuntimeError, match="unfinished attempt"):
+        validation_batch.reserve_validation_attempt(
+            tmp_path / "batch.json",
+            drill="LIMIT_MAKER",
+            symbol="SOLUSDT",
+            turnover_usdt=Decimal("6"),
+            now_ms=70_000,
+        )
+    validation_batch.complete_validation_attempt(
+        tmp_path / "batch.json",
+        attempt_id=first["attempt_id"],
+        status="SUCCEEDED",
+        archive_sha256="1" * 64,
+        order_refs=("first-order",),
+        completed_at_ms=2_500,
+    )
     with pytest.raises(RuntimeError, match="fixed sequence"):
         validation_batch.reserve_validation_attempt(
             tmp_path / "batch.json",
@@ -154,7 +196,7 @@ def test_batch_enforces_drill_quotas_cooldown_and_ledger_chain(
         turnover_usdt=Decimal("6"),
         now_ms=70_000,
     )
-    assert second["previous_entry_sha256"] == first["entry_sha256"]
+    assert second["previous_entry_sha256"] != first["entry_sha256"]
 
     ledger = tmp_path / "batch.json.attempts.ndjson"
     rows = [json.loads(line) for line in ledger.read_text().splitlines()]
@@ -168,3 +210,58 @@ def test_batch_enforces_drill_quotas_cooldown_and_ledger_chain(
             turnover_usdt=Decimal("1"),
             now_ms=140_000,
         )
+
+
+def test_uncertain_attempt_permanently_closes_batch(tmp_path, monkeypatch):
+    _manifest(tmp_path)
+    monkeypatch.setattr(validation_batch, "_current_commit", lambda: COMMIT)
+    reservation = validation_batch.reserve_validation_attempt(
+        tmp_path / "batch.json",
+        drill="LIMIT_MAKER",
+        symbol="SOLUSDT",
+        turnover_usdt=Decimal("6"),
+        now_ms=2_000,
+    )
+    validation_batch.complete_validation_attempt(
+        tmp_path / "batch.json",
+        attempt_id=reservation["attempt_id"],
+        status="FAILED_UNCERTAIN",
+        archive_sha256="1" * 64,
+        completed_at_ms=3_000,
+    )
+    with pytest.raises(RuntimeError, match="permanently closed"):
+        validation_batch.reserve_validation_attempt(
+            tmp_path / "batch.json",
+            drill="STOP_LOSS_LIMIT",
+            symbol="SOLUSDT",
+            turnover_usdt=Decimal("6"),
+            now_ms=4_000,
+        )
+
+
+def test_complete_batch_freezes_archives_and_order_refs(tmp_path, monkeypatch):
+    _manifest(tmp_path)
+    monkeypatch.setattr(validation_batch, "_current_commit", lambda: COMMIT)
+    for index, drill in enumerate(("LIMIT_MAKER", "STOP_LOSS_LIMIT"), start=1):
+        reservation = validation_batch.reserve_validation_attempt(
+            tmp_path / "batch.json",
+            drill=drill,
+            symbol="SOLUSDT",
+            turnover_usdt=Decimal("6"),
+            now_ms=index * 2_000,
+        )
+        validation_batch.complete_validation_attempt(
+            tmp_path / "batch.json",
+            attempt_id=reservation["attempt_id"],
+            status="SUCCEEDED",
+            archive_path=f"archive-{index}.jsonl",
+            archive_sha256=str(index) * 64,
+            order_refs=(f"order-{index}",),
+            completed_at_ms=index * 2_000 + 500,
+        )
+    evidence = validation_batch.validation_batch_evidence(
+        tmp_path / "batch.json"
+    )
+    assert evidence["attempt_count"] == 2
+    assert evidence["archive_sha256s"] == ["1" * 64, "2" * 64]
+    assert evidence["order_refs"] == ["order-1", "order-2"]

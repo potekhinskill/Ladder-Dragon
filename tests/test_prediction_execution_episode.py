@@ -33,10 +33,14 @@ from ladder_dragon.strategy.prediction.episode_expectancy import (
 )
 from ladder_dragon.strategy.prediction.runtime import PredictionShadowStore
 from ladder_dragon.strategy.prediction.episode_semantics import (
+    canonical_digest,
     evidence_semantics_fingerprint,
     execution_engine_validation_domain,
     v19_evidence_semantics_fingerprint,
     v20_evidence_semantics_fingerprint,
+)
+from ladder_dragon.strategy.replay_policy import (
+    PRODUCTION_REPLAY_ACCEPTANCE_POLICY,
 )
 
 
@@ -516,10 +520,11 @@ def test_model_validation_requires_filled_maker_and_stop_limit_orders(tmp_path):
         source_commit="b" * 40,
     )
     report = {
-        "schema_version": 7,
+            "schema_version": 8,
         "ready": True,
         "reasons": [],
-        "archive_sha256": "c" * 64,
+            "archive_sha256": "c" * 64,
+            "archive_sha256s": ["a" * 64, "b" * 64, "c" * 64],
         "covered_orders": 10,
         "excluded_orders": 0,
         "actual_filled_orders": 2,
@@ -551,16 +556,31 @@ def test_model_validation_requires_filled_maker_and_stop_limit_orders(tmp_path):
             "validation_report_count": 1,
             "validated_order_count": 10,
         },
-        "validation_domain": execution_engine_validation_domain(
+            "validation_domain": execution_engine_validation_domain(
             execution_model_rule="minute_l2_fifo_oco_gap_v2",
             fee_schedule={
                 "maker_buy_fee_pct": "0.0007",
                 "maker_sell_fee_pct": "0.0008",
                 "taker_buy_fee_pct": "0.001",
                 "taker_sell_fee_pct": "0.0011",
+                },
+            ),
+            "acceptance_policy": (
+                PRODUCTION_REPLAY_ACCEPTANCE_POLICY.as_dict()
+            ),
+            "acceptance_policy_sha256": (
+                PRODUCTION_REPLAY_ACCEPTANCE_POLICY.fingerprint
+            ),
+            "calibrations_eligible": True,
+            "validation_batch": {
+                "attempt_count": 10,
+                "archive_sha256s": ["a" * 64, "b" * 64, "c" * 64],
+                "order_refs": [f"order-{index}" for index in range(10)],
             },
-        ),
-    }
+        }
+    report["validation_batch"]["cohort_sha256"] = canonical_digest(
+        report["validation_batch"]
+    )
     report_without_domain = dict(report)
     report_without_domain.pop("validation_domain")
     report_without_domain["actual_stop_limit_filled_orders"] = 1
@@ -585,7 +605,7 @@ def test_model_validation_requires_filled_maker_and_stop_limit_orders(tmp_path):
             report=report,
         )
     except ValueError as exc:
-        assert "promotion-ready" in str(exc)
+        assert "recomputed result differs" in str(exc)
     else:
         raise AssertionError("validation without a stop fill unexpectedly passed")
 

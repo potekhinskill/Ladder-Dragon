@@ -114,6 +114,7 @@ Validate separate archives without joining recording gaps:
 .venv/bin/python -m bin.validate_replay_sessions \
   --session maker.jsonl maker-calibration.json \
   --session stop.jsonl stop-calibration.json \
+  --batch-manifest BATCH_MANIFEST \
   --execution-log execution-latency.ndjson \
   --maker-buy-fee-pct MAKER_BUY_RATE \
   --maker-sell-fee-pct MAKER_SELL_RATE \
@@ -129,7 +130,9 @@ Validate separate archives without joining recording gaps:
 
 Each terminal order must fit inside one session.
 The validator rejects duplicate or overlapping archive identities.
-The optional identity arguments build and import one source-owned PASS artifact.
+Production import requires every archive and order from the completed batch.
+The importer recomputes PASS with the built-in acceptance policy.
+CLI options cannot weaken production acceptance thresholds.
 
 Inspect the local experiment lifecycle:
 
@@ -217,7 +220,9 @@ BOT_MAINNET_VALIDATION_BATCH_RUN_CONFIRMED=YES \
 ```
 
 The runner follows the immutable LIMIT_MAKER and STOP_LOSS_LIMIT sequence.
-It stops after the first failed or uncertain drill.
+It records each reservation before mutation.
+It closes each reservation as `SUCCEEDED` or `FAILED_UNCERTAIN`.
+An uncertain result permanently closes the batch.
 
 ## Execution and operator commands
 

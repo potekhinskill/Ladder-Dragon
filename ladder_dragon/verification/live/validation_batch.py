@@ -182,6 +182,145 @@ def _load_manifest(path: Path) -> dict[str, object]:
     return payload
 
 
+def _read_ledger(handle, manifest: Mapping[str, object]) -> list[dict[str, object]]:
+    """Read and authenticate every append-only attempt state transition."""
+    handle.seek(0)
+    rows: list[dict[str, object]] = []
+    previous_hash = "0" * 64
+    try:
+        for line in handle:
+            if not line.strip():
+                continue
+            row = json.loads(line)
+            if not isinstance(row, dict):
+                raise TypeError("attempt row is not an object")
+            row_hash = str(row.get("entry_sha256", ""))
+            unhashed = dict(row)
+            unhashed.pop("entry_sha256", None)
+            if (
+                row.get("previous_entry_sha256") != previous_hash
+                or not re.fullmatch(r"[0-9a-f]{64}", row_hash)
+                or _sha256(unhashed) != row_hash
+                or row.get("batch_id") != manifest.get("batch_id")
+                or row.get("manifest_sha256") != manifest.get("manifest_sha256")
+            ):
+                raise TypeError("attempt ledger chain differs")
+            rows.append(row)
+            previous_hash = row_hash
+    except (UnicodeError, json.JSONDecodeError, TypeError) as exc:
+        raise RuntimeError("validation batch ledger is invalid") from exc
+    return rows
+
+
+def _attempt_states(rows: list[dict[str, object]]) -> dict[str, list[dict[str, object]]]:
+    states: dict[str, list[dict[str, object]]] = {}
+    for row in rows:
+        states.setdefault(str(row.get("attempt_id", "")), []).append(row)
+    for attempt_id, events in states.items():
+        if not attempt_id or events[0].get("status") != "RESERVED_BEFORE_MUTATION":
+            raise RuntimeError("validation batch attempt transition is invalid")
+        if len(events) > 2 or (
+            len(events) == 2
+            and events[1].get("status") not in {"SUCCEEDED", "FAILED_UNCERTAIN"}
+        ):
+            raise RuntimeError("validation batch attempt transition is invalid")
+    return states
+
+
+def complete_validation_attempt(
+    manifest_path: Path,
+    *,
+    attempt_id: str,
+    status: str,
+    archive_path: str | None = None,
+    archive_sha256: str | None = None,
+    order_refs: tuple[str, ...] = (),
+    completed_at_ms: int | None = None,
+) -> dict[str, object]:
+    """Durably close one reservation after cleanup and archive finalization."""
+    terminal = status.strip().upper()
+    if terminal not in {"SUCCEEDED", "FAILED_UNCERTAIN"}:
+        raise RuntimeError("validation attempt terminal status is invalid")
+    manifest = _load_manifest(manifest_path)
+    ledger = manifest_path.with_suffix(manifest_path.suffix + ".attempts.ndjson")
+    with ledger.open("a+", encoding="utf-8") as handle:
+        fcntl.flock(handle.fileno(), fcntl.LOCK_EX)
+        rows = _read_ledger(handle, manifest)
+        states = _attempt_states(rows)
+        events = states.get(attempt_id)
+        if events is None or len(events) != 1:
+            raise RuntimeError("validation attempt is not open")
+        digest = str(archive_sha256 or "").lower()
+        if digest and not re.fullmatch(r"[0-9a-f]{64}", digest):
+            raise RuntimeError("validation attempt archive hash is invalid")
+        entry: dict[str, object] = {
+            "schema_version": 3,
+            "attempt_id": attempt_id,
+            "batch_id": manifest["batch_id"],
+            "manifest_sha256": manifest["manifest_sha256"],
+            "status": terminal,
+            "completed_at_ms": (
+                int(time.time() * 1000)
+                if completed_at_ms is None else int(completed_at_ms)
+            ),
+            "archive_path": str(archive_path or ""),
+            "archive_sha256": digest,
+            "order_refs": sorted({str(item) for item in order_refs if str(item)}),
+            "previous_entry_sha256": (
+                str(rows[-1]["entry_sha256"]) if rows else "0" * 64
+            ),
+        }
+        entry["entry_sha256"] = _sha256(entry)
+        handle.seek(0, os.SEEK_END)
+        handle.write(_canonical(entry) + "\n")
+        handle.flush()
+        os.fsync(handle.fileno())
+        return entry
+
+
+def validation_batch_evidence(manifest_path: Path) -> dict[str, object]:
+    """Return the complete immutable cohort or reject partial evidence."""
+    manifest = _load_manifest(manifest_path)
+    ledger = manifest_path.with_suffix(manifest_path.suffix + ".attempts.ndjson")
+    if not ledger.exists():
+        raise RuntimeError("validation batch has no attempt evidence")
+    with ledger.open("r", encoding="utf-8") as handle:
+        rows = _read_ledger(handle, manifest)
+    states = _attempt_states(rows)
+    if len(states) != int(manifest["maximum_attempts"]):
+        raise RuntimeError("validation batch is incomplete")
+    terminals = [events[-1] for events in states.values()]
+    if any(
+        len(events) != 2 or events[-1].get("status") != "SUCCEEDED"
+        for events in states.values()
+    ):
+        raise RuntimeError("validation batch contains uncertain evidence")
+    archive_hashes = tuple(str(row.get("archive_sha256", "")) for row in terminals)
+    order_refs = tuple(
+        str(order_ref)
+        for row in terminals
+        for order_ref in row.get("order_refs", [])
+    )
+    if (
+        any(not re.fullmatch(r"[0-9a-f]{64}", item) for item in archive_hashes)
+        or len(set(archive_hashes)) != len(archive_hashes)
+        or not order_refs
+        or len(set(order_refs)) != len(order_refs)
+    ):
+        raise RuntimeError("validation batch cohort identity is invalid")
+    evidence: dict[str, object] = {
+        "schema_version": 1,
+        "batch_id": manifest["batch_id"],
+        "manifest_sha256": manifest["manifest_sha256"],
+        "attempt_count": len(states),
+        "archive_sha256s": list(archive_hashes),
+        "order_refs": list(order_refs),
+        "ledger_terminal_sha256": rows[-1]["entry_sha256"],
+    }
+    evidence["cohort_sha256"] = _sha256(evidence)
+    return evidence
+
+
 def reserve_validation_attempt(
     manifest_path: Path,
     *,
@@ -209,54 +348,39 @@ def reserve_validation_attempt(
     ledger.parent.mkdir(parents=True, exist_ok=True)
     with ledger.open("a+", encoding="utf-8") as handle:
         fcntl.flock(handle.fileno(), fcntl.LOCK_EX)
-        handle.seek(0)
-        rows = []
-        previous_hash = "0" * 64
-        try:
-            for line in handle:
-                if line.strip():
-                    row = json.loads(line)
-                    if not isinstance(row, dict):
-                        raise TypeError("attempt row is not an object")
-                    row_hash = str(row.get("entry_sha256", ""))
-                    unhashed = dict(row)
-                    unhashed.pop("entry_sha256", None)
-                    if (
-                        row.get("previous_entry_sha256") != previous_hash
-                        or not re.fullmatch(r"[0-9a-f]{64}", row_hash)
-                        or _sha256(unhashed) != row_hash
-                        or row.get("batch_id") != manifest.get("batch_id")
-                        or row.get("manifest_sha256")
-                        != manifest.get("manifest_sha256")
-                    ):
-                        raise TypeError("attempt ledger chain differs")
-                    rows.append(row)
-                    previous_hash = row_hash
-        except (UnicodeError, json.JSONDecodeError, TypeError) as exc:
-            raise RuntimeError("validation batch ledger is invalid") from exc
-        consumed = sum((_decimal(row["turnover_usdt"], field="ledger turnover") for row in rows), Decimal("0"))
-        if len(rows) >= int(manifest["maximum_attempts"]):
+        rows = _read_ledger(handle, manifest)
+        states = _attempt_states(rows)
+        reservations = [
+            events[0] for events in states.values()
+        ]
+        if any(len(events) == 1 for events in states.values()):
+            raise RuntimeError("validation batch has an unfinished attempt")
+        if any(events[-1].get("status") == "FAILED_UNCERTAIN" for events in states.values()):
+            raise RuntimeError("validation batch is permanently closed after uncertainty")
+        previous_hash = str(rows[-1]["entry_sha256"]) if rows else "0" * 64
+        consumed = sum((_decimal(row["turnover_usdt"], field="ledger turnover") for row in reservations), Decimal("0"))
+        if len(reservations) >= int(manifest["maximum_attempts"]):
             raise RuntimeError("validation batch attempt limit reached")
         sequence = manifest.get("attempt_sequence")
         if (
             isinstance(sequence, list)
-            and len(rows) < len(sequence)
-            and normalized_drill != sequence[len(rows)]
+            and len(reservations) < len(sequence)
+            and normalized_drill != sequence[len(reservations)]
         ):
             raise RuntimeError("validation drill differs from the fixed sequence")
-        drill_rows = [row for row in rows if row.get("drill") == normalized_drill]
+        drill_rows = [row for row in reservations if row.get("drill") == normalized_drill]
         quota = int(manifest["maximum_attempts_by_drill"][normalized_drill])
         if len(drill_rows) >= quota:
             raise RuntimeError("validation batch drill quota reached")
         cooldown_ms = int(manifest.get("minimum_cooldown_sec", 0)) * 1_000
-        if rows and timestamp - int(rows[-1].get("reserved_at_ms", 0)) < cooldown_ms:
+        if reservations and timestamp - int(reservations[-1].get("reserved_at_ms", 0)) < cooldown_ms:
             raise RuntimeError("validation batch cooldown is active")
         if consumed + turnover > _decimal(
             manifest["maximum_turnover_usdt"], field="turnover limit"
         ):
             raise RuntimeError("validation batch turnover limit reached")
         reservation = {
-            "schema_version": 2,
+            "schema_version": 3,
             "attempt_id": uuid.uuid4().hex,
             "batch_id": manifest["batch_id"],
             "manifest_sha256": manifest["manifest_sha256"],
@@ -291,10 +415,14 @@ def run_validation_batch(
     ledger = manifest_path.with_suffix(manifest_path.suffix + ".attempts.ndjson")
     completed = 0
     if ledger.exists():
-        completed = sum(
-            bool(line.strip())
-            for line in ledger.read_text(encoding="utf-8").splitlines()
-        )
+        with ledger.open("r", encoding="utf-8") as handle:
+            rows = _read_ledger(handle, manifest)
+        states = _attempt_states(rows)
+        if any(len(events) == 1 for events in states.values()):
+            raise RuntimeError("validation batch has an unfinished attempt")
+        if any(events[-1].get("status") == "FAILED_UNCERTAIN" for events in states.values()):
+            raise RuntimeError("validation batch is permanently closed after uncertainty")
+        completed = sum(events[-1].get("status") == "SUCCEEDED" for events in states.values())
     child_environment = dict(os.environ)
     child_environment.update({
         "BOT_MAINNET_LIMIT_MAKER_VALIDATION_CONFIRMED": "YES",
@@ -370,7 +498,9 @@ def main() -> int:
 
 
 __all__ = [
+    "complete_validation_attempt",
     "create_batch_manifest",
     "reserve_validation_attempt",
     "run_validation_batch",
+    "validation_batch_evidence",
 ]

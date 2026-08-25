@@ -21,7 +21,14 @@ from ladder_dragon.strategy.replay_validation import (
     validate_replay_sessions,
     write_replay_validation,
 )
+from ladder_dragon.strategy.replay_policy import (
+    PRODUCTION_REPLAY_ACCEPTANCE_POLICY,
+    ReplayAcceptancePolicy,
+)
 from ladder_dragon.strategy.replay_readiness import audit_replay_readiness
+from ladder_dragon.verification.live.validation_batch import (
+    validation_batch_evidence,
+)
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -35,28 +42,19 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--execution-log", required=True)
     parser.add_argument("--output")
-    parser.add_argument("--minimum-orders", type=int, default=10)
+    parser.add_argument("--batch-manifest", type=Path)
     parser.add_argument("--prediction-db", type=Path)
     parser.add_argument("--experiment-id")
     parser.add_argument("--symbol")
     parser.add_argument("--execution-model-rule")
     parser.add_argument("--confirm-import")
-    for name, value in (
-        ("minimum-classification-accuracy", "0.80"),
-        ("maximum-fill-ratio-mae", "0.25"),
-        ("maximum-price-error-bps-mae", "10"),
-        ("maximum-latency-error-ms-mae", "1000"),
-        ("maximum-fee-error-quote-mae", "0.02"),
-        ("maximum-slippage-error-bps-mae", "10"),
-    ):
-        parser.add_argument(f"--{name}", type=Decimal, default=Decimal(value))
     for name in (
         "maker-buy-fee-pct",
         "maker-sell-fee-pct",
         "taker-buy-fee-pct",
         "taker-sell-fee-pct",
     ):
-        parser.add_argument(f"--{name}", type=Decimal, required=True)
+        parser.add_argument(f"--{name}", required=True)
     return parser
 
 
@@ -72,6 +70,7 @@ def main() -> int:
     if any(value is not None for value in import_values) and (
         any(value is None for value in import_values)
         or args.confirm_import != "IMPORT_PASS"
+        or args.batch_manifest is None
     ):
         raise SystemExit(
             "replay import requires all identity arguments and IMPORT_PASS"
@@ -83,28 +82,71 @@ def main() -> int:
         )
         for archive, calibration in args.session
     ]
+    outcomes = load_execution_outcomes(args.execution_log)
+    batch_evidence = None
+    if args.batch_manifest is not None:
+        batch_evidence = validation_batch_evidence(args.batch_manifest)
+        expected_archives = set(batch_evidence["archive_sha256s"])
+        observed_archives = {
+            session.calibration.archive_sha256 for session in sessions
+        }
+        if observed_archives != expected_archives:
+            raise SystemExit("replay sessions differ from the fixed batch cohort")
+        expected_refs = set(batch_evidence["order_refs"])
+        outcome_refs = {row.order_ref for row in outcomes}
+        if outcome_refs != expected_refs:
+            raise SystemExit("execution outcomes differ from the fixed batch cohort")
+        for session in sessions:
+            policy = session.calibration.acceptance_policy
+            if not isinstance(policy, dict):
+                raise SystemExit("calibration acceptance policy is unavailable")
+            parsed = ReplayAcceptancePolicy.from_dict(policy)
+            if (
+                parsed != PRODUCTION_REPLAY_ACCEPTANCE_POLICY
+                or session.calibration.acceptance_policy_sha256
+                != PRODUCTION_REPLAY_ACCEPTANCE_POLICY.fingerprint
+            ):
+                raise SystemExit("calibration acceptance policy differs")
     report = validate_replay_sessions(
         sessions,
-        load_execution_outcomes(args.execution_log),
-        minimum_orders=args.minimum_orders,
-        minimum_classification_accuracy=args.minimum_classification_accuracy,
-        maximum_fill_ratio_mae=args.maximum_fill_ratio_mae,
-        maximum_price_error_bps_mae=args.maximum_price_error_bps_mae,
-        maximum_latency_error_ms_mae=args.maximum_latency_error_ms_mae,
-        maximum_fee_error_quote_mae=args.maximum_fee_error_quote_mae,
-        maximum_slippage_error_bps_mae=args.maximum_slippage_error_bps_mae,
-        maker_buy_fee_pct=args.maker_buy_fee_pct,
-        maker_sell_fee_pct=args.maker_sell_fee_pct,
-        taker_buy_fee_pct=args.taker_buy_fee_pct,
-        taker_sell_fee_pct=args.taker_sell_fee_pct,
+        outcomes,
+        minimum_orders=PRODUCTION_REPLAY_ACCEPTANCE_POLICY.minimum_orders,
+        minimum_classification_accuracy=(
+            PRODUCTION_REPLAY_ACCEPTANCE_POLICY.minimum_classification_accuracy
+        ),
+        maximum_fill_ratio_mae=(
+            PRODUCTION_REPLAY_ACCEPTANCE_POLICY.maximum_fill_ratio_mae
+        ),
+        maximum_price_error_bps_mae=(
+            PRODUCTION_REPLAY_ACCEPTANCE_POLICY.maximum_price_error_bps_mae
+        ),
+        maximum_latency_error_ms_mae=(
+            PRODUCTION_REPLAY_ACCEPTANCE_POLICY.maximum_latency_error_ms_mae
+        ),
+        maximum_fee_error_quote_mae=(
+            PRODUCTION_REPLAY_ACCEPTANCE_POLICY.maximum_fee_error_quote_mae
+        ),
+        maximum_slippage_error_bps_mae=(
+            PRODUCTION_REPLAY_ACCEPTANCE_POLICY.maximum_slippage_error_bps_mae
+        ),
+        maker_buy_fee_pct=Decimal(args.maker_buy_fee_pct),
+        maker_sell_fee_pct=Decimal(args.maker_sell_fee_pct),
+        taker_buy_fee_pct=Decimal(args.taker_buy_fee_pct),
+        taker_sell_fee_pct=Decimal(args.taker_sell_fee_pct),
     )
     readiness = audit_replay_readiness(
         [session.calibration for session in sessions],
         validations=[report],
         minimum_validation_reports=1,
-        minimum_validated_orders=args.minimum_orders,
+        minimum_validated_orders=(
+            PRODUCTION_REPLAY_ACCEPTANCE_POLICY.minimum_orders
+        ),
     )
-    report = replace(report, replay_readiness=readiness.as_dict())
+    report = replace(
+        report,
+        replay_readiness=readiness.as_dict(),
+        validation_batch=batch_evidence,
+    )
     if args.output:
         write_replay_validation(args.output, report)
     payload = report.as_dict()

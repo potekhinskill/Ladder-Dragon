@@ -2041,3 +2041,17 @@ private infrastructure details.
 - **Root cause:** preview limits were fingerprinted but were not bounded by the evidence notional.
 - **Correction:** require exact 6 USDT caps, one managed position, and one closed probation lifecycle.
 - **Prevention:** bind first-production scale to observed evidence before fingerprinting operator limits.
+
+### 2026-08-25 — Let replay callers select acceptance evidence
+
+- **Impact:** weaker CLI thresholds or omitted sessions could produce a misleading replay PASS.
+- **Root cause:** report generation owned thresholds and session selection without an immutable batch identity.
+- **Correction:** fingerprint the production policy and bind import to every batch archive and order.
+- **Prevention:** recompute every imported PASS from immutable source evidence and a built-in policy.
+
+### 2026-08-25 — Counted reservations as completed validation attempts
+
+- **Impact:** a resumed batch could skip an uncertain mutation and continue with another real order.
+- **Root cause:** the ledger stored reservations only and the runner counted physical rows.
+- **Correction:** add authenticated terminal transitions and permanently close uncertain batches.
+- **Prevention:** durable mutation workflows must distinguish reservation, success, and uncertainty.

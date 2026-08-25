@@ -226,6 +226,28 @@ def _additional_best_case_count(
     return None
 
 
+def _additional_empirical_count(
+    values: list[Decimal], *, alpha: Decimal, lower_bound: Decimal,
+    upper_bound: Decimal, threshold: Decimal, maximum_additional: int,
+) -> int | None:
+    """Project a bound with the observed mean, without claiming readiness."""
+    if not values:
+        return None
+    continuation = min(
+        upper_bound,
+        max(lower_bound, sum(values, ZERO) / D(len(values))),
+    )
+    for additional in range(maximum_additional + 1):
+        if _anytime_lower(
+            values + [continuation] * additional,
+            alpha=alpha,
+            lower_bound=lower_bound,
+            upper_bound=upper_bound,
+        ) > threshold:
+            return additional
+    return None
+
+
 def anytime_design_feasibility(
     criteria: Mapping[str, object],
 ) -> dict[str, object]:
@@ -436,19 +458,23 @@ def _anytime_report(
         len(required_regime_budget) >= int(criteria["minimum_confirmed_regimes"])
         and sum(required_regime_budget) <= remaining
     )
-    futile = bool(
-        len(rows) >= minimum
-        and (
-            optimistic_lower <= ZERO
-            or not regimes_reachable
-        )
-    )
+    # Reachability is valid from the first episode. Waiting for the nominal
+    # minimum can waste the complete deadline after PASS becomes impossible.
+    futile = bool(optimistic_lower <= ZERO or not regimes_reachable)
     status = "PASS" if passed else "READY_TO_REJECT" if futile or len(rows) >= maximum else "SHADOW"
     cadence = (
         (rows[-1].terminal_at_ms - rows[0].terminal_at_ms) // (len(rows) - 1)
         if len(rows) > 1 else None
     )
     overall_additional = _additional_best_case_count(
+        values,
+        alpha=alpha,
+        lower_bound=lower_bound,
+        upper_bound=upper_bound,
+        threshold=ZERO,
+        maximum_additional=remaining,
+    )
+    empirical_additional = _additional_empirical_count(
         values,
         alpha=alpha,
         lower_bound=lower_bound,
@@ -484,6 +510,13 @@ def _anytime_report(
     statistics_eta = (
         rows[-1].terminal_at_ms + cadence * statistical_additional
         if rows and cadence is not None and statistical_additional is not None
+        and status == "SHADOW" else None
+    )
+    empirical_statistics_eta = (
+        rows[-1].terminal_at_ms + cadence * max(
+            minimum_additional, empirical_additional
+        )
+        if rows and cadence is not None and empirical_additional is not None
         and status == "SHADOW" else None
     )
     regime_eta = (
@@ -535,8 +568,12 @@ def _anytime_report(
         "next_sequential_look": next_count if status == "SHADOW" else None,
         "data_collection_projected_ready_ts_ms": statistics_eta,
         "statistics_projected_ready_ts_ms": statistics_eta,
+        "statistics_earliest_possible_ts_ms": statistics_eta,
+        "statistics_empirical_projected_ts_ms": empirical_statistics_eta,
         "regime_projected_ready_ts_ms": regime_eta,
         "execution_model_projected_ready_ts_ms": None,
+        "execution_replay_ready_ts_ms": None,
+        "expected_launch_ts_ms": None,
         "projected_ready_ts_ms": projected_ready,
         "regime_safety": regime_report,
         "regime_missing_filled_episodes": {

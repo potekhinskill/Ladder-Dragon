@@ -19,6 +19,7 @@ from ladder_dragon.strategy.market_replay import (
     ReplayCalibration,
     ReplayOrder,
 )
+from ladder_dragon.strategy.replay_policy import ReplayAcceptancePolicy
 
 
 TERMINAL_STATUSES = {"FILLED", "CANCELED", "EXPIRED", "REJECTED"}
@@ -52,10 +53,14 @@ class ReplayValidation:
     taker_sell_fee_pct: Decimal | None = None
     replay_readiness: Mapping[str, object] | None = None
     validation_domain: Mapping[str, object] | None = None
+    acceptance_policy: Mapping[str, object] | None = None
+    acceptance_policy_sha256: str = ""
+    calibrations_eligible: bool = False
+    validation_batch: Mapping[str, object] | None = None
 
     def as_dict(self) -> dict[str, object]:
         return {
-            "schema_version": 7,
+            "schema_version": 8,
             "ready": self.ready,
             "reasons": list(self.reasons),
             "archive_sha256": self.archive_sha256,
@@ -116,12 +121,22 @@ class ReplayValidation:
                 dict(self.validation_domain)
                 if self.validation_domain is not None else None
             ),
+            "acceptance_policy": (
+                dict(self.acceptance_policy)
+                if self.acceptance_policy is not None else None
+            ),
+            "acceptance_policy_sha256": self.acceptance_policy_sha256,
+            "calibrations_eligible": self.calibrations_eligible,
+            "validation_batch": (
+                dict(self.validation_batch)
+                if self.validation_batch is not None else None
+            ),
         }
 
     @classmethod
     def from_dict(cls, payload: dict[str, object]) -> "ReplayValidation":
         schema = int(payload.get("schema_version", 0))
-        if schema not in {1, 2, 3, 4, 5, 6, 7}:
+        if schema not in {1, 2, 3, 4, 5, 6, 7, 8}:
             raise ValueError("unsupported replay validation schema")
 
         def optional_decimal(name: str) -> Decimal | None:
@@ -171,6 +186,22 @@ class ReplayValidation:
             validation_domain=(
                 dict(payload["validation_domain"])
                 if isinstance(payload.get("validation_domain"), Mapping)
+                else None
+            ),
+            acceptance_policy=(
+                dict(payload["acceptance_policy"])
+                if isinstance(payload.get("acceptance_policy"), Mapping)
+                else None
+            ),
+            acceptance_policy_sha256=str(
+                payload.get("acceptance_policy_sha256", "")
+            ),
+            calibrations_eligible=bool(
+                payload.get("calibrations_eligible", False)
+            ),
+            validation_batch=(
+                dict(payload["validation_batch"])
+                if isinstance(payload.get("validation_batch"), Mapping)
                 else None
             ),
         )
@@ -376,11 +407,22 @@ def _build_validation_report(
     latency_mae = _mean(latency_errors)
     fee_mae = _mean(fee_errors)
     slippage_mae = _mean(slippage_errors)
+    policy = ReplayAcceptancePolicy(
+        minimum_orders=minimum_orders,
+        minimum_classification_accuracy=minimum_classification_accuracy,
+        maximum_fill_ratio_mae=maximum_fill_ratio_mae,
+        maximum_price_error_bps_mae=maximum_price_error_bps_mae,
+        maximum_latency_error_ms_mae=maximum_latency_error_ms_mae,
+        maximum_fee_error_quote_mae=maximum_fee_error_quote_mae,
+        maximum_slippage_error_bps_mae=maximum_slippage_error_bps_mae,
+    )
     reasons: list[str] = []
     if not calibrations_eligible:
         reasons.append("calibration is not eligible")
     if sample_count < minimum_orders:
         reasons.append(f"covered orders {sample_count} < {minimum_orders}")
+    if policy.require_zero_excluded_orders and excluded:
+        reasons.append(f"excluded orders {excluded} != 0")
     if actual_limit_maker < 1:
         reasons.append("actual LIMIT_MAKER coverage is unavailable")
     if actual_stop_limit < 1:
@@ -435,7 +477,50 @@ def _build_validation_report(
                 "taker_sell_fee_pct": taker_sell_fee_pct,
             },
         ),
+        acceptance_policy=policy.as_dict(),
+        acceptance_policy_sha256=policy.fingerprint,
+        calibrations_eligible=calibrations_eligible,
     )
+
+
+def replay_acceptance_reasons(
+    validation: ReplayValidation,
+    policy: ReplayAcceptancePolicy,
+) -> tuple[str, ...]:
+    """Recompute acceptance from stored metrics and one immutable policy."""
+    reasons: list[str] = []
+    if not validation.calibrations_eligible:
+        reasons.append("calibration is not eligible")
+    if validation.covered_orders < policy.minimum_orders:
+        reasons.append(
+            f"covered orders {validation.covered_orders} < {policy.minimum_orders}"
+        )
+    if policy.require_zero_excluded_orders and validation.excluded_orders:
+        reasons.append(f"excluded orders {validation.excluded_orders} != 0")
+    if validation.actual_limit_maker_filled_orders < 1:
+        reasons.append("actual LIMIT_MAKER coverage is unavailable")
+    if validation.actual_stop_limit_filled_orders < 1:
+        reasons.append("actual STOP_LOSS_LIMIT coverage is unavailable")
+    if validation.fill_classification_accuracy < policy.minimum_classification_accuracy:
+        reasons.append("fill classification accuracy below threshold")
+    if validation.fill_ratio_mae > policy.maximum_fill_ratio_mae:
+        reasons.append("fill ratio error above threshold")
+    checks = (
+        (validation.price_error_bps_mae, policy.maximum_price_error_bps_mae,
+         "matched fill prices unavailable", "fill price error above threshold"),
+        (validation.latency_error_ms_mae, policy.maximum_latency_error_ms_mae,
+         "matched fill latencies unavailable", "fill latency error above threshold"),
+        (validation.fee_error_quote_mae, policy.maximum_fee_error_quote_mae,
+         "matched exact fees unavailable", "fill fee error above threshold"),
+        (validation.slippage_error_bps_mae, policy.maximum_slippage_error_bps_mae,
+         "matched slippage unavailable", "fill slippage error above threshold"),
+    )
+    for observed, maximum, unavailable, excessive in checks:
+        if observed is None:
+            reasons.append(unavailable)
+        elif observed > maximum:
+            reasons.append(excessive)
+    return tuple(reasons)
 
 
 def validate_replay_outcomes(

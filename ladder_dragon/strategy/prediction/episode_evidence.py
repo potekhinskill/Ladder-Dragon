@@ -896,7 +896,14 @@ def record_model_validation(
     validated_at_ms: int | None = None,
 ) -> str:
     """Import one sanitized empirical validation after strict readiness checks."""
-    from ladder_dragon.strategy.replay_validation import ReplayValidation
+    from ladder_dragon.strategy.replay_policy import (
+        PRODUCTION_REPLAY_ACCEPTANCE_POLICY,
+        ReplayAcceptancePolicy,
+    )
+    from ladder_dragon.strategy.replay_validation import (
+        ReplayValidation,
+        replay_acceptance_reasons,
+    )
     from ladder_dragon.strategy.prediction.experiment_lifecycle import (
         load_manifest,
     )
@@ -907,10 +914,32 @@ def record_model_validation(
     if report.get("ready") is not True:
         raise ValueError("replay validation must contain a strict PASS")
     validation = ReplayValidation.from_dict(dict(report))
+    observed_policy = validation.acceptance_policy
+    if not isinstance(observed_policy, Mapping):
+        raise ValueError("replay acceptance policy is unavailable")
+    parsed_policy = ReplayAcceptancePolicy.from_dict(observed_policy)
+    expected_policy = PRODUCTION_REPLAY_ACCEPTANCE_POLICY
+    if (
+        parsed_policy != expected_policy
+        or validation.acceptance_policy_sha256 != expected_policy.fingerprint
+        or replay_acceptance_reasons(validation, expected_policy)
+        or validation.reasons
+    ):
+        raise ValueError("replay acceptance policy or recomputed result differs")
     readiness = validation.replay_readiness
+    batch = validation.validation_batch
+    batch_payload = dict(batch) if isinstance(batch, Mapping) else {}
+    observed_batch_hash = str(batch_payload.pop("cohort_sha256", ""))
     if (
         not validation.ready
         or validation.covered_orders < 10
+        or validation.excluded_orders != 0
+        or not isinstance(batch, Mapping)
+        or observed_batch_hash != canonical_digest(batch_payload)
+        or int(batch.get("attempt_count", 0)) < 10
+        or set(batch.get("archive_sha256s", ()))
+        != set(validation.archive_sha256s)
+        or len(set(batch.get("order_refs", ()))) < 10
         or validation.actual_filled_orders < 1
         or validation.actual_limit_maker_filled_orders < 1
         or validation.actual_stop_limit_filled_orders < 1

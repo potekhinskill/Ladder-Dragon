@@ -11,6 +11,8 @@ import json
 import hashlib
 from pathlib import Path
 
+from ladder_dragon.strategy.replay_policy import ReplayAcceptancePolicy
+
 
 @dataclass(frozen=True)
 class BookLevel:
@@ -545,6 +547,8 @@ class ReplayCalibration:
     market_impact_bps: Decimal
     volatility_bps_p95: Decimal = Decimal("0")
     latency_source: str = "execution_report"
+    acceptance_policy: Mapping[str, object] | None = None
+    acceptance_policy_sha256: str = ""
 
     def as_dict(self) -> dict[str, object]:
         return {
@@ -568,13 +572,18 @@ class ReplayCalibration:
                 "volatility_bps_p95": format(self.volatility_bps_p95, "f"),
                 "latency_source": self.latency_source,
             },
+            "acceptance_policy": (
+                dict(self.acceptance_policy)
+                if self.acceptance_policy is not None else None
+            ),
+            "acceptance_policy_sha256": self.acceptance_policy_sha256,
         }
 
     @classmethod
     def from_dict(cls, payload: Mapping[str, Any]) -> "ReplayCalibration":
         params = payload.get("parameters")
         schema_version = int(payload.get("schema_version", 0))
-        if schema_version not in {1, 2, 3} or not isinstance(params, Mapping):
+        if schema_version not in {1, 2, 3, 4} or not isinstance(params, Mapping):
             raise ValueError("unsupported replay calibration schema")
         return cls(
             schema_version=schema_version,
@@ -598,6 +607,14 @@ class ReplayCalibration:
             ),
             latency_source=str(
                 params.get("latency_source", "execution_report")
+            ),
+            acceptance_policy=(
+                dict(payload["acceptance_policy"])
+                if isinstance(payload.get("acceptance_policy"), Mapping)
+                else None
+            ),
+            acceptance_policy_sha256=str(
+                payload.get("acceptance_policy_sha256", "")
             ),
         )
 
@@ -688,8 +705,12 @@ def calibrate_market_events(
         latency_source = "public_event_receive"
     if not latencies:
         reasons.append("latency samples unavailable")
+    policy = ReplayAcceptancePolicy(
+        minimum_book_events=min_book_events,
+        minimum_trades=min_trades,
+    )
     return ReplayCalibration(
-        schema_version=3,
+        schema_version=4,
         archive_sha256=source_sha256,
         first_ts_ms=min(event.ts_ms for event in rows),
         last_ts_ms=max(event.ts_ms for event in rows),
@@ -707,6 +728,8 @@ def calibrate_market_events(
         market_impact_bps=_quantile(impacts, 3, 4),
         volatility_bps_p95=_quantile(mid_moves_bps, 95, 100),
         latency_source=latency_source,
+        acceptance_policy=policy.as_dict(),
+        acceptance_policy_sha256=policy.fingerprint,
     )
 
 

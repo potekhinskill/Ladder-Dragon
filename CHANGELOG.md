@@ -3,6 +3,26 @@
 All notable changes are documented here. Releases use Semantic Versioning; every
 section is dated and there is intentionally no `Unreleased` section.
 
+## [2.20.247] — 2026-08-25
+
+### Added
+- Replay reports include an immutable acceptance policy and its SHA-256 fingerprint.
+- Validation batches record durable reservation and terminal events.
+- Every completed public depth archive receives an automatic fixed-policy calibration.
+- The dashboard separates earliest, empirical, deadline, replay, and expected launch dates.
+
+### Fixed
+- Production replay imports recompute PASS and reject weakened thresholds or excluded orders.
+- Replay imports require every archive and order from one complete validation batch.
+- Failed drills retain finalized archive identity and permanently close uncertain batches.
+- Statistical futility now applies from the first eligible episode.
+
+### Security
+- Deployment keeps persistent HALT unchanged and performs no validation order.
+
+### Verified
+- Focused replay, validation batch, drill, dashboard asset, and prediction tests pass.
+
 ## [2.20.246] — 2026-08-24
 
 ### Added

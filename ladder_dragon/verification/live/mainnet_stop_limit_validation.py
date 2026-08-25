@@ -62,6 +62,7 @@ from ladder_dragon.verification.live.validation_archive import (
     ContinuousDepthArchive,
 )
 from ladder_dragon.verification.live.validation_batch import (
+    complete_validation_attempt,
     reserve_validation_attempt,
 )
 from product_version import __version__
@@ -376,6 +377,9 @@ def run_validation_drill(
     oco: dict[str, Any] | None = None
     archive: ContinuousDepthArchive | None = None
     archive_started = False
+    archive_path: Path | None = None
+    archive_metadata: dict[str, object] = {}
+    reservation: dict[str, object] | None = None
     cleanup_done = False
     primary_error: BaseException | None = None
     try:
@@ -545,6 +549,16 @@ def run_validation_drill(
             }
         )
         _append_report(report_path, report)
+        if reservation is not None:
+            complete_validation_attempt(
+                resolve_project_path(batch_manifest),
+                attempt_id=str(reservation["attempt_id"]),
+                status="SUCCEEDED",
+                archive_path=str(archive_path),
+                archive_sha256=str(archive_metadata.get("archive_sha256") or ""),
+                order_refs=tuple(str(item) for item in order_refs if str(item)),
+            )
+            reservation = None
         return report
     except DRILL_ERRORS as exc:
         primary_error = exc
@@ -571,7 +585,8 @@ def run_validation_drill(
                     ),
                 )
             if archive is not None and archive_started:
-                archive.stop()
+                archive_metadata = archive.stop()
+                archive = None
         except DRILL_ERRORS as exc:
             cleanup_error = exc
         if primary_error is not None or cleanup_error is not None:
@@ -586,8 +601,25 @@ def run_validation_drill(
                     "error_type": type(primary_error or cleanup_error).__name__,
                 }
             )
+            if archive_path is not None:
+                report["archive_path"] = str(archive_path)
+            if archive_metadata.get("archive_sha256"):
+                report["archive_sha256"] = str(
+                    archive_metadata["archive_sha256"]
+                )
             if report["mutation_started"]:
                 _append_report(report_path, report)
+            if reservation is not None:
+                complete_validation_attempt(
+                    resolve_project_path(batch_manifest),
+                    attempt_id=str(reservation["attempt_id"]),
+                    status="FAILED_UNCERTAIN",
+                    archive_path=(str(archive_path) if archive_path else None),
+                    archive_sha256=str(
+                        archive_metadata.get("archive_sha256") or ""
+                    ),
+                )
+                reservation = None
             if primary_error is not None:
                 if cleanup_error is not None:
                     raise primary_error from cleanup_error

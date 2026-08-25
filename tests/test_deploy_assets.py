@@ -866,6 +866,7 @@ def test_public_depth_archive_is_continuous_retained_and_secret_free():
     assert "ladder-dragon-depth-archive.service" in installer
     assert "ladder-dragon-depth-archive.service" in updater
     assert "/usr/local/bin/ladder-dragon-depth-archive" in runtime_assets
+    assert "-m bin.calibrate_replay" in read("deploy/record_depth_archive.sh")
 
 
 def test_soak_audit_is_periodic_signed_and_transition_notified():

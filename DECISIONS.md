@@ -1696,3 +1696,17 @@ entries concise; this is not a changelog or an activity log.
 - **Decision:** version 21 confirms RANGE only and freezes an e-process reachability proof.
 - **Why it worked:** futility, readiness, and CHAMPION scope now evaluate one identical regime set.
 - **Reuse:** every sequential experiment with rare states and a fixed observation ceiling.
+
+### 2026-08-25 — Bind replay acceptance to one complete validation batch
+
+- **Context:** mutable thresholds and selected sessions could create an optimistic replay PASS.
+- **Decision:** fingerprint one acceptance policy and require the complete batch cohort during import.
+- **Why it worked:** the importer recomputes PASS and rejects omissions, uncertainty, or policy changes.
+- **Reuse:** every empirical proof assembled from multiple paid or safety-sensitive trials.
+
+### 2026-08-25 — Distinguish readiness bounds from launch forecasts
+
+- **Context:** a best-case statistical date appeared to predict production readiness.
+- **Decision:** publish separate earliest, empirical, deadline, replay, and expected launch timestamps.
+- **Why it worked:** unavailable execution proof now leaves launch timing explicitly unknown.
+- **Reuse:** every release gate that combines independent evidence streams.

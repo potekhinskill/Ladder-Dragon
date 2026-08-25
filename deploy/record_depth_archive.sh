@@ -40,10 +40,21 @@ while :; do
       --output "${output}" \
       --duration-sec "${DURATION_SEC}" \
       --max-events "${MAX_EVENTS}"
+    # Calibrate each immutable archive before another session can start.
+    # Exit two means that the report is valid but not yet acceptance-eligible.
+    set +e
+    env -u BINANCE_API_KEY -u BINANCE_API_SECRET -u DEEPSEEK_API_KEY \
+      PYTHONPATH="${PROJECT_DIR}" \
+      "${PROJECT_DIR}/.venv/bin/python" -m bin.calibrate_replay \
+      "${output}" --output "${output%.jsonl}.calibration.json"
+    calibration_status=$?
+    set -e
+    (( calibration_status == 0 || calibration_status == 2 )) || exit "${calibration_status}"
   done
 
   find "${OUTPUT_DIR}" -xdev -type f \
-    \( -name '*.jsonl' -o -name '*.metadata.json' -o -name '*.tmp' \) \
+    \( -name '*.jsonl' -o -name '*.metadata.json' \
+       -o -name '*.calibration.json' -o -name '*.tmp' \) \
     -mtime "+${RETENTION_DAYS}" -delete
   (( CONTINUOUS == 1 )) || break
 done
