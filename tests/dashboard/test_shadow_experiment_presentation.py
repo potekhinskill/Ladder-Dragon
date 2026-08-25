@@ -28,6 +28,12 @@ def test_shadow_experiments_are_collapsed_and_use_safe_runtime_fields():
     assert "report.confirmation_evidence" in script
     assert "confirmationProgress.confirmation_futile" in script
     assert "confirmation.execution_model_gate" in script
+    assert "episode.evidence_quality" in script
+    assert "shadow_statistics_gate" in script
+    assert "shadow_regime_gate" in script
+    assert "shadow_replay_gate" in script
+    assert "shadow_activation_gate" in script
+    assert "const launchLine=Number.isFinite(launchAt)" in script
     assert "report.selection_progress" in script
     assert "progress.resolved_outcomes" in script
     assert "Object.entries(symbols)" in script
@@ -57,6 +63,12 @@ def test_shadow_experiments_are_collapsed_and_use_safe_runtime_fields():
         "shadow_ready_eta",
         "shadow_ready_days",
         "shadow_waiting_reason",
+        "shadow_statistics_gate",
+        "shadow_regime_gate",
+        "shadow_replay_gate",
+        "shadow_activation_gate",
+        "shadow_evidence_quality",
+        "shadow_not_scheduled",
         "shadow_safety_only",
         "shadow_outcomes",
         "shadow_overdue",

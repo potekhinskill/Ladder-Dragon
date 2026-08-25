@@ -18,6 +18,9 @@ V20_EXECUTION_MODEL_RULE = "minute_l2_fifo_oco_gap_v3"
 V19_EVIDENCE_SEMANTICS_VERSION = "minute_l2_episode_execution_v2"
 V19_EXECUTION_MODEL_RULE = "minute_l2_fifo_oco_gap_v2"
 REGIME_CLASSIFIER_VERSION = "execution_30m_ema_adx_hysteresis_v1"
+REGIME_EMA_FAST_LENGTH = 20
+REGIME_EMA_SLOW_LENGTH = 50
+REGIME_ADX_LENGTH = 14
 EXECUTABLE_ENTRY_REGIMES = ("RANGE", "TREND_UP", "TREND_DOWN")
 V21_EXECUTABLE_ENTRY_REGIMES = ("RANGE",)
 
@@ -63,9 +66,9 @@ def evidence_semantics_contract() -> dict[str, object]:
             "version": REGIME_CLASSIFIER_VERSION,
             "source": "confirmed_execution_regime",
             "interval": "30m",
-            "ema_fast_length": 20,
-            "ema_slow_length": 50,
-            "adx_length": 14,
+            "ema_fast_length": REGIME_EMA_FAST_LENGTH,
+            "ema_slow_length": REGIME_EMA_SLOW_LENGTH,
+            "adx_length": REGIME_ADX_LENGTH,
             "ema_epsilon": "0.0005",
             "minimum_slope": "0.0002",
             "minimum_adx": "16",
@@ -144,12 +147,18 @@ def execution_engine_validation_domain(
 def require_execution_regime_contract(observed: Mapping[str, object]) -> None:
     """Reject collection when the live classifier differs from v21."""
     expected = dict(evidence_semantics_contract()["regime_classifier"])
+    if set(observed) != set(expected):
+        raise ValueError("execution regime classifier fields differ from v21")
     comparable = {}
     required = {}
     for key, value in observed.items():
-        if key == "interval":
+        expected_value = expected[key]
+        if isinstance(expected_value, str) and key not in {
+            "ema_epsilon", "minimum_slope", "minimum_adx",
+            "minimum_hold_seconds",
+        }:
             comparable[key] = str(value)
-            required[key] = str(expected[key])
+            required[key] = str(expected_value)
             continue
         try:
             comparable[key] = Decimal(str(value))
@@ -166,8 +175,15 @@ def require_runtime_regime_contract(
     """Validate the supervisor arguments used by the confirmed regime."""
     if symbol.upper() != "SOLUSDT":
         return
+    if str(getattr(arguments, "dir_mode", "")).strip().lower() != "auto":
+        raise ValueError("execution regime classifier requires automatic mode")
     require_execution_regime_contract({
+        "version": REGIME_CLASSIFIER_VERSION,
+        "source": "confirmed_execution_regime",
         "interval": getattr(arguments, "dir_interval"),
+        "ema_fast_length": REGIME_EMA_FAST_LENGTH,
+        "ema_slow_length": REGIME_EMA_SLOW_LENGTH,
+        "adx_length": REGIME_ADX_LENGTH,
         "ema_epsilon": getattr(arguments, "dir_eps"),
         "minimum_slope": getattr(arguments, "dir_slope_min"),
         "minimum_adx": getattr(arguments, "dir_adx_min"),
@@ -181,6 +197,8 @@ def require_runtime_regime_contract(
         "minimum_hold_seconds": environ.get(
             "BOT_REGIME_MIN_HOLD_SEC", "300"
         ) or "300",
+        "panic_source": "executor_panic_state",
+        "hysteresis_source": "execution_state_machine",
     })
 
 
@@ -189,6 +207,9 @@ __all__ = [
     "EXECUTABLE_ENTRY_REGIMES",
     "EXECUTION_MODEL_RULE",
     "REGIME_CLASSIFIER_VERSION",
+    "REGIME_EMA_FAST_LENGTH",
+    "REGIME_EMA_SLOW_LENGTH",
+    "REGIME_ADX_LENGTH",
     "V19_EVIDENCE_SEMANTICS_VERSION",
     "V19_EXECUTION_MODEL_RULE",
     "V20_EVIDENCE_SEMANTICS_VERSION",

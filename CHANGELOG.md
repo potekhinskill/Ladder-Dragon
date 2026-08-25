@@ -3,6 +3,25 @@
 All notable changes are documented here. Releases use Semantic Versioning; every
 section is dated and there is intentionally no `Unreleased` section.
 
+## [2.20.248] — 2026-08-25
+
+### Added
+- Replay reports fingerprint separate order validation and read-only calibration cohorts.
+- Promotion reports bound known evidence gaps to five percent and reject unknown exclusion reasons.
+- The dashboard shows separate statistics, regime, replay, activation, and evidence-quality states.
+
+### Fixed
+- A 24-hour order batch no longer must provide the separate two-day market calibration context.
+- The supervisor validates the complete regime classifier contract before it can start a worker.
+- The unused `DIR_HYST_BARS` option no longer implies a classifier control that does not exist.
+
+### Security
+- Cohort overlap, missing fingerprints, and incomplete context evidence block replay import.
+- Persistent HALT and the SOL version 21 candidate remain unchanged.
+
+### Verified
+- All project tests, Python compilation, Technical English, and focused replay checks pass.
+
 ## [2.20.247] — 2026-08-25
 
 ### Added

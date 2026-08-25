@@ -1,6 +1,11 @@
 from decimal import Decimal
+import json
 
 from ladder_dragon.strategy.market_replay import ReplayCalibration
+from ladder_dragon.strategy.replay_cohorts import (
+    calibration_context_evidence,
+    verify_cohort_fingerprint,
+)
 from ladder_dragon.strategy.replay_readiness import audit_replay_readiness
 from ladder_dragon.strategy.replay_validation import ReplayValidation
 
@@ -66,6 +71,35 @@ def test_replay_readiness_requires_days_regimes_and_measured_latency():
     assert report.regimes == ("high", "low", "normal")
     assert report.span_days >= Decimal("2")
     assert report.validated_order_count == 10
+    assert report.archive_sha256s == tuple(
+        sorted(row.archive_sha256 for row in calibrations)
+    )
+
+
+def test_calibration_context_has_a_distinct_immutable_identity():
+    calibrations = [
+        calibration(1, "0.2"),
+        calibration(2, "1.0"),
+        calibration(3, "3.0"),
+    ]
+    readiness = audit_replay_readiness(
+        calibrations,
+        minimum_measured_latency_archives=0,
+        minimum_execution_samples=0,
+        minimum_validation_reports=0,
+        minimum_validated_orders=0,
+    )
+    evidence = calibration_context_evidence(
+        calibrations, readiness=readiness.as_dict()
+    )
+
+    assert evidence["scope"] == "READ_ONLY_CALIBRATION_CONTEXT"
+    assert verify_cohort_fingerprint(evidence) is True
+    assert "order_ref" not in json.dumps(evidence)
+    assert "credential" not in json.dumps(evidence).lower()
+    damaged = dict(evidence)
+    damaged["last_ts_ms"] = int(damaged["last_ts_ms"]) + 1
+    assert verify_cohort_fingerprint(damaged) is False
 
 
 def test_replay_readiness_fails_closed_on_short_homogeneous_data():

@@ -52,7 +52,7 @@ from ladder_dragon.strategy.prediction.control_evidence import (
     record_control_evidence,
 )
 from ladder_dragon.strategy.prediction.champion_registry import active_champion, champion_allows_regime
-from ladder_dragon.strategy.prediction.episode_semantics import require_runtime_regime_contract
+from ladder_dragon.strategy.prediction.episode_semantics import REGIME_ADX_LENGTH, REGIME_EMA_FAST_LENGTH, REGIME_EMA_SLOW_LENGTH, require_runtime_regime_contract
 from ladder_dragon.supervision.aggregate_trade_history import load_aggregate_trade_window, safe_aggregate_trade_error
 from ladder_dragon.supervision import strategy_control_gates
 from ladder_dragon.ai.ai_runtime_status import write_runtime_status
@@ -2172,9 +2172,9 @@ def _child_process_env(
     return child_env
 
 
-def _infer_market_mode(symbol: str, *, interval: str = "30m", ema_fast_len: int = 20,
-                       ema_slow_len: int = 50, eps: float = 0.0005, slope_min: float = 0.0002,
-                       adx_min: float = 16.0, hyst_bars: int = 5, confirm_bars: int = 3,
+def _infer_market_mode(symbol: str, *, interval: str = "30m", ema_fast_len: int = REGIME_EMA_FAST_LENGTH,
+                       ema_slow_len: int = REGIME_EMA_SLOW_LENGTH, eps: float = 0.0005, slope_min: float = 0.0002,
+                       adx_min: float = 16.0, confirm_bars: int = 3,
                        do_log: bool = True) -> Tuple[str, Dict[str, float]]:
     need = max(ema_slow_len + 5, 100)
     kl = _klines(symbol, interval, limit=need)
@@ -2189,7 +2189,7 @@ def _infer_market_mode(symbol: str, *, interval: str = "30m", ema_fast_len: int 
 
     step_back = min(confirm_bars, len(ema_fast) - 1)
     slope = (ema_fast[-1] - ema_fast[-1 - step_back]) / max(step_back, 1) / max(last_px, 1e-12)
-    adx = _adx_from_klines(kl, length=14)
+    adx = _adx_from_klines(kl, length=REGIME_ADX_LENGTH)
 
     up_cond   = (ef > es * (1.0 + eps)) and (slope >=  slope_min) and (adx >= adx_min)
     down_cond = (ef < es * (1.0 - eps)) and (slope <= -slope_min) and (adx >= adx_min)
@@ -2722,6 +2722,8 @@ def run_for_symbol(
     execution_allowed: bool = True,
 ) -> None:
     """Build one plan; optionally retain only read-only SHADOW telemetry."""
+    # Validate frozen regime semantics before plan calculation or exchange mutation.
+    require_runtime_regime_contract(symbol, args, os.environ)
     champion = _ACTIVE_CHAMPIONS.get(symbol.upper()) if execution_allowed else None
     if execution_allowed and champion is None:
         raise RuntimeError("active CHAMPION is required for execution")
@@ -2777,12 +2779,11 @@ def run_for_symbol(
         dir_mode, _diag = _infer_market_mode(
             symbol,
             interval=args.dir_interval,
-            ema_fast_len=20,
-            ema_slow_len=50,
+            ema_fast_len=REGIME_EMA_FAST_LENGTH,
+            ema_slow_len=REGIME_EMA_SLOW_LENGTH,
             eps=_analytics_float(args.dir_eps),
             slope_min=_analytics_float(args.dir_slope_min),
             adx_min=_analytics_float(args.dir_adx_min),
-            hyst_bars=int(args.dir_hyst_bars),
             confirm_bars=int(args.dir_confirm_bars),
             do_log=bool(args.dir_log and execution_allowed)
         )
@@ -3505,11 +3506,7 @@ def run_for_symbol(
             args.sl = orig_sl
             args.stop_limit_offset_pct = orig_stop_limit_offset
 
-    # In execution mode SHADOW analytics runs only after the deterministic
-    # worker launch. In blocked mode no worker or mutation path exists, so the
-    # same evidence can be collected without delaying BUY protection.
     try:
-        require_runtime_regime_contract(symbol, args, os.environ)
         _record_prediction_shadow(
             symbol,
             now_price=now_p,

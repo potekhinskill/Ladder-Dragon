@@ -114,6 +114,9 @@ Validate separate archives without joining recording gaps:
 .venv/bin/python -m bin.validate_replay_sessions \
   --session maker.jsonl maker-calibration.json \
   --session stop.jsonl stop-calibration.json \
+  --calibration-context low-calibration.json \
+  --calibration-context normal-calibration.json \
+  --calibration-context high-calibration.json \
   --batch-manifest BATCH_MANIFEST \
   --execution-log execution-latency.ndjson \
   --maker-buy-fee-pct MAKER_BUY_RATE \
@@ -127,6 +130,11 @@ Validate separate archives without joining recording gaps:
   --execution-model-rule minute_l2_fifo_oco_gap_v3 \
   --confirm-import IMPORT_PASS
 ```
+
+Each `--session` must belong to the complete order validation batch.
+Each `--calibration-context` must contain only read-only public archive calibration.
+The two cohorts must not share an archive SHA-256.
+The calibration context must cover two days and all required volatility regimes.
 
 Each terminal order must fit inside one session.
 The validator rejects duplicate or overlapping archive identities.

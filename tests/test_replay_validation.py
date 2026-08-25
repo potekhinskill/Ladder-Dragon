@@ -282,3 +282,21 @@ def test_replay_import_requires_a_complete_confirmed_identity(monkeypatch):
 
     with pytest.raises(SystemExit, match="all identity arguments"):
         replay_sessions.main()
+
+
+def test_replay_cli_separates_order_sessions_from_calibration_context():
+    args = replay_sessions.build_parser().parse_args([
+        "--session", "order.jsonl", "order.calibration.json",
+        "--calibration-context", "low.calibration.json",
+        "--calibration-context", "high.calibration.json",
+        "--execution-log", "execution.ndjson",
+        "--maker-buy-fee-pct", "0.001",
+        "--maker-sell-fee-pct", "0.001",
+        "--taker-buy-fee-pct", "0.001",
+        "--taker-sell-fee-pct", "0.001",
+    ])
+
+    assert args.session == [["order.jsonl", "order.calibration.json"]]
+    assert [path.name for path in args.calibration_context] == [
+        "low.calibration.json", "high.calibration.json",
+    ]

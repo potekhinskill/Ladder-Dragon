@@ -904,6 +904,7 @@ def record_model_validation(
         ReplayValidation,
         replay_acceptance_reasons,
     )
+    from ladder_dragon.strategy.replay_cohorts import verify_cohort_fingerprint
     from ladder_dragon.strategy.prediction.experiment_lifecycle import (
         load_manifest,
     )
@@ -927,25 +928,50 @@ def record_model_validation(
     ):
         raise ValueError("replay acceptance policy or recomputed result differs")
     readiness = validation.replay_readiness
-    batch = validation.validation_batch
-    batch_payload = dict(batch) if isinstance(batch, Mapping) else {}
-    observed_batch_hash = str(batch_payload.pop("cohort_sha256", ""))
+    order_cohort = validation.order_validation_cohort
+    context_cohort = validation.calibration_context_cohort
+    order_hashes = set(
+        order_cohort.get("archive_sha256s", ())
+        if isinstance(order_cohort, Mapping) else ()
+    )
+    context_hashes = set(
+        context_cohort.get("archive_sha256s", ())
+        if isinstance(context_cohort, Mapping) else ()
+    )
+    context_readiness = (
+        context_cohort.get("readiness")
+        if isinstance(context_cohort, Mapping) else None
+    )
     if (
         not validation.ready
         or validation.covered_orders < 10
         or validation.excluded_orders != 0
-        or not isinstance(batch, Mapping)
-        or observed_batch_hash != canonical_digest(batch_payload)
-        or int(batch.get("attempt_count", 0)) < 10
-        or set(batch.get("archive_sha256s", ()))
-        != set(validation.archive_sha256s)
-        or len(set(batch.get("order_refs", ()))) < 10
+        or not isinstance(order_cohort, Mapping)
+        or not verify_cohort_fingerprint(order_cohort)
+        or int(order_cohort.get("attempt_count", 0)) < 10
+        or len(order_hashes) != int(order_cohort.get("attempt_count", 0))
+        or order_hashes != set(validation.archive_sha256s)
+        or len(set(order_cohort.get("order_refs", ()))) < 10
+        or not isinstance(context_cohort, Mapping)
+        or not verify_cohort_fingerprint(context_cohort)
+        or context_cohort.get("scope") != "READ_ONLY_CALIBRATION_CONTEXT"
+        or not context_hashes
+        or bool(order_hashes & context_hashes)
+        or not isinstance(context_readiness, Mapping)
+        or context_readiness.get("ready") is not True
+        or set(context_readiness.get("archive_sha256s", ())) != context_hashes
+        or int(context_readiness.get("archive_count", 0)) < 3
+        or D(str(context_readiness.get("span_days", "0"))) < D("2")
+        or set(context_readiness.get("regimes", ()))
+        != {"low", "normal", "high"}
         or validation.actual_filled_orders < 1
         or validation.actual_limit_maker_filled_orders < 1
         or validation.actual_stop_limit_filled_orders < 1
         or validation.queue_model != "L2_PRICE_LEVEL_FIFO_PROXY"
         or not isinstance(readiness, Mapping)
         or readiness.get("ready") is not True
+        or set(readiness.get("archive_sha256s", ()))
+        != order_hashes | context_hashes
         or int(readiness.get("archive_count", 0)) < 3
         or D(str(readiness.get("span_days", "0"))) < D("2")
         or set(readiness.get("regimes", ())) != {"low", "normal", "high"}

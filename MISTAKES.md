@@ -6,6 +6,20 @@ avoidable rework. Identify the root cause rather than recording only the
 symptom. Keep entries concise and exclude secrets, balances, account data, and
 private infrastructure details.
 
+### 2026-08-25 — Required multi-day coverage from an expiring batch
+
+- **Impact:** execution replay could never satisfy its two-day readiness gate.
+- **Root cause:** one cohort owned both bounded Mainnet attempts and broad public calibration coverage.
+- **Correction:** use separate immutable order and read-only calibration cohorts.
+- **Prevention:** prove that every time and count requirement can coexist before freezing a verification workflow.
+
+### 2026-08-25 — Checked classifier semantics after worker creation
+
+- **Impact:** a future CHAMPION could start a worker before a configuration mismatch failed closed.
+- **Root cause:** the observational check remained after the deterministic worker launch.
+- **Correction:** move complete classifier validation before the worker boundary and remove the unused option.
+- **Prevention:** place every execution-semantic precondition before the first possible mutation path.
+
 ### 2026-08-24 — Named all cold-start delay as missing history
 
 - **Impact:** active BTC and ETH training appeared stuck although independent live snapshots accumulated.

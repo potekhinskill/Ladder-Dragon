@@ -18,6 +18,36 @@ from ladder_dragon.strategy.prediction.execution_episode import (
 D = Decimal
 ZERO = D("0")
 ELIGIBLE_REGIMES = ("RANGE", "TREND_UP", "TREND_DOWN")
+EVIDENCE_QUALITY_POLICY = {
+    "schema_version": 1,
+    "maximum_ineligible_fraction": "0.05",
+    "allowed_ineligible_reasons": [
+        "INCOMPLETE_TRADE_PAGE", "PROCESS_RESTART_DATA_GAP",
+    ],
+}
+
+
+def _evidence_quality(
+    rows: list[ExecutionEpisodeResult],
+) -> dict[str, object]:
+    """Keep source attrition visible and bounded outside strategy outcomes."""
+    from ladder_dragon.strategy.prediction.episode_semantics import canonical_digest
+
+    ineligible = [row for row in rows if not row.eligible_for_promotion]
+    allowed = set(EVIDENCE_QUALITY_POLICY["allowed_ineligible_reasons"])
+    unknown = sorted({row.terminal_reason for row in ineligible} - allowed)
+    fraction = D(len(ineligible)) / D(len(rows)) if rows else ZERO
+    maximum = D(str(EVIDENCE_QUALITY_POLICY["maximum_ineligible_fraction"]))
+    status = "PASS" if not unknown and fraction <= maximum else "BLOCKED"
+    return {
+        "status": status,
+        "raw_terminal_episodes": len(rows),
+        "ineligible_terminal_episodes": len(ineligible),
+        "ineligible_fraction": format(fraction, "f"),
+        "maximum_ineligible_fraction": format(maximum, "f"),
+        "unknown_ineligible_reasons": unknown,
+        "policy_sha256": canonical_digest(EVIDENCE_QUALITY_POLICY),
+    }
 
 
 def net_expectancy_criteria(
@@ -346,6 +376,7 @@ def _anytime_report(
         row for row in rows_all
         if row.evidence_semantics_fingerprint != required_semantics_fingerprint
     ]
+    quality = _evidence_quality(rows_all)
     rows = [
         row for row in rows_all
         if row.eligible_for_promotion
@@ -357,6 +388,7 @@ def _anytime_report(
         "raw_terminal_episodes": len(rows_all),
         "eligible_terminal_episodes": len(rows),
         "semantics_mismatch_episodes": len(mixed),
+        "evidence_quality": quality,
     }
     if mixed:
         return {
@@ -416,6 +448,7 @@ def _anytime_report(
         and drawdown <= notional * D(str(criteria["maximum_drawdown_fraction"]))
         and len(confirmed) >= int(criteria["minimum_confirmed_regimes"])
         and not panic_failures
+        and quality["status"] == "PASS"
     )
     optimistic = values + [upper_bound] * max(0, maximum - len(rows))
     optimistic_lower = _anytime_lower(
@@ -588,7 +621,14 @@ def _anytime_report(
         "required_confirmed_regimes": int(criteria["minimum_confirmed_regimes"]),
         "status": status,
         "approved": passed,
-        "readiness_reason": "all anytime-valid expectancy gates passed" if passed else "preregistered expectancy is mathematically futile" if status == "READY_TO_REJECT" else "waiting for anytime-valid expectancy and regime evidence",
+        "readiness_reason": (
+            "all anytime-valid expectancy gates passed" if passed else
+            "evidence attrition exceeds the promotion limit"
+            if quality["status"] != "PASS" else
+            "preregistered expectancy is mathematically futile"
+            if status == "READY_TO_REJECT" else
+            "waiting for anytime-valid expectancy and regime evidence"
+        ),
     }
 
 

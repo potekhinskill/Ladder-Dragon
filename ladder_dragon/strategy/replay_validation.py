@@ -57,10 +57,12 @@ class ReplayValidation:
     acceptance_policy_sha256: str = ""
     calibrations_eligible: bool = False
     validation_batch: Mapping[str, object] | None = None
+    order_validation_cohort: Mapping[str, object] | None = None
+    calibration_context_cohort: Mapping[str, object] | None = None
 
     def as_dict(self) -> dict[str, object]:
         return {
-            "schema_version": 8,
+            "schema_version": 9,
             "ready": self.ready,
             "reasons": list(self.reasons),
             "archive_sha256": self.archive_sha256,
@@ -131,12 +133,20 @@ class ReplayValidation:
                 dict(self.validation_batch)
                 if self.validation_batch is not None else None
             ),
+            "order_validation_cohort": (
+                dict(self.order_validation_cohort)
+                if self.order_validation_cohort is not None else None
+            ),
+            "calibration_context_cohort": (
+                dict(self.calibration_context_cohort)
+                if self.calibration_context_cohort is not None else None
+            ),
         }
 
     @classmethod
     def from_dict(cls, payload: dict[str, object]) -> "ReplayValidation":
         schema = int(payload.get("schema_version", 0))
-        if schema not in {1, 2, 3, 4, 5, 6, 7, 8}:
+        if schema not in {1, 2, 3, 4, 5, 6, 7, 8, 9}:
             raise ValueError("unsupported replay validation schema")
 
         def optional_decimal(name: str) -> Decimal | None:
@@ -202,6 +212,16 @@ class ReplayValidation:
             validation_batch=(
                 dict(payload["validation_batch"])
                 if isinstance(payload.get("validation_batch"), Mapping)
+                else None
+            ),
+            order_validation_cohort=(
+                dict(payload["order_validation_cohort"])
+                if isinstance(payload.get("order_validation_cohort"), Mapping)
+                else None
+            ),
+            calibration_context_cohort=(
+                dict(payload["calibration_context_cohort"])
+                if isinstance(payload.get("calibration_context_cohort"), Mapping)
                 else None
             ),
         )

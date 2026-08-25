@@ -25,6 +25,7 @@ from ladder_dragon.strategy.replay_policy import (
     PRODUCTION_REPLAY_ACCEPTANCE_POLICY,
     ReplayAcceptancePolicy,
 )
+from ladder_dragon.strategy.replay_cohorts import calibration_context_evidence
 from ladder_dragon.strategy.replay_readiness import audit_replay_readiness
 from ladder_dragon.verification.live.validation_batch import (
     validation_batch_evidence,
@@ -43,6 +44,13 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--execution-log", required=True)
     parser.add_argument("--output")
     parser.add_argument("--batch-manifest", type=Path)
+    parser.add_argument(
+        "--calibration-context",
+        action="append",
+        type=Path,
+        metavar="CALIBRATION",
+        help="add one read-only calibration outside the order cohort",
+    )
     parser.add_argument("--prediction-db", type=Path)
     parser.add_argument("--experiment-id")
     parser.add_argument("--symbol")
@@ -83,16 +91,20 @@ def main() -> int:
         for archive, calibration in args.session
     ]
     outcomes = load_execution_outcomes(args.execution_log)
-    batch_evidence = None
+    order_cohort = None
+    context_cohort = None
+    context_calibrations = [
+        read_calibration(path) for path in (args.calibration_context or [])
+    ]
     if args.batch_manifest is not None:
-        batch_evidence = validation_batch_evidence(args.batch_manifest)
-        expected_archives = set(batch_evidence["archive_sha256s"])
+        order_cohort = validation_batch_evidence(args.batch_manifest)
+        expected_archives = set(order_cohort["archive_sha256s"])
         observed_archives = {
             session.calibration.archive_sha256 for session in sessions
         }
         if observed_archives != expected_archives:
             raise SystemExit("replay sessions differ from the fixed batch cohort")
-        expected_refs = set(batch_evidence["order_refs"])
+        expected_refs = set(order_cohort["order_refs"])
         outcome_refs = {row.order_ref for row in outcomes}
         if outcome_refs != expected_refs:
             raise SystemExit("execution outcomes differ from the fixed batch cohort")
@@ -107,6 +119,24 @@ def main() -> int:
                 != PRODUCTION_REPLAY_ACCEPTANCE_POLICY.fingerprint
             ):
                 raise SystemExit("calibration acceptance policy differs")
+        context_hashes = {
+            calibration.archive_sha256 for calibration in context_calibrations
+        }
+        if not context_calibrations:
+            raise SystemExit("read-only calibration context is unavailable")
+        if context_hashes & observed_archives:
+            raise SystemExit("replay calibration cohorts overlap")
+        context_readiness = audit_replay_readiness(
+            context_calibrations,
+            minimum_measured_latency_archives=0,
+            minimum_execution_samples=0,
+            minimum_validation_reports=0,
+            minimum_validated_orders=0,
+        )
+        context_cohort = calibration_context_evidence(
+            context_calibrations,
+            readiness=context_readiness.as_dict(),
+        )
     report = validate_replay_sessions(
         sessions,
         outcomes,
@@ -135,7 +165,7 @@ def main() -> int:
         taker_sell_fee_pct=Decimal(args.taker_sell_fee_pct),
     )
     readiness = audit_replay_readiness(
-        [session.calibration for session in sessions],
+        [session.calibration for session in sessions] + context_calibrations,
         validations=[report],
         minimum_validation_reports=1,
         minimum_validated_orders=(
@@ -145,7 +175,8 @@ def main() -> int:
     report = replace(
         report,
         replay_readiness=readiness.as_dict(),
-        validation_batch=batch_evidence,
+        order_validation_cohort=order_cohort,
+        calibration_context_cohort=context_cohort,
     )
     if args.output:
         write_replay_validation(args.output, report)

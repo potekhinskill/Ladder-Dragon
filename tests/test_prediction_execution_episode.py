@@ -6,6 +6,8 @@ import hashlib
 import json
 import time
 
+import pytest
+
 from ladder_dragon.strategy.market_replay import BookLevel, MarketEvent
 from ladder_dragon.strategy.prediction.episode_evidence import (
     episode_confirmation_criteria,
@@ -303,6 +305,49 @@ def test_v21_design_rejects_an_unreachable_regime_requirement():
         raise AssertionError("unreachable v21 design unexpectedly passed")
 
 
+def test_v21_evidence_quality_bounds_known_source_attrition():
+    def row(index: int):
+        return replace(
+            _result(index, "0.05"),
+            generation="v21",
+            variant_id="v21_maker_ttl90_gap48",
+            execution_model_rule="minute_l2_fifo_oco_gap_v3",
+            start_regime="RANGE",
+            evidence_semantics_fingerprint=evidence_semantics_fingerprint(),
+        )
+
+    gap = replace(
+        row(100),
+        terminal_reason="PROCESS_RESTART_DATA_GAP",
+        eligible_for_promotion=False,
+    )
+    blocked = sequential_episode_report(
+        [*(row(index) for index in range(12)), gap],
+        criteria=episode_confirmation_criteria(
+            "episode_anytime_expectancy_v5"
+        ),
+    )
+    recovered = sequential_episode_report(
+        [*(row(index) for index in range(19)), gap],
+        criteria=episode_confirmation_criteria(
+            "episode_anytime_expectancy_v5"
+        ),
+    )
+
+    assert blocked["evidence_quality"]["status"] == "BLOCKED"
+    assert blocked["approved"] is False
+    assert recovered["evidence_quality"]["status"] == "PASS"
+    assert recovered["evidence_quality"]["ineligible_fraction"] == "0.05"
+    unknown = replace(gap, terminal_reason="UNREVIEWED_DATA_EXCLUSION")
+    unknown_report = sequential_episode_report(
+        [*(row(index) for index in range(30)), unknown],
+        criteria=episode_confirmation_criteria(
+            "episode_anytime_expectancy_v5"
+        ),
+    )
+    assert unknown_report["evidence_quality"]["status"] == "BLOCKED"
+
+
 def _result(index: int, pnl: str) -> ExecutionEpisodeResult:
     return ExecutionEpisodeResult(
         episode_id=f"episode-{index}",
@@ -519,12 +564,14 @@ def test_model_validation_requires_filled_maker_and_stop_limit_orders(tmp_path):
         product_version="2.20.229",
         source_commit="b" * 40,
     )
+    order_archives = [f"{index:064x}" for index in range(1, 11)]
+    context_archives = [f"{index:064x}" for index in range(11, 14)]
     report = {
-            "schema_version": 8,
+            "schema_version": 9,
         "ready": True,
         "reasons": [],
             "archive_sha256": "c" * 64,
-            "archive_sha256s": ["a" * 64, "b" * 64, "c" * 64],
+            "archive_sha256s": order_archives,
         "covered_orders": 10,
         "excluded_orders": 0,
         "actual_filled_orders": 2,
@@ -546,7 +593,7 @@ def test_model_validation_requires_filled_maker_and_stop_limit_orders(tmp_path):
         "replay_readiness": {
             "ready": True,
             "reasons": [],
-            "archive_count": 3,
+            "archive_count": 13,
             "span_days": "2",
             "regimes": ["low", "normal", "high"],
             "measured_latency_archives": 1,
@@ -555,6 +602,7 @@ def test_model_validation_requires_filled_maker_and_stop_limit_orders(tmp_path):
             "trade_count": 1000,
             "validation_report_count": 1,
             "validated_order_count": 10,
+            "archive_sha256s": order_archives + context_archives,
         },
             "validation_domain": execution_engine_validation_domain(
             execution_model_rule="minute_l2_fifo_oco_gap_v2",
@@ -572,15 +620,53 @@ def test_model_validation_requires_filled_maker_and_stop_limit_orders(tmp_path):
                 PRODUCTION_REPLAY_ACCEPTANCE_POLICY.fingerprint
             ),
             "calibrations_eligible": True,
-            "validation_batch": {
+            "order_validation_cohort": {
                 "attempt_count": 10,
-                "archive_sha256s": ["a" * 64, "b" * 64, "c" * 64],
+                "archive_sha256s": order_archives,
                 "order_refs": [f"order-{index}" for index in range(10)],
             },
+            "calibration_context_cohort": {
+                "schema_version": 1,
+                "scope": "READ_ONLY_CALIBRATION_CONTEXT",
+                "archive_sha256s": context_archives,
+                "first_ts_ms": 0,
+                "last_ts_ms": 172_800_000,
+                "span_days": "2",
+                "readiness": {
+                    "ready": True,
+                    "archive_count": 3,
+                    "span_days": "2",
+                    "regimes": ["low", "normal", "high"],
+                    "archive_sha256s": context_archives,
+                },
+            },
         }
-    report["validation_batch"]["cohort_sha256"] = canonical_digest(
-        report["validation_batch"]
+    report["order_validation_cohort"]["cohort_sha256"] = canonical_digest(
+        report["order_validation_cohort"]
     )
+    report["calibration_context_cohort"]["cohort_sha256"] = canonical_digest(
+        report["calibration_context_cohort"]
+    )
+    overlapping = json.loads(json.dumps(report))
+    overlapping["actual_stop_limit_filled_orders"] = 1
+    overlapping["calibration_context_cohort"]["archive_sha256s"][0] = (
+        order_archives[0]
+    )
+    overlapping["calibration_context_cohort"]["readiness"][
+        "archive_sha256s"
+    ][0] = order_archives[0]
+    overlapping["calibration_context_cohort"].pop("cohort_sha256")
+    overlapping["calibration_context_cohort"]["cohort_sha256"] = (
+        canonical_digest(overlapping["calibration_context_cohort"])
+    )
+    with pytest.raises(ValueError, match="strict replay readiness"):
+        record_model_validation(
+            store,
+            symbol="SOLUSDT",
+            execution_model_rule="minute_l2_fifo_oco_gap_v2",
+            experiment_id="validation-experiment",
+            report=overlapping,
+        )
     report_without_domain = dict(report)
     report_without_domain.pop("validation_domain")
     report_without_domain["actual_stop_limit_filled_orders"] = 1

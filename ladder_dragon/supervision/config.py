@@ -171,7 +171,6 @@ def build_supervisor_parser() -> argparse.ArgumentParser:
     ap.add_argument("--dir-eps", type=float, default=float(os.getenv("DIR_EPS", "0.0005")))
     ap.add_argument("--dir-slope-min", type=float, default=float(os.getenv("DIR_SLOPE_MIN", "0.0002")))
     ap.add_argument("--dir-adx-min", type=float, default=float(os.getenv("DIR_ADX_MIN", "16.0")))
-    ap.add_argument("--dir-hyst-bars", type=int, default=int(os.getenv("DIR_HYST_BARS", "5")))
     ap.add_argument("--dir-confirm-bars", type=int, default=int(os.getenv("DIR_CONFIRM_BARS", "3")))
     ap.add_argument("--dir-log", type=int, default=int(os.getenv("DIR_LOG", "1")))
     ap.add_argument("--dir-up-dev-mult", type=float, default=float(os.getenv("DIR_UP_DEV_MULT", "0.80")))

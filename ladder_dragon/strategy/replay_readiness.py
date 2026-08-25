@@ -26,6 +26,7 @@ class ReplayReadiness:
     trade_count: int
     validation_report_count: int
     validated_order_count: int
+    archive_sha256s: tuple[str, ...]
 
     def as_dict(self) -> dict[str, object]:
         return {
@@ -40,6 +41,7 @@ class ReplayReadiness:
             "trade_count": self.trade_count,
             "validation_report_count": self.validation_report_count,
             "validated_order_count": self.validated_order_count,
+            "archive_sha256s": list(self.archive_sha256s),
         }
 
 
@@ -173,4 +175,5 @@ def audit_replay_readiness(
         trade_count=sum(row.trade_count for row in rows),
         validation_report_count=len(validation_rows),
         validated_order_count=validated_orders,
+        archive_sha256s=tuple(sorted(unique_hashes)),
     )

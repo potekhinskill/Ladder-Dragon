@@ -1,5 +1,19 @@
 # Engineering decisions
 
+### 2026-08-25 — Separate order proof from market calibration context
+
+- **Context:** a bounded Mainnet batch cannot also provide two days of public market coverage.
+- **Decision:** fingerprint order sessions and read-only calibration archives as separate, disjoint cohorts.
+- **Why it worked:** tests preserve ten-order identity while accepting independent multi-day volatility context.
+- **Reuse:** every empirical proof that combines paid mutations with broader public observations.
+
+### 2026-08-25 — Validate evidence semantics before worker launch
+
+- **Context:** a late classifier check could detect incompatible evidence only after worker creation.
+- **Decision:** validate the complete classifier contract before every SOL worker launch.
+- **Why it worked:** tests reject forced modes and changed confirmations before the mutation boundary.
+- **Reuse:** every evidence-bound execution policy with configurable runtime inputs.
+
 ### 2026-08-24 — Distinguish cold-start evidence sources
 
 - **Context:** compatible history can be unavailable while live independent training continues normally.

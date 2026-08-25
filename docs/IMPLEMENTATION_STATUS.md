@@ -1,6 +1,6 @@
 # Implementation status
 
-This document describes the code in version **2.20.247**.
+This document describes the code in version **2.20.248**.
 It does not describe future plans as completed work.
 
 An implemented function is not automatically approved for LIVE use.
@@ -13,7 +13,7 @@ The configured mode and its evidence gate remain authoritative.
 | Execution | Decimal-only Binance Spot planning, orders, cancel-replace, and recovery | DRY or Testnet first |
 | Protection | Verified OCO legs, confirmed breakeven re-arm, gap flatten, and persistent HALT | Required for managed fills |
 | Accounting | Exact FIFO lots, exact AI fills, fee provenance, risk streaks, and cursor audits | Fail closed on incomplete evidence |
-| Replay | Sequential L2 events, queue state, latency, exact fees, partial fills, and stop gaps | L2 model, not exact L3 |
+| Replay | Separate order validation and read-only calibration cohorts with immutable fingerprints | L2 model, not exact L3 |
 | Prediction | 1, 5, and 15 minute SHADOW outcomes | Enabled for evidence only |
 | Market scenarios | 1-hour through monthly closed-candle outcomes | SHADOW only |
 | Experiments | Diagnostic cohorts and one preregistered SOL execution-episode cohort | SHADOW only |
