@@ -3,6 +3,18 @@
 All notable changes are documented here. Releases use Semantic Versioning; every
 section is dated and there is intentionally no `Unreleased` section.
 
+## [2.20.250] — 2026-08-25
+
+### Fixed
+- Version 22 reports now use the registered episode evaluator before live evidence exists.
+
+### Security
+- Empty version 22 evidence remains in progress and cannot fall through to a legacy evaluator.
+- Persistent HALT and all live execution settings remain unchanged.
+
+### Verified
+- The version 22 public report test, project tests, Python compilation, and Technical English pass.
+
 ## [2.20.249] — 2026-08-25
 
 ### Added

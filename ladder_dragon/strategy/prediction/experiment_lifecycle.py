@@ -1046,6 +1046,7 @@ def confirmation_report(
         "group_sequential_net_expectancy_alpha_spending_v3",
         "anytime_valid_betting_e_process_v4",
         "anytime_valid_betting_e_process_v5",
+        "anytime_valid_betting_e_process_v6",
     }:
         return _episode_confirmation_report(store, manifest)
     decisions, reasons = _confirmation_decisions(store, manifest)

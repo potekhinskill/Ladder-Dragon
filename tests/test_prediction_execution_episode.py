@@ -925,3 +925,11 @@ def test_v22_manifest_freezes_tp_only_and_excursion_contract(tmp_path):
     assert manifest["criteria"]["diagnostic_policy"] == (
         "BEST_BID_MFE_MAE_AFTER_ENTRY_TO_TERMINAL_V1"
     )
+    report = confirmation_report(
+        store, experiment_id=str(manifest["experiment_id"])
+    )
+    assert report["confirmation_status"] == "IN_PROGRESS"
+    assert report["confirmation_progress"]["method"] == (
+        "anytime_valid_betting_e_process_v6"
+    )
+    assert report["promotion_eligible"] is False

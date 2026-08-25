@@ -2069,3 +2069,10 @@ private infrastructure details.
 - **Root cause:** the ledger stored reservations only and the runner counted physical rows.
 - **Correction:** add authenticated terminal transitions and permanently close uncertain batches.
 - **Prevention:** durable mutation workflows must distinguish reservation, success, and uncertainty.
+
+### 2026-08-25 — Omitted version 22 from report dispatch
+
+- **Impact:** a new empty version 22 experiment reported a legacy-criteria error instead of normal progress.
+- **Root cause:** the manifest test did not call the public report entry point for the new statistical method.
+- **Correction:** register the version 22 method and test the complete report path before release.
+- **Prevention:** each new statistical method must pass a public empty-evidence report test.
