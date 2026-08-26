@@ -46,16 +46,32 @@ def _entry_diagnostic_inventory(
         ).fetchone()[0])
         if "prediction_entry_diagnostic_progress" in tables else 0
     )
+    l2_features = (
+        int(connection.execute(
+            "SELECT COUNT(*) FROM prediction_entry_l2_features"
+        ).fetchone()[0])
+        if "prediction_entry_l2_features" in tables else 0
+    )
+    selection_artifacts = (
+        int(connection.execute(
+            "SELECT COUNT(*) FROM prediction_entry_veto_selection_artifacts"
+        ).fetchone()[0])
+        if "prediction_entry_veto_selection_artifacts" in tables else 0
+    )
     return {
         "classification": "derived_append_only_entry_selection_evidence",
         "summary_rows": summaries,
         "active_progress_rows": active,
+        "l2_feature_rows": l2_features,
+        "selection_artifact_rows": selection_artifacts,
         "maximum_summary_rows": maximum_summary_rows,
         "retention_period": "indefinite",
         "archive_dependency": "encrypted_prediction_database_backup",
         "scheduled_maintenance": "daily_capacity_audit",
         "capacity_status": (
-            "PASS" if summaries < maximum_summary_rows else "BLOCKED"
+            "PASS"
+            if max(summaries, l2_features) < maximum_summary_rows
+            else "BLOCKED"
         ),
     }
 

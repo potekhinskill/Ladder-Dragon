@@ -3,6 +3,26 @@
 All notable changes are documented here. Releases use Semantic Versioning; every
 section is dated and there is intentionally no `Unreleased` section.
 
+## [2.20.252] — 2026-08-26
+
+### Added
+- Public diff-depth archives now supply source-hashed pre-fill price, trade-flow, and order-flow imbalance features.
+- Future veto selection replays cancel latency, late fills, one-slot capacity, and later opportunities chronologically.
+- Future criteria can reject uneconomic candidates with an anytime-valid upper mean bound.
+- Immutable selection artifacts bind the cutoff, evidence identifiers, source hashes, and selected rule.
+
+### Fixed
+- Veto ranking and target reachability now use independent paths instead of overlapping filled paths.
+- Selection requires stable avoided losses across multiple chronological evidence blocks.
+
+### Security
+- Version 22, its evaluator, its fingerprint, persistent HALT, and all order behavior remain unchanged.
+- Version 23 cannot freeze without its exact stored selection artifact.
+- L2 imports use public data without API credentials and never authorize execution.
+
+### Verified
+- Full project tests, Python compilation, Technical English, and focused L2 replay checks pass.
+
 ## [2.20.251] — 2026-08-26
 
 ### Added

@@ -13,6 +13,8 @@ from typing import Mapping
 
 EVIDENCE_SEMANTICS_VERSION = "minute_l2_episode_execution_v5"
 EXECUTION_MODEL_RULE = "minute_l2_fifo_oco_gap_v3"
+V23_EVIDENCE_SEMANTICS_VERSION = "diff_depth_entry_veto_execution_v6"
+V23_EXECUTION_MODEL_RULE = "diff_depth_fifo_oco_cancel_v4"
 V21_EVIDENCE_SEMANTICS_VERSION = "minute_l2_episode_execution_v4"
 V21_EXECUTION_MODEL_RULE = "minute_l2_fifo_oco_gap_v3"
 V20_EVIDENCE_SEMANTICS_VERSION = "minute_l2_episode_execution_v3"
@@ -111,6 +113,31 @@ def canonical_digest(payload: Mapping[str, object]) -> str:
 def evidence_semantics_fingerprint() -> str:
     """Return the reviewed fingerprint required on every current episode."""
     return canonical_digest(evidence_semantics_contract())
+
+
+def v23_evidence_semantics_contract() -> dict[str, object]:
+    """Return future veto semantics without changing current v22 evidence."""
+    contract = _evidence_semantics_contract(
+        version=V23_EVIDENCE_SEMANTICS_VERSION,
+        execution_model_rule=V23_EXECUTION_MODEL_RULE,
+        include_excursions=True,
+    )
+    contract["entry_veto_policy"] = {
+        "contract_version": "l2_adverse_selection_cancel_v2",
+        "market_source": "BINANCE_DIFF_DEPTH_100MS_SEQUENCE_VALIDATED",
+        "trade_source": "BINANCE_AGGTRADE",
+        "order_flow_imbalance": "CONT_BEST_LEVEL_NORMALIZED_V1",
+        "fill_timestamp_resolution_ms": 60_000,
+        "cancel_timing": "FILLABLE_UNTIL_CANCEL_EFFECTIVE",
+        "late_cancel_policy": "KEEP_ORIGINAL_FILL_AND_PNL",
+        "capacity_policy": "SEQUENTIAL_ONE_SLOT_REPLAY",
+    }
+    return contract
+
+
+def v23_evidence_semantics_fingerprint() -> str:
+    """Return the future v23 semantics fingerprint."""
+    return canonical_digest(v23_evidence_semantics_contract())
 
 
 def v21_evidence_semantics_fingerprint() -> str:
@@ -252,6 +279,8 @@ __all__ = [
     "V21_EVIDENCE_SEMANTICS_VERSION",
     "V21_EXECUTION_MODEL_RULE",
     "V21_EXECUTABLE_ENTRY_REGIMES",
+    "V23_EVIDENCE_SEMANTICS_VERSION",
+    "V23_EXECUTION_MODEL_RULE",
     "canonical_digest",
     "evidence_semantics_contract",
     "evidence_semantics_fingerprint",
@@ -260,6 +289,8 @@ __all__ = [
     "v20_evidence_semantics_fingerprint",
     "v19_evidence_semantics_fingerprint",
     "v21_evidence_semantics_fingerprint",
+    "v23_evidence_semantics_contract",
+    "v23_evidence_semantics_fingerprint",
     "require_execution_regime_contract",
     "require_runtime_regime_contract",
 ]

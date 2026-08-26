@@ -166,6 +166,21 @@ def test_retention_preserves_entry_diagnostic_progress_and_summaries(tmp_path):
                 "COMPLETE", "{}", "b" * 64, old_ms,
             ),
         )
+        connection.execute(
+            """INSERT INTO prediction_entry_l2_features VALUES(?,?,?,?,?,?,?,?,?)""",
+            (
+                "summary", "SOLUSDT", "v22", "a" * 64, old_ms,
+                "c" * 64, "{}", "b" * 64, old_ms,
+            ),
+        )
+        connection.execute(
+            """INSERT INTO prediction_entry_veto_selection_artifacts
+               VALUES(?,?,?,?,?,?,?)""",
+            (
+                "d" * 64, "SOLUSDT", "v22", "a" * 64, old_ms,
+                "{}", old_ms,
+            ),
+        )
 
     result = rotate_prediction_shadow(
         database, tmp_path / "archives", backup, now=now
@@ -173,6 +188,8 @@ def test_retention_preserves_entry_diagnostic_progress_and_summaries(tmp_path):
 
     assert result["entry_diagnostics"]["summary_rows"] == 1
     assert result["entry_diagnostics"]["active_progress_rows"] == 1
+    assert result["entry_diagnostics"]["l2_feature_rows"] == 1
+    assert result["entry_diagnostics"]["selection_artifact_rows"] == 1
     assert result["entry_diagnostics"]["retention_period"] == "indefinite"
     with sqlite3.connect(database) as connection:
         assert connection.execute(
@@ -181,6 +198,12 @@ def test_retention_preserves_entry_diagnostic_progress_and_summaries(tmp_path):
         assert connection.execute(
             "SELECT episode_id FROM prediction_entry_diagnostic_summaries"
         ).fetchall() == [("summary",)]
+        assert connection.execute(
+            "SELECT episode_id FROM prediction_entry_l2_features"
+        ).fetchall() == [("summary",)]
+        assert connection.execute(
+            "SELECT artifact_sha256 FROM prediction_entry_veto_selection_artifacts"
+        ).fetchall() == [("d" * 64,)]
 
 
 def test_market_scenario_retention_archives_only_resolved_evidence(tmp_path):

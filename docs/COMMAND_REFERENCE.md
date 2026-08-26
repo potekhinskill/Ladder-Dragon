@@ -65,6 +65,7 @@ The Pi profile does not install or run Semgrep.
 | `validate_replay_outcomes` | compares replay with real terminal order outcomes |
 | `validate_replay_sessions` | validates separate contiguous replay sessions without joining gaps |
 | `record_depth_archive` | records public depth and aggregate-trade JSONL |
+| `import_entry_veto_l2` | imports source-hashed public L2 entry features into SHADOW evidence |
 | `prediction_history_backfill` | creates cutoff-safe samples from archived bars |
 | `backfill_prediction_archive` | repairs eligible expired prediction outcomes |
 | `prediction_experiment` | bootstraps and audits independent SHADOW confirmation |

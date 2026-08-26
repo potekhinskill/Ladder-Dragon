@@ -328,7 +328,7 @@ def variant_fingerprints(
     criteria: Mapping[str, object] | None = None,
 ) -> tuple[str, str]:
     policy = dict(DEFAULT_CRITERIA if criteria is None else criteria)
-    if policy.get("criteria_schema_version") not in {2, 3, 4, 5, 6}:
+    if policy.get("criteria_schema_version") not in {2, 3, 4, 5, 6, 7}:
         if int(policy["embargo_ms"]) < 0:
             raise ValueError("confirmation embargo must be non-negative")
         if int(policy["window_size_decisions"]) <= 0:
@@ -714,7 +714,7 @@ def freeze_preselected_episode_experiment(
     criteria = episode_confirmation_criteria(spec.statistical_design_version)
     feasibility = (
         anytime_design_feasibility(criteria)
-        if int(criteria.get("criteria_schema_version", 0)) in {5, 6} else None
+        if int(criteria.get("criteria_schema_version", 0)) in {5, 6, 7} else None
     )
     maximum_duration_ms = int(criteria["maximum_confirmation_duration_ms"])
     candidate_fp, baseline_fp = variant_fingerprints(
@@ -723,6 +723,43 @@ def freeze_preselected_episode_experiment(
         horizons_min=required,
         criteria=criteria,
     )
+    candidate_parameters = candidate_rule(
+        selected_variant,
+        generation=generation,
+        horizons_min=required,
+    )
+    if candidate_parameters.get("candidate_rule_version") == 8:
+        veto_rule = candidate_parameters.get("entry_veto_rule")
+        if not isinstance(veto_rule, Mapping):
+            raise ValueError("entry-veto selection rule is unavailable")
+        artifact_hash = str(veto_rule.get("selection_artifact_sha256") or "")
+        with store._connect() as connection:
+            artifact_row = connection.execute(
+                """SELECT artifact_json FROM
+                          prediction_entry_veto_selection_artifacts
+                   WHERE artifact_sha256=? AND symbol=?""",
+                (artifact_hash, symbol.upper()),
+            ).fetchone()
+        if artifact_row is None:
+            raise ValueError("entry-veto selection artifact is unavailable")
+        try:
+            artifact_payload = json.loads(str(artifact_row[0]))
+        except (json.JSONDecodeError, TypeError, ValueError) as exc:
+            raise ValueError("entry-veto selection artifact is damaged") from exc
+        if not isinstance(artifact_payload, dict):
+            raise ValueError("entry-veto selection artifact is damaged")
+        selected_rule = artifact_payload.get("selected_rule")
+        if not isinstance(selected_rule, Mapping):
+            raise ValueError("entry-veto selected rule is unavailable")
+        for field in (
+            "prefill_price_change_max_bps",
+            "prefill_signed_trade_flow_max",
+            "prefill_order_flow_imbalance_max",
+            "cancel_latency_ms",
+            "minimum_signal_lead_ms",
+        ):
+            if str(selected_rule.get(field)) != str(veto_rule.get(field)):
+                raise ValueError("entry-veto rule differs from its selection artifact")
     manifest = {
         "schema_version": MANIFEST_SCHEMA_VERSION,
         "experiment_id": str(experiment_id),
@@ -730,11 +767,7 @@ def freeze_preselected_episode_experiment(
         "symbol": symbol.upper(),
         "scope": {"symbol": symbol.upper()},
         "selected_variant": selected_variant.variant_id,
-        "candidate_parameters": candidate_rule(
-            selected_variant,
-            generation=generation,
-            horizons_min=required,
-        ),
+        "candidate_parameters": candidate_parameters,
         "candidate_fingerprint": candidate_fp,
         "baseline": baseline_rule(selected_variant),
         "baseline_fingerprint": baseline_fp,

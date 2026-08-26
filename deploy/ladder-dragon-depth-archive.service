@@ -45,6 +45,7 @@ SystemCallArchitectures=native
 SystemCallFilter=@system-service
 SystemCallErrorNumber=EPERM
 ReadWritePaths=/var/lib/ladder-dragon/depth-archives
+ReadWritePaths=/home/bot/apps/binance_bot/db
 UMask=0027
 
 [Install]

@@ -6,6 +6,13 @@ avoidable rework. Identify the root cause rather than recording only the
 symptom. Keep entries concise and exclude secrets, balances, account data, and
 private infrastructure details.
 
+### 2026-08-26 — Ranked a veto on overlapping rows with instant cancellation
+
+- **Impact:** a future entry filter could appear profitable without executable timing or independent evidence.
+- **Root cause:** reporting computed independent rows but ranked candidates on all rows and removed vetoed fills immediately.
+- **Correction:** select on independent L2 paths and replay signal, cancel arrival, fill uncertainty, and slot availability.
+- **Prevention:** every counterfactual mutation must use the same timing and capacity constraints as execution.
+
 ### 2026-08-25 — Required multi-day coverage from an expiring batch
 
 - **Impact:** execution replay could never satisfy its two-day readiness gate.

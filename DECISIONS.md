@@ -1,5 +1,12 @@
 # Engineering decisions
 
+### 2026-08-26 — Replay entry vetoes on independent L2 evidence
+
+- **Context:** overlapping fills and instant row removal overstated a future veto's benefit.
+- **Decision:** use source-hashed L2 features, independent paths, stability blocks, and chronological cancel replay.
+- **Why it worked:** late cancels retain their fills, while successful cancels release capacity at exchange arrival.
+- **Reuse:** every counterfactual order policy selected from correlated market observations.
+
 ### 2026-08-25 — Change one exit axis in a new evidence generation
 
 - **Context:** version 21 showed an unfavorable reward-to-loss ratio under its fixed 60-basis-point target.

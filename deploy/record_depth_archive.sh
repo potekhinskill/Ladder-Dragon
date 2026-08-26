@@ -6,6 +6,7 @@ set -euo pipefail
 
 PROJECT_DIR="${PROJECT_DIR:-/home/bot/apps/binance_bot}"
 OUTPUT_DIR="${BOT_DEPTH_ARCHIVE_DIR:-/var/lib/ladder-dragon/depth-archives}"
+PREDICTION_DB="${PREDICTION_SHADOW_DB:-${PROJECT_DIR}/db/prediction_shadow.sqlite3}"
 SYMBOLS="${BOT_DEPTH_ARCHIVE_SYMBOLS:-SOLUSDT}"
 DURATION_SEC="${BOT_DEPTH_ARCHIVE_DURATION_SEC:-3300}"
 MAX_EVENTS="${BOT_DEPTH_ARCHIVE_MAX_EVENTS:-250000}"
@@ -50,6 +51,14 @@ while :; do
     calibration_status=$?
     set -e
     (( calibration_status == 0 || calibration_status == 2 )) || exit "${calibration_status}"
+    # The importer is public-data only. It records source hashes and never
+    # changes the frozen v22 evidence or any order.
+    if [[ -f "${PREDICTION_DB}" ]]; then
+      env -u BINANCE_API_KEY -u BINANCE_API_SECRET -u DEEPSEEK_API_KEY \
+        PYTHONPATH="${PROJECT_DIR}" \
+        "${PROJECT_DIR}/.venv/bin/python" -m bin.import_entry_veto_l2 \
+        --prediction-db "${PREDICTION_DB}" --archive "${output}"
+    fi
   done
 
   find "${OUTPUT_DIR}" -xdev -type f \

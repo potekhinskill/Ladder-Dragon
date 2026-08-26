@@ -53,12 +53,14 @@ def _evidence_quality(
 
 def net_expectancy_criteria(
     *, anytime_valid: bool = False, exact_policy: bool = False,
-    excursion_diagnostics: bool = False,
+    excursion_diagnostics: bool = False, economic_futility: bool = False,
 ) -> dict[str, object]:
     """Return one immutable net-expectancy statistical contract."""
     if anytime_valid:
         regimes = ("RANGE",) if exact_policy else ELIGIBLE_REGIMES
-        schema = 6 if excursion_diagnostics else 5 if exact_policy else 4
+        if economic_futility and not (exact_policy and excursion_diagnostics):
+            raise ValueError("economic futility requires the exact excursion policy")
+        schema = 7 if economic_futility else 6 if excursion_diagnostics else 5 if exact_policy else 4
         criteria = {
             "criteria_schema_version": schema,
             "method": f"anytime_valid_betting_e_process_v{schema}",
@@ -109,6 +111,15 @@ def net_expectancy_criteria(
         }
         if excursion_diagnostics:
             criteria["diagnostic_policy"] = EXCURSION_POLICY
+        if economic_futility:
+            # This threshold is frozen before future v23 confirmation. It is
+            # five basis points of the fixed six-USDT evidence notional.
+            criteria.update({
+                "mean_upper_bound_method": "mixture_betting_e_process_v1",
+                "minimum_useful_mean_quote": "0.003",
+                "minimum_episodes_before_economic_reject": 24,
+                "economic_futility_policy": "anytime_upper_below_useful_mean_v1",
+            })
         return criteria
     return {
         "criteria_schema_version": 3,
@@ -229,6 +240,22 @@ def _anytime_lower(
     return low
 
 
+def _anytime_upper(
+    values: list[Decimal],
+    *,
+    alpha: Decimal,
+    lower_bound: Decimal,
+    upper_bound: Decimal,
+) -> Decimal:
+    """Return the symmetric anytime-valid upper bound for a bounded mean."""
+    return -_anytime_lower(
+        [-value for value in values],
+        alpha=alpha,
+        lower_bound=-upper_bound,
+        upper_bound=-lower_bound,
+    )
+
+
 def _minimum_passing_count(
     *, value: Decimal, alpha: Decimal, lower_bound: Decimal,
     upper_bound: Decimal, threshold: Decimal, maximum: int,
@@ -287,8 +314,8 @@ def anytime_design_feasibility(
     criteria: Mapping[str, object],
 ) -> dict[str, object]:
     """Prove that the frozen e-process design can reach every hard gate."""
-    if int(criteria.get("criteria_schema_version", 0)) not in {5, 6}:
-        raise ValueError("exact anytime design requires criteria schema 5 or 6")
+    if int(criteria.get("criteria_schema_version", 0)) not in {5, 6, 7}:
+        raise ValueError("exact anytime design requires criteria schema 5, 6 or 7")
     regimes = criteria.get("eligible_regimes")
     if not isinstance(regimes, list) or not regimes:
         raise ValueError("exact anytime design requires eligible regimes")
@@ -477,6 +504,20 @@ def _anytime_report(
             "projected_ready_ts_ms": None,
         }
     filled = [row for row in rows if row.entry_filled_quantity > ZERO]
+    economic_upper = (
+        _anytime_upper(
+            values,
+            alpha=alpha,
+            lower_bound=lower_bound,
+            upper_bound=upper_bound,
+        )
+        if int(criteria["criteria_schema_version"]) == 7 else None
+    )
+    economic_futile = bool(
+        economic_upper is not None
+        and len(rows) >= int(criteria["minimum_episodes_before_economic_reject"])
+        and economic_upper <= D(str(criteria["minimum_useful_mean_quote"]))
+    )
     fill_rate = D(len(filled)) / D(len(rows)) if rows else ZERO
     drawdown = _drawdown(values)
     notional = D(str(criteria["evidence_notional_quote"]))
@@ -540,7 +581,9 @@ def _anytime_report(
     )
     # Reachability is valid from the first episode. Waiting for the nominal
     # minimum can waste the complete deadline after PASS becomes impossible.
-    futile = bool(optimistic_lower <= ZERO or not regimes_reachable)
+    futile = bool(
+        optimistic_lower <= ZERO or not regimes_reachable or economic_futile
+    )
     status = "PASS" if passed else "READY_TO_REJECT" if futile or len(rows) >= maximum else "SHADOW"
     cadence = (
         (rows[-1].terminal_at_ms - rows[0].terminal_at_ms) // (len(rows) - 1)
@@ -619,6 +662,11 @@ def _anytime_report(
             sum(values, ZERO) / D(len(values)) if values else ZERO, "f"
         ),
         "one_sided_mean_lower_bound_quote": format(lower, "f"),
+        "one_sided_mean_upper_bound_quote": (
+            format(economic_upper, "f") if economic_upper is not None else None
+        ),
+        "minimum_useful_mean_quote": criteria.get("minimum_useful_mean_quote"),
+        "economic_futility_reached": economic_futile,
         "optimistic_final_lower_bound_quote": format(optimistic_lower, "f"),
         "maximum_drawdown_quote": format(drawdown, "f"),
         "regime_safety": regime_report,
@@ -716,7 +764,7 @@ def sequential_net_expectancy_report(
 ) -> dict[str, object]:
     """Evaluate complete attempts and reject mixed evidence semantics."""
     rows_all = sorted(results, key=lambda row: row.terminal_at_ms)
-    if criteria.get("criteria_schema_version") in {4, 5, 6}:
+    if criteria.get("criteria_schema_version") in {4, 5, 6, 7}:
         return _anytime_report(
             rows_all,
             criteria=criteria,

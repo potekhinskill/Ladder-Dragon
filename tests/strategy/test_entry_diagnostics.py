@@ -310,9 +310,13 @@ def test_future_manifest_rule_binds_veto_and_fee_aware_economics():
         execution_model_promotion_ready=True,
         evidence_semantics_fingerprint="d" * 64,
         entry_veto_rule={
-            "contract_version": "prefill_momentum_flow_v1",
+            "contract_version": "l2_adverse_selection_cancel_v2",
             "prefill_price_change_max_bps": -10,
             "prefill_signed_trade_flow_max": "-0.20",
+            "prefill_order_flow_imbalance_max": "-0.10",
+            "cancel_latency_ms": 1000,
+            "minimum_signal_lead_ms": 61000,
+            "selection_artifact_sha256": "e" * 64,
         },
         target_reachability=D("0.25"),
     )
@@ -321,6 +325,8 @@ def test_future_manifest_rule_binds_veto_and_fee_aware_economics():
 
     assert rule["candidate_rule_version"] == 8
     assert rule["entry_veto_rule"]["prefill_price_change_max_bps"] == "-10"
+    assert rule["entry_veto_rule"]["cancel_latency_ms"] == 1000
+    assert rule["entry_veto_rule"]["selection_artifact_sha256"] == "e" * 64
     assert rule["candidate_economics"]["target_reachability"] == "0.25"
     assert rule["candidate_economics"][
         "minimum_break_even_win_rate"

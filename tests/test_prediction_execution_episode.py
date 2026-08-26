@@ -41,6 +41,7 @@ from ladder_dragon.strategy.prediction.episode_semantics import (
     v19_evidence_semantics_fingerprint,
     v20_evidence_semantics_fingerprint,
     v21_evidence_semantics_fingerprint,
+    v23_evidence_semantics_fingerprint,
 )
 from ladder_dragon.strategy.replay_policy import (
     PRODUCTION_REPLAY_ACCEPTANCE_POLICY,
@@ -394,6 +395,33 @@ def test_v22_reports_excursions_without_using_them_for_approval():
         "mean_maximum_adverse_excursion_pct"
     ] == "0.004"
     assert diagnostics["affects_promotion"] is False
+    assert report["approved"] is False
+
+
+def test_future_v23_can_reject_when_upper_bound_is_not_economic():
+    rows = [
+        replace(
+            _result(index, "-0.02"),
+            generation="v23",
+            variant_id="v23_maker_ttl90_gap48_veto",
+            execution_model_rule="diff_depth_fifo_oco_cancel_v4",
+            start_regime="RANGE",
+            evidence_semantics_fingerprint=v23_evidence_semantics_fingerprint(),
+        )
+        for index in range(24)
+    ]
+
+    report = sequential_episode_report(
+        rows,
+        criteria=episode_confirmation_criteria(
+            "episode_anytime_expectancy_v7"
+        ),
+    )
+
+    look = report["looks"][0]
+    assert look["economic_futility_reached"] is True
+    assert look["one_sided_mean_upper_bound_quote"] is not None
+    assert report["status"] == "READY_TO_REJECT"
     assert report["approved"] is False
 
 

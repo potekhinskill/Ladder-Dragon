@@ -69,6 +69,13 @@ def episode_confirmation_criteria(
             exact_policy=True,
             excursion_diagnostics=True,
         )
+    if statistical_design_version == "episode_anytime_expectancy_v7":
+        return net_expectancy_criteria(
+            anytime_valid=True,
+            exact_policy=True,
+            excursion_diagnostics=True,
+            economic_futility=True,
+        )
     if statistical_design_version != "episode_combined_alpha_spending_v2":
         raise ValueError("unsupported episode statistical design")
     return {
@@ -508,13 +515,14 @@ def sequential_episode_report(
     """Evaluate each look with the exact criteria frozen in the manifest."""
     if (
         isinstance(criteria, Mapping)
-        and criteria.get("criteria_schema_version") in {3, 4, 5, 6}
+        and criteria.get("criteria_schema_version") in {3, 4, 5, 6, 7}
     ):
         criteria_schema = int(criteria["criteria_schema_version"])
         expected = net_expectancy_criteria(
-            anytime_valid=criteria_schema in {4, 5, 6},
-            exact_policy=criteria_schema in {5, 6},
-            excursion_diagnostics=criteria_schema == 6,
+            anytime_valid=criteria_schema in {4, 5, 6, 7},
+            exact_policy=criteria_schema in {5, 6, 7},
+            excursion_diagnostics=criteria_schema in {6, 7},
+            economic_futility=criteria_schema == 7,
         )
         if _canonical(criteria) != _canonical(expected):
             return {
@@ -533,12 +541,15 @@ def sequential_episode_report(
             v19_evidence_semantics_fingerprint,
             v20_evidence_semantics_fingerprint,
             v21_evidence_semantics_fingerprint,
+            v23_evidence_semantics_fingerprint,
         )
         return sequential_net_expectancy_report(
             results,
             criteria=expected,
             required_semantics_fingerprint=(
-                evidence_semantics_fingerprint()
+                v23_evidence_semantics_fingerprint()
+                if criteria_schema == 7
+                else evidence_semantics_fingerprint()
                 if criteria_schema == 6
                 else v21_evidence_semantics_fingerprint()
                 if criteria_schema == 5

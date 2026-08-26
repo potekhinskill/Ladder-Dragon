@@ -861,12 +861,14 @@ def test_public_depth_archive_is_continuous_retained_and_secret_free():
     assert "User=bot" in service
     assert "EnvironmentFile=-/etc/ladder-dragon/depth-archive.conf" in service
     assert "ReadWritePaths=/var/lib/ladder-dragon/depth-archives" in service
+    assert "ReadWritePaths=/home/bot/apps/binance_bot/db" in service
     assert "disable --now ladder-dragon-depth-archive.timer" in installer
     assert "disable --now ladder-dragon-depth-archive.timer" in updater
     assert "ladder-dragon-depth-archive.service" in installer
     assert "ladder-dragon-depth-archive.service" in updater
     assert "/usr/local/bin/ladder-dragon-depth-archive" in runtime_assets
     assert "-m bin.calibrate_replay" in read("deploy/record_depth_archive.sh")
+    assert "-m bin.import_entry_veto_l2" in wrapper
 
 
 def test_soak_audit_is_periodic_signed_and_transition_notified():

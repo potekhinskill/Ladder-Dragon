@@ -1,6 +1,6 @@
 # Implementation status
 
-This document describes the code in version **2.20.251**.
+This document describes the code in version **2.20.252**.
 It does not describe future plans as completed work.
 
 An implemented function is not automatically approved for LIVE use.
@@ -106,11 +106,20 @@ The diagnostic cannot affect version twenty-two promotion.
 Its cutoff-safe selection report can propose one future entry veto.
 Any proposed veto requires a new immutable generation and independent confirmation.
 
+The public depth recorder imports sequence-validated diff-depth features after each completed archive.
+Selection uses independent paths and three chronological stability blocks.
+The counterfactual replay keeps late fills and their PnL.
+A successful cancel releases the single entry slot at its modeled exchange arrival time.
+The selected artifact records its cutoff, evidence identifiers, archive hashes, and exact rule.
+Version twenty-three cannot freeze without that stored artifact.
+Its runtime APPLY path remains unavailable until the matching cancel implementation passes replay.
+
 Entry diagnostic progress is disposable after a terminal summary exists.
-Terminal summaries are derived, append-only selection evidence.
-Their retention period is indefinite, with a limit of 250,000 rows.
-The encrypted prediction database backup includes both tables.
-The daily retention service audits the summary capacity.
+Terminal summaries and L2 features are derived, append-only selection evidence.
+Their retention period is indefinite, with a limit of 250,000 rows each.
+Selection artifacts are append-only and limited to 1,024 rows.
+The encrypted prediction database backup includes all three record types.
+The daily retention service audits their capacities.
 
 Historical data selects the fixed SOL candidate and estimates variance only.
 The fixed candidate does not use online training.
@@ -132,6 +141,9 @@ Residual PANIC exposure remains a separate safety failure.
 The confirmation deadline is 14 days.
 The design also stops after 300 terminal episodes.
 An impossible design becomes ready for REJECTED finalization before either limit.
+Future version-twenty-three criteria also preregister a useful-mean threshold.
+An anytime-valid upper bound can reject that future candidate early.
+This additional rule does not apply to version twenty-two.
 
 Promotion also requires strict reusable engine replay against sanitized real order reports.
 The validation requires at least ten covered terminal orders.

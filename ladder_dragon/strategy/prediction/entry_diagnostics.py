@@ -9,6 +9,7 @@ from dataclasses import dataclass, field
 from decimal import Decimal, InvalidOperation
 import hashlib
 import json
+from pathlib import Path
 import sqlite3
 import time
 from typing import Mapping, TYPE_CHECKING
@@ -23,15 +24,18 @@ if TYPE_CHECKING:
 D = Decimal
 ZERO = D("0")
 ONE = D("1")
-DIAGNOSTIC_CONTRACT_VERSION = "entry_path_shadow_v1"
+DIAGNOSTIC_CONTRACT_VERSION = "entry_path_shadow_v2"
 HORIZONS_MIN = (1, 5, 15, 30, 60, 180, 360)
 THRESHOLDS_BPS = (20, 40, 60, 80)
 MAXIMUM_EVENT_GAP_MS = 180_000
 MAXIMUM_ACTIVE_DIAGNOSTICS = 1_024
 MAXIMUM_DIAGNOSTIC_SUMMARIES = 250_000
+MAXIMUM_L2_FEATURES = 250_000
+MAXIMUM_SELECTION_ARTIFACTS = 1_024
 MINIMUM_SELECTION_ROWS = 30
 MINIMUM_INDEPENDENT_SELECTION_ROWS = 12
 ENTRY_VETO_CONTRACT_VERSION = "prefill_momentum_flow_v1"
+L2_ENTRY_VETO_CONTRACT_VERSION = "l2_adverse_selection_cancel_v2"
 PREFILL_OBSERVATION_WINDOW_MS = 300_000
 
 
@@ -99,14 +103,24 @@ def _spread_bps(event: MarketEvent) -> Decimal:
 
 def normalize_entry_veto_rule(rule: Mapping[str, object]) -> dict[str, object]:
     """Validate and normalize one immutable future entry-veto contract."""
+    version = rule.get("contract_version")
     expected = {
         "contract_version",
         "prefill_price_change_max_bps",
         "prefill_signed_trade_flow_max",
     }
+    if version == L2_ENTRY_VETO_CONTRACT_VERSION:
+        expected |= {
+            "prefill_order_flow_imbalance_max",
+            "cancel_latency_ms",
+            "minimum_signal_lead_ms",
+            "selection_artifact_sha256",
+        }
     if set(rule) != expected:
         raise ValueError("entry-veto rule fields are invalid")
-    if rule.get("contract_version") != ENTRY_VETO_CONTRACT_VERSION:
+    if version not in {
+        ENTRY_VETO_CONTRACT_VERSION, L2_ENTRY_VETO_CONTRACT_VERSION,
+    }:
         raise ValueError("entry-veto contract version is invalid")
     price_bps = _decimal(
         rule.get("prefill_price_change_max_bps"), field="entry-veto price"
@@ -118,11 +132,40 @@ def normalize_entry_veto_rule(rule: Mapping[str, object]) -> dict[str, object]:
         raise ValueError("entry-veto price threshold is outside its safe range")
     if not D("-1") <= signed_flow < ZERO:
         raise ValueError("entry-veto flow threshold is outside its safe range")
-    return {
-        "contract_version": ENTRY_VETO_CONTRACT_VERSION,
+    output = {
+        "contract_version": str(version),
         "prefill_price_change_max_bps": format(price_bps, "f"),
         "prefill_signed_trade_flow_max": format(signed_flow, "f"),
     }
+    if version == L2_ENTRY_VETO_CONTRACT_VERSION:
+        ofi = _decimal(
+            rule.get("prefill_order_flow_imbalance_max"),
+            field="entry-veto order-flow imbalance",
+        )
+        latency = rule.get("cancel_latency_ms")
+        lead = rule.get("minimum_signal_lead_ms")
+        artifact = str(rule.get("selection_artifact_sha256") or "")
+        if not D("-1") <= ofi < ZERO:
+            raise ValueError("entry-veto imbalance is outside its safe range")
+        if (
+            isinstance(latency, bool) or not isinstance(latency, int)
+            or latency < 0 or latency > 10_000
+        ):
+            raise ValueError("entry-veto cancel latency is invalid")
+        if (
+            isinstance(lead, bool) or not isinstance(lead, int)
+            or lead < latency + 60_000
+        ):
+            raise ValueError("entry-veto signal lead is not conservative")
+        if len(artifact) != 64 or any(char not in "0123456789abcdef" for char in artifact):
+            raise ValueError("entry-veto selection artifact is invalid")
+        output.update({
+            "prefill_order_flow_imbalance_max": format(ofi, "f"),
+            "cancel_latency_ms": latency,
+            "minimum_signal_lead_ms": lead,
+            "selection_artifact_sha256": artifact,
+        })
+    return output
 
 
 @dataclass
@@ -217,14 +260,126 @@ def migrate_entry_diagnostics(connection: sqlite3.Connection) -> None:
             ON prediction_entry_diagnostic_summaries(
                 symbol,generation,completed_at_ms
             );
+        CREATE TABLE IF NOT EXISTS prediction_entry_l2_features (
+            episode_id TEXT PRIMARY KEY,
+            symbol TEXT NOT NULL,
+            generation TEXT NOT NULL,
+            candidate_fingerprint TEXT NOT NULL,
+            fill_ts_ms INTEGER NOT NULL,
+            archive_sha256 TEXT NOT NULL,
+            feature_json TEXT NOT NULL,
+            feature_sha256 TEXT NOT NULL,
+            created_at_ms INTEGER NOT NULL,
+            FOREIGN KEY(episode_id)
+                REFERENCES prediction_execution_episode_starts(episode_id)
+        );
+        CREATE INDEX IF NOT EXISTS prediction_entry_l2_feature_cohort
+            ON prediction_entry_l2_features(
+                symbol,generation,fill_ts_ms
+            );
+        CREATE TABLE IF NOT EXISTS prediction_entry_veto_selection_artifacts (
+            artifact_sha256 TEXT PRIMARY KEY,
+            symbol TEXT NOT NULL,
+            generation TEXT NOT NULL,
+            candidate_fingerprint TEXT NOT NULL,
+            cutoff_ts_ms INTEGER NOT NULL,
+            artifact_json TEXT NOT NULL,
+            created_at_ms INTEGER NOT NULL,
+            UNIQUE(symbol,generation,candidate_fingerprint)
+        );
         CREATE TRIGGER IF NOT EXISTS prediction_entry_summary_no_update
         BEFORE UPDATE ON prediction_entry_diagnostic_summaries
         BEGIN SELECT RAISE(ABORT, 'entry diagnostic summaries are immutable'); END;
         CREATE TRIGGER IF NOT EXISTS prediction_entry_summary_no_delete
         BEFORE DELETE ON prediction_entry_diagnostic_summaries
         BEGIN SELECT RAISE(ABORT, 'entry diagnostic summaries are append-only'); END;
+        CREATE TRIGGER IF NOT EXISTS prediction_entry_l2_feature_no_update
+        BEFORE UPDATE ON prediction_entry_l2_features
+        BEGIN SELECT RAISE(ABORT, 'entry L2 features are immutable'); END;
+        CREATE TRIGGER IF NOT EXISTS prediction_entry_l2_feature_no_delete
+        BEFORE DELETE ON prediction_entry_l2_features
+        BEGIN SELECT RAISE(ABORT, 'entry L2 features are append-only'); END;
+        CREATE TRIGGER IF NOT EXISTS prediction_entry_veto_artifact_no_update
+        BEFORE UPDATE ON prediction_entry_veto_selection_artifacts
+        BEGIN SELECT RAISE(ABORT, 'entry veto selection is immutable'); END;
+        CREATE TRIGGER IF NOT EXISTS prediction_entry_veto_artifact_no_delete
+        BEFORE DELETE ON prediction_entry_veto_selection_artifacts
+        BEGIN SELECT RAISE(ABORT, 'entry veto selection is append-only'); END;
         """
     )
+
+
+def import_entry_veto_l2_archive(
+    store: "PredictionShadowStore", archive_path: str | Path
+) -> dict[str, object]:
+    """Attach causal public L2 features to covered filled diagnostic paths."""
+    from ladder_dragon.strategy.prediction.entry_veto_replay import (
+        feature_digest,
+        l2_features_before_fill,
+        validate_archive,
+    )
+
+    events, metadata = validate_archive(archive_path)
+    symbol = str(metadata.get("symbol") or "").upper()
+    archive_hash = str(metadata["archive_sha256"])
+    first_ms = min(event.ts_ms for event in events)
+    last_ms = max(event.ts_ms for event in events)
+    with store._connect() as connection:
+        rows = connection.execute(
+            """SELECT d.episode_id,d.generation,d.candidate_fingerprint,
+                      d.fill_ts_ms
+               FROM prediction_entry_diagnostic_summaries d
+               LEFT JOIN prediction_entry_l2_features f
+                 ON f.episode_id=d.episode_id
+               WHERE d.symbol=? AND d.status='COMPLETE'
+                 AND d.fill_ts_ms>=? AND d.fill_ts_ms<=?
+                 AND f.episode_id IS NULL
+               ORDER BY d.fill_ts_ms,d.episode_id""",
+            (symbol, first_ms + PREFILL_OBSERVATION_WINDOW_MS, last_ms),
+        ).fetchall()
+        imported = 0
+        skipped = 0
+        for episode_id, generation, fingerprint, fill_ts_ms in rows:
+            try:
+                features = l2_features_before_fill(
+                    events, fill_ts_ms=int(fill_ts_ms)
+                )
+            except ValueError:
+                skipped += 1
+                continue
+            features.update({
+                "episode_id": str(episode_id),
+                "symbol": symbol,
+                "generation": str(generation),
+                "candidate_fingerprint": str(fingerprint),
+                "archive_sha256": archive_hash,
+            })
+            count = int(connection.execute(
+                "SELECT COUNT(*) FROM prediction_entry_l2_features"
+            ).fetchone()[0])
+            if count >= MAXIMUM_L2_FEATURES:
+                raise RuntimeError("entry L2 feature capacity reached")
+            encoded = _canonical(features)
+            connection.execute(
+                """INSERT INTO prediction_entry_l2_features
+                   (episode_id,symbol,generation,candidate_fingerprint,
+                    fill_ts_ms,archive_sha256,feature_json,feature_sha256,
+                    created_at_ms) VALUES(?,?,?,?,?,?,?,?,?)""",
+                (
+                    str(episode_id), symbol, str(generation), str(fingerprint),
+                    int(fill_ts_ms), archive_hash, encoded,
+                    feature_digest(features), int(time.time() * 1000),
+                ),
+            )
+            imported += 1
+    return {
+        "status": "PASS",
+        "mode": "SHADOW",
+        "archive_sha256": archive_hash,
+        "covered_paths": len(rows),
+        "imported_paths": imported,
+        "skipped_paths": skipped,
+    }
 
 
 def start_entry_diagnostic(
@@ -476,6 +631,61 @@ def _independent_rows(
     return output
 
 
+def _three_time_blocks(
+    rows: list[tuple[dict[str, object], Decimal]],
+) -> tuple[list[tuple[dict[str, object], Decimal]], ...]:
+    """Split chronological independent evidence into three stable blocks."""
+    ordered = sorted(rows, key=lambda item: int(item[0]["fill_ts_ms"]))
+    blocks: list[list[tuple[dict[str, object], Decimal]]] = [[], [], []]
+    for index, row in enumerate(ordered):
+        block = min(2, index * 3 // max(1, len(ordered)))
+        blocks[block].append(row)
+    return tuple(blocks)
+
+
+def _l2_candidate_result(
+    rows: list[tuple[dict[str, object], Decimal]],
+    candidate: Mapping[str, object],
+) -> dict[str, object]:
+    """Replay one exact L2 candidate over chronological one-slot opportunities."""
+    from ladder_dragon.strategy.prediction.entry_veto_replay import (
+        EntryVetoOpportunity,
+        replay_cancel_policy,
+    )
+
+    identifier = str(candidate["candidate_id"])
+    opportunities = []
+    for payload, pnl in rows:
+        features = payload.get("l2_features")
+        if not isinstance(features, Mapping):
+            continue
+        signals = features.get("candidate_signal_ts_ms")
+        signal = signals.get(identifier) if isinstance(signals, Mapping) else None
+        opportunities.append(EntryVetoOpportunity(
+            episode_id=str(payload["episode_id"]),
+            started_at_ms=int(payload["started_at_ms"]),
+            fill_ts_ms=int(payload["fill_ts_ms"]),
+            terminal_at_ms=int(payload["terminal_at_ms"]),
+            net_pnl_quote=pnl,
+            signal_ts_ms=int(signal) if signal is not None else None,
+            fill_timestamp_resolution_ms=int(
+                features["fill_timestamp_resolution_ms"]
+            ),
+        ))
+    result = replay_cancel_policy(
+        opportunities,
+        cancel_latency_ms=int(candidate["cancel_latency_ms"]),
+    )
+    original = sum((row[1] for row in rows), ZERO)
+    result["original_net_pnl_quote"] = format(original, "f")
+    result["avoided_net_pnl_quote"] = format(
+        _decimal(result["retained_net_pnl_quote"], field="retained PnL")
+        - original,
+        "f",
+    )
+    return result
+
+
 def entry_diagnostic_report(
     store: "PredictionShadowStore",
     *,
@@ -491,10 +701,17 @@ def entry_diagnostic_report(
         raise ValueError("entry diagnostic target return must be positive")
     with store._connect() as connection:
         rows = connection.execute(
-            """SELECT d.summary_json,d.summary_sha256,r.result_json,r.result_sha256
+            """SELECT d.episode_id,d.summary_json,d.summary_sha256,
+                      r.result_json,r.result_sha256,s.started_at_ms,
+                      r.terminal_at_ms,f.feature_json,f.feature_sha256,
+                      f.archive_sha256
                FROM prediction_entry_diagnostic_summaries d
                JOIN prediction_execution_episode_results r
                  ON r.episode_id=d.episode_id
+               JOIN prediction_execution_episode_starts s
+                 ON s.episode_id=d.episode_id
+               LEFT JOIN prediction_entry_l2_features f
+                 ON f.episode_id=d.episode_id
                WHERE d.symbol=? AND d.generation=?
                  AND d.candidate_fingerprint=? AND d.completed_at_ms<=?
                ORDER BY d.fill_ts_ms,d.episode_id LIMIT 10000""",
@@ -514,7 +731,11 @@ def entry_diagnostic_report(
         ).fetchone()[0])
     complete: list[tuple[dict[str, object], Decimal]] = []
     incomplete = 0
-    for raw_summary, summary_hash, raw_result, result_hash in rows:
+    cohort_identity_by_id: dict[str, dict[str, object]] = {}
+    for (
+        episode_id, raw_summary, summary_hash, raw_result, result_hash,
+        started_at_ms, terminal_at_ms, raw_features, feature_hash, archive_hash,
+    ) in rows:
         summary = json.loads(str(raw_summary))
         result = json.loads(str(raw_result))
         if (
@@ -531,28 +752,73 @@ def entry_diagnostic_report(
             <= ZERO
         ):
             continue
-        complete.append((summary, _decimal(result["net_pnl_quote"], field="PnL")))
-    independent = _independent_rows(complete)
-    candidates = []
-    for candidate in _candidate_grid():
-        vetoed = [row for row in complete if _vetoes(row[0], candidate)]
-        retained = [row for row in complete if not _vetoes(row[0], candidate)]
-        vetoed_pnl = sum((row[1] for row in vetoed), ZERO)
-        retained_pnl = sum((row[1] for row in retained), ZERO)
-        candidates.append({
-            **candidate,
-            "vetoed_fills": len(vetoed),
-            "retained_fills": len(retained),
-            "veto_rate": format(D(len(vetoed)) / D(len(complete)), "f")
-            if complete else "0",
-            "avoided_net_pnl_quote": format(-vetoed_pnl, "f"),
-            "retained_net_pnl_quote": format(retained_pnl, "f"),
-            "selection_eligible": bool(
-                complete and len(retained) >= 20
-                and D("0.05") <= D(len(vetoed)) / D(len(complete)) <= D("0.40")
-                and vetoed_pnl < ZERO and retained_pnl > ZERO
-            ),
+        summary = dict(summary)
+        summary.update({
+            "episode_id": str(episode_id),
+            "started_at_ms": int(started_at_ms),
+            "terminal_at_ms": int(terminal_at_ms),
         })
+        if raw_features is not None:
+            features = json.loads(str(raw_features))
+            if (
+                not isinstance(features, dict)
+                or _digest(features) != str(feature_hash)
+            ):
+                raise ValueError("entry L2 feature evidence is damaged")
+            summary["l2_features"] = features
+        complete.append((summary, _decimal(result["net_pnl_quote"], field="PnL")))
+        cohort_identity_by_id[str(episode_id)] = {
+            "episode_id": str(episode_id),
+            "summary_sha256": str(summary_hash),
+            "result_sha256": str(result_hash),
+            "l2_feature_sha256": str(feature_hash) if feature_hash else None,
+            "archive_sha256": str(archive_hash) if archive_hash else None,
+        }
+    independent = _independent_rows(complete)
+    l2_independent = [
+        row for row in independent if isinstance(row[0].get("l2_features"), Mapping)
+    ]
+    selection_cohort = [
+        cohort_identity_by_id[str(row[0]["episode_id"])]
+        for row in l2_independent
+    ]
+    candidates = []
+    from ladder_dragon.strategy.prediction.entry_veto_replay import candidate_grid
+    blocks = _three_time_blocks(l2_independent)
+    for candidate in candidate_grid():
+        replay = _l2_candidate_result(l2_independent, candidate)
+        block_results = [
+            _l2_candidate_result(block, candidate) for block in blocks if block
+        ]
+        vetoed = int(replay["vetoed_before_possible_fill"])
+        accepted = int(replay["accepted_opportunities"])
+        veto_rate = D(vetoed) / D(accepted) if accepted else ZERO
+        stable_blocks = sum(
+            int(item["vetoed_before_possible_fill"]) > 0
+            and _decimal(item["avoided_net_pnl_quote"], field="avoided PnL") >= ZERO
+            for item in block_results
+        )
+        selected_row = {
+            **candidate,
+            **replay,
+            "veto_rate": format(veto_rate, "f"),
+            "time_blocks": block_results,
+            "stable_time_blocks": stable_blocks,
+            "required_stable_time_blocks": 2,
+            "selection_eligible": bool(
+                len(l2_independent) >= MINIMUM_INDEPENDENT_SELECTION_ROWS
+                and len(block_results) == 3
+                and stable_blocks >= 2
+                and D("0.05") <= veto_rate <= D("0.40")
+                and _decimal(
+                    replay["avoided_net_pnl_quote"], field="avoided PnL"
+                ) > ZERO
+                and _decimal(
+                    replay["retained_net_pnl_quote"], field="retained PnL"
+                ) > ZERO
+            ),
+        }
+        candidates.append(selected_row)
     eligible = [row for row in candidates if row["selection_eligible"]]
     selected = max(
         eligible,
@@ -568,19 +834,21 @@ def entry_diagnostic_report(
             row[0]["maximum_bid"], field="maximum bid"
         ) / _decimal(row[0]["average_entry_price"], field="entry price") - ONE
         >= target_return
-        for row in complete
+        for row in independent
     )
     economics = fee_aware_candidate_economics(
         candidate_parameters,
-        target_reachability=(D(target_hits) / D(len(complete)) if complete else None),
+        target_reachability=(
+            D(target_hits) / D(len(independent)) if independent else None
+        ),
     )
     ready = bool(
         len(complete) >= MINIMUM_SELECTION_ROWS
-        and len(independent) >= MINIMUM_INDEPENDENT_SELECTION_ROWS
+        and len(l2_independent) >= MINIMUM_INDEPENDENT_SELECTION_ROWS
         and selected is not None
     )
     return {
-        "schema_version": 1,
+        "schema_version": 2,
         "contract_version": DIAGNOSTIC_CONTRACT_VERSION,
         "mode": "SHADOW",
         "can_change_orders": False,
@@ -588,6 +856,7 @@ def entry_diagnostic_report(
         "selection_cutoff_ts_ms": int(cutoff_ts_ms),
         "completed_filled_paths": len(complete),
         "independent_filled_paths": len(independent),
+        "l2_independent_filled_paths": len(l2_independent),
         "incomplete_paths": incomplete,
         "active_paths": active,
         "required_completed_paths": MINIMUM_SELECTION_ROWS,
@@ -595,13 +864,71 @@ def entry_diagnostic_report(
         "target_reachability": economics["target_reachability"],
         "candidate_economics": economics,
         "entry_veto_candidates": candidates,
+        "selection_cohort": selection_cohort,
+        "selection_cohort_sha256": _digest({"rows": selection_cohort}),
         "selected_entry_veto": selected if ready else None,
         "status": "READY_TO_FREEZE_V23" if ready else "COLLECTING_SELECTION",
         "readiness_reason": (
-            "one cutoff-safe entry veto is ready for independent confirmation"
-            if ready else "entry-quality selection evidence is incomplete"
+            "one cutoff-safe L2 cancel policy is ready to freeze"
+            if ready else "independent L2 selection evidence is incomplete"
         ),
     }
+
+
+def freeze_entry_veto_selection(
+    store: "PredictionShadowStore",
+    *,
+    symbol: str,
+    generation: str,
+    candidate_fingerprint: str,
+    cutoff_ts_ms: int,
+    target_return: Decimal,
+    candidate_parameters: Mapping[str, object],
+) -> dict[str, object]:
+    """Append one immutable selection artifact after a complete L2 report."""
+    report = entry_diagnostic_report(
+        store,
+        symbol=symbol,
+        generation=generation,
+        candidate_fingerprint=candidate_fingerprint,
+        cutoff_ts_ms=cutoff_ts_ms,
+        target_return=target_return,
+        candidate_parameters=candidate_parameters,
+    )
+    selected = report.get("selected_entry_veto")
+    if report.get("status") != "READY_TO_FREEZE_V23" or not isinstance(selected, Mapping):
+        raise ValueError("entry-veto selection evidence is not ready")
+    artifact = {
+        "schema_version": 1,
+        "mode": "SHADOW_SELECTION",
+        "can_change_orders": False,
+        "symbol": symbol.upper(),
+        "source_generation": str(generation),
+        "candidate_fingerprint": str(candidate_fingerprint),
+        "cutoff_ts_ms": int(cutoff_ts_ms),
+        "selection_cohort_sha256": report["selection_cohort_sha256"],
+        "selection_cohort": report["selection_cohort"],
+        "selected_rule": dict(selected),
+    }
+    artifact_hash = _digest(artifact)
+    with store._connect() as connection:
+        count = int(connection.execute(
+            "SELECT COUNT(*) FROM prediction_entry_veto_selection_artifacts"
+        ).fetchone()[0])
+        if count >= MAXIMUM_SELECTION_ARTIFACTS:
+            raise RuntimeError("entry-veto selection artifact capacity reached")
+        connection.execute(
+            """INSERT INTO prediction_entry_veto_selection_artifacts
+               (artifact_sha256,symbol,generation,candidate_fingerprint,
+                cutoff_ts_ms,artifact_json,created_at_ms)
+               VALUES(?,?,?,?,?,?,?)""",
+            (
+                artifact_hash, symbol.upper(), str(generation),
+                str(candidate_fingerprint), int(cutoff_ts_ms),
+                _canonical(artifact), int(time.time() * 1000),
+            ),
+        )
+    return {**artifact, "artifact_sha256": artifact_hash}
 
 
 def fee_aware_candidate_economics(
@@ -647,6 +974,8 @@ __all__ = [
     "advance_entry_diagnostics",
     "entry_diagnostic_report",
     "fee_aware_candidate_economics",
+    "freeze_entry_veto_selection",
+    "import_entry_veto_l2_archive",
     "migrate_entry_diagnostics",
     "normalize_entry_veto_rule",
     "start_entry_diagnostic",
