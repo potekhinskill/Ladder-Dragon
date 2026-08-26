@@ -143,6 +143,46 @@ def test_retention_preserves_classified_lifecycle_evidence(tmp_path):
         ).fetchone()[0] == 1
 
 
+def test_retention_preserves_entry_diagnostic_progress_and_summaries(tmp_path):
+    now = 2_000_000_000.0
+    database = tmp_path / "prediction.sqlite3"
+    backup = tmp_path / "backup.json"
+    old_ms = int((now - 400 * 86_400) * 1000)
+    _database(database, old_ms=old_ms, fresh_ms=int(now * 1000))
+    _backup(backup, now)
+    from ladder_dragon.strategy.prediction import PredictionShadowStore
+    PredictionShadowStore(database)
+    with sqlite3.connect(database) as connection:
+        connection.execute(
+            """INSERT INTO prediction_entry_diagnostic_progress
+               VALUES(?,?,?,?,?,?,?,?)""",
+            ("active", "SOLUSDT", "v22", "a" * 64, old_ms, "{}", "b" * 64, old_ms),
+        )
+        connection.execute(
+            """INSERT INTO prediction_entry_diagnostic_summaries
+               VALUES(?,?,?,?,?,?,?,?,?,?)""",
+            (
+                "summary", "SOLUSDT", "v22", "a" * 64, old_ms, old_ms,
+                "COMPLETE", "{}", "b" * 64, old_ms,
+            ),
+        )
+
+    result = rotate_prediction_shadow(
+        database, tmp_path / "archives", backup, now=now
+    )
+
+    assert result["entry_diagnostics"]["summary_rows"] == 1
+    assert result["entry_diagnostics"]["active_progress_rows"] == 1
+    assert result["entry_diagnostics"]["retention_period"] == "indefinite"
+    with sqlite3.connect(database) as connection:
+        assert connection.execute(
+            "SELECT episode_id FROM prediction_entry_diagnostic_progress"
+        ).fetchall() == [("active",)]
+        assert connection.execute(
+            "SELECT episode_id FROM prediction_entry_diagnostic_summaries"
+        ).fetchall() == [("summary",)]
+
+
 def test_market_scenario_retention_archives_only_resolved_evidence(tmp_path):
     now = 2_000_000_000.0
     old_ms = int((now - 400 * 86_400) * 1000)

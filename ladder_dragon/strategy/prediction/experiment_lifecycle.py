@@ -207,12 +207,12 @@ def candidate_rule(
         "slippage_pct": format(plan.slippage_pct, "f"),
         "notional_policy": (
             "fixed_shadow_evidence_notional"
-            if variant.candidate_rule_version in {3, 4, 5, 6, 7}
+            if variant.candidate_rule_version in {3, 4, 5, 6, 7, 8}
             else "current_strategy_cap"
         ),
         "evidence_notional_quote": (
             format(plan.notional_quote, "f")
-            if variant.candidate_rule_version in {3, 4, 5, 6, 7} else None
+            if variant.candidate_rule_version in {3, 4, 5, 6, 7, 8} else None
         ),
         "regime_policy": variant.regime_policy,
         "horizons_min": [int(value) for value in horizons_min],
@@ -229,7 +229,7 @@ def candidate_rule(
                 "LIMIT_MAKER" if variant.maker_only else "BASELINE"
             ),
         }
-    if variant.candidate_rule_version not in {2, 3, 4, 5, 6, 7}:
+    if variant.candidate_rule_version not in {2, 3, 4, 5, 6, 7, 8}:
         raise ValueError("candidate rule version is unsupported")
     rule = {
         **common,
@@ -249,7 +249,7 @@ def candidate_rule(
         ),
         "fee_schedule": _fee_schedule_rule(plan),
     }
-    if variant.candidate_rule_version in {3, 4, 5, 6, 7}:
+    if variant.candidate_rule_version in {3, 4, 5, 6, 7, 8}:
         if plan.maximum_holding_min is None:
             raise ValueError("promotion candidate requires maximum holding time")
         rule.update({
@@ -266,15 +266,32 @@ def candidate_rule(
             "episode_concurrency": 1,
             "panic_policy": (
                 "INCLUDE_FLATTEN_PNL_AND_COUNT_VETO_ATTEMPT"
-                if variant.candidate_rule_version in {4, 5, 6, 7}
+                if variant.candidate_rule_version in {4, 5, 6, 7, 8}
                 else "SEPARATE_SAFETY_VETO"
             ),
         })
-    if variant.candidate_rule_version in {4, 5, 6, 7}:
+    if variant.candidate_rule_version in {4, 5, 6, 7, 8}:
         if len(variant.evidence_semantics_fingerprint) != 64:
             raise ValueError("promotion evidence semantics fingerprint is invalid")
         rule["evidence_semantics_fingerprint"] = (
             variant.evidence_semantics_fingerprint
+        )
+    if variant.candidate_rule_version == 8:
+        veto = variant.entry_veto_rule
+        if not isinstance(veto, Mapping) or not veto:
+            raise ValueError("entry-veto candidate requires a frozen rule")
+        if variant.target_reachability is None or not (
+            ZERO <= variant.target_reachability <= D("1")
+        ):
+            raise ValueError("entry-veto target reachability is invalid")
+        from ladder_dragon.strategy.prediction.entry_diagnostics import (
+            fee_aware_candidate_economics,
+            normalize_entry_veto_rule,
+        )
+
+        rule["entry_veto_rule"] = normalize_entry_veto_rule(veto)
+        rule["candidate_economics"] = fee_aware_candidate_economics(
+            rule, target_reachability=variant.target_reachability
         )
     return rule
 
@@ -298,7 +315,7 @@ def baseline_rule(variant: "ShadowVariant") -> dict[str, object]:
         "entry_ttl_sec": plan.entry_ttl_sec,
         "entry_enabled": plan.entry_enabled,
     }
-    if variant.candidate_rule_version in {2, 3, 4, 5, 6, 7}:
+    if variant.candidate_rule_version in {2, 3, 4, 5, 6, 7, 8}:
         rule["fee_schedule"] = _fee_schedule_rule(plan)
     return rule
 

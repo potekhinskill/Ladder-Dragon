@@ -30,6 +30,7 @@ def test_shadow_experiments_are_collapsed_and_use_safe_runtime_fields():
     assert "confirmation.execution_model_gate" in script
     assert "episode.evidence_quality" in script
     assert "episode.excursion_diagnostics" in script
+    assert "episode.entry_quality_diagnostics" in script
     assert "shadow_statistics_gate" in script
     assert "shadow_regime_gate" in script
     assert "shadow_replay_gate" in script
@@ -70,6 +71,9 @@ def test_shadow_experiments_are_collapsed_and_use_safe_runtime_fields():
         "shadow_activation_gate",
         "shadow_evidence_quality",
         "shadow_excursions",
+        "shadow_entry_quality",
+        "shadow_target_reach",
+        "shadow_break_even",
         "shadow_not_scheduled",
         "shadow_safety_only",
         "shadow_outcomes",

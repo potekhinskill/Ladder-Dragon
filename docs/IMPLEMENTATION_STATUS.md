@@ -1,6 +1,6 @@
 # Implementation status
 
-This document describes the code in version **2.20.250**.
+This document describes the code in version **2.20.251**.
 It does not describe future plans as completed work.
 
 An implemented function is not automatically approved for LIVE use.
@@ -95,6 +95,22 @@ The database stores compact starts and terminal results.
 It does not store the raw L2 stream.
 Each new result stores maximum favorable and adverse bid excursions before exit.
 These diagnostics cannot change promotion or order decisions.
+
+An independent SHADOW diagnostic starts after each future filled episode.
+It continues after the strategy exit until the 360-minute horizon.
+It records MFE, MAE, threshold timing, and profit giveback at fixed horizons.
+It also records a five-minute pre-fill flow and order-book window.
+The fill interval is excluded from pre-fill evidence.
+Damaged progress or a market-data gap fails that diagnostic closed.
+The diagnostic cannot affect version twenty-two promotion.
+Its cutoff-safe selection report can propose one future entry veto.
+Any proposed veto requires a new immutable generation and independent confirmation.
+
+Entry diagnostic progress is disposable after a terminal summary exists.
+Terminal summaries are derived, append-only selection evidence.
+Their retention period is indefinite, with a limit of 250,000 rows.
+The encrypted prediction database backup includes both tables.
+The daily retention service audits the summary capacity.
 
 Historical data selects the fixed SOL candidate and estimates variance only.
 The fixed candidate does not use online training.

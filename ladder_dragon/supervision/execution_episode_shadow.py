@@ -5,8 +5,10 @@
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from decimal import Decimal, InvalidOperation
 import hashlib
+import sqlite3
 from typing import Mapping, Sequence
 
 from ladder_dragon.execution.exchange_math import (
@@ -21,6 +23,12 @@ from ladder_dragon.strategy.prediction.episode_evidence import (
     record_episode_start,
     recover_interrupted_episodes,
     sequential_episode_report,
+)
+from ladder_dragon.strategy.prediction.entry_diagnostics import (
+    EntryApproachTracker,
+    advance_entry_diagnostics,
+    entry_diagnostic_report,
+    start_entry_diagnostic,
 )
 from ladder_dragon.strategy.prediction.execution_episode import (
     ExecutionEpisode,
@@ -45,7 +53,15 @@ from ladder_dragon.strategy.prediction.runtime import PredictionShadowStore
 
 D = Decimal
 ZERO = D("0")
-_ACTIVE: dict[str, ExecutionEpisode] = {}
+
+
+@dataclass
+class _ActiveEpisode:
+    episode: ExecutionEpisode
+    approach: EntryApproachTracker
+
+
+_ACTIVE: dict[str, _ActiveEpisode] = {}
 _RECOVERED: set[str] = set()
 
 
@@ -271,14 +287,56 @@ def collect_execution_episode(
         trades=trades,
         interval_start_ms=features.snapshot_ts_ms - 60_000,
     )
+    diagnostic_error: str | None = None
+    try:
+        advance_entry_diagnostics(store, symbol=normalized, event=event)
+    except (ArithmeticError, RuntimeError, ValueError, sqlite3.Error) as exc:
+        # Entry diagnostics are derived SHADOW evidence. They cannot stop the
+        # frozen v22 episode or alter any promotion decision.
+        diagnostic_error = type(exc).__name__
     active = _ACTIVE.get(normalized)
     terminal_this_interval = False
     if active is not None:
+        entry_before = active.episode.entry_quantity
         result = (
-            active.process(event, panic_active=evidence_regime == "PANIC")
+            active.episode.process(
+                event, panic_active=evidence_regime == "PANIC"
+            )
             if trades_complete
-            else active.abort(features.snapshot_ts_ms, "INCOMPLETE_TRADE_PAGE")
+            else active.episode.abort(
+                features.snapshot_ts_ms, "INCOMPLETE_TRADE_PAGE"
+            )
         )
+        if (
+            entry_before <= ZERO
+            and active.episode.entry_quantity > ZERO
+        ):
+            try:
+                start_entry_diagnostic(
+                    store,
+                    episode_id=active.episode.spec.episode_id,
+                    symbol=normalized,
+                    generation=generation.generation,
+                    candidate_fingerprint=(
+                        active.episode.spec.candidate_fingerprint
+                    ),
+                    average_entry_price=(
+                        active.episode.entry_cost
+                        / active.episode.entry_quantity
+                    ),
+                    event=event,
+                    # The tracker excludes this fill interval. This prevents
+                    # trade flow observed after the fill from leaking backward.
+                    approach=active.approach.snapshot(
+                        fill_ts_ms=features.snapshot_ts_ms
+                    ),
+                )
+            except (
+                ArithmeticError, RuntimeError, ValueError, sqlite3.Error
+            ) as exc:
+                diagnostic_error = type(exc).__name__
+        elif result is None and active.episode.entry_quantity <= ZERO:
+            active.approach.observe(event)
         if result is not None:
             record_episode_result(store, result)
             _ACTIVE.pop(normalized, None)
@@ -315,7 +373,10 @@ def collect_execution_episode(
         if episode.result is not None:
             record_episode_result(store, episode.result)
         else:
-            _ACTIVE[normalized] = episode
+            _ACTIVE[normalized] = _ActiveEpisode(
+                episode=episode,
+                approach=EntryApproachTracker.from_seed(event),
+            )
 
     results = load_episode_results(
         store,
@@ -336,6 +397,31 @@ def collect_execution_episode(
         results,
         criteria=(manifest.get("criteria") if manifest is not None else None),
     )
+    if manifest is not None and isinstance(
+        manifest.get("candidate_parameters"), Mapping
+    ):
+        try:
+            report["entry_quality_diagnostics"] = entry_diagnostic_report(
+                store,
+                symbol=normalized,
+                generation=generation.generation,
+                candidate_fingerprint=str(manifest["candidate_fingerprint"]),
+                cutoff_ts_ms=features.snapshot_ts_ms,
+                target_return=D(str(
+                    manifest["candidate_parameters"]["target_return"]
+                )),
+                candidate_parameters=manifest["candidate_parameters"],
+            )
+        except (ArithmeticError, RuntimeError, ValueError, sqlite3.Error) as exc:
+            diagnostic_error = diagnostic_error or type(exc).__name__
+    if diagnostic_error is not None:
+        report["entry_quality_diagnostics"] = {
+            "status": "DEGRADED",
+            "reason_code": diagnostic_error,
+            "mode": "SHADOW",
+            "can_change_orders": False,
+            "affects_v22_promotion": False,
+        }
     if manifest is None:
         report["status"] = "AWAITING_BOOTSTRAP"
         report["approved"] = False

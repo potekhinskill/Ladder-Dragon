@@ -3,6 +3,23 @@
 All notable changes are documented here. Releases use Semantic Versioning; every
 section is dated and there is intentionally no `Unreleased` section.
 
+## [2.20.251] — 2026-08-26
+
+### Added
+- Filled SHADOW episodes retain post-fill MFE, MAE, threshold timing, and profit giveback through 360 minutes.
+- Entry diagnostics retain a bounded pre-fill flow, book imbalance, spread, and price-change window.
+- Future entry-veto manifests bind normalized veto thresholds and fee-aware trade geometry.
+- The dashboard reports entry-quality progress, TP reachability, and the break-even win rate.
+
+### Security
+- The fill interval cannot enter pre-fill evidence, and cutoff-safe selection prevents look-ahead.
+- Version 22, promotion evidence, order behavior, execution limits, and persistent HALT remain unchanged.
+- Damaged progress and market-data gaps fail diagnostics closed without changing frozen episode results.
+- Append-only summaries have an indefinite retention policy and a daily capacity audit.
+
+### Verified
+- Full project tests, Python compilation, Technical English, and focused diagnostic checks pass.
+
 ## [2.20.250] — 2026-08-25
 
 ### Fixed

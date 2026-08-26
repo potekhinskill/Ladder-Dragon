@@ -1731,3 +1731,10 @@ entries concise; this is not a changelog or an activity log.
 - **Decision:** publish separate earliest, empirical, deadline, replay, and expected launch timestamps.
 - **Why it worked:** unavailable execution proof now leaves launch timing explicitly unknown.
 - **Reuse:** every release gate that combines independent evidence streams.
+
+### 2026-08-26 — Separate entry diagnosis from frozen confirmation
+
+- **Context:** adverse fills required longer paths without changing version 22 after review.
+- **Decision:** collect append-only SHADOW paths through 360 minutes and select future vetoes with a fixed cutoff.
+- **Why it worked:** current promotion stays immutable, while future selection measures entry quality without look-ahead.
+- **Reuse:** every diagnostic that can inform a later generation but cannot change the current candidate.

@@ -194,6 +194,11 @@ def migrate_episode_evidence(connection: sqlite3.Connection) -> None:
         BEGIN SELECT RAISE(ABORT, 'model validations are append-only'); END;
         """
     )
+    from ladder_dragon.strategy.prediction.entry_diagnostics import (
+        migrate_entry_diagnostics,
+    )
+
+    migrate_entry_diagnostics(connection)
 
 
 def record_episode_start(

@@ -85,6 +85,8 @@ class ShadowVariant:
     execution_model_rule: str = "ohlc_touch_diagnostic_v1"
     execution_model_promotion_ready: bool = False
     evidence_semantics_fingerprint: str = ""
+    entry_veto_rule: Mapping[str, object] | None = None
+    target_reachability: Decimal | None = None
 
 
 def compatible_historical_kinds(

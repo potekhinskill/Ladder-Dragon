@@ -25,6 +25,41 @@ REPORT_SCHEMA = "ladder-dragon-database-retention-v1"
 SECONDS_PER_DAY = 86_400
 
 
+def _entry_diagnostic_inventory(
+    connection: sqlite3.Connection, *, maximum_summary_rows: int
+) -> dict[str, Any]:
+    """Report append-only selection evidence and mutable active progress."""
+    tables = {
+        str(row[0]) for row in connection.execute(
+            "SELECT name FROM sqlite_master WHERE type='table'"
+        ).fetchall()
+    }
+    summaries = (
+        int(connection.execute(
+            "SELECT COUNT(*) FROM prediction_entry_diagnostic_summaries"
+        ).fetchone()[0])
+        if "prediction_entry_diagnostic_summaries" in tables else 0
+    )
+    active = (
+        int(connection.execute(
+            "SELECT COUNT(*) FROM prediction_entry_diagnostic_progress"
+        ).fetchone()[0])
+        if "prediction_entry_diagnostic_progress" in tables else 0
+    )
+    return {
+        "classification": "derived_append_only_entry_selection_evidence",
+        "summary_rows": summaries,
+        "active_progress_rows": active,
+        "maximum_summary_rows": maximum_summary_rows,
+        "retention_period": "indefinite",
+        "archive_dependency": "encrypted_prediction_database_backup",
+        "scheduled_maintenance": "daily_capacity_audit",
+        "capacity_status": (
+            "PASS" if summaries < maximum_summary_rows else "BLOCKED"
+        ),
+    }
+
+
 def _backup_is_fresh(path: Path, *, now: float, maximum_age_hours: int) -> tuple[bool, str]:
     """Require evidence that a recent encrypted backup completed."""
     try:
@@ -147,11 +182,24 @@ def rotate_prediction_shadow(
 
     # Install role columns before retention filters classified evidence.
     from ladder_dragon.strategy.prediction.runtime import PredictionShadowStore
+    from ladder_dragon.strategy.prediction.entry_diagnostics import (
+        MAXIMUM_DIAGNOSTIC_SUMMARIES,
+    )
     PredictionShadowStore(database)
 
     cutoff_ms = int((current - retention_days * SECONDS_PER_DAY) * 1_000)
     with sqlite3.connect(database, timeout=30) as connection:
         connection.execute("PRAGMA busy_timeout=30000")
+        result["entry_diagnostics"] = _entry_diagnostic_inventory(
+            connection,
+            maximum_summary_rows=MAXIMUM_DIAGNOSTIC_SUMMARIES,
+        )
+        if result["entry_diagnostics"]["capacity_status"] != "PASS":
+            result.update(
+                status="BLOCKED",
+                reason="entry diagnostic summary capacity reached",
+            )
+            return result
         ids = [
             str(row[0])
             for row in connection.execute(

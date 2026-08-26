@@ -2076,3 +2076,10 @@ private infrastructure details.
 - **Root cause:** the manifest test did not call the public report entry point for the new statistical method.
 - **Correction:** register the version 22 method and test the complete report path before release.
 - **Prevention:** each new statistical method must pass a public empty-evidence report test.
+
+### 2026-08-26 — Skipped immediate narrow validation while editing diagnostics
+
+- **Impact:** focused diagnostic tests failed twice before release; deployed code was not affected.
+- **Root cause:** a broad replacement changed a helper, and a test used an undefined module constant.
+- **Correction:** restore the helper variable and use an explicit decimal in the test.
+- **Prevention:** use function-specific patch context and run the exact test after each mechanical edit.
