@@ -221,7 +221,9 @@ def _attempt_states(rows: list[dict[str, object]]) -> dict[str, list[dict[str, o
             raise RuntimeError("validation batch attempt transition is invalid")
         if len(events) > 2 or (
             len(events) == 2
-            and events[1].get("status") not in {"SUCCEEDED", "FAILED_UNCERTAIN"}
+            and events[1].get("status") not in {
+                "SUCCEEDED", "FAILED_DEFINITE", "FAILED_UNCERTAIN",
+            }
         ):
             raise RuntimeError("validation batch attempt transition is invalid")
     return states
@@ -239,7 +241,7 @@ def complete_validation_attempt(
 ) -> dict[str, object]:
     """Durably close one reservation after cleanup and archive finalization."""
     terminal = status.strip().upper()
-    if terminal not in {"SUCCEEDED", "FAILED_UNCERTAIN"}:
+    if terminal not in {"SUCCEEDED", "FAILED_DEFINITE", "FAILED_UNCERTAIN"}:
         raise RuntimeError("validation attempt terminal status is invalid")
     manifest = _load_manifest(manifest_path)
     ledger = manifest_path.with_suffix(manifest_path.suffix + ".attempts.ndjson")
@@ -294,7 +296,7 @@ def validation_batch_evidence(manifest_path: Path) -> dict[str, object]:
         len(events) != 2 or events[-1].get("status") != "SUCCEEDED"
         for events in states.values()
     ):
-        raise RuntimeError("validation batch contains uncertain evidence")
+        raise RuntimeError("validation batch contains unsuccessful evidence")
     archive_hashes = tuple(str(row.get("archive_sha256", "")) for row in terminals)
     order_refs = tuple(
         str(order_ref)
@@ -402,7 +404,7 @@ def reserve_validation_attempt(
 def run_validation_batch(
     manifest_path: Path, *, notional_usdt: Decimal
 ) -> int:
-    """Run the fixed sequence and stop after the first uncertain result."""
+    """Run the fixed sequence and stop only when an outcome remains uncertain."""
     if os.getenv("BOT_MAINNET_VALIDATION_BATCH_RUN_CONFIRMED", "") != "YES":
         raise RuntimeError("Mainnet validation batch run is not confirmed")
     manifest = _load_manifest(manifest_path)
@@ -414,6 +416,7 @@ def run_validation_batch(
         raise RuntimeError("validation batch attempt exceeds 6 USDT")
     ledger = manifest_path.with_suffix(manifest_path.suffix + ".attempts.ndjson")
     completed = 0
+    definite_failures = 0
     if ledger.exists():
         with ledger.open("r", encoding="utf-8") as handle:
             rows = _read_ledger(handle, manifest)
@@ -422,7 +425,11 @@ def run_validation_batch(
             raise RuntimeError("validation batch has an unfinished attempt")
         if any(events[-1].get("status") == "FAILED_UNCERTAIN" for events in states.values()):
             raise RuntimeError("validation batch is permanently closed after uncertainty")
-        completed = sum(events[-1].get("status") == "SUCCEEDED" for events in states.values())
+        completed = len(states)
+        definite_failures = sum(
+            events[-1].get("status") == "FAILED_DEFINITE"
+            for events in states.values()
+        )
     child_environment = dict(os.environ)
     child_environment.update({
         "BOT_MAINNET_LIMIT_MAKER_VALIDATION_CONFIRMED": "YES",
@@ -448,12 +455,47 @@ def run_validation_batch(
             str(manifest_path),
         ]
         result = subprocess.run(command, env=child_environment, check=False)
-        if result.returncode != 0:
+        if result.returncode == 3:
+            with ledger.open("r", encoding="utf-8") as handle:
+                refreshed_states = _attempt_states(
+                    _read_ledger(handle, manifest)
+                )
+            if len(refreshed_states) != completed + index + 1:
+                raise RuntimeError(
+                    "definite validation failure lacks one closed reservation"
+                )
+            latest_events = list(refreshed_states.values())[-1]
+            if (
+                len(latest_events) != 2
+                or latest_events[-1].get("status") != "FAILED_DEFINITE"
+            ):
+                raise RuntimeError(
+                    "definite validation failure lacks durable absence evidence"
+                )
+            definite_failures += 1
+        elif result.returncode != 0:
             return int(result.returncode)
+        else:
+            with ledger.open("r", encoding="utf-8") as handle:
+                refreshed_states = _attempt_states(
+                    _read_ledger(handle, manifest)
+                )
+            if len(refreshed_states) != completed + index + 1:
+                raise RuntimeError(
+                    "successful validation child lacks one closed reservation"
+                )
+            latest_events = list(refreshed_states.values())[-1]
+            if (
+                len(latest_events) != 2
+                or latest_events[-1].get("status") != "SUCCEEDED"
+            ):
+                raise RuntimeError(
+                    "successful validation child lacks durable evidence"
+                )
         cooldown = int(manifest.get("minimum_cooldown_sec", 0))
         if cooldown > 0 and index + 1 < len(pending):
             time.sleep(cooldown)
-    return 0
+    return 3 if definite_failures else 0
 
 
 def build_parser() -> argparse.ArgumentParser:

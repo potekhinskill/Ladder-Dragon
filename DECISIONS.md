@@ -1,5 +1,12 @@
 # Engineering decisions
 
+### 2026-08-26 — Separate proven absence from unresolved order submission
+
+- **Context:** an immediate order query can return not-found before an accepted order becomes visible.
+- **Decision:** reconcile by stable client identity through bounded order, open-order, and historical-order reads.
+- **Why it worked:** proven absence consumes one attempt, while unresolved mutation permanently closes the batch.
+- **Reuse:** every bounded live validation that receives no authoritative mutation response.
+
 ### 2026-08-26 — Replay entry vetoes on independent L2 evidence
 
 - **Context:** overlapping fills and instant row removal overstated a future veto's benefit.

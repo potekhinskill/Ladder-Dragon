@@ -6,12 +6,21 @@ from pathlib import Path
 import time
 
 import pytest
+import requests
 
 from ladder_dragon.execution.order_recovery import OrderJournal
+from ladder_dragon.verification.live import mainnet_user_stream_drill as drill
 from ladder_dragon.verification.live.mainnet_user_stream_drill import (
     build_parser,
     run_drill,
 )
+
+
+def _missing_order_error() -> requests.HTTPError:
+    response = requests.Response()
+    response.status_code = 400
+    response._content = b'{"code":-2013,"msg":"Order does not exist."}'
+    return requests.HTTPError("order unavailable", response=response)
 
 
 def _write(path: Path, payload: dict) -> None:
@@ -141,6 +150,64 @@ class FilledClient(FakeClient):
         return super().signed(method, path, params)
 
 
+class LostResponseFoundClient:
+    def __init__(self) -> None:
+        self.order: dict | None = None
+        self.calls: list[tuple[str, str]] = []
+
+    def signed(self, method, path, params=None):
+        self.calls.append((method, path))
+        if (method, path) == ("POST", "/api/v3/order"):
+            self.order = {
+                "symbol": params["symbol"],
+                "clientOrderId": params["newClientOrderId"],
+                "orderId": 321,
+                "status": "NEW",
+                "executedQty": "0",
+                "cummulativeQuoteQty": "0",
+            }
+            raise requests.ConnectionError("response lost")
+        if (method, path) == ("GET", "/api/v3/order"):
+            assert self.order is not None
+            return dict(self.order)
+        raise AssertionError((method, path))
+
+
+class LostResponseAbsentClient:
+    def __init__(self) -> None:
+        self.calls: list[tuple[str, str]] = []
+
+    def signed(self, method, path, params=None):
+        del params
+        self.calls.append((method, path))
+        if (method, path) == ("POST", "/api/v3/order"):
+            raise requests.ConnectionError("response lost")
+        if (method, path) == ("GET", "/api/v3/order"):
+            raise _missing_order_error()
+        if (method, path) in {
+            ("GET", "/api/v3/openOrders"),
+            ("GET", "/api/v3/allOrders"),
+        }:
+            return []
+        raise AssertionError((method, path))
+
+
+class DelayedVisibleOrderClient(LostResponseFoundClient):
+    def __init__(self) -> None:
+        super().__init__()
+        self.query_count = 0
+
+    def signed(self, method, path, params=None):
+        if (method, path) == ("GET", "/api/v3/order"):
+            self.calls.append((method, path))
+            self.query_count += 1
+            if self.query_count < 3:
+                raise _missing_order_error()
+            assert self.order is not None
+            return dict(self.order)
+        return super().signed(method, path, params)
+
+
 def _args(tmp_path: Path, runtime: Path, state: Path):
     return build_parser().parse_args([
         "--runtime", str(runtime),
@@ -184,6 +251,65 @@ def _evidence(tmp_path: Path, *, halted: bool = True):
     })
     OrderJournal(tmp_path / "production.sqlite3", venue="mainnet")
     return runtime, state
+
+
+def _submission_params() -> dict[str, str]:
+    return {
+        "symbol": "SOLUSDT",
+        "side": "BUY",
+        "type": "LIMIT_MAKER",
+        "quantity": "0.06",
+        "price": "99",
+        "newClientOrderId": "ld-submit-reconciliation-test",
+    }
+
+
+def test_uncertain_submission_recovers_the_stable_client_identity(tmp_path):
+    journal = OrderJournal(tmp_path / "recovery.sqlite3", venue="mainnet-test")
+    client = LostResponseFoundClient()
+
+    result = drill._submit_order(
+        client, journal, _submission_params(), purpose="validation-test"
+    )
+
+    assert result["orderId"] == 321
+    assert journal.nonterminal_orders("SOLUSDT")[0].state == "SUBMITTED"
+    assert client.calls.count(("POST", "/api/v3/order")) == 1
+
+
+def test_uncertain_submission_proves_absence_without_replaying_post(
+    tmp_path, monkeypatch
+):
+    journal = OrderJournal(tmp_path / "absence.sqlite3", venue="mainnet-test")
+    client = LostResponseAbsentClient()
+    monkeypatch.setattr(drill, "POST_RECONCILIATION_DELAY_SEC", 0)
+
+    with pytest.raises(drill.DefinitiveOrderAbsence, match="bounded"):
+        drill._submit_order(
+            client, journal, _submission_params(), purpose="validation-test"
+        )
+
+    assert journal.nonterminal_orders("SOLUSDT") == []
+    assert client.calls.count(("POST", "/api/v3/order")) == 1
+    assert client.calls.count(("GET", "/api/v3/order")) == 5
+    assert ("GET", "/api/v3/openOrders") in client.calls
+    assert ("GET", "/api/v3/allOrders") in client.calls
+
+
+def test_uncertain_submission_waits_for_delayed_order_visibility(
+    tmp_path, monkeypatch
+):
+    journal = OrderJournal(tmp_path / "delayed.sqlite3", venue="mainnet-test")
+    client = DelayedVisibleOrderClient()
+    monkeypatch.setattr(drill, "POST_RECONCILIATION_DELAY_SEC", 0)
+
+    result = drill._submit_order(
+        client, journal, _submission_params(), purpose="validation-test"
+    )
+
+    assert result["orderId"] == 321
+    assert client.query_count == 3
+    assert client.calls.count(("POST", "/api/v3/order")) == 1
 
 
 def test_mainnet_stream_drill_places_cancels_and_proves_rest(tmp_path):

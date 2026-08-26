@@ -60,6 +60,33 @@ DRILL_ERRORS = (
     requests.RequestException,
 )
 TERMINAL = {"CANCELED", "EXPIRED", "EXPIRED_IN_MATCH", "FILLED", "REJECTED"}
+POST_RECONCILIATION_ATTEMPTS = 5
+POST_RECONCILIATION_DELAY_SEC = 1.0
+
+
+class DefinitiveOrderAbsence(RuntimeError):
+    """Report that bounded authoritative reads proved no submitted order exists."""
+
+
+def _http_error_code(exc: requests.HTTPError) -> int | None:
+    """Read only the public Binance error code from a sanitized response."""
+    direct = getattr(exc, "code", None)
+    try:
+        if direct is not None:
+            return int(direct)
+        payload = exc.response.json()
+        return int(payload.get("code")) if isinstance(payload, dict) else None
+    except (AttributeError, TypeError, ValueError):
+        return None
+
+
+def _http_status(exc: requests.HTTPError) -> int:
+    direct = getattr(exc, "status", None)
+    response = getattr(exc, "response", None)
+    try:
+        return int(direct if direct is not None else response.status_code)
+    except (AttributeError, TypeError, ValueError):
+        return 0
 
 
 def _read_object(path: Path, description: str) -> dict[str, Any]:
@@ -126,6 +153,66 @@ def _query_order(client: Any, symbol: str, order_client_id: str) -> dict[str, An
     return payload
 
 
+def _reconcile_uncertain_submission(
+    client: Any,
+    journal: OrderJournal,
+    *,
+    symbol: str,
+    order_client_id: str,
+) -> dict[str, Any]:
+    """Resolve one uncertain POST without replaying the exchange mutation."""
+    for attempt in range(POST_RECONCILIATION_ATTEMPTS):
+        try:
+            return _query_order(client, symbol, order_client_id)
+        except requests.HTTPError as exc:
+            if _http_error_code(exc) != -2013:
+                raise
+        except requests.RequestException:
+            pass
+        if attempt + 1 < POST_RECONCILIATION_ATTEMPTS:
+            time.sleep(POST_RECONCILIATION_DELAY_SEC)
+
+    # Open and historical order reads cover both live and terminal outcomes.
+    open_orders = client.signed(
+        "GET", "/api/v3/openOrders", {"symbol": symbol}
+    )
+    if not isinstance(open_orders, list):
+        raise RuntimeError("Mainnet drill open-order query returned invalid data")
+    matches = [
+        row for row in open_orders
+        if isinstance(row, dict)
+        and str(row.get("clientOrderId") or "") == order_client_id
+    ]
+    if len(matches) == 1:
+        return matches[0]
+    if len(matches) > 1:
+        raise RuntimeError("Mainnet drill order identity is ambiguous")
+    all_orders = client.signed(
+        "GET",
+        "/api/v3/allOrders",
+        {
+            "symbol": symbol,
+            "startTime": int(time.time() * 1000) - 300_000,
+            "limit": 1_000,
+        },
+    )
+    if not isinstance(all_orders, list):
+        raise RuntimeError("Mainnet drill order-history query returned invalid data")
+    historical_matches = [
+        row for row in all_orders
+        if isinstance(row, dict)
+        and str(row.get("clientOrderId") or "") == order_client_id
+    ]
+    if len(historical_matches) == 1:
+        return historical_matches[0]
+    if len(historical_matches) > 1:
+        raise RuntimeError("Mainnet drill historical order identity is ambiguous")
+    journal.mark_failed(order_client_id, "bounded reconciliation proved absence")
+    raise DefinitiveOrderAbsence(
+        "validation order is absent after bounded authoritative reconciliation"
+    )
+
+
 def _submit_order(
     client: Any,
     journal: OrderJournal,
@@ -147,9 +234,28 @@ def _submit_order(
     )
     try:
         payload = client.signed("POST", "/api/v3/order", params)
+    except requests.HTTPError as exc:
+        # A non-retryable client response proves Binance rejected this POST.
+        if 400 <= _http_status(exc) < 500:
+            journal.mark_failed(order_client_id, "exchange rejected submission")
+            raise DefinitiveOrderAbsence(
+                "exchange rejected validation order submission"
+            ) from exc
+        journal.mark_unknown(order_client_id, exc)
+        payload = _reconcile_uncertain_submission(
+            client,
+            journal,
+            symbol=params["symbol"],
+            order_client_id=order_client_id,
+        )
     except requests.RequestException as exc:
         journal.mark_unknown(order_client_id, exc)
-        payload = _query_order(client, params["symbol"], order_client_id)
+        payload = _reconcile_uncertain_submission(
+            client,
+            journal,
+            symbol=params["symbol"],
+            order_client_id=order_client_id,
+        )
     if not isinstance(payload, dict):
         raise RuntimeError("Mainnet drill order response is invalid")
     payload.setdefault("clientOrderId", order_client_id)

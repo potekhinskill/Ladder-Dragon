@@ -19,7 +19,12 @@ def main() -> int:
     result = run_validation_batch(
         args.manifest, notional_usdt=args.notional_usdt
     )
-    print(json.dumps({"status": "PASS" if result == 0 else "FAILED"}))
+    status = (
+        "PASS" if result == 0
+        else "INCOMPLETE" if result == 3
+        else "FAILED"
+    )
+    print(json.dumps({"status": status}))
     return result
 
 

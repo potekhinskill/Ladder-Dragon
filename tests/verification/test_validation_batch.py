@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from decimal import Decimal
 import json
+from types import SimpleNamespace
 
 import pytest
 
@@ -237,6 +238,102 @@ def test_uncertain_attempt_permanently_closes_batch(tmp_path, monkeypatch):
             turnover_usdt=Decimal("6"),
             now_ms=4_000,
         )
+
+
+def test_definite_failure_consumes_attempt_but_allows_fixed_sequence(
+    tmp_path, monkeypatch
+):
+    _manifest(tmp_path)
+    monkeypatch.setattr(validation_batch, "_current_commit", lambda: COMMIT)
+    reservation = validation_batch.reserve_validation_attempt(
+        tmp_path / "batch.json",
+        drill="LIMIT_MAKER",
+        symbol="SOLUSDT",
+        turnover_usdt=Decimal("6"),
+        now_ms=2_000,
+    )
+    validation_batch.complete_validation_attempt(
+        tmp_path / "batch.json",
+        attempt_id=reservation["attempt_id"],
+        status="FAILED_DEFINITE",
+        completed_at_ms=3_000,
+    )
+
+    second = validation_batch.reserve_validation_attempt(
+        tmp_path / "batch.json",
+        drill="STOP_LOSS_LIMIT",
+        symbol="SOLUSDT",
+        turnover_usdt=Decimal("6"),
+        now_ms=4_000,
+    )
+
+    assert second["status"] == "RESERVED_BEFORE_MUTATION"
+
+
+def test_definite_failure_cannot_enter_successful_batch_evidence(
+    tmp_path, monkeypatch
+):
+    _manifest(tmp_path, attempts=1, turnover="12")
+    monkeypatch.setattr(validation_batch, "_current_commit", lambda: COMMIT)
+    reservation = validation_batch.reserve_validation_attempt(
+        tmp_path / "batch.json",
+        drill="LIMIT_MAKER",
+        symbol="SOLUSDT",
+        turnover_usdt=Decimal("6"),
+        now_ms=2_000,
+    )
+    validation_batch.complete_validation_attempt(
+        tmp_path / "batch.json",
+        attempt_id=reservation["attempt_id"],
+        status="FAILED_DEFINITE",
+        completed_at_ms=3_000,
+    )
+
+    with pytest.raises(RuntimeError, match="unsuccessful evidence"):
+        validation_batch.validation_batch_evidence(tmp_path / "batch.json")
+
+
+def test_batch_runner_continues_after_definite_failure(
+    tmp_path, monkeypatch
+):
+    _manifest(tmp_path)
+    monkeypatch.setattr(validation_batch, "_current_commit", lambda: COMMIT)
+    monkeypatch.setenv("BOT_MAINNET_VALIDATION_BATCH_RUN_CONFIRMED", "YES")
+    calls: list[str] = []
+
+    def run_child(command, **_kwargs):
+        drill = (
+            "LIMIT_MAKER"
+            if "mainnet_limit_maker_validation" in command[2]
+            else "STOP_LOSS_LIMIT"
+        )
+        calls.append(drill)
+        reservation = validation_batch.reserve_validation_attempt(
+            tmp_path / "batch.json",
+            drill=drill,
+            symbol="SOLUSDT",
+            turnover_usdt=Decimal("6"),
+            now_ms=2_000 + len(calls) * 1_000,
+        )
+        status = "FAILED_DEFINITE" if len(calls) == 1 else "SUCCEEDED"
+        validation_batch.complete_validation_attempt(
+            tmp_path / "batch.json",
+            attempt_id=reservation["attempt_id"],
+            status=status,
+            archive_sha256=("2" * 64 if status == "SUCCEEDED" else None),
+            order_refs=(("second-order",) if status == "SUCCEEDED" else ()),
+            completed_at_ms=2_500 + len(calls) * 1_000,
+        )
+        return SimpleNamespace(returncode=3 if status == "FAILED_DEFINITE" else 0)
+
+    monkeypatch.setattr(validation_batch.subprocess, "run", run_child)
+
+    result = validation_batch.run_validation_batch(
+        tmp_path / "batch.json", notional_usdt=Decimal("6")
+    )
+
+    assert result == 3
+    assert calls == ["LIMIT_MAKER", "STOP_LOSS_LIMIT"]
 
 
 def test_complete_batch_freezes_archives_and_order_refs(tmp_path, monkeypatch):

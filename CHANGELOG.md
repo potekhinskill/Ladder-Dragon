@@ -3,6 +3,22 @@
 All notable changes are documented here. Releases use Semantic Versioning; every
 section is dated and there is intentionally no `Unreleased` section.
 
+## [2.20.254] — 2026-08-26
+
+### Fixed
+- Uncertain validation submissions now use bounded order, open-order, and order-history reconciliation.
+- Proven exchange rejection or absence now consumes one attempt without closing the complete validation batch.
+- A validation runner continues only after the child stores the exact durable terminal state.
+
+### Security
+- The reconciliation path never replays a possibly accepted POST request.
+- Unresolved submissions and cleanup failures still close the immutable batch permanently.
+- A definite failure cannot enter successful replay evidence or remove persistent HALT.
+
+### Verified
+- Focused validation, recovery, failure, secret-safety, and batch-sequence tests pass.
+- Full project tests, Python compilation, release verification, and Technical English pass.
+
 ## [2.20.253] — 2026-08-26
 
 ### Fixed

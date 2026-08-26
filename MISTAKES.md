@@ -6,6 +6,13 @@ avoidable rework. Identify the root cause rather than recording only the
 symptom. Keep entries concise and exclude secrets, balances, account data, and
 private infrastructure details.
 
+### 2026-08-26 — Treated one early not-found response as permanent uncertainty
+
+- **Impact:** a rejected validation order closed the complete authorized batch without creating an exchange order.
+- **Root cause:** uncertain POST recovery performed one immediate query and did not distinguish proven absence.
+- **Correction:** use bounded stable-identity reconciliation and record a separate definite-failure terminal state.
+- **Prevention:** test delayed visibility, proven absence, durable child evidence, and unresolved cleanup separately.
+
 ### 2026-08-26 — Ranked a veto on overlapping rows with instant cancellation
 
 - **Impact:** a future entry filter could appear profitable without executable timing or independent evidence.

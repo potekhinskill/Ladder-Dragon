@@ -693,11 +693,15 @@ def run_validation_drill(
         raise
     finally:
         cleanup_error: BaseException | None = None
+        definite_absence = (
+            isinstance(primary_error, stream_drill.DefinitiveOrderAbsence)
+            and created is None
+        )
         try:
             if report["mutation_started"] and (
                 final is None
                 or str(final.get("status") or "").upper() not in TERMINAL
-            ):
+            ) and not definite_absence:
                 stream_drill._cancel_order(
                     client,
                     journal,
@@ -727,7 +731,11 @@ def run_validation_drill(
             )
             report.update(
                 {
-                    "status": "failed",
+                    "status": (
+                        "failed_definite"
+                        if definite_absence and cleanup_error is None
+                        else "failed"
+                    ),
                     "error_type": type(primary_error or cleanup_error).__name__,
                     "mutation_started": bool(report["mutation_started"]),
                 }
@@ -744,7 +752,11 @@ def run_validation_drill(
                 complete_validation_attempt(
                     resolve_project_path(batch_manifest),
                     attempt_id=str(reservation["attempt_id"]),
-                    status="FAILED_UNCERTAIN",
+                    status=(
+                        "FAILED_DEFINITE"
+                        if definite_absence and cleanup_error is None
+                        else "FAILED_UNCERTAIN"
+                    ),
                     archive_path=(str(archive_path) if archive_path else None),
                     archive_sha256=str(
                         archive_metadata.get("archive_sha256") or ""
@@ -816,6 +828,20 @@ def main() -> int:
     try:
         with exclusive_lock(args.lock_file):
             report = run_validation_drill(args)
+    except stream_drill.DefinitiveOrderAbsence as exc:
+        print(
+            json.dumps(
+                {
+                    "status": "failed_definite",
+                    "error_type": type(exc).__name__,
+                    "error": str(exc)[:240],
+                },
+                sort_keys=True,
+            ),
+            file=sys.stderr,
+            flush=True,
+        )
+        return 3
     except DRILL_ERRORS as exc:
         print(
             json.dumps(

@@ -397,3 +397,54 @@ def test_validation_drill_never_reports_credentials(tmp_path):
 
     assert "private-key-value" not in str(captured.value)
     assert "private-secret-value" not in str(captured.value)
+
+
+def test_definitive_submission_absence_does_not_close_batch_as_uncertain(
+    tmp_path, monkeypatch
+):
+    runtime, state = _evidence(tmp_path)
+    args = _args(tmp_path, runtime, state)
+    args.batch_manifest = str(tmp_path / "batch.json")
+    completed: list[str] = []
+    cancellations: list[str] = []
+    monkeypatch.setattr(
+        drill,
+        "reserve_validation_attempt",
+        lambda *_args, **_kwargs: {
+            "attempt_id": "attempt-one",
+            "manifest_sha256": "a" * 64,
+        },
+    )
+    monkeypatch.setattr(
+        drill,
+        "complete_validation_attempt",
+        lambda *_args, **kwargs: completed.append(str(kwargs["status"])),
+    )
+    monkeypatch.setattr(
+        drill.stream_drill,
+        "_submit_order",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(
+            drill.stream_drill.DefinitiveOrderAbsence("proved absent")
+        ),
+    )
+    monkeypatch.setattr(
+        drill.stream_drill,
+        "_cancel_order",
+        lambda *_args, **_kwargs: cancellations.append("called"),
+    )
+
+    with pytest.raises(drill.stream_drill.DefinitiveOrderAbsence):
+        drill.run_validation_drill(
+            args,
+            environ=_environment(tmp_path),
+            client=FakeClient(state),
+            archive_factory=_archive_factory(tmp_path),
+        )
+
+    assert completed == ["FAILED_DEFINITE"]
+    assert cancellations == []
+    reports = [
+        json.loads(line)
+        for line in (tmp_path / "validation.ndjson").read_text().splitlines()
+    ]
+    assert reports[-1]["status"] == "failed_definite"
