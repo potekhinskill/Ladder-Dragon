@@ -95,3 +95,35 @@ def test_prediction_store_keeps_collector_active_without_ai(monkeypatch):
     )
 
     assert calls == [("ETHUSDT", False)]
+
+
+def test_blocked_shadow_prioritizes_sol_and_rotates_one_shadow_symbol(
+    monkeypatch,
+):
+    calls = []
+    monkeypatch.setattr(supervisor, "_AI_ADVISOR", None)
+    monkeypatch.setattr(supervisor, "_AI_POLICY", None)
+    monkeypatch.setattr(supervisor, "_PREDICTION_SHADOW", object())
+    monkeypatch.setattr(supervisor, "_BLOCKED_SHADOW_LAST_ATTEMPT", {})
+    monkeypatch.setattr(
+        supervisor,
+        "run_for_symbol",
+        lambda symbol, args, *, execution_allowed: calls.append(
+            (symbol, execution_allowed)
+        ),
+    )
+    args = SimpleNamespace(symbols=["SOLUSDT"])
+
+    supervisor._collect_blocked_shadow(
+        ["SOLUSDT", "ETHUSDT", "BTCUSDT"], args, now_monotonic=100
+    )
+    supervisor._collect_blocked_shadow(
+        ["SOLUSDT", "ETHUSDT", "BTCUSDT"], args, now_monotonic=161
+    )
+
+    assert calls == [
+        ("SOLUSDT", False),
+        ("BTCUSDT", False),
+        ("SOLUSDT", False),
+        ("ETHUSDT", False),
+    ]

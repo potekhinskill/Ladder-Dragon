@@ -74,6 +74,8 @@ The systemd service records BLOCKED as a failed unit. A later successful run cle
 - The risk control lock is one disposable file and has no growth path.
 - RAG documents and retrieval links use the configured 365-day window.
 - Public depth archives use the configured 3-to-90-day window.
+- Retained depth metadata is rechecked until each covered diagnostic is complete.
+- Imported L2 features remain append-only after the source archive expires.
 - Mainnet validation archives retain at most 32 sessions or 512 MiB.
 - Validation capacity blocks new drills. It never deletes replay evidence.
 - Archive validation evidence only after a verified encrypted backup and promotion audit.

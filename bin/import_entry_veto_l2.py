@@ -12,6 +12,7 @@ from pathlib import Path
 
 from ladder_dragon.strategy.prediction.entry_diagnostics import (
     import_entry_veto_l2_archive,
+    import_entry_veto_l2_history,
 )
 from ladder_dragon.strategy.prediction.runtime import PredictionShadowStore
 
@@ -19,11 +20,16 @@ from ladder_dragon.strategy.prediction.runtime import PredictionShadowStore
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--prediction-db", type=Path, required=True)
-    parser.add_argument("--archive", type=Path, required=True)
+    source = parser.add_mutually_exclusive_group(required=True)
+    source.add_argument("--archive", type=Path)
+    source.add_argument("--archive-directory", type=Path)
     args = parser.parse_args()
     try:
-        report = import_entry_veto_l2_archive(
-            PredictionShadowStore(args.prediction_db), args.archive
+        store = PredictionShadowStore(args.prediction_db)
+        report = (
+            import_entry_veto_l2_archive(store, args.archive)
+            if args.archive is not None
+            else import_entry_veto_l2_history(store, args.archive_directory)
         )
     except (OSError, RuntimeError, ValueError) as exc:
         parser.error(f"L2 entry-feature import failed: {type(exc).__name__}: {exc}")

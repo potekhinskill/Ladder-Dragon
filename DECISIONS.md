@@ -1745,3 +1745,17 @@ entries concise; this is not a changelog or an activity log.
 - **Decision:** collect append-only SHADOW paths through 360 minutes and select future vetoes with a fixed cutoff.
 - **Why it worked:** current promotion stays immutable, while future selection measures entry quality without look-ahead.
 - **Reuse:** every diagnostic that can inform a later generation but cannot change the current candidate.
+
+### 2026-08-26 — Preserve promotion cadence before broad SHADOW coverage
+
+- **Context:** sequential ETH and BTC reads delayed fixed SOL evidence beyond its event-gap contract.
+- **Decision:** collect promotion symbols first, then rotate one observation-only symbol per blocked cycle.
+- **Why it worked:** SOL keeps bounded cadence while every shadow-only symbol continues to receive evidence.
+- **Reuse:** every shared scheduler that mixes promotion evidence with slower advisory sources.
+
+### 2026-08-26 — Bind delayed diagnostics to retained public archives
+
+- **Context:** an archive finished before its 360-minute post-fill diagnostic became complete.
+- **Decision:** rescan retained metadata and load only archives that cover newly complete paths.
+- **Why it worked:** matching is cheap before validation, and imported features retain the source hash.
+- **Reuse:** every evidence join whose two immutable inputs mature at different times.

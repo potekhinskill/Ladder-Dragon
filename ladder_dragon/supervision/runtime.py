@@ -4006,6 +4006,8 @@ def _collect_blocked_shadow(
         last_attempts=_BLOCKED_SHADOW_LAST_ATTEMPT,
         run_symbol=run_for_symbol, logger=log,
         operation_errors=SUPERVISOR_OPERATION_ERRORS,
+        priority_symbols=tuple(getattr(args, "symbols", ())),
+        maximum_nonpriority_per_call=1,
     )
 
 

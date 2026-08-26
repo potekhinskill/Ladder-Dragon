@@ -56,8 +56,9 @@ while :; do
     if [[ -f "${PREDICTION_DB}" ]]; then
       env -u BINANCE_API_KEY -u BINANCE_API_SECRET -u DEEPSEEK_API_KEY \
         PYTHONPATH="${PROJECT_DIR}" \
-        "${PROJECT_DIR}/.venv/bin/python" -m bin.import_entry_veto_l2 \
-        --prediction-db "${PREDICTION_DB}" --archive "${output}"
+      "${PROJECT_DIR}/.venv/bin/python" -m bin.import_entry_veto_l2 \
+        --prediction-db "${PREDICTION_DB}" \
+        --archive-directory "${OUTPUT_DIR}"
     fi
   done
 

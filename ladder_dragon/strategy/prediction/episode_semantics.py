@@ -13,7 +13,7 @@ from typing import Mapping
 
 EVIDENCE_SEMANTICS_VERSION = "minute_l2_episode_execution_v5"
 EXECUTION_MODEL_RULE = "minute_l2_fifo_oco_gap_v3"
-V23_EVIDENCE_SEMANTICS_VERSION = "diff_depth_entry_veto_execution_v6"
+V23_EVIDENCE_SEMANTICS_VERSION = "diff_depth_entry_veto_execution_v7"
 V23_EXECUTION_MODEL_RULE = "diff_depth_fifo_oco_cancel_v4"
 V21_EVIDENCE_SEMANTICS_VERSION = "minute_l2_episode_execution_v4"
 V21_EXECUTION_MODEL_RULE = "minute_l2_fifo_oco_gap_v3"
@@ -127,6 +127,7 @@ def v23_evidence_semantics_contract() -> dict[str, object]:
         "market_source": "BINANCE_DIFF_DEPTH_100MS_SEQUENCE_VALIDATED",
         "trade_source": "BINANCE_AGGTRADE",
         "order_flow_imbalance": "CONT_BEST_LEVEL_NORMALIZED_V1",
+        "price_threshold_policy": "NEGATIVE_DOWNSIDE_BASIS_POINTS_ONLY_V2",
         "fill_timestamp_resolution_ms": 60_000,
         "cancel_timing": "FILLABLE_UNTIL_CANCEL_EFFECTIVE",
         "late_cancel_policy": "KEEP_ORIGINAL_FILL_AND_PNL",

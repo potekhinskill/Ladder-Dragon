@@ -1,6 +1,6 @@
 # Implementation status
 
-This document describes the code in version **2.20.252**.
+This document describes the code in version **2.20.253**.
 It does not describe future plans as completed work.
 
 An implemented function is not automatically approved for LIVE use.
@@ -106,7 +106,9 @@ The diagnostic cannot affect version twenty-two promotion.
 Its cutoff-safe selection report can propose one future entry veto.
 Any proposed veto requires a new immutable generation and independent confirmation.
 
-The public depth recorder imports sequence-validated diff-depth features after each completed archive.
+The public depth recorder rechecks retained metadata after each completed archive.
+It imports sequence-validated features after the matching 360-minute diagnostic becomes complete.
+Promotion-symbol evidence runs before one rotating observation-only symbol during persistent HALT.
 Selection uses independent paths and three chronological stability blocks.
 The counterfactual replay keeps late fills and their PnL.
 A successful cancel releases the single entry slot at its modeled exchange arrival time.

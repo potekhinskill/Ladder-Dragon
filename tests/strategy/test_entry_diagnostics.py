@@ -6,6 +6,7 @@
 from __future__ import annotations
 
 from decimal import Decimal
+import hashlib
 import json
 import sqlite3
 
@@ -17,6 +18,7 @@ from ladder_dragon.strategy.prediction.entry_diagnostics import (
     advance_entry_diagnostics,
     entry_diagnostic_report,
     fee_aware_candidate_economics,
+    import_entry_veto_l2_history,
     start_entry_diagnostic,
 )
 from ladder_dragon.strategy.prediction.experiment_lifecycle import candidate_rule
@@ -259,7 +261,6 @@ def test_diagnostic_rejects_damaged_restart_progress(tmp_path):
             "UPDATE prediction_entry_diagnostic_progress "
             "SET progress_json='{}' WHERE episode_id='episode-damaged'"
         )
-
     with pytest.raises(ValueError, match="fingerprint differs"):
         advance_entry_diagnostics(
             store,
@@ -267,6 +268,99 @@ def test_diagnostic_rejects_damaged_restart_progress(tmp_path):
             event=_event(seed.ts_ms + 60_000, "99"),
         )
 
+
+def test_l2_history_import_waits_for_complete_diagnostic_then_backfills(
+    tmp_path,
+):
+    store = PredictionShadowStore(tmp_path / "prediction.sqlite3")
+    fingerprint = "f" * 64
+    record_episode_start(store, _spec("episode-history", fingerprint))
+    summary = {
+        "contract_version": "entry_path_shadow_v2",
+        "complete": True,
+        "episode_id": "episode-history",
+        "fill_ts_ms": 360_001,
+    }
+    encoded_summary = json.dumps(
+        summary, sort_keys=True, separators=(",", ":")
+    )
+    with store._connect() as connection:
+        connection.execute(
+            """INSERT INTO prediction_entry_diagnostic_summaries
+               (episode_id,symbol,generation,candidate_fingerprint,fill_ts_ms,
+                completed_at_ms,status,summary_json,summary_sha256,created_at_ms)
+               VALUES(?,?,?,?,?,?,?,?,?,?)""",
+            (
+                "episode-history", "SOLUSDT", "v22", fingerprint, 360_001,
+                22_000_000, "COMPLETE", encoded_summary,
+                hashlib.sha256(encoded_summary.encode()).hexdigest(), 22_000_000,
+            ),
+        )
+    archive_directory = tmp_path / "archives"
+    archive_directory.mkdir()
+    archive = archive_directory / "SOLUSDT-history.jsonl"
+    rows = [
+        {
+            "lastUpdateId": 1, "E": 60_001, "s": "SOLUSDT",
+            "bids": [["100", "10"]], "asks": [["100.01", "10"]],
+        },
+        {
+            "e": "depthUpdate", "E": 120_001, "U": 2, "u": 2,
+            "b": [["100", "0"], ["99.9", "5"]],
+            "a": [["100.01", "0"], ["99.91", "15"]],
+        },
+        {
+            "e": "aggTrade", "E": 121_000, "p": "99.9", "q": "2",
+            "m": True,
+        },
+        {
+            "e": "depthUpdate", "E": 240_001, "U": 3, "u": 3,
+            "b": [["99.9", "0"], ["99.8", "4"]],
+            "a": [["99.91", "0"], ["99.81", "18"]],
+        },
+        {
+            "e": "aggTrade", "E": 241_000, "p": "99.8", "q": "3",
+            "m": True,
+        },
+        {
+            "e": "depthUpdate", "E": 359_000, "U": 4, "u": 4,
+            "b": [["99.8", "0"], ["99.7", "3"]],
+            "a": [["99.81", "0"], ["99.71", "20"]],
+        },
+        {
+            "e": "aggTrade", "E": 359_500, "p": "99.7", "q": "4",
+            "m": True,
+        },
+        {
+            "e": "depthUpdate", "E": 420_001, "U": 5, "u": 5,
+            "b": [["99.7", "0"], ["99.8", "3"]],
+            "a": [["99.71", "0"], ["99.81", "20"]],
+        },
+    ]
+    encoded_archive = "".join(json.dumps(row) + "\n" for row in rows)
+    archive.write_text(encoded_archive)
+    archive.with_suffix(".jsonl.metadata.json").write_text(json.dumps({
+        "schema_version": 1,
+        "symbol": "SOLUSDT",
+        "started_at_ms": 60_001,
+        "finished_at_ms": 420_001,
+        "archive_sha256": hashlib.sha256(encoded_archive.encode()).hexdigest(),
+        "contains_secrets": False,
+    }))
+
+    report = import_entry_veto_l2_history(store, archive_directory)
+    repeated = import_entry_veto_l2_history(store, archive_directory)
+
+    assert report["status"] == "PASS", report
+    assert report["matched_archives"] == 1
+    assert report["validated_archives"] == 1
+    assert report["imported_paths"] == 1
+    assert repeated["imported_paths"] == 0
+    with store._connect() as connection:
+        payload = json.loads(connection.execute(
+            "SELECT feature_json FROM prediction_entry_l2_features"
+        ).fetchone()[0])
+    assert payload["contract_version"] == "binance_diff_depth_entry_veto_v2"
 
 def test_fee_aware_geometry_matches_conservative_spot_costs():
     economics = fee_aware_candidate_economics(

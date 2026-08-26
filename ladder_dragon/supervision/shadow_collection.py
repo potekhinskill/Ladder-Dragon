@@ -63,14 +63,36 @@ def collect_read_only_shadow(
     run_symbol: Callable[..., None],
     logger: Callable[[str], None],
     operation_errors: tuple[type[BaseException], ...],
+    priority_symbols: Sequence[str] = (),
+    maximum_nonpriority_per_call: int | None = None,
 ) -> None:
-    """Rate-limit SHADOW plans and keep every call outside execution."""
+    """Rate-limit SHADOW plans while preserving priority evidence cadence."""
     if not enabled:
         return
+    if (
+        maximum_nonpriority_per_call is not None
+        and maximum_nonpriority_per_call < 0
+    ):
+        raise ValueError("maximum non-priority SHADOW symbols is invalid")
+    priority = {item.upper() for item in priority_symbols}
+    due_priority = []
+    due_nonpriority = []
     for symbol in symbols:
         last_attempt = last_attempts.get(symbol)
         if last_attempt is not None and now_monotonic - last_attempt < interval_sec:
             continue
+        if symbol.upper() in priority:
+            due_priority.append(symbol)
+        else:
+            due_nonpriority.append(symbol)
+    # Rotate observation-only symbols by oldest attempt. Slow external reads
+    # must not delay the next promotion-symbol evidence interval indefinitely.
+    due_nonpriority.sort(
+        key=lambda item: (last_attempts.get(item, float("-inf")), item)
+    )
+    if maximum_nonpriority_per_call is not None:
+        due_nonpriority = due_nonpriority[:maximum_nonpriority_per_call]
+    for symbol in [*due_priority, *due_nonpriority]:
         last_attempts[symbol] = now_monotonic
         try:
             run_symbol(symbol, args, execution_allowed=False)

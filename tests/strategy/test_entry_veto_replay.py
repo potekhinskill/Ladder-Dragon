@@ -14,6 +14,7 @@ import pytest
 from ladder_dragon.strategy.market_replay import BookLevel, MarketEvent
 from ladder_dragon.strategy.prediction.entry_veto_replay import (
     EntryVetoOpportunity,
+    candidate_grid,
     l2_features_before_fill,
     replay_cancel_policy,
     validate_archive,
@@ -21,6 +22,16 @@ from ladder_dragon.strategy.prediction.entry_veto_replay import (
 
 
 D = Decimal
+
+
+def test_candidate_grid_uses_only_downside_price_thresholds():
+    candidates = candidate_grid()
+
+    assert candidates
+    assert all(
+        D(str(row["prefill_price_change_max_bps"])) < 0
+        for row in candidates
+    )
 
 
 def _book(timestamp: int, bid: str, bid_qty: str, ask_qty: str) -> MarketEvent:

@@ -382,6 +382,86 @@ def import_entry_veto_l2_archive(
     }
 
 
+def import_entry_veto_l2_history(
+    store: "PredictionShadowStore", archive_directory: str | Path
+) -> dict[str, object]:
+    """Attach retained archives after post-fill diagnostics become complete."""
+    root = Path(archive_directory)
+    if not root.is_dir():
+        raise ValueError("L2 archive directory is unavailable")
+
+    def pending_rows() -> list[tuple[str, str, int]]:
+        with store._connect() as connection:
+            return [
+                (str(episode_id), str(symbol), int(fill_ts_ms))
+                for episode_id, symbol, fill_ts_ms in connection.execute(
+                    """SELECT d.episode_id,d.symbol,d.fill_ts_ms
+                       FROM prediction_entry_diagnostic_summaries d
+                       LEFT JOIN prediction_entry_l2_features f
+                         ON f.episode_id=d.episode_id
+                       WHERE d.status='COMPLETE' AND f.episode_id IS NULL
+                       ORDER BY d.fill_ts_ms,d.episode_id"""
+                ).fetchall()
+            ]
+
+    pending = pending_rows()
+    discovered = matched = validated = imported = skipped = 0
+    for metadata_path in sorted(root.glob("*.jsonl.metadata.json")):
+        discovered += 1
+        try:
+            metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError, TypeError, ValueError) as exc:
+            raise ValueError("L2 history metadata is invalid") from exc
+        if (
+            not isinstance(metadata, dict)
+            or metadata.get("contains_secrets") is not False
+        ):
+            raise ValueError("L2 history metadata does not prove a public source")
+        symbol = str(metadata.get("symbol") or "").upper()
+        try:
+            started_at_ms = int(metadata["started_at_ms"])
+            finished_at_ms = int(metadata["finished_at_ms"])
+        except (KeyError, TypeError, ValueError) as exc:
+            raise ValueError("L2 history time bounds are invalid") from exc
+        if (
+            not symbol or started_at_ms < 0
+            or finished_at_ms <= started_at_ms
+        ):
+            raise ValueError("L2 history identity is invalid")
+        archive_path = Path(str(metadata_path)[:-len(".metadata.json")])
+        if (
+            archive_path.is_symlink() or not archive_path.is_file()
+            or archive_path.resolve().parent != root.resolve()
+        ):
+            raise ValueError("L2 history archive path is invalid")
+        covered = [
+            row for row in pending
+            if row[1] == symbol
+            and row[2] >= started_at_ms + PREFILL_OBSERVATION_WINDOW_MS
+            and row[2] <= finished_at_ms
+        ]
+        if not covered:
+            continue
+        matched += 1
+        report = import_entry_veto_l2_archive(store, archive_path)
+        validated += 1
+        imported += int(report["imported_paths"])
+        skipped += int(report["skipped_paths"])
+        pending = pending_rows()
+        if not pending:
+            break
+    return {
+        "status": "PASS" if not pending else "COLLECTING",
+        "mode": "SHADOW",
+        "discovered_archives": discovered,
+        "matched_archives": matched,
+        "validated_archives": validated,
+        "imported_paths": imported,
+        "skipped_paths": skipped,
+        "pending_complete_paths": len(pending),
+    }
+
+
 def start_entry_diagnostic(
     store: "PredictionShadowStore",
     *,
@@ -976,6 +1056,7 @@ __all__ = [
     "fee_aware_candidate_economics",
     "freeze_entry_veto_selection",
     "import_entry_veto_l2_archive",
+    "import_entry_veto_l2_history",
     "migrate_entry_diagnostics",
     "normalize_entry_veto_rule",
     "start_entry_diagnostic",

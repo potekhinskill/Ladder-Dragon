@@ -869,6 +869,7 @@ def test_public_depth_archive_is_continuous_retained_and_secret_free():
     assert "/usr/local/bin/ladder-dragon-depth-archive" in runtime_assets
     assert "-m bin.calibrate_replay" in read("deploy/record_depth_archive.sh")
     assert "-m bin.import_entry_veto_l2" in wrapper
+    assert "--archive-directory \"${OUTPUT_DIR}\"" in wrapper
 
 
 def test_soak_audit_is_periodic_signed_and_transition_notified():

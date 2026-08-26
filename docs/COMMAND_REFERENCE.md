@@ -78,6 +78,9 @@ The Pi profile does not install or run Semgrep.
 | `gen_vwap_env` | generates regime-adjusted VWAP configuration text |
 | `update_vwap_env` | runs both generators with the active project interpreter |
 
+Use `--archive` for one completed public archive.
+Use `--archive-directory` to attach retained archives after diagnostic maturity.
+
 Run an OHLC backtest:
 
 ```bash

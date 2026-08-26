@@ -2090,3 +2090,17 @@ private infrastructure details.
 - **Root cause:** a broad replacement changed a helper, and a test used an undefined module constant.
 - **Correction:** restore the helper variable and use an explicit decimal in the test.
 - **Prevention:** use function-specific patch context and run the exact test after each mechanical edit.
+
+### 2026-08-26 — Imported L2 before diagnostics could become complete
+
+- **Impact:** valid retained archives never attached to matching six-hour entry paths.
+- **Root cause:** the importer ran once when each archive ended, before diagnostic maturity.
+- **Correction:** rescan retained metadata and validate only archives covering complete unfeatured paths.
+- **Prevention:** test joins where source artifacts and derived records mature in different cycles.
+
+### 2026-08-26 — Generated positive thresholds for a downside veto
+
+- **Impact:** future candidate selection could classify ordinary pre-fill movement as adverse decline.
+- **Root cause:** candidate identifiers used absolute magnitudes, and those magnitudes also entered the threshold field.
+- **Correction:** keep positive identifiers but emit negative basis-point thresholds.
+- **Prevention:** assert the sign and safe range of every generated financial threshold.

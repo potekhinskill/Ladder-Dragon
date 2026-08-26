@@ -3,6 +3,21 @@
 All notable changes are documented here. Releases use Semantic Versioning; every
 section is dated and there is intentionally no `Unreleased` section.
 
+## [2.20.253] — 2026-08-26
+
+### Fixed
+- Promotion-symbol SHADOW collection now precedes one rotating observation-only symbol during persistent HALT.
+- Retained depth archives now attach after the matching 360-minute entry diagnostic becomes complete.
+- Future adverse-selection candidates now use negative downside price thresholds.
+
+### Security
+- Slow ETH and BTC reads cannot consume one full SOL evidence batch during persistent HALT.
+- Historical archives remain public-only, source-hashed, sequence-validated, and unable to authorize execution.
+- Version 22 remains immutable, version 23 remains unavailable, and persistent HALT remains unchanged.
+
+### Verified
+- Full project tests, Python compilation, Technical English, and focused L2 evidence tests pass.
+
 ## [2.20.252] — 2026-08-26
 
 ### Added
