@@ -65,6 +65,27 @@ _ACTIVE: dict[str, _ActiveEpisode] = {}
 _RECOVERED: set[str] = set()
 
 
+def _episode_collection_role(
+    manifest: Mapping[str, object] | None,
+    *,
+    generation: str,
+    now_ms: int,
+) -> str | None:
+    """Separate active confirmation from safe superseded selection."""
+    if manifest is None:
+        return "PREBOOTSTRAP"
+    if int(now_ms) > int(manifest["confirmation_deadline_ts_ms"]):
+        return None
+    status = str(manifest.get("current_status") or "")
+    if status == "CONFIRMING":
+        return "CONFIRMATION"
+    if status == "SUPERSEDED" and generation == "v22":
+        # Version 22 remains immutable. New rows can only select one future
+        # veto because the lifecycle state makes promotion impossible.
+        return "FUTURE_SELECTION"
+    return None
+
+
 def _generation_manifest(
     store: PredictionShadowStore, *, symbol: str, generation: str
 ) -> Mapping[str, object] | None:
@@ -253,6 +274,11 @@ def collect_execution_episode(
     manifest = _generation_manifest(
         store, symbol=normalized, generation=generation.generation
     )
+    collection_role = _episode_collection_role(
+        manifest,
+        generation=generation.generation,
+        now_ms=features.snapshot_ts_ms,
+    )
     current_fingerprint = variant_fingerprints(
         variants[0],
         generation=generation.generation,
@@ -348,14 +374,7 @@ def collect_execution_episode(
         # Collect only regimes that the immutable CHAMPION can execute.
         and evidence_regime in frozen_regimes
         and trades_complete
-        and (
-            manifest is None
-            or (
-                manifest.get("current_status") == "CONFIRMING"
-                and features.snapshot_ts_ms
-                <= int(manifest["confirmation_deadline_ts_ms"])
-            )
-        )
+        and collection_role is not None
     ):
         spec = _episode_spec(
             symbol=normalized,
@@ -468,6 +487,7 @@ def collect_execution_episode(
             manifest.get("current_status") if manifest is not None
             else "PRESELECTED"
         ),
+        "episode_collection_role": collection_role,
         "model_validation": validation,
         "execution_model_projected_ready_ts_ms": (
             features.snapshot_ts_ms if validation.get("status") == "PASS" else None

@@ -50,6 +50,20 @@ def test_champion_activation_does_not_accept_a_caller_halt_path():
         _parser().parse_args([*arguments, "--halt-file", "/tmp/decoy"])
 
 
+def test_entry_veto_freeze_requires_an_exact_cutoff_and_confirmation():
+    parsed = _parser().parse_args([
+        "entry-veto-freeze", "sol-v22-live-confirmation",
+        "--cutoff-ts-ms", "123456", "--confirm", "FREEZE-VETO",
+    ])
+
+    assert parsed.cutoff_ts_ms == 123456
+    assert parsed.confirm == "FREEZE-VETO"
+    with pytest.raises(SystemExit):
+        _parser().parse_args([
+            "entry-veto-report", "sol-v22-live-confirmation",
+        ])
+
+
 def test_freeze_horizons_are_symbol_generation_scoped():
     assert _freeze_horizons("v14", "SOLUSDT") == (300, 360)
     assert _freeze_horizons("v12", "ETHUSDT") == (300, 360)

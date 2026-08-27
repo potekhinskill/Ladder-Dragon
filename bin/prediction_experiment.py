@@ -51,6 +51,10 @@ from ladder_dragon.strategy.prediction.runtime import PredictionShadowStore
 from ladder_dragon.strategy.prediction.episode_evidence import (
     record_model_validation,
 )
+from ladder_dragon.strategy.prediction.entry_diagnostics import (
+    entry_diagnostic_report,
+    freeze_entry_veto_selection,
+)
 
 
 def _parser() -> argparse.ArgumentParser:
@@ -105,6 +109,19 @@ def _parser() -> argparse.ArgumentParser:
     supersede.add_argument("experiment_id")
     supersede.add_argument("--reason", required=True)
     supersede.add_argument("--confirm", required=True)
+    veto_report = subparsers.add_parser(
+        "entry-veto-report",
+        help="Report cutoff-safe L2 entry-veto selection evidence.",
+    )
+    veto_report.add_argument("experiment_id")
+    veto_report.add_argument("--cutoff-ts-ms", required=True, type=int)
+    veto_freeze = subparsers.add_parser(
+        "entry-veto-freeze",
+        help="Freeze one reviewed future entry-veto selection artifact.",
+    )
+    veto_freeze.add_argument("experiment_id")
+    veto_freeze.add_argument("--cutoff-ts-ms", required=True, type=int)
+    veto_freeze.add_argument("--confirm", required=True)
     champions = subparsers.add_parser(
         "champions", help="List immutable CHAMPION activations."
     )
@@ -165,6 +182,29 @@ def _freeze_horizons(generation: str, symbol: str) -> tuple[int, ...]:
     return experiment_spec_for_generation(
         generation, symbol=symbol
     ).horizons_min
+
+
+def _entry_veto_inputs(
+    store: PredictionShadowStore,
+    *,
+    experiment_id: str,
+    cutoff_ts_ms: int,
+) -> tuple[dict[str, object], dict[str, object]]:
+    """Resolve one immutable source manifest and its cutoff-safe report."""
+    manifest = load_manifest(store, experiment_id)
+    parameters = manifest.get("candidate_parameters")
+    if not isinstance(parameters, dict):
+        raise ValueError("entry-veto source parameters are unavailable")
+    report = entry_diagnostic_report(
+        store,
+        symbol=str(manifest["symbol"]),
+        generation=str(manifest["generation"]),
+        candidate_fingerprint=str(manifest["candidate_fingerprint"]),
+        cutoff_ts_ms=int(cutoff_ts_ms),
+        target_return=Decimal(str(parameters["target_return"])),
+        candidate_parameters=parameters,
+    )
+    return manifest, report
 
 
 def _selection_variants(
@@ -279,6 +319,30 @@ def main(argv: list[str] | None = None) -> int:
                 reason=args.reason,
             ),
         }
+    elif args.command == "entry-veto-report":
+        _manifest, payload = _entry_veto_inputs(
+            store,
+            experiment_id=args.experiment_id,
+            cutoff_ts_ms=args.cutoff_ts_ms,
+        )
+    elif args.command == "entry-veto-freeze":
+        if args.confirm != "FREEZE-VETO":
+            raise SystemExit("--confirm must equal FREEZE-VETO")
+        manifest, _report = _entry_veto_inputs(
+            store,
+            experiment_id=args.experiment_id,
+            cutoff_ts_ms=args.cutoff_ts_ms,
+        )
+        parameters = manifest["candidate_parameters"]
+        payload = freeze_entry_veto_selection(
+            store,
+            symbol=str(manifest["symbol"]),
+            generation=str(manifest["generation"]),
+            candidate_fingerprint=str(manifest["candidate_fingerprint"]),
+            cutoff_ts_ms=args.cutoff_ts_ms,
+            target_return=Decimal(str(parameters["target_return"])),
+            candidate_parameters=parameters,
+        )
     elif args.command == "champions":
         payload = list_champions(store, symbol=args.symbol)
     elif args.command == "champion-preview":

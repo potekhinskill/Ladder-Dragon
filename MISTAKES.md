@@ -6,6 +6,20 @@ avoidable rework. Identify the root cause rather than recording only the
 symptom. Keep entries concise and exclude secrets, balances, account data, and
 private infrastructure details.
 
+### 2026-08-27 — Coupled pre-fill selection to post-fill completeness
+
+- **Impact:** valid historical L2 paths could not enter future veto selection after a later diagnostic gap.
+- **Root cause:** the importer required a complete 360-minute diagnostic for a five-minute causal pre-fill feature.
+- **Correction:** require an eligible terminal fill result and validate the independent source-hashed pre-fill archive.
+- **Prevention:** define each evidence gate at the temporal boundary needed by its decision.
+
+### 2026-08-27 — Read raw signed transport logs during an audit
+
+- **Impact:** private diagnostic output included sensitive signed request material.
+- **Root cause:** a broad text search inspected complete application messages instead of structured safe fields.
+- **Correction:** use aggregated counters, fixed system units, and sanitized structured telemetry for production audits.
+- **Prevention:** never inspect raw signed client messages during routine log diagnosis.
+
 ### 2026-08-26 — Treated one early not-found response as permanent uncertainty
 
 - **Impact:** a rejected validation order closed the complete authorized batch without creating an exchange order.

@@ -1,5 +1,12 @@
 # Engineering decisions
 
+### 2026-08-27 — Separate pre-fill selection from post-fill diagnostics
+
+- **Context:** a later diagnostic gap discarded valid causal L2 evidence captured before a filled episode.
+- **Decision:** combine source-hashed pre-fill L2 with the immutable eligible terminal strategy result.
+- **Why it worked:** later gaps remain visible, while unrelated post-fill completeness cannot erase causal selection evidence.
+- **Reuse:** every entry filter selected from data available before its execution boundary.
+
 ### 2026-08-26 — Separate proven absence from unresolved order submission
 
 - **Context:** an immediate order query can return not-found before an accepted order becomes visible.

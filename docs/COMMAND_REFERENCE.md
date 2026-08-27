@@ -79,7 +79,7 @@ The Pi profile does not install or run Semgrep.
 | `update_vwap_env` | runs both generators with the active project interpreter |
 
 Use `--archive` for one completed public archive.
-Use `--archive-directory` to attach retained archives after diagnostic maturity.
+Use `--archive-directory` to attach retained archives after a filled episode becomes terminal.
 
 Run an OHLC backtest:
 
@@ -181,6 +181,23 @@ Import one reviewed execution-model validation:
 
 The report must contain sanitized real LIMIT_MAKER and STOP_LOSS_LIMIT fills.
 It must include strict readiness across three replay archives and two days.
+
+Inspect cutoff-safe entry-veto selection evidence:
+
+```bash
+.venv/bin/python -m bin.prediction_experiment entry-veto-report \
+  EXPERIMENT_ID --cutoff-ts-ms CUTOFF_TS_MS
+```
+
+Freeze the reviewed selection artifact only after the report becomes ready:
+
+```bash
+.venv/bin/python -m bin.prediction_experiment entry-veto-freeze \
+  EXPERIMENT_ID --cutoff-ts-ms CUTOFF_TS_MS --confirm FREEZE-VETO
+```
+
+The cutoff, evidence identifiers, hashes, latency, and selected rule become immutable.
+The artifact cannot authorize orders or change the source generation.
 
 Finalize the exact reviewed report:
 

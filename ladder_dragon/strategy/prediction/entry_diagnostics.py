@@ -312,7 +312,7 @@ def migrate_entry_diagnostics(connection: sqlite3.Connection) -> None:
 def import_entry_veto_l2_archive(
     store: "PredictionShadowStore", archive_path: str | Path
 ) -> dict[str, object]:
-    """Attach causal public L2 features to covered filled diagnostic paths."""
+    """Attach causal public L2 features to covered terminal filled paths."""
     from ladder_dragon.strategy.prediction.entry_veto_replay import (
         feature_digest,
         l2_features_before_fill,
@@ -325,18 +325,38 @@ def import_entry_veto_l2_archive(
     first_ms = min(event.ts_ms for event in events)
     last_ms = max(event.ts_ms for event in events)
     with store._connect() as connection:
-        rows = connection.execute(
+        raw_rows = connection.execute(
             """SELECT d.episode_id,d.generation,d.candidate_fingerprint,
-                      d.fill_ts_ms
+                      d.fill_ts_ms,r.result_json,r.result_sha256
                FROM prediction_entry_diagnostic_summaries d
+               JOIN prediction_execution_episode_results r
+                 ON r.episode_id=d.episode_id
                LEFT JOIN prediction_entry_l2_features f
                  ON f.episode_id=d.episode_id
-               WHERE d.symbol=? AND d.status='COMPLETE'
+               WHERE d.symbol=? AND r.eligible_for_promotion=1
                  AND d.fill_ts_ms>=? AND d.fill_ts_ms<=?
                  AND f.episode_id IS NULL
                ORDER BY d.fill_ts_ms,d.episode_id""",
             (symbol, first_ms + PREFILL_OBSERVATION_WINDOW_MS, last_ms),
         ).fetchall()
+        rows = []
+        for row in raw_rows:
+            try:
+                result = json.loads(str(row[4]))
+            except (json.JSONDecodeError, TypeError, ValueError) as exc:
+                raise ValueError("entry result evidence is damaged") from exc
+            if (
+                not isinstance(result, dict)
+                or _digest(result) != str(row[5])
+            ):
+                raise ValueError("entry result evidence is damaged")
+            if (
+                result.get("eligible_for_promotion") is True
+                and _decimal(
+                    result.get("entry_filled_quantity", "0"), field="fill"
+                ) > ZERO
+            ):
+                rows.append(row[:4])
         imported = 0
         skipped = 0
         for episode_id, generation, fingerprint, fill_ts_ms in rows:
@@ -385,24 +405,46 @@ def import_entry_veto_l2_archive(
 def import_entry_veto_l2_history(
     store: "PredictionShadowStore", archive_directory: str | Path
 ) -> dict[str, object]:
-    """Attach retained archives after post-fill diagnostics become complete."""
+    """Attach retained archives after a terminal filled path is available."""
     root = Path(archive_directory)
     if not root.is_dir():
         raise ValueError("L2 archive directory is unavailable")
 
     def pending_rows() -> list[tuple[str, str, int]]:
         with store._connect() as connection:
-            return [
-                (str(episode_id), str(symbol), int(fill_ts_ms))
-                for episode_id, symbol, fill_ts_ms in connection.execute(
-                    """SELECT d.episode_id,d.symbol,d.fill_ts_ms
-                       FROM prediction_entry_diagnostic_summaries d
-                       LEFT JOIN prediction_entry_l2_features f
-                         ON f.episode_id=d.episode_id
-                       WHERE d.status='COMPLETE' AND f.episode_id IS NULL
-                       ORDER BY d.fill_ts_ms,d.episode_id"""
-                ).fetchall()
-            ]
+            rows = connection.execute(
+                """SELECT d.episode_id,d.symbol,d.fill_ts_ms,
+                          r.result_json,r.result_sha256
+                   FROM prediction_entry_diagnostic_summaries d
+                   JOIN prediction_execution_episode_results r
+                     ON r.episode_id=d.episode_id
+                   LEFT JOIN prediction_entry_l2_features f
+                     ON f.episode_id=d.episode_id
+                   WHERE r.eligible_for_promotion=1
+                     AND f.episode_id IS NULL
+                   ORDER BY d.fill_ts_ms,d.episode_id"""
+            ).fetchall()
+            pending = []
+            for episode_id, symbol, fill_ts_ms, raw_result, result_hash in rows:
+                try:
+                    result = json.loads(str(raw_result))
+                except (json.JSONDecodeError, TypeError, ValueError) as exc:
+                    raise ValueError("entry result evidence is damaged") from exc
+                if (
+                    not isinstance(result, dict)
+                    or _digest(result) != str(result_hash)
+                ):
+                    raise ValueError("entry result evidence is damaged")
+                if (
+                    result.get("eligible_for_promotion") is True
+                    and _decimal(
+                        result.get("entry_filled_quantity", "0"), field="fill"
+                    ) > ZERO
+                ):
+                    pending.append(
+                        (str(episode_id), str(symbol), int(fill_ts_ms))
+                    )
+            return pending
 
     pending = pending_rows()
     discovered = matched = validated = imported = skipped = 0
@@ -458,7 +500,7 @@ def import_entry_veto_l2_history(
         "validated_archives": validated,
         "imported_paths": imported,
         "skipped_paths": skipped,
-        "pending_complete_paths": len(pending),
+        "pending_terminal_filled_paths": len(pending),
     }
 
 
@@ -810,6 +852,8 @@ def entry_diagnostic_report(
             ),
         ).fetchone()[0])
     complete: list[tuple[dict[str, object], Decimal]] = []
+    terminal_filled: list[tuple[dict[str, object], Decimal]] = []
+    selection_ready: list[tuple[dict[str, object], Decimal]] = []
     incomplete = 0
     cohort_identity_by_id: dict[str, dict[str, object]] = {}
     for (
@@ -823,9 +867,6 @@ def entry_diagnostic_report(
             or not isinstance(result, dict) or _digest(result) != str(result_hash)
         ):
             raise ValueError("entry diagnostic evidence is damaged")
-        if summary.get("complete") is not True:
-            incomplete += 1
-            continue
         if (
             result.get("eligible_for_promotion") is not True
             or _decimal(result.get("entry_filled_quantity", "0"), field="fill")
@@ -837,6 +878,9 @@ def entry_diagnostic_report(
             "episode_id": str(episode_id),
             "started_at_ms": int(started_at_ms),
             "terminal_at_ms": int(terminal_at_ms),
+            "terminal_maximum_favorable_excursion_pct": result.get(
+                "maximum_favorable_excursion_pct", "0"
+            ),
         })
         if raw_features is not None:
             features = json.loads(str(raw_features))
@@ -846,7 +890,16 @@ def entry_diagnostic_report(
             ):
                 raise ValueError("entry L2 feature evidence is damaged")
             summary["l2_features"] = features
-        complete.append((summary, _decimal(result["net_pnl_quote"], field="PnL")))
+        row = (summary, _decimal(result["net_pnl_quote"], field="PnL"))
+        terminal_filled.append(row)
+        if summary.get("complete") is True:
+            complete.append(row)
+        else:
+            incomplete += 1
+        if isinstance(summary.get("l2_features"), Mapping):
+            # Veto selection uses only causal pre-fill L2 and the immutable
+            # terminal strategy result. Later diagnostic gaps are unrelated.
+            selection_ready.append(row)
         cohort_identity_by_id[str(episode_id)] = {
             "episode_id": str(episode_id),
             "summary_sha256": str(summary_hash),
@@ -854,10 +907,8 @@ def entry_diagnostic_report(
             "l2_feature_sha256": str(feature_hash) if feature_hash else None,
             "archive_sha256": str(archive_hash) if archive_hash else None,
         }
-    independent = _independent_rows(complete)
-    l2_independent = [
-        row for row in independent if isinstance(row[0].get("l2_features"), Mapping)
-    ]
+    independent = _independent_rows(terminal_filled)
+    l2_independent = _independent_rows(selection_ready)
     selection_cohort = [
         cohort_identity_by_id[str(row[0]["episode_id"])]
         for row in l2_independent
@@ -909,13 +960,22 @@ def entry_diagnostic_report(
         ),
         default=None,
     )
-    target_hits = sum(
-        _decimal(
-            row[0]["maximum_bid"], field="maximum bid"
-        ) / _decimal(row[0]["average_entry_price"], field="entry price") - ONE
-        >= target_return
-        for row in independent
-    )
+    def target_reached(payload: Mapping[str, object]) -> bool:
+        if payload.get("complete") is True:
+            return bool(
+                _decimal(payload["maximum_bid"], field="maximum bid")
+                / _decimal(payload["average_entry_price"], field="entry price")
+                - ONE >= target_return
+            )
+        return bool(
+            _decimal(
+                payload["terminal_maximum_favorable_excursion_pct"],
+                field="terminal favorable excursion",
+            )
+            >= target_return
+        )
+
+    target_hits = sum(target_reached(row[0]) for row in independent)
     economics = fee_aware_candidate_economics(
         candidate_parameters,
         target_reachability=(
@@ -923,7 +983,7 @@ def entry_diagnostic_report(
         ),
     )
     ready = bool(
-        len(complete) >= MINIMUM_SELECTION_ROWS
+        len(selection_ready) >= MINIMUM_SELECTION_ROWS
         and len(l2_independent) >= MINIMUM_INDEPENDENT_SELECTION_ROWS
         and selected is not None
     )
@@ -936,9 +996,11 @@ def entry_diagnostic_report(
         "selection_cutoff_ts_ms": int(cutoff_ts_ms),
         "completed_filled_paths": len(complete),
         "independent_filled_paths": len(independent),
+        "selection_filled_paths": len(selection_ready),
         "l2_independent_filled_paths": len(l2_independent),
         "incomplete_paths": incomplete,
         "active_paths": active,
+        "required_selection_paths": MINIMUM_SELECTION_ROWS,
         "required_completed_paths": MINIMUM_SELECTION_ROWS,
         "required_independent_paths": MINIMUM_INDEPENDENT_SELECTION_ROWS,
         "target_reachability": economics["target_reachability"],

@@ -3,6 +3,23 @@
 All notable changes are documented here. Releases use Semantic Versioning; every
 section is dated and there is intentionally no `Unreleased` section.
 
+## [2.20.255] — 2026-08-27
+
+### Added
+- Operators can inspect and freeze cutoff-safe future entry-veto selection artifacts.
+- Superseded SOL version 22 can retain selection-only evidence until its original deadline.
+
+### Fixed
+- A later 360-minute diagnostic gap no longer discards valid causal pre-fill L2 evidence.
+- Historical L2 import now requires an eligible terminal filled result instead of a complete diagnostic path.
+
+### Security
+- Superseded version 22 cannot enter promotion, and selection-only rows cannot authorize orders.
+- Imported features remain public-only, source-hashed, sequence-validated, and cutoff-safe.
+
+### Verified
+- Focused entry-diagnostic, lifecycle-boundary, and experiment CLI tests pass.
+
 ## [2.20.254] — 2026-08-26
 
 ### Fixed

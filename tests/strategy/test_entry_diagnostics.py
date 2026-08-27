@@ -269,15 +269,16 @@ def test_diagnostic_rejects_damaged_restart_progress(tmp_path):
         )
 
 
-def test_l2_history_import_waits_for_complete_diagnostic_then_backfills(
+def test_l2_history_import_uses_terminal_fill_despite_later_diagnostic_gap(
     tmp_path,
 ):
     store = PredictionShadowStore(tmp_path / "prediction.sqlite3")
     fingerprint = "f" * 64
     record_episode_start(store, _spec("episode-history", fingerprint))
+    record_episode_result(store, _result("episode-history", fingerprint))
     summary = {
         "contract_version": "entry_path_shadow_v2",
-        "complete": True,
+        "complete": False,
         "episode_id": "episode-history",
         "fill_ts_ms": 360_001,
     }
@@ -292,7 +293,7 @@ def test_l2_history_import_waits_for_complete_diagnostic_then_backfills(
                VALUES(?,?,?,?,?,?,?,?,?,?)""",
             (
                 "episode-history", "SOLUSDT", "v22", fingerprint, 360_001,
-                22_000_000, "COMPLETE", encoded_summary,
+                22_000_000, "DATA_GAP", encoded_summary,
                 hashlib.sha256(encoded_summary.encode()).hexdigest(), 22_000_000,
             ),
         )
@@ -361,6 +362,18 @@ def test_l2_history_import_waits_for_complete_diagnostic_then_backfills(
             "SELECT feature_json FROM prediction_entry_l2_features"
         ).fetchone()[0])
     assert payload["contract_version"] == "binance_diff_depth_entry_veto_v2"
+    selection = entry_diagnostic_report(
+        store,
+        symbol="SOLUSDT",
+        generation="v22",
+        candidate_fingerprint=fingerprint,
+        cutoff_ts_ms=22_000_000,
+        target_return=D("0.008"),
+        candidate_parameters=_parameters(),
+    )
+    assert selection["completed_filled_paths"] == 0
+    assert selection["selection_filled_paths"] == 1
+    assert selection["incomplete_paths"] == 1
 
 def test_fee_aware_geometry_matches_conservative_spot_costs():
     economics = fee_aware_candidate_economics(
