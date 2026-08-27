@@ -1,0 +1,7 @@
+# Public capture only. Never place API credentials in this file.
+BOT_DEPTH_ARCHIVE_SYMBOLS=SOLUSDT
+BOT_DEPTH_ARCHIVE_DURATION_SEC=3300
+BOT_DEPTH_ARCHIVE_MAX_EVENTS=250000
+BOT_DEPTH_ARCHIVE_CAPACITY_BYTES=8589934592
+BOT_DEPTH_ARCHIVE_CONTINUOUS=1
+# One process and output directory per symbol. No age-only evidence deletion.

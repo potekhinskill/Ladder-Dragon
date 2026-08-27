@@ -1773,3 +1773,17 @@ entries concise; this is not a changelog or an activity log.
 - **Decision:** rescan retained metadata and load only archives that cover newly complete paths.
 - **Why it worked:** matching is cheap before validation, and imported features retain the source hash.
 - **Reuse:** every evidence join whose two immutable inputs mature at different times.
+
+### 2026-08-27 — Preserve capture independently of evidence processing
+
+- **Context:** file rotation and synchronous calibration interrupted public market history.
+- **Decision:** keep one connection across hash-linked segments and process completed files in a bounded child.
+- **Why it worked:** sequence and carried-book tests verify continuity without delaying capture for calibration.
+- **Reuse:** continuous evidence collectors with slower derived-data consumers.
+
+### 2026-08-27 — Generate historical opportunities from causal policy state
+
+- **Context:** replay of known fills could not represent new opportunities after cancellation.
+- **Decision:** replay independent policy slots against chronological public events and explicit historical context.
+- **Why it worked:** cancellation latency, partial fills, and cadence determine new entries without future fill knowledge.
+- **Reuse:** historical selection for policies that change future availability.

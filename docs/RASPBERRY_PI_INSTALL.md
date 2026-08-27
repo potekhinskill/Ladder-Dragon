@@ -928,18 +928,21 @@ project maintenance control.
 ## 12. Public depth archive and execution latency
 
 The installer enables the continuous `ladder-dragon-depth-archive.service`.
-It records public SOLUSDT depth and aggregate trades in separate sessions.
-It calibrates each completed session with the fixed replay policy.
-It removes archives and derived calibrations after seven days.
+It records public SOLUSDT depth and aggregate trades through one continuous connection.
+File rotation carries the verified book into a hash-linked segment.
+A separate child calibrates completed segments with the fixed replay policy.
+The directory byte limit stops capture instead of deleting protected source evidence.
 It never receives trading credentials.
 
-The recorder buffers trades until it proves depth sequence continuity.
-The memory buffer is limited by `max_events` and is never published alone.
+The recorder starts evidence only after it proves depth sequence continuity.
+Each segment has bounded events, bytes, and book levels.
 Prediction backfill rejects aggregate trades with decreasing timestamps.
-Do not concatenate recording sessions. Keep each verified archive separate.
+Do not concatenate separate connection sessions.
+The historical reader joins only verified, hash-linked segments of the same session.
+See [Historical entry replay](HISTORICAL_ENTRY_REPLAY.md) for source retention and selection requirements.
 
 ```bash
-sudo systemctl status ladder-dragon-depth-archive.timer --no-pager
+sudo systemctl status ladder-dragon-depth-archive.service --no-pager
 sudo systemctl start ladder-dragon-depth-archive.service
 sudo journalctl -u ladder-dragon-depth-archive.service -n 50 --no-pager
 sudo -u bot find /var/lib/ladder-dragon/depth-archives -maxdepth 1 \
@@ -952,7 +955,7 @@ Non-secret overrides may be placed in the root-owned
 ```dotenv
 BOT_DEPTH_ARCHIVE_SYMBOLS=SOLUSDT
 BOT_DEPTH_ARCHIVE_DURATION_SEC=840
-BOT_DEPTH_ARCHIVE_RETENTION_DAYS=7
+BOT_DEPTH_ARCHIVE_CAPACITY_BYTES=8589934592
 ```
 
 Keep the file root-owned and mode `0600`. The service still strips Binance and

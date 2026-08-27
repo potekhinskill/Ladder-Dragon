@@ -58,6 +58,8 @@ The Pi profile does not install or run Semgrep.
 
 ## Strategy, prediction, and replay commands
 
+See [Historical entry replay](HISTORICAL_ENTRY_REPLAY.md) for continuous source and offline selection contracts.
+
 | Command | Purpose |
 | --- | --- |
 | `backtest` | runs OHLC backtest and optional archived L2 replay |
@@ -65,6 +67,8 @@ The Pi profile does not install or run Semgrep.
 | `validate_replay_outcomes` | compares replay with real terminal order outcomes |
 | `validate_replay_sessions` | validates separate contiguous replay sessions without joining gaps |
 | `record_depth_archive` | records public depth and aggregate-trade JSONL |
+| `depth_archive_service` | rotates one continuous public stream and processes calibration separately |
+| `replay_historical_entries` | generates historical opportunities from immutable policy and context inputs |
 | `import_entry_veto_l2` | imports source-hashed public L2 entry features into SHADOW evidence |
 | `prediction_history_backfill` | creates cutoff-safe samples from archived bars |
 | `backfill_prediction_archive` | repairs eligible expired prediction outcomes |
@@ -323,8 +327,8 @@ Do not publish its output.
 | `ladder-dragon-daily-digest.timer` | starts the digest | 08:00 Asia/Almaty |
 | `ladder-dragon-database-retention.service` | archives terminal SHADOW data | fails when retention is blocked |
 | `ladder-dragon-database-retention.timer` | starts database retention | daily after backup |
-| `ladder-dragon-depth-archive.service` | public L2 archive recorder | timer target |
-| `ladder-dragon-depth-archive.timer` | starts archive collection | each hour |
+| `ladder-dragon-depth-archive.service` | continuous public L2 archive recorder | persistent service |
+| `ladder-dragon-depth-archive.timer` | legacy hourly archive schedule | disabled by deployment |
 | `ladder-dragon-log-export.service` | sanitized dashboard log export | timer target |
 | `ladder-dragon-log-export.timer` | refreshes the log export | each minute |
 | `ladder-dragon-monthly-prediction.service` | monthly SHADOW report | timer target |

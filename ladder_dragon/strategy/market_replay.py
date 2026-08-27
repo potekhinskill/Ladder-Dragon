@@ -628,9 +628,11 @@ def calibrate_market_events(
     measured_order_latencies_ms: Iterable[int] = (),
 ) -> ReplayCalibration:
     """Summarize whether an archive is sufficient for calibrated L2 replay."""
-    rows = list(events)
-    if not rows:
-        raise ValueError("cannot calibrate an empty replay")
+    # Stream reconstructed books. Retain only bounded scalar quantile inputs,
+    # rather than hundreds of levels for every event on a Raspberry Pi.
+    event_count = 0
+    first_ts_ms: int | None = None
+    last_ts_ms: int | None = None
     spreads: list[Decimal] = []
     slippages: list[Decimal] = []
     participation: list[Decimal] = []
@@ -645,7 +647,12 @@ def calibrate_market_events(
     previous_mid: Decimal | None = None
     trade_count = 0
     book_events = 0
-    for event in rows:
+    for event in events:
+        event_count += 1
+        if event_count > 1_000_000:
+            raise ValueError("calibration event capacity reached")
+        first_ts_ms = event.ts_ms if first_ts_ms is None else min(first_ts_ms, event.ts_ms)
+        last_ts_ms = event.ts_ms if last_ts_ms is None else max(last_ts_ms, event.ts_ms)
         if (
             event.received_ts_ms is not None
             and event.received_ts_ms >= event.ts_ms
@@ -691,6 +698,8 @@ def calibrate_market_events(
                 and transaction_ts >= order_ts
             ):
                 latencies.append(transaction_ts - order_ts)
+    if not event_count:
+        raise ValueError("cannot calibrate an empty replay")
     reasons = []
     if book_events < min_book_events:
         reasons.append(f"book samples {book_events} < {min_book_events}")
@@ -712,9 +721,9 @@ def calibrate_market_events(
     return ReplayCalibration(
         schema_version=4,
         archive_sha256=source_sha256,
-        first_ts_ms=min(event.ts_ms for event in rows),
-        last_ts_ms=max(event.ts_ms for event in rows),
-        event_count=len(rows),
+        first_ts_ms=first_ts_ms,
+        last_ts_ms=last_ts_ms,
+        event_count=event_count,
         book_event_count=book_events,
         trade_count=trade_count,
         execution_sample_count=max(len(partials), len(latencies)),

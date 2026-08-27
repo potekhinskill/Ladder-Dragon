@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # SPDX-License-Identifier: MIT
 # Copyright (c) 2026 IURII Potekhin
-# Purpose: record and retain public depth archives without loading trading secrets.
+# Purpose: run continuous public capture without trading credentials.
 set -euo pipefail
 
 PROJECT_DIR="${PROJECT_DIR:-/home/bot/apps/binance_bot}"
@@ -10,61 +10,24 @@ PREDICTION_DB="${PREDICTION_SHADOW_DB:-${PROJECT_DIR}/db/prediction_shadow.sqlit
 SYMBOLS="${BOT_DEPTH_ARCHIVE_SYMBOLS:-SOLUSDT}"
 DURATION_SEC="${BOT_DEPTH_ARCHIVE_DURATION_SEC:-3300}"
 MAX_EVENTS="${BOT_DEPTH_ARCHIVE_MAX_EVENTS:-250000}"
-RETENTION_DAYS="${BOT_DEPTH_ARCHIVE_RETENTION_DAYS:-7}"
+CAPACITY_BYTES="${BOT_DEPTH_ARCHIVE_CAPACITY_BYTES:-8589934592}"
 CONTINUOUS="${BOT_DEPTH_ARCHIVE_CONTINUOUS:-1}"
 
-[[ "${DURATION_SEC}" =~ ^[0-9]+$ ]] || { echo "invalid duration" >&2; exit 2; }
-[[ "${MAX_EVENTS}" =~ ^[0-9]+$ ]] || { echo "invalid max events" >&2; exit 2; }
-[[ "${RETENTION_DAYS}" =~ ^[0-9]+$ ]] || { echo "invalid retention" >&2; exit 2; }
 [[ "${CONTINUOUS}" =~ ^[01]$ ]] || { echo "invalid continuous mode" >&2; exit 2; }
-(( DURATION_SEC >= 60 && DURATION_SEC <= 3500 )) || { echo "duration out of range" >&2; exit 2; }
-(( MAX_EVENTS >= 1000 && MAX_EVENTS <= 1000000 )) || { echo "max events out of range" >&2; exit 2; }
-(( RETENTION_DAYS >= 3 && RETENTION_DAYS <= 90 )) || { echo "retention out of range" >&2; exit 2; }
-
+# One process owns one stream. Sequential multi-symbol loops create blind spots.
+[[ "${SYMBOLS}" =~ ^[A-Z0-9]{1,20}$ ]] || { echo "one capture symbol is required" >&2; exit 2; }
 install -d -m 0750 "${OUTPUT_DIR}"
 exec 9>"${OUTPUT_DIR}/.recorder.lock"
 flock -n 9 || { echo "depth recorder already running"; exit 0; }
 
-while :; do
-  IFS=',' read -r -a requested <<<"${SYMBOLS}"
-  for raw_symbol in "${requested[@]}"; do
-    symbol="${raw_symbol//[[:space:]]/}"
-    symbol="${symbol^^}"
-    [[ "${symbol}" =~ ^[A-Z0-9]{1,20}$ ]] || { echo "invalid symbol" >&2; exit 2; }
-    stamp="$(date -u '+%Y%m%dT%H%M%SZ')"
-    output="${OUTPUT_DIR}/${symbol}-${stamp}.jsonl"
-    # Public-only capture overlaps future order lifecycles without loading secrets.
-    env -u BINANCE_API_KEY -u BINANCE_API_SECRET -u DEEPSEEK_API_KEY \
-      PYTHONPATH="${PROJECT_DIR}" \
-      "${PROJECT_DIR}/.venv/bin/python" -m bin.record_depth_archive \
-      --symbol "${symbol}" \
-      --output "${output}" \
-      --duration-sec "${DURATION_SEC}" \
-      --max-events "${MAX_EVENTS}"
-    # Calibrate each immutable archive before another session can start.
-    # Exit two means that the report is valid but not yet acceptance-eligible.
-    set +e
-    env -u BINANCE_API_KEY -u BINANCE_API_SECRET -u DEEPSEEK_API_KEY \
-      PYTHONPATH="${PROJECT_DIR}" \
-      "${PROJECT_DIR}/.venv/bin/python" -m bin.calibrate_replay \
-      "${output}" --output "${output%.jsonl}.calibration.json"
-    calibration_status=$?
-    set -e
-    (( calibration_status == 0 || calibration_status == 2 )) || exit "${calibration_status}"
-    # The importer is public-data only. It records source hashes and never
-    # changes the frozen v22 evidence or any order.
-    if [[ -f "${PREDICTION_DB}" ]]; then
-      env -u BINANCE_API_KEY -u BINANCE_API_SECRET -u DEEPSEEK_API_KEY \
-        PYTHONPATH="${PROJECT_DIR}" \
-      "${PROJECT_DIR}/.venv/bin/python" -m bin.import_entry_veto_l2 \
-        --prediction-db "${PREDICTION_DB}" \
-        --archive-directory "${OUTPUT_DIR}"
-    fi
-  done
-
-  find "${OUTPUT_DIR}" -xdev -type f \
-    \( -name '*.jsonl' -o -name '*.metadata.json' \
-       -o -name '*.calibration.json' -o -name '*.tmp' \) \
-    -mtime "+${RETENTION_DAYS}" -delete
-  (( CONTINUOUS == 1 )) || break
-done
+options=()
+if [[ "${CONTINUOUS}" == 0 ]]; then options+=(--once); fi
+# Age-only deletion cannot distinguish calibration sources from protected evidence.
+# Capacity exhaustion requires verified encrypted archival, not silent deletion.
+exec env -u BINANCE_API_KEY -u BINANCE_API_SECRET -u DEEPSEEK_API_KEY \
+  PYTHONPATH="${PROJECT_DIR}" \
+  "${PROJECT_DIR}/.venv/bin/python" -m bin.depth_archive_service \
+  --symbol "${SYMBOLS}" --directory "${OUTPUT_DIR}" \
+  --prediction-db "${PREDICTION_DB}" \
+  --duration-sec "${DURATION_SEC}" --max-events "${MAX_EVENTS}" \
+  --capacity-bytes "${CAPACITY_BYTES}" "${options[@]}"

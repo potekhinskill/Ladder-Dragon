@@ -851,7 +851,8 @@ def test_public_depth_archive_is_continuous_retained_and_secret_free():
     installer = read("deploy/install_raspberry_pi.sh")
     updater = read("deploy/update_raspberry_pi.sh")
     runtime_assets = read("deploy/install_runtime_assets.sh")
-    assert "BOT_DEPTH_ARCHIVE_RETENTION_DAYS" in wrapper
+    assert "BOT_DEPTH_ARCHIVE_CAPACITY_BYTES" in wrapper
+    assert "-delete" not in wrapper
     assert "-u BINANCE_API_KEY" in wrapper
     assert "-u BINANCE_API_SECRET" in wrapper
     assert "flock -n" in wrapper
@@ -867,9 +868,11 @@ def test_public_depth_archive_is_continuous_retained_and_secret_free():
     assert "ladder-dragon-depth-archive.service" in installer
     assert "ladder-dragon-depth-archive.service" in updater
     assert "/usr/local/bin/ladder-dragon-depth-archive" in runtime_assets
-    assert "-m bin.calibrate_replay" in read("deploy/record_depth_archive.sh")
-    assert "-m bin.import_entry_veto_l2" in wrapper
-    assert "--archive-directory \"${OUTPUT_DIR}\"" in wrapper
+    assert "-m bin.depth_archive_service" in wrapper
+    processing = read("ladder_dragon/strategy/depth_processing.py")
+    assert "bin.import_entry_veto_l2" in processing
+    assert "--archive-directory" in processing
+    assert "subprocess.Popen" in processing
 
 
 def test_soak_audit_is_periodic_signed_and_transition_notified():

@@ -2125,3 +2125,17 @@ private infrastructure details.
 - **Root cause:** candidate identifiers used absolute magnitudes, and those magnitudes also entered the threshold field.
 - **Correction:** keep positive identifiers but emit negative basis-point thresholds.
 - **Prevention:** assert the sign and safe range of every generated financial threshold.
+
+### 2026-08-27 — Coupled public capture to completed-file processing
+
+- **Impact:** rotation created gaps that prevented continuous historical policy replay.
+- **Root cause:** each file closed its connection before calibration and diagnostic import completed.
+- **Correction:** retain one connection and book across verified segments, with a separate processing child.
+- **Prevention:** test sequence continuity and exactly-once events across multiple rotations.
+
+### 2026-08-27 — Replayed known fills instead of future policy opportunities
+
+- **Impact:** cancellation comparisons omitted entries that a newly available position slot could create.
+- **Root cause:** the replay input contained historical fills rather than a complete chronological market stream.
+- **Correction:** generate entries from fixed cadence, causal signals, historical context, and delayed cancellation state.
+- **Prevention:** require a regression where the veto creates entries absent from the baseline.

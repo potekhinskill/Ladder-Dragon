@@ -3,6 +3,26 @@
 All notable changes are documented here. Releases use Semantic Versioning; every
 section is dated and there is intentionally no `Unreleased` section.
 
+## [2.20.256] — 2026-08-27
+
+### Fixed
+- Public depth rotation now preserves one connection and a hash-linked carried book.
+- Calibration and delayed diagnostic imports no longer interrupt the capture loop.
+- Missing calibration reports enter a bounded backlog without weakening volatility requirements.
+
+### Added
+- Historical selection replay creates new opportunities after confirmed cancellation, with latency and partial-fill accounting.
+- Historical policy, context, source hashes, and model hashes accompany each immutable selection report.
+
+### Security
+- Missing historical context, unproven segment boundaries, and uncovered queue prices block replay.
+- Storage capacity blocks capture instead of deleting evidence by age.
+- Historical reports cannot authorize promotion, change HALT, or create orders.
+
+### Verified
+- Full project suite passes: 1421 tests.
+- Python compilation, shell syntax, Technical English, and whitespace checks pass.
+
 ## [2.20.255] — 2026-08-27
 
 ### Added

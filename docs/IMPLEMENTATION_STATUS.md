@@ -1,6 +1,6 @@
 # Implementation status
 
-This document describes the code in version **2.20.255**.
+This document describes the code in version **2.20.256**.
 It does not describe future plans as completed work.
 
 An implemented function is not automatically approved for LIVE use.
@@ -14,6 +14,7 @@ The configured mode and its evidence gate remain authoritative.
 | Protection | Verified OCO legs, confirmed breakeven re-arm, gap flatten, and persistent HALT | Required for managed fills |
 | Accounting | Exact FIFO lots, exact AI fills, fee provenance, risk streaks, and cursor audits | Fail closed on incomplete evidence |
 | Replay | Separate order validation and read-only calibration cohorts with immutable fingerprints | L2 model, not exact L3 |
+| Historical entry selection | Continuous hash-linked depth segments and new opportunities after delayed cancellation | Offline selection only; no promotion authority |
 | Prediction | 1, 5, and 15 minute SHADOW outcomes | Enabled for evidence only |
 | Market scenarios | 1-hour through monthly closed-candle outcomes | SHADOW only |
 | Experiments | Diagnostic cohorts and one preregistered SOL execution-episode cohort | SHADOW only |
