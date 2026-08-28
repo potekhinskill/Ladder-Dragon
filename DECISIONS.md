@@ -1,5 +1,12 @@
 # Engineering decisions
 
+### 2026-08-29 — Bound host recovery with persistent authority
+
+- **Context:** network recovery must not create reboot loops or interrupt protected host operations.
+- **Decision:** combine monotonic failure windows, a durable reboot latch, shared maintenance locks, and a persistent notification outbox.
+- **Why it worked:** offline tests reject premature reboots, repeated requests, corrupt state, and mutations during locked backups.
+- **Reuse:** unattended hosts that need bounded recovery without changing application safety controls.
+
 ### 2026-08-28 — Record historical context at its observation boundary
 
 - **Context:** public depth alone cannot establish historical fees, filters, or the runtime PANIC input.

@@ -904,6 +904,62 @@ bounded to 288 files. Telegram credentials and message bodies are passed to
 route exists, the watchdog reports that condition directly and never probes a
 guessed gateway.
 
+### Automatic network recovery
+
+The network recovery check runs each minute. Bot heartbeat checks retain their five-minute interval.
+A reachable default gateway or independent Internet probe prevents disruptive recovery.
+An isolated Binance, Telegram, or Internet-provider failure does not authorize reboot when the gateway remains reachable.
+Probes do not depend on domain-name resolution.
+
+After three continuous failure minutes, recovery activates an existing connection on `wlan0`.
+After eight minutes, recovery restarts NetworkManager once.
+After fifteen minutes, recovery requests one normal reboot with shutdown-inhibitor checks enabled.
+Timer scheduling and bounded probes can add approximately one minute to these thresholds.
+This is not a power cycle. A hardware fault can still require physical intervention.
+
+Recovery cannot modify Wi-Fi passwords, candidate parameters, trading state, or HALT.
+Disabled Wi-Fi or networking suppresses recovery.
+Active maintenance, unavailable safety checks, and corrupt recovery state suppress all recovery actions.
+The updater and encrypted backup hold a shared lock throughout their complete operations.
+Recovery needs its exclusive lock before any network mutation.
+A pending reboot prevents new guarded backups or updates during that boot.
+An active legacy SD-backup service or timer also suppresses recovery.
+Stop that timer before enabling automatic recovery; do not interrupt an active image backup.
+Do not start an unguarded manual SD image while network recovery is enabled.
+
+Only one reboot request is allowed per incident.
+Another request requires thirty continuous healthy minutes and at least twenty-four hours since the previous request.
+Clock rollback cannot shorten this limit. Timer gaps restart the continuous observation window.
+
+Telegram receives loss, recovery-action, deferred-action, reboot-request, boot-observed, and restored-network messages.
+Messages enter the existing persistent outbox before recovery actions.
+An offline message cannot arrive until Telegram becomes reachable.
+Every watchdog invocation retries queued delivery independently of Binance health.
+HTTP delivery errors preserve the queued message and never print the Telegram token.
+
+`/var/lib/pi-watchdog/network-recovery.json` is authoritative recovery control, not trading evidence.
+It contains one bounded record below 4 KiB, without credentials or market data.
+`network-reboot.boot` is a single authoritative boot marker.
+Both files persist across boots and enter the encrypted host backup.
+They are not age-pruned because deletion could restore consumed reboot authority.
+The zero-byte shared lock is disposable coordination state and must not be replaced during active operations.
+Telegram messages remain derived records with the existing 288-file and twenty-four-hour retention limits.
+The timer maintains these limits; no additional archive is required for alert deletion.
+
+Inspect sanitized recovery state without exposing environment files:
+
+```bash
+sudo cat /var/lib/pi-watchdog/network-recovery.json
+sudo systemctl status pi-watchdog-v3.timer --no-pager
+```
+
+Use a root-owned service override to disable network mutations without stopping heartbeat monitoring:
+
+```ini
+[Service]
+Environment=WATCHDOG_NETWORK_RECOVERY=0
+```
+
 An unresolved bot-health incident sends another alert after the configured
 cooldown. Each confirmed failure series can still restart the enabled service.
 

@@ -9,6 +9,8 @@ Type=oneshot
 EnvironmentFile=-/etc/ladder-dragon/telegram.env
 Environment=WATCHDOG_LOG=/var/log/pi-watchdog/current.log
 Environment=WATCHDOG_STATE=/run/pi-watchdog/state
+Environment=WATCHDOG_NETWORK_RECOVERY=1
+Environment=WATCHDOG_HEALTH_INTERVAL_SEC=300
 ExecStart=/usr/local/bin/pi-watchdog_v3.sh
 SuccessExitStatus=0
 RuntimeDirectory=pi-watchdog
@@ -21,6 +23,7 @@ LogsDirectoryMode=0700
 NoNewPrivileges=yes
 PrivateTmp=yes
 ProtectSystem=strict
+ReadWritePaths=/var/lib/ladder-dragon/network-recovery.lock
 ProtectHome=yes
 ProtectClock=yes
 ProtectKernelTunables=yes

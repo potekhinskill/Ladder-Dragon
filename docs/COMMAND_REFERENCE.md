@@ -320,7 +320,7 @@ Do not publish its output.
 | `mybot.service` | supervisor and execution workers | persistent service |
 | `pi-healthd.service` | private dashboard | persistent service |
 | `pi-watchdog-v3.service` | host and bot recovery check | timer target |
-| `pi-watchdog-v3.timer` | starts the watchdog | each 5 minutes |
+| `pi-watchdog-v3.timer` | checks network; checks bot health separately | each minute; health each 5 minutes |
 | `ladder-dragon-backup.service` | encrypted private backup | timer target |
 | `ladder-dragon-backup.timer` | starts backup | 02:20 each day |
 | `ladder-dragon-daily-digest.service` | exact Telegram trading report | timer target |

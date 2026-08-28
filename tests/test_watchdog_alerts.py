@@ -347,3 +347,19 @@ def test_missing_default_route_is_reported_without_guessing_gateway(tmp_path):
     assert "missing-default-route" in (tmp_path / "state-dir" / "reason.txt").read_text(
         encoding="utf-8"
     )
+
+
+def test_queued_reboot_alert_flushes_without_volatile_state_or_binance(tmp_path):
+    bindir = _fake_bin(tmp_path)
+    curl_log = tmp_path / "curl.jsonl"
+    outbox = tmp_path / "state-dir" / "telegram-outbox"
+    outbox.mkdir(parents=True)
+    queued = outbox / f"{int(time.time())}-network-reboot.msg"
+    queued.write_text("Pi reboot requested after 15 minutes offline")
+    # A cold boot lost /run counters; Binance can still be unavailable.
+    _run_watchdog(tmp_path, bindir, curl_log, api_fail=True, mybot_active=True)
+    assert not queued.exists()
+    assert any("Pi reboot requested" in text for text in _telegram_texts(curl_log))
+    call = next(json.loads(row) for row in curl_log.read_text().splitlines()
+                if json.loads(row)["telegram"])
+    assert "-fsS" in call["args"]

@@ -2,12 +2,12 @@
 # Copyright (c) 2026 IURII Potekhin
 # Purpose: define the systemd unit for pi-watchdog-v3.
 [Unit]
-Description=Run Pi Watchdog v3 every 5 minutes
+Description=Check host network each minute and bot health each 5 minutes
 
 [Timer]
 OnBootSec=2min
-OnUnitActiveSec=5min
-AccuracySec=10s
+OnUnitActiveSec=60s
+AccuracySec=1s
 Unit=pi-watchdog-v3.service
 
 [Install]

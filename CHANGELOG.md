@@ -3,6 +3,28 @@
 All notable changes are documented here. Releases use Semantic Versioning; every
 section is dated and there is intentionally no `Unreleased` section.
 
+## [2.20.258] — 2026-08-29
+
+### Added
+- Host recovery checks continuous network loss each minute and requests one controlled reboot after fifteen minutes.
+- Saved Wi-Fi activation and one NetworkManager restart precede reboot.
+- Persistent Telegram alerts describe loss, recovery actions, deferred actions, reboot requests, and restored connectivity.
+
+### Security
+- A durable latch prevents reboot loops; another request requires stable connectivity and a twenty-four-hour cooldown.
+- Shared locks protect complete updates and encrypted backups from watchdog network mutations.
+- Invalid state, maintenance, disabled networking, and active legacy backups suppress recovery.
+- HALT, candidate evidence, and order behavior remain unchanged.
+
+### Fixed
+- Queued Telegram delivery no longer depends on Binance recovery or volatile incident counters.
+- Telegram HTTP failures retain queued alerts without exposing credentials.
+
+### Verified
+- Full project suite passes: 1474 tests, including 29 network recovery and Telegram tests.
+- Python compilation, shell syntax, numeric audit, Technical English, and whitespace checks pass.
+- Static analysis passes with zero findings.
+
 ## [2.20.257] — 2026-08-28
 
 ### Added

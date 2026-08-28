@@ -68,6 +68,15 @@ on_exit() {
 trap on_exit EXIT
 
 [[ "${EUID}" -eq 0 ]] || exec sudo "$0" "$@"
+# Shared with updates; an exclusive watchdog recovery must wait for completion.
+mkdir -p /var/lib/ladder-dragon
+exec 18>>/var/lib/ladder-dragon/network-recovery.lock
+flock -s -w 45 18 || { echo "[FAIL] network recovery is active" >&2; exit 1; }
+if [[ -r /var/lib/pi-watchdog/network-reboot.boot ]] && \
+  cmp -s /var/lib/pi-watchdog/network-reboot.boot /proc/sys/kernel/random/boot_id; then
+  echo "[FAIL] network reboot is pending" >&2
+  exit 1
+fi
 command -v age >/dev/null || {
   echo "[FAIL] age is required for encrypted backups" >&2
   exit 1
@@ -213,6 +222,9 @@ for path in \
   /etc/systemd/system/pi-watchdog-v3.service.d \
   /etc/logrotate.d/pi-watchdog \
   /usr/local/bin/pi-watchdog_v3.sh \
+  /usr/local/libexec/ladder-dragon/network_recovery.py \
+  /var/lib/pi-watchdog/network-recovery.json \
+  /var/lib/pi-watchdog/network-reboot.boot \
   /usr/local/bin/ladder-dragon-soak-audit \
   /var/lib/ladder-dragon/soak \
   /var/lib/ladder-dragon/database-archives \

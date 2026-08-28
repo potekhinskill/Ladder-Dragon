@@ -1,5 +1,19 @@
 # Engineering mistakes and root causes
 
+### 2026-08-29 — Copied only the default maintenance path
+
+- **Impact:** the first recovery helper could ignore a watchdog maintenance-path override.
+- **Root cause:** the helper copied a default instead of receiving the existing resolved setting.
+- **Correction:** pass the same maintenance file into both health and network recovery checks.
+- **Prevention:** test inherited operator settings at each newly extracted host-control boundary.
+
+### 2026-08-29 — Omitted a deployment source header
+
+- **Impact:** the first complete regression rejected the new network recovery helper.
+- **Root cause:** the helper had a license and docstring but omitted the required `Purpose:` maintenance header.
+- **Correction:** add the English purpose header before candidate verification.
+- **Prevention:** run deployment source-contract tests with focused tests for each new host helper.
+
 Read this file before changing the repository. Add an entry whenever an agent
 decision causes a defect, unsafe state, failed release, misleading output, or
 avoidable rework. Identify the root cause rather than recording only the

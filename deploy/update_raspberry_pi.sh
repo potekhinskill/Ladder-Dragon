@@ -458,6 +458,16 @@ if [[ "${ACTION}" == "update" ]]; then
     || fail "update requires an exact 40-character commit SHA"
 fi
 
+# Hold shared recovery authority across both backups and the complete update.
+# The exclusive network guard cannot reconnect or reboot during this interval.
+install -d -m 0755 /var/lib/ladder-dragon
+exec 19>>/var/lib/ladder-dragon/network-recovery.lock
+flock -s -w 45 19 || fail "network recovery is active; update deferred"
+if [[ -r /var/lib/pi-watchdog/network-reboot.boot ]] && \
+  cmp -s /var/lib/pi-watchdog/network-reboot.boot /proc/sys/kernel/random/boot_id; then
+  fail "network reboot is pending; update deferred"
+fi
+
 [[ -f .env ]] || fail "configure ${PROJECT_DIR}/.env before deployment"
 if ! grep -q '^RISK_RECONCILE_TOLERANCE_FRACTION=' .env; then
   legacy_reconcile_tolerance="$(

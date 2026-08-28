@@ -49,8 +49,8 @@ telegram_post() {
     'url = "https://api.telegram.org/bot%s/sendMessage"\ndata = "chat_id=%s"\n' \
     "${TG_BOT_TOKEN}" "${TG_CHAT_ID}"
   # Keep the token, chat ID and message body out of argv, logs and temp files.
-  curl -sS -m 5 --config /dev/fd/3 --data-urlencode "text@-" \
-    3<<<"${curl_config}" <<<"${msg}" >/dev/null
+  curl -fsS -m 5 --config /dev/fd/3 --data-urlencode "text@-" \
+    3<<<"${curl_config}" <<<"${msg}" >/dev/null 2>&1
 }
 
 prune_telegram_outbox() {
@@ -236,7 +236,26 @@ PY
 }
 
 publish_host_health || log "[host-health]" "sanitized hardware probe failed"
+if [[ "${WATCHDOG_NETWORK_RECOVERY:-0}" == "1" ]]; then
+  python3 /usr/local/libexec/ladder-dragon/network_recovery.py \
+    --state-dir "${STATEDIR}" --outbox "${TELEGRAM_OUTBOX}" \
+    --maintenance-file "${MAINTENANCE_FILE}" \
+    || { log "[network-recovery]" "blocked; no recovery authority"
+         send_tg "⚠️ Network recovery blocked: probe or persistent state unavailable" "network-recovery-blocked"; }
+fi
+# Delivery does not depend on Binance health or volatile recovery counters.
+flush_telegram_outbox || true
 read -r up <"${UPTIME_SOURCE}"
+health_interval="${WATCHDOG_HEALTH_INTERVAL_SEC:-0}"
+last_health=0
+if [[ -r "${STATE}.health-tick" ]]; then
+  read -r last_health <"${STATE}.health-tick" || true
+  [[ "${last_health}" =~ ^[0-9]+$ ]] || last_health=0
+fi
+if (( ${up%%.*} >= last_health && ${up%%.*} - last_health < health_interval )); then
+  exit 0
+fi
+printf '%s\n' "${up%%.*}" >"${STATE}.health-tick"
 uptime_min=$(( ${up%%.*} / 60 ))
 if (( uptime_min < MIN_UPTIME )); then
   log "[v3]" "grace: ${uptime_min}m < ${MIN_UPTIME}m"
