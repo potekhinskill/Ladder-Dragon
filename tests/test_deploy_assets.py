@@ -1451,4 +1451,8 @@ def test_library_modules_are_grouped_by_responsibility():
     pyproject = read("pyproject.toml")
     assert '[tool.setuptools.packages.find]' in pyproject
     assert 'include = ["ladder_dragon*", "bin*"]' in pyproject
-    assert 'ladder_dragon = ["migrations/*.sql"]' in pyproject
+    from ast import literal_eval
+    packaged_sql = literal_eval(re.search(r"(?m)^ladder_dragon = (.+)$", pyproject).group(1))
+    assert "migrations/*.sql" in packaged_sql
+    assert "strategy/prediction/context_migrations/*.sql" in packaged_sql
+    assert (ROOT / "ladder_dragon/strategy/prediction/context_migrations/001_context.sql").is_file()

@@ -37,7 +37,7 @@ testpaths = ["tests"]
 include = ["ladder_dragon*", "bin*"]
 
 [tool.setuptools.package-data]
-ladder_dragon = ["migrations/*.sql"]
+ladder_dragon = ["migrations/*.sql", "strategy/prediction/context_migrations/*.sql"]
 
 [tool.setuptools.dynamic]
 version = {attr = "product_version.__version__"}

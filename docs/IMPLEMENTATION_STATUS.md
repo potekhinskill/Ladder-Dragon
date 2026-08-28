@@ -1,6 +1,6 @@
 # Implementation status
 
-This document describes the code in version **2.20.256**.
+This document describes the code in version **2.20.257**.
 It does not describe future plans as completed work.
 
 An implemented function is not automatically approved for LIVE use.
@@ -15,6 +15,7 @@ The configured mode and its evidence gate remain authoritative.
 | Accounting | Exact FIFO lots, exact AI fills, fee provenance, risk streaks, and cursor audits | Fail closed on incomplete evidence |
 | Replay | Separate order validation and read-only calibration cohorts with immutable fingerprints | L2 model, not exact L3 |
 | Historical entry selection | Continuous hash-linked depth segments and new opportunities after delayed cancellation | Offline selection only; no promotion authority |
+| Historical context | Source-owned filter, fee, confirmed-regime, and PANIC journal with cutoff-safe export | SOL observer; missing inputs block replay |
 | Prediction | 1, 5, and 15 minute SHADOW outcomes | Enabled for evidence only |
 | Market scenarios | 1-hour through monthly closed-candle outcomes | SHADOW only |
 | Experiments | Diagnostic cohorts and one preregistered SOL execution-episode cohort | SHADOW only |

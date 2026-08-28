@@ -54,7 +54,7 @@ from ladder_dragon.strategy.prediction.control_evidence import (
 from ladder_dragon.strategy.prediction.champion_registry import active_champion, champion_allows_regime
 from ladder_dragon.strategy.prediction.episode_semantics import REGIME_ADX_LENGTH, REGIME_EMA_FAST_LENGTH, REGIME_EMA_SLOW_LENGTH, require_runtime_regime_contract
 from ladder_dragon.supervision.aggregate_trade_history import load_aggregate_trade_window, safe_aggregate_trade_error
-from ladder_dragon.supervision import strategy_control_gates
+from ladder_dragon.supervision import strategy_control_gates, historical_context
 from ladder_dragon.ai.ai_runtime_status import write_runtime_status
 from ladder_dragon.ai.ai_control import read_ai_control, resolve_ai_control_path
 from ladder_dragon.supervision.entry_policy import (
@@ -2823,6 +2823,7 @@ def run_for_symbol(
         now=time.monotonic(),
         panic=executor_panic is True,
     )
+    historical_context.observe_runtime(globals(), args, symbol, confirmed_regime, executor_panic, _panic_hits)
     regime_policy = regime_machine.policy(
         trend_up_cap_scale=os.getenv(
             "BOT_REGIME_TREND_UP_CAP_SCALE", "0.75"

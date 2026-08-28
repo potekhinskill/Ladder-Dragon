@@ -154,7 +154,8 @@ def test_uncovered_queue_blocks_instead_of_assuming_zero():
         episode.process(shallow, veto=False, panic=False)
 
 
-def test_cli_publishes_immutable_paired_replay(tmp_path, monkeypatch, capsys):
+@pytest.mark.parametrize("recorded_context", [False, True])
+def test_cli_publishes_immutable_paired_replay(tmp_path, monkeypatch, capsys, recorded_context):
     import json
     import sys
     from bin.replay_historical_entries import main
@@ -181,16 +182,40 @@ def test_cli_publishes_immutable_paired_replay(tmp_path, monkeypatch, capsys):
     request = tmp_path / "request.json"
     payload = {"policy": policy(), "context": [context()], "archives": [{"path": str(archive), "sha256": digest}],
                "start_ms": 3000, "entry_end_ms": 12000, "end_ms": 28000, "cutoff_ms": 28000}
+    extra = []
+    if recorded_context:
+        from ladder_dragon.supervision.historical_context import HistoricalContextCollector
+        from ladder_dragon.strategy.prediction.context_sources import attest
+        from ladder_dragon.strategy.prediction.episode_semantics import evidence_semantics_contract
+        from ladder_dragon.strategy.prediction.historical_policy import fingerprint
+        classifier = evidence_semantics_contract()["regime_classifier"]
+        filters = {"symbols": [{"symbol": "SOLUSDT", "status": "TRADING", "filters": [
+            {"filterType": "PRICE_FILTER", "tickSize": "0.01"},
+            {"filterType": "LOT_SIZE", "stepSize": "0.001", "minQty": "0.001"},
+            {"filterType": "NOTIONAL", "minNotional": "5"},
+        ]}]}
+        fees = {"symbol": "SOLUSDT", **{name: {"maker": "0.001", "taker": "0.001", "buyer": "0", "seller": "0"}
+                                        for name in ("standardCommission", "taxCommission", "specialCommission")}}
+        collector = HistoricalContextCollector(tmp_path / "context.sqlite3", public_get=lambda *_: filters,
+                                                signed_get=lambda *_: fees, clock=lambda: 1000)
+        assert collector.collect("SOLUSDT", attest("runtime", "SOLUSDT", 1000, {
+            "classifier": classifier, "regime": "RANGE", "panic": False, "panic_hits": 0,
+        }))["status"] == "AVAILABLE"
+        payload.pop("context")
+        payload["policy"]["classifier_fingerprint"] = fingerprint(classifier)
+        extra = ["--context-db", str(collector.path)]
     request.write_text(json.dumps(payload))
     output = tmp_path / "report.json"
-    monkeypatch.setattr(sys, "argv", ["replay", "--request", str(request), "--output", str(output)])
+    monkeypatch.setattr(sys, "argv", ["replay", "--request", str(request), "--output", str(output), *extra])
     assert main() == 0
     report = json.loads(output.read_text())
     assert report["summaries"]["veto"]["opportunities"] > report["summaries"]["baseline"]["opportunities"]
+    if recorded_context:
+        assert report["context_evidence"]["records"][0]["payload"]["sources"]["fees"]["kind"] == "BINANCE_ACCOUNT_COMMISSION_MAX_V1"
     before = output.read_bytes()
     assert main() == 2
     assert output.read_bytes() == before
-    payload["context"][0]["maker_buy_fee_pct"] = "secret-sentinel"
+    payload["context"] = [context(maker_buy_fee_pct="secret-sentinel")]
     request.write_text(json.dumps(payload))
     assert main() == 2
     assert "secret-sentinel" not in capsys.readouterr().out

@@ -26,6 +26,8 @@ RuntimeDirectoryMode=0700
 RuntimeDirectoryPreserve=yes
 StateDirectory=ladder-dragon/control
 StateDirectoryMode=0700
+Environment=BOT_HISTORICAL_CONTEXT_ENABLED=1
+Environment=BOT_HISTORICAL_CONTEXT_SYMBOLS=SOLUSDT
 ExecStart=/home/bot/apps/binance_bot/deploy/run_bot_service.sh
 ExecStop=/home/bot/apps/binance_bot/bin/supervisor_ctl.sh stop-all
 Restart=on-failure

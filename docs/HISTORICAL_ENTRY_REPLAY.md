@@ -44,7 +44,7 @@ This inventory does not replace replay readiness or order validation.
 
 ## Historical selection inputs
 
-The replay request contains exactly these fields:
+The offline replay request contains exactly these fields:
 
 | Field | Required content |
 | --- | --- |
@@ -62,6 +62,59 @@ Context rows require audited source hashes, observation times, and expiry times.
 They require the classifier fingerprint that the policy fixes.
 Current exchange filters or fees cannot replace missing historical inputs.
 The tool does not manufacture missing context or infer regimes from future outcomes.
+
+## Source-owned context journal
+
+The supervisor can record context independently of candidate plans, including during persistent HALT.
+`BOT_HISTORICAL_CONTEXT_ENABLED=1` enables this observer.
+`BOT_HISTORICAL_CONTEXT_SYMBOLS=SOLUSDT` sets its default scope.
+The service and example configuration enable this SOL observer.
+The library default remains disabled.
+This list never expands execution scope.
+
+The journal uses `historical_context.sqlite3` beside the prediction database.
+One background task reads exchange filters and account commission rates through bounded GET requests.
+The isolated transport limits each decoded response to 64 KiB before JSON parsing.
+It rejects redirects and every endpoint except exchange time, symbol filters, and symbol commissions.
+Exchange rate-limit responses defer later observer reads without retry storms.
+Current depth archives contain Mainnet data, so this observer rejects Testnet source hosts.
+This restriction does not enable Mainnet execution or change the configured trading venue.
+The observer has no order interface and no waiting work queue.
+Its source cache supports at most eight configured symbols.
+Unchanged runtime inputs permit one observation every thirty seconds.
+Observed state changes bypass that interval.
+Slow network requests do not hold the runtime lock.
+
+Each record contains only normalized values, source times, source hashes, and the confirmed classifier contract.
+Remote bodies, request headers, credentials, and account identifiers never enter this journal.
+Commission estimates include standard, tax, and special rates without assuming a discount.
+Missing commission components block the observation instead of becoming zero.
+
+Source times use local receipt timestamps, as do the depth archives.
+They never use candle-close times or request-start times.
+Filter and fee sources expire after five minutes.
+Runtime observations expire after three minutes.
+The complete context expires with its earliest source.
+Repeated cache use never renews a source timestamp.
+
+The runtime source records the exact confirmed regime and PANIC input consumed by the supervisor.
+It does not independently verify continuous PANIC-detector freshness.
+Unknown PANIC state blocks collection; it never becomes a false value.
+A state change during a pending source read creates an explicit unavailable record.
+The status appears under `historical_context` in the runtime status object.
+Failure status contains an error class, not an exception message.
+
+Schema version one binds every record to its preceding hash and supervisor session.
+Update and delete triggers preserve existing records.
+Export checks source hashes, record hashes, classifier identity, expiry, session continuity, and complete window coverage.
+An unavailable record, restart boundary, or missing interval blocks export.
+Sources observed after the cutoff cannot change an earlier export.
+These hashes detect changes; they are not exchange signatures.
+
+Existing depth archives without contemporaneous context remain unsuitable for complete policy replay.
+The observer does not reconstruct missing past fees, filters, or PANIC state.
+
+## Policy replay
 
 The policy fixes gap, target, stop, quantity budget, fees through context, cadence, latency, and permitted regimes.
 The model uses the current book midpoint as its reference price.
@@ -96,6 +149,19 @@ PYTHONPATH=. .venv/bin/python -m bin.replay_historical_entries \
   --output /absolute/path/selection-replay.json
 ```
 
+For source-owned context, omit `context` from the request and select the journal:
+
+```bash
+PYTHONPATH=. .venv/bin/python -m bin.replay_historical_entries \
+  --request /absolute/path/selection-request.json \
+  --context-db /absolute/path/historical_context.sqlite3 \
+  --output /absolute/path/selection-replay.json
+```
+
+This mode opens SQLite read-only and includes the verified context proof in the immutable report.
+Supplying both inline context and a journal blocks the request.
+Missing journal files block replay without creating a database.
+
 `COMPLETE_SELECTION_REPLAY` means the historical replay completed without missing evidence.
 It does not approve a candidate, prove profitability, or authorize promotion.
 Independent time-block selection, runtime parity, and independent confirmation remain separate requirements.
@@ -109,6 +175,8 @@ An existing output file blocks publication rather than being replaced.
 | Calibration reports | Derived evidence | One report per source segment | Same retention as the retained source |
 | Calibration inventory | Disposable status | One bounded replacement file | Rebuilt by the worker; no archive dependency |
 | Historical replay reports | Derived selection evidence | 10,000 attempts per policy and immutable output | Retain with policy, context, and source archives |
+| Historical context journal | Authoritative context evidence | 131,072 records and 256 MiB database limit | Indefinite; archive only after verified encrypted backup and reference review |
+| Context export | Derived selection evidence | 4,096 records and 16 MiB compact JSON limit | Retain with the immutable replay report and journal |
 | Unfinished temporary files | Disposable incomplete capture | Shared directory byte cap | Manual review; never selected as evidence |
 
 The worker checks the backlog every thirty seconds when idle.
@@ -119,3 +187,12 @@ Pending diagnostics, selection references, and validation evidence can depend on
 Storage exhaustion stops capture instead of removing protected evidence.
 Archive removal requires a recent verified encrypted backup and an explicit reference review.
 No automated archive-removal job is introduced by this change.
+
+The context writer checks record and database capacity on every observation.
+Its write-ahead log requests a checkpoint every 256 pages.
+SQLite readers can temporarily delay that checkpoint.
+Exports have a fixed record and byte ceiling and close their read transaction after validation.
+Capacity exhaustion blocks new observations without deleting existing context or other evidence.
+The scheduled encrypted application backup includes project database files through the SQLite online backup API.
+The journal remains outside automatic database retention.
+Operator archival must preserve all context referenced by pending diagnostics, selection reports, or validation evidence.

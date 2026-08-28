@@ -3,6 +3,21 @@
 All notable changes are documented here. Releases use Semantic Versioning; every
 section is dated and there is intentionally no `Unreleased` section.
 
+## [2.20.257] — 2026-08-28
+
+### Added
+- Historical context records source-owned exchange filters, commission rates, confirmed regimes, and consumed PANIC inputs.
+- The SOL observer uses one bounded background task without changing candidate plans or execution scope.
+- Historical replay can read a versioned context journal and retain its verified source proof.
+
+### Security
+- Missing sources, future observations, state-change races, expired context, and restart gaps block historical replay.
+- Append-only records, capacity limits, and encrypted database backup preserve retained evidence.
+- HALT, canary parameters, promotion, and order behavior remain unchanged.
+
+### Verified
+- Focused context, transport, historical replay, and architecture tests pass: 61 tests.
+
 ## [2.20.256] — 2026-08-27
 
 ### Fixed

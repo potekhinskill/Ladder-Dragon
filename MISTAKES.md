@@ -6,6 +6,20 @@ avoidable rework. Identify the root cause rather than recording only the
 symptom. Keep entries concise and exclude secrets, balances, account data, and
 private infrastructure details.
 
+### 2026-08-28 — Assumed a newer standard library in a packaging test
+
+- **Impact:** the packaging regression test failed on the project Python 3.10 environment.
+- **Root cause:** the test imported a parser available only in newer Python versions.
+- **Correction:** validate the fixed package-data list with the existing standard-library literal parser.
+- **Prevention:** check the supported interpreter before adding a dependency, including in tests.
+
+### 2026-08-28 — Shipped a historical context consumer without its producer
+
+- **Impact:** retained market archives could not supply complete historical policy replay inputs.
+- **Root cause:** implementation tested injected context but omitted a production source-observation path.
+- **Correction:** add a bounded source journal, a runtime observer, and read-only proof export.
+- **Prevention:** test the complete producer-to-replay path and reject missing past data instead of substituting current values.
+
 ### 2026-08-27 — Coupled pre-fill selection to post-fill completeness
 
 - **Impact:** valid historical L2 paths could not enter future veto selection after a later diagnostic gap.

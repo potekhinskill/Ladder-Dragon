@@ -1,5 +1,12 @@
 # Engineering decisions
 
+### 2026-08-28 — Record historical context at its observation boundary
+
+- **Context:** public depth alone cannot establish historical fees, filters, or the runtime PANIC input.
+- **Decision:** record narrow source projections with observation times, expiry, classifier identity, and append-only hashes before replay uses them.
+- **Why it worked:** tests connect the observer to replay and reject future context, missing sources, state-change races, and session gaps.
+- **Reuse:** every historical model that depends on inputs absent from its public market archive.
+
 ### 2026-08-27 — Separate pre-fill selection from post-fill diagnostics
 
 - **Context:** a later diagnostic gap discarded valid causal L2 evidence captured before a filled episode.

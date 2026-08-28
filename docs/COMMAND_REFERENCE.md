@@ -68,7 +68,7 @@ See [Historical entry replay](HISTORICAL_ENTRY_REPLAY.md) for continuous source 
 | `validate_replay_sessions` | validates separate contiguous replay sessions without joining gaps |
 | `record_depth_archive` | records public depth and aggregate-trade JSONL |
 | `depth_archive_service` | rotates one continuous public stream and processes calibration separately |
-| `replay_historical_entries` | generates historical opportunities from immutable policy and context inputs |
+| `replay_historical_entries` | generates historical opportunities from immutable inputs; optional `--context-db` verifies source-owned context |
 | `import_entry_veto_l2` | imports source-hashed public L2 entry features into SHADOW evidence |
 | `prediction_history_backfill` | creates cutoff-safe samples from archived bars |
 | `backfill_prediction_archive` | repairs eligible expired prediction outcomes |
