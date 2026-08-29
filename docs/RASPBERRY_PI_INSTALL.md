@@ -694,6 +694,7 @@ It installs dependencies and updates nginx, frontend assets, and systemd.
 It validates and starts the services.
 It then waits for a fresh heartbeat and an authenticated dashboard response.
 It removes the obsolete `wlan0` packet-idle check from the hardware watchdog.
+It removes the known load-average gate that misclassifies responsive backup I/O.
 The managed host watchdog continues to test the route, Internet, and heartbeat.
 A transient
 SQLite startup/schema race is reported as retryable HTTP 503, never HTTP 500,

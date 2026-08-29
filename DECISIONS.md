@@ -1864,3 +1864,10 @@ entries concise; this is not a changelog or an activity log.
 - **Decision:** verify and mirror the current archive once, then retain earlier verified copies.
 - **Why it worked:** backup cost now follows current data size instead of retained history size.
 - **Reuse:** every append-only backup set with separately verified immutable archives.
+
+### 2026-08-30 — Keep host liveness separate from load policy
+
+- **Context:** responsive backup I/O exceeded a hardware watchdog load threshold.
+- **Decision:** retain the device timeout and remove only the known default load gate.
+- **Why it worked:** real stalls still stop watchdog petting, while managed maintenance stays online.
+- **Reuse:** hardware watchdogs on hosts with expected I/O-intensive maintenance.

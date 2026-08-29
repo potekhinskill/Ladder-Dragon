@@ -2224,6 +2224,13 @@ private infrastructure details.
 - **Correction:** mirror only the new archive and lower pre-update backup scheduling priority.
 - **Prevention:** immutable backup work must remain proportional to newly created data.
 
+### 2026-08-30 — Left load policy inside the hardware watchdog
+
+- **Impact:** three responsive backup runs caused hard reboot before deployment status publication.
+- **Root cause:** `max-load-1=8` treated planned I/O-wait as a host liveness failure.
+- **Correction:** remove only the known default load gate and retain the device timeout.
+- **Prevention:** test maintenance load independently from watchdog liveness semantics.
+
 ### 2026-08-29 — Mocked PANIC producer bypassed the transport allow-list
 
 - **Impact:** the supervisor observer could not create PANIC state, so every HALT context row remained blocked.

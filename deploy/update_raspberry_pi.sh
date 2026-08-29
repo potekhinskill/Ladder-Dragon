@@ -158,6 +158,32 @@ run_preupdate_backup() {
   return "${backup_status}"
 }
 
+normalize_hardware_watchdog_load_gate() {
+  local config="/etc/watchdog.conf" temporary
+  [[ -f "${config}" ]] || return 0
+  grep -Eq \
+    '^[[:space:]]*max-load-1[[:space:]]*=[[:space:]]*8[[:space:]]*(#.*)?$' \
+    "${config}" || return 0
+
+  temporary="$(mktemp "${config}.tmp.XXXXXX")"
+  awk \
+    '!/^[[:space:]]*max-load-1[[:space:]]*=[[:space:]]*8[[:space:]]*(#.*)?$/' \
+    "${config}" >"${temporary}"
+  chown --reference="${config}" "${temporary}"
+  chmod --reference="${config}" "${temporary}"
+  mv -f -- "${temporary}" "${config}"
+
+  # The device timeout remains active. Remove only the known load gate that
+  # treats responsive backup I/O as a host failure.
+  if systemctl is-active --quiet watchdog.service; then
+    systemctl restart watchdog.service \
+      || fail "hardware watchdog could not restart"
+    systemctl is-active --quiet watchdog.service \
+      || fail "hardware watchdog did not restart"
+  fi
+  echo "[OK] removed unsafe hardware watchdog load gate"
+}
+
 consume_break_glass() {
   local commit="${1,,}"
   [[ -f "${BREAK_GLASS_MARKER}" ]] || return 1
@@ -495,6 +521,7 @@ if [[ -r /var/lib/pi-watchdog/network-reboot.boot ]] && \
   cmp -s /var/lib/pi-watchdog/network-reboot.boot /proc/sys/kernel/random/boot_id; then
   fail "network reboot is pending; update deferred"
 fi
+normalize_hardware_watchdog_load_gate
 
 [[ -f .env ]] || fail "configure ${PROJECT_DIR}/.env before deployment"
 if ! grep -q '^RISK_RECONCILE_TOLERANCE_FRACTION=' .env; then

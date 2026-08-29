@@ -1184,6 +1184,20 @@ def test_target_updater_uses_target_backup_before_checkout():
     assert call_index < updater.index('systemctl stop mybot', call_index)
 
 
+def test_target_updater_removes_only_known_hardware_watchdog_load_gate():
+    updater = read("deploy/update_raspberry_pi.sh")
+    helper = updater.split(
+        "normalize_hardware_watchdog_load_gate() {", 1
+    )[1].split("\n}\n", 1)[0]
+    call = "normalize_hardware_watchdog_load_gate\n"
+
+    assert "max-load-1" in helper
+    assert "[[:space:]]*8[[:space:]]*" in helper
+    assert "hardware watchdog could not restart" in helper
+    assert "hardware watchdog did not restart" in helper
+    assert updater.index(call) < updater.index('run_preupdate_backup "${UPDATE_COMMIT}"')
+
+
 def test_watchdog_uses_current_heartbeat_and_not_legacy_runner_name():
     watchdog = read("deploy/pi-watchdog_v3.sh")
     service = read("deploy/pi-watchdog-v3.service")
@@ -1311,10 +1325,10 @@ def test_runtime_assets_do_not_manage_unrelated_host_services():
     assert "/var/log/atop" not in runtime_assets
 
 
-def _run_watchdog_interface_cleanup(config: Path) -> subprocess.CompletedProcess[str]:
+def _run_watchdog_cleanup(config: Path) -> subprocess.CompletedProcess[str]:
     runtime_assets = read("deploy/install_runtime_assets.sh")
-    function = "remove_idle_interface_watchdog_check() {" + runtime_assets.split(
-        "remove_idle_interface_watchdog_check() {", 1
+    function = "normalize_hardware_watchdog_checks() {" + runtime_assets.split(
+        "normalize_hardware_watchdog_checks() {", 1
     )[1].split("\n}\n", 1)[0] + "\n}\n"
     script = "\n".join(
         (
@@ -1324,7 +1338,7 @@ def _run_watchdog_interface_cleanup(config: Path) -> subprocess.CompletedProcess
             "chown() { :; }",
             "chmod() { :; }",
             function,
-            'remove_idle_interface_watchdog_check "$1"',
+            'normalize_hardware_watchdog_checks "$1"',
         )
     )
     return subprocess.run(
@@ -1335,7 +1349,7 @@ def _run_watchdog_interface_cleanup(config: Path) -> subprocess.CompletedProcess
     )
 
 
-def test_runtime_assets_remove_only_idle_wlan0_watchdog_check(tmp_path):
+def test_runtime_assets_remove_known_unsafe_watchdog_checks(tmp_path):
     config = tmp_path / "watchdog.conf"
     config.write_text(
         "watchdog-device = /dev/watchdog\n"
@@ -1345,17 +1359,16 @@ def test_runtime_assets_remove_only_idle_wlan0_watchdog_check(tmp_path):
         encoding="utf-8",
     )
 
-    completed = _run_watchdog_interface_cleanup(config)
+    completed = _run_watchdog_cleanup(config)
 
     assert completed.returncode == 0, completed.stderr
     assert config.read_text(encoding="utf-8") == (
         "watchdog-device = /dev/watchdog\n"
         "interval = 5\n"
-        "max-load-1 = 8\n"
     )
     runtime_assets = read("deploy/install_runtime_assets.sh")
     cleanup = runtime_assets.split(
-        "remove_idle_interface_watchdog_check() {", 1
+        "normalize_hardware_watchdog_checks() {", 1
     )[1].split("\n}\n", 1)[0]
     assert "hardware watchdog could not restart" in cleanup
     assert "hardware watchdog did not restart" in cleanup
@@ -1363,10 +1376,14 @@ def test_runtime_assets_remove_only_idle_wlan0_watchdog_check(tmp_path):
 
 def test_runtime_assets_preserve_operator_watchdog_interface(tmp_path):
     config = tmp_path / "watchdog.conf"
-    original = "watchdog-device = /dev/watchdog\ninterface = eth0\n"
+    original = (
+        "watchdog-device = /dev/watchdog\n"
+        "interface = eth0\n"
+        "max-load-1 = 12\n"
+    )
     config.write_text(original, encoding="utf-8")
 
-    completed = _run_watchdog_interface_cleanup(config)
+    completed = _run_watchdog_cleanup(config)
 
     assert completed.returncode == 0, completed.stderr
     assert config.read_text(encoding="utf-8") == original
