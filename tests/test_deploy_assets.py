@@ -1142,7 +1142,12 @@ def test_backup_prunes_external_retention_before_mirroring():
     assert first_prune < mirror_new
     assert '[[ "${expired}" == "${latest_archive}" ]] && continue' in backup
     assert 'rm -f -- "${expired}" "${archive_checksum}"' in backup
-    assert '-mtime +"${BACKUP_EXTERNAL_RETENTION_DAYS}" -print0' in backup
+    assert "retention_minutes=$((retention_days * 24 * 60))" in backup
+    assert "retention_minutes=$((BACKUP_EXTERNAL_RETENTION_DAYS * 24 * 60))" in backup
+    assert '-mmin +"${retention_minutes}" -print0' in backup
+    assert '-mmin +"${retention_minutes}" -delete' in backup
+    assert '-mtime +"${retention_days}"' not in backup
+    assert '-mtime +"${BACKUP_EXTERNAL_RETENTION_DAYS}"' not in backup
 
 
 def test_backup_prunes_local_capacity_before_creating_staging():

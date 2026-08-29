@@ -1,5 +1,12 @@
 # Engineering decisions
 
+### 2026-08-30 — Express backup retention in exact minutes
+
+- **Context:** `find -mtime +N` rounds age down and extends an N-day retention policy by one day.
+- **Decision:** convert configured days to minutes before local and external archive selection.
+- **Why it worked:** deployment tests prohibit rounded day selectors in the backup workflow.
+- **Reuse:** every retention contract that promises a precise duration.
+
 ### 2026-08-30 — Pin each live SQLite backup snapshot
 
 - **Context:** page batches restarted when continuous WAL writes changed a large source database.

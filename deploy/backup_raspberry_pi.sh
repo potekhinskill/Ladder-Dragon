@@ -132,7 +132,8 @@ latest_completed_archive() {
 
 prune_completed_backup_directory() {
   local directory="$1" retention_days="$2" prune_inventory="$3"
-  local latest_archive expired checksum archive
+  local latest_archive expired checksum archive retention_minutes
+  retention_minutes=$((retention_days * 24 * 60))
   latest_archive="$(latest_completed_archive "${directory}")"
 
   while IFS= read -r -d '' expired; do
@@ -141,7 +142,7 @@ prune_completed_backup_directory() {
   done < <(
     find "${directory}" -maxdepth 1 -type f \
       \( -name 'ladder-dragon-*.tgz.age' -o -name 'preinstall-*.tgz.age' \) \
-      -mtime +"${retention_days}" -print0
+      -mmin +"${retention_minutes}" -print0
   )
 
   while IFS= read -r -d '' checksum; do
@@ -150,12 +151,12 @@ prune_completed_backup_directory() {
     [[ -f "${archive}" ]] || rm -f -- "${checksum}"
   done < <(
     find "${directory}" -maxdepth 1 -type f \
-      -name '*.tgz.age.sha256' -mtime +"${retention_days}" -print0
+      -name '*.tgz.age.sha256' -mmin +"${retention_minutes}" -print0
   )
 
   if [[ "${prune_inventory}" == "yes" ]]; then
     find "${directory}" -maxdepth 1 -type f \
-      -name 'inventory-*.txt' -mtime +"${retention_days}" -delete
+      -name 'inventory-*.txt' -mmin +"${retention_minutes}" -delete
   fi
 }
 
@@ -188,8 +189,9 @@ rebuild_public_index() {
 }
 
 prune_expired_external_backups() {
-  local latest_archive="" expired archive_checksum
+  local latest_archive="" expired archive_checksum retention_minutes
   [[ -n "${BACKUP_EXTERNAL_DIR}" ]] || return 0
+  retention_minutes=$((BACKUP_EXTERNAL_RETENTION_DAYS * 24 * 60))
 
   # Reclaim expired external capacity before writing a new archive. Preserve the
   # newest encrypted archive until a replacement is verified and published.
@@ -206,12 +208,12 @@ prune_expired_external_backups() {
   done < <(
     find "${BACKUP_EXTERNAL_DIR}" -maxdepth 1 -type f \
       \( -name 'ladder-dragon-*.tgz.age' -o -name 'preinstall-*.tgz.age' \) \
-      -mtime +"${BACKUP_EXTERNAL_RETENTION_DAYS}" -print0
+      -mmin +"${retention_minutes}" -print0
   )
 
   find "${BACKUP_EXTERNAL_DIR}" -maxdepth 1 -type f \
     -name 'inventory-*.txt' \
-    -mtime +"${BACKUP_EXTERNAL_RETENTION_DAYS}" -delete
+    -mmin +"${retention_minutes}" -delete
 }
 
 # Reclaim bounded local capacity before collection. Preserve the latest complete

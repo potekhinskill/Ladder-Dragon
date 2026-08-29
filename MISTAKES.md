@@ -1,5 +1,12 @@
 # Engineering mistakes and root causes
 
+### 2026-08-30 — Treated `find -mtime` as an exact day threshold
+
+- **Impact:** eligible local archives remained for almost one extra day and consumed constrained SD-card capacity.
+- **Root cause:** the selector rounds file age down to complete days before applying `+N`.
+- **Correction:** convert retention days to exact minute thresholds for every related artifact.
+- **Prevention:** test retention boundary units and inspect the oldest retained artifact after deployment.
+
 ### 2026-08-30 — Paginated a continuously changing SQLite backup
 
 - **Impact:** pre-update backup rewrote the large prediction database repeatedly and prevented release installation.

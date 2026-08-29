@@ -3,6 +3,21 @@
 All notable changes are documented here. Releases use Semantic Versioning; every
 section is dated and there is intentionally no `Unreleased` section.
 
+## [2.20.266] — 2026-08-30
+
+### Fixed
+- Local and external backup retention now uses exact minute thresholds instead of rounded whole-day thresholds.
+- A 14-day local policy no longer retains eligible archives until day 15.
+
+### Security
+- Rotation still preserves the newest completed encrypted archive and its checksum.
+- HALT, execution scope, BTC, ETH, and order authority remain unchanged.
+
+### Verified
+- The focused deployment suite passes: 105 tests.
+- The full project suite passes: 1,511 tests.
+- Python compilation, shell syntax, and Technical English checks pass.
+
 ## [2.20.265] — 2026-08-30
 
 ### Fixed
