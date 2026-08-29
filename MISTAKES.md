@@ -1,5 +1,12 @@
 # Engineering mistakes and root causes
 
+### 2026-08-30 — Paginated a continuously changing SQLite backup
+
+- **Impact:** pre-update backup rewrote the large prediction database repeatedly and prevented release installation.
+- **Root cause:** voluntary page boundaries let external WAL writes restart the online backup.
+- **Correction:** copy one pinned snapshot and close each SQLite connection immediately.
+- **Prevention:** prohibit paginated production backup and test the exact deployment script contract.
+
 ### 2026-08-30 — Checked threshold ordering instead of bucket reachability
 
 - **Impact:** a valid-looking empirical policy could leave its required normal volatility bucket empty.

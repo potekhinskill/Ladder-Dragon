@@ -1,5 +1,12 @@
 # Engineering decisions
 
+### 2026-08-30 — Pin each live SQLite backup snapshot
+
+- **Context:** page batches restarted when continuous WAL writes changed a large source database.
+- **Decision:** copy all remaining pages in one backup step and close both connections immediately.
+- **Why it worked:** deployment tests prohibit paginated backup and require explicit connection closure.
+- **Reuse:** every online backup of a database with continuous production writes.
+
 ### 2026-08-30 — Prove empirical bucket reachability before confirmation
 
 - **Context:** zero-inflated calibration values could create an empty volatility bucket.

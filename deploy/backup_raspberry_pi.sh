@@ -320,6 +320,7 @@ import os
 import sqlite3
 import sys
 import time
+from contextlib import closing
 from pathlib import Path
 
 project = Path(sys.argv[1])
@@ -336,11 +337,15 @@ for source in sorted((project / "db").glob("*.db")) + sorted((project / "db").gl
     for attempt in range(3):
         try:
             temporary.unlink(missing_ok=True)
-            with sqlite3.connect(f"file:{source}?mode=ro", uri=True, timeout=30) as src:
+            with closing(
+                sqlite3.connect(f"file:{source}?mode=ro", uri=True, timeout=30)
+            ) as src:
                 src.execute("PRAGMA busy_timeout=30000")
-                with sqlite3.connect(temporary, timeout=30) as out:
+                with closing(sqlite3.connect(temporary, timeout=30)) as out:
                     out.execute("PRAGMA busy_timeout=30000")
-                    src.backup(out, pages=100, sleep=0.2)
+                    # Copy one pinned snapshot. A paginated backup can restart
+                    # forever when the active WAL changes between page batches.
+                    src.backup(out)
             os.replace(temporary, target)
             break
         except sqlite3.OperationalError as exc:

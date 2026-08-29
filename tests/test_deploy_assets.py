@@ -743,7 +743,10 @@ def test_installer_migrates_sqlite_safely_and_closes_legacy_backups():
     installer = read("deploy/install_raspberry_pi.sh")
     backup = read("deploy/backup_raspberry_pi.sh")
     assert "src.backup(out)" in installer
-    assert "src.backup(out" in backup
+    assert "from contextlib import closing" in backup
+    assert "with closing(" in backup
+    assert "src.backup(out)" in backup
+    assert "pages=100" not in backup
     assert "db-wal" not in backup
     assert "legacy-public-" in installer
     assert "backups-public" in installer
