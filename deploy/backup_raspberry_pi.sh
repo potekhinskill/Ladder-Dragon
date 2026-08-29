@@ -13,6 +13,8 @@ BACKUP_AGE_RECIPIENT="${BACKUP_AGE_RECIPIENT:-}"
 BACKUP_EXTERNAL_MOUNT="${BACKUP_EXTERNAL_MOUNT:-}"
 BACKUP_EXTERNAL_DIR="${BACKUP_EXTERNAL_DIR:-}"
 BACKUP_EXTERNAL_RETENTION_DAYS="${BACKUP_EXTERNAL_RETENTION_DAYS:-90}"
+BACKUP_LOCAL_RETENTION_DAYS=14
+BACKUP_STAGING_RETENTION_MINUTES=60
 STAMP="$(date -u +%Y-%m-%d-%H%M%S)"
 DEST="${BACKUP_DIR}/${STAMP}"
 STATUS_ARCHIVE_NAME=""
@@ -116,8 +118,74 @@ if [[ -n "${BACKUP_EXTERNAL_MOUNT}" || -n "${BACKUP_EXTERNAL_DIR}" ]]; then
   # exFAT does not support chmod; external-directory permissions come from mount options.
   mkdir -p "${BACKUP_EXTERNAL_DIR}"
 fi
-install -d -m 0700 "${DEST}"
+install -d -m 0700 "${BACKUP_DIR}"
 install -d -o root -g www-data -m 0750 "${PUBLIC_BACKUP_DIR}"
+
+latest_completed_archive() {
+  local directory="$1"
+  {
+    find "${directory}" -maxdepth 1 -type f \
+      \( -name 'ladder-dragon-*.tgz.age' -o -name 'preinstall-*.tgz.age' \) \
+      -printf '%T@ %p\n'
+  } | sort -nr | sed -n '1{s/^[^ ]* //;p;}'
+}
+
+prune_completed_backup_directory() {
+  local directory="$1" retention_days="$2" prune_inventory="$3"
+  local latest_archive expired checksum archive
+  latest_archive="$(latest_completed_archive "${directory}")"
+
+  while IFS= read -r -d '' expired; do
+    [[ "${expired}" == "${latest_archive}" ]] && continue
+    rm -f -- "${expired}" "${expired}.sha256"
+  done < <(
+    find "${directory}" -maxdepth 1 -type f \
+      \( -name 'ladder-dragon-*.tgz.age' -o -name 'preinstall-*.tgz.age' \) \
+      -mtime +"${retention_days}" -print0
+  )
+
+  while IFS= read -r -d '' checksum; do
+    archive="${checksum%.sha256}"
+    [[ "${archive}" == "${latest_archive}" ]] && continue
+    [[ -f "${archive}" ]] || rm -f -- "${checksum}"
+  done < <(
+    find "${directory}" -maxdepth 1 -type f \
+      -name '*.tgz.age.sha256' -mtime +"${retention_days}" -print0
+  )
+
+  if [[ "${prune_inventory}" == "yes" ]]; then
+    find "${directory}" -maxdepth 1 -type f \
+      -name 'inventory-*.txt' -mtime +"${retention_days}" -delete
+  fi
+}
+
+prune_stale_local_staging() {
+  local staging name
+  while IFS= read -r -d '' staging; do
+    name="${staging##*/}"
+    # Remove only the timestamp format created by this script.
+    [[ "${name}" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}-[0-9]{6}$ ]] || continue
+    rm -rf -- "${staging}"
+  done < <(
+    find "${BACKUP_DIR}" -mindepth 1 -maxdepth 1 -type d \
+      -mmin +"${BACKUP_STAGING_RETENTION_MINUTES}" -print0
+  )
+}
+
+rebuild_public_index() {
+  local manifest_tmp
+  manifest_tmp="$(mktemp "${PUBLIC_BACKUP_DIR}/.index.XXXXXX")"
+  {
+    echo "Ladder Dragon encrypted backups"
+    echo "Generated: ${STAMP} UTC"
+    echo "Archives are age-encrypted; inventory files contain no secrets."
+    find "${PUBLIC_BACKUP_DIR}" -maxdepth 1 -type f \
+      \( -name '*.tgz.age' -o -name '*.tgz.age.sha256' -o -name 'inventory-*.txt' \) \
+      -printf '%f\n' | sort
+  } >"${manifest_tmp}"
+  install -o root -g www-data -m 0640 "${manifest_tmp}" "${PUBLIC_BACKUP_DIR}/index.txt"
+  rm -f "${manifest_tmp}"
+}
 
 prune_expired_external_backups() {
   local latest_archive="" expired archive_checksum
@@ -146,9 +214,17 @@ prune_expired_external_backups() {
     -mtime +"${BACKUP_EXTERNAL_RETENTION_DAYS}" -delete
 }
 
+# Reclaim bounded local capacity before collection. Preserve the latest complete
+# archive and ignore directories outside the exact private staging grammar.
+prune_stale_local_staging
+prune_completed_backup_directory "${BACKUP_DIR}" "${BACKUP_LOCAL_RETENTION_DAYS}" no
+prune_completed_backup_directory "${PUBLIC_BACKUP_DIR}" "${BACKUP_LOCAL_RETENTION_DAYS}" yes
+rebuild_public_index
+
 # A full external disk cannot receive the new verified archive. Apply the
 # configured retention policy before local collection and external mirroring.
 prune_expired_external_backups
+install -d -m 0700 "${DEST}"
 
 # The inventory contains no secret-variable values.
 {
@@ -303,11 +379,9 @@ sync -f "${checksum_tmp}"
 mv -f "${checksum_tmp}" "${BACKUP_DIR}/${archive_name}.sha256"
 chmod 0600 "${BACKUP_DIR}/${archive_name}" "${BACKUP_DIR}/${archive_name}.sha256"
 
-# Before publishing, remove only expired local copies, then synchronize the full
-# remaining set rather than only the newest archive. This restores historical files
-# after a migration automatically.
-find "${BACKUP_DIR}" -maxdepth 1 -type f -name 'ladder-dragon-*.tgz.age*' \
-  -mtime +14 -delete
+# Apply retention again after the replacement exists. This catches files that
+# cross the age boundary during a long backup.
+prune_completed_backup_directory "${BACKUP_DIR}" "${BACKUP_LOCAL_RETENTION_DAYS}" no
 
 mirror_external_archive() {
   local source_archive="$1"
@@ -376,24 +450,12 @@ if [[ -n "${BACKUP_EXTERNAL_DIR}" ]]; then
 fi
 
 # The web directory contains only encrypted archives, checksums, and a safe
-# inventory without env/keys. Old files are removed before the index is rebuilt.
+# inventory without env/keys. Reapply retention after the replacement exists.
 install -o root -g www-data -m 0640 \
   "${DEST}/inventory.txt" \
   "${PUBLIC_BACKUP_DIR}/inventory-${STAMP}.txt"
-find "${PUBLIC_BACKUP_DIR}" -maxdepth 1 -type f \
-  \( -name '*.tgz.age*' -o -name 'inventory-*.txt' \) \
-  -mtime +14 -delete
-manifest_tmp="$(mktemp "${PUBLIC_BACKUP_DIR}/.index.XXXXXX")"
-{
-  echo "Ladder Dragon encrypted backups"
-  echo "Generated: ${STAMP} UTC"
-  echo "Archives are age-encrypted; inventory files contain no secrets."
-  find "${PUBLIC_BACKUP_DIR}" -maxdepth 1 -type f \
-    \( -name '*.tgz.age' -o -name '*.tgz.age.sha256' -o -name 'inventory-*.txt' \) \
-    -printf '%f\n' | sort
-} >"${manifest_tmp}"
-install -o root -g www-data -m 0640 "${manifest_tmp}" "${PUBLIC_BACKUP_DIR}/index.txt"
-rm -f "${manifest_tmp}"
+prune_completed_backup_directory "${PUBLIC_BACKUP_DIR}" "${BACKUP_LOCAL_RETENTION_DAYS}" yes
+rebuild_public_index
 STATUS_ARCHIVE_NAME="${archive_name}"
 STATUS_ARCHIVE_SIZE="$(stat -c %s "${BACKUP_DIR}/${archive_name}")"
 STATUS_ARCHIVE_SHA256="$(sha256sum "${BACKUP_DIR}/${archive_name}" | awk '{print $1}')"

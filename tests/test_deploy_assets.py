@@ -1058,7 +1058,7 @@ def test_updater_executes_verified_target_logic_before_service_mutation():
     updater = read("deploy/update_raspberry_pi.sh")
     bootstrap = updater.split(
         "bootstrap_verified_target_runner() {", 1
-    )[1].split("consume_break_glass() {", 1)[0]
+    )[1].split("run_preupdate_backup() {", 1)[0]
     invocation = (
         'bootstrap_verified_target_runner "${UPDATE_COMMIT}"'
     )
@@ -1072,7 +1072,7 @@ def test_updater_executes_verified_target_logic_before_service_mutation():
     assert "BOT_UPDATE_TARGET_RUNNER=1" in bootstrap
     assert '[[ ! -f "${BREAK_GLASS_MARKER}" ]] || return 1' in bootstrap
     assert updater.index(invocation) < updater.index(
-        'PROJECT_DIR="${PROJECT_DIR}" deploy/backup_raspberry_pi.sh'
+        'run_preupdate_backup "${UPDATE_COMMIT}"'
     )
     assert updater.index(invocation) < updater.index(
         "\nremember_service_state\n"
@@ -1135,6 +1135,47 @@ def test_backup_prunes_external_retention_before_mirroring():
     assert '[[ "${expired}" == "${latest_archive}" ]] && continue' in backup
     assert 'rm -f -- "${expired}" "${archive_checksum}"' in backup
     assert '-mtime +"${BACKUP_EXTERNAL_RETENTION_DAYS}" -print0' in backup
+
+
+def test_backup_prunes_local_capacity_before_creating_staging():
+    backup = read("deploy/backup_raspberry_pi.sh")
+    first_local_prune = backup.index(
+        'prune_completed_backup_directory "${BACKUP_DIR}" '
+        '"${BACKUP_LOCAL_RETENTION_DAYS}" no'
+    )
+    create_staging = backup.index('install -d -m 0700 "${DEST}"')
+
+    assert first_local_prune < create_staging
+    assert 'BACKUP_LOCAL_RETENTION_DAYS=14' in backup
+    assert '[[ "${expired}" == "${latest_archive}" ]] && continue' in backup
+    assert "-name 'preinstall-*.tgz.age'" in backup
+    assert 'rebuild_public_index\n\n# A full external disk' in backup
+
+
+def test_backup_removes_only_old_timestamp_staging_directories():
+    backup = read("deploy/backup_raspberry_pi.sh")
+    staging = backup.split("prune_stale_local_staging() {", 1)[1].split("\n}\n", 1)[0]
+
+    assert 'BACKUP_STAGING_RETENTION_MINUTES=60' in backup
+    assert (
+        '[[ "${name}" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}-[0-9]{6}$ ]] '
+        '|| continue'
+    ) in staging
+    assert '-mindepth 1 -maxdepth 1 -type d' in staging
+    assert '-mmin +"${BACKUP_STAGING_RETENTION_MINUTES}" -print0' in staging
+    assert 'rm -rf -- "${staging}"' in staging
+
+
+def test_target_updater_uses_target_backup_before_checkout():
+    updater = read("deploy/update_raspberry_pi.sh")
+    helper = updater.split("run_preupdate_backup() {", 1)[1].split("\n}\n", 1)[0]
+    call = 'run_preupdate_backup "${UPDATE_COMMIT}"'
+
+    assert '"${commit}:deploy/backup_raspberry_pi.sh"' in helper
+    assert 'mktemp /tmp/ladder-dragon-target-backup.XXXXXX' in helper
+    assert 'rm -f "${backup_runner}"' in helper
+    call_index = updater.index(call)
+    assert call_index < updater.index('systemctl stop mybot', call_index)
 
 
 def test_watchdog_uses_current_heartbeat_and_not_legacy_runner_name():

@@ -196,7 +196,9 @@ def test_deployment_installs_helper_and_guards_both_backup_intervals():
     assets = (root / "deploy/install_runtime_assets.sh").read_text()
     watchdog = (root / "deploy/pi-watchdog_v3.sh").read_text()
     assert '--maintenance-file "${MAINTENANCE_FILE}"' in watchdog
-    assert updater.index("flock -s -w 45 19") < updater.index('PROJECT_DIR="${PROJECT_DIR}" deploy/backup_raspberry_pi.sh')
+    assert updater.index("flock -s -w 45 19") < updater.index(
+        'run_preupdate_backup "${UPDATE_COMMIT}"'
+    )
     assert backup.index("flock -s -w 45 18") < backup.index('command -v age')
     for source in (updater, backup):
         assert "network-reboot.boot /proc/sys/kernel/random/boot_id" in source

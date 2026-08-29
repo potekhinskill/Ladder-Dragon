@@ -1,5 +1,12 @@
 # Engineering decisions
 
+### 2026-08-29 — Reclaim backup capacity before collection
+
+- **Context:** interrupted backup staging and expired local copies can consume the capacity required by the next encrypted archive.
+- **Decision:** prune eligible local, public, and external data before writing, while preserving the newest completed archive.
+- **Why it worked:** tests require preflight ordering, strict staging grammar, minimum staging age, and immediate public index reconstruction.
+- **Reuse:** every capacity-sensitive archive workflow with atomic publication and interrupted-run recovery.
+
 ### 2026-08-29 — Bound host recovery with persistent authority
 
 - **Context:** network recovery must not create reboot loops or interrupt protected host operations.

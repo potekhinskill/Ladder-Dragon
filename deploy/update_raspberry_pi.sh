@@ -130,6 +130,31 @@ bootstrap_verified_target_runner() {
     BOT_USER="${BOT_USER}" bash "${runner}" update "${commit}"
 }
 
+run_preupdate_backup() {
+  local commit="$1" backup_runner backup_status
+  if [[ "${BOT_UPDATE_TARGET_RUNNER:-0}" != "1" ]]; then
+    PROJECT_DIR="${PROJECT_DIR}" deploy/backup_raspberry_pi.sh
+    return
+  fi
+
+  # The verified target backup must enforce new retention before checkout.
+  backup_runner="$(mktemp /tmp/ladder-dragon-target-backup.XXXXXX)"
+  runuser -u "${BOT_USER}" -- git show \
+    "${commit}:deploy/backup_raspberry_pi.sh" >"${backup_runner}" \
+    || {
+      rm -f "${backup_runner}"
+      fail "verified target commit has no backup runner"
+    }
+  chmod 0700 "${backup_runner}"
+  if PROJECT_DIR="${PROJECT_DIR}" bash "${backup_runner}"; then
+    backup_status=0
+  else
+    backup_status=$?
+  fi
+  rm -f "${backup_runner}"
+  return "${backup_status}"
+}
+
 consume_break_glass() {
   local commit="${1,,}"
   [[ -f "${BREAK_GLASS_MARKER}" ]] || return 1
@@ -505,7 +530,7 @@ export BACKUP_AGE_RECIPIENT="${backup_values[0]}"
 export BACKUP_EXTERNAL_MOUNT="${backup_values[1]}"
 export BACKUP_EXTERNAL_DIR="${backup_values[2]}"
 export BACKUP_EXTERNAL_RETENTION_DAYS="${backup_values[3]}"
-PROJECT_DIR="${PROJECT_DIR}" deploy/backup_raspberry_pi.sh
+run_preupdate_backup "${UPDATE_COMMIT}"
 
 # Copy authoritative control evidence before stopping the legacy unit:
 # systemd removes an unpreserved RuntimeDirectory during stop.

@@ -3,6 +3,21 @@
 All notable changes are documented here. Releases use Semantic Versioning; every
 section is dated and there is intentionally no `Unreleased` section.
 
+## [2.20.259] — 2026-08-29
+
+### Fixed
+- Local and public backup rotation now runs before capacity-sensitive collection and again after verified publication.
+- Interrupted timestamp staging older than sixty minutes is removed before the next backup.
+- The verified target updater now applies target backup retention before changing the checkout.
+
+### Security
+- Rotation preserves the newest completed encrypted archive and ignores directories outside the exact staging grammar.
+- Public backup indexes are rebuilt immediately after preflight rotation.
+
+### Verified
+- Full project suite passes: 1477 tests, including backup preflight and target-runner contracts.
+- Python compilation, shell syntax, Technical English, and whitespace checks pass.
+
 ## [2.20.258] — 2026-08-29
 
 ### Added

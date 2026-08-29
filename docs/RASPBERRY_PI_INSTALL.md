@@ -828,6 +828,12 @@ retention follows `BACKUP_EXTERNAL_RETENTION_DAYS`. External rotation runs befor
 each mirror operation. Rotation keeps the newest encrypted archive until its
 verified replacement exists.
 
+Local and public rotation runs before collection and after publication.
+It preserves the newest completed encrypted archive.
+Staging directories older than sixty minutes are removed before collection.
+The cleanup accepts only the timestamp grammar created by the backup script.
+Other directories remain unchanged and require separate operator review.
+
 ### 10.1 Daily Telegram trading digest
 
 The installer enables `ladder-dragon-daily-digest.timer`.

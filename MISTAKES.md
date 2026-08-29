@@ -1,5 +1,12 @@
 # Engineering mistakes and root causes
 
+### 2026-08-29 — Relied on exit cleanup for private backup staging
+
+- **Impact:** interrupted updates retained private staging and reduced capacity for the next required backup.
+- **Root cause:** staging cleanup ran only on shell exit, while local rotation ran after archive creation.
+- **Correction:** remove old timestamp staging and expired completed copies before collection, then rotate again after publication.
+- **Prevention:** test preflight ordering, strict directory grammar, minimum age, and newest-archive preservation.
+
 ### 2026-08-29 — Copied only the default maintenance path
 
 - **Impact:** the first recovery helper could ignore a watchdog maintenance-path override.
