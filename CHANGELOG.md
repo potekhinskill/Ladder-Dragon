@@ -3,6 +3,20 @@
 All notable changes are documented here. Releases use Semantic Versioning; every
 section is dated and there is intentionally no `Unreleased` section.
 
+## [2.20.261] — 2026-08-29
+
+### Fixed
+- The historical context transport now permits the exact public kline request required by the supervisor PANIC observer.
+- Endpoint-specific response validation accepts kline arrays without weakening signed commission reads.
+
+### Security
+- Public PANIC reads remain bounded, unsigned, allow-listed, and unable to access account credentials or order endpoints.
+- Invalid symbols, intervals, limits, response types, stale states, and fingerprints fail closed.
+
+### Verified
+- The full project suite passes: 1,498 tests.
+- The focused context transport, historical context, and PANIC observer suite passes: 29 tests.
+
 ## [2.20.260] — 2026-08-29
 
 ### Added

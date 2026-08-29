@@ -5,6 +5,7 @@ import pytest
 import requests
 
 from ladder_dragon.supervision.context_transport import HistoricalContextClient, MAX_RESPONSE_BYTES
+from ladder_dragon.supervision.panic_observer import refresh_panic_observation
 
 
 class Response:
@@ -53,6 +54,52 @@ def test_only_get_endpoints_and_bounded_clock_before_signing():
         with pytest.raises(ValueError, match="unsupported"):
             call("/api/v3/order", {"symbol": "SOLUSDT"})
     assert len(session.calls) == 3
+
+
+def test_public_kline_transport_feeds_halt_safe_panic_observer(tmp_path):
+    bars = [
+        [index * 60_000, "100", "101", "99", "100", "1", index * 60_000 + 59_999]
+        for index in range(120)
+    ]
+    response = Response(bars)
+    session = Session([response])
+    client = HistoricalContextClient(
+        base_url="https://api.binance.com",
+        credentials=lambda: pytest.fail("public PANIC read accessed credentials"),
+        session=session,
+    )
+
+    result = refresh_panic_observation(
+        "SOLUSDT",
+        public_get=client.public_get,
+        now_ms=1_000_000,
+        run_dir=tmp_path,
+    )
+
+    assert result["symbol"] == "SOLUSDT"
+    assert response.closed
+    assert session.calls[0][0].endswith("/api/v3/klines")
+    assert session.calls[0][1]["params"] == {
+        "symbol": "SOLUSDT",
+        "interval": "1m",
+        "limit": 120,
+    }
+    assert session.calls[0][1]["headers"] == {}
+
+
+@pytest.mark.parametrize(
+    ("params", "payload"),
+    [
+        ({"symbol": "SOLUSDT", "interval": "5m", "limit": 120}, []),
+        ({"symbol": "SOLUSDT", "interval": "1m", "limit": 121}, []),
+        ({"symbol": "solusdt", "interval": "1m", "limit": 120}, []),
+        ({"symbol": "SOLUSDT", "interval": "1m", "limit": 120}, {}),
+    ],
+)
+def test_public_kline_transport_rejects_contract_drift(params, payload):
+    session = Session([Response(payload)])
+    with pytest.raises(ValueError, match="unsupported|array"):
+        make(session).public_get("/api/v3/klines", params)
 
 
 def test_decoded_byte_limit_stops_before_json_and_closes_response():

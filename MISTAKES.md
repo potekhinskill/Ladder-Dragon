@@ -2195,3 +2195,10 @@ private infrastructure details.
 - **Root cause:** the recorder documented external archival but installed no verified retention service.
 - **Correction:** add daily encrypted external archival with reference-aware local rotation.
 - **Prevention:** every persistent growth limit must include an installed maintenance consumer.
+
+### 2026-08-29 — Mocked PANIC producer bypassed the transport allow-list
+
+- **Impact:** the supervisor observer could not create PANIC state, so every HALT context row remained blocked.
+- **Root cause:** unit tests injected a permissive callback and bypassed the production endpoint allow-list.
+- **Correction:** permit one exact bounded public kline request and validate endpoint-specific response types.
+- **Prevention:** run each new evidence source through its real transport in an integration test.

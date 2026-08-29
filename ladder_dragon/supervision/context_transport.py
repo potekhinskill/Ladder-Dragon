@@ -8,6 +8,7 @@ from __future__ import annotations
 import hashlib
 import hmac
 import json
+import re
 import time
 from urllib.parse import urlencode, urlsplit
 
@@ -35,8 +36,13 @@ class HistoricalContextClient:
         self.cooldown_until = 0.0
         self.offset_ms, self.clock_checked = None, 0.0
 
-    def _get(self, endpoint: str, params: dict, headers=None) -> dict:
-        if endpoint not in {"/api/v3/time", "/api/v3/exchangeInfo", "/api/v3/account/commission"}:
+    def _get(self, endpoint: str, params: dict, headers=None) -> object:
+        if endpoint not in {
+            "/api/v3/time",
+            "/api/v3/exchangeInfo",
+            "/api/v3/klines",
+            "/api/v3/account/commission",
+        }:
             raise ValueError("context endpoint unsupported")
         if time.monotonic() < self.cooldown_until:
             raise RuntimeError("context source cooldown active")
@@ -59,8 +65,8 @@ class HistoricalContextClient:
                     raise ValueError("context source response limit reached")
                 body.extend(chunk)
             payload = json.loads(body.decode("utf-8"))
-            if not isinstance(payload, dict):
-                raise ValueError("context source object required")
+            if not isinstance(payload, (dict, list)):
+                raise ValueError("context source JSON container required")
             return payload
         except requests.RequestException:
             # Never retain a signed URL or provider text in diagnostics.
@@ -69,10 +75,29 @@ class HistoricalContextClient:
             if response is not None:
                 response.close()
 
-    def public_get(self, endpoint: str, params: dict) -> dict:
-        if endpoint != "/api/v3/exchangeInfo" or set(params) != {"symbol"}:
-            raise ValueError("context public request unsupported")
-        return self._get(endpoint, dict(params))
+    def public_get(self, endpoint: str, params: dict) -> object:
+        symbol = params.get("symbol")
+        if not isinstance(symbol, str) or re.fullmatch(r"[A-Z0-9]{5,20}", symbol) is None:
+            raise ValueError("context public symbol unsupported")
+        if endpoint == "/api/v3/exchangeInfo" and set(params) == {"symbol"}:
+            payload = self._get(endpoint, dict(params))
+            if not isinstance(payload, dict):
+                raise ValueError("context exchange information object required")
+            return payload
+        # PANIC observation uses one exact public request. It has no account or
+        # order authority and remains subject to the shared decoded-byte limit.
+        if (
+            endpoint == "/api/v3/klines"
+            and set(params) == {"symbol", "interval", "limit"}
+            and params.get("interval") == "1m"
+            and type(params.get("limit")) is int
+            and params["limit"] == 120
+        ):
+            payload = self._get(endpoint, dict(params))
+            if not isinstance(payload, list):
+                raise ValueError("context kline array required")
+            return payload
+        raise ValueError("context public request unsupported")
 
     def signed_get(self, endpoint: str, params: dict) -> dict:
         if endpoint != "/api/v3/account/commission" or set(params) != {"symbol"}:
@@ -84,11 +109,14 @@ class HistoricalContextClient:
             started = time.time_ns() // 1_000_000
             clock = self._get("/api/v3/time", {})
             finished = time.time_ns() // 1_000_000
-            if type(clock.get("serverTime")) is not int:
+            if not isinstance(clock, dict) or type(clock.get("serverTime")) is not int:
                 raise ValueError("context exchange clock unavailable")
             self.offset_ms = exchange_time_offset_ms(
                 server_time_ms=clock["serverTime"], request_started_ms=started, response_finished_ms=finished)
             self.clock_checked = time.monotonic()
         query = dict(params, timestamp=time.time_ns() // 1_000_000 + self.offset_ms, recvWindow=5000)
         query["signature"] = hmac.new(secret.encode(), urlencode(query).encode(), hashlib.sha256).hexdigest()
-        return self._get(endpoint, query, {"X-MBX-APIKEY": key})
+        payload = self._get(endpoint, query, {"X-MBX-APIKEY": key})
+        if not isinstance(payload, dict):
+            raise ValueError("context commission object required")
+        return payload
