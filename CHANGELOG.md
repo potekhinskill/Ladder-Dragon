@@ -3,6 +3,23 @@
 All notable changes are documented here. Releases use Semantic Versioning; every
 section is dated and there is intentionally no `Unreleased` section.
 
+## [2.20.260] — 2026-08-29
+
+### Added
+- A public supervisor PANIC observer keeps fresh historical context available during persistent HALT.
+- Historical replay blocks can create one immutable selection-only entry-veto artifact.
+- An empirical volatility policy separates old selection reports from new replay confirmation archives.
+- Daily L2 retention encrypts eligible segments on external storage before verified local rotation.
+
+### Security
+- Stale PANIC state, reused source hashes, overlapping time blocks, and pre-cutoff confirmation fail closed.
+- L2 removal requires a recent encrypted backup, no evidence reference, valid hashes, and verified external ciphertext.
+- HALT, execution scope, BTC, ETH, and order authority remain unchanged.
+
+### Verified
+- Full project suite passes: 1,493 tests.
+- Python compilation, shell syntax, numeric audit, Technical English, and whitespace checks pass.
+
 ## [2.20.259] — 2026-08-29
 
 ### Fixed

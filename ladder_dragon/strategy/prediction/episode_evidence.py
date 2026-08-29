@@ -931,6 +931,7 @@ def record_model_validation(
         replay_acceptance_reasons,
     )
     from ladder_dragon.strategy.replay_cohorts import verify_cohort_fingerprint
+    from ladder_dragon.strategy.volatility_policy import verify_volatility_policy
     from ladder_dragon.strategy.prediction.experiment_lifecycle import (
         load_manifest,
     )
@@ -968,6 +969,15 @@ def record_model_validation(
         context_cohort.get("readiness")
         if isinstance(context_cohort, Mapping) else None
     )
+    context_volatility_policy = (
+        context_cohort.get("volatility_policy")
+        if isinstance(context_cohort, Mapping) else None
+    )
+    if context_volatility_policy is not None and not (
+        isinstance(context_volatility_policy, Mapping)
+        and verify_volatility_policy(context_volatility_policy)
+    ):
+        raise ValueError("replay volatility policy is invalid")
     if (
         not validation.ready
         or validation.covered_orders < 10
@@ -990,6 +1000,16 @@ def record_model_validation(
         or D(str(context_readiness.get("span_days", "0"))) < D("2")
         or set(context_readiness.get("regimes", ()))
         != {"low", "normal", "high"}
+        or (
+            isinstance(context_volatility_policy, Mapping)
+            and (
+                context_readiness.get("volatility_policy_sha256")
+                != context_volatility_policy.get("policy_sha256")
+                or context_readiness.get(
+                    "volatility_confirmation_after_cutoff"
+                ) is not True
+            )
+        )
         or validation.actual_filled_orders < 1
         or validation.actual_limit_maker_filled_orders < 1
         or validation.actual_stop_limit_filled_orders < 1

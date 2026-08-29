@@ -133,6 +133,10 @@ def v23_evidence_semantics_contract() -> dict[str, object]:
         "late_cancel_policy": "KEEP_ORIGINAL_FILL_AND_PNL",
         "capacity_policy": "SEQUENTIAL_ONE_SLOT_REPLAY",
     }
+    contract["regime_classifier"] = dict(contract["regime_classifier"])
+    contract["regime_classifier"]["panic_source"] = (
+        "supervisor_public_market_panic_v1"
+    )
     return contract
 
 
@@ -231,6 +235,13 @@ def require_execution_regime_contract(observed: Mapping[str, object]) -> None:
         raise ValueError("execution regime classifier differs from evidence")
 
 
+def require_historical_regime_contract(observed: Mapping[str, object]) -> None:
+    """Reject historical selection when its future classifier differs."""
+    expected = dict(v23_evidence_semantics_contract()["regime_classifier"])
+    if canonical_digest(observed) != canonical_digest(expected):
+        raise ValueError("historical regime classifier differs from evidence")
+
+
 def require_runtime_regime_contract(
     symbol: str, arguments: object, environ: Mapping[str, str]
 ) -> None:
@@ -293,5 +304,6 @@ __all__ = [
     "v23_evidence_semantics_contract",
     "v23_evidence_semantics_fingerprint",
     "require_execution_regime_contract",
+    "require_historical_regime_contract",
     "require_runtime_regime_contract",
 ]

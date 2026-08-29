@@ -834,6 +834,20 @@ Staging directories older than sixty minutes are removed before collection.
 The cleanup accepts only the timestamp grammar created by the backup script.
 Other directories remain unchanged and require separate operator review.
 
+The installer also enables `ladder-dragon-depth-retention.timer`.
+The timer runs after the daily encrypted backup.
+It archives eligible L2 segments to the configured external backup directory.
+It keeps at least 24 local segments and a 14-day local window.
+It never removes referenced, uncalibrated, recent, or unverified segments.
+
+```bash
+sudo systemctl status ladder-dragon-depth-retention.timer --no-pager
+sudo systemctl start ladder-dragon-depth-retention.service
+sudo systemctl status ladder-dragon-depth-retention.service --no-pager
+```
+
+A failed retention run preserves all local source files.
+
 ### 10.1 Daily Telegram trading digest
 
 The installer enables `ladder-dragon-daily-digest.timer`.
@@ -1024,6 +1038,10 @@ Keep the file root-owned and mode `0600`. The service still strips Binance and
 AI credential variables before starting. The bot writes sanitized
 `logs/execution_latency.ndjson` samples only for exact journal-linked order
 events; calibration uses only `NEW/NEW` reports for acknowledgement latency.
+
+The supervisor PANIC observer uses only public closed bars.
+It remains available during persistent HALT when the execution worker is absent.
+Its state expires after two minutes and cannot authorize orders.
 
 ## 13. Migration and troubleshooting
 

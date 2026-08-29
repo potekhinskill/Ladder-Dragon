@@ -1,0 +1,14 @@
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2026 IURII Potekhin
+# Purpose: schedule encrypted depth evidence retention after daily backup.
+[Unit]
+Description=Schedule Ladder Dragon encrypted depth retention
+
+[Timer]
+OnCalendar=*-*-* 04:10:00
+RandomizedDelaySec=10m
+Persistent=true
+Unit=ladder-dragon-depth-retention.service
+
+[Install]
+WantedBy=timers.target

@@ -68,7 +68,9 @@ See [Historical entry replay](HISTORICAL_ENTRY_REPLAY.md) for continuous source 
 | `validate_replay_sessions` | validates separate contiguous replay sessions without joining gaps |
 | `record_depth_archive` | records public depth and aggregate-trade JSONL |
 | `depth_archive_service` | rotates one continuous public stream and processes calibration separately |
+| `depth_archive_retention` | encrypts eligible L2 segments externally before local removal |
 | `replay_historical_entries` | generates historical opportunities from immutable inputs; optional `--context-db` verifies source-owned context |
+| `volatility_policy` | freezes empirical volatility buckets from selection-only calibration reports |
 | `import_entry_veto_l2` | imports source-hashed public L2 entry features into SHADOW evidence |
 | `prediction_history_backfill` | creates cutoff-safe samples from archived bars |
 | `backfill_prediction_archive` | repairs eligible expired prediction outcomes |
@@ -125,6 +127,7 @@ Validate separate archives without joining recording gaps:
   --calibration-context low-calibration.json \
   --calibration-context normal-calibration.json \
   --calibration-context high-calibration.json \
+  --volatility-policy volatility-policy.json \
   --batch-manifest BATCH_MANIFEST \
   --execution-log execution-latency.ndjson \
   --maker-buy-fee-pct MAKER_BUY_RATE \
@@ -143,6 +146,7 @@ Each `--session` must belong to the complete order validation batch.
 Each `--calibration-context` must contain only read-only public archive calibration.
 The two cohorts must not share an archive SHA-256.
 The calibration context must cover two days and all required volatility regimes.
+If used, the policy must come from a disjoint pre-cutoff selection cohort.
 
 Each terminal order must fit inside one session.
 The validator rejects duplicate or overlapping archive identities.
@@ -202,6 +206,21 @@ Freeze the reviewed selection artifact only after the report becomes ready:
 
 The cutoff, evidence identifiers, hashes, latency, and selected rule become immutable.
 The artifact cannot authorize orders or change the source generation.
+
+Import three reviewed historical selection blocks:
+
+```bash
+.venv/bin/python -m bin.prediction_experiment \
+  entry-veto-import-history SOURCE_EXPERIMENT_ID \
+  --cutoff-ts-ms CUTOFF_TS_MS \
+  --report BLOCK_ONE.json --report-sha256 BLOCK_ONE_SHA256 \
+  --report BLOCK_TWO.json --report-sha256 BLOCK_TWO_SHA256 \
+  --report BLOCK_THREE.json --report-sha256 BLOCK_THREE_SHA256 \
+  --confirm IMPORT-HISTORICAL-VETO
+```
+
+The command stores only a strict selection artifact.
+It cannot satisfy confirmation or authorize an order.
 
 Finalize the exact reviewed report:
 
@@ -329,6 +348,8 @@ Do not publish its output.
 | `ladder-dragon-database-retention.timer` | starts database retention | daily after backup |
 | `ladder-dragon-depth-archive.service` | continuous public L2 archive recorder | persistent service |
 | `ladder-dragon-depth-archive.timer` | legacy hourly archive schedule | disabled by deployment |
+| `ladder-dragon-depth-retention.service` | verified encrypted L2 archive rotation | timer target |
+| `ladder-dragon-depth-retention.timer` | starts L2 retention after backup | 04:10 each day |
 | `ladder-dragon-log-export.service` | sanitized dashboard log export | timer target |
 | `ladder-dragon-log-export.timer` | refreshes the log export | each minute |
 | `ladder-dragon-monthly-prediction.service` | monthly SHADOW report | timer target |

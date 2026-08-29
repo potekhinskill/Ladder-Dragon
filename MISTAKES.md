@@ -2174,3 +2174,24 @@ private infrastructure details.
 - **Root cause:** the replay input contained historical fills rather than a complete chronological market stream.
 - **Correction:** generate entries from fixed cadence, causal signals, historical context, and delayed cancellation state.
 - **Prevention:** require a regression where the veto creates entries absent from the baseline.
+
+### 2026-08-29 — Tested a context consumer without its HALT producer
+
+- **Impact:** 651 historical context records became unusable because every record lacked PANIC state.
+- **Root cause:** tests injected worker-owned PANIC files and did not exercise persistent HALT end to end.
+- **Correction:** add a public supervisor observer with freshness and fingerprint checks.
+- **Prevention:** test each required evidence source with every process that can be intentionally absent.
+
+### 2026-08-29 — Declared historical replay before connecting selection import
+
+- **Impact:** retained L2 archives could produce reports but could not create a version 23 selection artifact.
+- **Root cause:** the first release stopped at a manual diagnostic CLI and omitted the lifecycle importer.
+- **Correction:** import strict non-overlapping blocks into the existing immutable selection table.
+- **Prevention:** test each evidence producer through its final authorized consumer boundary.
+
+### 2026-08-29 — Bounded L2 storage without an archival consumer
+
+- **Impact:** public archives grew toward the directory limit and could eventually stop capture.
+- **Root cause:** the recorder documented external archival but installed no verified retention service.
+- **Correction:** add daily encrypted external archival with reference-aware local rotation.
+- **Prevention:** every persistent growth limit must include an installed maintenance consumer.

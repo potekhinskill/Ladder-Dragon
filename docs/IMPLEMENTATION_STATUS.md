@@ -1,6 +1,6 @@
 # Implementation status
 
-This document describes the code in version **2.20.258**.
+This document describes the code in version **2.20.260**.
 It does not describe future plans as completed work.
 
 An implemented function is not automatically approved for LIVE use.
@@ -15,7 +15,7 @@ The configured mode and its evidence gate remain authoritative.
 | Accounting | Exact FIFO lots, exact AI fills, fee provenance, risk streaks, and cursor audits | Fail closed on incomplete evidence |
 | Replay | Separate order validation and read-only calibration cohorts with immutable fingerprints | L2 model, not exact L3 |
 | Historical entry selection | Continuous hash-linked depth segments and new opportunities after delayed cancellation | Offline selection only; no promotion authority |
-| Historical context | Source-owned filter, fee, confirmed-regime, and PANIC journal with cutoff-safe export | SOL observer; missing inputs block replay |
+| Historical context | Source-owned filters, fees, regimes, and fresh supervisor PANIC state | SOL observer; missing inputs block replay |
 | Prediction | 1, 5, and 15 minute SHADOW outcomes | Enabled for evidence only |
 | Market scenarios | 1-hour through monthly closed-candle outcomes | SHADOW only |
 | Experiments | Diagnostic cohorts and one preregistered SOL execution-episode cohort | SHADOW only |
@@ -118,6 +118,7 @@ Selection uses independent paths and three chronological stability blocks.
 The counterfactual replay keeps late fills and their PnL.
 A successful cancel releases the single entry slot at its modeled exchange arrival time.
 The selected artifact records its cutoff, evidence identifiers, archive hashes, and exact rule.
+Historical replay blocks can create the same selection-only artifact after strict time-block checks.
 Version twenty-three cannot freeze without that stored artifact.
 Its runtime APPLY path remains unavailable until the matching cancel implementation passes replay.
 
@@ -158,6 +159,8 @@ It requires a filled LIMIT_MAKER order and a filled STOP_LOSS_LIMIT order.
 The validation compares fills, ratios, prices, latency, fees, and slippage.
 Readiness requires three archives spanning two days.
 The archives must cover low, normal, and high volatility.
+An empirical policy can freeze these buckets from a disjoint selection cohort.
+Only later calibration archives can confirm the frozen buckets.
 At least one archive must contain measured order latency.
 
 The first gate evaluates the complete candidate strategy.
@@ -182,6 +185,10 @@ Automated retention does not delete CHAMPION probation state.
 The prediction database backup includes all these records.
 No scheduled maintenance changes these append-only tables.
 Capacity exhaustion fails closed and requires a reviewed schema change.
+
+The L2 retention service archives completed public segments after 14 days.
+It requires calibration, no database reference, and a recent verified encrypted backup.
+It verifies external encrypted publication before local removal.
 
 New plan semantics use a new experiment identifier.
 Historical experiment rows remain available and never mix with the active generation.

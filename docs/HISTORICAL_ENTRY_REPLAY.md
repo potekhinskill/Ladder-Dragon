@@ -37,8 +37,10 @@ Each child has a five-minute time limit.
 `NOT_OBSERVED` means that current valid reports do not contain that regime.
 Neither status proves that the underlying market never experienced high volatility.
 
-The high threshold remains two basis points.
-The low threshold remains one-half basis point.
+The version one policy keeps fixed thresholds of 0.5 and 2 basis points.
+An immutable selection policy can define empirical thresholds for a later confirmation cohort.
+Its selection reports must end before the fixed cutoff.
+Its confirmation archives must start after the cutoff and use different source hashes.
 Public receive latency never proves real order execution.
 This inventory does not replace replay readiness or order validation.
 
@@ -98,8 +100,10 @@ The complete context expires with its earliest source.
 Repeated cache use never renews a source timestamp.
 
 The runtime source records the exact confirmed regime and PANIC input consumed by the supervisor.
-It does not independently verify continuous PANIC-detector freshness.
-Unknown PANIC state blocks collection; it never becomes a false value.
+A public supervisor observer refreshes PANIC state when the execution worker is absent.
+The observer state expires after two minutes.
+Its fingerprint fixes the calculation, debounce, cooldown, and recovery rules.
+Unknown or stale PANIC state blocks collection; it never becomes a false value.
 A state change during a pending source read creates an explicit unavailable record.
 The status appears under `historical_context` in the runtime status object.
 Failure status contains an error class, not an exception message.
@@ -167,26 +171,60 @@ It does not approve a candidate, prove profitability, or authorize promotion.
 Independent time-block selection, runtime parity, and independent confirmation remain separate requirements.
 An existing output file blocks publication rather than being replaced.
 
+Import reviewed, non-overlapping historical replay blocks:
+
+```bash
+.venv/bin/python -m bin.prediction_experiment \
+  entry-veto-import-history SOURCE_EXPERIMENT_ID \
+  --cutoff-ts-ms CUTOFF_TS_MS \
+  --report BLOCK_ONE.json --report-sha256 BLOCK_ONE_SHA256 \
+  --report BLOCK_TWO.json --report-sha256 BLOCK_TWO_SHA256 \
+  --report BLOCK_THREE.json --report-sha256 BLOCK_THREE_SHA256 \
+  --confirm IMPORT-HISTORICAL-VETO
+```
+
+The importer requires 30 opportunities and 12 independent paths.
+Two-thirds of the time blocks must show stable improvement.
+The imported artifact remains selection-only and cannot satisfy live confirmation.
+
+Freeze empirical volatility boundaries from pre-cutoff calibration reports:
+
+```bash
+.venv/bin/python -m bin.volatility_policy CALIBRATION_FILES \
+  --cutoff-ts-ms CUTOFF_TS_MS \
+  --created-at-ms CREATED_AT_MS \
+  --output volatility-policy.json \
+  --confirm FREEZE-VOLATILITY-SELECTION
+```
+
+Use the policy only with new calibration archives through `--volatility-policy`.
+The confirmation cohort must cover two days and all three frozen buckets.
+
 ## Storage contract
 
 | Record | Classification | Growth bound | Retention and archive dependency |
 | --- | --- | --- | --- |
-| Public segments and sidecars | Authoritative source evidence | Directory byte cap and 10,000 segment limit | Indefinite until verified encrypted archival and reference review |
+| Public segments and sidecars | Authoritative source evidence | Directory byte cap and 10,000 segment limit | Local 14-day minimum; external encrypted archive after reference review |
 | Calibration reports | Derived evidence | One report per source segment | Same retention as the retained source |
 | Calibration inventory | Disposable status | One bounded replacement file | Rebuilt by the worker; no archive dependency |
 | Historical replay reports | Derived selection evidence | 10,000 attempts per policy and immutable output | Retain with policy, context, and source archives |
 | Historical context journal | Authoritative context evidence | 131,072 records and 256 MiB database limit | Indefinite; archive only after verified encrypted backup and reference review |
 | Context export | Derived selection evidence | 4,096 records and 16 MiB compact JSON limit | Retain with the immutable replay report and journal |
+| Historical selection artifact | Derived selection evidence | 1,024 database rows | Indefinite with referenced reports and source hashes |
+| Volatility policy | Derived selection evidence | 2,048 calibration reports per immutable file | Indefinite with its confirmation report |
 | Unfinished temporary files | Disposable incomplete capture | Shared directory byte cap | Manual review; never selected as evidence |
 
 The worker checks the backlog every thirty seconds when idle.
 The recorder checks storage capacity at every rotation and before each write.
 The default directory limit is eight gibibytes.
-The capture service no longer deletes files solely because of their age.
 Pending diagnostics, selection references, and validation evidence can depend on older files.
 Storage exhaustion stops capture instead of removing protected evidence.
-Archive removal requires a recent verified encrypted backup and an explicit reference review.
-No automated archive-removal job is introduced by this change.
+The daily retention job keeps at least 24 recent segments.
+It selects only completed, calibrated, unreferenced segments older than 14 days.
+It requires a recent verified encrypted application backup.
+It streams selected files into an encrypted bundle on the external disk.
+It verifies the encrypted bundle before it removes exact local files.
+Any mount, hash, backup, encryption, or reference failure preserves local files.
 
 The context writer checks record and database capacity on every observation.
 Its write-ahead log requests a checkpoint every 256 pages.

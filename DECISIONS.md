@@ -1808,3 +1808,24 @@ entries concise; this is not a changelog or an activity log.
 - **Decision:** replay independent policy slots against chronological public events and explicit historical context.
 - **Why it worked:** cancellation latency, partial fills, and cadence determine new entries without future fill knowledge.
 - **Reuse:** historical selection for policies that change future availability.
+
+### 2026-08-29 — Observe safety context outside the execution worker
+
+- **Context:** persistent HALT removed the worker-owned PANIC state required by historical selection.
+- **Decision:** use one fresh, fingerprinted, public supervisor observer for PANIC evidence.
+- **Why it worked:** HALT no longer removes context, while stale or incompatible state still blocks selection.
+- **Reuse:** every observer whose evidence must remain available while execution is disabled.
+
+### 2026-08-29 — Separate volatility selection from replay confirmation
+
+- **Context:** fixed volatility boundaries never observed a high regime in retained calibration reports.
+- **Decision:** freeze empirical boundaries before a disjoint, post-cutoff confirmation cohort starts.
+- **Why it worked:** old data selects the policy, while new source hashes prove all fixed buckets.
+- **Reuse:** every empirical boundary that affects a later readiness gate.
+
+### 2026-08-29 — Remove public evidence only after external verification
+
+- **Context:** continuous L2 capture had a capacity limit but no safe scheduled rotation.
+- **Decision:** encrypt unreferenced segments externally, verify the bundle, then remove exact local files.
+- **Why it worked:** mount, backup, reference, hash, and encryption failures preserve every local source.
+- **Reuse:** every large derived or public evidence stream on limited storage.

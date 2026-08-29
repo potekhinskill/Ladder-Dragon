@@ -7,7 +7,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from decimal import Decimal
-from typing import Iterable
+from typing import Iterable, Mapping
 
 from ladder_dragon.strategy.market_replay import ReplayCalibration
 from ladder_dragon.strategy.replay_validation import ReplayValidation
@@ -27,6 +27,8 @@ class ReplayReadiness:
     validation_report_count: int
     validated_order_count: int
     archive_sha256s: tuple[str, ...]
+    volatility_policy_sha256: str = ""
+    volatility_confirmation_after_cutoff: bool = False
 
     def as_dict(self) -> dict[str, object]:
         return {
@@ -42,6 +44,10 @@ class ReplayReadiness:
             "validation_report_count": self.validation_report_count,
             "validated_order_count": self.validated_order_count,
             "archive_sha256s": list(self.archive_sha256s),
+            "volatility_policy_sha256": self.volatility_policy_sha256,
+            "volatility_confirmation_after_cutoff": (
+                self.volatility_confirmation_after_cutoff
+            ),
         }
 
 
@@ -75,6 +81,7 @@ def audit_replay_readiness(
     high_min_bps: Decimal = Decimal("2"),
     minimum_validation_reports: int = 1,
     minimum_validated_orders: int = 10,
+    volatility_policy: Mapping[str, object] | None = None,
 ) -> ReplayReadiness:
     rows = list(calibrations)
     validation_rows = list(validations)
@@ -99,6 +106,24 @@ def audit_replay_readiness(
         reasons.append(
             f"archive span {format(span_days, '.3f')}d < {minimum_span_days}d"
         )
+    policy_sha256 = ""
+    confirmation_after_cutoff = False
+    if volatility_policy is not None:
+        from ladder_dragon.strategy.volatility_policy import (
+            confirmation_cohort_reasons,
+            verify_volatility_policy,
+        )
+        if not verify_volatility_policy(volatility_policy):
+            reasons.append("volatility policy is invalid")
+        else:
+            low_max_bps = Decimal(str(volatility_policy["low_max_bps"]))
+            high_min_bps = Decimal(str(volatility_policy["high_min_bps"]))
+            policy_sha256 = str(volatility_policy["policy_sha256"])
+            cohort_reasons = confirmation_cohort_reasons(
+                volatility_policy, rows
+            )
+            reasons.extend(cohort_reasons)
+            confirmation_after_cutoff = not cohort_reasons
     regimes = tuple(sorted({
         volatility_regime(
             row.volatility_bps_p95,
@@ -176,4 +201,6 @@ def audit_replay_readiness(
         validation_report_count=len(validation_rows),
         validated_order_count=validated_orders,
         archive_sha256s=tuple(sorted(unique_hashes)),
+        volatility_policy_sha256=policy_sha256,
+        volatility_confirmation_after_cutoff=confirmation_after_cutoff,
     )

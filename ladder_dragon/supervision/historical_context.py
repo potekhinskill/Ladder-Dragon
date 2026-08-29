@@ -15,12 +15,16 @@ import uuid
 import requests
 
 from ladder_dragon.supervision.context_transport import HistoricalContextClient
+from ladder_dragon.supervision.panic_observer import (
+    read_panic_observation,
+    refresh_panic_observation,
+)
 from ladder_dragon.strategy.prediction.context_journal import ContextJournal
 from ladder_dragon.strategy.prediction.context_sources import (
     attest, context_from_sources, fee_source, filter_source, symbol_name,
 )
 from ladder_dragon.strategy.prediction.episode_semantics import (
-    evidence_semantics_contract, require_runtime_regime_contract,
+    require_runtime_regime_contract, v23_evidence_semantics_contract,
 )
 
 SOURCE_ERRORS = (OSError, RuntimeError, ValueError, TypeError, KeyError, AttributeError, ArithmeticError,
@@ -30,10 +34,12 @@ SOURCE_ERRORS = (OSError, RuntimeError, ValueError, TypeError, KeyError, Attribu
 class HistoricalContextCollector:
     """One daemon task, no waiting queue, eight symbols, fixed source lifetimes."""
 
-    def __init__(self, path: Path, *, public_get, signed_get, clock=None):
+    def __init__(self, path: Path, *, public_get, signed_get, clock=None,
+                 panic_run_dir: Path | None = None):
         self.path = Path(path)
         self.public_get, self.signed_get = public_get, signed_get
         self.clock = clock or (lambda: time.time_ns() // 1_000_000)
+        self.panic_run_dir = panic_run_dir
         self.session_id = uuid.uuid4().hex
         self.journal = None
         self.cache: dict[str, dict] = {}
@@ -67,12 +73,22 @@ class HistoricalContextCollector:
         error_type = None
         sources = None
         try:
+            # Refresh public PANIC state even when this first HALT observation
+            # is blocked. The next supervisor cycle can consume fresh evidence.
+            refresh_panic_observation(
+                symbol,
+                public_get=self.public_get,
+                now_ms=self.clock(),
+                run_dir=self.panic_run_dir,
+            )
             if reason is None:
                 sources = {"runtime": runtime_source, "filters": self._source("filters", symbol),
                            "fees": self._source("fees", symbol)}
                 context_from_sources(sources, self.clock())
         except SOURCE_ERRORS as exc:
-            sources, reason, error_type = None, "SOURCE_UNAVAILABLE", type(exc).__name__
+            sources = None
+            reason = reason or "SOURCE_UNAVAILABLE"
+            error_type = type(exc).__name__
         # Serialize the short local commit with runtime invalidation. Network
         # calls never hold this lock. An observed state change cannot be lost
         # behind an older job that finishes after the change.
@@ -105,12 +121,23 @@ class HistoricalContextCollector:
             # This canonical validator is SOL-scoped; apply it to every context
             # symbol rather than silently admitting an unchecked classifier.
             require_runtime_regime_contract("SOLUSDT", arguments, environ)
-            if type(panic) is not bool or type(panic_hits) is not int:
+            observation = read_panic_observation(
+                symbol, now_ms=now, run_dir=self.panic_run_dir
+            )
+            if (
+                type(panic) is not bool
+                or type(panic_hits) is not int
+                or observation is None
+                or observation["on"] is not panic
+                or observation["hits"] != panic_hits
+            ):
                 reason = "PANIC_UNAVAILABLE"
             else:
                 source = attest("runtime", symbol, now, {
-                    "classifier": evidence_semantics_contract()["regime_classifier"],
+                    "classifier": v23_evidence_semantics_contract()["regime_classifier"],
                     "regime": regime, "panic": panic, "panic_hits": panic_hits,
+                    "panic_source_fingerprint": observation["source_fingerprint"],
+                    "panic_observed_at_ms": observation["updated_at_ms"],
                 })
         except (AttributeError, ValueError, TypeError, ArithmeticError):
             reason = "CLASSIFIER_MISMATCH"

@@ -16,6 +16,7 @@ def calibration_context_evidence(
     calibrations: Iterable[ReplayCalibration],
     *,
     readiness: Mapping[str, object],
+    volatility_policy: Mapping[str, object] | None = None,
 ) -> dict[str, object]:
     """Fingerprint read-only archives without claiming order coverage."""
     rows = sorted(calibrations, key=lambda item: item.archive_sha256)
@@ -34,6 +35,9 @@ def calibration_context_evidence(
             Decimal(last - first) / Decimal("86400000"), "f"
         ),
         "readiness": dict(readiness),
+        "volatility_policy": (
+            dict(volatility_policy) if volatility_policy is not None else None
+        ),
     }
     payload["cohort_sha256"] = canonical_digest(payload)
     return payload

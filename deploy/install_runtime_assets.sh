@@ -94,6 +94,9 @@ install -o root -g root -m 0755 \
   "${PROJECT_DIR}/deploy/record_depth_archive.sh" \
   /usr/local/bin/ladder-dragon-depth-archive
 install -o root -g root -m 0755 \
+  "${PROJECT_DIR}/deploy/run_depth_archive_retention.sh" \
+  /usr/local/bin/ladder-dragon-depth-retention
+install -o root -g root -m 0755 \
   "${PROJECT_DIR}/deploy/run_production_soak_audit.sh" \
   /usr/local/bin/ladder-dragon-soak-audit
 

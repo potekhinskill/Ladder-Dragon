@@ -9,14 +9,16 @@ from decimal import Decimal
 import re
 
 from ladder_dragon.strategy.prediction.historical_policy import exact, fingerprint
-from ladder_dragon.strategy.prediction.episode_semantics import require_execution_regime_contract
+from ladder_dragon.strategy.prediction.episode_semantics import (
+    require_historical_regime_contract,
+)
 
 SOURCE_TTL_MS = 300_000
 RUNTIME_TTL_MS = 180_000
 FILTER_FIELDS = {"tick_size", "step_size", "minimum_quantity", "minimum_notional_quote"}
 FEE_FIELDS = {"maker_buy_fee_pct", "maker_sell_fee_pct", "taker_buy_fee_pct", "taker_sell_fee_pct"}
 KINDS = {"filters": "BINANCE_EXCHANGE_INFO_V1", "fees": "BINANCE_ACCOUNT_COMMISSION_MAX_V1",
-         "runtime": "SUPERVISOR_CONSUMED_REGIME_PANIC_V1"}
+         "runtime": "SUPERVISOR_CONSUMED_REGIME_PANIC_V2"}
 
 
 def symbol_name(value: str) -> str:
@@ -65,15 +67,26 @@ def validate_source(kind: str, source: dict) -> None:
             if kind == "fees" and number >= 1:
                 raise ValueError("context commission out of range")
     else:
-        if set(values) != {"classifier", "regime", "panic", "panic_hits"}:
+        if set(values) != {
+            "classifier", "regime", "panic", "panic_hits",
+            "panic_source_fingerprint", "panic_observed_at_ms",
+        }:
             raise ValueError("context runtime fields differ")
-        require_execution_regime_contract(values["classifier"])
+        require_historical_regime_contract(values["classifier"])
         if values["regime"] not in {"RANGE", "TREND_UP", "TREND_DOWN", "PANIC", "RECOVERY"}:
             raise ValueError("context regime invalid")
         if type(values["panic"]) is not bool or type(values["panic_hits"]) is not int:
             raise ValueError("context PANIC unavailable")
         if not 0 <= values["panic_hits"] <= 1_000_000:
             raise ValueError("context PANIC hits invalid")
+        if (
+            not re.fullmatch(r"[a-f0-9]{64}", str(values["panic_source_fingerprint"]))
+            or type(values["panic_observed_at_ms"]) is not int
+            or not source["observed_at_ms"] - 120_000
+            <= values["panic_observed_at_ms"]
+            <= source["observed_at_ms"]
+        ):
+            raise ValueError("context PANIC source is stale or invalid")
 
 
 def filter_source(symbol: str, payload: dict, observed_at_ms: int) -> dict:
@@ -131,5 +144,7 @@ def context_from_sources(sources: dict, observed_at_ms: int) -> dict:
             "symbol": sources["runtime"]["symbol"],
             "classifier_fingerprint": fingerprint(runtime["classifier"]),
             "regime": runtime["regime"], "panic": runtime["panic"],
+            "panic_source_fingerprint": runtime["panic_source_fingerprint"],
+            "panic_observed_at_ms": runtime["panic_observed_at_ms"],
             **sources["filters"]["values"], **sources["fees"]["values"],
             "source_sha256": fingerprint(sources)}

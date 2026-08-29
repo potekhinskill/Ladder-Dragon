@@ -4,9 +4,7 @@
 
 """Prediction-shadow evidence readers that never change an execution plan."""
 
-import json
 import os
-import re
 import sqlite3
 import time
 from decimal import Decimal, InvalidOperation
@@ -32,6 +30,7 @@ from ladder_dragon.strategy.expectancy_controls import CommissionSchedule
 from ladder_dragon.supervision.execution_episode_shadow import (
     collect_execution_episode,
 )
+from ladder_dragon.supervision.panic_observer import read_panic_observation
 
 
 _EXPERIMENT_REPORT_CACHE: dict[
@@ -315,31 +314,16 @@ def prediction_panic_state(
     *,
     run_dir: str | None = None,
 ) -> tuple[bool | None, int | None]:
-    """Read only the executor's sanitized PANIC state."""
-    safe_symbol = symbol.strip().upper()
-    if not re.fullmatch(r"[A-Z0-9]{1,20}", safe_symbol):
-        return None, None
-    root = run_dir if run_dir is not None else os.getenv("BOT_RUN_DIR", "/run/mybot")
-    path = Path(root) / f"panic_state_{safe_symbol}.json"
+    """Read only a fresh supervisor-owned PANIC observation."""
     try:
-        if not path.is_file() or path.stat().st_size > 16_384:
+        payload = read_panic_observation(
+            symbol,
+            now_ms=int(time.time() * 1000),
+            run_dir=run_dir,
+        )
+        if payload is None:
             return None, None
-        payload = json.loads(path.read_text(encoding="utf-8"))
-        if (
-            not isinstance(payload, dict)
-            or int(payload.get("schema_version", 0)) != 1
-            or not isinstance(payload.get("on"), bool)
-        ):
-            return None, None
-        hits = int(payload.get("hits", 0) or 0)
-        if not 0 <= hits <= 1_000_000:
-            return None, None
+        hits = int(payload["hits"])
         return bool(payload["on"]), hits
-    except (
-        OSError,
-        TypeError,
-        ValueError,
-        OverflowError,
-        json.JSONDecodeError,
-    ):
+    except (OSError, TypeError, ValueError, OverflowError):
         return None, None

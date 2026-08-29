@@ -6,18 +6,21 @@ import pytest
 
 from ladder_dragon.strategy.prediction.context_journal import ContextJournal, export_context
 from ladder_dragon.strategy.prediction.context_sources import attest, fee_source, filter_source
-from ladder_dragon.strategy.prediction.episode_semantics import evidence_semantics_contract
+from ladder_dragon.strategy.prediction.episode_semantics import v23_evidence_semantics_contract
 from ladder_dragon.strategy.prediction.historical_policy import fingerprint
+from ladder_dragon.supervision.panic_observer import panic_observer_fingerprint
 
 SYMBOL = "SOLUSDT"
 SESSION = "a" * 32
-CLASSIFIER = evidence_semantics_contract()["regime_classifier"]
+CLASSIFIER = v23_evidence_semantics_contract()["regime_classifier"]
 
 
 def sources(now=1000):
     return {
         "runtime": attest("runtime", SYMBOL, now, {
             "classifier": CLASSIFIER, "regime": "RANGE", "panic": False, "panic_hits": 0,
+            "panic_source_fingerprint": panic_observer_fingerprint(),
+            "panic_observed_at_ms": now,
         }),
         "filters": attest("filters", SYMBOL, now, {
             "tick_size": "0.01", "step_size": "0.001", "minimum_quantity": "0.001", "minimum_notional_quote": "5",

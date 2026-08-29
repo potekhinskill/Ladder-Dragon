@@ -8,8 +8,12 @@ import pytest
 from ladder_dragon.supervision import historical_context as module
 from ladder_dragon.strategy.prediction.context_journal import export_context
 from ladder_dragon.strategy.prediction.context_sources import attest
-from ladder_dragon.strategy.prediction.episode_semantics import evidence_semantics_contract
+from ladder_dragon.strategy.prediction.episode_semantics import v23_evidence_semantics_contract
 from ladder_dragon.strategy.prediction.historical_policy import fingerprint
+from ladder_dragon.supervision.panic_observer import (
+    panic_observer_fingerprint,
+    refresh_panic_observation,
+)
 
 
 def arguments():
@@ -19,14 +23,26 @@ def arguments():
 
 def runtime_source(now):
     return attest("runtime", "SOLUSDT", now, {
-        "classifier": evidence_semantics_contract()["regime_classifier"],
+        "classifier": v23_evidence_semantics_contract()["regime_classifier"],
         "regime": "RANGE", "panic": False, "panic_hits": 0,
+        "panic_source_fingerprint": panic_observer_fingerprint(),
+        "panic_observed_at_ms": now,
     })
+
+
+def klines():
+    return [
+        [index * 60_000, "100", "101", "99", "100", "1",
+         index * 60_000 + 59_999]
+        for index in range(120)
+    ]
 
 
 def client(calls):
     def get(endpoint, params):
         calls.append((endpoint, params))
+        if endpoint == "/api/v3/klines":
+            return klines()
         if endpoint == "/api/v3/exchangeInfo":
             return {"symbols": [{"symbol": "SOLUSDT", "status": "TRADING", "filters": [
                 {"filterType": "PRICE_FILTER", "tickSize": "0.01"},
@@ -42,22 +58,24 @@ def client(calls):
 def test_get_only_collection_caches_without_renewing_source_time(tmp_path):
     calls, now = [], [1000]
     collector = module.HistoricalContextCollector(tmp_path / "context.sqlite3", public_get=client(calls),
-                                                 signed_get=client(calls), clock=lambda: now[0])
+                                                 signed_get=client(calls), clock=lambda: now[0],
+                                                 panic_run_dir=tmp_path)
     assert collector.collect("SOLUSDT", runtime_source(1000))["status"] == "AVAILABLE"
     now[0] = 61_000
     assert collector.collect("SOLUSDT", runtime_source(61_000))["status"] == "AVAILABLE"
-    assert len(calls) == 2
+    assert len(calls) == 4
     assert collector.cache["SOLUSDT:fees"]["observed_at_ms"] == 1000
     now[0] = 242_000
     assert collector.collect("SOLUSDT", runtime_source(242_000))["status"] == "AVAILABLE"
-    assert len(calls) == 4
+    assert len(calls) == 7
 
 
 def test_failure_and_missing_panic_are_explicit_and_secret_safe(tmp_path):
     def failing(*args):
         raise requests.RequestException("signed-url-do-not-disclose")
     collector = module.HistoricalContextCollector(tmp_path / "context.sqlite3", public_get=failing,
-                                                 signed_get=failing, clock=lambda: 1000)
+                                                 signed_get=failing, clock=lambda: 1000,
+                                                 panic_run_dir=tmp_path)
     result = collector.collect("SOLUSDT", runtime_source(1000))
     assert result["status"] == "BLOCKED" and result["reason"] == "SOURCE_UNAVAILABLE"
     assert "signed-url" not in repr(result)
@@ -76,7 +94,12 @@ def test_submission_never_waits_or_queues_more_work(tmp_path, other_symbol):
         assert release.wait(5)
         return client(calls)(endpoint, params)
     collector = module.HistoricalContextCollector(tmp_path / "context.sqlite3", public_get=slow,
-                                                 signed_get=client(calls), clock=lambda: 1000)
+                                                 signed_get=client(calls), clock=lambda: 1000,
+                                                 panic_run_dir=tmp_path)
+    refresh_panic_observation(
+        "SOLUSDT", public_get=client(calls), now_ms=1000, run_dir=tmp_path
+    )
+    calls.clear()
     try:
         collector.submit("SOLUSDT", arguments=arguments(), environ={}, regime="RANGE", panic=False, panic_hits=0)
         assert entered.wait(2)
@@ -88,7 +111,7 @@ def test_submission_never_waits_or_queues_more_work(tmp_path, other_symbol):
         release.set()
         collector.thread.join(5)
     assert not collector.thread.is_alive()
-    assert len(calls) == 2
+    assert len(calls) == 3
     assert collector.status["SOLUSDT"]["reason"] == (None if other_symbol else "OBSERVATION_SUPERSEDED")
 
 
@@ -104,11 +127,17 @@ def test_runtime_wiring_respects_scope_and_preserves_halt(tmp_path, monkeypatch)
     monkeypatch.setattr(module, "_COLLECTOR", None)
     monkeypatch.setenv("BOT_HISTORICAL_CONTEXT_ENABLED", "1")
     monkeypatch.setenv("BOT_HISTORICAL_CONTEXT_SYMBOLS", "SOLUSDT")
+    monkeypatch.setenv("BOT_RUN_DIR", str(tmp_path))
     monkeypatch.setattr(module, "HistoricalContextClient", lambda **_: SimpleNamespace(
         public_get=client(calls), signed_get=client(calls)))
     runtime = {"_AI_RUNTIME_STATUS": {"risk": {"halted": True}},
                "_PREDICTION_SHADOW": SimpleNamespace(path=tmp_path / "prediction.sqlite3"),
                "TM": SimpleNamespace(BASE_URL="https://api.binance.com")}
+    refresh_panic_observation(
+        "SOLUSDT", public_get=client(calls), now_ms=int(module.time.time() * 1000),
+        run_dir=tmp_path,
+    )
+    calls.clear()
     for symbol in ("ETHUSDT", "BTCUSDT"):
         module.observe_runtime(runtime, arguments(), symbol, "RANGE", False, 0)
     assert module._COLLECTOR is None and not calls
@@ -128,17 +157,19 @@ def test_delayed_sources_cannot_backdate_or_extend_runtime(tmp_path):
         now[0] = 200000
         return client(calls)(endpoint, params)
     collector = module.HistoricalContextCollector(tmp_path / "context.sqlite3", public_get=delayed,
-                                                 signed_get=client(calls), clock=lambda: now[0])
+                                                 signed_get=client(calls), clock=lambda: now[0],
+                                                 panic_run_dir=tmp_path)
     assert collector.collect("SOLUSDT", runtime_source(1000))["status"] == "BLOCKED"
 
 
 def test_evidence_from_collector_reaches_read_only_export(tmp_path):
     calls = []
     collector = module.HistoricalContextCollector(tmp_path / "context.sqlite3", public_get=client(calls),
-                                                 signed_get=client(calls), clock=lambda: 1000)
+                                                 signed_get=client(calls), clock=lambda: 1000,
+                                                 panic_run_dir=tmp_path)
     collector.collect("SOLUSDT", runtime_source(1000))
     result = export_context(collector.path, symbol="SOLUSDT",
-                            classifier_fingerprint=fingerprint(evidence_semantics_contract()["regime_classifier"]),
+                            classifier_fingerprint=fingerprint(v23_evidence_semantics_contract()["regime_classifier"]),
                             start_ms=2000, end_ms=10000, cutoff_ms=10000)
     assert result["context"][0]["regime"] == "RANGE"
     assert result["context"][0]["observed_at_ms"] == 1000

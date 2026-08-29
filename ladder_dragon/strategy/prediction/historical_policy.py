@@ -49,6 +49,7 @@ class HistoricalPolicy:
     maximum_event_gap_ms: int
     allowed_regimes: list[str]
     classifier_fingerprint: str
+    panic_source_fingerprint: str
     veto_price_bps: str
     veto_signed_flow: str
     veto_ofi: str
@@ -88,6 +89,8 @@ class HistoricalPolicy:
             raise ValueError("invalid historical executable regimes")
         if not re.fullmatch(r"[a-f0-9]{64}", policy.classifier_fingerprint):
             raise ValueError("missing historical classifier identity")
+        if not re.fullmatch(r"[a-f0-9]{64}", policy.panic_source_fingerprint):
+            raise ValueError("missing historical PANIC source identity")
         for name in ("veto_price_bps", "veto_signed_flow", "veto_ofi"):
             value = getattr(policy, name)
             if not isinstance(value, str) or not D(value).is_finite() or D(value) >= 0:
@@ -100,6 +103,7 @@ class HistoricalPolicy:
 CONTEXT_FIELDS = {
     "observed_at_ms", "valid_until_ms", "symbol", "classifier_fingerprint",
     "regime", "panic", "tick_size", "step_size", "minimum_quantity",
+    "panic_source_fingerprint", "panic_observed_at_ms",
     "minimum_notional_quote", "maker_buy_fee_pct", "maker_sell_fee_pct",
     "taker_buy_fee_pct", "taker_sell_fee_pct", "source_sha256",
 }
@@ -120,7 +124,15 @@ class HistoricalContext:
                     or not previous < stamp <= cutoff or until <= stamp):
                 raise ValueError("historical context chronology is invalid")
             previous = stamp
-            if row["symbol"] != policy.symbol or row["classifier_fingerprint"] != policy.classifier_fingerprint:
+            if (
+                row["symbol"] != policy.symbol
+                or row["classifier_fingerprint"] != policy.classifier_fingerprint
+                or row["panic_source_fingerprint"] != policy.panic_source_fingerprint
+                or type(row["panic_observed_at_ms"]) is not int
+                or not row["observed_at_ms"] - 120_000
+                <= row["panic_observed_at_ms"]
+                <= row["observed_at_ms"]
+            ):
                 raise ValueError("historical context identity differs from policy")
             if type(row["panic"]) is not bool or row["regime"] not in {
                 "RANGE", "TREND_UP", "TREND_DOWN", "PANIC", "RECOVERY"

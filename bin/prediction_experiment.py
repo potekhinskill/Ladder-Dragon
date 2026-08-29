@@ -55,6 +55,9 @@ from ladder_dragon.strategy.prediction.entry_diagnostics import (
     entry_diagnostic_report,
     freeze_entry_veto_selection,
 )
+from ladder_dragon.strategy.prediction.historical_selection import (
+    import_historical_selection,
+)
 
 
 def _parser() -> argparse.ArgumentParser:
@@ -122,6 +125,19 @@ def _parser() -> argparse.ArgumentParser:
     veto_freeze.add_argument("experiment_id")
     veto_freeze.add_argument("--cutoff-ts-ms", required=True, type=int)
     veto_freeze.add_argument("--confirm", required=True)
+    historical_veto = subparsers.add_parser(
+        "entry-veto-import-history",
+        help="Import immutable historical replay selection blocks.",
+    )
+    historical_veto.add_argument("experiment_id")
+    historical_veto.add_argument("--cutoff-ts-ms", required=True, type=int)
+    historical_veto.add_argument(
+        "--report", required=True, type=Path, action="append"
+    )
+    historical_veto.add_argument(
+        "--report-sha256", required=True, action="append"
+    )
+    historical_veto.add_argument("--confirm", required=True)
     champions = subparsers.add_parser(
         "champions", help="List immutable CHAMPION activations."
     )
@@ -342,6 +358,21 @@ def main(argv: list[str] | None = None) -> int:
             cutoff_ts_ms=args.cutoff_ts_ms,
             target_return=Decimal(str(parameters["target_return"])),
             candidate_parameters=parameters,
+        )
+    elif args.command == "entry-veto-import-history":
+        if args.confirm != "IMPORT-HISTORICAL-VETO":
+            raise SystemExit(
+                "--confirm must equal IMPORT-HISTORICAL-VETO"
+            )
+        if len(args.report) != len(args.report_sha256):
+            raise ValueError("historical report identities are incomplete")
+        manifest = load_manifest(store, args.experiment_id)
+        payload = import_historical_selection(
+            store,
+            report_files=list(zip(args.report, args.report_sha256)),
+            source_generation=str(manifest["generation"]),
+            candidate_fingerprint=str(manifest["candidate_fingerprint"]),
+            cutoff_ts_ms=args.cutoff_ts_ms,
         )
     elif args.command == "champions":
         payload = list_champions(store, symbol=args.symbol)

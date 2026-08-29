@@ -27,6 +27,7 @@ from ladder_dragon.strategy.replay_policy import (
 )
 from ladder_dragon.strategy.replay_cohorts import calibration_context_evidence
 from ladder_dragon.strategy.replay_readiness import audit_replay_readiness
+from ladder_dragon.strategy.volatility_policy import read_volatility_policy
 from ladder_dragon.verification.live.validation_batch import (
     validation_batch_evidence,
 )
@@ -51,6 +52,7 @@ def build_parser() -> argparse.ArgumentParser:
         metavar="CALIBRATION",
         help="add one read-only calibration outside the order cohort",
     )
+    parser.add_argument("--volatility-policy", type=Path)
     parser.add_argument("--prediction-db", type=Path)
     parser.add_argument("--experiment-id")
     parser.add_argument("--symbol")
@@ -96,6 +98,10 @@ def main() -> int:
     context_calibrations = [
         read_calibration(path) for path in (args.calibration_context or [])
     ]
+    volatility_policy = (
+        read_volatility_policy(args.volatility_policy)
+        if args.volatility_policy is not None else None
+    )
     if args.batch_manifest is not None:
         order_cohort = validation_batch_evidence(args.batch_manifest)
         expected_archives = set(order_cohort["archive_sha256s"])
@@ -132,10 +138,12 @@ def main() -> int:
             minimum_execution_samples=0,
             minimum_validation_reports=0,
             minimum_validated_orders=0,
+            volatility_policy=volatility_policy,
         )
         context_cohort = calibration_context_evidence(
             context_calibrations,
             readiness=context_readiness.as_dict(),
+            volatility_policy=volatility_policy,
         )
     report = validate_replay_sessions(
         sessions,
@@ -170,6 +178,14 @@ def main() -> int:
         minimum_validation_reports=1,
         minimum_validated_orders=(
             PRODUCTION_REPLAY_ACCEPTANCE_POLICY.minimum_orders
+        ),
+        low_max_bps=(
+            Decimal(str(volatility_policy["low_max_bps"]))
+            if volatility_policy is not None else Decimal("0.5")
+        ),
+        high_min_bps=(
+            Decimal(str(volatility_policy["high_min_bps"]))
+            if volatility_policy is not None else Decimal("2")
         ),
     )
     report = replace(

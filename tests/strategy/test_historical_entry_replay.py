@@ -16,6 +16,7 @@ def policy(**changes):
         entry_ttl_ms=8000, holding_ms=15000, cadence_ms=1000, latency_ms=100,
         cancel_latency_ms=500, stop_grace_ms=2000, market_impact_bps="10",
         maximum_event_gap_ms=2000, allowed_regimes=["RANGE"], classifier_fingerprint="a" * 64,
+        panic_source_fingerprint="c" * 64,
         veto_price_bps="-5", veto_signed_flow="-0.1", veto_ofi="-0.1",
         signal_window_ms=2000, maximum_attempts=100,
     ))
@@ -26,6 +27,7 @@ def policy(**changes):
 def context(**changes):
     row = dict(observed_at_ms=1, valid_until_ms=100000, symbol="SOLUSDT",
                classifier_fingerprint="a" * 64, regime="RANGE", panic=False,
+               panic_source_fingerprint="c" * 64, panic_observed_at_ms=1,
                tick_size="0.01", step_size="0.001", minimum_quantity="0.001",
                minimum_notional_quote="1", maker_buy_fee_pct="0.001",
                maker_sell_fee_pct="0.001", taker_buy_fee_pct="0.001", taker_sell_fee_pct="0.001",
@@ -186,9 +188,10 @@ def test_cli_publishes_immutable_paired_replay(tmp_path, monkeypatch, capsys, re
     if recorded_context:
         from ladder_dragon.supervision.historical_context import HistoricalContextCollector
         from ladder_dragon.strategy.prediction.context_sources import attest
-        from ladder_dragon.strategy.prediction.episode_semantics import evidence_semantics_contract
+        from ladder_dragon.strategy.prediction.episode_semantics import v23_evidence_semantics_contract
         from ladder_dragon.strategy.prediction.historical_policy import fingerprint
-        classifier = evidence_semantics_contract()["regime_classifier"]
+        from ladder_dragon.supervision.panic_observer import panic_observer_fingerprint
+        classifier = v23_evidence_semantics_contract()["regime_classifier"]
         filters = {"symbols": [{"symbol": "SOLUSDT", "status": "TRADING", "filters": [
             {"filterType": "PRICE_FILTER", "tickSize": "0.01"},
             {"filterType": "LOT_SIZE", "stepSize": "0.001", "minQty": "0.001"},
@@ -196,13 +199,21 @@ def test_cli_publishes_immutable_paired_replay(tmp_path, monkeypatch, capsys, re
         ]}]}
         fees = {"symbol": "SOLUSDT", **{name: {"maker": "0.001", "taker": "0.001", "buyer": "0", "seller": "0"}
                                         for name in ("standardCommission", "taxCommission", "specialCommission")}}
-        collector = HistoricalContextCollector(tmp_path / "context.sqlite3", public_get=lambda *_: filters,
-                                                signed_get=lambda *_: fees, clock=lambda: 1000)
+        bars = [[n * 60_000, "100", "101", "99", "100", "1", n * 60_000 + 59_999]
+                for n in range(120)]
+        collector = HistoricalContextCollector(
+            tmp_path / "context.sqlite3",
+            public_get=lambda endpoint, _params: bars if endpoint == "/api/v3/klines" else filters,
+            signed_get=lambda *_: fees, clock=lambda: 1000, panic_run_dir=tmp_path,
+        )
         assert collector.collect("SOLUSDT", attest("runtime", "SOLUSDT", 1000, {
             "classifier": classifier, "regime": "RANGE", "panic": False, "panic_hits": 0,
+            "panic_source_fingerprint": panic_observer_fingerprint(),
+            "panic_observed_at_ms": 1000,
         }))["status"] == "AVAILABLE"
         payload.pop("context")
         payload["policy"]["classifier_fingerprint"] = fingerprint(classifier)
+        payload["policy"]["panic_source_fingerprint"] = panic_observer_fingerprint()
         extra = ["--context-db", str(collector.path)]
     request.write_text(json.dumps(payload))
     output = tmp_path / "report.json"

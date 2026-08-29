@@ -1,0 +1,49 @@
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2026 IURII Potekhin
+# Purpose: encrypt completed L2 evidence externally before local rotation.
+[Unit]
+Description=Ladder Dragon encrypted depth evidence retention
+After=ladder-dragon-backup.service
+ConditionPathExists=/etc/ladder-dragon/backup.conf
+ConditionPathExists=/var/lib/ladder-dragon/depth-archives
+
+[Service]
+Type=oneshot
+User=root
+Group=root
+WorkingDirectory=/home/bot/apps/binance_bot
+Environment=PROJECT_DIR=/home/bot/apps/binance_bot
+EnvironmentFile=/etc/ladder-dragon/backup.conf
+ExecStart=/usr/local/bin/ladder-dragon-depth-retention
+SuccessExitStatus=0
+Nice=19
+IOSchedulingClass=idle
+NoNewPrivileges=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectSystem=strict
+ProtectHome=read-only
+ProtectClock=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+ProtectKernelLogs=yes
+ProtectHostname=yes
+RestrictSUIDSGID=yes
+RestrictRealtime=yes
+RestrictNamespaces=yes
+LockPersonality=yes
+MemoryDenyWriteExecute=yes
+CapabilityBoundingSet=
+AmbientCapabilities=
+RestrictAddressFamilies=AF_UNIX
+SystemCallArchitectures=native
+SystemCallFilter=@system-service
+SystemCallErrorNumber=EPERM
+ReadOnlyPaths=-/run/mybot
+ReadWritePaths=/var/lib/ladder-dragon/depth-archives
+ReadWritePaths=/var/lib/ladder-dragon/depth-retention
+UMask=0077
+
+[Install]
+WantedBy=multi-user.target

@@ -9,10 +9,12 @@ from __future__ import annotations
 import argparse
 from decimal import Decimal
 import json
+from pathlib import Path
 
 from ladder_dragon.strategy.market_replay import read_calibration
 from ladder_dragon.strategy.replay_readiness import audit_replay_readiness
 from ladder_dragon.strategy.replay_validation import read_replay_validation
+from ladder_dragon.strategy.volatility_policy import read_volatility_policy
 
 
 def main() -> int:
@@ -27,6 +29,7 @@ def main() -> int:
     parser.add_argument("--validation-report", action="append", default=[])
     parser.add_argument("--minimum-validation-reports", type=int, default=1)
     parser.add_argument("--minimum-validated-orders", type=int, default=10)
+    parser.add_argument("--volatility-policy", type=Path)
     args = parser.parse_args()
     report = audit_replay_readiness(
         [read_calibration(path) for path in args.calibrations],
@@ -41,6 +44,10 @@ def main() -> int:
         ],
         minimum_validation_reports=args.minimum_validation_reports,
         minimum_validated_orders=args.minimum_validated_orders,
+        volatility_policy=(
+            read_volatility_policy(args.volatility_policy)
+            if args.volatility_policy is not None else None
+        ),
     )
     print(json.dumps(report.as_dict(), indent=2, sort_keys=True))
     return 0 if report.ready else 2

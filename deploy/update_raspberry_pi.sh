@@ -683,6 +683,10 @@ render_unit deploy/ladder-dragon-depth-archive.service \
   /etc/systemd/system/ladder-dragon-depth-archive.service
 install -m 0644 deploy/ladder-dragon-depth-archive.timer \
   /etc/systemd/system/ladder-dragon-depth-archive.timer
+render_unit deploy/ladder-dragon-depth-retention.service \
+  /etc/systemd/system/ladder-dragon-depth-retention.service
+install -m 0644 deploy/ladder-dragon-depth-retention.timer \
+  /etc/systemd/system/ladder-dragon-depth-retention.timer
 render_unit deploy/ladder-dragon-soak-audit.service \
   /etc/systemd/system/ladder-dragon-soak-audit.service
 install -m 0644 deploy/ladder-dragon-soak-audit.timer \
@@ -706,13 +710,16 @@ install -m 0644 deploy/ladder-dragon-database-retention.timer \
 install -d -o "${BOT_USER}" -g "${BOT_USER}" -m 0700 \
   /var/lib/ladder-dragon/database-archives \
   /var/lib/ladder-dragon/database-retention \
+  /var/lib/ladder-dragon/depth-retention \
   /var/lib/ladder-dragon/market-analysis
 install -d -o "${BOT_USER}" -g "${BOT_USER}" -m 0750 \
   /var/lib/ladder-dragon/depth-archives
 install -d -o root -g "${BOT_USER}" -m 0770 /var/lib/ladder-dragon/soak
 
 backup_mount_dropin="/etc/systemd/system/ladder-dragon-backup.service.d/external-mount.conf"
+depth_retention_dropin="/etc/systemd/system/ladder-dragon-depth-retention.service.d/external-mount.conf"
 rm -f "${backup_mount_dropin}"
+rm -f "${depth_retention_dropin}"
 if [[ -n "${BACKUP_EXTERNAL_MOUNT:-}" ]]; then
   [[ "${BACKUP_EXTERNAL_MOUNT}" =~ ^/[A-Za-z0-9._/@+-]+$ ]] \
     || fail "invalid BACKUP_EXTERNAL_MOUNT path"
@@ -721,6 +728,11 @@ if [[ -n "${BACKUP_EXTERNAL_MOUNT:-}" ]]; then
     "${BACKUP_EXTERNAL_MOUNT}" "${BACKUP_EXTERNAL_MOUNT}" \
     >"${backup_mount_dropin}"
   chmod 0644 "${backup_mount_dropin}"
+  install -d -m 0755 "$(dirname "${depth_retention_dropin}")"
+  printf '[Unit]\nRequiresMountsFor=%s\n\n[Service]\nReadWritePaths=%s\n' \
+    "${BACKUP_EXTERNAL_MOUNT}" "${BACKUP_EXTERNAL_MOUNT}" \
+    >"${depth_retention_dropin}"
+  chmod 0644 "${depth_retention_dropin}"
 fi
 install -m 0644 deploy/pi-watchdog-v3.service \
   /etc/systemd/system/pi-watchdog-v3.service
@@ -766,6 +778,7 @@ systemctl enable ladder-dragon-backup.timer ladder-dragon-log-export.timer \
   ladder-dragon-depth-archive.service ladder-dragon-soak-audit.timer \
   ladder-dragon-daily-digest.timer ladder-dragon-monthly-prediction.timer \
   ladder-dragon-market-scenario.timer ladder-dragon-database-retention.timer \
+  ladder-dragon-depth-retention.timer \
   ladder-dragon-user-stream-shadow.service \
   >/dev/null
 start_previous_services
@@ -780,6 +793,7 @@ systemctl start ladder-dragon-monthly-prediction.timer
 systemctl start ladder-dragon-market-scenario.timer
 systemctl start --no-block ladder-dragon-market-scenario.service
 systemctl start ladder-dragon-database-retention.timer
+systemctl start ladder-dragon-depth-retention.timer
 systemctl restart ladder-dragon-user-stream-shadow.service
 systemctl is-active --quiet ladder-dragon-user-stream-shadow.service \
   || fail "read-only User Data Stream shadow service failed"
