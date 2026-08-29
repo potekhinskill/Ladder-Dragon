@@ -428,18 +428,15 @@ publish_public_archive() {
   (cd "${PUBLIC_BACKUP_DIR}" && sha256sum -c "${name}.sha256" >/dev/null)
 }
 
-shopt -s nullglob
-for source_archive in "${BACKUP_DIR}"/*.tgz.age; do
-  [[ -f "${source_archive}" ]] || continue
-  if [[ -n "${BACKUP_EXTERNAL_DIR}" ]]; then
-    # The external disk receives every age archive, including preinstall snapshots.
-    mirror_external_archive "${source_archive}"
-  fi
-  # The HTTP directory receives all age-encrypted archives, including preinstall
-  # snapshots. Plaintext legacy files never enter it.
-  publish_public_archive "${source_archive}"
-done
-shopt -u nullglob
+source_archive="${BACKUP_DIR}/${archive_name}"
+if [[ -n "${BACKUP_EXTERNAL_DIR}" ]]; then
+  # Mirror only the archive created by this run. Re-copying every retained archive
+  # causes unbounded I/O and can trip the host watchdog during routine maintenance.
+  mirror_external_archive "${source_archive}"
+fi
+# Publish only the newly verified encrypted archive. Existing published archives
+# remain protected by retention and do not need another full checksum pass.
+publish_public_archive "${source_archive}"
 
 if [[ -n "${BACKUP_EXTERNAL_DIR}" ]]; then
   # The external disk also receives the secret-free inventory. If the mountpoint is

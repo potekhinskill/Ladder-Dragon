@@ -1857,3 +1857,10 @@ entries concise; this is not a changelog or an activity log.
 - **Decision:** encrypt unreferenced segments externally, verify the bundle, then remove exact local files.
 - **Why it worked:** mount, backup, reference, hash, and encryption failures preserve every local source.
 - **Reuse:** every large derived or public evidence stream on limited storage.
+
+### 2026-08-30 — Mirror only the newly created backup
+
+- **Context:** each backup rehashed and recopied every retained archive.
+- **Decision:** verify and mirror the current archive once, then retain earlier verified copies.
+- **Why it worked:** backup cost now follows current data size instead of retained history size.
+- **Reuse:** every append-only backup set with separately verified immutable archives.

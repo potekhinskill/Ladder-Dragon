@@ -87,6 +87,7 @@ A later successful run clears the failed unit state.
 - Local rotation runs before collection and preserves the newest completed archive.
 - Old private staging uses an exact timestamp grammar and a sixty-minute minimum age.
 - External rotation runs before mirroring and preserves the newest encrypted archive.
+- Each run verifies and mirrors only its new encrypted archive.
 
 The backup includes database archives. Do not delete an archive only because
 the active database is smaller.

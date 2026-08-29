@@ -2217,6 +2217,13 @@ private infrastructure details.
 - **Correction:** add daily encrypted external archival with reference-aware local rotation.
 - **Prevention:** every persistent growth limit must include an installed maintenance consumer.
 
+### 2026-08-30 — Reconciled every immutable backup during each run
+
+- **Impact:** backup I/O grew with retained history and repeatedly triggered host reboot during deployment.
+- **Root cause:** publication used a wildcard reconciliation loop instead of the current verified archive.
+- **Correction:** mirror only the new archive and lower pre-update backup scheduling priority.
+- **Prevention:** immutable backup work must remain proportional to newly created data.
+
 ### 2026-08-29 — Mocked PANIC producer bypassed the transport allow-list
 
 - **Impact:** the supervisor observer could not create PANIC state, so every HALT context row remained blocked.

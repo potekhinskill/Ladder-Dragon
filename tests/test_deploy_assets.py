@@ -1110,12 +1110,12 @@ def test_backup_service_allows_only_sqlite_directory_for_wal_sidecars():
     assert "SQLite online backup failed for {source.name}" in backup
 
 
-def test_backup_reconciles_all_archives_and_verifies_destination_checksums():
+def test_backup_mirrors_only_new_archive_and_verifies_destination_checksums():
     backup = read("deploy/backup_raspberry_pi.sh")
-    assert 'shopt -s nullglob' in backup
     assert "mirror_external_archive" in backup
     assert "publish_public_archive" in backup
-    assert 'for source_archive in "${BACKUP_DIR}"/*.tgz.age' in backup
+    assert 'source_archive="${BACKUP_DIR}/${archive_name}"' in backup
+    assert 'for source_archive in "${BACKUP_DIR}"/*.tgz.age' not in backup
     assert 'sha256sum -c "${name}.sha256"' in backup
     assert 'cp --preserve=timestamps -f "${source_archive}"' in backup
     assert "preinstall-*.tgz.age" in backup
@@ -1134,9 +1134,9 @@ def test_backup_reconciles_all_archives_and_verifies_destination_checksums():
 def test_backup_prunes_external_retention_before_mirroring():
     backup = read("deploy/backup_raspberry_pi.sh")
     first_prune = backup.index("prune_expired_external_backups\n")
-    mirror_loop = backup.index('for source_archive in "${BACKUP_DIR}"/*.tgz.age')
+    mirror_new = backup.index('mirror_external_archive "${source_archive}"')
 
-    assert first_prune < mirror_loop
+    assert first_prune < mirror_new
     assert '[[ "${expired}" == "${latest_archive}" ]] && continue' in backup
     assert 'rm -f -- "${expired}" "${archive_checksum}"' in backup
     assert '-mtime +"${BACKUP_EXTERNAL_RETENTION_DAYS}" -print0' in backup
@@ -1179,6 +1179,7 @@ def test_target_updater_uses_target_backup_before_checkout():
     assert '"${commit}:deploy/backup_raspberry_pi.sh"' in helper
     assert 'mktemp /tmp/ladder-dragon-target-backup.XXXXXX' in helper
     assert 'rm -f "${backup_runner}"' in helper
+    assert 'nice -n 10 ionice -c 3 bash "${backup_runner}"' in helper
     call_index = updater.index(call)
     assert call_index < updater.index('systemctl stop mybot', call_index)
 

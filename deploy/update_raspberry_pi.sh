@@ -133,7 +133,8 @@ bootstrap_verified_target_runner() {
 run_preupdate_backup() {
   local commit="$1" backup_runner backup_status
   if [[ "${BOT_UPDATE_TARGET_RUNNER:-0}" != "1" ]]; then
-    PROJECT_DIR="${PROJECT_DIR}" deploy/backup_raspberry_pi.sh
+    PROJECT_DIR="${PROJECT_DIR}" \
+      nice -n 10 ionice -c 3 deploy/backup_raspberry_pi.sh
     return
   fi
 
@@ -146,7 +147,9 @@ run_preupdate_backup() {
       fail "verified target commit has no backup runner"
     }
   chmod 0700 "${backup_runner}"
-  if PROJECT_DIR="${PROJECT_DIR}" bash "${backup_runner}"; then
+  # Keep the pre-checkout backup below supervisor and watchdog scheduling.
+  if PROJECT_DIR="${PROJECT_DIR}" \
+    nice -n 10 ionice -c 3 bash "${backup_runner}"; then
     backup_status=0
   else
     backup_status=$?
