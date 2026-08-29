@@ -38,7 +38,10 @@ Each child has a five-minute time limit.
 Neither status proves that the underlying market never experienced high volatility.
 
 The version one policy keeps fixed thresholds of 0.5 and 2 basis points.
-An immutable selection policy can define empirical thresholds for a later confirmation cohort.
+The version two policy uses calibration event-move P95 values from a selection cohort.
+It detects zero-inflated cohorts and splits their positive tail.
+Preflight requires at least 20 selection reports in each future bucket.
+An immutable selection policy defines empirical thresholds for a later confirmation cohort.
 Its selection reports must end before the fixed cutoff.
 Its confirmation archives must start after the cutoff and use different source hashes.
 Public receive latency never proves real order execution.
@@ -104,6 +107,8 @@ A public supervisor observer refreshes PANIC state when the execution worker is 
 The observer state expires after two minutes.
 Its fingerprint fixes the calculation, debounce, cooldown, and recovery rules.
 Unknown or stale PANIC state blocks collection; it never becomes a false value.
+A missing initial state primes the public observer without writing a journal gap.
+The next cycle records the exact PANIC state consumed by the runtime.
 A state change during a pending source read creates an explicit unavailable record.
 The status appears under `historical_context` in the runtime status object.
 Failure status contains an error class, not an exception message.
@@ -171,6 +176,13 @@ It does not approve a candidate, prove profitability, or authorize promotion.
 Independent time-block selection, runtime parity, and independent confirmation remain separate requirements.
 An existing output file blocks publication rather than being replaced.
 
+The depth processor also runs a bounded SHADOW request queue every 15 minutes.
+Place reviewed immutable requests under `.historical-replay/requests` in the depth directory.
+The runner writes immutable reports under `.historical-replay/reports`.
+It processes one new report per cycle and accepts at most 128 queued requests.
+The replaceable `status.json` reports queue progress without source paths or exception text.
+The runner never imports selection, freezes a candidate, changes HALT, or creates orders.
+
 Import reviewed, non-overlapping historical replay blocks:
 
 ```bash
@@ -208,6 +220,8 @@ The confirmation cohort must cover two days and all three frozen buckets.
 | Calibration reports | Derived evidence | One report per source segment | Same retention as the retained source |
 | Calibration inventory | Disposable status | One bounded replacement file | Rebuilt by the worker; no archive dependency |
 | Historical replay reports | Derived selection evidence | 10,000 attempts per policy and immutable output | Retain with policy, context, and source archives |
+| Historical replay requests | Authoritative operator input | 128 queued immutable requests | Retain through operator review and selection import |
+| Historical replay runner status | Disposable status | One bounded replacement file | Rebuilt every runner cycle |
 | Historical context journal | Authoritative context evidence | 131,072 records and 256 MiB database limit | Indefinite; archive only after verified encrypted backup and reference review |
 | Context export | Derived selection evidence | 4,096 records and 16 MiB compact JSON limit | Retain with the immutable replay report and journal |
 | Historical selection artifact | Derived selection evidence | 1,024 database rows | Indefinite with referenced reports and source hashes |
@@ -221,6 +235,7 @@ Pending diagnostics, selection references, and validation evidence can depend on
 Storage exhaustion stops capture instead of removing protected evidence.
 The daily retention job keeps at least 24 recent segments.
 It selects only completed, calibrated, unreferenced segments older than 14 days.
+Pending historical replay requests protect every pinned source hash.
 It requires a recent verified encrypted application backup.
 It streams selected files into an encrypted bundle on the external disk.
 It verifies the encrypted bundle before it removes exact local files.

@@ -81,6 +81,41 @@ def test_retention_requires_backup_and_preserves_recent_and_referenced(tmp_path)
         )
 
 
+def test_retention_preserves_sources_pinned_by_pending_replay(tmp_path):
+    now = 2_000_000_000.0
+    directory = tmp_path / "depth"
+    directory.mkdir()
+    database = tmp_path / "prediction.sqlite3"
+    setup_prediction_db(database)
+    rows = [
+        segment(directory, index, int((now - 20 * 86_400 + index) * 1000))
+        for index in range(26)
+    ]
+    requests = directory / ".historical-replay" / "requests"
+    requests.mkdir(parents=True)
+    requests.joinpath("selection.json").write_text(
+        json.dumps({
+            "archives": [{
+                "path": str(rows[0][0]),
+                "sha256": rows[0][1]["archive_sha256"],
+            }],
+        }),
+        encoding="utf-8",
+    )
+    status = tmp_path / "backup.json"
+    backup_status(status, now - 60)
+
+    eligible = module.eligible_segments(
+        directory,
+        database=database,
+        backup_status=status,
+        retention_days=14,
+        now=now,
+    )
+
+    assert [path for path, _ in eligible] == [rows[1][0]]
+
+
 def test_archive_is_verified_before_exact_local_triplet_removal(tmp_path, monkeypatch):
     directory = tmp_path / "depth"
     external = tmp_path / "external"

@@ -16,7 +16,6 @@ import requests
 
 from ladder_dragon.supervision.context_transport import HistoricalContextClient
 from ladder_dragon.supervision.panic_observer import (
-    read_panic_observation,
     refresh_panic_observation,
 )
 from ladder_dragon.strategy.prediction.context_journal import ContextJournal
@@ -68,20 +67,61 @@ class HistoricalContextCollector:
         self.cache[key] = source
         return source
 
-    def collect(self, symbol: str, runtime_source: dict | None, reason: str | None = None) -> dict:
+    def collect(self, symbol: str, captured: dict | None, reason: str | None = None) -> dict:
         """Write only sanitized successful projections or an explicit evidence gap."""
         error_type = None
         sources = None
+        if reason == "PANIC_WARMUP":
+            try:
+                refresh_panic_observation(
+                    symbol,
+                    public_get=self.public_get,
+                    now_ms=self.clock(),
+                    run_dir=self.panic_run_dir,
+                )
+                result = {
+                    "status": "WARMING",
+                    "reason": "PANIC_OBSERVER_PRIMED",
+                }
+            except SOURCE_ERRORS as exc:
+                result = {
+                    "status": "BLOCKED",
+                    "reason": "SOURCE_UNAVAILABLE",
+                    "error_type": type(exc).__name__,
+                }
+            # A refreshed state was not consumed by this runtime cycle.
+            # Prime the next cycle without writing false or unavailable evidence.
+            with self.lock:
+                result.update(mode="SHADOW", apply_allowed=False)
+                self.status[symbol] = result
+                self.busy = False
+            return result
         try:
-            # Refresh public PANIC state even when this first HALT observation
-            # is blocked. The next supervisor cycle can consume fresh evidence.
-            refresh_panic_observation(
-                symbol,
-                public_get=self.public_get,
-                now_ms=self.clock(),
-                run_dir=self.panic_run_dir,
-            )
             if reason is None:
+                # Recheck the state already consumed by this runtime cycle.
+                # A change during the asynchronous read must fail closed.
+                observation = refresh_panic_observation(
+                    symbol,
+                    public_get=self.public_get,
+                    now_ms=self.clock(),
+                    run_dir=self.panic_run_dir,
+                )
+                if (
+                    captured is None
+                    or self.clock() - captured["captured_at_ms"] >= 120_000
+                    or observation["on"] is not captured["panic"]
+                    or observation["hits"] != captured["panic_hits"]
+                ):
+                    raise ValueError("PANIC observation differs from runtime")
+                observed_at = self.clock()
+                runtime_source = attest("runtime", symbol, observed_at, {
+                    "classifier": captured["classifier"],
+                    "regime": captured["regime"],
+                    "panic": captured["panic"],
+                    "panic_hits": captured["panic_hits"],
+                    "panic_source_fingerprint": observation["source_fingerprint"],
+                    "panic_observed_at_ms": observation["updated_at_ms"],
+                })
                 sources = {"runtime": runtime_source, "filters": self._source("filters", symbol),
                            "fees": self._source("fees", symbol)}
                 context_from_sources(sources, self.clock())
@@ -116,29 +156,24 @@ class HistoricalContextCollector:
         """Capture the exact consumed runtime input before any asynchronous read."""
         symbol_name(symbol)
         now = self.clock()
-        source, reason = None, None
+        captured, reason = None, None
         try:
             # This canonical validator is SOL-scoped; apply it to every context
             # symbol rather than silently admitting an unchecked classifier.
             require_runtime_regime_contract("SOLUSDT", arguments, environ)
-            observation = read_panic_observation(
-                symbol, now_ms=now, run_dir=self.panic_run_dir
-            )
             if (
                 type(panic) is not bool
                 or type(panic_hits) is not int
-                or observation is None
-                or observation["on"] is not panic
-                or observation["hits"] != panic_hits
             ):
-                reason = "PANIC_UNAVAILABLE"
+                reason = "PANIC_WARMUP"
             else:
-                source = attest("runtime", symbol, now, {
+                captured = {
                     "classifier": v23_evidence_semantics_contract()["regime_classifier"],
-                    "regime": regime, "panic": panic, "panic_hits": panic_hits,
-                    "panic_source_fingerprint": observation["source_fingerprint"],
-                    "panic_observed_at_ms": observation["updated_at_ms"],
-                })
+                    "captured_at_ms": now,
+                    "regime": regime,
+                    "panic": panic,
+                    "panic_hits": panic_hits,
+                }
         except (AttributeError, ValueError, TypeError, ArithmeticError):
             reason = "CLASSIFIER_MISMATCH"
         signature = (symbol, regime, panic, panic_hits, reason)
@@ -156,7 +191,7 @@ class HistoricalContextCollector:
                 return current
             self.last[symbol] = (now, signature)
             self.busy, self.job_signature, self.invalidated_at = True, signature, None
-            self.thread = threading.Thread(target=self.collect, args=(symbol, source, reason),
+            self.thread = threading.Thread(target=self.collect, args=(symbol, captured, reason),
                                            name="historical-context", daemon=True)
             try:
                 self.thread.start()

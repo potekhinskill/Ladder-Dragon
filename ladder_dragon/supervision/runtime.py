@@ -50,6 +50,7 @@ from ladder_dragon.ai.ai_statistical import context_vector
 from ladder_dragon.strategy.prediction.control_evidence import (
     CONTROL_KINDS,
     record_control_evidence,
+    record_strategy_evidence,
 )
 from ladder_dragon.strategy.prediction.champion_registry import active_champion, champion_allows_regime
 from ladder_dragon.strategy.prediction.episode_semantics import REGIME_ADX_LENGTH, REGIME_EMA_FAST_LENGTH, REGIME_EMA_SLOW_LENGTH, require_runtime_regime_contract
@@ -1885,17 +1886,10 @@ def _record_prediction_shadow(
             commission_schedule=commission_schedule,
             stop_limit_offset_pct=stop_limit_offset_pct,
         )
-        predictions = predict_distribution(features, strategy_plan, history)
-        _PREDICTION_SHADOW.record(
-            kind="STRATEGY",
-            symbol=symbol,
-            features=features,
-            plan=strategy_plan,
-            predictions=predictions,
-            algorithm_decision=(
-                f"mode={deterministic_mode};buy={strategy_plan.entry_price};"
-                f"panic={panic_active};reason=current-ladder"
-            ),
+        record_strategy_evidence(
+            _PREDICTION_SHADOW, symbol=symbol, features=features,
+            plan=strategy_plan, history=history,
+            algorithm_decision=f"mode={deterministic_mode};buy={strategy_plan.entry_price};panic={panic_active};reason=current-ladder",
         )
         record_control_evidence(
             _PREDICTION_SHADOW,

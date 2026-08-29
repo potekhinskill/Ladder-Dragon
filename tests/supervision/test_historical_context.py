@@ -7,11 +7,9 @@ import pytest
 
 from ladder_dragon.supervision import historical_context as module
 from ladder_dragon.strategy.prediction.context_journal import export_context
-from ladder_dragon.strategy.prediction.context_sources import attest
 from ladder_dragon.strategy.prediction.episode_semantics import v23_evidence_semantics_contract
 from ladder_dragon.strategy.prediction.historical_policy import fingerprint
 from ladder_dragon.supervision.panic_observer import (
-    panic_observer_fingerprint,
     refresh_panic_observation,
 )
 
@@ -21,13 +19,14 @@ def arguments():
                            dir_slope_min="0.0002", dir_adx_min="16", dir_confirm_bars=3)
 
 
-def runtime_source(now):
-    return attest("runtime", "SOLUSDT", now, {
+def captured(now):
+    return {
         "classifier": v23_evidence_semantics_contract()["regime_classifier"],
-        "regime": "RANGE", "panic": False, "panic_hits": 0,
-        "panic_source_fingerprint": panic_observer_fingerprint(),
-        "panic_observed_at_ms": now,
-    })
+        "captured_at_ms": now,
+        "regime": "RANGE",
+        "panic": False,
+        "panic_hits": 0,
+    }
 
 
 def klines():
@@ -60,13 +59,13 @@ def test_get_only_collection_caches_without_renewing_source_time(tmp_path):
     collector = module.HistoricalContextCollector(tmp_path / "context.sqlite3", public_get=client(calls),
                                                  signed_get=client(calls), clock=lambda: now[0],
                                                  panic_run_dir=tmp_path)
-    assert collector.collect("SOLUSDT", runtime_source(1000))["status"] == "AVAILABLE"
+    assert collector.collect("SOLUSDT", captured(1000))["status"] == "AVAILABLE"
     now[0] = 61_000
-    assert collector.collect("SOLUSDT", runtime_source(61_000))["status"] == "AVAILABLE"
+    assert collector.collect("SOLUSDT", captured(61_000))["status"] == "AVAILABLE"
     assert len(calls) == 4
     assert collector.cache["SOLUSDT:fees"]["observed_at_ms"] == 1000
     now[0] = 242_000
-    assert collector.collect("SOLUSDT", runtime_source(242_000))["status"] == "AVAILABLE"
+    assert collector.collect("SOLUSDT", captured(242_000))["status"] == "AVAILABLE"
     assert len(calls) == 7
 
 
@@ -76,13 +75,52 @@ def test_failure_and_missing_panic_are_explicit_and_secret_safe(tmp_path):
     collector = module.HistoricalContextCollector(tmp_path / "context.sqlite3", public_get=failing,
                                                  signed_get=failing, clock=lambda: 1000,
                                                  panic_run_dir=tmp_path)
-    result = collector.collect("SOLUSDT", runtime_source(1000))
+    result = collector.collect("SOLUSDT", captured(1000))
     assert result["status"] == "BLOCKED" and result["reason"] == "SOURCE_UNAVAILABLE"
     assert "signed-url" not in repr(result)
     assert b"signed-url" not in collector.path.read_bytes()
     collector.clock = lambda: 2000
     result = collector.collect("SOLUSDT", None, "PANIC_UNAVAILABLE")
     assert result["reason"] == "PANIC_UNAVAILABLE"
+
+
+def test_submission_primes_missing_panic_without_journal_gap(tmp_path):
+    calls, now = [], [1000]
+    collector = module.HistoricalContextCollector(
+        tmp_path / "context.sqlite3",
+        public_get=client(calls),
+        signed_get=client(calls),
+        clock=lambda: now[0],
+        panic_run_dir=tmp_path,
+    )
+
+    collector.submit(
+        "SOLUSDT",
+        arguments=arguments(),
+        environ={},
+        regime="RANGE",
+        panic=None,
+        panic_hits=None,
+    )
+    collector.thread.join(5)
+
+    assert collector.status["SOLUSDT"]["status"] == "WARMING"
+    assert any(endpoint == "/api/v3/klines" for endpoint, _ in calls)
+    assert not collector.path.exists()
+
+    now[0] = 31_000
+    collector.submit(
+        "SOLUSDT",
+        arguments=arguments(),
+        environ={},
+        regime="RANGE",
+        panic=False,
+        panic_hits=0,
+    )
+    collector.thread.join(5)
+
+    assert collector.status["SOLUSDT"]["status"] == "AVAILABLE"
+    assert collector.path.exists()
 
 
 @pytest.mark.parametrize("other_symbol", [False, True])
@@ -159,7 +197,7 @@ def test_delayed_sources_cannot_backdate_or_extend_runtime(tmp_path):
     collector = module.HistoricalContextCollector(tmp_path / "context.sqlite3", public_get=delayed,
                                                  signed_get=client(calls), clock=lambda: now[0],
                                                  panic_run_dir=tmp_path)
-    assert collector.collect("SOLUSDT", runtime_source(1000))["status"] == "BLOCKED"
+    assert collector.collect("SOLUSDT", captured(1000))["status"] == "BLOCKED"
 
 
 def test_evidence_from_collector_reaches_read_only_export(tmp_path):
@@ -167,7 +205,7 @@ def test_evidence_from_collector_reaches_read_only_export(tmp_path):
     collector = module.HistoricalContextCollector(tmp_path / "context.sqlite3", public_get=client(calls),
                                                  signed_get=client(calls), clock=lambda: 1000,
                                                  panic_run_dir=tmp_path)
-    collector.collect("SOLUSDT", runtime_source(1000))
+    collector.collect("SOLUSDT", captured(1000))
     result = export_context(collector.path, symbol="SOLUSDT",
                             classifier_fingerprint=fingerprint(v23_evidence_semantics_contract()["regime_classifier"]),
                             start_ms=2000, end_ms=10000, cutoff_ms=10000)

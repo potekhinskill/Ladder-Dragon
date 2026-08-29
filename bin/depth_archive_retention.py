@@ -26,6 +26,7 @@ SEGMENT_RE = re.compile(r"^[A-Z0-9]{5,20}-[a-f0-9]{32}-[0-9]{6}\.jsonl$")
 MAXIMUM_SEGMENTS_PER_RUN = 48
 MAXIMUM_BACKUP_AGE_SEC = 48 * 60 * 60
 MINIMUM_LOCAL_SEGMENTS = 24
+MAXIMUM_REPLAY_REQUESTS = 128
 
 
 def _backup_time(path: Path, *, now: float) -> float:
@@ -83,6 +84,30 @@ def _protected_hashes(database: Path) -> set[str]:
         connection.close()
 
 
+def _pending_replay_hashes(directory: Path) -> set[str]:
+    """Protect every source pinned by an unreviewed replay request."""
+    request_directory = directory / ".historical-replay" / "requests"
+    if not request_directory.exists():
+        return set()
+    requests = sorted(request_directory.glob("*.json"))
+    if len(requests) > MAXIMUM_REPLAY_REQUESTS:
+        raise ValueError("historical replay request capacity reached")
+    protected: set[str] = set()
+    for path in requests:
+        payload = bounded_json(path)
+        archives = payload.get("archives")
+        if not isinstance(archives, list) or not 1 <= len(archives) <= 10_000:
+            raise ValueError("historical replay request sources are invalid")
+        for source in archives:
+            if not isinstance(source, dict) or set(source) != {"path", "sha256"}:
+                raise ValueError("historical replay source identity is invalid")
+            digest = str(source["sha256"])
+            if re.fullmatch(r"[a-f0-9]{64}", digest) is None:
+                raise ValueError("historical replay source hash is invalid")
+            protected.add(digest)
+    return protected
+
+
 def eligible_segments(
     directory: Path,
     *,
@@ -95,7 +120,7 @@ def eligible_segments(
     if not 1 <= retention_days <= 3650:
         raise ValueError("depth retention days are invalid")
     backup_stamp = _backup_time(backup_status, now=now)
-    protected = _protected_hashes(database)
+    protected = _protected_hashes(database) | _pending_replay_hashes(directory)
     completed: list[tuple[Path, dict[str, object]]] = []
     for metadata_path in sorted(directory.glob("*.jsonl.metadata.json")):
         raw = metadata_path.name.removesuffix(".metadata.json")

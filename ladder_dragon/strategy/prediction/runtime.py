@@ -20,6 +20,7 @@ import sqlite3
 import time
 from typing import Iterable, Mapping, Sequence
 
+from ladder_dragon.strategy.prediction.legacy_cadence import LegacyEvidenceCadenceMixin
 from ladder_dragon.strategy.prediction.models import (
     HorizonPrediction,
     PredictionBar,
@@ -28,7 +29,6 @@ from ladder_dragon.strategy.prediction.models import (
     ResolvedSample,
     TradePlan, decision_metadata, trade_plan_fee_fields,
 )
-
 D = Decimal
 ZERO = D("0")
 ONE = D("1")
@@ -506,7 +506,7 @@ def evaluate_plan(
     )
 
 
-class PredictionShadowStore:
+class PredictionShadowStore(LegacyEvidenceCadenceMixin):
     """Durable, non-secret, immutable prediction and outcome journal."""
 
     def __init__(self, path: str | Path) -> None:

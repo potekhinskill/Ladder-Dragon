@@ -124,6 +124,43 @@ def test_errors_never_read_provider_body_and_rate_limit_defers_next_read(status)
         assert len(session.calls) == 1
 
 
+def test_signed_cooldown_does_not_block_public_panic_observation():
+    now_ms = time.time_ns() // 1_000_000
+    bars = [
+        [index * 60_000, "100", "101", "99", "100", "1", index * 60_000 + 59_999]
+        for index in range(120)
+    ]
+    session = Session([
+        Response({"serverTime": now_ms}),
+        Response(status=429),
+        Response(bars),
+    ])
+    client = make(session)
+
+    with pytest.raises(RuntimeError, match="HTTP failure"):
+        client.signed_get("/api/v3/account/commission", {"symbol": "SOLUSDT"})
+
+    assert client.public_get(
+        "/api/v3/klines",
+        {"symbol": "SOLUSDT", "interval": "1m", "limit": 120},
+    ) == bars
+    assert len(session.calls) == 3
+
+
+def test_public_cooldown_blocks_signed_reads_without_another_request():
+    session = Session([Response(status=429)])
+    client = make(session)
+
+    with pytest.raises(RuntimeError, match="HTTP failure"):
+        client.public_get("/api/v3/exchangeInfo", {"symbol": "SOLUSDT"})
+    with pytest.raises(RuntimeError, match="cooldown"):
+        client.signed_get(
+            "/api/v3/account/commission", {"symbol": "SOLUSDT"}
+        )
+
+    assert len(session.calls) == 1
+
+
 def test_network_failure_omits_signed_url_and_bad_clock_never_sends_signed_read():
     session = Session([requests.RequestException("signature=private-sentinel")])
     with pytest.raises(RuntimeError) as caught:

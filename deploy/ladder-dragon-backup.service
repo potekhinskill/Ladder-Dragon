@@ -3,6 +3,8 @@
 # Purpose: define the systemd unit for ladder-dragon-backup.
 [Unit]
 Description=Ladder Dragon private configuration and SQLite backup
+# Retention can mutate only after this unit publishes fresh encrypted evidence.
+OnSuccess=ladder-dragon-database-retention.service
 
 [Service]
 Type=oneshot

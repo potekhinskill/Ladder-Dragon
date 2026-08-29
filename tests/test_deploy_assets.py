@@ -871,6 +871,8 @@ def test_public_depth_archive_is_continuous_retained_and_secret_free():
     assert "-m bin.depth_archive_service" in wrapper
     processing = read("ladder_dragon/strategy/depth_processing.py")
     assert "bin.import_entry_veto_l2" in processing
+    assert "bin.historical_replay_runner" in processing
+    assert ".historical-replay" in processing
     assert "--archive-directory" in processing
     assert "subprocess.Popen" in processing
 
@@ -966,8 +968,8 @@ def test_database_retention_is_backup_gated_bounded_and_scheduled():
     updater = read("deploy/update_raspberry_pi.sh")
     backup = read("deploy/backup_raspberry_pi.sh")
     source = read("ladder_dragon/persistence/retention.py")
-    assert "--retention-days 365" in service
-    assert "--maximum-rows 2000" in service
+    assert "--retention-days 30" in service
+    assert "--maximum-rows 5000" in service
     assert "--market-analysis-db" in service
     assert "--backup-status /run/mybot/backup_status.json" in service
     assert "SuccessExitStatus=0" in service
@@ -978,6 +980,9 @@ def test_database_retention_is_backup_gated_bounded_and_scheduled():
     assert "ladder-dragon-database-retention.timer" in installer
     assert "ladder-dragon-database-retention.timer" in updater
     assert "/var/lib/ladder-dragon/database-archives" in backup
+    assert "OnSuccess=ladder-dragon-database-retention.service" in read(
+        "deploy/ladder-dragon-backup.service"
+    )
 
 
 def test_updates_are_commit_allowlisted_and_backups_are_encrypted():

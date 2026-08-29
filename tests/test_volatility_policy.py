@@ -69,10 +69,70 @@ def test_policy_freezes_selection_hashes_and_empirical_tertiles(tmp_path):
     assert payload["low_max_bps"] == "0.34"
     assert payload["high_min_bps"] == "0.67"
     assert payload["selection_report_count"] == 100
+    assert payload["selection_bucket_counts"] == {
+        "low": 34,
+        "normal": 32,
+        "high": 34,
+    }
+    assert payload["quantile_rule"] == "ZERO_INFLATED_EMPIRICAL_TERTILES_V2"
     assert payload["confirmation_reuses_selection"] is False
     assert verify_volatility_policy(payload) is True
     damaged = dict(payload, high_min_bps="0.1")
     assert verify_volatility_policy(damaged) is False
+
+
+def test_zero_inflated_selection_splits_positive_tail_without_empty_bucket(tmp_path):
+    paths = []
+    for index in range(1, 101):
+        volatility = "0" if index <= 59 else str(Decimal(index) / Decimal("100"))
+        path = tmp_path / f"zero-inflated-{index}.json"
+        path.write_text(
+            json.dumps(calibration(index, volatility).as_dict()),
+            encoding="utf-8",
+        )
+        paths.append(path)
+
+    payload = select_volatility_policy(
+        paths,
+        cutoff_ts_ms=101 * DAY_MS,
+        created_at_ms=101 * DAY_MS,
+    )
+
+    assert payload["low_max_bps"] == "0"
+    assert payload["selection_bucket_counts"] == {
+        "low": 59,
+        "normal": 20,
+        "high": 21,
+    }
+
+
+def test_production_shaped_zero_inflation_has_reachable_buckets(tmp_path):
+    paths = []
+    for index in range(1, 227):
+        volatility = (
+            "0"
+            if index <= 164
+            else str(Decimal("0.9119") + Decimal(index - 165) / Decimal("10000"))
+        )
+        path = tmp_path / f"production-shape-{index}.json"
+        path.write_text(
+            json.dumps(calibration(index, volatility).as_dict()),
+            encoding="utf-8",
+        )
+        paths.append(path)
+
+    payload = select_volatility_policy(
+        paths,
+        cutoff_ts_ms=227 * DAY_MS,
+        created_at_ms=227 * DAY_MS,
+    )
+
+    assert payload["selection_bucket_counts"] == {
+        "low": 164,
+        "normal": 30,
+        "high": 32,
+    }
+    assert verify_volatility_policy(payload) is True
 
 
 def test_confirmation_requires_disjoint_post_cutoff_archives(tmp_path):

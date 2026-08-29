@@ -18,6 +18,7 @@ from ladder_dragon.strategy.prediction.episode_semantics import canonical_digest
 MINIMUM_SELECTION_REPORTS = 100
 MAXIMUM_SELECTION_REPORTS = 2_048
 MINIMUM_SELECTION_SPAN_MS = 2 * 86_400_000
+MINIMUM_SELECTION_BUCKET_REPORTS = 20
 
 
 def _file_sha256(path: Path) -> str:
@@ -40,6 +41,20 @@ def _read_payload(path: Path) -> dict[str, object]:
 def _quantile(values: list[Decimal], numerator: int, denominator: int) -> Decimal:
     ordered = sorted(values)
     return ordered[(len(ordered) - 1) * numerator // denominator]
+
+
+def _bucket_counts(
+    values: Iterable[Decimal], *, low_max_bps: Decimal, high_min_bps: Decimal
+) -> dict[str, int]:
+    counts = {"low": 0, "normal": 0, "high": 0}
+    for value in values:
+        bucket = (
+            "low" if value <= low_max_bps
+            else "high" if value >= high_min_bps
+            else "normal"
+        )
+        counts[bucket] += 1
+    return counts
 
 
 def select_volatility_policy(
@@ -83,13 +98,29 @@ def select_volatility_policy(
         raise ValueError("volatility selection values are invalid")
     low_max_bps = _quantile(values, 1, 3)
     high_min_bps = _quantile(values, 2, 3)
-    if high_min_bps <= low_max_bps:
-        higher = sorted({value for value in values if value > low_max_bps})
-        if not higher:
+    bucket_counts = _bucket_counts(
+        values, low_max_bps=low_max_bps, high_min_bps=high_min_bps
+    )
+    if high_min_bps <= low_max_bps or any(
+        bucket_counts[name] < MINIMUM_SELECTION_BUCKET_REPORTS
+        for name in ("low", "normal", "high")
+    ):
+        # Short depth segments can have a zero-inflated move distribution.
+        # Split the positive tail instead of creating an empty normal bucket.
+        higher = [value for value in values if value > low_max_bps]
+        if len(higher) < MINIMUM_SELECTION_BUCKET_REPORTS * 2:
             raise ValueError("volatility selection has no separable buckets")
-        high_min_bps = higher[0]
+        high_min_bps = _quantile(higher, 1, 2)
+        bucket_counts = _bucket_counts(
+            values, low_max_bps=low_max_bps, high_min_bps=high_min_bps
+        )
+    if any(
+        bucket_counts[name] < MINIMUM_SELECTION_BUCKET_REPORTS
+        for name in ("low", "normal", "high")
+    ):
+        raise ValueError("volatility selection bucket coverage is insufficient")
     payload: dict[str, object] = {
-        "schema_version": 1,
+        "schema_version": 2,
         "mode": "SHADOW",
         "apply_allowed": False,
         "scope": "VOLATILITY_POLICY_SELECTION_ONLY",
@@ -102,7 +133,10 @@ def select_volatility_policy(
         "selection_report_sha256s": sorted(report_hashes),
         "low_max_bps": format(low_max_bps, "f"),
         "high_min_bps": format(high_min_bps, "f"),
-        "quantile_rule": "EMPIRICAL_TERTILES_V1",
+        "selection_bucket_counts": bucket_counts,
+        "minimum_selection_bucket_reports": MINIMUM_SELECTION_BUCKET_REPORTS,
+        "volatility_metric": "CALIBRATION_EVENT_MOVE_P95_BPS",
+        "quantile_rule": "ZERO_INFLATED_EMPIRICAL_TERTILES_V2",
         "confirmation_reuses_selection": False,
     }
     payload["policy_sha256"] = canonical_digest(payload)
@@ -120,12 +154,16 @@ def verify_volatility_policy(payload: Mapping[str, object]) -> bool:
         archives = tuple(candidate["selection_archive_sha256s"])
         reports = tuple(candidate["selection_report_sha256s"])
         count = int(candidate["selection_report_count"])
+        bucket_counts = candidate["selection_bucket_counts"]
         return (
-            candidate.get("schema_version") == 1
+            candidate.get("schema_version") == 2
             and candidate.get("mode") == "SHADOW"
             and candidate.get("apply_allowed") is False
             and candidate.get("scope") == "VOLATILITY_POLICY_SELECTION_ONLY"
-            and candidate.get("quantile_rule") == "EMPIRICAL_TERTILES_V1"
+            and candidate.get("volatility_metric")
+            == "CALIBRATION_EVENT_MOVE_P95_BPS"
+            and candidate.get("quantile_rule")
+            == "ZERO_INFLATED_EMPIRICAL_TERTILES_V2"
             and candidate.get("confirmation_reuses_selection") is False
             and count >= MINIMUM_SELECTION_REPORTS
             and count <= MAXIMUM_SELECTION_REPORTS
@@ -134,6 +172,16 @@ def verify_volatility_policy(payload: Mapping[str, object]) -> bool:
             and high.is_finite()
             and low >= 0
             and high > low
+            and candidate.get("minimum_selection_bucket_reports")
+            == MINIMUM_SELECTION_BUCKET_REPORTS
+            and isinstance(bucket_counts, dict)
+            and set(bucket_counts) == {"low", "normal", "high"}
+            and all(
+                type(bucket_counts[name]) is int
+                and bucket_counts[name] >= MINIMUM_SELECTION_BUCKET_REPORTS
+                for name in ("low", "normal", "high")
+            )
+            and sum(bucket_counts.values()) == count
             and len(archives) == len(set(archives)) == count
             and len(reports) == len(set(reports)) == count
             and all(len(str(item)) == 64 for item in archives + reports)

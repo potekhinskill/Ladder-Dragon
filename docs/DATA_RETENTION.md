@@ -26,14 +26,15 @@ The runtime never deletes these rows. Retention jobs must not select them.
 
 ## Derived data
 
-Prediction SHADOW decisions and terminal outcomes are derived evidence. The
-daily retention service keeps 365 days in the active database. It processes a
-maximum of 2,000 decisions in one run.
+Legacy prediction snapshots and terminal outcomes are derived evidence.
+The retention service keeps 30 days of this data in the active database.
+It processes a maximum of 5,000 decisions in one run.
+Selection, confirmation, diagnostic, and pending records are never eligible.
 
 The service applies this sequence:
 
 1. Require a successful encrypted backup that is not older than 36 hours.
-2. Select decisions whose outcomes are all terminal and older than 365 days.
+2. Select legacy decisions whose outcomes are all terminal and older than 30 days.
 3. Write a content-addressed gzip JSONL archive with mode `0600`.
 4. Recheck the selected rows in one `BEGIN IMMEDIATE` transaction.
 5. Delete the archived outcomes and decisions in that transaction.
@@ -60,7 +61,9 @@ cat /var/lib/ladder-dragon/database-retention/report.json
 Exit code `0` means PASS. Exit code `2` means BLOCKED. A missing or stale backup
 blocks deletion but does not change the database.
 
-The systemd service records BLOCKED as a failed unit. A later successful run clears the failure.
+The backup service starts retention only after a successful encrypted backup.
+The daily timer provides a safe retry after a temporary BLOCKED result.
+A later successful run clears the failed unit state.
 
 ## Existing bounded stores
 

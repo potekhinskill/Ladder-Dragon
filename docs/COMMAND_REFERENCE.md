@@ -70,6 +70,7 @@ See [Historical entry replay](HISTORICAL_ENTRY_REPLAY.md) for continuous source 
 | `depth_archive_service` | rotates one continuous public stream and processes calibration separately |
 | `depth_archive_retention` | encrypts eligible L2 segments externally before local removal |
 | `replay_historical_entries` | generates historical opportunities from immutable inputs; optional `--context-db` verifies source-owned context |
+| `historical_replay_runner` | processes a bounded SHADOW replay request queue without automatic import |
 | `volatility_policy` | freezes empirical volatility buckets from selection-only calibration reports |
 | `import_entry_veto_l2` | imports source-hashed public L2 entry features into SHADOW evidence |
 | `prediction_history_backfill` | creates cutoff-safe samples from archived bars |
@@ -345,7 +346,7 @@ Do not publish its output.
 | `ladder-dragon-daily-digest.service` | exact Telegram trading report | timer target |
 | `ladder-dragon-daily-digest.timer` | starts the digest | 08:00 Asia/Almaty |
 | `ladder-dragon-database-retention.service` | archives terminal SHADOW data | fails when retention is blocked |
-| `ladder-dragon-database-retention.timer` | starts database retention | daily after backup |
+| `ladder-dragon-database-retention.timer` | retries database retention | daily fallback |
 | `ladder-dragon-depth-archive.service` | continuous public L2 archive recorder | persistent service |
 | `ladder-dragon-depth-archive.timer` | legacy hourly archive schedule | disabled by deployment |
 | `ladder-dragon-depth-retention.service` | verified encrypted L2 archive rotation | timer target |

@@ -3,6 +3,28 @@
 All notable changes are documented here. Releases use Semantic Versioning; every
 section is dated and there is intentionally no `Unreleased` section.
 
+## [2.20.262] — 2026-08-30
+
+### Added
+- A bounded SHADOW runner processes immutable historical replay requests without importing selection or changing trading state.
+- Volatility policy version two proves minimum selection coverage for every future confirmation bucket.
+
+### Fixed
+- Zero-inflated calibration cohorts now receive three reachable empirical volatility buckets.
+- Historical context primes missing PANIC state without writing a false journal gap.
+- Public and signed historical reads now keep separate rate-limit cooldowns.
+- Legacy strategy and control snapshots now use restart-safe five-minute storage buckets.
+- Successful encrypted backup completion now starts guarded database retention.
+
+### Security
+- Replay import, candidate freeze, HALT, execution scope, BTC, ETH, and order authority remain unchanged.
+- Retention remains backup-gated and excludes selection, confirmation, diagnostic, pending, and authoritative records.
+- Pending historical replay requests protect their exact L2 sources from local rotation.
+
+### Verified
+- The full project suite passes: 1,510 tests.
+- Python compilation, numeric audit, secret scan, Semgrep, Technical English, and whitespace checks pass.
+
 ## [2.20.261] — 2026-08-29
 
 ### Fixed

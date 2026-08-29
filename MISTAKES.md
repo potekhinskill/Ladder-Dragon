@@ -1,5 +1,26 @@
 # Engineering mistakes and root causes
 
+### 2026-08-30 — Checked threshold ordering instead of bucket reachability
+
+- **Impact:** a valid-looking empirical policy could leave its required normal volatility bucket empty.
+- **Root cause:** preflight checked distinct thresholds but did not count future bucket membership.
+- **Correction:** count every selection bucket and split the positive tail for zero-inflated cohorts.
+- **Prevention:** verify category reachability before freezing every empirical confirmation policy.
+
+### 2026-08-30 — Scheduled retention by clock instead of backup completion
+
+- **Impact:** retention could report BLOCKED before the encrypted backup published fresh status.
+- **Root cause:** systemd ordering declared sequence only when both units were already scheduled.
+- **Correction:** start retention from backup success and keep a later retry timer.
+- **Prevention:** encode artifact dependencies as completion triggers, not assumed clock spacing.
+
+### 2026-08-30 — Confused refreshed PANIC state with consumed PANIC state
+
+- **Impact:** the first HALT context cycle could record a one-pass evidence gap.
+- **Root cause:** the first correction tried to attest a refresh completed after the runtime decision boundary.
+- **Correction:** prime the observer without a row, then attest the next cycle's consumed state.
+- **Prevention:** test observation time and consumption time separately for every asynchronous evidence source.
+
 ### 2026-08-29 — Relied on exit cleanup for private backup staging
 
 - **Impact:** interrupted updates retained private staging and reduced capacity for the next required backup.

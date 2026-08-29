@@ -1,0 +1,131 @@
+#!/usr/bin/env python3
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2026 IURII Potekhin
+# Purpose: process pinned historical replay requests without importing selection.
+"""Create immutable SHADOW reports from a bounded operator request queue."""
+
+from __future__ import annotations
+
+import argparse
+import hashlib
+import json
+from pathlib import Path
+import sqlite3
+
+from bin.replay_historical_entries import run_replay_request
+from ladder_dragon.strategy.depth_segments import atomic_json
+from ladder_dragon.strategy.prediction.historical_policy import fingerprint
+
+MAXIMUM_REQUESTS = 128
+
+
+def _identity(path: Path) -> str:
+    raw = path.read_bytes()
+    if len(raw) > 2 * 1024 * 1024:
+        raise ValueError("historical replay request is oversized")
+    return hashlib.sha256(raw).hexdigest()
+
+
+def process_requests(
+    request_directory: Path,
+    output_directory: Path,
+    context_db: Path,
+    *,
+    maximum_new_reports: int = 1,
+) -> dict[str, object]:
+    """Process a bounded queue and leave selection import to the operator."""
+    if not 1 <= maximum_new_reports <= 8:
+        raise ValueError("historical replay work limit is invalid")
+    request_directory.mkdir(parents=True, exist_ok=True, mode=0o700)
+    output_directory.mkdir(parents=True, exist_ok=True, mode=0o700)
+    requests = sorted(request_directory.glob("*.json"))
+    if len(requests) > MAXIMUM_REQUESTS:
+        raise ValueError("historical replay request capacity reached")
+    completed = failed = created = 0
+    for request in requests:
+        try:
+            identity = _identity(request)
+            output = output_directory / f"{identity}.json"
+            if output.exists():
+                raw = output.read_bytes()
+                if len(raw) > 16 * 1024 * 1024:
+                    raise ValueError("historical replay report is oversized")
+                report = json.loads(raw)
+                if not isinstance(report, dict):
+                    raise ValueError("historical replay report must be an object")
+                embedded = str(report.get("report_sha256", ""))
+                body = {
+                    key: value
+                    for key, value in report.items()
+                    if key != "report_sha256"
+                }
+                if embedded != fingerprint(body):
+                    raise ValueError("historical replay report identity differs")
+                if report.get("status") != "COMPLETE_SELECTION_REPLAY":
+                    raise ValueError("historical replay report is incomplete")
+                completed += 1
+                continue
+            if created >= maximum_new_reports:
+                continue
+            report = run_replay_request(request, output, context_db=context_db)
+            created += 1
+            if report.get("status") != "COMPLETE_SELECTION_REPLAY":
+                raise ValueError("historical replay report is incomplete")
+            completed += 1
+        except (OSError, RuntimeError, ValueError, KeyError, TypeError, ArithmeticError, sqlite3.Error):
+            failed += 1
+    status = {
+        "schema_version": 1,
+        "mode": "SHADOW",
+        "apply_allowed": False,
+        "selection_import_automatic": False,
+        "request_count": len(requests),
+        "completed_report_count": completed,
+        "failed_request_count": failed,
+        "new_report_count": created,
+        "operator_review_ready": failed == 0 and completed >= 3,
+        "status": (
+            "BLOCKED" if failed
+            else "WAITING_REQUESTS" if not requests
+            else "READY_FOR_OPERATOR_REVIEW" if completed >= 3
+            else "COLLECTING_REPORTS"
+        ),
+    }
+    atomic_json(output_directory / "status.json", status, replace=True)
+    return status
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--request-directory", required=True, type=Path)
+    parser.add_argument("--output-directory", required=True, type=Path)
+    parser.add_argument("--context-db", required=True, type=Path)
+    parser.add_argument("--maximum-new-reports", type=int, default=1)
+    args = parser.parse_args()
+    try:
+        report = process_requests(
+            args.request_directory,
+            args.output_directory,
+            args.context_db,
+            maximum_new_reports=args.maximum_new_reports,
+        )
+    except (
+        OSError,
+        RuntimeError,
+        ValueError,
+        KeyError,
+        TypeError,
+        ArithmeticError,
+        sqlite3.Error,
+    ) as exc:
+        print(f"[HISTORICAL-RUNNER] status=BLOCKED error={type(exc).__name__}")
+        return 2
+    print(
+        f"[HISTORICAL-RUNNER] status={report['status']} "
+        f"completed={report['completed_report_count']}"
+    )
+    return 2 if report["status"] == "BLOCKED" else 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

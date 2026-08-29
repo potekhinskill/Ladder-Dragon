@@ -63,6 +63,9 @@ def test_each_execution_control_records_a_separate_counterfactual(monkeypatch):
     records = []
 
     class Store:
+        def legacy_snapshot_due(self, **_kwargs):
+            return True
+
         def resolved_samples(self, symbol, **kwargs):
             assert symbol == "SOLUSDT"
             return []
@@ -113,6 +116,9 @@ def test_unchanged_control_is_recorded_as_nonbinding(monkeypatch):
     records = []
 
     class Store:
+        def legacy_snapshot_due(self, **_kwargs):
+            return True
+
         def resolved_samples(self, *_args, **_kwargs):
             return []
 
@@ -144,6 +150,9 @@ def test_shadow_only_inventory_is_explicitly_not_applicable(monkeypatch):
     records = []
 
     class Store:
+        def legacy_snapshot_due(self, **_kwargs):
+            return True
+
         def resolved_samples(self, *_args, **_kwargs):
             return []
 
@@ -164,6 +173,29 @@ def test_shadow_only_inventory_is_explicitly_not_applicable(monkeypatch):
     assert not any(
         item["kind"] == CONTROL_KINDS["inventory"] for item in records
     )
+
+
+def test_legacy_cadence_skips_resolved_history_and_prediction(monkeypatch):
+    class Store:
+        def legacy_snapshot_due(self, **_kwargs):
+            return False
+
+        def resolved_samples(self, *_args, **_kwargs):
+            pytest.fail("cadence skip read resolved history")
+
+        def record(self, **_kwargs):
+            pytest.fail("cadence skip wrote a snapshot")
+
+    monkeypatch.setattr(
+        "ladder_dragon.strategy.prediction.control_evidence.predict_distribution",
+        lambda *_args, **_kwargs: pytest.fail("cadence skip calculated a prediction"),
+    )
+
+    assert record_control_evidence(
+        Store(), symbol="SOLUSDT", features=_features(), baseline_plan=_plan(),
+        required_edge_pct=None, inventory_scale=D("1"),
+        regime_buys_allowed=True,
+    ) == ()
 
 
 def test_one_control_approval_cannot_authorize_another_control():

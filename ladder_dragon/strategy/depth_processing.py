@@ -104,6 +104,7 @@ def process_backlog(directory: Path, stop, prediction_db: Path | None = None) ->
     """Use one bounded child; slow calibration cannot stall the WebSocket."""
     retry_after: dict[Path, float] = {}
     next_import = 0.0
+    next_historical_replay = 0.0
     while not stop.is_set():
         try:
             status, pending = calibration_inventory(directory)
@@ -116,6 +117,19 @@ def process_backlog(directory: Path, stop, prediction_db: Path | None = None) ->
                 next_import = time.monotonic() + 900
                 if code:
                     print(f"[DEPTH-IMPORT] status=RETRY exit={code}", flush=True)
+                if stop.is_set():
+                    break
+            if prediction_db is not None and time.monotonic() >= next_historical_replay:
+                replay_root = directory / ".historical-replay"
+                code = _run_offline([
+                    "bin.historical_replay_runner",
+                    "--request-directory", str(replay_root / "requests"),
+                    "--output-directory", str(replay_root / "reports"),
+                    "--context-db", str(prediction_db.with_name("historical_context.sqlite3")),
+                ], stop)
+                next_historical_replay = time.monotonic() + 900
+                if code:
+                    print(f"[HISTORICAL-RUNNER] status=RETRY exit={code}", flush=True)
                 if stop.is_set():
                     break
             candidate = next((p for p in pending if retry_after.get(p, 0) <= time.monotonic()), None)

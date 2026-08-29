@@ -33,10 +33,12 @@ class HistoricalContextClient:
         self.base_url = f"https://{parsed.hostname}"
         self.credentials = credentials
         self.session = session or requests.Session()
-        self.cooldown_until = 0.0
+        # Public PANIC evidence must remain available when one account-scoped
+        # request is rate limited. Each authority owns its cooldown.
+        self.cooldown_until = {"public": 0.0, "signed": 0.0}
         self.offset_ms, self.clock_checked = None, 0.0
 
-    def _get(self, endpoint: str, params: dict, headers=None) -> object:
+    def _get(self, endpoint: str, params: dict, headers=None, *, scope: str) -> object:
         if endpoint not in {
             "/api/v3/time",
             "/api/v3/exchangeInfo",
@@ -44,7 +46,9 @@ class HistoricalContextClient:
             "/api/v3/account/commission",
         }:
             raise ValueError("context endpoint unsupported")
-        if time.monotonic() < self.cooldown_until:
+        if scope not in self.cooldown_until:
+            raise ValueError("context cooldown scope unsupported")
+        if time.monotonic() < self.cooldown_until[scope]:
             raise RuntimeError("context source cooldown active")
         response = None
         try:
@@ -55,7 +59,13 @@ class HistoricalContextClient:
                     retry = int(response.headers.get("Retry-After", "120"))
                 except (ValueError, TypeError):
                     retry = 120
-                self.cooldown_until = time.monotonic() + min(259200, max(1, retry))
+                until = time.monotonic() + min(259200, max(1, retry))
+                self.cooldown_until[scope] = until
+                # Public limits and IP bans constrain both authorities.
+                # Only an account-scoped 429 remains isolated from public PANIC.
+                if scope == "public" or response.status_code == 418:
+                    self.cooldown_until["public"] = until
+                    self.cooldown_until["signed"] = until
             if response.status_code != 200:
                 raise RuntimeError("context source HTTP failure")
             body = bytearray()
@@ -80,7 +90,7 @@ class HistoricalContextClient:
         if not isinstance(symbol, str) or re.fullmatch(r"[A-Z0-9]{5,20}", symbol) is None:
             raise ValueError("context public symbol unsupported")
         if endpoint == "/api/v3/exchangeInfo" and set(params) == {"symbol"}:
-            payload = self._get(endpoint, dict(params))
+            payload = self._get(endpoint, dict(params), scope="public")
             if not isinstance(payload, dict):
                 raise ValueError("context exchange information object required")
             return payload
@@ -93,7 +103,7 @@ class HistoricalContextClient:
             and type(params.get("limit")) is int
             and params["limit"] == 120
         ):
-            payload = self._get(endpoint, dict(params))
+            payload = self._get(endpoint, dict(params), scope="public")
             if not isinstance(payload, list):
                 raise ValueError("context kline array required")
             return payload
@@ -107,7 +117,7 @@ class HistoricalContextClient:
             raise RuntimeError("context credentials unavailable")
         if self.offset_ms is None or time.monotonic() - self.clock_checked > 60:
             started = time.time_ns() // 1_000_000
-            clock = self._get("/api/v3/time", {})
+            clock = self._get("/api/v3/time", {}, scope="public")
             finished = time.time_ns() // 1_000_000
             if not isinstance(clock, dict) or type(clock.get("serverTime")) is not int:
                 raise ValueError("context exchange clock unavailable")
@@ -116,7 +126,9 @@ class HistoricalContextClient:
             self.clock_checked = time.monotonic()
         query = dict(params, timestamp=time.time_ns() // 1_000_000 + self.offset_ms, recvWindow=5000)
         query["signature"] = hmac.new(secret.encode(), urlencode(query).encode(), hashlib.sha256).hexdigest()
-        payload = self._get(endpoint, query, {"X-MBX-APIKEY": key})
+        payload = self._get(
+            endpoint, query, {"X-MBX-APIKEY": key}, scope="signed"
+        )
         if not isinstance(payload, dict):
             raise ValueError("context commission object required")
         return payload

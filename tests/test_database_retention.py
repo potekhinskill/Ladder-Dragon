@@ -117,7 +117,10 @@ def test_retention_empty_run_is_successful_with_fresh_backup(tmp_path):
     assert result["reason"] == "no terminal prediction rows exceed retention"
 
 
-def test_retention_preserves_classified_lifecycle_evidence(tmp_path):
+@pytest.mark.parametrize("evidence_role", ["SELECTION", "CONFIRMATION", "DIAGNOSTIC"])
+def test_retention_preserves_classified_lifecycle_evidence(
+    tmp_path, evidence_role,
+):
     now = 2_000_000_000.0
     database = tmp_path / "prediction.sqlite3"
     backup = tmp_path / "backup.json"
@@ -128,8 +131,9 @@ def test_retention_preserves_classified_lifecycle_evidence(tmp_path):
     PredictionShadowStore(database)
     with sqlite3.connect(database) as connection:
         connection.execute(
-            "UPDATE prediction_decisions SET evidence_role='CONFIRMATION' "
-            "WHERE decision_id='terminal'"
+            "UPDATE prediction_decisions SET evidence_role=? "
+            "WHERE decision_id='terminal'",
+            (evidence_role,),
         )
 
     result = rotate_prediction_shadow(

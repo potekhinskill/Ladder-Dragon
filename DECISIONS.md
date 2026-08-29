@@ -1,5 +1,33 @@
 # Engineering decisions
 
+### 2026-08-30 — Prove empirical bucket reachability before confirmation
+
+- **Context:** zero-inflated calibration values could create an empty volatility bucket.
+- **Decision:** split the positive tail when required and require minimum selection coverage in every future bucket.
+- **Why it worked:** tests accept a zero-inflated cohort with three populated buckets and reject insufficient separation.
+- **Reuse:** every empirical policy that requires categorical coverage during later confirmation.
+
+### 2026-08-30 — Start destructive retention from successful backup completion
+
+- **Context:** clock ordering did not prove that the current encrypted backup had completed.
+- **Decision:** trigger retention from backup success and retain the daily timer as a safe retry.
+- **Why it worked:** deployment tests bind the backup unit to the guarded retention service.
+- **Reuse:** every destructive maintenance task that depends on a fresh recoverable artifact.
+
+### 2026-08-30 — Bound derived telemetry with durable time buckets
+
+- **Context:** minute-level legacy snapshots grew rapidly without increasing independent experiment evidence.
+- **Decision:** store one legacy snapshot per kind, symbol, and five-minute SQLite bucket.
+- **Why it worked:** tests prove restart-safe suppression without touching selection or confirmation evidence.
+- **Reuse:** every disposable telemetry stream whose sampling rate exceeds its analytical cadence.
+
+### 2026-08-30 — Prime asynchronous evidence without claiming consumption
+
+- **Context:** a background PANIC refresh can finish after the runtime already consumed its inputs.
+- **Decision:** prime missing state without a journal row, then attest the exact state consumed by the next cycle.
+- **Why it worked:** tests prove warm-up creates no false gap and the next cycle writes available evidence.
+- **Reuse:** every asynchronous observer that attests inputs consumed by a synchronous decision loop.
+
 ### 2026-08-29 — Reclaim backup capacity before collection
 
 - **Context:** interrupted backup staging and expired local copies can consume the capacity required by the next encrypted archive.

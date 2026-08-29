@@ -187,7 +187,6 @@ def test_cli_publishes_immutable_paired_replay(tmp_path, monkeypatch, capsys, re
     extra = []
     if recorded_context:
         from ladder_dragon.supervision.historical_context import HistoricalContextCollector
-        from ladder_dragon.strategy.prediction.context_sources import attest
         from ladder_dragon.strategy.prediction.episode_semantics import v23_evidence_semantics_contract
         from ladder_dragon.strategy.prediction.historical_policy import fingerprint
         from ladder_dragon.supervision.panic_observer import panic_observer_fingerprint
@@ -206,11 +205,13 @@ def test_cli_publishes_immutable_paired_replay(tmp_path, monkeypatch, capsys, re
             public_get=lambda endpoint, _params: bars if endpoint == "/api/v3/klines" else filters,
             signed_get=lambda *_: fees, clock=lambda: 1000, panic_run_dir=tmp_path,
         )
-        assert collector.collect("SOLUSDT", attest("runtime", "SOLUSDT", 1000, {
-            "classifier": classifier, "regime": "RANGE", "panic": False, "panic_hits": 0,
-            "panic_source_fingerprint": panic_observer_fingerprint(),
-            "panic_observed_at_ms": 1000,
-        }))["status"] == "AVAILABLE"
+        assert collector.collect("SOLUSDT", {
+            "classifier": classifier,
+            "captured_at_ms": 1000,
+            "regime": "RANGE",
+            "panic": False,
+            "panic_hits": 0,
+        })["status"] == "AVAILABLE"
         payload.pop("context")
         payload["policy"]["classifier_fingerprint"] = fingerprint(classifier)
         payload["policy"]["panic_source_fingerprint"] = panic_observer_fingerprint()

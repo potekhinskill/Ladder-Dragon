@@ -144,6 +144,12 @@ def record_control_evidence(
             # Do not grow an immutable journal that no approval gate can consume.
             continue
         kind = CONTROL_KINDS[control]
+        if not store.legacy_snapshot_due(
+            kind=kind,
+            symbol=symbol,
+            snapshot_ts_ms=features.snapshot_ts_ms,
+        ):
+            continue
         metadata = _control_metadata(
             control, baseline_plan, plan, applicable=applicable
         )
@@ -170,4 +176,36 @@ def record_control_evidence(
     return tuple(identifiers)
 
 
-__all__ = ["CONTROL_HORIZONS_MIN", "CONTROL_KINDS", "record_control_evidence"]
+def record_strategy_evidence(
+    store: PredictionShadowStore,
+    *,
+    symbol: str,
+    features: PredictionFeatures,
+    plan: TradePlan,
+    history,
+    algorithm_decision: str,
+) -> str | None:
+    """Record one restart-safe baseline snapshot per five-minute bucket."""
+    if not store.legacy_snapshot_due(
+        kind="STRATEGY",
+        symbol=symbol,
+        snapshot_ts_ms=features.snapshot_ts_ms,
+    ):
+        return None
+    predictions = predict_distribution(features, plan, history)
+    return store.record(
+        kind="STRATEGY",
+        symbol=symbol,
+        features=features,
+        plan=plan,
+        predictions=predictions,
+        algorithm_decision=algorithm_decision,
+    )
+
+
+__all__ = [
+    "CONTROL_HORIZONS_MIN",
+    "CONTROL_KINDS",
+    "record_control_evidence",
+    "record_strategy_evidence",
+]
