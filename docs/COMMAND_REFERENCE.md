@@ -70,7 +70,7 @@ See [Historical entry replay](HISTORICAL_ENTRY_REPLAY.md) for continuous source 
 | `depth_archive_service` | rotates one continuous public stream and processes calibration separately |
 | `depth_archive_retention` | encrypts eligible L2 segments externally before local removal |
 | `replay_historical_entries` | generates historical opportunities from immutable inputs; optional `--context-db` verifies source-owned context |
-| `historical_replay_planner` | creates review-only replay drafts from four disjoint historical blocks |
+| `historical_replay_planner` | creates frozen selection and post-cutoff confirmation draft cohorts |
 | `historical_replay_runner` | processes a bounded SHADOW replay request queue without automatic import |
 | `volatility_policy` | freezes empirical volatility buckets from selection-only calibration reports |
 | `import_entry_veto_l2` | imports source-hashed public L2 entry features into SHADOW evidence |
@@ -216,10 +216,14 @@ Create deterministic replay drafts from separate verified production sessions:
 .venv/bin/python -m bin.historical_replay_planner \
   --archive-directory DEPTH_DIRECTORY \
   --draft-directory DEPTH_DIRECTORY/.historical-replay/drafts \
-  --context-db HISTORICAL_CONTEXT_DB
+  --context-db HISTORICAL_CONTEXT_DB \
+  --prediction-db PREDICTION_DB
 ```
 
 Review and copy accepted drafts into `.historical-replay/requests`.
+The planner reports L2-ready and context-ready progress separately.
+It freezes one selection cohort and prevents rolling draft growth.
+After v23 freezes, it creates separate post-cutoff confirmation drafts.
 The planner never accepts a draft or imports evidence.
 
 Import reviewed post-cutoff reports into frozen v23 confirmation:

@@ -146,15 +146,84 @@ def test_planner_creates_provider_bounded_review_drafts(tmp_path, monkeypatch):
 def test_planner_reports_existing_partial_path_progress(tmp_path, monkeypatch):
     chains = _path_chains(tmp_path, 6)
     monkeypatch.setattr(planner, "_chains", lambda *_args: chains)
+    monkeypatch.setattr(planner, "export_context", lambda *_args, **_kwargs: {
+        "context": [{
+            "classifier_fingerprint": fingerprint(
+                v23_evidence_semantics_contract()["regime_classifier"]
+            ),
+            "panic_source_fingerprint": "b" * 64,
+        }],
+    })
 
     report = planner.plan_replay_drafts(
         tmp_path, tmp_path / "drafts", tmp_path / "context.sqlite3"
     )
 
-    assert report["status"] == "COLLECTING_DISJOINT_CONTINUOUS_BLOCKS"
+    assert report["status"] == "COLLECTING_CONTEXT_READY_PATHS"
     assert report["complete_independent_paths"] == 6
+    assert report["l2_complete_independent_paths"] == 6
+    assert report["context_ready_independent_paths"] == 6
     assert report["complete_blocks"] == 2
     assert report["draft_count"] == 0
+
+
+def test_planner_does_not_count_l2_paths_without_exportable_context(
+    tmp_path, monkeypatch
+):
+    monkeypatch.setattr(
+        planner, "_chains", lambda *_args: _path_chains(tmp_path, 6)
+    )
+    monkeypatch.setattr(
+        planner,
+        "export_context",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(
+            ValueError("context interval contains unavailable evidence")
+        ),
+    )
+
+    report = planner.plan_replay_drafts(
+        tmp_path, tmp_path / "drafts", tmp_path / "context.sqlite3"
+    )
+
+    assert report["l2_complete_independent_paths"] == 6
+    assert report["context_ready_independent_paths"] == 0
+    assert report["complete_independent_paths"] == 0
+    assert report["context_rejected_path_counts"] == {
+        "CONTEXT_UNAVAILABLE": 6
+    }
+
+
+def test_planner_freezes_one_draft_cohort_instead_of_rolling(
+    tmp_path, monkeypatch
+):
+    chains = _path_chains(tmp_path, planner.MINIMUM_INDEPENDENT_PATHS)
+    monkeypatch.setattr(planner, "_chains", lambda *_args: chains)
+    classifier = fingerprint(
+        v23_evidence_semantics_contract()["regime_classifier"]
+    )
+    monkeypatch.setattr(planner, "export_context", lambda *_args, **_kwargs: {
+        "context": [{
+            "classifier_fingerprint": classifier,
+            "panic_source_fingerprint": "b" * 64,
+        }],
+    })
+    drafts = tmp_path / "drafts"
+    first = planner.plan_replay_drafts(
+        tmp_path, drafts, tmp_path / "context.sqlite3"
+    )
+    shifted = _path_chains(tmp_path, planner.MINIMUM_INDEPENDENT_PATHS)
+    for chain in shifted:
+        chain[0][1]["started_at_ms"] += 86_400_000
+        chain[0][1]["finished_at_ms"] += 86_400_000
+    monkeypatch.setattr(planner, "_chains", lambda *_args: shifted)
+
+    second = planner.plan_replay_drafts(
+        tmp_path, drafts, tmp_path / "context.sqlite3"
+    )
+
+    assert first["draft_count"] == 144
+    assert second["status"] == "DRAFT_COHORT_FROZEN_FOR_REVIEW"
+    assert len([path for path in drafts.glob("*.json") if path.name != "status.json"]) == 144
 
 
 def test_planner_preflight_reports_an_unreachable_provider_design(

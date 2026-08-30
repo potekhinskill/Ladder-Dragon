@@ -1,5 +1,12 @@
 # Engineering decisions
 
+### 2026-08-31 — Freeze evidence cohorts before recurring planning
+
+- **Context:** recurring planning could count incomplete context and create another rolling draft set.
+- **Decision:** count only exportable context paths and persist one cohort identity before future planning cycles.
+- **Why it worked:** progress now matches import readiness, while later data cannot replace the reviewed source set.
+- **Reuse:** every recurring producer of immutable selection or confirmation evidence.
+
 ### 2026-08-30 — Bound evidence paths by provider session lifetime
 
 - **Context:** one historical block exceeded the exchange's maximum WebSocket connection lifetime.

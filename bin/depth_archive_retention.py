@@ -89,11 +89,14 @@ def _pending_replay_hashes(directory: Path) -> set[str]:
     root = directory / ".historical-replay"
     requests = [
         path
-        for name in ("drafts", "requests")
+        for name in (
+            "drafts", "requests", "confirmation-drafts",
+            "confirmation-requests",
+        )
         for path in sorted((root / name).glob("*.json"))
         if path.name != "status.json"
     ]
-    if len(requests) > MAXIMUM_REPLAY_REQUESTS * 2:
+    if len(requests) > MAXIMUM_REPLAY_REQUESTS * 4:
         raise ValueError("historical replay request capacity reached")
     protected: set[str] = set()
     for path in requests:

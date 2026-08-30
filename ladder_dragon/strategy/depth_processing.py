@@ -189,6 +189,7 @@ def process_backlog(directory: Path, stop, prediction_db: Path | None = None) ->
                         "--archive-directory", str(directory),
                         "--draft-directory", str(replay_root / "drafts"),
                         "--context-db", str(prediction_db.with_name("historical_context.sqlite3")),
+                        "--prediction-db", str(prediction_db),
                     ], stop)
                     next_historical_plan = time.monotonic() + 900
                     if code:
@@ -205,6 +206,17 @@ def process_backlog(directory: Path, stop, prediction_db: Path | None = None) ->
                 next_historical_replay = time.monotonic() + 900
                 if code:
                     print(f"[HISTORICAL-RUNNER] status=RETRY exit={code}", flush=True)
+                if stop.is_set():
+                    break
+                code = _run_offline([
+                    "bin.historical_replay_runner",
+                    "--request-directory", str(replay_root / "confirmation-requests"),
+                    "--output-directory", str(replay_root / "confirmation-reports"),
+                    "--context-db", str(prediction_db.with_name("historical_context.sqlite3")),
+                    "--maximum-new-reports", "16",
+                ], stop, timeout_seconds=1_800)
+                if code:
+                    print(f"[V23-CONFIRMATION-RUNNER] status=RETRY exit={code}", flush=True)
                 if stop.is_set():
                     break
             candidate = next((p for p in pending if retry_after.get(p, 0) <= time.monotonic()), None)

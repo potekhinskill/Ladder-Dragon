@@ -1,4 +1,6 @@
 from pathlib import Path
+import json
+import sqlite3
 
 import pytest
 
@@ -7,6 +9,7 @@ from ladder_dragon.strategy.prediction.episode_semantics import (
     v23_evidence_semantics_fingerprint,
 )
 from ladder_dragon.strategy.prediction import v23_confirmation as subject
+from ladder_dragon.strategy.prediction.historical_policy import fingerprint
 
 
 def parameters():
@@ -159,3 +162,32 @@ def test_import_rejects_selection_source_reuse(monkeypatch):
         subject.import_v23_confirmation_reports(
             object(), [(Path("report.json"), "e" * 64)]
         )
+
+
+def test_selection_artifact_uses_the_row_owned_identity(tmp_path):
+    database = tmp_path / "prediction.sqlite3"
+    payload = {
+        "selected_rule": {"contract_version": "v3"},
+        "source_archive_sha256s": ["c" * 64],
+    }
+    identity = fingerprint(payload)
+    with sqlite3.connect(database) as connection:
+        connection.execute(
+            """CREATE TABLE prediction_entry_veto_selection_artifacts (
+                   artifact_sha256 TEXT, symbol TEXT, artifact_json TEXT
+               )"""
+        )
+        connection.execute(
+            "INSERT INTO prediction_entry_veto_selection_artifacts VALUES(?,?,?)",
+            (identity, "SOLUSDT", json.dumps(payload)),
+        )
+
+    class Store:
+        def _connect(self):
+            return sqlite3.connect(database)
+
+    selected = subject.load_v23_selection_artifact(
+        Store(), {"entry_veto_rule": {"selection_artifact_sha256": identity}}
+    )
+
+    assert selected == payload

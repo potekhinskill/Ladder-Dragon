@@ -1,5 +1,26 @@
 # Engineering mistakes and root causes
 
+### 2026-08-31 — Counted source geometry before context readiness
+
+- **Impact:** the planner reported six usable paths although no path could pass the context exporter.
+- **Root cause:** block counting preceded the authoritative context validation boundary.
+- **Correction:** export each candidate first and publish separate L2-ready and context-ready counts.
+- **Prevention:** progress counters must use the same acceptance boundary as their downstream consumer.
+
+### 2026-08-31 — Required an artifact to contain its own hash
+
+- **Impact:** every valid historical selection artifact would fail v23 confirmation import.
+- **Root cause:** the consumer expected a self-referential field excluded by the canonical storage contract.
+- **Correction:** verify the stored JSON body against the SHA-256 identity owned by its database row.
+- **Prevention:** immutable artifacts need one external identity authority and an end-to-end producer-consumer test.
+
+### 2026-08-31 — Used two names for one backup configuration
+
+- **Impact:** the depth retention unit skipped every run and allowed L2 storage to approach disk capacity.
+- **Root cause:** the new unit referenced `backup.conf`, while installation and backup used `backup.env`.
+- **Correction:** use the canonical file and trigger depth retention after successful backup publication.
+- **Prevention:** deployment tests must compare each consumer with the installer-owned configuration path.
+
 ### 2026-08-30 — Ignored the provider connection lifetime in reachability
 
 - **Impact:** the planner waited for a 24-hour-five-minute session that the provider always closes earlier.

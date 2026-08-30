@@ -4,7 +4,7 @@
 [Unit]
 Description=Ladder Dragon private configuration and SQLite backup
 # Retention can mutate only after this unit publishes fresh encrypted evidence.
-OnSuccess=ladder-dragon-database-retention.service
+OnSuccess=ladder-dragon-database-retention.service ladder-dragon-depth-retention.service
 
 [Service]
 Type=oneshot

@@ -185,12 +185,15 @@ An existing output file blocks publication rather than being replaced.
 The depth processor also runs a bounded SHADOW request queue every 15 minutes.
 It first creates review-only drafts under `.historical-replay/drafts`.
 The planner requires 12 complete paths and complete historical context.
+It reports L2-ready and context-ready path counts separately.
 Each path has five-minute warmup, five-minute entry, and six-hour terminal windows.
 Each path remains inside one verified provider session.
 The planner groups three chronological paths into each of four stability blocks.
 It never joins reconnects or reuses a source segment.
 Preflight compares path duration with the 24-hour provider lifetime.
 An impossible design reports `DESIGN_UNREACHABLE` before draft creation.
+One persistent marker freezes the first complete selection cohort.
+Later planning cycles cannot replace that cohort or add rolling drafts.
 It never copies drafts into the accepted request queue.
 Place reviewed immutable requests under `.historical-replay/requests` in the depth directory.
 The runner writes immutable reports under `.historical-replay/reports`.
@@ -198,6 +201,14 @@ It replays 36 policies through one pass per path.
 It accepts at most 256 queued requests.
 The replaceable `status.json` reports queue progress without source paths or exception text.
 The runner never imports selection, freezes a candidate, changes HALT, or creates orders.
+
+After v23 freezes, the planner creates a separate post-cutoff confirmation cohort.
+Its path count comes from the frozen confirmation criteria.
+Selection sources and pre-cutoff paths cannot enter this cohort.
+Drafts remain under `.historical-replay/confirmation-drafts` for operator review.
+Copy accepted drafts into `.historical-replay/confirmation-requests`.
+The runner writes reports under `.historical-replay/confirmation-reports`.
+No planner or runner imports confirmation automatically.
 
 Import reviewed, non-overlapping historical replay blocks:
 

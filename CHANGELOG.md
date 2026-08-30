@@ -3,6 +3,31 @@
 All notable changes are documented here. Releases use Semantic Versioning; every
 section is dated and there is intentionally no `Unreleased` section.
 
+## [2.20.272] — 2026-08-31
+
+### Added
+- A dedicated v23 confirmation planner freezes a criteria-sized cohort after the immutable selection cutoff.
+- Selection and confirmation status report L2-ready, context-ready, checked, and rejected path counts separately.
+
+### Changed
+- Historical selection validates complete source-owned context before it counts a path toward the required 12.
+- One persistent cohort marker prevents rolling selection drafts from accumulating during later planning cycles.
+- Retention protects review files in both selection and confirmation queues.
+
+### Fixed
+- V23 confirmation verifies the selection artifact against its row-owned SHA-256 instead of requiring an impossible self-hash.
+- Depth retention now reads the canonical `backup.env` and starts only after successful encrypted backup publication.
+- Historical planner failures publish a bounded blocked status instead of leaving stale progress.
+
+### Security
+- Post-selection confirmation excludes selection sources and never queues or imports evidence automatically.
+- Persistent HALT, BTC, ETH, CHAMPION state, and order authority remain unchanged.
+
+### Verified
+- The focused planning, confirmation, retention, and deployment suite passes: 104 tests.
+- The full project suite passes: 1,543 tests.
+- Python compilation and whitespace checks pass.
+
 ## [2.20.271] — 2026-08-30
 
 ### Changed

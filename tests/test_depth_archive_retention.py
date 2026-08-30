@@ -81,7 +81,10 @@ def test_retention_requires_backup_and_preserves_recent_and_referenced(tmp_path)
         )
 
 
-@pytest.mark.parametrize("queue_name", ["drafts", "requests"])
+@pytest.mark.parametrize(
+    "queue_name",
+    ["drafts", "requests", "confirmation-drafts", "confirmation-requests"],
+)
 @pytest.mark.parametrize("nested_paths", [False, True])
 def test_retention_preserves_sources_pinned_by_pending_replay(
     tmp_path, queue_name, nested_paths
@@ -201,5 +204,7 @@ def test_deployment_installs_and_mount_binds_retention():
         assert "depth_retention_dropin" in source
         assert "RequiresMountsFor=%s" in source
     assert "/usr/local/bin/ladder-dragon-depth-retention" in assets
-    assert "EnvironmentFile=/etc/ladder-dragon/backup.conf" in service
+    assert "ConditionPathExists=/etc/ladder-dragon/backup.env" in service
+    assert "EnvironmentFile=/etc/ladder-dragon/backup.env" in service
+    assert "backup.conf" not in service
     assert "ReadWritePaths=/var/lib/ladder-dragon/depth-archives" in service

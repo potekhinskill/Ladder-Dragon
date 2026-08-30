@@ -4,7 +4,7 @@
 [Unit]
 Description=Ladder Dragon encrypted depth evidence retention
 After=ladder-dragon-backup.service
-ConditionPathExists=/etc/ladder-dragon/backup.conf
+ConditionPathExists=/etc/ladder-dragon/backup.env
 ConditionPathExists=/var/lib/ladder-dragon/depth-archives
 
 [Service]
@@ -13,7 +13,7 @@ User=root
 Group=root
 WorkingDirectory=/home/bot/apps/binance_bot
 Environment=PROJECT_DIR=/home/bot/apps/binance_bot
-EnvironmentFile=/etc/ladder-dragon/backup.conf
+EnvironmentFile=/etc/ladder-dragon/backup.env
 ExecStart=/usr/local/bin/ladder-dragon-depth-retention
 SuccessExitStatus=0
 Nice=19

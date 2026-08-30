@@ -988,9 +988,11 @@ def test_database_retention_is_backup_gated_bounded_and_scheduled():
     assert "ladder-dragon-database-retention.timer" in installer
     assert "ladder-dragon-database-retention.timer" in updater
     assert "/var/lib/ladder-dragon/database-archives" in backup
-    assert "OnSuccess=ladder-dragon-database-retention.service" in read(
-        "deploy/ladder-dragon-backup.service"
-    )
+    backup_service = read("deploy/ladder-dragon-backup.service")
+    assert (
+        "OnSuccess=ladder-dragon-database-retention.service "
+        "ladder-dragon-depth-retention.service"
+    ) in backup_service
 
 
 def test_updates_are_commit_allowlisted_and_backups_are_encrypted():

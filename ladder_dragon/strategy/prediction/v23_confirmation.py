@@ -47,12 +47,15 @@ def _decimal(value: object, *, field: str) -> Decimal:
     return number
 
 
-def _active_v23_manifest(store) -> Mapping[str, object]:
+def find_active_v23_manifest(store) -> Mapping[str, object] | None:
+    """Return the one valid confirming manifest, or None before v23 starts."""
     rows = [
         row for row in list_experiments(store, symbol="SOLUSDT")
         if row.get("generation") == "v23"
         and row.get("current_status") == "CONFIRMING"
     ]
+    if not rows:
+        return None
     if len(rows) != 1:
         raise ValueError("one confirming v23 manifest is required")
     manifest = rows[0]
@@ -69,30 +72,40 @@ def _active_v23_manifest(store) -> Mapping[str, object]:
     return manifest
 
 
-def _selection_artifact(store, parameters: Mapping[str, object]) -> dict:
+def _active_v23_manifest(store) -> Mapping[str, object]:
+    manifest = find_active_v23_manifest(store)
+    if manifest is None:
+        raise ValueError("one confirming v23 manifest is required")
+    return manifest
+
+
+def load_v23_selection_artifact(
+    store, parameters: Mapping[str, object]
+) -> dict:
+    """Verify the row-owned hash of the immutable selection JSON body."""
     rule = parameters.get("entry_veto_rule")
     if not isinstance(rule, Mapping):
         raise ValueError("v23 confirmation veto rule is unavailable")
     identity = str(rule.get("selection_artifact_sha256") or "")
     with store._connect() as connection:
         row = connection.execute(
-            """SELECT artifact_json FROM
+            """SELECT artifact_sha256,artifact_json FROM
                       prediction_entry_veto_selection_artifacts
                WHERE artifact_sha256=? AND symbol='SOLUSDT'""",
             (identity,),
         ).fetchone()
     if row is None:
         raise ValueError("v23 selection artifact is unavailable")
-    payload = json.loads(str(row[0]))
+    payload = json.loads(str(row[1]))
     if not isinstance(payload, dict):
         raise ValueError("v23 selection artifact is invalid")
-    body = {
-        key: value for key, value in payload.items()
-        if key != "artifact_sha256"
-    }
-    if payload.get("artifact_sha256") != fingerprint(body):
+    if str(row[0]) != identity or fingerprint(payload) != identity:
         raise ValueError("v23 selection artifact identity differs")
     return payload
+
+
+def _selection_artifact(store, parameters: Mapping[str, object]) -> dict:
+    return load_v23_selection_artifact(store, parameters)
 
 
 def _validate_policy(
@@ -331,4 +344,8 @@ def import_v23_confirmation_reports(
     }
 
 
-__all__ = ["import_v23_confirmation_reports"]
+__all__ = [
+    "find_active_v23_manifest",
+    "import_v23_confirmation_reports",
+    "load_v23_selection_artifact",
+]

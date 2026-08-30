@@ -5,7 +5,7 @@
 
 from __future__ import annotations
 
-from collections import defaultdict
+from collections import Counter, defaultdict
 from pathlib import Path
 from typing import Iterable, Mapping
 
@@ -27,8 +27,13 @@ TERMINAL_TAIL_MS = 6 * 60 * 60_000 + 1_000
 INDEPENDENCE_SPACING_MS = 6 * 60 * 60_000
 MINIMUM_INDEPENDENT_PATHS = 12
 MAXIMUM_DRAFTS = 256
+MAXIMUM_CONTEXT_CANDIDATES = 256
 PROVIDER_CONNECTION_MAX_MS = 24 * 60 * 60_000
 COHORT_CONTRACT = "provider_bounded_disjoint_paths_v1"
+SELECTION_COHORT_MARKER = "selection-cohort.json"
+
+PathWindow = tuple[int, int, int, list[tuple[Path, dict]]]
+ContextPath = tuple[PathWindow, dict]
 
 
 def _continuous(rows: list[tuple[Path, dict]]) -> bool:
@@ -99,9 +104,13 @@ def _provider_design() -> dict[str, object]:
 
 def _complete_paths(
     chains: Iterable[list[tuple[Path, dict]]],
-) -> list[tuple[int, int, int, list[tuple[Path, dict]]]]:
+    *,
+    maximum_paths: int = MINIMUM_INDEPENDENT_PATHS,
+) -> list[PathWindow]:
     """Select source-disjoint paths that never cross a reconnect boundary."""
-    candidates: list[tuple[int, int, int, list[tuple[Path, dict]]]] = []
+    if not 1 <= maximum_paths <= MAXIMUM_CONTEXT_CANDIDATES:
+        raise ValueError("historical path candidate limit is invalid")
+    candidates: list[PathWindow] = []
     for chain in chains:
         cursor = 0
         while cursor < len(chain):
@@ -124,22 +133,19 @@ def _complete_paths(
             # A source segment belongs to one independent path only.
             cursor = terminal_index + 1
 
-    selected: list[tuple[int, int, int, list[tuple[Path, dict]]]] = []
+    selected: list[PathWindow] = []
     next_start: int | None = None
     for path in sorted(candidates, key=lambda row: row[0], reverse=True):
         if next_start is None or path[2] < next_start:
             selected.append(path)
             next_start = path[0]
-            if len(selected) == MINIMUM_INDEPENDENT_PATHS:
+            if len(selected) == maximum_paths:
                 break
     return list(reversed(selected))
 
 
-def _complete_blocks(
-    chains: Iterable[list[tuple[Path, dict]]],
-) -> list[list[tuple[int, int, int, list[tuple[Path, dict]]]]]:
+def _complete_blocks(paths: list[ContextPath]) -> list[list[ContextPath]]:
     """Group complete paths into disjoint chronological stability blocks."""
-    paths = _complete_paths(chains)
     complete = len(paths) // PATHS_PER_BLOCK
     if complete < BLOCK_COUNT:
         return [
@@ -151,6 +157,112 @@ def _complete_blocks(
         paths[index * PATHS_PER_BLOCK : (index + 1) * PATHS_PER_BLOCK]
         for index in range(BLOCK_COUNT)
     ]
+
+
+def _context_reason(exc: ValueError) -> str:
+    """Map source diagnostics to bounded operator-safe progress reasons."""
+    reasons = {
+        "past historical context unavailable": "PAST_CONTEXT_UNAVAILABLE",
+        "context interval contains unavailable evidence": "CONTEXT_UNAVAILABLE",
+        "context classifier differs or interval has a gap": "CONTEXT_GAP_OR_CLASSIFIER",
+        "context does not cover the terminal observation tail": "CONTEXT_TAIL_UNAVAILABLE",
+        "context chain or session differs": "CONTEXT_CHAIN_DIFFERENT",
+    }
+    return reasons.get(str(exc), "CONTEXT_INVALID")
+
+
+def context_ready_paths(
+    chains: Iterable[list[tuple[Path, dict]]],
+    context_db: Path,
+    *,
+    started_after_ms: int = 0,
+    excluded_source_sha256s: frozenset[str] = frozenset(),
+    maximum_ready_paths: int = MINIMUM_INDEPENDENT_PATHS,
+) -> tuple[list[ContextPath], dict[str, object]]:
+    """Return only paths whose complete source-owned context exports safely."""
+    if not 1 <= maximum_ready_paths <= MAXIMUM_CONTEXT_CANDIDATES:
+        raise ValueError("historical context-ready path limit is invalid")
+    classifier = fingerprint(
+        v23_evidence_semantics_contract()["regime_classifier"]
+    )
+    candidates = _complete_paths(
+        chains, maximum_paths=MAXIMUM_CONTEXT_CANDIDATES
+    )
+    eligible = [
+        path for path in candidates
+        if path[0] > started_after_ms
+        and not excluded_source_sha256s.intersection(
+            str(metadata["archive_sha256"])
+            for _archive, metadata in path[3]
+        )
+    ]
+    ready: list[ContextPath] = []
+    reasons: Counter[str] = Counter()
+    identity: tuple[str, str] | None = None
+    checked = 0
+    # Inspect newest paths first. Stop once the immutable cohort is complete.
+    for path in reversed(eligible):
+        checked += 1
+        start, _entry_end, end, _selected = path
+        try:
+            exported = export_context(
+                context_db,
+                symbol="SOLUSDT",
+                classifier_fingerprint=classifier,
+                start_ms=start,
+                end_ms=end,
+                cutoff_ms=end,
+            )
+        except ValueError as exc:
+            reasons[_context_reason(exc)] += 1
+            continue
+        row = exported["context"][0]
+        current = (
+            str(row["classifier_fingerprint"]),
+            str(row["panic_source_fingerprint"]),
+        )
+        if identity is None:
+            identity = current
+        if current != identity:
+            reasons["CONTEXT_SEMANTICS_DIFFERENT"] += 1
+            continue
+        ready.append((path, row))
+        if len(ready) == maximum_ready_paths:
+            break
+    ready.reverse()
+    return ready, {
+        "l2_complete_independent_paths": min(
+            len(eligible), maximum_ready_paths
+        ),
+        "context_checked_paths": checked,
+        "context_ready_independent_paths": len(ready),
+        "context_rejected_path_counts": dict(sorted(reasons.items())),
+    }
+
+
+def _request_sources(request: Mapping[str, object]) -> list[str]:
+    values: list[str] = []
+    for path in request["paths"]:
+        values.extend(str(row["sha256"]) for row in path["archives"])
+    return values
+
+
+def _existing_draft_identities(draft_directory: Path) -> set[str]:
+    """Validate every existing draft before it can freeze the cohort."""
+    drafts = sorted(
+        path for path in draft_directory.glob("*.json")
+        if path.name != "status.json"
+    )
+    if len(drafts) > MAXIMUM_DRAFTS:
+        raise ValueError("historical replay draft capacity reached")
+    identities: set[str] = set()
+    for path in drafts:
+        payload = bounded_json(path)
+        identity = fingerprint(payload)
+        if path.stem != identity or identity in identities:
+            raise ValueError("historical replay draft identity differs")
+        identities.add(identity)
+    return identities
 
 
 def _policy(candidate: Mapping[str, object], context: Mapping[str, object]) -> dict:
@@ -203,37 +315,25 @@ def plan_replay_drafts(
             **design,
         }
     chains = _chains(archive_directory, "SOLUSDT")
-    paths = _complete_paths(chains)
-    blocks = _complete_blocks(chains)
+    paths, progress = context_ready_paths(chains, context_db)
+    blocks = _complete_blocks(paths)
     if len(blocks) < BLOCK_COUNT:
         return {
             "schema_version": 3,
             "mode": "SHADOW",
             "apply_allowed": False,
-            "status": "COLLECTING_DISJOINT_CONTINUOUS_BLOCKS",
+            "status": "COLLECTING_CONTEXT_READY_PATHS",
             "draft_count": 0,
             "required_blocks": BLOCK_COUNT,
             "complete_blocks": len(blocks),
             "complete_independent_paths": len(paths),
             "continuous_sessions": len(chains),
+            **progress,
             **design,
         }
     windows = []
     for block_index, block in enumerate(blocks):
-        classifier = fingerprint(
-            v23_evidence_semantics_contract()["regime_classifier"]
-        )
-        contexts = [
-            export_context(
-                context_db,
-                symbol="SOLUSDT",
-                classifier_fingerprint=classifier,
-                start_ms=start,
-                end_ms=end,
-                cutoff_ms=end,
-            )["context"][0]
-            for start, _entry_end, end, _selected in block
-        ]
+        contexts = [context for _path, context in block]
         identities = {
             (
                 row["classifier_fingerprint"],
@@ -243,9 +343,13 @@ def plan_replay_drafts(
         }
         if len(identities) != 1:
             raise ValueError("historical path semantics differ inside a block")
-        windows.append((block_index, block, contexts[0]))
+        windows.append((
+            block_index,
+            [path for path, _context in block],
+            contexts[0],
+        ))
 
-    created = existing = 0
+    requests: dict[str, dict[str, object]] = {}
     for candidate in candidate_grid():
         for block_index, block, context in windows:
             request = {
@@ -270,17 +374,71 @@ def plan_replay_drafts(
                     for start, entry_end, end, selected in block
                 ],
             }
-            target = draft_directory / f"{fingerprint(request)}.json"
-            if target.exists():
-                if bounded_json(target) != request:
-                    raise ValueError("historical replay draft identity differs")
-                existing += 1
-                continue
-            atomic_json(target, request)
-            created += 1
-    total = created + existing
-    if total > MAXIMUM_DRAFTS:
+            requests[fingerprint(request)] = request
+    if len(requests) > MAXIMUM_DRAFTS:
         raise ValueError("historical replay draft capacity reached")
+    marker_path = draft_directory.parent / SELECTION_COHORT_MARKER
+    marker = {
+        "schema_version": 1,
+        "mode": "SHADOW_SELECTION",
+        "apply_allowed": False,
+        "cohort_contract": COHORT_CONTRACT,
+        "request_sha256s": sorted(requests),
+        "source_archive_sha256s": sorted({
+            source
+            for request in requests.values()
+            for source in _request_sources(request)
+        }),
+        "cutoff_ts_ms": max(path[0][2] for block in blocks for path in block),
+    }
+    marker["cohort_sha256"] = fingerprint(marker)
+    existing_ids = _existing_draft_identities(draft_directory)
+    if marker_path.exists():
+        frozen = bounded_json(marker_path)
+        return {
+            "schema_version": 3,
+            "mode": "SHADOW",
+            "apply_allowed": False,
+            "status": "DRAFT_COHORT_FROZEN_FOR_REVIEW",
+            "draft_count": len(existing_ids),
+            "created_drafts": 0,
+            "required_blocks": BLOCK_COUNT,
+            "complete_blocks": len(blocks),
+            "complete_independent_paths": len(paths),
+            "continuous_sessions": len(chains),
+            "frozen_cohort_sha256": frozen.get("cohort_sha256"),
+            "current_cohort_matches_frozen": frozen == marker,
+            **progress,
+            **design,
+            "automatic_queueing": False,
+            "automatic_selection_import": False,
+        }
+    elif not existing_ids.issubset(requests):
+        return {
+            "schema_version": 3,
+            "mode": "SHADOW",
+            "apply_allowed": False,
+            "status": "DRAFT_COHORT_REVIEW_REQUIRED",
+            "draft_count": len(existing_ids),
+            "created_drafts": 0,
+            "required_blocks": BLOCK_COUNT,
+            "complete_blocks": len(blocks),
+            "complete_independent_paths": len(paths),
+            "continuous_sessions": len(chains),
+            **progress,
+            **design,
+            "automatic_queueing": False,
+            "automatic_selection_import": False,
+        }
+    created = 0
+    for identity, request in requests.items():
+        if identity in existing_ids:
+            continue
+        atomic_json(draft_directory / f"{identity}.json", request)
+        created += 1
+    if not marker_path.exists():
+        atomic_json(marker_path, marker)
+    total = len(requests)
     return {
         "schema_version": 3,
         "mode": "SHADOW",
@@ -292,10 +450,12 @@ def plan_replay_drafts(
         "complete_blocks": len(blocks),
         "complete_independent_paths": len(paths),
         "continuous_sessions": len(chains),
+        "frozen_cohort_sha256": marker["cohort_sha256"],
+        **progress,
         **design,
         "automatic_queueing": False,
         "automatic_selection_import": False,
     }
 
 
-__all__ = ["plan_replay_drafts"]
+__all__ = ["context_ready_paths", "plan_replay_drafts"]
