@@ -1,5 +1,12 @@
 # Engineering decisions
 
+### 2026-08-30 — Bound evidence paths by provider session lifetime
+
+- **Context:** one historical block exceeded the exchange's maximum WebSocket connection lifetime.
+- **Decision:** build stability blocks from source-disjoint paths that each fit inside one verified provider session.
+- **Why it worked:** reconnects censor only unfinished paths, while later sessions can contribute new independent paths.
+- **Reuse:** every evidence design that depends on an externally limited session.
+
 ### 2026-08-30 — Express backup retention in exact minutes
 
 - **Context:** `find -mtime +N` rounds age down and extends an N-day retention policy by one day.

@@ -12,12 +12,16 @@ import time
 from uuid import uuid4
 
 import requests
-from websocket import WebSocketTimeoutException, create_connection
+from websocket import WebSocketException, WebSocketTimeoutException, create_connection
 
 from ladder_dragon.strategy.depth_archive import REST_BASE, _symbol, stream_url
 from ladder_dragon.strategy.depth_segments import (
     MAX_FRAME_BYTES, MAX_SEGMENTS, PublicBook, SegmentWriter,
 )
+
+
+class PublicStreamReconnect(RuntimeError):
+    """Request a new public session after preserving complete prior events."""
 
 
 def remaining_capacity(directory: Path, capacity_bytes: int) -> int:
@@ -83,15 +87,36 @@ def capture_segments(symbol: str, directory: Path, *, duration_sec: int = 3300,
             except WebSocketTimeoutException:
                 connection.ping()
                 continue
-            if not raw or len(raw.encode() if isinstance(raw, str) else raw) > MAX_FRAME_BYTES:
+            except WebSocketException as exc:
+                if writer is not None:
+                    completed.append(writer.finish(book, "CONNECTION_INTERRUPTED"))
+                    writer = None
+                raise PublicStreamReconnect(
+                    "public stream requires a new session"
+                ) from exc
+            if not raw:
+                if writer is not None:
+                    completed.append(writer.finish(book, "CONNECTION_CLOSED"))
+                    writer = None
+                raise PublicStreamReconnect("public stream closed")
+            if len(raw.encode() if isinstance(raw, str) else raw) > MAX_FRAME_BYTES:
                 raise ValueError("public stream frame missing or oversized")
             envelope = json.loads(raw)
             if not isinstance(envelope, dict):
                 raise ValueError("public stream envelope must be an object")
             row = envelope.get("data", envelope)
-            if not isinstance(row, dict) or row.get("s") != symbol:
-                raise ValueError("unexpected public stream symbol")
+            if not isinstance(row, dict):
+                raise ValueError("unexpected public stream payload")
             kind = row.get("e")
+            if kind == "serverShutdown" or row.get("event") == "serverShutdown":
+                # Binance closes each physical connection. Preserve the valid
+                # prefix, then let systemd establish an independent session.
+                if writer is not None:
+                    completed.append(writer.finish(book, "SERVER_SHUTDOWN"))
+                    writer = None
+                raise PublicStreamReconnect("public stream server shutdown")
+            if row.get("s") != symbol:
+                raise ValueError("unexpected public stream symbol")
             fields = ({"e", "E", "s", "U", "u", "pu", "b", "a"}
                       if kind == "depthUpdate" else
                       {"e", "E", "s", "a", "p", "q", "f", "l", "T", "m"})

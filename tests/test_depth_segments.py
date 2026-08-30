@@ -3,7 +3,11 @@ from pathlib import Path
 
 import pytest
 
-from ladder_dragon.strategy.depth_capture import capture_segments, public_snapshot
+from ladder_dragon.strategy.depth_capture import (
+    PublicStreamReconnect,
+    capture_segments,
+    public_snapshot,
+)
 from ladder_dragon.strategy.depth_processing import calibration_inventory, calibrate_segment
 from ladder_dragon.strategy.depth_segments import (
     MAX_FRAME_BYTES, atomic_json, bounded_json, iter_segment_events, verified_segments,
@@ -90,6 +94,21 @@ def test_rotation_carries_book_trade_ids_and_one_connection(tmp_path):
     assert metadata[1]["previous_archive_sha256"] == metadata[0]["archive_sha256"]
     assert metadata[1]["first_snapshot_update_id"] == metadata[0]["last_update_id"]
     assert metadata[2]["first_trade_id"] == metadata[1]["last_trade_id"]
+
+
+@pytest.mark.parametrize("field", ["e", "event"])
+def test_server_shutdown_commits_the_last_valid_segment(tmp_path, field):
+    shutdown = {field: "serverShutdown", "E": 2000}
+
+    with pytest.raises(PublicStreamReconnect, match="server shutdown"):
+        record(tmp_path, [depth(101), depth(102), shutdown], max_events=20)
+
+    paths = list(tmp_path.glob("*.jsonl"))
+    assert len(paths) == 1
+    metadata = bounded_json(paths[0].with_suffix(".jsonl.metadata.json"))
+    assert metadata["end_reason"] == "SERVER_SHUTDOWN"
+    assert list(iter_segment_events(verified_segments(paths)))
+    assert not list(tmp_path.glob(".*.tmp"))
 
 
 def test_missing_middle_segment_cannot_be_joined(tmp_path):

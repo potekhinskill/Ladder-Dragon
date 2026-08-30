@@ -3,6 +3,29 @@
 All notable changes are documented here. Releases use Semantic Versioning; every
 section is dated and there is intentionally no `Unreleased` section.
 
+## [2.20.271] — 2026-08-30
+
+### Changed
+- Historical selection uses four stability blocks with three source-disjoint, provider-bounded paths each.
+- Each path uses five-minute warmup, five-minute entry, and complete six-hour terminal observation windows.
+- The batch runner reconstructs each path separately and combines only derived block results.
+
+### Fixed
+- The planner no longer requires a session longer than Binance permits.
+- Provider lifetime preflight now reports `DESIGN_UNREACHABLE` before collecting impossible evidence.
+- Public `serverShutdown` events now commit the last valid segment before a new independent session starts.
+- Pending replay retention now protects every source nested in a provider-bounded path request.
+
+### Security
+- Reconnects never join books, unfinished positions remain censored, and historical selection remains SHADOW-only.
+- Legacy historical reports retain their stronger 30-opportunity requirement.
+- HALT, BTC, ETH, CHAMPION state, and order authority remain unchanged.
+
+### Verified
+- The focused planner, replay, selection, capture, and retention suite passes: 53 tests.
+- The full project suite passes: 1,534 tests.
+- Python compilation, Technical English, and whitespace checks pass.
+
 ## [2.20.270] — 2026-08-30
 
 ### Changed

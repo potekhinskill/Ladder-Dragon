@@ -15,6 +15,8 @@ Its seed contains the carried book and depth sequence identifier.
 The reader verifies carried prices, quantities, timestamps, and aggregate-trade sequence identifiers.
 A reconnect creates another session.
 The reader never joins separate sessions or old files across an unproven boundary.
+Binance limits one WebSocket connection to 24 hours.
+The recorder commits the last valid segment when it receives `serverShutdown`.
 
 Sequence failures stop capture and leave unfinished files unpublished.
 Network outages, exchange disconnects, storage exhaustion, and process restarts can still create gaps.
@@ -50,17 +52,18 @@ This inventory does not replace replay readiness or order validation.
 
 ## Historical selection inputs
 
-The offline replay request contains exactly these fields:
+The provider-bounded replay request contains exactly these top-level fields:
 
 | Field | Required content |
 | --- | --- |
+| `request_schema_version` | Integer `2` |
+| `cohort_contract` | `provider_bounded_disjoint_paths_v1` |
+| `stability_block_index` | Chronological block index from zero through three |
 | `policy` | Every field in `HistoricalPolicy`, including explicit timing and capacity limits |
-| `context` | Chronological historical filter, fee, classifier, regime, and PANIC attestations |
-| `archives` | Ordered objects with `path` and pinned `sha256` fields |
-| `start_ms` | First permitted entry time |
-| `entry_end_ms` | Last permitted entry-window boundary |
-| `end_ms` | End of the terminal observation tail |
-| `cutoff_ms` | Immutable selection cutoff |
+| `paths` | Three chronological source-disjoint path objects |
+
+Each path contains `archives`, `start_ms`, `entry_end_ms`, `end_ms`, and `cutoff_ms`.
+Each archive object contains one path and one pinned SHA-256 value.
 
 Financial inputs use decimal strings.
 Timestamps use integer milliseconds.
@@ -181,15 +184,17 @@ An existing output file blocks publication rather than being replaced.
 
 The depth processor also runs a bounded SHADOW request queue every 15 minutes.
 It first creates review-only drafts under `.historical-replay/drafts`.
-The planner requires four non-overlapping blocks and complete historical context.
-Each block has an 18-hour entry window and a complete six-hour terminal tail.
-The planner can use blocks from separate continuous sessions.
-It never joins events across a reconnect or reuses a source segment.
-Preflight proves that the four blocks can contain 12 independent paths.
+The planner requires 12 complete paths and complete historical context.
+Each path has five-minute warmup, five-minute entry, and six-hour terminal windows.
+Each path remains inside one verified provider session.
+The planner groups three chronological paths into each of four stability blocks.
+It never joins reconnects or reuses a source segment.
+Preflight compares path duration with the 24-hour provider lifetime.
+An impossible design reports `DESIGN_UNREACHABLE` before draft creation.
 It never copies drafts into the accepted request queue.
 Place reviewed immutable requests under `.historical-replay/requests` in the depth directory.
 The runner writes immutable reports under `.historical-replay/reports`.
-It replays up to 36 same-block policies through one verified event pass.
+It replays 36 policies through one pass per path.
 It accepts at most 256 queued requests.
 The replaceable `status.json` reports queue progress without source paths or exception text.
 The runner never imports selection, freezes a candidate, changes HALT, or creates orders.
@@ -207,8 +212,9 @@ Import reviewed, non-overlapping historical replay blocks:
   --confirm IMPORT-HISTORICAL-VETO
 ```
 
-The importer requires 30 opportunities and 12 independent paths.
-Two-thirds of the time blocks must show stable improvement.
+The provider-bounded importer requires 12 opportunities and 12 independent paths.
+At least three of four stability blocks must show non-negative improvement.
+Legacy block reports retain their 30-opportunity requirement.
 The imported artifact remains selection-only and cannot satisfy live confirmation.
 
 After v23 freezes, import only disjoint post-cutoff reports:

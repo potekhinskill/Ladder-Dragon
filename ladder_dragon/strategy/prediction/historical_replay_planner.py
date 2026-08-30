@@ -20,12 +20,15 @@ from ladder_dragon.strategy.prediction.historical_policy import fingerprint
 
 
 BLOCK_COUNT = 4
+PATHS_PER_BLOCK = 3
 SIGNAL_WARMUP_MS = 300_000
-ENTRY_WINDOW_MS = 18 * 60 * 60_000
+PATH_ENTRY_WINDOW_MS = 300_000
 TERMINAL_TAIL_MS = 6 * 60 * 60_000 + 1_000
 INDEPENDENCE_SPACING_MS = 6 * 60 * 60_000
 MINIMUM_INDEPENDENT_PATHS = 12
 MAXIMUM_DRAFTS = 256
+PROVIDER_CONNECTION_MAX_MS = 24 * 60 * 60_000
+COHORT_CONTRACT = "provider_bounded_disjoint_paths_v1"
 
 
 def _continuous(rows: list[tuple[Path, dict]]) -> bool:
@@ -74,22 +77,36 @@ def _chains(directory: Path, symbol: str) -> list[list[tuple[Path, dict]]]:
     )
 
 
-def _reachable_independent_paths() -> int:
-    """Prove the planner can satisfy the importer before publishing work."""
-    per_block = (ENTRY_WINDOW_MS - 1) // INDEPENDENCE_SPACING_MS + 1
-    return BLOCK_COUNT * per_block
+def _provider_design() -> dict[str, object]:
+    """Prove each path fits inside the provider connection lifetime."""
+    path_duration_ms = (
+        SIGNAL_WARMUP_MS + PATH_ENTRY_WINDOW_MS + TERMINAL_TAIL_MS
+    )
+    reachable = bool(
+        path_duration_ms < PROVIDER_CONNECTION_MAX_MS
+        and BLOCK_COUNT * PATHS_PER_BLOCK >= MINIMUM_INDEPENDENT_PATHS
+    )
+    return {
+        "cohort_contract": COHORT_CONTRACT,
+        "provider_connection_max_ms": PROVIDER_CONNECTION_MAX_MS,
+        "path_duration_ms": path_duration_ms,
+        "paths_per_block": PATHS_PER_BLOCK,
+        "required_blocks": BLOCK_COUNT,
+        "required_independent_paths": MINIMUM_INDEPENDENT_PATHS,
+        "reachable": reachable,
+    }
 
 
-def _complete_blocks(
+def _complete_paths(
     chains: Iterable[list[tuple[Path, dict]]],
 ) -> list[tuple[int, int, int, list[tuple[Path, dict]]]]:
-    """Select disjoint complete windows from any individually continuous session."""
+    """Select source-disjoint paths that never cross a reconnect boundary."""
     candidates: list[tuple[int, int, int, list[tuple[Path, dict]]]] = []
     for chain in chains:
         cursor = 0
         while cursor < len(chain):
             start = int(chain[cursor][1]["started_at_ms"]) + SIGNAL_WARMUP_MS
-            entry_end = start + ENTRY_WINDOW_MS
+            entry_end = start + PATH_ENTRY_WINDOW_MS
             end = entry_end + TERMINAL_TAIL_MS
             terminal_index = next(
                 (
@@ -101,23 +118,39 @@ def _complete_blocks(
             )
             if terminal_index is None:
                 break
-            selected = chain[cursor : terminal_index + 1]
-            candidates.append((start, entry_end, end, selected))
-            # A source segment belongs to one evidence block only.
+            candidates.append(
+                (start, entry_end, end, chain[cursor : terminal_index + 1])
+            )
+            # A source segment belongs to one independent path only.
             cursor = terminal_index + 1
 
-    # Work backwards to retain the newest maximum-size non-overlapping cohort.
-    selected_blocks: list[
-        tuple[int, int, int, list[tuple[Path, dict]]]
-    ] = []
+    selected: list[tuple[int, int, int, list[tuple[Path, dict]]]] = []
     next_start: int | None = None
-    for block in sorted(candidates, key=lambda row: row[0], reverse=True):
-        if next_start is None or block[2] < next_start:
-            selected_blocks.append(block)
-            next_start = block[0]
-            if len(selected_blocks) == BLOCK_COUNT:
+    for path in sorted(candidates, key=lambda row: row[0], reverse=True):
+        if next_start is None or path[2] < next_start:
+            selected.append(path)
+            next_start = path[0]
+            if len(selected) == MINIMUM_INDEPENDENT_PATHS:
                 break
-    return list(reversed(selected_blocks))
+    return list(reversed(selected))
+
+
+def _complete_blocks(
+    chains: Iterable[list[tuple[Path, dict]]],
+) -> list[list[tuple[int, int, int, list[tuple[Path, dict]]]]]:
+    """Group complete paths into disjoint chronological stability blocks."""
+    paths = _complete_paths(chains)
+    complete = len(paths) // PATHS_PER_BLOCK
+    if complete < BLOCK_COUNT:
+        return [
+            paths[index * PATHS_PER_BLOCK : (index + 1) * PATHS_PER_BLOCK]
+            for index in range(complete)
+        ]
+    paths = paths[-BLOCK_COUNT * PATHS_PER_BLOCK :]
+    return [
+        paths[index * PATHS_PER_BLOCK : (index + 1) * PATHS_PER_BLOCK]
+        for index in range(BLOCK_COUNT)
+    ]
 
 
 def _policy(candidate: Mapping[str, object], context: Mapping[str, object]) -> dict:
@@ -157,52 +190,85 @@ def plan_replay_drafts(
 ) -> dict[str, object]:
     """Publish drafts only after a reachable, disjoint block cohort exists."""
     draft_directory.mkdir(parents=True, exist_ok=True, mode=0o700)
-    reachable_paths = _reachable_independent_paths()
-    if reachable_paths < MINIMUM_INDEPENDENT_PATHS:
-        raise ValueError("historical selection design is mathematically unreachable")
+    design = _provider_design()
+    if design["reachable"] is not True:
+        return {
+            "schema_version": 3,
+            "mode": "SHADOW",
+            "apply_allowed": False,
+            "status": "DESIGN_UNREACHABLE",
+            "draft_count": 0,
+            "complete_blocks": 0,
+            "complete_independent_paths": 0,
+            **design,
+        }
     chains = _chains(archive_directory, "SOLUSDT")
+    paths = _complete_paths(chains)
     blocks = _complete_blocks(chains)
     if len(blocks) < BLOCK_COUNT:
         return {
-            "schema_version": 2,
+            "schema_version": 3,
             "mode": "SHADOW",
             "apply_allowed": False,
             "status": "COLLECTING_DISJOINT_CONTINUOUS_BLOCKS",
             "draft_count": 0,
             "required_blocks": BLOCK_COUNT,
             "complete_blocks": len(blocks),
+            "complete_independent_paths": len(paths),
             "continuous_sessions": len(chains),
-            "maximum_reachable_independent_paths": reachable_paths,
-            "required_independent_paths": MINIMUM_INDEPENDENT_PATHS,
+            **design,
         }
     windows = []
-    for start, entry_end, end, selected in blocks:
+    for block_index, block in enumerate(blocks):
         classifier = fingerprint(
             v23_evidence_semantics_contract()["regime_classifier"]
         )
-        context = export_context(
-            context_db,
-            symbol="SOLUSDT",
-            classifier_fingerprint=classifier,
-            start_ms=start,
-            end_ms=end,
-            cutoff_ms=end,
-        )
-        windows.append((start, entry_end, end, selected, context["context"][0]))
+        contexts = [
+            export_context(
+                context_db,
+                symbol="SOLUSDT",
+                classifier_fingerprint=classifier,
+                start_ms=start,
+                end_ms=end,
+                cutoff_ms=end,
+            )["context"][0]
+            for start, _entry_end, end, _selected in block
+        ]
+        identities = {
+            (
+                row["classifier_fingerprint"],
+                row["panic_source_fingerprint"],
+            )
+            for row in contexts
+        }
+        if len(identities) != 1:
+            raise ValueError("historical path semantics differ inside a block")
+        windows.append((block_index, block, contexts[0]))
 
     created = existing = 0
     for candidate in candidate_grid():
-        for start, entry_end, end, selected, context in windows:
+        for block_index, block, context in windows:
             request = {
+                "request_schema_version": 2,
+                "cohort_contract": COHORT_CONTRACT,
+                "stability_block_index": block_index,
                 "policy": _policy(candidate, context),
-                "archives": [
-                    {"path": str(path), "sha256": metadata["archive_sha256"]}
-                    for path, metadata in selected
+                "paths": [
+                    {
+                        "archives": [
+                            {
+                                "path": str(path),
+                                "sha256": metadata["archive_sha256"],
+                            }
+                            for path, metadata in selected
+                        ],
+                        "start_ms": start,
+                        "entry_end_ms": entry_end,
+                        "end_ms": end,
+                        "cutoff_ms": end,
+                    }
+                    for start, entry_end, end, selected in block
                 ],
-                "start_ms": start,
-                "entry_end_ms": entry_end,
-                "end_ms": end,
-                "cutoff_ms": end,
             }
             target = draft_directory / f"{fingerprint(request)}.json"
             if target.exists():
@@ -216,16 +282,17 @@ def plan_replay_drafts(
     if total > MAXIMUM_DRAFTS:
         raise ValueError("historical replay draft capacity reached")
     return {
-        "schema_version": 2,
+        "schema_version": 3,
         "mode": "SHADOW",
         "apply_allowed": False,
         "status": "DRAFTS_READY_FOR_OPERATOR_REVIEW",
         "draft_count": total,
         "created_drafts": created,
         "required_blocks": BLOCK_COUNT,
+        "complete_blocks": len(blocks),
+        "complete_independent_paths": len(paths),
         "continuous_sessions": len(chains),
-        "maximum_reachable_independent_paths": reachable_paths,
-        "required_independent_paths": MINIMUM_INDEPENDENT_PATHS,
+        **design,
         "automatic_queueing": False,
         "automatic_selection_import": False,
     }

@@ -1,6 +1,6 @@
 # Implementation status
 
-This document describes the code in version **2.20.270**.
+This document describes the code in version **2.20.271**.
 It does not describe future plans as completed work.
 
 An implemented function is not automatically approved for LIVE use.
@@ -194,10 +194,11 @@ It requires calibration, no database reference, and a recent verified encrypted 
 It verifies external encrypted publication before local removal.
 It preserves sources pinned by replay drafts and accepted requests.
 
-The replay planner creates deterministic review-only drafts after four complete blocks.
-It can select blocks from separate verified sessions without joining reconnect gaps.
-It proves that the planned entry windows can contain 12 independent paths.
-The runner evaluates 36 same-block policies through one verified L2 pass.
+The replay planner creates deterministic drafts after 12 complete provider-bounded paths.
+Each stability block contains three chronological, source-disjoint paths.
+Each path remains inside one verified session and never joins a reconnect.
+Provider lifetime preflight rejects an unreachable evidence design immediately.
+The runner evaluates 36 same-block policies through three separate verified L2 passes.
 It never queues a request or imports selection evidence.
 The v23 confirmation importer appends an episode start and result atomically.
 It verifies the selection cutoff, source identities, model hashes, policy, and fees.

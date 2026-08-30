@@ -21,9 +21,13 @@ from ladder_dragon.strategy.prediction.entry_diagnostics import (
 
 MINIMUM_REPORT_BLOCKS = 3
 MINIMUM_INDEPENDENT_PATHS = 12
-MINIMUM_OPPORTUNITIES = 30
+LEGACY_MINIMUM_OPPORTUNITIES = 30
+PATH_MINIMUM_OPPORTUNITIES = 12
 MAXIMUM_REPORTS = 128
 MAXIMUM_REPORT_BYTES = 16 * 1024 * 1024
+PATH_COHORT_CONTRACT = "provider_bounded_disjoint_paths_v1"
+REQUIRED_STABILITY_BLOCKS = 4
+PATHS_PER_STABILITY_BLOCK = 3
 
 
 def _decimal(value: object, *, field: str) -> Decimal:
@@ -59,8 +63,9 @@ def _validate(report: Mapping[str, object], *, cutoff_ts_ms: int) -> None:
     body = {key: value for key, value in report.items() if key != "report_sha256"}
     if report.get("report_sha256") != fingerprint(body):
         raise ValueError("historical replay report identity differs")
+    schema = report.get("schema_version")
     if (
-        report.get("schema_version") != 1
+        schema not in {1, 2}
         or report.get("model_contract") != MODEL_CONTRACT
         or report.get("status") != "COMPLETE_SELECTION_REPLAY"
         or report.get("mode") != "SHADOW"
@@ -84,12 +89,62 @@ def _validate(report: Mapping[str, object], *, cutoff_ts_ms: int) -> None:
     if not isinstance(report.get("source_sha256s"), list) or not report["source_sha256s"]:
         raise ValueError("historical replay sources are unavailable")
     if any(
-        not isinstance(value, str) or len(value) != 64
+        not isinstance(value, str)
+        or len(value) != 64
+        or any(character not in "0123456789abcdef" for character in value)
         for value in report["source_sha256s"]
-    ):
+    ) or len(report["source_sha256s"]) != len(set(report["source_sha256s"])):
         raise ValueError("historical replay source identity is invalid")
     if not isinstance(report.get("episodes"), dict) or set(report["episodes"]) != {"baseline", "veto"}:
         raise ValueError("historical replay paired episodes are unavailable")
+    if schema == 2:
+        windows = report.get("path_windows")
+        if (
+            report.get("cohort_contract") != PATH_COHORT_CONTRACT
+            or type(report.get("stability_block_index")) is not int
+            or not 0 <= report["stability_block_index"] < REQUIRED_STABILITY_BLOCKS
+            or not isinstance(windows, list)
+            or len(windows) != PATHS_PER_STABILITY_BLOCK
+        ):
+            raise ValueError("historical path cohort identity is invalid")
+        previous_end = -1
+        path_hashes: set[str] = set()
+        for window in windows:
+            if not isinstance(window, dict) or set(window) != {
+                "start_ts_ms", "entry_end_ts_ms", "end_ts_ms",
+                "cutoff_ts_ms", "source_sha256s",
+            }:
+                raise ValueError("historical path window is invalid")
+            if any(
+                type(window.get(field)) is not int
+                for field in (
+                    "start_ts_ms", "entry_end_ts_ms", "end_ts_ms",
+                    "cutoff_ts_ms",
+                )
+            ) or not (
+                previous_end < window["start_ts_ms"]
+                < window["entry_end_ts_ms"] < window["end_ts_ms"]
+                <= window["cutoff_ts_ms"] <= cutoff_ts_ms
+            ):
+                raise ValueError("historical path timestamps are invalid")
+            hashes = window["source_sha256s"]
+            if (
+                not isinstance(hashes, list)
+                or not hashes
+                or any(not isinstance(value, str) or len(value) != 64 for value in hashes)
+                or path_hashes & set(hashes)
+            ):
+                raise ValueError("historical path sources are invalid")
+            path_hashes.update(hashes)
+            previous_end = int(window["end_ts_ms"])
+        if (
+            path_hashes != set(report["source_sha256s"])
+            or report["start_ts_ms"] != windows[0]["start_ts_ms"]
+            or report["entry_end_ts_ms"] != windows[-1]["entry_end_ts_ms"]
+            or report["end_ts_ms"] != windows[-1]["end_ts_ms"]
+            or report["cutoff_ts_ms"] != windows[-1]["cutoff_ts_ms"]
+        ):
+            raise ValueError("historical path block boundary differs")
 
 
 def _rows(report: Mapping[str, object], name: str) -> list[Mapping[str, object]]:
@@ -160,7 +215,7 @@ def historical_selection_artifact(
     cutoff_ts_ms: int,
 ) -> dict[str, object]:
     """Build one immutable selection artifact from non-overlapping reports."""
-    if not MINIMUM_REPORT_BLOCKS <= len(reports) <= MAXIMUM_REPORTS:
+    if not reports or len(reports) > MAXIMUM_REPORTS:
         raise ValueError("historical selection report count is invalid")
     if type(cutoff_ts_ms) is not int or cutoff_ts_ms <= 0:
         raise ValueError("historical selection cutoff is invalid")
@@ -169,6 +224,19 @@ def historical_selection_artifact(
     reports = sorted(reports, key=lambda row: int(row.get("start_ts_ms", 0)))
     for report in reports:
         _validate(report, cutoff_ts_ms=cutoff_ts_ms)
+    path_cohort = all(report.get("schema_version") == 2 for report in reports)
+    if path_cohort:
+        if (
+            len(reports) != REQUIRED_STABILITY_BLOCKS
+            or [report["stability_block_index"] for report in reports]
+            != list(range(REQUIRED_STABILITY_BLOCKS))
+        ):
+            raise ValueError("historical stability block cohort is incomplete")
+    elif not (
+        all(report.get("schema_version") == 1 for report in reports)
+        and len(reports) >= MINIMUM_REPORT_BLOCKS
+    ):
+        raise ValueError("historical selection report schemas differ")
     policy = reports[0]["policy"]
     policy_sha = reports[0]["policy_sha256"]
     model_sources = reports[0].get("model_source_sha256s")
@@ -214,7 +282,10 @@ def historical_selection_artifact(
     )
     veto_rate = Decimal(vetoed) / Decimal(opportunities) if opportunities else Decimal("0")
     ready = bool(
-        opportunities >= MINIMUM_OPPORTUNITIES
+        opportunities >= (
+            PATH_MINIMUM_OPPORTUNITIES
+            if path_cohort else LEGACY_MINIMUM_OPPORTUNITIES
+        )
         and len(independent) >= MINIMUM_INDEPENDENT_PATHS
         and stable_blocks * 3 >= len(reports) * 2
         and Decimal("0.05") <= veto_rate <= Decimal("0.40")
@@ -233,7 +304,7 @@ def historical_selection_artifact(
     }
     report_identities = [str(report["report_sha256"]) for report in reports]
     artifact = {
-        "schema_version": 2,
+        "schema_version": 3 if path_cohort else 2,
         "mode": "SHADOW_SELECTION",
         "evidence_role": "HISTORICAL_SELECTION_ONLY",
         "can_change_orders": False,
@@ -247,6 +318,9 @@ def historical_selection_artifact(
         "source_archive_sha256s": sorted(source_hashes),
         "report_sha256s": report_identities,
         "selection_cohort_sha256": fingerprint({"reports": report_identities}),
+        "cohort_contract": (
+            PATH_COHORT_CONTRACT if path_cohort else "legacy_time_blocks_v1"
+        ),
         "selection_metrics": {
             "opportunities": opportunities,
             "independent_paths": len(independent),

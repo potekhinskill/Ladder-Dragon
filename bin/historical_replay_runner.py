@@ -67,11 +67,19 @@ def process_requests(
                 completed += 1
                 continue
             payload = bounded_json(request)
-            group = fingerprint({
-                key: payload.get(key)
-                for key in (
-                    "archives", "start_ms", "entry_end_ms", "end_ms", "cutoff_ms"
+            group_fields = (
+                (
+                    "request_schema_version", "cohort_contract",
+                    "stability_block_index", "paths",
                 )
+                if payload.get("request_schema_version") == 2
+                else (
+                    "archives", "start_ms", "entry_end_ms", "end_ms",
+                    "cutoff_ms",
+                )
+            )
+            group = fingerprint({
+                key: payload.get(key) for key in group_fields
             })
             pending.setdefault(group, []).append((request, output))
         except (OSError, RuntimeError, ValueError, KeyError, TypeError, ArithmeticError, sqlite3.Error):

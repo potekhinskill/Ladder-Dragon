@@ -1,5 +1,12 @@
 # Engineering mistakes and root causes
 
+### 2026-08-30 — Ignored the provider connection lifetime in reachability
+
+- **Impact:** the planner waited for a 24-hour-five-minute session that the provider always closes earlier.
+- **Root cause:** preflight counted statistical slots but omitted the transport's maximum connection lifetime.
+- **Correction:** use 12 provider-bounded paths and reject designs whose path duration exceeds the provider limit.
+- **Prevention:** include external protocol limits in every evidence reachability test.
+
 ### 2026-08-30 — Treated `find -mtime` as an exact day threshold
 
 - **Impact:** eligible local archives remained for almost one extra day and consumed constrained SD-card capacity.

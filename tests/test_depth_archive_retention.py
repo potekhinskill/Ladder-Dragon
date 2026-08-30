@@ -82,8 +82,9 @@ def test_retention_requires_backup_and_preserves_recent_and_referenced(tmp_path)
 
 
 @pytest.mark.parametrize("queue_name", ["drafts", "requests"])
+@pytest.mark.parametrize("nested_paths", [False, True])
 def test_retention_preserves_sources_pinned_by_pending_replay(
-    tmp_path, queue_name
+    tmp_path, queue_name, nested_paths
 ):
     now = 2_000_000_000.0
     directory = tmp_path / "depth"
@@ -96,13 +97,17 @@ def test_retention_preserves_sources_pinned_by_pending_replay(
     ]
     requests = directory / ".historical-replay" / queue_name
     requests.mkdir(parents=True)
-    requests.joinpath("selection.json").write_text(
-        json.dumps({
-            "archives": [{
+    source = {
+        "archives": [{
                 "path": str(rows[0][0]),
                 "sha256": rows[0][1]["archive_sha256"],
             }],
-        }),
+    }
+    requests.joinpath("selection.json").write_text(
+        json.dumps(
+            {"request_schema_version": 2, "paths": [source]}
+            if nested_paths else source
+        ),
         encoding="utf-8",
     )
     status = tmp_path / "backup.json"

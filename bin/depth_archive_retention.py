@@ -98,16 +98,26 @@ def _pending_replay_hashes(directory: Path) -> set[str]:
     protected: set[str] = set()
     for path in requests:
         payload = bounded_json(path)
-        archives = payload.get("archives")
-        if not isinstance(archives, list) or not 1 <= len(archives) <= 10_000:
-            raise ValueError("historical replay request sources are invalid")
-        for source in archives:
-            if not isinstance(source, dict) or set(source) != {"path", "sha256"}:
-                raise ValueError("historical replay source identity is invalid")
-            digest = str(source["sha256"])
-            if re.fullmatch(r"[a-f0-9]{64}", digest) is None:
-                raise ValueError("historical replay source hash is invalid")
-            protected.add(digest)
+        path_rows = (
+            payload.get("paths")
+            if payload.get("request_schema_version") == 2
+            else [payload]
+        )
+        if not isinstance(path_rows, list) or not 1 <= len(path_rows) <= 12:
+            raise ValueError("historical replay path sources are invalid")
+        for path_row in path_rows:
+            if not isinstance(path_row, dict):
+                raise ValueError("historical replay path source is invalid")
+            archives = path_row.get("archives")
+            if not isinstance(archives, list) or not 1 <= len(archives) <= 10_000:
+                raise ValueError("historical replay request sources are invalid")
+            for source in archives:
+                if not isinstance(source, dict) or set(source) != {"path", "sha256"}:
+                    raise ValueError("historical replay source identity is invalid")
+                digest = str(source["sha256"])
+                if re.fullmatch(r"[a-f0-9]{64}", digest) is None:
+                    raise ValueError("historical replay source hash is invalid")
+                protected.add(digest)
     return protected
 
 
