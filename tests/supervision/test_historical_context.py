@@ -1,6 +1,7 @@
 from pathlib import Path
 import threading
 from types import SimpleNamespace
+from decimal import Decimal
 
 import requests
 import pytest
@@ -9,6 +10,7 @@ from ladder_dragon.supervision import historical_context as module
 from ladder_dragon.strategy.prediction.context_journal import export_context
 from ladder_dragon.strategy.prediction.episode_semantics import v23_evidence_semantics_contract
 from ladder_dragon.strategy.prediction.historical_policy import fingerprint
+from ladder_dragon.strategy.prediction.context_sources import fee_schedule_source
 from ladder_dragon.supervision.panic_observer import (
     refresh_panic_observation,
 )
@@ -68,6 +70,107 @@ def test_get_only_collection_caches_without_renewing_source_time(tmp_path):
     assert collector.collect("SOLUSDT", captured(121_001))["status"] == "AVAILABLE"
     assert len(calls) == 7
     assert collector.cache["SOLUSDT:fees"]["observed_at_ms"] == 121_001
+
+
+def test_runtime_fee_attestation_avoids_a_second_signed_request(tmp_path):
+    calls, now = [], [1_000]
+
+    def signed_get(*_args):
+        raise AssertionError("the collector must reuse the runtime fee source")
+
+    collector = module.HistoricalContextCollector(
+        tmp_path / "context.sqlite3",
+        public_get=client(calls),
+        signed_get=signed_get,
+        clock=lambda: now[0],
+        panic_run_dir=tmp_path,
+    )
+    fee_attestation = fee_schedule_source(
+        "SOLUSDT",
+        now[0],
+        maker_buy="0.001",
+        maker_sell="0.001",
+        taker_buy="0.001",
+        taker_sell="0.001",
+    )
+
+    result = collector.collect(
+        "SOLUSDT",
+        captured(now[0]),
+        fee_attestation=fee_attestation,
+    )
+
+    assert result["status"] == "AVAILABLE"
+    assert [endpoint for endpoint, _ in calls].count(
+        "/api/v3/exchangeInfo"
+    ) == 1
+    assert all(endpoint != "/api/v3/account/commission" for endpoint, _ in calls)
+
+
+def test_runtime_cache_projection_preserves_original_observation_time():
+    schedule = SimpleNamespace(
+        maker_buy=Decimal("0.001"),
+        maker_sell=Decimal("0.002"),
+        taker_buy=Decimal("0.003"),
+        taker_sell=Decimal("0.004"),
+    )
+
+    result = module.fee_attestation_from_runtime_cache(
+        "SOLUSDT",
+        (880.0, schedule),
+        monotonic=lambda: 1_000.0,
+        clock=lambda: 1_000_000,
+    )
+
+    assert result["observed_at_ms"] == 880_000
+    assert result["values"]["taker_sell_fee_pct"] == "0.004"
+
+
+def test_invalid_runtime_fee_attestation_reports_a_safe_stage(tmp_path):
+    calls = []
+    collector = module.HistoricalContextCollector(
+        tmp_path / "context.sqlite3",
+        public_get=client(calls),
+        signed_get=client(calls),
+        clock=lambda: 1_000,
+        panic_run_dir=tmp_path,
+    )
+
+    result = collector.collect(
+        "SOLUSDT",
+        captured(1_000),
+        fee_attestation={"damaged": True},
+    )
+
+    assert result["status"] == "BLOCKED"
+    assert result["reason"] == "SOURCE_UNAVAILABLE"
+    assert result["error_type"] == "ValueError"
+    assert result["error_stage"] == "FEE_SOURCE"
+
+
+def test_missing_runtime_fee_attestation_does_not_retry_signed_get(tmp_path):
+    calls = []
+
+    def signed_get(*_args):
+        raise AssertionError("missing runtime fees must remain fail-closed")
+
+    collector = module.HistoricalContextCollector(
+        tmp_path / "context.sqlite3",
+        public_get=client(calls),
+        signed_get=signed_get,
+        clock=lambda: 1_000,
+        panic_run_dir=tmp_path,
+    )
+
+    result = collector.collect(
+        "SOLUSDT",
+        captured(1_000),
+        fee_attestation=None,
+    )
+
+    assert result["status"] == "BLOCKED"
+    assert result["reason"] == "SOURCE_UNAVAILABLE"
+    assert result["error_stage"] == "FEE_SOURCE"
 
 
 def test_cached_sources_cover_a_six_hour_export_without_periodic_gaps(tmp_path):
@@ -224,6 +327,9 @@ def test_runtime_wiring_respects_scope_and_preserves_halt(tmp_path, monkeypatch)
     assert collector.status["SOLUSDT"]["status"] == "AVAILABLE"
     assert runtime["_AI_RUNTIME_STATUS"]["risk"] == {"halted": True}
     source = Path("ladder_dragon/supervision/runtime.py").read_text()
+    assert source.index(
+        "commission_schedule = _commission_schedule(symbol)"
+    ) < source.index("historical_context.observe_runtime(")
     assert source.index("historical_context.observe_runtime(") < source.index("    # 4) Exchange filters")
 
 

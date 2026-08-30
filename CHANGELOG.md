@@ -3,6 +3,24 @@
 All notable changes are documented here. Releases use Semantic Versioning; every
 section is dated and there is intentionally no `Unreleased` section.
 
+## [2.20.270] — 2026-08-30
+
+### Changed
+- Historical context reuses the timestamped commission schedule already validated by the supervisor runtime.
+- Safe context status identifies the failed source stage without exposing provider data.
+
+### Fixed
+- Persistent HALT no longer causes a second signed commission request to block historical context collection.
+
+### Security
+- Missing, stale, or damaged fee attestations block historical context and cannot change execution authority.
+- Persistent HALT, BTC, ETH, CHAMPION state, and order authority remain unchanged.
+
+### Verified
+- The focused historical context and fee suite passes: 121 tests.
+- The full project suite passes: 1,528 tests.
+- Python compilation and whitespace checks pass.
+
 ## [2.20.269] — 2026-08-30
 
 ### Added

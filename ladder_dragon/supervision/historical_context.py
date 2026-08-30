@@ -10,6 +10,7 @@ from pathlib import Path
 import sqlite3
 import threading
 import time
+from typing import Callable
 import uuid
 
 import requests
@@ -21,7 +22,9 @@ from ladder_dragon.supervision.panic_observer import (
 from ladder_dragon.strategy.prediction.context_journal import ContextJournal
 from ladder_dragon.strategy.prediction.context_sources import (
     RUNTIME_TTL_MS,
-    attest, context_from_sources, fee_source, filter_source, symbol_name,
+    attest, context_from_sources, fee_schedule_source, fee_source,
+    filter_source, symbol_name,
+    validate_source,
 )
 from ladder_dragon.strategy.prediction.episode_semantics import (
     require_runtime_regime_contract, v23_evidence_semantics_contract,
@@ -29,6 +32,32 @@ from ladder_dragon.strategy.prediction.episode_semantics import (
 
 SOURCE_ERRORS = (OSError, RuntimeError, ValueError, TypeError, KeyError, AttributeError, ArithmeticError,
                  sqlite3.Error, requests.RequestException)
+_FEE_SOURCE_UNSET = object()
+
+
+def fee_attestation_from_runtime_cache(
+    symbol: str,
+    cached: tuple[float, object] | None,
+    *,
+    monotonic: Callable[[], float] = time.monotonic,
+    clock: Callable[[], int] = lambda: time.time_ns() // 1_000_000,
+) -> dict | None:
+    """Project one fresh runtime commission cache entry without credentials."""
+    if cached is None or len(cached) != 2:
+        return None
+    observed_at_ms = clock() - max(0, int((monotonic() - cached[0]) * 1000))
+    schedule = cached[1]
+    try:
+        return fee_schedule_source(
+            symbol,
+            observed_at_ms,
+            maker_buy=schedule.maker_buy,
+            maker_sell=schedule.maker_sell,
+            taker_buy=schedule.taker_buy,
+            taker_sell=schedule.taker_sell,
+        )
+    except (ArithmeticError, AttributeError, KeyError, TypeError, ValueError):
+        return None
 
 
 class HistoricalContextCollector:
@@ -74,9 +103,16 @@ class HistoricalContextCollector:
         self.cache[key] = source
         return source
 
-    def collect(self, symbol: str, captured: dict | None, reason: str | None = None) -> dict:
+    def collect(
+        self,
+        symbol: str,
+        captured: dict | None,
+        reason: str | None = None,
+        fee_attestation: object = _FEE_SOURCE_UNSET,
+    ) -> dict:
         """Write only sanitized successful projections or an explicit evidence gap."""
         error_type = None
+        error_stage = None
         sources = None
         if reason == "PANIC_WARMUP":
             try:
@@ -129,9 +165,26 @@ class HistoricalContextCollector:
                     "panic_source_fingerprint": observation["source_fingerprint"],
                     "panic_observed_at_ms": observation["updated_at_ms"],
                 })
-                sources = {"runtime": runtime_source, "filters": self._source("filters", symbol),
-                           "fees": self._source("fees", symbol)}
-                context_from_sources(sources, self.clock())
+                sources = {"runtime": runtime_source}
+                try:
+                    sources["filters"] = self._source("filters", symbol)
+                except SOURCE_ERRORS:
+                    error_stage = "FILTER_SOURCE"
+                    raise
+                try:
+                    if fee_attestation is _FEE_SOURCE_UNSET:
+                        sources["fees"] = self._source("fees", symbol)
+                    else:
+                        validate_source("fees", fee_attestation)
+                        sources["fees"] = fee_attestation
+                except SOURCE_ERRORS:
+                    error_stage = "FEE_SOURCE"
+                    raise
+                try:
+                    context_from_sources(sources, self.clock())
+                except SOURCE_ERRORS:
+                    error_stage = "SOURCE_BUNDLE"
+                    raise
         except SOURCE_ERRORS as exc:
             sources = None
             reason = reason or "SOURCE_UNAVAILABLE"
@@ -153,13 +206,19 @@ class HistoricalContextCollector:
                 result = {"status": "BLOCKED", "reason": "PERSISTENCE_UNAVAILABLE",
                           "observed_at_ms": self.clock()}
                 error_type = type(exc).__name__
-            result.update(mode="SHADOW", apply_allowed=False, error_type=error_type)
+            result.update(
+                mode="SHADOW",
+                apply_allowed=False,
+                error_type=error_type,
+                error_stage=error_stage,
+            )
             self.status[symbol] = result
             self.busy = False
         return result
 
     def submit(self, symbol: str, *, arguments, environ: dict, regime: str,
-               panic: bool | None, panic_hits: int | None) -> dict:
+               panic: bool | None, panic_hits: int | None,
+               fee_attestation: object = _FEE_SOURCE_UNSET) -> dict:
         """Capture the exact consumed runtime input before any asynchronous read."""
         symbol_name(symbol)
         now = self.clock()
@@ -198,7 +257,9 @@ class HistoricalContextCollector:
                 return current
             self.last[symbol] = (now, signature)
             self.busy, self.job_signature, self.invalidated_at = True, signature, None
-            self.thread = threading.Thread(target=self.collect, args=(symbol, captured, reason),
+            self.thread = threading.Thread(
+                target=self.collect,
+                args=(symbol, captured, reason, fee_attestation),
                                            name="historical-context", daemon=True)
             try:
                 self.thread.start()
@@ -212,7 +273,8 @@ _COLLECTOR: HistoricalContextCollector | None = None
 
 
 def observe_runtime(runtime: dict, arguments, symbol: str, regime: str,
-                    panic: bool | None, panic_hits: int | None) -> None:
+                    panic: bool | None, panic_hits: int | None,
+                    fee_attestation: object = _FEE_SOURCE_UNSET) -> None:
     """Keep context available under HALT without coupling it to candidate plans."""
     global _COLLECTOR
     if os.getenv("BOT_HISTORICAL_CONTEXT_ENABLED", "0") != "1":
@@ -240,6 +302,7 @@ def observe_runtime(runtime: dict, arguments, symbol: str, regime: str,
         if _COLLECTOR.path != path:
             raise ValueError("context storage changed during process lifetime")
         state[symbol] = _COLLECTOR.submit(symbol, arguments=arguments, environ=os.environ,
-                                        regime=regime, panic=panic, panic_hits=panic_hits)
+                                        regime=regime, panic=panic, panic_hits=panic_hits,
+                                        fee_attestation=fee_attestation)
     except SOURCE_ERRORS as exc:
         state[symbol] = {"status": "BLOCKED", "reason": "COLLECTOR_UNAVAILABLE", "error_type": type(exc).__name__}

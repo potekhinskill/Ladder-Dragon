@@ -2063,10 +2063,10 @@ def _control_mode(name: str, default: str = "SHADOW") -> str:
 
 def _commission_schedule(symbol: str) -> CommissionSchedule:
     """Read and briefly cache authoritative per-symbol account commissions."""
-    ttl = max(
+    ttl = min(120, max(
         1,
         int(os.getenv("BOT_COMMISSION_CACHE_SEC", "300") or "300"),
-    )
+    ))
     now = time.monotonic()
     cached = _COMMISSION_CACHE.get(symbol)
     if cached is not None and now - cached[0] <= ttl:
@@ -2823,7 +2823,6 @@ def run_for_symbol(
         now=time.monotonic(),
         panic=executor_panic is True,
     )
-    historical_context.observe_runtime(globals(), args, symbol, confirmed_regime, executor_panic, _panic_hits)
     regime_policy = regime_machine.policy(
         trend_up_cap_scale=os.getenv(
             "BOT_REGIME_TREND_UP_CAP_SCALE", "0.75"
@@ -2879,6 +2878,7 @@ def run_for_symbol(
                 f"[EXPECTANCY-BLOCK] {symbol} authoritative commission "
                 f"unavailable={commission_error}"
             )
+    historical_context.observe_runtime(globals(), args, symbol, confirmed_regime, executor_panic, _panic_hits, fee_attestation=historical_context.fee_attestation_from_runtime_cache(symbol, _COMMISSION_CACHE.get(symbol)))
     cycle_log(
         f"[REGIME-{regime_mode}] {symbol} raw={raw_regime} "
         f"confirmed={confirmed_regime} buys={regime_policy.buys_allowed} "

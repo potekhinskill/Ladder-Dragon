@@ -1913,3 +1913,10 @@ entries concise; this is not a changelog or an activity log.
 - **Decision:** stream one verified block through a bounded batch of independent policy states.
 - **Why it worked:** policy state remains separate while source verification and book reconstruction occur once.
 - **Reuse:** deterministic parameter grids that consume the same immutable event sequence.
+
+### 2026-08-30 — Reuse validated authority observations across advisory consumers
+
+- **Context:** the supervisor and historical collector queried the same account commission endpoint independently.
+- **Decision:** timestamp the validated runtime schedule and pass its narrow attestation to historical context.
+- **Why it worked:** one authority read feeds both consumers without sharing credentials or remote payloads.
+- **Reuse:** advisory evidence that needs a source already validated by the authoritative runtime.

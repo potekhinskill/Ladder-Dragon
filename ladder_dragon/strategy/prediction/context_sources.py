@@ -128,6 +128,25 @@ def fee_source(symbol: str, payload: dict, observed_at_ms: int) -> dict:
     return attest("fees", symbol, observed_at_ms, rates)
 
 
+def fee_schedule_source(
+    symbol: str,
+    observed_at_ms: int,
+    *,
+    maker_buy: object,
+    maker_sell: object,
+    taker_buy: object,
+    taker_sell: object,
+) -> dict:
+    """Attest one already validated runtime commission schedule."""
+    values = {
+        "maker_buy_fee_pct": str(maker_buy),
+        "maker_sell_fee_pct": str(maker_sell),
+        "taker_buy_fee_pct": str(taker_buy),
+        "taker_sell_fee_pct": str(taker_sell),
+    }
+    return attest("fees", symbol, observed_at_ms, values)
+
+
 def context_from_sources(sources: dict, observed_at_ms: int) -> dict:
     """Never backdate an observation to a candle close or a request start."""
     if not isinstance(sources, dict) or set(sources) != set(KINDS):

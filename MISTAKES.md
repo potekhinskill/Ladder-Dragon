@@ -2272,3 +2272,10 @@ private infrastructure details.
 - **Root cause:** the importer fixture used 22-hour windows and bypassed the production 18-hour planner.
 - **Correction:** use four production-sized blocks, add reachability preflight, and test planner output through selection.
 - **Prevention:** producer-consumer evidence tests must use the producer's real timing and capacity constants.
+
+### 2026-08-30 — Duplicated the runtime commission authority
+
+- **Impact:** historical context stayed blocked although the supervisor had a valid commission schedule.
+- **Root cause:** the collector repeated a signed request instead of consuming the validated runtime projection.
+- **Correction:** pass one timestamped, narrow fee attestation from runtime to the collector.
+- **Prevention:** integration tests must reject duplicate authority reads across runtime and advisory consumers.
