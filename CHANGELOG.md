@@ -3,6 +3,21 @@
 All notable changes are documented here. Releases use Semantic Versioning; every
 section is dated and there is intentionally no `Unreleased` section.
 
+## [2.20.274] — 2026-08-31
+
+### Fixed
+- Depth retention can write encrypted bundles on an exFAT mount owned through mount options.
+
+### Security
+- The retention sandbox grants only DAC override and file-owner capabilities required for external archival.
+- Failed archival remains fail-closed and never removes local L2 evidence.
+- Persistent HALT, BTC, ETH, CHAMPION state, and order authority remain unchanged.
+
+### Verified
+- The focused backup, deployment, and retention suite passes: 115 tests.
+- The full project suite passes: 1,543 tests.
+- Python compilation, Technical English, and whitespace checks pass.
+
 ## [2.20.273] — 2026-08-31
 
 ### Fixed

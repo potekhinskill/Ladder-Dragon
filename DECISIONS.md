@@ -1,5 +1,12 @@
 # Engineering decisions
 
+### 2026-08-31 — Grant sandbox capabilities from the destination ownership model
+
+- **Context:** a root service with an empty capability set cannot bypass mount-owner permissions on external storage.
+- **Decision:** grant only DAC override and file-owner capabilities to the encrypted L2 retention service.
+- **Why it worked:** the service can publish and verify archives without receiving unrelated administrative capabilities.
+- **Reuse:** every sandboxed root service that writes to a mount owned by filesystem options.
+
 ### 2026-08-31 — Delegate external permissions to filesystem mount options
 
 - **Context:** the encrypted backup disk uses exFAT, which does not implement Unix mode changes.

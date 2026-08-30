@@ -34,7 +34,9 @@ RestrictRealtime=yes
 RestrictNamespaces=yes
 LockPersonality=yes
 MemoryDenyWriteExecute=yes
-CapabilityBoundingSet=
+# The external exFAT mount can use a non-root owner from its mount options.
+# Keep only the capabilities required to create verified encrypted bundles.
+CapabilityBoundingSet=CAP_DAC_OVERRIDE CAP_FOWNER
 AmbientCapabilities=
 RestrictAddressFamilies=AF_UNIX
 SystemCallArchitectures=native

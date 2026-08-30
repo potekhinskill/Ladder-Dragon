@@ -209,5 +209,6 @@ def test_deployment_installs_and_mount_binds_retention():
     assert "EnvironmentFile=/etc/ladder-dragon/backup.env" in service
     assert "backup.conf" not in service
     assert "ReadWritePaths=/var/lib/ladder-dragon/depth-archives" in service
+    assert "CapabilityBoundingSet=CAP_DAC_OVERRIDE CAP_FOWNER" in service
     assert 'mkdir -p "${BACKUP_EXTERNAL_DIR}/depth-evidence"' in runner
     assert 'install -d -m 0700 "${BACKUP_EXTERNAL_DIR}/depth-evidence"' not in runner

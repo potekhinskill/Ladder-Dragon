@@ -1,5 +1,12 @@
 # Engineering mistakes and root causes
 
+### 2026-08-31 — Removed capabilities required by the external ownership model
+
+- **Impact:** retention still failed after exFAT-compatible directory creation and could not reduce disk pressure.
+- **Root cause:** the unit removed all capabilities without testing access under the deployed mount-owner options.
+- **Correction:** grant only DAC override and file-owner capabilities used by encrypted archive publication.
+- **Prevention:** deployment tests must compare service capabilities with the ownership model of every writable path.
+
 ### 2026-08-31 — Applied Unix mode changes to an exFAT backup disk
 
 - **Impact:** the first L2 retention run failed before encrypted archival and left disk pressure unchanged.
