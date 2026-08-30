@@ -3,6 +3,20 @@
 All notable changes are documented here. Releases use Semantic Versioning; every
 section is dated and there is intentionally no `Unreleased` section.
 
+## [2.20.273] — 2026-08-31
+
+### Fixed
+- Depth retention creates external directories without unsupported Unix mode changes on exFAT.
+
+### Security
+- Failed external directory preparation remains fail-closed and never removes local L2 evidence.
+- Persistent HALT, BTC, ETH, CHAMPION state, and order authority remain unchanged.
+
+### Verified
+- The focused backup, deployment, and retention suite passes: 115 tests.
+- The full project suite passes: 1,543 tests.
+- Python compilation, Technical English, and whitespace checks pass.
+
 ## [2.20.272] — 2026-08-31
 
 ### Added

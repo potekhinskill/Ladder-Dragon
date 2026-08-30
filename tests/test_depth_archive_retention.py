@@ -198,6 +198,7 @@ def test_deployment_installs_and_mount_binds_retention():
     installer = Path("deploy/install_raspberry_pi.sh").read_text(encoding="utf-8")
     updater = Path("deploy/update_raspberry_pi.sh").read_text(encoding="utf-8")
     assets = Path("deploy/install_runtime_assets.sh").read_text(encoding="utf-8")
+    runner = Path("deploy/run_depth_archive_retention.sh").read_text(encoding="utf-8")
     service = Path("deploy/ladder-dragon-depth-retention.service").read_text(encoding="utf-8")
     for source in (installer, updater):
         assert "ladder-dragon-depth-retention.timer" in source
@@ -208,3 +209,5 @@ def test_deployment_installs_and_mount_binds_retention():
     assert "EnvironmentFile=/etc/ladder-dragon/backup.env" in service
     assert "backup.conf" not in service
     assert "ReadWritePaths=/var/lib/ladder-dragon/depth-archives" in service
+    assert 'mkdir -p "${BACKUP_EXTERNAL_DIR}/depth-evidence"' in runner
+    assert 'install -d -m 0700 "${BACKUP_EXTERNAL_DIR}/depth-evidence"' not in runner

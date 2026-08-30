@@ -1,5 +1,12 @@
 # Engineering mistakes and root causes
 
+### 2026-08-31 — Applied Unix mode changes to an exFAT backup disk
+
+- **Impact:** the first L2 retention run failed before encrypted archival and left disk pressure unchanged.
+- **Root cause:** the runner used `install -m` although the established backup workflow documents exFAT semantics.
+- **Correction:** create the external directory with `mkdir` and keep strict modes only on the local status directory.
+- **Prevention:** deployment tests must prohibit chmod-dependent directory creation on the external backup path.
+
 ### 2026-08-31 — Counted source geometry before context readiness
 
 - **Impact:** the planner reported six usable paths although no path could pass the context exporter.

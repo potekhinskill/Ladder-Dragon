@@ -1,5 +1,12 @@
 # Engineering decisions
 
+### 2026-08-31 — Delegate external permissions to filesystem mount options
+
+- **Context:** the encrypted backup disk uses exFAT, which does not implement Unix mode changes.
+- **Decision:** create external directories without chmod and enforce permissions through reviewed mount options.
+- **Why it worked:** local status paths retain strict modes, while external encrypted archives remain writable and verified.
+- **Reuse:** every external storage workflow that supports filesystems without Unix permission semantics.
+
 ### 2026-08-31 — Freeze evidence cohorts before recurring planning
 
 - **Context:** recurring planning could count incomplete context and create another rolling draft set.
