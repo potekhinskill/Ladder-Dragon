@@ -900,6 +900,10 @@ def test_soak_audit_is_periodic_signed_and_transition_notified():
     assert "ReadWritePaths=/var/lib/ladder-dragon/soak /etc/ladder-dragon" in service
     assert "ladder-dragon-soak-audit.timer" in installer
     assert "ladder-dragon-soak-audit.timer" in updater
+    assert "if ! systemctl start ladder-dragon-soak-audit.service" in installer
+    assert "if ! systemctl start ladder-dragon-soak-audit.service" in updater
+    assert "trading approval remains blocked" in installer
+    assert "trading approval remains blocked" in updater
     assert "/usr/local/bin/ladder-dragon-soak-audit" in runtime_assets
     assert "/etc/ladder-dragon/soak-report-signing.pem" in backup
     assert "/var/lib/ladder-dragon/soak" in backup

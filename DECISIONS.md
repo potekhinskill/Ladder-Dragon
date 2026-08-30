@@ -1892,3 +1892,10 @@ entries concise; this is not a changelog or an activity log.
 - **Decision:** select on reviewed L2 blocks and confirm only with new diff-depth source hashes.
 - **Why it worked:** the importer verifies cutoff, model, policy, and source identity before one atomic evidence write.
 - **Reuse:** every policy whose decision changes later market opportunities.
+
+### 2026-08-30 — Separate deployment health from trading evidence
+
+- **Context:** a monitoring audit can be blocked while a signed runtime remains technically valid.
+- **Decision:** require its timer, but keep an immediate audit failure outside deployment rollback.
+- **Why it worked:** installation remains atomic while trading approval stays fail-closed and visible.
+- **Reuse:** monitoring evidence that is not required to execute the installed runtime safely.

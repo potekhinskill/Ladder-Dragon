@@ -2258,3 +2258,10 @@ private infrastructure details.
 - **Root cause:** one cache identity served two evidence kinds with different meanings.
 - **Correction:** calculate STRATEGY and REANCHOR gates independently and label each gate kind.
 - **Prevention:** every dashboard gate must state and test its exact evidence cohort.
+
+### 2026-08-30 — Made a monitoring audit a deployment transaction gate
+
+- **Impact:** Pi rolled back a verified release and left the trading service stopped.
+- **Root cause:** the updater treated one signed soak report run as required runtime installation work.
+- **Correction:** require the timer and preserve audit failure as a trading blocker without rollback.
+- **Prevention:** classify each post-install check as runtime-critical or evidence-only before enforcing rollback.

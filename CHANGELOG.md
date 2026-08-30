@@ -3,6 +3,21 @@
 All notable changes are documented here. Releases use Semantic Versioning; every
 section is dated and there is intentionally no `Unreleased` section.
 
+## [2.20.268] — 2026-08-30
+
+### Fixed
+- A failed monitoring soak run no longer rolls back an otherwise verified Pi deployment.
+- Fresh installs and updates start the periodic soak timer before the immediate audit.
+
+### Security
+- A failed immediate soak audit still leaves trading approval blocked and emits a visible warning.
+- The periodic signed audit, HALT, BTC, ETH, and order authority remain unchanged.
+
+### Verified
+- The focused deployment suite passes: 85 tests.
+- The full project suite passes: 1,521 tests.
+- Python compilation, shell syntax, Technical English, and whitespace checks pass.
+
 ## [2.20.267] — 2026-08-30
 
 ### Added

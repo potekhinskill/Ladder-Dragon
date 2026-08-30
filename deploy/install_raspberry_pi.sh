@@ -756,7 +756,10 @@ systemctl start ladder-dragon-user-stream-shadow.service
 systemctl start ladder-dragon-log-export.service ladder-dragon-log-export.timer
 systemctl disable --now ladder-dragon-depth-archive.timer 2>/dev/null || true
 systemctl start ladder-dragon-depth-archive.service
-systemctl start ladder-dragon-soak-audit.service ladder-dragon-soak-audit.timer
+systemctl start ladder-dragon-soak-audit.timer
+if ! systemctl start ladder-dragon-soak-audit.service; then
+  echo "[WARN] production soak audit is unavailable; trading approval remains blocked" >&2
+fi
 systemctl start ladder-dragon-daily-digest.timer
 systemctl start ladder-dragon-monthly-prediction.timer
 systemctl start ladder-dragon-market-scenario.timer
