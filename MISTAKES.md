@@ -2265,3 +2265,10 @@ private infrastructure details.
 - **Root cause:** the updater treated one signed soak report run as required runtime installation work.
 - **Correction:** require the timer and preserve audit failure as a trading blocker without rollback.
 - **Prevention:** classify each post-install check as runtime-critical or evidence-only before enforcing rollback.
+
+### 2026-08-30 — Tested an importer with windows the planner could not emit
+
+- **Impact:** normal v23 planning could supply at most nine independent paths while selection required twelve.
+- **Root cause:** the importer fixture used 22-hour windows and bypassed the production 18-hour planner.
+- **Correction:** use four production-sized blocks, add reachability preflight, and test planner output through selection.
+- **Prevention:** producer-consumer evidence tests must use the producer's real timing and capacity constants.

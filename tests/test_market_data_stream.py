@@ -309,12 +309,12 @@ def test_entry_veto_cancels_adverse_or_unavailable_evidence():
     unavailable = evaluate_entry_veto(
         store.snapshot(),
         {
-            "contract_version": "l2_adverse_selection_cancel_v2",
+            "contract_version": "l2_adverse_selection_cancel_v3",
             "prefill_price_change_max_bps": "-10",
             "prefill_signed_trade_flow_max": "-0.2",
             "prefill_order_flow_imbalance_max": "-0.1",
             "cancel_latency_ms": 1000,
-            "minimum_signal_lead_ms": 61000,
+            "signal_window_ms": 300000,
             "selection_artifact_sha256": "a" * 64,
         },
         now_monotonic_ns=1,
@@ -334,15 +334,42 @@ def test_entry_veto_cancels_adverse_or_unavailable_evidence():
     decision = evaluate_entry_veto(
         adverse,
         {
-            "contract_version": "l2_adverse_selection_cancel_v2",
+            "contract_version": "l2_adverse_selection_cancel_v3",
             "prefill_price_change_max_bps": "-10",
             "prefill_signed_trade_flow_max": "-0.2",
             "prefill_order_flow_imbalance_max": "-0.1",
             "cancel_latency_ms": 1000,
-            "minimum_signal_lead_ms": 61000,
+            "signal_window_ms": 300000,
             "selection_artifact_sha256": "a" * 64,
         },
         now_monotonic_ns=1,
     )
     assert decision.cancel is True
     assert decision.signal_observed is True
+
+
+def test_entry_veto_blocks_a_runtime_signal_window_mismatch():
+    store = MarketSnapshotStore("SOLUSDT", monotonic_ns=lambda: 1)
+    snapshot = replace(
+        store.snapshot(),
+        ready=True,
+        veto_ready=True,
+        sequence_ok=True,
+        received_monotonic_ns=1,
+        signal_window_ms=60_000,
+    )
+    decision = evaluate_entry_veto(
+        snapshot,
+        {
+            "contract_version": "l2_adverse_selection_cancel_v3",
+            "prefill_price_change_max_bps": "-10",
+            "prefill_signed_trade_flow_max": "-0.2",
+            "prefill_order_flow_imbalance_max": "-0.1",
+            "cancel_latency_ms": 1000,
+            "signal_window_ms": 300000,
+            "selection_artifact_sha256": "a" * 64,
+        },
+        now_monotonic_ns=1,
+    )
+    assert decision.cancel is True
+    assert decision.reason == "entry-veto-evidence-unavailable"

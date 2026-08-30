@@ -35,7 +35,7 @@ MAXIMUM_SELECTION_ARTIFACTS = 1_024
 MINIMUM_SELECTION_ROWS = 30
 MINIMUM_INDEPENDENT_SELECTION_ROWS = 12
 ENTRY_VETO_CONTRACT_VERSION = "prefill_momentum_flow_v1"
-L2_ENTRY_VETO_CONTRACT_VERSION = "l2_adverse_selection_cancel_v2"
+L2_ENTRY_VETO_CONTRACT_VERSION = "l2_adverse_selection_cancel_v3"
 PREFILL_OBSERVATION_WINDOW_MS = 300_000
 
 
@@ -113,7 +113,7 @@ def normalize_entry_veto_rule(rule: Mapping[str, object]) -> dict[str, object]:
         expected |= {
             "prefill_order_flow_imbalance_max",
             "cancel_latency_ms",
-            "minimum_signal_lead_ms",
+            "signal_window_ms",
             "selection_artifact_sha256",
         }
     if set(rule) != expected:
@@ -143,7 +143,7 @@ def normalize_entry_veto_rule(rule: Mapping[str, object]) -> dict[str, object]:
             field="entry-veto order-flow imbalance",
         )
         latency = rule.get("cancel_latency_ms")
-        lead = rule.get("minimum_signal_lead_ms")
+        signal_window = rule.get("signal_window_ms")
         artifact = str(rule.get("selection_artifact_sha256") or "")
         if not D("-1") <= ofi < ZERO:
             raise ValueError("entry-veto imbalance is outside its safe range")
@@ -153,16 +153,17 @@ def normalize_entry_veto_rule(rule: Mapping[str, object]) -> dict[str, object]:
         ):
             raise ValueError("entry-veto cancel latency is invalid")
         if (
-            isinstance(lead, bool) or not isinstance(lead, int)
-            or lead < latency + 60_000
+            isinstance(signal_window, bool)
+            or not isinstance(signal_window, int)
+            or signal_window != PREFILL_OBSERVATION_WINDOW_MS
         ):
-            raise ValueError("entry-veto signal lead is not conservative")
+            raise ValueError("entry-veto signal window differs from runtime")
         if len(artifact) != 64 or any(char not in "0123456789abcdef" for char in artifact):
             raise ValueError("entry-veto selection artifact is invalid")
         output.update({
             "prefill_order_flow_imbalance_max": format(ofi, "f"),
             "cancel_latency_ms": latency,
-            "minimum_signal_lead_ms": lead,
+            "signal_window_ms": signal_window,
             "selection_artifact_sha256": artifact,
         })
     return output
@@ -1109,7 +1110,7 @@ def latest_entry_veto_selection(
             "prefill_order_flow_imbalance_max"
         ),
         "cancel_latency_ms": selected.get("cancel_latency_ms"),
-        "minimum_signal_lead_ms": selected.get("minimum_signal_lead_ms"),
+        "signal_window_ms": selected.get("signal_window_ms"),
         "selection_artifact_sha256": str(row[0]),
     }
     normalized = normalize_entry_veto_rule(rule)

@@ -27,7 +27,7 @@ def parameters():
             "prefill_signed_trade_flow_max": "-0.2",
             "prefill_order_flow_imbalance_max": "-0.3",
             "cancel_latency_ms": 1000,
-            "minimum_signal_lead_ms": 300000,
+            "signal_window_ms": 300000,
             "selection_artifact_sha256": "a" * 64,
         },
     }

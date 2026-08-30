@@ -9,7 +9,10 @@ from pathlib import Path
 import sqlite3
 
 from ladder_dragon.strategy.depth_segments import atomic_json, bounded_json, iter_segment_events, verified_segments
-from ladder_dragon.strategy.prediction.historical_entry_replay import historical_entry_replay
+from ladder_dragon.strategy.prediction.historical_entry_replay import (
+    historical_entry_replay,
+    historical_entry_replays,
+)
 from ladder_dragon.strategy.prediction.historical_policy import fingerprint
 from ladder_dragon.strategy.prediction.context_journal import export_context
 
@@ -57,6 +60,72 @@ def run_replay_request(
     report["report_sha256"] = fingerprint(report)
     atomic_json(output_path, report)
     return report
+
+
+def run_replay_request_batch(
+    requests: list[tuple[Path, Path]],
+    *,
+    context_db: Path,
+) -> list[dict]:
+    """Replay one source block for many policies without reparsing its L2 stream."""
+    if not 1 <= len(requests) <= 64:
+        raise ValueError("historical replay request batch is invalid")
+    loaded = [bounded_json(request_path) for request_path, _ in requests]
+    fields = {"policy", "archives", "start_ms", "entry_end_ms", "end_ms", "cutoff_ms"}
+    if any(set(request) != fields for request in loaded):
+        raise ValueError("historical replay request schema mismatch")
+    common = {
+        key: loaded[0][key]
+        for key in ("archives", "start_ms", "entry_end_ms", "end_ms", "cutoff_ms")
+    }
+    if any(
+        any(request[key] != value for key, value in common.items())
+        for request in loaded[1:]
+    ):
+        raise ValueError("historical replay batch source windows differ")
+    sources = common["archives"]
+    if not isinstance(sources, list) or not 1 <= len(sources) <= 10_000:
+        raise ValueError("historical replay sources missing or oversized")
+    for source in sources:
+        if not isinstance(source, dict) or set(source) != {"path", "sha256"}:
+            raise ValueError("historical source schema mismatch")
+    segments = verified_segments(Path(source["path"]) for source in sources)
+    if any(
+        source["sha256"] != segment[1]["archive_sha256"]
+        for source, segment in zip(sources, segments)
+    ):
+        raise ValueError("historical source differs from pinned request")
+    jobs = []
+    contexts = []
+    for request in loaded:
+        policy = request["policy"]
+        if any(meta["symbol"] != policy["symbol"] for _, meta in segments):
+            raise ValueError("historical source symbol differs from policy")
+        evidence = export_context(
+            context_db,
+            symbol=policy["symbol"],
+            classifier_fingerprint=policy["classifier_fingerprint"],
+            start_ms=common["start_ms"],
+            end_ms=common["end_ms"],
+            cutoff_ms=common["cutoff_ms"],
+        )
+        contexts.append(evidence)
+        jobs.append((policy, evidence["context"]))
+    reports = historical_entry_replays(
+        iter_segment_events(segments, level_limit=1000),
+        jobs=jobs,
+        start_ms=common["start_ms"],
+        entry_end_ms=common["entry_end_ms"],
+        end_ms=common["end_ms"],
+        cutoff_ms=common["cutoff_ms"],
+    )
+    source_hashes = [meta["archive_sha256"] for _, meta in segments]
+    for report, evidence, (_, output_path) in zip(reports, contexts, requests):
+        report["source_sha256s"] = source_hashes
+        report["context_evidence"] = evidence
+        report["report_sha256"] = fingerprint(report)
+        atomic_json(output_path, report)
+    return reports
 
 
 def main() -> int:

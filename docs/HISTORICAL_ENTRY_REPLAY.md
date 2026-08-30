@@ -29,8 +29,9 @@ The capture list never expands execution scope.
 The worker scans completed sidecars, including archives that lack older calibration reports.
 It creates one immutable calibration report per source archive.
 It never overwrites an existing report.
-The worker keeps only one calibration or diagnostic-import child active.
-Each child has a five-minute time limit.
+The worker keeps only one offline child active.
+Calibration and diagnostic imports have a five-minute time limit.
+One batched historical block has a 30-minute time limit.
 
 `calibration_inventory.json` distinguishes unprocessed archives from absent volatility regimes.
 `BACKLOG_NOT_CALIBRATED` means that unprocessed sources can still contain the missing regime.
@@ -134,6 +135,8 @@ The output includes model source hashes and the policy fingerprint.
 The signal uses only the preceding observation window.
 It combines price movement, signed trade quantity, and book order-flow imbalance.
 The signal does not use a future fill timestamp.
+The frozen rule records the exact five-minute signal window.
+Runtime rejects a snapshot from a different window.
 
 Baseline and veto policies each own one independent position slot.
 An accepted cancel remains exposed until its fixed arrival time.
@@ -178,11 +181,16 @@ An existing output file blocks publication rather than being replaced.
 
 The depth processor also runs a bounded SHADOW request queue every 15 minutes.
 It first creates review-only drafts under `.historical-replay/drafts`.
-The planner requires three non-overlapping blocks and complete historical context.
+The planner requires four non-overlapping blocks and complete historical context.
+Each block has an 18-hour entry window and a complete six-hour terminal tail.
+The planner can use blocks from separate continuous sessions.
+It never joins events across a reconnect or reuses a source segment.
+Preflight proves that the four blocks can contain 12 independent paths.
 It never copies drafts into the accepted request queue.
 Place reviewed immutable requests under `.historical-replay/requests` in the depth directory.
 The runner writes immutable reports under `.historical-replay/reports`.
-It processes one new report per cycle and accepts at most 128 queued requests.
+It replays up to 36 same-block policies through one verified event pass.
+It accepts at most 256 queued requests.
 The replaceable `status.json` reports queue progress without source paths or exception text.
 The runner never imports selection, freezes a candidate, changes HALT, or creates orders.
 
@@ -195,6 +203,7 @@ Import reviewed, non-overlapping historical replay blocks:
   --report BLOCK_ONE.json --report-sha256 BLOCK_ONE_SHA256 \
   --report BLOCK_TWO.json --report-sha256 BLOCK_TWO_SHA256 \
   --report BLOCK_THREE.json --report-sha256 BLOCK_THREE_SHA256 \
+  --report BLOCK_FOUR.json --report-sha256 BLOCK_FOUR_SHA256 \
   --confirm IMPORT-HISTORICAL-VETO
 ```
 
@@ -237,8 +246,8 @@ The confirmation cohort must cover two days and all three frozen buckets.
 | Calibration reports | Derived evidence | One report per source segment | Same retention as the retained source |
 | Calibration inventory | Disposable status | One bounded replacement file | Rebuilt by the worker; no archive dependency |
 | Historical replay reports | Derived selection evidence | 10,000 attempts per policy and immutable output | Retain with policy, context, and source archives |
-| Historical replay drafts | Derived review input | 128 immutable drafts | Retain sources through operator review |
-| Historical replay requests | Authoritative operator input | 128 queued immutable requests | Retain through operator review and selection import |
+| Historical replay drafts | Derived review input | 256 immutable drafts | Retain sources through operator review |
+| Historical replay requests | Authoritative operator input | 256 queued immutable requests | Retain through operator review and selection import |
 | Historical replay runner status | Disposable status | One bounded replacement file | Rebuilt every runner cycle |
 | Historical context journal | Authoritative context evidence | 131,072 records and 256 MiB database limit | Indefinite; archive only after verified encrypted backup and reference review |
 | Context export | Derived selection evidence | 4,096 records and 16 MiB compact JSON limit | Retain with the immutable replay report and journal |

@@ -12,11 +12,11 @@ import json
 from pathlib import Path
 import sqlite3
 
-from bin.replay_historical_entries import run_replay_request
-from ladder_dragon.strategy.depth_segments import atomic_json
+from bin.replay_historical_entries import run_replay_request_batch
+from ladder_dragon.strategy.depth_segments import atomic_json, bounded_json
 from ladder_dragon.strategy.prediction.historical_policy import fingerprint
 
-MAXIMUM_REQUESTS = 128
+MAXIMUM_REQUESTS = 256
 
 
 def _identity(path: Path) -> str:
@@ -31,10 +31,10 @@ def process_requests(
     output_directory: Path,
     context_db: Path,
     *,
-    maximum_new_reports: int = 1,
+    maximum_new_reports: int = 36,
 ) -> dict[str, object]:
-    """Process a bounded queue and leave selection import to the operator."""
-    if not 1 <= maximum_new_reports <= 8:
+    """Process one same-block policy batch and leave import to the operator."""
+    if not 1 <= maximum_new_reports <= 64:
         raise ValueError("historical replay work limit is invalid")
     request_directory.mkdir(parents=True, exist_ok=True, mode=0o700)
     output_directory.mkdir(parents=True, exist_ok=True, mode=0o700)
@@ -42,6 +42,7 @@ def process_requests(
     if len(requests) > MAXIMUM_REQUESTS:
         raise ValueError("historical replay request capacity reached")
     completed = failed = created = 0
+    pending: dict[str, list[tuple[Path, Path]]] = {}
     for request in requests:
         try:
             identity = _identity(request)
@@ -65,15 +66,34 @@ def process_requests(
                     raise ValueError("historical replay report is incomplete")
                 completed += 1
                 continue
-            if created >= maximum_new_reports:
-                continue
-            report = run_replay_request(request, output, context_db=context_db)
-            created += 1
-            if report.get("status") != "COMPLETE_SELECTION_REPLAY":
-                raise ValueError("historical replay report is incomplete")
-            completed += 1
+            payload = bounded_json(request)
+            group = fingerprint({
+                key: payload.get(key)
+                for key in (
+                    "archives", "start_ms", "entry_end_ms", "end_ms", "cutoff_ms"
+                )
+            })
+            pending.setdefault(group, []).append((request, output))
         except (OSError, RuntimeError, ValueError, KeyError, TypeError, ArithmeticError, sqlite3.Error):
             failed += 1
+    for group in pending.values():
+        if created >= maximum_new_reports:
+            break
+        work = group[: maximum_new_reports - created]
+        try:
+            reports = run_replay_request_batch(work, context_db=context_db)
+            if any(
+                report.get("status") != "COMPLETE_SELECTION_REPLAY"
+                for report in reports
+            ):
+                raise ValueError("historical replay report is incomplete")
+            created += len(reports)
+            completed += len(reports)
+        except (
+            OSError, RuntimeError, ValueError, KeyError, TypeError,
+            ArithmeticError, sqlite3.Error,
+        ):
+            failed += len(work)
     status = {
         "schema_version": 1,
         "mode": "SHADOW",
@@ -100,7 +120,7 @@ def main() -> int:
     parser.add_argument("--request-directory", required=True, type=Path)
     parser.add_argument("--output-directory", required=True, type=Path)
     parser.add_argument("--context-db", required=True, type=Path)
-    parser.add_argument("--maximum-new-reports", type=int, default=1)
+    parser.add_argument("--maximum-new-reports", type=int, default=36)
     args = parser.parse_args()
     try:
         report = process_requests(

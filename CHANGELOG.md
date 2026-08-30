@@ -3,6 +3,30 @@
 All notable changes are documented here. Releases use Semantic Versioning; every
 section is dated and there is intentionally no `Unreleased` section.
 
+## [2.20.269] — 2026-08-30
+
+### Added
+- Historical replay planning proves that its four entry windows can supply 12 independent selection paths.
+- The planner selects disjoint complete blocks from separate verified sessions without joining reconnect gaps.
+- The live entry-veto gate verifies the frozen five-minute signal window before any BUY can proceed.
+
+### Changed
+- One historical runner cycle evaluates 36 same-block policies through one verified L2 event pass.
+- Historical replay draft and request capacity is 256 immutable files.
+
+### Fixed
+- Production v23 selection can now reach its importer requirement of 12 independent paths.
+- The frozen veto rule records the executable signal window instead of mislabeling that window as fill lead time.
+
+### Security
+- Missing blocks, mathematical unreachability, source reuse, reconnect gaps, and signal-window differences fail closed.
+- Historical selection remains SHADOW-only and cannot change HALT, BTC, ETH, or order authority.
+
+### Verified
+- The focused planner, replay, selection, v23, diagnostic, and market-stream suite passes: 48 tests.
+- The full project suite passes: 1,524 tests.
+- Python compilation, Technical English, and whitespace checks pass.
+
 ## [2.20.268] — 2026-08-30
 
 ### Fixed

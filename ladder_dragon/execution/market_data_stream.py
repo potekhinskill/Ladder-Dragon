@@ -70,6 +70,7 @@ class MarketSnapshot:
     sequence_ok: bool
     ready: bool
     veto_ready: bool
+    signal_window_ms: int
     prefill_price_change_bps: Decimal
     prefill_signed_trade_flow: Decimal
     prefill_order_flow_imbalance: Decimal
@@ -121,6 +122,7 @@ def evaluate_entry_veto(
         not snapshot.ready
         or not snapshot.veto_ready
         or not snapshot.sequence_ok
+        or snapshot.signal_window_ms != normalized["signal_window_ms"]
         or age_ms > max(0, int(maximum_age_ms))
     ):
         return EntryVetoDecision(True, "entry-veto-evidence-unavailable", False)
@@ -511,6 +513,7 @@ class MarketSnapshotStore:
                 sequence_ok=self._sequence_ok,
                 ready=ready,
                 veto_ready=veto_ready,
+                signal_window_ms=self._flow_window_ms,
                 prefill_price_change_bps=price_change,
                 prefill_signed_trade_flow=signed_flow,
                 prefill_order_flow_imbalance=normalized_ofi,

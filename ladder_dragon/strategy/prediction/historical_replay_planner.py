@@ -19,18 +19,23 @@ from ladder_dragon.strategy.prediction.episode_semantics import (
 from ladder_dragon.strategy.prediction.historical_policy import fingerprint
 
 
-BLOCK_COUNT = 3
+BLOCK_COUNT = 4
 SIGNAL_WARMUP_MS = 300_000
 ENTRY_WINDOW_MS = 18 * 60 * 60_000
 TERMINAL_TAIL_MS = 6 * 60 * 60_000 + 1_000
-MAXIMUM_DRAFTS = 128
+INDEPENDENCE_SPACING_MS = 6 * 60 * 60_000
+MINIMUM_INDEPENDENT_PATHS = 12
+MAXIMUM_DRAFTS = 256
 
 
 def _continuous(rows: list[tuple[Path, dict]]) -> bool:
     """Check metadata boundaries; the runner later verifies every source byte."""
     for (_, previous), (_, current) in zip(rows, rows[1:]):
         if not (
-            current.get("segment_index") == previous.get("segment_index") + 1
+            current.get("schema_version") == previous.get("schema_version") == 2
+            and current.get("session_id") == previous.get("session_id")
+            and current.get("symbol") == previous.get("symbol")
+            and current.get("segment_index") == previous.get("segment_index") + 1
             and current.get("previous_archive_sha256") == previous.get("archive_sha256")
             and current.get("first_snapshot_update_id") == previous.get("last_update_id")
             and current.get("first_trade_id") == previous.get("last_trade_id")
@@ -40,7 +45,8 @@ def _continuous(rows: list[tuple[Path, dict]]) -> bool:
     return True
 
 
-def _latest_chain(directory: Path, symbol: str) -> list[tuple[Path, dict]]:
+def _chains(directory: Path, symbol: str) -> list[list[tuple[Path, dict]]]:
+    """Return every complete session without joining history across a gap."""
     groups: dict[str, list[tuple[Path, dict]]] = defaultdict(list)
     sidecars = sorted(directory.glob("*.jsonl.metadata.json"))
     if len(sidecars) > 10_000:
@@ -57,16 +63,61 @@ def _latest_chain(directory: Path, symbol: str) -> list[tuple[Path, dict]]:
         if not archive.is_file():
             continue
         groups[str(metadata.get("session_id") or "")].append((archive, metadata))
-    candidates = []
+    candidates: list[list[tuple[Path, dict]]] = []
     for rows in groups.values():
         rows.sort(key=lambda item: int(item[1]["segment_index"]))
         if rows and _continuous(rows):
             candidates.append(rows)
-    return max(
+    return sorted(
         candidates,
         key=lambda rows: int(rows[-1][1]["finished_at_ms"]),
-        default=[],
     )
+
+
+def _reachable_independent_paths() -> int:
+    """Prove the planner can satisfy the importer before publishing work."""
+    per_block = (ENTRY_WINDOW_MS - 1) // INDEPENDENCE_SPACING_MS + 1
+    return BLOCK_COUNT * per_block
+
+
+def _complete_blocks(
+    chains: Iterable[list[tuple[Path, dict]]],
+) -> list[tuple[int, int, int, list[tuple[Path, dict]]]]:
+    """Select disjoint complete windows from any individually continuous session."""
+    candidates: list[tuple[int, int, int, list[tuple[Path, dict]]]] = []
+    for chain in chains:
+        cursor = 0
+        while cursor < len(chain):
+            start = int(chain[cursor][1]["started_at_ms"]) + SIGNAL_WARMUP_MS
+            entry_end = start + ENTRY_WINDOW_MS
+            end = entry_end + TERMINAL_TAIL_MS
+            terminal_index = next(
+                (
+                    index
+                    for index in range(cursor, len(chain))
+                    if int(chain[index][1]["finished_at_ms"]) >= end
+                ),
+                None,
+            )
+            if terminal_index is None:
+                break
+            selected = chain[cursor : terminal_index + 1]
+            candidates.append((start, entry_end, end, selected))
+            # A source segment belongs to one evidence block only.
+            cursor = terminal_index + 1
+
+    # Work backwards to retain the newest maximum-size non-overlapping cohort.
+    selected_blocks: list[
+        tuple[int, int, int, list[tuple[Path, dict]]]
+    ] = []
+    next_start: int | None = None
+    for block in sorted(candidates, key=lambda row: row[0], reverse=True):
+        if next_start is None or block[2] < next_start:
+            selected_blocks.append(block)
+            next_start = block[0]
+            if len(selected_blocks) == BLOCK_COUNT:
+                break
+    return list(reversed(selected_blocks))
 
 
 def _policy(candidate: Mapping[str, object], context: Mapping[str, object]) -> dict:
@@ -94,7 +145,7 @@ def _policy(candidate: Mapping[str, object], context: Mapping[str, object]) -> d
         "veto_price_bps": str(candidate["prefill_price_change_max_bps"]),
         "veto_signed_flow": str(candidate["prefill_signed_trade_flow_max"]),
         "veto_ofi": str(candidate["prefill_order_flow_imbalance_max"]),
-        "signal_window_ms": 300_000,
+        "signal_window_ms": int(candidate["signal_window_ms"]),
         "maximum_attempts": 10_000,
     }
 
@@ -104,39 +155,28 @@ def plan_replay_drafts(
     draft_directory: Path,
     context_db: Path,
 ) -> dict[str, object]:
-    """Publish immutable drafts only after three complete one-day blocks exist."""
+    """Publish drafts only after a reachable, disjoint block cohort exists."""
     draft_directory.mkdir(parents=True, exist_ok=True, mode=0o700)
-    chain = _latest_chain(archive_directory, "SOLUSDT")
-    required_span = SIGNAL_WARMUP_MS + BLOCK_COUNT * (
-        ENTRY_WINDOW_MS + TERMINAL_TAIL_MS
-    )
-    if not chain or (
-        int(chain[-1][1]["finished_at_ms"])
-        - int(chain[0][1]["started_at_ms"])
-        < required_span
-    ):
+    reachable_paths = _reachable_independent_paths()
+    if reachable_paths < MINIMUM_INDEPENDENT_PATHS:
+        raise ValueError("historical selection design is mathematically unreachable")
+    chains = _chains(archive_directory, "SOLUSDT")
+    blocks = _complete_blocks(chains)
+    if len(blocks) < BLOCK_COUNT:
         return {
-            "schema_version": 1,
+            "schema_version": 2,
             "mode": "SHADOW",
             "apply_allowed": False,
-            "status": "COLLECTING_CONTINUOUS_HISTORY",
+            "status": "COLLECTING_DISJOINT_CONTINUOUS_BLOCKS",
             "draft_count": 0,
             "required_blocks": BLOCK_COUNT,
+            "complete_blocks": len(blocks),
+            "continuous_sessions": len(chains),
+            "maximum_reachable_independent_paths": reachable_paths,
+            "required_independent_paths": MINIMUM_INDEPENDENT_PATHS,
         }
-    first = int(chain[0][1]["started_at_ms"]) + SIGNAL_WARMUP_MS
     windows = []
-    for index in range(BLOCK_COUNT):
-        start = first + index * (ENTRY_WINDOW_MS + TERMINAL_TAIL_MS)
-        entry_end = start + ENTRY_WINDOW_MS
-        end = entry_end + TERMINAL_TAIL_MS
-        selected = [
-            (path, metadata)
-            for path, metadata in chain
-            if int(metadata["finished_at_ms"]) >= start - SIGNAL_WARMUP_MS
-            and int(metadata["started_at_ms"]) <= end
-        ]
-        if not selected:
-            raise ValueError("historical planner source interval is empty")
+    for start, entry_end, end, selected in blocks:
         classifier = fingerprint(
             v23_evidence_semantics_contract()["regime_classifier"]
         )
@@ -176,13 +216,16 @@ def plan_replay_drafts(
     if total > MAXIMUM_DRAFTS:
         raise ValueError("historical replay draft capacity reached")
     return {
-        "schema_version": 1,
+        "schema_version": 2,
         "mode": "SHADOW",
         "apply_allowed": False,
         "status": "DRAFTS_READY_FOR_OPERATOR_REVIEW",
         "draft_count": total,
         "created_drafts": created,
         "required_blocks": BLOCK_COUNT,
+        "continuous_sessions": len(chains),
+        "maximum_reachable_independent_paths": reachable_paths,
+        "required_independent_paths": MINIMUM_INDEPENDENT_PATHS,
         "automatic_queueing": False,
         "automatic_selection_import": False,
     }

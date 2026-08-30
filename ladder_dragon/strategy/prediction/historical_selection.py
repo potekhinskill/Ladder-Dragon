@@ -224,12 +224,12 @@ def historical_selection_artifact(
     if not ready:
         raise ValueError("historical replay selection criteria are incomplete")
     selected_rule = {
-        "contract_version": "l2_adverse_selection_cancel_v2",
+        "contract_version": "l2_adverse_selection_cancel_v3",
         "prefill_price_change_max_bps": str(policy["veto_price_bps"]),
         "prefill_signed_trade_flow_max": str(policy["veto_signed_flow"]),
         "prefill_order_flow_imbalance_max": str(policy["veto_ofi"]),
         "cancel_latency_ms": int(policy["cancel_latency_ms"]),
-        "minimum_signal_lead_ms": int(policy["signal_window_ms"]),
+        "signal_window_ms": int(policy["signal_window_ms"]),
     }
     report_identities = [str(report["report_sha256"]) for report in reports]
     artifact = {

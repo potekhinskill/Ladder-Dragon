@@ -1,6 +1,6 @@
 # Implementation status
 
-This document describes the code in version **2.20.268**.
+This document describes the code in version **2.20.269**.
 It does not describe future plans as completed work.
 
 An implemented function is not automatically approved for LIVE use.
@@ -115,7 +115,7 @@ The public depth recorder rechecks retained metadata after each completed archiv
 It imports sequence-validated features after an eligible filled episode becomes terminal.
 Later diagnostic gaps remain visible but do not erase causal pre-fill L2 evidence.
 Promotion-symbol evidence runs before one rotating observation-only symbol during persistent HALT.
-Selection uses independent paths and three chronological stability blocks.
+Selection uses independent paths and four chronological stability blocks.
 The counterfactual replay keeps late fills and their PnL.
 A successful cancel releases the single entry slot at its modeled exchange arrival time.
 The selected artifact records its cutoff, evidence identifiers, archive hashes, and exact rule.
@@ -194,7 +194,10 @@ It requires calibration, no database reference, and a recent verified encrypted 
 It verifies external encrypted publication before local removal.
 It preserves sources pinned by replay drafts and accepted requests.
 
-The replay planner creates deterministic review-only drafts after three complete blocks.
+The replay planner creates deterministic review-only drafts after four complete blocks.
+It can select blocks from separate verified sessions without joining reconnect gaps.
+It proves that the planned entry windows can contain 12 independent paths.
+The runner evaluates 36 same-block policies through one verified L2 pass.
 It never queues a request or imports selection evidence.
 The v23 confirmation importer appends an episode start and result atomically.
 It verifies the selection cutoff, source identities, model hashes, policy, and fees.

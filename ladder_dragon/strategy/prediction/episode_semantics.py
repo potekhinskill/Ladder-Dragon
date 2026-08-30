@@ -123,7 +123,7 @@ def v23_evidence_semantics_contract() -> dict[str, object]:
         include_excursions=True,
     )
     contract["entry_veto_policy"] = {
-        "contract_version": "l2_adverse_selection_cancel_v2",
+        "contract_version": "l2_adverse_selection_cancel_v3",
         "market_source": "BINANCE_DIFF_DEPTH_100MS_SEQUENCE_VALIDATED",
         "trade_source": "BINANCE_AGGTRADE",
         "order_flow_imbalance": "CONT_BEST_LEVEL_NORMALIZED_V1",

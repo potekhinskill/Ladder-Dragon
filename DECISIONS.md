@@ -1899,3 +1899,17 @@ entries concise; this is not a changelog or an activity log.
 - **Decision:** require its timer, but keep an immediate audit failure outside deployment rollback.
 - **Why it worked:** installation remains atomic while trading approval stays fail-closed and visible.
 - **Reuse:** monitoring evidence that is not required to execute the installed runtime safely.
+
+### 2026-08-30 — Prove selection reachability at the producer boundary
+
+- **Context:** the historical planner emitted too few independent time slots for its downstream importer.
+- **Decision:** calculate maximum independent paths before publishing drafts and test the planner-to-importer contract.
+- **Why it worked:** impossible evidence designs now stop before storage, operator review, or prolonged collection.
+- **Reuse:** every preregistered evidence producer with a downstream count or spacing requirement.
+
+### 2026-08-30 — Share immutable market parsing across policy candidates
+
+- **Context:** 36 policies repeatedly verified and reconstructed the same L2 block.
+- **Decision:** stream one verified block through a bounded batch of independent policy states.
+- **Why it worked:** policy state remains separate while source verification and book reconstruction occur once.
+- **Reuse:** deterministic parameter grids that consume the same immutable event sequence.

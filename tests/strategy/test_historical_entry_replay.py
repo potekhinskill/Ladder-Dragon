@@ -4,7 +4,10 @@ from decimal import Decimal as D
 import pytest
 
 from ladder_dragon.strategy.market_replay import BookLevel, MarketEvent
-from ladder_dragon.strategy.prediction.historical_entry_replay import historical_entry_replay
+from ladder_dragon.strategy.prediction.historical_entry_replay import (
+    historical_entry_replay,
+    historical_entry_replays,
+)
 from ladder_dragon.strategy.prediction.historical_execution import HistoricalExecution
 from ladder_dragon.strategy.prediction.historical_policy import HistoricalPolicy, RollingVeto
 
@@ -64,6 +67,33 @@ def test_successful_cancel_creates_previously_unknown_opportunities():
     assert veto[1]["started_at_ms"] > veto[0]["cancel_effective_ts_ms"]
     assert report["promotion_eligible"] is False
     assert report["selection_artifact_ready"] is False
+
+
+def test_policy_batch_matches_independent_replays_in_one_event_pass():
+    history = declining_history()
+    first = policy(veto_price_bps="-5")
+    second = policy(veto_price_bps="-10")
+    batched = historical_entry_replays(
+        iter(history),
+        jobs=[(first, [context()]), (second, [context()])],
+        start_ms=3000,
+        entry_end_ms=12000,
+        end_ms=28000,
+        cutoff_ms=28000,
+    )
+    independent = [
+        historical_entry_replay(
+            iter(history),
+            policy_payload=item,
+            context_rows=[context()],
+            start_ms=3000,
+            entry_end_ms=12000,
+            end_ms=28000,
+            cutoff_ms=28000,
+        )
+        for item in (first, second)
+    ]
+    assert batched == independent
 
 
 def test_cancel_cannot_erase_fill_before_arrival():

@@ -18,7 +18,7 @@ from ladder_dragon.strategy.market_replay import MarketEvent, load_jsonl_archive
 D = Decimal
 ZERO = D("0")
 ONE = D("1")
-L2_FEATURE_CONTRACT = "binance_diff_depth_entry_veto_v2"
+L2_FEATURE_CONTRACT = "binance_diff_depth_entry_veto_v3"
 FILL_TIMESTAMP_RESOLUTION_MS = 60_000
 FIXED_CANCEL_LATENCY_MS = 1_000
 PREFILL_WINDOW_MS = 300_000
@@ -79,9 +79,7 @@ def candidate_grid() -> tuple[dict[str, object], ...]:
                 -(D(ofi) / D("100")), ".2f"
             ),
             "cancel_latency_ms": FIXED_CANCEL_LATENCY_MS,
-            "minimum_signal_lead_ms": (
-                FIXED_CANCEL_LATENCY_MS + FILL_TIMESTAMP_RESOLUTION_MS
-            ),
+            "signal_window_ms": PREFILL_WINDOW_MS,
         }
         for price in (-5, -10, -15, -20)
         for flow in (10, 20, 30)

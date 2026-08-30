@@ -144,10 +144,10 @@ def calibrate_segment(archive: Path) -> None:
     atomic_json(archive.with_suffix(".calibration.json"), report.as_dict())
 
 
-def _run_offline(arguments: list[str], stop) -> int:
+def _run_offline(arguments: list[str], stop, *, timeout_seconds: int = 300) -> int:
     with subprocess.Popen([sys.executable, "-m", *arguments],
                           stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL) as child:
-        deadline = time.monotonic() + 300
+        deadline = time.monotonic() + timeout_seconds
         while child.poll() is None and not stop.wait(1):
             if time.monotonic() >= deadline:
                 child.kill()
@@ -200,7 +200,8 @@ def process_backlog(directory: Path, stop, prediction_db: Path | None = None) ->
                     "--request-directory", str(replay_root / "requests"),
                     "--output-directory", str(replay_root / "reports"),
                     "--context-db", str(prediction_db.with_name("historical_context.sqlite3")),
-                ], stop)
+                    "--maximum-new-reports", "36",
+                ], stop, timeout_seconds=1_800)
                 next_historical_replay = time.monotonic() + 900
                 if code:
                     print(f"[HISTORICAL-RUNNER] status=RETRY exit={code}", flush=True)

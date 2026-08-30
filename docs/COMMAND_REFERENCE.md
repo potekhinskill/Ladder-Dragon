@@ -70,7 +70,7 @@ See [Historical entry replay](HISTORICAL_ENTRY_REPLAY.md) for continuous source 
 | `depth_archive_service` | rotates one continuous public stream and processes calibration separately |
 | `depth_archive_retention` | encrypts eligible L2 segments externally before local removal |
 | `replay_historical_entries` | generates historical opportunities from immutable inputs; optional `--context-db` verifies source-owned context |
-| `historical_replay_planner` | creates review-only replay drafts from three disjoint historical blocks |
+| `historical_replay_planner` | creates review-only replay drafts from four disjoint historical blocks |
 | `historical_replay_runner` | processes a bounded SHADOW replay request queue without automatic import |
 | `volatility_policy` | freezes empirical volatility buckets from selection-only calibration reports |
 | `import_entry_veto_l2` | imports source-hashed public L2 entry features into SHADOW evidence |
@@ -210,7 +210,7 @@ Freeze the reviewed selection artifact only after the report becomes ready:
 The cutoff, evidence identifiers, hashes, latency, and selected rule become immutable.
 The artifact cannot authorize orders or change the source generation.
 
-Create deterministic replay drafts from one continuous production session:
+Create deterministic replay drafts from separate verified production sessions:
 
 ```bash
 .venv/bin/python -m bin.historical_replay_planner \
@@ -234,7 +234,7 @@ Import reviewed post-cutoff reports into frozen v23 confirmation:
 The importer rejects selection sources, overlapping reports, and model changes.
 It has no order interface.
 
-Import three reviewed historical selection blocks:
+Import four reviewed historical selection blocks:
 
 ```bash
 .venv/bin/python -m bin.prediction_experiment \
@@ -243,6 +243,7 @@ Import three reviewed historical selection blocks:
   --report BLOCK_ONE.json --report-sha256 BLOCK_ONE_SHA256 \
   --report BLOCK_TWO.json --report-sha256 BLOCK_TWO_SHA256 \
   --report BLOCK_THREE.json --report-sha256 BLOCK_THREE_SHA256 \
+  --report BLOCK_FOUR.json --report-sha256 BLOCK_FOUR_SHA256 \
   --confirm IMPORT-HISTORICAL-VETO
 ```
 

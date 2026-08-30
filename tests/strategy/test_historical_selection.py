@@ -29,8 +29,8 @@ def report(block: int):
     start = 1_000_000 + block * 100_000_000
     veto = []
     baseline = []
-    for index in range(4):
-        stamp = start + index * 22_000_000
+    for index in range(3):
+        stamp = start + index * 21_600_000
         veto.append({
             "started_at_ms": stamp,
             "net_pnl_quote": "1",
@@ -56,9 +56,9 @@ def report(block: int):
         "model_source_sha256s": {"model.py": "a" * 64},
         "source_sha256s": [format(block + 1, "064x")],
         "start_ts_ms": start,
-        "entry_end_ts_ms": start + 80_000_000,
-        "end_ts_ms": start + 90_000_000,
-        "cutoff_ts_ms": start + 90_000_000,
+        "entry_end_ts_ms": start + 64_800_000,
+        "end_ts_ms": start + 86_401_000,
+        "cutoff_ts_ms": start + 86_401_000,
         "summaries": {
             "baseline": {"opportunities": 10},
             "veto": {"opportunities": 10},
@@ -76,10 +76,10 @@ def rehash(payload):
 
 def test_non_overlapping_historical_blocks_create_selection_only_artifact():
     result = historical_selection_artifact(
-        [report(index) for index in range(3)],
+        [report(index) for index in range(4)],
         source_generation="v22",
         candidate_fingerprint="b" * 64,
-        cutoff_ts_ms=400_000_000,
+        cutoff_ts_ms=500_000_000,
     )
     assert result["evidence_role"] == "HISTORICAL_SELECTION_ONLY"
     assert result["historical_evidence_reused_for_confirmation"] is False
@@ -89,37 +89,37 @@ def test_non_overlapping_historical_blocks_create_selection_only_artifact():
 
 
 def test_overlap_reuse_and_weak_policy_fail_closed():
-    rows = [report(index) for index in range(3)]
+    rows = [report(index) for index in range(4)]
     rows[1]["start_ts_ms"] = rows[0]["end_ts_ms"]
     rehash(rows[1])
     with pytest.raises(ValueError, match="overlap"):
         historical_selection_artifact(
             rows, source_generation="v22", candidate_fingerprint="b" * 64,
-            cutoff_ts_ms=400_000_000,
+            cutoff_ts_ms=500_000_000,
         )
-    rows = [report(index) for index in range(3)]
+    rows = [report(index) for index in range(4)]
     rows[1]["source_sha256s"] = rows[0]["source_sha256s"]
     rehash(rows[1])
     with pytest.raises(ValueError, match="reused"):
         historical_selection_artifact(
             rows, source_generation="v22", candidate_fingerprint="b" * 64,
-            cutoff_ts_ms=400_000_000,
+            cutoff_ts_ms=500_000_000,
         )
-    rows = [report(index) for index in range(3)]
+    rows = [report(index) for index in range(4)]
     for row in rows[2]["episodes"]["veto"]:
         row["net_pnl_quote"] = "-100"
     rehash(rows[2])
     with pytest.raises(ValueError, match="incomplete"):
         historical_selection_artifact(
             rows, source_generation="v22", candidate_fingerprint="b" * 64,
-            cutoff_ts_ms=400_000_000,
+            cutoff_ts_ms=500_000_000,
         )
 
 
 def test_import_pins_file_hashes_and_keeps_artifact_immutable(tmp_path):
     store = PredictionShadowStore(tmp_path / "prediction.sqlite3")
     files = []
-    for index in range(3):
+    for index in range(4):
         path = tmp_path / f"report-{index}.json"
         raw = json.dumps(report(index), sort_keys=True, separators=(",", ":")).encode()
         path.write_bytes(raw)
@@ -129,7 +129,7 @@ def test_import_pins_file_hashes_and_keeps_artifact_immutable(tmp_path):
         report_files=files,
         source_generation="v22",
         candidate_fingerprint="b" * 64,
-        cutoff_ts_ms=400_000_000,
+        cutoff_ts_ms=500_000_000,
     )
     with store._connect() as connection:
         stored = connection.execute(
@@ -149,13 +149,13 @@ def test_import_pins_file_hashes_and_keeps_artifact_immutable(tmp_path):
 def test_report_file_paths_are_not_persisted(tmp_path):
     store = PredictionShadowStore(tmp_path / "prediction.sqlite3")
     files = []
-    for index in range(3):
+    for index in range(4):
         path = tmp_path / f"private-path-{index}.json"
         raw = json.dumps(report(index), sort_keys=True, separators=(",", ":")).encode()
         path.write_bytes(raw)
         files.append((path, hashlib.sha256(raw).hexdigest()))
     import_historical_selection(
         store, report_files=files, source_generation="v22",
-        candidate_fingerprint="d" * 64, cutoff_ts_ms=400_000_000,
+        candidate_fingerprint="d" * 64, cutoff_ts_ms=500_000_000,
     )
     assert b"private-path" not in store.path.read_bytes()

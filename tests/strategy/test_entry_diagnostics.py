@@ -361,7 +361,7 @@ def test_l2_history_import_uses_terminal_fill_despite_later_diagnostic_gap(
         payload = json.loads(connection.execute(
             "SELECT feature_json FROM prediction_entry_l2_features"
         ).fetchone()[0])
-    assert payload["contract_version"] == "binance_diff_depth_entry_veto_v2"
+    assert payload["contract_version"] == "binance_diff_depth_entry_veto_v3"
     selection = entry_diagnostic_report(
         store,
         symbol="SOLUSDT",
@@ -417,12 +417,12 @@ def test_future_manifest_rule_binds_veto_and_fee_aware_economics():
         execution_model_promotion_ready=True,
         evidence_semantics_fingerprint="d" * 64,
         entry_veto_rule={
-            "contract_version": "l2_adverse_selection_cancel_v2",
+            "contract_version": "l2_adverse_selection_cancel_v3",
             "prefill_price_change_max_bps": -10,
             "prefill_signed_trade_flow_max": "-0.20",
             "prefill_order_flow_imbalance_max": "-0.10",
             "cancel_latency_ms": 1000,
-            "minimum_signal_lead_ms": 61000,
+            "signal_window_ms": 300000,
             "selection_artifact_sha256": "e" * 64,
         },
         target_reachability=D("0.25"),

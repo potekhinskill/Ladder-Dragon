@@ -756,7 +756,7 @@ def freeze_preselected_episode_experiment(
             "prefill_signed_trade_flow_max",
             "prefill_order_flow_imbalance_max",
             "cancel_latency_ms",
-            "minimum_signal_lead_ms",
+            "signal_window_ms",
         ):
             if str(selected_rule.get(field)) != str(veto_rule.get(field)):
                 raise ValueError("entry-veto rule differs from its selection artifact")

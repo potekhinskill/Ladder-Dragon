@@ -129,7 +129,7 @@ def _validate_policy(
         ),
         "veto_ofi": str(rule["prefill_order_flow_imbalance_max"]),
         "cancel_latency_ms": int(rule["cancel_latency_ms"]),
-        "signal_window_ms": int(rule["minimum_signal_lead_ms"]),
+        "signal_window_ms": int(rule["signal_window_ms"]),
     }
     decimal_fields = {
         "entry_gap_bps", "take_profit_bps", "stop_limit_bps",
