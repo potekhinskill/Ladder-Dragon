@@ -128,7 +128,7 @@ def v23_evidence_semantics_contract() -> dict[str, object]:
         "trade_source": "BINANCE_AGGTRADE",
         "order_flow_imbalance": "CONT_BEST_LEVEL_NORMALIZED_V1",
         "price_threshold_policy": "NEGATIVE_DOWNSIDE_BASIS_POINTS_ONLY_V2",
-        "fill_timestamp_resolution_ms": 60_000,
+        "fill_timestamp_resolution_ms": 100,
         "cancel_timing": "FILLABLE_UNTIL_CANCEL_EFFECTIVE",
         "late_cancel_policy": "KEEP_ORIGINAL_FILL_AND_PNL",
         "capacity_policy": "SEQUENTIAL_ONE_SLOT_REPLAY",

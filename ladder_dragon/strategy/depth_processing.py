@@ -6,6 +6,7 @@
 from __future__ import annotations
 
 from collections import Counter
+from decimal import Decimal
 from pathlib import Path
 import subprocess
 import sys
@@ -17,6 +18,61 @@ from ladder_dragon.strategy.depth_segments import (
 from ladder_dragon.strategy.market_replay import ReplayCalibration, calibrate_market_events
 from ladder_dragon.strategy.replay_policy import PRODUCTION_REPLAY_ACCEPTANCE_POLICY
 from ladder_dragon.strategy.replay_readiness import volatility_regime
+from ladder_dragon.strategy.volatility_policy import read_volatility_policy
+
+
+VOLATILITY_CONFIRMATION_SPAN_MS = 2 * 86_400_000
+
+
+def _frozen_volatility_status(
+    directory: Path, rows: list[ReplayCalibration]
+) -> dict[str, object]:
+    """Measure a disjoint post-cutoff cohort against one frozen policy."""
+    path = directory / ".historical-replay" / "volatility-policy.json"
+    if not path.is_file():
+        return {
+            "status": "WAITING_SELECTION_POLICY",
+            "policy_sha256": None,
+            "confirmation_report_count": 0,
+        }
+    policy = read_volatility_policy(path)
+    cutoff = int(policy["cutoff_ts_ms"])
+    selection = set(policy["selection_archive_sha256s"])
+    confirmation = [
+        row for row in rows
+        if row.first_ts_ms > cutoff
+        and row.archive_sha256 not in selection
+        and row.eligible
+    ]
+    low = Decimal(str(policy["low_max_bps"]))
+    high = Decimal(str(policy["high_min_bps"]))
+    counts = {"low": 0, "normal": 0, "high": 0}
+    for row in confirmation:
+        bucket = (
+            "low" if row.volatility_bps_p95 <= low
+            else "high" if row.volatility_bps_p95 >= high
+            else "normal"
+        )
+        counts[bucket] += 1
+    span = (
+        max(row.last_ts_ms for row in confirmation)
+        - min(row.first_ts_ms for row in confirmation)
+        if confirmation else 0
+    )
+    ready = bool(
+        span >= VOLATILITY_CONFIRMATION_SPAN_MS
+        and all(counts[name] > 0 for name in counts)
+    )
+    return {
+        "status": "PASS" if ready else "COLLECTING_DISJOINT_CONFIRMATION",
+        "policy_sha256": policy["policy_sha256"],
+        "selection_cutoff_ts_ms": cutoff,
+        "confirmation_report_count": len(confirmation),
+        "confirmation_span_ms": span,
+        "required_confirmation_span_ms": VOLATILITY_CONFIRMATION_SPAN_MS,
+        "confirmation_bucket_counts": counts,
+        "selection_sources_reused": False,
+    }
 
 
 def calibration_inventory(directory: Path) -> tuple[dict, list[Path]]:
@@ -25,6 +81,7 @@ def calibration_inventory(directory: Path) -> tuple[dict, list[Path]]:
     regimes: Counter = Counter()
     archived = reports = invalid = ineligible = 0
     sidecars = []
+    eligible_rows: list[ReplayCalibration] = []
     for sidecar in directory.glob("*.jsonl.metadata.json"):
         if len(sidecars) >= MAX_SEGMENTS:
             raise ValueError("public archive inventory capacity reached")
@@ -50,6 +107,7 @@ def calibration_inventory(directory: Path) -> tuple[dict, list[Path]]:
                 raise ValueError("calibration source mismatch")
             reports += 1
             if report.eligible:
+                eligible_rows.append(report)
                 regimes[volatility_regime(report.volatility_bps_p95)] += 1
             else:
                 ineligible += 1
@@ -68,6 +126,9 @@ def calibration_inventory(directory: Path) -> tuple[dict, list[Path]]:
             else "NOT_OBSERVED" if not regimes["high"] else "OBSERVED"
         ),
         "order_validation_proven": False,
+        "frozen_volatility_policy": _frozen_volatility_status(
+            directory, eligible_rows
+        ),
     }, missing
 
 
@@ -105,6 +166,7 @@ def process_backlog(directory: Path, stop, prediction_db: Path | None = None) ->
     retry_after: dict[Path, float] = {}
     next_import = 0.0
     next_historical_replay = 0.0
+    next_historical_plan = 0.0
     while not stop.is_set():
         try:
             status, pending = calibration_inventory(directory)
@@ -121,6 +183,18 @@ def process_backlog(directory: Path, stop, prediction_db: Path | None = None) ->
                     break
             if prediction_db is not None and time.monotonic() >= next_historical_replay:
                 replay_root = directory / ".historical-replay"
+                if time.monotonic() >= next_historical_plan:
+                    code = _run_offline([
+                        "bin.historical_replay_planner",
+                        "--archive-directory", str(directory),
+                        "--draft-directory", str(replay_root / "drafts"),
+                        "--context-db", str(prediction_db.with_name("historical_context.sqlite3")),
+                    ], stop)
+                    next_historical_plan = time.monotonic() + 900
+                    if code:
+                        print(f"[HISTORICAL-PLANNER] status=RETRY exit={code}", flush=True)
+                    if stop.is_set():
+                        break
                 code = _run_offline([
                     "bin.historical_replay_runner",
                     "--request-directory", str(replay_root / "requests"),

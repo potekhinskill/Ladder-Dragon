@@ -874,6 +874,7 @@ def test_public_depth_archive_is_continuous_retained_and_secret_free():
     assert "-m bin.depth_archive_service" in wrapper
     processing = read("ladder_dragon/strategy/depth_processing.py")
     assert "bin.import_entry_veto_l2" in processing
+    assert "bin.historical_replay_planner" in processing
     assert "bin.historical_replay_runner" in processing
     assert ".historical-replay" in processing
     assert "--archive-directory" in processing

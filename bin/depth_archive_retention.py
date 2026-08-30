@@ -85,12 +85,15 @@ def _protected_hashes(database: Path) -> set[str]:
 
 
 def _pending_replay_hashes(directory: Path) -> set[str]:
-    """Protect every source pinned by an unreviewed replay request."""
-    request_directory = directory / ".historical-replay" / "requests"
-    if not request_directory.exists():
-        return set()
-    requests = sorted(request_directory.glob("*.json"))
-    if len(requests) > MAXIMUM_REPLAY_REQUESTS:
+    """Protect every source pinned by a review draft or accepted request."""
+    root = directory / ".historical-replay"
+    requests = [
+        path
+        for name in ("drafts", "requests")
+        for path in sorted((root / name).glob("*.json"))
+        if path.name != "status.json"
+    ]
+    if len(requests) > MAXIMUM_REPLAY_REQUESTS * 2:
         raise ValueError("historical replay request capacity reached")
     protected: set[str] = set()
     for path in requests:

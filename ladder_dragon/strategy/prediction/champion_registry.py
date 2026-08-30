@@ -18,6 +18,10 @@ from ladder_dragon.strategy.prediction.experiment_lifecycle import (
 )
 from ladder_dragon.strategy.prediction.episode_semantics import (
     evidence_semantics_fingerprint,
+    v23_evidence_semantics_fingerprint,
+)
+from ladder_dragon.strategy.prediction.entry_diagnostics import (
+    normalize_entry_veto_rule,
 )
 
 if TYPE_CHECKING:
@@ -25,7 +29,7 @@ if TYPE_CHECKING:
 
 
 D = Decimal
-CHAMPION_POLICY_SCHEMA_VERSION = 6
+CHAMPION_POLICY_SCHEMA_VERSION = 7
 EXECUTION_REGIMES = ("RANGE", "TREND_UP", "TREND_DOWN")
 PROTECTIVE_RUNTIME_ACTIONS = (
     "REDUCE_ORDER_NOTIONAL",
@@ -140,12 +144,19 @@ def execution_policy_from_manifest(
     parameters = manifest.get("candidate_parameters")
     if not isinstance(parameters, Mapping):
         raise ValueError("candidate parameters are unavailable")
-    if parameters.get("candidate_rule_version") != 7:
+    candidate_rule_version = parameters.get("candidate_rule_version")
+    if candidate_rule_version not in {7, 8}:
         raise ValueError("CHAMPION candidate rule is not execution-bound")
     semantics_fingerprint = _sha256(
         parameters.get("evidence_semantics_fingerprint"),
         field="evidence semantics fingerprint",
     )
+    expected_semantics = (
+        v23_evidence_semantics_fingerprint()
+        if candidate_rule_version == 8 else evidence_semantics_fingerprint()
+    )
+    if semantics_fingerprint != expected_semantics:
+        raise ValueError("CHAMPION evidence semantics are not executable")
     if parameters.get("entry_order_policy") != "LIMIT_MAKER":
         raise ValueError("CHAMPION entry policy must be LIMIT_MAKER")
     if parameters.get("take_profit_order_policy") != "LIMIT_MAKER":
@@ -226,8 +237,9 @@ def execution_policy_from_manifest(
     frozen_regimes = criteria.get("eligible_regimes")
     if not isinstance(frozen_regimes, list) or raw_regimes != frozen_regimes:
         raise ValueError("CHAMPION regimes differ from the frozen policy")
-    return {
+    policy = {
         "schema_version": CHAMPION_POLICY_SCHEMA_VERSION,
+        "candidate_rule_version": candidate_rule_version,
         "symbol": str(manifest.get("symbol") or "").strip().upper(),
         "experiment_id": str(manifest.get("experiment_id") or ""),
         "generation": str(manifest.get("generation") or ""),
@@ -264,6 +276,7 @@ def execution_policy_from_manifest(
             "CHANGE_TAKE_PROFIT",
             "CHANGE_STOP_TRIGGER_OFFSET",
             "CHANGE_MAXIMUM_HOLDING_TIME",
+            "CHANGE_ENTRY_VETO",
         ],
         "probation": {
             "schema_version": 2,
@@ -277,6 +290,12 @@ def execution_policy_from_manifest(
             "entry_limit_action": "BLOCK_BUY_UNTIL_PROBATION_END",
         },
     }
+    if candidate_rule_version == 8:
+        raw_veto = parameters.get("entry_veto_rule")
+        if not isinstance(raw_veto, Mapping):
+            raise ValueError("CHAMPION entry-veto rule is unavailable")
+        policy["entry_veto_rule"] = normalize_entry_veto_rule(raw_veto)
+    return policy
 
 
 def champion_allows_regime(
@@ -285,10 +304,13 @@ def champion_allows_regime(
     """Fail closed unless the immutable policy confirms this entry regime."""
     if policy.get("schema_version") != CHAMPION_POLICY_SCHEMA_VERSION:
         return False
-    if (
-        policy.get("evidence_semantics_fingerprint")
-        != evidence_semantics_fingerprint()
-    ):
+    rule_version = policy.get("candidate_rule_version")
+    required_semantics = (
+        v23_evidence_semantics_fingerprint()
+        if rule_version == 8 else evidence_semantics_fingerprint()
+        if rule_version == 7 else None
+    )
+    if policy.get("evidence_semantics_fingerprint") != required_semantics:
         return False
     allowed = policy.get("allowed_entry_regimes")
     if not isinstance(allowed, list) or not allowed:

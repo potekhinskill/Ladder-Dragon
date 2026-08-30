@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from dataclasses import replace
 from decimal import Decimal
 import json
 
@@ -170,6 +171,38 @@ def test_readiness_uses_frozen_policy_only_on_confirmation(tmp_path):
     assert report.regimes == ("high", "low", "normal")
     assert report.volatility_policy_sha256 == payload["policy_sha256"]
     assert report.volatility_confirmation_after_cutoff is True
+
+
+def test_depth_inventory_tracks_disjoint_two_day_confirmation(tmp_path):
+    from ladder_dragon.strategy.depth_processing import (
+        _frozen_volatility_status,
+    )
+
+    payload = policy(tmp_path)
+    policy_dir = tmp_path / ".historical-replay"
+    policy_dir.mkdir()
+    (policy_dir / "volatility-policy.json").write_text(
+        json.dumps(payload), encoding="utf-8"
+    )
+    cutoff = int(payload["cutoff_ts_ms"])
+    rows = [
+        calibration(200 + index, value)
+        for index, value in enumerate(("0.1", "0.5", "0.9"))
+    ]
+    rows = [
+        replace(
+            row,
+            first_ts_ms=cutoff + 1 + index * DAY_MS,
+            last_ts_ms=cutoff + 900_001 + index * DAY_MS,
+        )
+        for index, row in enumerate(rows)
+    ]
+
+    status = _frozen_volatility_status(tmp_path, rows)
+
+    assert status["status"] == "PASS"
+    assert status["confirmation_span_ms"] >= 2 * DAY_MS
+    assert status["selection_sources_reused"] is False
 
 
 def test_policy_file_is_strict_and_cli_cannot_overwrite(tmp_path, monkeypatch):

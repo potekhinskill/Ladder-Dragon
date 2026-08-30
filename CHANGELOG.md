@@ -3,6 +3,30 @@
 All notable changes are documented here. Releases use Semantic Versioning; every
 section is dated and there is intentionally no `Unreleased` section.
 
+## [2.20.267] — 2026-08-30
+
+### Added
+- A bounded planner creates review-only replay drafts from three disjoint historical L2 blocks.
+- SOL v23 uses one immutable entry-veto artifact and exact post-cutoff diff-depth confirmation reports.
+- The live worker applies the confirmed entry veto before POST and throughout each open BUY lifetime.
+- Volatility confirmation now reports post-cutoff bucket coverage without changing frozen thresholds.
+
+### Fixed
+- Historical PANIC cache reuse now preserves the full 180-second runtime horizon during six-hour exports.
+- The dashboard no longer presents the reanchor gate as the strategy approval gate.
+- L2 retention protects both reviewed replay drafts and accepted replay requests.
+
+### Security
+- Missing, stale, discontinuous, or adverse v23 market evidence blocks or cancels BUY fail-closed.
+- Partial fills remain protected, and an uncertain cancellation creates persistent HALT.
+- Selection and confirmation sources are disjoint and source-hashed; neither can create orders.
+- HALT, BTC, ETH, and Mainnet validation authority remain unchanged.
+
+### Verified
+- The focused v23, replay, retention, worker, and dashboard suites pass.
+- The full project suite passes: 1,521 tests.
+- Python compilation, Technical English, and whitespace checks pass.
+
 ## [2.20.266] — 2026-08-30
 
 ### Fixed

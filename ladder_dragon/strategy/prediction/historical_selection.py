@@ -111,6 +111,29 @@ def _rows(report: Mapping[str, object], name: str) -> list[Mapping[str, object]]
     return output
 
 
+def load_historical_report(
+    path: Path, expected_sha256: str
+) -> dict[str, object]:
+    """Load one immutable replay report for an explicit evidence role."""
+    return _load(path, expected_sha256)
+
+
+def validate_historical_replay_report(
+    report: Mapping[str, object], *, cutoff_ts_ms: int
+) -> None:
+    """Validate one complete paired report without assigning its cohort role."""
+    _validate(report, cutoff_ts_ms=cutoff_ts_ms)
+
+
+def historical_report_rows(
+    report: Mapping[str, object], name: str
+) -> list[Mapping[str, object]]:
+    """Return validated chronological episode rows from one policy arm."""
+    if name not in {"baseline", "veto"}:
+        raise ValueError("historical replay policy arm is invalid")
+    return _rows(report, name)
+
+
 def _net(rows: Iterable[Mapping[str, object]]) -> Decimal:
     return sum(
         (_decimal(row["net_pnl_quote"], field="PnL") for row in rows if not row["censored"]),
@@ -175,6 +198,20 @@ def historical_selection_artifact(
     vetoed = sum(
         row.get("terminal_reason") == "ENTRY_VETO" for row in veto_rows
     )
+    filled_rows = [
+        row for row in veto_rows
+        if (
+            "entry_filled_quantity" not in row
+            or _decimal(
+                row.get("entry_filled_quantity"), field="filled quantity"
+            ) > 0
+        )
+    ]
+    target_reachability = (
+        Decimal(sum(row.get("terminal_reason") == "TAKE_PROFIT" for row in filled_rows))
+        / Decimal(len(filled_rows))
+        if filled_rows else Decimal("0")
+    )
     veto_rate = Decimal(vetoed) / Decimal(opportunities) if opportunities else Decimal("0")
     ready = bool(
         opportunities >= MINIMUM_OPPORTUNITIES
@@ -218,6 +255,7 @@ def historical_selection_artifact(
             "veto_rate": format(veto_rate, "f"),
             "baseline_net_pnl_quote": format(baseline_net, "f"),
             "veto_net_pnl_quote": format(veto_net, "f"),
+            "target_reachability": format(target_reachability, "f"),
         },
         "selected_rule": selected_rule,
     }

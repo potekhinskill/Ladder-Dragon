@@ -20,6 +20,7 @@ from ladder_dragon.supervision.panic_observer import (
 )
 from ladder_dragon.strategy.prediction.context_journal import ContextJournal
 from ladder_dragon.strategy.prediction.context_sources import (
+    RUNTIME_TTL_MS,
     attest, context_from_sources, fee_source, filter_source, symbol_name,
 )
 from ladder_dragon.strategy.prediction.episode_semantics import (
@@ -54,8 +55,14 @@ class HistoricalContextCollector:
         now = self.clock()
         key = f"{symbol}:{kind}"
         cached = self.cache.get(key)
-        # Refresh before expiry so normal polling does not create systematic gaps.
-        if cached and cached["observed_at_ms"] <= now < cached["valid_until_ms"] - 60_000:
+        # A reused filter or fee attestation must outlive the new runtime
+        # attestation. Otherwise the combined context expires before the next
+        # observation and creates a deterministic gap every cache cycle.
+        if (
+            cached
+            and cached["observed_at_ms"] <= now
+            and cached["valid_until_ms"] - now >= RUNTIME_TTL_MS
+        ):
             return cached
         self.cache.pop(key, None)
         if kind == "filters":

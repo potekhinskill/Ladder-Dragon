@@ -41,6 +41,7 @@ from ladder_dragon.strategy.prediction.episode_semantics import (
     V21_EXECUTABLE_ENTRY_REGIMES,
     evidence_semantics_fingerprint,
     execution_model_contract,
+    v23_evidence_semantics_fingerprint,
 )
 from ladder_dragon.strategy.prediction.experiment_lifecycle import (
     list_experiments,
@@ -206,7 +207,12 @@ def _episode_spec(
         variant_id=variant.variant_id,
         candidate_fingerprint=candidate_fingerprint,
         execution_model_rule=generation.execution_model_rule,
-        evidence_semantics_fingerprint=evidence_semantics_fingerprint(),
+        evidence_semantics_fingerprint=(
+            v23_evidence_semantics_fingerprint()
+            if generation.statistical_design_version
+            == "episode_anytime_expectancy_v7"
+            else evidence_semantics_fingerprint()
+        ),
         start_regime=execution_regime or features.regime,
         started_at_ms=start,
         entry_deadline_ms=start + plan.entry_ttl_sec * 1_000,
@@ -292,10 +298,16 @@ def collect_execution_episode(
         raise ValueError("promotion candidate differs from frozen manifest")
     if manifest is not None:
         parameters = manifest.get("candidate_parameters")
+        expected_semantics = (
+            v23_evidence_semantics_fingerprint()
+            if generation.statistical_design_version
+            == "episode_anytime_expectancy_v7"
+            else evidence_semantics_fingerprint()
+        )
         if (
             not isinstance(parameters, Mapping)
             or parameters.get("evidence_semantics_fingerprint")
-            != evidence_semantics_fingerprint()
+            != expected_semantics
         ):
             raise ValueError("promotion evidence semantics differ from manifest")
     frozen_regimes = (
@@ -306,6 +318,82 @@ def collect_execution_episode(
     )
     if not frozen_regimes:
         raise ValueError("promotion entry regime scope is unavailable")
+
+    if generation.statistical_design_version == "episode_anytime_expectancy_v7":
+        # Version 23 confirmation is imported only from reviewed, sequence-
+        # verified diff-depth reports. Minute REST snapshots cannot silently
+        # stand in for the frozen cancel/fill race semantics.
+        results = load_episode_results(
+            store,
+            symbol=normalized,
+            generation=generation.generation,
+            variant_id=variants[0].variant_id,
+            started_after_ms=(
+                int(manifest["confirmation_start_ts_ms"])
+                if manifest is not None else None
+            ),
+            candidate_fingerprint=(
+                str(manifest["candidate_fingerprint"])
+                if manifest is not None else None
+            ),
+            execution_model_rule=generation.execution_model_rule,
+        )
+        report = sequential_episode_report(
+            results,
+            criteria=(
+                manifest.get("criteria") if manifest is not None else None
+            ),
+        )
+        report.update({
+            "mode": "SHADOW",
+            "can_change_orders": False,
+            "generation": generation.generation,
+            "variant_id": variants[0].variant_id,
+            "execution_model_rule": generation.execution_model_rule,
+            "active_episode": False,
+            "compact_terminal_records": len(results),
+            "raw_l2_retained": True,
+            "confirmation_source": "REVIEWED_DIFF_DEPTH_REPORTS",
+            "experiment_id": (
+                manifest.get("experiment_id") if manifest is not None else None
+            ),
+            "experiment_lifecycle_status": (
+                manifest.get("current_status") if manifest is not None
+                else "PRESELECTED"
+            ),
+            "episode_collection_role": collection_role,
+        })
+        if manifest is None:
+            report.update({
+                "status": "AWAITING_BOOTSTRAP",
+                "approved": False,
+                "readiness_reason": (
+                    "operator must freeze the preregistered candidate"
+                ),
+            })
+        validation = model_validation_status(
+            store,
+            symbol=normalized,
+            execution_model_rule=generation.execution_model_rule,
+            expected_fee_schedule={
+                "maker_buy_fee_pct": variants[0].plan.maker_buy_fee_pct,
+                "maker_sell_fee_pct": variants[0].plan.maker_sell_fee_pct,
+                "taker_buy_fee_pct": variants[0].plan.taker_buy_fee_pct,
+                "taker_sell_fee_pct": variants[0].plan.taker_sell_fee_pct,
+            },
+            expected_candidate_parameters=(
+                manifest.get("candidate_parameters")
+                if isinstance(manifest, Mapping) else None
+            ),
+        )
+        report["model_validation"] = validation
+        report["promotion_eligible"] = bool(
+            report.get("approved")
+            and validation.get("status") == "PASS"
+            and manifest is not None
+            and manifest.get("current_status") == "CONFIRMED"
+        )
+        return report
 
     event = _event(
         timestamp_ms=features.snapshot_ts_ms,

@@ -81,7 +81,10 @@ def test_retention_requires_backup_and_preserves_recent_and_referenced(tmp_path)
         )
 
 
-def test_retention_preserves_sources_pinned_by_pending_replay(tmp_path):
+@pytest.mark.parametrize("queue_name", ["drafts", "requests"])
+def test_retention_preserves_sources_pinned_by_pending_replay(
+    tmp_path, queue_name
+):
     now = 2_000_000_000.0
     directory = tmp_path / "depth"
     directory.mkdir()
@@ -91,7 +94,7 @@ def test_retention_preserves_sources_pinned_by_pending_replay(tmp_path):
         segment(directory, index, int((now - 20 * 86_400 + index) * 1000))
         for index in range(26)
     ]
-    requests = directory / ".historical-replay" / "requests"
+    requests = directory / ".historical-replay" / queue_name
     requests.mkdir(parents=True)
     requests.joinpath("selection.json").write_text(
         json.dumps({

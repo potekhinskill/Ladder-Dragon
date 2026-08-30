@@ -845,9 +845,9 @@ def _episode_confirmation_report(
         sequential_episode_report,
     )
     parameters = manifest["candidate_parameters"]
-    promotion_contract_ready = parameters.get("candidate_rule_version") == 7
+    promotion_contract_ready = parameters.get("candidate_rule_version") in {7, 8}
     semantics_ready = bool(
-        parameters.get("candidate_rule_version") in {4, 5, 6, 7}
+        parameters.get("candidate_rule_version") in {4, 5, 6, 7, 8}
         and isinstance(parameters.get("evidence_semantics_fingerprint"), str)
         and len(str(parameters.get("evidence_semantics_fingerprint"))) == 64
     )
@@ -922,7 +922,7 @@ def _episode_confirmation_report(
             []
             if evaluation_passed and promotion_contract_ready
             else [
-                "promotion requires the v22 executable-policy contract"
+                "promotion requires an executable-policy contract"
                 if not promotion_contract_ready
                 else "promotion evidence semantics or live episode test has not passed"
             ]
@@ -1097,6 +1097,7 @@ def confirmation_report(
         "anytime_valid_betting_e_process_v4",
         "anytime_valid_betting_e_process_v5",
         "anytime_valid_betting_e_process_v6",
+        "anytime_valid_betting_e_process_v7",
     }:
         return _episode_confirmation_report(store, manifest)
     decisions, reasons = _confirmation_decisions(store, manifest)

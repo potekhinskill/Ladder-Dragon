@@ -1050,6 +1050,7 @@ def freeze_entry_veto_selection(
         "cutoff_ts_ms": int(cutoff_ts_ms),
         "selection_cohort_sha256": report["selection_cohort_sha256"],
         "selection_cohort": report["selection_cohort"],
+        "target_reachability": report["target_reachability"],
         "selected_rule": dict(selected),
     }
     artifact_hash = _digest(artifact)
@@ -1071,6 +1072,58 @@ def freeze_entry_veto_selection(
             ),
         )
     return {**artifact, "artifact_sha256": artifact_hash}
+
+
+def latest_entry_veto_selection(
+    store: "PredictionShadowStore", *, symbol: str
+) -> tuple[dict[str, object], Decimal]:
+    """Return the latest immutable selection rule or fail before v23 starts."""
+    with store._connect() as connection:
+        row = connection.execute(
+            """SELECT artifact_sha256,artifact_json
+               FROM prediction_entry_veto_selection_artifacts
+               WHERE symbol=? ORDER BY cutoff_ts_ms DESC,created_at_ms DESC
+               LIMIT 1""",
+            (symbol.upper(),),
+        ).fetchone()
+    if row is None:
+        raise ValueError("entry-veto selection artifact is unavailable")
+    try:
+        artifact = json.loads(str(row[1]))
+    except (json.JSONDecodeError, TypeError, ValueError) as exc:
+        raise ValueError("entry-veto selection artifact is damaged") from exc
+    if not isinstance(artifact, dict) or _digest(artifact) != str(row[0]):
+        raise ValueError("entry-veto selection artifact identity differs")
+    selected = artifact.get("selected_rule")
+    if not isinstance(selected, Mapping):
+        raise ValueError("entry-veto selected rule is unavailable")
+    rule = {
+        "contract_version": selected.get("contract_version"),
+        "prefill_price_change_max_bps": selected.get(
+            "prefill_price_change_max_bps"
+        ),
+        "prefill_signed_trade_flow_max": selected.get(
+            "prefill_signed_trade_flow_max"
+        ),
+        "prefill_order_flow_imbalance_max": selected.get(
+            "prefill_order_flow_imbalance_max"
+        ),
+        "cancel_latency_ms": selected.get("cancel_latency_ms"),
+        "minimum_signal_lead_ms": selected.get("minimum_signal_lead_ms"),
+        "selection_artifact_sha256": str(row[0]),
+    }
+    normalized = normalize_entry_veto_rule(rule)
+    reachability = artifact.get("target_reachability")
+    if reachability is None and isinstance(
+        artifact.get("selection_metrics"), Mapping
+    ):
+        reachability = artifact["selection_metrics"].get(
+            "target_reachability"
+        )
+    value = _decimal(reachability, field="target reachability")
+    if not ZERO <= value <= ONE:
+        raise ValueError("entry-veto target reachability is invalid")
+    return normalized, value
 
 
 def fee_aware_candidate_economics(
@@ -1119,6 +1172,7 @@ __all__ = [
     "freeze_entry_veto_selection",
     "import_entry_veto_l2_archive",
     "import_entry_veto_l2_history",
+    "latest_entry_veto_selection",
     "migrate_entry_diagnostics",
     "normalize_entry_veto_rule",
     "start_entry_diagnostic",

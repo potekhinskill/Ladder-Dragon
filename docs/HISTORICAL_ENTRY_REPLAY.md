@@ -177,6 +177,9 @@ Independent time-block selection, runtime parity, and independent confirmation r
 An existing output file blocks publication rather than being replaced.
 
 The depth processor also runs a bounded SHADOW request queue every 15 minutes.
+It first creates review-only drafts under `.historical-replay/drafts`.
+The planner requires three non-overlapping blocks and complete historical context.
+It never copies drafts into the accepted request queue.
 Place reviewed immutable requests under `.historical-replay/requests` in the depth directory.
 The runner writes immutable reports under `.historical-replay/reports`.
 It processes one new report per cycle and accepts at most 128 queued requests.
@@ -199,6 +202,20 @@ The importer requires 30 opportunities and 12 independent paths.
 Two-thirds of the time blocks must show stable improvement.
 The imported artifact remains selection-only and cannot satisfy live confirmation.
 
+After v23 freezes, import only disjoint post-cutoff reports:
+
+```bash
+.venv/bin/python -m bin.import_v23_confirmation \
+  --prediction-db PREDICTION_DB \
+  --report REPORT_PATH REPORT_SHA256 \
+  --confirm IMPORT-V23-DISJOINT-CONFIRMATION
+```
+
+The importer requires the same policy and replay implementation as selection.
+It rejects every selection archive hash.
+It writes each start and result in one SQLite transaction.
+Minute REST evidence cannot enter v23 confirmation.
+
 Freeze empirical volatility boundaries from pre-cutoff calibration reports:
 
 ```bash
@@ -220,6 +237,7 @@ The confirmation cohort must cover two days and all three frozen buckets.
 | Calibration reports | Derived evidence | One report per source segment | Same retention as the retained source |
 | Calibration inventory | Disposable status | One bounded replacement file | Rebuilt by the worker; no archive dependency |
 | Historical replay reports | Derived selection evidence | 10,000 attempts per policy and immutable output | Retain with policy, context, and source archives |
+| Historical replay drafts | Derived review input | 128 immutable drafts | Retain sources through operator review |
 | Historical replay requests | Authoritative operator input | 128 queued immutable requests | Retain through operator review and selection import |
 | Historical replay runner status | Disposable status | One bounded replacement file | Rebuilt every runner cycle |
 | Historical context journal | Authoritative context evidence | 131,072 records and 256 MiB database limit | Indefinite; archive only after verified encrypted backup and reference review |
@@ -235,7 +253,7 @@ Pending diagnostics, selection references, and validation evidence can depend on
 Storage exhaustion stops capture instead of removing protected evidence.
 The daily retention job keeps at least 24 recent segments.
 It selects only completed, calibrated, unreferenced segments older than 14 days.
-Pending historical replay requests protect every pinned source hash.
+Pending historical replay drafts and requests protect every pinned source hash.
 It requires a recent verified encrypted application backup.
 It streams selected files into an encrypted bundle on the external disk.
 It verifies the encrypted bundle before it removes exact local files.

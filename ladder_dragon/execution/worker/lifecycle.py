@@ -14,7 +14,7 @@ from ladder_dragon.execution.worker.event_loop import (
     WorkerLoopContext,
     run_event_loop,
 )
-from ladder_dragon.execution.worker.champion_preflight import champion_ladder, require_live_champion
+from ladder_dragon.execution.worker.champion_preflight import champion_entry_veto_rule, champion_ladder, require_live_champion
 class WorkerRuntimeState:
     """Expose live worker module state without snapshotting mutable globals."""
     def __init__(self, namespace: MutableMapping[str, Any]) -> None:
@@ -35,6 +35,7 @@ class WorkerResources:
     """Stop every worker resource even when one cleanup operation fails."""
     verify_champion = staticmethod(require_live_champion)
     build_champion_ladder = staticmethod(champion_ladder)
+    entry_veto_rule = staticmethod(champion_entry_veto_rule)
     state: WorkerRuntimeState
     lock: Any
     user_stream_observer: Any = None
@@ -60,7 +61,6 @@ class WorkerResources:
                     f"[WORKER-CLEANUP] {label} failed="
                     f"{type(exc).__name__}"
                 )
-
 
 def normalize_symbol(symbol: str) -> str:
     """Return a Binance symbol or fail before any exchange request."""
@@ -125,9 +125,7 @@ def run_worker(state: WorkerRuntimeState) -> None:
         except (OSError, state.sqlite3.Error, state.requests.RequestException, RuntimeError, KeyError, ValueError) as exc:
             parser.error(f"LIVE preflight failed: {exc}")
     attach_oco = bool(args.attach_oco_on_fill)
-
     symbol = args.symbol
-
     # OCO status is no longer hidden behind a question mark: before the first check,
     # explicitly show that protection is not confirmed. This distinguishes a
     # pending BUY from a verified OCO in logs and the dashboard.
@@ -145,7 +143,7 @@ def run_worker(state: WorkerRuntimeState) -> None:
     market_observer: state.BinanceMarketDataObserver | None = None
     try:
         ladder_prices = state.parse_comma_floats(args.ladder_prices)
-
+        entry_veto_rule = WorkerResources.entry_veto_rule(champion)
         # --- Breakeven: keep OCO linked to the original BUY average price ---
         be_syms = {s.strip().upper() for s in args.breakeven_on_tp1_symbols.split(",") if s.strip()}
         BE_ENABLED = symbol.upper() in be_syms
@@ -503,6 +501,7 @@ def run_worker(state: WorkerRuntimeState) -> None:
                         ),
                     ),
                     market_mode=args.fast_market_mode,
+                    entry_veto_rule=entry_veto_rule,
                     otoco_mode=args.otoco_mode,
                     stop_limit_offset_pct=args.stop_limit_offset_pct,
                     runtime=state.namespace(),
@@ -528,8 +527,7 @@ def run_worker(state: WorkerRuntimeState) -> None:
                     "order-lifetime-observation", symbol, exc
                 )
 
-        # Sell free holdings separately only when they do not compete for the same
-        # base balance as an OCO waiting for a new BUY to execute.
+        # Sell free holdings only when they do not compete with a protected BUY.
         if args.auto_oco_holdings and (not attach_oco or not placed_ids):
             if attach_oco and not placed_ids:
                 state.dbg("[AUTO-OCO] no new BUYs this run → enabling auto_oco_holdings for free base")
@@ -569,6 +567,8 @@ def run_worker(state: WorkerRuntimeState) -> None:
             breakeven_state=be_state,
             user_stream_mailbox=user_stream_mailbox,
             user_stream_observer=user_stream_observer,
+            market_store=market_store,
+            entry_veto_rule=entry_veto_rule,
             started_at=started_at,
             protection_state=protection_state,
         )

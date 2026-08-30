@@ -79,6 +79,7 @@ def place_buys(symbol: str,
                      market_store: MarketSnapshotStore | None = None,
                      market_policy: DecisionFreshnessPolicy | None = None,
                      market_mode: str = "OFF",
+                     entry_veto_rule: Mapping[str, object] | None = None,
                      otoco_mode: str = "OFF",
                      stop_limit_offset_pct: object = Decimal("0.0015"),
                      runtime: Mapping[str, object]) -> List[int]:
@@ -95,6 +96,7 @@ def place_buys(symbol: str,
     dbg = _runtime_dependency(runtime, 'dbg')
     effective_remainder_policy = _runtime_dependency(runtime, 'effective_remainder_policy')
     evaluate_snapshot_gate = _runtime_dependency(runtime, 'evaluate_snapshot_gate')
+    evaluate_entry_veto = _runtime_dependency(runtime, 'evaluate_entry_veto')
     existing_prices_decimal = _runtime_dependency(runtime, 'existing_prices_decimal')
     fmt_price_sym = _runtime_dependency(runtime, 'fmt_price_sym')
     fmt_qty_sym = _runtime_dependency(runtime, 'fmt_qty_sym')
@@ -417,6 +419,20 @@ def place_buys(symbol: str,
                         f"{gate.net_edge_bps:.3f}"
                     )
                     if market_mode == "APPLY":
+                        append_trace(trace)
+                        continue
+                if entry_veto_rule is not None:
+                    veto = evaluate_entry_veto(
+                        latest_snapshot,
+                        entry_veto_rule,
+                        now_monotonic_ns=time.monotonic_ns(),
+                        maximum_age_ms=market_policy.max_age_ms,
+                    )
+                    if veto.cancel:
+                        log(
+                            f"[ENTRY-VETO] {symbol} BUY blocked "
+                            f"reason={veto.reason}"
+                        )
                         append_trace(trace)
                         continue
             otoco_prices = None

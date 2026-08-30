@@ -1885,3 +1885,10 @@ entries concise; this is not a changelog or an activity log.
 - **Decision:** retain the device timeout and remove only the known default load gate.
 - **Why it worked:** real stalls still stop watchdog petting, while managed maintenance stays online.
 - **Reuse:** hardware watchdogs on hosts with expected I/O-intensive maintenance.
+
+### 2026-08-30 — Keep L2 selection and confirmation physically disjoint
+
+- **Context:** version 23 changes order availability through a delayed entry cancellation.
+- **Decision:** select on reviewed L2 blocks and confirm only with new diff-depth source hashes.
+- **Why it worked:** the importer verifies cutoff, model, policy, and source identity before one atomic evidence write.
+- **Reuse:** every policy whose decision changes later market opportunities.

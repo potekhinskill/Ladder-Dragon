@@ -1967,9 +1967,16 @@ def _record_prediction_shadow(
     reanchor_samples = _PREDICTION_SHADOW.resolved_samples(
         symbol, before_ts_ms=features.snapshot_ts_ms, kind="REANCHOR"
     )
-    walk_forward = walk_forward_prediction_report(reanchor_samples)
-    gate = walk_forward["gate"]
-    _PREDICTION_GATE_CACHE[symbol] = (time.monotonic(), gate)
+    reanchor_walk_forward = walk_forward_prediction_report(reanchor_samples)
+    reanchor_gate = {
+        **reanchor_walk_forward["gate"],
+        "gate_kind": "REANCHOR",
+    }
+    _PREDICTION_GATE_CACHE[symbol] = (time.monotonic(), reanchor_gate)
+    # The dashboard strategy gate must describe STRATEGY evidence. REANCHOR
+    # remains a separate execution-control gate and cannot replace it.
+    strategy_walk_forward = walk_forward_prediction_report(history)
+    gate = {**strategy_walk_forward["gate"], "gate_kind": "STRATEGY"}
     # Only the policy-specific loader can populate the control-gate cache.
     control_gates = {
         control: _strategy_control_gate(symbol, control)
@@ -1995,9 +2002,9 @@ def _record_prediction_shadow(
         "strategy_control_gates": control_gates,
         "shadow_experiments": experiment_report,
         "walk_forward": {
-            "method": walk_forward["method"],
-            "lookahead": walk_forward["lookahead"],
-            "evaluated_samples": len(walk_forward["evaluated"]),
+            "method": strategy_walk_forward["method"],
+            "lookahead": strategy_walk_forward["lookahead"],
+            "evaluated_samples": len(strategy_walk_forward["evaluated"]),
         },
     }
     runtime.update({
@@ -2045,7 +2052,6 @@ _REGIME_HYSTERESIS: Dict[str, RegimeHysteresis] = {}
 _PARAM_HYSTERESIS: Dict[str, Dict[str, NumericHysteresis]] = {}
 _EXECUTION_REGIMES: Dict[str, RegimeExecutionStateMachine] = {}
 _COMMISSION_CACHE: Dict[str, tuple[float, CommissionSchedule]] = {}
-
 
 def _control_mode(name: str, default: str = "SHADOW") -> str:
     """Return OFF/SHADOW/APPLY and fail closed on a damaged setting."""

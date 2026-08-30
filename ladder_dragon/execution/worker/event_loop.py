@@ -30,6 +30,8 @@ class WorkerLoopContext:
     user_stream_observer: Any
     started_at: float
     protection_state: str
+    market_store: Any = None
+    entry_veto_rule: Any = None
 
 
 def _status_message(context: WorkerLoopContext, left: int) -> str:
@@ -264,10 +266,16 @@ def run_event_loop(context: WorkerLoopContext) -> None:
 
     last_check = 0
     panic_cancel_applied = False
+    entry_veto_cancel_applied = False
     for left in state.trading_wakeups(
         int(args.loop_minutes * 60),
         running=lambda: state.RUN,
         wait=lambda timeout: (
+            context.market_store.wait(min(float(timeout), 0.2))
+            if context.market_store is not None
+            and context.entry_veto_rule is not None
+            and context.placed_ids
+            else
             context.user_stream_mailbox.wait_for(
                 context.placed_ids,
                 timeout,
@@ -297,6 +305,29 @@ def run_event_loop(context: WorkerLoopContext) -> None:
 
         if state.status_due(left, args.status_interval):
             state.log(_status_message(context, left))
+
+        if (
+            state.LIVE_MODE
+            and context.entry_veto_rule is not None
+            and context.placed_ids
+            and not entry_veto_cancel_applied
+        ):
+            veto = state.evaluate_entry_veto(
+                context.market_store.snapshot()
+                if context.market_store is not None else None,
+                context.entry_veto_rule,
+                now_monotonic_ns=state.time.monotonic_ns(),
+                maximum_age_ms=args.fast_market_max_age_ms,
+            )
+            if veto.cancel:
+                context.placed_ids = state.cancel_open_buys_for_entry_veto(
+                    context.symbol,
+                    context.placed_ids,
+                    reason=veto.reason,
+                )
+                entry_veto_cancel_applied = True
+                if not context.placed_ids:
+                    context.protection_state = "not_needed"
 
         previous_panic_active = context.panic_active
         context.panic_active = _refresh_panic_state(context)

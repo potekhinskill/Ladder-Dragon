@@ -304,6 +304,75 @@ def record_episode_result(
         )
 
 
+def record_completed_episode(
+    store: "PredictionShadowStore",
+    spec: ExecutionEpisodeSpec,
+    result: ExecutionEpisodeResult,
+) -> None:
+    """Append one externally replayed start and result in one transaction."""
+    identity = (
+        spec.episode_id,
+        spec.symbol,
+        spec.generation,
+        spec.variant_id,
+        spec.candidate_fingerprint,
+        spec.execution_model_rule,
+    )
+    result_identity = (
+        result.episode_id,
+        result.symbol,
+        result.generation,
+        result.variant_id,
+        result.candidate_fingerprint,
+        result.execution_model_rule,
+    )
+    if identity != result_identity:
+        raise ValueError("completed episode identity differs")
+    if (
+        spec.evidence_semantics_fingerprint
+        != result.evidence_semantics_fingerprint
+    ):
+        raise ValueError("completed episode semantics differ")
+    spec_payload = _json_value(asdict(spec))
+    result_payload = result.payload()
+    if not isinstance(spec_payload, dict):
+        raise ValueError("completed episode specification is invalid")
+    now_ms = int(time.time() * 1000)
+    with store._connect() as connection:
+        connection.execute("BEGIN IMMEDIATE")
+        count = int(connection.execute(
+            "SELECT COUNT(*) FROM prediction_execution_episode_starts"
+        ).fetchone()[0])
+        if count >= MAXIMUM_EPISODES:
+            raise RuntimeError("prediction execution episode capacity reached")
+        connection.execute(
+            """INSERT INTO prediction_execution_episode_starts
+               (episode_id,symbol,generation,variant_id,candidate_fingerprint,
+                execution_model_rule,started_at_ms,spec_json,spec_sha256,
+                created_at_ms) VALUES (?,?,?,?,?,?,?,?,?,?)""",
+            (
+                spec.episode_id, spec.symbol, spec.generation, spec.variant_id,
+                spec.candidate_fingerprint, spec.execution_model_rule,
+                spec.started_at_ms, _canonical(spec_payload),
+                _digest(spec_payload), now_ms,
+            ),
+        )
+        connection.execute(
+            """INSERT INTO prediction_execution_episode_results
+               (episode_id,symbol,generation,variant_id,candidate_fingerprint,
+                execution_model_rule,terminal_at_ms,eligible_for_promotion,
+                result_json,result_sha256,created_at_ms)
+               VALUES (?,?,?,?,?,?,?,?,?,?,?)""",
+            (
+                result.episode_id, result.symbol, result.generation,
+                result.variant_id, result.candidate_fingerprint,
+                result.execution_model_rule, result.terminal_at_ms,
+                int(result.eligible_for_promotion),
+                _canonical(result_payload), _digest(result_payload), now_ms,
+            ),
+        )
+
+
 def recover_interrupted_episodes(
     store: "PredictionShadowStore",
     *,
@@ -1118,6 +1187,7 @@ __all__ = [
     "load_episode_results",
     "migrate_episode_evidence",
     "model_validation_status",
+    "record_completed_episode",
     "record_episode_result",
     "record_episode_start",
     "record_model_validation",

@@ -17,6 +17,8 @@ from ladder_dragon.strategy.prediction.episode_semantics import (
     V20_EXECUTION_MODEL_RULE,
     V21_EVIDENCE_SEMANTICS_VERSION,
     V21_EXECUTION_MODEL_RULE,
+    V23_EVIDENCE_SEMANTICS_VERSION,
+    V23_EXECUTION_MODEL_RULE,
 )
 
 
@@ -310,6 +312,29 @@ SOL_V22_SPEC = ShadowExperimentSpec(
     evidence_notional_quote=SOL_V21_SPEC.evidence_notional_quote,
     target_name="tp80",
 )
+SOL_V23_SPEC = ShadowExperimentSpec(
+    generation="v23",
+    horizons_min=SOL_V22_SPEC.horizons_min,
+    maker_ttls=SOL_V22_SPEC.maker_ttls,
+    maker_entry_gaps=SOL_V22_SPEC.maker_entry_gaps,
+    superseded_selection_generations=(
+        "v11", "v12", "v13", "v14", "v15", "v16", "v17", "v18",
+        "v19", "v20", "v21", "v22",
+    ),
+    regime_policy=SOL_V22_SPEC.regime_policy,
+    statistical_design_version="episode_anytime_expectancy_v7",
+    evidence_semantics_version=V23_EVIDENCE_SEMANTICS_VERSION,
+    lifecycle_mode=SOL_V22_SPEC.lifecycle_mode,
+    execution_model_rule=V23_EXECUTION_MODEL_RULE,
+    primary_horizon_min=SOL_V22_SPEC.primary_horizon_min,
+    diagnostic_horizons_min=SOL_V22_SPEC.diagnostic_horizons_min,
+    stop_limit_offset_pct=SOL_V22_SPEC.stop_limit_offset_pct,
+    maximum_holding_min=SOL_V22_SPEC.maximum_holding_min,
+    target_return=SOL_V22_SPEC.target_return,
+    stop_limit_distance=SOL_V22_SPEC.stop_limit_distance,
+    evidence_notional_quote=SOL_V22_SPEC.evidence_notional_quote,
+    target_name="tp80_veto",
+)
 
 # Preserve the public historical name for callers that inspect SOL v12.
 V12_SPEC = SOL_V12_SPEC
@@ -336,11 +361,12 @@ _SYMBOL_GENERATION_SPECS = {
     ("SOLUSDT", "v20"): SOL_V20_SPEC,
     ("SOLUSDT", "v21"): SOL_V21_SPEC,
     ("SOLUSDT", "v22"): SOL_V22_SPEC,
+    ("SOLUSDT", "v23"): SOL_V23_SPEC,
 }
 _SYMBOL_SPECS = {
     "BTCUSDT": BTC_V14_SPEC,
     "ETHUSDT": ETH_V15_SPEC,
-    "SOLUSDT": SOL_V22_SPEC,
+    "SOLUSDT": SOL_V23_SPEC,
 }
 
 
@@ -381,6 +407,8 @@ def experiment_dimension(
 ) -> str:
     """Name the single parameter axis changed by one experiment."""
     spec = experiment_spec_for_generation(generation, symbol=symbol)
+    if spec.statistical_design_version == "episode_anytime_expectancy_v7":
+        return "entry_veto"
     if len(spec.maker_ttls) > 1 and len(spec.maker_entry_gaps) == 1:
         return "maker_entry_ttl"
     if spec.target_name is not None:
@@ -433,6 +461,7 @@ __all__ = [
     "SOL_V20_SPEC",
     "SOL_V21_SPEC",
     "SOL_V22_SPEC",
+    "SOL_V23_SPEC",
     "ETH_V14_SPEC",
     "ETH_V15_SPEC",
     "configured_entry_gap_bps",

@@ -99,7 +99,35 @@ def require_live_champion(state: object, args: object) -> dict[str, object]:
         args.bear_cap_scale = min(1.0, state._compat_float(args.bear_cap_scale))
     args.buy_vwap_discount = None
     args.buy_vwap_discount_scale = None
+    if policy.get("candidate_rule_version") == 8:
+        from ladder_dragon.strategy.prediction.entry_diagnostics import (
+            normalize_entry_veto_rule,
+        )
+
+        veto = policy.get("entry_veto_rule")
+        if not isinstance(veto, Mapping):
+            raise ValueError("CHAMPION entry-veto policy is unavailable")
+        normalize_entry_veto_rule(veto)
+        # v23 cannot submit a BUY until its exact public market observer is ready.
+        args.fast_market_mode = "APPLY"
+        args.fast_market_max_age_ms = min(
+            int(args.fast_market_max_age_ms), 500
+        )
     return champion
+
+
+def champion_entry_veto_rule(
+    champion: Mapping[str, object] | None,
+) -> object | None:
+    """Return the preflight-validated rule for a version 8 CHAMPION."""
+    if champion is None:
+        return None
+    policy = champion.get("execution_policy")
+    if not isinstance(policy, Mapping):
+        return None
+    if policy.get("candidate_rule_version") != 8:
+        return None
+    return policy.get("entry_veto_rule")
 
 
 def champion_ladder(
@@ -135,4 +163,8 @@ def champion_ladder(
     return [state._compat_float(value) for value in anchors]
 
 
-__all__ = ["champion_ladder", "require_live_champion"]
+__all__ = [
+    "champion_entry_veto_rule",
+    "champion_ladder",
+    "require_live_champion",
+]

@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import os
 import json
-import sys
+import types
 import time
 import signal
 import sqlite3
@@ -43,6 +43,7 @@ from ladder_dragon.execution.market_data_stream import (
     BinanceMarketDataObserver,
     DecisionFreshnessPolicy,
     MarketSnapshotStore,
+    evaluate_entry_veto,
     evaluate_snapshot_gate,
 )
 from ladder_dragon.execution.websocket_trading import (
@@ -50,6 +51,7 @@ from ladder_dragon.execution.websocket_trading import (
     WS_METHODS,
     build_websocket_trading_transport,
 )
+from ladder_dragon.execution.worker.safety_cancel import cancel_open_buys
 from product_version import product_label, user_agent
 from ladder_dragon.execution.executor_config import build_executor_parser, validate_executor_args
 from ladder_dragon.execution.trade_accounting import DEFAULT_SPOT_FEE_PCT
@@ -1113,150 +1115,23 @@ def _record_order_payload(payload: Dict[str, Any] | None) -> Optional[OrderInten
 
 
 def cancel_open_buys_for_panic(symbol: str, order_ids: List[int]) -> List[int]:
-    """Cancel open BUY exposure when PANIC is active and reconcile every result."""
-    remaining = list(order_ids)
-    open_states = {"NEW", "PARTIALLY_FILLED", "PENDING_CANCEL"}
-    try:
-        cancellation_market_price: Optional[float] = get_price(symbol)
-        _observe_buy_market(symbol, remaining, cancellation_market_price)
-    except (
-        requests.RequestException,
-        RuntimeError,
-        ValueError,
-        ArithmeticError,
-        OSError,
-        sqlite3.Error,
-    ):
-        cancellation_market_price = None
+    """Cancel open BUY exposure when PANIC is active."""
+    return cancel_open_buys(types.SimpleNamespace(**globals()), symbol, order_ids, reason="panic")
 
-    for order_id in list(remaining):
-        reason = f"panic cancel cannot confirm BUY order {order_id}"
-        order = require_order_status(symbol, order_id, get_order, _trip_execution_halt, reason)
-        if not order:
-            _trip_execution_halt(reason, symbol=symbol, order_id=order_id)
-            raise RuntimeError(reason)
 
-        side = str(order.get("side") or "BUY").upper()
-        status = str(order.get("status") or "").upper()
-        original_order = dict(order)
-        if side != "BUY":
-            continue
-
-        if status in open_states:
-            try:
-                cancelled = _signed_request(
-                    "DELETE",
-                    "/api/v3/order",
-                    {"symbol": symbol, "orderId": int(order_id)},
-                )
-            except (
-                requests.RequestException,
-                RuntimeError,
-                ValueError,
-                ArithmeticError,
-                OSError,
-            ) as exc:
-                # A lost cancellation response is uncertain until Binance is
-                # queried again. Never assume that the BUY disappeared.
-                cancelled = require_order_status(symbol, order_id, get_order, _trip_execution_halt, reason)
-                verified_status = str(
-                    (cancelled or {}).get("status") or ""
-                ).upper()
-                if verified_status not in TERMINAL_EXCHANGE_STATES:
-                    reason = (
-                        f"panic cancel unconfirmed for BUY order {order_id}"
-                    )
-                    _trip_execution_halt(
-                        reason, symbol=symbol, order_id=order_id
-                    )
-                    raise RuntimeError(reason) from exc
-            status = str((cancelled or {}).get("status") or "").upper()
-            if status not in TERMINAL_EXCHANGE_STATES:
-                reason = (
-                    f"panic cancel returned nonterminal state {status or 'UNKNOWN'} "
-                    f"for BUY order {order_id}"
-                )
-                _trip_execution_halt(reason, symbol=symbol, order_id=order_id)
-                raise RuntimeError(reason)
-            order = cancelled
-
-        if status in TERMINAL_EXCHANGE_STATES:
-            updated = _record_order_payload(order)
-            if updated is None:
-                reason = f"panic cancel cannot update journal for BUY order {order_id}"
-                _trip_execution_halt(reason, symbol=symbol, order_id=order_id)
-                raise RuntimeError(reason)
-            executed_qty = Decimal(str(order.get("executedQty") or "0"))
-            log(
-                f"[PANIC-CANCEL] {symbol} BUY order={order_id} "
-                f"state={updated.state} executed={executed_qty}"
-            )
-            limit_price = Decimal(str(original_order.get("price") or "0"))
-            market_price = (
-                Decimal(str(cancellation_market_price))
-                if cancellation_market_price is not None
-                else None
-            )
-            created_ms = int(
-                original_order.get("time")
-                or original_order.get("workingTime")
-                or original_order.get("updateTime")
-                or int(time.time() * 1000)
-            )
-            distance_pct = None
-            if market_price is not None and market_price > 0 and limit_price > 0:
-                distance_pct = (
-                    (market_price - limit_price) / market_price * Decimal("100")
-                ).quantize(Decimal("0.0001"))
-            metadata = dict(updated.metadata or {})
-            log(
-                "[ORDER-LIFETIME] "
-                + json.dumps(
-                    {
-                        "symbol": symbol,
-                        "order_id": int(order_id),
-                        "cancel_reason": "panic",
-                        "age_sec": max(
-                            0,
-                            int((time.time() * 1000 - created_ms) / 1000),
-                        ),
-                        "ttl_sec": None,
-                        "limit_price": str(limit_price),
-                        "market_price_at_cancel": (
-                            str(market_price) if market_price is not None else None
-                        ),
-                        "limit_below_market_pct": (
-                            str(distance_pct) if distance_pct is not None else None
-                        ),
-                        "minimum_observed_market_price": metadata.get(
-                            "market_min_price"
-                        ),
-                        "market_observation_count": metadata.get(
-                            "market_observation_count", 0
-                        ),
-                        "executed_qty": str(executed_qty),
-                    },
-                    sort_keys=True,
-                    separators=(",", ":"),
-                )
-            )
-            # A cancelled partial fill remains in the protection pipeline. A
-            # zero-fill cancellation is terminal and needs no OCO.
-            if executed_qty <= 0:
-                remaining.remove(order_id)
-            continue
-
-        if status == "FILLED":
-            continue
-
-        reason = (
-            f"panic cancel found unsupported state {status or 'UNKNOWN'} "
-            f"for BUY order {order_id}"
-        )
-        _trip_execution_halt(reason, symbol=symbol, order_id=order_id)
-        raise RuntimeError(reason)
-
-    return remaining
+def cancel_open_buys_for_entry_veto(
+    symbol: str, order_ids: List[int], *, reason: str
+) -> List[int]:
+    """Cancel v23 BUYs after adverse or unavailable L2 evidence."""
+    if reason not in {
+        "entry-veto-adverse-selection",
+        "entry-veto-market-unavailable",
+        "entry-veto-evidence-unavailable",
+    }:
+        raise ValueError("entry-veto cancellation reason is invalid")
+    return cancel_open_buys(
+        types.SimpleNamespace(**globals()), symbol, order_ids, reason="entry-veto"
+    )
 
 
 def _recovery_dependencies() -> RecoveryDependencies:

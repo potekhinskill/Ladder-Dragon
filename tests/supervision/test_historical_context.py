@@ -64,9 +64,47 @@ def test_get_only_collection_caches_without_renewing_source_time(tmp_path):
     assert collector.collect("SOLUSDT", captured(61_000))["status"] == "AVAILABLE"
     assert len(calls) == 4
     assert collector.cache["SOLUSDT:fees"]["observed_at_ms"] == 1000
-    now[0] = 242_000
-    assert collector.collect("SOLUSDT", captured(242_000))["status"] == "AVAILABLE"
+    now[0] = 121_001
+    assert collector.collect("SOLUSDT", captured(121_001))["status"] == "AVAILABLE"
     assert len(calls) == 7
+    assert collector.cache["SOLUSDT:fees"]["observed_at_ms"] == 121_001
+
+
+def test_cached_sources_cover_a_six_hour_export_without_periodic_gaps(tmp_path):
+    calls, now = [], [1_000]
+    collector = module.HistoricalContextCollector(
+        tmp_path / "context.sqlite3",
+        public_get=client(calls),
+        signed_get=client(calls),
+        clock=lambda: now[0],
+        panic_run_dir=tmp_path,
+    )
+    classifier = fingerprint(
+        v23_evidence_semantics_contract()["regime_classifier"]
+    )
+    end_ms = 6 * 60 * 60_000
+    while now[0] <= end_ms + 31_000:
+        refresh_panic_observation(
+            "SOLUSDT",
+            public_get=client(calls),
+            now_ms=now[0],
+            run_dir=tmp_path,
+        )
+        collector.collect("SOLUSDT", captured(now[0]))
+        now[0] += 30_000
+
+    exported = export_context(
+        collector.path,
+        symbol="SOLUSDT",
+        classifier_fingerprint=classifier,
+        start_ms=31_000,
+        end_ms=end_ms,
+        cutoff_ms=end_ms,
+    )
+
+    assert exported["start_ms"] == 31_000
+    assert exported["end_ms"] == end_ms
+    assert len(exported["context"]) > 700
 
 
 def test_failure_and_missing_panic_are_explicit_and_secret_safe(tmp_path):

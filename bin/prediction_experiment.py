@@ -54,6 +54,7 @@ from ladder_dragon.strategy.prediction.episode_evidence import (
 from ladder_dragon.strategy.prediction.entry_diagnostics import (
     entry_diagnostic_report,
     freeze_entry_veto_selection,
+    latest_entry_veto_selection,
 )
 from ladder_dragon.strategy.prediction.historical_selection import (
     import_historical_selection,
@@ -294,6 +295,13 @@ def _preselected_episode_variant(
     if not isinstance(feature, dict) or baseline is None:
         raise ValueError("bootstrap strategy evidence is invalid")
     market = Decimal(str(feature.get("price")))
+    entry_veto_rule = None
+    target_reachability = None
+    spec = experiment_spec_for_generation(generation, symbol=symbol)
+    if spec.statistical_design_version == "episode_anytime_expectancy_v7":
+        entry_veto_rule, target_reachability = latest_entry_veto_selection(
+            store, symbol=symbol
+        )
     variants = build_shadow_variants(
         market_price=market,
         baseline_plan=baseline,
@@ -301,6 +309,8 @@ def _preselected_episode_variant(
         regime=str(feature.get("regime") or "RANGE"),
         generation=generation,
         symbol=symbol,
+        entry_veto_rule=entry_veto_rule,
+        target_reachability=target_reachability,
     )
     if len(variants) != 1:
         raise ValueError("episode bootstrap requires exactly one candidate")

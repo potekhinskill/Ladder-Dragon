@@ -25,6 +25,7 @@ class HistoricalExecution:
         self.cancel_reason = None
         self.panic_latched = False
         self.signal_ms = self.cancel_effective_ms = self.stop_ms = None
+        self.minimum_bid_after_entry = self.maximum_bid_after_entry = None
         self.result = None
         self.orders = OrderBookReplay(latency_ms=policy.latency_ms, maker_fee_pct=ZERO,
                                      taker_fee_pct=ZERO, queue_cancellation_ahead_ratio=ZERO)
@@ -74,15 +75,54 @@ class HistoricalExecution:
 
     def finish(self, now, reason, *, censored=False) -> dict:
         self.phase = "TERMINAL"
+        gross = self.exit_proceeds - self.entry_cost
+        average_entry = (
+            self.entry_cost / self.entry_qty
+            if self.entry_qty > ZERO else self.entry
+        )
+        adverse = (
+            max(ZERO, D("1") - self.minimum_bid_after_entry / average_entry)
+            if self.minimum_bid_after_entry is not None else ZERO
+        )
+        favorable = (
+            max(ZERO, self.maximum_bid_after_entry / average_entry - D("1"))
+            if self.maximum_bid_after_entry is not None else ZERO
+        )
         self.result = {
             "episode_id": self.identifier, "started_at_ms": self.started_ms,
             "terminal_at_ms": now, "terminal_reason": reason,
             "start_regime": self.context["regime"], "context_source_sha256": self.context["source_sha256"],
             "signal_ts_ms": self.signal_ms, "cancel_effective_ts_ms": self.cancel_effective_ms,
             "entry_price": str(self.entry), "quantity": str(self.quantity),
+            "take_profit_price": str(self.target),
+            "stop_trigger_price": str(self.trigger),
+            "stop_limit_price": str(self.stop_limit),
             "entry_filled_quantity": str(self.entry_qty), "exit_filled_quantity": str(self.exit_qty),
+            "entry_notional_quote": str(self.entry_cost),
+            "gross_pnl_quote": str(gross),
             "net_pnl_quote": None if censored else str(self.exit_proceeds - self.entry_cost - self.fees),
             "fee_quote": str(self.fees), "censored": censored,
+            "fee_schedule": {
+                name: str(self.context[name])
+                for name in (
+                    "maker_buy_fee_pct", "maker_sell_fee_pct",
+                    "taker_buy_fee_pct", "taker_sell_fee_pct",
+                )
+            },
+            "stop_triggered": self.stop_ms is not None,
+            "stop_limit_unfilled": bool(
+                self.stop_ms is not None
+                and reason == "STOP_LIMIT_GAP_FLATTEN"
+            ),
+            "panic_veto": reason == "PANIC_VETO",
+            "maximum_favorable_excursion_pct": str(favorable),
+            "maximum_adverse_excursion_pct": str(adverse),
+            "excursion_evidence_available": bool(
+                self.entry_qty > ZERO
+                and self.minimum_bid_after_entry is not None
+                and self.maximum_bid_after_entry is not None
+            ),
+            "eligible_for_promotion": not censored,
         }
         return self.result
 
@@ -129,6 +169,16 @@ class HistoricalExecution:
             self.fees += fill.price * fill.quantity * D(rate)
         if self.exit_qty > self.entry_qty:
             raise ValueError("historical exit exceeds filled quantity")
+        if self.entry_qty > ZERO:
+            bid = event.bids[0].price
+            self.minimum_bid_after_entry = (
+                bid if self.minimum_bid_after_entry is None
+                else min(self.minimum_bid_after_entry, bid)
+            )
+            self.maximum_bid_after_entry = (
+                bid if self.maximum_bid_after_entry is None
+                else max(self.maximum_bid_after_entry, bid)
+            )
 
         if self.phase == "ENTRY":
             entry = self.order("entry")

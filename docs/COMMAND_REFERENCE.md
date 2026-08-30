@@ -70,9 +70,11 @@ See [Historical entry replay](HISTORICAL_ENTRY_REPLAY.md) for continuous source 
 | `depth_archive_service` | rotates one continuous public stream and processes calibration separately |
 | `depth_archive_retention` | encrypts eligible L2 segments externally before local removal |
 | `replay_historical_entries` | generates historical opportunities from immutable inputs; optional `--context-db` verifies source-owned context |
+| `historical_replay_planner` | creates review-only replay drafts from three disjoint historical blocks |
 | `historical_replay_runner` | processes a bounded SHADOW replay request queue without automatic import |
 | `volatility_policy` | freezes empirical volatility buckets from selection-only calibration reports |
 | `import_entry_veto_l2` | imports source-hashed public L2 entry features into SHADOW evidence |
+| `import_v23_confirmation` | imports reviewed post-cutoff diff-depth reports into one v23 confirmation generation |
 | `prediction_history_backfill` | creates cutoff-safe samples from archived bars |
 | `backfill_prediction_archive` | repairs eligible expired prediction outcomes |
 | `prediction_experiment` | bootstraps and audits independent SHADOW confirmation |
@@ -167,7 +169,7 @@ Freeze the preregistered SOL execution candidate:
 .venv/bin/python -m bin.prediction_experiment episode-bootstrap \
   --experiment-id EXPERIMENT_ID \
   --symbol SOLUSDT \
-  --generation v22 \
+  --generation v23 \
   --confirm BOOTSTRAP
 ```
 
@@ -181,7 +183,7 @@ Import one reviewed execution-model validation:
 ```bash
 .venv/bin/python -m bin.prediction_experiment model-validation-import \
   --symbol SOLUSDT \
-  --generation v22 \
+  --generation v23 \
   --experiment-id EXPERIMENT_ID \
   --report validation.json \
   --report-sha256 REPORT_SHA256 \
@@ -207,6 +209,30 @@ Freeze the reviewed selection artifact only after the report becomes ready:
 
 The cutoff, evidence identifiers, hashes, latency, and selected rule become immutable.
 The artifact cannot authorize orders or change the source generation.
+
+Create deterministic replay drafts from one continuous production session:
+
+```bash
+.venv/bin/python -m bin.historical_replay_planner \
+  --archive-directory DEPTH_DIRECTORY \
+  --draft-directory DEPTH_DIRECTORY/.historical-replay/drafts \
+  --context-db HISTORICAL_CONTEXT_DB
+```
+
+Review and copy accepted drafts into `.historical-replay/requests`.
+The planner never accepts a draft or imports evidence.
+
+Import reviewed post-cutoff reports into frozen v23 confirmation:
+
+```bash
+.venv/bin/python -m bin.import_v23_confirmation \
+  --prediction-db PREDICTION_DB \
+  --report REPORT_PATH REPORT_SHA256 \
+  --confirm IMPORT-V23-DISJOINT-CONFIRMATION
+```
+
+The importer rejects selection sources, overlapping reports, and model changes.
+It has no order interface.
 
 Import three reviewed historical selection blocks:
 

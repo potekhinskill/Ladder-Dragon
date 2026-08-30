@@ -496,11 +496,10 @@ def test_symbol_scopes_keep_active_generations_separate(
         required_edge_pct=D("0.0096"),
     )
 
-    assert sol["generation"] == "v22"
-    assert sol["lifecycle_status"] == "LIVE_CONFIRMATION"
+    assert sol["generation"] == "v23"
+    assert sol["lifecycle_status"] == "WAITING_SELECTION_ARTIFACT"
     assert sol["lifecycle_mode"] == "PROMOTION"
-    assert sol["variant_id"] == "v22_maker_ttl90_gap48_tp80"
-    assert sol["execution_episode"]["status"] == "BLOCKED"
+    assert sol["promotion_eligible"] is False
     assert eth["generation"] == "v15"
     assert eth["lifecycle_status"] == "SELECTION"
     assert eth["superseded_selection_generations"] == [
@@ -523,10 +522,10 @@ def test_symbol_scopes_keep_active_generations_separate(
     assert eth["can_change_orders"] is False
     assert btc["can_change_orders"] is False
     assert sol["superseded_generations"] == [
-        "v11", "v12", "v13", "v14", "v15", "v16",
-        "v17", "v18",
-        "v19", "v20", "v21",
-    ]
+            "v11", "v12", "v13", "v14", "v15", "v16",
+            "v17", "v18",
+            "v19", "v20", "v21", "v22",
+        ]
     assert eth["superseded_reports"]["v11"]["generation"] == "v11"
     assert eth["superseded_reports"]["v12"]["generation"] == "v12"
     assert (

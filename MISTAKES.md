@@ -2251,3 +2251,10 @@ private infrastructure details.
 - **Root cause:** unit tests injected a permissive callback and bypassed the production endpoint allow-list.
 - **Correction:** permit one exact bounded public kline request and validate endpoint-specific response types.
 - **Prevention:** run each new evidence source through its real transport in an integration test.
+
+### 2026-08-30 — Reused the REANCHOR gate as dashboard strategy status
+
+- **Impact:** persistent HALT made the general strategy gate display misleading zero evidence.
+- **Root cause:** one cache identity served two evidence kinds with different meanings.
+- **Correction:** calculate STRATEGY and REANCHOR gates independently and label each gate kind.
+- **Prevention:** every dashboard gate must state and test its exact evidence cohort.

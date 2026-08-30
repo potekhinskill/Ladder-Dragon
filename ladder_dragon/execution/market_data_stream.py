@@ -13,7 +13,12 @@ from dataclasses import dataclass
 from decimal import Decimal, InvalidOperation
 from typing import Callable, Mapping, Optional
 
+import requests
+
 from websocket import WebSocketException, WebSocketTimeoutException, create_connection
+
+from ladder_dragon.strategy.depth_segments import MAX_FRAME_BYTES, PublicBook
+from ladder_dragon.strategy.prediction.entry_veto_replay import _ofi_increment
 
 
 ZERO = Decimal("0")
@@ -31,9 +36,8 @@ def combined_market_stream_url(symbol: str, *, testnet: bool = False) -> str:
     )
     streams = "/".join(
         (
-            f"{lower}@bookTicker",
             f"{lower}@aggTrade",
-            f"{lower}@depth20@100ms",
+            f"{lower}@depth@100ms",
         )
     )
     return f"{base}?streams={streams}"
@@ -65,6 +69,10 @@ class MarketSnapshot:
     depth_update_id: int | None
     sequence_ok: bool
     ready: bool
+    veto_ready: bool
+    prefill_price_change_bps: Decimal
+    prefill_signed_trade_flow: Decimal
+    prefill_order_flow_imbalance: Decimal
 
 
 @dataclass(frozen=True)
@@ -82,6 +90,78 @@ class DecisionGate:
     snapshot_age_ms: Decimal
     price_move_bps: Decimal
     net_edge_bps: Decimal
+
+
+@dataclass(frozen=True)
+class EntryVetoDecision:
+    cancel: bool
+    reason: str
+    signal_observed: bool
+
+
+def evaluate_entry_veto(
+    snapshot: MarketSnapshot | None,
+    rule: Mapping[str, object],
+    *,
+    now_monotonic_ns: int,
+    maximum_age_ms: int = 500,
+) -> EntryVetoDecision:
+    """Cancel on an adverse signal or unavailable frozen market evidence."""
+    from ladder_dragon.strategy.prediction.entry_diagnostics import (
+        normalize_entry_veto_rule,
+    )
+
+    normalized = normalize_entry_veto_rule(rule)
+    if snapshot is None:
+        return EntryVetoDecision(True, "entry-veto-market-unavailable", False)
+    age_ms = Decimal(
+        max(0, int(now_monotonic_ns) - snapshot.received_monotonic_ns)
+    ) / Decimal("1000000")
+    if (
+        not snapshot.ready
+        or not snapshot.veto_ready
+        or not snapshot.sequence_ok
+        or age_ms > max(0, int(maximum_age_ms))
+    ):
+        return EntryVetoDecision(True, "entry-veto-evidence-unavailable", False)
+    signal = bool(
+        snapshot.prefill_price_change_bps
+        <= Decimal(str(normalized["prefill_price_change_max_bps"]))
+        and snapshot.prefill_signed_trade_flow
+        <= Decimal(str(normalized["prefill_signed_trade_flow_max"]))
+        and snapshot.prefill_order_flow_imbalance
+        <= Decimal(str(normalized["prefill_order_flow_imbalance_max"]))
+    )
+    return EntryVetoDecision(
+        signal,
+        "entry-veto-adverse-selection" if signal else "entry-veto-clear",
+        signal,
+    )
+
+
+def public_depth_snapshot(
+    symbol: str, *, testnet: bool = False
+) -> dict[str, object]:
+    """Read one public snapshot with a strict decoded-byte ceiling."""
+    with requests.get(
+        (
+            "https://testnet.binance.vision/api/v3/depth"
+            if testnet else "https://data-api.binance.vision/api/v3/depth"
+        ),
+        params={"symbol": symbol, "limit": 5000},
+        timeout=15,
+        stream=True,
+    ) as response:
+        response.raise_for_status()
+        body = bytearray()
+        for chunk in response.iter_content(65_536):
+            body.extend(chunk)
+            if len(body) > MAX_FRAME_BYTES:
+                raise ValueError("public depth response exceeds byte limit")
+    payload = json.loads(body)
+    if not isinstance(payload, dict) or "lastUpdateId" not in payload:
+        raise ValueError("public depth snapshot is invalid")
+    return payload
 
 
 def evaluate_snapshot_gate(
@@ -151,7 +231,7 @@ class MarketSnapshotStore:
         *,
         monotonic_ns: Callable[[], int] = time.monotonic_ns,
         wall_time_ms: Callable[[], int] = lambda: int(time.time() * 1000),
-        flow_window_ms: int = 2000,
+        flow_window_ms: int = 300_000,
     ) -> None:
         self.symbol = symbol.strip().upper()
         self._monotonic_ns = monotonic_ns
@@ -159,14 +239,23 @@ class MarketSnapshotStore:
         self._flow_window_ms = max(100, int(flow_window_ms))
         self._lock = threading.Lock()
         self._condition = threading.Condition(self._lock)
+        self._book = PublicBook()
+        self._synchronized = False
         self._best_bid = ZERO
         self._best_ask = ZERO
         self._bid_quantity = ZERO
         self._ask_quantity = ZERO
         self._depth_imbalance = ZERO
         self._last_trade_price = ZERO
-        self._trade_flow: deque[tuple[int, Decimal]] = deque(maxlen=10_000)
+        self._signal_rows: deque[
+            tuple[int, Decimal, Decimal, Decimal, Decimal, Decimal, Decimal]
+        ] = deque(maxlen=100_000)
         self._trade_flow_quote = ZERO
+        self._buy_quantity = ZERO
+        self._sell_quantity = ZERO
+        self._ofi = ZERO
+        self._ofi_scale = ZERO
+        self._previous_top: tuple[Decimal, Decimal, Decimal, Decimal] | None = None
         self._depth_update_id: int | None = None
         self._sequence_ok = True
         self._book_received_monotonic_ns = 0
@@ -182,11 +271,116 @@ class MarketSnapshotStore:
             # Require fresh book and depth frames before BUY can resume.
             self._depth_update_id = None
             self._sequence_ok = True
+            self._book = PublicBook()
+            self._synchronized = False
+            self._signal_rows.clear()
+            self._trade_flow_quote = ZERO
+            self._buy_quantity = ZERO
+            self._sell_quantity = ZERO
+            self._ofi = ZERO
+            self._ofi_scale = ZERO
+            self._previous_top = None
             self._book_received_monotonic_ns = 0
             self._book_received_at_ms = 0
             self._depth_received_monotonic_ns = 0
             self._depth_received_at_ms = 0
             self._condition.notify_all()
+
+    def initialize_depth(self, snapshot: Mapping[str, object]) -> None:
+        """Seed a session from REST before accepting any diff-depth event."""
+        now_ns = int(self._monotonic_ns())
+        now_ms = int(self._wall_time_ms())
+        row = {
+            "s": self.symbol,
+            "E": now_ms,
+            "_received_at_ms": now_ms,
+            "lastUpdateId": snapshot.get("lastUpdateId"),
+            "bids": snapshot.get("bids"),
+            "asks": snapshot.get("asks"),
+        }
+        with self._condition:
+            event = self._book.apply(row)
+            self._depth_update_id = self._book.update_id
+            self._refresh_top(event)
+            self._depth_received_monotonic_ns = now_ns
+            self._depth_received_at_ms = now_ms
+            self._condition.notify_all()
+
+    def _refresh_top(self, event) -> None:
+        current = (
+            event.bids[0].price,
+            event.bids[0].quantity,
+            event.asks[0].price,
+            event.asks[0].quantity,
+        )
+        increment = (
+            _ofi_increment(self._previous_top, current)
+            if self._previous_top is not None else ZERO
+        )
+        self._previous_top = current
+        self._best_bid, self._bid_quantity = current[0], current[1]
+        self._best_ask, self._ask_quantity = current[2], current[3]
+        self._ofi += increment
+        self._ofi_scale += abs(increment)
+        buy = sell = ZERO
+        for _price, quantity, aggressor in event.trades:
+            if aggressor == "BUY":
+                buy += quantity
+            elif aggressor == "SELL":
+                sell += quantity
+        self._buy_quantity += buy
+        self._sell_quantity += sell
+        self._trade_flow_quote += sum(
+            (
+                price * quantity if aggressor == "BUY" else -price * quantity
+                for price, quantity, aggressor in event.trades
+            ),
+            ZERO,
+        )
+        signed_quote = sum(
+            (
+                price * quantity if aggressor == "BUY" else -price * quantity
+                for price, quantity, aggressor in event.trades
+            ),
+            ZERO,
+        )
+        bid_quote = sum(
+            (level.price * level.quantity for level in event.bids), ZERO
+        )
+        ask_quote = sum(
+            (level.price * level.quantity for level in event.asks), ZERO
+        )
+        total_quote = bid_quote + ask_quote
+        self._depth_imbalance = (
+            (bid_quote - ask_quote) / total_quote if total_quote > 0 else ZERO
+        )
+        self._signal_rows.append(
+            (
+                event.ts_ms, current[0], increment, abs(increment), buy, sell,
+                signed_quote,
+            )
+        )
+        cutoff = event.ts_ms - self._flow_window_ms
+        while len(self._signal_rows) > 1 and self._signal_rows[1][0] <= cutoff:
+            _, _, old_ofi, old_scale, old_buy, old_sell, old_quote = (
+                self._signal_rows.popleft()
+            )
+            self._ofi -= old_ofi
+            self._ofi_scale -= old_scale
+            self._buy_quantity -= old_buy
+            self._sell_quantity -= old_sell
+            self._trade_flow_quote -= old_quote
+        if self._signal_rows and self._signal_rows[0][0] < cutoff:
+            stamp, bid, old_ofi, old_scale, old_buy, old_sell, old_quote = (
+                self._signal_rows[0]
+            )
+            self._ofi -= old_ofi
+            self._ofi_scale -= old_scale
+            self._buy_quantity -= old_buy
+            self._sell_quantity -= old_sell
+            self._trade_flow_quote -= old_quote
+            # Retain only the last pre-window bid as the causal price anchor.
+            self._signal_rows[0] = (stamp, bid, ZERO, ZERO, ZERO, ZERO, ZERO)
 
     def update(self, raw_payload: Mapping[str, object]) -> None:
         payload = raw_payload.get("data", raw_payload)
@@ -196,75 +390,51 @@ class MarketSnapshotStore:
         now_ns = int(self._monotonic_ns())
         now_ms = int(self._wall_time_ms())
         with self._condition:
-            if "lastUpdateId" in payload and "bids" in payload:
+            if "lastUpdateId" in payload:
                 update_id = int(payload["lastUpdateId"])
-                bids = payload.get("bids")
-                asks = payload.get("asks")
-                if not isinstance(bids, list) or not isinstance(asks, list):
-                    raise ValueError("depth snapshot is invalid")
                 if (
-                    self._depth_update_id is not None
-                    and update_id < self._depth_update_id
+                    self._book.update_id is not None
+                    and update_id < self._book.update_id
                 ):
-                    # A stale full snapshot blocks this decision only. A later
-                    # accepted snapshot restores sequence validity.
                     self._sequence_ok = False
-                else:
-                    self._depth_update_id = update_id
-                    bid_quote = sum(
-                        (
-                            _decimal(row[0], name="bid price")
-                            * _decimal(row[1], name="bid quantity")
-                            for row in bids
-                            if isinstance(row, list) and len(row) >= 2
-                        ),
-                        ZERO,
-                    )
-                    ask_quote = sum(
-                        (
-                            _decimal(row[0], name="ask price")
-                            * _decimal(row[1], name="ask quantity")
-                            for row in asks
-                            if isinstance(row, list) and len(row) >= 2
-                        ),
-                        ZERO,
-                    )
-                    total = bid_quote + ask_quote
-                    self._depth_imbalance = (
-                        (bid_quote - ask_quote) / total if total > 0 else ZERO
-                    )
-                    self._depth_received_monotonic_ns = now_ns
-                    self._depth_received_at_ms = now_ms
-                    self._sequence_ok = True
-            elif event == "aggTrade":
-                price = _decimal(payload.get("p"), name="trade price")
-                quantity = _decimal(payload.get("q"), name="trade quantity")
-                trade_time = int(payload.get("T", now_ms) or now_ms)
-                signed_quote = price * quantity
-                if bool(payload.get("m")):
-                    signed_quote = -signed_quote
-                if self._trade_flow.maxlen is not None and (
-                    len(self._trade_flow) == self._trade_flow.maxlen
-                ):
-                    self._trade_flow_quote -= self._trade_flow[0][1]
-                self._trade_flow.append((trade_time, signed_quote))
-                self._trade_flow_quote += signed_quote
-                self._last_trade_price = price
-                cutoff = trade_time - self._flow_window_ms
-                while self._trade_flow and self._trade_flow[0][0] < cutoff:
-                    _, expired_quote = self._trade_flow.popleft()
-                    self._trade_flow_quote -= expired_quote
-            elif "b" in payload and "a" in payload:
-                self._best_bid = _decimal(payload.get("b"), name="best bid")
-                self._bid_quantity = _decimal(
-                    payload.get("B"), name="best bid quantity"
-                )
-                self._best_ask = _decimal(payload.get("a"), name="best ask")
-                self._ask_quantity = _decimal(
-                    payload.get("A"), name="best ask quantity"
-                )
+                    self._condition.notify_all()
+                    return
+                row = dict(payload)
+                row.setdefault("s", self.symbol)
+                row["_received_at_ms"] = now_ms
+                market_event = self._book.apply(row)
+                self._synchronized = True
+                self._depth_update_id = self._book.update_id
+                self._refresh_top(market_event)
+                self._depth_received_monotonic_ns = now_ns
+                self._depth_received_at_ms = now_ms
                 self._book_received_monotonic_ns = now_ns
                 self._book_received_at_ms = now_ms
+                self._sequence_ok = True
+            elif event == "depthUpdate":
+                if self._book.update_id is None:
+                    raise ValueError("public depth snapshot is unavailable")
+                if int(payload.get("u", 0)) <= self._book.update_id:
+                    return
+                row = dict(payload)
+                row["_received_at_ms"] = now_ms
+                market_event = self._book.apply(row)
+                self._synchronized = True
+                self._depth_update_id = self._book.update_id
+                self._refresh_top(market_event)
+                self._depth_received_monotonic_ns = now_ns
+                self._depth_received_at_ms = now_ms
+                self._book_received_monotonic_ns = now_ns
+                self._book_received_at_ms = now_ms
+                self._sequence_ok = True
+            elif event == "aggTrade":
+                row = dict(payload)
+                row["_received_at_ms"] = now_ms
+                market_event = self._book.apply(row)
+                self._refresh_top(market_event)
+                self._last_trade_price = _decimal(
+                    payload.get("p"), name="trade price"
+                )
             else:
                 return
             self._condition.notify_all()
@@ -303,7 +473,27 @@ class MarketSnapshotStore:
                 self._best_bid > 0
                 and self._best_ask > 0
                 and self._depth_update_id is not None
+                and self._synchronized
                 and required_received_ns > 0
+            )
+            trade_total = self._buy_quantity + self._sell_quantity
+            price_change = (
+                (self._best_bid / self._signal_rows[0][1] - Decimal("1"))
+                * TEN_THOUSAND
+                if self._signal_rows and self._signal_rows[0][1] > 0 else ZERO
+            )
+            signed_flow = (
+                (self._buy_quantity - self._sell_quantity) / trade_total
+                if trade_total > 0 else ZERO
+            )
+            normalized_ofi = (
+                self._ofi / self._ofi_scale if self._ofi_scale > 0 else ZERO
+            )
+            veto_ready = bool(
+                ready and self._signal_rows
+                and self._signal_rows[-1][0] - self._signal_rows[0][0]
+                >= self._flow_window_ms
+                and trade_total > 0 and self._ofi_scale > 0
             )
             return MarketSnapshot(
                 symbol=self.symbol,
@@ -320,6 +510,10 @@ class MarketSnapshotStore:
                 depth_update_id=self._depth_update_id,
                 sequence_ok=self._sequence_ok,
                 ready=ready,
+                veto_ready=veto_ready,
+                prefill_price_change_bps=price_change,
+                prefill_signed_trade_flow=signed_flow,
+                prefill_order_flow_imbalance=normalized_ofi,
             )
 
     def wait(self, timeout: float) -> bool:
@@ -339,6 +533,7 @@ class BinanceMarketDataObserver:
         testnet: bool,
         logger: Callable[[str], None],
         connect: Optional[Callable[..., object]] = None,
+        snapshot_fetcher: Optional[Callable[[str], Mapping[str, object]]] = None,
     ) -> None:
         self.store = store
         self.url = combined_market_stream_url(
@@ -346,6 +541,9 @@ class BinanceMarketDataObserver:
         )
         self.logger = logger
         self._connect = connect or create_connection
+        self._snapshot_fetcher = snapshot_fetcher or (
+            lambda symbol: public_depth_snapshot(symbol, testnet=testnet)
+        )
         self._stop = threading.Event()
         self._thread: threading.Thread | None = None
         self._connection: object | None = None
@@ -379,6 +577,9 @@ class BinanceMarketDataObserver:
                 connection = self._connect(self.url, timeout=10)
                 self._connection = connection
                 self.store.begin_stream_session()
+                self.store.initialize_depth(
+                    self._snapshot_fetcher(self.store.symbol)
+                )
                 self.logger(
                     f"[MARKET-STREAM] {self.store.symbol} connected"
                 )

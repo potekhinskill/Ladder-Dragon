@@ -555,6 +555,13 @@ def test_supervisor_shadow_records_strategy_and_hashed_reanchor(
     controls = ai_supervisor._AI_RUNTIME_STATUS["prediction"]["symbols"]["SOLUSDT"][
         "strategy_control_gates"
     ]
+    strategy_gate = ai_supervisor._AI_RUNTIME_STATUS["prediction"][
+        "symbols"
+    ]["SOLUSDT"]["gate"]
+    assert strategy_gate["gate_kind"] == "STRATEGY"
+    assert ai_supervisor._PREDICTION_GATE_CACHE["SOLUSDT"][1][
+        "gate_kind"
+    ] == "REANCHOR"
     assert controls["maker"]["status"] == "NOT_IMPLEMENTED"
     assert controls["inventory"]["status"] == "STATEFUL_MODEL_REQUIRED"
     with store._connect() as connection:

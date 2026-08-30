@@ -167,6 +167,97 @@ def test_panic_cancels_partial_remainder_and_keeps_fill_for_protection(
     assert journal.get(intent.client_order_id).state == "PROTECTION_PENDING"
 
 
+def test_entry_veto_cancels_zero_fill_and_preserves_no_exposure(
+    tmp_path, monkeypatch
+):
+    worker = load_worker()
+    journal = configure_worker(worker, tmp_path, monkeypatch)
+    intent = _journal_buy(journal, order_id=103)
+    monkeypatch.setattr(worker, "get_order", lambda symbol, order_id: {
+        "symbol": symbol,
+        "side": "BUY",
+        "orderId": order_id,
+        "status": "NEW",
+        "executedQty": "0",
+        "cummulativeQuoteQty": "0",
+    })
+    monkeypatch.setattr(worker, "_signed_request", lambda *args, **kwargs: {
+        "symbol": "SOLUSDT",
+        "side": "BUY",
+        "orderId": 103,
+        "status": "CANCELED",
+        "executedQty": "0",
+        "cummulativeQuoteQty": "0",
+    })
+
+    remaining = worker.cancel_open_buys_for_entry_veto(
+        "SOLUSDT", [103], reason="entry-veto-adverse-selection"
+    )
+
+    assert remaining == []
+    assert journal.get(intent.client_order_id).state == "CANCELED"
+
+
+def test_entry_veto_late_cancel_keeps_partial_fill_for_protection(
+    tmp_path, monkeypatch
+):
+    worker = load_worker()
+    journal = configure_worker(worker, tmp_path, monkeypatch)
+    intent = _journal_buy(journal, order_id=104)
+    monkeypatch.setattr(worker, "get_order", lambda symbol, order_id: {
+        "symbol": symbol,
+        "side": "BUY",
+        "orderId": order_id,
+        "status": "PARTIALLY_FILLED",
+        "executedQty": "0.020",
+        "cummulativeQuoteQty": "1.5",
+    })
+    monkeypatch.setattr(worker, "_signed_request", lambda *args, **kwargs: {
+        "symbol": "SOLUSDT",
+        "side": "BUY",
+        "orderId": 104,
+        "status": "CANCELED",
+        "executedQty": "0.020",
+        "cummulativeQuoteQty": "1.5",
+    })
+
+    remaining = worker.cancel_open_buys_for_entry_veto(
+        "SOLUSDT", [104], reason="entry-veto-adverse-selection"
+    )
+
+    assert remaining == [104]
+    assert journal.get(intent.client_order_id).state == "PROTECTION_PENDING"
+
+
+def test_unconfirmed_entry_veto_cancel_trips_persistent_halt(
+    tmp_path, monkeypatch
+):
+    worker = load_worker()
+    configure_worker(worker, tmp_path, monkeypatch)
+    _journal_buy(worker._ORDER_JOURNAL, order_id=105)
+    monkeypatch.setattr(worker, "get_order", lambda symbol, order_id: {
+        "symbol": symbol,
+        "side": "BUY",
+        "orderId": order_id,
+        "status": "NEW",
+        "executedQty": "0",
+        "cummulativeQuoteQty": "0",
+    })
+    monkeypatch.setattr(
+        worker,
+        "_signed_request",
+        lambda *args, **kwargs: (_ for _ in ()).throw(
+            requests.ConnectionError("cancel response lost")
+        ),
+    )
+
+    with pytest.raises(RuntimeError, match="entry-veto cancel unconfirmed"):
+        worker.cancel_open_buys_for_entry_veto(
+            "SOLUSDT", [105], reason="entry-veto-evidence-unavailable"
+        )
+    assert (tmp_path / "circuit_halt.json").exists()
+
+
 def test_unconfirmed_panic_cancel_trips_persistent_halt(tmp_path, monkeypatch):
     worker = load_worker()
     journal = configure_worker(worker, tmp_path, monkeypatch)

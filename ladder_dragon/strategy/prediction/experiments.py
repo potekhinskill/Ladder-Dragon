@@ -7,7 +7,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from decimal import Decimal
-from typing import Iterable
+from typing import Iterable, Mapping
 
 from ladder_dragon.strategy.prediction.models import (
     PredictionFeatures,
@@ -32,6 +32,7 @@ from ladder_dragon.strategy.prediction.episode_semantics import (
     v19_evidence_semantics_fingerprint,
     v20_evidence_semantics_fingerprint,
     v21_evidence_semantics_fingerprint,
+    v23_evidence_semantics_fingerprint,
 )
 from ladder_dragon.strategy.prediction.experiment_lifecycle import (
     REPORT_SCHEMA_VERSION,
@@ -169,6 +170,8 @@ def build_shadow_variants(
     regime: str,
     generation: str = SHADOW_GENERATION,
     symbol: str | None = None,
+    entry_veto_rule: Mapping[str, object] | None = None,
+    target_reachability: Decimal | None = None,
 ) -> tuple[ShadowVariant, ...]:
     """Build narrowed maker candidates above the authoritative fee floor."""
     if not market_price.is_finite() or market_price <= 0:
@@ -227,7 +230,9 @@ def build_shadow_variants(
                 else "predict_distribution:v1:expanding_history_before_snapshot"
             ),
             candidate_rule_version=(
-                7 if spec.statistical_design_version
+                8 if spec.statistical_design_version
+                == "episode_anytime_expectancy_v7"
+                else 7 if spec.statistical_design_version
                 == "episode_anytime_expectancy_v6"
                 else 6 if spec.statistical_design_version
                 == "episode_anytime_expectancy_v5"
@@ -243,7 +248,10 @@ def build_shadow_variants(
                 spec.lifecycle_mode == "PROMOTION"
             ),
             evidence_semantics_fingerprint=(
-                evidence_semantics_fingerprint()
+                v23_evidence_semantics_fingerprint()
+                if spec.statistical_design_version
+                == "episode_anytime_expectancy_v7"
+                else evidence_semantics_fingerprint()
                 if spec.statistical_design_version
                 == "episode_anytime_expectancy_v6"
                 else v21_evidence_semantics_fingerprint()
@@ -257,9 +265,23 @@ def build_shadow_variants(
                 == "episode_net_expectancy_alpha_spending_v3"
                 else ""
             ),
+            entry_veto_rule=(
+                entry_veto_rule
+                if spec.statistical_design_version
+                == "episode_anytime_expectancy_v7" else None
+            ),
+            target_reachability=(
+                target_reachability
+                if spec.statistical_design_version
+                == "episode_anytime_expectancy_v7" else None
+            ),
         )
 
     spec = experiment_spec_for_generation(generation, symbol=symbol)
+    if spec.statistical_design_version == "episode_anytime_expectancy_v7" and (
+        entry_veto_rule is None or target_reachability is None
+    ):
+        raise ValueError("v23 requires an immutable entry-veto selection artifact")
     # The immutable manifest owns regime scope. Variant economics stay identical.
     del regime
     dimension = experiment_dimension(generation, symbol=symbol)

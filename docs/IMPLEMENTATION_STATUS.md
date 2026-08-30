@@ -1,6 +1,6 @@
 # Implementation status
 
-This document describes the code in version **2.20.266**.
+This document describes the code in version **2.20.267**.
 It does not describe future plans as completed work.
 
 An implemented function is not automatically approved for LIVE use.
@@ -143,16 +143,18 @@ The gate also checks fill rate, drawdown, and regime safety.
 PANIC flatten PnL enters the mean and drawdown.
 PANIC vetoes are terminal unfilled attempts in the fill denominator.
 RECOVERY and PANIC cannot start an entry episode.
-Version twenty-two preregisters RANGE as its only executable entry regime.
+Version twenty-three preregisters RANGE as its only executable entry regime.
 RANGE requires twelve filled episodes and a positive confidence bound.
 Every other regime blocks CHAMPION BUY and keeps position protection active.
 Residual PANIC exposure remains a separate safety failure.
 The confirmation deadline is 14 days.
 The design also stops after 300 terminal episodes.
 An impossible design becomes ready for REJECTED finalization before either limit.
-Future version-twenty-three criteria also preregister a useful-mean threshold.
-An anytime-valid upper bound can reject that future candidate early.
-This additional rule does not apply to version twenty-two.
+Version twenty-three also preregisters a useful-mean threshold.
+An anytime-valid upper bound can reject that candidate early.
+Its entry veto requires an immutable historical L2 selection artifact.
+Its confirmation accepts only reviewed, post-cutoff diff-depth reports.
+Selection and confirmation cannot reuse an archive hash.
 
 Promotion also requires strict reusable engine replay against sanitized real order reports.
 The validation requires at least ten covered terminal orders.
@@ -190,6 +192,16 @@ Capacity exhaustion fails closed and requires a reviewed schema change.
 The L2 retention service archives completed public segments after 14 days.
 It requires calibration, no database reference, and a recent verified encrypted backup.
 It verifies external encrypted publication before local removal.
+It preserves sources pinned by replay drafts and accepted requests.
+
+The replay planner creates deterministic review-only drafts after three complete blocks.
+It never queues a request or imports selection evidence.
+The v23 confirmation importer appends an episode start and result atomically.
+It verifies the selection cutoff, source identities, model hashes, policy, and fees.
+Minute REST snapshots cannot satisfy v23 confirmation.
+
+The dashboard strategy gate uses only STRATEGY evidence.
+The REANCHOR gate remains separate and has an explicit gate kind.
 
 New plan semantics use a new experiment identifier.
 Historical experiment rows remain available and never mix with the active generation.

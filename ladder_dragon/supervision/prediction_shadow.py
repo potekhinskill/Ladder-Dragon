@@ -22,6 +22,9 @@ from ladder_dragon.strategy.prediction.experiment_config import (
     experiment_spec_for_symbol,
 )
 from ladder_dragon.strategy.prediction.models import PredictionFeatures, TradePlan
+from ladder_dragon.strategy.prediction.entry_diagnostics import (
+    latest_entry_veto_selection,
+)
 from ladder_dragon.strategy.prediction.runtime import PredictionShadowStore
 from ladder_dragon.strategy.prediction.statistical_design import (
     DEFAULT_STATISTICAL_DESIGN,
@@ -136,6 +139,28 @@ def collect_shadow_experiments(
             "can_change_orders": False,
         }
     spec = experiment_spec_for_symbol(symbol)
+    entry_veto_rule = None
+    target_reachability = None
+    if spec.statistical_design_version == "episode_anytime_expectancy_v7":
+        try:
+            entry_veto_rule, target_reachability = (
+                latest_entry_veto_selection(store, symbol=symbol)
+            )
+        except (ValueError, sqlite3.Error) as exc:
+            return {
+                "mode": "SHADOW",
+                "available": False,
+                "generation": spec.generation,
+                "lifecycle_status": "WAITING_SELECTION_ARTIFACT",
+                "lifecycle_mode": spec.lifecycle_mode,
+                "superseded_generations": list(
+                    spec.superseded_selection_generations
+                ),
+                "reason": str(exc),
+                "can_change_orders": False,
+                "apply_allowed": False,
+                "promotion_eligible": False,
+            }
     variants = build_shadow_variants(
         market_price=market_price,
         baseline_plan=baseline_plan,
@@ -143,6 +168,8 @@ def collect_shadow_experiments(
         regime=features.regime,
         generation=spec.generation,
         symbol=symbol,
+        entry_veto_rule=entry_veto_rule,
+        target_reachability=target_reachability,
     )
     if spec.lifecycle_mode == "PROMOTION":
         if depth is None or filters is None:
