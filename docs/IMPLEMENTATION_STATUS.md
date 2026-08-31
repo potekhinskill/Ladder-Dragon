@@ -1,6 +1,6 @@
 # Implementation status
 
-This document describes the code in version **2.20.276**.
+This document describes the code in version **2.20.277**.
 It does not describe future plans as completed work.
 
 An implemented function is not automatically approved for LIVE use.
@@ -210,6 +210,9 @@ It never queues a request or imports selection evidence.
 The v23 confirmation importer appends an episode start and result atomically.
 It verifies the selection cutoff, source identities, model hashes, policy, and fees.
 Minute REST snapshots cannot satisfy v23 confirmation.
+The v23 confirmation cohort contains 42 fixed provider-bounded paths.
+The anytime-valid gate can pass early and rejects at the fixed cohort end.
+Selection rate bounds describe expected power but cannot expand this cohort.
 
 The dashboard strategy gate uses only STRATEGY evidence.
 The REANCHOR gate remains separate and has an explicit gate kind.
@@ -248,11 +251,13 @@ An equity-loss breach creates persistent HALT.
 The worker fails closed without a current probation result.
 
 The public depth service records consecutive 55-minute segments.
-It publishes one disposable rolling volatility record every five minutes.
+It publishes a 55-minute rolling volatility measurement every five minutes.
+The measurement window and publication interval enter the policy fingerprint.
 The record overwrites one bounded file and has no archive dependency.
 The service restarts after a recorder failure.
 Seven-day rotation bounds disposable public archive growth.
 Each validation drill also stores its complete order-lifecycle archive.
+Batch completion records drill coverage but does not claim replay readiness.
 Replay validation matches the reusable order engine, fee schedule, and simulator domain.
 Candidate gap, lifetime, target, and stop evidence remains inside SHADOW confirmation.
 

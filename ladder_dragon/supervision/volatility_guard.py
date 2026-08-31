@@ -16,6 +16,10 @@ from ladder_dragon.strategy.rolling_volatility import (
     ROLLING_VOLATILITY_FILENAME,
     ROLLING_WINDOW_MS,
 )
+from ladder_dragon.strategy.volatility_policy import (
+    VOLATILITY_METRIC,
+    VOLATILITY_PUBLISH_INTERVAL_MS,
+)
 from ladder_dragon.strategy.prediction.champion_registry import (
     champion_allows_volatility,
 )
@@ -65,12 +69,21 @@ def evaluate_volatility_guard(
             else "normal"
         )
         if (
-            rolling.get("schema_version") != 1
+            rolling.get("schema_version") != 2
             or rolling.get("mode") != "PUBLIC_READ_ONLY"
             or rolling.get("apply_allowed") is not False
             or rolling.get("contains_secrets") is not False
             or rolling.get("symbol") != policy.get("symbol")
             or rolling.get("sequence_verified") is not True
+            or rolling.get("volatility_metric") != VOLATILITY_METRIC
+            or rolling.get("measurement_window_ms") != ROLLING_WINDOW_MS
+            or rolling.get("publish_interval_ms")
+            != VOLATILITY_PUBLISH_INTERVAL_MS
+            or policy.get("volatility_measurement_window_ms")
+            != ROLLING_WINDOW_MS
+            or policy.get("volatility_publish_interval_ms")
+            != VOLATILITY_PUBLISH_INTERVAL_MS
+            or policy.get("volatility_metric") != VOLATILITY_METRIC
             or rolling.get("telemetry_sha256") != fingerprint(rolling_body)
             or not volatility.is_finite()
             or volatility < 0
@@ -84,7 +97,7 @@ def evaluate_volatility_guard(
             or int(rolling["last_update_id"]) <= 0
             or rolling_updated_ms > observed_at_ms + MAXIMUM_FUTURE_SKEW_MS
             or window_started_ms > rolling_updated_ms
-            or rolling_updated_ms - window_started_ms < ROLLING_WINDOW_MS
+            or rolling_updated_ms - window_started_ms != ROLLING_WINDOW_MS
             or observed_at_ms - rolling_updated_ms
             > MAXIMUM_ROLLING_TELEMETRY_AGE_MS
         ):

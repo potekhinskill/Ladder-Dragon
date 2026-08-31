@@ -24,6 +24,9 @@ from ladder_dragon.strategy.prediction.entry_diagnostics import (
     normalize_entry_veto_rule,
 )
 from ladder_dragon.strategy.volatility_policy import (
+    VOLATILITY_MEASUREMENT_WINDOW_MS,
+    VOLATILITY_METRIC,
+    VOLATILITY_PUBLISH_INTERVAL_MS,
     verify_volatility_policy,
     verify_volatility_scope,
 )
@@ -33,7 +36,7 @@ if TYPE_CHECKING:
 
 
 D = Decimal
-CHAMPION_POLICY_SCHEMA_VERSION = 8
+CHAMPION_POLICY_SCHEMA_VERSION = 9
 EXECUTION_REGIMES = ("RANGE", "TREND_UP", "TREND_DOWN")
 PROTECTIVE_RUNTIME_ACTIONS = (
     "REDUCE_ORDER_NOTIONAL",
@@ -325,6 +328,15 @@ def execution_policy_from_manifest(
             "volatility_high_min_bps": str(
                 volatility_policy["high_min_bps"]
             ),
+            "volatility_metric": str(
+                volatility_policy["volatility_metric"]
+            ),
+            "volatility_measurement_window_ms": int(
+                volatility_policy["measurement_window_ms"]
+            ),
+            "volatility_publish_interval_ms": int(
+                volatility_policy["publish_interval_ms"]
+            ),
             "allowed_volatility_buckets": list(
                 volatility_scope["confirmed_buckets"]
             ),
@@ -335,7 +347,7 @@ def execution_policy_from_manifest(
                 volatility_scope["scope_sha256"]
             ),
             "volatility_activation_policy": (
-                "confirmed_post_cutoff_rolling_depth_bucket_v2"
+                "confirmed_post_cutoff_rolling_depth_bucket_v3"
             ),
         })
     return policy
@@ -370,7 +382,12 @@ def champion_allows_volatility(
     if (
         policy.get("schema_version") != CHAMPION_POLICY_SCHEMA_VERSION
         or policy.get("volatility_activation_policy")
-        != "confirmed_post_cutoff_rolling_depth_bucket_v2"
+        != "confirmed_post_cutoff_rolling_depth_bucket_v3"
+        or policy.get("volatility_metric") != VOLATILITY_METRIC
+        or policy.get("volatility_measurement_window_ms")
+        != VOLATILITY_MEASUREMENT_WINDOW_MS
+        or policy.get("volatility_publish_interval_ms")
+        != VOLATILITY_PUBLISH_INTERVAL_MS
     ):
         return False
     allowed = policy.get("allowed_volatility_buckets")

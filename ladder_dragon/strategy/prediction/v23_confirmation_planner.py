@@ -5,13 +5,16 @@
 
 from __future__ import annotations
 
-from decimal import Decimal, ROUND_CEILING
+from decimal import Decimal
 from pathlib import Path
 from typing import Mapping
 
 from ladder_dragon.strategy.depth_segments import atomic_json, bounded_json
 from ladder_dragon.strategy.prediction.episode_semantics import (
     execution_model_contract,
+)
+from ladder_dragon.strategy.prediction.episode_expectancy import (
+    V23_FIXED_CONFIRMATION_PATHS,
 )
 from ladder_dragon.strategy.prediction.historical_policy import fingerprint
 from ladder_dragon.strategy.prediction.historical_replay_planner import (
@@ -36,7 +39,6 @@ from ladder_dragon.strategy.prediction.v23_confirmation import (
 
 D = Decimal
 CONFIRMATION_COHORT_MARKER = "confirmation-cohort.json"
-CONFIRMATION_FIXED_ATTRITION_PATHS = 1
 
 
 def _integer(criteria: Mapping[str, object], field: str) -> int:
@@ -54,10 +56,6 @@ def _rate(metrics: Mapping[str, object], field: str) -> Decimal:
     if not value.is_finite() or not D("0") < value <= D("1"):
         raise ValueError("v23 confirmation planning rates are invalid")
     return value
-
-
-def _paths_for(required: int, rate: Decimal) -> int:
-    return int((D(required) / rate).to_integral_value(rounding=ROUND_CEILING))
 
 
 def _confirmation_design(
@@ -79,35 +77,31 @@ def _confirmation_design(
     range_filled_rate = _rate(
         metrics, "range_filled_path_rate_lower_bound"
     )
-    required = max(
-        _paths_for(
-            _integer(criteria, "minimum_eligible_terminal_episodes"),
-            eligible_rate,
-        ),
-        _paths_for(
-            max(
-                _integer(criteria, "minimum_filled_episodes"),
-                _integer(criteria, "design_effect_required_filled_episodes"),
-            ),
-            filled_rate,
-        ),
-        _paths_for(
-            _integer(criteria, "minimum_regime_filled_episodes"),
-            range_filled_rate,
-        ),
-    )
-    required += CONFIRMATION_FIXED_ATTRITION_PATHS
-    grouped = ((required + PATHS_PER_BLOCK - 1) // PATHS_PER_BLOCK) * PATHS_PER_BLOCK
-    if grouped > MAXIMUM_CONTEXT_CANDIDATES:
+    if not (
+        criteria.get("criteria_schema_version") == 8
+        and criteria.get("confirmation_cohort_policy")
+        == "fixed_provider_capacity_paths_v1"
+        and criteria.get("fixed_confirmation_paths")
+        == V23_FIXED_CONFIRMATION_PATHS
+        and criteria.get("dynamic_confirmation_top_up_allowed") is False
+        and criteria.get("design_effect_is_capacity_gate") is False
+        and _integer(criteria, "maximum_terminal_episodes")
+        == V23_FIXED_CONFIRMATION_PATHS
+    ):
+        raise ValueError("v23 fixed confirmation contract is unavailable")
+    if V23_FIXED_CONFIRMATION_PATHS > MAXIMUM_CONTEXT_CANDIDATES:
         raise ValueError("v23 confirmation path capacity reached")
     return {
-        "schema_version": 1,
-        "policy": "pre_cutoff_rate_lower_bounds_with_fixed_attrition_v1",
+        "schema_version": 2,
+        "policy": "fixed_provider_capacity_paths_v1",
         "eligible_path_rate_lower_bound": format(eligible_rate, "f"),
         "filled_path_rate_lower_bound": format(filled_rate, "f"),
         "range_filled_path_rate_lower_bound": format(range_filled_rate, "f"),
-        "required_independent_paths": grouped,
-        "fixed_attrition_paths": CONFIRMATION_FIXED_ATTRITION_PATHS,
+        "required_independent_paths": V23_FIXED_CONFIRMATION_PATHS,
+        "design_effect_target_filled_episodes": _integer(
+            criteria, "design_effect_required_filled_episodes"
+        ),
+        "design_effect_is_capacity_gate": False,
         "dynamic_top_up_allowed": False,
     }
 

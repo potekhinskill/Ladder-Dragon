@@ -22,6 +22,7 @@ from ladder_dragon.strategy.volatility_policy import (
     MINIMUM_CONFIRMATION_BUCKET_REPORTS,
     VOLATILITY_BUCKETS,
     read_volatility_policy,
+    volatility_calibration_window_compatible,
 )
 
 
@@ -39,7 +40,14 @@ def _frozen_volatility_status(
             "policy_sha256": None,
             "confirmation_report_count": 0,
         }
-    policy = read_volatility_policy(path)
+    try:
+        policy = read_volatility_policy(path)
+    except (OSError, ValueError):
+        return {
+            "status": "POLICY_RESELECTION_REQUIRED",
+            "policy_sha256": None,
+            "confirmation_report_count": 0,
+        }
     cutoff = int(policy["cutoff_ts_ms"])
     selection = set(policy["selection_archive_sha256s"])
     confirmation = [
@@ -47,6 +55,7 @@ def _frozen_volatility_status(
         if row.first_ts_ms > cutoff
         and row.archive_sha256 not in selection
         and row.eligible
+        and volatility_calibration_window_compatible(row)
     ]
     low = Decimal(str(policy["low_max_bps"]))
     high = Decimal(str(policy["high_min_bps"]))

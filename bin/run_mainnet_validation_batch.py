@@ -20,7 +20,7 @@ def main() -> int:
         args.manifest, notional_usdt=args.notional_usdt
     )
     status = (
-        "PASS" if result == 0
+        "COHORT_COMPLETE_NOT_REPLAY_READY" if result == 0
         else "INCOMPLETE" if result == 3
         else "FAILED"
     )

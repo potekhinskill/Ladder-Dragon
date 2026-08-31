@@ -414,13 +414,44 @@ def test_future_v23_can_reject_when_upper_bound_is_not_economic():
     report = sequential_episode_report(
         rows,
         criteria=episode_confirmation_criteria(
-            "episode_anytime_expectancy_v7"
+            "episode_anytime_expectancy_v8"
         ),
     )
 
     look = report["looks"][0]
     assert look["economic_futility_reached"] is True
     assert look["one_sided_mean_upper_bound_quote"] is not None
+    assert report["status"] == "READY_TO_REJECT"
+    assert report["approved"] is False
+
+
+def test_v23_rejects_after_every_fixed_path_without_dynamic_top_up():
+    rows = [
+        replace(
+            _result(index, "-0.001"),
+            generation="v23",
+            variant_id="v23_maker_ttl90_gap48_veto",
+            execution_model_rule="diff_depth_fifo_oco_cancel_v4",
+            start_regime="RANGE",
+            evidence_semantics_fingerprint=v23_evidence_semantics_fingerprint(),
+            eligible_for_promotion=index < 40,
+            terminal_reason=(
+                "TIME_STOP_360M"
+                if index < 40 else "PROCESS_RESTART_DATA_GAP"
+            ),
+        )
+        for index in range(42)
+    ]
+
+    report = sequential_episode_report(
+        rows,
+        criteria=episode_confirmation_criteria(
+            "episode_anytime_expectancy_v8"
+        ),
+    )
+
+    assert report["observed_confirmation_paths"] == 42
+    assert report["remaining_confirmation_paths"] == 0
     assert report["status"] == "READY_TO_REJECT"
     assert report["approved"] is False
 

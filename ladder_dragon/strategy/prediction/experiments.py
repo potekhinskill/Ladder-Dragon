@@ -231,7 +231,7 @@ def build_shadow_variants(
             ),
             candidate_rule_version=(
                 8 if spec.statistical_design_version
-                == "episode_anytime_expectancy_v7"
+                == "episode_anytime_expectancy_v8"
                 else 7 if spec.statistical_design_version
                 == "episode_anytime_expectancy_v6"
                 else 6 if spec.statistical_design_version
@@ -250,7 +250,7 @@ def build_shadow_variants(
             evidence_semantics_fingerprint=(
                 v23_evidence_semantics_fingerprint()
                 if spec.statistical_design_version
-                == "episode_anytime_expectancy_v7"
+                == "episode_anytime_expectancy_v8"
                 else evidence_semantics_fingerprint()
                 if spec.statistical_design_version
                 == "episode_anytime_expectancy_v6"
@@ -268,17 +268,17 @@ def build_shadow_variants(
             entry_veto_rule=(
                 entry_veto_rule
                 if spec.statistical_design_version
-                == "episode_anytime_expectancy_v7" else None
+                == "episode_anytime_expectancy_v8" else None
             ),
             target_reachability=(
                 target_reachability
                 if spec.statistical_design_version
-                == "episode_anytime_expectancy_v7" else None
+                == "episode_anytime_expectancy_v8" else None
             ),
         )
 
     spec = experiment_spec_for_generation(generation, symbol=symbol)
-    if spec.statistical_design_version == "episode_anytime_expectancy_v7" and (
+    if spec.statistical_design_version == "episode_anytime_expectancy_v8" and (
         entry_veto_rule is None or target_reachability is None
     ):
         raise ValueError("v23 requires an immutable entry-veto selection artifact")

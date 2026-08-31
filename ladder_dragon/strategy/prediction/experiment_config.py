@@ -322,7 +322,7 @@ SOL_V23_SPEC = ShadowExperimentSpec(
         "v19", "v20", "v21", "v22",
     ),
     regime_policy=SOL_V22_SPEC.regime_policy,
-    statistical_design_version="episode_anytime_expectancy_v7",
+    statistical_design_version="episode_anytime_expectancy_v8",
     evidence_semantics_version=V23_EVIDENCE_SEMANTICS_VERSION,
     lifecycle_mode=SOL_V22_SPEC.lifecycle_mode,
     execution_model_rule=V23_EXECUTION_MODEL_RULE,
@@ -407,7 +407,7 @@ def experiment_dimension(
 ) -> str:
     """Name the single parameter axis changed by one experiment."""
     spec = experiment_spec_for_generation(generation, symbol=symbol)
-    if spec.statistical_design_version == "episode_anytime_expectancy_v7":
+    if spec.statistical_design_version == "episode_anytime_expectancy_v8":
         return "entry_veto"
     if len(spec.maker_ttls) > 1 and len(spec.maker_entry_gaps) == 1:
         return "maker_entry_ttl"

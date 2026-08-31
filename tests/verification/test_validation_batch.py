@@ -359,6 +359,12 @@ def test_complete_batch_freezes_archives_and_order_refs(tmp_path, monkeypatch):
     evidence = validation_batch.validation_batch_evidence(
         tmp_path / "batch.json"
     )
+    assert evidence["status"] == "COHORT_COMPLETE_NOT_REPLAY_READY"
+    assert evidence["replay_readiness_proven"] is False
+    assert evidence["successful_attempts_by_drill"] == {
+        "LIMIT_MAKER": 1,
+        "STOP_LOSS_LIMIT": 1,
+    }
     assert evidence["attempt_count"] == 2
     assert evidence["successful_attempt_count"] == 2
     assert evidence["definite_failure_count"] == 0
@@ -406,3 +412,45 @@ def test_twelve_attempt_cohort_accepts_two_definite_failures(tmp_path, monkeypat
     assert evidence["definite_failure_count"] == 2
     assert len(evidence["terminal_outcomes"]) == 12
     assert len(evidence["archive_sha256s"]) == 10
+
+
+def test_complete_cohort_requires_successful_coverage_for_each_drill(
+    tmp_path, monkeypatch
+):
+    validation_batch.create_batch_manifest(
+        tmp_path / "batch.json",
+        symbol="SOLUSDT",
+        maximum_attempts=3,
+        minimum_successful_attempts=2,
+        maximum_turnover_usdt=Decimal("18"),
+        duration_hours=24,
+        created_at_ms=1_000,
+        source_commit=COMMIT,
+        limit_maker_attempts=2,
+        stop_limit_attempts=1,
+    )
+    monkeypatch.setattr(validation_batch, "_current_commit", lambda: COMMIT)
+    outcomes = (
+        ("LIMIT_MAKER", "SUCCEEDED"),
+        ("STOP_LOSS_LIMIT", "FAILED_DEFINITE"),
+        ("LIMIT_MAKER", "SUCCEEDED"),
+    )
+    for index, (drill, status) in enumerate(outcomes, start=1):
+        reservation = validation_batch.reserve_validation_attempt(
+            tmp_path / "batch.json",
+            drill=drill,
+            symbol="SOLUSDT",
+            turnover_usdt=Decimal("6"),
+            now_ms=2_000 + index * 1_000,
+        )
+        validation_batch.complete_validation_attempt(
+            tmp_path / "batch.json",
+            attempt_id=reservation["attempt_id"],
+            status=status,
+            archive_sha256=(format(index, "064x") if status == "SUCCEEDED" else None),
+            order_refs=((f"order-{index}",) if status == "SUCCEEDED" else ()),
+            completed_at_ms=2_500 + index * 1_000,
+        )
+
+    with pytest.raises(RuntimeError, match="drill coverage is insufficient"):
+        validation_batch.validation_batch_evidence(tmp_path / "batch.json")

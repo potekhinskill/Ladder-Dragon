@@ -235,6 +235,13 @@ def test_v23_policy_binds_confirmed_volatility_scope(tmp_path, monkeypatch):
         "policy_sha256": "e" * 64,
         "low_max_bps": "0.34",
         "high_min_bps": "0.67",
+        "volatility_metric": champion_registry.VOLATILITY_METRIC,
+        "measurement_window_ms": (
+            champion_registry.VOLATILITY_MEASUREMENT_WINDOW_MS
+        ),
+        "publish_interval_ms": (
+            champion_registry.VOLATILITY_PUBLISH_INTERVAL_MS
+        ),
     }
     scope = {
         "scope_sha256": "f" * 64,
@@ -261,6 +268,8 @@ def test_v23_policy_binds_confirmed_volatility_scope(tmp_path, monkeypatch):
     )
 
     assert policy["allowed_volatility_buckets"] == ["low", "normal"]
+    assert policy["volatility_measurement_window_ms"] == 55 * 60_000
+    assert policy["volatility_publish_interval_ms"] == 5 * 60_000
     assert champion_registry.champion_allows_volatility(policy, "normal") is True
     assert champion_registry.champion_allows_volatility(policy, "high") is False
 

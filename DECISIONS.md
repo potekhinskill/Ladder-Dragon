@@ -1,5 +1,26 @@
 # Engineering decisions
 
+### 2026-08-31 — Freeze confirmation at provider capacity
+
+- **Context:** uncertain selection rates made almost every 14-day confirmation design unreachable.
+- **Decision:** freeze 42 paths, permit anytime-valid PASS, and reject at the fixed cohort end.
+- **Why it worked:** provider capacity is attainable without outcome-dependent top-ups or an unsupported power promise.
+- **Reuse:** every sequential design constrained by an external deadline and session capacity.
+
+### 2026-08-31 — Bind measurement and publication intervals separately
+
+- **Context:** a five-minute runtime window used boundaries selected from 55-minute archives.
+- **Decision:** measure 55 minutes, publish every five minutes, and fingerprint both intervals.
+- **Why it worked:** calibration, CHAMPION, telemetry, and the BUY guard now share one metric.
+- **Reuse:** every rolling control whose publication cadence differs from its measurement horizon.
+
+### 2026-08-31 — Separate validation completion from replay readiness
+
+- **Context:** ten covered attempts did not prove filled LIMIT_MAKER and STOP_LOSS_LIMIT outcomes.
+- **Decision:** report cohort completion separately and let immutable replay import prove order-type fills.
+- **Why it worked:** the operator receives an honest terminal status without weakening replay requirements.
+- **Reuse:** every live drill whose transport success differs from model validation.
+
 ### 2026-08-31 — Pack confirmation paths inside provider sessions
 
 - **Context:** a deadline can contain fewer paths when each provider session has unused time.

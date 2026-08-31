@@ -6,21 +6,31 @@ from ladder_dragon.supervision.volatility_guard import (
     evaluate_volatility_guard,
 )
 from ladder_dragon.strategy.prediction.historical_policy import fingerprint
+from ladder_dragon.strategy.volatility_policy import (
+    VOLATILITY_MEASUREMENT_WINDOW_MS,
+    VOLATILITY_METRIC,
+    VOLATILITY_PUBLISH_INTERVAL_MS,
+)
 
 
 def policy() -> dict[str, object]:
     return {
-        "schema_version": 8,
+        "schema_version": 9,
         "candidate_rule_version": 8,
         "symbol": "SOLUSDT",
         "volatility_activation_policy": (
-            "confirmed_post_cutoff_rolling_depth_bucket_v2"
+            "confirmed_post_cutoff_rolling_depth_bucket_v3"
         ),
         "volatility_policy_sha256": "a" * 64,
         "allowed_volatility_buckets": ["low", "normal"],
         "blocked_volatility_buckets": ["high"],
         "volatility_low_max_bps": "0.5",
         "volatility_high_min_bps": "2",
+        "volatility_metric": VOLATILITY_METRIC,
+        "volatility_measurement_window_ms": (
+            VOLATILITY_MEASUREMENT_WINDOW_MS
+        ),
+        "volatility_publish_interval_ms": VOLATILITY_PUBLISH_INTERVAL_MS,
     }
 
 
@@ -40,7 +50,7 @@ def inventory(now_ms: int, bucket: str) -> dict[str, object]:
 
 def rolling(now_ms: int, volatility: str) -> dict[str, object]:
     body = {
-        "schema_version": 1,
+        "schema_version": 2,
         "mode": "PUBLIC_READ_ONLY",
         "apply_allowed": False,
         "contains_secrets": False,
@@ -48,7 +58,12 @@ def rolling(now_ms: int, volatility: str) -> dict[str, object]:
         "session_id": "session",
         "source": "binance-public-websocket",
         "sequence_verified": True,
-        "window_started_at_ms": now_ms - 6 * 60_000,
+        "volatility_metric": VOLATILITY_METRIC,
+        "measurement_window_ms": VOLATILITY_MEASUREMENT_WINDOW_MS,
+        "publish_interval_ms": VOLATILITY_PUBLISH_INTERVAL_MS,
+        "window_started_at_ms": (
+            now_ms - 1_000 - VOLATILITY_MEASUREMENT_WINDOW_MS
+        ),
         "window_ended_at_ms": now_ms - 1_000,
         "updated_at_ms": now_ms - 1_000,
         "book_update_count": 101,
@@ -122,9 +137,22 @@ def test_guard_fails_closed_on_tampered_or_stale_rolling_telemetry(tmp_path):
         policy(), now_ms=now_ms, inventory_path=inventory_path,
         rolling_path=rolling_path,
     )
+    mismatched = rolling(now_ms, "0.2")
+    mismatched["measurement_window_ms"] = 5 * 60_000
+    mismatched["window_started_at_ms"] = now_ms - 1_000 - 5 * 60_000
+    mismatched["telemetry_sha256"] = fingerprint({
+        key: value for key, value in mismatched.items()
+        if key != "telemetry_sha256"
+    })
+    rolling_path.write_text(json.dumps(mismatched), encoding="utf-8")
+    wrong_window = evaluate_volatility_guard(
+        policy(), now_ms=now_ms, inventory_path=inventory_path,
+        rolling_path=rolling_path,
+    )
 
     assert tampered["allowed"] is False
     assert stale["allowed"] is False
+    assert wrong_window["allowed"] is False
 
 
 def test_guard_rejects_future_rolling_telemetry(tmp_path):

@@ -9,8 +9,12 @@ import pytest
 from ladder_dragon.strategy.market_replay import ReplayCalibration
 from ladder_dragon.strategy.replay_readiness import audit_replay_readiness
 from ladder_dragon.strategy.volatility_policy import (
+    VOLATILITY_MEASUREMENT_WINDOW_MS,
+    VOLATILITY_METRIC,
+    VOLATILITY_PUBLISH_INTERVAL_MS,
     confirmed_volatility_scope,
     confirmation_cohort_reasons,
+    migrate_legacy_volatility_policy,
     read_volatility_policy,
     select_volatility_policy,
     verify_volatility_policy,
@@ -26,7 +30,7 @@ def calibration(index: int, volatility: str) -> ReplayCalibration:
         schema_version=4,
         archive_sha256=f"{index:064x}",
         first_ts_ms=index * DAY_MS,
-        last_ts_ms=index * DAY_MS + 900_000,
+        last_ts_ms=index * DAY_MS + VOLATILITY_MEASUREMENT_WINDOW_MS,
         event_count=1_000,
         book_event_count=700,
         trade_count=300,
@@ -48,7 +52,7 @@ def selection_reports(tmp_path):
     paths = []
     for index in range(1, 101):
         volatility = Decimal(index) / Decimal("100")
-        path = tmp_path / f"calibration-{index}.json"
+        path = tmp_path / f"segment-{index}.calibration.json"
         path.write_text(
             json.dumps(calibration(index, str(volatility)).as_dict()),
             encoding="utf-8",
@@ -79,9 +83,47 @@ def test_policy_freezes_selection_hashes_and_empirical_tertiles(tmp_path):
     }
     assert payload["quantile_rule"] == "ZERO_INFLATED_EMPIRICAL_TERTILES_V2"
     assert payload["confirmation_reuses_selection"] is False
+    assert payload["schema_version"] == 3
+    assert payload["volatility_metric"] == VOLATILITY_METRIC
+    assert payload["measurement_window_ms"] == VOLATILITY_MEASUREMENT_WINDOW_MS
+    assert payload["publish_interval_ms"] == VOLATILITY_PUBLISH_INTERVAL_MS
     assert verify_volatility_policy(payload) is True
     damaged = dict(payload, high_min_bps="0.1")
     assert verify_volatility_policy(damaged) is False
+
+
+def test_legacy_policy_migration_preserves_selection_and_archives_source(
+    tmp_path,
+):
+    current = policy(tmp_path)
+    legacy = dict(current)
+    for field in (
+        "measurement_window_ms", "publish_interval_ms",
+        "selection_report_minimum_window_ms",
+        "selection_report_maximum_window_ms",
+    ):
+        legacy.pop(field)
+    legacy["schema_version"] = 2
+    legacy["volatility_metric"] = "CALIBRATION_EVENT_MOVE_P95_BPS"
+    legacy.pop("policy_sha256")
+    from ladder_dragon.strategy.prediction.episode_semantics import (
+        canonical_digest,
+    )
+    legacy["policy_sha256"] = canonical_digest(legacy)
+    policy_path = tmp_path / "volatility-policy.json"
+    policy_path.write_text(json.dumps(legacy), encoding="utf-8")
+
+    migrated = migrate_legacy_volatility_policy(policy_path, tmp_path)
+
+    assert verify_volatility_policy(migrated) is True
+    assert migrated["low_max_bps"] == legacy["low_max_bps"]
+    assert migrated["selection_report_sha256s"] == legacy[
+        "selection_report_sha256s"
+    ]
+    archive = tmp_path / (
+        f"volatility-policy.schema2-{legacy['policy_sha256']}.json"
+    )
+    assert json.loads(archive.read_text(encoding="utf-8")) == legacy
 
 
 def test_zero_inflated_selection_splits_positive_tail_without_empty_bucket(tmp_path):
@@ -152,6 +194,27 @@ def test_confirmation_requires_disjoint_post_cutoff_archives(tmp_path):
         "volatility confirmation starts before the cutoff",
         "volatility selection and confirmation overlap",
     )
+    short = replace(
+        calibration(102, "0.2"),
+        last_ts_ms=102 * DAY_MS + 5 * 60_000,
+    )
+    assert confirmation_cohort_reasons(payload, [short]) == (
+        "volatility confirmation window differs from policy",
+    )
+
+
+def test_selection_rejects_a_short_measurement_window(tmp_path):
+    paths = selection_reports(tmp_path)
+    payload = json.loads(paths[0].read_text(encoding="utf-8"))
+    payload["last_ts_ms"] = payload["first_ts_ms"] + 5 * 60_000
+    paths[0].write_text(json.dumps(payload), encoding="utf-8")
+
+    with pytest.raises(ValueError, match="ineligible"):
+        select_volatility_policy(
+            paths,
+            cutoff_ts_ms=101 * DAY_MS,
+            created_at_ms=101 * DAY_MS,
+        )
 
 
 def test_readiness_uses_frozen_policy_only_on_confirmation(tmp_path):
@@ -197,7 +260,7 @@ def test_depth_inventory_tracks_disjoint_two_day_confirmation(tmp_path):
         replace(
             row,
             first_ts_ms=cutoff + 1 + index * (DAY_MS // 2),
-            last_ts_ms=cutoff + 900_001 + index * (DAY_MS // 2),
+            last_ts_ms=cutoff + 55 * 60_000 + 1 + index * (DAY_MS // 2),
         )
         for index, row in enumerate(rows)
     ]
@@ -216,7 +279,7 @@ def test_scope_confirms_observed_buckets_without_waiting_for_high(tmp_path):
         replace(
             calibration(200 + index, value),
             first_ts_ms=cutoff + 1 + index * DAY_MS,
-            last_ts_ms=cutoff + 900_001 + index * DAY_MS,
+            last_ts_ms=cutoff + 55 * 60_000 + 1 + index * DAY_MS,
         )
         for index, value in enumerate(("0.1", "0.2", "0.3", "0.5", "0.55", "0.6"))
     ]

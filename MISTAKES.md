@@ -1,5 +1,26 @@
 # Engineering mistakes and root causes
 
+### 2026-08-31 — Used selection power as a capacity requirement
+
+- **Impact:** v23 needed a perfect 12-of-12 selection result to fit its confirmation deadline.
+- **Root cause:** uncertain fill-rate bounds controlled cohort size after provider capacity was already fixed.
+- **Correction:** freeze 42 paths and treat the design effect as a planning target only.
+- **Prevention:** deadline capacity and expected statistical power must remain separate contracts.
+
+### 2026-08-31 — Shortened the volatility measurement with its publication cadence
+
+- **Impact:** runtime buckets could differ from the buckets selected on 55-minute calibration archives.
+- **Root cause:** the producer used one five-minute value for two distinct time contracts.
+- **Correction:** measure 55 minutes, publish every five minutes, and verify both values everywhere.
+- **Prevention:** every rolling metric must name and fingerprint its measurement and publication intervals.
+
+### 2026-08-31 — Called batch coverage replay success
+
+- **Impact:** a completed batch could still lack a filled required order type.
+- **Root cause:** the batch status treated covered attempts as proof of execution-model readiness.
+- **Correction:** use `COHORT_COMPLETE_NOT_REPLAY_READY` until immutable replay import verifies fills.
+- **Prevention:** transport completion must never imply semantic model validation.
+
 ### 2026-08-31 — Ignored unused time inside provider sessions
 
 - **Impact:** confirmation declared fifty-one paths reachable within a fourteen-day deadline.

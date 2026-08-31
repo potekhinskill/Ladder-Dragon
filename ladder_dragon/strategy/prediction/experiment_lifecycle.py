@@ -328,7 +328,7 @@ def variant_fingerprints(
     criteria: Mapping[str, object] | None = None,
 ) -> tuple[str, str]:
     policy = dict(DEFAULT_CRITERIA if criteria is None else criteria)
-    if policy.get("criteria_schema_version") not in {2, 3, 4, 5, 6, 7}:
+    if policy.get("criteria_schema_version") not in {2, 3, 4, 5, 6, 7, 8}:
         if int(policy["embargo_ms"]) < 0:
             raise ValueError("confirmation embargo must be non-negative")
         if int(policy["window_size_decisions"]) <= 0:
@@ -714,7 +714,8 @@ def freeze_preselected_episode_experiment(
     criteria = episode_confirmation_criteria(spec.statistical_design_version)
     feasibility = (
         anytime_design_feasibility(criteria)
-        if int(criteria.get("criteria_schema_version", 0)) in {5, 6, 7} else None
+        if int(criteria.get("criteria_schema_version", 0)) in {5, 6, 7, 8}
+        else None
     )
     maximum_duration_ms = int(criteria["maximum_confirmation_duration_ms"])
     candidate_fp, baseline_fp = variant_fingerprints(

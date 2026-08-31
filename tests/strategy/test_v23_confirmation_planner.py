@@ -6,10 +6,16 @@ def _manifest():
         "confirmation_start_ts_ms": 1_000,
         "confirmation_deadline_ts_ms": 1_000 + 14 * 24 * 60 * 60_000,
         "criteria": {
+            "criteria_schema_version": 8,
             "minimum_eligible_terminal_episodes": 24,
             "minimum_filled_episodes": 10,
             "minimum_regime_filled_episodes": 12,
             "design_effect_required_filled_episodes": 29,
+            "maximum_terminal_episodes": 42,
+            "confirmation_cohort_policy": "fixed_provider_capacity_paths_v1",
+            "fixed_confirmation_paths": 42,
+            "dynamic_confirmation_top_up_allowed": False,
+            "design_effect_is_capacity_gate": False,
         },
         "candidate_parameters": {
             "entry_gap_bps": "48",
@@ -70,7 +76,7 @@ def test_confirmation_planner_freezes_post_cutoff_criteria_sized_cohort(
     tmp_path, monkeypatch
 ):
     manifest = _manifest()
-    ready = _ready_paths(tmp_path, 30)
+    ready = _ready_paths(tmp_path, 42)
     monkeypatch.setattr(
         subject, "find_active_v23_manifest", lambda _store: manifest
     )
@@ -96,11 +102,11 @@ def test_confirmation_planner_freezes_post_cutoff_criteria_sized_cohort(
     def context(*_args, **kwargs):
         assert kwargs["started_after_ms"] == 1_000
         assert kwargs["excluded_source_sha256s"] == frozenset(["f" * 64])
-        assert kwargs["maximum_ready_paths"] == 30
+        assert kwargs["maximum_ready_paths"] == 42
         return ready, {
-            "l2_complete_independent_paths": 30,
-            "context_checked_paths": 30,
-            "context_ready_independent_paths": 30,
+            "l2_complete_independent_paths": 42,
+            "context_checked_paths": 42,
+            "context_ready_independent_paths": 42,
             "context_rejected_path_counts": {},
         }
 
@@ -113,9 +119,9 @@ def test_confirmation_planner_freezes_post_cutoff_criteria_sized_cohort(
 
     drafts = list(draft_directory.glob("*.json"))
     assert report["status"] == "CONFIRMATION_DRAFTS_READY_FOR_OPERATOR_REVIEW"
-    assert report["required_independent_paths"] == 30
-    assert report["draft_count"] == 10
-    assert len(drafts) == 10
+    assert report["required_independent_paths"] == 42
+    assert report["draft_count"] == 14
+    assert len(drafts) == 14
     assert report["automatic_queueing"] is False
     assert report["automatic_confirmation_import"] is False
     marker = subject.bounded_json(
@@ -124,7 +130,7 @@ def test_confirmation_planner_freezes_post_cutoff_criteria_sized_cohort(
     assert marker["confirmation_capacity_design"]["dynamic_top_up_allowed"] is False
 
 
-def test_confirmation_capacity_includes_pre_cutoff_fill_attrition():
+def test_confirmation_capacity_is_fixed_before_selection_outcomes():
     selection = {
         "schema_version": 5,
         "selection_metrics": {
@@ -139,8 +145,9 @@ def test_confirmation_capacity_includes_pre_cutoff_fill_attrition():
 
     design = subject._confirmation_design(_manifest(), selection)
 
-    assert design["required_independent_paths"] == 51
-    assert design["fixed_attrition_paths"] == 1
+    assert design["required_independent_paths"] == 42
+    assert design["design_effect_target_filled_episodes"] == 29
+    assert design["design_effect_is_capacity_gate"] is False
     assert design["dynamic_top_up_allowed"] is False
 
 
@@ -159,6 +166,9 @@ def test_planner_reports_provider_unreachable_before_context_scan(
     tmp_path, monkeypatch
 ):
     manifest = _manifest()
+    manifest["confirmation_deadline_ts_ms"] = (
+        manifest["confirmation_start_ts_ms"] + 13 * 24 * 60 * 60_000
+    )
     monkeypatch.setattr(
         subject, "find_active_v23_manifest", lambda _store: manifest
     )
@@ -184,5 +194,5 @@ def test_planner_reports_provider_unreachable_before_context_scan(
     )
 
     assert report["status"] == "DESIGN_UNREACHABLE"
-    assert report["required_independent_paths"] == 51
-    assert report["provider_capacity"]["maximum_paths_before_deadline"] == 42
+    assert report["required_independent_paths"] == 42
+    assert report["provider_capacity"]["maximum_paths_before_deadline"] == 39

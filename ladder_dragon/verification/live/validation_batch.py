@@ -137,13 +137,26 @@ def create_batch_manifest(
     if not 0 <= int(minimum_cooldown_sec) <= 3_600:
         raise RuntimeError("validation batch cooldown is invalid")
     now_ms = int(time.time() * 1000) if created_at_ms is None else int(created_at_ms)
+    sequence = []
+    used = {"LIMIT_MAKER": 0, "STOP_LOSS_LIMIT": 0}
+    while len(sequence) < maximum_attempts:
+        for drill, quota in (
+            ("LIMIT_MAKER", limit_quota),
+            ("STOP_LOSS_LIMIT", stop_quota),
+        ):
+            if len(sequence) < maximum_attempts and used[drill] < quota:
+                sequence.append(drill)
+                used[drill] += 1
     payload: dict[str, object] = {
-        "schema_version": 4,
+        "schema_version": 5,
         "batch_id": uuid.uuid4().hex,
         "symbol": normalized,
         "allowed_drills": list(ALLOWED_DRILLS),
         "maximum_attempts": maximum_attempts,
         "minimum_successful_attempts": minimum_successes,
+        "minimum_successful_attempts_by_drill": {
+            drill: 1 if drill in sequence else 0 for drill in ALLOWED_DRILLS
+        },
         "maximum_attempts_by_drill": {
             "LIMIT_MAKER": limit_quota,
             "STOP_LOSS_LIMIT": stop_quota,
@@ -157,16 +170,6 @@ def create_batch_manifest(
         "persistent_halt_required": True,
         "automatic_stop": True,
     }
-    sequence = []
-    used = {"LIMIT_MAKER": 0, "STOP_LOSS_LIMIT": 0}
-    while len(sequence) < maximum_attempts:
-        for drill, quota in (
-            ("LIMIT_MAKER", limit_quota),
-            ("STOP_LOSS_LIMIT", stop_quota),
-        ):
-            if len(sequence) < maximum_attempts and used[drill] < quota:
-                sequence.append(drill)
-                used[drill] += 1
     payload["attempt_sequence"] = sequence
     payload["manifest_sha256"] = _sha256(payload)
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -315,6 +318,26 @@ def validation_batch_evidence(manifest_path: Path) -> dict[str, object]:
     ]
     if len(successful) < minimum_successes:
         raise RuntimeError("validation batch has insufficient covered attempts")
+    drill_by_attempt = {
+        attempt_id: str(events[0]["drill"])
+        for attempt_id, events in states.items()
+    }
+    successful_by_drill = {
+        drill: sum(
+            row.get("status") == "SUCCEEDED"
+            and drill_by_attempt[str(row["attempt_id"])] == drill
+            for row in terminals
+        )
+        for drill in ALLOWED_DRILLS
+    }
+    minimum_by_drill = manifest.get("minimum_successful_attempts_by_drill")
+    if not isinstance(minimum_by_drill, Mapping) or any(
+        type(minimum_by_drill.get(drill)) is not int
+        or int(minimum_by_drill[drill]) < 0
+        or successful_by_drill[drill] < int(minimum_by_drill[drill])
+        for drill in ALLOWED_DRILLS
+    ):
+        raise RuntimeError("validation batch drill coverage is insufficient")
     archive_hashes = tuple(
         str(row.get("archive_sha256", "")) for row in successful
     )
@@ -331,13 +354,20 @@ def validation_batch_evidence(manifest_path: Path) -> dict[str, object]:
     ):
         raise RuntimeError("validation batch cohort identity is invalid")
     evidence: dict[str, object] = {
-        "schema_version": 2,
+        "schema_version": 3,
+        "status": "COHORT_COMPLETE_NOT_REPLAY_READY",
         "batch_id": manifest["batch_id"],
         "manifest_sha256": manifest["manifest_sha256"],
         "attempt_count": len(states),
         "successful_attempt_count": len(successful),
         "definite_failure_count": len(definite_failures),
         "minimum_successful_attempts": minimum_successes,
+        "successful_attempts_by_drill": successful_by_drill,
+        "minimum_successful_attempts_by_drill": dict(minimum_by_drill),
+        "replay_readiness_proven": False,
+        "replay_readiness_reason": (
+            "actual filled order types require immutable replay import"
+        ),
         "archive_sha256s": list(archive_hashes),
         "order_refs": list(order_refs),
         "terminal_outcomes": [

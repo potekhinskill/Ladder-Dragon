@@ -73,6 +73,7 @@ See [Historical entry replay](HISTORICAL_ENTRY_REPLAY.md) for continuous source 
 | `historical_replay_planner` | creates frozen selection and post-cutoff confirmation draft cohorts |
 | `historical_replay_runner` | processes a bounded SHADOW replay request queue without automatic import |
 | `volatility_policy` | freezes empirical volatility buckets from selection-only calibration reports |
+| `migrate_volatility_policy` | binds a verified legacy policy to the exact 55-minute measurement window |
 | `import_entry_veto_l2` | imports source-hashed public L2 entry features into SHADOW evidence |
 | `import_v23_confirmation` | imports reviewed post-cutoff diff-depth reports into one v23 confirmation generation |
 | `prediction_history_backfill` | creates cutoff-safe samples from archived bars |

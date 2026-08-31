@@ -16,6 +16,11 @@ from ladder_dragon.strategy.prediction.episode_semantics import (
     execution_model_contract,
     v23_evidence_semantics_contract,
 )
+from ladder_dragon.strategy.prediction.episode_expectancy import (
+    V23_FIXED_CONFIRMATION_PATHS,
+    anytime_design_feasibility,
+    net_expectancy_criteria,
+)
 from ladder_dragon.strategy.prediction.historical_policy import fingerprint
 
 
@@ -83,13 +88,32 @@ def _chains(directory: Path, symbol: str) -> list[list[tuple[Path, dict]]]:
 
 
 def _provider_design() -> dict[str, object]:
-    """Prove each path fits inside the provider connection lifetime."""
+    """Prove selection and fixed confirmation fit provider capacity."""
     path_duration_ms = (
         SIGNAL_WARMUP_MS + PATH_ENTRY_WINDOW_MS + TERMINAL_TAIL_MS
     )
-    reachable = bool(
+    selection_reachable = bool(
         path_duration_ms < PROVIDER_CONNECTION_MAX_MS
         and BLOCK_COUNT * PATHS_PER_BLOCK >= MINIMUM_INDEPENDENT_PATHS
+    )
+    criteria = net_expectancy_criteria(
+        anytime_valid=True,
+        exact_policy=True,
+        excursion_diagnostics=True,
+        economic_futility=True,
+        fixed_confirmation_cohort=True,
+    )
+    feasibility = anytime_design_feasibility(criteria)
+    confirmation_sessions = int(
+        criteria["maximum_confirmation_duration_ms"]
+    ) // PROVIDER_CONNECTION_MAX_MS
+    confirmation_capacity = (
+        confirmation_sessions
+        * (PROVIDER_CONNECTION_MAX_MS // path_duration_ms)
+    )
+    confirmation_reachable = bool(
+        feasibility["feasible"] is True
+        and V23_FIXED_CONFIRMATION_PATHS <= confirmation_capacity
     )
     return {
         "cohort_contract": COHORT_CONTRACT,
@@ -98,7 +122,12 @@ def _provider_design() -> dict[str, object]:
         "paths_per_block": PATHS_PER_BLOCK,
         "required_blocks": BLOCK_COUNT,
         "required_independent_paths": MINIMUM_INDEPENDENT_PATHS,
-        "reachable": reachable,
+        "confirmation_fixed_paths": V23_FIXED_CONFIRMATION_PATHS,
+        "confirmation_provider_capacity_paths": confirmation_capacity,
+        "confirmation_preflight_policy": (
+            "fixed_provider_capacity_paths_v1"
+        ),
+        "reachable": selection_reachable and confirmation_reachable,
     }
 
 

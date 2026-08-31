@@ -26,6 +26,7 @@ EVIDENCE_QUALITY_POLICY = {
         "INCOMPLETE_TRADE_PAGE", "PROCESS_RESTART_DATA_GAP",
     ],
 }
+V23_FIXED_CONFIRMATION_PATHS = 42
 
 
 def _evidence_quality(
@@ -54,13 +55,19 @@ def _evidence_quality(
 def net_expectancy_criteria(
     *, anytime_valid: bool = False, exact_policy: bool = False,
     excursion_diagnostics: bool = False, economic_futility: bool = False,
+    fixed_confirmation_cohort: bool = False,
 ) -> dict[str, object]:
     """Return one immutable net-expectancy statistical contract."""
     if anytime_valid:
         regimes = ("RANGE",) if exact_policy else ELIGIBLE_REGIMES
         if economic_futility and not (exact_policy and excursion_diagnostics):
             raise ValueError("economic futility requires the exact excursion policy")
-        schema = 7 if economic_futility else 6 if excursion_diagnostics else 5 if exact_policy else 4
+        if fixed_confirmation_cohort and not economic_futility:
+            raise ValueError("fixed confirmation requires economic futility")
+        schema = (
+            8 if fixed_confirmation_cohort else 7 if economic_futility
+            else 6 if excursion_diagnostics else 5 if exact_policy else 4
+        )
         criteria = {
             "criteria_schema_version": schema,
             "method": f"anytime_valid_betting_e_process_v{schema}",
@@ -77,7 +84,10 @@ def net_expectancy_criteria(
                 "exact_preregistered_execution_regimes_v4"
                 if exact_policy else "confirmed_execution_regime_only_v3"
             ),
-            "maximum_terminal_episodes": 300,
+            "maximum_terminal_episodes": (
+                V23_FIXED_CONFIRMATION_PATHS
+                if fixed_confirmation_cohort else 300
+            ),
             "maximum_confirmation_duration_ms": 14 * 24 * 60 * 60_000,
             "panic_policy": "include_flatten_pnl_and_count_veto_attempt",
             "mean_lower_bound_method": "mixture_betting_e_process_v1",
@@ -119,6 +129,15 @@ def net_expectancy_criteria(
                 "minimum_useful_mean_quote": "0.003",
                 "minimum_episodes_before_economic_reject": 24,
                 "economic_futility_policy": "anytime_upper_below_useful_mean_v1",
+            })
+        if fixed_confirmation_cohort:
+            criteria.update({
+                "confirmation_cohort_policy": (
+                    "fixed_provider_capacity_paths_v1"
+                ),
+                "fixed_confirmation_paths": V23_FIXED_CONFIRMATION_PATHS,
+                "dynamic_confirmation_top_up_allowed": False,
+                "design_effect_is_capacity_gate": False,
             })
         return criteria
     return {
@@ -314,12 +333,25 @@ def anytime_design_feasibility(
     criteria: Mapping[str, object],
 ) -> dict[str, object]:
     """Prove that the frozen e-process design can reach every hard gate."""
-    if int(criteria.get("criteria_schema_version", 0)) not in {5, 6, 7}:
-        raise ValueError("exact anytime design requires criteria schema 5, 6 or 7")
+    schema = int(criteria.get("criteria_schema_version", 0))
+    if schema not in {5, 6, 7, 8}:
+        raise ValueError(
+            "exact anytime design requires criteria schema 5, 6, 7 or 8"
+        )
     regimes = criteria.get("eligible_regimes")
     if not isinstance(regimes, list) or not regimes:
         raise ValueError("exact anytime design requires eligible regimes")
     maximum = int(criteria["maximum_terminal_episodes"])
+    if schema == 8 and not (
+        criteria.get("confirmation_cohort_policy")
+        == "fixed_provider_capacity_paths_v1"
+        and criteria.get("fixed_confirmation_paths")
+        == V23_FIXED_CONFIRMATION_PATHS
+        and criteria.get("dynamic_confirmation_top_up_allowed") is False
+        and criteria.get("design_effect_is_capacity_gate") is False
+        and maximum == V23_FIXED_CONFIRMATION_PATHS
+    ):
+        raise ValueError("fixed confirmation cohort contract is invalid")
     minimum_regime = int(criteria["minimum_regime_filled_episodes"])
     required_regimes = int(criteria["minimum_confirmed_regimes"])
     best_case = criteria.get("best_case_required_filled_episodes")
@@ -331,10 +363,11 @@ def anytime_design_feasibility(
         or not isinstance(design_effect, int)
     ):
         raise ValueError("exact anytime confidence bounds are unreachable")
+    capacity_design_effect = 0 if schema == 8 else design_effect
     required_total = max(
         int(criteria["minimum_eligible_terminal_episodes"]),
         minimum_regime * required_regimes,
-        design_effect,
+        capacity_design_effect,
     )
     feasible = bool(
         0 < required_regimes <= len(regimes)
@@ -350,6 +383,7 @@ def anytime_design_feasibility(
         "required_confirmed_regimes": required_regimes,
         "best_case_required_per_regime": best_case,
         "design_effect_required_filled_episodes": design_effect,
+        "design_effect_is_capacity_gate": schema != 8,
         "minimum_planned_terminal_episodes": required_total,
         "maximum_terminal_episodes": maximum,
         "feasible": True,
@@ -511,7 +545,7 @@ def _anytime_report(
             lower_bound=lower_bound,
             upper_bound=upper_bound,
         )
-        if int(criteria["criteria_schema_version"]) == 7 else None
+        if int(criteria["criteria_schema_version"]) in {7, 8} else None
     )
     economic_futile = bool(
         economic_upper is not None
@@ -538,14 +572,19 @@ def _anytime_report(
         and not panic_failures
         and quality["status"] == "PASS"
     )
-    optimistic = values + [upper_bound] * max(0, maximum - len(rows))
+    fixed_paths = int(criteria.get("fixed_confirmation_paths", maximum))
+    observed_paths = (
+        len(rows_all)
+        if int(criteria["criteria_schema_version"]) == 8 else len(rows)
+    )
+    optimistic = values + [upper_bound] * max(0, fixed_paths - observed_paths)
     optimistic_lower = _anytime_lower(
         optimistic,
         alpha=alpha,
         lower_bound=lower_bound,
         upper_bound=upper_bound,
     )
-    remaining = max(0, maximum - len(rows))
+    remaining = max(0, fixed_paths - observed_paths)
     regime_alpha = alpha / D(len(criteria["eligible_regimes"]))
     regime_threshold = -notional * D(
         str(criteria["regime_noninferiority_fraction"])
@@ -584,7 +623,10 @@ def _anytime_report(
     futile = bool(
         optimistic_lower <= ZERO or not regimes_reachable or economic_futile
     )
-    status = "PASS" if passed else "READY_TO_REJECT" if futile or len(rows) >= maximum else "SHADOW"
+    status = (
+        "PASS" if passed else "READY_TO_REJECT"
+        if futile or observed_paths >= fixed_paths else "SHADOW"
+    )
     cadence = (
         (rows[-1].terminal_at_ms - rows[0].terminal_at_ms) // (len(rows) - 1)
         if len(rows) > 1 else None
@@ -684,6 +726,12 @@ def _anytime_report(
         "panic_veto_attempts": sum(
             row.terminal_reason == "PANIC_VETO" for row in rows
         ),
+        "fixed_confirmation_paths": (
+            fixed_paths if int(criteria["criteria_schema_version"]) == 8
+            else None
+        ),
+        "observed_confirmation_paths": observed_paths,
+        "remaining_confirmation_paths": remaining,
         "panic_safety": {
             "status": "PASS" if panic_rows and not panic_failures else "BLOCKED" if panic_failures else "NOT_OBSERVED",
             "observations": len(panic_rows),
@@ -764,7 +812,7 @@ def sequential_net_expectancy_report(
 ) -> dict[str, object]:
     """Evaluate complete attempts and reject mixed evidence semantics."""
     rows_all = sorted(results, key=lambda row: row.terminal_at_ms)
-    if criteria.get("criteria_schema_version") in {4, 5, 6, 7}:
+    if criteria.get("criteria_schema_version") in {4, 5, 6, 7, 8}:
         return _anytime_report(
             rows_all,
             criteria=criteria,

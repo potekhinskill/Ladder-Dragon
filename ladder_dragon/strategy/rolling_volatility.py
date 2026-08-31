@@ -12,11 +12,16 @@ from typing import Deque
 
 from ladder_dragon.strategy.depth_segments import PublicBook, atomic_json
 from ladder_dragon.strategy.prediction.historical_policy import fingerprint
+from ladder_dragon.strategy.volatility_policy import (
+    VOLATILITY_MEASUREMENT_WINDOW_MS,
+    VOLATILITY_METRIC,
+    VOLATILITY_PUBLISH_INTERVAL_MS,
+)
 
 
 ROLLING_VOLATILITY_FILENAME = ".rolling-volatility-SOLUSDT.json"
-ROLLING_WINDOW_MS = 5 * 60_000
-ROLLING_PUBLISH_INTERVAL_MS = 5 * 60_000
+ROLLING_WINDOW_MS = VOLATILITY_MEASUREMENT_WINDOW_MS
+ROLLING_PUBLISH_INTERVAL_MS = VOLATILITY_PUBLISH_INTERVAL_MS
 MINIMUM_BOOK_UPDATES = 100
 
 
@@ -41,7 +46,7 @@ class RollingVolatilityPublisher:
             raise ValueError("rolling volatility book is invalid")
         self._mids.append((observed_at_ms, (bid + ask) / Decimal("2")))
         cutoff = observed_at_ms - ROLLING_WINDOW_MS
-        while len(self._mids) > 1 and self._mids[1][0] <= cutoff:
+        while len(self._mids) > 1 and self._mids[1][0] < cutoff:
             self._mids.popleft()
         if (
             len(self._mids) < MINIMUM_BOOK_UPDATES + 1
@@ -50,17 +55,18 @@ class RollingVolatilityPublisher:
             < ROLLING_PUBLISH_INTERVAL_MS
         ):
             return None
+        points = tuple(self._mids)
         moves = sorted(
             abs(current / previous - Decimal("1")) * Decimal("10000")
-            for (_previous_ts, previous), (_current_ts, current)
-            in zip(self._mids, tuple(self._mids)[1:])
-            if previous > 0
+            for (_previous_ts, previous), (current_ts, current)
+            in zip(points, points[1:])
+            if previous > 0 and current_ts >= cutoff
         )
         if len(moves) < MINIMUM_BOOK_UPDATES:
             return None
         quantile_index = (len(moves) - 1) * 95 // 100
         body: dict[str, object] = {
-            "schema_version": 1,
+            "schema_version": 2,
             "mode": "PUBLIC_READ_ONLY",
             "apply_allowed": False,
             "contains_secrets": False,
@@ -68,10 +74,13 @@ class RollingVolatilityPublisher:
             "session_id": self.session_id,
             "source": "binance-public-websocket",
             "sequence_verified": True,
-            "window_started_at_ms": self._mids[0][0],
+            "volatility_metric": VOLATILITY_METRIC,
+            "measurement_window_ms": ROLLING_WINDOW_MS,
+            "publish_interval_ms": ROLLING_PUBLISH_INTERVAL_MS,
+            "window_started_at_ms": cutoff,
             "window_ended_at_ms": observed_at_ms,
             "updated_at_ms": observed_at_ms,
-            "book_update_count": len(self._mids),
+            "book_update_count": len(moves) + 1,
             "last_update_id": int(book.update_id),
             "volatility_bps_p95": format(moves[quantile_index], "f"),
         }

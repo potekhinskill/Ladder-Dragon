@@ -210,7 +210,7 @@ def _episode_spec(
         evidence_semantics_fingerprint=(
             v23_evidence_semantics_fingerprint()
             if generation.statistical_design_version
-            == "episode_anytime_expectancy_v7"
+            == "episode_anytime_expectancy_v8"
             else evidence_semantics_fingerprint()
         ),
         start_regime=execution_regime or features.regime,
@@ -301,7 +301,7 @@ def collect_execution_episode(
         expected_semantics = (
             v23_evidence_semantics_fingerprint()
             if generation.statistical_design_version
-            == "episode_anytime_expectancy_v7"
+            == "episode_anytime_expectancy_v8"
             else evidence_semantics_fingerprint()
         )
         if (
@@ -319,7 +319,7 @@ def collect_execution_episode(
     if not frozen_regimes:
         raise ValueError("promotion entry regime scope is unavailable")
 
-    if generation.statistical_design_version == "episode_anytime_expectancy_v7":
+    if generation.statistical_design_version == "episode_anytime_expectancy_v8":
         # Version 23 confirmation is imported only from reviewed, sequence-
         # verified diff-depth reports. Minute REST snapshots cannot silently
         # stand in for the frozen cancel/fill race semantics.

@@ -3,6 +3,32 @@
 All notable changes are documented here. Releases use Semantic Versioning; every
 section is dated and there is intentionally no `Unreleased` section.
 
+## [2.20.277] — 2026-08-31
+
+### Added
+- A deterministic migration preserves a valid schema-2 volatility selection and binds its exact 55-minute window.
+- Validation evidence reports successful coverage separately for LIMIT_MAKER and STOP_LOSS_LIMIT drills.
+
+### Changed
+- SOL v23 freezes 42 provider-bounded confirmation paths and permits anytime-valid early PASS.
+- Runtime volatility measures 55 minutes and publishes the derived public value every five minutes.
+- CHAMPION policy schema 9 fingerprints the volatility metric, measurement window, and publication interval.
+
+### Fixed
+- Selection-rate uncertainty no longer makes almost every 14-day v23 confirmation design unreachable.
+- Five-minute runtime volatility can no longer use boundaries selected from 55-minute archives.
+- A completed validation cohort no longer claims replay readiness before required order-type fills are imported.
+
+### Security
+- Outcome-dependent confirmation top-ups remain prohibited, and the fixed cohort rejects when PASS is absent.
+- Legacy volatility migration rejects missing, changed, short-window, or differently hashed selection sources.
+- Persistent HALT, BTC, ETH, CHAMPION state, and order authority remain unchanged.
+
+### Verified
+- The focused confirmation, volatility, CHAMPION, execution, and validation suite passes: 71 tests.
+- The full project suite passes: 1,561 tests.
+- Python compilation, Technical English, and whitespace checks pass.
+
 ## [2.20.276] — 2026-08-31
 
 ### Added

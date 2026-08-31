@@ -4,8 +4,11 @@ from types import SimpleNamespace
 from ladder_dragon.strategy.depth_segments import bounded_json
 from ladder_dragon.strategy.prediction.historical_policy import fingerprint
 from ladder_dragon.strategy.rolling_volatility import (
+    ROLLING_PUBLISH_INTERVAL_MS,
+    ROLLING_WINDOW_MS,
     RollingVolatilityPublisher,
 )
+from ladder_dragon.strategy.volatility_policy import VOLATILITY_METRIC
 
 
 def test_rolling_publisher_writes_one_bounded_public_record(tmp_path):
@@ -14,7 +17,7 @@ def test_rolling_publisher_writes_one_bounded_public_record(tmp_path):
         path, symbol="SOLUSDT", session_id="session"
     )
     report = None
-    for index in range(302):
+    for index in range(3_302):
         timestamp = 1_000_000 + index * 1_000
         price = Decimal("100") + Decimal(index % 5) / Decimal("100")
         book = SimpleNamespace(
@@ -33,6 +36,14 @@ def test_rolling_publisher_writes_one_bounded_public_record(tmp_path):
     assert report is not None
     assert stored["contains_secrets"] is False
     assert stored["sequence_verified"] is True
+    assert stored["schema_version"] == 2
+    assert stored["volatility_metric"] == VOLATILITY_METRIC
+    assert stored["measurement_window_ms"] == ROLLING_WINDOW_MS
+    assert stored["publish_interval_ms"] == ROLLING_PUBLISH_INTERVAL_MS
+    assert (
+        stored["window_ended_at_ms"] - stored["window_started_at_ms"]
+        == ROLLING_WINDOW_MS
+    )
     assert stored["book_update_count"] >= 100
     assert stored["telemetry_sha256"] == fingerprint(body)
     assert "API_KEY" not in str(stored)
