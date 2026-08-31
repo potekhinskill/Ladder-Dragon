@@ -45,6 +45,9 @@ def _replay_report(request: dict) -> dict:
             "net_pnl_quote": "-1",
             "censored": False,
             "terminal_reason": "STOP_LIMIT",
+            "eligible_for_promotion": True,
+            "start_regime": "RANGE",
+            "entry_filled_quantity": "1",
         })
         veto.append({
             "episode_id": f"veto-{index}",
@@ -52,6 +55,9 @@ def _replay_report(request: dict) -> dict:
             "net_pnl_quote": "1",
             "censored": False,
             "terminal_reason": "ENTRY_VETO" if index == 0 else "TAKE_PROFIT",
+            "eligible_for_promotion": True,
+            "start_regime": "RANGE",
+            "entry_filled_quantity": "0" if index == 0 else "1",
         })
     windows = [{
         "start_ts_ms": path["start_ms"],
@@ -137,9 +143,12 @@ def test_planner_creates_provider_bounded_review_drafts(tmp_path, monkeypatch):
             path["cutoff_ms"] for request in requests for path in request["paths"]
         ),
     )
-    assert artifact["schema_version"] == 3
+    assert artifact["schema_version"] == 4
     assert artifact["selection_metrics"]["independent_paths"] == 12
     assert artifact["selection_metrics"]["report_blocks"] == 4
+    assert artifact["selection_metrics"]["filled_path_rate_lower_bound"] == (
+        "0.5833333333333333333333333333"
+    )
     assert artifact["selected_rule"]["signal_window_ms"] == 300_000
 
 

@@ -78,8 +78,17 @@ def test_confirmation_planner_freezes_post_cutoff_criteria_sized_cohort(
         subject,
         "load_v23_selection_artifact",
         lambda *_args: {
+            "schema_version": 4,
             "source_archive_sha256s": ["f" * 64],
             "model_source_sha256s": {"model.py": "e" * 64},
+            "selection_metrics": {
+                "confirmation_capacity_policy": (
+                    "leave_one_independent_path_out_lower_bound_v1"
+                ),
+                "eligible_path_rate_lower_bound": "1",
+                "filled_path_rate_lower_bound": "1",
+                "range_filled_path_rate_lower_bound": "1",
+            },
         },
     )
     monkeypatch.setattr(subject, "_chains", lambda *_args: [[]])
@@ -109,3 +118,26 @@ def test_confirmation_planner_freezes_post_cutoff_criteria_sized_cohort(
     assert len(drafts) == 10
     assert report["automatic_queueing"] is False
     assert report["automatic_confirmation_import"] is False
+    marker = subject.bounded_json(
+        draft_directory.parent / subject.CONFIRMATION_COHORT_MARKER
+    )
+    assert marker["confirmation_capacity_design"]["dynamic_top_up_allowed"] is False
+
+
+def test_confirmation_capacity_includes_pre_cutoff_fill_attrition():
+    selection = {
+        "schema_version": 4,
+        "selection_metrics": {
+            "confirmation_capacity_policy": (
+                "leave_one_independent_path_out_lower_bound_v1"
+            ),
+            "eligible_path_rate_lower_bound": "0.833333333333333333",
+            "filled_path_rate_lower_bound": "0.583333333333333333",
+            "range_filled_path_rate_lower_bound": "0.583333333333333333",
+        },
+    }
+
+    design = subject._confirmation_design(_manifest(), selection)
+
+    assert design["required_independent_paths"] == 51
+    assert design["dynamic_top_up_allowed"] is False

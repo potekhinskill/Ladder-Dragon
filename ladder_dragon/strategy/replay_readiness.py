@@ -27,6 +27,8 @@ class ReplayReadiness:
     validation_report_count: int
     validated_order_count: int
     archive_sha256s: tuple[str, ...]
+    required_regimes: tuple[str, ...] = ("low", "normal", "high")
+    unconfirmed_regimes: tuple[str, ...] = ()
     volatility_policy_sha256: str = ""
     volatility_confirmation_after_cutoff: bool = False
 
@@ -44,6 +46,8 @@ class ReplayReadiness:
             "validation_report_count": self.validation_report_count,
             "validated_order_count": self.validated_order_count,
             "archive_sha256s": list(self.archive_sha256s),
+            "required_regimes": list(self.required_regimes),
+            "unconfirmed_regimes": list(self.unconfirmed_regimes),
             "volatility_policy_sha256": self.volatility_policy_sha256,
             "volatility_confirmation_after_cutoff": (
                 self.volatility_confirmation_after_cutoff
@@ -85,7 +89,13 @@ def audit_replay_readiness(
 ) -> ReplayReadiness:
     rows = list(calibrations)
     validation_rows = list(validations)
-    if minimum_archives < 1 or minimum_span_days < 0:
+    if (
+        minimum_archives < 1
+        or minimum_span_days < 0
+        or not required_regimes
+        or len(required_regimes) != len(set(required_regimes))
+        or any(name not in {"low", "normal", "high"} for name in required_regimes)
+    ):
         raise ValueError("readiness minimums are invalid")
     reasons: list[str] = []
     unique_hashes = {row.archive_sha256 for row in rows}
@@ -201,6 +211,11 @@ def audit_replay_readiness(
         validation_report_count=len(validation_rows),
         validated_order_count=validated_orders,
         archive_sha256s=tuple(sorted(unique_hashes)),
+        required_regimes=required_regimes,
+        unconfirmed_regimes=tuple(
+            name for name in ("low", "normal", "high")
+            if name not in required_regimes
+        ),
         volatility_policy_sha256=policy_sha256,
         volatility_confirmation_after_cutoff=confirmation_after_cutoff,
     )

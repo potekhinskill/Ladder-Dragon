@@ -835,6 +835,13 @@ Staging directories older than sixty minutes are removed before collection.
 The cleanup accepts only the timestamp grammar created by the backup script.
 Other directories remain unchanged and require separate operator review.
 
+Capacity rotation maintains at least 8 GiB of free local storage.
+It removes only local copies with verified external counterparts.
+It removes public duplicates before private encrypted archives.
+It preserves the two newest archives in each local directory.
+Known backup temporary files expire after sixty minutes.
+The service fails when verified rotation cannot restore the capacity floor.
+
 The installer also enables `ladder-dragon-depth-retention.timer`.
 The timer runs after the daily encrypted backup.
 It archives eligible L2 segments to the configured external backup directory.

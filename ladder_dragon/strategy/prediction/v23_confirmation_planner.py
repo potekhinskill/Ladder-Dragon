@@ -5,7 +5,7 @@
 
 from __future__ import annotations
 
-from decimal import Decimal
+from decimal import Decimal, ROUND_CEILING
 from pathlib import Path
 from typing import Mapping
 
@@ -44,21 +44,68 @@ def _integer(criteria: Mapping[str, object], field: str) -> int:
     return value
 
 
-def _required_paths(manifest: Mapping[str, object]) -> int:
-    """Size the source cohort from the complete frozen evidence contract."""
+def _rate(metrics: Mapping[str, object], field: str) -> Decimal:
+    try:
+        value = D(str(metrics[field]))
+    except (ArithmeticError, KeyError, TypeError, ValueError) as exc:
+        raise ValueError("v23 confirmation planning rates are invalid") from exc
+    if not value.is_finite() or not D("0") < value <= D("1"):
+        raise ValueError("v23 confirmation planning rates are invalid")
+    return value
+
+
+def _paths_for(required: int, rate: Decimal) -> int:
+    return int((D(required) / rate).to_integral_value(rounding=ROUND_CEILING))
+
+
+def _confirmation_design(
+    manifest: Mapping[str, object], selection: Mapping[str, object]
+) -> dict[str, object]:
+    """Freeze a capacity design from pre-cutoff independent selection paths."""
     criteria = manifest.get("criteria")
     if not isinstance(criteria, Mapping):
         raise ValueError("v23 confirmation criteria are unavailable")
+    if selection.get("schema_version") != 4:
+        raise ValueError("v23 selection planning contract is unavailable")
+    metrics = selection.get("selection_metrics")
+    if not isinstance(metrics, Mapping) or metrics.get(
+        "confirmation_capacity_policy"
+    ) != "leave_one_independent_path_out_lower_bound_v1":
+        raise ValueError("v23 selection planning contract is unavailable")
+    eligible_rate = _rate(metrics, "eligible_path_rate_lower_bound")
+    filled_rate = _rate(metrics, "filled_path_rate_lower_bound")
+    range_filled_rate = _rate(
+        metrics, "range_filled_path_rate_lower_bound"
+    )
     required = max(
-        _integer(criteria, "minimum_eligible_terminal_episodes"),
-        _integer(criteria, "minimum_filled_episodes"),
-        _integer(criteria, "minimum_regime_filled_episodes"),
-        _integer(criteria, "design_effect_required_filled_episodes"),
+        _paths_for(
+            _integer(criteria, "minimum_eligible_terminal_episodes"),
+            eligible_rate,
+        ),
+        _paths_for(
+            max(
+                _integer(criteria, "minimum_filled_episodes"),
+                _integer(criteria, "design_effect_required_filled_episodes"),
+            ),
+            filled_rate,
+        ),
+        _paths_for(
+            _integer(criteria, "minimum_regime_filled_episodes"),
+            range_filled_rate,
+        ),
     )
     grouped = ((required + PATHS_PER_BLOCK - 1) // PATHS_PER_BLOCK) * PATHS_PER_BLOCK
     if grouped > MAXIMUM_CONTEXT_CANDIDATES:
         raise ValueError("v23 confirmation path capacity reached")
-    return grouped
+    return {
+        "schema_version": 1,
+        "policy": "pre_cutoff_rate_lower_bounds_with_fixed_attrition_v1",
+        "eligible_path_rate_lower_bound": format(eligible_rate, "f"),
+        "filled_path_rate_lower_bound": format(filled_rate, "f"),
+        "range_filled_path_rate_lower_bound": format(range_filled_rate, "f"),
+        "required_independent_paths": grouped,
+        "dynamic_top_up_allowed": False,
+    }
 
 
 def _policy(
@@ -125,7 +172,8 @@ def plan_v23_confirmation_drafts(
     selection_identity = str(
         parameters["entry_veto_rule"]["selection_artifact_sha256"]
     )
-    required_paths = _required_paths(manifest)
+    design = _confirmation_design(manifest, selection)
+    required_paths = int(design["required_independent_paths"])
     deadline_ms = int(manifest["confirmation_deadline_ts_ms"])
     cutoff_ms = int(manifest["confirmation_start_ts_ms"])
     design_duration_ms = required_paths * (
@@ -140,6 +188,7 @@ def plan_v23_confirmation_drafts(
             "status": "DESIGN_UNREACHABLE",
             "draft_count": 0,
             "required_independent_paths": required_paths,
+            "confirmation_capacity_design": design,
             "design_duration_ms": design_duration_ms,
             "maximum_confirmation_duration_ms": deadline_ms - cutoff_ms,
             "automatic_queueing": False,
@@ -163,6 +212,7 @@ def plan_v23_confirmation_drafts(
             "status": "COLLECTING_POST_CUTOFF_CONTEXT_READY_PATHS",
             "draft_count": 0,
             "required_independent_paths": required_paths,
+            "confirmation_capacity_design": design,
             "complete_independent_paths": len(paths),
             "continuous_sessions": len(chains),
             "design_duration_ms": design_duration_ms,
@@ -218,6 +268,7 @@ def plan_v23_confirmation_drafts(
             for source in _request_sources(request)
         }),
         "required_independent_paths": required_paths,
+        "confirmation_capacity_design": design,
     }
     marker["cohort_sha256"] = fingerprint(marker)
     existing_ids = _existing_draft_identities(draft_directory)
@@ -236,6 +287,7 @@ def plan_v23_confirmation_drafts(
             "draft_count": len(existing_ids),
             "created_drafts": 0,
             "required_independent_paths": required_paths,
+            "confirmation_capacity_design": design,
             "complete_independent_paths": len(paths),
             "frozen_cohort_sha256": frozen.get("cohort_sha256"),
             **progress,
@@ -258,6 +310,7 @@ def plan_v23_confirmation_drafts(
         "draft_count": len(requests),
         "created_drafts": created,
         "required_independent_paths": required_paths,
+        "confirmation_capacity_design": design,
         "complete_independent_paths": len(paths),
         "continuous_sessions": len(chains),
         "frozen_cohort_sha256": marker["cohort_sha256"],

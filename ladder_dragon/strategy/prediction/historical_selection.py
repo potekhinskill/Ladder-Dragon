@@ -28,6 +28,7 @@ MAXIMUM_REPORT_BYTES = 16 * 1024 * 1024
 PATH_COHORT_CONTRACT = "provider_bounded_disjoint_paths_v1"
 REQUIRED_STABILITY_BLOCKS = 4
 PATHS_PER_STABILITY_BLOCK = 3
+PLANNING_ATTRITION_PATHS = 1
 
 
 def _decimal(value: object, *, field: str) -> Decimal:
@@ -275,6 +276,38 @@ def historical_selection_artifact(
             ) > 0
         )
     ]
+    independent_terminal = [row for row in independent if not row["censored"]]
+    if path_cohort and any(
+        type(row.get("eligible_for_promotion")) is not bool
+        or not isinstance(row.get("start_regime"), str)
+        or "entry_filled_quantity" not in row
+        for row in independent_terminal
+    ):
+        raise ValueError("historical path planning metadata is incomplete")
+    eligible_independent = [
+        row for row in independent_terminal
+        if row.get("eligible_for_promotion") is True
+    ]
+    filled_independent = [
+        row for row in eligible_independent
+        if _decimal(
+            row.get("entry_filled_quantity"), field="filled quantity"
+        ) > 0
+    ]
+    range_filled_independent = [
+        row for row in filled_independent if row.get("start_regime") == "RANGE"
+    ]
+    planning_denominator = len(independent)
+
+    def planning_lower(successes: int) -> Decimal:
+        # Reserve one complete independent path before confirmation is frozen.
+        # Future confirmation outcomes must never resize this source cohort.
+        if planning_denominator <= 0:
+            return Decimal("0")
+        return Decimal(max(0, successes - PLANNING_ATTRITION_PATHS)) / Decimal(
+            planning_denominator
+        )
+
     target_reachability = (
         Decimal(sum(row.get("terminal_reason") == "TAKE_PROFIT" for row in filled_rows))
         / Decimal(len(filled_rows))
@@ -304,7 +337,7 @@ def historical_selection_artifact(
     }
     report_identities = [str(report["report_sha256"]) for report in reports]
     artifact = {
-        "schema_version": 3 if path_cohort else 2,
+        "schema_version": 4 if path_cohort else 2,
         "mode": "SHADOW_SELECTION",
         "evidence_role": "HISTORICAL_SELECTION_ONLY",
         "can_change_orders": False,
@@ -330,6 +363,23 @@ def historical_selection_artifact(
             "baseline_net_pnl_quote": format(baseline_net, "f"),
             "veto_net_pnl_quote": format(veto_net, "f"),
             "target_reachability": format(target_reachability, "f"),
+            "planning_path_count": planning_denominator,
+            "eligible_terminal_paths": len(eligible_independent),
+            "filled_paths": len(filled_independent),
+            "range_filled_paths": len(range_filled_independent),
+            "planning_attrition_paths": PLANNING_ATTRITION_PATHS,
+            "eligible_path_rate_lower_bound": format(
+                planning_lower(len(eligible_independent)), "f"
+            ),
+            "filled_path_rate_lower_bound": format(
+                planning_lower(len(filled_independent)), "f"
+            ),
+            "range_filled_path_rate_lower_bound": format(
+                planning_lower(len(range_filled_independent)), "f"
+            ),
+            "confirmation_capacity_policy": (
+                "leave_one_independent_path_out_lower_bound_v1"
+            ),
         },
         "selected_rule": selected_rule,
     }

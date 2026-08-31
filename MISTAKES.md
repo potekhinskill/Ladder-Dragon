@@ -1,5 +1,26 @@
 # Engineering mistakes and root causes
 
+### 2026-08-31 — Equated confirmation paths with filled episodes
+
+- **Impact:** a 30-path cohort could require 29 fills and remain practically unable to pass.
+- **Root cause:** planning used evidence thresholds directly without converting source attrition rates.
+- **Correction:** derive path capacity from pre-cutoff lower bounds and a fixed attrition reserve.
+- **Prevention:** every evidence planner must convert required outcomes through frozen source-rate bounds.
+
+### 2026-08-31 — Required every volatility bucket as one global gate
+
+- **Impact:** an unobserved high bucket could block confirmed low and normal execution indefinitely.
+- **Root cause:** replay readiness confused model coverage with permission for every operating bucket.
+- **Correction:** freeze confirmed buckets and block BUY in each unconfirmed bucket at runtime.
+- **Prevention:** categorical promotion gates must bind permissions to independently confirmed categories.
+
+### 2026-08-31 — Relied only on time-based local backup retention
+
+- **Impact:** frequent releases filled local storage while every duplicate remained younger than fourteen days.
+- **Root cause:** retention bounded archive age but not local bytes or duplicate count.
+- **Correction:** enforce a free-space floor and remove only externally verified local copies.
+- **Prevention:** mirrored backup retention must bound age, local capacity, and interrupted temporary files.
+
 ### 2026-08-31 — Removed capabilities required by the external ownership model
 
 - **Impact:** retention still failed after exFAT-compatible directory creation and could not reduce disk pressure.

@@ -3,6 +3,33 @@
 All notable changes are documented here. Releases use Semantic Versioning; every
 section is dated and there is intentionally no `Unreleased` section.
 
+## [2.20.275] — 2026-08-31
+
+### Added
+- Confirmation freezes eligible, fill, and RANGE path-rate lower bounds from pre-cutoff selection evidence.
+- Replay validation freezes confirmed volatility buckets and records every unconfirmed bucket as blocked.
+- CHAMPION blocks BUY when the latest policy-bound depth bucket is stale or unconfirmed.
+
+### Changed
+- The v23 confirmation source cohort includes a fixed independent-path attrition reserve.
+- Backup preflight maintains an 8 GiB local capacity floor using verified external copies.
+- Capacity cleanup removes public duplicates before private encrypted archives and preserves two recent local copies.
+
+### Fixed
+- Confirmation can no longer freeze thirty paths while requiring twenty-nine filled episodes.
+- A missing high-volatility observation no longer blocks separately confirmed low and normal buckets.
+- Stale backup temporary files no longer consume SD-card capacity indefinitely.
+
+### Security
+- Volatility scope expansion requires a new immutable validation artifact and CHAMPION policy.
+- Backup capacity cleanup never removes a local archive without a verified external counterpart.
+- Persistent HALT, BTC, ETH, CHAMPION state, and order authority remain unchanged.
+
+### Verified
+- The focused confirmation, replay, runtime, backup, and deployment suite passes: 163 tests.
+- The full project suite passes: 1,550 tests.
+- Python compilation, Technical English, shell syntax, and whitespace checks pass.
+
 ## [2.20.274] — 2026-08-31
 
 ### Fixed

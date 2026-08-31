@@ -27,7 +27,10 @@ from ladder_dragon.strategy.replay_policy import (
 )
 from ladder_dragon.strategy.replay_cohorts import calibration_context_evidence
 from ladder_dragon.strategy.replay_readiness import audit_replay_readiness
-from ladder_dragon.strategy.volatility_policy import read_volatility_policy
+from ladder_dragon.strategy.volatility_policy import (
+    confirmed_volatility_scope,
+    read_volatility_policy,
+)
 from ladder_dragon.verification.live.validation_batch import (
     validation_batch_evidence,
 )
@@ -102,6 +105,8 @@ def main() -> int:
         read_volatility_policy(args.volatility_policy)
         if args.volatility_policy is not None else None
     )
+    volatility_scope = None
+    required_volatility_regimes = ("low", "normal", "high")
     if args.batch_manifest is not None:
         order_cohort = validation_batch_evidence(args.batch_manifest)
         expected_archives = set(order_cohort["archive_sha256s"])
@@ -132,18 +137,27 @@ def main() -> int:
             raise SystemExit("read-only calibration context is unavailable")
         if context_hashes & observed_archives:
             raise SystemExit("replay calibration cohorts overlap")
+        if volatility_policy is not None:
+            volatility_scope = confirmed_volatility_scope(
+                volatility_policy, context_calibrations
+            )
+            required_volatility_regimes = tuple(
+                volatility_scope["confirmed_buckets"]
+            )
         context_readiness = audit_replay_readiness(
             context_calibrations,
             minimum_measured_latency_archives=0,
             minimum_execution_samples=0,
             minimum_validation_reports=0,
             minimum_validated_orders=0,
+            required_regimes=required_volatility_regimes,
             volatility_policy=volatility_policy,
         )
         context_cohort = calibration_context_evidence(
             context_calibrations,
             readiness=context_readiness.as_dict(),
             volatility_policy=volatility_policy,
+            volatility_scope=volatility_scope,
         )
     report = validate_replay_sessions(
         sessions,
@@ -179,6 +193,7 @@ def main() -> int:
         minimum_validated_orders=(
             PRODUCTION_REPLAY_ACCEPTANCE_POLICY.minimum_orders
         ),
+        required_regimes=required_volatility_regimes,
         low_max_bps=(
             Decimal(str(volatility_policy["low_max_bps"]))
             if volatility_policy is not None else Decimal("0.5")

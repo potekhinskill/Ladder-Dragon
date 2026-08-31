@@ -1,5 +1,26 @@
 # Engineering decisions
 
+### 2026-08-31 — Freeze confirmation capacity from pre-cutoff attrition
+
+- **Context:** one planned path does not guarantee one eligible filled episode.
+- **Decision:** convert frozen selection path-rate bounds into confirmation capacity and reserve one independent path.
+- **Why it worked:** tests size the cohort before confirmation and prohibit outcome-dependent top-ups.
+- **Reuse:** every confirmation design whose source opportunities can censor, veto, or miss fills.
+
+### 2026-08-31 — Activate confirmed volatility buckets independently
+
+- **Context:** a rare unobserved bucket made complete replay readiness wait without a defined bound.
+- **Decision:** freeze covered post-cutoff buckets and block BUY only in unconfirmed buckets.
+- **Why it worked:** replay, CHAMPION policy, and runtime consume one immutable scope fingerprint.
+- **Reuse:** every categorical safety gate with observable and rare operating regions.
+
+### 2026-08-31 — Reclaim local backup copies by verified capacity
+
+- **Context:** frequent releases created many unexpired duplicate archives on constrained local storage.
+- **Decision:** preserve two local copies and remove older copies only after external checksum verification.
+- **Why it worked:** public duplicates are reclaimed first, while recoverable encrypted history remains external.
+- **Reuse:** every mirrored backup workflow where time retention alone cannot bound local capacity.
+
 ### 2026-08-31 — Grant sandbox capabilities from the destination ownership model
 
 - **Context:** a root service with an empty capability set cannot bypass mount-owner permissions on external storage.

@@ -15,6 +15,8 @@ BACKUP_EXTERNAL_DIR="${BACKUP_EXTERNAL_DIR:-}"
 BACKUP_EXTERNAL_RETENTION_DAYS="${BACKUP_EXTERNAL_RETENTION_DAYS:-90}"
 BACKUP_LOCAL_RETENTION_DAYS=14
 BACKUP_STAGING_RETENTION_MINUTES=60
+BACKUP_LOCAL_MIN_FREE_BYTES=8589934592
+BACKUP_LOCAL_KEEP_MIN=2
 STAMP="$(date -u +%Y-%m-%d-%H%M%S)"
 DEST="${BACKUP_DIR}/${STAMP}"
 STATUS_ARCHIVE_NAME=""
@@ -173,6 +175,77 @@ prune_stale_local_staging() {
   )
 }
 
+prune_stale_local_temporary_files() {
+  local directory="$1"
+  # Match only randomized temporary names created by this backup script.
+  find "${directory}" -maxdepth 1 -type f \
+    \( -name '.ladder-dragon-*.tgz.age.tmp.*' \
+       -o -name '.preinstall-*.tgz.age.tmp.*' \
+       -o -name '.ladder-dragon-*.tgz.age.sha256.tmp.*' \
+       -o -name '.preinstall-*.tgz.age.sha256.tmp.*' \
+       -o -name '.index.*' -o -name '.backup_status.*' \) \
+    -mmin +"${BACKUP_STAGING_RETENTION_MINUTES}" -delete
+}
+
+available_local_bytes() {
+  df -PB1 "${BACKUP_DIR}" | awk 'NR==2 {print $4}'
+}
+
+external_archive_is_verified() {
+  local archive="$1" name
+  [[ -n "${BACKUP_EXTERNAL_DIR}" ]] || return 1
+  name="$(basename "${archive}")"
+  [[ -f "${BACKUP_EXTERNAL_DIR}/${name}" \
+     && -f "${BACKUP_EXTERNAL_DIR}/${name}.sha256" ]] || return 1
+  (cd "${BACKUP_EXTERNAL_DIR}" && sha256sum -c "${name}.sha256" >/dev/null)
+}
+
+remove_local_archive_copy() {
+  local archive="$1" directory name stamp
+  directory="$(dirname "${archive}")"
+  name="$(basename "${archive}")"
+  rm -f -- "${archive}" "${archive}.sha256"
+  if [[ "${directory}" == "${PUBLIC_BACKUP_DIR}" \
+        && "${name}" =~ ^ladder-dragon-([0-9]{4}-[0-9]{2}-[0-9]{2}-[0-9]{6})\.tgz\.age$ ]]; then
+    stamp="${BASH_REMATCH[1]}"
+    rm -f -- "${PUBLIC_BACKUP_DIR}/inventory-${stamp}.txt"
+  fi
+}
+
+prune_local_capacity() {
+  local directory archive remaining
+  local -a local_archives=()
+  [[ "$(available_local_bytes)" -ge "${BACKUP_LOCAL_MIN_FREE_BYTES}" ]] \
+    && return 0
+  [[ -n "${BACKUP_EXTERNAL_DIR}" ]] || {
+    echo "[FAIL] local backup capacity is low and no external mirror is configured" >&2
+    return 1
+  }
+
+  # Public ciphertext is a disposable local duplicate. Remove its oldest
+  # externally verified copies first, while preserving two recent downloads.
+  for directory in "${PUBLIC_BACKUP_DIR}" "${BACKUP_DIR}"; do
+    mapfile -t local_archives < <(
+      find "${directory}" -maxdepth 1 -type f \
+        \( -name 'ladder-dragon-*.tgz.age' -o -name 'preinstall-*.tgz.age' \) \
+        -printf '%T@ %p\n' | sort -n | sed 's/^[^ ]* //'
+    )
+    remaining="${#local_archives[@]}"
+    for archive in "${local_archives[@]}"; do
+      [[ "${remaining}" -le "${BACKUP_LOCAL_KEEP_MIN}" ]] && break
+      external_archive_is_verified "${archive}" || continue
+      remove_local_archive_copy "${archive}"
+      remaining=$((remaining - 1))
+      [[ "$(available_local_bytes)" -ge "${BACKUP_LOCAL_MIN_FREE_BYTES}" ]] \
+        && return 0
+    done
+  done
+  [[ "$(available_local_bytes)" -ge "${BACKUP_LOCAL_MIN_FREE_BYTES}" ]] || {
+    echo "[FAIL] verified rotation could not restore local backup capacity" >&2
+    return 1
+  }
+}
+
 rebuild_public_index() {
   local manifest_tmp
   manifest_tmp="$(mktemp "${PUBLIC_BACKUP_DIR}/.index.XXXXXX")"
@@ -219,13 +292,16 @@ prune_expired_external_backups() {
 # Reclaim bounded local capacity before collection. Preserve the latest complete
 # archive and ignore directories outside the exact private staging grammar.
 prune_stale_local_staging
+prune_stale_local_temporary_files "${BACKUP_DIR}"
+prune_stale_local_temporary_files "${PUBLIC_BACKUP_DIR}"
 prune_completed_backup_directory "${BACKUP_DIR}" "${BACKUP_LOCAL_RETENTION_DAYS}" no
 prune_completed_backup_directory "${PUBLIC_BACKUP_DIR}" "${BACKUP_LOCAL_RETENTION_DAYS}" yes
-rebuild_public_index
 
 # A full external disk cannot receive the new verified archive. Apply the
 # configured retention policy before local collection and external mirroring.
 prune_expired_external_backups
+prune_local_capacity
+rebuild_public_index
 install -d -m 0700 "${DEST}"
 
 # The inventory contains no secret-variable values.

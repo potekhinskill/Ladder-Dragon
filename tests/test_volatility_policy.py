@@ -9,10 +9,12 @@ import pytest
 from ladder_dragon.strategy.market_replay import ReplayCalibration
 from ladder_dragon.strategy.replay_readiness import audit_replay_readiness
 from ladder_dragon.strategy.volatility_policy import (
+    confirmed_volatility_scope,
     confirmation_cohort_reasons,
     read_volatility_policy,
     select_volatility_policy,
     verify_volatility_policy,
+    verify_volatility_scope,
 )
 
 
@@ -187,22 +189,44 @@ def test_depth_inventory_tracks_disjoint_two_day_confirmation(tmp_path):
     cutoff = int(payload["cutoff_ts_ms"])
     rows = [
         calibration(200 + index, value)
-        for index, value in enumerate(("0.1", "0.5", "0.9"))
+        for index, value in enumerate(
+            ("0.1", "0.2", "0.3", "0.5", "0.55", "0.6", "0.9", "1", "1.1")
+        )
     ]
     rows = [
         replace(
             row,
-            first_ts_ms=cutoff + 1 + index * DAY_MS,
-            last_ts_ms=cutoff + 900_001 + index * DAY_MS,
+            first_ts_ms=cutoff + 1 + index * (DAY_MS // 2),
+            last_ts_ms=cutoff + 900_001 + index * (DAY_MS // 2),
         )
         for index, row in enumerate(rows)
     ]
 
     status = _frozen_volatility_status(tmp_path, rows)
 
-    assert status["status"] == "PASS"
+    assert status["status"] == "PASS_SCOPED"
     assert status["confirmation_span_ms"] >= 2 * DAY_MS
     assert status["selection_sources_reused"] is False
+
+
+def test_scope_confirms_observed_buckets_without_waiting_for_high(tmp_path):
+    payload = policy(tmp_path)
+    cutoff = int(payload["cutoff_ts_ms"])
+    rows = [
+        replace(
+            calibration(200 + index, value),
+            first_ts_ms=cutoff + 1 + index * DAY_MS,
+            last_ts_ms=cutoff + 900_001 + index * DAY_MS,
+        )
+        for index, value in enumerate(("0.1", "0.2", "0.3", "0.5", "0.55", "0.6"))
+    ]
+
+    scope = confirmed_volatility_scope(payload, rows)
+
+    assert scope["confirmed_buckets"] == ["low", "normal"]
+    assert scope["blocked_buckets"] == ["high"]
+    assert verify_volatility_scope(scope, policy=payload) is True
+    assert "credential" not in json.dumps(scope).lower()
 
 
 def test_policy_file_is_strict_and_cli_cannot_overwrite(tmp_path, monkeypatch):

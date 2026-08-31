@@ -978,6 +978,22 @@ def model_validation_status(
             report.get("actual_stop_limit_filled_orders", 0)
         ),
         "replay_readiness": report.get("replay_readiness"),
+        "confirmed_volatility_scope": (
+            report.get("calibration_context_cohort", {}).get(
+                "volatility_scope"
+            )
+            if isinstance(
+                report.get("calibration_context_cohort"), Mapping
+            ) else None
+        ),
+        "volatility_policy": (
+            report.get("calibration_context_cohort", {}).get(
+                "volatility_policy"
+            )
+            if isinstance(
+                report.get("calibration_context_cohort"), Mapping
+            ) else None
+        ),
     }
 
 
@@ -1000,7 +1016,10 @@ def record_model_validation(
         replay_acceptance_reasons,
     )
     from ladder_dragon.strategy.replay_cohorts import verify_cohort_fingerprint
-    from ladder_dragon.strategy.volatility_policy import verify_volatility_policy
+    from ladder_dragon.strategy.volatility_policy import (
+        verify_volatility_policy,
+        verify_volatility_scope,
+    )
     from ladder_dragon.strategy.prediction.experiment_lifecycle import (
         load_manifest,
     )
@@ -1010,6 +1029,12 @@ def record_model_validation(
     )
     if report.get("ready") is not True:
         raise ValueError("replay validation must contain a strict PASS")
+    manifest = load_manifest(store, str(experiment_id))
+    parameters = manifest.get("candidate_parameters")
+    requires_scoped_volatility = bool(
+        isinstance(parameters, Mapping)
+        and parameters.get("candidate_rule_version") == 8
+    )
     validation = ReplayValidation.from_dict(dict(report))
     observed_policy = validation.acceptance_policy
     if not isinstance(observed_policy, Mapping):
@@ -1042,11 +1067,27 @@ def record_model_validation(
         context_cohort.get("volatility_policy")
         if isinstance(context_cohort, Mapping) else None
     )
+    context_volatility_scope = (
+        context_cohort.get("volatility_scope")
+        if isinstance(context_cohort, Mapping) else None
+    )
     if context_volatility_policy is not None and not (
         isinstance(context_volatility_policy, Mapping)
         and verify_volatility_policy(context_volatility_policy)
     ):
         raise ValueError("replay volatility policy is invalid")
+    if requires_scoped_volatility and not (
+        isinstance(context_volatility_policy, Mapping)
+        and isinstance(context_volatility_scope, Mapping)
+        and verify_volatility_scope(
+            context_volatility_scope, policy=context_volatility_policy
+        )
+    ):
+        raise ValueError("replay volatility activation scope is invalid")
+    confirmed_volatility_buckets = (
+        set(context_volatility_scope["confirmed_buckets"])
+        if requires_scoped_volatility else {"low", "normal", "high"}
+    )
     if (
         not validation.ready
         or validation.covered_orders < 10
@@ -1067,8 +1108,14 @@ def record_model_validation(
         or set(context_readiness.get("archive_sha256s", ())) != context_hashes
         or int(context_readiness.get("archive_count", 0)) < 3
         or D(str(context_readiness.get("span_days", "0"))) < D("2")
-        or set(context_readiness.get("regimes", ()))
-        != {"low", "normal", "high"}
+        or set(
+            context_readiness.get(
+                "required_regimes", context_readiness.get("regimes", ())
+            )
+        ) != confirmed_volatility_buckets
+        or not confirmed_volatility_buckets.issubset(
+            set(context_readiness.get("regimes", ()))
+        )
         or (
             isinstance(context_volatility_policy, Mapping)
             and (
@@ -1089,14 +1136,17 @@ def record_model_validation(
         != order_hashes | context_hashes
         or int(readiness.get("archive_count", 0)) < 3
         or D(str(readiness.get("span_days", "0"))) < D("2")
-        or set(readiness.get("regimes", ())) != {"low", "normal", "high"}
+        or set(
+            readiness.get("required_regimes", readiness.get("regimes", ()))
+        ) != confirmed_volatility_buckets
+        or not confirmed_volatility_buckets.issubset(
+            set(readiness.get("regimes", ()))
+        )
         or int(readiness.get("measured_latency_archives", 0)) < 1
         or int(readiness.get("execution_sample_count", 0)) < 10
         or int(readiness.get("validated_order_count", 0)) < 10
     ):
         raise ValueError("strict replay readiness is not promotion-ready")
-    manifest = load_manifest(store, str(experiment_id))
-    parameters = manifest.get("candidate_parameters")
     if (
         manifest.get("symbol") != symbol.upper()
         or manifest.get("current_status") not in {"CONFIRMING", "CONFIRMED"}

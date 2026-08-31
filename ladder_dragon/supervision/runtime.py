@@ -65,6 +65,7 @@ from ladder_dragon.supervision.entry_policy import (
 )
 from ladder_dragon.supervision.execution_promotion import champion_position_allows_buy, prepare_execution_promotion_report
 from ladder_dragon.supervision.champion_probation import apply_champion_probation_gate
+from ladder_dragon.supervision.volatility_guard import champion_volatility_context
 from ladder_dragon.supervision.position_flatten import BUY_BLOCKING_MODES, submit_flatten_slices
 from ladder_dragon.supervision.order_cleanup import (
     _log_order_lifetime as _cleanup_log_order_lifetime,
@@ -2741,12 +2742,7 @@ def run_for_symbol(
             # a replacement. The next reviewed startup loads the new policy.
             _stop_children("active CHAMPION changed during runtime")
             raise RuntimeError("active CHAMPION changed during runtime")
-    champion_policy = (
-        champion.get("execution_policy")
-        if isinstance(champion, Mapping) else None
-    )
-    if execution_allowed and not isinstance(champion_policy, Mapping):
-        raise RuntimeError("active CHAMPION execution policy is unavailable")
+    champion_policy, champion_volatility = champion_volatility_context(champion, execution_allowed=execution_allowed)
     cycle_log = log if execution_allowed else lambda message: _log_info_rate_limited(
         f"blocked-shadow-detail:{symbol}:{message.partition(']')[0]}",
         message, interval_sec=900.0,
@@ -3379,6 +3375,7 @@ def run_for_symbol(
         controls_gate_blocked
         or expectancy_pause_buys
         or not champion_regime_allowed
+        or not champion_volatility["allowed"]
         or not champion_position_allows_buy(champion_policy, managed_exposure, exposure_available=inventory_error is None)
         or (
             regime_mode == "APPLY"
@@ -3402,6 +3399,7 @@ def run_for_symbol(
         log(
             f"[NO-TRADE] {symbol} BUY disabled expectancy="
             f"{expectancy_pause_buys} regime={confirmed_regime}/{champion_regime_allowed} "
+            f"volatility={champion_volatility.get('bucket')}/{champion_volatility['allowed']} "
             f"inventory_scale={inventory_scale:.8f}; protection remains active"
         )
     controls_runtime = _AI_RUNTIME_STATUS.setdefault(
@@ -3409,6 +3407,7 @@ def run_for_symbol(
     )
     if isinstance(controls_runtime, dict):
         controls_runtime[symbol] = {
+            "champion_volatility": dict(champion_volatility),
             "regime": {
                 "mode": regime_mode,
                 "raw": raw_regime,

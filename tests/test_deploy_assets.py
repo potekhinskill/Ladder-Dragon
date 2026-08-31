@@ -1169,7 +1169,9 @@ def test_backup_prunes_local_capacity_before_creating_staging():
     assert 'BACKUP_LOCAL_RETENTION_DAYS=14' in backup
     assert '[[ "${expired}" == "${latest_archive}" ]] && continue' in backup
     assert "-name 'preinstall-*.tgz.age'" in backup
-    assert 'rebuild_public_index\n\n# A full external disk' in backup
+    assert "BACKUP_LOCAL_MIN_FREE_BYTES=8589934592" in backup
+    assert "BACKUP_LOCAL_KEEP_MIN=2" in backup
+    assert "prune_local_capacity\nrebuild_public_index" in backup
 
 
 def test_backup_removes_only_old_timestamp_staging_directories():
@@ -1184,6 +1186,31 @@ def test_backup_removes_only_old_timestamp_staging_directories():
     assert '-mindepth 1 -maxdepth 1 -type d' in staging
     assert '-mmin +"${BACKUP_STAGING_RETENTION_MINUTES}" -print0' in staging
     assert 'rm -rf -- "${staging}"' in staging
+
+
+def test_backup_removes_only_known_stale_temporary_files():
+    backup = read("deploy/backup_raspberry_pi.sh")
+    helper = backup.split(
+        "prune_stale_local_temporary_files() {", 1
+    )[1].split("\n}\n", 1)[0]
+
+    assert "-name '.ladder-dragon-*.tgz.age.tmp.*'" in helper
+    assert "-name '.preinstall-*.tgz.age.sha256.tmp.*'" in helper
+    assert '-mmin +"${BACKUP_STAGING_RETENTION_MINUTES}" -delete' in helper
+    assert "rm -rf" not in helper
+
+
+def test_backup_capacity_rotation_requires_verified_external_copy():
+    backup = read("deploy/backup_raspberry_pi.sh")
+    helper = backup.split("prune_local_capacity() {", 1)[1].split(
+        "\n}\n", 1
+    )[0]
+
+    verification = helper.index('external_archive_is_verified "${archive}"')
+    deletion = helper.index('remove_local_archive_copy "${archive}"')
+    assert verification < deletion
+    assert '"${remaining}" -le "${BACKUP_LOCAL_KEEP_MIN}"' in helper
+    assert "verified rotation could not restore local backup capacity" in helper
 
 
 def test_target_updater_uses_target_backup_before_checkout():

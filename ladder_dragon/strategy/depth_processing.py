@@ -18,7 +18,11 @@ from ladder_dragon.strategy.depth_segments import (
 from ladder_dragon.strategy.market_replay import ReplayCalibration, calibrate_market_events
 from ladder_dragon.strategy.replay_policy import PRODUCTION_REPLAY_ACCEPTANCE_POLICY
 from ladder_dragon.strategy.replay_readiness import volatility_regime
-from ladder_dragon.strategy.volatility_policy import read_volatility_policy
+from ladder_dragon.strategy.volatility_policy import (
+    MINIMUM_CONFIRMATION_BUCKET_REPORTS,
+    VOLATILITY_BUCKETS,
+    read_volatility_policy,
+)
 
 
 VOLATILITY_CONFIRMATION_SPAN_MS = 2 * 86_400_000
@@ -59,18 +63,39 @@ def _frozen_volatility_status(
         - min(row.first_ts_ms for row in confirmation)
         if confirmation else 0
     )
-    ready = bool(
-        span >= VOLATILITY_CONFIRMATION_SPAN_MS
-        and all(counts[name] > 0 for name in counts)
+    confirmed = [
+        name for name in VOLATILITY_BUCKETS
+        if span >= VOLATILITY_CONFIRMATION_SPAN_MS
+        and counts[name] >= MINIMUM_CONFIRMATION_BUCKET_REPORTS
+    ]
+    latest = max(confirmation, key=lambda row: row.last_ts_ms, default=None)
+    latest_bucket = (
+        "low" if latest is not None and latest.volatility_bps_p95 <= low
+        else "high" if latest is not None and latest.volatility_bps_p95 >= high
+        else "normal" if latest is not None else None
     )
     return {
-        "status": "PASS" if ready else "COLLECTING_DISJOINT_CONFIRMATION",
+        "status": (
+            "PASS_SCOPED"
+            if confirmed else "COLLECTING_DISJOINT_CONFIRMATION"
+        ),
         "policy_sha256": policy["policy_sha256"],
         "selection_cutoff_ts_ms": cutoff,
         "confirmation_report_count": len(confirmation),
         "confirmation_span_ms": span,
         "required_confirmation_span_ms": VOLATILITY_CONFIRMATION_SPAN_MS,
         "confirmation_bucket_counts": counts,
+        "minimum_confirmation_bucket_reports": (
+            MINIMUM_CONFIRMATION_BUCKET_REPORTS
+        ),
+        "confirmed_buckets": confirmed,
+        "blocked_buckets": [
+            name for name in VOLATILITY_BUCKETS if name not in confirmed
+        ],
+        "latest_bucket": latest_bucket,
+        "latest_bucket_last_ts_ms": (
+            latest.last_ts_ms if latest is not None else None
+        ),
         "selection_sources_reused": False,
     }
 
@@ -116,6 +141,7 @@ def calibration_inventory(directory: Path) -> tuple[dict, list[Path]]:
     absent = [name for name in ("low", "normal", "high") if not regimes[name]]
     return {
         "schema_version": 1, "mode": "SHADOW", "apply_allowed": False,
+        "updated_at_ms": int(time.time() * 1000),
         "status": "INCOMPLETE" if missing or invalid or absent else "REGIMES_COVERED",
         "archives": archived, "calibration_reports": reports,
         "missing_calibrations": len(missing), "invalid_artifacts": invalid,

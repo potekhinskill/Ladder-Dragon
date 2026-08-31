@@ -19,6 +19,9 @@ MINIMUM_SELECTION_REPORTS = 100
 MAXIMUM_SELECTION_REPORTS = 2_048
 MINIMUM_SELECTION_SPAN_MS = 2 * 86_400_000
 MINIMUM_SELECTION_BUCKET_REPORTS = 20
+MINIMUM_CONFIRMATION_BUCKET_REPORTS = 3
+MINIMUM_CONFIRMATION_SPAN_MS = 2 * 86_400_000
+VOLATILITY_BUCKETS = ("low", "normal", "high")
 
 
 def _file_sha256(path: Path) -> str:
@@ -218,9 +221,125 @@ def confirmation_cohort_reasons(
     return tuple(reasons)
 
 
+def confirmed_volatility_scope(
+    policy: Mapping[str, object],
+    calibrations: Iterable[ReplayCalibration],
+) -> dict[str, object]:
+    """Freeze only post-cutoff volatility buckets with sufficient coverage."""
+    rows = list(calibrations)
+    reasons = confirmation_cohort_reasons(policy, rows)
+    if reasons:
+        raise ValueError("volatility confirmation cohort is invalid")
+    if not rows:
+        raise ValueError("volatility confirmation cohort is empty")
+    if (
+        any(not row.eligible for row in rows)
+        or len({row.archive_sha256 for row in rows}) != len(rows)
+    ):
+        raise ValueError("volatility confirmation cohort is ineligible")
+    first = min(row.first_ts_ms for row in rows)
+    last = max(row.last_ts_ms for row in rows)
+    if last - first < MINIMUM_CONFIRMATION_SPAN_MS:
+        raise ValueError("volatility confirmation span is insufficient")
+    low = Decimal(str(policy["low_max_bps"]))
+    high = Decimal(str(policy["high_min_bps"]))
+    counts = _bucket_counts(
+        (row.volatility_bps_p95 for row in rows),
+        low_max_bps=low,
+        high_min_bps=high,
+    )
+    confirmed = [
+        name for name in VOLATILITY_BUCKETS
+        if counts[name] >= MINIMUM_CONFIRMATION_BUCKET_REPORTS
+    ]
+    if not confirmed:
+        raise ValueError("no volatility bucket has confirmation coverage")
+    payload: dict[str, object] = {
+        "schema_version": 1,
+        "scope": "POST_CUTOFF_VOLATILITY_BUCKET_ACTIVATION",
+        "apply_allowed": False,
+        "volatility_policy_sha256": str(policy["policy_sha256"]),
+        "selection_cutoff_ts_ms": int(policy["cutoff_ts_ms"]),
+        "confirmation_first_ts_ms": first,
+        "confirmation_last_ts_ms": last,
+        "confirmation_span_ms": last - first,
+        "minimum_confirmation_span_ms": MINIMUM_CONFIRMATION_SPAN_MS,
+        "minimum_confirmation_bucket_reports": (
+            MINIMUM_CONFIRMATION_BUCKET_REPORTS
+        ),
+        "confirmation_bucket_counts": counts,
+        "confirmed_buckets": confirmed,
+        "blocked_buckets": [
+            name for name in VOLATILITY_BUCKETS if name not in confirmed
+        ],
+        "confirmation_archive_sha256s": sorted(
+            row.archive_sha256 for row in rows
+        ),
+    }
+    payload["scope_sha256"] = canonical_digest(payload)
+    return payload
+
+
+def verify_volatility_scope(
+    payload: Mapping[str, object], *, policy: Mapping[str, object]
+) -> bool:
+    """Verify a bucket-scoped confirmation without expanding its permissions."""
+    candidate = dict(payload)
+    observed = str(candidate.pop("scope_sha256", ""))
+    try:
+        confirmed = tuple(candidate["confirmed_buckets"])
+        blocked = tuple(candidate["blocked_buckets"])
+        counts = candidate["confirmation_bucket_counts"]
+        archives = tuple(candidate["confirmation_archive_sha256s"])
+        return (
+            verify_volatility_policy(policy)
+            and candidate.get("schema_version") == 1
+            and candidate.get("scope")
+            == "POST_CUTOFF_VOLATILITY_BUCKET_ACTIVATION"
+            and candidate.get("apply_allowed") is False
+            and candidate.get("volatility_policy_sha256")
+            == policy.get("policy_sha256")
+            and int(candidate["selection_cutoff_ts_ms"])
+            == int(policy["cutoff_ts_ms"])
+            and int(candidate["confirmation_first_ts_ms"])
+            > int(policy["cutoff_ts_ms"])
+            and int(candidate["confirmation_last_ts_ms"])
+            >= int(candidate["confirmation_first_ts_ms"])
+            and int(candidate["confirmation_span_ms"])
+            >= MINIMUM_CONFIRMATION_SPAN_MS
+            and candidate.get("minimum_confirmation_span_ms")
+            == MINIMUM_CONFIRMATION_SPAN_MS
+            and candidate.get("minimum_confirmation_bucket_reports")
+            == MINIMUM_CONFIRMATION_BUCKET_REPORTS
+            and isinstance(counts, dict)
+            and set(counts) == set(VOLATILITY_BUCKETS)
+            and all(type(counts[name]) is int and counts[name] >= 0 for name in VOLATILITY_BUCKETS)
+            and confirmed
+            and set(confirmed).isdisjoint(blocked)
+            and set(confirmed) | set(blocked) == set(VOLATILITY_BUCKETS)
+            and list(confirmed) == [
+                name for name in VOLATILITY_BUCKETS
+                if int(counts[name]) >= MINIMUM_CONFIRMATION_BUCKET_REPORTS
+            ]
+            and list(blocked) == [
+                name for name in VOLATILITY_BUCKETS if name not in confirmed
+            ]
+            and len(archives) == len(set(archives))
+            and sum(int(counts[name]) for name in VOLATILITY_BUCKETS)
+            == len(archives)
+            and all(len(str(item)) == 64 for item in archives)
+            and len(observed) == 64
+            and observed == canonical_digest(candidate)
+        )
+    except (KeyError, TypeError, ValueError, ArithmeticError):
+        return False
+
+
 __all__ = [
+    "confirmed_volatility_scope",
     "confirmation_cohort_reasons",
     "read_volatility_policy",
     "select_volatility_policy",
+    "verify_volatility_scope",
     "verify_volatility_policy",
 ]

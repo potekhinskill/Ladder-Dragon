@@ -1,6 +1,6 @@
 # Implementation status
 
-This document describes the code in version **2.20.274**.
+This document describes the code in version **2.20.275**.
 It does not describe future plans as completed work.
 
 An implemented function is not automatically approved for LIVE use.
@@ -17,7 +17,7 @@ The configured mode and its evidence gate remain authoritative.
 | Historical entry selection | Continuous hash-linked depth segments and new opportunities after delayed cancellation | Offline selection only; no promotion authority |
 | Historical context | Source-owned filters, fees, regimes, and fresh supervisor PANIC state | SOL observer; missing inputs block replay |
 | Historical selection planner | Context-ready paths and one frozen review cohort | Offline selection only |
-| Historical confirmation planner | Criteria-sized, disjoint post-cutoff paths for one frozen v23 rule | Operator queue and import remain explicit |
+| Historical confirmation planner | Attrition-sized, disjoint post-cutoff paths for one frozen v23 rule | Operator queue and import remain explicit |
 | Historical replay runner | Bounded immutable SHADOW request processing | Operator import and freeze remain explicit |
 | Prediction | 1, 5, and 15 minute SHADOW outcomes | Enabled for evidence only |
 | Market scenarios | 1-hour through monthly closed-candle outcomes | SHADOW only |
@@ -151,6 +151,9 @@ Every other regime blocks CHAMPION BUY and keeps position protection active.
 Residual PANIC exposure remains a separate safety failure.
 The confirmation deadline is 14 days.
 The design also stops after 300 terminal episodes.
+The planner converts pre-cutoff eligible, fill, and RANGE rate bounds into paths.
+It reserves one independent selection path for fixed attrition.
+Confirmation outcomes cannot increase the frozen path count.
 An impossible design becomes ready for REJECTED finalization before either limit.
 Version twenty-three also preregisters a useful-mean threshold.
 An anytime-valid upper bound can reject that candidate early.
@@ -163,9 +166,11 @@ The validation requires at least ten covered terminal orders.
 It requires a filled LIMIT_MAKER order and a filled STOP_LOSS_LIMIT order.
 The validation compares fills, ratios, prices, latency, fees, and slippage.
 Readiness requires three archives spanning two days.
-The archives must cover low, normal, and high volatility.
 An empirical policy can freeze these buckets from a disjoint selection cohort.
-Only later calibration archives can confirm the frozen buckets.
+Only later calibration archives can confirm each executable bucket.
+Three reports confirm one bucket after the two-day context span.
+An unconfirmed bucket blocks BUY without blocking confirmed buckets.
+Runtime requires a fresh completed depth segment from the same frozen policy.
 At least one archive must contain measured order latency.
 
 The first gate evaluates the complete candidate strategy.

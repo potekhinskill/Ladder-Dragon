@@ -23,6 +23,10 @@ from ladder_dragon.strategy.prediction.episode_semantics import (
 from ladder_dragon.strategy.prediction.entry_diagnostics import (
     normalize_entry_veto_rule,
 )
+from ladder_dragon.strategy.volatility_policy import (
+    verify_volatility_policy,
+    verify_volatility_scope,
+)
 
 if TYPE_CHECKING:
     from ladder_dragon.strategy.prediction.runtime import PredictionShadowStore
@@ -237,6 +241,24 @@ def execution_policy_from_manifest(
     frozen_regimes = criteria.get("eligible_regimes")
     if not isinstance(frozen_regimes, list) or raw_regimes != frozen_regimes:
         raise ValueError("CHAMPION regimes differ from the frozen policy")
+    execution_gate = confirmation.get("execution_model_gate")
+    volatility_policy = (
+        execution_gate.get("volatility_policy")
+        if isinstance(execution_gate, Mapping) else None
+    )
+    volatility_scope = (
+        execution_gate.get("confirmed_volatility_scope")
+        if isinstance(execution_gate, Mapping) else None
+    )
+    if candidate_rule_version == 8 and not (
+        isinstance(volatility_policy, Mapping)
+        and isinstance(volatility_scope, Mapping)
+        and verify_volatility_policy(volatility_policy)
+        and verify_volatility_scope(
+            volatility_scope, policy=volatility_policy
+        )
+    ):
+        raise ValueError("CHAMPION volatility activation scope is unavailable")
     policy = {
         "schema_version": CHAMPION_POLICY_SCHEMA_VERSION,
         "candidate_rule_version": candidate_rule_version,
@@ -295,6 +317,27 @@ def execution_policy_from_manifest(
         if not isinstance(raw_veto, Mapping):
             raise ValueError("CHAMPION entry-veto rule is unavailable")
         policy["entry_veto_rule"] = normalize_entry_veto_rule(raw_veto)
+        policy.update({
+            "volatility_policy_sha256": str(
+                volatility_policy["policy_sha256"]
+            ),
+            "volatility_low_max_bps": str(volatility_policy["low_max_bps"]),
+            "volatility_high_min_bps": str(
+                volatility_policy["high_min_bps"]
+            ),
+            "allowed_volatility_buckets": list(
+                volatility_scope["confirmed_buckets"]
+            ),
+            "blocked_volatility_buckets": list(
+                volatility_scope["blocked_buckets"]
+            ),
+            "volatility_scope_sha256": str(
+                volatility_scope["scope_sha256"]
+            ),
+            "volatility_activation_policy": (
+                "confirmed_post_cutoff_depth_bucket_only_v1"
+            ),
+        })
     return policy
 
 
@@ -318,6 +361,29 @@ def champion_allows_regime(
     if any(item not in EXECUTION_REGIMES for item in allowed):
         return False
     return str(regime) in allowed
+
+
+def champion_allows_volatility(
+    policy: Mapping[str, object], bucket: object
+) -> bool:
+    """Fail closed unless replay confirmation permits the current bucket."""
+    if (
+        policy.get("schema_version") != CHAMPION_POLICY_SCHEMA_VERSION
+        or policy.get("volatility_activation_policy")
+        != "confirmed_post_cutoff_depth_bucket_only_v1"
+    ):
+        return False
+    allowed = policy.get("allowed_volatility_buckets")
+    blocked = policy.get("blocked_volatility_buckets")
+    if (
+        not isinstance(allowed, list)
+        or not allowed
+        or not isinstance(blocked, list)
+        or set(allowed) & set(blocked)
+        or set(allowed) | set(blocked) != {"low", "normal", "high"}
+    ):
+        return False
+    return str(bucket) in allowed
 
 
 def _row_payload(row: sqlite3.Row | tuple[object, ...]) -> dict[str, object]:
@@ -571,6 +637,7 @@ __all__ = [
     "activate_champion",
     "active_champion",
     "champion_allows_regime",
+    "champion_allows_volatility",
     "execution_policy_from_manifest",
     "list_champions",
     "migrate_champion_registry",

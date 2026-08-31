@@ -19,6 +19,7 @@ from ladder_dragon.strategy.prediction.experiment_lifecycle import (
 )
 from ladder_dragon.strategy.prediction.episode_semantics import (
     evidence_semantics_fingerprint,
+    v23_evidence_semantics_fingerprint,
 )
 
 
@@ -206,6 +207,62 @@ def test_first_activation_is_restart_safe_and_exact(tmp_path: Path, monkeypatch)
     assert champion_registry.champion_allows_regime(
         loaded["execution_policy"], "TREND_DOWN"
     ) is False
+
+
+def test_v23_policy_binds_confirmed_volatility_scope(tmp_path, monkeypatch):
+    store = PredictionShadowStore(tmp_path / "prediction.sqlite3")
+    manifest = _confirmed_manifest(
+        store,
+        experiment_id="btc-v23-confirmed",
+        generation="v23",
+        candidate_fingerprint="a" * 64,
+    )
+    parameters = manifest["candidate_parameters"]
+    parameters["candidate_rule_version"] = 8
+    parameters["evidence_semantics_fingerprint"] = (
+        v23_evidence_semantics_fingerprint()
+    )
+    parameters["entry_veto_rule"] = {
+        "contract_version": "l2_adverse_selection_cancel_v3",
+        "prefill_price_change_max_bps": "-10",
+        "prefill_signed_trade_flow_max": "-0.2",
+        "prefill_order_flow_imbalance_max": "-0.3",
+        "cancel_latency_ms": 1_000,
+        "signal_window_ms": 300_000,
+        "selection_artifact_sha256": "d" * 64,
+    }
+    volatility_policy = {
+        "policy_sha256": "e" * 64,
+        "low_max_bps": "0.34",
+        "high_min_bps": "0.67",
+    }
+    scope = {
+        "scope_sha256": "f" * 64,
+        "confirmed_buckets": ["low", "normal"],
+        "blocked_buckets": ["high"],
+    }
+    monkeypatch.setattr(champion_registry, "verify_volatility_policy", lambda _value: True)
+    monkeypatch.setattr(champion_registry, "verify_volatility_scope", lambda *_args, **_kwargs: True)
+
+    policy = champion_registry.execution_policy_from_manifest(
+        manifest,
+        confirmation={
+            "confirmation_progress": {
+                "status": "PASS",
+                "confirmed_execution_regimes": ["RANGE"],
+            },
+            "execution_model_gate": {
+                "volatility_policy": volatility_policy,
+                "confirmed_volatility_scope": scope,
+            },
+        },
+        maximum_order_notional_usdt="6",
+        maximum_inventory_usdt="6",
+    )
+
+    assert policy["allowed_volatility_buckets"] == ["low", "normal"]
+    assert champion_registry.champion_allows_volatility(policy, "normal") is True
+    assert champion_registry.champion_allows_volatility(policy, "high") is False
 
 
 def test_activation_rejects_caps_that_differ_from_preview(tmp_path: Path, monkeypatch):
