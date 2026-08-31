@@ -18,6 +18,10 @@ from ladder_dragon.strategy.depth_archive import REST_BASE, _symbol, stream_url
 from ladder_dragon.strategy.depth_segments import (
     MAX_FRAME_BYTES, MAX_SEGMENTS, PublicBook, SegmentWriter,
 )
+from ladder_dragon.strategy.rolling_volatility import (
+    ROLLING_VOLATILITY_FILENAME,
+    RollingVolatilityPublisher,
+)
 
 
 class PublicStreamReconnect(RuntimeError):
@@ -72,6 +76,11 @@ def capture_segments(symbol: str, directory: Path, *, duration_sec: int = 3300,
     writer = None
     completed: list[dict] = []
     session_id = uuid4().hex
+    rolling = RollingVolatilityPublisher(
+        directory / ROLLING_VOLATILITY_FILENAME,
+        symbol=symbol,
+        session_id=session_id,
+    )
     try:
         source = public_snapshot(http, symbol)
         book.apply({"s": symbol, "E": clock_ms(), "_received_at_ms": clock_ms(),
@@ -131,6 +140,7 @@ def capture_segments(symbol: str, directory: Path, *, duration_sec: int = 3300,
                     continue
                 book.apply(row)
                 synchronized = True
+                rolling.observe(book)
                 # The first verified book is the capture boundary. Earlier
                 # buffered trades cannot be interpreted against a later book.
                 continue
@@ -150,6 +160,8 @@ def capture_segments(symbol: str, directory: Path, *, duration_sec: int = 3300,
                                        completed[-1] if completed else None, book, remaining)
             # Validate before writing; invalid events never become committed evidence.
             book.apply(row)
+            if kind == "depthUpdate":
+                rolling.observe(book)
             writer.emit(row)
         if writer is not None:
             completed.append(writer.finish(book, "STOP_REQUESTED"))

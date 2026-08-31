@@ -1,6 +1,6 @@
 # Implementation status
 
-This document describes the code in version **2.20.275**.
+This document describes the code in version **2.20.276**.
 It does not describe future plans as completed work.
 
 An implemented function is not automatically approved for LIVE use.
@@ -17,7 +17,7 @@ The configured mode and its evidence gate remain authoritative.
 | Historical entry selection | Continuous hash-linked depth segments and new opportunities after delayed cancellation | Offline selection only; no promotion authority |
 | Historical context | Source-owned filters, fees, regimes, and fresh supervisor PANIC state | SOL observer; missing inputs block replay |
 | Historical selection planner | Context-ready paths and one frozen review cohort | Offline selection only |
-| Historical confirmation planner | Attrition-sized, disjoint post-cutoff paths for one frozen v23 rule | Operator queue and import remain explicit |
+| Historical confirmation planner | Provider-packed post-cutoff paths from simultaneous exact rate bounds | Operator queue and import remain explicit |
 | Historical replay runner | Bounded immutable SHADOW request processing | Operator import and freeze remain explicit |
 | Prediction | 1, 5, and 15 minute SHADOW outcomes | Enabled for evidence only |
 | Market scenarios | 1-hour through monthly closed-candle outcomes | SHADOW only |
@@ -205,7 +205,7 @@ The replay planner creates deterministic drafts after 12 complete provider-bound
 Each stability block contains three chronological, source-disjoint paths.
 Each path remains inside one verified session and never joins a reconnect.
 Provider lifetime preflight rejects an unreachable evidence design immediately.
-The runner evaluates 36 same-block policies through three separate verified L2 passes.
+The runner evaluates eight same-block policies through three separate verified L2 passes.
 It never queues a request or imports selection evidence.
 The v23 confirmation importer appends an episode start and result atomically.
 It verifies the selection cutoff, source identities, model hashes, policy, and fees.
@@ -247,7 +247,9 @@ Probation requires one exact BUY-to-protective-exit lifecycle before PASS.
 An equity-loss breach creates persistent HALT.
 The worker fails closed without a current probation result.
 
-The public depth service records consecutive 55-minute sessions.
+The public depth service records consecutive 55-minute segments.
+It publishes one disposable rolling volatility record every five minutes.
+The record overwrites one bounded file and has no archive dependency.
 The service restarts after a recorder failure.
 Seven-day rotation bounds disposable public archive growth.
 Each validation drill also stores its complete order-lifecycle archive.

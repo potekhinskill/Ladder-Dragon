@@ -1055,6 +1055,18 @@ def record_model_validation(
         order_cohort.get("archive_sha256s", ())
         if isinstance(order_cohort, Mapping) else ()
     )
+    order_attempt_count = int(
+        order_cohort.get("attempt_count", 0)
+        if isinstance(order_cohort, Mapping) else 0
+    )
+    order_schema = int(
+        order_cohort.get("schema_version", 1)
+        if isinstance(order_cohort, Mapping) else 0
+    )
+    order_successful_count = int(
+        order_cohort.get("successful_attempt_count", order_attempt_count)
+        if isinstance(order_cohort, Mapping) else 0
+    )
     context_hashes = set(
         context_cohort.get("archive_sha256s", ())
         if isinstance(context_cohort, Mapping) else ()
@@ -1094,8 +1106,19 @@ def record_model_validation(
         or validation.excluded_orders != 0
         or not isinstance(order_cohort, Mapping)
         or not verify_cohort_fingerprint(order_cohort)
-        or int(order_cohort.get("attempt_count", 0)) < 10
-        or len(order_hashes) != int(order_cohort.get("attempt_count", 0))
+        or order_attempt_count < 10
+        or order_successful_count < 10
+        or len(order_hashes) != order_successful_count
+        or (
+            order_schema >= 2
+            and (
+                int(order_cohort.get("definite_failure_count", 0))
+                != order_attempt_count - order_successful_count
+                or not isinstance(order_cohort.get("terminal_outcomes"), list)
+                or len(order_cohort["terminal_outcomes"])
+                != order_attempt_count
+            )
+        )
         or order_hashes != set(validation.archive_sha256s)
         or len(set(order_cohort.get("order_refs", ()))) < 10
         or not isinstance(context_cohort, Mapping)

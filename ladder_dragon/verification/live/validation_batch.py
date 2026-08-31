@@ -23,7 +23,8 @@ from product_version import __version__
 
 
 ALLOWED_DRILLS = ("LIMIT_MAKER", "STOP_LOSS_LIMIT")
-HARD_MAX_ATTEMPTS = 10
+HARD_MAX_ATTEMPTS = 12
+HARD_MINIMUM_COVERED_ATTEMPTS = 10
 HARD_MAX_TURNOVER_USDT = Decimal("120")
 HARD_MAX_DURATION_HOURS = 24
 
@@ -101,6 +102,7 @@ def create_batch_manifest(
     limit_maker_attempts: int | None = None,
     stop_limit_attempts: int | None = None,
     minimum_cooldown_sec: int = 0,
+    minimum_successful_attempts: int | None = None,
 ) -> dict[str, object]:
     """Create one immutable authorization envelope without placing an order."""
     normalized = symbol.strip().upper()
@@ -108,6 +110,13 @@ def create_batch_manifest(
         raise RuntimeError("validation batch is restricted to SOLUSDT")
     if not 1 <= maximum_attempts <= HARD_MAX_ATTEMPTS:
         raise RuntimeError("validation batch attempt limit is outside the hard cap")
+    minimum_successes = (
+        min(maximum_attempts, HARD_MINIMUM_COVERED_ATTEMPTS)
+        if minimum_successful_attempts is None
+        else int(minimum_successful_attempts)
+    )
+    if not 1 <= minimum_successes <= maximum_attempts:
+        raise RuntimeError("validation batch success minimum is invalid")
     turnover = _decimal(maximum_turnover_usdt, field="turnover limit")
     if turnover > HARD_MAX_TURNOVER_USDT:
         raise RuntimeError("validation batch turnover exceeds the hard cap")
@@ -129,11 +138,12 @@ def create_batch_manifest(
         raise RuntimeError("validation batch cooldown is invalid")
     now_ms = int(time.time() * 1000) if created_at_ms is None else int(created_at_ms)
     payload: dict[str, object] = {
-        "schema_version": 3,
+        "schema_version": 4,
         "batch_id": uuid.uuid4().hex,
         "symbol": normalized,
         "allowed_drills": list(ALLOWED_DRILLS),
         "maximum_attempts": maximum_attempts,
+        "minimum_successful_attempts": minimum_successes,
         "maximum_attempts_by_drill": {
             "LIMIT_MAKER": limit_quota,
             "STOP_LOSS_LIMIT": stop_quota,
@@ -281,7 +291,7 @@ def complete_validation_attempt(
 
 
 def validation_batch_evidence(manifest_path: Path) -> dict[str, object]:
-    """Return the complete immutable cohort or reject partial evidence."""
+    """Return all terminal outcomes when the fixed cohort has enough coverage."""
     manifest = _load_manifest(manifest_path)
     ledger = manifest_path.with_suffix(manifest_path.suffix + ".attempts.ndjson")
     if not ledger.exists():
@@ -291,16 +301,26 @@ def validation_batch_evidence(manifest_path: Path) -> dict[str, object]:
     states = _attempt_states(rows)
     if len(states) != int(manifest["maximum_attempts"]):
         raise RuntimeError("validation batch is incomplete")
+    minimum_successes = int(
+        manifest.get("minimum_successful_attempts", manifest["maximum_attempts"])
+    )
     terminals = [events[-1] for events in states.values()]
-    if any(
-        len(events) != 2 or events[-1].get("status") != "SUCCEEDED"
-        for events in states.values()
+    if any(len(events) != 2 for events in states.values()) or any(
+        row.get("status") == "FAILED_UNCERTAIN" for row in terminals
     ):
-        raise RuntimeError("validation batch contains unsuccessful evidence")
-    archive_hashes = tuple(str(row.get("archive_sha256", "")) for row in terminals)
+        raise RuntimeError("validation batch contains uncertain evidence")
+    successful = [row for row in terminals if row.get("status") == "SUCCEEDED"]
+    definite_failures = [
+        row for row in terminals if row.get("status") == "FAILED_DEFINITE"
+    ]
+    if len(successful) < minimum_successes:
+        raise RuntimeError("validation batch has insufficient covered attempts")
+    archive_hashes = tuple(
+        str(row.get("archive_sha256", "")) for row in successful
+    )
     order_refs = tuple(
         str(order_ref)
-        for row in terminals
+        for row in successful
         for order_ref in row.get("order_refs", [])
     )
     if (
@@ -311,12 +331,23 @@ def validation_batch_evidence(manifest_path: Path) -> dict[str, object]:
     ):
         raise RuntimeError("validation batch cohort identity is invalid")
     evidence: dict[str, object] = {
-        "schema_version": 1,
+        "schema_version": 2,
         "batch_id": manifest["batch_id"],
         "manifest_sha256": manifest["manifest_sha256"],
         "attempt_count": len(states),
+        "successful_attempt_count": len(successful),
+        "definite_failure_count": len(definite_failures),
+        "minimum_successful_attempts": minimum_successes,
         "archive_sha256s": list(archive_hashes),
         "order_refs": list(order_refs),
+        "terminal_outcomes": [
+            {
+                "attempt_id": str(row["attempt_id"]),
+                "status": str(row["status"]),
+                "entry_sha256": str(row["entry_sha256"]),
+            }
+            for row in terminals
+        ],
         "ledger_terminal_sha256": rows[-1]["entry_sha256"],
     }
     evidence["cohort_sha256"] = _sha256(evidence)
@@ -495,7 +526,11 @@ def run_validation_batch(
         cooldown = int(manifest.get("minimum_cooldown_sec", 0))
         if cooldown > 0 and index + 1 < len(pending):
             time.sleep(cooldown)
-    return 3 if definite_failures else 0
+    try:
+        validation_batch_evidence(manifest_path)
+    except RuntimeError:
+        return 3
+    return 0
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -508,6 +543,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--limit-maker-attempts", type=int)
     parser.add_argument("--stop-limit-attempts", type=int)
     parser.add_argument("--minimum-cooldown-sec", type=int, default=0)
+    parser.add_argument("--minimum-successful-attempts", type=int)
     parser.add_argument("--confirm", required=True)
     return parser
 
@@ -534,6 +570,7 @@ def main() -> int:
         limit_maker_attempts=args.limit_maker_attempts,
         stop_limit_attempts=args.stop_limit_attempts,
         minimum_cooldown_sec=args.minimum_cooldown_sec,
+        minimum_successful_attempts=args.minimum_successful_attempts,
     )
     print(json.dumps(payload, sort_keys=True))
     return 0

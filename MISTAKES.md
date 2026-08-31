@@ -1,5 +1,33 @@
 # Engineering mistakes and root causes
 
+### 2026-08-31 — Ignored unused time inside provider sessions
+
+- **Impact:** confirmation declared fifty-one paths reachable within a fourteen-day deadline.
+- **Root cause:** the planner divided total wall time by path duration across forced reconnect boundaries.
+- **Correction:** pack paths inside each twenty-four-hour provider session.
+- **Prevention:** test deadline capacity at the provider session boundary.
+
+### 2026-08-31 — Labeled a fixed reserve as a statistical bound
+
+- **Impact:** confirmation capacity did not control the probability of receiving required filled outcomes.
+- **Root cause:** the planner subtracted one success instead of estimating binomial uncertainty.
+- **Correction:** invert simultaneous one-sided exact binomial tests before the confirmation cutoff.
+- **Prevention:** every named statistical bound must state and test its confidence level.
+
+### 2026-08-31 — Used completed segments for a faster runtime guard
+
+- **Impact:** the BUY guard would block during the last twenty-five minutes of each segment.
+- **Root cause:** the guard freshness limit was shorter than the immutable segment cadence.
+- **Correction:** publish separate rolling telemetry every five minutes from the verified book.
+- **Prevention:** compare every runtime freshness limit with its producer cadence.
+
+### 2026-08-31 — Required every validation attempt to succeed
+
+- **Impact:** one definite technical failure invalidated every successful result in the fixed batch.
+- **Root cause:** the cohort had no preregistered attrition allowance.
+- **Correction:** record twelve terminal outcomes and require at least ten covered attempts.
+- **Prevention:** freeze technical attrition before any live validation result is visible.
+
 ### 2026-08-31 — Equated confirmation paths with filled episodes
 
 - **Impact:** a 30-path cohort could require 29 fills and remain practically unable to pass.

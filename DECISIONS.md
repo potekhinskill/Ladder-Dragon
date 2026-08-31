@@ -1,5 +1,33 @@
 # Engineering decisions
 
+### 2026-08-31 — Pack confirmation paths inside provider sessions
+
+- **Context:** a deadline can contain fewer paths when each provider session has unused time.
+- **Decision:** calculate capacity per provider session before the confirmation cohort freezes.
+- **Why it worked:** tests prove that fourteen days contain at most forty-two complete paths.
+- **Reuse:** every evidence design with provider-owned connection or session limits.
+
+### 2026-08-31 — Use simultaneous exact rate bounds for capacity
+
+- **Context:** a one-path reserve did not quantify uncertainty in eligible, fill, or regime rates.
+- **Decision:** use Bonferroni-adjusted one-sided Clopper-Pearson bounds for all three frozen rates.
+- **Why it worked:** confirmation capacity now includes sampling uncertainty before post-cutoff outcomes exist.
+- **Reuse:** every fixed cohort whose required outcomes depend on uncertain source rates.
+
+### 2026-08-31 — Separate rolling runtime telemetry from immutable calibration
+
+- **Context:** fifty-five-minute calibration segments could not provide a continuously fresh runtime bucket.
+- **Decision:** overwrite one five-minute public volatility record from the sequence-verified live book.
+- **Why it worked:** calibration remains immutable, while the BUY guard receives bounded fresh telemetry.
+- **Reuse:** every runtime guard that needs fresher state than its immutable evidence cadence.
+
+### 2026-08-31 — Freeze validation attrition before Mainnet attempts
+
+- **Context:** one definite technical failure invalidated a complete ten-attempt validation batch.
+- **Decision:** freeze twelve attempts, retain all outcomes, and require ten covered attempts.
+- **Why it worked:** failures remain visible and cannot trigger an outcome-dependent cohort extension.
+- **Reuse:** every bounded live validation with a known technical attrition allowance.
+
 ### 2026-08-31 — Freeze confirmation capacity from pre-cutoff attrition
 
 - **Context:** one planned path does not guarantee one eligible filled episode.

@@ -33,7 +33,7 @@ if TYPE_CHECKING:
 
 
 D = Decimal
-CHAMPION_POLICY_SCHEMA_VERSION = 7
+CHAMPION_POLICY_SCHEMA_VERSION = 8
 EXECUTION_REGIMES = ("RANGE", "TREND_UP", "TREND_DOWN")
 PROTECTIVE_RUNTIME_ACTIONS = (
     "REDUCE_ORDER_NOTIONAL",
@@ -335,7 +335,7 @@ def execution_policy_from_manifest(
                 volatility_scope["scope_sha256"]
             ),
             "volatility_activation_policy": (
-                "confirmed_post_cutoff_depth_bucket_only_v1"
+                "confirmed_post_cutoff_rolling_depth_bucket_v2"
             ),
         })
     return policy
@@ -370,7 +370,7 @@ def champion_allows_volatility(
     if (
         policy.get("schema_version") != CHAMPION_POLICY_SCHEMA_VERSION
         or policy.get("volatility_activation_policy")
-        != "confirmed_post_cutoff_depth_bucket_only_v1"
+        != "confirmed_post_cutoff_rolling_depth_bucket_v2"
     ):
         return False
     allowed = policy.get("allowed_volatility_buckets")

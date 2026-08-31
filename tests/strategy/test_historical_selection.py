@@ -1,5 +1,6 @@
 import hashlib
 import json
+from decimal import Decimal
 from pathlib import Path
 
 import pytest
@@ -7,6 +8,7 @@ import pytest
 from ladder_dragon.strategy.prediction.historical_entry_replay import MODEL_CONTRACT
 from ladder_dragon.strategy.prediction.historical_policy import fingerprint
 from ladder_dragon.strategy.prediction.historical_selection import (
+    _one_sided_binomial_lower_bound,
     historical_selection_artifact,
     import_historical_selection,
 )
@@ -23,6 +25,15 @@ def policy():
         "veto_signed_flow": "-0.2",
         "veto_ofi": "-0.2",
     }
+
+
+def test_exact_rate_bound_is_conservative_and_monotonic():
+    seven = _one_sided_binomial_lower_bound(7, 12)
+    twelve = _one_sided_binomial_lower_bound(12, 12)
+
+    assert 0 < seven < Decimal("7") / Decimal("12")
+    assert seven < twelve < Decimal("1")
+    assert _one_sided_binomial_lower_bound(0, 12) == 0
 
 
 def report(block: int):

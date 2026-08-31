@@ -27,7 +27,10 @@ D = Decimal
 def test_candidate_grid_uses_only_downside_price_thresholds():
     candidates = candidate_grid()
 
-    assert candidates
+    assert len(candidates) == 8
+    assert {
+        row["prefill_price_change_max_bps"] for row in candidates
+    } == {"-10", "-20"}
     assert all(
         D(str(row["prefill_price_change_max_bps"])) < 0
         for row in candidates

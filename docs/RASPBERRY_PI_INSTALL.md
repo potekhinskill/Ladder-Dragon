@@ -469,9 +469,10 @@ This command does not place an order:
 ```bash
 sudo -u bot PYTHONPATH=. .venv/bin/python -m bin.mainnet_validation_batch \
   --manifest logs/mainnet-validation-batch.json \
-  --symbol SOLUSDT --maximum-attempts 4 \
-  --maximum-turnover-usdt 48 --duration-hours 24 \
-  --limit-maker-attempts 2 --stop-limit-attempts 2 \
+  --symbol SOLUSDT --maximum-attempts 12 \
+  --minimum-successful-attempts 10 \
+  --maximum-turnover-usdt 72 --duration-hours 24 \
+  --limit-maker-attempts 6 --stop-limit-attempts 6 \
   --minimum-cooldown-sec 300 \
   --confirm CREATE_VALIDATION_BATCH
 ```
@@ -483,6 +484,9 @@ A crash after reservation cannot restore that attempt.
 The batch stops at its attempt, turnover, release, or time limit.
 The append-only ledger uses a hash chain.
 Separate drill quotas prevent adaptive reallocation after outcomes are visible.
+Every terminal outcome remains in the cohort.
+Two definite failures can use the preregistered attrition allowance.
+An uncertain result closes the complete batch permanently.
 Do not delete its manifest or append-only attempt ledger.
 
 The separate SQLite journal is authoritative order evidence.

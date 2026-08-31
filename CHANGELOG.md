@@ -3,6 +3,33 @@
 All notable changes are documented here. Releases use Semantic Versioning; every
 section is dated and there is intentionally no `Unreleased` section.
 
+## [2.20.276] — 2026-08-31
+
+### Added
+- The depth recorder publishes one sequence-verified rolling volatility record every five minutes.
+- Validation batches can freeze twelve attempts and require at least ten covered attempts.
+- Confirmation reports provider session capacity and the maximum path count before the deadline.
+
+### Changed
+- Historical selection uses simultaneous one-sided exact binomial lower bounds for three planning rates.
+- The v23 entry-veto selection grid contains eight preregistered rules instead of thirty-six rules.
+- CHAMPION volatility policy schema 8 consumes rolling public depth telemetry.
+
+### Fixed
+- A fourteen-day confirmation deadline now rejects cohorts larger than forty-two independent paths.
+- The volatility guard no longer has a twenty-five-minute blind interval during each depth segment.
+- Two definite validation failures no longer invalidate ten covered results in a fixed twelve-attempt cohort.
+
+### Security
+- Rolling telemetry contains public data only and fails closed on stale, future, damaged, or discontinuous input.
+- Uncertain validation attempts still close the complete batch permanently.
+- Persistent HALT, BTC, ETH, CHAMPION state, and order authority remain unchanged.
+
+### Verified
+- The focused strategy, guard, validation, execution, and depth suite passes: 85 tests.
+- The full project suite passes: 1,645 tests.
+- Python compilation, Technical English, and whitespace checks pass.
+
 ## [2.20.275] — 2026-08-31
 
 ### Added

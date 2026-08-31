@@ -1,4 +1,5 @@
 from collections import defaultdict
+from decimal import Decimal
 import json
 
 from ladder_dragon.strategy.prediction import historical_replay_planner as planner
@@ -119,10 +120,10 @@ def test_planner_creates_provider_bounded_review_drafts(tmp_path, monkeypatch):
 
     drafts = list(draft_directory.glob("*.json"))
     assert report["status"] == "DRAFTS_READY_FOR_OPERATOR_REVIEW"
-    assert report["draft_count"] == 144
+    assert report["draft_count"] == 32
     assert report["complete_independent_paths"] == 12
     assert report["cohort_contract"] == planner.COHORT_CONTRACT
-    assert len(drafts) == 144
+    assert len(drafts) == 32
     assert report["automatic_queueing"] is False
     assert report["automatic_selection_import"] is False
     assert not (tmp_path / "requests").exists()
@@ -143,12 +144,16 @@ def test_planner_creates_provider_bounded_review_drafts(tmp_path, monkeypatch):
             path["cutoff_ms"] for request in requests for path in request["paths"]
         ),
     )
-    assert artifact["schema_version"] == 4
+    assert artifact["schema_version"] == 5
+    assert artifact["selection_metrics"]["confirmation_capacity_policy"] == (
+        "bonferroni_clopper_pearson_lower_bound_v1"
+    )
     assert artifact["selection_metrics"]["independent_paths"] == 12
     assert artifact["selection_metrics"]["report_blocks"] == 4
-    assert artifact["selection_metrics"]["filled_path_rate_lower_bound"] == (
-        "0.5833333333333333333333333333"
-    )
+    assert Decimal(
+        artifact["selection_metrics"]["filled_path_rate_lower_bound"]
+    ) < Decimal("7") / Decimal("12")
+    assert artifact["selection_metrics"]["planning_rate_hypotheses"] == 3
     assert artifact["selected_rule"]["signal_window_ms"] == 300_000
 
 
@@ -230,9 +235,9 @@ def test_planner_freezes_one_draft_cohort_instead_of_rolling(
         tmp_path, drafts, tmp_path / "context.sqlite3"
     )
 
-    assert first["draft_count"] == 144
+    assert first["draft_count"] == 32
     assert second["status"] == "DRAFT_COHORT_FROZEN_FOR_REVIEW"
-    assert len([path for path in drafts.glob("*.json") if path.name != "status.json"]) == 144
+    assert len([path for path in drafts.glob("*.json") if path.name != "status.json"]) == 32
 
 
 def test_planner_preflight_reports_an_unreachable_provider_design(

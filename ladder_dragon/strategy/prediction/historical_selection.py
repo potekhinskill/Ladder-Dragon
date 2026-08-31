@@ -5,9 +5,10 @@
 
 from __future__ import annotations
 
-from decimal import Decimal, InvalidOperation
+from decimal import Decimal, InvalidOperation, localcontext
 import hashlib
 import json
+from math import comb
 from pathlib import Path
 import time
 from typing import Iterable, Mapping
@@ -28,7 +29,11 @@ MAXIMUM_REPORT_BYTES = 16 * 1024 * 1024
 PATH_COHORT_CONTRACT = "provider_bounded_disjoint_paths_v1"
 REQUIRED_STABILITY_BLOCKS = 4
 PATHS_PER_STABILITY_BLOCK = 3
-PLANNING_ATTRITION_PATHS = 1
+PLANNING_RATE_FAMILY_ALPHA = Decimal("0.05")
+PLANNING_RATE_HYPOTHESES = 3
+PLANNING_RATE_ALPHA = (
+    PLANNING_RATE_FAMILY_ALPHA / Decimal(PLANNING_RATE_HYPOTHESES)
+)
 
 
 def _decimal(value: object, *, field: str) -> Decimal:
@@ -39,6 +44,44 @@ def _decimal(value: object, *, field: str) -> Decimal:
     if not number.is_finite():
         raise ValueError(f"historical {field} is invalid")
     return number
+
+
+def _one_sided_binomial_lower_bound(
+    successes: int, trials: int, *, alpha: Decimal = PLANNING_RATE_ALPHA
+) -> Decimal:
+    """Return a conservative exact lower bound for one binomial rate."""
+    if type(successes) is not int or type(trials) is not int:
+        raise ValueError("historical planning counts are invalid")
+    if not 0 <= successes <= trials <= 10_000:
+        raise ValueError("historical planning counts are invalid")
+    if trials == 0 or successes == 0:
+        return Decimal("0")
+    if not Decimal("0") < alpha < Decimal("1"):
+        raise ValueError("historical planning alpha is invalid")
+
+    # Invert P_p[X >= successes] = alpha. The lower endpoint is returned
+    # conservatively, so rounding cannot make confirmation capacity smaller.
+    with localcontext() as context:
+        context.prec = 60
+
+        def upper_tail(probability: Decimal) -> Decimal:
+            complement = Decimal("1") - probability
+            return sum(
+                Decimal(comb(trials, outcome))
+                * probability**outcome
+                * complement ** (trials - outcome)
+                for outcome in range(successes, trials + 1)
+            )
+
+        lower = Decimal("0")
+        upper = Decimal(successes) / Decimal(trials)
+        for _ in range(160):
+            midpoint = (lower + upper) / Decimal("2")
+            if upper_tail(midpoint) < alpha:
+                lower = midpoint
+            else:
+                upper = midpoint
+        return +lower
 
 
 def _load(path: Path, expected_sha256: str) -> dict[str, object]:
@@ -300,12 +343,10 @@ def historical_selection_artifact(
     planning_denominator = len(independent)
 
     def planning_lower(successes: int) -> Decimal:
-        # Reserve one complete independent path before confirmation is frozen.
+        # Bonferroni-adjusted exact bounds cover all three planning rates.
         # Future confirmation outcomes must never resize this source cohort.
-        if planning_denominator <= 0:
-            return Decimal("0")
-        return Decimal(max(0, successes - PLANNING_ATTRITION_PATHS)) / Decimal(
-            planning_denominator
+        return _one_sided_binomial_lower_bound(
+            successes, planning_denominator
         )
 
     target_reachability = (
@@ -337,7 +378,7 @@ def historical_selection_artifact(
     }
     report_identities = [str(report["report_sha256"]) for report in reports]
     artifact = {
-        "schema_version": 4 if path_cohort else 2,
+        "schema_version": 5 if path_cohort else 2,
         "mode": "SHADOW_SELECTION",
         "evidence_role": "HISTORICAL_SELECTION_ONLY",
         "can_change_orders": False,
@@ -367,7 +408,11 @@ def historical_selection_artifact(
             "eligible_terminal_paths": len(eligible_independent),
             "filled_paths": len(filled_independent),
             "range_filled_paths": len(range_filled_independent),
-            "planning_attrition_paths": PLANNING_ATTRITION_PATHS,
+            "planning_rate_family_alpha": format(
+                PLANNING_RATE_FAMILY_ALPHA, "f"
+            ),
+            "planning_rate_hypotheses": PLANNING_RATE_HYPOTHESES,
+            "planning_rate_alpha": format(PLANNING_RATE_ALPHA, "f"),
             "eligible_path_rate_lower_bound": format(
                 planning_lower(len(eligible_independent)), "f"
             ),
@@ -378,7 +423,7 @@ def historical_selection_artifact(
                 planning_lower(len(range_filled_independent)), "f"
             ),
             "confirmation_capacity_policy": (
-                "leave_one_independent_path_out_lower_bound_v1"
+                "bonferroni_clopper_pearson_lower_bound_v1"
             ),
         },
         "selected_rule": selected_rule,

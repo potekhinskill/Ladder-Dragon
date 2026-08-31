@@ -21,6 +21,7 @@ from ladder_dragon.strategy.prediction.historical_replay_planner import (
     PATHS_PER_BLOCK,
     SIGNAL_WARMUP_MS,
     PATH_ENTRY_WINDOW_MS,
+    PROVIDER_CONNECTION_MAX_MS,
     TERMINAL_TAIL_MS,
     _chains,
     _existing_draft_identities,
@@ -35,6 +36,7 @@ from ladder_dragon.strategy.prediction.v23_confirmation import (
 
 D = Decimal
 CONFIRMATION_COHORT_MARKER = "confirmation-cohort.json"
+CONFIRMATION_FIXED_ATTRITION_PATHS = 1
 
 
 def _integer(criteria: Mapping[str, object], field: str) -> int:
@@ -65,12 +67,12 @@ def _confirmation_design(
     criteria = manifest.get("criteria")
     if not isinstance(criteria, Mapping):
         raise ValueError("v23 confirmation criteria are unavailable")
-    if selection.get("schema_version") != 4:
+    if selection.get("schema_version") != 5:
         raise ValueError("v23 selection planning contract is unavailable")
     metrics = selection.get("selection_metrics")
     if not isinstance(metrics, Mapping) or metrics.get(
         "confirmation_capacity_policy"
-    ) != "leave_one_independent_path_out_lower_bound_v1":
+    ) != "bonferroni_clopper_pearson_lower_bound_v1":
         raise ValueError("v23 selection planning contract is unavailable")
     eligible_rate = _rate(metrics, "eligible_path_rate_lower_bound")
     filled_rate = _rate(metrics, "filled_path_rate_lower_bound")
@@ -94,6 +96,7 @@ def _confirmation_design(
             range_filled_rate,
         ),
     )
+    required += CONFIRMATION_FIXED_ATTRITION_PATHS
     grouped = ((required + PATHS_PER_BLOCK - 1) // PATHS_PER_BLOCK) * PATHS_PER_BLOCK
     if grouped > MAXIMUM_CONTEXT_CANDIDATES:
         raise ValueError("v23 confirmation path capacity reached")
@@ -104,8 +107,39 @@ def _confirmation_design(
         "filled_path_rate_lower_bound": format(filled_rate, "f"),
         "range_filled_path_rate_lower_bound": format(range_filled_rate, "f"),
         "required_independent_paths": grouped,
+        "fixed_attrition_paths": CONFIRMATION_FIXED_ATTRITION_PATHS,
         "dynamic_top_up_allowed": False,
     }
+
+
+def _provider_capacity(duration_ms: int) -> dict[str, int]:
+    """Return the exact lower-bound capacity inside provider sessions."""
+    path_duration_ms = SIGNAL_WARMUP_MS + PATH_ENTRY_WINDOW_MS + TERMINAL_TAIL_MS
+    paths_per_session = PROVIDER_CONNECTION_MAX_MS // path_duration_ms
+    complete_sessions, remainder_ms = divmod(
+        max(0, int(duration_ms)), PROVIDER_CONNECTION_MAX_MS
+    )
+    maximum_paths = complete_sessions * paths_per_session + min(
+        paths_per_session, remainder_ms // path_duration_ms
+    )
+    return {
+        "path_duration_ms": path_duration_ms,
+        "provider_session_max_ms": PROVIDER_CONNECTION_MAX_MS,
+        "paths_per_provider_session": paths_per_session,
+        "maximum_paths_before_deadline": maximum_paths,
+    }
+
+
+def _provider_design_duration(required_paths: int) -> int:
+    """Return the minimum wall time after provider packing losses."""
+    capacity = _provider_capacity(PROVIDER_CONNECTION_MAX_MS)
+    paths_per_session = capacity["paths_per_provider_session"]
+    sessions = (required_paths + paths_per_session - 1) // paths_per_session
+    remainder = required_paths - (sessions - 1) * paths_per_session
+    return (
+        (sessions - 1) * PROVIDER_CONNECTION_MAX_MS
+        + remainder * capacity["path_duration_ms"]
+    )
 
 
 def _policy(
@@ -176,10 +210,12 @@ def plan_v23_confirmation_drafts(
     required_paths = int(design["required_independent_paths"])
     deadline_ms = int(manifest["confirmation_deadline_ts_ms"])
     cutoff_ms = int(manifest["confirmation_start_ts_ms"])
-    design_duration_ms = required_paths * (
-        SIGNAL_WARMUP_MS + PATH_ENTRY_WINDOW_MS + TERMINAL_TAIL_MS
+    maximum_duration_ms = deadline_ms - cutoff_ms
+    provider_capacity = _provider_capacity(maximum_duration_ms)
+    design_duration_ms = _provider_design_duration(required_paths)
+    reachable = (
+        required_paths <= provider_capacity["maximum_paths_before_deadline"]
     )
-    reachable = design_duration_ms <= deadline_ms - cutoff_ms
     if not reachable:
         return {
             "schema_version": 1,
@@ -190,7 +226,8 @@ def plan_v23_confirmation_drafts(
             "required_independent_paths": required_paths,
             "confirmation_capacity_design": design,
             "design_duration_ms": design_duration_ms,
-            "maximum_confirmation_duration_ms": deadline_ms - cutoff_ms,
+            "maximum_confirmation_duration_ms": maximum_duration_ms,
+            "provider_capacity": provider_capacity,
             "automatic_queueing": False,
             "automatic_confirmation_import": False,
         }
@@ -216,6 +253,7 @@ def plan_v23_confirmation_drafts(
             "complete_independent_paths": len(paths),
             "continuous_sessions": len(chains),
             "design_duration_ms": design_duration_ms,
+            "provider_capacity": provider_capacity,
             **progress,
             "automatic_queueing": False,
             "automatic_confirmation_import": False,
@@ -269,6 +307,7 @@ def plan_v23_confirmation_drafts(
         }),
         "required_independent_paths": required_paths,
         "confirmation_capacity_design": design,
+        "provider_capacity": provider_capacity,
     }
     marker["cohort_sha256"] = fingerprint(marker)
     existing_ids = _existing_draft_identities(draft_directory)
@@ -315,6 +354,7 @@ def plan_v23_confirmation_drafts(
         "continuous_sessions": len(chains),
         "frozen_cohort_sha256": marker["cohort_sha256"],
         "design_duration_ms": design_duration_ms,
+        "provider_capacity": provider_capacity,
         **progress,
         "automatic_queueing": False,
         "automatic_confirmation_import": False,

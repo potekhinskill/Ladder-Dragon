@@ -81,9 +81,9 @@ def candidate_grid() -> tuple[dict[str, object], ...]:
             "cancel_latency_ms": FIXED_CANCEL_LATENCY_MS,
             "signal_window_ms": PREFILL_WINDOW_MS,
         }
-        for price in (-5, -10, -15, -20)
-        for flow in (10, 20, 30)
-        for ofi in (5, 10, 20)
+        for price in (-10, -20)
+        for flow in (10, 30)
+        for ofi in (10, 20)
     )
 
 

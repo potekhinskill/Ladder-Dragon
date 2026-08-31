@@ -289,7 +289,7 @@ def test_definite_failure_cannot_enter_successful_batch_evidence(
         completed_at_ms=3_000,
     )
 
-    with pytest.raises(RuntimeError, match="unsuccessful evidence"):
+    with pytest.raises(RuntimeError, match="insufficient covered attempts"):
         validation_batch.validation_batch_evidence(tmp_path / "batch.json")
 
 
@@ -360,5 +360,49 @@ def test_complete_batch_freezes_archives_and_order_refs(tmp_path, monkeypatch):
         tmp_path / "batch.json"
     )
     assert evidence["attempt_count"] == 2
+    assert evidence["successful_attempt_count"] == 2
+    assert evidence["definite_failure_count"] == 0
     assert evidence["archive_sha256s"] == ["1" * 64, "2" * 64]
     assert evidence["order_refs"] == ["order-1", "order-2"]
+
+
+def test_twelve_attempt_cohort_accepts_two_definite_failures(tmp_path, monkeypatch):
+    validation_batch.create_batch_manifest(
+        tmp_path / "batch.json",
+        symbol="SOLUSDT",
+        maximum_attempts=12,
+        minimum_successful_attempts=10,
+        maximum_turnover_usdt=Decimal("72"),
+        duration_hours=24,
+        created_at_ms=1_000,
+        source_commit=COMMIT,
+    )
+    monkeypatch.setattr(validation_batch, "_current_commit", lambda: COMMIT)
+    for index in range(12):
+        drill = "LIMIT_MAKER" if index % 2 == 0 else "STOP_LOSS_LIMIT"
+        reservation = validation_batch.reserve_validation_attempt(
+            tmp_path / "batch.json",
+            drill=drill,
+            symbol="SOLUSDT",
+            turnover_usdt=Decimal("6"),
+            now_ms=2_000 + index * 1_000,
+        )
+        succeeded = index < 10
+        validation_batch.complete_validation_attempt(
+            tmp_path / "batch.json",
+            attempt_id=reservation["attempt_id"],
+            status="SUCCEEDED" if succeeded else "FAILED_DEFINITE",
+            archive_sha256=(format(index + 1, "064x") if succeeded else None),
+            order_refs=((f"order-{index}",) if succeeded else ()),
+            completed_at_ms=2_500 + index * 1_000,
+        )
+
+    evidence = validation_batch.validation_batch_evidence(
+        tmp_path / "batch.json"
+    )
+
+    assert evidence["attempt_count"] == 12
+    assert evidence["successful_attempt_count"] == 10
+    assert evidence["definite_failure_count"] == 2
+    assert len(evidence["terminal_outcomes"]) == 12
+    assert len(evidence["archive_sha256s"]) == 10

@@ -8,15 +8,20 @@ from __future__ import annotations
 from pathlib import Path
 import time
 from typing import Mapping
+from decimal import Decimal, InvalidOperation
 
 from ladder_dragon.strategy.depth_segments import bounded_json
+from ladder_dragon.strategy.prediction.historical_policy import fingerprint
+from ladder_dragon.strategy.rolling_volatility import (
+    ROLLING_VOLATILITY_FILENAME,
+    ROLLING_WINDOW_MS,
+)
 from ladder_dragon.strategy.prediction.champion_registry import (
     champion_allows_volatility,
 )
 
 
-MAXIMUM_INVENTORY_AGE_MS = 5 * 60_000
-MAXIMUM_COMPLETED_SEGMENT_AGE_MS = 30 * 60_000
+MAXIMUM_ROLLING_TELEMETRY_AGE_MS = 10 * 60_000
 MAXIMUM_FUTURE_SKEW_MS = 5_000
 
 
@@ -27,8 +32,9 @@ def evaluate_volatility_guard(
     inventory_path: Path = Path(
         "/var/lib/ladder-dragon/depth-archives/calibration_inventory.json"
     ),
+    rolling_path: Path | None = None,
 ) -> dict[str, object]:
-    """Allow BUY only from a fresh, policy-bound completed depth segment."""
+    """Allow BUY only from fresh policy-bound rolling public telemetry."""
     observed_at_ms = int(time.time() * 1000) if now_ms is None else int(now_ms)
     blocked = {
         "allowed": False,
@@ -36,23 +42,51 @@ def evaluate_volatility_guard(
         "reason": "VOLATILITY_EVIDENCE_UNAVAILABLE",
     }
     try:
-        payload = bounded_json(inventory_path)
-        status = payload.get("frozen_volatility_policy")
-        updated_at_ms = int(payload.get("updated_at_ms", 0))
-        if not isinstance(status, Mapping):
+        rolling = bounded_json(
+            rolling_path
+            or inventory_path.parent / ROLLING_VOLATILITY_FILENAME
+        )
+        rolling_body = {
+            key: value for key, value in rolling.items()
+            if key != "telemetry_sha256"
+        }
+        rolling_updated_ms = int(rolling.get("updated_at_ms", 0))
+        window_started_ms = int(rolling.get("window_started_at_ms", 0))
+        window_ended_ms = int(rolling.get("window_ended_at_ms", 0))
+        try:
+            volatility = Decimal(str(rolling["volatility_bps_p95"]))
+            low = Decimal(str(policy["volatility_low_max_bps"]))
+            high = Decimal(str(policy["volatility_high_min_bps"]))
+        except (InvalidOperation, KeyError, TypeError, ValueError):
             return blocked
-        latest_ms = int(status.get("latest_bucket_last_ts_ms", 0))
-        bucket = str(status.get("latest_bucket") or "")
+        bucket = (
+            "low" if volatility <= low
+            else "high" if volatility >= high
+            else "normal"
+        )
         if (
-            status.get("status") != "PASS_SCOPED"
-            or status.get("policy_sha256")
-            != policy.get("volatility_policy_sha256")
-            or updated_at_ms <= 0
-            or latest_ms <= 0
-            or updated_at_ms > observed_at_ms + MAXIMUM_FUTURE_SKEW_MS
-            or latest_ms > observed_at_ms + MAXIMUM_FUTURE_SKEW_MS
-            or observed_at_ms - updated_at_ms > MAXIMUM_INVENTORY_AGE_MS
-            or observed_at_ms - latest_ms > MAXIMUM_COMPLETED_SEGMENT_AGE_MS
+            rolling.get("schema_version") != 1
+            or rolling.get("mode") != "PUBLIC_READ_ONLY"
+            or rolling.get("apply_allowed") is not False
+            or rolling.get("contains_secrets") is not False
+            or rolling.get("symbol") != policy.get("symbol")
+            or rolling.get("sequence_verified") is not True
+            or rolling.get("telemetry_sha256") != fingerprint(rolling_body)
+            or not volatility.is_finite()
+            or volatility < 0
+            or not Decimal("0") <= low < high
+            or rolling_updated_ms <= 0
+            or window_started_ms <= 0
+            or window_ended_ms != rolling_updated_ms
+            or type(rolling.get("book_update_count")) is not int
+            or int(rolling["book_update_count"]) < 100
+            or type(rolling.get("last_update_id")) is not int
+            or int(rolling["last_update_id"]) <= 0
+            or rolling_updated_ms > observed_at_ms + MAXIMUM_FUTURE_SKEW_MS
+            or window_started_ms > rolling_updated_ms
+            or rolling_updated_ms - window_started_ms < ROLLING_WINDOW_MS
+            or observed_at_ms - rolling_updated_ms
+            > MAXIMUM_ROLLING_TELEMETRY_AGE_MS
         ):
             return blocked
         allowed = champion_allows_volatility(policy, bucket)
@@ -63,8 +97,8 @@ def evaluate_volatility_guard(
                 "CONFIRMED_VOLATILITY_BUCKET"
                 if allowed else "UNCONFIRMED_VOLATILITY_BUCKET"
             ),
-            "inventory_updated_at_ms": updated_at_ms,
-            "segment_last_ts_ms": latest_ms,
+            "rolling_updated_at_ms": rolling_updated_ms,
+            "volatility_bps_p95": format(volatility, "f"),
         }
     except (OSError, TypeError, ValueError, ArithmeticError):
         return blocked

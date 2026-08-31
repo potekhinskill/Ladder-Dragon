@@ -197,13 +197,16 @@ Later planning cycles cannot replace that cohort or add rolling drafts.
 It never copies drafts into the accepted request queue.
 Place reviewed immutable requests under `.historical-replay/requests` in the depth directory.
 The runner writes immutable reports under `.historical-replay/reports`.
-It replays 36 policies through one pass per path.
+It replays eight policies through one pass per path.
 It accepts at most 256 queued requests.
 The replaceable `status.json` reports queue progress without source paths or exception text.
 The runner never imports selection, freezes a candidate, changes HALT, or creates orders.
 
 After v23 freezes, the planner creates a separate post-cutoff confirmation cohort.
-Its path count comes from the frozen confirmation criteria.
+Its path count uses three simultaneous one-sided exact rate bounds.
+The planner adds one fixed attrition path before block grouping.
+The deadline capacity packs three complete paths into each provider session.
+Fourteen days can contain at most forty-two complete paths.
 Selection sources and pre-cutoff paths cannot enter this cohort.
 Drafts remain under `.historical-replay/confirmation-drafts` for operator review.
 Copy accepted drafts into `.historical-replay/confirmation-requests`.
@@ -262,6 +265,7 @@ The confirmation cohort must cover two days and all three frozen buckets.
 | Public segments and sidecars | Authoritative source evidence | Directory byte cap and 10,000 segment limit | Local 14-day minimum; external encrypted archive after reference review |
 | Calibration reports | Derived evidence | One report per source segment | Same retention as the retained source |
 | Calibration inventory | Disposable status | One bounded replacement file | Rebuilt by the worker; no archive dependency |
+| Rolling volatility | Disposable status | One bounded replacement file | Overwritten every five minutes; no archive dependency |
 | Historical replay reports | Derived selection evidence | 10,000 attempts per policy and immutable output | Retain with policy, context, and source archives |
 | Historical replay drafts | Derived review input | 256 immutable drafts | Retain sources through operator review |
 | Historical replay requests | Authoritative operator input | 256 queued immutable requests | Retain through operator review and selection import |

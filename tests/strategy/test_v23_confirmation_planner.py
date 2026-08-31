@@ -78,12 +78,12 @@ def test_confirmation_planner_freezes_post_cutoff_criteria_sized_cohort(
         subject,
         "load_v23_selection_artifact",
         lambda *_args: {
-            "schema_version": 4,
+            "schema_version": 5,
             "source_archive_sha256s": ["f" * 64],
             "model_source_sha256s": {"model.py": "e" * 64},
             "selection_metrics": {
                 "confirmation_capacity_policy": (
-                    "leave_one_independent_path_out_lower_bound_v1"
+                    "bonferroni_clopper_pearson_lower_bound_v1"
                 ),
                 "eligible_path_rate_lower_bound": "1",
                 "filled_path_rate_lower_bound": "1",
@@ -126,10 +126,10 @@ def test_confirmation_planner_freezes_post_cutoff_criteria_sized_cohort(
 
 def test_confirmation_capacity_includes_pre_cutoff_fill_attrition():
     selection = {
-        "schema_version": 4,
+        "schema_version": 5,
         "selection_metrics": {
             "confirmation_capacity_policy": (
-                "leave_one_independent_path_out_lower_bound_v1"
+                "bonferroni_clopper_pearson_lower_bound_v1"
             ),
             "eligible_path_rate_lower_bound": "0.833333333333333333",
             "filled_path_rate_lower_bound": "0.583333333333333333",
@@ -140,4 +140,49 @@ def test_confirmation_capacity_includes_pre_cutoff_fill_attrition():
     design = subject._confirmation_design(_manifest(), selection)
 
     assert design["required_independent_paths"] == 51
+    assert design["fixed_attrition_paths"] == 1
     assert design["dynamic_top_up_allowed"] is False
+
+
+def test_provider_capacity_rejects_more_than_42_paths_in_14_days():
+    duration = 14 * 24 * 60 * 60_000
+
+    capacity = subject._provider_capacity(duration)
+
+    assert capacity["paths_per_provider_session"] == 3
+    assert capacity["maximum_paths_before_deadline"] == 42
+    assert subject._provider_design_duration(42) <= duration
+    assert subject._provider_design_duration(43) > duration
+
+
+def test_planner_reports_provider_unreachable_before_context_scan(
+    tmp_path, monkeypatch
+):
+    manifest = _manifest()
+    monkeypatch.setattr(
+        subject, "find_active_v23_manifest", lambda _store: manifest
+    )
+    monkeypatch.setattr(
+        subject,
+        "load_v23_selection_artifact",
+        lambda *_args: {
+            "schema_version": 5,
+            "selection_metrics": {
+                "confirmation_capacity_policy": (
+                    "bonferroni_clopper_pearson_lower_bound_v1"
+                ),
+                "eligible_path_rate_lower_bound": "0.833333333333333333",
+                "filled_path_rate_lower_bound": "0.583333333333333333",
+                "range_filled_path_rate_lower_bound": "0.583333333333333333",
+            },
+        },
+    )
+
+    report = subject.plan_v23_confirmation_drafts(
+        object(), tmp_path, tmp_path / "confirmation-drafts",
+        tmp_path / "context.sqlite3",
+    )
+
+    assert report["status"] == "DESIGN_UNREACHABLE"
+    assert report["required_independent_paths"] == 51
+    assert report["provider_capacity"]["maximum_paths_before_deadline"] == 42
