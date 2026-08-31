@@ -9,6 +9,7 @@ import pytest
 from ladder_dragon.strategy.market_replay import ReplayCalibration
 from ladder_dragon.strategy.replay_readiness import audit_replay_readiness
 from ladder_dragon.strategy.volatility_policy import (
+    VOLATILITY_EVENT_POPULATION,
     VOLATILITY_MEASUREMENT_WINDOW_MS,
     VOLATILITY_METRIC,
     VOLATILITY_PUBLISH_INTERVAL_MS,
@@ -27,7 +28,7 @@ DAY_MS = 86_400_000
 
 def calibration(index: int, volatility: str) -> ReplayCalibration:
     return ReplayCalibration(
-        schema_version=4,
+        schema_version=5,
         archive_sha256=f"{index:064x}",
         first_ts_ms=index * DAY_MS,
         last_ts_ms=index * DAY_MS + VOLATILITY_MEASUREMENT_WINDOW_MS,
@@ -44,6 +45,9 @@ def calibration(index: int, volatility: str) -> ReplayCalibration:
         latency_ms_p95=100,
         market_impact_bps=Decimal("1"),
         volatility_bps_p95=Decimal(volatility),
+        volatility_metric=VOLATILITY_METRIC,
+        volatility_event_population=VOLATILITY_EVENT_POPULATION,
+        volatility_measurement_window_ms=VOLATILITY_MEASUREMENT_WINDOW_MS,
         latency_source="public_event_receive",
     )
 
@@ -83,7 +87,8 @@ def test_policy_freezes_selection_hashes_and_empirical_tertiles(tmp_path):
     }
     assert payload["quantile_rule"] == "ZERO_INFLATED_EMPIRICAL_TERTILES_V2"
     assert payload["confirmation_reuses_selection"] is False
-    assert payload["schema_version"] == 4
+    assert payload["schema_version"] == 5
+    assert payload["volatility_event_population"] == VOLATILITY_EVENT_POPULATION
     assert payload["volatility_metric"] == VOLATILITY_METRIC
     assert payload["measurement_window_ms"] == VOLATILITY_MEASUREMENT_WINDOW_MS
     assert payload["publish_interval_ms"] == VOLATILITY_PUBLISH_INTERVAL_MS
@@ -103,6 +108,7 @@ def test_legacy_policy_migration_preserves_selection_and_archives_source(
         "selection_report_maximum_window_ms",
         "selection_confirmable_buckets", "selection_blocked_buckets",
         "selection_bucket_activation_policy",
+        "volatility_event_population",
     ):
         legacy.pop(field)
     legacy["schema_version"] = 2
@@ -126,6 +132,34 @@ def test_legacy_policy_migration_preserves_selection_and_archives_source(
         f"volatility-policy.schema2-{legacy['policy_sha256']}.json"
     )
     assert json.loads(archive.read_text(encoding="utf-8")) == legacy
+
+
+def test_schema4_policy_reselects_same_archives_on_depth_updates(tmp_path):
+    current = policy(tmp_path)
+    legacy = dict(current)
+    legacy["schema_version"] = 4
+    legacy["volatility_metric"] = "EVENT_MOVE_P95_BPS_OVER_55_MINUTES_V1"
+    legacy.pop("volatility_event_population")
+    legacy.pop("policy_sha256")
+    from ladder_dragon.strategy.prediction.episode_semantics import (
+        canonical_digest,
+    )
+    legacy["policy_sha256"] = canonical_digest(legacy)
+    policy_path = tmp_path / "volatility-policy.json"
+    policy_path.write_text(json.dumps(legacy), encoding="utf-8")
+
+    migrated = migrate_legacy_volatility_policy(policy_path, tmp_path)
+
+    assert migrated["schema_version"] == 5
+    assert migrated["selection_archive_sha256s"] == (
+        legacy["selection_archive_sha256s"]
+    )
+    assert migrated["volatility_event_population"] == (
+        VOLATILITY_EVENT_POPULATION
+    )
+    assert policy_path.with_name(
+        f"volatility-policy.schema4-{legacy['policy_sha256']}.json"
+    ).is_file()
 
 
 def test_zero_inflated_selection_splits_positive_tail_without_empty_bucket(tmp_path):

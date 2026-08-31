@@ -13,10 +13,12 @@ from decimal import Decimal, InvalidOperation
 from ladder_dragon.strategy.depth_segments import bounded_json
 from ladder_dragon.strategy.prediction.historical_policy import fingerprint
 from ladder_dragon.strategy.rolling_volatility import (
+    CURRENT_DEPTH_SESSION_FILENAME,
     ROLLING_VOLATILITY_FILENAME,
     ROLLING_WINDOW_MS,
 )
 from ladder_dragon.strategy.volatility_policy import (
+    VOLATILITY_EVENT_POPULATION,
     VOLATILITY_METRIC,
     VOLATILITY_PUBLISH_INTERVAL_MS,
 )
@@ -50,6 +52,14 @@ def evaluate_volatility_guard(
             rolling_path
             or inventory_path.parent / ROLLING_VOLATILITY_FILENAME
         )
+        current_session = bounded_json(
+            (rolling_path.parent if rolling_path is not None else inventory_path.parent)
+            / CURRENT_DEPTH_SESSION_FILENAME
+        )
+        current_session_body = {
+            key: value for key, value in current_session.items()
+            if key != "session_sha256"
+        }
         rolling_body = {
             key: value for key, value in rolling.items()
             if key != "telemetry_sha256"
@@ -76,6 +86,8 @@ def evaluate_volatility_guard(
             or rolling.get("symbol") != policy.get("symbol")
             or rolling.get("sequence_verified") is not True
             or rolling.get("volatility_metric") != VOLATILITY_METRIC
+            or rolling.get("volatility_event_population")
+            != VOLATILITY_EVENT_POPULATION
             or rolling.get("measurement_window_ms") != ROLLING_WINDOW_MS
             or rolling.get("publish_interval_ms")
             != VOLATILITY_PUBLISH_INTERVAL_MS
@@ -84,6 +96,21 @@ def evaluate_volatility_guard(
             or policy.get("volatility_publish_interval_ms")
             != VOLATILITY_PUBLISH_INTERVAL_MS
             or policy.get("volatility_metric") != VOLATILITY_METRIC
+            or policy.get("volatility_event_population")
+            != VOLATILITY_EVENT_POPULATION
+            or current_session.get("schema_version") != 1
+            or current_session.get("mode") != "PUBLIC_READ_ONLY"
+            or current_session.get("apply_allowed") is not False
+            or current_session.get("contains_secrets") is not False
+            or current_session.get("symbol") != policy.get("symbol")
+            or current_session.get("status") != "READY"
+            or current_session.get("sequence_verified") is not True
+            or current_session.get("session_id") != rolling.get("session_id")
+            or current_session.get("updated_at_ms") != rolling_updated_ms
+            or current_session.get("last_update_id")
+            != rolling.get("last_update_id")
+            or current_session.get("session_sha256")
+            != fingerprint(current_session_body)
             or rolling.get("telemetry_sha256") != fingerprint(rolling_body)
             or not volatility.is_finite()
             or volatility < 0

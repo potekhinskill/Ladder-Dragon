@@ -316,7 +316,7 @@ def record_completed_episode(
     store: "PredictionShadowStore",
     spec: ExecutionEpisodeSpec,
     result: ExecutionEpisodeResult,
-) -> None:
+) -> bool:
     """Append one externally replayed start and result in one transaction."""
     identity = (
         spec.episode_id,
@@ -346,8 +346,29 @@ def record_completed_episode(
     if not isinstance(spec_payload, dict):
         raise ValueError("completed episode specification is invalid")
     now_ms = int(time.time() * 1000)
+    spec_sha256 = _digest(spec_payload)
+    result_sha256 = _digest(result_payload)
     with store._connect() as connection:
         connection.execute("BEGIN IMMEDIATE")
+        existing_start = connection.execute(
+            "SELECT spec_sha256 FROM prediction_execution_episode_starts "
+            "WHERE episode_id=?",
+            (spec.episode_id,),
+        ).fetchone()
+        existing_result = connection.execute(
+            "SELECT result_sha256 FROM prediction_execution_episode_results "
+            "WHERE episode_id=?",
+            (spec.episode_id,),
+        ).fetchone()
+        if existing_start is not None or existing_result is not None:
+            if (
+                existing_start is None
+                or existing_result is None
+                or str(existing_start[0]) != spec_sha256
+                or str(existing_result[0]) != result_sha256
+            ):
+                raise ValueError("completed episode replay identity differs")
+            return False
         count = int(connection.execute(
             "SELECT COUNT(*) FROM prediction_execution_episode_starts"
         ).fetchone()[0])
@@ -362,7 +383,7 @@ def record_completed_episode(
                 spec.episode_id, spec.symbol, spec.generation, spec.variant_id,
                 spec.candidate_fingerprint, spec.execution_model_rule,
                 spec.started_at_ms, _canonical(spec_payload),
-                _digest(spec_payload), now_ms,
+                spec_sha256, now_ms,
             ),
         )
         connection.execute(
@@ -376,9 +397,10 @@ def record_completed_episode(
                 result.variant_id, result.candidate_fingerprint,
                 result.execution_model_rule, result.terminal_at_ms,
                 int(result.eligible_for_promotion),
-                _canonical(result_payload), _digest(result_payload), now_ms,
+                _canonical(result_payload), result_sha256, now_ms,
             ),
         )
+    return True
 
 
 def recover_interrupted_episodes(

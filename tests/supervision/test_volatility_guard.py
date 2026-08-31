@@ -7,6 +7,7 @@ from ladder_dragon.supervision.volatility_guard import (
 )
 from ladder_dragon.strategy.prediction.historical_policy import fingerprint
 from ladder_dragon.strategy.volatility_policy import (
+    VOLATILITY_EVENT_POPULATION,
     VOLATILITY_MEASUREMENT_WINDOW_MS,
     VOLATILITY_METRIC,
     VOLATILITY_PUBLISH_INTERVAL_MS,
@@ -27,6 +28,7 @@ def policy() -> dict[str, object]:
         "volatility_low_max_bps": "0.5",
         "volatility_high_min_bps": "2",
         "volatility_metric": VOLATILITY_METRIC,
+        "volatility_event_population": VOLATILITY_EVENT_POPULATION,
         "volatility_measurement_window_ms": (
             VOLATILITY_MEASUREMENT_WINDOW_MS
         ),
@@ -59,6 +61,7 @@ def rolling(now_ms: int, volatility: str) -> dict[str, object]:
         "source": "binance-public-websocket",
         "sequence_verified": True,
         "volatility_metric": VOLATILITY_METRIC,
+        "volatility_event_population": VOLATILITY_EVENT_POPULATION,
         "measurement_window_ms": VOLATILITY_MEASUREMENT_WINDOW_MS,
         "publish_interval_ms": VOLATILITY_PUBLISH_INTERVAL_MS,
         "window_started_at_ms": (
@@ -73,12 +76,31 @@ def rolling(now_ms: int, volatility: str) -> dict[str, object]:
     return {**body, "telemetry_sha256": fingerprint(body)}
 
 
+def write_session(path, payload):
+    body = {
+        "schema_version": 1,
+        "mode": "PUBLIC_READ_ONLY",
+        "apply_allowed": False,
+        "contains_secrets": False,
+        "symbol": "SOLUSDT",
+        "session_id": payload["session_id"],
+        "status": "READY",
+        "sequence_verified": True,
+        "updated_at_ms": payload["updated_at_ms"],
+        "last_update_id": payload["last_update_id"],
+    }
+    path.write_text(json.dumps({
+        **body, "session_sha256": fingerprint(body)
+    }), encoding="utf-8")
+
+
 def test_guard_allows_only_fresh_confirmed_bucket(tmp_path):
     now_ms = 10_000_000
     path = tmp_path / "calibration_inventory.json"
     rolling_path = tmp_path / ".rolling-volatility-SOLUSDT.json"
     path.write_text(json.dumps(inventory(now_ms, "normal")), encoding="utf-8")
     rolling_path.write_text(json.dumps(rolling(now_ms, "1")), encoding="utf-8")
+    write_session(tmp_path / ".current-depth-session-SOLUSDT.json", rolling(now_ms, "1"))
 
     allowed = evaluate_volatility_guard(
         policy(), now_ms=now_ms, inventory_path=path,
@@ -87,6 +109,7 @@ def test_guard_allows_only_fresh_confirmed_bucket(tmp_path):
     blocked_payload = inventory(now_ms, "high")
     path.write_text(json.dumps(blocked_payload), encoding="utf-8")
     rolling_path.write_text(json.dumps(rolling(now_ms, "3")), encoding="utf-8")
+    write_session(tmp_path / ".current-depth-session-SOLUSDT.json", rolling(now_ms, "3"))
     blocked = evaluate_volatility_guard(
         policy(), now_ms=now_ms, inventory_path=path,
         rolling_path=rolling_path,
@@ -106,6 +129,7 @@ def test_guard_uses_frozen_champion_scope_when_inventory_is_stale(tmp_path):
     payload["updated_at_ms"] = now_ms - 6 * 60_000
     path.write_text(json.dumps(payload), encoding="utf-8")
     rolling_path.write_text(json.dumps(rolling(now_ms, "0.2")), encoding="utf-8")
+    write_session(tmp_path / ".current-depth-session-SOLUSDT.json", rolling(now_ms, "0.2"))
 
     report = evaluate_volatility_guard(
         policy(), now_ms=now_ms, inventory_path=path,
@@ -172,3 +196,23 @@ def test_guard_rejects_future_rolling_telemetry(tmp_path):
     )
 
     assert report["allowed"] is False
+
+
+def test_guard_rejects_telemetry_from_previous_recorder_session(tmp_path):
+    now_ms = 100_000_000
+    inventory_path = tmp_path / "calibration_inventory.json"
+    rolling_path = tmp_path / ".rolling-volatility-SOLUSDT.json"
+    payload = rolling(now_ms, "0.2")
+    rolling_path.write_text(json.dumps(payload), encoding="utf-8")
+    session_payload = dict(payload, session_id="new-session")
+    write_session(
+        tmp_path / ".current-depth-session-SOLUSDT.json", session_payload
+    )
+
+    report = evaluate_volatility_guard(
+        policy(), now_ms=now_ms, inventory_path=inventory_path,
+        rolling_path=rolling_path,
+    )
+
+    assert report["allowed"] is False
+    assert report["reason"] == "VOLATILITY_EVIDENCE_UNAVAILABLE"

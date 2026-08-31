@@ -235,7 +235,10 @@ def test_v23_policy_binds_confirmed_volatility_scope(tmp_path, monkeypatch):
         "policy_sha256": "e" * 64,
         "low_max_bps": "0.34",
         "high_min_bps": "0.67",
-        "volatility_metric": champion_registry.VOLATILITY_METRIC,
+            "volatility_metric": champion_registry.VOLATILITY_METRIC,
+            "volatility_event_population": (
+                champion_registry.VOLATILITY_EVENT_POPULATION
+            ),
         "measurement_window_ms": (
             champion_registry.VOLATILITY_MEASUREMENT_WINDOW_MS
         ),

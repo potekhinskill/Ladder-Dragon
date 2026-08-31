@@ -12,6 +12,12 @@ import hashlib
 from pathlib import Path
 
 from ladder_dragon.strategy.replay_policy import ReplayAcceptancePolicy
+from ladder_dragon.strategy.volatility_measurement import (
+    VOLATILITY_EVENT_POPULATION,
+    VOLATILITY_MEASUREMENT_WINDOW_MS,
+    VOLATILITY_METRIC,
+    observe_depth_mid,
+)
 
 
 @dataclass(frozen=True)
@@ -546,6 +552,9 @@ class ReplayCalibration:
     latency_ms_p95: int
     market_impact_bps: Decimal
     volatility_bps_p95: Decimal = Decimal("0")
+    volatility_metric: str = "LEGACY_EVENT_MOVE_P95_BPS"
+    volatility_event_population: str = "LEGACY_ALL_BOOK_CARRY_EVENTS"
+    volatility_measurement_window_ms: int = 0
     latency_source: str = "execution_report"
     acceptance_policy: Mapping[str, object] | None = None
     acceptance_policy_sha256: str = ""
@@ -570,6 +579,13 @@ class ReplayCalibration:
                 "latency_ms_p95": self.latency_ms_p95,
                 "market_impact_bps": format(self.market_impact_bps, "f"),
                 "volatility_bps_p95": format(self.volatility_bps_p95, "f"),
+                "volatility_metric": self.volatility_metric,
+                "volatility_event_population": (
+                    self.volatility_event_population
+                ),
+                "volatility_measurement_window_ms": (
+                    self.volatility_measurement_window_ms
+                ),
                 "latency_source": self.latency_source,
             },
             "acceptance_policy": (
@@ -583,7 +599,7 @@ class ReplayCalibration:
     def from_dict(cls, payload: Mapping[str, Any]) -> "ReplayCalibration":
         params = payload.get("parameters")
         schema_version = int(payload.get("schema_version", 0))
-        if schema_version not in {1, 2, 3, 4} or not isinstance(params, Mapping):
+        if schema_version not in {1, 2, 3, 4, 5} or not isinstance(params, Mapping):
             raise ValueError("unsupported replay calibration schema")
         return cls(
             schema_version=schema_version,
@@ -604,6 +620,15 @@ class ReplayCalibration:
             market_impact_bps=Decimal(str(params["market_impact_bps"])),
             volatility_bps_p95=Decimal(
                 str(params.get("volatility_bps_p95", "0"))
+            ),
+            volatility_metric=str(
+                params.get("volatility_metric", "LEGACY_EVENT_MOVE_P95_BPS")
+            ),
+            volatility_event_population=str(params.get(
+                "volatility_event_population", "LEGACY_ALL_BOOK_CARRY_EVENTS"
+            )),
+            volatility_measurement_window_ms=int(
+                params.get("volatility_measurement_window_ms", 0)
             ),
             latency_source=str(
                 params.get("latency_source", "execution_report")
@@ -667,11 +692,14 @@ def calibrate_market_events(
                 raise ValueError("replay contains a crossed or invalid book")
             spread = (ask.price - bid.price) / mid
             spreads.append(spread)
-            if previous_mid is not None and previous_mid > 0:
-                mid_moves_bps.append(
-                    abs(mid / previous_mid - Decimal("1")) * Decimal("10000")
-                )
-            previous_mid = mid
+            previous_mid, depth_move = observe_depth_mid(
+                event_type=event.event_type,
+                bid=bid.price,
+                ask=ask.price,
+                previous_mid=previous_mid,
+            )
+            if depth_move is not None:
+                mid_moves_bps.append(depth_move)
             book_events += 1
             for price, quantity, aggressor in event.trades:
                 if price <= 0 or quantity <= 0:
@@ -719,7 +747,7 @@ def calibrate_market_events(
         minimum_trades=min_trades,
     )
     return ReplayCalibration(
-        schema_version=4,
+        schema_version=5,
         archive_sha256=source_sha256,
         first_ts_ms=first_ts_ms,
         last_ts_ms=last_ts_ms,
@@ -736,6 +764,9 @@ def calibrate_market_events(
         latency_ms_p95=int(_quantile([Decimal(value) for value in latencies], 95, 100)),
         market_impact_bps=_quantile(impacts, 3, 4),
         volatility_bps_p95=_quantile(mid_moves_bps, 95, 100),
+        volatility_metric=VOLATILITY_METRIC,
+        volatility_event_population=VOLATILITY_EVENT_POPULATION,
+        volatility_measurement_window_ms=VOLATILITY_MEASUREMENT_WINDOW_MS,
         latency_source=latency_source,
         acceptance_policy=policy.as_dict(),
         acceptance_policy_sha256=policy.fingerprint,

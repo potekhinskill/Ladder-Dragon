@@ -4,7 +4,7 @@ from ladder_dragon.strategy.prediction import v23_confirmation_planner as subjec
 def _manifest():
     return {
         "confirmation_start_ts_ms": 1_000,
-        "confirmation_deadline_ts_ms": 1_000 + 14 * 24 * 60 * 60_000,
+        "confirmation_deadline_ts_ms": 1_000 + 15 * 24 * 60 * 60_000,
         "criteria": {
             "criteria_schema_version": 8,
             "minimum_eligible_terminal_episodes": 24,
@@ -16,6 +16,12 @@ def _manifest():
             "fixed_confirmation_paths": 42,
             "dynamic_confirmation_top_up_allowed": False,
             "design_effect_is_capacity_gate": False,
+            "provider_capacity_reserve_paths": 3,
+            "confirmation_block_size": 3,
+            "incremental_block_evaluation": True,
+            "path_admission_policy": (
+                "first_context_ready_post_cutoff_paths_v1"
+            ),
         },
         "candidate_parameters": {
             "entry_gap_bps": "48",
@@ -103,6 +109,7 @@ def test_confirmation_planner_freezes_post_cutoff_criteria_sized_cohort(
         assert kwargs["started_after_ms"] == 1_000
         assert kwargs["excluded_source_sha256s"] == frozenset(["f" * 64])
         assert kwargs["maximum_ready_paths"] == 42
+        assert kwargs["newest_first"] is False
         return ready, {
             "l2_complete_independent_paths": 42,
             "context_checked_paths": 42,
@@ -118,12 +125,13 @@ def test_confirmation_planner_freezes_post_cutoff_criteria_sized_cohort(
     )
 
     drafts = list(draft_directory.glob("*.json"))
-    assert report["status"] == "CONFIRMATION_DRAFTS_READY_FOR_OPERATOR_REVIEW"
+    assert report["status"] == "CONFIRMATION_COHORT_COMPLETE"
     assert report["required_independent_paths"] == 42
     assert report["draft_count"] == 14
     assert len(drafts) == 14
-    assert report["automatic_queueing"] is False
-    assert report["automatic_confirmation_import"] is False
+    assert report["automatic_queueing"] is True
+    assert report["automatic_confirmation_import"] is True
+    assert len(list((tmp_path / "confirmation-requests").glob("*.json"))) == 14
     marker = subject.bounded_json(
         draft_directory.parent / subject.CONFIRMATION_COHORT_MARKER
     )
@@ -160,6 +168,52 @@ def test_provider_capacity_rejects_more_than_42_paths_in_14_days():
     assert capacity["maximum_paths_before_deadline"] == 42
     assert subject._provider_design_duration(42) <= duration
     assert subject._provider_design_duration(43) > duration
+
+
+def test_confirmation_planner_queues_first_complete_block_immediately(
+    tmp_path, monkeypatch
+):
+    manifest = _manifest()
+    ready = _ready_paths(tmp_path, 3)
+    monkeypatch.setattr(
+        subject, "find_active_v23_manifest", lambda _store: manifest
+    )
+    monkeypatch.setattr(
+        subject, "load_v23_selection_artifact", lambda *_args: {
+            "schema_version": 5,
+            "source_archive_sha256s": ["f" * 64],
+            "selection_metrics": {
+                "confirmation_capacity_policy": (
+                    "bonferroni_clopper_pearson_lower_bound_v1"
+                ),
+                "eligible_path_rate_lower_bound": "1",
+                "filled_path_rate_lower_bound": "1",
+                "range_filled_path_rate_lower_bound": "1",
+            },
+        },
+    )
+    monkeypatch.setattr(subject, "_chains", lambda *_args: [[]])
+    monkeypatch.setattr(
+        subject, "context_ready_paths", lambda *_args, **_kwargs: (
+            ready,
+            {
+                "l2_complete_independent_paths": 3,
+                "context_checked_paths": 3,
+                "context_ready_independent_paths": 3,
+                "context_rejected_path_counts": {},
+            },
+        ),
+    )
+
+    report = subject.plan_v23_confirmation_drafts(
+        object(), tmp_path, tmp_path / "confirmation-drafts",
+        tmp_path / "context.sqlite3", now_ms=10_000,
+    )
+
+    assert report["status"] == "STREAMING_CONFIRMATION_BLOCKS"
+    assert report["queued_block_count"] == 1
+    assert report["complete_independent_paths"] == 3
+    assert len(list((tmp_path / "confirmation-requests").glob("*.json"))) == 1
 
 
 def test_planner_reports_provider_unreachable_before_context_scan(

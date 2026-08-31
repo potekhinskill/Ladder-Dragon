@@ -15,6 +15,11 @@ from typing import Iterable, Mapping
 from ladder_dragon.strategy.depth_segments import atomic_json
 from ladder_dragon.strategy.market_replay import ReplayCalibration
 from ladder_dragon.strategy.prediction.episode_semantics import canonical_digest
+from ladder_dragon.strategy.volatility_measurement import (
+    VOLATILITY_EVENT_POPULATION,
+    VOLATILITY_MEASUREMENT_WINDOW_MS,
+    VOLATILITY_METRIC,
+)
 
 
 MINIMUM_SELECTION_REPORTS = 100
@@ -24,11 +29,9 @@ MINIMUM_SELECTION_BUCKET_REPORTS = 20
 MINIMUM_CONFIRMATION_BUCKET_REPORTS = 3
 MINIMUM_CONFIRMATION_SPAN_MS = 2 * 86_400_000
 VOLATILITY_BUCKETS = ("low", "normal", "high")
-VOLATILITY_MEASUREMENT_WINDOW_MS = 55 * 60_000
 VOLATILITY_PUBLISH_INTERVAL_MS = 5 * 60_000
 MINIMUM_CALIBRATION_WINDOW_MS = 54 * 60_000
 MAXIMUM_CALIBRATION_WINDOW_MS = 56 * 60_000
-VOLATILITY_METRIC = "EVENT_MOVE_P95_BPS_OVER_55_MINUTES_V1"
 PREREGISTERED_LOW_MAX_BPS = Decimal("0.5")
 PREREGISTERED_HIGH_MIN_BPS = Decimal("2")
 
@@ -74,8 +77,23 @@ def volatility_calibration_window_compatible(
 ) -> bool:
     """Return true only for the measurement window frozen by the policy."""
     duration = row.last_ts_ms - row.first_ts_ms
-    return MINIMUM_CALIBRATION_WINDOW_MS <= duration <= (
-        MAXIMUM_CALIBRATION_WINDOW_MS
+    return (
+        volatility_calibration_semantics_compatible(row)
+        and MINIMUM_CALIBRATION_WINDOW_MS <= duration
+        <= MAXIMUM_CALIBRATION_WINDOW_MS
+    )
+
+
+def volatility_calibration_semantics_compatible(
+    row: ReplayCalibration,
+) -> bool:
+    """Return true only for the shared depth-update event population."""
+    return bool(
+        row.schema_version == 5
+        and row.volatility_metric == VOLATILITY_METRIC
+        and row.volatility_event_population == VOLATILITY_EVENT_POPULATION
+        and row.volatility_measurement_window_ms
+        == VOLATILITY_MEASUREMENT_WINDOW_MS
     )
 
 
@@ -159,7 +177,7 @@ def select_volatility_policy(
     ):
         raise ValueError("volatility selection bucket coverage is insufficient")
     payload: dict[str, object] = {
-        "schema_version": 4,
+        "schema_version": 5,
         "mode": "SHADOW",
         "apply_allowed": False,
         "scope": "VOLATILITY_POLICY_SELECTION_ONLY",
@@ -180,6 +198,7 @@ def select_volatility_policy(
         "selection_bucket_activation_policy": "bucket_scoped_fail_closed_v1",
         "minimum_selection_bucket_reports": MINIMUM_SELECTION_BUCKET_REPORTS,
         "volatility_metric": VOLATILITY_METRIC,
+        "volatility_event_population": VOLATILITY_EVENT_POPULATION,
         "measurement_window_ms": VOLATILITY_MEASUREMENT_WINDOW_MS,
         "publish_interval_ms": VOLATILITY_PUBLISH_INTERVAL_MS,
         "selection_report_minimum_window_ms": (
@@ -230,11 +249,13 @@ def verify_volatility_policy(payload: Mapping[str, object]) -> bool:
             )
         )
         return (
-            candidate.get("schema_version") == 4
+            candidate.get("schema_version") == 5
             and candidate.get("mode") == "SHADOW"
             and candidate.get("apply_allowed") is False
             and candidate.get("scope") == "VOLATILITY_POLICY_SELECTION_ONLY"
             and candidate.get("volatility_metric") == VOLATILITY_METRIC
+            and candidate.get("volatility_event_population")
+            == VOLATILITY_EVENT_POPULATION
             and candidate.get("measurement_window_ms")
             == VOLATILITY_MEASUREMENT_WINDOW_MS
             and candidate.get("publish_interval_ms")
@@ -333,42 +354,98 @@ def _verify_legacy_volatility_policy(payload: Mapping[str, object]) -> bool:
         return False
 
 
+def _verify_schema4_volatility_policy(payload: Mapping[str, object]) -> bool:
+    """Verify the previous event-population policy before reselection."""
+    candidate = dict(payload)
+    observed = str(candidate.pop("policy_sha256", ""))
+    try:
+        count = int(candidate["selection_report_count"])
+        archives = tuple(candidate["selection_archive_sha256s"])
+        reports = tuple(candidate["selection_report_sha256s"])
+        buckets = candidate["selection_bucket_counts"]
+        confirmable = candidate["selection_confirmable_buckets"]
+        blocked = candidate["selection_blocked_buckets"]
+        return bool(
+            candidate.get("schema_version") == 4
+            and candidate.get("mode") == "SHADOW"
+            and candidate.get("apply_allowed") is False
+            and candidate.get("scope") == "VOLATILITY_POLICY_SELECTION_ONLY"
+            and candidate.get("volatility_metric")
+            == "EVENT_MOVE_P95_BPS_OVER_55_MINUTES_V1"
+            and candidate.get("measurement_window_ms")
+            == VOLATILITY_MEASUREMENT_WINDOW_MS
+            and candidate.get("publish_interval_ms")
+            == VOLATILITY_PUBLISH_INTERVAL_MS
+            and candidate.get("confirmation_reuses_selection") is False
+            and MINIMUM_SELECTION_REPORTS <= count <= MAXIMUM_SELECTION_REPORTS
+            and int(candidate["cutoff_ts_ms"]) > 0
+            and isinstance(buckets, dict)
+            and set(buckets) == set(VOLATILITY_BUCKETS)
+            and sum(int(buckets[name]) for name in VOLATILITY_BUCKETS) == count
+            and set(confirmable) | set(blocked) == set(VOLATILITY_BUCKETS)
+            and not set(confirmable) & set(blocked)
+            and len(archives) == len(set(archives)) == count
+            and len(reports) == len(set(reports)) == count
+            and all(len(str(item)) == 64 for item in archives + reports)
+            and len(observed) == 64
+            and observed == canonical_digest(candidate)
+        )
+    except (KeyError, TypeError, ValueError, ArithmeticError):
+        return False
+
+
 def migrate_legacy_volatility_policy(
     policy_path: Path,
     report_directory: Path,
 ) -> dict[str, object]:
-    """Migrate one valid schema-2 policy without changing its source cohort."""
+    """Migrate one valid prior policy without changing its source cohort."""
     legacy = _read_payload(policy_path)
     if verify_volatility_policy(legacy):
         return legacy
-    if not _verify_legacy_volatility_policy(legacy):
+    legacy_schema = int(legacy.get("schema_version", 0))
+    schema2 = _verify_legacy_volatility_policy(legacy)
+    schema4 = _verify_schema4_volatility_policy(legacy)
+    if not (schema2 or schema4):
         raise ValueError("legacy volatility policy is invalid")
     required_hashes = set(legacy["selection_report_sha256s"])
+    required_archives = set(legacy["selection_archive_sha256s"])
     matched: dict[str, Path] = {}
     for index, path in enumerate(sorted(report_directory.glob("*.calibration.json"))):
         if index >= MAXIMUM_SELECTION_REPORTS * 4:
             raise ValueError("volatility report migration capacity reached")
-        digest = _file_sha256(path)
-        if digest in required_hashes:
-            matched[digest] = path
-    if set(matched) != required_hashes:
+        if schema2:
+            identity = _file_sha256(path)
+        else:
+            row = ReplayCalibration.from_dict(_read_payload(path))
+            if not volatility_calibration_window_compatible(row):
+                continue
+            identity = row.archive_sha256
+        required = required_hashes if schema2 else required_archives
+        if identity in required:
+            matched[identity] = path
+    required = required_hashes if schema2 else required_archives
+    if set(matched) != required:
         raise ValueError("legacy volatility selection sources are unavailable")
     migrated = select_volatility_policy(
-        [matched[digest] for digest in sorted(required_hashes)],
+        [matched[digest] for digest in sorted(required)],
         cutoff_ts_ms=int(legacy["cutoff_ts_ms"]),
         created_at_ms=int(legacy["created_at_ms"]),
     )
     immutable_fields = (
         "cutoff_ts_ms", "created_at_ms", "selection_report_count",
         "selection_first_ts_ms", "selection_last_ts_ms",
-        "selection_archive_sha256s", "selection_report_sha256s",
-        "low_max_bps", "high_min_bps", "selection_bucket_counts",
+        "selection_archive_sha256s",
     )
+    if schema2:
+        immutable_fields += (
+            "selection_report_sha256s", "low_max_bps", "high_min_bps",
+            "selection_bucket_counts",
+        )
     if any(migrated[field] != legacy[field] for field in immutable_fields):
         raise ValueError("legacy volatility policy migration changed selection")
     legacy_hash = str(legacy["policy_sha256"])
     archive_path = policy_path.with_name(
-        f"volatility-policy.schema2-{legacy_hash}.json"
+        f"volatility-policy.schema{legacy_schema}-{legacy_hash}.json"
     )
     if archive_path.exists():
         if _read_payload(archive_path) != legacy:

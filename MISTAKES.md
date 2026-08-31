@@ -1,5 +1,19 @@
 # Engineering mistakes and root causes
 
+### 2026-08-31 — Deferred an anytime-valid test until cohort completion
+
+- **Impact:** v23 could not pass or reject early and had no capacity reserve for one lost path.
+- **Root cause:** the planner treated a fixed cohort as one atomic publication instead of an ordered block sequence.
+- **Correction:** freeze admission order, publish each three-path block, and add three provider-capacity reserve paths.
+- **Prevention:** every sequential design must test its first operational look and its deadline attrition reserve.
+
+### 2026-08-31 — Counted different volatility event populations
+
+- **Impact:** calibration and runtime could assign different buckets to the same public market interval.
+- **Root cause:** calibration counted carried books on trades, while runtime counted sequence-verified depth updates.
+- **Correction:** share one depth-update measurement and fingerprint its event population across all consumers.
+- **Prevention:** every empirical runtime metric must test identical source-event inclusion before policy selection.
+
 ### 2026-08-31 — Assumed nominal segment length guaranteed bucket separation
 
 - **Impact:** release 2.20.277 could not freeze a replacement volatility policy on production reports.

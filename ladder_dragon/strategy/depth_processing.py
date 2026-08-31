@@ -22,6 +22,7 @@ from ladder_dragon.strategy.volatility_policy import (
     MINIMUM_CONFIRMATION_BUCKET_REPORTS,
     VOLATILITY_BUCKETS,
     read_volatility_policy,
+    volatility_calibration_semantics_compatible,
     volatility_calibration_window_compatible,
 )
 
@@ -114,7 +115,7 @@ def calibration_inventory(directory: Path) -> tuple[dict, list[Path]]:
     """Distinguish missing reports from genuinely absent volatility regimes."""
     missing: list[Path] = []
     regimes: Counter = Counter()
-    archived = reports = invalid = ineligible = 0
+    archived = reports = invalid = ineligible = stale = 0
     sidecars = []
     eligible_rows: list[ReplayCalibration] = []
     for sidecar in directory.glob("*.jsonl.metadata.json"):
@@ -140,6 +141,10 @@ def calibration_inventory(directory: Path) -> tuple[dict, list[Path]]:
             report = ReplayCalibration.from_dict(payload)
             if report.archive_sha256 != metadata["archive_sha256"]:
                 raise ValueError("calibration source mismatch")
+            if not volatility_calibration_semantics_compatible(report):
+                stale += 1
+                missing.append(archive)
+                continue
             reports += 1
             if report.eligible:
                 eligible_rows.append(report)
@@ -155,6 +160,7 @@ def calibration_inventory(directory: Path) -> tuple[dict, list[Path]]:
         "status": "INCOMPLETE" if missing or invalid or absent else "REGIMES_COVERED",
         "archives": archived, "calibration_reports": reports,
         "missing_calibrations": len(missing), "invalid_artifacts": invalid,
+        "stale_calibrations": stale,
         "ineligible_calibrations": ineligible, "eligible_regime_counts": dict(regimes),
         "missing_volatility_regimes": absent,
         "high_coverage_conclusion": (
@@ -169,7 +175,7 @@ def calibration_inventory(directory: Path) -> tuple[dict, list[Path]]:
 
 
 def calibrate_segment(archive: Path) -> None:
-    """Produce one immutable report, without touching prediction evidence."""
+    """Produce one reproducible derived report from an immutable source."""
     segments = verified_segments([archive])
     policy = PRODUCTION_REPLAY_ACCEPTANCE_POLICY
     report = calibrate_market_events(
@@ -177,7 +183,14 @@ def calibrate_segment(archive: Path) -> None:
         source_sha256=segments[0][1]["archive_sha256"],
         min_book_events=policy.minimum_book_events, min_trades=policy.minimum_trades,
     )
-    atomic_json(archive.with_suffix(".calibration.json"), report.as_dict())
+    report_path = archive.with_suffix(".calibration.json")
+    replace = False
+    if report_path.exists():
+        existing = ReplayCalibration.from_dict(bounded_json(report_path))
+        if volatility_calibration_semantics_compatible(existing):
+            raise FileExistsError(report_path)
+        replace = True
+    atomic_json(report_path, report.as_dict(), replace=replace)
 
 
 def _run_offline(arguments: list[str], stop, *, timeout_seconds: int = 300) -> int:
@@ -255,6 +268,27 @@ def process_backlog(directory: Path, stop, prediction_db: Path | None = None) ->
                     print(f"[V23-CONFIRMATION-RUNNER] status=RETRY exit={code}", flush=True)
                 if stop.is_set():
                     break
+                confirmation_reports = replay_root / "confirmation-reports"
+                if any(
+                    path.name != "status.json"
+                    for path in confirmation_reports.glob("*.json")
+                ):
+                    from ladder_dragon.strategy.prediction.runtime import (
+                        PredictionShadowStore,
+                    )
+                    from ladder_dragon.strategy.prediction.v23_confirmation import (
+                        import_v23_confirmation_directory,
+                    )
+
+                    imported = import_v23_confirmation_directory(
+                        PredictionShadowStore(prediction_db),
+                        confirmation_reports,
+                    )
+                    atomic_json(
+                        replay_root / "confirmation-import-status.json",
+                        imported,
+                        replace=True,
+                    )
             candidate = next((p for p in pending if retry_after.get(p, 0) <= time.monotonic()), None)
             if candidate is None:
                 stop.wait(30)

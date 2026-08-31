@@ -88,7 +88,9 @@ def net_expectancy_criteria(
                 V23_FIXED_CONFIRMATION_PATHS
                 if fixed_confirmation_cohort else 300
             ),
-            "maximum_confirmation_duration_ms": 14 * 24 * 60 * 60_000,
+            "maximum_confirmation_duration_ms": (
+                15 if fixed_confirmation_cohort else 14
+            ) * 24 * 60 * 60_000,
             "panic_policy": "include_flatten_pnl_and_count_veto_attempt",
             "mean_lower_bound_method": "mixture_betting_e_process_v1",
             "confidence_alpha": "0.05",
@@ -138,6 +140,12 @@ def net_expectancy_criteria(
                 "fixed_confirmation_paths": V23_FIXED_CONFIRMATION_PATHS,
                 "dynamic_confirmation_top_up_allowed": False,
                 "design_effect_is_capacity_gate": False,
+                "provider_capacity_reserve_paths": 3,
+                "confirmation_block_size": 3,
+                "incremental_block_evaluation": True,
+                "path_admission_policy": (
+                    "first_context_ready_post_cutoff_paths_v1"
+                ),
             })
         return criteria
     return {

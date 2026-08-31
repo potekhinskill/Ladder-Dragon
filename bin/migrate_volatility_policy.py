@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: MIT
 # Copyright (c) 2026 IURII Potekhin
 # Purpose: migrate one frozen volatility policy without changing its cohort.
-"""Migrate an exact schema-2 volatility policy to the bound window contract."""
+"""Migrate an exact prior volatility policy to the current event contract."""
 
 from __future__ import annotations
 

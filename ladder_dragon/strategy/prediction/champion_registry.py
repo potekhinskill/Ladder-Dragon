@@ -24,6 +24,7 @@ from ladder_dragon.strategy.prediction.entry_diagnostics import (
     normalize_entry_veto_rule,
 )
 from ladder_dragon.strategy.volatility_policy import (
+    VOLATILITY_EVENT_POPULATION,
     VOLATILITY_MEASUREMENT_WINDOW_MS,
     VOLATILITY_METRIC,
     VOLATILITY_PUBLISH_INTERVAL_MS,
@@ -331,6 +332,9 @@ def execution_policy_from_manifest(
             "volatility_metric": str(
                 volatility_policy["volatility_metric"]
             ),
+            "volatility_event_population": str(
+                volatility_policy["volatility_event_population"]
+            ),
             "volatility_measurement_window_ms": int(
                 volatility_policy["measurement_window_ms"]
             ),
@@ -384,6 +388,8 @@ def champion_allows_volatility(
         or policy.get("volatility_activation_policy")
         != "confirmed_post_cutoff_rolling_depth_bucket_v3"
         or policy.get("volatility_metric") != VOLATILITY_METRIC
+        or policy.get("volatility_event_population")
+        != VOLATILITY_EVENT_POPULATION
         or policy.get("volatility_measurement_window_ms")
         != VOLATILITY_MEASUREMENT_WINDOW_MS
         or policy.get("volatility_publish_interval_ms")

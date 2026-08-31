@@ -27,6 +27,7 @@ from ladder_dragon.strategy.prediction.experiment_lifecycle import (
     list_experiments,
 )
 from ladder_dragon.strategy.prediction.historical_policy import fingerprint
+from ladder_dragon.strategy.depth_segments import bounded_json
 from ladder_dragon.strategy.prediction.historical_selection import (
     historical_report_rows,
     load_historical_report,
@@ -328,8 +329,7 @@ def import_v23_confirmation_reports(
             spec, result = _episode_pair(
                 row, manifest=manifest, report_sha=report_sha
             )
-            record_completed_episode(store, spec, result)
-            created += 1
+            created += int(record_completed_episode(store, spec, result))
     return {
         "schema_version": 1,
         "mode": "SHADOW_CONFIRMATION",
@@ -344,8 +344,92 @@ def import_v23_confirmation_reports(
     }
 
 
+def import_v23_confirmation_directory(store, directory: Path) -> dict[str, object]:
+    """Import every complete queued report in chronological order."""
+    if find_active_v23_manifest(store) is None:
+        return {
+            "schema_version": 1,
+            "mode": "SHADOW_CONFIRMATION",
+            "apply_allowed": False,
+            "status": "INACTIVE",
+            "report_count": 0,
+            "episode_count": 0,
+        }
+    candidates = [
+        path for path in directory.glob("*.json")
+        if path.name != "status.json"
+    ]
+    if not candidates:
+        return {
+            "schema_version": 1,
+            "mode": "SHADOW_CONFIRMATION",
+            "apply_allowed": False,
+            "status": "WAITING_REPORTS",
+            "report_count": 0,
+            "episode_count": 0,
+        }
+    if len(candidates) > MAXIMUM_CONFIRMATION_REPORTS:
+        raise ValueError("v23 confirmation report capacity reached")
+    root = directory.parent
+    cohort = bounded_json(root / "confirmation-cohort.json")
+    if (
+        cohort.get("schema_version") != 2
+        or cohort.get("mode") != "SHADOW_CONFIRMATION"
+        or cohort.get("apply_allowed") is not False
+    ):
+        raise ValueError("v23 confirmation cohort contract is unavailable")
+    accepted_report_ids: set[str] = set()
+    block_paths = sorted((root / "confirmation-blocks").glob("*.json"))
+    if len(block_paths) > 14:
+        raise ValueError("v23 confirmation block capacity reached")
+    previous_block_sha256: str | None = None
+    for ordinal, block_path in enumerate(block_paths):
+        block = bounded_json(block_path)
+        request_identity = str(block.get("request_sha256", ""))
+        request_path = root / "confirmation-requests" / f"{request_identity}.json"
+        request_raw = request_path.read_bytes()
+        request = bounded_json(request_path)
+        sources = sorted(
+            str(archive["sha256"])
+            for path in request.get("paths", [])
+            for archive in path.get("archives", [])
+        )
+        if (
+            block.get("schema_version") != 1
+            or block.get("cohort_sha256") != cohort.get("cohort_sha256")
+            or block.get("block_index") != ordinal
+            or block.get("previous_block_sha256") != previous_block_sha256
+            or block.get("source_archive_sha256s") != sources
+            or not sources
+            or any(len(source) != 64 for source in sources)
+            or fingerprint(request) != request_identity
+            or block_path.name != f"{ordinal:02d}-{request_identity}.json"
+        ):
+            raise ValueError("v23 confirmation block identity differs")
+        accepted_report_ids.add(hashlib.sha256(request_raw).hexdigest())
+        previous_block_sha256 = fingerprint(block)
+    if any(path.stem not in accepted_report_ids for path in candidates):
+        raise ValueError("v23 confirmation report is not cohort-owned")
+    loaded: list[tuple[int, Path, str]] = []
+    for path in candidates:
+        raw = path.read_bytes()
+        if len(raw) > 16 * 1024 * 1024:
+            raise ValueError("v23 confirmation report is oversized")
+        payload = json.loads(raw)
+        if not isinstance(payload, dict):
+            raise ValueError("v23 confirmation report must be an object")
+        loaded.append((
+            int(payload["start_ts_ms"]), path, hashlib.sha256(raw).hexdigest()
+        ))
+    return import_v23_confirmation_reports(
+        store,
+        [(path, digest) for _start, path, digest in sorted(loaded)],
+    )
+
+
 __all__ = [
     "find_active_v23_manifest",
     "import_v23_confirmation_reports",
+    "import_v23_confirmation_directory",
     "load_v23_selection_artifact",
 ]

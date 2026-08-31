@@ -1,6 +1,7 @@
 from pathlib import Path
 import json
 import sqlite3
+import hashlib
 
 import pytest
 
@@ -10,6 +11,7 @@ from ladder_dragon.strategy.prediction.episode_semantics import (
 )
 from ladder_dragon.strategy.prediction import v23_confirmation as subject
 from ladder_dragon.strategy.prediction.historical_policy import fingerprint
+from ladder_dragon.strategy.depth_segments import atomic_json
 
 
 def parameters():
@@ -122,7 +124,9 @@ def test_import_uses_only_disjoint_post_cutoff_exact_reports(monkeypatch):
     monkeypatch.setattr(subject, "historical_report_rows", lambda report, name: [row()])
     monkeypatch.setattr(
         subject, "record_completed_episode",
-        lambda store, spec, result: recorded.append((spec, result)),
+        lambda store, spec, result: (
+            recorded.append((spec, result)) is None
+        ),
     )
 
     result = subject.import_v23_confirmation_reports(
@@ -191,3 +195,56 @@ def test_selection_artifact_uses_the_row_owned_identity(tmp_path):
     )
 
     assert selected == payload
+
+
+def test_directory_import_accepts_only_cohort_owned_reports(
+    tmp_path, monkeypatch
+):
+    root = tmp_path / ".historical-replay"
+    reports = root / "confirmation-reports"
+    requests = root / "confirmation-requests"
+    blocks = root / "confirmation-blocks"
+    reports.mkdir(parents=True)
+    requests.mkdir()
+    blocks.mkdir()
+    cohort = {
+        "schema_version": 2,
+        "mode": "SHADOW_CONFIRMATION",
+        "apply_allowed": False,
+        "cohort_sha256": "a" * 64,
+    }
+    atomic_json(root / "confirmation-cohort.json", cohort)
+    source = "c" * 64
+    request = {
+        "request_schema_version": 2,
+        "paths": [{"archives": [{"sha256": source}]}],
+    }
+    request_identity = fingerprint(request)
+    request_path = requests / f"{request_identity}.json"
+    atomic_json(request_path, request)
+    atomic_json(blocks / f"00-{request_identity}.json", {
+        "schema_version": 1,
+        "cohort_sha256": cohort["cohort_sha256"],
+        "block_index": 0,
+        "request_sha256": request_identity,
+        "source_archive_sha256s": [source],
+        "previous_block_sha256": None,
+    })
+    report_path = reports / f"{hashlib.sha256(request_path.read_bytes()).hexdigest()}.json"
+    atomic_json(report_path, {"start_ts_ms": 2_000})
+    captured = []
+    monkeypatch.setattr(subject, "find_active_v23_manifest", lambda _store: manifest())
+    monkeypatch.setattr(
+        subject, "import_v23_confirmation_reports",
+        lambda _store, rows: captured.extend(rows) or {"status": "IMPORTED"},
+    )
+
+    result = subject.import_v23_confirmation_directory(object(), reports)
+
+    assert result["status"] == "IMPORTED"
+    assert captured[0][0] == report_path
+
+    rogue = reports / ("f" * 64 + ".json")
+    atomic_json(rogue, {"start_ts_ms": 3_000})
+    with pytest.raises(ValueError, match="not cohort-owned"):
+        subject.import_v23_confirmation_directory(object(), reports)

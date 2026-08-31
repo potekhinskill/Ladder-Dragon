@@ -4,6 +4,7 @@ from types import SimpleNamespace
 from ladder_dragon.strategy.depth_segments import bounded_json
 from ladder_dragon.strategy.prediction.historical_policy import fingerprint
 from ladder_dragon.strategy.rolling_volatility import (
+    CURRENT_DEPTH_SESSION_FILENAME,
     ROLLING_PUBLISH_INTERVAL_MS,
     ROLLING_WINDOW_MS,
     RollingVolatilityPublisher,
@@ -46,5 +47,21 @@ def test_rolling_publisher_writes_one_bounded_public_record(tmp_path):
     )
     assert stored["book_update_count"] >= 100
     assert stored["telemetry_sha256"] == fingerprint(body)
+    session = bounded_json(tmp_path / CURRENT_DEPTH_SESSION_FILENAME)
+    assert session["status"] == "READY"
+    assert session["session_id"] == stored["session_id"]
+    assert session["updated_at_ms"] == stored["updated_at_ms"]
     assert "API_KEY" not in str(stored)
     assert "API_SECRET" not in str(stored)
+
+
+def test_new_session_invalidates_previous_rolling_record(tmp_path):
+    path = tmp_path / ".rolling-volatility-SOLUSDT.json"
+    path.write_text("{}\n", encoding="utf-8")
+
+    RollingVolatilityPublisher(path, symbol="SOLUSDT", session_id="new")
+
+    session = bounded_json(tmp_path / CURRENT_DEPTH_SESSION_FILENAME)
+    assert session["session_id"] == "new"
+    assert session["status"] == "SYNCHRONIZING"
+    assert session["sequence_verified"] is False

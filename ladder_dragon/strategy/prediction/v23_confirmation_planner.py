@@ -7,6 +7,7 @@ from __future__ import annotations
 
 from decimal import Decimal
 from pathlib import Path
+import time
 from typing import Mapping
 
 from ladder_dragon.strategy.depth_segments import atomic_json, bounded_json
@@ -39,6 +40,8 @@ from ladder_dragon.strategy.prediction.v23_confirmation import (
 
 D = Decimal
 CONFIRMATION_COHORT_MARKER = "confirmation-cohort.json"
+CONFIRMATION_BLOCK_DIRECTORY = "confirmation-blocks"
+CONFIRMATION_CAPACITY_RESERVE_PATHS = 3
 
 
 def _integer(criteria: Mapping[str, object], field: str) -> int:
@@ -85,6 +88,12 @@ def _confirmation_design(
         == V23_FIXED_CONFIRMATION_PATHS
         and criteria.get("dynamic_confirmation_top_up_allowed") is False
         and criteria.get("design_effect_is_capacity_gate") is False
+        and criteria.get("provider_capacity_reserve_paths")
+        == CONFIRMATION_CAPACITY_RESERVE_PATHS
+        and criteria.get("confirmation_block_size") == PATHS_PER_BLOCK
+        and criteria.get("incremental_block_evaluation") is True
+        and criteria.get("path_admission_policy")
+        == "first_context_ready_post_cutoff_paths_v1"
         and _integer(criteria, "maximum_terminal_episodes")
         == V23_FIXED_CONFIRMATION_PATHS
     ):
@@ -103,6 +112,11 @@ def _confirmation_design(
         ),
         "design_effect_is_capacity_gate": False,
         "dynamic_top_up_allowed": False,
+        "provider_capacity_reserve_paths": (
+            CONFIRMATION_CAPACITY_RESERVE_PATHS
+        ),
+        "incremental_block_evaluation": True,
+        "path_admission_policy": "first_context_ready_post_cutoff_paths_v1",
     }
 
 
@@ -179,9 +193,17 @@ def plan_v23_confirmation_drafts(
     archive_directory: Path,
     draft_directory: Path,
     context_db: Path,
+    request_directory: Path | None = None,
+    now_ms: int | None = None,
 ) -> dict[str, object]:
-    """Freeze new post-cutoff paths; never queue or import them automatically."""
+    """Freeze and queue each complete post-cutoff block immediately."""
     draft_directory.mkdir(parents=True, exist_ok=True, mode=0o700)
+    request_directory = request_directory or (
+        draft_directory.parent / "confirmation-requests"
+    )
+    request_directory.mkdir(parents=True, exist_ok=True, mode=0o700)
+    block_directory = draft_directory.parent / CONFIRMATION_BLOCK_DIRECTORY
+    block_directory.mkdir(parents=True, exist_ok=True, mode=0o700)
     manifest = find_active_v23_manifest(store)
     if manifest is None:
         return {
@@ -192,8 +214,8 @@ def plan_v23_confirmation_drafts(
             "draft_count": 0,
             "required_independent_paths": None,
             "context_ready_independent_paths": 0,
-            "automatic_queueing": False,
-            "automatic_confirmation_import": False,
+            "automatic_queueing": True,
+            "automatic_confirmation_import": True,
         }
     parameters = manifest["candidate_parameters"]
     selection = load_v23_selection_artifact(store, parameters)
@@ -208,7 +230,8 @@ def plan_v23_confirmation_drafts(
     provider_capacity = _provider_capacity(maximum_duration_ms)
     design_duration_ms = _provider_design_duration(required_paths)
     reachable = (
-        required_paths <= provider_capacity["maximum_paths_before_deadline"]
+        required_paths + CONFIRMATION_CAPACITY_RESERVE_PATHS
+        <= provider_capacity["maximum_paths_before_deadline"]
     )
     if not reachable:
         return {
@@ -222,9 +245,30 @@ def plan_v23_confirmation_drafts(
             "design_duration_ms": design_duration_ms,
             "maximum_confirmation_duration_ms": maximum_duration_ms,
             "provider_capacity": provider_capacity,
-            "automatic_queueing": False,
-            "automatic_confirmation_import": False,
+            "automatic_queueing": True,
+            "automatic_confirmation_import": True,
         }
+    marker_path = draft_directory.parent / CONFIRMATION_COHORT_MARKER
+    marker = {
+        "schema_version": 2,
+        "mode": "SHADOW_CONFIRMATION",
+        "apply_allowed": False,
+        "selection_artifact_sha256": selection_identity,
+        "confirmation_start_ts_ms": cutoff_ms,
+        "confirmation_deadline_ts_ms": deadline_ms,
+        "required_independent_paths": required_paths,
+        "confirmation_capacity_design": design,
+        "provider_capacity": provider_capacity,
+        "block_size": PATHS_PER_BLOCK,
+        "maximum_blocks": required_paths // PATHS_PER_BLOCK,
+        "admission_policy": "first_context_ready_post_cutoff_paths_v1",
+    }
+    marker["cohort_sha256"] = fingerprint(marker)
+    if marker_path.exists():
+        if bounded_json(marker_path) != marker:
+            raise ValueError("v23 confirmation cohort contract differs")
+    else:
+        atomic_json(marker_path, marker)
     chains = _chains(archive_directory, "SOLUSDT")
     paths, progress = context_ready_paths(
         chains,
@@ -234,26 +278,11 @@ def plan_v23_confirmation_drafts(
             str(value) for value in selection["source_archive_sha256s"]
         ),
         maximum_ready_paths=required_paths,
+        newest_first=False,
     )
-    if len(paths) < required_paths:
-        return {
-            "schema_version": 1,
-            "mode": "SHADOW_CONFIRMATION",
-            "apply_allowed": False,
-            "status": "COLLECTING_POST_CUTOFF_CONTEXT_READY_PATHS",
-            "draft_count": 0,
-            "required_independent_paths": required_paths,
-            "confirmation_capacity_design": design,
-            "complete_independent_paths": len(paths),
-            "continuous_sessions": len(chains),
-            "design_duration_ms": design_duration_ms,
-            "provider_capacity": provider_capacity,
-            **progress,
-            "automatic_queueing": False,
-            "automatic_confirmation_import": False,
-        }
     requests: dict[str, dict[str, object]] = {}
-    for block_index in range(0, required_paths, PATHS_PER_BLOCK):
+    complete_path_count = len(paths) - len(paths) % PATHS_PER_BLOCK
+    for block_index in range(0, complete_path_count, PATHS_PER_BLOCK):
         block = paths[block_index : block_index + PATHS_PER_BLOCK]
         contexts = [context for _path, context in block]
         if len({
@@ -286,60 +315,62 @@ def plan_v23_confirmation_drafts(
         requests[fingerprint(request)] = request
     if len(requests) > MAXIMUM_DRAFTS:
         raise ValueError("v23 confirmation draft capacity reached")
-    marker_path = draft_directory.parent / CONFIRMATION_COHORT_MARKER
-    marker = {
-        "schema_version": 1,
-        "mode": "SHADOW_CONFIRMATION",
-        "apply_allowed": False,
-        "selection_artifact_sha256": selection_identity,
-        "confirmation_start_ts_ms": cutoff_ms,
-        "request_sha256s": sorted(requests),
-        "source_archive_sha256s": sorted({
-            source
-            for request in requests.values()
-            for source in _request_sources(request)
-        }),
-        "required_independent_paths": required_paths,
-        "confirmation_capacity_design": design,
-        "provider_capacity": provider_capacity,
-    }
-    marker["cohort_sha256"] = fingerprint(marker)
     existing_ids = _existing_draft_identities(draft_directory)
-    if marker_path.exists():
-        frozen = bounded_json(marker_path)
-        status = (
-            "CONFIRMATION_COHORT_FROZEN_FOR_REVIEW"
-            if frozen != marker or existing_ids.issubset(requests)
-            else "CONFIRMATION_COHORT_REVIEW_REQUIRED"
-        )
-        return {
-            "schema_version": 1,
-            "mode": "SHADOW_CONFIRMATION",
-            "apply_allowed": False,
-            "status": status,
-            "draft_count": len(existing_ids),
-            "created_drafts": 0,
-            "required_independent_paths": required_paths,
-            "confirmation_capacity_design": design,
-            "complete_independent_paths": len(paths),
-            "frozen_cohort_sha256": frozen.get("cohort_sha256"),
-            **progress,
-            "automatic_queueing": False,
-            "automatic_confirmation_import": False,
-        }
     if not existing_ids.issubset(requests):
         raise ValueError("v23 confirmation draft cohort differs")
     created = 0
-    for identity, request in requests.items():
+    previous_block_sha256: str | None = None
+    for ordinal, (identity, request) in enumerate(requests.items()):
+        block_body = {
+            "schema_version": 1,
+            "cohort_sha256": marker["cohort_sha256"],
+            "block_index": ordinal,
+            "request_sha256": identity,
+            "source_archive_sha256s": sorted(_request_sources(request)),
+            "previous_block_sha256": previous_block_sha256,
+        }
+        block_path = block_directory / f"{ordinal:02d}-{identity}.json"
+        if block_path.exists():
+            if bounded_json(block_path) != block_body:
+                raise ValueError("v23 confirmation block identity differs")
+        else:
+            atomic_json(block_path, block_body)
         if identity not in existing_ids:
             atomic_json(draft_directory / f"{identity}.json", request)
             created += 1
-    atomic_json(marker_path, marker)
+        request_path = request_directory / f"{identity}.json"
+        if request_path.exists():
+            if bounded_json(request_path) != request:
+                raise ValueError("v23 confirmation request identity differs")
+        else:
+            atomic_json(request_path, request)
+        previous_block_sha256 = fingerprint(block_body)
+    observed_now_ms = int(time.time() * 1000) if now_ms is None else int(now_ms)
+    remaining_ms = max(0, deadline_ms - observed_now_ms)
+    remaining_provider_capacity = _provider_capacity(remaining_ms)
+    optimistic_additional_paths = remaining_provider_capacity[
+        "maximum_paths_before_deadline"
+    ]
+    capacity_futile = len(paths) + optimistic_additional_paths < required_paths
+    report_directory = draft_directory.parent / "confirmation-reports"
+    evaluated_blocks = len([
+        path for path in report_directory.glob("*.json")
+        if path.name != "status.json"
+    ]) if report_directory.is_dir() else 0
+    status = (
+        "CONFIRMATION_COHORT_COMPLETE"
+        if len(paths) == required_paths
+        else "READY_TO_REJECT_CAPACITY"
+        if capacity_futile
+        else "STREAMING_CONFIRMATION_BLOCKS"
+        if requests
+        else "COLLECTING_POST_CUTOFF_CONTEXT_READY_PATHS"
+    )
     return {
         "schema_version": 1,
         "mode": "SHADOW_CONFIRMATION",
         "apply_allowed": False,
-        "status": "CONFIRMATION_DRAFTS_READY_FOR_OPERATOR_REVIEW",
+        "status": status,
         "draft_count": len(requests),
         "created_drafts": created,
         "required_independent_paths": required_paths,
@@ -347,11 +378,16 @@ def plan_v23_confirmation_drafts(
         "complete_independent_paths": len(paths),
         "continuous_sessions": len(chains),
         "frozen_cohort_sha256": marker["cohort_sha256"],
+        "queued_block_count": len(requests),
+        "evaluated_block_count": evaluated_blocks,
+        "remaining_deadline_capacity_paths": optimistic_additional_paths,
+        "remaining_provider_capacity": remaining_provider_capacity,
+        "capacity_futile": capacity_futile,
         "design_duration_ms": design_duration_ms,
         "provider_capacity": provider_capacity,
         **progress,
-        "automatic_queueing": False,
-        "automatic_confirmation_import": False,
+        "automatic_queueing": True,
+        "automatic_confirmation_import": True,
     }
 
 

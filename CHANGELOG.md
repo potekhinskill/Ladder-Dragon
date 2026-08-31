@@ -3,6 +3,32 @@
 All notable changes are documented here. Releases use Semantic Versioning; every
 section is dated and there is intentionally no `Unreleased` section.
 
+## [2.20.279] — 2026-08-31
+
+### Added
+- A current-session marker binds rolling volatility to the active sequence-verified depth connection.
+- Incremental confirmation queues and imports each complete three-path block.
+
+### Changed
+- Calibration and runtime volatility use one depth-update population and one shared measurement function.
+- The fixed 42-path confirmation has three provider-capacity reserve paths.
+- Calibration schema 5 and volatility policy schema 5 fingerprint the event population.
+
+### Fixed
+- Aggregate trades no longer add duplicate carried-book observations to calibration volatility.
+- A prior session cannot authorize BUY after a depth reconnect.
+- Anytime-valid confirmation can evaluate before all 42 paths exist.
+- Provider-aware deadline capacity futility is visible before the confirmation deadline expires.
+
+### Security
+- Automatic replay import accepts only hash-linked cohort requests and remains SHADOW-only.
+- Persistent HALT, BTC, ETH, CHAMPION state, and Mainnet order authority remain unchanged.
+
+### Verified
+- The focused confirmation, volatility, CHAMPION, replay, and execution suite passes: 145 tests.
+- The full project suite passes: 1,568 tests.
+- Python compilation and whitespace checks pass.
+
 ## [2.20.278] — 2026-08-31
 
 ### Changed

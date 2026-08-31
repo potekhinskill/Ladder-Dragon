@@ -207,6 +207,7 @@ def context_ready_paths(
     started_after_ms: int = 0,
     excluded_source_sha256s: frozenset[str] = frozenset(),
     maximum_ready_paths: int = MINIMUM_INDEPENDENT_PATHS,
+    newest_first: bool = True,
 ) -> tuple[list[ContextPath], dict[str, object]]:
     """Return only paths whose complete source-owned context exports safely."""
     if not 1 <= maximum_ready_paths <= MAXIMUM_CONTEXT_CANDIDATES:
@@ -229,8 +230,10 @@ def context_ready_paths(
     reasons: Counter[str] = Counter()
     identity: tuple[str, str] | None = None
     checked = 0
-    # Inspect newest paths first. Stop once the immutable cohort is complete.
-    for path in reversed(eligible):
+    # Selection prefers the newest complete prefix. Confirmation freezes the
+    # first eligible post-cutoff paths and passes newest_first=False.
+    ordered = reversed(eligible) if newest_first else iter(eligible)
+    for path in ordered:
         checked += 1
         start, _entry_end, end, _selected = path
         try:
@@ -258,7 +261,8 @@ def context_ready_paths(
         ready.append((path, row))
         if len(ready) == maximum_ready_paths:
             break
-    ready.reverse()
+    if newest_first:
+        ready.reverse()
     return ready, {
         "l2_complete_independent_paths": min(
             len(eligible), maximum_ready_paths

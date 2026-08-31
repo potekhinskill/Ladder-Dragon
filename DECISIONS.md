@@ -1,5 +1,19 @@
 # Engineering decisions
 
+### 2026-08-31 — Stream immutable confirmation blocks
+
+- **Context:** a fixed 42-path cohort delayed every anytime-valid calculation until the final path.
+- **Decision:** freeze first-path admission, then queue and import each complete three-path block.
+- **Why it worked:** source hashes stay fixed by order, while every completed block reaches the sequential evaluator.
+- **Reuse:** every fixed sequential cohort whose evidence arrives in immutable blocks.
+
+### 2026-08-31 — Bind rolling telemetry to its current session
+
+- **Context:** fresh telemetry from a closed connection could survive briefly after reconnect.
+- **Decision:** publish a current-session marker and require exact session, sequence, update, and timestamp identity.
+- **Why it worked:** reconnect invalidates prior telemetry before the new book completes its warm-up.
+- **Reuse:** every rolling guard whose source continuity ends at a provider reconnect.
+
 ### 2026-08-31 — Keep uncovered volatility buckets blocked
 
 - **Context:** exact 55-minute event-move reports were too zero-inflated for three empirical buckets.

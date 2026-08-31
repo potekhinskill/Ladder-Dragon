@@ -317,6 +317,43 @@ def test_measured_execution_report_latency_overrides_public_proxy(tmp_path):
     assert report.latency_ms_p95 == 18
 
 
+def test_calibration_volatility_ignores_trade_carried_book_updates():
+    book = (
+        BookLevel(Decimal("100"), Decimal("1")),
+        BookLevel(Decimal("101"), Decimal("1")),
+    )
+    events = [
+        MarketEvent(
+            ts_ms=1, bids=(book[0],), asks=(book[1],),
+            event_type="depthUpdate",
+        ),
+        MarketEvent(
+            ts_ms=2,
+            bids=(BookLevel(Decimal("90"), Decimal("1")),),
+            asks=(BookLevel(Decimal("91"), Decimal("1")),),
+            trades=((Decimal("90.5"), Decimal("1"), "BUY"),),
+            event_type="aggTrade",
+        ),
+        MarketEvent(
+            ts_ms=3,
+            bids=(BookLevel(Decimal("101"), Decimal("1")),),
+            asks=(BookLevel(Decimal("102"), Decimal("1")),),
+            event_type="depthUpdate",
+        ),
+    ]
+
+    report = calibrate_market_events(
+        events, source_sha256="a" * 64,
+        min_book_events=1, min_trades=1,
+    )
+
+    expected = abs(Decimal("101.5") / Decimal("100.5") - 1) * 10_000
+    assert report.volatility_bps_p95 == expected
+    assert report.volatility_event_population == (
+        "SEQUENCE_VERIFIED_DEPTH_UPDATE_TOP_MID_V1"
+    )
+
+
 def test_backtest_rejects_calibration_from_another_archive(tmp_path, monkeypatch):
     archive = tmp_path / "events.jsonl"
     archive.write_text(
