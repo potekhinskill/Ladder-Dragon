@@ -83,7 +83,7 @@ def test_policy_freezes_selection_hashes_and_empirical_tertiles(tmp_path):
     }
     assert payload["quantile_rule"] == "ZERO_INFLATED_EMPIRICAL_TERTILES_V2"
     assert payload["confirmation_reuses_selection"] is False
-    assert payload["schema_version"] == 3
+    assert payload["schema_version"] == 4
     assert payload["volatility_metric"] == VOLATILITY_METRIC
     assert payload["measurement_window_ms"] == VOLATILITY_MEASUREMENT_WINDOW_MS
     assert payload["publish_interval_ms"] == VOLATILITY_PUBLISH_INTERVAL_MS
@@ -101,6 +101,8 @@ def test_legacy_policy_migration_preserves_selection_and_archives_source(
         "measurement_window_ms", "publish_interval_ms",
         "selection_report_minimum_window_ms",
         "selection_report_maximum_window_ms",
+        "selection_confirmable_buckets", "selection_blocked_buckets",
+        "selection_bucket_activation_policy",
     ):
         legacy.pop(field)
     legacy["schema_version"] = 2
@@ -178,6 +180,45 @@ def test_production_shaped_zero_inflation_has_reachable_buckets(tmp_path):
         "high": 32,
     }
     assert verify_volatility_policy(payload) is True
+
+
+def test_exact_window_zero_inflation_uses_scoped_safe_bounds(tmp_path):
+    paths = []
+    for index in range(1, 163):
+        volatility = "0" if index <= 130 else "0.95"
+        path = tmp_path / f"exact-window-{index}.calibration.json"
+        path.write_text(
+            json.dumps(calibration(index, volatility).as_dict()),
+            encoding="utf-8",
+        )
+        paths.append(path)
+
+    payload = select_volatility_policy(
+        paths,
+        cutoff_ts_ms=163 * DAY_MS,
+        created_at_ms=163 * DAY_MS,
+    )
+
+    assert payload["quantile_rule"] == "PREREGISTERED_SAFE_BOUNDS_V1"
+    assert payload["low_max_bps"] == "0.5"
+    assert payload["high_min_bps"] == "2"
+    assert payload["selection_confirmable_buckets"] == ["low", "normal"]
+    assert payload["selection_blocked_buckets"] == ["high"]
+    assert verify_volatility_policy(payload) is True
+
+    cutoff = int(payload["cutoff_ts_ms"])
+    confirmation = [
+        replace(
+            calibration(300 + index, value),
+            first_ts_ms=cutoff + 1 + index * DAY_MS,
+            last_ts_ms=cutoff + VOLATILITY_MEASUREMENT_WINDOW_MS + 1
+            + index * DAY_MS,
+        )
+        for index, value in enumerate(("0", "0", "0", "3", "3", "3"))
+    ]
+    scope = confirmed_volatility_scope(payload, confirmation)
+    assert scope["confirmed_buckets"] == ["low"]
+    assert scope["blocked_buckets"] == ["normal", "high"]
 
 
 def test_confirmation_requires_disjoint_post_cutoff_archives(tmp_path):

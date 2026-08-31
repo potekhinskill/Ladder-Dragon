@@ -1,6 +1,6 @@
 # Implementation status
 
-This document describes the code in version **2.20.277**.
+This document describes the code in version **2.20.278**.
 It does not describe future plans as completed work.
 
 An implemented function is not automatically approved for LIVE use.
@@ -253,6 +253,9 @@ The worker fails closed without a current probation result.
 The public depth service records consecutive 55-minute segments.
 It publishes a 55-minute rolling volatility measurement every five minutes.
 The measurement window and publication interval enter the policy fingerprint.
+Separable cohorts use empirical boundaries.
+Zero-inflated cohorts use preregistered 0.5 and 2 bps boundaries.
+Buckets without selection coverage remain blocked during confirmation and execution.
 The record overwrites one bounded file and has no archive dependency.
 The service restarts after a recorder failure.
 Seven-day rotation bounds disposable public archive growth.

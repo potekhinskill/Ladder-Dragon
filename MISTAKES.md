@@ -1,5 +1,12 @@
 # Engineering mistakes and root causes
 
+### 2026-08-31 — Assumed nominal segment length guaranteed bucket separation
+
+- **Impact:** release 2.20.277 could not freeze a replacement volatility policy on production reports.
+- **Root cause:** tests covered exact windows and zero inflation separately, but not their production combination.
+- **Correction:** test the combined distribution and use preregistered bucket-scoped safe boundaries.
+- **Prevention:** every policy migration must replay the aggregate production shape before publication.
+
 ### 2026-08-31 — Used selection power as a capacity requirement
 
 - **Impact:** v23 needed a perfect 12-of-12 selection result to fit its confirmation deadline.

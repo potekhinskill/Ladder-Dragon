@@ -29,6 +29,8 @@ VOLATILITY_PUBLISH_INTERVAL_MS = 5 * 60_000
 MINIMUM_CALIBRATION_WINDOW_MS = 54 * 60_000
 MAXIMUM_CALIBRATION_WINDOW_MS = 56 * 60_000
 VOLATILITY_METRIC = "EVENT_MOVE_P95_BPS_OVER_55_MINUTES_V1"
+PREREGISTERED_LOW_MAX_BPS = Decimal("0.5")
+PREREGISTERED_HIGH_MIN_BPS = Decimal("2")
 
 
 def _file_sha256(path: Path) -> str:
@@ -122,6 +124,7 @@ def select_volatility_policy(
     bucket_counts = _bucket_counts(
         values, low_max_bps=low_max_bps, high_min_bps=high_min_bps
     )
+    boundary_policy = "ZERO_INFLATED_EMPIRICAL_TERTILES_V2"
     if high_min_bps <= low_max_bps or any(
         bucket_counts[name] < MINIMUM_SELECTION_BUCKET_REPORTS
         for name in ("low", "normal", "high")
@@ -129,19 +132,34 @@ def select_volatility_policy(
         # Short depth segments can have a zero-inflated move distribution.
         # Split the positive tail instead of creating an empty normal bucket.
         higher = [value for value in values if value > low_max_bps]
-        if len(higher) < MINIMUM_SELECTION_BUCKET_REPORTS * 2:
-            raise ValueError("volatility selection has no separable buckets")
-        high_min_bps = _quantile(higher, 1, 2)
-        bucket_counts = _bucket_counts(
-            values, low_max_bps=low_max_bps, high_min_bps=high_min_bps
-        )
+        if len(higher) >= MINIMUM_SELECTION_BUCKET_REPORTS * 2:
+            high_min_bps = _quantile(higher, 1, 2)
+            bucket_counts = _bucket_counts(
+                values, low_max_bps=low_max_bps,
+                high_min_bps=high_min_bps,
+            )
     if any(
         bucket_counts[name] < MINIMUM_SELECTION_BUCKET_REPORTS
         for name in ("low", "normal", "high")
     ):
+        # These safe bounds predate the cohort. They cannot adapt to its
+        # values. A bucket without selection coverage remains blocked.
+        low_max_bps = PREREGISTERED_LOW_MAX_BPS
+        high_min_bps = PREREGISTERED_HIGH_MIN_BPS
+        bucket_counts = _bucket_counts(
+            values, low_max_bps=low_max_bps, high_min_bps=high_min_bps
+        )
+        boundary_policy = "PREREGISTERED_SAFE_BOUNDS_V1"
+    confirmable = [
+        name for name in VOLATILITY_BUCKETS
+        if bucket_counts[name] >= MINIMUM_SELECTION_BUCKET_REPORTS
+    ]
+    if boundary_policy == "PREREGISTERED_SAFE_BOUNDS_V1" and not (
+        "low" in confirmable and "normal" in confirmable
+    ):
         raise ValueError("volatility selection bucket coverage is insufficient")
     payload: dict[str, object] = {
-        "schema_version": 3,
+        "schema_version": 4,
         "mode": "SHADOW",
         "apply_allowed": False,
         "scope": "VOLATILITY_POLICY_SELECTION_ONLY",
@@ -155,6 +173,11 @@ def select_volatility_policy(
         "low_max_bps": format(low_max_bps, "f"),
         "high_min_bps": format(high_min_bps, "f"),
         "selection_bucket_counts": bucket_counts,
+        "selection_confirmable_buckets": confirmable,
+        "selection_blocked_buckets": [
+            name for name in VOLATILITY_BUCKETS if name not in confirmable
+        ],
+        "selection_bucket_activation_policy": "bucket_scoped_fail_closed_v1",
         "minimum_selection_bucket_reports": MINIMUM_SELECTION_BUCKET_REPORTS,
         "volatility_metric": VOLATILITY_METRIC,
         "measurement_window_ms": VOLATILITY_MEASUREMENT_WINDOW_MS,
@@ -165,7 +188,7 @@ def select_volatility_policy(
         "selection_report_maximum_window_ms": (
             MAXIMUM_CALIBRATION_WINDOW_MS
         ),
-        "quantile_rule": "ZERO_INFLATED_EMPIRICAL_TERTILES_V2",
+        "quantile_rule": boundary_policy,
         "confirmation_reuses_selection": False,
     }
     payload["policy_sha256"] = canonical_digest(payload)
@@ -184,8 +207,30 @@ def verify_volatility_policy(payload: Mapping[str, object]) -> bool:
         reports = tuple(candidate["selection_report_sha256s"])
         count = int(candidate["selection_report_count"])
         bucket_counts = candidate["selection_bucket_counts"]
+        boundary_policy = str(candidate["quantile_rule"])
+        expected_confirmable = [
+            name for name in VOLATILITY_BUCKETS
+            if bucket_counts[name] >= MINIMUM_SELECTION_BUCKET_REPORTS
+        ]
+        expected_blocked = [
+            name for name in VOLATILITY_BUCKETS
+            if name not in expected_confirmable
+        ]
+        boundary_valid = bool(
+            (
+                boundary_policy == "ZERO_INFLATED_EMPIRICAL_TERTILES_V2"
+                and not expected_blocked
+            )
+            or (
+                boundary_policy == "PREREGISTERED_SAFE_BOUNDS_V1"
+                and low == PREREGISTERED_LOW_MAX_BPS
+                and high == PREREGISTERED_HIGH_MIN_BPS
+                and "low" in expected_confirmable
+                and "normal" in expected_confirmable
+            )
+        )
         return (
-            candidate.get("schema_version") == 3
+            candidate.get("schema_version") == 4
             and candidate.get("mode") == "SHADOW"
             and candidate.get("apply_allowed") is False
             and candidate.get("scope") == "VOLATILITY_POLICY_SELECTION_ONLY"
@@ -198,8 +243,13 @@ def verify_volatility_policy(payload: Mapping[str, object]) -> bool:
             == MINIMUM_CALIBRATION_WINDOW_MS
             and candidate.get("selection_report_maximum_window_ms")
             == MAXIMUM_CALIBRATION_WINDOW_MS
-            and candidate.get("quantile_rule")
-            == "ZERO_INFLATED_EMPIRICAL_TERTILES_V2"
+            and boundary_valid
+            and candidate.get("selection_bucket_activation_policy")
+            == "bucket_scoped_fail_closed_v1"
+            and candidate.get("selection_confirmable_buckets")
+            == expected_confirmable
+            and candidate.get("selection_blocked_buckets")
+            == expected_blocked
             and candidate.get("confirmation_reuses_selection") is False
             and count >= MINIMUM_SELECTION_REPORTS
             and count <= MAXIMUM_SELECTION_REPORTS
@@ -214,8 +264,8 @@ def verify_volatility_policy(payload: Mapping[str, object]) -> bool:
             and set(bucket_counts) == {"low", "normal", "high"}
             and all(
                 type(bucket_counts[name]) is int
-                and bucket_counts[name] >= MINIMUM_SELECTION_BUCKET_REPORTS
-                for name in ("low", "normal", "high")
+                and bucket_counts[name] >= 0
+                for name in VOLATILITY_BUCKETS
             )
             and sum(bucket_counts.values()) == count
             and len(archives) == len(set(archives)) == count
@@ -233,6 +283,15 @@ def _verify_legacy_volatility_policy(payload: Mapping[str, object]) -> bool:
     candidate = dict(payload)
     observed = str(candidate.pop("policy_sha256", ""))
     try:
+        legacy_fields = {
+            "schema_version", "mode", "apply_allowed", "scope",
+            "cutoff_ts_ms", "created_at_ms", "selection_report_count",
+            "selection_first_ts_ms", "selection_last_ts_ms",
+            "selection_archive_sha256s", "selection_report_sha256s",
+            "low_max_bps", "high_min_bps", "selection_bucket_counts",
+            "minimum_selection_bucket_reports", "volatility_metric",
+            "quantile_rule", "confirmation_reuses_selection",
+        }
         low = Decimal(str(candidate["low_max_bps"]))
         high = Decimal(str(candidate["high_min_bps"]))
         count = int(candidate["selection_report_count"])
@@ -240,7 +299,8 @@ def _verify_legacy_volatility_policy(payload: Mapping[str, object]) -> bool:
         reports = tuple(candidate["selection_report_sha256s"])
         buckets = candidate["selection_bucket_counts"]
         return (
-            candidate.get("schema_version") == 2
+            set(candidate) == legacy_fields
+            and candidate.get("schema_version") == 2
             and candidate.get("mode") == "SHADOW"
             and candidate.get("apply_allowed") is False
             and candidate.get("scope") == "VOLATILITY_POLICY_SELECTION_ONLY"
@@ -383,7 +443,8 @@ def confirmed_volatility_scope(
     )
     confirmed = [
         name for name in VOLATILITY_BUCKETS
-        if counts[name] >= MINIMUM_CONFIRMATION_BUCKET_REPORTS
+        if name in policy["selection_confirmable_buckets"]
+        and counts[name] >= MINIMUM_CONFIRMATION_BUCKET_REPORTS
     ]
     if not confirmed:
         raise ValueError("no volatility bucket has confirmation coverage")
@@ -452,7 +513,8 @@ def verify_volatility_scope(
             and set(confirmed) | set(blocked) == set(VOLATILITY_BUCKETS)
             and list(confirmed) == [
                 name for name in VOLATILITY_BUCKETS
-                if int(counts[name]) >= MINIMUM_CONFIRMATION_BUCKET_REPORTS
+                if name in policy["selection_confirmable_buckets"]
+                and int(counts[name]) >= MINIMUM_CONFIRMATION_BUCKET_REPORTS
             ]
             and list(blocked) == [
                 name for name in VOLATILITY_BUCKETS if name not in confirmed

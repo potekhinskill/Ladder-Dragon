@@ -74,7 +74,8 @@ def _frozen_volatility_status(
     )
     confirmed = [
         name for name in VOLATILITY_BUCKETS
-        if span >= VOLATILITY_CONFIRMATION_SPAN_MS
+        if name in policy["selection_confirmable_buckets"]
+        and span >= VOLATILITY_CONFIRMATION_SPAN_MS
         and counts[name] >= MINIMUM_CONFIRMATION_BUCKET_REPORTS
     ]
     latest = max(confirmation, key=lambda row: row.last_ts_ms, default=None)

@@ -1,5 +1,12 @@
 # Engineering decisions
 
+### 2026-08-31 — Keep uncovered volatility buckets blocked
+
+- **Context:** exact 55-minute event-move reports were too zero-inflated for three empirical buckets.
+- **Decision:** use preregistered safe boundaries and confirm only buckets with selection coverage.
+- **Why it worked:** low and normal remain testable, while unobserved high volatility cannot authorize BUY.
+- **Reuse:** every categorical policy with safe prior boundaries and incomplete selection coverage.
+
 ### 2026-08-31 — Freeze confirmation at provider capacity
 
 - **Context:** uncertain selection rates made almost every 14-day confirmation design unreachable.
