@@ -203,15 +203,16 @@ The replaceable `status.json` reports queue progress without source paths or exc
 The runner never imports selection, freezes a candidate, changes HALT, or creates orders.
 
 After v23 freezes, the planner creates a separate post-cutoff confirmation cohort.
-Its path count uses three simultaneous one-sided exact rate bounds.
-The planner adds one fixed attrition path before block grouping.
+Its path count is fixed at the provider capacity boundary.
+Three reserve paths protect the deadline from transport attrition.
 The deadline capacity packs three complete paths into each provider session.
 Fourteen days can contain at most forty-two complete paths.
 Selection sources and pre-cutoff paths cannot enter this cohort.
-Drafts remain under `.historical-replay/confirmation-drafts` for operator review.
-Copy accepted drafts into `.historical-replay/confirmation-requests`.
+Drafts remain under `.historical-replay/confirmation-drafts` as immutable evidence.
+The planner queues each complete block under `.historical-replay/confirmation-requests`.
 The runner writes reports under `.historical-replay/confirmation-reports`.
-No planner or runner imports confirmation automatically.
+The importer verifies hashes and imports each complete queued block automatically.
+Status separates queued, replayed, verified, imported, and evaluated block counts.
 
 Import reviewed, non-overlapping historical replay blocks:
 
@@ -256,7 +257,8 @@ Freeze empirical volatility boundaries from pre-cutoff calibration reports:
 ```
 
 Use the policy only with new calibration archives through `--volatility-policy`.
-The confirmation cohort must cover two days and all three frozen buckets.
+The confirmation cohort must span two days and cover each approved bucket.
+An unapproved bucket remains blocked for BUY.
 
 ## Storage contract
 

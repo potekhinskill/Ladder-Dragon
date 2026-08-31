@@ -1,5 +1,19 @@
 # Engineering mistakes and root causes
 
+### 2026-08-31 — Recalibrated sources without migrating their policy
+
+- **Impact:** a complete schema-5 backlog could leave volatility readiness blocked permanently.
+- **Root cause:** the background processor never called the existing deterministic migration after source readiness.
+- **Correction:** prioritize frozen archives and invoke migration only at exact cohort completion.
+- **Prevention:** every background schema upgrade must test its final consumer transition.
+
+### 2026-08-31 — Counted replay files as statistical evaluations
+
+- **Impact:** confirmation progress could hide a blocked importer or evaluator.
+- **Root cause:** the planner counted directory entries instead of acceptance-boundary evidence.
+- **Correction:** validate monotonic replay, hash, import, and evaluation counters.
+- **Prevention:** progress counters must share the authoritative boundary named by their label.
+
 ### 2026-08-31 — Deferred an anytime-valid test until cohort completion
 
 - **Impact:** v23 could not pass or reject early and had no capacity reserve for one lost path.

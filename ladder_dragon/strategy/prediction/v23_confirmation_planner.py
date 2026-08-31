@@ -150,6 +150,42 @@ def _provider_design_duration(required_paths: int) -> int:
     )
 
 
+def _confirmation_stage_counts(root: Path, queued: int) -> dict[str, int]:
+    """Read monotonic replay, verification, import, and evaluation stages."""
+    replay_completed = 0
+    runner_path = root / "confirmation-reports" / "status.json"
+    if runner_path.is_file():
+        runner = bounded_json(runner_path)
+        if runner.get("import_mode") not in {
+            None, "automatic_confirmation"
+        }:
+            raise ValueError("v23 confirmation runner mode differs")
+        replay_completed = int(runner.get("completed_report_count", 0))
+    hash_verified = imported = evaluated = 0
+    import_path = root / "confirmation-import-status.json"
+    if import_path.is_file():
+        status = bounded_json(import_path)
+        if (
+            status.get("mode") != "SHADOW_CONFIRMATION"
+            or status.get("apply_allowed") is not False
+        ):
+            raise ValueError("v23 confirmation import status differs")
+        hash_verified = int(status.get("hash_verified_block_count", 0))
+        imported = int(status.get("imported_block_count", 0))
+        evaluated = int(
+            status.get("statistically_evaluated_block_count", 0)
+        )
+    if not 0 <= evaluated <= imported <= hash_verified <= replay_completed <= queued:
+        raise ValueError("v23 confirmation stage counts differ")
+    return {
+        "queued_block_count": queued,
+        "replay_completed_block_count": replay_completed,
+        "hash_verified_block_count": hash_verified,
+        "imported_block_count": imported,
+        "statistically_evaluated_block_count": evaluated,
+    }
+
+
 def _policy(
     manifest: Mapping[str, object], context: Mapping[str, object]
 ) -> dict[str, object]:
@@ -352,11 +388,9 @@ def plan_v23_confirmation_drafts(
         "maximum_paths_before_deadline"
     ]
     capacity_futile = len(paths) + optimistic_additional_paths < required_paths
-    report_directory = draft_directory.parent / "confirmation-reports"
-    evaluated_blocks = len([
-        path for path in report_directory.glob("*.json")
-        if path.name != "status.json"
-    ]) if report_directory.is_dir() else 0
+    stages = _confirmation_stage_counts(
+        draft_directory.parent, len(requests)
+    )
     status = (
         "CONFIRMATION_COHORT_COMPLETE"
         if len(paths) == required_paths
@@ -378,8 +412,10 @@ def plan_v23_confirmation_drafts(
         "complete_independent_paths": len(paths),
         "continuous_sessions": len(chains),
         "frozen_cohort_sha256": marker["cohort_sha256"],
-        "queued_block_count": len(requests),
-        "evaluated_block_count": evaluated_blocks,
+        **stages,
+        "evaluated_block_count": stages[
+            "statistically_evaluated_block_count"
+        ],
         "remaining_deadline_capacity_paths": optimistic_additional_paths,
         "remaining_provider_capacity": remaining_provider_capacity,
         "capacity_futile": capacity_futile,

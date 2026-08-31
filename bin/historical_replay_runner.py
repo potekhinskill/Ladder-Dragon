@@ -32,10 +32,13 @@ def process_requests(
     context_db: Path,
     *,
     maximum_new_reports: int = 36,
+    import_mode: str = "manual_selection",
 ) -> dict[str, object]:
-    """Process one same-block policy batch and leave import to the operator."""
+    """Process one same-block policy batch under an explicit import contract."""
     if not 1 <= maximum_new_reports <= 64:
         raise ValueError("historical replay work limit is invalid")
+    if import_mode not in {"manual_selection", "automatic_confirmation"}:
+        raise ValueError("historical replay import mode is invalid")
     request_directory.mkdir(parents=True, exist_ok=True, mode=0o700)
     output_directory.mkdir(parents=True, exist_ok=True, mode=0o700)
     requests = sorted(request_directory.glob("*.json"))
@@ -102,20 +105,28 @@ def process_requests(
             ArithmeticError, sqlite3.Error,
         ):
             failed += len(work)
+    automatic_confirmation = import_mode == "automatic_confirmation"
+    ready = completed >= (1 if automatic_confirmation else 3)
     status = {
         "schema_version": 1,
         "mode": "SHADOW",
         "apply_allowed": False,
+        "import_mode": import_mode,
         "selection_import_automatic": False,
+        "confirmation_import_automatic": automatic_confirmation,
         "request_count": len(requests),
         "completed_report_count": completed,
         "failed_request_count": failed,
         "new_report_count": created,
-        "operator_review_ready": failed == 0 and completed >= 3,
+        "operator_review_ready": (
+            failed == 0 and ready and not automatic_confirmation
+        ),
         "status": (
             "BLOCKED" if failed
             else "WAITING_REQUESTS" if not requests
-            else "READY_FOR_OPERATOR_REVIEW" if completed >= 3
+            else "READY_FOR_AUTOMATIC_IMPORT"
+            if ready and automatic_confirmation
+            else "READY_FOR_OPERATOR_REVIEW" if ready
             else "COLLECTING_REPORTS"
         ),
     }
@@ -129,6 +140,11 @@ def main() -> int:
     parser.add_argument("--output-directory", required=True, type=Path)
     parser.add_argument("--context-db", required=True, type=Path)
     parser.add_argument("--maximum-new-reports", type=int, default=36)
+    parser.add_argument(
+        "--import-mode",
+        choices=("manual_selection", "automatic_confirmation"),
+        default="manual_selection",
+    )
     args = parser.parse_args()
     try:
         report = process_requests(
@@ -136,6 +152,7 @@ def main() -> int:
             args.output_directory,
             args.context_db,
             maximum_new_reports=args.maximum_new_reports,
+            import_mode=args.import_mode,
         )
     except (
         OSError,

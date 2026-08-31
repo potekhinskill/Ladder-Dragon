@@ -250,3 +250,31 @@ def test_planner_reports_provider_unreachable_before_context_scan(
     assert report["status"] == "DESIGN_UNREACHABLE"
     assert report["required_independent_paths"] == 42
     assert report["provider_capacity"]["maximum_paths_before_deadline"] == 39
+
+
+def test_confirmation_stage_counts_do_not_treat_report_files_as_evaluated(
+    tmp_path,
+):
+    reports = tmp_path / "confirmation-reports"
+    reports.mkdir()
+    subject.atomic_json(reports / "status.json", {
+        "import_mode": "automatic_confirmation",
+        "completed_report_count": 2,
+    })
+    subject.atomic_json(tmp_path / "confirmation-import-status.json", {
+        "mode": "SHADOW_CONFIRMATION",
+        "apply_allowed": False,
+        "hash_verified_block_count": 1,
+        "imported_block_count": 1,
+        "statistically_evaluated_block_count": 0,
+    })
+
+    stages = subject._confirmation_stage_counts(tmp_path, 3)
+
+    assert stages == {
+        "queued_block_count": 3,
+        "replay_completed_block_count": 2,
+        "hash_verified_block_count": 1,
+        "imported_block_count": 1,
+        "statistically_evaluated_block_count": 0,
+    }

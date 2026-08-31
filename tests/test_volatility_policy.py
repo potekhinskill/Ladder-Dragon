@@ -20,6 +20,7 @@ from ladder_dragon.strategy.volatility_policy import (
     select_volatility_policy,
     verify_volatility_policy,
     verify_volatility_scope,
+    volatility_policy_migration_readiness,
 )
 
 
@@ -160,6 +161,35 @@ def test_schema4_policy_reselects_same_archives_on_depth_updates(tmp_path):
     assert policy_path.with_name(
         f"volatility-policy.schema4-{legacy['policy_sha256']}.json"
     ).is_file()
+
+
+def test_schema4_migration_waits_for_every_frozen_archive(tmp_path):
+    current = policy(tmp_path)
+    legacy = dict(current)
+    legacy["schema_version"] = 4
+    legacy["volatility_metric"] = "EVENT_MOVE_P95_BPS_OVER_55_MINUTES_V1"
+    legacy.pop("volatility_event_population")
+    legacy.pop("policy_sha256")
+    from ladder_dragon.strategy.prediction.episode_semantics import (
+        canonical_digest,
+    )
+    legacy["policy_sha256"] = canonical_digest(legacy)
+    policy_path = tmp_path / "volatility-policy.json"
+    policy_path.write_text(json.dumps(legacy), encoding="utf-8")
+    missing = tmp_path / "segment-100.calibration.json"
+    missing.unlink()
+
+    waiting = volatility_policy_migration_readiness(policy_path, tmp_path)
+
+    assert waiting["status"] == "WAITING_SELECTION_SOURCES"
+    assert waiting["selection_sources_ready"] == 99
+    assert waiting["selection_sources_required"] == 100
+    missing.write_text(
+        json.dumps(calibration(100, "1").as_dict()), encoding="utf-8"
+    )
+    ready = volatility_policy_migration_readiness(policy_path, tmp_path)
+    assert ready["status"] == "READY_FOR_MIGRATION"
+    assert ready["selection_sources_ready"] == 100
 
 
 def test_zero_inflated_selection_splits_positive_tail_without_empty_bucket(tmp_path):

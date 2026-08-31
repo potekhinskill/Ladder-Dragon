@@ -3,6 +3,31 @@
 All notable changes are documented here. Releases use Semantic Versioning; every
 section is dated and there is intentionally no `Unreleased` section.
 
+## [2.20.280] — 2026-08-31
+
+### Added
+- Calibration status reports frozen-source progress, measured processing time, and a bounded migration estimate.
+- Confirmation status separates queued, replayed, hash-verified, imported, and statistically evaluated blocks.
+
+### Changed
+- Calibration prioritizes the frozen volatility selection, then post-cutoff confirmation, then unrelated archives.
+- The confirmation runner declares automatic SHADOW import through an explicit command mode.
+- Scoped volatility readiness no longer waits for an unobserved high bucket.
+
+### Fixed
+- A schema-4 volatility policy now migrates automatically after every frozen source has schema-5 calibration.
+- A report file alone can no longer appear as a statistically evaluated confirmation block.
+- Recalibration completion can no longer leave a ready legacy policy in permanent reselection state.
+
+### Security
+- Policy migration preserves the exact source cohort, cutoff, SHADOW mode, and fail-closed bucket scope.
+- Persistent HALT, BTC, ETH, CHAMPION state, and Mainnet order authority remain unchanged.
+
+### Verified
+- The focused volatility, backlog, confirmation, runner, and guard suite passes: 52 tests.
+- The full project suite passes: 1,574 tests.
+- Python compilation, Technical English, and whitespace checks pass.
+
 ## [2.20.279] — 2026-08-31
 
 ### Added

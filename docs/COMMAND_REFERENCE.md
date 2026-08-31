@@ -71,7 +71,7 @@ See [Historical entry replay](HISTORICAL_ENTRY_REPLAY.md) for continuous source 
 | `depth_archive_retention` | encrypts eligible L2 segments externally before local removal |
 | `replay_historical_entries` | generates historical opportunities from immutable inputs; optional `--context-db` verifies source-owned context |
 | `historical_replay_planner` | creates frozen selection and post-cutoff confirmation draft cohorts |
-| `historical_replay_runner` | processes a bounded SHADOW replay request queue without automatic import |
+| `historical_replay_runner` | processes a bounded SHADOW replay queue under an explicit import mode |
 | `volatility_policy` | freezes empirical volatility buckets from selection-only calibration reports |
 | `migrate_volatility_policy` | binds a verified legacy policy to the exact 55-minute measurement window |
 | `import_entry_veto_l2` | imports source-hashed public L2 entry features into SHADOW evidence |
@@ -225,9 +225,11 @@ Review and copy accepted drafts into `.historical-replay/requests`.
 The planner reports L2-ready and context-ready progress separately.
 It freezes one selection cohort and prevents rolling draft growth.
 After v23 freezes, it creates separate post-cutoff confirmation drafts.
-The planner never accepts a draft or imports evidence.
+The planner automatically queues each complete confirmation block.
+The background runner uses `--import-mode automatic_confirmation`.
+The strict importer verifies each queued block before statistical evaluation.
 
-Import reviewed post-cutoff reports into frozen v23 confirmation:
+Import a reviewed post-cutoff report manually when automatic import is unavailable:
 
 ```bash
 .venv/bin/python -m bin.import_v23_confirmation \

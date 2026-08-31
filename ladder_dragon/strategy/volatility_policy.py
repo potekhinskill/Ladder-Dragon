@@ -394,6 +394,79 @@ def _verify_schema4_volatility_policy(payload: Mapping[str, object]) -> bool:
         return False
 
 
+def volatility_policy_source_contract(
+    policy_path: Path,
+) -> tuple[frozenset[str], int]:
+    """Return the frozen archive identities and cutoff for backlog priority."""
+    payload = _read_payload(policy_path)
+    if not (
+        verify_volatility_policy(payload)
+        or _verify_legacy_volatility_policy(payload)
+        or _verify_schema4_volatility_policy(payload)
+    ):
+        raise ValueError("volatility policy is invalid")
+    archives = frozenset(
+        str(value) for value in payload["selection_archive_sha256s"]
+    )
+    return archives, int(payload["cutoff_ts_ms"])
+
+
+def volatility_policy_migration_readiness(
+    policy_path: Path,
+    report_directory: Path,
+) -> dict[str, object]:
+    """Count exact compatible sources before an automatic policy migration."""
+    payload = _read_payload(policy_path)
+    required = int(payload.get("selection_report_count", 0))
+    if verify_volatility_policy(payload):
+        return {
+            "schema_version": 1,
+            "status": "CURRENT_POLICY",
+            "migration_required": False,
+            "source_policy_schema_version": 5,
+            "selection_sources_ready": required,
+            "selection_sources_required": required,
+        }
+    source_schema = int(payload.get("schema_version", 0))
+    schema2 = _verify_legacy_volatility_policy(payload)
+    schema4 = _verify_schema4_volatility_policy(payload)
+    if not (schema2 or schema4):
+        raise ValueError("legacy volatility policy is invalid")
+    required_identities = set(
+        payload[
+            "selection_report_sha256s"
+            if schema2 else "selection_archive_sha256s"
+        ]
+    )
+    matched: set[str] = set()
+    for index, path in enumerate(
+        sorted(report_directory.glob("*.calibration.json"))
+    ):
+        if index >= MAXIMUM_SELECTION_REPORTS * 4:
+            raise ValueError("volatility report migration capacity reached")
+        try:
+            row = ReplayCalibration.from_dict(_read_payload(path))
+            if not volatility_calibration_window_compatible(row):
+                continue
+            identity = _file_sha256(path) if schema2 else row.archive_sha256
+        except (OSError, ValueError, KeyError, TypeError, ArithmeticError):
+            continue
+        if identity in required_identities:
+            matched.add(identity)
+    ready = matched == required_identities
+    return {
+        "schema_version": 1,
+        "status": (
+            "READY_FOR_MIGRATION"
+            if ready else "WAITING_SELECTION_SOURCES"
+        ),
+        "migration_required": True,
+        "source_policy_schema_version": source_schema,
+        "selection_sources_ready": len(matched),
+        "selection_sources_required": len(required_identities),
+    }
+
+
 def migrate_legacy_volatility_policy(
     policy_path: Path,
     report_directory: Path,

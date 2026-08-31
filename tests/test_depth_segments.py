@@ -173,7 +173,7 @@ def test_calibration_backlog_does_not_invent_high(tmp_path):
     assert report["calibration_reports"] == 1
     assert report["high_coverage_conclusion"] == "NOT_OBSERVED"
     assert report["order_validation_proven"] is False
-    assert report["status"] == "INCOMPLETE"
+    assert report["status"] == "BUCKET_COVERAGE_INCOMPLETE"
     with pytest.raises(FileExistsError):
         calibrate_segment(paths[0])
 

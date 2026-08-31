@@ -17,7 +17,7 @@ The configured mode and its evidence gate remain authoritative.
 | Historical entry selection | Continuous hash-linked depth segments and new opportunities after delayed cancellation | Offline selection only; no promotion authority |
 | Historical context | Source-owned filters, fees, regimes, and fresh supervisor PANIC state | SOL observer; missing inputs block replay |
 | Historical selection planner | Context-ready paths and one frozen review cohort | Offline selection only |
-| Historical confirmation planner | Provider-packed post-cutoff paths from simultaneous exact rate bounds | Operator queue and import remain explicit |
+| Historical confirmation planner | Fixed provider-capacity post-cutoff paths | Complete blocks queue and import automatically in SHADOW |
 | Historical replay runner | Bounded immutable SHADOW request processing | Operator import and freeze remain explicit |
 | Prediction | 1, 5, and 15 minute SHADOW outcomes | Enabled for evidence only |
 | Market scenarios | 1-hour through monthly closed-candle outcomes | SHADOW only |
@@ -209,6 +209,7 @@ The runner evaluates eight same-block policies through three separate verified L
 It never queues a request or imports selection evidence.
 The v23 confirmation importer appends an episode start and result atomically.
 It verifies the selection cutoff, source identities, model hashes, policy, and fees.
+It reports replay, hash, import, and statistical evaluation stages separately.
 Minute REST snapshots cannot satisfy v23 confirmation.
 The v23 confirmation cohort contains 42 fixed provider-bounded paths.
 The anytime-valid gate can pass early and rejects at the fixed cohort end.

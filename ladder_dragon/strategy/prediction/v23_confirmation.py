@@ -24,6 +24,7 @@ from ladder_dragon.strategy.prediction.execution_episode import (
     ExecutionEpisodeSpec,
 )
 from ladder_dragon.strategy.prediction.experiment_lifecycle import (
+    confirmation_report,
     list_experiments,
 )
 from ladder_dragon.strategy.prediction.historical_policy import fingerprint
@@ -321,7 +322,7 @@ def import_v23_confirmation_reports(
         observed_sources |= sources
         _validate_policy(report["policy"], parameters)
         loaded.append((report, expected_sha))
-    created = 0
+    created = imported_episodes = 0
     for report, report_sha in loaded:
         for row in historical_report_rows(report, "veto"):
             if row.get("censored") is True:
@@ -329,7 +330,17 @@ def import_v23_confirmation_reports(
             spec, result = _episode_pair(
                 row, manifest=manifest, report_sha=report_sha
             )
+            imported_episodes += 1
             created += int(record_completed_episode(store, spec, result))
+    evaluation = confirmation_report(
+        store, experiment_id=str(manifest["experiment_id"])
+    )
+    progress = evaluation.get("confirmation_progress")
+    statistically_evaluated = bool(
+        isinstance(progress, Mapping)
+        and progress.get("method") != "UNSUPPORTED_FROZEN_CONTRACT"
+        and progress.get("status") != "BLOCKED"
+    )
     return {
         "schema_version": 1,
         "mode": "SHADOW_CONFIRMATION",
@@ -338,6 +349,15 @@ def import_v23_confirmation_reports(
         "experiment_id": manifest["experiment_id"],
         "report_count": len(loaded),
         "episode_count": created,
+        "created_episode_count": created,
+        "imported_episode_count": imported_episodes,
+        "imported_block_count": len(loaded),
+        "statistically_evaluated_block_count": (
+            len(loaded) if statistically_evaluated else 0
+        ),
+        "statistical_status": (
+            progress.get("status") if isinstance(progress, Mapping) else "BLOCKED"
+        ),
         "source_archive_count": len(observed_sources),
         "selection_sources_reused": False,
         "status": "IMPORTED",
@@ -421,10 +441,16 @@ def import_v23_confirmation_directory(store, directory: Path) -> dict[str, objec
         loaded.append((
             int(payload["start_ts_ms"]), path, hashlib.sha256(raw).hexdigest()
         ))
-    return import_v23_confirmation_reports(
+    imported = import_v23_confirmation_reports(
         store,
         [(path, digest) for _start, path, digest in sorted(loaded)],
     )
+    return {
+        **imported,
+        "queued_block_count": len(block_paths),
+        "replay_completed_block_count": len(candidates),
+        "hash_verified_block_count": len(loaded),
+    }
 
 
 __all__ = [

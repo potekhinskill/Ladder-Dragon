@@ -80,3 +80,37 @@ def test_runner_fails_closed_on_corrupt_existing_report(tmp_path):
     serialized = json.dumps(status).lower()
     assert "secret" not in serialized
     assert str(tmp_path).lower() not in serialized
+
+
+def test_confirmation_runner_reports_automatic_import_stage(
+    tmp_path, monkeypatch
+):
+    requests = tmp_path / "confirmation-requests"
+    reports = tmp_path / "confirmation-reports"
+    requests.mkdir()
+    _request(requests / "one.json", 1)
+
+    def replay(batch, *, context_db):
+        output = []
+        for request_path, output_path in batch:
+            body = {
+                "status": "COMPLETE_SELECTION_REPLAY",
+                "request": json.loads(request_path.read_text()),
+            }
+            body["report_sha256"] = fingerprint(body)
+            atomic_json(output_path, body)
+            output.append(body)
+        return output
+
+    monkeypatch.setattr(runner, "run_replay_request_batch", replay)
+
+    status = runner.process_requests(
+        requests,
+        reports,
+        tmp_path / "context.sqlite3",
+        import_mode="automatic_confirmation",
+    )
+
+    assert status["status"] == "READY_FOR_AUTOMATIC_IMPORT"
+    assert status["confirmation_import_automatic"] is True
+    assert status["operator_review_ready"] is False

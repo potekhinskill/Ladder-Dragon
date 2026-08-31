@@ -123,6 +123,16 @@ def test_import_uses_only_disjoint_post_cutoff_exact_reports(monkeypatch):
     monkeypatch.setattr(subject, "validate_historical_replay_report", lambda *a, **k: None)
     monkeypatch.setattr(subject, "historical_report_rows", lambda report, name: [row()])
     monkeypatch.setattr(
+        subject,
+        "confirmation_report",
+        lambda *_args, **_kwargs: {
+            "confirmation_progress": {
+                "method": "ANYTIME_VALID",
+                "status": "COLLECTING",
+            }
+        },
+    )
+    monkeypatch.setattr(
         subject, "record_completed_episode",
         lambda store, spec, result: (
             recorded.append((spec, result)) is None
@@ -135,6 +145,8 @@ def test_import_uses_only_disjoint_post_cutoff_exact_reports(monkeypatch):
 
     assert result["status"] == "IMPORTED"
     assert result["episode_count"] == 1
+    assert result["imported_block_count"] == 1
+    assert result["statistically_evaluated_block_count"] == 1
     assert recorded[0][0].evidence_semantics_fingerprint == (
         v23_evidence_semantics_fingerprint()
     )

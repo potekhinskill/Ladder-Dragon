@@ -1,5 +1,19 @@
 # Engineering decisions
 
+### 2026-08-31 — Migrate frozen evidence only after exact source readiness
+
+- **Context:** recalibration could finish without replacing a legacy volatility policy.
+- **Decision:** prioritize frozen sources and migrate only after every exact archive has compatible calibration.
+- **Why it worked:** tests preserve the cohort and reject migration at 99 of 100 sources.
+- **Reuse:** every derived-policy migration that depends on a fixed source cohort.
+
+### 2026-08-31 — Report evidence pipeline stages monotonically
+
+- **Context:** report files appeared evaluated before verification, import, or statistical consumption.
+- **Decision:** expose queued, replayed, verified, imported, and evaluated counts as one validated sequence.
+- **Why it worked:** tests reject inverted counts and keep unimported reports outside evaluated progress.
+- **Reuse:** every asynchronous evidence pipeline with multiple acceptance boundaries.
+
 ### 2026-08-31 — Stream immutable confirmation blocks
 
 - **Context:** a fixed 42-path cohort delayed every anytime-valid calculation until the final path.
