@@ -25,6 +25,7 @@ from ladder_dragon.strategy.prediction.historical_replay_planner import (
     PATHS_PER_BLOCK,
     SIGNAL_WARMUP_MS,
     PATH_ENTRY_WINDOW_MS,
+    PATH_MAXIMUM_ATTEMPTS,
     PROVIDER_CONNECTION_MAX_MS,
     TERMINAL_TAIL_MS,
     _chains,
@@ -93,7 +94,11 @@ def _confirmation_design(
         and criteria.get("confirmation_block_size") == PATHS_PER_BLOCK
         and criteria.get("incremental_block_evaluation") is True
         and criteria.get("path_admission_policy")
-        == "first_context_ready_post_cutoff_paths_v1"
+        == "first_executable_context_ready_post_cutoff_paths_v2"
+        and criteria.get("path_trial_cardinality_policy")
+        == "one_terminal_attempt_per_executable_path_v1"
+        and criteria.get("confirmation_evidence_origin_policy")
+        == "immutable_l2_path_reports_only_v1"
         and _integer(criteria, "maximum_terminal_episodes")
         == V23_FIXED_CONFIRMATION_PATHS
     ):
@@ -116,7 +121,15 @@ def _confirmation_design(
             CONFIRMATION_CAPACITY_RESERVE_PATHS
         ),
         "incremental_block_evaluation": True,
-        "path_admission_policy": "first_context_ready_post_cutoff_paths_v1",
+        "path_admission_policy": (
+            "first_executable_context_ready_post_cutoff_paths_v2"
+        ),
+        "path_trial_cardinality_policy": (
+            "one_terminal_attempt_per_executable_path_v1"
+        ),
+        "confirmation_evidence_origin_policy": (
+            "immutable_l2_path_reports_only_v1"
+        ),
     }
 
 
@@ -220,7 +233,7 @@ def _policy(
         "veto_signed_flow": str(rule["prefill_signed_trade_flow_max"]),
         "veto_ofi": str(rule["prefill_order_flow_imbalance_max"]),
         "signal_window_ms": int(rule["signal_window_ms"]),
-        "maximum_attempts": 10_000,
+        "maximum_attempts": PATH_MAXIMUM_ATTEMPTS,
     }
 
 
@@ -297,7 +310,9 @@ def plan_v23_confirmation_drafts(
         "provider_capacity": provider_capacity,
         "block_size": PATHS_PER_BLOCK,
         "maximum_blocks": required_paths // PATHS_PER_BLOCK,
-        "admission_policy": "first_context_ready_post_cutoff_paths_v1",
+        "admission_policy": (
+            "first_executable_context_ready_post_cutoff_paths_v2"
+        ),
     }
     marker["cohort_sha256"] = fingerprint(marker)
     if marker_path.exists():
@@ -398,7 +413,7 @@ def plan_v23_confirmation_drafts(
         if capacity_futile
         else "STREAMING_CONFIRMATION_BLOCKS"
         if requests
-        else "COLLECTING_POST_CUTOFF_CONTEXT_READY_PATHS"
+        else "COLLECTING_POST_CUTOFF_EXECUTABLE_PATHS"
     )
     return {
         "schema_version": 1,

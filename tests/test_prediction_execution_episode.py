@@ -661,6 +661,20 @@ def test_episode_start_and_terminal_round_trip(tmp_path):
         variant_id="v18_maker_ttl90_gap48",
     )
     assert loaded == [result]
+    assert load_episode_results(
+        store,
+        symbol="SOLUSDT",
+        generation="v18",
+        variant_id="v18_maker_ttl90_gap48",
+        episode_id_prefix="complete",
+    ) == [result]
+    assert load_episode_results(
+        store,
+        symbol="SOLUSDT",
+        generation="v18",
+        variant_id="v18_maker_ttl90_gap48",
+        episode_id_prefix="v23-confirmation:",
+    ) == []
 
 
 def test_model_validation_requires_filled_maker_and_stop_limit_orders(tmp_path):

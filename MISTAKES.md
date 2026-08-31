@@ -1,5 +1,19 @@
 # Engineering mistakes and root causes
 
+### 2026-09-01 — Counted context availability as an executable trial
+
+- **Impact:** one TREND_DOWN path made the twelve-path selection cohort mathematically unable to pass.
+- **Root cause:** planner admission stopped after context export and ignored the frozen RANGE-only execution scope.
+- **Correction:** scan the causal entry interval and admit only non-PANIC executable paths.
+- **Prevention:** test every fixed cohort with unavailable, blocked, and non-executable source intervals.
+
+### 2026-09-01 — Shared one evaluator cohort across two evidence origins
+
+- **Impact:** concurrent live SHADOW results could alter fixed L2 confirmation path counts.
+- **Root cause:** episode storage had no confirmation-origin filter at the report boundary.
+- **Correction:** filter v23 confirmation by its immutable report-owned episode identity prefix.
+- **Prevention:** bind each sequential cohort to one explicit source-origin policy.
+
 ### 2026-08-31 — Recalibrated sources without migrating their policy
 
 - **Impact:** a complete schema-5 backlog could leave volatility readiness blocked permanently.

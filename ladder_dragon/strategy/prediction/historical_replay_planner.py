@@ -27,15 +27,16 @@ from ladder_dragon.strategy.prediction.historical_policy import fingerprint
 BLOCK_COUNT = 4
 PATHS_PER_BLOCK = 3
 SIGNAL_WARMUP_MS = 300_000
-PATH_ENTRY_WINDOW_MS = 300_000
+PATH_ENTRY_WINDOW_MS = 60 * 60_000
 TERMINAL_TAIL_MS = 6 * 60 * 60_000 + 1_000
 INDEPENDENCE_SPACING_MS = 6 * 60 * 60_000
 MINIMUM_INDEPENDENT_PATHS = 12
 MAXIMUM_DRAFTS = 256
 MAXIMUM_CONTEXT_CANDIDATES = 256
 PROVIDER_CONNECTION_MAX_MS = 24 * 60 * 60_000
-COHORT_CONTRACT = "provider_bounded_disjoint_paths_v1"
+COHORT_CONTRACT = "provider_bounded_executable_paths_v2"
 SELECTION_COHORT_MARKER = "selection-cohort.json"
+PATH_MAXIMUM_ATTEMPTS = 1
 
 PathWindow = tuple[int, int, int, list[tuple[Path, dict]]]
 ContextPath = tuple[PathWindow, dict]
@@ -200,6 +201,38 @@ def _context_reason(exc: ValueError) -> str:
     return reasons.get(str(exc), "CONTEXT_INVALID")
 
 
+def _has_executable_entry_context(
+    rows: object, *, start_ms: int, entry_end_ms: int
+) -> bool:
+    """Require a causal, non-PANIC executable regime inside the entry window."""
+    if not isinstance(rows, list) or not rows:
+        return False
+    allowed = set(
+        v23_evidence_semantics_contract()["executable_entry_regimes"]
+    )
+    for row in rows:
+        if not isinstance(row, Mapping):
+            return False
+        observed = row.get("observed_at_ms")
+        valid_until = row.get("valid_until_ms")
+        regime = row.get("regime")
+        panic = row.get("panic")
+        if (
+            type(observed) is not int
+            or type(valid_until) is not int
+            or not isinstance(regime, str)
+            or type(panic) is not bool
+        ):
+            return False
+        if (
+            max(start_ms, observed) < min(entry_end_ms, valid_until)
+            and regime in allowed
+            and panic is False
+        ):
+            return True
+    return False
+
+
 def context_ready_paths(
     chains: Iterable[list[tuple[Path, dict]]],
     context_db: Path,
@@ -229,7 +262,7 @@ def context_ready_paths(
     ready: list[ContextPath] = []
     reasons: Counter[str] = Counter()
     identity: tuple[str, str] | None = None
-    checked = 0
+    checked = context_ready = 0
     # Selection prefers the newest complete prefix. Confirmation freezes the
     # first eligible post-cutoff paths and passes newest_first=False.
     ordered = reversed(eligible) if newest_first else iter(eligible)
@@ -248,27 +281,44 @@ def context_ready_paths(
         except ValueError as exc:
             reasons[_context_reason(exc)] += 1
             continue
-        row = exported["context"][0]
-        current = (
-            str(row["classifier_fingerprint"]),
-            str(row["panic_source_fingerprint"]),
-        )
+        context_rows = exported.get("context")
+        if not isinstance(context_rows, list) or not context_rows:
+            reasons["CONTEXT_INVALID"] += 1
+            continue
+        context_ready += 1
+        identities = {
+            (
+                str(row.get("classifier_fingerprint")),
+                str(row.get("panic_source_fingerprint")),
+            )
+            for row in context_rows if isinstance(row, Mapping)
+        }
+        if len(identities) != 1 or len(context_rows) != sum(
+            isinstance(row, Mapping) for row in context_rows
+        ):
+            reasons["CONTEXT_SEMANTICS_DIFFERENT"] += 1
+            continue
+        if not _has_executable_entry_context(
+            context_rows, start_ms=start, entry_end_ms=_entry_end
+        ):
+            reasons["NO_EXECUTABLE_ENTRY_CONTEXT"] += 1
+            continue
+        current = next(iter(identities))
         if identity is None:
             identity = current
         if current != identity:
             reasons["CONTEXT_SEMANTICS_DIFFERENT"] += 1
             continue
-        ready.append((path, row))
+        ready.append((path, context_rows[0]))
         if len(ready) == maximum_ready_paths:
             break
     if newest_first:
         ready.reverse()
     return ready, {
-        "l2_complete_independent_paths": min(
-            len(eligible), maximum_ready_paths
-        ),
+        "l2_complete_independent_paths": len(eligible),
         "context_checked_paths": checked,
-        "context_ready_independent_paths": len(ready),
+        "context_ready_independent_paths": context_ready,
+        "executable_ready_independent_paths": len(ready),
         "context_rejected_path_counts": dict(sorted(reasons.items())),
     }
 
@@ -324,7 +374,7 @@ def _policy(candidate: Mapping[str, object], context: Mapping[str, object]) -> d
         "veto_signed_flow": str(candidate["prefill_signed_trade_flow_max"]),
         "veto_ofi": str(candidate["prefill_order_flow_imbalance_max"]),
         "signal_window_ms": int(candidate["signal_window_ms"]),
-        "maximum_attempts": 10_000,
+        "maximum_attempts": PATH_MAXIMUM_ATTEMPTS,
     }
 
 
@@ -355,7 +405,7 @@ def plan_replay_drafts(
             "schema_version": 3,
             "mode": "SHADOW",
             "apply_allowed": False,
-            "status": "COLLECTING_CONTEXT_READY_PATHS",
+            "status": "COLLECTING_EXECUTABLE_CONTEXT_PATHS",
             "draft_count": 0,
             "required_blocks": BLOCK_COUNT,
             "complete_blocks": len(blocks),

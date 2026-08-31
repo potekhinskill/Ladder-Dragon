@@ -144,7 +144,13 @@ def net_expectancy_criteria(
                 "confirmation_block_size": 3,
                 "incremental_block_evaluation": True,
                 "path_admission_policy": (
-                    "first_context_ready_post_cutoff_paths_v1"
+                    "first_executable_context_ready_post_cutoff_paths_v2"
+                ),
+                "path_trial_cardinality_policy": (
+                    "one_terminal_attempt_per_executable_path_v1"
+                ),
+                "confirmation_evidence_origin_policy": (
+                    "immutable_l2_path_reports_only_v1"
                 ),
             })
         return criteria
@@ -357,6 +363,10 @@ def anytime_design_feasibility(
         == V23_FIXED_CONFIRMATION_PATHS
         and criteria.get("dynamic_confirmation_top_up_allowed") is False
         and criteria.get("design_effect_is_capacity_gate") is False
+        and criteria.get("path_trial_cardinality_policy")
+        == "one_terminal_attempt_per_executable_path_v1"
+        and criteria.get("confirmation_evidence_origin_policy")
+        == "immutable_l2_path_reports_only_v1"
         and maximum == V23_FIXED_CONFIRMATION_PATHS
     ):
         raise ValueError("fixed confirmation cohort contract is invalid")

@@ -35,6 +35,19 @@ def _path_chains(tmp_path, count: int):
     return chains
 
 
+def _context_row(*, regime="RANGE", panic=False, start=0, end=10**15):
+    return {
+        "observed_at_ms": start,
+        "valid_until_ms": end,
+        "regime": regime,
+        "panic": panic,
+        "classifier_fingerprint": fingerprint(
+            v23_evidence_semantics_contract()["regime_classifier"]
+        ),
+        "panic_source_fingerprint": "b" * 64,
+    }
+
+
 def _replay_report(request: dict) -> dict:
     baseline = []
     veto = []
@@ -106,10 +119,7 @@ def test_planner_creates_provider_bounded_review_drafts(tmp_path, monkeypatch):
 
     def context(*_args, **kwargs):
         assert kwargs["classifier_fingerprint"] == classifier
-        return {"context": [{
-            "classifier_fingerprint": classifier,
-            "panic_source_fingerprint": "b" * 64,
-        }]}
+        return {"context": [_context_row()]}
 
     monkeypatch.setattr(planner, "export_context", context)
     draft_directory = tmp_path / "drafts"
@@ -161,22 +171,18 @@ def test_planner_reports_existing_partial_path_progress(tmp_path, monkeypatch):
     chains = _path_chains(tmp_path, 6)
     monkeypatch.setattr(planner, "_chains", lambda *_args: chains)
     monkeypatch.setattr(planner, "export_context", lambda *_args, **_kwargs: {
-        "context": [{
-            "classifier_fingerprint": fingerprint(
-                v23_evidence_semantics_contract()["regime_classifier"]
-            ),
-            "panic_source_fingerprint": "b" * 64,
-        }],
+        "context": [_context_row()],
     })
 
     report = planner.plan_replay_drafts(
         tmp_path, tmp_path / "drafts", tmp_path / "context.sqlite3"
     )
 
-    assert report["status"] == "COLLECTING_CONTEXT_READY_PATHS"
+    assert report["status"] == "COLLECTING_EXECUTABLE_CONTEXT_PATHS"
     assert report["complete_independent_paths"] == 6
     assert report["l2_complete_independent_paths"] == 6
     assert report["context_ready_independent_paths"] == 6
+    assert report["executable_ready_independent_paths"] == 6
     assert report["complete_blocks"] == 2
     assert report["draft_count"] == 0
 
@@ -216,10 +222,7 @@ def test_planner_freezes_one_draft_cohort_instead_of_rolling(
         v23_evidence_semantics_contract()["regime_classifier"]
     )
     monkeypatch.setattr(planner, "export_context", lambda *_args, **_kwargs: {
-        "context": [{
-            "classifier_fingerprint": classifier,
-            "panic_source_fingerprint": "b" * 64,
-        }],
+        "context": [_context_row()],
     })
     drafts = tmp_path / "drafts"
     first = planner.plan_replay_drafts(
@@ -252,3 +255,55 @@ def test_planner_preflight_reports_an_unreachable_provider_design(
     assert report["status"] == "DESIGN_UNREACHABLE"
     assert report["reachable"] is False
     assert report["draft_count"] == 0
+
+
+def test_planner_rejects_context_without_an_executable_entry_interval(
+    tmp_path, monkeypatch
+):
+    monkeypatch.setattr(
+        planner, "_chains", lambda *_args: _path_chains(tmp_path, 2)
+    )
+    rows = iter([
+        {"context": [_context_row(regime="TREND_DOWN")]},
+        {"context": [_context_row(regime="RANGE", panic=True)]},
+    ])
+    monkeypatch.setattr(
+        planner, "export_context", lambda *_args, **_kwargs: next(rows)
+    )
+
+    report = planner.plan_replay_drafts(
+        tmp_path, tmp_path / "drafts", tmp_path / "context.sqlite3"
+    )
+
+    assert report["complete_independent_paths"] == 0
+    assert report["context_ready_independent_paths"] == 2
+    assert report["executable_ready_independent_paths"] == 0
+    assert report["context_rejected_path_counts"] == {
+        "NO_EXECUTABLE_ENTRY_CONTEXT": 2
+    }
+
+
+def test_planner_accepts_range_only_when_it_overlaps_the_entry_window(
+    tmp_path, monkeypatch
+):
+    chains = _path_chains(tmp_path, 1)
+    start = chains[0][0][1]["started_at_ms"] + planner.SIGNAL_WARMUP_MS
+    monkeypatch.setattr(planner, "_chains", lambda *_args: chains)
+    monkeypatch.setattr(planner, "export_context", lambda *_args, **_kwargs: {
+        "context": [
+            _context_row(
+                regime="TREND_DOWN", start=start, end=start + 60_000
+            ),
+            _context_row(
+                regime="RANGE", start=start + 60_000,
+                end=start + 120_000,
+            ),
+        ],
+    })
+
+    report = planner.plan_replay_drafts(
+        tmp_path, tmp_path / "drafts", tmp_path / "context.sqlite3"
+    )
+
+    assert report["complete_independent_paths"] == 1
+    assert report["executable_ready_independent_paths"] == 1

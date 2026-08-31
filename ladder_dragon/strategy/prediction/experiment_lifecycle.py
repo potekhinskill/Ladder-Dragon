@@ -860,6 +860,13 @@ def _episode_confirmation_report(
         started_after_ms=int(manifest["confirmation_start_ts_ms"]),
         candidate_fingerprint=str(manifest["candidate_fingerprint"]),
         execution_model_rule=str(parameters["execution_model_rule"]),
+        episode_id_prefix=(
+            "v23-confirmation:"
+            if manifest.get("criteria", {}).get(
+                "confirmation_evidence_origin_policy"
+            ) == "immutable_l2_path_reports_only_v1"
+            else None
+        ),
     )
     sequential = sequential_episode_report(
         results,
@@ -1099,6 +1106,7 @@ def confirmation_report(
         "anytime_valid_betting_e_process_v5",
         "anytime_valid_betting_e_process_v6",
         "anytime_valid_betting_e_process_v7",
+        "anytime_valid_betting_e_process_v8",
     }:
         return _episode_confirmation_report(store, manifest)
     decisions, reasons = _confirmation_decisions(store, manifest)

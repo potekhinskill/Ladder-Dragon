@@ -63,6 +63,7 @@ def policy():
         "cancel_latency_ms": 1000,
         "signal_window_ms": 300000,
         "allowed_regimes": ["RANGE"],
+        "maximum_attempts": 1,
     }
 
 
@@ -106,6 +107,10 @@ def test_import_uses_only_disjoint_post_cutoff_exact_reports(monkeypatch):
         "start_ts_ms": 2000,
         "end_ts_ms": 4000,
         "cutoff_ts_ms": 4000,
+        "path_windows": [{
+            "start_ts_ms": 2000,
+            "entry_end_ts_ms": 3500,
+        }],
         "source_sha256s": ["c" * 64],
         "model_source_sha256s": {"model.py": "f" * 64},
         "policy": policy(),
@@ -145,11 +150,13 @@ def test_import_uses_only_disjoint_post_cutoff_exact_reports(monkeypatch):
 
     assert result["status"] == "IMPORTED"
     assert result["episode_count"] == 1
+    assert result["processed_immutable_path_count"] == 1
     assert result["imported_block_count"] == 1
     assert result["statistically_evaluated_block_count"] == 1
     assert recorded[0][0].evidence_semantics_fingerprint == (
         v23_evidence_semantics_fingerprint()
     )
+    assert recorded[0][0].episode_id.startswith("v23-confirmation:")
     assert recorded[0][1].terminal_reason == "ENTRY_VETO"
 
 
@@ -159,6 +166,10 @@ def test_import_rejects_selection_source_reuse(monkeypatch):
         "start_ts_ms": 2000,
         "end_ts_ms": 4000,
         "cutoff_ts_ms": 4000,
+        "path_windows": [{
+            "start_ts_ms": 2000,
+            "entry_end_ts_ms": 3500,
+        }],
         "source_sha256s": [source],
         "model_source_sha256s": {"model.py": "f" * 64},
         "policy": policy(),

@@ -469,10 +469,19 @@ def load_episode_results(
     started_after_ms: int | None = None,
     candidate_fingerprint: str | None = None,
     execution_model_rule: str | None = None,
+    episode_id_prefix: str | None = None,
 ) -> list[ExecutionEpisodeResult]:
     """Load a bounded chronological cohort and verify every payload hash."""
     if not 1 <= int(limit) <= 10_000:
         raise ValueError("episode result limit is invalid")
+    if episode_id_prefix is not None and (
+        not isinstance(episode_id_prefix, str)
+        or not episode_id_prefix
+        or len(episode_id_prefix) > 128
+        or "%" in episode_id_prefix
+        or "_" in episode_id_prefix
+    ):
+        raise ValueError("episode result prefix is invalid")
     with store._connect() as connection:
         query = """SELECT r.result_json,r.result_sha256
                FROM prediction_execution_episode_results r
@@ -489,6 +498,9 @@ def load_episode_results(
         if execution_model_rule is not None:
             query += " AND r.execution_model_rule=?"
             params.append(str(execution_model_rule))
+        if episode_id_prefix is not None:
+            query += " AND s.episode_id LIKE ?"
+            params.append(f"{episode_id_prefix}%")
         query += " ORDER BY r.terminal_at_ms LIMIT ?"
         params.append(int(limit))
         rows = connection.execute(query, params).fetchall()

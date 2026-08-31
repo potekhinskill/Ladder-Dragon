@@ -107,7 +107,10 @@ def historical_entry_replays(
                     and row["regime"] in policy.allowed_regimes
                 ):
                     if state["attempts"][name] >= policy.maximum_attempts:
-                        raise ValueError("historical opportunity capacity reached")
+                        # The preregistered cap is a trial boundary, not an
+                        # error. Later market events cannot add another trial.
+                        state["next_at"][name] = entry_end_ms
+                        continue
                     state["attempts"][name] += 1
                     episode = HistoricalExecution(
                         event,

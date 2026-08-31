@@ -3,6 +3,28 @@
 All notable changes are documented here. Releases use Semantic Versioning; every
 section is dated and there is intentionally no `Unreleased` section.
 
+## [2.20.281] — 2026-09-01
+
+### Changed
+- Historical selection uses a one-hour entry window and permits one terminal attempt per immutable path.
+- Confirmation evaluates only imported immutable L2 path reports, not concurrent live SHADOW episodes.
+- Progress separates complete L2 paths, exportable context paths, and executable context paths.
+
+### Fixed
+- RANGE-free or PANIC-only paths can no longer consume the fixed twelve-path selection cohort.
+- A path cap now ends path admission without raising a replay error.
+- The public confirmation report now dispatches the frozen version-8 anytime-valid evaluator.
+- Confirmation import now requires one terminal attempt for each immutable source path.
+
+### Security
+- Context admission uses only causal intervals that overlap the fixed entry window.
+- Persistent HALT, BTC, ETH, CHAMPION state, and Mainnet order authority remain unchanged.
+
+### Verified
+- The focused v23 planner, replay, importer, evaluator, and lifecycle suites pass.
+- The full project suite passes: 1,578 tests.
+- Python compilation, Technical English, and whitespace checks pass.
+
 ## [2.20.280] — 2026-08-31
 
 ### Added

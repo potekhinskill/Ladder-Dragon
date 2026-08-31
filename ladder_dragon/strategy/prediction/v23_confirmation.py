@@ -145,6 +145,7 @@ def _validate_policy(
         "veto_ofi": str(rule["prefill_order_flow_imbalance_max"]),
         "cancel_latency_ms": int(rule["cancel_latency_ms"]),
         "signal_window_ms": int(rule["signal_window_ms"]),
+        "maximum_attempts": 1,
     }
     decimal_fields = {
         "entry_gap_bps", "take_profit_bps", "stop_limit_bps",
@@ -189,12 +190,13 @@ def _episode_pair(
     fees = row.get("fee_schedule")
     if not isinstance(fees, Mapping):
         raise ValueError("v23 confirmation fee schedule is unavailable")
-    episode_id = hashlib.sha256(
+    episode_digest = hashlib.sha256(
         (
             f"v23-confirmation:{report_sha}:"
             f"{row.get('episode_id')}:{manifest['candidate_fingerprint']}"
         ).encode("utf-8")
     ).hexdigest()
+    episode_id = f"v23-confirmation:{episode_digest}"
     semantics = v23_evidence_semantics_fingerprint()
     spec = ExecutionEpisodeSpec(
         episode_id=episode_id,
@@ -321,12 +323,30 @@ def import_v23_confirmation_reports(
             )
         observed_sources |= sources
         _validate_policy(report["policy"], parameters)
-        loaded.append((report, expected_sha))
-    created = imported_episodes = 0
-    for report, report_sha in loaded:
-        for row in historical_report_rows(report, "veto"):
-            if row.get("censored") is True:
-                continue
+        windows = report.get("path_windows")
+        rows = historical_report_rows(report, "veto")
+        terminal_rows = [
+            row for row in rows if row.get("censored") is not True
+        ]
+        if (
+            not isinstance(windows, list)
+            or len(windows) != len(terminal_rows)
+            or any(
+                not isinstance(window, Mapping)
+                or not (
+                    int(window["start_ts_ms"])
+                    <= int(row["started_at_ms"])
+                    < int(window["entry_end_ts_ms"])
+                )
+                for window, row in zip(windows, terminal_rows)
+            )
+        ):
+            raise ValueError("v23 confirmation path trial cardinality differs")
+        loaded.append((report, expected_sha, terminal_rows, len(windows)))
+    created = imported_episodes = imported_paths = 0
+    for report, report_sha, terminal_rows, path_count in loaded:
+        imported_paths += path_count
+        for row in terminal_rows:
             spec, result = _episode_pair(
                 row, manifest=manifest, report_sha=report_sha
             )
@@ -348,6 +368,7 @@ def import_v23_confirmation_reports(
         "generation": "v23",
         "experiment_id": manifest["experiment_id"],
         "report_count": len(loaded),
+        "processed_immutable_path_count": imported_paths,
         "episode_count": created,
         "created_episode_count": created,
         "imported_episode_count": imported_episodes,

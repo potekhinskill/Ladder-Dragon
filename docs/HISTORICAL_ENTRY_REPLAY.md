@@ -57,7 +57,7 @@ The provider-bounded replay request contains exactly these top-level fields:
 | Field | Required content |
 | --- | --- |
 | `request_schema_version` | Integer `2` |
-| `cohort_contract` | `provider_bounded_disjoint_paths_v1` |
+| `cohort_contract` | `provider_bounded_executable_paths_v2` |
 | `stability_block_index` | Chronological block index from zero through three |
 | `policy` | Every field in `HistoricalPolicy`, including explicit timing and capacity limits |
 | `paths` | Three chronological source-disjoint path objects |
@@ -152,6 +152,16 @@ The entry window ends before the full holding-period observation tail.
 This prevents selection of only quickly completed trades.
 Missing context, sequence gaps, insufficient warmup, and incomplete observation tails block the report.
 Unresolved positions remain censored rather than receiving invented exit prices.
+
+Each path has a one-hour entry window and permits one terminal attempt for each policy arm.
+The planner admits a path only when a causal RANGE interval overlaps its entry window.
+PANIC-only and non-executable intervals remain visible as rejected context paths.
+
+Selection freezes twelve executable paths in four source-disjoint blocks.
+Confirmation freezes forty-two post-cutoff executable paths in three-path blocks.
+Each complete report must contain one terminal attempt for each source path.
+Only imported immutable L2 reports enter the fixed confirmation evaluator.
+Concurrent live SHADOW episodes remain diagnostic and cannot change confirmation.
 
 ## Run an offline replay
 

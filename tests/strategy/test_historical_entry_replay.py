@@ -69,6 +69,15 @@ def test_successful_cancel_creates_previously_unknown_opportunities():
     assert report["selection_artifact_ready"] is False
 
 
+def test_preregistered_attempt_cap_stops_without_a_replay_error():
+    report = run(declining_history(), maximum_attempts=1)
+
+    assert report["summaries"]["baseline"]["opportunities"] == 1
+    assert report["summaries"]["veto"]["opportunities"] == 1
+    assert len(report["episodes"]["baseline"]) == 1
+    assert len(report["episodes"]["veto"]) == 1
+
+
 def test_policy_batch_matches_independent_replays_in_one_event_pass():
     history = declining_history()
     first = policy(veto_price_bps="-5")

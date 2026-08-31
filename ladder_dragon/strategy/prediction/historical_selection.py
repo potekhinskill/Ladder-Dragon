@@ -15,6 +15,12 @@ from typing import Iterable, Mapping
 
 from ladder_dragon.strategy.prediction.historical_entry_replay import MODEL_CONTRACT
 from ladder_dragon.strategy.prediction.historical_policy import fingerprint
+from ladder_dragon.strategy.prediction.historical_replay_planner import (
+    COHORT_CONTRACT,
+    PATH_ENTRY_WINDOW_MS,
+    PATH_MAXIMUM_ATTEMPTS,
+    TERMINAL_TAIL_MS,
+)
 from ladder_dragon.strategy.prediction.entry_diagnostics import (
     MAXIMUM_SELECTION_ARTIFACTS,
 )
@@ -26,7 +32,7 @@ LEGACY_MINIMUM_OPPORTUNITIES = 30
 PATH_MINIMUM_OPPORTUNITIES = 12
 MAXIMUM_REPORTS = 128
 MAXIMUM_REPORT_BYTES = 16 * 1024 * 1024
-PATH_COHORT_CONTRACT = "provider_bounded_disjoint_paths_v1"
+PATH_COHORT_CONTRACT = COHORT_CONTRACT
 REQUIRED_STABILITY_BLOCKS = 4
 PATHS_PER_STABILITY_BLOCK = 3
 PLANNING_RATE_FAMILY_ALPHA = Decimal("0.05")
@@ -151,6 +157,8 @@ def _validate(report: Mapping[str, object], *, cutoff_ts_ms: int) -> None:
             or len(windows) != PATHS_PER_STABILITY_BLOCK
         ):
             raise ValueError("historical path cohort identity is invalid")
+        if report["policy"].get("maximum_attempts") != PATH_MAXIMUM_ATTEMPTS:
+            raise ValueError("historical path trial cap differs")
         previous_end = -1
         path_hashes: set[str] = set()
         for window in windows:
@@ -169,6 +177,10 @@ def _validate(report: Mapping[str, object], *, cutoff_ts_ms: int) -> None:
                 previous_end < window["start_ts_ms"]
                 < window["entry_end_ts_ms"] < window["end_ts_ms"]
                 <= window["cutoff_ts_ms"] <= cutoff_ts_ms
+                and window["entry_end_ts_ms"] - window["start_ts_ms"]
+                == PATH_ENTRY_WINDOW_MS
+                and window["end_ts_ms"] - window["entry_end_ts_ms"]
+                == TERMINAL_TAIL_MS
             ):
                 raise ValueError("historical path timestamps are invalid")
             hashes = window["source_sha256s"]
@@ -189,6 +201,24 @@ def _validate(report: Mapping[str, object], *, cutoff_ts_ms: int) -> None:
             or report["cutoff_ts_ms"] != windows[-1]["cutoff_ts_ms"]
         ):
             raise ValueError("historical path block boundary differs")
+        for name in ("baseline", "veto"):
+            rows = _rows(report, name)
+            if (
+                len(rows) != len(windows)
+                or int(report["summaries"][name]["opportunities"])
+                != len(windows)
+                or any(
+                    not (
+                        window["start_ts_ms"]
+                        <= row["started_at_ms"]
+                        < window["entry_end_ts_ms"]
+                    )
+                    for row, window in zip(rows, windows)
+                )
+            ):
+                raise ValueError(
+                    "historical path trial cardinality differs"
+                )
 
 
 def _rows(report: Mapping[str, object], name: str) -> list[Mapping[str, object]]:

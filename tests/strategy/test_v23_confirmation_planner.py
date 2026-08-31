@@ -20,7 +20,13 @@ def _manifest():
             "confirmation_block_size": 3,
             "incremental_block_evaluation": True,
             "path_admission_policy": (
-                "first_context_ready_post_cutoff_paths_v1"
+                "first_executable_context_ready_post_cutoff_paths_v2"
+            ),
+            "path_trial_cardinality_policy": (
+                "one_terminal_attempt_per_executable_path_v1"
+            ),
+            "confirmation_evidence_origin_policy": (
+                "immutable_l2_path_reports_only_v1"
             ),
         },
         "candidate_parameters": {
@@ -52,8 +58,8 @@ def _ready_paths(tmp_path, count):
         archive.write_text("public", encoding="utf-8")
         path = (
             start,
-            start + 300_000,
-            start + 22_000_000,
+            start + subject.PATH_ENTRY_WINDOW_MS,
+            start + subject.PATH_ENTRY_WINDOW_MS + subject.TERMINAL_TAIL_MS,
             [(archive, {"archive_sha256": format(index + 1, "064x")})],
         )
         context = {
@@ -114,6 +120,7 @@ def test_confirmation_planner_freezes_post_cutoff_criteria_sized_cohort(
             "l2_complete_independent_paths": 42,
             "context_checked_paths": 42,
             "context_ready_independent_paths": 42,
+            "executable_ready_independent_paths": 42,
             "context_rejected_path_counts": {},
         }
 
@@ -200,6 +207,7 @@ def test_confirmation_planner_queues_first_complete_block_immediately(
                 "l2_complete_independent_paths": 3,
                 "context_checked_paths": 3,
                 "context_ready_independent_paths": 3,
+                "executable_ready_independent_paths": 3,
                 "context_rejected_path_counts": {},
             },
         ),

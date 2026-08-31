@@ -1,5 +1,19 @@
 # Engineering decisions
 
+### 2026-09-01 — Admit evidence paths only when a trial is executable
+
+- **Context:** a context-complete path could contain no permitted entry regime.
+- **Decision:** require a causal RANGE interval and one terminal attempt before a path enters a fixed cohort.
+- **Why it worked:** fail-closed tests reject TREND_DOWN and PANIC-only windows before cohort freeze.
+- **Reuse:** every fixed evidence cohort whose source availability differs from trial availability.
+
+### 2026-09-01 — Isolate immutable confirmation from concurrent diagnostics
+
+- **Context:** live SHADOW episodes shared the v23 experiment identity with imported L2 confirmation.
+- **Decision:** evaluate only episode identities owned by immutable post-cutoff L2 reports.
+- **Why it worked:** prefix filtering excludes unrelated episodes before the sequential evaluator.
+- **Reuse:** every experiment that collects diagnostic and confirmation outcomes concurrently.
+
 ### 2026-08-31 — Migrate frozen evidence only after exact source readiness
 
 - **Context:** recalibration could finish without replacing a legacy volatility policy.

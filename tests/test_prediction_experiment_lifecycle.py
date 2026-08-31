@@ -64,6 +64,23 @@ def _features(timestamp: int, regime: str = "RANGE") -> PredictionFeatures:
     )
 
 
+def test_v8_public_report_dispatches_to_the_episode_evaluator(monkeypatch):
+    from ladder_dragon.strategy.prediction import experiment_lifecycle
+
+    manifest = {"statistical_method": "anytime_valid_betting_e_process_v8"}
+    expected = {"confirmation_status": "IN_PROGRESS"}
+    monkeypatch.setattr(
+        experiment_lifecycle, "load_manifest", lambda *_args: manifest
+    )
+    monkeypatch.setattr(
+        experiment_lifecycle,
+        "_episode_confirmation_report",
+        lambda *_args: expected,
+    )
+
+    assert confirmation_report(object(), experiment_id="sol-v23") == expected
+
+
 def _variants():
     from ladder_dragon.strategy.prediction import TradePlan
     baseline = TradePlan(

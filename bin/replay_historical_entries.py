@@ -21,6 +21,9 @@ from ladder_dragon.strategy.prediction.historical_entry_replay import (
 )
 from ladder_dragon.strategy.prediction.historical_policy import fingerprint
 from ladder_dragon.strategy.prediction.context_journal import export_context
+from ladder_dragon.strategy.prediction.historical_replay_planner import (
+    COHORT_CONTRACT,
+)
 
 
 LEGACY_FIELDS = {
@@ -166,7 +169,7 @@ def _run_path_request_batch(
     }
     if (
         common["request_schema_version"] != 2
-        or common["cohort_contract"] != "provider_bounded_disjoint_paths_v1"
+        or common["cohort_contract"] != COHORT_CONTRACT
         or type(common["stability_block_index"]) is not int
         or not 0 <= common["stability_block_index"] < 4
         or not isinstance(common["paths"], list)
