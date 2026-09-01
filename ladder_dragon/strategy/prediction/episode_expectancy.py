@@ -133,18 +133,27 @@ def net_expectancy_criteria(
                 "economic_futility_policy": "anytime_upper_below_useful_mean_v1",
             })
         if fixed_confirmation_cohort:
+            minimum_structural_pass_paths = max(
+                int(criteria["minimum_eligible_terminal_episodes"]),
+                int(criteria["minimum_filled_episodes"]),
+                int(criteria["minimum_regime_filled_episodes"])
+                * int(criteria["minimum_confirmed_regimes"]),
+            )
             criteria.update({
                 "confirmation_cohort_policy": (
-                    "fixed_provider_capacity_paths_v1"
+                    "bounded_provider_capacity_paths_v2"
                 ),
                 "fixed_confirmation_paths": V23_FIXED_CONFIRMATION_PATHS,
+                "minimum_structural_pass_paths": (
+                    minimum_structural_pass_paths
+                ),
                 "dynamic_confirmation_top_up_allowed": False,
                 "design_effect_is_capacity_gate": False,
                 "provider_capacity_reserve_paths": 3,
                 "confirmation_block_size": 3,
                 "incremental_block_evaluation": True,
                 "path_admission_policy": (
-                    "first_gap_aligned_executable_post_cutoff_paths_v3"
+                    "first_causal_executable_cadence_opportunity_v4"
                 ),
                 "path_trial_cardinality_policy": (
                     "one_terminal_attempt_per_executable_path_v1"
@@ -358,11 +367,19 @@ def anytime_design_feasibility(
     maximum = int(criteria["maximum_terminal_episodes"])
     if schema == 8 and not (
         criteria.get("confirmation_cohort_policy")
-        == "fixed_provider_capacity_paths_v1"
+        == "bounded_provider_capacity_paths_v2"
         and criteria.get("fixed_confirmation_paths")
         == V23_FIXED_CONFIRMATION_PATHS
+        and criteria.get("minimum_structural_pass_paths") == max(
+            int(criteria["minimum_eligible_terminal_episodes"]),
+            int(criteria["minimum_filled_episodes"]),
+            int(criteria["minimum_regime_filled_episodes"])
+            * int(criteria["minimum_confirmed_regimes"]),
+        )
         and criteria.get("dynamic_confirmation_top_up_allowed") is False
         and criteria.get("design_effect_is_capacity_gate") is False
+        and criteria.get("path_admission_policy")
+        == "first_causal_executable_cadence_opportunity_v4"
         and criteria.get("path_trial_cardinality_policy")
         == "one_terminal_attempt_per_executable_path_v1"
         and criteria.get("confirmation_evidence_origin_policy")

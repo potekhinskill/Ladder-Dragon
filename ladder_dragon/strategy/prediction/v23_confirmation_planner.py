@@ -53,6 +53,18 @@ def _integer(criteria: Mapping[str, object], field: str) -> int:
     return value
 
 
+def _minimum_structural_pass_paths(
+    criteria: Mapping[str, object],
+) -> int:
+    """Return the optimistic path count that can satisfy every count gate."""
+    return max(
+        _integer(criteria, "minimum_eligible_terminal_episodes"),
+        _integer(criteria, "minimum_filled_episodes"),
+        _integer(criteria, "minimum_regime_filled_episodes")
+        * _integer(criteria, "minimum_confirmed_regimes"),
+    )
+
+
 def _rate(metrics: Mapping[str, object], field: str) -> Decimal:
     try:
         value = D(str(metrics[field]))
@@ -85,9 +97,11 @@ def _confirmation_design(
     if not (
         criteria.get("criteria_schema_version") == 8
         and criteria.get("confirmation_cohort_policy")
-        == "fixed_provider_capacity_paths_v1"
+        == "bounded_provider_capacity_paths_v2"
         and criteria.get("fixed_confirmation_paths")
         == V23_FIXED_CONFIRMATION_PATHS
+        and criteria.get("minimum_structural_pass_paths")
+        == _minimum_structural_pass_paths(criteria)
         and criteria.get("dynamic_confirmation_top_up_allowed") is False
         and criteria.get("design_effect_is_capacity_gate") is False
         and criteria.get("provider_capacity_reserve_paths")
@@ -95,7 +109,7 @@ def _confirmation_design(
         and criteria.get("confirmation_block_size") == PATHS_PER_BLOCK
         and criteria.get("incremental_block_evaluation") is True
         and criteria.get("path_admission_policy")
-        == "first_gap_aligned_executable_post_cutoff_paths_v3"
+        == "first_causal_executable_cadence_opportunity_v4"
         and criteria.get("path_trial_cardinality_policy")
         == "one_terminal_attempt_per_executable_path_v1"
         and criteria.get("confirmation_evidence_origin_policy")
@@ -107,12 +121,15 @@ def _confirmation_design(
     if V23_FIXED_CONFIRMATION_PATHS > MAXIMUM_CONTEXT_CANDIDATES:
         raise ValueError("v23 confirmation path capacity reached")
     return {
-        "schema_version": 2,
-        "policy": "fixed_provider_capacity_paths_v1",
+        "schema_version": 3,
+        "policy": "bounded_provider_capacity_paths_v2",
         "eligible_path_rate_lower_bound": format(eligible_rate, "f"),
         "filled_path_rate_lower_bound": format(filled_rate, "f"),
         "range_filled_path_rate_lower_bound": format(range_filled_rate, "f"),
         "required_independent_paths": V23_FIXED_CONFIRMATION_PATHS,
+        "minimum_structural_pass_paths": (
+            _minimum_structural_pass_paths(criteria)
+        ),
         "design_effect_target_filled_episodes": _integer(
             criteria, "design_effect_required_filled_episodes"
         ),
@@ -123,7 +140,7 @@ def _confirmation_design(
         ),
         "incremental_block_evaluation": True,
         "path_admission_policy": (
-            "first_gap_aligned_executable_post_cutoff_paths_v3"
+            "first_causal_executable_cadence_opportunity_v4"
         ),
         "path_trial_cardinality_policy": (
             "one_terminal_attempt_per_executable_path_v1"
@@ -200,10 +217,17 @@ def _remaining_provider_capacity(
         }
     path_duration = int(generic["path_duration_ms"])
     paths_per_session = int(generic["paths_per_provider_session"])
-    current_remaining = max(0, min(deadline_ms, session_end) - now_ms)
-    current_paths = min(
-        paths_per_session, current_remaining // path_duration
+    session_limit = min(deadline_ms, session_end)
+    current_remaining = max(0, session_limit - now_ms)
+    completed_now = min(
+        paths_per_session,
+        max(0, now_ms - started) // path_duration,
     )
+    completed_by_limit = min(
+        paths_per_session,
+        max(0, session_limit - started) // path_duration,
+    )
+    current_paths = max(0, completed_by_limit - completed_now)
     future = _provider_capacity(max(0, deadline_ms - session_end))
     return {
         **generic,
@@ -309,7 +333,7 @@ def plan_v23_confirmation_drafts(
     manifest = find_active_v23_manifest(store)
     if manifest is None:
         return {
-            "schema_version": 1,
+            "schema_version": 2,
             "mode": "SHADOW_CONFIRMATION",
             "apply_allowed": False,
             "status": "WAITING_V23_SELECTION_ARTIFACT",
@@ -326,25 +350,31 @@ def plan_v23_confirmation_drafts(
     )
     design = _confirmation_design(manifest, selection)
     required_paths = int(design["required_independent_paths"])
+    minimum_pass_paths = int(design["minimum_structural_pass_paths"])
     deadline_ms = int(manifest["confirmation_deadline_ts_ms"])
     cutoff_ms = int(manifest["confirmation_start_ts_ms"])
     maximum_duration_ms = deadline_ms - cutoff_ms
     provider_capacity = _provider_capacity(maximum_duration_ms)
     design_duration_ms = _provider_design_duration(required_paths)
+    minimum_pass_duration_ms = _provider_design_duration(
+        minimum_pass_paths
+    )
     reachable = (
-        required_paths + CONFIRMATION_CAPACITY_RESERVE_PATHS
+        minimum_pass_paths + CONFIRMATION_CAPACITY_RESERVE_PATHS
         <= provider_capacity["maximum_paths_before_deadline"]
     )
     if not reachable:
         return {
-            "schema_version": 1,
+            "schema_version": 2,
             "mode": "SHADOW_CONFIRMATION",
             "apply_allowed": False,
             "status": "DESIGN_UNREACHABLE",
             "draft_count": 0,
             "required_independent_paths": required_paths,
+            "minimum_structural_pass_paths": minimum_pass_paths,
             "confirmation_capacity_design": design,
             "design_duration_ms": design_duration_ms,
+            "minimum_pass_design_duration_ms": minimum_pass_duration_ms,
             "maximum_confirmation_duration_ms": maximum_duration_ms,
             "provider_capacity": provider_capacity,
             "automatic_queueing": True,
@@ -352,19 +382,20 @@ def plan_v23_confirmation_drafts(
         }
     marker_path = draft_directory.parent / CONFIRMATION_COHORT_MARKER
     marker = {
-        "schema_version": 2,
+        "schema_version": 3,
         "mode": "SHADOW_CONFIRMATION",
         "apply_allowed": False,
         "selection_artifact_sha256": selection_identity,
         "confirmation_start_ts_ms": cutoff_ms,
         "confirmation_deadline_ts_ms": deadline_ms,
         "required_independent_paths": required_paths,
+        "minimum_structural_pass_paths": minimum_pass_paths,
         "confirmation_capacity_design": design,
         "provider_capacity": provider_capacity,
         "block_size": PATHS_PER_BLOCK,
         "maximum_blocks": required_paths // PATHS_PER_BLOCK,
         "admission_policy": (
-            "first_gap_aligned_executable_post_cutoff_paths_v3"
+            "first_causal_executable_cadence_opportunity_v4"
         ),
     }
     marker["cohort_sha256"] = fingerprint(marker)
@@ -458,27 +489,32 @@ def plan_v23_confirmation_drafts(
     optimistic_additional_paths = remaining_provider_capacity[
         "maximum_paths_before_deadline"
     ]
-    capacity_futile = len(paths) + optimistic_additional_paths < required_paths
+    maximum_possible_paths = len(paths) + optimistic_additional_paths
+    fixed_cohort_capacity_shortfall = maximum_possible_paths < required_paths
+    pass_capacity_futile = maximum_possible_paths < minimum_pass_paths
     stages = _confirmation_stage_counts(
         draft_directory.parent, len(requests)
     )
     status = (
         "CONFIRMATION_COHORT_COMPLETE"
         if len(paths) == required_paths
-        else "READY_TO_REJECT_CAPACITY"
-        if capacity_futile
+        else "READY_TO_REJECT_PASS_CAPACITY"
+        if pass_capacity_futile
+        else "FIXED_COHORT_CAPACITY_SHORTFALL"
+        if fixed_cohort_capacity_shortfall
         else "STREAMING_CONFIRMATION_BLOCKS"
         if requests
         else "COLLECTING_POST_CUTOFF_EXECUTABLE_PATHS"
     )
     return {
-        "schema_version": 1,
+        "schema_version": 2,
         "mode": "SHADOW_CONFIRMATION",
         "apply_allowed": False,
         "status": status,
         "draft_count": len(requests),
         "created_drafts": created,
         "required_independent_paths": required_paths,
+        "minimum_structural_pass_paths": minimum_pass_paths,
         "confirmation_capacity_design": design,
         "complete_independent_paths": len(paths),
         "continuous_sessions": len(chains),
@@ -489,8 +525,13 @@ def plan_v23_confirmation_drafts(
         ],
         "remaining_deadline_capacity_paths": optimistic_additional_paths,
         "remaining_provider_capacity": remaining_provider_capacity,
-        "capacity_futile": capacity_futile,
+        "capacity_futile": pass_capacity_futile,
+        "pass_capacity_futile": pass_capacity_futile,
+        "fixed_cohort_capacity_shortfall": (
+            fixed_cohort_capacity_shortfall
+        ),
         "design_duration_ms": design_duration_ms,
+        "minimum_pass_design_duration_ms": minimum_pass_duration_ms,
         "provider_capacity": provider_capacity,
         **progress,
         "automatic_queueing": True,

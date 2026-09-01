@@ -30,7 +30,7 @@ def _path_chains(tmp_path, count: int):
             archive,
             {
                 "started_at_ms": start,
-                "finished_at_ms": start + duration,
+                "finished_at_ms": start + duration + planner.ENTRY_CADENCE_MS,
                 "archive_sha256": format(index + 1, "064x"),
             },
         )])
@@ -293,7 +293,7 @@ def test_planner_rejects_context_without_an_executable_entry_interval(
     )
 
     assert report["complete_independent_paths"] == 0
-    assert report["context_ready_independent_paths"] == 2
+    assert report["context_ready_independent_paths"] == 0
     assert report["executable_ready_independent_paths"] == 0
     assert report["context_rejected_path_counts"] == {
         "NO_EXECUTABLE_ENTRY_CONTEXT": 2
@@ -305,16 +305,17 @@ def test_planner_accepts_range_only_when_it_overlaps_the_entry_window(
 ):
     chains = _path_chains(tmp_path, 1)
     start = chains[0][0][1]["started_at_ms"] + planner.SIGNAL_WARMUP_MS
+    chains[0][0][1]["finished_at_ms"] += 2 * 60 * 60_000
     monkeypatch.setattr(planner, "_chains", lambda *_args: chains)
     monkeypatch.setattr(planner, "export_context", lambda *_args, **_kwargs: {
         "context": [
             _context_row(
                 regime="TREND_DOWN", start=start, end=start + 60_000
             ),
-            _context_row(
-                regime="RANGE", start=start + 60_000,
-                end=start + 120_000,
-            ),
+                _context_row(
+                    regime="RANGE", start=start + 60_000,
+                    end=start + 10 * 60_000,
+                ),
         ],
     })
 
@@ -324,6 +325,92 @@ def test_planner_accepts_range_only_when_it_overlaps_the_entry_window(
 
     assert report["complete_independent_paths"] == 1
     assert report["executable_ready_independent_paths"] == 1
+
+
+def test_planner_reserves_sources_after_the_first_executable_opportunity(
+    tmp_path, monkeypatch
+):
+    segment_ms = 55 * 60_000
+    chain_start = 1_000_000
+    chain = []
+    for index in range(20):
+        archive = tmp_path / f"opportunity-{index}.jsonl"
+        archive.write_text("public", encoding="utf-8")
+        chain.append((archive, {
+            "started_at_ms": chain_start + index * segment_ms,
+            "finished_at_ms": chain_start + (index + 1) * segment_ms,
+            "archive_sha256": format(index + 1, "064x"),
+        }))
+    range_start = chain_start + 2 * 60 * 60_000
+    monkeypatch.setattr(planner, "_chains", lambda *_args: [chain])
+
+    def exported(*_args, **_kwargs):
+        return {"context": [
+            _context_row(
+                regime="TREND_DOWN",
+                start=chain_start,
+                end=range_start,
+            ),
+            _context_row(
+                regime="RANGE",
+                start=range_start,
+                end=chain[-1][1]["finished_at_ms"] + 1,
+            ),
+        ]}
+
+    monkeypatch.setattr(planner, "export_context", exported)
+
+    paths, progress = planner.context_ready_paths(
+        [chain], tmp_path / "context.sqlite3",
+        maximum_ready_paths=1,
+        newest_first=False,
+    )
+
+    assert len(paths) == 1
+    path, _context = paths[0]
+    expected_start = (
+        (range_start + planner.ENTRY_CADENCE_MS - 1)
+        // planner.ENTRY_CADENCE_MS
+    ) * planner.ENTRY_CADENCE_MS
+    assert path[0] == expected_start
+    assert path[3][0][1]["started_at_ms"] <= (
+        expected_start - planner.SIGNAL_WARMUP_MS
+    )
+    assert path[3][0][1]["finished_at_ms"] > (
+        expected_start - planner.SIGNAL_WARMUP_MS
+    )
+    assert progress["context_rejected_path_counts"] == {}
+
+
+def test_planner_rejects_range_that_ends_before_the_next_cadence(
+    tmp_path, monkeypatch
+):
+    chains = _path_chains(tmp_path, 1)
+    earliest = (
+        chains[0][0][1]["started_at_ms"] + planner.SIGNAL_WARMUP_MS
+    )
+    range_start = earliest + 30_000
+    next_cadence = (
+        (range_start + planner.ENTRY_CADENCE_MS - 1)
+        // planner.ENTRY_CADENCE_MS
+    ) * planner.ENTRY_CADENCE_MS
+    monkeypatch.setattr(planner, "_chains", lambda *_args: chains)
+    monkeypatch.setattr(planner, "export_context", lambda *_args, **_kwargs: {
+        "context": [_context_row(
+            regime="RANGE",
+            start=range_start,
+            end=next_cadence,
+        )],
+    })
+
+    report = planner.plan_replay_drafts(
+        tmp_path, tmp_path / "drafts", tmp_path / "context.sqlite3"
+    )
+
+    assert report["complete_independent_paths"] == 0
+    assert report["context_rejected_path_counts"] == {
+        "NO_EXECUTABLE_ENTRY_CONTEXT": 1
+    }
 
 
 def test_context_gap_realigns_later_source_disjoint_paths(

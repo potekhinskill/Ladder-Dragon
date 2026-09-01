@@ -57,7 +57,7 @@ The provider-bounded replay request contains exactly these top-level fields:
 | Field | Required content |
 | --- | --- |
 | `request_schema_version` | Integer `2` |
-| `cohort_contract` | `provider_bounded_gap_aligned_executable_paths_v3` |
+| `cohort_contract` | `provider_bounded_gap_opportunity_aligned_paths_v4` |
 | `stability_block_index` | Chronological block index from zero through three |
 | `policy` | Every field in `HistoricalPolicy`, including explicit timing and capacity limits |
 | `paths` | Three chronological source-disjoint path objects |
@@ -65,6 +65,7 @@ The provider-bounded replay request contains exactly these top-level fields:
 Each path contains `archives`, `start_ms`, `entry_end_ms`, `end_ms`, and `cutoff_ms`.
 Each archive object contains one path and one pinned SHA-256 value.
 The planner starts paths only inside continuous L2 and historical context intervals.
+It finds the first causal executable cadence opportunity before it reserves source segments.
 It starts a new path after a context gap and never joins a provider reconnect.
 
 Financial inputs use decimal strings.
@@ -156,7 +157,8 @@ Missing context, sequence gaps, insufficient warmup, and incomplete observation 
 Unresolved positions remain censored rather than receiving invented exit prices.
 
 Each path has a one-hour entry window and permits one terminal attempt for each policy arm.
-The planner admits a path only when a causal RANGE interval overlaps its entry window.
+The planner starts a path at the first five-minute cadence inside a causal RANGE interval.
+It reserves warmup and terminal sources only after that opportunity exists.
 PANIC-only and non-executable intervals remain visible as rejected context paths.
 
 Selection freezes twelve executable paths in four source-disjoint blocks.
@@ -197,8 +199,8 @@ An existing output file blocks publication rather than being replaced.
 The depth processor also runs a bounded SHADOW request queue every 15 minutes.
 It first creates review-only drafts under `.historical-replay/drafts`.
 The planner requires 12 complete paths and complete historical context.
-It reports L2-ready and context-ready path counts separately.
-Each path has five-minute warmup, five-minute entry, and six-hour terminal windows.
+It reports L2-ready, context-ready, and executable path counts separately.
+Each path has five-minute warmup, one-hour entry, and six-hour terminal windows.
 Each path remains inside one verified provider session.
 The planner groups three chronological paths into each of four stability blocks.
 It never joins reconnects or reuses a source segment.
@@ -215,8 +217,9 @@ The replaceable `status.json` reports queue progress without source paths or exc
 The runner never imports selection, freezes a candidate, changes HALT, or creates orders.
 
 After v23 freezes, the planner creates a separate post-cutoff confirmation cohort.
-Its path count is fixed at the provider capacity boundary.
-Three reserve paths protect the deadline from transport attrition.
+The cohort has a fixed maximum of forty-two paths.
+The structural PASS minimum is twenty-four executable paths.
+Three reserve paths protect the structural PASS capacity.
 The deadline capacity packs three complete paths into each provider session.
 Fourteen days can contain at most forty-two complete paths.
 Selection sources and pre-cutoff paths cannot enter this cohort.
@@ -225,6 +228,7 @@ The planner queues each complete block under `.historical-replay/confirmation-re
 The runner writes reports under `.historical-replay/confirmation-reports`.
 The importer verifies hashes and imports each complete queued block automatically.
 Status separates queued, replayed, verified, imported, and evaluated block counts.
+Status reports full-cohort shortfall separately from structural PASS futility.
 
 Import reviewed, non-overlapping historical replay blocks:
 

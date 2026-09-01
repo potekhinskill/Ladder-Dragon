@@ -1,5 +1,19 @@
 # Engineering decisions
 
+### 2026-09-01 — Reserve evidence sources after causal opportunity admission
+
+- **Context:** a fixed source window could contain no executable RANGE opportunity.
+- **Decision:** select the first causal cadence opportunity before reserving warmup and terminal source segments.
+- **Why it worked:** tests recover later RANGE opportunities without fills, PnL, future context, gaps, or reused sources.
+- **Reuse:** every fixed cohort whose trial availability changes inside a continuous source interval.
+
+### 2026-09-01 — Separate maximum cohort completion from PASS capacity
+
+- **Context:** losing one maximum-cohort path produced a misleading statistical rejection status.
+- **Decision:** calculate structural PASS capacity independently from the fixed maximum cohort size.
+- **Why it worked:** tests distinguish full-cohort shortfall from a mathematically impossible structural PASS.
+- **Reuse:** every sequential cohort with an early PASS and a larger fixed evidence maximum.
+
 ### 2026-09-01 — Align evidence sessions after scheduled maintenance
 
 - **Context:** daily backup created a context gap inside the first fixed L2 path.

@@ -30,6 +30,7 @@ from ladder_dragon.strategy.prediction.historical_policy import fingerprint
 BLOCK_COUNT = 4
 PATHS_PER_BLOCK = 3
 SIGNAL_WARMUP_MS = 300_000
+ENTRY_CADENCE_MS = 300_000
 PATH_ENTRY_WINDOW_MS = 60 * 60_000
 TERMINAL_TAIL_MS = 6 * 60 * 60_000 + 1_000
 INDEPENDENCE_SPACING_MS = 6 * 60 * 60_000
@@ -37,7 +38,7 @@ MINIMUM_INDEPENDENT_PATHS = 12
 MAXIMUM_DRAFTS = 256
 MAXIMUM_CONTEXT_CANDIDATES = 256
 PROVIDER_CONNECTION_MAX_MS = 24 * 60 * 60_000
-COHORT_CONTRACT = "provider_bounded_gap_aligned_executable_paths_v3"
+COHORT_CONTRACT = "provider_bounded_gap_opportunity_aligned_paths_v4"
 SELECTION_COHORT_MARKER = "selection-cohort.json"
 PATH_MAXIMUM_ATTEMPTS = 1
 
@@ -115,9 +116,17 @@ def _provider_design() -> dict[str, object]:
         confirmation_sessions
         * (PROVIDER_CONNECTION_MAX_MS // path_duration_ms)
     )
+    minimum_pass_paths = max(
+        int(criteria["minimum_eligible_terminal_episodes"]),
+        int(criteria["minimum_filled_episodes"]),
+        int(criteria["minimum_regime_filled_episodes"])
+        * int(criteria["minimum_confirmed_regimes"]),
+    )
     confirmation_reachable = bool(
         feasibility["feasible"] is True
-        and V23_FIXED_CONFIRMATION_PATHS <= confirmation_capacity
+        and minimum_pass_paths
+        + int(criteria["provider_capacity_reserve_paths"])
+        <= confirmation_capacity
     )
     return {
         "cohort_contract": COHORT_CONTRACT,
@@ -127,9 +136,10 @@ def _provider_design() -> dict[str, object]:
         "required_blocks": BLOCK_COUNT,
         "required_independent_paths": MINIMUM_INDEPENDENT_PATHS,
         "confirmation_fixed_paths": V23_FIXED_CONFIRMATION_PATHS,
+        "confirmation_minimum_pass_paths": minimum_pass_paths,
         "confirmation_provider_capacity_paths": confirmation_capacity,
         "confirmation_preflight_policy": (
-            "fixed_provider_capacity_paths_v1"
+            "minimum_pass_with_fixed_maximum_v2"
         ),
         "reachable": selection_reachable and confirmation_reachable,
     }
@@ -184,10 +194,11 @@ def _context_aligned_paths(
     classifier_fingerprint: str,
     started_after_ms: int,
     excluded_source_sha256s: frozenset[str],
-) -> tuple[list[PathWindow], int]:
-    """Pack source-disjoint paths inside each L2 and context intersection."""
+) -> tuple[list[PathWindow], int, Counter[str]]:
+    """Reserve sources after the first causal executable opportunity."""
     candidates: list[PathWindow] = []
     interval_count = 0
+    reasons: Counter[str] = Counter()
     for chain in chains:
         if not chain:
             continue
@@ -205,7 +216,9 @@ def _context_aligned_paths(
         cursor = 0
         for interval in intervals:
             interval_start = int(interval["start_ms"])
-            interval_end = int(interval["end_ms"])
+            # Metadata finishes inclusively at chain_end. Context must remain
+            # valid for at least one millisecond beyond that market boundary.
+            interval_end = min(int(interval["end_ms"]), chain_end + 1)
             while (
                 cursor < len(chain)
                 and int(chain[cursor][1]["finished_at_ms"])
@@ -217,31 +230,76 @@ def _context_aligned_paths(
                     interval_start,
                     int(chain[cursor][1]["started_at_ms"]),
                 )
-                start = source_start + SIGNAL_WARMUP_MS
+                earliest_start = max(
+                    source_start + SIGNAL_WARMUP_MS,
+                    started_after_ms + 1,
+                )
+                latest_start = (
+                    interval_end
+                    - PATH_ENTRY_WINDOW_MS
+                    - TERMINAL_TAIL_MS
+                    - 1
+                )
+                if earliest_start > latest_start:
+                    break
+                try:
+                    probe = export_context(
+                        context_db,
+                        symbol="SOLUSDT",
+                        classifier_fingerprint=classifier_fingerprint,
+                        start_ms=earliest_start,
+                        end_ms=min(interval_end - 1, latest_start + 1),
+                        cutoff_ms=chain_end,
+                    )
+                except ValueError as exc:
+                    reasons[_context_reason(exc)] += 1
+                    break
+                start = _first_executable_entry_start(
+                    probe.get("context"),
+                    earliest_ms=earliest_start,
+                    latest_ms=latest_start,
+                )
+                if start is None:
+                    reasons["NO_EXECUTABLE_ENTRY_CONTEXT"] += 1
+                    break
                 entry_end = start + PATH_ENTRY_WINDOW_MS
                 end = entry_end + TERMINAL_TAIL_MS
-                terminal_index = next(
+                warmup_start = start - SIGNAL_WARMUP_MS
+                source_index = next(
                     (
                         index
                         for index in range(cursor, len(chain))
+                        if int(chain[index][1]["finished_at_ms"])
+                        > warmup_start
+                    ),
+                    None,
+                )
+                terminal_index = next(
+                    (
+                        index for index in range(
+                            source_index if source_index is not None else cursor,
+                            len(chain),
+                        )
                         if int(chain[index][1]["finished_at_ms"])
                         >= end
                     ),
                     None,
                 )
-                if terminal_index is None or end >= interval_end:
+                if (
+                    source_index is None
+                    or terminal_index is None
+                    or end >= interval_end
+                    or int(chain[source_index][1]["started_at_ms"])
+                    > warmup_start
+                ):
                     break
-                selected = chain[cursor : terminal_index + 1]
+                selected = chain[source_index : terminal_index + 1]
                 source_hashes = {
                     str(metadata["archive_sha256"])
                     for _archive, metadata in selected
                 }
-                if (
-                    start > started_after_ms
-                    and not excluded_source_sha256s.intersection(
-                        source_hashes
-                    )
-                ):
+                excluded = excluded_source_sha256s.intersection(source_hashes)
+                if not excluded:
                     candidates.append(
                         (start, entry_end, end, selected)
                     )
@@ -249,9 +307,15 @@ def _context_aligned_paths(
                         raise ValueError(
                             "historical context path capacity reached"
                         )
+                else:
+                    reasons["EXCLUDED_SOURCE_ARCHIVE"] += 1
                 # A complete source segment can belong to only one path.
                 cursor = terminal_index + 1
-    return sorted(candidates, key=lambda row: row[0]), interval_count
+    return (
+        sorted(candidates, key=lambda row: row[0]),
+        interval_count,
+        reasons,
+    )
 
 
 def _complete_blocks(paths: list[ContextPath]) -> list[list[ContextPath]]:
@@ -281,12 +345,12 @@ def _context_reason(exc: ValueError) -> str:
     return reasons.get(str(exc), "CONTEXT_INVALID")
 
 
-def _has_executable_entry_context(
-    rows: object, *, start_ms: int, entry_end_ms: int
-) -> bool:
-    """Require a causal, non-PANIC executable regime inside the entry window."""
+def _first_executable_entry_start(
+    rows: object, *, earliest_ms: int, latest_ms: int
+) -> int | None:
+    """Return the first causal executable context time in one fixed range."""
     if not isinstance(rows, list) or not rows:
-        return False
+        return None
     allowed = set(
         v23_evidence_semantics_contract()["executable_entry_regimes"]
     )
@@ -303,14 +367,30 @@ def _has_executable_entry_context(
             or not isinstance(regime, str)
             or type(panic) is not bool
         ):
-            return False
+            return None
+        causal_time = max(earliest_ms, observed)
+        candidate = (
+            (causal_time + ENTRY_CADENCE_MS - 1) // ENTRY_CADENCE_MS
+        ) * ENTRY_CADENCE_MS
         if (
-            max(start_ms, observed) < min(entry_end_ms, valid_until)
+            candidate <= latest_ms
+            and candidate < valid_until
             and regime in allowed
             and panic is False
         ):
-            return True
-    return False
+            return candidate
+    return None
+
+
+def _has_executable_entry_context(
+    rows: object, *, start_ms: int, entry_end_ms: int
+) -> bool:
+    """Require a causal, non-PANIC executable regime inside the entry window."""
+    return _first_executable_entry_start(
+        rows,
+        earliest_ms=start_ms,
+        latest_ms=entry_end_ms - 1,
+    ) is not None
 
 
 def context_ready_paths(
@@ -340,7 +420,7 @@ def context_ready_paths(
             for _archive, metadata in path[3]
         )
     ]
-    candidates, interval_count = _context_aligned_paths(
+    candidates, interval_count, alignment_reasons = _context_aligned_paths(
         chain_rows,
         context_db,
         classifier_fingerprint=classifier,
@@ -348,7 +428,7 @@ def context_ready_paths(
         excluded_source_sha256s=excluded_source_sha256s,
     )
     ready: list[ContextPath] = []
-    reasons: Counter[str] = Counter()
+    reasons: Counter[str] = Counter(alignment_reasons)
     identity: tuple[str, str] | None = None
     checked = context_ready = 0
     # Selection prefers the newest complete prefix. Confirmation freezes the
@@ -449,7 +529,7 @@ def _policy(candidate: Mapping[str, object], context: Mapping[str, object]) -> d
         "notional_quote": "6",
         "entry_ttl_ms": 5_400_000,
         "holding_ms": 21_600_000,
-        "cadence_ms": 300_000,
+        "cadence_ms": ENTRY_CADENCE_MS,
         "latency_ms": int(model["latency_ms"]),
         "cancel_latency_ms": int(candidate["cancel_latency_ms"]),
         "stop_grace_ms": int(model["stop_unfilled_grace_ms"]),

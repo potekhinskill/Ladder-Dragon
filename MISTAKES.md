@@ -1,5 +1,19 @@
 # Engineering mistakes and root causes
 
+### 2026-09-01 — Reserved source windows before executable opportunity admission
+
+- **Impact:** non-RANGE windows consumed scarce provider capacity and made confirmation throughput appear higher than reality.
+- **Root cause:** the planner checked execution context after it reserved a complete seven-hour source window.
+- **Correction:** select the first causal RANGE cadence opportunity before source reservation.
+- **Prevention:** test delayed executable context and require source reservation to start at its causal warmup boundary.
+
+### 2026-09-01 — Counted only unstarted paths in an active provider session
+
+- **Impact:** the planner could report capacity rejection while one valid path was already in progress.
+- **Root cause:** remaining capacity divided only future wall time by path duration.
+- **Correction:** subtract completed slot boundaries from all slot boundaries available before the session limit.
+- **Prevention:** test active sessions before and after the first path completion boundary.
+
 ### 2026-09-01 — Anchored paths only to L2 session start
 
 - **Impact:** one daily context gap reduced throughput and made the confirmation deadline operationally unreachable.

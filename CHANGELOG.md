@@ -3,6 +3,26 @@
 All notable changes are documented here. Releases use Semantic Versioning; every
 section is dated and there is intentionally no `Unreleased` section.
 
+## [2.20.283] — 2026-09-01
+
+### Changed
+- Historical paths reserve source segments only after the first causal executable RANGE opportunity.
+- Confirmation distinguishes its structural PASS minimum from its fixed maximum cohort.
+
+### Fixed
+- A non-executable entry hour no longer consumes a complete seven-hour source allocation.
+- Active-session capacity includes a valid path that is already in progress.
+- Full-cohort shortfall no longer appears as a mathematical PASS rejection.
+
+### Security
+- Admission uses no fill, PnL, future context, reconnect crossing, or reused source segment.
+- Persistent HALT, BTC, ETH, CHAMPION state, and Mainnet order authority remain unchanged.
+
+### Verified
+- The focused opportunity, provider-capacity, futility, replay, and evaluator regressions pass.
+- The full project suite passes: 1,588 tests.
+- Python compilation, Technical English, architecture, and whitespace checks pass.
+
 ## [2.20.282] — 2026-09-01
 
 ### Changed
