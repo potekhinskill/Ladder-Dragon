@@ -3,6 +3,23 @@
 All notable changes are documented here. Releases use Semantic Versioning; every
 section is dated and there is intentionally no `Unreleased` section.
 
+## [2.20.291] — 2026-09-02
+
+### Changed
+- Named Average True Range functions now require an explicit open-candle policy.
+
+### Fixed
+- A new caller cannot silently inherit different candle populations from different Average True Range algorithms.
+- The compatibility wrapper retains its closed-candle Wilder behavior.
+
+### Security
+- Release verification rejects canonical Average True Range calls that omit `exclude_latest`.
+
+### Verified
+- The focused indicator, semantic authority, and property regressions pass.
+- The full project suite passes: 1,647 tests.
+- Python compilation, Technical English, and all five domain audits pass.
+
 ## [2.20.290] — 2026-09-02
 
 ### Added

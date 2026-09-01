@@ -16,11 +16,12 @@ They cannot authorize LIVE execution.
 
 Average True Range consumers must name their algorithm and candle population.
 Wilder, simple-average, and exponential-average results are not interchangeable.
+Each canonical call must set `exclude_latest` explicitly.
 
 ## Automated controls
 
 Run `python -m bin.audit_semantic_authorities`.
-This audit rejects copied vocabularies, direct fee-rate assumptions, and inline Average True Range consumers.
+This audit rejects copied vocabularies, direct fee-rate assumptions, and ambiguous Average True Range calls.
 It checks assignments, call keywords, and function argument defaults.
 Fee amounts and validation error thresholds are not fee-rate assumptions.
 

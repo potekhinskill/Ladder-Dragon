@@ -2151,3 +2151,10 @@ entries concise; this is not a changelog or an activity log.
 - **Decision:** classify fee-rate assumptions by name and syntax, then require their canonical authorities.
 - **Why it worked:** unseen values now fail while fee amounts and validation thresholds remain valid.
 - **Reuse:** every source audit that must reject future values absent from its current vocabulary.
+
+### 2026-09-02 — Require explicit indicator candle populations
+
+- **Context:** named Average True Range functions had different defaults for the latest open candle.
+- **Decision:** require each canonical call to state `exclude_latest`; retain explicit policy only in compatibility wrappers.
+- **Why it worked:** algorithm selection cannot silently change the candle population.
+- **Reuse:** every indicator API whose input completeness changes the result.

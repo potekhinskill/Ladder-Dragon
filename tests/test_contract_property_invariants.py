@@ -104,6 +104,19 @@ def test_wilder_atr_never_uses_the_open_candle(high: int, low: int) -> None:
     assert atr_wilder_from_klines(rows, 14, exclude_latest=True) == expected
 
 
+@pytest.mark.parametrize(
+    "function",
+    (
+        atr_wilder_from_klines,
+        atr_sma_from_klines,
+        atr_ema_from_klines,
+    ),
+)
+def test_named_atr_requires_an_explicit_candle_population(function) -> None:
+    with pytest.raises(TypeError, match="exclude_latest"):
+        function(_klines(1), 14)
+
+
 @PROPERTY_SETTINGS
 @given(
     old_bid_qty=st.integers(min_value=1, max_value=10_000),
@@ -219,6 +232,24 @@ def test_semantic_audit_rejects_an_inline_atr_consumer(tmp_path: Path) -> None:
     )
     report = audit_semantic_authorities(tmp_path)
     assert any("ATR consumer bypasses authority" in item for item in report["violations"])
+
+
+def test_semantic_audit_rejects_an_implicit_atr_candle_population(
+    tmp_path: Path,
+) -> None:
+    package = tmp_path / "ladder_dragon" / "strategy"
+    package.mkdir(parents=True)
+    (tmp_path / "bin").mkdir()
+    (package / "bad.py").write_text(
+        "def compute_atr(rows):\n"
+        "    return atr_wilder_from_klines(rows, 14)\n",
+        encoding="utf-8",
+    )
+    report = audit_semantic_authorities(tmp_path)
+    assert any(
+        "ATR call omits candle population" in item
+        for item in report["violations"]
+    )
 
 
 def test_semantic_audit_rejects_an_unknown_fee_rate_literal(tmp_path: Path) -> None:

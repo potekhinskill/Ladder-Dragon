@@ -163,6 +163,23 @@ def _calls_canonical_atr(function: ast.AST) -> bool:
     )
 
 
+def _atr_candle_population_violations(
+    tree: ast.AST, relative: str
+) -> list[str]:
+    """Require each canonical ATR call to state its candle population."""
+    violations: list[str] = []
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Call):
+            continue
+        if _target_name(node.func) not in CANONICAL_ATR_CALLS:
+            continue
+        if not any(keyword.arg == "exclude_latest" for keyword in node.keywords):
+            violations.append(
+                f"{relative}:{node.lineno}:ATR call omits candle population"
+            )
+    return violations
+
+
 def audit_semantic_authorities(root: Path) -> dict[str, object]:
     violations: list[str] = []
     sources = sorted((root / "ladder_dragon").rglob("*.py"))
@@ -194,6 +211,7 @@ def audit_semantic_authorities(root: Path) -> dict[str, object]:
                         f"{relative}:{node.lineno}:ATR consumer bypasses authority"
                     )
         violations.extend(_fee_literal_violations(tree, relative))
+        violations.extend(_atr_candle_population_violations(tree, relative))
     return {"ready": not violations, "violations": sorted(set(violations))}
 
 

@@ -38,7 +38,7 @@ def atr_wilder_from_klines(
     klines: Sequence[Sequence[object]],
     period: int = 14,
     *,
-    exclude_latest: bool = True,
+    exclude_latest: bool,
 ) -> float:
     """Return Wilder Average True Range for one explicit candle population."""
     period = max(1, int(period))
@@ -70,7 +70,7 @@ def atr_sma_from_klines(
     klines: Sequence[Sequence[object]],
     period: int | None = None,
     *,
-    exclude_latest: bool = False,
+    exclude_latest: bool,
 ) -> float:
     """Return simple-average true range without claiming Wilder semantics."""
     true_ranges = _float_true_ranges(
@@ -88,7 +88,7 @@ def atr_ema_from_klines(
     klines: Sequence[Sequence[object]],
     period: int = 14,
     *,
-    exclude_latest: bool = False,
+    exclude_latest: bool,
     maximum_true_ranges: int | None = None,
 ) -> float:
     """Return exponential-average true range with the standard EMA weight."""
