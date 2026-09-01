@@ -199,6 +199,19 @@ def test_first_activation_is_restart_safe_and_exact(tmp_path: Path, monkeypatch)
     assert loaded["execution_policy"]["target_return"] == "0.0096"
     assert loaded["execution_policy"]["maximum_order_notional_usdt"] == "6"
     assert loaded["execution_policy"]["runtime_mutation_policy"] == "protective_only"
+    assert loaded["execution_policy"]["probation"] == {
+        "schema_version": 3,
+        "duration_hours": 24,
+        "maximum_entries": 3,
+        "minimum_terminal_entries": 1,
+        "minimum_closed_lifecycles": 1,
+        "maximum_turnover_usdt": "18",
+        "maximum_equity_loss_usdt": "3",
+        "failure_action": "PERSISTENT_HALT",
+        "entry_limit_action": "BLOCK_BUY_AND_DRAIN_EXISTING_LIFECYCLES",
+        "expiration_action": "BLOCK_BUY_AND_REQUIRE_REVIEW_IF_INSUFFICIENT",
+        "automatic_extension_policy": "FORBIDDEN",
+    }
     assert loaded["execution_policy"]["allowed_entry_regimes"] == [
         "RANGE",
     ]

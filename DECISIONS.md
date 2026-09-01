@@ -1,5 +1,12 @@
 # Engineering decisions
 
+### 2026-09-02 — Separate probation expiry from evidence recoverability
+
+- **Context:** one expired state combined recoverable lifecycle draining with an impossible evidence shortfall.
+- **Decision:** keep the reviewed duration fixed, drain only existing lifecycles, and require a new activation when recovery is impossible.
+- **Why it worked:** tests distinguish late lifecycle PASS, terminal unfilled entries, zero-entry expiry, and exhausted limits.
+- **Reuse:** every bounded production trial where time expiry and evidence maturity can occur separately.
+
 ### 2026-09-01 — Bind each confirmation report to its source request
 
 - **Context:** a report filename proved request ownership but did not prove complete request reproduction.

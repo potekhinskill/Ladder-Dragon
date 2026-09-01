@@ -3,6 +3,29 @@
 All notable changes are documented here. Releases use Semantic Versioning; every
 section is dated and there is intentionally no `Unreleased` section.
 
+## [2.20.287] — 2026-09-02
+
+### Added
+- Probation telemetry identifies missing terminal entries, missing lifecycle closures, recovery capacity, and required operator action.
+
+### Changed
+- A probation at its entry or turnover limit now distinguishes expiry waiting, lifecycle draining, and insufficient evidence.
+- New CHAMPION policies forbid automatic probation extension and require a reviewed replacement after insufficient evidence.
+
+### Fixed
+- An expired probation no longer reports every evidence shortfall as an entry-limit event.
+- A quiet probation now exposes when new BUY orders cannot produce the missing evidence.
+- Existing protected lifecycles can still complete the original probation after expiry.
+
+### Security
+- Every insufficient-evidence state remains BUY-blocked and cannot extend its reviewed exposure window automatically.
+- Equity-loss failure still creates persistent HALT.
+
+### Verified
+- The 18 focused probation and CHAMPION registry regressions pass.
+- The full project suite passes: 1,621 tests.
+- Python compilation and Technical English checks pass.
+
 ## [2.20.286] — 2026-09-02
 
 ### Changed

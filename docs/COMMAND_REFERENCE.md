@@ -297,6 +297,9 @@ It rejects missing or invalid HALT evidence.
 Use the current activation identifier instead of `NONE` for replacement.
 Restart the supervisor before you reset HALT.
 The worker verifies the activation again before LIVE execution.
+Probation never extends automatically.
+An expired insufficient probation requires review and a new activation.
+Existing protected lifecycles can close without new BUY authority.
 
 WARNING: The next command creates real Mainnet orders.
 

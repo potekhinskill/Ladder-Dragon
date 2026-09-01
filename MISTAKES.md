@@ -1,5 +1,12 @@
 # Engineering mistakes and root causes
 
+### 2026-09-02 — Collapsed probation expiry and evidence insufficiency
+
+- **Impact:** a quiet CHAMPION could become permanently BUY-blocked with an incorrect entry-limit reason.
+- **Root cause:** one Boolean combined expiry and limits, while tests asserted blocking without testing recovery capacity.
+- **Correction:** report explicit draining and review states from existing intent and lifecycle capacity.
+- **Prevention:** test every bounded trial with zero work, terminal failures, pending work, late completion, and exhausted capacity.
+
 ### 2026-09-01 — Tested v23 producers and consumers with separate fixtures
 
 - **Impact:** selection and cohort artifacts used identifiers that their downstream consumers rejected permanently.

@@ -183,6 +183,15 @@ Confirmation cannot change orders or activate the candidate.
 Activation validates the authoritative persistent HALT under the Risk Manager lock.
 It also requires explicit operator confirmation.
 
+Every activation starts one fixed 24-hour probation period.
+The system never extends this period automatically.
+At expiry, the supervisor blocks new BUY orders.
+Existing protected lifecycles can still complete the original evidence requirements.
+`EXPIRED_WAITING_FOR_EXISTING_LIFECYCLES` identifies this recoverable state.
+`EXPIRED_INSUFFICIENT_EVIDENCE` requires operator review and a new activation.
+The probation report shows missing counts and whether self-recovery remains possible.
+Do not edit the probation state or order journal.
+
 Runtime controls can reduce order size or block BUY.
 They can cancel open BUY orders or flatten for safety.
 They cannot increase size or change CHAMPION strategy parameters.

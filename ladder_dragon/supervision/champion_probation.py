@@ -13,10 +13,14 @@ import sqlite3
 import tempfile
 from typing import Mapping
 
+from ladder_dragon.execution.journal.schema import (
+    ACTIVE_STATES,
+    TERMINAL_JOURNAL_STATES,
+)
 from ladder_dragon.risk.risk_manager import RiskDecision
 
 
-TERMINAL_BUY_STATES = {"FILLED", "CANCELED", "EXPIRED", "REJECTED", "CLOSED"}
+POTENTIALLY_CLOSABLE_BUY_STATES = {*ACTIVE_STATES, "PROTECTED"}
 
 
 def _decimal(value: object, *, field: str) -> Decimal:
@@ -50,7 +54,7 @@ def _atomic_json(path: Path, payload: Mapping[str, object]) -> None:
 
 def _intent_totals(
     journal_path: Path, *, activation_id: str, symbol: str
-) -> tuple[int, int, int, Decimal]:
+) -> tuple[int, int, int, int, Decimal]:
     if not journal_path.is_file():
         raise RuntimeError("CHAMPION probation order journal is unavailable")
     try:
@@ -65,16 +69,17 @@ def _intent_totals(
                 )
             }
             rows = connection.execute(
-                "SELECT client_order_id,state,quantity,price,metadata_json "
+                "SELECT client_order_id,state,quantity,price,executed_qty,"
+                "metadata_json "
                 "FROM order_intents "
                 "WHERE symbol=? AND side='BUY'",
                 (symbol,),
             ).fetchall()
     except sqlite3.Error as exc:
         raise RuntimeError("CHAMPION probation order journal is unreadable") from exc
-    entries = terminals = closed_lifecycles = 0
+    entries = terminals = closed_lifecycles = recoverable_lifecycles = 0
     turnover = Decimal("0")
-    for client_order_id, state, quantity, price, metadata_json in rows:
+    for client_order_id, state, quantity, price, executed_qty, metadata_json in rows:
         try:
             metadata = json.loads(str(metadata_json or "{}"))
             champion = metadata.get("champion")
@@ -85,13 +90,113 @@ def _intent_totals(
                 continue
             exact_quantity = _decimal(quantity, field="quantity")
             exact_price = _decimal(price, field="price")
+            exact_executed = _decimal(
+                executed_qty or "0", field="executed quantity"
+            )
         except (json.JSONDecodeError, TypeError, RuntimeError) as exc:
             raise RuntimeError("CHAMPION probation intent is invalid") from exc
         entries += 1
         turnover += exact_quantity * exact_price
-        terminals += str(state).upper() in TERMINAL_BUY_STATES
-        closed_lifecycles += str(client_order_id) in closed_parents
-    return entries, terminals, closed_lifecycles, turnover
+        normalized_state = str(state).upper()
+        terminals += normalized_state in TERMINAL_JOURNAL_STATES
+        is_closed = str(client_order_id) in closed_parents
+        closed_lifecycles += is_closed
+        recoverable_lifecycles += bool(
+            is_closed
+            or normalized_state in POTENTIALLY_CLOSABLE_BUY_STATES
+            or exact_executed > 0
+        )
+    return (
+        entries,
+        terminals,
+        closed_lifecycles,
+        recoverable_lifecycles,
+        turnover,
+    )
+
+
+def _progress_status(
+    *,
+    expired: bool,
+    entries: int,
+    terminals: int,
+    closed_lifecycles: int,
+    recoverable_lifecycles: int,
+    minimum_terminals: int,
+    minimum_closed: int,
+    entry_limit_reached: bool,
+    turnover_limit_reached: bool,
+) -> dict[str, object]:
+    """Classify whether immutable evidence can still mature without a new BUY."""
+    missing_terminals = max(0, minimum_terminals - terminals)
+    missing_closed = max(0, minimum_closed - closed_lifecycles)
+    requirements_satisfied = missing_terminals == 0 and missing_closed == 0
+    can_pass_without_new_entries = (
+        entries >= minimum_terminals
+        and recoverable_lifecycles >= minimum_closed
+    )
+    self_recovery_possible = (
+        not requirements_satisfied and can_pass_without_new_entries
+    )
+    limit_reached = entry_limit_reached or turnover_limit_reached
+    if expired:
+        if self_recovery_possible:
+            status = "EXPIRED_WAITING_FOR_EXISTING_LIFECYCLES"
+            reason = (
+                "CHAMPION probation expired; existing lifecycles can still "
+                "satisfy its evidence requirements"
+            )
+        else:
+            status = "EXPIRED_INSUFFICIENT_EVIDENCE"
+            reason = (
+                "CHAMPION probation expired with insufficient evidence; "
+                "a reviewed activation is required"
+            )
+    elif limit_reached and requirements_satisfied:
+        status = "PROBATION_WAITING_FOR_EXPIRY"
+        reason = "CHAMPION probation limit reached; waiting for probation expiry"
+    elif limit_reached and self_recovery_possible:
+        status = "PROBATION_WAITING_FOR_EXISTING_LIFECYCLES"
+        reason = (
+            "CHAMPION probation limit reached; existing lifecycles can still "
+            "satisfy its evidence requirements"
+        )
+    elif limit_reached:
+        status = "LIMIT_REACHED_INSUFFICIENT_EVIDENCE"
+        reason = (
+            "CHAMPION probation limit reached with insufficient evidence; "
+            "a reviewed activation is required"
+        )
+    else:
+        status = "PROBATION"
+        reason = None
+    if entry_limit_reached and turnover_limit_reached:
+        limit_reason_code = "MAXIMUM_ENTRIES_AND_TURNOVER_REACHED"
+    elif entry_limit_reached:
+        limit_reason_code = "MAXIMUM_ENTRIES_REACHED"
+    elif turnover_limit_reached:
+        limit_reason_code = "MAXIMUM_TURNOVER_REACHED"
+    else:
+        limit_reason_code = None
+    return {
+        "status": status,
+        "buy_blocked": bool(expired or limit_reached),
+        "block_reason_code": status if reason else None,
+        "block_reason": reason,
+        "limit_reason_code": limit_reason_code,
+        "missing_terminal_entries": missing_terminals,
+        "missing_closed_lifecycles": missing_closed,
+        "maximum_terminal_entries_without_new_buys": entries,
+        "maximum_closed_lifecycles_without_new_buys": recoverable_lifecycles,
+        "can_pass_without_new_entries": can_pass_without_new_entries,
+        "self_recovery_possible": self_recovery_possible,
+        "operator_action_required": bool(
+            status in {
+                "EXPIRED_INSUFFICIENT_EVIDENCE",
+                "LIMIT_REACHED_INSUFFICIENT_EVIDENCE",
+            }
+        ),
+    }
 
 
 def evaluate_champion_probation(
@@ -174,7 +279,13 @@ def evaluate_champion_probation(
         state[activation_id] = updated
         _atomic_json(state_path, state)
         current = updated
-    entries, terminals, closed_lifecycles, turnover = _intent_totals(
+    (
+        entries,
+        terminals,
+        closed_lifecycles,
+        recoverable_lifecycles,
+        turnover,
+    ) = _intent_totals(
         journal_path, activation_id=activation_id, symbol=symbol
     )
     maximum_entries = int(probation.get("maximum_entries") or 0)
@@ -218,11 +329,29 @@ def evaluate_champion_probation(
         state[activation_id] = updated
         _atomic_json(state_path, state)
         passed_at = now_ms
-    limit_reached = entries >= maximum_entries or turnover >= maximum_turnover
-    status = "PASS" if passed_at is not None else "BLOCKED" if expired else "PROBATION"
+    progress = _progress_status(
+        expired=expired,
+        entries=entries,
+        terminals=terminals,
+        closed_lifecycles=closed_lifecycles,
+        recoverable_lifecycles=recoverable_lifecycles,
+        minimum_terminals=minimum_terminals,
+        minimum_closed=minimum_closed,
+        entry_limit_reached=entries >= maximum_entries,
+        turnover_limit_reached=turnover >= maximum_turnover,
+    )
+    if passed_at is not None:
+        progress = {
+            **progress,
+            "status": "PASS",
+            "buy_blocked": False,
+            "block_reason_code": None,
+            "block_reason": None,
+            "operator_action_required": False,
+            "self_recovery_possible": False,
+        }
     return {
-        "status": status,
-        "buy_blocked": bool(passed_at is None and (limit_reached or expired)),
+        **progress,
         "activation_id": activation_id,
         "symbol": symbol,
         "entries": entries,
@@ -269,12 +398,17 @@ def apply_champion_probation_gate(
         "NO" if blocked or halt_reason else "YES"
     )
     if blocked or halt_reason:
+        block_reason = report.get("block_reason")
         decision = RiskDecision(
             halted=bool(decision.halted or halt_reason),
             buy_blocked=True,
             reasons=tuple(dict.fromkeys([
                 *decision.reasons,
-                str(halt_reason or "CHAMPION probation entry limit reached"),
+                str(
+                    halt_reason
+                    or block_reason
+                    or "CHAMPION probation is blocked"
+                ),
             ])),
         )
     return report, decision

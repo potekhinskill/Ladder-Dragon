@@ -248,6 +248,8 @@ The authoritative activation registry has no automatic retention.
 Each new CHAMPION starts a 24-hour probation period.
 Probation limits entries, turnover, and account-equity loss.
 Probation requires one exact BUY-to-protective-exit lifecycle before PASS.
+Probation never extends automatically.
+Expiry drains existing lifecycles or requires a reviewed replacement activation.
 An equity-loss breach creates persistent HALT.
 The worker fails closed without a current probation result.
 

@@ -305,7 +305,7 @@ def execution_policy_from_manifest(
             "CHANGE_ENTRY_VETO",
         ],
         "probation": {
-            "schema_version": 2,
+            "schema_version": 3,
             "duration_hours": 24,
             "maximum_entries": 3,
             "minimum_terminal_entries": 1,
@@ -313,7 +313,9 @@ def execution_policy_from_manifest(
             "maximum_turnover_usdt": format(order_cap * Decimal("3"), "f"),
             "maximum_equity_loss_usdt": format(order_cap / Decimal("2"), "f"),
             "failure_action": "PERSISTENT_HALT",
-            "entry_limit_action": "BLOCK_BUY_UNTIL_PROBATION_END",
+            "entry_limit_action": "BLOCK_BUY_AND_DRAIN_EXISTING_LIFECYCLES",
+            "expiration_action": "BLOCK_BUY_AND_REQUIRE_REVIEW_IF_INSUFFICIENT",
+            "automatic_extension_policy": "FORBIDDEN",
         },
     }
     if candidate_rule_version == 8:
