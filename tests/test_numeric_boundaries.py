@@ -48,3 +48,33 @@ def test_numeric_compatibility_boundary_rejects_non_finite_values():
         compatibility_float("NaN")
     with pytest.raises(ValueError, match="finite"):
         compatibility_float("Infinity")
+
+
+def test_new_exact_execution_module_has_zero_float_budget(tmp_path):
+    package = tmp_path / "ladder_dragon/execution/orders"
+    package.mkdir(parents=True)
+    for relative in (
+        "ladder_dragon/risk/risk_manager.py",
+        "ladder_dragon/supervision/risk_cycle.py",
+        "ladder_dragon/supervision/runtime.py",
+        "ladder_dragon/execution/worker/runtime.py",
+        "ladder_dragon/ai/context/runtime.py",
+        "ladder_dragon/numeric_compat.py",
+        "ladder_dragon/execution/cost_basis_import.py",
+        "ladder_dragon/execution/commission_revaluation.py",
+        "ladder_dragon/execution/trade_accounting.py",
+        "ladder_dragon/execution/inventory_lots.py",
+        "ladder_dragon/execution/orders/runtime.py",
+        "ladder_dragon/execution/protection/runtime.py",
+        "ladder_dragon/execution/protection/breakeven.py",
+    ):
+        path = tmp_path / relative
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text("", encoding="utf-8")
+    candidate = package / "new_order_path.py"
+    candidate.write_text("value = float('1.0')\n", encoding="utf-8")
+
+    report = audit_numeric_boundaries(tmp_path)
+
+    relative = "ladder_dragon/execution/orders/new_order_path.py"
+    assert report["regressions"][relative] == {"actual": 1, "maximum": 0}

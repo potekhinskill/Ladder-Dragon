@@ -9,6 +9,8 @@ from decimal import Decimal, InvalidOperation
 from typing import Sequence
 import time
 
+from ladder_dragon.strategy.indicators import atr_wilder_from_klines
+
 
 class RegimeHysteresis:
     """Confirm regime changes after a monotonic minimum hold."""
@@ -95,29 +97,9 @@ def ema_series(values: Sequence[float], length: int) -> list[float]:
 
 
 def atr_from_klines(klines: Sequence[Sequence[object]], period: int = 14) -> float:
-    period = max(1, int(period))
-    if len(klines) < period + 2:
-        return 0.0
-    closed = klines[:-1]
-    highs = [Decimal(str(row[2])) for row in closed]
-    lows = [Decimal(str(row[3])) for row in closed]
-    closes = [Decimal(str(row[4])) for row in closed]
-    true_ranges = [
-        max(
-            highs[index] - lows[index],
-            abs(highs[index] - closes[index - 1]),
-            abs(lows[index] - closes[index - 1]),
-        )
-        for index in range(1, len(closes))
-    ]
-    if len(true_ranges) < period:
-        return 0.0
-    average = sum(true_ranges[:period], Decimal("0")) / Decimal(period)
-    for true_range in true_ranges[period:]:
-        average = (
-            average * Decimal(period - 1) + true_range
-        ) / Decimal(period)
-    return float(average)
+    return atr_wilder_from_klines(
+        klines, period, exclude_latest=True
+    )
 
 
 def adx_from_klines(klines: Sequence[Sequence[object]], length: int = 14) -> float:

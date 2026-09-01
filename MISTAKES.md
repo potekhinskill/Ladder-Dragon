@@ -2482,3 +2482,31 @@ private infrastructure details.
 - **Root cause:** the collector repeated a signed request instead of consuming the validated runtime projection.
 - **Correction:** pass one timestamped, narrow fee attestation from runtime to the collector.
 - **Prevention:** integration tests must reject duplicate authority reads across runtime and advisory consumers.
+
+### 2026-09-02 — Trusted startup eligibility for a mutable lifecycle
+
+- **Impact:** a cached CHAMPION could remain executable after its experiment became `SUPERSEDED`.
+- **Root cause:** runtime checked the activation leaf but did not check the current experiment lifecycle.
+- **Correction:** recheck lifecycle before each plan and remove the cached policy before child shutdown.
+- **Prevention:** test every cached execution authority after its authoritative source becomes ineligible.
+
+### 2026-09-02 — Regenerated a lock with an incompatible toolchain pair
+
+- **Impact:** dependency lock generation failed twice in an isolated local environment; release files were not published.
+- **Root cause:** the active pip version was not checked against the pinned pip-tools version.
+- **Correction:** use an isolated environment with pip 25.2 and remove environment-specific options from the generated header.
+- **Prevention:** verify the lock compiler toolchain before dependency regeneration.
+
+### 2026-09-02 — Added Decimal invariants without their import
+
+- **Impact:** the first focused OFI test run failed locally; production code and published releases were unaffected.
+- **Root cause:** the test patch used `Decimal` before checking its import block.
+- **Correction:** add the explicit import and rerun the focused signal suite.
+- **Prevention:** compile changed test modules before the first focused test run.
+
+### 2026-09-02 — Expanded a short release SHA manually
+
+- **Impact:** one local release report was correctly blocked by evidence-integrity validation.
+- **Root cause:** the verification command used an inferred full SHA instead of Git output.
+- **Correction:** discard the blocked report and read the complete SHA after the final commit.
+- **Prevention:** obtain every release and deployment SHA only from `git rev-parse HEAD`.

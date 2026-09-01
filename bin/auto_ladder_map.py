@@ -11,6 +11,8 @@ import requests
 from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
 
+from ladder_dragon.strategy.indicators import atr_wilder_from_klines
+
 BINANCE_API_BASE = (os.getenv("BINANCE_API_BASE") or os.getenv("BINANCE_BASE_URL") or "https://api.binance.com").rstrip("/")
 UA = os.getenv("USER_AGENT", "Ladder-Dragon/auto-ladder/1.0")
 
@@ -56,24 +58,12 @@ def ema(series, period):
     return out
 
 def atr_pct_from_klines(kl):
-    highs = [float(x[2]) for x in kl]
-    lows  = [float(x[3]) for x in kl]
-    closes= [float(x[4]) for x in kl]
-    if len(closes) < 16:
+    if len(kl) < 16:
         return 0.0
-    trs = []
-    prev_close = closes[0]
-    for i in range(1, len(closes)):
-        tr = max(highs[i]-lows[i], abs(highs[i]-prev_close), abs(lows[i]-prev_close))
-        trs.append(tr)
-        prev_close = closes[i]
-    n=14
-    if len(trs) < n:
-        return 0.0
-    atr = sum(trs[:n]) / n
-    for v in trs[n:]:
-        atr = (atr*(n-1) + v) / n  # RMA
-    last_close = closes[-1]
+    atr = atr_wilder_from_klines(
+        kl, 14, exclude_latest=False
+    )
+    last_close = float(kl[-1][4]) if kl else 0.0
     return (atr / last_close) if last_close > 0 else 0.0
 
 def interval_minutes(interval: str) -> float:

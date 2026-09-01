@@ -304,13 +304,64 @@ def build_execution_promotion_report(
 
 
 def require_safe_execution_scope(report: Mapping[str, object]) -> None:
-    """Stop startup when a staged symbol enters execution before approval."""
+    """Reject blocked execution when a caller requires a ready scope."""
     blocked = report.get("blocked_execution_symbols")
     if isinstance(blocked, list) and blocked:
         symbols = ",".join(str(item) for item in blocked)
         raise ValueError(
             "execution promotion is blocked for staged symbols: " + symbols
         )
+
+
+def require_promotion_report_integrity(report: Mapping[str, object]) -> None:
+    """Require exact agreement between permitted symbols and active policies."""
+    permitted = report.get("execution_permitted_symbols")
+    blocked = report.get("blocked_execution_symbols")
+    active = report.get("active_champions")
+    if not isinstance(permitted, list) or not isinstance(blocked, list):
+        raise ValueError("execution promotion scope is invalid")
+    if not isinstance(active, Mapping):
+        raise ValueError("execution promotion policies are invalid")
+    permitted_symbols = {str(item).strip().upper() for item in permitted}
+    blocked_symbols = {str(item).strip().upper() for item in blocked}
+    active_symbols = {str(item).strip().upper() for item in active}
+    if active_symbols != permitted_symbols:
+        raise ValueError("execution promotion policy scope differs")
+    if permitted_symbols & blocked_symbols:
+        raise ValueError("execution promotion scopes overlap")
+
+
+def revoke_execution_permission(
+    active_policies: object, report: object, *, symbol: str, reason: str
+) -> None:
+    """Remove one runtime policy from a derived promotion report."""
+    normalized = str(symbol).strip().upper()
+    if isinstance(active_policies, dict):
+        active_policies.pop(normalized, None)
+    if not isinstance(report, dict):
+        return
+    active = report.get("active_champions")
+    if isinstance(active, dict):
+        active.pop(normalized, None)
+    permitted = report.get("execution_permitted_symbols")
+    if isinstance(permitted, list):
+        report["execution_permitted_symbols"] = [
+            item for item in permitted if str(item).strip().upper() != normalized
+        ]
+    blocked = report.get("blocked_execution_symbols")
+    if isinstance(blocked, list) and normalized not in blocked:
+        blocked.append(normalized)
+    candidates = report.get("candidates")
+    candidate = candidates.get(normalized) if isinstance(candidates, dict) else None
+    if isinstance(candidate, dict):
+        candidate["execution_permitted"] = False
+        reasons = candidate.get("execution_blocking_reasons")
+        if not isinstance(reasons, list):
+            reasons = []
+            candidate["execution_blocking_reasons"] = reasons
+        message = f"runtime CHAMPION revoked: {reason}"
+        if message not in reasons:
+            reasons.append(message)
 
 
 def prepare_execution_promotion_report(
@@ -320,7 +371,7 @@ def prepare_execution_promotion_report(
     store: object | None,
     environment: Mapping[str, str],
 ) -> dict[str, object]:
-    """Resolve candidates, build their report, and enforce startup safety."""
+    """Build a safe report while blocked symbols continue in SHADOW."""
     candidates = resolve_execution_candidate_symbols(
         environment.get(
             "BOT_EXECUTION_CANDIDATE_SYMBOLS",
@@ -338,6 +389,7 @@ def prepare_execution_promotion_report(
         store=store,
         environment=environment,
     )
+    require_promotion_report_integrity(report)
     return report
 
 
@@ -345,6 +397,8 @@ __all__ = [
     "build_execution_promotion_report",
     "champion_position_allows_buy",
     "prepare_execution_promotion_report",
+    "require_promotion_report_integrity",
     "require_safe_execution_scope",
+    "revoke_execution_permission",
     "resolve_execution_candidate_symbols",
 ]

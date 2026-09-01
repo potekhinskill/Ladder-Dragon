@@ -2109,3 +2109,17 @@ entries concise; this is not a changelog or an activity log.
 - **Decision:** timestamp the validated runtime schedule and pass its narrow attestation to historical context.
 - **Why it worked:** one authority read feeds both consumers without sharing credentials or remote payloads.
 - **Reuse:** advisory evidence that needs a source already validated by the authoritative runtime.
+
+### 2026-09-02 — Revalidate execution authority after lifecycle changes
+
+- **Context:** startup validated a CHAMPION, but its experiment could become superseded while the supervisor continued.
+- **Decision:** verify activation identity and lifecycle before each executable plan, then revoke the cached policy on failure.
+- **Why it worked:** the supervisor stops workers before market reads and continues observation without execution authority.
+- **Reuse:** every cached authority whose source state can change during a process lifetime.
+
+### 2026-09-02 — Assign one domain owner to shared financial semantics
+
+- **Context:** copied asset, commission, fee, and indicator meanings diverged across execution, strategy, risk, and dashboard code.
+- **Decision:** import domain-owned authorities and reject copied semantics, unreviewed transport, and fail-open guards during release verification.
+- **Why it worked:** generated invariants and source audits now stop known divergence classes before release.
+- **Reuse:** every shared financial meaning or safety boundary with multiple consumers.

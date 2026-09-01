@@ -16,9 +16,12 @@ Help output is the authoritative option reference.
 | `verification_harness` | runs local, release, Testnet, Pi, or Mainnet-canary verification |
 | `audit_ai_readiness` | checks real AI evidence for APPLY readiness |
 | `audit_backtest_reports` | classifies saved backtest reports |
+| `audit_exchange_boundaries` | rejects authenticated exchange calls outside reviewed adapters |
+| `audit_guard_contracts` | checks rejection paths in registered fail-closed guards |
 | `audit_legacy_compatibility` | reports remaining legacy accounting dependencies |
 | `audit_numeric_boundaries` | finds direct float calls at financial boundaries |
 | `audit_replay_readiness` | checks archive, latency, regime, and validation evidence |
+| `audit_semantic_authorities` | rejects copied financial semantics and indicator implementations |
 | `audit_user_stream_soak` | checks the current reviewed epoch for duration, stability, and events |
 | `check_technical_english` | checks current guides against the project writing profile |
 | `semgrep_scan` | tests local Semgrep rules or scans production Python paths |
@@ -29,7 +32,7 @@ The harness supports these profiles:
 
 | Profile | Scope |
 | --- | --- |
-| `local` | evidence, compileall, tests, numeric audit, secret scan, and Semgrep |
+| `local` | evidence, compileall, tests, domain audits, secret scan, and Semgrep |
 | `release` | local checks plus replay, recovery, migration, deployment, and continuity |
 | `testnet` | public and separately confirmed authenticated Testnet checks |
 | `pi` | deployed SHA, services, assets, risk, stream, journal, and soak evidence |

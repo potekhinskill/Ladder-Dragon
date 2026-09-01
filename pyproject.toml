@@ -25,6 +25,7 @@ dashboard = [
   "uvicorn==0.51.0",
 ]
 test = [
+  "hypothesis==6.167.1",
   "httpx2==2.7.0",
   "pytest==9.0.3",
 ]

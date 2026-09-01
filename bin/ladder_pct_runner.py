@@ -14,6 +14,7 @@ load_dotenv()
 
 # Shared Binance integration module.
 from ladder_dragon.execution import tools_market as TM
+from ladder_dragon.strategy.indicators import atr_sma_from_klines
 from product_version import product_label
 
 
@@ -38,18 +39,11 @@ def fmt_decimal(d: Decimal) -> str:
 
 
 def calc_atr(symbol: str, interval: str = "1h", window: int = 14) -> float:
-    """Calculate atr."""
+    """Calculate the legacy simple-average true range."""
     k = TM.get_klines(symbol, interval, limit=max(window + 2, 16))
     if not k or len(k) < 2:
         return 0.0
-    highs = [float(x[2]) for x in k]
-    lows  = [float(x[3]) for x in k]
-    closes= [float(x[4]) for x in k]
-    trs = []
-    for i in range(1, len(k)):
-        h,l,c_prev = highs[i], lows[i], closes[i-1]
-        trs.append(max(h-l, abs(h-c_prev), abs(l-c_prev)))
-    return sum(trs)/len(trs) if trs else 0.0
+    return atr_sma_from_klines(k, exclude_latest=False)
 
 
 def parse_args():

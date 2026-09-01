@@ -29,6 +29,7 @@ from ladder_dragon.ai.unresolved_fills import (
 )
 from ladder_dragon.ai.context.settlement import select_due_settlements
 from ladder_dragon.numeric_compat import compatibility_float
+from ladder_dragon.strategy.fee_defaults import DEFAULT_RESEARCH_MAKER_FEE_TEXT
 from ladder_dragon.sqlite_safety import (
     quote_sqlite_identifier,
     validate_sqlite_column_ddl,
@@ -1565,7 +1566,11 @@ def directional_success(mode: str, market_return: object) -> int:
     normalized = mode.upper()
     result = _finite_decimal(market_return, field="market return")
     fee = _finite_decimal(
-        os.getenv("AI_SHADOW_FEE_PCT", "0.00075") or "0.00075",
+        os.getenv(
+            "AI_SHADOW_FEE_PCT",
+            DEFAULT_RESEARCH_MAKER_FEE_TEXT,
+        )
+        or DEFAULT_RESEARCH_MAKER_FEE_TEXT,
         field="AI shadow fee",
     )
     slippage = _finite_decimal(
@@ -1637,7 +1642,11 @@ def virtual_plan_result(
     high = max(_finite_decimal(row[2], field="virtual candle high") for row in valid)
     close = _finite_decimal(valid[-1][4], field="virtual candle close")
     fee = _finite_decimal(
-        os.getenv("AI_SHADOW_FEE_PCT", "0.00075") or "0.00075",
+        os.getenv(
+            "AI_SHADOW_FEE_PCT",
+            DEFAULT_RESEARCH_MAKER_FEE_TEXT,
+        )
+        or DEFAULT_RESEARCH_MAKER_FEE_TEXT,
         field="virtual fee",
     )
     slippage = _finite_decimal(

@@ -3,6 +3,36 @@
 All notable changes are documented here. Releases use Semantic Versioning; every
 section is dated and there is intentionally no `Unreleased` section.
 
+## [2.20.286] — 2026-09-02
+
+### Changed
+- Runtime CHAMPION verification checks activation identity and the current experiment lifecycle before each executable plan.
+- Direct worker preflight checks current promotion eligibility after lifecycle verification.
+- Blocked configured symbols continue read-only SHADOW collection.
+- Symbol parsing, commission provenance, risk asset groups, research fee defaults, and Average True Range algorithms now have domain owners.
+- Existing consumers preserve their explicit Wilder, simple-average, or exponential-average indicator semantics.
+- Test dependencies now include Hypothesis for generated financial invariant checks.
+
+### Fixed
+- A superseded experiment can no longer leave its cached CHAMPION executable until a supervisor restart.
+- Startup preparation now validates exact agreement between permitted symbols and active policies.
+- Runtime revocation now updates the derived promotion report before the next status publication.
+- Dashboard and supervisor symbol parsing no longer maintain separate quote vocabularies.
+- Commission revaluation and replay models no longer maintain copied provenance or fee defaults.
+
+### Security
+- Runtime revocation removes the symbol, stops child workers, and blocks the current plan before market reads.
+- Persistent HALT, BTC, ETH, candidate evidence, and Mainnet order authority remain unchanged.
+- Release verification rejects unreviewed authenticated transport sites and fail-open registered guards.
+- Every new order or protection module receives a zero-`float` budget without manual registration.
+
+### Verified
+- The focused CHAMPION, worker, supervisor, SHADOW, recovery, and architecture regressions pass.
+- The focused property, authority, transport, guard, numeric, and indicator regressions pass.
+- The Cont order-flow branches and exact pre-window anchor removal have direct invariant tests.
+- The full project suite passes: 1,617 tests.
+- Python compilation, Technical English, architecture, and whitespace checks pass.
+
 ## [2.20.285] — 2026-09-01
 
 ### Changed

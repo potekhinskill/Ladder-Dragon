@@ -52,7 +52,7 @@ from ladder_dragon.strategy.prediction.control_evidence import (
     record_control_evidence,
     record_strategy_evidence,
 )
-from ladder_dragon.strategy.prediction.champion_registry import active_champion, champion_allows_regime
+from ladder_dragon.strategy.prediction.champion_registry import champion_allows_regime, verify_active_champion_lifecycle
 from ladder_dragon.strategy.prediction.episode_semantics import REGIME_ADX_LENGTH, REGIME_EMA_FAST_LENGTH, REGIME_EMA_SLOW_LENGTH, require_runtime_regime_contract
 from ladder_dragon.supervision.aggregate_trade_history import load_aggregate_trade_window, safe_aggregate_trade_error
 from ladder_dragon.supervision import strategy_control_gates, historical_context
@@ -63,7 +63,7 @@ from ladder_dragon.supervision.entry_policy import (
     directional_entry_settings as _directional_entry_settings,
     finite_decimal as _finite_decimal,
 )
-from ladder_dragon.supervision.execution_promotion import champion_position_allows_buy, prepare_execution_promotion_report
+from ladder_dragon.supervision.execution_promotion import champion_position_allows_buy, prepare_execution_promotion_report, revoke_execution_permission
 from ladder_dragon.supervision.champion_probation import apply_champion_probation_gate
 from ladder_dragon.supervision.volatility_guard import champion_volatility_context
 from ladder_dragon.supervision.position_flatten import BUY_BLOCKING_MODES, submit_flatten_slices
@@ -118,6 +118,9 @@ from ladder_dragon.supervision.symbol_service import (
 )
 from ladder_dragon.execution.order_identity import client_order_id
 from ladder_dragon.execution.exchange_math import format_step, round_step
+from ladder_dragon.execution.trade_accounting import (
+    symbol_assets as _canonical_symbol_assets,
+)
 from ladder_dragon.execution.order_recovery import (
     OrderJournal,
     read_order_journal_telemetry,
@@ -179,6 +182,7 @@ from ladder_dragon.strategy.strategy_math import geometric_ladder as build_ladde
 from ladder_dragon.strategy.strategy_math import split_ladder
 from ladder_dragon.strategy.strategy_math import RegimeHysteresis
 from ladder_dragon.strategy.strategy_math import NumericHysteresis
+from ladder_dragon.strategy.indicators import atr_sma_from_klines
 from ladder_dragon.strategy.expectancy_controls import (
     CommissionSchedule,
     RegimeExecutionStateMachine,
@@ -930,12 +934,8 @@ def dbg(msg: str) -> None:
 # VWAP configuration parsing lives in ladder_dragon.supervision.vwap_config.
 
 def symbol_assets(symbol: str) -> Tuple[str, str]:
-    if symbol.endswith("USDT"):
-        return symbol[:-4], "USDT"
-    for q in ("BUSD", "USDC", "BTC", "ETH"):
-        if symbol.endswith(q):
-            return symbol[:-len(q)], q
-    return symbol[:-3], symbol[-3:]
+    """Return assets from the canonical exact-accounting vocabulary."""
+    return _canonical_symbol_assets(symbol)
 
 # Resilient backoff with jitter
 
@@ -2030,14 +2030,9 @@ def _atr_pct(symbol: str, interval: str = '5m', length: int = 20) -> Tuple[float
         kl = _klines(symbol, interval, limit=length+2)
         if not kl or len(kl) < length+1:
             return 0.0, 0.0
-        prev_close = _analytics_float(kl[0][4])
-        trs = []
-        for row in kl[1:]:
-            high = _analytics_float(row[2]); low = _analytics_float(row[3]); close = _analytics_float(row[4])
-            tr = max(high-low, abs(high - prev_close), abs(low - prev_close))
-            trs.append(tr)
-            prev_close = close
-        atr = sum(trs[-length:]) / _analytics_float(length)
+        atr = atr_sma_from_klines(
+            kl, period=length, exclude_latest=False
+        )
         last_close = _analytics_float(kl[-1][4])
         return atr, (atr / last_close if last_close > 0 else 0.0)
     except SUPERVISOR_OPERATION_ERRORS as e:
@@ -2732,16 +2727,17 @@ def run_for_symbol(
         if _PREDICTION_SHADOW is None:
             _stop_children("CHAMPION registry is unavailable")
             raise RuntimeError("CHAMPION registry is unavailable")
-        current_champion = active_champion(_PREDICTION_SHADOW, symbol=symbol)
-        if (
-            current_champion is None
-            or current_champion.get("champion_fingerprint")
-            != champion.get("champion_fingerprint")
-        ):
-            # Never let an old child keep trading after an operator activates
-            # a replacement. The next reviewed startup loads the new policy.
-            _stop_children("active CHAMPION changed during runtime")
-            raise RuntimeError("active CHAMPION changed during runtime")
+        try:
+            verify_active_champion_lifecycle(_PREDICTION_SHADOW, symbol=symbol,
+                activation_id=str(champion["activation_id"]),
+                champion_fingerprint=str(champion["champion_fingerprint"]),
+                execution_policy_fingerprint=str(champion["execution_policy_fingerprint"]))
+        except SUPERVISOR_OPERATION_ERRORS as exc:
+            revoke_execution_permission(_ACTIVE_CHAMPIONS, _AI_RUNTIME_STATUS.get(
+                "execution_promotion"), symbol=symbol,
+                reason="current activation or experiment eligibility changed")
+            _stop_children("active CHAMPION eligibility changed during runtime")
+            raise RuntimeError("active CHAMPION eligibility changed during runtime") from exc
     champion_policy, champion_volatility = champion_volatility_context(champion, execution_allowed=execution_allowed)
     cycle_log = log if execution_allowed else lambda message: _log_info_rate_limited(
         f"blocked-shadow-detail:{symbol}:{message.partition(']')[0]}",

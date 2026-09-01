@@ -639,7 +639,31 @@ def verify_active_champion(
     champion_fingerprint: str,
     execution_policy_fingerprint: str,
 ) -> dict[str, object]:
-    """Verify the worker received the exact current activation."""
+    """Verify the exact activation and its current promotion eligibility."""
+    champion = verify_active_champion_lifecycle(
+        store,
+        symbol=symbol,
+        activation_id=activation_id,
+        champion_fingerprint=champion_fingerprint,
+        execution_policy_fingerprint=execution_policy_fingerprint,
+    )
+    report = confirmation_report(
+        store, experiment_id=str(champion["experiment_id"])
+    )
+    if report.get("promotion_eligible") is not True:
+        raise ValueError("active CHAMPION lost promotion eligibility")
+    return champion
+
+
+def verify_active_champion_lifecycle(
+    store: "PredictionShadowStore",
+    *,
+    symbol: str,
+    activation_id: str,
+    champion_fingerprint: str,
+    execution_policy_fingerprint: str,
+) -> dict[str, object]:
+    """Verify activation identity and the current experiment lifecycle."""
     champion = active_champion(store, symbol=symbol)
     if champion is None:
         raise ValueError("active CHAMPION is unavailable")
@@ -651,6 +675,12 @@ def verify_active_champion(
     for field, value in expected.items():
         if str(champion.get(field) or "") != str(value).strip().lower():
             raise ValueError(f"active CHAMPION {field} differs")
+    manifest = load_manifest(store, str(champion["experiment_id"]))
+    status = str(manifest.get("current_status") or "UNAVAILABLE")
+    if status != "CONFIRMED":
+        raise ValueError(
+            f"active CHAMPION experiment is {status}, not CONFIRMED"
+        )
     return champion
 
 
@@ -665,4 +695,5 @@ __all__ = [
     "list_champions",
     "migrate_champion_registry",
     "verify_active_champion",
+    "verify_active_champion_lifecycle",
 ]

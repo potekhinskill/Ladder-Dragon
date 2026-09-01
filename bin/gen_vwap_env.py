@@ -13,6 +13,7 @@ from decimal import Decimal, InvalidOperation
 from typing import Dict, Iterable, List, Optional, Tuple
 
 from ladder_dragon.execution import tools_market as TM
+from ladder_dragon.strategy.indicators import atr_ema_from_klines
 
 
 def ema(series: Iterable[float], period: int) -> float:
@@ -28,23 +29,12 @@ def ema(series: Iterable[float], period: int) -> float:
 
 
 def compute_atr(klines: List[List[float]], period: int = 14) -> float:
-    if len(klines) < period + 1:
-        return 0.0
-    highs = [float(x[2]) for x in klines]
-    lows = [float(x[3]) for x in klines]
-    closes = [float(x[4]) for x in klines]
-    trs: List[float] = []
-    prev_close = closes[0]
-    for idx in range(1, len(closes)):
-        high = highs[idx]
-        low = lows[idx]
-        tr = max(high - low, abs(high - prev_close), abs(low - prev_close))
-        trs.append(tr)
-        prev_close = closes[idx]
-    if not trs:
-        return 0.0
-    tail = trs[-max(period * 3, period):]
-    return ema(tail, period)
+    return atr_ema_from_klines(
+        klines,
+        period,
+        exclude_latest=False,
+        maximum_true_ranges=period * 3,
+    )
 
 
 def infer_mode(closes: List[float], ema_fast_len: int = 20, ema_slow_len: int = 50, eps: float = 0.0005) -> str:

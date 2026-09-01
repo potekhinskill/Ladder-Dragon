@@ -20,6 +20,10 @@ from ladder_dragon.strategy.market_replay import (
     ReplayOrder,
 )
 from ladder_dragon.strategy.replay_policy import ReplayAcceptancePolicy
+from ladder_dragon.strategy.fee_defaults import (
+    DEFAULT_RESEARCH_MAKER_FEE_PCT,
+    DEFAULT_RESEARCH_TAKER_FEE_PCT,
+)
 
 
 TERMINAL_STATUSES = {"FILLED", "CANCELED", "EXPIRED", "REJECTED"}
@@ -555,10 +559,10 @@ def validate_replay_outcomes(
     maximum_latency_error_ms_mae: Decimal = Decimal("1000"),
     maximum_fee_error_quote_mae: Decimal = Decimal("0.02"),
     maximum_slippage_error_bps_mae: Decimal = Decimal("10"),
-    maker_buy_fee_pct: Decimal = Decimal("0.00075"),
-    maker_sell_fee_pct: Decimal = Decimal("0.00075"),
-    taker_buy_fee_pct: Decimal = Decimal("0.001"),
-    taker_sell_fee_pct: Decimal = Decimal("0.001"),
+    maker_buy_fee_pct: Decimal = DEFAULT_RESEARCH_MAKER_FEE_PCT,
+    maker_sell_fee_pct: Decimal = DEFAULT_RESEARCH_MAKER_FEE_PCT,
+    taker_buy_fee_pct: Decimal = DEFAULT_RESEARCH_TAKER_FEE_PCT,
+    taker_sell_fee_pct: Decimal = DEFAULT_RESEARCH_TAKER_FEE_PCT,
 ) -> ReplayValidation:
     """Replay terminal real orders and fail closed on insufficient accuracy."""
     rows = sorted(events, key=lambda event: event.ts_ms)
@@ -661,10 +665,10 @@ def validate_replay_sessions(
         "maximum_latency_error_ms_mae": Decimal("1000"),
         "maximum_fee_error_quote_mae": Decimal("0.02"),
         "maximum_slippage_error_bps_mae": Decimal("10"),
-        "maker_buy_fee_pct": Decimal("0.00075"),
-        "maker_sell_fee_pct": Decimal("0.00075"),
-        "taker_buy_fee_pct": Decimal("0.001"),
-        "taker_sell_fee_pct": Decimal("0.001"),
+        "maker_buy_fee_pct": DEFAULT_RESEARCH_MAKER_FEE_PCT,
+        "maker_sell_fee_pct": DEFAULT_RESEARCH_MAKER_FEE_PCT,
+        "taker_buy_fee_pct": DEFAULT_RESEARCH_TAKER_FEE_PCT,
+        "taker_sell_fee_pct": DEFAULT_RESEARCH_TAKER_FEE_PCT,
     }
     unknown = set(thresholds) - set(defaults)
     if unknown:

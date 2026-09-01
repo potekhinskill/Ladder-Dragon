@@ -10,7 +10,11 @@ from decimal import Decimal
 import sqlite3
 from typing import Callable, Mapping, Sequence
 
-from ladder_dragon.execution.trade_accounting import TradeExecution, decimal_text
+from ladder_dragon.execution.trade_accounting import (
+    REVALUED_COMMISSION_STATUSES,
+    TradeExecution,
+    decimal_text,
+)
 
 
 @dataclass(frozen=True)
@@ -98,7 +102,7 @@ def build_revaluation(
                 commission_quote is None
                 or not commission_quote.is_finite()
                 or commission_quote < 0
-                or status not in {"none", "exact", "converted"}
+                or status not in REVALUED_COMMISSION_STATUSES
             ):
                 raise ValueError(f"{commission_asset or 'unknown'} commission is unpriced")
             execution = TradeExecution.create(

@@ -25,7 +25,8 @@ VALUED_COMMISSION_STATUSES = frozenset(
         "quote",
     }
 )
-KNOWN_QUOTES = (
+REVALUED_COMMISSION_STATUSES = frozenset({"none", "exact", "converted"})
+KNOWN_QUOTE_ASSETS = (
     "FDUSD",
     "USDT",
     "USDC",
@@ -42,6 +43,8 @@ KNOWN_QUOTES = (
     "DAI",
     "TRY",
 )
+# Preserve the established public name for compatibility consumers.
+KNOWN_QUOTES = KNOWN_QUOTE_ASSETS
 
 
 def decimal(value: object) -> Decimal:
@@ -60,7 +63,7 @@ def decimal_text(value: object) -> str:
 def symbol_assets(symbol: str) -> tuple[str, str]:
     """Return canonical base and quote assets or fail closed."""
     normalized = symbol.strip().upper()
-    for quote in KNOWN_QUOTES:
+    for quote in KNOWN_QUOTE_ASSETS:
         if normalized.endswith(quote) and len(normalized) > len(quote):
             return normalized[: -len(quote)], quote
     raise ValueError(f"cannot determine assets for symbol {normalized}")

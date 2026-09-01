@@ -12,6 +12,10 @@ import hashlib
 from pathlib import Path
 
 from ladder_dragon.strategy.replay_policy import ReplayAcceptancePolicy
+from ladder_dragon.strategy.fee_defaults import (
+    DEFAULT_RESEARCH_MAKER_FEE_PCT,
+    DEFAULT_RESEARCH_TAKER_FEE_PCT,
+)
 from ladder_dragon.strategy.volatility_measurement import (
     VOLATILITY_EVENT_POPULATION,
     VOLATILITY_MEASUREMENT_WINDOW_MS,
@@ -78,7 +82,8 @@ class ReplayFill(NamedTuple):
 class OrderBookReplay:
     """Represent OrderBookReplay."""
     def __init__(self, *, latency_ms: int = 0, max_requests_per_minute: int = 1200,
-                 maker_fee_pct: Decimal = Decimal("0.00075"), taker_fee_pct: Decimal = Decimal("0.001"),
+                 maker_fee_pct: Decimal = DEFAULT_RESEARCH_MAKER_FEE_PCT,
+                 taker_fee_pct: Decimal = DEFAULT_RESEARCH_TAKER_FEE_PCT,
                  market_impact_bps: Decimal = Decimal("0"),
                  queue_cancellation_ahead_ratio: Decimal = Decimal("0.5"),
                  volume_impact_scale: Decimal = Decimal("1")) -> None:

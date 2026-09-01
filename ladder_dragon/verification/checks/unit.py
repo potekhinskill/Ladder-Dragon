@@ -30,6 +30,21 @@ def local_checks(context: HarnessContext) -> list[CheckSpec]:
             timeout_sec=120,
         ),
         CheckSpec(
+            name="semantic_authority_audit",
+            argv=(python, "-m", "bin.audit_semantic_authorities"),
+            timeout_sec=120,
+        ),
+        CheckSpec(
+            name="exchange_boundary_audit",
+            argv=(python, "-m", "bin.audit_exchange_boundaries"),
+            timeout_sec=120,
+        ),
+        CheckSpec(
+            name="guard_contract_audit",
+            argv=(python, "-m", "bin.audit_guard_contracts"),
+            timeout_sec=120,
+        ),
+        CheckSpec(
             name="tracked_secret_scan",
             argv=(python, "deploy/scan_tracked_secrets.py"),
             timeout_sec=120,

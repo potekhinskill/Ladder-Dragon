@@ -257,6 +257,64 @@ def test_new_execution_symbol_is_disabled_but_shadow_process_can_start(monkeypat
     assert report["execution_permitted_symbols"] == []
 
 
+def test_promotion_report_integrity_rejects_policy_scope_drift():
+    report = {
+        "execution_permitted_symbols": ["SOLUSDT"],
+        "blocked_execution_symbols": [],
+        "active_champions": {},
+    }
+
+    with pytest.raises(ValueError, match="policy scope differs"):
+        execution_promotion.require_promotion_report_integrity(report)
+
+
+def test_prepare_enforces_promotion_report_integrity(monkeypatch):
+    monkeypatch.setattr(
+        execution_promotion,
+        "build_execution_promotion_report",
+        lambda **_kwargs: {
+            "execution_permitted_symbols": ["SOLUSDT"],
+            "blocked_execution_symbols": [],
+            "active_champions": {},
+        },
+    )
+
+    with pytest.raises(ValueError, match="policy scope differs"):
+        execution_promotion.prepare_execution_promotion_report(
+            execution_symbols=["SOLUSDT"],
+            prediction_symbols=["SOLUSDT"],
+            store=object(),
+            environment={"BOT_EXECUTION_CANDIDATE_SYMBOLS": ""},
+        )
+
+
+def test_runtime_revocation_removes_permission_and_preserves_shadow_report():
+    report = {
+        "execution_permitted_symbols": ["SOLUSDT"],
+        "blocked_execution_symbols": [],
+        "active_champions": {"SOLUSDT": {"activation_id": "active"}},
+        "candidates": {
+            "SOLUSDT": {
+                "execution_permitted": True,
+                "execution_blocking_reasons": [],
+            }
+        },
+    }
+
+    execution_promotion.revoke_execution_permission(
+        {}, report, symbol="SOLUSDT", reason="experiment superseded"
+    )
+
+    assert report["execution_permitted_symbols"] == []
+    assert report["blocked_execution_symbols"] == ["SOLUSDT"]
+    assert report["active_champions"] == {}
+    candidate = report["candidates"]["SOLUSDT"]
+    assert candidate["execution_permitted"] is False
+    assert candidate["execution_blocking_reasons"] == [
+        "runtime CHAMPION revoked: experiment superseded"
+    ]
+
+
 def test_supervisor_checks_promotion_before_preflight_and_worker_loop():
     source = inspect.getsource(supervisor.main)
 

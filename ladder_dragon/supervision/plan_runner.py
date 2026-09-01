@@ -19,6 +19,7 @@ import threading
 import contextlib
 from typing import List, Tuple, Optional, Dict
 from product_version import product_label
+from ladder_dragon.strategy.indicators import atr_sma_from_klines
 
 try:
     import requests
@@ -170,19 +171,12 @@ def build_ladder_pct(now_price: float,
 
 
 def estimate_atr_ratio(symbol: str, interval: str = "1h", window: int = 14) -> float:
-    """Estimate the average true range as a fraction of the last close."""
+    """Estimate simple-average true range as a fraction of the last close."""
     k = _public_get("/api/v3/klines", {"symbol": symbol, "interval": interval, "limit": window + 2})
     if len(k) < 2:
         return 0.0
-    highs = [float(x[2]) for x in k]
-    lows  = [float(x[3]) for x in k]
-    closes= [float(x[4]) for x in k]
-    trs = []
-    for i in range(1, len(k)):
-        tr = max(highs[i]-lows[i], abs(highs[i]-closes[i-1]), abs(lows[i]-closes[i-1]))
-        trs.append(tr)
-    atr = sum(trs)/len(trs) if trs else 0.0
-    last = closes[-1]
+    atr = atr_sma_from_klines(k, exclude_latest=False)
+    last = float(k[-1][4])
     return (atr / last) if last > 0 else 0.0
 
 

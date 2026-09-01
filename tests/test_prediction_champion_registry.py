@@ -16,6 +16,7 @@ from ladder_dragon.execution.worker.champion_preflight import (
 from ladder_dragon.strategy.prediction.experiment_lifecycle import (
     canonical_json,
     sha256_json,
+    supersede_experiment,
 )
 from ladder_dragon.strategy.prediction.episode_semantics import (
     evidence_semantics_fingerprint,
@@ -449,6 +450,39 @@ def test_worker_identity_verification_rejects_a_different_fingerprint(
             symbol="BTCUSDT",
             activation_id=str(activated["activation_id"]),
             champion_fingerprint="f" * 64,
+            execution_policy_fingerprint=str(
+                activated["execution_policy_fingerprint"]
+            ),
+        )
+
+
+def test_worker_verification_rejects_a_superseded_champion_experiment(
+    tmp_path: Path, monkeypatch
+):
+    store = PredictionShadowStore(tmp_path / "prediction.sqlite3")
+    manifest = _confirmed_manifest(
+        store,
+        experiment_id="btc-v13-confirmed",
+        generation="v13",
+        candidate_fingerprint="a" * 64,
+    )
+    activated = _activate(
+        store, monkeypatch, manifest, previous=None, activated_at_ms=10
+    )
+
+    supersede_experiment(
+        store,
+        experiment_id=str(manifest["experiment_id"]),
+        reason="test runtime revocation",
+    )
+
+    assert champion_registry.active_champion(store, symbol="BTCUSDT") is not None
+    with pytest.raises(ValueError, match="SUPERSEDED, not CONFIRMED"):
+        champion_registry.verify_active_champion(
+            store,
+            symbol="BTCUSDT",
+            activation_id=str(activated["activation_id"]),
+            champion_fingerprint=str(activated["champion_fingerprint"]),
             execution_policy_fingerprint=str(
                 activated["execution_policy_fingerprint"]
             ),

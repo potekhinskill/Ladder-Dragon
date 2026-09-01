@@ -15,6 +15,9 @@ from pathlib import Path
 import time
 
 from ladder_dragon.strategy.simulation import Candle, SimulationConfig, simulate_grid
+from ladder_dragon.strategy.fee_defaults import (
+    DEFAULT_RESEARCH_MAKER_FEE_PCT,
+)
 from ladder_dragon.strategy.market_replay import (
     archive_sha256,
     load_jsonl_archive,
@@ -87,7 +90,9 @@ def main() -> int:
     parser.add_argument("csv_file", help="CSV columns: ts,open,high,low,close")
     parser.add_argument("--cash", type=Decimal, default=Decimal("1000"))
     parser.add_argument("--order", type=Decimal, default=Decimal("50"))
-    parser.add_argument("--fee", type=Decimal, default=Decimal("0.00075"))
+    parser.add_argument(
+        "--fee", type=Decimal, default=DEFAULT_RESEARCH_MAKER_FEE_PCT
+    )
     parser.add_argument("--slippage", type=Decimal, default=Decimal("0.0005"))
     parser.add_argument("--latency-bars", type=int, default=1)
     parser.add_argument("--archive", help="optional Binance replay JSONL")

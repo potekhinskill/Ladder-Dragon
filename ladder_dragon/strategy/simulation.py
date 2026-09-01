@@ -12,6 +12,10 @@ import random
 import os
 from pathlib import Path
 
+from ladder_dragon.strategy.fee_defaults import (
+    DEFAULT_RESEARCH_MAKER_FEE_PCT,
+)
+
 
 D = Decimal
 
@@ -34,7 +38,7 @@ class SimulationConfig:
     order_notional: Decimal = D("50")
     buy_offset_pct: Decimal = D("0.01")
     take_profit_pct: Decimal = D("0.01")
-    fee_pct: Decimal = D("0.00075")
+    fee_pct: Decimal = DEFAULT_RESEARCH_MAKER_FEE_PCT
     slippage_pct: Decimal = D("0.0005")
     spread_pct: Decimal = D("0.0002")
     partial_fill_ratio: Decimal = D("1")

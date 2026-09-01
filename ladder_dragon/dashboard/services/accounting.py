@@ -4,30 +4,14 @@
 
 """Dashboard accounting helpers; execution decisions never import this module."""
 
-
-KNOWN_QUOTES = (
-    "FDUSD",
-    "TUSD",
-    "USDT",
-    "USDC",
-    "BUSD",
-    "DAI",
-    "BTC",
-    "ETH",
-    "BNB",
-    "TRY",
-    "EUR",
-    "GBP",
-    "AUD",
-    "BRL",
-    "JPY",
-)
+from ladder_dragon.execution.trade_accounting import base_asset
 
 
 def base_asset_of(symbol: str) -> str:
     """Infer the base asset for a display-only Binance symbol."""
     normalized = str(symbol).upper()
-    for quote in KNOWN_QUOTES:
-        if normalized.endswith(quote) and len(normalized) > len(quote):
-            return normalized[: -len(quote)]
-    return normalized
+    try:
+        return base_asset(normalized)
+    except ValueError:
+        # Display-only legacy rows retain their original label.
+        return normalized

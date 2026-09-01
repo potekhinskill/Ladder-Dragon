@@ -26,6 +26,23 @@ LIMITS = {
     "ladder_dragon/execution/protection/runtime.py": 0,
     "ladder_dragon/execution/protection/breakeven.py": 0,
 }
+EXACT_PACKAGE_ROOTS = (
+    "ladder_dragon/execution/orders",
+    "ladder_dragon/execution/protection",
+)
+
+
+def audited_limits(root: Path) -> dict[str, int]:
+    """Add every exact-execution module to the zero-float budget."""
+    limits = dict(LIMITS)
+    for relative_root in EXACT_PACKAGE_ROOTS:
+        package = root / relative_root
+        if not package.exists():
+            continue
+        for path in package.rglob("*.py"):
+            relative = path.relative_to(root).as_posix()
+            limits.setdefault(relative, 0)
+    return limits
 
 
 def direct_float_calls(path: Path) -> int:
@@ -39,18 +56,19 @@ def direct_float_calls(path: Path) -> int:
 
 
 def audit_numeric_boundaries(root: Path) -> dict[str, object]:
+    limits = audited_limits(root)
     counts = {
-        name: direct_float_calls(root / name) for name in LIMITS
+        name: direct_float_calls(root / name) for name in limits
     }
     regressions = {
         name: {"actual": counts[name], "maximum": maximum}
-        for name, maximum in LIMITS.items()
+        for name, maximum in limits.items()
         if counts[name] > maximum
     }
     return {
         "ready": not regressions,
         "counts": counts,
-        "maximums": dict(LIMITS),
+        "maximums": limits,
         "regressions": regressions,
     }
 

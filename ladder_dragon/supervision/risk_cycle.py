@@ -13,6 +13,11 @@ from typing import Any, Dict, List, Mapping, Sequence
 
 import requests
 
+from ladder_dragon.execution.trade_accounting import DEFAULT_SPOT_FEE_PCT
+from ladder_dragon.risk.asset_policy import (
+    RISK_CONVERSION_QUOTE_ASSETS,
+    STABLE_VALUATION_ASSETS,
+)
 from ladder_dragon.risk.risk_manager import (
     RiskDecision,
     RiskLimits,
@@ -409,7 +414,6 @@ def build_risk_snapshot(
     # Risk valuation must cover the whole account, not only strategy symbols.
     # Otherwise old or manual positions in another asset disappear from equity,
     # drawdown and portfolio CAP.
-    stable_assets = {"USDT", "USDC", "FDUSD", "BUSD", "TUSD", "DAI"}
     unvalued_assets = configured_unvalued_assets()
     asset_values: Dict[str, Decimal] = {}
     equity = Decimal("0")
@@ -419,7 +423,7 @@ def build_risk_snapshot(
         qty = money(balance.get("free", 0)) + money(balance.get("locked", 0))
         if qty <= 0:
             continue
-        if asset in stable_assets:
+        if asset in STABLE_VALUATION_ASSETS:
             value = qty
         else:
             # Try direct USDT first, then common cross-quotes. Stablecoin
@@ -429,7 +433,7 @@ def build_risk_snapshot(
                 asset, prices, get_last_price_decimal
             )
             if valuation_price is None:
-                for quote in ("USDC", "FDUSD", "BTC", "ETH"):
+                for quote in RISK_CONVERSION_QUOTE_ASSETS:
                     candidate = f"{asset}{quote}"
                     try:
                         candidate_price = get_last_price_decimal(candidate)
@@ -443,7 +447,10 @@ def build_risk_snapshot(
                             candidate_price = conversion_price_decimal(
                                 asset_qty=qty, side="SELL",
                                 bids=bid_levels, asks=ask_levels,
-                                fee_pct=os.getenv("RISK_CONVERSION_FEE_PCT", "0.001"),
+                                fee_pct=os.getenv(
+                                    "RISK_CONVERSION_FEE_PCT",
+                                    format(DEFAULT_SPOT_FEE_PCT, "f"),
+                                ),
                             )
                     except (
                         RuntimeError,
@@ -453,7 +460,7 @@ def build_risk_snapshot(
                     ):
                         continue
                     if candidate_price > 0:
-                        if quote in stable_assets:
+                        if quote in STABLE_VALUATION_ASSETS:
                             haircut = max(
                                 Decimal("0"),
                                 money(os.getenv("RISK_STABLECOIN_HAIRCUT_PCT", "0.002")),
@@ -490,7 +497,7 @@ def build_risk_snapshot(
             value = qty * money(valuation_price)
         asset_values[asset] = value
         equity += value
-        if asset not in stable_assets:
+        if asset not in STABLE_VALUATION_ASSETS:
             # Cash/reserve belongs to equity, but is not market exposure.
             holdings_exposure += value
 
