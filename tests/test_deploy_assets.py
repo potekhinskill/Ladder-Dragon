@@ -991,8 +991,29 @@ def test_database_retention_is_backup_gated_bounded_and_scheduled():
     backup_service = read("deploy/ladder-dragon-backup.service")
     assert (
         "OnSuccess=ladder-dragon-database-retention.service "
-        "ladder-dragon-depth-retention.service"
+        "ladder-dragon-depth-retention.service "
+        "ladder-dragon-depth-session-align.service"
     ) in backup_service
+
+
+def test_backup_aligns_a_new_depth_session_after_success():
+    service = read("deploy/ladder-dragon-depth-session-align.service")
+    backup = read("deploy/ladder-dragon-backup.service")
+    installer = read("deploy/install_raspberry_pi.sh")
+    updater = read("deploy/update_raspberry_pi.sh")
+
+    assert (
+        "OnSuccess=ladder-dragon-database-retention.service "
+        "ladder-dragon-depth-retention.service "
+        "ladder-dragon-depth-session-align.service"
+    ) in backup
+    assert (
+        "ExecStart=/usr/bin/systemctl try-restart "
+        "ladder-dragon-depth-archive.service"
+    ) in service
+    assert "RestrictAddressFamilies=AF_UNIX" in service
+    assert "ladder-dragon-depth-session-align.service" in installer
+    assert "ladder-dragon-depth-session-align.service" in updater
 
 
 def test_updates_are_commit_allowlisted_and_backups_are_encrypted():
@@ -1454,6 +1475,7 @@ def test_systemd_units_have_extended_sandboxing():
         "deploy/ladder-dragon-backup.service",
         "deploy/ladder-dragon-log-export.service",
         "deploy/ladder-dragon-depth-archive.service",
+        "deploy/ladder-dragon-depth-session-align.service",
         "deploy/ladder-dragon-soak-audit.service",
         "deploy/ladder-dragon-user-stream-shadow.service",
     ):

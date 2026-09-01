@@ -3,6 +3,27 @@
 All notable changes are documented here. Releases use Semantic Versioning; every
 section is dated and there is intentionally no `Unreleased` section.
 
+## [2.20.282] — 2026-09-01
+
+### Changed
+- Historical paths start only inside continuous intersections of L2 data and source-owned context.
+- Confirmation capacity uses the remaining time in the active provider session.
+- Successful daily backup starts a new public depth session after maintenance.
+
+### Fixed
+- A context gap no longer discards all usable data later in the same provider session.
+- Daily backup gaps no longer consume the first fixed path of each day.
+- Replay veto signals ignore market events before the frozen signal warm-up interval.
+
+### Security
+- Paths never cross a context gap or WebSocket reconnect and never reuse an immutable source segment.
+- Persistent HALT, BTC, ETH, CHAMPION state, and Mainnet order authority remain unchanged.
+
+### Verified
+- The gap, reconnect, context, capacity, replay, and deployment regressions pass.
+- The full project suite passes: 1,583 tests.
+- Python compilation, Technical English, architecture, and whitespace checks pass.
+
 ## [2.20.281] — 2026-09-01
 
 ### Changed

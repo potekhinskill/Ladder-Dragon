@@ -57,13 +57,15 @@ The provider-bounded replay request contains exactly these top-level fields:
 | Field | Required content |
 | --- | --- |
 | `request_schema_version` | Integer `2` |
-| `cohort_contract` | `provider_bounded_executable_paths_v2` |
+| `cohort_contract` | `provider_bounded_gap_aligned_executable_paths_v3` |
 | `stability_block_index` | Chronological block index from zero through three |
 | `policy` | Every field in `HistoricalPolicy`, including explicit timing and capacity limits |
 | `paths` | Three chronological source-disjoint path objects |
 
 Each path contains `archives`, `start_ms`, `entry_end_ms`, `end_ms`, and `cutoff_ms`.
 Each archive object contains one path and one pinned SHA-256 value.
+The planner starts paths only inside continuous L2 and historical context intervals.
+It starts a new path after a context gap and never joins a provider reconnect.
 
 Financial inputs use decimal strings.
 Timestamps use integer milliseconds.

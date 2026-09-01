@@ -1,0 +1,31 @@
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2026 IURII Potekhin
+# Purpose: align a new public depth session after daily backup maintenance.
+[Unit]
+Description=Align Ladder Dragon depth session after backup maintenance
+After=ladder-dragon-backup.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/systemctl try-restart ladder-dragon-depth-archive.service
+NoNewPrivileges=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectSystem=strict
+ProtectHome=yes
+ProtectClock=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+ProtectKernelLogs=yes
+ProtectHostname=yes
+RestrictSUIDSGID=yes
+RestrictRealtime=yes
+RestrictNamespaces=yes
+LockPersonality=yes
+CapabilityBoundingSet=
+AmbientCapabilities=
+RestrictAddressFamilies=AF_UNIX
+SystemCallArchitectures=native
+SystemCallFilter=@system-service
+SystemCallErrorNumber=EPERM

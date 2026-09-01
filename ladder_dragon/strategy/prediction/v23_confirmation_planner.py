@@ -43,6 +43,7 @@ D = Decimal
 CONFIRMATION_COHORT_MARKER = "confirmation-cohort.json"
 CONFIRMATION_BLOCK_DIRECTORY = "confirmation-blocks"
 CONFIRMATION_CAPACITY_RESERVE_PATHS = 3
+CURRENT_SESSION_MAX_METADATA_LAG_MS = 2 * 60 * 60_000
 
 
 def _integer(criteria: Mapping[str, object], field: str) -> int:
@@ -94,7 +95,7 @@ def _confirmation_design(
         and criteria.get("confirmation_block_size") == PATHS_PER_BLOCK
         and criteria.get("incremental_block_evaluation") is True
         and criteria.get("path_admission_policy")
-        == "first_executable_context_ready_post_cutoff_paths_v2"
+        == "first_gap_aligned_executable_post_cutoff_paths_v3"
         and criteria.get("path_trial_cardinality_policy")
         == "one_terminal_attempt_per_executable_path_v1"
         and criteria.get("confirmation_evidence_origin_policy")
@@ -122,7 +123,7 @@ def _confirmation_design(
         ),
         "incremental_block_evaluation": True,
         "path_admission_policy": (
-            "first_executable_context_ready_post_cutoff_paths_v2"
+            "first_gap_aligned_executable_post_cutoff_paths_v3"
         ),
         "path_trial_cardinality_policy": (
             "one_terminal_attempt_per_executable_path_v1"
@@ -161,6 +162,58 @@ def _provider_design_duration(required_paths: int) -> int:
         (sessions - 1) * PROVIDER_CONNECTION_MAX_MS
         + remainder * capacity["path_duration_ms"]
     )
+
+
+def _remaining_provider_capacity(
+    chains: list[list[tuple[Path, dict]]],
+    *,
+    now_ms: int,
+    deadline_ms: int,
+) -> dict[str, int | bool | None]:
+    """Align the optimistic remaining capacity to the active provider session."""
+    generic = _provider_capacity(max(0, deadline_ms - now_ms))
+    current = max(
+        (chain for chain in chains if chain),
+        key=lambda chain: int(chain[-1][1]["finished_at_ms"]),
+        default=None,
+    )
+    if current is None:
+        return {
+            **generic,
+            "current_session_detected": False,
+            "current_session_started_at_ms": None,
+            "current_session_remaining_ms": None,
+        }
+    started = int(current[0][1]["started_at_ms"])
+    latest = int(current[-1][1]["finished_at_ms"])
+    session_end = started + PROVIDER_CONNECTION_MAX_MS
+    if (
+        latest > now_ms
+        or now_ms - latest > CURRENT_SESSION_MAX_METADATA_LAG_MS
+        or not started <= now_ms < session_end
+    ):
+        return {
+            **generic,
+            "current_session_detected": False,
+            "current_session_started_at_ms": None,
+            "current_session_remaining_ms": None,
+        }
+    path_duration = int(generic["path_duration_ms"])
+    paths_per_session = int(generic["paths_per_provider_session"])
+    current_remaining = max(0, min(deadline_ms, session_end) - now_ms)
+    current_paths = min(
+        paths_per_session, current_remaining // path_duration
+    )
+    future = _provider_capacity(max(0, deadline_ms - session_end))
+    return {
+        **generic,
+        "maximum_paths_before_deadline": (
+            current_paths + int(future["maximum_paths_before_deadline"])
+        ),
+        "current_session_detected": True,
+        "current_session_started_at_ms": started,
+        "current_session_remaining_ms": current_remaining,
+    }
 
 
 def _confirmation_stage_counts(root: Path, queued: int) -> dict[str, int]:
@@ -311,7 +364,7 @@ def plan_v23_confirmation_drafts(
         "block_size": PATHS_PER_BLOCK,
         "maximum_blocks": required_paths // PATHS_PER_BLOCK,
         "admission_policy": (
-            "first_executable_context_ready_post_cutoff_paths_v2"
+            "first_gap_aligned_executable_post_cutoff_paths_v3"
         ),
     }
     marker["cohort_sha256"] = fingerprint(marker)
@@ -397,8 +450,11 @@ def plan_v23_confirmation_drafts(
             atomic_json(request_path, request)
         previous_block_sha256 = fingerprint(block_body)
     observed_now_ms = int(time.time() * 1000) if now_ms is None else int(now_ms)
-    remaining_ms = max(0, deadline_ms - observed_now_ms)
-    remaining_provider_capacity = _provider_capacity(remaining_ms)
+    remaining_provider_capacity = _remaining_provider_capacity(
+        chains,
+        now_ms=observed_now_ms,
+        deadline_ms=deadline_ms,
+    )
     optimistic_additional_paths = remaining_provider_capacity[
         "maximum_paths_before_deadline"
     ]

@@ -1,5 +1,12 @@
 # Engineering mistakes and root causes
 
+### 2026-09-01 — Anchored paths only to L2 session start
+
+- **Impact:** one daily context gap reduced throughput and made the confirmation deadline operationally unreachable.
+- **Root cause:** path geometry ignored recurring context outages inside an otherwise continuous L2 session.
+- **Correction:** intersect both continuity sources, realign after each gap, and align recorder sessions after backup.
+- **Prevention:** test each fixed evidence schedule with its production maintenance gap.
+
 ### 2026-09-01 — Counted context availability as an executable trial
 
 - **Impact:** one TREND_DOWN path made the twelve-path selection cohort mathematically unable to pass.

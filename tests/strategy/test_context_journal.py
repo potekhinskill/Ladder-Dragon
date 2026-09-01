@@ -4,7 +4,11 @@ import sqlite3
 
 import pytest
 
-from ladder_dragon.strategy.prediction.context_journal import ContextJournal, export_context
+from ladder_dragon.strategy.prediction.context_journal import (
+    ContextJournal,
+    continuous_context_intervals,
+    export_context,
+)
 from ladder_dragon.strategy.prediction.context_sources import attest, fee_source, filter_source
 from ladder_dragon.strategy.prediction.episode_semantics import v23_evidence_semantics_contract
 from ladder_dragon.strategy.prediction.historical_policy import fingerprint
@@ -88,6 +92,26 @@ def test_gap_cannot_be_backfilled_with_a_later_observation(tmp_path):
     append(journal, 182000)
     with pytest.raises(ValueError, match="gap"):
         export(journal.path, end=190000)
+
+
+def test_continuous_intervals_split_and_resume_after_a_gap(tmp_path):
+    journal = ContextJournal(tmp_path / "context.sqlite3")
+    append(journal)
+    append(journal, 182000)
+
+    intervals = continuous_context_intervals(
+        journal.path,
+        symbol=SYMBOL,
+        classifier_fingerprint=fingerprint(CLASSIFIER),
+        start_ms=2000,
+        end_ms=190000,
+        cutoff_ms=190000,
+    )
+
+    assert [(row["start_ms"], row["end_ms"]) for row in intervals] == [
+        (2000, 181000),
+        (182000, 362000),
+    ]
 
 
 def test_changed_classifier_and_symbol_do_not_cross_cohorts(tmp_path):

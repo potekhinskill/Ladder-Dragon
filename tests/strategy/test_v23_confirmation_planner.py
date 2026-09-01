@@ -20,7 +20,7 @@ def _manifest():
             "confirmation_block_size": 3,
             "incremental_block_evaluation": True,
             "path_admission_policy": (
-                "first_executable_context_ready_post_cutoff_paths_v2"
+                "first_gap_aligned_executable_post_cutoff_paths_v3"
             ),
             "path_trial_cardinality_policy": (
                 "one_terminal_attempt_per_executable_path_v1"
@@ -175,6 +175,28 @@ def test_provider_capacity_rejects_more_than_42_paths_in_14_days():
     assert capacity["maximum_paths_before_deadline"] == 42
     assert subject._provider_design_duration(42) <= duration
     assert subject._provider_design_duration(43) > duration
+
+
+def test_remaining_capacity_uses_the_current_provider_session_remainder():
+    now = 10 * 60 * 60_000
+    deadline = 30 * 60 * 60_000
+    chains = [[(
+        None,
+        {
+            "started_at_ms": 1,
+            "finished_at_ms": now - 60_000,
+        },
+    )]]
+
+    capacity = subject._remaining_provider_capacity(
+        chains, now_ms=now, deadline_ms=deadline
+    )
+
+    assert capacity["current_session_detected"] is True
+    assert capacity["maximum_paths_before_deadline"] == 1
+    assert capacity["current_session_remaining_ms"] == (
+        subject.PROVIDER_CONNECTION_MAX_MS + 1 - now
+    )
 
 
 def test_confirmation_planner_queues_first_complete_block_immediately(

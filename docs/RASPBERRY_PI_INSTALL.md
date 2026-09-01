@@ -1027,6 +1027,8 @@ Each segment has bounded events, bytes, and book levels.
 Prediction backfill rejects aggregate trades with decreasing timestamps.
 Do not concatenate separate connection sessions.
 The historical reader joins only verified, hash-linked segments of the same session.
+Successful daily backup starts a new recorder session after maintenance.
+This boundary prevents a daily context gap from consuming a complete evidence path.
 See [Historical entry replay](HISTORICAL_ENTRY_REPLAY.md) for source retention and selection requirements.
 
 ```bash

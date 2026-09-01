@@ -27,7 +27,7 @@ def test_path_batch_replays_each_session_separately(tmp_path, monkeypatch):
         })
     request = {
         "request_schema_version": 2,
-        "cohort_contract": "provider_bounded_executable_paths_v2",
+        "cohort_contract": "provider_bounded_gap_aligned_executable_paths_v3",
         "stability_block_index": 0,
         "policy": policy,
         "paths": paths,

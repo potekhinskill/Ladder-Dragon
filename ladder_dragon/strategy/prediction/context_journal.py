@@ -178,3 +178,128 @@ def export_context(path: Path, *, symbol: str, classifier_fingerprint: str,
         return result
     finally:
         connection.close()
+
+
+def continuous_context_intervals(
+    path: Path,
+    *,
+    symbol: str,
+    classifier_fingerprint: str,
+    start_ms: int,
+    end_ms: int,
+    cutoff_ms: int,
+) -> list[dict[str, object]]:
+    """Return bounded continuous AVAILABLE spans without joining a context gap."""
+    symbol_name(symbol)
+    if not stamp(start_ms) < stamp(end_ms) <= stamp(cutoff_ms):
+        raise ValueError("context interval window invalid")
+    connection = sqlite3.connect(
+        Path(path).resolve().as_uri() + "?mode=ro", uri=True, timeout=1
+    )
+    try:
+        connection.execute("PRAGMA query_only=ON")
+        connection.execute("BEGIN")
+        digest = hashlib.sha256(MIGRATION.read_bytes()).hexdigest()
+        if (
+            connection.execute("PRAGMA user_version").fetchone()[0] != 1
+            or connection.execute(
+                "SELECT sha256 FROM context_schema WHERE version=1"
+            ).fetchone()
+            != (digest,)
+        ):
+            raise ValueError("context interval schema differs")
+        first = connection.execute(
+            "SELECT observed_at_ms FROM historical_context_records "
+            "WHERE symbol=? AND observed_at_ms<=? "
+            "ORDER BY observed_at_ms DESC LIMIT 1",
+            (symbol, start_ms),
+        ).fetchone()
+        if first is None:
+            return []
+        cursor = connection.execute(
+            "SELECT observed_at_ms,session_id,status,payload,sha256,previous_sha256 "
+            "FROM historical_context_records WHERE symbol=? "
+            "AND observed_at_ms>=? AND observed_at_ms<=? "
+            "ORDER BY observed_at_ms LIMIT ?",
+            (symbol, first[0], end_ms, MAX_EXPORT_RECORDS + 1),
+        )
+        intervals: list[dict[str, object]] = []
+        current: dict[str, object] | None = None
+        previous: str | None = None
+        size = count = 0
+        for observed, row_session, status, raw, hashed, prior in cursor:
+            encoded_size = len(raw.encode())
+            size += encoded_size
+            count += 1
+            if (
+                count > MAX_EXPORT_RECORDS
+                or size > MAX_EXPORT_BYTES
+                or encoded_size > 8192
+            ):
+                raise ValueError("context interval capacity reached")
+            payload = json.loads(raw)
+            _validate_payload(payload)
+            if (
+                hashed
+                != fingerprint({"payload": payload, "previous_sha256": prior})
+                or previous is not None
+                and prior != previous
+                or (observed, row_session, status, symbol)
+                != (
+                    payload["observed_at_ms"],
+                    payload["session_id"],
+                    payload["status"],
+                    payload["symbol"],
+                )
+            ):
+                raise ValueError("context interval chain differs")
+            previous = hashed
+            row = payload["context"] if status == "AVAILABLE" else None
+            identity = (
+                row_session,
+                row.get("classifier_fingerprint") if row else None,
+                row.get("panic_source_fingerprint") if row else None,
+            )
+            can_extend = bool(
+                current is not None
+                and row is not None
+                and identity
+                == (
+                    current["session_id"],
+                    current["classifier_fingerprint"],
+                    current["panic_source_fingerprint"],
+                )
+                and observed <= int(current["end_ms"])
+            )
+            if not can_extend and current is not None:
+                current["end_ms"] = min(int(current["end_ms"]), observed)
+                if int(current["start_ms"]) < int(current["end_ms"]):
+                    intervals.append(current)
+                current = None
+            if (
+                row is None
+                or row.get("classifier_fingerprint")
+                != classifier_fingerprint
+            ):
+                continue
+            if current is None:
+                current = {
+                    "start_ms": max(start_ms, observed),
+                    "end_ms": int(row["valid_until_ms"]),
+                    "session_id": row_session,
+                    "classifier_fingerprint": classifier_fingerprint,
+                    "panic_source_fingerprint": str(
+                        row["panic_source_fingerprint"]
+                    ),
+                }
+            else:
+                current["end_ms"] = max(
+                    int(current["end_ms"]), int(row["valid_until_ms"])
+                )
+        if current is not None and int(current["start_ms"]) < int(
+            current["end_ms"]
+        ):
+            intervals.append(current)
+        return intervals
+    finally:
+        connection.close()

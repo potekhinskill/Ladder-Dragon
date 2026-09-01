@@ -144,7 +144,7 @@ def net_expectancy_criteria(
                 "confirmation_block_size": 3,
                 "incremental_block_evaluation": True,
                 "path_admission_policy": (
-                    "first_executable_context_ready_post_cutoff_paths_v2"
+                    "first_gap_aligned_executable_post_cutoff_paths_v3"
                 ),
                 "path_trial_cardinality_policy": (
                     "one_terminal_attempt_per_executable_path_v1"

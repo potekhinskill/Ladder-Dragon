@@ -77,6 +77,8 @@ def historical_entry_replays(
         last_seen = event.ts_ms
         for state in states:
             policy = state["policy"]
+            if event.ts_ms < start_ms - policy.signal_window_ms:
+                continue
             triggered = state["signal"].update(event)
             if event.ts_ms < start_ms:
                 continue

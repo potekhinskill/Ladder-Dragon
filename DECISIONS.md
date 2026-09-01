@@ -1,5 +1,12 @@
 # Engineering decisions
 
+### 2026-09-01 — Align evidence sessions after scheduled maintenance
+
+- **Context:** daily backup created a context gap inside the first fixed L2 path.
+- **Decision:** split paths at context gaps and start a new L2 session after successful backup.
+- **Why it worked:** tests recover later paths without crossing a gap, reconnect, or immutable source boundary.
+- **Reuse:** every fixed evidence schedule that shares a host with recurring maintenance.
+
 ### 2026-09-01 — Admit evidence paths only when a trial is executable
 
 - **Context:** a context-complete path could contain no permitted entry regime.

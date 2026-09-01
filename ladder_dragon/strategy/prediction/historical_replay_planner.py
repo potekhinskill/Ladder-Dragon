@@ -10,7 +10,10 @@ from pathlib import Path
 from typing import Iterable, Mapping
 
 from ladder_dragon.strategy.depth_segments import atomic_json, bounded_json
-from ladder_dragon.strategy.prediction.context_journal import export_context
+from ladder_dragon.strategy.prediction.context_journal import (
+    continuous_context_intervals,
+    export_context,
+)
 from ladder_dragon.strategy.prediction.entry_veto_replay import candidate_grid
 from ladder_dragon.strategy.prediction.episode_semantics import (
     execution_model_contract,
@@ -34,7 +37,7 @@ MINIMUM_INDEPENDENT_PATHS = 12
 MAXIMUM_DRAFTS = 256
 MAXIMUM_CONTEXT_CANDIDATES = 256
 PROVIDER_CONNECTION_MAX_MS = 24 * 60 * 60_000
-COHORT_CONTRACT = "provider_bounded_executable_paths_v2"
+COHORT_CONTRACT = "provider_bounded_gap_aligned_executable_paths_v3"
 SELECTION_COHORT_MARKER = "selection-cohort.json"
 PATH_MAXIMUM_ATTEMPTS = 1
 
@@ -174,6 +177,83 @@ def _complete_paths(
     return list(reversed(selected))
 
 
+def _context_aligned_paths(
+    chains: Iterable[list[tuple[Path, dict]]],
+    context_db: Path,
+    *,
+    classifier_fingerprint: str,
+    started_after_ms: int,
+    excluded_source_sha256s: frozenset[str],
+) -> tuple[list[PathWindow], int]:
+    """Pack source-disjoint paths inside each L2 and context intersection."""
+    candidates: list[PathWindow] = []
+    interval_count = 0
+    for chain in chains:
+        if not chain:
+            continue
+        chain_start = int(chain[0][1]["started_at_ms"])
+        chain_end = int(chain[-1][1]["finished_at_ms"])
+        intervals = continuous_context_intervals(
+            context_db,
+            symbol="SOLUSDT",
+            classifier_fingerprint=classifier_fingerprint,
+            start_ms=chain_start,
+            end_ms=chain_end,
+            cutoff_ms=chain_end,
+        )
+        interval_count += len(intervals)
+        cursor = 0
+        for interval in intervals:
+            interval_start = int(interval["start_ms"])
+            interval_end = int(interval["end_ms"])
+            while (
+                cursor < len(chain)
+                and int(chain[cursor][1]["finished_at_ms"])
+                <= interval_start
+            ):
+                cursor += 1
+            while cursor < len(chain):
+                source_start = max(
+                    interval_start,
+                    int(chain[cursor][1]["started_at_ms"]),
+                )
+                start = source_start + SIGNAL_WARMUP_MS
+                entry_end = start + PATH_ENTRY_WINDOW_MS
+                end = entry_end + TERMINAL_TAIL_MS
+                terminal_index = next(
+                    (
+                        index
+                        for index in range(cursor, len(chain))
+                        if int(chain[index][1]["finished_at_ms"])
+                        >= end
+                    ),
+                    None,
+                )
+                if terminal_index is None or end >= interval_end:
+                    break
+                selected = chain[cursor : terminal_index + 1]
+                source_hashes = {
+                    str(metadata["archive_sha256"])
+                    for _archive, metadata in selected
+                }
+                if (
+                    start > started_after_ms
+                    and not excluded_source_sha256s.intersection(
+                        source_hashes
+                    )
+                ):
+                    candidates.append(
+                        (start, entry_end, end, selected)
+                    )
+                    if len(candidates) > MAXIMUM_CONTEXT_CANDIDATES:
+                        raise ValueError(
+                            "historical context path capacity reached"
+                        )
+                # A complete source segment can belong to only one path.
+                cursor = terminal_index + 1
+    return sorted(candidates, key=lambda row: row[0]), interval_count
+
+
 def _complete_blocks(paths: list[ContextPath]) -> list[list[ContextPath]]:
     """Group complete paths into disjoint chronological stability blocks."""
     complete = len(paths) // PATHS_PER_BLOCK
@@ -248,24 +328,32 @@ def context_ready_paths(
     classifier = fingerprint(
         v23_evidence_semantics_contract()["regime_classifier"]
     )
-    candidates = _complete_paths(
-        chains, maximum_paths=MAXIMUM_CONTEXT_CANDIDATES
+    chain_rows = list(chains)
+    l2_candidates = _complete_paths(
+        chain_rows, maximum_paths=MAXIMUM_CONTEXT_CANDIDATES
     )
-    eligible = [
-        path for path in candidates
+    l2_eligible = [
+        path for path in l2_candidates
         if path[0] > started_after_ms
         and not excluded_source_sha256s.intersection(
             str(metadata["archive_sha256"])
             for _archive, metadata in path[3]
         )
     ]
+    candidates, interval_count = _context_aligned_paths(
+        chain_rows,
+        context_db,
+        classifier_fingerprint=classifier,
+        started_after_ms=started_after_ms,
+        excluded_source_sha256s=excluded_source_sha256s,
+    )
     ready: list[ContextPath] = []
     reasons: Counter[str] = Counter()
     identity: tuple[str, str] | None = None
     checked = context_ready = 0
     # Selection prefers the newest complete prefix. Confirmation freezes the
     # first eligible post-cutoff paths and passes newest_first=False.
-    ordered = reversed(eligible) if newest_first else iter(eligible)
+    ordered = reversed(candidates) if newest_first else iter(candidates)
     for path in ordered:
         checked += 1
         start, _entry_end, end, _selected = path
@@ -315,7 +403,9 @@ def context_ready_paths(
     if newest_first:
         ready.reverse()
     return ready, {
-        "l2_complete_independent_paths": len(eligible),
+        "l2_complete_independent_paths": len(l2_eligible),
+        "context_continuous_intervals": interval_count,
+        "context_aligned_independent_paths": len(candidates),
         "context_checked_paths": checked,
         "context_ready_independent_paths": context_ready,
         "executable_ready_independent_paths": len(ready),

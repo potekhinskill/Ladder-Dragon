@@ -663,6 +663,8 @@ install -m 0644 "${PROJECT_DIR}/deploy/ladder-dragon-log-export.timer" \
   /etc/systemd/system/ladder-dragon-log-export.timer
 render_unit "${PROJECT_DIR}/deploy/ladder-dragon-depth-archive.service" \
   /etc/systemd/system/ladder-dragon-depth-archive.service
+render_unit "${PROJECT_DIR}/deploy/ladder-dragon-depth-session-align.service" \
+  /etc/systemd/system/ladder-dragon-depth-session-align.service
 install -m 0644 "${PROJECT_DIR}/deploy/ladder-dragon-depth-archive.timer" \
   /etc/systemd/system/ladder-dragon-depth-archive.timer
 render_unit "${PROJECT_DIR}/deploy/ladder-dragon-depth-retention.service" \

@@ -2,6 +2,8 @@ from collections import defaultdict
 from decimal import Decimal
 import json
 
+import pytest
+
 from ladder_dragon.strategy.prediction import historical_replay_planner as planner
 from ladder_dragon.strategy.prediction.episode_semantics import (
     v23_evidence_semantics_contract,
@@ -46,6 +48,21 @@ def _context_row(*, regime="RANGE", panic=False, start=0, end=10**15):
         ),
         "panic_source_fingerprint": "b" * 64,
     }
+
+
+@pytest.fixture(autouse=True)
+def _continuous_context(monkeypatch):
+    monkeypatch.setattr(
+        planner,
+        "continuous_context_intervals",
+        lambda *_args, **kwargs: [{
+            "start_ms": kwargs["start_ms"],
+            "end_ms": kwargs["end_ms"] + 1,
+            "session_id": "a" * 32,
+            "classifier_fingerprint": kwargs["classifier_fingerprint"],
+            "panic_source_fingerprint": "b" * 64,
+        }],
+    )
 
 
 def _replay_report(request: dict) -> dict:
@@ -307,3 +324,91 @@ def test_planner_accepts_range_only_when_it_overlaps_the_entry_window(
 
     assert report["complete_independent_paths"] == 1
     assert report["executable_ready_independent_paths"] == 1
+
+
+def test_context_gap_realigns_later_source_disjoint_paths(
+    tmp_path, monkeypatch
+):
+    segment_ms = 55 * 60_000
+    chain = []
+    start = 1_000_000
+    for index in range(27):
+        archive = tmp_path / f"gap-{index}.jsonl"
+        archive.write_text("public", encoding="utf-8")
+        chain.append((archive, {
+            "started_at_ms": start + index * segment_ms,
+            "finished_at_ms": start + (index + 1) * segment_ms,
+            "archive_sha256": format(index + 1, "064x"),
+        }))
+    gap_start = start + 7 * 60 * 60_000 + 10 * 60_000
+    gap_end = gap_start + 5 * 60_000
+    monkeypatch.setattr(planner, "_chains", lambda *_args: [chain])
+    monkeypatch.setattr(
+        planner,
+        "continuous_context_intervals",
+        lambda *_args, **kwargs: [
+            {
+                "start_ms": start,
+                "end_ms": gap_start,
+                "session_id": "a" * 32,
+                "classifier_fingerprint": kwargs[
+                    "classifier_fingerprint"
+                ],
+                "panic_source_fingerprint": "b" * 64,
+            },
+            {
+                "start_ms": gap_end,
+                "end_ms": start + 27 * segment_ms + 1,
+                "session_id": "a" * 32,
+                "classifier_fingerprint": kwargs[
+                    "classifier_fingerprint"
+                ],
+                "panic_source_fingerprint": "b" * 64,
+            },
+        ],
+    )
+
+    def exported(*_args, **kwargs):
+        assert not (
+            kwargs["start_ms"] < gap_end
+            and kwargs["end_ms"] > gap_start
+        )
+        return {"context": [_context_row(
+            start=kwargs["start_ms"], end=kwargs["end_ms"] + 1
+        )]}
+
+    monkeypatch.setattr(planner, "export_context", exported)
+    paths, progress = planner.context_ready_paths(
+        [chain], tmp_path / "context.sqlite3",
+        maximum_ready_paths=3,
+        newest_first=False,
+    )
+
+    assert len(paths) == 3
+    assert progress["context_continuous_intervals"] == 2
+    assert progress["context_aligned_independent_paths"] == 3
+    source_sets = [
+        {row[1]["archive_sha256"] for row in path[0][3]}
+        for path in paths
+    ]
+    assert all(
+        not left.intersection(right)
+        for index, left in enumerate(source_sets)
+        for right in source_sets[index + 1 :]
+    )
+
+
+def test_context_alignment_never_crosses_l2_reconnect(tmp_path, monkeypatch):
+    chains = _path_chains(tmp_path, 2)
+    monkeypatch.setattr(planner, "export_context", lambda *_args, **_kwargs: {
+        "context": [_context_row()],
+    })
+
+    paths, _progress = planner.context_ready_paths(
+        chains, tmp_path / "context.sqlite3",
+        maximum_ready_paths=2,
+        newest_first=False,
+    )
+
+    assert len(paths) == 2
+    assert all(len(path[0][3]) == 1 for path in paths)

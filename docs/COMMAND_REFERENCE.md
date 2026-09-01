@@ -382,6 +382,7 @@ Do not publish its output.
 | `ladder-dragon-database-retention.service` | archives terminal SHADOW data | fails when retention is blocked |
 | `ladder-dragon-database-retention.timer` | retries database retention | daily fallback |
 | `ladder-dragon-depth-archive.service` | continuous public L2 archive recorder | persistent service |
+| `ladder-dragon-depth-session-align.service` | starts a new L2 session after backup | backup success target |
 | `ladder-dragon-depth-archive.timer` | legacy hourly archive schedule | disabled by deployment |
 | `ladder-dragon-depth-retention.service` | verified encrypted L2 archive rotation | timer target |
 | `ladder-dragon-depth-retention.timer` | starts L2 retention after backup | 04:10 each day |
