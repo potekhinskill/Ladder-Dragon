@@ -10,11 +10,15 @@ import json
 from decimal import Decimal, InvalidOperation
 from typing import Mapping
 
+from ladder_dragon.strategy.entry_veto_signal import (
+    ENTRY_VETO_SIGNAL_CONTRACT,
+)
+
 
 EVIDENCE_SEMANTICS_VERSION = "minute_l2_episode_execution_v5"
 EXECUTION_MODEL_RULE = "minute_l2_fifo_oco_gap_v3"
-V23_EVIDENCE_SEMANTICS_VERSION = "diff_depth_entry_veto_execution_v7"
-V23_EXECUTION_MODEL_RULE = "diff_depth_fifo_oco_cancel_v4"
+V23_EVIDENCE_SEMANTICS_VERSION = "diff_depth_entry_veto_execution_v8"
+V23_EXECUTION_MODEL_RULE = "diff_depth_fifo_oco_cancel_v5"
 V21_EVIDENCE_SEMANTICS_VERSION = "minute_l2_episode_execution_v4"
 V21_EXECUTION_MODEL_RULE = "minute_l2_fifo_oco_gap_v3"
 V20_EVIDENCE_SEMANTICS_VERSION = "minute_l2_episode_execution_v3"
@@ -123,12 +127,15 @@ def v23_evidence_semantics_contract() -> dict[str, object]:
         include_excursions=True,
     )
     contract["entry_veto_policy"] = {
-        "contract_version": "l2_adverse_selection_cancel_v3",
+        "contract_version": "l2_adverse_selection_cancel_v4",
         "market_source": "BINANCE_DIFF_DEPTH_100MS_SEQUENCE_VALIDATED",
         "trade_source": "BINANCE_AGGTRADE",
         "order_flow_imbalance": "CONT_BEST_LEVEL_NORMALIZED_V1",
         "price_threshold_policy": "NEGATIVE_DOWNSIDE_BASIS_POINTS_ONLY_V2",
         "fill_timestamp_resolution_ms": 100,
+        "signal_accumulator": dict(ENTRY_VETO_SIGNAL_CONTRACT),
+        "pre_submit_veto": "TERMINAL_ENTRY_VETO_WITHOUT_EXCHANGE_ORDER",
+        "post_submit_event_order": "PROCESS_FILLS_THEN_REQUEST_CANCEL",
         "cancel_timing": "FILLABLE_UNTIL_CANCEL_EFFECTIVE",
         "late_cancel_policy": "KEEP_ORIGINAL_FILL_AND_PNL",
         "capacity_policy": "SEQUENTIAL_ONE_SLOT_REPLAY",
@@ -185,8 +192,9 @@ def execution_engine_validation_domain(
     *,
     execution_model_rule: str,
     fee_schedule: Mapping[str, object],
+    entry_veto_rule: Mapping[str, object] | None = None,
 ) -> dict[str, object]:
-    """Describe reusable order-engine evidence without candidate geometry."""
+    """Describe reusable engine evidence and exact v23 veto timing."""
     rates = {
         field: str(fee_schedule.get(field))
         for field in (
@@ -196,7 +204,7 @@ def execution_engine_validation_domain(
             "taker_sell_fee_pct",
         )
     }
-    return {
+    domain = {
         "schema_version": 1,
         "scope": "REUSABLE_EXECUTION_ENGINE",
         "execution_model_rule": str(execution_model_rule),
@@ -206,8 +214,35 @@ def execution_engine_validation_domain(
         "queue_model": "L2_PRICE_LEVEL_FIFO_PROXY",
         "fee_schedule": rates,
         "execution_model": execution_model_contract(),
-        "candidate_parameters_excluded": True,
+        "candidate_parameters_excluded": entry_veto_rule is None,
     }
+    if execution_model_rule == V23_EXECUTION_MODEL_RULE:
+        from ladder_dragon.strategy.prediction.entry_diagnostics import (
+            normalize_entry_veto_rule,
+        )
+
+        if entry_veto_rule is None:
+            raise ValueError("v23 validation requires its entry-veto rule")
+        domain["scope"] = "CANDIDATE_BOUND_EXECUTION_ENGINE"
+        normalized = normalize_entry_veto_rule(entry_veto_rule)
+        latency = int(normalized["cancel_latency_ms"])
+        if latency != int(execution_model_contract()["latency_ms"]):
+            raise ValueError("v23 cancel latency differs from its engine model")
+        domain["entry_veto_validation"] = {
+            "candidate_rule": normalized,
+            "semantics_fingerprint": v23_evidence_semantics_fingerprint(),
+            "signal_accumulator": dict(ENTRY_VETO_SIGNAL_CONTRACT),
+            "pre_submit_veto": "NO_EXCHANGE_ORDER",
+            "post_submit_cancel": "FILLABLE_UNTIL_EFFECTIVE",
+            "post_submit_event_order": "PROCESS_FILLS_THEN_REQUEST_CANCEL",
+            "cancel_latency_ms": latency,
+            "cancel_latency_validation": (
+                "EXACT_FROZEN_SYMMETRIC_TRANSPORT_LATENCY"
+            ),
+        }
+    elif entry_veto_rule is not None:
+        raise ValueError("entry-veto validation requires the v23 engine")
+    return domain
 
 
 def require_execution_regime_contract(observed: Mapping[str, object]) -> None:

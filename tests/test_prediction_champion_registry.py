@@ -223,7 +223,7 @@ def test_v23_policy_binds_confirmed_volatility_scope(tmp_path, monkeypatch):
         v23_evidence_semantics_fingerprint()
     )
     parameters["entry_veto_rule"] = {
-        "contract_version": "l2_adverse_selection_cancel_v3",
+        "contract_version": "l2_adverse_selection_cancel_v4",
         "prefill_price_change_max_bps": "-10",
         "prefill_signed_trade_flow_max": "-0.2",
         "prefill_order_flow_imbalance_max": "-0.3",

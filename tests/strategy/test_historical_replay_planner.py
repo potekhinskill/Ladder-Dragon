@@ -79,6 +79,9 @@ def _replay_report(request: dict) -> dict:
             "eligible_for_promotion": True,
             "start_regime": "RANGE",
             "entry_filled_quantity": "1",
+            "entry_order_submitted": True,
+            "signal_ts_ms": None,
+            "cancel_effective_ts_ms": None,
         })
         veto.append({
             "episode_id": f"veto-{index}",
@@ -89,6 +92,9 @@ def _replay_report(request: dict) -> dict:
             "eligible_for_promotion": True,
             "start_regime": "RANGE",
             "entry_filled_quantity": "0" if index == 0 else "1",
+            "entry_order_submitted": index != 0,
+            "signal_ts_ms": stamp if index == 0 else None,
+            "cancel_effective_ts_ms": None,
         })
     windows = [{
         "start_ts_ms": path["start_ms"],
@@ -173,7 +179,7 @@ def test_planner_creates_provider_bounded_review_drafts(tmp_path, monkeypatch):
     )
     assert artifact["schema_version"] == 5
     assert artifact["selection_metrics"]["confirmation_capacity_policy"] == (
-        "bonferroni_clopper_pearson_lower_bound_v1"
+        "bonferroni_clopper_pearson_capacity_preflight_v2"
     )
     assert artifact["selection_metrics"]["independent_paths"] == 12
     assert artifact["selection_metrics"]["report_blocks"] == 4
@@ -181,7 +187,54 @@ def test_planner_creates_provider_bounded_review_drafts(tmp_path, monkeypatch):
         artifact["selection_metrics"]["filled_path_rate_lower_bound"]
     ) < Decimal("7") / Decimal("12")
     assert artifact["selection_metrics"]["planning_rate_hypotheses"] == 3
+    assert artifact["selection_metrics"]["confirmation_preflight_ready"] is True
     assert artifact["selected_rule"]["signal_window_ms"] == 300_000
+
+
+def test_selection_rejects_insufficient_confirmation_capacity(
+    tmp_path, monkeypatch,
+):
+    chains = _path_chains(tmp_path, planner.MINIMUM_INDEPENDENT_PATHS)
+    monkeypatch.setattr(planner, "_chains", lambda *_args: chains)
+    monkeypatch.setattr(planner, "export_context", lambda *_args, **_kwargs: {
+        "context": [_context_row()],
+    })
+    draft_directory = tmp_path / "drafts"
+    planner.plan_replay_drafts(
+        tmp_path, draft_directory, tmp_path / "context.sqlite3"
+    )
+    requests = [
+        json.loads(path.read_text(encoding="utf-8"))
+        for path in draft_directory.glob("*.json")
+    ]
+    by_policy = defaultdict(list)
+    for request in requests:
+        by_policy[fingerprint(request["policy"])].append(request)
+    cohort = next(rows for rows in by_policy.values() if len(rows) == 4)
+    cohort.sort(key=lambda row: row["stability_block_index"])
+    reports = [_replay_report(request) for request in cohort]
+    reports[0]["episodes"]["veto"][1]["entry_filled_quantity"] = "0"
+    reports[0]["episodes"]["veto"][1]["terminal_reason"] = "ENTRY_VETO"
+    reports[0]["episodes"]["veto"][1]["entry_order_submitted"] = False
+    reports[0]["episodes"]["veto"][1]["signal_ts_ms"] = reports[0][
+        "episodes"
+    ]["veto"][1]["started_at_ms"]
+    reports[0]["episodes"]["veto"][1]["cancel_effective_ts_ms"] = None
+    reports[0]["report_sha256"] = fingerprint({
+        key: value for key, value in reports[0].items()
+        if key != "report_sha256"
+    })
+
+    with pytest.raises(ValueError, match="selection criteria are incomplete"):
+        historical_selection_artifact(
+            reports,
+            source_generation="v22",
+            candidate_fingerprint="d" * 64,
+            cutoff_ts_ms=max(
+                path["cutoff_ms"]
+                for request in cohort for path in request["paths"]
+            ),
+        )
 
 
 def test_planner_reports_existing_partial_path_progress(tmp_path, monkeypatch):

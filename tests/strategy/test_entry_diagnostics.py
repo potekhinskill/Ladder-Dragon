@@ -417,7 +417,7 @@ def test_future_manifest_rule_binds_veto_and_fee_aware_economics():
         execution_model_promotion_ready=True,
         evidence_semantics_fingerprint="d" * 64,
         entry_veto_rule={
-            "contract_version": "l2_adverse_selection_cancel_v3",
+            "contract_version": "l2_adverse_selection_cancel_v4",
             "prefill_price_change_max_bps": -10,
             "prefill_signed_trade_flow_max": "-0.20",
             "prefill_order_flow_imbalance_max": "-0.10",

@@ -35,6 +35,7 @@ from ladder_dragon.strategy.prediction.episode_expectancy import (
 )
 from ladder_dragon.strategy.prediction.runtime import PredictionShadowStore
 from ladder_dragon.strategy.prediction.episode_semantics import (
+    V23_EXECUTION_MODEL_RULE,
     canonical_digest,
     evidence_semantics_fingerprint,
     execution_engine_validation_domain,
@@ -49,6 +50,55 @@ from ladder_dragon.strategy.replay_policy import (
 
 
 D = Decimal
+
+
+def _v23_entry_veto_rule(*, cancel_latency_ms=1_000):
+    return {
+        "contract_version": "l2_adverse_selection_cancel_v4",
+        "prefill_price_change_max_bps": "-10",
+        "prefill_signed_trade_flow_max": "-0.2",
+        "prefill_order_flow_imbalance_max": "-0.1",
+        "cancel_latency_ms": cancel_latency_ms,
+        "signal_window_ms": 300_000,
+        "selection_artifact_sha256": "a" * 64,
+    }
+
+
+def test_v23_validation_domain_binds_candidate_timing_and_signal_contract():
+    fees = {
+        "maker_buy_fee_pct": "0.001",
+        "maker_sell_fee_pct": "0.001",
+        "taker_buy_fee_pct": "0.001",
+        "taker_sell_fee_pct": "0.001",
+    }
+    with pytest.raises(ValueError, match="requires its entry-veto rule"):
+        execution_engine_validation_domain(
+            execution_model_rule=V23_EXECUTION_MODEL_RULE,
+            fee_schedule=fees,
+        )
+
+    domain = execution_engine_validation_domain(
+        execution_model_rule=V23_EXECUTION_MODEL_RULE,
+        fee_schedule=fees,
+        entry_veto_rule=_v23_entry_veto_rule(),
+    )
+
+    veto = domain["entry_veto_validation"]
+    assert domain["scope"] == "CANDIDATE_BOUND_EXECUTION_ENGINE"
+    assert veto["pre_submit_veto"] == "NO_EXCHANGE_ORDER"
+    assert veto["post_submit_event_order"] == (
+        "PROCESS_FILLS_THEN_REQUEST_CANCEL"
+    )
+    assert veto["cancel_latency_ms"] == 1_000
+    assert veto["candidate_rule"]["selection_artifact_sha256"] == "a" * 64
+    assert domain["candidate_parameters_excluded"] is False
+
+    with pytest.raises(ValueError, match="cancel latency differs"):
+        execution_engine_validation_domain(
+            execution_model_rule=V23_EXECUTION_MODEL_RULE,
+            fee_schedule=fees,
+            entry_veto_rule=_v23_entry_veto_rule(cancel_latency_ms=2_000),
+        )
 
 
 def _event(
@@ -404,7 +454,7 @@ def test_future_v23_can_reject_when_upper_bound_is_not_economic():
             _result(index, "-0.02"),
             generation="v23",
             variant_id="v23_maker_ttl90_gap48_veto",
-            execution_model_rule="diff_depth_fifo_oco_cancel_v4",
+            execution_model_rule="diff_depth_fifo_oco_cancel_v5",
             start_regime="RANGE",
             evidence_semantics_fingerprint=v23_evidence_semantics_fingerprint(),
         )
@@ -431,7 +481,7 @@ def test_v23_rejects_after_every_fixed_path_without_dynamic_top_up():
             _result(index, "-0.001"),
             generation="v23",
             variant_id="v23_maker_ttl90_gap48_veto",
-            execution_model_rule="diff_depth_fifo_oco_cancel_v4",
+            execution_model_rule="diff_depth_fifo_oco_cancel_v5",
             start_regime="RANGE",
             evidence_semantics_fingerprint=v23_evidence_semantics_fingerprint(),
             eligible_for_promotion=index < 40,

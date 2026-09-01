@@ -995,6 +995,11 @@ def model_validation_status(
         expected_domain = execution_engine_validation_domain(
             execution_model_rule=execution_model_rule,
             fee_schedule=schedule,
+            entry_veto_rule=(
+                expected_candidate_parameters.get("entry_veto_rule")
+                if expected_candidate_parameters.get("candidate_rule_version") == 8
+                else None
+            ),
         )
         observed_domain = report.get("validation_domain")
         if (
@@ -1237,6 +1242,10 @@ def record_model_validation(
     expected_domain = execution_engine_validation_domain(
         execution_model_rule=execution_model_rule,
         fee_schedule=schedule,
+        entry_veto_rule=(
+            parameters.get("entry_veto_rule")
+            if parameters.get("candidate_rule_version") == 8 else None
+        ),
     )
     if (
         not isinstance(validation.validation_domain, Mapping)

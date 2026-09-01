@@ -143,6 +143,10 @@ It combines price movement, signed trade quantity, and book order-flow imbalance
 The signal does not use a future fill timestamp.
 The frozen rule records the exact five-minute signal window.
 Runtime rejects a snapshot from a different window.
+Replay and runtime use one shared signal accumulator.
+The accumulator retains the last bid before the window as a price anchor.
+It excludes that anchor's trade-flow and order-flow contributions.
+Each provider reconnect clears the complete signal state.
 
 Baseline and veto policies each own one independent position slot.
 An accepted cancel remains exposed until its fixed arrival time.
@@ -150,6 +154,9 @@ Trades win ambiguous cancellation-time ties; submission-time ties do not earn fi
 Partial fills retain their quantity and protection requirement.
 A successful zero-fill cancel permits another opportunity at the next fixed cadence boundary.
 New opportunities come from market history, not a list of previously recorded fills.
+An active signal before submission creates a terminal `ENTRY_VETO` without an order.
+A signal after submission processes observable fills before it requests cancellation.
+Candidate validation binds this ordering and the exact frozen cancellation latency.
 
 The entry window ends before the full holding-period observation tail.
 This prevents selection of only quickly completed trades.
@@ -166,6 +173,8 @@ Confirmation freezes forty-two post-cutoff executable paths in three-path blocks
 Each complete report must contain one terminal attempt for each source path.
 Only imported immutable L2 reports enter the fixed confirmation evaluator.
 Concurrent live SHADOW episodes remain diagnostic and cannot change confirmation.
+Selection also checks conservative confirmation capacity before it freezes a rule.
+The lower bounds must support 24 eligible attempts and 12 filled RANGE attempts.
 
 ## Run an offline replay
 

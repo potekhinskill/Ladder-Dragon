@@ -1,5 +1,12 @@
 # Engineering decisions
 
+### 2026-09-01 — Use one causal signal contract across replay and LIVE
+
+- **Context:** historical and LIVE veto signals used different rolling-window boundaries and order timing.
+- **Decision:** share one accumulator and fingerprint exact pre-submit, post-submit, latency, and reconnect semantics.
+- **Why it worked:** parity tests produce identical signals and prove that pre-submit veto creates no order.
+- **Reuse:** every selected policy whose historical evidence must predict one mutation-capable runtime.
+
 ### 2026-09-01 — Reserve evidence sources after causal opportunity admission
 
 - **Context:** a fixed source window could contain no executable RANGE opportunity.

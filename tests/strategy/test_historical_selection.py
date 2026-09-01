@@ -47,12 +47,18 @@ def report(block: int):
             "net_pnl_quote": "1",
             "censored": False,
             "terminal_reason": "ENTRY_VETO" if index < 2 else "TAKE_PROFIT",
+            "entry_order_submitted": index >= 2,
+            "signal_ts_ms": stamp if index < 2 else None,
+            "cancel_effective_ts_ms": None,
         })
         baseline.append({
             "started_at_ms": stamp,
             "net_pnl_quote": "-1",
             "censored": False,
             "terminal_reason": "STOP_LIMIT",
+            "entry_order_submitted": True,
+            "signal_ts_ms": None,
+            "cancel_effective_ts_ms": None,
         })
     body = {
         "schema_version": 1,
@@ -106,6 +112,21 @@ def test_overlap_reuse_and_weak_policy_fail_closed():
     with pytest.raises(ValueError, match="overlap"):
         historical_selection_artifact(
             rows, source_generation="v22", candidate_fingerprint="b" * 64,
+            cutoff_ts_ms=500_000_000,
+        )
+
+
+def test_pre_submit_veto_with_cancel_timing_is_rejected():
+    rows = [report(index) for index in range(4)]
+    veto = rows[0]["episodes"]["veto"][0]
+    veto["cancel_effective_ts_ms"] = veto["signal_ts_ms"] + 1_000
+    rehash(rows[0])
+
+    with pytest.raises(ValueError, match="entry-veto timing is invalid"):
+        historical_selection_artifact(
+            rows,
+            source_generation="v22",
+            candidate_fingerprint="b" * 64,
             cutoff_ts_ms=500_000_000,
         )
     rows = [report(index) for index in range(4)]

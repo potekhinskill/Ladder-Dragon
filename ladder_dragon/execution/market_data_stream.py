@@ -8,7 +8,6 @@ from __future__ import annotations
 import json
 import threading
 import time
-from collections import deque
 from dataclasses import dataclass
 from decimal import Decimal, InvalidOperation
 from typing import Callable, Mapping, Optional
@@ -18,7 +17,7 @@ import requests
 from websocket import WebSocketException, WebSocketTimeoutException, create_connection
 
 from ladder_dragon.strategy.depth_segments import MAX_FRAME_BYTES, PublicBook
-from ladder_dragon.strategy.prediction.entry_veto_replay import _ofi_increment
+from ladder_dragon.strategy.entry_veto_signal import EntryVetoSignalAccumulator
 
 
 ZERO = Decimal("0")
@@ -249,15 +248,9 @@ class MarketSnapshotStore:
         self._ask_quantity = ZERO
         self._depth_imbalance = ZERO
         self._last_trade_price = ZERO
-        self._signal_rows: deque[
-            tuple[int, Decimal, Decimal, Decimal, Decimal, Decimal, Decimal]
-        ] = deque(maxlen=100_000)
-        self._trade_flow_quote = ZERO
-        self._buy_quantity = ZERO
-        self._sell_quantity = ZERO
-        self._ofi = ZERO
-        self._ofi_scale = ZERO
-        self._previous_top: tuple[Decimal, Decimal, Decimal, Decimal] | None = None
+        self._entry_veto_signal = EntryVetoSignalAccumulator(
+            self._flow_window_ms
+        )
         self._depth_update_id: int | None = None
         self._sequence_ok = True
         self._book_received_monotonic_ns = 0
@@ -275,13 +268,7 @@ class MarketSnapshotStore:
             self._sequence_ok = True
             self._book = PublicBook()
             self._synchronized = False
-            self._signal_rows.clear()
-            self._trade_flow_quote = ZERO
-            self._buy_quantity = ZERO
-            self._sell_quantity = ZERO
-            self._ofi = ZERO
-            self._ofi_scale = ZERO
-            self._previous_top = None
+            self._entry_veto_signal.reset()
             self._book_received_monotonic_ns = 0
             self._book_received_at_ms = 0
             self._depth_received_monotonic_ns = 0
@@ -309,42 +296,12 @@ class MarketSnapshotStore:
             self._condition.notify_all()
 
     def _refresh_top(self, event) -> None:
-        current = (
-            event.bids[0].price,
-            event.bids[0].quantity,
-            event.asks[0].price,
-            event.asks[0].quantity,
+        signal = self._entry_veto_signal.update(event)
+        self._best_bid, self._bid_quantity = (
+            signal.best_bid, signal.bid_quantity
         )
-        increment = (
-            _ofi_increment(self._previous_top, current)
-            if self._previous_top is not None else ZERO
-        )
-        self._previous_top = current
-        self._best_bid, self._bid_quantity = current[0], current[1]
-        self._best_ask, self._ask_quantity = current[2], current[3]
-        self._ofi += increment
-        self._ofi_scale += abs(increment)
-        buy = sell = ZERO
-        for _price, quantity, aggressor in event.trades:
-            if aggressor == "BUY":
-                buy += quantity
-            elif aggressor == "SELL":
-                sell += quantity
-        self._buy_quantity += buy
-        self._sell_quantity += sell
-        self._trade_flow_quote += sum(
-            (
-                price * quantity if aggressor == "BUY" else -price * quantity
-                for price, quantity, aggressor in event.trades
-            ),
-            ZERO,
-        )
-        signed_quote = sum(
-            (
-                price * quantity if aggressor == "BUY" else -price * quantity
-                for price, quantity, aggressor in event.trades
-            ),
-            ZERO,
+        self._best_ask, self._ask_quantity = (
+            signal.best_ask, signal.ask_quantity
         )
         bid_quote = sum(
             (level.price * level.quantity for level in event.bids), ZERO
@@ -356,33 +313,6 @@ class MarketSnapshotStore:
         self._depth_imbalance = (
             (bid_quote - ask_quote) / total_quote if total_quote > 0 else ZERO
         )
-        self._signal_rows.append(
-            (
-                event.ts_ms, current[0], increment, abs(increment), buy, sell,
-                signed_quote,
-            )
-        )
-        cutoff = event.ts_ms - self._flow_window_ms
-        while len(self._signal_rows) > 1 and self._signal_rows[1][0] <= cutoff:
-            _, _, old_ofi, old_scale, old_buy, old_sell, old_quote = (
-                self._signal_rows.popleft()
-            )
-            self._ofi -= old_ofi
-            self._ofi_scale -= old_scale
-            self._buy_quantity -= old_buy
-            self._sell_quantity -= old_sell
-            self._trade_flow_quote -= old_quote
-        if self._signal_rows and self._signal_rows[0][0] < cutoff:
-            stamp, bid, old_ofi, old_scale, old_buy, old_sell, old_quote = (
-                self._signal_rows[0]
-            )
-            self._ofi -= old_ofi
-            self._ofi_scale -= old_scale
-            self._buy_quantity -= old_buy
-            self._sell_quantity -= old_sell
-            self._trade_flow_quote -= old_quote
-            # Retain only the last pre-window bid as the causal price anchor.
-            self._signal_rows[0] = (stamp, bid, ZERO, ZERO, ZERO, ZERO, ZERO)
 
     def update(self, raw_payload: Mapping[str, object]) -> None:
         payload = raw_payload.get("data", raw_payload)
@@ -443,6 +373,7 @@ class MarketSnapshotStore:
 
     def snapshot(self) -> MarketSnapshot:
         with self._lock:
+            signal = self._entry_veto_signal.snapshot()
             required_received_ns = (
                 min(
                     self._book_received_monotonic_ns,
@@ -478,25 +409,6 @@ class MarketSnapshotStore:
                 and self._synchronized
                 and required_received_ns > 0
             )
-            trade_total = self._buy_quantity + self._sell_quantity
-            price_change = (
-                (self._best_bid / self._signal_rows[0][1] - Decimal("1"))
-                * TEN_THOUSAND
-                if self._signal_rows and self._signal_rows[0][1] > 0 else ZERO
-            )
-            signed_flow = (
-                (self._buy_quantity - self._sell_quantity) / trade_total
-                if trade_total > 0 else ZERO
-            )
-            normalized_ofi = (
-                self._ofi / self._ofi_scale if self._ofi_scale > 0 else ZERO
-            )
-            veto_ready = bool(
-                ready and self._signal_rows
-                and self._signal_rows[-1][0] - self._signal_rows[0][0]
-                >= self._flow_window_ms
-                and trade_total > 0 and self._ofi_scale > 0
-            )
             return MarketSnapshot(
                 symbol=self.symbol,
                 received_monotonic_ns=required_received_ns,
@@ -507,16 +419,16 @@ class MarketSnapshotStore:
                 ask_quantity=self._ask_quantity,
                 spread_bps=spread,
                 depth_imbalance=self._depth_imbalance,
-                trade_flow_quote=self._trade_flow_quote,
+                trade_flow_quote=signal.trade_flow_quote,
                 last_trade_price=self._last_trade_price,
                 depth_update_id=self._depth_update_id,
                 sequence_ok=self._sequence_ok,
                 ready=ready,
-                veto_ready=veto_ready,
+                veto_ready=bool(ready and signal.ready),
                 signal_window_ms=self._flow_window_ms,
-                prefill_price_change_bps=price_change,
-                prefill_signed_trade_flow=signed_flow,
-                prefill_order_flow_imbalance=normalized_ofi,
+                prefill_price_change_bps=signal.price_change_bps,
+                prefill_signed_trade_flow=signal.signed_trade_flow,
+                prefill_order_flow_imbalance=signal.order_flow_imbalance,
             )
 
     def wait(self, timeout: float) -> bool:

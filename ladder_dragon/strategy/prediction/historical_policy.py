@@ -5,14 +5,13 @@
 
 from __future__ import annotations
 
-from collections import deque
 from dataclasses import dataclass, fields
 from decimal import Decimal
 import hashlib
 import json
 import re
 
-from ladder_dragon.strategy.prediction.entry_veto_replay import _ofi_increment, _top
+from ladder_dragon.strategy.entry_veto_signal import EntryVetoSignalAccumulator
 
 D = Decimal
 ZERO = D("0")
@@ -160,39 +159,14 @@ class RollingVeto:
 
     def __init__(self, policy: HistoricalPolicy) -> None:
         self.policy = policy
-        self.rows = deque()
-        self.previous = None
-        self.started_at: int | None = None
-        self.ofi = self.scale = self.signed = self.volume = ZERO
+        self.accumulator = EntryVetoSignalAccumulator(policy.signal_window_ms)
 
     def update(self, event) -> bool | None:
-        top = _top(event)
-        if self.started_at is None:
-            self.started_at = event.ts_ms
-        increment = _ofi_increment(self.previous, top) if self.previous else ZERO
-        self.previous = top
-        signed = sum((q if side == "BUY" else -q for _, q, side in event.trades), ZERO)
-        volume = sum((q for _, q, _ in event.trades), ZERO)
-        self.rows.append((event.ts_ms, top[0], increment, abs(increment), signed, volume))
-        self.ofi += increment
-        self.scale += abs(increment)
-        self.signed += signed
-        self.volume += volume
-        cutoff = event.ts_ms - self.policy.signal_window_ms
-        while len(self.rows) > 1 and self.rows[1][0] <= cutoff:
-            _, _, old_ofi, old_scale, old_signed, old_volume = self.rows.popleft()
-            self.ofi -= old_ofi
-            self.scale -= old_scale
-            self.signed -= old_signed
-            self.volume -= old_volume
-        if len(self.rows) > 100_000:
-            raise ValueError("historical signal window capacity reached")
-        if self.started_at > cutoff:
+        signal = self.accumulator.update(event)
+        if not signal.ready:
             return None
-        if not self.volume or not self.scale:
-            return False
         return bool(
-            (top[0] / self.rows[0][1] - 1) * 10000 <= D(self.policy.veto_price_bps)
-            and self.signed / self.volume <= D(self.policy.veto_signed_flow)
-            and self.ofi / self.scale <= D(self.policy.veto_ofi)
+            signal.price_change_bps <= D(self.policy.veto_price_bps)
+            and signal.signed_trade_flow <= D(self.policy.veto_signed_flow)
+            and signal.order_flow_imbalance <= D(self.policy.veto_ofi)
         )

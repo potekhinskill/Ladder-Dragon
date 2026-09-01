@@ -27,6 +27,8 @@ EVIDENCE_QUALITY_POLICY = {
     ],
 }
 V23_FIXED_CONFIRMATION_PATHS = 42
+V23_MINIMUM_ELIGIBLE_TERMINAL_EPISODES = 24
+V23_MINIMUM_RANGE_FILLED_EPISODES = 12
 
 
 def _evidence_quality(
@@ -72,12 +74,18 @@ def net_expectancy_criteria(
             "criteria_schema_version": schema,
             "method": f"anytime_valid_betting_e_process_v{schema}",
             "trial_definition": "executable_terminal_attempts_net_of_fees_including_panic",
-            "minimum_eligible_terminal_episodes": 24,
+            "minimum_eligible_terminal_episodes": (
+                V23_MINIMUM_ELIGIBLE_TERMINAL_EPISODES
+                if fixed_confirmation_cohort else 24
+            ),
             "minimum_filled_episodes": 10,
             "minimum_fill_rate": "0.10",
             "maximum_drawdown_fraction": "0.25",
             "eligible_regimes": list(regimes),
-            "minimum_regime_filled_episodes": 12 if exact_policy else 8,
+            "minimum_regime_filled_episodes": (
+                V23_MINIMUM_RANGE_FILLED_EPISODES
+                if fixed_confirmation_cohort else 12 if exact_policy else 8
+            ),
             "minimum_confirmed_regimes": 1 if exact_policy else 2,
             "regime_noninferiority_fraction": "0",
             "regime_activation_policy": (

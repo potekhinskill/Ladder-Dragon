@@ -209,6 +209,40 @@ def main() -> int:
         order_validation_cohort=order_cohort,
         calibration_context_cohort=context_cohort,
     )
+    if args.prediction_db is not None:
+        from ladder_dragon.strategy.prediction.episode_semantics import (
+            execution_engine_validation_domain,
+        )
+        from ladder_dragon.strategy.prediction.experiment_lifecycle import (
+            load_manifest,
+        )
+        from ladder_dragon.strategy.prediction.runtime import (
+            PredictionShadowStore,
+        )
+
+        manifest = load_manifest(
+            PredictionShadowStore(args.prediction_db), args.experiment_id
+        )
+        parameters = manifest.get("candidate_parameters")
+        if not isinstance(parameters, dict):
+            raise SystemExit("candidate parameters are unavailable")
+        entry_veto_rule = (
+            parameters.get("entry_veto_rule")
+            if parameters.get("candidate_rule_version") == 8 else None
+        )
+        report = replace(
+            report,
+            validation_domain=execution_engine_validation_domain(
+                execution_model_rule=args.execution_model_rule,
+                fee_schedule={
+                    "maker_buy_fee_pct": Decimal(args.maker_buy_fee_pct),
+                    "maker_sell_fee_pct": Decimal(args.maker_sell_fee_pct),
+                    "taker_buy_fee_pct": Decimal(args.taker_buy_fee_pct),
+                    "taker_sell_fee_pct": Decimal(args.taker_sell_fee_pct),
+                },
+                entry_veto_rule=entry_veto_rule,
+            ),
+        )
     if args.output:
         write_replay_validation(args.output, report)
     payload = report.as_dict()

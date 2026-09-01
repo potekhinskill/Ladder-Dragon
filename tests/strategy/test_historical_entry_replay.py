@@ -64,7 +64,10 @@ def test_successful_cancel_creates_previously_unknown_opportunities():
     assert len(veto) > len(baseline)
     assert any(row["started_at_ms"] not in {item["started_at_ms"] for item in baseline} for row in veto)
     assert veto[0]["terminal_reason"] == "ENTRY_VETO"
-    assert veto[1]["started_at_ms"] > veto[0]["cancel_effective_ts_ms"]
+    assert veto[0]["entry_order_submitted"] is False
+    assert veto[0]["entry_filled_quantity"] == "0"
+    assert veto[0]["cancel_effective_ts_ms"] is None
+    assert veto[1]["started_at_ms"] > veto[0]["terminal_at_ms"]
     assert report["promotion_eligible"] is False
     assert report["selection_artifact_ready"] is False
 
@@ -114,6 +117,18 @@ def test_cancel_cannot_erase_fill_before_arrival():
     assert episode.phase == "PROTECTED"
     episode.process(event(3800), veto=False, panic=False)
     assert episode.result is None
+
+
+def test_pre_submit_veto_never_creates_an_order():
+    episode = HistoricalExecution(
+        event(3000), HistoricalPolicy.parse(policy()), context(), "veto",
+        pre_submit_veto=True,
+    )
+
+    assert episode.result["terminal_reason"] == "ENTRY_VETO"
+    assert episode.result["entry_order_submitted"] is False
+    assert episode.result["entry_filled_quantity"] == "0"
+    assert episode.orders.orders == []
 
 
 def test_partial_fill_survives_cancel_and_gets_protection():
@@ -179,6 +194,69 @@ def test_veto_has_no_fill_time_or_future_outcome_input():
     result = run(declining_history())
     changed = run(declining_history() + [event(29000, "50", "51")])
     assert result == changed  # immutable cutoff; no result leakage from future events
+
+
+def test_shared_signal_matches_live_window_boundary_and_reconnect_reset():
+    from ladder_dragon.execution.market_data_stream import MarketSnapshotStore
+
+    now = [1]
+    store = MarketSnapshotStore(
+        "SOLUSDT",
+        monotonic_ns=lambda: now[0] * 1_000_000 + 1,
+        wall_time_ms=lambda: now[0],
+        flow_window_ms=2_000,
+    )
+    rolling = RollingVeto(HistoricalPolicy.parse(policy(signal_window_ms=2_000)))
+    initial = event(1, bid="100", ask="101", qty="2")
+    rolling.update(initial)
+    store.initialize_depth({
+        "lastUpdateId": 1,
+        "bids": [["100", "2"], ["40", "10"]],
+        "asks": [["101", "10"], ["200", "10"]],
+    })
+
+    now[0] = 1_001
+    rolling.update(event(1_001, bid="100", ask="101", qty="3"))
+    store.update({
+        "e": "depthUpdate", "U": 2, "u": 2,
+        "b": [["100", "3"]], "a": [],
+    })
+    now[0] = 1_501
+    rolling.update(event(
+        1_501, bid="100", ask="101", qty="3",
+        trades=(("100.5", "1", "BUY"),),
+    ))
+    store.update({
+        "e": "aggTrade", "a": 1, "p": "100.5", "q": "1",
+        "T": 1_501, "m": False,
+    })
+    now[0] = 3_002
+    rolling.update(event(3_002, bid="99", ask="101", qty="3"))
+    store.update({
+        "e": "depthUpdate", "U": 3, "u": 3,
+        "b": [["100", "0"], ["99", "3"]], "a": [],
+    })
+    rolling.update(event(
+        3_002, bid="99", ask="101", qty="3",
+        trades=(("99", "2", "SELL"),),
+    ))
+    store.update({
+        "e": "aggTrade", "a": 2, "p": "99", "q": "2",
+        "T": 3_002, "m": True,
+    })
+
+    historical = rolling.accumulator.snapshot()
+    live = store.snapshot()
+    assert live.prefill_price_change_bps == historical.price_change_bps
+    assert live.prefill_signed_trade_flow == historical.signed_trade_flow
+    assert live.prefill_order_flow_imbalance == historical.order_flow_imbalance
+    assert live.trade_flow_quote == historical.trade_flow_quote
+
+    store.begin_stream_session()
+    reset = store.snapshot()
+    assert reset.veto_ready is False
+    assert reset.trade_flow_quote == 0
+    assert reset.prefill_price_change_bps == 0
 
 
 @pytest.mark.parametrize("change", [{"latency_ms": True}, {"entry_gap_bps": 100.0}, {"veto_ofi": "NaN"},

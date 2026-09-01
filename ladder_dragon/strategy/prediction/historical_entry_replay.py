@@ -16,7 +16,7 @@ from ladder_dragon.strategy.prediction.historical_policy import (
     HistoricalContext, HistoricalPolicy, RollingVeto, fingerprint,
 )
 
-MODEL_CONTRACT = "historical_midpoint_fifo_cancel_selection_v1"
+MODEL_CONTRACT = "historical_midpoint_fifo_cancel_selection_v2"
 MAXIMUM_BATCH_POLICIES = 64
 
 
@@ -119,6 +119,9 @@ def historical_entry_replays(
                         policy,
                         row,
                         f"{name}-{state['attempts'][name]}",
+                        pre_submit_veto=(
+                            name == "veto" and triggered is True
+                        ),
                     )
                     state["next_at"][name] = (
                         event.ts_ms // policy.cadence_ms + 1
@@ -131,6 +134,7 @@ def historical_entry_replays(
         raise ValueError("historical terminal observation tail is incomplete")
     source_files = [Path(__file__), Path(__file__).with_name("historical_execution.py"),
                     Path(__file__).with_name("historical_policy.py"),
+                    Path(__file__).parents[1] / "entry_veto_signal.py",
                     Path(__file__).parents[1] / "market_replay.py"]
     model_sources = {
         path.name: hashlib.sha256(path.read_bytes()).hexdigest()

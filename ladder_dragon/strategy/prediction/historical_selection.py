@@ -24,6 +24,11 @@ from ladder_dragon.strategy.prediction.historical_replay_planner import (
 from ladder_dragon.strategy.prediction.entry_diagnostics import (
     MAXIMUM_SELECTION_ARTIFACTS,
 )
+from ladder_dragon.strategy.prediction.episode_expectancy import (
+    V23_FIXED_CONFIRMATION_PATHS,
+    V23_MINIMUM_ELIGIBLE_TERMINAL_EPISODES,
+    V23_MINIMUM_RANGE_FILLED_EPISODES,
+)
 
 
 MINIMUM_REPORT_BLOCKS = 3
@@ -228,7 +233,11 @@ def _rows(report: Mapping[str, object], name: str) -> list[Mapping[str, object]]
     output = []
     previous = -1
     for row in rows:
-        if not isinstance(row, dict) or type(row.get("started_at_ms")) is not int:
+        if (
+            not isinstance(row, dict)
+            or type(row.get("started_at_ms")) is not int
+            or type(row.get("entry_order_submitted")) is not bool
+        ):
             raise ValueError("historical replay episode is invalid")
         if row["started_at_ms"] < previous:
             raise ValueError("historical replay episodes are not chronological")
@@ -236,6 +245,20 @@ def _rows(report: Mapping[str, object], name: str) -> list[Mapping[str, object]]
         _decimal(row.get("net_pnl_quote"), field="PnL")
         if type(row.get("censored")) is not bool:
             raise ValueError("historical replay censor flag is invalid")
+        if row.get("terminal_reason") == "ENTRY_VETO":
+            signal_ts = row.get("signal_ts_ms")
+            cancel_ts = row.get("cancel_effective_ts_ms")
+            if type(signal_ts) is not int or (
+                row["entry_order_submitted"] is False
+                and cancel_ts is not None
+            ) or (
+                row["entry_order_submitted"] is True
+                and (
+                    type(cancel_ts) is not int
+                    or cancel_ts < signal_ts
+                )
+            ):
+                raise ValueError("historical entry-veto timing is invalid")
         output.append(row)
     return output
 
@@ -379,6 +402,27 @@ def historical_selection_artifact(
             successes, planning_denominator
         )
 
+    eligible_rate_lower = planning_lower(len(eligible_independent))
+    filled_rate_lower = planning_lower(len(filled_independent))
+    range_filled_rate_lower = planning_lower(
+        len(range_filled_independent)
+    )
+    projected_eligible_capacity = (
+        eligible_rate_lower * Decimal(V23_FIXED_CONFIRMATION_PATHS)
+    )
+    projected_range_filled_capacity = (
+        range_filled_rate_lower * Decimal(V23_FIXED_CONFIRMATION_PATHS)
+    )
+    confirmation_preflight_ready = bool(
+        not path_cohort
+        or (
+            projected_eligible_capacity
+            >= Decimal(V23_MINIMUM_ELIGIBLE_TERMINAL_EPISODES)
+            and projected_range_filled_capacity
+            >= Decimal(V23_MINIMUM_RANGE_FILLED_EPISODES)
+        )
+    )
+
     target_reachability = (
         Decimal(sum(row.get("terminal_reason") == "TAKE_PROFIT" for row in filled_rows))
         / Decimal(len(filled_rows))
@@ -395,11 +439,12 @@ def historical_selection_artifact(
         and Decimal("0.05") <= veto_rate <= Decimal("0.40")
         and veto_net > 0
         and veto_net > baseline_net
+        and confirmation_preflight_ready
     )
     if not ready:
         raise ValueError("historical replay selection criteria are incomplete")
     selected_rule = {
-        "contract_version": "l2_adverse_selection_cancel_v3",
+        "contract_version": "l2_adverse_selection_cancel_v4",
         "prefill_price_change_max_bps": str(policy["veto_price_bps"]),
         "prefill_signed_trade_flow_max": str(policy["veto_signed_flow"]),
         "prefill_order_flow_imbalance_max": str(policy["veto_ofi"]),
@@ -444,16 +489,30 @@ def historical_selection_artifact(
             "planning_rate_hypotheses": PLANNING_RATE_HYPOTHESES,
             "planning_rate_alpha": format(PLANNING_RATE_ALPHA, "f"),
             "eligible_path_rate_lower_bound": format(
-                planning_lower(len(eligible_independent)), "f"
+                eligible_rate_lower, "f"
             ),
             "filled_path_rate_lower_bound": format(
-                planning_lower(len(filled_independent)), "f"
+                filled_rate_lower, "f"
             ),
             "range_filled_path_rate_lower_bound": format(
-                planning_lower(len(range_filled_independent)), "f"
+                range_filled_rate_lower, "f"
+            ),
+            "confirmation_preflight_ready": confirmation_preflight_ready,
+            "fixed_confirmation_paths": V23_FIXED_CONFIRMATION_PATHS,
+            "required_eligible_terminal_episodes": (
+                V23_MINIMUM_ELIGIBLE_TERMINAL_EPISODES
+            ),
+            "required_range_filled_episodes": (
+                V23_MINIMUM_RANGE_FILLED_EPISODES
+            ),
+            "projected_eligible_capacity_lower_bound": format(
+                projected_eligible_capacity, "f"
+            ),
+            "projected_range_filled_capacity_lower_bound": format(
+                projected_range_filled_capacity, "f"
             ),
             "confirmation_capacity_policy": (
-                "bonferroni_clopper_pearson_lower_bound_v1"
+                "bonferroni_clopper_pearson_capacity_preflight_v2"
             ),
         },
         "selected_rule": selected_rule,

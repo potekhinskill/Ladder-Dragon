@@ -12,6 +12,10 @@ import json
 from pathlib import Path
 from typing import Iterable, Mapping, Sequence
 
+from ladder_dragon.strategy.entry_veto_signal import (
+    order_flow_increment as _ofi_increment,
+    top_of_book as _top,
+)
 from ladder_dragon.strategy.market_replay import MarketEvent, load_jsonl_archive
 
 
@@ -34,36 +38,6 @@ def _sha256(path: Path) -> str:
         for chunk in iter(lambda: handle.read(1024 * 1024), b""):
             digest.update(chunk)
     return digest.hexdigest()
-
-
-def _top(event: MarketEvent) -> tuple[Decimal, Decimal, Decimal, Decimal]:
-    if not event.bids or not event.asks:
-        raise ValueError("L2 entry-veto replay requires both book sides")
-    bid = max(event.bids, key=lambda level: level.price)
-    ask = min(event.asks, key=lambda level: level.price)
-    if bid.price <= ZERO or ask.price <= bid.price:
-        raise ValueError("L2 entry-veto replay book is invalid")
-    return bid.price, bid.quantity, ask.price, ask.quantity
-
-
-def _ofi_increment(
-    previous: tuple[Decimal, Decimal, Decimal, Decimal],
-    current: tuple[Decimal, Decimal, Decimal, Decimal],
-) -> Decimal:
-    """Return Cont-style best-level order-flow imbalance for one update."""
-    old_bid, old_bid_qty, old_ask, old_ask_qty = previous
-    bid, bid_qty, ask, ask_qty = current
-    bid_flow = (
-        bid_qty if bid > old_bid
-        else -old_bid_qty if bid < old_bid
-        else bid_qty - old_bid_qty
-    )
-    ask_flow = (
-        -ask_qty if ask < old_ask
-        else old_ask_qty if ask > old_ask
-        else old_ask_qty - ask_qty
-    )
-    return bid_flow + ask_flow
 
 
 def candidate_grid() -> tuple[dict[str, object], ...]:

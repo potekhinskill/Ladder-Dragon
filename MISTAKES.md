@@ -1,5 +1,12 @@
 # Engineering mistakes and root causes
 
+### 2026-09-01 — Confirmed a veto with different replay and LIVE semantics
+
+- **Impact:** historical confirmation could include BUY orders that LIVE execution would block before submission.
+- **Root cause:** replay and runtime duplicated rolling signals and did not fingerprint exact order-event timing.
+- **Correction:** share one accumulator, separate pre-submit veto from post-submit cancellation, and bind both in validation.
+- **Prevention:** require parity, no-order, late-fill, reconnect-reset, and candidate-capacity tests before confirmation.
+
 ### 2026-09-01 — Reserved source windows before executable opportunity admission
 
 - **Impact:** non-RANGE windows consumed scarce provider capacity and made confirmation throughput appear higher than reality.

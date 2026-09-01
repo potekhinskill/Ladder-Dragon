@@ -17,7 +17,15 @@ ZERO = D("0")
 class HistoricalExecution:
     """Consume each real event once; never synthesize an arrival book or fill."""
 
-    def __init__(self, event, policy: HistoricalPolicy, context: dict, identifier: str) -> None:
+    def __init__(
+        self,
+        event,
+        policy: HistoricalPolicy,
+        context: dict,
+        identifier: str,
+        *,
+        pre_submit_veto: bool = False,
+    ) -> None:
         self.policy, self.context, self.identifier = policy, context, identifier
         self.started_ms = event.ts_ms
         self.entry_qty = self.entry_cost = self.exit_qty = self.exit_proceeds = self.fees = ZERO
@@ -27,6 +35,7 @@ class HistoricalExecution:
         self.signal_ms = self.cancel_effective_ms = self.stop_ms = None
         self.minimum_bid_after_entry = self.maximum_bid_after_entry = None
         self.result = None
+        self.entry_order_submitted = False
         self.orders = OrderBookReplay(latency_ms=policy.latency_ms, maker_fee_pct=ZERO,
                                      taker_fee_pct=ZERO, queue_cancellation_ahead_ratio=ZERO)
         tick, step = D(context["tick_size"]), D(context["step_size"])
@@ -44,7 +53,11 @@ class HistoricalExecution:
         if not ZERO < self.stop_limit < self.trigger < self.entry < self.target:
             raise ValueError("historical rounded prices are inconsistent")
         self.quantity = (D(policy.notional_quote) / self.entry / step).to_integral_value(rounding=ROUND_FLOOR) * step
-        if self.quantity < D(context["minimum_quantity"]) or self.quantity * self.entry < D(context["minimum_notional_quote"]):
+        if pre_submit_veto:
+            self.signal_ms = event.ts_ms
+            self.cancel_reason = "ENTRY_VETO"
+            self.finish(event.ts_ms, "ENTRY_VETO")
+        elif self.quantity < D(context["minimum_quantity"]) or self.quantity * self.entry < D(context["minimum_notional_quote"]):
             self.finish(event.ts_ms, "BELOW_EXCHANGE_MINIMUM")
         else:
             self.submit("entry", "BUY", self.entry, self.quantity, event.ts_ms)
@@ -54,6 +67,8 @@ class HistoricalExecution:
         order = ReplayOrder(identifier, side, price, qty, now)
         if not self.orders.submit(order, now):
             raise ValueError("historical request budget exceeded")
+        if identifier == "entry":
+            self.entry_order_submitted = True
         # Millisecond timestamps cannot prove that a same-time trade followed
         # submission. Exclude that tie instead of awarding an optimistic fill.
         order.created_ts += 1
@@ -94,6 +109,7 @@ class HistoricalExecution:
             "start_regime": self.context["regime"], "context_source_sha256": self.context["source_sha256"],
             "signal_ts_ms": self.signal_ms, "cancel_effective_ts_ms": self.cancel_effective_ms,
             "entry_price": str(self.entry), "quantity": str(self.quantity),
+            "entry_order_submitted": self.entry_order_submitted,
             "take_profit_price": str(self.target),
             "stop_trigger_price": str(self.trigger),
             "stop_limit_price": str(self.stop_limit),

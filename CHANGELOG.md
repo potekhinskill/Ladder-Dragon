@@ -3,6 +3,31 @@
 All notable changes are documented here. Releases use Semantic Versioning; every
 section is dated and there is intentionally no `Unreleased` section.
 
+## [2.20.284] — 2026-09-01
+
+### Added
+- One shared causal entry-veto accumulator now serves historical replay and LIVE market snapshots.
+- Selection now checks conservative eligible and RANGE-fill capacity before it freezes a candidate.
+
+### Changed
+- A pre-submit veto creates a terminal attempt without creating an exchange order.
+- Post-submit cancellation processes observable fills before the cancel request, then preserves late fills.
+- Version-23 replay validation binds the candidate rule, exact window, event order, reset, and cancellation latency.
+
+### Fixed
+- Historical confirmation no longer evaluates orders that LIVE execution would never submit.
+- Historical and LIVE signals now use the same boundary anchor and exclude the same expired flow.
+- A sparse historical candidate can no longer enter an unreachable fixed confirmation cohort.
+
+### Security
+- Reconnect clears all entry-veto signal state and validation fails closed on a mismatched candidate contract.
+- Persistent HALT, BTC, ETH, CHAMPION state, and Mainnet order authority remain unchanged.
+
+### Verified
+- The focused replay, signal, selection, execution, validation, and promotion regressions pass.
+- The full project suite passes: 1,593 tests.
+- Python compilation, Technical English, architecture, and whitespace checks pass.
+
 ## [2.20.283] — 2026-09-01
 
 ### Changed

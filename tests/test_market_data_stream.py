@@ -309,7 +309,7 @@ def test_entry_veto_cancels_adverse_or_unavailable_evidence():
     unavailable = evaluate_entry_veto(
         store.snapshot(),
         {
-            "contract_version": "l2_adverse_selection_cancel_v3",
+            "contract_version": "l2_adverse_selection_cancel_v4",
             "prefill_price_change_max_bps": "-10",
             "prefill_signed_trade_flow_max": "-0.2",
             "prefill_order_flow_imbalance_max": "-0.1",
@@ -334,7 +334,7 @@ def test_entry_veto_cancels_adverse_or_unavailable_evidence():
     decision = evaluate_entry_veto(
         adverse,
         {
-            "contract_version": "l2_adverse_selection_cancel_v3",
+            "contract_version": "l2_adverse_selection_cancel_v4",
             "prefill_price_change_max_bps": "-10",
             "prefill_signed_trade_flow_max": "-0.2",
             "prefill_order_flow_imbalance_max": "-0.1",
@@ -361,7 +361,7 @@ def test_entry_veto_blocks_a_runtime_signal_window_mismatch():
     decision = evaluate_entry_veto(
         snapshot,
         {
-            "contract_version": "l2_adverse_selection_cancel_v3",
+            "contract_version": "l2_adverse_selection_cancel_v4",
             "prefill_price_change_max_bps": "-10",
             "prefill_signed_trade_flow_max": "-0.2",
             "prefill_order_flow_imbalance_max": "-0.1",
