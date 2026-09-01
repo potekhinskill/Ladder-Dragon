@@ -3,6 +3,26 @@
 All notable changes are documented here. Releases use Semantic Versioning; every
 section is dated and there is intentionally no `Unreleased` section.
 
+## [2.20.290] — 2026-09-02
+
+### Added
+- A release audit now verifies execution-authority call sites, positive gates, boundary ordering, and supervisor cadence.
+
+### Changed
+- Structural source audits now share one qualified function and class-method index.
+
+### Fixed
+- A correct lifecycle guard can no longer pass release verification when planning invokes it only once or after market access.
+- LIVE worker verification must remain before exchange access and inside the LIVE gate.
+
+### Security
+- Mutation tests reject missing, late, conditionally bypassable, one-shot, and nested-decoy authority checks.
+
+### Verified
+- The focused authority-path, guard-contract, verification-profile, and runtime revocation regressions pass.
+- The full project suite passes: 1,643 tests.
+- Python compilation, Technical English, and all five domain audits pass.
+
 ## [2.20.289] — 2026-09-02
 
 ### Changed

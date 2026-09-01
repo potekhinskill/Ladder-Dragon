@@ -31,8 +31,12 @@ Run `python -m bin.audit_guard_contracts`.
 This audit requires executable rejection paths in registered fail-closed guards.
 It resolves module functions and qualified class methods without name collisions.
 
+Run `python -m bin.audit_execution_authority_paths`.
+This audit requires lifecycle validation in each symbol cycle.
+It requires LIVE worker verification before exchange access.
+
 Run `python -m bin.audit_numeric_boundaries`.
 New order and protection modules receive a zero-`float` budget automatically.
 
-The release verification profile runs all four audits.
-Property tests exercise generated symbols, statuses, indicator scales, and damaged guard implementations.
+The release verification profile runs all five audits.
+Property and mutation tests exercise generated values, damaged guards, and misplaced authority calls.

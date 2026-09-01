@@ -139,6 +139,7 @@ def test_profile_registry_contains_the_documented_interfaces(tmp_path):
         "semantic_authority_audit",
         "exchange_boundary_audit",
         "guard_contract_audit",
+        "execution_authority_path_audit",
         "release_continuity",
         "tracked_secret_scan",
         "semgrep_rule_tests",

@@ -1,5 +1,19 @@
 # Engineering mistakes and root causes
 
+### 2026-09-02 — Placed a support module in the command namespace
+
+- **Impact:** the first full test run failed because the command reference did not list a non-command helper.
+- **Root cause:** the helper location ignored the repository contract that treats every `bin` module as a public command.
+- **Correction:** move shared source-audit helpers to the verification library namespace.
+- **Prevention:** inspect namespace discovery tests before adding a support module.
+
+### 2026-09-02 — Reviewed a guard without proving its invocation cadence
+
+- **Impact:** a correct lifecycle check initially appeared to close runtime revocation without proving per-plan invocation.
+- **Root cause:** review stopped at the guard implementation and did not verify its repeating mutation-capable call path.
+- **Correction:** audit the supervisor cycle, per-plan check, and worker preflight as one ordered contract.
+- **Prevention:** require call-site mutation tests for gate, cadence, ordering, and nested decoys.
+
 ### 2026-09-02 — Indexed only module-level guard functions
 
 - **Impact:** the green guard audit omitted `ClockCheck.require_safe`, a LIVE clock-safety enforcement method.

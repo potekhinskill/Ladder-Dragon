@@ -45,6 +45,11 @@ def local_checks(context: HarnessContext) -> list[CheckSpec]:
             timeout_sec=120,
         ),
         CheckSpec(
+            name="execution_authority_path_audit",
+            argv=(python, "-m", "bin.audit_execution_authority_paths"),
+            timeout_sec=120,
+        ),
+        CheckSpec(
             name="tracked_secret_scan",
             argv=(python, "deploy/scan_tracked_secrets.py"),
             timeout_sec=120,

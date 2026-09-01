@@ -1,5 +1,12 @@
 # Engineering decisions
 
+### 2026-09-02 — Audit authority placement and cadence
+
+- **Context:** a correct guard did not prove that mutation-capable callers invoked it at the required frequency.
+- **Decision:** register authority call sites with their gates, loop ancestry, and protected boundary order.
+- **Why it worked:** mutations detect one-time planning, conditional bypass, late verification, and nested decoy calls.
+- **Reuse:** every cached authority that must be revalidated before each external mutation path.
+
 ### 2026-09-02 — Audit guards by qualified definition identity
 
 - **Context:** a module-level function index could not inspect enforcement methods inside classes.
