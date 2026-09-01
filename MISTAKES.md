@@ -1,5 +1,12 @@
 # Engineering mistakes and root causes
 
+### 2026-09-02 — Indexed only module-level guard functions
+
+- **Impact:** the green guard audit omitted `ClockCheck.require_safe`, a LIVE clock-safety enforcement method.
+- **Root cause:** registry identities and Abstract Syntax Tree traversal assumed every guard was a free function.
+- **Correction:** resolve qualified class methods and register the clock-safety guard.
+- **Prevention:** every source-audit registry must include mutation tests for each supported definition shape.
+
 ### 2026-09-02 — Collapsed probation expiry and evidence insufficiency
 
 - **Impact:** a quiet CHAMPION could become permanently BUY-blocked with an incorrect entry-limit reason.

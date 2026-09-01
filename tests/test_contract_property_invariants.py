@@ -335,6 +335,54 @@ def test_guard_audit_kills_a_removed_rejection_mutant(tmp_path: Path) -> None:
     )
 
 
+def test_guard_audit_kills_a_class_method_rejection_mutant(tmp_path: Path) -> None:
+    for relative in CRITICAL_GUARDS:
+        source = (ROOT / relative).read_text(encoding="utf-8")
+        destination = tmp_path / relative
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        destination.write_text(source, encoding="utf-8")
+    target = tmp_path / "ladder_dragon/execution/time_safety.py"
+    source = target.read_text(encoding="utf-8")
+    old = '''    def require_safe(self) -> None:
+        if not self.safe:
+            raise RuntimeError(self.reason)
+'''
+    new = '''    def require_safe(self) -> None:
+        if not self.safe:
+            return None
+'''
+    assert old in source
+    target.write_text(source.replace(old, new), encoding="utf-8")
+    report = audit_guard_contracts(tmp_path)
+    assert any(
+        item.endswith("ClockCheck.require_safe:no rejection path")
+        for item in report["violations"]
+    )
+
+
+def test_guard_audit_rejects_a_missing_registered_class_method(
+    tmp_path: Path,
+) -> None:
+    for relative in CRITICAL_GUARDS:
+        source = (ROOT / relative).read_text(encoding="utf-8")
+        destination = tmp_path / relative
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        destination.write_text(source, encoding="utf-8")
+    target = tmp_path / "ladder_dragon/execution/time_safety.py"
+    source = target.read_text(encoding="utf-8")
+    old = "    def require_safe(self) -> None:\n"
+    assert old in source
+    target.write_text(
+        source.replace(old, "    def unregistered_safe(self) -> None:\n"),
+        encoding="utf-8",
+    )
+    report = audit_guard_contracts(tmp_path)
+    assert any(
+        item.endswith("ClockCheck.require_safe:missing")
+        for item in report["violations"]
+    )
+
+
 def test_unknown_symbol_suffix_fails_closed() -> None:
     with pytest.raises(ValueError, match="cannot determine assets"):
         symbol_assets("SOLXYZ")

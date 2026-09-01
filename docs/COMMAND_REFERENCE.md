@@ -17,7 +17,7 @@ Help output is the authoritative option reference.
 | `audit_ai_readiness` | checks real AI evidence for APPLY readiness |
 | `audit_backtest_reports` | classifies saved backtest reports |
 | `audit_exchange_boundaries` | rejects authenticated exchange calls outside reviewed adapters |
-| `audit_guard_contracts` | checks rejection paths in registered fail-closed guards |
+| `audit_guard_contracts` | checks registered fail-closed functions and qualified class methods |
 | `audit_legacy_compatibility` | reports remaining legacy accounting dependencies |
 | `audit_numeric_boundaries` | finds direct float calls at financial boundaries |
 | `audit_replay_readiness` | checks archive, latency, regime, and validation evidence |

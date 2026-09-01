@@ -29,6 +29,7 @@ This audit rejects authenticated transport calls outside reviewed boundary adapt
 
 Run `python -m bin.audit_guard_contracts`.
 This audit requires executable rejection paths in registered fail-closed guards.
+It resolves module functions and qualified class methods without name collisions.
 
 Run `python -m bin.audit_numeric_boundaries`.
 New order and protection modules receive a zero-`float` budget automatically.

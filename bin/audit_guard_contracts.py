@@ -12,6 +12,9 @@ from pathlib import Path
 
 
 CRITICAL_GUARDS = {
+    "ladder_dragon/execution/time_safety.py": (
+        "ClockCheck.require_safe",
+    ),
     "ladder_dragon/supervision/execution_promotion.py": (
         "require_safe_execution_scope",
         "require_promotion_report_integrity",
@@ -35,17 +38,28 @@ CRITICAL_GUARDS = {
 }
 
 
+def _guard_functions(tree: ast.Module) -> dict[str, ast.FunctionDef | ast.AsyncFunctionDef]:
+    """Index module functions and class methods by qualified identity."""
+    functions: dict[str, ast.FunctionDef | ast.AsyncFunctionDef] = {}
+
+    def collect(body: list[ast.stmt], *, prefix: str = "") -> None:
+        for node in body:
+            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                functions[prefix + node.name] = node
+            elif isinstance(node, ast.ClassDef):
+                collect(node.body, prefix=prefix + node.name + ".")
+
+    collect(tree.body)
+    return functions
+
+
 def audit_guard_contracts(root: Path) -> dict[str, object]:
     violations: list[str] = []
     checked: list[str] = []
     for relative, names in CRITICAL_GUARDS.items():
         path = root / relative
         tree = ast.parse(path.read_text(encoding="utf-8"), filename=relative)
-        functions = {
-            node.name: node
-            for node in tree.body
-            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
-        }
+        functions = _guard_functions(tree)
         for name in names:
             identity = f"{relative}:{name}"
             checked.append(identity)

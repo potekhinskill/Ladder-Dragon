@@ -1,5 +1,12 @@
 # Engineering decisions
 
+### 2026-09-02 — Audit guards by qualified definition identity
+
+- **Context:** a module-level function index could not inspect enforcement methods inside classes.
+- **Decision:** register class methods by qualified name and traverse class scopes without traversing function-local definitions.
+- **Why it worked:** mutation tests detect a missing method and a method without its rejection path.
+- **Reuse:** every source audit that covers both module functions and class enforcement methods.
+
 ### 2026-09-02 — Separate probation expiry from evidence recoverability
 
 - **Context:** one expired state combined recoverable lifecycle draining with an impossible evidence shortfall.

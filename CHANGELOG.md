@@ -3,6 +3,23 @@
 All notable changes are documented here. Releases use Semantic Versioning; every
 section is dated and there is intentionally no `Unreleased` section.
 
+## [2.20.289] — 2026-09-02
+
+### Changed
+- The guard-contract audit now resolves module functions and class methods by qualified definition identity.
+
+### Fixed
+- `ClockCheck.require_safe` is now covered by the same executable rejection-path audit as other critical guards.
+- Class enforcement methods can no longer remain structurally invisible to release verification.
+
+### Security
+- Release verification rejects a missing clock-safety method or a method without an executable rejection path.
+
+### Verified
+- The focused guard-contract, property, and clock-safety regressions pass.
+- The full project suite passes: 1,629 tests.
+- Python compilation, Technical English, and all four domain audits pass.
+
 ## [2.20.288] — 2026-09-02
 
 ### Changed
