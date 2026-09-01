@@ -18,7 +18,6 @@ MYBOT_WAS_ACTIVE=0
 DASHBOARD_WAS_ACTIVE=0
 MYBOT_WAS_ENABLED=0
 DASHBOARD_WAS_ENABLED=0
-WATCHDOG_WAS_ACTIVE=0
 WATCHDOG_WAS_ENABLED=0
 SERVICES_STOPPED=0
 PREVIOUS_HEAD=""
@@ -215,7 +214,6 @@ remember_service_state() {
   DASHBOARD_WAS_ACTIVE="$(service_flag is-active pi-healthd)"
   MYBOT_WAS_ENABLED="$(service_flag is-enabled mybot)"
   DASHBOARD_WAS_ENABLED="$(service_flag is-enabled pi-healthd)"
-  WATCHDOG_WAS_ACTIVE="$(service_flag is-active pi-watchdog-v3.timer)"
   WATCHDOG_WAS_ENABLED="$(service_flag is-enabled pi-watchdog-v3.timer)"
 }
 
@@ -244,8 +242,9 @@ start_previous_services() {
   if [[ "${DASHBOARD_WAS_ACTIVE}" == "1" ]]; then
     systemctl start pi-healthd
   fi
-  # A watchdog must never revive a bot that was intentionally stopped.
-  if [[ "${MYBOT_WAS_ACTIVE}" == "1" && "${WATCHDOG_WAS_ACTIVE}" == "1" ]]; then
+  # An enabled watchdog is persistent restart authority for an active bot.
+  # Disable the timer before an update to preserve an intentional timer stop.
+  if [[ "${MYBOT_WAS_ACTIVE}" == "1" && "${WATCHDOG_WAS_ENABLED}" == "1" ]]; then
     systemctl start pi-watchdog-v3.timer
   fi
 }
@@ -263,9 +262,10 @@ verify_previous_service_state() {
       fail "${unit} was stopped before update but became active"
     fi
   done
-  if [[ "${MYBOT_WAS_ACTIVE}" == "0" ]] \
-    && systemctl is-active --quiet pi-watchdog-v3.timer; then
-    fail "watchdog timer is active while the previously stopped bot remains stopped"
+  if [[ "${MYBOT_WAS_ACTIVE}" == "1" && "${WATCHDOG_WAS_ENABLED}" == "1" ]]; then
+    wait_for_service pi-watchdog-v3.timer 15
+  elif systemctl is-active --quiet pi-watchdog-v3.timer; then
+    fail "watchdog timer is active without enabled restart authority for an active bot"
   fi
   for unit in mybot pi-healthd pi-watchdog-v3.timer; do
     case "${unit}" in

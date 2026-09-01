@@ -234,11 +234,12 @@ Import a reviewed post-cutoff report manually when automatic import is unavailab
 ```bash
 .venv/bin/python -m bin.import_v23_confirmation \
   --prediction-db PREDICTION_DB \
-  --report REPORT_PATH REPORT_SHA256 \
+  --report REPORT_PATH REPORT_SHA256 REQUEST_PATH REQUEST_SHA256 \
   --confirm IMPORT-V23-DISJOINT-CONFIRMATION
 ```
 
-The importer rejects selection sources, overlapping reports, and model changes.
+The importer binds each report to its exact request.
+It rejects selection sources, overlapping reports, and model changes.
 It has no order interface.
 
 Import four reviewed historical selection blocks:

@@ -5,6 +5,7 @@ import json
 import pytest
 
 from ladder_dragon.strategy.prediction import historical_replay_planner as planner
+from ladder_dragon.strategy.prediction import v23_confirmation_planner
 from ladder_dragon.strategy.prediction.episode_semantics import (
     v23_evidence_semantics_contract,
 )
@@ -12,6 +13,9 @@ from ladder_dragon.strategy.prediction.historical_entry_replay import MODEL_CONT
 from ladder_dragon.strategy.prediction.historical_policy import fingerprint
 from ladder_dragon.strategy.prediction.historical_selection import (
     historical_selection_artifact,
+)
+from ladder_dragon.strategy.prediction.v23_contract import (
+    V23_CONFIRMATION_CAPACITY_POLICY,
 )
 
 
@@ -179,7 +183,7 @@ def test_planner_creates_provider_bounded_review_drafts(tmp_path, monkeypatch):
     )
     assert artifact["schema_version"] == 5
     assert artifact["selection_metrics"]["confirmation_capacity_policy"] == (
-        "bonferroni_clopper_pearson_capacity_preflight_v2"
+        V23_CONFIRMATION_CAPACITY_POLICY
     )
     assert artifact["selection_metrics"]["independent_paths"] == 12
     assert artifact["selection_metrics"]["report_blocks"] == 4
@@ -189,6 +193,35 @@ def test_planner_creates_provider_bounded_review_drafts(tmp_path, monkeypatch):
     assert artifact["selection_metrics"]["planning_rate_hypotheses"] == 3
     assert artifact["selection_metrics"]["confirmation_preflight_ready"] is True
     assert artifact["selected_rule"]["signal_window_ms"] == 300_000
+    design = v23_confirmation_planner._confirmation_design({
+        "criteria": {
+            "criteria_schema_version": 8,
+            "minimum_eligible_terminal_episodes": 24,
+            "minimum_filled_episodes": 10,
+            "minimum_regime_filled_episodes": 12,
+            "minimum_confirmed_regimes": 1,
+            "design_effect_required_filled_episodes": 29,
+            "maximum_terminal_episodes": 42,
+            "confirmation_cohort_policy": "bounded_provider_capacity_paths_v2",
+            "fixed_confirmation_paths": 42,
+            "minimum_structural_pass_paths": 24,
+            "dynamic_confirmation_top_up_allowed": False,
+            "design_effect_is_capacity_gate": False,
+            "provider_capacity_reserve_paths": 3,
+            "confirmation_block_size": 3,
+            "incremental_block_evaluation": True,
+            "path_admission_policy": (
+                "first_causal_executable_cadence_opportunity_v4"
+            ),
+            "path_trial_cardinality_policy": (
+                "one_terminal_attempt_per_executable_path_v1"
+            ),
+            "confirmation_evidence_origin_policy": (
+                "immutable_l2_path_reports_only_v1"
+            ),
+        },
+    }, artifact)
+    assert design["required_independent_paths"] == 42
 
 
 def test_selection_rejects_insufficient_confirmation_capacity(

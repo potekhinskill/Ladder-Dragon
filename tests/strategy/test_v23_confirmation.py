@@ -7,6 +7,8 @@ import pytest
 
 from ladder_dragon.strategy.prediction.episode_semantics import (
     V23_EXECUTION_MODEL_RULE,
+    execution_model_contract,
+    v23_evidence_semantics_contract,
     v23_evidence_semantics_fingerprint,
 )
 from ladder_dragon.strategy.prediction import v23_confirmation as subject
@@ -49,7 +51,9 @@ def manifest():
 
 
 def policy():
+    model = execution_model_contract()
     return {
+        "symbol": "SOLUSDT",
         "entry_gap_bps": "48",
         "take_profit_bps": "80",
         "stop_limit_bps": "103.5",
@@ -57,21 +61,30 @@ def policy():
         "notional_quote": "6",
         "entry_ttl_ms": 5_400_000,
         "holding_ms": 21_600_000,
+        "cadence_ms": 300_000,
+        "latency_ms": int(model["latency_ms"]),
         "veto_price_bps": "-10",
         "veto_signed_flow": "-0.2",
         "veto_ofi": "-0.3",
         "cancel_latency_ms": 1000,
         "signal_window_ms": 300000,
+        "stop_grace_ms": int(model["stop_unfilled_grace_ms"]),
+        "market_impact_bps": str(model["emergency_market_impact_bps"]),
+        "maximum_event_gap_ms": int(model["maximum_event_gap_ms"]),
+        "classifier_fingerprint": fingerprint(
+            v23_evidence_semantics_contract()["regime_classifier"]
+        ),
+        "panic_source_fingerprint": "c" * 64,
         "allowed_regimes": ["RANGE"],
         "maximum_attempts": 1,
     }
 
 
-def row():
+def row(started_at_ms=2000, episode_id="veto-1"):
     return {
-        "episode_id": "veto-1",
-        "started_at_ms": 2000,
-        "terminal_at_ms": 3000,
+        "episode_id": episode_id,
+        "started_at_ms": started_at_ms,
+        "terminal_at_ms": started_at_ms + 500,
         "terminal_reason": "ENTRY_VETO",
         "start_regime": "RANGE",
         "entry_price": "100",
@@ -102,31 +115,84 @@ def row():
     }
 
 
-def test_import_uses_only_disjoint_post_cutoff_exact_reports(monkeypatch):
-    report = {
-        "start_ts_ms": 2000,
-        "end_ts_ms": 4000,
-        "cutoff_ts_ms": 4000,
-        "path_windows": [{
-            "start_ts_ms": 2000,
-            "entry_end_ts_ms": 3500,
-        }],
-        "source_sha256s": ["c" * 64],
-        "model_source_sha256s": {"model.py": "f" * 64},
+def request(source_prefix="c"):
+    paths = []
+    for index, start in enumerate((2_000, 4_000, 6_000)):
+        paths.append({
+            "archives": [{
+                "path": f"segment-{index}.jsonl",
+                "sha256": chr(ord(source_prefix) + index) * 64,
+            }],
+            "start_ms": start,
+            "entry_end_ms": start + 1_000,
+            "end_ms": start + 1_500,
+            "cutoff_ms": start + 1_500,
+        })
+    return {
+        "request_schema_version": 2,
+        "cohort_contract": subject.PATH_COHORT_CONTRACT,
+        "stability_block_index": 0,
         "policy": policy(),
+        "paths": paths,
     }
+
+
+def report_for_request(payload):
+    windows = [{
+        "start_ts_ms": path["start_ms"],
+        "entry_end_ts_ms": path["entry_end_ms"],
+        "end_ts_ms": path["end_ms"],
+        "cutoff_ts_ms": path["cutoff_ms"],
+        "source_sha256s": [
+            archive["sha256"] for archive in path["archives"]
+        ],
+    } for path in payload["paths"]]
+    return {
+        "request_sha256": fingerprint(payload),
+        "cohort_contract": payload["cohort_contract"],
+        "stability_block_index": payload["stability_block_index"],
+        "start_ts_ms": windows[0]["start_ts_ms"],
+        "end_ts_ms": windows[-1]["end_ts_ms"],
+        "cutoff_ts_ms": windows[-1]["cutoff_ts_ms"],
+        "path_windows": windows,
+        "source_sha256s": [
+            source for window in windows for source in window["source_sha256s"]
+        ],
+        "model_source_sha256s": {"model.py": "f" * 64},
+        "policy": payload["policy"],
+    }
+
+
+def write_request(tmp_path, payload):
+    path = tmp_path / "request.json"
+    atomic_json(path, payload)
+    return path, hashlib.sha256(path.read_bytes()).hexdigest()
+
+
+def test_import_uses_only_disjoint_post_cutoff_exact_reports(
+    tmp_path, monkeypatch
+):
+    pinned = request()
+    report = report_for_request(pinned)
+    request_path, request_sha = write_request(tmp_path, pinned)
     recorded = []
     monkeypatch.setattr(subject, "_active_v23_manifest", lambda store: manifest())
     monkeypatch.setattr(
         subject, "_selection_artifact",
         lambda store, params: {
-            "source_archive_sha256s": ["d" * 64],
+            "source_archive_sha256s": ["9" * 64],
             "model_source_sha256s": {"model.py": "f" * 64},
         },
     )
     monkeypatch.setattr(subject, "load_historical_report", lambda path, sha: report)
     monkeypatch.setattr(subject, "validate_historical_replay_report", lambda *a, **k: None)
-    monkeypatch.setattr(subject, "historical_report_rows", lambda report, name: [row()])
+    monkeypatch.setattr(
+        subject, "historical_report_rows",
+        lambda report, name: [
+            row(2_100, "veto-1"), row(4_100, "veto-2"),
+            row(6_100, "veto-3"),
+        ],
+    )
     monkeypatch.setattr(
         subject,
         "confirmation_report",
@@ -145,12 +211,14 @@ def test_import_uses_only_disjoint_post_cutoff_exact_reports(monkeypatch):
     )
 
     result = subject.import_v23_confirmation_reports(
-        object(), [(Path("report.json"), "e" * 64)]
+        object(), [(
+            Path("report.json"), "e" * 64, request_path, request_sha,
+        )]
     )
 
     assert result["status"] == "IMPORTED"
-    assert result["episode_count"] == 1
-    assert result["processed_immutable_path_count"] == 1
+    assert result["episode_count"] == 3
+    assert result["processed_immutable_path_count"] == 3
     assert result["imported_block_count"] == 1
     assert result["statistically_evaluated_block_count"] == 1
     assert recorded[0][0].evidence_semantics_fingerprint == (
@@ -160,20 +228,11 @@ def test_import_uses_only_disjoint_post_cutoff_exact_reports(monkeypatch):
     assert recorded[0][1].terminal_reason == "ENTRY_VETO"
 
 
-def test_import_rejects_selection_source_reuse(monkeypatch):
+def test_import_rejects_selection_source_reuse(tmp_path, monkeypatch):
     source = "c" * 64
-    report = {
-        "start_ts_ms": 2000,
-        "end_ts_ms": 4000,
-        "cutoff_ts_ms": 4000,
-        "path_windows": [{
-            "start_ts_ms": 2000,
-            "entry_end_ts_ms": 3500,
-        }],
-        "source_sha256s": [source],
-        "model_source_sha256s": {"model.py": "f" * 64},
-        "policy": policy(),
-    }
+    pinned = request()
+    report = report_for_request(pinned)
+    request_path, request_sha = write_request(tmp_path, pinned)
     monkeypatch.setattr(subject, "_active_v23_manifest", lambda store: manifest())
     monkeypatch.setattr(
         subject, "_selection_artifact",
@@ -187,8 +246,40 @@ def test_import_rejects_selection_source_reuse(monkeypatch):
 
     with pytest.raises(ValueError, match="reuses an evidence source"):
         subject.import_v23_confirmation_reports(
-            object(), [(Path("report.json"), "e" * 64)]
+            object(), [(
+                Path("report.json"), "e" * 64, request_path, request_sha,
+            )]
         )
+
+
+def test_report_must_match_the_complete_request():
+    pinned = request()
+    report = report_for_request(pinned)
+
+    subject._validate_report_request(report, pinned)
+
+    changed_policy = dict(report)
+    changed_policy["policy"] = {
+        **report["policy"], "stop_grace_ms": 1,
+    }
+    with pytest.raises(ValueError, match="differs from request"):
+        subject._validate_report_request(changed_policy, pinned)
+
+    changed_window = dict(report)
+    changed_window["path_windows"] = [
+        *report["path_windows"][:-1],
+        {**report["path_windows"][-1], "end_ts_ms": 9_000},
+    ]
+    with pytest.raises(ValueError, match="sources differ from request"):
+        subject._validate_report_request(changed_window, pinned)
+
+
+def test_policy_rejects_a_self_consistent_request_with_missing_latency():
+    incomplete = policy()
+    incomplete.pop("latency_ms")
+
+    with pytest.raises(ValueError, match="policy schema differs"):
+        subject._validate_policy(incomplete, parameters())
 
 
 def test_selection_artifact_uses_the_row_owned_identity(tmp_path):
@@ -230,27 +321,27 @@ def test_directory_import_accepts_only_cohort_owned_reports(
     reports.mkdir(parents=True)
     requests.mkdir()
     blocks.mkdir()
-    cohort = {
-        "schema_version": 2,
+    cohort_body = {
+        "schema_version": subject.V23_CONFIRMATION_COHORT_SCHEMA_VERSION,
         "mode": "SHADOW_CONFIRMATION",
         "apply_allowed": False,
-        "cohort_sha256": "a" * 64,
     }
+    cohort = {**cohort_body, "cohort_sha256": fingerprint(cohort_body)}
     atomic_json(root / "confirmation-cohort.json", cohort)
-    source = "c" * 64
-    request = {
-        "request_schema_version": 2,
-        "paths": [{"archives": [{"sha256": source}]}],
-    }
+    request = globals()["request"]()
     request_identity = fingerprint(request)
     request_path = requests / f"{request_identity}.json"
     atomic_json(request_path, request)
     atomic_json(blocks / f"00-{request_identity}.json", {
-        "schema_version": 1,
+        "schema_version": subject.V23_CONFIRMATION_BLOCK_SCHEMA_VERSION,
         "cohort_sha256": cohort["cohort_sha256"],
         "block_index": 0,
         "request_sha256": request_identity,
-        "source_archive_sha256s": [source],
+        "source_archive_sha256s": sorted(
+            archive["sha256"]
+            for path in request["paths"]
+            for archive in path["archives"]
+        ),
         "previous_block_sha256": None,
     })
     report_path = reports / f"{hashlib.sha256(request_path.read_bytes()).hexdigest()}.json"
@@ -266,6 +357,7 @@ def test_directory_import_accepts_only_cohort_owned_reports(
 
     assert result["status"] == "IMPORTED"
     assert captured[0][0] == report_path
+    assert captured[0][2] == request_path
 
     rogue = reports / ("f" * 64 + ".json")
     atomic_json(rogue, {"start_ts_ms": 3_000})

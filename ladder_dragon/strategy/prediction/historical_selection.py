@@ -29,6 +29,9 @@ from ladder_dragon.strategy.prediction.episode_expectancy import (
     V23_MINIMUM_ELIGIBLE_TERMINAL_EPISODES,
     V23_MINIMUM_RANGE_FILLED_EPISODES,
 )
+from ladder_dragon.strategy.prediction.v23_contract import (
+    V23_CONFIRMATION_CAPACITY_POLICY,
+)
 
 
 MINIMUM_REPORT_BLOCKS = 3
@@ -512,7 +515,7 @@ def historical_selection_artifact(
                 projected_range_filled_capacity, "f"
             ),
             "confirmation_capacity_policy": (
-                "bonferroni_clopper_pearson_capacity_preflight_v2"
+                V23_CONFIRMATION_CAPACITY_POLICY
             ),
         },
         "selected_rule": selected_rule,

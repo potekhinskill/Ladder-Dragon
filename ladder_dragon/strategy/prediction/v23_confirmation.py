@@ -9,6 +9,7 @@ from decimal import Decimal
 import hashlib
 import json
 from pathlib import Path
+import re
 from typing import Mapping, Sequence
 
 from ladder_dragon.strategy.prediction.episode_evidence import (
@@ -17,6 +18,7 @@ from ladder_dragon.strategy.prediction.episode_evidence import (
 from ladder_dragon.strategy.prediction.episode_semantics import (
     V23_EXECUTION_MODEL_RULE,
     execution_model_contract,
+    v23_evidence_semantics_contract,
     v23_evidence_semantics_fingerprint,
 )
 from ladder_dragon.strategy.prediction.execution_episode import (
@@ -30,9 +32,16 @@ from ladder_dragon.strategy.prediction.experiment_lifecycle import (
 from ladder_dragon.strategy.prediction.historical_policy import fingerprint
 from ladder_dragon.strategy.depth_segments import bounded_json
 from ladder_dragon.strategy.prediction.historical_selection import (
+    PATH_COHORT_CONTRACT,
     historical_report_rows,
     load_historical_report,
     validate_historical_replay_report,
+)
+from ladder_dragon.strategy.prediction.v23_contract import (
+    V23_CONFIRMATION_BLOCK_SCHEMA_VERSION,
+    V23_CONFIRMATION_COHORT_SCHEMA_VERSION,
+    V23_CONFIRMATION_REQUEST_FIELDS,
+    V23_CONFIRMATION_REQUEST_SCHEMA_VERSION,
 )
 
 
@@ -40,6 +49,17 @@ D = Decimal
 ZERO = D("0")
 ONE = D("1")
 MAXIMUM_CONFIRMATION_REPORTS = 128
+MAXIMUM_CONFIRMATION_REQUEST_BYTES = 2 * 1024 * 1024
+
+_POLICY_FIELDS = frozenset({
+    "symbol", "entry_gap_bps", "take_profit_bps", "stop_limit_bps",
+    "stop_trigger_bps", "notional_quote", "entry_ttl_ms", "holding_ms",
+    "cadence_ms", "latency_ms", "cancel_latency_ms", "stop_grace_ms",
+    "market_impact_bps", "maximum_event_gap_ms", "allowed_regimes",
+    "classifier_fingerprint", "panic_source_fingerprint",
+    "veto_price_bps", "veto_signed_flow", "veto_ofi",
+    "signal_window_ms", "maximum_attempts",
+})
 
 
 def _decimal(value: object, *, field: str) -> Decimal:
@@ -114,7 +134,9 @@ def _validate_policy(
     policy: Mapping[str, object], parameters: Mapping[str, object]
 ) -> None:
     rule = parameters["entry_veto_rule"]
+    model = execution_model_contract()
     expected = {
+        "symbol": "SOLUSDT",
         "entry_gap_bps": str(parameters["entry_gap_bps"]),
         "take_profit_bps": format(
             _decimal(parameters["target_return"], field="target") * D("10000"),
@@ -138,6 +160,8 @@ def _validate_policy(
         "notional_quote": str(parameters["evidence_notional_quote"]),
         "entry_ttl_ms": int(parameters["entry_ttl_sec"]) * 1_000,
         "holding_ms": int(parameters["maximum_holding_min"]) * 60_000,
+        "cadence_ms": 300_000,
+        "latency_ms": int(model["latency_ms"]),
         "veto_price_bps": str(rule["prefill_price_change_max_bps"]),
         "veto_signed_flow": str(
             rule["prefill_signed_trade_flow_max"]
@@ -145,13 +169,18 @@ def _validate_policy(
         "veto_ofi": str(rule["prefill_order_flow_imbalance_max"]),
         "cancel_latency_ms": int(rule["cancel_latency_ms"]),
         "signal_window_ms": int(rule["signal_window_ms"]),
+        "stop_grace_ms": int(model["stop_unfilled_grace_ms"]),
+        "market_impact_bps": str(model["emergency_market_impact_bps"]),
+        "maximum_event_gap_ms": int(model["maximum_event_gap_ms"]),
         "maximum_attempts": 1,
     }
     decimal_fields = {
         "entry_gap_bps", "take_profit_bps", "stop_limit_bps",
         "stop_trigger_bps", "notional_quote", "veto_price_bps",
-        "veto_signed_flow", "veto_ofi",
+        "veto_signed_flow", "veto_ofi", "market_impact_bps",
     }
+    if set(policy) != _POLICY_FIELDS:
+        raise ValueError("v23 confirmation policy schema differs")
     for field, value in expected.items():
         differs = (
             _decimal(policy.get(field), field=field)
@@ -166,6 +195,90 @@ def _validate_policy(
     frozen = ("RANGE",) if frozen_policy == "range_only" else ()
     if not frozen or regimes != frozen:
         raise ValueError("v23 confirmation regimes differ from manifest")
+    classifier = fingerprint(
+        v23_evidence_semantics_contract()["regime_classifier"]
+    )
+    if policy.get("classifier_fingerprint") != classifier:
+        raise ValueError("v23 confirmation classifier differs from manifest")
+    if not re.fullmatch(
+        r"[a-f0-9]{64}", str(policy.get("panic_source_fingerprint", ""))
+    ):
+        raise ValueError("v23 confirmation PANIC source is invalid")
+
+
+def _load_confirmation_request(path: Path, expected_sha256: str) -> dict:
+    """Load one exact request file before it can authorize report import."""
+    if not re.fullmatch(r"[a-f0-9]{64}", str(expected_sha256)):
+        raise ValueError("v23 confirmation request hash is invalid")
+    raw = path.read_bytes()
+    if len(raw) > MAXIMUM_CONFIRMATION_REQUEST_BYTES:
+        raise ValueError("v23 confirmation request is oversized")
+    if hashlib.sha256(raw).hexdigest() != expected_sha256:
+        raise ValueError("v23 confirmation request file differs")
+    try:
+        request = json.loads(raw)
+    except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raise ValueError("v23 confirmation request is invalid") from exc
+    if not isinstance(request, dict):
+        raise ValueError("v23 confirmation request must be an object")
+    return request
+
+
+def _validate_report_request(
+    report: Mapping[str, object], request: Mapping[str, object]
+) -> None:
+    """Require one report to reproduce its complete immutable request."""
+    if (
+        set(request) != V23_CONFIRMATION_REQUEST_FIELDS
+        or request.get("request_schema_version")
+        != V23_CONFIRMATION_REQUEST_SCHEMA_VERSION
+        or request.get("cohort_contract") != PATH_COHORT_CONTRACT
+        or report.get("request_sha256") != fingerprint(dict(request))
+        or report.get("cohort_contract") != request.get("cohort_contract")
+        or report.get("stability_block_index")
+        != request.get("stability_block_index")
+        or report.get("policy") != request.get("policy")
+    ):
+        raise ValueError("v23 confirmation report differs from request")
+    paths = request.get("paths")
+    if not isinstance(paths, list) or len(paths) != 3:
+        raise ValueError("v23 confirmation request paths are invalid")
+    expected_windows = []
+    expected_sources = []
+    for path in paths:
+        if not isinstance(path, Mapping) or set(path) != {
+            "archives", "start_ms", "entry_end_ms", "end_ms", "cutoff_ms",
+        }:
+            raise ValueError("v23 confirmation request path is invalid")
+        archives = path.get("archives")
+        if not isinstance(archives, list) or not archives:
+            raise ValueError("v23 confirmation request sources are invalid")
+        sources = []
+        for archive in archives:
+            if (
+                not isinstance(archive, Mapping)
+                or set(archive) != {"path", "sha256"}
+                or not isinstance(archive.get("path"), str)
+                or not re.fullmatch(
+                    r"[a-f0-9]{64}", str(archive.get("sha256", ""))
+                )
+            ):
+                raise ValueError("v23 confirmation request source is invalid")
+            sources.append(str(archive["sha256"]))
+        expected_sources.extend(sources)
+        expected_windows.append({
+            "start_ts_ms": path.get("start_ms"),
+            "entry_end_ts_ms": path.get("entry_end_ms"),
+            "end_ts_ms": path.get("end_ms"),
+            "cutoff_ts_ms": path.get("cutoff_ms"),
+            "source_sha256s": sources,
+        })
+    if (
+        len(expected_sources) != len(set(expected_sources))
+        or report.get("source_sha256s") != expected_sources
+        or report.get("path_windows") != expected_windows
+    ):
+        raise ValueError("v23 confirmation report sources differ from request")
 
 
 def _episode_pair(
@@ -291,7 +404,7 @@ def _episode_pair(
 
 def import_v23_confirmation_reports(
     store,
-    reports: Sequence[tuple[Path, str]],
+    reports: Sequence[tuple[Path, str, Path, str]],
 ) -> dict[str, object]:
     """Import reviewed post-cutoff L2 reports; never import selection history."""
     if not 1 <= len(reports) <= MAXIMUM_CONFIRMATION_REPORTS:
@@ -303,11 +416,13 @@ def import_v23_confirmation_reports(
     loaded = []
     previous_end = int(manifest["confirmation_start_ts_ms"])
     observed_sources: set[str] = set()
-    for path, expected_sha in reports:
+    for path, expected_sha, request_path, request_sha in reports:
+        request = _load_confirmation_request(request_path, request_sha)
         report = load_historical_report(path, expected_sha)
         validate_historical_replay_report(
             report, cutoff_ts_ms=int(report["cutoff_ts_ms"])
         )
+        _validate_report_request(report, request)
         if int(report["start_ts_ms"]) <= previous_end:
             raise ValueError("v23 confirmation reports overlap or precede cutoff")
         previous_end = int(report["end_ts_ms"])
@@ -413,13 +528,19 @@ def import_v23_confirmation_directory(store, directory: Path) -> dict[str, objec
         raise ValueError("v23 confirmation report capacity reached")
     root = directory.parent
     cohort = bounded_json(root / "confirmation-cohort.json")
+    cohort_body = {
+        key: value for key, value in cohort.items()
+        if key != "cohort_sha256"
+    }
     if (
-        cohort.get("schema_version") != 2
+        cohort.get("schema_version")
+        != V23_CONFIRMATION_COHORT_SCHEMA_VERSION
         or cohort.get("mode") != "SHADOW_CONFIRMATION"
         or cohort.get("apply_allowed") is not False
+        or cohort.get("cohort_sha256") != fingerprint(cohort_body)
     ):
         raise ValueError("v23 confirmation cohort contract is unavailable")
-    accepted_report_ids: set[str] = set()
+    accepted_requests: dict[str, tuple[Path, str]] = {}
     block_paths = sorted((root / "confirmation-blocks").glob("*.json"))
     if len(block_paths) > 14:
         raise ValueError("v23 confirmation block capacity reached")
@@ -436,7 +557,8 @@ def import_v23_confirmation_directory(store, directory: Path) -> dict[str, objec
             for archive in path.get("archives", [])
         )
         if (
-            block.get("schema_version") != 1
+            block.get("schema_version")
+            != V23_CONFIRMATION_BLOCK_SCHEMA_VERSION
             or block.get("cohort_sha256") != cohort.get("cohort_sha256")
             or block.get("block_index") != ordinal
             or block.get("previous_block_sha256") != previous_block_sha256
@@ -447,11 +569,14 @@ def import_v23_confirmation_directory(store, directory: Path) -> dict[str, objec
             or block_path.name != f"{ordinal:02d}-{request_identity}.json"
         ):
             raise ValueError("v23 confirmation block identity differs")
-        accepted_report_ids.add(hashlib.sha256(request_raw).hexdigest())
+        request_file_sha = hashlib.sha256(request_raw).hexdigest()
+        accepted_requests[request_file_sha] = (
+            request_path, request_file_sha,
+        )
         previous_block_sha256 = fingerprint(block)
-    if any(path.stem not in accepted_report_ids for path in candidates):
+    if any(path.stem not in accepted_requests for path in candidates):
         raise ValueError("v23 confirmation report is not cohort-owned")
-    loaded: list[tuple[int, Path, str]] = []
+    loaded: list[tuple[int, Path, str, Path, str]] = []
     for path in candidates:
         raw = path.read_bytes()
         if len(raw) > 16 * 1024 * 1024:
@@ -459,12 +584,18 @@ def import_v23_confirmation_directory(store, directory: Path) -> dict[str, objec
         payload = json.loads(raw)
         if not isinstance(payload, dict):
             raise ValueError("v23 confirmation report must be an object")
+        request_path, request_sha = accepted_requests[path.stem]
         loaded.append((
-            int(payload["start_ts_ms"]), path, hashlib.sha256(raw).hexdigest()
+            int(payload["start_ts_ms"]), path,
+            hashlib.sha256(raw).hexdigest(), request_path, request_sha,
         ))
     imported = import_v23_confirmation_reports(
         store,
-        [(path, digest) for _start, path, digest in sorted(loaded)],
+        [
+            (path, digest, request_path, request_sha)
+            for _start, path, digest, request_path, request_sha
+            in sorted(loaded)
+        ],
     )
     return {
         **imported,

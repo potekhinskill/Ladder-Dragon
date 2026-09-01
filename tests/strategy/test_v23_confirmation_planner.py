@@ -105,7 +105,7 @@ def test_confirmation_planner_freezes_post_cutoff_criteria_sized_cohort(
             "model_source_sha256s": {"model.py": "e" * 64},
             "selection_metrics": {
                 "confirmation_capacity_policy": (
-                    "bonferroni_clopper_pearson_lower_bound_v1"
+                    subject.V23_CONFIRMATION_CAPACITY_POLICY
                 ),
                 "eligible_path_rate_lower_bound": "1",
                 "filled_path_rate_lower_bound": "1",
@@ -147,6 +147,9 @@ def test_confirmation_planner_freezes_post_cutoff_criteria_sized_cohort(
     marker = subject.bounded_json(
         draft_directory.parent / subject.CONFIRMATION_COHORT_MARKER
     )
+    assert marker["schema_version"] == (
+        subject.V23_CONFIRMATION_COHORT_SCHEMA_VERSION
+    )
     assert marker["confirmation_capacity_design"]["dynamic_top_up_allowed"] is False
 
 
@@ -155,7 +158,7 @@ def test_confirmation_capacity_is_fixed_before_selection_outcomes():
         "schema_version": 5,
         "selection_metrics": {
             "confirmation_capacity_policy": (
-                "bonferroni_clopper_pearson_lower_bound_v1"
+                subject.V23_CONFIRMATION_CAPACITY_POLICY
             ),
             "eligible_path_rate_lower_bound": "0.833333333333333333",
             "filled_path_rate_lower_bound": "0.583333333333333333",
@@ -238,7 +241,7 @@ def test_confirmation_planner_queues_first_complete_block_immediately(
             "source_archive_sha256s": ["f" * 64],
             "selection_metrics": {
                 "confirmation_capacity_policy": (
-                    "bonferroni_clopper_pearson_lower_bound_v1"
+                    subject.V23_CONFIRMATION_CAPACITY_POLICY
                 ),
                 "eligible_path_rate_lower_bound": "1",
                 "filled_path_rate_lower_bound": "1",
@@ -292,7 +295,7 @@ def test_confirmation_separates_pass_futility_from_full_cohort_shortfall(
             "source_archive_sha256s": ["f" * 64],
             "selection_metrics": {
                 "confirmation_capacity_policy": (
-                    "bonferroni_clopper_pearson_lower_bound_v1"
+                    subject.V23_CONFIRMATION_CAPACITY_POLICY
                 ),
                 "eligible_path_rate_lower_bound": "1",
                 "filled_path_rate_lower_bound": "1",
@@ -351,7 +354,7 @@ def test_planner_rejects_when_minimum_pass_capacity_is_unreachable(
             "schema_version": 5,
             "selection_metrics": {
                 "confirmation_capacity_policy": (
-                    "bonferroni_clopper_pearson_lower_bound_v1"
+                    subject.V23_CONFIRMATION_CAPACITY_POLICY
                 ),
                 "eligible_path_rate_lower_bound": "0.833333333333333333",
                 "filled_path_rate_lower_bound": "0.583333333333333333",

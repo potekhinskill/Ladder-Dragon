@@ -21,8 +21,10 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--prediction-db", required=True, type=Path)
     parser.add_argument(
-        "--report", action="append", nargs=2,
-        metavar=("PATH", "SHA256"), required=True,
+        "--report", action="append", nargs=4,
+        metavar=(
+            "REPORT_PATH", "REPORT_SHA256", "REQUEST_PATH", "REQUEST_SHA256",
+        ), required=True,
     )
     parser.add_argument("--confirm", required=True)
     args = parser.parse_args()
@@ -33,7 +35,10 @@ def main() -> int:
     try:
         payload = import_v23_confirmation_reports(
             PredictionShadowStore(args.prediction_db),
-            [(Path(path), digest) for path, digest in args.report],
+            [
+                (Path(path), digest, Path(request_path), request_digest)
+                for path, digest, request_path, request_digest in args.report
+            ],
         )
     except (
         OSError, RuntimeError, ValueError, KeyError, TypeError,

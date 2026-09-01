@@ -101,6 +101,121 @@ def test_failed_update_rolls_back_before_service_restart():
     )
 
 
+def _restore_service_trace(
+    tmp_path: Path,
+    *,
+    mybot_active: int,
+    watchdog_enabled: int,
+) -> list[str]:
+    trace = tmp_path / "systemctl.trace"
+    trace.parent.mkdir(parents=True, exist_ok=True)
+    script = "\n".join(
+        (
+            "set -euo pipefail",
+            'TRACE="$1"',
+            "systemctl() { printf '%s\\n' \"$*\" >>\"${TRACE}\"; }",
+            f"MYBOT_WAS_ACTIVE={mybot_active}",
+            "DASHBOARD_WAS_ACTIVE=0",
+            "MYBOT_WAS_ENABLED=1",
+            "DASHBOARD_WAS_ENABLED=0",
+            f"WATCHDOG_WAS_ENABLED={watchdog_enabled}",
+            "restore_autostart() {",
+            _function("restore_autostart", "start_previous_services"),
+            "start_previous_services() {",
+            _function("start_previous_services", "verify_previous_service_state"),
+            "start_previous_services",
+        )
+    )
+    completed = subprocess.run(
+        ("bash", "-c", script, "bash", str(trace)),
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    assert completed.returncode == 0, completed.stderr
+    return trace.read_text(encoding="utf-8").splitlines()
+
+
+def test_enabled_watchdog_recovers_from_inactive_state_after_update(tmp_path):
+    commands = _restore_service_trace(
+        tmp_path,
+        mybot_active=1,
+        watchdog_enabled=1,
+    )
+
+    assert "start mybot" in commands
+    assert "start pi-watchdog-v3.timer" in commands
+
+
+def test_watchdog_stays_stopped_without_active_bot_or_enablement(tmp_path):
+    inactive_bot = _restore_service_trace(
+        tmp_path / "inactive",
+        mybot_active=0,
+        watchdog_enabled=1,
+    )
+    disabled_watchdog = _restore_service_trace(
+        tmp_path / "disabled",
+        mybot_active=1,
+        watchdog_enabled=0,
+    )
+
+    assert "start pi-watchdog-v3.timer" not in inactive_bot
+    assert "start pi-watchdog-v3.timer" not in disabled_watchdog
+
+
+def _verify_service_state(*, watchdog_active: int) -> subprocess.CompletedProcess[str]:
+    script = "\n".join(
+        (
+            "set -euo pipefail",
+            "fail() { echo \"[FAIL] $*\" >&2; exit 70; }",
+            f"WATCHDOG_ACTIVE={watchdog_active}",
+            "MYBOT_WAS_ACTIVE=1",
+            "DASHBOARD_WAS_ACTIVE=0",
+            "MYBOT_WAS_ENABLED=1",
+            "DASHBOARD_WAS_ENABLED=0",
+            "WATCHDOG_WAS_ENABLED=1",
+            "systemctl() {",
+            "  [[ \"$1\" == \"is-active\" ]] || return 1",
+            "  [[ \"${@: -1}\" == \"pi-watchdog-v3.timer\" ]] || return 1",
+            "  [[ \"${WATCHDOG_ACTIVE}\" == \"1\" ]]",
+            "}",
+            "service_flag() {",
+            "  case \"$2\" in",
+            "    mybot|pi-watchdog-v3.timer) echo 1 ;;",
+            "    pi-healthd) echo 0 ;;",
+            "  esac",
+            "}",
+            "wait_for_service() {",
+            "  if [[ \"$1\" == \"pi-watchdog-v3.timer\" ]]; then",
+            "    [[ \"${WATCHDOG_ACTIVE}\" == \"1\" ]] || fail \"$1 did not become active in $2s\"",
+            "  fi",
+            "}",
+            "verify_previous_service_state() {",
+            _function("verify_previous_service_state", "restore_previous_checkout"),
+            "verify_previous_service_state",
+        )
+    )
+    return subprocess.run(
+        ("bash", "-c", script),
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+
+
+def test_update_verification_requires_enabled_watchdog_to_be_active():
+    completed = _verify_service_state(watchdog_active=0)
+
+    assert completed.returncode == 70
+    assert "pi-watchdog-v3.timer did not become active in 15s" in completed.stderr
+
+
+def test_update_verification_accepts_recovered_enabled_watchdog():
+    completed = _verify_service_state(watchdog_active=1)
+
+    assert completed.returncode == 0, completed.stderr
+
+
 def test_update_readiness_rejects_intentionally_stopped_runtime():
     heartbeat = _function("wait_for_heartbeat", "dashboard_database_status")
 

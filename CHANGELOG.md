@@ -3,6 +3,32 @@
 All notable changes are documented here. Releases use Semantic Versioning; every
 section is dated and there is intentionally no `Unreleased` section.
 
+## [2.20.285] — 2026-09-01
+
+### Changed
+- The updater starts an enabled watchdog after it restores an active `mybot`.
+- An operator must disable the watchdog to preserve an intentional stop across an update.
+- Selection and confirmation now consume one shared capacity-policy identifier.
+- Manual confirmation import now requires the exact immutable request for each report.
+
+### Fixed
+- An enabled but inactive watchdog no longer remains inactive after every later update.
+- Update verification now blocks when watchdog activity differs from its persistent restart authority.
+- A completed selection artifact can now enter the matching confirmation planner.
+- Automatic confirmation import now accepts the cohort schema that its planner publishes.
+- Confirmation reports cannot replace request archives, windows, execution policy, latency, classifier, or PANIC identities.
+
+### Security
+- The watchdog stays stopped when `mybot` was inactive or the watchdog was disabled.
+- Confirmation import verifies the request file hash and its complete report binding before SQLite writes.
+- Persistent HALT, trading services, candidate evidence, and Mainnet order authority remain unchanged.
+
+### Verified
+- The focused updater, deployment asset, and network recovery tests pass.
+- The 39 focused v23 producer, planner, replay, importer, and CLI regressions pass.
+- The full project suite passes: 1,599 tests.
+- Python compilation and Technical English checks pass.
+
 ## [2.20.284] — 2026-09-01
 
 ### Added

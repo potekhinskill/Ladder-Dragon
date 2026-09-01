@@ -1,5 +1,19 @@
 # Engineering decisions
 
+### 2026-09-01 — Bind each confirmation report to its source request
+
+- **Context:** a report filename proved request ownership but did not prove complete request reproduction.
+- **Decision:** embed the canonical request hash and compare all policy, source, window, and context identities before import.
+- **Why it worked:** tests reject altered latency and windows under an otherwise valid request-owned filename.
+- **Reuse:** every derived evidence report that crosses an asynchronous producer and consumer boundary.
+
+### 2026-09-01 — Restore enabled watchdog authority after updates
+
+- **Context:** one inactive timer remained enabled and never resumed after later updates.
+- **Decision:** start the watchdog when `mybot` was active and the timer was enabled.
+- **Why it worked:** tests recover an inactive enabled timer and preserve disabled or inactive-bot states.
+- **Reuse:** every updater that temporarily stops a timer with persistent recovery authority.
+
 ### 2026-09-01 — Use one causal signal contract across replay and LIVE
 
 - **Context:** historical and LIVE veto signals used different rolling-window boundaries and order timing.

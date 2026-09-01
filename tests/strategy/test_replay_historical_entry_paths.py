@@ -101,6 +101,7 @@ def test_path_batch_replays_each_session_separately(tmp_path, monkeypatch):
 
     assert verified_calls == [0, 1, 2]
     assert report["schema_version"] == 2
+    assert report["request_sha256"] == fingerprint(request)
     assert len(report["path_windows"]) == 3
     assert report["summaries"]["veto"]["opportunities"] == 3
     assert [row["episode_id"] for row in report["episodes"]["veto"]] == [

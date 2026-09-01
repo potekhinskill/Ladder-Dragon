@@ -37,6 +37,12 @@ from ladder_dragon.strategy.prediction.v23_confirmation import (
     find_active_v23_manifest,
     load_v23_selection_artifact,
 )
+from ladder_dragon.strategy.prediction.v23_contract import (
+    V23_CONFIRMATION_BLOCK_SCHEMA_VERSION,
+    V23_CONFIRMATION_CAPACITY_POLICY,
+    V23_CONFIRMATION_COHORT_SCHEMA_VERSION,
+    V23_CONFIRMATION_REQUEST_SCHEMA_VERSION,
+)
 
 
 D = Decimal
@@ -87,7 +93,7 @@ def _confirmation_design(
     metrics = selection.get("selection_metrics")
     if not isinstance(metrics, Mapping) or metrics.get(
         "confirmation_capacity_policy"
-    ) != "bonferroni_clopper_pearson_lower_bound_v1":
+    ) != V23_CONFIRMATION_CAPACITY_POLICY:
         raise ValueError("v23 selection planning contract is unavailable")
     eligible_rate = _rate(metrics, "eligible_path_rate_lower_bound")
     filled_rate = _rate(metrics, "filled_path_rate_lower_bound")
@@ -121,7 +127,7 @@ def _confirmation_design(
     if V23_FIXED_CONFIRMATION_PATHS > MAXIMUM_CONTEXT_CANDIDATES:
         raise ValueError("v23 confirmation path capacity reached")
     return {
-        "schema_version": 3,
+        "schema_version": V23_CONFIRMATION_COHORT_SCHEMA_VERSION,
         "policy": "bounded_provider_capacity_paths_v2",
         "eligible_path_rate_lower_bound": format(eligible_rate, "f"),
         "filled_path_rate_lower_bound": format(filled_rate, "f"),
@@ -426,7 +432,7 @@ def plan_v23_confirmation_drafts(
         }) != 1:
             raise ValueError("v23 confirmation context semantics differ")
         request = {
-            "request_schema_version": 2,
+            "request_schema_version": V23_CONFIRMATION_REQUEST_SCHEMA_VERSION,
             "cohort_contract": COHORT_CONTRACT,
             "stability_block_index": (block_index // PATHS_PER_BLOCK) % 4,
             "policy": _policy(manifest, contexts[0]),
@@ -457,7 +463,7 @@ def plan_v23_confirmation_drafts(
     previous_block_sha256: str | None = None
     for ordinal, (identity, request) in enumerate(requests.items()):
         block_body = {
-            "schema_version": 1,
+            "schema_version": V23_CONFIRMATION_BLOCK_SCHEMA_VERSION,
             "cohort_sha256": marker["cohort_sha256"],
             "block_index": ordinal,
             "request_sha256": identity,

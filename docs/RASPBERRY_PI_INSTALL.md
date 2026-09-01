@@ -985,6 +985,9 @@ sudo cat /var/lib/pi-watchdog/network-recovery.json
 sudo systemctl status pi-watchdog-v3.timer --no-pager
 ```
 
+The updater starts an enabled watchdog after it restores an active `mybot`.
+Disable the watchdog before an update to preserve an intentional timer stop.
+
 Use a root-owned service override to disable network mutations without stopping heartbeat monitoring:
 
 ```ini

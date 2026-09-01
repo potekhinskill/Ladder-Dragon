@@ -1074,13 +1074,15 @@ def test_updater_migrates_only_the_previous_dashboard_rate_default():
     )
 
 
-def test_updater_preserves_stopped_services_and_does_not_arm_watchdog():
+def test_updater_restores_enabled_watchdog_only_for_an_active_bot():
     updater = read("deploy/update_raspberry_pi.sh")
     assert 'MYBOT_WAS_ACTIVE="$(service_flag is-active mybot)"' in updater
     assert 'DASHBOARD_WAS_ACTIVE="$(service_flag is-active pi-healthd)"' in updater
-    assert 'WATCHDOG_WAS_ACTIVE="$(service_flag is-active pi-watchdog-v3.timer)"' in updater
+    assert 'WATCHDOG_WAS_ACTIVE=' not in updater
     assert "systemctl stop pi-watchdog-v3.timer" in updater
-    assert 'if [[ "${MYBOT_WAS_ACTIVE}" == "1" && "${WATCHDOG_WAS_ACTIVE}" == "1" ]]' in updater
+    assert 'if [[ "${MYBOT_WAS_ACTIVE}" == "1" && "${WATCHDOG_WAS_ENABLED}" == "1" ]]' in updater
+    assert "wait_for_service pi-watchdog-v3.timer 15" in updater
+    assert "watchdog timer is active without enabled restart authority" in updater
     assert 'fail "${unit} was stopped before update but became active"' in updater
     assert "systemctl start mybot\nsystemctl start pi-healthd" not in updater
     assert "mybot autostart must be enabled before update" not in updater

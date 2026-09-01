@@ -24,6 +24,9 @@ from ladder_dragon.strategy.prediction.context_journal import export_context
 from ladder_dragon.strategy.prediction.historical_replay_planner import (
     COHORT_CONTRACT,
 )
+from ladder_dragon.strategy.prediction.v23_contract import (
+    V23_CONFIRMATION_REQUEST_SCHEMA_VERSION,
+)
 
 
 LEGACY_FIELDS = {
@@ -126,6 +129,7 @@ def _combined_path_report(
         "schema_version": 2,
         "model_contract": reports[0]["model_contract"],
         "cohort_contract": request["cohort_contract"],
+        "request_sha256": fingerprint(request),
         "stability_block_index": request["stability_block_index"],
         "status": status,
         "mode": "SHADOW",
@@ -168,7 +172,8 @@ def _run_path_request_batch(
         )
     }
     if (
-        common["request_schema_version"] != 2
+        common["request_schema_version"]
+        != V23_CONFIRMATION_REQUEST_SCHEMA_VERSION
         or common["cohort_contract"] != COHORT_CONTRACT
         or type(common["stability_block_index"]) is not int
         or not 0 <= common["stability_block_index"] < 4

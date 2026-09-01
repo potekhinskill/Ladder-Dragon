@@ -262,11 +262,12 @@ After v23 freezes, import only disjoint post-cutoff reports:
 ```bash
 .venv/bin/python -m bin.import_v23_confirmation \
   --prediction-db PREDICTION_DB \
-  --report REPORT_PATH REPORT_SHA256 \
+  --report REPORT_PATH REPORT_SHA256 REQUEST_PATH REQUEST_SHA256 \
   --confirm IMPORT-V23-DISJOINT-CONFIRMATION
 ```
 
 The importer requires the same policy and replay implementation as selection.
+It requires the exact immutable request for each report.
 It rejects every selection archive hash.
 It writes each start and result in one SQLite transaction.
 Minute REST evidence cannot enter v23 confirmation.

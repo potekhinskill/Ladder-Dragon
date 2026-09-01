@@ -1,5 +1,19 @@
 # Engineering mistakes and root causes
 
+### 2026-09-01 — Tested v23 producers and consumers with separate fixtures
+
+- **Impact:** selection and cohort artifacts used identifiers that their downstream consumers rejected permanently.
+- **Root cause:** unit tests copied contract strings and schema versions instead of passing real producer output downstream.
+- **Correction:** share contract constants and test selection, planning, replay, and import as one chain.
+- **Prevention:** every immutable evidence boundary must include one real producer-to-consumer regression.
+
+### 2026-09-01 — Preserved transient watchdog inactivity as operator intent
+
+- **Impact:** network recovery and Telegram alerts remained inactive across every later update.
+- **Root cause:** the updater restored runtime activity from `is-active` but verified only the enabled boot policy.
+- **Correction:** derive watchdog restart authority from its enabled state and active `mybot` state.
+- **Prevention:** test enabled-but-inactive timers and verify their post-update activity.
+
 ### 2026-09-01 — Confirmed a veto with different replay and LIVE semantics
 
 - **Impact:** historical confirmation could include BUY orders that LIVE execution would block before submission.
