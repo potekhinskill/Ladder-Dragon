@@ -21,7 +21,7 @@ Help output is the authoritative option reference.
 | `audit_legacy_compatibility` | reports remaining legacy accounting dependencies |
 | `audit_numeric_boundaries` | finds direct float calls at financial boundaries |
 | `audit_replay_readiness` | checks archive, latency, regime, and validation evidence |
-| `audit_semantic_authorities` | rejects copied financial semantics and indicator implementations |
+| `audit_semantic_authorities` | rejects copied or divergent financial semantics and indicator implementations |
 | `audit_user_stream_soak` | checks the current reviewed epoch for duration, stability, and events |
 | `check_technical_english` | checks current guides against the project writing profile |
 | `semgrep_scan` | tests local Semgrep rules or scans production Python paths |

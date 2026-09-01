@@ -2517,3 +2517,10 @@ private infrastructure details.
 - **Root cause:** the verification command used an inferred full SHA instead of Git output.
 - **Correction:** discard the blocked report and read the complete SHA after the final commit.
 - **Prevention:** obtain every release and deployment SHA only from `git rev-parse HEAD`.
+
+### 2026-09-02 — Used known fee values as a semantic denylist
+
+- **Impact:** a green audit could miss a new hardcoded fee rate with an unseen numeric value.
+- **Root cause:** the rule compared literals only with current canonical numbers instead of classifying their semantic role.
+- **Correction:** detect direct fee-rate assumptions in assignments, call keywords, and argument defaults.
+- **Prevention:** mutation tests must use unknown values and include negative controls for amounts and error thresholds.

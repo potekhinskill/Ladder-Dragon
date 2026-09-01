@@ -20,7 +20,9 @@ Wilder, simple-average, and exponential-average results are not interchangeable.
 ## Automated controls
 
 Run `python -m bin.audit_semantic_authorities`.
-This audit rejects copied vocabularies, copied fee defaults, and inline Average True Range consumers.
+This audit rejects copied vocabularies, direct fee-rate assumptions, and inline Average True Range consumers.
+It checks assignments, call keywords, and function argument defaults.
+Fee amounts and validation error thresholds are not fee-rate assumptions.
 
 Run `python -m bin.audit_exchange_boundaries`.
 This audit rejects authenticated transport calls outside reviewed boundary adapters.

@@ -3,6 +3,24 @@
 All notable changes are documented here. Releases use Semantic Versioning; every
 section is dated and there is intentionally no `Unreleased` section.
 
+## [2.20.288] — 2026-09-02
+
+### Changed
+- The semantic authority audit now classifies fee-rate assumptions by name and context instead of known numeric values alone.
+- Fee-rate checks now inspect positional, keyword-only, assignment, annotated assignment, and call keyword defaults.
+
+### Fixed
+- A new divergent `Decimal` fee-rate literal can no longer bypass release verification because its value was absent from a known-value denylist.
+- Fee amounts and replay error thresholds remain outside the fee-rate default rule.
+
+### Security
+- Release verification now rejects unknown hardcoded fee-rate assumptions outside the two canonical fee authorities.
+
+### Verified
+- The 18 focused semantic authority and property regressions pass.
+- The full project suite passes: 1,627 tests.
+- Python compilation and the semantic authority audit pass.
+
 ## [2.20.287] — 2026-09-02
 
 ### Added

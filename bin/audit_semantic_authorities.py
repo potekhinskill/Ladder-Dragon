@@ -29,6 +29,18 @@ DEFAULT_FEE_LITERALS = frozenset(
         format(DEFAULT_RESEARCH_TAKER_FEE_PCT, "f"),
     }
 )
+FEE_RATE_NAME_MARKERS = frozenset(
+    {
+        "assumed",
+        "assumption",
+        "bps",
+        "default",
+        "fallback",
+        "pct",
+        "rate",
+        "ratio",
+    }
+)
 COLLECTION_AUTHORITIES = frozenset(
     {
         "ladder_dragon/execution/trade_accounting.py",
@@ -90,6 +102,32 @@ def _decimal_literal(node: ast.AST) -> str | None:
     return str(value.value)
 
 
+def _is_fee_rate_assumption_name(name: str) -> bool:
+    """Identify names that define a fee rate or a fee assumption."""
+    tokens = frozenset(part for part in name.lower().split("_") if part)
+    return "fee" in name.lower() and bool(tokens & FEE_RATE_NAME_MARKERS)
+
+
+def _argument_defaults(arguments: ast.arguments) -> list[tuple[str, ast.AST]]:
+    """Return named positional and keyword-only argument defaults."""
+    pairs: list[tuple[str, ast.AST]] = []
+    positional = [*arguments.posonlyargs, *arguments.args]
+    if arguments.defaults:
+        default_names = positional[-len(arguments.defaults) :]
+        pairs.extend(
+            (argument.arg.lower(), value)
+            for argument, value in zip(default_names, arguments.defaults, strict=True)
+        )
+    pairs.extend(
+        (argument.arg.lower(), value)
+        for argument, value in zip(
+            arguments.kwonlyargs, arguments.kw_defaults, strict=True
+        )
+        if value is not None
+    )
+    return pairs
+
+
 def _fee_literal_violations(tree: ast.AST, relative: str) -> list[str]:
     if relative in FEE_LITERAL_AUTHORITIES:
         return []
@@ -102,10 +140,18 @@ def _fee_literal_violations(tree: ast.AST, relative: str) -> list[str]:
             pairs.append((_target_name(node.target), node.value))
         elif isinstance(node, ast.keyword) and node.arg:
             pairs.append((node.arg.lower(), node.value))
+        elif isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.Lambda)):
+            pairs.extend(_argument_defaults(node.args))
         for name, value in pairs:
             literal = _decimal_literal(value)
-            if "fee" in name and literal in DEFAULT_FEE_LITERALS:
+            if literal is None or "fee" not in name:
+                continue
+            if literal in DEFAULT_FEE_LITERALS:
                 violations.append(f"{relative}:{node.lineno}:copied fee default")
+            elif _is_fee_rate_assumption_name(name):
+                violations.append(
+                    f"{relative}:{node.lineno}:hardcoded fee-rate literal outside authority"
+                )
     return violations
 
 

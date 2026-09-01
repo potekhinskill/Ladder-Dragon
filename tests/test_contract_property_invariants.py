@@ -221,6 +221,78 @@ def test_semantic_audit_rejects_an_inline_atr_consumer(tmp_path: Path) -> None:
     assert any("ATR consumer bypasses authority" in item for item in report["violations"])
 
 
+def test_semantic_audit_rejects_an_unknown_fee_rate_literal(tmp_path: Path) -> None:
+    package = tmp_path / "ladder_dragon" / "strategy"
+    package.mkdir(parents=True)
+    (tmp_path / "bin").mkdir()
+    (package / "bad.py").write_text(
+        'from decimal import Decimal\ndefault_fee_pct = Decimal("0.0015")\n',
+        encoding="utf-8",
+    )
+    report = audit_semantic_authorities(tmp_path)
+    assert any(
+        "hardcoded fee-rate literal outside authority" in item
+        for item in report["violations"]
+    )
+
+
+@pytest.mark.parametrize(
+    "source",
+    (
+        "def model(maker_fee_pct: Decimal = Decimal(\"0.0015\")):\n"
+        "    return maker_fee_pct\n",
+        "def model(*, maker_fee_pct: Decimal = Decimal(\"0.0015\")):\n"
+        "    return maker_fee_pct\n",
+        "result = model(maker_fee_pct=Decimal(\"0.0015\"))\n",
+    ),
+)
+def test_semantic_audit_rejects_fee_rate_defaults_and_keywords(
+    tmp_path: Path,
+    source: str,
+) -> None:
+    package = tmp_path / "ladder_dragon" / "strategy"
+    package.mkdir(parents=True)
+    (tmp_path / "bin").mkdir()
+    (package / "bad.py").write_text(
+        "from decimal import Decimal\n" + source,
+        encoding="utf-8",
+    )
+    report = audit_semantic_authorities(tmp_path)
+    assert any(
+        "hardcoded fee-rate literal outside authority" in item
+        for item in report["violations"]
+    )
+
+
+def test_semantic_audit_allows_fee_amounts_and_error_thresholds(
+    tmp_path: Path,
+) -> None:
+    package = tmp_path / "ladder_dragon" / "strategy"
+    package.mkdir(parents=True)
+    (tmp_path / "bin").mkdir()
+    (package / "good.py").write_text(
+        "from decimal import Decimal\n"
+        "fees_quote = Decimal(\"0\")\n"
+        "maximum_fee_error_quote_mae = Decimal(\"0.02\")\n",
+        encoding="utf-8",
+    )
+    assert audit_semantic_authorities(tmp_path)["violations"] == []
+
+
+def test_semantic_audit_allows_imported_fee_rate_authority(tmp_path: Path) -> None:
+    package = tmp_path / "ladder_dragon" / "strategy"
+    package.mkdir(parents=True)
+    (tmp_path / "bin").mkdir()
+    (package / "good.py").write_text(
+        "from ladder_dragon.strategy.fee_defaults import "
+        "DEFAULT_RESEARCH_MAKER_FEE_PCT\n"
+        "def model(maker_fee_pct=DEFAULT_RESEARCH_MAKER_FEE_PCT):\n"
+        "    return maker_fee_pct\n",
+        encoding="utf-8",
+    )
+    assert audit_semantic_authorities(tmp_path)["violations"] == []
+
+
 def test_exchange_audit_rejects_a_new_direct_mutation(tmp_path: Path) -> None:
     package = tmp_path / "ladder_dragon" / "execution"
     package.mkdir(parents=True)

@@ -2130,3 +2130,10 @@ entries concise; this is not a changelog or an activity log.
 - **Decision:** import domain-owned authorities and reject copied semantics, unreviewed transport, and fail-open guards during release verification.
 - **Why it worked:** generated invariants and source audits now stop known divergence classes before release.
 - **Reuse:** every shared financial meaning or safety boundary with multiple consumers.
+
+### 2026-09-02 — Audit semantic roles instead of known values
+
+- **Context:** a fee audit recognized copied canonical values but missed new divergent rate literals.
+- **Decision:** classify fee-rate assumptions by name and syntax, then require their canonical authorities.
+- **Why it worked:** unseen values now fail while fee amounts and validation thresholds remain valid.
+- **Reuse:** every source audit that must reject future values absent from its current vocabulary.
