@@ -1,5 +1,19 @@
 # Engineering mistakes and root causes
 
+### 2026-09-02 — Created an unreachable Mainnet validation batch
+
+- **Impact:** the approved turnover allowed six production attempts, but complete evidence required twelve attempts.
+- **Root cause:** tests reserved entry notional while both production drills reserved entry and cleanup turnover.
+- **Correction:** bind exact attempt turnover and reject underfunded manifests before writing them.
+- **Prevention:** batch tests must use the same reservation amount as each production drill.
+
+### 2026-09-02 — Guessed two focused test paths
+
+- **Impact:** the first focused command exited before it ran tests.
+- **Root cause:** the command inferred a subdirectory instead of reading the repository test inventory.
+- **Correction:** locate the current test files with `rg --files`, then run those exact paths.
+- **Prevention:** derive every focused test path from the repository before execution.
+
 ### 2026-09-02 — Changed an audited sequence without updating its mutations
 
 - **Impact:** three focused source-contract tests failed before behavior validation.

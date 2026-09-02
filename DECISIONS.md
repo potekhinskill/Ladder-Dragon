@@ -1,5 +1,12 @@
 # Engineering decisions
 
+### 2026-09-02 — Bind batch capacity to exact attempt turnover
+
+- **Context:** one-way test reservations hid that production drills reserve round-trip turnover.
+- **Decision:** bind exact attempt notional and turnover, then reject a manifest that cannot fund its fixed sequence.
+- **Why it worked:** production-parity tests require `12 USDT` turnover for each exact `6 USDT` attempt.
+- **Reuse:** every fixed financial cohort where one mutation creates mandatory cleanup turnover.
+
 ### 2026-09-02 — Attest mutable authority at each LIVE boundary
 
 - **Context:** static provenance cannot detect a protected callable replaced after module import.

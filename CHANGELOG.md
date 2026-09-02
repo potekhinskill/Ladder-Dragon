@@ -3,6 +3,23 @@
 All notable changes are documented here. Releases use Semantic Versioning; every
 section is dated and there is intentionally no `Unreleased` section.
 
+## [2.20.296] — 2026-09-02
+
+### Added
+- Each Mainnet validation manifest now binds its exact attempt notional and round-trip turnover.
+
+### Fixed
+- Batch creation now rejects a turnover limit that cannot fund the complete fixed attempt sequence.
+- The documented twelve-attempt batch now reserves `144 USDT` total turnover for twelve exact `6 USDT` attempts.
+
+### Security
+- A drill cannot reserve a different turnover or run with a different notional than its immutable manifest.
+- Maximum concurrent Mainnet notional remains `6 USDT`, and persistent HALT remains required.
+
+### Verified
+- The full project suite passes: 1,691 tests.
+- Python compilation, Technical English, and all five domain audits pass.
+
 ## [2.20.295] — 2026-09-02
 
 ### Added

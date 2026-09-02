@@ -12,7 +12,10 @@ from ladder_dragon.verification.live import validation_batch
 COMMIT = "a" * 40
 
 
-def _manifest(tmp_path, *, attempts: int = 2, turnover: str = "24"):
+def _manifest(
+    tmp_path, *, attempts: int = 2, turnover: str = "24",
+    attempt_notional: str = "6",
+):
     return validation_batch.create_batch_manifest(
         tmp_path / "batch.json",
         symbol="SOLUSDT",
@@ -21,6 +24,7 @@ def _manifest(tmp_path, *, attempts: int = 2, turnover: str = "24"):
         duration_hours=24,
         created_at_ms=1_000,
         source_commit=COMMIT,
+        attempt_notional_usdt=Decimal(attempt_notional),
     )
 
 
@@ -71,7 +75,7 @@ def test_batch_reserves_before_mutation_and_stops_at_attempt_limit(
             tmp_path / "batch.json",
             drill="LIMIT_MAKER",
             symbol="SOLUSDT",
-            turnover_usdt=Decimal("1"),
+            turnover_usdt=Decimal("12"),
             now_ms=4_000,
         )
 
@@ -79,13 +83,13 @@ def test_batch_reserves_before_mutation_and_stops_at_attempt_limit(
 def test_batch_fails_closed_on_turnover_expiry_and_manifest_damage(
     tmp_path, monkeypatch
 ):
-    _manifest(tmp_path, attempts=3, turnover="12")
+    _manifest(tmp_path, attempts=3, turnover="12", attempt_notional="2")
     monkeypatch.setattr(validation_batch, "_current_commit", lambda: COMMIT)
     first = validation_batch.reserve_validation_attempt(
         tmp_path / "batch.json",
         drill="LIMIT_MAKER",
         symbol="SOLUSDT",
-        turnover_usdt=Decimal("12"),
+        turnover_usdt=Decimal("4"),
         now_ms=2_000,
     )
     validation_batch.complete_validation_attempt(
@@ -96,7 +100,7 @@ def test_batch_fails_closed_on_turnover_expiry_and_manifest_damage(
         order_refs=("first-order",),
         completed_at_ms=2_500,
     )
-    with pytest.raises(RuntimeError, match="turnover limit reached"):
+    with pytest.raises(RuntimeError, match="turnover differs"):
         validation_batch.reserve_validation_attempt(
             tmp_path / "batch.json",
             drill="STOP_LOSS_LIMIT",
@@ -109,7 +113,7 @@ def test_batch_fails_closed_on_turnover_expiry_and_manifest_damage(
             tmp_path / "batch.json",
             drill="STOP_LOSS_LIMIT",
             symbol="SOLUSDT",
-            turnover_usdt=Decimal("1"),
+            turnover_usdt=Decimal("4"),
             now_ms=24 * 60 * 60_000 + 2_000,
         )
 
@@ -121,7 +125,7 @@ def test_batch_fails_closed_on_turnover_expiry_and_manifest_damage(
             tmp_path / "batch.json",
             drill="LIMIT_MAKER",
             symbol="SOLUSDT",
-            turnover_usdt=Decimal("1"),
+            turnover_usdt=Decimal("4"),
             now_ms=4_000,
         )
 
@@ -132,6 +136,39 @@ def test_batch_artifacts_do_not_contain_credentials(tmp_path):
     encoded = json.dumps(payload)
     assert "API_KEY" not in encoded
     assert "API_SECRET" not in encoded
+
+
+def test_batch_rejects_unreachable_turnover_before_manifest_write(tmp_path):
+    with pytest.raises(RuntimeError, match="cannot fund its fixed attempt sequence"):
+        validation_batch.create_batch_manifest(
+            tmp_path / "batch.json",
+            symbol="SOLUSDT",
+            maximum_attempts=12,
+            minimum_successful_attempts=10,
+            maximum_turnover_usdt=Decimal("72"),
+            duration_hours=24,
+            created_at_ms=1_000,
+            source_commit=COMMIT,
+            attempt_notional_usdt=Decimal("6"),
+        )
+
+    assert not (tmp_path / "batch.json").exists()
+
+
+def test_batch_binds_each_reservation_to_manifest_turnover(tmp_path, monkeypatch):
+    _manifest(tmp_path)
+    monkeypatch.setattr(validation_batch, "_current_commit", lambda: COMMIT)
+
+    with pytest.raises(RuntimeError, match="turnover differs from the manifest"):
+        validation_batch.reserve_validation_attempt(
+            tmp_path / "batch.json",
+            drill="LIMIT_MAKER",
+            symbol="SOLUSDT",
+            turnover_usdt=Decimal("6"),
+            now_ms=2_000,
+        )
+
+    assert not (tmp_path / "batch.json.attempts.ndjson").exists()
 
 
 def test_batch_enforces_drill_quotas_cooldown_and_ledger_chain(
@@ -154,7 +191,7 @@ def test_batch_enforces_drill_quotas_cooldown_and_ledger_chain(
         tmp_path / "batch.json",
         drill="LIMIT_MAKER",
         symbol="SOLUSDT",
-        turnover_usdt=Decimal("6"),
+        turnover_usdt=Decimal("12"),
         now_ms=2_000,
     )
     assert first["previous_entry_sha256"] == "0" * 64
@@ -163,7 +200,7 @@ def test_batch_enforces_drill_quotas_cooldown_and_ledger_chain(
             tmp_path / "batch.json",
             drill="LIMIT_MAKER",
             symbol="SOLUSDT",
-            turnover_usdt=Decimal("6"),
+            turnover_usdt=Decimal("12"),
             now_ms=70_000,
         )
     validation_batch.complete_validation_attempt(
@@ -179,7 +216,7 @@ def test_batch_enforces_drill_quotas_cooldown_and_ledger_chain(
             tmp_path / "batch.json",
             drill="LIMIT_MAKER",
             symbol="SOLUSDT",
-            turnover_usdt=Decimal("6"),
+            turnover_usdt=Decimal("12"),
             now_ms=70_000,
         )
     with pytest.raises(RuntimeError, match="cooldown"):
@@ -187,14 +224,14 @@ def test_batch_enforces_drill_quotas_cooldown_and_ledger_chain(
             tmp_path / "batch.json",
             drill="STOP_LOSS_LIMIT",
             symbol="SOLUSDT",
-            turnover_usdt=Decimal("6"),
+            turnover_usdt=Decimal("12"),
             now_ms=3_000,
         )
     second = validation_batch.reserve_validation_attempt(
         tmp_path / "batch.json",
         drill="STOP_LOSS_LIMIT",
         symbol="SOLUSDT",
-        turnover_usdt=Decimal("6"),
+        turnover_usdt=Decimal("12"),
         now_ms=70_000,
     )
     assert second["previous_entry_sha256"] != first["entry_sha256"]
@@ -208,7 +245,7 @@ def test_batch_enforces_drill_quotas_cooldown_and_ledger_chain(
             tmp_path / "batch.json",
             drill="STOP_LOSS_LIMIT",
             symbol="SOLUSDT",
-            turnover_usdt=Decimal("1"),
+            turnover_usdt=Decimal("12"),
             now_ms=140_000,
         )
 
@@ -220,7 +257,7 @@ def test_uncertain_attempt_permanently_closes_batch(tmp_path, monkeypatch):
         tmp_path / "batch.json",
         drill="LIMIT_MAKER",
         symbol="SOLUSDT",
-        turnover_usdt=Decimal("6"),
+        turnover_usdt=Decimal("12"),
         now_ms=2_000,
     )
     validation_batch.complete_validation_attempt(
@@ -235,7 +272,7 @@ def test_uncertain_attempt_permanently_closes_batch(tmp_path, monkeypatch):
             tmp_path / "batch.json",
             drill="STOP_LOSS_LIMIT",
             symbol="SOLUSDT",
-            turnover_usdt=Decimal("6"),
+            turnover_usdt=Decimal("12"),
             now_ms=4_000,
         )
 
@@ -249,7 +286,7 @@ def test_definite_failure_consumes_attempt_but_allows_fixed_sequence(
         tmp_path / "batch.json",
         drill="LIMIT_MAKER",
         symbol="SOLUSDT",
-        turnover_usdt=Decimal("6"),
+        turnover_usdt=Decimal("12"),
         now_ms=2_000,
     )
     validation_batch.complete_validation_attempt(
@@ -263,7 +300,7 @@ def test_definite_failure_consumes_attempt_but_allows_fixed_sequence(
         tmp_path / "batch.json",
         drill="STOP_LOSS_LIMIT",
         symbol="SOLUSDT",
-        turnover_usdt=Decimal("6"),
+        turnover_usdt=Decimal("12"),
         now_ms=4_000,
     )
 
@@ -279,7 +316,7 @@ def test_definite_failure_cannot_enter_successful_batch_evidence(
         tmp_path / "batch.json",
         drill="LIMIT_MAKER",
         symbol="SOLUSDT",
-        turnover_usdt=Decimal("6"),
+        turnover_usdt=Decimal("12"),
         now_ms=2_000,
     )
     validation_batch.complete_validation_attempt(
@@ -312,7 +349,7 @@ def test_batch_runner_continues_after_definite_failure(
             tmp_path / "batch.json",
             drill=drill,
             symbol="SOLUSDT",
-            turnover_usdt=Decimal("6"),
+            turnover_usdt=Decimal("12"),
             now_ms=2_000 + len(calls) * 1_000,
         )
         status = "FAILED_DEFINITE" if len(calls) == 1 else "SUCCEEDED"
@@ -336,6 +373,18 @@ def test_batch_runner_continues_after_definite_failure(
     assert calls == ["LIMIT_MAKER", "STOP_LOSS_LIMIT"]
 
 
+def test_batch_runner_rejects_notional_that_differs_from_manifest(
+    tmp_path, monkeypatch
+):
+    _manifest(tmp_path)
+    monkeypatch.setenv("BOT_MAINNET_VALIDATION_BATCH_RUN_CONFIRMED", "YES")
+
+    with pytest.raises(RuntimeError, match="run notional differs"):
+        validation_batch.run_validation_batch(
+            tmp_path / "batch.json", notional_usdt=Decimal("5")
+        )
+
+
 def test_complete_batch_freezes_archives_and_order_refs(tmp_path, monkeypatch):
     _manifest(tmp_path)
     monkeypatch.setattr(validation_batch, "_current_commit", lambda: COMMIT)
@@ -344,7 +393,7 @@ def test_complete_batch_freezes_archives_and_order_refs(tmp_path, monkeypatch):
             tmp_path / "batch.json",
             drill=drill,
             symbol="SOLUSDT",
-            turnover_usdt=Decimal("6"),
+            turnover_usdt=Decimal("12"),
             now_ms=index * 2_000,
         )
         validation_batch.complete_validation_attempt(
@@ -378,7 +427,7 @@ def test_twelve_attempt_cohort_accepts_two_definite_failures(tmp_path, monkeypat
         symbol="SOLUSDT",
         maximum_attempts=12,
         minimum_successful_attempts=10,
-        maximum_turnover_usdt=Decimal("72"),
+        maximum_turnover_usdt=Decimal("144"),
         duration_hours=24,
         created_at_ms=1_000,
         source_commit=COMMIT,
@@ -390,7 +439,7 @@ def test_twelve_attempt_cohort_accepts_two_definite_failures(tmp_path, monkeypat
             tmp_path / "batch.json",
             drill=drill,
             symbol="SOLUSDT",
-            turnover_usdt=Decimal("6"),
+            turnover_usdt=Decimal("12"),
             now_ms=2_000 + index * 1_000,
         )
         succeeded = index < 10
@@ -422,7 +471,7 @@ def test_complete_cohort_requires_successful_coverage_for_each_drill(
         symbol="SOLUSDT",
         maximum_attempts=3,
         minimum_successful_attempts=2,
-        maximum_turnover_usdt=Decimal("18"),
+        maximum_turnover_usdt=Decimal("36"),
         duration_hours=24,
         created_at_ms=1_000,
         source_commit=COMMIT,
@@ -440,7 +489,7 @@ def test_complete_cohort_requires_successful_coverage_for_each_drill(
             tmp_path / "batch.json",
             drill=drill,
             symbol="SOLUSDT",
-            turnover_usdt=Decimal("6"),
+            turnover_usdt=Decimal("12"),
             now_ms=2_000 + index * 1_000,
         )
         validation_batch.complete_validation_attempt(

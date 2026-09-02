@@ -471,7 +471,8 @@ sudo -u bot PYTHONPATH=. .venv/bin/python -m bin.mainnet_validation_batch \
   --manifest logs/mainnet-validation-batch.json \
   --symbol SOLUSDT --maximum-attempts 12 \
   --minimum-successful-attempts 10 \
-  --maximum-turnover-usdt 72 --duration-hours 24 \
+  --attempt-notional-usdt 6 \
+  --maximum-turnover-usdt 144 --duration-hours 24 \
   --limit-maker-attempts 6 --stop-limit-attempts 6 \
   --minimum-cooldown-sec 300 \
   --confirm CREATE_VALIDATION_BATCH

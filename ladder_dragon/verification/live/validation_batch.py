@@ -25,7 +25,8 @@ from product_version import __version__
 ALLOWED_DRILLS = ("LIMIT_MAKER", "STOP_LOSS_LIMIT")
 HARD_MAX_ATTEMPTS = 12
 HARD_MINIMUM_COVERED_ATTEMPTS = 10
-HARD_MAX_TURNOVER_USDT = Decimal("120")
+HARD_MAX_ATTEMPT_NOTIONAL_USDT = Decimal("6")
+HARD_MAX_TURNOVER_USDT = Decimal("144")
 HARD_MAX_DURATION_HOURS = 24
 
 
@@ -103,6 +104,7 @@ def create_batch_manifest(
     stop_limit_attempts: int | None = None,
     minimum_cooldown_sec: int = 0,
     minimum_successful_attempts: int | None = None,
+    attempt_notional_usdt: Decimal = HARD_MAX_ATTEMPT_NOTIONAL_USDT,
 ) -> dict[str, object]:
     """Create one immutable authorization envelope without placing an order."""
     normalized = symbol.strip().upper()
@@ -120,6 +122,17 @@ def create_batch_manifest(
     turnover = _decimal(maximum_turnover_usdt, field="turnover limit")
     if turnover > HARD_MAX_TURNOVER_USDT:
         raise RuntimeError("validation batch turnover exceeds the hard cap")
+    attempt_notional = _decimal(
+        attempt_notional_usdt, field="attempt notional"
+    )
+    if attempt_notional > HARD_MAX_ATTEMPT_NOTIONAL_USDT:
+        raise RuntimeError("validation batch attempt notional exceeds the hard cap")
+    attempt_turnover = attempt_notional * Decimal("2")
+    required_turnover = attempt_turnover * Decimal(maximum_attempts)
+    if turnover < required_turnover:
+        raise RuntimeError(
+            "validation batch turnover cannot fund its fixed attempt sequence"
+        )
     if not 1 <= duration_hours <= HARD_MAX_DURATION_HOURS:
         raise RuntimeError("validation batch duration is outside the hard cap")
     limit_quota = maximum_attempts if limit_maker_attempts is None else int(
@@ -148,7 +161,7 @@ def create_batch_manifest(
                 sequence.append(drill)
                 used[drill] += 1
     payload: dict[str, object] = {
-        "schema_version": 5,
+        "schema_version": 6,
         "batch_id": uuid.uuid4().hex,
         "symbol": normalized,
         "allowed_drills": list(ALLOWED_DRILLS),
@@ -163,6 +176,8 @@ def create_batch_manifest(
         },
         "minimum_cooldown_sec": int(minimum_cooldown_sec),
         "maximum_turnover_usdt": format(turnover, "f"),
+        "attempt_notional_usdt": format(attempt_notional, "f"),
+        "attempt_turnover_usdt": format(attempt_turnover, "f"),
         "expires_at_ms": now_ms + duration_hours * 60 * 60_000,
         "created_at_ms": now_ms,
         "product_version": __version__,
@@ -407,6 +422,11 @@ def reserve_validation_attempt(
     if symbol.strip().upper() != manifest.get("symbol"):
         raise RuntimeError("validation batch symbol differs")
     turnover = _decimal(turnover_usdt, field="attempt turnover")
+    expected_turnover = _decimal(
+        manifest.get("attempt_turnover_usdt"), field="manifest attempt turnover"
+    )
+    if turnover != expected_turnover:
+        raise RuntimeError("validation attempt turnover differs from the manifest")
     ledger = manifest_path.with_suffix(manifest_path.suffix + ".attempts.ndjson")
     ledger.parent.mkdir(parents=True, exist_ok=True)
     with ledger.open("a+", encoding="utf-8") as handle:
@@ -472,9 +492,14 @@ def run_validation_batch(
     sequence = manifest.get("attempt_sequence")
     if not isinstance(sequence, list) or not sequence:
         raise RuntimeError("validation batch fixed sequence is unavailable")
-    turnover = _decimal(notional_usdt, field="attempt turnover")
-    if turnover > Decimal("6"):
+    notional = _decimal(notional_usdt, field="attempt notional")
+    if notional > HARD_MAX_ATTEMPT_NOTIONAL_USDT:
         raise RuntimeError("validation batch attempt exceeds 6 USDT")
+    expected_notional = _decimal(
+        manifest.get("attempt_notional_usdt"), field="manifest attempt notional"
+    )
+    if notional != expected_notional:
+        raise RuntimeError("validation batch run notional differs from the manifest")
     ledger = manifest_path.with_suffix(manifest_path.suffix + ".attempts.ndjson")
     completed = 0
     definite_failures = 0
@@ -511,7 +536,7 @@ def run_validation_batch(
             "--symbol",
             str(manifest["symbol"]),
             "--notional-usdt",
-            format(turnover, "f"),
+            format(notional, "f"),
             "--batch-manifest",
             str(manifest_path),
         ]
@@ -569,6 +594,11 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--symbol", default="SOLUSDT")
     parser.add_argument("--maximum-attempts", type=int, required=True)
     parser.add_argument("--maximum-turnover-usdt", type=Decimal, required=True)
+    parser.add_argument(
+        "--attempt-notional-usdt",
+        type=Decimal,
+        default=HARD_MAX_ATTEMPT_NOTIONAL_USDT,
+    )
     parser.add_argument("--duration-hours", type=int, required=True)
     parser.add_argument("--limit-maker-attempts", type=int)
     parser.add_argument("--stop-limit-attempts", type=int)
@@ -601,6 +631,7 @@ def main() -> int:
         stop_limit_attempts=args.stop_limit_attempts,
         minimum_cooldown_sec=args.minimum_cooldown_sec,
         minimum_successful_attempts=args.minimum_successful_attempts,
+        attempt_notional_usdt=args.attempt_notional_usdt,
     )
     print(json.dumps(payload, sort_keys=True))
     return 0
