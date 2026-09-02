@@ -3,6 +3,25 @@
 All notable changes are documented here. Releases use Semantic Versioning; every
 section is dated and there is intentionally no `Unreleased` section.
 
+## [2.20.293] — 2026-09-02
+
+### Added
+- The execution-authority audit now proves canonical imports and the worker's static method binding.
+- Runtime identity tests compare protected callables with their canonical implementations.
+
+### Fixed
+- A same-name no-op assignment can no longer satisfy the execution-authority source audit.
+- Caller parameters, local assignments, owner replacement, and class-attribute rebinding now fail verification.
+
+### Security
+- Mutation tests reject wrong import sources, shadowed guards, and replaced worker authority methods.
+- Existing authority cadence, gate, lock, and protected-boundary checks remain fail-closed.
+
+### Verified
+- The focused authority audit, supervisor revocation, and worker lifecycle regressions pass.
+- The full project suite passes: 1,664 tests.
+- Python compilation, Technical English, and all five domain audits pass.
+
 ## [2.20.292] — 2026-09-02
 
 ### Added

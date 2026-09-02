@@ -1,5 +1,12 @@
 # Engineering decisions
 
+### 2026-09-02 — Prove protected callable provenance
+
+- **Context:** a syntactically correct call could resolve to a same-name no-op after shadowing or rebinding.
+- **Decision:** require canonical imports, unique class bindings, and no protected-name bindings inside mutation-capable callers.
+- **Why it worked:** mutation and runtime identity tests reject wrong sources, local shadows, owner replacement, and class-attribute replacement.
+- **Reuse:** every structural audit where the callable implementation is part of the safety invariant.
+
 ### 2026-09-02 — Audit authority placement and cadence
 
 - **Context:** a correct guard did not prove that mutation-capable callers invoked it at the required frequency.

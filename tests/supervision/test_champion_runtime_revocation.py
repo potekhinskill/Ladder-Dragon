@@ -4,7 +4,15 @@ from types import SimpleNamespace
 
 import pytest
 
+from ladder_dragon.strategy.prediction import champion_registry
 from ladder_dragon.supervision import runtime as supervisor
+
+
+def test_supervisor_authority_binding_has_canonical_runtime_identity():
+    assert (
+        supervisor.verify_active_champion_lifecycle
+        is champion_registry.verify_active_champion_lifecycle
+    )
 
 
 def test_runtime_revokes_execution_before_plan_when_champion_loses_eligibility(

@@ -5,6 +5,7 @@ from types import SimpleNamespace
 
 import pytest
 
+from ladder_dragon.execution.worker import champion_preflight
 from ladder_dragon.execution.worker.event_loop import (
     WorkerLoopContext,
     run_event_loop,
@@ -15,6 +16,10 @@ from ladder_dragon.execution.worker.lifecycle import (
     run_worker,
 )
 from ladder_dragon.execution.worker.lock_guard import release_lock_on_error
+
+
+def test_worker_authority_binding_has_canonical_runtime_identity():
+    assert WorkerResources.verify_champion is champion_preflight.require_live_champion
 
 
 def test_worker_cleanup_releases_every_resource_after_one_failure():
@@ -95,6 +100,62 @@ def test_duplicate_worker_exits_before_live_preflight(monkeypatch):
     run_worker(state)
 
     assert calls == [("lock", "SOLUSDT"), ("acquire", None)]
+
+
+def test_live_worker_calls_authority_after_lock_acquisition(monkeypatch):
+    calls = []
+
+    class Parser:
+        @staticmethod
+        def parse_args():
+            return SimpleNamespace()
+
+        @staticmethod
+        def error(message):
+            raise SystemExit(message)
+
+    class Lock:
+        def __init__(self, symbol):
+            calls.append(("lock", symbol))
+
+        @staticmethod
+        def acquire():
+            calls.append(("acquire", None))
+            return True
+
+        @staticmethod
+        def release():
+            calls.append(("release", None))
+
+    args = SimpleNamespace(live=True, ws_trading_mode="OFF", symbol="solusdt")
+    state = WorkerRuntimeState({
+        "build_executor_parser": lambda: Parser(),
+        "validate_executor_args": lambda _parser, _args: args,
+        "log": lambda _message: None,
+        "product_label": lambda _component: "Ladder Dragon test",
+        "time": SimpleNamespace(monotonic=lambda: 10.0),
+        "SymbolLock": Lock,
+        "sqlite3": SimpleNamespace(Error=RuntimeError),
+        "requests": SimpleNamespace(RequestException=RuntimeError),
+    })
+
+    def reject(*_args):
+        calls.append(("verify", None))
+        raise OSError("closed")
+
+    monkeypatch.setattr(
+        WorkerResources, "verify_champion", staticmethod(reject)
+    )
+
+    with pytest.raises(SystemExit, match="LIVE CHAMPION verification failed"):
+        run_worker(state)
+
+    assert calls == [
+        ("lock", "SOLUSDT"),
+        ("acquire", None),
+        ("verify", None),
+        ("release", None),
+    ]
 
 
 def test_preflight_lock_guard_releases_on_abnormal_exit():

@@ -271,6 +271,136 @@ def test_audit_ignores_nested_decoy_calls(tmp_path: Path) -> None:
     )
 
 
+def test_audit_rejects_module_authority_rebinding(tmp_path: Path) -> None:
+    _copy_sources(tmp_path)
+    target = tmp_path / "ladder_dragon/supervision/runtime.py"
+    source = target.read_text(encoding="utf-8")
+    target.write_text(
+        source + "\nverify_active_champion_lifecycle = lambda *_a, **_kw: None\n",
+        encoding="utf-8",
+    )
+    report = audit_execution_authority_paths(tmp_path)
+    assert any(
+        item.endswith(
+            "verify_active_champion_lifecycle:binding provenance:"
+            "imported authority name is rebound"
+        )
+        for item in report["violations"]
+    )
+
+
+def test_audit_rejects_caller_parameter_shadowing(tmp_path: Path) -> None:
+    _copy_sources(tmp_path)
+    target = tmp_path / "ladder_dragon/supervision/runtime.py"
+    _replace(
+        target,
+        "    execution_allowed: bool = True,\n) -> None:\n",
+        "    execution_allowed: bool = True,\n"
+        "    verify_active_champion_lifecycle=None,\n"
+        ") -> None:\n",
+    )
+    report = audit_execution_authority_paths(tmp_path)
+    assert any(
+        item.endswith(
+            "verify_active_champion_lifecycle:binding provenance:"
+            "caller shadows verify_active_champion_lifecycle"
+        )
+        for item in report["violations"]
+    )
+
+
+def test_audit_rejects_caller_local_shadowing(tmp_path: Path) -> None:
+    _copy_sources(tmp_path)
+    target = tmp_path / "ladder_dragon/supervision/runtime.py"
+    _replace(
+        target,
+        '    """Build one plan; optionally retain only read-only SHADOW telemetry."""\n',
+        '    """Build one plan; optionally retain only read-only SHADOW telemetry."""\n'
+        "    verify_active_champion_lifecycle = lambda *_a, **_kw: None\n",
+    )
+    report = audit_execution_authority_paths(tmp_path)
+    assert any(
+        item.endswith(
+            "verify_active_champion_lifecycle:binding provenance:"
+            "caller shadows verify_active_champion_lifecycle"
+        )
+        for item in report["violations"]
+    )
+
+
+def test_audit_rejects_wrong_authority_import_source(tmp_path: Path) -> None:
+    _copy_sources(tmp_path)
+    target = tmp_path / "ladder_dragon/supervision/runtime.py"
+    _replace(
+        target,
+        "from ladder_dragon.strategy.prediction.champion_registry import ",
+        "from ladder_dragon.strategy.prediction.control_evidence import ",
+    )
+    report = audit_execution_authority_paths(tmp_path)
+    assert any(
+        item.endswith(
+            "verify_active_champion_lifecycle:binding provenance:"
+            "canonical import count is not 1"
+        )
+        for item in report["violations"]
+    )
+
+
+def test_audit_rejects_worker_authority_class_rebinding(tmp_path: Path) -> None:
+    _copy_sources(tmp_path)
+    target = tmp_path / "ladder_dragon/execution/worker/lifecycle.py"
+    source = target.read_text(encoding="utf-8")
+    target.write_text(
+        source + "\nWorkerResources.verify_champion = staticmethod(lambda *_a: None)\n",
+        encoding="utf-8",
+    )
+    report = audit_execution_authority_paths(tmp_path)
+    assert any(
+        item.endswith(
+            "WorkerResources.verify_champion:binding provenance:"
+            "class authority attribute is rebound"
+        )
+        for item in report["violations"]
+    )
+
+
+def test_audit_rejects_worker_owner_shadowing(tmp_path: Path) -> None:
+    _copy_sources(tmp_path)
+    target = tmp_path / "ladder_dragon/execution/worker/lifecycle.py"
+    _replace(
+        target,
+        '    """Run one symbol worker against live runtime dependencies."""\n',
+        '    """Run one symbol worker against live runtime dependencies."""\n'
+        "    WorkerResources = object()\n",
+    )
+    report = audit_execution_authority_paths(tmp_path)
+    assert any(
+        item.endswith(
+            "WorkerResources.verify_champion:binding provenance:"
+            "caller shadows WorkerResources"
+        )
+        for item in report["violations"]
+    )
+
+
+def test_audit_rejects_worker_noop_class_binding(tmp_path: Path) -> None:
+    _copy_sources(tmp_path)
+    target = tmp_path / "ladder_dragon/execution/worker/lifecycle.py"
+    _replace(
+        target,
+        "    verify_champion = staticmethod(require_live_champion)\n",
+        "    verify_champion = staticmethod(lambda *_a: None)\n",
+    )
+    report = audit_execution_authority_paths(tmp_path)
+    assert any(
+        item.endswith(
+            "WorkerResources.verify_champion:binding provenance:"
+            "canonical class binding is not unique"
+        )
+        for item in report["violations"]
+    )
+
+
 def test_audit_fails_closed_without_disclosing_source_content(tmp_path: Path) -> None:
     _copy_sources(tmp_path)
     missing = tmp_path / "ladder_dragon/execution/worker/lifecycle.py"

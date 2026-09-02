@@ -1,5 +1,12 @@
 # Engineering mistakes and root causes
 
+### 2026-09-02 — Left the public version behind the canonical version
+
+- **Impact:** the first full test run failed two publication checks.
+- **Root cause:** the version bump updated the canonical file and changelog without checking the README version surface.
+- **Correction:** synchronize the README with `product_version.py` in the same change.
+- **Prevention:** run the product-version tests immediately after every version bump.
+
 ### 2026-09-02 — Placed a support module in the command namespace
 
 - **Impact:** the first full test run failed because the command reference did not list a non-command helper.
