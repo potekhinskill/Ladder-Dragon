@@ -337,6 +337,49 @@ def test_validation_drill_never_posts_before_archive_readiness(tmp_path):
     assert client.calls.count(("POST", "/api/v3/order")) == 0
 
 
+def test_archive_failure_closes_batch_as_definite_before_mutation(
+    tmp_path, monkeypatch
+):
+    runtime, state = _evidence(tmp_path)
+    args = _args(tmp_path, runtime, state)
+    args.batch_manifest = str(tmp_path / "batch.json")
+    client = FakeClient(state)
+    completed: list[str] = []
+    monkeypatch.setattr(
+        drill,
+        "reserve_validation_attempt",
+        lambda *_args, **_kwargs: {
+            "attempt_id": "attempt-one",
+            "manifest_sha256": "a" * 64,
+        },
+    )
+    monkeypatch.setattr(
+        drill,
+        "complete_validation_attempt",
+        lambda *_args, **kwargs: completed.append(str(kwargs["status"])),
+    )
+
+    with pytest.raises(drill.PreMutationValidationFailure) as captured:
+        drill.run_validation_drill(
+            args,
+            environ=_environment(tmp_path),
+            client=client,
+            archive_factory=lambda **_options: FailingArchive(
+                tmp_path / "archive.jsonl"
+            ),
+        )
+
+    assert captured.value.cause_type == "RuntimeError"
+    assert completed == ["FAILED_DEFINITE"]
+    assert client.calls.count(("POST", "/api/v3/order")) == 0
+    reports = [
+        json.loads(line)
+        for line in (tmp_path / "validation.ndjson").read_text().splitlines()
+    ]
+    assert reports[-1]["failure_phase"] == "pre_mutation"
+    assert reports[-1]["mutation_started"] is False
+
+
 def test_validation_drill_is_one_exchange_attempt_per_release(tmp_path):
     runtime, state = _evidence(tmp_path)
     args = _args(tmp_path, runtime, state)

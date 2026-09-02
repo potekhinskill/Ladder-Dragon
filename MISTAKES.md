@@ -1,5 +1,19 @@
 # Engineering mistakes and root causes
 
+### 2026-09-02 — Classified a reservation as exchange uncertainty
+
+- **Impact:** one public archive failure permanently closed an authorized batch before the next exchange mutation.
+- **Root cause:** the failure path treated every reserved attempt as a possible POST outcome.
+- **Correction:** classify the explicit mutation phase and retry only the public readiness handshake.
+- **Prevention:** test reservation, archive readiness, POST, and cleanup as separate failure boundaries.
+
+### 2026-09-02 — Built an incomplete CLI fixture
+
+- **Impact:** two focused tests stopped before they reached the new definite-failure handler.
+- **Root cause:** the fixture omitted the parser-owned `batch_manifest` field used by startup output.
+- **Correction:** construct the complete parsed namespace and rerun the focused suite.
+- **Prevention:** CLI tests must derive fixture fields from the active parser and startup path.
+
 ### 2026-09-02 — Reconstructed a full candidate SHA
 
 - **Impact:** the first release harness used a wrong expected SHA and required interruption.

@@ -62,6 +62,7 @@ from ladder_dragon.verification.live.validation_archive import (
     ContinuousDepthArchive,
 )
 from ladder_dragon.verification.live.validation_batch import (
+    PreMutationValidationFailure,
     complete_validation_attempt,
     reserve_validation_attempt,
 )
@@ -590,6 +591,12 @@ def run_validation_drill(
         except DRILL_ERRORS as exc:
             cleanup_error = exc
         if primary_error is not None or cleanup_error is not None:
+            # A reservation consumes capacity. Only POST can create uncertainty.
+            pre_mutation_failure = (
+                reservation is not None
+                and not report["mutation_started"]
+                and cleanup_error is None
+            )
             create_manual_halt(
                 "Mainnet STOP_LOSS_LIMIT validation failed closed",
                 limits=limits,
@@ -597,8 +604,31 @@ def run_validation_drill(
             )
             report.update(
                 {
-                    "status": "failed",
+                    "status": (
+                        "failed_definite" if pre_mutation_failure else "failed"
+                    ),
                     "error_type": type(primary_error or cleanup_error).__name__,
+                    "error_cause_type": str(
+                        getattr(
+                            primary_error or cleanup_error,
+                            "cause_type",
+                            type(primary_error or cleanup_error).__name__,
+                        )
+                    ),
+                    "error_attempts": getattr(
+                        primary_error or cleanup_error, "attempts", 0
+                    ),
+                    "error_code": str(
+                        getattr(
+                            primary_error or cleanup_error,
+                            "reason_code",
+                            "VALIDATION_FAILURE",
+                        )
+                    ),
+                    "failure_phase": (
+                        "pre_mutation"
+                        if pre_mutation_failure else "post_mutation"
+                    ),
                 }
             )
             if archive_path is not None:
@@ -607,13 +637,16 @@ def run_validation_drill(
                 report["archive_sha256"] = str(
                     archive_metadata["archive_sha256"]
                 )
-            if report["mutation_started"]:
+            if report["mutation_started"] or reservation is not None:
                 _append_report(report_path, report)
             if reservation is not None:
                 complete_validation_attempt(
                     resolve_project_path(batch_manifest),
                     attempt_id=str(reservation["attempt_id"]),
-                    status="FAILED_UNCERTAIN",
+                    status=(
+                        "FAILED_DEFINITE"
+                        if pre_mutation_failure else "FAILED_UNCERTAIN"
+                    ),
                     archive_path=(str(archive_path) if archive_path else None),
                     archive_sha256=str(
                         archive_metadata.get("archive_sha256") or ""
@@ -621,6 +654,10 @@ def run_validation_drill(
                 )
                 reservation = None
             if primary_error is not None:
+                if pre_mutation_failure:
+                    raise PreMutationValidationFailure(
+                        primary_error
+                    ) from primary_error
                 if cleanup_error is not None:
                     raise primary_error from cleanup_error
                 raise primary_error
@@ -683,6 +720,23 @@ def main() -> int:
     try:
         with exclusive_lock(args.lock_file):
             report = run_validation_drill(args)
+    except PreMutationValidationFailure as exc:
+        print(
+            json.dumps(
+                {
+                    "status": "failed_definite",
+                    "error_type": type(exc).__name__,
+                    "cause_type": exc.cause_type,
+                    "error_code": exc.reason_code,
+                    "readiness_attempts": exc.attempts,
+                    "error": str(exc),
+                },
+                sort_keys=True,
+            ),
+            file=sys.stderr,
+            flush=True,
+        )
+        return 3
     except DRILL_ERRORS as exc:
         print(
             json.dumps(

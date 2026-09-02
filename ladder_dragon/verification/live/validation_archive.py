@@ -20,6 +20,19 @@ MAXIMUM_ARCHIVE_SESSIONS = 32
 MAXIMUM_ARCHIVE_BYTES = 512 * 1024 * 1024
 
 
+class ValidationArchiveReadinessError(RuntimeError):
+    """Expose bounded, secret-safe public archive startup diagnostics."""
+
+    def __init__(self, *, reason_code: str, attempts: int, cause_type: str) -> None:
+        self.reason_code = reason_code
+        self.attempts = attempts
+        self.cause_type = cause_type
+        super().__init__(
+            "validation depth archive readiness failed: "
+            f"code={reason_code} attempts={attempts} cause={cause_type}"
+        )
+
+
 class ContinuousDepthArchive:
     """Record one contiguous public session across an external mutation."""
 
@@ -32,6 +45,8 @@ class ContinuousDepthArchive:
         maximum_duration_sec: int = 1800,
         maximum_events: int = 250_000,
         ready_timeout_sec: int = 30,
+        readiness_attempts: int = 3,
+        retry_delay_sec: float = 0.5,
         tail_sec: float = 2.0,
         recorder: Callable[..., dict[str, object]] = record_public_depth,
     ) -> None:
@@ -41,6 +56,10 @@ class ContinuousDepthArchive:
             raise ValueError("validation archive event limit is out of range")
         if ready_timeout_sec < 1 or ready_timeout_sec > 60:
             raise ValueError("validation archive readiness timeout is invalid")
+        if readiness_attempts < 1 or readiness_attempts > 3:
+            raise ValueError("validation archive readiness attempts are invalid")
+        if retry_delay_sec < 0 or retry_delay_sec > 5:
+            raise ValueError("validation archive retry delay is invalid")
         if tail_sec < 0 or tail_sec > 10:
             raise ValueError("validation archive tail is invalid")
         self.symbol = symbol.strip().upper()
@@ -49,6 +68,8 @@ class ContinuousDepthArchive:
         self.maximum_duration_sec = maximum_duration_sec
         self.maximum_events = maximum_events
         self.ready_timeout_sec = ready_timeout_sec
+        self.readiness_attempts = readiness_attempts
+        self.retry_delay_sec = retry_delay_sec
         self.tail_sec = tail_sec
         self.recorder = recorder
         self._ready = threading.Event()
@@ -58,6 +79,7 @@ class ContinuousDepthArchive:
         self._error: BaseException | None = None
         self._metadata: dict[str, object] | None = None
         self.path: Path | None = None
+        self._started = False
 
     def _check_capacity(self) -> None:
         self.directory.mkdir(parents=True, exist_ok=True)
@@ -93,32 +115,57 @@ class ContinuousDepthArchive:
 
     def start(self) -> Path:
         """Start recording and wait for a contiguous depth handshake."""
-        if self._thread is not None:
+        if self._started:
             raise RuntimeError("validation archive already started")
+        self._started = True
         self._check_capacity()
         stamp = time.strftime("%Y%m%dT%H%M%SZ", time.gmtime())
         self.path = self.directory / (
             f"{self.symbol}-{self.label}-{stamp}-{time.time_ns()}.jsonl"
         )
-        self._thread = threading.Thread(
-            target=self._run,
-            name="validation-depth-archive",
-            daemon=True,
-        )
-        self._thread.start()
-        deadline = time.monotonic() + self.ready_timeout_sec
-        while time.monotonic() < deadline:
-            if self._ready.wait(timeout=0.05):
-                return self.path
-            if self._finished.is_set():
-                break
-        self._stop.set()
-        self._thread.join(timeout=5)
-        if self._error is not None:
-            raise RuntimeError(
-                "validation depth archive failed before readiness"
-            ) from self._error
-        raise RuntimeError("validation depth archive did not become ready")
+        for attempt in range(1, self.readiness_attempts + 1):
+            if attempt > 1 and self.retry_delay_sec:
+                time.sleep(self.retry_delay_sec * (2 ** (attempt - 2)))
+            self._ready = threading.Event()
+            self._stop = threading.Event()
+            self._finished = threading.Event()
+            self._error = None
+            self._metadata = None
+            self._thread = threading.Thread(
+                target=self._run,
+                name="validation-depth-archive",
+                daemon=True,
+            )
+            self._thread.start()
+            deadline = time.monotonic() + self.ready_timeout_sec
+            while time.monotonic() < deadline:
+                if self._ready.wait(timeout=0.05):
+                    return self.path
+                if self._finished.is_set():
+                    break
+            self._stop.set()
+            self._thread.join(timeout=5)
+            if self._thread.is_alive():
+                raise ValidationArchiveReadinessError(
+                    reason_code="PUBLIC_ARCHIVE_STOP_TIMEOUT",
+                    attempts=attempt,
+                    cause_type="ThreadTimeout",
+                )
+            if attempt == self.readiness_attempts:
+                cause_type = (
+                    type(self._error).__name__
+                    if self._error is not None else "ReadinessTimeout"
+                )
+                raise ValidationArchiveReadinessError(
+                    reason_code=(
+                        "PUBLIC_ARCHIVE_SOURCE_FAILED"
+                        if self._error is not None
+                        else "PUBLIC_ARCHIVE_NOT_READY"
+                    ),
+                    attempts=attempt,
+                    cause_type=cause_type,
+                ) from self._error
+        raise AssertionError("validation archive readiness loop is unreachable")
 
     def stop(self) -> dict[str, object]:
         """Publish the archive only after the terminal mutation boundary."""
@@ -142,4 +189,4 @@ class ContinuousDepthArchive:
         return dict(metadata)
 
 
-__all__ = ["ContinuousDepthArchive"]
+__all__ = ["ContinuousDepthArchive", "ValidationArchiveReadinessError"]

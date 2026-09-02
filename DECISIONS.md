@@ -1,5 +1,12 @@
 # Engineering decisions
 
+### 2026-09-02 — Retry public readiness only before mutation
+
+- **Context:** one transient public archive failure ended a fixed Mainnet batch before an exchange mutation.
+- **Decision:** retry readiness three times, then record a definite failure while preserving the fixed attempt sequence.
+- **Why it worked:** tests prove no POST, secret-safe diagnostics, durable closure, and no retry after readiness.
+- **Reuse:** every public precondition that precedes a reserved external mutation.
+
 ### 2026-09-02 — Separate terminal drill outcome from fill outcome
 
 - **Context:** a valid no-fill closed its reservation but returned a distinct process exit code.

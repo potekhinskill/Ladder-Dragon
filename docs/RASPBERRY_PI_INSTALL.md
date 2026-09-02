@@ -459,6 +459,10 @@ A missing STOP fill uses exit code 2 and still consumes the attempt.
 Any uncertain cleanup preserves HALT and uses exit code 1.
 
 Each validation drill starts a contiguous public archive before POST.
+Archive readiness uses at most three public handshake attempts.
+Retries stop after readiness because a later failure can overlap an exchange mutation.
+A pre-mutation failure consumes its reservation as a definite failure and uses exit code 3.
+The batch continues its fixed sequence after that terminal result.
 It closes that archive only after terminal reconciliation and cleanup.
 The store accepts at most 32 archives or 512 MiB.
 Capacity exhaustion blocks another drill and never deletes evidence.

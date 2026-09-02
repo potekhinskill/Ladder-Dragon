@@ -3,6 +3,24 @@
 All notable changes are documented here. Releases use Semantic Versioning; every
 section is dated and there is intentionally no `Unreleased` section.
 
+## [2.20.298] — 2026-09-02
+
+### Changed
+- Public depth readiness now uses at most three handshake attempts before a validation mutation.
+
+### Fixed
+- A depth failure before any exchange mutation now closes its reservation as `FAILED_DEFINITE`.
+- The batch runner continues the fixed sequence after this terminal result.
+
+### Security
+- Retries stop after archive readiness because later failure can overlap an exchange mutation.
+- Diagnostics expose only a stable reason code, attempt count, and exception type.
+
+### Verified
+- The focused validation suite passes: 37 tests.
+- The full project suite passes: 1,698 tests.
+- Python compilation, Technical English, and all five domain audits pass.
+
 ## [2.20.297] — 2026-09-02
 
 ### Fixed

@@ -30,6 +30,29 @@ HARD_MAX_TURNOVER_USDT = Decimal("144")
 HARD_MAX_DURATION_HOURS = 24
 
 
+class PreMutationValidationFailure(RuntimeError):
+    """Identify a proven validation failure before any exchange mutation."""
+
+    def __init__(self, error: BaseException) -> None:
+        self.reason_code = str(
+            getattr(error, "reason_code", "VALIDATION_PRE_MUTATION_FAILED")
+        )
+        self.cause_type = str(
+            getattr(error, "cause_type", type(error).__name__)
+        )
+        observed_attempts = getattr(error, "attempts", 0)
+        self.attempts = (
+            observed_attempts
+            if type(observed_attempts) is int and 0 <= observed_attempts <= 3
+            else 0
+        )
+        super().__init__(
+            "validation failed before exchange mutation: "
+            f"code={self.reason_code} attempts={self.attempts} "
+            f"cause={self.cause_type}"
+        )
+
+
 def _canonical(payload: Mapping[str, object]) -> str:
     return json.dumps(dict(payload), sort_keys=True, separators=(",", ":"))
 
@@ -638,6 +661,7 @@ def main() -> int:
 
 
 __all__ = [
+    "PreMutationValidationFailure",
     "complete_validation_attempt",
     "create_batch_manifest",
     "reserve_validation_attempt",

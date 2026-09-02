@@ -140,6 +140,11 @@ class FakeArchive:
         return {"contains_secrets": False, "archive_sha256": "c" * 64}
 
 
+class FailingArchive(FakeArchive):
+    def start(self) -> Path:
+        raise RuntimeError("private archive source detail")
+
+
 class FullDrillClient:
     def __init__(self) -> None:
         self.base_free = Decimal("3")
@@ -291,9 +296,7 @@ class FullDrillClient:
         raise AssertionError((method, path, params))
 
 
-def test_stop_drill_runs_one_bounded_no_fill_lifecycle(
-    tmp_path, monkeypatch
-):
+def _full_drill_setup(tmp_path):
     runtime = tmp_path / "runtime.json"
     state = tmp_path / "state.json"
     runtime.write_text(
@@ -333,6 +336,13 @@ def test_stop_drill_runs_one_bounded_no_fill_lifecycle(
         "--archive-dir", str(tmp_path / "archives"),
         "--wait-sec", "30",
     ])
+    return args, environment
+
+
+def test_stop_drill_runs_one_bounded_no_fill_lifecycle(
+    tmp_path, monkeypatch
+):
+    args, environment = _full_drill_setup(tmp_path)
     monkeypatch.setattr(
         drill,
         "_wait_for_order_list",
@@ -369,3 +379,45 @@ def test_stop_drill_runs_one_bounded_no_fill_lifecycle(
         venue="mainnet-stop-validation",
     ).nonterminal_orders("SOLUSDT")
     assert telemetry == []
+
+
+def test_stop_archive_failure_is_definite_before_mutation(
+    tmp_path, monkeypatch
+):
+    args, environment = _full_drill_setup(tmp_path)
+    args.batch_manifest = str(tmp_path / "batch.json")
+    completed: list[str] = []
+    monkeypatch.setattr(
+        drill,
+        "reserve_validation_attempt",
+        lambda *_args, **_kwargs: {
+            "attempt_id": "attempt-one",
+            "manifest_sha256": "a" * 64,
+        },
+    )
+    monkeypatch.setattr(
+        drill,
+        "complete_validation_attempt",
+        lambda *_args, **kwargs: completed.append(str(kwargs["status"])),
+    )
+    client = FullDrillClient()
+
+    with pytest.raises(drill.PreMutationValidationFailure) as captured:
+        drill.run_validation_drill(
+            args,
+            environ=environment,
+            client=client,
+            archive_factory=lambda **_options: FailingArchive(
+                tmp_path / "archives" / "stop.jsonl"
+            ),
+        )
+
+    assert "private archive source detail" not in str(captured.value)
+    assert completed == ["FAILED_DEFINITE"]
+    assert client.base_free == Decimal("3")
+    reports = [
+        json.loads(line)
+        for line in (tmp_path / "report.ndjson").read_text().splitlines()
+    ]
+    assert reports[-1]["failure_phase"] == "pre_mutation"
+    assert reports[-1]["mutation_started"] is False
