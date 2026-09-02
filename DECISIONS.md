@@ -1,5 +1,12 @@
 # Engineering decisions
 
+### 2026-09-02 — Separate terminal drill outcome from fill outcome
+
+- **Context:** a valid no-fill closed its reservation but returned a distinct process exit code.
+- **Decision:** continue after exit codes `0` and `2` only when the ledger proves one successful terminal reservation.
+- **Why it worked:** no-fill remains in the fixed cohort without weakening uncertainty or identity checks.
+- **Reuse:** every batch where process codes distinguish valid terminal outcome types.
+
 ### 2026-09-02 — Bind batch capacity to exact attempt turnover
 
 - **Context:** one-way test reservations hid that production drills reserve round-trip turnover.

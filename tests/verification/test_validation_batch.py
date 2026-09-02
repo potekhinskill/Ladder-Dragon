@@ -373,6 +373,46 @@ def test_batch_runner_continues_after_definite_failure(
     assert calls == ["LIMIT_MAKER", "STOP_LOSS_LIMIT"]
 
 
+def test_batch_runner_continues_after_terminal_no_fill(tmp_path, monkeypatch):
+    _manifest(tmp_path)
+    monkeypatch.setattr(validation_batch, "_current_commit", lambda: COMMIT)
+    monkeypatch.setenv("BOT_MAINNET_VALIDATION_BATCH_RUN_CONFIRMED", "YES")
+    calls: list[str] = []
+
+    def run_child(command, **_kwargs):
+        drill = (
+            "LIMIT_MAKER"
+            if "mainnet_limit_maker_validation" in command[2]
+            else "STOP_LOSS_LIMIT"
+        )
+        calls.append(drill)
+        reservation = validation_batch.reserve_validation_attempt(
+            tmp_path / "batch.json",
+            drill=drill,
+            symbol="SOLUSDT",
+            turnover_usdt=Decimal("12"),
+            now_ms=2_000 + len(calls) * 1_000,
+        )
+        validation_batch.complete_validation_attempt(
+            tmp_path / "batch.json",
+            attempt_id=reservation["attempt_id"],
+            status="SUCCEEDED",
+            archive_sha256=format(len(calls), "064x"),
+            order_refs=(f"no-fill-order-{len(calls)}",),
+            completed_at_ms=2_500 + len(calls) * 1_000,
+        )
+        return SimpleNamespace(returncode=2)
+
+    monkeypatch.setattr(validation_batch.subprocess, "run", run_child)
+
+    result = validation_batch.run_validation_batch(
+        tmp_path / "batch.json", notional_usdt=Decimal("6")
+    )
+
+    assert result == 0
+    assert calls == ["LIMIT_MAKER", "STOP_LOSS_LIMIT"]
+
+
 def test_batch_runner_rejects_notional_that_differs_from_manifest(
     tmp_path, monkeypatch
 ):

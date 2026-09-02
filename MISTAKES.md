@@ -1,5 +1,19 @@
 # Engineering mistakes and root causes
 
+### 2026-09-02 — Reconstructed a full candidate SHA
+
+- **Impact:** the first release harness used a wrong expected SHA and required interruption.
+- **Root cause:** the command extended an abbreviated commit instead of reading its full identity from Git.
+- **Correction:** resolve the exact candidate with `git rev-parse HEAD` before verification.
+- **Prevention:** never type or reconstruct a release SHA when Git can provide it.
+
+### 2026-09-02 — Stopped a batch after a valid no-fill
+
+- **Impact:** the fixed Mainnet sequence stopped after its first closed no-fill attempt.
+- **Root cause:** the runner accepted only exit code `0`, while drills use code `2` for valid terminal no-fill outcomes.
+- **Correction:** accept codes `0` and `2` only after exact terminal ledger verification.
+- **Prevention:** runner tests must cover every documented child exit code and its ledger transition.
+
 ### 2026-09-02 — Created an unreachable Mainnet validation batch
 
 - **Impact:** the approved turnover allowed six production attempts, but complete evidence required twelve attempts.

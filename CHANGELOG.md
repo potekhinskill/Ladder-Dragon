@@ -3,6 +3,20 @@
 All notable changes are documented here. Releases use Semantic Versioning; every
 section is dated and there is intentionally no `Unreleased` section.
 
+## [2.20.297] — 2026-09-02
+
+### Fixed
+- The batch runner now continues after a terminal no-fill drill returns exit code `2`.
+- A confirmed no-fill still consumes its fixed attempt and remains visible in the immutable cohort.
+
+### Security
+- Continuation requires one closed `SUCCEEDED` ledger reservation with durable archive and order identity.
+- Uncertain results and unsupported exit codes still stop the complete batch.
+
+### Verified
+- The full project suite passes: 1,692 tests.
+- Python compilation, Technical English, and all five domain audits pass.
+
 ## [2.20.296] — 2026-09-02
 
 ### Added

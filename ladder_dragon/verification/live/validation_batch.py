@@ -559,7 +559,7 @@ def run_validation_batch(
                     "definite validation failure lacks durable absence evidence"
                 )
             definite_failures += 1
-        elif result.returncode != 0:
+        elif result.returncode not in {0, 2}:
             return int(result.returncode)
         else:
             with ledger.open("r", encoding="utf-8") as handle:

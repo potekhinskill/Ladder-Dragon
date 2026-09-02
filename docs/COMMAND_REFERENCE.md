@@ -318,6 +318,7 @@ The runner follows the immutable LIMIT_MAKER and STOP_LOSS_LIMIT sequence.
 It records each reservation before mutation.
 It closes each reservation as `SUCCEEDED`, `FAILED_DEFINITE`, or `FAILED_UNCERTAIN`.
 A `FAILED_DEFINITE` attempt consumes its quota and permits the fixed sequence to continue.
+A terminal no-fill exit consumes its quota and permits the fixed sequence to continue.
 The runner returns `INCOMPLETE` when any attempt has a proven failure.
 An uncertain result permanently closes the batch.
 Only an all-`SUCCEEDED` batch can become replay evidence.
