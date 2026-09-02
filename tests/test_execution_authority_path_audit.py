@@ -213,9 +213,9 @@ def test_audit_rejects_worker_check_after_exchange_access(tmp_path: Path) -> Non
     )
     _replace(
         target,
-        '            server = state._public_get("/api/v3/time")\n',
-        '            server = state._public_get("/api/v3/time")\n'
-        "            champion = WorkerResources.verify_champion(state, args)\n",
+        "                state.pull_filters(symbol)\n",
+        "                state.pull_filters(symbol)\n"
+        "                champion = WorkerResources.verify_champion(state, args)\n",
     )
     report = audit_execution_authority_paths(tmp_path)
     assert any(
@@ -232,10 +232,10 @@ def test_audit_rejects_ungated_worker_preflight(tmp_path: Path) -> None:
     target = tmp_path / "ladder_dragon/execution/worker/lifecycle.py"
     _replace(
         target,
-        "    if state.LIVE_MODE:\n"
-        "        # Repeat preflight because a worker can start without the supervisor.\n",
-        "    if True:\n"
-        "        # Repeat preflight because a worker can start without the supervisor.\n",
+        "        if state.LIVE_MODE:\n"
+        "            # Repeat preflight because a worker can start without the supervisor.\n",
+        "        if True:\n"
+        "            # Repeat preflight because a worker can start without the supervisor.\n",
     )
     report = audit_execution_authority_paths(tmp_path)
     assert any(

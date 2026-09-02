@@ -64,6 +64,8 @@ def test_worker_loop_has_no_snapshot_or_double_qualified_dependencies():
         *dir(builtins),
         "WorkerLoopContext",
         "WorkerResources",
+        "normalize_symbol",
+        "release_lock_on_error",
         "run_event_loop",
     }
     assert "state.state." not in source

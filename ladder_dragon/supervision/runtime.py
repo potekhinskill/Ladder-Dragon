@@ -69,9 +69,11 @@ from ladder_dragon.supervision.volatility_guard import champion_volatility_conte
 from ladder_dragon.supervision.position_flatten import BUY_BLOCKING_MODES, submit_flatten_slices
 from ladder_dragon.supervision.order_cleanup import (
     _log_order_lifetime as _cleanup_log_order_lifetime,
+    initial_cleanup_orders as _initial_cleanup_orders,
     smart_cleanup_orders as _smart_cleanup_orders,
     startup_cleanup_orders as _startup_cleanup_orders,
 )
+from ladder_dragon.supervision.startup_timing import StartupTimeline
 from ladder_dragon.supervision.vwap_config import (
     getenv_float,
     parse_limit_map,
@@ -173,7 +175,6 @@ from ladder_dragon.risk.risk_statistics import (
 from ladder_dragon.execution.executor_stats import commission_quote_value, poll_mytrades_once
 from ladder_dragon.execution import tools_stats
 from ladder_dragon.execution.inventory_lots import ensure_schema, sync_exchange_fill
-from ladder_dragon.execution.time_safety import assess_exchange_clock
 from ladder_dragon.execution.venue_config import apply_testnet_paths
 from product_version import __version__, product_label, user_agent
 from ladder_dragon.strategy.strategy_math import adx_from_klines as _adx_from_klines
@@ -274,6 +275,7 @@ _AI_KNOWLEDGE: Optional[KnowledgeStore] = None
 _AI_POLICY: Optional[PolicyConfig] = None
 _AI_RUNTIME_STATUS_PATH: Optional[Path] = None
 _AI_RUNTIME_STATUS: Dict[str, Any] = {}
+_STARTUP_TIMELINE: Optional[StartupTimeline] = None
 _AI_CONTROL_PATH: Optional[Path] = None
 _PREDICTION_SHADOW: Optional[PredictionShadowStore] = None
 _ACTIVE_CHAMPIONS: Dict[str, Dict[str, object]] = {}
@@ -472,6 +474,18 @@ def _publish_ai_runtime_status(**updates: Any) -> None:
         write_runtime_status(_AI_RUNTIME_STATUS_PATH, _AI_RUNTIME_STATUS)
     except OSError as exc:
         dbg(f"[AI-STATUS] write failed: {exc}")
+
+
+def _mark_startup(phase: str) -> None:
+    """Publish one bounded startup duration to logs and runtime status."""
+    if _STARTUP_TIMELINE is None:
+        return
+    timing = _STARTUP_TIMELINE.mark(phase)
+    if timing is None:
+        return
+    fields = " ".join(f"{key}={value}" for key, value in timing.items())
+    log(f"[STARTUP-TIMING] phase={phase} {fields}")
+    _publish_ai_runtime_status(startup_timing=_STARTUP_TIMELINE.snapshot())
 
 
 def _runtime_order_journal_snapshot() -> dict[str, Any]:
@@ -944,7 +958,7 @@ def symbol_assets(symbol: str) -> Tuple[str, str]:
 # ---- tools_market-based HTTP helpers ----
 
 def _public_get(path: str, params: Dict[str, Any] = None, timeout: int = 15) -> Any:
-    return TM._public_get(path, params or {})
+    return TM._public_get(path, params or {}, timeout=timeout)
 
 def _canonical_signed_request(method: str, path: str, params: Dict[str, Any] = None, timeout: int = 15) -> Any:
     if params is None:
@@ -959,7 +973,9 @@ def _canonical_signed_request(method: str, path: str, params: Dict[str, Any] = N
 
     headers = {"X-MBX-APIKEY": TM.API_KEY} if TM.API_KEY else {}
     url = f"{TM.BASE_URL}{path}"
-    r = TM._do_request(method.upper(), url, params=items, headers=headers)
+    r = TM._do_request(
+        method.upper(), url, params=items, headers=headers, timeout=timeout
+    )
     TM._raise_for_binance(r)
     try:
         return r.json()
@@ -967,26 +983,6 @@ def _canonical_signed_request(method: str, path: str, params: Dict[str, Any] = N
         return r.text
 
 # Account and market access
-
-def get_server_time_offset_ms() -> int:
-    try:
-        t0 = int(time.time() * 1000)
-        j = _public_get("/api/v3/time")
-        srv = int(j.get("serverTime", t0))
-        t1 = int(time.time() * 1000)
-        rtt = (t1 - t0) // 2
-        offset = srv - (t0 + rtt)
-        log(f"[INFO] Server time offset: {offset} ms")
-        return offset
-    except (
-        requests.RequestException,
-        RuntimeError,
-        TypeError,
-        ValueError,
-        KeyError,
-    ) as e:
-        log(f"[WARN] server time failed: {e}")
-        return 0
 
 def get_last_price(symbol: str) -> float:
     return _analytics_float(get_last_price_decimal(symbol))
@@ -1391,6 +1387,22 @@ def smart_cleanup_orders(
         far_ttl_sec,
         cancel_offladder,
         runtime=globals(),
+    )
+
+
+def initial_cleanup_orders(
+    symbol: str,
+    now_price: float,
+    ladder_prices: List[float],
+    tick_size: float,
+    grace_sec: Optional[int],
+    near_ttl_sec: Optional[int],
+    far_ttl_sec: Optional[int],
+) -> Dict[str, Dict[str, int]]:
+    """Apply initial cleanup policies to one open-order snapshot."""
+    return _initial_cleanup_orders(
+        symbol, now_price, ladder_prices, tick_size, grace_sec,
+        near_ttl_sec, far_ttl_sec, runtime=globals(),
     )
 
 # Ladder scheduler
@@ -3199,25 +3211,20 @@ def run_for_symbol(
     if execution_allowed:
         log(f"[PLAN] {symbol} ladder -> " + ", ".join(f"{p:.2f}" for p in ladder_all))
         # 6) Cleanup at startup and on the regular interval.
-        if not _STARTUP_CLEAN_DONE.get(symbol, False):
-            startup_cleanup_orders(
-                symbol,
-                now_p,
-                ladder_all,
-                tick_size=tick,
-                grace_sec=CLEANUP_WARMUP_SEC,
+        initial_cleanup = not _STARTUP_CLEAN_DONE.get(symbol, False)
+        if initial_cleanup:
+            initial_cleanup_orders(
+                symbol, now_p, ladder_all, tick, CLEANUP_WARMUP_SEC,
+                (champion_entry_ttl_sec or args.near_ttl_sec),
+                (champion_entry_ttl_sec or args.far_ttl_sec),
             )
             _STARTUP_CLEAN_DONE[symbol] = True
-
-        smart_cleanup_orders(
-            symbol,
-            now_price=now_p,
-            ladder_prices=ladder_all,
-            tick_size=tick,
-            near_ttl_sec=(champion_entry_ttl_sec or args.near_ttl_sec),
-            far_ttl_sec=(champion_entry_ttl_sec or args.far_ttl_sec),
-            cancel_offladder=True,
-        )
+        else:
+            smart_cleanup_orders(
+                symbol, now_p, ladder_all, tick,
+                (champion_entry_ttl_sec or args.near_ttl_sec),
+                (champion_entry_ttl_sec or args.far_ttl_sec), True,
+            )
 
         reanchor_gate = (
             _prediction_reanchor_gate(symbol)
@@ -3483,6 +3490,7 @@ def run_for_symbol(
                 args.child_bear_buy_shift_pct = 0.0
                 args.sl = _analytics_float(champion_stop_pct)
                 args.stop_limit_offset_pct = _analytics_float(champion_stop_offset_pct)
+            _mark_startup("plan")
             run_child(
                 symbol,
                 ladder_for_child,
@@ -3750,17 +3758,11 @@ def _preflight_live(args: argparse.Namespace, symbols: List[str], limits: RiskLi
 
     # Check both clock offset and RTT: on a slow network, server-time estimation
     # is not reliable enough for signed orders.
-    t0 = int(time.time() * 1000)
-    server = _public_get("/api/v3/time")
-    t1 = int(time.time() * 1000)
-    clock = assess_exchange_clock(
-        server_time_ms=int(server["serverTime"]),
-        request_started_ms=t0,
-        response_finished_ms=t1,
+    TM._refresh_time_offset(
+        timeout=15,
         max_offset_ms=int(os.getenv("RISK_MAX_TIME_OFFSET_MS", "1000")),
         max_round_trip_ms=int(os.getenv("RISK_MAX_TIME_RTT_MS", "5000")),
     )
-    clock.require_safe()
 
     for symbol in symbols:
         filters = get_exchange_filters(symbol)
@@ -3768,6 +3770,7 @@ def _preflight_live(args: argparse.Namespace, symbols: List[str], limits: RiskLi
         invalid = [name for name in required if _analytics_float(filters.get(name, 0)) <= 0]
         if invalid:
             raise RuntimeError(f"invalid exchange filters for {symbol}: {','.join(invalid)}")
+        _FILTERS_CACHE[symbol] = filters
 
     account = TM._signed_get("/api/v3/account")
     if account.get("canTrade") is not True:
@@ -3895,6 +3898,7 @@ def _preflight_with_auth_backoff(
             _save_auth_resilience_state(state)
             continue
         else:
+            _mark_startup("preflight")
             recovered_transient_attempt = transient_attempt
             transient_attempt = 0
             if args.live and state.public_ip_changed:
@@ -3972,6 +3976,7 @@ def _preflight_with_auth_backoff(
             time.sleep(60)
             continue
         _publish_ai_runtime_status(recovery=recovery)
+        _mark_startup("recovery")
         return
 
 
@@ -4148,7 +4153,8 @@ def main():
     global _AI_ADVISOR, _AI_DECISIONS, _AI_DECISIONS_PATH
     global _AI_KNOWLEDGE, _AI_POLICY
     global _AI_RUNTIME_STATUS_PATH, _AI_RUNTIME_STATUS, _AI_CONTROL_PATH
-    global _PREDICTION_SHADOW, _ACTIVE_CHAMPIONS
+    global _PREDICTION_SHADOW, _ACTIVE_CHAMPIONS, _STARTUP_TIMELINE
+    _STARTUP_TIMELINE = StartupTimeline()
     _AI_DECISION_IDS.clear()
     _AI_CONTEXT_CACHE.clear()
     _PREDICTION_LAST_ATTEMPT.clear()
@@ -4319,6 +4325,7 @@ def main():
         "execution_promotion": execution_promotion,
     }
     _publish_ai_runtime_status()
+    _mark_startup("configuration")
     _refresh_ai_control(args)
     _publish_ai_runtime_status(
         risk_limits={
@@ -4369,7 +4376,6 @@ def main():
         },
     )
 
-    get_server_time_offset_ms()
     auto_cap = auto_cap_if_needed(args, n_syms=len(symbols))
     configured_order_cap = (
         auto_cap
@@ -4395,16 +4401,11 @@ def main():
         return time.time() + max(5.0, delay)
 
     next_vwap_refresh = math.inf
+    startup_vwap_pending = False
     if getattr(args, "vwap_refresh_sec", 0) > 0:
         if getattr(args, "vwap_refresh_on_start", 1):
-            try:
-                if refresh_vwap_runtime_maps(args, symbols, reason="startup"):
-                    next_vwap_refresh = _next_vwap_refresh()
-                else:
-                    next_vwap_refresh = _next_vwap_refresh()
-            except SUPERVISOR_OPERATION_ERRORS as e:
-                log(f"[VWAP-REFRESH] startup error: {e}")
-                next_vwap_refresh = _next_vwap_refresh()
+            startup_vwap_pending = True
+            next_vwap_refresh = time.time()
         else:
             next_vwap_refresh = _next_vwap_refresh()
 
@@ -4487,6 +4488,7 @@ def main():
                 try:
                     snapshot, orders, prices = _build_risk_snapshot(symbols, limits)
                     risk_snapshot_available = True
+                    _mark_startup("risk_snapshot")
                     consecutive_api_failures = 0
                     if auth_failure_attempts:
                         log("[AUTH-BACKOFF] Binance authentication recovered")
@@ -4783,14 +4785,6 @@ def main():
                 time.sleep(min(2.0, max(0.5, _analytics_float(args.risk_check_sec) / 2.0)))
                 continue
 
-            if now_loop >= next_vwap_refresh:
-                try:
-                    refresh_vwap_runtime_maps(args, symbols, reason="periodic")
-                except SUPERVISOR_OPERATION_ERRORS as e:
-                    log(f"[VWAP-REFRESH] periodic error: {e}")
-                finally:
-                    next_vwap_refresh = _next_vwap_refresh()
-
             for sym in symbols:
                 try:
                     run_for_symbol(
@@ -4801,6 +4795,15 @@ def main():
                 except SUPERVISOR_OPERATION_ERRORS as e:
                     log(f"[ERR] {sym}: {e}")
                 time.sleep(0.2)
+            if now_loop >= next_vwap_refresh:
+                reason = "deferred-startup" if startup_vwap_pending else "periodic"
+                try:
+                    refresh_vwap_runtime_maps(args, symbols, reason=reason)
+                except SUPERVISOR_OPERATION_ERRORS as e:
+                    log(f"[VWAP-REFRESH] {reason} error: {e}")
+                finally:
+                    startup_vwap_pending = False
+                    next_vwap_refresh = _next_vwap_refresh()
             _collect_blocked_shadow(
                 shadow_only_symbols,
                 args,

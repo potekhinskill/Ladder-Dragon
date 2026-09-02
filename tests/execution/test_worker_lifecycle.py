@@ -3,6 +3,8 @@
 from pathlib import Path
 from types import SimpleNamespace
 
+import pytest
+
 from ladder_dragon.execution.worker.event_loop import (
     WorkerLoopContext,
     run_event_loop,
@@ -10,7 +12,9 @@ from ladder_dragon.execution.worker.event_loop import (
 from ladder_dragon.execution.worker.lifecycle import (
     WorkerResources,
     WorkerRuntimeState,
+    run_worker,
 )
+from ladder_dragon.execution.worker.lock_guard import release_lock_on_error
 
 
 def test_worker_cleanup_releases_every_resource_after_one_failure():
@@ -54,6 +58,54 @@ def test_worker_cleanup_releases_every_resource_after_one_failure():
     assert messages == [
         "[WORKER-CLEANUP] websocket trading transport failed=OSError"
     ]
+
+
+def test_duplicate_worker_exits_before_live_preflight(monkeypatch):
+    calls = []
+
+    class Parser:
+        @staticmethod
+        def parse_args():
+            return SimpleNamespace()
+
+    class Lock:
+        def __init__(self, symbol):
+            calls.append(("lock", symbol))
+
+        @staticmethod
+        def acquire():
+            calls.append(("acquire", None))
+            return False
+
+    args = SimpleNamespace(live=True, ws_trading_mode="OFF", symbol="solusdt")
+    state = WorkerRuntimeState({
+        "build_executor_parser": lambda: Parser(),
+        "validate_executor_args": lambda _parser, _args: args,
+        "log": lambda _message: None,
+        "product_label": lambda _component: "Ladder Dragon test",
+        "time": SimpleNamespace(monotonic=lambda: 10.0),
+        "SymbolLock": Lock,
+    })
+    monkeypatch.setattr(
+        WorkerResources,
+        "verify_champion",
+        staticmethod(lambda *_args: pytest.fail("preflight must not run")),
+    )
+
+    run_worker(state)
+
+    assert calls == [("lock", "SOLUSDT"), ("acquire", None)]
+
+
+def test_preflight_lock_guard_releases_on_abnormal_exit():
+    released = []
+    lock = SimpleNamespace(release=lambda: released.append(True))
+
+    with pytest.raises(SystemExit):
+        with release_lock_on_error(lock):
+            raise SystemExit(2)
+
+    assert released == [True]
 
 
 def test_event_loop_reads_live_run_state_and_never_requires_buy_service():

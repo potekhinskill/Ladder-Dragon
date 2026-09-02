@@ -3,6 +3,32 @@
 All notable changes are documented here. Releases use Semantic Versioning; every
 section is dated and there is intentionally no `Unreleased` section.
 
+## [2.20.292] — 2026-09-02
+
+### Added
+- Startup logs now measure migration, configuration, preflight, recovery, risk snapshot, plan, and worker readiness.
+- Runtime status stores one bounded, disposable startup timing snapshot.
+
+### Changed
+- The initial VWAP refresh now runs after the first worker plan.
+- The worker acquires its symbol lock before database and exchange preflight.
+- The execution-authority audit now verifies this lock ordering.
+
+### Fixed
+- One checked Binance clock snapshot now supplies both preflight validation and signed-request time.
+- Validated exchange filters now populate the supervisor plan cache.
+- Initial cleanup now applies both policies to one open-order snapshot.
+- Supervisor HTTP call-site timeouts now reach the shared transport.
+
+### Security
+- Clock, recovery, risk snapshot, reconciliation, and order protection remain fail-closed.
+- A failed startup cancellation is not repeated from the same stale order snapshot.
+
+### Verified
+- The focused startup, timeout, cleanup, lock, and authority regressions pass.
+- The full project suite passes: 1,654 tests.
+- Python compilation and all five domain audits pass.
+
 ## [2.20.291] — 2026-09-02
 
 ### Changed

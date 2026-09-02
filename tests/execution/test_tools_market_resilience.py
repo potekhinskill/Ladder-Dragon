@@ -113,6 +113,63 @@ def test_expired_market_read_cooldown_allows_one_new_request(monkeypatch):
     assert len(calls) == 2
 
 
+def test_public_read_uses_call_site_timeout(monkeypatch):
+    observed = []
+
+    class Response:
+        status_code = 200
+        url = "https://api.binance.com/api/v3/time"
+
+        @staticmethod
+        def json():
+            return {"serverTime": 1_000_000}
+
+    def request(_method, _url, **kwargs):
+        observed.append(kwargs["timeout"])
+        return Response()
+
+    monkeypatch.setattr(tools_market.SESSION, "request", request)
+
+    tools_market._public_get("/api/v3/time", timeout=2.5)
+
+    assert observed == [2.5]
+
+
+def test_checked_clock_snapshot_is_reused_by_signed_read(monkeypatch):
+    calls = []
+
+    class Response:
+        status_code = 200
+        headers = {}
+
+        def __init__(self, path):
+            self.url = f"https://api.binance.com{path}"
+            self.path = path
+
+        def json(self):
+            if self.path == "/api/v3/time":
+                return {"serverTime": 1_000_000}
+            return {"canTrade": True}
+
+    def request(_method, url, **_kwargs):
+        path = "/api/v3/time" if url.endswith("/time") else "/api/v3/account"
+        calls.append(path)
+        return Response(path)
+
+    monkeypatch.setattr(tools_market, "API_KEY", "public")
+    monkeypatch.setattr(tools_market, "API_SECRET", "private")
+    monkeypatch.setattr(tools_market.time, "time", lambda: 1_000.0)
+    monkeypatch.setattr(tools_market.SESSION, "request", request)
+    monkeypatch.setattr(tools_market, "_time_offset_ms", None)
+
+    tools_market._refresh_time_offset(
+        max_offset_ms=1000,
+        max_round_trip_ms=5000,
+    )
+    assert tools_market._signed_get("/api/v3/account") == {"canTrade": True}
+    assert calls == ["/api/v3/time", "/api/v3/account"]
+
+
 def test_tools_market_clock_sync_uses_request_midpoint(monkeypatch):
     timestamps = iter((1_000.0, 1_000.2, 1_000.3))
 

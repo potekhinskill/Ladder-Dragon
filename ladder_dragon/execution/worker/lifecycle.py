@@ -4,7 +4,6 @@
 
 """Worker lifecycle and mutable runtime orchestration."""
 from __future__ import annotations
-
 from collections.abc import MutableMapping
 from dataclasses import dataclass
 import re
@@ -14,6 +13,7 @@ from ladder_dragon.execution.worker.event_loop import (
     WorkerLoopContext,
     run_event_loop,
 )
+from ladder_dragon.execution.worker.lock_guard import release_lock_on_error
 from ladder_dragon.execution.worker.champion_preflight import champion_entry_veto_rule, champion_ladder, require_live_champion
 class WorkerRuntimeState:
     """Expose live worker module state without snapshotting mutable globals."""
@@ -72,6 +72,7 @@ def normalize_symbol(symbol: str) -> str:
 
 def run_worker(state: WorkerRuntimeState) -> None:
     """Run one symbol worker against live runtime dependencies."""
+    startup_started = state.time.monotonic()
     parser = state.build_executor_parser()
     args = state.validate_executor_args(parser, parser.parse_args())
     state.log(f"[VERSION] {state.product_label('executor')}")
@@ -83,58 +84,55 @@ def run_worker(state: WorkerRuntimeState) -> None:
         # Therefore LIVE always checks existing BUY orders.
         args.enforce_target_buys = True
 
-    if state.LIVE_MODE:
-        # Repeat preflight because a worker can start without the supervisor.
-        try:
-            champion = WorkerResources.verify_champion(state, args)
-        except (OSError, state.sqlite3.Error, TypeError, ValueError) as exc:
-            parser.error(f"LIVE CHAMPION verification failed: {exc}")
-        halt_file = state.Path(
-            state.os.getenv(
-                "CB_HALT_FILE",
-                state.os.path.join(state.bot_run_dir(), "circuit_halt.json"),
+    symbol = normalize_symbol(args.symbol)
+    # A duplicate worker exits before database or exchange preflight traffic.
+    _lock = state.SymbolLock(symbol)
+    lock_acquired = _lock.acquire()
+    if not lock_acquired:
+        return
+    with release_lock_on_error(_lock):
+        if state.LIVE_MODE:
+            # Repeat preflight because a worker can start without the supervisor.
+            try:
+                champion = WorkerResources.verify_champion(state, args)
+            except (OSError, state.sqlite3.Error, TypeError, ValueError) as exc:
+                parser.error(f"LIVE CHAMPION verification failed: {exc}")
+            halt_file = state.Path(
+                state.os.getenv(
+                    "CB_HALT_FILE",
+                    state.os.path.join(state.bot_run_dir(), "circuit_halt.json"),
+                )
             )
-        )
-        if halt_file.exists():
-            parser.error(f"circuit halt exists: {halt_file}; reset through risk_ctl.py")
-        stats_db = state.os.getenv("BOT_STATS_DB", "").strip()
-        if not stats_db:
-            parser.error("BOT_STATS_DB is required for LIVE mode")
-        try:
-            with state.sqlite3.connect(stats_db, timeout=5) as con:
-                con.execute("SELECT 1 FROM trades LIMIT 1").fetchall()
-            t0 = int(state.time.time() * 1000)
-            server = state._public_get("/api/v3/time")
-            t1 = int(state.time.time() * 1000)
-            state.assess_exchange_clock(
-                server_time_ms=int(server["serverTime"]),
-                request_started_ms=t0,
-                response_finished_ms=t1,
-                max_offset_ms=int(state.os.getenv("RISK_MAX_TIME_OFFSET_MS", "1000")),
-                max_round_trip_ms=int(state.os.getenv("RISK_MAX_TIME_RTT_MS", "5000")),
-            ).require_safe()
-            state.pull_filters(args.symbol.upper())
-            account = state._signed_request("GET", "/api/v3/account")
-            if account.get("canTrade") is not True:
-                raise RuntimeError("Binance account/API key is not allowed to trade")
-            state._order_journal()
-            # Reconcile every ordinary BUY/SELL intent before any new LIVE
-            # action. This closes externally cancelled orders and definitive
-            # Binance -2013 absences without manual SQLite edits.
-            state.reconcile_nonterminal_orders(args.symbol.upper())
-        except (OSError, state.sqlite3.Error, state.requests.RequestException, RuntimeError, KeyError, ValueError) as exc:
-            parser.error(f"LIVE preflight failed: {exc}")
+            if halt_file.exists():
+                parser.error(f"circuit halt exists: {halt_file}; reset through risk_ctl.py")
+            stats_db = state.os.getenv("BOT_STATS_DB", "").strip()
+            if not stats_db:
+                parser.error("BOT_STATS_DB is required for LIVE mode")
+            try:
+                with state.sqlite3.connect(stats_db, timeout=5) as con:
+                    con.execute("SELECT 1 FROM trades LIMIT 1").fetchall()
+                state.TM._refresh_time_offset(
+                    timeout=15,
+                    max_offset_ms=int(state.os.getenv("RISK_MAX_TIME_OFFSET_MS", "1000")),
+                    max_round_trip_ms=int(state.os.getenv("RISK_MAX_TIME_RTT_MS", "5000")),
+                )
+                state.pull_filters(symbol)
+                account = state._signed_request("GET", "/api/v3/account")
+                if account.get("canTrade") is not True:
+                    raise RuntimeError("Binance account/API key is not allowed to trade")
+                state._order_journal()
+                # Reconcile every ordinary BUY/SELL intent before any new LIVE
+                # action. This closes externally cancelled orders and definitive
+                # Binance -2013 absences without manual SQLite edits.
+                state.reconcile_nonterminal_orders(symbol)
+            except (OSError, state.sqlite3.Error, state.requests.RequestException, RuntimeError, KeyError, ValueError) as exc:
+                parser.error(f"LIVE preflight failed: {exc}")
     attach_oco = bool(args.attach_oco_on_fill)
-    symbol = args.symbol
     # OCO status is no longer hidden behind a question mark: before the first check,
     # explicitly show that protection is not confirmed. This distinguishes a
     # pending BUY from a verified OCO in logs and the dashboard.
     protection_state = "not_checked" if attach_oco else "disabled"
 
-    # --- per-symbol lock: a second process for the symbol exits immediately ---
-    _lock = state.SymbolLock(symbol)
-    if not _lock.acquire():
-        return
     resources = WorkerResources(state=state, lock=_lock)
 
     user_stream_mailbox = state.OrderEventMailbox()
@@ -572,6 +570,8 @@ def run_worker(state: WorkerRuntimeState) -> None:
             started_at=started_at,
             protection_state=protection_state,
         )
+        ready_ms = max(0, round((state.time.monotonic() - startup_started) * 1000))
+        state.log(f"[STARTUP-TIMING] phase=worker_ready symbol={symbol} elapsed_ms={ready_ms}")
         return run_event_loop(loop_context)
     finally:
         resources.close()

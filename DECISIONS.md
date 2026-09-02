@@ -2158,3 +2158,10 @@ entries concise; this is not a changelog or an activity log.
 - **Decision:** require each canonical call to state `exclude_latest`; retain explicit policy only in compatibility wrappers.
 - **Why it worked:** algorithm selection cannot silently change the candle population.
 - **Reuse:** every indicator API whose input completeness changes the result.
+
+### 2026-09-02 — Reuse checked startup observations
+
+- **Context:** sequential startup stages repeated clock, filter, order, and advisory market reads.
+- **Decision:** reuse validated snapshots within one startup and defer advisory refreshes until worker planning completes.
+- **Why it worked:** authoritative checks remain fail-closed while duplicate network latency leaves the readiness path.
+- **Reuse:** every startup pipeline with repeated immutable reads and non-authoritative enrichment.

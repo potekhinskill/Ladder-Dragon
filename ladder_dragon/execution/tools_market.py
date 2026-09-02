@@ -16,7 +16,10 @@ import requests
 from typing import Dict, Tuple, List, Optional, Any
 from urllib.parse import urlsplit
 
-from ladder_dragon.execution.time_safety import exchange_time_offset_ms
+from ladder_dragon.execution.time_safety import (
+    assess_exchange_clock,
+    exchange_time_offset_ms,
+)
 from ladder_dragon.execution.exchange_math import (
     exact_symbol_filters,
     normalized_order_values,
@@ -130,12 +133,15 @@ def _activate_rate_limit(response: requests.Response, url: str) -> BinanceHttpEr
 
 
 def _do_request(method: str, url: str, **kw) -> requests.Response:
+    request_timeout = kw.pop("timeout", TIMEOUT)
+    if not isinstance(request_timeout, (int, float)) or request_timeout <= 0:
+        raise ValueError("request timeout must be positive")
     attempts = 3
     delay = 0.5
     for i in range(attempts):
         _raise_if_rate_limited()
         try:
-            r = SESSION.request(method, url, timeout=TIMEOUT, **kw)
+            r = SESSION.request(method, url, timeout=request_timeout, **kw)
             if r.status_code in (418, 429):
                 raise _activate_rate_limit(r, url)
             if 500 <= r.status_code < 600:
@@ -182,19 +188,38 @@ _time_offset_ms: Optional[int] = None
 _time_offset_ts: float = 0.0
 _OFFSET_TTL = 60.0
 
-def _refresh_time_offset():
+def _refresh_time_offset(
+    *,
+    timeout: float | None = None,
+    max_offset_ms: int | None = None,
+    max_round_trip_ms: int | None = None,
+):
     global _time_offset_ms, _time_offset_ts
     url = f"{BASE_URL}/api/v3/time"
     started = int(time.time() * 1000)
-    r = _do_request("GET", url)
+    request_kw = {"timeout": timeout} if timeout is not None else {}
+    r = _do_request("GET", url, **request_kw)
     finished = int(time.time() * 1000)
     _raise_for_binance(r)
     srv = int(r.json()["serverTime"])
-    _time_offset_ms = exchange_time_offset_ms(
-        server_time_ms=srv,
-        request_started_ms=started,
-        response_finished_ms=finished,
-    )
+    if (max_offset_ms is None) != (max_round_trip_ms is None):
+        raise ValueError("both clock safety limits are required")
+    if max_offset_ms is not None and max_round_trip_ms is not None:
+        check = assess_exchange_clock(
+            server_time_ms=srv,
+            request_started_ms=started,
+            response_finished_ms=finished,
+            max_offset_ms=max_offset_ms,
+            max_round_trip_ms=max_round_trip_ms,
+        )
+        check.require_safe()
+        _time_offset_ms = check.offset_ms
+    else:
+        _time_offset_ms = exchange_time_offset_ms(
+            server_time_ms=srv,
+            request_started_ms=started,
+            response_finished_ms=finished,
+        )
     _time_offset_ts = time.time()
 
 def _timestamp_ms() -> int:
@@ -212,13 +237,24 @@ def _sign_tuples(params: List[Tuple[str, str]], secret: str) -> str:
     return hmac.new(secret.encode("utf-8"), query.encode("utf-8"), hashlib.sha256).hexdigest()
 
 # ---- public/private requests ----
-def _public_get(path: str, params: Dict | List[Tuple[str, str]] | None = None) -> Any:
+def _public_get(
+    path: str,
+    params: Dict | List[Tuple[str, str]] | None = None,
+    *,
+    timeout: float | None = None,
+) -> Any:
     url = f"{BASE_URL}{path}"
-    r = _do_request("GET", url, params=params or {})
+    request_kw = {"timeout": timeout} if timeout is not None else {}
+    r = _do_request("GET", url, params=params or {}, **request_kw)
     _raise_for_binance(r)
     return r.json()
 
-def _signed_get(path: str, params: Dict | None = None) -> Any:
+def _signed_get(
+    path: str,
+    params: Dict | None = None,
+    *,
+    timeout: float | None = None,
+) -> Any:
     if not API_KEY or not API_SECRET:
         raise BinanceHttpError("BINANCE_API_KEY/SECRET not set in environment")
     url = f"{BASE_URL}{path}"
@@ -232,7 +268,8 @@ def _signed_get(path: str, params: Dict | None = None) -> Any:
         ]
         sig = _sign_tuples(items, API_SECRET)
         items.append(("signature", sig))
-        r = _do_request("GET", url, params=items, headers=headers)
+        request_kw = {"timeout": timeout} if timeout is not None else {}
+        r = _do_request("GET", url, params=items, headers=headers, **request_kw)
         try:
             payload = r.json()
         except (requests.JSONDecodeError, TypeError, ValueError):

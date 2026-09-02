@@ -70,11 +70,12 @@ def startup_cleanup_orders(
     grace_sec: int | None,
     *,
     runtime: Mapping[str, Any],
+    orders: Sequence[Mapping[str, Any]] | None = None,
 ) -> dict[str, int]:
     """Cancel only proven stale startup BUYs while preserving every SELL."""
     operation_errors = runtime["SUPERVISOR_OPERATION_ERRORS"]
     try:
-        orders = runtime["list_open_orders"](symbol)
+        orders = runtime["list_open_orders"](symbol) if orders is None else orders
     except operation_errors as exc:
         runtime["log"](f"[START-CLEANUP] {symbol} list_open_orders failed: {exc}")
         return {"reviewed": 0, "canceled": 0}
@@ -149,11 +150,12 @@ def smart_cleanup_orders(
     cancel_offladder: bool = True,
     *,
     runtime: Mapping[str, Any],
+    orders: Sequence[Mapping[str, Any]] | None = None,
 ) -> dict[str, int]:
     """Apply bounded TTL cleanup without touching protective orders."""
     operation_errors = runtime["SUPERVISOR_OPERATION_ERRORS"]
     try:
-        orders = runtime["list_open_orders"](symbol)
+        orders = runtime["list_open_orders"](symbol) if orders is None else orders
     except operation_errors as exc:
         runtime["log"](f"[CLEANUP] {symbol} list_open_orders failed: {exc}")
         return {"reviewed": 0, "canceled": 0}
@@ -222,4 +224,51 @@ def smart_cleanup_orders(
     return {"reviewed": reviewed, "canceled": canceled}
 
 
-__all__ = ["smart_cleanup_orders", "startup_cleanup_orders"]
+def initial_cleanup_orders(
+    symbol: str,
+    now_price: float,
+    ladder_prices: Sequence[float],
+    tick_size: float,
+    grace_sec: int | None,
+    near_ttl_sec: int | None,
+    far_ttl_sec: int | None,
+    *,
+    runtime: Mapping[str, Any],
+) -> dict[str, dict[str, int]]:
+    """Apply both initial policies to one authoritative open-order snapshot."""
+    operation_errors = runtime["SUPERVISOR_OPERATION_ERRORS"]
+    try:
+        orders = runtime["list_open_orders"](symbol)
+    except operation_errors as exc:
+        runtime["log"](f"[INITIAL-CLEANUP] {symbol} list_open_orders failed: {exc}")
+        empty = {"reviewed": 0, "canceled": 0}
+        return {"startup": dict(empty), "periodic": dict(empty)}
+    handled_ids: set[int] = set()
+    startup_runtime = dict(runtime)
+    cancel_order = runtime["cancel_order"]
+
+    def tracked_cancel(target_symbol: str, order_id: int) -> bool:
+        handled_ids.add(int(order_id))
+        return bool(cancel_order(target_symbol, order_id))
+
+    startup_runtime["cancel_order"] = tracked_cancel
+    startup = startup_cleanup_orders(
+        symbol, now_price, ladder_prices, tick_size, grace_sec,
+        runtime=startup_runtime, orders=orders,
+    )
+    remaining = [
+        order for order in orders
+        if int(order.get("orderId") or 0) not in handled_ids
+    ]
+    periodic = smart_cleanup_orders(
+        symbol, now_price, ladder_prices, tick_size, near_ttl_sec, far_ttl_sec,
+        runtime=runtime, orders=remaining,
+    )
+    return {"startup": startup, "periodic": periodic}
+
+
+__all__ = [
+    "initial_cleanup_orders",
+    "smart_cleanup_orders",
+    "startup_cleanup_orders",
+]
