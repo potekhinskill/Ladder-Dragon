@@ -10,6 +10,7 @@ from typing import Any
 from ladder_dragon.execution.worker.event_loop import WorkerLoopContext, run_event_loop
 from ladder_dragon.execution.worker.lock_guard import release_lock_on_error
 from ladder_dragon.execution.worker.champion_preflight import champion_entry_veto_rule, champion_ladder, require_live_champion
+from ladder_dragon.execution.worker.authority_attestation import require_worker_authority_binding
 from ladder_dragon.supervision.startup_timing import StartupTimeline, log_worker_startup
 class WorkerRuntimeState:
     """Expose live worker module state without snapshotting mutable globals."""
@@ -29,6 +30,7 @@ class WorkerRuntimeState:
 class WorkerResources:
     """Stop every worker resource even when one cleanup operation fails."""
     verify_champion = staticmethod(require_live_champion)
+    require_authority_binding = staticmethod(require_worker_authority_binding)
     build_champion_ladder = staticmethod(champion_ladder)
     entry_veto_rule = staticmethod(champion_entry_veto_rule)
     startup_timeline = staticmethod(StartupTimeline)
@@ -53,10 +55,7 @@ class WorkerResources:
             try:
                 callback()
             except (OSError, RuntimeError, ValueError) as exc:
-                self.state.dbg(
-                    f"[WORKER-CLEANUP] {label} failed="
-                    f"{type(exc).__name__}"
-                )
+                self.state.dbg(f"[WORKER-CLEANUP] {label} failed={type(exc).__name__}")
 def normalize_symbol(symbol: str) -> str:
     """Return a Binance symbol or fail before any exchange request."""
     normalized = str(symbol).strip().upper()
@@ -89,9 +88,10 @@ def run_worker(state: WorkerRuntimeState) -> None:
         if state.LIVE_MODE:
             # Repeat preflight because a worker can start without the supervisor.
             try:
+                WorkerResources.require_authority_binding(WorkerResources.verify_champion)
                 champion = WorkerResources.verify_champion(state, args)
                 WorkerResources.log_startup(startup_timing, state.log, symbol, "champion")
-            except (OSError, state.sqlite3.Error, TypeError, ValueError) as exc:
+            except (OSError, state.sqlite3.Error, RuntimeError, TypeError, ValueError) as exc:
                 parser.error(f"LIVE CHAMPION verification failed: {exc}")
             halt_file = state.Path(
                 state.os.getenv(

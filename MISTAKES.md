@@ -1,5 +1,12 @@
 # Engineering mistakes and root causes
 
+### 2026-09-02 — Changed an audited sequence without updating its mutations
+
+- **Impact:** three focused source-contract tests failed before behavior validation.
+- **Root cause:** mutation fixtures matched the old adjacent `try` and authority-call lines.
+- **Correction:** match the new attestation sequence and add mutations for missing or misdirected attestation.
+- **Prevention:** inspect each exact-source mutation after inserting a call inside an audited sequence.
+
 ### 2026-09-02 — Left the public version behind the canonical version
 
 - **Impact:** the first full test run failed two publication checks.

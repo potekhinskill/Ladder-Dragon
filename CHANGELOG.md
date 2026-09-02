@@ -3,6 +3,24 @@
 All notable changes are documented here. Releases use Semantic Versioning; every
 section is dated and there is intentionally no `Unreleased` section.
 
+## [2.20.295] — 2026-09-02
+
+### Added
+- Supervisor and worker LIVE boundaries now attest each mutable execution-authority callable against its import-time canonical object.
+- The authority audit now proves attestation cadence, protected arguments, ordering, gates, and canonical helper provenance.
+
+### Fixed
+- Post-import replacement with a same-name no-op now fails before CHAMPION verification or exchange access.
+- Worker attestation remains isolated from supervisor imports and adds no measurable worker import delay.
+
+### Security
+- Attestation failures revoke supervisor execution or stop worker preflight with constant, secret-safe diagnostics.
+- Runtime checks cover accidental rebinding. They do not claim protection after arbitrary process compromise.
+
+### Verified
+- The full project suite passes: 1,688 tests.
+- Python compilation, Technical English, and all five domain audits pass.
+
 ## [2.20.294] — 2026-09-02
 
 ### Added

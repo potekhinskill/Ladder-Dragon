@@ -1,5 +1,12 @@
 # Engineering decisions
 
+### 2026-09-02 — Attest mutable authority at each LIVE boundary
+
+- **Context:** static provenance cannot detect a protected callable replaced after module import.
+- **Decision:** compare each observed callable with its import-time canonical object immediately before every protected LIVE call.
+- **Why it worked:** runtime and source mutations reject replacements before CHAMPION logic, market reads, or exchange mutations.
+- **Reuse:** every mutable Python binding that grants execution authority after process startup.
+
 ### 2026-09-02 — Parallelize only public risk reads
 
 - **Context:** serial public market reads dominated the first risk snapshot without increasing signed-state consistency.

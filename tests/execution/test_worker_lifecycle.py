@@ -146,6 +146,9 @@ def test_live_worker_calls_authority_after_lock_acquisition(monkeypatch):
     monkeypatch.setattr(
         WorkerResources, "verify_champion", staticmethod(reject)
     )
+    monkeypatch.setattr(
+        WorkerResources, "require_authority_binding", staticmethod(lambda _call: None)
+    )
 
     with pytest.raises(SystemExit, match="LIVE CHAMPION verification failed"):
         run_worker(state)
@@ -154,6 +157,61 @@ def test_live_worker_calls_authority_after_lock_acquisition(monkeypatch):
         ("lock", "SOLUSDT"),
         ("acquire", None),
         ("verify", None),
+        ("release", None),
+    ]
+
+
+def test_live_worker_rejects_runtime_authority_rebinding(monkeypatch):
+    calls = []
+
+    class FakeSqliteError(Exception):
+        pass
+
+    class Parser:
+        @staticmethod
+        def parse_args():
+            return SimpleNamespace()
+
+        @staticmethod
+        def error(message):
+            raise SystemExit(message)
+
+    class Lock:
+        def __init__(self, symbol):
+            calls.append(("lock", symbol))
+
+        @staticmethod
+        def acquire():
+            calls.append(("acquire", None))
+            return True
+
+        @staticmethod
+        def release():
+            calls.append(("release", None))
+
+    args = SimpleNamespace(live=True, ws_trading_mode="OFF", symbol="solusdt")
+    state = WorkerRuntimeState({
+        "build_executor_parser": lambda: Parser(),
+        "validate_executor_args": lambda _parser, _args: args,
+        "log": lambda _message: None,
+        "product_label": lambda _component: "Ladder Dragon test",
+        "time": SimpleNamespace(monotonic=lambda: 10.0),
+        "SymbolLock": Lock,
+        "sqlite3": SimpleNamespace(Error=FakeSqliteError),
+        "requests": SimpleNamespace(RequestException=RuntimeError),
+    })
+    monkeypatch.setattr(
+        WorkerResources,
+        "verify_champion",
+        staticmethod(lambda *_args: calls.append(("rebound", None))),
+    )
+
+    with pytest.raises(SystemExit, match="runtime binding changed"):
+        run_worker(state)
+
+    assert calls == [
+        ("lock", "SOLUSDT"),
+        ("acquire", None),
         ("release", None),
     ]
 

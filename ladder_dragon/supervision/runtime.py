@@ -53,6 +53,7 @@ from ladder_dragon.strategy.prediction.control_evidence import (
     record_strategy_evidence,
 )
 from ladder_dragon.strategy.prediction.champion_registry import champion_allows_regime, verify_active_champion_lifecycle
+from ladder_dragon.supervision.authority_attestation import require_supervisor_authority_binding
 from ladder_dragon.strategy.prediction.episode_semantics import REGIME_ADX_LENGTH, REGIME_EMA_FAST_LENGTH, REGIME_EMA_SLOW_LENGTH, require_runtime_regime_contract
 from ladder_dragon.supervision.aggregate_trade_history import load_aggregate_trade_window, safe_aggregate_trade_error
 from ladder_dragon.supervision import strategy_control_gates, historical_context
@@ -2605,6 +2606,7 @@ def run_for_symbol(
             _stop_children("CHAMPION registry is unavailable")
             raise RuntimeError("CHAMPION registry is unavailable")
         try:
+            require_supervisor_authority_binding(verify_active_champion_lifecycle)
             verify_active_champion_lifecycle(_PREDICTION_SHADOW, symbol=symbol,
                 activation_id=str(champion["activation_id"]),
                 champion_fingerprint=str(champion["champion_fingerprint"]),

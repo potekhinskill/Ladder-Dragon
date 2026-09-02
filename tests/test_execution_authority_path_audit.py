@@ -120,10 +120,12 @@ def test_audit_rejects_lifecycle_check_outside_revoke_try(tmp_path: Path) -> Non
     _copy_sources(tmp_path)
     target = tmp_path / "ladder_dragon/supervision/runtime.py"
     old = """        try:
+            require_supervisor_authority_binding(verify_active_champion_lifecycle)
             verify_active_champion_lifecycle(_PREDICTION_SHADOW, symbol=symbol,
 """
     new = """        verify_active_champion_lifecycle(...)
         try:
+            require_supervisor_authority_binding(verify_active_champion_lifecycle)
             ignored_champion_lifecycle(_PREDICTION_SHADOW, symbol=symbol,
 """
     _replace(target, old, new)
@@ -141,9 +143,11 @@ def test_audit_rejects_nonexecuting_comprehension_decoy(tmp_path: Path) -> None:
     _copy_sources(tmp_path)
     target = tmp_path / "ladder_dragon/supervision/runtime.py"
     old = """        try:
+            require_supervisor_authority_binding(verify_active_champion_lifecycle)
             verify_active_champion_lifecycle(_PREDICTION_SHADOW, symbol=symbol,
 """
     new = """        try:
+            require_supervisor_authority_binding(verify_active_champion_lifecycle)
             [verify_active_champion_lifecycle(...) for _item in ()]
             ignored_champion_lifecycle(_PREDICTION_SHADOW, symbol=symbol,
 """
@@ -186,9 +190,11 @@ def test_audit_rejects_conditionally_bypassable_authority_call(
     _copy_sources(tmp_path)
     target = tmp_path / "ladder_dragon/supervision/runtime.py"
     old = """        try:
+            require_supervisor_authority_binding(verify_active_champion_lifecycle)
             verify_active_champion_lifecycle(_PREDICTION_SHADOW, symbol=symbol,
 """
     new = """        try:
+            require_supervisor_authority_binding(verify_active_champion_lifecycle)
             if symbol:
                 verify_active_champion_lifecycle(_PREDICTION_SHADOW, symbol=symbol,
 """
@@ -266,6 +272,42 @@ def test_audit_ignores_nested_decoy_calls(tmp_path: Path) -> None:
     assert any(
         item.endswith(
             "run_for_symbol->verify_active_champion_lifecycle:required call count is 0"
+        )
+        for item in report["violations"]
+    )
+
+
+def test_audit_rejects_missing_runtime_authority_attestation(tmp_path: Path) -> None:
+    _copy_sources(tmp_path)
+    target = tmp_path / "ladder_dragon/supervision/runtime.py"
+    _replace(
+        target,
+        "            require_supervisor_authority_binding(verify_active_champion_lifecycle)\n",
+        "            ignored_supervisor_authority_binding(verify_active_champion_lifecycle)\n",
+    )
+    report = audit_execution_authority_paths(tmp_path)
+    assert any(
+        item.endswith(
+            "run_for_symbol->require_supervisor_authority_binding:"
+            "required call count is 0"
+        )
+        for item in report["violations"]
+    )
+
+
+def test_audit_rejects_runtime_attestation_of_wrong_object(tmp_path: Path) -> None:
+    _copy_sources(tmp_path)
+    target = tmp_path / "ladder_dragon/execution/worker/lifecycle.py"
+    _replace(
+        target,
+        "WorkerResources.require_authority_binding(WorkerResources.verify_champion)",
+        "WorkerResources.require_authority_binding(require_live_champion)",
+    )
+    report = audit_execution_authority_paths(tmp_path)
+    assert any(
+        item.endswith(
+            "run_worker->WorkerResources.require_authority_binding:"
+            "authority attestation arguments changed"
         )
         for item in report["violations"]
     )

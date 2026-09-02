@@ -29,6 +29,7 @@ class AuthorityCallContract:
     required_try_body_depth: int = 1
     enclosing_loops: tuple[str, ...] = ()
     before_calls: tuple[str, ...] = ()
+    required_args: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -56,6 +57,15 @@ AUTHORITY_CALL_CONTRACTS = (
     AuthorityCallContract(
         path="ladder_dragon/supervision/runtime.py",
         caller="run_for_symbol",
+        required_call="require_supervisor_authority_binding",
+        positive_gate="execution_allowed",
+        required_branch_depth=1,
+        before_calls=("verify_active_champion_lifecycle", "get_last_price"),
+        required_args=("verify_active_champion_lifecycle",),
+    ),
+    AuthorityCallContract(
+        path="ladder_dragon/supervision/runtime.py",
+        caller="run_for_symbol",
         required_call="verify_active_champion_lifecycle",
         positive_gate="execution_allowed",
         required_branch_depth=1,
@@ -72,6 +82,20 @@ AUTHORITY_CALL_CONTRACTS = (
             "state._signed_request",
             "state.pull_filters",
         ),
+    ),
+    AuthorityCallContract(
+        path="ladder_dragon/execution/worker/lifecycle.py",
+        caller="run_worker",
+        required_call="WorkerResources.require_authority_binding",
+        positive_gate="state.LIVE_MODE",
+        required_branch_depth=1,
+        before_calls=(
+            "WorkerResources.verify_champion",
+            "state.TM._refresh_time_offset",
+            "state._signed_request",
+            "state.pull_filters",
+        ),
+        required_args=("WorkerResources.verify_champion",),
     ),
     AuthorityCallContract(
         path="ladder_dragon/execution/worker/lifecycle.py",
@@ -96,10 +120,28 @@ AUTHORITY_BINDING_CONTRACTS = (
     AuthorityBindingContract(
         path="ladder_dragon/supervision/runtime.py",
         caller="run_for_symbol",
+        call_identity="require_supervisor_authority_binding",
+        import_module="ladder_dragon.supervision.authority_attestation",
+        import_name="require_supervisor_authority_binding",
+        local_name="require_supervisor_authority_binding",
+    ),
+    AuthorityBindingContract(
+        path="ladder_dragon/supervision/runtime.py",
+        caller="run_for_symbol",
         call_identity="verify_active_champion_lifecycle",
         import_module="ladder_dragon.strategy.prediction.champion_registry",
         import_name="verify_active_champion_lifecycle",
         local_name="verify_active_champion_lifecycle",
+    ),
+    AuthorityBindingContract(
+        path="ladder_dragon/execution/worker/lifecycle.py",
+        caller="run_worker",
+        call_identity="WorkerResources.require_authority_binding",
+        import_module="ladder_dragon.execution.worker.authority_attestation",
+        import_name="require_worker_authority_binding",
+        local_name="require_worker_authority_binding",
+        owner_class="WorkerResources",
+        class_attribute="require_authority_binding",
     ),
     AuthorityBindingContract(
         path="ladder_dragon/execution/worker/lifecycle.py",
@@ -123,6 +165,7 @@ class _CallObservation:
     branch_depth: int
     try_body_depth: int
     direct_statement: bool
+    positional_args: tuple[str, ...]
 
 
 def _contains_positive_gate(node: ast.AST, expected: str) -> bool:
@@ -154,6 +197,7 @@ class _CallVisitor(ast.NodeVisitor):
                 branch_depth=self.branch_depth,
                 try_body_depth=self.try_body_depth,
                 direct_statement=id(node) in self.direct_call_nodes,
+                positional_args=tuple(expression_identity(arg) for arg in node.args),
             )
         )
         self.generic_visit(node)
@@ -474,6 +518,8 @@ def audit_execution_authority_paths(root: Path) -> dict[str, object]:
             )
         if not observed.direct_statement:
             violations.append(identity + ":authority call is not a direct statement")
+        if contract.required_args and observed.positional_args != contract.required_args:
+            violations.append(identity + ":authority attestation arguments changed")
         for loop in contract.enclosing_loops:
             if loop not in observed.enclosing_loops:
                 violations.append(identity + f":not inside {loop} loop")
