@@ -38,4 +38,21 @@ class StartupTimeline:
         return {"phases": {key: dict(value) for key, value in self._phases.items()}}
 
 
-__all__ = ["StartupTimeline"]
+def log_worker_startup(
+    timeline: StartupTimeline,
+    logger: Callable[[str], None],
+    symbol: str,
+    phase: str,
+) -> None:
+    """Log one bounded worker startup phase."""
+    timing = timeline.mark(phase)
+    if timing is None:
+        return
+    logger(
+        "[STARTUP-TIMING] component=worker "
+        f"phase={phase} symbol={symbol} "
+        f"delta_ms={timing['delta_ms']} elapsed_ms={timing['elapsed_ms']}"
+    )
+
+
+__all__ = ["StartupTimeline", "log_worker_startup"]

@@ -96,10 +96,15 @@ Historical virtual documents are archive data and cannot enter retrieval.
 | `RISK_EXPECTED_SHORTFALL_*` | optional Expected Shortfall gate |
 | `RISK_CLUSTER_*` | correlation-cluster evidence and limits |
 | `RISK_UNVALUED_ASSETS*` | reviewed nontradeable dust exclusions |
+| `RISK_PUBLIC_READ_CONCURRENCY` | public ticker, kline, and depth concurrency from 1 through 4 |
+| `RISK_UNVALUED_NEGATIVE_CACHE_SEC` | invalid-symbol cache duration from 0 through 900 seconds |
 
 A zero VaR or Expected Shortfall CAP disables that optional gate.
 Unvalued-asset exclusion and acknowledgement lists must match exactly.
 Excluded assets cannot increase equity or CAP.
+The invalid-symbol cache is disposable, memory-only, and limited to 128 markets.
+Only Binance error `-1121` enters this cache.
+Expired entries cause a new public market check.
 HALT, reset, cooldown, and evaluation use one process lock.
 `RISK_MAX_CONSECUTIVE_LOSSES` cannot exceed 4,096 retained SELL outcomes.
 Each SELL loss sign uses exact FIFO cost allocation.

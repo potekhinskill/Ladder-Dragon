@@ -4,12 +4,14 @@
 
 """Exact risk calculations shared by the supervisor runtime."""
 
+from concurrent.futures import ThreadPoolExecutor
 from decimal import Decimal
 import os
 import re
 import sqlite3
+import threading
 import time
-from typing import Any, Dict, List, Mapping, Sequence
+from typing import Any, Callable, Dict, List, Mapping, Sequence, TypeVar
 
 import requests
 
@@ -56,6 +58,102 @@ class RiskReconciliationError(RuntimeError):
 _RISK_ATTEMPT_PREFIX = re.compile(
     r"^(risk telemetry unavailable) \(\d+/\d+\):\s*"
 )
+_T = TypeVar("_T")
+_R = TypeVar("_R")
+
+
+class _DefinitiveMissingMarketCache:
+    """Cache only definitive missing markets for an acknowledged asset."""
+
+    def __init__(self, *, maximum_entries: int = 128) -> None:
+        self._maximum_entries = maximum_entries
+        self._deadlines: dict[str, float] = {}
+        self._lock = threading.Lock()
+
+    def contains(self, symbol: str, *, now: float) -> bool:
+        with self._lock:
+            deadline = self._deadlines.get(symbol)
+            if deadline is None:
+                return False
+            if deadline <= now:
+                self._deadlines.pop(symbol, None)
+                return False
+            return True
+
+    def remember(self, symbol: str, *, now: float, ttl_sec: float) -> None:
+        if ttl_sec <= 0:
+            return
+        with self._lock:
+            expired = [key for key, deadline in self._deadlines.items() if deadline <= now]
+            for key in expired:
+                self._deadlines.pop(key, None)
+            if len(self._deadlines) >= self._maximum_entries:
+                oldest = min(self._deadlines, key=self._deadlines.__getitem__)
+                self._deadlines.pop(oldest, None)
+            self._deadlines[symbol] = now + ttl_sec
+
+    def discard(self, symbol: str) -> None:
+        with self._lock:
+            self._deadlines.pop(symbol, None)
+
+    def clear(self) -> None:
+        with self._lock:
+            self._deadlines.clear()
+
+
+_UNVALUED_MARKET_CACHE = _DefinitiveMissingMarketCache()
+
+
+def _public_read_concurrency() -> int:
+    try:
+        value = int(os.getenv("RISK_PUBLIC_READ_CONCURRENCY", "3") or "3")
+    except ValueError as exc:
+        raise RiskConfigurationError(
+            "RISK_PUBLIC_READ_CONCURRENCY must be an integer"
+        ) from exc
+    if value < 1 or value > 4:
+        raise RiskConfigurationError(
+            "RISK_PUBLIC_READ_CONCURRENCY must be between 1 and 4"
+        )
+    return value
+
+
+def _unvalued_negative_cache_ttl() -> int:
+    try:
+        value = int(
+            os.getenv("RISK_UNVALUED_NEGATIVE_CACHE_SEC", "300") or "300"
+        )
+    except ValueError as exc:
+        raise RiskConfigurationError(
+            "RISK_UNVALUED_NEGATIVE_CACHE_SEC must be an integer"
+        ) from exc
+    if value < 0 or value > 900:
+        raise RiskConfigurationError(
+            "RISK_UNVALUED_NEGATIVE_CACHE_SEC must be between 0 and 900"
+        )
+    return value
+
+
+def _bounded_public_reads(
+    items: Sequence[_T],
+    reader: Callable[[_T], _R],
+    *,
+    concurrency: int,
+) -> list[_R]:
+    """Read public market data with bounded concurrency and stable ordering."""
+    if len(items) <= 1 or concurrency <= 1:
+        return [reader(item) for item in items]
+    with ThreadPoolExecutor(
+        max_workers=min(concurrency, len(items)),
+        thread_name_prefix="risk-public",
+    ) as executor:
+        futures = [executor.submit(reader, item) for item in items]
+        return [future.result() for future in futures]
+
+
+def _definitive_missing_market(error: BaseException) -> bool:
+    """Return true only for Binance's definitive invalid-symbol response."""
+    return getattr(error, "code", None) == -1121
 
 
 def risk_alert_signature(
@@ -148,9 +246,17 @@ def direct_usdt_valuation_price(
     asset: str,
     prices: dict[str, object],
     get_last_price_decimal: Any,
+    *,
+    cache_missing: bool = False,
+    cache_ttl_sec: float = 0,
 ) -> Decimal | None:
     """Resolve and cache the direct USDT quote before bridge conversion."""
     valuation_symbol = f"{asset.upper()}USDT"
+    now = time.monotonic()
+    if cache_missing and _UNVALUED_MARKET_CACHE.contains(
+        valuation_symbol, now=now
+    ):
+        return None
     try:
         raw_price = prices.get(valuation_symbol)
         price = finite_decimal(
@@ -165,10 +271,15 @@ def direct_usdt_valuation_price(
         TypeError,
         ValueError,
         requests.RequestException,
-    ):
+    ) as exc:
+        if cache_missing and _definitive_missing_market(exc):
+            _UNVALUED_MARKET_CACHE.remember(
+                valuation_symbol, now=now, ttl_sec=cache_ttl_sec
+            )
         return None
     if price <= 0:
         return None
+    _UNVALUED_MARKET_CACHE.discard(valuation_symbol)
     prices[valuation_symbol] = price
     return price
 
@@ -277,6 +388,23 @@ def build_risk_snapshot(
     symbols: List[str], limits: RiskLimits, *, runtime: Mapping[str, object]
 ) -> tuple[RiskSnapshot, List[Dict[str, Any]], Dict[str, object]]:
     """Build one authoritative risk snapshot from injected runtime adapters."""
+    phase_callback = runtime.get("_record_risk_startup_phase")
+    phase_started = time.monotonic()
+    phase_previous = phase_started
+
+    def mark_phase(phase: str) -> None:
+        nonlocal phase_previous
+        now = time.monotonic()
+        if callable(phase_callback):
+            phase_callback(
+                phase,
+                {
+                    "delta_ms": max(0, round((now - phase_previous) * 1000)),
+                    "elapsed_ms": max(0, round((now - phase_started) * 1000)),
+                },
+            )
+        phase_previous = now
+
     env_flag = _runtime_dependency(runtime, "env_flag")
     sync_recent_account_fills = _runtime_dependency(
         runtime, "_sync_recent_account_fills"
@@ -306,14 +434,24 @@ def build_risk_snapshot(
     log_info_rate_limited = _runtime_dependency(
         runtime, "_log_info_rate_limited"
     )
+    public_concurrency = _public_read_concurrency()
+    negative_cache_ttl = _unvalued_negative_cache_ttl()
 
     if env_flag("RISK_RECONCILE_SYNC_FILLS", True):
         sync_recent_account_fills(symbols)
+    mark_phase("fill_sync")
     balances = get_balances_full()
-    prices = {symbol: get_last_price(symbol) for symbol in symbols}
+    mark_phase("account")
+    configured_prices = _bounded_public_reads(
+        symbols, get_last_price, concurrency=public_concurrency
+    )
+    prices = dict(zip(symbols, configured_prices))
+    mark_phase("ticker")
     orders = tools_market._signed_get("/api/v3/openOrders") or []
+    mark_phase("orders")
     if live_mode:
-        runtime_protection_gate(symbols, limits)
+        runtime_protection_gate(symbols, limits, open_orders=orders)
+    mark_phase("protection")
 
     # Strict reconciliation prevents a risk snapshot from mixing divergent
     # Binance account and local inventory-ledger data.
@@ -410,6 +548,7 @@ def build_risk_snapshot(
             # While the ledger catches up, a worker may create an OCO. Reload
             # orders so exposure and order counts refer to one point in time.
             orders = tools_market._signed_get("/api/v3/openOrders") or []
+    mark_phase("reconciliation")
 
     # Risk valuation must cover the whole account, not only strategy symbols.
     # Otherwise old or manual positions in another asset disappear from equity,
@@ -430,11 +569,22 @@ def build_risk_snapshot(
             # conversion includes the configured haircut and exit fee.
             valuation_symbol = f"{asset}USDT"
             valuation_price = direct_usdt_valuation_price(
-                asset, prices, get_last_price_decimal
+                asset,
+                prices,
+                get_last_price_decimal,
+                cache_missing=asset in unvalued_assets,
+                cache_ttl_sec=negative_cache_ttl,
             )
             if valuation_price is None:
-                for quote in RISK_CONVERSION_QUOTE_ASSETS:
+                cache_missing = asset in unvalued_assets
+
+                def read_cross_quote(quote: str) -> Decimal | None:
                     candidate = f"{asset}{quote}"
+                    checked_at = time.monotonic()
+                    if cache_missing and _UNVALUED_MARKET_CACHE.contains(
+                        candidate, now=checked_at
+                    ):
+                        return None
                     try:
                         candidate_price = get_last_price_decimal(candidate)
                         if env_flag("RISK_CONVERSION_DEPTH_REQUIRED", False):
@@ -457,7 +607,26 @@ def build_risk_snapshot(
                         ValueError,
                         KeyError,
                         requests.RequestException,
-                    ):
+                    ) as exc:
+                        if cache_missing and _definitive_missing_market(exc):
+                            _UNVALUED_MARKET_CACHE.remember(
+                                candidate,
+                                now=checked_at,
+                                ttl_sec=negative_cache_ttl,
+                            )
+                        return None
+                    _UNVALUED_MARKET_CACHE.discard(candidate)
+                    return candidate_price
+
+                cross_prices = _bounded_public_reads(
+                    RISK_CONVERSION_QUOTE_ASSETS,
+                    read_cross_quote,
+                    concurrency=public_concurrency,
+                )
+                for quote, candidate_price in zip(
+                    RISK_CONVERSION_QUOTE_ASSETS, cross_prices
+                ):
+                    if candidate_price is None:
                         continue
                     if candidate_price > 0:
                         if quote in STABLE_VALUATION_ASSETS:
@@ -500,6 +669,7 @@ def build_risk_snapshot(
         if asset not in STABLE_VALUATION_ASSETS:
             # Cash/reserve belongs to equity, but is not market exposure.
             holdings_exposure += value
+    mark_phase("valuation")
 
     open_buy = sum(
         remaining_open_buy_notional(order)
@@ -539,12 +709,17 @@ def build_risk_snapshot(
         (correlation_mode == "rolling" and len(symbols) > 1)
         or var_enabled
     ):
-        for symbol in symbols:
-            klines = tools_market.get_klines(
+        def read_history(symbol: str) -> object:
+            return tools_market.get_klines(
                 symbol,
                 "15m",
                 limit=min(1000, window * 2 + 1),
             )
+
+        history_rows = _bounded_public_reads(
+            symbols, read_history, concurrency=public_concurrency
+        )
+        for symbol, klines in zip(symbols, history_rows):
             closes = [
                 (int(row[0]), analytics_float(row[4]))
                 for row in klines
@@ -594,6 +769,7 @@ def build_risk_snapshot(
         ),
         min_windows=2,
     )
+    mark_phase("history")
     correlated = sum(
         asset_values.get(symbol_assets(symbol)[0], Decimal("0"))
         for symbol in symbols if symbol in correlated_symbols
@@ -624,6 +800,7 @@ def build_risk_snapshot(
         )
         for cluster in correlation_clusters
     }
+    mark_phase("trade_metrics")
     liquidity_blocked: list[str] = []
     if control_mode("RISK_CLUSTER_GATE_MODE") != "OFF":
         max_spread_bps = os.getenv(
@@ -632,7 +809,7 @@ def build_risk_snapshot(
         min_depth_quote = os.getenv(
             "RISK_MIN_SYMBOL_DEPTH_QUOTE", "5000"
         ) or "5000"
-        for symbol in symbols:
+        def liquidity_is_safe(symbol: str) -> bool:
             try:
                 depth = tools_market._public_get(
                     "/api/v3/depth",
@@ -673,7 +850,7 @@ def build_risk_snapshot(
                     max_spread_bps=max_spread_bps,
                     min_depth_quote=min_depth_quote,
                 ):
-                    liquidity_blocked.append(symbol)
+                    return False
             except (
                 ArithmeticError,
                 KeyError,
@@ -682,7 +859,18 @@ def build_risk_snapshot(
                 ValueError,
                 requests.RequestException,
             ):
-                liquidity_blocked.append(symbol)
+                return False
+            return True
+
+        liquidity_results = _bounded_public_reads(
+            symbols, liquidity_is_safe, concurrency=public_concurrency
+        )
+        liquidity_blocked.extend(
+            symbol
+            for symbol, safe in zip(symbols, liquidity_results)
+            if not safe
+        )
+    mark_phase("depth")
     stress = stress_loss_decimal(
         exposure_by_symbol,
         price_shock=os.getenv("RISK_STRESS_PRICE_SHOCK", "-0.05"),
@@ -730,4 +918,5 @@ def build_risk_snapshot(
         liquidity_blocked_symbols=tuple(sorted(set(liquidity_blocked))),
         **metrics,
     )
+    mark_phase("statistics")
     return snap, orders, prices

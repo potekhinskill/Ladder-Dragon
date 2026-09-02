@@ -1,5 +1,12 @@
 # Engineering decisions
 
+### 2026-09-02 — Parallelize only public risk reads
+
+- **Context:** serial public market reads dominated the first risk snapshot without increasing signed-state consistency.
+- **Decision:** bound public concurrency, cache only definitive missing markets, and reuse complete authoritative open-order rows.
+- **Why it worked:** tests prove the concurrency bound, periodic rechecks, exact fallbacks, and unchanged sequential signed boundaries.
+- **Reuse:** every startup optimization that can separate immutable public reads from account state and exchange mutations.
+
 ### 2026-09-02 — Prove protected callable provenance
 
 - **Context:** a syntactically correct call could resolve to a same-name no-op after shadowing or rebinding.

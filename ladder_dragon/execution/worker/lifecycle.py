@@ -1,20 +1,16 @@
 # SPDX-License-Identifier: MIT
 # Copyright (c) 2026 IURII Potekhin
 # Purpose: own worker preflight, resource startup, and shutdown lifecycle.
-
 """Worker lifecycle and mutable runtime orchestration."""
 from __future__ import annotations
 from collections.abc import MutableMapping
 from dataclasses import dataclass
 import re
 from typing import Any
-
-from ladder_dragon.execution.worker.event_loop import (
-    WorkerLoopContext,
-    run_event_loop,
-)
+from ladder_dragon.execution.worker.event_loop import WorkerLoopContext, run_event_loop
 from ladder_dragon.execution.worker.lock_guard import release_lock_on_error
 from ladder_dragon.execution.worker.champion_preflight import champion_entry_veto_rule, champion_ladder, require_live_champion
+from ladder_dragon.supervision.startup_timing import StartupTimeline, log_worker_startup
 class WorkerRuntimeState:
     """Expose live worker module state without snapshotting mutable globals."""
     def __init__(self, namespace: MutableMapping[str, Any]) -> None:
@@ -26,7 +22,6 @@ class WorkerRuntimeState:
             raise AttributeError(name) from exc
     def __setattr__(self, name: str, value: Any) -> None:
         self._namespace[name] = value
-
     def namespace(self) -> MutableMapping[str, Any]:
         """Return the live namespace for services that require late binding."""
         return self._namespace
@@ -36,11 +31,12 @@ class WorkerResources:
     verify_champion = staticmethod(require_live_champion)
     build_champion_ladder = staticmethod(champion_ladder)
     entry_veto_rule = staticmethod(champion_entry_veto_rule)
+    startup_timeline = staticmethod(StartupTimeline)
+    log_startup = staticmethod(log_worker_startup)
     state: WorkerRuntimeState
     lock: Any
     user_stream_observer: Any = None
     market_observer: Any = None
-
     def close(self) -> None:
         """Close transports and observers, then always release the symbol lock."""
         callbacks = []
@@ -61,18 +57,15 @@ class WorkerResources:
                     f"[WORKER-CLEANUP] {label} failed="
                     f"{type(exc).__name__}"
                 )
-
 def normalize_symbol(symbol: str) -> str:
     """Return a Binance symbol or fail before any exchange request."""
     normalized = str(symbol).strip().upper()
     if not re.fullmatch(r"[A-Z0-9]{5,20}", normalized):
         raise ValueError("symbol must match [A-Z0-9]{5,20}")
     return normalized
-
-
 def run_worker(state: WorkerRuntimeState) -> None:
     """Run one symbol worker against live runtime dependencies."""
-    startup_started = state.time.monotonic()
+    startup_timing = WorkerResources.startup_timeline(state.time.monotonic)
     parser = state.build_executor_parser()
     args = state.validate_executor_args(parser, parser.parse_args())
     state.log(f"[VERSION] {state.product_label('executor')}")
@@ -85,16 +78,19 @@ def run_worker(state: WorkerRuntimeState) -> None:
         args.enforce_target_buys = True
 
     symbol = normalize_symbol(args.symbol)
+    WorkerResources.log_startup(startup_timing, state.log, symbol, "configuration")
     # A duplicate worker exits before database or exchange preflight traffic.
     _lock = state.SymbolLock(symbol)
     lock_acquired = _lock.acquire()
     if not lock_acquired:
         return
+    WorkerResources.log_startup(startup_timing, state.log, symbol, "lock")
     with release_lock_on_error(_lock):
         if state.LIVE_MODE:
             # Repeat preflight because a worker can start without the supervisor.
             try:
                 champion = WorkerResources.verify_champion(state, args)
+                WorkerResources.log_startup(startup_timing, state.log, symbol, "champion")
             except (OSError, state.sqlite3.Error, TypeError, ValueError) as exc:
                 parser.error(f"LIVE CHAMPION verification failed: {exc}")
             halt_file = state.Path(
@@ -111,20 +107,26 @@ def run_worker(state: WorkerRuntimeState) -> None:
             try:
                 with state.sqlite3.connect(stats_db, timeout=5) as con:
                     con.execute("SELECT 1 FROM trades LIMIT 1").fetchall()
+                WorkerResources.log_startup(startup_timing, state.log, symbol, "database")
                 state.TM._refresh_time_offset(
                     timeout=15,
                     max_offset_ms=int(state.os.getenv("RISK_MAX_TIME_OFFSET_MS", "1000")),
                     max_round_trip_ms=int(state.os.getenv("RISK_MAX_TIME_RTT_MS", "5000")),
                 )
+                WorkerResources.log_startup(startup_timing, state.log, symbol, "clock")
                 state.pull_filters(symbol)
+                WorkerResources.log_startup(startup_timing, state.log, symbol, "filters")
                 account = state._signed_request("GET", "/api/v3/account")
                 if account.get("canTrade") is not True:
                     raise RuntimeError("Binance account/API key is not allowed to trade")
+                WorkerResources.log_startup(startup_timing, state.log, symbol, "account")
                 state._order_journal()
+                WorkerResources.log_startup(startup_timing, state.log, symbol, "journal")
                 # Reconcile every ordinary BUY/SELL intent before any new LIVE
                 # action. This closes externally cancelled orders and definitive
                 # Binance -2013 absences without manual SQLite edits.
                 state.reconcile_nonterminal_orders(symbol)
+                WorkerResources.log_startup(startup_timing, state.log, symbol, "reconciliation")
             except (OSError, state.sqlite3.Error, state.requests.RequestException, RuntimeError, KeyError, ValueError) as exc:
                 parser.error(f"LIVE preflight failed: {exc}")
     attach_oco = bool(args.attach_oco_on_fill)
@@ -132,9 +134,7 @@ def run_worker(state: WorkerRuntimeState) -> None:
     # explicitly show that protection is not confirmed. This distinguishes a
     # pending BUY from a verified OCO in logs and the dashboard.
     protection_state = "not_checked" if attach_oco else "disabled"
-
     resources = WorkerResources(state=state, lock=_lock)
-
     user_stream_mailbox = state.OrderEventMailbox()
     user_stream_observer: Optional[state.BinanceUserDataObserver] = None
     market_store: state.MarketSnapshotStore | None = None
@@ -570,8 +570,7 @@ def run_worker(state: WorkerRuntimeState) -> None:
             started_at=started_at,
             protection_state=protection_state,
         )
-        ready_ms = max(0, round((state.time.monotonic() - startup_started) * 1000))
-        state.log(f"[STARTUP-TIMING] phase=worker_ready symbol={symbol} elapsed_ms={ready_ms}")
+        WorkerResources.log_startup(startup_timing, state.log, symbol, "worker_ready")
         return run_event_loop(loop_context)
     finally:
         resources.close()

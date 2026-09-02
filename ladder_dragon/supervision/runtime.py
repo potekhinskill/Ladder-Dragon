@@ -74,6 +74,10 @@ from ladder_dragon.supervision.order_cleanup import (
     startup_cleanup_orders as _startup_cleanup_orders,
 )
 from ladder_dragon.supervision.startup_timing import StartupTimeline
+from ladder_dragon.supervision.protection_snapshot import (
+    verify_all_live_protection as _verify_all_live_protection_service,
+    verify_live_protection as _verify_live_protection_service,
+)
 from ladder_dragon.supervision.vwap_config import (
     getenv_float,
     parse_limit_map,
@@ -276,6 +280,7 @@ _AI_POLICY: Optional[PolicyConfig] = None
 _AI_RUNTIME_STATUS_PATH: Optional[Path] = None
 _AI_RUNTIME_STATUS: Dict[str, Any] = {}
 _STARTUP_TIMELINE: Optional[StartupTimeline] = None
+_RISK_STARTUP_PHASES: Dict[str, Dict[str, int]] = {}
 _AI_CONTROL_PATH: Optional[Path] = None
 _PREDICTION_SHADOW: Optional[PredictionShadowStore] = None
 _ACTIVE_CHAMPIONS: Dict[str, Dict[str, object]] = {}
@@ -485,7 +490,18 @@ def _mark_startup(phase: str) -> None:
         return
     fields = " ".join(f"{key}={value}" for key, value in timing.items())
     log(f"[STARTUP-TIMING] phase={phase} {fields}")
-    _publish_ai_runtime_status(startup_timing=_STARTUP_TIMELINE.snapshot())
+    snapshot = _STARTUP_TIMELINE.snapshot()
+    snapshot["risk_snapshot_phases"] = dict(_RISK_STARTUP_PHASES)
+    _publish_ai_runtime_status(startup_timing=snapshot)
+
+
+def _record_risk_startup_phase(phase: str, timing: Dict[str, int]) -> None:
+    """Record one first-snapshot subphase without persistent growth."""
+    if phase in _RISK_STARTUP_PHASES:
+        return
+    _RISK_STARTUP_PHASES[phase] = dict(timing)
+    fields = " ".join(f"{key}={value}" for key, value in timing.items())
+    log(f"[STARTUP-TIMING] component=risk_snapshot phase={phase} {fields}")
 
 
 def _runtime_order_journal_snapshot() -> dict[str, Any]:
@@ -663,189 +679,38 @@ def _observe_public_ip(state: AuthResilienceState) -> tuple[AuthResilienceState,
 def _verify_live_protection(
     journal: OrderJournal,
     parent_client_order_id: str,
+    open_orders: Optional[List[Dict[str, Any]]] = None,
 ) -> int:
     """Verify an exact protection order and every OCO leg at Binance."""
-    protection = journal.protection_for_parent(parent_client_order_id)
-    if protection is None:
-        raise RuntimeError("protected BUY has no linked protection intent")
-    if protection.order_type in {"OCO", "OTOCO"}:
-        list_type = protection.order_type
-        payload = TM._signed_get(
-            "/api/v3/orderList",
-            {"origClientOrderId": protection.client_order_id},
-        )
-        if not isinstance(payload, dict):
-            raise RuntimeError("OCO reconciliation response is invalid")
-        if (
-            str(payload.get("listClientOrderId") or "")
-            != protection.client_order_id
-            or int(payload.get("orderListId", -1))
-            != int(protection.exchange_order_list_id or -2)
-            or str(payload.get("contingencyType") or "").upper() != list_type
-        ):
-            raise RuntimeError(
-                f"{list_type} identity differs from durable journal"
-            )
-        list_status = str(
-            payload.get("listStatusType") or ""
-        ).upper()
-        if list_status not in {"EXEC_STARTED", "ALL_DONE"}:
-            raise RuntimeError(
-                f"{list_type} has an unknown exchange status"
-            )
-        references = payload.get("orders")
-        expected_orders = 3 if list_type == "OTOCO" else 2
-        if (
-            not isinstance(references, list)
-            or len(references) != expected_orders
-        ):
-            raise RuntimeError(
-                f"{list_type} does not contain exactly "
-                f"{expected_orders} orders"
-            )
-        queried: list[dict[str, Any]] = []
-        for reference in references:
-            if not isinstance(reference, dict) or reference.get("orderId") is None:
-                raise RuntimeError("OCO leg reference is invalid")
-            if str(reference.get("symbol") or "").upper() != protection.symbol:
-                raise RuntimeError("OCO leg symbol differs from durable journal")
-            leg = TM._signed_get(
-                "/api/v3/order",
-                {
-                    "symbol": protection.symbol,
-                    "orderId": int(reference["orderId"]),
-                },
-            )
-            if not isinstance(leg, dict):
-                raise RuntimeError("OCO leg reconciliation response is invalid")
-            queried.append(leg)
-        if list_type == "OTOCO":
-            working = [
-                order
-                for order in queried
-                if str(order.get("clientOrderId") or "")
-                == parent_client_order_id
-            ]
-            if (
-                len(working) != 1
-                or str(working[0].get("side") or "").upper() != "BUY"
-                or str(working[0].get("status") or "").upper() != "FILLED"
-            ):
-                raise RuntimeError("OTOCO working BUY is not exactly FILLED")
-            legs = [
-                order
-                for order in queried
-                if str(order.get("clientOrderId") or "")
-                != parent_client_order_id
-            ]
-        else:
-            legs = queried
-        if any(str(leg.get("side") or "").upper() != "SELL" for leg in legs):
-            raise RuntimeError(f"{list_type} contains a non-SELL protection leg")
-        if any(
-            str(leg.get("symbol") or "").upper() != protection.symbol
-            or int(leg.get("orderListId", -1))
-            != int(protection.exchange_order_list_id or -2)
-            for leg in legs
-        ):
-            raise RuntimeError(
-                f"{list_type} leg identity differs from durable journal"
-            )
-        leg_types = {str(leg.get("type") or "").upper() for leg in legs}
-        if not ({"LIMIT_MAKER", "LIMIT"} & leg_types) or not (
-            {"STOP_LOSS_LIMIT", "STOP_LOSS"} & leg_types
-        ):
-            raise RuntimeError(
-                f"{list_type} protection leg types are invalid"
-            )
-        outcome, filled_leg, exit_reason = classify_oco_legs(legs)
-        if list_status == "ALL_DONE" and outcome == "CLOSED":
-            if (
-                filled_leg is None
-                or exit_reason is None
-                or filled_leg.get("orderId") is None
-            ):
-                raise RuntimeError(
-                    f"{list_type} closed without an exact SELL fill"
-                )
-            journal.record_verified_protection_legs(
-                protection.client_order_id,
-                legs,
-            )
-            journal.mark_exact_lifecycle_closed(
-                protection_client_order_id=protection.client_order_id,
-                exit_order_id=int(filled_leg["orderId"]),
-                exit_reason=exit_reason,
-            )
-            return 0
-        if list_status != "EXEC_STARTED" or outcome != "ACTIVE":
-            raise RuntimeError(
-                f"{list_type} is not actively protecting inventory"
-            )
-        observed_ids = {int(leg["orderId"]) for leg in legs}
-        stored_ids = {
-            int(row["order_id"])
-            for row in (protection.metadata or {}).get("verified_legs", [])
-            if isinstance(row, dict) and row.get("order_id") is not None
-        }
-        if stored_ids and stored_ids != observed_ids:
-            raise RuntimeError(
-                f"{list_type} exchange legs differ from durable journal"
-            )
-        journal.update_metadata(
-            protection.client_order_id,
-            {
-                "verified_legs": [
-                    {
-                        "order_id": int(leg["orderId"]),
-                        "client_order_id": str(
-                            leg.get("clientOrderId") or ""
-                        ),
-                        "leg_type": str(leg.get("type") or "").upper(),
-                    }
-                    for leg in legs
-                ],
-                "startup_exchange_verified_at": int(time.time()),
-            },
-        )
-        return 3
-    payload = TM._signed_get(
-        "/api/v3/order",
-        {
-            "symbol": protection.symbol,
-            "origClientOrderId": protection.client_order_id,
-        },
+    return _verify_live_protection_service(
+        journal, parent_client_order_id, open_orders=open_orders,
+        signed_get=TM._signed_get, classify_oco_legs=classify_oco_legs,
+        now_epoch=lambda: int(time.time()),
     )
-    if (
-        not isinstance(payload, dict)
-        or str(payload.get("symbol") or "").upper() != protection.symbol
-        or int(payload.get("orderId", -1))
-        != int(protection.exchange_order_id or -2)
-        or str(payload.get("side") or "").upper() != "SELL"
-        or str(payload.get("type") or "").upper()
-        != protection.order_type.upper()
-        or str(payload.get("status") or "").upper()
-        not in {"NEW", "PARTIALLY_FILLED"}
-    ):
-        raise RuntimeError("single-order protection is not active")
-    return 1
 
 
 def _verify_all_live_protection(
     journal: OrderJournal,
     symbols: list[str],
+    open_orders: Optional[List[Dict[str, Any]]] = None,
 ) -> int:
     """Verify every journal-protected BUY against authoritative Binance state."""
-    checked = 0
-    configured = {str(symbol).upper() for symbol in symbols}
-    for buy in journal.protected_buys():
-        if buy.symbol not in configured:
-            raise RuntimeError("protected journal symbol is outside configuration")
-        checked += _verify_live_protection(journal, buy.client_order_id)
-    return checked
+    return _verify_all_live_protection_service(
+        journal, symbols, open_orders=open_orders,
+        verify_one=lambda active_journal, parent_id, snapshot: (
+            _verify_live_protection(
+                active_journal,
+                parent_id,
+                list(snapshot) if snapshot is not None else None,
+            )
+        ),
+    )
 
 
-def _runtime_protection_gate(symbols: list[str], limits: RiskLimits) -> int:
+def _runtime_protection_gate(
+    symbols: list[str], limits: RiskLimits,
+    *, open_orders: Optional[List[Dict[str, Any]]] = None,
+) -> int:
     """Fail closed when a journal-protected lot has no active exchange protection."""
     path = os.getenv("BOT_ORDER_JOURNAL", "").strip()
     if not path:
@@ -855,7 +720,7 @@ def _runtime_protection_gate(symbols: list[str], limits: RiskLimits) -> int:
         venue="testnet" if "testnet" in TM.BASE_URL.lower() else "mainnet",
     )
     try:
-        return _verify_all_live_protection(journal, symbols)
+        return _verify_all_live_protection(journal, symbols, open_orders)
     except (RuntimeError, ValueError, KeyError, TypeError, requests.RequestException) as exc:
         reason = f"journal protected BUY differs from Binance: {exc}"
         _create_manual_halt_once(
@@ -4155,6 +4020,7 @@ def main():
     global _AI_RUNTIME_STATUS_PATH, _AI_RUNTIME_STATUS, _AI_CONTROL_PATH
     global _PREDICTION_SHADOW, _ACTIVE_CHAMPIONS, _STARTUP_TIMELINE
     _STARTUP_TIMELINE = StartupTimeline()
+    _RISK_STARTUP_PHASES.clear()
     _AI_DECISION_IDS.clear()
     _AI_CONTEXT_CACHE.clear()
     _PREDICTION_LAST_ATTEMPT.clear()

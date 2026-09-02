@@ -3,6 +3,26 @@
 All notable changes are documented here. Releases use Semantic Versioning; every
 section is dated and there is intentionally no `Unreleased` section.
 
+## [2.20.294] — 2026-09-02
+
+### Added
+- Risk startup timings now isolate fill sync, account, ticker, orders, protection, valuation, history, depth, and statistics.
+- Worker timings now isolate CHAMPION, database, clock, filters, account, journal, reconciliation, and readiness phases.
+
+### Changed
+- Public ticker, kline, and depth reads use configurable concurrency limited to four workers.
+- Confirmed invalid markets for acknowledged unvalued assets use a bounded, disposable negative cache.
+- Active protection checks reuse complete open-order rows while retaining authoritative order-list reads and exact fallbacks.
+
+### Security
+- Signed reads, reconciliation, protection decisions, and all exchange mutations remain sequential and fail-closed.
+- Transient market failures never enter the negative cache, and expired entries trigger periodic public rechecks.
+- Incomplete snapshots use exact order reads. Contradictory complete snapshots stop protection verification.
+
+### Verified
+- The full project suite passes: 1,681 tests.
+- Python compilation, Technical English, and all five domain audits pass.
+
 ## [2.20.293] — 2026-09-02
 
 ### Added
