@@ -19,7 +19,7 @@ from ladder_dragon.strategy.replay_policy import (
 )
 
 
-MAXIMUM_ARCHIVE_SESSIONS = 32
+MAXIMUM_ARCHIVE_SESSIONS = 40
 MAXIMUM_ARCHIVE_BYTES = 512 * 1024 * 1024
 
 

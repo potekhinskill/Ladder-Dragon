@@ -1,5 +1,12 @@
 # Engineering mistakes and root causes
 
+### 2026-09-03 — Omitted the public version surface
+
+- **Impact:** two full-suite tests failed after the product version changed.
+- **Root cause:** the initial edit changed the canonical version and changelog but omitted the README version.
+- **Correction:** update the README and rerun the complete suite.
+- **Prevention:** search all public version surfaces before the first focused test.
+
 ### 2026-09-03 — Launched a deployed module outside the project checkout
 
 - **Impact:** the first retention preview failed before its read-only archival audit.

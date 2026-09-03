@@ -1,5 +1,12 @@
 # Engineering decisions
 
+### 2026-09-03 — Separate validation session capacity from byte capacity
+
+- **Context:** retained protected evidence left ten session slots, but a fixed batch requires twelve slots.
+- **Decision:** permit 40 active sessions and retain the 512 MiB byte limit and complete-batch preflight.
+- **Why it worked:** the next fixed batch fits without removing nonterminal or promotion-eligible evidence.
+- **Reuse:** every evidence store where artifact count and storage bytes have independent safety limits.
+
 ### 2026-09-03 — Prove validation archive capacity before authorization
 
 - **Context:** a fixed Mainnet batch reached the 32-session store limit after ten attempts.

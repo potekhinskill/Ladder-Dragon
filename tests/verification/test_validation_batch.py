@@ -162,7 +162,7 @@ def test_batch_rejects_insufficient_archive_slots_before_manifest_write(
 ):
     archive_directory = tmp_path / "archives"
     archive_directory.mkdir()
-    for index in range(21):
+    for index in range(29):
         (archive_directory / f"archive-{index}.jsonl").write_text("{}\n")
 
     with pytest.raises(
@@ -190,7 +190,7 @@ def test_batch_runner_rechecks_capacity_before_first_reservation(
     manifest = _manifest(tmp_path)
     archive_directory = tmp_path / "archives"
     archive_directory.mkdir()
-    for index in range(31):
+    for index in range(39):
         (archive_directory / f"archive-{index}.jsonl").write_text("{}\n")
     monkeypatch.setenv("BOT_MAINNET_VALIDATION_BATCH_RUN_CONFIRMED", "YES")
     monkeypatch.setattr(

@@ -221,9 +221,15 @@ def test_continuous_archive_forces_bounded_short_evidence_stop(tmp_path):
 def test_validation_archive_capacity_requires_complete_batch_slots(tmp_path):
     directory = tmp_path / "archives"
     directory.mkdir()
-    for index in range(21):
+    for index in range(28):
         (directory / f"archive-{index}.jsonl").write_text("{}\n")
 
+    capacity = validation_archive_capacity(directory, required_sessions=12)
+    assert capacity["maximum_sessions"] == 40
+    assert capacity["occupied_sessions"] == 28
+    assert capacity["available_sessions"] == 12
+
+    (directory / "archive-28.jsonl").write_text("{}\n")
     with pytest.raises(
         ValidationArchiveCapacityError,
         match="code=PUBLIC_ARCHIVE_CAPACITY_INSUFFICIENT",
@@ -231,6 +237,6 @@ def test_validation_archive_capacity_requires_complete_batch_slots(tmp_path):
         validation_archive_capacity(directory, required_sessions=12)
 
     capacity = validation_archive_capacity(directory, required_sessions=11)
-    assert capacity["occupied_sessions"] == 21
+    assert capacity["occupied_sessions"] == 29
     assert capacity["available_sessions"] == 11
     assert "private-source-text" not in str(captured.value)

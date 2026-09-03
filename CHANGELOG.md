@@ -3,6 +3,19 @@
 All notable changes are documented here. Releases use Semantic Versioning; every
 section is dated and there is intentionally no `Unreleased` section.
 
+## [2.20.302] — 2026-09-03
+
+### Changed
+- The active validation store now permits 40 sessions while the 512 MiB byte limit remains unchanged.
+
+### Security
+- Batch creation still requires all requested session slots before it creates an authorization manifest.
+
+### Verified
+- The focused validation suite passes: 32 tests.
+- The full project suite passes: 1,716 tests.
+- Python compilation, Technical English, Semgrep, secret scan, and all five domain audits pass.
+
 ## [2.20.301] — 2026-09-03
 
 ### Fixed
