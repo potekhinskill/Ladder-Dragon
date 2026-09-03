@@ -1,5 +1,12 @@
 # Engineering decisions
 
+### 2026-09-03 — Resolve bootstrap inputs from the registered design version
+
+- **Context:** v23 bootstrap checked an obsolete design identifier before loading its immutable veto selection.
+- **Decision:** bind selection loading to the exact v23 version-eight design identifier.
+- **Why it worked:** the regression constructs v23 only after supplying the frozen veto rule and reachability proof.
+- **Reuse:** every promotion bootstrap that requires generation-specific immutable inputs.
+
 ### 2026-09-03 — Separate submission latency from conditional activation
 
 - **Context:** replay applied client latency again when an exchange-resident stop order triggered.

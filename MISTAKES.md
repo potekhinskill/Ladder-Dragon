@@ -1,5 +1,12 @@
 # Engineering mistakes and root causes
 
+### 2026-09-03 — Checked an obsolete v23 design identifier
+
+- **Impact:** v23 bootstrap could not consume its required selection artifact after selection became ready.
+- **Root cause:** the bootstrap compared the registered version-eight design with a stale version-seven literal.
+- **Correction:** compare the exact registered version and prove the artifact reaches the generated candidate.
+- **Prevention:** test every promotion generation from stored selection input through candidate construction.
+
 ### 2026-09-03 — Ran the full suite with the host interpreter
 
 - **Impact:** test collection stopped because the host interpreter did not contain the locked test dependencies.

@@ -3,6 +3,18 @@
 All notable changes are documented here. Releases use Semantic Versioning; every
 section is dated and there is intentionally no `Unreleased` section.
 
+## [2.20.304] — 2026-09-03
+
+### Fixed
+- The v23 bootstrap now loads its immutable entry-veto selection artifact for the registered version-eight design.
+
+### Security
+- Bootstrap still fails closed when the v23 selection artifact or target-reachability proof is unavailable.
+
+### Verified
+- The focused prediction experiment CLI suite passes.
+- Python compilation and the full project suite pass.
+
 ## [2.20.303] — 2026-09-03
 
 ### Changed

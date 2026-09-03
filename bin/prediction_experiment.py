@@ -298,7 +298,7 @@ def _preselected_episode_variant(
     entry_veto_rule = None
     target_reachability = None
     spec = experiment_spec_for_generation(generation, symbol=symbol)
-    if spec.statistical_design_version == "episode_anytime_expectancy_v7":
+    if spec.statistical_design_version == "episode_anytime_expectancy_v8":
         entry_veto_rule, target_reachability = latest_entry_veto_selection(
             store, symbol=symbol
         )

@@ -8,6 +8,7 @@ from product_version import __version__
 from bin.prediction_experiment import (
     _freeze_horizons,
     _parser,
+    _preselected_episode_variant,
     _selection_variants,
     _source_commit,
 )
@@ -151,6 +152,53 @@ def _features(snapshot: int, price: str) -> PredictionFeatures:
         executor_panic_hits=0,
         regime="RANGE",
     )
+
+
+def test_v23_bootstrap_uses_the_frozen_entry_veto_selection(
+    tmp_path: Path, monkeypatch,
+):
+    store = PredictionShadowStore(tmp_path / "prediction.sqlite3")
+    features = _features(59_999, "100")
+    baseline = TradePlan(
+        entry_price=D("99.7"),
+        take_profit_price=D("100.697"),
+        stop_price=D("98.703"),
+        notional_quote=D("6"),
+        fee_pct=D("0.001"),
+        slippage_pct=D("0.0005"),
+    )
+    store.record(
+        kind="STRATEGY",
+        symbol="SOLUSDT",
+        features=features,
+        plan=baseline,
+        predictions=predict_distribution(
+            features, baseline, [], horizons_min=(300, 360)
+        ),
+        algorithm_decision="v23 bootstrap selection regression",
+        horizons_min=(300, 360),
+    )
+    selected_rule = {
+        "contract_version": "l2_adverse_selection_cancel_v4",
+        "prefill_price_change_max_bps": "-10",
+        "prefill_signed_trade_flow_max": "-0.2",
+        "prefill_order_flow_imbalance_max": "-0.1",
+        "cancel_latency_ms": 1_000,
+        "signal_window_ms": 300_000,
+        "selection_artifact_sha256": "a" * 64,
+    }
+    monkeypatch.setattr(
+        "bin.prediction_experiment.latest_entry_veto_selection",
+        lambda _store, *, symbol: (selected_rule, D("0.5")),
+    )
+
+    candidate = _preselected_episode_variant(
+        store, generation="v23", symbol="SOLUSDT"
+    )
+
+    assert candidate.candidate_rule_version == 8
+    assert candidate.entry_veto_rule == selected_rule
+    assert candidate.target_reachability == D("0.5")
 
 
 def test_selection_preview_uses_stable_configured_gap(tmp_path: Path):
