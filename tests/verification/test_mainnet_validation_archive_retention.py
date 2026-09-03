@@ -309,4 +309,6 @@ def test_deployment_installs_manual_hardened_retention_wrapper():
     assert "BACKUP_EXTERNAL_MOUNT" in wrapper
     assert "findmnt -T" in wrapper
     assert "ARCHIVE_REJECTED_VALIDATION_BATCH" in wrapper
+    assert 'cd "${PROJECT_DIR}"' in wrapper
+    assert "exec env PYTHONPATH=." in wrapper
     assert "ladder-dragon-validation-retention" in assets

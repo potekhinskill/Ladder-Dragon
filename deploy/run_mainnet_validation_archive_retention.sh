@@ -50,5 +50,6 @@ if [[ "${mode}" == apply ]]; then
   arguments+=(--apply --confirm ARCHIVE_REJECTED_VALIDATION_BATCH)
 fi
 
-exec "${PROJECT_DIR}/.venv/bin/python" \
+cd "${PROJECT_DIR}"
+exec env PYTHONPATH=. "${PROJECT_DIR}/.venv/bin/python" \
   -m bin.mainnet_validation_archive_retention "${arguments[@]}"

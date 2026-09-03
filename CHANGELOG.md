@@ -3,6 +3,19 @@
 All notable changes are documented here. Releases use Semantic Versioning; every
 section is dated and there is intentionally no `Unreleased` section.
 
+## [2.20.301] — 2026-09-03
+
+### Fixed
+- The validation retention wrapper now runs from the release checkout with an explicit project import path.
+
+### Security
+- Preview and apply no longer depend on the invoking user's working directory or ambient Python import path.
+
+### Verified
+- The focused retention and deployment suite passes: 90 tests.
+- The full project suite passes: 1,716 tests.
+- Python compilation, Technical English, and all five domain audits pass.
+
 ## [2.20.300] — 2026-09-03
 
 ### Added

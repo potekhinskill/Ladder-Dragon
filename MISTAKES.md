@@ -1,5 +1,12 @@
 # Engineering mistakes and root causes
 
+### 2026-09-03 — Launched a deployed module outside the project checkout
+
+- **Impact:** the first retention preview failed before its read-only archival audit.
+- **Root cause:** the wrapper did not set its working directory or Python import path.
+- **Correction:** enter the exact release checkout and set `PYTHONPATH=.` before module execution.
+- **Prevention:** deployment-wrapper tests must prove working-directory and import-path setup for project modules.
+
 ### 2026-09-03 — Authorized attempts without proving evidence capacity
 
 - **Impact:** batch 2.20.299 ended with nine successes after its final two attempts failed before mutation.
@@ -44,7 +51,7 @@
 
 ### 2026-09-02 — Reconstructed a full candidate SHA
 
-- **Impact:** the first release harness used a wrong expected SHA and required interruption.
+- **Impact:** release harness runs used wrong expected SHAs and required reruns on two release days.
 - **Root cause:** the command extended an abbreviated commit instead of reading its full identity from Git.
 - **Correction:** resolve the exact candidate with `git rev-parse HEAD` before verification.
 - **Prevention:** never type or reconstruct a release SHA when Git can provide it.
