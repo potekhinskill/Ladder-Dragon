@@ -3,6 +3,22 @@
 All notable changes are documented here. Releases use Semantic Versioning; every
 section is dated and there is intentionally no `Unreleased` section.
 
+## [2.20.309] — 2026-09-04
+
+### Security
+- Market HTTP reads enforce separate 8 MiB encoded and decoded limits before JSON parsing, including error responses.
+- Compressed responses use bounded decompression. Unsupported, incomplete, and trailing compressed data fail closed.
+- Retries share one monotonic budget, close every response, reject redirects, and permit only GET or HEAD.
+- Provider response text and transport URLs no longer enter market error diagnostics.
+
+### Changed
+- The request budget is checked between raw reads and retries. Blocking socket reads retain their inactivity timeout.
+- DNS, header reads, and operating-system scheduling remain outside a strict wall-clock guarantee. Clock resynchronization retains its separate read budget.
+
+### Verified
+- The full suite passes: 1,781 tests. The focused transport, architecture, and version suite passes: 51 tests.
+- Compileall, Technical English, five safety audits, Semgrep, and the tracked-secret scan pass.
+
 ## [2.20.308] — 2026-09-04
 
 ### Fixed

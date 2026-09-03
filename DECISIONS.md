@@ -1,5 +1,12 @@
 # Engineering decisions
 
+### 2026-09-04 — Bound wire data before decoding market JSON
+
+- **Context:** eager HTTP reads allowed unbounded response allocation before the financial parser could reject the payload.
+- **Decision:** limit encoded and decoded bytes, read wire chunks once, and share a monotonic budget across read retries.
+- **Why it worked:** synthetic compressed, oversized, slow, and rejected responses fail safely while exact prices and provider error codes remain intact.
+- **Reuse:** read-only market adapters. Budgets do not imply hard cancellation of DNS or operating-system calls. No persistent record is created.
+
 ### 2026-09-04 — Verify exact prices from the venue response boundary
 
 - **Context:** a Decimal supervisor wrapper consumed an already rounded float from the market adapter.

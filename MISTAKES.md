@@ -1,5 +1,12 @@
 # Engineering mistakes and root causes
 
+### 2026-09-04 — Reviewed numeric parsing without response allocation bounds
+
+- **Impact:** exact price parsing still depended on an HTTP adapter that buffered unrestricted responses.
+- **Root cause:** the regression started at parsed JSON and did not test wire buffering, decompression, or repeated-request budgets.
+- **Correction:** stream bounded wire data, cap decompression, close responses, and reject unsafe payloads before JSON parsing.
+- **Prevention:** transport tests must cover compressed expansion, false length headers, slow chunks, response cleanup, and secret-safe errors.
+
 ### 2026-09-04 — Mocked away the lossy ticker transport adapter
 
 - **Impact:** the previous release preserved Decimal values locally but still received rounded prices from the transport adapter.

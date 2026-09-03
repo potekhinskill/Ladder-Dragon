@@ -16,6 +16,9 @@ import threading
 import requests
 from typing import Dict, Tuple, List, Optional, Any
 from urllib.parse import urlsplit
+from urllib3.exceptions import HTTPError as UrllibHttpError
+
+from ladder_dragon.execution.market_http_body import read_body, remaining_seconds
 
 from ladder_dragon.execution.time_safety import (
     assess_exchange_clock,
@@ -135,28 +138,42 @@ def _activate_rate_limit(response: requests.Response, url: str) -> BinanceHttpEr
 
 def _do_request(method: str, url: str, **kw) -> requests.Response:
     request_timeout = kw.pop("timeout", TIMEOUT)
-    if not isinstance(request_timeout, (int, float)) or request_timeout <= 0:
-        raise ValueError("request timeout must be positive")
+    if (isinstance(request_timeout, bool)
+            or not isinstance(request_timeout, (int, float))
+            or not math.isfinite(request_timeout * 3 + 1.5) or request_timeout <= 0):
+        raise ValueError("request timeout must be finite and positive")
+    if method.upper() not in {"GET", "HEAD"}:
+        raise ValueError("market retry transport permits reads only")
     attempts = 3
     delay = 0.5
+    # Preserve the existing retry allowance, but never renew the total budget.
+    deadline = time.monotonic() + attempts * request_timeout + 1.5
+    headers = dict(kw.pop("headers", {}) or {})
+    headers["Accept-Encoding"] = "gzip, deflate"
+    kw.update(stream=True, allow_redirects=False, headers=headers)
     for i in range(attempts):
         _raise_if_rate_limited()
+        r = None
         try:
-            r = SESSION.request(method, url, timeout=request_timeout, **kw)
+            budget = min(request_timeout, remaining_seconds(deadline))
+            r = SESSION.request(method, url, timeout=budget, **kw)
             if r.status_code in (418, 429):
                 raise _activate_rate_limit(r, url)
+            r._content = read_body(r, deadline=deadline)
+            r._content_consumed = True
             if 500 <= r.status_code < 600:
                 if i == attempts - 1:
                     return r
-                time.sleep(delay)
-                delay *= 2
-                continue
-            return r
-        except requests.RequestException:
+            else:
+                return r
+        except (requests.RequestException, UrllibHttpError):
             if i == attempts - 1:
-                raise
-            time.sleep(delay)
-            delay *= 2
+                raise requests.RequestException("market transport failed") from None
+        finally:
+            if r is not None:
+                r.close()
+        time.sleep(min(delay, remaining_seconds(deadline)))
+        delay *= 2
 
 def _raise_for_binance(resp: requests.Response):
     if resp.status_code == 200:
@@ -164,9 +181,9 @@ def _raise_for_binance(resp: requests.Response):
     try:
         data = resp.json()
     except (requests.JSONDecodeError, TypeError, ValueError):
-        data = {"msg": resp.text}
+        data = {}
     if not isinstance(data, dict):
-        data = {"msg": str(data)}
+        data = {}
     raw_url = str(getattr(resp, "url", "") or "")
     endpoint = urlsplit(raw_url).path or "<unknown>"
     code = data.get("code")
@@ -175,13 +192,13 @@ def _raise_for_binance(resp: requests.Response):
             status=resp.status_code,
             code=code,
             endpoint=endpoint,
-            message=data.get("msg", ""),
+            message="exchange rejected request",
         )
     raise BinanceHttpError(
         status=int(resp.status_code),
         code=int(code) if isinstance(code, int) else None,
         endpoint=endpoint,
-        message=str(data.get("msg", "")),
+        message="exchange rejected request",
     )
 
 # ---- time offset (server time skew) ----

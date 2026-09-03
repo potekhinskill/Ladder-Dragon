@@ -1,8 +1,27 @@
 """Clock and error-boundary regressions for legacy market reads."""
 
+import io
+import json
+
 import pytest
+from urllib3.response import HTTPResponse
 
 from ladder_dragon.execution import tools_market
+
+
+class StreamResponse:
+    headers = {}
+
+    @property
+    def raw(self):
+        if not hasattr(self, "_raw"):
+            payload = self.json() if hasattr(self, "json") else {}
+            self._raw = HTTPResponse(io.BytesIO(json.dumps(payload).encode()), preload_content=False)
+        return self._raw
+
+    def close(self):
+        if hasattr(self, "_raw"):
+            self._raw.close()
 
 
 @pytest.fixture(autouse=True)
@@ -16,7 +35,7 @@ def test_http_418_arms_retry_after_cooldown_without_network_retry(monkeypatch):
     calls = []
     sleeps = []
 
-    class Response:
+    class Response(StreamResponse):
         status_code = 418
         headers = {"Retry-After": "600"}
 
@@ -45,7 +64,7 @@ def test_http_418_arms_retry_after_cooldown_without_network_retry(monkeypatch):
 
 
 def test_http_429_invalid_retry_after_uses_bounded_default(monkeypatch):
-    class Response:
+    class Response(StreamResponse):
         status_code = 429
         headers = {"Retry-After": "invalid"}
 
@@ -64,7 +83,7 @@ def test_http_429_invalid_retry_after_uses_bounded_default(monkeypatch):
 
 
 def test_shorter_parallel_rate_limit_cannot_reduce_active_ban(monkeypatch):
-    class Response:
+    class Response(StreamResponse):
         def __init__(self, status_code, retry_after):
             self.status_code = status_code
             self.headers = {"Retry-After": retry_after}
@@ -85,9 +104,9 @@ def test_shorter_parallel_rate_limit_cannot_reduce_active_ban(monkeypatch):
 
 def test_expired_market_read_cooldown_allows_one_new_request(monkeypatch):
     calls = []
-    clock = iter((0.0, 0.0, 11.0))
+    clock = [0.0]
 
-    class Response:
+    class Response(StreamResponse):
         def __init__(self, status_code, retry_after=None):
             self.status_code = status_code
             self.headers = (
@@ -101,10 +120,11 @@ def test_expired_market_read_cooldown_allows_one_new_request(monkeypatch):
         return next(responses)
 
     monkeypatch.setattr(tools_market.SESSION, "request", request)
-    monkeypatch.setattr(tools_market.time, "monotonic", lambda: next(clock))
+    monkeypatch.setattr(tools_market.time, "monotonic", lambda: clock[0])
 
     with pytest.raises(tools_market.BinanceHttpError):
         tools_market._do_request("GET", "https://api.binance.com/api/v3/time")
+    clock[0] = 11.0
     accepted = tools_market._do_request(
         "GET", "https://api.binance.com/api/v3/time"
     )
@@ -116,7 +136,7 @@ def test_expired_market_read_cooldown_allows_one_new_request(monkeypatch):
 def test_public_read_uses_call_site_timeout(monkeypatch):
     observed = []
 
-    class Response:
+    class Response(StreamResponse):
         status_code = 200
         url = "https://api.binance.com/api/v3/time"
 
@@ -138,7 +158,7 @@ def test_public_read_uses_call_site_timeout(monkeypatch):
 def test_checked_clock_snapshot_is_reused_by_signed_read(monkeypatch):
     calls = []
 
-    class Response:
+    class Response(StreamResponse):
         status_code = 200
         headers = {}
 
