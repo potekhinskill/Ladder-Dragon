@@ -135,6 +135,98 @@ def test_replay_validation_matches_real_fill_and_cancel(tmp_path):
     assert read_replay_validation(path) == report
 
 
+def test_stop_limit_trigger_does_not_add_second_client_latency():
+    delayed = ReplayCalibration(
+        **{**calibration().__dict__, "latency_ms_p95": 100}
+    )
+    events = [
+        MarketEvent(
+            ts_ms=1000,
+            bids=(BookLevel(Decimal("100"), Decimal("10")),),
+            asks=(BookLevel(Decimal("101"), Decimal("10")),),
+        ),
+        MarketEvent(
+            ts_ms=1100,
+            bids=(BookLevel(Decimal("99"), Decimal("10")),),
+            asks=(BookLevel(Decimal("100"), Decimal("10")),),
+            trades=((Decimal("99"), Decimal("1"), "SELL"),),
+        ),
+    ]
+
+    report = validate_replay_outcomes(
+        events,
+        [
+            outcome(
+                "stop",
+                price="99",
+                quantity="1",
+                quote="99",
+                status="FILLED",
+                first_fill=1100,
+                side="SELL",
+                order_type="STOP_LOSS_LIMIT",
+                stop_price="99",
+                final_at_ms=1100,
+            )
+        ],
+        delayed,
+        minimum_orders=1,
+    )
+
+    assert report.replay_filled_orders == 1
+    assert report.fill_classification_accuracy == Decimal("1")
+    assert report.fill_ratio_mae == Decimal("0")
+
+
+def test_stop_limit_does_not_use_actual_fill_to_accept_early_trigger():
+    delayed = ReplayCalibration(
+        **{**calibration().__dict__, "latency_ms_p95": 100}
+    )
+    events = [
+        MarketEvent(
+            ts_ms=1000,
+            bids=(BookLevel(Decimal("100"), Decimal("10")),),
+            asks=(BookLevel(Decimal("101"), Decimal("10")),),
+        ),
+        MarketEvent(
+            ts_ms=1050,
+            bids=(BookLevel(Decimal("99"), Decimal("10")),),
+            asks=(BookLevel(Decimal("100"), Decimal("10")),),
+            trades=((Decimal("99"), Decimal("1"), "SELL"),),
+        ),
+        MarketEvent(
+            ts_ms=1200,
+            bids=(BookLevel(Decimal("100"), Decimal("10")),),
+            asks=(BookLevel(Decimal("101"), Decimal("10")),),
+        ),
+    ]
+
+    report = validate_replay_outcomes(
+        events,
+        [
+            outcome(
+                "stop",
+                price="99",
+                quantity="1",
+                quote="99",
+                status="FILLED",
+                first_fill=1050,
+                side="SELL",
+                order_type="STOP_LOSS_LIMIT",
+                stop_price="99",
+                final_at_ms=1200,
+            )
+        ],
+        delayed,
+        minimum_orders=1,
+    )
+
+    assert report.replay_filled_orders == 0
+    assert report.fill_classification_accuracy == Decimal("0")
+    assert report.fill_ratio_mae == Decimal("1")
+    assert "matched fill prices unavailable" in report.reasons
+
+
 def test_replay_validation_fails_closed_without_empirical_coverage():
     events = [
         MarketEvent(

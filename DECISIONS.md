@@ -1,5 +1,12 @@
 # Engineering decisions
 
+### 2026-09-03 — Separate submission latency from conditional activation
+
+- **Context:** replay applied client latency again when an exchange-resident stop order triggered.
+- **Decision:** require initial venue arrival, then activate the limit order immediately at the qualifying exchange trade.
+- **Why it worked:** tests reproduce the fill and reject a trigger that occurs before initial venue arrival.
+- **Reuse:** every exchange-resident conditional order with a later venue-owned activation event.
+
 ### 2026-09-03 — Separate validation session capacity from byte capacity
 
 - **Context:** retained protected evidence left ten session slots, but a fixed batch requires twelve slots.

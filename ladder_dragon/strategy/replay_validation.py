@@ -291,6 +291,7 @@ def _simulate_order(
     stop_pending = outcome.order_type == "STOP_LOSS_LIMIT"
     if stop_pending and (outcome.side != "SELL" or outcome.stop_price <= 0):
         return Decimal("0"), Decimal("0"), Decimal("0"), None
+    stop_ready_at_ms = outcome.intent_created_at_ms + calibration.latency_ms_p95
     if not stop_pending:
         replay.submit(
             order,
@@ -303,10 +304,15 @@ def _simulate_order(
     first_fill_ms: int | None = None
     for event in relevant:
         if stop_pending:
+            # The original request must reach the venue before a trade can
+            # trigger it. The later activation is exchange-side and must not
+            # receive a second client transport delay.
+            if event.ts_ms < stop_ready_at_ms:
+                continue
             trigger_prices = [price for price, _qty, _side in event.trades]
             if not trigger_prices or min(trigger_prices) > outcome.stop_price:
                 continue
-            replay.submit(
+            replay.activate_exchange_conditional(
                 order,
                 event.ts_ms,
                 queue_ahead=_queue_ahead(event, outcome),

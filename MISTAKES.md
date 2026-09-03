@@ -1,5 +1,19 @@
 # Engineering mistakes and root causes
 
+### 2026-09-03 — Ran the full suite with the host interpreter
+
+- **Impact:** test collection stopped because the host interpreter did not contain the locked test dependencies.
+- **Root cause:** the command invoked ambient `pytest` instead of the project virtual environment.
+- **Correction:** run the full suite with `.venv/bin/python -m pytest`.
+- **Prevention:** use the project virtual environment for every required verification command.
+
+### 2026-09-03 — Applied client latency twice to conditional orders
+
+- **Impact:** replay conservatively missed valid STOP_LOSS_LIMIT fills and blocked execution-model validation.
+- **Root cause:** trigger handling submitted the already resident order through the client transport model again.
+- **Correction:** gate the trigger on initial arrival and activate its limit order without another client delay.
+- **Prevention:** test submission arrival, pre-arrival triggers, exchange activation, and terminal fills as separate causal boundaries.
+
 ### 2026-09-03 — Omitted the public version surface
 
 - **Impact:** two full-suite tests failed after the product version changed.

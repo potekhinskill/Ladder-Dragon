@@ -126,6 +126,27 @@ class OrderBookReplay:
         self.orders.append(order)
         return True
 
+    def activate_exchange_conditional(
+        self,
+        order: ReplayOrder,
+        now_ms: int,
+        *,
+        queue_ahead: Decimal | None = None,
+    ) -> None:
+        """Activate one exchange-resident conditional order without API latency."""
+        if any(
+            existing is order or existing.order_id == order.order_id
+            for existing in self.orders
+        ):
+            raise ValueError("conditional replay order is already active")
+        order.created_ts = int(now_ms)
+        order.queue_ahead = (
+            None
+            if queue_ahead is None
+            else max(Decimal("0"), Decimal(str(queue_ahead)))
+        )
+        self.orders.append(order)
+
     def cancel(self, order_id: str, now_ms: int) -> bool:
         # A throttled request never reaches the exchange. An accepted cancel
         # remains exposed to fills until the same transport latency has elapsed.
