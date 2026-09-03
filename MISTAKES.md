@@ -1,5 +1,12 @@
 # Engineering mistakes and root causes
 
+### 2026-09-04 — Mocked away the lossy ticker transport adapter
+
+- **Impact:** the previous release preserved Decimal values locally but still received rounded prices from the transport adapter.
+- **Root cause:** tests replaced the Decimal getter instead of exercising its dependency on the legacy float getter.
+- **Correction:** add an exact transport adapter and route supervisor valuation through it.
+- **Prevention:** inject synthetic venue responses below numeric conversion and assert exact final snapshot values.
+
 ### 2026-09-04 — Reused an analytics adapter for authoritative risk prices
 
 - **Impact:** configured quotes could lose decimal precision, and independent asset tasks could duplicate bridge ticker requests.

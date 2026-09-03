@@ -1,5 +1,12 @@
 # Engineering decisions
 
+### 2026-09-04 — Verify exact prices from the venue response boundary
+
+- **Context:** a Decimal supervisor wrapper consumed an already rounded float from the market adapter.
+- **Decision:** parse venue price strings in an exact adapter and test the complete path to risk valuation.
+- **Why it worked:** the regression mocks only the public response and preserves every production numeric conversion.
+- **Reuse:** every exact financial API whose dependencies can silently convert through binary floats.
+
 ### 2026-09-04 — Share exact market observations within one risk snapshot
 
 - **Context:** configured risk quotes crossed a float adapter, while assets could repeat the same bridge ticker request.

@@ -856,7 +856,7 @@ def get_last_price(symbol: str) -> float:
 
 def get_last_price_decimal(symbol: str) -> Decimal:
     """Return an exact positive ticker price for financial valuation."""
-    price = _finite_decimal(TM.get_ticker_price(symbol), name=f"{symbol} ticker price")
+    price = _finite_decimal(TM.get_ticker_price_decimal(symbol), name=f"{symbol} ticker price")
     if price <= 0:
         raise ValueError(f"{symbol} ticker price must be positive")
     return price

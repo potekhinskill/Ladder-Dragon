@@ -3,6 +3,19 @@
 All notable changes are documented here. Releases use Semantic Versioning; every
 section is dated and there is intentionally no `Unreleased` section.
 
+## [2.20.308] — 2026-09-04
+
+### Fixed
+- Supervisor valuation now uses an exact ticker adapter from the venue response through the complete risk snapshot.
+
+### Security
+- Missing, malformed, non-string, nonfinite, and nonpositive ticker prices fail closed without exposing response values.
+- Provider error classification remains unchanged. The legacy float interface remains available only for compatibility callers.
+
+### Verified
+- The focused transport, risk, ticker, startup, recovery, and statistics suite passes: 106 tests.
+- The full suite passes: 1,754 tests. Compileall, Technical English, five safety audits, and Semgrep pass.
+
 ## [2.20.307] — 2026-09-04
 
 ### Fixed

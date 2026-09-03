@@ -106,7 +106,14 @@ def snapshot_runtime(monkeypatch, tmp_path):
 
 def test_snapshot_preserves_exact_configured_price(monkeypatch, snapshot_runtime):
     exact = Decimal("123456789.123456789")
-    monkeypatch.setattr(runtime, "get_last_price_decimal", lambda _symbol: exact)
+    requests = []
+
+    def public_get(path, params):
+        requests.append((path, params))
+        return {"symbol": "SOLUSDT", "price": str(exact)}
+
+    # Exercise the production adapter chain, not a mocked Decimal getter.
+    monkeypatch.setattr(runtime.TM, "_public_get", public_get)
     monkeypatch.setattr(runtime, "get_balances_full", lambda: {
         "USDT": {"free": "100", "locked": "0"},
         "SOL": {"free": "1", "locked": "0"},
@@ -117,6 +124,7 @@ def test_snapshot_preserves_exact_configured_price(monkeypatch, snapshot_runtime
     assert isinstance(prices["SOLUSDT"], Decimal)
     assert snapshot.equity_usdt == Decimal("100") + exact
     assert snapshot.exposure_usdt == exact
+    assert requests == [("/api/v3/ticker/price", {"symbol": "SOLUSDT"})]
 
 
 def test_shared_bridge_is_fresh_for_each_snapshot(monkeypatch, snapshot_runtime):

@@ -6,6 +6,7 @@
 """Ladder Dragon tools market support."""
 
 from __future__ import annotations
+from decimal import Decimal, InvalidOperation
 import os
 import time
 import hmac
@@ -473,8 +474,25 @@ def get_symbol_filters(symbol: str) -> Dict[str, object]:
     return res
 
 def get_ticker_price(symbol: str) -> float:
+    """Return the legacy float view for compatibility callers."""
+    return float(get_ticker_price_decimal(symbol))
+
+
+def get_ticker_price_decimal(symbol: str) -> Decimal:
+    """Parse the venue's exact price string without a float intermediate."""
     data = _public_get("/api/v3/ticker/price", {"symbol": symbol.upper()})
-    return float(data["price"])
+    message = "ticker price must be a finite positive decimal string"
+    try:
+        raw = data["price"]
+        if not isinstance(raw, str):
+            raise ValueError(message)
+        price = Decimal(raw)
+    except (KeyError, TypeError, ValueError, InvalidOperation):
+        # Do not include an untrusted response value in diagnostics.
+        raise ValueError(message) from None
+    if not price.is_finite() or price <= 0:
+        raise ValueError(message)
+    return price
 
 # ---- filter-aware qty/price normalization ----
 def _decimals_from_float_step(step: float) -> int:
