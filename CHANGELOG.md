@@ -3,6 +3,23 @@
 All notable changes are documented here. Releases use Semantic Versioning; every
 section is dated and there is intentionally no `Unreleased` section.
 
+## [2.20.307] — 2026-09-04
+
+### Fixed
+- Configured risk prices remain Decimal values instead of passing through the analytics float adapter.
+
+### Changed
+- Valuation shares successful ticker reads within one snapshot, including common bridge markets.
+- Per-symbol locks prevent duplicate concurrent reads without serializing different markets.
+
+### Security
+- Each snapshot creates a new disposable cache. Failed or invalid reads remain uncached, and depth checks remain independent.
+
+### Verified
+- The focused risk, ticker, startup, recovery, and statistics suite passes: 92 tests.
+- The full project suite passes: 1,740 tests.
+- Python compilation, Technical English, Semgrep, and all five domain audits pass.
+
 ## [2.20.306] — 2026-09-04
 
 ### Fixed

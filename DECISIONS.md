@@ -1,5 +1,12 @@
 # Engineering decisions
 
+### 2026-09-04 — Share exact market observations within one risk snapshot
+
+- **Context:** configured risk quotes crossed a float adapter, while assets could repeat the same bridge ticker request.
+- **Decision:** retain Decimal prices and serialize only identical ticker reads within a snapshot-owned cache.
+- **Why it worked:** successful observations are shared without caching errors, serializing different markets, or reusing prices across snapshots.
+- **Reuse:** disposable per-calculation observations with bounded concurrent public reads. No persistent record or retention process is created.
+
 ### 2026-09-04 — Prefer validated current observations over negative caches
 
 - **Context:** a missing-market cache entry could hide a valid price already obtained for the current snapshot.

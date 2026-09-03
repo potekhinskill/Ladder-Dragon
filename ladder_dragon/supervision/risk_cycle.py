@@ -104,6 +104,34 @@ class _DefinitiveMissingMarketCache:
 _UNVALUED_MARKET_CACHE = _DefinitiveMissingMarketCache()
 
 
+class _SnapshotTickerPrices:
+    """Share successful exact ticker reads within one risk snapshot only."""
+
+    def __init__(
+        self, reader: Callable[[str], Decimal], prices: Mapping[str, Decimal],
+    ) -> None:
+        self._reader = reader
+        self._prices = dict(prices)
+        self._locks: dict[str, Any] = {}
+        self._registry_lock = threading.Lock()
+
+    def get(self, symbol: str) -> Decimal:
+        # Lock only this symbol during I/O. Other market reads stay parallel.
+        with self._registry_lock:
+            lock = self._locks.setdefault(symbol, threading.Lock())
+        with lock:
+            raw = self._prices.get(symbol)
+            price = finite_decimal(
+                raw if raw is not None else self._reader(symbol),
+                name="snapshot ticker price",
+            )
+            if price <= 0:
+                raise ValueError("snapshot ticker price must be positive")
+            # Exceptions never enter the cache; another call can retry safely.
+            self._prices[symbol] = price
+            return price
+
+
 def _public_read_concurrency() -> int:
     try:
         value = int(os.getenv("RISK_PUBLIC_READ_CONCURRENCY", "3") or "3")
@@ -412,7 +440,6 @@ def build_risk_snapshot(
         runtime, "_sync_recent_account_fills"
     )
     get_balances_full = _runtime_dependency(runtime, "get_balances_full")
-    get_last_price = _runtime_dependency(runtime, "get_last_price")
     tools_market = _runtime_dependency(runtime, "TM")
     live_mode = bool(_runtime_dependency(runtime, "LIVE_MODE"))
     runtime_protection_gate = _runtime_dependency(
@@ -445,9 +472,10 @@ def build_risk_snapshot(
     balances = get_balances_full()
     mark_phase("account")
     configured_prices = _bounded_public_reads(
-        symbols, get_last_price, concurrency=public_concurrency
+        symbols, get_last_price_decimal, concurrency=public_concurrency
     )
     prices = dict(zip(symbols, configured_prices))
+    valuation_tickers = _SnapshotTickerPrices(get_last_price_decimal, prices)
     mark_phase("ticker")
     orders = tools_market._signed_get("/api/v3/openOrders") or []
     mark_phase("orders")
@@ -574,7 +602,7 @@ def build_risk_snapshot(
             valuation_price = direct_usdt_valuation_price(
                 asset,
                 dict(prices),
-                get_last_price_decimal,
+                valuation_tickers.get,
                 cache_missing=True,
                 cache_ttl_sec=negative_cache_ttl,
             )
@@ -587,7 +615,7 @@ def build_risk_snapshot(
                     ):
                         return None
                     try:
-                        candidate_price = get_last_price_decimal(candidate)
+                        candidate_price = valuation_tickers.get(candidate)
                         if env_flag("RISK_CONVERSION_DEPTH_REQUIRED", False):
                             depth = tools_market._public_get(
                                 "/api/v3/depth",
@@ -631,10 +659,7 @@ def build_risk_snapshot(
                             )
                             candidate_price *= max(Decimal("0"), Decimal("1") - haircut)
                         else:
-                            bridge = (
-                                prices.get(f"{quote}USDT")
-                                or get_last_price_decimal(f"{quote}USDT")
-                            )
+                            bridge = valuation_tickers.get(f"{quote}USDT")
                             candidate_price *= money(bridge)
                         valuation_price = candidate_price
                         break

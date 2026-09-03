@@ -1,5 +1,12 @@
 # Engineering mistakes and root causes
 
+### 2026-09-04 — Reused an analytics adapter for authoritative risk prices
+
+- **Impact:** configured quotes could lose decimal precision, and independent asset tasks could duplicate bridge ticker requests.
+- **Root cause:** risk used the legacy float adapter, while valuation isolated each asset without shared snapshot observations.
+- **Correction:** use the Decimal adapter and share only successful ticker reads through per-symbol locks.
+- **Prevention:** test exact values, concurrent duplicate reads, independent markets, failed reads, and freshness across complete snapshots.
+
 ### 2026-09-04 — Checked missing-market evidence before the current quote
 
 - **Impact:** a valid current quote could be ignored until negative-cache expiry, causing unnecessary valuation fallback or blocking.
