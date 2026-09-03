@@ -6,6 +6,26 @@ The updater does not copy new example values into a live `.env` file.
 Review each new value before you add it to a Raspberry Pi.
 Never copy credentials into documentation, Git, logs, or command arguments.
 
+## Startup valuation diagnostics
+
+`startup_timing.risk_snapshot_phases.valuation_routes` contains one summary for the first completed valuation attempt, including failure.
+`attempt_failed=1` identifies a failed attempt, not the current trading state.
+The same summary appears once in the existing startup log.
+
+Routes are `direct`, `cross_usdc`, `cross_fdusd`, `cross_btc`, `cross_eth`, `bridge`, and `depth`.
+Each route has `reads`, `read_ms`, `cache_hits`, `negative_hits`, `missing`, `transient`, and `other_errors` counters.
+`reads` counts logical adapter calls, not individual HTTP attempts.
+`read_ms` includes transport retries but excludes time waiting for a shared ticker lock.
+Parallel read durations can sum to more than valuation wall time.
+`depth` measures conversion depth only, not the separate portfolio liquidity phase.
+Configured-symbol ticker reads precede valuation and remain in the separate ticker phase.
+
+Counters contain no symbols, balances, prices, response bodies, or exception objects.
+They are disposable, fixed-size diagnostics with 50 integer fields and no database records.
+Per-snapshot counters expire when the snapshot ends; the startup summary expires with the process.
+Existing log rotation controls the single startup log copy. No new archive dependency or maintenance schedule is required.
+These diagnostics do not change route selection, freshness, risk limits, or trading permission.
+
 ## Execution authority
 
 | Setting | Purpose | Safe default |

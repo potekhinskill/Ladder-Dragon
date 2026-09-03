@@ -161,6 +161,8 @@ def test_shared_bridge_is_fresh_for_each_snapshot(monkeypatch, snapshot_runtime)
 
 
 def test_unavailable_bridge_blocks_snapshot(monkeypatch, snapshot_runtime):
+    reports = {}
+    monkeypatch.setattr(runtime, "_record_risk_startup_phase", lambda phase, values: reports.update({phase: values}))
     monkeypatch.setattr(runtime, "get_balances_full", lambda: {
         "AAA": {"free": "1", "locked": "0"},
     })
@@ -175,3 +177,53 @@ def test_unavailable_bridge_blocks_snapshot(monkeypatch, snapshot_runtime):
     monkeypatch.setattr(runtime, "get_last_price_decimal", reader)
     with pytest.raises(RuntimeError, match="synthetic unavailable market"):
         runtime._build_risk_snapshot(["SOLUSDT"], snapshot_runtime)
+    assert reports["valuation_routes"]["attempt_failed"] == 1
+    assert reports["valuation_routes"]["bridge_other_errors"] == 1
+
+
+def test_route_metrics_match_snapshot_reads(monkeypatch, snapshot_runtime):
+    reports = {}
+    calls = []
+    monkeypatch.setattr(runtime, "_record_risk_startup_phase", lambda phase, values: reports.update({phase: values}))
+    monkeypatch.setattr(runtime, "get_balances_full", lambda: {
+        "USDT": {"free": "100", "locked": "0"},
+        "AAA": {"free": "2", "locked": "0"},
+    })
+
+    def reader(symbol):
+        calls.append(symbol)
+        if symbol in {"SOLUSDT", "BTCUSDT"}:
+            return Decimal("10")
+        if symbol == "AAABTC":
+            return Decimal("3")
+        raise runtime.TM.BinanceHttpError(status=400, code=-1121)
+
+    monkeypatch.setattr(runtime, "get_last_price_decimal", reader)
+    first, _, _ = runtime._build_risk_snapshot(["SOLUSDT"], snapshot_runtime)
+    initial = reports["valuation_routes"]
+    assert first.equity_usdt == 160
+    assert initial["attempt_failed"] == 0
+    assert initial["direct_reads"] == initial["direct_missing"] == 1
+    assert initial["cross_usdc_missing"] == initial["cross_fdusd_missing"] == 1
+    assert initial["cross_btc_reads"] == initial["bridge_reads"] == 1
+    assert initial["cross_eth_reads"] == 0
+    assert calls == ["SOLUSDT", "AAAUSDT", "AAAUSDC", "AAAFDUSD", "AAABTC", "BTCUSDT"]
+    calls.clear()
+    second, _, _ = runtime._build_risk_snapshot(["SOLUSDT"], snapshot_runtime)
+    updated = reports["valuation_routes"]
+    assert second.equity_usdt == first.equity_usdt
+    assert updated["direct_negative_hits"] == 1
+    assert updated["direct_reads"] == 0
+    assert updated["cross_usdc_negative_hits"] == updated["cross_fdusd_negative_hits"] == 1
+    assert updated["bridge_reads"] == 1
+    assert calls == ["SOLUSDT", "AAABTC", "BTCUSDT"]
+
+
+def test_runtime_retains_only_first_route_summary(monkeypatch):
+    monkeypatch.setattr(runtime, "_RISK_STARTUP_PHASES", {})
+    messages = []
+    monkeypatch.setattr(runtime, "log", messages.append)
+    runtime._record_risk_startup_phase("valuation_routes", {"attempt_failed": 1, "direct_reads": 3})
+    runtime._record_risk_startup_phase("valuation_routes", {"attempt_failed": 0, "direct_reads": 9})
+    assert runtime._RISK_STARTUP_PHASES["valuation_routes"]["direct_reads"] == 3
+    assert len(messages) == 1

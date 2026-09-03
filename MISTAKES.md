@@ -1,5 +1,12 @@
 # Engineering mistakes and root causes
 
+### 2026-09-04 — Included an unverified documentation patch target
+
+- **Impact:** one local patch failed before applying any changes; production was unaffected.
+- **Root cause:** a multi-file patch contained placeholder context for a document whose header had not been inspected.
+- **Correction:** inspect the header and apply the documentation change with exact context.
+- **Prevention:** never include placeholder hunks in executable patches; verify each target before combining file changes.
+
 ### 2026-09-04 — Reviewed numeric parsing without response allocation bounds
 
 - **Impact:** exact price parsing still depended on an HTTP adapter that buffered unrestricted responses.

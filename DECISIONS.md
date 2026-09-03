@@ -1,5 +1,12 @@
 # Engineering decisions
 
+### 2026-09-04 — Measure valuation routes without retaining account identity
+
+- **Context:** one valuation duration could not distinguish public reads, shared quotes, negative-cache hits, or failed routes.
+- **Decision:** count logical adapter reads and elapsed time under seven fixed categories, with separate cache and error counters.
+- **Why it worked:** tests preserve exact snapshot values, error identity, concurrency, and fresh-cycle reads while exposing bounded numeric summaries.
+- **Reuse:** disposable startup diagnostics. Label logical calls, parallel elapsed sums, and failed attempts explicitly; never imply physical HTTP attempt counts.
+
 ### 2026-09-04 — Bound wire data before decoding market JSON
 
 - **Context:** eager HTTP reads allowed unbounded response allocation before the financial parser could reject the payload.

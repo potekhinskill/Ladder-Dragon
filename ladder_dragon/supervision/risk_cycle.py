@@ -36,6 +36,7 @@ from ladder_dragon.risk.risk_statistics import (
     stress_loss_decimal,
 )
 from ladder_dragon.supervision.entry_policy import finite_decimal
+from ladder_dragon.supervision.valuation_metrics import ValuationMetrics
 
 
 class RiskConfigurationError(RuntimeError):
@@ -109,24 +110,32 @@ class _SnapshotTickerPrices:
 
     def __init__(
         self, reader: Callable[[str], Decimal], prices: Mapping[str, Decimal],
+        metrics: ValuationMetrics | None = None,
     ) -> None:
         self._reader = reader
+        self._metrics = metrics
         self._prices = dict(prices)
         self._locks: dict[str, Any] = {}
         self._registry_lock = threading.Lock()
 
-    def get(self, symbol: str) -> Decimal:
+    def get(self, symbol: str, *, route: str = "direct") -> Decimal:
         # Lock only this symbol during I/O. Other market reads stay parallel.
         with self._registry_lock:
             lock = self._locks.setdefault(symbol, threading.Lock())
         with lock:
             raw = self._prices.get(symbol)
+            cached = raw is not None
+            if raw is None:
+                raw = (self._metrics.read(route, self._reader, symbol)
+                       if self._metrics is not None else self._reader(symbol))
             price = finite_decimal(
-                raw if raw is not None else self._reader(symbol),
+                raw,
                 name="snapshot ticker price",
             )
             if price <= 0:
                 raise ValueError("snapshot ticker price must be positive")
+            if cached and self._metrics is not None:
+                self._metrics.increment(route, "cache_hits")
             # Exceptions never enter the cache; another call can retry safely.
             self._prices[symbol] = price
             return price
@@ -277,6 +286,7 @@ def direct_usdt_valuation_price(
     *,
     cache_missing: bool = False,
     cache_ttl_sec: float = 0,
+    metrics: ValuationMetrics | None = None,
 ) -> Decimal | None:
     """Resolve and cache the direct USDT quote before bridge conversion."""
     valuation_symbol = f"{asset.upper()}USDT"
@@ -288,6 +298,8 @@ def direct_usdt_valuation_price(
         if raw_price is None and cache_missing and _UNVALUED_MARKET_CACHE.contains(
             valuation_symbol, now=now
         ):
+            if metrics is not None:
+                metrics.increment("direct", "negative_hits")
             return None
         price = finite_decimal(
             raw_price if raw_price is not None
@@ -309,6 +321,8 @@ def direct_usdt_valuation_price(
         return None
     if price <= 0:
         return None
+    if raw_price is not None and metrics is not None:
+        metrics.increment("direct", "cache_hits")
     _UNVALUED_MARKET_CACHE.discard(valuation_symbol)
     prices[valuation_symbol] = price
     return price
@@ -475,7 +489,8 @@ def build_risk_snapshot(
         symbols, get_last_price_decimal, concurrency=public_concurrency
     )
     prices = dict(zip(symbols, configured_prices))
-    valuation_tickers = _SnapshotTickerPrices(get_last_price_decimal, prices)
+    valuation_metrics = ValuationMetrics()
+    valuation_tickers = _SnapshotTickerPrices(get_last_price_decimal, prices, valuation_metrics)
     mark_phase("ticker")
     orders = tools_market._signed_get("/api/v3/openOrders") or []
     mark_phase("orders")
@@ -605,19 +620,22 @@ def build_risk_snapshot(
                 valuation_tickers.get,
                 cache_missing=True,
                 cache_ttl_sec=negative_cache_ttl,
+                metrics=valuation_metrics,
             )
             if valuation_price is None:
                 def read_cross_quote(quote: str) -> Decimal | None:
                     candidate = f"{asset}{quote}"
+                    route = f"cross_{quote.lower()}"
                     checked_at = time.monotonic()
                     if _UNVALUED_MARKET_CACHE.contains(
                         candidate, now=checked_at
                     ):
+                        valuation_metrics.increment(route, "negative_hits")
                         return None
                     try:
-                        candidate_price = valuation_tickers.get(candidate)
+                        candidate_price = valuation_tickers.get(candidate, route=route)
                         if env_flag("RISK_CONVERSION_DEPTH_REQUIRED", False):
-                            depth = tools_market._public_get(
+                            depth = valuation_metrics.read("depth", tools_market._public_get,
                                 "/api/v3/depth",
                                 {"symbol": candidate, "limit": 20},
                             ) or {}
@@ -659,7 +677,7 @@ def build_risk_snapshot(
                             )
                             candidate_price *= max(Decimal("0"), Decimal("1") - haircut)
                         else:
-                            bridge = valuation_tickers.get(f"{quote}USDT")
+                            bridge = valuation_tickers.get(f"{quote}USDT", route="bridge")
                             candidate_price *= money(bridge)
                         valuation_price = candidate_price
                         break
@@ -673,11 +691,18 @@ def build_risk_snapshot(
     balance_items = [
         (str(asset), balance) for asset, balance in balances.items()
     ]
-    valued_assets = _bounded_public_reads(
-        balance_items,
-        value_account_asset,
-        concurrency=public_concurrency,
-    )
+    valuation_failed = True
+    try:
+        valued_assets = _bounded_public_reads(
+            balance_items,
+            value_account_asset,
+            concurrency=public_concurrency,
+        )
+        valuation_failed = False
+    finally:
+        # The pool drains before publication, including a failed valuation.
+        if callable(phase_callback):
+            phase_callback("valuation_routes", valuation_metrics.snapshot(failed=valuation_failed))
     asset_values: Dict[str, Decimal] = {}
     equity = Decimal("0")
     holdings_exposure = Decimal("0")

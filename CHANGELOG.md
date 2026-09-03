@@ -3,6 +3,22 @@
 All notable changes are documented here. Releases use Semantic Versioning; every
 section is dated and there is intentionally no `Unreleased` section.
 
+## [2.20.310] — 2026-09-04
+
+### Added
+- Startup valuation reports logical read counts, elapsed read time, cache hits, and missing-market, transient, and other read errors.
+- Seven fixed route categories distinguish direct quotes, four cross quotes, bridge quotes, and conversion depth.
+- The first completed valuation attempt reports its failure flag without retaining symbols, balances, response text, or exception objects.
+
+### Changed
+- Route counters are disposable, snapshot-owned data. Existing startup status retains one summary per process, including a failed attempt.
+- Logical reads include transport retries. Summed read time can exceed wall time because public reads remain parallel.
+- Trading decisions, route order, freshness, concurrency, and negative-cache policy remain unchanged.
+
+### Verified
+- The full suite passes: 1,793 tests. The focused valuation suite passes: 59 tests.
+- Compileall, Technical English, five safety audits, and Semgrep pass.
+
 ## [2.20.309] — 2026-09-04
 
 ### Security
