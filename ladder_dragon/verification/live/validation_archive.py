@@ -14,6 +14,9 @@ import requests
 from websocket import WebSocketException
 
 from ladder_dragon.strategy.depth_archive import record_public_depth
+from ladder_dragon.strategy.replay_policy import (
+    PRODUCTION_REPLAY_ACCEPTANCE_POLICY,
+)
 
 
 MAXIMUM_ARCHIVE_SESSIONS = 32
@@ -33,6 +36,20 @@ class ValidationArchiveReadinessError(RuntimeError):
         )
 
 
+class ValidationArchiveEvidenceError(RuntimeError):
+    """Expose a stable error when a terminal archive is too short."""
+
+    reason_code = "PUBLIC_ARCHIVE_EVIDENCE_INSUFFICIENT"
+    attempts = 0
+    cause_type = "EvidenceThreshold"
+
+    def __init__(self) -> None:
+        super().__init__(
+            "validation depth archive evidence is insufficient: "
+            f"code={self.reason_code} cause={self.cause_type}"
+        )
+
+
 class ContinuousDepthArchive:
     """Record one contiguous public session across an external mutation."""
 
@@ -48,6 +65,13 @@ class ContinuousDepthArchive:
         readiness_attempts: int = 3,
         retry_delay_sec: float = 0.5,
         tail_sec: float = 2.0,
+        evidence_timeout_sec: float = 120.0,
+        minimum_depth_events: int = (
+            PRODUCTION_REPLAY_ACCEPTANCE_POLICY.minimum_book_events
+        ),
+        minimum_trade_events: int = (
+            PRODUCTION_REPLAY_ACCEPTANCE_POLICY.minimum_trades
+        ),
         recorder: Callable[..., dict[str, object]] = record_public_depth,
     ) -> None:
         if maximum_duration_sec < 30 or maximum_duration_sec > 3600:
@@ -62,6 +86,14 @@ class ContinuousDepthArchive:
             raise ValueError("validation archive retry delay is invalid")
         if tail_sec < 0 or tail_sec > 10:
             raise ValueError("validation archive tail is invalid")
+        if evidence_timeout_sec <= 0 or evidence_timeout_sec > 300:
+            raise ValueError("validation archive evidence timeout is invalid")
+        if (
+            minimum_depth_events < 1
+            or minimum_trade_events < 1
+            or 1 + minimum_depth_events + minimum_trade_events > maximum_events
+        ):
+            raise ValueError("validation archive evidence minimum is invalid")
         self.symbol = symbol.strip().upper()
         self.directory = Path(directory)
         self.label = label.strip().lower()
@@ -71,9 +103,13 @@ class ContinuousDepthArchive:
         self.readiness_attempts = readiness_attempts
         self.retry_delay_sec = retry_delay_sec
         self.tail_sec = tail_sec
+        self.evidence_timeout_sec = evidence_timeout_sec
+        self.minimum_depth_events = minimum_depth_events
+        self.minimum_trade_events = minimum_trade_events
         self.recorder = recorder
         self._ready = threading.Event()
         self._stop = threading.Event()
+        self._force_stop = threading.Event()
         self._finished = threading.Event()
         self._thread: threading.Thread | None = None
         self._error: BaseException | None = None
@@ -100,7 +136,10 @@ class ContinuousDepthArchive:
                 duration_sec=self.maximum_duration_sec,
                 max_events=self.maximum_events,
                 stop_requested=self._stop.is_set,
+                force_stop_requested=self._force_stop.is_set,
                 ready_callback=self._ready.set,
+                minimum_depth_events_before_stop=self.minimum_depth_events,
+                minimum_trade_events_before_stop=self.minimum_trade_events,
             )
         except (
             OSError,
@@ -128,6 +167,7 @@ class ContinuousDepthArchive:
                 time.sleep(self.retry_delay_sec * (2 ** (attempt - 2)))
             self._ready = threading.Event()
             self._stop = threading.Event()
+            self._force_stop = threading.Event()
             self._finished = threading.Event()
             self._error = None
             self._metadata = None
@@ -144,6 +184,7 @@ class ContinuousDepthArchive:
                 if self._finished.is_set():
                     break
             self._stop.set()
+            self._force_stop.set()
             self._thread.join(timeout=5)
             if self._thread.is_alive():
                 raise ValidationArchiveReadinessError(
@@ -174,7 +215,10 @@ class ContinuousDepthArchive:
         if self.tail_sec:
             time.sleep(self.tail_sec)
         self._stop.set()
-        self._thread.join(timeout=30)
+        self._thread.join(timeout=self.evidence_timeout_sec)
+        if self._thread.is_alive():
+            self._force_stop.set()
+            self._thread.join(timeout=15)
         if self._thread.is_alive():
             raise RuntimeError("validation depth archive did not stop")
         if self._error is not None:
@@ -186,7 +230,21 @@ class ContinuousDepthArchive:
             or not self.path.is_file()
         ):
             raise RuntimeError("validation depth archive is incomplete")
+        try:
+            depth_events = int(metadata.get("depth_event_count", -1))
+            trade_events = int(metadata.get("trade_event_count", -1))
+        except (TypeError, ValueError) as exc:
+            raise ValidationArchiveEvidenceError() from exc
+        if (
+            depth_events < self.minimum_depth_events
+            or trade_events < self.minimum_trade_events
+        ):
+            raise ValidationArchiveEvidenceError()
         return dict(metadata)
 
 
-__all__ = ["ContinuousDepthArchive", "ValidationArchiveReadinessError"]
+__all__ = [
+    "ContinuousDepthArchive",
+    "ValidationArchiveEvidenceError",
+    "ValidationArchiveReadinessError",
+]

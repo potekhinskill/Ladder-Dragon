@@ -60,6 +60,7 @@ from ladder_dragon.verification.live.testnet_smoke import (
 )
 from ladder_dragon.verification.live.validation_archive import (
     ContinuousDepthArchive,
+    ValidationArchiveEvidenceError,
 )
 from ladder_dragon.verification.live.validation_batch import (
     PreMutationValidationFailure,
@@ -525,8 +526,9 @@ def run_validation_drill(
                 observer_before.get("event_woken_rest_reconciliations") or 0
             ),
         )
-        archive_metadata = archive.stop()
+        terminal_archive = archive
         archive = None
+        archive_metadata = terminal_archive.stop()
         report.update(
             {
                 "status": "passed" if stop_filled else "no_stop_fill",
@@ -597,6 +599,12 @@ def run_validation_drill(
                 and not report["mutation_started"]
                 and cleanup_error is None
             )
+            evidence_failure = (
+                isinstance(primary_error, ValidationArchiveEvidenceError)
+                and cleanup_done
+                and cleanup_error is None
+            )
+            definite_failure = pre_mutation_failure or evidence_failure
             create_manual_halt(
                 "Mainnet STOP_LOSS_LIMIT validation failed closed",
                 limits=limits,
@@ -605,7 +613,7 @@ def run_validation_drill(
             report.update(
                 {
                     "status": (
-                        "failed_definite" if pre_mutation_failure else "failed"
+                        "failed_definite" if definite_failure else "failed"
                     ),
                     "error_type": type(primary_error or cleanup_error).__name__,
                     "error_cause_type": str(
@@ -645,7 +653,7 @@ def run_validation_drill(
                     attempt_id=str(reservation["attempt_id"]),
                     status=(
                         "FAILED_DEFINITE"
-                        if pre_mutation_failure else "FAILED_UNCERTAIN"
+                        if definite_failure else "FAILED_UNCERTAIN"
                     ),
                     archive_path=(str(archive_path) if archive_path else None),
                     archive_sha256=str(
@@ -729,6 +737,22 @@ def main() -> int:
                     "cause_type": exc.cause_type,
                     "error_code": exc.reason_code,
                     "readiness_attempts": exc.attempts,
+                    "error": str(exc),
+                },
+                sort_keys=True,
+            ),
+            file=sys.stderr,
+            flush=True,
+        )
+        return 3
+    except ValidationArchiveEvidenceError as exc:
+        print(
+            json.dumps(
+                {
+                    "status": "failed_definite",
+                    "error_type": type(exc).__name__,
+                    "cause_type": exc.cause_type,
+                    "error_code": exc.reason_code,
                     "error": str(exc),
                 },
                 sort_keys=True,

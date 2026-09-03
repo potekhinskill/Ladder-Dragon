@@ -9,6 +9,9 @@ import pytest
 from ladder_dragon.execution.execution_latency import load_execution_outcomes
 from ladder_dragon.execution.order_recovery import OrderJournal
 from ladder_dragon.verification.live import mainnet_stop_limit_validation as drill
+from ladder_dragon.verification.live.validation_archive import (
+    ValidationArchiveEvidenceError,
+)
 
 
 class EvidenceClient:
@@ -143,6 +146,11 @@ class FakeArchive:
 class FailingArchive(FakeArchive):
     def start(self) -> Path:
         raise RuntimeError("private archive source detail")
+
+
+class ShortEvidenceArchive(FakeArchive):
+    def stop(self) -> dict[str, object]:
+        raise ValidationArchiveEvidenceError()
 
 
 class FullDrillClient:
@@ -421,3 +429,55 @@ def test_stop_archive_failure_is_definite_before_mutation(
     ]
     assert reports[-1]["failure_phase"] == "pre_mutation"
     assert reports[-1]["mutation_started"] is False
+
+
+def test_stop_short_archive_is_definite_after_cleanup(tmp_path, monkeypatch):
+    args, environment = _full_drill_setup(tmp_path)
+    args.batch_manifest = str(tmp_path / "batch.json")
+    completed: list[str] = []
+    monkeypatch.setattr(
+        drill,
+        "reserve_validation_attempt",
+        lambda *_args, **_kwargs: {
+            "attempt_id": "attempt-one",
+            "manifest_sha256": "a" * 64,
+        },
+    )
+    monkeypatch.setattr(
+        drill,
+        "complete_validation_attempt",
+        lambda *_args, **kwargs: completed.append(str(kwargs["status"])),
+    )
+    monkeypatch.setattr(
+        drill,
+        "_wait_for_order_list",
+        lambda *_args, **_kwargs: {},
+    )
+    monkeypatch.setattr(
+        drill.stream_drill,
+        "_wait_for_stream_evidence",
+        lambda *_args, **_kwargs: {
+            "order_events": 4,
+            "event_woken_rest_reconciliations": 4,
+        },
+    )
+    client = FullDrillClient()
+
+    with pytest.raises(ValidationArchiveEvidenceError):
+        drill.run_validation_drill(
+            args,
+            environ=environment,
+            client=client,
+            archive_factory=lambda **_options: ShortEvidenceArchive(
+                tmp_path / "archives" / "stop.jsonl"
+            ),
+        )
+
+    assert completed == ["FAILED_DEFINITE"]
+    assert client.base_free == Decimal("3")
+    reports = [
+        json.loads(line)
+        for line in (tmp_path / "report.ndjson").read_text().splitlines()
+    ]
+    assert reports[-1]["failure_phase"] == "post_mutation"
+    assert reports[-1]["error_code"] == "PUBLIC_ARCHIVE_EVIDENCE_INSUFFICIENT"

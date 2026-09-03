@@ -1,5 +1,12 @@
 # Engineering decisions
 
+### 2026-09-03 — Bind terminal archives to replay eligibility
+
+- **Context:** four successful maker drills produced immutable archives below production replay minimums.
+- **Decision:** continue public capture after cleanup until canonical event minimums or a bounded timeout.
+- **Why it worked:** each successful reservation now contains enough source evidence for calibration.
+- **Reuse:** every external validation whose immutable evidence has downstream acceptance minimums.
+
 ### 2026-09-02 — Retry public readiness only before mutation
 
 - **Context:** one transient public archive failure ended a fixed Mainnet batch before an exchange mutation.

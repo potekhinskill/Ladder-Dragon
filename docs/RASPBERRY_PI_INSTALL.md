@@ -461,6 +461,9 @@ Any uncertain cleanup preserves HALT and uses exit code 1.
 Each validation drill starts a contiguous public archive before POST.
 Archive readiness uses at most three public handshake attempts.
 Retries stop after readiness because a later failure can overlap an exchange mutation.
+A terminal archive requires at least 100 depth events and 50 trades.
+The recorder waits at most 120 seconds after terminal cleanup for this evidence.
+A short archive is definite only after the drill proves exchange cleanup.
 A pre-mutation failure consumes its reservation as a definite failure and uses exit code 3.
 The batch continues its fixed sequence after that terminal result.
 It closes that archive only after terminal reconciliation and cleanup.

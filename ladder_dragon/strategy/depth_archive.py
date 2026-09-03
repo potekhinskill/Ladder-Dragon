@@ -45,7 +45,10 @@ def record_public_depth(
     connect: Optional[Callable[..., object]] = None,
     clock_ms: Optional[Callable[[], int]] = None,
     stop_requested: Optional[Callable[[], bool]] = None,
+    force_stop_requested: Optional[Callable[[], bool]] = None,
     ready_callback: Optional[Callable[[], None]] = None,
+    minimum_depth_events_before_stop: int = 0,
+    minimum_trade_events_before_stop: int = 0,
 ) -> dict[str, object]:
     """Record snapshot plus contiguous public events and publish atomically."""
     symbol = _symbol(symbol)
@@ -53,6 +56,13 @@ def record_public_depth(
         raise ValueError("duration and max_events must be positive")
     if depth_limit not in {100, 500, 1000, 5000}:
         raise ValueError("depth_limit must be 100, 500, 1000 or 5000")
+    if (
+        minimum_depth_events_before_stop < 0
+        or minimum_trade_events_before_stop < 0
+        or 1 + minimum_depth_events_before_stop
+        + minimum_trade_events_before_stop > max_events
+    ):
+        raise ValueError("minimum archive evidence exceeds the event limit")
     http = session or requests.Session()
     connector = connect or create_connection
     now_ms = clock_ms or (lambda: int(time.time() * 1000))
@@ -71,6 +81,7 @@ def record_public_depth(
     deadline = time.monotonic() + duration_sec
     digest = hashlib.sha256()
     stop = stop_requested or (lambda: False)
+    force_stop = force_stop_requested or (lambda: False)
 
     def emit(handle, payload: dict) -> None:
         nonlocal written
@@ -107,8 +118,13 @@ def record_public_depth(
             while (
                 written < max_events
                 and time.monotonic() < deadline
-                and not stop()
             ):
+                if force_stop() or (
+                    stop()
+                    and depth_events >= minimum_depth_events_before_stop
+                    and trade_events >= minimum_trade_events_before_stop
+                ):
+                    break
                 try:
                     raw = connection.recv()
                 except WebSocketTimeoutException:

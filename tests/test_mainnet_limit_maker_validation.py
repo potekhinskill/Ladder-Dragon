@@ -9,6 +9,9 @@ import pytest
 
 from ladder_dragon.execution.order_recovery import OrderJournal
 from ladder_dragon.verification.live import mainnet_limit_maker_validation as drill
+from ladder_dragon.verification.live.validation_archive import (
+    ValidationArchiveEvidenceError,
+)
 
 
 def _write(path: Path, payload: dict) -> None:
@@ -198,6 +201,11 @@ class FailingArchive(FakeArchive):
         raise AssertionError("an archive that never started must not be stopped")
 
 
+class ShortEvidenceArchive(FakeArchive):
+    def stop(self) -> dict[str, object]:
+        raise ValidationArchiveEvidenceError()
+
+
 def _archive_factory(tmp_path: Path):
     return lambda **_options: FakeArchive(tmp_path / "archive.jsonl")
 
@@ -378,6 +386,46 @@ def test_archive_failure_closes_batch_as_definite_before_mutation(
     ]
     assert reports[-1]["failure_phase"] == "pre_mutation"
     assert reports[-1]["mutation_started"] is False
+
+
+def test_short_archive_closes_batch_as_definite_after_cleanup(
+    tmp_path, monkeypatch
+):
+    runtime, state = _evidence(tmp_path)
+    args = _args(tmp_path, runtime, state)
+    args.batch_manifest = str(tmp_path / "batch.json")
+    completed: list[str] = []
+    monkeypatch.setattr(
+        drill,
+        "reserve_validation_attempt",
+        lambda *_args, **_kwargs: {
+            "attempt_id": "attempt-one",
+            "manifest_sha256": "a" * 64,
+        },
+    )
+    monkeypatch.setattr(
+        drill,
+        "complete_validation_attempt",
+        lambda *_args, **kwargs: completed.append(str(kwargs["status"])),
+    )
+
+    with pytest.raises(ValidationArchiveEvidenceError):
+        drill.run_validation_drill(
+            args,
+            environ=_environment(tmp_path),
+            client=FakeClient(state),
+            archive_factory=lambda **_options: ShortEvidenceArchive(
+                tmp_path / "archive.jsonl"
+            ),
+        )
+
+    assert completed == ["FAILED_DEFINITE"]
+    reports = [
+        json.loads(line)
+        for line in (tmp_path / "validation.ndjson").read_text().splitlines()
+    ]
+    assert reports[-1]["failure_phase"] == "post_mutation"
+    assert reports[-1]["error_code"] == "PUBLIC_ARCHIVE_EVIDENCE_INSUFFICIENT"
 
 
 def test_validation_drill_is_one_exchange_attempt_per_release(tmp_path):

@@ -3,6 +3,25 @@
 All notable changes are documented here. Releases use Semantic Versioning; every
 section is dated and there is intentionally no `Unreleased` section.
 
+## [2.20.299] — 2026-09-03
+
+### Changed
+- A terminal validation archive now waits for 100 depth events and 50 trades before publication.
+- The evidence tail uses the canonical production replay policy and a 120-second limit.
+
+### Fixed
+- Short `LIMIT_MAKER` sessions no longer become successful batch evidence that production replay must reject.
+- A short archive after proven cleanup now closes its reservation as `FAILED_DEFINITE`.
+
+### Security
+- A forced evidence stop never retries an exchange mutation or changes the fixed batch sequence.
+- Unknown exchange or cleanup outcomes still close the complete batch as `FAILED_UNCERTAIN`.
+
+### Verified
+- The focused archive and Mainnet validation suite passes: 49 tests.
+- The full project suite passes: 1,706 tests.
+- Python compilation, Technical English, and all five domain audits pass.
+
 ## [2.20.298] — 2026-09-02
 
 ### Changed

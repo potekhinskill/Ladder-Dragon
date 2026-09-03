@@ -1,5 +1,19 @@
 # Engineering mistakes and root causes
 
+### 2026-09-03 — Guessed audit module names
+
+- **Impact:** the first audit command skipped three required checks and needed a corrected run.
+- **Root cause:** the command reused remembered names instead of reading the current `bin` inventory.
+- **Correction:** derive exact module names with `rg --files` and run all five audits.
+- **Prevention:** resolve every audit command from the repository before release verification.
+
+### 2026-09-03 — Stopped validation archives before replay minimums
+
+- **Impact:** four successful maker attempts could not pass immutable production replay calibration.
+- **Root cause:** the recorder used a fixed two-second tail instead of downstream event minimums.
+- **Correction:** wait for canonical depth and trade counts with a forced bounded stop.
+- **Prevention:** test each evidence producer against its downstream acceptance policy before Mainnet validation.
+
 ### 2026-09-02 — Classified a reservation as exchange uncertainty
 
 - **Impact:** one public archive failure permanently closed an authorized batch before the next exchange mutation.

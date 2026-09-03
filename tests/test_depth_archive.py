@@ -181,3 +181,38 @@ def test_public_depth_archive_rejects_pre_sync_buffer_overflow(tmp_path):
     assert connection.closed is True
     assert not output.exists()
     assert not output.with_suffix(".jsonl.metadata.json").exists()
+
+
+def test_public_depth_archive_waits_for_minimum_evidence_after_stop(tmp_path):
+    connection = FakeConnection()
+    connection.frames = iter([
+        {"data": {
+            "e": "depthUpdate", "E": 1_010, "s": "SOLUSDT",
+            "U": 101, "u": 101, "b": [], "a": [],
+        }},
+        {"data": {
+            "e": "aggTrade", "E": 1_020, "s": "SOLUSDT",
+            "a": 1234, "p": "75.02", "q": "0.5", "m": False,
+        }},
+        {"data": {
+            "e": "depthUpdate", "E": 1_030, "s": "SOLUSDT",
+            "U": 102, "u": 102, "b": [], "a": [],
+        }},
+    ])
+
+    metadata = record_public_depth(
+        "SOLUSDT",
+        tmp_path / "minimum.jsonl",
+        duration_sec=60,
+        max_events=4,
+        session=FakeSession(),
+        connect=lambda *args, **kwargs: connection,
+        clock_ms=lambda: 1_000,
+        stop_requested=lambda: True,
+        minimum_depth_events_before_stop=1,
+        minimum_trade_events_before_stop=1,
+    )
+
+    assert metadata["depth_event_count"] == 1
+    assert metadata["trade_event_count"] == 1
+    assert metadata["event_count"] == 3
