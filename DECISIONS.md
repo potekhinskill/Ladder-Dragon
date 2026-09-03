@@ -1,5 +1,12 @@
 # Engineering decisions
 
+### 2026-09-04 — Prefer validated current observations over negative caches
+
+- **Context:** a missing-market cache entry could hide a valid price already obtained for the current snapshot.
+- **Decision:** validate the current observation first and consult the negative cache only before a new public read.
+- **Why it worked:** valid prices clear obsolete negative entries, while invalid observations preserve fail-closed behavior.
+- **Reuse:** every negative cache that can conflict with a newer validated observation.
+
 ### 2026-09-03 — Resolve bootstrap inputs from the registered design version
 
 - **Context:** v23 bootstrap checked an obsolete design identifier before loading its immutable veto selection.

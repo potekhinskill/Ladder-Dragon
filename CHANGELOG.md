@@ -3,6 +3,19 @@
 All notable changes are documented here. Releases use Semantic Versioning; every
 section is dated and there is intentionally no `Unreleased` section.
 
+## [2.20.306] — 2026-09-04
+
+### Fixed
+- A valid current-snapshot valuation price overrides and clears an older missing-market cache entry.
+
+### Security
+- Invalid or absent prices cannot clear missing-market evidence. Negative-cache expiry and transient-error handling remain unchanged.
+
+### Verified
+- The focused risk, startup timing, and supervisor recovery suite passes: 70 tests.
+- The full project suite passes: 1,728 tests.
+- Python compilation, Technical English, Semgrep, and all five domain audits pass.
+
 ## [2.20.305] — 2026-09-03
 
 ### Changed

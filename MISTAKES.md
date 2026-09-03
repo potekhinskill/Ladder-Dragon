@@ -1,5 +1,12 @@
 # Engineering mistakes and root causes
 
+### 2026-09-04 — Checked missing-market evidence before the current quote
+
+- **Impact:** a valid current quote could be ignored until negative-cache expiry, causing unnecessary valuation fallback or blocking.
+- **Root cause:** the early cache return preceded snapshot lookup, and tests covered expiry without conflicting fresh observations.
+- **Correction:** validate current quotes before negative-cache lookup and clear the negative entry only after successful validation.
+- **Prevention:** test valid, invalid, and absent current observations against an active negative cache.
+
 ### 2026-09-03 — Checked an obsolete v23 design identifier
 
 - **Impact:** v23 bootstrap could not consume its required selection artifact after selection became ready.

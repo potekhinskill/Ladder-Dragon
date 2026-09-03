@@ -41,6 +41,50 @@ def test_unavailable_direct_quote_keeps_bridge_fallback_reachable():
     assert direct_usdt_valuation_price("KERNEL", {}, unavailable) is None
 
 
+@pytest.mark.parametrize("raw_price", [Decimal("0.1734"), "0.1734"])
+def test_fresh_snapshot_quote_overrides_negative_cache(monkeypatch, raw_price):
+    cache = risk_cycle._DefinitiveMissingMarketCache()
+    monkeypatch.setattr(risk_cycle, "_UNVALUED_MARKET_CACHE", cache)
+    monkeypatch.setattr(risk_cycle.time, "monotonic", lambda: 10.0)
+    cache.remember("KERNELUSDT", now=9.0, ttl_sec=300)
+    prices = {"KERNELUSDT": raw_price}
+    requested = []
+
+    result = direct_usdt_valuation_price(
+        "KERNEL", prices,
+        lambda symbol: requested.append(symbol) or Decimal("999"),
+        cache_missing=True, cache_ttl_sec=300,
+    )
+
+    assert result == Decimal("0.1734")
+    assert prices == {"KERNELUSDT": Decimal("0.1734")}
+    assert requested == []
+    assert not cache.contains("KERNELUSDT", now=10.0)
+
+
+@pytest.mark.parametrize("raw_price", [None, "0", "-1", "NaN", "Infinity", "invalid"])
+def test_invalid_snapshot_quote_does_not_clear_negative_cache(
+    monkeypatch, capsys, raw_price,
+):
+    cache = risk_cycle._DefinitiveMissingMarketCache()
+    monkeypatch.setattr(risk_cycle, "_UNVALUED_MARKET_CACHE", cache)
+    monkeypatch.setattr(risk_cycle.time, "monotonic", lambda: 10.0)
+    cache.remember("KERNELUSDT", now=9.0, ttl_sec=300)
+    requested = []
+
+    result = direct_usdt_valuation_price(
+        "KERNEL", {"KERNELUSDT": raw_price},
+        lambda symbol: requested.append(symbol) or Decimal("999"),
+        cache_missing=True, cache_ttl_sec=300,
+    )
+
+    assert result is None
+    assert requested == []
+    assert cache.contains("KERNELUSDT", now=10.0)
+    captured = capsys.readouterr()
+    assert captured.out == captured.err == ""
+
+
 def test_negative_cache_rechecks_only_definitive_missing_market(monkeypatch):
     class MissingMarket(RuntimeError):
         code = -1121

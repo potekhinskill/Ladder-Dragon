@@ -253,12 +253,14 @@ def direct_usdt_valuation_price(
     """Resolve and cache the direct USDT quote before bridge conversion."""
     valuation_symbol = f"{asset.upper()}USDT"
     now = time.monotonic()
-    if cache_missing and _UNVALUED_MARKET_CACHE.contains(
-        valuation_symbol, now=now
-    ):
-        return None
     try:
         raw_price = prices.get(valuation_symbol)
+        # A validated current-snapshot quote supersedes an older missing market.
+        # Consult the negative cache only when a new public read is necessary.
+        if raw_price is None and cache_missing and _UNVALUED_MARKET_CACHE.contains(
+            valuation_symbol, now=now
+        ):
+            return None
         price = finite_decimal(
             raw_price if raw_price is not None
             else get_last_price_decimal(valuation_symbol),
