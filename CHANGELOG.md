@@ -3,6 +3,19 @@
 All notable changes are documented here. Releases use Semantic Versioning; every
 section is dated and there is intentionally no `Unreleased` section.
 
+## [2.20.305] — 2026-09-03
+
+### Changed
+- Account asset valuation now uses one bounded public-read pool while preserving stable result order.
+- Definitive invalid-symbol responses use the existing short cache for all account assets.
+
+### Security
+- Temporary market failures remain uncached, and every unresolved asset still blocks the risk snapshot.
+
+### Verified
+- The focused risk, startup timing, and supervisor recovery suite passes.
+- Python compilation and the full project suite pass.
+
 ## [2.20.304] — 2026-09-03
 
 ### Fixed

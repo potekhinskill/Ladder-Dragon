@@ -116,7 +116,7 @@ def test_parallel_pool_receives_only_explicit_public_readers():
     assert len(readers) == 4
     assert set(readers) == {
         "get_last_price",
-        "read_cross_quote",
+        "value_account_asset",
         "read_history",
         "liquidity_is_safe",
     }
@@ -191,6 +191,59 @@ def test_missing_direct_and_bridge_quotes_keep_risk_fail_closed(monkeypatch):
         )
 
     assert requested[0] == "KERNELUSDT"
+
+
+def test_risk_snapshot_caches_definitive_missing_routes_for_valued_assets(
+    monkeypatch,
+):
+    class MissingMarket(RuntimeError):
+        code = -1121
+
+    requested = []
+    monkeypatch.setattr(
+        risk_cycle,
+        "_UNVALUED_MARKET_CACHE",
+        risk_cycle._DefinitiveMissingMarketCache(),
+    )
+    monkeypatch.setenv("RISK_RECONCILE_STRICT", "0")
+    monkeypatch.setenv("RISK_RECONCILE_SYNC_FILLS", "0")
+    monkeypatch.delenv("RISK_UNVALUED_ASSETS", raising=False)
+    monkeypatch.delenv("RISK_UNVALUED_ASSETS_ACK", raising=False)
+    monkeypatch.setattr(
+        runtime,
+        "get_balances_full",
+        lambda: {
+            "USDT": {"free": "100", "locked": "0"},
+            "KERNEL": {"free": "1", "locked": "0"},
+        },
+    )
+    monkeypatch.setattr(runtime, "get_last_price", lambda _symbol: "75")
+
+    def unavailable(symbol):
+        requested.append(symbol)
+        raise MissingMarket("invalid symbol")
+
+    monkeypatch.setattr(runtime, "get_last_price_decimal", unavailable)
+    monkeypatch.setattr(runtime.TM, "_signed_get", lambda *_args, **_kwargs: [])
+
+    with pytest.raises(RuntimeError, match="cannot value account asset KERNEL"):
+        runtime._build_risk_snapshot(
+            ["SOLUSDT"], runtime.RiskLimits.from_mapping({})
+        )
+    first_attempt = tuple(requested)
+    with pytest.raises(RuntimeError, match="cannot value account asset KERNEL"):
+        runtime._build_risk_snapshot(
+            ["SOLUSDT"], runtime.RiskLimits.from_mapping({})
+        )
+
+    assert first_attempt == (
+        "KERNELUSDT",
+        "KERNELUSDC",
+        "KERNELFDUSD",
+        "KERNELBTC",
+        "KERNELETH",
+    )
+    assert tuple(requested) == first_attempt
 
 
 def test_partial_buy_exposure_counts_only_unfilled_quantity():

@@ -63,7 +63,7 @@ _R = TypeVar("_R")
 
 
 class _DefinitiveMissingMarketCache:
-    """Cache only definitive missing markets for an acknowledged asset."""
+    """Cache only definitive missing markets for a bounded period."""
 
     def __init__(self, *, maximum_entries: int = 128) -> None:
         self._maximum_entries = maximum_entries
@@ -554,34 +554,33 @@ def build_risk_snapshot(
     # Otherwise old or manual positions in another asset disappear from equity,
     # drawdown and portfolio CAP.
     unvalued_assets = configured_unvalued_assets()
-    asset_values: Dict[str, Decimal] = {}
-    equity = Decimal("0")
-    holdings_exposure = Decimal("0")
-    for asset, balance in balances.items():
+
+    def value_account_asset(
+        item: tuple[str, Mapping[str, object]],
+    ) -> tuple[str, Decimal | None]:
+        """Value one account asset through public, globally bounded reads."""
+        asset, balance = item
         asset = str(asset).upper()
         qty = money(balance.get("free", 0)) + money(balance.get("locked", 0))
         if qty <= 0:
-            continue
+            return asset, Decimal("0")
         if asset in STABLE_VALUATION_ASSETS:
             value = qty
         else:
             # Try direct USDT first, then common cross-quotes. Stablecoin
             # conversion includes the configured haircut and exit fee.
-            valuation_symbol = f"{asset}USDT"
             valuation_price = direct_usdt_valuation_price(
                 asset,
-                prices,
+                dict(prices),
                 get_last_price_decimal,
-                cache_missing=asset in unvalued_assets,
+                cache_missing=True,
                 cache_ttl_sec=negative_cache_ttl,
             )
             if valuation_price is None:
-                cache_missing = asset in unvalued_assets
-
                 def read_cross_quote(quote: str) -> Decimal | None:
                     candidate = f"{asset}{quote}"
                     checked_at = time.monotonic()
-                    if cache_missing and _UNVALUED_MARKET_CACHE.contains(
+                    if _UNVALUED_MARKET_CACHE.contains(
                         candidate, now=checked_at
                     ):
                         return None
@@ -608,7 +607,7 @@ def build_risk_snapshot(
                         KeyError,
                         requests.RequestException,
                     ) as exc:
-                        if cache_missing and _definitive_missing_market(exc):
+                        if _definitive_missing_market(exc):
                             _UNVALUED_MARKET_CACHE.remember(
                                 candidate,
                                 now=checked_at,
@@ -618,14 +617,8 @@ def build_risk_snapshot(
                     _UNVALUED_MARKET_CACHE.discard(candidate)
                     return candidate_price
 
-                cross_prices = _bounded_public_reads(
-                    RISK_CONVERSION_QUOTE_ASSETS,
-                    read_cross_quote,
-                    concurrency=public_concurrency,
-                )
-                for quote, candidate_price in zip(
-                    RISK_CONVERSION_QUOTE_ASSETS, cross_prices
-                ):
+                for quote in RISK_CONVERSION_QUOTE_ASSETS:
+                    candidate_price = read_cross_quote(quote)
                     if candidate_price is None:
                         continue
                     if candidate_price > 0:
@@ -642,28 +635,43 @@ def build_risk_snapshot(
                             )
                             candidate_price *= money(bridge)
                         valuation_price = candidate_price
-                        prices[valuation_symbol] = valuation_price
                         break
             if money(valuation_price) <= 0:
                 if asset in unvalued_assets:
-                    log_info_rate_limited(
-                        f"unvalued-allowlisted:{asset}",
-                        f"[RISK] unvalued asset {asset} explicitly allowlisted; "
-                        "excluded from equity and exposure",
-                        interval_sec=max(
-                            60.0,
-                            analytics_float(
-                                os.getenv(
-                                    "RISK_STABLE_INFO_LOG_INTERVAL_SEC",
-                                    "3600",
-                                )
-                                or "3600"
-                            ),
-                        ),
-                    )
-                    continue
+                    return asset, None
                 raise RuntimeError(f"cannot value account asset {asset}")
             value = qty * money(valuation_price)
+        return asset, value
+
+    balance_items = [
+        (str(asset), balance) for asset, balance in balances.items()
+    ]
+    valued_assets = _bounded_public_reads(
+        balance_items,
+        value_account_asset,
+        concurrency=public_concurrency,
+    )
+    asset_values: Dict[str, Decimal] = {}
+    equity = Decimal("0")
+    holdings_exposure = Decimal("0")
+    for asset, value in valued_assets:
+        if value is None:
+            log_info_rate_limited(
+                f"unvalued-allowlisted:{asset}",
+                f"[RISK] unvalued asset {asset} explicitly allowlisted; "
+                "excluded from equity and exposure",
+                interval_sec=max(
+                    60.0,
+                    analytics_float(
+                        os.getenv(
+                            "RISK_STABLE_INFO_LOG_INTERVAL_SEC",
+                            "3600",
+                        )
+                        or "3600"
+                    ),
+                ),
+            )
+            continue
         asset_values[asset] = value
         equity += value
         if asset not in STABLE_VALUATION_ASSETS:

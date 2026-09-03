@@ -2664,3 +2664,10 @@ private infrastructure details.
 - **Root cause:** the rule compared literals only with current canonical numbers instead of classifying their semantic role.
 - **Correction:** detect direct fee-rate assumptions in assignments, call keywords, and argument defaults.
 - **Prevention:** mutation tests must use unknown values and include negative controls for amounts and error thresholds.
+
+### 2026-09-03 — Scoped missing-market caching to allowlisted assets
+
+- **Impact:** valued assets repeated definitive invalid-symbol requests and extended each startup risk snapshot.
+- **Root cause:** the optimization followed exclusion policy instead of the provider response classification.
+- **Correction:** cache definitive invalid-symbol responses for every candidate market with the bounded existing time limit.
+- **Prevention:** scope negative caches by error certainty, not by the caller's later business decision.

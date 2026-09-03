@@ -2242,3 +2242,10 @@ entries concise; this is not a changelog or an activity log.
 - **Decision:** reuse validated snapshots within one startup and defer advisory refreshes until worker planning completes.
 - **Why it worked:** authoritative checks remain fail-closed while duplicate network latency leaves the readiness path.
 - **Reuse:** every startup pipeline with repeated immutable reads and non-authoritative enrichment.
+
+### 2026-09-03 — Bound account valuation across assets
+
+- **Context:** whole-account valuation serialized independent public market reads for each non-stable asset.
+- **Decision:** use one bounded pool across assets and cache only definitive invalid-symbol responses.
+- **Why it worked:** independent reads overlap, while temporary failures remain visible and unresolved assets still block risk.
+- **Reuse:** every whole-account calculation that combines independent public reads with fail-closed aggregation.
