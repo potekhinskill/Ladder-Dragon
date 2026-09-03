@@ -476,6 +476,7 @@ This command does not place an order:
 ```bash
 sudo -u bot PYTHONPATH=. .venv/bin/python -m bin.mainnet_validation_batch \
   --manifest logs/mainnet-validation-batch.json \
+  --archive-directory logs/replay-validation-archives \
   --symbol SOLUSDT --maximum-attempts 12 \
   --minimum-successful-attempts 10 \
   --attempt-notional-usdt 6 \
@@ -484,6 +485,10 @@ sudo -u bot PYTHONPATH=. .venv/bin/python -m bin.mainnet_validation_batch \
   --minimum-cooldown-sec 300 \
   --confirm CREATE_VALIDATION_BATCH
 ```
+
+Batch creation requires one free archive slot for every authorized attempt.
+The manifest binds the reviewed archive directory and its capacity snapshot.
+The runner checks all remaining slots before it creates another reservation.
 
 Add `--batch-manifest logs/mainnet-validation-batch.json` to an approved drill.
 Each drill still requires its existing Mainnet environment confirmations.
@@ -496,6 +501,31 @@ Every terminal outcome remains in the cohort.
 Two definite failures can use the preregistered attrition allowance.
 An uncertain result closes the complete batch permanently.
 Do not delete its manifest or append-only attempt ledger.
+
+Archive only a terminal batch that failed its immutable coverage minimum.
+The archival audit rejects uncertain or promotion-eligible evidence.
+Create a fresh encrypted backup after the final batch archive.
+
+Preview the exact archival set:
+
+```bash
+sudo systemctl start ladder-dragon-backup.service
+sudo ladder-dragon-validation-retention preview \
+  mainnet-validation-batch-2.20.299.json
+```
+
+Review the batch identifier, archive count, and promotion audit status.
+Apply the reviewed archival plan explicitly:
+
+```bash
+sudo ladder-dragon-validation-retention apply \
+  mainnet-validation-batch-2.20.299.json
+```
+
+The command verifies ciphertext and its checksum before local source removal.
+It preserves the manifest, hash-chained ledger, and deterministic archival audit.
+Failed encryption preserves every local archive and metadata file.
+The wrapper blocks when the configured external mount is unavailable.
 
 The separate SQLite journal is authoritative order evidence.
 The report and sanitized execution log are derived replay evidence.

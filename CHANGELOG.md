@@ -3,6 +3,28 @@
 All notable changes are documented here. Releases use Semantic Versioning; every
 section is dated and there is intentionally no `Unreleased` section.
 
+## [2.20.300] — 2026-09-03
+
+### Added
+- A manual workflow encrypts permanently rejected validation archives on the configured external mount.
+- The workflow preserves each manifest, hash-chained ledger, and deterministic promotion audit.
+
+### Changed
+- Validation batch manifests bind their archive directory and require one free slot per authorized attempt.
+- The runner rechecks capacity for every remaining attempt before another reservation.
+
+### Fixed
+- A paid batch can no longer consume attempts because the active archive store was already too full.
+
+### Security
+- Archival requires a recent verified backup and a terminal batch below its immutable success minimum.
+- Uncertain or promotion-eligible evidence remains local, and failed encryption removes nothing.
+
+### Verified
+- The focused validation and deployment suite passes: 137 tests.
+- The full project suite passes: 1,716 tests.
+- Python compilation, Technical English, Semgrep, and all five domain audits pass.
+
 ## [2.20.299] — 2026-09-03
 
 ### Changed

@@ -101,6 +101,9 @@ install -o root -g root -m 0755 \
   "${PROJECT_DIR}/deploy/run_depth_archive_retention.sh" \
   /usr/local/bin/ladder-dragon-depth-retention
 install -o root -g root -m 0755 \
+  "${PROJECT_DIR}/deploy/run_mainnet_validation_archive_retention.sh" \
+  /usr/local/bin/ladder-dragon-validation-retention
+install -o root -g root -m 0755 \
   "${PROJECT_DIR}/deploy/run_production_soak_audit.sh" \
   /usr/local/bin/ladder-dragon-soak-audit
 

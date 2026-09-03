@@ -394,6 +394,11 @@ def test_stop_archive_failure_is_definite_before_mutation(
 ):
     args, environment = _full_drill_setup(tmp_path)
     args.batch_manifest = str(tmp_path / "batch.json")
+    monkeypatch.setattr(
+        drill,
+        "validation_batch_archive_directory",
+        lambda _path: Path(args.archive_dir).resolve(),
+    )
     completed: list[str] = []
     monkeypatch.setattr(
         drill,
@@ -434,6 +439,11 @@ def test_stop_archive_failure_is_definite_before_mutation(
 def test_stop_short_archive_is_definite_after_cleanup(tmp_path, monkeypatch):
     args, environment = _full_drill_setup(tmp_path)
     args.batch_manifest = str(tmp_path / "batch.json")
+    monkeypatch.setattr(
+        drill,
+        "validation_batch_archive_directory",
+        lambda _path: Path(args.archive_dir).resolve(),
+    )
     completed: list[str] = []
     monkeypatch.setattr(
         drill,

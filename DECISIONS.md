@@ -1,5 +1,12 @@
 # Engineering decisions
 
+### 2026-09-03 — Prove validation archive capacity before authorization
+
+- **Context:** a fixed Mainnet batch reached the 32-session store limit after ten attempts.
+- **Decision:** bind the archive directory and require all needed slots before manifest creation.
+- **Why it worked:** the runner now fails before reservation when remaining evidence cannot fit.
+- **Reuse:** every bounded workflow that requires one durable artifact per authorized mutation.
+
 ### 2026-09-03 — Bind terminal archives to replay eligibility
 
 - **Context:** four successful maker drills produced immutable archives below production replay minimums.

@@ -50,6 +50,52 @@ class ValidationArchiveEvidenceError(RuntimeError):
         )
 
 
+class ValidationArchiveCapacityError(RuntimeError):
+    """Expose a stable error when the active archive store is full."""
+
+    reason_code = "PUBLIC_ARCHIVE_CAPACITY_INSUFFICIENT"
+    attempts = 0
+    cause_type = "ArchiveCapacity"
+
+    def __init__(self) -> None:
+        super().__init__(
+            "validation depth archive capacity is insufficient: "
+            f"code={self.reason_code} cause={self.cause_type}"
+        )
+
+
+def validation_archive_capacity(
+    directory: str | Path,
+    *,
+    required_sessions: int = 0,
+) -> dict[str, int]:
+    """Return bounded active-store capacity and reject an unsafe request."""
+    if not 0 <= required_sessions <= MAXIMUM_ARCHIVE_SESSIONS:
+        raise ValueError("validation archive capacity request is invalid")
+    root = Path(directory).resolve()
+    try:
+        archives = list(root.glob("*.jsonl")) if root.is_dir() else []
+        total_bytes = sum(path.stat().st_size for path in archives)
+    except OSError as exc:
+        raise ValidationArchiveCapacityError() from exc
+    available_sessions = max(0, MAXIMUM_ARCHIVE_SESSIONS - len(archives))
+    available_bytes = max(0, MAXIMUM_ARCHIVE_BYTES - total_bytes)
+    if (
+        required_sessions > available_sessions
+        or (required_sessions > 0 and available_bytes == 0)
+    ):
+        raise ValidationArchiveCapacityError()
+    return {
+        "maximum_sessions": MAXIMUM_ARCHIVE_SESSIONS,
+        "occupied_sessions": len(archives),
+        "available_sessions": available_sessions,
+        "maximum_bytes": MAXIMUM_ARCHIVE_BYTES,
+        "occupied_bytes": total_bytes,
+        "available_bytes": available_bytes,
+        "required_sessions": required_sessions,
+    }
+
+
 class ContinuousDepthArchive:
     """Record one contiguous public session across an external mutation."""
 
@@ -119,13 +165,7 @@ class ContinuousDepthArchive:
 
     def _check_capacity(self) -> None:
         self.directory.mkdir(parents=True, exist_ok=True)
-        archives = list(self.directory.glob("*.jsonl"))
-        total_bytes = sum(path.stat().st_size for path in archives)
-        if (
-            len(archives) >= MAXIMUM_ARCHIVE_SESSIONS
-            or total_bytes >= MAXIMUM_ARCHIVE_BYTES
-        ):
-            raise RuntimeError("validation archive capacity is reached")
+        validation_archive_capacity(self.directory, required_sessions=1)
 
     def _run(self) -> None:
         assert self.path is not None
@@ -245,6 +285,8 @@ class ContinuousDepthArchive:
 
 __all__ = [
     "ContinuousDepthArchive",
+    "ValidationArchiveCapacityError",
     "ValidationArchiveEvidenceError",
     "ValidationArchiveReadinessError",
+    "validation_archive_capacity",
 ]

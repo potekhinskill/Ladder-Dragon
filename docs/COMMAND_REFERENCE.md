@@ -73,6 +73,7 @@ See [Historical entry replay](HISTORICAL_ENTRY_REPLAY.md) for continuous source 
 | `record_depth_archive` | records public depth and aggregate-trade JSONL |
 | `depth_archive_service` | rotates one continuous public stream and processes calibration separately |
 | `depth_archive_retention` | encrypts eligible L2 segments externally before local removal |
+| `mainnet_validation_archive_retention` | previews or archives one terminal rejected validation batch |
 | `replay_historical_entries` | generates historical opportunities from immutable inputs; optional `--context-db` verifies source-owned context |
 | `historical_replay_planner` | creates frozen selection and post-cutoff confirmation draft cohorts |
 | `historical_replay_runner` | processes a bounded SHADOW replay queue under an explicit import mode |

@@ -83,6 +83,12 @@ A later successful run clears the failed unit state.
 - Mainnet validation archives retain at most 32 sessions or 512 MiB.
 - Validation capacity blocks new drills. It never deletes replay evidence.
 - Archive validation evidence only after a verified encrypted backup and promotion audit.
+- A terminal rejected validation batch can enter manual encrypted archival.
+- Its manifest, hash-chained ledger, and archival audit are authoritative release evidence.
+- One deterministic audit can exist for each terminal batch.
+- These records remain local indefinitely and have no scheduled deletion.
+- The external verified bundle contains each removed public archive and metadata file.
+- Each bundle contains at most 12 derived public archives and their metadata.
 - Sanitized logs and dashboard history use file-size and age limits.
 - Encrypted backups use local and external retention policies.
 - Local rotation runs before collection and preserves the newest completed archive.

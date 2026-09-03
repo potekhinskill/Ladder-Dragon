@@ -57,11 +57,13 @@ from ladder_dragon.verification.live.testnet_smoke import (
 from ladder_dragon.verification.live.validation_archive import (
     ContinuousDepthArchive,
     ValidationArchiveEvidenceError,
+    validation_archive_capacity,
 )
 from ladder_dragon.verification.live.validation_batch import (
     PreMutationValidationFailure,
     complete_validation_attempt,
     reserve_validation_attempt,
+    validation_batch_archive_directory,
 )
 from product_version import __version__
 
@@ -438,6 +440,11 @@ def run_validation_drill(
     production_journal_path = resolve_project_path(args.production_journal)
     execution_log_path = resolve_project_path(args.execution_log)
     archive_directory = resolve_project_path(args.archive_dir)
+    if batch_manifest is not None and validation_batch_archive_directory(
+        resolve_project_path(batch_manifest)
+    ) != archive_directory.resolve():
+        raise RuntimeError("validation batch archive directory differs")
+    validation_archive_capacity(archive_directory, required_sessions=1)
     if journal_path == production_journal_path:
         raise RuntimeError("validation and production journals must be separate")
     production = read_order_journal_telemetry(production_journal_path)

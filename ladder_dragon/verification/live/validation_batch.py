@@ -19,6 +19,9 @@ import time
 import uuid
 from typing import Mapping
 
+from ladder_dragon.verification.live.validation_archive import (
+    validation_archive_capacity,
+)
 from product_version import __version__
 
 
@@ -117,6 +120,7 @@ def _current_commit() -> str:
 def create_batch_manifest(
     path: Path,
     *,
+    archive_directory: Path,
     symbol: str,
     maximum_attempts: int,
     maximum_turnover_usdt: Decimal,
@@ -135,6 +139,11 @@ def create_batch_manifest(
         raise RuntimeError("validation batch is restricted to SOLUSDT")
     if not 1 <= maximum_attempts <= HARD_MAX_ATTEMPTS:
         raise RuntimeError("validation batch attempt limit is outside the hard cap")
+    archive_root = archive_directory.resolve()
+    archive_capacity = validation_archive_capacity(
+        archive_root,
+        required_sessions=maximum_attempts,
+    )
     minimum_successes = (
         min(maximum_attempts, HARD_MINIMUM_COVERED_ATTEMPTS)
         if minimum_successful_attempts is None
@@ -184,7 +193,7 @@ def create_batch_manifest(
                 sequence.append(drill)
                 used[drill] += 1
     payload: dict[str, object] = {
-        "schema_version": 6,
+        "schema_version": 7,
         "batch_id": uuid.uuid4().hex,
         "symbol": normalized,
         "allowed_drills": list(ALLOWED_DRILLS),
@@ -207,6 +216,14 @@ def create_batch_manifest(
         "source_commit": (source_commit or _current_commit()).strip().lower(),
         "persistent_halt_required": True,
         "automatic_stop": True,
+        "archive_directory": str(archive_root),
+        "archive_capacity": {
+            "maximum_sessions": archive_capacity["maximum_sessions"],
+            "occupied_sessions_at_creation": archive_capacity[
+                "occupied_sessions"
+            ],
+            "required_sessions": maximum_attempts,
+        },
     }
     payload["attempt_sequence"] = sequence
     payload["manifest_sha256"] = _sha256(payload)
@@ -231,6 +248,15 @@ def _load_manifest(path: Path) -> dict[str, object]:
         raise RuntimeError("validation batch manifest fingerprint differs")
     payload["manifest_sha256"] = fingerprint
     return payload
+
+
+def validation_batch_archive_directory(manifest_path: Path) -> Path:
+    """Return the absolute archive directory bound by one batch manifest."""
+    manifest = _load_manifest(manifest_path)
+    raw = manifest.get("archive_directory")
+    if not isinstance(raw, str) or not raw or not Path(raw).is_absolute():
+        raise RuntimeError("validation batch archive directory is unavailable")
+    return Path(raw).resolve()
 
 
 def _read_ledger(handle, manifest: Mapping[str, object]) -> list[dict[str, object]]:
@@ -551,7 +577,15 @@ def run_validation_batch(
         "STOP_LOSS_LIMIT": "bin.mainnet_stop_limit_validation",
     }
     pending = sequence[completed:]
+    archive_directory: Path | None = None
+    if pending:
+        archive_directory = validation_batch_archive_directory(manifest_path)
+        validation_archive_capacity(
+            archive_directory,
+            required_sessions=len(pending),
+        )
     for index, drill in enumerate(pending):
+        assert archive_directory is not None
         command = [
             sys.executable,
             "-m",
@@ -562,6 +596,8 @@ def run_validation_batch(
             format(notional, "f"),
             "--batch-manifest",
             str(manifest_path),
+            "--archive-dir",
+            str(archive_directory),
         ]
         result = subprocess.run(command, env=child_environment, check=False)
         if result.returncode == 3:
@@ -614,6 +650,11 @@ def run_validation_batch(
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Create a bounded Mainnet validation batch")
     parser.add_argument("--manifest", type=Path, required=True)
+    parser.add_argument(
+        "--archive-directory",
+        type=Path,
+        default=Path("logs/replay-validation-archives"),
+    )
     parser.add_argument("--symbol", default="SOLUSDT")
     parser.add_argument("--maximum-attempts", type=int, required=True)
     parser.add_argument("--maximum-turnover-usdt", type=Decimal, required=True)
@@ -646,6 +687,7 @@ def main() -> int:
         raise SystemExit("--confirm must equal CREATE_VALIDATION_BATCH")
     payload = create_batch_manifest(
         args.manifest,
+        archive_directory=args.archive_directory,
         symbol=args.symbol,
         maximum_attempts=args.maximum_attempts,
         maximum_turnover_usdt=args.maximum_turnover_usdt,
@@ -666,5 +708,6 @@ __all__ = [
     "create_batch_manifest",
     "reserve_validation_attempt",
     "run_validation_batch",
+    "validation_batch_archive_directory",
     "validation_batch_evidence",
 ]

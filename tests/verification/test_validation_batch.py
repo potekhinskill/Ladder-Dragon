@@ -18,6 +18,7 @@ def _manifest(
 ):
     return validation_batch.create_batch_manifest(
         tmp_path / "batch.json",
+        archive_directory=tmp_path / "archives",
         symbol="SOLUSDT",
         maximum_attempts=attempts,
         maximum_turnover_usdt=Decimal(turnover),
@@ -142,6 +143,7 @@ def test_batch_rejects_unreachable_turnover_before_manifest_write(tmp_path):
     with pytest.raises(RuntimeError, match="cannot fund its fixed attempt sequence"):
         validation_batch.create_batch_manifest(
             tmp_path / "batch.json",
+            archive_directory=tmp_path / "archives",
             symbol="SOLUSDT",
             maximum_attempts=12,
             minimum_successful_attempts=10,
@@ -153,6 +155,62 @@ def test_batch_rejects_unreachable_turnover_before_manifest_write(tmp_path):
         )
 
     assert not (tmp_path / "batch.json").exists()
+
+
+def test_batch_rejects_insufficient_archive_slots_before_manifest_write(
+    tmp_path,
+):
+    archive_directory = tmp_path / "archives"
+    archive_directory.mkdir()
+    for index in range(21):
+        (archive_directory / f"archive-{index}.jsonl").write_text("{}\n")
+
+    with pytest.raises(
+        RuntimeError,
+        match="PUBLIC_ARCHIVE_CAPACITY_INSUFFICIENT",
+    ):
+        validation_batch.create_batch_manifest(
+            tmp_path / "batch.json",
+            archive_directory=archive_directory,
+            symbol="SOLUSDT",
+            maximum_attempts=12,
+            minimum_successful_attempts=10,
+            maximum_turnover_usdt=Decimal("144"),
+            duration_hours=24,
+            created_at_ms=1_000,
+            source_commit=COMMIT,
+        )
+
+    assert not (tmp_path / "batch.json").exists()
+
+
+def test_batch_runner_rechecks_capacity_before_first_reservation(
+    tmp_path, monkeypatch
+):
+    manifest = _manifest(tmp_path)
+    archive_directory = tmp_path / "archives"
+    archive_directory.mkdir()
+    for index in range(31):
+        (archive_directory / f"archive-{index}.jsonl").write_text("{}\n")
+    monkeypatch.setenv("BOT_MAINNET_VALIDATION_BATCH_RUN_CONFIRMED", "YES")
+    monkeypatch.setattr(
+        validation_batch.subprocess,
+        "run",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(
+            AssertionError("capacity failure must precede a child process")
+        ),
+    )
+
+    with pytest.raises(
+        RuntimeError,
+        match="PUBLIC_ARCHIVE_CAPACITY_INSUFFICIENT",
+    ):
+        validation_batch.run_validation_batch(
+            tmp_path / "batch.json", notional_usdt=Decimal("6")
+        )
+
+    assert manifest["archive_directory"] == str(archive_directory.resolve())
+    assert not (tmp_path / "batch.json.attempts.ndjson").exists()
 
 
 def test_batch_binds_each_reservation_to_manifest_turnover(tmp_path, monkeypatch):
@@ -176,6 +234,7 @@ def test_batch_enforces_drill_quotas_cooldown_and_ledger_chain(
 ):
     validation_batch.create_batch_manifest(
         tmp_path / "batch.json",
+        archive_directory=tmp_path / "archives",
         symbol="SOLUSDT",
         maximum_attempts=2,
         maximum_turnover_usdt=Decimal("24"),
@@ -339,6 +398,9 @@ def test_batch_runner_continues_after_definite_failure(
     calls: list[str] = []
 
     def run_child(command, **_kwargs):
+        archive_directory = tmp_path / "archives"
+        archive_argument = command.index("--archive-dir") + 1
+        assert command[archive_argument] == str(archive_directory.resolve())
         drill = (
             "LIMIT_MAKER"
             if "mainnet_limit_maker_validation" in command[2]
@@ -464,6 +526,7 @@ def test_complete_batch_freezes_archives_and_order_refs(tmp_path, monkeypatch):
 def test_twelve_attempt_cohort_accepts_two_definite_failures(tmp_path, monkeypatch):
     validation_batch.create_batch_manifest(
         tmp_path / "batch.json",
+        archive_directory=tmp_path / "archives",
         symbol="SOLUSDT",
         maximum_attempts=12,
         minimum_successful_attempts=10,
@@ -508,6 +571,7 @@ def test_complete_cohort_requires_successful_coverage_for_each_drill(
 ):
     validation_batch.create_batch_manifest(
         tmp_path / "batch.json",
+        archive_directory=tmp_path / "archives",
         symbol="SOLUSDT",
         maximum_attempts=3,
         minimum_successful_attempts=2,

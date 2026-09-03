@@ -1,5 +1,19 @@
 # Engineering mistakes and root causes
 
+### 2026-09-03 — Authorized attempts without proving evidence capacity
+
+- **Impact:** batch 2.20.299 ended with nine successes after its final two attempts failed before mutation.
+- **Root cause:** batch preflight checked financial limits but not the shared 32-session archive limit.
+- **Correction:** require all archive slots at creation and recheck remaining slots before execution.
+- **Prevention:** bind every fixed attempt budget to its required persistent evidence capacity.
+
+### 2026-09-03 — Checked the obsolete transient HALT path
+
+- **Impact:** the first batch-creation preflight stopped before manifest creation and required a corrected check.
+- **Root cause:** the command used the old `/run/mybot` path after control state moved to persistent storage.
+- **Correction:** verify `/var/lib/ladder-dragon/control/circuit_halt.json` on Raspberry Pi.
+- **Prevention:** resolve operator safety paths from deployed units and current documentation before use.
+
 ### 2026-09-03 — Guessed audit module names
 
 - **Impact:** the first audit command skipped three required checks and needed a corrected run.

@@ -351,6 +351,11 @@ def test_archive_failure_closes_batch_as_definite_before_mutation(
     runtime, state = _evidence(tmp_path)
     args = _args(tmp_path, runtime, state)
     args.batch_manifest = str(tmp_path / "batch.json")
+    monkeypatch.setattr(
+        drill,
+        "validation_batch_archive_directory",
+        lambda _path: Path(args.archive_dir).resolve(),
+    )
     client = FakeClient(state)
     completed: list[str] = []
     monkeypatch.setattr(
@@ -394,6 +399,11 @@ def test_short_archive_closes_batch_as_definite_after_cleanup(
     runtime, state = _evidence(tmp_path)
     args = _args(tmp_path, runtime, state)
     args.batch_manifest = str(tmp_path / "batch.json")
+    monkeypatch.setattr(
+        drill,
+        "validation_batch_archive_directory",
+        lambda _path: Path(args.archive_dir).resolve(),
+    )
     completed: list[str] = []
     monkeypatch.setattr(
         drill,
@@ -496,6 +506,11 @@ def test_definitive_submission_absence_does_not_close_batch_as_uncertain(
     runtime, state = _evidence(tmp_path)
     args = _args(tmp_path, runtime, state)
     args.batch_manifest = str(tmp_path / "batch.json")
+    monkeypatch.setattr(
+        drill,
+        "validation_batch_archive_directory",
+        lambda _path: Path(args.archive_dir).resolve(),
+    )
     completed: list[str] = []
     cancellations: list[str] = []
     monkeypatch.setattr(
