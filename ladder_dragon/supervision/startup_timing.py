@@ -38,6 +38,23 @@ class StartupTimeline:
         return {"phases": {key: dict(value) for key, value in self._phases.items()}}
 
 
+class StartupSubphases:
+    """Measure ordered subphases through one bounded callback."""
+
+    def __init__(self, callback, monotonic: Callable[[], float] = time.monotonic):
+        self._callback = callback
+        self._monotonic = monotonic
+        self._started = self._previous = monotonic()
+
+    def mark(self, phase: str) -> None:
+        now = self._monotonic()
+        self._callback(phase, {
+            "delta_ms": max(0, round((now - self._previous) * 1000)),
+            "elapsed_ms": max(0, round((now - self._started) * 1000)),
+        })
+        self._previous = now
+
+
 def log_worker_startup(
     timeline: StartupTimeline,
     logger: Callable[[str], None],
@@ -55,4 +72,4 @@ def log_worker_startup(
     )
 
 
-__all__ = ["StartupTimeline", "log_worker_startup"]
+__all__ = ["StartupSubphases", "StartupTimeline", "log_worker_startup"]

@@ -3,6 +3,18 @@
 All notable changes are documented here. Releases use Semantic Versioning; every
 section is dated and there is intentionally no `Unreleased` section.
 
+## [2.20.316] — 2026-09-04
+
+### Changed
+- Initial public ticker reads overlap fill synchronization and account preparation. Signed reads and reconciliation retain their original order.
+- Failed fill synchronization drains started public work without reading the account or orders. Ticker failure blocks before order reads.
+- Runtime status and logs include configuration, database, clock, filter, and account timings for each final preflight attempt.
+- The journal schema, HALT, historical evidence, execution limits, and successful-start exchange request count remain unchanged.
+
+### Verified
+- The focused startup, risk, valuation, batch, and metrics suite passes: 89 tests, including six new regressions.
+- Regressions cover overlap, failure drainage, error order, public-only executor authority, timing arithmetic, and runtime status publication.
+
 ## [2.20.315] — 2026-09-04
 
 ### Changed

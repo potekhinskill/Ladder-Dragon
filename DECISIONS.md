@@ -1,5 +1,12 @@
 # Engineering decisions
 
+### 2026-09-04 — Overlap only independent public startup reads
+
+- **Context:** the initial ticker waited behind fill synchronization and account preparation despite having no dependency on either operation.
+- **Decision:** start the public ticker first and join it after account preparation. Keep signed reads and reconciliation in their original order.
+- **Why it worked:** concurrency regressions prove overlap, drainage, failure order, and the public-only executor boundary.
+- **Reuse:** startup optimization. Overlap only independent public reads, then join them before their first authoritative consumer.
+
 ### 2026-09-04 — Share capacity across nested public valuation reads
 
 - **Context:** parallel assets still waited for sequential conversion routes. Independent route pools could multiply exchange concurrency.

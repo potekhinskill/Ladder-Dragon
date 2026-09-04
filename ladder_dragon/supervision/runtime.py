@@ -74,7 +74,7 @@ from ladder_dragon.supervision.order_cleanup import (
     smart_cleanup_orders as _smart_cleanup_orders,
     startup_cleanup_orders as _startup_cleanup_orders,
 )
-from ladder_dragon.supervision.startup_timing import StartupTimeline
+from ladder_dragon.supervision.startup_timing import StartupSubphases, StartupTimeline
 from ladder_dragon.supervision.protection_snapshot import (
     verify_all_live_protection as _verify_all_live_protection_service,
     verify_live_protection as _verify_live_protection_service,
@@ -282,6 +282,7 @@ _AI_RUNTIME_STATUS_PATH: Optional[Path] = None
 _AI_RUNTIME_STATUS: Dict[str, Any] = {}
 _STARTUP_TIMELINE: Optional[StartupTimeline] = None
 _RISK_STARTUP_PHASES: Dict[str, Dict[str, int]] = {}
+_PREFLIGHT_STARTUP_PHASES: Dict[str, Dict[str, int]] = {}
 _AI_CONTROL_PATH: Optional[Path] = None
 _PREDICTION_SHADOW: Optional[PredictionShadowStore] = None
 _ACTIVE_CHAMPIONS: Dict[str, Dict[str, object]] = {}
@@ -492,6 +493,7 @@ def _mark_startup(phase: str) -> None:
     fields = " ".join(f"{key}={value}" for key, value in timing.items())
     log(f"[STARTUP-TIMING] phase={phase} {fields}")
     snapshot = _STARTUP_TIMELINE.snapshot()
+    snapshot["preflight_phases"] = dict(_PREFLIGHT_STARTUP_PHASES)
     snapshot["risk_snapshot_phases"] = dict(_RISK_STARTUP_PHASES)
     _publish_ai_runtime_status(startup_timing=snapshot)
 
@@ -503,6 +505,13 @@ def _record_risk_startup_phase(phase: str, timing: Dict[str, int]) -> None:
     _RISK_STARTUP_PHASES[phase] = dict(timing)
     fields = " ".join(f"{key}={value}" for key, value in timing.items())
     log(f"[STARTUP-TIMING] component=risk_snapshot phase={phase} {fields}")
+
+
+def _record_preflight_startup_phase(phase: str, timing: Dict[str, int]) -> None:
+    """Record one phase from the current LIVE preflight attempt."""
+    _PREFLIGHT_STARTUP_PHASES[phase] = dict(timing)
+    fields = " ".join(f"{key}={value}" for key, value in timing.items())
+    log(f"[STARTUP-TIMING] component=preflight phase={phase} {fields}")
 
 
 def _runtime_order_journal_snapshot() -> dict[str, Any]:
@@ -3547,6 +3556,7 @@ def _configure_venue(args: argparse.Namespace) -> None:
 
 def _preflight_live(args: argparse.Namespace, symbols: List[str], limits: RiskLimits) -> None:
     """Handle preflight live."""
+    timing = StartupSubphases(_record_preflight_startup_phase)
     limits.validate()
     stats_db = os.getenv("BOT_STATS_DB", "").strip()
     cap_exact = _finite_decimal(
@@ -3586,6 +3596,7 @@ def _preflight_live(args: argparse.Namespace, symbols: List[str], limits: RiskLi
     )
     # DRY also prints the final configuration but does not require trading keys.
     if not args.live:
+        timing.mark("configuration")
         return
     # Unvalued dust is allowed only by explicit name and acknowledgement.
     # Equity is conservative: an unknown asset can never increase CAP.
@@ -3614,6 +3625,7 @@ def _preflight_live(args: argparse.Namespace, symbols: List[str], limits: RiskLi
 
     if not stats_db:
         raise RuntimeError("BOT_STATS_DB is required for fail-closed LIVE mode")
+    timing.mark("configuration")
     # LIVE cross-quote valuation must verify order-book depth.
     os.environ["RISK_CONVERSION_DEPTH_REQUIRED"] = "1"
     from ladder_dragon.execution import tools_stats
@@ -3622,6 +3634,7 @@ def _preflight_live(args: argparse.Namespace, symbols: List[str], limits: RiskLi
         con.execute("SELECT 1 FROM trades LIMIT 1").fetchall()
     finally:
         con.close()
+    timing.mark("database")
 
     # Check both clock offset and RTT: on a slow network, server-time estimation
     # is not reliable enough for signed orders.
@@ -3630,6 +3643,7 @@ def _preflight_live(args: argparse.Namespace, symbols: List[str], limits: RiskLi
         max_offset_ms=int(os.getenv("RISK_MAX_TIME_OFFSET_MS", "1000")),
         max_round_trip_ms=int(os.getenv("RISK_MAX_TIME_RTT_MS", "5000")),
     )
+    timing.mark("clock")
 
     for symbol in symbols:
         filters = get_exchange_filters(symbol)
@@ -3638,10 +3652,12 @@ def _preflight_live(args: argparse.Namespace, symbols: List[str], limits: RiskLi
         if invalid:
             raise RuntimeError(f"invalid exchange filters for {symbol}: {','.join(invalid)}")
         _FILTERS_CACHE[symbol] = filters
+    timing.mark("filters")
 
     account = TM._signed_get("/api/v3/account")
     if account.get("canTrade") is not True:
         raise RuntimeError("Binance account/API key is not allowed to trade")
+    timing.mark("account")
 
     pass_message = "[PREFLIGHT] PASS " + json.dumps(config, sort_keys=True)
     _log_info_rate_limited(
@@ -3700,6 +3716,7 @@ def _preflight_with_auth_backoff(
             )
             _save_auth_resilience_state(state)
         try:
+            _PREFLIGHT_STARTUP_PHASES.clear()
             _preflight_live(args, symbols, limits)
         except SUPERVISOR_OPERATION_ERRORS as exc:
             if args.live and preflight_resilience.is_transient_failure(exc):
@@ -4022,6 +4039,7 @@ def main():
     global _AI_RUNTIME_STATUS_PATH, _AI_RUNTIME_STATUS, _AI_CONTROL_PATH
     global _PREDICTION_SHADOW, _ACTIVE_CHAMPIONS, _STARTUP_TIMELINE
     _STARTUP_TIMELINE = StartupTimeline()
+    _PREFLIGHT_STARTUP_PHASES.clear()
     _RISK_STARTUP_PHASES.clear()
     _AI_DECISION_IDS.clear()
     _AI_CONTEXT_CACHE.clear()

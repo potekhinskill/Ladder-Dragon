@@ -482,14 +482,19 @@ def build_risk_snapshot(
     public_concurrency = _public_read_concurrency()
     negative_cache_ttl = _unvalued_negative_cache_ttl()
 
-    if env_flag("RISK_RECONCILE_SYNC_FILLS", True):
-        sync_recent_account_fills(symbols)
-    mark_phase("fill_sync")
-    balances = get_balances_full()
-    mark_phase("account")
-    configured_prices = _bounded_public_reads(
-        symbols, get_last_price_decimal, concurrency=public_concurrency
-    )
+    # Only public ticker I/O overlaps fill synchronization and account setup.
+    # Signed reads and reconciliation retain their authoritative order.
+    with ThreadPoolExecutor(max_workers=1, thread_name_prefix="risk-initial") as executor:
+        ticker_future = executor.submit(
+            _bounded_public_reads, symbols, get_last_price_decimal,
+            concurrency=public_concurrency,
+        )
+        if env_flag("RISK_RECONCILE_SYNC_FILLS", True):
+            sync_recent_account_fills(symbols)
+        mark_phase("fill_sync")
+        balances = get_balances_full()
+        mark_phase("account")
+        configured_prices = ticker_future.result()
     prices = dict(zip(symbols, configured_prices))
     valuation_metrics = ValuationMetrics()
     mark_phase("ticker")

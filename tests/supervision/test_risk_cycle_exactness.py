@@ -156,6 +156,16 @@ def test_parallel_pool_receives_only_explicit_public_readers():
         ):
             assert isinstance(node.args[1], ast.Name)
             readers.append(node.args[1].id)
+        elif (
+            isinstance(node, ast.Call)
+            and isinstance(node.func, ast.Attribute)
+            and node.func.attr == "submit"
+            and node.args
+            and isinstance(node.args[0], ast.Name)
+            and node.args[0].id == "_bounded_public_reads"
+        ):
+            assert isinstance(node.args[2], ast.Name)
+            readers.append(node.args[2].id)
 
     assert len(readers) == 4
     assert set(readers) == {
