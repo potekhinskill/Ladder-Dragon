@@ -472,3 +472,44 @@ def test_slow_diagnostics_do_not_hold_submission_lock(tmp_path, monkeypatch, war
             caller.join(5)
     assert not writer.is_alive()
     assert not collector.busy
+
+
+@pytest.mark.parametrize("changed", ["regime", "panic", "panic_hits"])
+@pytest.mark.parametrize("storage_fails", [False, True])
+def test_change_during_diagnostics_blocks_export(tmp_path, monkeypatch, changed, storage_fails):
+    now = [1_000]
+    collector = module.HistoricalContextCollector(
+        tmp_path / "context.sqlite3", public_get=client([]), signed_get=client([]),
+        clock=lambda: now[0], panic_run_dir=tmp_path)
+    entered, release = threading.Event(), threading.Event()
+    def slow(*args):
+        entered.set()
+        assert release.wait(5)
+        if storage_fails:
+            raise OSError("private-sentinel")
+        return {"status": "AVAILABLE"}
+    monkeypatch.setattr(collector.diagnostics, "update", slow)
+    kwargs = dict(arguments=arguments(), environ={}, regime="RANGE", panic=False, panic_hits=0)
+    collector.submit("SOLUSDT", **kwargs)
+    writer = collector.thread
+    try:
+        assert entered.wait(2)
+        now[0] = 61_000
+        kwargs[changed] = {"regime": "TREND_DOWN", "panic": True, "panic_hits": 1}[changed]
+        collector.submit("SOLUSDT", **kwargs)
+        assert collector.thread is writer
+        assert collector.invalidated_at == 61_000
+    finally:
+        release.set()
+        writer.join(5)
+    assert not writer.is_alive()
+    assert not collector.busy
+    result = collector.status["SOLUSDT"]
+    assert result["status"] == "BLOCKED"
+    assert result["reason"] == "OBSERVATION_SUPERSEDED"
+    assert result["observed_at_ms"] == 61_000
+    assert "private-sentinel" not in repr(result)
+    with pytest.raises(ValueError, match="unavailable evidence"):
+        export_context(collector.path, symbol="SOLUSDT",
+            classifier_fingerprint=fingerprint(v23_evidence_semantics_contract()["regime_classifier"]),
+            start_ms=62_000, end_ms=70_000, cutoff_ms=70_000)

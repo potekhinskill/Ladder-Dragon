@@ -1,5 +1,12 @@
 # Engineering mistakes and root causes
 
+### 2026-09-04 — Split invalidation from final evidence publication
+
+- **Impact:** a regime change during diagnostic I/O could leave stale AVAILABLE evidence exportable after the observed change.
+- **Root cause:** the nonblocking diagnostic fix released the lock after commit but retained the busy writer until later publication.
+- **Correction:** move diagnostics before the final invalidation check and make successful commit and publication one locked operation.
+- **Prevention:** test changed submissions during diagnostic I/O through the real journal exporter, including diagnostic storage failure.
+
 ### 2026-09-04 — Presented ledger arithmetic as exact source provenance
 
 - **Impact:** historical FIFO losses could appear to describe recent trading-cycle performance.

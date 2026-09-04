@@ -209,6 +209,11 @@ class HistoricalContextCollector:
             sources = None
             reason = reason or "SOURCE_UNAVAILABLE"
             error_type = type(exc).__name__
+        # Finish diagnostic I/O before the authoritative commit. A submission
+        # during diagnostics can still invalidate this uncommitted observation.
+        diagnostics = {}
+        self._diagnose(diagnostics, events)
+        persistence_failed = False
         # Serialize the short local commit with runtime invalidation. Network
         # calls never hold this lock. An observed state change cannot be lost
         # behind an older job that finishes after the change.
@@ -223,6 +228,7 @@ class HistoricalContextCollector:
                 result = self.journal.append(symbol=symbol, session_id=self.session_id,
                                              observed_at_ms=observed_at, sources=sources, reason=reason)
             except SOURCE_ERRORS as exc:
+                persistence_failed = True
                 failure("PERSISTENCE", exc)
                 result = {"status": "BLOCKED", "reason": "PERSISTENCE_UNAVAILABLE",
                           "observed_at_ms": self.clock()}
@@ -232,10 +238,16 @@ class HistoricalContextCollector:
                 apply_allowed=False,
                 error_type=error_type,
                 error_stage=error_stage,
+                diagnostics=diagnostics["diagnostics"],
             )
-        # Diagnostic I/O must not hold the lock used by supervisor submissions.
-        # Keep busy set until publication so no second diagnostic writer starts.
-        self._diagnose(result, events)
+            if not persistence_failed:
+                # Commit, publication, and writer release share one boundary.
+                self.status[symbol] = result
+                self.busy = False
+                return result
+        # A failed commit cannot publish AVAILABLE. Retain only the new failure;
+        # previous source failures were already recorded before the commit.
+        self._diagnose(result, events[-1:])
         with self.lock:
             self.status[symbol] = result
             self.busy = False

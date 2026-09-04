@@ -1,5 +1,12 @@
 # Engineering decisions
 
+### 2026-09-04 — Complete advisory I/O before authoritative publication
+
+- **Context:** diagnostic I/O after a journal commit left a window for observed state changes to lose their invalidation.
+- **Decision:** finish diagnostics first, then check invalidation, commit evidence, publish status, and release the writer under one lock.
+- **Why it worked:** export regressions reject changes to regime, PANIC state, and PANIC hits during successful or failed diagnostic I/O.
+- **Reuse:** asynchronous evidence producers. Keep authoritative publication atomic without moving advisory I/O into the shared lock.
+
 ### 2026-09-04 — Separate accounting allocation from execution ownership
 
 - **Context:** FIFO consumes oldest inventory, which can differ from the entry associated with a recent exit.

@@ -3,6 +3,19 @@
 All notable changes are documented here. Releases use Semantic Versioning; every
 section is dated and there is intentionally no `Unreleased` section.
 
+## [2.20.312] — 2026-09-04
+
+### Fixed
+- Historical context completes diagnostic I/O before its final invalidation check and authoritative journal commit.
+- Successful commit, status publication, and writer release share one lock boundary without diagnostic disk operations.
+- Persistence failures retain separate diagnostics without duplicating previously recorded source failures.
+- Existing evidence, retention, and trading authority remain unchanged. The fix does not retroactively validate earlier evidence.
+
+### Verified
+- The focused context suite passes: 79 tests, including six diagnostic publication race scenarios.
+- All six new scenarios fail against the previous implementation and pass with the correction.
+- The full suite passes: 1,828 tests. Compileall, Technical English, five safety audits, and Semgrep pass.
+
 ## [2.20.311] — 2026-09-04
 
 ### Fixed

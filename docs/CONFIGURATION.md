@@ -26,6 +26,9 @@ While the collector is stopped, the bounded file remains unchanged; the next obs
 Atomic replacement uses a private temporary file and synchronized writes.
 Nonblocking file opens reject non-regular diagnostic files before data reads or truncation.
 Diagnostic disk operations never hold the supervisor submission lock; one busy collector prevents concurrent diagnostic writers.
+Diagnostics finish before the final invalidation check and journal commit.
+Successful commit, status publication, and writer release share one lock boundary.
+This ordering preserves state changes observed during diagnostic I/O without rewriting earlier evidence.
 The final and temporary files each have a 32 KiB limit; a subsequent write replaces an interrupted temporary file.
 This disposable record has no archive dependency and needs no separate maintenance service.
 Invalid files remain untouched and report diagnostics as `UNAVAILABLE`.
