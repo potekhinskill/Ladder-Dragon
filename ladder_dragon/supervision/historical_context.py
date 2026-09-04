@@ -154,6 +154,7 @@ class HistoricalContextCollector:
                     public_get=self.public_get,
                     now_ms=self.clock(),
                     run_dir=self.panic_run_dir,
+                    clock=self.clock,
                 )
                 result = {
                     "status": "WARMING",
@@ -184,6 +185,7 @@ class HistoricalContextCollector:
                     public_get=self.public_get,
                     now_ms=self.clock(),
                     run_dir=self.panic_run_dir,
+                    clock=self.clock,
                 )
                 error_stage = "PANIC_MATCH"
                 observed_at = self.clock()

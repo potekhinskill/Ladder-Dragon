@@ -315,7 +315,7 @@ def test_cli_publishes_immutable_paired_replay(tmp_path, monkeypatch, capsys, re
         ]}]}
         fees = {"symbol": "SOLUSDT", **{name: {"maker": "0.001", "taker": "0.001", "buyer": "0", "seller": "0"}
                                         for name in ("standardCommission", "taxCommission", "specialCommission")}}
-        bars = [[n * 60_000, "100", "101", "99", "100", "1", n * 60_000 + 59_999]
+        bars = [[(n - 119) * 60_000, "100", "101", "99", "100", "1", (n - 119) * 60_000 + 59_999]
                 for n in range(120)]
         collector = HistoricalContextCollector(
             tmp_path / "context.sqlite3",

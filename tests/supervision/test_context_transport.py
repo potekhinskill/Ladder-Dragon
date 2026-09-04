@@ -72,7 +72,7 @@ def test_public_kline_transport_feeds_halt_safe_panic_observer(tmp_path):
     result = refresh_panic_observation(
         "SOLUSDT",
         public_get=client.public_get,
-        now_ms=1_000_000,
+        now_ms=7_141_000,
         run_dir=tmp_path,
     )
 

@@ -1,5 +1,26 @@
 # Engineering mistakes and root causes
 
+### 2026-09-04 — Renewed observations without validating candle time
+
+- **Impact:** an old candle response could clear PANIC after cooldown and receive a current source timestamp.
+- **Root cause:** the observer validated prices but ignored candle timestamps. Test fixtures did not represent source chronology.
+- **Correction:** validate minute continuity and source freshness at response arrival. Preserve state on invalid timestamps or response clocks.
+- **Prevention:** test stale recovery, future bars, gaps, duplicate bars, interval boundaries, delayed responses, and real collector publication. Align transport fixtures with their clocks.
+
+### 2026-09-04 — Treated positive prices as necessarily finite
+
+- **Impact:** a malformed infinite price could clear the observer PANIC state after cooldown and produce false market context.
+- **Root cause:** positivity checks admitted non-finite values, while a rejected trigger still reached the separate recovery comparison.
+- **Correction:** reject invalid candle prices and indicator results before any persisted transition.
+- **Prevention:** test every candle price field, exact state preservation, source expiry, diagnostic redaction, and collector failure paths.
+
+### 2026-09-04 — Replaced exact indicator inputs during validation
+
+- **Impact:** an initial local patch could round narrow candle ranges before Wilder ATR calculation. It was not published.
+- **Root cause:** validation reused float-normalized rows without first checking the indicator's Decimal implementation.
+- **Correction:** retain original ATR inputs and test a price range below float precision.
+- **Prevention:** inspect numeric boundaries before sharing normalized inputs between indicators.
+
 ### 2026-09-04 — Changed release identity during a full test run
 
 - **Impact:** three version consistency tests compared an imported old version with updated files and subprocesses.

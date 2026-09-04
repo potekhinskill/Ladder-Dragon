@@ -38,6 +38,7 @@ from ladder_dragon.risk.risk_statistics import (
 from ladder_dragon.supervision.entry_policy import finite_decimal
 from ladder_dragon.supervision.valuation_metrics import ValuationMetrics
 from ladder_dragon.supervision.valuation_batch import seed_prices
+from ladder_dragon.supervision.valuation_reads import ValuationReads
 
 
 class RiskConfigurationError(RuntimeError):
@@ -635,7 +636,8 @@ def build_risk_snapshot(
                     try:
                         candidate_price = valuation_tickers.get(candidate, route=route)
                         if env_flag("RISK_CONVERSION_DEPTH_REQUIRED", False):
-                            depth = valuation_metrics.read("depth", tools_market._public_get,
+                            depth = valuation_metrics.read("depth", valuation_reads.read,
+                                tools_market._public_get,
                                 "/api/v3/depth",
                                 {"symbol": candidate, "limit": 20},
                             ) or {}
@@ -665,8 +667,8 @@ def build_risk_snapshot(
                     _UNVALUED_MARKET_CACHE.discard(candidate)
                     return candidate_price
 
-                for quote in RISK_CONVERSION_QUOTE_ASSETS:
-                    candidate_price = read_cross_quote(quote)
+                candidates = valuation_reads.routes(RISK_CONVERSION_QUOTE_ASSETS, read_cross_quote)
+                for quote, candidate_price in zip(RISK_CONVERSION_QUOTE_ASSETS, candidates):
                     if candidate_price is None:
                         continue
                     if candidate_price > 0:
@@ -692,13 +694,15 @@ def build_risk_snapshot(
         (str(asset), balance) for asset, balance in balances.items()
     ]
     valuation_failed = True
+    valuation_reads = ValuationReads(public_concurrency)
     try:
         valuation_prices = (
             seed_prices(balances, prices, tools_market.get_ticker_prices_decimal, valuation_metrics)
             if env_flag("RISK_BATCH_TICKERS", True) else dict(prices)
         )
         valuation_tickers = _SnapshotTickerPrices(
-            get_last_price_decimal, valuation_prices, valuation_metrics,
+            lambda symbol: valuation_reads.read(get_last_price_decimal, symbol),
+            valuation_prices, valuation_metrics,
         )
         valued_assets = _bounded_public_reads(
             balance_items,
@@ -708,6 +712,7 @@ def build_risk_snapshot(
         valuation_failed = False
     finally:
         # The pool drains before publication, including a failed valuation.
+        valuation_reads.close()
         if callable(phase_callback):
             phase_callback("valuation_routes", valuation_metrics.snapshot(failed=valuation_failed))
     asset_values: Dict[str, Decimal] = {}

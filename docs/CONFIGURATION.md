@@ -162,6 +162,10 @@ Excluded assets cannot increase equity or CAP.
 The invalid-symbol cache is disposable, memory-only, and limited to 128 markets.
 Only Binance error `-1121` enters this cache.
 Expired entries cause a new public market check.
+Valuation assets and conversion routes share one public request limit.
+Parallel routes retain quote priority but can read additional lower-priority pairs.
+Set `RISK_PUBLIC_READ_CONCURRENCY=1` to retain sequential route checks and stop after the first usable route.
+All started valuation reads finish before snapshot publication or failure reporting.
 HALT, reset, cooldown, and evaluation use one process lock.
 `RISK_MAX_CONSECUTIVE_LOSSES` cannot exceed 4,096 retained SELL outcomes.
 Each SELL loss sign uses exact FIFO cost allocation.

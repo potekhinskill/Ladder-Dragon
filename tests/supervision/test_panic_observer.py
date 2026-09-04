@@ -8,10 +8,11 @@ from ladder_dragon.supervision.panic_observer import (
 )
 
 
-def klines(*, current: str = "100", previous: str = "100"):
+def klines(*, current: str = "100", previous: str = "100", now_ms: int = 1_000_000):
+    base = (now_ms // 60_000 - 119) * 60_000
     rows = [
-        [index * 60_000, "100", "101", "99", previous, "1",
-         index * 60_000 + 59_999]
+        [base + index * 60_000, "100", "101", "99", previous, "1",
+         base + index * 60_000 + 59_999]
         for index in range(120)
     ]
     rows[-1][4] = current
@@ -33,7 +34,7 @@ def test_observer_debounces_and_persists_without_worker(tmp_path):
     )
     assert first["on"] is False and first["hits"] == 1
     second = refresh_panic_observation(
-        "SOLUSDT", public_get=public(klines(current="95")),
+        "SOLUSDT", public_get=public(klines(current="95", now_ms=1_060_000)),
         now_ms=1_060_000, run_dir=tmp_path,
     )
     assert second["on"] is True and second["hits"] == 2

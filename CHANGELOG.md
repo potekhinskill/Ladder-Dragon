@@ -3,6 +3,28 @@
 All notable changes are documented here. Releases use Semantic Versioning; every
 section is dated and there is intentionally no `Unreleased` section.
 
+## [2.20.315] — 2026-09-04
+
+### Changed
+- Public valuation routes run concurrently under one shared request limit across all account assets, ticker reads, bridge reads, and depth reads.
+- Quote priority and exact Decimal calculations remain unchanged. Started reads finish before snapshot publication or failure reporting.
+- Parallel mode can read additional lower-priority pairs. A concurrency limit of one retains sequential checks and early completion.
+
+### Fixed
+- The PANIC observer rejects non-finite, nonpositive, boolean, and malformed candle prices before indicator calculations or state changes.
+- Invalid EMA or ATR results block publication. Price conversion failures expose only a fixed diagnostic message.
+- Candle timestamps require integer values, minute alignment, exact close boundaries, and consecutive intervals.
+- Final candle freshness uses response arrival time with a five-second clock tolerance. Forming candles remain valid; stale or delayed responses block publication.
+- Failed observations preserve the previous state bytes, debounce hits, cooldown, and source timestamp without extending freshness.
+- Valid observations retain the existing indicator calculations and source fingerprint. Wilder ATR retains its original decimal inputs.
+- The journal schema, historical evidence, HALT, and execution limits remain unchanged.
+
+### Verified
+- The focused valuation, snapshot, batch, and metrics suite passes: 81 tests, including nine new parallel-read regressions.
+- A synthetic four-route check decreases from 1,313 milliseconds sequentially to 655 milliseconds with concurrency three. This is not a Pi measurement.
+- The focused PANIC, historical context, transport, and replay suite passes: 248 tests, including 152 new regressions.
+- Regressions cover invalid candle fields, chronology, delayed responses, recovery, state expiry, exact ATR inputs, and blocked collector publication.
+
 ## [2.20.314] — 2026-09-04
 
 ### Fixed

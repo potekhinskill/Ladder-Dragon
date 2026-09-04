@@ -1,5 +1,26 @@
 # Engineering decisions
 
+### 2026-09-04 — Share capacity across nested public valuation reads
+
+- **Context:** parallel assets still waited for sequential conversion routes. Independent route pools could multiply exchange concurrency.
+- **Decision:** share one network semaphore across asset and route workers. Use separate route workers and consume results in policy order.
+- **Why it worked:** tests preserve exact prices, quote priority, fresh snapshots, request limits, and complete drainage before failure reporting.
+- **Reuse:** nested public reads. Never hold network capacity while waiting for child work, and never parallelize signed mutations through this path.
+
+### 2026-09-04 — Validate source chronology at response arrival
+
+- **Context:** a current observation timestamp does not prove that its market candles are current.
+- **Decision:** validate integer timestamps, interval alignment, continuity, and final candle age against the response arrival clock before publication.
+- **Why it worked:** regressions reject stale and delayed recovery inputs without renewing source state. The final candle can remain open.
+- **Reuse:** market observers. Receipt time must not replace source freshness, and validation must preserve exact financial inputs.
+
+### 2026-09-04 — Reject invalid market numbers before state transitions
+
+- **Context:** a positive infinity can satisfy a recovery comparison even when the trigger helper rejects it.
+- **Decision:** validate all candle prices and derived indicators before changing observer state. Keep original decimal inputs for exact calculations.
+- **Why it worked:** regressions preserve state bytes and freshness, reject unavailable evidence, and retain valid recovery and ATR precision.
+- **Reuse:** market-driven state machines. A failed trigger calculation must not become permission for recovery or a new source timestamp.
+
 ### 2026-09-04 — Bind evidence to the observation consumed by runtime
 
 - **Context:** a background refresh can produce a valid new state after runtime consumes the preceding observation.

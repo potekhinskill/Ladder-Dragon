@@ -112,6 +112,8 @@ Repeated cache use never renews a source timestamp.
 The runtime source records the exact confirmed regime and PANIC input consumed by the supervisor.
 A public supervisor observer refreshes PANIC state when the execution worker is absent.
 The observer state expires after two minutes.
+The observer rejects invalid candle prices and non-finite indicator results before any state transition.
+A failed observation preserves the previous state and timestamp; it cannot extend freshness or clear PANIC.
 Its fingerprint fixes the calculation, debounce, cooldown, and recovery rules.
 Unknown or stale PANIC state blocks collection; it never becomes a false value.
 A missing initial state primes the public observer without writing a journal gap.

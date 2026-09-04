@@ -25,9 +25,9 @@ def test_transitions_use_consumed_source_and_leave_next_state_for_next_cycle(tmp
     monkeypatch.setenv("BOT_RUN_DIR", str(tmp_path))
     monkeypatch.setattr(context.time, "time_ns", lambda: now[0] * 1_000_000)
     monkeypatch.setattr(observer, "panic_triggered", lambda *_: trigger[0])
-    observer.refresh_panic_observation("SOLUSDT", public_get=client([]), now_ms=now[0], run_dir=tmp_path)
+    observer.refresh_panic_observation("SOLUSDT", public_get=client([], lambda: now[0]), now_ms=now[0], run_dir=tmp_path)
     collector = context.HistoricalContextCollector(
-        tmp_path / "context.sqlite3", public_get=client([]), signed_get=client([]),
+        tmp_path / "context.sqlite3", public_get=client([], lambda: now[0]), signed_get=client([]),
         clock=lambda: now[0], panic_run_dir=tmp_path)
     consumed, refreshed = [], []
     for index in range(10):

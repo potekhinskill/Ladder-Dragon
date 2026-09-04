@@ -40,19 +40,20 @@ def panic_capture(now):
     }}
 
 
-def klines():
+def klines(now_ms=1000):
+    base = (now_ms // 60_000 - 119) * 60_000
     return [
-        [index * 60_000, "100", "101", "99", "100", "1",
-         index * 60_000 + 59_999]
+        [base + index * 60_000, "100", "101", "99", "100", "1",
+         base + index * 60_000 + 59_999]
         for index in range(120)
     ]
 
 
-def client(calls):
+def client(calls, clock=lambda: 1000):
     def get(endpoint, params):
         calls.append((endpoint, params))
         if endpoint == "/api/v3/klines":
-            return klines()
+            return klines(clock())
         if endpoint == "/api/v3/exchangeInfo":
             return {"symbols": [{"symbol": "SOLUSDT", "status": "TRADING", "filters": [
                 {"filterType": "PRICE_FILTER", "tickSize": "0.01"},
@@ -67,7 +68,7 @@ def client(calls):
 
 def test_get_only_collection_caches_without_renewing_source_time(tmp_path):
     calls, now = [], [1000]
-    collector = module.HistoricalContextCollector(tmp_path / "context.sqlite3", public_get=client(calls),
+    collector = module.HistoricalContextCollector(tmp_path / "context.sqlite3", public_get=client(calls, lambda: now[0]),
                                                  signed_get=client(calls), clock=lambda: now[0],
                                                  panic_run_dir=tmp_path)
     assert collector.collect("SOLUSDT", captured(1000))["status"] == "AVAILABLE"
@@ -186,7 +187,7 @@ def test_cached_sources_cover_a_six_hour_export_without_periodic_gaps(tmp_path):
     calls, now = [], [1_000]
     collector = module.HistoricalContextCollector(
         tmp_path / "context.sqlite3",
-        public_get=client(calls),
+        public_get=client(calls, lambda: now[0]),
         signed_get=client(calls),
         clock=lambda: now[0],
         panic_run_dir=tmp_path,
@@ -198,7 +199,7 @@ def test_cached_sources_cover_a_six_hour_export_without_periodic_gaps(tmp_path):
     while now[0] <= end_ms + 31_000:
         refresh_panic_observation(
             "SOLUSDT",
-            public_get=client(calls),
+            public_get=client(calls, lambda: now[0]),
             now_ms=now[0],
             run_dir=tmp_path,
         )
@@ -318,12 +319,12 @@ def test_runtime_wiring_respects_scope_and_preserves_halt(tmp_path, monkeypatch)
     monkeypatch.setenv("BOT_HISTORICAL_CONTEXT_SYMBOLS", "SOLUSDT")
     monkeypatch.setenv("BOT_RUN_DIR", str(tmp_path))
     monkeypatch.setattr(module, "HistoricalContextClient", lambda **_: SimpleNamespace(
-        public_get=client(calls), signed_get=client(calls)))
+        public_get=client(calls, lambda: int(module.time.time() * 1000)), signed_get=client(calls)))
     runtime = {"_AI_RUNTIME_STATUS": {"risk": {"halted": True}},
                "_PREDICTION_SHADOW": SimpleNamespace(path=tmp_path / "prediction.sqlite3"),
                "TM": SimpleNamespace(BASE_URL="https://api.binance.com")}
     refresh_panic_observation(
-        "SOLUSDT", public_get=client(calls), now_ms=int(module.time.time() * 1000),
+        "SOLUSDT", public_get=client(calls, lambda: int(module.time.time() * 1000)), now_ms=int(module.time.time() * 1000),
         run_dir=tmp_path,
     )
     calls.clear()

@@ -284,13 +284,13 @@ def test_risk_snapshot_caches_definitive_missing_routes_for_valued_assets(
             ["SOLUSDT"], runtime.RiskLimits.from_mapping({})
         )
 
-    assert first_attempt == (
+    assert set(first_attempt) == {
         "KERNELUSDT",
         "KERNELUSDC",
         "KERNELFDUSD",
         "KERNELBTC",
         "KERNELETH",
-    )
+    }
     assert tuple(requested) == first_attempt
 
 

@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import math
 import os
 from pathlib import Path
 import re
@@ -33,6 +34,8 @@ PANIC_OBSERVER_CONTRACT = {
 }
 MAXIMUM_OBSERVATION_AGE_MS = 120_000
 MAXIMUM_STATE_BYTES = 16_384
+KLINE_INTERVAL_MS = 60_000
+CLOCK_TOLERANCE_MS = 5_000
 
 
 def _canonical(payload: Mapping[str, object]) -> bytes:
@@ -113,14 +116,44 @@ def _indicators(klines: object) -> tuple[float, float, float, float]:
         raise ValueError("PANIC observer klines are incomplete")
     if any(not isinstance(row, list) or len(row) < 7 for row in klines):
         raise ValueError("PANIC observer kline schema is invalid")
-    closes = [float(row[4]) for row in klines[:-1]]
-    if any(value <= 0 for value in closes) or float(klines[-1][4]) <= 0:
-        raise ValueError("PANIC observer price is invalid")
+    # Validate every price before indicator math or any persisted transition.
+    # A non-finite current price must never clear PANIC through recovery.
+    validated_closes = []
+    for row in klines:
+        try:
+            prices = [float(value) for value in row[1:5]]
+        except (TypeError, ValueError, OverflowError):
+            raise ValueError("PANIC observer price is invalid") from None
+        if any(isinstance(value, bool) for value in row[1:5]) or any(
+            not math.isfinite(value) or value <= 0 for value in prices
+        ):
+            raise ValueError("PANIC observer price is invalid")
+        validated_closes.append(prices[3])
+    closes = validated_closes[:-1]
     ema20 = ema_value(closes[-60:], 20)
+    # Keep original decimal strings for the exact Wilder ATR implementation.
     atr14 = atr_from_klines(klines, 14)
-    if ema20 <= 0 or atr14 <= 0:
+    if any(not math.isfinite(value) or value <= 0 for value in (ema20, atr14)):
         raise ValueError("PANIC observer indicators are unavailable")
-    return float(klines[-1][4]), ema20, atr14, closes[-1]
+    return validated_closes[-1], ema20, atr14, closes[-1]
+
+
+def _validate_kline_times(klines: list, now_ms: int) -> None:
+    """Reject stale, future, or discontinuous source bars before publication."""
+    previous_open = None
+    for row in klines:
+        opened, closed = row[0], row[6]
+        if (
+            type(opened) is not int or type(closed) is not int
+            or opened % KLINE_INTERVAL_MS != 0
+            or closed != opened + KLINE_INTERVAL_MS - 1
+            or (previous_open is not None and opened != previous_open + KLINE_INTERVAL_MS)
+        ):
+            raise ValueError("PANIC observer candle chronology is invalid")
+        previous_open = opened
+    # The final candle can still be forming; its close need not precede now.
+    if not -CLOCK_TOLERANCE_MS <= now_ms - klines[-1][0] < KLINE_INTERVAL_MS + CLOCK_TOLERANCE_MS:
+        raise ValueError("PANIC observer candle freshness is invalid")
 
 
 def refresh_panic_observation(
@@ -129,6 +162,7 @@ def refresh_panic_observation(
     public_get: Callable[[str, dict[str, object]], object],
     now_ms: int,
     run_dir: str | Path | None = None,
+    clock: Callable[[], int] | None = None,
 ) -> dict[str, object]:
     """Refresh public PANIC state without worker, account, or order access."""
     path = panic_observer_path(symbol, run_dir=run_dir)
@@ -137,7 +171,12 @@ def refresh_panic_observation(
         "/api/v3/klines",
         {"symbol": str(symbol).strip().upper(), "interval": "1m", "limit": 120},
     )
+    received_at = clock() if clock is not None else now_ms
+    if type(received_at) is not int or not 0 <= received_at - now_ms < MAXIMUM_OBSERVATION_AGE_MS:
+        raise ValueError("PANIC observer response clock is invalid")
+    now_ms = received_at
     now_price, ema20, atr14, previous_close = _indicators(klines)
+    _validate_kline_times(klines, now_ms)
     triggered = panic_triggered(
         now_price, ema20, atr14, previous_close, 0.02, 2.0
     )
