@@ -1,5 +1,19 @@
 # Engineering mistakes and root causes
 
+### 2026-09-04 — Changed release identity during a full test run
+
+- **Impact:** three version consistency tests compared an imported old version with updated files and subprocesses.
+- **Root cause:** release metadata changed after pytest imported the product module.
+- **Correction:** finish release metadata first and repeat verification against one unchanged candidate.
+- **Prevention:** freeze source files and release identity before full-suite or release-profile execution.
+
+### 2026-09-04 — Compared consumed state with its own later refresh
+
+- **Impact:** normal PANIC transitions could create unavailable historical context and delay selection evidence.
+- **Root cause:** runtime retained only state values, while the collector refreshed their source before the equality check.
+- **Correction:** pass the complete consumed observation and preserve its timestamp. Refresh only the next cycle's input.
+- **Prevention:** test flag transitions, debounce hits, source identity, chronology, detached capture, and export through the actual asynchronous collector.
+
 ### 2026-09-04 — Split invalidation from final evidence publication
 
 - **Impact:** a regime change during diagnostic I/O could leave stale AVAILABLE evidence exportable after the observed change.

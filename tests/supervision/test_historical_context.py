@@ -12,7 +12,7 @@ from ladder_dragon.strategy.prediction.episode_semantics import v23_evidence_sem
 from ladder_dragon.strategy.prediction.historical_policy import fingerprint
 from ladder_dragon.strategy.prediction.context_sources import fee_schedule_source
 from ladder_dragon.supervision.panic_observer import (
-    refresh_panic_observation,
+    panic_observer_fingerprint, refresh_panic_observation,
 )
 
 
@@ -28,7 +28,16 @@ def captured(now):
         "regime": "RANGE",
         "panic": False,
         "panic_hits": 0,
+        "panic_observation": panic_capture(now)["observation"],
     }
+
+
+def panic_capture(now):
+    return {"captured_at_ms": now, "observation": {
+        "schema_version": 1, "symbol": "SOLUSDT", "on": False, "hits": 0,
+        "since_ms": 0, "last_trigger_ms": 0, "updated_at_ms": now,
+        "source_fingerprint": panic_observer_fingerprint(),
+    }}
 
 
 def klines():
@@ -257,6 +266,7 @@ def test_submission_primes_missing_panic_without_journal_gap(tmp_path):
         regime="RANGE",
         panic=False,
         panic_hits=0,
+        panic_capture=panic_capture(now[0]),
     )
     collector.thread.join(5)
 
@@ -280,11 +290,11 @@ def test_submission_never_waits_or_queues_more_work(tmp_path, other_symbol):
     )
     calls.clear()
     try:
-        collector.submit("SOLUSDT", arguments=arguments(), environ={}, regime="RANGE", panic=False, panic_hits=0)
+        collector.submit("SOLUSDT", arguments=arguments(), environ={}, regime="RANGE", panic=False, panic_hits=0, panic_capture=panic_capture(1000))
         assert entered.wait(2)
         first = collector.thread
         collector.submit("ETHUSDT" if other_symbol else "SOLUSDT", arguments=arguments(), environ={},
-                         regime="TREND_UP", panic=False, panic_hits=0)
+                         regime="TREND_UP", panic=False, panic_hits=0, panic_capture=panic_capture(1000))
         assert collector.thread is first
     finally:
         release.set()
@@ -320,7 +330,8 @@ def test_runtime_wiring_respects_scope_and_preserves_halt(tmp_path, monkeypatch)
     for symbol in ("ETHUSDT", "BTCUSDT"):
         module.observe_runtime(runtime, arguments(), symbol, "RANGE", False, 0)
     assert module._COLLECTOR is None and not calls
-    module.observe_runtime(runtime, arguments(), "SOLUSDT", "RANGE", False, 0)
+    panic, hits, source = module.capture_runtime_panic("SOLUSDT", None)
+    module.observe_runtime(runtime, arguments(), "SOLUSDT", "RANGE", panic, hits, panic_capture=source)
     collector = module._COLLECTOR
     collector.thread.join(5)
     assert not collector.thread.is_alive()
@@ -452,7 +463,8 @@ def test_slow_diagnostics_do_not_hold_submission_lock(tmp_path, monkeypatch, war
         return {"status": "AVAILABLE"}
     monkeypatch.setattr(collector.diagnostics, "update", slow)
     kwargs = dict(arguments=arguments(), environ={}, regime="RANGE",
-                  panic=None if warmup else False, panic_hits=None if warmup else 0)
+                  panic=None if warmup else False, panic_hits=None if warmup else 0,
+                  panic_capture=None if warmup else panic_capture(1000))
     collector.submit("SOLUSDT", **kwargs)
     writer = collector.thread
     def submit():
@@ -489,7 +501,8 @@ def test_change_during_diagnostics_blocks_export(tmp_path, monkeypatch, changed,
             raise OSError("private-sentinel")
         return {"status": "AVAILABLE"}
     monkeypatch.setattr(collector.diagnostics, "update", slow)
-    kwargs = dict(arguments=arguments(), environ={}, regime="RANGE", panic=False, panic_hits=0)
+    kwargs = dict(arguments=arguments(), environ={}, regime="RANGE", panic=False, panic_hits=0,
+                  panic_capture=panic_capture(1000))
     collector.submit("SOLUSDT", **kwargs)
     writer = collector.thread
     try:

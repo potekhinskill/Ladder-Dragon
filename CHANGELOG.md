@@ -3,6 +3,19 @@
 All notable changes are documented here. Releases use Semantic Versioning; every
 section is dated and there is intentionally no `Unreleased` section.
 
+## [2.20.314] — 2026-09-04
+
+### Fixed
+- Runtime and historical context share one validated PANIC observation, including its original timestamp and source fingerprint.
+- Asynchronous public refresh prepares the next cycle; normal PANIC transitions no longer invalidate the preceding consumed input.
+- Missing, mismatched, stale, or future source data still blocks evidence. Changed runtime submissions retain atomic publication invalidation.
+- No journal schema, historical evidence, execution limits, or HALT state changes.
+
+### Verified
+- The focused context, PANIC, and architecture suite passes: 61 tests, including 17 new regressions.
+- The replay and context transport suite passes: 46 tests.
+- Compileall, Technical English, five safety audits, and Semgrep pass.
+
 ## [2.20.313] — 2026-09-04
 
 ### Changed

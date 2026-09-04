@@ -6,6 +6,7 @@
 from __future__ import annotations
 
 import os
+from copy import deepcopy
 from pathlib import Path
 import sqlite3
 import threading
@@ -18,7 +19,7 @@ import requests
 from ladder_dragon.supervision.context_transport import HistoricalContextClient
 from ladder_dragon.supervision.context_diagnostics import ContextDiagnostics, error_category
 from ladder_dragon.supervision.panic_observer import (
-    refresh_panic_observation,
+    read_panic_observation, refresh_panic_observation, validate_panic_observation,
 )
 from ladder_dragon.strategy.prediction.context_journal import ContextJournal
 from ladder_dragon.strategy.prediction.context_sources import (
@@ -34,6 +35,25 @@ from ladder_dragon.strategy.prediction.episode_semantics import (
 SOURCE_ERRORS = (OSError, RuntimeError, ValueError, TypeError, KeyError, AttributeError, ArithmeticError,
                  sqlite3.Error, requests.RequestException)
 _FEE_SOURCE_UNSET = object()
+
+
+def capture_runtime_panic(
+    symbol: str, legacy_reader: Callable[[str], tuple[bool | None, int | None]],
+) -> tuple[bool | None, int | None, dict | None]:
+    """Read once at runtime consumption; keep a detached source for the journal."""
+    if os.getenv("BOT_HISTORICAL_CONTEXT_ENABLED", "0") != "1":
+        panic, hits = legacy_reader(symbol)
+        return panic, hits, None
+    now = time.time_ns() // 1_000_000
+    try:
+        observation = read_panic_observation(symbol, now_ms=now)
+    except (OSError, TypeError, ValueError, OverflowError):
+        observation = None
+    if observation is None:
+        return None, None, None
+    return observation["on"], observation["hits"], {
+        "captured_at_ms": now, "observation": observation,
+    }
 
 
 def fee_attestation_from_runtime_cache(
@@ -156,24 +176,31 @@ class HistoricalContextCollector:
             return result
         try:
             if reason is None:
-                # Recheck the state already consumed by this runtime cycle.
-                # A change during the asynchronous read must fail closed.
+                # Refresh only the next cycle's input. It is not the source
+                # consumed by the current runtime decision.
                 error_stage = "PANIC_REFRESH"
-                observation = refresh_panic_observation(
+                refresh_panic_observation(
                     symbol,
                     public_get=self.public_get,
                     now_ms=self.clock(),
                     run_dir=self.panic_run_dir,
                 )
                 error_stage = "PANIC_MATCH"
+                observed_at = self.clock()
+                observation = validate_panic_observation(
+                    symbol, captured.get("panic_observation") if captured else None,
+                    now_ms=observed_at,
+                )
                 if (
                     captured is None
-                    or self.clock() - captured["captured_at_ms"] >= 120_000
+                    or observation is None
+                    or type(captured["captured_at_ms"]) is not int
+                    or not observation["updated_at_ms"] <= captured["captured_at_ms"] <= observed_at
+                    or observed_at - captured["captured_at_ms"] >= 120_000
                     or observation["on"] is not captured["panic"]
                     or observation["hits"] != captured["panic_hits"]
                 ):
                     raise ValueError("PANIC observation differs from runtime")
-                observed_at = self.clock()
                 error_stage = "RUNTIME_SOURCE"
                 runtime_source = attest("runtime", symbol, observed_at, {
                     "classifier": captured["classifier"],
@@ -255,6 +282,7 @@ class HistoricalContextCollector:
 
     def submit(self, symbol: str, *, arguments, environ: dict, regime: str,
                panic: bool | None, panic_hits: int | None,
+               panic_capture: dict | None = None,
                fee_attestation: object = _FEE_SOURCE_UNSET) -> dict:
         """Capture the exact consumed runtime input before any asynchronous read."""
         symbol_name(symbol)
@@ -270,9 +298,11 @@ class HistoricalContextCollector:
             ):
                 reason = "PANIC_WARMUP"
             else:
+                capture = panic_capture if isinstance(panic_capture, dict) else {}
                 captured = {
                     "classifier": v23_evidence_semantics_contract()["regime_classifier"],
-                    "captured_at_ms": now,
+                    "captured_at_ms": capture.get("captured_at_ms"),
+                    "panic_observation": deepcopy(capture.get("observation")),
                     "regime": regime,
                     "panic": panic,
                     "panic_hits": panic_hits,
@@ -311,6 +341,7 @@ _COLLECTOR: HistoricalContextCollector | None = None
 
 def observe_runtime(runtime: dict, arguments, symbol: str, regime: str,
                     panic: bool | None, panic_hits: int | None,
+                    panic_capture: dict | None = None,
                     fee_attestation: object = _FEE_SOURCE_UNSET) -> None:
     """Keep context available under HALT without coupling it to candidate plans."""
     global _COLLECTOR
@@ -340,6 +371,7 @@ def observe_runtime(runtime: dict, arguments, symbol: str, regime: str,
             raise ValueError("context storage changed during process lifetime")
         state[symbol] = _COLLECTOR.submit(symbol, arguments=arguments, environ=os.environ,
                                         regime=regime, panic=panic, panic_hits=panic_hits,
+                                        panic_capture=panic_capture,
                                         fee_attestation=fee_attestation)
     except SOURCE_ERRORS as exc:
         state[symbol] = {"status": "BLOCKED", "reason": "COLLECTOR_UNAVAILABLE", "error_type": type(exc).__name__}

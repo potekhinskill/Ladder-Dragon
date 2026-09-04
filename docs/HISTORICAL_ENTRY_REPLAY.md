@@ -116,7 +116,10 @@ Its fingerprint fixes the calculation, debounce, cooldown, and recovery rules.
 Unknown or stale PANIC state blocks collection; it never becomes a false value.
 A missing initial state primes the public observer without writing a journal gap.
 The next cycle records the exact PANIC state consumed by the runtime.
-A state change during a pending source read creates an explicit unavailable record.
+Runtime captures that observation once, with its original timestamp and fingerprint.
+The collector validates a detached copy against the consumed flag, hits, and capture time.
+Public refresh prepares the next cycle; it cannot replace the current cycle's source.
+A changed runtime submission during a pending source read creates an explicit unavailable record.
 The status appears under `historical_context` in the runtime status object.
 Failure status contains an error class, not an exception message.
 

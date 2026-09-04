@@ -71,6 +71,16 @@ def read_panic_observation(
         if not path.is_file() or path.stat().st_size > MAXIMUM_STATE_BYTES:
             return None
         payload = json.loads(path.read_text(encoding="utf-8"))
+        return validate_panic_observation(symbol, payload, now_ms=now_ms)
+    except (OSError, TypeError, ValueError, json.JSONDecodeError):
+        return None
+
+
+def validate_panic_observation(
+    symbol: str, payload: object, *, now_ms: int,
+) -> dict[str, object] | None:
+    """Validate a detached observation with the same rules as the state reader."""
+    try:
         expected = {
             "schema_version", "symbol", "on", "hits", "since_ms",
             "last_trigger_ms", "updated_at_ms", "source_fingerprint",
@@ -92,8 +102,8 @@ def read_panic_observation(
         for field in ("since_ms", "last_trigger_ms"):
             if type(payload[field]) is not int or payload[field] < 0:
                 return None
-        return payload
-    except (OSError, TypeError, ValueError, json.JSONDecodeError):
+        return dict(payload)
+    except (TypeError, ValueError):
         return None
 
 
@@ -183,5 +193,6 @@ __all__ = [
     "panic_observer_fingerprint",
     "panic_observer_path",
     "read_panic_observation",
+    "validate_panic_observation",
     "refresh_panic_observation",
 ]

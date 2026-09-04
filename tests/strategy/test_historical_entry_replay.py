@@ -306,7 +306,7 @@ def test_cli_publishes_immutable_paired_replay(tmp_path, monkeypatch, capsys, re
         from ladder_dragon.supervision.historical_context import HistoricalContextCollector
         from ladder_dragon.strategy.prediction.episode_semantics import v23_evidence_semantics_contract
         from ladder_dragon.strategy.prediction.historical_policy import fingerprint
-        from ladder_dragon.supervision.panic_observer import panic_observer_fingerprint
+        from ladder_dragon.supervision.panic_observer import panic_observer_fingerprint, refresh_panic_observation
         classifier = v23_evidence_semantics_contract()["regime_classifier"]
         filters = {"symbols": [{"symbol": "SOLUSDT", "status": "TRADING", "filters": [
             {"filterType": "PRICE_FILTER", "tickSize": "0.01"},
@@ -328,6 +328,8 @@ def test_cli_publishes_immutable_paired_replay(tmp_path, monkeypatch, capsys, re
             "regime": "RANGE",
             "panic": False,
             "panic_hits": 0,
+            "panic_observation": refresh_panic_observation(
+                "SOLUSDT", public_get=collector.public_get, now_ms=1000, run_dir=tmp_path),
         })["status"] == "AVAILABLE"
         payload.pop("context")
         payload["policy"]["classifier_fingerprint"] = fingerprint(classifier)

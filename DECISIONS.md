@@ -1,5 +1,12 @@
 # Engineering decisions
 
+### 2026-09-04 — Bind evidence to the observation consumed by runtime
+
+- **Context:** a background refresh can produce a valid new state after runtime consumes the preceding observation.
+- **Decision:** capture the validated source once, detach it before asynchronous work, and verify its identity and age before attestation.
+- **Why it worked:** transition regressions preserve source timestamps and continuous export without suppressing changed-submission invalidation.
+- **Reuse:** asynchronous evidence collectors. A new observation belongs to the next consumer cycle, not the preceding decision.
+
 ### 2026-09-04 — Treat batch omission separately from definitive absence
 
 - **Context:** repeated direct ticker reads dominated whole-account valuation, while a batch can omit requested symbols.

@@ -2664,7 +2664,7 @@ def run_for_symbol(
         "DOWN": "TREND_DOWN",
         "FLAT": "RANGE",
     }.get(dir_mode, "RANGE")
-    executor_panic, _panic_hits = _prediction_panic_state(symbol)
+    executor_panic, _panic_hits, panic_capture = historical_context.capture_runtime_panic(symbol, _prediction_panic_state)
     regime_machine = _EXECUTION_REGIMES.setdefault(
         symbol,
         RegimeExecutionStateMachine(
@@ -2749,7 +2749,7 @@ def run_for_symbol(
                 f"[EXPECTANCY-BLOCK] {symbol} authoritative commission "
                 f"unavailable={commission_error}"
             )
-    historical_context.observe_runtime(globals(), args, symbol, confirmed_regime, executor_panic, _panic_hits, fee_attestation=historical_context.fee_attestation_from_runtime_cache(symbol, _COMMISSION_CACHE.get(symbol)))
+    historical_context.observe_runtime(globals(), args, symbol, confirmed_regime, executor_panic, _panic_hits, panic_capture=panic_capture, fee_attestation=historical_context.fee_attestation_from_runtime_cache(symbol, _COMMISSION_CACHE.get(symbol)))
     cycle_log(
         f"[REGIME-{regime_mode}] {symbol} raw={raw_regime} "
         f"confirmed={confirmed_regime} buys={regime_policy.buys_allowed} "
