@@ -467,6 +467,9 @@ def build_risk_snapshot(
         runtime, "_configured_unvalued_assets"
     )
     get_last_price_decimal = _runtime_dependency(runtime, "get_last_price_decimal")
+    get_initial_last_price_decimal = _runtime_dependency(
+        runtime, "get_initial_last_price_decimal"
+    )
     control_mode = _runtime_dependency(runtime, "_control_mode")
     get_exchange_filters_cached = _runtime_dependency(runtime, "get_exchange_filters_cached")
     analytics_float = _runtime_dependency(runtime, "_analytics_float")
@@ -486,7 +489,7 @@ def build_risk_snapshot(
     # Signed reads and reconciliation retain their authoritative order.
     with ThreadPoolExecutor(max_workers=1, thread_name_prefix="risk-initial") as executor:
         ticker_future = executor.submit(
-            _bounded_public_reads, symbols, get_last_price_decimal,
+            _bounded_public_reads, symbols, get_initial_last_price_decimal,
             concurrency=public_concurrency,
         )
         if env_flag("RISK_RECONCILE_SYNC_FILLS", True):

@@ -17,6 +17,7 @@ import json
 import sqlite3
 import re
 import hashlib
+from concurrent.futures import ThreadPoolExecutor
 from urllib.parse import urlparse
 from dataclasses import asdict, replace
 from datetime import datetime, timedelta, timezone
@@ -640,17 +641,28 @@ def _observe_public_ip(state: AuthResilienceState) -> tuple[AuthResilienceState,
         valid_endpoints.append(endpoint)
     if not valid_endpoints:
         return state, None
-    fingerprints: list[str] = []
-    for endpoint in valid_endpoints:
+    def observe(endpoint: str) -> str | None:
         try:
             response = requests.get(endpoint, timeout=5)
             response.raise_for_status()
-            fingerprints.append(public_ip_fingerprint(response.text))
+            return public_ip_fingerprint(response.text)
         except (requests.RequestException, UnicodeError, ValueError) as exc:
             log(
                 "[IP-GUARD] one public IP source unavailable; "
                 f"error_type={type(exc).__name__}"
             )
+            return None
+
+    # These public sources are independent. Join all reads before consensus.
+    with ThreadPoolExecutor(
+        max_workers=len(valid_endpoints),
+        thread_name_prefix="ip-guard",
+    ) as executor:
+        fingerprints = [
+            fingerprint
+            for fingerprint in executor.map(observe, valid_endpoints)
+            if fingerprint is not None
+        ]
     consensus = (
         fingerprints[0]
         if len(fingerprints) >= 2 and len(set(fingerprints)) == 1
@@ -866,6 +878,20 @@ def get_last_price(symbol: str) -> float:
 def get_last_price_decimal(symbol: str) -> Decimal:
     """Return an exact positive ticker price for financial valuation."""
     price = _finite_decimal(TM.get_ticker_price_decimal(symbol), name=f"{symbol} ticker price")
+    if price <= 0:
+        raise ValueError(f"{symbol} ticker price must be positive")
+    return price
+
+
+def get_initial_last_price_decimal(symbol: str) -> Decimal:
+    """Read one initial ticker through the public-only startup transport."""
+    price = _finite_decimal(
+        TM.get_ticker_price_decimal(
+            symbol,
+            session=TM.INITIAL_PUBLIC_SESSION,
+        ),
+        name=f"{symbol} ticker price",
+    )
     if price <= 0:
         raise ValueError(f"{symbol} ticker price must be positive")
     return price
@@ -3692,13 +3718,20 @@ def _preflight_with_auth_backoff(
     limits: RiskLimits,
 ) -> None:
     """Retry auth and transient read failures without a systemd restart storm."""
-    state = _read_auth_resilience_state()
-    attempt = int(state.attempt)
+    state: AuthResilienceState | None = None
+    attempt = 0
     transient_attempt = 0
     while True:
+        _PREFLIGHT_STARTUP_PHASES.clear()
+        outer_timing = StartupSubphases(_record_preflight_startup_phase)
+        if state is None:
+            state = _read_auth_resilience_state()
+            attempt = int(state.attempt)
+        outer_timing.mark("auth_backoff_state")
         consensus = None
         if args.live:
             state, consensus = _observe_public_ip(state)
+        outer_timing.mark("ip_guard")
         now_epoch = int(time.time())
         if state.retry_at_epoch > now_epoch:
             _wait_for_resilience_retry(
@@ -3716,8 +3749,19 @@ def _preflight_with_auth_backoff(
             )
             _save_auth_resilience_state(state)
         try:
-            _PREFLIGHT_STARTUP_PHASES.clear()
+            live_preflight_started = time.monotonic()
             _preflight_live(args, symbols, limits)
+            live_preflight_ms = max(
+                0,
+                round((time.monotonic() - live_preflight_started) * 1000),
+            )
+            _record_preflight_startup_phase(
+                "live_preflight",
+                {
+                    "delta_ms": live_preflight_ms,
+                    "elapsed_ms": live_preflight_ms,
+                },
+            )
         except SUPERVISOR_OPERATION_ERRORS as exc:
             if args.live and preflight_resilience.is_transient_failure(exc):
                 transient_attempt += 1

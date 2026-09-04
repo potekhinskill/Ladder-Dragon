@@ -1,6 +1,9 @@
 """Focused regressions for persistent public IP alert transitions."""
 
 import inspect
+import threading
+
+import requests
 
 from ladder_dragon.execution.auth_resilience import (
     AuthResilienceState,
@@ -44,6 +47,47 @@ def test_same_pending_public_ip_alerts_only_once(tmp_path, monkeypatch):
     assert first_consensus == second_consensus
     assert repeated.pending_public_ip_sha256 == first_consensus
     assert notices == ["changed"]
+
+
+def test_public_ip_sources_overlap_and_join_before_consensus(monkeypatch):
+    barrier = threading.Barrier(2)
+    completed = []
+    monkeypatch.setenv(
+        "BINANCE_PUBLIC_IP_ENDPOINTS",
+        "https://one.example.invalid,https://two.example.invalid",
+    )
+
+    def get(endpoint, *, timeout):
+        assert timeout == 5
+        barrier.wait(timeout=2)
+        completed.append(endpoint)
+        return _Response()
+
+    monkeypatch.setattr(supervisor.requests, "get", get)
+    observed, consensus = supervisor._observe_public_ip(AuthResilienceState())
+
+    assert len(completed) == 2
+    assert consensus == public_ip_fingerprint(_Response.text)
+    assert observed.public_ip_sha256 == consensus
+
+
+def test_one_public_ip_failure_cannot_create_consensus(monkeypatch, capsys):
+    monkeypatch.setenv(
+        "BINANCE_PUBLIC_IP_ENDPOINTS",
+        "https://one.example.invalid,https://two.example.invalid",
+    )
+
+    def get(endpoint, *, timeout):
+        if "one." in endpoint:
+            raise requests.ConnectionError("synthetic-private-marker")
+        return _Response()
+
+    monkeypatch.setattr(supervisor.requests, "get", get)
+    observed, consensus = supervisor._observe_public_ip(AuthResilienceState())
+
+    assert observed == AuthResilienceState()
+    assert consensus is None
+    assert "synthetic-private-marker" not in capsys.readouterr().out
 
 
 def test_runtime_auth_recovery_accepts_pending_ip_before_notice():

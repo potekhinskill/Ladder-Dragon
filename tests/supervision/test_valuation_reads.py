@@ -47,6 +47,7 @@ def test_slower_first_route_wins_and_prices_are_not_reused(monkeypatch, snapshot
         raise missing()
 
     monkeypatch.setattr(runtime, "get_last_price_decimal", read)
+    monkeypatch.setattr(runtime, "get_initial_last_price_decimal", read)
     for value in ("2.123456789123456789", "3.123456789123456789"):
         price[0] = Decimal(value)
         later_finished.clear()
@@ -93,6 +94,7 @@ def test_snapshot_global_capacity_includes_depth_and_bridge(monkeypatch, snapsho
             assert active == 0
 
     monkeypatch.setattr(runtime, "get_last_price_decimal", read)
+    monkeypatch.setattr(runtime, "get_initial_last_price_decimal", read)
     monkeypatch.setattr(runtime.TM, "_public_get", book)
     monkeypatch.setattr(runtime, "_record_risk_startup_phase", phase)
     result, _, _ = runtime._build_risk_snapshot(["SOLUSDT"], snapshot_runtime)

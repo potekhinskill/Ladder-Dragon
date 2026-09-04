@@ -937,7 +937,7 @@ def test_reconciliation_retries_recent_fill_and_allows_exchange_dust(tmp_path, m
         {"SOL": {"free": 0.000742, "locked": 0.0}, "USDT": {"free": 1000.0, "locked": 0.0}},
     ]
     monkeypatch.setattr(ai_supervisor, "get_balances_full", lambda: balances.pop(0))
-    monkeypatch.setattr(ai_supervisor, "get_last_price_decimal", lambda symbol: Decimal("77"))
+    monkeypatch.setattr(ai_supervisor, "get_initial_last_price_decimal", lambda symbol: Decimal("77"))
     monkeypatch.setattr(ai_supervisor.TM, "_signed_get", lambda *args, **kwargs: [])
     monkeypatch.setattr(
         ai_supervisor,
@@ -986,7 +986,7 @@ def test_reconciliation_imports_new_binance_fill_before_risk_gate(tmp_path, monk
             "USDT": {"free": 1000.0, "locked": 0.0},
         },
     )
-    monkeypatch.setattr(ai_supervisor, "get_last_price_decimal", lambda symbol: Decimal("75"))
+    monkeypatch.setattr(ai_supervisor, "get_initial_last_price_decimal", lambda symbol: Decimal("75"))
 
     def signed(path, params=None):
         if path == "/api/v3/myTrades":
@@ -1078,7 +1078,7 @@ def test_unvalued_asset_requires_exact_ack_and_is_excluded_from_equity(tmp_path,
     monkeypatch.setattr(ai_supervisor, "get_last_price", price)
     monkeypatch.setattr(
         ai_supervisor,
-        "get_last_price_decimal",
+        "get_initial_last_price_decimal",
         lambda symbol: Decimal(str(price(symbol))),
     )
     monkeypatch.setattr(ai_supervisor.TM, "_signed_get", lambda *args, **kwargs: [])

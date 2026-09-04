@@ -169,7 +169,7 @@ def test_parallel_pool_receives_only_explicit_public_readers():
 
     assert len(readers) == 4
     assert set(readers) == {
-        "get_last_price_decimal",
+        "get_initial_last_price_decimal",
         "value_account_asset",
         "read_history",
         "liquidity_is_safe",
@@ -239,6 +239,7 @@ def test_missing_direct_and_bridge_quotes_keep_risk_fail_closed(monkeypatch):
         raise RuntimeError("temporary price failure")
 
     monkeypatch.setattr(runtime, "get_last_price_decimal", unavailable)
+    monkeypatch.setattr(runtime, "get_initial_last_price_decimal", unavailable)
     monkeypatch.setattr(runtime.TM, "_signed_get", lambda *_args, **_kwargs: [])
 
     with pytest.raises(RuntimeError, match="cannot value account asset KERNEL"):
@@ -282,6 +283,7 @@ def test_risk_snapshot_caches_definitive_missing_routes_for_valued_assets(
         raise MissingMarket("invalid symbol")
 
     monkeypatch.setattr(runtime, "get_last_price_decimal", unavailable)
+    monkeypatch.setattr(runtime, "get_initial_last_price_decimal", unavailable)
     monkeypatch.setattr(runtime.TM, "_signed_get", lambda *_args, **_kwargs: [])
 
     with pytest.raises(RuntimeError, match="cannot value account asset KERNEL"):

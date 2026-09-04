@@ -1,5 +1,12 @@
 # Engineering mistakes and root causes
 
+### 2026-09-05 — Updated only focused transport fixtures
+
+- **Impact:** the first full suite failed because batch fixtures still intercepted only the shared market session.
+- **Root cause:** the initial review found direct price mocks but omitted batch transport mocks and public version surfaces.
+- **Correction:** bind batch fixtures to both sessions, update public versions, and retain the test-file size limit.
+- **Prevention:** search all transport substitutions, architecture budgets, and version surfaces before the first full candidate run.
+
 ### 2026-09-04 — Renewed observations without validating candle time
 
 - **Impact:** an old candle response could clear PANIC after cooldown and receive a current source timestamp.

@@ -76,6 +76,11 @@ def test_supervisor_transient_preflight_failure_stays_in_process(
     )
 
     assert len(attempts) == 2
+    assert set(ai_supervisor._PREFLIGHT_STARTUP_PHASES) >= {
+        "auth_backoff_state",
+        "ip_guard",
+        "live_preflight",
+    }
     assert waits == [
         ("PREFLIGHT", 30, {"attempt": 1, "persistent_halt": False})
     ]

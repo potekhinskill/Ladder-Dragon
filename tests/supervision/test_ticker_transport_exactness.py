@@ -40,6 +40,21 @@ def test_legacy_ticker_view_remains_float(monkeypatch):
     assert value == 75.25
 
 
+def test_initial_ticker_uses_public_only_session(monkeypatch):
+    calls = []
+
+    def ticker(symbol, *, session=None):
+        calls.append((symbol, session))
+        return Decimal("75.25")
+
+    monkeypatch.setattr(runtime.TM, "get_ticker_price_decimal", ticker)
+
+    assert runtime.get_initial_last_price_decimal("SOLUSDT") == Decimal("75.25")
+    assert calls == [("SOLUSDT", runtime.TM.INITIAL_PUBLIC_SESSION)]
+    assert runtime.TM.INITIAL_PUBLIC_SESSION is not runtime.TM.SESSION
+    assert "X-MBX-APIKEY" not in runtime.TM.INITIAL_PUBLIC_SESSION.headers
+
+
 def test_transport_failure_preserves_provider_classification(monkeypatch):
     failure = runtime.TM.BinanceHttpError(status=400, code=-1121, endpoint="/api/v3/ticker/price")
 

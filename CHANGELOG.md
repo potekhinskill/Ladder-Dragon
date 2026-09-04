@@ -3,6 +3,19 @@
 All notable changes are documented here. Releases use Semantic Versioning; every
 section is dated and there is intentionally no `Unreleased` section.
 
+## [2.20.317] — 2026-09-05
+
+### Changed
+- Preflight telemetry separates authentication state, public IP Guard, and LIVE-preflight durations.
+- IP Guard reads up to three independent HTTPS sources concurrently and joins all reads before consensus.
+- The initial public ticker uses a dedicated session without API authentication headers.
+- Signed account, order, fill, protection, and reconciliation operations retain their authoritative order.
+
+### Verified
+- The focused startup, transport, risk, recovery, and IP Guard suite passes: 125 tests.
+- Regressions prove concurrent source reads, fail-closed partial consensus, separate ticker transport, retry timing, and secret-safe diagnostics.
+- The full suite passes: 2,028 tests. Compileall, Technical English, five safety audits, and Semgrep pass.
+
 ## [2.20.316] — 2026-09-04
 
 ### Changed

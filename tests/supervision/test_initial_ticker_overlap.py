@@ -28,7 +28,7 @@ def test_public_ticker_overlaps_account_preparation(monkeypatch, snapshot_runtim
         account_ready.set()
         return {"USDT": {"free": "100", "locked": "0"}}
 
-    monkeypatch.setattr(runtime, "get_last_price_decimal", ticker)
+    monkeypatch.setattr(runtime, "get_initial_last_price_decimal", ticker)
     monkeypatch.setattr(runtime, "get_balances_full", balances)
     result, _, prices = runtime._build_risk_snapshot(["SOLUSDT"], snapshot_runtime)
 
@@ -54,7 +54,7 @@ def test_fill_failure_drains_public_ticker_without_account_or_order_reads(
         assert ticker_started.wait(2)
         raise RuntimeError("synthetic-private-marker")
 
-    monkeypatch.setattr(runtime, "get_last_price_decimal", ticker)
+    monkeypatch.setattr(runtime, "get_initial_last_price_decimal", ticker)
     monkeypatch.setattr(runtime, "_sync_recent_account_fills", fill_failure)
     monkeypatch.setattr(runtime, "get_balances_full",
                         lambda: pytest.fail("account read followed fill failure"))
@@ -80,7 +80,7 @@ def test_ticker_failure_surfaces_after_account_and_before_orders(
         account_ready.set()
         return {"USDT": {"free": "100", "locked": "0"}}
 
-    monkeypatch.setattr(runtime, "get_last_price_decimal", ticker)
+    monkeypatch.setattr(runtime, "get_initial_last_price_decimal", ticker)
     monkeypatch.setattr(runtime, "get_balances_full", balances)
     monkeypatch.setattr(runtime.TM, "_signed_get",
                         lambda *_args: pytest.fail("orders followed ticker failure"))
@@ -93,7 +93,7 @@ def test_signed_reads_and_reconciliation_are_not_submitted_to_executor():
     source = inspect.getsource(risk_cycle.build_risk_snapshot)
     submitted = source[source.index("ticker_future = executor.submit"):
                        source.index("configured_prices = ticker_future.result()")]
-    assert "get_last_price_decimal" in submitted
+    assert "get_initial_last_price_decimal" in submitted
     assert "sync_recent_account_fills" not in submitted.split("\n", 4)[0]
     assert "get_balances_full" not in submitted.split("\n", 4)[0]
     assert '"/api/v3/openOrders"' not in submitted

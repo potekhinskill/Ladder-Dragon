@@ -1,5 +1,12 @@
 # Engineering decisions
 
+### 2026-09-05 — Isolate independent startup transports
+
+- **Context:** public startup reads hid preflight latency and shared one session with signed account preparation.
+- **Decision:** measure outer preflight stages, parallelize independent IP sources, and isolate the initial ticker session.
+- **Why it worked:** regressions prove bounded concurrency, joined failures, consensus integrity, transport separation, and unchanged signed operation order.
+- **Reuse:** startup optimization. Separate independent public transport without changing authoritative signed-state order.
+
 ### 2026-09-04 — Overlap only independent public startup reads
 
 - **Context:** the initial ticker waited behind fill synchronization and account preparation despite having no dependency on either operation.

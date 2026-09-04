@@ -109,7 +109,7 @@ def test_snapshot_preserves_exact_configured_price(monkeypatch, snapshot_runtime
     exact = Decimal("123456789.123456789")
     requests = []
 
-    def public_get(path, params):
+    def public_get(path, params, **_kwargs):
         requests.append((path, params))
         return {"symbol": "SOLUSDT", "price": str(exact)}
 
@@ -151,6 +151,7 @@ def test_shared_bridge_is_fresh_for_each_snapshot(monkeypatch, snapshot_runtime)
         raise RuntimeError("synthetic missing route")
 
     monkeypatch.setattr(runtime, "get_last_price_decimal", reader)
+    monkeypatch.setattr(runtime, "get_initial_last_price_decimal", reader)
     first, _, _ = runtime._build_risk_snapshot(["SOLUSDT"], snapshot_runtime)
     assert first.exposure_usdt == bridge[0] * 2
     assert calls.count("BTCUSDT") == 1
@@ -176,6 +177,7 @@ def test_unavailable_bridge_blocks_snapshot(monkeypatch, snapshot_runtime):
         raise RuntimeError("synthetic unavailable market")
 
     monkeypatch.setattr(runtime, "get_last_price_decimal", reader)
+    monkeypatch.setattr(runtime, "get_initial_last_price_decimal", reader)
     with pytest.raises(RuntimeError, match="synthetic unavailable market"):
         runtime._build_risk_snapshot(["SOLUSDT"], snapshot_runtime)
     assert reports["valuation_routes"]["attempt_failed"] == 1
@@ -200,6 +202,7 @@ def test_route_metrics_match_snapshot_reads(monkeypatch, snapshot_runtime):
         raise runtime.TM.BinanceHttpError(status=400, code=-1121)
 
     monkeypatch.setattr(runtime, "get_last_price_decimal", reader)
+    monkeypatch.setattr(runtime, "get_initial_last_price_decimal", reader)
     first, _, _ = runtime._build_risk_snapshot(["SOLUSDT"], snapshot_runtime)
     initial = reports["valuation_routes"]
     assert first.equity_usdt == 160

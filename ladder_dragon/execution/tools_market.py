@@ -59,6 +59,8 @@ TIMEOUT = int(os.getenv("BINANCE_TIMEOUT", "10"))
 
 SESSION = requests.Session()
 SESSION.headers.update({"User-Agent": "tools_market/1.4"})
+INITIAL_PUBLIC_SESSION = requests.Session()
+INITIAL_PUBLIC_SESSION.headers.update({"User-Agent": "tools_market/1.4"})
 
 class BinanceHttpError(RuntimeError):
     """Carry bounded Binance error fields without retaining a signed URL."""
@@ -137,7 +139,13 @@ def _activate_rate_limit(response: requests.Response, url: str) -> BinanceHttpEr
     return error
 
 
-def _do_request(method: str, url: str, **kw) -> requests.Response:
+def _do_request(
+    method: str,
+    url: str,
+    *,
+    session: requests.Session | None = None,
+    **kw,
+) -> requests.Response:
     request_timeout = kw.pop("timeout", TIMEOUT)
     if (isinstance(request_timeout, bool)
             or not isinstance(request_timeout, (int, float))
@@ -157,7 +165,8 @@ def _do_request(method: str, url: str, **kw) -> requests.Response:
         r = None
         try:
             budget = min(request_timeout, remaining_seconds(deadline))
-            r = SESSION.request(method, url, timeout=budget, **kw)
+            request_session = session if session is not None else SESSION
+            r = request_session.request(method, url, timeout=budget, **kw)
             if r.status_code in (418, 429):
                 raise _activate_rate_limit(r, url)
             r._content = read_body(r, deadline=deadline)
@@ -261,9 +270,12 @@ def _public_get(
     params: Dict | List[Tuple[str, str]] | None = None,
     *,
     timeout: float | None = None,
+    session: requests.Session | None = None,
 ) -> Any:
     url = f"{BASE_URL}{path}"
     request_kw = {"timeout": timeout} if timeout is not None else {}
+    if session is not None:
+        request_kw["session"] = session
     r = _do_request("GET", url, params=params or {}, **request_kw)
     _raise_for_binance(r)
     return r.json()
@@ -501,9 +513,16 @@ def get_ticker_price(symbol: str) -> float:
     return float(get_ticker_price_decimal(symbol))
 
 
-def get_ticker_price_decimal(symbol: str) -> Decimal:
+def get_ticker_price_decimal(
+    symbol: str,
+    *,
+    session: requests.Session | None = None,
+) -> Decimal:
     """Parse the venue's exact price string without a float intermediate."""
-    data = _public_get("/api/v3/ticker/price", {"symbol": symbol.upper()})
+    request_kw = {"session": session} if session is not None else {}
+    data = _public_get(
+        "/api/v3/ticker/price", {"symbol": symbol.upper()}, **request_kw
+    )
     message = "ticker price must be a finite positive decimal string"
     try:
         raw = data["price"]

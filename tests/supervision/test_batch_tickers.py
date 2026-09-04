@@ -55,6 +55,7 @@ def test_batch_wire_is_exact_and_fresh(monkeypatch, batch_runtime):
         responses.append(result)
         return result
     monkeypatch.setattr(market.SESSION, "request", request)
+    monkeypatch.setattr(market.INITIAL_PUBLIC_SESSION, "request", request)
     risk_cycle._UNVALUED_MARKET_CACHE.remember("AAAUSDT", now=risk_cycle.time.monotonic(), ttl_sec=300)
     first, _, prices = runtime._build_risk_snapshot(["SOLUSDT"], batch_runtime)
     assert first.equity_usdt == Decimal("100") + Decimal(exact[0]) * 2 + 6
@@ -74,7 +75,7 @@ def test_batch_wire_is_exact_and_fresh(monkeypatch, batch_runtime):
 def test_invalid_batch_blocks_snapshot(monkeypatch, batch_runtime, payload, capsys):
     reports = {}
     monkeypatch.setattr(runtime, "_record_risk_startup_phase", lambda phase, values: reports.update({phase: values}))
-    def public(path, params=None):
+    def public(path, params=None, **_kwargs):
         return {"price": "75"} if params else payload
     monkeypatch.setattr(runtime.TM, "_public_get", public)
     with pytest.raises(ValueError, match="invalid batch ticker response") as error:
@@ -88,7 +89,7 @@ def test_invalid_batch_blocks_snapshot(monkeypatch, batch_runtime, payload, caps
 
 def test_omission_uses_individual_read(monkeypatch, batch_runtime):
     calls = []
-    def public(path, params=None):
+    def public(path, params=None, **_kwargs):
         calls.append(params)
         if not params:
             return [{"symbol": "AAAUSDT", "price": "1"}]
@@ -101,7 +102,7 @@ def test_omission_uses_individual_read(monkeypatch, batch_runtime):
 
 def test_batch_transport_failure_stops_reads(monkeypatch, batch_runtime):
     calls = []
-    def public(path, params=None):
+    def public(path, params=None, **_kwargs):
         calls.append(params)
         if not params:
             raise requests.Timeout("market transport failed")
@@ -133,7 +134,7 @@ def test_forty_assets_preserve_individual_result(monkeypatch, batch_runtime):
     balances["USDT"] = {"free": "100", "locked": "0"}
     monkeypatch.setattr(runtime, "get_balances_full", lambda: balances)
     calls = []
-    def public(path, params=None):
+    def public(path, params=None, **_kwargs):
         calls.append(params)
         if not params:
             return payload
