@@ -42,6 +42,9 @@ class PeriodSummary:
     fills: int
     buys: int
     sells: int
+    fifo_cost: Decimal
+    prior_period_cost: Decimal
+    legacy_source: bool
 
 
 def _money(value: Decimal) -> str:
@@ -86,7 +89,7 @@ def _summaries(
     ts_div = detect_ts_div(connection)
     end_sec = int(max(end for _, _, end in periods).timestamp())
     rows = list(iter_trades_until(connection, end_sec * ts_div - 1, None))
-    lots: dict[str, list[list[Decimal]]] = {}
+    lots: dict[str, list[list]] = {}
     values = {
         label: {}
         for label, _, _ in periods
@@ -121,10 +124,14 @@ def _summaries(
                         "fills": 0,
                         "buys": 0,
                         "sells": 0,
+                        "fifo_cost": ZERO,
+                        "prior_cost": ZERO,
+                        "legacy": False,
                     },
                 )
                 item["fills"] += 1
                 item["fees"] += fee
+                item["legacy"] |= trade.commission_value_status == "legacy"
                 if trade.side == "BUY":
                     item["buys"] += 1
                     item["cash"] -= trade.buy_cost_quote()
@@ -134,7 +141,10 @@ def _summaries(
 
         symbol_lots = lots.setdefault(trade.symbol, [])
         if trade.side == "BUY":
-            symbol_lots.append([trade.net_qty, trade.buy_cost_quote()])
+            symbol_lots.append([
+                trade.net_qty, trade.buy_cost_quote(), timestamp,
+                trade.commission_value_status == "legacy",
+            ])
             continue
 
         remaining = trade.net_qty
@@ -142,10 +152,17 @@ def _summaries(
         matched_cost = ZERO
         matched_qty = ZERO
         while remaining > ZERO and symbol_lots:
-            lot_qty, lot_cost = symbol_lots[0]
+            lot_qty, lot_cost, acquired_at, legacy = symbol_lots[0]
             take = min(remaining, lot_qty)
             cost_take = lot_cost * take / lot_qty
             matched_cost += cost_take
+            for label, start, end in periods:
+                if label in matching:
+                    item = values[label][symbol]
+                    item["fifo_cost"] += cost_take
+                    if acquired_at < start:
+                        item["prior_cost"] += cost_take
+                    item["legacy"] |= legacy
             matched_qty += take
             remaining -= take
             lot_qty -= take
@@ -153,7 +170,7 @@ def _summaries(
             if lot_qty <= ZERO:
                 symbol_lots.pop(0)
             else:
-                symbol_lots[0] = [lot_qty, lot_cost]
+                symbol_lots[0] = [lot_qty, lot_cost, acquired_at, legacy]
         if remaining > ZERO:
             excluded[symbol] = "incomplete FIFO history"
             continue
@@ -191,6 +208,9 @@ def _summaries(
                 fills=sum(int(item["fills"]) for item in included),
                 buys=sum(int(item["buys"]) for item in included),
                 sells=sum(int(item["sells"]) for item in included),
+                fifo_cost=sum((item["fifo_cost"] for item in included), ZERO),
+                prior_period_cost=sum((item["prior_cost"] for item in included), ZERO),
+                legacy_source=any(item["legacy"] for item in included),
             )
         )
     exclusions = tuple(
@@ -207,11 +227,13 @@ def build_digest(db_path: Path, *, now: datetime, timezone_name: str) -> tuple[s
     periods = _periods(local_now)
     uri = f"file:{db_path.resolve()}?mode=ro"
     with sqlite3.connect(uri, uri=True, timeout=15) as connection:
+        connection.execute("PRAGMA query_only=ON")
+        connection.execute("BEGIN")
         summaries, exclusions = _summaries(connection, periods)
 
     lines = [
         "🐉 Ladder Dragon — daily trading digest",
-        f"Complete data through {periods[0][2].date().isoformat()} 00:00 {timezone_name}",
+        f"Ledger periods through {periods[0][2].date().isoformat()} 00:00 {timezone_name}",
     ]
     for item in summaries:
         lines.extend(
@@ -219,6 +241,14 @@ def build_digest(db_path: Path, *, now: datetime, timezone_name: str) -> tuple[s
                 "",
                 f"{item.label} ({item.start.date()} → {item.end.date()}):",
                 f"• Realized FIFO net PnL: {_money(item.realized_net_pnl)}",
+                f"  FIFO cost of sold inventory: {_money(item.fifo_cost)}",
+                f"  Cost from purchases before this period: {_money(item.prior_period_cost)}",
+                "• Source quality: " + (
+                    "no eligible fills" if not item.fills else
+                    "LEGACY included; original precision is not verified"
+                    if item.legacy_source else
+                    "valued ledger records; exchange history not independently verified"
+                ),
                 f"• Cash flow: {_money(item.cash_flow)}",
                 # Fees are stored as a positive expense but displayed as their
                 # negative contribution to account cash and net performance.
@@ -229,8 +259,11 @@ def build_digest(db_path: Path, *, now: datetime, timezone_name: str) -> tuple[s
     lines.extend(
         (
             "",
-            "Cash flow is not profit. Realized PnL is reported only from exact "
-            "valued fills and complete FIFO history.",
+            "Closed-cycle net PnL: UNAVAILABLE (this ledger does not prove entry-to-exit ownership).",
+            "FIFO uses the oldest recorded purchases, including purchases before the report period.",
+            "FIFO PnL is not the result of this period's trading cycles or the change in portfolio value.",
+            "Cash flow is not profit. Fees are already included; do not subtract them again.",
+            "Figures cover included symbols only. Ledger coverage does not prove complete exchange history.",
         )
     )
     if exclusions:

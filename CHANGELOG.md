@@ -3,6 +3,23 @@
 All notable changes are documented here. Releases use Semantic Versioning; every
 section is dated and there is intentionally no `Unreleased` section.
 
+## [2.20.311] — 2026-09-04
+
+### Fixed
+- The daily digest separates consumed historical FIFO cost, cash flow, and unavailable cycle attribution, with explicit legacy source quality.
+- Report text no longer claims independently verified exchange history or recovered legacy precision. Accounting and trading controls remain unchanged.
+- Historical context retains bounded failure diagnostics after successful observations and collector restarts.
+- Diagnostic I/O stays outside the supervisor submission lock and rejects non-regular files before reads or truncation.
+- Source stages and fixed transport categories distinguish failed inputs without retaining provider text or credentials.
+- Disposable diagnostics retain at most 64 events for seven days, outside immutable context evidence.
+- Diagnostic storage failure reports `UNAVAILABLE` without changing evidence acceptance or execution authority.
+
+### Verified
+- The focused context suite passes: 73 tests, including FIFO and slow-storage regressions.
+- The full suite passes: 1,822 tests. Compileall passes.
+- The digest, deployment, and documentation suite passes: 97 tests, including three FIFO provenance regressions.
+- Technical English, five safety audits, and Semgrep pass.
+
 ## [2.20.310] — 2026-09-04
 
 ### Added

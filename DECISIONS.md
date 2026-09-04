@@ -1,5 +1,19 @@
 # Engineering decisions
 
+### 2026-09-04 — Separate accounting allocation from execution ownership
+
+- **Context:** FIFO consumes oldest inventory, which can differ from the entry associated with a recent exit.
+- **Decision:** preserve FIFO accounting and report its source age and quality. Never infer cycle ownership from balanced quantities.
+- **Why it worked:** regressions distinguish historical losses from recent cash flow and reject incomplete symbol contributions.
+- **Reuse:** financial reports. Decimal arithmetic cannot restore legacy precision or prove source completeness.
+
+### 2026-09-04 — Retain failure diagnostics separately from immutable context
+
+- **Context:** successful observations replaced the source stage and error type needed to explain earlier context gaps.
+- **Decision:** persist a bounded, expiring diagnostic ring outside the evidence journal. Keep diagnostic disk operations outside the supervisor submission lock.
+- **Why it worked:** tests preserve failures across recovery and restart, reject damaged telemetry, and retain original fail-closed evidence gaps.
+- **Reuse:** observational diagnostics. Retained-event counts are not lifetime totals; diagnostic storage cannot grant execution authority.
+
 ### 2026-09-04 — Measure valuation routes without retaining account identity
 
 - **Context:** one valuation duration could not distinguish public reads, shared quotes, negative-cache hits, or failed routes.

@@ -15,6 +15,7 @@ from urllib.parse import urlencode, urlsplit
 import requests
 
 from ladder_dragon.execution.time_safety import exchange_time_offset_ms
+from ladder_dragon.supervision.context_diagnostics import ContextSourceError, ContextResponseLimitError
 
 MAX_RESPONSE_BYTES = 64 * 1024
 # Current depth archives contain Mainnet data. Testnet context cannot be mixed
@@ -49,7 +50,7 @@ class HistoricalContextClient:
         if scope not in self.cooldown_until:
             raise ValueError("context cooldown scope unsupported")
         if time.monotonic() < self.cooldown_until[scope]:
-            raise RuntimeError("context source cooldown active")
+            raise ContextSourceError("COOLDOWN")
         response = None
         try:
             response = self.session.get(self.base_url + endpoint, params=params, headers=headers or {},
@@ -67,20 +68,26 @@ class HistoricalContextClient:
                     self.cooldown_until["public"] = until
                     self.cooldown_until["signed"] = until
             if response.status_code != 200:
-                raise RuntimeError("context source HTTP failure")
+                status = response.status_code
+                category = ("HTTP_RATE_LIMIT" if status in (418, 429) else
+                            "HTTP_AUTH" if status in (401, 403) else
+                            "HTTP_SERVER" if 500 <= status <= 599 else "HTTP_OTHER")
+                raise ContextSourceError(category)
             body = bytearray()
             started = time.monotonic()
             for chunk in response.iter_content(chunk_size=8192):
                 if len(body) + len(chunk) > MAX_RESPONSE_BYTES or time.monotonic() - started > 15:
-                    raise ValueError("context source response limit reached")
+                    raise ContextResponseLimitError()
                 body.extend(chunk)
             payload = json.loads(body.decode("utf-8"))
             if not isinstance(payload, (dict, list)):
                 raise ValueError("context source JSON container required")
             return payload
+        except requests.Timeout:
+            raise ContextSourceError("TIMEOUT") from None
         except requests.RequestException:
             # Never retain a signed URL or provider text in diagnostics.
-            raise RuntimeError("context source network failure") from None
+            raise ContextSourceError("NETWORK") from None
         finally:
             if response is not None:
                 response.close()

@@ -333,9 +333,18 @@ symbol independently. Its systemd sandbox permits the database directory only
 for WAL shared-memory coordination; the application connection cannot mutate
 the ledger. A symbol with incomplete FIFO history, unpriced commission, an
 unsupported quote asset, or invalid exact data is listed under `Excluded symbols`.
-Eligible symbols still produce exact fills, fees, cash flow, and realized FIFO
-net PnL. The service never invents an opening BUY or assumes a zero cost basis.
+Eligible symbols produce Decimal totals for fills, fees, cash flow, and realized FIFO net PnL.
+Decimal arithmetic does not restore the original precision of legacy records.
+Each period identifies legacy inputs from its fills and consumed FIFO lots.
+The report shows total consumed cost and the cost from purchases before that period.
+FIFO uses the oldest recorded purchases, not an assumed association between recent BUY and SELL fills.
+Closed-cycle net PnL remains unavailable because this ledger does not prove entry-to-exit ownership.
+Equal daily BUY and SELL quantities do not prove cycle ownership.
+The report does not independently verify complete exchange history or measure portfolio value changes.
+The service never invents an opening BUY or assumes a zero cost basis.
 The report displays fees with a negative sign because they reduce net PnL.
+Fees are already included in net figures and must not be subtracted again.
+These summaries are disposable calculations; the change creates no persistent records or maintenance requirements.
 
 Successful delivery is idempotent per local report date. A report-build failure
 sends one deduplicated `BLOCKED` warning for that date; the warning contains no

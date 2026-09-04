@@ -6,6 +6,31 @@ The updater does not copy new example values into a live `.env` file.
 Review each new value before you add it to a Raspberry Pi.
 Never copy credentials into documentation, Git, logs, or command arguments.
 
+## Historical context failure diagnostics
+
+`historical_context.SOLUSDT.diagnostics` exposes retained failure counts and the latest failure, even after a successful observation.
+The collector stores these disposable diagnostics beside its context database, with the suffix `.diagnostics.json`.
+The default file is `db/historical_context.diagnostics.json`.
+One collector owns this file. Counts combine all configured context symbols; no symbol or account identity is stored.
+
+The file retains at most 64 failure events for seven days.
+Each event contains only `observed_at_ms`, a fixed `stage`, and a fixed `category`.
+Counts describe retained events, not lifetime totals or complete seven-day totals after capacity eviction.
+One observation can record both a source failure and a persistence failure.
+Stages distinguish PANIC refresh, runtime comparison, filters, fees, bundle validation, and evidence persistence.
+Categories distinguish transport timeout, network failure, cooldown, HTTP rejection, response limits, invalid sources, and state mismatch.
+Diagnostics never include exception text, response bodies, financial values, or credentials.
+
+The scheduled collector prunes expired events on each completed observation and reloads them after restart.
+While the collector is stopped, the bounded file remains unchanged; the next observation removes expired events.
+Atomic replacement uses a private temporary file and synchronized writes.
+Nonblocking file opens reject non-regular diagnostic files before data reads or truncation.
+Diagnostic disk operations never hold the supervisor submission lock; one busy collector prevents concurrent diagnostic writers.
+The final and temporary files each have a 32 KiB limit; a subsequent write replaces an interrupted temporary file.
+This disposable record has no archive dependency and needs no separate maintenance service.
+Invalid files remain untouched and report diagnostics as `UNAVAILABLE`.
+Diagnostic failures never authorize execution, alter source lifetimes, or rewrite immutable context evidence.
+
 ## Startup valuation diagnostics
 
 `startup_timing.risk_snapshot_phases.valuation_routes` contains one summary for the first completed valuation attempt, including failure.

@@ -362,3 +362,113 @@ def test_service_enables_only_observer_and_uses_existing_writable_storage():
     assert "Environment=BOT_HISTORICAL_CONTEXT_ENABLED=1" in source
     assert "Environment=BOT_HISTORICAL_CONTEXT_SYMBOLS=SOLUSDT" in source
     assert "ReadWritePaths=/home/bot/apps/binance_bot/db" in source
+
+
+@pytest.mark.parametrize("endpoint,stage", [
+    ("/api/v3/klines", "PANIC_REFRESH"),
+    ("/api/v3/exchangeInfo", "FILTER_SOURCE"),
+    ("/api/v3/account/commission", "FEE_SOURCE"),
+])
+def test_failure_details_survive_success(tmp_path, endpoint, stage):
+    now, calls, failed = [1_000], [], [True]
+    def get(path, params):
+        if failed[0] and path == endpoint:
+            raise requests.Timeout("private-sentinel")
+        return client(calls)(path, params)
+    collector = module.HistoricalContextCollector(
+        tmp_path / "context.sqlite3", public_get=get, signed_get=get,
+        clock=lambda: now[0], panic_run_dir=tmp_path)
+    result = collector.collect("SOLUSDT", captured(now[0]))
+    assert result["status"] == "BLOCKED"
+    details = result["diagnostics"]
+    assert details["last_failure"] == {
+        "observed_at_ms": 1_000, "stage": stage, "category": "TIMEOUT"}
+    failed[0], now[0] = False, 61_000
+    result = collector.collect("SOLUSDT", captured(now[0]))
+    assert result["status"] == "AVAILABLE"
+    assert result["diagnostics"] == details
+    assert b"private-sentinel" not in collector.diagnostics.path.read_bytes()
+    assert "private-sentinel" not in repr(result)
+    # Diagnostic recovery never rewrites the original evidence gap.
+    with pytest.raises(ValueError):
+        export_context(collector.path, symbol="SOLUSDT",
+            classifier_fingerprint=fingerprint(v23_evidence_semantics_contract()["regime_classifier"]),
+            start_ms=2_000, end_ms=70_000, cutoff_ms=70_000)
+
+
+def test_diagnostic_failure_does_not_change_evidence(tmp_path, monkeypatch):
+    collector = module.HistoricalContextCollector(
+        tmp_path / "context.sqlite3", public_get=client([]), signed_get=client([]),
+        clock=lambda: 1_000, panic_run_dir=tmp_path)
+    def fail(*args):
+        raise OSError("private-sentinel")
+    monkeypatch.setattr(collector.diagnostics, "update", fail)
+    result = collector.collect("SOLUSDT", captured(1_000))
+    assert result["status"] == "AVAILABLE"
+    assert result["diagnostics"] == {"status": "UNAVAILABLE"}
+    assert "private-sentinel" not in repr(result)
+    collector.public_get = fail
+    result = collector.collect("SOLUSDT", captured(1_000))
+    assert result["status"] == "BLOCKED"
+    assert result["diagnostics"]["status"] == "UNAVAILABLE"
+
+
+def test_panic_mismatch_and_persistence_remain_distinct(tmp_path, monkeypatch):
+    collector = module.HistoricalContextCollector(
+        tmp_path / "context.sqlite3", public_get=client([]), signed_get=client([]),
+        clock=lambda: 1_000, panic_run_dir=tmp_path)
+    state = captured(1_000)
+    state["panic"] = True
+    result = collector.collect("SOLUSDT", state)
+    assert result["diagnostics"]["last_failure"]["category"] == "STATE_MISMATCH"
+    def fail(**kwargs):
+        raise OSError("private-sentinel")
+    monkeypatch.setattr(collector.journal, "append", fail)
+    result = collector.collect("SOLUSDT", state)
+    assert result["status"] == "BLOCKED"
+    assert result["diagnostics"]["category_counts"] == {"STATE_MISMATCH": 2, "PERSISTENCE": 1}
+
+
+def test_warmup_failure_is_retained_without_false_evidence(tmp_path):
+    def fail(*args):
+        raise requests.Timeout("private-sentinel")
+    collector = module.HistoricalContextCollector(
+        tmp_path / "context.sqlite3", public_get=fail, signed_get=fail,
+        clock=lambda: 1_000, panic_run_dir=tmp_path)
+    result = collector.collect("SOLUSDT", None, "PANIC_WARMUP")
+    assert result["diagnostics"]["last_failure"]["stage"] == "PANIC_WARMUP"
+    assert not collector.path.exists()
+
+
+@pytest.mark.parametrize("warmup", [False, True])
+def test_slow_diagnostics_do_not_hold_submission_lock(tmp_path, monkeypatch, warmup):
+    collector = module.HistoricalContextCollector(
+        tmp_path / "context.sqlite3", public_get=client([]), signed_get=client([]),
+        clock=lambda: 1_000, panic_run_dir=tmp_path)
+    entered, release, returned = threading.Event(), threading.Event(), threading.Event()
+    def slow(*args):
+        entered.set()
+        assert release.wait(5)
+        return {"status": "AVAILABLE"}
+    monkeypatch.setattr(collector.diagnostics, "update", slow)
+    kwargs = dict(arguments=arguments(), environ={}, regime="RANGE",
+                  panic=None if warmup else False, panic_hits=None if warmup else 0)
+    collector.submit("SOLUSDT", **kwargs)
+    writer = collector.thread
+    def submit():
+        collector.submit("SOLUSDT", **kwargs)
+        returned.set()
+    caller = threading.Thread(target=submit)
+    try:
+        assert entered.wait(2)
+        caller.start()
+        assert returned.wait(1), "diagnostic I/O blocked the supervisor"
+        assert collector.thread is writer
+        assert collector.busy
+    finally:
+        release.set()
+        writer.join(5)
+        if caller.ident is not None:
+            caller.join(5)
+    assert not writer.is_alive()
+    assert not collector.busy

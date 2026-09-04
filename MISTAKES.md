@@ -1,5 +1,33 @@
 # Engineering mistakes and root causes
 
+### 2026-09-04 — Presented ledger arithmetic as exact source provenance
+
+- **Impact:** historical FIFO losses could appear to describe recent trading-cycle performance.
+- **Root cause:** the digest omitted consumed-lot age and accepted legacy records under an unconditional exact-data claim.
+- **Correction:** expose prior-period cost and legacy provenance, and mark unproved cycle attribution unavailable.
+- **Prevention:** test old inventory with balanced recent trades, mixed lot ages, exclusions, and future records.
+
+### 2026-09-04 — Held the submission lock during diagnostic disk operations
+
+- **Impact:** a FIFO at the diagnostic path could block the collector and later supervisor submissions in an unpublished candidate.
+- **Root cause:** bounded byte reads were mistaken for bounded wait time, and diagnostic I/O shared the submission lock.
+- **Correction:** reject non-regular files through nonblocking descriptors and keep diagnostic I/O outside the lock.
+- **Prevention:** test FIFO paths, temporary hardlinks, and slow diagnostic storage through both collection branches.
+
+### 2026-09-04 — Discarded failure details after context recovery
+
+- **Impact:** completed source outages could not be attributed to a specific collection stage during later diagnosis.
+- **Root cause:** the evidence journal retained only a generic reason, while successful status replaced transient error details.
+- **Correction:** retain bounded diagnostic events separately and preserve fixed transport categories without provider text.
+- **Prevention:** test failure, recovery, restart, retention, and diagnostic storage failure through the collector boundary.
+
+### 2026-09-04 — Requested an oversized learning-record read
+
+- **Impact:** required instructions were truncated and needed another read; production was unchanged.
+- **Root cause:** the output budget exceeded the effective tool limit despite the known file size.
+- **Correction:** read all remaining instructions in bounded line ranges before edits.
+- **Prevention:** keep each instruction read below the tool output ceiling, including serialized result overhead.
+
 ### 2026-09-04 — Included an unverified documentation patch target
 
 - **Impact:** one local patch failed before applying any changes; production was unaffected.

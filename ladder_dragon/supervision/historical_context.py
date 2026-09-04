@@ -16,6 +16,7 @@ import uuid
 import requests
 
 from ladder_dragon.supervision.context_transport import HistoricalContextClient
+from ladder_dragon.supervision.context_diagnostics import ContextDiagnostics, error_category
 from ladder_dragon.supervision.panic_observer import (
     refresh_panic_observation,
 )
@@ -79,6 +80,14 @@ class HistoricalContextCollector:
         self.busy = False
         self.job_signature = None
         self.invalidated_at: int | None = None
+        self.diagnostics = ContextDiagnostics(self.path.with_suffix(".diagnostics.json"))
+
+    def _diagnose(self, result: dict, events: list[dict]) -> None:
+        """Keep diagnostic storage failure separate from authoritative evidence."""
+        try:
+            result["diagnostics"] = self.diagnostics.update(events, self.clock())
+        except (OSError, ValueError, TypeError, OverflowError, RecursionError):
+            result["diagnostics"] = {"status": "UNAVAILABLE"}
 
     def _source(self, kind: str, symbol: str) -> dict:
         now = self.clock()
@@ -114,6 +123,10 @@ class HistoricalContextCollector:
         error_type = None
         error_stage = None
         sources = None
+        events = []
+        def failure(stage: str, exc: BaseException) -> None:
+            events.append({"observed_at_ms": self.clock(), "stage": stage,
+                           "category": error_category(exc, stage)})
         if reason == "PANIC_WARMUP":
             try:
                 refresh_panic_observation(
@@ -127,6 +140,7 @@ class HistoricalContextCollector:
                     "reason": "PANIC_OBSERVER_PRIMED",
                 }
             except SOURCE_ERRORS as exc:
+                failure("PANIC_WARMUP", exc)
                 result = {
                     "status": "BLOCKED",
                     "reason": "SOURCE_UNAVAILABLE",
@@ -134,8 +148,9 @@ class HistoricalContextCollector:
                 }
             # A refreshed state was not consumed by this runtime cycle.
             # Prime the next cycle without writing false or unavailable evidence.
+            result.update(mode="SHADOW", apply_allowed=False)
+            self._diagnose(result, events)
             with self.lock:
-                result.update(mode="SHADOW", apply_allowed=False)
                 self.status[symbol] = result
                 self.busy = False
             return result
@@ -143,12 +158,14 @@ class HistoricalContextCollector:
             if reason is None:
                 # Recheck the state already consumed by this runtime cycle.
                 # A change during the asynchronous read must fail closed.
+                error_stage = "PANIC_REFRESH"
                 observation = refresh_panic_observation(
                     symbol,
                     public_get=self.public_get,
                     now_ms=self.clock(),
                     run_dir=self.panic_run_dir,
                 )
+                error_stage = "PANIC_MATCH"
                 if (
                     captured is None
                     or self.clock() - captured["captured_at_ms"] >= 120_000
@@ -157,6 +174,7 @@ class HistoricalContextCollector:
                 ):
                     raise ValueError("PANIC observation differs from runtime")
                 observed_at = self.clock()
+                error_stage = "RUNTIME_SOURCE"
                 runtime_source = attest("runtime", symbol, observed_at, {
                     "classifier": captured["classifier"],
                     "regime": captured["regime"],
@@ -166,6 +184,7 @@ class HistoricalContextCollector:
                     "panic_observed_at_ms": observation["updated_at_ms"],
                 })
                 sources = {"runtime": runtime_source}
+                error_stage = None
                 try:
                     sources["filters"] = self._source("filters", symbol)
                 except SOURCE_ERRORS:
@@ -186,6 +205,7 @@ class HistoricalContextCollector:
                     error_stage = "SOURCE_BUNDLE"
                     raise
         except SOURCE_ERRORS as exc:
+            failure(error_stage or "CAPTURE", exc)
             sources = None
             reason = reason or "SOURCE_UNAVAILABLE"
             error_type = type(exc).__name__
@@ -203,6 +223,7 @@ class HistoricalContextCollector:
                 result = self.journal.append(symbol=symbol, session_id=self.session_id,
                                              observed_at_ms=observed_at, sources=sources, reason=reason)
             except SOURCE_ERRORS as exc:
+                failure("PERSISTENCE", exc)
                 result = {"status": "BLOCKED", "reason": "PERSISTENCE_UNAVAILABLE",
                           "observed_at_ms": self.clock()}
                 error_type = type(exc).__name__
@@ -212,6 +233,10 @@ class HistoricalContextCollector:
                 error_type=error_type,
                 error_stage=error_stage,
             )
+        # Diagnostic I/O must not hold the lock used by supervisor submissions.
+        # Keep busy set until publication so no second diagnostic writer starts.
+        self._diagnose(result, events)
+        with self.lock:
             self.status[symbol] = result
             self.busy = False
         return result

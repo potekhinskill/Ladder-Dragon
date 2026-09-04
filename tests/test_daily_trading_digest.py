@@ -225,3 +225,75 @@ def test_missing_database_sends_one_deduplicated_warning(
     assert daily_trading_digest.main() == 2
     assert len(sent) == 1
     assert "Reason: FileNotFoundError" in sent[0]
+
+
+def test_fifo_old_basis_is_not_cycle_profit(tmp_path, monkeypatch):
+    sentinel = "private-digest-fixture"
+    monkeypatch.setenv("BINANCE_API_KEY", sentinel)
+    db = tmp_path / "stats.db"
+    connection = tools_stats.init_db(str(db))
+    for tid, day, side, price, status in (
+        (1, 1, "BUY", "230", "legacy"),
+        (2, 25, "BUY", "100", "exact"),
+        (3, 25, "SELL", "99", "exact"),
+    ):
+        tools_stats.apply_trade(
+            connection, "SOLUSDT", side, price, "1", ts=_timestamp(day),
+            trade_id=tid, commission_value_status=status,
+        )
+    connection.close()
+    message, _ = daily_trading_digest.build_digest(
+        db, now=datetime(2026, 7, 26, 9, tzinfo=TZ), timezone_name="Asia/Almaty",
+    )
+    yesterday = message.split("Last 7 complete days")[0]
+    assert "Realized FIFO net PnL: -131.00 USDT" in yesterday
+    assert "Cash flow: -1.00 USDT" in yesterday
+    assert "FIFO cost of sold inventory: +230.00 USDT" in yesterday
+    assert "Cost from purchases before this period: +230.00 USDT" in yesterday
+    assert "LEGACY included" in yesterday
+    assert "Closed-cycle net PnL: UNAVAILABLE" in message
+    assert "do not subtract them again" in message
+    assert "only from exact" not in message
+    assert sentinel not in message
+
+
+def test_fifo_quality_tracks_consumed_lots_and_period_boundaries(tmp_path):
+    db = tmp_path / "stats.db"
+    connection = tools_stats.init_db(str(db))
+    for tid, day, side, qty, status in (
+        (1, 24, "BUY", "1", "exact"),
+        (2, 25, "BUY", "1", "exact"),
+        (3, 25, "SELL", "1.5", "exact"),
+        (4, 26, "BUY", "1", "legacy"),
+    ):
+        tools_stats.apply_trade(
+            connection, "SOLUSDT", side, "100", qty, ts=_timestamp(day),
+            trade_id=tid, commission_value_status=status,
+        )
+    connection.close()
+    message, _ = daily_trading_digest.build_digest(
+        db, now=datetime(2026, 7, 26, 9, tzinfo=TZ), timezone_name="Asia/Almaty",
+    )
+    yesterday, week = message.split("Last 7 complete days")
+    assert "Cost from purchases before this period: +100.00 USDT" in yesterday
+    assert "Cost from purchases before this period: 0.00 USDT" in week
+    assert "FIFO cost of sold inventory: +150.00 USDT" in yesterday
+    assert "LEGACY included" not in message
+    assert "exchange history not independently verified" in message
+
+
+def test_excluded_symbol_cannot_contribute_basis_or_quality(tmp_path):
+    db = tmp_path / "stats.db"
+    connection = tools_stats.init_db(str(db))
+    for tid, side, qty in ((1, "BUY", "1"), (2, "SELL", "2")):
+        tools_stats.apply_trade(
+            connection, "SOLUSDT", side, "100", qty, ts=_timestamp(25),
+            trade_id=tid, commission_value_status="legacy",
+        )
+    connection.close()
+    message, _ = daily_trading_digest.build_digest(
+        db, now=datetime(2026, 7, 26, 9, tzinfo=TZ), timezone_name="Asia/Almaty",
+    )
+    assert "SOLUSDT — incomplete FIFO history" in message
+    assert "FIFO cost of sold inventory: 0.00 USDT" in message
+    assert "LEGACY included" not in message
