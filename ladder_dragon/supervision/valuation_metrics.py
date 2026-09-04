@@ -9,7 +9,7 @@ import time
 import requests
 
 
-ROUTES = ("direct", "cross_usdc", "cross_fdusd", "cross_btc", "cross_eth", "bridge", "depth")
+ROUTES = ("direct", "cross_usdc", "cross_fdusd", "cross_btc", "cross_eth", "bridge", "depth", "batch")
 COUNTERS = ("reads", "read_ms", "cache_hits", "negative_hits", "missing", "transient", "other_errors")
 
 

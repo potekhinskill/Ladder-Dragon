@@ -3,6 +3,21 @@
 All notable changes are documented here. Releases use Semantic Versioning; every
 section is dated and there is intentionally no `Unreleased` section.
 
+## [2.20.313] — 2026-09-04
+
+### Changed
+- Account valuation seeds multiple missing direct quotes from one bounded public ticker collection per snapshot.
+- Configured prices remain unchanged. Missing symbols retain individual lookup and cannot create negative-cache evidence from omission alone.
+- Invalid batch data or transport failure blocks the snapshot without partial publication or cross-cycle price reuse.
+- Batch diagnostics retain only counts and durations. HALT, signed reads, protection, and trading limits remain unchanged.
+- `RISK_BATCH_TICKERS=0` retains the previous bounded individual-read path.
+
+### Verified
+- The focused batch, snapshot, risk, metrics, and architecture suite passes: 83 tests.
+- Regressions cover compressed wire data, exact equity, fresh cycles, negative caches, omissions, malformed data, and byte limits.
+- A synthetic 40-asset snapshot preserves exact equity and reduces valuation ticker calls from 40 to one.
+- The full suite, compileall, Technical English, five safety audits, and Semgrep pass.
+
 ## [2.20.312] — 2026-09-04
 
 ### Fixed

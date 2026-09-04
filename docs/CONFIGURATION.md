@@ -40,7 +40,7 @@ Diagnostic failures never authorize execution, alter source lifetimes, or rewrit
 `attempt_failed=1` identifies a failed attempt, not the current trading state.
 The same summary appears once in the existing startup log.
 
-Routes are `direct`, `cross_usdc`, `cross_fdusd`, `cross_btc`, `cross_eth`, `bridge`, and `depth`.
+Routes are `direct`, `cross_usdc`, `cross_fdusd`, `cross_btc`, `cross_eth`, `bridge`, `depth`, and `batch`.
 Each route has `reads`, `read_ms`, `cache_hits`, `negative_hits`, `missing`, `transient`, and `other_errors` counters.
 `reads` counts logical adapter calls, not individual HTTP attempts.
 `read_ms` includes transport retries but excludes time waiting for a shared ticker lock.
@@ -49,10 +49,19 @@ Parallel read durations can sum to more than valuation wall time.
 Configured-symbol ticker reads precede valuation and remain in the separate ticker phase.
 
 Counters contain no symbols, balances, prices, response bodies, or exception objects.
-They are disposable, fixed-size diagnostics with 50 integer fields and no database records.
+They are disposable, fixed-size diagnostics with 57 integer fields and no database records.
 Per-snapshot counters expire when the snapshot ends; the startup summary expires with the process.
 Existing log rotation controls the single startup log copy. No new archive dependency or maintenance schedule is required.
 These diagnostics do not change route selection, freshness, risk limits, or trading permission.
+
+`RISK_BATCH_TICKERS=1` is the default for account valuation.
+When two missing direct quotes are needed, valuation requests one bounded public ticker collection.
+The parser retains only requested, finite, positive Decimal prices and rejects duplicate symbols or invalid requested prices.
+Configured-symbol observations remain unchanged. Each snapshot obtains new batch observations after reconciliation.
+An omitted symbol still requires individual lookup; omission never creates negative-cache evidence.
+Transport and payload failures block the snapshot without publishing partial batch observations.
+`RISK_BATCH_TICKERS=0` retains individual public reads with the existing concurrency bound.
+Batch observations are disposable memory and expire with the snapshot. No persistent records or maintenance tasks are added.
 
 ## Execution authority
 

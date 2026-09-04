@@ -37,6 +37,7 @@ from ladder_dragon.risk.risk_statistics import (
 )
 from ladder_dragon.supervision.entry_policy import finite_decimal
 from ladder_dragon.supervision.valuation_metrics import ValuationMetrics
+from ladder_dragon.supervision.valuation_batch import seed_prices
 
 
 class RiskConfigurationError(RuntimeError):
@@ -490,7 +491,6 @@ def build_risk_snapshot(
     )
     prices = dict(zip(symbols, configured_prices))
     valuation_metrics = ValuationMetrics()
-    valuation_tickers = _SnapshotTickerPrices(get_last_price_decimal, prices, valuation_metrics)
     mark_phase("ticker")
     orders = tools_market._signed_get("/api/v3/openOrders") or []
     mark_phase("orders")
@@ -616,7 +616,7 @@ def build_risk_snapshot(
             # conversion includes the configured haircut and exit fee.
             valuation_price = direct_usdt_valuation_price(
                 asset,
-                dict(prices),
+                dict(valuation_prices),
                 valuation_tickers.get,
                 cache_missing=True,
                 cache_ttl_sec=negative_cache_ttl,
@@ -693,6 +693,13 @@ def build_risk_snapshot(
     ]
     valuation_failed = True
     try:
+        valuation_prices = (
+            seed_prices(balances, prices, tools_market.get_ticker_prices_decimal, valuation_metrics)
+            if env_flag("RISK_BATCH_TICKERS", True) else dict(prices)
+        )
+        valuation_tickers = _SnapshotTickerPrices(
+            get_last_price_decimal, valuation_prices, valuation_metrics,
+        )
         valued_assets = _bounded_public_reads(
             balance_items,
             value_account_asset,

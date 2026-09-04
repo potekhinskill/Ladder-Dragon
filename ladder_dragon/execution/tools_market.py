@@ -19,6 +19,7 @@ from urllib.parse import urlsplit
 from urllib3.exceptions import HTTPError as UrllibHttpError
 
 from ladder_dragon.execution.market_http_body import read_body, remaining_seconds
+from ladder_dragon.execution.market_tickers import requested_prices
 
 from ladder_dragon.execution.time_safety import (
     assess_exchange_clock,
@@ -489,6 +490,11 @@ def get_symbol_filters(symbol: str) -> Dict[str, object]:
     _exchange_cache[symbol] = res
     _exchange_cache_ts[symbol] = now
     return res
+
+def get_ticker_prices_decimal(symbols) -> dict[str, Decimal]:
+    """Read one bounded public response; retain only requested exact prices."""
+    return requested_prices(_public_get("/api/v3/ticker/price"), symbols)
+
 
 def get_ticker_price(symbol: str) -> float:
     """Return the legacy float view for compatibility callers."""

@@ -1,5 +1,12 @@
 # Engineering decisions
 
+### 2026-09-04 — Treat batch omission separately from definitive absence
+
+- **Context:** repeated direct ticker reads dominated whole-account valuation, while a batch can omit requested symbols.
+- **Decision:** seed only validated current prices and retain individual lookup for omitted symbols. Never infer negative-cache evidence from omission.
+- **Why it worked:** wire-to-snapshot tests preserve exact equity, fresh-cycle reads, configured observations, and fail-closed batch errors.
+- **Reuse:** public batch adapters. Successful observations can be shared within one calculation; missing observations require their own authority.
+
 ### 2026-09-04 — Complete advisory I/O before authoritative publication
 
 - **Context:** diagnostic I/O after a journal commit left a window for observed state changes to lose their invalidation.

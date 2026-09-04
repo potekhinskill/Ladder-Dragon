@@ -80,6 +80,7 @@ def test_invalid_ticker_is_rejected_and_not_cached(invalid):
 
 @pytest.fixture
 def snapshot_runtime(monkeypatch, tmp_path):
+    monkeypatch.setenv("RISK_BATCH_TICKERS", "0")
     monkeypatch.setenv("BOT_STATS_DB", str(tmp_path / "unused.sqlite3"))
     monkeypatch.setenv("RISK_RECONCILE_SYNC_FILLS", "0")
     monkeypatch.setenv("RISK_RECONCILE_STRICT", "0")
