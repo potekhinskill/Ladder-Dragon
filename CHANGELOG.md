@@ -3,6 +3,22 @@
 All notable changes are documented here. Releases use Semantic Versioning; every
 section is dated and there is intentionally no `Unreleased` section.
 
+## [2.20.320] — 2026-09-05
+
+### Fixed
+- Startup status retains aggregate duration and backoff for replaced preflight attempts.
+- IP Guard failure now releases its executor and publishes the failed preflight duration.
+
+### Changed
+- Startup telemetry measures AI control, status publication, normalization, singleton lock, and maintenance wait.
+- Transient preflight retry now starts after five seconds and retains the 300-second maximum.
+- Public valuation concurrency increases from four to five. Signed reads remain sequential.
+
+### Verified
+- Production timing attributes 36 seconds to one failed preflight and its 30-second backoff.
+- The focused startup, risk, concurrency, and architecture suite passes: 78 tests.
+- The full suite passes: 2,041 tests. Compileall, Technical English, and five safety audits pass.
+
 ## [2.20.319] — 2026-09-05
 
 ### Fixed

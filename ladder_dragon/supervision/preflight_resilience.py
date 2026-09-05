@@ -87,8 +87,8 @@ def retry_bounds(getenv: Callable[[str, str], str]) -> tuple[int, int]:
         initial = max(
             5,
             min(3600, int(getenv(
-                "BINANCE_PREFLIGHT_BACKOFF_INITIAL_SEC", "30"
-            ) or 30)),
+                "BINANCE_PREFLIGHT_BACKOFF_INITIAL_SEC", "5"
+            ) or 5)),
         )
         maximum = max(
             initial,

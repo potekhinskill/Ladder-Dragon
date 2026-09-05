@@ -145,14 +145,14 @@ class _SnapshotTickerPrices:
 
 def _public_read_concurrency() -> int:
     try:
-        value = int(os.getenv("RISK_PUBLIC_READ_CONCURRENCY", "4") or "4")
+        value = int(os.getenv("RISK_PUBLIC_READ_CONCURRENCY", "5") or "5")
     except ValueError as exc:
         raise RiskConfigurationError(
             "RISK_PUBLIC_READ_CONCURRENCY must be an integer"
         ) from exc
-    if value < 1 or value > 4:
+    if value < 1 or value > 5:
         raise RiskConfigurationError(
-            "RISK_PUBLIC_READ_CONCURRENCY must be between 1 and 4"
+            "RISK_PUBLIC_READ_CONCURRENCY must be between 1 and 5"
         )
     return value
 

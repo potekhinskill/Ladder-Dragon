@@ -161,7 +161,7 @@ Historical virtual documents are archive data and cannot enter retrieval.
 | `RISK_EXPECTED_SHORTFALL_*` | optional Expected Shortfall gate |
 | `RISK_CLUSTER_*` | correlation-cluster evidence and limits |
 | `RISK_UNVALUED_ASSETS*` | reviewed nontradeable dust exclusions |
-| `RISK_PUBLIC_READ_CONCURRENCY` | public ticker, kline, and depth concurrency from 1 through 4; default: `4` |
+| `RISK_PUBLIC_READ_CONCURRENCY` | public ticker, kline, and depth concurrency from 1 through 5; default: `5` |
 | `RISK_UNVALUED_NEGATIVE_CACHE_SEC` | invalid-symbol cache duration from 0 through 900 seconds |
 
 A zero VaR or Expected Shortfall CAP disables that optional gate.
@@ -203,6 +203,7 @@ When the fingerprint changed, signed recovery checks run once each minute.
 Telegram reports a new fingerprint transition once and omits diagnostic identifiers.
 Successful signed recovery sends one clear notice and preserves all other risk gates.
 Other authentication failures keep the configured exponential backoff.
+Transient preflight retries start after five seconds and increase to 300 seconds.
 An authentication or source-consensus failure keeps BUY blocked.
 Automatic acceptance never removes HALT or changes a trading limit.
 Read-only symbol fallback uses the exact-accounting quote list.

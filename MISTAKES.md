@@ -1,5 +1,12 @@
 # Engineering mistakes and root causes
 
+### 2026-09-05 — Misclassified retry time as an unmeasured startup gap
+
+- **Impact:** the first review attributed 36 seconds to unknown local setup work.
+- **Root cause:** runtime status retained only the successful preflight attempt, while protected logs retained the failed attempt and backoff.
+- **Correction:** reconcile aggregate status with safe startup markers and retain bounded failed-attempt timing.
+- **Prevention:** compare total critical-path time with every retry attempt and backoff before naming an unmeasured interval.
+
 ### 2026-09-05 — Retained the old event order in an overlap regression
 
 - **Impact:** the first focused run failed one test after runtime adopted the intended concurrent ordering.

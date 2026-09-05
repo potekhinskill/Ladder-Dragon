@@ -1,5 +1,12 @@
 # Engineering decisions
 
+### 2026-09-05 — Retain failed attempts in critical-path timing
+
+- **Context:** final-attempt telemetry hid one failed preflight and its retry delay.
+- **Decision:** retain bounded aggregate failure time and backoff. Measure local setup separately from exchange preflight.
+- **Why it worked:** production timestamps explain the full delay, and regressions preserve failure timing through retry and guard errors.
+- **Reuse:** retrying startup gates. Final success must not erase earlier work from the same critical path.
+
 ### 2026-09-05 — Join concurrent public authorities at the signed boundary
 
 - **Context:** IP Guard waited before two independent unauthenticated Binance reads.

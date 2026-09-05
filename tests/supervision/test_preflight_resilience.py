@@ -20,6 +20,9 @@ def test_transient_retry_bounds_are_bounded_and_fail_safe():
         lambda key, default: configured.get(key, default)
     ) == (5, 3600)
     assert preflight_resilience.retry_bounds(
+        lambda _key, default: default
+    ) == (5, 300)
+    assert preflight_resilience.retry_bounds(
         lambda _key, _default: "invalid"
     ) == (30, 300)
 
@@ -85,8 +88,11 @@ def test_supervisor_transient_preflight_failure_stays_in_process(
         "live_preflight",
     }
     assert waits == [
-        ("PREFLIGHT", 30, {"attempt": 1, "persistent_halt": False})
+        ("PREFLIGHT", 5, {"attempt": 1, "persistent_halt": False})
     ]
+    assert ai_supervisor._PREFLIGHT_STARTUP_PHASES["failed_attempts"] == {
+        "count": 1, "elapsed_ms": 0, "backoff_ms": 5000,
+    }
     assert any("PREFLIGHT-BACKOFF" in message for message in messages)
     recovered = [
         row for row in published
@@ -129,6 +135,54 @@ def test_failed_live_preflight_publishes_elapsed_and_success_false(
     timing = next(row["startup_timing"] for row in published if "startup_timing" in row)
     assert timing["preflight_phases"]["live_preflight"]["success"] is False
     assert timing["preflight_phases"]["live_preflight"]["elapsed_ms"] >= 0
+
+
+def test_ip_guard_failure_still_shuts_down_and_records_timing(
+    tmp_path, monkeypatch
+):
+    from ladder_dragon.execution.auth_resilience import AuthResilienceState
+
+    class FailedFuture:
+        def result(self):
+            raise ValueError("guard unavailable")
+
+    class Executor:
+        instance = None
+
+        def __init__(self, **_kwargs):
+            self.shutdown_called = False
+            Executor.instance = self
+
+        def submit(self, *_args):
+            return FailedFuture()
+
+        def shutdown(self, *, wait):
+            assert wait is True
+            self.shutdown_called = True
+
+    monkeypatch.setattr(ai_supervisor, "ThreadPoolExecutor", Executor)
+    monkeypatch.setattr(
+        ai_supervisor, "_read_auth_resilience_state", AuthResilienceState
+    )
+    monkeypatch.setattr(
+        ai_supervisor, "_preflight_live",
+        lambda _args, _symbols, _limits, before_signed: before_signed(),
+    )
+    monkeypatch.setattr(
+        ai_supervisor, "_publish_ai_runtime_status", lambda **_updates: None
+    )
+    monkeypatch.setattr(ai_supervisor, "_STARTUP_TIMELINE", None)
+
+    with pytest.raises(ValueError, match="guard unavailable"):
+        ai_supervisor._preflight_with_auth_backoff(
+            SimpleNamespace(live=True), ["SOLUSDT"],
+            SimpleNamespace(halt_file=tmp_path / "halt.json"),
+        )
+
+    assert Executor.instance.shutdown_called is True
+    assert ai_supervisor._PREFLIGHT_STARTUP_PHASES["live_preflight"][
+        "success"
+    ] is False
 
 
 def test_ip_guard_overlaps_local_and_public_preflight_before_signed_reads(
@@ -344,6 +398,19 @@ def test_runtime_arguments_and_singleton_precede_recovery_loop():
 
     assert normalized_at < preflight_at
     assert singleton_at < preflight_at
+    for phase in (
+        "ai_control", "status_publish", "normalization", "singleton_lock",
+        "maintenance_wait",
+    ):
+        assert f'setup_timing.mark("{phase}")' in runtime_source
+    timing_marks = [
+        runtime_source.index(f'setup_timing.mark("{phase}")')
+        for phase in (
+            "ai_control", "status_publish", "normalization",
+            "singleton_lock", "maintenance_wait",
+        )
+    ]
+    assert timing_marks == sorted(timing_marks)
 
 
 def test_recovery_shadow_receives_normalized_planning_arguments():

@@ -75,7 +75,9 @@ from ladder_dragon.supervision.order_cleanup import (
     smart_cleanup_orders as _smart_cleanup_orders,
     startup_cleanup_orders as _startup_cleanup_orders,
 )
-from ladder_dragon.supervision.startup_timing import StartupSubphases, StartupTimeline
+from ladder_dragon.supervision.startup_timing import (
+    StartupSubphases, StartupTimeline, record_failed_startup_attempt,
+)
 from ladder_dragon.supervision.protection_snapshot import (
     verify_all_live_protection as _verify_all_live_protection_service,
     verify_live_protection as _verify_live_protection_service,
@@ -3731,8 +3733,10 @@ def _preflight_with_auth_backoff(
     state: AuthResilienceState | None = None
     attempt = 0
     transient_attempt = 0
+    for phase in ("auth_backoff_state", "configuration", "database", "clock", "filters",
+                  "public_join", "ip_guard", "live_preflight", "failed_attempts"):
+        _PREFLIGHT_STARTUP_PHASES.pop(phase, None)
     while True:
-        _PREFLIGHT_STARTUP_PHASES.clear()
         outer_timing = StartupSubphases(_record_preflight_startup_phase)
         if state is None:
             state = _read_auth_resilience_state()
@@ -3790,26 +3794,23 @@ def _preflight_with_auth_backoff(
                 _preflight_live(args, symbols, limits, join_ip_guard)
                 live_preflight_succeeded = True
             finally:
-                join_ip_guard()
-                if ip_executor is not None:
-                    ip_executor.shutdown(wait=True)
-                live_preflight_ms = max(
-                    0,
-                    round((time.monotonic() - live_preflight_started) * 1000),
-                )
-                _record_preflight_startup_phase(
-                    "live_preflight",
-                    {
+                try:
+                    join_ip_guard()
+                finally:
+                    if ip_executor is not None:
+                        ip_executor.shutdown(wait=True)
+                    live_preflight_ms = max(
+                        0, round((time.monotonic() - live_preflight_started) * 1000))
+                    _record_preflight_startup_phase("live_preflight", {
                         "delta_ms": live_preflight_ms,
                         "elapsed_ms": live_preflight_ms,
                         "success": live_preflight_succeeded,
-                    },
-                )
-                if not live_preflight_succeeded and _STARTUP_TIMELINE is not None:
-                    snapshot = _STARTUP_TIMELINE.snapshot()
-                    snapshot["preflight_phases"] = dict(_PREFLIGHT_STARTUP_PHASES)
-                    snapshot["risk_snapshot_phases"] = dict(_RISK_STARTUP_PHASES)
-                    _publish_ai_runtime_status(startup_timing=snapshot)
+                    })
+                    if not live_preflight_succeeded and _STARTUP_TIMELINE is not None:
+                        snapshot = _STARTUP_TIMELINE.snapshot()
+                        snapshot["preflight_phases"] = dict(_PREFLIGHT_STARTUP_PHASES)
+                        snapshot["risk_snapshot_phases"] = dict(_RISK_STARTUP_PHASES)
+                        _publish_ai_runtime_status(startup_timing=snapshot)
         except SUPERVISOR_OPERATION_ERRORS as exc:
             if args.live and preflight_resilience.is_transient_failure(exc):
                 transient_attempt += 1
@@ -3819,6 +3820,15 @@ def _preflight_with_auth_backoff(
                     initial_sec=initial,
                     max_sec=maximum,
                 )
+                record_failed_startup_attempt(
+                    _PREFLIGHT_STARTUP_PHASES, attempt=transient_attempt,
+                    backoff_sec=delay,
+                )
+                if _STARTUP_TIMELINE is not None:
+                    retry_snapshot = _STARTUP_TIMELINE.snapshot()
+                    retry_snapshot["preflight_phases"] = dict(_PREFLIGHT_STARTUP_PHASES)
+                    retry_snapshot["risk_snapshot_phases"] = dict(_RISK_STARTUP_PHASES)
+                    _publish_ai_runtime_status(startup_timing=retry_snapshot)
                 safe_reason = _runtime_recovery_reason(exc)
                 _log_info_rate_limited(
                     f"preflight-transient:{safe_reason}",
@@ -4304,7 +4314,10 @@ def main():
     }
     _publish_ai_runtime_status()
     _mark_startup("configuration")
+    _PREFLIGHT_STARTUP_PHASES.clear()
+    setup_timing = StartupSubphases(_record_preflight_startup_phase)
     _refresh_ai_control(args)
+    setup_timing.mark("ai_control")
     _publish_ai_runtime_status(
         risk_limits={
             "reserve_usdt": str(limits.reserve_usdt),
@@ -4313,7 +4326,9 @@ def main():
             "open_order_count_cap": limits.open_order_count_cap,
         }
     )
+    setup_timing.mark("status_publish")
     _normalize_runtime_args(args, symbols)
+    setup_timing.mark("normalization")
     if args.singleton:
         try:
             _acquire_singleton_lock(LOCK_FILE)
@@ -4324,7 +4339,9 @@ def main():
                 f"error_type={exc.__class__.__name__}"
             )
             raise SystemExit(3) from exc
+    setup_timing.mark("singleton_lock")
     _wait_for_maintenance_clear(args, limits)
+    setup_timing.mark("maintenance_wait")
     _preflight_with_auth_backoff(args, symbols, limits)
     global LIVE_MODE
     LIVE_MODE = bool(args.live)

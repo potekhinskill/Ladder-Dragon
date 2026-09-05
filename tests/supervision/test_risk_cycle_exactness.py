@@ -180,7 +180,7 @@ def test_parallel_pool_receives_only_explicit_public_readers():
     ("name", "value"),
     [
         ("RISK_PUBLIC_READ_CONCURRENCY", "0"),
-        ("RISK_PUBLIC_READ_CONCURRENCY", "5"),
+        ("RISK_PUBLIC_READ_CONCURRENCY", "6"),
         ("RISK_PUBLIC_READ_CONCURRENCY", "invalid"),
         ("RISK_UNVALUED_NEGATIVE_CACHE_SEC", "-1"),
         ("RISK_UNVALUED_NEGATIVE_CACHE_SEC", "901"),
@@ -202,7 +202,7 @@ def test_risk_startup_acceleration_configuration_fails_closed(
 def test_public_read_concurrency_defaults_to_bounded_maximum(monkeypatch):
     monkeypatch.delenv("RISK_PUBLIC_READ_CONCURRENCY", raising=False)
 
-    assert risk_cycle._public_read_concurrency() == 4
+    assert risk_cycle._public_read_concurrency() == 5
 
 
 def test_risk_snapshot_exposes_every_requested_startup_subphase():

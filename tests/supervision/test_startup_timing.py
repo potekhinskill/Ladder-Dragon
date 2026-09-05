@@ -4,6 +4,7 @@ from ladder_dragon.supervision.startup_timing import (
     StartupSubphases,
     StartupTimeline,
     log_worker_startup,
+    record_failed_startup_attempt,
 )
 from ladder_dragon.supervision import runtime
 
@@ -69,6 +70,18 @@ def test_startup_subphases_advance_without_publishing():
         ("database", {"delta_ms": 200, "elapsed_ms": 200}),
         ("account", {"delta_ms": 300, "elapsed_ms": 1000}),
     ]
+
+
+def test_failed_attempt_timing_accumulates_without_error_text():
+    phases = {"live_preflight": {"elapsed_ms": 6064, "success": False}}
+    record_failed_startup_attempt(phases, attempt=1, backoff_sec=5)
+    phases["live_preflight"] = {"elapsed_ms": 2507, "success": False}
+    record_failed_startup_attempt(phases, attempt=2, backoff_sec=10)
+
+    assert phases["failed_attempts"] == {
+        "count": 2, "elapsed_ms": 8571, "backoff_ms": 15000,
+    }
+    assert "error" not in repr(phases)
 
 
 def test_supervisor_status_includes_preflight_subphases(monkeypatch):

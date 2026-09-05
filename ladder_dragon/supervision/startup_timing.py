@@ -59,6 +59,21 @@ class StartupSubphases:
         self._previous = self._monotonic()
 
 
+def record_failed_startup_attempt(
+    phases: dict[str, dict[str, Any]], *, attempt: int, backoff_sec: int,
+) -> None:
+    """Retain bounded aggregate timing for replaced preflight attempts."""
+    previous = phases.get("failed_attempts", {})
+    current = phases.get("live_preflight", {})
+    phases["failed_attempts"] = {
+        "count": int(attempt),
+        "elapsed_ms": int(previous.get("elapsed_ms", 0))
+        + int(current.get("elapsed_ms", 0)),
+        "backoff_ms": int(previous.get("backoff_ms", 0))
+        + max(0, int(backoff_sec)) * 1000,
+    }
+
+
 def log_worker_startup(
     timeline: StartupTimeline,
     logger: Callable[[str], None],
@@ -76,4 +91,7 @@ def log_worker_startup(
     )
 
 
-__all__ = ["StartupSubphases", "StartupTimeline", "log_worker_startup"]
+__all__ = [
+    "StartupSubphases", "StartupTimeline", "log_worker_startup",
+    "record_failed_startup_attempt",
+]
