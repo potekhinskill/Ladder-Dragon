@@ -55,6 +55,22 @@ def test_startup_subphases_report_ordered_delta_and_elapsed_time():
     ]
 
 
+def test_startup_subphases_advance_without_publishing():
+    values = iter((30.0, 30.2, 30.7, 31.0))
+    reported = []
+    timing = StartupSubphases(lambda phase, value: reported.append((phase, value)),
+                              lambda: next(values))
+
+    timing.mark("database")
+    timing.advance()
+    timing.mark("account")
+
+    assert reported == [
+        ("database", {"delta_ms": 200, "elapsed_ms": 200}),
+        ("account", {"delta_ms": 300, "elapsed_ms": 1000}),
+    ]
+
+
 def test_supervisor_status_includes_preflight_subphases(monkeypatch):
     published = []
     values = iter((40.0, 40.1))

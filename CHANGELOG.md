@@ -3,6 +3,21 @@
 All notable changes are documented here. Releases use Semantic Versioning; every
 section is dated and there is intentionally no `Unreleased` section.
 
+## [2.20.319] — 2026-09-05
+
+### Fixed
+- Parallel clock and filter timings now measure each worker instead of sequential join points.
+- A separate `public_join` duration reports the complete public preflight critical path.
+- Failed public reads publish fixed timing fields and success state without exception text.
+
+### Changed
+- IP Guard now overlaps public clock and filter reads after local validation.
+- All three reads drain before the signed account request or public-check error propagation.
+
+### Verified
+- The focused preflight, timing, architecture, and version suite passes: 85 tests.
+- The full suite passes: 2,037 tests. Compileall and Technical English pass.
+
 ## [2.20.318] — 2026-09-05
 
 ### Changed

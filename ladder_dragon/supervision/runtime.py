@@ -3589,7 +3589,7 @@ def _preflight_live(
     args: argparse.Namespace,
     symbols: List[str],
     limits: RiskLimits,
-    before_remote=None,
+    before_signed=None,
 ) -> None:
     """Handle preflight live."""
     timing = StartupSubphases(_record_preflight_startup_phase)
@@ -3672,18 +3672,17 @@ def _preflight_live(
         con.close()
     timing.mark("database")
 
-    if before_remote is not None:
-        before_remote()
-
-    # These public reads use separate sessions. Both must finish before account I/O.
+    # These public reads overlap the IP Guard and drain before account I/O.
     filters = read_clock_and_filters(
         symbols,
         market=TM,
         get_filters=get_exchange_filters,
         max_offset_ms=int(os.getenv("RISK_MAX_TIME_OFFSET_MS", "1000")),
         max_round_trip_ms=int(os.getenv("RISK_MAX_TIME_RTT_MS", "5000")),
-        mark=timing.mark,
+        record=_record_preflight_startup_phase,
+        join_guard=before_signed,
     )
+    timing.advance()
     for symbol, values in filters.items():
         required = ("tickSize", "stepSize", "minQty", "minNotional")
         invalid = [name for name in required if _analytics_float(values.get(name, 0)) <= 0]

@@ -1,5 +1,40 @@
 # Engineering mistakes and root causes
 
+### 2026-09-05 — Retained the old event order in an overlap regression
+
+- **Impact:** the first focused run failed one test after runtime adopted the intended concurrent ordering.
+- **Root cause:** the fixture invoked the new guard barrier but kept its preceding serial-order assertion.
+- **Correction:** assert public completion, guard join, and signed account access in the new order.
+- **Prevention:** update setup, action, and final event assertions together when concurrency order changes.
+
+### 2026-09-05 — Staged after Git metadata was already restricted
+
+- **Impact:** the first staging command stopped without changing the index.
+- **Root cause:** branch creation required metadata permission, but staging did not request the same boundary.
+- **Correction:** stage the exact reviewed files with narrow Git permission.
+- **Prevention:** one metadata denial or escalation applies to all later Git writes in that task.
+
+### 2026-09-05 — Inferred the full-suite count from edited tests
+
+- **Impact:** the draft changelog overstated the passing test count by one before commit.
+- **Root cause:** the count was calculated from changed functions instead of collection output.
+- **Correction:** read the authoritative collection total and correct the draft release entry.
+- **Prevention:** report suite counts only from the completed runner or collection summary.
+
+### 2026-09-05 — Used an unmatched shell glob during command discovery
+
+- **Impact:** one read-only release-command search stopped and required a corrected query.
+- **Root cause:** the command passed unmatched wildcards to zsh instead of using the repository file inventory.
+- **Correction:** use `rg --files` before selecting command modules.
+- **Prevention:** discovery commands must not suppress or depend on unmatched shell patterns.
+
+### 2026-09-05 — Measured parallel tasks at serial join points
+
+- **Impact:** a completed filter read appeared to take zero milliseconds and misdirected startup diagnosis.
+- **Root cause:** phase timestamps followed ordered result consumption instead of the work inside each thread.
+- **Correction:** measure both workers internally and report their shared drain barrier separately.
+- **Prevention:** concurrency tests must distinguish task duration, wait duration, and critical-path duration.
+
 ### 2026-09-05 — Recorded preflight duration only after success
 
 - **Impact:** failed LIVE attempts omitted total elapsed time and obscured startup latency diagnosis.

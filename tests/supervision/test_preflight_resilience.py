@@ -131,22 +131,22 @@ def test_failed_live_preflight_publishes_elapsed_and_success_false(
     assert timing["preflight_phases"]["live_preflight"]["elapsed_ms"] >= 0
 
 
-def test_ip_guard_overlaps_local_preflight_before_remote_reads(
+def test_ip_guard_overlaps_local_and_public_preflight_before_signed_reads(
     tmp_path, monkeypatch
 ):
     from ladder_dragon.execution.auth_resilience import AuthResilienceState
 
-    local_check_started = threading.Event()
+    public_check_started = threading.Event()
     guard_finished = threading.Event()
 
     def observe(state):
-        assert local_check_started.wait(timeout=2)
+        assert public_check_started.wait(timeout=2)
         guard_finished.set()
         return state, None
 
-    def preflight(_args, _symbols, _limits, before_remote):
-        local_check_started.set()
-        before_remote()
+    def preflight(_args, _symbols, _limits, before_signed):
+        public_check_started.set()
+        before_signed()
         assert guard_finished.is_set()
 
     monkeypatch.setattr(
@@ -187,8 +187,9 @@ def test_signed_account_read_follows_joined_clock_and_filters(
         def close(self):
             return None
 
-    def public_checks(*_args, **_kwargs):
+    def public_checks(*_args, **kwargs):
         events.append("public_complete")
+        kwargs["join_guard"]()
         return {
             "SOLUSDT": {
                 "tickSize": 1,
@@ -199,7 +200,7 @@ def test_signed_account_read_follows_joined_clock_and_filters(
         }
 
     def signed_get(_path):
-        assert events == ["ip_complete", "public_complete"]
+        assert events == ["public_complete", "ip_complete"]
         events.append("account")
         return {"canTrade": True}
 
@@ -225,7 +226,7 @@ def test_signed_account_read_follows_joined_clock_and_filters(
         args, ["SOLUSDT"], limits, lambda: events.append("ip_complete")
     )
 
-    assert events == ["ip_complete", "public_complete", "account"]
+    assert events == ["public_complete", "ip_complete", "account"]
 
 
 def test_recovery_blocked_message_is_rate_limited(

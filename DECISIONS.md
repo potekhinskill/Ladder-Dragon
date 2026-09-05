@@ -1,5 +1,19 @@
 # Engineering decisions
 
+### 2026-09-05 — Join concurrent public authorities at the signed boundary
+
+- **Context:** IP Guard waited before two independent unauthenticated Binance reads.
+- **Decision:** start Binance public checks after local validation. Join IP Guard after they drain and before signed account state.
+- **Why it worked:** regressions prove overlap, drainage, deterministic failure order, isolated sessions, and the signed barrier.
+- **Reuse:** public preflight. Independent unauthenticated reads can overlap when every result joins before signed authority.
+
+### 2026-09-05 — Measure concurrent work inside each worker
+
+- **Context:** sequential join timestamps made completed parallel work appear instant.
+- **Decision:** measure each worker locally and publish one separate duration for the drained barrier.
+- **Why it worked:** regressions distinguish worker time from critical-path time on success and failure.
+- **Reuse:** parallel telemetry. Never derive individual task duration from ordered result consumption.
+
 ### 2026-09-05 — Join public preflight work before signed state
 
 - **Context:** independent public checks serialized startup, while failed attempts omitted their complete duration.

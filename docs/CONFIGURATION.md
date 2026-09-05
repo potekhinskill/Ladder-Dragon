@@ -38,8 +38,10 @@ Diagnostic failures never authorize execution, alter source lifetimes, or rewrit
 
 `startup_timing.preflight_phases.live_preflight` includes elapsed time and a Boolean success value.
 Failed attempts publish this bounded status before retry or termination.
-IP Guard overlaps local configuration and database checks.
-Clock and filter reads use separate public sessions after IP Guard joins.
+IP Guard overlaps local checks and the public clock and filter reads.
+All three reads join before the signed account request.
+Their `duration_ms` values measure worker execution, including failed reads.
+The `public_join` duration measures their shared critical path through complete drainage.
 Signed account reads start after both public checks finish successfully.
 `startup_timing.risk_snapshot_phases.public_reads.concurrency` reports the effective public-read limit.
 `startup_timing.risk_snapshot_phases.valuation_routes` contains one summary for the first completed valuation attempt, including failure.

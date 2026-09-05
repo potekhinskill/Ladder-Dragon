@@ -54,6 +54,10 @@ class StartupSubphases:
         })
         self._previous = now
 
+    def advance(self) -> None:
+        """Start the next ordered interval without publishing a phase."""
+        self._previous = self._monotonic()
+
 
 def log_worker_startup(
     timeline: StartupTimeline,
