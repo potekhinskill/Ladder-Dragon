@@ -1016,6 +1016,23 @@ def test_backup_aligns_a_new_depth_session_after_success():
     assert "ladder-dragon-depth-session-align.service" in updater
 
 
+def test_update_backup_preserves_eligible_depth_sessions():
+    updater = read("deploy/update_raspberry_pi.sh")
+    installer = read("deploy/install_raspberry_pi.sh")
+    service = read("deploy/ladder-dragon-update-backup.service")
+
+    assert "OnSuccess=" not in service
+    assert "NoNewPrivileges=yes" in service
+    assert "ProtectSystem=strict" in service
+    assert "ladder-dragon-update-backup.service" in installer
+    assert "ladder-dragon-update-backup.service" in updater
+    assert "deploy/depth_restart_policy.py --null" in updater
+    assert 'if [[ "${DEPTH_RESTART_POLICY}" == "restart" ]]' in updater
+    assert "systemctl start ladder-dragon-depth-archive.service" in updater
+    assert "public depth capture service failed" in updater
+    assert "systemctl start ladder-dragon-backup.service" not in updater
+
+
 def test_updates_are_commit_allowlisted_and_backups_are_encrypted():
     updater = read("deploy/update_raspberry_pi.sh")
     installer = read("deploy/install_raspberry_pi.sh")
@@ -1475,6 +1492,7 @@ def test_systemd_units_have_extended_sandboxing():
         "deploy/mybot.service",
         "deploy/pi-dashboard.service",
         "deploy/ladder-dragon-backup.service",
+        "deploy/ladder-dragon-update-backup.service",
         "deploy/ladder-dragon-log-export.service",
         "deploy/ladder-dragon-depth-archive.service",
         "deploy/ladder-dragon-depth-session-align.service",
@@ -1497,11 +1515,18 @@ def test_systemd_units_have_extended_sandboxing():
 
 
 def test_backup_service_retains_only_required_filesystem_capabilities():
-    service = read("deploy/ladder-dragon-backup.service")
-    assert "CapabilityBoundingSet=CAP_CHOWN CAP_DAC_OVERRIDE CAP_FOWNER" in service
-    assert "AmbientCapabilities=" in service
-    assert "CAP_SYS_ADMIN" not in service
-    assert "ReadWritePaths=/var/lib/ladder-dragon /home/bot/apps/binance_bot/db" in service
+    for relative in (
+        "deploy/ladder-dragon-backup.service",
+        "deploy/ladder-dragon-update-backup.service",
+    ):
+        service = read(relative)
+        assert "CapabilityBoundingSet=CAP_CHOWN CAP_DAC_OVERRIDE CAP_FOWNER" in service
+        assert "AmbientCapabilities=" in service
+        assert "CAP_SYS_ADMIN" not in service
+        assert (
+            "ReadWritePaths=/var/lib/ladder-dragon "
+            "/home/bot/apps/binance_bot/db"
+        ) in service
 
 
 def test_backup_inventory_handles_restricted_proc_without_warning():

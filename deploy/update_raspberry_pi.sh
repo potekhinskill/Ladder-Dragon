@@ -25,6 +25,7 @@ CHECKOUT_ADVANCED=0
 EXTERNAL_DEPLOYMENT_MUTATED=0
 MIGRATE_RECONCILE_TOLERANCE=0
 MIGRATE_DASHBOARD_RATE_LIMIT=0
+DEPTH_RESTART_POLICY="restart"
 
 fail() {
   echo "[FAIL] $*" >&2
@@ -596,6 +597,15 @@ if [[ "${ACTION}" == "update" ]]; then
   if [[ "$(runuser -u "${BOT_USER}" -- git rev-parse HEAD)" != "${PREVIOUS_HEAD}" ]]; then
     CHECKOUT_ADVANCED=1
   fi
+  DEPTH_RESTART_POLICY="$(
+    runuser -u "${BOT_USER}" -- git diff --name-only -z \
+      "${PREVIOUS_HEAD}" "${UPDATE_COMMIT}" \
+      | runuser -u "${BOT_USER}" -- .venv/bin/python \
+          deploy/depth_restart_policy.py --null
+  )"
+  [[ "${DEPTH_RESTART_POLICY}" == "restart" \
+     || "${DEPTH_RESTART_POLICY}" == "preserve" ]] \
+    || fail "invalid depth restart policy result"
   runuser -u "${BOT_USER}" -- .venv/bin/python -m pip install \
     --require-hashes -r requirements/raspberry.lock
   runuser -u "${BOT_USER}" -- .venv/bin/python -m pip install \
@@ -703,6 +713,8 @@ render_unit deploy/ladder-dragon-user-stream-shadow.service \
   /etc/systemd/system/ladder-dragon-user-stream-shadow.service
 render_unit deploy/ladder-dragon-backup.service \
   /etc/systemd/system/ladder-dragon-backup.service
+render_unit deploy/ladder-dragon-update-backup.service \
+  /etc/systemd/system/ladder-dragon-update-backup.service
 install -m 0644 deploy/ladder-dragon-backup.timer \
   /etc/systemd/system/ladder-dragon-backup.timer
 render_unit deploy/ladder-dragon-log-export.service \
@@ -749,8 +761,10 @@ install -d -o "${BOT_USER}" -g "${BOT_USER}" -m 0750 \
 install -d -o root -g "${BOT_USER}" -m 0770 /var/lib/ladder-dragon/soak
 
 backup_mount_dropin="/etc/systemd/system/ladder-dragon-backup.service.d/external-mount.conf"
+update_backup_mount_dropin="/etc/systemd/system/ladder-dragon-update-backup.service.d/external-mount.conf"
 depth_retention_dropin="/etc/systemd/system/ladder-dragon-depth-retention.service.d/external-mount.conf"
 rm -f "${backup_mount_dropin}"
+rm -f "${update_backup_mount_dropin}"
 rm -f "${depth_retention_dropin}"
 if [[ -n "${BACKUP_EXTERNAL_MOUNT:-}" ]]; then
   [[ "${BACKUP_EXTERNAL_MOUNT}" =~ ^/[A-Za-z0-9._/@+-]+$ ]] \
@@ -760,6 +774,11 @@ if [[ -n "${BACKUP_EXTERNAL_MOUNT:-}" ]]; then
     "${BACKUP_EXTERNAL_MOUNT}" "${BACKUP_EXTERNAL_MOUNT}" \
     >"${backup_mount_dropin}"
   chmod 0644 "${backup_mount_dropin}"
+  install -d -m 0755 "$(dirname "${update_backup_mount_dropin}")"
+  printf '[Unit]\nRequiresMountsFor=%s\n\n[Service]\nReadWritePaths=%s\n' \
+    "${BACKUP_EXTERNAL_MOUNT}" "${BACKUP_EXTERNAL_MOUNT}" \
+    >"${update_backup_mount_dropin}"
+  chmod 0644 "${update_backup_mount_dropin}"
   install -d -m 0755 "$(dirname "${depth_retention_dropin}")"
   printf '[Unit]\nRequiresMountsFor=%s\n\n[Service]\nReadWritePaths=%s\n' \
     "${BACKUP_EXTERNAL_MOUNT}" "${BACKUP_EXTERNAL_MOUNT}" \
@@ -815,10 +834,20 @@ systemctl enable ladder-dragon-backup.timer ladder-dragon-log-export.timer \
   >/dev/null
 start_previous_services
 systemctl start ladder-dragon-backup.timer
-systemctl start ladder-dragon-backup.service
+systemctl start ladder-dragon-update-backup.service
+systemctl start ladder-dragon-database-retention.service \
+  ladder-dragon-depth-retention.service
 systemctl start ladder-dragon-log-export.service ladder-dragon-log-export.timer
 systemctl disable --now ladder-dragon-depth-archive.timer 2>/dev/null || true
-systemctl restart ladder-dragon-depth-archive.service
+if [[ "${DEPTH_RESTART_POLICY}" == "restart" ]]; then
+  systemctl restart ladder-dragon-depth-archive.service
+  echo "[OK] restarted depth capture for a depth-affecting release"
+else
+  systemctl start ladder-dragon-depth-archive.service
+  echo "[OK] preserved the active depth capture session"
+fi
+systemctl is-active --quiet ladder-dragon-depth-archive.service \
+  || fail "public depth capture service failed"
 systemctl start ladder-dragon-soak-audit.timer
 if ! systemctl start ladder-dragon-soak-audit.service; then
   echo "[WARN] production soak audit is unavailable; trading approval remains blocked" >&2

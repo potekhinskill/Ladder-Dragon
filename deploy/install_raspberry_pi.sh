@@ -655,6 +655,8 @@ render_unit "${PROJECT_DIR}/deploy/ladder-dragon-user-stream-shadow.service" \
   /etc/systemd/system/ladder-dragon-user-stream-shadow.service
 render_unit "${PROJECT_DIR}/deploy/ladder-dragon-backup.service" \
   /etc/systemd/system/ladder-dragon-backup.service
+render_unit "${PROJECT_DIR}/deploy/ladder-dragon-update-backup.service" \
+  /etc/systemd/system/ladder-dragon-update-backup.service
 install -m 0644 "${PROJECT_DIR}/deploy/ladder-dragon-backup.timer" \
   /etc/systemd/system/ladder-dragon-backup.timer
 render_unit "${PROJECT_DIR}/deploy/ladder-dragon-log-export.service" \
@@ -702,8 +704,10 @@ install -d -o root -g "${BOT_USER}" -m 0770 /var/lib/ladder-dragon/soak
 PROJECT_DIR="${PROJECT_DIR}" "${PROJECT_DIR}/deploy/install_runtime_assets.sh"
 
 backup_mount_dropin="/etc/systemd/system/ladder-dragon-backup.service.d/external-mount.conf"
+update_backup_mount_dropin="/etc/systemd/system/ladder-dragon-update-backup.service.d/external-mount.conf"
 depth_retention_dropin="/etc/systemd/system/ladder-dragon-depth-retention.service.d/external-mount.conf"
 rm -f "${backup_mount_dropin}"
+rm -f "${update_backup_mount_dropin}"
 rm -f "${depth_retention_dropin}"
 if [[ -n "${BACKUP_EXTERNAL_MOUNT:-}" ]]; then
   [[ "${BACKUP_EXTERNAL_MOUNT}" =~ ^/[A-Za-z0-9._/@+-]+$ ]] \
@@ -713,6 +717,11 @@ if [[ -n "${BACKUP_EXTERNAL_MOUNT:-}" ]]; then
     "${BACKUP_EXTERNAL_MOUNT}" "${BACKUP_EXTERNAL_MOUNT}" \
     >"${backup_mount_dropin}"
   chmod 0644 "${backup_mount_dropin}"
+  install -d -m 0755 "$(dirname "${update_backup_mount_dropin}")"
+  printf '[Unit]\nRequiresMountsFor=%s\n\n[Service]\nReadWritePaths=%s\n' \
+    "${BACKUP_EXTERNAL_MOUNT}" "${BACKUP_EXTERNAL_MOUNT}" \
+    >"${update_backup_mount_dropin}"
+  chmod 0644 "${update_backup_mount_dropin}"
   install -d -m 0755 "$(dirname "${depth_retention_dropin}")"
   printf '[Unit]\nRequiresMountsFor=%s\n\n[Service]\nReadWritePaths=%s\n' \
     "${BACKUP_EXTERNAL_MOUNT}" "${BACKUP_EXTERNAL_MOUNT}" \

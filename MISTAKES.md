@@ -2832,3 +2832,24 @@ private infrastructure details.
 - **Root cause:** the optimization followed exclusion policy instead of the provider response classification.
 - **Correction:** cache definitive invalid-symbol responses for every candidate market with the bounded existing time limit.
 - **Prevention:** scope negative caches by error certainty, not by the caller's later business decision.
+
+### 2026-09-06 — Inferred safety audit module names
+
+- **Impact:** one audit sequence stopped after successful full tests and required a second command.
+- **Root cause:** the command used remembered aliases instead of the current repository inventory.
+- **Correction:** resolve exact module names with `rg --files bin` before running the audits.
+- **Prevention:** build each manual audit list only from the current repository inventory.
+
+### 2026-09-06 — Ran the full suite with the system interpreter
+
+- **Impact:** collection stopped before tests because the system interpreter lacked `hypothesis`.
+- **Root cause:** the command omitted the repository `.venv` prefix.
+- **Correction:** rerun compileall and pytest with the project interpreter.
+- **Prevention:** run repository verification only through `.venv/bin/python`.
+
+### 2026-09-06 — Omitted a new systemd unit from the command reference
+
+- **Impact:** the first complete test run found one documentation contract failure.
+- **Root cause:** the deployment edit did not inspect the systemd inventory documentation.
+- **Correction:** add the post-update backup unit to the command reference.
+- **Prevention:** compare every added unit against documentation inventory tests before the full suite.

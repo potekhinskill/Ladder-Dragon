@@ -2382,3 +2382,10 @@ entries concise; this is not a changelog or an activity log.
 - **Decision:** use one bounded pool across assets and cache only definitive invalid-symbol responses.
 - **Why it worked:** independent reads overlap, while temporary failures remain visible and unresolved assets still block risk.
 - **Reuse:** every whole-account calculation that combines independent public reads with fail-closed aggregation.
+
+### 2026-09-06 — Preserve independent evidence collectors across eligible updates
+
+- **Context:** every release reset continuous depth collection, including supervisor-only and presentation changes.
+- **Decision:** classify verified changed paths and restart depth capture only for affected or unknown scopes.
+- **Why it worked:** post-update backup remains encrypted, while its dedicated unit omits daily session alignment.
+- **Reuse:** long-running evidence collectors whose inputs are independent from a deployed change.

@@ -386,6 +386,7 @@ Do not publish its output.
 | `pi-watchdog-v3.service` | host and bot recovery check | timer target |
 | `pi-watchdog-v3.timer` | checks network; checks bot health separately | each minute; health each 5 minutes |
 | `ladder-dragon-backup.service` | encrypted private backup | timer target |
+| `ladder-dragon-update-backup.service` | encrypted post-update backup without L2 alignment | updater only |
 | `ladder-dragon-backup.timer` | starts backup | 02:20 each day |
 | `ladder-dragon-daily-digest.service` | Telegram ledger report | timer target |
 | `ladder-dragon-daily-digest.timer` | starts the digest | 08:00 Asia/Almaty |

@@ -3,6 +3,20 @@
 All notable changes are documented here. Releases use Semantic Versioning; every
 section is dated and there is intentionally no `Unreleased` section.
 
+## [2.20.321] — 2026-09-06
+
+### Fixed
+- Eligible updates no longer reset continuous public depth collection.
+- Post-update backups no longer trigger the daily depth-session alignment hook.
+
+### Changed
+- A fail-closed path policy restarts depth capture for runtime, strategy, dependency, or unknown changes.
+- Post-update retention still runs after the dedicated encrypted backup.
+
+### Verified
+- The focused deployment and restart-policy suite passes: 130 tests.
+- The full suite passes: 2,047 tests. Compileall, Technical English, and five safety audits pass.
+
 ## [2.20.320] — 2026-09-05
 
 ### Fixed
