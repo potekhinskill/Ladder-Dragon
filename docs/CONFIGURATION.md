@@ -36,6 +36,12 @@ Diagnostic failures never authorize execution, alter source lifetimes, or rewrit
 
 ## Startup valuation diagnostics
 
+`startup_timing.preflight_phases.live_preflight` includes elapsed time and a Boolean success value.
+Failed attempts publish this bounded status before retry or termination.
+IP Guard overlaps local configuration and database checks.
+Clock and filter reads use separate public sessions after IP Guard joins.
+Signed account reads start after both public checks finish successfully.
+`startup_timing.risk_snapshot_phases.public_reads.concurrency` reports the effective public-read limit.
 `startup_timing.risk_snapshot_phases.valuation_routes` contains one summary for the first completed valuation attempt, including failure.
 `attempt_failed=1` identifies a failed attempt, not the current trading state.
 The same summary appears once in the existing startup log.
@@ -153,7 +159,7 @@ Historical virtual documents are archive data and cannot enter retrieval.
 | `RISK_EXPECTED_SHORTFALL_*` | optional Expected Shortfall gate |
 | `RISK_CLUSTER_*` | correlation-cluster evidence and limits |
 | `RISK_UNVALUED_ASSETS*` | reviewed nontradeable dust exclusions |
-| `RISK_PUBLIC_READ_CONCURRENCY` | public ticker, kline, and depth concurrency from 1 through 4 |
+| `RISK_PUBLIC_READ_CONCURRENCY` | public ticker, kline, and depth concurrency from 1 through 4; default: `4` |
 | `RISK_UNVALUED_NEGATIVE_CACHE_SEC` | invalid-symbol cache duration from 0 through 900 seconds |
 
 A zero VaR or Expected Shortfall CAP disables that optional gate.

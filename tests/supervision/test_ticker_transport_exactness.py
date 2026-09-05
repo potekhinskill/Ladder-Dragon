@@ -55,6 +55,19 @@ def test_initial_ticker_uses_public_only_session(monkeypatch):
     assert "X-MBX-APIKEY" not in runtime.TM.INITIAL_PUBLIC_SESSION.headers
 
 
+def test_preflight_public_sessions_are_distinct_and_have_no_auth_header():
+    sessions = {
+        runtime.TM.PREFLIGHT_CLOCK_SESSION,
+        runtime.TM.PREFLIGHT_FILTERS_SESSION,
+        runtime.TM.INITIAL_PUBLIC_SESSION,
+        runtime.TM.SESSION,
+    }
+
+    assert len(sessions) == 4
+    assert "X-MBX-APIKEY" not in runtime.TM.PREFLIGHT_CLOCK_SESSION.headers
+    assert "X-MBX-APIKEY" not in runtime.TM.PREFLIGHT_FILTERS_SESSION.headers
+
+
 def test_transport_failure_preserves_provider_classification(monkeypatch):
     failure = runtime.TM.BinanceHttpError(status=400, code=-1121, endpoint="/api/v3/ticker/price")
 

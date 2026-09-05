@@ -199,6 +199,12 @@ def test_risk_startup_acceleration_configuration_fails_closed(
             risk_cycle._unvalued_negative_cache_ttl()
 
 
+def test_public_read_concurrency_defaults_to_bounded_maximum(monkeypatch):
+    monkeypatch.delenv("RISK_PUBLIC_READ_CONCURRENCY", raising=False)
+
+    assert risk_cycle._public_read_concurrency() == 4
+
+
 def test_risk_snapshot_exposes_every_requested_startup_subphase():
     source = inspect.getsource(risk_cycle.build_risk_snapshot)
     phases = set(re.findall(r'mark_phase\("([a-z_]+)"\)', source))

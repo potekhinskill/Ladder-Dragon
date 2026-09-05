@@ -99,6 +99,7 @@ from ladder_dragon.supervision.prediction_shadow import (
     publish_plan_decision_status as _publish_plan_decision_status,
 )
 from ladder_dragon.supervision import preflight_resilience
+from ladder_dragon.supervision.public_preflight import read_clock_and_filters
 from ladder_dragon.supervision.process_manager import (
     ChildProcessRegistry,
     SupervisorShutdownSignal,
@@ -282,8 +283,8 @@ _AI_POLICY: Optional[PolicyConfig] = None
 _AI_RUNTIME_STATUS_PATH: Optional[Path] = None
 _AI_RUNTIME_STATUS: Dict[str, Any] = {}
 _STARTUP_TIMELINE: Optional[StartupTimeline] = None
-_RISK_STARTUP_PHASES: Dict[str, Dict[str, int]] = {}
-_PREFLIGHT_STARTUP_PHASES: Dict[str, Dict[str, int]] = {}
+_RISK_STARTUP_PHASES: Dict[str, Dict[str, Any]] = {}
+_PREFLIGHT_STARTUP_PHASES: Dict[str, Dict[str, Any]] = {}
 _AI_CONTROL_PATH: Optional[Path] = None
 _PREDICTION_SHADOW: Optional[PredictionShadowStore] = None
 _ACTIVE_CHAMPIONS: Dict[str, Dict[str, object]] = {}
@@ -499,7 +500,7 @@ def _mark_startup(phase: str) -> None:
     _publish_ai_runtime_status(startup_timing=snapshot)
 
 
-def _record_risk_startup_phase(phase: str, timing: Dict[str, int]) -> None:
+def _record_risk_startup_phase(phase: str, timing: Dict[str, Any]) -> None:
     """Record one first-snapshot subphase without persistent growth."""
     if phase in _RISK_STARTUP_PHASES:
         return
@@ -508,7 +509,7 @@ def _record_risk_startup_phase(phase: str, timing: Dict[str, int]) -> None:
     log(f"[STARTUP-TIMING] component=risk_snapshot phase={phase} {fields}")
 
 
-def _record_preflight_startup_phase(phase: str, timing: Dict[str, int]) -> None:
+def _record_preflight_startup_phase(phase: str, timing: Dict[str, Any]) -> None:
     """Record one phase from the current LIVE preflight attempt."""
     _PREFLIGHT_STARTUP_PHASES[phase] = dict(timing)
     fields = " ".join(f"{key}={value}" for key, value in timing.items())
@@ -900,8 +901,12 @@ def get_24h_volume_quote(symbol: str) -> float:
     j = _public_get("/api/v3/ticker/24hr", params={"symbol": symbol})
     return _analytics_float(j.get("quoteVolume", 0.0))
 
-def get_exchange_filters(symbol: str) -> Dict[str, object]:
-    f = TM.get_symbol_filters(symbol)
+def get_exchange_filters(
+    symbol: str,
+    *,
+    session: requests.Session | None = None,
+) -> Dict[str, object]:
+    f = TM.get_symbol_filters(symbol, session=session)
     tick_exact = str(f.get("tickSizeExact", f.get("tickSize", "0")))
     step_exact = str(f.get("stepSizeExact", f.get("stepSize", "0")))
     min_qty_exact = str(f.get("minQtyExact", f.get("minQty", "0")))
@@ -3580,7 +3585,12 @@ def _configure_venue(args: argparse.Namespace) -> None:
     log(f"[VENUE] {venue} base={base} mode={'LIVE' if args.live else 'DRY'}")
 
 
-def _preflight_live(args: argparse.Namespace, symbols: List[str], limits: RiskLimits) -> None:
+def _preflight_live(
+    args: argparse.Namespace,
+    symbols: List[str],
+    limits: RiskLimits,
+    before_remote=None,
+) -> None:
     """Handle preflight live."""
     timing = StartupSubphases(_record_preflight_startup_phase)
     limits.validate()
@@ -3662,23 +3672,24 @@ def _preflight_live(args: argparse.Namespace, symbols: List[str], limits: RiskLi
         con.close()
     timing.mark("database")
 
-    # Check both clock offset and RTT: on a slow network, server-time estimation
-    # is not reliable enough for signed orders.
-    TM._refresh_time_offset(
-        timeout=15,
+    if before_remote is not None:
+        before_remote()
+
+    # These public reads use separate sessions. Both must finish before account I/O.
+    filters = read_clock_and_filters(
+        symbols,
+        market=TM,
+        get_filters=get_exchange_filters,
         max_offset_ms=int(os.getenv("RISK_MAX_TIME_OFFSET_MS", "1000")),
         max_round_trip_ms=int(os.getenv("RISK_MAX_TIME_RTT_MS", "5000")),
+        mark=timing.mark,
     )
-    timing.mark("clock")
-
-    for symbol in symbols:
-        filters = get_exchange_filters(symbol)
+    for symbol, values in filters.items():
         required = ("tickSize", "stepSize", "minQty", "minNotional")
-        invalid = [name for name in required if _analytics_float(filters.get(name, 0)) <= 0]
+        invalid = [name for name in required if _analytics_float(values.get(name, 0)) <= 0]
         if invalid:
             raise RuntimeError(f"invalid exchange filters for {symbol}: {','.join(invalid)}")
-        _FILTERS_CACHE[symbol] = filters
-    timing.mark("filters")
+    _FILTERS_CACHE.update(filters)
 
     account = TM._signed_get("/api/v3/account")
     if account.get("canTrade") is not True:
@@ -3729,11 +3740,36 @@ def _preflight_with_auth_backoff(
             attempt = int(state.attempt)
         outer_timing.mark("auth_backoff_state")
         consensus = None
+        ip_executor = None
+        ip_future = None
+        ip_started = time.monotonic()
         if args.live:
-            state, consensus = _observe_public_ip(state)
-        outer_timing.mark("ip_guard")
+            ip_executor = ThreadPoolExecutor(
+                max_workers=1, thread_name_prefix="preflight-ip"
+            )
+            ip_future = ip_executor.submit(_observe_public_ip, state)
+
+        def join_ip_guard() -> None:
+            nonlocal state, consensus, ip_future
+            if ip_future is None:
+                return
+            state, consensus = ip_future.result()
+            ip_future = None
+            ip_guard_ms = max(
+                0, round((time.monotonic() - ip_started) * 1000)
+            )
+            _record_preflight_startup_phase(
+                "ip_guard",
+                {
+                    "delta_ms": ip_guard_ms,
+                    "elapsed_ms": ip_guard_ms,
+                    "overlapped": True,
+                },
+            )
+
         now_epoch = int(time.time())
         if state.retry_at_epoch > now_epoch:
+            join_ip_guard()
             _wait_for_resilience_retry(
                 "AUTH",
                 state.retry_at_epoch - now_epoch,
@@ -3750,18 +3786,31 @@ def _preflight_with_auth_backoff(
             _save_auth_resilience_state(state)
         try:
             live_preflight_started = time.monotonic()
-            _preflight_live(args, symbols, limits)
-            live_preflight_ms = max(
-                0,
-                round((time.monotonic() - live_preflight_started) * 1000),
-            )
-            _record_preflight_startup_phase(
-                "live_preflight",
-                {
-                    "delta_ms": live_preflight_ms,
-                    "elapsed_ms": live_preflight_ms,
-                },
-            )
+            live_preflight_succeeded = False
+            try:
+                _preflight_live(args, symbols, limits, join_ip_guard)
+                live_preflight_succeeded = True
+            finally:
+                join_ip_guard()
+                if ip_executor is not None:
+                    ip_executor.shutdown(wait=True)
+                live_preflight_ms = max(
+                    0,
+                    round((time.monotonic() - live_preflight_started) * 1000),
+                )
+                _record_preflight_startup_phase(
+                    "live_preflight",
+                    {
+                        "delta_ms": live_preflight_ms,
+                        "elapsed_ms": live_preflight_ms,
+                        "success": live_preflight_succeeded,
+                    },
+                )
+                if not live_preflight_succeeded and _STARTUP_TIMELINE is not None:
+                    snapshot = _STARTUP_TIMELINE.snapshot()
+                    snapshot["preflight_phases"] = dict(_PREFLIGHT_STARTUP_PHASES)
+                    snapshot["risk_snapshot_phases"] = dict(_RISK_STARTUP_PHASES)
+                    _publish_ai_runtime_status(startup_timing=snapshot)
         except SUPERVISOR_OPERATION_ERRORS as exc:
             if args.live and preflight_resilience.is_transient_failure(exc):
                 transient_attempt += 1

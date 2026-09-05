@@ -2,7 +2,10 @@
 
 from decimal import Decimal
 import inspect
+import threading
 from types import SimpleNamespace
+
+import pytest
 
 from ladder_dragon.supervision import preflight_resilience
 from ladder_dragon.supervision import runtime as ai_supervisor
@@ -91,6 +94,138 @@ def test_supervisor_transient_preflight_failure_stays_in_process(
     ][-1]
     assert recovered["preflight_backoff"]["attempt"] == 1
     assert published[-1]["recovery"]["blocked"] is False
+
+
+def test_failed_live_preflight_publishes_elapsed_and_success_false(
+    tmp_path, monkeypatch
+):
+    from ladder_dragon.execution.auth_resilience import AuthResilienceState
+    from ladder_dragon.supervision.startup_timing import StartupTimeline
+
+    published = []
+    monkeypatch.setattr(
+        ai_supervisor, "_read_auth_resilience_state", AuthResilienceState
+    )
+    monkeypatch.setattr(
+        ai_supervisor, "_observe_public_ip", lambda state: (state, None)
+    )
+    monkeypatch.setattr(
+        ai_supervisor, "_preflight_live",
+        lambda *_args: (_ for _ in ()).throw(ValueError("invalid local config")),
+    )
+    monkeypatch.setattr(
+        ai_supervisor, "_STARTUP_TIMELINE", StartupTimeline()
+    )
+    monkeypatch.setattr(
+        ai_supervisor, "_publish_ai_runtime_status",
+        lambda **updates: published.append(updates),
+    )
+    args = SimpleNamespace(live=True)
+    limits = SimpleNamespace(halt_file=tmp_path / "halt.json")
+
+    with pytest.raises(ValueError, match="invalid local config"):
+        ai_supervisor._preflight_with_auth_backoff(args, ["SOLUSDT"], limits)
+
+    timing = next(row["startup_timing"] for row in published if "startup_timing" in row)
+    assert timing["preflight_phases"]["live_preflight"]["success"] is False
+    assert timing["preflight_phases"]["live_preflight"]["elapsed_ms"] >= 0
+
+
+def test_ip_guard_overlaps_local_preflight_before_remote_reads(
+    tmp_path, monkeypatch
+):
+    from ladder_dragon.execution.auth_resilience import AuthResilienceState
+
+    local_check_started = threading.Event()
+    guard_finished = threading.Event()
+
+    def observe(state):
+        assert local_check_started.wait(timeout=2)
+        guard_finished.set()
+        return state, None
+
+    def preflight(_args, _symbols, _limits, before_remote):
+        local_check_started.set()
+        before_remote()
+        assert guard_finished.is_set()
+
+    monkeypatch.setattr(
+        ai_supervisor, "_read_auth_resilience_state", AuthResilienceState
+    )
+    monkeypatch.setattr(ai_supervisor, "_observe_public_ip", observe)
+    monkeypatch.setattr(ai_supervisor, "_preflight_live", preflight)
+    monkeypatch.setattr(
+        ai_supervisor, "_save_auth_resilience_state", lambda _state: None
+    )
+    monkeypatch.setattr(
+        ai_supervisor, "_pre_running_recovery_gate",
+        lambda *_args: {"checked": 0, "blocked": False},
+    )
+    monkeypatch.setattr(
+        ai_supervisor, "_publish_ai_runtime_status", lambda **_updates: None
+    )
+    args = SimpleNamespace(live=True)
+    limits = SimpleNamespace(halt_file=tmp_path / "halt.json")
+
+    ai_supervisor._preflight_with_auth_backoff(args, ["SOLUSDT"], limits)
+
+    assert ai_supervisor._PREFLIGHT_STARTUP_PHASES["ip_guard"]["overlapped"] is True
+
+
+def test_signed_account_read_follows_joined_clock_and_filters(
+    tmp_path, monkeypatch
+):
+    events = []
+
+    class Connection:
+        def execute(self, _query):
+            return self
+
+        def fetchall(self):
+            return []
+
+        def close(self):
+            return None
+
+    def public_checks(*_args, **_kwargs):
+        events.append("public_complete")
+        return {
+            "SOLUSDT": {
+                "tickSize": 1,
+                "stepSize": 1,
+                "minQty": 1,
+                "minNotional": 1,
+            }
+        }
+
+    def signed_get(_path):
+        assert events == ["ip_complete", "public_complete"]
+        events.append("account")
+        return {"canTrade": True}
+
+    monkeypatch.setenv("BOT_STATS_DB", str(tmp_path / "stats.sqlite3"))
+    monkeypatch.setattr(ai_supervisor.TM, "API_KEY", "configured")
+    monkeypatch.setattr(ai_supervisor.TM, "API_SECRET", "configured")
+    monkeypatch.setattr(ai_supervisor.tools_stats, "init_db", lambda _path: Connection())
+    monkeypatch.setattr(ai_supervisor, "read_clock_and_filters", public_checks)
+    monkeypatch.setattr(ai_supervisor.TM, "_signed_get", signed_get)
+    args = SimpleNamespace(
+        live=True, testnet=False, cap_ceil_usdt="6", target_buy_per_symbol=1
+    )
+    limits = SimpleNamespace(
+        validate=lambda: None,
+        portfolio_cap_usdt=Decimal("100"),
+        daily_buy_cap_usdt=Decimal("100"),
+        correlated_cap_usdt=Decimal("100"),
+        reserve_usdt=Decimal("10"),
+        halt_file=tmp_path / "halt.json",
+    )
+
+    ai_supervisor._preflight_live(
+        args, ["SOLUSDT"], limits, lambda: events.append("ip_complete")
+    )
+
+    assert events == ["ip_complete", "public_complete", "account"]
 
 
 def test_recovery_blocked_message_is_rate_limited(

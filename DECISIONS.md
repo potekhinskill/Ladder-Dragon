@@ -1,5 +1,12 @@
 # Engineering decisions
 
+### 2026-09-05 — Join public preflight work before signed state
+
+- **Context:** independent public checks serialized startup, while failed attempts omitted their complete duration.
+- **Decision:** overlap IP Guard with local checks. Run clock and filter reads concurrently through separate public sessions.
+- **Why it worked:** regressions prove overlap, complete drainage, failure timing, transport isolation, and the signed-account barrier.
+- **Reuse:** concurrent preflight. Join every public task before signed state reads or authoritative publication.
+
 ### 2026-09-05 — Isolate independent startup transports
 
 - **Context:** public startup reads hid preflight latency and shared one session with signed account preparation.

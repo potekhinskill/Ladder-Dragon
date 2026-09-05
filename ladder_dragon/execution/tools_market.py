@@ -61,6 +61,10 @@ SESSION = requests.Session()
 SESSION.headers.update({"User-Agent": "tools_market/1.4"})
 INITIAL_PUBLIC_SESSION = requests.Session()
 INITIAL_PUBLIC_SESSION.headers.update({"User-Agent": "tools_market/1.4"})
+PREFLIGHT_CLOCK_SESSION = requests.Session()
+PREFLIGHT_CLOCK_SESSION.headers.update({"User-Agent": "tools_market/1.4"})
+PREFLIGHT_FILTERS_SESSION = requests.Session()
+PREFLIGHT_FILTERS_SESSION.headers.update({"User-Agent": "tools_market/1.4"})
 
 class BinanceHttpError(RuntimeError):
     """Carry bounded Binance error fields without retaining a signed URL."""
@@ -221,12 +225,13 @@ def _refresh_time_offset(
     timeout: float | None = None,
     max_offset_ms: int | None = None,
     max_round_trip_ms: int | None = None,
+    session: requests.Session | None = None,
 ):
     global _time_offset_ms, _time_offset_ts
     url = f"{BASE_URL}/api/v3/time"
     started = int(time.time() * 1000)
     request_kw = {"timeout": timeout} if timeout is not None else {}
-    r = _do_request("GET", url, **request_kw)
+    r = _do_request("GET", url, session=session, **request_kw)
     finished = int(time.time() * 1000)
     _raise_for_binance(r)
     srv = int(r.json()["serverTime"])
@@ -435,13 +440,19 @@ _exchange_cache: Dict[str, Dict[str, object]] = {}
 _exchange_cache_ts: Dict[str, float] = {}  # TTL
 _CACHE_TTL = 300
 
-def get_symbol_filters(symbol: str) -> Dict[str, object]:
+def get_symbol_filters(
+    symbol: str,
+    *,
+    session: requests.Session | None = None,
+) -> Dict[str, object]:
     symbol = symbol.upper()
     now = time.time()
     if symbol in _exchange_cache and (now - _exchange_cache_ts.get(symbol, 0)) < _CACHE_TTL:
         return _exchange_cache[symbol]
 
-    data = _public_get("/api/v3/exchangeInfo", {"symbol": symbol})
+    data = _public_get(
+        "/api/v3/exchangeInfo", {"symbol": symbol}, session=session
+    )
     symbols = data.get("symbols") or []
     if not symbols:
         raise BinanceHttpError(f"exchangeInfo: symbol '{symbol}' not found")

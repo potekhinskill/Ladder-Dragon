@@ -145,7 +145,7 @@ class _SnapshotTickerPrices:
 
 def _public_read_concurrency() -> int:
     try:
-        value = int(os.getenv("RISK_PUBLIC_READ_CONCURRENCY", "3") or "3")
+        value = int(os.getenv("RISK_PUBLIC_READ_CONCURRENCY", "4") or "4")
     except ValueError as exc:
         raise RiskConfigurationError(
             "RISK_PUBLIC_READ_CONCURRENCY must be an integer"
@@ -484,6 +484,8 @@ def build_risk_snapshot(
     )
     public_concurrency = _public_read_concurrency()
     negative_cache_ttl = _unvalued_negative_cache_ttl()
+    if callable(phase_callback):
+        phase_callback("public_reads", {"concurrency": public_concurrency})
 
     # Only public ticker I/O overlaps fill synchronization and account setup.
     # Signed reads and reconciliation retain their authoritative order.

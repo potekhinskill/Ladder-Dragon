@@ -180,6 +180,7 @@ def test_unavailable_bridge_blocks_snapshot(monkeypatch, snapshot_runtime):
     monkeypatch.setattr(runtime, "get_initial_last_price_decimal", reader)
     with pytest.raises(RuntimeError, match="synthetic unavailable market"):
         runtime._build_risk_snapshot(["SOLUSDT"], snapshot_runtime)
+    assert reports["public_reads"] == {"concurrency": 2}
     assert reports["valuation_routes"]["attempt_failed"] == 1
     assert reports["valuation_routes"]["bridge_other_errors"] == 1
 

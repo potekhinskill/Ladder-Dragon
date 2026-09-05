@@ -1,5 +1,12 @@
 # Engineering mistakes and root causes
 
+### 2026-09-05 — Recorded preflight duration only after success
+
+- **Impact:** failed LIVE attempts omitted total elapsed time and obscured startup latency diagnosis.
+- **Root cause:** timing publication followed the preflight call instead of enclosing it.
+- **Correction:** record duration in `finally` and publish an explicit success value.
+- **Prevention:** test timing and bounded status publication on success and failure paths.
+
 ### 2026-09-05 — Updated only focused transport fixtures
 
 - **Impact:** the first full suite failed because batch fixtures still intercepted only the shared market session.

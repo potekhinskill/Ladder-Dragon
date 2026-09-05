@@ -3,6 +3,20 @@
 All notable changes are documented here. Releases use Semantic Versioning; every
 section is dated and there is intentionally no `Unreleased` section.
 
+## [2.20.318] — 2026-09-05
+
+### Changed
+- Failed LIVE preflight attempts now publish complete elapsed time and an explicit unsuccessful result.
+- IP Guard overlaps local configuration and database checks, then joins before Binance requests.
+- Clock and exchange-filter reads use separate public sessions and run concurrently.
+- Signed account reads start only after both public checks finish successfully.
+- Public risk-read concurrency defaults to four and publishes its effective value.
+
+### Verified
+- The focused preflight, transport, risk, snapshot, and architecture suite passes: 89 tests.
+- Regressions prove overlap, separate public sessions, failure drainage, signed-read ordering, failure timing, and effective concurrency publication.
+- The full suite passes: 2,035 tests. Compileall, Technical English, and Semgrep pass.
+
 ## [2.20.317] — 2026-09-05
 
 ### Changed
