@@ -106,6 +106,8 @@ def _restore_service_trace(
     *,
     mybot_active: int,
     watchdog_enabled: int,
+    depth_active: int = 0,
+    depth_stopped: int = 0,
 ) -> list[str]:
     trace = tmp_path / "systemctl.trace"
     trace.parent.mkdir(parents=True, exist_ok=True)
@@ -119,6 +121,8 @@ def _restore_service_trace(
             "MYBOT_WAS_ENABLED=1",
             "DASHBOARD_WAS_ENABLED=0",
             f"WATCHDOG_WAS_ENABLED={watchdog_enabled}",
+            f"DEPTH_WAS_ACTIVE={depth_active}",
+            f"DEPTH_SERVICE_STOPPED={depth_stopped}",
             "restore_autostart() {",
             _function("restore_autostart", "start_previous_services"),
             "start_previous_services() {",
@@ -161,6 +165,26 @@ def test_watchdog_stays_stopped_without_active_bot_or_enablement(tmp_path):
 
     assert "start pi-watchdog-v3.timer" not in inactive_bot
     assert "start pi-watchdog-v3.timer" not in disabled_watchdog
+
+
+def test_stopped_depth_collector_recovers_only_when_previously_active(tmp_path):
+    active = _restore_service_trace(
+        tmp_path / "active",
+        mybot_active=0,
+        watchdog_enabled=0,
+        depth_active=1,
+        depth_stopped=1,
+    )
+    inactive = _restore_service_trace(
+        tmp_path / "inactive-depth",
+        mybot_active=0,
+        watchdog_enabled=0,
+        depth_active=0,
+        depth_stopped=1,
+    )
+
+    assert "start ladder-dragon-depth-archive.service" in active
+    assert "start ladder-dragon-depth-archive.service" not in inactive
 
 
 def _verify_service_state(*, watchdog_active: int) -> subprocess.CompletedProcess[str]:

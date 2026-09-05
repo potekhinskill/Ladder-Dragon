@@ -19,12 +19,15 @@ DASHBOARD_WAS_ACTIVE=0
 MYBOT_WAS_ENABLED=0
 DASHBOARD_WAS_ENABLED=0
 WATCHDOG_WAS_ENABLED=0
+DEPTH_WAS_ACTIVE=0
+DEPTH_SERVICE_STOPPED=0
 SERVICES_STOPPED=0
 PREVIOUS_HEAD=""
 CHECKOUT_ADVANCED=0
 EXTERNAL_DEPLOYMENT_MUTATED=0
 MIGRATE_RECONCILE_TOLERANCE=0
 MIGRATE_DASHBOARD_RATE_LIMIT=0
+MIGRATE_RISK_PUBLIC_READ_CONCURRENCY=0
 DEPTH_RESTART_POLICY="restart"
 
 fail() {
@@ -158,6 +161,38 @@ run_preupdate_backup() {
   return "${backup_status}"
 }
 
+resolve_depth_restart_policy() {
+  local commit="$1" policy_runner result status
+  # Break-glass and local apply use the conservative restart path. Only the
+  # verified target runner may execute target-owned classification logic.
+  if [[ "${BOT_UPDATE_TARGET_RUNNER:-0}" != "1" ]]; then
+    printf 'restart\n'
+    return 0
+  fi
+  policy_runner="$(mktemp /tmp/ladder-dragon-depth-policy.XXXXXX)"
+  runuser -u "${BOT_USER}" -- git show \
+    "${commit}:deploy/depth_restart_policy.py" >"${policy_runner}" \
+    || {
+      rm -f "${policy_runner}"
+      fail "verified target commit has no depth restart policy"
+    }
+  chmod 0700 "${policy_runner}"
+  if result="$(
+    runuser -u "${BOT_USER}" -- git diff --no-renames --name-only -z \
+      "${PREVIOUS_HEAD}" "${commit}" \
+      | python3 "${policy_runner}" --null
+  )"; then
+    status=0
+  else
+    status=$?
+  fi
+  rm -f "${policy_runner}"
+  [[ "${status}" == "0" ]] || fail "depth restart policy failed"
+  [[ "${result}" == "restart" || "${result}" == "preserve" ]] \
+    || fail "invalid depth restart policy result"
+  printf '%s\n' "${result}"
+}
+
 normalize_hardware_watchdog_load_gate() {
   local config="/etc/watchdog.conf" temporary
   [[ -f "${config}" ]] || return 0
@@ -216,6 +251,9 @@ remember_service_state() {
   MYBOT_WAS_ENABLED="$(service_flag is-enabled mybot)"
   DASHBOARD_WAS_ENABLED="$(service_flag is-enabled pi-healthd)"
   WATCHDOG_WAS_ENABLED="$(service_flag is-enabled pi-watchdog-v3.timer)"
+  DEPTH_WAS_ACTIVE="$(
+    service_flag is-active ladder-dragon-depth-archive.service
+  )"
 }
 
 restore_autostart() {
@@ -247,6 +285,9 @@ start_previous_services() {
   # Disable the timer before an update to preserve an intentional timer stop.
   if [[ "${MYBOT_WAS_ACTIVE}" == "1" && "${WATCHDOG_WAS_ENABLED}" == "1" ]]; then
     systemctl start pi-watchdog-v3.timer
+  fi
+  if [[ "${DEPTH_SERVICE_STOPPED}" == "1" && "${DEPTH_WAS_ACTIVE}" == "1" ]]; then
+    systemctl start ladder-dragon-depth-archive.service
   fi
 }
 
@@ -534,6 +575,12 @@ if ! grep -q '^RISK_RECONCILE_TOLERANCE_FRACTION=' .env; then
     *) fail "custom legacy reconciliation tolerance requires explicit migration" ;;
   esac
 fi
+risk_public_read_concurrency="$(
+  sed -n 's/^RISK_PUBLIC_READ_CONCURRENCY=//p' .env | head -1
+)"
+if [[ "${risk_public_read_concurrency}" == "5" ]]; then
+  MIGRATE_RISK_PUBLIC_READ_CONCURRENCY=1
+fi
 [[ -f .env.service ]] \
   || fail ".env.service is missing; run install_raspberry_pi.sh migrate first"
 systemctl cat mybot 2>/dev/null | grep -q 'deploy/run_bot_service.sh' \
@@ -567,15 +614,6 @@ run_preupdate_backup "${UPDATE_COMMIT}"
 # systemd removes an unpreserved RuntimeDirectory during stop.
 prepare_persistent_control
 
-# First record the systemd state. `systemctl stop` does not remove enabled:
-# autostart remains configured, while Restart=always cannot mix versions during the update.
-remember_service_state
-trap recover_after_failure ERR INT TERM
-SERVICES_STOPPED=1
-systemctl stop mybot
-systemctl stop pi-healthd
-systemctl stop pi-watchdog-v3.timer
-
 if [[ "${ACTION}" == "update" ]]; then
   [[ -z "$(runuser -u "${BOT_USER}" -- git status --porcelain --untracked-files=no)" ]] \
     || fail "tracked project files have local changes; commit or stash them first"
@@ -593,19 +631,29 @@ if [[ "${ACTION}" == "update" ]]; then
     verify_trusted_commit "${UPDATE_COMMIT}" "${trusted_signer}"
   fi
   PREVIOUS_HEAD="$(runuser -u "${BOT_USER}" -- git rev-parse HEAD)"
+  DEPTH_RESTART_POLICY="$(resolve_depth_restart_policy "${UPDATE_COMMIT}")"
+fi
+
+# First record the systemd state. `systemctl stop` does not remove enabled:
+# autostart remains configured, while Restart=always cannot mix versions during the update.
+remember_service_state
+trap recover_after_failure ERR INT TERM
+SERVICES_STOPPED=1
+systemctl stop mybot
+systemctl stop pi-healthd
+systemctl stop pi-watchdog-v3.timer
+if [[ "${DEPTH_RESTART_POLICY}" == "restart" ]]; then
+  DEPTH_SERVICE_STOPPED=1
+  systemctl stop ladder-dragon-depth-archive.service
+fi
+
+if [[ "${ACTION}" == "update" ]]; then
+  [[ "$(runuser -u "${BOT_USER}" -- git rev-parse HEAD)" == "${PREVIOUS_HEAD}" ]] \
+    || fail "checkout changed after update verification"
   runuser -u "${BOT_USER}" -- git merge --ff-only "${UPDATE_COMMIT}"
   if [[ "$(runuser -u "${BOT_USER}" -- git rev-parse HEAD)" != "${PREVIOUS_HEAD}" ]]; then
     CHECKOUT_ADVANCED=1
   fi
-  DEPTH_RESTART_POLICY="$(
-    runuser -u "${BOT_USER}" -- git diff --name-only -z \
-      "${PREVIOUS_HEAD}" "${UPDATE_COMMIT}" \
-      | runuser -u "${BOT_USER}" -- .venv/bin/python \
-          deploy/depth_restart_policy.py --null
-  )"
-  [[ "${DEPTH_RESTART_POLICY}" == "restart" \
-     || "${DEPTH_RESTART_POLICY}" == "preserve" ]] \
-    || fail "invalid depth restart policy result"
   runuser -u "${BOT_USER}" -- .venv/bin/python -m pip install \
     --require-hashes -r requirements/raspberry.lock
   runuser -u "${BOT_USER}" -- .venv/bin/python -m pip install \
@@ -626,6 +674,9 @@ set_env_value .env BINANCE_AUTH_STATE_FILE \
   "${PROJECT_DIR}/db/auth_resilience.json"
 if [[ "${MIGRATE_RECONCILE_TOLERANCE}" == "1" ]]; then
   set_env_value .env RISK_RECONCILE_TOLERANCE_FRACTION 0.001
+fi
+if [[ "${MIGRATE_RISK_PUBLIC_READ_CONCURRENCY}" == "1" ]]; then
+  set_env_value .env RISK_PUBLIC_READ_CONCURRENCY 6
 fi
 if ! grep -q '^BINANCE_PUBLIC_IP_ENDPOINTS=' .env; then
   printf 'BINANCE_PUBLIC_IP_ENDPOINTS=https://api.ipify.org,https://checkip.amazonaws.com\n' >>.env
@@ -832,6 +883,9 @@ systemctl enable ladder-dragon-backup.timer ladder-dragon-log-export.timer \
   ladder-dragon-depth-retention.timer \
   ladder-dragon-user-stream-shadow.service \
   >/dev/null
+# Successful completion starts depth with the new release in the policy block.
+# Recovery alone restores the previously active collector from this flag.
+DEPTH_SERVICE_STOPPED=0
 start_previous_services
 systemctl start ladder-dragon-backup.timer
 systemctl start ladder-dragon-update-backup.service

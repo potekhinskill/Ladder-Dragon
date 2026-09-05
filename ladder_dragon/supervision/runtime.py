@@ -4423,6 +4423,7 @@ def main():
     risk_snapshot_available = False
     shutdown_signal = SupervisorShutdownSignal()
     shutdown_signal.install()
+    _mark_startup("loop_setup")
 
     try:
         while True:
@@ -4472,6 +4473,7 @@ def main():
                     risk=heartbeat_risk,
                     order_journal=_runtime_order_journal_snapshot(),
                 )
+                _mark_startup("initial_heartbeat")
                 # Do not write to the SD card on every trading tick; 30 seconds
                 # is sufficient to show a live process in the dashboard.
                 next_runtime_heartbeat = now_loop + 30.0

@@ -2853,3 +2853,17 @@ private infrastructure details.
 - **Root cause:** the deployment edit did not inspect the systemd inventory documentation.
 - **Correction:** add the post-update backup unit to the command reference.
 - **Prevention:** compare every added unit against documentation inventory tests before the full suite.
+
+### 2026-09-06 — Classified renamed paths after mutating the checkout
+
+- **Impact:** an unsafe-to-safe rename could preserve collection while an old process started new checkout code.
+- **Root cause:** rename collapsing hid the source path, and classification occurred after the fast-forward merge.
+- **Correction:** disable rename collapsing, classify before merge, and stop affected collection before checkout mutation.
+- **Prevention:** test real Git renames and require service stops before every checkout-changing command.
+
+### 2026-09-06 — Inferred a hidden pytest total
+
+- **Impact:** the first candidate changelog understated the passing full-suite count by one.
+- **Root cause:** quiet progress output was counted instead of reading the release harness metric.
+- **Correction:** use the immutable release report's explicit pytest count.
+- **Prevention:** never infer a test total from progress markers or a previous release.

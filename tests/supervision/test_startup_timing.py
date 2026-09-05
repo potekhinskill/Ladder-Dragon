@@ -1,5 +1,7 @@
 """Bounded startup timing regressions."""
 
+import inspect
+
 from ladder_dragon.supervision.startup_timing import (
     StartupSubphases,
     StartupTimeline,
@@ -99,3 +101,14 @@ def test_supervisor_status_includes_preflight_subphases(monkeypatch):
 
     assert published[0]["startup_timing"]["preflight_phases"] == {
         "clock": {"delta_ms": 300, "elapsed_ms": 500}}
+
+
+def test_initial_loop_setup_and_heartbeat_are_timed_before_risk_snapshot():
+    source = inspect.getsource(runtime.main)
+    loop_setup = source.index('_mark_startup("loop_setup")')
+    heartbeat = source.index('_mark_startup("initial_heartbeat")')
+    snapshot = source.index('_mark_startup("risk_snapshot")')
+
+    assert source.index("shutdown_signal.install()") < loop_setup
+    assert loop_setup < source.index("while True:")
+    assert loop_setup < heartbeat < snapshot

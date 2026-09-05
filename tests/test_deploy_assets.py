@@ -1026,11 +1026,35 @@ def test_update_backup_preserves_eligible_depth_sessions():
     assert "ProtectSystem=strict" in service
     assert "ladder-dragon-update-backup.service" in installer
     assert "ladder-dragon-update-backup.service" in updater
-    assert "deploy/depth_restart_policy.py --null" in updater
+    assert '"${commit}:deploy/depth_restart_policy.py"' in updater
+    assert 'python3 "${policy_runner}" --null' in updater
+    assert "git diff --no-renames --name-only -z" in updater
     assert 'if [[ "${DEPTH_RESTART_POLICY}" == "restart" ]]' in updater
     assert "systemctl start ladder-dragon-depth-archive.service" in updater
     assert "public depth capture service failed" in updater
     assert "systemctl start ladder-dragon-backup.service" not in updater
+
+
+def test_updater_migrates_only_the_previous_public_read_default():
+    updater = read("deploy/update_raspberry_pi.sh")
+
+    assert 'risk_public_read_concurrency}" == "5"' in updater
+    assert "MIGRATE_RISK_PUBLIC_READ_CONCURRENCY=1" in updater
+    assert "set_env_value .env RISK_PUBLIC_READ_CONCURRENCY 6" in updater
+
+
+def test_depth_restart_scope_is_resolved_before_checkout_mutation():
+    updater = read("deploy/update_raspberry_pi.sh")
+
+    assert updater.index(
+        'DEPTH_RESTART_POLICY="$(resolve_depth_restart_policy'
+    ) < updater.index("\nremember_service_state\n")
+    assert updater.index(
+        "systemctl stop ladder-dragon-depth-archive.service"
+    ) < updater.index('git merge --ff-only "${UPDATE_COMMIT}"')
+    assert updater.index(
+        'DEPTH_SERVICE_STOPPED=1'
+    ) < updater.index("systemctl stop ladder-dragon-depth-archive.service")
 
 
 def test_updates_are_commit_allowlisted_and_backups_are_encrypted():

@@ -161,7 +161,7 @@ Historical virtual documents are archive data and cannot enter retrieval.
 | `RISK_EXPECTED_SHORTFALL_*` | optional Expected Shortfall gate |
 | `RISK_CLUSTER_*` | correlation-cluster evidence and limits |
 | `RISK_UNVALUED_ASSETS*` | reviewed nontradeable dust exclusions |
-| `RISK_PUBLIC_READ_CONCURRENCY` | public ticker, kline, and depth concurrency from 1 through 5; default: `5` |
+| `RISK_PUBLIC_READ_CONCURRENCY` | public ticker, kline, and depth concurrency from 1 through 6; default: `6` |
 | `RISK_UNVALUED_NEGATIVE_CACHE_SEC` | invalid-symbol cache duration from 0 through 900 seconds |
 
 A zero VaR or Expected Shortfall CAP disables that optional gate.

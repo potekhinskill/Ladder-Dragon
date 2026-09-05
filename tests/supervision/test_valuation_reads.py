@@ -58,7 +58,7 @@ def test_slower_first_route_wins_and_prices_are_not_reused(monkeypatch, snapshot
 
 
 @pytest.mark.parametrize("depth", [False, True])
-@pytest.mark.parametrize("capacity", [1, 2, 4, 5])
+@pytest.mark.parametrize("capacity", [1, 2, 4, 5, 6])
 def test_snapshot_global_capacity_includes_depth_and_bridge(monkeypatch, snapshot_runtime, depth, capacity):
     monkeypatch.setenv("RISK_CONVERSION_DEPTH_REQUIRED", str(int(depth)))
     monkeypatch.setenv("RISK_PUBLIC_READ_CONCURRENCY", str(capacity))

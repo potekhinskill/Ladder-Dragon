@@ -3,6 +3,21 @@
 All notable changes are documented here. Releases use Semantic Versioning; every
 section is dated and there is intentionally no `Unreleased` section.
 
+## [2.20.322] — 2026-09-06
+
+### Fixed
+- Git renames cannot hide a depth-affecting source path from the update restart policy.
+- Affected depth collection now stops before checkout mutation and recovers its previous active state after an early failure.
+
+### Changed
+- Public valuation concurrency increases from five to six. The updater changes only the previous default value.
+- Signed account and reconciliation reads remain sequential.
+- Startup telemetry now separates loop setup and the initial status heartbeat from the first risk snapshot.
+
+### Verified
+- The focused update, timing, and valuation suite passes: 160 tests.
+- The full suite passes: 2,054 tests. Compileall, Technical English, and five safety audits pass.
+
 ## [2.20.321] — 2026-09-06
 
 ### Fixed

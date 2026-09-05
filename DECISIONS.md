@@ -2389,3 +2389,10 @@ entries concise; this is not a changelog or an activity log.
 - **Decision:** classify verified changed paths and restart depth capture only for affected or unknown scopes.
 - **Why it worked:** post-update backup remains encrypted, while its dedicated unit omits daily session alignment.
 - **Reuse:** long-running evidence collectors whose inputs are independent from a deployed change.
+
+### 2026-09-06 — Resolve service restart scope before checkout mutation
+
+- **Context:** an old collector could start target-checkout subprocesses before its delayed restart.
+- **Decision:** classify both rename paths from the verified target, then stop affected collectors before merge.
+- **Why it worked:** one process lifetime cannot cross the immutable checkout boundary.
+- **Reuse:** every long-running service that starts code from a mutable deployment checkout.

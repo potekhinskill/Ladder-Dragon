@@ -731,6 +731,9 @@ For remote access, install a certificate from a trusted private certificate auth
 You can use a private overlay before you enable HSTS.
 
 The updater creates an encrypted backup and records the service state.
+It classifies changed paths from the verified target before checkout mutation.
+It treats both paths of a Git rename as independent changes.
+It stops an affected depth collector before the checkout changes.
 It stops services and applies only the requested fast-forward SHA.
 It installs dependencies and updates nginx, frontend assets, and systemd.
 It validates and starts the services.
@@ -749,6 +752,7 @@ from `.env.example`.
 If an update fails before an asset change, recovery restores the previous SHA.
 Recovery installs the previous hashed dependencies and package.
 It then restores the previous service state.
+Recovery restarts a stopped depth collector only if it was previously active.
 If rollback cannot be proved, or
 systemd/nginx/static assets may already be partially changed, `mybot` and its
 watchdog remain stopped. Recovery starts `pi-healthd` for diagnosis and prints
