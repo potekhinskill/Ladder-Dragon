@@ -61,6 +61,8 @@ SESSION = requests.Session()
 SESSION.headers.update({"User-Agent": "tools_market/1.4"})
 INITIAL_PUBLIC_SESSION = requests.Session()
 INITIAL_PUBLIC_SESSION.headers.update({"User-Agent": "tools_market/1.4"})
+VALUATION_BATCH_SESSION = requests.Session()
+VALUATION_BATCH_SESSION.headers.update({"User-Agent": "tools_market/1.4"})
 PREFLIGHT_CLOCK_SESSION = requests.Session()
 PREFLIGHT_CLOCK_SESSION.headers.update({"User-Agent": "tools_market/1.4"})
 PREFLIGHT_FILTERS_SESSION = requests.Session()
@@ -514,9 +516,21 @@ def get_symbol_filters(
     _exchange_cache_ts[symbol] = now
     return res
 
-def get_ticker_prices_decimal(symbols) -> dict[str, Decimal]:
+def get_ticker_prices_decimal(
+    symbols,
+    *,
+    session: requests.Session | None = None,
+) -> dict[str, Decimal]:
     """Read one bounded public response; retain only requested exact prices."""
-    return requested_prices(_public_get("/api/v3/ticker/price"), symbols)
+    return requested_prices(
+        _public_get(
+            "/api/v3/ticker/price",
+            session=(
+                VALUATION_BATCH_SESSION if session is None else session
+            ),
+        ),
+        symbols,
+    )
 
 
 def get_ticker_price(symbol: str) -> float:

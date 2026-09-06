@@ -4,6 +4,8 @@ from decimal import Decimal
 import gzip
 import io
 import json
+import threading
+import time
 
 import pytest
 import requests
@@ -56,6 +58,7 @@ def test_batch_wire_is_exact_and_fresh(monkeypatch, batch_runtime):
         return result
     monkeypatch.setattr(market.SESSION, "request", request)
     monkeypatch.setattr(market.INITIAL_PUBLIC_SESSION, "request", request)
+    monkeypatch.setattr(market.VALUATION_BATCH_SESSION, "request", request)
     risk_cycle._UNVALUED_MARKET_CACHE.remember("AAAUSDT", now=risk_cycle.time.monotonic(), ttl_sec=300)
     first, _, prices = runtime._build_risk_snapshot(["SOLUSDT"], batch_runtime)
     assert first.equity_usdt == Decimal("100") + Decimal(exact[0]) * 2 + 6
@@ -113,6 +116,69 @@ def test_batch_transport_failure_stops_reads(monkeypatch, batch_runtime):
     assert calls == [{"symbol": "SOLUSDT"}, None]
 
 
+def test_batch_overlaps_signed_order_preparation(monkeypatch, batch_runtime):
+    batch_started = threading.Event()
+    orders_finished = threading.Event()
+
+    def batch_reader(_symbols):
+        assert threading.current_thread() is not threading.main_thread()
+        batch_started.set()
+        assert orders_finished.wait(2), "signed orders did not overlap batch"
+        return {
+            "AAAUSDT": Decimal("1"),
+            "BBBUSDT": Decimal("2"),
+        }
+
+    def signed_get(endpoint):
+        assert threading.current_thread() is threading.main_thread()
+        assert endpoint == "/api/v3/openOrders"
+        assert batch_started.wait(2), "batch did not start before signed orders"
+        orders_finished.set()
+        return []
+
+    monkeypatch.setattr(
+        runtime, "get_initial_last_price_decimal", lambda _symbol: Decimal("75")
+    )
+    monkeypatch.setattr(runtime.TM, "get_ticker_prices_decimal", batch_reader)
+    monkeypatch.setattr(runtime.TM, "_signed_get", signed_get)
+
+    snapshot, _, _ = runtime._build_risk_snapshot(["SOLUSDT"], batch_runtime)
+
+    assert snapshot.equity_usdt == Decimal("108")
+
+
+def test_signed_failure_drains_batch_without_printing_payload(
+    monkeypatch, batch_runtime, capsys,
+):
+    batch_started = threading.Event()
+    batch_finished = threading.Event()
+
+    def batch_reader(_symbols):
+        batch_started.set()
+        time.sleep(0.03)
+        batch_finished.set()
+        return {
+            "AAAUSDT": Decimal("1"),
+            "BBBUSDT": Decimal("2"),
+        }
+
+    def signed_get(_endpoint):
+        assert batch_started.wait(2)
+        raise RuntimeError("synthetic-private-marker")
+
+    monkeypatch.setattr(
+        runtime, "get_initial_last_price_decimal", lambda _symbol: Decimal("75")
+    )
+    monkeypatch.setattr(runtime.TM, "get_ticker_prices_decimal", batch_reader)
+    monkeypatch.setattr(runtime.TM, "_signed_get", signed_get)
+
+    with pytest.raises(RuntimeError, match="synthetic-private-marker"):
+        runtime._build_risk_snapshot(["SOLUSDT"], batch_runtime)
+
+    assert batch_finished.is_set()
+    assert "synthetic-private-marker" not in str(capsys.readouterr())
+
+
 def test_batch_byte_limit_precedes_parsing(monkeypatch, batch_runtime):
     monkeypatch.setattr(runtime.TM, "_public_get", PUBLIC_GET)
     monkeypatch.setattr(runtime.TM, "_rate_limit_until", 0)
@@ -121,7 +187,11 @@ def test_batch_byte_limit_precedes_parsing(monkeypatch, batch_runtime):
     result.status_code = 200
     result.headers["Content-Encoding"] = "gzip"
     result.raw = HTTPResponse(io.BytesIO(gzip.compress(b"private-marker" * 100)), preload_content=False)
-    monkeypatch.setattr(runtime.TM.SESSION, "request", lambda *a, **kw: result)
+    monkeypatch.setattr(
+        runtime.TM.VALUATION_BATCH_SESSION,
+        "request",
+        lambda *args, **kwargs: result,
+    )
     with pytest.raises(market_http_body.MarketResponseError) as error:
         runtime.TM.get_ticker_prices_decimal({"AAAUSDT", "BBBUSDT"})
     assert "private-marker" not in str(error.value)

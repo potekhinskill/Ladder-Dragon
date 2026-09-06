@@ -10,7 +10,6 @@ import fcntl
 import sys
 import time
 import math
-import random
 import argparse
 import subprocess
 import json
@@ -76,7 +75,8 @@ from ladder_dragon.supervision.order_cleanup import (
     startup_cleanup_orders as _startup_cleanup_orders,
 )
 from ladder_dragon.supervision.startup_timing import (
-    StartupSubphases, StartupTimeline, record_failed_startup_attempt,
+    StartupSubphases, StartupTimeline, first_subphase_callback,
+    record_failed_startup_attempt,
 )
 from ladder_dragon.supervision.protection_snapshot import (
     verify_all_live_protection as _verify_all_live_protection_service,
@@ -84,6 +84,7 @@ from ladder_dragon.supervision.protection_snapshot import (
 )
 from ladder_dragon.supervision.vwap_config import (
     getenv_float,
+    next_vwap_refresh_epoch,
     parse_limit_map,
     parse_pct_map,
     parse_vwap_output,
@@ -287,6 +288,7 @@ _AI_RUNTIME_STATUS: Dict[str, Any] = {}
 _STARTUP_TIMELINE: Optional[StartupTimeline] = None
 _RISK_STARTUP_PHASES: Dict[str, Dict[str, Any]] = {}
 _PREFLIGHT_STARTUP_PHASES: Dict[str, Dict[str, Any]] = {}
+_LOOP_SETUP_PHASES: Dict[str, Dict[str, Any]] = {}
 _AI_CONTROL_PATH: Optional[Path] = None
 _PREDICTION_SHADOW: Optional[PredictionShadowStore] = None
 _ACTIVE_CHAMPIONS: Dict[str, Dict[str, object]] = {}
@@ -499,6 +501,7 @@ def _mark_startup(phase: str) -> None:
     snapshot = _STARTUP_TIMELINE.snapshot()
     snapshot["preflight_phases"] = dict(_PREFLIGHT_STARTUP_PHASES)
     snapshot["risk_snapshot_phases"] = dict(_RISK_STARTUP_PHASES)
+    snapshot["loop_setup_phases"] = dict(_LOOP_SETUP_PHASES)
     _publish_ai_runtime_status(startup_timing=snapshot)
 
 
@@ -898,6 +901,7 @@ def get_initial_last_price_decimal(symbol: str) -> Decimal:
     if price <= 0:
         raise ValueError(f"{symbol} ticker price must be positive")
     return price
+
 
 def get_24h_volume_quote(symbol: str) -> float:
     j = _public_get("/api/v3/ticker/24hr", params={"symbol": symbol})
@@ -3810,6 +3814,7 @@ def _preflight_with_auth_backoff(
                         snapshot = _STARTUP_TIMELINE.snapshot()
                         snapshot["preflight_phases"] = dict(_PREFLIGHT_STARTUP_PHASES)
                         snapshot["risk_snapshot_phases"] = dict(_RISK_STARTUP_PHASES)
+                        snapshot["loop_setup_phases"] = dict(_LOOP_SETUP_PHASES)
                         _publish_ai_runtime_status(startup_timing=snapshot)
         except SUPERVISOR_OPERATION_ERRORS as exc:
             if args.live and preflight_resilience.is_transient_failure(exc):
@@ -3828,6 +3833,7 @@ def _preflight_with_auth_backoff(
                     retry_snapshot = _STARTUP_TIMELINE.snapshot()
                     retry_snapshot["preflight_phases"] = dict(_PREFLIGHT_STARTUP_PHASES)
                     retry_snapshot["risk_snapshot_phases"] = dict(_RISK_STARTUP_PHASES)
+                    retry_snapshot["loop_setup_phases"] = dict(_LOOP_SETUP_PHASES)
                     _publish_ai_runtime_status(startup_timing=retry_snapshot)
                 safe_reason = _runtime_recovery_reason(exc)
                 _log_info_rate_limited(
@@ -4143,6 +4149,7 @@ def main():
     _STARTUP_TIMELINE = StartupTimeline()
     _PREFLIGHT_STARTUP_PHASES.clear()
     _RISK_STARTUP_PHASES.clear()
+    _LOOP_SETUP_PHASES.clear()
     _AI_DECISION_IDS.clear()
     _AI_CONTEXT_CACHE.clear()
     _PREDICTION_LAST_ATTEMPT.clear()
@@ -4343,6 +4350,7 @@ def main():
     _wait_for_maintenance_clear(args, limits)
     setup_timing.mark("maintenance_wait")
     _preflight_with_auth_backoff(args, symbols, limits)
+    loop_timing = StartupSubphases(first_subphase_callback(_LOOP_SETUP_PHASES, log, "loop_setup"))
     global LIVE_MODE
     LIVE_MODE = bool(args.live)
     # In DRY the circuit breaker does not change persistent state. LIVE uses a
@@ -4370,6 +4378,7 @@ def main():
             "reasons": list(initial_risk_gate["reasons"]),
         },
     )
+    loop_timing.mark("risk_gate_publish")
 
     auto_cap = auto_cap_if_needed(args, n_syms=len(symbols))
     configured_order_cap = (
@@ -4384,16 +4393,7 @@ def main():
     # Risk Manager narrows dynamically. Strategy, VWAP and AI may never raise a
     # worker order above the operator ceiling.
     os.environ["BOT_OPERATOR_CAP_PER_ORDER_USDT"] = str(operator_order_cap)
-
-    def _next_vwap_refresh() -> float:
-        base = max(0, int(getattr(args, "vwap_refresh_sec", 0)))
-        if base <= 0:
-            return math.inf
-        delay = _analytics_float(base)
-        jitter = max(0, int(getattr(args, "vwap_refresh_jitter_sec", 0)))
-        if jitter > 0:
-            delay += random.uniform(-jitter, jitter)
-        return time.time() + max(5.0, delay)
+    loop_timing.mark("operator_cap")
 
     next_vwap_refresh = math.inf
     startup_vwap_pending = False
@@ -4402,7 +4402,8 @@ def main():
             startup_vwap_pending = True
             next_vwap_refresh = time.time()
         else:
-            next_vwap_refresh = _next_vwap_refresh()
+            next_vwap_refresh = next_vwap_refresh_epoch(args)
+    loop_timing.mark("vwap_schedule")
 
     next_risk_check = 0.0
     risk_buy_blocked = bool(initial_risk_gate["buy_blocked"])
@@ -4415,14 +4416,17 @@ def main():
     last_risk_alert_signature: tuple[bool, bool, tuple[str, ...]] | None = None
     previous_prices: Dict[str, Decimal] = {}
     consecutive_api_failures = 0
+    loop_timing.mark("runtime_state")
     runtime_auth_state = _read_auth_resilience_state()
     auth_failure_attempts = int(runtime_auth_state.attempt)
     auth_retry_at = _analytics_float(runtime_auth_state.retry_at_epoch)
+    loop_timing.mark("auth_state")
     next_runtime_heartbeat = 0.0
     next_ai_control_check = 0.0
     risk_snapshot_available = False
     shutdown_signal = SupervisorShutdownSignal()
     shutdown_signal.install()
+    loop_timing.mark("signal_setup")
     _mark_startup("loop_setup")
 
     try:
@@ -4800,7 +4804,7 @@ def main():
                     log(f"[VWAP-REFRESH] {reason} error: {e}")
                 finally:
                     startup_vwap_pending = False
-                    next_vwap_refresh = _next_vwap_refresh()
+                    next_vwap_refresh = next_vwap_refresh_epoch(args)
             _collect_blocked_shadow(
                 shadow_only_symbols,
                 args,

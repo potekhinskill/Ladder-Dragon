@@ -6,8 +6,11 @@
 from __future__ import annotations
 
 import argparse
+import math
 import os
+import random
 import re
+import time
 from decimal import Decimal
 from typing import Collection, Dict, Optional, Tuple
 
@@ -143,6 +146,23 @@ def getenv_float(name: str, default: Optional[float] = None) -> Optional[float]:
         return _analytics_float(value)
     except (TypeError, ValueError, OverflowError):
         return default
+
+
+def next_vwap_refresh_epoch(
+    args: argparse.Namespace,
+    *,
+    now=time.time,
+    uniform=random.uniform,
+) -> float:
+    """Return the next bounded, jittered VWAP refresh epoch."""
+    base = max(0, int(getattr(args, "vwap_refresh_sec", 0)))
+    if base <= 0:
+        return math.inf
+    delay = _analytics_float(base)
+    jitter = max(0, int(getattr(args, "vwap_refresh_jitter_sec", 0)))
+    if jitter > 0:
+        delay += uniform(-jitter, jitter)
+    return now() + max(5.0, delay)
 
 
 def resolve_vwap_value(

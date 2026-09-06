@@ -59,6 +59,18 @@ class StartupSubphases:
         self._previous = self._monotonic()
 
 
+def first_subphase_callback(phases, logger, component):
+    """Create one bounded first-attempt subphase recorder."""
+    def record(phase, timing):
+        if phase in phases:
+            return
+        phases[phase] = dict(timing)
+        fields = " ".join(f"{key}={value}" for key, value in timing.items())
+        logger(f"[STARTUP-TIMING] component={component} phase={phase} {fields}")
+
+    return record
+
+
 def record_failed_startup_attempt(
     phases: dict[str, dict[str, Any]], *, attempt: int, backoff_sec: int,
 ) -> None:
@@ -92,6 +104,6 @@ def log_worker_startup(
 
 
 __all__ = [
-    "StartupSubphases", "StartupTimeline", "log_worker_startup",
-    "record_failed_startup_attempt",
+    "StartupSubphases", "StartupTimeline", "first_subphase_callback",
+    "log_worker_startup", "record_failed_startup_attempt",
 ]

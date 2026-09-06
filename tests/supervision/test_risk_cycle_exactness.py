@@ -208,6 +208,7 @@ def test_public_read_concurrency_defaults_to_bounded_maximum(monkeypatch):
 def test_risk_snapshot_exposes_every_requested_startup_subphase():
     source = inspect.getsource(risk_cycle.build_risk_snapshot)
     phases = set(re.findall(r'mark_phase\("([a-z_]+)"\)', source))
+    phases.update(re.findall(r'phase_callback\(\s*"([a-z_]+)"', source))
 
     assert {
         "fill_sync",

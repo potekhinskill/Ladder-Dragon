@@ -2396,3 +2396,10 @@ entries concise; this is not a changelog or an activity log.
 - **Decision:** classify both rename paths from the verified target, then stop affected collectors before merge.
 - **Why it worked:** one process lifetime cannot cross the immutable checkout boundary.
 - **Reuse:** every long-running service that starts code from a mutable deployment checkout.
+
+### 2026-09-06 — Share capacity across overlapping public risk reads
+
+- **Context:** batch ticker and liquidity depth reads extended the authoritative snapshot path when executed sequentially.
+- **Decision:** isolate the batch transport and overlap public reads under one six-request valuation capacity.
+- **Why it worked:** signed state remains sequential, while every started public read drains before snapshot publication or failure.
+- **Reuse:** authoritative snapshots that combine ordered private state with independent public market observations.

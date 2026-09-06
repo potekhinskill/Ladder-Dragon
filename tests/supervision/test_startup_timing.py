@@ -5,6 +5,7 @@ import inspect
 from ladder_dragon.supervision.startup_timing import (
     StartupSubphases,
     StartupTimeline,
+    first_subphase_callback,
     log_worker_startup,
     record_failed_startup_attempt,
 )
@@ -74,6 +75,23 @@ def test_startup_subphases_advance_without_publishing():
     ]
 
 
+def test_first_subphase_callback_retains_one_bounded_value():
+    phases = {}
+    messages = []
+    record = first_subphase_callback(phases, messages.append, "loop_setup")
+
+    record("operator_cap", {"delta_ms": 2, "elapsed_ms": 4})
+    record("operator_cap", {"delta_ms": 9, "elapsed_ms": 15})
+
+    assert phases == {
+        "operator_cap": {"delta_ms": 2, "elapsed_ms": 4}
+    }
+    assert messages == [
+        "[STARTUP-TIMING] component=loop_setup phase=operator_cap "
+        "delta_ms=2 elapsed_ms=4"
+    ]
+
+
 def test_failed_attempt_timing_accumulates_without_error_text():
     phases = {"live_preflight": {"elapsed_ms": 6064, "success": False}}
     record_failed_startup_attempt(phases, attempt=1, backoff_sec=5)
@@ -93,6 +111,8 @@ def test_supervisor_status_includes_preflight_subphases(monkeypatch):
     monkeypatch.setattr(runtime, "_PREFLIGHT_STARTUP_PHASES", {
         "clock": {"delta_ms": 300, "elapsed_ms": 500}})
     monkeypatch.setattr(runtime, "_RISK_STARTUP_PHASES", {})
+    monkeypatch.setattr(runtime, "_LOOP_SETUP_PHASES", {
+        "operator_cap": {"delta_ms": 2, "elapsed_ms": 4}})
     monkeypatch.setattr(runtime, "_publish_ai_runtime_status",
                         lambda **updates: published.append(updates))
     monkeypatch.setattr(runtime, "log", lambda _message: None)
@@ -101,6 +121,8 @@ def test_supervisor_status_includes_preflight_subphases(monkeypatch):
 
     assert published[0]["startup_timing"]["preflight_phases"] == {
         "clock": {"delta_ms": 300, "elapsed_ms": 500}}
+    assert published[0]["startup_timing"]["loop_setup_phases"] == {
+        "operator_cap": {"delta_ms": 2, "elapsed_ms": 4}}
 
 
 def test_initial_loop_setup_and_heartbeat_are_timed_before_risk_snapshot():
@@ -110,5 +132,14 @@ def test_initial_loop_setup_and_heartbeat_are_timed_before_risk_snapshot():
     snapshot = source.index('_mark_startup("risk_snapshot")')
 
     assert source.index("shutdown_signal.install()") < loop_setup
+    for phase in (
+        "risk_gate_publish",
+        "operator_cap",
+        "vwap_schedule",
+        "runtime_state",
+        "auth_state",
+        "signal_setup",
+    ):
+        assert source.index(f'loop_timing.mark("{phase}")') < loop_setup
     assert loop_setup < source.index("while True:")
     assert loop_setup < heartbeat < snapshot

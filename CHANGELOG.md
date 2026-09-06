@@ -3,6 +3,18 @@
 All notable changes are documented here. Releases use Semantic Versioning; every
 section is dated and there is intentionally no `Unreleased` section.
 
+## [2.20.323] — 2026-09-06
+
+### Changed
+- Loop setup telemetry now separates risk publication, operator CAP, VWAP scheduling, runtime state, authentication state, and signal setup.
+- Account batch ticker reads use a separate public session and overlap signed order and reconciliation preparation.
+- Portfolio liquidity depth overlaps account valuation through one bounded public-read capacity.
+- Signed account, order, protection, and reconciliation operations remain sequential.
+
+### Verified
+- The focused risk, execution, startup, transport, and architecture suite passes: 151 tests.
+- The full suite passes: 2,061 tests. Compileall, Technical English, secret scan, Semgrep, and five safety audits pass.
+
 ## [2.20.322] — 2026-09-06
 
 ### Fixed

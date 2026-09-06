@@ -503,108 +503,179 @@ def build_risk_snapshot(
     prices = dict(zip(symbols, configured_prices))
     valuation_metrics = ValuationMetrics()
     mark_phase("ticker")
-    orders = tools_market._signed_get("/api/v3/openOrders") or []
-    mark_phase("orders")
-    if live_mode:
-        runtime_protection_gate(symbols, limits, open_orders=orders)
-    mark_phase("protection")
 
-    # Strict reconciliation prevents a risk snapshot from mixing divergent
-    # Binance account and local inventory-ledger data.
-    if env_flag("RISK_RECONCILE_STRICT", True):
-        tolerance, used_legacy_tolerance = reconciliation_tolerance_fraction(
-            os.environ
-        )
-        if used_legacy_tolerance:
-            log_info_rate_limited(
-                "legacy-risk-reconcile-tolerance",
-                "[CONFIG] RISK_RECONCILE_TOLERANCE_PCT is deprecated; "
-                "use RISK_RECONCILE_TOLERANCE_FRACTION",
-                interval_sec=3600,
+    def read_authoritative_state(
+        current_balances: Mapping[str, Mapping[str, object]],
+    ) -> tuple[List[Dict[str, Any]], Mapping[str, Mapping[str, object]], bool]:
+        """Keep signed order and reconciliation reads strictly sequential."""
+        orders = tools_market._signed_get("/api/v3/openOrders") or []
+        mark_phase("orders")
+        if live_mode:
+            runtime_protection_gate(symbols, limits, open_orders=orders)
+        mark_phase("protection")
+        balances_reloaded = False
+
+        # Strict reconciliation prevents a risk snapshot from mixing divergent
+        # Binance account and local inventory-ledger data.
+        if env_flag("RISK_RECONCILE_STRICT", True):
+            tolerance, used_legacy_tolerance = reconciliation_tolerance_fraction(
+                os.environ
             )
-        grace_sec = max(0.0, analytics_float(os.getenv("RISK_RECONCILE_GRACE_SEC", "5") or 5))
-        retry_sec = max(0.05, analytics_float(os.getenv("RISK_RECONCILE_RETRY_SEC", "0.25") or 0.25))
-        dust_steps = max(
-            Decimal("0"),
-            exact_decimal(
-                os.getenv("RISK_RECONCILE_DUST_STEPS", "1") or "1",
-                name="reconciliation dust steps",
-            ),
-        )
-        deadline = time.monotonic() + grace_sec
-        waited = False
-        while True:
-            with sqlite3.connect(f"file:{os.environ['BOT_STATS_DB']}?mode=ro", uri=True, timeout=5) as con:
-                exact_inventory_view = con.execute(
-                    "SELECT 1 FROM sqlite_master WHERE type='view' "
-                    "AND name='inventory_exact'"
-                ).fetchone()
-                inventory_source = (
-                    "SELECT symbol,qty_text FROM inventory_exact"
-                    if exact_inventory_view
-                    else "SELECT symbol,CAST(qty AS TEXT) FROM inventory"
+            if used_legacy_tolerance:
+                log_info_rate_limited(
+                    "legacy-risk-reconcile-tolerance",
+                    "[CONFIG] RISK_RECONCILE_TOLERANCE_PCT is deprecated; "
+                    "use RISK_RECONCILE_TOLERANCE_FRACTION",
+                    interval_sec=3600,
                 )
-                inventory = {
-                    str(symbol).upper(): exact_decimal(qty, name="ledger quantity")
-                    for symbol, qty in con.execute(inventory_source).fetchall()
-                }
-            mismatches: list[dict[str, object]] = []
-            for symbol in symbols:
-                base, _ = symbol_assets(symbol)
-                account_qty = exact_decimal(
-                    balances.get(base, {}).get("free", "0"), name="account free quantity"
-                ) + exact_decimal(
-                    balances.get(base, {}).get("locked", "0"), name="account locked quantity"
-                )
-                db_qty = inventory.get(symbol)
-                filter_values = get_exchange_filters_cached(symbol)
-                step_size = max(
-                    Decimal("0"),
-                    exact_decimal(
-                        filter_values.get("stepSizeExact", filter_values.get("stepSize", "0")),
-                        name="symbol quantity step",
-                    ),
-                )
-                allowed = max(
-                    Decimal("0.00000001"),
-                    abs(account_qty) * tolerance,
-                    step_size * dust_steps,
-                )
-                if db_qty is None:
-                    if account_qty > allowed:
+            grace_sec = max(
+                0.0,
+                analytics_float(
+                    os.getenv("RISK_RECONCILE_GRACE_SEC", "5") or 5
+                ),
+            )
+            retry_sec = max(
+                0.05,
+                analytics_float(
+                    os.getenv("RISK_RECONCILE_RETRY_SEC", "0.25") or 0.25
+                ),
+            )
+            dust_steps = max(
+                Decimal("0"),
+                exact_decimal(
+                    os.getenv("RISK_RECONCILE_DUST_STEPS", "1") or "1",
+                    name="reconciliation dust steps",
+                ),
+            )
+            deadline = time.monotonic() + grace_sec
+            while True:
+                database_uri = f"file:{os.environ['BOT_STATS_DB']}?mode=ro"
+                with sqlite3.connect(
+                    database_uri, uri=True, timeout=5
+                ) as connection:
+                    exact_inventory_view = connection.execute(
+                        "SELECT 1 FROM sqlite_master WHERE type='view' "
+                        "AND name='inventory_exact'"
+                    ).fetchone()
+                    inventory_source = (
+                        "SELECT symbol,qty_text FROM inventory_exact"
+                        if exact_inventory_view
+                        else "SELECT symbol,CAST(qty AS TEXT) FROM inventory"
+                    )
+                    inventory = {
+                        str(symbol).upper(): exact_decimal(
+                            quantity, name="ledger quantity"
+                        )
+                        for symbol, quantity in connection.execute(
+                            inventory_source
+                        ).fetchall()
+                    }
+                mismatches: list[dict[str, object]] = []
+                for symbol in symbols:
+                    base, _ = symbol_assets(symbol)
+                    account_qty = exact_decimal(
+                        current_balances.get(base, {}).get("free", "0"),
+                        name="account free quantity",
+                    ) + exact_decimal(
+                        current_balances.get(base, {}).get("locked", "0"),
+                        name="account locked quantity",
+                    )
+                    db_qty = inventory.get(symbol)
+                    filter_values = get_exchange_filters_cached(symbol)
+                    step_size = max(
+                        Decimal("0"),
+                        exact_decimal(
+                            filter_values.get(
+                                "stepSizeExact",
+                                filter_values.get("stepSize", "0"),
+                            ),
+                            name="symbol quantity step",
+                        ),
+                    )
+                    allowed = max(
+                        Decimal("0.00000001"),
+                        abs(account_qty) * tolerance,
+                        step_size * dust_steps,
+                    )
+                    if db_qty is None:
+                        if account_qty > allowed:
+                            mismatches.append(
+                                {
+                                    "symbol": symbol,
+                                    "account": format(account_qty, "f"),
+                                    "ledger": None,
+                                    "delta": format(account_qty, "f"),
+                                    "allowed": format(allowed, "f"),
+                                }
+                            )
+                        continue
+                    if abs(account_qty - db_qty) > allowed:
                         mismatches.append(
                             {
                                 "symbol": symbol,
                                 "account": format(account_qty, "f"),
-                                "ledger": None,
-                                "delta": format(account_qty, "f"),
+                                "ledger": format(db_qty, "f"),
+                                "delta": format(account_qty - db_qty, "f"),
                                 "allowed": format(allowed, "f"),
                             }
                         )
-                    continue
-                if abs(account_qty - db_qty) > allowed:
-                    mismatches.append(
-                        {
-                            "symbol": symbol,
-                            "account": format(account_qty, "f"),
-                            "ledger": format(db_qty, "f"),
-                            "delta": format(account_qty - db_qty, "f"),
-                            "allowed": format(allowed, "f"),
-                        }
-                    )
-            if not mismatches:
-                break
-            remaining = deadline - time.monotonic()
-            if remaining <= 0:
-                raise RiskReconciliationError(mismatches)
-            waited = True
-            time.sleep(min(retry_sec, remaining))
-            balances = get_balances_full()
-        if waited:
-            # While the ledger catches up, a worker may create an OCO. Reload
-            # orders so exposure and order counts refer to one point in time.
-            orders = tools_market._signed_get("/api/v3/openOrders") or []
-    mark_phase("reconciliation")
+                if not mismatches:
+                    break
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    raise RiskReconciliationError(mismatches)
+                balances_reloaded = True
+                time.sleep(min(retry_sec, remaining))
+                current_balances = get_balances_full()
+            if balances_reloaded:
+                # While the ledger catches up, a worker may create an OCO.
+                # Reload orders to retain one authoritative state boundary.
+                orders = tools_market._signed_get("/api/v3/openOrders") or []
+        mark_phase("reconciliation")
+        return orders, current_balances, balances_reloaded
+
+    batch_enabled = env_flag("RISK_BATCH_TICKERS", True)
+    batch_setup_failed = True
+    try:
+        with ThreadPoolExecutor(
+            max_workers=1, thread_name_prefix="risk-batch"
+        ) as batch_executor:
+            batch_future = (
+                batch_executor.submit(
+                    seed_prices,
+                    balances,
+                    prices,
+                    tools_market.get_ticker_prices_decimal,
+                    valuation_metrics,
+                )
+                if batch_enabled
+                else None
+            )
+            orders, balances, balances_reloaded = read_authoritative_state(
+                balances
+            )
+            initial_valuation_prices = (
+                batch_future.result()
+                if batch_future is not None
+                else dict(prices)
+            )
+        valuation_prices = (
+            seed_prices(
+                balances,
+                prices,
+                tools_market.get_ticker_prices_decimal,
+                valuation_metrics,
+            )
+            if batch_enabled and balances_reloaded
+            else initial_valuation_prices
+        )
+        batch_setup_failed = False
+    finally:
+        if batch_setup_failed and callable(phase_callback):
+            phase_callback(
+                "valuation_routes",
+                valuation_metrics.snapshot(failed=True),
+            )
 
     # Risk valuation must cover the whole account, not only strategy symbols.
     # Otherwise old or manual positions in another asset disappear from equity,
@@ -705,20 +776,98 @@ def build_risk_snapshot(
     ]
     valuation_failed = True
     valuation_reads = ValuationReads(public_concurrency)
+
+    def liquidity_is_safe(symbol: str) -> bool:
+        """Read one depth book through the snapshot-wide public capacity."""
+        try:
+            depth = valuation_reads.read(
+                tools_market._public_get,
+                "/api/v3/depth",
+                {"symbol": symbol, "limit": 20},
+            )
+            bids = depth.get("bids") if isinstance(depth, Mapping) else None
+            asks = depth.get("asks") if isinstance(depth, Mapping) else None
+            if (
+                not isinstance(bids, list)
+                or not isinstance(asks, list)
+                or not bids
+                or not asks
+            ):
+                raise ValueError("depth is incomplete")
+            bid_depth = sum(
+                (
+                    exact_decimal(row[0], name="bid price")
+                    * exact_decimal(row[1], name="bid quantity")
+                    for row in bids
+                    if isinstance(row, (list, tuple)) and len(row) >= 2
+                ),
+                Decimal("0"),
+            )
+            ask_depth = sum(
+                (
+                    exact_decimal(row[0], name="ask price")
+                    * exact_decimal(row[1], name="ask quantity")
+                    for row in asks
+                    if isinstance(row, (list, tuple)) and len(row) >= 2
+                ),
+                Decimal("0"),
+            )
+            return liquidity_is_sufficient_decimal(
+                best_bid=bids[0][0],
+                best_ask=asks[0][0],
+                bid_depth_quote=bid_depth,
+                ask_depth_quote=ask_depth,
+                max_spread_bps=(
+                    os.getenv("RISK_MAX_SYMBOL_SPREAD_BPS", "20") or "20"
+                ),
+                min_depth_quote=(
+                    os.getenv("RISK_MIN_SYMBOL_DEPTH_QUOTE", "5000") or "5000"
+                ),
+            )
+        except (
+            ArithmeticError,
+            KeyError,
+            RuntimeError,
+            TypeError,
+            ValueError,
+            requests.RequestException,
+        ):
+            return False
+
+    def read_liquidity() -> tuple[list[str], int]:
+        """Return blocked symbols and independent elapsed depth time."""
+        started = time.monotonic()
+        blocked: list[str] = []
+        if control_mode("RISK_CLUSTER_GATE_MODE") != "OFF":
+            results = _bounded_public_reads(
+                symbols,
+                liquidity_is_safe,
+                concurrency=public_concurrency,
+            )
+            blocked.extend(
+                symbol
+                for symbol, safe in zip(symbols, results)
+                if not safe
+            )
+        duration_ms = max(0, round((time.monotonic() - started) * 1000))
+        return blocked, duration_ms
+
     try:
-        valuation_prices = (
-            seed_prices(balances, prices, tools_market.get_ticker_prices_decimal, valuation_metrics)
-            if env_flag("RISK_BATCH_TICKERS", True) else dict(prices)
-        )
         valuation_tickers = _SnapshotTickerPrices(
             lambda symbol: valuation_reads.read(get_last_price_decimal, symbol),
             valuation_prices, valuation_metrics,
         )
-        valued_assets = _bounded_public_reads(
-            balance_items,
-            value_account_asset,
-            concurrency=public_concurrency,
-        )
+        with ThreadPoolExecutor(
+            max_workers=1,
+            thread_name_prefix="risk-liquidity",
+        ) as liquidity_executor:
+            liquidity_future = liquidity_executor.submit(read_liquidity)
+            valued_assets = _bounded_public_reads(
+                balance_items,
+                value_account_asset,
+                concurrency=public_concurrency,
+            )
+            liquidity_blocked, depth_duration_ms = liquidity_future.result()
         valuation_failed = False
     finally:
         # The pool drains before publication, including a failed valuation.
@@ -752,6 +901,14 @@ def build_risk_snapshot(
             # Cash/reserve belongs to equity, but is not market exposure.
             holdings_exposure += value
     mark_phase("valuation")
+    if callable(phase_callback):
+        phase_callback(
+            "depth",
+            {
+                "duration_ms": depth_duration_ms,
+                "overlapped": True,
+            },
+        )
 
     open_buy = sum(
         remaining_open_buy_notional(order)
@@ -883,76 +1040,6 @@ def build_risk_snapshot(
         for cluster in correlation_clusters
     }
     mark_phase("trade_metrics")
-    liquidity_blocked: list[str] = []
-    if control_mode("RISK_CLUSTER_GATE_MODE") != "OFF":
-        max_spread_bps = os.getenv(
-            "RISK_MAX_SYMBOL_SPREAD_BPS", "20"
-        ) or "20"
-        min_depth_quote = os.getenv(
-            "RISK_MIN_SYMBOL_DEPTH_QUOTE", "5000"
-        ) or "5000"
-        def liquidity_is_safe(symbol: str) -> bool:
-            try:
-                depth = tools_market._public_get(
-                    "/api/v3/depth",
-                    {"symbol": symbol, "limit": 20},
-                )
-                bids = depth.get("bids") if isinstance(depth, Mapping) else None
-                asks = depth.get("asks") if isinstance(depth, Mapping) else None
-                if (
-                    not isinstance(bids, list)
-                    or not isinstance(asks, list)
-                    or not bids
-                    or not asks
-                ):
-                    raise ValueError("depth is incomplete")
-                bid_depth = sum(
-                    (
-                        exact_decimal(row[0], name="bid price")
-                        * exact_decimal(row[1], name="bid quantity")
-                        for row in bids
-                        if isinstance(row, (list, tuple)) and len(row) >= 2
-                    ),
-                    Decimal("0"),
-                )
-                ask_depth = sum(
-                    (
-                        exact_decimal(row[0], name="ask price")
-                        * exact_decimal(row[1], name="ask quantity")
-                        for row in asks
-                        if isinstance(row, (list, tuple)) and len(row) >= 2
-                    ),
-                    Decimal("0"),
-                )
-                if not liquidity_is_sufficient_decimal(
-                    best_bid=bids[0][0],
-                    best_ask=asks[0][0],
-                    bid_depth_quote=bid_depth,
-                    ask_depth_quote=ask_depth,
-                    max_spread_bps=max_spread_bps,
-                    min_depth_quote=min_depth_quote,
-                ):
-                    return False
-            except (
-                ArithmeticError,
-                KeyError,
-                RuntimeError,
-                TypeError,
-                ValueError,
-                requests.RequestException,
-            ):
-                return False
-            return True
-
-        liquidity_results = _bounded_public_reads(
-            symbols, liquidity_is_safe, concurrency=public_concurrency
-        )
-        liquidity_blocked.extend(
-            symbol
-            for symbol, safe in zip(symbols, liquidity_results)
-            if not safe
-        )
-    mark_phase("depth")
     stress = stress_loss_decimal(
         exposure_by_symbol,
         price_shock=os.getenv("RISK_STRESS_PRICE_SHOCK", "-0.05"),

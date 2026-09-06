@@ -55,15 +55,35 @@ def test_initial_ticker_uses_public_only_session(monkeypatch):
     assert "X-MBX-APIKEY" not in runtime.TM.INITIAL_PUBLIC_SESSION.headers
 
 
+def test_batch_ticker_uses_its_own_public_only_session(monkeypatch):
+    calls = []
+
+    def public_get(path, *, session=None):
+        calls.append((path, session))
+        return [{"symbol": "AAAUSDT", "price": "2"}]
+
+    monkeypatch.setattr(runtime.TM, "_public_get", public_get)
+
+    assert runtime.TM.get_ticker_prices_decimal({"AAAUSDT"}) == {
+        "AAAUSDT": Decimal("2")
+    }
+    assert calls == [
+        ("/api/v3/ticker/price", runtime.TM.VALUATION_BATCH_SESSION)
+    ]
+    assert runtime.TM.VALUATION_BATCH_SESSION is not runtime.TM.SESSION
+    assert "X-MBX-APIKEY" not in runtime.TM.VALUATION_BATCH_SESSION.headers
+
+
 def test_preflight_public_sessions_are_distinct_and_have_no_auth_header():
     sessions = {
         runtime.TM.PREFLIGHT_CLOCK_SESSION,
         runtime.TM.PREFLIGHT_FILTERS_SESSION,
         runtime.TM.INITIAL_PUBLIC_SESSION,
+        runtime.TM.VALUATION_BATCH_SESSION,
         runtime.TM.SESSION,
     }
 
-    assert len(sessions) == 4
+    assert len(sessions) == 5
     assert "X-MBX-APIKEY" not in runtime.TM.PREFLIGHT_CLOCK_SESSION.headers
     assert "X-MBX-APIKEY" not in runtime.TM.PREFLIGHT_FILTERS_SESSION.headers
 

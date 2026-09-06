@@ -124,3 +124,82 @@ def test_failure_drains_other_reads_and_does_not_print_errors(capsys):
             reads.close()
     assert finished.is_set()
     assert "synthetic-private-marker" not in str(capsys.readouterr())
+
+
+def test_liquidity_depth_overlaps_valuation_with_shared_capacity(
+    monkeypatch, snapshot_runtime,
+):
+    valuation_started = threading.Event()
+    depth_started = threading.Event()
+    lock = threading.Lock()
+    active = peak = 0
+    monkeypatch.setenv("RISK_PUBLIC_READ_CONCURRENCY", "2")
+    monkeypatch.setattr(runtime, "_control_mode", lambda _name: "SHADOW")
+    monkeypatch.setattr(runtime, "get_balances_full", lambda: {
+        "AAA": {"free": "1", "locked": "0"},
+    })
+
+    def network(value, started, peer):
+        nonlocal active, peak
+        with lock:
+            active += 1
+            peak = max(peak, active)
+        started.set()
+        try:
+            assert peer.wait(2), "public valuation and depth did not overlap"
+            return value
+        finally:
+            with lock:
+                active -= 1
+
+    def read(symbol):
+        if symbol == "SOLUSDT":
+            return Decimal("75")
+        if symbol == "AAAUSDT":
+            return network(Decimal("2"), valuation_started, depth_started)
+        raise missing()
+
+    def book(endpoint, params):
+        assert endpoint == "/api/v3/depth"
+        assert params == {"symbol": "SOLUSDT", "limit": 20}
+        return network(
+            {"bids": [["75", "100"]], "asks": [["75.01", "100"]]},
+            depth_started,
+            valuation_started,
+        )
+
+    monkeypatch.setattr(runtime, "get_last_price_decimal", read)
+    monkeypatch.setattr(runtime, "get_initial_last_price_decimal", read)
+    monkeypatch.setattr(runtime.TM, "_public_get", book)
+
+    result, _, _ = runtime._build_risk_snapshot(["SOLUSDT"], snapshot_runtime)
+
+    assert result.equity_usdt == Decimal("2")
+    assert active == 0
+    assert peak == 2
+
+
+def test_valuation_failure_drains_overlapped_depth_without_payload_leak(
+    monkeypatch, snapshot_runtime, capsys,
+):
+    depth_finished = threading.Event()
+    monkeypatch.setattr(runtime, "_control_mode", lambda _name: "SHADOW")
+    monkeypatch.setattr(runtime, "get_balances_full", lambda: {
+        "AAA": {"free": "synthetic-private-marker", "locked": "0"},
+    })
+    monkeypatch.setattr(
+        runtime, "get_initial_last_price_decimal", lambda _symbol: Decimal("75")
+    )
+
+    def book(_endpoint, _params):
+        time.sleep(0.03)
+        depth_finished.set()
+        return {"bids": [["75", "100"]], "asks": [["75.01", "100"]]}
+
+    monkeypatch.setattr(runtime.TM, "_public_get", book)
+
+    with pytest.raises(ArithmeticError):
+        runtime._build_risk_snapshot(["SOLUSDT"], snapshot_runtime)
+
+    assert depth_finished.is_set()
+    assert "synthetic-private-marker" not in str(capsys.readouterr())

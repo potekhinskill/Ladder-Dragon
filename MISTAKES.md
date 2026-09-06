@@ -2867,3 +2867,10 @@ private infrastructure details.
 - **Root cause:** quiet progress output was counted instead of reading the release harness metric.
 - **Correction:** use the immutable release report's explicit pytest count.
 - **Prevention:** never infer a test total from progress markers or a previous release.
+
+### 2026-09-06 — Added startup adapters to the runtime monolith
+
+- **Impact:** the first full verification run stopped at the unchanged runtime size budget.
+- **Root cause:** the initial edit placed reusable timing and scheduling helpers inside `runtime.py`.
+- **Correction:** move the helpers into focused modules and retain the existing 4,824-line limit.
+- **Prevention:** check architecture budgets before the first full run when editing a listed monolith.
