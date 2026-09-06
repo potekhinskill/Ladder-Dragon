@@ -959,8 +959,8 @@ def invalidate_exchange_filters_cache(symbol: Optional[str] = None) -> None:
     else:
         _FILTERS_CACHE.pop(symbol, None)
 
-def get_balances() -> Dict[str, Decimal]:
-    j = TM._signed_get("/api/v3/account")
+def get_balances(account: Mapping[str, object] | None = None) -> Dict[str, Decimal]:
+    j = account if account is not None else TM._signed_get("/api/v3/account")
     out: Dict[str, Decimal] = {}
     for b in j.get("balances", []):
         free = _finite_decimal(b.get("free", "0"), name="balance.free")
@@ -2428,12 +2428,12 @@ def run_child(symbol: str, ladder: List[float], args: argparse.Namespace,
 # Balance-based automatic CAP
 # ===========================
 
-def auto_cap_if_needed(args: argparse.Namespace, n_syms: int) -> Decimal | None:
+def auto_cap_if_needed(args: argparse.Namespace, n_syms: int, balances: Mapping[str, object] | None = None) -> Decimal | None:
     """Allocate USDT remaining after the protected reserve across BUY slots."""
     if not args.auto_cap:
         return None
     try:
-        bals = get_balances()
+        bals = get_balances() if balances is None else get_balances(balances)
         if "USDT" not in bals:
             raise RuntimeError("USDT balance is unavailable")
         reserve = max(Decimal("0"), money(os.getenv("RISK_RESERVE_USDT", "0")))
@@ -3596,7 +3596,7 @@ def _preflight_live(
     symbols: List[str],
     limits: RiskLimits,
     before_signed=None,
-) -> None:
+) -> Dict[str, Decimal] | None:
     """Handle preflight live."""
     timing = StartupSubphases(_record_preflight_startup_phase)
     limits.validate()
@@ -3699,13 +3699,14 @@ def _preflight_live(
     account = TM._signed_get("/api/v3/account")
     if account.get("canTrade") is not True:
         raise RuntimeError("Binance account/API key is not allowed to trade")
+    balances = get_balances(account)
     timing.mark("account")
-
     pass_message = "[PREFLIGHT] PASS " + json.dumps(config, sort_keys=True)
     _log_info_rate_limited(
         f"preflight-pass:{pass_message}",
         pass_message,
     )
+    return balances
 
 
 def _wait_for_resilience_retry(
@@ -3732,7 +3733,7 @@ def _preflight_with_auth_backoff(
     args: argparse.Namespace,
     symbols: List[str],
     limits: RiskLimits,
-) -> None:
+) -> Dict[str, Decimal] | None:
     """Retry auth and transient read failures without a systemd restart storm."""
     state: AuthResilienceState | None = None
     attempt = 0
@@ -3795,7 +3796,7 @@ def _preflight_with_auth_backoff(
             live_preflight_started = time.monotonic()
             live_preflight_succeeded = False
             try:
-                _preflight_live(args, symbols, limits, join_ip_guard)
+                preflight_balances = _preflight_live(args, symbols, limits, join_ip_guard)
                 live_preflight_succeeded = True
             finally:
                 try:
@@ -3969,7 +3970,7 @@ def _preflight_with_auth_backoff(
             continue
         _publish_ai_runtime_status(recovery=recovery)
         _mark_startup("recovery")
-        return
+        return preflight_balances
 
 
 def _stop_child(symbol: str, reason: str) -> bool:
@@ -4349,7 +4350,7 @@ def main():
     setup_timing.mark("singleton_lock")
     _wait_for_maintenance_clear(args, limits)
     setup_timing.mark("maintenance_wait")
-    _preflight_with_auth_backoff(args, symbols, limits)
+    preflight_balances = _preflight_with_auth_backoff(args, symbols, limits)
     loop_timing = StartupSubphases(first_subphase_callback(_LOOP_SETUP_PHASES, log, "loop_setup"))
     global LIVE_MODE
     LIVE_MODE = bool(args.live)
@@ -4380,7 +4381,7 @@ def main():
     )
     loop_timing.mark("risk_gate_publish")
 
-    auto_cap = auto_cap_if_needed(args, n_syms=len(symbols))
+    auto_cap = auto_cap_if_needed(args, len(symbols), preflight_balances)
     configured_order_cap = (
         auto_cap
         if auto_cap is not None

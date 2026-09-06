@@ -3,6 +3,17 @@
 All notable changes are documented here. Releases use Semantic Versioning; every
 section is dated and there is intentionally no `Unreleased` section.
 
+## [2.20.324] — 2026-09-06
+
+### Changed
+- Auto-cap reuses the exact account snapshot that passed LIVE preflight.
+- Risk Manager still reads a fresh account snapshot before it permits a BUY.
+- Account batch ticker remains unfiltered because one invalid symbol rejects the complete Binance request.
+
+### Verified
+- The full suite passes: 2,064 tests. Compileall, Technical English, Semgrep, and five safety audits pass.
+- A public read-only Binance check confirms that one invalid symbol rejects the complete filtered batch.
+
 ## [2.20.323] — 2026-09-06
 
 ### Changed

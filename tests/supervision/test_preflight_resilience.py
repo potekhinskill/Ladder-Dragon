@@ -42,6 +42,7 @@ def test_supervisor_transient_preflight_failure_stays_in_process(
         attempts.append(True)
         if len(attempts) == 1:
             raise RuntimeError("Binance time RTT 5660 ms exceeds 5000 ms")
+        return {"USDT": Decimal("31")}
 
     monkeypatch.setattr(
         ai_supervisor, "_read_auth_resilience_state", lambda: state
@@ -77,11 +78,12 @@ def test_supervisor_transient_preflight_failure_stays_in_process(
     )
     limits = SimpleNamespace(halt_file=tmp_path / "halt.json")
 
-    ai_supervisor._preflight_with_auth_backoff(
+    balances = ai_supervisor._preflight_with_auth_backoff(
         args, ["SOLUSDT"], limits
     )
 
     assert len(attempts) == 2
+    assert balances == {"USDT": Decimal("31")}
     assert set(ai_supervisor._PREFLIGHT_STARTUP_PHASES) >= {
         "auth_backoff_state",
         "ip_guard",
@@ -256,7 +258,12 @@ def test_signed_account_read_follows_joined_clock_and_filters(
     def signed_get(_path):
         assert events == ["public_complete", "ip_complete"]
         events.append("account")
-        return {"canTrade": True}
+        return {
+            "canTrade": True,
+            "balances": [
+                {"asset": "USDT", "free": "31.09148973", "locked": "0"}
+            ],
+        }
 
     monkeypatch.setenv("BOT_STATS_DB", str(tmp_path / "stats.sqlite3"))
     monkeypatch.setattr(ai_supervisor.TM, "API_KEY", "configured")
@@ -276,11 +283,72 @@ def test_signed_account_read_follows_joined_clock_and_filters(
         halt_file=tmp_path / "halt.json",
     )
 
-    ai_supervisor._preflight_live(
+    balances = ai_supervisor._preflight_live(
         args, ["SOLUSDT"], limits, lambda: events.append("ip_complete")
     )
 
     assert events == ["public_complete", "ip_complete", "account"]
+    assert balances == {"USDT": Decimal("31.09148973")}
+
+
+def test_preflight_balance_snapshot_fails_closed_on_invalid_number(
+    tmp_path, monkeypatch, capsys
+):
+    class Connection:
+        def execute(self, _query):
+            return self
+
+        def fetchall(self):
+            return []
+
+        def close(self):
+            return None
+
+    monkeypatch.setenv("BOT_STATS_DB", str(tmp_path / "stats.sqlite3"))
+    monkeypatch.setattr(ai_supervisor.TM, "API_KEY", "configured")
+    monkeypatch.setattr(ai_supervisor.TM, "API_SECRET", "configured")
+    monkeypatch.setattr(
+        ai_supervisor.tools_stats, "init_db", lambda _path: Connection()
+    )
+    monkeypatch.setattr(
+        ai_supervisor,
+        "read_clock_and_filters",
+        lambda *_args, **_kwargs: {
+            "SOLUSDT": {
+                "tickSize": 1,
+                "stepSize": 1,
+                "minQty": 1,
+                "minNotional": 1,
+            }
+        },
+    )
+    monkeypatch.setattr(
+        ai_supervisor.TM,
+        "_signed_get",
+        lambda _path: {
+            "canTrade": True,
+            "balances": [
+                {"asset": "USDT", "free": "private-marker", "locked": "0"}
+            ],
+        },
+    )
+    args = SimpleNamespace(
+        live=True, testnet=False, cap_ceil_usdt="6", target_buy_per_symbol=1
+    )
+    limits = SimpleNamespace(
+        validate=lambda: None,
+        portfolio_cap_usdt=Decimal("100"),
+        daily_buy_cap_usdt=Decimal("100"),
+        correlated_cap_usdt=Decimal("100"),
+        reserve_usdt=Decimal("10"),
+        halt_file=tmp_path / "halt.json",
+    )
+
+    with pytest.raises(ValueError, match="balance.free is not a decimal") as error:
+        ai_supervisor._preflight_live(args, ["SOLUSDT"], limits)
+
+    assert "private-marker" not in str(error.value)
+    assert "private-marker" not in str(capsys.readouterr())
 
 
 def test_recovery_blocked_message_is_rate_limited(
