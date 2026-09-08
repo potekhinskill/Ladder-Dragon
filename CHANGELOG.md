@@ -3,6 +3,18 @@
 All notable changes are documented here. Releases use Semantic Versioning; every
 section is dated and there is intentionally no `Unreleased` section.
 
+## [2.20.328] — 2026-09-08
+
+### Fixed
+- Batch conversion parsing receives a detached copy of current snapshot prices before it validates additional observations.
+- Valid exact snapshot prices exclude redundant batch values from numeric validation without bypassing response structure checks.
+- Invalid known prices and invalid required batch quotes still fail closed. No observations persist between snapshots.
+
+### Verified
+- Three bridge regressions fail when current prices are omitted and pass after correction.
+- The focused startup, valuation, recovery, and safety suite passes: 213 tests.
+- The full suite passes: 2,108 tests. Compileall, Technical English, Semgrep, secret scan, and five safety audits pass.
+
 ## [2.20.327] — 2026-09-08
 
 ### Fixed

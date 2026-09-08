@@ -39,17 +39,22 @@ def requested_prices(payload, symbols):
     return result
 
 
-def valuation_prices(payload, symbols):
+def valuation_prices(payload, symbols, *, known_prices=None):
     """Keep current conversion observations only for omitted direct quotes."""
-    wanted = set(symbols)
+    known = dict(known_prices or {})
+    # Only validated exact observations can suppress batch value validation.
+    if any(not isinstance(price, Decimal) or not price.is_finite() or price <= 0
+           for price in known.values()):
+        raise ValueError("invalid current snapshot price")
+    wanted = set(symbols).difference(known)
     result = requested_prices(payload, wanted)
     missing = wanted.difference(result)
     cross = {f"{symbol[:-4]}{quote}" for symbol in missing for quote in RISK_CONVERSION_QUOTE_ASSETS}
-    result.update(requested_prices(payload, cross))
+    result.update(requested_prices(payload, cross.difference(known)))
     bridges = {
         f"{quote}USDT" for quote in RISK_CONVERSION_QUOTE_ASSETS
         if quote not in STABLE_VALUATION_ASSETS
-        and any(f"{symbol[:-4]}{quote}" in result for symbol in missing)
+        and any(f"{symbol[:-4]}{quote}" in result or f"{symbol[:-4]}{quote}" in known for symbol in missing)
     }
-    result.update(requested_prices(payload, bridges))
+    result.update(requested_prices(payload, bridges.difference(known)))
     return result

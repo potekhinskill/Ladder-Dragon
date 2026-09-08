@@ -10,7 +10,8 @@ from tests.supervision.test_snapshot_tickers import snapshot_runtime
 
 
 @pytest.mark.parametrize("quote", ["USDC", "BTC"])
-def test_batch_cross_is_fresh_overrides_negative_and_keeps_configured_price(monkeypatch, batch_runtime, quote):
+@pytest.mark.parametrize("batch_bridge", ["999", "0", "NaN", "private-marker"])
+def test_batch_cross_is_fresh_overrides_negative_and_keeps_configured_price(monkeypatch, batch_runtime, quote, batch_bridge):
     calls = []
     monkeypatch.setattr(runtime.TM, "get_klines", lambda *a, **kw: [])
     cross = ["2.123456789123456789"]
@@ -20,7 +21,7 @@ def test_batch_cross_is_fresh_overrides_negative_and_keeps_configured_price(monk
         if not params:
             return [{"symbol": "AAA" + quote, "price": cross[0]},
                     {"symbol": "BBBUSDT", "price": "2"},
-                    {"symbol": "BTCUSDT", "price": "999"}]
+                    {"symbol": "BTCUSDT", "price": batch_bridge}]
         if params["symbol"] in {"SOLUSDT", "BTCUSDT"}:
             return {"price": "75"}
         raise runtime.TM.BinanceHttpError(status=400, code=-1121)

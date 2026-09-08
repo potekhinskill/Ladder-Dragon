@@ -1,5 +1,12 @@
 # Engineering mistakes and root causes
 
+### 2026-09-08 — Applied snapshot priority after redundant batch validation
+
+- **Impact:** an invalid redundant batch bridge value blocked valuation despite an existing valid snapshot quote.
+- **Root cause:** the parser lacked the existing observation map. Tests compared two valid prices but omitted an invalid redundant value.
+- **Correction:** pass detached current prices into parsing and exclude validated observations before additional numeric validation.
+- **Prevention:** test invalid duplicates, invalid known prices, required bridge failures, structural rejection, and observation isolation across snapshots.
+
 ### 2026-09-08 — Mixed phase telemetry across retry attempts
 
 - **Impact:** an early retry failure retained successful phase timings from the previous attempt.

@@ -120,7 +120,8 @@ def test_batch_overlaps_signed_order_preparation(monkeypatch, batch_runtime):
     batch_started = threading.Event()
     orders_finished = threading.Event()
 
-    def batch_reader(_symbols):
+    def batch_reader(_symbols, *, known_prices):
+        assert known_prices == {"SOLUSDT": Decimal("75")}
         assert threading.current_thread() is not threading.main_thread()
         batch_started.set()
         assert orders_finished.wait(2), "signed orders did not overlap batch"
@@ -153,7 +154,8 @@ def test_signed_failure_drains_batch_without_printing_payload(
     batch_started = threading.Event()
     batch_finished = threading.Event()
 
-    def batch_reader(_symbols):
+    def batch_reader(_symbols, *, known_prices):
+        assert known_prices == {"SOLUSDT": Decimal("75")}
         batch_started.set()
         time.sleep(0.03)
         batch_finished.set()

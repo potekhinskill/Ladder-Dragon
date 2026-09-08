@@ -520,6 +520,7 @@ def get_ticker_prices_decimal(
     symbols,
     *,
     session: requests.Session | None = None,
+    known_prices: dict[str, Decimal] | None = None,
 ) -> dict[str, Decimal]:
     """Read bounded current direct and necessary conversion observations."""
     return valuation_prices(
@@ -530,6 +531,7 @@ def get_ticker_prices_decimal(
             ),
         ),
         symbols,
+        known_prices=known_prices,
     )
 
 

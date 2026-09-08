@@ -1,5 +1,12 @@
 # Engineering decisions
 
+### 2026-09-08 — Resolve observation priority before redundant value validation
+
+- **Context:** merging valid prices after parsing could not prevent rejection of an unused invalid duplicate.
+- **Decision:** provide current exact observations to the parser before selecting additional prices. Keep structural and required-value validation strict.
+- **Why it worked:** regressions preserve current prices while invalid known observations cannot suppress required validation.
+- **Reuse:** parsers that combine trusted current observations with optional redundant network data.
+
 ### 2026-09-08 — Retain conversion observations within their original snapshot
 
 - **Context:** batch parsing discarded conversion quotes already present in the bounded response.
