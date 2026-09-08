@@ -135,9 +135,13 @@ def wait_for_retry(
 ) -> None:
     """Publish a fresh fail-closed heartbeat throughout one retry delay."""
     normalized = str(kind).strip().upper()
-    if normalized not in {"AUTH", "PREFLIGHT"}:
-        raise ValueError("retry kind must be AUTH or PREFLIGHT")
-    if normalized == "AUTH":
+    if normalized not in {"AUTH", "PREFLIGHT", "IP"}:
+        raise ValueError("retry kind must be AUTH, PREFLIGHT, or IP")
+    if normalized == "IP":
+        error = "public IP source consensus unavailable"
+        state = "IP_BLOCKED"
+        field = "ip_backoff"
+    elif normalized == "AUTH":
         error = "Binance signed authentication rejected"
         state = "AUTH_BACKOFF"
         field = "auth_backoff"

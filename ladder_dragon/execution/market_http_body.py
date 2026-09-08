@@ -24,12 +24,15 @@ def remaining_seconds(deadline: float) -> float:
     return remaining
 
 
-def read_body(response: requests.Response, *, deadline: float) -> bytes:
+def read_body(response: requests.Response, *, deadline: float, max_bytes: int | None = None) -> bytes:
     """Read raw chunks once, then decompress with an explicit output ceiling.
 
     The budget is checked between raw reads. Socket inactivity timeouts still
     bound blocking reads; DNS and OS scheduling are not hard-cancellable.
     """
+    limit = MAX_RESPONSE_BYTES if max_bytes is None else min(MAX_RESPONSE_BYTES, max_bytes)
+    if limit <= 0:
+        raise MarketResponseError("invalid response byte limit")
     encoding = response.headers.get("Content-Encoding", "identity").strip().lower()
     if encoding not in {"identity", "gzip", "deflate"}:
         raise MarketResponseError("unsupported market response encoding")
@@ -42,21 +45,21 @@ def read_body(response: requests.Response, *, deadline: float) -> bytes:
     while True:
         remaining_seconds(deadline)
         # read1 returns available wire data without waiting to fill a chunk.
-        chunk = response.raw.read1(CHUNK_BYTES, decode_content=False)
+        chunk = response.raw.read1(min(CHUNK_BYTES, limit + 1), decode_content=False)
         remaining_seconds(deadline)
         if not chunk:
             break
         encoded_size += len(chunk)
-        if encoded_size > MAX_RESPONSE_BYTES:
+        if encoded_size > limit:
             raise MarketResponseError("market response exceeds byte limit")
         try:
             decoded = (
-                decoder.decompress(chunk, MAX_RESPONSE_BYTES - len(body) + 1)
+                decoder.decompress(chunk, limit - len(body) + 1)
                 if decoder is not None else chunk
             )
         except zlib.error:
             raise MarketResponseError("invalid market response encoding") from None
-        if len(body) + len(decoded) > MAX_RESPONSE_BYTES:
+        if len(body) + len(decoded) > limit:
             raise MarketResponseError("market response exceeds byte limit")
         body.extend(decoded)
         if decoder is not None and decoder.unused_data:

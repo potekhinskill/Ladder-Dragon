@@ -102,6 +102,7 @@ from ladder_dragon.supervision.prediction_shadow import (
     publish_plan_decision_status as _publish_plan_decision_status,
 )
 from ladder_dragon.supervision import preflight_resilience
+from ladder_dragon.supervision.public_ip_read import read_public_ip, MarketResponseError
 from ladder_dragon.supervision.public_preflight import read_clock_and_filters
 from ladder_dragon.supervision.process_manager import (
     ChildProcessRegistry,
@@ -649,10 +650,8 @@ def _observe_public_ip(state: AuthResilienceState) -> tuple[AuthResilienceState,
         return state, None
     def observe(endpoint: str) -> str | None:
         try:
-            response = requests.get(endpoint, timeout=5)
-            response.raise_for_status()
-            return public_ip_fingerprint(response.text)
-        except (requests.RequestException, UnicodeError, ValueError) as exc:
+            return public_ip_fingerprint(read_public_ip(requests.get, endpoint))
+        except (requests.RequestException, UnicodeError, ValueError, MarketResponseError) as exc:
             log(
                 "[IP-GUARD] one public IP source unavailable; "
                 f"error_type={type(exc).__name__}"
@@ -3896,14 +3895,10 @@ def _preflight_with_auth_backoff(
             transient_attempt = 0
             if args.live and state.public_ip_changed:
                 if consensus != state.pending_public_ip_sha256:
-                    _publish_ai_runtime_status(
-                        state="IP_BLOCKED",
-                        error="public IP source consensus unavailable",
-                        risk={"halted": bool(limits.halt_file.exists()),
-                              "buy_blocked": True,
-                              "reasons": ["Wait for IP source consensus"]},
+                    _wait_for_resilience_retry(
+                        "IP", 300, attempt=1,
+                        persistent_halt=bool(limits.halt_file.exists()),
                     )
-                    time.sleep(300)
                     state = _read_auth_resilience_state()
                     continue
             state, accepted_public_ip = finalize_auth_success(

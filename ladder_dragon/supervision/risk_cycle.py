@@ -749,6 +749,7 @@ def build_risk_snapshot(
                     return candidate_price
 
                 candidates = valuation_reads.routes(RISK_CONVERSION_QUOTE_ASSETS, read_cross_quote)
+                bridge_error = None
                 for quote, candidate_price in zip(RISK_CONVERSION_QUOTE_ASSETS, candidates):
                     if candidate_price is None:
                         continue
@@ -760,10 +761,18 @@ def build_risk_snapshot(
                             )
                             candidate_price *= max(Decimal("0"), Decimal("1") - haircut)
                         else:
-                            bridge = valuation_tickers.get(f"{quote}USDT", route="bridge")
+                            try:
+                                bridge = valuation_tickers.get(f"{quote}USDT", route="bridge")
+                            except (RuntimeError, ValueError, KeyError, requests.RequestException) as exc:
+                                # Metrics retain the failure without provider text.
+                                bridge_error = exc
+                                continue
                             candidate_price *= money(bridge)
                         valuation_price = candidate_price
                         break
+                else:
+                    if bridge_error is not None:
+                        raise bridge_error
             if money(valuation_price) <= 0:
                 if asset in unvalued_assets:
                     return asset, None

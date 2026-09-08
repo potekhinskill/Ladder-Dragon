@@ -205,6 +205,16 @@ def verify_live_protection(
             journal.record_verified_protection_legs(
                 protection.client_order_id, legs
             )
+            filled_status = str(filled_leg.get("status") or "").upper()
+            if filled_status != "FILLED":
+                journal.record_partial_protection_exit(
+                    protection_client_order_id=protection.client_order_id,
+                    exit_order_id=int(filled_leg["orderId"]),
+                    exit_reason=exit_reason,
+                    executed_qty=filled_leg["executedQty"],
+                    terminal_status=filled_status,
+                )
+                raise RuntimeError("terminal partial exit requires residual protection")
             journal.mark_exact_lifecycle_closed(
                 protection_client_order_id=protection.client_order_id,
                 exit_order_id=int(filled_leg["orderId"]),

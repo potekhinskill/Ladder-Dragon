@@ -1,5 +1,6 @@
 import fcntl
 import inspect
+import io
 import os
 from pathlib import Path
 import subprocess
@@ -11,6 +12,7 @@ from types import SimpleNamespace
 
 import pytest
 import requests
+from urllib3.response import HTTPResponse
 from ladder_dragon.supervision import runtime as ai_supervisor
 def test_supervisor_reconciles_durable_order_before_running(
     tmp_path, monkeypatch
@@ -111,12 +113,11 @@ def test_public_ip_guard_pending_state_never_exposes_address(
     )
     alerts = []
 
-    class Response:
-        text = raw_ip
-
-        @staticmethod
-        def raise_for_status():
-            return None
+    class Response(requests.Response):
+        def __init__(self):
+            super().__init__()
+            self.status_code = 200
+            self.raw = HTTPResponse(io.BytesIO(raw_ip.encode()), preload_content=False)
 
     monkeypatch.setenv(
         "BINANCE_AUTH_STATE_FILE", str(tmp_path / "auth.json")
@@ -152,13 +153,11 @@ def test_public_ip_guard_disagreement_cannot_create_false_block(
         public_ip_sha256=public_ip_fingerprint("203.0.113.90")
     )
 
-    class Response:
+    class Response(requests.Response):
         def __init__(self, text):
-            self.text = text
-
-        @staticmethod
-        def raise_for_status():
-            return None
+            super().__init__()
+            self.status_code = 200
+            self.raw = HTTPResponse(io.BytesIO(text.encode()), preload_content=False)
 
     monkeypatch.setenv(
         "BINANCE_PUBLIC_IP_ENDPOINTS",

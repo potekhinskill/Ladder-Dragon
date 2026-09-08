@@ -3,6 +3,22 @@
 All notable changes are documented here. Releases use Semantic Versioning; every
 section is dated and there is intentionally no `Unreleased` section.
 
+## [2.20.329] — 2026-09-08
+
+### Fixed
+- Terminal partial OCO and OTOCO exits retain residual protection requirements instead of creating exact lifecycle closure evidence.
+- Batch valuation validates required routes in policy order and ignores unused lower-priority values after a complete route exists.
+- An unavailable conversion bridge permits the next complete current route. Failure of every route still blocks the snapshot.
+- IP consensus waits retain their full delay and publish a BUY-blocked heartbeat at intervals of at most 30 seconds.
+
+### Security
+- Public IP reads stream bounded encoded and decoded bodies, reject redirects, close responses, and check a shared five-second elapsed budget.
+- Socket inactivity remains separately bounded. DNS and operating-system calls do not support hard cancellation through this adapter.
+
+### Verified
+- The focused protection, valuation, IP, and HTTP suite passes: 103 tests. Architecture checks pass: 11 tests.
+- Regression coverage includes terminal partial TP and STOP, journal reload, idempotency, alternate routes, fresh snapshots, oversized bodies, and slow reads.
+
 ## [2.20.328] — 2026-09-08
 
 ### Fixed

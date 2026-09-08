@@ -1,9 +1,11 @@
 """Focused regressions for persistent public IP alert transitions."""
 
 import inspect
+import io
 import threading
 
 import requests
+from urllib3.response import HTTPResponse
 
 from ladder_dragon.execution.auth_resilience import (
     AuthResilienceState,
@@ -12,12 +14,13 @@ from ladder_dragon.execution.auth_resilience import (
 from ladder_dragon.supervision import runtime as supervisor
 
 
-class _Response:
+class _Response(requests.Response):
     text = "203.0.113.11"
 
-    @staticmethod
-    def raise_for_status():
-        return None
+    def __init__(self):
+        super().__init__()
+        self.status_code = 200
+        self.raw = HTTPResponse(io.BytesIO(self.text.encode()), preload_content=False)
 
 
 def test_same_pending_public_ip_alerts_only_once(tmp_path, monkeypatch):
@@ -57,8 +60,9 @@ def test_public_ip_sources_overlap_and_join_before_consensus(monkeypatch):
         "https://one.example.invalid,https://two.example.invalid",
     )
 
-    def get(endpoint, *, timeout):
+    def get(endpoint, *, timeout, stream, allow_redirects):
         assert timeout == 5
+        assert stream and not allow_redirects
         barrier.wait(timeout=2)
         completed.append(endpoint)
         return _Response()
@@ -77,7 +81,7 @@ def test_one_public_ip_failure_cannot_create_consensus(monkeypatch, capsys):
         "https://one.example.invalid,https://two.example.invalid",
     )
 
-    def get(endpoint, *, timeout):
+    def get(endpoint, *, timeout, stream, allow_redirects):
         if "one." in endpoint:
             raise requests.ConnectionError("synthetic-private-marker")
         return _Response()

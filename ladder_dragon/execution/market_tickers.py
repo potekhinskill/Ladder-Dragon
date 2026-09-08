@@ -8,25 +8,31 @@ from decimal import Decimal, InvalidOperation
 from ladder_dragon.risk.asset_policy import RISK_CONVERSION_QUOTE_ASSETS, STABLE_VALUATION_ASSETS
 
 
-def requested_prices(payload, symbols):
-    """Return only requested observations; an omitted symbol proves no absence."""
+def _indexed_rows(payload):
+    """Validate collection structure once, including unused duplicate rows."""
     message = "invalid batch ticker response"
-    wanted = set(symbols)
     if not isinstance(payload, list) or len(payload) > 10000:
         raise ValueError(message)
-    result, seen = {}, set()
+    rows = {}
     for row in payload:
         if not isinstance(row, dict):
             raise ValueError(message)
         symbol = row.get("symbol")
         if not isinstance(symbol, str) or not symbol or len(symbol) > 128:
             raise ValueError(message)
-        if symbol in seen:
+        if symbol in rows:
             raise ValueError(message)
-        seen.add(symbol)
-        if symbol not in wanted:
+        rows[symbol] = row
+    return rows
+
+
+def _prices(rows, symbols):
+    message = "invalid batch ticker response"
+    result = {}
+    for symbol in symbols:
+        if symbol not in rows:
             continue
-        raw = row.get("price")
+        raw = rows[symbol].get("price")
         if not isinstance(raw, str) or len(raw) > 128:
             raise ValueError(message)
         try:
@@ -39,6 +45,11 @@ def requested_prices(payload, symbols):
     return result
 
 
+def requested_prices(payload, symbols):
+    """Return only requested observations; an omitted symbol proves no absence."""
+    return _prices(_indexed_rows(payload), set(symbols))
+
+
 def valuation_prices(payload, symbols, *, known_prices=None):
     """Keep current conversion observations only for omitted direct quotes."""
     known = dict(known_prices or {})
@@ -47,14 +58,20 @@ def valuation_prices(payload, symbols, *, known_prices=None):
            for price in known.values()):
         raise ValueError("invalid current snapshot price")
     wanted = set(symbols).difference(known)
-    result = requested_prices(payload, wanted)
+    rows = _indexed_rows(payload)
+    result = _prices(rows, wanted)
     missing = wanted.difference(result)
-    cross = {f"{symbol[:-4]}{quote}" for symbol in missing for quote in RISK_CONVERSION_QUOTE_ASSETS}
-    result.update(requested_prices(payload, cross.difference(known)))
-    bridges = {
-        f"{quote}USDT" for quote in RISK_CONVERSION_QUOTE_ASSETS
-        if quote not in STABLE_VALUATION_ASSETS
-        and any(f"{symbol[:-4]}{quote}" in result or f"{symbol[:-4]}{quote}" in known for symbol in missing)
-    }
-    result.update(requested_prices(payload, bridges.difference(known)))
+    # Once a complete route exists, lower-priority values are not required.
+    for symbol in sorted(missing):
+        for quote in RISK_CONVERSION_QUOTE_ASSETS:
+            cross = f"{symbol[:-4]}{quote}"
+            result.update(_prices(rows, {cross}.difference(known, result)))
+            if cross not in result and cross not in known:
+                continue
+            if quote in STABLE_VALUATION_ASSETS:
+                break
+            bridge = f"{quote}USDT"
+            result.update(_prices(rows, {bridge}.difference(known, result)))
+            if bridge in result or bridge in known:
+                break
     return result

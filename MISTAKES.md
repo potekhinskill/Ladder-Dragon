@@ -1,5 +1,40 @@
 # Engineering mistakes and root causes
 
+### 2026-09-08 — Missed legacy IP response fixtures
+
+- **Impact:** the first full suite rejected two legacy response doubles before their consensus assertions.
+- **Root cause:** transport discovery covered IP-named tests but initially omitted the supervisor recovery module.
+- **Correction:** model streamed responses in every discovered IP fixture and repeat complete verification.
+- **Prevention:** search the production call and patched transport across the complete test tree before changing response protocols.
+
+### 2026-09-08 — Assumed terminal classification proved complete execution
+
+- **Impact:** supervisor protection checks could record exact closure after a terminal partial exit.
+- **Root cause:** the supervisor reused the worker classifier without its separate filled-status check and partial-exit journal transition.
+- **Correction:** preserve terminal partial exits as residual protection requirements and fail the snapshot.
+- **Prevention:** test OCO and OTOCO consumers with partial TP, partial STOP, journal reload, and repeated authoritative observations.
+
+### 2026-09-08 — Validated alternatives before route selection
+
+- **Impact:** unused invalid quotes or one unavailable bridge could block valuation despite a complete valid alternative.
+- **Root cause:** batch validation ignored route priority, while runtime selected a cross quote before verifying its bridge.
+- **Correction:** validate batch routes in order and attempt another complete route after a bridge failure.
+- **Prevention:** test unused invalid alternatives, missing bridges, fresh-cycle isolation, and failure of every complete route.
+
+### 2026-09-08 — Left public identity transport and waiting outside resilience
+
+- **Impact:** excessive response allocation and stale blocked heartbeats could extend startup or obscure liveness.
+- **Root cause:** IP Guard used eager HTTP reads and a direct sleep instead of bounded transport and heartbeat-aware waiting.
+- **Correction:** stream bounded bodies with elapsed checks and reuse the full-delay heartbeat loop.
+- **Prevention:** test actual response streams, compression, timeout cleanup, consensus rejection, and every blocked wait interval.
+
+### 2026-09-08 — Repeated oversized reads and guessed test discovery
+
+- **Impact:** instruction reads were truncated, and one focused command stopped before collection. Production was unchanged.
+- **Root cause:** command construction ignored effective output limits and used an inferred architecture test filename.
+- **Correction:** read complete records in bounded ranges and run the discovered test file.
+- **Prevention:** cap each instruction read below 9,000 tokens and derive every test path from repository inventory.
+
 ### 2026-09-08 — Applied snapshot priority after redundant batch validation
 
 - **Impact:** an invalid redundant batch bridge value blocked valuation despite an existing valid snapshot quote.

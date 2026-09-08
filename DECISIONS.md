@@ -1,5 +1,19 @@
 # Engineering decisions
 
+### 2026-09-08 — Require complete evidence at each terminal consumer
+
+- **Context:** terminal order classification can include partial exits, and a valid conversion leg does not prove a complete route.
+- **Decision:** distinguish partial protection exits from exact closure. Select complete valuation routes in policy order and retain failed-route diagnostics.
+- **Why it worked:** regressions preserve residual state after journal reload and select a current alternate bridge without cross-snapshot reuse.
+- **Reuse:** consumers that convert intermediate observations into financial completion or permission.
+
+### 2026-09-08 — Bound public identity reads and blocked waits
+
+- **Context:** consensus sources can return excessive or slow bodies while fail-closed waiting can leave heartbeat evidence stale.
+- **Decision:** bound encoded bytes, decoded bytes, and elapsed reads. Keep consensus unchanged and refresh heartbeat throughout the original delay.
+- **Why it worked:** wire-level tests reject oversized and slow responses, close resources, and preserve all 300 seconds of blocked waiting.
+- **Reuse:** public safety prerequisites that must remain observable without granting execution authority. No new persistent record is created.
+
 ### 2026-09-08 — Resolve observation priority before redundant value validation
 
 - **Context:** merging valid prices after parsing could not prevent rejection of an unused invalid duplicate.
