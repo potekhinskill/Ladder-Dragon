@@ -14,6 +14,8 @@ from pathlib import Path
 LIMITS = {
     "ladder_dragon/risk/risk_manager.py": 6,
     "ladder_dragon/supervision/risk_cycle.py": 0,
+    "ladder_dragon/supervision/protection_quantity.py": 0,
+    "ladder_dragon/supervision/open_order_snapshot.py": 0,
     "ladder_dragon/supervision/runtime.py": 0,
     "ladder_dragon/execution/worker/runtime.py": 0,
     "ladder_dragon/ai/context/runtime.py": 0,

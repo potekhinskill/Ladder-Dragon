@@ -37,8 +37,9 @@ from ladder_dragon.risk.risk_statistics import (
 )
 from ladder_dragon.supervision.entry_policy import finite_decimal
 from ladder_dragon.supervision.valuation_metrics import ValuationMetrics
-from ladder_dragon.supervision.valuation_batch import seed_prices
+from ladder_dragon.supervision.valuation_batch import seed_prices, current_route_quotes
 from ladder_dragon.supervision.valuation_reads import ValuationReads
+from ladder_dragon.supervision.open_order_snapshot import checked_open_orders
 
 
 class RiskConfigurationError(RuntimeError):
@@ -508,7 +509,7 @@ def build_risk_snapshot(
         current_balances: Mapping[str, Mapping[str, object]],
     ) -> tuple[List[Dict[str, Any]], Mapping[str, Mapping[str, object]], bool]:
         """Keep signed order and reconciliation reads strictly sequential."""
-        orders = tools_market._signed_get("/api/v3/openOrders") or []
+        orders = checked_open_orders(tools_market._signed_get("/api/v3/openOrders"))
         mark_phase("orders")
         if live_mode:
             runtime_protection_gate(symbols, limits, open_orders=orders)
@@ -630,7 +631,7 @@ def build_risk_snapshot(
             if balances_reloaded:
                 # While the ledger catches up, a worker may create an OCO.
                 # Reload orders to retain one authoritative state boundary.
-                orders = tools_market._signed_get("/api/v3/openOrders") or []
+                orders = checked_open_orders(tools_market._signed_get("/api/v3/openOrders"))
         mark_phase("reconciliation")
         return orders, current_balances, balances_reloaded
 
@@ -694,16 +695,19 @@ def build_risk_snapshot(
         if asset in STABLE_VALUATION_ASSETS:
             value = qty
         else:
-            # Try direct USDT first, then common cross-quotes. Stablecoin
-            # conversion includes the configured haircut and exit fee.
-            valuation_price = direct_usdt_valuation_price(
-                asset,
-                dict(valuation_prices),
-                valuation_tickers.get,
-                cache_missing=True,
-                cache_ttl_sec=negative_cache_ttl,
-                metrics=valuation_metrics,
+            # Prefer a complete current observation before speculative reads.
+            # Depth-required conversion retains its independent depth checks.
+            cached_quotes = (
+                current_route_quotes(asset, valuation_prices)
+                if not env_flag("RISK_CONVERSION_DEPTH_REQUIRED", False) else ()
             )
+            valuation_price = None
+            if not cached_quotes or f"{asset}USDT" in valuation_prices:
+                valuation_price = direct_usdt_valuation_price(
+                    asset, dict(valuation_prices), valuation_tickers.get,
+                    cache_missing=True, cache_ttl_sec=negative_cache_ttl,
+                    metrics=valuation_metrics,
+                )
             if valuation_price is None:
                 def read_cross_quote(quote: str) -> Decimal | None:
                     candidate = f"{asset}{quote}"
@@ -748,9 +752,10 @@ def build_risk_snapshot(
                     _UNVALUED_MARKET_CACHE.discard(candidate)
                     return candidate_price
 
-                candidates = valuation_reads.routes(RISK_CONVERSION_QUOTE_ASSETS, read_cross_quote)
+                quotes = cached_quotes or RISK_CONVERSION_QUOTE_ASSETS
+                candidates = valuation_reads.routes(quotes, read_cross_quote)
                 bridge_error = None
-                for quote, candidate_price in zip(RISK_CONVERSION_QUOTE_ASSETS, candidates):
+                for quote, candidate_price in zip(quotes, candidates):
                     if candidate_price is None:
                         continue
                     if candidate_price > 0:

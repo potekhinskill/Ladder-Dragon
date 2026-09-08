@@ -20,6 +20,7 @@ from urllib3.exceptions import HTTPError as UrllibHttpError
 
 from ladder_dragon.execution.market_http_body import read_body, remaining_seconds
 from ladder_dragon.execution.market_tickers import valuation_prices
+from ladder_dragon.execution.read_timing import record_read
 
 from ladder_dragon.execution.time_safety import (
     assess_exchange_clock,
@@ -172,10 +173,23 @@ def _do_request(
         try:
             budget = min(request_timeout, remaining_seconds(deadline))
             request_session = session if session is not None else SESSION
-            r = request_session.request(method, url, timeout=budget, **kw)
+            started = time.monotonic()
+            record_read("http_attempts")
+            try:
+                r = request_session.request(method, url, timeout=budget, **kw)
+            finally:
+                record_read("headers_ms", max(0, round((time.monotonic() - started) * 1000)))
+            if 400 <= r.status_code < 500:
+                record_read("http_4xx")
+            elif 500 <= r.status_code < 600:
+                record_read("http_5xx")
             if r.status_code in (418, 429):
                 raise _activate_rate_limit(r, url)
-            r._content = read_body(r, deadline=deadline)
+            started = time.monotonic()
+            try:
+                r._content = read_body(r, deadline=deadline)
+            finally:
+                record_read("body_ms", max(0, round((time.monotonic() - started) * 1000)))
             r._content_consumed = True
             if 500 <= r.status_code < 600:
                 if i == attempts - 1:
@@ -183,12 +197,17 @@ def _do_request(
             else:
                 return r
         except (requests.RequestException, UrllibHttpError):
+            record_read("transport_errors")
             if i == attempts - 1:
                 raise requests.RequestException("market transport failed") from None
         finally:
             if r is not None:
                 r.close()
-        time.sleep(min(delay, remaining_seconds(deadline)))
+        started = time.monotonic()
+        try:
+            time.sleep(min(delay, remaining_seconds(deadline)))
+        finally:
+            record_read("retry_wait_ms", max(0, round((time.monotonic() - started) * 1000)))
         delay *= 2
 
 def _raise_for_binance(resp: requests.Response):
@@ -551,6 +570,8 @@ def get_ticker_price_decimal(
         "/api/v3/ticker/price", {"symbol": symbol.upper()}, **request_kw
     )
     message = "ticker price must be a finite positive decimal string"
+    if not isinstance(data, dict) or data.get("symbol") != symbol.upper():
+        raise ValueError("ticker symbol differs from requested market")
     try:
         raw = data["price"]
         if not isinstance(raw, str):

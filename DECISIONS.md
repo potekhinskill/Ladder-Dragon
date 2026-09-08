@@ -1,5 +1,19 @@
 # Engineering decisions
 
+### 2026-09-08 — Prove financial evidence before accepting its status
+
+- **Context:** valid-looking statuses did not prove covered quantities, requested order identities, or complete remote collections.
+- **Decision:** verify exact quantities and identities before state changes. Reject malformed collections instead of substituting empty financial state.
+- **Why it worked:** focused regressions reject insufficient coverage, wrong markets, and missing order evidence without creating false closure records.
+- **Reuse:** every boundary that converts provider data into financial permission. Do not infer fees or dust without authoritative evidence.
+
+### 2026-09-08 — Prefer complete current routes before speculative reads
+
+- **Context:** known conversion routes still waited for unnecessary alternate requests.
+- **Decision:** select complete current routes first. Retain bounded bridge concurrency only after stable routes cannot value the asset.
+- **Why it worked:** route regressions preserve exact values and fresh snapshots while rejecting incomplete alternatives.
+- **Reuse:** public valuation without signed-state concurrency. Fixed numeric transport counters remain disposable within one snapshot and retain no provider data.
+
 ### 2026-09-08 — Separate archive storage from download pointers
 
 - **Context:** mirrored archives consumed local capacity, while dashboard health depended on local recovery copies.

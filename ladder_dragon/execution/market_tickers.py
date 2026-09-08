@@ -63,15 +63,25 @@ def valuation_prices(payload, symbols, *, known_prices=None):
     missing = wanted.difference(result)
     # Once a complete route exists, lower-priority values are not required.
     for symbol in sorted(missing):
+        invalid_route = False
         for quote in RISK_CONVERSION_QUOTE_ASSETS:
             cross = f"{symbol[:-4]}{quote}"
-            result.update(_prices(rows, {cross}.difference(known, result)))
-            if cross not in result and cross not in known:
+            try:
+                route = _prices(rows, {cross}.difference(known, result))
+                if cross not in route and cross not in known and cross not in result:
+                    continue
+                if quote not in STABLE_VALUATION_ASSETS:
+                    bridge = f"{quote}USDT"
+                    route.update(_prices(rows, {bridge}.difference(known, result)))
+                    if bridge not in route and bridge not in known and bridge not in result:
+                        continue
+            except ValueError:
+                invalid_route = True
                 continue
-            if quote in STABLE_VALUATION_ASSETS:
+            else:
+                result.update(route)
                 break
-            bridge = f"{quote}USDT"
-            result.update(_prices(rows, {bridge}.difference(known, result)))
-            if bridge in result or bridge in known:
-                break
+        else:
+            if invalid_route:
+                raise ValueError("invalid batch ticker response")
     return result

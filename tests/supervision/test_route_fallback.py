@@ -18,7 +18,7 @@ def test_unused_alternative_does_not_block(monkeypatch, batch_runtime, bad):
                     {"symbol": "BTCUSDT", "price": bad},
                     {"symbol": "BBBUSDT", "price": "2"}]
         if params["symbol"] == "SOLUSDT":
-            return {"price": "75"}
+            return {"symbol": params["symbol"], "price": "75"}
         raise runtime.TM.BinanceHttpError(status=400, code=-1121)
     monkeypatch.setattr(runtime.TM, "_public_get", public)
     snapshot, _, _ = runtime._build_risk_snapshot(["SOLUSDT"], batch_runtime)

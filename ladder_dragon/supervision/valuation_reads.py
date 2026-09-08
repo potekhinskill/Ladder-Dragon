@@ -5,6 +5,9 @@
 
 from concurrent.futures import ThreadPoolExecutor
 import threading
+import time
+from ladder_dragon.risk.asset_policy import STABLE_VALUATION_ASSETS
+from ladder_dragon.execution.read_timing import record_read
 
 
 class ValuationReads:
@@ -19,16 +22,20 @@ class ValuationReads:
 
     def read(self, reader, *args, **kwargs):
         """Acquire capacity only around actual public I/O, never nested work."""
+        started = time.monotonic()
         with self._capacity:
+            record_read("pool_wait_ms", max(0, round((time.monotonic() - started) * 1000)))
             return reader(*args, **kwargs)
 
     def routes(self, quotes, reader):
         """Resolve in policy order, regardless of response completion order."""
-        if self._concurrency == 1:
-            # Preserve the serial short-circuit path for the minimum setting.
-            return map(reader, quotes)
-        futures = [self._routes.submit(reader, quote) for quote in quotes]
-        return [future.result() for future in futures]
+        pending = list(quotes)
+        # Resolve cheap stable routes before starting speculative bridge reads.
+        while pending and (self._concurrency == 1 or pending[0] in STABLE_VALUATION_ASSETS):
+            yield reader(pending.pop(0))
+        futures = [self._routes.submit(reader, quote) for quote in pending]
+        for future in futures:
+            yield future.result()
 
     def close(self):
         """Drain all reads before any snapshot publication or failure report."""

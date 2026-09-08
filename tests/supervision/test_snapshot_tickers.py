@@ -213,8 +213,8 @@ def test_route_metrics_match_snapshot_reads(monkeypatch, snapshot_runtime):
     assert initial["cross_btc_reads"] == initial["bridge_reads"] == 1
     assert initial["cross_eth_reads"] == initial["cross_eth_missing"] == 1
     assert calls[:2] == ["SOLUSDT", "AAAUSDT"]
-    assert set(calls[2:-1]) == {"AAAUSDC", "AAAFDUSD", "AAABTC", "AAAETH"}
-    assert calls[-1] == "BTCUSDT"
+    assert set(calls[2:]) == {"AAAUSDC", "AAAFDUSD", "AAABTC", "AAAETH", "BTCUSDT"}
+    assert calls.index("AAABTC") < calls.index("BTCUSDT")
     calls.clear()
     second, _, _ = runtime._build_risk_snapshot(["SOLUSDT"], snapshot_runtime)
     updated = reports["valuation_routes"]

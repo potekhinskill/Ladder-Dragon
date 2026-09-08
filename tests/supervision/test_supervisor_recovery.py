@@ -248,6 +248,7 @@ def test_supervisor_verifies_both_oco_legs_before_running(
             "side": "SELL",
             "type": "LIMIT_MAKER" if order_id == 701 else "STOP_LOSS_LIMIT",
             "status": "NEW",
+            "origQty": "0.1", "executedQty": "0",
         }
 
     monkeypatch.setattr(ai_supervisor.TM, "_signed_get", signed_get)
@@ -343,6 +344,7 @@ def test_supervisor_verifies_filled_otoco_and_both_active_sell_legs(
                 else "STOP_LOSS_LIMIT"
             ),
             "status": "NEW",
+            "origQty": "0.1", "executedQty": "0",
         }
 
     monkeypatch.setattr(ai_supervisor.TM, "_signed_get", signed_get)
@@ -433,6 +435,7 @@ def test_supervisor_closes_offline_filled_oco_before_running(
             "side": "SELL",
             "type": "LIMIT_MAKER" if order_id == 701 else "STOP_LOSS_LIMIT",
             "status": "FILLED" if order_id == 701 else "CANCELED",
+            "origQty": "0.1",
             "executedQty": "0.1" if order_id == 701 else "0",
         }
 

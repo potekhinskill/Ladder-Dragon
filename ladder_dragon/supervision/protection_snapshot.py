@@ -7,6 +7,7 @@
 from __future__ import annotations
 
 from typing import Any, Callable, Mapping, Sequence
+from ladder_dragon.supervision.protection_quantity import verify_quantities, require_order_id
 
 
 _REQUIRED_ORDER_FIELDS = frozenset(
@@ -18,6 +19,8 @@ _REQUIRED_ORDER_FIELDS = frozenset(
         "side",
         "type",
         "status",
+        "origQty",
+        "executedQty",
     }
 )
 
@@ -139,18 +142,24 @@ def verify_live_protection(
             else {}
         )
         queried: list[dict[str, object]] = []
+        reference_ids: set[int] = set()
         for reference in references:
             if not isinstance(reference, dict) or reference.get("orderId") is None:
                 raise RuntimeError("OCO leg reference is invalid")
             if str(reference.get("symbol") or "").upper() != protection.symbol:
                 raise RuntimeError("OCO leg symbol differs from durable journal")
-            order_id = int(reference["orderId"])
+            order_id = require_order_id(reference["orderId"])
+            if order_id in reference_ids:
+                raise RuntimeError("OCO list contains duplicate order references")
+            reference_ids.add(order_id)
             leg = open_by_id.get(order_id) or signed_get(
                 "/api/v3/order",
                 {"symbol": protection.symbol, "orderId": order_id},
             )
             if not isinstance(leg, dict):
                 raise RuntimeError("OCO leg reconciliation response is invalid")
+            if require_order_id(leg.get("orderId")) != order_id:
+                raise RuntimeError("OCO leg order ID differs from requested reference")
             reference_client_id = str(reference.get("clientOrderId") or "")
             if (
                 reference_client_id
@@ -195,6 +204,19 @@ def verify_live_protection(
         ):
             raise RuntimeError(f"{list_type} protection leg types are invalid")
         outcome, filled_leg, exit_reason = classify_oco_legs(legs)
+        observed_ids = {require_order_id(leg.get("orderId")) for leg in legs}
+        stored_ids = {
+            require_order_id(row.get("order_id"))
+            for row in (protection.metadata or {}).get("verified_legs", [])
+            if isinstance(row, dict)
+        }
+        if stored_ids and stored_ids != observed_ids:
+            raise RuntimeError(f"{list_type} exchange legs differ from durable journal")
+        verify_quantities(
+            journal, parent_client_order_id, protection, legs,
+            closing=outcome == "CLOSED" and isinstance(filled_leg, dict)
+            and filled_leg.get("status") == "FILLED",
+        )
         if list_status == "ALL_DONE" and outcome == "CLOSED":
             if (
                 filled_leg is None
@@ -223,14 +245,6 @@ def verify_live_protection(
             return 0
         if list_status != "EXEC_STARTED" or outcome != "ACTIVE":
             raise RuntimeError(f"{list_type} is not actively protecting inventory")
-        observed_ids = {int(leg["orderId"]) for leg in legs}
-        stored_ids = {
-            int(row["order_id"])
-            for row in (protection.metadata or {}).get("verified_legs", [])
-            if isinstance(row, dict) and row.get("order_id") is not None
-        }
-        if stored_ids and stored_ids != observed_ids:
-            raise RuntimeError(f"{list_type} exchange legs differ from durable journal")
         journal.update_metadata(
             protection.client_order_id,
             {
@@ -260,6 +274,7 @@ def verify_live_protection(
     )
     if (
         not isinstance(payload, dict)
+        or str(payload.get("clientOrderId") or "") != protection.client_order_id
         or str(payload.get("symbol") or "").upper() != protection.symbol
         or int(payload.get("orderId", -1))
         != int(protection.exchange_order_id or -2)
@@ -270,6 +285,7 @@ def verify_live_protection(
         not in {"NEW", "PARTIALLY_FILLED"}
     ):
         raise RuntimeError("single-order protection is not active")
+    verify_quantities(journal, parent_client_order_id, protection, [payload])
     return 1
 
 

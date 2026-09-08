@@ -79,7 +79,7 @@ def test_invalid_batch_blocks_snapshot(monkeypatch, batch_runtime, payload, caps
     reports = {}
     monkeypatch.setattr(runtime, "_record_risk_startup_phase", lambda phase, values: reports.update({phase: values}))
     def public(path, params=None, **_kwargs):
-        return {"price": "75"} if params else payload
+        return {"symbol": params["symbol"], "price": "75"} if params else payload
     monkeypatch.setattr(runtime.TM, "_public_get", public)
     with pytest.raises(ValueError, match="invalid batch ticker response") as error:
         runtime._build_risk_snapshot(["SOLUSDT"], batch_runtime)
@@ -96,7 +96,7 @@ def test_omission_uses_individual_read(monkeypatch, batch_runtime):
         calls.append(params)
         if not params:
             return [{"symbol": "AAAUSDT", "price": "1"}]
-        return {"price": "2" if params["symbol"] == "BBBUSDT" else "75"}
+        return {"symbol": params["symbol"], "price": "2" if params["symbol"] == "BBBUSDT" else "75"}
     monkeypatch.setattr(runtime.TM, "_public_get", public)
     snapshot, _, _ = runtime._build_risk_snapshot(["SOLUSDT"], batch_runtime)
     assert snapshot.equity_usdt == 108
@@ -109,7 +109,7 @@ def test_batch_transport_failure_stops_reads(monkeypatch, batch_runtime):
         calls.append(params)
         if not params:
             raise requests.Timeout("market transport failed")
-        return {"price": "75"}
+        return {"symbol": params["symbol"], "price": "75"}
     monkeypatch.setattr(runtime.TM, "_public_get", public)
     with pytest.raises(requests.Timeout):
         runtime._build_risk_snapshot(["SOLUSDT"], batch_runtime)
@@ -211,7 +211,7 @@ def test_forty_assets_preserve_individual_result(monkeypatch, batch_runtime):
         if not params:
             return payload
         symbol = params["symbol"]
-        return {"price": "75"} if symbol == "SOLUSDT" else next(row for row in payload if row["symbol"] == symbol)
+        return {"symbol": params["symbol"], "price": "75"} if symbol == "SOLUSDT" else next(row for row in payload if row["symbol"] == symbol)
     monkeypatch.setattr(runtime.TM, "_public_get", public)
     batch, _, _ = runtime._build_risk_snapshot(["SOLUSDT"], batch_runtime)
     assert len(calls) == 2  # One configured read plus one account batch.

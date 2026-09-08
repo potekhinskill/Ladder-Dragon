@@ -28,6 +28,8 @@ def test_financial_module_float_calls_do_not_regress():
     assert report["counts"]["ladder_dragon/numeric_compat.py"] == 1
     assert report["counts"]["ladder_dragon/risk/risk_manager.py"] == 6
     assert report["counts"]["ladder_dragon/supervision/risk_cycle.py"] == 0
+    assert report["counts"]["ladder_dragon/supervision/protection_quantity.py"] == 0
+    assert report["counts"]["ladder_dragon/supervision/open_order_snapshot.py"] == 0
     assert report["counts"][
         "ladder_dragon/execution/cost_basis_import.py"
     ] == 3
@@ -56,6 +58,8 @@ def test_new_exact_execution_module_has_zero_float_budget(tmp_path):
     for relative in (
         "ladder_dragon/risk/risk_manager.py",
         "ladder_dragon/supervision/risk_cycle.py",
+        "ladder_dragon/supervision/protection_quantity.py",
+        "ladder_dragon/supervision/open_order_snapshot.py",
         "ladder_dragon/supervision/runtime.py",
         "ladder_dragon/execution/worker/runtime.py",
         "ladder_dragon/ai/context/runtime.py",

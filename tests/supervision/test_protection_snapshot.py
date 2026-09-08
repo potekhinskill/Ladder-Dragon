@@ -1,6 +1,7 @@
 """Authoritative open-order snapshot reuse regressions."""
 
 from types import SimpleNamespace
+from decimal import Decimal
 
 import pytest
 
@@ -17,11 +18,19 @@ class Journal:
             order_type="OCO",
             exchange_order_list_id=700,
             metadata={},
+            quantity="0.1",
+            parent_client_order_id="BUY-1",
         )
         self.metadata = None
 
     def protection_for_parent(self, _parent_id):
         return self.protection
+
+    def get(self, _parent_id):
+        return SimpleNamespace(side="BUY", symbol="SOLUSDT", executed_qty="0.1")
+
+    def partial_protection_exit_quantity(self, _parent_id):
+        return Decimal("0")
 
     def update_metadata(self, _client_id, metadata):
         self.metadata = metadata
@@ -51,6 +60,8 @@ def open_leg(order_id, leg_type):
         "side": "SELL",
         "type": leg_type,
         "status": "NEW",
+        "origQty": "0.1",
+        "executedQty": "0",
     }
 
 
@@ -193,6 +204,8 @@ def test_complete_single_order_snapshot_avoids_exact_order_read():
         symbol="SOLUSDT",
         order_type="STOP_LOSS_LIMIT",
         exchange_order_id=901,
+        quantity="0.1",
+        parent_client_order_id="BUY-1",
     )
     row = open_leg(901, "STOP_LOSS_LIMIT")
     row["orderListId"] = -1

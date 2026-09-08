@@ -7,10 +7,11 @@ import threading
 import time
 
 import requests
+from ladder_dragon.execution.read_timing import COUNTERS as READ_COUNTERS, observe_reads
 
 
 ROUTES = ("direct", "cross_usdc", "cross_fdusd", "cross_btc", "cross_eth", "bridge", "depth", "batch")
-COUNTERS = ("reads", "read_ms", "cache_hits", "negative_hits", "missing", "transient", "other_errors")
+COUNTERS = ("reads", "read_ms", "cache_hits", "negative_hits", "missing", "transient", "other_errors") + READ_COUNTERS
 
 
 class ValuationMetrics:
@@ -29,7 +30,8 @@ class ValuationMetrics:
         started = time.monotonic()
         self.increment(route, "reads")
         try:
-            return reader(*args, **kwargs)
+            with observe_reads(lambda counter, amount: self.increment(route, counter, amount)):
+                return reader(*args, **kwargs)
         except (ArithmeticError, KeyError, RuntimeError, TypeError, ValueError, requests.RequestException) as error:
             code = getattr(error, "code", None)
             status = getattr(error, "status", None)

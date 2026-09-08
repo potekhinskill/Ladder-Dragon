@@ -1,5 +1,14 @@
 # Engineering mistakes and root causes
 
+### 2026-09-08 — Stopped protection verification at filled status
+
+- **Impact:** a fully filled smaller protection order could close a larger BUY; malformed identities and empty substitutes could weaken snapshot evidence.
+- **Root cause:** tests coupled FILLED with full quantity and supplied already matched identities. Response validation did not enforce complete collection contracts.
+- **Correction:** require quantity coverage, exact requested identities, and valid open-order collections before accepting financial evidence.
+- **Prevention:** vary status, quantity, identity, and collection shape independently. Test real journal reload and residual replacement without inferred dust allowances.
+
+- **Related correction:** batch route tests now place invalid data before a valid alternative, not only after the selected route.
+
 ### 2026-09-08 — Overescaped generated shell grouping
 
 - **Impact:** the first local syntax check rejected the unpublished backup script.

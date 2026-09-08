@@ -3,6 +3,21 @@
 All notable changes are documented here. Releases use Semantic Versioning; every
 section is dated and there is intentionally no `Unreleased` section.
 
+## [2.20.331] — 2026-09-08
+
+### Fixed
+- Supervisor protection verifies exact remaining quantities and requested leg identities before any closure or coverage claim.
+- Risk snapshots reject malformed open-order collections. Single-market tickers reject missing or mismatched market identities.
+- Batch conversion can select a complete valid alternative after an invalid route. Missing complete evidence still blocks valuation.
+
+### Changed
+- Complete current conversion routes avoid later market reads. Stable routes resolve before speculative bridge requests; signed state reads remain sequential.
+- Disposable valuation counters separate HTTP attempts, header time, body time, retry delays, and capacity waits without request identities.
+
+### Verified
+- The full local suite passes: 2,215 tests, with one Linux-only skip. Compileall and Technical English pass.
+- Five safety audits pass. Semgrep reports no findings; regression tests cover quantity, identity, route selection, and timing publication.
+
 ## [2.20.330] — 2026-09-08
 
 ### Changed

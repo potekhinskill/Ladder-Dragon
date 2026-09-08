@@ -32,7 +32,7 @@ def isolate(monkeypatch):
 
 @pytest.mark.parametrize("encoding", [None, "gzip", "deflate"])
 def test_exact_stream(monkeypatch, encoding):
-    payload = b'{"price":"123456789.123456789"}'
+    payload = b'{"symbol":"SYNTHETICUSDT","price":"123456789.123456789"}'
     encoded = gzip.compress(payload) if encoding == "gzip" else (
         zlib.compress(payload) if encoding == "deflate" else payload
     )

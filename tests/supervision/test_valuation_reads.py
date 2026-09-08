@@ -39,7 +39,7 @@ def test_slower_first_route_wins_and_prices_are_not_reused(monkeypatch, snapshot
         if symbol == "SOLUSDT":
             return Decimal("75")
         if symbol == "AAAUSDC":
-            assert later_finished.wait(2), "fallback routes did not overlap"
+            assert not later_finished.is_set(), "unused stable route was read"
             return price[0]
         if symbol == "AAAFDUSD":
             later_finished.set()
@@ -53,7 +53,8 @@ def test_slower_first_route_wins_and_prices_are_not_reused(monkeypatch, snapshot
         later_finished.clear()
         result, _, _ = runtime._build_risk_snapshot(["SOLUSDT"], snapshot_runtime)
         assert result.equity_usdt == Decimal("3") * price[0] * Decimal("0.998")
-    assert calls.count("AAAUSDC") == calls.count("AAAFDUSD") == 2
+    assert calls.count("AAAUSDC") == 2
+    assert calls.count("AAAFDUSD") == 0
     assert "synthetic-private-marker" not in str(capsys.readouterr())
 
 
@@ -119,7 +120,7 @@ def test_failure_drains_other_reads_and_does_not_print_errors(capsys):
 
     with pytest.raises(ValueError, match="synthetic-private-marker"):
         try:
-            reads.routes([0, 1], read)
+            list(reads.routes([0, 1], read))
         finally:
             reads.close()
     assert finished.is_set()

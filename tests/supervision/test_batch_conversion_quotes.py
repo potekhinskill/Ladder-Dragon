@@ -23,7 +23,7 @@ def test_batch_cross_is_fresh_overrides_negative_and_keeps_configured_price(monk
                     {"symbol": "BBBUSDT", "price": "2"},
                     {"symbol": "BTCUSDT", "price": batch_bridge}]
         if params["symbol"] in {"SOLUSDT", "BTCUSDT"}:
-            return {"price": "75"}
+            return {"symbol": params["symbol"], "price": "75"}
         raise runtime.TM.BinanceHttpError(status=400, code=-1121)
     monkeypatch.setattr(runtime.TM, "_public_get", public)
     cache = risk_cycle._UNVALUED_MARKET_CACHE
@@ -47,9 +47,9 @@ def test_missing_cross_and_bridge_still_read_individually(monkeypatch, batch_run
             return [{"symbol": "BBBUSDT", "price": "2"}]
         symbol = params["symbol"]
         if symbol in {"SOLUSDT", "BTCUSDT"}:
-            return {"price": "75"}
+            return {"symbol": params["symbol"], "price": "75"}
         if symbol == "AAABTC":
-            return {"price": "2"}
+            return {"symbol": params["symbol"], "price": "2"}
         raise runtime.TM.BinanceHttpError(status=400, code=-1121)
     monkeypatch.setattr(runtime.TM, "_public_get", public)
     result, _, _ = runtime._build_risk_snapshot(["SOLUSDT"], batch_runtime)
@@ -61,7 +61,7 @@ def test_missing_cross_and_bridge_still_read_individually(monkeypatch, batch_run
 def test_invalid_needed_conversion_blocks_without_cache_or_leak(monkeypatch, batch_runtime, capsys, bad):
     def public(path, params=None, **_kwargs):
         if params:
-            return {"price": "75"}
+            return {"symbol": params["symbol"], "price": "75"}
         return [{"symbol": "AAAUSDC", "price": bad}, {"symbol": "BBBUSDT", "price": "2"}]
     monkeypatch.setattr(runtime.TM, "_public_get", public)
     cache = risk_cycle._UNVALUED_MARKET_CACHE
@@ -75,7 +75,7 @@ def test_invalid_needed_conversion_blocks_without_cache_or_leak(monkeypatch, bat
 def test_unused_invalid_cross_does_not_replace_valid_direct(monkeypatch, batch_runtime):
     def public(path, params=None, **_kwargs):
         if params:
-            return {"price": "75"}
+            return {"symbol": params["symbol"], "price": "75"}
         return [{"symbol": "AAAUSDT", "price": "1"},
                 {"symbol": "BBBUSDT", "price": "2"},
                 {"symbol": "AAAUSDC", "price": "0"}]
@@ -93,7 +93,7 @@ def test_batch_bridge_is_shared_and_refreshed_next_snapshot(monkeypatch, batch_r
                     {"symbol": "BBBBTC", "price": "3"},
                     {"symbol": "BTCUSDT", "price": bridge[0]}]
         if params["symbol"] == "SOLUSDT":
-            return {"price": "75"}
+            return {"symbol": params["symbol"], "price": "75"}
         raise runtime.TM.BinanceHttpError(status=400, code=-1121)
     monkeypatch.setattr(runtime.TM, "_public_get", public)
     for value in ("10.123456789123456789", "11.123456789123456789"):
@@ -104,17 +104,15 @@ def test_batch_bridge_is_shared_and_refreshed_next_snapshot(monkeypatch, batch_r
     assert not any(c and c["symbol"] in {"AAABTC", "BBBBTC", "BTCUSDT"} for c in calls)
 
 
-def test_omitted_higher_priority_route_is_checked_before_cached_route(monkeypatch, batch_runtime):
+def test_complete_current_route_avoids_later_observations(monkeypatch, batch_runtime):
     def public(path, params=None, **_kwargs):
         if not params:
             return [{"symbol": "AAABTC", "price": "999"},
                     {"symbol": "BTCUSDT", "price": "999"},
                     {"symbol": "BBBUSDT", "price": "2"}]
         if params["symbol"] == "SOLUSDT":
-            return {"price": "75"}
-        if params["symbol"] == "AAAUSDC":
-            return {"price": "1"}
-        raise runtime.TM.BinanceHttpError(status=400, code=-1121)
+            return {"symbol": params["symbol"], "price": "75"}
+        pytest.fail("complete snapshot must not request a later alternative")
     monkeypatch.setattr(runtime.TM, "_public_get", public)
     result, _, _ = runtime._build_risk_snapshot(["SOLUSDT"], batch_runtime)
-    assert result.equity_usdt == Decimal("106") + Decimal("2") * Decimal("0.998")
+    assert result.equity_usdt == Decimal("106") + Decimal("2") * Decimal("999") ** 2

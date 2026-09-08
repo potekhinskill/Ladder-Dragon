@@ -7,7 +7,7 @@ from ladder_dragon.supervision import runtime
 
 def test_supervisor_exact_price_uses_real_transport_adapter(monkeypatch):
     expected = Decimal("123456789.123456789")
-    monkeypatch.setattr(runtime.TM, "_public_get", lambda *_a: {"price": str(expected)})
+    monkeypatch.setattr(runtime.TM, "_public_get", lambda *_a: {"symbol": "SOLUSDT", "price": str(expected)})
 
     def forbidden(_symbol):
         raise AssertionError("risk must not use the legacy float adapter")
@@ -24,17 +24,19 @@ def test_supervisor_exact_price_uses_real_transport_adapter(monkeypatch):
 def test_invalid_transport_prices_fail_closed_without_payload_leak(
     monkeypatch, capsys, payload,
 ):
+    if isinstance(payload, dict):
+        payload = {"symbol": "SOLUSDT", **payload}
     monkeypatch.setattr(runtime.TM, "_public_get", lambda *_a: payload)
     with pytest.raises(ValueError) as error:
         runtime.get_last_price_decimal("SOLUSDT")
-    assert str(error.value) == "ticker price must be a finite positive decimal string"
+    assert str(error.value) in {"ticker price must be a finite positive decimal string", "ticker symbol differs from requested market"}
     assert error.value.__suppress_context__ or error.value.__context__ is None
     captured = capsys.readouterr()
     assert captured.out == captured.err == ""
 
 
 def test_legacy_ticker_view_remains_float(monkeypatch):
-    monkeypatch.setattr(runtime.TM, "_public_get", lambda *_a: {"price": "75.25"})
+    monkeypatch.setattr(runtime.TM, "_public_get", lambda *_a: {"symbol": "SOLUSDT", "price": "75.25"})
     value = runtime.TM.get_ticker_price("SOLUSDT")
     assert isinstance(value, float)
     assert value == 75.25

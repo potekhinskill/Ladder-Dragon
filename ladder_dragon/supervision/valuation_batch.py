@@ -3,8 +3,16 @@
 # Purpose: seed current account valuation with one public ticker collection.
 """Disposable batch observations owned by one risk snapshot."""
 
-from ladder_dragon.risk.asset_policy import STABLE_VALUATION_ASSETS
+from ladder_dragon.risk.asset_policy import STABLE_VALUATION_ASSETS, RISK_CONVERSION_QUOTE_ASSETS
 from ladder_dragon.risk.risk_manager import money
+
+
+def current_route_quotes(asset, prices):
+    """Select a complete validated route from this snapshot, never an omission."""
+    for quote in RISK_CONVERSION_QUOTE_ASSETS:
+        if f"{asset}{quote}" in prices and (quote in STABLE_VALUATION_ASSETS or f"{quote}USDT" in prices):
+            return (quote,)
+    return ()
 
 
 def seed_prices(balances, prices, reader, metrics):
