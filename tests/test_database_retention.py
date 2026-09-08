@@ -101,6 +101,21 @@ def test_retention_blocks_without_fresh_encrypted_backup(tmp_path):
     assert not (tmp_path / "archives").exists()
 
 
+def test_missing_external_backup_preserves_all_rows(tmp_path):
+    now = 2_000_000_000.0
+    database, backup = tmp_path / "prediction.sqlite3", tmp_path / "backup.json"
+    _database(database, old_ms=int((now - 400 * 86400) * 1000), fresh_ms=int(now * 1000))
+    _backup(backup, now)
+    status = json.loads(backup.read_text())
+    status.update(storage="external", external_mount=str(tmp_path / "absent"))
+    backup.write_text(json.dumps(status))
+    result = rotate_prediction_shadow(database, tmp_path / "archives", backup, now=now)
+    assert result["status"] == "BLOCKED"
+    with sqlite3.connect(database) as connection:
+        assert connection.execute("SELECT COUNT(*) FROM prediction_decisions").fetchone()[0] == 3
+    assert not (tmp_path / "archives").exists()
+
+
 def test_retention_empty_run_is_successful_with_fresh_backup(tmp_path):
     now = 2_000_000_000.0
     database = tmp_path / "prediction.sqlite3"

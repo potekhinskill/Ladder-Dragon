@@ -1,5 +1,14 @@
 # Engineering decisions
 
+### 2026-09-08 — Separate archive storage from download pointers
+
+- **Context:** mirrored archives consumed local capacity, while dashboard health depended on local recovery copies.
+- **Decision:** write ciphertext to descriptor-pinned external storage. Publish disposable links and bind health to the mounted artifact.
+- **Why it worked:** regressions reject missing storage and mismatched copies without exposing plaintext or deleting unproved legacy archives.
+- **Reuse:** external-only backups. Keep temporary source snapshots private; never move secret staging to a filesystem without enforceable private permissions.
+- **Retention:** external archives retain their configured age policy. Public links retain one archive; temporary inventory records expire after one hour.
+- **Maintenance:** the scheduled backup performs pointer rotation after verified publication. No accounting or lifecycle source record is deleted.
+
 ### 2026-09-08 — Require complete evidence at each terminal consumer
 
 - **Context:** terminal order classification can include partial exits, and a valid conversion leg does not prove a complete route.

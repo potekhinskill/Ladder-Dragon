@@ -12,12 +12,34 @@ from datetime import datetime
 from pathlib import Path
 from typing import Callable
 
+from ladder_dragon.persistence.backup_storage import external_archive_available
+
 
 ARCHIVE_NAME = re.compile(
     r"ladder-dragon-\d{4}-\d{2}-\d{2}-\d{6}\.tgz\.age"
 )
 SHA256 = re.compile(r"[0-9a-f]{64}")
 STATUS_SCHEMA_VERSION = 2
+
+
+def _external_links_valid(public_dir: Path, status: dict[str, object], name: str) -> bool:
+    """Reject detached storage and pointers outside the status-bound store."""
+    if "storage" not in status:
+        return True  # Legacy local archives remain readable during deployment.
+    if not external_archive_available(status):
+        return False
+    try:
+        directory = Path(str(status["external_directory"]))
+        for suffix in ("", ".sha256"):
+            link = public_dir / (name + suffix)
+            target = directory / (name + suffix)
+            if not link.is_symlink() or link.readlink() != target:
+                return False
+            if target.is_symlink() or not target.is_file():
+                return False
+        return True
+    except (KeyError, OSError, RuntimeError, ValueError):
+        return False
 
 
 def _unknown(public_dir: Path, reason: str, archive_count: int) -> dict[str, object]:
@@ -93,7 +115,11 @@ def backup_snapshot(
         return _unknown(public_dir, "verified backup identity is invalid", archive_count)
     archive = public_dir / name
     checksum = public_dir / f"{name}.sha256"
+    if not _external_links_valid(public_dir, status, name):
+        return _unknown(public_dir, "external backup storage is unavailable", archive_count)
     try:
+        if not archive.is_file() or not checksum.is_file() or checksum.stat().st_size > 256:
+            return _unknown(public_dir, "verified backup files are unavailable", archive_count)
         stat = archive.stat()
         checksum_fields = checksum.read_text(encoding="ascii").strip().split()
     except (OSError, UnicodeError):

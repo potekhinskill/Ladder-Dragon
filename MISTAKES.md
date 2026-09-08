@@ -1,5 +1,12 @@
 # Engineering mistakes and root causes
 
+### 2026-09-08 — Overescaped generated shell grouping
+
+- **Impact:** the first local syntax check rejected the unpublished backup script.
+- **Root cause:** JavaScript patch construction doubled the shell escapes around two find expressions.
+- **Correction:** restore single shell escapes before behavior tests.
+- **Prevention:** run shell syntax validation immediately after every generated shell patch, before any deployment or backup execution.
+
 ### 2026-09-08 — Missed legacy IP response fixtures
 
 - **Impact:** the first full suite rejected two legacy response doubles before their consensus assertions.

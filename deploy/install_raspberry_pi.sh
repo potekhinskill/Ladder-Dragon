@@ -198,8 +198,8 @@ setup_backup_encryption() {
   local identity_dir="/root/.config/ladder-dragon"
   local identity="${identity_dir}/backup-age.key"
   local recipient
-  local external_mount=""
-  local external_dir=""
+  local external_mount="${BACKUP_EXTERNAL_MOUNT:-}"
+  local external_dir="${BACKUP_EXTERNAL_DIR:-}"
   local external_retention=""
   command -v age >/dev/null || fail "age is required"
   command -v age-keygen >/dev/null || fail "age-keygen is required"
@@ -216,6 +216,14 @@ setup_backup_encryption() {
     external_dir="${backup_values[2]}"
     external_retention="${backup_values[3]}"
   fi
+  [[ -n "${external_mount}" && -n "${external_dir}" ]] \
+    || fail "external backup mount and directory are required before installation"
+  for path in "${external_mount}" "${external_dir}"; do
+    [[ "${path}" =~ ^/[A-Za-z0-9._/@+-]+$ && "$(realpath -m "${path}")" == "${path}" ]] \
+      || fail "external backup paths must be canonical absolute paths"
+  done
+  [[ "${external_dir}" == "${external_mount}/"* ]] \
+    || fail "external backup directory must be below its mount"
   if [[ ! -s "${identity}" ]]; then
     age-keygen -o "${identity}" >/dev/null
     chmod 0600 "${identity}"
@@ -296,6 +304,17 @@ PY
 if [[ -x "${PROJECT_DIR}/deploy/backup_raspberry_pi.sh" ]]; then
   PROJECT_DIR="${PROJECT_DIR}" "${PROJECT_DIR}/deploy/backup_raspberry_pi.sh"
 else
+  [[ "$(findmnt -T "${BACKUP_EXTERNAL_MOUNT}" -no TARGET)" == "${BACKUP_EXTERNAL_MOUNT}" \
+     && "$(stat -c %d "${BACKUP_EXTERNAL_MOUNT}")" != "$(stat -c %d /)" ]] \
+    || fail "external backup disk is unavailable"
+  exec 19<"${BACKUP_EXTERNAL_MOUNT}"
+  [[ "$(stat -Lc %d "/proc/$$/fd/19")" != "$(stat -c %d /)" ]] \
+    || fail "external backup mount detached before directory open"
+  external_relative="${BACKUP_EXTERNAL_DIR#"${BACKUP_EXTERNAL_MOUNT}/"}"
+  mkdir -p "/proc/$$/fd/19/${external_relative}"
+  exec 20<"/proc/$$/fd/19/${external_relative}"
+  [[ "$(stat -Lc %d "/proc/$$/fd/20")" == "$(stat -Lc %d "/proc/$$/fd/19")" ]] \
+    || fail "backup directory is outside the pinned external filesystem"
   stamp="$(date -u +%Y-%m-%d-%H%M%S)"
   staging="$(mktemp -d /tmp/ladder-dragon-preinstall.XXXXXX)"
   copy_rootfs_path() {
@@ -337,10 +356,16 @@ if source_dir.is_dir():
                 src.backup(out)
         os.chmod(target, 0o600)
 PY
-  emergency="/var/lib/ladder-dragon/backups/preinstall-${stamp}.tgz.age"
+  emergency="/proc/$$/fd/20/preinstall-${stamp}.tgz.age"
+  emergency_tmp="$(mktemp "/proc/$$/fd/20/.preinstall-${stamp}.tgz.age.tmp.XXXXXX")"
+  rm -f "${emergency_tmp}"
   tar -C "${staging}" -czf - . \
-    | age -r "${BACKUP_AGE_RECIPIENT}" -o "${emergency}"
-  chmod 0600 "${emergency}"
+    | age -r "${BACKUP_AGE_RECIPIENT}" -o "${emergency_tmp}"
+  sync -f "${emergency_tmp}"
+  mv -f "${emergency_tmp}" "${emergency}"
+  sync -f "${emergency}"
+  (cd "/proc/$$/fd/20" && sha256sum "preinstall-${stamp}.tgz.age" \
+    >"preinstall-${stamp}.tgz.age.sha256")
   rm -rf "${staging}"
 fi
 

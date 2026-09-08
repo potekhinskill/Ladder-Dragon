@@ -845,15 +845,15 @@ sudo bash deploy/update_raspberry_pi.sh apply
 
 ## 10. Backups and external storage
 
-Encrypted application backups are stored in `/var/lib/ladder-dragon/backups`:
+Encrypted application archives reside only on the configured external disk.
+The service requires a mounted, writable filesystem separate from the root filesystem.
 
 ```bash
 sudo systemctl start ladder-dragon-backup.service
-sudo journalctl -u ladder-dragon-backup.service -n 50 --no-pager
-sudo ls -lh /var/lib/ladder-dragon/backups
+sudo ls -lh /mnt/usb1/ladder-dragon-backups
 ```
 
-For an external disk, configure `/etc/ladder-dragon/backup.env`:
+Configure the external paths in `/etc/ladder-dragon/backup.env`:
 
 ```dotenv
 BACKUP_EXTERNAL_MOUNT=/mnt/usb1
@@ -861,32 +861,36 @@ BACKUP_EXTERNAL_DIR=/mnt/usb1/ladder-dragon-backups
 BACKUP_EXTERNAL_RETENTION_DAYS=90
 ```
 
-The service mirrors encrypted archives, checksums, and safe inventory files. It
-fails rather than writing to an unmounted path. Mount the disk by UUID or label
-in `/etc/fstab`, never by a transient `/dev/sda1` path.
+For first installation, provide `BACKUP_EXTERNAL_MOUNT` and `BACKUP_EXTERNAL_DIR` in the privileged installer environment.
+The installer preserves these paths when it creates its encryption configuration.
+Its emergency archive also writes directly to the external disk.
 
-The service verifies each encrypted copy before atomic publication.
-Status identifies the completed archive by name, size, and SHA-256.
-The dashboard reports `unknown` when this evidence is missing or inconsistent.
+Mount the disk by UUID or label in `/etc/fstab`, never by a transient device path.
+A missing or read-only mount blocks backup without local archive fallback.
+The service pins the external directory before ciphertext writes.
+External mount options control ciphertext permissions on exFAT.
 
-`https://bot.local/backups/` exposes only encrypted archives, checksums, and safe
-inventory through Basic Auth. Local/public retention is 14 days; external
-retention follows `BACKUP_EXTERNAL_RETENTION_DAYS`. External rotation runs before
-each mirror operation. Rotation keeps the newest encrypted archive until its
-verified replacement exists.
+Private source snapshots temporarily use `/var/lib/ladder-dragon/backups`.
+They are not retained archives and are removed when the backup exits.
+Interrupted timestamp staging expires after sixty minutes.
+At least 8 GiB of local free space is required for SQLite staging.
+Plaintext staging never moves to the external exFAT disk.
 
-Local and public rotation runs before collection and after publication.
-It preserves the newest completed encrypted archive.
-Staging directories older than sixty minutes are removed before collection.
-The cleanup accepts only the timestamp grammar created by the backup script.
-Other directories remain unchanged and require separate operator review.
+The service verifies ciphertext before atomic public link publication.
+Status identifies the external archive by name, size, and SHA-256.
+Dashboard health requires the mounted artifact and matching checksum evidence.
+Unavailable external evidence also blocks destructive database retention.
 
-Capacity rotation maintains at least 8 GiB of free local storage.
-It removes only local copies with verified external counterparts.
-It removes public duplicates before private encrypted archives.
-It preserves the two newest archives in each local directory.
-Known backup temporary files expire after sixty minutes.
-The service fails when verified rotation cannot restore the capacity floor.
+`https://bot.local/backups/` retains Basic Auth protection.
+Its archive links reference external ciphertext; downloads create no local archive copy.
+Only the latest archive links remain public.
+Disposable public inventories expire after one hour during the next backup.
+External archives retain `BACKUP_EXTERNAL_RETENTION_DAYS`.
+Rotation preserves the newest archive until its verified replacement exists.
+
+Legacy local duplicates retire only after exact external checksum verification.
+Unique or mismatched legacy archives remain for operator review.
+No accounting, fill, or lifecycle source evidence is removed.
 
 The installer also enables `ladder-dragon-depth-retention.timer`.
 The timer runs after the daily encrypted backup.

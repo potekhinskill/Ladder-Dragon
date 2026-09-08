@@ -82,6 +82,11 @@ def _backup_is_fresh(path: Path, *, now: float, maximum_age_hours: int) -> tuple
         payload = json.loads(path.read_text(encoding="utf-8"))
         if not isinstance(payload, dict) or payload.get("status") != "success":
             return False, "latest encrypted backup is not successful"
+        if "storage" in payload:
+            from ladder_dragon.persistence.backup_storage import external_archive_available
+
+            if not external_archive_available(payload):
+                return False, "external encrypted backup is unavailable"
         updated = datetime.strptime(
             str(payload["updated_at"]), "%Y-%m-%dT%H:%M:%S UTC"
         ).replace(tzinfo=timezone.utc)

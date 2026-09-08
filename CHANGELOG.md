@@ -3,6 +3,20 @@
 All notable changes are documented here. Releases use Semantic Versioning; every
 section is dated and there is intentionally no `Unreleased` section.
 
+## [2.20.330] — 2026-09-08
+
+### Changed
+- Application backup ciphertext resides only on the required external filesystem. Public downloads use links instead of local archive copies.
+- Private SQLite staging remains temporary and local. External retention remains unchanged; public pointers retain only the latest archive.
+
+### Security
+- Descriptor-pinned storage prevents fallback writes beneath a detached mount. Missing, read-only, and root-filesystem destinations block backup.
+- Dashboard and retention reject unavailable external artifacts. Legacy local copies retire only after exact external verification.
+
+### Verified
+- The full local suite passes: 2,152 tests, with one Linux-only skip. Compileall and Technical English pass.
+- All 11 isolated Linux deployment regressions pass on Raspberry Pi using synthetic files without production data or service changes.
+
 ## [2.20.329] — 2026-09-08
 
 ### Fixed

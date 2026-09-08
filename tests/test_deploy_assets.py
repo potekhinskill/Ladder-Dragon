@@ -1184,58 +1184,35 @@ def test_backup_service_allows_only_sqlite_directory_for_wal_sidecars():
     assert "SQLite online backup failed for {source.name}" in backup
 
 
-def test_backup_mirrors_only_new_archive_and_verifies_destination_checksums():
+def test_backup_writes_only_external_ciphertext_and_public_links():
     backup = read("deploy/backup_raspberry_pi.sh")
-    assert "mirror_external_archive" in backup
-    assert "publish_public_archive" in backup
-    assert 'source_archive="${BACKUP_DIR}/${archive_name}"' in backup
-    assert 'for source_archive in "${BACKUP_DIR}"/*.tgz.age' not in backup
-    assert 'sha256sum -c "${name}.sha256"' in backup
-    assert 'cp --preserve=timestamps -f "${source_archive}"' in backup
-    assert "preinstall-*.tgz.age" in backup
-    assert 'publish_public_archive "${source_archive}"' in backup
-    assert "BACKUP_EXTERNAL_RETENTION_DAYS" in backup
-    assert "write_status()" in backup
-    assert '"schema_version":2' in backup
-    assert '"archive_name":"%s"' in backup
-    assert '"archive_sha256":"%s"' in backup
+    assert 'mktemp "${EXTERNAL_STORE}/.${archive_name}.tmp.XXXXXX"' in backup
+    assert 'mv -f "${archive_tmp}" "${EXTERNAL_STORE}/${archive_name}"' in backup
+    assert 'sha256sum -c "${archive_name}.sha256"' in backup
+    assert 'publish_public_archive "${archive_name}"' in backup
+    assert 'ln -s "${BACKUP_EXTERNAL_DIR}/${target}"' in backup
+    assert 'mirror_external_archive' not in backup
+    assert '"storage":"external"' in backup
     assert '"archive_verified":true' in backup
-    assert 'mktemp "${BACKUP_DIR}/.${archive_name}.tmp.XXXXXX"' in backup
-    assert 'rm -f "${archive_tmp}"' in backup
-    assert 'mv -f "${archive_tmp}" "${PUBLIC_BACKUP_DIR}/${name}"' in backup
+    assert 'mktemp "${BACKUP_DIR}/.${archive_name}.tmp.' not in backup
 
 
-def test_backup_prunes_external_retention_before_mirroring():
+def test_backup_prunes_external_retention_before_encryption():
     backup = read("deploy/backup_raspberry_pi.sh")
-    first_prune = backup.index("prune_expired_external_backups\n")
-    mirror_new = backup.index('mirror_external_archive "${source_archive}"')
-
-    assert first_prune < mirror_new
+    assert backup.index("prune_expired_external_backups\n") < backup.index('tar -C "${BACKUP_DIR}"')
     assert '[[ "${expired}" == "${latest_archive}" ]] && continue' in backup
     assert 'rm -f -- "${expired}" "${archive_checksum}"' in backup
-    assert "retention_minutes=$((retention_days * 24 * 60))" in backup
     assert "retention_minutes=$((BACKUP_EXTERNAL_RETENTION_DAYS * 24 * 60))" in backup
     assert '-mmin +"${retention_minutes}" -print0' in backup
-    assert '-mmin +"${retention_minutes}" -delete' in backup
-    assert '-mtime +"${retention_days}"' not in backup
-    assert '-mtime +"${BACKUP_EXTERNAL_RETENTION_DAYS}"' not in backup
+    assert '-mtime' not in backup
 
 
-def test_backup_prunes_local_capacity_before_creating_staging():
+def test_backup_checks_staging_capacity_without_local_archive_retention():
     backup = read("deploy/backup_raspberry_pi.sh")
-    first_local_prune = backup.index(
-        'prune_completed_backup_directory "${BACKUP_DIR}" '
-        '"${BACKUP_LOCAL_RETENTION_DAYS}" no'
-    )
-    create_staging = backup.index('install -d -m 0700 "${DEST}"')
-
-    assert first_local_prune < create_staging
-    assert 'BACKUP_LOCAL_RETENTION_DAYS=14' in backup
-    assert '[[ "${expired}" == "${latest_archive}" ]] && continue' in backup
-    assert "-name 'preinstall-*.tgz.age'" in backup
+    assert backup.index('insufficient local capacity') < backup.index('install -d -m 0700 "${DEST}"')
     assert "BACKUP_LOCAL_MIN_FREE_BYTES=8589934592" in backup
-    assert "BACKUP_LOCAL_KEEP_MIN=2" in backup
-    assert "prune_local_capacity\nrebuild_public_index" in backup
+    assert "BACKUP_LOCAL_KEEP_MIN" not in backup
+    assert "BACKUP_LOCAL_RETENTION_DAYS" not in backup
 
 
 def test_backup_removes_only_old_timestamp_staging_directories():
@@ -1264,17 +1241,12 @@ def test_backup_removes_only_known_stale_temporary_files():
     assert "rm -rf" not in helper
 
 
-def test_backup_capacity_rotation_requires_verified_external_copy():
+def test_backup_migration_requires_matching_external_ciphertext():
     backup = read("deploy/backup_raspberry_pi.sh")
-    helper = backup.split("prune_local_capacity() {", 1)[1].split(
-        "\n}\n", 1
-    )[0]
-
-    verification = helper.index('external_archive_is_verified "${archive}"')
-    deletion = helper.index('remove_local_archive_copy "${archive}"')
-    assert verification < deletion
-    assert '"${remaining}" -le "${BACKUP_LOCAL_KEEP_MIN}"' in helper
-    assert "verified rotation could not restore local backup capacity" in helper
+    helper = backup.split("retire_local_duplicates() {", 1)[1].split("\n}\n", 1)[0]
+    assert helper.index('"${local_digest}" == "${external_digest}"') < helper.index('rm -f -- "${archive}"')
+    assert '"${external_digest}  ${name}"' in helper
+    assert '! -L "${EXTERNAL_STORE}/${name}.sha256"' in helper
 
 
 def test_target_updater_uses_target_backup_before_checkout():

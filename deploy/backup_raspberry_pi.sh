@@ -13,16 +13,16 @@ BACKUP_AGE_RECIPIENT="${BACKUP_AGE_RECIPIENT:-}"
 BACKUP_EXTERNAL_MOUNT="${BACKUP_EXTERNAL_MOUNT:-}"
 BACKUP_EXTERNAL_DIR="${BACKUP_EXTERNAL_DIR:-}"
 BACKUP_EXTERNAL_RETENTION_DAYS="${BACKUP_EXTERNAL_RETENTION_DAYS:-90}"
-BACKUP_LOCAL_RETENTION_DAYS=14
 BACKUP_STAGING_RETENTION_MINUTES=60
 BACKUP_LOCAL_MIN_FREE_BYTES=8589934592
-BACKUP_LOCAL_KEEP_MIN=2
 STAMP="$(date -u +%Y-%m-%d-%H%M%S)"
 DEST="${BACKUP_DIR}/${STAMP}"
 STATUS_ARCHIVE_NAME=""
 STATUS_ARCHIVE_SIZE=""
 STATUS_ARCHIVE_SHA256=""
 ACTIVE_TEMP_FILES=()
+EXTERNAL_STORE=""
+STAGING_CREATED=0
 
 # DEST temporarily contains decrypted env/SQLite data. Remove staging even when
 # the external mirror fails, so an emergency backup never leaves secrets on the SD card.
@@ -33,9 +33,10 @@ write_status() {
   tmp="${PUBLIC_BACKUP_DIR}/.backup_status.$$"
   mkdir -p "${PUBLIC_BACKUP_DIR}" 2>/dev/null || return 0
   if [[ "${status}" == "success" && -n "${STATUS_ARCHIVE_NAME}" ]]; then
-    printf '{"schema_version":2,"status":"success","reason":"","updated_at":"%s UTC","archive_name":"%s","archive_size_bytes":%s,"archive_sha256":"%s","archive_verified":true}\n' \
+    printf '{"schema_version":2,"status":"success","reason":"","updated_at":"%s UTC","archive_name":"%s","archive_size_bytes":%s,"archive_sha256":"%s","archive_verified":true,"storage":"external","external_mount":"%s","external_directory":"%s"}\n' \
       "$(date -u +%Y-%m-%dT%H:%M:%S)" "${STATUS_ARCHIVE_NAME}" \
-      "${STATUS_ARCHIVE_SIZE}" "${STATUS_ARCHIVE_SHA256}" >"${tmp}" 2>/dev/null || return 0
+      "${STATUS_ARCHIVE_SIZE}" "${STATUS_ARCHIVE_SHA256}" \
+      "${BACKUP_EXTERNAL_MOUNT}" "${BACKUP_EXTERNAL_DIR}" >"${tmp}" 2>/dev/null || return 0
   else
     printf '{"schema_version":2,"status":"failed","reason":"%s","updated_at":"%s UTC"}\n' \
       "${reason}" "$(date -u +%Y-%m-%dT%H:%M:%S)" >"${tmp}" 2>/dev/null || return 0
@@ -57,7 +58,9 @@ cleanup_staging() {
   for temporary in "${ACTIVE_TEMP_FILES[@]}"; do
     rm -f -- "${temporary}"
   done
-  rm -rf -- "${DEST}"
+  if [[ "${STAGING_CREATED}" == 1 ]]; then
+    rm -rf -- "${DEST}"
+  fi
 }
 on_exit() {
   local rc=$?
@@ -76,6 +79,8 @@ trap on_exit EXIT
 mkdir -p /var/lib/ladder-dragon
 exec 18>>/var/lib/ladder-dragon/network-recovery.lock
 flock -s -w 45 18 || { echo "[FAIL] network recovery is active" >&2; exit 1; }
+exec 17>>/var/lib/ladder-dragon/backup.lock
+flock -n 17 || { echo "[FAIL] another backup is active" >&2; exit 1; }
 if [[ -r /var/lib/pi-watchdog/network-reboot.boot ]] && \
   cmp -s /var/lib/pi-watchdog/network-reboot.boot /proc/sys/kernel/random/boot_id; then
   echo "[FAIL] network reboot is pending" >&2
@@ -89,7 +94,17 @@ command -v age >/dev/null || {
   echo "[FAIL] BACKUP_AGE_RECIPIENT is missing or invalid" >&2
   exit 1
 }
-if [[ -n "${BACKUP_EXTERNAL_MOUNT}" || -n "${BACKUP_EXTERNAL_DIR}" ]]; then
+if [[ -z "${BACKUP_EXTERNAL_MOUNT}" || -z "${BACKUP_EXTERNAL_DIR}" ]]; then
+  echo "[FAIL] external backup storage is required" >&2
+  exit 1
+fi
+if [[ -n "${BACKUP_EXTERNAL_MOUNT}" && -n "${BACKUP_EXTERNAL_DIR}" ]]; then
+  for path in "${BACKUP_EXTERNAL_MOUNT}" "${BACKUP_EXTERNAL_DIR}"; do
+    [[ "${path}" =~ ^/[A-Za-z0-9._/@+-]+$ && "$(realpath -m "${path}")" == "${path}" ]] || {
+      echo "[FAIL] external backup paths must be canonical absolute paths" >&2
+      exit 1
+    }
+  done
   [[ "${BACKUP_EXTERNAL_RETENTION_DAYS}" =~ ^[0-9]+$ ]] || {
     echo "[FAIL] BACKUP_EXTERNAL_RETENTION_DAYS must be a non-negative integer" >&2
     exit 1
@@ -117,50 +132,29 @@ if [[ -n "${BACKUP_EXTERNAL_MOUNT}" || -n "${BACKUP_EXTERNAL_DIR}" ]]; then
       exit 1
       ;;
   esac
-  # exFAT does not support chmod; external-directory permissions come from mount options.
-  mkdir -p "${BACKUP_EXTERNAL_DIR}"
+  [[ "$(stat -c %d "${BACKUP_EXTERNAL_MOUNT}")" != "$(stat -c %d /)" ]] || {
+    echo "[FAIL] external backup storage must not use the root filesystem" >&2
+    exit 1
+  }
+  # Pin the mounted filesystem before any write. Unmount cannot redirect an
+  # absolute pathname to the underlying SD-card mountpoint during this run.
+  exec 19<"${BACKUP_EXTERNAL_MOUNT}"
+  [[ "$(stat -Lc %d "/proc/$$/fd/19")" != "$(stat -c %d /)" ]] || {
+    echo "[FAIL] external backup mount detached before directory open" >&2
+    exit 1
+  }
+  external_relative="${BACKUP_EXTERNAL_DIR#"${BACKUP_EXTERNAL_MOUNT}/"}"
+  # exFAT does not support chmod; mount options own ciphertext permissions.
+  mkdir -p "/proc/$$/fd/19/${external_relative}"
+  exec 20<"/proc/$$/fd/19/${external_relative}"
+  EXTERNAL_STORE="/proc/$$/fd/20"
+  [[ "$(stat -Lc %d "${EXTERNAL_STORE}")" == "$(stat -Lc %d "/proc/$$/fd/19")" ]] || {
+    echo "[FAIL] backup directory is outside the pinned external filesystem" >&2
+    exit 1
+  }
 fi
 install -d -m 0700 "${BACKUP_DIR}"
 install -d -o root -g www-data -m 0750 "${PUBLIC_BACKUP_DIR}"
-
-latest_completed_archive() {
-  local directory="$1"
-  {
-    find "${directory}" -maxdepth 1 -type f \
-      \( -name 'ladder-dragon-*.tgz.age' -o -name 'preinstall-*.tgz.age' \) \
-      -printf '%T@ %p\n'
-  } | sort -nr | sed -n '1{s/^[^ ]* //;p;}'
-}
-
-prune_completed_backup_directory() {
-  local directory="$1" retention_days="$2" prune_inventory="$3"
-  local latest_archive expired checksum archive retention_minutes
-  retention_minutes=$((retention_days * 24 * 60))
-  latest_archive="$(latest_completed_archive "${directory}")"
-
-  while IFS= read -r -d '' expired; do
-    [[ "${expired}" == "${latest_archive}" ]] && continue
-    rm -f -- "${expired}" "${expired}.sha256"
-  done < <(
-    find "${directory}" -maxdepth 1 -type f \
-      \( -name 'ladder-dragon-*.tgz.age' -o -name 'preinstall-*.tgz.age' \) \
-      -mmin +"${retention_minutes}" -print0
-  )
-
-  while IFS= read -r -d '' checksum; do
-    archive="${checksum%.sha256}"
-    [[ "${archive}" == "${latest_archive}" ]] && continue
-    [[ -f "${archive}" ]] || rm -f -- "${checksum}"
-  done < <(
-    find "${directory}" -maxdepth 1 -type f \
-      -name '*.tgz.age.sha256' -mmin +"${retention_minutes}" -print0
-  )
-
-  if [[ "${prune_inventory}" == "yes" ]]; then
-    find "${directory}" -maxdepth 1 -type f \
-      -name 'inventory-*.txt' -mmin +"${retention_minutes}" -delete
-  fi
-}
 
 prune_stale_local_staging() {
   local staging name
@@ -183,67 +177,8 @@ prune_stale_local_temporary_files() {
        -o -name '.preinstall-*.tgz.age.tmp.*' \
        -o -name '.ladder-dragon-*.tgz.age.sha256.tmp.*' \
        -o -name '.preinstall-*.tgz.age.sha256.tmp.*' \
-       -o -name '.index.*' -o -name '.backup_status.*' \) \
+       -o -name '.index.*' -o -name '.backup_status.*' -o -name '.backup-link.*' \) \
     -mmin +"${BACKUP_STAGING_RETENTION_MINUTES}" -delete
-}
-
-available_local_bytes() {
-  df -PB1 "${BACKUP_DIR}" | awk 'NR==2 {print $4}'
-}
-
-external_archive_is_verified() {
-  local archive="$1" name
-  [[ -n "${BACKUP_EXTERNAL_DIR}" ]] || return 1
-  name="$(basename "${archive}")"
-  [[ -f "${BACKUP_EXTERNAL_DIR}/${name}" \
-     && -f "${BACKUP_EXTERNAL_DIR}/${name}.sha256" ]] || return 1
-  (cd "${BACKUP_EXTERNAL_DIR}" && sha256sum -c "${name}.sha256" >/dev/null)
-}
-
-remove_local_archive_copy() {
-  local archive="$1" directory name stamp
-  directory="$(dirname "${archive}")"
-  name="$(basename "${archive}")"
-  rm -f -- "${archive}" "${archive}.sha256"
-  if [[ "${directory}" == "${PUBLIC_BACKUP_DIR}" \
-        && "${name}" =~ ^ladder-dragon-([0-9]{4}-[0-9]{2}-[0-9]{2}-[0-9]{6})\.tgz\.age$ ]]; then
-    stamp="${BASH_REMATCH[1]}"
-    rm -f -- "${PUBLIC_BACKUP_DIR}/inventory-${stamp}.txt"
-  fi
-}
-
-prune_local_capacity() {
-  local directory archive remaining
-  local -a local_archives=()
-  [[ "$(available_local_bytes)" -ge "${BACKUP_LOCAL_MIN_FREE_BYTES}" ]] \
-    && return 0
-  [[ -n "${BACKUP_EXTERNAL_DIR}" ]] || {
-    echo "[FAIL] local backup capacity is low and no external mirror is configured" >&2
-    return 1
-  }
-
-  # Public ciphertext is a disposable local duplicate. Remove its oldest
-  # externally verified copies first, while preserving two recent downloads.
-  for directory in "${PUBLIC_BACKUP_DIR}" "${BACKUP_DIR}"; do
-    mapfile -t local_archives < <(
-      find "${directory}" -maxdepth 1 -type f \
-        \( -name 'ladder-dragon-*.tgz.age' -o -name 'preinstall-*.tgz.age' \) \
-        -printf '%T@ %p\n' | sort -n | sed 's/^[^ ]* //'
-    )
-    remaining="${#local_archives[@]}"
-    for archive in "${local_archives[@]}"; do
-      [[ "${remaining}" -le "${BACKUP_LOCAL_KEEP_MIN}" ]] && break
-      external_archive_is_verified "${archive}" || continue
-      remove_local_archive_copy "${archive}"
-      remaining=$((remaining - 1))
-      [[ "$(available_local_bytes)" -ge "${BACKUP_LOCAL_MIN_FREE_BYTES}" ]] \
-        && return 0
-    done
-  done
-  [[ "$(available_local_bytes)" -ge "${BACKUP_LOCAL_MIN_FREE_BYTES}" ]] || {
-    echo "[FAIL] verified rotation could not restore local backup capacity" >&2
-    return 1
-  }
 }
 
 rebuild_public_index() {
@@ -253,7 +188,8 @@ rebuild_public_index() {
     echo "Ladder Dragon encrypted backups"
     echo "Generated: ${STAMP} UTC"
     echo "Archives are age-encrypted; inventory files contain no secrets."
-    find "${PUBLIC_BACKUP_DIR}" -maxdepth 1 -type f \
+    find "${PUBLIC_BACKUP_DIR}" -maxdepth 1 \
+      \( -type f -o -type l \) \
       \( -name '*.tgz.age' -o -name '*.tgz.age.sha256' -o -name 'inventory-*.txt' \) \
       -printf '%f\n' | sort
   } >"${manifest_tmp}"
@@ -269,7 +205,7 @@ prune_expired_external_backups() {
   # Reclaim expired external capacity before writing a new archive. Preserve the
   # newest encrypted archive until a replacement is verified and published.
   latest_archive="$({
-    find "${BACKUP_EXTERNAL_DIR}" -maxdepth 1 -type f \
+    find "${EXTERNAL_STORE}/" -maxdepth 1 -type f \
       \( -name 'ladder-dragon-*.tgz.age' -o -name 'preinstall-*.tgz.age' \) \
       -printf '%T@ %p\n'
   } | sort -nr | sed -n '1{s/^[^ ]* //;p;}')"
@@ -279,30 +215,31 @@ prune_expired_external_backups() {
     archive_checksum="${expired}.sha256"
     rm -f -- "${expired}" "${archive_checksum}"
   done < <(
-    find "${BACKUP_EXTERNAL_DIR}" -maxdepth 1 -type f \
+    find "${EXTERNAL_STORE}/" -maxdepth 1 -type f \
       \( -name 'ladder-dragon-*.tgz.age' -o -name 'preinstall-*.tgz.age' \) \
       -mmin +"${retention_minutes}" -print0
   )
 
-  find "${BACKUP_EXTERNAL_DIR}" -maxdepth 1 -type f \
+  find "${EXTERNAL_STORE}/" -maxdepth 1 -type f \
     -name 'inventory-*.txt' \
     -mmin +"${retention_minutes}" -delete
 }
 
-# Reclaim bounded local capacity before collection. Preserve the latest complete
-# archive and ignore directories outside the exact private staging grammar.
+# Only private transient source snapshots remain local. Completed ciphertext
+# is written directly to the pinned external filesystem, never the SD card.
 prune_stale_local_staging
 prune_stale_local_temporary_files "${BACKUP_DIR}"
 prune_stale_local_temporary_files "${PUBLIC_BACKUP_DIR}"
-prune_completed_backup_directory "${BACKUP_DIR}" "${BACKUP_LOCAL_RETENTION_DAYS}" no
-prune_completed_backup_directory "${PUBLIC_BACKUP_DIR}" "${BACKUP_LOCAL_RETENTION_DAYS}" yes
-
-# A full external disk cannot receive the new verified archive. Apply the
-# configured retention policy before local collection and external mirroring.
+prune_stale_local_temporary_files "${EXTERNAL_STORE}/"
 prune_expired_external_backups
-prune_local_capacity
+[[ "$(df -PB1 "${BACKUP_DIR}" | awk 'NR==2 {print $4}')" -ge "${BACKUP_LOCAL_MIN_FREE_BYTES}" ]] || {
+  echo "[FAIL] insufficient local capacity for private SQLite staging" >&2
+  exit 1
+}
 rebuild_public_index
+[[ ! -e "${DEST}" ]] || { echo "[FAIL] backup staging identity already exists" >&2; exit 1; }
 install -d -m 0700 "${DEST}"
+STAGING_CREATED=1
 
 # The inventory contains no secret-variable values.
 {
@@ -438,10 +375,14 @@ PY
 # The archive is never written to disk unencrypted. A same-directory rename
 # prevents the dashboard or mirror loop from observing partial ciphertext.
 archive_name="ladder-dragon-${STAMP}.tgz.age"
-archive_tmp="$(mktemp "${BACKUP_DIR}/.${archive_name}.tmp.XXXXXX")"
+[[ ! -e "${EXTERNAL_STORE}/${archive_name}" ]] || {
+  echo "[FAIL] backup archive identity already exists" >&2
+  exit 1
+}
+archive_tmp="$(mktemp "${EXTERNAL_STORE}/.${archive_name}.tmp.XXXXXX")"
 ACTIVE_TEMP_FILES+=("${archive_tmp}")
-# age must create its output path. The private root-only directory prevents
-# another process from claiming this randomized name before age opens it.
+# age must create its output path and refuses an existing replacement.
+# The pinned filesystem owns the randomized ciphertext path.
 rm -f "${archive_tmp}"
 tar -C "${BACKUP_DIR}" -czf - "${STAMP}" \
   | age -r "${BACKUP_AGE_RECIPIENT}" \
@@ -451,92 +392,70 @@ tar -C "${BACKUP_DIR}" -czf - "${STAMP}" \
   exit 1
 }
 sync -f "${archive_tmp}"
-mv -f "${archive_tmp}" "${BACKUP_DIR}/${archive_name}"
+mv -f "${archive_tmp}" "${EXTERNAL_STORE}/${archive_name}"
 
-# Keep a checksum with a relative filename. It can be verified on the SD card,
-# the external disk, or after downloading from /backups/.
-checksum_tmp="$(mktemp "${BACKUP_DIR}/.${archive_name}.sha256.tmp.XXXXXX")"
+# Keep a portable checksum beside the external ciphertext.
+checksum_tmp="$(mktemp "${EXTERNAL_STORE}/.${archive_name}.sha256.tmp.XXXXXX")"
 ACTIVE_TEMP_FILES+=("${checksum_tmp}")
-(cd "${BACKUP_DIR}" && sha256sum "${archive_name}" >"${checksum_tmp}")
+(cd "${EXTERNAL_STORE}" && sha256sum "${archive_name}" >"${checksum_tmp}")
 sync -f "${checksum_tmp}"
-mv -f "${checksum_tmp}" "${BACKUP_DIR}/${archive_name}.sha256"
-chmod 0600 "${BACKUP_DIR}/${archive_name}" "${BACKUP_DIR}/${archive_name}.sha256"
-
-# Apply retention again after the replacement exists. This catches files that
-# cross the age boundary during a long backup.
-prune_completed_backup_directory "${BACKUP_DIR}" "${BACKUP_LOCAL_RETENTION_DAYS}" no
-
-mirror_external_archive() {
-  local source_archive="$1"
-  local name digest archive_tmp checksum_tmp copied_digest
-  name="$(basename "${source_archive}")"
-  digest="$(sha256sum "${source_archive}" | awk '{print $1}')"
-  archive_tmp="$(mktemp "${BACKUP_EXTERNAL_DIR}/.${name}.tmp.XXXXXX")"
-  checksum_tmp="$(mktemp "${BACKUP_EXTERNAL_DIR}/.${name}.sha256.tmp.XXXXXX")"
-  ACTIVE_TEMP_FILES+=("${archive_tmp}" "${checksum_tmp}")
-  # --preserve=timestamps does not attempt to change exFAT file ownership.
-  cp --preserve=timestamps -f "${source_archive}" "${archive_tmp}"
-  copied_digest="$(sha256sum "${archive_tmp}" | awk '{print $1}')"
-  [[ "${copied_digest}" == "${digest}" ]] || return 1
-  sync -f "${archive_tmp}"
-  mv -f "${archive_tmp}" "${BACKUP_EXTERNAL_DIR}/${name}"
-  # Recreate the checksum in the destination directory so the path stays portable
-  # and contains no Raspberry Pi local paths.
-  printf '%s  %s\n' "${digest}" "${name}" >"${checksum_tmp}"
-  sync -f "${checksum_tmp}"
-  mv -f "${checksum_tmp}" "${BACKUP_EXTERNAL_DIR}/${name}.sha256"
-  (cd "${BACKUP_EXTERNAL_DIR}" && sha256sum -c "${name}.sha256" >/dev/null)
-}
+mv -f "${checksum_tmp}" "${EXTERNAL_STORE}/${archive_name}.sha256"
+(cd "${EXTERNAL_STORE}" && sha256sum -c "${archive_name}.sha256" >/dev/null)
 
 publish_public_archive() {
-  local source_archive="$1"
-  local name digest archive_tmp checksum_tmp copied_digest
-  name="$(basename "${source_archive}")"
-  digest="$(sha256sum "${source_archive}" | awk '{print $1}')"
-  archive_tmp="$(mktemp "${PUBLIC_BACKUP_DIR}/.${name}.tmp.XXXXXX")"
-  checksum_tmp="$(mktemp "${PUBLIC_BACKUP_DIR}/.${name}.sha256.tmp.XXXXXX")"
-  ACTIVE_TEMP_FILES+=("${archive_tmp}" "${checksum_tmp}")
-  cp --preserve=timestamps -f "${source_archive}" "${archive_tmp}"
-  copied_digest="$(sha256sum "${archive_tmp}" | awk '{print $1}')"
-  [[ "${copied_digest}" == "${digest}" ]] || return 1
-  chown root:www-data "${archive_tmp}"
-  chmod 0640 "${archive_tmp}"
-  sync -f "${archive_tmp}"
-  mv -f "${archive_tmp}" "${PUBLIC_BACKUP_DIR}/${name}"
-  printf '%s  %s\n' "${digest}" "${name}" >"${checksum_tmp}"
-  chown root:www-data "${checksum_tmp}"
-  chmod 0640 "${checksum_tmp}"
-  sync -f "${checksum_tmp}"
-  mv -f "${checksum_tmp}" "${PUBLIC_BACKUP_DIR}/${name}.sha256"
-  (cd "${PUBLIC_BACKUP_DIR}" && sha256sum -c "${name}.sha256" >/dev/null)
+  local name="$1" target link_tmp
+  # Publish links to ciphertext only. No archive bytes enter the web directory.
+  for target in "${name}" "${name}.sha256"; do
+    link_tmp="$(mktemp "${PUBLIC_BACKUP_DIR}/.backup-link.XXXXXX")"
+    ACTIVE_TEMP_FILES+=("${link_tmp}")
+    rm -f "${link_tmp}"
+    ln -s "${BACKUP_EXTERNAL_DIR}/${target}" "${link_tmp}"
+    mv -Tf "${link_tmp}" "${PUBLIC_BACKUP_DIR}/${target}"
+  done
 }
 
-source_archive="${BACKUP_DIR}/${archive_name}"
-if [[ -n "${BACKUP_EXTERNAL_DIR}" ]]; then
-  # Mirror only the archive created by this run. Re-copying every retained archive
-  # causes unbounded I/O and can trip the host watchdog during routine maintenance.
-  mirror_external_archive "${source_archive}"
-fi
-# Publish only the newly verified encrypted archive. Existing published archives
-# remain protected by retention and do not need another full checksum pass.
-publish_public_archive "${source_archive}"
+retire_local_duplicates() {
+  local directory archive name local_digest external_digest
+  # Migration is non-destructive for unique or mismatched legacy archives.
+  # Only exact ciphertext counterparts can replace old local recovery copies.
+  for directory in "${BACKUP_DIR}" "${PUBLIC_BACKUP_DIR}"; do
+    while IFS= read -r -d '' archive; do
+      name="${archive##*/}"
+      [[ "${name}" =~ ^ladder-dragon-[0-9]{4}-[0-9]{2}-[0-9]{2}-[0-9]{6}\.tgz\.age$ ]] || continue
+      [[ -f "${EXTERNAL_STORE}/${name}" && ! -L "${EXTERNAL_STORE}/${name}" \
+         && -f "${EXTERNAL_STORE}/${name}.sha256" && ! -L "${EXTERNAL_STORE}/${name}.sha256" \
+         && "$(stat -c %s "${EXTERNAL_STORE}/${name}.sha256")" -le 256 ]] || continue
+      local_digest="$(sha256sum "${archive}" | awk '{print $1}')"
+      external_digest="$(sha256sum "${EXTERNAL_STORE}/${name}" | awk '{print $1}')"
+      [[ "${local_digest}" == "${external_digest}" ]] || continue
+      [[ "$(cat "${EXTERNAL_STORE}/${name}.sha256")" == "${external_digest}  ${name}" ]] || continue
+      rm -f -- "${archive}" "${archive}.sha256"
+    done < <(find "${directory}" -maxdepth 1 -type f -name 'ladder-dragon-*.tgz.age' -print0)
+  done
+}
 
-if [[ -n "${BACKUP_EXTERNAL_DIR}" ]]; then
-  # The external disk also receives the secret-free inventory. If the mountpoint is
-  # unavailable, the script exits above and never silently writes to the SD card.
-  cp --preserve=timestamps -f "${DEST}/inventory.txt" \
-    "${BACKUP_EXTERNAL_DIR}/inventory-${STAMP}.txt"
-  prune_expired_external_backups
-fi
-
-# The web directory contains only encrypted archives, checksums, and a safe
-# inventory without env/keys. Reapply retention after the replacement exists.
+# Reject a disconnected or replaced mount before public success publication.
+[[ "$(findmnt -T "${BACKUP_EXTERNAL_MOUNT}" -no TARGET)" == "${BACKUP_EXTERNAL_MOUNT}" \
+   && "$(stat -c %d "${BACKUP_EXTERNAL_DIR}")" == "$(stat -Lc %d "${EXTERNAL_STORE}")" ]] || {
+  echo "[FAIL] external backup mount changed during backup" >&2
+  exit 1
+}
+publish_public_archive "${archive_name}"
+retire_local_duplicates
+cp --preserve=timestamps -f "${DEST}/inventory.txt" \
+  "${EXTERNAL_STORE}/inventory-${STAMP}.txt"
+prune_expired_external_backups
 install -o root -g www-data -m 0640 \
   "${DEST}/inventory.txt" \
   "${PUBLIC_BACKUP_DIR}/inventory-${STAMP}.txt"
-prune_completed_backup_directory "${PUBLIC_BACKUP_DIR}" "${BACKUP_LOCAL_RETENTION_DAYS}" yes
+# Public records are disposable pointers and inventories, not recovery copies.
+find "${PUBLIC_BACKUP_DIR}" -maxdepth 1 -type l \
+  \( -name 'ladder-dragon-*.tgz.age' -o -name 'ladder-dragon-*.tgz.age.sha256' \) \
+  ! -name "${archive_name}" ! -name "${archive_name}.sha256" -delete
+find "${PUBLIC_BACKUP_DIR}" -maxdepth 1 -type f \
+  -name 'inventory-*.txt' -mmin +60 -delete
 rebuild_public_index
 STATUS_ARCHIVE_NAME="${archive_name}"
-STATUS_ARCHIVE_SIZE="$(stat -c %s "${BACKUP_DIR}/${archive_name}")"
-STATUS_ARCHIVE_SHA256="$(sha256sum "${BACKUP_DIR}/${archive_name}" | awk '{print $1}')"
-echo "${BACKUP_DIR}/ladder-dragon-${STAMP}.tgz.age"
+STATUS_ARCHIVE_SIZE="$(stat -c %s "${EXTERNAL_STORE}/${archive_name}")"
+STATUS_ARCHIVE_SHA256="$(sha256sum "${EXTERNAL_STORE}/${archive_name}" | awk '{print $1}')"
+echo "${BACKUP_EXTERNAL_DIR}/${archive_name}"
