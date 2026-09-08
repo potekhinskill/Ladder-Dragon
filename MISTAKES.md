@@ -1,5 +1,12 @@
 # Engineering mistakes and root causes
 
+### 2026-09-09 — Applied an ASCII grammar to exchange asset names
+
+- **Impact:** release 2.20.332 blocked the Raspberry Pi account preflight. HALT remained active; the new supervisor did not reach RUNNING.
+- **Root cause:** the account validator assumed ASCII names. Tests omitted documented UTF-8 assets with zero balances.
+- **Correction:** accept bounded UTF-8 names without normalization. Keep exact quantities and duplicate detection strict.
+- **Prevention:** test provider-documented identity examples through every adapter before release, including zero-value rows.
+
 ### 2026-09-09 — Changed version files during preliminary validation
 
 - **Impact:** two version tests compared loaded old constants with updated files and failed.

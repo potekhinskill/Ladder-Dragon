@@ -3,6 +3,16 @@
 All notable changes are documented here. Releases use Semantic Versioning; every
 section is dated and there is intentionally no `Unreleased` section.
 
+## [2.20.333] — 2026-09-09
+
+### Fixed
+- Account evidence accepts bounded UTF-8 asset names without changing their identity. Duplicate assets, malformed quantities, and missing collections still fail closed.
+- Zero-balance UTF-8 assets no longer prevent the initial account check. HALT and execution authority remain unchanged.
+
+### Verified
+- The full local suite passes: 2,268 tests, with one Linux-only skip. Compileall and Technical English pass.
+- Regression tests cover both account adapters, zero balances, Unicode names, and duplicate rejection.
+
 ## [2.20.332] — 2026-09-09
 
 ### Fixed

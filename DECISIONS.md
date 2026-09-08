@@ -1,5 +1,11 @@
 # Engineering decisions
 
+### 2026-09-09 — Separate exchange names from configuration tokens
+
+- **Context:** Binance account responses can contain UTF-8 asset names, including assets with zero balances.
+- **Decision:** preserve bounded exchange names exactly. Reject controls, whitespace, duplicate assets, and malformed balance quantities.
+- **Reuse:** provider identity fields must follow the provider contract, not an unrelated configuration-token grammar.
+
 ### 2026-09-09 — Enforce exact closure at the final writer
 
 - **Context:** separate execution adapters accepted weaker evidence than the supervisor.

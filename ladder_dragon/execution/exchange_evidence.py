@@ -4,7 +4,7 @@
 """Never replace malformed provider state with an empty financial observation."""
 
 from decimal import Decimal, InvalidOperation
-import re
+import unicodedata
 
 
 class MarketIdentityError(ValueError):
@@ -31,7 +31,9 @@ def checked_balances(payload):
         if not isinstance(row, dict):
             raise ValueError("invalid account balance row")
         asset = row.get("asset")
-        if (not isinstance(asset, str) or not re.fullmatch(r"[A-Z0-9]{1,30}", asset)
+        # Asset names are opaque UTF-8 strings, not ASCII trading config tokens.
+        if (not isinstance(asset, str) or not asset or len(asset) > 128
+                or any(char.isspace() or unicodedata.category(char).startswith("C") for char in asset)
                 or asset in result):
             raise ValueError("invalid or duplicate account asset")
         result[asset] = {key: exact_nonnegative(row.get(key)) for key in ("free", "locked")}
