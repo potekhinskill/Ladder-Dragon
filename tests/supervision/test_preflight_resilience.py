@@ -92,9 +92,9 @@ def test_supervisor_transient_preflight_failure_stays_in_process(
     assert waits == [
         ("PREFLIGHT", 5, {"attempt": 1, "persistent_halt": False})
     ]
-    assert ai_supervisor._PREFLIGHT_STARTUP_PHASES["failed_attempts"] == {
-        "count": 1, "elapsed_ms": 0, "backoff_ms": 5000,
-    }
+    failed = ai_supervisor._PREFLIGHT_STARTUP_PHASES["failed_attempts"]
+    assert failed["count"] == 1 and failed["backoff_ms"] == 5000
+    assert failed["elapsed_ms"] >= 0
     assert any("PREFLIGHT-BACKOFF" in message for message in messages)
     recovered = [
         row for row in published

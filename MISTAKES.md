@@ -1,5 +1,19 @@
 # Engineering mistakes and root causes
 
+### 2026-09-08 — Left persisted backoff outside resource cleanup
+
+- **Impact:** a saved-backoff failure skipped explicit executor shutdown and failed-attempt telemetry.
+- **Root cause:** cleanup covered LIVE preflight but omitted the earlier guard join, retry wait, and state write.
+- **Correction:** enclose those operations in the same cleanup boundary and sanitize fatal status output.
+- **Prevention:** test persisted retry state, guard failure, interrupted waits, state-write failure, actual thread drainage, and unchanged HALT.
+
+### 2026-09-08 — Mixed captured clocks with zero-duration assertions
+
+- **Impact:** the first focused run failed a new timing fixture and an existing timing assertion.
+- **Root cause:** the fixture patched a module clock but not a captured default. The older test required real elapsed time to equal zero.
+- **Correction:** inject one clock into both timing owners and reserve exact duration assertions for deterministic fixtures.
+- **Prevention:** enumerate captured clock defaults and do not equate fast real operations with zero elapsed time.
+
 ### 2026-09-08 — Parsed the preflight balance projection twice
 
 - **Impact:** startup auto-cap became zero and prevented later BUY allocation despite valid available funds.

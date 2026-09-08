@@ -3738,7 +3738,7 @@ def _preflight_with_auth_backoff(
     state: AuthResilienceState | None = None
     attempt = 0
     transient_attempt = 0
-    for phase in ("auth_backoff_state", "configuration", "database", "clock", "filters",
+    for phase in ("auth_backoff_state", "saved_auth_backoff", "configuration", "database", "clock", "filters",
                   "public_join", "ip_guard", "live_preflight", "failed_attempts"):
         _PREFLIGHT_STARTUP_PHASES.pop(phase, None)
     while True:
@@ -3775,27 +3775,28 @@ def _preflight_with_auth_backoff(
                 },
             )
 
-        now_epoch = int(time.time())
-        if state.retry_at_epoch > now_epoch:
-            join_ip_guard()
-            _wait_for_resilience_retry(
-                "AUTH",
-                state.retry_at_epoch - now_epoch,
-                attempt=max(1, state.attempt),
-                persistent_halt=limits.halt_file.exists(),
-            )
-            state = AuthResilienceState(
-                attempt=state.attempt,
-                public_ip_sha256=state.public_ip_sha256,
-                pending_public_ip_sha256=state.pending_public_ip_sha256,
-                public_ip_changed=state.public_ip_changed,
-                updated_at_epoch=int(time.time()),
-            )
-            _save_auth_resilience_state(state)
         try:
             live_preflight_started = time.monotonic()
             live_preflight_succeeded = False
             try:
+                now_epoch = int(time.time())
+                if state.retry_at_epoch > now_epoch:
+                    join_ip_guard()
+                    _wait_for_resilience_retry(
+                        "AUTH", state.retry_at_epoch - now_epoch,
+                        attempt=max(1, state.attempt),
+                        persistent_halt=limits.halt_file.exists(),
+                    )
+                    state = AuthResilienceState(
+                        attempt=state.attempt,
+                        public_ip_sha256=state.public_ip_sha256,
+                        pending_public_ip_sha256=state.pending_public_ip_sha256,
+                        public_ip_changed=state.public_ip_changed,
+                        updated_at_epoch=int(time.time()),
+                    )
+                    _save_auth_resilience_state(state)
+                outer_timing.mark("saved_auth_backoff")
+                live_preflight_started = time.monotonic()
                 preflight_balances = _preflight_live(args, symbols, limits, join_ip_guard)
                 live_preflight_succeeded = True
             finally:
@@ -3855,9 +3856,7 @@ def _preflight_with_auth_backoff(
                 not args.live
                 or not preflight_resilience.is_auth_rejection(exc)
             ):
-                _publish_ai_runtime_status(
-                    state="PREFLIGHT_FAILED", error=str(exc)
-                )
+                _publish_ai_runtime_status(state="PREFLIGHT_FAILED", error=f"preflight failed: error_type={type(exc).__name__}")
                 raise
             failure_now_epoch = int(time.time())
             state = register_auth_failure(

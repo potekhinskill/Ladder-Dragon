@@ -3,6 +3,21 @@
 All notable changes are documented here. Releases use Semantic Versioning; every
 section is dated and there is intentionally no `Unreleased` section.
 
+## [2.20.326] — 2026-09-08
+
+### Fixed
+- Saved authentication backoff now runs inside the preflight cleanup boundary.
+- Guard, wait, and state-save failures drain the executor and record unsuccessful attempt timing before propagation.
+- Fatal preflight telemetry exposes only the exception type, not the source payload.
+
+### Added
+- Disposable startup telemetry separates completed saved authentication backoff from subsequent LIVE preflight time.
+
+### Verified
+- Five saved-backoff regressions fail against the previous implementation and pass after correction.
+- The focused startup, recovery, safety, and architecture suite passes: 115 tests.
+- The full suite passes: 2,080 tests. Compileall, Technical English, secret scan, Semgrep, and five safety audits pass.
+
 ## [2.20.325] — 2026-09-08
 
 ### Fixed

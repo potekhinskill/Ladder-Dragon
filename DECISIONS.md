@@ -1,5 +1,12 @@
 # Engineering decisions
 
+### 2026-09-08 — Own cleanup across persisted startup state
+
+- **Context:** persisted retry state introduced failure paths before the normal preflight cleanup boundary.
+- **Decision:** share one cleanup boundary across the guard join, retry wait, state write, and LIVE checks.
+- **Why it worked:** regressions preserve shutdown and failed timing without reaching preflight after an earlier failure.
+- **Reuse:** startup resources whose lifetime includes recovery from persisted state. Separate completed backoff from subsequent network-check timing.
+
 ### 2026-09-08 — Test financial projections across their real consumers
 
 - **Context:** preflight returned parsed balances, but an isolated auto-cap fixture supplied raw account JSON.
