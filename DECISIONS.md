@@ -1,5 +1,12 @@
 # Engineering decisions
 
+### 2026-09-08 — Retain conversion observations within their original snapshot
+
+- **Context:** batch parsing discarded conversion quotes already present in the bounded response.
+- **Decision:** retain validated cross and bridge observations for missing direct quotes. Preserve configured prices and individual reads for omissions.
+- **Why it worked:** exact snapshot tests preserve route priority, reject invalid values, and require fresh observations in subsequent snapshots.
+- **Reuse:** batch optimizations must reuse positive observations without treating omissions as market absence.
+
 ### 2026-09-08 — Own cleanup across persisted startup state
 
 - **Context:** persisted retry state introduced failure paths before the normal preflight cleanup boundary.

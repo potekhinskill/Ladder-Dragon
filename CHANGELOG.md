@@ -3,6 +3,22 @@
 All notable changes are documented here. Releases use Semantic Versioning; every
 section is dated and there is intentionally no `Unreleased` section.
 
+## [2.20.327] — 2026-09-08
+
+### Fixed
+- Preflight clears attempt-local phases on every retry and preserves the failed-attempt aggregate.
+- Fresh batch conversion prices override obsolete missing-market cache entries.
+
+### Changed
+- Current batch responses retain cross quotes for omitted direct markets and their available bridge quotes.
+- Configured observations keep priority. Omitted quotes still require individual reads, and prices never cross snapshot boundaries.
+- Invalid required batch observations fail closed without publishing partial prices or private payloads.
+
+### Verified
+- The timing regression fails against the published implementation and passes after correction.
+- The focused startup, valuation, recovery, and safety suite passes: 195 tests.
+- The full suite passes: 2,090 tests. Compileall, Technical English, Semgrep, secret scan, and five safety audits pass.
+
 ## [2.20.326] — 2026-09-08
 
 ### Fixed

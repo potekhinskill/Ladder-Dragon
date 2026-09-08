@@ -3738,10 +3738,11 @@ def _preflight_with_auth_backoff(
     state: AuthResilienceState | None = None
     attempt = 0
     transient_attempt = 0
-    for phase in ("auth_backoff_state", "saved_auth_backoff", "configuration", "database", "clock", "filters",
-                  "public_join", "ip_guard", "live_preflight", "failed_attempts"):
-        _PREFLIGHT_STARTUP_PHASES.pop(phase, None)
+    _PREFLIGHT_STARTUP_PHASES.pop("failed_attempts", None)
     while True:
+        for phase in ("auth_backoff_state", "saved_auth_backoff", "configuration", "database", "clock", "filters",
+                      "public_join", "ip_guard", "live_preflight", "account"):
+            _PREFLIGHT_STARTUP_PHASES.pop(phase, None)
         outer_timing = StartupSubphases(_record_preflight_startup_phase)
         if state is None:
             state = _read_auth_resilience_state()

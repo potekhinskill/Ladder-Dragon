@@ -1,5 +1,19 @@
 # Engineering mistakes and root causes
 
+### 2026-09-08 — Mixed phase telemetry across retry attempts
+
+- **Impact:** an early retry failure retained successful phase timings from the previous attempt.
+- **Root cause:** phase cleanup ran outside the retry loop, while callbacks replaced only phases reached by the current attempt.
+- **Correction:** clear attempt-local phases inside the loop and retain only the bounded failed-attempt aggregate.
+- **Prevention:** test successive failures at different stages and verify both final telemetry and accumulated retry evidence.
+
+### 2026-09-08 — Extended a single-symbol fixture without its history dependency
+
+- **Impact:** two new conversion tests failed after their valuation assertions became reachable.
+- **Root cause:** adding a configured bridge symbol also activated historical correlation reads, which the single-symbol fixture prohibited.
+- **Correction:** supply explicit empty synthetic history for that isolated test.
+- **Prevention:** enumerate conditional dependencies when a fixture changes the configured symbol count.
+
 ### 2026-09-08 — Left persisted backoff outside resource cleanup
 
 - **Impact:** a saved-backoff failure skipped explicit executor shutdown and failed-attempt telemetry.

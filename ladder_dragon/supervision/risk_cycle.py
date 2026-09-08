@@ -709,7 +709,7 @@ def build_risk_snapshot(
                     candidate = f"{asset}{quote}"
                     route = f"cross_{quote.lower()}"
                     checked_at = time.monotonic()
-                    if _UNVALUED_MARKET_CACHE.contains(
+                    if candidate not in valuation_prices and _UNVALUED_MARKET_CACHE.contains(
                         candidate, now=checked_at
                     ):
                         valuation_metrics.increment(route, "negative_hits")

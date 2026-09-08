@@ -19,7 +19,7 @@ from urllib.parse import urlsplit
 from urllib3.exceptions import HTTPError as UrllibHttpError
 
 from ladder_dragon.execution.market_http_body import read_body, remaining_seconds
-from ladder_dragon.execution.market_tickers import requested_prices
+from ladder_dragon.execution.market_tickers import valuation_prices
 
 from ladder_dragon.execution.time_safety import (
     assess_exchange_clock,
@@ -521,8 +521,8 @@ def get_ticker_prices_decimal(
     *,
     session: requests.Session | None = None,
 ) -> dict[str, Decimal]:
-    """Read one bounded public response; retain only requested exact prices."""
-    return requested_prices(
+    """Read bounded current direct and necessary conversion observations."""
+    return valuation_prices(
         _public_get(
             "/api/v3/ticker/price",
             session=(

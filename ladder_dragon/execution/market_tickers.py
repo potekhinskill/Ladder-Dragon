@@ -5,6 +5,8 @@
 
 from decimal import Decimal, InvalidOperation
 
+from ladder_dragon.risk.asset_policy import RISK_CONVERSION_QUOTE_ASSETS, STABLE_VALUATION_ASSETS
+
 
 def requested_prices(payload, symbols):
     """Return only requested observations; an omitted symbol proves no absence."""
@@ -34,4 +36,20 @@ def requested_prices(payload, symbols):
         if not price.is_finite() or price <= 0:
             raise ValueError(message)
         result[symbol] = price
+    return result
+
+
+def valuation_prices(payload, symbols):
+    """Keep current conversion observations only for omitted direct quotes."""
+    wanted = set(symbols)
+    result = requested_prices(payload, wanted)
+    missing = wanted.difference(result)
+    cross = {f"{symbol[:-4]}{quote}" for symbol in missing for quote in RISK_CONVERSION_QUOTE_ASSETS}
+    result.update(requested_prices(payload, cross))
+    bridges = {
+        f"{quote}USDT" for quote in RISK_CONVERSION_QUOTE_ASSETS
+        if quote not in STABLE_VALUATION_ASSETS
+        and any(f"{symbol[:-4]}{quote}" in result for symbol in missing)
+    }
+    result.update(requested_prices(payload, bridges))
     return result

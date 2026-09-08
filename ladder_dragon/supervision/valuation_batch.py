@@ -19,5 +19,5 @@ def seed_prices(balances, prices, reader, metrics):
     result = dict(prices)
     if len(wanted) >= 2:
         # A failed batch publishes no partial observations and primes no cache.
-        result.update(metrics.read("batch", reader, wanted))
+        result = {**metrics.read("batch", reader, wanted), **result}
     return result
