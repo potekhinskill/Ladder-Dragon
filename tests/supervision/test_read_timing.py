@@ -45,6 +45,34 @@ def test_attempt_timing(monkeypatch, first):
     assert metrics.snapshot(failed=False) == values
 
 
+@pytest.mark.parametrize("stage", ["close", "json_decode", "batch_validate"])
+@pytest.mark.parametrize("failed", [False, True])
+def test_wall_and_cpu_stages_include_failures(monkeypatch, stage, failed):
+    from ladder_dragon.execution import read_timing
+    clock, cpu = [0.0], [0.0]
+    monkeypatch.setattr(read_timing.time, "monotonic", lambda: clock[0])
+    monkeypatch.setattr(read_timing.time, "thread_time", lambda: cpu[0])
+    metrics = ValuationMetrics()
+    def work():
+        clock[0] += 3.35
+        cpu[0] += .008
+        if failed:
+            raise ValueError("private-payload")
+        return "private-payload"
+    if failed:
+        with pytest.raises(ValueError):
+            metrics.read("batch", read_timing.measured_read, stage, work)
+    else:
+        assert metrics.read("batch", read_timing.measured_read, stage, work) == "private-payload"
+    values = metrics.snapshot(failed=failed)
+    assert values[f"batch_{stage}_ms"] == 3350
+    assert values[f"batch_{stage}_cpu_ms"] == 8
+    assert values["batch_read_cpu_ms"] == 8
+    assert "private-payload" not in repr(values)
+    read_timing.record_read(stage + "_ms", 123)
+    assert metrics.snapshot(failed=failed) == values
+
+
 def test_physical_timings_reach_startup_status(monkeypatch):
     from ladder_dragon.supervision import runtime
     from ladder_dragon.supervision.startup_timing import StartupTimeline

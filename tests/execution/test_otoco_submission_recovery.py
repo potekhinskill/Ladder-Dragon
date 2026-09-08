@@ -64,11 +64,12 @@ def test_lost_ack_reconciliation_marks_filled_otoco_as_protected(tmp_path):
     def reconciled(_client_id):
         return {
             "orderListId": 701,
+            "symbol": "SOLUSDT", "contingencyType": "OTO", "listClientOrderId": submitted["listClientOrderId"],
             "listStatusType": "EXEC_STARTED",
             "orders": [
-                {"clientOrderId": submitted["workingClientOrderId"]},
-                {"clientOrderId": submitted["pendingAboveClientOrderId"]},
-                {"clientOrderId": submitted["pendingBelowClientOrderId"]},
+                {"symbol": "SOLUSDT", "orderId": 70, "clientOrderId": submitted["workingClientOrderId"]},
+                {"symbol": "SOLUSDT", "orderId": 71, "clientOrderId": submitted["pendingAboveClientOrderId"]},
+                {"symbol": "SOLUSDT", "orderId": 72, "clientOrderId": submitted["pendingBelowClientOrderId"]},
             ],
         }
 
@@ -76,6 +77,7 @@ def test_lost_ack_reconciliation_marks_filled_otoco_as_protected(tmp_path):
         if client_id == submitted["workingClientOrderId"]:
             return {
                 "orderId": 70,
+                "symbol": "SOLUSDT", "orderListId": 701, "origQty": "0.1",
                 "clientOrderId": client_id,
                 "side": "BUY",
                 "type": "LIMIT",
@@ -89,6 +91,7 @@ def test_lost_ack_reconciliation_marks_filled_otoco_as_protected(tmp_path):
         )
         return {
             "orderId": 71 if leg_type == "LIMIT_MAKER" else 72,
+            "symbol": "SOLUSDT", "orderListId": 701, "origQty": "0.1", "executedQty": "0",
             "clientOrderId": client_id,
             "side": "SELL",
             "type": leg_type,

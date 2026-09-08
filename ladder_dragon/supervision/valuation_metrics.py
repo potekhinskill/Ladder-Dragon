@@ -28,6 +28,7 @@ class ValuationMetrics:
 
     def read(self, route, reader, *args, **kwargs):
         started = time.monotonic()
+        cpu_started = time.thread_time()
         self.increment(route, "reads")
         try:
             with observe_reads(lambda counter, amount: self.increment(route, counter, amount)):
@@ -48,6 +49,7 @@ class ValuationMetrics:
             raise
         finally:
             self.increment(route, "read_ms", max(0, round((time.monotonic() - started) * 1000)))
+            self.increment(route, "read_cpu_ms", max(0, round((time.thread_time() - cpu_started) * 1000)))
 
     def snapshot(self, *, failed):
         with self._lock:

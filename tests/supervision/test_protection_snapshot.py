@@ -201,6 +201,7 @@ def test_complete_single_order_snapshot_avoids_exact_order_read():
     journal = Journal()
     journal.protection = SimpleNamespace(
         client_order_id="STOP-1",
+        metadata={},
         symbol="SOLUSDT",
         order_type="STOP_LOSS_LIMIT",
         exchange_order_id=901,

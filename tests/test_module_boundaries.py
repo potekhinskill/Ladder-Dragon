@@ -553,7 +553,7 @@ def test_executor_market_fallbacks_and_asset_cache():
         if path == "/api/v3/ticker/price":
             raise requests.ConnectionError("ticker unavailable")
         if path == "/api/v3/ticker/bookTicker":
-            return {"bidPrice": "99", "askPrice": "101"}
+            return {"symbol": "SOLUSDT", "bidPrice": "99", "askPrice": "101"}
         raise AssertionError(path)
 
     assert get_price_decimal(
@@ -561,15 +561,15 @@ def test_executor_market_fallbacks_and_asset_cache():
     ) == Decimal("100")
     assert get_price(
         "SOLUSDT",
-        public_get=lambda *_args: {"price": "100.125"},
+        public_get=lambda *_args: {"symbol": "SOLUSDT", "price": "100.125"},
         logger=lambda message: None,
     ) == 100.125
     assert calls == ["/api/v3/ticker/price", "/api/v3/ticker/bookTicker"]
 
-    with pytest.raises(ValueError, match="finite and positive"):
+    with pytest.raises(ValueError, match="invalid exact exchange number"):
         get_price_decimal(
             "SOLUSDT",
-            public_get=lambda *_args: {"price": "NaN"},
+            public_get=lambda *_args: {"symbol": "SOLUSDT", "price": "NaN"},
             logger=lambda message: None,
         )
 
@@ -608,7 +608,7 @@ def test_executor_market_fallbacks_and_asset_cache():
         "locked": Decimal("1.5"),
     }
 
-    with pytest.raises(ValueError, match="invalid account balance"):
+    with pytest.raises(ValueError, match="invalid exact exchange number"):
         get_balances(
             signed_request=lambda *args: {
                 "balances": [

@@ -20,7 +20,8 @@ from urllib3.exceptions import HTTPError as UrllibHttpError
 
 from ladder_dragon.execution.market_http_body import read_body, remaining_seconds
 from ladder_dragon.execution.market_tickers import valuation_prices
-from ladder_dragon.execution.read_timing import record_read
+from ladder_dragon.execution.read_timing import record_read, measured_read
+from ladder_dragon.execution.exchange_evidence import checked_market
 
 from ladder_dragon.execution.time_safety import (
     assess_exchange_clock,
@@ -202,7 +203,7 @@ def _do_request(
                 raise requests.RequestException("market transport failed") from None
         finally:
             if r is not None:
-                r.close()
+                measured_read("close", r.close)
         started = time.monotonic()
         try:
             time.sleep(min(delay, remaining_seconds(deadline)))
@@ -214,7 +215,7 @@ def _raise_for_binance(resp: requests.Response):
     if resp.status_code == 200:
         return
     try:
-        data = resp.json()
+        data = measured_read("json_decode", resp.json)
     except (requests.JSONDecodeError, TypeError, ValueError):
         data = {}
     if not isinstance(data, dict):
@@ -304,7 +305,7 @@ def _public_get(
         request_kw["session"] = session
     r = _do_request("GET", url, params=params or {}, **request_kw)
     _raise_for_binance(r)
-    return r.json()
+    return measured_read("json_decode", r.json)
 
 def _signed_get(
     path: str,
@@ -542,7 +543,7 @@ def get_ticker_prices_decimal(
     known_prices: dict[str, Decimal] | None = None,
 ) -> dict[str, Decimal]:
     """Read bounded current direct and necessary conversion observations."""
-    return valuation_prices(
+    return measured_read("batch_validate", valuation_prices,
         _public_get(
             "/api/v3/ticker/price",
             session=(
@@ -570,8 +571,7 @@ def get_ticker_price_decimal(
         "/api/v3/ticker/price", {"symbol": symbol.upper()}, **request_kw
     )
     message = "ticker price must be a finite positive decimal string"
-    if not isinstance(data, dict) or data.get("symbol") != symbol.upper():
-        raise ValueError("ticker symbol differs from requested market")
+    checked_market(data, symbol.upper())
     try:
         raw = data["price"]
         if not isinstance(raw, str):

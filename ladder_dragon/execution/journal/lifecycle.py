@@ -17,5 +17,6 @@ class LifecycleWriter(Protocol):
         *,
         exit_reason: str,
         exit_order_id: int,
+        exit_order: dict,
     ) -> None:
         """Close parent and protection in one database transaction."""

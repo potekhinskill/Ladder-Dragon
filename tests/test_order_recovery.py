@@ -3,6 +3,7 @@ from decimal import Decimal
 
 import pytest
 import requests
+from tests.support.exchange_evidence import exit_order
 
 from ladder_dragon.execution.order_recovery import (
     OrderJournal,
@@ -142,6 +143,7 @@ def test_recovery_demotes_all_done_oco_without_sell_fill(tmp_path):
         {
             "orderId": 21,
             "clientOrderId": "STOP-OLD",
+            "symbol": "SOLUSDT", "orderListId": 20, "origQty": "0.124",
             "side": "SELL",
             "type": "STOP_LOSS_LIMIT",
             "status": "CANCELED",
@@ -150,6 +152,7 @@ def test_recovery_demotes_all_done_oco_without_sell_fill(tmp_path):
         {
             "orderId": 22,
             "clientOrderId": "TP-OLD",
+            "symbol": "SOLUSDT", "orderListId": 20, "origQty": "0.124",
             "side": "SELL",
             "type": "LIMIT_MAKER",
             "status": "CANCELED",
@@ -162,6 +165,7 @@ def test_recovery_demotes_all_done_oco_without_sell_fill(tmp_path):
         get_order_list_by_client_id=lambda client_id: {
             "orderListId": 20,
             "listStatusType": "ALL_DONE",
+            "symbol": "SOLUSDT", "listClientOrderId": "OCO-OLD", "contingencyType": "OCO",
         },
         verify_oco_legs=lambda symbol, payload: legs,
         cancel_oco=lambda symbol, order_list_id: pytest.fail(
@@ -185,6 +189,7 @@ def test_recovery_closes_all_done_oco_with_exact_sell_fill(tmp_path):
     tp = {
         "orderId": 22,
         "clientOrderId": "TP-OLD",
+        "symbol": "SOLUSDT", "orderListId": 20, "origQty": "0.124",
         "side": "SELL",
         "type": "LIMIT_MAKER",
         "status": "FILLED",
@@ -194,6 +199,7 @@ def test_recovery_closes_all_done_oco_with_exact_sell_fill(tmp_path):
         {
             "orderId": 21,
             "clientOrderId": "STOP-OLD",
+            "symbol": "SOLUSDT", "orderListId": 20, "origQty": "0.124",
             "side": "SELL",
             "type": "STOP_LOSS_LIMIT",
             "status": "CANCELED",
@@ -207,6 +213,7 @@ def test_recovery_closes_all_done_oco_with_exact_sell_fill(tmp_path):
         get_order_list_by_client_id=lambda client_id: {
             "orderListId": 20,
             "listStatusType": "ALL_DONE",
+            "symbol": "SOLUSDT", "listClientOrderId": "OCO-OLD", "contingencyType": "OCO",
         },
         verify_oco_legs=lambda symbol, payload: legs,
         cancel_oco=lambda symbol, order_list_id: pytest.fail(
@@ -234,6 +241,7 @@ def test_recovery_preserves_live_oco_when_verification_read_times_out(tmp_path):
         get_order_list_by_client_id=lambda client_id: {
             "orderListId": 20,
             "listStatusType": "EXEC_STARTED",
+            "symbol": "SOLUSDT", "listClientOrderId": "OCO-OLD", "contingencyType": "OCO",
         },
         verify_oco_legs=lambda symbol, payload: (_ for _ in ()).throw(
             requests.Timeout("read timed out")
@@ -260,6 +268,7 @@ def test_recovery_records_terminal_partial_exit_and_only_residual_inventory(
     stop = {
         "orderId": 21,
         "clientOrderId": "STOP-OLD",
+        "symbol": "SOLUSDT", "orderListId": 20, "origQty": "0.124",
         "side": "SELL",
         "type": "STOP_LOSS_LIMIT",
         "status": "EXPIRED_IN_MATCH",
@@ -270,6 +279,7 @@ def test_recovery_records_terminal_partial_exit_and_only_residual_inventory(
         {
             "orderId": 22,
             "clientOrderId": "TP-OLD",
+            "symbol": "SOLUSDT", "orderListId": 20, "origQty": "0.124",
             "side": "SELL",
             "type": "LIMIT_MAKER",
             "status": "CANCELED",
@@ -282,6 +292,7 @@ def test_recovery_records_terminal_partial_exit_and_only_residual_inventory(
         get_order_list_by_client_id=lambda client_id: {
             "orderListId": 20,
             "listStatusType": "ALL_DONE",
+            "symbol": "SOLUSDT", "listClientOrderId": "OCO-OLD", "contingencyType": "OCO",
         },
         verify_oco_legs=lambda symbol, payload: legs,
         cancel_oco=lambda symbol, order_list_id: pytest.fail(
@@ -337,7 +348,7 @@ def test_exchange_read_and_cancel_wrappers_fail_closed():
 
 
 def test_open_orders_rejects_invalid_success_payload():
-    with pytest.raises(RuntimeError, match="not a list"):
+    with pytest.raises(ValueError, match="invalid open-orders snapshot"):
         list_open_orders(
             "SOLUSDT",
             signed_request=lambda *args, **kwargs: {"status": "ok"},
@@ -532,6 +543,7 @@ def test_exact_oco_leg_closure_is_the_only_promotion_evidence(tmp_path):
     journal.mark_exact_lifecycle_closed(
         protection_client_order_id="OCO-1", exit_order_id=22,
         exit_reason="STOP",
+        exit_order=exit_order(22, "SL-1", 20, "STOP_LOSS_LIMIT"),
     )
     assert read_order_journal_telemetry(journal.path)["lifecycle"] == {
         "closed_exact": 1, "tp": 0, "stop": 1, "required": 3,
@@ -640,6 +652,7 @@ def test_exact_closure_rolls_back_metadata_states_and_evidence(tmp_path):
             protection_client_order_id="OCO-ATOMIC",
             exit_order_id=121,
             exit_reason="TP",
+            exit_order=exit_order(),
         )
 
     assert journal.get("BUY-ATOMIC").state == "PROTECTED"
@@ -669,6 +682,7 @@ def test_normalized_evidence_does_not_depend_on_metadata_scans(tmp_path):
         protection_client_order_id="OCO-ATOMIC",
         exit_order_id=121,
         exit_reason="TP",
+        exit_order=exit_order(),
     )
     with sqlite3.connect(journal.path) as con:
         con.execute(
@@ -704,6 +718,7 @@ def test_legacy_json_evidence_is_backfilled_once_into_current_schema(tmp_path):
         protection_client_order_id="OCO-ATOMIC",
         exit_order_id=121,
         exit_reason="TP",
+        exit_order=exit_order(),
     )
     journal.close()
     with sqlite3.connect(path) as con:

@@ -7,6 +7,8 @@
 from typing import Any
 
 from ladder_dragon.execution.order_recovery import OrderJournal
+from ladder_dragon.execution.protection_quantity import verify_quantities
+from ladder_dragon.execution.exchange_evidence import checked_list
 
 
 def record_verified_otoco(
@@ -19,6 +21,7 @@ def record_verified_otoco(
     pending: list[dict[str, Any]],
 ) -> None:
     """Record one verified OTOCO list with the strongest proven state."""
+    checked_list(order_list, client_id=list_client_id, kind="OTOCO")
     journal.record_exchange_order(working_client_id, working)
     journal.record_order_list(list_client_id, order_list)
     protection_active = (
@@ -30,6 +33,7 @@ def record_verified_otoco(
         )
     )
     if protection_active:
+        verify_quantities(journal, working_client_id, journal.get(list_client_id), pending)
         order_list_id = order_list.get("orderListId")
         journal.mark_verified_protected(
             parent_client_order_id=working_client_id,

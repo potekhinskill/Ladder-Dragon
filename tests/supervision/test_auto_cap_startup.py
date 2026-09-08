@@ -143,7 +143,7 @@ def test_bad_fresh_account_cannot_use_startup_projection(startup, monkeypatch, c
     monkeypatch.setattr(runtime.TM, "_signed_get", signed_get)
     balances = runtime._preflight_live(args, ["SOLUSDT"], limits)
     assert runtime.auto_cap_if_needed(args, 1, balances) == Decimal("45")
-    with pytest.raises(ValueError, match="balance.free is not a decimal") as error:
+    with pytest.raises(ValueError, match="invalid exact exchange number") as error:
         runtime._build_risk_snapshot(["SOLUSDT"], limits)
     assert calls == ["/api/v3/account", "/api/v3/account"]
     assert "private-marker" not in str(error.value)

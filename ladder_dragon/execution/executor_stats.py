@@ -88,18 +88,32 @@ def poll_mytrades_once(
     if last_id is not None:
         params["fromId"] = int(last_id) + 1
     try:
-        trades = signed_request("GET", "/api/v3/myTrades", params) or []
+        trades = signed_request("GET", "/api/v3/myTrades", params)
     except (requests.RequestException, RuntimeError, TypeError, ValueError) as exc:
         logger(f"[STATS] myTrades error: {exc}")
         if strict:
             raise RuntimeError(f"myTrades failed for {symbol}: {exc}") from exc
         return
-    if not isinstance(trades, list) or not trades:
+    if not isinstance(trades, list):
+        if strict:
+            raise RuntimeError("invalid trade collection")
+        logger("[STATS] invalid trade collection; cursor unchanged")
+        return
+    if not trades:
+        return
+
+    # Validate the whole identity sequence before a cursor can pass a bad row.
+    ids = [trade.get("id") if isinstance(trade, dict) else None for trade in trades]
+    if (any(type(item) is not int or item < 0 for item in ids)
+            or any(right <= left for left, right in zip(ids, ids[1:]))):
+        logger("[STATS] invalid trade identity sequence; cursor unchanged")
+        if strict:
+            raise RuntimeError("invalid trade identity sequence")
         return
 
     # Advance the cursor only after a fully valued trade. Otherwise a row with
     # an unknown fee could be skipped forever by the next poll.
-    max_id = last_id or -1
+    max_id = last_id if last_id is not None else -1
     for trade in trades:
         try:
             trade_id = int(trade.get("id"))
@@ -137,7 +151,7 @@ def poll_mytrades_once(
                 logger(f"[STATS] apply_trade error: {exc}")
                 if strict:
                     raise RuntimeError(f"apply_trade failed for {symbol}: {exc}") from exc
-                continue
+                break
             if fee_status == "unpriced":
                 logger(
                     f"[STATS] {symbol} trade_id={trade_id}: "
@@ -169,8 +183,10 @@ def poll_mytrades_once(
             logger(f"[STATS] parse trade error: {exc}")
             if strict:
                 raise RuntimeError(f"trade parse failed for {symbol}: {exc}") from exc
+            # Preserve a contiguous prefix. Later rows cannot skip a failed fill.
+            break
 
-    if max_id != (last_id or -1):
+    if max_id != (last_id if last_id is not None else -1):
         try:
             stats.set_last_trade_id(connection, symbol, int(max_id))
         except (sqlite3.Error, RuntimeError, TypeError, ValueError) as exc:

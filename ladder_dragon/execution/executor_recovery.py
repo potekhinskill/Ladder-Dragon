@@ -10,6 +10,9 @@ from decimal import Decimal
 from typing import Any, Callable, Dict, List, Optional
 
 import requests
+from ladder_dragon.execution.exchange_evidence import checked_order, checked_list, checked_references
+from ladder_dragon.execution.open_order_snapshot import checked_open_orders
+from ladder_dragon.execution.protection_quantity import verify_quantities
 
 from ladder_dragon.execution.order_recovery import (
     OrderIntent,
@@ -87,11 +90,7 @@ def list_open_orders(
     logger: Callable[[str], None],
 ) -> List[Dict[str, Any]]:
     orders = signed_request("GET", "/api/v3/openOrders", {"symbol": symbol})
-    if orders is None:
-        return []
-    if not isinstance(orders, list):
-        raise RuntimeError("open-orders response is not a list")
-    return orders
+    return checked_open_orders(orders, symbol=symbol)
 
 
 def cancel_order(
@@ -129,11 +128,12 @@ def get_order_by_client_id(
     signed_request: Callable[..., Any],
 ) -> Dict[str, Any] | None:
     try:
-        return signed_request(
+        payload = signed_request(
             "GET",
             "/api/v3/order",
             {"symbol": symbol, "origClientOrderId": client_id},
         )
+        return checked_order(payload, symbol, client_id=client_id)
     except requests.HTTPError as exc:
         if http_error_code(exc) == -2013:
             return None
@@ -146,9 +146,10 @@ def get_order_list_by_client_id(
     signed_request: Callable[..., Any],
 ) -> Dict[str, Any] | None:
     try:
-        return signed_request(
+        payload = signed_request(
             "GET", "/api/v3/orderList", {"origClientOrderId": client_id}
         )
+        return checked_list(payload, client_id=client_id)
     except requests.HTTPError as exc:
         if http_error_code(exc) in (-2013, -2011):
             return None
@@ -162,9 +163,8 @@ def verify_oco_legs(
     signed_request: Callable[..., Any],
 ) -> List[Dict[str, Any]]:
     """Handle verify oco legs."""
-    refs = order_list.get("orders") or []
-    if len(refs) != 2:
-        raise RuntimeError("OCO verification did not return exactly two legs")
+    checked_list(order_list, symbol=symbol, kind="OCO")
+    refs = checked_references(order_list, symbol, 2)
     legs: List[Dict[str, Any]] = []
     for ref in refs:
         if ref.get("orderId") is None:
@@ -174,9 +174,8 @@ def verify_oco_legs(
             "/api/v3/order",
             {"symbol": symbol, "orderId": int(ref["orderId"])},
         )
-        if not isinstance(payload, dict):
-            raise RuntimeError("OCO leg query returned an invalid payload")
-        legs.append(payload)
+        legs.append(checked_order(payload, symbol, order_id=ref["orderId"],
+                                  client_id=ref["clientOrderId"], list_id=order_list["orderListId"]))
     if any(str(leg.get("side") or "").upper() != "SELL" for leg in legs):
         raise RuntimeError("OCO contains a non-SELL leg")
     leg_types = {str(leg.get("type") or "").upper() for leg in legs}
@@ -365,20 +364,23 @@ def recover_existing_protection(
             payload = dependencies.get_order_list_by_client_id(
                 protection.client_order_id
             )
+            checked_list(payload, client_id=protection.client_order_id,
+                         list_id=protection.exchange_order_list_id, symbol=protection.symbol, kind="OTOCO")
             order_list_id = (
                 payload.get("orderListId")
                 if isinstance(payload, dict)
                 else None
             )
-            refs = payload.get("orders") if isinstance(payload, dict) else None
-            if not isinstance(refs, list) or len(refs) != 3:
-                raise RuntimeError("OTOCO recovery requires exactly three orders")
+            refs = checked_references(payload, protection.symbol, 3)
             working = dependencies.get_order_by_client_id(
                 protection.symbol,
                 parent_client_order_id,
             )
-            if not isinstance(working, dict):
-                raise RuntimeError("OTOCO working BUY is unavailable")
+            checked_order(working, protection.symbol, client_id=parent_client_order_id,
+                          list_id=order_list_id)
+            working_refs = [ref for ref in refs if ref["clientOrderId"] == parent_client_order_id]
+            if len(working_refs) != 1 or working_refs[0]["orderId"] != working["orderId"]:
+                raise RuntimeError("OTOCO working reference differs from response")
             working_status = str(working.get("status") or "").upper()
             pending: List[Dict[str, Any]] = []
             for ref in refs:
@@ -391,8 +393,8 @@ def recover_existing_protection(
                     protection.symbol,
                     client_id,
                 )
-                if not isinstance(order, dict):
-                    raise RuntimeError("OTOCO protection leg is unavailable")
+                checked_order(order, protection.symbol, client_id=client_id,
+                              order_id=ref["orderId"], list_id=order_list_id)
                 pending.append(order)
             if len(pending) != 2:
                 raise RuntimeError("OTOCO protection pair is incomplete")
@@ -429,20 +431,9 @@ def recover_existing_protection(
                 "existing list was left unchanged"
             ) from exc
         except RuntimeError as exc:
-            if (
-                isinstance(payload, dict)
-                and str(payload.get("listStatusType") or "").upper()
-                == "EXEC_STARTED"
-                and order_list_id is not None
-            ):
-                dependencies.cancel_oco(
-                    protection.symbol,
-                    int(order_list_id),
-                )
-            raise RuntimeError(
-                "OTOCO protection is structurally invalid; list cancellation "
-                "was requested and LIVE must halt for reconciliation"
-            ) from exc
+            raise RuntimeError("OTOCO evidence is invalid; existing protection was left unchanged") from exc
+        verify_quantities(journal, parent_client_order_id, protection, pending,
+                          closing=outcome == "CLOSED" and filled_leg.get("status") == "FILLED")
         if list_status == "ALL_DONE" and outcome == "CLOSED":
             if (
                 filled_leg is None
@@ -460,6 +451,7 @@ def recover_existing_protection(
                     protection_client_order_id=protection.client_order_id,
                     exit_order_id=int(filled_leg["orderId"]),
                     exit_reason=exit_reason,
+                    exit_order=filled_leg,
                 )
                 return True
             journal.record_partial_protection_exit(
@@ -495,8 +487,8 @@ def recover_existing_protection(
             payload = dependencies.get_order_list_by_client_id(
                 protection.client_order_id
             )
-            if not isinstance(payload, dict):
-                return False
+            checked_list(payload, client_id=protection.client_order_id,
+                         list_id=protection.exchange_order_list_id, symbol=protection.symbol, kind="OCO")
             order_list_id = payload.get("orderListId")
             legs = dependencies.verify_oco_legs(protection.symbol, payload)
             outcome, filled_leg, exit_reason = classify_oco_legs(legs)
@@ -505,15 +497,10 @@ def recover_existing_protection(
                 "OCO protection verification is unavailable; "
                 "existing list was left unchanged"
             ) from exc
-        except RuntimeError:
-            if (
-                isinstance(payload, dict)
-                and str(payload.get("listStatusType") or "").upper()
-                == "EXEC_STARTED"
-                and order_list_id is not None
-            ):
-                dependencies.cancel_oco(protection.symbol, int(order_list_id))
-            return False
+        except RuntimeError as exc:
+            raise RuntimeError("OCO evidence is invalid; existing protection was left unchanged") from exc
+        verify_quantities(journal, parent_client_order_id, protection, legs,
+                          closing=outcome == "CLOSED" and filled_leg.get("status") == "FILLED")
         list_status = str(payload.get("listStatusType") or "").upper()
         if list_status == "ALL_DONE" and outcome == "CLOSED":
             if (
@@ -532,6 +519,7 @@ def recover_existing_protection(
                     protection_client_order_id=protection.client_order_id,
                     exit_order_id=int(filled_leg["orderId"]),
                     exit_reason=exit_reason,
+                    exit_order=filled_leg,
                 )
                 return True
             journal.record_partial_protection_exit(
@@ -565,8 +553,14 @@ def recover_existing_protection(
     )
     if not isinstance(payload, dict):
         return False
+    checked_order(payload, protection.symbol, order_id=protection.exchange_order_id,
+                  client_id=protection.client_order_id)
+    verify_quantities(journal, parent_client_order_id, protection, [payload])
+    if (payload.get("status") not in {"NEW", "PARTIALLY_FILLED"}
+            and Decimal(payload["executedQty"]) > 0):
+        raise RuntimeError("terminal single protection requires residual reconciliation")
     updated = journal.record_exchange_order(protection.client_order_id, payload)
-    if updated.state in ("SUBMITTED", "PARTIALLY_FILLED", "FILLED"):
+    if updated.state in ("SUBMITTED", "PARTIALLY_FILLED"):
         journal.mark_protected(
             parent_client_order_id=parent_client_order_id,
             protection_client_order_id=protection.client_order_id,
@@ -587,7 +581,6 @@ def get_order(
     payload = signed_request(
         "GET", "/api/v3/order", {"symbol": symbol, "orderId": order_id}
     )
-    if not isinstance(payload, dict):
-        raise RuntimeError("order response is not an object")
+    checked_order(payload, symbol, order_id=order_id)
     record_payload(payload)
     return payload

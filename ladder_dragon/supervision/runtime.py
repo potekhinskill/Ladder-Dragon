@@ -960,23 +960,15 @@ def invalidate_exchange_filters_cache(symbol: Optional[str] = None) -> None:
 
 def get_balances(account: Mapping[str, object] | None = None) -> Dict[str, Decimal]:
     j = account if account is not None else TM._signed_get("/api/v3/account")
-    out: Dict[str, Decimal] = {}
-    for b in j.get("balances", []):
-        free = _finite_decimal(b.get("free", "0"), name="balance.free")
-        locked = _finite_decimal(b.get("locked", "0"), name="balance.locked")
-        if free + locked > 0:
-            out[b["asset"]] = free
-    return out
+    from ladder_dragon.execution.exchange_evidence import checked_balances
+    return {asset: row["free"] for asset, row in checked_balances(j).items()
+            if row["free"] + row["locked"] > 0}
 
 def get_balances_full() -> Dict[str, Dict[str, Decimal]]:
     j = TM._signed_get("/api/v3/account")
-    out: Dict[str, Dict[str, Decimal]] = {}
-    for b in j.get("balances", []):
-        free = _finite_decimal(b.get("free", "0"), name="balance.free")
-        locked = _finite_decimal(b.get("locked", "0"), name="balance.locked")
-        if free + locked > 0:
-            out[b["asset"]] = {"free": free, "locked": locked}
-    return out
+    from ladder_dragon.execution.exchange_evidence import checked_balances
+    return {asset: row for asset, row in checked_balances(j).items()
+            if row["free"] + row["locked"] > 0}
 
 _AVG_CACHE: Dict[str, Dict[str, object]] = {}
 
@@ -1069,10 +1061,8 @@ def avg_entry_price(symbol: str, *, cache_ttl: int = 45, lookback: int = 1000) -
     return avg_px
 
 def list_open_orders(symbol: str) -> List[Dict[str, Any]]:
-    try:
-        return TM._signed_get("/api/v3/openOrders", {"symbol": symbol}) or []
-    except (AttributeError, TypeError, ValueError):
-        return []
+    from ladder_dragon.execution.open_order_snapshot import checked_open_orders
+    return checked_open_orders(TM._signed_get("/api/v3/openOrders", {"symbol": symbol}), symbol=symbol)
 
 def cancel_order(symbol: str, order_id: int) -> bool:
     if not LIVE_MODE:

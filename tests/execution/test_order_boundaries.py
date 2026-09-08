@@ -127,13 +127,18 @@ def test_executor_recovery_queries_and_verifies_oco():
         )
         return {
             "orderId": params["orderId"],
+            "symbol": "SOLUSDT", "orderListId": 20,
+            "clientOrderId": f"LEG-{params['orderId']}",
             "side": "SELL",
             "type": order_type,
         }
 
     legs = verify_oco_legs(
         "SOLUSDT",
-        {"orders": [{"orderId": 1}, {"orderId": 2}]},
+        {"orderListId": 20, "listClientOrderId": "LIST", "symbol": "SOLUSDT",
+         "contingencyType": "OCO", "orders": [
+             {"symbol": "SOLUSDT", "orderId": i, "clientOrderId": f"LEG-{i}"}
+             for i in (1, 2)]},
         signed_request=signed,
     )
     assert {leg["type"] for leg in legs} == {
@@ -366,12 +371,16 @@ def test_oco_replacement_never_reuses_all_done_canceled_protection(tmp_path):
         },
     ]
 
+    for leg in canceled_legs + active_legs:
+        leg["origQty"] = "0.124"
+
     def signed_request(method, path, params):
         if method == "POST":
             posts.append(dict(params))
             return {"orderListId": 30}
         assert method == "GET" and path == "/api/v3/orderList"
-        return {"orderListId": 30, "listStatusType": "EXEC_STARTED"}
+        return {"orderListId": 30, "listStatusType": "EXEC_STARTED", "symbol": "SOLUSDT",
+                "contingencyType": "OCO", "listClientOrderId": posts[-1]["listClientOrderId"]}
 
     dependencies = OrderDependencies(
         live=lambda: True,
@@ -390,6 +399,7 @@ def test_oco_replacement_never_reuses_all_done_canceled_protection(tmp_path):
             {
                 "orderListId": 20,
                 "listStatusType": "ALL_DONE",
+                "symbol": "SOLUSDT", "listClientOrderId": "OCO-OLD", "contingencyType": "OCO",
             }
             if client_id == "OCO-OLD"
             else None
@@ -435,17 +445,20 @@ def test_otoco_commits_intents_before_post_and_verifies_three_orders(tmp_path):
             return {"orderListId": 501}
         return {
             "orderListId": 501,
+            "listClientOrderId": submitted["listClientOrderId"],
+            "symbol": "SOLUSDT", "contingencyType": "OTO",
             "listStatusType": "EXEC_STARTED",
             "orders": [
-                {"clientOrderId": submitted["workingClientOrderId"]},
-                {"clientOrderId": submitted["pendingAboveClientOrderId"]},
-                {"clientOrderId": submitted["pendingBelowClientOrderId"]},
+                {"symbol": "SOLUSDT", "orderId": 10, "clientOrderId": submitted["workingClientOrderId"]},
+                {"symbol": "SOLUSDT", "orderId": 11, "clientOrderId": submitted["pendingAboveClientOrderId"]},
+                {"symbol": "SOLUSDT", "orderId": 12, "clientOrderId": submitted["pendingBelowClientOrderId"]},
             ],
         }
 
     def lookup(_symbol, client_id):
         if client_id == submitted["workingClientOrderId"]:
             return {
+                "symbol": "SOLUSDT", "orderListId": 501,
                 "orderId": 10,
                 "clientOrderId": client_id,
                 "side": "BUY",
@@ -455,6 +468,7 @@ def test_otoco_commits_intents_before_post_and_verifies_three_orders(tmp_path):
             }
         if client_id == submitted["pendingAboveClientOrderId"]:
             return {
+                "symbol": "SOLUSDT", "orderListId": 501,
                 "orderId": 11,
                 "clientOrderId": client_id,
                 "side": "SELL",
@@ -463,6 +477,7 @@ def test_otoco_commits_intents_before_post_and_verifies_three_orders(tmp_path):
             }
         return {
             "orderId": 12,
+            "symbol": "SOLUSDT", "orderListId": 501,
             "clientOrderId": client_id,
             "side": "SELL",
             "type": "STOP_LOSS_LIMIT",

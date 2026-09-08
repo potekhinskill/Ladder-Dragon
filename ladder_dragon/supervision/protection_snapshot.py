@@ -241,6 +241,7 @@ def verify_live_protection(
                 protection_client_order_id=protection.client_order_id,
                 exit_order_id=int(filled_leg["orderId"]),
                 exit_reason=exit_reason,
+                exit_order=filled_leg,
             )
             return 0
         if list_status != "EXEC_STARTED" or outcome != "ACTIVE":

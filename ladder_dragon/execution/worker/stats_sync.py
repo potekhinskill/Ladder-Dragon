@@ -118,6 +118,7 @@ def sync_account_trades(
                             protection_client_order_id=protection.client_order_id,
                             exit_order_id=int(fill["order_id"]),
                             exit_reason=exit_reason,
+                            exit_order=exchange_order,
                         )
                         log(
                             f"[LIFECYCLE-CLOSED] {symbol} parent="

@@ -19,6 +19,7 @@ from ladder_dragon.execution.executor_recovery import (
 )
 
 from tests.test_order_recovery import recovery_dependencies
+from tests.support.exchange_evidence import order_list
 
 def test_otoco_recovery_requires_filled_working_buy_and_two_active_legs(
     tmp_path,
@@ -75,18 +76,14 @@ def test_otoco_recovery_requires_filled_working_buy_and_two_active_legs(
             "status": "NEW",
         },
     }
+    for order in orders.values():
+        order.update(symbol="SOLUSDT", orderListId=99, origQty="0.1",
+                     executedQty="0.1" if order["side"] == "BUY" else "0")
     dependencies = RecoveryDependencies(
         journal=lambda: journal,
         get_order_by_client_id=lambda symbol, client_id: orders.get(client_id),
-        get_order_list_by_client_id=lambda client_id: {
-            "orderListId": 99,
-            "listStatusType": "EXEC_STARTED",
-            "orders": [
-                {"clientOrderId": "BUY-OTOCO"},
-                {"clientOrderId": "TP-OTOCO"},
-                {"clientOrderId": "SL-OTOCO"},
-            ],
-        },
+        get_order_list_by_client_id=lambda client_id: order_list(
+            99, "LIST-OTOCO", orders.values(), kind="OTO"),
         verify_oco_legs=lambda symbol, payload: [],
         cancel_oco=lambda symbol, order_list_id: pytest.fail(
             "valid OTOCO must not be cancelled"
@@ -207,6 +204,7 @@ def test_cancelled_partial_otoco_must_be_all_done_before_separate_protection(
     )
     orders = {
         "BUY-PARTIAL": {
+            "orderId": 20, "side": "BUY", "type": "LIMIT",
             "clientOrderId": "BUY-PARTIAL",
             "status": "CANCELED",
             "executedQty": "0.04",
@@ -226,18 +224,13 @@ def test_cancelled_partial_otoco_must_be_all_done_before_separate_protection(
             "status": "CANCELED",
         },
     }
+    for order in orders.values():
+        order.update(symbol="SOLUSDT", orderListId=100, origQty="0.1")
     dependencies = RecoveryDependencies(
         journal=lambda: journal,
         get_order_by_client_id=lambda symbol, client_id: orders.get(client_id),
-        get_order_list_by_client_id=lambda client_id: {
-            "orderListId": 100,
-            "listStatusType": "ALL_DONE",
-            "orders": [
-                {"clientOrderId": "BUY-PARTIAL"},
-                {"clientOrderId": "TP-PARTIAL"},
-                {"clientOrderId": "SL-PARTIAL"},
-            ],
-        },
+        get_order_list_by_client_id=lambda client_id: order_list(
+            100, "LIST-PARTIAL", orders.values(), status="ALL_DONE", kind="OTO"),
         verify_oco_legs=lambda symbol, payload: [],
         cancel_oco=lambda symbol, order_list_id: pytest.fail(
             "confirmed ALL_DONE list must not be cancelled again"

@@ -344,6 +344,8 @@ def test_uncertain_oco_post_uses_current_endpoint_and_recovers(tmp_path, monkeyp
         if method == "GET" and path == "/api/v3/order":
             order_type = "LIMIT_MAKER" if params["orderId"] == 78 else "STOP_LOSS_LIMIT"
             return {
+                "orderListId": 77, "clientOrderId": "tp" if params["orderId"] == 78 else "sl",
+                "origQty": "0.1", "executedQty": "0",
                 "symbol": "SOLUSDT",
                 "orderId": params["orderId"],
                 "side": "SELL",
@@ -353,6 +355,7 @@ def test_uncertain_oco_post_uses_current_endpoint_and_recovers(tmp_path, monkeyp
         assert method == "GET" and path == "/api/v3/orderList"
         return {
             "orderListId": 77,
+            "symbol": "SOLUSDT", "contingencyType": "OCO",
             "listClientOrderId": params["origClientOrderId"],
             "listStatusType": "EXEC_STARTED",
             "orders": [
@@ -479,9 +482,11 @@ def test_invalid_oco_legs_never_mark_buy_protected(tmp_path, monkeypatch):
         {"orderId": 888, "status": "FILLED", "executedQty": "0.100"},
     )
     deletes = []
+    posted = {}
 
     def signed(method, path, params=None, timeout=15):
         if method == "POST":
+            posted.update(params)
             return {"orderListId": 900, "listStatusType": "EXEC_STARTED"}
         if method == "DELETE":
             deletes.append(params["orderListId"])
@@ -489,10 +494,11 @@ def test_invalid_oco_legs_never_mark_buy_protected(tmp_path, monkeypatch):
         if path == "/api/v3/orderList":
             return {
                 "orderListId": 900,
+                "symbol": "SOLUSDT", "contingencyType": "OCO", "listClientOrderId": posted["listClientOrderId"],
                 "listStatusType": "EXEC_STARTED",
                 "orders": [
-                    {"symbol": "SOLUSDT", "orderId": 901},
-                    {"symbol": "SOLUSDT", "orderId": 902},
+                    {"symbol": "SOLUSDT", "orderId": 901, "clientOrderId": "TP"},
+                    {"symbol": "SOLUSDT", "orderId": 902, "clientOrderId": "STOP"},
                 ],
             }
         return {
@@ -513,5 +519,5 @@ def test_invalid_oco_legs_never_mark_buy_protected(tmp_path, monkeypatch):
         parent_client_order_id=parent.client_order_id,
     )
     assert result is None
-    assert deletes == [900]
+    assert deletes == []
     assert journal.get(parent.client_order_id).state == "PROTECTION_PENDING"

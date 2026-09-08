@@ -11,6 +11,9 @@ from typing import Any, Callable, Dict, MutableMapping, Tuple
 import requests
 
 from ladder_dragon.execution.trade_accounting import KNOWN_QUOTES
+from ladder_dragon.execution.exchange_evidence import (
+    checked_balances, checked_market, exact_nonnegative, MarketIdentityError,
+)
 
 
 MARKET_READ_ERRORS = (
@@ -25,7 +28,7 @@ MARKET_READ_ERRORS = (
 
 
 def _price_decimal(value: object, *, field: str) -> Decimal:
-    price = Decimal(str(value))
+    price = exact_nonnegative(value)
     if not price.is_finite() or price <= 0:
         raise ValueError(f"{field} must be finite and positive")
     return price
@@ -40,9 +43,9 @@ def get_price_decimal(
     """Return an exact positive market price with conservative fallbacks."""
     try:
         payload = public_get("/api/v3/ticker/price", {"symbol": symbol})
-        if isinstance(payload, dict) and "price" in payload:
-            return _price_decimal(payload["price"], field="ticker price")
-        return _price_decimal(payload[0]["price"], field="ticker price")
+        return _price_decimal(checked_market(payload, symbol)["price"], field="ticker price")
+    except MarketIdentityError:
+        raise
     except MARKET_READ_ERRORS as ticker_error:
         logger(
             f"[ERR] {symbol}: {ticker_error} at /ticker/price, "
@@ -50,11 +53,14 @@ def get_price_decimal(
         )
         try:
             payload = public_get("/api/v3/ticker/bookTicker", {"symbol": symbol})
+            checked_market(payload, symbol)
             bid = _price_decimal(payload["bidPrice"], field="best bid")
             ask = _price_decimal(payload["askPrice"], field="best ask")
             if ask < bid:
                 raise ValueError("best ask is below best bid")
             return (bid + ask) / Decimal("2")
+        except MarketIdentityError:
+            raise
         except MARKET_READ_ERRORS as book_error:
             logger(
                 f"[ERR] {symbol}: {book_error} at /ticker/bookTicker, "
@@ -82,17 +88,7 @@ def get_balances(
 ) -> Dict[str, Dict[str, Decimal]]:
     """Return exact account balances as decimals."""
     payload = signed_request("GET", "/api/v3/account")
-    balances: Dict[str, Dict[str, Decimal]] = {}
-    for row in payload.get("balances", []):
-        free = Decimal(str(row.get("free", "0") or "0"))
-        locked = Decimal(str(row.get("locked", "0") or "0"))
-        if not free.is_finite() or not locked.is_finite() or free < 0 or locked < 0:
-            raise ValueError("Binance returned an invalid account balance")
-        balances[row.get("asset")] = {
-            "free": free,
-            "locked": locked,
-        }
-    return balances
+    return checked_balances(payload)
 
 
 def get_symbol_assets(

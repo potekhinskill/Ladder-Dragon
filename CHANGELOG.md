@@ -3,6 +3,23 @@
 All notable changes are documented here. Releases use Semantic Versioning; every
 section is dated and there is intentionally no `Unreleased` section.
 
+## [2.20.332] — 2026-09-09
+
+### Fixed
+- Exact lifecycle closure requires matched SELL evidence for the complete residual BUY inside the journal transaction.
+- Worker recovery and repeated protection placement reject insufficient coverage. Terminal partial exits retain the residual inventory.
+- Uncertain protection reads do not authorize cancellation. Invalid reconciliation responses preserve submission uncertainty.
+- Worker and supervisor share strict account and open-order validation. Worker ticker and protection responses require exact market and order identities.
+- The fill importer stops at the first failed row. Invalid identity sequences cannot advance the durable cursor.
+
+### Changed
+- Disposable batch counters separate response closure, JSON decoding, validation, and thread processor time from elapsed time.
+- Signed request order and public concurrency remain unchanged. This release does not remove HALT or authorize trading.
+
+### Verified
+- The full local suite passes: 2,251 tests, with one Linux-only skip. Compileall and Technical English pass.
+- Five safety audits pass. Semgrep reports no findings; regression tests cover adapter failures, closure writers, cursor retries, and timing publication.
+
 ## [2.20.331] — 2026-09-08
 
 ### Fixed

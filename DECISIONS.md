@@ -1,5 +1,13 @@
 # Engineering decisions
 
+### 2026-09-09 — Enforce exact closure at the final writer
+
+- **Context:** separate execution adapters accepted weaker evidence than the supervisor.
+- **Decision:** require matched residual SELL evidence inside the journal transaction. Share response validators across consumers.
+- **Why it worked:** regression tests reject small FILLED exits through recovery, repeated placement, and direct journal writes.
+- **Reuse:** enumerate every writer and adapter before accepting a safety fix. Structural tests require observed evidence at every closure call.
+- **Retention:** new timing counters are disposable and bounded within one snapshot. No new persistent record or archive dependency exists.
+
 ### 2026-09-08 — Prove financial evidence before accepting its status
 
 - **Context:** valid-looking statuses did not prove covered quantities, requested order identities, or complete remote collections.

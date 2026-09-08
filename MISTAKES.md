@@ -1,5 +1,19 @@
 # Engineering mistakes and root causes
 
+### 2026-09-09 — Changed version files during preliminary validation
+
+- **Impact:** two version tests compared loaded old constants with updated files and failed.
+- **Root cause:** documentation preparation overlapped the preliminary full suite.
+- **Correction:** freeze the complete candidate and repeat the full suite.
+- **Prevention:** do not edit source or version surfaces while a candidate verification process runs.
+
+### 2026-09-09 — Fixed one consumer without covering the final writer
+
+- **Impact:** worker paths retained false closure, malformed response acceptance, and unsafe cancellation after the supervisor fix.
+- **Root cause:** the review followed one adapter instead of enumerating all consumers and journal writers. Sparse fixtures hid response identity requirements.
+- **Correction:** share response contracts and require exact residual evidence inside the closure transaction. Preserve protection under read uncertainty.
+- **Prevention:** exercise every caller with independent quantity, identity, and transport failures. Check documented response enums before tightening validation.
+
 ### 2026-09-08 — Stopped protection verification at filled status
 
 - **Impact:** a fully filled smaller protection order could close a larger BUY; malformed identities and empty substitutes could weaken snapshot evidence.

@@ -25,6 +25,8 @@ from ladder_dragon.execution.exchange_math import (
 from ladder_dragon.execution.order_identity import client_order_id
 from ladder_dragon.execution.order_recovery import OrderJournal, TERMINAL_EXCHANGE_STATES
 from ladder_dragon.execution.executor_recovery import classify_oco_legs
+from ladder_dragon.execution.exchange_evidence import checked_list, checked_order, checked_references
+from ladder_dragon.execution.protection_quantity import verify_quantities
 from ladder_dragon.execution.orders.otoco_state import record_verified_otoco
 from ladder_dragon.execution.orders import reconciliation as active_reconciliation
 def _record_definitive_rejection(
@@ -334,7 +336,7 @@ def place_limit_order(
                 reconciled = dependencies.get_order_by_client_id(
                     symbol, order_client_id
                 )
-            except requests.RequestException:
+            except (requests.RequestException, RuntimeError, ValueError):
                 reconciled = None
             if reconciled is not None:
                 journal.record_exchange_order(order_client_id, reconciled)
@@ -518,7 +520,7 @@ def place_market_order(
             journal.mark_unknown(generated_id, exc)
             try:
                 reconciled = dependencies.get_order_by_client_id(symbol, generated_id)
-            except requests.RequestException:
+            except (requests.RequestException, RuntimeError, ValueError):
                 reconciled = None
             if reconciled is not None:
                 journal.record_exchange_order(generated_id, reconciled)
@@ -662,18 +664,14 @@ def place_oco_sell(
             journal, list_client_id, dependencies.get_order_list_by_client_id)
         if isinstance(existing, dict):
             order_list_id = existing.get("orderListId")
-            try:
-                verified_legs = dependencies.verify_oco_legs(symbol, existing)
-                outcome, filled_leg, exit_reason = classify_oco_legs(
-                    verified_legs
-                )
-            except (requests.RequestException, RuntimeError):
-                if (
-                    existing.get("listStatusType") == "EXEC_STARTED"
-                    and order_list_id is not None
-                ):
-                    dependencies.cancel_oco(symbol, int(order_list_id))
-                raise
+            checked_list(existing, client_id=list_client_id, list_id=active.exchange_order_list_id,
+                         symbol=symbol, kind="OCO")
+            # Read uncertainty never grants authority to cancel protection.
+            verified_legs = dependencies.verify_oco_legs(symbol, existing)
+            outcome, filled_leg, exit_reason = classify_oco_legs(verified_legs)
+            if parent_client_order_id:
+                verify_quantities(journal, parent_client_order_id, active, verified_legs,
+                                  closing=outcome == "CLOSED" and filled_leg.get("status") == "FILLED")
             list_status = str(
                 existing.get("listStatusType") or ""
             ).upper()
@@ -692,10 +690,18 @@ def place_oco_sell(
                     list_client_id,
                     verified_legs,
                 )
+                if filled_leg.get("status") != "FILLED":
+                    journal.record_partial_protection_exit(
+                        protection_client_order_id=list_client_id, exit_order_id=int(filled_leg["orderId"]),
+                        exit_reason=exit_reason, executed_qty=filled_leg["executedQty"],
+                        terminal_status=filled_leg["status"],
+                    )
+                    raise RuntimeError("terminal partial OCO requires residual protection")
                 journal.mark_exact_lifecycle_closed(
                     protection_client_order_id=list_client_id,
                     exit_order_id=int(filled_leg["orderId"]),
                     exit_reason=exit_reason,
+                    exit_order=filled_leg,
                 )
                 dependencies.logger(
                     f"[IDEMPOTENT] terminal OCO {symbol} "
@@ -829,28 +835,13 @@ def place_oco_sell(
             or verified.get("listStatusType") != "EXEC_STARTED"
         ):
             raise RuntimeError(f"OCO verification failed: {verified}")
-        try:
-            verified_legs = dependencies.verify_oco_legs(symbol, verified)
-            outcome, _, _ = classify_oco_legs(verified_legs)
-            if outcome != "ACTIVE":
-                raise RuntimeError(
-                    "new OCO does not have two active protection legs"
-                )
-        except (requests.RequestException, RuntimeError):
-            # Partial or malformed protection is worse than no protection:
-            # delete the suspect OCO and propagate the error.
-            try:
-                dependencies.signed_request(
-                    "DELETE",
-                    "/api/v3/orderList",
-                    {
-                        "symbol": symbol,
-                        "orderListId": int(order_list_id),
-                    },
-                )
-            except requests.RequestException:
-                pass
-            raise
+        checked_list(verified, client_id=list_client_id, list_id=order_list_id, symbol=symbol, kind="OCO")
+        verified_legs = dependencies.verify_oco_legs(symbol, verified)
+        outcome, _, _ = classify_oco_legs(verified_legs)
+        if outcome != "ACTIVE":
+            raise RuntimeError("new OCO does not have two active protection legs")
+        if journal is not None and parent_client_order_id:
+            verify_quantities(journal, parent_client_order_id, journal.get(list_client_id), verified_legs)
         if isinstance(payload, dict):
             payload.setdefault("listClientOrderId", list_client_id)
         _update_ai_order(
@@ -902,7 +893,7 @@ def place_oco_sell(
                 reconciled = dependencies.get_order_list_by_client_id(
                     list_client_id
                 )
-            except requests.RequestException:
+            except (requests.RequestException, RuntimeError, ValueError):
                 reconciled = None
             if (
                 isinstance(reconciled, dict)
@@ -910,12 +901,15 @@ def place_oco_sell(
             ):
                 order_list_id = reconciled.get("orderListId")
                 try:
+                    checked_list(reconciled, client_id=list_client_id, symbol=symbol, kind="OCO")
                     verified_legs = dependencies.verify_oco_legs(symbol, reconciled)
                     outcome, _, _ = classify_oco_legs(verified_legs)
                     if outcome != "ACTIVE":
                         raise RuntimeError(
                             "recovered OCO protection legs are not active"
                         )
+                    if parent_client_order_id:
+                        verify_quantities(journal, parent_client_order_id, journal.get(list_client_id), verified_legs)
                 except (requests.RequestException, RuntimeError) as verify_exc:
                     dependencies.logger(
                         f"[ERR] recovered OCO leg verification failed: "
@@ -976,9 +970,8 @@ def _verify_otoco_orders(
     dependencies: OrderDependencies,
 ) -> tuple[Dict[str, Any], list[Dict[str, Any]]]:
     """Verify one working BUY and both pending SELL legs by exact client ID."""
-    refs = order_list.get("orders")
-    if not isinstance(refs, list) or len(refs) != 3:
-        raise RuntimeError("OTOCO verification did not return exactly three orders")
+    checked_list(order_list, symbol=symbol, kind="OTOCO")
+    refs = checked_references(order_list, symbol, 3)
     queried: list[Dict[str, Any]] = []
     for ref in refs:
         if not isinstance(ref, dict) or not ref.get("clientOrderId"):
@@ -987,8 +980,8 @@ def _verify_otoco_orders(
             symbol,
             str(ref["clientOrderId"]),
         )
-        if not isinstance(order, dict):
-            raise RuntimeError("OTOCO order query returned an invalid payload")
+        checked_order(order, symbol, order_id=ref["orderId"],
+                      client_id=ref["clientOrderId"], list_id=order_list["orderListId"])
         queried.append(order)
     working = [
         order
@@ -1287,7 +1280,7 @@ def place_otoco_buy(
                 reconciled = dependencies.get_order_list_by_client_id(
                     list_client_id
                 )
-            except requests.RequestException:
+            except (requests.RequestException, RuntimeError, ValueError):
                 reconciled = None
             if isinstance(reconciled, dict):
                 try:

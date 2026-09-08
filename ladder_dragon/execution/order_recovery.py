@@ -17,6 +17,7 @@ from typing import Any, Iterable, Iterator
 
 from ladder_dragon.execution.champion_attribution import execution_attribution
 from ladder_dragon.execution.journal.connection import connect_journal
+from ladder_dragon.execution.journal.exit_evidence import require_exact_exit
 from ladder_dragon.execution.journal.leg_lookup import created_at_ms_for_order
 from ladder_dragon.execution.journal.models import OrderIntent
 from ladder_dragon.execution.journal.schema import (
@@ -998,6 +999,7 @@ class OrderJournal:
         protection_client_order_id: str,
         exit_order_id: int,
         exit_reason: str,
+        exit_order: dict[str, Any] | None = None,
     ) -> None:
         """Close a BUY/OCO lifecycle after an exact terminal TP/STOP fill."""
         reason = str(exit_reason).upper()
@@ -1014,6 +1016,7 @@ class OrderJournal:
             )
             if parent is None:
                 raise RuntimeError("protection parent BUY is unavailable")
+            require_exact_exit(con, parent, protection, exit_order, exit_order_id, self.venue)
             leg = con.execute(
                 "SELECT leg_type FROM order_intent_legs "
                 "WHERE venue = ? AND symbol = ? AND order_id = ? "

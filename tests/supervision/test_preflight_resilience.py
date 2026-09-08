@@ -344,7 +344,7 @@ def test_preflight_balance_snapshot_fails_closed_on_invalid_number(
         halt_file=tmp_path / "halt.json",
     )
 
-    with pytest.raises(ValueError, match="balance.free is not a decimal") as error:
+    with pytest.raises(ValueError, match="invalid exact exchange number") as error:
         ai_supervisor._preflight_live(args, ["SOLUSDT"], limits)
 
     assert "private-marker" not in str(error.value)
