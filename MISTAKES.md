@@ -1,5 +1,19 @@
 # Engineering mistakes and root causes
 
+### 2026-09-08 — Parsed the preflight balance projection twice
+
+- **Impact:** startup auto-cap became zero and prevented later BUY allocation despite valid available funds.
+- **Root cause:** the consumer expected raw account JSON, but preflight returned parsed balances. Separate fixtures hid this interface mismatch.
+- **Correction:** consume the parsed projection directly and reject non-finite values. Preserve the independent fresh risk account read.
+- **Prevention:** pass real producer output through every financial consumer in regression tests. Mock exchange responses below parsing boundaries.
+
+### 2026-09-08 — Replaced one file through conflicting patch operations
+
+- **Impact:** the test patch was rejected before any file changed.
+- **Root cause:** one patch attempted both deletion and addition for the same path.
+- **Correction:** replace the existing content through one update operation.
+- **Prevention:** use one patch operation per existing target file.
+
 ### 2026-09-05 — Misclassified retry time as an unmeasured startup gap
 
 - **Impact:** the first review attributed 36 seconds to unknown local setup work.

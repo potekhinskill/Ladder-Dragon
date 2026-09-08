@@ -1,5 +1,12 @@
 # Engineering decisions
 
+### 2026-09-08 — Test financial projections across their real consumers
+
+- **Context:** preflight returned parsed balances, but an isolated auto-cap fixture supplied raw account JSON.
+- **Decision:** reuse the narrow parsed balance only for startup allocation. Obtain fresh account state for every risk snapshot.
+- **Why it worked:** the regression detects double parsing and proves exact allocation, no duplicate startup request, and reduced later capacity.
+- **Reuse:** every financial optimization that passes a validated projection between startup stages.
+
 ### 2026-09-05 — Retain failed attempts in critical-path timing
 
 - **Context:** final-attempt telemetry hid one failed preflight and its retry delay.

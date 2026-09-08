@@ -2428,16 +2428,16 @@ def run_child(symbol: str, ladder: List[float], args: argparse.Namespace,
 # Balance-based automatic CAP
 # ===========================
 
-def auto_cap_if_needed(args: argparse.Namespace, n_syms: int, balances: Mapping[str, object] | None = None) -> Decimal | None:
-    """Allocate USDT remaining after the protected reserve across BUY slots."""
+def auto_cap_if_needed(args: argparse.Namespace, n_syms: int, balances: Mapping[str, Decimal] | None = None) -> Decimal | None:
+    """Allocate parsed free USDT after the reserve; never reparse account JSON."""
     if not args.auto_cap:
         return None
     try:
-        bals = get_balances() if balances is None else get_balances(balances)
+        bals = get_balances() if balances is None else balances
         if "USDT" not in bals:
             raise RuntimeError("USDT balance is unavailable")
         reserve = max(Decimal("0"), money(os.getenv("RISK_RESERVE_USDT", "0")))
-        total_free = max(Decimal("0"), money(bals["USDT"]))
+        total_free = max(Decimal("0"), _finite_decimal(bals["USDT"], name="auto-cap free USDT"))
         spendable = max(Decimal("0"), total_free - reserve)
         min_pool = money(args.cap_floor_usdt or 0)
         if spendable < max(Decimal("10"), min_pool):

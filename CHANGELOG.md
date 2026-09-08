@@ -3,6 +3,18 @@
 All notable changes are documented here. Releases use Semantic Versioning; every
 section is dated and there is intentionally no `Unreleased` section.
 
+## [2.20.325] — 2026-09-08
+
+### Fixed
+- Auto-cap consumes the parsed preflight balance directly instead of parsing it again as account JSON.
+- Invalid cached numeric values fail closed without another account request or payload disclosure.
+- The independent fresh risk snapshot still limits allocation after account balances decrease.
+
+### Verified
+- The initial producer-to-consumer regression fails on the previous implementation and passes after correction.
+- The focused preflight, allocation, snapshot, and risk suite passes: 99 tests.
+- The full suite passes: 2,074 tests. Compileall, Technical English, secret scan, Semgrep, and five safety audits pass.
+
 ## [2.20.324] — 2026-09-06
 
 ### Changed
