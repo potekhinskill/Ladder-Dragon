@@ -26,6 +26,7 @@ from ladder_dragon.execution.order_identity import client_order_id
 from ladder_dragon.execution.order_recovery import OrderJournal, TERMINAL_EXCHANGE_STATES
 from ladder_dragon.execution.executor_recovery import classify_oco_legs
 from ladder_dragon.execution.exchange_evidence import checked_list, checked_order, checked_references
+from ladder_dragon.execution.orders.submission_evidence import checked_submission
 from ladder_dragon.execution.protection_quantity import verify_quantities
 from ladder_dragon.execution.orders.otoco_state import record_verified_otoco
 from ladder_dragon.execution.orders import reconciliation as active_reconciliation
@@ -305,17 +306,12 @@ def place_limit_order(
     try:
         if latency_trace is not None:
             latency_trace.mark("request_sent")
-        payload = dependencies.signed_request(
-            "POST", "/api/v3/order", params
-        )
+        payload = checked_submission(dependencies, journal, params,
+                                     dependencies.signed_request("POST", "/api/v3/order", params))
         if latency_trace is not None:
             latency_trace.mark("exchange_ack")
-        if isinstance(payload, dict):
-            payload.setdefault("clientOrderId", order_client_id)
-            payload.setdefault("origQty", quantity_text)
-            payload.setdefault("price", price_text)
-            if journal is not None:
-                journal.record_exchange_order(order_client_id, payload)
+        if journal is not None:
+            journal.record_exchange_order(order_client_id, payload)
         order_id = payload.get("orderId")
         _update_ai_order(order_client_id, exchange_order_id=order_id)
         dependencies.logger(
@@ -499,10 +495,8 @@ def place_market_order(
         "newClientOrderId": generated_id,
     }
     try:
-        payload = dependencies.signed_request("POST", "/api/v3/order", params)
-        if not isinstance(payload, dict) or payload.get("orderId") is None:
-            raise RuntimeError("MARKET response has no orderId")
-        payload.setdefault("clientOrderId", generated_id)
+        payload = checked_submission(dependencies, journal, params,
+                                     dependencies.signed_request("POST", "/api/v3/order", params))
         if journal is not None:
             journal.record_exchange_order(generated_id, payload)
         _update_ai_order(generated_id, exchange_order_id=payload.get("orderId"))

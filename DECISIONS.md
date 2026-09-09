@@ -1,5 +1,13 @@
 # Engineering decisions
 
+### 2026-09-09 — Bind acknowledgement and cursor progress to complete evidence
+
+- **Context:** successful HTTP responses and successful primary accounting writes did not prove order ownership or complete lot synchronization.
+- **Decision:** validate acknowledgements before acceptance. Advance fill cursors only after required ledger callbacks succeed.
+- **Why it worked:** regressions reject independent identity and status mutations, preserve uncertain intents, and retry lot failures after database reload.
+- **Reuse:** every mutation acknowledgement and multi-ledger import. Shared provider names retain their exact UTF-8 identity.
+- **Retention:** no new persistent record exists. Existing authoritative intents, fills, and lifecycle evidence retain their existing preservation policy.
+
 ### 2026-09-09 — Separate exchange names from configuration tokens
 
 - **Context:** Binance account responses can contain UTF-8 asset names, including assets with zero balances.

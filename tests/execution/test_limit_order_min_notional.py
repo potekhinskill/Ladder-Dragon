@@ -1,6 +1,7 @@
 from decimal import Decimal
 
 import pytest
+from tests.support.exchange_evidence import submitted_order
 
 from ladder_dragon.execution.orders.runtime import (
     OrderDependencies,
@@ -25,11 +26,7 @@ def _dependencies(calls: list[dict[str, object]]) -> OrderDependencies:
         format_price=lambda *args: pytest.fail("legacy price formatting"),
         format_qty=lambda *args: pytest.fail("legacy quantity formatting"),
         journal=lambda: None,
-        signed_request=lambda method, path, params: calls.append(params) or {
-            "orderId": 41,
-            "status": "NEW",
-            "executedQty": "0",
-        },
+        signed_request=lambda method, path, params: calls.append(params) or submitted_order(params, 41),
         get_order_by_client_id=lambda symbol, client_id: None,
         get_order_list_by_client_id=lambda client_id: None,
         verify_oco_legs=lambda symbol, payload: [],

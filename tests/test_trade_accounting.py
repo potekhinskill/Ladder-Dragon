@@ -407,6 +407,7 @@ def test_worker_retries_unpriced_trade_before_advancing_cursor(tmp_path, monkeyp
     worker.TOOLS_STATS = None
     trade = {
         "id": 5,
+        "symbol": "SOLUSDT", "orderId": 50,
         "isBuyer": True,
         "price": "100",
         "qty": "1",
@@ -455,6 +456,7 @@ def test_worker_restart_replay_does_not_consume_sell_fifo_twice(
     trades = [
         {
             "id": 1,
+            "symbol": "SOLUSDT", "orderId": 10,
             "isBuyer": True,
             "price": "100",
             "qty": "1",
@@ -464,6 +466,7 @@ def test_worker_restart_replay_does_not_consume_sell_fifo_twice(
         },
         {
             "id": 2,
+            "symbol": "SOLUSDT", "orderId": 20,
             "isBuyer": False,
             "price": "110",
             "qty": "0.5",

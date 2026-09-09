@@ -11,6 +11,12 @@ class MarketIdentityError(ValueError):
     """Do not replace identity corruption with an alternate endpoint."""
 
 
+def valid_exchange_name(value):
+    """Preserve opaque provider names without normalization or control text."""
+    return (isinstance(value, str) and 0 < len(value) <= 128
+            and not any(c.isspace() or unicodedata.category(c).startswith("C") for c in value))
+
+
 def exact_nonnegative(raw):
     if not isinstance(raw, str) or not raw or len(raw) > 128:
         raise ValueError("invalid exact exchange number")
@@ -32,12 +38,23 @@ def checked_balances(payload):
             raise ValueError("invalid account balance row")
         asset = row.get("asset")
         # Asset names are opaque UTF-8 strings, not ASCII trading config tokens.
-        if (not isinstance(asset, str) or not asset or len(asset) > 128
-                or any(char.isspace() or unicodedata.category(char).startswith("C") for char in asset)
-                or asset in result):
+        if not valid_exchange_name(asset) or asset in result:
             raise ValueError("invalid or duplicate account asset")
         result[asset] = {key: exact_nonnegative(row.get(key)) for key in ("free", "locked")}
     return result
+
+
+def checked_trade(trade, symbol):
+    """Validate a complete fill before accounting, callbacks, or cursor writes."""
+    if (not isinstance(trade, dict) or trade.get("symbol") != symbol
+            or type(trade.get("isBuyer")) is not bool
+            or any(type(trade.get(key)) is not int or trade[key] < 0 for key in ("id", "orderId", "time"))
+            or trade["time"] == 0 or not valid_exchange_name(trade.get("commissionAsset"))):
+        raise ValueError("invalid exchange fill evidence")
+    price, qty, fee = (exact_nonnegative(trade.get(key)) for key in ("price", "qty", "commission"))
+    if price <= 0 or qty <= 0:
+        raise ValueError("invalid exchange fill quantity or price")
+    return price, qty, fee
 
 
 def checked_market(payload, symbol):

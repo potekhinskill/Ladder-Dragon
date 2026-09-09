@@ -3,6 +3,22 @@
 All notable changes are documented here. Releases use Semantic Versioning; every
 section is dated and there is intentionally no `Unreleased` section.
 
+## [2.20.334] — 2026-09-09
+
+### Fixed
+- Single protection recovery requires the durable SELL STOP type before it confirms protection.
+- LIMIT and MARKET acknowledgements require matching market, client identity, side, type, quantity, price, and status evidence.
+- Invalid acknowledgements preserve UNKNOWN intent state and halt further mutations without another submission.
+- Fill imports require exact market identity, Boolean direction, complete commission evidence, and valid exchange identifiers before accounting writes.
+- Lot synchronization failures prevent cursor advancement. Repeated imports preserve accounting idempotency after journal reload.
+- Open-order snapshots accept bounded UTF-8 market names without normalization. Malformed names and mismatched requested markets still fail closed.
+
+### Verified
+- The focused execution, accounting, recovery, and architecture suite passes: 272 tests.
+- The complete local suite passes: 2,308 tests, with one Linux-only skip. Compileall, Technical English, and five safety audits pass.
+- Semgrep reports no findings. Forty new regression cases cover acknowledgement corruption, fill validation, ledger retries, and UTF-8 order identities.
+- Public concurrency, signed request ordering, accounting formulas, and HALT remain unchanged. Inventory recalculation optimization remains deferred pending equivalence tests.
+
 ## [2.20.333] — 2026-09-09
 
 ### Fixed

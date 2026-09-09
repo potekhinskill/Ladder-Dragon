@@ -4,7 +4,7 @@
 """Shared exchange collection contract for supervisor and worker."""
 
 from decimal import Decimal, InvalidOperation
-import re
+from ladder_dragon.execution.exchange_evidence import valid_exchange_name
 
 
 def checked_open_orders(payload, *, symbol=None):
@@ -20,7 +20,7 @@ def checked_open_orders(payload, *, symbol=None):
         observed_symbol = row.get("symbol")
         order_id = row.get("orderId")
         list_id = row.get("orderListId")
-        if (not isinstance(observed_symbol, str) or not re.fullmatch(r"[A-Z0-9]{5,30}", observed_symbol)
+        if (not valid_exchange_name(observed_symbol)
                 or (symbol is not None and observed_symbol != symbol)
                 or type(order_id) is not int or order_id < 0
                 or type(list_id) is not int or list_id < -1

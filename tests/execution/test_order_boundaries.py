@@ -3,6 +3,7 @@ from decimal import Decimal
 
 import pytest
 import requests
+from tests.support.exchange_evidence import submitted_order
 
 from ladder_dragon.execution import tools_market
 
@@ -164,7 +165,7 @@ def test_executor_orders_uses_late_bound_dry_gate(tmp_path):
         format_qty=lambda symbol, value: f"{value:.3f}",
         journal=lambda: journal,
         signed_request=lambda *args, **kwargs: network_calls.append(args)
-        or {"orderId": 7, "status": "NEW", "executedQty": "0"},
+        or submitted_order(args[2], 7),
         get_order_by_client_id=lambda symbol, client_id: None,
         get_order_list_by_client_id=lambda client_id: None,
         verify_oco_legs=lambda symbol, payload: [],
@@ -202,11 +203,7 @@ def test_limit_order_preserves_exact_decimal_payload(tmp_path):
         format_price=lambda symbol, value: f"{value:.8f}",
         format_qty=lambda symbol, value: f"{value:.6f}",
         journal=lambda: journal,
-        signed_request=lambda method, path, params: calls.append(params) or {
-            "orderId": 19,
-            "status": "NEW",
-            "executedQty": "0",
-        },
+        signed_request=lambda method, path, params: calls.append(params) or submitted_order(params, 19),
         get_order_by_client_id=lambda symbol, client_id: None,
         get_order_list_by_client_id=lambda client_id: None,
         verify_oco_legs=lambda symbol, payload: [],
@@ -246,9 +243,7 @@ def test_limit_order_uses_exact_filters_without_legacy_float_callbacks(tmp_path)
         format_price=lambda *args: pytest.fail("legacy float price format"),
         format_qty=lambda *args: pytest.fail("legacy float qty format"),
         journal=lambda: None,
-        signed_request=lambda method, path, params: calls.append(params) or {
-            "orderId": 21, "status": "NEW", "executedQty": "0",
-        },
+        signed_request=lambda method, path, params: calls.append(params) or submitted_order(params, 21),
         get_order_by_client_id=lambda symbol, client_id: None,
         get_order_list_by_client_id=lambda client_id: None,
         verify_oco_legs=lambda symbol, payload: [],
@@ -609,9 +604,7 @@ def test_market_order_uses_exact_filters_without_float_callbacks():
         format_price=lambda *args: pytest.fail("legacy float price format"),
         format_qty=lambda *args: pytest.fail("legacy float qty format"),
         journal=lambda: None,
-        signed_request=lambda method, path, params: calls.append(params) or {
-            "orderId": 22, "status": "FILLED", "executedQty": params["quantity"],
-        },
+        signed_request=lambda method, path, params: calls.append(params) or submitted_order(params, 22, "FILLED"),
         get_order_by_client_id=lambda symbol, client_id: None,
         get_order_list_by_client_id=lambda client_id: None,
         verify_oco_legs=lambda symbol, payload: [],
@@ -726,7 +719,7 @@ def test_executor_market_order_has_live_gate_and_idempotent_payload(tmp_path):
         format_qty=lambda symbol, value: f"{value:.3f}",
         journal=lambda: journal,
         signed_request=lambda method, path, params: calls.append((method, path, params))
-        or {"orderId": 99, "status": "FILLED", "executedQty": "0.1"},
+        or submitted_order(params, 99, "FILLED"),
         get_order_by_client_id=lambda symbol, client_id: None,
         get_order_list_by_client_id=lambda client_id: None,
         verify_oco_legs=lambda symbol, payload: [],
@@ -774,7 +767,7 @@ def test_executor_market_order_halts_on_unconfirmed_response(tmp_path):
         validate_limit_sell_prices=lambda symbol, prices: None,
     )
 
-    with pytest.raises(RuntimeError, match="no orderId"):
+    with pytest.raises(RuntimeError, match="invalid submission evidence"):
         place_market_order(
             "SOLUSDT", "SELL", 0.1, dependencies=dependencies, ref_price=100.0
         )

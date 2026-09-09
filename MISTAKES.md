@@ -1,5 +1,19 @@
 # Engineering mistakes and root causes
 
+### 2026-09-09 — Stopped validation before adjacent acceptance boundaries
+
+- **Impact:** single STOP recovery, initial acknowledgements, fill fields, and lot callbacks retained weaker checks than related adapters.
+- **Root cause:** prior fixes covered recovery responses and the importer loop, but omitted successful POST responses and swallowed callback failures.
+- **Correction:** bind acknowledgements to requests, validate complete fills, reject mismatched STOP purposes, and propagate required lot failures.
+- **Prevention:** test each acceptance writer and callback through real journals. Vary identity, status, quantity, field absence, and callback failure independently.
+
+### 2026-09-09 — Reused incomplete exchange fixtures and guessed interfaces
+
+- **Impact:** preliminary local checks failed before their intended assertions. No release or production state changed.
+- **Root cause:** older fixtures omitted required provider fields. New tests confused LIMIT and MARKET argument order and guessed a schema helper name.
+- **Correction:** use explicit request-derived response fixtures and the actual callable signatures. Repeat complete candidate verification.
+- **Prevention:** inspect signatures and all transport fixtures before changing shared boundary contracts. Keep instruction reads below the output ceiling.
+
 ### 2026-09-09 — Applied an ASCII grammar to exchange asset names
 
 - **Impact:** release 2.20.332 blocked the Raspberry Pi account preflight. HALT remained active; the new supervisor did not reach RUNNING.

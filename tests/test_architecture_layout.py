@@ -66,7 +66,7 @@ def test_known_runtime_monoliths_can_only_shrink():
         "ladder_dragon/execution/order_recovery.py": 1284,
         "ladder_dragon/strategy/prediction/runtime.py": 1300,
         "ladder_dragon/ai/context/runtime.py": 1684,
-        "ladder_dragon/execution/orders/runtime.py": 1335,
+        "ladder_dragon/execution/orders/runtime.py": 1320,
         "ladder_dragon/execution/protection/runtime.py": 1095,
     }
     oversized = {

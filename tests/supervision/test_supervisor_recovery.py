@@ -995,7 +995,7 @@ def test_reconciliation_imports_new_binance_fill_before_risk_gate(tmp_path, monk
             return [{
                 "id": 101,
                 "orderId": 17517152455,
-                "isBuyer": False,
+                "isBuyer": False, "symbol": "SOLUSDT",
                 "price": "75.0",
                 "qty": "2.085",
                 "commission": "0",

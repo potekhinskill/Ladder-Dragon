@@ -555,6 +555,10 @@ def recover_existing_protection(
         return False
     checked_order(payload, protection.symbol, order_id=protection.exchange_order_id,
                   client_id=protection.client_order_id)
+    if (protection.side != "SELL" or payload.get("side") != "SELL"
+            or protection.order_type not in {"STOP_LOSS", "STOP_LOSS_LIMIT"}
+            or payload.get("type") != protection.order_type):
+        raise RuntimeError("single protection side or type differs from durable STOP intent")
     verify_quantities(journal, parent_client_order_id, protection, [payload])
     if (payload.get("status") not in {"NEW", "PARTIALLY_FILLED"}
             and Decimal(payload["executedQty"]) > 0):

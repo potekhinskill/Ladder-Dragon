@@ -187,7 +187,7 @@ def test_invalid_fill_identity_sequence_never_advances(tmp_path, rows):
 @pytest.mark.parametrize("failed_index", [0, 1])
 def test_failed_fill_cannot_be_skipped(tmp_path, failed_index):
     con = tools_stats.init_db(str(tmp_path / "stats.sqlite3"))
-    rows = [dict(id=i, isBuyer=True, price="100", qty="0.1", time=1700000000000+i,
+    rows = [dict(symbol="SOLUSDT", orderId=i, id=i, isBuyer=True, price="100", qty="0.1", time=1700000000000+i,
                  commission="0", commissionAsset="USDT") for i in (1, 2, 3)]
     rows[failed_index]["price"] = "invalid"
     calls = []

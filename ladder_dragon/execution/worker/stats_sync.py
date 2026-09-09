@@ -94,6 +94,7 @@ def sync_account_trades(
                 )
                 raise
             log(f"[LOTS] {symbol} fill sync failed: {exc}")
+            raise RuntimeError("lot ledger synchronization failed; retry fill") from exc
         # Close promotion evidence only when the SELL fill maps to a persisted,
         # exchange-verified OCO leg and Binance confirms the whole leg FILLED.
         if fill["side"] == "SELL" and fill.get("order_id") is not None:

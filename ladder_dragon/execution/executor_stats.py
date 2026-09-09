@@ -10,6 +10,7 @@ from decimal import Decimal
 from typing import Any, Callable, MutableMapping, Optional, Tuple
 
 import requests
+from ladder_dragon.execution.exchange_evidence import checked_trade
 
 
 def commission_quote_value(
@@ -116,13 +117,11 @@ def poll_mytrades_once(
     max_id = last_id if last_id is not None else -1
     for trade in trades:
         try:
+            price, quantity, commission = checked_trade(trade, symbol)
             trade_id = int(trade.get("id"))
             side = "BUY" if trade.get("isBuyer") else "SELL"
-            price = Decimal(str(trade.get("price")))
-            quantity = Decimal(str(trade.get("qty")))
             timestamp = int(trade.get("time"))
-            commission = Decimal(str(trade.get("commission", "0") or "0"))
-            commission_asset = str(trade.get("commissionAsset", "")).upper()
+            commission_asset = trade["commissionAsset"]
             fee_quote, fee_status = commission_value(
                 symbol, commission_asset, commission, price, timestamp
             )
