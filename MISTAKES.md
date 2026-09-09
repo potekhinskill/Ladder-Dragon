@@ -1,5 +1,19 @@
 # Engineering mistakes and root causes
 
+### 2026-09-09 — Started verification before completing version metadata
+
+- **Impact:** the preliminary full suite failed its version consistency check and required another run.
+- **Root cause:** the version changed before its changelog section existed.
+- **Correction:** add the dated section before rerunning verification. Record actual results after the run finishes.
+- **Prevention:** update all version surfaces together before starting a full candidate test run.
+
+### 2026-09-09 — Published before checking the current dependency advisory database
+
+- **Impact:** release 2.20.334 failed the remote dependency audit. Raspberry Pi deployment remained blocked.
+- **Root cause:** local release verification did not query current dependency advisories before publication.
+- **Correction:** update vulnerable test transports in a separate release. Preserve the published tag and require a passing dependency audit.
+- **Prevention:** run the locked dependency audit before publication, then require successful remote checks before deployment.
+
 ### 2026-09-09 — Stopped validation before adjacent acceptance boundaries
 
 - **Impact:** single STOP recovery, initial acknowledgements, fill fields, and lot callbacks retained weaker checks than related adapters.

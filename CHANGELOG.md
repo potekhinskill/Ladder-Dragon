@@ -3,6 +3,16 @@
 All notable changes are documented here. Releases use Semantic Versioning; every
 section is dated and there is intentionally no `Unreleased` section.
 
+## [2.20.335] — 2026-09-09
+
+### Security
+- Update test-only HTTPX2 and HTTPCore2 to 2.12.0 with verified distribution hashes. Production Binance transport dependencies remain unchanged.
+- Preserve release 2.20.334 unchanged after its remote dependency audit failed. Deploy only after successful replacement release checks.
+
+### Verified
+- The dependency audit finds no known vulnerabilities. The locked installation, dependency consistency check, compileall, and five safety audits pass.
+- The complete local suite passes: 2,308 tests, with one Linux-only skip. Technical English passes after correcting preliminary version-documentation mismatch.
+
 ## [2.20.334] — 2026-09-09
 
 ### Fixed
