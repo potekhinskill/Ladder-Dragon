@@ -3,6 +3,17 @@
 All notable changes are documented here. Releases use Semantic Versioning; every
 section is dated and there is intentionally no `Unreleased` section.
 
+## [2.20.337] — 2026-09-10
+
+### Fixed
+- Normalize only empty Python 3.12 type parameters in extraction fingerprints; preserve existing baseline hashes and meaningful syntax checks.
+- Keep original syntax trees unchanged and retain nonempty generic declarations during comparison.
+
+### Verified
+- Extraction regressions pass: 39 passed and one skipped on Python 3.10; all 40 passed on Python 3.12.
+- The complete Python 3.10 suite passes: 2,576 passed and two skipped.
+- Compilation, five safety audits, and Technical English checks pass. Production execution code remains unchanged from v2.20.336.
+
 ## [2.20.336] — 2026-09-09
 
 ### Added

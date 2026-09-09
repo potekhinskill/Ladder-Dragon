@@ -1,5 +1,12 @@
 # Engineering mistakes and root causes
 
+### 2026-09-10 — Published interpreter-dependent extraction fingerprints
+
+- **Impact:** four Python 3.12 CI checks failed after publication of v2.20.336; Raspberry Pi deployment stopped before service changes.
+- **Root cause:** fixed AST hashes reflected Python 3.10 serialization; local verification did not exercise the supported Python 3.12 representation.
+- **Correction:** normalize only empty generic declarations, preserve baseline hashes, and test meaningful syntax changes across interpreters.
+- **Prevention:** verify fingerprint contracts on supported interpreter versions before publication; never rewrite an already published release tag.
+
 ### 2026-09-09 — Relocated universal requirements instead of narrowing their triggers
 
 - **Impact:** simple documentation corrections still required broad preparation and comprehensive tests after the first instruction cleanup.

@@ -1,7 +1,6 @@
 """Preserve the saved-report command contract during implementation relocation."""
 
 import ast
-import hashlib
 import json
 import os
 from pathlib import Path
@@ -9,6 +8,8 @@ import subprocess
 import sys
 
 import pytest
+
+from tests.architecture.ast_contracts import extraction_digest
 
 ROOT = Path(__file__).resolve().parents[2]
 OWNER = ROOT / "ladder_dragon/verification/backtest_reports.py"
@@ -23,7 +24,7 @@ def run_cli(*args):
 
 def test_concrete_owner_and_thin_launcher_preserve_baseline_syntax():
     tree = ast.parse(OWNER.read_text())
-    assert hashlib.sha256(ast.dump(tree, include_attributes=False).encode()).hexdigest() == BASELINE_AST
+    assert extraction_digest(tree) == BASELINE_AST
     assert {node.name for node in tree.body if isinstance(node, ast.FunctionDef)} == {
         "_impact_bps", "classify_report", "_paths", "main"}
     expected = ast.parse('from ladder_dragon.verification.backtest_reports import main\nif __name__ == "__main__":\n    raise SystemExit(main())\n')

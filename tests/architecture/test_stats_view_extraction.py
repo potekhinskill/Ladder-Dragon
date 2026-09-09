@@ -1,7 +1,6 @@
 """Executable and structural contracts for the first read-only CLI extraction."""
 
 import ast
-import hashlib
 import os
 from pathlib import Path
 import sqlite3
@@ -9,6 +8,8 @@ import subprocess
 import sys
 
 import pytest
+
+from tests.architecture.ast_contracts import extraction_digest
 
 ROOT = Path(__file__).resolve().parents[2]
 OWNER = "ladder_dragon/execution/stats_view.py"
@@ -25,7 +26,7 @@ def run_cli(tmp_path, *args):
 
 def test_implementation_is_identical_and_launcher_has_no_reverse_delegation():
     tree = ast.parse((ROOT / OWNER).read_text())
-    assert hashlib.sha256(ast.dump(tree, include_attributes=False).encode()).hexdigest() == BASELINE_AST
+    assert extraction_digest(tree) == BASELINE_AST
     assert {node.name for node in tree.body if isinstance(node, ast.FunctionDef)} == {
         "env_default_db", "detect_symbols", "ts_expr", "print_inventory", "print_last_trades",
         "print_daily_monthly", "print_global_last", "main"}

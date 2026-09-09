@@ -1,7 +1,6 @@
 """Keep numeric budgets and required safety invocation unchanged after relocation."""
 
 import ast
-import hashlib
 import json
 import os
 from pathlib import Path
@@ -10,6 +9,8 @@ import subprocess
 import sys
 
 import pytest
+
+from tests.architecture.ast_contracts import extraction_digest
 
 from ladder_dragon.verification import numeric_boundaries as numeric
 from ladder_dragon.verification.models import HarnessContext, HarnessOptions, Status
@@ -24,7 +25,7 @@ BASELINE_AST = "9a1ad689b8fc55fd9ce46281ae099a6ad00c3bae67cc2a4684864859e4f55ec4
 def test_policy_and_analyzer_keep_the_baseline_syntax():
     tree = ast.parse((ROOT / OWNER).read_text())
     tree.body = [node for node in tree.body if not isinstance(node, ast.FunctionDef) or node.name != "main"]
-    assert hashlib.sha256(ast.dump(tree, include_attributes=False).encode()).hexdigest() == BASELINE_AST
+    assert extraction_digest(tree) == BASELINE_AST
     launcher = ast.parse((ROOT / "bin/audit_numeric_boundaries.py").read_text())
     expected = ast.parse('from ladder_dragon.verification.numeric_boundaries import main\nif __name__ == "__main__":\n    raise SystemExit(main())\n')
     assert ast.dump(launcher, include_attributes=False) == ast.dump(expected, include_attributes=False)

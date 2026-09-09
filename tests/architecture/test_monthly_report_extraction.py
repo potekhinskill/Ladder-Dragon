@@ -1,7 +1,6 @@
 """Monthly command ownership, offline CLI, and notification-state parity."""
 
 import ast
-import hashlib
 import json
 import os
 from pathlib import Path
@@ -9,6 +8,8 @@ import subprocess
 import sys
 
 import pytest
+
+from tests.architecture.ast_contracts import extraction_digest
 
 from ladder_dragon.strategy.prediction import monthly_report_command as command
 
@@ -18,7 +19,7 @@ OWNER = ROOT / "ladder_dragon/strategy/prediction/monthly_report_command.py"
 
 def test_implementation_keeps_exact_pre_extraction_ast():
     tree = ast.parse(OWNER.read_text())
-    assert hashlib.sha256(ast.dump(tree, include_attributes=False).encode()).hexdigest() == (
+    assert extraction_digest(tree) == (
         "c0d4176f87713b86e2e9b1ae7daa3b1dc90854d10782fe256a1ac562bc784737")
     assert {node.name for node in tree.body if isinstance(node, ast.FunctionDef)} == {"_features", "_load", "main"}
     launcher = ast.parse((ROOT / "bin/monthly_prediction_report.py").read_text())
