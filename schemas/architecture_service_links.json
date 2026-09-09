@@ -1,0 +1,148 @@
+{
+  "schema_version": 1,
+  "scope": "literal_service_and_install_source_links",
+  "units": {
+    "deploy/ladder-dragon-backup.service": [
+      {
+        "directive": "ExecStart",
+        "sha256": "f050874c8e95368ca57fa0709da1ed0ecb3dedeec8bd98d261ad301c175be15f"
+      }
+    ],
+    "deploy/ladder-dragon-backup.timer": [],
+    "deploy/ladder-dragon-daily-digest.service": [
+      {
+        "directive": "ExecStart",
+        "sha256": "f2921a96930a959ae7fd310137cbc17e1c2936d70848e0f68ab15e8512bf4ccf"
+      }
+    ],
+    "deploy/ladder-dragon-daily-digest.timer": [],
+    "deploy/ladder-dragon-database-retention.service": [
+      {
+        "directive": "ExecStart",
+        "sha256": "c66e5b3cbf8bcdb0c1343fae17b04080570c0e643ddd20e67281183349aaa8e7"
+      }
+    ],
+    "deploy/ladder-dragon-database-retention.timer": [
+      {
+        "directive": "Unit",
+        "sha256": "4b4d7a0e1fbfaadff641850b0e1c43a4648ba9185c7408c83d24d251d9c5ea16"
+      }
+    ],
+    "deploy/ladder-dragon-depth-archive.service": [
+      {
+        "directive": "ExecStart",
+        "sha256": "61fb1f16ef20157ddbd250a163f7bd99d05665c341b119160e78aa35831f2be6"
+      }
+    ],
+    "deploy/ladder-dragon-depth-archive.timer": [],
+    "deploy/ladder-dragon-depth-retention.service": [
+      {
+        "directive": "ExecStart",
+        "sha256": "64ec0d5926ab741d98ddba388450c1fdd2fb8c534986663a27d1926dd5f3efb3"
+      }
+    ],
+    "deploy/ladder-dragon-depth-retention.timer": [
+      {
+        "directive": "Unit",
+        "sha256": "74ac5ffd69e3a58c5bda55e28991ae39292e64d3ae617b286bafe493783a6897"
+      }
+    ],
+    "deploy/ladder-dragon-depth-session-align.service": [
+      {
+        "directive": "ExecStart",
+        "sha256": "5442edfa52164505ec99d42089a70ce2b10efd69e14880d3e0e8bc7f5a0cf479"
+      }
+    ],
+    "deploy/ladder-dragon-log-export.service": [
+      {
+        "directive": "ExecStart",
+        "sha256": "fde69c2a1a13fe1b388ac9a35a278e743a8e4a13eb7f95fa2004e2fef69c65b1"
+      }
+    ],
+    "deploy/ladder-dragon-log-export.timer": [],
+    "deploy/ladder-dragon-market-scenario.service": [
+      {
+        "directive": "ExecStart",
+        "sha256": "ab007c44d500ae700fb74ac4341134ed34d424a2218e18cbc11fcfa610f89eaa"
+      }
+    ],
+    "deploy/ladder-dragon-market-scenario.timer": [
+      {
+        "directive": "Unit",
+        "sha256": "82ed856a80131976e639b6854af3fda64a8a939c9277f7b46a9842eb8510d64b"
+      }
+    ],
+    "deploy/ladder-dragon-monthly-prediction.service": [
+      {
+        "directive": "ExecStart",
+        "sha256": "da0b719723eaa1432081a86623a368fab814e9b098493269708e12dddaf6e6b2"
+      }
+    ],
+    "deploy/ladder-dragon-monthly-prediction.timer": [
+      {
+        "directive": "Unit",
+        "sha256": "530200a88770b590cb1d9a6627e8ae8bbe369f7579a2f776db246454b5258d4b"
+      }
+    ],
+    "deploy/ladder-dragon-soak-audit.service": [
+      {
+        "directive": "ExecStart",
+        "sha256": "68b3817073493a77270c7a1a84b281c1ce8884ebae276afb7aef2217544bfe89"
+      },
+      {
+        "directive": "ExecStartPost",
+        "sha256": "74c739cee172e747fb4349d9100cc679c25aa061784475412225ee828a74ab93"
+      }
+    ],
+    "deploy/ladder-dragon-soak-audit.timer": [],
+    "deploy/ladder-dragon-update-backup.service": [
+      {
+        "directive": "ExecStart",
+        "sha256": "f050874c8e95368ca57fa0709da1ed0ecb3dedeec8bd98d261ad301c175be15f"
+      }
+    ],
+    "deploy/ladder-dragon-user-stream-shadow.service": [
+      {
+        "directive": "ExecStart",
+        "sha256": "01ac1bd6f2dceee2cd20a6a465eeb728497a0999350df31a85b354294d4a13b9"
+      }
+    ],
+    "deploy/mybot.service": [
+      {
+        "directive": "ExecStart",
+        "sha256": "fd11f9618820bbf0beb65a1612ee909e65924e666b3054b472b4493099cd94b6"
+      },
+      {
+        "directive": "ExecStop",
+        "sha256": "879d19a3a59f71e6d4b6589fabc5bd2937a6d38a8bbe58f4e2f18ee857c26658"
+      }
+    ],
+    "deploy/pi-dashboard.service": [
+      {
+        "directive": "ExecStart",
+        "sha256": "a0c4c8d7014f39a946a48b360f148e2bbaa6a43d139c86f822a380206388b40f"
+      }
+    ],
+    "deploy/pi-watchdog-v3.service": [
+      {
+        "directive": "ExecStart",
+        "sha256": "a27d72f758a64ee18cdf669d0259805a9e5777ff6924ac25e62bb97c8f221bb5"
+      }
+    ],
+    "deploy/pi-watchdog-v3.timer": [
+      {
+        "directive": "Unit",
+        "sha256": "94714fc6ae43105b8b79e330483ec20e649021b647d79efe68fa2bd8b44b8c24"
+      }
+    ]
+  },
+  "installed_files": {
+    "/usr/local/libexec/ladder-dragon/network_recovery.py": "deploy/network_recovery.py",
+    "/usr/local/libexec/ladder-dragon/export_sanitized_logs.py": "deploy/export_sanitized_logs.py",
+    "/usr/local/bin/pi-watchdog_v3.sh": "deploy/pi-watchdog_v3.sh",
+    "/usr/local/bin/ladder-dragon-depth-archive": "deploy/record_depth_archive.sh",
+    "/usr/local/bin/ladder-dragon-depth-retention": "deploy/run_depth_archive_retention.sh",
+    "/usr/local/bin/ladder-dragon-validation-retention": "deploy/run_mainnet_validation_archive_retention.sh",
+    "/usr/local/bin/ladder-dragon-soak-audit": "deploy/run_production_soak_audit.sh"
+  }
+}

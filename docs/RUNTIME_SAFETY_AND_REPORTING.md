@@ -1,5 +1,14 @@
 # Runtime safety and reporting
 
+## Advisory failure diagnostics
+
+AI failures report fixed reason codes, a processing phase, and elapsed milliseconds without provider response text or private endpoints.
+The request phase includes transport and response decoding; recommendation validation has a separate phase.
+The existing bounded usage log retains `failure_phase`, `failure_reason`, and `latency_ms`; no new persistent store is introduced.
+Unknown errors remain generic, and deterministic fallback preserves every execution gate.
+Expectancy status reports `configuration_warning` and `configuration_blocks_buys` separately from the unchanged configured returns.
+A SHADOW warning does not block BUY by itself; it never grants execution permission.
+
 This document describes the operator-visible contracts shared by execution,
 accounting, the dashboard, SHADOW evidence collection, and Telegram reporting.
 It is a behavior reference, not a profitability claim or permission to enable

@@ -3,6 +3,8 @@ from decimal import Decimal
 import sqlite3
 from zoneinfo import ZoneInfo
 
+import pytest
+
 from bin import daily_trading_digest
 from ladder_dragon.execution import tools_stats
 
@@ -246,7 +248,8 @@ def test_fifo_old_basis_is_not_cycle_profit(tmp_path, monkeypatch):
         db, now=datetime(2026, 7, 26, 9, tzinfo=TZ), timezone_name="Asia/Almaty",
     )
     yesterday = message.split("Last 7 complete days")[0]
-    assert "Realized FIFO net PnL: -131.00 USDT" in yesterday
+    assert "FIFO net PnL estimate (UNVERIFIED LEGACY): -131.00 USDT" in yesterday
+    assert "Realized FIFO net PnL:" not in yesterday
     assert "Cash flow: -1.00 USDT" in yesterday
     assert "FIFO cost of sold inventory: +230.00 USDT" in yesterday
     assert "Cost from purchases before this period: +230.00 USDT" in yesterday
@@ -280,6 +283,37 @@ def test_fifo_quality_tracks_consumed_lots_and_period_boundaries(tmp_path):
     assert "FIFO cost of sold inventory: +150.00 USDT" in yesterday
     assert "LEGACY included" not in message
     assert "exchange history not independently verified" in message
+    assert "UNVERIFIED LEGACY" not in message
+    assert "WARNING: LEGACY" not in message
+
+
+@pytest.mark.parametrize("sale_price,expected", [("99", "-131.00"), ("230", "0.00"), ("240", "+10.00")])
+def test_legacy_warning_precedes_amount_without_changing_accounting(tmp_path, monkeypatch, sale_price, expected):
+    marker = "private-digest-label-fixture"
+    monkeypatch.setenv("BINANCE_API_KEY", marker)
+    db = tmp_path / "stats.db"
+    connection = tools_stats.init_db(str(db))
+    for tid, day, side, price, quality in (
+        (1, 1, "BUY", "230", "legacy"),
+        (2, 25, "SELL", sale_price, "exact"),
+    ):
+        tools_stats.apply_trade(
+            connection, "SOLUSDT", side, price, "1", ts=_timestamp(day),
+            trade_id=tid, commission_value_status=quality,
+        )
+    before = tuple(connection.iterdump())
+    message, _ = daily_trading_digest.build_digest(
+        db, now=datetime(2026, 7, 26, 9, tzinfo=TZ), timezone_name="Asia/Almaty",
+    )
+    assert tuple(connection.iterdump()) == before
+    connection.close()
+    label = f"FIFO net PnL estimate (UNVERIFIED LEGACY): {expected} USDT"
+    assert message.count(label) == 3
+    assert "Realized FIFO net PnL:" not in message
+    assert message.index("Closed-cycle net PnL: UNAVAILABLE") < message.index("Yesterday")
+    assert message.index("WARNING: LEGACY") < message.index(label)
+    assert "FIFO cost of sold inventory: +230.00 USDT" in message
+    assert marker not in message
 
 
 def test_excluded_symbol_cannot_contribute_basis_or_quality(tmp_path):
@@ -297,3 +331,5 @@ def test_excluded_symbol_cannot_contribute_basis_or_quality(tmp_path):
     assert "SOLUSDT — incomplete FIFO history" in message
     assert "FIFO cost of sold inventory: 0.00 USDT" in message
     assert "LEGACY included" not in message
+    assert "UNVERIFIED LEGACY" not in message
+    assert "WARNING: LEGACY" not in message

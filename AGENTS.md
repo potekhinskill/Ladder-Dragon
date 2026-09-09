@@ -5,44 +5,42 @@ These rules apply to every repository change and every Raspberry Pi update.
 ## Before editing
 
 - Read this file and the nearest `AGENTS.md` instructions.
-- Read `DECISIONS.md` and `MISTAKES.md` completely before making changes.
-- Read `docs/TECHNICAL_ENGLISH.md` before you write or change documentation.
+- For behavior changes, contract changes, or unfamiliar components, use the [learning index](docs/AGENT_WORKFLOW.md) to select relevant context.
+- Read affected contracts and applicable lessons; expand history searches when dependencies or unresolved questions require them.
+- Typographical, formatting, and link corrections do not require the index or learning-history searches.
+- Historical learning entries explain prior decisions; they do not override current project rules.
+- When writing documentation or resolving language uncertainty, consult the relevant sections of `docs/TECHNICAL_ENGLISH.md`; typo fixes need no full reread.
 - Check `git status` and preserve user changes.
-- Locate related tests, migrations, systemd units, `.env.example` files, and docs.
+- Locate tests and contracts relevant to the change. Inspect migrations, systemd units, and configuration examples when affected.
 - Never read or print values from `.env`, keys, tokens, or backups.
+
+## Work scope and completion
+
+- State the agreed work boundary and completion checks before implementation.
+- Continue implementation, related corrections, and verification within that boundary without requesting approval for every file.
+- Stop for missing authority, conflicting user changes, or a decision that materially expands scope.
+- Audit requests remain read-only unless implementation is also requested.
+- Report local completion separately from publication, deployment, and trading readiness.
 
 ## Git and changelog
 
 - Keep `main` as the only branch published to GitHub. Work on a local,
   temporary `ladderdragon/*` branch, but never push that branch to `origin`.
-  After verification, fast-forward the reviewed commit to `origin/main` and
-  delete the local temporary branch.
-- Do not create remote feature, release, agent, Dependabot, or compatibility
-  branches. If an exceptional remote branch is explicitly authorized, record
-  why it is necessary and delete it immediately after integration or rejection.
+  Publish only within current explicit user authorization, after required verification.
+  Follow [the release procedure](docs/RELEASING.md) when preparing commits, versions, tags, publication, or local branch cleanup.
+- An exceptional remote branch needs explicit authorization and a recorded reason; delete it after integration or rejection.
 - Keep GitHub's automatic merged-branch deletion enabled and an active ruleset
   that blocks creation of every branch except `main`.
 - Keep one logical change set per atomic commit.
 - Do not use destructive commands (`reset --hard`, `checkout --`) without an explicit request.
-- Every functional, security, schema, deployment, or dashboard change must have a
-  `CHANGELOG.md` entry in the same commit.
-- A changelog entry must include the date, a category (`Added`, `Changed`, `Fixed`,
-  `Security`, or `Verified`), and the actual test result.
-- A task is not complete when code changed without a matching changelog entry.
-- `## [Unreleased]` is forbidden. Put each change immediately in a dated section
-  named `## [X.Y.Z] — YYYY-MM-DD`.
-- Bump `__version__` in `product_version.py` for every changelog entry and verify
-  that `^## [Unreleased]` is absent before committing.
+- Functional, security, schema, deployment, and dashboard changes require dated changelog entries with actual test results in the same commit.
+- `## [Unreleased]` is forbidden.
 - The release continuity gate is mandatory.
-- A candidate must be the direct next Semantic Version from the signed baseline.
-- A branch tip can increase the version only once.
-- Each published release must have one annotated tag on a linear ancestor of `main`.
-- Do not push a release when `release_continuity` is `BLOCKED`. Its verification
-  artifact is the release manifest and must list the previous SHA, current SHA,
-  and every included commit.
-- Push only after tests; report the commit SHA and Raspberry update command.
+- Never publish when `release_continuity` is `BLOCKED`; published releases remain immutable.
+- Passing tests prove readiness, not permission to push or update Raspberry Pi.
+- Before each publication or deployment, verify that the action and target remain within current explicit user authorization.
 - Derive the GitHub repository name from the configured `origin` before each `gh` command.
-- Do not type or reconstruct the GitHub repository owner and name manually.
+- Never reconstruct repository names or commit identifiers manually.
 
 ## Security and execution modes
 
@@ -87,21 +85,30 @@ These rules apply to every repository change and every Raspberry Pi update.
   unresolved state, order intents, or lifecycle evidence. Archive eligible
   derived data only after a recent verified encrypted backup. Add tests that
   prove pending and protected records survive retention.
-- After changes run at least `python3 -m compileall -q .` and `PYTHONPATH=. pytest -q`.
 - AI/Risk/Executor changes must run related unit and regression tests, including restart,
   partial fill, OCO/STOP, gap, and idempotency scenarios.
-- New logic needs a fail-closed test and a test proving no secret or look-ahead leakage.
+- Add fail-closed regressions when changing validation, financial decisions, or execution authority.
+- Add secret-leakage tests when changing sensitive data handling or exposure boundaries.
+- Add no-look-ahead tests when changing temporal data, causal cutoffs, prediction, replay, or evidence selection.
 - Write comments for major nodes and dangerous financial decisions in English.
+
+## Verification by change type
+
+- During iteration, run affected tests through `.venv/bin/python`; focused results are not a full verification PASS.
+- For documentation-only changes, check Technical English, changed links, and affected documentation contracts; full compilation and tests are not required.
+- For agent-guidance changes, also run affected workflow and skill validation checks.
+- Classify executable examples, safety contracts, configuration, and generated assets by their effects, not their filename extension.
+- For code or operational behavior changes, complete compileall, the full suite, and all five safety audits before declaring completion.
+- Apply the stricter category to mixed change sets; report documentation checks separately from earlier code verification.
+- Every release requires the complete `release` profile on the unchanged signed candidate, including documentation-only releases.
+- Keep `local`, `release`, and continuous integration comprehensive; never add filters, optional safety checks, or focused PASS artifacts.
+- Disable dotenv loading during local checks. Use isolated synthetic state and inspect runtime adapters before tests with uncertain side effects.
+- Keep the candidate unchanged during verification; after code corrections, rerun required completion checks.
+- Check `git diff --check` before handoff. Run tests for read-only audits only when needed to establish findings.
 
 ## Documentation language
 
-- Write English technical documentation with the project ASD-STE100 profile in
-  `docs/TECHNICAL_ENGLISH.md`.
-- Use no more than 20 words in an instruction.
-- Use no more than 25 words in a descriptive sentence.
-- Use one term for one meaning. Define each uncommon abbreviation.
-- Preserve commands, identifiers, legal text, locale text, and historical
-  evidence exactly when their exact form is necessary.
+- Follow the English writing profile in `docs/TECHNICAL_ENGLISH.md`, including sentence limits and exact-evidence exceptions.
 - Run `.venv/bin/python -m bin.check_technical_english` before each commit that
   changes documentation.
 
@@ -110,10 +117,11 @@ These rules apply to every repository change and every Raspberry Pi update.
 - After a successful solution is validated, add a concise reusable decision to
   `DECISIONS.md` when it establishes a new invariant or workflow. Do not copy
   routine changelog entries.
-- Identify the root cause when an agent decision causes a defect or avoidable rework.
-- Add a concise entry to `MISTAKES.md` in the same logical change set.
+- Record significant or recurring agent-caused failures in `MISTAKES.md` within the same logical change set.
+- Include safety defects, misleading conclusions, lost evidence, failed releases, and substantial avoidable rework; omit isolated, harmless corrected slips.
 - A mistake entry must state impact, root cause, correction, and prevention.
   Recording only the symptom is not sufficient.
+- Link a new cross-cutting invariant from the learning index when it changes future work; preserve historical entries.
 - Never place secrets, private endpoints, balances, account identifiers, or raw
   production evidence in either learning file.
 

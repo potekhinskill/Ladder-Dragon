@@ -9,11 +9,23 @@ from ladder_dragon.verification.checks.release_continuity import (
     release_continuity_checks,
 )
 from ladder_dragon.verification.models import CheckSpec, HarnessContext
+from ladder_dragon.verification.checks.architecture import (
+    check_architecture, check_architecture_references, check_architecture_surfaces, check_architecture_service_links,
+    check_architecture_cycles, check_architecture_new_sizes, check_architecture_legacy_sizes,
+)
 
 
 def local_checks(context: HarnessContext) -> list[CheckSpec]:
+    """Keep comprehensive checks at completion; focused iteration uses pytest directly."""
     python = context.python
     return release_continuity_checks(context) + [
+        CheckSpec(name="architecture_ownership", check=check_architecture),
+        CheckSpec(name="architecture_cycles", check=check_architecture_cycles),
+        CheckSpec(name="architecture_new_sizes", check=check_architecture_new_sizes),
+        CheckSpec(name="architecture_legacy_sizes", check=check_architecture_legacy_sizes),
+        CheckSpec(name="architecture_references", check=check_architecture_references),
+        CheckSpec(name="architecture_surfaces", check=check_architecture_surfaces),
+        CheckSpec(name="architecture_service_links", check=check_architecture_service_links),
         CheckSpec(
             name="source_compile",
             argv=(python, "-m", "compileall", "-q", "."),

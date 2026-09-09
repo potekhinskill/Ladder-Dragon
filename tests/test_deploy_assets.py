@@ -937,7 +937,7 @@ def test_daily_digest_is_exact_idempotent_and_scheduled_for_almaty_morning():
 
 
 def test_monthly_prediction_contour_is_shadow_cutoff_bound_and_optional():
-    source = read("bin/monthly_prediction_report.py")
+    source = read("ladder_dragon/strategy/prediction/monthly_report_command.py")
     service = read("deploy/ladder-dragon-monthly-prediction.service")
     timer = read("deploy/ladder-dragon-monthly-prediction.timer")
     installer = read("deploy/install_raspberry_pi.sh")

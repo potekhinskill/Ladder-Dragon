@@ -57,6 +57,7 @@ from ladder_dragon.supervision.authority_attestation import require_supervisor_a
 from ladder_dragon.strategy.prediction.episode_semantics import REGIME_ADX_LENGTH, REGIME_EMA_FAST_LENGTH, REGIME_EMA_SLOW_LENGTH, require_runtime_regime_contract
 from ladder_dragon.supervision.aggregate_trade_history import load_aggregate_trade_window, safe_aggregate_trade_error
 from ladder_dragon.supervision import strategy_control_gates, historical_context
+from ladder_dragon.supervision.expectancy_status import build_expectancy_status
 from ladder_dragon.ai.ai_runtime_status import write_runtime_status
 from ladder_dragon.ai.ai_control import read_ai_control, resolve_ai_control_path
 from ladder_dragon.supervision.entry_policy import (
@@ -3320,19 +3321,12 @@ def run_for_symbol(
                 "buys_allowed": regime_policy.buys_allowed,
                 "cap_scale": str(regime_policy.cap_scale),
             },
-            "expectancy": {
-                "mode": expectancy_mode,
-                "required_edge_pct": (
-                    str(required_edge)
-                    if required_edge is not None
-                    else None
-                ),
-                "commission_error": commission_error,
-                "maker_policy_mode": maker_mode,
-                "configuration_passes": expectancy_configuration_passes,
-                "configured_minimum_net_pct": str(minimum_profit),
-                "configured_take_profit_pct": str(tp1_exact),
-            },
+            "expectancy": build_expectancy_status(
+                mode=expectancy_mode, required_edge=required_edge,
+                commission_error=commission_error, maker_mode=maker_mode,
+                configuration_passes=expectancy_configuration_passes,
+                minimum_profit=minimum_profit, take_profit=tp1_exact,
+            ),
             "inventory_skew": {
                 "mode": inventory_mode,
                 "applicable": inventory_applicable, "status": inventory_status,

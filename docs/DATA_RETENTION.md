@@ -80,7 +80,7 @@ A later successful run clears the failed unit state.
 - Rolling volatility uses one disposable replacement file with no archive dependency.
 - Retained depth metadata is rechecked until each covered filled episode becomes terminal.
 - Imported L2 features remain append-only after the source archive expires.
-- Mainnet validation archives retain at most 32 sessions or 512 MiB.
+- Mainnet validation archives retain at most 40 sessions or 512 MiB.
 - Validation capacity blocks new drills. It never deletes replay evidence.
 - Archive validation evidence only after a verified encrypted backup and promotion audit.
 - A terminal rejected validation batch can enter manual encrypted archival.
@@ -90,11 +90,11 @@ A later successful run clears the failed unit state.
 - The external verified bundle contains each removed public archive and metadata file.
 - Each bundle contains at most 12 derived public archives and their metadata.
 - Sanitized logs and dashboard history use file-size and age limits.
-- Encrypted backups use local and external retention policies.
-- Local rotation runs before collection and preserves the newest completed archive.
+- Encrypted backup archives reside only on the external disk.
+- Local storage contains temporary private staging and public archive pointers, not archive mirrors.
 - Old private staging uses an exact timestamp grammar and a sixty-minute minimum age.
-- External rotation runs before mirroring and preserves the newest encrypted archive.
-- Each run verifies and mirrors only its new encrypted archive.
+- External rotation preserves the newest encrypted archive.
+- Each run verifies its new external archive before publishing its pointer.
 
 The backup includes database archives. Do not delete an archive only because
 the active database is smaller.

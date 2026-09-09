@@ -4,7 +4,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from bin.audit_backtest_reports import classify_report, main
+from ladder_dragon.verification.backtest_reports import classify_report, main
 from bin.backtest import build_report
 from ladder_dragon.strategy.simulation import SimulationConfig
 

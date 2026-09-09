@@ -12,6 +12,10 @@ def _line_count(path: str) -> int:
 def test_cli_launchers_remain_thin_and_never_alias_module_identity():
     for relative in (
         "bin/ai_plan_runner.py",
+        "bin/stats_view.py",
+        "bin/monthly_prediction_report.py",
+        "bin/audit_backtest_reports.py",
+        "bin/audit_numeric_boundaries.py",
         "bin/db_migrate.py",
         "bin/ai_supervisor.py",
         "bin/autosize_universal.py",
@@ -57,7 +61,8 @@ def test_application_package_never_depends_on_bin_entrypoints():
 def test_known_runtime_monoliths_can_only_shrink():
     """Prevent feature work from enlarging legacy orchestration modules."""
     budgets = {
-        "ladder_dragon/supervision/runtime.py": 4824,
+        "ladder_dragon/supervision/runtime.py": 4803,
+        "ladder_dragon/ai/ai_advisor.py": 822,
         "ladder_dragon/execution/worker/runtime.py": 1661,
         "ladder_dragon/execution/worker/bootstrap.py": 18,
         "ladder_dragon/execution/worker/lifecycle.py": 577,

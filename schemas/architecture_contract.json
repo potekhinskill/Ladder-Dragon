@@ -1,0 +1,38 @@
+{
+  "schema_version": 1,
+  "scope": "python_ownership_and_static_launcher_boundary",
+  "directories": {
+    "FastAPI/pi-dashboard": "dashboard.entrypoint",
+    "bin": "commands",
+    "deploy": "deployment.host",
+    "ladder_dragon/ai": "ai",
+    "ladder_dragon/ai/context": "ai.context",
+    "ladder_dragon/dashboard": "dashboard",
+    "ladder_dragon/dashboard/repositories": "dashboard.repositories",
+    "ladder_dragon/dashboard/routers": "dashboard.routers",
+    "ladder_dragon/dashboard/services": "dashboard.services",
+    "ladder_dragon/deployment": "deployment.status",
+    "ladder_dragon/execution": "execution",
+    "ladder_dragon/execution/journal": "execution.journal",
+    "ladder_dragon/execution/operator": "execution.operator",
+    "ladder_dragon/execution/orders": "execution.orders",
+    "ladder_dragon/execution/protection": "execution.protection",
+    "ladder_dragon/execution/worker": "execution.worker",
+    "ladder_dragon/market_analysis": "market_analysis",
+    "ladder_dragon/persistence": "persistence",
+    "ladder_dragon/risk": "risk",
+    "ladder_dragon/strategy": "strategy",
+    "ladder_dragon/strategy/prediction": "strategy.prediction",
+    "ladder_dragon/supervision": "supervision",
+    "ladder_dragon/verification": "verification",
+    "ladder_dragon/verification/architecture": "verification.architecture",
+    "ladder_dragon/verification/checks": "verification.checks",
+    "ladder_dragon/verification/live": "verification.live"
+  },
+  "files": {
+    "product_version.py": "product.identity",
+    "ladder_dragon/__init__.py": "product.package",
+    "ladder_dragon/numeric_compat.py": "numeric.compatibility",
+    "ladder_dragon/sqlite_safety.py": "persistence.safety"
+  }
+}

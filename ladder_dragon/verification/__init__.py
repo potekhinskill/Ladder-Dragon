@@ -4,6 +4,5 @@
 """Unified verification harness for local, release and venue checks."""
 
 from .models import CheckResult, HarnessReport, Status
-from .runner import HarnessRunner
 
-__all__ = ["CheckResult", "HarnessReport", "HarnessRunner", "Status"]
+__all__ = ["CheckResult", "HarnessReport", "Status"]

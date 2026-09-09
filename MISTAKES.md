@@ -1,5 +1,61 @@
 # Engineering mistakes and root causes
 
+### 2026-09-09 — Relocated universal requirements instead of narrowing their triggers
+
+- **Impact:** simple documentation corrections still required broad preparation and comprehensive tests after the first instruction cleanup.
+- **Root cause:** the cleanup changed document placement without testing whether each requirement applied to the actual task.
+- **Correction:** separate documentation, guidance, code, and release checks; remove duplicated general rules and unconditional historical reading.
+- **Prevention:** review applicability using a wording correction, an architecture continuation, a financial change, and a documentation-only release.
+
+### 2026-09-09 — Treated individual extractions as task completion
+
+- **Impact:** the user repeatedly needed to request continuation within an already reviewed architecture stage.
+- **Root cause:** file-level progress was treated as a stopping condition without agreeing on the stage's completion evidence.
+- **Correction:** define the work boundary upfront and continue related implementation, corrections, and verification within it.
+- **Prevention:** report incomplete stage work explicitly; stop for genuine blockers or changed authority, not merely the next file.
+
+### 2026-09-09 — Repeated oversized instruction reads during skill preparation
+
+- **Impact:** truncated output required repeated reads before the skill could be written.
+- **Root cause:** larger requested output budgets were mistaken for guaranteed effective limits.
+- **Correction:** read the omitted ranges separately and complete both learning records before editing.
+- **Prevention:** keep independent instruction reads below 9,000 tokens, regardless of a larger requested output budget.
+
+### 2026-09-09 — Combined conflicting patch operations for one path
+
+- **Impact:** the patch tool rejected the first extraction patch before changing files.
+- **Root cause:** one patch requested both deletion and creation of the same launcher path.
+- **Correction:** replace its contents with one update operation.
+- **Prevention:** use one patch operation per existing path and verify the resulting source against its baseline.
+
+### 2026-09-09 — Left retention descriptions behind implementation changes
+
+- **Impact:** the retention guide described an obsolete validation capacity and local archive mirroring.
+- **Root cause:** earlier storage changes did not update the corresponding policy summary.
+- **Correction:** align the guide with the existing 40-session limit and external-only encrypted archive storage.
+- **Prevention:** include retention guides in documentation checks and review their source references during architecture inventory updates.
+
+### 2026-09-09 — Omitted a required harness fixture argument
+
+- **Impact:** two architecture integration tests failed before invoking their intended checks.
+- **Root cause:** the new fixture omitted the required output path from `HarnessOptions`.
+- **Correction:** provide the actual constructor contract and rerun the real-profile checks.
+- **Prevention:** inspect the complete dataclass signature before constructing new harness fixtures.
+
+### 2026-09-09 — Split a test before its final assertion
+
+- **Impact:** three new digest cases failed on an assertion that belonged to the preceding test.
+- **Root cause:** the insertion point matched an intermediate assertion rather than the complete function boundary.
+- **Correction:** restore the assertion to its original test and inspect both adjacent functions before rerunning.
+- **Prevention:** append new tests at complete definition boundaries and review the resulting source before execution.
+
+### 2026-09-09 — Qualified an uncertain result only after its headline
+
+- **Impact:** legacy FIFO figures remained easy to interpret as confirmed losses from recent trading cycles.
+- **Root cause:** the headline used the same realized-PnL label for verified-format and legacy records; limitations appeared later.
+- **Correction:** qualify each legacy amount directly and move cycle-ownership limitations before all period amounts.
+- **Prevention:** test warning order and labels for losses, gains, and zero results while proving unchanged accounting records.
+
 ### 2026-09-09 — Started verification before completing version metadata
 
 - **Impact:** the preliminary full suite failed its version consistency check and required another run.
@@ -716,11 +772,8 @@
 - **Correction:** add the English purpose header before candidate verification.
 - **Prevention:** run deployment source-contract tests with focused tests for each new host helper.
 
-Read this file before changing the repository. Add an entry whenever an agent
-decision causes a defect, unsafe state, failed release, misleading output, or
-avoidable rework. Identify the root cause rather than recording only the
-symptom. Keep entries concise and exclude secrets, balances, account data, and
-private infrastructure details.
+Current [learning-record rules](AGENTS.md#learning-records) define significant or recurring failures that require entries.
+The [learning index](docs/AGENT_WORKFLOW.md) supports contextual history lookup; it is not a mandatory reading package.
 
 ### 2026-08-28 — Assumed a newer standard library in a packaging test
 

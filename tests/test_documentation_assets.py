@@ -79,7 +79,8 @@ def test_agent_learning_records_are_required_and_structured() -> None:
     mistakes = MISTAKES.read_text(encoding="utf-8")
     readme = (ROOT / "README.md").read_text(encoding="utf-8")
 
-    assert "Read `DECISIONS.md` and `MISTAKES.md` completely" in agents
+    assert "docs/AGENT_WORKFLOW.md" in agents
+    assert "Read `DECISIONS.md` and `MISTAKES.md` completely" not in agents
     assert "root cause" in agents.lower()
     for heading in ("**Context:**", "**Decision:**", "**Why it worked:**", "**Reuse:**"):
         assert heading in decisions

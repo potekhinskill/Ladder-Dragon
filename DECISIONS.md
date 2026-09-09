@@ -1,5 +1,138 @@
 # Engineering decisions
 
+### 2026-09-10 — Extract diagnostics through explicit current interfaces
+
+- **Context:** useful diagnostic additions expanded coordinator modules; deleting messages or compressing code would hide the ownership problem.
+- **Decision:** move failure publication behind current logging callbacks and move expectancy serialization into a pure status builder.
+- **Why it worked:** producer-call tests preserve exact fields, callback order, fallback, and negative caching; size checks pass with reduced module budgets.
+- **Reuse:** keep mutable cache state and execution decisions with their owners; pass explicit inputs instead of entire runtime objects.
+
+### 2026-09-10 — Ratchet legacy physical sizes without approving their design
+
+- **Context:** new-code limits alone leave existing monolith growth unchecked; AST endpoints also omit trailing module comments and blank lines.
+- **Decision:** preserve historical physical sizes and reject growth above the greater of predecessor size and the approved standard limit.
+- **Why it worked:** profile tests reject threshold crossings; shrink-and-restore tests prevent reuse of a removed larger ceiling.
+- **Reuse:** non-growth is not architectural approval; ambiguous changed groups block comparison and explicit exception review remains separate.
+- **Retention:** results use the existing bounded derived verification artifact; no production store or archive schedule changes.
+
+### 2026-09-10 — Classify new-code limits against verified release history
+
+- **Context:** the current Git index cannot distinguish release additions, and new functions can appear inside existing modules.
+- **Decision:** enforce approved 500-line module and 120-line function limits against canonical release lineage; report review warnings above 80 function lines.
+- **Why it worked:** actual local and release checks reject threshold violations and block missing lineage, including additions within an existing module.
+- **Reuse:** legacy growth remains a separate obligation; ambiguous changed groups block classification instead of receiving automatic allowances.
+- **Retention:** results use the existing bounded derived verification artifact; no new store or retention policy is introduced.
+
+### 2026-09-10 — Preserve ambiguous function definitions in size observations
+
+- **Context:** overloads and conditional definitions can share lexical names; a dictionary keyed only by name silently loses measurements.
+- **Decision:** retain each definition with its source span and mark duplicate lexical names as ambiguous.
+- **Why it worked:** profile tests preserve duplicate rows and decorator-inclusive sizes without executing decorators or exposing argument payloads.
+- **Reuse:** observation is not allowance approval; future budget comparison must resolve or block ambiguous identities before permitting growth.
+- **Retention:** measurements remain in the existing bounded derived architecture report; no new store or archive policy is introduced.
+
+### 2026-09-10 — Keep verification result imports independent of orchestration
+
+- **Context:** the package initializer re-exported its runner, connecting every verification submodule to profile orchestration and expanding combined cycles.
+- **Decision:** remove the unused runner re-export; consumers use the canonical runner module, while result-model exports remain unchanged.
+- **Why it worked:** fresh-process tests preserve result identity without loading orchestration; restoring the export fails the cycle comparison.
+- **Reuse:** review initializer exports and consumers before dependency extraction; avoid coordinator imports in shared result interfaces.
+
+### 2026-09-09 — Enforce direct and initializer-inclusive cycle allowances separately
+
+- **Context:** a combined graph can contain initializer cycles without direct cycles; one shared allowance could silently permit direct-cycle growth.
+- **Decision:** compare cyclic edges independently in both static graphs against the same verified predecessor.
+- **Why it worked:** real profile tests reject initializer-only growth; a regression rejects direct growth even when combined edges remain unchanged.
+- **Reuse:** conservative dependency restrictions do not prove runtime import failures; new analyzer dependencies receive no automatic exception.
+- **Retention:** metrics remain in the existing bounded derived verification artifact; production records and archive schedules do not change.
+
+### 2026-09-09 — Anchor direct cycle allowances to verified release lineage
+
+- **Context:** candidate-controlled baselines could approve their own dependency growth; unchanged group sizes could hide new cyclic edges.
+- **Decision:** compare direct static cyclic edges with immutable source at the previous SHA selected by canonical release continuity.
+- **Why it worked:** synthetic local and release profile tests reject added edges and block missing lineage without executing historical source.
+- **Reuse:** removal reduces the next release's allowance; initializer-only cycles and dynamic dependencies need separate enforcement.
+- **Retention:** results use the existing bounded derived verification artifact; no production records or archive schedules change.
+
+### 2026-09-09 — Diagnose advisory rejection without publishing response content
+
+- **Context:** generic ValueError logs preserved privacy but could not distinguish malformed JSON from recommendation validation failures.
+- **Decision:** use fixed local reason codes, processing phases, and elapsed time in existing bounded telemetry.
+- **Why it worked:** regression tests reject invalid recommendations, preserve negative caching, and exclude private markers from logs and usage records.
+- **Reuse:** diagnostic fields explain existing controls; they never adjust strategy thresholds or grant execution permission.
+- **Retention:** additional fields use the existing size-bounded usage log and runtime status; no new authoritative records or archive schedules are introduced.
+
+### 2026-09-09 — Separate conservative source cycles from approved architecture debt
+
+- **Context:** imported attributes are not module nodes, while package initializers add dependencies that direct module imports can hide.
+- **Decision:** map candidate imports to inventoried paths, reject ambiguous module identities, and report cyclic groups without approving exceptions.
+- **Why it worked:** exhaustive small-graph tests match independent reachability; real local and release checks block ambiguous identities without source execution.
+- **Reuse:** review initializer behavior and dynamic loaders before enforcing cycle budgets or claiming runtime capability isolation.
+- **Retention:** graph observations stay within the existing bounded derived verification artifact; no production state or retention schedule changes.
+
+### 2026-09-09 — Keep dynamic dependency observations separate from authority proof
+
+- **Context:** dynamic import syntax can contain private expressions, and imported loader names can be rebound.
+- **Decision:** report known local literal targets and hashed observations without evaluating source or claiming binding provenance.
+- **Why it worked:** real local and release profile tests preserve uncertain observations without executing loader arguments or disclosing markers.
+- **Reuse:** source inventory before dependency enforcement; complete graphs still require unresolved-loader review and runtime capability tests.
+- **Retention:** observations use the existing bounded derived verification report; no new production records or retention schedule are introduced.
+
+### 2026-09-09 — Select preparation and verification by actual change effects
+
+- **Context:** moving universal requirements into an index retained unnecessary work for small documentation corrections.
+- **Decision:** centralize general rules and select context and verification by affected behavior, not file extensions.
+- **Why it worked:** documentation and skill checks pass; profile regressions still reject failures outside selected tests.
+- **Reuse:** documentation-only handoffs use focused evidence; code completion and every release retain their comprehensive verification requirements.
+
+### 2026-09-09 — Route preparation without weakening completion evidence
+
+- **Context:** unconditional historical reading and per-file completion loops repeated work without changing the approved task boundary.
+- **Decision:** read current invariants and relevant indexed lessons; use focused iteration before comprehensive change-set verification.
+- **Why it worked:** profile regressions retain mandatory audits and execute an unfiltered test command that rejects an unrelated failure.
+- **Reuse:** local implementation tasks. Verification remains separate from publication authority, and historical evidence remains intact.
+
+### 2026-09-09 — Scope architecture guidance without duplicating authority
+
+- **Context:** repeated extraction work needs a reusable completion boundary without another source of production permissions.
+- **Decision:** keep a repository-local architecture skill that routes to current contracts and preserves all project requirements.
+- **Why it worked:** skill validation, reference checks, and controlled-English review pass. Behavioral effectiveness still needs observation during later tasks.
+- **Reuse:** reviewed architecture stages; completion remains distinct from publication, deployment, and trading readiness.
+
+### 2026-09-09 — Prove a command extraction with unchanged implementation syntax
+
+- **Context:** inventory alone does not prove that a new module owns the former launcher's behavior.
+- **Decision:** move the concrete statistics viewer unchanged, then test its CLI and read-only database behavior.
+- **Reuse:** require a thin launcher, concrete definitions at the owner, source parity, and executable failure cases in the same pilot.
+- **Scope:** broader inventory phases remain open; the pilot does not authorize trading workflow changes or deployment.
+
+### 2026-09-09 — Inventory executable surfaces without running them
+
+- **Context:** command help and deployment scripts can initialize private state before argument handling.
+- **Decision:** require exact source membership and command guide coverage without executing discovery targets.
+- **Reuse:** report source hashes separately from behavioral parity. Existing migration, deployment, and financial checks retain their authority.
+- **Retention:** the bounded surface report uses existing derived verification artifacts and creates no runtime state.
+
+### 2026-09-09 — Reference canonical policies without duplicating permissions
+
+- **Context:** architecture inventories can accidentally create a second authority for existing safety permissions.
+- **Decision:** register reviewed source anchors and require their presence through local and release profiles.
+- **Reuse:** retain canonical policy values in existing audits. Report hashes as observations, never as semantic approval.
+- **Retention:** reference reports are bounded derived verification evidence. No production store or maintenance service is added.
+
+### 2026-09-09 — Enforce structural ownership before moving runtime behavior
+
+- **Context:** a broad decomposition plan needs a reproducible source inventory without implying that new folders complete the migration.
+- **Decision:** require exact directory ownership and reject static package-to-launcher imports through the existing harness profiles.
+- **Reuse:** report each implemented rule's limited scope. Include nonignored new files without importing application code or inspecting private artifacts.
+- **Retention:** the bounded inventory is derived verification evidence under the existing release artifact workflow. It creates no production state or maintenance service.
+
+### 2026-09-09 — Present evidence quality beside financial results
+
+- **Context:** a qualification below a prominent FIFO loss could be mistaken for a verified trading-cycle result.
+- **Decision:** label legacy amounts as unverified estimates and show unavailable cycle ownership before period figures.
+- **Reuse:** qualify positive, zero, and negative results equally. Presentation must not change accounting values or durable records.
+
 ### 2026-09-09 — Bind acknowledgement and cursor progress to complete evidence
 
 - **Context:** successful HTTP responses and successful primary accounting writes did not prove order ownership or complete lot synchronization.
@@ -844,9 +977,8 @@
 - **Why it worked:** tests prove identical rules, symbol-specific statistics, exact-next-candle settlement, and no order imports.
 - **Reuse:** every research feed that needs broader market coverage than the approved execution scope.
 
-Read this file before changing the repository. Record only decisions that were
-validated by tests or production evidence and are likely to be reused. Keep
-entries concise; this is not a changelog or an activity log.
+Current [learning-record rules](AGENTS.md#learning-records) define when to add decisions.
+The [learning index](docs/AGENT_WORKFLOW.md) supports contextual history lookup; it is not a mandatory reading package.
 
 ### 2026-08-14 — Keep remote valuation outside local accounting requests
 

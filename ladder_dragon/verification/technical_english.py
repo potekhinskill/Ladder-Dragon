@@ -16,6 +16,8 @@ PROCEDURAL_WORD_LIMIT = 20
 
 DEFAULT_DOCUMENTS = (
     "AGENTS.md",
+    "docs/AGENT_WORKFLOW.md",
+    ".agents/skills/ladder-dragon-architecture/SKILL.md",
     "COPYRIGHT.md",
     "DISCLAIMER.md",
     "README.md",
@@ -24,6 +26,10 @@ DEFAULT_DOCUMENTS = (
     "THIRD_PARTY_NOTICES.md",
     "TRADEMARKS.md",
     "docs/ARCHITECTURE.md",
+    "docs/ARCHITECTURE_EVOLUTION_PLAN.md",
+    "docs/ARCHITECTURE_STATE_MAP.md",
+    "docs/ARCHITECTURE_SURFACE_MAP.md",
+    "docs/DATA_RETENTION.md",
     "docs/COMMAND_REFERENCE.md",
     "docs/CONFIGURATION.md",
     "docs/IMPLEMENTATION_STATUS.md",

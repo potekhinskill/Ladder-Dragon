@@ -19,6 +19,8 @@ from typing import Any, Callable, Mapping, Optional
 
 import requests
 
+from ladder_dragon.ai.advisor_diagnostics import AdvisorResponseError, record_failure
+
 
 ALLOWED_MODES = {"UP", "DOWN", "FLAT"}
 MAX_RATIONALE_CHARS = 160
@@ -437,12 +439,15 @@ class AIAdvisor:
             return cached[1]
         started = time.monotonic()
         usage: Optional[TokenUsage] = None
+        failure_phase = "request"
         try:
             payload, usage = self._request(context)
+            failure_phase = "recommendation_validation"
             recommendation = validate_recommendation(
                 payload,
                 config=self.config,
             )
+            failure_phase = "post_validation"
             self._record_provider_success(context.symbol)
             applied = recommendation.confidence >= self.config.min_confidence
             recorded_decision_id: Optional[str] = None
@@ -502,19 +507,11 @@ class AIAdvisor:
         except (requests.RequestException, ValueError, KeyError, TypeError) as exc:
             # The advisory layer is fail-safe: any error selects the verified
             # deterministic strategy; trading never depends on the LLM.
-            self._log_usage(
-                context,
-                usage,
-                latency_ms=(time.monotonic() - started) * 1000,
-                outcome="error",
-                rejection_reason=type(exc).__name__,
-            )
-            safe_error = _safe_advisor_error(exc)
-            self._log_diagnostic(
-                context.symbol,
-                f"provider_error:{safe_error}",
-                f"[AI-ADVISOR] {context.symbol} unavailable: {safe_error}; "
-                "using deterministic strategy",
+            elapsed_ms = max(0.0, (time.monotonic() - started) * 1000)
+            record_failure(
+                exc, context=context, usage=usage, elapsed_ms=elapsed_ms,
+                phase=failure_phase, log_usage=self._log_usage,
+                log_diagnostic=self._log_diagnostic, error_label=_safe_advisor_error,
             )
             negative_ttl = self._negative_cache_ttl(context.symbol)
             with self._cache_lock:
@@ -608,6 +605,8 @@ class AIAdvisor:
         outcome: str,
         rationale: str = "",
         rejection_reason: str = "",
+        failure_phase: str = "",
+        failure_reason: str = "",
     ) -> None:
         """Handle log usage."""
         if not self.config.usage_log_path:
@@ -640,6 +639,8 @@ class AIAdvisor:
             "decision_id": self._last_decision_id,
             "rationale": rationale[:MAX_RATIONALE_CHARS],
             "rejection_reason": rejection_reason[:240],
+            "failure_phase": failure_phase,
+            "failure_reason": failure_reason,
             "context_version": "ai-context-v4",
             "context_hash": hashlib.sha256(
                 json.dumps(asdict(context), ensure_ascii=False, sort_keys=True, default=str).encode("utf-8")
@@ -670,29 +671,25 @@ def validate_recommendation(
         "rationale",
     }
     if set(payload) != required:
-        missing = sorted(required - set(payload))
-        extra = sorted(set(payload) - required)
-        raise ValueError(
-            f"AI schema mismatch: missing={missing}, extra={extra}"
-        )
+        raise AdvisorResponseError("schema_mismatch")
     mode = str(payload["mode"]).upper()
     if mode not in ALLOWED_MODES:
-        raise ValueError(f"invalid AI mode: {mode}")
+        raise AdvisorResponseError("mode_invalid")
     width = _strict_number(payload["ladder_width_scale"], "ladder_width_scale")
     cap = _strict_number(payload["cap_scale"], "cap_scale")
     confidence = _strict_number(payload["confidence"], "confidence")
     if not config.width_scale_min <= width <= config.width_scale_max:
-        raise ValueError("AI ladder width scale is outside configured bounds")
+        raise AdvisorResponseError("width_out_of_bounds")
     if not config.cap_scale_min <= cap <= config.cap_scale_max:
-        raise ValueError("AI CAP scale is outside configured bounds")
+        raise AdvisorResponseError("cap_out_of_bounds")
     if not 0 <= confidence <= 1:
-        raise ValueError("AI confidence must be in [0, 1]")
+        raise AdvisorResponseError("confidence_out_of_bounds")
     rationale = payload["rationale"]
     if not isinstance(rationale, str) or not rationale.strip():
-        raise ValueError("AI rationale must be a non-empty string")
+        raise AdvisorResponseError("rationale_invalid")
     rationale = rationale.strip()
     if any(ord(char) < 32 for char in rationale):
-        raise ValueError("AI rationale contains control characters")
+        raise AdvisorResponseError("rationale_control_characters")
     # Rationale does not participate in the trading decision. Limit it safely
     # after strict schema validation so a rare model overflow does not turn
     # valid mode/CAP/confidence into a failure of the whole AI cycle.
@@ -711,10 +708,10 @@ def validate_recommendation(
 
 def _strict_number(value: object, name: str) -> float:
     if isinstance(value, bool) or not isinstance(value, (int, float)):
-        raise ValueError(f"AI {name} must be a JSON number")
+        raise AdvisorResponseError("number_invalid")
     result = float(value)
     if result != result or result in (float("inf"), float("-inf")):
-        raise ValueError(f"AI {name} must be finite")
+        raise AdvisorResponseError("number_nonfinite")
     return result
 
 

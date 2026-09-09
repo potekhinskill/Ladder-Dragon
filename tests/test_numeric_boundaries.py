@@ -2,7 +2,7 @@ from pathlib import Path
 
 import pytest
 
-from bin.audit_numeric_boundaries import audit_numeric_boundaries
+from ladder_dragon.verification.numeric_boundaries import audit_numeric_boundaries
 from ladder_dragon.numeric_compat import compatibility_float
 
 

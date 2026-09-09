@@ -1,0 +1,31 @@
+{
+  "schema_version": 1,
+  "scope": "reviewed_source_references_not_writer_authorization",
+  "records": [
+    {"id":"trades_inventory","kind":"store","path":"ladder_dragon/execution/tools_stats.py","anchors":["apply_trade","set_last_trade_id","recalculate_inventory"],"data_class":"mixed","review_phase":"P3"},
+    {"id":"inventory_lots","kind":"store","path":"ladder_dragon/execution/inventory_lots.py","anchors":["sync_exchange_fill"],"data_class":"authoritative","review_phase":"P3"},
+    {"id":"order_journal","kind":"store","path":"ladder_dragon/execution/order_recovery.py","anchors":["OrderJournal.prepare","OrderJournal.mark_exact_lifecycle_closed","OrderJournal.record_partial_protection_exit"],"data_class":"authoritative","review_phase":"P4"},
+    {"id":"risk_state","kind":"store","path":"ladder_dragon/risk/risk_manager.py","anchors":["create_manual_halt","RiskManager._save","RiskManager._trip_unlocked"],"data_class":"authoritative","review_phase":"P4"},
+    {"id":"protection_state","kind":"store","path":"ladder_dragon/execution/protection/breakeven.py","anchors":["BreakevenStateStore.save"],"data_class":"authoritative","review_phase":"P4"},
+    {"id":"ai_decisions","kind":"store","path":"ladder_dragon/ai/context/runtime.py","anchors":["AdvisorDecisionStore._init"],"data_class":"mixed","review_phase":"P5"},
+    {"id":"unresolved_fills","kind":"store","path":"ladder_dragon/ai/unresolved_fills.py","anchors":["record_pending_fill"],"data_class":"authoritative","review_phase":"P5"},
+    {"id":"knowledge","kind":"store","path":"ladder_dragon/ai/ai_knowledge.py","anchors":["KnowledgeStore.sync_from_decisions","KnowledgeStore.link_retrieval"],"data_class":"mixed","review_phase":"P5"},
+    {"id":"prediction_store","kind":"store","path":"ladder_dragon/strategy/prediction/runtime.py","anchors":["PredictionShadowStore._migrate","PredictionShadowStore.record"],"data_class":"mixed","review_phase":"P5"},
+    {"id":"episode_evidence","kind":"store","path":"ladder_dragon/strategy/prediction/episode_evidence.py","anchors":["record_completed_episode","record_model_validation"],"data_class":"mixed","review_phase":"P5"},
+    {"id":"selection_evidence","kind":"store","path":"ladder_dragon/strategy/prediction/entry_diagnostics.py","anchors":["migrate_entry_diagnostics"],"data_class":"mixed","review_phase":"P5"},
+    {"id":"experiment_lifecycle","kind":"store","path":"ladder_dragon/strategy/prediction/experiment_lifecycle.py","anchors":["freeze_experiment","finalize_experiment"],"data_class":"authoritative","review_phase":"P5"},
+    {"id":"champion_registry","kind":"store","path":"ladder_dragon/strategy/prediction/champion_registry.py","anchors":["activate_champion","verify_active_champion_lifecycle"],"data_class":"authoritative","review_phase":"P5"},
+    {"id":"champion_probation","kind":"store","path":"ladder_dragon/supervision/champion_probation.py","anchors":["evaluate_champion_probation"],"data_class":"authoritative","review_phase":"P4"},
+    {"id":"context_journal","kind":"store","path":"ladder_dragon/strategy/prediction/context_journal.py","anchors":["ContextJournal.append"],"data_class":"derived","review_phase":"P5"},
+    {"id":"market_scenarios","kind":"store","path":"ladder_dragon/market_analysis/store.py","anchors":["MarketScenarioStore.record","MarketScenarioStore.settle"],"data_class":"derived","review_phase":"P3"},
+    {"id":"validation_batches","kind":"store","path":"ladder_dragon/verification/live/validation_batch.py","anchors":["create_batch_manifest","reserve_validation_attempt","complete_validation_attempt"],"data_class":"authoritative","review_phase":"P0"},
+    {"id":"database_migrations","kind":"store","path":"ladder_dragon/persistence/migrations.py","anchors":["migrate"],"data_class":"authoritative","review_phase":"P6"},
+    {"id":"exchange_boundaries","kind":"binding","path":"bin/audit_exchange_boundaries.py","anchors":["APPROVED_METHODS"],"data_class":"source_policy","review_phase":"P4"},
+    {"id":"critical_guards","kind":"binding","path":"bin/audit_guard_contracts.py","anchors":["CRITICAL_GUARDS"],"data_class":"source_policy","review_phase":"P4"},
+    {"id":"authority_calls","kind":"binding","path":"bin/audit_execution_authority_paths.py","anchors":["AUTHORITY_CALL_CONTRACTS","AUTHORITY_BINDING_CONTRACTS"],"data_class":"source_policy","review_phase":"P4"},
+    {"id":"numeric_budgets","kind":"binding","path":"ladder_dragon/verification/numeric_boundaries.py","anchors":["LIMITS","EXACT_PACKAGE_ROOTS"],"data_class":"source_policy","review_phase":"P3"},
+    {"id":"semantic_owners","kind":"binding","path":"bin/audit_semantic_authorities.py","anchors":["COLLECTION_AUTHORITIES","FEE_LITERAL_AUTHORITIES","INDICATOR_AUTHORITY"],"data_class":"source_policy","review_phase":"P3"},
+    {"id":"runtime_budgets","kind":"binding","path":"tests/test_architecture_layout.py","anchors":["test_known_runtime_monoliths_can_only_shrink.budgets"],"data_class":"source_policy","review_phase":"P4"},
+    {"id":"test_budgets","kind":"binding","path":"tests/test_architecture_layout.py","anchors":["test_component_tests_replace_the_previous_test_monoliths.budgets"],"data_class":"source_policy","review_phase":"P6"}
+  ]
+}

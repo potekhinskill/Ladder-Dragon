@@ -15,6 +15,7 @@ Help output is the authoritative option reference.
 | --- | --- |
 | `verification_harness` | runs local, release, Testnet, Pi, or Mainnet-canary verification |
 | `audit_ai_readiness` | checks real AI evidence for APPLY readiness |
+| `audit_architecture` | checks source ownership, launcher imports, store anchors, resources, command documentation, and literal service links |
 | `audit_backtest_reports` | classifies saved backtest reports |
 | `audit_exchange_boundaries` | rejects authenticated exchange calls outside reviewed adapters |
 | `audit_execution_authority_paths` | checks authority calls, gates, ordering, and supervisor cadence |
@@ -84,7 +85,7 @@ See [Historical entry replay](HISTORICAL_ENTRY_REPLAY.md) for continuous source 
 | `prediction_history_backfill` | creates cutoff-safe samples from archived bars |
 | `backfill_prediction_archive` | repairs eligible expired prediction outcomes |
 | `prediction_experiment` | bootstraps and audits independent SHADOW confirmation |
-| `monthly_prediction_report` | creates the monthly defensive SHADOW report |
+| `monthly_prediction_report` | creates the monthly defensive SHADOW report through `strategy/prediction/monthly_report_command.py` |
 | `market_scenario_shadow` | collects public multi-symbol scenario evidence |
 | `regime_pnl_report` | compares strategy, buy-and-hold, and USDT by regime |
 | `auto_ladder_map` | generates deterministic ladder diagnostics |
@@ -341,6 +342,7 @@ Only an all-`SUCCEEDED` batch can become replay evidence.
 | `tools_cancel_open` | previews or cancels selected open orders | `--live` plus venue selection |
 | `risk_ctl` | reads or resets the persistent HALT | manual reset review |
 | `maintenance_state` | sets, clears, or reads maintenance state | explicit operator command |
+| `supervisor_ctl.sh` | controls supervisor and report processes | explicit process command |
 | `import_legacy_cost_basis` | previews or applies a FIFO basis plan | `--apply` plus confirmations |
 | `review_unattributed_fills` | reviews exact historical attribution gaps | `--apply` plus confirmation |
 | `retire_legacy_accounting` | previews or applies exact-only retirement | stopped runtime evidence, backup, `--apply`, and confirmation |

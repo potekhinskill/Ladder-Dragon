@@ -5,6 +5,57 @@ Reusable application and domain logic is in `ladder_dragon/`.
 Files in `bin/` are stable command-line entry points.
 The `deploy/`, `FRONT/`, and `tests/` directories have separate technical scopes.
 
+See the [Architecture evolution plan](ARCHITECTURE_EVOLUTION_PLAN.md) for proposed ownership changes, migration phases, and permanent harness controls.
+The first ownership slice is implemented; the remaining target structure is still proposed.
+
+## Source ownership gate
+
+`schemas/architecture_contract.json` assigns Python files to exact directory owners or explicit file owners.
+Ownership does not propagate into an unregistered subdirectory.
+The required `architecture_ownership` check runs in local and release harness profiles.
+Run `.venv/bin/python -m bin.audit_architecture` for its source-only inventory.
+
+The check includes tracked and nonignored new Python files outside tests.
+It rejects unknown owners and static application imports from `bin`, including nested imports.
+Invalid contracts, source symlinks, parse failures, or unavailable Git input return BLOCKED.
+Reports identify HEAD, the contract hash, and observed source hashes; working changes are not described as an immutable release.
+Static imports and size metrics are inventoried without importing the application.
+Function observations include lexical names, definition and decorator-inclusive span lines, async status, and duplicate-name ambiguity.
+The maximum function size now includes decorators; duplicate definitions remain separate and cannot establish a unique runtime identity.
+These measurements do not approve size budgets; the existing report ceiling and fail-closed input checks remain unchanged.
+The required `architecture_new_sizes` profile check applies approved limits to new production paths and lexical function names against verified release lineage.
+New modules above 500 lines and new functions above 120 fail; functions above 80 through 120 produce review warnings.
+Changed ambiguous name groups block classification; unchanged groups remain legacy observations, not approved allowances.
+Existing growth and test-file size limits remain outside this scoped check; existing safety and size checks remain mandatory.
+The separate required `architecture_legacy_sizes` check rejects existing modules above the larger of 500 lines and their predecessor size.
+Existing functions cannot exceed the larger of 120 lines and their predecessor span; changed ambiguous groups block comparison.
+Historical module sizes include trailing comments and blank lines. Shrinkage reduces the next release's ceiling, down to the standard limit.
+Non-growth does not approve legacy design or replace explicit exception review; test-file size enforcement remains pending.
+Dynamic import calls now have bounded syntactic observations, including explicit import aliases and literal relative targets.
+Only inventoried local targets are named; other expressions receive syntax hashes and unresolved or external classifications.
+Static imports now map to inventoried module files and package initializers, with conservative cycle groups reported separately.
+The graph separates direct candidate imports from parent initializer dependencies and reports cyclic groups in both views.
+Each combined group includes its direct subgroups and internal edge counts without counting overlapping edge kinds twice.
+Local import sites now report deferred, conditional, class-body, and candidate type-guard context flags without printing guard expressions.
+The unguarded direct-cycle view excludes deferred and conditional sites, but does not prove runtime startup reachability.
+All observed imports remain in the complete conservative graph, including rebound type-guard names.
+Ambiguous module identities block analysis; missing external targets and imported attributes do not become invented source nodes.
+Runtime binding, cycle budgets, capabilities, and additional size budgets remain outside this check.
+Existing financial safety audits remain mandatory.
+
+The required `architecture_cycles` profile check prohibits new direct cyclic edges relative to the previous release selected by `release_continuity`.
+This comparison includes deferred and conditional imports; shrinking a cycle is allowed, but restoring removed cyclic edges is not.
+The check reads bounded immutable Git objects without importing historical code or accepting a candidate-provided graph budget.
+Missing lineage, missing history, invalid source, or incomplete current analysis returns BLOCKED.
+The inventory command remains diagnostic; local and release profiles additionally run the cycle-growth gate.
+The same gate separately rejects growth in the combined graph, including package initializer dependencies.
+Existing combined cycles never authorize new direct cycles; both comparisons use the same immutable release source.
+The verification package exports result models only; import `HarnessRunner` from `ladder_dragon.verification.runner` when orchestration is required.
+These conservative source restrictions do not prove import failure or startup execution. Dynamic cycle enforcement remains pending.
+
+The bounded report is derived verification evidence, not trading state.
+It uses the existing release artifact workflow and creates no Pi service or database.
+
 ## Dependency direction
 
 ```text
@@ -112,6 +163,20 @@ Order planning exposes only Decimal prices, quantities, notionals, and rounding 
 No binary-float planning compatibility API remains.
 
 ## Runtime entry points
+
+`bin/stats_view.py` now delegates to `ladder_dragon/execution/stats_view.py`.
+The package owns its concrete parser and report functions, without importing the former launcher.
+The command retains its arguments, exit behavior, and read-only SQLite adapter.
+
+`bin/audit_backtest_reports.py` delegates to `ladder_dragon/verification/backtest_reports.py`.
+The package owns classification, input discovery, and the command parser.
+Its tests import the implementation owner, not the executable launcher.
+
+`bin/audit_numeric_boundaries.py` delegates to `ladder_dragon/verification/numeric_boundaries.py`.
+The package owns the unchanged numeric budgets and analyzer; the harness retains its original executable command.
+
+See [Architecture state and policy map](ARCHITECTURE_STATE_MAP.md) for reviewed store anchors and existing policy sources.
+See [Command and deployment source map](ARCHITECTURE_SURFACE_MAP.md) for registered commands, service templates, frontend assets, and migrations.
 
 `bin/ai_supervisor.py`, `bin/autosize_universal.py`, both Binance verification
 commands and the safeguarded cancellation command expose only executable

@@ -3,6 +3,9 @@
 Production releases use one final signed commit, a signed annotated tag, a
 PASS verification manifest and an exact 40-character deployment SHA. A branch,
 tag or GitHub release page is a discovery mechanism, not a trust root.
+Verification proves readiness, not operator authorization.
+Before publication or deployment, confirm that the action and exact target match current explicit user authorization.
+Local implementation approval does not authorize either operation.
 
 ## 1. Prepare the candidate
 
@@ -10,6 +13,11 @@ Use a `ladderdragon/*` branch and keep one logical change set in one commit.
 Update `product_version.py` and add the dated `CHANGELOG.md` section in that
 same change set. The version must be the direct Semantic Version successor of
 the signed baseline in `.release-lineage.json`; `## [Unreleased]` is forbidden.
+Keep this version for the entire unpublished candidate; related changelog bullets do not require further version increases.
+Advance public version surfaces with `product_version.py` once when starting the candidate; a branch tip can increase the version only once.
+Collect candidate changes under `## [X.Y.Z] — YYYY-MM-DD` with `Added`, `Changed`, `Fixed`, `Security`, or `Verified` categories.
+Include actual test results in the dated section; verify that `^## [Unreleased]` is absent before committing.
+Follow [verification by change type](../AGENTS.md#verification-by-change-type) for local checks; every release still requires the complete release profile.
 
 Configure the dedicated release key published as
 `docs/release-signing-key.asc`. Its full fingerprint is:
@@ -74,6 +82,7 @@ Nothing may change between the PASS run and tagging.
 
 ## 3. Sign, verify and publish
 
+Each published release requires one annotated tag on a linear ancestor of `main`.
 Create and verify the signed annotated tag for the exact PASS SHA:
 
 ```bash

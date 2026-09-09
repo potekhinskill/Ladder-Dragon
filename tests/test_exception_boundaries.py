@@ -9,7 +9,7 @@ FILES = (
     Path("ladder_dragon/execution/worker/buy_service.py"),
     Path("ladder_dragon/execution/worker/holdings_service.py"),
     Path("ladder_dragon/verification/live/mainnet_canary.py"),
-    Path("bin/stats_view.py"),
+    Path("ladder_dragon/execution/stats_view.py"),
     Path("ladder_dragon/execution/operator/cancel_open.py"),
     Path("ladder_dragon/supervision/plan_runner.py"),
     Path("bin/auto_ladder_map.py"),

@@ -3,6 +3,111 @@
 All notable changes are documented here. Releases use Semantic Versioning; every
 section is dated and there is intentionally no `Unreleased` section.
 
+## [2.20.336] — 2026-09-09
+
+### Added
+- Require existing production modules and functions to stay within their previous release sizes or standard limits, whichever is larger.
+- Preserve historical physical module lines, including trailing comments; block changed ambiguous function groups without increasing allowances.
+- Require new production modules to stay within 500 lines and new functions within 120; report review warnings above 80 lines.
+- Classify new paths and function names against verified release history, including new functions in existing files; block unresolved newness without approving legacy growth.
+- Inventory qualified function spans, including decorators, async definitions, and nested bodies; preserve duplicate names as ambiguous observations without approving size allowances.
+- Extend required cycle-growth enforcement to the initializer-inclusive graph while preserving independent direct-cycle checks and immutable release baselines.
+- Require direct cycle-growth checks in local and release profiles using the previous SHA selected by verified release lineage.
+- Reject new cyclic edges, expanded or merged groups, and restored debt; block unavailable or invalid historical source without importing it.
+- Record local import execution-context syntax and an unguarded direct-cycle view while retaining every dependency in the complete graph.
+- Distinguish positive type-guard bodies from else branches without trusting alias identity or exposing condition text.
+- Separate direct import edges from package initializer dependencies; report direct cyclic subgroups and internal edge counts within combined groups.
+- Preserve existing graph membership and safety checks; initializer-only cycles no longer hide the distinction from direct dependency cycles.
+- Map static imports to inventoried source files and package initializers; report conservative cycle groups without executing application modules.
+- Block ambiguous module identities through existing local and release architecture checks; preserve all current safety gates.
+- Inventory dynamic import syntax, explicit import aliases, and literal relative targets without importing source modules or exposing unknown arguments.
+- Preserve unresolved observations and binding limitations in the existing bounded architecture report; no runtime store or production capability changes.
+- Add the repository-local architecture skill with scoped completion, document routing, and unchanged project safety and verification requirements.
+- Add executable help, invalid-argument, missing-database, empty-database, exact-row, and read-only contracts for the statistics viewer.
+
+- Inventory syntactic CLI parser sites, including nested declarations and explicit constructor import aliases, through the required ownership check.
+- Report locations, hashes, counts, and argument expansion without exposing defaults or evaluating source expressions. Executable CLI parity remains separate.
+- Require literal service-link checks for 25 unit templates, 27 direct edges, and seven installed-file mappings in local and release profiles.
+- Detect changed execution arguments, stale targets, and changed literal install statements without running services or exposing command payloads.
+- Register 146 command, deployment, frontend, and migration sources. Require exact membership and command guide coverage in local and release profiles.
+- Block unsafe resource reads without executing launchers. Existing interface, migration, and installed asset checks remain authoritative.
+- Map 18 store families and seven canonical policy sources. Required local and release checks reject stale or ambiguous source anchors.
+- Add an exact Python ownership registry and source-only inventory, including nonignored new modules and static nested imports.
+- Require the scoped architecture check in local and release harness profiles. Unknown owners and package-to-launcher imports fail verification.
+- Invalid inputs and excessive reports block verification without application imports or private-state reads. Broader architecture phases remain incomplete.
+- Register the architecture plan in Technical English validation and document the new audit command.
+
+### Changed
+- Move the complete monthly prediction report command into `strategy/prediction/monthly_report_command.py`; preserve parser, evidence interpretation, report hashes, and notification state.
+- Keep the existing module launcher and systemd command unchanged; require a thin launcher and exact implementation syntax parity.
+- Extract advisory failure publication and expectancy-status construction through explicit interfaces; preserve callback order, fallback, negative caching, and exact status fields.
+- Reduce supervisor and advisor module budgets to their measured sizes without removing diagnostics or changing execution gates.
+- Remove the unused package-level `HarnessRunner` export; consumers retain its canonical `verification.runner` import and unchanged harness commands.
+- Move detailed release rules into the release procedure and make language-reference reading contextual.
+- Define agent-led phase review within authorized scope; preserve user review checkpoints and approval for expanded scope.
+- Make context reading conditional and separate documentation, agent-guidance, code, and release verification requirements.
+- Centralize general rules in AGENTS.md; keep the index for routing and the architecture skill for extraction-specific decisions.
+- Scope leakage tests to affected risks and learning records to significant or recurring failures.
+- Route agent preparation through a checked learning index without deleting historical decisions or mistakes.
+- Define iteration, change-set completion, and release verification separately. Both comprehensive harness profiles retain all required checks.
+- Separate publication and deployment permission from verification; keep one version per unpublished candidate.
+- Align the architecture skill, plan, contribution guide, and release procedure with the same completion boundaries.
+- Move the numeric safety analyzer and its unchanged budgets into `verification/numeric_boundaries.py`; preserve the executable harness command.
+- Update canonical policy references and test imports. Verify checkout resolution after relocation and keep the launcher thin.
+- Move saved-backtest report classification into `verification/backtest_reports.py`, preserving its parser, JSON output, exit precedence, and implementation syntax.
+- Migrate test imports to the concrete owner and require the audit launcher to remain thin.
+- Move the concrete statistics viewer to `execution/stats_view.py`; retain `bin/stats_view.py` as a thin executable launcher.
+- Preserve the implementation syntax and move its exception audit coverage to the new owner. No accounting calculations or deployment policies change.
+
+### Fixed
+- Add safe AI failure reason codes, processing phases, and elapsed time while preserving deterministic fallback and negative caching.
+- Expose expectancy configuration warnings and their APPLY-only blocking effect without changing TP, thresholds, HALT, or execution authority.
+- Correct retention documentation to match the existing 40-session validation limit and external-only encrypted archive storage.
+- Label FIFO results containing legacy records as unverified estimates beside each amount, including gains and zero results.
+- Show unavailable trading-cycle ownership and the legacy warning before period amounts. Financial calculations and stored records remain unchanged.
+
+### Verified
+- Monthly command extraction passes 116 focused tests and the full suite: 2,568 passed, one skipped; compileall and five safety audits pass.
+- Exact implementation syntax, offline CLI errors, report hashes, state replacement, and intercepted change-only notifications retain their contracts.
+- Diagnostic extraction passes 44 focused tests and the full suite: 2,560 passed, one skipped; compileall and five safety audits pass.
+- Diagnostic source-baseline checks pass for new sizes, legacy growth, and cycles; all four earlier size violations are removed without exceptions.
+- Legacy-size enforcement passes 45 focused tests and the full suite: 2,558 passed, one skipped; compileall and five safety audits pass.
+- Diagnostic comparison rejects four pre-existing candidate size increases; no release PASS or larger allowance is granted.
+- New-code size enforcement passes 35 focused tests and the full suite: 2,548 passed, one skipped; compileall and five safety audits pass.
+- Function-span inventory passes 29 focused tests and the full suite: 2,531 passed, one skipped; compileall and five safety audits pass.
+- Verification initializer correction passes 39 focused tests and the full suite: 2,523 passed, one skipped; compileall and five safety audits pass.
+- The diagnostic source-baseline comparison finds no new cyclic edges; result imports preserve identity without loading the runner or profiles.
+- Initializer-inclusive cycle enforcement passes 32 focused tests and the full suite: 2,521 passed, one skipped; compileall and five safety audits pass.
+- Diagnostic comparison with the source baseline rejects 20 new combined cyclic edges in verification; no exception or release PASS is granted.
+- Direct cycle-growth enforcement passes 28 focused tests and the full suite: 2,517 passed, one skipped.
+- Compileall and five safety audits pass. The current candidate's cycle check remains BLOCKED because verified release lineage is unavailable.
+- Import-context diagnostics pass 66 focused tests and the full suite: 2,503 passed, one skipped.
+- Compileall, five safety audits, package discovery, Technical English, and whitespace checks pass; complete graph edges retain conditional and deferred imports.
+- Advisory diagnostics pass 43 focused tests and the complete suite: 2,491 passed, one skipped.
+- Compileall, five safety audits, Technical English, and whitespace checks pass; diagnostic regressions preserve fallback, negative caching, and secret exclusion.
+- Cycle-kind diagnostics pass 54 focused tests and the full suite: 2,477 passed, one skipped.
+- Compileall, five safety audits, package discovery, Technical English, and whitespace checks pass; no production dependency changes.
+- Static graph checks pass 51 focused tests and the full suite: 2,474 passed, one skipped.
+- Cycle detection matches independent reachability across all 512 three-node graphs; ambiguity blocks real local and release profile checks.
+- Compileall, five safety audits, package discovery, Technical English, and whitespace checks pass for the static graph slice.
+- Dynamic import inventory passes 40 focused tests and the complete suite: 2,463 passed, one skipped.
+- Compileall, five safety audits, package discovery, Technical English, and whitespace checks pass for this slice.
+- The release-routing and review clarification passes 17 focused tests, skill validation, Technical English, and whitespace checks.
+- The subsequent guidance-only revision passes 17 focused tests, skill validation, Technical English, and whitespace checks; full profiles remain unchanged.
+- The completed workflow change passes 2,444 tests with one skip, compileall, five safety audits, and Technical English.
+- Seventeen focused workflow, documentation, and language checks pass. Real local and release test commands reject an unselected failing test.
+- Required documentation checks reject a missing or malformed workflow guide or architecture skill. Indexed lesson anchors resolve to preserved records.
+- Skill validation, ten local reference checks, and the skill's Technical English check pass.
+- The complete suite passes: 2,436 tests and one skip. All 20 focused numeric-audit and architecture-layout tests pass.
+- The numeric policy and analyzer match their baseline syntax. Real local and release harness commands reject an injected zero-budget violation.
+- Saved-report CLI tests preserve input bytes, JSON classification, invalid-input handling, and rerun exit precedence.
+- The extracted viewer matches the baseline implementation syntax. Executable tests preserve exit codes and database bytes on synthetic inputs.
+- The preceding surface slice passed all 181 focused architecture, deployment, and migration tests.
+- Compileall, five safety audits, the combined architecture command, and Technical English pass.
+- Fifty-seven focused architecture, documentation, and harness tests pass, including nineteen new ownership and failure-path cases.
+- Sixteen focused digest and version tests pass. Regression cases preserve amounts and database contents for negative, zero, and positive legacy results.
+- Technical English passes. Excluded legacy records do not label eligible exact-format results as legacy estimates.
+
 ## [2.20.335] — 2026-09-09
 
 ### Security

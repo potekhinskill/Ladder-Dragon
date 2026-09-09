@@ -234,13 +234,23 @@ def build_digest(db_path: Path, *, now: datetime, timezone_name: str) -> tuple[s
     lines = [
         "🐉 Ladder Dragon — daily trading digest",
         f"Ledger periods through {periods[0][2].date().isoformat()} 00:00 {timezone_name}",
+        "Closed-cycle net PnL: UNAVAILABLE (this ledger does not prove entry-to-exit ownership).",
     ]
+    if any(item.legacy_source for item in summaries):
+        lines.append(
+            "WARNING: LEGACY FIFO estimates use records whose original precision is not verified."
+        )
     for item in summaries:
+        # Keep uncertainty beside the amount, including positive legacy results.
+        pnl_label = (
+            "FIFO net PnL estimate (UNVERIFIED LEGACY)"
+            if item.legacy_source else "Realized FIFO net PnL"
+        )
         lines.extend(
             (
                 "",
                 f"{item.label} ({item.start.date()} → {item.end.date()}):",
-                f"• Realized FIFO net PnL: {_money(item.realized_net_pnl)}",
+                f"• {pnl_label}: {_money(item.realized_net_pnl)}",
                 f"  FIFO cost of sold inventory: {_money(item.fifo_cost)}",
                 f"  Cost from purchases before this period: {_money(item.prior_period_cost)}",
                 "• Source quality: " + (
@@ -259,7 +269,6 @@ def build_digest(db_path: Path, *, now: datetime, timezone_name: str) -> tuple[s
     lines.extend(
         (
             "",
-            "Closed-cycle net PnL: UNAVAILABLE (this ledger does not prove entry-to-exit ownership).",
             "FIFO uses the oldest recorded purchases, including purchases before the report period.",
             "FIFO PnL is not the result of this period's trading cycles or the change in portfolio value.",
             "Cash flow is not profit. Fees are already included; do not subtract them again.",
