@@ -5,12 +5,47 @@
 
 import time
 import zlib
+from urllib.parse import urlsplit
 
 import requests
+from urllib3 import exceptions as urllib_errors
 
 
 MAX_RESPONSE_BYTES = 8 * 1024 * 1024
 CHUNK_BYTES = 8192
+
+# Only fixed provider paths can enter diagnostics; unknown paths may contain secrets.
+_DIAGNOSTIC_PATHS = frozenset({
+    "/api/v3/time", "/api/v3/exchangeInfo", "/api/v3/ticker/price",
+    "/api/v3/klines", "/api/v3/depth", "/api/v3/aggTrades",
+    "/api/v3/account", "/api/v3/myTrades", "/api/v3/openOrders",
+    "/api/v3/order", "/api/v3/orderList", "/api/v3/openOrderList",
+})
+
+
+def transport_error(error: BaseException, url: str, attempts: int,
+                    elapsed: float, body_started: bool) -> requests.RequestException:
+    """Return bounded diagnostics without retaining provider exceptions or responses."""
+    if isinstance(error, (requests.exceptions.SSLError, urllib_errors.SSLError)):
+        reason = "tls"
+    elif isinstance(error, (requests.Timeout, urllib_errors.TimeoutError)):
+        reason = "timeout"
+    elif body_started:
+        reason = "body_read"
+    elif isinstance(error, (requests.ConnectionError, urllib_errors.NewConnectionError)):
+        reason = "connection"
+    else:
+        reason = "transport"
+    try:
+        path = urlsplit(url).path
+    except ValueError:
+        path = "unknown"
+    endpoint = path if path in _DIAGNOSTIC_PATHS else "unknown"
+    stage = "body" if body_started else "headers"
+    return requests.RequestException(
+        f"market transport failed reason={reason} endpoint={endpoint} "
+        f"stage={stage} attempts={attempts} elapsed_ms={max(0, round(elapsed * 1000))}"
+    )
 
 
 class MarketResponseError(RuntimeError):

@@ -14,6 +14,7 @@ Help output is the authoritative option reference.
 | Command | Purpose |
 | --- | --- |
 | `verification_harness` | runs local, release, Testnet, Pi, or Mainnet-canary verification |
+| `ladder_dragon.verification.release_layout` | checks release-owned checkout and installed files without cleanup |
 | `audit_ai_readiness` | checks real AI evidence for APPLY readiness |
 | `audit_architecture` | checks source ownership, launcher imports, store anchors, resources, command documentation, and literal service links |
 | `audit_backtest_reports` | classifies saved backtest reports |

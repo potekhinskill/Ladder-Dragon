@@ -731,6 +731,15 @@ For remote access, install a certificate from a trusted private certificate auth
 You can use a private overlay before you enable HSTS.
 
 The updater creates an encrypted backup and records the service state.
+The updater runs a read-only release-layout revision before runtime asset installation and after dashboard publication.
+It checks tracked code against Git and compares installed files with the canonical publication inventories.
+Missing, changed, linked, retired, or unexpected executable files block completion; unknown dashboard files also block completion.
+The revision never deletes files or authorizes automatic cleanup.
+It excludes private data, environment files, Python caches, and the virtual environment from checkout traversal.
+Rendered systemd and nginx configuration retain their existing deployment checks; this revision does not prove complete host cleanliness.
+Findings contain bounded category counts and hashed path identifiers, not file contents or private filenames.
+Its output uses the existing update log; no additional persistent store or retention schedule exists.
+Review blocked findings before recovery; do not use broad cleanup commands.
 It classifies changed paths from the verified target before checkout mutation.
 It treats both paths of a Git rename as independent changes.
 It stops an affected depth collector before the checkout changes.

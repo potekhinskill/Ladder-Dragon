@@ -156,8 +156,83 @@ def test_transport_diagnostics(monkeypatch):
     with pytest.raises(requests.RequestException) as caught:
         market._public_get("/api/v3/time")
     assert len(calls) == 3
-    assert str(caught.value) == "market transport failed"
+    assert "reason=connection endpoint=/api/v3/time stage=headers attempts=3 elapsed_ms=" in str(caught.value)
+    assert "synthetic-private-marker" not in str(caught.value)
     assert caught.value.__suppress_context__
+
+
+@pytest.mark.parametrize("error,reason", [
+    (requests.Timeout, "timeout"),
+    (requests.ConnectionError, "connection"),
+    (requests.exceptions.SSLError, "tls"),
+    (requests.RequestException, "transport"),
+])
+def test_transport_reason_and_retry_budget_are_safe(monkeypatch, error, reason):
+    import traceback
+
+    clock = [0.0]
+    sleeps, calls = [], []
+    monkeypatch.setattr(market.time, "monotonic", lambda: clock[0])
+
+    def sleep(delay):
+        sleeps.append(delay)
+        clock[0] += delay
+
+    def request(*args, **kwargs):
+        calls.append(kwargs["timeout"])
+        clock[0] += 0.25
+        raise error("PRIVATE_BODY signature=PRIVATE_KEY https://PRIVATE_HOST/")
+
+    monkeypatch.setattr(market.time, "sleep", sleep)
+    monkeypatch.setattr(market.SESSION, "request", request)
+    url = "https://PRIVATE_USER:PRIVATE_PASS@PRIVATE_HOST/api/v3/account?signature=PRIVATE_KEY#PRIVATE_FRAGMENT"
+    with pytest.raises(requests.RequestException) as caught:
+        market._do_request("GET", url)
+    assert str(caught.value) == (
+        f"market transport failed reason={reason} endpoint=/api/v3/account "
+        "stage=headers attempts=3 elapsed_ms=2250"
+    )
+    assert calls == [market.TIMEOUT] * 3
+    assert sleeps == [0.5, 1.0]
+    assert caught.value.request is None and caught.value.response is None
+    assert "PRIVATE_" not in "".join(traceback.format_exception(caught.value))
+
+
+@pytest.mark.parametrize("url", [
+    "https://example.invalid/PRIVATE_PATH?signature=PRIVATE_KEY",
+    "https://example.invalid/api/v3/time/PRIVATE_PATH",
+    "https://example.invalid/api/v3/%74ime",
+    "https://[PRIVATE_HOST/api/v3/time",
+])
+def test_unknown_endpoint_is_never_echoed(url):
+    error = body.transport_error(requests.Timeout("PRIVATE_BODY"), url, 3, 1.5, False)
+    assert "endpoint=unknown" in str(error)
+    assert "PRIVATE_" not in str(error)
+
+
+def test_raw_body_transport_failure_retains_cleanup_and_retries(monkeypatch):
+    from urllib3.exceptions import ProtocolError
+
+    responses, sleeps = [], []
+    monkeypatch.setattr(market.time, "sleep", sleeps.append)
+
+    def request(*args, **kwargs):
+        result = response(b"{}")
+        responses.append(result)
+
+        def fail(*args, **kwargs):
+            raise ProtocolError("PRIVATE_BODY")
+
+        monkeypatch.setattr(result.raw, "read1", fail)
+        return result
+
+    monkeypatch.setattr(market.SESSION, "request", request)
+    with pytest.raises(requests.RequestException) as caught:
+        market._public_get("/api/v3/time")
+    assert "reason=body_read endpoint=/api/v3/time stage=body attempts=3" in str(caught.value)
+    assert "PRIVATE_BODY" not in str(caught.value)
+    assert len(responses) == 3 and all(result.raw.closed for result in responses)
+    assert sleeps == [0.5, 1.0]
 
 
 def test_provider_text_not_exposed(monkeypatch):

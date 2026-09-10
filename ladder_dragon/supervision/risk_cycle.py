@@ -40,6 +40,7 @@ from ladder_dragon.supervision.valuation_metrics import ValuationMetrics
 from ladder_dragon.supervision.valuation_batch import seed_prices, current_route_quotes
 from ladder_dragon.supervision.valuation_reads import ValuationReads
 from ladder_dragon.supervision.open_order_snapshot import checked_open_orders
+from ladder_dragon.supervision.risk_alerts import risk_alert_signature
 
 
 class RiskConfigurationError(RuntimeError):
@@ -59,9 +60,6 @@ class RiskReconciliationError(RuntimeError):
         super().__init__(f"position reconciliation failed: {details}")
 
 
-_RISK_ATTEMPT_PREFIX = re.compile(
-    r"^(risk telemetry unavailable) \(\d+/\d+\):\s*"
-)
 _T = TypeVar("_T")
 _R = TypeVar("_R")
 
@@ -194,17 +192,6 @@ def _bounded_public_reads(
 def _definitive_missing_market(error: BaseException) -> bool:
     """Return true only for Binance's definitive invalid-symbol response."""
     return getattr(error, "code", None) == -1121
-
-
-def risk_alert_signature(
-    decision: RiskDecision,
-) -> tuple[bool, bool, tuple[str, ...]]:
-    """Return a stable alert key without volatile retry counters."""
-    reasons = tuple(
-        _RISK_ATTEMPT_PREFIX.sub(r"\1: ", str(reason)).strip()
-        for reason in decision.reasons
-    )
-    return decision.halted, decision.buy_blocked, reasons
 
 
 def risk_configuration_block(

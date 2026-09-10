@@ -153,6 +153,7 @@ def test_profile_registry_contains_the_documented_interfaces(tmp_path):
         check.name for check in checks_for_profile(_context(tmp_path, "pi"))
     }
     assert "pi_dashboard_assets" in pi_names
+    assert "pi_release_layout" in pi_names
     assert "pi_user_stream_service" in pi_names
     assert "semgrep_rule_tests" not in pi_names
     assert "semgrep_static_analysis" not in pi_names

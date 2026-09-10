@@ -383,6 +383,15 @@ def test_var_history_block_is_not_an_api_failure_or_cooldown():
     assert "consecutive_api_failures +=" not in config_block
 
 
+def test_transport_alert_elapsed_does_not_repeat_notifications():
+    def decision(reason="timeout", elapsed=100, cycle=1):
+        return RiskDecision(halted=False, buy_blocked=True, reasons=(
+            f"risk telemetry unavailable ({cycle}/3): market transport failed "
+            f"reason={reason} endpoint=/api/v3/time stage=headers attempts=3 elapsed_ms={elapsed}",))
+    assert risk_alert_signature(decision()) == risk_alert_signature(decision(elapsed=200, cycle=2))
+    assert risk_alert_signature(decision()) != risk_alert_signature(decision(reason="tls"))
+
+
 def test_risk_alert_signature_ignores_only_retry_counter():
     first = RiskDecision(
         halted=False,

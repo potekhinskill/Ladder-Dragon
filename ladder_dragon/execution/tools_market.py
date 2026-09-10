@@ -18,7 +18,7 @@ from typing import Dict, Tuple, List, Optional, Any
 from urllib.parse import urlsplit
 from urllib3.exceptions import HTTPError as UrllibHttpError
 
-from ladder_dragon.execution.market_http_body import read_body, remaining_seconds
+from ladder_dragon.execution.market_http_body import read_body, remaining_seconds, transport_error
 from ladder_dragon.execution.market_tickers import valuation_prices
 from ladder_dragon.execution.read_timing import record_read, measured_read
 from ladder_dragon.execution.exchange_evidence import checked_market
@@ -197,10 +197,10 @@ def _do_request(
                     return r
             else:
                 return r
-        except (requests.RequestException, UrllibHttpError):
+        except (requests.RequestException, UrllibHttpError) as exc:
             record_read("transport_errors")
             if i == attempts - 1:
-                raise requests.RequestException("market transport failed") from None
+                raise transport_error(exc, url, i + 1, time.monotonic() - deadline + attempts * request_timeout + 1.5, r is not None) from None
         finally:
             if r is not None:
                 measured_read("close", r.close)

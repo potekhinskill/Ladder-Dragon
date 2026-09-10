@@ -663,7 +663,13 @@ fi
 # This helper is read from the verified target checkout after the merge. Keeping
 # release-owned runtime assets outside the immutable updater prevents a previous
 # updater version from omitting files introduced by the new signed release.
+LAYOUT_SHA="${UPDATE_COMMIT:-$(runuser -u "${BOT_USER}" -- git rev-parse HEAD)}"
+LAYOUT_PREVIOUS_SHA="${PREVIOUS_HEAD:-${LAYOUT_SHA}}"
+# A blocked revision cannot authorize restart of a checkout with unknown code.
 EXTERNAL_DEPLOYMENT_MUTATED=1
+runuser -u "${BOT_USER}" -- .venv/bin/python -m ladder_dragon.verification.release_layout \
+  --root "${PROJECT_DIR}" --expected-sha "${LAYOUT_SHA}" --previous-sha "${LAYOUT_PREVIOUS_SHA}" \
+  || fail "release checkout revision is blocked; no files were deleted"
 [[ -x deploy/install_runtime_assets.sh ]] \
   || fail "verified release runtime-asset installer is missing or not executable"
 PROJECT_DIR="${PROJECT_DIR}" deploy/install_runtime_assets.sh
@@ -737,6 +743,10 @@ rm -f "${WEB_ROOT}/readme.html"
   || fail "published dashboard assets do not match the verified release"
 [[ -f /etc/nginx/.htpasswd-ladder-dragon ]] \
   || fail "nginx dashboard auth is missing; run installer migrate"
+runuser -u "${BOT_USER}" -- .venv/bin/python -m ladder_dragon.verification.release_layout \
+  --root "${PROJECT_DIR}" --expected-sha "${LAYOUT_SHA}" --previous-sha "${LAYOUT_PREVIOUS_SHA}" \
+  --web-root "${WEB_ROOT}" \
+  || fail "installed release revision is blocked; review the report before recovery"
 [[ -s "/etc/nginx/certs/${BOT_HOSTNAME}.pem" ]] \
   || fail "TLS certificate for ${BOT_HOSTNAME} is missing"
 sed "s/__BOT_HOSTNAME__/${BOT_HOSTNAME}/g" deploy/nginx/bot.local.conf \

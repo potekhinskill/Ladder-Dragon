@@ -1,5 +1,21 @@
 # Engineering decisions
 
+### 2026-09-10 — Separate release revision from cleanup authority
+
+- **Context:** Git removes tracked paths but does not prove that old executable files or installed publications are absent.
+- **Decision:** compare scoped checkout files with Git and installed files with canonical manifests; block unsafe findings without deletion.
+- **Why it worked:** synthetic revisions detect removed files, unexpected code, changed publication, and links while preserving private and unknown files.
+- **Reuse:** report explicit exclusions; revision success does not prove virtual-environment cleanliness or authorize broad filesystem cleanup.
+- **Retention:** bounded diagnostic output uses the existing update log; no new persistent state or archive dependency exists.
+
+### 2026-09-10 — Separate transport diagnostics from provider exception text
+
+- **Context:** generic transport failures hid their category and endpoint after retries expired.
+- **Decision:** publish fixed reason codes, approved paths, stages, attempt counts, and elapsed time without provider text or query parameters.
+- **Why it worked:** regressions preserve three attempts, retry delays, body cleanup, secret exclusion, and stable repeated-alert identity.
+- **Reuse:** retain material reason changes in alert keys; exclude elapsed time and preserve existing execution gates.
+- **Retention:** diagnostics use existing bounded reports and logs; no new persistent store or maintenance schedule exists.
+
 ### 2026-09-10 — Extract diagnostics through explicit current interfaces
 
 - **Context:** useful diagnostic additions expanded coordinator modules; deleting messages or compressing code would hide the ownership problem.

@@ -24,6 +24,8 @@ Search additional history when a dependency or unresolved question requires it; 
 For store changes, also inspect [state ownership](ARCHITECTURE_STATE_MAP.md) and [retention](DATA_RETENTION.md).
 For relocated entry points, inspect the [surface map](ARCHITECTURE_SURFACE_MAP.md) and [local artifact boundaries](LOCAL_ARTIFACTS.md).
 For financial boundary changes, inspect [domain authorities](DOMAIN_AUTHORITIES.md).
+For transport diagnostics, preserve [safe fields and stable alert identity](../DECISIONS.md#2026-09-10--separate-transport-diagnostics-from-provider-exception-text).
+For deployment revisions, preserve [the separation from cleanup authority](../DECISIONS.md#2026-09-10--separate-release-revision-from-cleanup-authority).
 Inspect parser declarations before executing unfamiliar commands; even help paths can initialize private state.
 
 ## Verification stages

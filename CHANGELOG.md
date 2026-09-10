@@ -3,6 +3,25 @@
 All notable changes are documented here. Releases use Semantic Versioning; every
 section is dated and there is intentionally no `Unreleased` section.
 
+## [2.20.338] — 2026-09-10
+
+### Added
+- Require read-only file revisions during updates and Pi verification, including tracked code, dashboard publication, and canonical installed runtime files.
+- Block missing, changed, linked, retired, or unexpected executable files without deleting private state or unknown artifacts.
+- Bound inventory size and report hashed path identifiers; retain the existing update-log policy without a new persistent store.
+
+### Fixed
+- Report fixed transport failure reasons, approved endpoint paths, read stages, attempt counts, and elapsed time after market retries expire.
+- Exclude original exception text, query parameters, hosts, and unknown paths; preserve retry budgets, response cleanup, and fail-closed behavior.
+- Diagnostic fields use existing bounded runtime reports and logs; no new persistent store or retention policy is introduced.
+- Keep repeated transport alerts stable when only elapsed time changes; retain distinct failure reasons and risk-state changes.
+
+### Verified
+- Release-layout, updater, and harness regressions pass: 124 passed; shell syntax and Technical English checks pass.
+- Market transport, timing, ticker, and risk snapshot regressions pass: 97 passed.
+- The complete suite passes: 2,605 passed and two skipped; compileall, five safety audits, and architecture inventory pass.
+- A read-only Pi trial verifies 446 checkout files and 19 installed files without findings or deletions.
+
 ## [2.20.337] — 2026-09-10
 
 ### Fixed

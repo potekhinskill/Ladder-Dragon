@@ -284,6 +284,15 @@ def raspberry_checks(context: HarnessContext) -> list[CheckSpec]:
         CheckSpec(name="pi_deployed_sha", check=_deployed_sha_check),
         CheckSpec(name="pi_dashboard_assets", check=_dashboard_assets_check),
         CheckSpec(
+            name="pi_release_layout",
+            argv=(python, "-m", "ladder_dragon.verification.release_layout",
+                  "--root", str(context.root),
+                  "--expected-sha", options.expected_sha or "",
+                  "--previous-sha", options.expected_sha or "",
+                  "--web-root", str(options.web_root)),
+            timeout_sec=120,
+        ),
+        CheckSpec(
             name="pi_mybot_service",
             argv=("systemctl", "is-active", "--quiet", "mybot"),
             timeout_sec=30,
