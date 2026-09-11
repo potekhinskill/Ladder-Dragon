@@ -67,6 +67,12 @@ A later successful run clears the failed unit state.
 
 ## Existing bounded stores
 
+- Historical replay checkpoints are derived, immutable complete-path results, not complete selection reports.
+- Each report directory allows at most 768 checkpoint files and 64 MiB; each file is limited to 2 MiB.
+- Scheduled replay passes check capacity; capacity exhaustion blocks new checkpoints without deleting pending evidence.
+- Checkpoints remain indefinitely until reviewed archival with a verified encrypted external backup and all dependent requests.
+- The replay status file is disposable replacement telemetry with no archive dependency.
+
 - The risk SELL outcome index keeps the latest 4,096 derived results.
 - The risk FIFO index keeps at most 65,536 active derived BUY lots.
 - One derived marker identifies each symbol with incomplete FIFO streak history.

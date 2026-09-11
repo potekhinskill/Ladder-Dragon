@@ -230,6 +230,22 @@ It accepts at most 256 queued requests.
 The replaceable `status.json` reports queue progress without source paths or exception text.
 The runner never imports selection, freezes a candidate, changes HALT, or creates orders.
 
+The runner preserves each complete path in a bounded `.path-checkpoints` directory beside the reports.
+Each checkpoint binds exact policies, source references, verified context, and implementation hashes.
+Before reuse, the runner verifies source archives and exports the same causal context again.
+Changed inputs select a different checkpoint; damaged checkpoints block replay.
+Partial paths never become completed reports or selection evidence.
+The queue reports `RUNNING` before work and `TIMED_OUT` after its child exceeds the thirty-minute limit.
+The next scheduled pass can reuse completed paths without changing the frozen cohort.
+One path must still finish within the worker limit; this change does not provide event-level resume.
+
+Checkpoints are derived evidence, limited to 768 files and 64 MiB per report directory.
+Each checkpoint has a 2 MiB ceiling.
+The scheduled replay pass checks capacity before checkpoint access and publication.
+Checkpoints remain indefinitely with their requests and source evidence; no automatic deletion occurs.
+Manual archival requires a verified encrypted external backup and confirmation that no pending selection depends on the files.
+Progress uses the existing replaceable status file and has no separate archive dependency.
+
 After v23 freezes, the planner creates a separate post-cutoff confirmation cohort.
 The cohort has a fixed maximum of forty-two paths.
 The structural PASS minimum is twenty-four executable paths.

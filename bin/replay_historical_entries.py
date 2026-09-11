@@ -27,6 +27,7 @@ from ladder_dragon.strategy.prediction.historical_replay_planner import (
 from ladder_dragon.strategy.prediction.v23_contract import (
     V23_CONFIRMATION_REQUEST_SCHEMA_VERSION,
 )
+from ladder_dragon.strategy.prediction.replay_progress import PathCheckpoint, progress
 
 
 LEGACY_FIELDS = {
@@ -190,7 +191,10 @@ def _run_path_request_batch(
     ]
     previous_end = -1
     observed_hashes: set[str] = set()
-    for path in common["paths"]:
+    output_directory = requests[0][1].parent
+    for path_index, path in enumerate(common["paths"]):
+        progress(output_directory, "RUNNING", path_index=path_index,
+                 block_index=common["stability_block_index"], phase=0)
         if (
             not isinstance(path, dict)
             or type(path.get("start_ms")) is not int
@@ -219,14 +223,29 @@ def _run_path_request_batch(
             )
             contexts.append(evidence)
             jobs.append((policy, evidence["context"]))
-        reports = historical_entry_replays(
-            iter_segment_events(segments, level_limit=1000),
-            jobs=jobs,
-            start_ms=path["start_ms"],
-            entry_end_ms=path["entry_end_ms"],
-            end_ms=path["end_ms"],
-            cutoff_ms=path["cutoff_ms"],
-        )
+        checkpoint = PathCheckpoint(output_directory, {
+            "path": path,
+            "jobs": [{"policy": policy,
+                      "context_sha256": fingerprint({"rows": rows})}
+                     for policy, rows in jobs],
+            "context_evidence_sha256s": [fingerprint(evidence) for evidence in contexts],
+        })
+        reports = checkpoint.read()
+        if reports is None:
+            progress(output_directory, "RUNNING", path_index=path_index,
+                     block_index=common["stability_block_index"], phase=1)
+            reports = historical_entry_replays(
+                iter_segment_events(segments, level_limit=1000),
+                jobs=jobs,
+                start_ms=path["start_ms"],
+                entry_end_ms=path["entry_end_ms"],
+                end_ms=path["end_ms"],
+                cutoff_ms=path["cutoff_ms"],
+            )
+            if all(report["status"] == "COMPLETE_SELECTION_REPLAY" for report in reports):
+                checkpoint.write(reports)
+        progress(output_directory, "RUNNING", completed_paths=path_index + 1,
+                 block_index=common["stability_block_index"], phase=2)
         for index, (report, context) in enumerate(zip(reports, contexts)):
             per_policy[index].append((report, context, hashes))
     output = []

@@ -1,5 +1,12 @@
 # Engineering mistakes and root causes
 
+### 2026-09-11 — Queued replay without proving bounded progress
+
+- **Impact:** the first queued selection replay ended with no published reports and a stale waiting status.
+- **Root cause:** review verified immutable inputs but did not prove that the worker could finish a block within its execution budget.
+- **Correction:** preserve complete paths and publish explicit work and timeout states without changing admission criteria.
+- **Prevention:** test interruption and resume, then verify checkpoint progress on the deployed host before claiming operational recovery.
+
 ### 2026-09-10 — Published interpreter-dependent extraction fingerprints
 
 - **Impact:** four Python 3.12 CI checks failed after publication of v2.20.336; Raspberry Pi deployment stopped before service changes.

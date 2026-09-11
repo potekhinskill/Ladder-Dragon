@@ -271,6 +271,11 @@ def _run_offline(arguments: list[str], stop, *, timeout_seconds: int = 300) -> i
         while child.poll() is None and not stop.wait(1):
             if time.monotonic() >= deadline:
                 child.kill()
+                child.wait()
+                if arguments[0] == "bin.historical_replay_runner":
+                    from ladder_dragon.strategy.prediction.replay_progress import progress
+                    output = Path(arguments[arguments.index("--output-directory") + 1])
+                    progress(output, "TIMED_OUT", timeout_seconds=timeout_seconds)
                 break
         if child.poll() is None:
             child.terminate()

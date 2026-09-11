@@ -15,6 +15,7 @@ import sqlite3
 from bin.replay_historical_entries import run_replay_request_batch
 from ladder_dragon.strategy.depth_segments import atomic_json, bounded_json
 from ladder_dragon.strategy.prediction.historical_policy import fingerprint
+from ladder_dragon.strategy.prediction.replay_progress import progress
 
 MAXIMUM_REQUESTS = 256
 
@@ -44,6 +45,7 @@ def process_requests(
     requests = sorted(request_directory.glob("*.json"))
     if len(requests) > MAXIMUM_REQUESTS:
         raise ValueError("historical replay request capacity reached")
+    progress(output_directory, "RUNNING", request_count=len(requests))
     completed = failed = created = 0
     pending: dict[str, list[tuple[Path, Path]]] = {}
     for request in requests:

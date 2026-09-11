@@ -108,6 +108,19 @@ def test_policy_batch_matches_independent_replays_in_one_event_pass():
     assert batched == independent
 
 
+def test_real_replay_checkpoint_preserves_fifo_fees_and_causal_result(tmp_path):
+    from ladder_dragon.strategy.prediction.replay_progress import PathCheckpoint
+    from ladder_dragon.strategy.prediction.historical_policy import fingerprint
+    expected = run(declining_history())
+    cache = PathCheckpoint(tmp_path, {
+        "path": {"start_ms": 3000, "entry_end_ms": 12000, "end_ms": 28000, "cutoff_ms": 28000},
+        "jobs": [{"policy": policy(), "context_sha256": fingerprint({"rows": [context()]})}],
+        "context_evidence_sha256s": [fingerprint({"rows": [context()]})],
+    })
+    cache.write([expected])
+    assert cache.read() == [expected]
+
+
 def test_cancel_cannot_erase_fill_before_arrival():
     p = HistoricalPolicy.parse(policy())
     episode = HistoricalExecution(event(3000), p, context(), "test")

@@ -3,6 +3,18 @@
 All notable changes are documented here. Releases use Semantic Versioning; every
 section is dated and there is intentionally no `Unreleased` section.
 
+## [2.20.339] — 2026-09-11
+
+### Fixed
+- Preserve complete historical replay paths across bounded worker restarts without changing policy, FIFO, fees, or selection criteria.
+- Bind checkpoints to source references, causal context, policies, and implementation hashes; revalidate archives and context before reuse.
+- Report active work and explicit worker timeouts instead of retaining an obsolete waiting status.
+- Bound derived checkpoints to 768 files and 64 MiB per report directory, with no automatic evidence deletion.
+
+### Verified
+- Checkpoint and replay-engine regressions pass: 35 passed, including interruption, causal result equivalence, corruption, capacity, and timeout status.
+- The combined replay, planner, runner, checkpoint, and depth pipeline regressions pass: 54 passed.
+
 ## [2.20.338] — 2026-09-10
 
 ### Added

@@ -75,6 +75,10 @@ def test_path_batch_replays_each_session_separately(tmp_path, monkeypatch):
         return [{
             "model_contract": MODEL_CONTRACT,
             "status": "COMPLETE_SELECTION_REPLAY",
+            "mode": "SHADOW", "apply_allowed": False,
+            "context_sha256": fingerprint({"rows": jobs[0][1]}),
+            "start_ts_ms": start_ms,
+            **{key.replace("_ms", "_ts_ms"): value for key, value in _kwargs.items()},
             "policy": jobs[0][0],
             "policy_sha256": fingerprint(jobs[0][0]),
             "model_source_sha256s": {"model.py": "b" * 64},

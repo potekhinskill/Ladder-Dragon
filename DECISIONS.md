@@ -1,5 +1,12 @@
 # Engineering decisions
 
+### 2026-09-11 — Resume only complete input-bound replay paths
+
+- **Context:** a bounded replay worker can stop before a three-path block publishes any report.
+- **Decision:** retain complete paths with exact source, context, policy, and implementation bindings; revalidate inputs before reuse.
+- **Why it worked:** interruption regressions preserve completed work and produce the same combined result as uninterrupted replay.
+- **Reuse:** partial checkpoints never satisfy selection; declare timeout status after child termination and preserve pending evidence.
+
 ### 2026-09-10 — Separate release revision from cleanup authority
 
 - **Context:** Git removes tracked paths but does not prove that old executable files or installed publications are absent.
