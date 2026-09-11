@@ -132,10 +132,10 @@ def historical_entry_replays(
                         state["active"][name] = episode
     if last_seen is None:
         raise ValueError("historical terminal observation tail is incomplete")
-    source_files = [Path(__file__), Path(__file__).with_name("historical_execution.py"),
-                    Path(__file__).with_name("historical_policy.py"),
-                    Path(__file__).parents[1] / "entry_veto_signal.py",
-                    Path(__file__).parents[1] / "market_replay.py"]
+    source_files = [Path(__file__).with_name(name) for name in (
+        "historical_entry_replay.py", "historical_execution.py", "historical_policy.py")]
+    source_files += [Path(__file__).parents[1] / name for name in (
+        "entry_veto_signal.py", "market_replay.py", "replay_event_book.py", "depth_segments.py", "indexed_book.py")]
     model_sources = {
         path.name: hashlib.sha256(path.read_bytes()).hexdigest()
         for path in source_files

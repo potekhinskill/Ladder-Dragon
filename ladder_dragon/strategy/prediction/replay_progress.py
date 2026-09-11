@@ -21,6 +21,8 @@ def implementation_identity() -> dict[str, str]:
     paths = [
         root / "bin/replay_historical_entries.py",
         root / "ladder_dragon/strategy/depth_segments.py",
+        root / "ladder_dragon/strategy/indexed_book.py",
+        root / "ladder_dragon/strategy/replay_event_book.py",
         root / "ladder_dragon/strategy/market_replay.py",
         root / "ladder_dragon/strategy/entry_veto_signal.py",
         *[Path(__file__).with_name(name) for name in (

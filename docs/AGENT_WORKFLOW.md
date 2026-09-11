@@ -27,6 +27,7 @@ For financial boundary changes, inspect [domain authorities](DOMAIN_AUTHORITIES.
 For transport diagnostics, preserve [safe fields and stable alert identity](../DECISIONS.md#2026-09-10--separate-transport-diagnostics-from-provider-exception-text).
 For deployment revisions, preserve [the separation from cleanup authority](../DECISIONS.md#2026-09-10--separate-release-revision-from-cleanup-authority).
 For offline replay, preserve [input-bound resume](../DECISIONS.md#2026-09-11--resume-only-complete-input-bound-replay-paths) and verify bounded progress on the target host.
+For replay optimization, preserve [exact indexed event semantics](../DECISIONS.md#2026-09-11--index-unchanged-book-levels-without-changing-evidence) and compare against the previous matcher.
 Inspect parser declarations before executing unfamiliar commands; even help paths can initialize private state.
 
 ## Verification stages

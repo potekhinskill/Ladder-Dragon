@@ -14,6 +14,7 @@ from pathlib import Path
 from typing import Iterable, Iterator
 
 from ladder_dragon.strategy.market_replay import BookLevel, MarketEvent, archive_sha256
+from ladder_dragon.strategy.indexed_book import IndexedBookSide
 
 MAX_FRAME_BYTES = 2 * 1024 * 1024
 MAX_BOOK_LEVELS = 20_000
@@ -51,8 +52,8 @@ class PublicBook:
     """Keep bounded Decimal levels and reject missing depth or trade sequences."""
 
     def __init__(self) -> None:
-        self.bids: dict[Decimal, Decimal] = {}
-        self.asks: dict[Decimal, Decimal] = {}
+        self.bids = IndexedBookSide()
+        self.asks = IndexedBookSide()
         self.update_id: int | None = None
         self.trade_id: int | None = None
         self.received_ms = 0
@@ -79,6 +80,8 @@ class PublicBook:
             raise ValueError("public book capacity reached")
 
     def apply(self, row: dict, *, level_limit: int = 100) -> MarketEvent:
+        if type(level_limit) is not int or not 1 <= level_limit <= MAX_BOOK_LEVELS:
+            raise ValueError("invalid historical book depth")
         received = int(row["_received_at_ms"])
         if received < self.received_ms or received <= 0:
             raise ValueError("public receive clock moved backwards")
@@ -119,13 +122,13 @@ class PublicBook:
             trades = ((price, qty, "SELL" if row["m"] else "BUY"),)
         else:
             raise ValueError("unsupported public event")
-        if not self.bids or not self.asks or max(self.bids) >= min(self.asks):
+        if not self.bids or not self.asks or self.bids.best_price(descending=True) >= self.asks.best_price(descending=False):
             raise ValueError("public book is empty or crossed")
         self.received_ms = received
         return MarketEvent(
             received,
-            tuple(BookLevel(p, q) for p, q in sorted(self.bids.items(), reverse=True)[:level_limit]),
-            tuple(BookLevel(p, q) for p, q in sorted(self.asks.items())[:level_limit]),
+            self.bids.view(level_limit, descending=True),
+            self.asks.view(level_limit, descending=False),
             trades=trades, event_type=kind, received_ts_ms=received,
         )
 

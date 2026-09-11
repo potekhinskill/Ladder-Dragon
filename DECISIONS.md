@@ -1,5 +1,12 @@
 # Engineering decisions
 
+### 2026-09-11 — Index unchanged book levels without changing evidence
+
+- **Context:** full book sorts and repeated immutable level allocation dominated a bounded Pi decoder profile.
+- **Decision:** maintain sorted Decimal prices, retain unchanged levels, and invalidate bounded views after mutations.
+- **Why it worked:** randomized comparisons and public-data samples preserve event values, Decimal text, and carried snapshots.
+- **Reuse:** measure decoder and model costs separately; preserve event order and all fail-closed source checks.
+
 ### 2026-09-11 — Resume only complete input-bound replay paths
 
 - **Context:** a bounded replay worker can stop before a three-path block publishes any report.

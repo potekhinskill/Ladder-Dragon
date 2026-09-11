@@ -10,6 +10,7 @@ from typing import Any, Iterable, Mapping, NamedTuple
 import json
 import hashlib
 from pathlib import Path
+from ladder_dragon.strategy.replay_event_book import event_book
 
 from ladder_dragon.strategy.replay_policy import ReplayAcceptancePolicy
 from ladder_dragon.strategy.fee_defaults import (
@@ -202,8 +203,7 @@ class OrderBookReplay:
                 and order.cancel_effective_ts <= event.ts_ms
             ):
                 self._cancel_order(order)
-        current_bids = {level.price: level.quantity for level in event.bids}
-        current_asks = {level.price: level.quantity for level in event.asks}
+        current_bids, current_asks = (side.copy() for side in event_book(event))
         # A depth reduction at our passive price may be a cancellation ahead
         # of us. Only the configured conservative fraction advances our queue;
         # public depth cannot prove whose order disappeared.
@@ -240,16 +240,16 @@ class OrderBookReplay:
         # An order can consume displayed liquidity as taker only once, when it
         # reaches the venue. A resting order is never reclassified by a later
         # depth movement; it then needs a public trade at its exact price.
-        available = {
-            "BUY": [[price, quantity] for price, quantity in sorted(current_asks.items())],
-            "SELL": [[price, quantity] for price, quantity in sorted(current_bids.items(), reverse=True)],
-        }
+        available = {}
         impact_divisor = Decimal("10000")
         for side in ("BUY", "SELL"):
             for order in self._eligible(side, event):
                 if order.arrival_checked:
                     continue
                 order.arrival_checked = True
+                if side not in available:
+                    levels = current_asks if side == "BUY" else current_bids
+                    available[side] = [[p, q] for p, q in sorted(levels.items(), reverse=side == "SELL")]
                 for level in available[side]:
                     level_price, level_quantity = level
                     crosses = (

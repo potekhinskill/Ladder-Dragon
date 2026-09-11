@@ -3,6 +3,24 @@
 All notable changes are documented here. Releases use Semantic Versioning; every
 section is dated and there is intentionally no `Unreleased` section.
 
+## [2.20.340] — 2026-09-11
+
+### Fixed
+- Maintain an exact ordered public-book index instead of sorting all prices and reconstructing unchanged levels for every event.
+- Preserve Decimal representation, immutable previous event views, sequence validation, crossed-book rejection, and source rotation snapshots.
+- Bind replay checkpoints to the indexed-book implementation so code changes cannot reuse an older checkpoint.
+- Keep index storage in bounded process memory; no persistent store or automatic deletion is introduced.
+- Build arrival liquidity only when an order reaches the matcher; preserve independent mutable liquidity for every policy.
+- Share immutable normalized event views across policies and bind report identities to all affected replay modules.
+
+### Verified
+- Indexed-book, depth, historical replay, and checkpoint regressions pass: 66 passed.
+- Two bounded Pi comparisons reconstruct 2,000 events in 13.3–14.5 seconds before optimization and 0.35–0.37 seconds after optimization.
+- Both comparisons preserve exact event values and Decimal text; these measurements do not establish full replay throughput.
+- Matcher and historical replay regressions pass: 54 passed, including randomized differential checks against the published v2.20.339 matcher.
+- A bounded eight-policy Pi profile processes 5,000 events in 16.3 seconds, compared with 114.1 seconds before matcher optimization.
+- The profile does not publish selection evidence or establish whole-path completion.
+
 ## [2.20.339] — 2026-09-11
 
 ### Fixed

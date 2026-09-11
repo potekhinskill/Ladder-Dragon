@@ -10,6 +10,7 @@ from dataclasses import dataclass
 from decimal import Decimal
 
 from ladder_dragon.strategy.market_replay import MarketEvent
+from ladder_dragon.strategy.replay_event_book import event_top
 
 
 ZERO = Decimal("0")
@@ -30,8 +31,7 @@ def top_of_book(
     """Return one validated best bid and ask tuple."""
     if not event.bids or not event.asks:
         raise ValueError("entry-veto signal requires both book sides")
-    bid = max(event.bids, key=lambda level: level.price)
-    ask = min(event.asks, key=lambda level: level.price)
+    bid, ask = event_top(event)
     if bid.price <= ZERO or ask.price <= bid.price:
         raise ValueError("entry-veto signal book is invalid")
     return bid.price, bid.quantity, ask.price, ask.quantity

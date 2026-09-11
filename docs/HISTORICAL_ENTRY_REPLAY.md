@@ -238,6 +238,13 @@ Partial paths never become completed reports or selection evidence.
 The queue reports `RUNNING` before work and `TIMED_OUT` after its child exceeds the thirty-minute limit.
 The next scheduled pass can reuse completed paths without changing the frozen cohort.
 One path must still finish within the worker limit; this change does not provide event-level resume.
+Public book reconstruction maintains a sorted Decimal price index and reuses unchanged immutable levels.
+Depth changes invalidate cached views; aggregate trades retain the unchanged book view.
+The index preserves exact event order, Decimal text, crossed-book checks, and carried rotation snapshots.
+Its memory follows the existing book-level ceiling and has no persistent retention requirement.
+Policies share immutable normalized event views, but each matcher receives separate mutable book copies.
+The matcher constructs arrival liquidity only when a new order reaches the venue.
+These optimizations preserve the matching rules and remain part of each report's implementation identity.
 
 Checkpoints are derived evidence, limited to 768 files and 64 MiB per report directory.
 Each checkpoint has a 2 MiB ceiling.

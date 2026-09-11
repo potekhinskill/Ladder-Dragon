@@ -1,5 +1,12 @@
 # Engineering mistakes and root causes
 
+### 2026-09-11 — Chose a checkpoint boundary before measuring its cost
+
+- **Impact:** path-level resume produced no checkpoint during repeated bounded Pi attempts.
+- **Root cause:** the implementation assumed that one path could finish within the worker budget without a target-host profile.
+- **Correction:** profile bounded public input and remove repeated full-book reconstruction while preserving exact event semantics.
+- **Prevention:** verify real checkpoint progress after deployment; local interruption tests do not prove a usable production checkpoint boundary.
+
 ### 2026-09-11 — Queued replay without proving bounded progress
 
 - **Impact:** the first queued selection replay ended with no published reports and a stale waiting status.
