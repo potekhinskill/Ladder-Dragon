@@ -3,6 +3,17 @@
 All notable changes are documented here. Releases use Semantic Versioning; every
 section is dated and there is intentionally no `Unreleased` section.
 
+## [2.20.342] — 2026-09-16
+
+### Security
+- Ignore one reviewed Gitleaks fingerprint for an internal settlement metadata field in the immutable previous commit.
+- Retain full-history secret scans and all detection rules; do not exclude a file, directory, or rule.
+- Test the exact exception inventory and the metadata field value; trading behavior and HALT remain unchanged.
+
+### Verified
+- Focused exception and deployment tests: 88 passed.
+- Full release verification must pass on the final signed candidate before deployment.
+
 ## [2.20.341] — 2026-09-13
 
 ### Fixed

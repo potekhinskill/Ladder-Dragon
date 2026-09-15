@@ -1,0 +1,2 @@
+# Reviewed false positive: internal settlement metadata field, not a credential.
+7fd70b96b2dff80242e942aadbbcd2582a496166:ladder_dragon/execution/journal/buy_inventory.py:generic-api-key:11
