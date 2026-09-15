@@ -14,6 +14,7 @@ import time
 from typing import Iterable, Mapping
 
 from ladder_dragon.strategy.prediction.historical_entry_replay import MODEL_CONTRACT
+from ladder_dragon.strategy.prediction.historical_commission import require_non_scenario_report
 from ladder_dragon.strategy.prediction.historical_policy import fingerprint
 from ladder_dragon.strategy.prediction.historical_replay_planner import (
     COHORT_CONTRACT,
@@ -50,14 +51,7 @@ PLANNING_RATE_ALPHA = (
 )
 
 
-def _decimal(value: object, *, field: str) -> Decimal:
-    try:
-        number = Decimal(str(value))
-    except (InvalidOperation, TypeError, ValueError) as exc:
-        raise ValueError(f"historical {field} is invalid") from exc
-    if not number.is_finite():
-        raise ValueError(f"historical {field} is invalid")
-    return number
+from ladder_dragon.strategy.prediction.historical_values import _decimal
 
 
 def _one_sided_binomial_lower_bound(
@@ -132,6 +126,7 @@ def _validate(report: Mapping[str, object], *, cutoff_ts_ms: int) -> None:
         or report.get("selection_artifact_ready") is not False
     ):
         raise ValueError("historical replay is not selection-only and complete")
+    require_non_scenario_report(report)
     for field in ("start_ts_ms", "entry_end_ts_ms", "end_ts_ms", "cutoff_ts_ms"):
         if type(report.get(field)) is not int:
             raise ValueError("historical replay timestamp is invalid")

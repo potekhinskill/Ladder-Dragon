@@ -17,6 +17,10 @@ import requests
 from ladder_dragon.execution.order_recovery import OrderJournal, TERMINAL_EXCHANGE_STATES
 from ladder_dragon.execution.exchange_math import exact_symbol_filters, round_step
 from ladder_dragon.execution.protection.breakeven import BreakevenStateStore
+from ladder_dragon.execution.protection.empty_entry import record_empty_entry
+from ladder_dragon.execution.protection.partial_entry import settle_partial_entry
+from ladder_dragon.execution.protection.buy_inventory import remaining_inventory
+from ladder_dragon.execution.buy_settlement import require_full_inventory_coverage
 from ladder_dragon.execution.protection.validation import (
     exact_balance_quantity as _exact_balance_quantity,
 )
@@ -83,6 +87,8 @@ class ProtectionDependencies:
     now: Callable[[], float] = time.time
     lot_id_for_fill: Optional[Callable[[str, object, int | None], int | None]] = None
     average_entry_for_position: Optional[Callable[[str, object, int, int], Optional[object]]] = None
+    cancel_entry: Optional[Callable[[str, int], None]] = None
+    settle_inventory: Optional[Callable[..., Decimal]] = None
 
 
 def _remaining_oco_quantity(order: Dict[str, Any]) -> Decimal:
@@ -442,28 +448,24 @@ def protect_filled_buys(
         # TTL cleanup may cancel it while this worker is polling, so remove it
         # immediately instead of reporting OCO:pending until the worker exits.
         if status in TERMINAL_EXCHANGE_STATES and executed_quantity == 0:
-            try:
-                journal = dependencies.journal()
-                intent = (
-                    journal.get_by_exchange_order_id(order_id)
-                    if journal is not None
-                    else None
-                )
-                if journal is not None and intent is not None:
-                    journal.record_exchange_order(intent.client_order_id, order)
-            except (sqlite3.Error, RuntimeError, TypeError, ValueError) as exc:
-                dependencies.logger(
-                    f"[PROTECTION-JOURNAL] {symbol} order={order_id}: {exc}"
-                )
-            if terminal_unfilled_order_ids is not None:
-                terminal_unfilled_order_ids.add(order_id)
-            dependencies.logger(
-                f"[PROTECTION] {symbol} BUY order={order_id} "
-                f"state={status} executed=0; OCO not needed"
-            )
+            record_empty_entry(symbol, order_id, order, status, dependencies, terminal_unfilled_order_ids)
             remaining.remove(order_id)
             continue
 
+        if status in {"PARTIALLY_FILLED", "PENDING_CANCEL"} and executed_quantity > 0:
+            try:
+                order = settle_partial_entry(
+                    symbol, order_id, order, cancel=dependencies.cancel_entry,
+                    get_order=dependencies.get_order, logger=dependencies.logger,
+                )
+                status = order["status"]
+                executed_quantity = Decimal(str(order["executedQty"]))
+            except _PROTECTION_DATA_ERRORS as exc:
+                dependencies.halt(
+                    "partial BUY cannot be settled before protection",
+                    symbol=symbol, order_id=order_id, error_type=type(exc).__name__,
+                )
+                continue
         terminal_partial = (
             status in TERMINAL_EXCHANGE_STATES and executed_quantity > 0
         )
@@ -485,6 +487,9 @@ def protect_filled_buys(
             # run will see a position that still requires protection.
             if journal is not None and parent_client_id:
                 journal.record_exchange_order(parent_client_id, order)
+            acquired = executed_quantity
+            if dependencies.settle_inventory is not None:
+                acquired = dependencies.settle_inventory(journal, parent_client_id, order)
             if (
                 parent_client_id
                 and dependencies.recover_existing_protection(parent_client_id)
@@ -496,20 +501,9 @@ def protect_filled_buys(
                 dependencies.poll_trades(symbol)
                 remaining.remove(order_id)
                 continue
-            exited_quantity = Decimal("0")
-            if journal is not None and parent_client_id:
-                partial_exit_reader = getattr(
-                    journal,
-                    "partial_protection_exit_quantity",
-                    None,
-                )
-                if callable(partial_exit_reader):
-                    exited_quantity = partial_exit_reader(parent_client_id)
-                if exited_quantity > executed_quantity:
-                    raise RuntimeError(
-                        "confirmed partial protection exits exceed BUY fill"
-                    )
-            quantity_requiring_protection = executed_quantity - exited_quantity
+            quantity_requiring_protection = remaining_inventory(
+                journal, parent_client_id, acquired
+            )
             if quantity_requiring_protection <= 0:
                 dependencies.poll_trades(symbol)
                 remaining.remove(order_id)
@@ -645,6 +639,8 @@ def protect_filled_buys(
                 min_sl = Decimal(str(dependencies.min_notional(
                     symbol, sl_rounded
                 )))
+            if dependencies.settle_inventory is not None:
+                require_full_inventory_coverage(quantity_requiring_protection, quantity)
             tp_value = quantity * tp_rounded
             sl_value = quantity * sl_rounded
             if quantity <= 0 or tp_value < min_tp or sl_value < min_sl:

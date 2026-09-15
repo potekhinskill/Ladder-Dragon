@@ -299,6 +299,34 @@ class BinanceTransport:
             "GET", self._base_url() + path, params=params, timeout=timeout
         )
 
+    @staticmethod
+    def _validate_response_limit(method, maximum_response_bytes):
+        if maximum_response_bytes is not None:
+            if (type(maximum_response_bytes) is not int or maximum_response_bytes <= 0
+                    or method not in {"GET", "HEAD"}):
+                raise ValueError("bounded response requires a positive read limit")
+
+    def _signed_response(self, method, url, timeout, api_key, maximum_response_bytes):
+        bounded_options = ({"stream": True, "allow_redirects": False,
+                            "headers": {"X-MBX-APIKEY": api_key, "Accept-Encoding": "gzip, deflate"}}
+                           if maximum_response_bytes is not None
+                           else {"headers": {"X-MBX-APIKEY": api_key}})
+        deadline = time.monotonic() + timeout
+        response = self.session.request(
+            method,
+            url,
+            timeout=timeout,
+            **bounded_options,
+        )
+        if maximum_response_bytes is not None:
+            from ladder_dragon.execution.market_http_body import read_body
+            try:
+                response._content = read_body(response, deadline=deadline, max_bytes=maximum_response_bytes)
+                response._content_consumed = True
+            finally:
+                response.close()
+        return response
+
     def signed_request(
         self,
         method: str,
@@ -306,9 +334,11 @@ class BinanceTransport:
         params: Mapping[str, Any] | None = None,
         timeout: float = 15.0,
         max_tries: int | None = None,
+        maximum_response_bytes: int | None = None,
     ) -> Any:
         """Sign one request and surface ambiguous mutations for reconciliation."""
         method = method.upper()
+        self._validate_response_limit(method, maximum_response_bytes)
         # Main safety boundary: DRY may read private data, but every request
         # that changes exchange state is blocked before transport.
         if method not in ("GET", "HEAD") and not self._live():
@@ -342,11 +372,8 @@ class BinanceTransport:
             ).hexdigest()
             url = f"{self._base_url()}{path}?{query}&signature={signature}"
             try:
-                response = self.session.request(
-                    method,
-                    url,
-                    headers={"X-MBX-APIKEY": api_key},
-                    timeout=timeout,
+                response = self._signed_response(
+                    method, url, timeout, api_key, maximum_response_bytes
                 )
                 try:
                     payload = response.json()

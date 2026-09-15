@@ -3,9 +3,10 @@
 # Purpose: require exact residual exit evidence inside the journal transaction.
 """Every exact closure must prove quantity and identity at the final writer."""
 
-from decimal import Decimal
+from decimal import Decimal, localcontext
 from ladder_dragon.execution.exchange_evidence import checked_order
 from ladder_dragon.execution.protection_quantity import quantity, require_order_id
+from ladder_dragon.execution.journal.buy_inventory import acquired_quantity
 
 
 def require_exact_exit(con, parent, protection, exit_order, exit_order_id, venue):
@@ -31,8 +32,10 @@ def require_exact_exit(con, parent, protection, exit_order, exit_order_id, venue
         "WHERE venue=? AND parent_client_order_id=?",
         (venue, parent.client_order_id),
     ).fetchall()
-    prior = sum((quantity(row["executed_qty"]) for row in rows), Decimal("0"))
-    residual = quantity(parent.executed_qty) - prior
+    with localcontext() as context:
+        context.prec = 512
+        prior = sum((quantity(row["executed_qty"]) for row in rows), Decimal("0"))
+        residual = acquired_quantity(parent) - prior
     intended = quantity(protection.quantity)
     if (residual <= 0 or intended != residual
             or quantity(exit_order.get("origQty")) != residual

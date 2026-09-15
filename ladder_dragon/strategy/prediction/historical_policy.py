@@ -54,12 +54,16 @@ class HistoricalPolicy:
     veto_ofi: str
     signal_window_ms: int = 300_000
     maximum_attempts: int = 10_000
+    commission_asset_scenario: str = "UNSPECIFIED"
 
     @classmethod
     def parse(cls, payload: dict) -> "HistoricalPolicy":
-        if set(payload) != {item.name for item in fields(cls)}:
+        expected = {item.name for item in fields(cls)}
+        if set(payload) not in (expected, expected - {"commission_asset_scenario"}):
             raise ValueError("historical policy fields must be explicit and exact")
         policy = cls(**payload)
+        if policy.commission_asset_scenario not in {"UNSPECIFIED", "QUOTE", "BASE_BUY_QUOTE_SELL"}:
+            raise ValueError("historical commission asset scenario is invalid")
         if not re.fullmatch(r"[A-Z0-9]{1,20}", policy.symbol):
             raise ValueError("invalid historical symbol")
         for name in ("entry_gap_bps", "take_profit_bps", "stop_trigger_bps",

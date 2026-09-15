@@ -1229,20 +1229,10 @@ def place_market_order(
     )
 
 def _protection_dependencies() -> ProtectionDependencies:
+    from ladder_dragon.execution.protection.buy_inventory import settle_inventory
     # Position protection receives the same late-bound boundaries as orders and
     # recovery: actual HTTP, journal, and halt state remain owned by the executor.
-    def lot_id_for_fill(symbol: str, fill_price: float, order_id: int | None = None) -> int | None:
-        if STATS_CON is None:
-            return None
-        try:
-            if order_id is not None:
-                exact = lot_for_order(STATS_CON, symbol, order_id)
-                if exact is not None:
-                    return exact.lot_id
-            lots = oldest_lots(STATS_CON, symbol)
-            return lots[0].lot_id if lots else None
-        except sqlite3.Error:
-            return None
+    from ladder_dragon.execution.protection.lot_lookup import lot_id_for_fill
 
     return ProtectionDependencies(
         logger=log,
@@ -1285,7 +1275,15 @@ def _protection_dependencies() -> ProtectionDependencies:
         cancel_oco=cancel_oco,
         place_market_order=place_market_order,
         market_price=get_price_exact,
-        lot_id_for_fill=lot_id_for_fill,
+        lot_id_for_fill=lambda symbol, price, order_id=None: lot_id_for_fill(globals(), symbol, price, order_id),
+        cancel_entry=cancel_order,
+        settle_inventory=lambda journal, parent_id, order: settle_inventory(
+            journal, parent_id, order, read_fills=lambda symbol, order_id, cursor: TRANSPORT.signed_request(
+                "GET", "/api/v3/myTrades",
+                {"symbol": symbol, "orderId": order_id, "fromId": cursor, "limit": 1000},
+                maximum_response_bytes=2 * 1024 * 1024,
+            ),
+        ),
     )
 
 

@@ -37,6 +37,12 @@ A partial execution, lost acknowledgement, network ambiguity, or journal write
 failure is not reported as a successful flatten. The symbol remains halted and
 the position remains unresolved for authoritative reconciliation.
 
+Before new worker protection, order-specific fills must establish net BUY inventory, including any commission paid in the purchased asset.
+The journal retains complete terminal settlement for revalidation after restart.
+Replacement protection subtracts confirmed partial exits from this net quantity.
+An incomplete fill history or an unrepresentable residual blocks new protection submission and retains the unresolved BUY.
+Legacy records without settlement do not attest zero fees.
+
 Read uncertainty does not permit a protection change.
 If an order-list or leg query times out, recovery leaves the OCO or OTOCO unchanged.
 Recovery enters HALT.
@@ -47,7 +53,8 @@ A terminal leg with a positive partial execution is a confirmed partial exit,
 not an exact closed lifecycle. Its exchange order ID and quantity are recorded
 idempotently, the original protection becomes terminal, and the parent returns
 to `PROTECTION_PENDING`. Replacement protection is sized from the exact
-residual `BUY executed quantity - confirmed partial exits`.
+residual `verified net BUY quantity - confirmed partial exits` when settlement is available.
+Legacy coverage remains gross until settlement is established.
 
 ## Exactly-once transport boundary
 
@@ -121,6 +128,11 @@ expectancy without starting a worker or changing an order.
 An incomplete loss-streak boundary blocks BUY inside a valid risk snapshot.
 It does not suppress account reconciliation or SHADOW evidence collection.
 The risk snapshot lists each symbol whose loss-streak evidence is incomplete.
+
+The supervisor's `risk_limits` status includes the effective daily loss limit, start and peak drawdown fractions, consecutive-loss limit, and cooldown seconds.
+These fields come from the same resolved `RiskLimits` object, not a second environment read or a list of defaults.
+Drawdown fields ending in `_pct` contain fractions: `0.03` means three percent.
+Status publication does not change limits or authorize execution; earlier releases without these fields leave their runtime values unverified.
 
 Each symbol keeps one immutable SHADOW generation and its own candidate set.
 Current experiments use 300-minute and 360-minute outcome horizons.

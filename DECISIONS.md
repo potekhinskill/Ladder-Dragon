@@ -1,5 +1,74 @@
 # Engineering decisions
 
+### 2026-09-15 — Keep encrypted source claims separate from retrieval authority
+
+- **Context:** a signed public archive cannot authenticate private fills, and encrypted caller input does not prove an exchange request occurred.
+- **Decision:** validate full order-bound fills through one owner, sign independently bound claims, and encrypt them before exclusive external persistence.
+- **Why it worked:** synthetic tests reject altered bindings, incomplete fills, forged signatures, authority relabeling, and unsafe repeat writes.
+- **Reuse:** preserve raw response bytes without plaintext staging; retain interrupted ciphertext instead of deleting evidence or reusing its slot.
+- **Limit:** consistent account-scope labels are claims, not account authentication; retrieval, clock trust, key recovery, and replay admission require separate contracts.
+- **Retrieval binding:** derive the source scope from one frozen API key and compare its independent fingerprint before any private request.
+- **Identity limit:** pinned credentials identify the selected key, not an independently confirmed account UID or exchange-side permission set.
+- **Retention:** keep the bounded diagnostic package indefinitely until explicit review; no automated collection, cleanup, or authoritative accounting mutation is introduced.
+- **Recovery:** preserve encrypted export-key recovery and public registration before private retrieval; keep plaintext signing and export keys in process memory only.
+- **Recovery limit:** a synthetic age round trip validates the mechanism, not the operator's ability to decrypt with the separately held identity.
+
+### 2026-09-14 — Keep passive price capture outside replay authority
+
+- **Context:** public historical prices lack local receipt evidence, and a new collector initially lacks trusted clock and signature attestations.
+- **Decision:** use a separate diagnostic REST format, explicit unknown clock quality, bounded storage, and no replay admission.
+- **Why it worked:** synthetic tests prove bounded reads, interrupted-run preservation, and rejection by the existing archive reader after flag relabeling.
+- **Reuse:** collect observations without inventing missing provenance; a completed unsigned capture must not become an execution qualification.
+- **Attestation:** pin the trust key and policy outside signed input; bind exact manifest bytes with a separate signature domain.
+- **Clock ordering:** require the entire receipt uncertainty interval before the fill; LIVE clock admission does not establish that upper bound.
+- **Limit:** signature verification authenticates collector claims, not their measurement process, archive membership, or exchange truth.
+- **Composition:** retain the bounded clock response and request boundaries; rederive signed clock claims before complete archive verification and shared fill valuation.
+- **Private evidence:** public collector authentication never upgrades private fill timestamps; missing private-source provenance remains explicit in the result.
+- **Failure diagnosis:** share fresh stage state through the command, collector, and signer; expose only exact allowlisted reasons or fixed fallback categories.
+- **Network diagnosis:** use a collector-only HTTP pool to report DNS time, total request-to-headers time, and their non-DNS remainder without addresses or provider text.
+- **Network limit:** do not treat the non-DNS remainder as a pure transport metric or use it to relax capture, clock, TLS, or replay gates.
+- **Resolver deadline:** execute public resolution in a disposable isolated interpreter; kill and reap timeouts, then pass only remaining time to transport.
+- **Resolver scope:** restrict targets and numeric results; provide no parent environment, inherited descriptors, or signing credentials to the resolver program.
+- **Resolver transport:** select TCP with a fixed child-only `RES_OPTIONS=use-vc` option after paired Pi probes reproduce a UDP timeout.
+- **Clock warm-up:** discard one bounded preliminary response on the same session; qualify only the subsequent measurement within unchanged total request and duration limits.
+- **Diagnostic limit:** preserve fail-closed behavior without saving failed response bodies; missing historical diagnostics remain unknown after instrumentation changes.
+- **Credentials:** load one bounded protected key file without symlink traversal, and verify its independently enrolled public-key fingerprint.
+- **Storage:** preserve occupied capture slots; capacity checks block new collection instead of deleting evidence or placing archives on internal storage.
+
+### 2026-09-13 — Separate fee scenarios from historical fee evidence
+
+- **Context:** rate-only archives do not prove which asset paid a commission or the resulting sellable BUY quantity.
+- **Decision:** require explicit diagnostic scenarios, share canonical inventory arithmetic, and reject scenarios at existing selection checkpoints.
+- **Why it worked:** paired regressions preserve net quantity, avoid duplicate base-fee costs, and leave unknown inventory unresolved.
+- **Reuse:** policy assumptions must not become exchange attestations; unresolved episodes retain their execution slot and cannot admit later BUY attempts.
+- **Enforcement:** report consumers reject declared scenario fields independently of status; content integrity does not prove financial semantics.
+- **Temporal boundary:** a causal fee reference requires availability before the fill and freshness measured from market time, not receipt time.
+- **Qualification:** source references and decimal conversion alone do not authenticate fee ownership or authorize historical selection.
+- **Binding:** timestamped fill bytes must match the durable settlement projection; pinned record hashes do not substitute for exchange-source authentication.
+- **Archive membership:** retain selected bytes from the same bounded pass that verifies the complete archive; never return before checking its tail.
+- **Remote comparison:** use a separate bounded GET-only diagnostic; a repair preview must not substitute for read-only evidence verification.
+
+### 2026-09-13 — Revalidate durable BUY settlement at inventory consumers
+
+- **Context:** gross BUY execution does not establish sellable inventory when commission consumes the purchased asset.
+- **Decision:** persist immutable order-bound fills through a dedicated journal writer and revalidate them for coverage and exact closure.
+- **Why it worked:** restart, invalid replacement, capacity, and small-fee regressions preserve the same net inventory authority.
+- **Reuse:** generic metadata cannot attest settlement; legacy gross coverage is not evidence of zero fees.
+
+### 2026-09-13 — Bound historical liquidation by remaining event liquidity
+
+- **Context:** historical emergency flatten assigned complete execution beyond the supplied bid capacity.
+- **Decision:** consume visible bid levels after same-event consumption and preserve unfilled inventory as a censored outcome.
+- **Why it worked:** regressions reject invalid depth and prove that repeated calls cannot create additional proceeds.
+- **Reuse:** modeled closure requires sufficient execution evidence; fixed impact does not establish liquidity capacity.
+
+### 2026-09-13 — Settle partial entry remainders before protection
+
+- **Context:** runtime and historical replay waited for a partial BUY to finish without immediately cancelling its remainder.
+- **Decision:** cancel the verified remainder, reread terminal quantity, and retain fills during cancellation before sizing protection.
+- **Why it worked:** regressions cover cancellation races, timeouts, non-monotonic quantities, identity changes, and repeat protection recovery.
+- **Reuse:** uncertain cancellation preserves tracking and blocks new protection; replay must retain the corresponding exposure interval.
+
 ### 2026-09-11 — Index unchanged book levels without changing evidence
 
 - **Context:** full book sorts and repeated immutable level allocation dominated a bounded Pi decoder profile.

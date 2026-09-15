@@ -1,5 +1,58 @@
 # Engineering mistakes and root causes
 
+### 2026-09-16 — Checked legacy ceilings without release-lineage growth
+
+- **Impact:** the candidate passes functional tests but fails the release architecture gate; publication and deployment stop before production changes.
+- **Root cause:** older fixed monolith ceilings allow growth that the signed-predecessor comparison correctly rejects.
+- **Correction:** move concrete helpers with their callers, preserve behavior, and lower the completed module budgets.
+- **Prevention:** check lineage-based growth during iteration and require the complete immutable release profile before publication.
+
+### 2026-09-16 — Tested a guessed private-key length against matching fake data
+
+- **Impact:** the recovery helper rejected correctly sized operator input before SSH, causing repeated manual clipboard steps without testing recovery.
+- **Root cause:** the format regex counted 59 characters after a 16-character prefix; a native age identity requires 58 there.
+- **Test gap:** synthetic fixtures repeated the same incorrect length instead of using the key generator's format.
+- **Correction:** accept the 74-character identity, preserve newline handling, and check the boundary against an in-memory age-generated key.
+- **Prevention:** validate credential formats against their canonical producer and test both adjacent lengths before asking an operator to handle secrets.
+
+### 2026-09-15 — Preserved a failure stage without its safe cause
+
+- **Impact:** a bounded private-source diagnostic stopped at clock admission without enough evidence to distinguish transport failure from clock rejection.
+- **Root cause:** the new collector retained stages but did not carry the existing safe-reason contract through its exception boundary.
+- **Correction:** preserve the failed registration, report the historical cause as unknown, and add fixed reasons plus bounded HTTP status metadata.
+- **Prevention:** test transport, clock, and HTTP failures through the actual diagnostic reporter before another authorized attempt; never print provider exception text.
+- **Launch lesson:** validate each systemd environment-file property separately before collection; a combined path prevented the initial process from starting.
+- **Reporter correction:** the temporary reporter also discarded the reason; use one revalidated report and test its JSON output through collection failures.
+
+### 2026-09-14 — Started a bounded smoke test without diagnostic failure stages
+
+- **Impact:** the authorized signed capture stopped before its first saved observation; the command reported only `ValueError`.
+- **Root cause:** secret-safe error handling discarded stable validation reasons, and clock measurements persisted only after successful collection.
+- **Correction:** preserve the failed slot and registration, remove the temporary key, and report the cause as unknown without another attempt.
+- **Prevention:** add and test allowlisted failure stages and reasons before another authorized capture; do not expose exception payloads or infer missing measurements.
+- **Follow-up:** local command instrumentation adds per-invocation stages and exact allowlisted reasons; the previous failure remains unexplained.
+
+### 2026-09-13 — Added a verifier without registering its command surface
+
+- **Impact:** the full suite rejected the new diagnostic command despite passing focused verifier tests.
+- **Root cause:** implementation covered network and database safety but omitted command inventory and reference integration.
+- **Correction:** register the command in the surface manifest and command reference before repeating complete verification.
+- **Prevention:** include command-surface contracts in focused checks whenever adding an operator entry point.
+
+### 2026-09-13 — Censored inventory did not retain its replay slot
+
+- **Impact:** the unpublished depth correction excluded incomplete PnL but permitted later modeled BUY opportunities after an unresolved exit.
+- **Root cause:** validation covered the episode result but not the outer loop that reused its slot.
+- **Correction:** a censored episode blocks further entries for that replay arm through the remaining path.
+- **Prevention:** test unresolved exposure through the outer scheduler and compare its behavior with runtime HALT.
+
+### 2026-09-13 — Relied on ambient Decimal precision for settlement
+
+- **Impact:** a synthetic small base-asset fee disappeared from net inventory in a new, disconnected validator.
+- **Root cause:** Decimal inputs used the default arithmetic precision without a bound-derived calculation context.
+- **Correction:** require bounded plain decimal inputs and calculate settlement in a separate 512-digit context.
+- **Prevention:** test small fees and excess fills under reduced ambient precision before connecting settlement to execution authority.
+
 ### 2026-09-11 — Chose a checkpoint boundary before measuring its cost
 
 - **Impact:** path-level resume produced no checkpoint during repeated bounded Pi attempts.

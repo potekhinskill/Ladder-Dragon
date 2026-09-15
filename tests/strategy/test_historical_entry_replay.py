@@ -21,7 +21,7 @@ def policy(**changes):
         maximum_event_gap_ms=2000, allowed_regimes=["RANGE"], classifier_fingerprint="a" * 64,
         panic_source_fingerprint="c" * 64,
         veto_price_bps="-5", veto_signed_flow="-0.1", veto_ofi="-0.1",
-        signal_window_ms=2000, maximum_attempts=100,
+        signal_window_ms=2000, maximum_attempts=100, commission_asset_scenario="QUOTE",
     ))
     result.update(changes)
     return result
@@ -60,7 +60,7 @@ def test_successful_cancel_creates_previously_unknown_opportunities():
     report = run(declining_history())
     baseline = report["episodes"]["baseline"]
     veto = report["episodes"]["veto"]
-    assert report["status"] == "COMPLETE_SELECTION_REPLAY"
+    assert report["status"] == "COMPLETE_COMMISSION_SCENARIO"
     assert len(veto) > len(baseline)
     assert any(row["started_at_ms"] not in {item["started_at_ms"] for item in baseline} for row in veto)
     assert veto[0]["terminal_reason"] == "ENTRY_VETO"
@@ -108,7 +108,7 @@ def test_policy_batch_matches_independent_replays_in_one_event_pass():
     assert batched == independent
 
 
-def test_real_replay_checkpoint_preserves_fifo_fees_and_causal_result(tmp_path):
+def test_checkpoint_rejects_unqualified_commission_scenario(tmp_path):
     from ladder_dragon.strategy.prediction.replay_progress import PathCheckpoint
     from ladder_dragon.strategy.prediction.historical_policy import fingerprint
     expected = run(declining_history())
@@ -117,8 +117,9 @@ def test_real_replay_checkpoint_preserves_fifo_fees_and_causal_result(tmp_path):
         "jobs": [{"policy": policy(), "context_sha256": fingerprint({"rows": [context()]})}],
         "context_evidence_sha256s": [fingerprint({"rows": [context()]})],
     })
-    cache.write([expected])
-    assert cache.read() == [expected]
+    with pytest.raises(ValueError, match="contract"):
+        cache.write([expected])
+    assert cache.read() is None
 
 
 def test_cancel_cannot_erase_fill_before_arrival():
@@ -351,7 +352,7 @@ def test_cli_publishes_immutable_paired_replay(tmp_path, monkeypatch, capsys, re
     request.write_text(json.dumps(payload))
     output = tmp_path / "report.json"
     monkeypatch.setattr(sys, "argv", ["replay", "--request", str(request), "--output", str(output), *extra])
-    assert main() == 0
+    assert main() == 2  # Diagnostic scenario is published, but qualification remains blocked.
     report = json.loads(output.read_text())
     assert report["summaries"]["veto"]["opportunities"] > report["summaries"]["baseline"]["opportunities"]
     if recorded_context:

@@ -3,7 +3,7 @@
 # Purpose: prove protection coverage from exact journal and exchange quantities.
 """Shared quantity evidence for every protection consumer."""
 
-from decimal import Decimal, InvalidOperation
+from decimal import Decimal, InvalidOperation, localcontext
 
 
 def quantity(value):
@@ -25,7 +25,8 @@ def verify_quantities(journal, parent_id, protection, legs, *, closing=False):
     if (parent is None or parent.side != "BUY" or parent.symbol != protection.symbol
             or protection.parent_client_order_id != parent_id):
         raise RuntimeError("protection parent identity differs from journal")
-    acquired = quantity(parent.executed_qty)
+    from ladder_dragon.execution.journal.buy_inventory import acquired_quantity
+    acquired = acquired_quantity(parent)
     intended = quantity(protection.quantity)
     stored = (protection.metadata or {}).get("verified_legs", [])
     if stored:
@@ -48,17 +49,24 @@ def verify_quantities(journal, parent_id, protection, legs, *, closing=False):
                 or (status == "NEW" and filled != 0)
                 or (status == "PARTIALLY_FILLED" and not 0 < filled < original)):
             raise RuntimeError("protection quantity contradicts exchange status")
-        executed += filled
+        with localcontext() as context:
+            context.prec = 512
+            executed += filled
     if executed > intended:
         raise RuntimeError("protection executions exceed durable intent")
     # Terminal partial retries already have a durable exit row. They must not
     # subtract that row twice or claim complete coverage before replacement.
     active = all(leg.get("status") in {"NEW", "PARTIALLY_FILLED"} for leg in legs)
     if active or closing:
-        prior = journal.partial_protection_exit_quantity(parent_id)
+        with localcontext() as context:
+            context.prec = 512
+            prior = journal.partial_protection_exit_quantity(parent_id)
         if not isinstance(prior, Decimal) or not prior.is_finite() or prior < 0:
             raise RuntimeError("prior protection exit quantity is invalid")
-        if intended != acquired - prior:
+        with localcontext() as context:
+            context.prec = 512
+            residual = acquired - prior
+        if intended != residual:
             raise RuntimeError("residual protection quantity is not completely covered")
         if closing and executed != intended:
             raise RuntimeError("residual protection exit is incomplete")

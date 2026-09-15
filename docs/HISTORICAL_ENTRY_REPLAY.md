@@ -137,6 +137,8 @@ The observer does not reconstruct missing past fees, filters, or PANIC state.
 
 ## Policy replay
 
+The [v23 selection review](V23_SELECTION_REVIEW.md) records the evaluated cohort's failure and a separate, unapproved next hypothesis.
+
 The policy fixes gap, target, stop, quantity budget, fees through context, cadence, latency, and permitted regimes.
 The model uses the current book midpoint as its reference price.
 It rounds entry quantities and prices with the historical exchange filters.

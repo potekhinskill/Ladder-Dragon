@@ -4306,12 +4306,7 @@ def main():
     _refresh_ai_control(args)
     setup_timing.mark("ai_control")
     _publish_ai_runtime_status(
-        risk_limits={
-            "reserve_usdt": str(limits.reserve_usdt),
-            "portfolio_cap_usdt": str(limits.portfolio_cap_usdt),
-            "daily_buy_cap_usdt": str(limits.daily_buy_cap_usdt),
-            "open_order_count_cap": limits.open_order_count_cap,
-        }
+        risk_limits=limits.status_summary()
     )
     setup_timing.mark("status_publish")
     _normalize_runtime_args(args, symbols)

@@ -30,9 +30,7 @@ PERSISTENT_CONTROL_DIR = Path("/var/lib/ladder-dragon/control")
 LEGACY_RUNTIME_CONTROL_DIR = Path("/run/mybot")
 
 
-def money(value: object) -> Decimal:
-    """Handle money."""
-    return Decimal(str(value or 0))
+from ladder_dragon.risk.limit_values import money, status_summary
 
 
 @dataclass(frozen=True)
@@ -61,6 +59,8 @@ class RiskLimits:
     managed_inventory_caps_usdt: dict[str, Decimal] = field(
         default_factory=dict
     )
+
+    status_summary = status_summary
 
     @classmethod
     def from_env(cls) -> "RiskLimits":

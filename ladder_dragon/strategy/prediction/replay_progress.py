@@ -11,6 +11,7 @@ import time
 
 from ladder_dragon.strategy.depth_segments import atomic_json, bounded_json
 from ladder_dragon.strategy.prediction.historical_policy import fingerprint
+from ladder_dragon.strategy.prediction.historical_commission import require_non_scenario_report
 
 MAX_CHECKPOINTS = 768
 MAX_CHECKPOINT_BYTES = 64 * 1024 * 1024
@@ -25,9 +26,11 @@ def implementation_identity() -> dict[str, str]:
         root / "ladder_dragon/strategy/replay_event_book.py",
         root / "ladder_dragon/strategy/market_replay.py",
         root / "ladder_dragon/strategy/entry_veto_signal.py",
+        root / "ladder_dragon/execution/buy_settlement.py",
+        root / "ladder_dragon/execution/trade_accounting.py",
         *[Path(__file__).with_name(name) for name in (
             "historical_entry_replay.py", "historical_execution.py",
-            "historical_policy.py", "context_journal.py", "replay_progress.py",
+            "historical_policy.py", "historical_commission.py", "context_journal.py", "replay_progress.py",
         )],
     ]
     return {p.name: hashlib.sha256(p.read_bytes()).hexdigest() for p in paths}
@@ -87,6 +90,7 @@ class PathCheckpoint:
                        for key in ("start", "entry_end", "end", "cutoff"))
             ):
                 raise ValueError("checkpoint report contract differs")
+            require_non_scenario_report(report)
 
     def write(self, reports: list[dict]) -> None:
         self._validate(reports)

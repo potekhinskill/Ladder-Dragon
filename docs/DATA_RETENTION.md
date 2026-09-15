@@ -16,6 +16,13 @@ The following data has no automatic deletion:
 This data supports accounting, recovery, and safety checks. Archive or retire
 it only with a reviewed migration.
 
+BUY settlement evidence is authoritative journal metadata under `buy_inventory_settlement_v1`.
+Each BUY can hold one immutable evidence set, limited to 10,000 fills and 2 MiB of serialized evidence.
+The record contains order identities, quantities, and exact commission evidence; it contains no credentials.
+Retention is indefinite, including pending and protected parents; scheduled retention must not delete this evidence.
+Existing encrypted journal backups cover this metadata. No separate archive or cleanup job is introduced.
+The total store follows journal growth; capacity exhaustion rejects new evidence without deleting existing records.
+
 Unresolved-fill rows use these permanent lifecycle states:
 
 - `PENDING` blocks the applicable gate.
@@ -66,6 +73,103 @@ The daily timer provides a safe retry after a temporary BLOCKED result.
 A later successful run clears the failed unit state.
 
 ## Existing bounded stores
+
+The standalone `record_bnb_public` command writes derived diagnostic public observations, never accounting or lifecycle evidence.
+It permits two fixed exclusive slots per explicitly selected external mount: `bnb-public-capture` and `bnb-public-capture-signed-test`.
+Each run permits at most 100 requests, 300 seconds, 10,000 events, and 64 MiB of output.
+Every response has a 64 KiB encoded and decoded ceiling; the store requires an additional 16 MiB free-space reserve.
+Completed and interrupted runs remain indefinitely; the command never overwrites, resumes, or deletes them.
+No scheduled collection or maintenance service is installed in this local stage.
+Each occupied slot blocks repeat collection; arbitrary slot names are rejected.
+Each slot has a 64 MiB logical-file ceiling, with a combined 128 MiB ceiling for both slots.
+Bounded metadata checks reject unknown files, nested directories, symlinks, hardlinks, and files on another device.
+These application checks are not an operating-system quota against unrelated writers.
+Before production scheduling, define reviewed archival maintenance and require a recent verified encrypted external backup before any removal.
+The collector never selects private fills, pending records, protected parents, or existing archives for cleanup.
+Optional signed capture adds derived `clock.json`, `attestation.json`, and `attestation.sig` within the same exclusive directory.
+Clock and attestation documents each have a 16 KiB ceiling; the detached signature contains 64 bytes.
+The archive reserves 64 KiB within its existing store limit for manifest and signing metadata.
+The public warm-up and qualifying clock measurement consume two requests from the existing total; they do not increase the request ceiling.
+The bounded warm-up response is discarded in memory and creates no persistent record.
+These records retain the same indefinite preservation, external-disk requirement, and reviewed archival dependency as their archive.
+Failed signing never deletes captured observations or authorizes unsigned data; no additional maintenance schedule is installed.
+The key loader creates no persistent record and never writes or copies a credential.
+Production credential placement and lifecycle remain operator responsibilities; test keys exist only in isolated synthetic fixtures.
+
+The authorized single-run diagnostic also retains one public registration outside its capture slot, with a 16 KiB ceiling.
+This authoritative registration binds one diagnostic public key and policy; it never grants trading or replay authority.
+Its retention is indefinite until explicit review; no scheduled deletion or backup-content access is introduced.
+The one-use private credential exists only in protected runtime storage and is removed after the isolated process stops.
+The separately authorized retry retains a second registration, also below 16 KiB, with the same indefinite preservation requirement.
+The first failed slot moves intact to `bnb-public-capture-failed-v1`; it contains one zero-byte observation file.
+This one-time relocation does not enable automatic slot reuse or additional scheduled capture directories.
+
+On 2026-09-15, separate operator approval preserves the second failed slot intact as `bnb-public-capture-failed-v2` before one new collection.
+Both relocated failed directories contain only one zero-byte observation file each; neither is eligible for automatic deletion.
+The third public registration occupies `bnb-public-capture-registration-v3`, with one file below 16 KiB and indefinite preservation until explicit review.
+The completed third diagnostic uses the existing signed-test slot and its unchanged 64 MiB ceiling, not another active slot.
+Its 15,247-byte observation archive and signing metadata remain on the external disk with the public registration.
+The one-use private credential and its empty protected runtime directory are removed after the child exits.
+No scheduled collection, rotation, slot reuse, or automatic evidence deletion is enabled by this authorization.
+
+### Offline private-source export
+
+The offline exporter creates derived diagnostic source claims, not authoritative fills or verified exchange provenance.
+Each explicitly selected external mount permits one fixed `private-fill-export` directory containing only `bundle.fernet`.
+The envelope permits eight orders, 64 KiB per source body, 2 MiB of signed-envelope plaintext, and 4 MiB of ciphertext.
+The existing external-store check requires 80 MiB free space before directory creation.
+Original response bytes, order references, timestamps, and signatures are encrypted in memory before any file write.
+No accounting, pending, protected, or existing archive records are selected for modification or deletion.
+Interrupted output and completed claims remain indefinitely until an explicit evidence-retirement review; an occupied directory blocks another export.
+No scheduled writer, cleanup, rotation, retention job, or automatic slot reuse exists.
+Capacity exhaustion blocks export rather than deleting evidence.
+
+The caller supplies distinct in-memory signing and symmetric encryption keys bound to independently reviewed fingerprints.
+No private-key persistence or recovery mechanism exists in this local module.
+Before real export, approve key custody, encrypted recovery, source scope, trust registration, and a verified encrypted external backup procedure.
+Never delete retained evidence before that backup and retirement review.
+Plaintext process memory, token creation time, and approximate ciphertext length remain outside the module's file-confidentiality guarantee.
+
+The optional credential-pinned retrieval adapter uses this same single encrypted slot and adds no persistent record type.
+At most eight complete order packets remain in memory before encryption; partial retrieval creates no output archive.
+Credential values, request authentication parameters, and headers are never included in the retained packet schema.
+No new collection schedule, automatic retry, cleanup permission, or private-key storage is introduced.
+
+The authorized one-order smoke procedure adds one exclusive `private-fill-registration-v1` directory on the external disk.
+It permits only `registration.json` and `export-key.age`, each limited to 16 KiB; partial directories block another attempt.
+The public registration is authoritative for the diagnostic enrollment, not exchange truth or replay admission.
+The wrapped export key is recovery evidence encrypted for the existing backup recipient; plaintext key files are prohibited.
+Both records remain indefinitely until explicit review, together with any completed or interrupted encrypted export.
+The signing key and unwrapped export key exist only in the isolated process memory and are not retained after process exit.
+The operator must retain the backup recipient's private identity separately; ciphertext verification does not prove actual recipient recovery.
+No backup archive is decrypted, no key is rotated, and no scheduled deletion or collection is enabled.
+
+The authorized second diagnostic uses one additional fixed `private-fill-registration-v2` directory with the same two-file limits and indefinite retention.
+It preserves the first registration through pinned hashes; it cannot replace or reuse either registration directory.
+The two registrations have a combined 64 KiB content ceiling; they share the single exclusive encrypted-export slot.
+The 2026-09-16 authorized run creates this registration and one encrypted export; recent verified encrypted-backup and external-capacity checks pass before collection.
+Both registration directories and the encrypted-export slot are now occupied; preserve them without automatic cleanup or reuse.
+
+### 2026-09-14 manual backup capacity recovery
+
+The operator authorizes removal of old encrypted copies after preservation checks.
+The reviewed plan removes 595 dated encrypted archives and their checksum sidecars, without decrypting any recovery data.
+It preserves every regular backup since 2026-08-31, one older backup per calendar week, and the original preinstallation archive.
+All three latest ciphertexts pass SHA-256 verification; the newest also matches the published verified backup status.
+This verifies ciphertext integrity, not successful decryption or a complete restore.
+The operation holds the existing backup lock and rejects unsafe file types or a changed removal plan.
+It leaves 101 regular archives and one preinstallation archive; evidence directories and inventory metadata remain untouched.
+Available external capacity increases from approximately 0.86 GB to 18.28 GB, with 70 percent utilization after the smoke attempt.
+Deleted versions are not directly recoverable; preserved backups remain available.
+
+This is a one-time cleanup, not a change to scheduled retention configuration.
+The backup timer and its last run report success; the implementation has age-based retention without an archive-count ceiling.
+The legacy image and mirror backup timers are inactive.
+Logrotate reports success and passes its debug check; the sanitized-log export timer and last service run are healthy.
+Journald uses volatile storage, a 50 MiB runtime ceiling, 10 MiB files, and seven-day retention.
+Its observed usage is approximately 43 MiB; logs do not explain the external disk pressure.
+
+### Other retained stores
 
 - Historical replay checkpoints are derived, immutable complete-path results, not complete selection reports.
 - Each report directory allows at most 768 checkpoint files and 64 MiB; each file is limited to 2 MiB.

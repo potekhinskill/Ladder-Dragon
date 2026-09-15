@@ -3,6 +3,148 @@
 All notable changes are documented here. Releases use Semantic Versioning; every
 section is dated and there is intentionally no `Unreleased` section.
 
+## [2.20.341] — 2026-09-13
+
+### Fixed
+- Move bounded response reads, journal metadata, protection helpers, risk value reporting, and historical helpers out of oversized orchestration paths.
+- Preserve transaction boundaries, callback resource replacement, exact partial-exit arithmetic, and existing replay source membership; lower completed monolith budgets.
+- Correct the temporary Apple recovery helper's off-by-one identity length; verify the format against age-generated data and newline boundary cases.
+- Select TCP for the disposable public capture resolver with fixed process-local options, preserving deadlines and excluding inherited environment values.
+- Bound public capture DNS through a disposable subprocess; terminate and reap stalled resolution without restarting the request budget.
+- Cancel a partial BUY remainder before protection and verify terminal identity and monotonic filled quantity through a fresh read.
+- Preserve tracking and halt on uncertain cancellation; reuse existing protection after terminal recovery.
+- Match historical replay partial-entry cancellation with runtime settlement and retain fills during cancellation latency.
+- Assign a new historical model identity without rewriting old reports or checkpoints.
+- Activate historical exchange-resident STOP orders without a second client transport delay, after protection arrival.
+- Limit emergency historical exits to available bid depth without reusing same-event taker or public-trade liquidity.
+- Preserve unfilled liquidation quantity and censor incomplete outcomes instead of reporting a complete realized result.
+
+### Added
+- Document the proposed bounded historical-source collection, incomplete opening inventory, and separate collection authorization before any private retrieval.
+- Publish effective loss and drawdown limits, consecutive-loss limits, and cooldown from the supervisor's resolved risk object without exposing environment values.
+- Prepare a non-executed second private diagnostic with pinned prior registration, recipient, credential scope, and order selection; preserve exclusive external slots.
+- Publish private-capture failures through one revalidated JSON report; retain safe reasons and HTTP status without provider text or replay authority.
+- Wrap one in-memory export key with bounded age encryption for an independently pinned recipient, excluding inherited credentials and plaintext key files.
+- Retain fixed private-capture failure stages, allowlisted reasons, and bounded HTTP status metadata without provider text.
+- Connect fixed-endpoint private GET retrieval to encrypted source claims with one independently pinned credential scope and frozen credentials.
+- Bound requests, validate complete clock reads and terminal fills, retain exact response bytes, and reject retries, redirects, and occupied exports.
+- Keep actual account association, credential enrollment, production activation, and replay authority outside the local collector.
+- Add an offline private-fill claim boundary with shared terminal-order validation, exact response hashes, independent bindings, and signature verification.
+- Encrypt signed claims before exclusive external storage; preserve interrupted ciphertext and reject overwrite, altered claims, or authority relabeling.
+- Keep real-account provenance, key recovery, command integration, and replay admission outside the offline encrypted-claim interface.
+- Warm the public connection once before signed clock measurement, charging both reads to existing request and duration budgets.
+- Discard the warm-up response and reject retries or substitution after a failed qualifying clock measurement.
+- Add capture-only DNS and request-header timings with fixed fields and bounded command output.
+- Preserve default TLS validation, request limits, and clock admission while isolating collector diagnostics from shared HTTP clients.
+- Add per-invocation capture failure stages and exact allowlisted reasons, including secret-safe argument errors, without retry or evidence changes.
+- Add two fixed external capture slots with per-slot and aggregate capacity checks, preserving occupied slots without cleanup.
+- Add a bounded Ed25519 credential loader with no-symlink resolution, ownership and permission checks, and independent public-key fingerprint verification.
+- Connect explicit signed command options without loading key material from arguments or environment values.
+- Connect optional signed capture to a bounded public clock measurement and retain exact measurement bytes with manifest-bound signatures.
+- Verify the complete signed REST archive before shared fill-bound valuation; preserve private-source and replay-admission uncertainty explicitly.
+- Add an in-memory collector-attestation boundary with domain-separated Ed25519 signatures and independently supplied trust keys.
+- Validate bounded clock claims, expiry, drift, and conservative receipt ordering without granting replay admission or measuring production clock quality.
+- Add a standalone bounded public BNBUSDT REST collector with external-mount checks and exclusive diagnostic output.
+- Preserve unknown clock uncertainty and unsigned manifests; reject replay admission, gaps, oversized responses, and unsafe repeat writes.
+- Leave scheduled collection, production trust enrollment, private-fill authentication, and Pi installation outside this local stage.
+- Add a bounded aggregate-only BNB fill verifier using the dedicated dashboard client, read-only SQLite, and an exact GET endpoint allowlist.
+- Compare original fill fields without importing records, repairing commissions, or granting replay admission.
+- Add optional terminal-order completeness checks, exact executed totals, and cross-read fill binding without database writes.
+- Add a pure order-bound BUY settlement validator using the canonical inventory accounting owner.
+- Reject incomplete or duplicate fills, changed order identity, unknown fee assets, and mismatched terminal quantity.
+- Persist immutable BUY settlement evidence through a dedicated journal writer; reject generic metadata replacement.
+- Revalidate net inventory during protection coverage and final closure, including after restart.
+- Collect bounded order-specific BUY fills before runtime protection and size replacement SELL orders from verified net residual inventory.
+- Reuse durable settlement after restart; incomplete fills and normalization residuals preserve tracking and halt without a new protection mutation.
+- Stream the new signed fill reads with a decoded-byte ceiling while retaining existing authentication and retry behavior.
+- Add explicit historical base-paid and quote-paid commission scenarios with canonical net inventory and no duplicate fee deduction.
+- Leave unspecified commission assets unresolved; block further replay BUY opportunities after a censored episode.
+- Share strict quantity-normalization coverage between runtime and replay without an inferred dust write-off.
+- Give diagnostic commission scenarios a separate model identity and status that existing selection checkpoints reject.
+- Preserve scenario status across complete path aggregation instead of reporting missing history.
+- Reject declared fee assumptions at selection, checkpoint read/write, and aggregation boundaries even after status relabeling and hash recomputation.
+- Observed fee-asset qualification, BNB scenario valuation, and dust disposition remain incomplete.
+- Add a pure causal BNB reference converter with strict availability, market identity, bounded decimal inputs, and exclusive freshness expiry.
+- Keep the converter separate from accounting attestations and replay admission until source provenance and fill ownership are established.
+- Bind causal BNB references to complete timestamped fills matching durable BUY settlement, with separately pinned bounded source records.
+- Reject changed fill ownership, commissions, source bytes, and invalid event timing without writing accounting state or granting replay admission.
+- Bind selected price bytes to a complete pinned archive through bounded single-pass extraction and manifest counter checks.
+- Retain archive, manifest, record, and fill identities together without granting source authenticity or replay admission.
+- Preserve small inventory fees with bounded decimal inputs and a separate arithmetic context.
+
+### Verified
+- On 2026-09-16, the extraction passes 113 initial regressions, 58 protection checks, and 23 ownership and architecture tests.
+- The signed-predecessor growth comparison passes without exceptions; the complete release profile must pass again after candidate amendment.
+- On 2026-09-16, effective loss-limit telemetry passes 48 focused tests and 3197 full-suite tests, with 2 skipped.
+- Compilation, five safety audits, Technical English, and 25 documentation and workflow checks pass; Pi configuration and HALT remain unchanged.
+- Read-only review identifies the imported cost-basis provenance boundary; retained Mainnet reports do not establish every exact rejection cause.
+- On 2026-09-16, the installed age identity recovers the pinned export key; package decryption, signature, bindings, and complete-order validation pass again.
+- Recovery uses a network-isolated read-only transient process without plaintext files; off-Pi key custody and independent account verification remain unconfirmed.
+- On 2026-09-16, the authorized second private diagnostic completes one order and one fill; signature, in-memory decryption, and journal totals agree.
+- Post-process checks confirm the 3832-byte ciphertext and both registrations; services remain active, HALT stays enabled, and replay remains prohibited.
+- Second-run preparation passes five synthetic prior-file checks and a no-subprocess default-mode check; no second private collection occurs.
+- The unchanged code passes 3196 full-suite tests, with 2 skipped; compilation, five safety audits, and 25 documentation checks pass again.
+- On 2026-09-15, private failure reports add 20 regressions; 139 focused tests and 3196 full-suite tests pass, with 2 skipped.
+- Four synthetic cases pass through the prepared runner's actual exception handler; the runner itself and Pi collection are not executed.
+- Compilation, five safety audits, Technical English, and 25 documentation and workflow checks pass for the reporter change.
+- On 2026-09-15, recovery and failure diagnostics pass 119 focused tests and 3176 full-suite tests, with 2 skipped.
+- Compilation, five safety audits, Technical English, and 25 documentation and workflow checks pass.
+- One authorized Pi diagnostic preserves registration and encrypted key recovery, then stops at clock admission before private requests; the cause remains unknown.
+- A synthetic age recovery round trip passes; preserved file hashes match, services remain active, and HALT remains enabled without another collection attempt.
+- On 2026-09-15, credential-pinned retrieval adds 49 regressions; 126 focused tests and 3156 full-suite tests pass, with 2 skipped.
+- Compilation, five safety audits, and 25 documentation and workflow checks pass; all collector requests use synthetic transport during verification.
+- On 2026-09-15, encrypted private claims add 50 regressions; 119 related tests and 3107 full-suite tests pass, with 2 skipped.
+- Compilation, five safety audits, and 25 documentation and workflow tests pass; no real private export, account request, or Pi update occurs.
+- On 2026-09-15, one authorized signed Pi diagnostic captures 104 public events; signature, clock, archive hashes, counters, and receipt bounds pass verification.
+- Preserve both failed attempts and prior registrations; remove the one-use private credential after completion without installation or service restarts.
+- The pre-run credential, storage, attestation, clock, and command group passes 111 tests; replay remains prohibited.
+- On 2026-09-15, process-local TCP resolution passes 137 focused tests and 3057 full-suite tests, with 2 skipped.
+- Compilation and five safety audits pass; a keyless Pi warm-up probe accepts 122.054 milliseconds clock uncertainty within the unchanged 500-millisecond limit.
+- The probe completes in 1.416 seconds without installation, keys, archives, or service restarts; one sample does not prove sustained improvement.
+- On 2026-09-15, clock warm-up passes 134 focused tests and 3054 full-suite tests, with 2 skipped; compilation and five safety audits pass.
+- A keyless Pi probe stops during warm-up DNS after 5.006 seconds; no qualifying request or retry follows the timeout.
+- On 2026-09-15, bounded DNS adds fifteen regressions; 124 focused tests and 3044 full-suite tests pass, with 2 skipped.
+- Compilation and all five safety audits pass, including real stalled-child termination and request-path timeout diagnostics.
+- On 2026-09-15, capture network diagnostics pass 109 focused tests; ten new regressions cover timing, failures, pool isolation, and output boundaries.
+- The updated candidate passes 3029 tests, with 2 skipped; compilation and all five safety audits pass.
+- Capture diagnostics add 34 regressions; 135 focused tests pass, including twelve injected failure stages and secret-safe output checks.
+- On 2026-09-14, the updated candidate passes 3019 tests, with 2 skipped; compilation and all five safety audits pass.
+- Credential and slot integration adds 42 regressions; 101 focused tests and 122 command, surface, and deployment checks pass.
+- On 2026-09-14, the updated candidate passes 2985 tests, with 2 skipped; compilation and all five safety audits pass.
+- Signed capture integration adds 28 regressions; 143 related checks and 114 integration/deployment checks pass.
+- On 2026-09-14, the integrated candidate passes 2943 tests, with 2 skipped; compilation and all five safety audits pass.
+- Collector attestation adds 31 regressions; 91 related clock, capture, and causal-conversion tests pass.
+- The attestation candidate passes 2915 tests, with 2 skipped; compilation and all five safety audits pass on 2026-09-14.
+- On 2026-09-14, the public collector candidate passes the full suite: 2884 passed, with 2 skipped.
+- Compilation and all five safety audits pass; 31 collector regressions and 117 combined collector/deployment checks pass.
+- The BNB fill verifier passes 19 synthetic regressions, including mutation rejection, request limits, database preservation, and safe diagnostics.
+- Order completeness adds 21 regressions; 40 verifier tests pass, including incomplete fills, terminal partials, and cross-read changes.
+- After order verification, the full suite passes 2853 tests, with 2 skipped; compilation and five safety audits pass.
+- Command registration and related integration checks pass: 57 tests. The full suite passes 2832 tests, with 2 skipped.
+- Compilation and all five safety audits pass after command-surface registration.
+- Initial protection and historical-entry regressions pass: 59 passed.
+- Fifteen partial-settlement regressions pass, including cancel races, timeouts, identity mismatches, and repeat recovery.
+- The full test suite, compilation, and five safety audits pass on the local candidate.
+- Exit qualification and runtime protection tests pass: 34 passed, including ten new historical exit regressions.
+- After the STOP and depth corrections, the full suite passes: 2663 passed and 2 skipped.
+- Fee-settlement qualification and empirical exchange timing remain incomplete.
+- The disconnected settlement validator passes 22 regressions; this does not prove end-to-end fee correction.
+- After the precision correction, the full suite passes: 2685 passed and 2 skipped; compilation and five safety audits pass.
+- Journal integration adds seven regressions; the updated full suite passes: 2692 passed and 2 skipped.
+- Compilation, five safety audits, and 56 focused architecture, journal, workflow, and documentation tests pass after integration.
+- Runtime inventory and bounded signed reads add 19 regressions; the paired protection, recovery, and transport group passes 93 tests.
+- After runtime integration, the full suite passes: 2711 passed and 2 skipped; compilation and all five safety audits pass.
+- Commission scenarios add 11 regressions; 60 paired runtime and replay tests pass, including causal context and unresolved-slot checks.
+- After scenario integration, the full suite passes: 2722 passed and 2 skipped; compilation and five safety audits pass.
+- Nine scenario-boundary regressions and 50 related tests pass; the full suite passes 2731 tests, with 2 skipped.
+- Compilation, five safety audits, and 20 architecture and documentation tests pass after boundary corrections.
+- Causal BNB valuation adds 29 regressions; the related commission and scenario group passes 49 tests.
+- After the causal reference helper, the full suite passes 2760 tests, with 2 skipped; compilation and five safety audits pass.
+- The settlement-binding adapter adds 33 regressions; 69 related tests pass, including restart and source-substitution checks.
+- After settlement binding, the full suite passes 2793 tests, with 2 skipped; compilation and five safety audits pass.
+- Archive membership adds 20 regressions; 82 related tests pass, including recorder compatibility and the complete valuation chain.
+- After archive integration, the full suite passes 2813 tests, with 2 skipped; compilation and five safety audits pass.
+
 ## [2.20.340] — 2026-09-11
 
 ### Fixed

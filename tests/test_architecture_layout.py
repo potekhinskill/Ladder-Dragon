@@ -63,16 +63,16 @@ def test_known_runtime_monoliths_can_only_shrink():
     budgets = {
         "ladder_dragon/supervision/runtime.py": 4803,
         "ladder_dragon/ai/ai_advisor.py": 822,
-        "ladder_dragon/execution/worker/runtime.py": 1661,
+        "ladder_dragon/execution/worker/runtime.py": 1531,
         "ladder_dragon/execution/worker/bootstrap.py": 18,
         "ladder_dragon/execution/worker/lifecycle.py": 577,
         "ladder_dragon/execution/worker/event_loop.py": 412,
         "ladder_dragon/dashboard/runtime.py": 2773,
-        "ladder_dragon/execution/order_recovery.py": 1284,
+        "ladder_dragon/execution/order_recovery.py": 1254,
         "ladder_dragon/strategy/prediction/runtime.py": 1300,
         "ladder_dragon/ai/context/runtime.py": 1684,
         "ladder_dragon/execution/orders/runtime.py": 1320,
-        "ladder_dragon/execution/protection/runtime.py": 1095,
+        "ladder_dragon/execution/protection/runtime.py": 826,
     }
     oversized = {
         path: (_line_count(path), budget)

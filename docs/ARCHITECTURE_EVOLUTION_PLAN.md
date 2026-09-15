@@ -548,6 +548,27 @@ Do not hand-edit production databases or restore old schemas to make a source ro
 
 ## 10. Implementation record
 
+### Release-candidate growth correction — 2026-09-16
+
+The release profile rejects eight growth violations in seven files against the signed v2.20.340 baseline.
+The bounded correction covers these concrete owners:
+
+- `BinanceTransport._signed_response` owns complete response reads; request signing and retry decisions remain in the transport coordinator.
+- `execution/journal/metadata.py` owns the existing metadata transaction and rejects direct settlement replacement.
+- `execution/protection/empty_entry.py` owns terminal zero-fill recording without creating protection.
+- `execution/protection/lot_lookup.py` resolves the current worker connection and callbacks at each invocation.
+- `execution/protection/buy_inventory.py` owns the exact partial-exit read and residual calculation.
+- `risk/limit_values.py` owns exact conversion and the effective-limit status allowlist.
+- `prediction/historical_values.py` owns finite selection values; the replay module retains its source-hash helper and original source membership.
+
+Four relocated functions retain identical executable AST, excluding documentation indentation.
+No schema, historical artifact, model identifier, execution permission, or financial policy changes during these moves.
+The full test harness checks owner identity, resource replacement, exact arithmetic, and fail-closed response limits.
+Reduced module budgets and the existing lineage-based gate prevent reintroduction of the observed growth.
+Release completion remains conditional on the full signed-candidate profile; file movement does not establish a startup speed improvement.
+
+### Earlier implementation record
+
 The first local slice covers exact Python owners, static import observations, size metrics, and the package-to-launcher prohibition.
 It includes nonignored new source files so local additions cannot silently escape the inventory.
 Its report uses source hashes alongside HEAD and does not claim a dirty checkout is an immutable release.

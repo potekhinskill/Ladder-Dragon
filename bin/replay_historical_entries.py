@@ -79,6 +79,7 @@ def _combined_path_report(
     request: dict, path_reports: list[tuple[dict, dict, list[str]]]
 ) -> dict:
     """Combine source-disjoint path results into one stability block."""
+    from ladder_dragon.strategy.prediction.historical_commission import require_non_scenario_report
     if len(path_reports) != 3:
         raise ValueError("historical stability block path count differs")
     reports = [row[0] for row in path_reports]
@@ -125,6 +126,12 @@ def _combined_path_report(
         if all(report["status"] == "COMPLETE_SELECTION_REPLAY" for report in reports)
         else "INCOMPLETE_HISTORY"
     )
+    if status == "COMPLETE_SELECTION_REPLAY":
+        for report in reports:
+            require_non_scenario_report(report)
+    elif all(report["status"] in {"COMPLETE_SELECTION_REPLAY", "COMPLETE_COMMISSION_SCENARIO"}
+             for report in reports):
+        status = "COMPLETE_COMMISSION_SCENARIO"
     first, last = windows[0], windows[-1]
     return {
         "schema_version": 2,

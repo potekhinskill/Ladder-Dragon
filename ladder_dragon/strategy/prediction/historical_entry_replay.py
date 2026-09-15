@@ -12,14 +12,29 @@ from typing import Iterable
 
 from ladder_dragon.strategy.market_replay import MarketEvent
 from ladder_dragon.strategy.prediction.historical_execution import HistoricalExecution
+from ladder_dragon.strategy.prediction.historical_commission import exact_arithmetic
 from ladder_dragon.strategy.prediction.historical_policy import (
     HistoricalContext, HistoricalPolicy, RollingVeto, fingerprint,
 )
 
-MODEL_CONTRACT = "historical_midpoint_fifo_cancel_selection_v2"
+MODEL_CONTRACT = "historical_net_inventory_scenarios_v4"
 MAXIMUM_BATCH_POLICIES = 64
 
 
+def _model_source_hashes():
+    source_files = [Path(__file__).with_name(name) for name in (
+        "historical_entry_replay.py", "historical_execution.py", "historical_policy.py", "historical_commission.py")]
+    source_files += [Path(__file__).parents[2] / "execution" / name for name in (
+        "buy_settlement.py", "trade_accounting.py")]
+    source_files += [Path(__file__).parents[1] / name for name in (
+        "entry_veto_signal.py", "market_replay.py", "replay_event_book.py", "depth_segments.py", "indexed_book.py")]
+    return {
+        path.name: hashlib.sha256(path.read_bytes()).hexdigest()
+        for path in source_files
+    }
+
+
+@exact_arithmetic
 def historical_entry_replays(
     events: Iterable[MarketEvent],
     *,
@@ -100,6 +115,9 @@ def historical_entry_replays(
                             (event.ts_ms // policy.cadence_ms + 1)
                             * policy.cadence_ms,
                         )
+                        if terminal["censored"]:
+                            # Runtime HALT does not free a slot for another BUY.
+                            state["next_at"][name] = entry_end_ms
                 if (
                     state["active"][name] is None
                     and event.ts_ms >= state["next_at"][name]
@@ -132,14 +150,7 @@ def historical_entry_replays(
                         state["active"][name] = episode
     if last_seen is None:
         raise ValueError("historical terminal observation tail is incomplete")
-    source_files = [Path(__file__).with_name(name) for name in (
-        "historical_entry_replay.py", "historical_execution.py", "historical_policy.py")]
-    source_files += [Path(__file__).parents[1] / name for name in (
-        "entry_veto_signal.py", "market_replay.py", "replay_event_book.py", "depth_segments.py", "indexed_book.py")]
-    model_sources = {
-        path.name: hashlib.sha256(path.read_bytes()).hexdigest()
-        for path in source_files
-    }
+    model_sources = _model_source_hashes()
     reports = []
     for state in states:
         policy = state["policy"]
@@ -178,11 +189,11 @@ def historical_entry_replays(
         context_rows = state["context_rows"]
         reports.append({
             "schema_version": 1, "model_contract": MODEL_CONTRACT,
-            "status": "INCOMPLETE_HISTORY" if censored else "COMPLETE_SELECTION_REPLAY",
+            "status": "INCOMPLETE_HISTORY" if censored else "COMPLETE_COMMISSION_SCENARIO",
             "mode": "SHADOW", "apply_allowed": False, "promotion_eligible": False,
             "selection_artifact_ready": False,
             "model_source_sha256s": model_sources,
-            "remaining_gates": ["independent time-block selection", "live runtime parity", "independent confirmation"],
+            "remaining_gates": ["commission asset qualification", "independent time-block selection", "live runtime parity", "independent confirmation"],
             "policy": policy_payload, "policy_sha256": fingerprint(policy_payload),
             "context_sha256": fingerprint({"rows": context_rows}),
             "start_ts_ms": start_ms, "entry_end_ts_ms": entry_end_ms,

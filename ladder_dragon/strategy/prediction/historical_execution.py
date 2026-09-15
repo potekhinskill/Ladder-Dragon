@@ -9,6 +9,8 @@ from decimal import Decimal, ROUND_CEILING, ROUND_FLOOR
 
 from ladder_dragon.strategy.market_replay import OrderBookReplay, ReplayOrder
 from ladder_dragon.strategy.prediction.historical_policy import HistoricalPolicy
+from ladder_dragon.strategy.prediction.historical_commission import buy_inventory, exact_arithmetic
+from ladder_dragon.execution.buy_settlement import require_full_inventory_coverage
 
 D = Decimal
 ZERO = D("0")
@@ -17,6 +19,7 @@ ZERO = D("0")
 class HistoricalExecution:
     """Consume each real event once; never synthesize an arrival book or fill."""
 
+    @exact_arithmetic
     def __init__(
         self,
         event,
@@ -29,12 +32,14 @@ class HistoricalExecution:
         self.policy, self.context, self.identifier = policy, context, identifier
         self.started_ms = event.ts_ms
         self.entry_qty = self.entry_cost = self.exit_qty = self.exit_proceeds = self.fees = ZERO
+        self.entry_net_qty = self.base_fee_quote = ZERO
         self.phase = "ENTRY"
         self.cancel_reason = None
         self.panic_latched = False
         self.signal_ms = self.cancel_effective_ms = self.stop_ms = None
         self.minimum_bid_after_entry = self.maximum_bid_after_entry = None
         self.result = None
+        self.event_bid_consumption = {}
         self.entry_order_submitted = False
         self.orders = OrderBookReplay(latency_ms=policy.latency_ms, maker_fee_pct=ZERO,
                                      taker_fee_pct=ZERO, queue_cancellation_ahead_ratio=ZERO)
@@ -88,9 +93,11 @@ class HistoricalExecution:
             # preserves exposure until the next observable millisecond.
             entry.cancel_effective_ts = self.cancel_effective_ms + 1
 
+    @exact_arithmetic
     def finish(self, now, reason, *, censored=False) -> dict:
         self.phase = "TERMINAL"
-        gross = self.exit_proceeds - self.entry_cost
+        unknown_inventory = self.entry_qty > ZERO and self.policy.commission_asset_scenario == "UNSPECIFIED"
+        gross = self.exit_proceeds - self.entry_cost + self.base_fee_quote
         average_entry = (
             self.entry_cost / self.entry_qty
             if self.entry_qty > ZERO else self.entry
@@ -114,10 +121,16 @@ class HistoricalExecution:
             "stop_trigger_price": str(self.trigger),
             "stop_limit_price": str(self.stop_limit),
             "entry_filled_quantity": str(self.entry_qty), "exit_filled_quantity": str(self.exit_qty),
+            "entry_net_quantity": None if unknown_inventory else str(self.entry_net_qty),
+            "unresolved_quantity": None if unknown_inventory else str(self.entry_net_qty - self.exit_qty),
+            "unsettled_gross_quantity": str(self.entry_qty) if unknown_inventory else "0",
+            "commission_asset_scenario": self.policy.commission_asset_scenario,
+            "commission_asset_evidence": "UNSPECIFIED" if self.policy.commission_asset_scenario == "UNSPECIFIED" else "POLICY_ASSUMPTION",
+            "base_paid_fee_quote": None if unknown_inventory else str(self.base_fee_quote),
             "entry_notional_quote": str(self.entry_cost),
-            "gross_pnl_quote": str(gross),
-            "net_pnl_quote": None if censored else str(self.exit_proceeds - self.entry_cost - self.fees),
-            "fee_quote": str(self.fees), "censored": censored,
+            "gross_pnl_quote": None if unknown_inventory else str(gross),
+            "net_pnl_quote": None if censored else str(gross - self.fees),
+            "fee_quote": None if unknown_inventory else str(self.fees), "censored": censored,
             "fee_schedule": {
                 name: str(self.context[name])
                 for name in (
@@ -138,23 +151,41 @@ class HistoricalExecution:
                 and self.minimum_bid_after_entry is not None
                 and self.maximum_bid_after_entry is not None
             ),
-            "eligible_for_promotion": not censored,
+            "eligible_for_promotion": False,
         }
         return self.result
 
+    @exact_arithmetic
     def flatten(self, event, reason) -> dict:
-        remaining = self.entry_qty - self.exit_qty
-        if remaining:
-            price = event.bids[0].price * (1 - D(self.policy.market_impact_bps) / 10000)
-            self.exit_qty += remaining
-            self.exit_proceeds += price * remaining
-            self.fees += price * remaining * D(self.context["taker_sell_fee_pct"])
-        return self.finish(event.ts_ms, reason)
+        if self.result is not None:
+            return self.result
+        remaining = self.entry_net_qty - self.exit_qty
+        # Visible depth is capacity, not proof of liquidity beyond the archive.
+        previous = None
+        for level in event.bids:
+            if (not level.price.is_finite() or not level.quantity.is_finite()
+                    or level.price <= ZERO or level.quantity < ZERO
+                    or (previous is not None and level.price >= previous)):
+                raise ValueError("historical liquidation book is invalid")
+            previous = level.price
+        for level in event.bids:
+            available = max(ZERO, level.quantity - self.event_bid_consumption.get(level.price, ZERO))
+            quantity = min(remaining, available)
+            price = level.price * (1 - D(self.policy.market_impact_bps) / 10000)
+            self.exit_qty += quantity
+            self.exit_proceeds += price * quantity
+            self.fees += price * quantity * D(self.context["taker_sell_fee_pct"])
+            remaining -= quantity
+            if remaining == ZERO:
+                break
+        return self.finish(event.ts_ms, reason, censored=remaining > ZERO)
 
+    @exact_arithmetic
     def process(self, event, *, veto: bool, panic: bool) -> dict | None:
         if self.result is not None:
             return self.result
         now = event.ts_ms
+        self.event_bid_consumption = {}
         self.panic_latched = self.panic_latched or panic
         # Post-only checks use the first observed book after modeled arrival.
         for order in self.orders.orders:
@@ -178,12 +209,26 @@ class HistoricalExecution:
                 self.entry_qty += fill.quantity
                 self.entry_cost += fill.price * fill.quantity
                 rate = self.context["maker_buy_fee_pct"] if fill.liquidity == "MAKER" else self.context["taker_buy_fee_pct"]
+                if self.policy.commission_asset_scenario == "UNSPECIFIED":
+                    # Retain every gross fill from this event without inventing net inventory.
+                    continue
+                net, base_fee = buy_inventory(self.policy.symbol, fill.price, fill.quantity,
+                                               D(rate), self.policy.commission_asset_scenario)
+                self.entry_net_qty += net
+                self.base_fee_quote += base_fee
             else:
                 self.exit_qty += fill.quantity
                 self.exit_proceeds += fill.price * fill.quantity
                 rate = self.context["maker_sell_fee_pct"] if fill.liquidity == "MAKER" else self.context["taker_sell_fee_pct"]
+                if fill.liquidity == "TAKER":
+                    self.event_bid_consumption[fill.price] = self.event_bid_consumption.get(fill.price, ZERO) + fill.quantity
             self.fees += fill.price * fill.quantity * D(rate)
-        if self.exit_qty > self.entry_qty:
+        if self.entry_qty > ZERO and self.policy.commission_asset_scenario == "UNSPECIFIED":
+            return self.finish(now, "COMMISSION_ASSET_UNSPECIFIED", censored=True)
+        for trade_price, quantity, aggressor in event.trades:
+            if aggressor == "SELL":
+                self.event_bid_consumption[trade_price] = self.event_bid_consumption.get(trade_price, ZERO) + quantity
+        if self.exit_qty > self.entry_net_qty:
             raise ValueError("historical exit exceeds filled quantity")
         if self.entry_qty > ZERO:
             bid = event.bids[0].price
@@ -200,6 +245,9 @@ class HistoricalExecution:
             entry = self.order("entry")
             if self.panic_latched:
                 self.request_cancel(now, "PANIC_VETO")
+            elif self.entry_qty > ZERO and entry.remaining > ZERO:
+                # Match runtime: settle the remainder before sizing protection.
+                self.request_cancel(now, "PARTIAL_ENTRY")
             elif now >= self.started_ms + self.policy.entry_ttl_ms:
                 self.request_cancel(now, "MISSED_FILL")
             elif veto:
@@ -207,23 +255,38 @@ class HistoricalExecution:
             if entry.cancelled or entry.remaining <= 0:
                 if self.entry_qty == ZERO:
                     return self.finish(now, self.cancel_reason or "MISSED_FILL")
+                step = D(self.context["step_size"])
+                normalized = (self.entry_net_qty / step).to_integral_value(rounding=ROUND_FLOOR) * step
+                try:
+                    require_full_inventory_coverage(self.entry_net_qty, normalized)
+                except RuntimeError:
+                    return self.finish(now, "UNREPRESENTABLE_NET_INVENTORY", censored=True)
+                if (normalized < D(self.context["minimum_quantity"])
+                        or normalized * self.stop_limit < D(self.context["minimum_notional_quote"])):
+                    return self.finish(now, "NET_INVENTORY_BELOW_MINIMUM", censored=True)
                 if self.panic_latched:
                     return self.flatten(event, "PANIC_FLATTEN")
                 # Partial fills remain real positions. A cancel never erases them.
                 self.phase = "PROTECTED"
-                self.submit("target", "SELL", self.target, self.entry_qty, now)
+                self.submit("target", "SELL", self.target, self.entry_net_qty, now)
 
         if self.phase in {"PROTECTED", "STOP_ACTIVE"}:
-            if self.exit_qty == self.entry_qty:
+            if self.exit_qty == self.entry_net_qty:
                 return self.finish(now, "STOP_LIMIT" if self.phase == "STOP_ACTIVE" else "TAKE_PROFIT")
             if self.panic_latched:
                 return self.flatten(event, "PANIC_FLATTEN")
-            if self.phase == "PROTECTED" and any(p <= self.trigger for p, _, _ in event.trades):
+            if (self.phase == "PROTECTED"
+                    and self.order("target").created_ts <= now
+                    and any(p <= self.trigger for p, _, _ in event.trades)):
                 # OCO sibling removal is atomic at the exchange trigger.
                 target = self.order("target")
                 target.cancelled = True
                 self.stop_ms, self.phase = now, "STOP_ACTIVE"
-                self.submit("stop", "SELL", self.stop_limit, self.entry_qty - self.exit_qty, now)
+                # This is exchange-resident activation, not a second HTTP POST.
+                stop = ReplayOrder("stop", "SELL", self.stop_limit, self.entry_net_qty - self.exit_qty, now)
+                self.orders.activate_exchange_conditional(stop, now)
+                # Preserve the conservative ambiguity boundary: no trigger-event reuse.
+                stop.created_ts += 1
             if self.stop_ms is not None and now - self.stop_ms >= self.policy.stop_grace_ms:
                 return self.flatten(event, "STOP_LIMIT_GAP_FLATTEN")
             if now >= self.started_ms + self.policy.holding_ms:
