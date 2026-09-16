@@ -15,8 +15,6 @@ BACKUP_EXTERNAL_DIR="${BACKUP_EXTERNAL_DIR:-}"
 BACKUP_EXTERNAL_RETENTION_DAYS="${BACKUP_EXTERNAL_RETENTION_DAYS:-90}"
 BACKUP_STAGING_RETENTION_MINUTES=60
 BACKUP_LOCAL_MIN_FREE_BYTES=8589934592
-STAMP="$(date -u +%Y-%m-%d-%H%M%S)"
-DEST="${BACKUP_DIR}/${STAMP}"
 STATUS_ARCHIVE_NAME=""
 STATUS_ARCHIVE_SIZE=""
 STATUS_ARCHIVE_SHA256=""
@@ -72,7 +70,6 @@ on_exit() {
   cleanup_staging
   exit "${rc}"
 }
-trap on_exit EXIT
 
 [[ "${EUID}" -eq 0 ]] || exec sudo "$0" "$@"
 # Shared with updates; an exclusive watchdog recovery must wait for completion.
@@ -80,7 +77,14 @@ mkdir -p /var/lib/ladder-dragon
 exec 18>>/var/lib/ladder-dragon/network-recovery.lock
 flock -s -w 45 18 || { echo "[FAIL] network recovery is active" >&2; exit 1; }
 exec 17>>/var/lib/ladder-dragon/backup.lock
-flock -n 17 || { echo "[FAIL] another backup is active" >&2; exit 1; }
+# A scheduled backup can overlap the mandatory post-update backup. Wait for
+# exclusive ownership, but never treat a timeout as a successful backup.
+flock -w 600 17 || { echo "[FAIL] backup lock wait failed or timed out" >&2; exit 1; }
+# Only the lock owner can publish status or clean staging. Allocate the name
+# after waiting so a queued invocation does not reuse its arrival timestamp.
+trap on_exit EXIT
+STAMP="$(date -u +%Y-%m-%d-%H%M%S)"
+DEST="${BACKUP_DIR}/${STAMP}"
 if [[ -r /var/lib/pi-watchdog/network-reboot.boot ]] && \
   cmp -s /var/lib/pi-watchdog/network-reboot.boot /proc/sys/kernel/random/boot_id; then
   echo "[FAIL] network reboot is pending" >&2

@@ -3,6 +3,18 @@
 All notable changes are documented here. Releases use Semantic Versioning; every
 section is dated and there is intentionally no `Unreleased` section.
 
+## [2.20.343] — 2026-09-16
+
+### Fixed
+- Serialize competing backups through a bounded 600-second lock wait; retain failure on timeout or lock errors.
+- Publish backup status and allocate staging timestamps only after exclusive ownership; preserve another backup's status when acquisition fails.
+- Start the daily backup timer after the mandatory post-update backup succeeds, without interrupting an already active backup.
+
+### Verified
+- Focused backup and deployment tests: 102 passed, 1 skipped on macOS.
+- Exercise real kernel lock contention, release, timeout, lock errors, and owner failure with isolated synthetic files.
+- Verify that post-update backup failure prevents the subsequent timer start.
+
 ## [2.20.342] — 2026-09-16
 
 ### Security

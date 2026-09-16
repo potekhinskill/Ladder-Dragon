@@ -1,5 +1,12 @@
 # Engineering mistakes and root causes
 
+### 2026-09-16 — Started competing backups during deployment
+
+- **Impact:** post-update backup failed, deployment rolled back, and runtime services stayed stopped until coherent recovery completed.
+- **Root cause:** the updater started a persistent daily timer before mandatory backup; nonblocking lock acquisition treated ordinary overlap as failure.
+- **Correction:** wait for exclusive ownership with a deadline and start the timer after mandatory backup success.
+- **Prevention:** test real contention and timeout; prevent a non-owner from publishing status or touching another invocation's staging.
+
 ### 2026-09-16 — Checked legacy ceilings without release-lineage growth
 
 - **Impact:** the candidate passes functional tests but fails the release architecture gate; publication and deployment stop before production changes.

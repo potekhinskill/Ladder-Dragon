@@ -103,7 +103,7 @@ def test_missing_external_configuration_fails_before_staging(tmp_path):
 
 
 def test_archive_destination_and_lock_contract():
-    assert SCRIPT.index("flock -n 17") < SCRIPT.index("prune_stale_local_staging\n")
+    assert SCRIPT.index("flock -w 600 17") < SCRIPT.index("prune_stale_local_staging\n")
     assert 'exec 19<"${BACKUP_EXTERNAL_MOUNT}"' in SCRIPT
     assert 'EXTERNAL_STORE="/proc/$$/fd/20"' in SCRIPT
     assert 'mktemp "${BACKUP_DIR}/.${archive_name}' not in SCRIPT

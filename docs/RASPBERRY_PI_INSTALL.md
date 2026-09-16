@@ -856,6 +856,12 @@ sudo bash deploy/update_raspberry_pi.sh apply
 
 Encrypted application archives reside only on the configured external disk.
 The service requires a mounted, writable filesystem separate from the root filesystem.
+Scheduled, manual, and update backups share one exclusive lock.
+A competing backup waits up to 600 seconds for ownership, then fails if ownership remains unavailable.
+This bound applies to lock acquisition, not total backup duration.
+Only the lock owner publishes backup status or removes its staging files.
+The updater starts the daily timer after the required post-update backup succeeds.
+An already active timer remains safe through the same lock.
 
 ```bash
 sudo systemctl start ladder-dragon-backup.service

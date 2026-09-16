@@ -1,5 +1,12 @@
 # Engineering decisions
 
+### 2026-09-16 — Serialize backup writers before status ownership
+
+- **Context:** scheduled and post-update backups can overlap despite service start ordering.
+- **Decision:** require bounded exclusive lock acquisition before timestamps, status publication, staging, or cleanup; preserve failure on timeout.
+- **Why it worked:** contention tests prove that only the owner reaches backup work and that failed contenders preserve published status.
+- **Reuse:** shared scheduled and operator-triggered artifact writers must coordinate through ownership, not assumed timer spacing.
+
 ### 2026-09-15 — Keep encrypted source claims separate from retrieval authority
 
 - **Context:** a signed public archive cannot authenticate private fills, and encrypted caller input does not prove an exchange request occurred.

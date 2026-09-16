@@ -897,8 +897,10 @@ systemctl enable ladder-dragon-backup.timer ladder-dragon-log-export.timer \
 # Recovery alone restores the previously active collector from this flag.
 DEPTH_SERVICE_STOPPED=0
 start_previous_services
-systemctl start ladder-dragon-backup.timer
+# Avoid triggering a missed daily run ahead of the required post-update copy.
+# The shared backup lock also serializes a timer that was already active.
 systemctl start ladder-dragon-update-backup.service
+systemctl start ladder-dragon-backup.timer
 systemctl start ladder-dragon-database-retention.service \
   ladder-dragon-depth-retention.service
 systemctl start ladder-dragon-log-export.service ladder-dragon-log-export.timer
