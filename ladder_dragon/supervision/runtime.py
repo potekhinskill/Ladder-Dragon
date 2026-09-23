@@ -56,6 +56,7 @@ from ladder_dragon.strategy.prediction.champion_registry import champion_allows_
 from ladder_dragon.supervision.authority_attestation import require_supervisor_authority_binding
 from ladder_dragon.strategy.prediction.episode_semantics import REGIME_ADX_LENGTH, REGIME_EMA_FAST_LENGTH, REGIME_EMA_SLOW_LENGTH, require_runtime_regime_contract
 from ladder_dragon.supervision.aggregate_trade_history import load_aggregate_trade_window, safe_aggregate_trade_error
+from ladder_dragon.supervision.prediction_diagnostics import prediction_operation, prediction_success_status, prediction_failure_status
 from ladder_dragon.supervision import strategy_control_gates, historical_context
 from ladder_dragon.supervision.expectancy_status import build_expectancy_status
 from ladder_dragon.ai.ai_runtime_status import write_runtime_status
@@ -1774,10 +1775,10 @@ def _record_prediction_shadow(
         executor_panic_active=panic_active,
         executor_panic_hits=panic_hits,
     )
-    settled = _PREDICTION_SHADOW.settle(
+    settled = prediction_operation("settle", _PREDICTION_SHADOW.settle,
         symbol, bars, as_of_ms=features.snapshot_ts_ms
     )
-    history = _PREDICTION_SHADOW.resolved_samples(
+    history = prediction_operation("strategy_history", _PREDICTION_SHADOW.resolved_samples,
         symbol, before_ts_ms=features.snapshot_ts_ms, kind="STRATEGY"
     )
     market = _finite_decimal(now_price, name="prediction market price")
@@ -1801,12 +1802,12 @@ def _record_prediction_shadow(
             commission_schedule=commission_schedule,
             stop_limit_offset_pct=stop_limit_offset_pct,
         )
-        record_strategy_evidence(
+        prediction_operation("strategy_record", record_strategy_evidence,
             _PREDICTION_SHADOW, symbol=symbol, features=features,
             plan=strategy_plan, history=history,
             algorithm_decision=f"mode={deterministic_mode};buy={strategy_plan.entry_price};panic={panic_active};reason=current-ladder",
         )
-        record_control_evidence(
+        prediction_operation("control_record", record_control_evidence,
             _PREDICTION_SHADOW,
             symbol=symbol,
             features=features,
@@ -1816,7 +1817,7 @@ def _record_prediction_shadow(
             regime_buys_allowed=regime_buys_allowed,
             inventory_applicable=inventory_applicable,
         )
-        experiment_report = collect_shadow_experiments(
+        experiment_report = prediction_operation("experiments", collect_shadow_experiments,
             _PREDICTION_SHADOW,
             symbol=symbol,
             features=features,
@@ -1835,7 +1836,7 @@ def _record_prediction_shadow(
 
     proposals_raw = rolling.get("proposals")
     proposals = proposals_raw if isinstance(proposals_raw, list) else []
-    reanchor_history = _PREDICTION_SHADOW.resolved_samples(
+    reanchor_history = prediction_operation("reanchor_history", _PREDICTION_SHADOW.resolved_samples,
         symbol, before_ts_ms=features.snapshot_ts_ms, kind="REANCHOR"
     )
     for proposal in proposals:
@@ -1865,7 +1866,7 @@ def _record_prediction_shadow(
         order_fingerprint = hashlib.sha256(
             str(proposal.get("order_id") or "").encode("utf-8")
         ).hexdigest()[:12]
-        _PREDICTION_SHADOW.record(
+        prediction_operation("reanchor_record", _PREDICTION_SHADOW.record,
             kind="REANCHOR",
             symbol=symbol,
             features=features,
@@ -1879,7 +1880,7 @@ def _record_prediction_shadow(
             ),
         )
 
-    reanchor_samples = _PREDICTION_SHADOW.resolved_samples(
+    reanchor_samples = prediction_operation("reanchor_samples", _PREDICTION_SHADOW.resolved_samples,
         symbol, before_ts_ms=features.snapshot_ts_ms, kind="REANCHOR"
     )
     reanchor_walk_forward = walk_forward_prediction_report(reanchor_samples)
@@ -1894,10 +1895,10 @@ def _record_prediction_shadow(
     gate = {**strategy_walk_forward["gate"], "gate_kind": "STRATEGY"}
     # Only the policy-specific loader can populate the control-gate cache.
     control_gates = {
-        control: _strategy_control_gate(symbol, control)
+        control: prediction_operation("control_gates", _strategy_control_gate, symbol, control)
         for control in CONTROL_KINDS
     }
-    summary = _PREDICTION_SHADOW.summary(symbol)
+    summary = prediction_operation("summary", _PREDICTION_SHADOW.summary, symbol)
     runtime = _AI_RUNTIME_STATUS.setdefault("prediction", {})
     if not isinstance(runtime, dict):
         runtime = {}
@@ -1922,14 +1923,10 @@ def _record_prediction_shadow(
             "evaluated_samples": len(strategy_walk_forward["evaluated"]),
         },
     }
-    runtime.update({
-        "mode": "SHADOW",
-        "horizons_min": [1, 5, 15],
-        "can_change_orders": False,
-        "trade_flow_available": features.trade_flow_available,
-        "orderbook_available": features.orderbook_available,
-        "last_error": None,
-    })
+    runtime.update(prediction_success_status(
+        flow_available=features.trade_flow_available,
+        orderbook_available=features.orderbook_available,
+    ))
     _publish_ai_runtime_status()
 
 # ===========================
@@ -3431,11 +3428,7 @@ def run_for_symbol(
         log(f"[PREDICTION-SHADOW] {symbol} unavailable={safe_aggregate_trade_error(exc)}")
         runtime = _AI_RUNTIME_STATUS.setdefault("prediction", {})
         if isinstance(runtime, dict):
-            runtime.update({
-                "mode": "SHADOW",
-                "can_change_orders": False,
-                "last_error": type(exc).__name__,
-            })
+            runtime.update(prediction_failure_status(exc, safe_aggregate_trade_error(exc)))
         _publish_ai_runtime_status()
 
 

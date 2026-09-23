@@ -1,5 +1,13 @@
 # Engineering decisions
 
+### 2026-09-23 — Preserve safe failure stages without inferring historical causes
+
+- **Context:** generic SQLite errors and connection categories do not establish lock contention or name-resolution failure.
+- **Decision:** retain fixed operation stages, native SQLite codes, and bounded network exception categories without provider text or automatic retries.
+- **Why it worked:** synthetic contention tests preserve rows and re-raised exceptions; handler tests prove secret exclusion and unchanged SHADOW authority.
+- **Reuse:** distinguish a reproduced mechanism from a proven production cause; unknown native metadata stays unknown.
+- **Retention:** use existing status and log lifecycles without a new persistent store or maintenance job.
+
 ### 2026-09-16 — Serialize backup writers before status ownership
 
 - **Context:** scheduled and post-update backups can overlap despite service start ordering.

@@ -392,6 +392,16 @@ def test_transport_alert_elapsed_does_not_repeat_notifications():
     assert risk_alert_signature(decision()) != risk_alert_signature(decision(reason="tls"))
 
 
+def test_transport_cause_changes_alert_identity_but_elapsed_does_not():
+    def decision(cause, elapsed):
+        return RiskDecision(halted=False, buy_blocked=True, reasons=(
+            "risk telemetry unavailable (1/3): market transport failed "
+            "reason=connection endpoint=/api/v3/time stage=headers "
+            f"attempts=3 cause={cause} elapsed_ms={elapsed}",))
+    assert risk_alert_signature(decision("dns", 1)) == risk_alert_signature(decision("dns", 2))
+    assert risk_alert_signature(decision("dns", 1)) != risk_alert_signature(decision("refused", 1))
+
+
 def test_risk_alert_signature_ignores_only_retry_counter():
     first = RiskDecision(
         halted=False,

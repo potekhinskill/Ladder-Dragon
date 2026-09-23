@@ -1,5 +1,12 @@
 # Engineering mistakes and root causes
 
+### 2026-09-23 — Checked a static size budget instead of release-relative growth
+
+- **Impact:** the first diagnostic release candidate failed the production legacy-size gate after all tests passed.
+- **Root cause:** the local static supervisor budget allowed three added lines; the release gate compares against the smaller signed baseline.
+- **Correction:** move diagnostic status construction to its dedicated module; retain both size rules and repeat the full release profile.
+- **Prevention:** inspect release-relative module and function growth before signing changes to a legacy orchestration module.
+
 ### 2026-09-16 — Started competing backups during deployment
 
 - **Impact:** post-update backup failed, deployment rolled back, and runtime services stayed stopped until coherent recovery completed.

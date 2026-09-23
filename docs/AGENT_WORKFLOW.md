@@ -29,6 +29,7 @@ For net inventory, preserve [durable settlement revalidation](../DECISIONS.md#20
 For replay commissions, preserve [the distinction between scenarios and evidence](../DECISIONS.md#2026-09-13--separate-fee-scenarios-from-historical-fee-evidence).
 For private-source export, preserve [the separation between encrypted claims and retrieval authority](../DECISIONS.md#2026-09-15--keep-encrypted-source-claims-separate-from-retrieval-authority).
 For transport diagnostics, preserve [safe fields and stable alert identity](../DECISIONS.md#2026-09-10--separate-transport-diagnostics-from-provider-exception-text).
+For failure diagnosis, preserve [safe stages and historical uncertainty](../DECISIONS.md#2026-09-23--preserve-safe-failure-stages-without-inferring-historical-causes).
 For deployment revisions, preserve [the separation from cleanup authority](../DECISIONS.md#2026-09-10--separate-release-revision-from-cleanup-authority).
 For backup scheduling, preserve [exclusive writer ownership](../DECISIONS.md#2026-09-16--serialize-backup-writers-before-status-ownership).
 For offline replay, preserve [input-bound resume](../DECISIONS.md#2026-09-11--resume-only-complete-input-bound-replay-paths) and verify bounded progress on the target host.

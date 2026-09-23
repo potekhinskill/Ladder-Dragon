@@ -11,7 +11,7 @@ _ATTEMPT = re.compile(r"^(risk telemetry unavailable) \(\d+/\d+\):\s*")
 _TRANSPORT = re.compile(
     r"^(risk telemetry unavailable: market transport failed reason=[a-z_]+ "
     r"endpoint=(?:/api/v3/[A-Za-z/]+|unknown) stage=(?:body|headers) "
-    r"attempts=\d+) elapsed_ms=\d+$"
+    r"attempts=\d+(?: cause=(?:dns|refused|reset|tls|connect_timeout|read_timeout))?) elapsed_ms=\d+$"
 )
 
 

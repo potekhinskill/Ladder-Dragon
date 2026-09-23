@@ -3,6 +3,20 @@
 All notable changes are documented here. Releases use Semantic Versioning; every
 section is dated and there is intentionally no `Unreleased` section.
 
+## [2.20.344] — 2026-09-23
+
+### Fixed
+- Preserve safe SQLite result codes and prediction operation stages without retries or changes to transaction behavior.
+- Report bounded network cause categories without exception messages, addresses, or request parameters; retain stable alert identity across elapsed-time changes.
+- Clear detailed prediction failure status after a successful observation; preserve SHADOW restrictions and all execution gates.
+
+### Verified
+- Focused diagnostics, prediction, transport, risk, and architecture tests: 138 passed.
+- Full suite: 3,233 passed and two skipped; compilation and all five safety audits pass.
+- Reproduce SQLite writer contention against a pinned backup source and an immediate retention-style transaction with synthetic databases.
+- Verify rollback, preserved rows, successful writes after lock release, and secret exclusion from diagnostic output.
+- Python 3.10 reports unknown SQLite codes when native error metadata is unavailable; no message-based inference is used.
+
 ## [2.20.343] — 2026-09-16
 
 ### Fixed

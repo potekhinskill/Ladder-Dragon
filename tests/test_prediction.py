@@ -494,6 +494,15 @@ def test_supervisor_shadow_records_strategy_and_hashed_reanchor(
     tmp_path, monkeypatch
 ):
     from ladder_dragon.supervision import runtime as ai_supervisor
+    from ladder_dragon.supervision.prediction_diagnostics import prediction_operation, STAGES
+
+    observed_stages = set()
+
+    def observe(stage, operation, *args, **kwargs):
+        observed_stages.add(stage)
+        return prediction_operation(stage, operation, *args, **kwargs)
+
+    monkeypatch.setattr(ai_supervisor, "prediction_operation", observe)
 
     database = tmp_path / "prediction.sqlite3"
     store = PredictionShadowStore(database)
@@ -547,6 +556,8 @@ def test_supervisor_shadow_records_strategy_and_hashed_reanchor(
 
     summary = store.summary("SOLUSDT")
     # Promotion generations use compact episodes, not legacy OHLC decisions.
+    assert observed_stages == STAGES
+    assert ai_supervisor._AI_RUNTIME_STATUS["prediction"]["last_error_detail"] is None
     assert summary["decisions"] == 5
     assert summary["reanchor_counterfactuals"] == 1
     assert ai_supervisor._AI_RUNTIME_STATUS["prediction"][

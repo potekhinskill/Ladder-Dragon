@@ -4,6 +4,37 @@ Review date: 2026-09-16.
 Scope: read-only Pi diagnosis and local loss-limit telemetry; no deployment, trading mutation, HALT removal, or paid validation batch.
 The subsequent [collection plan](HISTORICAL_SOURCE_COLLECTION_PLAN.md) defines a proposed bounded scope; it does not authorize private retrieval.
 
+## Diagnostic follow-up and launch sequence: 2026-09-23
+
+The deployed prediction database uses DELETE journal mode; the writer permits a ten-second lock wait.
+Nine inspected prediction failures overlap backup or retention intervals.
+This correlation does not establish the historical SQLite result code or failed operation.
+Local synthetic tests reproduce writer contention against pinned backup reads and immediate retention-style transactions.
+The backup test explicitly pins its source transaction; it does not reproduce production timing or prove the historical cause.
+
+Local diagnostics retain fixed operation stages and native SQLite result codes without SQL text, paths, or provider messages.
+Python 3.10 lacks native SQLite error metadata and reports an unknown code.
+No journal mode, retry policy, retention rule, or backup procedure changes in this candidate.
+Diagnostic fields use existing status and log retention; they create no separate persistent store.
+
+Seven inspected risk failures concern the public clock endpoint before HTTP headers arrive, after three attempts each.
+The historical connection category cannot distinguish name resolution, connection refusal, or connection reset.
+New diagnostics classify bounded exception chains without provider text or addresses.
+These categories describe observed exception types, not an independent proof of network root cause.
+
+Keep HALT active during these planned stages:
+
+1. Verify and separately authorize deployment of diagnostic changes.
+2. Inspect the next natural maintenance cycle without a forced service restart or backup run.
+3. Select a concurrency correction only after the failed operation and SQLite code are established.
+4. Reconstruct the loss-streak boundary from independently supported history.
+5. Complete source qualification and review unresolved execution-validation requirements.
+6. Review a new research protocol because all eight policies failed the completed v23 cohort.
+7. Require independent confirmation, an accepted CHAMPION, reviewed limits, and explicit operator approval before limited LIVE execution.
+
+No planned stage authorizes a paid batch, private retrieval, HALT removal, or trading.
+Current diagnostics do not establish a launch date or profitable strategy.
+
 ## Loss-streak provenance
 
 The Pi index reports `cost basis import resets prior streak provenance` for SOLUSDT.

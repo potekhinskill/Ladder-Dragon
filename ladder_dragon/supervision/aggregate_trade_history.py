@@ -7,6 +7,9 @@ from __future__ import annotations
 
 from typing import Callable, Mapping
 from urllib.parse import urlsplit
+import sqlite3
+
+from ladder_dragon.supervision.prediction_diagnostics import sqlite_failure_summary
 
 
 PublicGet = Callable[[str, Mapping[str, object]], object]
@@ -14,6 +17,8 @@ PublicGet = Callable[[str, Mapping[str, object]], object]
 
 def safe_aggregate_trade_error(error: BaseException) -> str:
     """Return bounded Binance fields without provider text or query data."""
+    if isinstance(error, sqlite3.Error):
+        return sqlite_failure_summary(error)
     error_type = type(error).__name__
     if error_type != "BinanceHttpError":
         return error_type

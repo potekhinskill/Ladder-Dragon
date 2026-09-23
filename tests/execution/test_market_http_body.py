@@ -190,12 +190,37 @@ def test_transport_reason_and_retry_budget_are_safe(monkeypatch, error, reason):
         market._do_request("GET", url)
     assert str(caught.value) == (
         f"market transport failed reason={reason} endpoint=/api/v3/account "
-        "stage=headers attempts=3 elapsed_ms=2250"
+        "stage=headers attempts=3" + (" cause=tls" if reason == "tls" else "") + " elapsed_ms=2250"
     )
     assert calls == [market.TIMEOUT] * 3
     assert sleeps == [0.5, 1.0]
     assert caught.value.request is None and caught.value.response is None
     assert "PRIVATE_" not in "".join(traceback.format_exception(caught.value))
+
+
+def test_nested_dns_cause_is_safe_and_bounded():
+    import socket
+    from urllib3.exceptions import MaxRetryError, NameResolutionError
+    inner = NameResolutionError("PRIVATE_HOST", None, socket.gaierror(-2, "PRIVATE"))
+    error = requests.ConnectionError(MaxRetryError(None, "PRIVATE_URL", inner))
+    summary = str(body.transport_error(error, "https://example.invalid/api/v3/time", 3, 1, False))
+    assert "cause=dns" in summary
+    assert "PRIVATE" not in summary
+    cycle = requests.ConnectionError("PRIVATE")
+    cycle.__cause__ = cycle
+    assert body.transport_cause(cycle) is None
+
+
+@pytest.mark.parametrize("inner,cause", [
+    (ConnectionRefusedError("PRIVATE"), "refused"),
+    (ConnectionResetError("PRIVATE"), "reset"),
+    (requests.ConnectTimeout("PRIVATE"), "connect_timeout"),
+    (requests.ReadTimeout("PRIVATE"), "read_timeout"),
+])
+def test_nested_transport_categories(inner, cause):
+    error = requests.ConnectionError("PRIVATE")
+    error.__cause__ = inner
+    assert body.transport_cause(error) == cause
 
 
 @pytest.mark.parametrize("url", [
