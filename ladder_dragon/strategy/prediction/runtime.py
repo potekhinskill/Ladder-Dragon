@@ -21,6 +21,7 @@ import time
 from typing import Iterable, Mapping, Sequence
 
 from ladder_dragon.strategy.prediction.legacy_cadence import LegacyEvidenceCadenceMixin
+from ladder_dragon.persistence.prediction_connection import prepare_prediction_database, connect_prediction_database
 from ladder_dragon.strategy.prediction.models import (
     HorizonPrediction,
     PredictionBar,
@@ -510,14 +511,11 @@ class PredictionShadowStore(LegacyEvidenceCadenceMixin):
     """Durable, non-secret, immutable prediction and outcome journal."""
 
     def __init__(self, path: str | Path) -> None:
-        self.path = Path(path)
-        self.path.parent.mkdir(parents=True, exist_ok=True)
+        self.path = prepare_prediction_database(path)
         self._migrate()
 
     def _connect(self) -> sqlite3.Connection:
-        connection = sqlite3.connect(self.path, timeout=10)
-        connection.execute("PRAGMA busy_timeout=10000")
-        return connection
+        return connect_prediction_database(self.path)
 
     def _migrate(self) -> None:
         """Create versioned SHADOW tables without deleting historical evidence."""

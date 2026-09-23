@@ -101,6 +101,43 @@ def test_retention_blocks_without_fresh_encrypted_backup(tmp_path):
     assert not (tmp_path / "archives").exists()
 
 
+def test_retention_commits_while_wal_reader_keeps_old_snapshot(tmp_path, monkeypatch):
+    from contextlib import closing
+    from ladder_dragon.persistence import retention
+    from ladder_dragon.strategy.prediction.runtime import PredictionShadowStore
+
+    now = 2_000_000_000.0
+    database, backup = tmp_path / "prediction.sqlite3", tmp_path / "backup.json"
+    _database(database, old_ms=int((now - 400 * 86400) * 1000), fresh_ms=int(now * 1000))
+    _backup(backup, now)
+    store = PredictionShadowStore(database)
+    original_archive = retention._write_archive
+    with closing(sqlite3.connect(f"file:{database}?mode=ro", uri=True)) as reader:
+        reader.execute("PRAGMA query_only=ON")
+
+        def archive_then_pin(*args):
+            result = original_archive(*args)
+            reader.execute("BEGIN")
+            assert reader.execute("SELECT COUNT(*) FROM prediction_decisions").fetchone() == (3,)
+            # The real store also writes while the retained source snapshot is open.
+            with closing(store._connect()) as writer, writer:
+                writer.execute("PRAGMA busy_timeout=0")
+                writer.execute("CREATE TABLE concurrency_probe (id INTEGER)")
+                writer.execute("INSERT INTO concurrency_probe VALUES (1)")
+            return result
+
+        monkeypatch.setattr(retention, "_write_archive", archive_then_pin)
+        result = rotate_prediction_shadow(database, tmp_path / "archives", backup, now=now)
+        assert result["status"] == "PASS"
+        assert result["deleted_decisions"] == 1
+        assert reader.execute("SELECT COUNT(*) FROM prediction_decisions").fetchone() == (3,)
+    with closing(store._connect()) as current:
+        assert current.execute("SELECT decision_id FROM prediction_decisions ORDER BY decision_id").fetchall() == [("fresh",), ("pending",)]
+        assert current.execute("SELECT * FROM concurrency_probe").fetchall() == [(1,)]
+    with gzip.open(tmp_path / "archives" / result["archive"], "rt") as stream:
+        assert json.loads(stream.readline())["decision"]["decision_id"] == "terminal"
+
+
 def test_missing_external_backup_preserves_all_rows(tmp_path):
     now = 2_000_000_000.0
     database, backup = tmp_path / "prediction.sqlite3", tmp_path / "backup.json"

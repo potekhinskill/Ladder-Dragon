@@ -1,5 +1,13 @@
 # Engineering decisions
 
+### 2026-09-23 — Separate prediction snapshots from writer commits
+
+- **Context:** production reports SQLITE_BUSY during maintenance; DELETE-mode read snapshots can block writer commits.
+- **Decision:** require WAL before prediction migrations, retain FULL durability, and preserve atomic retention and single-snapshot backup semantics.
+- **Why it worked:** synthetic backups retain their original snapshot while store connections commit; retention preserves pending evidence with an active reader.
+- **Reuse:** prove snapshot consistency and failed transitions before changing journal mode; WAL does not permit simultaneous writers.
+- **Retention:** SQLite owns WAL and shared-memory sidecars; existing backup and evidence policies remain authoritative.
+
 ### 2026-09-23 — Preserve safe failure stages without inferring historical causes
 
 - **Context:** generic SQLite errors and connection categories do not establish lock contention or name-resolution failure.

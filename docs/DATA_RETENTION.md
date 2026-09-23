@@ -51,6 +51,29 @@ Pending, settling, overdue, and unresolved outcomes are never eligible. The
 service does not run `VACUUM`. SQLite reuses free pages without a long writer
 lock or extra SD-card writes.
 
+### Prediction database concurrency
+
+Prediction store initialization requires write-ahead logging (WAL) before schema migration.
+Existing committed rows remain unchanged during the journal-mode transition.
+An unavailable WAL mode blocks initialization; an unexpected mode blocks subsequent store connections.
+Prediction writers retain `synchronous=FULL`, a ten-second busy timeout, and a 1,000-page automatic checkpoint threshold.
+This threshold triggers checkpoint work; it is not a hard file-size limit.
+Long read snapshots can delay checkpoint completion and temporarily increase WAL disk usage.
+Monitor free space during natural backup cycles; never remove live WAL or shared-memory sidecars manually.
+
+The WAL contains committed database state until checkpoint completion; it is not an independently disposable evidence archive.
+Shared-memory sidecars coordinate access and contain no independent business records.
+SQLite owns their lifecycle; no new deletion timer or evidence-retention rule is introduced.
+Use the existing SQLite backup API to capture committed WAL state; copying only the main database file is unsafe.
+Backup and retention continue to use existing verified external archives and unchanged eligibility checks.
+
+WAL separates readers from writers, not simultaneous writers.
+Retention keeps its bounded atomic writer transaction; contention between writers still fails closed after the existing timeout.
+The fix does not establish that every historical contention event involved a reader.
+Validate the next natural backup and retention cycle after separately authorized deployment.
+
+### Market scenario retention
+
 Market scenario snapshots and outcomes are derived SHADOW evidence.
 The store blocks new snapshots at 250,000 rows.
 The scheduled retention job keeps 365 days online.

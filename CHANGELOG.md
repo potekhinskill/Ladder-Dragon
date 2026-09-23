@@ -3,6 +3,18 @@
 All notable changes are documented here. Releases use Semantic Versioning; every
 section is dated and there is intentionally no `Unreleased` section.
 
+## [2.20.345] — 2026-09-23
+
+### Fixed
+- Enable write-ahead logging for the prediction database before migrations; reject unavailable or unexpected journal modes.
+- Keep FULL durability, the ten-second writer timeout, and automatic checkpoints without retries or changes to evidence eligibility.
+- Preserve single-snapshot SQLite backups and atomic retention; read snapshots no longer prevent prediction commits in WAL mode.
+
+### Verified
+- Focused prediction, backup, retention, deployment, and diagnostic tests: 141 passed.
+- Exercise concurrent backup reads, retention, writer commits, failed mode transitions, and preserved evidence with synthetic SQLite databases.
+- Verify that competing writers still fail closed and that read-only connections cannot mutate evidence.
+
 ## [2.20.344] — 2026-09-23
 
 ### Fixed
