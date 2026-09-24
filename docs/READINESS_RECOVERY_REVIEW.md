@@ -1,10 +1,76 @@
 # Execution readiness recovery review
 
-Review date: 2026-09-16.
-Scope: read-only Pi diagnosis and local loss-limit telemetry; no deployment, trading mutation, HALT removal, or paid validation batch.
+Latest review date: 2026-09-24.
+Scope: read-only Pi diagnosis and a local readiness-plan update.
+This review authorizes no deployment, trading mutation, HALT removal, private retrieval, or paid validation batch.
 The subsequent [collection plan](HISTORICAL_SOURCE_COLLECTION_PLAN.md) defines a proposed bounded scope; it does not authorize private retrieval.
 
-## Diagnostic follow-up and launch sequence: 2026-09-23
+## Current readiness: 2026-09-24
+
+Read-only observations start at 13:22 UTC on 2026-09-24.
+The Pi runs release `2.20.345`, commit `71a031d70181a54312028de8bea88176704c8630`.
+The current review reads status, aggregate database counts, and log categories without exchange requests or private-source imports.
+It does not read credentials, balances, backup contents, or raw execution evidence.
+
+### Operational checks
+
+All four services are active: mybot, pi-healthd, depth capture, and user-stream shadow.
+Each reports zero automatic restarts; the observed heartbeat age is 0.1 seconds.
+Reconciliation reports zero mismatches, recovery is unblocked, and unresolved-fill counters are zero.
+These results do not prove complete historical accounting or execution qualification.
+
+The prediction database uses WAL, and its current error field is empty.
+A five-minute observation contains 16 new decisions and 28 resolved outcomes.
+Since deployment completion on 2026-09-23 at 14:47:57 UTC, the inspected mybot journal contains no ERROR, Traceback, OperationalError, or RISK-ALERT.
+This interval is approximately 22.5 hours; it does not prove that future writer contention cannot occur.
+The external disk is mounted, with approximately 11 GiB free and 81 percent utilization.
+No backup or maintenance task was forced during this review.
+
+### Admission blockers and evidence boundaries
+
+| Gate | Current evidence | Required disposition |
+|---|---|---|
+| Execution authority | LIVE configuration; HALT and BUY blocking remain active | Preserve both blocks throughout recovery |
+| Loss-streak history | `loss_streak_complete=false` for SOLUSDT; the import-boundary marker remains present | Reconstruct an independently supported history boundary |
+| Selection and CHAMPION | Zero accepted selection artifacts and zero CHAMPION activation records | Require valid selection and independent confirmation |
+| v23 result | The retained review rejects all eight policies on the completed cohort | Do not reinterpret SELECTION as pending path collection |
+| SOL promotion | SELECTION, statistical method false, policy unbound, execution permission false | Complete qualification before any promotion request |
+| SOL exposure and approval | Symbol CAP absent; managed-inventory CAP present; operator promotion approval false | Review exact limits and obtain separate approval after qualification |
+| Other staged symbols | BTC and ETH lack symbol and inventory CAPs; neither has execution permission | Keep both outside execution scope |
+| Execution validation | Latest maker result is `no_fill`; latest STOP result is `no_stop_fill` | Resolve qualification requirements without inferring successful fills |
+| Source provenance | No new source authentication is performed during this review | Retain the earlier unqualified status until separately verified |
+
+The retained maker report still contains 12 passed, eight no-fill, one failed, and five definite-failure results.
+The retained STOP report still contains 11 passed, ten no-stop-fill, and one definite-failure result.
+Two current HALT reasons identify Mainnet maker and STOP validation failures.
+A third retained HALT reason remains unclassified by this bounded, redacted review.
+No historical failure cause is reconstructed from these aggregate counts.
+
+The published risk limits include positive reserve, portfolio CAP, daily BUY CAP, daily loss, drawdown, consecutive-loss, and cooldown settings.
+This closes the earlier telemetry gap; it does not approve those values for a new strategy.
+Positive settings and zero unresolved-fill counters do not repair incomplete loss-streak provenance.
+Promotion telemetry and current risk telemetry both lack a SOL symbol CAP.
+No environment file is read or changed to obtain these observations.
+
+### Updated sequence and completion criteria
+
+1. Preserve HALT, immutable v23 reports, and the existing failed-selection conclusion.
+2. Review the remaining historical HALT reason through bounded diagnostics before any reset proposal.
+3. Establish authenticated historical inputs and an independently supported inventory boundary under a separately approved collection scope.
+4. Reconcile the loss-streak boundary without replacing missing evidence with an operator assertion.
+5. Complete source, commission, protection, and execution qualification against the current runtime and replay contracts.
+6. Review the proposed baseline research protocol separately, including one hypothesis, fixed budgets, acceptance rules, and independent confirmation.
+7. Obtain explicit study authorization before new outcome access, source selection, or experiment execution.
+8. Require accepted confirmation, a bound CHAMPION, reviewed exposure limits, and explicit operator approval before limited LIVE execution.
+
+The [baseline protocol](BASELINE_ENTRY_RESEARCH_PROTOCOL.md) remains a proposal, not an approved study.
+Its Stage A memo exists, but candidate parameters, sample budget, future evidence boundary, and launch authority remain unapproved.
+The [execution qualification record](BASELINE_EXECUTION_QUALIFICATION.md) separates synthetic checks from empirical source and execution proof.
+This update starts no research, imports no source, creates no paid batch, and grants no trading permission.
+
+## Historical diagnostic follow-up: 2026-09-23
+
+This section records the pre-2.20.345 state and original sequence; the current review above supersedes its operational status.
 
 The deployed prediction database uses DELETE journal mode; the writer permits a ten-second lock wait.
 Nine inspected prediction failures overlap backup or retention intervals.
@@ -95,7 +161,7 @@ They are not fresh exceptions, but neither proves the missing execution type occ
 Old PASS results do not automatically resolve retained HALT reasons or qualify the current implementation.
 Inspect existing source-bound attempt archives before proposing another paid experiment; do not infer missing failure details from generic codes.
 
-## Effective loss-limit visibility
+## Historical loss-limit visibility: 2026-09-16
 
 The Pi runs version 2.20.340 and publishes CAP and reserve values but omits effective loss and drawdown limits.
 The inspected log sample does not supply those missing numeric settings.

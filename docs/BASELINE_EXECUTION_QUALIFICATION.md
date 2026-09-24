@@ -3,6 +3,62 @@
 Review date: 2026-09-13.
 Status: four synthetic characterizations reproduced; execution qualification remains incomplete.
 
+## Qualification closure checklist: 2026-09-24
+
+This checklist supersedes historical next-step statements below; it does not rewrite their evidence or recorded results.
+The operator requests a closure plan, not permission to declare incomplete evidence qualified.
+The deployed reference is `2.20.345`; current readiness is recorded in the [recovery review](READINESS_RECOVERY_REVIEW.md).
+
+| Boundary | Established evidence | Evidence required for closure |
+|---|---|---|
+| Partial entry and protection | Runtime and replay preserve partial quantity and settle cancellation in synthetic regressions | Exact current execution identities and supported venue timing; retain HALT for uncertain cancellation |
+| STOP and emergency exit | Synthetic checks cover conditional activation and depth-limited liquidation | Source-bound execution calibration; incomplete exits remain censored |
+| Commission quantity | Shared accounting and journal settlement validate complete order-bound quantities | Authenticated timestamped fills and supported fee-asset valuation |
+| Private-source provenance | Encrypted collector claims and package recovery exist | Independent account binding and an approved composed attestation verifier |
+| Causal BNB valuation | The converter rejects late or stale observations | Authenticated observations available before each selected fill |
+| Dust and residuals | Full-coverage rejection remains the safe behavior | Prove supported sizing avoids residuals, or separately review explicit residual ownership and protection |
+| Replay admission | Scenario reports cannot become selection evidence | Complete qualified inputs, unchanged mandatory guards, and paired runtime/replay review |
+| Selection and confirmation | No accepted artifact or active CHAMPION exists | A separately authorized future study and disjoint confirmation |
+
+The public diagnostic archive was observed after the historical fills discussed in the provenance review.
+Authenticating those fills cannot repair this temporal mismatch.
+Do not repeat current price collection or paid trading merely to relabel historical availability.
+A retrospective data contract would require separate review; it cannot silently replace the existing causal contract.
+
+The reported Apple Passwords recovery result is `APPLE_COPY_RECOVERY_VERIFIED`.
+It supersedes the historical pending-copy note, but preserves `private_fills_authenticated=false` and `replay_allowed=false`.
+This task does not repeat recovery, decrypt archives, or access credentials.
+
+### Closure order
+
+The [source and time contract](BASELINE_ENTRY_RESEARCH_PROTOCOL.md#source-and-time-contract-for-the-proposed-study) retains causal admission and separates three evidence tracks.
+Its budget procedure requires feasibility evidence before selecting a path count or study deadline.
+Account-association verification remains a design blocker; the current encrypted claims cannot close it automatically.
+The [proposed account binding](BASELINE_ENTRY_RESEARCH_PROTOCOL.md#proposed-independent-account-binding) now defines independent identity enrollment and separate key-permission verification.
+The pure validator, protected loader, and bounded authenticated adapter are implemented locally with synthetic tests.
+The isolated process wrapper now bounds the diagnostic wait and kills and reaps a timed-out child in synthetic tests.
+Actual independent enrollment, protected production integration, and production verification remain absent.
+A present-day identity match cannot certify the old package's historical account association.
+
+1. Fix the proposed source-authentication and temporal contract before requesting additional collection.
+2. Identify required missing inputs without changing occupied archive slots or historical reports.
+3. Obtain separate bounded collection authority if existing inputs cannot satisfy the contract.
+4. Verify complete fill identity, quantity, commission assets, and causal valuation under that contract.
+5. Verify runtime and replay behavior together, including cancellation, protection, restart, residuals, and incomplete exits.
+6. Record each boundary as qualified, blocked, or unsupported with exact evidence references.
+7. Request protocol freeze only after the required research boundaries are qualified.
+
+The final review must distinguish research qualification from LIVE readiness.
+Loss-streak completeness, reviewed CAPs, accepted CHAMPION authority, and operator approval remain independent LIVE requirements.
+No document update, hash check, or passing synthetic test clears those gates.
+
+### Local verification for this review
+
+The selected settlement, historical execution, commission, signed-capture, and private-capture tests pass on 2026-09-24.
+These are focused synthetic checks, not a complete release profile or fresh production-source qualification.
+That readiness review changes only documentation; the later pure claim validator is a separate local implementation.
+The validator does not change execution, accounting, or admission authority.
+
 ## Local implementation progress
 
 The unpublished 2.20.341 candidate adds partial-entry settlement in both runtime and historical replay.

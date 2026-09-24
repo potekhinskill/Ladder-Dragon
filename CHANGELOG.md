@@ -3,6 +3,24 @@
 All notable changes are documented here. Releases use Semantic Versioning; every
 section is dated and there is intentionally no `Unreleased` section.
 
+## [2.20.346] — 2026-09-24
+
+### Added
+- Add a pure account-claim validator with strict identity, credential-scope, permission-schema, and byte-limit checks.
+- Reject missing fields, enabled mutation capabilities, duplicate JSON fields, and malformed inputs without exposing private values.
+- Keep authentication and replay flags false; this helper accesses no credentials, network, storage, or trading authority.
+- Add protected enrollment loading and a separate three-GET diagnostic adapter without a CLI, production wiring, or persistent output.
+- Reject unsafe enrollment paths, mixed credentials, provider errors, changed clocks, and requests outside the diagnostic allowlist.
+- Add an isolated-interpreter wrapper with a maximum 35-second wait, explicit confirmation, and kill-and-reap behavior on timeout.
+- Pass credentials through stdin, remove inherited environment values, and revalidate child results without granting admission authority.
+- Update readiness, qualification, and proposed research boundaries without authorizing collection or study execution.
+
+### Verified
+- Focused account-binding and existing private capture/export checks: 238 passed.
+- Focused enrollment, diagnostic, account-binding, and private-capture checks: 226 passed.
+- Focused process, diagnostic, and account-binding checks: 216 passed, including a real stalled synthetic child and child reaping.
+- Synthetic matches remain claims, not proof of source authenticity, freshness, historical ownership, or trading readiness.
+
 ## [2.20.345] — 2026-09-23
 
 ### Fixed
