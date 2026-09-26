@@ -1,5 +1,12 @@
 # Engineering mistakes and root causes
 
+### 2026-09-26 — Missed secret-scanner interpretation of syntax digests
+
+- **Impact:** GitHub blocked the release audit after publication of the signed 2.20.347 commit and tag; deployment did not occur.
+- **Root cause:** the local high-confidence scan did not reproduce Gitleaks classification of three API-named test digest entries.
+- **Correction:** retain the published tag and prepare a corrective release with three exact historical fingerprints and reproducible syntax checks.
+- **Prevention:** distinguish local scanner coverage from CI; verify finding provenance and never exempt whole paths, rules, or future commits.
+
 ### 2026-09-26 — Built a wheel inside the verification checkout
 
 - **Impact:** the complete profile failed ownership checks despite 4855 passing tests; another complete verification was necessary.

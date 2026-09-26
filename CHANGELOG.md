@@ -3,6 +3,18 @@
 All notable changes are documented here. Releases use Semantic Versioning; every
 section is dated and there is intentionally no `Unreleased` section.
 
+## [2.20.348] — 2026-09-26
+
+### Fixed
+- Add three exact historical Gitleaks exceptions for reproducible syntax digests misclassified as API keys.
+- Bind each exception to its commit, file, rule, and line; retain all other secret-scanner checks.
+- Verify historical line identity and recompute the concrete handler digests; reject additional exceptions.
+- Preserve the published 2.20.347 commit and tag; this correction changes no trading behavior or execution permission.
+
+### Verified
+- Secret-exception and history-route regressions: 44 passed with isolated synthetic state.
+- The complete signed-candidate release profile and GitHub checks remain required before deployment.
+
 ## [2.20.347] — 2026-09-26
 
 ### Fixed

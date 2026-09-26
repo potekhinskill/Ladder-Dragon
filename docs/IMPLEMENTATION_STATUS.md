@@ -9,6 +9,9 @@ The configured mode and its evidence gate remain authoritative.
 
 ## Release 2.20.347 architecture summary
 
+Release 2.20.348 retains this architecture and corrects three false-positive secret-scanner findings through exact historical exceptions.
+Regression tests recompute the affected syntax digests; the correction grants no trading permission.
+
 All 73 registered commands have reviewed concrete owners and required ownership checks.
 Dashboard extraction covers 14 of 17 HTTP operations (82.4%).
 The extracted groups cover host status, trading presentation, history, and advisory control.
