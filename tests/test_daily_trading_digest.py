@@ -5,7 +5,7 @@ from zoneinfo import ZoneInfo
 
 import pytest
 
-from bin import daily_trading_digest
+from ladder_dragon.execution import digest_command as daily_trading_digest
 from ladder_dragon.execution import tools_stats
 
 

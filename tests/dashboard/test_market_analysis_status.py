@@ -37,7 +37,8 @@ def test_dashboard_market_status_fails_closed(tmp_path: Path):
 
 def test_dashboard_declares_market_scenario_route():
     source = Path("ladder_dragon/dashboard/runtime.py").read_text()
-    assert '@app.get("/api/market/scenarios")' in source
+    routes = Path("ladder_dragon/dashboard/routers/trading.py").read_text(encoding="utf-8")
+    assert '@router.get("/api/market/scenarios")' in routes
     html = Path("FRONT/index.html").read_text()
     javascript = Path("FRONT/dashboard.js").read_text()
     assert 'id="market-scenario-body"' in html

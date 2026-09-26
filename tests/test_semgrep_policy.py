@@ -4,7 +4,7 @@ from pathlib import Path
 import re
 import subprocess
 
-from bin import semgrep_scan
+from ladder_dragon.verification import semgrep_command as semgrep_scan
 
 
 ROOT = Path(__file__).resolve().parents[1]

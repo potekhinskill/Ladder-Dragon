@@ -14,7 +14,8 @@ import subprocess
 
 import pytest
 
-from bin import verification_harness
+from ladder_dragon import harness_bootstrap
+from ladder_dragon.verification import harness_command as verification_harness
 from deploy import scan_tracked_secrets
 from ladder_dragon.verification.dashboard_assets import (
     DASHBOARD_ASSETS,
@@ -73,11 +74,11 @@ def test_harness_reexecs_project_venv_before_project_imports(
             "executable": executable,
             "argv": argv,
             "marker": environment[
-                verification_harness._VENV_REEXEC_MARKER
+                harness_bootstrap._VENV_REEXEC_MARKER
             ],
         })
 
-    reexecuted = verification_harness._reexec_project_venv_if_needed(
+    reexecuted = harness_bootstrap._reexec_project_venv_if_needed(
         project_root=tmp_path,
         prefix=tmp_path / "host-python",
         environ={},
@@ -99,7 +100,7 @@ def test_harness_reexecs_project_venv_before_project_imports(
 
 
 def test_harness_keeps_explicit_ci_python_when_project_venv_is_absent(tmp_path):
-    assert verification_harness._reexec_project_venv_if_needed(
+    assert harness_bootstrap._reexec_project_venv_if_needed(
         project_root=tmp_path,
         prefix=tmp_path / "ci-python",
         environ={},
@@ -112,11 +113,11 @@ def test_harness_reexec_loop_fails_closed(tmp_path):
     candidate.write_text("", encoding="utf-8")
 
     with pytest.raises(SystemExit, match="could not enter"):
-        verification_harness._reexec_project_venv_if_needed(
+        harness_bootstrap._reexec_project_venv_if_needed(
             project_root=tmp_path,
             prefix=tmp_path / "host-python",
             environ={
-                verification_harness._VENV_REEXEC_MARKER: "1",
+                harness_bootstrap._VENV_REEXEC_MARKER: "1",
             },
         )
 

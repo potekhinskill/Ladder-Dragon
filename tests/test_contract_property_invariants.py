@@ -12,9 +12,9 @@ from pathlib import Path
 from hypothesis import assume, given, settings, strategies as st
 import pytest
 
-from bin.audit_exchange_boundaries import audit_exchange_boundaries
-from bin.audit_guard_contracts import CRITICAL_GUARDS, audit_guard_contracts
-from bin.audit_semantic_authorities import audit_semantic_authorities
+from ladder_dragon.verification.exchange_boundaries import audit_exchange_boundaries
+from ladder_dragon.verification.guard_contracts import CRITICAL_GUARDS, audit_guard_contracts
+from ladder_dragon.verification.semantic_authorities import audit_semantic_authorities
 from ladder_dragon.execution.trade_accounting import (
     KNOWN_QUOTE_ASSETS,
     VALUED_COMMISSION_STATUSES,

@@ -153,7 +153,7 @@ def test_total_budget(tmp_path, monkeypatch):
 
 
 def test_cli_safe_error(monkeypatch, capsys):
-    from bin import record_bnb_public as command
+    from ladder_dragon.strategy import bnb_capture_command as command
     monkeypatch.setattr('sys.argv', ['record_bnb_public', '--external-mount', '/unused'])
     def fail(*args, **kwargs):
         raise requests.Timeout('PRIVATE_SECRET')

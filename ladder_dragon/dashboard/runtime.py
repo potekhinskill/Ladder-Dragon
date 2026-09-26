@@ -31,6 +31,14 @@ from ladder_dragon.sqlite_safety import quote_sqlite_identifier
 from product_version import PRODUCT_NAME, __version__
 from ladder_dragon.execution.telegram_alerts import notify_binance_auth_error
 from ladder_dragon.dashboard.app_factory import create_dashboard_app
+from ladder_dragon.dashboard.host_dependencies import HostRouteState
+from ladder_dragon.dashboard.routers.host import build_host_router
+from ladder_dragon.dashboard.control_dependencies import ControlRouteState
+from ladder_dragon.dashboard.routers.control import build_control_router
+from ladder_dragon.dashboard.history_dependencies import HistoryRouteState
+from ladder_dragon.dashboard.routers.history import build_history_router
+from ladder_dragon.dashboard.trading_dependencies import TradingRouteState
+from ladder_dragon.dashboard.routers.trading import build_trading_router
 from ladder_dragon.dashboard.dependencies import open_read_only_sqlite
 from ladder_dragon.dashboard.services.accounting import base_asset_of
 from ladder_dragon.dashboard.services.trade_summary import (
@@ -202,6 +210,10 @@ async def lifespan(_app):
 
 
 app = create_dashboard_app(lifespan)
+app.include_router(build_host_router(HostRouteState(vars())))
+app.include_router(build_trading_router(TradingRouteState(vars())))
+app.include_router(build_history_router(HistoryRouteState(vars())))
+app.include_router(build_control_router(ControlRouteState(vars())))
 GiB = 1024**3
 
 
@@ -1311,13 +1323,6 @@ def trading_overview_snapshot() -> Dict[str, object]:
     }
 
 
-@app.get("/api/trading/overview")
-def trading_overview():
-    try:
-        return JSONResponse(trading_overview_snapshot())
-    except _DATA_SOURCE_ERRORS as exc:
-        print(f"[DASHBOARD] TRADING_OVERVIEW_FAILED type={type(exc).__name__}", flush=True)
-        return JSONResponse({"ok": False, "error": "TRADING_OVERVIEW_FAILED"}, status_code=503)
 
 # ---- Approx equity from DB (no API keys) ----------------------------------------
 
@@ -1884,144 +1889,13 @@ def _github_update_snapshot() -> Dict[str, object]:
     return dict(payload)
 
 
-@app.get("/api/update/check")
-def update_check():
-    return JSONResponse(_github_update_snapshot())
 
 
-@app.get("/api/health")
-def health():
-    """Return sanitized host and trading health without exposing credentials."""
-    vm = psutil.virtual_memory()
-    sm = psutil.swap_memory()
-    temp = read_temp_c()
-    disk = shutil.disk_usage("/")
-    now_mono = time.monotonic()
-    with _OPS_CACHE_LOCK:
-        ops = _OPS_CACHE.get("payload")
-        if ops is None or now_mono - float(_OPS_CACHE.get("ts", 0.0)) >= _OPS_CACHE_TTL_SEC:
-            load = os.getloadavg() if hasattr(os, "getloadavg") else (None, None, None)
-            ops = {
-                "load_avg": {"1m": load[0], "5m": load[1], "15m": load[2]},
-                "services": {
-                    "mybot": _systemd_service_snapshot("mybot"),
-                    "pi_healthd": _systemd_service_snapshot("pi-healthd"),
-                    "watchdog": _systemd_service_snapshot("pi-watchdog-v3.timer"),
-                },
-                "heartbeat": _runtime_heartbeat_snapshot(),
-                "ntp": _ntp_snapshot(),
-                "binance": _binance_latency_snapshot(),
-                "usb_backup": _usb_snapshot(),
-                "backup": _backup_snapshot(),
-                "user_stream": _user_stream_snapshot(
-                    _load_ai_runtime_status()
-                ),
-            }
-            _OPS_CACHE["ts"] = now_mono
-            _OPS_CACHE["payload"] = ops
-    network_probe_ok = network_ok()
-    effective_network_ok = network_probe_ok or bool((ops.get("binance") or {}).get("ok"))
-    return JSONResponse({
-        "product": {"name": PRODUCT_NAME, "version": __version__},
-        "changelog_url": "/CHANGELOG.md",
-        "time": now_str(),
-        "kernel": platform.release() or None,
-        "host": _host_snapshot(),
-        "temp_c": temp,
-        "throttled": parse_throttled(),
-        "mem_gib": {
-            "total": round(vm.total/GiB,3),
-            "used": round(vm.used/GiB,3),
-            "percent": vm.percent
-        },
-        "swap_gib": {
-            "total": round(sm.total/GiB,3),
-            "used": round(sm.used/GiB,3),
-            "percent": sm.percent
-        },
-        "disk_gib": {
-            "total": round(disk.total/GiB,3),
-            "used": round(disk.used/GiB,3),
-            "percent": round(disk.used*100.0/disk.total,1)
-        },
-        "mounts": mounts_info(),
-        "services": {
-            "mybot": service_active("mybot"),
-            "fail2ban_sshd_bans": fail2ban_bans("sshd")
-        },
-        "uptime_sec": int(time.time() - psutil.boot_time()),
-        # DNS/53 may be blocked on a local network; a successful Binance probe
-        # is the more relevant signal for the trading channel.
-        "network_ok": effective_network_ok,
-        "network_probe_ok": network_probe_ok,
-        "operations": ops,
-        "deployment": read_deployment_status(),
-    })
 
 
-@app.get("/api/account/balances")
-def account_balances():
-    """Handle account balances."""
-    try:
-        return JSONResponse(account_balances_snapshot())
-    except _DATA_SOURCE_ERRORS as exc:
-        print(f"[DASHBOARD] ACCOUNT_BALANCE_FAILED type={type(exc).__name__}", flush=True)
-        fallback = _stale_binance_snapshot(
-            _BALANCE_CACHE,
-            _BALANCE_CACHE_LOCK,
-            "ACCOUNT_BALANCE_STALE",
-        )
-        if fallback is not None:
-            return JSONResponse(
-                fallback,
-                headers={"Warning": '110 - "stale Binance balance snapshot"'},
-            )
-        return JSONResponse({"ok": False, "error": "ACCOUNT_BALANCE_FAILED"}, status_code=503)
 
 
-@app.get("/api/account/open-orders")
-def account_open_orders():
-    """Handle account open orders."""
-    try:
-        return JSONResponse(account_open_orders_snapshot())
-    except _DATA_SOURCE_ERRORS as exc:
-        print(f"[DASHBOARD] OPEN_ORDERS_FAILED type={type(exc).__name__}", flush=True)
-        fallback = _stale_binance_snapshot(
-            _OPEN_ORDERS_CACHE,
-            _OPEN_ORDERS_CACHE_LOCK,
-            "OPEN_ORDERS_STALE",
-        )
-        if fallback is not None:
-            return JSONResponse(
-                fallback,
-                headers={"Warning": '110 - "stale Binance open-orders snapshot"'},
-            )
-        return JSONResponse({"ok": False, "error": "OPEN_ORDERS_FAILED"}, status_code=503)
 
-@app.get("/api/history")
-def history(hours: int = 24, points: int = 288):
-    hours = max(1, min(hours, 168))
-    payload = load_history_payload(
-        HIST_FILE,
-        cutoff_epoch=int(time.time()) - hours * 3600,
-        points=points,
-        timezone=APP_TZ,
-    )
-    epochs = payload.pop("_epochs")
-    connection = None
-    try:
-        connection, _ = _open_db()
-        payload["trading_volume_24h_usdt"] = rolling_trade_volume_24h_usdt(
-            connection, epochs
-        )
-        payload["trading_volume_24h_status"] = "exact"
-    except (OSError, sqlite3.Error, RuntimeError, ValueError):
-        payload["trading_volume_24h_usdt"] = [None] * len(epochs)
-        payload["trading_volume_24h_status"] = "unavailable"
-    finally:
-        if connection is not None:
-            connection.close()
-    return JSONResponse(payload)
 
 
 def _ai_cache_get(key: str) -> Optional[Dict]:
@@ -2448,112 +2322,13 @@ def ai_status(limit: int = 50):
         },
     }
 
-def _ai_control_snapshot() -> Dict[str, object]:
-    """Handle ai control snapshot."""
-    runtime = _load_ai_runtime_status()
-    runtime_ai = runtime.get("ai", {}) if isinstance(runtime.get("ai"), dict) else {}
-    configured = bool(runtime_ai.get("enabled"))
-    configured_mode = str(runtime_ai.get("configured_mode") or AI_MODE).upper()
-    control_error = None
-    try:
-        control = read_ai_control(AI_CONTROL_FILE)
-    except (OSError, TypeError, ValueError, json.JSONDecodeError) as exc:
-        control = None
-        print(f"[DASHBOARD] AI_CONTROL_READ_FAILED type={type(exc).__name__}", flush=True)
-        control_error = "AI_CONTROL_READ_FAILED"
-    if control is None:
-        enabled = configured and configured_mode != "DISABLED"
-        mode = configured_mode if enabled else "DISABLED"
-    else:
-        enabled = bool(control.get("enabled")) and configured
-        mode = configured_mode if enabled else "DISABLED"
-    return {
-        "configured": configured,
-        "enabled": enabled,
-        "mode": mode,
-        "configured_mode": configured_mode,
-        "control_error": control_error,
-        "updated_at": control.get("updated_at") if control else None,
-    }
-@app.get("/api/market/scenarios")
-def market_scenarios(): return market_analysis_snapshot()
 
 
-@app.get("/api/ai/control")
-def ai_control():
-    """Handle ai control."""
-    snapshot = _ai_control_snapshot()
-    if snapshot["control_error"]:
-        return JSONResponse(
-            {"ok": False, "error": "AI control file is invalid", **snapshot},
-            status_code=503,
-        )
-    return {"ok": True, **snapshot}
 
 
-@app.post("/api/ai/control")
-async def set_ai_control(request: Request):
-    """Handle set ai control."""
-    snapshot = _ai_control_snapshot()
-    if not snapshot["configured"] or snapshot["configured_mode"] == "DISABLED":
-        return JSONResponse(
-            {"ok": False, "error": "AI advisor is not configured", **snapshot},
-            status_code=409,
-        )
-    try:
-        payload = await request.json()
-    except (TypeError, ValueError):
-        return JSONResponse({"ok": False, "error": "JSON body is required"}, status_code=400)
-    if not isinstance(payload, dict) or not isinstance(payload.get("enabled"), bool):
-        return JSONResponse(
-            {"ok": False, "error": "enabled must be boolean"}, status_code=400
-        )
-    try:
-        document = write_ai_control(
-            AI_CONTROL_FILE,
-            enabled=payload["enabled"],
-            mode=str(snapshot["configured_mode"]),
-        )
-    except (OSError, TypeError, ValueError) as exc:
-        print(f"[DASHBOARD] AI_CONTROL_WRITE_FAILED type={type(exc).__name__}", flush=True)
-        return JSONResponse({"ok": False, "error": "AI_CONTROL_WRITE_FAILED"}, status_code=503)
-    return {
-        "ok": True,
-        "configured": True,
-        "enabled": bool(document["enabled"]),
-        "mode": document["mode"],
-        "updated_at": document["updated_at"],
-    }
 
 # ---- trades symbols ---------------------------------------------------------------
 
-@app.get("/api/trades/symbols")
-def trades_symbols(hours: int = 168):
-    """Handle trades symbols."""
-    hours = int(hours)
-    cutoff = int(time.time()) - max(0, hours) * 3600 if hours > 0 else 0
-    try:
-        con, _ = _open_db()
-    except (OSError, sqlite3.Error, RuntimeError, ValueError) as exc:
-        print(f"[DASHBOARD] DB_OPEN_FAILED type={type(exc).__name__}", flush=True)
-        return _database_unavailable_response()
-    try:
-        if hours > 0:
-            sql = """
-              SELECT DISTINCT symbol
-              FROM trades
-              WHERE (CASE WHEN ts>1000000000000 THEN CAST(ts/1000 AS INTEGER) ELSE CAST(ts AS INTEGER) END) >= ?
-              ORDER BY symbol
-            """
-            rows = con.execute(sql, (cutoff,)).fetchall()
-        else:
-            sql = "SELECT DISTINCT symbol FROM trades ORDER BY symbol"
-            rows = con.execute(sql).fetchall()
-        syms = [r["symbol"] for r in rows if r["symbol"]]
-        return JSONResponse({"ok": True, "symbols": syms})
-    finally:
-        try: con.close()
-        except sqlite3.Error: pass
 
 # ---- trades summary & recent ------------------------------------------------------
 
@@ -2648,126 +2423,5 @@ def trades_summary(hours: int = 24, symbols: str = ""):
         try: con.close()
         except sqlite3.Error: pass
 
-@app.get("/api/trades/recent")
-def trades_recent(limit: int = 20, symbols: str = ""):
-    limit = max(1, min(int(limit), 5000))
-    syms = [s.strip().upper() for s in symbols.split(",") if s.strip()] or None
-    try:
-        con, path = _open_db()
-    except (OSError, sqlite3.Error, RuntimeError, ValueError) as exc:
-        print(f"[DASHBOARD] DB_OPEN_FAILED type={type(exc).__name__}", flush=True)
-        return _database_unavailable_response()
-    try:
-        sym_filter = ""
-        args: List = []
-        if syms:
-            qs = ",".join("?" for _ in syms)
-            sym_filter = f" AND symbol IN ({qs})"
-            args.extend(syms)
-        sql = f"""
-        SELECT symbol, side, price_text AS price, gross_qty_text AS qty,
-               COALESCE(commission_quote_text, '0') AS fee_quote,
-               CASE WHEN ts>1000000000000 THEN CAST(ts/1000 AS INTEGER) ELSE CAST(ts AS INTEGER) END AS ts_s
-        FROM trades_exact
-        WHERE 1=1 {sym_filter}
-        ORDER BY ts_s DESC
-        LIMIT ?
-        """
-        args.append(limit)
-        rows = [dict(r) for r in con.execute(sql, args).fetchall()]
-        for r in rows:
-            r["price"] = float(Decimal(str(r["price"])))
-            r["qty"] = float(Decimal(str(r["qty"])))
-            r["fee_quote"] = float(Decimal(str(r["fee_quote"])))
-            r["time"] = datetime.fromtimestamp(int(r["ts_s"]), APP_TZ).strftime("%Y-%m-%d %H:%M:%S")
-        return JSONResponse({"ok": True, "rows": rows})
-    finally:
-        try: con.close()
-        except sqlite3.Error: pass
 
 # ---- Filled orders (24h) for dashboard -------------------------------------------
-
-def _select_filled_orders(
-    hours: int,
-    syms: Optional[List[str]],
-    limit: int,
-    offset: int = 0,
-) -> List[Dict]:
-    """Handle select filled orders."""
-    hours = max(1, min(int(hours), 168))
-    limit = max(1, min(int(limit), 500))
-    offset = max(0, min(int(offset), 50000))
-    cutoff_s = int(time.time()) - hours * 3600
-
-    con, _ = _open_db()
-
-    try:
-        sym_filter = ""
-        args: List = []
-        if syms:
-            qs = ",".join("?" for _ in syms)
-            sym_filter = f" AND symbol IN ({qs})"
-            args.extend(syms)
-
-        sql = f"""
-        SELECT
-          symbol, side, price_text AS price, gross_qty_text AS qty,
-          COALESCE(commission_quote_text, '0') AS fee_quote,
-          CASE WHEN ts>1000000000000 THEN CAST(ts/1000 AS INTEGER) ELSE CAST(ts AS INTEGER) END AS ts_s
-        FROM trades_exact
-        WHERE 1=1 {sym_filter}
-          AND (CASE WHEN ts>1000000000000 THEN CAST(ts/1000 AS INTEGER) ELSE CAST(ts AS INTEGER) END) >= ?
-        ORDER BY ts_s DESC
-        LIMIT ? OFFSET ?
-        """
-        args.extend([cutoff_s, limit, offset])
-        rows = con.execute(sql, args).fetchall()
-
-        fee_pct = _fee_pct_default()
-        out: List[Dict] = []
-        for r in rows:
-            price = float(r["price"])
-            qty = float(r["qty"])
-            fee_q = float(r["fee_quote"])
-            # If fee_quote is zero (BNB), estimate the fee in USDT by percentage.
-            fee_usdt = fee_q if fee_q > 0 else (price * qty * fee_pct)
-            out.append({
-                "time": int(r["ts_s"]) * 1000,
-                "symbol": r["symbol"],
-                "side": str(r["side"]).upper(),
-                "price": round(price, 8),
-                "qty": round(qty, 8),
-                "quoteQty": round(price * qty, 8),
-                "commission": round(fee_usdt, 8),
-                "commissionAsset": "USDT"
-            })
-        return out
-    finally:
-        try:
-            if con: con.close()
-        except sqlite3.Error:
-            pass
-
-@app.get("/api/trades/filled")
-def api_trades_filled(
-    hours: int = 24, symbols: str = "", limit: int = 300, offset: int = 0
-):
-    syms = [s.strip().upper() for s in symbols.split(",") if s.strip()] or None
-    items = _select_filled_orders(hours, syms, limit, offset)
-    return JSONResponse(items)
-
-@app.get("/api/orders/filled")
-def api_orders_filled(
-    hours: int = 24, symbols: str = "", limit: int = 300, offset: int = 0
-):
-    syms = [s.strip().upper() for s in symbols.split(",") if s.strip()] or None
-    items = _select_filled_orders(hours, syms, limit, offset)
-    return JSONResponse(items)
-
-@app.get("/api/fills")
-def api_fills(
-    hours: int = 24, symbols: str = "", limit: int = 300, offset: int = 0
-):
-    syms = [s.strip().upper() for s in symbols.split(",") if s.strip()] or None
-    items = _select_filled_orders(hours, syms, limit, offset)
-    return JSONResponse(items)

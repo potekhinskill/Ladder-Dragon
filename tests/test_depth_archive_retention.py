@@ -7,7 +7,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from bin import depth_archive_retention as module
+from ladder_dragon.strategy import depth_retention_command as module
 from ladder_dragon.strategy.market_replay import archive_sha256
 
 

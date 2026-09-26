@@ -2,7 +2,8 @@
 
 ## Status and scope
 
-Status: IN PROGRESS. Source inventories and the first read-only command pilot are implemented locally; trading workflows remain unchanged.
+Status: IN PROGRESS. Source inventories, scoped enforcement, registered command ownership, and initial dashboard route extraction are implemented locally.
+Architecture moves preserve behavior; separate functional fixes in the working candidate remain outside this plan's progress count.
 Review date: 2026-09-09. Source baseline: v2.20.335, commit `06c2f4f5a24cf920d4a1a03330aafb7c45d3e2c6`.
 The review covers tracked source, tests, deployment files, package metadata, and current architecture controls.
 It does not inspect secrets, private databases, backups, or production evidence.
@@ -548,6 +549,887 @@ Do not hand-edit production databases or restore old schemas to make a source ro
 
 ## 10. Implementation record
 
+### Twenty-fourth five-step P2 slice — 2026-09-26
+
+Review conclusion: separate advisory-control presentation without changing authentication, request-forgery protection, configured modes, or canonical file writes.
+The five steps cover two HTTP operations and three ownership and integration boundaries; this slice does not claim five new routes.
+
+| Step | Boundary | Completed implementation |
+|---|---|---|
+| 1 | Control snapshot | `dashboard/control_snapshot.py` owns configured-mode, enablement, and read-error presentation |
+| 2 | `GET /api/ai/control` | Concrete handler in `dashboard/routers/control.py`; preserve payload and unavailable HTTP 503 |
+| 3 | `POST /api/ai/control` | Concrete async handler preserves configuration rejection, Boolean validation, canonical writer, and response |
+| 4 | Live dependencies | Five declared bindings preserve current paths, runtime configuration, readers, and writer |
+| 5 | Application integration | Register the router once and require explicit method, async, snapshot-owner, and live-binding contracts |
+
+The application retains authentication, rate limits, request-forgery protection, and the token endpoint.
+Canonical `ai/ai_control.py` remains the file-format and atomic-write owner; the dashboard introduces no alternative writer or execution permission.
+The submitted mode cannot replace the configured mode; an unconfigured or disabled advisor is rejected before body parsing and writing.
+Read and write errors retain their safe responses without provider or filesystem exception details.
+The live adapter exposes existing callable capabilities; it is not a read-only service boundary or a security sandbox.
+Original-source fingerprints preserve the snapshot and both handlers after reversal of explicit interface changes.
+Shared route enforcement now supports explicitly configured HTTP methods and async handlers; existing GET contracts retain their strict defaults.
+Negative tests reject changed methods, sync replacements, copied bindings, detached imports, missing owners, and reverse runtime dependencies.
+The dashboard runtime decreases from 2494 to 2427 lines; its enforced legacy budget decreases to 2427.
+No schema, authoritative evidence, financial formula, deployment behavior, or trading permission changes.
+
+Verification: 4890 tests passed and two skipped; compilation, five safety audits, secret scanning, and Semgrep passed.
+This slice adds 35 regressions; 378 focused dashboard, architecture, and harness tests passed.
+The installed application passes authenticated GET and POST checks outside the checkout with networking prohibited.
+Only synthetic temporary control files are written through the canonical writer; checks preserve file permissions, mode boundaries, and live path replacement.
+The wheel is built from an isolated source copy; no build artifacts are introduced into the verification checkout.
+Ownership, all four extracted route-group checks, references, source surfaces, and service links passed.
+Diagnostic comparison against HEAD found no new cycles or size violations; this comparison is not signed release evidence.
+The overall local profile remains BLOCKED by release continuity and dependent cycle and size checks.
+The local artifact is `.runtime/verification-local-2.20.347-control-routes-five.json`.
+
+Local completion is 5/5, or 100%, for this slice.
+Dashboard handler extraction covers 14/17 HTTP operations, or 82.4%; this metric does not measure service decomposition.
+Reviewed CLI coverage remains 73/73, or 100%; neither percentage measures the entire architecture program.
+Strict whole-phase closure remains 0/8; AI-status, request-forgery token, summary handlers, internal services, and broader phases stay open.
+Next: review the remaining presentation handlers and their service boundaries before extraction.
+No publication, Raspberry Pi operation, production control write, or trading authorization accompanies this change.
+
+### Twenty-third five-step P2 slice — 2026-09-26
+
+Review conclusion: separate history handlers and their shared filled-order query without changing SQL, parameters, responses, or connection cleanup.
+The five steps cover five HTTP operations, one shared reader, and required integration controls.
+
+| Step | Boundary | Completed implementation |
+|---|---|---|
+| 1 | `GET /api/trades/symbols` | Concrete handler preserves time filtering and symbol discovery |
+| 2 | `GET /api/trades/recent` | Concrete handler preserves parameters, ordering, display conversions, and connection cleanup |
+| 3 | Filled aliases | Three concrete handlers preserve `/api/trades/filled`, `/api/orders/filled`, and `/api/fills` |
+| 4 | Shared filled reader | `dashboard/history_reader.py` owns the original query, limits, pagination, and presentation calculations |
+| 5 | Application integration | Five declared live dependencies, router registration, and required history ownership checks |
+
+`dashboard/routers/history.py` owns the handlers; runtime supplies the current database, clock, timezone, error response, and fee reader.
+The shared reader imports no runtime or exchange adapter; its callers import the concrete owner directly.
+Original-source fingerprints preserve all six implementations after reversal of explicit interface changes.
+SQL strings retain their original contents; symbol filters remain parameters rather than interpolated values.
+Legacy float presentation and zero-commission estimates remain unchanged; this relocation does not approve those accounting assumptions.
+Authentication, application error handling, summary accounting, and all 17 HTTP operations remain unchanged.
+The 93-line router factory receives manual review because its span contains five unchanged nested handlers.
+The dashboard runtime decreases from 2639 to 2494 lines; its enforced legacy budget decreases to 2494.
+No schema, persistent evidence, exchange operation, financial formula, or trading authority changes.
+
+Verification: 4855 tests passed and two skipped; compilation, five safety audits, secret scanning, and Semgrep passed.
+This slice adds 39 regressions; 343 focused dashboard, architecture, and harness tests passed.
+Tests cover authenticated access, mixed timestamps, exact cutoff inclusion, pagination, parameterized symbols, current fee bindings, and cleanup after query failures.
+The installed application passes all five authenticated routes outside the checkout with synthetic SQLite data and networking prohibited.
+Required history checks run in local and release profiles; damaged reader imports, forwarding handlers, changed methods, and copied bindings fail.
+Ownership, all three extracted route-group checks, references, source surfaces, and service links passed.
+Diagnostic comparison against HEAD found no new cycles or size violations; this comparison is not signed release evidence.
+The first complete profile rejected wheel-generated source copies under `build/lib`; verified copies were preserved outside the checkout.
+The complete profile was repeated after correction; no architecture check was weakened or excluded.
+The overall local profile remains BLOCKED by release continuity and dependent cycle and size checks.
+The corrected local artifact is `.runtime/verification-local-2.20.347-history-routes-five-recheck.json`.
+Final whitespace cleanup preserves the parsed runtime syntax; focused checks verify the reduced line budget separately.
+
+Local completion is 5/5, or 100%, for this slice.
+Dashboard handler extraction covers 12/17 HTTP operations, or 70.6%; this metric does not measure service decomposition.
+Reviewed CLI coverage remains 73/73, or 100%; neither percentage measures the entire architecture program.
+Strict whole-phase closure remains 0/8; AI, request-forgery protection, summary handlers, internal services, and broader phases stay open.
+Next: review the remaining presentation handlers and their dependencies before extraction.
+No publication, Raspberry Pi operation, or trading authorization accompanies this change.
+
+### Twenty-second five-step P2 slice — 2026-09-26
+
+Review conclusion: move four read-only handlers without changing their readers, authentication, response fields, or stale-data policy.
+The fifth step integrates live dependencies and required architecture checks; this slice does not claim five new routes.
+
+| Step | Boundary | Completed implementation |
+|---|---|---|
+| 1 | `GET /api/trading/overview` | Concrete overview handler in `dashboard/routers/trading.py`; preserve sanitized failures and HTTP 503 |
+| 2 | `GET /api/account/balances` | Concrete handler preserves current cache, lock, stale fallback, and Warning header |
+| 3 | `GET /api/account/open-orders` | Concrete handler preserves current reader, stale fallback, and unavailable response |
+| 4 | `GET /api/market/scenarios` | Concrete handler invokes the current scenario reader without response changes |
+| 5 | Application integration | Ten declared live dependencies, one router registration, and required shared structural checks |
+
+`TradingRouteState` resolves current namespace bindings instead of retaining startup copies; it is not a security sandbox.
+The router does not import runtime; runtime retains application middleware, collectors, cache ownership, and the underlying services.
+The shared route analyzer replaces duplicated host-check machinery while preserving existing host contracts and negative tests.
+Required `architecture_trading_routes` checks reject forwarding stubs, changed methods, copied dependencies, detached imports, and duplicate runtime routes.
+AST regressions restore only dependency qualifiers and the decorator receiver before comparing original handler fingerprints.
+The complete application retains all 17 HTTP operations; authentication and rate limits remain unchanged.
+No financial formula, exchange request, schema, frontend asset, persistent record, or trading authority changes.
+The dashboard runtime decreases from 2681 to 2639 lines; its enforced legacy budget decreases to 2639.
+
+Verification: 4816 tests passed and two skipped; compilation, five safety audits, secret scanning, and Semgrep passed.
+This slice adds 38 regressions; 304 focused dashboard, architecture, and harness tests passed.
+One initial failure exposed a remaining stale-code source assertion; its corrected owner check preserves both reason-code requirements.
+The installed application passes all four authenticated routes outside the checkout with synthetic dependencies and networking prohibited.
+Checks preserve unauthorized rejection, live reader replacement, stale Warning headers, sanitized failures, and unavailable HTTP 503 responses.
+Ownership, host and trading route checks, references, source surfaces, and service links passed.
+Diagnostic comparison against HEAD found no new cycles or size violations; this comparison is not signed release evidence.
+The overall local profile remains BLOCKED by release continuity and dependent cycle and size checks.
+The local artifact is `.runtime/verification-local-2.20.347-trading-routes-five.json`.
+
+Local completion is 5/5, or 100%, for this slice.
+Dashboard handler extraction covers 7/17 HTTP operations, or 41.2%; this metric does not measure service decomposition.
+Reviewed CLI coverage remains 73/73, or 100%; neither percentage measures the entire architecture program.
+Strict whole-phase closure remains 0/8; remaining handlers, internal services, and broader architecture phases stay open.
+Next: review another cohesive dashboard route group and its live dependencies before extraction.
+No publication, Raspberry Pi operation, or trading authorization accompanies this change.
+
+### Twenty-first five-step P2 slice — 2026-09-25
+
+Review conclusion: move one host route group while preserving live dependencies, middleware, resource cleanup, and HTTP responses.
+This slice completes three endpoint extractions and two integration steps; it does not claim five new routes.
+
+| Step | Boundary | Completed implementation |
+|---|---|---|
+| 1 | Live dependencies | `dashboard/host_dependencies.py` declares 29 permitted bindings and resolves their current values |
+| 2 | `GET /api/health` | Concrete handler in `dashboard/routers/host.py`; preserve cache, lock, probes, and response fields |
+| 3 | `GET /api/history` | Concrete handler preserves exact volume alignment, cutoff, unavailable results, and connection cleanup |
+| 4 | `GET /api/update/check` | Concrete handler uses the current update reader and preserves its response |
+| 5 | Application integration | Runtime registers the router once; required harness checks enforce owners, methods, and live wiring |
+
+The router does not import runtime or copy its namespace; application composition supplies the live interface.
+The interface restricts declared lookups and hides namespace values from its representation; it is not a security sandbox.
+Replacement paths, cache dictionaries, locks, and readers remain visible after app construction.
+Authentication, rate limiting, database error handling, and collector lifetime remain application-owned and unchanged.
+AST regressions restore only dependency qualifiers and the decorator receiver before comparing original handler fingerprints.
+The complete route inventory retains all 17 HTTP operations, including methods and duplicate detection.
+No response schema, accounting formula, frontend asset, deployment script, or persistent record changes.
+Host readers, telemetry collection, and cache ownership remain runtime debt; this slice does not complete their service extraction.
+The 104-line router factory receives manual review because its span includes three unchanged nested handlers.
+The dashboard runtime decreases from 2773 to 2681 lines; its enforced legacy budget decreases to 2681.
+
+Verification: 4778 tests passed and two skipped; compilation, five safety audits, secret scanning, and Semgrep passed.
+The slice adds 33 regressions; 247 focused dashboard and architecture tests plus 19 harness tests passed.
+Initial test failures exposed obsolete source locations and flat route enumeration; corrected tests retain hidden-route and duplicate detection.
+The installed application passes all three authenticated routes with synthetic dependencies outside the checkout and with networking prohibited.
+Checks cover unauthorized access, rate limiting, live replacements, exact history values, unavailable results, and database cleanup.
+Ownership, host-route enforcement, references, source surfaces, and service-link checks passed.
+Diagnostic comparison against HEAD found no new cycles or size violations; it does not replace signed release evidence.
+The overall local profile remains BLOCKED by release continuity and dependent cycle and size checks.
+The local artifact is `.runtime/verification-local-2.20.347-host-routes-five.json`.
+
+Local completion is 5/5, or 100%, for this slice.
+Dashboard handler extraction covers 3/17 HTTP operations, or 17.6%; this metric does not measure service decomposition.
+Reviewed CLI coverage remains 73/73, or 100%; neither percentage measures the entire architecture program.
+Strict whole-phase closure remains 0/8; remaining dashboard handlers and broader architecture phases stay open.
+Next: review another cohesive dashboard route group and its live state dependencies before extraction.
+No publication, Raspberry Pi operation, or trading authorization accompanies this change.
+
+### Twentieth five-step P2 slice — 2026-09-25
+
+Review conclusion: separate the experiment CLI without changing confirmation, provenance, evidence interpretation, or promotion authority.
+This slice migrates one command into five concrete components; it does not run experiments or activate a candidate.
+
+| Step | Responsibility | Concrete owner under `ladder_dragon/strategy/prediction/` |
+|---|---|---|
+| 1 | Arguments and explicit confirmation fields | `experiment_parser.py` |
+| 2 | Clean, annotated, published release identity | `experiment_provenance.py` |
+| 3 | Generation horizons and evidence queries | `experiment_evidence.py` |
+| 4 | Confirmed operations and preview handlers | `experiment_actions.py` |
+| 5 | Ordered dispatch, output, and exit status | `experiment_command.py` |
+
+The stable `bin/prediction_experiment.py` launcher delegates to the concrete command owner.
+The command dispatcher decreases from 251 to 37 lines; operation handlers retain their original branches and keyword arguments.
+AST regressions reconstruct the original main function and compare every original helper fingerprint.
+The unchanged 102-line parser receives manual review under the 80-line warning policy; its declarative argument structure remains together.
+Canonical lifecycle, champion, risk, and evidence implementations retain authority; the CLI does not copy their policy.
+Existing source-inspection tests and helper imports now reference concrete owners instead of the launcher.
+Required local and release checks reject missing owners, forwarding stubs, detached imports, and reverse dependencies on `bin`.
+
+Synthetic tests reject incorrect confirmations before operation resource access and preserve exact cutoff forwarding.
+Activation tests preserve the HALT lock through source verification and the writer; failed provenance prevents the writer call.
+Preview retains its BLOCKED output and exit code without source verification or mutation.
+Report identity mismatches fail before imports or writes; help exits before store initialization.
+No schema, stored evidence, fingerprint algorithm, experiment generation, or trading permission changes.
+The existing invalid CAP fallback and autotune persistence defect remain separate unresolved issues.
+
+Verification: 4745 tests passed and two skipped; compilation, five safety audits, secret scanning, and Semgrep passed.
+The slice adds 66 regressions; 121 focused tests passed before the complete run.
+The installed wheel passes help, empty synthetic database reporting, and rejected confirmation checks outside the checkout, with networking prohibited.
+Ownership, references, source surfaces, and service-link checks passed.
+Diagnostic comparison against HEAD found no new cycles or size violations; it does not replace signed release evidence.
+The overall local profile remains BLOCKED by release continuity and dependent cycle and size checks.
+The local artifact is `.runtime/verification-local-2.20.347-experiment-five.json`.
+
+Local completion is 5/5, or 100%, for this slice.
+Reviewed command coverage is 73/73, or 100%, using 69 common ownership contracts and four previously recorded pilots.
+This completes registered command coverage, not every command's internal decomposition or the broader P2 phase.
+Dashboard extraction and internal decomposition remain; strict whole-phase closure remains 0/8.
+Next: review a bounded dashboard route group with its state dependencies, route parity tests, and required ownership controls.
+No publication, Raspberry Pi operation, experiment execution, or trading authorization accompanies this change.
+
+### Nineteenth five-step P2 slice — 2026-09-25
+
+Review conclusion: extract percentage-ladder responsibilities without changing financial formulas, market-read order, or executor dispatch.
+This slice moves one command into five concrete components, not five additional commands.
+
+| Step | Responsibility | Concrete owner under `ladder_dragon/strategy/` |
+|---|---|---|
+| 1 | Rounding, spacing, and raw ladder calculations | `ladder_pct_math.py` |
+| 2 | Arguments and percentage validation | `ladder_pct_parser.py` |
+| 3 | Public market reads and diagnostics | `ladder_pct_market.py` |
+| 4 | Notional checks and child dispatch | `ladder_pct_dispatch.py` |
+| 5 | Ordered orchestration and stable launcher | `ladder_pct_command.py` |
+
+The stable launcher retains `main()` without an added exit wrapper.
+Decimal context and dotenv initialization retain their original order; local checks disable dotenv loading.
+AST regressions reconstruct the original functions from the extracted components and compare their complete syntax fingerprints.
+The six existing float calls remain unchanged; this slice adds no financial calculation or precision conversion.
+The remaining 116-line orchestrator receives manual review under the 80-line warning threshold policy.
+Its local reflow closure retains current tick, spacing, and argument values; nudging and filtering preserve their original order.
+Required local and release controls reject missing implementations, forwarding stubs, detached imports, reverse dependencies, and changed startup order.
+Synthetic tests verify ordered reads, exact levels, side selection, empty output, strict notional rejection, and child exit propagation.
+
+The legacy invalid `BOT_CAP_PER_ORDER` fallback remains separate debt: it skips this local notional check even with `--strict-minnotional`.
+A regression characterizes that behavior; relocation does not approve the fallback or authorize trading.
+The prior autotune persistence defect also remains unresolved.
+This slice adds no persistent state and makes no startup acceleration claim.
+
+Verification: 4679 tests passed and two skipped; compilation, five safety audits, secret scanning, and Semgrep passed.
+The slice adds 73 regressions; 111 focused tests passed before the complete run.
+The installed wheel passes help and synthetic dispatch checks outside the checkout, with networking prohibited and no real child execution.
+Ownership, references, source surfaces, and service-link checks passed.
+Diagnostic comparison against HEAD found no new cycles or size violations; it does not replace signed release evidence.
+The overall local profile remains BLOCKED by release continuity and dependent cycle and size checks.
+The local artifact is `.runtime/verification-local-2.20.347-ladder-pct-five.json`.
+
+Local completion is 5/5, or 100%, for this slice.
+Reviewed command coverage is 72/73, or 98.6%, using 68 common ownership contracts and four previously recorded pilots.
+The remaining registered command is `prediction_experiment`; dashboard work and internal decomposition also remain.
+This metric does not measure the whole architecture program; strict whole-phase closure remains 0/8.
+No publication, Raspberry Pi operation, or trading authorization accompanies this change.
+
+### Eighteenth five-step P2 control slice — 2026-09-25
+
+Review conclusion: enforce existing supervisor and worker entry boundaries without relocating or changing trading runtime implementations.
+This slice completes five control steps for two commands; it does not claim five new implementation owners.
+
+| Step | Boundary | Completed control |
+|---|---|---|
+| 1 | `bin/ai_supervisor.py` | Exact launcher, concrete supervisor functions, unique module bindings |
+| 2 | `bin/autosize_universal.py` | Exact launcher and canonical worker bootstrap |
+| 3 | Live worker state | Preserve `WorkerRuntimeState(vars(runtime))`; reject namespace copies and altered lifecycle imports |
+| 4 | Dependency loading | Enforce lazy bootstrap imports and inert execution, worker, and supervision package initializers |
+| 5 | Installed entry points | Verify isolated dispatch, exit propagation, lazy import, and live-state behavior outside the checkout |
+
+Required local and release checks reject missing owners, forwarding stubs, changed launcher imports, unguarded calls, and same-scope entrypoint rebinding.
+The binding check reuses the existing canonical source-binding analyzer instead of copying its scope rules.
+Worker checks reject eager bootstrap logic, discarded return values, and copied runtime dictionaries.
+Behavioral tests exercise the real bootstrap and state adapter with a fake runtime and lifecycle runner.
+They prove two-way state updates, current namespace resolution on each invocation, and exception propagation.
+A fresh Python process without site-packages proves that importing the worker launcher does not import runtime or lifecycle dependencies.
+Supervisor dispatch checks substitute its runtime owner; they do not initialize the production supervisor.
+Complete supervisor and bootstrap AST fingerprints remain unchanged from the start of this slice.
+No trading workflow, financial calculation, preflight order, persistence format, or execution permission changes.
+Large existing runtime modules remain design debt; these controls do not complete their internal decomposition.
+
+Verification: 4606 tests passed and two skipped; compilation, five safety audits, secret scanning, and Semgrep passed.
+The slice adds 49 regressions; 94 focused tests passed before the complete run.
+The installed wheel passes fake-owner dispatch checks for both launchers, lazy worker import, and real-adapter live-state checks.
+No actual supervisor, worker loop, exchange request, or production resource starts during these smoke checks.
+Ownership, references, source surfaces, and service-link checks passed.
+Diagnostic comparison against HEAD found no new cycles or size violations; this is not signed release evidence.
+The overall local profile remains BLOCKED by release continuity and dependent cycle and size checks.
+The local artifact is `.runtime/verification-local-2.20.347-runtime-entry-five.json`.
+
+Local completion is 5/5, or 100%, for this control slice.
+Reviewed command coverage is 71/73, or 97.3%, using 67 common ownership contracts and four previously recorded pilots.
+The remaining registered commands are `ladder_pct_runner` and `prediction_experiment`.
+Dashboard work and internal decomposition also remain; this metric does not measure the whole architecture program.
+Strict whole-phase closure remains 0/8; the previously recorded autotune persistence defect remains separate and unresolved.
+No publication, Raspberry Pi operation, or trading authorization accompanies this change.
+
+### Seventeenth five-step P2 slice — 2026-09-25
+
+Review conclusion: separate verification command responsibilities while preserving interpreter selection before verification dependency imports.
+This slice migrates one command into five concrete components; it does not close the four other remaining commands.
+
+| Step | Responsibility | Concrete owner under `ladder_dragon/` |
+|---|---|---|
+| 1 | Project interpreter selection and bounded re-execution | `harness_bootstrap.py` |
+| 2 | Stable argument definitions and help text | `verification/harness_parser.py` |
+| 3 | Profile, symbol, path, and permission normalization | `verification/harness_options.py` |
+| 4 | Checkout SHA resolution and unavailable-identity fallback | `verification/harness_identity.py` |
+| 5 | Check execution, report publication, and exit status | `verification/harness_command.py` |
+
+The stable `bin/verification_harness.py` launcher retains the guarded bootstrap before its command import.
+Bootstrap resides outside `verification` because importing that package first executes its initializer and model imports.
+The exact source catalog assigns the root-level bootstrap to verification ownership.
+Required controls preserve an inert root package initializer, standard-library-only bootstrap imports, and the reviewed checkout-root calculation.
+They also reject missing implementations, detached canonical imports, reverse launcher imports, and changed startup ordering.
+Existing source-inspection tests now inspect the parser and options owners; internal callers use the concrete command and bootstrap modules.
+AST regressions recompose the extracted options block and account for the unchanged immutable output path.
+The bootstrap docstring now names verification imports precisely; its executable function syntax remains unchanged.
+Profiles, confirmation flags, timeouts, artifact formats, source identity values, and safety audit requirements remain unchanged.
+This move adds no production state, runtime retention, or trading permission.
+
+Verification: 4557 tests passed and two skipped; compilation, five safety audits, secret scanning, and Semgrep passed.
+The slice adds 72 regressions; 284 focused tests passed before the complete run.
+A fresh Python process without site-packages proves that re-execution occurs before any verification package import.
+Tests cover missing interpreters, re-execution failure and loop rejection, identity fallback, argument normalization, and required ownership mutations.
+The installed wheel passes offline help and an unknown-profile BLOCKED report check outside the checkout; stdout matches the report artifact.
+Ownership, references, source surfaces, and service-link checks passed.
+Diagnostic comparison against HEAD found no new cycles or size violations; this is not signed release evidence.
+The overall local profile remains BLOCKED by release continuity and dependent cycle and size checks.
+The local artifact is `.runtime/verification-local-2.20.347-harness-five.json`.
+
+Local completion is 5/5, or 100%, for this slice.
+Reviewed command coverage is 69/73, or 94.5%, using 65 common ownership contracts and four previously recorded pilots.
+The five components increase command coverage by one; they are not five additional commands.
+Remaining commands are `ai_supervisor`, `autosize_universal`, `ladder_pct_runner`, and `prediction_experiment`.
+Dashboard work and internal decomposition also remain; this metric does not measure the whole architecture program.
+Strict whole-phase closure remains 0/8; the previously recorded autotune persistence defect remains separate and unresolved.
+No publication, Raspberry Pi operation, or trading authorization accompanies this change.
+
+### Sixteenth five-step P2 control slice — 2026-09-25
+
+Review conclusion: enforce five existing operator and reporting owners without changing their executable interfaces or implementations.
+This slice closes required-control gaps; it does not claim five new implementation relocations.
+
+| Step | Stable command under `bin/` | Concrete owner under `ladder_dragon/` |
+|---|---|---|
+| 1 | `ai_plan_runner.py` | `supervision/plan_runner.py`: `main`, `parse_args` |
+| 2 | `tools_cancel_open.py` | `execution/operator/cancel_open.py`: `main`, `parse_args` |
+| 3 | `monthly_prediction_report.py` | `strategy/prediction/monthly_report_command.py`: `main`, `_load` |
+| 4 | `validate_replay_sessions.py` | `verification/replay_sessions.py`: `main`, `build_parser` |
+| 5 | `mainnet_validation_batch.py` | `verification/live/validation_batch.py`: `main`, `create_batch_manifest` |
+
+Required local and release checks reject changed launcher imports, unguarded calls, forwarding stubs, missing implementations, invalid source, and reverse launcher imports.
+Positive synthetic checkouts pass before each mutation group; unchanged implementation AST fingerprints provide separate parity evidence.
+Fake-owner dispatch tests preserve inert imports, explicit invocation, arguments, and exit codes.
+All five installed commands pass offline help and invalid-input checks outside the checkout, with network connections prohibited and dotenv disabled.
+These checks do not start workers, cancel orders, create validation batches, import replay evidence, or send reports.
+Existing behavior tests cover cancellation safeguards, batch bounds, report state, replay validation, and plan argument handling.
+No financial calculation, persistence format, evidence identity, authority boundary, or production configuration changes.
+Large existing modules remain architecture debt; owner enforcement does not complete their internal decomposition.
+
+Verification: 4485 tests passed and two skipped; compilation, five safety audits, secret scanning, and Semgrep passed.
+The slice adds 107 regressions; 180 focused tests passed before the complete run.
+Ownership, references, source surfaces, and service-link checks passed.
+Diagnostic comparison against HEAD found no new cycles or size violations; this is not signed release evidence.
+The overall local profile remains BLOCKED by release continuity and dependent cycle and size checks.
+The local artifact is `.runtime/verification-local-2.20.347-operator-ownership-five.json`.
+
+Local completion is 5/5, or 100%, for this control slice.
+Reviewed command coverage is 68/73, or 93.2%, using 64 common ownership contracts and four previously recorded pilots.
+Remaining commands are `ai_supervisor`, `autosize_universal`, `ladder_pct_runner`, `prediction_experiment`, and `verification_harness`.
+Dashboard work and internal decomposition also remain; this command metric does not measure the whole architecture program.
+Strict whole-phase closure remains 0/8; the previously recorded autotune persistence defect remains a separate unresolved issue.
+No publication, Raspberry Pi operation, or trading authorization accompanies this change.
+
+### Fifteenth five-step P2 control slice — 2026-09-25
+
+Review conclusion: close ownership-enforcement gaps for five existing verification launchers without relocating or changing their implementations.
+These commands already delegate to package owners; this slice adds the missing required controls and parity evidence.
+
+| Step | Stable command under `bin/` | Concrete owner under `ladder_dragon/verification/live/` |
+|---|---|---|
+| 1 | `binance_testnet_smoke.py` | `testnet_smoke.py`: `main`, `run` |
+| 2 | `binance_mainnet_canary.py` | `mainnet_canary.py`: `main`, `run_canary` |
+| 3 | `mainnet_limit_maker_validation.py` | `mainnet_limit_maker_validation.py`: `main`, `run_validation_drill` |
+| 4 | `mainnet_stop_limit_validation.py` | `mainnet_stop_limit_validation.py`: `main`, `run_validation_drill` |
+| 5 | `mainnet_user_stream_drill.py` | `mainnet_user_stream_drill.py`: `main`, `run_drill` |
+
+Required local and release checks enforce the exact launcher syntax, including each existing module description.
+They reject unguarded calls, changed imports, missing owners, forwarding stubs, invalid source, and reverse imports from package owners into `bin`.
+Each owner must retain concrete CLI and workflow definitions; this structural check supplements, not replaces, existing safety regressions.
+Complete implementation AST fingerprints remain unchanged.
+No confirmation, exposure limit, exchange request, persistence format, evidence identity, or production service changes.
+Existing large verification modules remain design debt; an ownership check does not complete their internal decomposition.
+
+Verification: 4378 tests passed and two skipped; compilation, five safety audits, secret scanning, and Semgrep passed.
+The slice adds 107 regressions; 172 focused tests passed before the complete run.
+Positive synthetic checkouts pass before mutations in both required profiles.
+Launcher dispatch tests prove inert imports, one explicit invocation, argument preservation, and exit-code propagation with fake owners.
+All five installed commands pass offline help and invalid-input checks outside the checkout, with network connections prohibited and dotenv disabled.
+Ownership, references, source surfaces, and service-link checks passed.
+Diagnostic comparison against HEAD found no new cycles or size violations; this is not signed release evidence.
+The overall local profile remains BLOCKED by release continuity and dependent cycle and size checks.
+The local artifact is `.runtime/verification-local-2.20.347-live-ownership-five.json`.
+
+Local completion is 5/5, or 100%, for this control slice.
+Reviewed command coverage is 63/73, or 86.3%, using 59 common ownership contracts and four previously recorded pilots.
+The numerator counts five newly enforced existing commands, not five new implementation extractions.
+Ten registered commands remain outside this reviewed coverage; dashboard decomposition also prevents P2 closure.
+This metric does not measure the whole architecture program; strict whole-phase closure remains 0/8.
+The previously recorded autotune persistence defect remains unresolved and separate from these controls.
+No exchange qualification, publication, Raspberry Pi operation, or trading authorization accompanies this change.
+
+### Fourteenth five-step P2 slice — 2026-09-25
+
+Review conclusion: separate the read-only Testnet soak monitor without changing sampling, safety thresholds, retry behavior, or signal state ownership.
+This slice migrates one command and four supporting components; it neither launches a soak nor grants trading qualification.
+
+| Step | Responsibility | Concrete owner under `ladder_dragon/verification/live/` |
+|---|---|---|
+| 1 | Sample values, protection coverage, violations, and grace transitions | `soak_policy.py` |
+| 2 | Ordered exchange reads and read-only inventory access | `soak_sources.py` |
+| 3 | Atomic reports, Decimal serialization, and final exit status | `soak_reports.py` |
+| 4 | Argument defaults and validation | `soak_parser.py` |
+| 5 | Startup, signal handling, retries, and the monitoring loop | `soak_command.py` |
+
+The stable `bin/testnet_soak_monitor.py` launcher remains unchanged as an executable interface.
+The mutable `RUN` flag and `_stop` handler remain together in the command owner; consumers do not copy the flag.
+AST regressions recompose four extracted helpers and preserve the original function and constant syntax.
+Source reads stay inside the original exception boundary; sample construction and grace evaluation remain outside it.
+Account, open-order, and ticker reads retain their sequential order.
+Manual review covers the 117-line command function, including interruption and exhausted-source status precedence.
+No persistence format, retention rule, Testnet path isolation, endpoint permission, or production service changes.
+Required local and release ownership checks reject missing implementations, detached imports, reverse launcher imports, and a broken stop handler.
+
+Verification: 4271 tests passed and two skipped; compilation, five safety audits, secret scanning, and Semgrep passed.
+The slice adds 64 regressions; 134 focused tests passed before the complete run.
+Tests cover live signal state, read ordering, source retries, grace boundaries, invalid arguments, and preservation after atomic-report replacement failure.
+The installed wheel passes offline help and one synthetic cycle with a fake client outside the checkout.
+No Testnet or Mainnet request occurs during these smoke checks.
+Ownership, references, source surfaces, and service-link checks passed.
+Diagnostic comparison against HEAD found no new cycles or size violations; this is not signed release evidence.
+The overall local profile remains BLOCKED by release continuity and dependent cycle and size checks.
+
+Local completion is 5/5, or 100%, for this slice.
+Reviewed command coverage is 58/73, or 79.5%, using 54 common ownership contracts and the four previously recorded pilots.
+The denominator and membership remain verified against `schemas/architecture_surfaces.json`; supporting modules do not increase the numerator.
+This command metric does not measure the whole architecture program; strict whole-phase closure remains 0/8.
+Remaining commands and dashboard decomposition still prevent P2 closure.
+The previously recorded autotune persistence defect remains unresolved and separate from this monitor extraction.
+No publication, Raspberry Pi operation, or trading authorization accompanies this change.
+
+### Thirteenth five-step P2 slice — 2026-09-25
+
+Review conclusion: separate the execution-authority source audit without changing safety contracts, diagnostics, or runtime authority paths.
+This slice migrates one command and four supporting components; it does not implement P4 execution workflows.
+
+| Step | Responsibility | Concrete owner under `ladder_dragon/verification/` |
+|---|---|---|
+| 1 | Canonical call and binding contracts | `authority_contracts.py` |
+| 2 | Call observations, gates, loop placement, and nested scopes | `authority_calls.py` |
+| 3 | Canonical imports, shadowing, and class binding provenance | `authority_bindings.py` |
+| 4 | Source inspection and combined audit results | `authority_paths.py` |
+| 5 | Checkout resolution, JSON output, and exit codes | `authority_command.py` |
+
+The stable `bin/audit_execution_authority_paths.py` launcher remains one of the five mandatory safety audits.
+AST fingerprints preserve all original declarations and contract assignments; only the command root offset changes.
+The reference map points to the concrete contract owner, not the executable launcher.
+Manual review covers the unchanged 86-line audit function and its safety-check order.
+Existing mutation tests still reject incorrect cadence, gates, ordering, shadowing, rebinding, and nested decoy calls.
+New local and release ownership regressions reject missing implementations, empty contracts, detached imports, and launcher logic.
+These checks prove reviewed source properties, not arbitrary runtime behavior; runtime authority attestations remain unchanged.
+No persistent state, execution permission, policy value, or production service changes.
+
+Verification: 4207 tests passed and two skipped; compilation, five safety audits, secret scanning, and Semgrep passed.
+The slice adds 65 regressions; 162 focused tests passed before the complete run.
+The installed wheel audit produces the same report as the checkout when launched from an unrelated temporary directory.
+Ownership, references, source surfaces, and service-link checks passed.
+Diagnostic comparison against HEAD found no new cycles or size violations; this is not signed release evidence.
+The overall local profile remains BLOCKED by release continuity and dependent cycle and size checks.
+
+Local completion is 5/5, or 100%, for this slice.
+Reviewed command coverage is 57/73, or 78.1%, using 53 common ownership contracts and the four previously recorded pilots.
+The denominator and membership remain verified against `schemas/architecture_surfaces.json`; supporting modules do not increase the numerator.
+This command metric does not measure the whole architecture program; strict whole-phase closure remains 0/8.
+Remaining commands and dashboard decomposition still prevent P2 closure.
+The previously recorded autotune persistence defect remains unresolved and outside this mechanical safety-audit extraction.
+No publication, Raspberry Pi operation, or trading authorization accompanies this change.
+
+### Twelfth five-step P2 slice — 2026-09-25
+
+Review conclusion: separate VWAP autotune responsibilities without changing formulas, history selection, persistence behavior, or executable arguments.
+This slice migrates one command and four supporting components; it does not close P3 or authorize strategy changes.
+
+| Step | Responsibility | Concrete owner under `ladder_dragon/strategy/` |
+|---|---|---|
+| 1 | Discount policy, smoothing, bounds, and map formatting | `autotune_math.py` |
+| 2 | Historical average-cost replay and window results | `autotune_history.py` |
+| 3 | Previous-value loading and state replacement | `autotune_state.py` |
+| 4 | CLI argument definitions and defaults | `autotune_parser.py` |
+| 5 | Validation, database setup, tuning orchestration, and output | `autotune_command.py` |
+
+The stable `bin/gen_vwap_autotune.py` entry point remains available to supervisor and VWAP-updater subprocesses.
+AST fingerprints preserve every original function after recomposing the extracted parser construction.
+Manual review covers the 98-line orchestration function; it remains below the blocking threshold.
+Existing premium and scale floating-point calculations remain unchanged; this extraction does not certify their numeric design.
+The existing database migration call, connection lifetime, persistence format, and output order remain unchanged.
+No new persistent record, retention policy, timer, or network capability is introduced.
+Required local and release checks reject absent implementations, reverse launcher imports, and detached component imports.
+Structural ownership does not replace behavioral regressions or prove arbitrary runtime bindings.
+
+Verification: 4142 tests passed and two skipped; compilation, five safety audits, secret scanning, and Semgrep passed.
+The slice adds 56 regressions; 148 focused tests passed before the complete run.
+Tests preserve prior purchase cost, exclude future fills, and reject invalid configuration before database access.
+The installed wheel passes offline help and exact-output checks against temporary synthetic SQLite state outside the checkout.
+Ownership, references, source surfaces, and service-link checks passed.
+Diagnostic comparison against HEAD found no new cycles or size violations; this is not signed release evidence.
+The overall local profile remains BLOCKED by release continuity and dependent cycle and size checks.
+
+Unresolved preexisting defect: Decimal PnL cannot be serialized by the existing JSON state writer.
+Its exception handler suppresses the failure, leaving previous state unchanged while command output can still succeed.
+A synthetic regression records this behavior; no production state is inspected.
+Correct serialization, diagnostic reporting, and restart behavior in a separate functional change before relying on persisted autotune history.
+Architecture completion does not approve autotune for trading.
+
+Local completion is 5/5, or 100%, for this slice.
+Reviewed command coverage is 56/73, or 76.7%, of registered Python commands; this is not overall architecture completion.
+The numerator combines 52 common command-ownership contracts with four pilots: statistics, backtest reports, numeric audit, and architecture audit.
+The denominator comes from `python_command` entries in `schemas/architecture_surfaces.json`; both sets are checked for membership.
+Supporting modules do not increase this numerator.
+Strict whole-phase closure remains 0/8; an effort-weighted overall percentage remains unavailable.
+Remaining commands and dashboard decomposition still prevent P2 closure.
+No publication, Raspberry Pi operation, or trading authorization accompanies this change.
+
+### Eleventh five-step P2 slice — 2026-09-25
+
+Review conclusion: separate the daily digest into five concrete responsibilities without changing financial calculations or delivery behavior.
+This slice migrates one command, not five commands; four supporting components do not inflate the command count.
+
+| Step | Responsibility | Concrete owner under `ladder_dragon/execution/` |
+|---|---|---|
+| 1 | Period totals, exclusions, and summary value type | `digest_totals.py` |
+| 2 | Exact FIFO replay and historical lot attribution | `digest_fifo.py` |
+| 3 | Read-only report snapshot, calendar windows, and output | `digest_report.py` |
+| 4 | Delivery dates, blocked alerts, and atomic state replacement | `digest_state.py` |
+| 5 | CLI arguments, delivery orchestration, and exit codes | `digest_command.py` |
+
+The stable `bin/daily_trading_digest.py` entry point contains only the launcher.
+AST fingerprints preserve every original definition after recomposing the extracted final aggregation.
+The FIFO loop remains 99 lines; manual review confirms unchanged financial order and exclusion behavior.
+The extraction adds no database schema, persistent record type, retention rule, timer, or network capability.
+Calendar cutoffs, legacy warnings, read-only SQLite access, and failed-delivery retries remain unchanged.
+The mandatory ownership check rejects missing implementations, reverse launcher imports, and detached component imports in local and release profiles.
+These structural checks do not prove arbitrary runtime binding or replace financial regressions.
+
+Verification: 4086 tests passed and two skipped; compilation, five safety audits, secret scanning, and Semgrep passed.
+The slice adds 54 regressions; the initial focused set passed 201 tests before the fixture correction.
+Two old mutation suites omitted new dependencies; their corrected shared fixture passed 164 focused tests.
+All 54 digest regressions then passed, including positive fixture checks before mutation.
+The installed wheel passed offline help and synthetic read-only dry-run checks outside the checkout.
+Ownership, references, source surfaces, and service-link checks passed.
+Diagnostic comparison against HEAD found no new cycles or size violations; this is not signed release evidence.
+The overall local profile remains BLOCKED by release continuity and dependent cycle and size checks.
+
+Local completion is 5/5, or 100%, for this slice.
+P2 now records fifty-five local command components; the common ownership check covers fifty-one commands and the five digest owners.
+Strict whole-phase closure remains 0/8, or 0%; an effort-weighted overall percentage remains unavailable.
+Remaining commands and dashboard decomposition still prevent P2 closure.
+No publication, Raspberry Pi operation, production data access, or startup acceleration claim accompanies this change.
+
+### Tenth five-command P2 slice — 2026-09-25
+
+Review conclusion: these extractions preserve executable names, loopback startup, migration failure propagation, batch confirmation, and causal replay behavior.
+No dashboard server, Mainnet batch, research job, production migration, or Raspberry Pi operation starts during verification.
+
+| Step | Stable command | Concrete package owner |
+|---|---|---|
+| 1 | `bin/run_dashboard.py` | `dashboard/server_command.py` |
+| 2 | `bin/db_migrate.py` | `persistence/migration_command.py` |
+| 3 | `bin/run_mainnet_validation_batch.py` | `verification/live/batch_run_command.py` |
+| 4 | `bin/replay_historical_entries.py` | `strategy/prediction/replay_command.py` |
+| 5 | `bin/historical_replay_runner.py` | `strategy/prediction/replay_runner_command.py` |
+
+Package-owner paths are relative to `ladder_dragon/`.
+AST fingerprints preserve implementation syntax after entry-guard removal, the dashboard root adjustment, and the canonical replay import.
+Migration timing moves from the entry guard into a function; its return value preserves the executable exit code.
+Dashboard startup still uses the deployed `FastAPI/pi-dashboard` tree; this move does not package that tree into the wheel.
+The installed dashboard smoke intercepts the application and server; the migration smoke uses temporary SQLite state.
+The other three installed commands pass offline help checks.
+Manual review covers three replay functions above 80 lines; each remains below the 120-line blocking threshold.
+
+Compatibility review: checkpoint implementation identity now includes the concrete replay owner alongside its stable launcher.
+Old checkpoint files remain unchanged and are not reused under the new identity.
+They still count toward existing storage limits; this change neither deletes them nor authorizes a replay restart.
+Financial model source membership and immutable report contents are not rewritten.
+Before deployment with pending work, review checkpoint capacity and the cost of a separately authorized recomputation.
+
+Verification: 4032 tests passed and two skipped; compilation, five safety audits, secret scanning, and Semgrep passed.
+This slice adds 54 regressions; 199 focused tests passed before the complete run.
+Tests cover checkpoint preservation, interrupted replay parity, confirmation rejection, migration failures, and loopback server arguments.
+Ownership, references, source surfaces, and service-link checks passed.
+Diagnostic comparison against HEAD found no new cycles or size violations; this is not signed release evidence.
+The overall local profile remains BLOCKED by release continuity and dependent cycle and size checks.
+Local implementation completion is 5/5, or 100%, for this slice; no publication or deployment occurs.
+P2 now records fifty-four local command components across the pilots and ten five-command slices.
+The mandatory command-ownership check covers fifty commands in local and release profiles.
+Strict whole-phase closure remains 0/8, or 0%; an effort-weighted overall percentage remains unavailable.
+The dashboard entry-point move does not complete dashboard decomposition or close P2.
+
+### Ninth five-command P2 slice — 2026-09-25
+
+Review conclusion: these operational command extractions preserve advisory scope, generated values, archival safeguards, confirmations, and sanitized IP Guard failures.
+No production archive, credential, exchange endpoint, AI provider, or Raspberry Pi is accessed during verification.
+Retention tests use synthetic records and intercepted encryption; no new deletion authority or schedule is introduced.
+
+| Step | Stable command | Concrete package owner |
+|---|---|---|
+| 1 | `bin/ai_advisor_smoke.py` | `ai/smoke_command.py` |
+| 2 | `bin/gen_vwap_env.py` | `strategy/vwap_generate_command.py` |
+| 3 | `bin/depth_archive_retention.py` | `strategy/depth_retention_command.py` |
+| 4 | `bin/mainnet_validation_archive_retention.py` | `verification/live/archive_retention_command.py` |
+| 5 | `bin/ip_guard.py` | `execution/ip_guard_command.py` |
+
+Package-owner paths are relative to `ladder_dragon/`.
+AST fingerprints preserve original HEAD implementations after entry-guard removal; the IP Guard guard body becomes the package-owned `cli` wrapper.
+The ownership check requires that wrapper alongside the concrete IP Guard implementation.
+CLI regressions preserve sanitized error types, exit codes, and no-write behavior when IP consensus fails.
+Existing retention regressions preserve pending sources and prohibit removal before successful encrypted publication and verification.
+Manual review covers the two archival functions above 80 lines; both remain below the 120-line blocking threshold.
+Verification: 3978 tests passed and two skipped; compilation, five safety audits, secret scanning, and Semgrep passed.
+This slice adds 54 regressions; 153 focused tests passed before the complete run.
+All five installed commands passed offline help checks outside the checkout.
+Ownership, references, source surfaces, and service-link checks passed.
+Diagnostic comparison against HEAD found no new cycles or size violations; this is not signed release evidence.
+The overall local profile remains BLOCKED by release continuity and dependent cycle and size checks.
+Local implementation completion is 5/5, or 100%, for this slice; no publication or deployment occurs.
+P2 now records forty-nine local command components across the pilots and nine five-command slices.
+The mandatory command-ownership check covers forty-five commands in local and release profiles.
+Strict whole-phase closure remains 0/8, or 0%; an effort-weighted overall percentage remains unavailable.
+
+### Eighth five-command P2 slice — 2026-09-25
+
+Review conclusion: these reporting extractions preserve calculations, report formats, historical cutoffs, source failures, and diagnostic fallback behavior.
+Mechanical relocation does not certify legacy reporting semantics or change trading readiness.
+No production database, exchange request, Telegram delivery, or Raspberry Pi operation occurs during verification.
+
+| Step | Stable command | Concrete package owner |
+|---|---|---|
+| 1 | `bin/pnl_24h.py` | `execution/pnl_window_command.py` |
+| 2 | `bin/pnl_reporter.py` | `execution/pnl_report_command.py` |
+| 3 | `bin/regime_pnl_report.py` | `strategy/regime_report_command.py` |
+| 4 | `bin/production_soak_report.py` | `verification/production_soak_command.py` |
+| 5 | `bin/auto_ladder_map.py` | `strategy/ladder_map_command.py` |
+
+Package-owner paths are relative to `ladder_dragon/`.
+AST fingerprints match original HEAD implementations after entry-guard removal and the canonical trade-reader import adjustment.
+The daily digest also imports this reader directly; no import-only launcher aliases remain.
+The two commands with implicit `None` returns retain successful exit code zero.
+Source-inspection tests now inspect concrete exception boundaries, not empty launchers.
+Three relocated functions exceed the 80-line review threshold but remain below the 120-line blocking limit.
+Manual review preserves their calculation, source-validation, and readiness-check sequences; further decomposition remains separate work.
+Verification: 3924 tests passed and two skipped; compilation, five safety audits, secret scanning, and Semgrep passed.
+This slice adds 51 regressions; 116 focused tests passed before the complete run.
+Tests preserve exact synthetic totals, database bytes, strict snapshot cutoffs, canonical reader identity, and ladder fallback output.
+All five installed commands passed offline help checks outside the checkout.
+Ownership, references, source surfaces, and service-link checks passed.
+Diagnostic comparison against HEAD found no new cycles or size violations; this is not signed release evidence.
+The overall local profile remains BLOCKED by release continuity and dependent cycle and size checks.
+Local implementation completion is 5/5, or 100%, for this slice; no publication or deployment occurs.
+P2 now records forty-four local command components across the pilots and eight five-command slices.
+The mandatory command-ownership check covers forty commands in local and release profiles.
+Strict whole-phase closure remains 0/8, or 0%; an effort-weighted overall percentage remains unavailable.
+
+### Seventh five-command P2 slice — 2026-09-25
+
+Review conclusion: these command extractions preserve accounting confirmations, stopped-runtime checks, transaction boundaries, pagination, and simulation provenance.
+No production import, schema retirement, commission repair, research run, or index maintenance occurs during verification.
+
+| Step | Stable command | Concrete package owner |
+|---|---|---|
+| 1 | `bin/import_legacy_cost_basis.py` | `execution/cost_basis_command.py` |
+| 2 | `bin/retire_legacy_accounting.py` | `execution/retirement_command.py` |
+| 3 | `bin/revalue_legacy_commissions.py` | `execution/commission_command.py` |
+| 4 | `bin/migrate_indexes.py` | `persistence/index_command.py` |
+| 5 | `bin/backtest.py` | `strategy/backtest_command.py` |
+
+Package-owner paths are relative to `ladder_dragon/`.
+AST fingerprints match original HEAD implementations after entry-guard removal and two canonical import adjustments.
+The accounting commands share the original stopped-runtime guard; internal tests select the concrete owners.
+The index launcher has no help parser; offline checks always supply a temporary synthetic database.
+Index regressions preserve rows and prove idempotency for both supported schemas.
+The ownership check requires concrete index definitions alongside its two-statement transaction entry point; other commands retain their existing minimum.
+The cost-basis entry point receives manual review at 81 lines; unchanged syntax preserves its existing safety sequence.
+Verification: 3873 tests passed and two skipped; compilation, five safety audits, secret scanning, and Semgrep passed.
+This slice adds 49 regressions; 90 focused tests passed before the complete run.
+All five installed commands passed isolated offline checks outside the checkout.
+Ownership, references, source surfaces, and service-link checks passed.
+Diagnostic comparison against HEAD found no new cycles or size violations; this is not signed release evidence.
+The overall local profile remains BLOCKED by release continuity and dependent cycle and size checks.
+Local implementation completion is 5/5, or 100%, for this slice; no publication or deployment occurs.
+P2 now records thirty-nine local command components across the pilots and seven five-command slices.
+The mandatory command-ownership check covers thirty-five commands in local and release profiles.
+Strict whole-phase closure remains 0/8, or 0%; an effort-weighted overall percentage remains unavailable.
+
+### Sixth five-command P2 slice — 2026-09-25
+
+Review conclusion: these tooling extractions preserve bounded capture, read-only diagnostics, exact historical values, subprocess arguments, and public aggregate output.
+No capture key, account history, production archive, or environment file is read during verification.
+Tests use synthetic inputs and intercepted transport; no real BNB capture or account probe runs.
+
+| Step | Stable command | Concrete package owner |
+|---|---|---|
+| 1 | `bin/record_bnb_public.py` | `strategy/bnb_capture_command.py` |
+| 2 | `bin/verify_bnb_fills.py` | `verification/bnb_fills_command.py` |
+| 3 | `bin/prediction_history_backfill.py` | `strategy/prediction/history_command.py` |
+| 4 | `bin/update_vwap_env.py` | `strategy/vwap_update_command.py` |
+| 5 | `bin/generate_star_history.py` | `verification/star_history_command.py` |
+
+Package-owner paths are relative to `ladder_dragon/`.
+Implementation AST fingerprints preserve original code except entry-guard removal and two VWAP child-path adjustments.
+VWAP child paths still select the existing executable files; the entry guard maps the unchanged `None` result to exit code zero.
+Star History CI invokes the stable module entry point and watches its concrete implementation path.
+Internal tests import the owners; no import-only compatibility aliases are added.
+The mandatory command-ownership check now covers thirty commands in local and release profiles.
+Verification: 3824 tests passed and two skipped; compilation, five safety audits, secret scanning, and Semgrep passed.
+This slice adds 48 regressions; existing capture, diagnostic, Star History, strategy, and deployment tests select the concrete owners.
+All five installed commands passed offline help checks outside the checkout.
+Ownership, references, source surfaces, and service-link checks passed.
+Diagnostic comparison against HEAD found no new cycles or size violations; this is not release verification.
+The overall local profile remains BLOCKED by release continuity and the dependent cycle and size checks.
+Local implementation completion is 5/5, or 100%, for this slice; no publication or deployment occurs.
+P2 now records thirty-four local command components across the pilots and six five-command slices.
+Strict whole-phase closure remains 0/8, or 0%; an effort-weighted overall percentage remains unavailable.
+
+### Fifth five-command P2 slice — 2026-09-25
+
+Review conclusion: administrative command relocation preserves operator authority, preview behavior, retention sequencing, scanner isolation, and source-root resolution.
+No production reset, review, retention, or cleanup operation occurs during this work.
+The retention and attribution tests retain their temporary-state regressions and now import the concrete owners.
+
+| Step | Stable command | Concrete package owner |
+|---|---|---|
+| 1 | `bin/risk_ctl.py` | `risk/control_command.py` |
+| 2 | `bin/review_unattributed_fills.py` | `ai/unresolved_review_command.py` |
+| 3 | `bin/database_retention.py` | `persistence/retention_command.py` |
+| 4 | `bin/check_technical_english.py` | `verification/english_command.py` |
+| 5 | `bin/semgrep_scan.py` | `verification/semgrep_command.py` |
+
+Package-owner paths are relative to `ladder_dragon/`.
+AST fingerprints preserve implementation syntax except entry-guard removal and the two source-root depth adjustments.
+The mandatory ownership check covers twenty-five commands in local and release profiles.
+Scanner policy, service arguments, source-check scope, and conservative deployment restart rules remain unchanged.
+Verification: 3776 tests passed and two skipped; compilation, five safety audits, secret scanning, and Semgrep passed.
+This slice adds 52 regressions for ownership, source roots, operator scope, and command behavior.
+Existing retention, attribution lifecycle, and scanner-isolation regressions passed against their concrete owners.
+Four installed commands passed offline help checks; the installed English launcher passed with a synthetic document adapter.
+The real English check passed against checkout documents, including execution from an unrelated working directory.
+Ownership, references, source surfaces, and service-link checks passed.
+Diagnostic comparison against HEAD found no new cycles or size violations; this is not release verification.
+The overall local profile remains BLOCKED by release continuity and the dependent cycle and size checks.
+Local implementation completion is 5/5, or 100%, for this slice; no publication or deployment occurs.
+P2 now records twenty-nine local command components across the pilots and five five-command slices.
+Strict whole-phase closure remains 0/8, or 0%; an effort-weighted overall percentage remains unavailable.
+Whole-phase completion remains separate from this bounded command work.
+
+### Fourth five-command P2 slice — 2026-09-25
+
+Review conclusion: evidence command relocation preserves confirmation gates, source identities, temporal arguments, exclusive output creation, and existing command names.
+This slice does not import production evidence, migrate a real policy, change cohorts, or authorize research or trading.
+Tests use synthetic adapters and temporary state; installed commands run only parser checks.
+
+| Step | Stable command | Concrete package owner |
+|---|---|---|
+| 1 | `bin/migrate_volatility_policy.py` | `strategy/volatility_migration_command.py` |
+| 2 | `bin/volatility_policy.py` | `strategy/volatility_selection_command.py` |
+| 3 | `bin/import_entry_veto_l2.py` | `strategy/prediction/entry_veto_import_command.py` |
+| 4 | `bin/backfill_prediction_archive.py` | `strategy/prediction/archive_backfill_command.py` |
+| 5 | `bin/import_v23_confirmation.py` | `strategy/prediction/confirmation_import_command.py` |
+
+Package-owner paths are relative to `ladder_dragon/`.
+AST fingerprints preserve complete implementation syntax except removal of the executable entry guard.
+Internal test imports select the new owners; executable references and service configuration remain unchanged.
+The mandatory command-ownership check covers all twenty commands and rejects regressions through both local and release profiles.
+Verification: 3724 tests passed and two skipped; compilation, five safety audits, secret scanning, and Semgrep passed.
+This slice adds 55 regressions covering ownership, parser behavior, confirmation gates, provenance order, temporal arguments, and report identities.
+All five installed commands passed offline parser checks outside the checkout.
+Ownership, references, source surfaces, and service-link checks passed.
+Diagnostic comparison against HEAD found no new cycles or size violations; this is not release verification.
+The overall local profile remains BLOCKED by release continuity and the dependent cycle and size checks.
+Local implementation completion is 5/5, or 100%, for this requested slice.
+P2 now records twenty-four locally implemented command components across the pilots and four five-command slices.
+Strict whole-phase closure remains 0/8, or 0%; an effort-weighted overall percentage remains unavailable.
+The full program still requires complete phase exit evidence; component moves do not establish a whole-program percentage.
+
+### Third five-command P2 slice — 2026-09-25
+
+Review conclusion: observer command relocation preserves signal ownership, worker cleanup, parser defaults, SHADOW status, and existing executable names.
+No capture service, private observer, or historical research starts during this implementation.
+Tests use synthetic adapters and temporary paths; the market-scenario executable receives invalid configuration to stop before service construction.
+
+| Step | Stable command | Concrete package owner |
+|---|---|---|
+| 1 | `bin/record_depth_archive.py` | `strategy/depth_record_command.py` |
+| 2 | `bin/depth_archive_service.py` | `strategy/depth_service_command.py` |
+| 3 | `bin/user_stream_shadow.py` | `execution/user_stream_command.py` |
+| 4 | `bin/market_scenario_shadow.py` | `market_analysis/scenario_command.py` |
+| 5 | `bin/historical_replay_planner.py` | `strategy/prediction/replay_planner_command.py` |
+
+Package-owner paths are relative to `ladder_dragon/`.
+Original implementation syntax remains unchanged except removal of the executable entry guard.
+The source contract enforces all fifteen commands through the existing local and release check.
+Internal source consumers select the new owners; subprocess and systemd command names remain unchanged.
+The existing conservative depth restart policy remains unchanged for a future authorized deployment.
+Verification: 3669 tests passed and two skipped; compilation, five safety audits, secret scanning, and Semgrep passed.
+The third slice adds 55 regressions, including signal lifetime, worker cleanup, SHADOW status, and packaging coverage.
+All five installed commands passed safe smoke checks outside the checkout without collection or network access.
+Ownership, references, source surfaces, and service-link checks passed.
+Diagnostic comparison against HEAD found no additional cycles or size violations; this is not release verification.
+The overall local profile remains BLOCKED by release continuity and the dependent cycle and size checks.
+Local completion for this requested slice is 5/5, or 100%; publication and Raspberry Pi deployment remain outside scope.
+Installed-package review found that wheels omit the runtime `product_version` module, although checkout execution resolves it.
+The packaging correction explicitly includes that module; a configuration regression and repeated installed execution verify the correction.
+Whole-phase closure remains 0/8; these components do not complete dashboard extraction or the broader P2 acceptance criteria.
+Strict whole-phase completion is 0%; an effort-weighted overall percentage cannot be derived from the current unweighted plan.
+P2 now records nineteen locally implemented command components across the pilots and three five-command slices.
+
+### Second five-command P2 slice — 2026-09-25
+
+Review conclusion: these command implementations can move without changes to parser behavior, evidence policy, maintenance semantics, or deployment names.
+The maintenance command retains its explicit path and operator behavior; tests use temporary synthetic state only.
+Replay commands retain the canonical acceptance policy and exact fee parsing.
+
+| Step | Stable command | Concrete package owner |
+|---|---|---|
+| 1 | `bin/audit_legacy_compatibility.py` | `execution/compatibility_command.py` |
+| 2 | `bin/audit_user_stream_soak.py` | `execution/user_stream_soak_command.py` |
+| 3 | `bin/calibrate_replay.py` | `verification/calibration_command.py` |
+| 4 | `bin/validate_replay_outcomes.py` | `verification/replay_outcomes_command.py` |
+| 5 | `bin/maintenance_state.py` | `execution/maintenance_command.py` |
+
+Package-owner paths are relative to `ladder_dragon/`.
+Implementation AST fingerprints preserve the complete original code except the executable entry guard.
+The required command-ownership check now covers ten commands and rejects regressions through both local and release profiles.
+Existing command names, service references, and depth restart policy remain unchanged.
+Verification: 3614 tests passed and two skipped; compilation, five safety audits, secret scanning, and Semgrep passed.
+The second slice adds 57 regressions, including real maintenance round trips and replay producer-to-consumer rejection with synthetic evidence.
+All five installed commands passed offline parser smoke checks outside the checkout.
+Ownership, references, source surfaces, and service-link checks passed.
+Diagnostic comparison against HEAD found no new cycles or size violations; it is not release verification.
+The overall local profile remains BLOCKED by release continuity and the dependent cycle and size checks.
+Local implementation completion is 5/5, or 100%, for this second slice; publication and deployment are not performed.
+The overall progress denominator remains eight phases; these five components do not close P2 or other phases.
+Strict whole-phase closure remains 0/8, or 0%; an effort-weighted overall percentage remains unavailable.
+P2 now records fourteen locally implemented command components; this count is not a percentage of the whole architecture program.
+
+### Five-command P2 slice — 2026-09-25
+
+Review conclusion: these five command components can move without changes to financial policy, execution authority, or deployment interfaces.
+Existing uncommitted updater and protection fixes remain separate from the mechanical extraction evidence.
+
+| Step | Stable command | Concrete package owner |
+|---|---|---|
+| 1 | `bin/audit_semantic_authorities.py` | `verification/semantic_authorities.py` |
+| 2 | `bin/audit_exchange_boundaries.py` | `verification/exchange_boundaries.py` |
+| 3 | `bin/audit_guard_contracts.py` | `verification/guard_contracts.py` |
+| 4 | `bin/audit_ai_readiness.py` | `verification/ai_readiness_command.py` |
+| 5 | `bin/audit_replay_readiness.py` | `verification/replay_readiness_command.py` |
+
+Package-owner paths are relative to `ladder_dragon/`.
+All five launchers retain nine lines; implementation syntax matches the pre-extraction HEAD after checkout-root adjustment and entry-guard removal.
+Internal test consumers and source-policy references select the concrete owners.
+The required `architecture_command_ownership` check runs in local and release profiles.
+Mutation tests reject launcher logic, forwarding implementations, reverse imports, and missing owners through both profiles.
+The five existing safety audits retain their interfaces and comprehensive scope.
+Depth restart policy remains unchanged; unknown paths still require a restart during a separately authorized deployment.
+Verification: 3557 tests passed and two skipped; compilation, all five safety audits, secret scanning, and Semgrep passed.
+All five commands passed installed-package smoke checks from outside the checkout; 54 extraction regressions passed.
+Command ownership, source ownership, references, surfaces, and service-link checks passed.
+The overall local profile remains BLOCKED by release continuity and its dependent architecture checks until the candidate is signed.
+This is local implementation evidence, not a release or deployment PASS.
+
+#### Progress denominator
+
+This requested slice contains five component steps, not five complete architecture phases.
+Local implementation completion is 5/5, or 100%, for this requested slice; release verification remains pending.
+The full program contains eight phases, P0 through P7; zero phases currently have complete exit evidence.
+Strict phase closure is 0/8, or 0%; this metric does not count partial implementation as zero work.
+An effort-weighted overall percentage is unavailable because remaining work has no reviewed weighted task inventory.
+Do not present a component count as the percentage of total architecture work completed.
+
 ### Release-candidate growth correction — 2026-09-16
 
 The release profile rejects eight growth violations in seven files against the signed v2.20.340 baseline.
@@ -647,7 +1529,7 @@ Compileall and five safety audits pass; fresh-process import tests preserve resu
 |---|---|---|---|---|
 | P0 | In progress: Python, store anchors, source surfaces | Local candidate | Scoped command output | Complete writers and reference edges pending |
 | P1 | In progress: scoped ownership, references, and surfaces | Local candidate | Required harness checks and mutation tests | Graph, capability, and parity rules pending |
-| P2 | Local components: statistics viewer, saved-report audit, numeric audit, monthly report | Local candidate | Syntax parity, executable CLI tests, harness rejection | Other commands and dashboard pending |
+| P2 | Commands: 73/73 (100%); extracted dashboard operations: 14/17 (82.4%) | Local candidate | Syntax parity, authenticated routes, live bindings, harness rejection | Remaining dashboard handlers, service ownership, and internal decomposition pending |
 | P3 | Pending | Not implemented | None | Not inventoried |
 | P4 | Pending | Not implemented | None | Not inventoried |
 | P5 | Pending | Not implemented | None | Not inventoried |

@@ -9,6 +9,11 @@ from ladder_dragon.verification.checks.release_continuity import (
     release_continuity_checks,
 )
 from ladder_dragon.verification.models import CheckSpec, HarnessContext
+from ladder_dragon.verification.architecture.command_ownership import check_command_ownership
+from ladder_dragon.verification.architecture.host_routes import check_host_routes
+from ladder_dragon.verification.architecture.trading_routes import check_trading_routes
+from ladder_dragon.verification.architecture.history_routes import check_history_routes
+from ladder_dragon.verification.architecture.control_routes import check_control_routes
 from ladder_dragon.verification.checks.architecture import (
     check_architecture, check_architecture_references, check_architecture_surfaces, check_architecture_service_links,
     check_architecture_cycles, check_architecture_new_sizes, check_architecture_legacy_sizes,
@@ -20,6 +25,11 @@ def local_checks(context: HarnessContext) -> list[CheckSpec]:
     python = context.python
     return release_continuity_checks(context) + [
         CheckSpec(name="architecture_ownership", check=check_architecture),
+        CheckSpec(name="architecture_command_ownership", check=check_command_ownership),
+        CheckSpec(name="architecture_host_routes", check=check_host_routes),
+        CheckSpec(name="architecture_trading_routes", check=check_trading_routes),
+        CheckSpec(name="architecture_history_routes", check=check_history_routes),
+        CheckSpec(name="architecture_control_routes", check=check_control_routes),
         CheckSpec(name="architecture_cycles", check=check_architecture_cycles),
         CheckSpec(name="architecture_new_sizes", check=check_architecture_new_sizes),
         CheckSpec(name="architecture_legacy_sizes", check=check_architecture_legacy_sizes),

@@ -1,0 +1,50 @@
+#!/usr/bin/env python3
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2026 IURII Potekhin
+# Purpose: calibrate deterministic replay parameters from archived Binance events.
+"""Create an auditable replay calibration report from a JSONL archive."""
+
+from __future__ import annotations
+
+import argparse
+import json
+
+from ladder_dragon.execution.execution_latency import load_execution_latencies
+
+from ladder_dragon.strategy.market_replay import (
+    archive_sha256,
+    calibrate_market_events,
+    load_jsonl_archive,
+    write_calibration,
+)
+from ladder_dragon.strategy.replay_policy import (
+    PRODUCTION_REPLAY_ACCEPTANCE_POLICY,
+)
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser()
+    parser.add_argument("archive", help="Binance snapshot/depth/trade JSONL")
+    parser.add_argument("--output", required=True)
+    parser.add_argument(
+        "--execution-latency-log",
+        help="sanitized executionReport correlation JSONL",
+    )
+    args = parser.parse_args()
+    events = load_jsonl_archive(args.archive)
+    measured_latencies = (
+        load_execution_latencies(args.execution_latency_log)
+        if args.execution_latency_log else []
+    )
+    report = calibrate_market_events(
+        events,
+        source_sha256=archive_sha256(args.archive),
+        min_book_events=(
+            PRODUCTION_REPLAY_ACCEPTANCE_POLICY.minimum_book_events
+        ),
+        min_trades=PRODUCTION_REPLAY_ACCEPTANCE_POLICY.minimum_trades,
+        measured_order_latencies_ms=measured_latencies,
+    )
+    write_calibration(args.output, report)
+    print(json.dumps(report.as_dict(), indent=2, sort_keys=True))
+    return 0 if report.eligible else 2

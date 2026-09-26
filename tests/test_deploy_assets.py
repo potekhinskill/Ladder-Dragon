@@ -68,8 +68,8 @@ def test_maintenance_headers_are_specific_not_boilerplate():
 
 
 def test_dashboard_launcher_uses_absolute_project_app_path():
-    launcher = read("bin/run_dashboard.py")
-    assert "Path(__file__).resolve().parents[1]" in launcher
+    launcher = read("ladder_dragon/dashboard/server_command.py")
+    assert "Path(__file__).resolve().parents[2]" in launcher
     assert "sys.path.insert(0, str(app_dir))" in launcher
     assert "uvicorn.run(app," in launcher
     assert "proxy_headers=False" in launcher
@@ -202,7 +202,8 @@ def test_readme_star_history_uses_event_and_daily_aggregate_chart():
     assert "pages: write" in workflow
     assert "id-token: write" in workflow
     assert "contents: write" not in workflow
-    assert "bin/generate_star_history.py" in workflow
+    assert "python3 -m bin.generate_star_history" in workflow
+    assert '"ladder_dragon/verification/star_history_command.py"' in workflow
     assert ".github/star-history-seed.json" in workflow
     assert "--state-output _site/star-history.json" in workflow
     assert "--previous-url" in workflow
@@ -253,9 +254,11 @@ def test_dashboard_exposes_read_only_ops_trading_and_ai_quality_blocks():
         "id=\"ai-context-age\"", "id=\"ai-budget\"", "id=\"ai-degraded-quality\"",
     ):
         assert marker in index
-    assert '@app.get("/api/trading/overview")' in app
-    assert '"operations": ops' in app
-    assert '"network_probe_ok": network_probe_ok' in app
+    trading_routes = read("ladder_dragon/dashboard/routers/trading.py")
+    assert '@router.get("/api/trading/overview")' in trading_routes
+    routes = read("ladder_dragon/dashboard/routers/host.py")
+    assert '"operations": ops' in routes
+    assert '"network_probe_ok": network_probe_ok' in routes
     assert '"writable": writable' in app
     assert 'heartbeat_risk = dict(_AI_RUNTIME_STATUS.get("risk") or {})' in read(
         "ladder_dragon/supervision/runtime.py"
@@ -264,7 +267,7 @@ def test_dashboard_exposes_read_only_ops_trading_and_ai_quality_blocks():
     assert 'BACKUP_RUNTIME_STATUS_FILE' in backup
     assert 'id=\"ops-backup-reason\"' in index
     assert "SupplementaryGroups=www-data" in read("deploy/pi-dashboard.service")
-    assert '\"heartbeat\": _runtime_heartbeat_snapshot()' in app
+    assert '\"heartbeat\": state._runtime_heartbeat_snapshot()' in routes
     assert "tr('dashboard_read_only')" in index
     assert "dashboard_read_only:" in read("FRONT/locales.js")
 
@@ -288,8 +291,9 @@ def test_dashboard_transient_failures_are_bounded_and_visible():
 
     assert "DASHBOARD_STALE_CACHE_MAX_SEC" in app
     assert 'DASHBOARD_RATE_LIMIT_PER_MIN", "360"' in app
-    assert "ACCOUNT_BALANCE_STALE" in app
-    assert "OPEN_ORDERS_STALE" in app
+    routes = read("ladder_dragon/dashboard/routers/trading.py")
+    assert "ACCOUNT_BALANCE_STALE" in routes
+    assert "OPEN_ORDERS_STALE" in routes
     assert "API_RESPONSE_CACHE" in index
     assert "API_RESPONSE_CACHE_TTL_MS = 300000" in index
     assert "API_RESPONSE_CACHE_MAX_KEYS = 24" in index
@@ -341,8 +345,9 @@ def test_dashboard_large_sources_are_bounded_server_side():
     exporter = read("deploy/export_sanitized_logs.py")
     service = read("deploy/ladder-dragon-log-export.service")
 
-    assert "min(int(limit), 500)" in app
-    assert "LIMIT ? OFFSET ?" in app
+    reader = read("ladder_dragon/dashboard/history_reader.py")
+    assert "min(int(limit), 500)" in reader
+    assert "LIMIT ? OFFSET ?" in reader
     assert "_ai_database_aggregates" in app
     assert "SELECT {expressions['evaluation_json']} AS evaluation_json FROM ai_decisions" not in app
     assert 'BOT_LOG_MAX_BYTES", "262144"' in exporter
@@ -356,8 +361,9 @@ def test_dashboard_publishes_version_and_changelog():
     updater = read("deploy/update_raspberry_pi.sh")
     assert 'id="product-version"' in index
     assert 'id="changelog-link"' in index
-    assert '"changelog_url": "/CHANGELOG.md"' in app
-    assert '"product": {"name": PRODUCT_NAME, "version": __version__}' in app
+    routes = read("ladder_dragon/dashboard/routers/host.py")
+    assert '"changelog_url": "/CHANGELOG.md"' in routes
+    assert '"product": {"name": state.PRODUCT_NAME, "version": state.__version__}' in routes
     assert '"${PROJECT_DIR}/CHANGELOG.md" /var/www/bot/' in installer
     assert '"${PROJECT_DIR}/docs/assets/ladder-dragon-logo.svg" "${PROJECT_DIR}/docs/assets/ladder-dragon-dashboard-icon.svg"' in installer
     assert 'FRONT/vendor/chart.umd.min.js' in installer
@@ -469,7 +475,8 @@ def test_mainnet_maker_validation_is_one_shot_and_not_preconfigured():
 def test_dashboard_health_has_portable_host_and_optional_raspberry_telemetry():
     app = read("ladder_dragon/dashboard/runtime.py")
     assert 'def _host_snapshot()' in app
-    assert '"host": _host_snapshot()' in app
+    routes = read("ladder_dragon/dashboard/routers/host.py")
+    assert '"host": state._host_snapshot()' in routes
     assert '"supported": False' in app
     assert 'platform.system()' in app
 
@@ -480,7 +487,7 @@ def test_dashboard_publishes_read_only_account_balances():
     transport = read("ladder_dragon/dashboard/services/binance_readonly.py")
     assert 'id="balance-body"' in index
     assert 'getJSON(\'/api/account/balances\')' in index
-    assert '@app.get("/api/account/balances")' in app
+    assert '@router.get("/api/account/balances")' in read("ladder_dragon/dashboard/routers/trading.py")
     assert '"valuation_status": "priced"' in app
     assert 'dashboard API credentials are read-only by design' in transport
 
@@ -491,10 +498,11 @@ def test_dashboard_publishes_read_only_open_orders():
     recovery = read("ladder_dragon/execution/order_recovery.py")
     assert 'id="open-orders-body"' in index
     assert "getJSON('/api/account/open-orders')" in index
-    assert '@app.get("/api/account/open-orders")' in app
+    trading_routes = read("ladder_dragon/dashboard/routers/trading.py")
+    assert '@router.get("/api/account/open-orders")' in trading_routes
     assert '"client_order_id"' in app
     assert '"remaining_qty"' in app
-    assert 'OPEN_ORDERS_FAILED' in app
+    assert 'OPEN_ORDERS_FAILED' in trading_routes
     assert "executed_qty > 0" in recovery
     assert "executed_qty < requested_qty" in recovery
 
@@ -582,8 +590,9 @@ def test_dashboard_ai_toggle_is_advisory_only():
     supervisor = read("ladder_dragon/supervision/runtime.py")
     assert 'id="ai-toggle"' in index
     assert "POST'," in index and "/api/ai/control" in index
-    assert '@app.post("/api/ai/control")' in app
-    assert "AI advisor is not configured" in app
+    routes = read("ladder_dragon/dashboard/routers/control.py")
+    assert '@router.post("/api/ai/control")' in routes
+    assert "AI advisor is not configured" in routes
     assert "_stop_children(\"AI disabled from dashboard\")" in supervisor
 
 
@@ -658,7 +667,7 @@ def test_user_stream_soak_is_independent_read_only_and_persistent():
     dashboard_unit = read("deploy/pi-dashboard.service")
     installer = read("deploy/install_raspberry_pi.sh")
     updater = read("deploy/update_raspberry_pi.sh")
-    harness = read("bin/verification_harness.py")
+    harness = read("ladder_dragon/verification/harness_options.py")
     install_guide = read("docs/RASPBERRY_PI_INSTALL.md")
 
     assert "bin.user_stream_shadow" in service
@@ -697,7 +706,7 @@ def test_authoritative_control_state_survives_service_stop_and_reboot():
     dashboard_unit = read("deploy/pi-dashboard.service")
     updater = read("deploy/update_raspberry_pi.sh")
     installer = read("deploy/install_raspberry_pi.sh")
-    harness = read("bin/verification_harness.py")
+    harness = read("ladder_dragon/verification/harness_parser.py")
 
     control_dir = "/var/lib/ladder-dragon/control"
     assert f"StateDirectory=ladder-dragon/control" in bot_unit
@@ -910,7 +919,8 @@ def test_soak_audit_is_periodic_signed_and_transition_notified():
 
 
 def test_daily_digest_is_exact_idempotent_and_scheduled_for_almaty_morning():
-    source = read("bin/daily_trading_digest.py")
+    source = read("ladder_dragon/execution/digest_report.py")
+    command = read("ladder_dragon/execution/digest_command.py")
     service = read("deploy/ladder-dragon-daily-digest.service")
     timer = read("deploy/ladder-dragon-daily-digest.timer")
     installer = read("deploy/install_raspberry_pi.sh")
@@ -919,7 +929,7 @@ def test_daily_digest_is_exact_idempotent_and_scheduled_for_almaty_morning():
     assert "Realized FIFO net PnL" in source
     assert "Cash flow is not profit" in source
     assert "mode=ro" in source
-    assert "_last_sent(args.state) == report_date" in source
+    assert "_last_sent(args.state) == report_date" in command
     assert "User=bot" in service
     assert "ReadOnlyPaths=/home/bot/apps/binance_bot/db" not in service
     assert (

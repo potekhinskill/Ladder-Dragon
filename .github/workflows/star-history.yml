@@ -9,6 +9,7 @@ on:
       - ".github/workflows/star-history.yml"
       - ".github/star-history-seed.json"
       - "bin/generate_star_history.py"
+      - "ladder_dragon/verification/star_history_command.py"
   schedule:
     # The watch event has no removal action. The daily run reconciles removals
     # and recovers from delayed or missed repository events.
@@ -44,7 +45,7 @@ jobs:
           STAR_HISTORY_STATE_URL: >-
             https://${{ github.repository_owner }}.github.io/${{ github.event.repository.name }}/star-history.json
         run: >-
-          python3 bin/generate_star_history.py
+          python3 -m bin.generate_star_history
           --repository "${GITHUB_REPOSITORY}"
           --seed-json .github/star-history-seed.json
           --previous-url "${STAR_HISTORY_STATE_URL}"

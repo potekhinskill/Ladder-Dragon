@@ -3,7 +3,7 @@ import runpy
 
 import pytest
 
-from bin.replay_historical_entries import _combined_path_report
+from ladder_dragon.strategy.prediction.replay_command import _combined_path_report
 from ladder_dragon.strategy.prediction.historical_policy import fingerprint
 from ladder_dragon.strategy.prediction.historical_selection import _validate
 from ladder_dragon.strategy.prediction.replay_progress import PathCheckpoint

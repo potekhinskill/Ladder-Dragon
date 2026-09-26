@@ -3,8 +3,8 @@ from types import SimpleNamespace
 
 import pytest
 
-from bin import pnl_reporter
-from bin.pnl_reporter import (
+from ladder_dragon.execution import pnl_report_command as pnl_reporter
+from ladder_dragon.execution.pnl_report_command import (
     MAX_PAGE_ATTEMPTS,
     MAX_RESPONSE_BYTES,
     PnLReportSourceError,

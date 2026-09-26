@@ -359,8 +359,9 @@ def test_log_api_is_disabled_by_default(monkeypatch):
 
 
 def test_raw_log_routes_are_not_registered(monkeypatch):
+    from tests.support.module_loaders import dashboard_route_contexts
     module = load_dashboard(monkeypatch)
-    paths = {route.path for route in module.app.routes}
+    paths = {route.path for route in dashboard_route_contexts(module.app)}
     assert "/api/bot/logs" not in paths
     assert "/api/bot/logs/stream" not in paths
 

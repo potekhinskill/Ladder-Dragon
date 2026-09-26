@@ -23,17 +23,22 @@ Search additional history when a dependency or unresolved question requires it; 
 
 For store changes, also inspect [state ownership](ARCHITECTURE_STATE_MAP.md) and [retention](DATA_RETENTION.md).
 For relocated entry points, inspect the [surface map](ARCHITECTURE_SURFACE_MAP.md) and [local artifact boundaries](LOCAL_ARTIFACTS.md).
+For dashboard route extraction, preserve [live dependency bindings](../DECISIONS.md#2026-09-25--preserve-live-bindings-when-extracting-dashboard-routes) and inspect nested route inventories.
+For interpreter bootstrap changes, preserve [dependency-free early loading](../DECISIONS.md#2026-09-25--keep-interpreter-bootstrap-outside-verification-imports).
 For financial boundary changes, inspect [domain authorities](DOMAIN_AUTHORITIES.md).
 For partial-entry protection, preserve [terminal settlement before protection](../DECISIONS.md#2026-09-13--settle-partial-entry-remainders-before-protection).
 For net inventory, preserve [durable settlement revalidation](../DECISIONS.md#2026-09-13--revalidate-durable-buy-settlement-at-inventory-consumers).
+For canceled protection, preserve [separate cancellation and closure evidence](../DECISIONS.md#2026-09-25--reconcile-stale-protection-without-inventing-closure).
 For replay commissions, preserve [the distinction between scenarios and evidence](../DECISIONS.md#2026-09-13--separate-fee-scenarios-from-historical-fee-evidence).
 For private-source export, preserve [the separation between encrypted claims and retrieval authority](../DECISIONS.md#2026-09-15--keep-encrypted-source-claims-separate-from-retrieval-authority).
 For transport diagnostics, preserve [safe fields and stable alert identity](../DECISIONS.md#2026-09-10--separate-transport-diagnostics-from-provider-exception-text).
 For failure diagnosis, preserve [safe stages and historical uncertainty](../DECISIONS.md#2026-09-23--preserve-safe-failure-stages-without-inferring-historical-causes).
+For updater bootstrap changes, preserve [shell failure propagation](../DECISIONS.md#2026-09-24--keep-updater-bootstrap-outside-conditional-invocation).
 For deployment revisions, preserve [the separation from cleanup authority](../DECISIONS.md#2026-09-10--separate-release-revision-from-cleanup-authority).
 For backup scheduling, preserve [exclusive writer ownership](../DECISIONS.md#2026-09-16--serialize-backup-writers-before-status-ownership).
 For prediction storage, preserve [snapshot and writer separation](../DECISIONS.md#2026-09-23--separate-prediction-snapshots-from-writer-commits).
 For offline replay, preserve [input-bound resume](../DECISIONS.md#2026-09-11--resume-only-complete-input-bound-replay-paths) and verify bounded progress on the target host.
+For replay extraction, bind checkpoint identity to [concrete implementation owners](../DECISIONS.md#2026-09-25--bind-checkpoint-identity-to-relocated-implementation-owners) and review compatibility before deployment.
 For replay optimization, preserve [exact indexed event semantics](../DECISIONS.md#2026-09-11--index-unchanged-book-levels-without-changing-evidence) and compare against the previous matcher.
 Inspect parser declarations before executing unfamiliar commands; even help paths can initialize private state.
 

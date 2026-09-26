@@ -34,6 +34,9 @@ test = [
 addopts = "-q"
 testpaths = ["tests"]
 
+[tool.setuptools]
+py-modules = ["product_version"]
+
 [tool.setuptools.packages.find]
 include = ["ladder_dragon*", "bin*"]
 

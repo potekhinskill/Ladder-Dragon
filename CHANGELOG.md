@@ -3,6 +3,119 @@
 All notable changes are documented here. Releases use Semantic Versioning; every
 section is dated and there is intentionally no `Unreleased` section.
 
+## [2.20.347] — 2026-09-26
+
+### Fixed
+- Include the canonical runtime version module in wheels so installed observer commands can import their product identity.
+- Keep updater bootstrap outside conditional invocation so command failures cannot silently continue under disabled errexit.
+- Reject failed bootstrap Git reads explicitly and emit fixed-stage exit diagnostics before and after service recovery setup.
+- Preserve historical uncertainty: a successful deployment retry does not prove the earlier failure cause.
+- Reconcile stale OCO protection after a separate exact parent closure through fresh list and leg reads.
+- Accept only matched zero-fill cancellations; preserve parent closure, quantities, fills, and historical leg records.
+- Block ambiguous responses, changed journal state, unsupported protection types, and excessive reconciliation work without exchange mutations.
+
+### Changed
+- Summarize the release architecture scope and separate historical implementation notes from current ownership and deployment verification.
+- On 2026-09-26, extract advisory-control snapshot, GET and async POST handlers, live dependencies, and required integration contracts.
+- Preserve authentication, request-forgery protection, Boolean validation, configured-mode authority, canonical control writes, and safe failures.
+- Extend shared route checks with explicit method and async contracts; lower the dashboard runtime budget from 2494 to 2427 lines.
+- On 2026-09-26, extract symbol history, recent trades, three filled aliases, and their shared reader with current runtime dependencies.
+- Preserve SQL contents, parameters, pagination, responses, and connection cleanup; require history contracts in local and release profiles.
+- Lower the dashboard runtime budget from 2639 to 2494 lines without changing financial formulas or exchange behavior.
+- On 2026-09-26, extract four read-only dashboard handlers: overview, balances, open orders, and market scenarios.
+- Preserve live dependencies, authentication, rate limits, sanitized failures, stale Warning headers, and unavailable responses.
+- Share host and trading structural enforcement; require trading-route contracts in local and release profiles.
+- Lower the dashboard runtime budget from 2681 to 2639 lines without moving underlying services or changing financial calculations.
+- Move health, history, and update-check handlers into a concrete host router with an explicit live dependency interface.
+- Require host-route ownership, stable methods, current namespace bindings, and rejection of duplicate routes or reverse runtime imports.
+- Lower the dashboard runtime budget from 2773 to 2681 lines while preserving authentication, cache behavior, and database cleanup.
+- Extract experiment arguments, release provenance, evidence queries, operation handlers, and command dispatch into five concrete prediction owners.
+- Enforce sixty-nine common command contracts; preserve explicit confirmations, HALT locking, cutoff queries, release identity, and output behavior.
+- Extract percentage-ladder calculations, arguments, market reads, notional checks and dispatch, and orchestration into five concrete strategy owners.
+- Enforce sixty-eight common command contracts while preserving initialization order, formulas, ordered reads, and child exit behavior.
+- Enforce supervisor and worker entry ownership, unique module bindings, live worker state, lazy dependency loading, and inert package initialization.
+- Extend common command ownership to sixty-seven commands without changing trading runtime implementations or granting execution permission.
+- Separate verification interpreter selection, arguments, validated options, source identity, and command execution into five concrete owners.
+- Enforce sixty-five common command contracts and preserve bootstrap order, inert package initialization, canonical imports, and checkout-root resolution.
+- Add required ownership controls for plan runner, operator cancellation, monthly prediction reporting, replay-session validation, and validation-batch creation.
+- Enforce sixty-four common command contracts without changing the five existing implementations or runtime authorization.
+- Require ownership checks for five existing live-verification commands; retain exact launchers and concrete CLI and workflow implementations.
+- Enforce fifty-nine common command contracts without changing exchange checks, confirmations, exposure limits, or evidence identity.
+- Separate Testnet soak policy, source reads, reports, argument validation, and command orchestration into five live-verification owners.
+- Enforce fifty-four thin commands and soak component boundaries while retaining signal ownership, read ordering, retry limits, and reporting behavior.
+- Separate execution-authority contracts, call observations, binding provenance, audit assembly, and CLI handling into five verification owners.
+- Enforce fifty-three thin commands and authority-audit component boundaries; preserve safety rules and move canonical source references with their owner.
+- Separate VWAP autotune calculations, historical results, state handling, argument definitions, and orchestration into five concrete strategy owners.
+- Enforce fifty-two thin commands and autotune component imports without changing formulas, subprocess paths, persistence, or output.
+- Record reviewed command coverage as 56/73 (76.7%), separate from whole-phase completion and trading readiness.
+- Separate daily digest totals, FIFO replay, report construction, delivery state, and CLI orchestration into five concrete owners.
+- Enforce fifty-one thin commands and the digest component boundaries without changing amounts, calendar windows, warnings, or delivery state.
+- Extract dashboard startup, migration timing, validation batch execution, historical replay requests, and the replay runner into concrete package owners.
+- Enforce fifty thin entry points and bind replay checkpoints to the concrete implementation without rewriting or deleting old state.
+- Extract AI smoke, VWAP generation, depth retention, rejected validation retention, and IP Guard commands into concrete package owners.
+- Enforce forty-five thin entry points and preserve the IP Guard error wrapper, archival order, confirmations, and pending-source protection.
+- Extract window PnL, exchange PnL, regime reports, production soak reports, and ladder diagnostics into concrete package owners.
+- Enforce forty thin entry points; move daily-digest reader imports and source-inspection tests with their implementations.
+- Extract legacy cost-basis import, accounting retirement, commission repair, index maintenance, and backtest commands into concrete package owners.
+- Enforce thirty-five thin entry points; preserve shared stopped-runtime checks and require concrete index definitions beside the transaction entry point.
+- Extract BNB capture, BNB fill verification, historical samples, VWAP update, and Star History commands into concrete owners.
+- Enforce thirty thin entry points; retain VWAP child paths and migrate Star History CI invocation and source triggers together.
+- Extract risk control, attribution review, database retention, Technical English, and Semgrep command implementations into concrete package owners.
+- Enforce twenty-five thin entry points and preserve operator scope, retention behavior, source roots, and scanner isolation.
+- Extract volatility selection, volatility migration, entry-veto import, prediction-archive backfill, and v23 confirmation command implementations.
+- Enforce twenty thin command entry points while retaining confirmation gates, source identities, cutoffs, and exclusive policy output creation.
+- Extract public depth recording, depth service, user-stream observer, market-scenario observer, and historical planner command implementations.
+- Enforce fifteen thin command entry points and preserve live signal events, worker cleanup, and SHADOW output behavior.
+- Extract five more commands: legacy compatibility, user-stream soak, replay calibration, replay outcomes, and maintenance state.
+- Extend mandatory command ownership to all ten migrations without changing command arguments, evidence policy, or maintenance behavior.
+- Move five audit command implementations into verification owners while preserving executable names, arguments, policy constants, and exit codes.
+- Require concrete command ownership in local and release profiles; reject launcher logic, reverse imports, and missing implementations.
+- Update policy references and record separate component and whole-phase progress in the architecture plan.
+
+### Verified
+- Synthetic bootstrap and diagnostic regressions: 13 passed without production access.
+- Retired-protection regressions: 32 passed, including restart, partial execution rejection, changed state, and transactional rollback.
+- Architecture extraction regressions: 54 passed; all five installed commands passed offline smoke checks outside the checkout.
+- Second extraction slice: 57 regressions passed; five more installed commands passed offline parser smoke checks outside the checkout.
+- Third extraction slice: 55 regressions passed, including signals, worker cleanup, SHADOW output, and runtime-module packaging.
+- All five installed observer commands passed safe offline smoke checks after the wheel correction.
+- Fourth extraction slice: 55 regressions passed; all five installed evidence commands passed offline parser checks outside the checkout.
+- Fifth extraction slice: 52 new regressions passed; existing retention, attribution, and scanner contracts passed against concrete owners.
+- Installed administrative entry points passed offline checks; the English launcher used a synthetic document adapter outside the checkout.
+- Sixth extraction slice: 48 new regressions passed; installed tooling commands passed offline help checks outside the checkout.
+- Seventh extraction slice: 49 new regressions passed; installed commands passed isolated offline checks with synthetic index storage.
+- Eighth extraction slice: 51 new regressions passed; all five installed reporting commands passed offline help checks.
+- Ninth extraction slice: 54 new regressions passed; all five installed operational commands passed offline help checks.
+- Tenth extraction slice: 54 new regressions passed; installed entry points passed isolated checks without real servers or batch execution.
+- Eleventh slice: 54 digest regressions passed; the installed command passed offline help and a synthetic read-only dry run.
+- Correct two incomplete ownership-test fixtures; all mutation suites use the shared dependency-complete checkout.
+- Twelfth slice: 56 new regressions and 148 focused tests passed; installed autotune passed offline help and synthetic SQLite output checks.
+- Characterize the existing suppressed Decimal-to-JSON state failure; this architecture change does not fix persistence or authorize autotune use.
+- Thirteenth slice: 65 new regressions and 162 focused tests passed; the installed safety audit preserves executable report output.
+- Reviewed command coverage reaches 57/73 (78.1%); whole-phase completion and release readiness remain separate.
+- Fourteenth slice: 64 new regressions and 134 focused tests passed; installed soak checks use isolated paths and a fake client.
+- Reviewed command coverage reaches 58/73 (79.5%); no live qualification, publication, or deployment occurs.
+- Fifteenth slice: 107 new regressions and 172 focused tests passed; all five installed commands passed network-prohibited offline parser checks.
+- Reviewed command coverage reaches 63/73 (86.3%); these five existing commands gain enforcement, not new implementation relocation.
+- Sixteenth slice: 107 new regressions and 180 focused tests passed; all five installed commands passed offline parser checks outside the checkout.
+- Reviewed command coverage reaches 68/73 (93.2%); five registered commands and broader architecture work remain.
+- Seventeenth slice: 72 new regressions and 284 focused tests passed, including a fresh-process interpreter-first bootstrap test.
+- Installed harness checks preserve offline help and unknown-profile BLOCKED artifacts; reviewed command coverage reaches 69/73 (94.5%).
+- Eighteenth slice: 49 new regressions and 94 focused tests passed; installed entry checks use fake runtimes without starting trading services.
+- Reviewed command coverage reaches 71/73 (97.3%); this control slice covers two commands through five verified steps.
+- Nineteenth slice: 73 new regressions and 111 focused tests passed; installed ladder checks use synthetic market data and fake child dispatch.
+- Reviewed command coverage reaches 72/73 (98.6%); the legacy invalid CAP fallback remains separate unresolved debt.
+- Twentieth slice: 66 new regressions and 121 focused tests passed; installed experiment checks use isolated synthetic storage without network access.
+- Reviewed command coverage reaches 73/73 (100%); dashboard work, internal decomposition, and broader architecture phases remain incomplete.
+- Twenty-first slice: 33 new regressions, 247 focused checks, and 19 harness tests passed; installed authenticated route checks use synthetic dependencies.
+- Twenty-second slice: 38 new regressions and 304 focused tests passed; installed route checks preserve live readers and stale responses.
+- Twenty-third slice: 39 new regressions and 343 focused tests passed; installed history routes pass with synthetic databases and networking prohibited.
+- Twenty-fourth slice: 35 new regressions and 378 focused tests passed; isolated installed-package checks use only synthetic temporary control files.
+- Dashboard handler extraction reaches 14/17 HTTP operations (82.4%); CLI coverage remains 73/73 (100%), separate from whole-program completion.
+- Full local suite: 4890 passed, 2 skipped; compilation, five safety audits, secret scan, and Semgrep passed.
+- Repeat the complete profile after moving verified wheel-build copies outside the checkout; retain mandatory ownership checks unchanged.
+- Release continuity and release-relative architecture checks remain blocked until a signed candidate includes these changes.
+
 ## [2.20.346] — 2026-09-24
 
 ### Added

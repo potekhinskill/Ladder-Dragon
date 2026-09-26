@@ -2,7 +2,7 @@ import sqlite3
 
 import pytest
 
-from bin.migrate_indexes import index_statements
+from ladder_dragon.persistence.index_command import index_statements
 
 
 def _connection(columns: str) -> sqlite3.Connection:

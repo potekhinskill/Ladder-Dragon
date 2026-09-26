@@ -398,7 +398,7 @@ def test_scope_confirms_observed_buckets_without_waiting_for_high(tmp_path):
 
 
 def test_policy_file_is_strict_and_cli_cannot_overwrite(tmp_path, monkeypatch):
-    from bin import volatility_policy as command
+    from ladder_dragon.strategy import volatility_selection_command as command
 
     paths = selection_reports(tmp_path)
     cutoff = 101 * DAY_MS

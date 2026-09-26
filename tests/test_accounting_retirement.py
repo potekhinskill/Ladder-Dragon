@@ -5,7 +5,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from bin import retire_legacy_accounting
+from ladder_dragon.execution import retirement_command as retire_legacy_accounting
 from ladder_dragon.persistence.migrations import migrate
 from ladder_dragon.execution.accounting_retirement import (
     exact_only_schema,

@@ -10,7 +10,7 @@ import pytest
 from ladder_dragon.ai.context.decision_repository import AdvisorDecisionStore
 from ladder_dragon.ai.unresolved_fills import lifecycle_counts
 from ladder_dragon.ai.unresolved_review import review_unattributable_fills
-from bin.review_unattributed_fills import main as review_main
+from ladder_dragon.ai.unresolved_review_command import main as review_main
 
 
 REVIEW_NOTE = "historical_canary_without_decision_link"

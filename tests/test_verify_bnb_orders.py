@@ -1,7 +1,7 @@
 from copy import deepcopy
 import pytest
 
-from bin.verify_bnb_fills import complete_order, verify_rows, selected_rows, ProbeSession
+from ladder_dragon.verification.bnb_fills_command import complete_order, verify_rows, selected_rows, ProbeSession
 from tests.test_verify_bnb_fills import Client, database
 
 

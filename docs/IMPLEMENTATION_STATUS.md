@@ -1,10 +1,28 @@
 # Implementation status
 
-This document describes the code in version **2.20.278**.
-It does not describe future plans as completed work.
+The detailed feature inventory below records the **2.20.278** baseline.
+It is not a current production readiness report.
+The release summary identifies later ownership changes without claiming a complete review of every historical feature description.
 
 An implemented function is not automatically approved for LIVE use.
 The configured mode and its evidence gate remain authoritative.
+
+## Release 2.20.347 architecture summary
+
+All 73 registered commands have reviewed concrete owners and required ownership checks.
+Dashboard extraction covers 14 of 17 HTTP operations (82.4%).
+The extracted groups cover host status, trading presentation, history, and advisory control.
+The dashboard runtime contains 2427 lines; broader service decomposition remains incomplete.
+These component measurements do not mean that the complete architecture plan is 82.4% complete.
+
+Canonical financial writers, authentication, request-forgery protection, and execution gates retain their existing authority.
+Replay checkpoints bind to concrete implementation owners; historical checkpoint data remains unchanged.
+The updater reports fixed failure stages and preserves shell failure propagation during its verified bootstrap.
+Retired-protection reconciliation requires fresh, matched, zero-fill cancellation evidence without exchange mutations.
+
+See the [architecture plan](ARCHITECTURE_EVOLUTION_PLAN.md) for implementation records and remaining phase criteria.
+See the [release procedure](RELEASING.md) for signed-candidate, publication, and exact-SHA deployment checks.
+Local test results do not prove publication, deployment, or trading admission.
 
 ## Runtime status
 

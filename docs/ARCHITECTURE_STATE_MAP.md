@@ -45,11 +45,11 @@ Existing safety audits remain authoritative for their respective contracts.
 
 | Policy | Source | Review objective |
 |---|---|---|
-| Exchange mutations | `bin/audit_exchange_boundaries.py` | Preserve approved adapters during extraction. |
-| Critical guards | `bin/audit_guard_contracts.py` | Preserve fail-closed checks. |
+| Exchange mutations | `ladder_dragon/verification/exchange_boundaries.py` | Preserve approved adapters during extraction. |
+| Critical guards | `ladder_dragon/verification/guard_contracts.py` | Preserve fail-closed checks. |
 | Authority calls and bindings | `bin/audit_execution_authority_paths.py` | Preserve invocation order, cadence, and provenance. |
 | Numeric budgets | `ladder_dragon/verification/numeric_boundaries.py` | Reduce legacy numeric boundaries without widening allowances. |
-| Semantic owners | `bin/audit_semantic_authorities.py` | Preserve canonical financial calculations. |
+| Semantic owners | `ladder_dragon/verification/semantic_authorities.py` | Preserve canonical financial calculations. |
 | Runtime budgets | `tests/test_architecture_layout.py` | Reduce existing monoliths. |
 | Test budgets | `tests/test_architecture_layout.py` | Move tests with their component contracts. |
 

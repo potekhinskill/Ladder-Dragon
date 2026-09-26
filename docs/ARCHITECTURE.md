@@ -10,6 +10,62 @@ The first ownership slice is implemented; the remaining target structure is stil
 
 ## Source ownership gate
 
+The required `architecture_host_routes` check enforces the concrete host router and its live dependency interface in local and release profiles.
+Health, history, and update-check handlers reside in `dashboard/routers/host.py`; application middleware remains in runtime.
+The required `architecture_trading_routes` check uses the same structural analyzer for the concrete read-only trading router.
+Overview, balances, open-orders, and scenario handlers reside in `dashboard/routers/trading.py`; their underlying services remain in runtime.
+The required `architecture_history_routes` check enforces the history router and its shared filled-order reader.
+Symbol, recent-trade, and three filled-alias handlers reside in `dashboard/routers/history.py`; `dashboard/history_reader.py` owns the common filled query.
+The required `architecture_control_routes` check enforces advisory-control GET and async POST handlers in `dashboard/routers/control.py`.
+`dashboard/control_snapshot.py` owns presentation; canonical advisory readers and writers retain file semantics, while application middleware retains access controls.
+Live binding interfaces resolve current paths, readers, caches, locks, and permitted writers instead of retaining startup copies.
+It is an internal composition interface, not a security sandbox; application authentication remains mandatory.
+Required controls reject detached registration, copied namespaces, changed route methods, duplicate runtime routes, and reverse runtime imports.
+Fourteen of 17 HTTP operations have extracted handlers; low-level services and remaining routes still need decomposition.
+The runtime line budget is 2427 after these extractions.
+
+The required `architecture_command_ownership` check enforces sixty-nine reviewed commands in local and release profiles.
+Together with four pilot contracts, reviewed ownership covers all 73 registered Python commands; dashboard extraction and internal decomposition remain incomplete.
+The experiment CLI separates arguments, release provenance, evidence queries, operation handlers, and dispatch into five concrete prediction owners.
+Existing lifecycle and risk owners retain authority; required controls and parity tests preserve confirmations, HALT ordering, cutoffs, and output.
+Percentage-ladder calculations, parser definitions, market reads, child dispatch, and orchestration have five concrete strategy owners.
+Required controls preserve their imports and initialization order; syntax and synthetic dispatch regressions preserve existing behavior.
+Legacy float calculations and the invalid CAP fallback remain unchanged; this extraction does not approve trading use.
+Supervisor and worker entry contracts preserve exact launchers, unique entry bindings, and the worker bootstrap's live namespace adapter.
+Required checks reject early worker dependency imports and executable initialization in the execution, worker, and supervision packages.
+These controls supplement existing execution-authority checks; they neither start trading nor complete runtime decomposition.
+Verification CLI responsibilities reside in separate bootstrap, parser, options, identity, and command owners.
+The root-level bootstrap imports only standard-library modules; its launcher selects the interpreter before importing verification dependencies.
+Required checks keep the root package initializer inert and enforce this startup order alongside concrete component ownership.
+Plan runner, operator cancellation, monthly prediction reporting, replay-session validation, and validation-batch creation also have required concrete-owner contracts.
+Their existing implementation syntax and executable interfaces remain unchanged; owner enforcement does not approve runtime use or complete internal decomposition.
+Five existing live-verification launchers now have exact owner contracts: Testnet smoke, Mainnet canary, LIMIT_MAKER, STOP_LOSS_LIMIT, and User Stream drill.
+Their implementations remain unchanged; offline CLI checks and required negative tests close enforcement gaps without granting exchange qualification.
+Semantic, exchange-boundary, guard, AI-readiness, and replay-readiness implementations reside in `verification/`; their stable `bin/` commands only launch them.
+The execution-authority audit separates canonical contracts, call observations, binding provenance, result assembly, and CLI handling into five verification owners.
+Its required ownership checks supplement unchanged safety mutation tests and canonical contract references.
+The Testnet soak monitor separates policy, source reads, reports, parser definitions, and command orchestration into five live-verification owners.
+The command retains its mutable stop flag and handler; synthetic signal tests verify that the active loop observes interruption.
+Legacy compatibility, user-stream soak, and maintenance commands have concrete owners in `execution/`.
+Replay calibration and outcome-validation commands have concrete owners in `verification/`.
+Depth capture commands and the historical planner reside beside their strategy components.
+User-stream and market-scenario commands reside in `execution/` and `market_analysis/`, respectively.
+Volatility selection and migration commands reside in `strategy/`; evidence import and backfill commands reside in `strategy/prediction/`.
+Risk control, attribution review, retention, and source-check commands reside beside their risk, AI, persistence, and verification owners.
+BNB diagnostics, historical sample preparation, VWAP update, and Star History commands also have concrete strategy or verification owners.
+Legacy accounting commands reside in `execution/`; index maintenance and backtest commands reside in `persistence/` and `strategy/`.
+PnL commands have concrete execution owners; regime reports and ladder diagnostics reside in strategy, and production soak reports reside in verification.
+The daily digest separates period totals, FIFO replay, report construction, delivery state, and CLI orchestration into five concrete execution owners.
+The same required check enforces those definitions and their declared imports; financial regressions still prove accounting and delivery behavior.
+VWAP autotune separates parameter calculations, historical results, persistence, parser definitions, and command orchestration into five strategy owners.
+Their ownership checks preserve the stable launcher; the existing Decimal-to-JSON persistence defect remains a separate unresolved functional issue.
+AI smoke, VWAP generation, archive retention, and IP Guard commands now have concrete owners beside their existing domain implementations.
+The IP Guard executable imports a package-owned error wrapper; the wrapper preserves sanitized failure output and exit codes.
+Dashboard startup, migration timing, validation batch execution, and historical replay commands also have concrete package owners.
+Replay checkpoints bind both the stable launcher and its concrete implementation; old identities remain preserved but are not reused.
+The check rejects added launcher logic, absent concrete functions, and reverse imports from executable launchers.
+AST parity and executable regression tests complement this scoped structural check; it does not prove arbitrary runtime binding identity.
+
 `schemas/architecture_contract.json` assigns Python files to exact directory owners or explicit file owners.
 Ownership does not propagate into an unregistered subdirectory.
 The required `architecture_ownership` check runs in local and release harness profiles.

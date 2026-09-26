@@ -8,6 +8,7 @@ from __future__ import annotations
 
 from typing import Any, Callable, Mapping, Sequence
 from ladder_dragon.supervision.protection_quantity import verify_quantities, require_order_id
+from ladder_dragon.execution.journal.retired_protection import reconcile_retired_protection
 
 
 _REQUIRED_ORDER_FIELDS = frozenset(
@@ -296,9 +297,12 @@ def verify_all_live_protection(
     *,
     open_orders: Sequence[Mapping[str, object]] | None,
     verify_one: Callable[[Any, str, Sequence[Mapping[str, object]] | None], int],
+    signed_get: Callable[..., object] | None = None,
 ) -> int:
     """Verify every configured protected BUY from one open-order snapshot."""
     checked = 0
+    if signed_get is not None:
+        reconcile_retired_protection(journal, signed_get)
     configured = {str(symbol).upper() for symbol in symbols}
     for buy in journal.protected_buys():
         if buy.symbol not in configured:

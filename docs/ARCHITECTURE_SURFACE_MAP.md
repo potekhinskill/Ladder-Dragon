@@ -3,14 +3,14 @@
 Status: partial P0 inventory and required local P1 enforcement.
 
 The exact source manifest is `schemas/architecture_surfaces.json`.
-It registers 146 files at this implementation stage.
+It registers 148 files at this implementation stage.
 Registration describes current source responsibility, not completed behavior extraction or permission to deploy.
 
 ## Registered groups
 
 | Group | Count | Responsibility |
 |---|---|---|
-| Python commands | 71 | Stable operator entry names under `bin/` |
+| Python commands | 73 | Stable operator entry names under `bin/` |
 | Shell command | 1 | Supervisor and report process control |
 | Command package initializer | 1 | Python package declaration |
 | ASGI entry point | 1 | Dashboard application export |

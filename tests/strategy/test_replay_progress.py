@@ -2,7 +2,7 @@ import json
 
 import pytest
 
-from bin import replay_historical_entries as replay
+from ladder_dragon.strategy.prediction import replay_command as replay
 from ladder_dragon.strategy.prediction import replay_progress as progress
 from ladder_dragon.strategy.prediction.historical_policy import fingerprint
 

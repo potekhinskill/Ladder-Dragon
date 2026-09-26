@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import json
 
-from bin import historical_replay_runner as runner
+from ladder_dragon.strategy.prediction import replay_runner_command as runner
 from ladder_dragon.strategy.depth_segments import atomic_json
 from ladder_dragon.strategy.prediction.historical_policy import fingerprint
 

@@ -7,7 +7,7 @@ import requests
 from urllib3.connection import HTTPSConnection
 from urllib3.exceptions import ConnectTimeoutError, NameResolutionError, NewConnectionError
 
-from bin import record_bnb_public as command
+from ladder_dragon.strategy import bnb_capture_command as command
 from ladder_dragon.strategy import capture_transport as transport
 from ladder_dragon.strategy.capture_diagnostics import CaptureDiagnostics
 

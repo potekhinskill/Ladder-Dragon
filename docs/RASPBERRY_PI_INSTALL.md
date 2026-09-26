@@ -682,6 +682,15 @@ drop physical columns from an existing database.
 
 Always update a reviewed exact commit:
 
+The updater emits `[UPDATE-FAILURE] stage=<fixed-stage> exit=<status>` when its shell exits with an error.
+Capture this event and the process exit status before discarding other output.
+Do not publish raw updater output; existing checks can include private runtime state.
+The event contains no command text, account identifiers, credentials, or provider messages.
+It uses existing update output without a new persistent store.
+An exit status identifies failure, not its underlying network or operating-system cause.
+A successful retry does not establish the cause of an earlier failure.
+The installed bootstrap must contain this change before it can report early bootstrap failures.
+
 ```bash
 cd /home/bot/apps/binance_bot
 RELEASE_SHA="<40-character-reviewed-SHA>"

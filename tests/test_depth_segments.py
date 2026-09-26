@@ -229,7 +229,7 @@ def test_inventory_rejects_string_eligibility(tmp_path):
 
 
 def test_service_does_not_wait_for_processing_before_capture(tmp_path, monkeypatch):
-    from bin import depth_archive_service as service
+    from ladder_dragon.strategy import depth_service_command as service
     states = []
 
     class Worker:

@@ -2,8 +2,8 @@ from decimal import Decimal
 import json
 import sqlite3
 
-from bin import testnet_soak_monitor as soak
-from bin.testnet_soak_monitor import (
+from ladder_dragon.verification.live import soak_command as soak
+from ladder_dragon.verification.live.soak_policy import (
     SoakSample,
     evaluate_sample,
     oco_protection_coverage,

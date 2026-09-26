@@ -4,7 +4,7 @@ import pytest
 import requests
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 
-from bin import record_bnb_public as command
+from ladder_dragon.strategy import bnb_capture_command as command
 from ladder_dragon.strategy import bnb_capture, capture_clock
 from ladder_dragon.strategy.capture_diagnostics import CaptureDiagnostics, REASONS
 from ladder_dragon.execution.market_http_body import MarketResponseError

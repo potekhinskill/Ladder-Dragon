@@ -12,7 +12,7 @@ from ladder_dragon.execution.cost_basis_import import (
 )
 from ladder_dragon.execution.inventory_lots import add_lot, cost_basis_coverage
 from ladder_dragon.execution import tools_stats
-from bin import import_legacy_cost_basis
+from ladder_dragon.execution import cost_basis_command as import_legacy_cost_basis
 
 
 def trade(

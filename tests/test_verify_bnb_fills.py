@@ -6,7 +6,7 @@ import sqlite3
 import pytest
 import requests
 
-from bin.verify_bnb_fills import ProbeSession, main, selected_rows, verify_rows
+from ladder_dragon.verification.bnb_fills_command import ProbeSession, main, selected_rows, verify_rows
 
 
 @pytest.fixture
@@ -89,7 +89,7 @@ def test_request_budget_includes_retries_and_rejects_redirect(monkeypatch):
 
 
 def test_main_does_not_print_failure_secrets(database,monkeypatch,capsys):
-    import bin.verify_bnb_fills as module
+    from ladder_dragon.verification import bnb_fills_command as module
     monkeypatch.setenv('DASHBOARD_BINANCE_API_KEY','test')
     monkeypatch.setenv('DASHBOARD_BINANCE_API_SECRET','test')
     def fail(*args): raise requests.ConnectionError('PRIVATE_TEST_MARKER?signature=secret')

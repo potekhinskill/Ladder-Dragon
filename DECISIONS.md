@@ -1,5 +1,44 @@
 # Engineering decisions
 
+### 2026-09-25 — Preserve live bindings when extracting dashboard routes
+
+- **Context:** route factories can retain obsolete cache, lock, path, or reader values if they copy startup dependencies.
+- **Decision:** use a declared live namespace interface supplied by application composition; prohibit router imports from runtime.
+- **Why it worked:** authenticated route tests observe replacement bindings after app construction and retain history connection cleanup.
+- **Reuse:** combine route inventory, middleware tests, source parity, and required wiring controls; a namespace adapter is not a security sandbox.
+- **Scope:** this interface does not transfer all service ownership or grant public access, deployment, or trading authority.
+
+### 2026-09-25 — Keep interpreter bootstrap outside verification imports
+
+- **Context:** importing a verification submodule first executes its package initializer, which can load dependencies before interpreter selection.
+- **Decision:** keep the standard-library-only bootstrap in an explicitly owned root module; keep the root initializer inert.
+- **Why it worked:** a fresh process without site-packages reaches re-execution while a test rejects every verification import.
+- **Reuse:** enforce launcher ordering, bootstrap imports, root initialization, and concrete owners together; relocation must not precede interpreter selection with dependency loading.
+- **Scope:** the command interface and verification requirements remain unchanged; this rule grants no publication or runtime authority.
+
+### 2026-09-25 — Bind checkpoint identity to relocated implementation owners
+
+- **Context:** a thin launcher hash cannot detect later changes to its extracted replay implementation.
+- **Decision:** include the concrete owner alongside the stable launcher in checkpoint identity; preserve old files without automatic reuse.
+- **Why it worked:** synthetic checkpoints with old bindings remain byte-identical while the new identity selects a different path.
+- **Reuse:** classify fingerprint compatibility before deployment; review retained capacity and recomputation without rewriting authoritative reports or granting execution permission.
+
+### 2026-09-25 — Reconcile stale protection without inventing closure
+
+- **Context:** exact closure updates the parent and successful protection, but an older canceled sibling can retain `PROTECTED`.
+- **Decision:** inspect closed-parent siblings during supervisor protection checks and require matched zero-fill cancellation evidence at the transactional writer.
+- **Why it worked:** synthetic tests preserve exact closure and reject active legs, partial execution, identity damage, concurrent changes, and write failures.
+- **Reuse:** parent closure does not prove cancellation of every sibling; verify each exchange identity without granting order mutation authority.
+- **Retention:** retain one authoritative Boolean in existing metadata under the journal backup and indefinite-retention policy.
+
+### 2026-09-24 — Keep updater bootstrap outside conditional invocation
+
+- **Context:** Bash disables errexit inside functions invoked as conditional tests, including their nested commands.
+- **Decision:** test break-glass state separately; invoke bootstrap directly and explicitly reject failed Git reads before target execution.
+- **Why it worked:** synthetic command failures stop before subsequent bootstrap operations and emit fixed stages without private values.
+- **Reuse:** test shell failure propagation at the actual invocation boundary, not only inside helper definitions.
+- **Retention:** diagnostic events use existing update output; no persistent record or new retention task is introduced.
+
 ### 2026-09-23 — Separate prediction snapshots from writer commits
 
 - **Context:** production reports SQLITE_BUSY during maintenance; DELETE-mode read snapshots can block writer commits.

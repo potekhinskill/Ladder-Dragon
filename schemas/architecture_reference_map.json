@@ -20,11 +20,11 @@
     {"id":"market_scenarios","kind":"store","path":"ladder_dragon/market_analysis/store.py","anchors":["MarketScenarioStore.record","MarketScenarioStore.settle"],"data_class":"derived","review_phase":"P3"},
     {"id":"validation_batches","kind":"store","path":"ladder_dragon/verification/live/validation_batch.py","anchors":["create_batch_manifest","reserve_validation_attempt","complete_validation_attempt"],"data_class":"authoritative","review_phase":"P0"},
     {"id":"database_migrations","kind":"store","path":"ladder_dragon/persistence/migrations.py","anchors":["migrate"],"data_class":"authoritative","review_phase":"P6"},
-    {"id":"exchange_boundaries","kind":"binding","path":"bin/audit_exchange_boundaries.py","anchors":["APPROVED_METHODS"],"data_class":"source_policy","review_phase":"P4"},
-    {"id":"critical_guards","kind":"binding","path":"bin/audit_guard_contracts.py","anchors":["CRITICAL_GUARDS"],"data_class":"source_policy","review_phase":"P4"},
-    {"id":"authority_calls","kind":"binding","path":"bin/audit_execution_authority_paths.py","anchors":["AUTHORITY_CALL_CONTRACTS","AUTHORITY_BINDING_CONTRACTS"],"data_class":"source_policy","review_phase":"P4"},
+    {"id":"exchange_boundaries","kind":"binding","path":"ladder_dragon/verification/exchange_boundaries.py","anchors":["APPROVED_METHODS"],"data_class":"source_policy","review_phase":"P4"},
+    {"id":"critical_guards","kind":"binding","path":"ladder_dragon/verification/guard_contracts.py","anchors":["CRITICAL_GUARDS"],"data_class":"source_policy","review_phase":"P4"},
+    {"id":"authority_calls","kind":"binding","path":"ladder_dragon/verification/authority_contracts.py","anchors":["AUTHORITY_CALL_CONTRACTS","AUTHORITY_BINDING_CONTRACTS"],"data_class":"source_policy","review_phase":"P4"},
     {"id":"numeric_budgets","kind":"binding","path":"ladder_dragon/verification/numeric_boundaries.py","anchors":["LIMITS","EXACT_PACKAGE_ROOTS"],"data_class":"source_policy","review_phase":"P3"},
-    {"id":"semantic_owners","kind":"binding","path":"bin/audit_semantic_authorities.py","anchors":["COLLECTION_AUTHORITIES","FEE_LITERAL_AUTHORITIES","INDICATOR_AUTHORITY"],"data_class":"source_policy","review_phase":"P3"},
+    {"id":"semantic_owners","kind":"binding","path":"ladder_dragon/verification/semantic_authorities.py","anchors":["COLLECTION_AUTHORITIES","FEE_LITERAL_AUTHORITIES","INDICATOR_AUTHORITY"],"data_class":"source_policy","review_phase":"P3"},
     {"id":"runtime_budgets","kind":"binding","path":"tests/test_architecture_layout.py","anchors":["test_known_runtime_monoliths_can_only_shrink.budgets"],"data_class":"source_policy","review_phase":"P4"},
     {"id":"test_budgets","kind":"binding","path":"tests/test_architecture_layout.py","anchors":["test_component_tests_replace_the_previous_test_monoliths.budgets"],"data_class":"source_policy","review_phase":"P6"}
   ]

@@ -5,7 +5,7 @@ from types import SimpleNamespace
 import pytest
 
 from ladder_dragon.verification.backtest_reports import classify_report, main
-from bin.backtest import build_report
+from ladder_dragon.strategy.backtest_command import build_report
 from ladder_dragon.strategy.simulation import SimulationConfig
 
 

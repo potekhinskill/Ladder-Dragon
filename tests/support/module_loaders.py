@@ -10,6 +10,14 @@ from types import ModuleType
 ROOT = Path(__file__).resolve().parents[2]
 
 
+def dashboard_route_contexts(app):
+    """Include nested routers without dropping hidden or duplicate routes."""
+    from fastapi import routing
+
+    iterator = getattr(routing, "iter_route_contexts", None)
+    return list(iterator(app.routes)) if iterator else app.routes
+
+
 def load_runtime(relative: str, module_name: str) -> ModuleType:
     """Execute one runtime module under an isolated test-only module name."""
     path = (ROOT / relative).resolve()

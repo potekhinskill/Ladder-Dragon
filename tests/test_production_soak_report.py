@@ -3,8 +3,8 @@ import json
 from pathlib import Path
 import sqlite3
 
-from bin import production_soak_report
-from bin.production_soak_report import build_report, notify_on_transition
+from ladder_dragon.verification import production_soak_command as production_soak_report
+from ladder_dragon.verification.production_soak_command import build_report, notify_on_transition
 from ladder_dragon.execution.order_recovery import OrderJournal
 
 

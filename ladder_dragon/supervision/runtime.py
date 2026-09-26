@@ -725,7 +725,7 @@ def _verify_all_live_protection(
 ) -> int:
     """Verify every journal-protected BUY against authoritative Binance state."""
     return _verify_all_live_protection_service(
-        journal, symbols, open_orders=open_orders,
+        journal, symbols, open_orders=open_orders, signed_get=TM._signed_get,
         verify_one=lambda active_journal, parent_id, snapshot: (
             _verify_live_protection(
                 active_journal,

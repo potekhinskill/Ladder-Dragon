@@ -1,5 +1,51 @@
 # Engineering mistakes and root causes
 
+### 2026-09-26 — Built a wheel inside the verification checkout
+
+- **Impact:** the complete profile failed ownership checks despite 4855 passing tests; another complete verification was necessary.
+- **Root cause:** an in-place wheel build created 507 unregistered source copies under `build/lib` before the comprehensive source inventory.
+- **Correction:** verify the copies against their sources and move the generated directory outside the checkout without deletion.
+- **Prevention:** build installed-package test artifacts from an isolated source copy; inspect checkout status before comprehensive verification.
+
+### 2026-09-26 — Replaced attribute tokens during handler relocation
+
+- **Impact:** focused history-route tests detected broken clock access and changed SQL literals before release or production use.
+- **Root cause:** token-name replacement qualified both parts of `time.time`; blanket indentation also modified multiline SQL contents.
+- **Correction:** qualify only the global receiver, preserve literal contents, and rerun original-syntax and authenticated behavior regressions.
+- **Prevention:** distinguish AST names from attributes and strings; verify original fingerprints before broad checks after automated relocation.
+
+### 2026-09-25 — Missed nested route and response-source contracts
+
+- **Impact:** four focused tests failed during the host-router extraction; no production operation or release occurred.
+- **Root cause:** preparation found route-name references but missed response-field assertions and the installed framework's nested router representation.
+- **Correction:** inspect concrete handler sources and enumerate effective route contexts, including hidden and duplicate routes.
+- **Prevention:** inventory source assertions and framework route consumers before relocation; verify the complete route multiset alongside authenticated HTTP behavior.
+- **Recurrence, 2026-09-26:** one trading-router test still searched runtime for relocated stale codes; route-name searches missed this separate literal assertion.
+- **Correction and prevention:** retain both stale-code assertions at their concrete owner; inventory response literals as well as handler names before relocation.
+- **Further recurrence:** history extraction left pagination-limit assertions at runtime; move those checks to the concrete reader and include query bounds in the inventory.
+
+### 2026-09-25 — Missed duplicate ownership test checkouts
+
+- **Impact:** 60 mutation tests returned BLOCKED instead of FAILED; the complete verification required repetition.
+- **Root cause:** two suites copied only command owners and omitted newly required digest dependencies.
+- **Correction:** use the shared complete checkout fixture in both suites without weakening missing-source rejection.
+- **Prevention:** inspect every source-copy fixture when expanding a required architecture contract; test the undamaged fixture before mutation.
+
+### 2026-09-25 — Left packaging output inside the verification inventory
+
+- **Impact:** the ownership check rejected generated build copies although the application tests and safety audits passed; full verification required repetition.
+- **Root cause:** the wheel smoke build used the working checkout and left an untracked `build/` before the harness collected sources.
+- **Correction:** move only the newly generated build directory outside the checkout and repeat verification without changing source ownership rules.
+- **Prevention:** isolate packaging output and inspect repository status before starting comprehensive verification; never exempt generated copies to obtain PASS.
+
+### 2026-09-24 — Discarded the deployment failure stage
+
+- **Impact:** the first deployment attempt failed, but its original cause could not be established after a successful retry.
+- **Root cause:** an agent wrapper retained only a failure Boolean and discarded the captured diagnostic output.
+- **Correction:** add fixed-stage exit events and preserve those events with the process exit status in deployment reports.
+- **Prevention:** capture safe failure metadata before discarding private output; never infer a historical cause from retry success.
+- **Boundary:** synthetic bootstrap tests expose conditional errexit suppression; they do not prove that defect caused the historical failure.
+
 ### 2026-09-23 — Checked a static size budget instead of release-relative growth
 
 - **Impact:** the first diagnostic release candidate failed the production legacy-size gate after all tests passed.

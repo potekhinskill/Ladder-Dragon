@@ -1,7 +1,7 @@
 import json
 from pathlib import Path
 
-from bin import replay_historical_entries as module
+from ladder_dragon.strategy.prediction import replay_command as module
 from ladder_dragon.strategy.prediction.historical_entry_replay import MODEL_CONTRACT
 from ladder_dragon.strategy.prediction.historical_policy import fingerprint
 

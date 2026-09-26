@@ -1,0 +1,360 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2026 IURII Potekhin
+# Purpose: format realized trade reports.
+"""Ladder Dragon pnl reporter support."""
+
+import argparse
+from decimal import Decimal, InvalidOperation
+import hashlib
+import hmac
+import json
+import os
+import sys
+import time
+from typing import Any, Callable, Dict, List, Tuple
+
+import requests
+from dotenv import load_dotenv
+
+from ladder_dragon.execution.trade_accounting import symbol_assets
+
+load_dotenv()
+BINANCE = (os.getenv("BINANCE_BASE_URL") or os.getenv("BINANCE_API_BASE") or "https://api.binance.com").rstrip("/")
+API_KEY = os.getenv("BINANCE_API_KEY","")
+API_SECRET = os.getenv("BINANCE_API_SECRET","")
+
+REPORTS_DIR = "reports"
+MAX_RESPONSE_BYTES = 1024 * 1024
+MAX_PAGE_ATTEMPTS = 3
+
+
+class PnLReportSourceError(RuntimeError):
+    """Report a bounded source failure without provider response text."""
+
+    def __init__(self, *, endpoint: str, status: int | None) -> None:
+        self.endpoint = endpoint
+        self.status = status
+        suffix = f" status={status}" if status is not None else ""
+        super().__init__(f"PnL source unavailable endpoint={endpoint}{suffix}")
+
+
+def _bounded_json(response: requests.Response, endpoint: str) -> Any:
+    chunks: list[bytes] = []
+    size = 0
+    try:
+        for chunk in response.iter_content(chunk_size=8192):
+            size += len(chunk)
+            if size > MAX_RESPONSE_BYTES:
+                raise PnLReportSourceError(
+                    endpoint=endpoint, status=response.status_code
+                )
+            chunks.append(chunk)
+        return json.loads(b"".join(chunks).decode("utf-8"))
+    except PnLReportSourceError:
+        raise
+    except (UnicodeDecodeError, json.JSONDecodeError, TypeError, ValueError):
+        raise PnLReportSourceError(
+            endpoint=endpoint, status=response.status_code
+        ) from None
+
+def signed_get(path: str, params: Dict) -> Any:
+    url = BINANCE + path
+    params = dict(params)
+    params["timestamp"] = int(time.time()*1000)
+    params.setdefault("recvWindow", 5000)
+    from requests import PreparedRequest
+    pr = requests.PreparedRequest()
+    pr.prepare_url(url, params)
+    qs = requests.utils.urlparse(pr.url).query
+    sig = hmac.new(API_SECRET.encode(), qs.encode(), hashlib.sha256).hexdigest()
+    params["signature"] = sig
+    try:
+        response = requests.get(
+            url,
+            params=params,
+            headers={"X-MBX-APIKEY": API_KEY},
+            timeout=15,
+            stream=True,
+        )
+    except requests.RequestException:
+        raise PnLReportSourceError(endpoint=path, status=None) from None
+    try:
+        payload = _bounded_json(response, path)
+        if response.status_code >= 400:
+            raise PnLReportSourceError(
+                endpoint=path, status=response.status_code
+            )
+        return payload
+    finally:
+        response.close()
+
+
+def _trade_page(
+    params: Dict[str, object],
+    *,
+    request: Callable[[str, Dict], Any],
+    sleep: Callable[[float], None],
+) -> list[Dict]:
+    endpoint = "/api/v3/myTrades"
+    for attempt in range(1, MAX_PAGE_ATTEMPTS + 1):
+        try:
+            payload = request(endpoint, params)
+            if not isinstance(payload, list) or not all(
+                isinstance(row, dict) for row in payload
+            ):
+                raise PnLReportSourceError(endpoint=endpoint, status=None)
+            return payload
+        except (requests.RequestException, RuntimeError) as exc:
+            if attempt >= MAX_PAGE_ATTEMPTS:
+                if isinstance(exc, PnLReportSourceError):
+                    raise
+                raise PnLReportSourceError(endpoint=endpoint, status=None) from None
+            sleep(0.5 * attempt)
+    raise AssertionError("unreachable PnL page retry state")
+
+
+def fetch_trades(
+    symbol: str,
+    start_ts: int,
+    end_ts: int,
+    *,
+    request: Callable[[str, Dict], Any] | None = None,
+    sleep: Callable[[float], None] | None = None,
+) -> List[Dict]:
+    """Fetch trades."""
+    page_request = request or signed_get
+    pause = sleep or time.sleep
+    out: List[Dict] = []
+    step = 24*60*60*1000
+    cur = start_ts
+    while cur < end_ts:
+        ts_to = min(end_ts, cur + step)
+        cursor = cur
+        while True:
+            batch = _trade_page(
+                {
+                    "symbol": symbol,
+                    "startTime": cursor,
+                    "endTime": ts_to,
+                    "limit": 1000,
+                },
+                request=page_request,
+                sleep=pause,
+            )
+            if not batch:
+                break
+            out.extend(batch)
+            if len(batch) < 1000:
+                break
+            try:
+                next_cursor = int(batch[-1]["time"]) + 1
+            except (KeyError, TypeError, ValueError):
+                raise PnLReportSourceError(
+                    endpoint="/api/v3/myTrades", status=None
+                ) from None
+            if next_cursor <= cursor:
+                raise PnLReportSourceError(
+                    endpoint="/api/v3/myTrades", status=None
+                )
+            cursor = next_cursor
+        cur = ts_to
+    return out
+
+def _decimal(value: object, *, field: str) -> Decimal:
+    try:
+        result = Decimal(str(value))
+    except (InvalidOperation, TypeError, ValueError) as exc:
+        raise ValueError(f"{field} is not a decimal") from exc
+    if not result.is_finite():
+        raise ValueError(f"{field} must be finite")
+    return result
+
+
+def fifo_pnl(trades: List[Dict]) -> Tuple[Decimal, Decimal, Dict[str, Any]]:
+    """Calculate FIFO PnL and fees with exact quote/base arithmetic."""
+    lots: List[Tuple[Decimal, Decimal]] = []
+    realized_gross = Decimal("0")
+    fees_quote = Decimal("0")
+    third_asset_fees = Decimal("0")
+    wins = 0
+    sell_trades = 0
+    notional_sold = Decimal("0")
+
+    for t in trades:
+        is_buy = bool(t["isBuyer"])
+        qty = _decimal(t["qty"], field="trade quantity")
+        price = _decimal(t["price"], field="trade price")
+        quote_qty = _decimal(t["quoteQty"], field="trade quote quantity")
+        fee = _decimal(t["commission"], field="trade commission")
+        fee_asset = t["commissionAsset"]
+        symbol = t["symbol"]
+        base, quote = symbol_assets(symbol)
+
+        if is_buy:
+            eff_qty = qty
+            if fee_asset == base:
+                # Fee charged in the base asset: the received base quantity is smaller.
+                eff_qty = max(qty - fee, Decimal("0"))
+                fees_quote += fee * price
+            elif fee_asset == quote:
+                # Fee charged in the quote asset: account for it separately.
+                fees_quote += fee
+            else:
+                third_asset_fees += fee
+
+            if eff_qty > 0:
+                lots.append((eff_qty, price))
+
+        else:
+            sell_trades += 1
+            income_gross = quote_qty
+            cost = Decimal("0")
+            remain = qty
+
+            if fee_asset == quote:
+                fees_quote += fee
+            elif fee_asset == base:
+                # IMPORTANT: do not reduce remain; the full quantity was sold.
+                fees_quote += fee * price
+            else:
+                third_asset_fees += fee
+
+            notional_sold += quote_qty
+
+            while remain > Decimal("0.000000000001") and lots:
+                q, p = lots[0]
+                take = min(remain, q)
+                cost += take * p
+                q -= take
+                remain -= take
+                if q <= Decimal("0.000000000001"):
+                    lots.pop(0)
+                else:
+                    lots[0] = (q, p)
+
+            trade_pnl_gross = income_gross - cost
+            realized_gross += trade_pnl_gross
+            if trade_pnl_gross > 0:
+                wins += 1
+
+    stats = {
+        "wins": wins,
+        "trades": sell_trades,
+        "avg_sell_notional": (notional_sold / sell_trades) if sell_trades else Decimal("0"),
+        "open_lots_qty": sum((q for q, _ in lots), Decimal("0")),
+        "open_lots_cost": sum((q * p for q, p in lots), Decimal("0")),
+        "third_asset_fees_units": third_asset_fees,
+    }
+    return realized_gross, fees_quote, stats
+
+def ensure_reports_dir():
+    os.makedirs(REPORTS_DIR, exist_ok=True)
+
+def parse_args():
+    p = argparse.ArgumentParser()
+    p.add_argument("--symbols", type=str, required=True)
+    p.add_argument("--days", type=int, default=7)
+    return p.parse_args()
+
+def main() -> int:
+    args = parse_args()
+    ensure_reports_dir()
+    symbols = [s.strip().upper() for s in args.symbols.split(",") if s.strip()]
+    end = int(time.time()*1000)
+    start = end - args.days*24*60*60*1000
+
+    summary_txt = os.path.join(REPORTS_DIR, f"summary_{args.days}d.txt")
+    lines = [f"Summary for last {args.days} days", ""]
+
+    # Variables for the line-by-line report.
+    quotes_used = set()
+
+    # Aggregates per quote asset.
+    totals_by_quote: Dict[str, Dict[str, Decimal]] = {}
+
+    try:
+        for sym in symbols:
+            quote = symbol_assets(sym)[1]
+            print(f"[FETCH] {sym} trades...")
+            trades = fetch_trades(sym, start, end)
+            trades = sorted(trades, key=lambda x: x["time"])
+            pnl_gross, fees_quote, stats = fifo_pnl(trades)
+
+            quotes_used.add(quote)
+
+            # Accumulate quote-level aggregates.
+            agg = totals_by_quote.setdefault(
+                quote, {"gross": Decimal("0"), "net": Decimal("0")}
+            )
+            agg["gross"] += pnl_gross
+            agg["net"] += pnl_gross - fees_quote
+
+            # Line-by-line report per symbol.
+            if stats["trades"] == 0:
+                lines.append(
+                    f"{sym}: no trades in period; pnl=0.000000 "
+                    f"fees={fees_quote:.6f} net={-fees_quote:.6f}"
+                )
+            else:
+                lines.append(
+                    f"{sym}: pnl={pnl_gross:.6f} fees={fees_quote:.6f} "
+                    f"net={pnl_gross-fees_quote:.6f} "
+                    f"wins={stats['wins']}/{stats['trades']} "
+                    f"avg_sell_notional={stats['avg_sell_notional']:.2f}"
+                )
+    except (KeyError, PnLReportSourceError, TypeError, ValueError) as exc:
+        print(
+            f"[ERR] PnL report unavailable: {type(exc).__name__}",
+            file=sys.stderr,
+        )
+        return 2
+
+    lines.append("")
+
+    # Warning for mixed quote assets.
+    if len(quotes_used) > 1:
+        lines.append(
+            f"WARNING: mixed quotes detected: {', '.join(sorted(quotes_used))}. "
+            f"Cross-quote totals are not directly comparable."
+        )
+        lines.append("")
+
+    # Export totals per quote asset in separate blocks.
+    # Keep output stable by sorting quote assets.
+    for quote in sorted(totals_by_quote):
+        gross = totals_by_quote[quote]["gross"]
+        net   = totals_by_quote[quote]["net"]
+        lines.append(f"[{quote}] TOTAL pnl={gross:.6f}")
+        lines.append(f"[{quote}] NET   pnl={net:.6f}")
+        lines.append("")
+
+    # A combined block has no economic meaning for mixed quote assets, so it is omitted.
+    if len(totals_by_quote) == 1:
+        # With one quote asset, the combined block is equivalent.
+        only_quote = next(iter(totals_by_quote))
+        gross = totals_by_quote[only_quote]["gross"]
+        net   = totals_by_quote[only_quote]["net"]
+        lines.append(f"TOTAL pnl={gross:.6f}")
+        lines.append(f"NET   pnl={net:.6f}")
+
+    with open(summary_txt, "w", encoding="utf-8") as f:
+        f.write("\n".join(lines))
+    print(f"[REPORT] Saved: {summary_txt}")
+
+    # Console output: show each quote asset when there are several.
+    if len(totals_by_quote) == 1:
+        only_quote = next(iter(totals_by_quote))
+        gross = totals_by_quote[only_quote]["gross"]
+        net   = totals_by_quote[only_quote]["net"]
+        print(f"[DONE] Realized PnL total (gross, {only_quote}): {gross:.8f}")
+        print(f"[DONE] Net PnL ({only_quote}): {net:.8f}")
+    else:
+        for quote in sorted(totals_by_quote):
+            gross = totals_by_quote[quote]["gross"]
+            net   = totals_by_quote[quote]["net"]
+            print(f"[DONE] [{quote}] gross={gross:.8f} net={net:.8f}")
+
+    print("[DONE] Reports written to:", REPORTS_DIR)
+    return 0

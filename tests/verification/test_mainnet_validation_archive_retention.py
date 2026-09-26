@@ -7,7 +7,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from bin import mainnet_validation_archive_retention as retention
+from ladder_dragon.verification.live import archive_retention_command as retention
 from ladder_dragon.strategy.market_replay import archive_sha256
 from ladder_dragon.verification.live import validation_batch
 

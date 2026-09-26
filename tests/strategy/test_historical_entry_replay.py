@@ -291,7 +291,7 @@ def test_uncovered_queue_blocks_instead_of_assuming_zero():
 def test_cli_publishes_immutable_paired_replay(tmp_path, monkeypatch, capsys, recorded_context):
     import json
     import sys
-    from bin.replay_historical_entries import main
+    from ladder_dragon.strategy.prediction.replay_command import main
     from ladder_dragon.strategy.market_replay import archive_sha256
 
     archive = tmp_path / "history.jsonl"

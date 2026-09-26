@@ -6,7 +6,7 @@ import sys
 
 import pytest
 
-from bin import database_retention
+from ladder_dragon.persistence import retention_command as database_retention
 from ladder_dragon.persistence.retention import (
     rotate_market_scenarios,
     rotate_prediction_shadow,

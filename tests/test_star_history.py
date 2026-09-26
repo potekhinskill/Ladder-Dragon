@@ -12,8 +12,8 @@ from urllib.error import HTTPError
 
 import pytest
 
-from bin import generate_star_history
-from bin.generate_star_history import (
+from ladder_dragon.verification import star_history_command as generate_star_history
+from ladder_dragon.verification.star_history_command import (
     StarHistoryError,
     fetch_repository_snapshot,
     main,

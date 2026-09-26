@@ -1,6 +1,6 @@
 import pytest
 
-from bin import record_bnb_public as command
+from ladder_dragon.strategy import bnb_capture_command as command
 from tests.strategy.test_capture_credentials import credential
 
 

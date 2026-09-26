@@ -5,12 +5,12 @@ from pathlib import Path
 import pytest
 from product_version import __version__
 
-from bin.prediction_experiment import (
+from ladder_dragon.strategy.prediction.experiment_parser import _parser
+from ladder_dragon.strategy.prediction.experiment_provenance import _source_commit
+from ladder_dragon.strategy.prediction.experiment_evidence import (
     _freeze_horizons,
-    _parser,
     _preselected_episode_variant,
     _selection_variants,
-    _source_commit,
 )
 from ladder_dragon.strategy.prediction import (
     PredictionFeatures,
@@ -85,7 +85,7 @@ def test_champion_source_requires_clean_published_annotated_release(monkeypatch)
         }
         return type("Result", (), {"stdout": outputs[key]})()
 
-    monkeypatch.setattr("bin.prediction_experiment.subprocess.run", completed)
+    monkeypatch.setattr("ladder_dragon.strategy.prediction.experiment_provenance.subprocess.run", completed)
     assert _source_commit() == head
 
     def dirty(command, **kwargs):
@@ -94,7 +94,7 @@ def test_champion_source_requires_clean_published_annotated_release(monkeypatch)
             result.stdout = " M product_version.py"
         return result
 
-    monkeypatch.setattr("bin.prediction_experiment.subprocess.run", dirty)
+    monkeypatch.setattr("ladder_dragon.strategy.prediction.experiment_provenance.subprocess.run", dirty)
     with pytest.raises(RuntimeError, match="clean checkout"):
         _source_commit()
 
@@ -188,7 +188,7 @@ def test_v23_bootstrap_uses_the_frozen_entry_veto_selection(
         "selection_artifact_sha256": "a" * 64,
     }
     monkeypatch.setattr(
-        "bin.prediction_experiment.latest_entry_veto_selection",
+        "ladder_dragon.strategy.prediction.experiment_evidence.latest_entry_veto_selection",
         lambda _store, *, symbol: (selected_rule, D("0.5")),
     )
 

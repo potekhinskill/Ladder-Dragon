@@ -4,6 +4,17 @@
 # Purpose: update an existing Raspberry Pi deployment.
 set -euo pipefail
 
+# EXIT also covers explicit fail exits before recovery handlers are installed.
+# Never include command text or runtime values in this machine-readable event.
+UPDATE_STAGE=initialization
+report_update_exit() {
+  local status=$?
+  if [[ "${status}" -ne 0 ]]; then
+    printf '[UPDATE-FAILURE] stage=%s exit=%d\n' "${UPDATE_STAGE}" "${status}" >&2
+  fi
+}
+trap report_update_exit EXIT
+
 PROJECT_DIR="${PROJECT_DIR:-/home/bot/apps/binance_bot}"
 WEB_ROOT="${WEB_ROOT:-/var/www/bot}"
 DASHBOARD_ENV="${PROJECT_DIR}/.env.dashboard"
@@ -111,15 +122,23 @@ bootstrap_verified_target_runner() {
     || fail "update requires an exact 40-character commit SHA"
   [[ -z "$(runuser -u "${BOT_USER}" -- git status --porcelain --untracked-files=no)" ]] \
     || fail "tracked project files have local changes; commit or stash them first"
-  runuser -u "${BOT_USER}" -- git fetch --prune origin
-  runuser -u "${BOT_USER}" -- git cat-file -e "${commit}^{commit}"
-  upstream="$(runuser -u "${BOT_USER}" -- git rev-parse --abbrev-ref '@{upstream}')"
+  UPDATE_STAGE=bootstrap_fetch
+  runuser -u "${BOT_USER}" -- git fetch --prune origin \
+    || fail "bootstrap fetch failed"
+  UPDATE_STAGE=bootstrap_commit
+  runuser -u "${BOT_USER}" -- git cat-file -e "${commit}^{commit}" \
+    || fail "bootstrap commit lookup failed"
+  upstream="$(runuser -u "${BOT_USER}" -- git rev-parse --abbrev-ref '@{upstream}')" \
+    || fail "bootstrap upstream lookup failed"
+  UPDATE_STAGE=bootstrap_ancestry
   runuser -u "${BOT_USER}" -- git merge-base --is-ancestor HEAD "${commit}" \
     || fail "requested commit is not a fast-forward from current HEAD"
   runuser -u "${BOT_USER}" -- git merge-base --is-ancestor "${commit}" "${upstream}" \
     || fail "requested commit is not contained in ${upstream}"
-  trusted_signer="$(load_trusted_signer)"
+  UPDATE_STAGE=bootstrap_signature
+  trusted_signer="$(load_trusted_signer)" || fail "bootstrap trust loading failed"
   verify_trusted_commit "${commit}" "${trusted_signer}"
+  UPDATE_STAGE=bootstrap_runner
   runner="$(mktemp /tmp/ladder-dragon-target-update.XXXXXX)"
   runuser -u "${BOT_USER}" -- git show \
     "${commit}:deploy/update_raspberry_pi.sh" >"${runner}" \
@@ -526,7 +545,9 @@ cd "${PROJECT_DIR}"
 # service mutation. New deployment steps therefore apply on the first update,
 # while the target script remains immutable when the checkout fast-forwards.
 if [[ "${ACTION}" == "update" && "${BOT_UPDATE_TARGET_RUNNER:-0}" != "1" ]]; then
-  if bootstrap_verified_target_runner "${UPDATE_COMMIT}"; then
+  if [[ ! -f "${BREAK_GLASS_MARKER}" ]]; then
+    # A conditional function invocation disables errexit throughout its body.
+    bootstrap_verified_target_runner "${UPDATE_COMMIT}"
     fail "target updater unexpectedly returned"
   fi
 fi
@@ -555,6 +576,7 @@ if [[ "${ACTION}" == "update" ]]; then
 fi
 
 # Hold shared recovery authority across both backups and the complete update.
+UPDATE_STAGE=preflight
 # The exclusive network guard cannot reconnect or reboot during this interval.
 install -d -m 0755 /var/lib/ladder-dragon
 exec 19>>/var/lib/ladder-dragon/network-recovery.lock
@@ -608,13 +630,16 @@ export BACKUP_AGE_RECIPIENT="${backup_values[0]}"
 export BACKUP_EXTERNAL_MOUNT="${backup_values[1]}"
 export BACKUP_EXTERNAL_DIR="${backup_values[2]}"
 export BACKUP_EXTERNAL_RETENTION_DAYS="${backup_values[3]}"
+UPDATE_STAGE=backup
 run_preupdate_backup "${UPDATE_COMMIT}"
+UPDATE_STAGE=control_preservation
 
 # Copy authoritative control evidence before stopping the legacy unit:
 # systemd removes an unpreserved RuntimeDirectory during stop.
 prepare_persistent_control
 
 if [[ "${ACTION}" == "update" ]]; then
+  UPDATE_STAGE=target_verification
   [[ -z "$(runuser -u "${BOT_USER}" -- git status --porcelain --untracked-files=no)" ]] \
     || fail "tracked project files have local changes; commit or stash them first"
   runuser -u "${BOT_USER}" -- git fetch --prune origin
@@ -637,6 +662,7 @@ fi
 # First record the systemd state. `systemctl stop` does not remove enabled:
 # autostart remains configured, while Restart=always cannot mix versions during the update.
 remember_service_state
+UPDATE_STAGE=service_stop
 trap recover_after_failure ERR INT TERM
 SERVICES_STOPPED=1
 systemctl stop mybot
@@ -648,6 +674,7 @@ if [[ "${DEPTH_RESTART_POLICY}" == "restart" ]]; then
 fi
 
 if [[ "${ACTION}" == "update" ]]; then
+  UPDATE_STAGE=checkout
   [[ "$(runuser -u "${BOT_USER}" -- git rev-parse HEAD)" == "${PREVIOUS_HEAD}" ]] \
     || fail "checkout changed after update verification"
   runuser -u "${BOT_USER}" -- git merge --ff-only "${UPDATE_COMMIT}"
@@ -667,6 +694,7 @@ LAYOUT_SHA="${UPDATE_COMMIT:-$(runuser -u "${BOT_USER}" -- git rev-parse HEAD)}"
 LAYOUT_PREVIOUS_SHA="${PREVIOUS_HEAD:-${LAYOUT_SHA}}"
 # A blocked revision cannot authorize restart of a checkout with unknown code.
 EXTERNAL_DEPLOYMENT_MUTATED=1
+UPDATE_STAGE=installation
 runuser -u "${BOT_USER}" -- .venv/bin/python -m ladder_dragon.verification.release_layout \
   --root "${PROJECT_DIR}" --expected-sha "${LAYOUT_SHA}" --previous-sha "${LAYOUT_PREVIOUS_SHA}" \
   || fail "release checkout revision is blocked; no files were deleted"
@@ -933,6 +961,7 @@ systemctl try-restart zramswap || true
 systemctl reload nginx
 
 verify_previous_service_state
+UPDATE_STAGE=health_verification
 if [[ "${MYBOT_WAS_ACTIVE}" == "1" ]]; then
   wait_for_heartbeat 120
 fi

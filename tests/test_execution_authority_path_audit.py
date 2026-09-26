@@ -8,10 +8,8 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from bin.audit_execution_authority_paths import (
-    AUTHORITY_CALL_CONTRACTS,
-    audit_execution_authority_paths,
-)
+from ladder_dragon.verification.authority_contracts import AUTHORITY_CALL_CONTRACTS
+from ladder_dragon.verification.authority_paths import audit_execution_authority_paths
 
 
 ROOT = Path(__file__).resolve().parents[1]

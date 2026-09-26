@@ -23,6 +23,10 @@ Retention is indefinite, including pending and protected parents; scheduled rete
 Existing encrypted journal backups cover this metadata. No separate archive or cleanup job is introduced.
 The total store follows journal growth; capacity exhaustion rejects new evidence without deleting existing records.
 
+The authoritative `zero_fill_cancel_reconciled` flag records a verified cancellation in existing protection metadata.
+It adds one Boolean per retired protection, never an execution or an exact-closure record.
+Retention is indefinite through existing encrypted journal backups; no new store, archive dependency, or maintenance job is introduced.
+
 Unresolved-fill rows use these permanent lifecycle states:
 
 - `PENDING` blocks the applicable gate.

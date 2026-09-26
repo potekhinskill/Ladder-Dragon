@@ -54,7 +54,7 @@ def test_venv_commands() -> None:
 
 def test_champion_activation_resolves_the_authoritative_halt() -> None:
     reference = (ROOT / "docs" / "COMMAND_REFERENCE.md").read_text(encoding="utf-8")
-    source = (ROOT / "bin" / "prediction_experiment.py").read_text(encoding="utf-8")
+    source = (ROOT / "ladder_dragon/strategy/prediction/experiment_actions.py").read_text(encoding="utf-8")
 
     assert "--halt-file" not in reference
     assert "--halt-file" not in source

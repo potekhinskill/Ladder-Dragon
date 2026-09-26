@@ -3,7 +3,7 @@ import sqlite3
 
 import pytest
 
-from bin import pnl_24h
+from ladder_dragon.execution import pnl_window_command as pnl_24h
 from ladder_dragon.execution import tools_stats
 from ladder_dragon.risk.risk_manager import load_daily_trade_metrics
 from ladder_dragon.execution.trade_accounting import (

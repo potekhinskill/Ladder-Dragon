@@ -1,32 +1,7 @@
 # SPDX-License-Identifier: MIT
 # Copyright (c) 2026 IURII Potekhin
-# Purpose: execute an explicitly approved bounded Mainnet validation sequence.
-"""Run a fixed Mainnet validation batch under immutable limits."""
-
-import json
-
-from ladder_dragon.verification.live.validation_batch import (
-    build_run_parser,
-    run_validation_batch,
-)
-
-
-def main() -> int:
-    """Validate the explicit operator confirmation and run the batch."""
-    args = build_run_parser().parse_args()
-    if args.confirm != "RUN_VALIDATION_BATCH":
-        raise SystemExit("--confirm must equal RUN_VALIDATION_BATCH")
-    result = run_validation_batch(
-        args.manifest, notional_usdt=args.notional_usdt
-    )
-    status = (
-        "COHORT_COMPLETE_NOT_REPLAY_READY" if result == 0
-        else "INCOMPLETE" if result == 3
-        else "FAILED"
-    )
-    print(json.dumps({"status": status}))
-    return result
-
+# Purpose: preserve the executable command interface.
+from ladder_dragon.verification.live.batch_run_command import main
 
 if __name__ == "__main__":
     raise SystemExit(main())

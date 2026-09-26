@@ -7,8 +7,8 @@ from pathlib import Path
 import pytest
 
 from ladder_dragon.supervision import plan_runner as ai_plan_runner
-from bin import gen_vwap_autotune
-from bin import gen_vwap_env
+from ladder_dragon.strategy import autotune_math as gen_vwap_autotune
+from ladder_dragon.strategy import vwap_generate_command as gen_vwap_env
 from ladder_dragon.execution import tools_market
 from ladder_dragon.strategy.strategy_math import split_ladder
 
@@ -183,7 +183,7 @@ def test_vwap_generator_treats_closed_stdout_as_normal_shutdown(monkeypatch):
 
 
 def test_vwap_update_uses_active_interpreter(tmp_path, monkeypatch):
-    from bin import update_vwap_env
+    from ladder_dragon.strategy import vwap_update_command as update_vwap_env
 
     commands = []
     monkeypatch.delenv("VWAP_AUTOTUNE", raising=False)

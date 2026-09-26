@@ -90,6 +90,14 @@ one SQLite transaction. Confirming a TP or STOP writes both CLOSED states, both
 metadata records, and the normalized exact-closure record in one transaction.
 If any write fails, the whole transition rolls back.
 
+The supervisor also checks `PROTECTED` SELL intents whose BUY parent is already `CLOSED`.
+A stale OCO becomes `CANCELED` only after fresh list and leg queries confirm matched, zero-fill cancellations.
+The writer requires a separate exact closure and revalidates journal identities inside the transaction.
+Active orders, partial fills, missing references, unsupported protection types, or read failures block reconciliation.
+The check does not create, cancel, or replace exchange orders.
+It preserves the parent, quantities, fills, leg records, and existing exact-closure evidence.
+Each pass permits at most 16 candidates; excess work blocks before network access or writes.
+
 A repeated `client_order_id` is idempotent only when every immutable field
 matches the existing intent. Quantity and price are compared as exact
 `Decimal` values rather than formatted strings. A conflicting ID blocks the

@@ -15,7 +15,7 @@ from ladder_dragon.strategy.market_replay import (
     read_calibration,
     write_calibration,
 )
-from bin import backtest
+from ladder_dragon.strategy import backtest_command as backtest
 
 
 def test_price_time_priority_and_latency():
