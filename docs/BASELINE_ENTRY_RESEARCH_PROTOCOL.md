@@ -192,7 +192,7 @@ Neither route repairs missing before-fill public observations or establishes com
 | Missing input | How to establish it | Present status |
 |---|---|---|
 | Expected account identity | Operator enrollment from an independently authenticated account session | Not enrolled for this proposed verifier |
-| Key-to-account binding | Exact UID match under the pinned credential | Verifier not implemented or run |
+| Key-to-account binding | Exact UID match under the pinned credential | Local verifier implemented; live verification pending |
 | Key permission proof | Reviewed permission schema and bounded authenticated response | Not collected by this task |
 | Complete source binding | Same reviewed credential, collector, order scope, timestamps, and encrypted response evidence | Existing packages remain claims |
 | Historical identity continuity | Independently supported association at capture time | Not proved by a current UID response |
@@ -273,7 +273,7 @@ This procedure is planned; no production enrollment is created by this change.
 7. Preserve an encrypted recovery copy under the approved backup policy before production use.
 8. Approve one exact diagnostic SHA, enrollment reference, credential scope, and bounded invocation separately.
 
-Production enrollment requires an explicit storage and custody decision; this guide selects no private filesystem destination.
+The operator approves the concrete custody locations below on 2026-09-27; production activation still requires verified code and protected input.
 The loader accepts only owner-only directories and regular files with mode `0400` or `0600`.
 The assertion is authoritative only for the operator's intended account, not exchange ownership, historical identity continuity, or account completeness.
 Credential changes require a new reviewed enrollment reference; do not silently reuse the old binding.
@@ -289,6 +289,93 @@ A future enrolled identity is an authoritative operator assertion of intended ac
 This implementation creates no persistent record or maintenance job.
 Before production enrollment, approve protected storage, encrypted recovery, revocation, retention, and audit ownership for that assertion.
 Do not place real enrollment files in Git or ordinary plaintext backups.
+
+### Concrete custody proposal: 2026-09-27
+
+Status: custody locations and method approved; local creation components implemented, with no production record or launcher activation.
+The bounded filename search finds the old private-fill registrations, not an account-enrollment record in the inspected directories.
+This search cannot exclude a record under another name or outside those directories.
+The old registrations remain unchanged and do not substitute for independent account enrollment.
+
+| Item | Proposed treatment |
+|---|---|
+| Custody owner | The operator confirms the intended account; a reviewed root-owned helper controls local access |
+| Independent identity input | Hidden terminal input from the operator's authenticated exchange session; never chat, shell history, or command arguments |
+| Credential association | Bind the explicitly selected dashboard key inside the helper; never scan alternative credentials or print their values |
+| Persistent destination | One new exclusive `/mnt/usb1/account-enrollment-v1/enrollment.age` file on the verified external mount |
+| Persistent contents | An encrypted operator assertion, at most 16 KiB; no plaintext UID, credential pair, or identity hash in public metadata |
+| Temporary loader input | At most 4096 bytes in `/run/ladder-dragon-enrollment/enrollment.json`, only after verified tmpfs, root ownership, and exclusive creation |
+| Temporary permissions | Directory `0700`, file `0400`, no symlinks or extra hard links; cleanup covers failure and process termination |
+| Recovery | Use the independently pinned existing age recipient; verify recovery with the operator-held identity before diagnostic use |
+| Retention | Preserve the encrypted assertion indefinitely until explicit review; no automatic rotation, collection, or deletion |
+| Growth | One initial assertion only; any replacement requires separate review and invalidation of the earlier reference |
+
+The temporary path must remain outside persistent backups, logs, and status endpoints.
+Tmpfs alone does not exclude swap or core dumps; the implementation must verify those exposure controls before accepting private input.
+Occupied paths, missing mounts, unsafe permissions, unknown recovery, and incomplete cleanup block use without deleting existing files.
+An interrupted encrypted write remains evidence and blocks reuse of its destination.
+The helper must not persist the API credential pair or change its permissions at the exchange.
+
+The operator retains the random reference separately from the encrypted record and confirms it before each one-shot diagnostic.
+The existing loader has no revocation registry; do not enable automatic reuse or replacement without a reviewed invalidation mechanism.
+The first implementation must test private-input exclusion, exclusive writes, recovery mismatch, termination cleanup, and refusal of stale references.
+These are implementation requirements, not capabilities of an available production command.
+
+Approval of this custody proposal does not authorize publication, deployment, historical collection, replay, or trading.
+The separately agreed diagnostic ceiling remains three GET requests and 35 seconds after exact activation prerequisites pass.
+
+### Local enrollment creation components: 2026-09-27
+
+`strategy/enrollment_registration.py` validates the existing four-field claim schema, creates a random reference, and rejects hidden-input fallback with terminal echo.
+It encrypts the claim through age stdin for an independently pinned recipient; no plaintext file or API credential enters persistence.
+Recovery validation compares the separately retained reference and credential scope without granting account authentication or replay permission.
+`strategy/enrollment_storage.py` creates one exclusive external ciphertext slot and preserves occupied paths and interrupted writes.
+The ciphertext directory can use fixed exFAT read permissions; no plaintext belongs there.
+Ciphertext integrity and source authenticity remain separate from filesystem access controls.
+
+The components require a reviewed caller; they do not discover credentials, check host memory protections, decrypt recovery, or launch diagnostics.
+No CLI, systemd unit, temporary plaintext file, automatic reuse, or revocation manager is added.
+The operator wrapper below adds host restrictions, protected credential delivery, recovery, and termination cleanup before production activation.
+The current synthetic tests validate the subprocess contract; they do not execute age or establish operator recovery.
+Selected creation, diagnostic-process, and recovery tests pass: 105 tests, with synthetic data only.
+The writer freezes the validated claim before encryption so caller mutation cannot change the returned reference.
+Full verification on 2026-09-28: 5183 tests pass, with two skips; compilation, five safety audits, secret scanning, and Semgrep pass.
+The local artifact is `.runtime/verification-local-2.20.349-enrollment-creation.json`.
+Its aggregate remains BLOCKED by candidate release continuity and dependent architecture checks; it is not a release PASS.
+
+Read-only host checks find tmpfs at `/run`, a mounted exFAT external disk, age installed, and both proposed slots absent.
+The active swap is zram without disk backing; these observations are not a guarantee for a later run.
+No production UID, credential value, backup, or encrypted source package is opened during these checks.
+A separate synthetic age encryption and decryption round trip on Pi passes, with an ephemeral identity in anonymous RAM storage.
+It writes no persistent file and makes no exchange request; operator-held recovery and the actual enrollment remain unverified.
+
+### Local operator command: 2026-09-28
+
+`bin.account_enrollment` now exposes offline `create` and `verify` modes; both require explicit confirmation and independently reviewed public pins.
+The command uses an isolated Linux root worker with a clean environment and a 300-second outer timeout.
+Host checks require memory-only swap, tmpfs, restricted core dumps, and non-privileged age executables without file capabilities.
+The worker checks its loaded checkout, exact HEAD, tracked changes, and unexpected Python command or package files before private input.
+Git checks disable external hooks, filesystem monitors, replacement objects, and external diff programs.
+These checks do not replace the complete release profile or exact activation approval.
+
+The protected credential reader accepts only the dashboard API key from the fixed protected source and checks its independently supplied scope.
+Creation requests the UID twice through hidden terminal input, then requests the operator-held recovery identity without terminal echo.
+Recovery uses a sealed anonymous memory file and five-second age subprocess limits; private values never enter command arguments.
+Linux parent-death signals terminate the worker and age children when their respective parent terminates.
+The child setup rejects multiple threads and checks parent identity after signal configuration; these measures address the documented creation race.
+See the [Linux parent-death signal contract](https://man7.org/linux/man-pages/man2/PR_SET_PDEATHSIG.2const.html).
+Scheduling and kernel behavior prevent a hard real-time completion guarantee.
+
+Creation verifies exact recovery before persistent ciphertext storage; an occupied or interrupted slot remains preserved.
+Verification requires the separately retained reference and ciphertext hash, reads the existing ciphertext, and never rewrites it.
+The command creates no temporary plaintext loader file and never invokes the account diagnostic or historical collector.
+Successful output means recovery of an operator claim, not exchange authentication, historical completeness, or replay admission.
+The command cannot prove that the supplied identity came from Apple Passwords or independently authenticate the supplied UID.
+Synthetic operator, host, recovery, and registration checks pass: 117 tests; adjacent architecture and diagnostic-process checks pass: 80 tests.
+The complete code suite passes: 5254 tests, with two skips; compilation, five safety audits, secret scanning, and Semgrep pass.
+The local artifact is `.runtime/verification-local-2.20.349-enrollment-operator.json`.
+Its aggregate remains BLOCKED by release continuity and dependent architecture baselines; the final documentation update receives separate checks.
+No actual enrollment, operator-held recovery check, release, or Pi installation occurs during these local checks.
 
 ### Budget derivation before launch
 
@@ -375,8 +462,10 @@ The causal time contract is retained; retrospective relabeling is excluded from 
 The account-binding design and input-gap inventory are now documented; no account association has been verified by this task.
 The claim validator, protected loader, and bounded diagnostic adapter are implemented locally and tested with synthetic inputs.
 The isolated process wrapper and proposed custody procedure are now documented and tested locally without real enrollment.
-The next decision is the protected production enrollment channel, custody owner, and exact one-shot diagnostic authorization.
-Production identity enrollment and network diagnostics require separate authorization.
+The operator approves custody locations and method; local encrypted creation components pass synthetic checks without production activation.
+The protected operator command and synthetic recovery checks are implemented locally; production recovery remains unverified.
+The remaining work is release verification, exact activation review, independent operator identity input, and real recovery verification.
+The diagnostic scope is agreed at three GET requests and 35 seconds; this does not authorize automatic history collection.
 Then prepare the sensitivity-based budget memo and complete preregistration package after the qualification inputs are established.
 Candidate parameters, the observation budget, and experiment launch remain unapproved.
 Further veto tuning, a new Mainnet batch, and release or deployment are outside this boundary.

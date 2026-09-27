@@ -1,11 +1,77 @@
 # Execution readiness recovery review
 
-Latest review date: 2026-09-24.
-Scope: read-only Pi diagnosis and a local readiness-plan update.
+Latest local review date: 2026-09-28; latest Pi observations below remain dated 2026-09-27.
+Scope: read-only Pi diagnosis, local protected operator implementation, and a readiness-plan update.
 This review authorizes no deployment, trading mutation, HALT removal, private retrieval, or paid validation batch.
 The subsequent [collection plan](HISTORICAL_SOURCE_COLLECTION_PLAN.md) defines a proposed bounded scope; it does not authorize private retrieval.
 
-## Current readiness: 2026-09-24
+## Trading-readiness work boundary: 2026-09-27
+
+The operator prioritizes historical risk evidence, execution qualification, and a reviewed new strategy over further architecture extraction.
+Existing local architecture changes remain preserved; they are not a prerequisite for starting this evidence review.
+This priority does not authorize private collection, accounting imports, study launch, paid validation, deployment, or HALT removal.
+
+### Current read-only findings
+
+The deployed reference is `v2.20.348`, commit `14fa299a0664e4a8e2075968d1879e2d4eee421e`.
+Current runtime status confirms active HALT and BUY blocking, zero active CHAMPION records, and no permitted execution symbols.
+SOL remains in SELECTION with statistical approval, policy binding, operator approval, and execution permission all false.
+SELECTION is a lifecycle label; it does not reverse the completed negative v23 review or promise eventual acceptance.
+
+The risk snapshot reports `loss_streak_complete=false` and identifies SOLUSDT as incomplete.
+All nine published risk-limit fields are positive; this check neither approves their amounts nor proves the underlying historical inputs.
+The SOL symbol CAP remains absent.
+Only safe flags and field names were returned; this review does not read credentials, balances, or raw production evidence.
+
+### Three deliverables and acceptance evidence
+
+| Priority | Deliverable | Closure evidence | Current boundary |
+|---|---|---|---|
+| 1 | Verifiable history and risk limits | Independently supported opening inventory, all relevant movements, exact valued fills, and a reproducible loss-streak reconstruction | Source availability and lower historical boundary remain unproved |
+| 2 | Execution qualification | Source-bound order identities, complete quantities and fees, terminal states, protection, cancellation, and supported execution timing | Synthetic behavior is checked; empirical qualification remains open |
+| 3 | New strategy evaluation | Frozen candidate and control, causal future sources, justified budget, absolute and paired criteria, then disjoint confirmation | Protocol remains a proposal; launch is not authorized |
+
+For priority 1, first locate an original exchange export without importing or publishing its contents.
+Identify whether trades outside SOLUSDT or non-trade movements affect opening inventory before extending source scope.
+Retain the existing ledger and import boundary; never fabricate a zero opening balance or reset the loss streak.
+Review exact risk-limit amounts and the missing symbol CAP separately before any future execution approval.
+See the [bounded collection proposal](HISTORICAL_SOURCE_COLLECTION_PLAN.md); this review does not implement or invoke its future collector.
+
+For priority 2, retain the [qualification checklist](BASELINE_EXECUTION_QUALIFICATION.md#qualification-closure-checklist-2026-09-24) and pair runtime with replay evidence.
+The earlier maker and STOP failures remain unresolved historical evidence; their artifacts were not reread during this check.
+Require an exact artifact review before selecting a new venue test or attributing the historical failures to a specific cause.
+Do not repeat paid attempts merely to obtain a passing result.
+An account-identity match alone cannot authenticate historical fills, reconstruct inventory, or establish causal price availability.
+
+For priority 3, retain the [proposed research protocol](BASELINE_ENTRY_RESEARCH_PROTOCOL.md) without inventing sample counts or acceptance thresholds.
+The proposed positive-flow candidate is unvalidated; v23 and outcome-informed sources remain excluded from independent confirmation.
+Complete the execution-input contract before the sensitivity-based budget memo and preregistration review.
+Do not access new study outcomes, tune parameters, create a cohort, or promote a candidate under this preparation boundary.
+
+### Completed checks and next required input
+
+The selected local synthetic suite passes: 290 tests on 2026-09-27, with dotenv loading disabled.
+It covers risk-history rejection, effective limits, partial settlement, journal restart behavior, replay exits, account-binding claims, and causal commission boundaries.
+These focused results establish tested behavior, not complete history, empirical qualification, a release PASS, or positive strategy expectancy.
+No code or production configuration changes accompany this review; earlier architecture verification remains a separate result.
+
+The operator subsequently chooses bounded API collection instead of manual export preparation.
+The [local collector](HISTORICAL_SOURCE_COLLECTION_PLAN.md#local-implementation-2026-09-27) now passes synthetic verification, without real collection or accounting import.
+The next task is protected launcher and credential-scope review, followed by exact collection authorization after release verification.
+The history launcher now uses a clean interpreter, bounded anonymous stdin, fixed status fields, and an outer process timeout.
+The operator agrees to the separate diagnostic scope: at most three GET requests and 35 seconds.
+The exact registration, protected credential source, and approved code revision remain prerequisites; no live diagnostic or history collection occurs.
+Current local operator checks pass: 5254 tests, two skips, compilation, five safety audits, secret scanning, and Semgrep.
+The custody locations and method are approved; the offline operator command is now implemented locally, but production enrollment remains absent.
+Its synthetic host, command, recovery, and registration checks pass: 117 tests; actual operator input and recovery remain unverified.
+Release verification and exact activation review remain required; the command does not launch exchange diagnostics or historical collection.
+The aggregate local profile remains BLOCKED by candidate release continuity and dependent architecture checks; this is not release or trading admission.
+Keep the historical cutoff and unresolved opening inventory explicit; collection does not establish complete history automatically.
+Do not send UID, credentials, private source contents, or recovery keys through chat or Git.
+The existing encrypted diagnostic covers one order and cannot replace the missing historical source coverage.
+Keep all three deliverables BLOCKED until their required evidence is established; do not substitute more unattended waiting.
+
+## Historical readiness: 2026-09-24
 
 Read-only observations start at 13:22 UTC on 2026-09-24.
 The Pi runs release `2.20.345`, commit `71a031d70181a54312028de8bea88176704c8630`.

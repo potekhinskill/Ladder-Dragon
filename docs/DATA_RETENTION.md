@@ -1,5 +1,34 @@
 # Data retention
 
+## Operator account enrollment
+
+An enrollment is an authoritative operator assertion of the intended account and credential scope, not authenticated exchange history.
+The local writer uses one exclusive `account-enrollment-v1/enrollment.age` slot on the verified external mount.
+The plaintext claim is limited to 4096 bytes in memory; the persistent encrypted file is limited to 16 KiB.
+It contains no API credential pair; ordinary logs, Git, status pages, and plaintext backups must contain no UID or claim contents.
+Retain the encrypted assertion indefinitely until explicit review, including failed or interrupted ciphertext writes.
+Preserve the separately retained random reference and pinned recovery recipient; verify operator recovery before diagnostic use.
+No automatic replacement, archival deletion, rotation, recurring writer, or maintenance task is introduced.
+An occupied slot blocks creation; no recovery or retention operation removes existing account, fill, journal, or lifecycle evidence.
+The offline operator command uses sealed anonymous memory for the recovery identity and creates no temporary plaintext loader file.
+Descriptors close after recovery; parent-death signals terminate age children if the isolated worker terminates.
+The command rejects disk-backed swap and unsafe core-dump settings before private input; it does not guarantee physical memory erasure.
+The temporary RAM loader file for a future diagnostic remains planned and requires separate activation review.
+The local writer does not authorize production activation or automatic reuse of a potentially revoked reference.
+
+## Historical source claims
+
+The historical SOL collector creates authoritative unresolved source claims, not accepted accounting records or evidence of complete history.
+One exclusive `historical-sol-source-v1` slot holds one encrypted `bundle.fernet`, bounded to 16 MiB on an external mount.
+It contains at most twenty pages of 200 received records, two clock responses, bindings, hashes, and a signature.
+Plaintext source data and keys exist only in process memory; this does not guarantee erasure or protection from host swap.
+Retain the package and independent trust registration indefinitely until explicit source review.
+Preserve encrypted key recovery under the existing backup policy before production activation.
+Never stage plaintext exports in ordinary backups, logs, Git, or the Pi system storage.
+The collector schedules no maintenance and performs no rotation or deletion.
+An occupied slot or insufficient headroom blocks another run; do not free capacity by removing unresolved evidence.
+Keep empty reserved slots and interrupted ciphertext after failure; any later disposition requires separate approval.
+
 The project stores operational data in SQLite databases. Each database has a
 specific safety class. Do not use one retention rule for all databases.
 

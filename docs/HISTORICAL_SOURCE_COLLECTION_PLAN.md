@@ -1,8 +1,97 @@
 # Historical source collection plan
 
 Prepared: 2026-09-16.
-Status: planned, not implemented or authorized for collection.
-The operator authorizes preparation and release deployment, not another private request or accounting import.
+Status: local collector implementation; production collection remains unauthorized.
+Current authorization covers local implementation and synthetic verification, not publication, deployment, private requests, or accounting imports.
+
+## Local implementation: 2026-09-27
+
+`strategy/history_pages.py` validates complete pages before cursor advancement, with exact decimals, strict identities, commissions, sequence, and receipt intervals.
+`strategy/history_capture.py` connects the existing read-only signing adapter to sequential SOLUSDT requests with fixed limits.
+`strategy/history_archive.py` signs source claims under a separate domain and encrypts them before any file write.
+`strategy/history_capture_process.py` requires explicit caller opt-in and bounds the child process, including blocked operating-system DNS.
+The default process entry returns `AUTHORIZATION_REQUIRED` without creating a process or making a request.
+No CLI, service, scheduler, credential discovery, source import, or automatic production caller is added.
+
+The implementation starts at `fromId=0` and preserves the exclusive cutoff stated below.
+It does not combine `fromId` with time filters; cutoff classification occurs after complete page validation.
+The current official account API documents inclusive `fromId` pagination and a maximum page size of 1000.
+This collector retains the stricter 200-row page and twenty-page limits.
+A short page or observed cutoff is a stopping observation, not proof of complete exchange retention or opening inventory.
+Reaching twenty pages reports `LIMIT_REACHED`, even if the last page also observes the cutoff.
+
+The process timeout is at most 150 seconds, followed by termination and reap handling.
+Operating-system process creation and reaping prevent a hard real-time completion guarantee.
+Cooperative response limits cannot interrupt blocked DNS alone; the process wrapper remains mandatory for any future activation.
+The wrapper starts a clean isolated Python interpreter with an explicit environment and closed inherited file descriptors.
+Bounded anonymous stdin carries validated private inputs; credentials never enter command arguments or temporary plaintext files.
+The returned status has strict fields, value limits, and fixed failure codes; provider text is rejected.
+Use a separately reviewed single-purpose launcher for production; host isolation and protected credential loading remain activation prerequisites.
+This implementation does not guarantee memory erasure, disable host swap, or establish independent account ownership.
+
+Storage uses one new exclusive `historical-sol-source-v1` directory on a verified external mount.
+It requires an owner-controlled parent, an owner-only slot, and sufficient free space before retrieval.
+An unsuccessful retrieval can leave an empty reserved slot; an interrupted write retains its ciphertext.
+No retry reuses the slot, and no automatic cleanup removes it.
+See [retention](DATA_RETENTION.md#historical-source-claims) for capacity and preservation requirements.
+
+Both archive validation and returned status retain `history_complete=false`, `private_fills_authenticated=false`, and `replay_allowed=false`.
+Signatures and exact hashes bind claims; they do not prove historical account association or order-level completeness.
+Keys, independent registration, recovery verification, credential permissions, and shared rate-limit capacity require separate review before real collection.
+The current implementation has no private-network activation in this task.
+
+Initial collector verification: 66 new regressions and 165 focused collector and archive tests pass.
+After process isolation, the full suite passes with 5137 tests and two skips.
+Compilation, five safety audits, secret scanning, and Semgrep pass.
+Real synthetic child-process tests verify default refusal, timeout termination, and reaping without exchange access.
+Storage regressions preserve occupied slots, interrupted ciphertext, and false admission flags after signed-claim substitution attempts.
+The current local artifact is `.runtime/verification-local-2.20.349-history-isolation.json`.
+Its aggregate status remains BLOCKED by candidate release continuity and dependent architecture checks; it is not a release PASS.
+Separate diagnostic comparison against HEAD finds no new cycles or mandatory size violations.
+Production use still requires reviewed protected integration and an unchanged signed-candidate release profile.
+
+## Protected-launch review: 2026-09-27
+
+This review checks existing local components; it does not create credentials, enrollment records, a production launcher, or network authority.
+The protected enrollment loader verifies bounded regular files, ownership, permissions, immutable metadata, and an independently supplied reference.
+The account diagnostic compares the supplied key scope with that enrollment before any request.
+It rejects absent permissions, missing read permission, and every supported mutation permission.
+Its isolated interpreter receives credentials through anonymous stdin, with a restricted environment and a 35-second outer deadline.
+The Ed25519 loader independently checks protected file access and the pinned public-key fingerprint.
+
+Selected synthetic tests pass: 238 account-binding, diagnostic, process, and signing-credential tests.
+These results do not verify the current production key, its permission set, or the existence of an approved enrollment record.
+No private file values or live account responses were read for this review.
+
+### Request budgets remain separate
+
+| Stage | Proposed authority | Requests | Deadline |
+|---|---|---|---|
+| Account and key diagnostic | Separate approval; compare the independently enrolled account and current read-only key permissions | At most three GET requests: time, account, and API restrictions | 35 seconds |
+| Historical source collection | Existing bounded proposal; only time and SOLUSDT trade pages | At most 22 GET requests | 150 seconds plus bounded termination handling |
+
+The diagnostic uses `/api/v3/time`, `/api/v3/account`, and `/sapi/v1/account/apiRestrictions`.
+Account and permission endpoints are outside the history collector's current allowlist and must not consume an undocumented extra budget.
+Executing both stages could require 25 requests; the existing 22-request proposal does not authorize that combined operation.
+Do not run collection automatically after a diagnostic match; preserve separate consent and shared rate-limit capacity checks.
+The result remains `DIAGNOSTIC_MATCH_ONLY`, not historical account authentication, complete history, or replay admission.
+
+### Clean-interpreter implementation: 2026-09-27
+
+The isolated subprocess replaces the fork wrapper; it does not provide an operating-system sandbox or independent authority.
+The operator agrees to the separate diagnostic scope of three GET requests and 35 seconds.
+No request runs before verification of the exact registration, credential source, and approved code revision.
+History collection does not follow a diagnostic automatically.
+Focused isolation, collector, and diagnostic-process tests pass: 142 tests, with synthetic keys and no exchange access.
+
+### Remaining protected integration
+
+A production launcher still needs reviewed credential delivery, independent enrollment reference, registration, encrypted key recovery, and host restrictions.
+Do not derive the expected account identity from the same response that is supposed to verify it.
+Do not rediscover credentials by scanning environment files or silently reuse the old diagnostic registration.
+Pin the reviewed code, exact external destination, current credential scope, and appropriate request budget in each activation approval.
+The operator subsequently approves the [enrollment custody locations](BASELINE_ENTRY_RESEARCH_PROTOCOL.md#concrete-custody-proposal-2026-09-27).
+Local creation components do not create a production trust assertion or activate collection.
 
 ## Objective and boundaries
 
@@ -30,7 +119,7 @@ Missing source records remain an explicit blocker; no estimated purchases or zer
 
 ## Proposed bounded trade retrieval
 
-This is a future collector specification, not an available command.
+This contract is implemented as local library components, not an available production command.
 The existing private collector accepts up to eight order-bound packets, not a paginated full-history export.
 Do not increase its limits or reinterpret its output as complete account history.
 
@@ -88,7 +177,7 @@ Run the complete code verification and release profiles before any approved prod
 
 ## Next authorization boundary
 
-The next local task is the collector implementation with synthetic tests, after review of this scope.
+The next activation task is a protected host launcher review after complete local verification.
 A later collection request must name its signed SHA, exact destination, trusted registration, credential scope, and the limits above.
 Do not start collection from a general release or Pi-update authorization.
 See the [readiness review](READINESS_RECOVERY_REVIEW.md) for the unresolved trading gates.

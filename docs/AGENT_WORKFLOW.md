@@ -31,6 +31,7 @@ For net inventory, preserve [durable settlement revalidation](../DECISIONS.md#20
 For canceled protection, preserve [separate cancellation and closure evidence](../DECISIONS.md#2026-09-25--reconcile-stale-protection-without-inventing-closure).
 For replay commissions, preserve [the distinction between scenarios and evidence](../DECISIONS.md#2026-09-13--separate-fee-scenarios-from-historical-fee-evidence).
 For private-source export, preserve [the separation between encrypted claims and retrieval authority](../DECISIONS.md#2026-09-15--keep-encrypted-source-claims-separate-from-retrieval-authority).
+For private recovery, review [descriptor and child-process lifetime](../DECISIONS.md#2026-09-28--bound-private-recovery-across-child-processes) before accepting a parent timeout.
 For transport diagnostics, preserve [safe fields and stable alert identity](../DECISIONS.md#2026-09-10--separate-transport-diagnostics-from-provider-exception-text).
 For failure diagnosis, preserve [safe stages and historical uncertainty](../DECISIONS.md#2026-09-23--preserve-safe-failure-stages-without-inferring-historical-causes).
 For updater bootstrap changes, preserve [shell failure propagation](../DECISIONS.md#2026-09-24--keep-updater-bootstrap-outside-conditional-invocation).

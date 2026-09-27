@@ -1,5 +1,14 @@
 # Engineering decisions
 
+### 2026-09-28 — Bound private recovery across child processes
+
+- **Context:** a worker timeout alone does not bound inherited private descriptors in surviving cryptographic children.
+- **Decision:** use sealed anonymous memory, checked Linux parent-death signals, and a single-threaded child setup with a parent-race check.
+- **Guards:** reject disk-backed swap, unsafe core-dump settings, and privileged executable transitions before private input.
+- **Evidence:** synthetic tests cover host rejection, child setup, timeout reaping, descriptor closure, and recovery before ciphertext persistence.
+- **Reuse:** verify the complete private-data lifetime, not only the parent timeout; preserve interrupted ciphertext and keep retrieval authority separate.
+- **Limits:** local tests do not prove operator identity, password-manager provenance, physical memory erasure, or production recovery.
+
 ### 2026-09-25 — Preserve live bindings when extracting dashboard routes
 
 - **Context:** route factories can retain obsolete cache, lock, path, or reader values if they copy startup dependencies.

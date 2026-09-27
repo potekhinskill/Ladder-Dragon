@@ -2,7 +2,8 @@
 
 ## Status and scope
 
-Status: IN PROGRESS. Source inventories, scoped enforcement, registered command ownership, and initial dashboard route extraction are implemented locally.
+Status: IN PROGRESS. Source inventories, scoped enforcement, registered command ownership, and all reviewed dashboard HTTP handlers are implemented locally.
+Internal service decomposition and whole-phase acceptance remain incomplete.
 Architecture moves preserve behavior; separate functional fixes in the working candidate remain outside this plan's progress count.
 Review date: 2026-09-09. Source baseline: v2.20.335, commit `06c2f4f5a24cf920d4a1a03330aafb7c45d3e2c6`.
 The review covers tracked source, tests, deployment files, package metadata, and current architecture controls.
@@ -548,6 +549,166 @@ After publication, use the reviewed deployment recovery procedure or a new signe
 Do not hand-edit production databases or restore old schemas to make a source rollback appear compatible.
 
 ## 10. Implementation record
+
+### Twenty-eighth five-step P2 slice — 2026-09-27
+
+Review conclusion: move AI-reporting services without changing their calculations or cache lifetime.
+These five steps cover four service boundaries and their required composition, not five HTTP operations.
+
+| Step | Boundary | Implementation |
+|---|---|---|
+| 1 | Reporting cache | `services/ai_report_cache.py` owns locked reads, TTL expiry, copies, and bounded eviction |
+| 2 | Usage reads | `services/ai_usage.py` owns existing UTC-day totals and error reporting |
+| 3 | SQL aggregates | `services/ai_aggregates.py` owns existing closed-evidence and knowledge counters |
+| 4 | Calibration | `services/ai_calibration.py` owns existing confidence buckets and displayed accuracy |
+| 5 | Composition and enforcement | Seven live dependencies, canonical partial bindings, required harness controls, and regressions accompany relocation |
+
+All five function fingerprints reproduce their original implementations after reversing dependency qualification.
+Runtime retains cache storage and callbacks; the adapter resolves replacements without copying initial values.
+Required local and release checks reject missing owners, forwarding stubs, reverse imports, incorrect bindings, copied namespaces, and widened dependency scope.
+Synthetic tests exercise cache locks, TTL boundaries, eviction, UTC selection, Decimal costs, and authenticated reporting through real SQLite reads.
+Existing SQL, evidence eligibility, calibration thresholds, and financial presentation remain unchanged.
+The 92-line aggregate function exceeds the advisory warning but remains below the mandatory limit.
+Review retains one coherent aggregate read boundary without a threshold increase or exception.
+Dashboard runtime decreases from 2026 to 1851 lines, with the same enforced budget.
+No startup acceleration is claimed from this relocation.
+
+Review also reproduced an existing usage-reporting defect: three fresh errors produce `errors=3` but `recent_errors=1`.
+After the first error, a timestamp string is compared with a datetime; the caught TypeError skips subsequent recent-error increments.
+This can understate dashboard degradation; it is not evidence of production occurrence or permission to trade.
+A characterization test records this defect; correction remains separate from behavior-preserving relocation.
+
+Verification: 5034 tests passed and two skipped; compilation, five safety audits, secret scanning, and Semgrep passed.
+This slice adds 32 regressions; 285 focused dashboard, architecture, security, and deployment-contract tests passed.
+Installed services, live callbacks, authentication, and endpoint composition passed outside the checkout with networking prohibited.
+Package construction used an isolated source copy; no build artifacts entered the repository.
+Ownership, route-group contracts, reporting-service contracts, references, source surfaces, and service links passed.
+Diagnostic comparison against HEAD found no new cycles or mandatory size violations; this is not signed release evidence.
+The overall local profile remains BLOCKED by candidate release continuity and dependent cycle and size checks.
+The local artifact is `.runtime/verification-local-2.20.349-ai-reporting-five.json`.
+Final documentation checks follow unchanged-code verification; publication still requires the complete signed-candidate release profile.
+Local completion is 5/5, or 100%, for this slice; release readiness remains separate.
+The candidate remains version 2.20.349; publication, Raspberry Pi changes, and trading authorization are outside this scope.
+Dashboard handler extraction remains 17/17, and reviewed CLI coverage remains 73/73.
+Neither metric measures the entire program; strict whole-phase closure remains 0/8.
+Next: correct the separately identified reporting defect, then review remaining service ownership and application composition.
+
+### Twenty-seventh five-step P2 slice — 2026-09-27
+
+Review conclusion: split AI-status data reads, runtime interpretation, and policy presentation before relocating the remaining handler.
+The five steps cover one endpoint and its component boundaries, not five new HTTP operations.
+
+| Step | Boundary | Completed implementation |
+|---|---|---|
+| 1 | Read-only decisions | `dashboard/ai_status_reader.py` owns existing SQLite queries, schema compatibility, knowledge counters, and retrieval links |
+| 2 | Runtime context | `dashboard/ai_status_context.py` owns existing mode, budget-source, age, and stale interpretation |
+| 3 | Policy presentation | `dashboard/ai_status_policy.py` owns displayed budget exhaustion, degraded reasons, and status selection |
+| 4 | HTTP composition | `dashboard/routers/ai.py` preserves the endpoint, bounded result count, safe SQLite failure, and response payload |
+| 5 | Required enforcement | Fifteen live dependencies, component contracts, regressions, and the reduced runtime budget accompany the move |
+
+Reassembly of the component syntax reproduces the original handler fingerprint, including SQL text, conditions, constants, and response fields.
+The reader retains SQLite URI read-only mode and transaction-context boundaries; this move adds no database writer.
+The route retains sanitized HTTP 503 before usage processing when SQLite reads fail.
+Existing financial evidence eligibility, calibration formulas, Decimal budget comparisons, and policy-reason order remain unchanged.
+The dependency adapter resolves current paths, readers, clocks, and configuration; it is not a security sandbox.
+Required local and release checks reject missing components, forwarding stubs, changed inputs, unguarded reads, copied namespaces, duplicate routes, and reverse imports.
+The 91-line reader and 92-line router factory exceed advisory size warnings but remain below mandatory limits.
+Manual review retains one database read boundary and one response composition boundary; no threshold increase or exception is introduced.
+Dashboard runtime decreases from 2250 to 2026 lines, with the same enforced budget.
+Verification: 5002 tests passed and two skipped; compilation, five safety audits, secret scanning, and Semgrep passed.
+This slice adds 39 regressions; 253 focused dashboard, architecture, security, and deployment-contract tests passed.
+The installed endpoint passes authentication, live defaults, missing-database, and disabled-status checks outside the checkout with networking prohibited.
+Package construction uses an isolated source copy; no build artifacts enter the repository.
+Ownership, all seven route-group checks, references, source surfaces, and service links passed.
+Diagnostic comparison against HEAD found no new cycles or mandatory size violations; this comparison is not signed release evidence.
+The overall local profile remains BLOCKED by candidate release continuity and dependent cycle and size checks.
+The local artifact is `.runtime/verification-local-2.20.349-ai-status-five.json`.
+Final documentation checks follow unchanged-code verification; publication still requires a complete signed-candidate release profile.
+
+Local completion is 5/5, or 100%, for this slice; release readiness remains separate.
+Dashboard handler extraction covers 17/17 HTTP operations, or 100%; this milestone does not complete dashboard service decomposition.
+Reviewed CLI coverage remains 73/73, or 100%; neither metric measures the entire program.
+Strict whole-phase closure remains 0/8; application composition, internal services, shared ownership, and broader acceptance criteria remain open.
+Next: review remaining dashboard service boundaries and their runtime dependencies before another bounded extraction.
+The unpublished candidate remains version 2.20.349; no publication, Raspberry Pi operation, or trading authorization accompanies this change.
+
+### Twenty-sixth five-step P2 slice — 2026-09-27
+
+Review conclusion: separate the dashboard access boundary without changing credentials, trust decisions, checks, or middleware order.
+Five steps cover one HTTP operation and its shared access policy; they do not represent five new endpoints.
+
+| Step | Boundary | Completed implementation |
+|---|---|---|
+| 1 | Client identity | Move parsed loopback checks and trusted forwarded-address selection to `dashboard/access_policy.py` |
+| 2 | Bucket pruning | Move expired-client cleanup while retaining application storage and the caller-held lock |
+| 3 | Access middleware | Move authentication, rate limiting, and request-forgery checks behind nine declared live bindings |
+| 4 | CSRF endpoint | Register the concrete security router with a separate one-field token interface |
+| 5 | Permanent enforcement | Require canonical composition and owner contracts, negative tests, and the reduced runtime budget |
+
+Token generation, rate buckets, locks, and configuration remain application-owned.
+The live access adapter hides values from its representation; it is not a security sandbox.
+Original-source fingerprints verify all five relocated functions after reversal of explicit interface changes.
+Synthetic HTTP tests cover replaced tokens and resources, unconfigured authentication, proxy rejection, rate limits, and CSRF checks before consumer execution.
+Required local and release contracts reject missing owners, copied namespaces, detached middleware, forwarders, duplicate routes, changed methods, and reverse imports.
+These structural contracts complement behavior regressions; they do not prove arbitrary runtime rebinding safe.
+No financial formula, schema, evidence, deployment behavior, or execution permission changes.
+Dashboard runtime decreases from 2340 to 2250 lines, with the same reduced enforced budget.
+Verification: 4963 tests passed and two skipped; compilation, five safety audits, secret scanning, and Semgrep passed.
+This slice adds 42 regressions; 256 focused security, dashboard, architecture, and deployment-contract tests passed.
+The installed application passes authentication, token replacement, and rejected and accepted synthetic POST checks outside the checkout with networking prohibited.
+Package construction uses an isolated source copy and introduces no build artifacts into the repository.
+Ownership, all six route-group checks, references, source surfaces, and service links passed.
+Diagnostic comparison against HEAD found no new cycles or mandatory size violations; this comparison is not signed release evidence.
+The overall local profile remains BLOCKED by candidate release continuity and dependent cycle and size checks.
+The local artifact is `.runtime/verification-local-2.20.349-access-boundary-five.json`.
+Final documentation checks follow unchanged-code verification; publication still requires a complete signed-candidate release profile.
+
+Local completion is 5/5, or 100%, for this slice; release readiness remains separate.
+Dashboard handler extraction covers 16/17 HTTP operations, or 94.1%; service decomposition remains incomplete.
+Reviewed CLI coverage remains 73/73, or 100%; neither metric represents whole-program completion.
+Strict whole-phase closure remains 0/8; AI-status, internal services, and broader phases remain open.
+Next: decompose the large AI-status handler into reviewed data and presentation owners before moving its route.
+The unpublished candidate remains version 2.20.349; no publication, Raspberry Pi operation, or trading authorization accompanies this change.
+
+### Twenty-fifth five-step P2 slice — 2026-09-26
+
+Review conclusion: extract summary presentation while retaining canonical accounting and cached equity behavior.
+The five steps cover one HTTP operation and its integration boundaries, not five routes.
+
+| Step | Boundary | Completed implementation |
+|---|---|---|
+| 1 | Concrete handler | Move `GET /api/trades/summary` into `dashboard/routers/summary.py` |
+| 2 | Live dependencies | Resolve eight declared readers, cache, clock, and response bindings |
+| 3 | Application composition | Register the router once under existing authentication and error middleware |
+| 4 | Behavioral parity | Preserve original syntax, time bounds, symbols, FIFO outputs, deferred refresh, and cleanup |
+| 5 | Required enforcement | Add local and release ownership checks with mutation regressions; reduce the runtime budget |
+
+Financial formulas, source eligibility, equity cache ownership, and execution authority remain unchanged.
+The live interface is an internal composition mechanism, not a security sandbox.
+Negative contracts reject missing owners, copied namespaces, forwarding handlers, changed methods, duplicate routes, and reverse imports.
+Authenticated synthetic checks exercise dependency replacement after composition and failure cleanup without exchange access.
+The handler retains its original 90-line body; its factory spans 95 lines.
+Both exceed the advisory size warning but remain below the mandatory limit.
+Manual review confirms one response composition boundary; no size exception or threshold increase is introduced.
+Dashboard runtime decreases from 2427 to 2340 lines, with the same reduced enforced budget.
+
+Verification: 4921 tests passed and two skipped; compilation, five safety audits, secret scanning, and Semgrep passed.
+This slice adds 28 regressions; 156 focused dashboard, security, and architecture tests passed.
+After correction of a missing license header, 114 deployment-contract and summary tests passed before the complete rerun.
+The installed endpoint passes authentication, live-binding, response, and cleanup checks outside the checkout with networking prohibited.
+The wheel comes from an isolated source copy; no build artifacts enter the repository.
+Ownership, all five extracted route-group checks, references, source surfaces, and service links passed.
+Diagnostic comparison against HEAD found no new cycles or mandatory size violations; this comparison is not signed release evidence.
+The overall local profile remains BLOCKED by candidate release continuity and dependent cycle and size checks.
+The local artifact is `.runtime/verification-local-2.20.349-summary-routes-five.json`.
+Final documentation checks follow the unchanged-code verification run; publication still requires a complete signed-candidate release profile.
+
+Local completion is 5/5, or 100%, for this slice; release readiness is separate.
+Dashboard handler extraction covers 15/17 HTTP operations, or 88.2%; this metric does not measure service decomposition.
+Reviewed CLI coverage remains 73/73, or 100%; neither percentage measures the whole architecture program.
+Strict whole-phase closure remains 0/8; AI-status, request-forgery token, internal services, and broader phases remain open.
+Next: review the two remaining handlers and their service dependencies before extraction.
+No publication, Raspberry Pi update, or trading authorization accompanies this change.
 
 ### Twenty-fourth five-step P2 slice — 2026-09-26
 
@@ -1529,7 +1690,7 @@ Compileall and five safety audits pass; fresh-process import tests preserve resu
 |---|---|---|---|---|
 | P0 | In progress: Python, store anchors, source surfaces | Local candidate | Scoped command output | Complete writers and reference edges pending |
 | P1 | In progress: scoped ownership, references, and surfaces | Local candidate | Required harness checks and mutation tests | Graph, capability, and parity rules pending |
-| P2 | Commands: 73/73 (100%); extracted dashboard operations: 14/17 (82.4%) | Local candidate | Syntax parity, authenticated routes, live bindings, harness rejection | Remaining dashboard handlers, service ownership, and internal decomposition pending |
+| P2 | Commands: 73/73 (100%); extracted dashboard operations: 17/17 (100%) | Local candidate | Syntax parity, authenticated routes, live bindings, harness rejection | Service ownership, application composition, and internal decomposition pending |
 | P3 | Pending | Not implemented | None | Not inventoried |
 | P4 | Pending | Not implemented | None | Not inventoried |
 | P5 | Pending | Not implemented | None | Not inventoried |

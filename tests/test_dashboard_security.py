@@ -416,7 +416,7 @@ def test_trade_summary_separates_net_earnings_from_portfolio_change(monkeypatch)
                     "method": "balances+klines", "equity_assets": ["SOL", "USDT"]},
     }
 
-    payload = json.loads(module.trades_summary().body)
+    payload = TestClient(module.app).get('/api/trades/summary', headers={'Authorization': 'Bearer test-secret-token'}).json()
 
     assert payload["net_pnl_usdt"] == -12.26
     assert payload["realized_pnl_usdt"] == -12.26

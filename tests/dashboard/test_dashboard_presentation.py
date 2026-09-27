@@ -90,7 +90,7 @@ def test_dashboard_renders_one_concise_operational_position_summary():
 
 def test_dashboard_labels_virtual_rag_as_archived_only():
     index = dashboard_source()
-    source = Path("ladder_dragon/dashboard/runtime.py").read_text(encoding="utf-8")
+    source = Path("ladder_dragon/dashboard/services/ai_aggregates.py").read_text(encoding="utf-8")
 
     assert "RAG real / archived virtual / retrievals" in index
     assert "knowledge.archived_virtual_documents" in index
@@ -393,7 +393,9 @@ def test_dashboard_rate_limit_prunes_expired_client_keys(monkeypatch):
     module._RATE_BUCKETS["active"].append(100.0)
 
     with module._RATE_LOCK:
-        module._prune_rate_buckets(120.0)
+        from ladder_dragon.dashboard.access_policy import _prune_rate_buckets
+        from ladder_dragon.dashboard.security_dependencies import AccessState
+        _prune_rate_buckets(AccessState(vars(module)), 120.0)
 
     assert "expired" not in module._RATE_BUCKETS
     assert list(module._RATE_BUCKETS["active"]) == [100.0]

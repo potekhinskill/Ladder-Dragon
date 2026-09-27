@@ -27,10 +27,41 @@ Help output is the authoritative option reference.
 | `audit_semantic_authorities` | rejects copied or divergent financial semantics and indicator implementations |
 | `audit_user_stream_soak` | checks the current reviewed epoch for duration, stability, and events |
 | `check_technical_english` | checks current guides against the project writing profile |
+| `account_enrollment` | creates one encrypted operator claim or verifies its recovery offline; explicit confirmation and public pins are required |
 | `semgrep_scan` | tests local Semgrep rules or scans production Python paths |
 | `production_soak_report` | builds a sanitized non-mutating soak report |
 | `record_bnb_public` | records bounded public BNBUSDT observations in two exclusive external slots, with optional pinned-credential signing; never authorizes replay |
 | `testnet_soak_monitor` | monitors Testnet safety with bounded source retries |
+
+### Offline enrollment command
+
+WARNING: Never supply a UID or private recovery identity through chat, arguments, environment variables, or redirected plaintext files.
+The command requires an interactive operator terminal and a separately reviewed release and activation scope.
+Inspect its options without private input:
+
+```bash
+PYTHON_DOTENV_DISABLED=1 .venv/bin/python -m bin.account_enrollment --help
+```
+
+| Option | Contract |
+| --- | --- |
+| `--mode` | `create` makes one exclusive encrypted assertion; `verify` checks existing recovery without writes |
+| `--confirmed` | permits this one offline operation; omission blocks execution |
+| `--expected-code-sha` | exact reviewed 40-character checkout SHA |
+| `--expected-scope` | independently reviewed dashboard credential-scope digest |
+| `--recipient`, `--recipient-sha256` | independently pinned public age recipient and its SHA-256 digest |
+| `--reference`, `--ciphertext-sha256` | required independent recovery pins for `verify`; forbidden for `create` |
+
+Creation requests the UID twice and the operator-held age identity through hidden terminal input.
+Verification requests only the recovery identity; neither mode exposes private values in result fields.
+The isolated worker has a 300-second outer timeout; each age invocation has a five-second timeout.
+Host scheduling prevents a hard real-time guarantee.
+Success reports `RECOVERY_VERIFIED_CLAIM`; authentication and replay flags remain false.
+Failure reports `BLOCKED` with a fixed stage; existing or interrupted ciphertext remains preserved.
+No diagnostic, history collection, systemd task, or trade starts automatically.
+See the [custody and activation contract](BASELINE_ENTRY_RESEARCH_PROTOCOL.md#local-operator-command-2026-09-28).
+
+### Harness profiles
 
 The harness supports these profiles:
 

@@ -2,6 +2,7 @@
   "schema_version": 1,
   "scope": "source_surface_inventory_not_interface_parity",
   "files": {
+    "bin/account_enrollment.py": "python_command",
     "FRONT/dashboard.css": "frontend_asset",
     "FRONT/dashboard.js": "frontend_asset",
     "FRONT/help.css": "frontend_asset",

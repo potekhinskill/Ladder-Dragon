@@ -3,6 +3,55 @@
 All notable changes are documented here. Releases use Semantic Versioning; every
 section is dated and there is intentionally no `Unreleased` section.
 
+## [2.20.349] — 2026-09-28
+
+### Added
+- On 2026-09-28, add an explicit offline enrollment command with protected host checks, hidden operator input, and recovery before ciphertext persistence.
+- Add read-only recovery verification with independent reference and ciphertext pins; keep exchange authentication and replay authority false.
+- Restrict isolated workers and age child lifetimes; reject disk-backed swap, unsafe core dumps, changed checkouts, and untrusted credential paths.
+- On 2026-09-27, add local encrypted account-enrollment components, strict hidden input, independent recovery bindings, and exclusive external ciphertext storage.
+- Preserve existing registrations and interrupted writes; add no production activation, credential discovery, diagnostic request, or automatic reference reuse.
+- On 2026-09-27, add local bounded SOLUSDT history collection, exact page validation, encrypted claims, and an opt-in process deadline.
+- Retain false history-completeness, private-authentication, and replay-admission flags; add no production activation or accounting import.
+- Preserve exclusive source slots after failed retrieval or interrupted ciphertext writes; never overwrite previous diagnostics.
+
+### Changed
+- On 2026-09-27, extract AI-reporting cache, usage, SQL aggregates, calibration, and required live composition into reviewed service boundaries.
+- Preserve original function syntax, SQL, cache lifetime, and calculations; reduce the dashboard runtime budget to 1851 lines.
+- Record a pre-existing recent-error undercount for separate correction; this relocation deliberately preserves behavior.
+- On 2026-09-27, separate AI-status SQLite reads, runtime context, policy presentation, HTTP composition, and required component enforcement.
+- Preserve SQL, read-only access, transaction boundaries, Decimal budgets, degraded reasons, and sanitized failures; verify reconstructed original-handler syntax.
+- Complete reviewed HTTP-handler extraction at 17/17; reduce dashboard runtime to 2026 lines without claiming full architectural completion.
+- On 2026-09-27, extract client identity, rate-bucket pruning, access middleware, the CSRF endpoint, and required composition checks.
+- Preserve authentication, trusted-proxy boundaries, request-forgery rejection, live tokens, lock scope, and rate-limit responses.
+- Require security-route ownership in local and release profiles; lower the dashboard runtime budget further to 2250 lines.
+- Extract the trade-summary handler, eight live dependencies, application composition, parity tests, and required ownership checks.
+- Preserve canonical FIFO calculations, deferred equity refresh, authentication, safe database failures, and connection cleanup.
+- Require summary-route contracts in local and release profiles; reduce the dashboard runtime budget from 2427 to 2340 lines.
+- Record five completed implementation steps without claiming five routes or whole-program completion.
+
+### Verified
+- Complete operator candidate checks: 5254 tests passed, two skipped; compilation, five safety audits, secret scanning, and Semgrep passed.
+- The pre-commit aggregate is BLOCKED by release continuity and dependent architecture baselines; no production enrollment or release activation occurs.
+- Operator, host, recovery, and registration checks: 117 passed; adjacent architecture and diagnostic-process checks: 80 passed.
+- Enrollment creation, diagnostic-process, and recovery checks: 105 focused tests passed with synthetic data; production activation remains blocked.
+- On 2026-09-28, the full suite passes with 5183 tests and two skips; compilation, five safety audits, secret scanning, and Semgrep pass.
+- A separate Pi age round trip passes with a synthetic RAM-only identity; no production keys, persistent files, or exchange requests are used.
+- Historical source process isolation: 142 focused tests passed; replace fork inheritance with bounded stdin and a clean interpreter.
+- Current complete suite after process isolation: 5137 passed, two skipped; compilation, five safety audits, secret scanning, and Semgrep passed.
+- Historical source collection before process isolation: 66 new regressions and 165 focused tests passed; full suite: 5100 passed, two skipped.
+- Compilation, five safety audits, secret scanning, and Semgrep passed; no real exchange request or private-source decryption occurred.
+- AI-reporting extraction: 285 focused tests and isolated installed-package checks passed; complete current suite: 5034 passed, two skipped.
+- Compilation, five safety audits, secret scanning, Semgrep, and required reporting-service contracts passed.
+- AI-status extraction: 253 focused tests and isolated installed-package checks passed; complete current suite: 5002 passed, two skipped.
+- Current compilation, five safety audits, secret scanning, Semgrep, and all seven route-group contracts passed.
+- Access extraction: 256 focused tests passed; complete current suite: 4963 passed, two skipped.
+- Current compilation, five safety audits, secret scanning, Semgrep, and installed access-boundary checks passed.
+- Focused dashboard, security, and architecture checks: 156 passed; deployment-contract and summary checks: 114 passed.
+- Complete suite: 4921 passed, two skipped; compilation, five safety audits, secret scanning, and Semgrep passed.
+- The installed summary endpoint passes isolated authentication, live-binding, response, and cleanup checks with networking prohibited.
+- Pre-commit local profiles are BLOCKED by unsigned candidate lineage and dependent architecture checks; the signed candidate requires a complete release-profile PASS.
+
 ## [2.20.348] — 2026-09-26
 
 ### Fixed

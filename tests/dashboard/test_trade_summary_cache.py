@@ -1,4 +1,4 @@
-import json
+from fastapi.testclient import TestClient
 
 from tests.support.module_loaders import load_dashboard
 
@@ -30,7 +30,7 @@ def test_trade_summary_returns_local_totals_while_equity_refreshes(monkeypatch):
         lambda key, loader: (None, "refreshing", None),
     )
 
-    payload = json.loads(module.trades_summary().body)
+    payload = TestClient(module.app).get('/api/trades/summary', headers={'Authorization': 'Bearer test-secret-token'}).json()
 
     assert payload["ok"] is True
     assert payload["total_trades"] == 3

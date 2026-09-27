@@ -6,7 +6,7 @@ Files in `bin/` are stable command-line entry points.
 The `deploy/`, `FRONT/`, and `tests/` directories have separate technical scopes.
 
 See the [Architecture evolution plan](ARCHITECTURE_EVOLUTION_PLAN.md) for proposed ownership changes, migration phases, and permanent harness controls.
-The first ownership slice is implemented; the remaining target structure is still proposed.
+Scoped ownership slices are implemented; the broader target structure remains incomplete.
 
 ## Source ownership gate
 
@@ -18,11 +18,22 @@ The required `architecture_history_routes` check enforces the history router and
 Symbol, recent-trade, and three filled-alias handlers reside in `dashboard/routers/history.py`; `dashboard/history_reader.py` owns the common filled query.
 The required `architecture_control_routes` check enforces advisory-control GET and async POST handlers in `dashboard/routers/control.py`.
 `dashboard/control_snapshot.py` owns presentation; canonical advisory readers and writers retain file semantics, while application middleware retains access controls.
+The required `architecture_summary_routes` check enforces the concrete summary handler and eight live dependencies.
+`dashboard/routers/summary.py` composes existing FIFO results and cached equity; canonical calculations and cache ownership remain unchanged.
+The required `architecture_security_routes` check enforces the CSRF router and access middleware composition.
+`dashboard/access_policy.py` owns client identity, bucket pruning, authentication, rate limits, and request-forgery checks.
+The application retains token generation, bucket storage, locks, and live configuration; the router resolves only the current CSRF token.
+The required `architecture_ai_routes` check enforces AI-status read, context, policy, and HTTP composition owners.
+The concrete handler resides in `dashboard/routers/ai.py`; existing aggregate and calibration services retain their implementations and live interfaces.
 Live binding interfaces resolve current paths, readers, caches, locks, and permitted writers instead of retaining startup copies.
 It is an internal composition interface, not a security sandbox; application authentication remains mandatory.
 Required controls reject detached registration, copied namespaces, changed route methods, duplicate runtime routes, and reverse runtime imports.
-Fourteen of 17 HTTP operations have extracted handlers; low-level services and remaining routes still need decomposition.
-The runtime line budget is 2427 after these extractions.
+All 17 reviewed HTTP operations have extracted handlers; low-level services and application composition still need decomposition.
+AI-reporting cache, UTC usage reads, SQL aggregates, and calibration have concrete owners under `dashboard/services/`.
+Seven live dependencies preserve replaced cache resources and reporting callbacks through canonical runtime composition.
+The required `architecture_ai_reporting` check enforces these boundaries in local and release profiles.
+Relocation preserves existing behavior, including a separately tracked recent-error undercount; it does not approve that defect.
+The runtime line budget is 1851 after these extractions.
 
 The required `architecture_command_ownership` check enforces sixty-nine reviewed commands in local and release profiles.
 Together with four pilot contracts, reviewed ownership covers all 73 registered Python commands; dashboard extraction and internal decomposition remain incomplete.
