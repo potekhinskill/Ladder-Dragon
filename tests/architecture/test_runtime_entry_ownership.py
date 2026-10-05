@@ -18,7 +18,8 @@ from tests.architecture.test_five_audit_extractions import checkout
 
 ROOT = Path(__file__).resolve().parents[2]
 DIGESTS = {
-    "ai_supervisor": "d59da1a3788c1622501028ca61ed26bd9a34be34252695d5d3e3a1e138d285db",
+    # Reviewed journal-status publication; trading call sites are unchanged.
+    "ai_supervisor": "943e09d0de6f309d25452f37712a735d8e79b0ed5b71f74357229ad72731394f",
     "autosize_universal": "2b9ba62ead76cbcb4ececc451c5fb54e0326edd4680d3c71aa10aff63c859313",
 }
 

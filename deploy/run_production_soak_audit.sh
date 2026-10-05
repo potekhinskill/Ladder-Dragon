@@ -28,6 +28,7 @@ case "${ACTION}" in
       -m bin.production_soak_report \
       --runtime /run/mybot/ai_status.json \
       --journal "${PROJECT_DIR}/db/order_intents.sqlite3" \
+      --journal-source runtime \
       --required-hours 24 \
       --required-lifecycles 3 \
       --required-predictions 100 \

@@ -1,5 +1,25 @@
 # Engineering decisions
 
+### 2026-10-05 — Reuse exact statistical training prefixes without caching authority
+
+- **Context:** two runtime profiles identify repeated statistical training and prediction summary queries as SHADOW hotspots.
+- **Decision:** cache only immutable weights for two ordered, finite training prefixes; use exact hexadecimal float keys and fixed fit parameters.
+- **Guards:** retain fresh database reads, later-holdout calibration, current-context prediction, and unchanged execution gates; propagate source failures.
+- **Bounds:** retain at most 2000 ten-feature rows per entry; oversized or nonfinite inputs use the original fit path.
+- **Evidence:** regression tests compare original results and cover changed inputs, mutation isolation, eviction, restart, source failure, and fresh SQL counters.
+- **Retention:** this disposable memory cache has no disk record, archive dependency, or maintenance job; process exit discards it.
+- **Limits:** local timing does not prove lower Pi temperatures or quieter cooling; production rollout requires separate approval.
+
+### 2026-09-29 — Keep journal availability separate from lifecycle counts
+
+- **Context:** a read-only service filesystem can prevent SQLite WAL sidecar creation even when ordinary read-only queries succeed.
+- **Decision:** use explicit, source-bound supervisor telemetry for the isolated periodic audit; retain independent direct reads as the command default.
+- **Guards:** require a separate fresh observation within the current runtime; reject unknown counts and never silently change sources.
+- **Evidence:** synthetic tests cover stale, future, restarted, mismatched, malformed, missing, and unavailable samples without journal fallback.
+- **Retention:** extend existing replace-in-place runtime and report records; add no store, history, maintenance task, or write permission.
+- **Extension, 2026-09-30:** prediction storage failures also produce fresh blocked reports; discard partial reads and close each connection before returning.
+- **Limits:** report evidence does not override strategy, execution, or operator gates; missing SQLite metadata cannot establish a historical failure cause.
+
 ### 2026-09-28 — Bound private recovery across child processes
 
 - **Context:** a worker timeout alone does not bound inherited private descriptors in surviving cryptographic children.

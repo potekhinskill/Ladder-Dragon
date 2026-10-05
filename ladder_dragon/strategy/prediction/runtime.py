@@ -1259,34 +1259,20 @@ class PredictionShadowStore(LegacyEvidenceCadenceMixin):
 
     def summary(self, symbol: str) -> dict[str, object]:
         with self._connect() as connection:
-            decisions = connection.execute(
-                "SELECT COUNT(*) FROM prediction_decisions WHERE symbol=?",
+            decisions, counterfactuals = connection.execute(
+                """SELECT COUNT(*), COUNT(CASE WHEN kind='REANCHOR' THEN 1 END)
+                   FROM prediction_decisions WHERE symbol=?""",
                 (symbol.upper(),),
-            ).fetchone()[0]
-            resolved = connection.execute(
-                """SELECT COUNT(*) FROM prediction_outcomes o
+            ).fetchone()
+            resolved, pending, expired = connection.execute(
+                """SELECT COUNT(CASE WHEN o.outcome_json IS NOT NULL THEN 1 END),
+                          COUNT(CASE WHEN o.resolved_at_ms IS NULL THEN 1 END),
+                          COUNT(CASE WHEN o.terminal_reason='INSUFFICIENT_HISTORY' THEN 1 END)
+                   FROM prediction_outcomes o
                    JOIN prediction_decisions d ON d.decision_id=o.decision_id
-                   WHERE d.symbol=? AND o.outcome_json IS NOT NULL""",
+                   WHERE d.symbol=?""",
                 (symbol.upper(),),
-            ).fetchone()[0]
-            counterfactuals = connection.execute(
-                """SELECT COUNT(*) FROM prediction_decisions
-                   WHERE symbol=? AND kind='REANCHOR'""",
-                (symbol.upper(),),
-            ).fetchone()[0]
-            pending = connection.execute(
-                """SELECT COUNT(*) FROM prediction_outcomes o
-                   JOIN prediction_decisions d ON d.decision_id=o.decision_id
-                   WHERE d.symbol=? AND o.resolved_at_ms IS NULL""",
-                (symbol.upper(),),
-            ).fetchone()[0]
-            expired = connection.execute(
-                """SELECT COUNT(*) FROM prediction_outcomes o
-                   JOIN prediction_decisions d ON d.decision_id=o.decision_id
-                   WHERE d.symbol=? AND
-                         o.terminal_reason='INSUFFICIENT_HISTORY'""",
-                (symbol.upper(),),
-            ).fetchone()[0]
+            ).fetchone()
         return {
             "decisions": int(decisions),
             "resolved_outcomes": int(resolved),

@@ -7,6 +7,7 @@
 from __future__ import annotations
 
 import argparse
+from contextlib import closing
 from datetime import datetime, timezone
 import json
 import os
@@ -28,15 +29,18 @@ def _runtime(path: Path) -> dict[str, Any]:
     return payload
 
 
-def _empty_prediction_counts() -> dict[str, int | bool]:
+def _empty_prediction_counts(reason: str) -> dict[str, Any]:
     return {
-        "resolved": 0,
-        "pending": 0,
-        "pending_future": 0,
-        "pending_settling": 0,
-        "overdue": 0,
-        "expired": 0,
-        "expired_total": 0,
+        "available": False,
+        "reason": reason,
+        "failure_stage": "prediction_read",
+        "resolved": None,
+        "pending": None,
+        "pending_future": None,
+        "pending_settling": None,
+        "overdue": None,
+        "expired": None,
+        "expired_total": None,
         "backlog_verifiable": False,
     }
 
@@ -47,16 +51,32 @@ def _prediction_counts(
     now_ms: int,
     soak_started_ms: int,
     maximum_settlement_delay_sec: int,
-) -> dict[str, int | bool]:
+) -> dict[str, Any]:
+    """Discard partial evidence on storage failure and still emit a blocked report."""
+    try:
+        return _read_prediction_counts(
+            path, now_ms=now_ms, soak_started_ms=soak_started_ms,
+            maximum_settlement_delay_sec=maximum_settlement_delay_sec,
+        )
+    except sqlite3.Error:
+        return _empty_prediction_counts("prediction_sqlite_unavailable")
+    except OSError:
+        return _empty_prediction_counts("prediction_filesystem_unavailable")
+
+
+def _read_prediction_counts(
+    path: Path, *, now_ms: int, soak_started_ms: int,
+    maximum_settlement_delay_sec: int,
+) -> dict[str, Any]:
     if not path.exists():
-        return _empty_prediction_counts()
-    with sqlite3.connect(f"file:{path}?mode=ro", uri=True, timeout=2) as con:
+        return _empty_prediction_counts("prediction_database_missing")
+    with closing(sqlite3.connect(f"file:{path}?mode=ro", uri=True, timeout=2)) as con:
         columns = {
             str(row[1])
             for row in con.execute("PRAGMA table_info(prediction_outcomes)")
         }
         if not columns:
-            return _empty_prediction_counts()
+            return _empty_prediction_counts("prediction_schema_unavailable")
         resolved = int(con.execute(
             "SELECT COUNT(*) FROM prediction_outcomes "
             "WHERE outcome_json IS NOT NULL"
@@ -72,7 +92,7 @@ def _prediction_counts(
             "terminal_reason",
         }
         if not backlog_columns.issubset(columns):
-            counts = _empty_prediction_counts()
+            counts = _empty_prediction_counts("prediction_schema_incomplete")
             counts.update({"resolved": resolved, "pending": pending})
             return counts
         overdue_before_ms = now_ms - maximum_settlement_delay_sec * 1000
@@ -103,6 +123,9 @@ def _prediction_counts(
             (soak_started_ms,),
         ).fetchone()[0])
     return {
+        "available": True,
+        "reason": None,
+        "failure_stage": None,
         "resolved": resolved,
         "pending": pending,
         "pending_future": pending_future,
@@ -112,6 +135,43 @@ def _prediction_counts(
         "expired_total": expired_total,
         "backlog_verifiable": True,
     }
+
+
+def _lifecycle_evidence(
+    runtime: dict[str, Any], path: Path, source: str, now: float,
+) -> dict[str, Any]:
+    """Never turn unavailable evidence into zero or silently change sources."""
+    result = {"source": source, "available": False,
+              "closed_exact": None, "reason": "journal_unavailable"}
+    if source == "database":
+        journal = read_order_journal_telemetry(path)
+    elif source == "runtime":
+        journal = runtime.get("order_journal")
+        if not isinstance(journal, dict):
+            return {**result, "reason": "runtime_journal_missing"}
+        try:
+            # The outer heartbeat alone does not refresh the journal sample.
+            stamps = [datetime.fromisoformat(value) for value in (
+                runtime["started_at"], journal["observed_at"], runtime["updated_at"]
+            )]
+            if any(stamp.tzinfo is None for stamp in stamps):
+                raise ValueError("unqualified clock")
+            started, observed, updated = (stamp.timestamp() for stamp in stamps)
+            if not started <= observed <= updated <= now or now - observed > 90:
+                return {**result, "reason": "runtime_journal_stale"}
+            if journal["source_path"] != str(path.absolute()):
+                return {**result, "reason": "runtime_journal_source_mismatch"}
+        except (KeyError, TypeError, ValueError, OverflowError, OSError):
+            return {**result, "reason": "runtime_journal_invalid"}
+    else:
+        raise ValueError("unknown journal source")
+    if journal.get("available") is not True:
+        return result
+    lifecycle = journal.get("lifecycle")
+    exact = lifecycle.get("closed_exact") if isinstance(lifecycle, dict) else None
+    if type(exact) is not int or exact < 0:
+        return {**result, "reason": "journal_count_invalid"}
+    return {**result, "available": True, "closed_exact": exact, "reason": None}
 
 
 def build_report(
@@ -124,6 +184,7 @@ def build_report(
     required_predictions: int,
     maximum_settlement_delay_sec: int = 300,
     now_epoch: float | None = None,
+    journal_source: str = "database",
 ) -> dict[str, Any]:
     now = time.time() if now_epoch is None else float(now_epoch)
     started_at_ms = 0
@@ -148,9 +209,10 @@ def build_report(
         runtime = {}
         elapsed_sec = 0
         heartbeat_age_sec = 2**31 - 1
-    journal = read_order_journal_telemetry(journal_path)
-    lifecycle = journal.get("lifecycle", {}) if journal.get("available") else {}
-    exact = int(lifecycle.get("closed_exact", 0))
+    lifecycle_evidence = _lifecycle_evidence(
+        runtime, journal_path, journal_source, now
+    )
+    exact = lifecycle_evidence["closed_exact"]
     prediction = _prediction_counts(
         prediction_path,
         now_ms=int(now * 1000),
@@ -179,9 +241,10 @@ def build_report(
         ),
         "heartbeat_fresh": heartbeat_age_sec <= 90,
         "duration_met": elapsed_sec >= required_hours * 3600,
-        "exact_lifecycles_met": exact >= required_lifecycles,
+        "exact_lifecycles_met": exact is not None and exact >= required_lifecycles,
         "prediction_samples_met": (
-            prediction["resolved"] >= required_predictions
+            prediction["available"] is True
+            and prediction["resolved"] >= required_predictions
         ),
         "prediction_gate_approved": prediction_gate_approved,
         "no_prediction_backlog": (
@@ -206,7 +269,7 @@ def build_report(
             "heartbeat_age_sec": heartbeat_age_sec,
         },
         "order_lifecycle": {
-            "closed_exact": exact,
+            **lifecycle_evidence,
             "required": required_lifecycles,
         },
         "prediction": {
@@ -277,6 +340,10 @@ def main(argv: list[str] | None = None) -> int:
         default=Path(os.getenv("AI_RUNTIME_STATUS_FILE", "/run/mybot/ai_status.json")),
     )
     parser.add_argument("--journal", type=Path)
+    parser.add_argument(
+        "--journal-source", choices=("database", "runtime"), default="database",
+        help="use a fresh source-bound supervisor snapshot in a read-only sandbox",
+    )
     parser.add_argument("--prediction", type=Path)
     parser.add_argument("--required-hours", type=int, default=24)
     parser.add_argument("--required-lifecycles", type=int, default=3)
@@ -317,6 +384,7 @@ def main(argv: list[str] | None = None) -> int:
     report = build_report(
         runtime_path=args.runtime,
         journal_path=journal_path,
+        journal_source=args.journal_source,
         prediction_path=prediction_path,
         required_hours=max(1, args.required_hours),
         required_lifecycles=max(1, args.required_lifecycles),

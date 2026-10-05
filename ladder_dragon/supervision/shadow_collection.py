@@ -6,7 +6,10 @@
 from __future__ import annotations
 
 import re
+import sqlite3
 from typing import Callable, MutableMapping, Sequence
+
+from ladder_dragon.supervision.prediction_diagnostics import sqlite_failure_summary
 
 
 def execution_control_scope(
@@ -97,7 +100,11 @@ def collect_read_only_shadow(
         try:
             run_symbol(symbol, args, execution_allowed=False)
         except operation_errors as exc:
+            detail = (
+                sqlite_failure_summary(exc)
+                if isinstance(exc, sqlite3.Error) else type(exc).__name__
+            )
             logger(
                 f"[BLOCKED-SHADOW] {symbol} unavailable="
-                f"{type(exc).__name__}"
+                f"{detail}"
             )

@@ -23,7 +23,8 @@ DIGESTS = {
     "pnl_24h": "bc76a969122dd8b6f89a6a4929a85e11c75fd986f3c0f4a4e025cf48a1fe2228",
     "pnl_reporter": "2c7f28a1d8c791707d66454829059e42898e3d37d701000372052b75ffba874e",
     "regime_pnl_report": "0637b4dab202e07dd07a47537a7590cbec9be839d7344c1dc6c33c2657d49b7a",
-    "production_soak_report": "ad290e48664cf759a665607294a8aa46565fd012d68625de0163685e0667c26e",
+    # Reviewed source-aware evidence fix; behavioral regressions live in test_production_soak_report.
+    "production_soak_report": "3a350ef79176865a34b8b5d0cf52e1ac5f8ae3a864b46f73babd4fbee53534c8",
     "auto_ladder_map": "7105c8f99128b018bbf590569b2e29c9016532e86736937c6c44ab8d878093ae",
 }
 

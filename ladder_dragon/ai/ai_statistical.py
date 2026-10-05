@@ -6,6 +6,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from functools import lru_cache
 import math
 from typing import Iterable, Sequence
 
@@ -108,6 +109,37 @@ class MulticlassLogisticRegime:
         )
 
 
+@lru_cache(maxsize=2)
+def _cached_regime_weights(training):
+    """Retain two exact training prefixes, with immutable weights only.
+
+    Hexadecimal keys preserve float identity, including signed zero. No
+    prediction, calibration outcome, or execution permission is cached.
+    This process-local cache disappears on restart; fit parameters are fixed.
+    """
+    model = MulticlassLogisticRegime()
+    model.fit([(tuple(float.fromhex(value) for value in vector), label)
+               for vector, label in training])
+    return tuple(tuple(row) for row in model.weights), model.samples
+
+
+def _fit_regime(model, training):
+    """Reuse bounded finite inputs only; preserve the original fallback fit."""
+    if len(training) > 2000 or any(len(vector) != 10 for vector, _ in training):
+        model.fit(training)
+        return
+    normalized = [(tuple(float(value) for value in vector), label)
+                  for vector, label in training if label in CLASSES]
+    if any(not math.isfinite(value) for vector, _ in normalized for value in vector):
+        model.fit(training)
+        return
+    key = tuple((tuple(value.hex() for value in vector), label)
+                for vector, label in normalized)
+    weights, model.samples = _cached_regime_weights(key)
+    # Never expose the shared cached object to a mutable model instance.
+    model.weights = [list(row) for row in weights]
+
+
 def calibrated_logistic_prediction(
     examples: Sequence[tuple[Sequence[float], str]],
     vector: Sequence[float],
@@ -122,7 +154,7 @@ def calibrated_logistic_prediction(
     training = examples[:split]
     calibration = examples[split:]
     model = MulticlassLogisticRegime()
-    model.fit(training)
+    _fit_regime(model, training)
     raw = model.predict(vector, min_samples=min_samples)
     if not raw.available or len(calibration) < min_calibration_samples:
         return raw

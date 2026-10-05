@@ -902,6 +902,8 @@ def test_soak_audit_is_periodic_signed_and_transition_notified():
     assert "openssl pkeyutl -sign -rawin" in wrapper
     assert "report generation must use the unprivileged service user" in wrapper
     assert "--notify-on-change" in wrapper
+    assert "--journal-source runtime" in wrapper
+    assert "ReadOnlyPaths=-/run/mybot /home/bot/apps/binance_bot" in service
     assert "OnUnitActiveSec=15m" in timer
     assert "User=bot" in service
     assert "ExecStartPost=+/usr/local/bin/ladder-dragon-soak-audit sign" in service

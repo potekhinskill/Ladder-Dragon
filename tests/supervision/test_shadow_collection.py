@@ -1,11 +1,41 @@
 import ast
 import inspect
 import textwrap
+import sqlite3
 from types import SimpleNamespace
 
 import pytest
 
 from ladder_dragon.supervision import runtime as supervisor
+from ladder_dragon.supervision.shadow_collection import collect_read_only_shadow
+
+
+@pytest.mark.parametrize("code", [5, 14, None])
+def test_shadow_sqlite_failure_is_safe_and_preserves_cadence(code):
+    error = sqlite3.OperationalError("private SQL /path account-secret")
+    if code is not None:
+        error.sqlite_errorcode = code
+    error.sqlite_errorname = "private forged provider text"
+    error.prediction_stage = "strategy_record"
+    calls, logs, attempts = [], [], {}
+
+    def run(symbol, args, *, execution_allowed):
+        calls.append((symbol, execution_allowed))
+        raise error
+
+    for now in (100, 101):
+        collect_read_only_shadow(
+            ["SOLUSDT"], object(), enabled=True, now_monotonic=now,
+            interval_sec=60, last_attempts=attempts, run_symbol=run,
+            logger=logs.append, operation_errors=(sqlite3.Error,),
+        )
+    assert calls == [("SOLUSDT", False)]
+    assert len(logs) == 1
+    assert logs[0].startswith("[BLOCKED-SHADOW] SOLUSDT unavailable=OperationalError")
+    assert "stage=strategy_record" in logs[0]
+    assert f"sqlite_name={ {5: 'SQLITE_BUSY', 14: 'SQLITE_CANTOPEN', None: 'unknown'}[code]}" in logs[0]
+    assert "private" not in logs[0]
+    assert "account-secret" not in logs[0]
 
 
 def test_confirmed_regime_is_routed_to_shadow_evidence_collector():

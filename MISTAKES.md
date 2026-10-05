@@ -1,5 +1,26 @@
 # Engineering mistakes and root causes
 
+### 2026-09-30 — Left an adjacent report reader outside failure coverage
+
+- **Impact:** the local report candidate could still abort instead of replacing stale output when prediction storage failed.
+- **Root cause:** journal availability regressions did not exercise failure of the adjacent prediction reader through the complete command.
+- **Correction:** return explicit unavailable evidence, reject partial counters, and verify connection cleanup plus replacement of stale successful reports.
+- **Prevention:** inject failures into every storage dependency, including after partial reads; verify the final artifact and exit code.
+
+### 2026-09-29 — Missed the second syntax contract before full verification
+
+- **Impact:** the complete suite failed one supervisor fingerprint test and required another full verification run.
+- **Root cause:** the focused review updated the report-command fingerprint but omitted the runtime-entry fingerprint for the changed publisher.
+- **Correction:** review both intentional syntax changes, update both baselines, and retain behavioral evidence regressions.
+- **Prevention:** locate whole-module contracts as well as function-level tests before a comprehensive candidate run.
+
+### 2026-09-29 — Attributed a failure through an ambiguous substring
+
+- **Impact:** an operational summary incorrectly associated a BLOCKED-SHADOW SQLite failure with the AI advisor.
+- **Root cause:** a broad AI substring match also matched the word unavailable instead of requiring an exact event prefix.
+- **Correction:** classify the original event by its exact prefix and preserve uncertainty about the historical SQLite cause.
+- **Prevention:** aggregate logs by explicit event tags; retain safe native codes without exposing exception text or inferring missing metadata.
+
 ### 2026-09-26 — Missed secret-scanner interpretation of syntax digests
 
 - **Impact:** GitHub blocked the release audit after publication of the signed 2.20.347 commit and tag; deployment did not occur.

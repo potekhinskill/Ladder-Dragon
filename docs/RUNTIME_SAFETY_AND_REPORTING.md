@@ -283,6 +283,22 @@ The settlement price uses only the exact minute containing the requested horizon
 The soak report checks expirations from its current audited runtime window.
 It still reports lifetime expiration totals as historical evidence.
 
+The periodic audit selects `--journal-source runtime` because its read-only filesystem can prevent SQLite from creating WAL sidecars.
+The supervisor publishes the canonical journal reader result with its source path and observation time.
+The audit requires matching source identity, an observation within 90 seconds, and timestamps ordered within the current runtime.
+Missing, stale, future, malformed, or unavailable samples block lifecycle approval; an unavailable count is `null`, not zero.
+The command defaults to direct database reads for independent checks; neither source silently falls back to the other.
+These checks preserve the existing lifecycle threshold and do not grant trading authority.
+
+Prediction storage failures produce a fresh blocked report with `available=false`, a fixed reason, and `failure_stage=prediction_read`.
+Failed reads discard partial counters; unknown values are `null`, not zero.
+Incomplete legacy schemas can retain known sample counts, but cannot pass prediction gates.
+The reader closes each opened connection and does not retry or expose exception text.
+The command returns exit code 2 for blocked evidence; the existing wrapper can sign the new blocked report.
+
+BLOCKED-SHADOW failures include allowlisted SQLite result codes and known prediction stages when available.
+Missing metadata stays unknown; old exception names alone do not prove contention or identify the failed database.
+
 AI provider failures select the deterministic strategy.
 Consecutive failures use exponential negative-cache backoff up to the normal cache time.
 One valid response resets this backoff.

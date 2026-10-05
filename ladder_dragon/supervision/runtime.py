@@ -138,13 +138,13 @@ from ladder_dragon.execution.trade_accounting import (
 )
 from ladder_dragon.execution.order_recovery import (
     OrderJournal,
-    read_order_journal_telemetry,
     read_order_observation,
 )
 from ladder_dragon.execution.cancel_replace import (
     CancelReplaceDependencies,
     atomic_cancel_replace_buy,
 )
+from ladder_dragon.supervision.journal_status import read_journal_status
 from ladder_dragon.execution.executor_recovery import classify_oco_legs
 from ladder_dragon.execution.latency_trace import LatencyTrace
 from ladder_dragon.execution.auth_resilience import (
@@ -526,10 +526,7 @@ def _record_preflight_startup_phase(phase: str, timing: Dict[str, Any]) -> None:
 
 def _runtime_order_journal_snapshot() -> dict[str, Any]:
     """Publish journal counters without exposing SQLite to the dashboard."""
-    path = os.getenv("BOT_ORDER_JOURNAL", "")
-    if not path:
-        return {"available": False, "reason": "order journal path missing"}
-    return read_order_journal_telemetry(path)
+    return read_journal_status(os.getenv("BOT_ORDER_JOURNAL", ""))
 
 
 def _auth_resilience_path() -> Path:

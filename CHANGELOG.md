@@ -3,6 +3,32 @@
 All notable changes are documented here. Releases use Semantic Versioning; every
 section is dated and there is intentionally no `Unreleased` section.
 
+## [2.20.350] — 2026-09-29
+
+### Changed
+- On 2026-10-05, reuse immutable statistical model weights for two exact, bounded training prefixes in process memory.
+- Preserve fresh source reads, chronological calibration, current-context predictions, and all execution gates; discard the cache on restart.
+- Combine five prediction summary counter queries into two fresh queries without schema or retention changes.
+
+### Fixed
+- On 2026-09-30, convert prediction database failures into fresh blocked reports with safe reasons and unknown counters; close every opened connection.
+- Report unavailable lifecycle evidence as unknown, not zero; preserve fail-closed approval.
+- Use explicitly selected, source-bound supervisor journal telemetry in the isolated periodic audit; require a separate sample timestamp within 90 seconds.
+- Keep direct database reads as the default and preserve the service filesystem restrictions; never use immutable access to live SQLite files.
+- Include sanitized SQLite codes and known operation stages in BLOCKED-SHADOW failures without retries or exception text.
+
+### Verified
+- On 2026-10-05, the complete suite passes: 5299 tests, two skips; compilation, five safety audits, secret scanning, and Semgrep pass.
+- Shadow CPU regressions and adjacent tests: 38 passed, including exact-result parity, source failure, changed history, eviction, restart, and fresh summaries.
+- A local synthetic 2000-row prediction takes 1.016 seconds cold and 0.034 seconds warm, with identical results; Pi improvement remains unmeasured.
+- The local profile remains BLOCKED by release continuity and dependent architecture baselines; these changes are not deployed.
+- On 2026-09-30, the complete suite passes: 5289 tests, two skips; compilation, five safety audits, secret scanning, and Semgrep pass.
+- Prediction failure regressions: 37 report tests and 174 combined report, architecture, and deployment checks passed.
+- The local profile remains BLOCKED by uncommitted release lineage and its dependent architecture baselines; no complete profile PASS is claimed.
+- Focused regressions pass: 241 tests, then 128 report and architecture tests after correction of the supervisor syntax baseline.
+- A synthetic WAL journal confirms agreement between direct reads and published telemetry for three exact closures.
+- Raspberry Pi services, databases, HALT, and deployment remain unchanged during local implementation.
+
 ## [2.20.349] — 2026-09-28
 
 ### Added

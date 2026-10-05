@@ -34,10 +34,12 @@ For private-source export, preserve [the separation between encrypted claims and
 For private recovery, review [descriptor and child-process lifetime](../DECISIONS.md#2026-09-28--bound-private-recovery-across-child-processes) before accepting a parent timeout.
 For transport diagnostics, preserve [safe fields and stable alert identity](../DECISIONS.md#2026-09-10--separate-transport-diagnostics-from-provider-exception-text).
 For failure diagnosis, preserve [safe stages and historical uncertainty](../DECISIONS.md#2026-09-23--preserve-safe-failure-stages-without-inferring-historical-causes).
+For isolated reports, distinguish [journal availability from counts](../DECISIONS.md#2026-09-29--keep-journal-availability-separate-from-lifecycle-counts) and verify source-specific freshness.
 For updater bootstrap changes, preserve [shell failure propagation](../DECISIONS.md#2026-09-24--keep-updater-bootstrap-outside-conditional-invocation).
 For deployment revisions, preserve [the separation from cleanup authority](../DECISIONS.md#2026-09-10--separate-release-revision-from-cleanup-authority).
 For backup scheduling, preserve [exclusive writer ownership](../DECISIONS.md#2026-09-16--serialize-backup-writers-before-status-ownership).
 For prediction storage, preserve [snapshot and writer separation](../DECISIONS.md#2026-09-23--separate-prediction-snapshots-from-writer-commits).
+For statistical caches, preserve [exact training identity and fresh authority](../DECISIONS.md#2026-10-05--reuse-exact-statistical-training-prefixes-without-caching-authority).
 For offline replay, preserve [input-bound resume](../DECISIONS.md#2026-09-11--resume-only-complete-input-bound-replay-paths) and verify bounded progress on the target host.
 For replay extraction, bind checkpoint identity to [concrete implementation owners](../DECISIONS.md#2026-09-25--bind-checkpoint-identity-to-relocated-implementation-owners) and review compatibility before deployment.
 For replay optimization, preserve [exact indexed event semantics](../DECISIONS.md#2026-09-11--index-unchanged-book-levels-without-changing-evidence) and compare against the previous matcher.
