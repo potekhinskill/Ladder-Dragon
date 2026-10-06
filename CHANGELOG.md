@@ -3,6 +3,18 @@
 All notable changes are documented here. Releases use Semantic Versioning; every
 section is dated and there is intentionally no `Unreleased` section.
 
+## [2.20.351] — 2026-10-06
+
+### Security
+- Pin urllib3 2.8.0 in runtime, CI, audit, and Semgrep dependencies, with SHA-256 hashes from PyPI.
+- Resolve the three urllib3 advisories that blocked deployment of 2.20.350; preserve published release history and all trading controls.
+- Keep every other dependency version unchanged.
+
+### Verified
+- Dependency audit reports no known vulnerabilities; pip check reports no broken requirements.
+- Transport, DNS, bounded-response, dependency-contract, and version checks pass: 110 tests.
+- The immutable release manifest records the subsequent complete release verification; production installation remains gated on GitHub Actions.
+
 ## [2.20.350] — 2026-09-29
 
 ### Changed
